@@ -355,3 +355,90 @@ src/tools/
    - 脚本工具支持（用户上传/编写）
    - 工具执行日志和监控
    - 工具市场（共享工具模板）
+
+---
+
+## 中期实现更新：Tool Gateway MCP Server
+
+本次中期改造把 `builtin` 和 `script` 工具统一聚合到一个稳定的 MCP Server：`ai-ide-tool-gateway`。
+
+### 新的数据流
+
+```text
+Tool Registry / DB
+        ↓
+resolveToolsForSession(agentId, projectId)
+        ↓
+resolveToolsAsMcpServers()
+        ↓
+┌──────────────────────────────┐
+│ type=mcp      继续外部直通     │
+│ builtin/script 走 Tool Gateway │
+└──────────────────────────────┘
+        ↓
+ACP newSession({ mcpServers })
+```
+
+### 稳定入口
+
+- 真实实现：`src/tools/tool-gateway.ts`
+- 兼容旧入口：`src/tools/mcp-server.ts`
+- build 后优先走：`dist/tools/tool-gateway.js`
+- 开发态走：`node --import tsx src/tools/tool-gateway.ts`
+
+Resolver 生成的 Gateway MCP 配置类似：
+
+```ts
+{
+  name: 'ai-ide-tool-gateway',
+  command: process.execPath,
+  args: ['dist/tools/tool-gateway.js'],
+  env: [
+    { name: 'TOOL_IDS', value: 'tool-a,tool-b' },
+    { name: 'PROJECT_ID', value: projectId },
+    { name: 'AGENT_ID', value: agentId },
+    { name: 'DATA_DIR', value: dataDir },
+  ],
+}
+```
+
+### Script Tool 约定
+
+脚本工具目前支持 `runtime: 'node'`，脚本可导出默认函数或 `execute` 函数：
+
+```ts
+export default async function(input, context) {
+  return `hello ${input.name}`
+}
+```
+
+```ts
+export async function execute(input, context) {
+  return { content: [{ type: 'text', text: 'ok' }] }
+}
+```
+
+返回值归一化规则：
+
+- 已是 `{ content: [{ type: 'text', text }] }`：原样返回。
+- 字符串：包装为 MCP text content。
+- 其他 JSON 值：格式化为 JSON text content。
+- 抛错、超时、文件不存在：返回 `isError: true`。
+
+### 权限与执行保护
+
+Gateway 在执行前统一做基础权限检查：
+
+- `requiresApproval: true`：默认阻止执行，返回明确错误。
+- `allowedPaths`：`scriptPath` 必须位于允许目录内。
+- `maxExecutionTime` / `config.timeout`：script 执行超时保护。
+
+外部 MCP 目前仍保持直通，不通过 Gateway 代理；后续如果要统一审计外部 MCP，可在下一阶段扩展为 MCP proxy。
+
+### 覆盖测试
+
+- `tests/unit/tool-gateway-resolver.test.ts`
+- `tests/unit/tool-permission-guard.test.ts`
+- `tests/unit/script-runner.test.ts`
+- `tests/integration/tool-gateway-script.test.ts`
+- `tests/integration/tool-gateway-mcp.test.ts`

@@ -1,8 +1,11 @@
+import { existsSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { toolStore, toolBindingStore } from '../store/tools.js'
 import { createChildLogger } from '../core/logger.js'
 import type { ToolConfig, ResolvedTool, ToolDefinition, ToolBinding, ToolPermissions } from './types.js'
 
 const log = createChildLogger('tool-resolver')
+const TOOL_GATEWAY_NAME = 'ai-ide-tool-gateway'
 
 function rowToDefinition(row: ReturnType<typeof toolStore.get>): ToolDefinition | null {
   if (!row) return null
@@ -61,7 +64,7 @@ export function resolveToolsForSession(agentId?: string, projectId?: string): Re
   }
 
   const resolved = Array.from(toolMap.values())
-  log.debug({ agentId, projectId, count: resolved.length }, '解析可用工具集')
+  log.debug({ agentId, projectId, count: resolved.length }, 'resolved available tools')
   return resolved
 }
 
@@ -82,7 +85,7 @@ export function resolveToolsAsMcpServers(agentId?: string, projectId?: string): 
     args: string[]
     env: Array<{ name: string; value: string }>
   }> = []
-  const builtinToolNames: string[] = []
+  const gatewayToolIds: string[] = []
 
   for (const tool of tools) {
     if (tool.definition.type === 'mcp') {
@@ -94,23 +97,30 @@ export function resolveToolsAsMcpServers(agentId?: string, projectId?: string): 
         env: envObjectToArray(config.env),
       })
     } else {
-      builtinToolNames.push(tool.definition.name)
+      gatewayToolIds.push(tool.definition.id)
     }
   }
 
-  if (builtinToolNames.length > 0) {
+  if (gatewayToolIds.length > 0) {
     mcpServers.push({
-      name: 'ai-ide-studio-tools',
-      command: process.platform === 'win32' ? 'npx.cmd' : 'npx',
-      args: ['tsx', 'src/tools/mcp-server.ts'],
+      name: TOOL_GATEWAY_NAME,
+      command: process.execPath,
+      args: resolveToolGatewayArgs(),
       env: [
-        { name: 'TOOL_NAMES', value: builtinToolNames.join(',') },
+        { name: 'TOOL_IDS', value: gatewayToolIds.join(',') },
         { name: 'PROJECT_ID', value: projectId ?? '' },
         { name: 'AGENT_ID', value: agentId ?? '' },
+        { name: 'DATA_DIR', value: process.env.DATA_DIR ?? './data' },
       ],
     })
   }
 
-  log.info({ agentId, projectId, mcpCount: mcpServers.length, builtinCount: builtinToolNames.length }, '生成 MCP 服务器配置')
+  log.info({ agentId, projectId, mcpCount: mcpServers.length, gatewayCount: gatewayToolIds.length }, 'generated MCP server config')
   return mcpServers
+}
+
+function resolveToolGatewayArgs(): string[] {
+  const distEntry = resolve(process.cwd(), 'dist/tools/tool-gateway.js')
+  if (existsSync(distEntry)) return [distEntry]
+  return ['--import', 'tsx', resolve(process.cwd(), 'src/tools/tool-gateway.ts')]
 }
