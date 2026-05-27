@@ -39,18 +39,31 @@ describe('buildCompletedAgentMessage', () => {
 
   test('没有 message.done 事件也能重建中断的消息', () => {
     const msg = buildCompletedAgentMessage('sess-1', [
-      ev(1, 'message.chunk', { messageId: 'msg-agent-3', role: 'agent', contentDelta: '?????' }, 'msg-agent-3'),
+      ev(1, 'message.chunk', { messageId: 'msg-agent-3', role: 'agent', contentDelta: '中断回复' }, 'msg-agent-3'),
     ])
     expect(msg).toBeTruthy()
-    expect(msg?.content).toBe('?????')
+    expect(msg?.content).toBe('中断回复')
   })
 
   test('done 事件和 chunk 使用相同 messageId 也能正常重建', () => {
     const msg = buildCompletedAgentMessage('sess-1', [
-      ev(1, 'message.chunk', { messageId: 'msg-agent-2', role: 'agent', contentDelta: '????' }, 'msg-agent-2'),
+      ev(1, 'message.chunk', { messageId: 'msg-agent-2', role: 'agent', contentDelta: '回复' }, 'msg-agent-2'),
       ev(2, 'message.done', { messageId: 'msg-agent-2' }, 'msg-agent-2'),
     ])
     expect(msg).toBeTruthy()
-    expect(msg?.content).toBe('????')
+    expect(msg?.content).toBe('回复')
+  })
+
+  test('ACP 重复使用同一个 messageId 时只重建最新一轮回复', () => {
+    const msg = buildCompletedAgentMessage('sess-1', [
+      ev(1, 'message.chunk', { messageId: 'msg-reused', role: 'agent', contentDelta: '旧回复' }, 'msg-reused'),
+      ev(2, 'message.done', { messageId: 'done-sess-1' }, 'done-sess-1'),
+      ev(3, 'message.chunk', { messageId: 'msg-reused', role: 'agent', contentDelta: '新回复' }, 'msg-reused'),
+      ev(4, 'message.done', { messageId: 'done-sess-1' }, 'done-sess-1'),
+    ])
+
+    expect(msg).toBeTruthy()
+    expect(msg?.id).toBe('msg-reused')
+    expect(msg?.content).toBe('新回复')
   })
 })

@@ -22,6 +22,14 @@ import { useFileSystemStore } from '../stores/filesystem.store'
 import { FileTree } from '../components/file-viewer/FileTree'
 import { FilePreview } from '../components/file-viewer/FilePreview'
 import { MarkdownRenderer } from '../components/MarkdownRenderer'
+import { permissionOptionLabel, isAllowPermissionOption, isRejectAlwaysOption } from '../utils/permission'
+import {
+  getElicitationOptions,
+  getInitialElicitationValues,
+  validateElicitationValues,
+  type ElicitationSchema,
+  type ElicitationValue,
+} from '../utils/elicitation-form'
 
 const TYPE_COLORS: Record<string, string> = { dev: '#2563eb', test: '#059669', ops: '#ea580c', security: '#dc2626', architect: '#7c3aed', pm: '#7c3aed' }
 function agentColor(a: AgentData): string { return TYPE_COLORS[a.type] ?? '#6b7280' }
@@ -213,12 +221,26 @@ export default function Workspace() {
     setShowConfigMenu(name.startsWith('config:') ? (showConfigMenu === name.slice(7) ? null : name.slice(7)) : null)
   }
 
+  const blockingInteraction = pendingPermissions.length > 0 || pendingElicitations.length > 0
+  const pendingInteractionId = pendingPermissions[0]?.id || pendingElicitations[0]?.id || ''
   const isStreaming = !!(streamingMessage && !streamingMessage.done)
   const streamingBubble = isStreaming ? { id: streamingMessage!.id, role: 'agent' as const, content: streamingMessage!.content, thinking: streamingMessage!.thinking, toolCalls: streamingMessage!.toolCalls, timestamp: new Date().toISOString(), streaming: true as const } : null
+  const interactionPanel = blockingInteraction ? (
+    <InteractionPanel
+      permission={pendingPermissions[0]}
+      elicitation={pendingPermissions.length === 0 ? pendingElicitations[0] : undefined}
+      onRespondPermission={respondPermission}
+      onRespondElicitation={respondElicitation}
+    />
+  ) : null
 
   const currentModeName = capabilities.modes.find(m => m.modeId === capabilities.currentModeId)?.name || capabilities.currentModeId
   const currentModelName = capabilities.models.find(m => m.modelId === capabilities.currentModelId)?.name || capabilities.currentModelId
   const secondaryConfigs = capabilities.configOptions.filter(o => o.category !== 'model' && o.category !== 'mode' && o.id !== 'model' && o.id !== 'mode')
+
+  useEffect(() => {
+    if (blockingInteraction) requestAnimationFrame(() => scrollToBottom('smooth'))
+  }, [blockingInteraction, pendingInteractionId, scrollToBottom])
 
   return (
     <div style={{ display: 'flex', height: '100%', background: 'var(--bg-1)' }}>
@@ -311,7 +333,9 @@ export default function Workspace() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }} />
         </header>
 
-        {plan.length > 0 && <PlanBar plan={plan} />}
+        {(plan.length > 0 || capabilities.currentModeId === 'plan') && (
+          <PlanBar plan={plan} currentModeId={capabilities.currentModeId} modes={capabilities.modes} onSetMode={setMode} />
+        )}
 
         {/* Messages */}
         <div ref={chatScrollRef} style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
@@ -323,11 +347,15 @@ export default function Workspace() {
             </div>
           ) : (
             <div style={{ padding: '20px 20px 100px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-              {messages.length === 0 && !streamingBubble && <div style={{ textAlign: 'center', color: 'var(--text-3)', padding: '48px 0' }}>暂无消息，开始对话吧</div>}
-              {pendingPermissions.map(req => <PermissionCard key={req.id} request={req} onRespond={respondPermission} />)}
-              {pendingElicitations.map(req => <ElicitationCard key={req.id} request={req} onRespond={respondElicitation} />)}
+              {messages.length === 0 && !streamingBubble && !blockingInteraction && <div style={{ textAlign: 'center', color: 'var(--text-3)', padding: '48px 0' }}>暂无消息，开始对话吧</div>}
               {messages.map(msg => <ChatBubble key={msg.id} message={msg} agent={selectedAgent} isStreaming={false} />)}
-              {streamingBubble && <ChatBubble key="streaming" message={streamingBubble} agent={selectedAgent} isStreaming />}
+              {streamingBubble && <ChatBubble key="streaming" message={streamingBubble} agent={selectedAgent} isStreaming footer={interactionPanel} />}
+              {blockingInteraction && !streamingBubble && (
+                <BlockingInteractionBar
+                  agent={selectedAgent}
+                  panel={interactionPanel}
+                />
+              )}
               <div ref={chatEndRef} />
             </div>
           )}
@@ -358,8 +386,8 @@ export default function Workspace() {
               value={inputValue}
               onChange={e => { setInputValue(e.target.value); autoResize() }}
               onKeyDown={handleKeyDown}
-              placeholder={currentSessionId ? '输入消息...' : '先选择一个 Session'}
-              disabled={!currentSessionId || !connected}
+              placeholder={blockingInteraction ? '等待你确认后继续...' : (currentSessionId ? '输入消息...' : '先选择一个 Session')}
+              disabled={!currentSessionId || !connected || blockingInteraction}
               autoFocus
               rows={2}
               style={{
@@ -404,6 +432,8 @@ export default function Workspace() {
                 </button>
               )}
 
+              {blockingInteraction && <span style={{ fontSize: 11, color: 'var(--red)', fontWeight: 600, marginRight: 6 }}>等待确认</span>}
+
               {isStreaming ? (
                 <button type="button" onClick={cancelTurn} title="停止生成"
                   style={{
@@ -414,10 +444,10 @@ export default function Workspace() {
                   <Square size={14} fill="var(--red)" />
                 </button>
               ) : (
-                <button type="button" onClick={handleSend} disabled={!currentSessionId || !connected || !inputValue.trim()}
+                <button type="button" onClick={handleSend} disabled={!currentSessionId || !connected || blockingInteraction || !inputValue.trim()}
                   style={{
-                    width: 32, height: 32, borderRadius: '50%', border: 'none', cursor: currentSessionId && inputValue.trim() ? 'pointer' : 'default',
-                    background: currentSessionId && inputValue.trim() ? 'var(--text-1)' : 'var(--bg-3)', color: 'white',
+                    width: 32, height: 32, borderRadius: '50%', border: 'none', cursor: currentSessionId && !blockingInteraction && inputValue.trim() ? 'pointer' : 'default',
+                    background: currentSessionId && !blockingInteraction && inputValue.trim() ? 'var(--text-1)' : 'var(--bg-3)', color: 'white',
                     display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'background 0.15s',
                   }}>
                   <ArrowUp size={16} />
@@ -510,17 +540,30 @@ function MiniContextCircle({ used, total }: { used: number; total: number }) {
 }
 
 /* ─── Plan Bar ─── */
-function PlanBar({ plan }: { plan: PlanEntry[] }) {
+function PlanBar({ plan, currentModeId, modes, onSetMode }: { plan: PlanEntry[]; currentModeId: string | null; modes: { modeId: string; name: string; description?: string }[]; onSetMode: (modeId: string) => Promise<void> }) {
   const [open, setOpen] = useState(true)
   const done = plan.filter(p => p.status === 'completed').length
+  const isPlanMode = currentModeId === 'plan' || modes.find(m => m.modeId === currentModeId)?.name === 'Plan Mode'
+  const defaultMode = modes.find(m => m.modeId === 'default' || m.name === 'Default')?.modeId || modes.find(m => m.modeId !== currentModeId)?.modeId
   return (
     <div style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-0)' }}>
       <button type="button" onClick={() => setOpen(!open)} style={{ width: '100%', padding: '8px 20px', border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text-1)', textAlign: 'left' }}>
         {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         <ListTodo size={13} color="var(--blue)" /> 计划 ({done}/{plan.length})
+        {isPlanMode && <span style={{ marginLeft: 6, padding: '2px 7px', borderRadius: 999, background: 'var(--blue-light)', color: 'var(--blue)', fontSize: 11, fontWeight: 600 }}>PLAN 模式</span>}
+        {isPlanMode && defaultMode && (
+          <span
+            role="button"
+            tabIndex={0}
+            onClick={(e) => { e.stopPropagation(); void onSetMode(defaultMode) }}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); void onSetMode(defaultMode) } }}
+            style={{ marginLeft: 'auto', padding: '4px 10px', borderRadius: 7, background: 'var(--text-1)', color: 'white', fontSize: 11, fontWeight: 600 }}
+          >切换到执行模式</span>
+        )}
       </button>
       {open && (
         <div style={{ padding: '0 20px 8px', display: 'flex', flexDirection: 'column', gap: 3 }}>
+          {plan.length === 0 && <div style={{ fontSize: 12, color: 'var(--text-3)' }}>计划模式已开启，Agent 会先给出计划；如需执行可切换到执行模式。</div>}
           {plan.map((p, i) => (
             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: p.status === 'completed' ? 'var(--green)' : p.status === 'in_progress' ? 'var(--blue)' : 'var(--text-3)' }}>
               {p.status === 'completed' ? <CheckCircle2 size={12} /> : p.status === 'in_progress' ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Circle size={12} />}
@@ -658,67 +701,161 @@ function ToolCallPanel({ tc }: { tc: ToolCallInfo; isStreaming: boolean }) {
   )
 }
 
-function PermissionCard({ request, onRespond }: { request: PermissionRequestInfo; onRespond: (requestId: string, optionId?: string, cancelled?: boolean) => Promise<void> }) {
+
+function BlockingInteractionBar({ agent, panel }: {
+  agent: AgentData | undefined
+  panel: React.ReactNode
+}) {
   return (
-    <div style={{ alignSelf: 'center', width: 'min(620px, 90%)', border: '1px solid var(--border)', borderRadius: 10, background: 'var(--bg-0)', boxShadow: 'var(--shadow-sm)', padding: 12 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, fontSize: 13, fontWeight: 600 }}><Wrench size={14} color="var(--blue)" /> 需要确认工具调用</div>
-      <ToolCallPanel tc={request.toolCall} isStreaming={false} />
+    <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+      <div style={{ width: 30, height: 30, borderRadius: '50%', background: agent ? agentColor(agent) : 'var(--bg-3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+        <Bot size={14} color="white" />
+      </div>
+      <div style={{ width: 'min(760px, 75%)', minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+          <span style={{ fontSize: 12, fontWeight: 600 }}>{agent?.name || 'Agent'}</span>
+          <span style={{ fontSize: 10, color: 'var(--red)', fontWeight: 700 }}>等待确认</span>
+        </div>
+        {panel}
+      </div>
+    </div>
+  )
+}
+
+function InteractionPanel({ permission, elicitation, onRespondPermission, onRespondElicitation }: {
+  permission?: PermissionRequestInfo
+  elicitation?: ElicitationRequestInfo
+  onRespondPermission: (requestId: string, optionId?: string, cancelled?: boolean) => Promise<void>
+  onRespondElicitation: (requestId: string, action: 'accept' | 'decline' | 'cancel', content?: Record<string, string | number | boolean | string[]>) => Promise<void>
+}) {
+  return (<>
+    {permission && <PermissionCard request={permission} onRespond={onRespondPermission} />}
+    {!permission && elicitation && <ElicitationCard request={elicitation} onRespond={onRespondElicitation} />}
+  </>)
+}
+
+function PermissionCard({ request, onRespond }: { request: PermissionRequestInfo; onRespond: (requestId: string, optionId?: string, cancelled?: boolean) => Promise<void> }) {
+  const [submitting, setSubmitting] = useState(false)
+  const respond = async (optionId?: string, cancelled?: boolean) => {
+    if (submitting) return
+    setSubmitting(true)
+    try { await onRespond(request.id, optionId, cancelled) } finally { setSubmitting(false) }
+  }
+
+  return (
+    <div style={{ border: '1px solid rgba(37,99,235,0.25)', borderRadius: '2px 12px 12px 12px', background: 'var(--bg-0)', boxShadow: 'var(--shadow-sm)', padding: 14, maxWidth: '100%', overflow: 'hidden' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 10 }}>
+        <div style={{ width: 30, height: 30, borderRadius: 8, background: 'var(--blue-light)', color: 'var(--blue)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Wrench size={16} /></div>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-1)' }}>需要确认工具调用</div>
+          <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 3 }}>Agent 正在等待你的权限决定，确认前本轮会暂停。</div>
+        </div>
+        <span style={{ padding: '3px 8px', borderRadius: 999, background: '#fef2f2', color: 'var(--red)', fontSize: 11, fontWeight: 700 }}>阻塞中</span>
+      </div>
+      <div style={{ maxHeight: 220, overflow: 'auto', marginBottom: 10 }}><ToolCallPanel tc={request.toolCall} isStreaming={false} /></div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-        {request.options.map(opt => <button key={opt.optionId} type="button" onClick={() => onRespond(request.id, opt.optionId)} style={{ padding: '7px 12px', borderRadius: 7, border: '1px solid var(--border)', background: opt.kind.startsWith('allow') ? 'var(--blue)' : 'var(--bg-1)', color: opt.kind.startsWith('allow') ? 'white' : 'var(--text-2)', fontSize: 12, cursor: 'pointer' }}>{opt.name}</button>)}
-        <button type="button" onClick={() => onRespond(request.id, undefined, true)} style={{ padding: '7px 12px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--bg-1)', color: 'var(--text-3)', fontSize: 12, cursor: 'pointer' }}>取消</button>
+        {request.options.map(opt => {
+          const allow = isAllowPermissionOption(opt)
+          const rejectAlways = isRejectAlwaysOption(opt)
+          return <button key={opt.optionId} type="button" disabled={submitting} title={opt.name} onClick={() => respond(opt.optionId)} style={{ padding: '8px 13px', borderRadius: 8, border: allow ? 'none' : '1px solid var(--border)', background: allow ? 'var(--blue)' : (rejectAlways ? '#fef2f2' : 'var(--bg-1)'), color: allow ? 'white' : (rejectAlways ? 'var(--red)' : 'var(--text-2)'), fontSize: 12, fontWeight: 600, cursor: submitting ? 'default' : 'pointer' }}>{permissionOptionLabel(opt)}</button>
+        })}
+        <button type="button" disabled={submitting} onClick={() => respond(undefined, true)} style={{ padding: '8px 13px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-1)', color: 'var(--text-3)', fontSize: 12, fontWeight: 600, cursor: submitting ? 'default' : 'pointer' }}>取消本次</button>
       </div>
     </div>
   )
 }
 
 function ElicitationCard({ request, onRespond }: { request: ElicitationRequestInfo; onRespond: (requestId: string, action: 'accept' | 'decline' | 'cancel', content?: Record<string, string | number | boolean | string[]>) => Promise<void> }) {
-  const schema = request.requestedSchema as { properties?: Record<string, { type?: string; title?: string; description?: string; default?: unknown; enum?: string[] }>; required?: string[]; url?: string } | undefined
+  const schema = request.requestedSchema as ElicitationSchema | undefined
   const props = schema?.properties || {}
-  const [values, setValues] = useState<Record<string, string | number | boolean | string[]>>({})
-  const submit = () => onRespond(request.id, 'accept', values)
+  const [values, setValues] = useState<Record<string, ElicitationValue>>(() => getInitialElicitationValues(schema))
+  const [errors, setErrors] = useState<Record<string, string>>({})
+  const [submitting, setSubmitting] = useState(false)
+
+  useEffect(() => {
+    setValues(getInitialElicitationValues(schema))
+    setErrors({})
+  }, [request.id, schema])
+
+  const submit = async () => {
+    const validation = validateElicitationValues(schema, values)
+    setErrors(validation.errors)
+    if (!validation.ok || submitting) return
+    setSubmitting(true)
+    try { await onRespond(request.id, 'accept', values) } finally { setSubmitting(false) }
+  }
+  const respond = async (action: 'decline' | 'cancel') => {
+    if (submitting) return
+    setSubmitting(true)
+    try { await onRespond(request.id, action) } finally { setSubmitting(false) }
+  }
 
   if (schema?.url) {
     return (
-      <div style={{ alignSelf: 'center', width: 'min(620px, 90%)', border: '1px solid var(--border)', borderRadius: 10, background: 'var(--bg-0)', boxShadow: 'var(--shadow-sm)', padding: 12 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Agent 请求你打开页面</div>
-        <a href={schema.url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--blue)' }}>{schema.url}</a>
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 10 }}>
-          <button type="button" onClick={() => onRespond(request.id, 'accept', {})} style={{ padding: '7px 12px', borderRadius: 7, border: 'none', background: 'var(--blue)', color: 'white', fontSize: 12, cursor: 'pointer' }}>已完成</button>
-          <button type="button" onClick={() => onRespond(request.id, 'cancel')} style={{ padding: '7px 12px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--bg-1)', color: 'var(--text-3)', fontSize: 12, cursor: 'pointer' }}>取消</button>
+      <div style={{ border: '1px solid rgba(37,99,235,0.25)', borderRadius: '2px 12px 12px 12px', background: 'var(--bg-0)', boxShadow: 'var(--shadow-sm)', padding: 14, maxWidth: '100%', overflow: 'hidden' }}>
+        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>Agent 请求你打开页面</div>
+        {request.message && <div style={{ fontSize: 12, color: 'var(--text-2)', marginBottom: 8, lineHeight: 1.5 }}>{request.message}</div>}
+        <a href={schema.url} target="_blank" rel="noreferrer" style={{ display: 'block', fontSize: 12, color: 'var(--blue)', overflowWrap: 'anywhere', marginBottom: 12 }}>{schema.url}</a>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button type="button" disabled={submitting} onClick={submit} style={{ padding: '8px 13px', borderRadius: 8, border: 'none', background: 'var(--blue)', color: 'white', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>我已完成</button>
+          <button type="button" disabled={submitting} onClick={() => respond('cancel')} style={{ padding: '8px 13px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-1)', color: 'var(--text-3)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>取消</button>
         </div>
       </div>
     )
   }
 
   return (
-    <div style={{ alignSelf: 'center', width: 'min(620px, 90%)', border: '1px solid var(--border)', borderRadius: 10, background: 'var(--bg-0)', boxShadow: 'var(--shadow-sm)', padding: 12 }}>
-      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Agent 提问</div>
-      {request.message && <div style={{ fontSize: 12, color: 'var(--text-2)', marginBottom: 10, lineHeight: 1.5 }}>{request.message}</div>}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {Object.entries(props).map(([key, prop]) => (
-          <label key={key} style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11, color: 'var(--text-3)' }}>
-            {prop.title || key}
-            {prop.type === 'boolean' ? (
-              <input type="checkbox" checked={values[key] === true} onChange={e => setValues(v => ({ ...v, [key]: e.target.checked }))} />
-            ) : prop.enum ? (
-              <select value={String(values[key] ?? '')} onChange={e => setValues(v => ({ ...v, [key]: e.target.value }))} style={{ padding: '8px 10px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--bg-1)', color: 'var(--text-1)' }}>
-                <option value="">请选择</option>
-                {prop.enum.map(item => <option key={item} value={item}>{item}</option>)}
-              </select>
-            ) : (
-              <input type={prop.type === 'number' || prop.type === 'integer' ? 'number' : 'text'} value={String(values[key] ?? '')} onChange={e => setValues(v => ({ ...v, [key]: prop.type === 'number' || prop.type === 'integer' ? Number(e.target.value) : e.target.value }))} style={{ padding: '8px 10px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--bg-1)', color: 'var(--text-1)' }} />
-            )}
-          </label>
-        ))}
+    <div style={{ border: '1px solid rgba(37,99,235,0.25)', borderRadius: '2px 12px 12px 12px', background: 'var(--bg-0)', boxShadow: 'var(--shadow-sm)', padding: 14, maxWidth: '100%', overflow: 'hidden' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 10 }}>
+        <div style={{ width: 30, height: 30, borderRadius: 8, background: 'var(--blue-light)', color: 'var(--blue)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><MessageSquareIcon size={16} /></div>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>Agent 提问</div>
+          {request.message && <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 3, lineHeight: 1.5 }}>{request.message}</div>}
+        </div>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 9, maxHeight: 320, overflow: 'auto', paddingRight: 2 }}>
+        {Object.entries(props).map(([key, prop]) => {
+          const options = getElicitationOptions(prop)
+          const label = prop.title || key
+          const required = schema?.required?.includes(key)
+          return (
+            <label key={key} style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: 11, color: 'var(--text-3)' }}>
+              <span style={{ fontWeight: 600 }}>{label}{required && <span style={{ color: 'var(--red)' }}> *</span>}</span>
+              {prop.description && <span style={{ fontSize: 10, lineHeight: 1.4 }}>{prop.description}</span>}
+              {prop.type === 'boolean' ? (
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-2)', fontSize: 12 }}><input type="checkbox" checked={values[key] === true} onChange={e => setValues(v => ({ ...v, [key]: e.target.checked }))} /> 是</span>
+              ) : prop.type === 'array' ? (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {options.map(item => {
+                    const selected = Array.isArray(values[key]) && (values[key] as string[]).includes(item.value)
+                    return <button key={item.value} type="button" onClick={() => setValues(v => {
+                      const cur = Array.isArray(v[key]) ? v[key] as string[] : []
+                      return { ...v, [key]: selected ? cur.filter(x => x !== item.value) : [...cur, item.value] }
+                    })} style={{ padding: '6px 9px', borderRadius: 999, border: selected ? '1px solid var(--blue)' : '1px solid var(--border)', background: selected ? 'var(--blue-light)' : 'var(--bg-1)', color: selected ? 'var(--blue)' : 'var(--text-2)', fontSize: 12, cursor: 'pointer' }}>{item.label}</button>
+                  })}
+                </div>
+              ) : options.length > 0 ? (
+                <select value={String(values[key] ?? '')} onChange={e => setValues(v => ({ ...v, [key]: e.target.value }))} style={{ padding: '8px 10px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--bg-1)', color: 'var(--text-1)' }}>
+                  <option value="">请选择</option>
+                  {options.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}
+                </select>
+              ) : (
+                <input type={prop.type === 'number' || prop.type === 'integer' ? 'number' : 'text'} value={String(values[key] ?? '')} onChange={e => setValues(v => ({ ...v, [key]: prop.type === 'number' || prop.type === 'integer' ? Number(e.target.value) : e.target.value }))} style={{ padding: '8px 10px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--bg-1)', color: 'var(--text-1)' }} />
+              )}
+              {errors[key] && <span style={{ color: 'var(--red)', fontSize: 10 }}>{errors[key]}</span>}
+            </label>
+          )
+        })}
       </div>
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
-        <button type="button" onClick={submit} style={{ padding: '7px 12px', borderRadius: 7, border: 'none', background: 'var(--blue)', color: 'white', fontSize: 12, cursor: 'pointer' }}>提交</button>
-        <button type="button" onClick={() => onRespond(request.id, 'decline')} style={{ padding: '7px 12px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--bg-1)', color: 'var(--text-2)', fontSize: 12, cursor: 'pointer' }}>拒绝</button>
-        <button type="button" onClick={() => onRespond(request.id, 'cancel')} style={{ padding: '7px 12px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--bg-1)', color: 'var(--text-3)', fontSize: 12, cursor: 'pointer' }}>取消</button>
+        <button type="button" disabled={submitting} onClick={submit} style={{ padding: '8px 13px', borderRadius: 8, border: 'none', background: 'var(--blue)', color: 'white', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>提交</button>
+        <button type="button" disabled={submitting} onClick={() => respond('decline')} style={{ padding: '8px 13px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-1)', color: 'var(--text-2)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>拒绝</button>
+        <button type="button" disabled={submitting} onClick={() => respond('cancel')} style={{ padding: '8px 13px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-1)', color: 'var(--text-3)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>取消</button>
       </div>
     </div>
   )
 }
+
 
 /* ─── Chat Bubble ─── */
 type ChatMsg = { id: string; role: string; content: string; thinking?: string | null; tool_calls_json?: string | null; decision_json?: string | null; attachments_json?: string | null; toolCalls?: ToolCallInfo[]; timestamp?: string; streaming?: boolean }
@@ -726,7 +863,7 @@ type ChatMsg = { id: string; role: string; content: string; thinking?: string | 
 interface TurnStats { inputTokens: number; outputTokens: number; totalTokens: number; cachedReadTokens?: number; thoughtTokens?: number; costAmount?: number; elapsedSeconds?: number }
 const statChipStyle: React.CSSProperties = { padding: '3px 8px', borderRight: '1px solid var(--border)', fontSize: 10, whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 3 }
 
-function ChatBubble({ message, agent, isStreaming }: { message: ChatMsg; agent: AgentData | undefined; isStreaming: boolean }) {
+function ChatBubble({ message, agent, isStreaming, footer }: { message: ChatMsg; agent: AgentData | undefined; isStreaming: boolean; footer?: React.ReactNode }) {
   const defaultThinkingOpen = !!(isStreaming && message.thinking)
   const [thinkingOpenOverride, setThinkingOpenOverride] = useState<'open' | 'closed' | null>(null)
   const thinkingOpen = thinkingOpenOverride === 'open' || (thinkingOpenOverride !== 'closed' && defaultThinkingOpen)
@@ -762,6 +899,7 @@ function ChatBubble({ message, agent, isStreaming }: { message: ChatMsg; agent: 
           {message.content
             ? <MarkdownRenderer content={message.content || ''} />
             : (message.streaming ? <div style={{ fontSize: 13, color: 'var(--text-3)' }}>正在思考...</div> : null)}
+          {footer && <div style={{ marginTop: 10 }}>{footer}</div>}
         </div>
         {/* 单次统计 */}
         {turnStats && (
@@ -808,3 +946,4 @@ function NewTaskModal({ agents, onCreate, onClose }: { agents: AgentData[]; onCr
     </div>
   </>)
 }
+

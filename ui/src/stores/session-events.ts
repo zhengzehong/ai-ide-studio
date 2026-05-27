@@ -77,6 +77,27 @@ export const defaultCaps: SessionCapabilities = {
   configOptions: [], commands: [],
 }
 
+
+export function mergeMessagesById(serverMessages: MessageData[], currentMessages: MessageData[]): MessageData[] {
+  const byId = new Map<string, MessageData>()
+  for (const msg of currentMessages) byId.set(msg.id, msg)
+  for (const msg of serverMessages) byId.set(msg.id, msg)
+  return Array.from(byId.values()).sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+}
+
+export function appendFinalizedMessage(currentMessages: MessageData[], message: MessageData): MessageData[] {
+  if (!currentMessages.some(m => m.id === message.id)) return [...currentMessages, message]
+
+  const suffixBase = Date.parse(message.timestamp) || Date.now()
+  let nextId = `${message.id}-${suffixBase}`
+  let i = 1
+  while (currentMessages.some(m => m.id === nextId)) {
+    i += 1
+    nextId = `${message.id}-${suffixBase}-${i}`
+  }
+  return [...currentMessages, { ...message, id: nextId }]
+}
+
 export function mergeToolCall(existing: ToolCallInfo, update: ToolCallInfo): ToolCallInfo {
   const next: ToolCallInfo = { ...existing }
   if (update.title) next.title = update.title
@@ -214,16 +235,23 @@ function emptyStreamingMessage(messageId: string): StreamingMessage {
 }
 
 export function completedStreamingFromEvents(events: SessionEventData[]): StreamingMessage | null {
-  const messages = new Map<string, StreamingMessage>()
+  const messages: StreamingMessage[] = []
+  const activeById = new Map<string, StreamingMessage>()
   let lastMessageId: string | null = null
+  let lastMessage: StreamingMessage | null = null
 
   for (const event of [...events].sort((a, b) => a.sequence - b.sequence)) {
     const payload = parsePayload(event)
     const messageId = String(payload.messageId || event.message_id || lastMessageId || event.id)
     const ensure = () => {
-      let msg = messages.get(messageId)
-      if (!msg) { msg = emptyStreamingMessage(messageId); messages.set(messageId, msg) }
+      let msg = activeById.get(messageId)
+      if (!msg || msg.done) {
+        msg = emptyStreamingMessage(messageId)
+        activeById.set(messageId, msg)
+        messages.push(msg)
+      }
       lastMessageId = messageId
+      lastMessage = msg
       return msg
     }
 
@@ -253,17 +281,17 @@ export function completedStreamingFromEvents(events: SessionEventData[]): Stream
         break
       }
       case 'message.done': {
-        const doneId = messages.has(messageId) ? messageId : lastMessageId
-        if (doneId) messages.get(doneId)!.done = true
+        const msg = activeById.get(messageId) || lastMessage
+        if (msg) msg.done = true
         break
       }
     }
   }
 
-  const completed = Array.from(messages.values()).filter(msg => msg.done && (msg.content || msg.thinking || msg.toolCalls.length > 0))
+  const completed = messages.filter(msg => msg.done && (msg.content || msg.thinking || msg.toolCalls.length > 0))
   if (completed.length > 0) return completed.at(-1) || null
 
-  const partial = Array.from(messages.values()).filter(msg => msg.content || msg.thinking || msg.toolCalls.length > 0)
+  const partial = messages.filter(msg => msg.content || msg.thinking || msg.toolCalls.length > 0)
   return partial.at(-1) || null
 }
 

@@ -32,11 +32,15 @@ const RUNTIME_COMMANDS: Record<string, { cmd: string; args: string[] }> = {
 interface PendingPermission {
   resolve: (value: acp.RequestPermissionResponse) => void
   timeout: ReturnType<typeof setTimeout>
+  agentId: string
+  requestId: string
 }
 
 interface PendingElicitation {
   resolve: (value: acp.CreateElicitationResponse) => void
   timeout: ReturnType<typeof setTimeout>
+  agentId: string
+  requestId: string
 }
 
 interface TerminalProcess {
@@ -190,6 +194,16 @@ export const acpHost = {
     acpHost.agents.delete(agentId)
     agentStore.updateStatus(agentId, 'standby')
     events.emit('agent:status', { agentId, status: 'standby' })
+  },
+
+  async cancelPrompt(agentId: string, ourSessionId: string): Promise<void> {
+    const conn = acpHost.agents.get(agentId)
+    if (!conn) return
+    const acpSessionId = conn.acpSessions.get(ourSessionId)
+    if (!acpSessionId) throw new Error(`Session ${ourSessionId} 没有对应的 ACP session`)
+
+    await conn.connection.cancel({ sessionId: acpSessionId })
+    cancelPendingInteractions(ourSessionId, agentId)
   },
 
   async newSession(agentId: string, ourSessionId: string, context: AcpSessionContext = {}): Promise<string> {
@@ -612,7 +626,7 @@ function createClientHandler(agentId: string): acp.Client {
           pendingPermissions.delete(key)
           resolve({ outcome: { outcome: 'cancelled' } })
         }, 10 * 60 * 1000)
-        pendingPermissions.set(key, { resolve, timeout })
+        pendingPermissions.set(key, { resolve, timeout, agentId, requestId })
       })
     },
 
@@ -691,7 +705,7 @@ function createClientHandler(agentId: string): acp.Client {
 
     async unstable_createElicitation(params) {
       const scoped = params as acp.CreateElicitationRequest & { sessionId?: string; requestId?: string | number | null; toolCallId?: string | null; elicitationId?: string; url?: string }
-      const ourSessionId = scoped.sessionId ? findOurSessionId(agentId, scoped.sessionId) : undefined
+      const ourSessionId = scoped.sessionId ? findOurSessionId(agentId, scoped.sessionId) : findLatestOurSessionId(agentId)
       if (!ourSessionId) return { action: 'cancel' }
 
       const requestId = scoped.elicitationId || (scoped.requestId != null ? String(scoped.requestId) : `elicitation-${Date.now()}`)
@@ -714,7 +728,7 @@ function createClientHandler(agentId: string): acp.Client {
           pendingElicitations.delete(key)
           resolve({ action: 'cancel' })
         }, 10 * 60 * 1000)
-        pendingElicitations.set(key, { resolve, timeout })
+        pendingElicitations.set(key, { resolve, timeout, agentId, requestId })
       })
     },
 
@@ -752,6 +766,48 @@ function createClientHandler(agentId: string): acp.Client {
   }
 }
 
+function cancelPendingInteractions(ourSessionId: string, agentId: string): void {
+  for (const [key, pending] of pendingPermissions) {
+    if (!key.startsWith(`${ourSessionId}:`)) continue
+    clearTimeout(pending.timeout)
+    pendingPermissions.delete(key)
+    pending.resolve({ outcome: { outcome: 'cancelled' } })
+    events.emit('session:update', {
+      sessionId: ourSessionId,
+      agentId: pending.agentId || agentId,
+      data: {
+        messageId: pending.requestId,
+        role: 'system',
+        content: '',
+        eventType: 'permission.result',
+      } satisfies SessionUpdateData,
+    })
+  }
+
+  for (const [key, pending] of pendingElicitations) {
+    if (!key.startsWith(`${ourSessionId}:`)) continue
+    clearTimeout(pending.timeout)
+    pendingElicitations.delete(key)
+    pending.resolve({ action: 'cancel' })
+    events.emit('session:update', {
+      sessionId: ourSessionId,
+      agentId: pending.agentId || agentId,
+      data: {
+        messageId: pending.requestId,
+        role: 'system',
+        content: '',
+        eventType: 'elicitation.result',
+      } satisfies SessionUpdateData,
+    })
+  }
+}
+
+function findLatestOurSessionId(agentId: string): string | undefined {
+  const conn = acpHost.agents.get(agentId)
+  if (!conn) return undefined
+  return Array.from(conn.acpSessions.keys()).at(-1)
+}
+
 function findOurSessionId(agentId: string, acpSessionId: string): string | undefined {
   const conn = acpHost.agents.get(agentId)
   if (!conn) return undefined
@@ -781,10 +837,13 @@ async function startMockAgent(agentId: string): Promise<void> {
       const result = await mockProc.sendRequest('session/create', { workingDirectory: params.cwd })
       return { sessionId: (result as { sessionId: string }).sessionId }
     },
-    async prompt(params: { sessionId: string; prompt: { type: string; text: string }[] }) {
-      const text = params.prompt.map(p => p.text).join('\n')
+    async prompt(params: { sessionId: string; prompt: { type: string; text?: string }[] }) {
+      const text = params.prompt.map(p => p.text || '').join('\n')
       await mockProc.sendRequest('session/prompt', { sessionId: params.sessionId, content: text })
       return { stopReason: 'end_turn' }
+    },
+    async cancel(params: { sessionId: string }) {
+      try { await mockProc.sendRequest('session/cancel', { sessionId: params.sessionId }) } catch { /* ignore */ }
     },
     async closeSession(params: { sessionId: string }) {
       try { await mockProc.sendRequest('session/close', { sessionId: params.sessionId }) } catch { /* ignore */ }

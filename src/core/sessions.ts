@@ -53,6 +53,8 @@ events.on('session:done', (ev) => {
 })
 
 function eventPayloadFromUpdate(data: SessionUpdateData): { type: string; payload: unknown } | null {
+  if (data.eventType === 'permission.result') return { type: 'permission.result', payload: { requestId: data.messageId, cancelled: true } }
+  if (data.eventType === 'elicitation.result') return { type: 'elicitation.result', payload: { requestId: data.messageId, action: 'cancel' } }
   if (data.contentDelta || data.content) return { type: data.eventType || 'message.chunk', payload: { messageId: data.messageId, role: data.role, contentDelta: data.contentDelta, content: data.content } }
   if (data.thinking) return { type: 'thinking.chunk', payload: { messageId: data.messageId, thinking: data.thinking } }
   if (data.toolCall) return { type: 'tool.call', payload: { messageId: data.messageId, toolCall: data.toolCall } }

@@ -271,15 +271,14 @@ async function handleMessage(ws: WebSocket, state: ClientState, msg: ClientMessa
       const session = sessionStore.get(sessionId)
       if (!session) { sendError(ws, msg.requestId, '会话不存在'); break }
       try {
-        await acpHost.stopAgent(session.agent_id)
-        events.emit('session:done', { sessionId, agentId: session.agent_id, messageId: `cancel-${Date.now()}`, cancelled: true })
+        await acpHost.cancelPrompt(session.agent_id, sessionId)
+        events.emit('session:done', { sessionId, agentId: session.agent_id, messageId: `cancel-${Date.now()}` })
         sendResult(ws, msg.requestId, { ok: true })
       } catch (err) {
         sendError(ws, msg.requestId, err instanceof Error ? err.message : '取消失败')
       }
       break
     }
-
     case 'agents.list':
       sendResult(ws, msg.requestId, agentStore.list())
       break

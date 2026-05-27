@@ -4,7 +4,9 @@ import {
   buildCompletedAgentMessage,
   capabilitiesFromConfig,
   defaultCaps,
+  appendFinalizedMessage,
   mergeCapabilities,
+  mergeMessagesById,
   mergeToolCall,
   reduceSessionEvents,
   type AvailableCommandInfo,
@@ -113,7 +115,11 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   },
 
   fetchMessages: async (sessionId) => {
-    try { set({ messages: await wsClient.request({ type: 'sessions.messages', sessionId }) as MessageData[] }) } catch { /* ignore message load errors */ }
+    try {
+      const serverMessages = await wsClient.request({ type: 'sessions.messages', sessionId }) as MessageData[]
+      if (sessionId !== get().currentSessionId) return
+      set(state => ({ messages: mergeMessagesById(serverMessages, state.messages) }))
+    } catch { /* ignore message load errors */ }
   },
 
   fetchEvents: async (sessionId) => {
@@ -233,6 +239,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       const sid = msg.sessionId as string; if (sid !== get().currentSessionId) return
       const data = msg.data as Record<string, unknown>
 
+      if (data.eventType === 'permission.result' || data.eventType === 'elicitation.result') return
       if (data.usage) { const u = data.usage as UsageInfo; set({ usage: u }); saveCache(sid, get()); return }
       if (data.plan) { set({ plan: data.plan as PlanEntry[] }); saveCache(sid, get()); return }
       if (data.configOptions) { set(s => ({ capabilities: capabilitiesFromConfig(s.capabilities, data.configOptions as ConfigOptionInfo[]) })); saveCache(sid, get()); return }
@@ -281,7 +288,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           timestamp: new Date().toISOString(),
         }
         set(st => ({
-          messages: [...st.messages.filter(m => m.id !== newMsg.id), newMsg],
+          messages: appendFinalizedMessage(st.messages, newMsg),
           streamingMessage: null, turnUsage: tu || st.turnUsage,
         }))
       } else {
@@ -289,7 +296,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         if (finalMessage) {
           if (turnStats && !finalMessage.decision_json) finalMessage.decision_json = turnStats
           set(st => ({
-            messages: [...st.messages.filter(m => m.id !== finalMessage.id), finalMessage],
+            messages: appendFinalizedMessage(st.messages, finalMessage),
             streamingMessage: null, turnUsage: tu || st.turnUsage,
           }))
         } else {
