@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import { getData, persist } from './db.js'
+import { getDb } from './db.js'
 
 export interface SessionRow {
   id: string
@@ -20,7 +20,21 @@ export interface MessageRow {
   thinking: string | null
   tool_calls_json: string | null
   decision_json: string | null
+  attachments_json: string | null
   timestamp: string
+}
+
+export interface SessionEventRow {
+  id: string
+  session_id: string
+  agent_id: string | null
+  acp_session_id: string | null
+  message_id: string | null
+  type: string
+  role: string | null
+  payload_json: string
+  sequence: number
+  created_at: string
 }
 
 export interface CreateSessionInput {
@@ -35,14 +49,22 @@ export interface AppendMessageInput {
   thinking?: string
   toolCalls?: unknown[]
   decision?: unknown
+  attachments?: unknown[]
+}
+
+export interface AppendEventInput {
+  type: string
+  agentId?: string | null
+  acpSessionId?: string | null
+  messageId?: string | null
+  role?: string | null
+  payload: unknown
 }
 
 export const sessionStore = {
   create(input: CreateSessionInput): SessionRow {
-    const data = getData()
-    const id = `sess-${randomUUID().slice(0, 8)}`
     const session: SessionRow = {
-      id,
+      id: `sess-${randomUUID().slice(0, 8)}`,
       agent_id: input.agentId,
       task_id: input.taskId || null,
       acp_session_id: input.acpSessionId || null,
@@ -51,63 +73,48 @@ export const sessionStore = {
       started_at: new Date().toISOString(),
       closed_at: null,
     }
-    data.sessions[id] = session
-    data.messages[id] = []
-    persist()
+    getDb().prepare(`
+      INSERT INTO sessions (id, agent_id, task_id, acp_session_id, status, stage, started_at, closed_at)
+      VALUES (@id, @agent_id, @task_id, @acp_session_id, @status, @stage, @started_at, @closed_at)
+    `).run(session)
     return session
   },
 
   get(id: string): SessionRow | undefined {
-    const data = getData()
-    return data.sessions[id] as SessionRow | undefined
+    return getDb().prepare<[string], SessionRow>('SELECT * FROM sessions WHERE id = ?').get(id)
   },
 
   list(agentId?: string): SessionRow[] {
-    const data = getData()
-    const all = Object.values(data.sessions) as SessionRow[]
-    if (agentId) return all.filter((s) => s.agent_id === agentId)
-    return all
+    if (agentId) {
+      return getDb().prepare<[string], SessionRow>('SELECT * FROM sessions WHERE agent_id = ? ORDER BY started_at ASC').all(agentId)
+    }
+    return getDb().prepare<[], SessionRow>('SELECT * FROM sessions ORDER BY started_at ASC').all()
   },
 
   listByTask(taskId: string): SessionRow[] {
-    const data = getData()
-    return (Object.values(data.sessions) as SessionRow[]).filter((s) => s.task_id === taskId)
+    return getDb().prepare<[string], SessionRow>('SELECT * FROM sessions WHERE task_id = ? ORDER BY started_at ASC').all(taskId)
   },
 
   updateStatus(id: string, status: string): void {
-    const data = getData()
-    const session = data.sessions[id] as SessionRow | undefined
-    if (session) {
-      session.status = status
-      if (status === 'closed') session.closed_at = new Date().toISOString()
-      persist()
-    }
+    const closedAt = status === 'closed' ? new Date().toISOString() : null
+    getDb().prepare(`
+      UPDATE sessions
+      SET status = ?, closed_at = CASE WHEN ? IS NULL THEN closed_at ELSE ? END
+      WHERE id = ?
+    `).run(status, closedAt, closedAt, id)
   },
 
   updateAcpSessionId(id: string, acpSessionId: string): void {
-    const data = getData()
-    const session = data.sessions[id] as SessionRow | undefined
-    if (session) {
-      session.acp_session_id = acpSessionId
-      persist()
-    }
+    getDb().prepare('UPDATE sessions SET acp_session_id = ? WHERE id = ?').run(acpSessionId, id)
   },
 
   updateStage(id: string, stage: string): void {
-    const data = getData()
-    const session = data.sessions[id] as SessionRow | undefined
-    if (session) {
-      session.stage = stage
-      persist()
-    }
+    getDb().prepare('UPDATE sessions SET stage = ? WHERE id = ?').run(stage, id)
   },
 }
 
 export const messageStore = {
   append(sessionId: string, input: AppendMessageInput): MessageRow {
-    const data = getData()
-    if (!data.messages[sessionId]) data.messages[sessionId] = []
-
     const msg: MessageRow = {
       id: `msg-${randomUUID().slice(0, 8)}`,
       session_id: sessionId,
@@ -116,42 +123,81 @@ export const messageStore = {
       thinking: input.thinking || null,
       tool_calls_json: input.toolCalls ? JSON.stringify(input.toolCalls) : null,
       decision_json: input.decision ? JSON.stringify(input.decision) : null,
+      attachments_json: input.attachments ? JSON.stringify(input.attachments) : null,
       timestamp: new Date().toISOString(),
     }
-
-    ;(data.messages[sessionId] as MessageRow[]).push(msg)
-    persist()
+    getDb().prepare(`
+      INSERT INTO messages (id, session_id, role, content, thinking, tool_calls_json, decision_json, attachments_json, timestamp)
+      VALUES (@id, @session_id, @role, @content, @thinking, @tool_calls_json, @decision_json, @attachments_json, @timestamp)
+    `).run(msg)
     return msg
   },
 
   get(id: string): MessageRow | undefined {
-    const data = getData()
-    for (const msgs of Object.values(data.messages)) {
-      const found = (msgs as MessageRow[]).find((m) => m.id === id)
-      if (found) return found
-    }
-    return undefined
+    return getDb().prepare<[string], MessageRow>('SELECT * FROM messages WHERE id = ?').get(id)
   },
 
   list(sessionId: string, opts?: { limit?: number; before?: string }): MessageRow[] {
-    const data = getData()
-    let msgs = (data.messages[sessionId] || []) as MessageRow[]
-    if (opts?.before) {
-      msgs = msgs.filter((m) => m.timestamp < opts.before!)
-    }
     const limit = opts?.limit || 100
-    return msgs.slice(-limit)
+    if (opts?.before) {
+      return getDb().prepare<{ sessionId: string; before: string; limit: number }, MessageRow>(`
+        SELECT * FROM messages
+        WHERE session_id = @sessionId AND timestamp < @before
+        ORDER BY timestamp DESC
+        LIMIT @limit
+      `).all({ sessionId, before: opts.before, limit }).reverse()
+    }
+    return getDb().prepare<{ sessionId: string; limit: number }, MessageRow>(`
+      SELECT * FROM messages
+      WHERE session_id = @sessionId
+      ORDER BY timestamp DESC
+      LIMIT @limit
+    `).all({ sessionId, limit }).reverse()
   },
 
   updateContent(id: string, content: string): void {
-    const data = getData()
-    for (const msgs of Object.values(data.messages)) {
-      const found = (msgs as MessageRow[]).find((m) => m.id === id)
-      if (found) {
-        found.content = content
-        persist()
-        return
-      }
+    getDb().prepare('UPDATE messages SET content = ? WHERE id = ?').run(content, id)
+  },
+}
+
+export const eventStore = {
+  append(sessionId: string, input: AppendEventInput): SessionEventRow {
+    const db = getDb()
+    const last = db.prepare<[string], { sequence: number }>('SELECT sequence FROM session_events WHERE session_id = ? ORDER BY sequence DESC LIMIT 1').get(sessionId)
+    const ev: SessionEventRow = {
+      id: `evt-${randomUUID().slice(0, 8)}`,
+      session_id: sessionId,
+      agent_id: input.agentId ?? null,
+      acp_session_id: input.acpSessionId ?? null,
+      message_id: input.messageId ?? null,
+      type: input.type,
+      role: input.role ?? null,
+      payload_json: JSON.stringify(input.payload),
+      sequence: (last?.sequence ?? 0) + 1,
+      created_at: new Date().toISOString(),
     }
+    db.prepare(`
+      INSERT INTO session_events (id, session_id, agent_id, acp_session_id, message_id, type, role, payload_json, sequence, created_at)
+      VALUES (@id, @session_id, @agent_id, @acp_session_id, @message_id, @type, @role, @payload_json, @sequence, @created_at)
+    `).run(ev)
+    return ev
+  },
+
+  list(sessionId: string, opts?: { limit?: number; afterSequence?: number }): SessionEventRow[] {
+    const limit = opts?.limit || 500
+    if (opts?.afterSequence != null) {
+      return getDb().prepare<{ sessionId: string; afterSequence: number; limit: number }, SessionEventRow>(`
+        SELECT * FROM session_events
+        WHERE session_id = @sessionId AND sequence > @afterSequence
+        ORDER BY sequence DESC
+        LIMIT @limit
+      `).all({ sessionId, afterSequence: opts.afterSequence, limit }).reverse()
+    }
+    return getDb().prepare<{ sessionId: string; limit: number }, SessionEventRow>(`
+      SELECT * FROM session_events
+      WHERE session_id = @sessionId
+      ORDER BY sequence DESC
+      LIMIT @limit
+    `).all({ sessionId, limit }).reverse()
   },
 }

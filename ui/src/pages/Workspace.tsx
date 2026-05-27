@@ -1,13 +1,23 @@
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ChangeEvent, useMemo } from 'react'
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ChangeEvent, useMemo, type MouseEvent } from 'react'
 import {
-  Bot, ChevronDown, ChevronRight, Loader2, Plus, Send, User, Wifi, WifiOff,
-  Wrench, FileCode, Terminal, Image as ImageIcon, Check, X, Settings2,
+  Bot, ChevronDown, ChevronRight, Loader2, Plus, User, Wifi, WifiOff,
+  Wrench, FileCode, Terminal, Check, X, Settings2,
   ListTodo, CheckCircle2, Circle, Archive, Zap, Paperclip, ArrowUp,
 } from 'lucide-react'
 import { useAgentStore, type AgentData } from '../stores/agent.store'
-import { useSessionStore, type ToolCallInfo, type UsageInfo, type PlanEntry } from '../stores/session.store'
+import {
+  useSessionStore,
+  type ConfigOptionInfo,
+  type ElicitationRequestInfo,
+  type ImageAttachmentInfo,
+  type PermissionRequestInfo,
+  type PlanEntry,
+  type ToolCallInfo,
+  type UsageInfo,
+} from '../stores/session.store'
 import { useTaskStore, type TaskData } from '../stores/task.store'
 import { useConnectionStore } from '../stores/connection.store'
+import { MarkdownRenderer } from '../components/MarkdownRenderer'
 
 const TYPE_COLORS: Record<string, string> = { dev: '#2563eb', test: '#059669', ops: '#ea580c', security: '#dc2626', architect: '#7c3aed', pm: '#7c3aed' }
 function agentColor(a: AgentData): string { return TYPE_COLORS[a.type] ?? '#6b7280' }
@@ -22,6 +32,32 @@ const MODE_CN: Record<string, string> = {
   default: '默认', plan: '计划', code: '编码', debug: '调试', ask: '提问', agent: '代理', edit: '编辑', chat: '对话',
 }
 function modeCn(name: string | null | undefined): string { return name ? (MODE_CN[name] || name) : '模式' }
+
+function displayConfigValue(value: string | undefined): string {
+  if (!value) return ''
+  const labels: Record<string, string> = { default: '默认', low: '低', medium: '中', high: '高', xhigh: '超高', max: 'Max' }
+  return labels[value] || value
+}
+
+function configOptionLabel(value: string, name: string): string {
+  return displayConfigValue(value) || name
+}
+
+function configLabel(opt: ConfigOptionInfo): string {
+  if (opt.category === 'thought_level') return configOptionLabel(String(opt.currentValue || ''), opt.name || '思考强度')
+  if (opt.type === 'boolean') return `${opt.name}: ${opt.currentValue ? '开' : '关'}`
+  const active = opt.options?.find(o => o.value === opt.currentValue)
+  return active ? configOptionLabel(active.value, active.name) : opt.name
+}
+
+type MenuName = 'command' | 'mode' | 'model' | `config:${string}`
+type MenuAnchor = { name: MenuName; left: number; top: number; minWidth: number }
+
+function menuStyle(anchor: MenuAnchor | null, width = 260): React.CSSProperties {
+  const fallbackTop = window.innerHeight - 440
+  const left = Math.min(Math.max(8, anchor?.left ?? 280), window.innerWidth - width - 8)
+  return { left, top: Math.max(8, anchor?.top ?? fallbackTop), width, maxWidth: `calc(100vw - 16px)` }
+}
 
 function toolSummary(tc: ToolCallInfo): string {
   const kindLabel = { read: '读取', edit: '编辑', delete: '删除', search: '搜索', execute: '执行', think: '思考', fetch: '拉取', move: '移动' }[tc.kind || ''] || ''
@@ -64,6 +100,11 @@ export default function Workspace() {
   const fetchSessions = useSessionStore(s => s.fetchSessions)
   const setModel = useSessionStore(s => s.setModel)
   const setMode = useSessionStore(s => s.setMode)
+  const setConfig = useSessionStore(s => s.setConfig)
+  const pendingPermissions = useSessionStore(s => s.pendingPermissions)
+  const pendingElicitations = useSessionStore(s => s.pendingElicitations)
+  const respondPermission = useSessionStore(s => s.respondPermission)
+  const respondElicitation = useSessionStore(s => s.respondElicitation)
   const tasks = useTaskStore(s => s.tasks)
   const createTask = useTaskStore(s => s.createTask)
 
@@ -74,11 +115,15 @@ export default function Workspace() {
   const [pendingImages, setPendingImages] = useState<{ data: string; mimeType: string; preview: string }[]>([])
   const [showModelMenu, setShowModelMenu] = useState(false)
   const [showModeMenu, setShowModeMenu] = useState(false)
+  const [showConfigMenu, setShowConfigMenu] = useState<string | null>(null)
+  const [showCommandMenu, setShowCommandMenu] = useState(false)
+  const [menuAnchor, setMenuAnchor] = useState<MenuAnchor | null>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
+  const chatScrollRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const prevMsgCount = useRef(0)
-  const scrollTimerRef = useRef<ReturnType<typeof setTimeout>>()
+  const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     if (agents.length > 0 && expandedAgents.size === 0) setExpandedAgents(new Set(agents.map(a => a.id)))
@@ -87,11 +132,21 @@ export default function Workspace() {
   const selectedAgent = useMemo(() => agents.find(a => a.id === selectedAgentId) ?? agents[0], [agents, selectedAgentId])
   const agentSessions = useCallback((id: string) => sessions.filter(s => s.agent_id === id), [sessions])
 
-  useEffect(() => { if (messages.length !== prevMsgCount.current) { prevMsgCount.current = messages.length; chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }) } }, [messages.length])
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
+    const el = chatScrollRef.current
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior })
+    else chatEndRef.current?.scrollIntoView({ behavior })
+  }, [])
+
+  useEffect(() => { if (messages.length !== prevMsgCount.current) { prevMsgCount.current = messages.length; requestAnimationFrame(() => scrollToBottom('smooth')) } }, [messages.length, scrollToBottom])
   useEffect(() => {
-    if (streamingMessage && !streamingMessage.done) { if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current); scrollTimerRef.current = setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 150) }
+    if (streamingMessage && !streamingMessage.done) {
+      if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current)
+      requestAnimationFrame(() => scrollToBottom('auto'))
+      scrollTimerRef.current = setTimeout(() => scrollToBottom('auto'), 40)
+    }
     return () => { if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current) }
-  }, [streamingMessage?.content?.length, streamingMessage?.done])
+  }, [streamingMessage?.content?.length, streamingMessage?.thinking?.length, streamingMessage?.toolCalls.length, JSON.stringify(streamingMessage?.toolCalls.map(t => [t.id, t.status, t.terminalOutput?.length, t.progress?.length, t.rawOutput != null])), streamingMessage?.done, scrollToBottom])
 
   const autoResize = () => {
     const el = textareaRef.current
@@ -119,11 +174,22 @@ export default function Workspace() {
     e.target.value = ''
   }
 
+  const openMenu = (name: MenuName, e: MouseEvent<HTMLButtonElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const nextAnchor = { name, left: rect.left, top: rect.top - 8, minWidth: rect.width }
+    setMenuAnchor(nextAnchor)
+    setShowCommandMenu(name === 'command' ? !showCommandMenu : false)
+    setShowModeMenu(name === 'mode' ? !showModeMenu : false)
+    setShowModelMenu(name === 'model' ? !showModelMenu : false)
+    setShowConfigMenu(name.startsWith('config:') ? (showConfigMenu === name.slice(7) ? null : name.slice(7)) : null)
+  }
+
   const isStreaming = !!(streamingMessage && !streamingMessage.done)
   const streamingBubble = isStreaming ? { id: streamingMessage!.id, role: 'agent' as const, content: streamingMessage!.content, thinking: streamingMessage!.thinking, toolCalls: streamingMessage!.toolCalls, timestamp: new Date().toISOString(), streaming: true as const } : null
 
   const currentModeName = capabilities.modes.find(m => m.modeId === capabilities.currentModeId)?.name || capabilities.currentModeId
   const currentModelName = capabilities.models.find(m => m.modelId === capabilities.currentModelId)?.name || capabilities.currentModelId
+  const secondaryConfigs = capabilities.configOptions.filter(o => o.category !== 'model' && o.category !== 'mode' && o.id !== 'model' && o.id !== 'mode')
 
   return (
     <div style={{ display: 'flex', height: '100%', background: 'var(--bg-1)' }}>
@@ -182,7 +248,7 @@ export default function Workspace() {
         {plan.length > 0 && <PlanBar plan={plan} />}
 
         {/* Messages */}
-        <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
+        <div ref={chatScrollRef} style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
           {!currentSessionId ? (
             <div style={{ textAlign: 'center', color: 'var(--text-3)', padding: '80px 20px' }}>
               <Bot size={48} color="var(--text-3)" style={{ marginBottom: 16, opacity: 0.3 }} />
@@ -192,6 +258,8 @@ export default function Workspace() {
           ) : (
             <div style={{ padding: '20px 20px 100px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
               {messages.length === 0 && !streamingBubble && <div style={{ textAlign: 'center', color: 'var(--text-3)', padding: '48px 0' }}>暂无消息，开始对话吧</div>}
+              {pendingPermissions.map(req => <PermissionCard key={req.id} request={req} onRespond={respondPermission} />)}
+              {pendingElicitations.map(req => <ElicitationCard key={req.id} request={req} onRespond={respondElicitation} />)}
               {messages.map(msg => <ChatBubble key={msg.id} message={msg} agent={selectedAgent} isStreaming={false} />)}
               {streamingBubble && <ChatBubble key="streaming" message={streamingBubble} agent={selectedAgent} isStreaming />}
               <div ref={chatEndRef} />
@@ -242,18 +310,30 @@ export default function Workspace() {
                 <Paperclip size={15} />
               </button>
 
+              {capabilities.commands.length > 0 && (
+                <button type="button" onClick={e => openMenu('command', e)} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 6, border: 'none', background: 'var(--bg-1)', color: 'var(--text-2)', fontSize: 11, cursor: 'pointer', fontWeight: 500 }}>
+                  <Wrench size={12} /> 命令 <ChevronDown size={10} />
+                </button>
+              )}
+
               {capabilities.modes.length > 0 && (
-                <button type="button" onClick={() => { setShowModeMenu(!showModeMenu); setShowModelMenu(false) }} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 6, border: 'none', background: 'var(--bg-1)', color: 'var(--text-2)', fontSize: 11, cursor: 'pointer', fontWeight: 500 }}>
+                <button type="button" onClick={e => openMenu('mode', e)} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 6, border: 'none', background: 'var(--bg-1)', color: 'var(--text-2)', fontSize: 11, cursor: 'pointer', fontWeight: 500 }}>
                   <Settings2 size={12} /> {modeCn(currentModeName)} <ChevronDown size={10} />
                 </button>
               )}
 
               <div style={{ flex: 1 }} />
 
+              {secondaryConfigs.map(opt => (
+                <button key={opt.id} type="button" onClick={e => openMenu(`config:${opt.id}`, e)} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 6, border: 'none', background: 'var(--bg-1)', color: 'var(--text-2)', fontSize: 11, cursor: 'pointer', fontWeight: 500 }}>
+                  {configLabel(opt)} <ChevronDown size={10} />
+                </button>
+              ))}
+
               {usage && <MiniContextCircle used={usage.contextUsed} total={usage.contextSize} />}
 
               {capabilities.models.length > 0 && (
-                <button type="button" onClick={() => { setShowModelMenu(!showModelMenu); setShowModeMenu(false) }} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 6, border: 'none', background: 'transparent', color: 'var(--text-2)', fontSize: 11, cursor: 'pointer', fontWeight: 500 }}>
+                <button type="button" onClick={e => openMenu('model', e)} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 6, border: 'none', background: 'transparent', color: 'var(--text-2)', fontSize: 11, cursor: 'pointer', fontWeight: 500 }}>
                   {currentModelName || '模型'} <ChevronDown size={10} />
                 </button>
               )}
@@ -289,8 +369,18 @@ export default function Workspace() {
 
       {showNewTask && <NewTaskModal agents={agents} onCreate={createTask} onClose={() => setShowNewTask(false)} />}
 
+      {/* 命令菜单 */}
+      {showCommandMenu && <DropdownPortal onClose={() => setShowCommandMenu(false)} style={menuStyle(menuAnchor, 320)}>
+        {capabilities.commands.map(cmd => (
+          <button key={cmd.name} type="button" onClick={() => { setInputValue(`/${cmd.name} `); setShowCommandMenu(false); textareaRef.current?.focus() }} style={{ display: 'flex', flexDirection: 'column', gap: 2, width: '100%', minWidth: 0, padding: '10px 14px', border: 'none', borderRadius: 8, background: 'transparent', color: 'var(--text-1)', fontSize: 12, cursor: 'pointer', textAlign: 'left', boxSizing: 'border-box' }}>
+            <span style={{ fontWeight: 600, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>/{cmd.name}</span>
+            <span style={{ color: 'var(--text-3)', fontSize: 10, whiteSpace: 'normal', overflowWrap: 'anywhere', lineHeight: 1.4 }}>{cmd.description || cmd.input?.hint || '插入命令'}</span>
+          </button>
+        ))}
+      </DropdownPortal>}
+
       {/* 模式菜单 */}
-      {showModeMenu && <DropdownPortal onClose={() => setShowModeMenu(false)} style={{ bottom: 80, left: 310 }}>
+      {showModeMenu && <DropdownPortal onClose={() => setShowModeMenu(false)} style={menuStyle(menuAnchor, 260)}>
         {capabilities.modes.map(m => {
           const active = m.modeId === capabilities.currentModeId
           return <button key={m.modeId} type="button" onClick={() => { setMode(m.modeId); setShowModeMenu(false) }} style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '10px 14px', border: 'none', borderRadius: 8, background: active ? 'var(--blue-light)' : 'transparent', color: 'var(--text-1)', fontSize: 12, cursor: 'pointer', textAlign: 'left' }}>
@@ -300,8 +390,27 @@ export default function Workspace() {
         })}
       </DropdownPortal>}
 
+      {/* 配置菜单 */}
+      {showConfigMenu && <DropdownPortal onClose={() => setShowConfigMenu(null)} style={menuStyle(menuAnchor, 240)}>
+        {(() => {
+          const opt = secondaryConfigs.find(o => o.id === showConfigMenu)
+          if (!opt) return null
+          if (opt.type === 'boolean') {
+            const active = opt.currentValue === true
+            return <button type="button" onClick={() => { setConfig(opt.id, !active); setShowConfigMenu(null) }} style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '10px 14px', border: 'none', borderRadius: 8, background: active ? 'var(--blue-light)' : 'transparent', color: 'var(--text-1)', fontSize: 12, cursor: 'pointer', textAlign: 'left' }}>{active ? <Check size={13} color="var(--blue)" /> : <Circle size={13} color="var(--text-3)" />} {opt.name}</button>
+          }
+          return opt.options?.map(item => {
+            const active = item.value === opt.currentValue
+            return <button key={item.value} type="button" onClick={() => { setConfig(opt.id, item.value); setShowConfigMenu(null) }} style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '10px 14px', border: 'none', borderRadius: 8, background: active ? 'var(--blue-light)' : 'transparent', color: 'var(--text-1)', fontSize: 12, cursor: 'pointer', textAlign: 'left' }}>
+              {active ? <Check size={13} color="var(--blue)" style={{ flexShrink: 0 }} /> : <Circle size={13} color="var(--text-3)" style={{ flexShrink: 0 }} />}
+              <div style={{ minWidth: 0 }}><div style={{ fontWeight: 500 }}>{configOptionLabel(item.value, item.name)}</div>{item.description && <div style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 2 }}>{item.description}</div>}</div>
+            </button>
+          })
+        })()}
+      </DropdownPortal>}
+
       {/* 模型菜单 */}
-      {showModelMenu && <DropdownPortal onClose={() => setShowModelMenu(false)} style={{ bottom: 80, right: 310 }}>
+      {showModelMenu && <DropdownPortal onClose={() => setShowModelMenu(false)} style={menuStyle(menuAnchor, 280)}>
         {capabilities.models.map(m => {
           const active = m.modelId === capabilities.currentModelId
           return <button key={m.modelId} type="button" onClick={() => { setModel(m.modelId); setShowModelMenu(false) }} style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '10px 14px', border: 'none', borderRadius: 8, background: active ? 'var(--blue-light)' : 'transparent', color: 'var(--text-1)', fontSize: 13, cursor: 'pointer', textAlign: 'left' }}>
@@ -441,6 +550,11 @@ function TaskPanel({ tasks, agents }: { tasks: TaskData[]; agents: AgentData[] }
 function ToolCallPanel({ tc, isStreaming }: { tc: ToolCallInfo; isStreaming: boolean }) {
   const isActive = tc.status === 'in_progress' || tc.status === 'pending'
   const [open, setOpen] = useState(isStreaming || isActive)
+
+  useEffect(() => {
+    if (isStreaming && isActive) setOpen(true)
+    if (!isStreaming && !isActive) setOpen(false)
+  }, [isStreaming, isActive])
   const kindIcon = tc.kind === 'edit' ? <FileCode size={12} /> : tc.kind === 'execute' ? <Terminal size={12} /> : <Wrench size={12} />
   const statusColor = tc.status === 'completed' ? 'var(--green)' : tc.status === 'failed' ? 'var(--red)' : 'var(--blue)'
   const statusIcon = tc.status === 'completed' ? <Check size={10} /> : tc.status === 'failed' ? <X size={10} /> : <Loader2 size={10} style={{ animation: 'spin 1s linear infinite' }} />
@@ -448,7 +562,7 @@ function ToolCallPanel({ tc, isStreaming }: { tc: ToolCallInfo; isStreaming: boo
   const summary = toolSummary(tc)
 
   return (
-    <div style={{ marginBottom: 6, borderRadius: 8, border: '1px solid var(--border)', overflow: 'hidden', background: 'var(--bg-1)' }}>
+    <div style={{ marginBottom: 6, borderRadius: 8, border: '1px solid var(--border)', overflow: 'hidden', background: 'var(--bg-1)', maxWidth: '100%' }}>
       <button type="button" onClick={() => setOpen(!open)} style={{ width: '100%', padding: '8px 10px', border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, textAlign: 'left', fontSize: 12, color: 'var(--text-1)' }}>
         {open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
         {kindIcon}
@@ -456,35 +570,99 @@ function ToolCallPanel({ tc, isStreaming }: { tc: ToolCallInfo; isStreaming: boo
         <span style={{ color: statusColor, display: 'flex', alignItems: 'center', gap: 3, fontSize: 10, flexShrink: 0, fontWeight: 500 }}>{statusIcon} {statusText}</span>
       </button>
       {open && (
-        <div style={{ padding: '6px 10px', borderTop: '1px solid var(--border)', fontSize: 11 }}>
+        <div style={{ padding: '6px 10px', borderTop: '1px solid var(--border)', fontSize: 11, minWidth: 0, overflowX: 'hidden' }}>
           {tc.locations && tc.locations.length > 0 && (
             <div style={{ marginBottom: 6 }}>
-              {tc.locations.map((l, i) => <span key={i} style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 4, background: 'var(--bg-2)', fontSize: 10, marginRight: 4, color: 'var(--text-2)', fontFamily: 'monospace' }}>{l.path}{l.line ? `:${l.line}` : ''}</span>)}
+              {tc.locations.map((l, i) => <span key={i} style={{ display: 'inline-block', maxWidth: '100%', padding: '2px 8px', borderRadius: 4, background: 'var(--bg-2)', fontSize: 10, marginRight: 4, color: 'var(--text-2)', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', verticalAlign: 'bottom' }}>{l.path}{l.line ? `:${l.line}` : ''}</span>)}
             </div>
           )}
           {tc.rawInput != null && (
             <div style={{ marginBottom: 6 }}>
               <div style={{ fontSize: 10, color: 'var(--text-3)', marginBottom: 3, fontWeight: 600 }}>参数</div>
-              <div style={{ background: 'var(--bg-2)', padding: 8, borderRadius: 6, fontFamily: 'monospace', fontSize: 10, whiteSpace: 'pre-wrap', maxHeight: 120, overflow: 'auto', color: 'var(--text-2)', lineHeight: 1.5 }}>
+              <div style={{ background: 'var(--bg-2)', padding: 8, borderRadius: 6, fontFamily: 'monospace', fontSize: 10, whiteSpace: 'pre', maxHeight: 120, maxWidth: '100%', overflow: 'auto', color: 'var(--text-2)', lineHeight: 1.5 }}>
                 {typeof tc.rawInput === 'string' ? tc.rawInput.slice(0, 500) : JSON.stringify(tc.rawInput, null, 2).slice(0, 500)}
               </div>
             </div>
           )}
           {tc.content?.map((c, i) => (
             <div key={i} style={{ marginTop: 4 }}>
-              {c.type === 'diff' && c.path && <div style={{ background: 'var(--bg-2)', padding: 8, borderRadius: 6, fontFamily: 'monospace', fontSize: 10, whiteSpace: 'pre-wrap', maxHeight: 200, overflow: 'auto', lineHeight: 1.5 }}><div style={{ color: 'var(--text-3)', marginBottom: 3 }}>{c.path}</div>{c.oldText && <div style={{ color: 'var(--red)' }}>- {c.oldText.slice(0, 200)}</div>}{c.newText && <div style={{ color: 'var(--green)' }}>+ {c.newText.slice(0, 200)}</div>}</div>}
-              {c.type === 'text' && c.text && <div style={{ background: 'var(--bg-2)', padding: 8, borderRadius: 6, fontSize: 10, whiteSpace: 'pre-wrap', maxHeight: 150, overflow: 'auto', color: 'var(--text-2)', lineHeight: 1.5 }}>{c.text.slice(0, 500)}</div>}
+              {c.type === 'diff' && c.path && <div style={{ background: 'var(--bg-2)', padding: 8, borderRadius: 6, fontFamily: 'monospace', fontSize: 10, whiteSpace: 'pre', maxHeight: 200, maxWidth: '100%', overflow: 'auto', lineHeight: 1.5 }}><div style={{ color: 'var(--text-3)', marginBottom: 3 }}>{c.path}</div>{c.oldText && <div style={{ color: 'var(--red)' }}>- {c.oldText.slice(0, 200)}</div>}{c.newText && <div style={{ color: 'var(--green)' }}>+ {c.newText.slice(0, 200)}</div>}</div>}
+              {c.type === 'text' && c.text && <div style={{ background: 'var(--bg-2)', padding: 8, borderRadius: 6, fontSize: 10, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', maxHeight: 150, maxWidth: '100%', overflow: 'auto', color: 'var(--text-2)', lineHeight: 1.5 }}>{c.text.slice(0, 500)}</div>}
             </div>
           ))}
-          {tc.rawOutput != null && <div style={{ marginTop: 6 }}><div style={{ fontSize: 10, color: 'var(--text-3)', marginBottom: 3, fontWeight: 600 }}>结果</div><div style={{ background: 'var(--bg-2)', padding: 8, borderRadius: 6, fontFamily: 'monospace', fontSize: 10, whiteSpace: 'pre-wrap', maxHeight: 120, overflow: 'auto', color: 'var(--text-2)', lineHeight: 1.5 }}>{typeof tc.rawOutput === 'string' ? tc.rawOutput.slice(0, 500) : JSON.stringify(tc.rawOutput, null, 2).slice(0, 500)}</div></div>}
+          {tc.terminalOutput && <div style={{ marginTop: 6 }}><div style={{ fontSize: 10, color: 'var(--text-3)', marginBottom: 3, fontWeight: 600 }}>终端输出</div><div style={{ background: '#0f172a', color: '#e2e8f0', padding: 8, borderRadius: 6, fontFamily: 'monospace', fontSize: 10, whiteSpace: 'pre', maxHeight: 160, maxWidth: '100%', overflow: 'auto', lineHeight: 1.5 }}>{tc.terminalOutput.slice(-2000)}</div></div>}
+          {tc.progress && tc.progress.length > 0 && <div style={{ marginTop: 6 }}><div style={{ fontSize: 10, color: 'var(--text-3)', marginBottom: 3, fontWeight: 600 }}>进度</div><div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>{tc.progress.slice(-6).map((p, i) => <div key={i} style={{ fontSize: 10, color: 'var(--text-2)' }}>• {p}</div>)}</div></div>}
+          {tc.rawOutput != null && <div style={{ marginTop: 6 }}><div style={{ fontSize: 10, color: 'var(--text-3)', marginBottom: 3, fontWeight: 600 }}>结果</div><div style={{ background: 'var(--bg-2)', padding: 8, borderRadius: 6, fontFamily: 'monospace', fontSize: 10, whiteSpace: 'pre', maxHeight: 120, maxWidth: '100%', overflow: 'auto', color: 'var(--text-2)', lineHeight: 1.5 }}>{typeof tc.rawOutput === 'string' ? tc.rawOutput.slice(0, 500) : JSON.stringify(tc.rawOutput, null, 2).slice(0, 500)}</div></div>}
         </div>
       )}
     </div>
   )
 }
 
+function PermissionCard({ request, onRespond }: { request: PermissionRequestInfo; onRespond: (requestId: string, optionId?: string, cancelled?: boolean) => Promise<void> }) {
+  return (
+    <div style={{ alignSelf: 'center', width: 'min(620px, 90%)', border: '1px solid var(--border)', borderRadius: 10, background: 'var(--bg-0)', boxShadow: 'var(--shadow-sm)', padding: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, fontSize: 13, fontWeight: 600 }}><Wrench size={14} color="var(--blue)" /> 需要确认工具调用</div>
+      <ToolCallPanel tc={request.toolCall} isStreaming={false} />
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+        {request.options.map(opt => <button key={opt.optionId} type="button" onClick={() => onRespond(request.id, opt.optionId)} style={{ padding: '7px 12px', borderRadius: 7, border: '1px solid var(--border)', background: opt.kind.startsWith('allow') ? 'var(--blue)' : 'var(--bg-1)', color: opt.kind.startsWith('allow') ? 'white' : 'var(--text-2)', fontSize: 12, cursor: 'pointer' }}>{opt.name}</button>)}
+        <button type="button" onClick={() => onRespond(request.id, undefined, true)} style={{ padding: '7px 12px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--bg-1)', color: 'var(--text-3)', fontSize: 12, cursor: 'pointer' }}>取消</button>
+      </div>
+    </div>
+  )
+}
+
+function ElicitationCard({ request, onRespond }: { request: ElicitationRequestInfo; onRespond: (requestId: string, action: 'accept' | 'decline' | 'cancel', content?: Record<string, string | number | boolean | string[]>) => Promise<void> }) {
+  const schema = request.requestedSchema as { properties?: Record<string, { type?: string; title?: string; description?: string; default?: unknown; enum?: string[] }>; required?: string[]; url?: string } | undefined
+  const props = schema?.properties || {}
+  const [values, setValues] = useState<Record<string, string | number | boolean | string[]>>({})
+  const submit = () => onRespond(request.id, 'accept', values)
+
+  if (schema?.url) {
+    return (
+      <div style={{ alignSelf: 'center', width: 'min(620px, 90%)', border: '1px solid var(--border)', borderRadius: 10, background: 'var(--bg-0)', boxShadow: 'var(--shadow-sm)', padding: 12 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Agent 请求你打开页面</div>
+        <a href={schema.url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--blue)' }}>{schema.url}</a>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 10 }}>
+          <button type="button" onClick={() => onRespond(request.id, 'accept', {})} style={{ padding: '7px 12px', borderRadius: 7, border: 'none', background: 'var(--blue)', color: 'white', fontSize: 12, cursor: 'pointer' }}>已完成</button>
+          <button type="button" onClick={() => onRespond(request.id, 'cancel')} style={{ padding: '7px 12px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--bg-1)', color: 'var(--text-3)', fontSize: 12, cursor: 'pointer' }}>取消</button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ alignSelf: 'center', width: 'min(620px, 90%)', border: '1px solid var(--border)', borderRadius: 10, background: 'var(--bg-0)', boxShadow: 'var(--shadow-sm)', padding: 12 }}>
+      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Agent 提问</div>
+      {request.message && <div style={{ fontSize: 12, color: 'var(--text-2)', marginBottom: 10, lineHeight: 1.5 }}>{request.message}</div>}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {Object.entries(props).map(([key, prop]) => (
+          <label key={key} style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11, color: 'var(--text-3)' }}>
+            {prop.title || key}
+            {prop.type === 'boolean' ? (
+              <input type="checkbox" checked={values[key] === true} onChange={e => setValues(v => ({ ...v, [key]: e.target.checked }))} />
+            ) : prop.enum ? (
+              <select value={String(values[key] ?? '')} onChange={e => setValues(v => ({ ...v, [key]: e.target.value }))} style={{ padding: '8px 10px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--bg-1)', color: 'var(--text-1)' }}>
+                <option value="">请选择</option>
+                {prop.enum.map(item => <option key={item} value={item}>{item}</option>)}
+              </select>
+            ) : (
+              <input type={prop.type === 'number' || prop.type === 'integer' ? 'number' : 'text'} value={String(values[key] ?? '')} onChange={e => setValues(v => ({ ...v, [key]: prop.type === 'number' || prop.type === 'integer' ? Number(e.target.value) : e.target.value }))} style={{ padding: '8px 10px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--bg-1)', color: 'var(--text-1)' }} />
+            )}
+          </label>
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
+        <button type="button" onClick={submit} style={{ padding: '7px 12px', borderRadius: 7, border: 'none', background: 'var(--blue)', color: 'white', fontSize: 12, cursor: 'pointer' }}>提交</button>
+        <button type="button" onClick={() => onRespond(request.id, 'decline')} style={{ padding: '7px 12px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--bg-1)', color: 'var(--text-2)', fontSize: 12, cursor: 'pointer' }}>拒绝</button>
+        <button type="button" onClick={() => onRespond(request.id, 'cancel')} style={{ padding: '7px 12px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--bg-1)', color: 'var(--text-3)', fontSize: 12, cursor: 'pointer' }}>取消</button>
+      </div>
+    </div>
+  )
+}
+
 /* ─── Chat Bubble ─── */
-type ChatMsg = { id: string; role: string; content: string; thinking?: string | null; tool_calls_json?: string | null; decision_json?: string | null; toolCalls?: ToolCallInfo[]; timestamp?: string; streaming?: boolean }
+type ChatMsg = { id: string; role: string; content: string; thinking?: string | null; tool_calls_json?: string | null; decision_json?: string | null; attachments_json?: string | null; toolCalls?: ToolCallInfo[]; timestamp?: string; streaming?: boolean }
 
 interface TurnStats { inputTokens: number; outputTokens: number; totalTokens: number; cachedReadTokens?: number; thoughtTokens?: number; costAmount?: number; elapsedSeconds?: number }
 const statChipStyle: React.CSSProperties = { padding: '3px 8px', borderRight: '1px solid var(--border)', fontSize: 10, whiteSpace: 'nowrap' }
@@ -494,6 +672,7 @@ function ChatBubble({ message, agent, isStreaming }: { message: ChatMsg; agent: 
   const isHuman = message.role === 'human'
   const toolCalls: ToolCallInfo[] = message.toolCalls || (message.tool_calls_json ? (() => { try { return JSON.parse(message.tool_calls_json) } catch { return [] } })() : [])
   const turnStats: TurnStats | null = !isHuman && message.decision_json ? (() => { try { return JSON.parse(message.decision_json) } catch { return null } })() : null
+  const attachments: ImageAttachmentInfo[] = message.attachments_json ? (() => { try { return JSON.parse(message.attachments_json) } catch { return [] } })() : []
 
   useEffect(() => {
     if (isStreaming && message.thinking) setThinkingOpen(true)
@@ -511,18 +690,21 @@ function ChatBubble({ message, agent, isStreaming }: { message: ChatMsg; agent: 
           {message.timestamp && <span style={{ fontSize: 10, color: 'var(--text-3)' }}>{formatTime(message.timestamp)}</span>}
           {message.streaming && <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: 'var(--blue)' }}><Loader2 size={10} style={{ animation: 'spin 1s linear infinite' }} /> 生成中</span>}
         </div>
-        <div style={{ padding: '12px 14px', borderRadius: isHuman ? '12px 2px 12px 12px' : '2px 12px 12px 12px', background: isHuman ? 'var(--blue-light)' : 'var(--bg-0)', border: `1px solid ${isHuman ? 'rgba(37,99,235,0.15)' : 'var(--border)'}`, boxShadow: 'var(--shadow-sm)' }}>
+        <div style={{ padding: '12px 14px', borderRadius: isHuman ? '12px 2px 12px 12px' : '2px 12px 12px 12px', background: isHuman ? 'var(--blue-light)' : 'var(--bg-0)', border: `1px solid ${isHuman ? 'rgba(37,99,235,0.15)' : 'var(--border)'}`, boxShadow: 'var(--shadow-sm)', maxWidth: '100%', overflow: 'hidden' }}>
           {message.thinking && (
             <div style={{ marginBottom: 8, borderRadius: 6, border: '1px solid var(--border)', overflow: 'hidden' }}>
               <button type="button" onClick={() => setThinkingOpen(!thinkingOpen)} style={{ width: '100%', padding: '6px 10px', border: 'none', background: 'var(--bg-2)', color: 'var(--text-3)', fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, textAlign: 'left' }}>
                 {thinkingOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />} 思考过程
                 {isStreaming && <Loader2 size={10} style={{ animation: 'spin 1s linear infinite', marginLeft: 'auto' }} />}
               </button>
-              {thinkingOpen && <div style={{ padding: '8px 10px', fontSize: 12, color: 'var(--text-2)', fontStyle: 'italic', lineHeight: 1.6, maxHeight: 200, overflow: 'auto' }}>{message.thinking}</div>}
+              {thinkingOpen && <div style={{ padding: '8px 10px', fontSize: 12, color: 'var(--text-2)', fontStyle: 'italic', lineHeight: 1.6, maxHeight: 200, overflow: 'auto', overflowWrap: 'anywhere' }}>{message.thinking}</div>}
             </div>
           )}
+          {attachments.length > 0 && <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>{attachments.map((img, i) => <img key={i} src={`data:${img.mimeType};base64,${img.data}`} alt={img.name || '附件'} style={{ maxWidth: 180, maxHeight: 140, borderRadius: 8, border: '1px solid var(--border)', objectFit: 'cover' }} />)}</div>}
           {toolCalls.length > 0 && <div style={{ marginBottom: 8 }}>{toolCalls.map(tc => <ToolCallPanel key={tc.id} tc={tc} isStreaming={isStreaming} />)}</div>}
-          <div style={{ fontSize: 13, lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{message.content || (message.streaming ? <span style={{ color: 'var(--text-3)' }}>正在思考...</span> : '')}</div>
+          {message.content
+            ? <MarkdownRenderer content={message.content || ''} />
+            : (message.streaming ? <div style={{ fontSize: 13, color: 'var(--text-3)' }}>正在思考...</div> : null)}
         </div>
         {/* 单次统计 */}
         {turnStats && (
@@ -543,7 +725,7 @@ function ChatBubble({ message, agent, isStreaming }: { message: ChatMsg; agent: 
 function DropdownPortal({ children, onClose, style }: { children: React.ReactNode; onClose: () => void; style: React.CSSProperties }) {
   return (<>
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 2000 }} />
-    <div style={{ position: 'fixed', minWidth: 220, maxHeight: 360, overflowY: 'auto', background: 'var(--bg-0)', border: '1px solid var(--border)', borderRadius: 12, boxShadow: '0 8px 30px rgba(0,0,0,0.12)', zIndex: 2001, padding: 6, ...style }}>
+    <div style={{ position: 'fixed', minWidth: 220, maxHeight: 360, overflowY: 'auto', overflowX: 'hidden', background: 'var(--bg-0)', border: '1px solid var(--border)', borderRadius: 12, boxShadow: '0 8px 30px rgba(0,0,0,0.12)', zIndex: 2001, padding: 6, boxSizing: 'border-box', transform: 'translateY(-100%)', ...style }}>
       {children}
     </div>
   </>)

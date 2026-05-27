@@ -1,5 +1,13 @@
 # 全栈架构规划 — Gateway 中心 + 微内核可扩展
 
+## Current implementation boundary (2026-05-27)
+
+- Real Agent runtimes currently exposed by this repository are `mock`, `claude`, and `codex`.
+- Gemini is not connected yet; any Gemini references in older architecture examples are future-target notes, not current capability.
+- Memory/RAG, true Multi-Agent collaboration, and event-triggered automation are future capabilities.
+- SQLite persistence is active via `better-sqlite3`; legacy JSON `data/ai-ide.db` is migrated into `data/ai-ide.sqlite` when present.
+
+
 > 本文档基于对 OpenClaw、OpenACP、ACP 协议生态、微内核 Agent 架构的深度调研而成。
 
 ## 一、核心设计理念
@@ -110,7 +118,7 @@ OpenClaw 的教训：**不是** React SPA + Express API 两个仓库。而是—
                     ┌──────────▼──────────────────────────┐
                     │        ACP Agent 子进程              │
                     │                                     │
-                    │  Claude Code  Codex  Gemini  Custom │
+                    │  Claude Code  Codex  Mock  Future │
                     │  Cursor  Goose  Qwen  Pi  ...      │
                     │                                     │
                     │  （ACP Registry 中 30+ 可用 Agent）   │
@@ -240,7 +248,7 @@ interface PluginContext {
 
 | 扩展点 | 注册方法 | 用途 | 示例 |
 |--------|---------|------|------|
-| **Agent 适配器** | `registerAgentAdapter` | 接入不同 ACP Agent | Claude/Codex/Gemini/自定义 |
+| **Agent 适配器** | `registerAgentAdapter` | 接入不同 ACP Agent | Claude/Codex/Mock; Gemini future/自定义 |
 | **Tool** | `registerTool` | Agent 可调用的工具 | 文件操作/Git/浏览器/自定义 |
 | **HTTP 路由** | `registerHttpRoute` | 扩展 HTTP API | OpenAI 兼容层/Webhook |
 | **WS 方法** | `registerWsMethod` | 扩展 WebSocket RPC | 自定义实时命令 |
@@ -266,7 +274,7 @@ plugins/
 │   └── adapters/          # 内置适配器配置
 │       ├── claude.ts
 │       ├── codex.ts
-│       ├── gemini.ts
+│       ├── mock.ts
 │       └── registry.ts    # 从 ACP Registry 自动发现
 │
 ├── web-ui/                # Web 界面托管
@@ -382,7 +390,7 @@ my-custom-plugin/
                     │
   ┌─ Agent 角色 ─────────────────────────┐
   │                                       │
-  │  Claude Code / Codex CLI / Gemini CLI │
+  │  Claude Code / Codex CLI / Mock │
   │  Cursor / Goose / Qwen Code / Pi     │
   │  Cline / Copilot / Junie / ...       │
   │                                       │
@@ -499,6 +507,7 @@ const builtinAdapters: Record<string, AgentAdapterConfig> = {
     args: ['@zed-industries/codex-acp'],
     envKeys: ['OPENAI_API_KEY']
   },
+  // Gemini is future work and is not exposed by current agents.create.
   gemini: {
     registryId: 'gemini-cli',
     command: 'gemini',
@@ -824,7 +833,7 @@ ai-ide-studio --daemon          # 后台模式
 # Agent 管理
 ai-ide-studio agents list
 ai-ide-studio agents start claude
-ai-ide-studio agents install gemini-cli
+# Gemini is not connected: do not create gemini runtime
 
 # Session
 ai-ide-studio sessions list
@@ -875,7 +884,7 @@ ai-ide-studio/
 │   │   │   └── adapters/
 │   │   │       ├── claude.ts
 │   │   │       ├── codex.ts
-│   │   │       ├── gemini.ts
+│   │   │       ├── mock.ts
 │   │   │       └── registry-loader.ts
 │   │   │
 │   │   ├── web-ui/                    # Web 界面托管
@@ -1141,7 +1150,7 @@ AI_IDE_STUDIO_STATE_DIR=~/.ai-ide-studio
 | MCP 桥接 | 外部 MCP Server 工具自动注册 |
 | SQLite 存储 | Session/Task/Message 持久化 |
 | Task 引擎 | 创建 → 分派 → 执行 → 完成全流程 |
-| 更多 Agent | Codex / Gemini 适配器 |
+| 更多 Agent | Codex / Gemini 适配器 | (future; not current)
 
 ### Phase 4：Skill + 记忆 + 自动化（Week 7-8）
 
@@ -1170,7 +1179,7 @@ AI_IDE_STUDIO_STATE_DIR=~/.ai-ide-studio
 | 维度 | OpenClaw | AI IDE Studio |
 |------|----------|---------------|
 | 定位 | 个人 AI 助手 + 多通道消息网关 | AI 编程协作 IDE + 任务管理 |
-| Agent 默认 | Pi 嵌入式运行时 | ACP 外部 Agent（Claude/Codex/Gemini） |
+| Agent 默认 | Pi 嵌入式运行时 | ACP 外部 Agent（Claude/Codex/Mock; Gemini future） |
 | UI | Lit Web Components | React 19 + Zustand |
 | 核心关注 | 消息路由 + 通道集成 | 任务管理 + Agent 协作 + 代码感知 |
 | 规模 | 936K 行，117 插件 | 轻量起步，关注可扩展性 |

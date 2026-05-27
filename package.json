@@ -11,13 +11,21 @@
     "dev:ui": "npm run dev -w ui",
     "dev:all": "concurrently \"npm run dev\" \"npm run dev:ui\"",
     "build": "tsc -p tsconfig.server.json && npm run build -w ui",
-    "start": "node dist/entry.js"
+    "start": "node dist/entry.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
+    "lint": "eslint src/ && npm run lint -w ui",
+    "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\" \"ui/src/**/*.{ts,tsx}\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\" \"ui/src/**/*.{ts,tsx}\""
   },
   "dependencies": {
     "@agentclientprotocol/claude-agent-acp": "^0.37.0",
     "@agentclientprotocol/codex-acp": "^0.0.44",
     "@agentclientprotocol/sdk": "^0.22.1",
     "@hono/node-server": "^1.14.0",
+    "better-sqlite3": "^12.10.0",
     "commander": "^13.1.0",
     "dotenv": "^16.5.0",
     "hono": "^4.7.0",
@@ -25,10 +33,16 @@
     "ws": "^8.18.0"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^24.12.3",
     "@types/ws": "^8.18.0",
     "concurrently": "^9.1.0",
+    "eslint": "^10.4.0",
+    "prettier": "^3.8.3",
     "tsx": "^4.19.0",
-    "typescript": "~6.0.2"
+    "typescript": "~6.0.2",
+    "typescript-eslint": "^8.60.0",
+    "vitest": "^4.1.7"
   }
 }

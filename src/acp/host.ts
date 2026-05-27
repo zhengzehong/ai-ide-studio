@@ -1,9 +1,10 @@
 import { spawn, type ChildProcess } from 'child_process'
+import { randomUUID } from 'crypto'
 import { Writable, Readable } from 'stream'
 import * as acp from '@agentclientprotocol/sdk'
 import { events } from '../core/events.js'
 import { agentStore } from '../store/agents.js'
-import type { SessionUpdateData, ToolCallData, ToolCallContentItem, TurnUsageData, SessionCapabilities, ModelInfo, ModeInfo, ImageAttachment } from '../types/ws-protocol.js'
+import type { AvailableCommandInfo, ConfigOptionInfo, ElicitationRequestData, PermissionRequestData, SessionInfoData, SessionUpdateData, ToolCallData, ToolCallContentItem, TurnUsageData, SessionCapabilities, ImageAttachment } from '../types/ws-protocol.js'
 
 interface AgentConnection {
   agentId: string
@@ -18,6 +19,80 @@ interface AgentConnection {
 const RUNTIME_COMMANDS: Record<string, { cmd: string; args: string[] }> = {
   claude: { cmd: process.platform === 'win32' ? 'npx.cmd' : 'npx', args: ['claude-agent-acp'] },
   codex: { cmd: process.platform === 'win32' ? 'npx.cmd' : 'npx', args: ['codex-acp'] },
+}
+
+interface PendingPermission {
+  resolve: (value: acp.RequestPermissionResponse) => void
+  timeout: ReturnType<typeof setTimeout>
+}
+
+interface PendingElicitation {
+  resolve: (value: acp.CreateElicitationResponse) => void
+  timeout: ReturnType<typeof setTimeout>
+}
+
+interface TerminalProcess {
+  sessionId: string
+  ourSessionId: string
+  proc: ChildProcess
+  output: string
+  truncated: boolean
+  exitCode?: number | null
+  signal?: string | null
+}
+
+const pendingPermissions = new Map<string, PendingPermission>()
+const pendingElicitations = new Map<string, PendingElicitation>()
+const terminals = new Map<string, TerminalProcess>()
+
+function requestKey(sessionId: string, requestId: string): string {
+  return `${sessionId}:${requestId}`
+}
+
+type InitialSessionState = {
+  models?: acp.SessionModelState | null
+  modes?: acp.SessionModeState | null
+  configOptions?: acp.SessionConfigOption[] | null
+}
+
+function updateInitialCapabilities(conn: AgentConnection, ourSessionId: string, result: InitialSessionState): SessionCapabilities {
+  let caps: SessionCapabilities = conn.sessionCapabilities.get(ourSessionId) || {}
+
+  if (result.models) {
+    caps = {
+      ...caps,
+      models: result.models.availableModels.map(m => ({
+        modelId: m.modelId,
+        name: m.name,
+        description: m.description ?? undefined,
+      })),
+      currentModelId: result.models.currentModelId,
+    }
+  }
+
+  if (conn.agentCapabilities?.promptCapabilities) {
+    caps = {
+      ...caps,
+      supportsImages: conn.agentCapabilities.promptCapabilities.image ?? false,
+      supportsAudio: conn.agentCapabilities.promptCapabilities.audio ?? false,
+    }
+  }
+
+  if (result.modes) {
+    caps = {
+      ...caps,
+      modes: result.modes.availableModes.map(m => ({ modeId: m.id, name: m.name, description: m.description ?? undefined })),
+      currentModeId: result.modes.currentModeId,
+    }
+  }
+
+  if (result.configOptions) {
+    caps = mergeCapabilitiesFromConfig(caps, mapConfigOptions(result.configOptions))
+  }
+
+  conn.sessionCapabilities.set(ourSessionId, caps)
+  events.emit('session:capabilities', { sessionId: ourSessionId, capabilities: caps })
+  return caps
 }
 
 export const acpHost = {
@@ -67,12 +142,15 @@ export const acpHost = {
       protocolVersion: acp.PROTOCOL_VERSION,
       clientCapabilities: {
         fs: { readTextFile: true, writeTextFile: true },
+        terminal: true,
+        elicitation: { form: {}, url: {} },
       },
+      clientInfo: { name: 'ai-ide-studio', version: '0.2.0' },
     })
 
     console.log(`[ACP] Agent ${agentId} 初始化成功 (protocol v${initResult.protocolVersion})`)
 
-    const agentCaps = initResult.capabilities
+    const agentCaps = initResult.agentCapabilities
     console.log(`[ACP] Agent ${agentId} 能力: image=${agentCaps?.promptCapabilities?.image ?? false}, audio=${agentCaps?.promptCapabilities?.audio ?? false}, loadSession=${agentCaps?.loadSession ?? false}`)
 
     const conn: AgentConnection = {
@@ -118,30 +196,42 @@ export const acpHost = {
     const acpSessionId = result.sessionId
     conn.acpSessions.set(ourSessionId, acpSessionId)
 
-    const caps: SessionCapabilities = {}
-    if (result.models) {
-      caps.models = result.models.availableModels.map(m => ({
-        modelId: m.modelId,
-        name: m.name,
-        description: m.description ?? undefined,
-      }))
-      caps.currentModelId = result.models.currentModelId
-    }
-
-    if (conn.agentCapabilities?.promptCapabilities) {
-      caps.supportsImages = conn.agentCapabilities.promptCapabilities.image ?? false
-      caps.supportsAudio = conn.agentCapabilities.promptCapabilities.audio ?? false
-    }
-
-    if (result.modes) {
-      caps.modes = result.modes.availableModes.map(m => ({ modeId: m.modeId, name: m.name, description: m.description ?? undefined }))
-      caps.currentModeId = result.modes.currentModeId
-    }
-
-    conn.sessionCapabilities.set(ourSessionId, caps)
-    events.emit('session:capabilities', { sessionId: ourSessionId, capabilities: caps })
+    updateInitialCapabilities(conn, ourSessionId, result)
 
     return acpSessionId
+  },
+
+  async resumeSession(agentId: string, ourSessionId: string, acpSessionId: string): Promise<void> {
+    const conn = acpHost.agents.get(agentId)
+    if (!conn) throw new Error(`Agent ${agentId} 未运行`)
+    if (conn.acpSessions.get(ourSessionId) === acpSessionId) return
+
+    if (conn.agentCapabilities?.sessionCapabilities?.resume) {
+      const result = await conn.connection.resumeSession({
+        sessionId: acpSessionId,
+        cwd: process.cwd(),
+        mcpServers: [],
+      })
+      conn.acpSessions.set(ourSessionId, acpSessionId)
+      updateInitialCapabilities(conn, ourSessionId, result)
+      return
+    }
+
+    if (conn.agentCapabilities?.loadSession) {
+      const result = await conn.connection.loadSession({
+        sessionId: acpSessionId,
+        cwd: process.cwd(),
+        mcpServers: [],
+      })
+      conn.acpSessions.set(ourSessionId, acpSessionId)
+      updateInitialCapabilities(conn, ourSessionId, result)
+      return
+    }
+
+    const newAcpSessionId = await acpHost.newSession(agentId, ourSessionId)
+    if (newAcpSessionId !== acpSessionId) {
+      console.warn(`[ACP] Agent ${agentId} 不支持恢复会话，已创建新的 ACP session: ${newAcpSessionId}`)
+    }
   },
 
   async prompt(agentId: string, ourSessionId: string, content: string, images?: ImageAttachment[]): Promise<void> {
@@ -198,7 +288,8 @@ export const acpHost = {
       try {
         await conn.connection.setSessionConfigOption({
           sessionId: acpSessionId,
-          configOption: { type: 'select', id: 'model', name: 'Model', value: modelId, options: [] },
+          configId: 'model',
+          value: modelId,
         })
         console.log(`[ACP] Agent ${agentId} 模型已通过 configOption 切换: ${modelId}`)
       } catch (err2) {
@@ -212,6 +303,27 @@ export const acpHost = {
     events.emit('session:capabilities', { sessionId: ourSessionId, capabilities: caps })
   },
 
+  async setConfig(agentId: string, ourSessionId: string, configId: string, value: string | boolean): Promise<void> {
+    const conn = acpHost.agents.get(agentId)
+    if (!conn) throw new Error(`Agent ${agentId} 未运行`)
+    const acpSessionId = conn.acpSessions.get(ourSessionId)
+    if (!acpSessionId) throw new Error(`Session ${ourSessionId} 没有对应的 ACP session`)
+
+    const result = typeof value === 'boolean'
+      ? await conn.connection.setSessionConfigOption({ sessionId: acpSessionId, configId, type: 'boolean', value })
+      : await conn.connection.setSessionConfigOption({ sessionId: acpSessionId, configId, value })
+
+    const configOptions = mapConfigOptions(result.configOptions)
+    const caps = mergeCapabilitiesFromConfig(conn.sessionCapabilities.get(ourSessionId) || {}, configOptions)
+    conn.sessionCapabilities.set(ourSessionId, caps)
+    events.emit('session:capabilities', { sessionId: ourSessionId, capabilities: caps })
+    events.emit('session:update', {
+      sessionId: ourSessionId,
+      agentId,
+      data: { messageId: `config-${Date.now()}`, role: 'system', configOptions } satisfies SessionUpdateData,
+    })
+  },
+
   async setMode(agentId: string, ourSessionId: string, modeId: string): Promise<void> {
     const conn = acpHost.agents.get(agentId)
     if (!conn) throw new Error(`Agent ${agentId} 未运行`)
@@ -222,6 +334,23 @@ export const acpHost = {
     caps.currentModeId = modeId
     conn.sessionCapabilities.set(ourSessionId, caps)
     events.emit('session:capabilities', { sessionId: ourSessionId, capabilities: caps })
+  },
+
+  async forkSession(agentId: string, sourceSessionId: string, targetSessionId: string): Promise<string> {
+    const conn = acpHost.agents.get(agentId)
+    if (!conn) throw new Error(`Agent ${agentId} 未运行`)
+    const sourceAcpSessionId = conn.acpSessions.get(sourceSessionId)
+    if (!sourceAcpSessionId) throw new Error(`Session ${sourceSessionId} 没有对应的 ACP session`)
+    if (!conn.agentCapabilities?.sessionCapabilities?.fork) throw new Error(`Agent ${agentId} 不支持 fork 会话`)
+
+    const result = await conn.connection.unstable_forkSession({
+      sessionId: sourceAcpSessionId,
+      cwd: process.cwd(),
+      mcpServers: [],
+    })
+    conn.acpSessions.set(targetSessionId, result.sessionId)
+    updateInitialCapabilities(conn, targetSessionId, result)
+    return result.sessionId
   },
 
   getSessionCapabilities(agentId: string, ourSessionId: string): SessionCapabilities | undefined {
@@ -251,6 +380,101 @@ export const acpHost = {
   listRunning(): string[] {
     return Array.from(acpHost.agents.keys())
   },
+
+  resolvePermission(ourSessionId: string, requestId: string, optionId?: string, cancelled?: boolean): boolean {
+    const key = requestKey(ourSessionId, requestId)
+    const pending = pendingPermissions.get(key)
+    if (!pending) return false
+    clearTimeout(pending.timeout)
+    pendingPermissions.delete(key)
+    pending.resolve(cancelled || !optionId ? { outcome: { outcome: 'cancelled' } } : { outcome: { outcome: 'selected', optionId } })
+    return true
+  },
+
+  resolveElicitation(ourSessionId: string, requestId: string, action: 'accept' | 'decline' | 'cancel', content?: Record<string, string | number | boolean | string[]>): boolean {
+    const key = requestKey(ourSessionId, requestId)
+    const pending = pendingElicitations.get(key)
+    if (!pending) return false
+    clearTimeout(pending.timeout)
+    pendingElicitations.delete(key)
+    if (action === 'accept') pending.resolve({ action, content: content ?? {} })
+    else pending.resolve({ action })
+    return true
+  },
+}
+
+
+function flattenSelectOptions(options: acp.SessionConfigSelect['options']): { value: string; name: string; description?: string; group?: string }[] {
+  const flattened: { value: string; name: string; description?: string; group?: string }[] = []
+  for (const option of options) {
+    if ('options' in option) {
+      for (const child of option.options) flattened.push({ value: child.value, name: child.name, description: child.description ?? undefined, group: option.name })
+    } else {
+      flattened.push({ value: option.value, name: option.name, description: option.description ?? undefined })
+    }
+  }
+  return flattened
+}
+
+function mapConfigOptions(options: acp.SessionConfigOption[]): ConfigOptionInfo[] {
+  return options.map((option) => {
+    const base = {
+      id: option.id,
+      name: option.name,
+      description: option.description ?? undefined,
+      category: option.category ?? undefined,
+      type: option.type,
+      currentValue: option.currentValue,
+    }
+    if (option.type === 'select') return { ...base, options: flattenSelectOptions(option.options) }
+    return base
+  })
+}
+
+function mergeCapabilitiesFromConfig(caps: SessionCapabilities, configOptions: ConfigOptionInfo[]): SessionCapabilities {
+  const next: SessionCapabilities = { ...caps, configOptions }
+  const modelOpt = configOptions.find(o => o.category === 'model' || o.id === 'model')
+  if (modelOpt?.type === 'select') {
+    if (typeof modelOpt.currentValue === 'string') next.currentModelId = modelOpt.currentValue
+    if (modelOpt.options) next.models = modelOpt.options.map(o => ({ modelId: o.value, name: o.name, description: o.description }))
+  }
+  const modeOpt = configOptions.find(o => o.category === 'mode' || o.id === 'mode')
+  if (modeOpt?.type === 'select') {
+    if (typeof modeOpt.currentValue === 'string') next.currentModeId = modeOpt.currentValue
+    if (modeOpt.options) next.modes = modeOpt.options.map(o => ({ modeId: o.value, name: o.name, description: o.description }))
+  }
+  return next
+}
+
+function mapAvailableCommands(commands: acp.AvailableCommand[]): AvailableCommandInfo[] {
+  return commands.map(command => ({ name: command.name, description: command.description, input: command.input ? { hint: command.input.hint } : null }))
+}
+
+function contentBlockToText(block: acp.ContentBlock): string {
+  if (block.type === 'text') return (block as acp.TextContent).text
+  if (block.type === 'image') {
+    const image = block as acp.ImageContent
+    return image.uri ? `[图片](${image.uri})` : '[图片]'
+  }
+  if (block.type === 'resource_link') return `[资源](${(block as acp.ResourceLink).uri})`
+  if (block.type === 'resource') return '[资源]'
+  return JSON.stringify(block)
+}
+
+function extractMetaText(meta: unknown, key: string): string | undefined {
+  if (!meta || typeof meta !== 'object') return undefined
+  const value = (meta as Record<string, unknown>)[key]
+  if (!value || typeof value !== 'object') return undefined
+  const data = (value as Record<string, unknown>).data
+  return typeof data === 'string' ? data : undefined
+}
+
+function extractTerminalOutput(update: { _meta?: unknown }): string | undefined {
+  return extractMetaText(update._meta, 'terminal_output_delta') || extractMetaText(update._meta, 'terminal_output')
+}
+
+function extractProgress(update: { _meta?: unknown }): string | undefined {
+  return extractMetaText(update._meta, 'mcp_output_delta')
 }
 
 function mapToolCallContent(items?: acp.ToolCallContent[]): ToolCallContentItem[] | undefined {
@@ -268,6 +492,33 @@ function mapToolCallContent(items?: acp.ToolCallContent[]): ToolCallContentItem[
     const block = c.content
     return { type: 'text' as const, text: block.type === 'text' ? (block as acp.TextContent).text : JSON.stringify(block) }
   })
+}
+
+function toolCallTitle(toolCall: { title?: string | null; locations?: acp.ToolCallLocation[] | null; rawInput?: unknown; toolCallId: string }): string {
+  if (toolCall.title) return toolCall.title
+  if (toolCall.locations?.[0]) return toolCall.locations[0].path.split(/[/\\]/).pop() || ''
+  if (toolCall.rawInput && typeof toolCall.rawInput === 'object') {
+    const inp = toolCall.rawInput as Record<string, unknown>
+    if (inp.command) return `执行 ${String(inp.command).slice(0, 60)}`
+    if (inp.path) return String(inp.path).split(/[/\\]/).pop() || ''
+    if (inp.file_path) return String(inp.file_path).split(/[/\\]/).pop() || ''
+  }
+  return `工具调用 #${toolCall.toolCallId.slice(-6)}`
+}
+
+function mapToolCallUpdate(toolCall: acp.ToolCallUpdate): ToolCallData {
+  return {
+    id: toolCall.toolCallId,
+    title: toolCallTitle(toolCall),
+    kind: toolCall.kind ?? undefined,
+    status: toolCall.status ?? undefined,
+    locations: toolCall.locations?.map(l => ({ path: l.path, line: l.line ?? undefined })) ?? undefined,
+    rawInput: toolCall.rawInput,
+    rawOutput: toolCall.rawOutput,
+    content: mapToolCallContent(toolCall.content ?? undefined),
+    terminalOutputDelta: extractTerminalOutput(toolCall),
+    progressDelta: extractProgress(toolCall),
+  }
 }
 
 function createClientHandler(agentId: string): acp.Client {
@@ -318,15 +569,9 @@ function createClientHandler(agentId: string): acp.Client {
         }
         case 'tool_call': {
           const tc = update as acp.ToolCall & { sessionUpdate: string }
-          let title = tc.title
-          if (!title && tc.locations?.[0]) title = tc.locations[0].path.split(/[/\\]/).pop() || ''
-          if (!title && tc.rawInput && typeof tc.rawInput === 'object') {
-            const inp = tc.rawInput as Record<string, unknown>
-            title = (inp.command && `执行 ${String(inp.command).slice(0, 60)}`) || (inp.path && String(inp.path).split(/[/\\]/).pop()) || (inp.file_path && String(inp.file_path).split(/[/\\]/).pop()) || ''
-          }
           const toolData: ToolCallData = {
             id: tc.toolCallId,
-            title: title || '',
+            title: toolCallTitle(tc),
             kind: tc.kind ?? undefined,
             status: tc.status ?? 'in_progress',
             locations: tc.locations?.map(l => ({ path: l.path, line: l.line ?? undefined })),
@@ -342,16 +587,7 @@ function createClientHandler(agentId: string): acp.Client {
         }
         case 'tool_call_update': {
           const tcu = update as acp.ToolCallUpdate & { sessionUpdate: string }
-          const toolData: ToolCallData = {
-            id: tcu.toolCallId,
-            title: tcu.title ?? '',
-            kind: tcu.kind ?? undefined,
-            status: tcu.status ?? undefined,
-            locations: tcu.locations?.map(l => ({ path: l.path, line: l.line ?? undefined })),
-            rawInput: tcu.rawInput,
-            rawOutput: tcu.rawOutput,
-            content: mapToolCallContent(tcu.content ?? undefined),
-          }
+          const toolData = mapToolCallUpdate(tcu)
           events.emit('session:update', {
             sessionId: ourSessionId, agentId,
             data: { messageId: turnMessageId(acpSessionId), role: 'agent', toolCallUpdate: toolData } satisfies SessionUpdateData,
@@ -377,25 +613,33 @@ function createClientHandler(agentId: string): acp.Client {
         }
         case 'config_option_update': {
           const cou = update as acp.ConfigOptionUpdate & { sessionUpdate: string }
-          const modelOpt = cou.configOptions.find(o => o.category === 'model')
-          if (modelOpt && modelOpt.type === 'select') {
-            const conn = acpHost.agents.get(agentId)
-            if (conn) {
-              const caps = conn.sessionCapabilities.get(ourSessionId) || {}
-              caps.currentModelId = (modelOpt as acp.SessionConfigSelect & { type: string; id: string; name: string }).value
-              const selectOpt = modelOpt as acp.SessionConfigSelect & { type: string; id: string; name: string }
-              caps.models = selectOpt.options.map(o => ({ modelId: o.value, name: o.label }))
-              conn.sessionCapabilities.set(ourSessionId, caps)
-              events.emit('session:capabilities', { sessionId: ourSessionId, capabilities: caps })
-            }
+          const configOptions = mapConfigOptions(cou.configOptions)
+          const conn = acpHost.agents.get(agentId)
+          if (conn) {
+            const caps = mergeCapabilitiesFromConfig(conn.sessionCapabilities.get(ourSessionId) || {}, configOptions)
+            conn.sessionCapabilities.set(ourSessionId, caps)
+            events.emit('session:capabilities', { sessionId: ourSessionId, capabilities: caps })
           }
+          events.emit('session:update', {
+            sessionId: ourSessionId, agentId,
+            data: { messageId: turnMessageId(acpSessionId), role: 'system', configOptions } satisfies SessionUpdateData,
+          })
           break
         }
         case 'session_info_update': {
           const siu = update as acp.SessionInfoUpdate & { sessionUpdate: string }
-          if (siu.title) {
-            console.log(`[ACP] Session ${ourSessionId} title: ${siu.title}`)
+          const sessionInfo: SessionInfoData = { title: siu.title ?? undefined, updatedAt: siu.updatedAt ?? undefined }
+          const conn = acpHost.agents.get(agentId)
+          if (conn) {
+            const caps = conn.sessionCapabilities.get(ourSessionId) || {}
+            caps.sessionInfo = sessionInfo
+            conn.sessionCapabilities.set(ourSessionId, caps)
+            events.emit('session:capabilities', { sessionId: ourSessionId, capabilities: caps })
           }
+          events.emit('session:update', {
+            sessionId: ourSessionId, agentId,
+            data: { messageId: turnMessageId(acpSessionId), role: 'system', sessionInfo } satisfies SessionUpdateData,
+          })
           break
         }
         case 'plan': {
@@ -421,9 +665,30 @@ function createClientHandler(agentId: string): acp.Client {
           }
           break
         }
-        case 'available_commands_update':
-        case 'user_message_chunk':
+        case 'available_commands_update': {
+          const acu = update as acp.AvailableCommandsUpdate & { sessionUpdate: string }
+          const commands = mapAvailableCommands(acu.availableCommands)
+          const conn = acpHost.agents.get(agentId)
+          if (conn) {
+            const caps = conn.sessionCapabilities.get(ourSessionId) || {}
+            caps.commands = commands
+            conn.sessionCapabilities.set(ourSessionId, caps)
+            events.emit('session:capabilities', { sessionId: ourSessionId, capabilities: caps })
+          }
+          events.emit('session:update', {
+            sessionId: ourSessionId, agentId,
+            data: { messageId: turnMessageId(acpSessionId), role: 'system', commands } satisfies SessionUpdateData,
+          })
           break
+        }
+        case 'user_message_chunk': {
+          const chunk = update as acp.ContentChunk & { sessionUpdate: string }
+          events.emit('session:update', {
+            sessionId: ourSessionId, agentId,
+            data: { messageId: chunk.messageId || turnMessageId(acpSessionId), role: 'system', content: contentBlockToText(chunk.content), eventType: 'user_message_chunk' } satisfies SessionUpdateData,
+          })
+          break
+        }
         default:
           console.log(`[ACP] 未处理的 sessionUpdate 类型: ${updateType}`)
           break
@@ -431,12 +696,136 @@ function createClientHandler(agentId: string): acp.Client {
     },
 
     async requestPermission(params) {
-      console.log(`[ACP][${agentId}] 权限请求: ${params.toolCall.title}`)
-      const allowOption = params.options.find(o => o.kind === 'allow_once' || o.kind === 'allow_always')
-      if (allowOption) {
-        return { outcome: { outcome: 'selected', optionId: allowOption.optionId } }
+      const ourSessionId = findOurSessionId(agentId, params.sessionId)
+      if (!ourSessionId) return { outcome: { outcome: 'cancelled' } }
+
+      const requestId = `${params.toolCall.toolCallId || 'permission'}-${Date.now()}`
+      const permissionRequest: PermissionRequestData = {
+        id: requestId,
+        toolCall: mapToolCallUpdate(params.toolCall),
+        options: params.options.map(o => ({ optionId: o.optionId, name: o.name, kind: o.kind })),
       }
-      return { outcome: { outcome: 'selected', optionId: params.options[0].optionId } }
+
+      events.emit('session:update', {
+        sessionId: ourSessionId,
+        agentId,
+        data: { messageId: requestId, role: 'system', permissionRequest } satisfies SessionUpdateData,
+      })
+
+      return new Promise<acp.RequestPermissionResponse>((resolve) => {
+        const key = requestKey(ourSessionId, requestId)
+        const timeout = setTimeout(() => {
+          pendingPermissions.delete(key)
+          resolve({ outcome: { outcome: 'cancelled' } })
+        }, 10 * 60 * 1000)
+        pendingPermissions.set(key, { resolve, timeout })
+      })
+    },
+
+    async createTerminal(params) {
+      const ourSessionId = findOurSessionId(agentId, params.sessionId)
+      const terminalId = `term-${randomUUID().slice(0, 8)}`
+      const proc = spawn(params.command, params.args ?? [], {
+        cwd: params.cwd ?? process.cwd(),
+        env: {
+          ...process.env,
+          ...Object.fromEntries((params.env ?? []).map(item => [item.name, item.value])),
+        },
+        shell: process.platform === 'win32',
+      })
+
+      const term: TerminalProcess = {
+        sessionId: params.sessionId,
+        ourSessionId: ourSessionId ?? params.sessionId,
+        proc,
+        output: '',
+        truncated: false,
+      }
+      terminals.set(terminalId, term)
+
+      const appendOutput = (chunk: Buffer) => {
+        term.output += chunk.toString()
+        const limit = params.outputByteLimit ?? 200_000
+        if (Buffer.byteLength(term.output, 'utf8') > limit) {
+          term.output = term.output.slice(-limit)
+          term.truncated = true
+        }
+      }
+      proc.stdout?.on('data', appendOutput)
+      proc.stderr?.on('data', appendOutput)
+      proc.on('exit', (code, signal) => {
+        term.exitCode = code
+        term.signal = signal
+      })
+
+      return { terminalId }
+    },
+
+    async terminalOutput(params) {
+      const term = terminals.get(params.terminalId)
+      return {
+        output: term?.output ?? '',
+        truncated: term?.truncated ?? false,
+        exitStatus: term && (term.exitCode !== undefined || term.signal !== undefined)
+          ? { exitCode: term.exitCode ?? null, signal: term.signal ?? null }
+          : null,
+      }
+    },
+
+    async waitForTerminalExit(params) {
+      const term = terminals.get(params.terminalId)
+      if (!term) return { exitCode: null, signal: null }
+      if (term.exitCode !== undefined || term.signal !== undefined) {
+        return { exitCode: term.exitCode ?? null, signal: term.signal ?? null }
+      }
+      return await new Promise<acp.WaitForTerminalExitResponse>((resolve) => {
+        term.proc.once('exit', (code, signal) => resolve({ exitCode: code, signal }))
+      })
+    },
+
+    async killTerminal(params) {
+      terminals.get(params.terminalId)?.proc.kill()
+      return {}
+    },
+
+    async releaseTerminal(params) {
+      const term = terminals.get(params.terminalId)
+      if (term && term.exitCode === undefined && term.signal === undefined) term.proc.kill()
+      terminals.delete(params.terminalId)
+      return {}
+    },
+
+    async unstable_createElicitation(params) {
+      const scoped = params as acp.CreateElicitationRequest & { sessionId?: string; requestId?: string | number | null; toolCallId?: string | null; elicitationId?: string; url?: string }
+      const ourSessionId = scoped.sessionId ? findOurSessionId(agentId, scoped.sessionId) : undefined
+      if (!ourSessionId) return { action: 'cancel' }
+
+      const requestId = scoped.elicitationId || (scoped.requestId != null ? String(scoped.requestId) : `elicitation-${Date.now()}`)
+      const elicitationRequest: ElicitationRequestData = {
+        id: requestId,
+        toolCallId: scoped.toolCallId ?? undefined,
+        message: params.message,
+        requestedSchema: params.mode === 'form' ? params.requestedSchema : { url: scoped.url },
+      }
+
+      events.emit('session:update', {
+        sessionId: ourSessionId,
+        agentId,
+        data: { messageId: requestId, role: 'system', elicitationRequest } satisfies SessionUpdateData,
+      })
+
+      return new Promise<acp.CreateElicitationResponse>((resolve) => {
+        const key = requestKey(ourSessionId, requestId)
+        const timeout = setTimeout(() => {
+          pendingElicitations.delete(key)
+          resolve({ action: 'cancel' })
+        }, 10 * 60 * 1000)
+        pendingElicitations.set(key, { resolve, timeout })
+      })
+    },
+
+    async unstable_completeElicitation() {
+      return
     },
 
     async readTextFile(params) {

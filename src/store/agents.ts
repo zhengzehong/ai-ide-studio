@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import { getData, persist } from './db.js'
+import { getDb } from './db.js'
 
 export interface AgentRow {
   id: string
@@ -23,7 +23,6 @@ export interface CreateAgentInput {
 
 export const agentStore = {
   create(input: CreateAgentInput): AgentRow {
-    const data = getData()
     const id = input.id || `agent-${randomUUID().slice(0, 8)}`
     const agent: AgentRow = {
       id,
@@ -35,46 +34,44 @@ export const agentStore = {
       config_json: input.config ? JSON.stringify(input.config) : null,
       created_at: new Date().toISOString(),
     }
-    data.agents[id] = agent
-    persist()
+    getDb().prepare(`
+      INSERT INTO agents (id, type, name, runtime, status, permission_level, config_json, created_at)
+      VALUES (@id, @type, @name, @runtime, @status, @permission_level, @config_json, @created_at)
+    `).run(agent)
     return agent
   },
 
   get(id: string): AgentRow | undefined {
-    const data = getData()
-    return data.agents[id] as AgentRow | undefined
+    return getDb().prepare<[string], AgentRow>('SELECT * FROM agents WHERE id = ?').get(id)
   },
 
   list(): AgentRow[] {
-    const data = getData()
-    return Object.values(data.agents) as AgentRow[]
+    return getDb().prepare<[], AgentRow>('SELECT * FROM agents ORDER BY created_at ASC').all()
   },
 
   updateStatus(id: string, status: string): void {
-    const data = getData()
-    const agent = data.agents[id] as AgentRow | undefined
-    if (agent) {
-      agent.status = status
-      persist()
-    }
+    getDb().prepare('UPDATE agents SET status = ? WHERE id = ?').run(status, id)
   },
 
   delete(id: string): void {
-    const data = getData()
-    delete data.agents[id]
-    persist()
+    getDb().prepare('DELETE FROM agents WHERE id = ?').run(id)
   },
 
   upsert(input: CreateAgentInput): AgentRow {
     const existing = input.id ? agentStore.get(input.id) : undefined
     if (existing) {
-      const data = getData()
-      existing.type = input.type
-      existing.name = input.name
-      existing.runtime = input.runtime
-      data.agents[existing.id] = existing
-      persist()
-      return existing
+      const updated: AgentRow = {
+        ...existing,
+        type: input.type,
+        name: input.name,
+        runtime: input.runtime,
+      }
+      getDb().prepare(`
+        UPDATE agents
+        SET type = @type, name = @name, runtime = @runtime
+        WHERE id = @id
+      `).run(updated)
+      return updated
     }
     return agentStore.create(input)
   },

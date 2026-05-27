@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Plus } from 'lucide-react';
+import { Plus, X } from 'lucide-react';
 import { useAgentStore, type AgentData } from '../stores/agent.store';
 import { useTaskStore, type TaskData } from '../stores/task.store';
 
@@ -18,12 +18,20 @@ const COLUMNS: Column[] = [
   { id: 'done', title: '已完成', color: 'var(--green)', match: s => s === 'completed' },
   { id: 'backlog', title: '待办', color: 'var(--text-3)', match: s => s === 'backlog' },
 ];
+const STATUS_ACTIONS = [
+  { status: 'executing', label: '执行中' },
+  { status: 'reviewing', label: '审查中' },
+  { status: 'completed', label: '已完成' },
+  { status: 'blocked', label: '已阻塞' },
+];
 
 export default function TaskBoard() {
   const tasks = useTaskStore(s => s.tasks);
   const agents = useAgentStore(s => s.agents);
   const createTask = useTaskStore(s => s.createTask);
+  const updateTask = useTaskStore(s => s.updateTask);
   const [showNew, setShowNew] = useState(false);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
 
   const grouped = useMemo(() => {
     const m = new Map<string, TaskData[]>();
@@ -52,7 +60,7 @@ export default function TaskBoard() {
               <div style={{ flex: 1, overflowY: 'auto', padding: '0 10px 10px', display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {items.length === 0
                   ? <div style={{ textAlign: 'center', color: 'var(--text-3)', fontSize: 12, padding: '32px 16px' }}>暂无任务</div>
-                  : items.map(t => <TaskCard key={t.id} task={t} agents={agents} />)
+                  : items.map(t => <TaskCard key={t.id} task={t} agents={agents} onOpen={() => setSelectedTaskId(t.id)} />)
                 }
               </div>
             </div>
@@ -60,16 +68,24 @@ export default function TaskBoard() {
         })}
       </div>
       {showNew && <NewTaskModal agents={agents} onCreate={async (title, desc, agentId) => { await createTask(title, desc, agentId); setShowNew(false); }} onClose={() => setShowNew(false)} />}
+      {selectedTaskId && (
+        <TaskDetailModal
+          task={tasks.find(t => t.id === selectedTaskId)}
+          agents={agents}
+          onClose={() => setSelectedTaskId(null)}
+          onStatusChange={(status) => updateTask(selectedTaskId, status)}
+        />
+      )}
     </div>
   );
 }
 
-function TaskCard({ task, agents }: { task: TaskData; agents: AgentData[] }) {
+function TaskCard({ task, agents, onOpen }: { task: TaskData; agents: AgentData[]; onOpen: () => void }) {
   const source = SOURCE_META[task.source] ?? SOURCE_META.human;
   const agent = task.assigned_agent_id ? agents.find(a => a.id === task.assigned_agent_id) : null;
 
   return (
-    <div style={{ background: 'var(--bg-0)', border: '1px solid var(--border)', borderRadius: 10, padding: 14, cursor: 'pointer', transition: 'box-shadow 0.15s' }}>
+    <button type="button" onClick={onOpen} style={{ background: 'var(--bg-0)', border: '1px solid var(--border)', borderRadius: 10, padding: 14, cursor: 'pointer', transition: 'box-shadow 0.15s', textAlign: 'left', color: 'var(--text-1)' }}>
       <div style={{ fontSize: 13, fontWeight: 600, lineHeight: 1.5, marginBottom: 8 }}>{task.title}</div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
         <span style={{ padding: '2px 7px', borderRadius: 4, background: source.bg, color: source.color, fontWeight: 600, fontSize: 10 }}>{source.label}</span>
@@ -83,9 +99,66 @@ function TaskCard({ task, agents }: { task: TaskData; agents: AgentData[] }) {
         )}
         {task.description && <span style={{ fontSize: 10, color: 'var(--text-3)', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.description}</span>}
       </div>
-    </div>
+    </button>
   );
 }
+
+function TaskDetailModal({ task, agents, onClose, onStatusChange }: { task: TaskData | undefined; agents: AgentData[]; onClose: () => void; onStatusChange: (status: string) => Promise<TaskData> }) {
+  const [updating, setUpdating] = useState<string | null>(null);
+  if (!task) return null;
+
+  const source = SOURCE_META[task.source] ?? SOURCE_META.human;
+  const agent = task.assigned_agent_id ? agents.find(a => a.id === task.assigned_agent_id) : null;
+  const detailStyle: React.CSSProperties = { display: 'grid', gridTemplateColumns: '92px 1fr', gap: 10, fontSize: 12, alignItems: 'start' };
+
+  const changeStatus = async (status: string) => {
+    setUpdating(status);
+    try {
+      await onStatusChange(status);
+    } finally {
+      setUpdating(null);
+    }
+  };
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.24)', zIndex: 1000 }} />
+      <aside style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 'min(460px, 92vw)', background: 'var(--bg-0)', borderLeft: '1px solid var(--border)', boxShadow: 'var(--shadow-lg)', zIndex: 1001, padding: 22, overflowY: 'auto' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18 }}>
+          <h2 style={{ flex: 1, fontSize: 16, fontWeight: 700 }}>任务详情</h2>
+          <button type="button" onClick={onClose} style={{ border: 'none', background: 'var(--bg-2)', borderRadius: 6, width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--text-2)' }}><X size={15} /></button>
+        </div>
+
+        <div style={{ fontSize: 18, fontWeight: 700, lineHeight: 1.45, marginBottom: 10 }}>{task.title}</div>
+        <div style={{ color: 'var(--text-2)', fontSize: 13, lineHeight: 1.7, marginBottom: 18, whiteSpace: 'pre-wrap' }}>{task.description || '暂无描述'}</div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 14, borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg-1)', marginBottom: 18 }}>
+          <DetailRow label="状态" value={task.status} />
+          <DetailRow label="阶段" value={task.stage || '未设置'} />
+          <div style={detailStyle}><span style={{ color: 'var(--text-3)' }}>指派 Agent</span><span>{agent ? `${agent.name} (${agent.runtime})` : task.assigned_agent_id || '未指派'}</span></div>
+          <div style={detailStyle}><span style={{ color: 'var(--text-3)' }}>来源</span><span style={{ width: 'fit-content', padding: '2px 7px', borderRadius: 4, background: source.bg, color: source.color, fontWeight: 600 }}>{source.label} ({task.source})</span></div>
+          <DetailRow label="创建时间" value={formatDateTime(task.created_at)} />
+          <DetailRow label="Session" value={task.sessionId || '未关联'} />
+        </div>
+
+        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>人工状态操作</div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
+          {STATUS_ACTIONS.map(action => (
+            <button key={action.status} type="button" onClick={() => changeStatus(action.status)} disabled={updating !== null || task.status === action.status} style={{ padding: '8px 12px', borderRadius: 8, border: task.status === action.status ? '1px solid var(--blue)' : '1px solid var(--border)', background: task.status === action.status ? 'var(--blue-light)' : 'var(--bg-0)', color: task.status === action.status ? 'var(--blue)' : 'var(--text-2)', fontSize: 12, cursor: task.status === action.status ? 'default' : 'pointer', opacity: updating && updating !== action.status ? 0.6 : 1 }}>
+              {updating === action.status ? '更新中...' : action.label}
+            </button>
+          ))}
+        </div>
+      </aside>
+    </>
+  );
+}
+
+function DetailRow({ label, value }: { label: string; value: string }) {
+  return <div style={{ display: 'grid', gridTemplateColumns: '92px 1fr', gap: 10, fontSize: 12 }}><span style={{ color: 'var(--text-3)' }}>{label}</span><span style={{ color: 'var(--text-1)', overflowWrap: 'anywhere' }}>{value}</span></div>;
+}
+
+function formatDateTime(iso: string): string { try { return new Date(iso).toLocaleString('zh-CN'); } catch { return iso; } }
 
 function NewTaskModal({ agents, onCreate, onClose }: { agents: AgentData[]; onCreate: (t: string, d?: string, a?: string) => Promise<void>; onClose: () => void }) {
   const [title, setTitle] = useState('');

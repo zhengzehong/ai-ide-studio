@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { serve } from '@hono/node-server'
+import type { Server } from 'http'
 import { WebSocketServer } from 'ws'
 import type { AppConfig } from '../core/config.js'
 import { handleWsConnection } from './ws-handler.js'
@@ -25,7 +26,7 @@ export async function startGateway(config: AppConfig) {
 
   app.get('/api/rules', (c) => c.json(ruleStore.list()))
 
-  const server = serve({ fetch: app.fetch, port: config.port })
+  const server = serve({ fetch: app.fetch, port: config.port }) as Server
 
   const wss = new WebSocketServer({ server })
   wss.on('connection', (ws, req) => handleWsConnection(ws, req, wss))

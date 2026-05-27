@@ -31,7 +31,7 @@ export const taskManager = {
           },
         })
 
-        const prompt = buildTaskPrompt(task.title, task.description)
+        const prompt = buildTaskPrompt(task.title, task.description ?? undefined)
         sessionManager.sendPrompt(session.id, prompt).catch((err) => {
           console.error(`[Task] 任务 ${task.id} prompt 失败:`, err)
           taskStore.updateStatus(task.id, 'blocked', `执行失败: ${(err as Error).message}`)

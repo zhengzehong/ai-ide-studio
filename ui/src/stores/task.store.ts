@@ -19,6 +19,7 @@ interface TaskStore {
   loading: boolean
   fetchTasks: () => Promise<void>
   createTask: (title: string, description?: string, assignAgentId?: string) => Promise<TaskData>
+  updateTask: (taskId: string, status: string, stage?: string) => Promise<TaskData>
   setupListeners: () => () => void
 }
 
@@ -42,6 +43,14 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     if (assignAgentId) msg.assignAgentId = assignAgentId
     const task = await wsClient.request(msg) as TaskData
     set({ tasks: [task, ...get().tasks] })
+    return task
+  },
+
+  updateTask: async (taskId, status, stage) => {
+    const msg: Record<string, unknown> = { type: 'tasks.update', taskId, status }
+    if (stage !== undefined) msg.stage = stage
+    const task = await wsClient.request(msg) as TaskData
+    set({ tasks: get().tasks.map(t => t.id === taskId ? { ...t, ...task } : t) })
     return task
   },
 

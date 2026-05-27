@@ -8,7 +8,7 @@ import { resolve } from 'path'
 async function main() {
   const config = loadConfig()
 
-  const dbPath = resolve(config.dataDir, 'ai-ide.db')
+  const dbPath = resolve(config.dataDir, 'ai-ide.sqlite')
   initDatabase(dbPath)
   console.log(`[DB] 数据库已初始化: ${dbPath}`)
 

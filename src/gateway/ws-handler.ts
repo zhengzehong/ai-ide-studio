@@ -3,12 +3,13 @@ import type { IncomingMessage } from 'http'
 import type { ClientMessage, ServerMessage } from '../types/ws-protocol.js'
 import { events } from '../core/events.js'
 import { agentStore } from '../store/agents.js'
-import { sessionStore, messageStore } from '../store/sessions.js'
+import { sessionStore, messageStore, eventStore } from '../store/sessions.js'
 import { taskStore } from '../store/tasks.js'
 import { ruleStore } from '../store/rules.js'
 import { taskManager } from '../core/tasks.js'
 import { sessionManager } from '../core/sessions.js'
 import { acpHost } from '../acp/host.js'
+import { isSupportedAgentRuntime, SUPPORTED_AGENT_RUNTIMES } from '../acp/adapters.js'
 import { getNextRunTime } from '../core/cron.js'
 
 interface ClientState {
@@ -39,6 +40,15 @@ events.on('session:update', (ev) => {
     sessionId: ev.sessionId,
     agentId: ev.agentId,
     data: ev.data,
+  })
+})
+
+events.on('session:event', (ev) => {
+  broadcastToSubscribers(ev.sessionId, {
+    type: 'session:event',
+    sessionId: ev.sessionId,
+    agentId: ev.agentId,
+    event: ev.event,
   })
 })
 
@@ -151,6 +161,10 @@ async function handleMessage(ws: WebSocket, state: ClientState, msg: ClientMessa
         modes: caps?.modes || [],
         currentModeId: caps?.currentModeId || null,
         supportsImages: caps?.supportsImages || false,
+        supportsAudio: caps?.supportsAudio || false,
+        configOptions: caps?.configOptions || [],
+        commands: caps?.commands || [],
+        sessionInfo: caps?.sessionInfo || null,
       })
       break
     }
@@ -165,6 +179,68 @@ async function handleMessage(ws: WebSocket, state: ClientState, msg: ClientMessa
       break
     }
 
+    case 'session.setConfig': {
+      const sessionId = msg.sessionId as string
+      const configId = msg.configId as string
+      const value = msg.value as string | boolean
+      const session = sessionStore.get(sessionId)
+      if (!session) { sendError(ws, msg.requestId, '会话不存在'); break }
+      await acpHost.setConfig(session.agent_id, sessionId, configId, value)
+      sendResult(ws, msg.requestId, { configId, value })
+      break
+    }
+
+    case 'session.fork': {
+      const sessionId = msg.sessionId as string
+      const source = sessionStore.get(sessionId)
+      if (!source) { sendError(ws, msg.requestId, '会话不存在'); break }
+      const forked = sessionStore.create({ agentId: source.agent_id, taskId: source.task_id ?? undefined })
+      try {
+        const acpSessionId = await acpHost.forkSession(source.agent_id, sessionId, forked.id)
+        sessionStore.updateAcpSessionId(forked.id, acpSessionId)
+        state.subscriptions.add(forked.id)
+        sendResult(ws, msg.requestId, sessionStore.get(forked.id))
+      } catch (err) {
+        sessionStore.updateStatus(forked.id, 'closed')
+        sendError(ws, msg.requestId, err instanceof Error ? err.message : 'fork 会话失败')
+      }
+      break
+    }
+
+    case 'permission.respond': {
+      const sessionId = msg.sessionId as string
+      const ok = acpHost.resolvePermission(sessionId, msg.permissionRequestId as string, msg.optionId as string | undefined, msg.cancelled as boolean | undefined)
+      if (!ok) { sendError(ws, msg.requestId, '权限请求已失效'); break }
+      const session = sessionStore.get(sessionId)
+      const stored = eventStore.append(sessionId, {
+        type: 'permission.result',
+        agentId: session?.agent_id,
+        messageId: msg.permissionRequestId as string,
+        role: 'system',
+        payload: { requestId: msg.permissionRequestId, optionId: msg.optionId, cancelled: msg.cancelled === true },
+      })
+      events.emit('session:event', { sessionId, agentId: session?.agent_id, event: stored })
+      sendResult(ws, msg.requestId, { ok: true })
+      break
+    }
+
+    case 'elicitation.respond': {
+      const sessionId = msg.sessionId as string
+      const ok = acpHost.resolveElicitation(sessionId, msg.elicitationRequestId as string, msg.action as 'accept' | 'decline' | 'cancel', msg.content as Record<string, string | number | boolean | string[]> | undefined)
+      if (!ok) { sendError(ws, msg.requestId, '提问请求已失效'); break }
+      const session = sessionStore.get(sessionId)
+      const stored = eventStore.append(sessionId, {
+        type: 'elicitation.result',
+        agentId: session?.agent_id,
+        messageId: msg.elicitationRequestId as string,
+        role: 'system',
+        payload: { requestId: msg.elicitationRequestId, action: msg.action, content: msg.content },
+      })
+      events.emit('session:event', { sessionId, agentId: session?.agent_id, event: stored })
+      sendResult(ws, msg.requestId, { ok: true })
+      break
+    }
+
     case 'decision': {
       const sessionId = msg.sessionId as string
       await sessionManager.sendDecision(sessionId, msg.messageId as string, msg.choice as string)
@@ -176,7 +252,12 @@ async function handleMessage(ws: WebSocket, state: ClientState, msg: ClientMessa
       break
 
     case 'agents.create': {
-      const agent = agentStore.create({ type: msg.agentType as string, name: msg.name as string, runtime: msg.runtime as string })
+      const runtime = msg.runtime as string
+      if (!isSupportedAgentRuntime(runtime)) {
+        sendError(ws, msg.requestId, `不支持的 Agent runtime: ${runtime || '空'}。当前仅支持 ${SUPPORTED_AGENT_RUNTIMES.join('|')}；Gemini 尚未接入。`)
+        break
+      }
+      const agent = agentStore.create({ type: msg.agentType as string, name: msg.name as string, runtime })
       sendResult(ws, msg.requestId, agent)
       break
     }
@@ -194,6 +275,10 @@ async function handleMessage(ws: WebSocket, state: ClientState, msg: ClientMessa
 
     case 'sessions.messages':
       sendResult(ws, msg.requestId, messageStore.list(msg.sessionId as string, { limit: msg.limit as number | undefined, before: msg.before as string | undefined }))
+      break
+
+    case 'sessions.events':
+      sendResult(ws, msg.requestId, eventStore.list(msg.sessionId as string, { limit: msg.limit as number | undefined, afterSequence: msg.afterSequence as number | undefined }))
       break
 
     case 'tasks.list':

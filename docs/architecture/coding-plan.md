@@ -1,5 +1,13 @@
 # 编码实施方案
 
+## Current implementation boundary (2026-05-27)
+
+- Real Agent runtimes currently exposed by this repository are `mock`, `claude`, and `codex`.
+- Gemini is not connected yet; any Gemini references in older architecture examples are future-target notes, not current capability.
+- Memory/RAG, true Multi-Agent collaboration, and event-triggered automation are future capabilities.
+- SQLite persistence is active via `better-sqlite3`; legacy JSON `data/ai-ide.db` is migrated into `data/ai-ide.sqlite` when present.
+
+
 > 目标：走通「用户发消息 → Agent 回复」和「创建任务 → 分派 Agent」的完整流程。
 
 ## 当前状态
@@ -101,7 +109,6 @@ ai-ide-studio/
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.19.0",
     "@hono/node-server": "^1.14.0",
-    "better-sqlite3": "^11.8.0",
     "commander": "^13.1.0",
     "dotenv": "^16.5.0",
     "hono": "^4.7.0",
@@ -109,7 +116,6 @@ ai-ide-studio/
     "ws": "^8.18.0"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.12",
     "@types/ws": "^8.18.0",
     "concurrently": "^9.1.0",
     "tsx": "^4.19.0",
@@ -283,7 +289,7 @@ CREATE TABLE agents (
   id TEXT PRIMARY KEY,
   type TEXT NOT NULL,         -- dev/test/ops/security/architect/pm
   name TEXT NOT NULL,
-  runtime TEXT NOT NULL,      -- claude/codex/gemini/custom
+  runtime TEXT NOT NULL,      -- mock/claude/codex (Gemini is not connected)
   status TEXT DEFAULT 'standby',  -- running/idle/standby/sleeping
   permission_level INTEGER DEFAULT 3,
   config_json TEXT,           -- Agent 专属配置 JSON
@@ -361,7 +367,7 @@ const messages = messageStore.list(sessionId, { limit: 50 })
 新建：
   src/acp/host.ts           ← ACP Host 主类
   src/acp/process.ts        ← 子进程管理
-  src/acp/adapters.ts       ← Agent 启动配置（Claude/Codex/Gemini）
+  src/acp/adapters.ts       <- Agent runtime config (Mock/Claude/Codex)
 ```
 
 ### 3.2 核心代码概要
@@ -410,11 +416,6 @@ export const ADAPTERS = {
     command: 'npx',
     args: ['@zed-industries/codex-acp'],
     envKeys: ['OPENAI_API_KEY'],
-  },
-  gemini: {
-    command: 'gemini',
-    args: ['--experimental-acp'],
-    envKeys: ['GOOGLE_API_KEY'],
   },
 } as const
 ```
@@ -818,7 +819,7 @@ Agent B:           Step 2 →           Step 5 → Step 7
   
 可选：
   OPENAI_API_KEY     — 测试 Codex Agent
-  GOOGLE_API_KEY     — 测试 Gemini Agent
+  # Gemini is not connected; GOOGLE_API_KEY is not used by current runtime list
 ```
 
 没有 API Key 也能开发 Step 0-2 + Step 6 的大部分工作。

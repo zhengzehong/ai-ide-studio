@@ -178,7 +178,7 @@ function NewAgentModal({ onCreate, onClose }: { onCreate: (name: string, type: s
     <Modal title="新建 Agent" onClose={onClose}>
       <div><label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>名称</label><input value={name} onChange={e => setName(e.target.value)} placeholder="例如: Code Review Agent" style={inputStyle} /></div>
       <div><label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>类型</label><select value={type} onChange={e => setType(e.target.value)} style={inputStyle}><option value="dev">开发</option><option value="test">测试</option><option value="ops">运维</option><option value="security">安全</option><option value="architect">架构</option><option value="pm">产品</option></select></div>
-      <div><label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>Runtime</label><select value={runtime} onChange={e => setRuntime(e.target.value)} style={inputStyle}><option value="mock">Mock</option><option value="claude">Claude</option><option value="codex">Codex</option><option value="gemini">Gemini</option></select></div>
+      <div><label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>Runtime</label><select value={runtime} onChange={e => setRuntime(e.target.value)} style={inputStyle}><option value="mock">Mock</option><option value="claude">Claude</option><option value="codex">Codex</option></select></div>
       <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
         <ModalBtn label="创建 Agent" primary onClick={() => onCreate(name, type, runtime)} />
         <ModalBtn label="取消" onClick={onClose} />
