@@ -10,6 +10,10 @@ export interface AgentRow {
   permission_level: number
   config_json: string | null
   created_at: string
+  project_id: string | null
+  template_id: string | null
+  system_prompt: string
+  icon: string
 }
 
 export interface CreateAgentInput {
@@ -19,6 +23,10 @@ export interface CreateAgentInput {
   runtime: string
   permissionLevel?: number
   config?: Record<string, unknown>
+  projectId?: string
+  templateId?: string
+  systemPrompt?: string
+  icon?: string
 }
 
 export const agentStore = {
@@ -33,10 +41,14 @@ export const agentStore = {
       permission_level: input.permissionLevel ?? 3,
       config_json: input.config ? JSON.stringify(input.config) : null,
       created_at: new Date().toISOString(),
+      project_id: input.projectId ?? null,
+      template_id: input.templateId ?? null,
+      system_prompt: input.systemPrompt ?? '',
+      icon: input.icon ?? 'bot',
     }
     getDb().prepare(`
-      INSERT INTO agents (id, type, name, runtime, status, permission_level, config_json, created_at)
-      VALUES (@id, @type, @name, @runtime, @status, @permission_level, @config_json, @created_at)
+      INSERT INTO agents (id, type, name, runtime, status, permission_level, config_json, created_at, project_id, template_id, system_prompt, icon)
+      VALUES (@id, @type, @name, @runtime, @status, @permission_level, @config_json, @created_at, @project_id, @template_id, @system_prompt, @icon)
     `).run(agent)
     return agent
   },
@@ -45,7 +57,10 @@ export const agentStore = {
     return getDb().prepare<[string], AgentRow>('SELECT * FROM agents WHERE id = ?').get(id)
   },
 
-  list(): AgentRow[] {
+  list(projectId?: string): AgentRow[] {
+    if (projectId) {
+      return getDb().prepare<[string], AgentRow>('SELECT * FROM agents WHERE project_id = ? ORDER BY created_at ASC').all(projectId)
+    }
     return getDb().prepare<[], AgentRow>('SELECT * FROM agents ORDER BY created_at ASC').all()
   },
 
@@ -68,7 +83,9 @@ export const agentStore = {
       }
       getDb().prepare(`
         UPDATE agents
-        SET type = @type, name = @name, runtime = @runtime
+        SET type = @type, name = @name, runtime = @runtime,
+            project_id = @project_id, template_id = @template_id,
+            system_prompt = @system_prompt, icon = @icon
         WHERE id = @id
       `).run(updated)
       return updated

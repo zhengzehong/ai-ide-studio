@@ -1,10 +1,13 @@
-import { spawn, type ChildProcess } from 'child_process'
+﻿import { spawn, type ChildProcess } from 'child_process'
 import { randomUUID } from 'crypto'
 import { Writable, Readable } from 'stream'
 import * as acp from '@agentclientprotocol/sdk'
 import { events } from '../core/events.js'
 import { agentStore } from '../store/agents.js'
-import type { AvailableCommandInfo, ConfigOptionInfo, ElicitationRequestData, PermissionRequestData, SessionInfoData, SessionUpdateData, ToolCallData, ToolCallContentItem, TurnUsageData, SessionCapabilities, ImageAttachment } from '../types/ws-protocol.js'
+import type { ElicitationRequestData, PermissionRequestData, SessionInfoData, SessionUpdateData, ToolCallData, TurnUsageData, SessionCapabilities, ImageAttachment } from '../types/ws-protocol.js'
+import { resolveToolsAsMcpServers } from '../tools/resolver.js'
+import { mapAvailableCommands, mapConfigOptions, mergeCapabilitiesFromConfig } from './capabilities.js'
+import { contentBlockToText, mapToolCallContent, mapToolCallUpdate, toolCallTitle } from './update-mapper.js'
 
 interface AgentConnection {
   agentId: string
@@ -14,6 +17,11 @@ interface AgentConnection {
   acpSessions: Map<string, string>
   sessionCapabilities: Map<string, SessionCapabilities>
   agentCapabilities?: acp.AgentCapabilities
+}
+
+interface AcpSessionContext {
+  projectId?: string
+  cwd?: string
 }
 
 const RUNTIME_COMMANDS: Record<string, { cmd: string; args: string[] }> = {
@@ -184,13 +192,15 @@ export const acpHost = {
     events.emit('agent:status', { agentId, status: 'standby' })
   },
 
-  async newSession(agentId: string, ourSessionId: string): Promise<string> {
+  async newSession(agentId: string, ourSessionId: string, context: AcpSessionContext = {}): Promise<string> {
     const conn = acpHost.agents.get(agentId)
     if (!conn) throw new Error(`Agent ${agentId} 未运行`)
 
+    const mcpServers = resolveToolsAsMcpServers(agentId, context.projectId)
+
     const result = await conn.connection.newSession({
-      cwd: process.cwd(),
-      mcpServers: [],
+      cwd: context.cwd ?? process.cwd(),
+      mcpServers,
     })
 
     const acpSessionId = result.sessionId
@@ -201,16 +211,17 @@ export const acpHost = {
     return acpSessionId
   },
 
-  async resumeSession(agentId: string, ourSessionId: string, acpSessionId: string): Promise<void> {
+  async resumeSession(agentId: string, ourSessionId: string, acpSessionId: string, context: AcpSessionContext = {}): Promise<void> {
     const conn = acpHost.agents.get(agentId)
     if (!conn) throw new Error(`Agent ${agentId} 未运行`)
     if (conn.acpSessions.get(ourSessionId) === acpSessionId) return
 
     if (conn.agentCapabilities?.sessionCapabilities?.resume) {
+      const mcpServers = resolveToolsAsMcpServers(agentId, context.projectId)
       const result = await conn.connection.resumeSession({
         sessionId: acpSessionId,
-        cwd: process.cwd(),
-        mcpServers: [],
+        cwd: context.cwd ?? process.cwd(),
+        mcpServers,
       })
       conn.acpSessions.set(ourSessionId, acpSessionId)
       updateInitialCapabilities(conn, ourSessionId, result)
@@ -220,15 +231,15 @@ export const acpHost = {
     if (conn.agentCapabilities?.loadSession) {
       const result = await conn.connection.loadSession({
         sessionId: acpSessionId,
-        cwd: process.cwd(),
-        mcpServers: [],
+        cwd: context.cwd ?? process.cwd(),
+        mcpServers: resolveToolsAsMcpServers(agentId, context.projectId),
       })
       conn.acpSessions.set(ourSessionId, acpSessionId)
       updateInitialCapabilities(conn, ourSessionId, result)
       return
     }
 
-    const newAcpSessionId = await acpHost.newSession(agentId, ourSessionId)
+    const newAcpSessionId = await acpHost.newSession(agentId, ourSessionId, context)
     if (newAcpSessionId !== acpSessionId) {
       console.warn(`[ACP] Agent ${agentId} 不支持恢复会话，已创建新的 ACP session: ${newAcpSessionId}`)
     }
@@ -293,7 +304,7 @@ export const acpHost = {
         })
         console.log(`[ACP] Agent ${agentId} 模型已通过 configOption 切换: ${modelId}`)
       } catch (err2) {
-        throw new Error(`模型切换失败: ${(err as Error).message}, ${(err2 as Error).message}`)
+        throw new Error(`模型切换失败: ${(err as Error).message}, ${(err2 as Error).message}`, { cause: err2 })
       }
     }
 
@@ -336,7 +347,7 @@ export const acpHost = {
     events.emit('session:capabilities', { sessionId: ourSessionId, capabilities: caps })
   },
 
-  async forkSession(agentId: string, sourceSessionId: string, targetSessionId: string): Promise<string> {
+  async forkSession(agentId: string, sourceSessionId: string, targetSessionId: string, context: AcpSessionContext = {}): Promise<string> {
     const conn = acpHost.agents.get(agentId)
     if (!conn) throw new Error(`Agent ${agentId} 未运行`)
     const sourceAcpSessionId = conn.acpSessions.get(sourceSessionId)
@@ -345,8 +356,8 @@ export const acpHost = {
 
     const result = await conn.connection.unstable_forkSession({
       sessionId: sourceAcpSessionId,
-      cwd: process.cwd(),
-      mcpServers: [],
+      cwd: context.cwd ?? process.cwd(),
+      mcpServers: resolveToolsAsMcpServers(agentId, context.projectId),
     })
     conn.acpSessions.set(targetSessionId, result.sessionId)
     updateInitialCapabilities(conn, targetSessionId, result)
@@ -403,123 +414,6 @@ export const acpHost = {
   },
 }
 
-
-function flattenSelectOptions(options: acp.SessionConfigSelect['options']): { value: string; name: string; description?: string; group?: string }[] {
-  const flattened: { value: string; name: string; description?: string; group?: string }[] = []
-  for (const option of options) {
-    if ('options' in option) {
-      for (const child of option.options) flattened.push({ value: child.value, name: child.name, description: child.description ?? undefined, group: option.name })
-    } else {
-      flattened.push({ value: option.value, name: option.name, description: option.description ?? undefined })
-    }
-  }
-  return flattened
-}
-
-function mapConfigOptions(options: acp.SessionConfigOption[]): ConfigOptionInfo[] {
-  return options.map((option) => {
-    const base = {
-      id: option.id,
-      name: option.name,
-      description: option.description ?? undefined,
-      category: option.category ?? undefined,
-      type: option.type,
-      currentValue: option.currentValue,
-    }
-    if (option.type === 'select') return { ...base, options: flattenSelectOptions(option.options) }
-    return base
-  })
-}
-
-function mergeCapabilitiesFromConfig(caps: SessionCapabilities, configOptions: ConfigOptionInfo[]): SessionCapabilities {
-  const next: SessionCapabilities = { ...caps, configOptions }
-  const modelOpt = configOptions.find(o => o.category === 'model' || o.id === 'model')
-  if (modelOpt?.type === 'select') {
-    if (typeof modelOpt.currentValue === 'string') next.currentModelId = modelOpt.currentValue
-    if (modelOpt.options) next.models = modelOpt.options.map(o => ({ modelId: o.value, name: o.name, description: o.description }))
-  }
-  const modeOpt = configOptions.find(o => o.category === 'mode' || o.id === 'mode')
-  if (modeOpt?.type === 'select') {
-    if (typeof modeOpt.currentValue === 'string') next.currentModeId = modeOpt.currentValue
-    if (modeOpt.options) next.modes = modeOpt.options.map(o => ({ modeId: o.value, name: o.name, description: o.description }))
-  }
-  return next
-}
-
-function mapAvailableCommands(commands: acp.AvailableCommand[]): AvailableCommandInfo[] {
-  return commands.map(command => ({ name: command.name, description: command.description, input: command.input ? { hint: command.input.hint } : null }))
-}
-
-function contentBlockToText(block: acp.ContentBlock): string {
-  if (block.type === 'text') return (block as acp.TextContent).text
-  if (block.type === 'image') {
-    const image = block as acp.ImageContent
-    return image.uri ? `[图片](${image.uri})` : '[图片]'
-  }
-  if (block.type === 'resource_link') return `[资源](${(block as acp.ResourceLink).uri})`
-  if (block.type === 'resource') return '[资源]'
-  return JSON.stringify(block)
-}
-
-function extractMetaText(meta: unknown, key: string): string | undefined {
-  if (!meta || typeof meta !== 'object') return undefined
-  const value = (meta as Record<string, unknown>)[key]
-  if (!value || typeof value !== 'object') return undefined
-  const data = (value as Record<string, unknown>).data
-  return typeof data === 'string' ? data : undefined
-}
-
-function extractTerminalOutput(update: { _meta?: unknown }): string | undefined {
-  return extractMetaText(update._meta, 'terminal_output_delta') || extractMetaText(update._meta, 'terminal_output')
-}
-
-function extractProgress(update: { _meta?: unknown }): string | undefined {
-  return extractMetaText(update._meta, 'mcp_output_delta')
-}
-
-function mapToolCallContent(items?: acp.ToolCallContent[]): ToolCallContentItem[] | undefined {
-  if (!items || items.length === 0) return undefined
-  return items.map(item => {
-    if (item.type === 'diff') {
-      const d = item as acp.Diff & { type: string }
-      return { type: 'diff' as const, path: d.path, oldText: d.oldText ?? undefined, newText: d.newText }
-    }
-    if (item.type === 'terminal') {
-      const t = item as acp.Terminal & { type: string }
-      return { type: 'terminal' as const, terminalId: t.terminalId }
-    }
-    const c = item as acp.Content & { type: string }
-    const block = c.content
-    return { type: 'text' as const, text: block.type === 'text' ? (block as acp.TextContent).text : JSON.stringify(block) }
-  })
-}
-
-function toolCallTitle(toolCall: { title?: string | null; locations?: acp.ToolCallLocation[] | null; rawInput?: unknown; toolCallId: string }): string {
-  if (toolCall.title) return toolCall.title
-  if (toolCall.locations?.[0]) return toolCall.locations[0].path.split(/[/\\]/).pop() || ''
-  if (toolCall.rawInput && typeof toolCall.rawInput === 'object') {
-    const inp = toolCall.rawInput as Record<string, unknown>
-    if (inp.command) return `执行 ${String(inp.command).slice(0, 60)}`
-    if (inp.path) return String(inp.path).split(/[/\\]/).pop() || ''
-    if (inp.file_path) return String(inp.file_path).split(/[/\\]/).pop() || ''
-  }
-  return `工具调用 #${toolCall.toolCallId.slice(-6)}`
-}
-
-function mapToolCallUpdate(toolCall: acp.ToolCallUpdate): ToolCallData {
-  return {
-    id: toolCall.toolCallId,
-    title: toolCallTitle(toolCall),
-    kind: toolCall.kind ?? undefined,
-    status: toolCall.status ?? undefined,
-    locations: toolCall.locations?.map(l => ({ path: l.path, line: l.line ?? undefined })) ?? undefined,
-    rawInput: toolCall.rawInput,
-    rawOutput: toolCall.rawOutput,
-    content: mapToolCallContent(toolCall.content ?? undefined),
-    terminalOutputDelta: extractTerminalOutput(toolCall),
-    progressDelta: extractProgress(toolCall),
-  }
-}
 
 function createClientHandler(agentId: string): acp.Client {
   const turnIds = new Map<string, string>()

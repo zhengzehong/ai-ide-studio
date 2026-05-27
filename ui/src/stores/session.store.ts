@@ -65,6 +65,7 @@ interface SessionStore {
   setModel: (modelId: string) => Promise<void>
   setMode: (modeId: string) => Promise<void>
   setConfig: (configId: string, value: string | boolean) => Promise<void>
+  cancelTurn: () => Promise<void>
   respondPermission: (requestId: string, optionId?: string, cancelled?: boolean) => Promise<void>
   respondElicitation: (requestId: string, action: 'accept' | 'decline' | 'cancel', content?: Record<string, string | number | boolean | string[]>) => Promise<void>
   fetchModels: () => Promise<void>
@@ -74,6 +75,7 @@ interface SessionStore {
 let listenersSetup = false
 let cleanupFn: (() => void) | null = null
 let promptStartTime = 0
+let lastStreamingSnapshot: StreamingMessage | null = null
 const sessionCaches = new Map<string, SessionCache>()
 
 function saveCache(sessionId: string, s: Pick<SessionStore, 'events' | 'usage' | 'turnUsage' | 'capabilities' | 'plan' | 'pendingPermissions' | 'pendingElicitations' | 'streamingMessage'>) {
@@ -111,7 +113,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   },
 
   fetchMessages: async (sessionId) => {
-    try { set({ messages: await wsClient.request({ type: 'sessions.messages', sessionId }) as MessageData[] }) } catch {}
+    try { set({ messages: await wsClient.request({ type: 'sessions.messages', sessionId }) as MessageData[] }) } catch { /* ignore message load errors */ }
   },
 
   fetchEvents: async (sessionId) => {
@@ -120,7 +122,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       if (sessionId !== get().currentSessionId) return
       applyReduced(set, get().capabilities, events)
       saveCache(sessionId, get())
-    } catch {}
+    } catch {
+      /* ignore event load errors */
+    }
   },
 
   createSession: async (agentId, taskId) => {
@@ -134,6 +138,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   selectSession: (id) => {
     const prev = get().currentSessionId
     if (prev) { saveCache(prev, get()); wsClient.unsubscribe([prev]) }
+    lastStreamingSnapshot = null
     wsClient.subscribe([id])
     const c = sessionCaches.get(id)
     set({
@@ -170,6 +175,11 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     try { await wsClient.request({ type: 'session.setConfig', sessionId: sid, configId, value }) } catch (e) { console.error('配置切换失败:', e) }
   },
 
+  cancelTurn: async () => {
+    const sid = get().currentSessionId; if (!sid) return
+    try { await wsClient.request({ type: 'session.cancel', sessionId: sid }) } catch (e) { console.error('取消失败:', e) }
+  },
+
   respondPermission: async (requestId, optionId, cancelled) => {
     const sid = get().currentSessionId; if (!sid) return
     await wsClient.request({ type: 'permission.respond', sessionId: sid, permissionRequestId: requestId, optionId, cancelled })
@@ -195,7 +205,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         sessionInfo: d.sessionInfo || get().capabilities.sessionInfo,
       }
       set({ capabilities: caps }); saveCache(sid, { ...get(), capabilities: caps })
-    } catch {}
+    } catch {
+      /* ignore model load errors */
+    }
   },
 
   setupListeners: () => {
@@ -206,7 +218,14 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       const sid = msg.sessionId as string; if (sid !== get().currentSessionId) return
       const event = msg.event as SessionEventData
       const events = [...get().events.filter(e => e.id !== event.id), event].sort((a, b) => a.sequence - b.sequence)
+      const activeStreaming = get().streamingMessage
       applyReduced(set, get().capabilities, events)
+      if (activeStreaming && (activeStreaming.content || activeStreaming.thinking || activeStreaming.toolCalls.length > 0)) {
+        lastStreamingSnapshot = activeStreaming
+        if (!get().streamingMessage) {
+          set({ streamingMessage: activeStreaming })
+        }
+      }
       saveCache(sid, get())
     }))
 
@@ -233,6 +252,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           if (idx >= 0) up.toolCalls[idx] = mergeToolCall(up.toolCalls[idx], tcu)
           else up.toolCalls.push(tcu)
         }
+        lastStreamingSnapshot = up
         return { streamingMessage: up }
       })
     }))
@@ -243,14 +263,35 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       const cost = get().usage?.costAmount
       const elapsed = promptStartTime > 0 ? Math.round((Date.now() - promptStartTime) / 1000) : undefined
       promptStartTime = 0
-      const s = get().streamingMessage
+
+      const s = get().streamingMessage || lastStreamingSnapshot
+      lastStreamingSnapshot = null
+
+      const turnStats = tu ? JSON.stringify({ ...tu, costAmount: cost, elapsedSeconds: elapsed }) : null
+
       if (s && (s.content || s.thinking || s.toolCalls.length > 0)) {
-        const turnStats = tu ? JSON.stringify({ ...tu, costAmount: cost, elapsedSeconds: elapsed }) : null
-        set(st => ({ messages: [...st.messages, { id: s.id, session_id: sid, role: 'agent', content: s.content, thinking: s.thinking || null, tool_calls_json: s.toolCalls.length > 0 ? JSON.stringify(s.toolCalls) : null, decision_json: turnStats, attachments_json: null, timestamp: new Date().toISOString() }], streamingMessage: null, turnUsage: tu || st.turnUsage }))
+        const finalizedToolCalls = s.toolCalls.map(tc =>
+          (tc.status === 'pending' || tc.status === 'in_progress') ? { ...tc, status: 'completed' } : tc
+        )
+        const newMsg: MessageData = {
+          id: s.id, session_id: sid, role: 'agent', content: s.content,
+          thinking: s.thinking || null,
+          tool_calls_json: finalizedToolCalls.length > 0 ? JSON.stringify(finalizedToolCalls) : null,
+          decision_json: turnStats, attachments_json: null,
+          timestamp: new Date().toISOString(),
+        }
+        set(st => ({
+          messages: [...st.messages.filter(m => m.id !== newMsg.id), newMsg],
+          streamingMessage: null, turnUsage: tu || st.turnUsage,
+        }))
       } else {
         const finalMessage = buildCompletedAgentMessage(sid, get().events, tu, cost, elapsed)
-        if (finalMessage && !get().messages.some(m => m.id === finalMessage.id)) {
-          set(st => ({ messages: [...st.messages, finalMessage], streamingMessage: null, turnUsage: tu || st.turnUsage }))
+        if (finalMessage) {
+          if (turnStats && !finalMessage.decision_json) finalMessage.decision_json = turnStats
+          set(st => ({
+            messages: [...st.messages.filter(m => m.id !== finalMessage.id), finalMessage],
+            streamingMessage: null, turnUsage: tu || st.turnUsage,
+          }))
         } else {
           set({ streamingMessage: null, turnUsage: tu || get().turnUsage })
         }

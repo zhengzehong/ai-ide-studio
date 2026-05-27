@@ -27,24 +27,27 @@ ws://localhost:18800
 
 | 方法 | 参数 | 返回 | 说明 |
 |------|------|------|------|
-| `sessions.list` | `{ agentId }` | `Session[]` | 列出 Agent 的所有 Session |
-| `sessions.create` | `{ agentId, taskId? }` | `Session` | 创建 Session |
+| `sessions.list` | `{ agentId?, projectId? }` | `Session[]` | 列出 Session |
+| `sessions.create` | `{ agentId, taskId?, projectId? }` | `Session` | 创建 Session |
 | `session.getModels` | `{ sessionId }` | `SessionCapabilities` | 获取模型/模式/配置选项 |
 | `session.setModel` | `{ sessionId, modelId }` | `void` | 切换模型 |
 | `session.setMode` | `{ sessionId, modeId }` | `void` | 切换模式 |
+| `session.setConfig` | `{ sessionId, configId, value }` | `void` | 切换配置 |
 | `session.fork` | `{ sessionId }` | `Session` | Fork 会话 |
-| `session.events` | `{ sessionId, afterSequence? }` | `SessionEvent[]` | 查询事件 |
+| `sessions.messages` | `{ sessionId, limit?, before? }` | `Message[]` | 查询消息历史 |
+| `sessions.events` | `{ sessionId, limit?, afterSequence? }` | `SessionEvent[]` | 查询事件 |
 | `prompt` | `{ sessionId, content, images? }` | `{ status }` | 发送消息 |
-| `permission.respond` | `{ sessionId, requestId, optionId }` | `void` | 响应权限请求 |
+| `permission.respond` | `{ sessionId, permissionRequestId, optionId?, cancelled? }` | `void` | 响应权限请求 |
+| `elicitation.respond` | `{ sessionId, elicitationRequestId, action, content? }` | `void` | 响应提问请求 |
+| `decision` | `{ sessionId, messageId, choice }` | `void` | 响应决定 |
 
 ### Task 管理
 
 | 方法 | 参数 | 返回 | 说明 |
 |------|------|------|------|
-| `tasks.list` | — | `Task[]` | 列出所有任务 |
-| `tasks.create` | `{ title, description?, assignAgentId? }` | `Task` | 创建任务 |
+| `tasks.list` | `{ status? }` | `Task[]` | 列出任务 |
+| `tasks.create` | `{ title, description?, assignAgentId?, projectId? }` | `Task` | 创建任务 |
 | `tasks.update` | `{ taskId, status?, stage? }` | `Task` | 更新任务状态 |
-| `tasks.get` | `{ taskId }` | `Task` | 获取任务详情 |
 
 ### Rule 管理
 
@@ -61,12 +64,20 @@ ws://localhost:18800
 
 | 事件 | 数据 | 说明 |
 |------|------|------|
-| `session:update` | `{ sessionId, ...updateData }` | Session 状态变更（含消息流、工具调用） |
-| `session:event` | `SessionEvent` | 持久化事件 |
-| `session:done` | `{ sessionId, agentId }` | Agent 回复完成 |
+| `session:update` | `{ sessionId, agentId, data }` | Session 流式状态变更（含消息流、工具调用、提问、权限、计划） |
+| `session:event` | `{ sessionId, agentId?, event }` | 持久化事件 |
+| `session:done` | `{ sessionId, agentId, messageId, turnUsage? }` | Agent 回复完成 |
 | `session:capabilities` | `{ sessionId, capabilities }` | 会话能力信息 |
+| `agent:status` | `{ agentId, status }` | Agent 在线状态 |
 | `task:update` | `{ taskId, data }` | Task 状态变更 |
+| `rule:update` | `{ ruleId, data }` | Rule 状态变更 |
 
 ## 类型定义
 
 完整 TypeScript 类型定义见 `src/types/ws-protocol.ts`。
+
+## 项目级约定
+
+- 项目级能力（工作台、任务、自动化、文件浏览）必须携带 `projectId`。
+- `projectId` 缺失时，只允许访问全局页（概览、Agent 广场、设置）。
+- `session.getModels` 返回的 capabilities 由 ACP host 合并模型、模式、配置、命令等能力后上报。

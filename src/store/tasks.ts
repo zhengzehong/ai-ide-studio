@@ -11,6 +11,7 @@ export interface TaskRow {
   assigned_agent_id: string | null
   created_at: string
   completed_at: string | null
+  project_id: string | null
 }
 
 export interface TaskEventRow {
@@ -27,6 +28,7 @@ export interface CreateTaskInput {
   description?: string
   source?: string
   assignAgentId?: string
+  projectId?: string
 }
 
 export interface AppendTaskEventInput {
@@ -46,10 +48,11 @@ export const taskStore = {
       assigned_agent_id: input.assignAgentId || null,
       created_at: new Date().toISOString(),
       completed_at: null,
+      project_id: input.projectId ?? null,
     }
     getDb().prepare(`
-      INSERT INTO tasks (id, title, description, source, status, stage, assigned_agent_id, created_at, completed_at)
-      VALUES (@id, @title, @description, @source, @status, @stage, @assigned_agent_id, @created_at, @completed_at)
+      INSERT INTO tasks (id, title, description, source, status, stage, assigned_agent_id, created_at, completed_at, project_id)
+      VALUES (@id, @title, @description, @source, @status, @stage, @assigned_agent_id, @created_at, @completed_at, @project_id)
     `).run(task)
     taskEventStore.append(task.id, { type: 'created', payload: { task } })
     return task
@@ -59,9 +62,15 @@ export const taskStore = {
     return getDb().prepare<[string], TaskRow>('SELECT * FROM tasks WHERE id = ?').get(id)
   },
 
-  list(status?: string): TaskRow[] {
+  list(status?: string, projectId?: string): TaskRow[] {
+    if (status && projectId) {
+      return getDb().prepare<[string, string], TaskRow>('SELECT * FROM tasks WHERE status = ? AND project_id = ? ORDER BY created_at ASC').all(status, projectId)
+    }
     if (status) {
       return getDb().prepare<[string], TaskRow>('SELECT * FROM tasks WHERE status = ? ORDER BY created_at ASC').all(status)
+    }
+    if (projectId) {
+      return getDb().prepare<[string], TaskRow>('SELECT * FROM tasks WHERE project_id = ? ORDER BY created_at ASC').all(projectId)
     }
     return getDb().prepare<[], TaskRow>('SELECT * FROM tasks ORDER BY created_at ASC').all()
   },

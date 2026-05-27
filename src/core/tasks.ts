@@ -2,10 +2,14 @@ import { taskStore, type CreateTaskInput } from '../store/tasks.js'
 import { agentStore } from '../store/agents.js'
 import { sessionManager } from './sessions.js'
 import { events } from './events.js'
+import { createChildLogger } from './logger.js'
+
+const log = createChildLogger('task')
 
 export const taskManager = {
   async createTask(input: CreateTaskInput) {
     const task = taskStore.create(input)
+    log.info({ taskId: task.id, title: task.title, agentId: input.assignAgentId }, '任务已创建')
 
     events.emit('task:update', {
       taskId: task.id,
@@ -18,6 +22,7 @@ export const taskManager = {
 
       try {
         const session = await sessionManager.createSession(input.assignAgentId, task.id)
+        log.info({ taskId: task.id, sessionId: session.id, agentId: input.assignAgentId }, '任务已分派')
 
         taskStore.updateStatus(task.id, 'executing', '已分派给 Agent')
 
@@ -33,7 +38,7 @@ export const taskManager = {
 
         const prompt = buildTaskPrompt(task.title, task.description ?? undefined)
         sessionManager.sendPrompt(session.id, prompt).catch((err) => {
-          console.error(`[Task] 任务 ${task.id} prompt 失败:`, err)
+          log.error({ err, taskId: task.id, sessionId: session.id }, '任务 prompt 发送失败')
           taskStore.updateStatus(task.id, 'blocked', `执行失败: ${(err as Error).message}`)
           events.emit('task:update', {
             taskId: task.id,
@@ -44,6 +49,7 @@ export const taskManager = {
         const updated = taskStore.get(task.id)!
         return { ...updated, sessionId: session.id }
       } catch (err) {
+        log.error({ err, taskId: task.id, agentId: input.assignAgentId }, '任务分派失败')
         taskStore.updateStatus(task.id, 'blocked', `分派失败: ${(err as Error).message}`)
         events.emit('task:update', {
           taskId: task.id,
@@ -62,6 +68,7 @@ export const taskManager = {
 
     if (status) {
       taskStore.updateStatus(taskId, status, stage)
+      log.info({ taskId, status, stage }, '任务状态变更')
     }
 
     const updated = taskStore.get(taskId)!

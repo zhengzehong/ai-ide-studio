@@ -1,6 +1,7 @@
 import type { WebSocket, WebSocketServer } from 'ws'
 import type { IncomingMessage } from 'http'
 import type { ClientMessage, ServerMessage } from '../types/ws-protocol.js'
+import type { ToolConfig } from '../tools/types.js'
 import { events } from '../core/events.js'
 import { agentStore } from '../store/agents.js'
 import { sessionStore, messageStore, eventStore } from '../store/sessions.js'
@@ -11,6 +12,15 @@ import { sessionManager } from '../core/sessions.js'
 import { acpHost } from '../acp/host.js'
 import { isSupportedAgentRuntime, SUPPORTED_AGENT_RUNTIMES } from '../acp/adapters.js'
 import { getNextRunTime } from '../core/cron.js'
+import { projectStore } from '../store/projects.js'
+import { templateStore } from '../store/agent-templates.js'
+import { listDirectory, readFile, expandDirectory } from '../core/filesystem.js'
+import { toolStore, toolBindingStore } from '../store/tools.js'
+import { modelProviderStore } from '../store/model-providers.js'
+import { skillStore, skillBindingStore } from '../store/skills.js'
+import { createChildLogger } from '../core/logger.js'
+
+const log = createChildLogger('ws')
 
 interface ClientState {
   subscriptions: Set<string>
@@ -97,6 +107,7 @@ function sendError(ws: WebSocket, requestId: string | undefined, message: string
 export function handleWsConnection(ws: WebSocket, _req: IncomingMessage, _wss: WebSocketServer) {
   const state: ClientState = { subscriptions: new Set() }
   clients.set(ws, state)
+  log.debug({ totalClients: clients.size }, '客户端已连接')
 
   ws.on('message', async (raw) => {
     let msg: ClientMessage
@@ -104,12 +115,20 @@ export function handleWsConnection(ws: WebSocket, _req: IncomingMessage, _wss: W
       sendError(ws, undefined, '无效的 JSON 消息')
       return
     }
-    try { await handleMessage(ws, state, msg) } catch (err) {
+    const start = Date.now()
+    try {
+      await handleMessage(ws, state, msg)
+      log.debug({ type: msg.type, requestId: msg.requestId, elapsed: Date.now() - start }, 'RPC 处理完成')
+    } catch (err) {
+      log.error({ err, type: msg.type, requestId: msg.requestId, elapsed: Date.now() - start }, 'RPC 处理失败')
       sendError(ws, msg.requestId, err instanceof Error ? err.message : '未知错误')
     }
   })
 
-  ws.on('close', () => { clients.delete(ws) })
+  ws.on('close', () => {
+    clients.delete(ws)
+    log.debug({ totalClients: clients.size }, '客户端已断开')
+  })
 }
 
 async function handleMessage(ws: WebSocket, state: ClientState, msg: ClientMessage) {
@@ -247,6 +266,20 @@ async function handleMessage(ws: WebSocket, state: ClientState, msg: ClientMessa
       break
     }
 
+    case 'session.cancel': {
+      const sessionId = msg.sessionId as string
+      const session = sessionStore.get(sessionId)
+      if (!session) { sendError(ws, msg.requestId, '会话不存在'); break }
+      try {
+        await acpHost.stopAgent(session.agent_id)
+        events.emit('session:done', { sessionId, agentId: session.agent_id, messageId: `cancel-${Date.now()}`, cancelled: true })
+        sendResult(ws, msg.requestId, { ok: true })
+      } catch (err) {
+        sendError(ws, msg.requestId, err instanceof Error ? err.message : '取消失败')
+      }
+      break
+    }
+
     case 'agents.list':
       sendResult(ws, msg.requestId, agentStore.list())
       break
@@ -305,7 +338,7 @@ async function handleMessage(ws: WebSocket, state: ClientState, msg: ClientMessa
       const name = msg.name as string
       const cron = msg.cron as string
       const action = msg.action as string
-      const actionConfig = msg.actionConfig as { title: string; description?: string; assignAgentId?: string }
+      const actionConfig = msg.actionConfig as { title: string; description?: string; assignAgentId?: string; assign_agent_id?: string }
       if (!name || !cron || !action || !actionConfig?.title) {
         sendError(ws, msg.requestId, 'name, cron, action 和 actionConfig.title 为必填项')
         break
@@ -344,7 +377,12 @@ async function handleMessage(ws: WebSocket, state: ClientState, msg: ClientMessa
         fields.cron = cron.trim()
       }
       if (msg.action !== undefined) fields.action = msg.action
-      if (msg.actionConfig !== undefined) fields.action_config = msg.actionConfig
+      if (msg.actionConfig !== undefined) {
+        const actionConfig = msg.actionConfig as { title: string; description?: string; assignAgentId?: string; assign_agent_id?: string }
+        fields.action_config = actionConfig.assign_agent_id !== undefined
+          ? { ...actionConfig, assignAgentId: actionConfig.assign_agent_id }
+          : actionConfig
+      }
       if (msg.description !== undefined) fields.description = msg.description
       if (msg.enabled !== undefined) fields.enabled = msg.enabled
       ruleStore.update(msg.ruleId as string, fields)
@@ -374,6 +412,360 @@ async function handleMessage(ws: WebSocket, state: ClientState, msg: ClientMessa
       events.emit('rule:update', { ruleId: msg.ruleId as string, data: { event: 'deleted' } })
       sendResult(ws, msg.requestId, { deleted: true })
       break
+
+    // ── Projects ──
+
+    case 'projects.list':
+      sendResult(ws, msg.requestId, projectStore.list())
+      break
+
+    case 'projects.create': {
+      const project = projectStore.create({
+        name: msg.name as string,
+        workDir: msg.workDir as string,
+        description: msg.description as string | undefined,
+      })
+      sendResult(ws, msg.requestId, project)
+      break
+    }
+
+    case 'projects.update': {
+      const fields: Record<string, unknown> = {}
+      if (msg.name !== undefined) fields.name = msg.name
+      if (msg.workDir !== undefined) fields.work_dir = msg.workDir
+      if (msg.description !== undefined) fields.description = msg.description
+      const updated = projectStore.update(msg.projectId as string, fields as never)
+      sendResult(ws, msg.requestId, updated)
+      break
+    }
+
+    case 'projects.delete':
+      projectStore.delete(msg.projectId as string)
+      sendResult(ws, msg.requestId, { deleted: true })
+      break
+
+    // ── Agent Templates ──
+
+    case 'templates.list':
+      sendResult(ws, msg.requestId, templateStore.list())
+      break
+
+    case 'templates.get':
+      sendResult(ws, msg.requestId, templateStore.get(msg.templateId as string))
+      break
+
+    case 'templates.create': {
+      const tpl = templateStore.create({
+        name: msg.name as string,
+        type: msg.agentType as string,
+        runtime: msg.runtime as string | undefined,
+        icon: msg.icon as string | undefined,
+        systemPrompt: msg.systemPrompt as string | undefined,
+        description: msg.description as string | undefined,
+        skills: msg.skills as string[] | undefined,
+      })
+      sendResult(ws, msg.requestId, tpl)
+      break
+    }
+
+    case 'templates.update': {
+      const fields: Record<string, unknown> = {}
+      if (msg.name !== undefined) fields.name = msg.name
+      if (msg.agentType !== undefined) fields.type = msg.agentType
+      if (msg.runtime !== undefined) fields.runtime = msg.runtime
+      if (msg.icon !== undefined) fields.icon = msg.icon
+      if (msg.systemPrompt !== undefined) fields.systemPrompt = msg.systemPrompt
+      if (msg.description !== undefined) fields.description = msg.description
+      if (msg.skills !== undefined) fields.skills = msg.skills
+      const updated = templateStore.update(msg.templateId as string, fields as never)
+      sendResult(ws, msg.requestId, updated)
+      break
+    }
+
+    case 'templates.delete':
+      templateStore.delete(msg.templateId as string)
+      sendResult(ws, msg.requestId, { deleted: true })
+      break
+
+    // ── Tools ──
+
+    case 'tools.list': {
+      const tools = toolStore.list()
+      const bindings = toolBindingStore.list()
+      sendResult(ws, msg.requestId, { tools, bindings })
+      break
+    }
+
+    case 'tools.get': {
+      const tool = toolStore.get(msg.toolId as string)
+      if (!tool) { sendError(ws, msg.requestId, '工具不存在'); break }
+      const bindings = toolBindingStore.list(tool.id)
+      sendResult(ws, msg.requestId, { tool, bindings })
+      break
+    }
+
+    case 'tools.create': {
+      try {
+        const tool = toolStore.create({
+          name: msg.name as string,
+          displayName: msg.displayName as string,
+          description: msg.description as string,
+          category: msg.category as 'browser' | 'filesystem' | 'network' | 'automation' | 'code' | 'data' | 'custom',
+          type: msg.toolType as 'builtin' | 'mcp' | 'script',
+          config: msg.config as ToolConfig,
+          inputSchema: msg.inputSchema as object | undefined,
+          permissions: msg.permissions as { requiresApproval: boolean; maxExecutionTime: number; networkAccess: boolean } | undefined,
+        })
+        if (msg.defaultScope) {
+          toolBindingStore.set(tool.id, msg.defaultScope as 'global' | 'project' | 'agent', msg.targetId as string ?? null)
+        }
+        sendResult(ws, msg.requestId, tool)
+      } catch (e) {
+        sendError(ws, msg.requestId, `创建工具失败: ${(e as Error).message}`)
+      }
+      break
+    }
+
+    case 'tools.update': {
+      const updated = toolStore.update(msg.toolId as string, {
+        displayName: msg.displayName as string | undefined,
+        description: msg.description as string | undefined,
+        category: msg.category as 'browser' | 'filesystem' | 'network' | 'automation' | 'code' | 'data' | 'custom' | undefined,
+        type: msg.toolType as 'builtin' | 'mcp' | 'script' | undefined,
+        config: msg.config as ToolConfig | undefined,
+        inputSchema: msg.inputSchema as object | undefined,
+        permissions: msg.permissions as { requiresApproval: boolean; maxExecutionTime: number; networkAccess: boolean } | undefined,
+      })
+      if (!updated) { sendError(ws, msg.requestId, '工具不存在'); break }
+      sendResult(ws, msg.requestId, updated)
+      break
+    }
+
+    case 'tools.toggle': {
+      toolStore.toggle(msg.toolId as string, msg.enabled as boolean)
+      sendResult(ws, msg.requestId, { ok: true })
+      break
+    }
+
+    case 'tools.delete': {
+      const tool = toolStore.get(msg.toolId as string)
+      if (!tool) { sendError(ws, msg.requestId, '工具不存在'); break }
+      if (tool.is_builtin) { sendError(ws, msg.requestId, '不能删除内置工具'); break }
+      toolStore.delete(msg.toolId as string)
+      sendResult(ws, msg.requestId, { ok: true })
+      break
+    }
+
+    case 'tool-bindings.set': {
+      const binding = toolBindingStore.set(
+        msg.toolId as string,
+        msg.scope as 'global' | 'project' | 'agent',
+        msg.targetId as string ?? null,
+        msg.configOverride as Record<string, unknown> | undefined,
+      )
+      sendResult(ws, msg.requestId, binding)
+      break
+    }
+
+    case 'tool-bindings.remove': {
+      toolBindingStore.remove(msg.toolId as string, msg.scope as 'global' | 'project' | 'agent', msg.targetId as string ?? null)
+      sendResult(ws, msg.requestId, { ok: true })
+      break
+    }
+
+    // ── File System ──
+
+    case 'fs.list': {
+      const projectId = msg.projectId as string
+      const project = projectStore.get(projectId)
+      if (!project) { sendError(ws, msg.requestId, '项目不存在'); break }
+      const entries = msg.dirPath
+        ? expandDirectory(project.work_dir, msg.dirPath as string)
+        : listDirectory(project.work_dir)
+      sendResult(ws, msg.requestId, entries)
+      break
+    }
+
+    case 'fs.read': {
+      const projectId = msg.projectId as string
+      const project = projectStore.get(projectId)
+      if (!project) { sendError(ws, msg.requestId, '项目不存在'); break }
+      const fileContent = readFile(project.work_dir, msg.filePath as string)
+      if (!fileContent) { sendError(ws, msg.requestId, '文件不存在或无法读取'); break }
+      sendResult(ws, msg.requestId, fileContent)
+      break
+    }
+
+    // ── Model Providers ──
+
+    case 'models.list': {
+      sendResult(ws, msg.requestId, modelProviderStore.list())
+      break
+    }
+
+    case 'models.create': {
+      try {
+        const provider = modelProviderStore.create({
+          name: msg.name as string,
+          displayName: msg.displayName as string,
+          protocol: msg.protocol as 'openai' | 'claude',
+          baseUrl: msg.baseUrl as string,
+          apiKey: msg.apiKey as string,
+          models: msg.models as { id: string; name: string; isDefault?: boolean }[] | undefined,
+          isDefault: msg.isDefault as boolean | undefined,
+        })
+        sendResult(ws, msg.requestId, provider)
+      } catch (e) {
+        sendError(ws, msg.requestId, `创建失败: ${(e as Error).message}`)
+      }
+      break
+    }
+
+    case 'models.update': {
+      const updated = modelProviderStore.update(msg.providerId as string, {
+        displayName: msg.displayName as string | undefined,
+        protocol: msg.protocol as 'openai' | 'claude' | undefined,
+        baseUrl: msg.baseUrl as string | undefined,
+        apiKey: msg.apiKey as string | undefined,
+        models: msg.models as { id: string; name: string; isDefault?: boolean }[] | undefined,
+        isDefault: msg.isDefault as boolean | undefined,
+      })
+      if (!updated) { sendError(ws, msg.requestId, '供应商不存在'); break }
+      sendResult(ws, msg.requestId, updated)
+      break
+    }
+
+    case 'models.toggle': {
+      modelProviderStore.toggle(msg.providerId as string, msg.enabled as boolean)
+      sendResult(ws, msg.requestId, { ok: true })
+      break
+    }
+
+    case 'models.delete': {
+      modelProviderStore.delete(msg.providerId as string)
+      sendResult(ws, msg.requestId, { ok: true })
+      break
+    }
+
+    case 'models.setDefault': {
+      modelProviderStore.setDefault(msg.providerId as string)
+      sendResult(ws, msg.requestId, { ok: true })
+      break
+    }
+
+    case 'models.test': {
+      try {
+        const provider = modelProviderStore.get(msg.providerId as string)
+        if (!provider) { sendError(ws, msg.requestId, '供应商不存在'); break }
+        const protocol = provider.protocol
+        const baseUrl = provider.base_url.replace(/\/$/, '')
+        const apiKey = provider.api_key
+
+        if (protocol === 'openai') {
+          const resp = await fetch(`${baseUrl}/v1/models`, {
+            headers: { Authorization: `Bearer ${apiKey}` },
+            signal: AbortSignal.timeout(10_000),
+          })
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${await resp.text().then(t => t.slice(0, 200))}`)
+          const data = await resp.json() as { data?: { id: string }[] }
+          sendResult(ws, msg.requestId, { ok: true, models: data.data?.map(m => m.id) ?? [] })
+        } else if (protocol === 'claude') {
+          const resp = await fetch(`${baseUrl}/v1/models`, {
+            headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+            signal: AbortSignal.timeout(10_000),
+          })
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${await resp.text().then(t => t.slice(0, 200))}`)
+          const data = await resp.json() as { data?: { id: string }[] }
+          sendResult(ws, msg.requestId, { ok: true, models: data.data?.map(m => m.id) ?? [] })
+        } else {
+          sendError(ws, msg.requestId, `不支持的协议: ${protocol}`)
+        }
+      } catch (e) {
+        sendResult(ws, msg.requestId, { ok: false, error: (e as Error).message })
+      }
+      break
+    }
+
+    // ── Skills ──
+
+    case 'skills.list': {
+      const skills = skillStore.list()
+      const skillBindings = skillBindingStore.list()
+      sendResult(ws, msg.requestId, { skills, bindings: skillBindings })
+      break
+    }
+
+    case 'skills.get': {
+      const skill = skillStore.get(msg.skillId as string)
+      if (!skill) { sendError(ws, msg.requestId, '技能不存在'); break }
+      const skillBinds = skillBindingStore.list(skill.id)
+      sendResult(ws, msg.requestId, { skill, bindings: skillBinds })
+      break
+    }
+
+    case 'skills.create': {
+      try {
+        const skill = skillStore.create({
+          name: msg.name as string,
+          displayName: msg.displayName as string,
+          description: msg.description as string | undefined,
+          type: msg.skillType as 'prompt' | 'file' | 'mcp' | undefined,
+          content: msg.content as string,
+          category: msg.category as string | undefined,
+        })
+        if (msg.defaultScope) {
+          skillBindingStore.set(skill.id, msg.defaultScope as 'global' | 'project' | 'agent', msg.targetId as string ?? null)
+        }
+        sendResult(ws, msg.requestId, skill)
+      } catch (e) {
+        sendError(ws, msg.requestId, `创建技能失败: ${(e as Error).message}`)
+      }
+      break
+    }
+
+    case 'skills.update': {
+      const updatedSkill = skillStore.update(msg.skillId as string, {
+        displayName: msg.displayName as string | undefined,
+        description: msg.description as string | undefined,
+        type: msg.skillType as 'prompt' | 'file' | 'mcp' | undefined,
+        content: msg.content as string | undefined,
+        category: msg.category as string | undefined,
+      })
+      if (!updatedSkill) { sendError(ws, msg.requestId, '技能不存在'); break }
+      sendResult(ws, msg.requestId, updatedSkill)
+      break
+    }
+
+    case 'skills.toggle': {
+      skillStore.toggle(msg.skillId as string, msg.enabled as boolean)
+      sendResult(ws, msg.requestId, { ok: true })
+      break
+    }
+
+    case 'skills.delete': {
+      const targetSkill = skillStore.get(msg.skillId as string)
+      if (!targetSkill) { sendError(ws, msg.requestId, '技能不存在'); break }
+      if (targetSkill.is_builtin) { sendError(ws, msg.requestId, '不能删除内置技能'); break }
+      skillStore.delete(msg.skillId as string)
+      sendResult(ws, msg.requestId, { ok: true })
+      break
+    }
+
+    case 'skill-bindings.set': {
+      const sb = skillBindingStore.set(
+        msg.skillId as string,
+        msg.scope as 'global' | 'project' | 'agent',
+        msg.targetId as string ?? null,
+      )
+      sendResult(ws, msg.requestId, sb)
+      break
+    }
+
+    case 'skill-bindings.remove': {
+      skillBindingStore.remove(msg.skillId as string, msg.scope as string, msg.targetId as string ?? null)
+      sendResult(ws, msg.requestId, { ok: true })
+      break
+    }
 
     default:
       sendError(ws, msg.requestId, `未知消息类型: ${msg.type}`)

@@ -55,6 +55,30 @@
   background: var(--blue-light);
 }
 
+.sidebar-link--disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.sidebar-link--disabled:hover {
+  background: transparent;
+  color: var(--text-3);
+}
+
+.sidebar-divider {
+  width: 24px;
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+}
+
+.sidebar-bottom {
+  padding: 8px 0 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
 .main-area {
   flex: 1;
   display: flex;

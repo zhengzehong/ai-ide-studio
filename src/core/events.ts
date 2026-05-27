@@ -1,5 +1,5 @@
 import mittModule from 'mitt'
-import type { AgentStatus, SessionUpdateData, TaskStatus, TurnUsageData, SessionCapabilities, SessionEventData } from '../types/ws-protocol.js'
+import type { AgentStatus, SessionUpdateData, TurnUsageData, SessionCapabilities, SessionEventData } from '../types/ws-protocol.js'
 
 export type AppEvents = {
   'session:update': { sessionId: string; agentId: string; data: SessionUpdateData }

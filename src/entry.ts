@@ -1,27 +1,35 @@
 import { loadConfig } from './core/config.js'
 import { initDatabase } from './store/db.js'
 import { agentStore } from './store/agents.js'
+import { seedBuiltinTemplates } from './store/agent-templates.js'
+import { seedBuiltinTools } from './tools/seed.js'
 import { startGateway } from './gateway/server.js'
 import { ruleEngine } from './core/rules.js'
+import { createChildLogger } from './core/logger.js'
 import { resolve } from 'path'
+
+const log = createChildLogger('entry')
 
 async function main() {
   const config = loadConfig()
 
   const dbPath = resolve(config.dataDir, 'ai-ide.sqlite')
   initDatabase(dbPath)
-  console.log(`[DB] 数据库已初始化: ${dbPath}`)
+  log.info({ dbPath }, '数据库已初始化')
 
   seedDefaultAgents()
+  seedBuiltinTemplates()
+  seedBuiltinTools()
 
   const { server } = await startGateway(config)
   ruleEngine.start()
-  console.log(`[Gateway] 服务已启动: http://localhost:${config.port}`)
-  console.log(`[Gateway] WebSocket: ws://localhost:${config.port}`)
-  console.log(`[Gateway] 健康检查: http://localhost:${config.port}/health`)
+  log.info(
+    { port: config.port, http: `http://localhost:${config.port}`, ws: `ws://localhost:${config.port}` },
+    '服务已启动',
+  )
 
   process.on('SIGINT', () => {
-    console.log('\n[Gateway] 正在关闭...')
+    log.info('收到 SIGINT，正在关闭...')
     ruleEngine.stop()
     server.close()
     process.exit(0)
@@ -38,10 +46,10 @@ function seedDefaultAgents() {
   for (const def of defaults) {
     agentStore.upsert(def)
   }
-  console.log(`[Seed] 默认 Agent 已初始化 (${defaults.length} 个)`)
+  log.info({ count: defaults.length }, '默认 Agent 已初始化')
 }
 
 main().catch((err) => {
-  console.error('启动失败:', err)
+  log.fatal({ err }, '启动失败')
   process.exit(1)
 })

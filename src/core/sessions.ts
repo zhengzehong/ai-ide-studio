@@ -1,10 +1,14 @@
-﻿import { sessionStore, messageStore, eventStore } from '../store/sessions.js'
+import { sessionStore, messageStore, eventStore } from '../store/sessions.js'
 import { taskStore } from '../store/tasks.js'
 import { agentStore } from '../store/agents.js'
+import { projectStore } from '../store/projects.js'
 import { acpHost } from '../acp/host.js'
 import { events } from './events.js'
+import { createChildLogger } from './logger.js'
 import type { ImageAttachment, SessionUpdateData, ToolCallData } from '../types/ws-protocol.js'
 import { mergeToolCall } from './tool-calls.js'
+
+const log = createChildLogger('session')
 
 interface PendingMessage { content: string; thinking: string; toolCalls: ToolCallData[] }
 const pendingBySession = new Map<string, PendingMessage>()
@@ -96,21 +100,28 @@ export const sessionManager = {
   async createSession(agentId: string, taskId?: string): Promise<{ id: string; agentId: string; acpSessionId: string }> {
     const agent = agentStore.get(agentId)
     if (!agent) throw new Error(`Agent 不存在: ${agentId}`)
+    const projectContext = resolveSessionProjectContext(agentId, taskId)
 
     if (!acpHost.isRunning(agentId)) {
+      log.debug({ agentId }, 'Agent 未运行，正在启动')
       await acpHost.startAgent(agentId)
     }
 
-    const session = sessionStore.create({ agentId, taskId })
-    const acpSessionId = await acpHost.newSession(agentId, session.id)
+    const session = sessionStore.create({ agentId, taskId, projectId: projectContext.projectId })
+    const acpSessionId = await acpHost.newSession(agentId, session.id, projectContext)
     sessionStore.updateAcpSessionId(session.id, acpSessionId)
 
+    log.info({ sessionId: session.id, agentId, acpSessionId, taskId, projectId: projectContext.projectId }, 'Session 已创建')
     return { id: session.id, agentId, acpSessionId }
   },
 
   async sendPrompt(sessionId: string, content: string, images?: ImageAttachment[]): Promise<void> {
     const session = sessionStore.get(sessionId)
     if (!session) throw new Error(`Session 不存在: ${sessionId}`)
+
+    const promptLen = content.length
+    const imageCount = images?.length ?? 0
+    log.debug({ sessionId, agentId: session.agent_id, promptLen, imageCount }, '发送 prompt')
 
     const humanMessage = messageStore.append(sessionId, { role: 'human', content, attachments: images })
     const stored = eventStore.append(sessionId, {
@@ -123,15 +134,19 @@ export const sessionManager = {
     events.emit('session:event', { sessionId, agentId: session.agent_id, event: stored })
 
     if (!acpHost.isRunning(session.agent_id)) {
+      log.warn({ sessionId, agentId: session.agent_id }, 'Agent 进程丢失，正在重启')
       await acpHost.startAgent(session.agent_id)
     }
 
     if (!acpHost.hasAcpSession(session.agent_id, sessionId)) {
+      const projectContext = resolveSessionProjectContext(session.agent_id, session.task_id ?? undefined, session.project_id ?? undefined)
       if (session.acp_session_id) {
-        await acpHost.resumeSession(session.agent_id, sessionId, session.acp_session_id)
+        log.info({ sessionId, acpSessionId: session.acp_session_id }, '恢复 ACP Session')
+        await acpHost.resumeSession(session.agent_id, sessionId, session.acp_session_id, projectContext)
       } else {
-        const acpSessionId = await acpHost.newSession(session.agent_id, sessionId)
+        const acpSessionId = await acpHost.newSession(session.agent_id, sessionId, projectContext)
         sessionStore.updateAcpSessionId(sessionId, acpSessionId)
+        log.info({ sessionId, acpSessionId }, '新建 ACP Session 映射')
       }
     }
 
@@ -150,5 +165,24 @@ export const sessionManager = {
 
     await acpHost.closeSession(session.agent_id, sessionId)
     sessionStore.updateStatus(sessionId, 'closed')
+    log.info({ sessionId, agentId: session.agent_id }, 'Session 已关闭')
   },
+}
+
+function resolveSessionProjectContext(agentId: string, taskId?: string, existingProjectId?: string): { projectId?: string; cwd?: string } {
+  const agent = agentStore.get(agentId)
+  if (!agent) throw new Error(`Agent not found: ${agentId}`)
+  const task = taskId ? taskStore.get(taskId) : undefined
+  if (taskId && !task) throw new Error(`Task not found: ${taskId}`)
+
+  const projectIds = [existingProjectId, agent.project_id ?? undefined, task?.project_id ?? undefined].filter(Boolean)
+  const projectId = projectIds[0]
+  if (projectId && projectIds.some(id => id !== projectId)) {
+    throw new Error(`Project mismatch between agent/task/session: ${projectIds.join(', ')}`)
+  }
+  if (!projectId) return {}
+
+  const project = projectStore.get(projectId)
+  if (!project) throw new Error(`Project not found: ${projectId}`)
+  return { projectId, cwd: project.work_dir }
 }

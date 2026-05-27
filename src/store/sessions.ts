@@ -10,6 +10,7 @@ export interface SessionRow {
   stage: string
   started_at: string
   closed_at: string | null
+  project_id: string | null
 }
 
 export interface MessageRow {
@@ -41,6 +42,7 @@ export interface CreateSessionInput {
   agentId: string
   taskId?: string
   acpSessionId?: string
+  projectId?: string
 }
 
 export interface AppendMessageInput {
@@ -72,10 +74,11 @@ export const sessionStore = {
       stage: '',
       started_at: new Date().toISOString(),
       closed_at: null,
+      project_id: input.projectId ?? null,
     }
     getDb().prepare(`
-      INSERT INTO sessions (id, agent_id, task_id, acp_session_id, status, stage, started_at, closed_at)
-      VALUES (@id, @agent_id, @task_id, @acp_session_id, @status, @stage, @started_at, @closed_at)
+      INSERT INTO sessions (id, agent_id, task_id, acp_session_id, status, stage, started_at, closed_at, project_id)
+      VALUES (@id, @agent_id, @task_id, @acp_session_id, @status, @stage, @started_at, @closed_at, @project_id)
     `).run(session)
     return session
   },
@@ -84,9 +87,15 @@ export const sessionStore = {
     return getDb().prepare<[string], SessionRow>('SELECT * FROM sessions WHERE id = ?').get(id)
   },
 
-  list(agentId?: string): SessionRow[] {
+  list(agentId?: string, projectId?: string): SessionRow[] {
+    if (agentId && projectId) {
+      return getDb().prepare<[string, string], SessionRow>('SELECT * FROM sessions WHERE agent_id = ? AND project_id = ? ORDER BY started_at ASC').all(agentId, projectId)
+    }
     if (agentId) {
       return getDb().prepare<[string], SessionRow>('SELECT * FROM sessions WHERE agent_id = ? ORDER BY started_at ASC').all(agentId)
+    }
+    if (projectId) {
+      return getDb().prepare<[string], SessionRow>('SELECT * FROM sessions WHERE project_id = ? ORDER BY started_at ASC').all(projectId)
     }
     return getDb().prepare<[], SessionRow>('SELECT * FROM sessions ORDER BY started_at ASC').all()
   },

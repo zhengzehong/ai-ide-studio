@@ -1,6 +1,9 @@
 import Database from 'better-sqlite3'
 import { copyFileSync, existsSync, mkdirSync, readFileSync } from 'fs'
 import { basename, dirname, resolve } from 'path'
+import { createChildLogger } from '../core/logger.js'
+
+const log = createChildLogger('db')
 
 type SqliteDatabase = ReturnType<typeof Database>
 
@@ -204,7 +207,114 @@ function createSchema(db: SqliteDatabase): void {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS projects (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      work_dir TEXT NOT NULL,
+      description TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS tools (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      display_name TEXT NOT NULL,
+      description TEXT NOT NULL,
+      category TEXT NOT NULL,
+      type TEXT NOT NULL,
+      config_json TEXT NOT NULL,
+      input_schema_json TEXT,
+      permissions_json TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      is_builtin INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS tool_bindings (
+      id TEXT PRIMARY KEY,
+      tool_id TEXT NOT NULL,
+      scope TEXT NOT NULL,
+      target_id TEXT,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      config_override_json TEXT,
+      created_at TEXT NOT NULL,
+      UNIQUE(tool_id, scope, target_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS agent_templates (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL,
+      runtime TEXT NOT NULL DEFAULT 'claude',
+      icon TEXT NOT NULL DEFAULT 'bot',
+      system_prompt TEXT NOT NULL DEFAULT '',
+      description TEXT,
+      skills_json TEXT,
+      is_builtin INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS model_providers (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      display_name TEXT NOT NULL,
+      protocol TEXT NOT NULL,
+      base_url TEXT NOT NULL,
+      api_key TEXT NOT NULL DEFAULT '',
+      models_json TEXT NOT NULL DEFAULT '[]',
+      is_default INTEGER NOT NULL DEFAULT 0,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS skills (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      display_name TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      type TEXT NOT NULL DEFAULT 'prompt',
+      content TEXT NOT NULL DEFAULT '',
+      category TEXT NOT NULL DEFAULT 'general',
+      enabled INTEGER NOT NULL DEFAULT 1,
+      is_builtin INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS skill_bindings (
+      id TEXT PRIMARY KEY,
+      skill_id TEXT NOT NULL,
+      scope TEXT NOT NULL,
+      target_id TEXT,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      UNIQUE(skill_id, scope, target_id)
+    );
   `)
+
+  migrateAddColumns(db)
+}
+
+function migrateAddColumns(db: SqliteDatabase): void {
+  const safeAdd = (table: string, column: string, type: string) => {
+    try {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`)
+    } catch {
+      // column already exists
+    }
+  }
+  safeAdd('agents', 'project_id', 'TEXT')
+  safeAdd('agents', 'template_id', 'TEXT')
+  safeAdd('agents', 'system_prompt', "TEXT DEFAULT ''")
+  safeAdd('agents', 'icon', "TEXT DEFAULT 'bot'")
+  safeAdd('tasks', 'project_id', 'TEXT')
+  safeAdd('rules', 'project_id', 'TEXT')
+  safeAdd('sessions', 'project_id', 'TEXT')
 }
 
 function migrateLegacyJsonIfNeeded(db: SqliteDatabase, legacyJsonPath?: string): void {
@@ -214,7 +324,7 @@ function migrateLegacyJsonIfNeeded(db: SqliteDatabase, legacyJsonPath?: string):
   try {
     legacy = { ...defaultData(), ...JSON.parse(readFileSync(legacyJsonPath, 'utf-8')) }
   } catch (err) {
-    console.warn(`[DB] 跳过旧 JSON 迁移，无法解析 ${legacyJsonPath}:`, err)
+    log.warn({ err, path: legacyJsonPath }, '跳过旧 JSON 迁移，无法解析')
     return
   }
 
@@ -309,7 +419,7 @@ function normalizeActionConfig(value: unknown): Record<string, unknown> {
 
 function mapRuleRow(row: StoreRecord): StoreRecord {
   const actionConfig = normalizeActionConfig(row.action_config_json ?? row.action_config)
-  const { action_config_json: _actionConfigJson, enabled, ...rest } = row
+  const { enabled, ...rest } = row
   return { ...rest, action_config: actionConfig, enabled: Boolean(enabled) }
 }
 

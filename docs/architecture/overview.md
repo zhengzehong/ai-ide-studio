@@ -40,9 +40,12 @@
 │  ┌────────────────────────────────────────────┐     │
 │  │  host.ts — ACP 协议编排                    │     │
 │  │  ├─ newSession() → 创建 ACP 会话           │     │
+│  │  ├─ resumeSession() → 恢复 ACP 会话        │     │
+│  │  ├─ forkSession() → Fork ACP 会话          │     │
 │  │  ├─ prompt()     → 发送消息给 Agent        │     │
 │  │  ├─ setModel()   → 切换模型                │     │
-│  │  └─ setMode()    → 切换模式                │     │
+│  │  ├─ setMode()    → 切换模式                │     │
+│  │  └─ setConfig()  → 切换会话配置            │     │
 │  └────┬───────────────────────────────────────┘     │
 │       │ 子进程 stdio (NDJSON)                        │
 │  ┌────▼───────────────────────────────────────┐     │
@@ -61,7 +64,10 @@
 │  │  ├─ agents          │  ├─ sessions         │     │
 │  │  ├─ tasks           │  ├─ messages         │     │
 │  │  ├─ session_events  │  ├─ task_events      │     │
-│  │  └─ rules                                  │     │
+│  │  ├─ projects        │  ├─ agent_templates  │     │
+│  │  ├─ tools           │  ├─ tool_bindings    │     │
+│  │  ├─ model_providers │  ├─ skills           │     │
+│  │  └─ skill_bindings  │  └─ rules            │     │
 │  └────────────────────────────────────────────┘     │
 └──────────────────────────────────────────────────────┘
 ```
@@ -88,14 +94,14 @@ Web UI → WS "tasks.create" → ws-handler → taskStore.create()
 
 | 目录 | 职责 | 核心文件 |
 |------|------|----------|
-| `src/acp/` | ACP 协议集成 | `host.ts`（协议编排）、`adapters.ts`（运行时适配） |
-| `src/core/` | 业务逻辑 | `sessions.ts`、`tasks.ts`、`events.ts` |
+| `src/acp/` | ACP 协议集成 | `host.ts`（协议编排）、`adapters.ts`（运行时适配）、`capabilities.ts`（能力合并）、`update-mapper.ts`（事件映射） |
+| `src/core/` | 业务逻辑 | `sessions.ts`、`tasks.ts`、`projects.ts`、`events.ts` |
 | `src/gateway/` | 对外接口 | `ws-handler.ts`（WS RPC）、`server.ts`（HTTP） |
-| `src/store/` | 数据持久化 | `db.ts`（初始化/迁移）、各实体 CRUD |
+| `src/store/` | 数据持久化 | `db.ts`（初始化/迁移）、projects/agent_templates/tools/skills/model_providers 等实体 CRUD |
 | `src/cli/` | 命令行工具 | `index.ts`（agents/sessions/tasks/rules） |
 | `src/types/` | 类型定义 | `ws-protocol.ts`（WS 消息接口） |
-| `ui/src/pages/` | 页面组件 | Workspace/Dashboard/TaskBoard/Schedule |
-| `ui/src/stores/` | 前端状态 | Zustand store + session-events 事件还原 |
+| `ui/src/pages/` | 页面组件 | Workspace/Dashboard/TaskBoard/Schedule/AgentSquare/ToolManager/Settings |
+| `ui/src/stores/` | 前端状态 | Zustand store + session-events 事件还原 + 项目/工具/模板/模型状态 |
 | `ui/src/services/` | 通信层 | `ws-client.ts`（WS 客户端） |
 
 ## 支持的 Agent 运行时
@@ -107,12 +113,18 @@ Web UI → WS "tasks.create" → ws-handler → taskStore.create()
 | `codex` | `@agentclientprotocol/codex-acp` | ✅ 可用 |
 | `gemini` | — | ❌ 未接入 |
 
+## 当前架构约束
+
+- `projectId` 是项目级实体与项目内 Session/Task 的核心边界。
+- `agent_templates` 是全局模板库；`agents` 是部署到具体项目后的运行时实例。
+- `tools` / `tool_bindings` / `skills` / `model_providers` 为全局可扩展能力表。
+- `ws-handler.ts` 仍然承担总路由，但新增 RPC 应优先向领域模块下沉，避免继续膨胀。
+
 ## 未实现的设计目标
 
 以下在设计文档中有描述，但当前代码未实现：
 
 - Memory/RAG 记忆系统
 - 多 Agent 协作引擎
-- 事件触发自动化（Schedule 仅有规则管理 UI）
+- 事件触发自动化执行（当前只有规则/定时管理）
 - 插件系统
-- MCP Server 模式

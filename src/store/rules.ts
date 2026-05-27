@@ -18,6 +18,7 @@ export interface RuleRow {
   run_count: number
   created_at: string
   updated_at: string
+  project_id: string | null
 }
 
 interface RuleSqlRow {
@@ -33,6 +34,7 @@ interface RuleSqlRow {
   run_count: number
   created_at: string
   updated_at: string
+  project_id: string | null
 }
 
 export interface CreateRuleInput {
@@ -42,6 +44,7 @@ export interface CreateRuleInput {
   actionConfig: { title: string; description?: string; assignAgentId?: string }
   description?: string
   enabled?: boolean
+  projectId?: string
 }
 
 export const ruleStore = {
@@ -64,10 +67,11 @@ export const ruleStore = {
       run_count: 0,
       created_at: now,
       updated_at: now,
+      project_id: input.projectId ?? null,
     }
     getDb().prepare(`
-      INSERT INTO rules (id, name, description, cron, action, action_config_json, enabled, last_run_at, next_run_at, run_count, created_at, updated_at)
-      VALUES (@id, @name, @description, @cron, @action, @action_config_json, @enabled, @last_run_at, @next_run_at, @run_count, @created_at, @updated_at)
+      INSERT INTO rules (id, name, description, cron, action, action_config_json, enabled, last_run_at, next_run_at, run_count, created_at, updated_at, project_id)
+      VALUES (@id, @name, @description, @cron, @action, @action_config_json, @enabled, @last_run_at, @next_run_at, @run_count, @created_at, @updated_at, @project_id)
     `).run(toSqlRule(rule))
     return rule
   },
@@ -77,7 +81,10 @@ export const ruleStore = {
     return row ? fromSqlRule(row) : undefined
   },
 
-  list(): RuleRow[] {
+  list(projectId?: string): RuleRow[] {
+    if (projectId) {
+      return getDb().prepare<[string], RuleSqlRow>('SELECT * FROM rules WHERE project_id = ? ORDER BY created_at ASC').all(projectId).map(fromSqlRule)
+    }
     return getDb().prepare<[], RuleSqlRow>('SELECT * FROM rules ORDER BY created_at ASC').all().map(fromSqlRule)
   },
 
@@ -101,7 +108,8 @@ export const ruleStore = {
           last_run_at = @last_run_at,
           next_run_at = @next_run_at,
           run_count = @run_count,
-          updated_at = @updated_at
+          updated_at = @updated_at,
+          project_id = @project_id
       WHERE id = @id
     `).run(toSqlRule(updated))
   },
@@ -137,6 +145,7 @@ function toSqlRule(rule: RuleRow): RuleSqlRow {
     run_count: rule.run_count,
     created_at: rule.created_at,
     updated_at: rule.updated_at,
+    project_id: rule.project_id,
   }
 }
 
@@ -154,6 +163,7 @@ function fromSqlRule(row: RuleSqlRow): RuleRow {
     run_count: row.run_count,
     created_at: row.created_at,
     updated_at: row.updated_at,
+    project_id: row.project_id,
   }
 }
 

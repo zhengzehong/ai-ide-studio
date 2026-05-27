@@ -2,6 +2,9 @@ import { ruleStore } from '../store/rules.js'
 import { taskManager } from './tasks.js'
 import { events } from './events.js'
 import { matchCron, getNextRunTime } from './cron.js'
+import { createChildLogger } from './logger.js'
+
+const log = createChildLogger('rule-engine')
 
 let _timer: ReturnType<typeof setInterval> | null = null
 let _lastMinute = -1
@@ -39,10 +42,10 @@ function tick() {
           events.emit('rule:update', { ruleId: rule.id, data: { ...updated } })
         }
       }).catch((err) => {
-        console.error(`[RuleEngine] 规则 ${rule.id} 执行失败:`, err)
+        log.error({ err, ruleId: rule.id }, '规则执行失败')
       })
     } catch (err) {
-      console.error(`[RuleEngine] 规则 ${rule.id} 执行异常:`, err)
+      log.error({ err, ruleId: rule.id }, '规则执行异常')
     }
   }
 }
@@ -51,14 +54,14 @@ export const ruleEngine = {
   start() {
     if (_timer) return
     _timer = setInterval(tick, 30_000)
-    console.log('[RuleEngine] 规则引擎已启动 (30s 间隔)')
+    log.info({ interval: '30s' }, '规则引擎已启动')
   },
 
   stop() {
     if (_timer) {
       clearInterval(_timer)
       _timer = null
-      console.log('[RuleEngine] 规则引擎已停止')
+      log.info('规则引擎已停止')
     }
   },
 }

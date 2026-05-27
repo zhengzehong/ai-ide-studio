@@ -2,157 +2,197 @@
 
 ## 项目简介
 
-AI IDE Studio 是一个 AI 编程协作平台，以 **任务为中心、Agent 为主体**，通过 ACP（Agent Client Protocol）接入 Claude Code / Codex 等 AI Agent，实现自主工作、协作和人机交互。
+AI IDE Studio 是一个 AI 编程协作平台，以 **任务为中心、Agent 为主体**，通过 ACP 协议接入 Claude Code / Codex 等 AI Agent。版本 **v0.2.0**，全栈可用，本地部署。
 
-当前版本：**v0.2.0**（全栈可用，本地部署）。
+## 命令
+
+```bash
+npm install                  # 安装依赖
+npm run dev                  # 后端 Gateway（热重载，端口 18800）
+npm run dev:ui               # 前端 Vite（端口 5173）
+npm run dev:all              # 全栈启动
+npm run build                # 生产构建
+npm test                     # 运行所有测试（Vitest）
+npm run test:unit            # 仅单元测试
+npm run test:integration     # 仅集成测试
+npm run lint                 # ESLint 检查
+npm run format               # Prettier 格式化
+```
 
 ## 技术栈
 
-| 层面 | 选型 | 说明 |
-|------|------|------|
-| 后端框架 | **Hono** + **@hono/node-server** | HTTP API + 静态资源 |
-| 实时通信 | **ws** | WebSocket RPC + 事件推送 |
-| 数据库 | **better-sqlite3** | SQLite 持久化 |
-| ACP 协议 | **@agentclientprotocol/sdk** | Agent 通信标准协议 |
-| Agent 适配 | **claude-agent-acp** / **codex-acp** | Claude Code 和 Codex 运行时 |
-| 事件总线 | **mitt** | 模块间解耦 |
-| CLI | **commander** | 命令行管理工具 |
-| 前端构建 | **Vite 8** | HMR 开发服务器 |
-| UI 框架 | **React 19** + **TypeScript 6** | 函数组件 + Hooks |
-| 状态管理 | **Zustand** | 轻量级前端状态 |
-| 图标 | **lucide-react** | 统一图标体系 |
-| 样式 | **CSS Variables** | 亮色主题，无 CSS 框架 |
+| 层面 | 选型 |
+|------|------|
+| 后端 | Hono + ws + better-sqlite3 + Pino |
+| ACP | @agentclientprotocol/sdk + claude-agent-acp + codex-acp |
+| MCP | @modelcontextprotocol/sdk（内置工具桥接服务器） |
+| 工具 | 可扩展工具注册表 + MCP 桥接 + ACP mcpServers 注入 |
+| 事件 | mitt |
+| 前端 | Vite 8 + React 19 + TypeScript 6 + Zustand |
+| 样式 | CSS Variables，亮色主题 |
 
 ## 目录结构
 
 ```
-ai-ide-studio/
-├── src/                    # 后端 Gateway
-│   ├── entry.ts            # 主入口：初始化 DB → 启动 Gateway → 规则引擎
-│   ├── acp/                # ACP 协议集成
-│   │   ├── host.ts         # ACP Host 编排（核心，~950 行）
-│   │   ├── adapters.ts     # 运行时适配器（mock/claude/codex）
-│   │   ├── process.ts      # Agent 子进程管理
-│   │   └── protocol.ts     # ACP 协议辅助
-│   ├── core/               # 业务逻辑
-│   │   ├── sessions.ts     # Session 生命周期
-│   │   ├── tasks.ts        # Task 生命周期
-│   │   ├── events.ts       # 事件总线（mitt 实例）
-│   │   ├── rules.ts        # 规则引擎
-│   │   ├── tool-calls.ts   # 工具调用合并逻辑
-│   │   ├── config.ts       # 环境配置
-│   │   └── cron.ts         # 定时任务
-│   ├── gateway/            # HTTP + WebSocket 服务
-│   │   ├── server.ts       # Hono HTTP 服务
-│   │   └── ws-handler.ts   # WebSocket RPC 处理
-│   ├── store/              # SQLite 持久层
-│   │   ├── db.ts           # 数据库初始化和迁移
-│   │   ├── agents.ts       # Agent CRUD
-│   │   ├── sessions.ts     # Session/Message/Event CRUD
-│   │   ├── tasks.ts        # Task CRUD
-│   │   └── rules.ts        # Rule CRUD
-│   └── types/
-│       └── ws-protocol.ts  # WebSocket 消息类型定义
-├── ui/                     # 前端 React 应用
-│   └── src/
-│       ├── pages/          # 页面组件
-│       │   ├── Workspace.tsx   # 主工作台（对话/工具/计划）
-│       │   ├── Dashboard.tsx   # 总览仪表板
-│       │   ├── TaskBoard.tsx   # 任务看板
-│       │   └── Schedule.tsx    # 定时任务 & 规则
-│       ├── components/     # 可复用组件
-│       ├── stores/         # Zustand 状态管理
-│       ├── services/       # WebSocket 客户端
-│       └── types/          # 前端类型定义
-├── tests/                  # 测试
-│   ├── unit/               # 纯函数/模块测试
-│   └── integration/        # 需要 DB/WS 的集成测试
-├── scripts/                # 工具脚本
-├── docs/                   # 文档
-│   ├── design/             # 设计文档（愿景/记忆模型/交互模式）
-│   ├── architecture/       # 架构文档（随代码同步更新）
-│   └── guides/             # 开发指南
-└── package.json            # Monorepo 根配置（npm workspaces）
+src/                    # 后端 Gateway
+├── entry.ts            # 主入口
+├── acp/                # ACP 协议（host.ts 是核心）
+├── core/               # 业务（sessions / tasks / events / logger）
+├── gateway/            # HTTP + WS 服务
+├── store/              # SQLite CRUD
+├── tools/              # 可扩展工具系统
+│   ├── types.ts        # 工具类型定义
+│   ├── seed.ts         # 内置工具初始化
+│   ├── resolver.ts     # 工具解析器（→ ACP McpServerStdio 扁平格式）
+│   ├── mcp-server.ts   # 内置 MCP 桥接服务器（独立进程）
+│   └── handlers/       # 内置工具实现（create-task / create-schedule）
+└── types/              # WS 协议类型
+ui/src/                 # 前端
+├── pages/              # 页面组件（Workspace / Dashboard / TaskBoard / Schedule / ToolManager / AgentSquare / Settings）
+├── components/         # 可复用组件
+├── stores/             # Zustand 状态
+├── services/           # WS 客户端
+└── types/              # 前端类型
+tests/                  # unit/ + integration/
+scripts/                # 工具脚本
+docs/                   # design/ + architecture/ + guides/
 ```
 
-## 开发命令
+## 架构原则（AI 友好）
 
-```bash
-npm install          # 安装所有依赖
-npm run dev          # 启动后端 Gateway（热重载）
-npm run dev:ui       # 启动前端开发服务器
-npm run dev:all      # 同时启动后端 + 前端
-npm run build        # 构建生产版本
-npm test             # 运行所有测试
-npm run test:unit    # 仅运行单元测试
-npm run test:integration  # 仅运行集成测试
-```
+1. **垂直切片** — 按功能域组织（acp/ core/ gateway/ store/），不按技术层（controllers/ models/）
+2. **局部推理** — 每个模块可独立理解，不需要加载整个系统到上下文
+3. **小爆炸半径** — 修改一个模块不应波及其他模块，通过 mitt 事件总线解耦
+4. **显式边界** — 模块间通过类型化接口通信，禁止跨层直接访问 DB
+5. **自验证** — 每次改动后运行 `npm test` 确认，Agent 必须验证自己的工作
 
 ## 代码规范
 
-### 通用规则
+### 文件
 
-- 函数组件 + Hooks，不用 class 组件
-- 所有面向用户的文本使用**中文**
-- 命名：组件 PascalCase，文件 kebab-case，变量/函数 camelCase，DB 字段 snake_case
-- 使用 named exports，避免 default export
-- 单文件行数上限：后端 400 行，前端组件 300 行（超出则拆分）
+- 单文件上限：后端 **400 行**，前端组件 **300 行**，超出必须拆分
+- 文件名 kebab-case，组件 PascalCase，变量/函数 camelCase，DB 字段 snake_case
+- 使用 named exports，**禁止** default export
+- 后端 ESM 导入使用 `.js` 扩展名
 
-### 后端规范
+### 类型
 
-- ESM 模块，导入使用 `.js` 扩展名（TypeScript nodenext 解析）
-- 模块间通过 mitt 事件总线通信，避免循环依赖
-- 类型定义集中在 `src/types/ws-protocol.ts`
+- 后端类型：`src/types/ws-protocol.ts`
+- 前端类型：`ui/src/types/index.ts`
+- **禁止** `any`，使用 `unknown` + 类型守卫
+- 函数参数和返回值必须有类型注解
 
-### 前端规范
+### 前端
 
-- 样式优先使用 CSS 变量 + 内联样式，复杂布局用 CSS 文件
-- 状态管理使用 Zustand store
-- 类型定义在 `ui/src/types/index.ts`
+- 函数组件 + Hooks，**禁止** class 组件
+- 样式用 CSS 变量 + 内联样式，复杂布局用 CSS 文件
+- 所有用户可见文本使用**中文**
 
-### 测试规范
+### 反模式（NEVER）
 
-- 新功能必须有对应测试
-- 测试使用 Vitest，文件命名 `xxx.test.ts`
-- 纯函数测试放 `tests/unit/`，需要 DB/WS 的放 `tests/integration/`
-- 修 bug 先写复现测试
+- **NEVER** 使用 `console.log` — 使用 `createChildLogger()`
+- **NEVER** 在模块间直接 import store 的内部状态 — 通过事件总线或显式接口
+- **NEVER** 在前端硬编码 WebSocket URL
+- **NEVER** 提交含 `.env`、密码、token 的代码
+- **NEVER** 写超过 400 行的后端文件而不拆分
 
-## 设计原则
+## 日志规范
 
-1. **亮色主题** — Cursor/Codex 风格，简洁专业
-2. **AI 任务无百分比** — 用阶段描述（stage）代替进度条
-3. **交互完整** — 所有按钮必须可点击，有对应动作
-4. **中文界面** — 所有面向用户的文本均为中文
+### 核心规则
 
-## 实体关系
+使用 **Pino** 结构化 JSON 日志。所有后端模块**必须**使用日志，禁止 `console.log`。
 
+```typescript
+import { createChildLogger } from './core/logger.js'
+const log = createChildLogger('模块名')
+
+log.debug({ sessionId }, '开始处理 prompt')
+log.info({ agentId, runtime }, 'Agent 启动成功')
+log.warn({ sessionId, error: err.message }, 'ACP 会话重连')
+log.error({ err, sessionId }, 'prompt 发送失败')
 ```
-Agent   1:N Session（Agent 管理多个会话）
-Task    1:N Session（任务关联多个会话记录）
-Task    N:1 Agent（任务可指派给一个主 Agent）
-Session 1:N Event（事件溯源，append-only）
+
+### 日志级别
+
+| 级别 | 用途 | 示例 |
+|------|------|------|
+| `fatal` | 进程即将退出 | 数据库无法打开 |
+| `error` | 操作失败，需要关注 | ACP 连接断开、WS 消息处理异常 |
+| `warn` | 异常但可恢复 | 重试中、降级处理 |
+| `info` | 关键业务节点 | 服务启动、Session 创建/关闭、Task 状态变更 |
+| `debug` | 开发调试详情 | RPC 请求/响应、事件流细节、SQL 查询 |
+| `trace` | 极细粒度 | 每条流式 chunk、原始 ACP 消息 |
+
+### 必须打日志的场景
+
+- 服务启动/关闭：端口、数据库路径、日志路径
+- 每个 WS RPC 请求：type + requestId + 耗时
+- Session 生命周期：create / prompt / done / close
+- Task 状态变更：每次 status 切换
+- ACP 通信：Agent 启动、初始化结果、错误
+- DB 操作失败：所有 catch 块
+
+### 日志上下文
+
+每条日志必须包含足够的上下文用于排查：
+
+```typescript
+// GOOD — 有上下文，可搜索
+log.info({ sessionId, agentId, taskId, elapsed: Date.now() - start }, 'prompt 处理完成')
+
+// BAD — 无上下文，无法排查
+log.info('done')
 ```
 
-## AI 开发完成后的检查清单
+### 配置
 
-每次完成功能开发后，必须检查：
+| 环境变量 | 默认值 | 说明 |
+|----------|--------|------|
+| `LOG_LEVEL` | `debug` | 日志级别 |
+| `LOG_DIR` | `./data/logs` | 日志文件目录 |
 
-- [ ] 新模块/文件 → 更新 `docs/architecture/overview.md` 目录映射
+- **开发环境**：默认 `debug` 级别，控制台彩色输出 + 文件双写
+- **生产环境**：建议 `info` 级别，JSON 标准输出 + 文件（14 天自动轮转）
+- 日志文件路径：`data/logs/app.log`（按天轮转）
+
+## 测试规范
+
+- 新功能**必须**有测试，修 bug **先写复现测试**
+- Vitest，文件名 `xxx.test.ts`
+- 纯函数 → `tests/unit/`，需要 DB/WS → `tests/integration/`
+- 提交前运行 `npm test` 确保全部通过
+
+## 后续开发方式（必须遵守）
+
+- 每次开始新需求前，先写任务清单；清单必须放到 `docs/superpowers/plans/`，并按清单顺序执行。
+- 只做当前任务范围内的改动；如果出现新想法或新需求，先记入下一版，不要顺手扩。
+- 任何跨后端 / 前端 / 文档的大改，必须先拆成更小的任务，再逐步完成。
+- 后端新增 RPC、实体、状态或适配层时，优先下沉到专用模块，不要继续往入口文件和巨大 switch 里堆。
+- 前端新增复杂界面时，先拆小组件，再组合回页面；不要把页面继续写成单文件大杂烩。
+- ACP、工具系统、项目作用域有新能力时，先补 helper / adapter / store，再补 UI 展示，避免边界混乱。
+- 每轮变更结束前，至少验证 `npm test`、`npm run build`、`npm run lint`；必要时再补 `git diff --check`。
+
+## 完成检查清单
+
+每次完成开发后，**必须**逐项检查：
+
+- [ ] `npm test` 通过
+- [ ] `npm run lint` 无新增错误
+- [ ] 核心路径有日志覆盖（debug + info 级别）
+- [ ] 新模块/文件 → 更新 `docs/architecture/overview.md`
 - [ ] 新 WS 方法 → 更新 `docs/architecture/ws-protocol.md`
 - [ ] 新实体/状态 → 更新 `docs/architecture/data-model.md`
-- [ ] 新功能 → 更新 `README.md` 功能列表
-- [ ] 新功能 → 确保 `npm test` 覆盖
-- [ ] API 变更 → 更新本文件中的类型路径
+- [ ] 新功能 → 更新 `README.md`
 
 ## 文档索引
 
-| 文档 | 位置 | 说明 |
-|------|------|------|
-| 设计愿景 | `docs/design/vision.md` | 核心理念和产品方向 |
-| 记忆模型 | `docs/design/memory-model.md` | Agent 记忆/RAG 设计 |
-| 交互模式 | `docs/design/interaction-patterns.md` | 人机交互方式 |
-| 架构总览 | `docs/architecture/overview.md` | 当前真实系统架构 |
-| WS 协议 | `docs/architecture/ws-protocol.md` | WebSocket RPC API |
-| 数据模型 | `docs/architecture/data-model.md` | 实体、状态机、DB Schema |
-| 快速上手 | `docs/guides/getting-started.md` | 环境搭建和首次运行 |
-| 开发规范 | `CONTRIBUTING.md` | 代码风格和协作流程 |
+| 文档 | 位置 |
+|------|------|
+| 架构总览 | `docs/architecture/overview.md` |
+| 工具系统 | `docs/architecture/tool-system.md` |
+| WS 协议 | `docs/architecture/ws-protocol.md` |
+| 数据模型 | `docs/architecture/data-model.md` |
+| 设计愿景 | `docs/design/vision.md` |
+| 快速上手 | `docs/guides/getting-started.md` |
+| 测试指南 | `docs/guides/testing.md` |
+| 贡献指南 | `CONTRIBUTING.md` |

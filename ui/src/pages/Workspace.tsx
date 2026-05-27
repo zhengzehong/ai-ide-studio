@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ChangeEvent, useMemo, type MouseEvent } from 'react'
 import {
   Bot, ChevronDown, ChevronRight, Loader2, Plus, User, Wifi, WifiOff,
-  Wrench, FileCode, Terminal, Check, X, Settings2,
+  Wrench, FileCode, Terminal, Check, X, Settings2, Square,
   ListTodo, CheckCircle2, Circle, Archive, Zap, Paperclip, ArrowUp,
+  FolderOpen, MessageSquare as MessageSquareIcon,
 } from 'lucide-react'
 import { useAgentStore, type AgentData } from '../stores/agent.store'
 import {
@@ -13,10 +14,13 @@ import {
   type PermissionRequestInfo,
   type PlanEntry,
   type ToolCallInfo,
-  type UsageInfo,
 } from '../stores/session.store'
 import { useTaskStore, type TaskData } from '../stores/task.store'
 import { useConnectionStore } from '../stores/connection.store'
+import { useProjectStore } from '../stores/project.store'
+import { useFileSystemStore } from '../stores/filesystem.store'
+import { FileTree } from '../components/file-viewer/FileTree'
+import { FilePreview } from '../components/file-viewer/FilePreview'
 import { MarkdownRenderer } from '../components/MarkdownRenderer'
 
 const TYPE_COLORS: Record<string, string> = { dev: '#2563eb', test: '#059669', ops: '#ea580c', security: '#dc2626', architect: '#7c3aed', pm: '#7c3aed' }
@@ -63,21 +67,20 @@ function toolSummary(tc: ToolCallInfo): string {
   const kindLabel = { read: '读取', edit: '编辑', delete: '删除', search: '搜索', execute: '执行', think: '思考', fetch: '拉取', move: '移动' }[tc.kind || ''] || ''
   const loc = tc.locations?.[0]
   if (loc) {
-    const file = loc.path.split(/[/\\]/).pop() || loc.path
-    return `${kindLabel || '访问'} ${file}${loc.line ? `:${loc.line}` : ''}`
+    return `${kindLabel || '访问'} ${loc.path}${loc.line ? `:${loc.line}` : ''}`
   }
   if (tc.rawInput && typeof tc.rawInput === 'object') {
     const inp = tc.rawInput as Record<string, unknown>
-    if (inp.command) return `执行 ${String(inp.command).slice(0, 60)}`
-    if (inp.path) return `${tc.kind === 'edit' ? '编辑' : '读取'} ${String(inp.path).split(/[/\\]/).pop()}`
-    if (inp.pattern) return `搜索 ${String(inp.pattern).slice(0, 40)}`
-    if (inp.query) return `搜索 ${String(inp.query).slice(0, 40)}`
+    if (inp.command) return `执行 ${String(inp.command).slice(0, 80)}`
+    if (inp.path) return `${tc.kind === 'edit' ? '编辑' : '读取'} ${String(inp.path)}`
+    if (inp.pattern) return `搜索 ${String(inp.pattern).slice(0, 60)}`
+    if (inp.query) return `搜索 ${String(inp.query).slice(0, 60)}`
   }
   if (tc.title) return tc.title
   const hasDiff = tc.content?.some(c => c.type === 'diff')
   if (hasDiff) {
     const diffItem = tc.content!.find(c => c.type === 'diff')
-    if (diffItem?.path) return `编辑 ${diffItem.path.split(/[/\\]/).pop()}`
+    if (diffItem?.path) return `编辑 ${diffItem.path}`
   }
   if ((tc.content?.some(c => c.type === 'text' && c.text) || typeof tc.rawOutput === 'string') && tc.status === 'completed') return '工具调用 完成'
   return `工具调用 #${tc.id.slice(-6)}`
@@ -91,7 +94,6 @@ export default function Workspace() {
   const messages = useSessionStore(s => s.messages)
   const streamingMessage = useSessionStore(s => s.streamingMessage)
   const usage = useSessionStore(s => s.usage)
-  const turnUsage = useSessionStore(s => s.turnUsage)
   const capabilities = useSessionStore(s => s.capabilities)
   const plan = useSessionStore(s => s.plan)
   const selectSession = useSessionStore(s => s.selectSession)
@@ -101,6 +103,7 @@ export default function Workspace() {
   const setModel = useSessionStore(s => s.setModel)
   const setMode = useSessionStore(s => s.setMode)
   const setConfig = useSessionStore(s => s.setConfig)
+  const cancelTurn = useSessionStore(s => s.cancelTurn)
   const pendingPermissions = useSessionStore(s => s.pendingPermissions)
   const pendingElicitations = useSessionStore(s => s.pendingElicitations)
   const respondPermission = useSessionStore(s => s.respondPermission)
@@ -108,8 +111,21 @@ export default function Workspace() {
   const tasks = useTaskStore(s => s.tasks)
   const createTask = useTaskStore(s => s.createTask)
 
-  const [expandedAgents, setExpandedAgents] = useState<Set<string>>(new Set())
+  const currentProjectId = useProjectStore(s => s.currentProjectId)
+  const fileTree = useFileSystemStore(s => s.tree)
+  const openFile = useFileSystemStore(s => s.openFile)
+  const fetchTree = useFileSystemStore(s => s.fetchTree)
+  const expandDir = useFileSystemStore(s => s.expandDir)
+  const openFileByPath = useFileSystemStore(s => s.openFileByPath)
+  const closeFile = useFileSystemStore(s => s.closeFile)
+
+  const [sidebarTab, setSidebarTab] = useState<'sessions' | 'files'>('sessions')
+  const [expandedAgents, setExpandedAgents] = useState<Set<string> | null>(null)
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (currentProjectId && sidebarTab === 'files') fetchTree(currentProjectId)
+  }, [currentProjectId, sidebarTab, fetchTree])
   const [inputValue, setInputValue] = useState('')
   const [showNewTask, setShowNewTask] = useState(false)
   const [pendingImages, setPendingImages] = useState<{ data: string; mimeType: string; preview: string }[]>([])
@@ -125,10 +141,7 @@ export default function Workspace() {
   const prevMsgCount = useRef(0)
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  useEffect(() => {
-    if (agents.length > 0 && expandedAgents.size === 0) setExpandedAgents(new Set(agents.map(a => a.id)))
-  }, [agents, expandedAgents.size])
-
+  const expandedAgentIds = useMemo(() => expandedAgents ?? new Set(agents.map(a => a.id)), [agents, expandedAgents])
   const selectedAgent = useMemo(() => agents.find(a => a.id === selectedAgentId) ?? agents[0], [agents, selectedAgentId])
   const agentSessions = useCallback((id: string) => sessions.filter(s => s.agent_id === id), [sessions])
 
@@ -138,22 +151,38 @@ export default function Workspace() {
     else chatEndRef.current?.scrollIntoView({ behavior })
   }, [])
 
+  const streamingScrollSignature = useMemo(() => {
+    if (!streamingMessage) return ''
+    return JSON.stringify([
+      streamingMessage.content.length,
+      streamingMessage.thinking.length,
+      streamingMessage.toolCalls.length,
+      streamingMessage.toolCalls.map(t => [t.id, t.status, t.terminalOutput?.length, t.progress?.length, t.rawOutput != null]),
+    ])
+  }, [streamingMessage])
+  const shouldScrollStreaming = !!streamingMessage && !streamingMessage.done
+
   useEffect(() => { if (messages.length !== prevMsgCount.current) { prevMsgCount.current = messages.length; requestAnimationFrame(() => scrollToBottom('smooth')) } }, [messages.length, scrollToBottom])
   useEffect(() => {
-    if (streamingMessage && !streamingMessage.done) {
+    if (shouldScrollStreaming) {
       if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current)
       requestAnimationFrame(() => scrollToBottom('auto'))
       scrollTimerRef.current = setTimeout(() => scrollToBottom('auto'), 40)
     }
     return () => { if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current) }
-  }, [streamingMessage?.content?.length, streamingMessage?.thinking?.length, streamingMessage?.toolCalls.length, JSON.stringify(streamingMessage?.toolCalls.map(t => [t.id, t.status, t.terminalOutput?.length, t.progress?.length, t.rawOutput != null])), streamingMessage?.done, scrollToBottom])
+  }, [shouldScrollStreaming, streamingScrollSignature, scrollToBottom])
 
   const autoResize = () => {
     const el = textareaRef.current
     if (el) { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 160) + 'px' }
   }
 
-  const toggleAgent = (id: string) => setExpandedAgents(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n })
+  const toggleAgent = (id: string) => setExpandedAgents(p => {
+    const n = new Set(p ?? agents.map(a => a.id))
+    if (n.has(id)) n.delete(id)
+    else n.add(id)
+    return n
+  })
   const handleSelectSession = (agentId: string, sessionId: string) => { setSelectedAgentId(agentId); selectSession(sessionId) }
   const handleNewSession = async (agentId: string) => { const s = await createSession(agentId); setSelectedAgentId(agentId); selectSession(s.id); await fetchSessions() }
 
@@ -195,35 +224,76 @@ export default function Workspace() {
     <div style={{ display: 'flex', height: '100%', background: 'var(--bg-1)' }}>
       {/* ─── Left Sidebar ─── */}
       <aside style={{ width: 250, flexShrink: 0, display: 'flex', flexDirection: 'column', borderRight: '1px solid var(--border)', background: 'var(--bg-0)' }}>
-        <div style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 6, borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
-          {connected ? <Wifi size={12} color="var(--green)" /> : <WifiOff size={12} color="var(--red)" />}
-          <span style={{ fontSize: 11, color: connected ? 'var(--green)' : 'var(--red)' }}>{connected ? '已连接' : '未连接'}</span>
+        <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+          <button type="button" onClick={() => setSidebarTab('sessions')} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, padding: '9px 0', border: 'none', borderBottom: sidebarTab === 'sessions' ? '2px solid var(--blue)' : '2px solid transparent', background: 'transparent', color: sidebarTab === 'sessions' ? 'var(--blue)' : 'var(--text-3)', cursor: 'pointer', fontSize: 12, fontWeight: 600, transition: 'all 0.15s' }}>
+            <MessageSquareIcon size={14} /> 会话
+          </button>
+          <button type="button" onClick={() => setSidebarTab('files')} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, padding: '9px 0', border: 'none', borderBottom: sidebarTab === 'files' ? '2px solid var(--blue)' : '2px solid transparent', background: 'transparent', color: sidebarTab === 'files' ? 'var(--blue)' : 'var(--text-3)', cursor: 'pointer', fontSize: 12, fontWeight: 600, transition: 'all 0.15s' }}>
+            <FolderOpen size={14} /> 文件
+          </button>
         </div>
-        <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0', minHeight: 0 }}>
-          <div style={{ padding: '8px 14px 6px', fontSize: 11, fontWeight: 600, color: 'var(--text-3)', letterSpacing: '0.04em' }}>智能体</div>
-          {agents.map(agent => (
-            <div key={agent.id} style={{ marginBottom: 2 }}>
-              <button type="button" onClick={() => toggleAgent(agent.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '7px 14px', border: 'none', background: 'transparent', color: 'var(--text-1)', cursor: 'pointer', textAlign: 'left' }}>
-                {expandedAgents.has(agent.id) ? <ChevronDown size={13} color="var(--text-3)" /> : <ChevronRight size={13} color="var(--text-3)" />}
-                <span style={{ width: 24, height: 24, borderRadius: '50%', background: agentColor(agent), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, color: 'white', flexShrink: 0 }}>{agentAvatar(agent)}</span>
-                <span style={{ flex: 1, fontSize: 13, fontWeight: 500 }}>{agent.name}</span>
-                <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 10, background: 'var(--bg-2)', color: 'var(--text-3)' }}>{agentSessions(agent.id).length}</span>
-                <span style={{ width: 7, height: 7, borderRadius: '50%', background: statusDot(agent.status), flexShrink: 0 }} title={statusLabel(agent.status)} />
-              </button>
-              {expandedAgents.has(agent.id) && (<>
-                {agentSessions(agent.id).map(s => (
-                  <button key={s.id} type="button" onClick={() => handleSelectSession(agent.id, s.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '5px 14px 5px 42px', border: 'none', background: currentSessionId === s.id ? 'var(--blue-light)' : 'transparent', color: 'var(--text-1)', cursor: 'pointer', textAlign: 'left', borderRadius: 4 }}>
-                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: s.status === 'active' ? '#059669' : '#9ca3af', flexShrink: 0 }} />
-                    <span style={{ flex: 1, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>会话 {s.id.slice(-6)}</span>
-                    <span style={{ fontSize: 10, color: 'var(--text-3)' }}>{formatTime(s.started_at)}</span>
-                  </button>
-                ))}
-                <button type="button" onClick={() => handleNewSession(agent.id)} style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '5px 14px 5px 42px', border: 'none', background: 'transparent', color: 'var(--text-3)', cursor: 'pointer', fontSize: 11 }}><Plus size={12} /> 新建会话</button>
-              </>)}
+
+        {sidebarTab === 'sessions' ? (
+          <>
+            <div style={{ padding: '6px 14px', display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+              {connected ? <Wifi size={12} color="var(--green)" /> : <WifiOff size={12} color="var(--red)" />}
+              <span style={{ fontSize: 11, color: connected ? 'var(--green)' : 'var(--red)' }}>{connected ? '已连接' : '未连接'}</span>
             </div>
-          ))}
-        </div>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '4px 0', minHeight: 0 }}>
+              <div style={{ padding: '6px 14px 4px', fontSize: 11, fontWeight: 600, color: 'var(--text-3)', letterSpacing: '0.04em' }}>智能体</div>
+              {agents.map(agent => (
+                <div key={agent.id} style={{ marginBottom: 2 }}>
+                  <button type="button" onClick={() => toggleAgent(agent.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '7px 14px', border: 'none', background: 'transparent', color: 'var(--text-1)', cursor: 'pointer', textAlign: 'left' }}>
+                    {expandedAgentIds.has(agent.id) ? <ChevronDown size={13} color="var(--text-3)" /> : <ChevronRight size={13} color="var(--text-3)" />}
+                    <span style={{ width: 24, height: 24, borderRadius: '50%', background: agentColor(agent), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, color: 'white', flexShrink: 0 }}>{agentAvatar(agent)}</span>
+                    <span style={{ flex: 1, fontSize: 13, fontWeight: 500 }}>{agent.name}</span>
+                    <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 10, background: 'var(--bg-2)', color: 'var(--text-3)' }}>{agentSessions(agent.id).length}</span>
+                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: statusDot(agent.status), flexShrink: 0 }} title={statusLabel(agent.status)} />
+                  </button>
+                  {expandedAgentIds.has(agent.id) && (<>
+                    {agentSessions(agent.id).map(s => (
+                      <button key={s.id} type="button" onClick={() => handleSelectSession(agent.id, s.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '5px 14px 5px 42px', border: 'none', background: currentSessionId === s.id ? 'var(--blue-light)' : 'transparent', color: 'var(--text-1)', cursor: 'pointer', textAlign: 'left', borderRadius: 4 }}>
+                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: s.status === 'active' ? '#059669' : '#9ca3af', flexShrink: 0 }} />
+                        <span style={{ flex: 1, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>会话 {s.id.slice(-6)}</span>
+                        <span style={{ fontSize: 10, color: 'var(--text-3)' }}>{formatTime(s.started_at)}</span>
+                      </button>
+                    ))}
+                    <button type="button" onClick={() => handleNewSession(agent.id)} style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '5px 14px 5px 42px', border: 'none', background: 'transparent', color: 'var(--text-3)', cursor: 'pointer', fontSize: 11 }}><Plus size={12} /> 新建会话</button>
+                  </>)}
+                </div>
+              ))}
+            </div>
+          </>
+        ) : (
+          <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0', minHeight: 0 }}>
+            {!currentProjectId ? (
+              <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
+                <FolderOpen size={32} style={{ marginBottom: 8, opacity: 0.3 }} />
+                <p>请先在顶部选择一个项目</p>
+              </div>
+            ) : fileTree.length === 0 ? (
+              <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
+                <FolderOpen size={32} style={{ marginBottom: 8, opacity: 0.3 }} />
+                <p>加载文件中...</p>
+              </div>
+            ) : (
+              <FileTree
+                entries={fileTree}
+                selectedPath={openFile?.path ?? null}
+                onSelectFile={(path) => currentProjectId && openFileByPath(currentProjectId, path)}
+                onExpandDir={(path) => currentProjectId && expandDir(currentProjectId, path)}
+              />
+            )}
+          </div>
+        )}
       </aside>
+
+      {/* ─── File Preview (optional) ─── */}
+      {openFile && (
+        <div style={{ width: 420, flexShrink: 0 }}>
+          <FilePreview file={openFile} onClose={closeFile} />
+        </div>
+      )}
 
       {/* ─── Center Chat ─── */}
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
@@ -238,11 +308,7 @@ export default function Workspace() {
               </div>
             </>)}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            {usage && <ContextCircle usage={usage} />}
-            {turnUsage && <span style={{ fontSize: 10, color: 'var(--text-3)', display: 'flex', alignItems: 'center', gap: 3 }}><Zap size={10} /> {fmtTokens(turnUsage.totalTokens)}</span>}
-            {usage?.costAmount != null && <span style={{ fontSize: 10, color: 'var(--text-3)' }}>${usage.costAmount.toFixed(4)}</span>}
-          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }} />
         </header>
 
         {plan.length > 0 && <PlanBar plan={plan} />}
@@ -338,14 +404,25 @@ export default function Workspace() {
                 </button>
               )}
 
-              <button type="button" onClick={handleSend} disabled={!currentSessionId || !connected || !inputValue.trim()}
-                style={{
-                  width: 32, height: 32, borderRadius: '50%', border: 'none', cursor: currentSessionId && inputValue.trim() ? 'pointer' : 'default',
-                  background: currentSessionId && inputValue.trim() ? 'var(--text-1)' : 'var(--bg-3)', color: 'white',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'background 0.15s',
-                }}>
-                <ArrowUp size={16} />
-              </button>
+              {isStreaming ? (
+                <button type="button" onClick={cancelTurn} title="停止生成"
+                  style={{
+                    width: 32, height: 32, borderRadius: '50%', border: '2px solid var(--red)', cursor: 'pointer',
+                    background: 'transparent', color: 'var(--red)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all 0.15s',
+                  }}>
+                  <Square size={14} fill="var(--red)" />
+                </button>
+              ) : (
+                <button type="button" onClick={handleSend} disabled={!currentSessionId || !connected || !inputValue.trim()}
+                  style={{
+                    width: 32, height: 32, borderRadius: '50%', border: 'none', cursor: currentSessionId && inputValue.trim() ? 'pointer' : 'default',
+                    background: currentSessionId && inputValue.trim() ? 'var(--text-1)' : 'var(--bg-3)', color: 'white',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'background 0.15s',
+                  }}>
+                  <ArrowUp size={16} />
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -358,13 +435,6 @@ export default function Workspace() {
           <button type="button" onClick={() => setShowNewTask(true)} style={{ border: 'none', background: 'var(--blue)', color: 'white', cursor: 'pointer', padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 4 }}><Plus size={12} /> 新建</button>
         </div>
         <TaskPanel tasks={tasks} agents={agents} />
-        {turnUsage && (
-          <div style={{ padding: '8px 14px', borderTop: '1px solid var(--border)', flexShrink: 0, display: 'flex', gap: 12, fontSize: 10, color: 'var(--text-3)' }}>
-            <span>输入 <b style={{ color: 'var(--text-2)' }}>{fmtTokens(turnUsage.inputTokens)}</b></span>
-            <span>输出 <b style={{ color: 'var(--text-2)' }}>{fmtTokens(turnUsage.outputTokens)}</b></span>
-            {turnUsage.cachedReadTokens != null && turnUsage.cachedReadTokens > 0 && <span>缓存 <b style={{ color: 'var(--text-2)' }}>{fmtTokens(turnUsage.cachedReadTokens)}</b></span>}
-          </div>
-        )}
       </aside>
 
       {showNewTask && <NewTaskModal agents={agents} onCreate={createTask} onClose={() => setShowNewTask(false)} />}
@@ -419,22 +489,6 @@ export default function Workspace() {
           </button>
         })}
       </DropdownPortal>}
-    </div>
-  )
-}
-
-/* ─── Context Circle (header large) ─── */
-function ContextCircle({ usage }: { usage: UsageInfo }) {
-  const pct = Math.min(100, (usage.contextUsed / usage.contextSize) * 100)
-  const r = 15, c = 2 * Math.PI * r, dash = c * pct / 100
-  const color = pct > 80 ? 'var(--red)' : pct > 50 ? '#f59e0b' : 'var(--blue)'
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 5 }} title={`上下文: ${fmtTokens(usage.contextUsed)} / ${fmtTokens(usage.contextSize)}`}>
-      <svg width="34" height="34" viewBox="0 0 34 34">
-        <circle cx="17" cy="17" r={r} fill="none" stroke="var(--bg-3)" strokeWidth="2.5" />
-        <circle cx="17" cy="17" r={r} fill="none" stroke={color} strokeWidth="2.5" strokeDasharray={`${dash} ${c - dash}`} strokeDashoffset={c * 0.25} strokeLinecap="round" style={{ transition: 'stroke-dasharray 0.3s' }} />
-        <text x="17" y="17" textAnchor="middle" dominantBaseline="central" style={{ fontSize: 8, fontWeight: 700, fill: 'var(--text-2)' }}>{pct.toFixed(0)}%</text>
-      </svg>
     </div>
   )
 }
@@ -547,14 +601,19 @@ function TaskPanel({ tasks, agents }: { tasks: TaskData[]; agents: AgentData[] }
 }
 
 /* ─── Tool Call Panel ─── */
-function ToolCallPanel({ tc, isStreaming }: { tc: ToolCallInfo; isStreaming: boolean }) {
+function ToolCallPanel({ tc }: { tc: ToolCallInfo; isStreaming: boolean }) {
   const isActive = tc.status === 'in_progress' || tc.status === 'pending'
-  const [open, setOpen] = useState(isStreaming || isActive)
-
+  const [openOverride, setOpenOverride] = useState<'open' | 'closed' | null>(null)
+  const prevStatusRef = useRef(tc.status)
   useEffect(() => {
-    if (isStreaming && isActive) setOpen(true)
-    if (!isStreaming && !isActive) setOpen(false)
-  }, [isStreaming, isActive])
+    const prev = prevStatusRef.current
+    prevStatusRef.current = tc.status
+    if ((prev === 'in_progress' || prev === 'pending') && tc.status === 'completed') {
+      setOpenOverride(cur => cur === 'open' ? 'open' : 'closed')
+    }
+  }, [tc.status])
+  const open = openOverride === 'open' || (openOverride !== 'closed' && isActive)
+  const toggleOpen = () => setOpenOverride(open ? 'closed' : 'open')
   const kindIcon = tc.kind === 'edit' ? <FileCode size={12} /> : tc.kind === 'execute' ? <Terminal size={12} /> : <Wrench size={12} />
   const statusColor = tc.status === 'completed' ? 'var(--green)' : tc.status === 'failed' ? 'var(--red)' : 'var(--blue)'
   const statusIcon = tc.status === 'completed' ? <Check size={10} /> : tc.status === 'failed' ? <X size={10} /> : <Loader2 size={10} style={{ animation: 'spin 1s linear infinite' }} />
@@ -563,7 +622,7 @@ function ToolCallPanel({ tc, isStreaming }: { tc: ToolCallInfo; isStreaming: boo
 
   return (
     <div style={{ marginBottom: 6, borderRadius: 8, border: '1px solid var(--border)', overflow: 'hidden', background: 'var(--bg-1)', maxWidth: '100%' }}>
-      <button type="button" onClick={() => setOpen(!open)} style={{ width: '100%', padding: '8px 10px', border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, textAlign: 'left', fontSize: 12, color: 'var(--text-1)' }}>
+      <button type="button" onClick={toggleOpen} style={{ width: '100%', padding: '8px 10px', border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, textAlign: 'left', fontSize: 12, color: 'var(--text-1)' }}>
         {open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
         {kindIcon}
         <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 }}>{summary}</span>
@@ -665,19 +724,17 @@ function ElicitationCard({ request, onRespond }: { request: ElicitationRequestIn
 type ChatMsg = { id: string; role: string; content: string; thinking?: string | null; tool_calls_json?: string | null; decision_json?: string | null; attachments_json?: string | null; toolCalls?: ToolCallInfo[]; timestamp?: string; streaming?: boolean }
 
 interface TurnStats { inputTokens: number; outputTokens: number; totalTokens: number; cachedReadTokens?: number; thoughtTokens?: number; costAmount?: number; elapsedSeconds?: number }
-const statChipStyle: React.CSSProperties = { padding: '3px 8px', borderRight: '1px solid var(--border)', fontSize: 10, whiteSpace: 'nowrap' }
+const statChipStyle: React.CSSProperties = { padding: '3px 8px', borderRight: '1px solid var(--border)', fontSize: 10, whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 3 }
 
 function ChatBubble({ message, agent, isStreaming }: { message: ChatMsg; agent: AgentData | undefined; isStreaming: boolean }) {
-  const [thinkingOpen, setThinkingOpen] = useState(isStreaming)
+  const defaultThinkingOpen = !!(isStreaming && message.thinking)
+  const [thinkingOpenOverride, setThinkingOpenOverride] = useState<'open' | 'closed' | null>(null)
+  const thinkingOpen = thinkingOpenOverride === 'open' || (thinkingOpenOverride !== 'closed' && defaultThinkingOpen)
+  const toggleThinkingOpen = () => setThinkingOpenOverride(thinkingOpen ? 'closed' : (defaultThinkingOpen ? null : 'open'))
   const isHuman = message.role === 'human'
   const toolCalls: ToolCallInfo[] = message.toolCalls || (message.tool_calls_json ? (() => { try { return JSON.parse(message.tool_calls_json) } catch { return [] } })() : [])
   const turnStats: TurnStats | null = !isHuman && message.decision_json ? (() => { try { return JSON.parse(message.decision_json) } catch { return null } })() : null
   const attachments: ImageAttachmentInfo[] = message.attachments_json ? (() => { try { return JSON.parse(message.attachments_json) } catch { return [] } })() : []
-
-  useEffect(() => {
-    if (isStreaming && message.thinking) setThinkingOpen(true)
-    if (!isStreaming && !message.streaming) setThinkingOpen(false)
-  }, [isStreaming, message.streaming, message.thinking])
 
   return (
     <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', flexDirection: isHuman ? 'row-reverse' : 'row' }}>
@@ -693,7 +750,7 @@ function ChatBubble({ message, agent, isStreaming }: { message: ChatMsg; agent: 
         <div style={{ padding: '12px 14px', borderRadius: isHuman ? '12px 2px 12px 12px' : '2px 12px 12px 12px', background: isHuman ? 'var(--blue-light)' : 'var(--bg-0)', border: `1px solid ${isHuman ? 'rgba(37,99,235,0.15)' : 'var(--border)'}`, boxShadow: 'var(--shadow-sm)', maxWidth: '100%', overflow: 'hidden' }}>
           {message.thinking && (
             <div style={{ marginBottom: 8, borderRadius: 6, border: '1px solid var(--border)', overflow: 'hidden' }}>
-              <button type="button" onClick={() => setThinkingOpen(!thinkingOpen)} style={{ width: '100%', padding: '6px 10px', border: 'none', background: 'var(--bg-2)', color: 'var(--text-3)', fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, textAlign: 'left' }}>
+              <button type="button" onClick={toggleThinkingOpen} style={{ width: '100%', padding: '6px 10px', border: 'none', background: 'var(--bg-2)', color: 'var(--text-3)', fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, textAlign: 'left' }}>
                 {thinkingOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />} 思考过程
                 {isStreaming && <Loader2 size={10} style={{ animation: 'spin 1s linear infinite', marginLeft: 'auto' }} />}
               </button>
@@ -708,12 +765,12 @@ function ChatBubble({ message, agent, isStreaming }: { message: ChatMsg; agent: 
         </div>
         {/* 单次统计 */}
         {turnStats && (
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 0, marginTop: 6, fontSize: 10, color: 'var(--text-3)', background: 'var(--bg-1)', borderRadius: 6, border: '1px solid var(--border)', overflow: 'hidden' }}>
-            {turnStats.elapsedSeconds != null && <span style={statChipStyle}>{turnStats.elapsedSeconds}s</span>}
-            <span style={statChipStyle}>输入 {fmtTokens(turnStats.inputTokens)}</span>
-            <span style={statChipStyle}>输出 {fmtTokens(turnStats.outputTokens)}</span>
-            {turnStats.cachedReadTokens != null && turnStats.cachedReadTokens > 0 && <span style={statChipStyle}>缓存 {fmtTokens(turnStats.cachedReadTokens)}</span>}
-            {turnStats.costAmount != null && <span style={statChipStyle}>${turnStats.costAmount.toFixed(4)}</span>}
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 0, marginTop: 6, fontSize: 10, color: 'var(--text-3)', background: 'var(--bg-2)', borderRadius: 6, overflow: 'hidden' }}>
+            {turnStats.elapsedSeconds != null && <span style={{ ...statChipStyle, fontWeight: 600, color: 'var(--text-2)' }}>⏱ {turnStats.elapsedSeconds}s</span>}
+            <span style={statChipStyle}><span style={{ color: 'var(--text-3)' }}>输入</span> <b style={{ color: 'var(--text-2)' }}>{fmtTokens(turnStats.inputTokens)}</b></span>
+            <span style={statChipStyle}><span style={{ color: 'var(--text-3)' }}>输出</span> <b style={{ color: 'var(--text-2)' }}>{fmtTokens(turnStats.outputTokens)}</b></span>
+            {turnStats.cachedReadTokens != null && turnStats.cachedReadTokens > 0 && <span style={statChipStyle}><span style={{ color: 'var(--text-3)' }}>缓存</span> <b style={{ color: 'var(--text-2)' }}>{fmtTokens(turnStats.cachedReadTokens)}</b></span>}
+            {turnStats.costAmount != null && <span style={{ ...statChipStyle, borderRight: 'none' }}>${turnStats.costAmount.toFixed(4)}</span>}
           </div>
         )}
       </div>
