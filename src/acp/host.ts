@@ -294,7 +294,7 @@ export const acpHost = {
       }
     }
 
-    events.emit('session:done', { sessionId: ourSessionId, agentId, messageId: `done-${ourSessionId}`, turnUsage })
+    events.emit('session:done', { sessionId: ourSessionId, agentId, messageId: `done-${ourSessionId}`, turnUsage, stopReason: promptResult.stopReason })
     console.log(`[ACP] Agent ${agentId} prompt 完成: ${promptResult.stopReason}${turnUsage ? ` (${turnUsage.totalTokens} tokens)` : ''}`)
   },
 
@@ -624,6 +624,11 @@ function createClientHandler(agentId: string): acp.Client {
         const key = requestKey(ourSessionId, requestId)
         const timeout = setTimeout(() => {
           pendingPermissions.delete(key)
+          events.emit('session:update', {
+            sessionId: ourSessionId,
+            agentId,
+            data: { messageId: requestId, role: 'system', content: '', eventType: 'permission.result' } satisfies SessionUpdateData,
+          })
           resolve({ outcome: { outcome: 'cancelled' } })
         }, 10 * 60 * 1000)
         pendingPermissions.set(key, { resolve, timeout, agentId, requestId })
@@ -726,6 +731,11 @@ function createClientHandler(agentId: string): acp.Client {
         const key = requestKey(ourSessionId, requestId)
         const timeout = setTimeout(() => {
           pendingElicitations.delete(key)
+          events.emit('session:update', {
+            sessionId: ourSessionId,
+            agentId,
+            data: { messageId: requestId, role: 'system', content: '', eventType: 'elicitation.result' } satisfies SessionUpdateData,
+          })
           resolve({ action: 'cancel' })
         }, 10 * 60 * 1000)
         pendingElicitations.set(key, { resolve, timeout, agentId, requestId })
@@ -900,7 +910,7 @@ function handleMockNotification(agentId: string, ourSessionId: string, params: R
     }
     case 'message_done':
       data.done = true
-      events.emit('session:done', { sessionId: ourSessionId, agentId, messageId })
+      events.emit('session:done', { sessionId: ourSessionId, agentId, messageId, stopReason: 'end_turn' })
       return
     default:
       return

@@ -81,6 +81,17 @@ export interface TurnUsageData {
   thoughtTokens?: number
 }
 
+export type SessionStopReason = 'end_turn' | 'max_tokens' | 'max_turn_requests' | 'refusal' | 'cancelled' | 'error'
+
+export interface SessionDoneData {
+  sessionId: string
+  agentId: string
+  messageId: string
+  turnUsage?: TurnUsageData
+  stopReason?: SessionStopReason
+  error?: string
+}
+
 export interface ModelInfo {
   modelId: string
   name: string
@@ -182,7 +193,7 @@ export interface SessionUpdateData {
 export type ServerMessage =
   | { type: 'session:update'; sessionId: string; agentId: string; data: SessionUpdateData }
   | { type: 'session:event'; sessionId: string; agentId?: string | null; event: SessionEventData }
-  | { type: 'session:done'; sessionId: string; agentId: string; messageId: string; turnUsage?: TurnUsageData }
+  | ({ type: 'session:done' } & SessionDoneData)
   | { type: 'session:capabilities'; sessionId: string; capabilities: SessionCapabilities }
   | { type: 'agent:status'; agentId: string; status: AgentStatus }
   | { type: 'task:update'; taskId: string; data: Record<string, unknown> }

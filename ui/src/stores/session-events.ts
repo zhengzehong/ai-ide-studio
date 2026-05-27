@@ -98,9 +98,42 @@ export function appendFinalizedMessage(currentMessages: MessageData[], message: 
   return [...currentMessages, { ...message, id: nextId }]
 }
 
+const GENERIC_TOOL_TITLES = new Set(['工具调用', 'Tool call', 'tool call'])
+
+function hasMeaningfulTitle(tool: ToolCallInfo): boolean {
+  return !!tool.title && !GENERIC_TOOL_TITLES.has(tool.title) && !tool.title.startsWith('工具调用 #')
+}
+
+export function shouldCreateToolFromUpdate(update: ToolCallInfo): boolean {
+  return !!(
+    hasMeaningfulTitle(update) ||
+    update.kind ||
+    update.locations?.length ||
+    update.rawInput !== undefined ||
+    update.rawOutput !== undefined ||
+    update.content?.length ||
+    update.terminalOutput ||
+    update.terminalOutputDelta ||
+    update.progress?.length ||
+    update.progressDelta ||
+    update.error
+  )
+}
+
+export function upsertToolCall(tools: ToolCallInfo[], update: ToolCallInfo, createIfMissing = true): ToolCallInfo[] {
+  const idx = tools.findIndex(t => t.id === update.id)
+  if (idx >= 0) {
+    const next = [...tools]
+    next[idx] = mergeToolCall(next[idx], update)
+    return next
+  }
+  if (!createIfMissing || !shouldCreateToolFromUpdate(update)) return tools
+  return [...tools, update]
+}
+
 export function mergeToolCall(existing: ToolCallInfo, update: ToolCallInfo): ToolCallInfo {
   const next: ToolCallInfo = { ...existing }
-  if (update.title) next.title = update.title
+  if (hasMeaningfulTitle(update) || !hasMeaningfulTitle(next)) next.title = update.title
   if (update.kind) next.kind = update.kind
   if (update.status) next.status = update.status
   if (update.locations) next.locations = update.locations
@@ -185,11 +218,10 @@ function applyEvent(state: ReducedSessionEvents, event: SessionEventData): Reduc
       break
     }
     case 'tool.update': {
-      const msg = ensureStreaming(String(payload.messageId || event.message_id || event.id))
       const update = payload.toolCall as ToolCallInfo
-      const idx = msg.toolCalls.findIndex(t => t.id === update.id)
-      if (idx >= 0) msg.toolCalls[idx] = mergeToolCall(msg.toolCalls[idx], update)
-      else msg.toolCalls.push(update)
+      if (!streaming && !shouldCreateToolFromUpdate(update)) break
+      const msg = ensureStreaming(String(payload.messageId || event.message_id || event.id))
+      msg.toolCalls = upsertToolCall(msg.toolCalls, update)
       break
     }
     case 'message.done': {
@@ -273,11 +305,11 @@ export function completedStreamingFromEvents(events: SessionEventData[]): Stream
         break
       }
       case 'tool.update': {
-        const msg = ensure()
         const update = payload.toolCall as ToolCallInfo
-        const idx = msg.toolCalls.findIndex(t => t.id === update.id)
-        if (idx >= 0) msg.toolCalls[idx] = mergeToolCall(msg.toolCalls[idx], update)
-        else msg.toolCalls.push(update)
+        const existing = activeById.get(messageId) || lastMessage
+        if (!existing && !shouldCreateToolFromUpdate(update)) break
+        const msg = ensure()
+        msg.toolCalls = upsertToolCall(msg.toolCalls, update)
         break
       }
       case 'message.done': {

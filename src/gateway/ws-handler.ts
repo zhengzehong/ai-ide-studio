@@ -69,6 +69,8 @@ events.on('session:done', (ev) => {
     agentId: ev.agentId,
     messageId: ev.messageId,
     turnUsage: ev.turnUsage,
+    stopReason: ev.stopReason,
+    error: ev.error,
   })
 })
 
@@ -272,7 +274,7 @@ async function handleMessage(ws: WebSocket, state: ClientState, msg: ClientMessa
       if (!session) { sendError(ws, msg.requestId, '会话不存在'); break }
       try {
         await acpHost.cancelPrompt(session.agent_id, sessionId)
-        events.emit('session:done', { sessionId, agentId: session.agent_id, messageId: `cancel-${Date.now()}` })
+        events.emit('session:done', { sessionId, agentId: session.agent_id, messageId: `cancel-${Date.now()}`, stopReason: 'cancelled' })
         sendResult(ws, msg.requestId, { ok: true })
       } catch (err) {
         sendError(ws, msg.requestId, err instanceof Error ? err.message : '取消失败')

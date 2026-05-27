@@ -7,7 +7,8 @@ import {
   appendFinalizedMessage,
   mergeCapabilities,
   mergeMessagesById,
-  mergeToolCall,
+  shouldCreateToolFromUpdate,
+  upsertToolCall,
   reduceSessionEvents,
   type AvailableCommandInfo,
   type ConfigOptionInfo,
@@ -255,9 +256,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         if (data.toolCall) up.toolCalls.push(data.toolCall as ToolCallInfo)
         if (data.toolCallUpdate) {
           const tcu = data.toolCallUpdate as ToolCallInfo
-          const idx = up.toolCalls.findIndex(t => t.id === tcu.id)
-          if (idx >= 0) up.toolCalls[idx] = mergeToolCall(up.toolCalls[idx], tcu)
-          else up.toolCalls.push(tcu)
+          if (!cur && !shouldCreateToolFromUpdate(tcu)) return {}
+          up.toolCalls = upsertToolCall(up.toolCalls, tcu)
         }
         lastStreamingSnapshot = up
         return { streamingMessage: up }

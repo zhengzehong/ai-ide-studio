@@ -6,7 +6,7 @@ import { acpHost } from '../acp/host.js'
 import { events } from './events.js'
 import { createChildLogger } from './logger.js'
 import type { ImageAttachment, SessionUpdateData, ToolCallData } from '../types/ws-protocol.js'
-import { mergeToolCall } from './tool-calls.js'
+import { upsertToolCall } from './tool-calls.js'
 
 const log = createChildLogger('session')
 
@@ -21,11 +21,7 @@ events.on('session:update', (ev) => {
   if (data.contentDelta) pending.content += data.contentDelta
   if (data.thinking) pending.thinking += data.thinking
   if (data.toolCall) pending.toolCalls.push(data.toolCall)
-  if (data.toolCallUpdate) {
-    const idx = pending.toolCalls.findIndex(t => t.id === data.toolCallUpdate!.id)
-    if (idx >= 0) pending.toolCalls[idx] = mergeToolCall(pending.toolCalls[idx], data.toolCallUpdate)
-    else pending.toolCalls.push(data.toolCallUpdate)
-  }
+  if (data.toolCallUpdate) pending.toolCalls = upsertToolCall(pending.toolCalls, data.toolCallUpdate)
 })
 
 events.on('session:update', (ev) => {
@@ -47,7 +43,7 @@ events.on('session:done', (ev) => {
     agentId: ev.agentId,
     messageId: ev.messageId,
     role: 'agent',
-    payload: { messageId: ev.messageId, turnUsage: ev.turnUsage },
+    payload: { messageId: ev.messageId, turnUsage: ev.turnUsage, stopReason: ev.stopReason, error: ev.error },
   })
   events.emit('session:event', { sessionId: ev.sessionId, agentId: ev.agentId, event: stored })
 })
@@ -152,7 +148,14 @@ export const sessionManager = {
       }
     }
 
-    await acpHost.prompt(session.agent_id, sessionId, content, images)
+    try {
+      await acpHost.prompt(session.agent_id, sessionId, content, images)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      log.error({ err, sessionId, agentId: session.agent_id }, 'prompt 执行失败')
+      events.emit('session:done', { sessionId, agentId: session.agent_id, messageId: `error-${Date.now()}`, stopReason: 'error', error: message })
+      throw err
+    }
   },
 
   async sendDecision(sessionId: string, _messageId: string, _choice: string): Promise<void> {
