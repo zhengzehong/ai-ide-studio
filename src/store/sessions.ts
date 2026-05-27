@@ -11,6 +11,11 @@ export interface SessionRow {
   started_at: string
   closed_at: string | null
   project_id: string | null
+  title: string | null
+  updated_at: string | null
+  last_message_at: string | null
+  archived_at: string | null
+  deleted_at: string | null
 }
 
 export interface MessageRow {
@@ -65,6 +70,7 @@ export interface AppendEventInput {
 
 export const sessionStore = {
   create(input: CreateSessionInput): SessionRow {
+    const now = new Date().toISOString()
     const session: SessionRow = {
       id: `sess-${randomUUID().slice(0, 8)}`,
       agent_id: input.agentId,
@@ -72,13 +78,24 @@ export const sessionStore = {
       acp_session_id: input.acpSessionId || null,
       status: 'active',
       stage: '',
-      started_at: new Date().toISOString(),
+      started_at: now,
       closed_at: null,
       project_id: input.projectId ?? null,
+      title: null,
+      updated_at: now,
+      last_message_at: null,
+      archived_at: null,
+      deleted_at: null,
     }
     getDb().prepare(`
-      INSERT INTO sessions (id, agent_id, task_id, acp_session_id, status, stage, started_at, closed_at, project_id)
-      VALUES (@id, @agent_id, @task_id, @acp_session_id, @status, @stage, @started_at, @closed_at, @project_id)
+      INSERT INTO sessions (
+        id, agent_id, task_id, acp_session_id, status, stage, started_at, closed_at,
+        project_id, title, updated_at, last_message_at, archived_at, deleted_at
+      )
+      VALUES (
+        @id, @agent_id, @task_id, @acp_session_id, @status, @stage, @started_at, @closed_at,
+        @project_id, @title, @updated_at, @last_message_at, @archived_at, @deleted_at
+      )
     `).run(session)
     return session
   },
@@ -89,15 +106,15 @@ export const sessionStore = {
 
   list(agentId?: string, projectId?: string): SessionRow[] {
     if (agentId && projectId) {
-      return getDb().prepare<[string, string], SessionRow>('SELECT * FROM sessions WHERE agent_id = ? AND project_id = ? ORDER BY started_at ASC').all(agentId, projectId)
+      return getDb().prepare<[string, string], SessionRow>('SELECT * FROM sessions WHERE agent_id = ? AND project_id = ? AND deleted_at IS NULL ORDER BY started_at ASC').all(agentId, projectId)
     }
     if (agentId) {
-      return getDb().prepare<[string], SessionRow>('SELECT * FROM sessions WHERE agent_id = ? ORDER BY started_at ASC').all(agentId)
+      return getDb().prepare<[string], SessionRow>('SELECT * FROM sessions WHERE agent_id = ? AND deleted_at IS NULL ORDER BY started_at ASC').all(agentId)
     }
     if (projectId) {
-      return getDb().prepare<[string], SessionRow>('SELECT * FROM sessions WHERE project_id = ? ORDER BY started_at ASC').all(projectId)
+      return getDb().prepare<[string], SessionRow>('SELECT * FROM sessions WHERE project_id = ? AND deleted_at IS NULL ORDER BY started_at ASC').all(projectId)
     }
-    return getDb().prepare<[], SessionRow>('SELECT * FROM sessions ORDER BY started_at ASC').all()
+    return getDb().prepare<[], SessionRow>('SELECT * FROM sessions WHERE deleted_at IS NULL ORDER BY started_at ASC').all()
   },
 
   listByTask(taskId: string): SessionRow[] {
@@ -105,20 +122,58 @@ export const sessionStore = {
   },
 
   updateStatus(id: string, status: string): void {
-    const closedAt = status === 'closed' ? new Date().toISOString() : null
+    const now = new Date().toISOString()
+    const closedAt = status === 'closed' ? now : null
     getDb().prepare(`
       UPDATE sessions
-      SET status = ?, closed_at = CASE WHEN ? IS NULL THEN closed_at ELSE ? END
+      SET
+        status = ?,
+        updated_at = ?,
+        closed_at = CASE WHEN ? IS NULL THEN closed_at ELSE ? END
       WHERE id = ?
-    `).run(status, closedAt, closedAt, id)
+    `).run(status, now, closedAt, closedAt, id)
   },
 
   updateAcpSessionId(id: string, acpSessionId: string): void {
-    getDb().prepare('UPDATE sessions SET acp_session_id = ? WHERE id = ?').run(acpSessionId, id)
+    getDb().prepare('UPDATE sessions SET acp_session_id = ?, updated_at = ? WHERE id = ?').run(acpSessionId, new Date().toISOString(), id)
   },
 
   updateStage(id: string, stage: string): void {
-    getDb().prepare('UPDATE sessions SET stage = ? WHERE id = ?').run(stage, id)
+    getDb().prepare('UPDATE sessions SET stage = ?, updated_at = ? WHERE id = ?').run(stage, new Date().toISOString(), id)
+  },
+
+  updateTitle(id: string, title: string): SessionRow | undefined {
+    const nextTitle = title.trim()
+    if (!nextTitle) throw new Error('会话标题不能为空')
+    getDb().prepare('UPDATE sessions SET title = ?, updated_at = ? WHERE id = ?').run(nextTitle, new Date().toISOString(), id)
+    return sessionStore.get(id)
+  },
+
+  updateTitleIfEmpty(id: string, title: string): SessionRow | undefined {
+    const nextTitle = title.trim()
+    if (!nextTitle) return sessionStore.get(id)
+    getDb().prepare(`
+      UPDATE sessions
+      SET title = ?, updated_at = ?
+      WHERE id = ? AND (title IS NULL OR TRIM(title) = '')
+    `).run(nextTitle, new Date().toISOString(), id)
+    return sessionStore.get(id)
+  },
+
+  archive(id: string): SessionRow | undefined {
+    const now = new Date().toISOString()
+    getDb().prepare('UPDATE sessions SET archived_at = ?, updated_at = ? WHERE id = ?').run(now, now, id)
+    return sessionStore.get(id)
+  },
+
+  delete(id: string): SessionRow | undefined {
+    const now = new Date().toISOString()
+    getDb().prepare('UPDATE sessions SET deleted_at = ?, updated_at = ? WHERE id = ?').run(now, now, id)
+    return sessionStore.get(id)
+  },
+
+  touch(id: string, timestamp = new Date().toISOString()): void {
+    getDb().prepare('UPDATE sessions SET updated_at = ?, last_message_at = ? WHERE id = ?').run(timestamp, timestamp, id)
   },
 }
 

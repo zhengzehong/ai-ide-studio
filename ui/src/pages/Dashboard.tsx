@@ -17,6 +17,7 @@ import { useAgentStore, type AgentData } from '../stores/agent.store';
 import { useSessionStore } from '../stores/session.store';
 import { useTaskStore } from '../stores/task.store';
 import { useConnectionStore } from '../stores/connection.store';
+import { useProjectStore } from '../stores/project.store';
 
 type ModalType = null | 'task' | 'agent';
 const TYPE_COLORS: Record<string, string> = { dev: '#2563eb', test: '#059669', ops: '#ea580c', security: '#dc2626', architect: '#7c3aed', pm: '#7c3aed' };
@@ -30,6 +31,7 @@ export default function Dashboard() {
   const tasks = useTaskStore(s => s.tasks);
   const createTask = useTaskStore(s => s.createTask);
   const fetchTasks = useTaskStore(s => s.fetchTasks);
+  const currentProjectId = useProjectStore(s => s.currentProjectId);
 
   const activeSessions = sessions.filter(s => s.status === 'active').length;
   const runningAgents = agents.filter(a => a.status === 'running').length;
@@ -135,7 +137,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {modal === 'task' && <NewTaskModal agents={agents} onCreate={async (t, d, a) => { await createTask(t, d, a); await fetchTasks(); setModal(null); }} onClose={() => setModal(null)} />}
+      {modal === 'task' && <NewTaskModal agents={agents} onCreate={async (t, d, a) => { await createTask(t, d, a, currentProjectId ?? undefined); await fetchTasks(currentProjectId ?? undefined); setModal(null); }} onClose={() => setModal(null)} />}
       {modal === 'agent' && <NewAgentModal onCreate={async (name, type, runtime) => { await createAgent(name, type, runtime); setModal(null); }} onClose={() => setModal(null)} />}
     </div>
   );

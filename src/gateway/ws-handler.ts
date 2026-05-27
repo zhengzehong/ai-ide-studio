@@ -82,6 +82,10 @@ events.on('session:capabilities', (ev) => {
   })
 })
 
+events.on('session:changed', (ev) => {
+  broadcastToAll({ type: 'session:changed', sessionId: ev.sessionId, data: ev.data })
+})
+
 events.on('agent:status', (ev) => {
   broadcastToAll({ type: 'agent:status', agentId: ev.agentId, status: ev.status })
 })
@@ -215,9 +219,13 @@ async function handleMessage(ws: WebSocket, state: ClientState, msg: ClientMessa
       const sessionId = msg.sessionId as string
       const source = sessionStore.get(sessionId)
       if (!source) { sendError(ws, msg.requestId, '会话不存在'); break }
-      const forked = sessionStore.create({ agentId: source.agent_id, taskId: source.task_id ?? undefined })
+      const forked = sessionStore.create({ agentId: source.agent_id, taskId: source.task_id ?? undefined, projectId: source.project_id ?? undefined })
       try {
-        const acpSessionId = await acpHost.forkSession(source.agent_id, sessionId, forked.id)
+        const project = source.project_id ? projectStore.get(source.project_id) : undefined
+        const acpSessionId = await acpHost.forkSession(source.agent_id, sessionId, forked.id, {
+          projectId: source.project_id ?? undefined,
+          cwd: project?.work_dir,
+        })
         sessionStore.updateAcpSessionId(forked.id, acpSessionId)
         state.subscriptions.add(forked.id)
         sendResult(ws, msg.requestId, sessionStore.get(forked.id))
@@ -282,7 +290,7 @@ async function handleMessage(ws: WebSocket, state: ClientState, msg: ClientMessa
       break
     }
     case 'agents.list':
-      sendResult(ws, msg.requestId, agentStore.list())
+      sendResult(ws, msg.requestId, agentStore.list(msg.projectId as string | undefined))
       break
 
     case 'agents.create': {
@@ -297,13 +305,38 @@ async function handleMessage(ws: WebSocket, state: ClientState, msg: ClientMessa
     }
 
     case 'sessions.list':
-      sendResult(ws, msg.requestId, sessionStore.list(msg.agentId as string | undefined))
+      sendResult(ws, msg.requestId, sessionStore.list(msg.agentId as string | undefined, msg.projectId as string | undefined))
       break
 
     case 'sessions.create': {
-      const session = await sessionManager.createSession(msg.agentId as string, msg.taskId as string | undefined)
+      const session = await sessionManager.createSession(msg.agentId as string, msg.taskId as string | undefined, msg.projectId as string | undefined)
       state.subscriptions.add(session.id)
       sendResult(ws, msg.requestId, session)
+      break
+    }
+
+    case 'sessions.rename': {
+      const session = sessionManager.renameSession(msg.sessionId as string, msg.title as string)
+      sendResult(ws, msg.requestId, session)
+      break
+    }
+
+    case 'sessions.close': {
+      await sessionManager.closeSession(msg.sessionId as string)
+      sendResult(ws, msg.requestId, sessionStore.get(msg.sessionId as string))
+      break
+    }
+
+    case 'sessions.archive': {
+      const session = sessionManager.archiveSession(msg.sessionId as string)
+      sendResult(ws, msg.requestId, session)
+      break
+    }
+
+    case 'sessions.delete': {
+      await sessionManager.deleteSession(msg.sessionId as string)
+      state.subscriptions.delete(msg.sessionId as string)
+      sendResult(ws, msg.requestId, { deleted: true })
       break
     }
 
@@ -316,11 +349,16 @@ async function handleMessage(ws: WebSocket, state: ClientState, msg: ClientMessa
       break
 
     case 'tasks.list':
-      sendResult(ws, msg.requestId, taskStore.list(msg.status as string | undefined))
+      sendResult(ws, msg.requestId, taskStore.list(msg.status as string | undefined, msg.projectId as string | undefined))
       break
 
     case 'tasks.create': {
-      const task = await taskManager.createTask({ title: msg.title as string, description: msg.description as string | undefined, assignAgentId: msg.assignAgentId as string | undefined })
+      const task = await taskManager.createTask({
+        title: msg.title as string,
+        description: msg.description as string | undefined,
+        assignAgentId: msg.assignAgentId as string | undefined,
+        projectId: msg.projectId as string | undefined,
+      })
       sendResult(ws, msg.requestId, task)
       break
     }

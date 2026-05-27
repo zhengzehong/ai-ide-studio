@@ -10,12 +10,13 @@ export interface AgentData {
   permission_level: number
   config_json: string | null
   created_at: string
+  project_id?: string | null
 }
 
 interface AgentStore {
   agents: AgentData[]
   loading: boolean
-  fetchAgents: () => Promise<void>
+  fetchAgents: (projectId?: string) => Promise<void>
   createAgent: (name: string, agentType: string, runtime: string) => Promise<AgentData>
   setupListeners: () => () => void
 }
@@ -24,10 +25,12 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
   agents: [],
   loading: false,
 
-  fetchAgents: async () => {
+  fetchAgents: async (projectId) => {
     set({ loading: true })
     try {
-      const data = await wsClient.request({ type: 'agents.list' }) as AgentData[]
+      const msg: Record<string, unknown> = { type: 'agents.list' }
+      if (projectId) msg.projectId = projectId
+      const data = await wsClient.request(msg) as AgentData[]
       set({ agents: data, loading: false })
     } catch {
       set({ loading: false })

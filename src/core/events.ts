@@ -6,6 +6,7 @@ export type AppEvents = {
   'session:event': { sessionId: string; agentId?: string | null; event: SessionEventData }
   'session:done': SessionDoneData
   'session:capabilities': { sessionId: string; capabilities: SessionCapabilities }
+  'session:changed': { sessionId: string; data: Record<string, unknown> }
   'agent:status': { agentId: string; status: AgentStatus }
   'task:update': { taskId: string; data: Record<string, unknown> }
   'task:created': { taskId: string; title: string; assignAgentId?: string }

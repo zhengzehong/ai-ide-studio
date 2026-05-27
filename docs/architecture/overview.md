@@ -90,6 +90,17 @@ Web UI → WS "tasks.create" → ws-handler → taskStore.create()
   → mitt "task:update" → ws-handler 广播 → Web UI / 其他订阅方
 ```
 
+### 管理 Session
+
+```
+Web UI → WS "sessions.rename/delete/archive/close"
+  → ws-handler → sessionManager
+  → sessionStore 更新 title/status/archived_at/deleted_at
+  → mitt "session:changed" → ws-handler 广播 → Web UI 更新左侧会话列表
+```
+
+Session 删除采用软删除，仅隐藏列表项并保留 `messages` / `session_events` 历史数据。项目工作台中的 `agents.list`、`sessions.list`、`tasks.list`、`sessions.create`、`tasks.create` 均应传递当前 `projectId`，避免跨项目混用 Agent、Task 和 Session。
+
 ## 目录功能映射
 
 | 目录 | 职责 | 核心文件 |

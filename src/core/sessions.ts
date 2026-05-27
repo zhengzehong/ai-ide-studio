@@ -1,4 +1,4 @@
-import { sessionStore, messageStore, eventStore } from '../store/sessions.js'
+import { sessionStore, messageStore, eventStore, type SessionRow } from '../store/sessions.js'
 import { taskStore } from '../store/tasks.js'
 import { agentStore } from '../store/agents.js'
 import { projectStore } from '../store/projects.js'
@@ -27,6 +27,10 @@ events.on('session:update', (ev) => {
 events.on('session:update', (ev) => {
   const payload = eventPayloadFromUpdate(ev.data)
   if (!payload) return
+  if (ev.data.sessionInfo?.title) {
+    const updated = sessionStore.updateTitleIfEmpty(ev.sessionId, ev.data.sessionInfo.title)
+    if (updated) events.emit('session:changed', { sessionId: ev.sessionId, data: { ...updated } })
+  }
   const stored = eventStore.append(ev.sessionId, {
     type: payload.type,
     agentId: ev.agentId,
@@ -69,12 +73,13 @@ function eventPayloadFromUpdate(data: SessionUpdateData): { type: string; payloa
 events.on('session:done', (ev) => {
   const pending = pendingBySession.get(ev.sessionId)
   if (pending && (pending.content || pending.thinking || pending.toolCalls.length > 0)) {
-    messageStore.append(ev.sessionId, {
+    const message = messageStore.append(ev.sessionId, {
       role: 'agent',
       content: pending.content,
       thinking: pending.thinking || undefined,
       toolCalls: pending.toolCalls.length > 0 ? pending.toolCalls : undefined,
     })
+    sessionStore.touch(ev.sessionId, message.timestamp)
   }
   pendingBySession.delete(ev.sessionId)
 })
@@ -95,10 +100,10 @@ events.on('session:done', (ev) => {
 })
 
 export const sessionManager = {
-  async createSession(agentId: string, taskId?: string): Promise<{ id: string; agentId: string; acpSessionId: string }> {
+  async createSession(agentId: string, taskId?: string, projectId?: string): Promise<SessionRow> {
     const agent = agentStore.get(agentId)
     if (!agent) throw new Error(`Agent 不存在: ${agentId}`)
-    const projectContext = resolveSessionProjectContext(agentId, taskId)
+    const projectContext = resolveSessionProjectContext(agentId, taskId, projectId)
 
     if (!acpHost.isRunning(agentId)) {
       log.debug({ agentId }, 'Agent 未运行，正在启动')
@@ -110,7 +115,7 @@ export const sessionManager = {
     sessionStore.updateAcpSessionId(session.id, acpSessionId)
 
     log.info({ sessionId: session.id, agentId, acpSessionId, taskId, projectId: projectContext.projectId }, 'Session 已创建')
-    return { id: session.id, agentId, acpSessionId }
+    return sessionStore.get(session.id) ?? { ...session, acp_session_id: acpSessionId }
   },
 
   async sendPrompt(sessionId: string, content: string, images?: ImageAttachment[]): Promise<void> {
@@ -122,6 +127,7 @@ export const sessionManager = {
     log.debug({ sessionId, agentId: session.agent_id, promptLen, imageCount }, '发送 prompt')
 
     const humanMessage = messageStore.append(sessionId, { role: 'human', content, attachments: images })
+    sessionStore.touch(sessionId, humanMessage.timestamp)
     const stored = eventStore.append(sessionId, {
       type: 'message.user',
       agentId: session.agent_id,
@@ -170,7 +176,34 @@ export const sessionManager = {
 
     await acpHost.closeSession(session.agent_id, sessionId)
     sessionStore.updateStatus(sessionId, 'closed')
+    const updated = sessionStore.get(sessionId)
+    if (updated) events.emit('session:changed', { sessionId, data: { ...updated } })
     log.info({ sessionId, agentId: session.agent_id }, 'Session 已关闭')
+  },
+
+  renameSession(sessionId: string, title: string): SessionRow {
+    const session = sessionStore.updateTitle(sessionId, title)
+    if (!session) throw new Error(`Session 不存在: ${sessionId}`)
+    events.emit('session:changed', { sessionId, data: { ...session } })
+    log.info({ sessionId, title: session.title }, 'Session 已重命名')
+    return session
+  },
+
+  archiveSession(sessionId: string): SessionRow {
+    const session = sessionStore.archive(sessionId)
+    if (!session) throw new Error(`Session 不存在: ${sessionId}`)
+    events.emit('session:changed', { sessionId, data: { ...session, event: 'archived' } })
+    log.info({ sessionId }, 'Session 已归档')
+    return session
+  },
+
+  async deleteSession(sessionId: string): Promise<void> {
+    const session = sessionStore.get(sessionId)
+    if (!session) return
+    await acpHost.closeSession(session.agent_id, sessionId)
+    sessionStore.delete(sessionId)
+    events.emit('session:changed', { sessionId, data: { event: 'deleted', deleted: true } })
+    log.info({ sessionId, agentId: session.agent_id }, 'Session 已删除')
   },
 }
 

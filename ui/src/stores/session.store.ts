@@ -47,6 +47,7 @@ export type {
 export interface SessionData {
   id: string; agent_id: string; task_id: string | null; acp_session_id: string | null
   status: string; stage: string; started_at: string; closed_at: string | null
+  project_id?: string | null; title?: string | null; updated_at?: string | null; last_message_at?: string | null; archived_at?: string | null; deleted_at?: string | null
 }
 
 interface SessionCache {
@@ -59,10 +60,14 @@ interface SessionStore {
   streamingMessage: StreamingMessage | null; usage: UsageInfo | null; turnUsage: TurnUsageInfo | null
   capabilities: SessionCapabilities; plan: PlanEntry[]; pendingPermissions: PermissionRequestInfo[]; pendingElicitations: ElicitationRequestInfo[]; loading: boolean
 
-  fetchSessions: (agentId?: string) => Promise<void>
+  fetchSessions: (agentId?: string, projectId?: string) => Promise<void>
   fetchMessages: (sessionId: string) => Promise<void>
   fetchEvents: (sessionId: string) => Promise<void>
-  createSession: (agentId: string, taskId?: string) => Promise<SessionData>
+  createSession: (agentId: string, taskId?: string, projectId?: string) => Promise<SessionData>
+  renameSession: (sessionId: string, title: string) => Promise<void>
+  deleteSession: (sessionId: string) => Promise<void>
+  closeSession: (sessionId: string) => Promise<void>
+  archiveSession: (sessionId: string) => Promise<void>
   selectSession: (id: string) => void
   sendPrompt: (content: string, images?: ImageAttachmentInfo[]) => void
   setModel: (modelId: string) => Promise<void>
@@ -106,11 +111,12 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   sessions: [], currentSessionId: null, messages: [], events: [], streamingMessage: null,
   usage: null, turnUsage: null, capabilities: { ...defaultCaps }, plan: [], pendingPermissions: [], pendingElicitations: [], loading: false,
 
-  fetchSessions: async (agentId) => {
+  fetchSessions: async (agentId, projectId) => {
     set({ loading: true })
     try {
       const msg: Record<string, unknown> = { type: 'sessions.list' }
       if (agentId) msg.agentId = agentId
+      if (projectId) msg.projectId = projectId
       set({ sessions: await wsClient.request(msg) as SessionData[], loading: false })
     } catch { set({ loading: false }) }
   },
@@ -134,12 +140,41 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     }
   },
 
-  createSession: async (agentId, taskId) => {
+  createSession: async (agentId, taskId, projectId) => {
     const msg: Record<string, unknown> = { type: 'sessions.create', agentId }
     if (taskId) msg.taskId = taskId
+    if (projectId) msg.projectId = projectId
     const session = await wsClient.request(msg) as SessionData
     set({ sessions: [...get().sessions, session] })
     return session
+  },
+
+  renameSession: async (sessionId, title) => {
+    const session = await wsClient.request({ type: 'sessions.rename', sessionId, title }) as SessionData
+    set({ sessions: get().sessions.map(s => s.id === sessionId ? { ...s, ...session } : s) })
+  },
+
+  deleteSession: async (sessionId) => {
+    await wsClient.request({ type: 'sessions.delete', sessionId })
+    sessionCaches.delete(sessionId)
+    const currentSessionId = get().currentSessionId === sessionId ? null : get().currentSessionId
+    set({
+      sessions: get().sessions.filter(s => s.id !== sessionId),
+      currentSessionId,
+      messages: currentSessionId ? get().messages : [],
+      events: currentSessionId ? get().events : [],
+      streamingMessage: currentSessionId ? get().streamingMessage : null,
+    })
+  },
+
+  closeSession: async (sessionId) => {
+    const session = await wsClient.request({ type: 'sessions.close', sessionId }) as SessionData
+    set({ sessions: get().sessions.map(s => s.id === sessionId ? { ...s, ...session } : s) })
+  },
+
+  archiveSession: async (sessionId) => {
+    const session = await wsClient.request({ type: 'sessions.archive', sessionId }) as SessionData
+    set({ sessions: get().sessions.map(s => s.id === sessionId ? { ...s, ...session } : s) })
   },
 
   selectSession: (id) => {
@@ -320,6 +355,25 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         saveCache(sid, { ...st, capabilities: merged })
         return { capabilities: merged }
       })
+    }))
+
+    offs.push(wsClient.on('session:changed', (msg) => {
+      const sessionId = msg.sessionId as string
+      const data = msg.data as Partial<SessionData> & { event?: string; deleted?: boolean }
+      if (data.deleted || data.event === 'deleted') {
+        sessionCaches.delete(sessionId)
+        set(st => ({
+          sessions: st.sessions.filter(s => s.id !== sessionId),
+          currentSessionId: st.currentSessionId === sessionId ? null : st.currentSessionId,
+          messages: st.currentSessionId === sessionId ? [] : st.messages,
+          events: st.currentSessionId === sessionId ? [] : st.events,
+          streamingMessage: st.currentSessionId === sessionId ? null : st.streamingMessage,
+        }))
+        return
+      }
+      set(st => ({
+        sessions: st.sessions.map(s => s.id === sessionId ? { ...s, ...data } : s),
+      }))
     }))
 
     listenersSetup = true

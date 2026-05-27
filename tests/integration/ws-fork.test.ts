@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { initDatabase, closeDatabase } from '../../src/store/db.js'
+import { projectStore } from '../../src/store/projects.js'
 import { agentStore } from '../../src/store/agents.js'
 import { sessionStore } from '../../src/store/sessions.js'
 import { acpHost } from '../../src/acp/host.js'
@@ -28,11 +29,17 @@ function createWs() {
 
 describe('session.fork WS RPC', () => {
   test('fork 会话并分配新的 ACP session', async () => {
-    agentStore.upsert({ id: 'agent-fork', type: 'dev', name: 'Fork 测试', runtime: 'mock' })
-    const source = sessionStore.create({ agentId: 'agent-fork', acpSessionId: 'acp-source' })
+    const workDir = resolve(tmp, 'project-fork')
+    const project = projectStore.create({ name: 'Fork 项目', workDir })
+    agentStore.upsert({ id: 'agent-fork', type: 'dev', name: 'Fork 测试', runtime: 'mock', projectId: project.id })
+    const source = sessionStore.create({ agentId: 'agent-fork', acpSessionId: 'acp-source', projectId: project.id })
+    const calls: Array<{ projectId?: string; cwd?: string }> = []
 
     const original = acpHost.forkSession
-    acpHost.forkSession = (async (_agentId: string, _sourceSessionId: string, targetSessionId: string) => `acp-${targetSessionId}`) as typeof acpHost.forkSession
+    acpHost.forkSession = (async (_agentId, _sourceSessionId, targetSessionId, context) => {
+      calls.push({ projectId: context?.projectId, cwd: context?.cwd })
+      return `acp-${targetSessionId}`
+    }) as typeof acpHost.forkSession
 
     const ws = createWs()
     await ws.send({ type: 'session.fork', requestId: 'req-fork', sessionId: source.id })
@@ -41,8 +48,11 @@ describe('session.fork WS RPC', () => {
     expect(response.requestId).toBe('req-fork')
     expect(response.data.id).toBeTruthy()
     expect(response.data.agent_id).toBe('agent-fork')
+    expect(response.data.project_id).toBe(project.id)
     expect(response.data.acp_session_id).toBe(`acp-${response.data.id}`)
     expect(sessionStore.get(response.data.id)?.acp_session_id).toBe(`acp-${response.data.id}`)
+    expect(sessionStore.get(response.data.id)?.project_id).toBe(project.id)
+    expect(calls).toEqual([{ projectId: project.id, cwd: workDir }])
 
     acpHost.forkSession = original
   })
