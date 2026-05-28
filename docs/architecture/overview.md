@@ -134,6 +134,7 @@ Session 删除采用软删除，仅隐藏列表项并保留 `messages` / `sessio
 - `tools` / `tool_bindings` / `skills` / `model_providers` 为全局可扩展能力表。
 - MCP 工具平台目标架构见 `docs/architecture/mcp-tool-platform.md`，第一版按方法级可见性控制推进。
 - `ws-handler.ts` 仍然承担总路由，但新增 RPC 应优先向领域模块下沉，避免继续膨胀。
+- ACP 对话生命周期、runtime/session/thread 对应关系与懒连接设计见 `docs/architecture/acp-session-lifecycle.md`。
 
 ## 未实现的设计目标
 

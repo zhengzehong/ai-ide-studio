@@ -1,5 +1,5 @@
 ﻿import { describe, expect, test } from 'vitest'
-import { getRuntimeCommand } from '../../src/acp/runtime-registry.js'
+import { buildRuntimeEnv, getRuntimeCommand, selectSystemCodexPath } from '../../src/acp/runtime-registry.js'
 
 describe('runtime registry', () => {
   test('prefers local installed ACP adapter over npx fallback', () => {
@@ -19,5 +19,25 @@ describe('runtime registry', () => {
       if (previous === undefined) delete process.env.AI_IDE_CLAUDE_ACP_CMD
       else process.env.AI_IDE_CLAUDE_ACP_CMD = previous
     }
+  })
+
+  test('prefers system codex command for codex-acp app server', () => {
+    const systemCodex = process.platform === 'win32' ? 'C:\\Tools\\codex.cmd' : '/usr/local/bin/codex'
+    const env = buildRuntimeEnv('codex', {}, () => [systemCodex])
+    expect(env.CODEX_PATH).toBe(systemCodex)
+  })
+
+  test('keeps explicit CODEX_PATH override', () => {
+    const env = buildRuntimeEnv('codex', { CODEX_PATH: 'custom-codex' }, () => ['C:\\Tools\\codex.cmd'])
+    expect(env.CODEX_PATH).toBe('custom-codex')
+  })
+
+  test('selects cmd wrapper before exe on Windows and skips project bin', () => {
+    const selected = selectSystemCodexPath([
+      'D:\\repo\\node_modules\\.bin\\codex.cmd',
+      'D:\\softs\\codex\\codex.exe',
+      'C:\\nvm4w\\nodejs\\codex.cmd',
+    ], 'win32')
+    expect(selected).toBe('C:\\nvm4w\\nodejs\\codex.cmd')
   })
 })

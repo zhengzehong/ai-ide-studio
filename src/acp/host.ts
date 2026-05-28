@@ -7,6 +7,7 @@ import { agentStore } from '../store/agents.js'
 import type { ElicitationRequestData, PermissionRequestData, SessionInfoData, SessionUpdateData, ToolCallData, TurnUsageData, SessionCapabilities, ImageAttachment } from '../types/ws-protocol.js'
 import { resolveToolsAsMcpServers } from '../tools/resolver.js'
 import { mapAvailableCommands, mapConfigOptions, mergeCapabilitiesFromConfig } from './capabilities.js'
+import { buildRuntimeEnv, getRuntimeCommand, listRuntimeNames } from './runtime-registry.js'
 import { contentBlockToText, mapToolCallContent, mapToolCallUpdate, toolCallTitle } from './update-mapper.js'
 
 interface AgentConnection {
@@ -22,11 +23,6 @@ interface AgentConnection {
 interface AcpSessionContext {
   projectId?: string
   cwd?: string
-}
-
-const RUNTIME_COMMANDS: Record<string, { cmd: string; args: string[] }> = {
-  claude: { cmd: process.platform === 'win32' ? 'npx.cmd' : 'npx', args: ['claude-agent-acp'] },
-  codex: { cmd: process.platform === 'win32' ? 'npx.cmd' : 'npx', args: ['codex-acp'] },
 }
 
 interface PendingPermission {
@@ -137,14 +133,14 @@ export const acpHost = {
       return
     }
 
-    const spec = RUNTIME_COMMANDS[effectiveRuntime]
-    if (!spec) throw new Error(`不支持的 runtime: ${effectiveRuntime}，可用: ${Object.keys(RUNTIME_COMMANDS).join(', ')}, mock`)
+    const spec = getRuntimeCommand(effectiveRuntime)
+    if (!spec) throw new Error(`不支持的 runtime: ${effectiveRuntime}，可用: ${listRuntimeNames().join(', ')}, mock`)
 
     console.log(`[ACP] 正在启动 Agent ${agentId} (${effectiveRuntime})...`)
 
     const proc = spawn(spec.cmd, spec.args, {
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env },
+      env: buildRuntimeEnv(effectiveRuntime),
       shell: process.platform === 'win32',
     })
 

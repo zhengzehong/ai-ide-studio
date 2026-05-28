@@ -1,11 +1,14 @@
+import { execFileSync } from 'child_process'
 import { existsSync } from 'fs'
-import { dirname, resolve } from 'path'
+import { dirname, extname, normalize, resolve } from 'path'
 import { fileURLToPath } from 'url'
 
 export interface RuntimeCommand {
   cmd: string
   args: string[]
 }
+
+type CommandPathResolver = (command: string) => string[]
 
 interface RuntimeSpec {
   binName: string
@@ -35,6 +38,28 @@ export function listRuntimeNames(): string[] {
   return Object.keys(RUNTIMES)
 }
 
+export function buildRuntimeEnv(
+  runtime: string,
+  baseEnv: NodeJS.ProcessEnv = process.env,
+  commandPathResolver: CommandPathResolver = resolveCommandPaths,
+): NodeJS.ProcessEnv {
+  const env = { ...baseEnv }
+  if (runtime === 'codex' && !env.CODEX_PATH) {
+    const codexPath = selectSystemCodexPath(commandPathResolver('codex'))
+    if (codexPath) env.CODEX_PATH = codexPath
+  }
+  return env
+}
+
+export function selectSystemCodexPath(paths: string[], platform: NodeJS.Platform = process.platform): string | undefined {
+  const candidates = paths.map(path => path.trim()).filter(path => path && !isProjectLocalBin(path))
+  if (platform !== 'win32') return candidates[0]
+
+  return findByExtension(candidates, '.cmd')
+    ?? findByExtension(candidates, '.bat')
+    ?? findByExtension(candidates, '.exe')
+}
+
 function resolveLocalBin(binName: string): string | undefined {
   const suffix = process.platform === 'win32' ? '.cmd' : ''
   const candidates = [
@@ -52,4 +77,24 @@ function parseCommandLine(value: string): RuntimeCommand {
   const parts = value.match(/(?:[^\s"]+|"[^"]*")+/g)?.map(part => part.replace(/^"|"$/g, '')) ?? []
   const [cmd, ...args] = parts
   return { cmd, args }
+}
+
+function resolveCommandPaths(command: string): string[] {
+  try {
+    if (process.platform === 'win32') {
+      return execFileSync('where.exe', [command], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).split(/\r?\n/)
+    }
+    return execFileSync('sh', ['-lc', `command -v ${command}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).split(/\r?\n/)
+  } catch {
+    return []
+  }
+}
+
+function isProjectLocalBin(path: string): boolean {
+  const normalized = normalize(path).replace(/\\/g, '/').toLowerCase()
+  return normalized.includes('/node_modules/.bin/')
+}
+
+function findByExtension(paths: string[], extension: string): string | undefined {
+  return paths.find(path => extname(path).toLowerCase() === extension)
 }

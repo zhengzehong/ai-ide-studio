@@ -86,6 +86,13 @@ ToolRuntime         负责真正执行工具
 ```text
 core.project.list
 core.project.get
+core.project.create
+core.agent.list
+core.agent.get
+core.agent.create
+core.session.list
+core.session.get
+core.session.create
 core.task.list
 core.task.create
 team.team.list
@@ -615,9 +622,16 @@ Agent 调用不可见方法会失败
 
 ```text
 core.project.list
+core.project.get
+core.project.create
+core.agent.list
+core.agent.get
+core.agent.create
+core.session.list
+core.session.get
+core.session.create
 core.task.list
 core.task.create
-core.session.list
 team.team.list
 team.member.list
 ```
