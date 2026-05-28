@@ -29,6 +29,19 @@ export interface CreateAgentInput {
   icon?: string
 }
 
+
+
+export interface UpdateAgentInput {
+  name?: string
+  type?: string
+  runtime?: string
+  status?: string
+  permissionLevel?: number
+  config?: Record<string, unknown> | null
+  systemPrompt?: string
+  icon?: string
+}
+
 export const agentStore = {
   create(input: CreateAgentInput): AgentRow {
     const id = input.id || `agent-${randomUUID().slice(0, 8)}`
@@ -66,6 +79,30 @@ export const agentStore = {
 
   updateStatus(id: string, status: string): void {
     getDb().prepare('UPDATE agents SET status = ? WHERE id = ?').run(status, id)
+  },
+
+  update(id: string, fields: UpdateAgentInput): AgentRow | undefined {
+    const existing = agentStore.get(id)
+    if (!existing) return undefined
+    const updated: AgentRow = {
+      ...existing,
+      name: fields.name ?? existing.name,
+      type: fields.type ?? existing.type,
+      runtime: fields.runtime ?? existing.runtime,
+      status: fields.status ?? existing.status,
+      permission_level: fields.permissionLevel ?? existing.permission_level,
+      config_json: fields.config !== undefined ? (fields.config ? JSON.stringify(fields.config) : null) : existing.config_json,
+      system_prompt: fields.systemPrompt ?? existing.system_prompt,
+      icon: fields.icon ?? existing.icon,
+    }
+    getDb().prepare(`
+      UPDATE agents
+      SET name = @name, type = @type, runtime = @runtime, status = @status,
+          permission_level = @permission_level, config_json = @config_json,
+          system_prompt = @system_prompt, icon = @icon
+      WHERE id = @id
+    `).run(updated)
+    return updated
   },
 
   delete(id: string): void {

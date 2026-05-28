@@ -23,6 +23,39 @@ afterEach(() => {
 })
 
 describe('Tool Gateway resolver', () => {
+  test('returns HTTP platform MCP server with token when requested', () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const agent = agentStore.create({ id: 'agent-http', type: 'dev', name: 'Agent HTTP', runtime: 'codex', projectId: project.id })
+    const builtin = toolStore.create({
+      name: 'core.task.list',
+      displayName: '列出任务',
+      description: '列出任务',
+      category: 'automation',
+      type: 'builtin',
+      config: { handler: 'core.task.list' },
+      permissions: { requiresApproval: false, maxExecutionTime: 10_000, networkAccess: false },
+      isBuiltin: true,
+    })
+    toolBindingStore.set(builtin.id, 'global', null)
+
+    const servers = resolveToolsAsMcpServers({
+      agentId: agent.id,
+      projectId: project.id,
+      sessionId: 'sess-http',
+      preferHttp: true,
+      baseUrl: 'http://127.0.0.1:18800',
+    })
+
+    expect(servers).toHaveLength(1)
+    expect(servers[0]).toMatchObject({
+      type: 'http',
+      name: 'ai-ide-tools',
+      url: 'http://127.0.0.1:18800/mcp',
+    })
+    const authorization = servers[0]?.headers?.find(header => header.name === 'Authorization')?.value
+    expect(authorization).toMatch(/^Bearer .+/)
+  })
+
   test('merges builtin and script tools into one stable gateway MCP server', () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const agent = agentStore.create({ id: 'agent-a', type: 'dev', name: 'Agent A', runtime: 'codex', projectId: project.id })

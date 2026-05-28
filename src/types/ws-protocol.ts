@@ -22,6 +22,10 @@ export interface SetModeMsg extends ClientMessage { type: 'session.setMode'; ses
 export interface ForkSessionMsg extends ClientMessage { type: 'session.fork'; sessionId: string }
 export interface AgentsListMsg extends ClientMessage { type: 'agents.list'; projectId?: string }
 export interface AgentsCreateMsg extends ClientMessage { type: 'agents.create'; name: string; agentType: string; runtime: AgentRuntime }
+export interface AgentsDeployTemplateMsg extends ClientMessage { type: 'agents.deployTemplate'; projectId: string; templateId: string; name?: string; runtime?: AgentRuntime; systemPrompt?: string; icon?: string }
+export interface AgentsCreateCustomMsg extends ClientMessage { type: 'agents.createCustom'; projectId: string; name: string; agentType: string; runtime: AgentRuntime; systemPrompt?: string; icon?: string }
+export interface AgentsUpdateMsg extends ClientMessage { type: 'agents.update'; agentId: string; name?: string; agentType?: string; runtime?: AgentRuntime; systemPrompt?: string; icon?: string }
+export interface AgentsDeleteMsg extends ClientMessage { type: 'agents.delete'; agentId: string }
 export interface SessionsListMsg extends ClientMessage { type: 'sessions.list'; agentId?: string; projectId?: string }
 export interface SessionsCreateMsg extends ClientMessage { type: 'sessions.create'; agentId: string; taskId?: string; projectId?: string }
 export interface SessionsRenameMsg extends ClientMessage { type: 'sessions.rename'; sessionId: string; title: string }

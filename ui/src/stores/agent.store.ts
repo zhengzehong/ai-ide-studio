@@ -11,6 +11,17 @@ export interface AgentData {
   config_json: string | null
   created_at: string
   project_id?: string | null
+  template_id?: string | null
+  system_prompt?: string
+  icon?: string
+}
+
+export interface ProjectAgentInput {
+  name: string
+  agentType: string
+  runtime: string
+  systemPrompt?: string
+  icon?: string
 }
 
 interface AgentStore {
@@ -18,6 +29,10 @@ interface AgentStore {
   loading: boolean
   fetchAgents: (projectId?: string) => Promise<void>
   createAgent: (name: string, agentType: string, runtime: string) => Promise<AgentData>
+  deployTemplate: (projectId: string, templateId: string, input?: Partial<ProjectAgentInput>) => Promise<AgentData>
+  createCustomAgent: (projectId: string, input: ProjectAgentInput) => Promise<AgentData>
+  updateAgent: (agentId: string, input: Partial<ProjectAgentInput>) => Promise<AgentData>
+  deleteAgent: (agentId: string) => Promise<void>
   setupListeners: () => () => void
 }
 
@@ -41,6 +56,29 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     const agent = await wsClient.request({ type: 'agents.create', name, agentType, runtime }) as AgentData
     set({ agents: [...get().agents, agent] })
     return agent
+  },
+
+  deployTemplate: async (projectId, templateId, input = {}) => {
+    const agent = await wsClient.request({ type: 'agents.deployTemplate', projectId, templateId, ...input }) as AgentData
+    set({ agents: [...get().agents.filter(a => a.id !== agent.id), agent] })
+    return agent
+  },
+
+  createCustomAgent: async (projectId, input) => {
+    const agent = await wsClient.request({ type: 'agents.createCustom', projectId, ...input }) as AgentData
+    set({ agents: [...get().agents.filter(a => a.id !== agent.id), agent] })
+    return agent
+  },
+
+  updateAgent: async (agentId, input) => {
+    const agent = await wsClient.request({ type: 'agents.update', agentId, ...input }) as AgentData
+    set({ agents: get().agents.map(a => a.id === agentId ? agent : a) })
+    return agent
+  },
+
+  deleteAgent: async (agentId) => {
+    await wsClient.request({ type: 'agents.delete', agentId })
+    set({ agents: get().agents.filter(a => a.id !== agentId) })
   },
 
   setupListeners: () => {

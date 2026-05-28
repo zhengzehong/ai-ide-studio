@@ -3,9 +3,13 @@ import { resolve } from 'node:path'
 import { toolStore, toolBindingStore } from '../store/tools.js'
 import { createChildLogger } from '../core/logger.js'
 import type { ToolConfig, ResolvedTool, ToolDefinition, ToolBinding, ToolPermissions } from './types.js'
+import { createToolContext } from './registry/context-registry.js'
+import { resolveVisiblePlatformTools } from './registry/visibility-resolver.js'
+import type { McpServer } from '@agentclientprotocol/sdk'
 
 const log = createChildLogger('tool-resolver')
 const TOOL_GATEWAY_NAME = 'ai-ide-tool-gateway'
+const HTTP_TOOL_GATEWAY_NAME = 'ai-ide-tools'
 
 function rowToDefinition(row: ReturnType<typeof toolStore.get>): ToolDefinition | null {
   if (!row) return null
@@ -72,14 +76,83 @@ function envObjectToArray(env?: Record<string, string>): Array<{ name: string; v
   return Object.entries(env ?? {}).map(([name, value]) => ({ name, value }))
 }
 
-export function resolveToolsAsMcpServers(agentId?: string, projectId?: string): Array<{
-  name: string
-  command: string
-  args: string[]
-  env: Array<{ name: string; value: string }>
-}> {
+export interface ResolveToolsAsMcpServersOptions {
+  agentId?: string
+  projectId?: string
+  sessionId?: string
+  preferHttp?: boolean
+  baseUrl?: string
+}
+
+export function resolveToolsAsMcpServers(agentId?: string, projectId?: string): McpServer[]
+export function resolveToolsAsMcpServers(options: ResolveToolsAsMcpServersOptions): McpServer[]
+export function resolveToolsAsMcpServers(agentIdOrOptions?: string | ResolveToolsAsMcpServersOptions, projectIdArg?: string): McpServer[] {
+  const options = typeof agentIdOrOptions === 'object'
+    ? agentIdOrOptions
+    : { agentId: agentIdOrOptions, projectId: projectIdArg }
+  const { agentId, projectId } = options
+
   const tools = resolveToolsForSession(agentId, projectId)
-  const mcpServers: Array<{
+  const externalServers: McpServer[] = []
+  const gatewayToolIds: string[] = []
+
+  for (const tool of tools) {
+    if (tool.definition.type === 'mcp') {
+      const config = tool.effectiveConfig as { command: string; args: string[]; env?: Record<string, string> }
+      externalServers.push({
+        name: tool.definition.name,
+        command: config.command,
+        args: config.args,
+        env: envObjectToArray(config.env),
+      })
+    } else {
+      gatewayToolIds.push(tool.definition.id)
+    }
+  }
+
+  if (options.preferHttp && options.sessionId && gatewayToolIds.length > 0) {
+    const visibleTools = resolveVisiblePlatformTools({ agentId, projectId, sessionId: options.sessionId })
+      .map(tool => tool.definition.name)
+    const { token } = createToolContext({
+      sessionId: options.sessionId,
+      agentId: agentId ?? '',
+      projectId,
+      visibleTools,
+    })
+    const baseUrl = (options.baseUrl ?? `http://127.0.0.1:${process.env.PORT ?? '18800'}`).replace(/\/$/, '')
+    const httpServer: McpServer = {
+      type: 'http',
+      name: HTTP_TOOL_GATEWAY_NAME,
+      url: `${baseUrl}/mcp`,
+      headers: [{ name: 'Authorization', value: `Bearer ${token}` }],
+    }
+    const mcpServers = [...externalServers, httpServer]
+    log.info({ agentId, projectId, sessionId: options.sessionId, mcpCount: mcpServers.length, gatewayCount: visibleTools.length, transport: 'http' }, 'generated MCP server config')
+    return mcpServers
+  }
+
+  const mcpServers: McpServer[] = [...externalServers]
+
+  if (gatewayToolIds.length > 0) {
+    mcpServers.push({
+      name: TOOL_GATEWAY_NAME,
+      command: process.execPath,
+      args: resolveToolGatewayArgs(),
+      env: [
+        { name: 'TOOL_IDS', value: gatewayToolIds.join(',') },
+        { name: 'PROJECT_ID', value: projectId ?? '' },
+        { name: 'AGENT_ID', value: agentId ?? '' },
+        { name: 'DATA_DIR', value: process.env.DATA_DIR ?? './data' },
+      ],
+    })
+  }
+
+  log.info({ agentId, projectId, mcpCount: mcpServers.length, gatewayCount: gatewayToolIds.length, transport: 'stdio' }, 'generated MCP server config')
+  return mcpServers
+}
+
+/*
+function oldResolveToolsAsMcpServers(agentId?: string, projectId?: string): Array<{
     name: string
     command: string
     args: string[]
@@ -118,6 +191,7 @@ export function resolveToolsAsMcpServers(agentId?: string, projectId?: string): 
   log.info({ agentId, projectId, mcpCount: mcpServers.length, gatewayCount: gatewayToolIds.length }, 'generated MCP server config')
   return mcpServers
 }
+*/
 
 function resolveToolGatewayArgs(): string[] {
   const distEntry = resolve(process.cwd(), 'dist/tools/tool-gateway.js')

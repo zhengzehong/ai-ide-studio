@@ -6,6 +6,7 @@ import { initDatabase, closeDatabase } from '../../src/store/db.js'
 import { projectStore } from '../../src/store/projects.js'
 import { agentStore } from '../../src/store/agents.js'
 import { sessionStore } from '../../src/store/sessions.js'
+import { templateStore } from '../../src/store/agent-templates.js'
 import { handleWsConnection } from '../../src/gateway/ws-handler.js'
 import { acpHost } from '../../src/acp/host.js'
 import type { WebSocket, WebSocketServer } from 'ws'
@@ -118,5 +119,109 @@ describe('Session management RPC', () => {
     await ws.send({ type: 'sessions.list', requestId: 'req-list-after-delete' })
     const ids = (ws.last().data as Array<{ id: string }>).map(s => s.id)
     expect(ids).not.toContain(session.id)
+  })
+})
+
+
+describe('Project Agent RPC', () => {
+  test('agents.deployTemplate creates a project scoped Agent from a global template', async () => {
+    const project = projectStore.create({ name: '?? A', workDir: resolve(tmp, 'project-agent-a') })
+    const otherProject = projectStore.create({ name: '?? B', workDir: resolve(tmp, 'project-agent-b') })
+    const template = templateStore.create({
+      name: '?????',
+      type: 'dev',
+      runtime: 'codex',
+      icon: 'code',
+      systemPrompt: '???????',
+      skills: ['??'],
+      isBuiltin: true,
+    })
+    const ws = createWs()
+
+    await ws.send({ type: 'agents.deployTemplate', requestId: 'req-deploy', projectId: project.id, templateId: template.id })
+
+    const response = ws.last()
+    expect(response.type).toBe('result')
+    const agent = response.data as Record<string, unknown>
+    expect(agent.id).toMatch(/^agent-/)
+    expect(agent.project_id).toBe(project.id)
+    expect(agent.template_id).toBe(template.id)
+    expect(agent.name).toBe('?????')
+    expect(agent.type).toBe('dev')
+    expect(agent.runtime).toBe('codex')
+    expect(agent.icon).toBe('code')
+    expect(agent.system_prompt).toBe('???????')
+    expect(agentStore.list(project.id).map(a => a.id)).toEqual([agent.id])
+    expect(agentStore.list(otherProject.id)).toEqual([])
+  })
+
+  test('agents.createCustom requires projectId and creates a project scoped Agent', async () => {
+    const project = projectStore.create({ name: '??', workDir: resolve(tmp, 'project-custom-agent') })
+    const ws = createWs()
+
+    await ws.send({ type: 'agents.createCustom', requestId: 'req-missing-project', name: '???', agentType: 'dev', runtime: 'mock' })
+    expect(ws.last().type).toBe('error')
+    expect(ws.last().message).toContain('projectId')
+
+    await ws.send({
+      type: 'agents.createCustom',
+      requestId: 'req-create-custom',
+      projectId: project.id,
+      name: '??????',
+      agentType: 'dev',
+      runtime: 'mock',
+      systemPrompt: '?????',
+      icon: 'bot',
+    })
+
+    const response = ws.last()
+    expect(response.type).toBe('result')
+    const agent = response.data as Record<string, unknown>
+    expect(agent.project_id).toBe(project.id)
+    expect(agent.template_id).toBeNull()
+    expect(agent.name).toBe('??????')
+    expect(agent.runtime).toBe('mock')
+    expect(agent.system_prompt).toBe('?????')
+    expect(agentStore.list(project.id).map(a => a.id)).toEqual([agent.id])
+  })
+
+  test('agents.update changes editable project Agent fields', async () => {
+    const project = projectStore.create({ name: '??', workDir: resolve(tmp, 'project-update-agent') })
+    const agent = agentStore.create({ name: '???', type: 'dev', runtime: 'mock', projectId: project.id, systemPrompt: '????', icon: 'bot' })
+    const ws = createWs()
+
+    await ws.send({
+      type: 'agents.update',
+      requestId: 'req-update-agent',
+      agentId: agent.id,
+      name: '???',
+      agentType: 'architect',
+      runtime: 'claude',
+      systemPrompt: '????',
+      icon: 'brain',
+    })
+
+    const response = ws.last()
+    expect(response.type).toBe('result')
+    const updated = response.data as Record<string, unknown>
+    expect(updated.name).toBe('???')
+    expect(updated.type).toBe('architect')
+    expect(updated.runtime).toBe('claude')
+    expect(updated.system_prompt).toBe('????')
+    expect(updated.icon).toBe('brain')
+    expect(agentStore.get(agent.id)?.name).toBe('???')
+  })
+
+  test('agents.delete removes a project Agent from project listing', async () => {
+    const project = projectStore.create({ name: '??', workDir: resolve(tmp, 'project-delete-agent') })
+    const agent = agentStore.create({ name: '???', type: 'dev', runtime: 'mock', projectId: project.id })
+    const ws = createWs()
+
+    await ws.send({ type: 'agents.delete', requestId: 'req-delete-agent', agentId: agent.id })
+
+    expect(ws.last().type).toBe('result')
+    expect((ws.last().data as Record<string, unknown>).deleted).toBe(true)
+    expect(agentStore.list(project.id).map(a => a.id)).toEqual([])
+    expect(agentStore.get(agent.id)).toBeUndefined()
   })
 })

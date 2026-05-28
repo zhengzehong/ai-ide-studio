@@ -111,6 +111,9 @@ Session 删除采用软删除，仅隐藏列表项并保留 `messages` / `sessio
 | `src/store/` | 数据持久化 | `db.ts`（初始化/迁移）、projects/agent_templates/tools/skills/model_providers 等实体 CRUD |
 | `src/cli/` | 命令行工具 | `index.ts`（agents/sessions/tasks/rules） |
 | `src/types/` | 类型定义 | `ws-protocol.ts`（WS 消息接口） |
+| `src/tools/registry/` | 工具可见性与 token 上下文 | `visibility-resolver.ts`、`context-registry.ts` |
+| `src/tools/runtime/` | 工具执行与审计 | `tool-runtime.ts`、`audit-service.ts` |
+| `src/tools/mcp/` | MCP 协议入口 | `http-mcp-server.ts`（`/mcp` HTTP MCP） |
 | `ui/src/pages/` | 页面组件 | Workspace/Dashboard/TaskBoard/Schedule/AgentSquare/ToolManager/Settings |
 | `ui/src/stores/` | 前端状态 | Zustand store + session-events 事件还原 + 项目/工具/模板/模型状态 |
 | `ui/src/services/` | 通信层 | `ws-client.ts`（WS 客户端） |
@@ -129,6 +132,7 @@ Session 删除采用软删除，仅隐藏列表项并保留 `messages` / `sessio
 - `projectId` 是项目级实体与项目内 Session/Task 的核心边界。
 - `agent_templates` 是全局模板库；`agents` 是部署到具体项目后的运行时实例。
 - `tools` / `tool_bindings` / `skills` / `model_providers` 为全局可扩展能力表。
+- MCP 工具平台目标架构见 `docs/architecture/mcp-tool-platform.md`，第一版按方法级可见性控制推进。
 - `ws-handler.ts` 仍然承担总路由，但新增 RPC 应优先向领域模块下沉，避免继续膨胀。
 
 ## 未实现的设计目标
@@ -139,3 +143,12 @@ Session 删除采用软删除，仅隐藏列表项并保留 `messages` / `sessio
 - 多 Agent 协作引擎
 - 事件触发自动化执行（当前只有规则/定时管理）
 - 插件系统
+
+
+## ????????
+
+Agent ?????????`agent_templates` ??????`agents` ???????????????????????????? Agent ????????????????????? Session ???
+
+?????? `agents.list(projectId)` ??????? Agent????????????????????? Agent ???Session ?????? `projectId`???????? `work_dir` ?? ACP cwd??? `agentId/projectId/sessionId` ?? MCP ??????
+
+????? `docs/architecture/project-agent-workflow.md`?

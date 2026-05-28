@@ -244,6 +244,37 @@ function createSchema(db: SqliteDatabase): void {
       UNIQUE(tool_id, scope, target_id)
     );
 
+    CREATE TABLE IF NOT EXISTS tool_contexts (
+      id TEXT PRIMARY KEY,
+      token_hash TEXT NOT NULL UNIQUE,
+      session_id TEXT NOT NULL,
+      acp_session_id TEXT,
+      agent_id TEXT NOT NULL,
+      project_id TEXT,
+      visible_tools_json TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      revoked_at TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_tool_contexts_token_hash ON tool_contexts(token_hash);
+    CREATE INDEX IF NOT EXISTS idx_tool_contexts_session ON tool_contexts(session_id);
+
+    CREATE TABLE IF NOT EXISTS tool_call_audit (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      agent_id TEXT NOT NULL,
+      project_id TEXT,
+      tool_name TEXT NOT NULL,
+      input_json TEXT NOT NULL,
+      output_json TEXT,
+      status TEXT NOT NULL,
+      started_at TEXT NOT NULL,
+      ended_at TEXT,
+      error TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_tool_call_audit_session ON tool_call_audit(session_id);
+    CREATE INDEX IF NOT EXISTS idx_tool_call_audit_tool ON tool_call_audit(tool_name);
+
     CREATE TABLE IF NOT EXISTS agent_templates (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,

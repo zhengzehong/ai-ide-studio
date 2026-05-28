@@ -1,5 +1,25 @@
 # 可扩展工具系统架构设计
 
+## 当前实现：HTTP MCP + stdio 回退
+
+当前工具平台已经有两条入口：
+
+- 主路径：`/mcp` HTTP MCP，服务名 `ai-ide-tools`。ACP Agent 支持 HTTP MCP 时，后端会为 Session 创建 tool context token，并通过 `Authorization: Bearer <token>` 注入。
+- 回退路径：`ai-ide-tool-gateway` stdio MCP。Agent 不支持 HTTP MCP 时继续使用，内部也走同一个 `ToolRuntime`。
+
+第一版权限模型只做方法级可见性：token 记录 `visibleTools`，`tools/list` 只返回可见方法，`tools/call` 再次检查方法是否可见。当前已实现的首批平台方法是 `core.task.list` 和 `core.task.create`；旧的 `create_task`、`create_schedule` 仍保留兼容。
+
+相关模块：
+
+| 模块 | 说明 |
+|------|------|
+| `src/tools/mcp/http-mcp-server.ts` | HTTP MCP `/mcp` 协议入口 |
+| `src/tools/runtime/tool-runtime.ts` | builtin/script 工具统一执行入口 |
+| `src/tools/runtime/audit-service.ts` | 写入 `tool_call_audit` |
+| `src/tools/registry/context-registry.ts` | 创建、校验、撤销 tool context token |
+| `src/tools/registry/visibility-resolver.ts` | 基于 `tools` / `tool_bindings` 解析可见方法 |
+| `src/tools/tool-gateway.ts` | stdio MCP 回退入口 |
+
 ## 核心问题
 
 当前系统中 Agent（Claude Code / Codex）自带内部工具（读文件、执行命令等），

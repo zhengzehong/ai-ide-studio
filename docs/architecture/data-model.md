@@ -193,6 +193,37 @@ backlog → executing → reviewing → completed
 | config_override_json | TEXT | 覆盖配置 |
 | created_at | TEXT | 创建时间 |
 
+### tool_contexts
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| id | TEXT PK | 工具上下文 ID |
+| token_hash | TEXT UNIQUE | 工具上下文 token 的 SHA-256 哈希 |
+| session_id | TEXT | 平台 Session ID |
+| acp_session_id | TEXT | ACP Session ID（可空） |
+| agent_id | TEXT | Agent ID |
+| project_id | TEXT | Project ID（可空） |
+| visible_tools_json | TEXT | 当前 token 可见的 MCP tool method 名称数组 |
+| expires_at | TEXT | 过期时间 |
+| revoked_at | TEXT | 撤销时间；非空表示不可再用 |
+| created_at | TEXT | 创建时间 |
+
+### tool_call_audit
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| id | TEXT PK | 工具调用审计 ID |
+| session_id | TEXT | 平台 Session ID |
+| agent_id | TEXT | Agent ID |
+| project_id | TEXT | Project ID（可空） |
+| tool_name | TEXT | MCP tool method 名称 |
+| input_json | TEXT | 调用入参 JSON |
+| output_json | TEXT | 调用结果 JSON |
+| status | TEXT | running / succeeded / failed / denied / timeout |
+| started_at | TEXT | 开始时间 |
+| ended_at | TEXT | 结束时间 |
+| error | TEXT | 错误信息 |
+
 ### model_providers
 
 | 列 | 类型 | 说明 |
@@ -249,3 +280,20 @@ backlog → executing → reviewing → completed
 - `sessions.delete` 是软删除，仅写入 `deleted_at`，不级联删除 `messages` / `session_events`。
 - `sessions.rename` 写入 `sessions.title`；如果 Agent 通过 ACP 上报 `sessionInfo.title` 且当前标题为空，后端会自动补全标题。
 - `session.fork` 会继承源 Session 的 `project_id`，并将项目 `work_dir` 继续传给 ACP runtime。
+
+
+## ?????????
+
+`agent_templates` ???????`agents` ???????????????????Session ??? MCP ???????????? `agents.project_id` ?????
+
+### agents ?????
+
+| ? | ?? | ?? |
+|----|------|------|
+| project_id | TEXT | ?????? UI ??? Agent ???? |
+| template_id | TEXT | ?????????? Agent ??? |
+| system_prompt | TEXT | ???????????????????? |
+| icon | TEXT | ???? |
+| config_json | TEXT | ????????????? `templateId` ? `skills` ?? |
+
+???????? `project_id IS NULL` ???? Agent?????????????????????

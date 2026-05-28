@@ -107,6 +107,16 @@ function updateInitialCapabilities(conn: AgentConnection, ourSessionId: string, 
   return caps
 }
 
+function resolveMcpServersForAcp(conn: AgentConnection, ourSessionId: string, context: AcpSessionContext): acp.McpServer[] {
+  return resolveToolsAsMcpServers({
+    agentId: conn.agentId,
+    projectId: context.projectId,
+    sessionId: ourSessionId,
+    preferHttp: conn.agentCapabilities?.mcpCapabilities?.http === true,
+    baseUrl: process.env.PUBLIC_BASE_URL ?? `http://127.0.0.1:${process.env.PORT ?? '18800'}`,
+  })
+}
+
 export const acpHost = {
   agents: new Map<string, AgentConnection>(),
 
@@ -210,7 +220,7 @@ export const acpHost = {
     const conn = acpHost.agents.get(agentId)
     if (!conn) throw new Error(`Agent ${agentId} 未运行`)
 
-    const mcpServers = resolveToolsAsMcpServers(agentId, context.projectId)
+    const mcpServers = resolveMcpServersForAcp(conn, ourSessionId, context)
 
     const result = await conn.connection.newSession({
       cwd: context.cwd ?? process.cwd(),
@@ -231,7 +241,7 @@ export const acpHost = {
     if (conn.acpSessions.get(ourSessionId) === acpSessionId) return
 
     if (conn.agentCapabilities?.sessionCapabilities?.resume) {
-      const mcpServers = resolveToolsAsMcpServers(agentId, context.projectId)
+      const mcpServers = resolveMcpServersForAcp(conn, ourSessionId, context)
       const result = await conn.connection.resumeSession({
         sessionId: acpSessionId,
         cwd: context.cwd ?? process.cwd(),
@@ -246,7 +256,7 @@ export const acpHost = {
       const result = await conn.connection.loadSession({
         sessionId: acpSessionId,
         cwd: context.cwd ?? process.cwd(),
-        mcpServers: resolveToolsAsMcpServers(agentId, context.projectId),
+        mcpServers: resolveMcpServersForAcp(conn, ourSessionId, context),
       })
       conn.acpSessions.set(ourSessionId, acpSessionId)
       updateInitialCapabilities(conn, ourSessionId, result)
@@ -371,7 +381,7 @@ export const acpHost = {
     const result = await conn.connection.unstable_forkSession({
       sessionId: sourceAcpSessionId,
       cwd: context.cwd ?? process.cwd(),
-      mcpServers: resolveToolsAsMcpServers(agentId, context.projectId),
+      mcpServers: resolveMcpServersForAcp(conn, targetSessionId, context),
     })
     conn.acpSessions.set(targetSessionId, result.sessionId)
     updateInitialCapabilities(conn, targetSessionId, result)

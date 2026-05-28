@@ -2,7 +2,7 @@ import { describe, test, expect, afterAll } from 'vitest'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
-import { initDatabase, closeDatabase } from '../../src/store/db.js'
+import { initDatabase, closeDatabase, getDb } from '../../src/store/db.js'
 import { agentStore } from '../../src/store/agents.js'
 import { sessionStore, messageStore, eventStore } from '../../src/store/sessions.js'
 import { taskStore, taskEventStore } from '../../src/store/tasks.js'
@@ -33,6 +33,19 @@ const legacyData = {
 }
 
 describe('SQLite 迁移', () => {
+  test('创建工具上下文和工具调用审计表', () => {
+    closeDatabase()
+    initDatabase(resolve(tmp, 'tool-platform.sqlite'))
+
+    const tables = getDb().prepare<[], { name: string }>(`
+      SELECT name FROM sqlite_master
+      WHERE type = 'table' AND name IN ('tool_contexts', 'tool_call_audit')
+      ORDER BY name
+    `).all().map(row => row.name)
+
+    expect(tables).toEqual(['tool_call_audit', 'tool_contexts'])
+  })
+
   test('从 JSON 迁移到 SQLite 并保留所有数据', () => {
     const legacyPath = resolve(tmp, 'ai-ide.db')
     const sqlitePath = resolve(tmp, 'ai-ide.sqlite')

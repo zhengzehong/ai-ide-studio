@@ -6,14 +6,10 @@ import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { initDatabase } from '../store/db.js'
 import { toolStore } from '../store/tools.js'
-import { createChildLogger } from '../core/logger.js'
 import { loadConfig } from '../core/config.js'
-import { getHandler, getAllHandlers } from './handlers/index.js'
-import { assertToolAllowed, toolDeniedResult } from './permission-guard.js'
-import { runScriptTool } from './script-runner.js'
-import type { ToolContext, ToolDefinition, ToolHandler, ToolHandlerInput, ToolHandlerResult } from './types.js'
-
-const log = createChildLogger('tool-gateway')
+import { getAllHandlers } from './handlers/index.js'
+import { executeRuntimeTool, type ToolRuntimeContext } from './runtime/tool-runtime.js'
+import type { ToolDefinition, ToolHandler, ToolHandlerInput, ToolHandlerResult } from './types.js'
 
 export interface GatewayOptions {
   toolIds?: string[]
@@ -50,13 +46,15 @@ function rowToDefinition(row: ReturnType<typeof toolStore.get>): ToolDefinition 
 }
 
 export function buildGatewayTools(options: GatewayOptions): GatewayTool[] {
-  const context: ToolContext = {
+  const definitions = selectDefinitions(options)
+  const context: ToolRuntimeContext = {
+    sessionId: `stdio-${options.agentId ?? 'anonymous'}`,
+    agentId: options.agentId ?? 'anonymous',
     projectId: options.projectId,
-    agentId: options.agentId,
     workDir: options.workDir ?? process.cwd(),
+    visibleTools: definitions.map(definition => definition.name),
   }
 
-  const definitions = selectDefinitions(options)
   return definitions.map((definition) => createGatewayTool(definition, context)).filter((tool): tool is GatewayTool => !!tool)
 }
 
@@ -75,41 +73,14 @@ function selectDefinitions(options: GatewayOptions): ToolDefinition[] {
     .filter((tool): tool is ToolDefinition => !!tool)
 }
 
-function createGatewayTool(definition: ToolDefinition, context: ToolContext): GatewayTool | null {
-  if (definition.type === 'builtin') {
-    const handler = getHandler(definition.name) ?? getHandler((definition.config as { handler?: string }).handler ?? '')
-    if (!handler) {
-      log.warn({ toolId: definition.id, name: definition.name }, 'builtin handler not found')
-      return null
-    }
-    return fromHandler(definition, handler, context)
-  }
-
-  if (definition.type === 'script') {
-    return {
-      name: definition.name,
-      description: definition.description,
-      inputSchema: definition.inputSchema ?? { type: 'object', properties: {} },
-      async execute(input) {
-        const decision = assertToolAllowed(definition)
-        if (!decision.allowed) return toolDeniedResult(decision)
-        return runScriptTool(definition, input, context)
-      },
-    }
-  }
-
-  return null
-}
-
-function fromHandler(definition: ToolDefinition, handler: ToolHandler, context: ToolContext): GatewayTool {
+function createGatewayTool(definition: ToolDefinition, context: ToolRuntimeContext): GatewayTool | null {
+  if (definition.type !== 'builtin' && definition.type !== 'script') return null
   return {
-    name: handler.name,
-    description: definition.description || handler.description,
-    inputSchema: definition.inputSchema ?? handler.inputSchema,
+    name: definition.name,
+    description: definition.description,
+    inputSchema: definition.inputSchema ?? { type: 'object', properties: {} },
     async execute(input) {
-      const decision = assertToolAllowed(definition)
-      if (!decision.allowed) return toolDeniedResult(decision)
-      return handler.execute(input, context)
+      return executeRuntimeTool(definition.name, input, context)
     },
   }
 }

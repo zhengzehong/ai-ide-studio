@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Activity,
   AlertCircle,
@@ -19,14 +20,14 @@ import { useTaskStore } from '../stores/task.store';
 import { useConnectionStore } from '../stores/connection.store';
 import { useProjectStore } from '../stores/project.store';
 
-type ModalType = null | 'task' | 'agent';
+type ModalType = null | 'task';
 const TYPE_COLORS: Record<string, string> = { dev: '#2563eb', test: '#059669', ops: '#ea580c', security: '#dc2626', architect: '#7c3aed', pm: '#7c3aed' };
 
 export default function Dashboard() {
   const [modal, setModal] = useState<ModalType>(null);
+  const navigate = useNavigate();
   const connected = useConnectionStore(s => s.connected);
   const agents = useAgentStore(s => s.agents);
-  const createAgent = useAgentStore(s => s.createAgent);
   const sessions = useSessionStore(s => s.sessions);
   const tasks = useTaskStore(s => s.tasks);
   const createTask = useTaskStore(s => s.createTask);
@@ -52,7 +53,7 @@ export default function Dashboard() {
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <ActionBtn icon={<Plus size={14} />} label="新建任务" onClick={() => setModal('task')} primary />
-          <ActionBtn icon={<Bot size={14} />} label="新建 Agent" onClick={() => setModal('agent')} />
+          <ActionBtn icon={<Bot size={14} />} label="添加智能体" onClick={() => navigate('/agents')} />
         </div>
       </div>
 
@@ -112,7 +113,7 @@ export default function Dashboard() {
           <SectionHeader icon={<Zap size={15} />} title="快捷操作" />
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 24 }}>
             <QuickAction icon={<Plus size={16} />} label="新建任务" onClick={() => setModal('task')} />
-            <QuickAction icon={<Bot size={16} />} label="新建 Agent" onClick={() => setModal('agent')} />
+            <QuickAction icon={<Bot size={16} />} label="添加智能体" onClick={() => navigate('/agents')} />
           </div>
 
           <SectionHeader icon={<Activity size={15} />} title="活跃会话" />
@@ -138,7 +139,6 @@ export default function Dashboard() {
       </div>
 
       {modal === 'task' && <NewTaskModal agents={agents} onCreate={async (t, d, a) => { await createTask(t, d, a, currentProjectId ?? undefined); await fetchTasks(currentProjectId ?? undefined); setModal(null); }} onClose={() => setModal(null)} />}
-      {modal === 'agent' && <NewAgentModal onCreate={async (name, type, runtime) => { await createAgent(name, type, runtime); setModal(null); }} onClose={() => setModal(null)} />}
     </div>
   );
 }
@@ -166,23 +166,6 @@ function NewTaskModal({ agents, onCreate, onClose }: { agents: AgentData[]; onCr
       </div>
       <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
         <ModalBtn label="创建任务" primary onClick={() => onCreate(title, desc || undefined, agentId || undefined)} />
-        <ModalBtn label="取消" onClick={onClose} />
-      </div>
-    </Modal>
-  );
-}
-
-function NewAgentModal({ onCreate, onClose }: { onCreate: (name: string, type: string, runtime: string) => Promise<void>; onClose: () => void }) {
-  const [name, setName] = useState('');
-  const [type, setType] = useState('dev');
-  const [runtime, setRuntime] = useState('mock');
-  return (
-    <Modal title="新建 Agent" onClose={onClose}>
-      <div><label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>名称</label><input value={name} onChange={e => setName(e.target.value)} placeholder="例如: Code Review Agent" style={inputStyle} /></div>
-      <div><label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>类型</label><select value={type} onChange={e => setType(e.target.value)} style={inputStyle}><option value="dev">开发</option><option value="test">测试</option><option value="ops">运维</option><option value="security">安全</option><option value="architect">架构</option><option value="pm">产品</option></select></div>
-      <div><label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>Runtime</label><select value={runtime} onChange={e => setRuntime(e.target.value)} style={inputStyle}><option value="mock">Mock</option><option value="claude">Claude</option><option value="codex">Codex</option></select></div>
-      <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-        <ModalBtn label="创建 Agent" primary onClick={() => onCreate(name, type, runtime)} />
         <ModalBtn label="取消" onClick={onClose} />
       </div>
     </Modal>

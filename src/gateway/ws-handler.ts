@@ -14,6 +14,7 @@ import { isSupportedAgentRuntime, SUPPORTED_AGENT_RUNTIMES } from '../acp/adapte
 import { getNextRunTime } from '../core/cron.js'
 import { projectStore } from '../store/projects.js'
 import { templateStore } from '../store/agent-templates.js'
+import { createCustomProjectAgent, deleteProjectAgent, deployTemplateToProject, updateProjectAgent } from '../core/agents.js'
 import { listDirectory, readFile, expandDirectory } from '../core/filesystem.js'
 import { toolStore, toolBindingStore } from '../store/tools.js'
 import { modelProviderStore } from '../store/model-providers.js'
@@ -303,6 +304,48 @@ async function handleMessage(ws: WebSocket, state: ClientState, msg: ClientMessa
       sendResult(ws, msg.requestId, agent)
       break
     }
+
+
+    case 'agents.deployTemplate': {
+      const agent = deployTemplateToProject(msg.templateId as string, msg.projectId as string, {
+        name: msg.name as string | undefined,
+        runtime: msg.runtime as string | undefined,
+        systemPrompt: msg.systemPrompt as string | undefined,
+        icon: msg.icon as string | undefined,
+      })
+      sendResult(ws, msg.requestId, agent)
+      break
+    }
+
+    case 'agents.createCustom': {
+      const agent = createCustomProjectAgent({
+        projectId: msg.projectId as string,
+        name: msg.name as string,
+        type: msg.agentType as string,
+        runtime: msg.runtime as string,
+        systemPrompt: msg.systemPrompt as string | undefined,
+        icon: msg.icon as string | undefined,
+      })
+      sendResult(ws, msg.requestId, agent)
+      break
+    }
+
+    case 'agents.update': {
+      const agent = updateProjectAgent(msg.agentId as string, {
+        name: msg.name as string | undefined,
+        type: msg.agentType as string | undefined,
+        runtime: msg.runtime as string | undefined,
+        systemPrompt: msg.systemPrompt as string | undefined,
+        icon: msg.icon as string | undefined,
+      })
+      sendResult(ws, msg.requestId, agent)
+      break
+    }
+
+    case 'agents.delete':
+      deleteProjectAgent(msg.agentId as string)
+      sendResult(ws, msg.requestId, { deleted: true })
+      break
 
     case 'sessions.list':
       sendResult(ws, msg.requestId, sessionStore.list(msg.agentId as string | undefined, msg.projectId as string | undefined))

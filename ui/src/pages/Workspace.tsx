@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ChangeEvent, useMemo, type MouseEvent } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   Bot, ChevronDown, ChevronRight, Loader2, Plus, User, Wifi, WifiOff,
   Wrench, FileCode, Terminal, Check, X, Settings2, Square,
@@ -112,6 +113,7 @@ function toolSummary(tc: ToolCallInfo): string {
 }
 
 export default function Workspace() {
+  const navigate = useNavigate()
   const connected = useConnectionStore(s => s.connected)
   const agents = useAgentStore(s => s.agents)
   const sessions = useSessionStore(s => s.sessions)
@@ -313,6 +315,14 @@ export default function Workspace() {
             </div>
             <div style={{ flex: 1, overflowY: 'auto', padding: '4px 0', minHeight: 0 }}>
               <div style={{ padding: '6px 14px 4px', fontSize: 11, fontWeight: 600, color: 'var(--text-3)', letterSpacing: '0.04em' }}>智能体</div>
+              {agents.length === 0 && (
+                <div style={{ margin: '18px 14px', padding: 14, border: '1px dashed var(--border)', borderRadius: 10, background: 'var(--bg-1)', textAlign: 'center' }}>
+                  <Bot size={26} color="var(--text-3)" style={{ marginBottom: 8, opacity: 0.5 }} />
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-1)', marginBottom: 5 }}>当前项目暂无智能体</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-3)', lineHeight: 1.5, marginBottom: 10 }}>先从 Agent 广场添加到项目，再新建会话开始对话。</div>
+                  <button type="button" onClick={() => navigate('/agents')} style={{ border: 'none', background: 'var(--blue)', color: 'white', cursor: 'pointer', padding: '7px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600 }}>添加智能体</button>
+                </div>
+              )}
               {agents.map(agent => (
                 <div key={agent.id} style={{ marginBottom: 2 }}>
                   <button type="button" onClick={() => toggleAgent(agent.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '7px 14px', border: 'none', background: 'transparent', color: 'var(--text-1)', cursor: 'pointer', textAlign: 'left' }}>

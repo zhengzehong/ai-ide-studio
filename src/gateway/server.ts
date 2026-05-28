@@ -8,6 +8,7 @@ import { agentStore } from '../store/agents.js'
 import { sessionStore } from '../store/sessions.js'
 import { taskStore } from '../store/tasks.js'
 import { ruleStore } from '../store/rules.js'
+import { mountHttpMcpServer } from '../tools/mcp/http-mcp-server.js'
 
 export async function startGateway(config: AppConfig) {
   const app = new Hono()
@@ -25,6 +26,7 @@ export async function startGateway(config: AppConfig) {
   })
 
   app.get('/api/rules', (c) => c.json(ruleStore.list()))
+  mountHttpMcpServer(app)
 
   const server = serve({ fetch: app.fetch, port: config.port }) as Server
 
