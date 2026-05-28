@@ -51,6 +51,23 @@ function displayConfigValue(value: string | undefined): string {
   return labels[value] || value
 }
 
+function sessionTitle(session: { id: string; title?: string | null }): string {
+  return session.title?.trim() || `会话 ${session.id.slice(-6)}`
+}
+
+const sessionMenuItemStyle: React.CSSProperties = {
+  display: 'block',
+  width: '100%',
+  padding: '7px 9px',
+  border: 'none',
+  borderRadius: 6,
+  background: 'transparent',
+  color: 'var(--text-1)',
+  cursor: 'pointer',
+  fontSize: 12,
+  textAlign: 'left',
+}
+
 function configOptionLabel(value: string, name: string): string {
   return displayConfigValue(value) || name
 }
@@ -108,6 +125,12 @@ export default function Workspace() {
   const sendPrompt = useSessionStore(s => s.sendPrompt)
   const createSession = useSessionStore(s => s.createSession)
   const fetchSessions = useSessionStore(s => s.fetchSessions)
+  const renameSession = useSessionStore(s => s.renameSession)
+  const deleteSession = useSessionStore(s => s.deleteSession)
+  const closeSession = useSessionStore(s => s.closeSession)
+  const archiveSession = useSessionStore(s => s.archiveSession)
+  const fetchAgents = useAgentStore(s => s.fetchAgents)
+  const fetchTasks = useTaskStore(s => s.fetchTasks)
   const setModel = useSessionStore(s => s.setModel)
   const setMode = useSessionStore(s => s.setMode)
   const setConfig = useSessionStore(s => s.setConfig)
@@ -142,6 +165,7 @@ export default function Workspace() {
   const [showConfigMenu, setShowConfigMenu] = useState<string | null>(null)
   const [showCommandMenu, setShowCommandMenu] = useState(false)
   const [menuAnchor, setMenuAnchor] = useState<MenuAnchor | null>(null)
+  const [sessionMenuId, setSessionMenuId] = useState<string | null>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
   const chatScrollRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -192,7 +216,33 @@ export default function Workspace() {
     return n
   })
   const handleSelectSession = (agentId: string, sessionId: string) => { setSelectedAgentId(agentId); selectSession(sessionId) }
-  const handleNewSession = async (agentId: string) => { const s = await createSession(agentId); setSelectedAgentId(agentId); selectSession(s.id); await fetchSessions() }
+  const handleNewSession = async (agentId: string) => { const s = await createSession(agentId, undefined, currentProjectId ?? undefined); setSelectedAgentId(agentId); selectSession(s.id); await fetchSessions(undefined, currentProjectId ?? undefined) }
+  const handleRenameSession = async (sessionId: string, currentTitle: string) => {
+    const nextTitle = window.prompt('请输入新的会话名称', currentTitle)
+    if (!nextTitle?.trim()) return
+    await renameSession(sessionId, nextTitle)
+    setSessionMenuId(null)
+  }
+  const handleDeleteSession = async (sessionId: string) => {
+    if (!window.confirm('确定删除这个会话吗？历史记录会从列表隐藏。')) return
+    await deleteSession(sessionId)
+    setSessionMenuId(null)
+  }
+  const handleCloseSession = async (sessionId: string) => {
+    await closeSession(sessionId)
+    setSessionMenuId(null)
+  }
+  const handleArchiveSession = async (sessionId: string) => {
+    await archiveSession(sessionId)
+    setSessionMenuId(null)
+  }
+
+  useEffect(() => {
+    if (!currentProjectId) return
+    void fetchAgents(currentProjectId)
+    void fetchSessions(undefined, currentProjectId)
+    void fetchTasks(currentProjectId)
+  }, [currentProjectId, fetchAgents, fetchSessions, fetchTasks])
 
   const handleSend = () => {
     const v = inputValue.trim(); if (!v || !currentSessionId) return
@@ -274,11 +324,22 @@ export default function Workspace() {
                   </button>
                   {expandedAgentIds.has(agent.id) && (<>
                     {agentSessions(agent.id).map(s => (
-                      <button key={s.id} type="button" onClick={() => handleSelectSession(agent.id, s.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '5px 14px 5px 42px', border: 'none', background: currentSessionId === s.id ? 'var(--blue-light)' : 'transparent', color: 'var(--text-1)', cursor: 'pointer', textAlign: 'left', borderRadius: 4 }}>
-                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: s.status === 'active' ? '#059669' : '#9ca3af', flexShrink: 0 }} />
-                        <span style={{ flex: 1, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>会话 {s.id.slice(-6)}</span>
-                        <span style={{ fontSize: 10, color: 'var(--text-3)' }}>{formatTime(s.started_at)}</span>
-                      </button>
+                      <div key={s.id} style={{ position: 'relative', display: 'flex', alignItems: 'center', paddingLeft: 42, paddingRight: 8, background: currentSessionId === s.id ? 'var(--blue-light)' : 'transparent', borderRadius: 4 }}>
+                        <button type="button" onClick={() => handleSelectSession(agent.id, s.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0, padding: '5px 0', border: 'none', background: 'transparent', color: 'var(--text-1)', cursor: 'pointer', textAlign: 'left' }}>
+                          <span style={{ width: 6, height: 6, borderRadius: '50%', background: s.status === 'active' ? '#059669' : '#9ca3af', flexShrink: 0 }} />
+                          <span style={{ flex: 1, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sessionTitle(s)}</span>
+                          <span style={{ fontSize: 10, color: 'var(--text-3)' }}>{formatTime(s.last_message_at || s.updated_at || s.started_at)}</span>
+                        </button>
+                        <button type="button" onClick={(e) => { e.stopPropagation(); setSessionMenuId(sessionMenuId === s.id ? null : s.id) }} title="会话操作" style={{ width: 22, height: 22, border: 'none', borderRadius: 4, background: 'transparent', color: 'var(--text-3)', cursor: 'pointer', fontSize: 16, lineHeight: 1 }}>⋯</button>
+                        {sessionMenuId === s.id && (
+                          <div style={{ position: 'absolute', right: 8, top: 28, zIndex: 20, width: 120, padding: 4, background: 'var(--bg-0)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: 'var(--shadow-lg)' }}>
+                            <button type="button" onClick={() => handleRenameSession(s.id, sessionTitle(s))} style={sessionMenuItemStyle}>重命名</button>
+                            <button type="button" onClick={() => handleCloseSession(s.id)} style={sessionMenuItemStyle}>关闭</button>
+                            <button type="button" onClick={() => handleArchiveSession(s.id)} style={sessionMenuItemStyle}>归档</button>
+                            <button type="button" onClick={() => handleDeleteSession(s.id)} style={{ ...sessionMenuItemStyle, color: 'var(--red)' }}>删除</button>
+                          </div>
+                        )}
+                      </div>
                     ))}
                     <button type="button" onClick={() => handleNewSession(agent.id)} style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '5px 14px 5px 42px', border: 'none', background: 'transparent', color: 'var(--text-3)', cursor: 'pointer', fontSize: 11 }}><Plus size={12} /> 新建会话</button>
                   </>)}
@@ -467,7 +528,7 @@ export default function Workspace() {
         <TaskPanel tasks={tasks} agents={agents} />
       </aside>
 
-      {showNewTask && <NewTaskModal agents={agents} onCreate={createTask} onClose={() => setShowNewTask(false)} />}
+      {showNewTask && <NewTaskModal agents={agents} onCreate={(title, desc, agentId) => createTask(title, desc, agentId, currentProjectId ?? undefined)} onClose={() => setShowNewTask(false)} />}
 
       {/* 命令菜单 */}
       {showCommandMenu && <DropdownPortal onClose={() => setShowCommandMenu(false)} style={menuStyle(menuAnchor, 320)}>
@@ -730,7 +791,7 @@ function InteractionPanel({ permission, elicitation, onRespondPermission, onResp
 }) {
   return (<>
     {permission && <PermissionCard request={permission} onRespond={onRespondPermission} />}
-    {!permission && elicitation && <ElicitationCard request={elicitation} onRespond={onRespondElicitation} />}
+    {!permission && elicitation && <ElicitationCard key={elicitation.id} request={elicitation} onRespond={onRespondElicitation} />}
   </>)
 }
 
@@ -771,11 +832,6 @@ function ElicitationCard({ request, onRespond }: { request: ElicitationRequestIn
   const [values, setValues] = useState<Record<string, ElicitationValue>>(() => getInitialElicitationValues(schema))
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState(false)
-
-  useEffect(() => {
-    setValues(getInitialElicitationValues(schema))
-    setErrors({})
-  }, [request.id, schema])
 
   const submit = async () => {
     const validation = validateElicitationValues(schema, values)

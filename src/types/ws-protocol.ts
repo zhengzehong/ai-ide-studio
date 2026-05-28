@@ -20,14 +20,18 @@ export interface GetModelsMsg extends ClientMessage { type: 'session.getModels';
 export interface SetConfigMsg extends ClientMessage { type: 'session.setConfig'; sessionId: string; configId: string; value: string | boolean }
 export interface SetModeMsg extends ClientMessage { type: 'session.setMode'; sessionId: string; modeId: string }
 export interface ForkSessionMsg extends ClientMessage { type: 'session.fork'; sessionId: string }
-export interface AgentsListMsg extends ClientMessage { type: 'agents.list' }
+export interface AgentsListMsg extends ClientMessage { type: 'agents.list'; projectId?: string }
 export interface AgentsCreateMsg extends ClientMessage { type: 'agents.create'; name: string; agentType: string; runtime: AgentRuntime }
-export interface SessionsListMsg extends ClientMessage { type: 'sessions.list'; agentId?: string }
-export interface SessionsCreateMsg extends ClientMessage { type: 'sessions.create'; agentId: string; taskId?: string }
+export interface SessionsListMsg extends ClientMessage { type: 'sessions.list'; agentId?: string; projectId?: string }
+export interface SessionsCreateMsg extends ClientMessage { type: 'sessions.create'; agentId: string; taskId?: string; projectId?: string }
+export interface SessionsRenameMsg extends ClientMessage { type: 'sessions.rename'; sessionId: string; title: string }
+export interface SessionsDeleteMsg extends ClientMessage { type: 'sessions.delete'; sessionId: string }
+export interface SessionsCloseMsg extends ClientMessage { type: 'sessions.close'; sessionId: string }
+export interface SessionsArchiveMsg extends ClientMessage { type: 'sessions.archive'; sessionId: string }
 export interface SessionsMessagesMsg extends ClientMessage { type: 'sessions.messages'; sessionId: string; limit?: number; before?: string }
 export interface SessionsEventsMsg extends ClientMessage { type: 'sessions.events'; sessionId: string; limit?: number; afterSequence?: number }
-export interface TasksListMsg extends ClientMessage { type: 'tasks.list'; status?: TaskStatus }
-export interface TasksCreateMsg extends ClientMessage { type: 'tasks.create'; title: string; description?: string; assignAgentId?: string }
+export interface TasksListMsg extends ClientMessage { type: 'tasks.list'; status?: TaskStatus; projectId?: string }
+export interface TasksCreateMsg extends ClientMessage { type: 'tasks.create'; title: string; description?: string; assignAgentId?: string; projectId?: string }
 export interface TasksUpdateMsg extends ClientMessage { type: 'tasks.update'; taskId: string; status?: TaskStatus; stage?: string }
 export interface RulesListMsg extends ClientMessage { type: 'rules.list' }
 export interface RulesCreateMsg extends ClientMessage { type: 'rules.create'; name: string; cron: string; action: string; actionConfig: { title: string; description?: string; assignAgentId?: string }; description?: string; enabled?: boolean }
@@ -195,6 +199,7 @@ export type ServerMessage =
   | { type: 'session:event'; sessionId: string; agentId?: string | null; event: SessionEventData }
   | ({ type: 'session:done' } & SessionDoneData)
   | { type: 'session:capabilities'; sessionId: string; capabilities: SessionCapabilities }
+  | { type: 'session:changed'; sessionId: string; data: Record<string, unknown> }
   | { type: 'agent:status'; agentId: string; status: AgentStatus }
   | { type: 'task:update'; taskId: string; data: Record<string, unknown> }
   | { type: 'rule:update'; ruleId: string; data: Record<string, unknown> }

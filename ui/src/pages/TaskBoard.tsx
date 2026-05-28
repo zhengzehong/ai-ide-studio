@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Plus, X } from 'lucide-react';
 import { useAgentStore, type AgentData } from '../stores/agent.store';
 import { useTaskStore, type TaskData } from '../stores/task.store';
+import { useProjectStore } from '../stores/project.store';
 
 const TYPE_COLORS: Record<string, string> = { dev: '#2563eb', test: '#059669', ops: '#ea580c', security: '#dc2626', architect: '#7c3aed', pm: '#7c3aed' };
 const SOURCE_META: Record<string, { bg: string; color: string; label: string }> = {
@@ -30,6 +31,7 @@ export default function TaskBoard() {
   const agents = useAgentStore(s => s.agents);
   const createTask = useTaskStore(s => s.createTask);
   const updateTask = useTaskStore(s => s.updateTask);
+  const currentProjectId = useProjectStore(s => s.currentProjectId);
   const [showNew, setShowNew] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
 
@@ -67,7 +69,7 @@ export default function TaskBoard() {
           );
         })}
       </div>
-      {showNew && <NewTaskModal agents={agents} onCreate={async (title, desc, agentId) => { await createTask(title, desc, agentId); setShowNew(false); }} onClose={() => setShowNew(false)} />}
+      {showNew && <NewTaskModal agents={agents} onCreate={async (title, desc, agentId) => { await createTask(title, desc, agentId, currentProjectId ?? undefined); setShowNew(false); }} onClose={() => setShowNew(false)} />}
       {selectedTaskId && (
         <TaskDetailModal
           task={tasks.find(t => t.id === selectedTaskId)}

@@ -315,6 +315,11 @@ function migrateAddColumns(db: SqliteDatabase): void {
   safeAdd('tasks', 'project_id', 'TEXT')
   safeAdd('rules', 'project_id', 'TEXT')
   safeAdd('sessions', 'project_id', 'TEXT')
+  safeAdd('sessions', 'title', 'TEXT')
+  safeAdd('sessions', 'updated_at', 'TEXT')
+  safeAdd('sessions', 'last_message_at', 'TEXT')
+  safeAdd('sessions', 'archived_at', 'TEXT')
+  safeAdd('sessions', 'deleted_at', 'TEXT')
 }
 
 function migrateLegacyJsonIfNeeded(db: SqliteDatabase, legacyJsonPath?: string): void {

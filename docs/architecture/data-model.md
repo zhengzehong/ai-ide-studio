@@ -95,8 +95,13 @@ backlog → executing → reviewing → completed
 | acp_session_id | TEXT | ACP 协议会话 ID |
 | status | TEXT | active / idle / closed |
 | stage | TEXT | 当前阶段描述 |
+| title | TEXT | 会话显示标题（人工重命名或 ACP sessionInfo 自动补全） |
 | started_at | TEXT | 开始时间 |
+| updated_at | TEXT | 会话元数据更新时间 |
+| last_message_at | TEXT | 最近消息时间 |
 | closed_at | TEXT | 关闭时间 |
+| archived_at | TEXT | 归档时间 |
+| deleted_at | TEXT | 软删除时间；非空时默认列表隐藏 |
 
 ### messages
 
@@ -235,5 +240,12 @@ backlog → executing → reviewing → completed
 | `permission.request` | 权限请求 |
 | `permission.result` | 权限响应 |
 | `mode.update` | 模式切换 |
-| `session_info.update` | 会话信息更新 |
+| `session.info` | 会话信息更新 |
 | `elicitation.result` | 提问结果 |
+
+## Session 管理约定
+
+- `sessions.list` 默认只返回 `deleted_at IS NULL` 的记录。
+- `sessions.delete` 是软删除，仅写入 `deleted_at`，不级联删除 `messages` / `session_events`。
+- `sessions.rename` 写入 `sessions.title`；如果 Agent 通过 ACP 上报 `sessionInfo.title` 且当前标题为空，后端会自动补全标题。
+- `session.fork` 会继承源 Session 的 `project_id`，并将项目 `work_dir` 继续传给 ACP runtime。

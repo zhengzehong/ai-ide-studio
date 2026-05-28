@@ -11,14 +11,15 @@ export interface TaskData {
   assigned_agent_id: string | null
   created_at: string
   completed_at: string | null
+  project_id?: string | null
   sessionId?: string
 }
 
 interface TaskStore {
   tasks: TaskData[]
   loading: boolean
-  fetchTasks: () => Promise<void>
-  createTask: (title: string, description?: string, assignAgentId?: string) => Promise<TaskData>
+  fetchTasks: (projectId?: string) => Promise<void>
+  createTask: (title: string, description?: string, assignAgentId?: string, projectId?: string) => Promise<TaskData>
   updateTask: (taskId: string, status: string, stage?: string) => Promise<TaskData>
   setupListeners: () => () => void
 }
@@ -27,20 +28,23 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   tasks: [],
   loading: false,
 
-  fetchTasks: async () => {
+  fetchTasks: async (projectId) => {
     set({ loading: true })
     try {
-      const data = await wsClient.request({ type: 'tasks.list' }) as TaskData[]
+      const msg: Record<string, unknown> = { type: 'tasks.list' }
+      if (projectId) msg.projectId = projectId
+      const data = await wsClient.request(msg) as TaskData[]
       set({ tasks: data, loading: false })
     } catch {
       set({ loading: false })
     }
   },
 
-  createTask: async (title, description, assignAgentId) => {
+  createTask: async (title, description, assignAgentId, projectId) => {
     const msg: Record<string, unknown> = { type: 'tasks.create', title }
     if (description) msg.description = description
     if (assignAgentId) msg.assignAgentId = assignAgentId
+    if (projectId) msg.projectId = projectId
     const task = await wsClient.request(msg) as TaskData
     set({ tasks: [task, ...get().tasks] })
     return task
