@@ -33,17 +33,21 @@ const legacyData = {
 }
 
 describe('SQLite 迁移', () => {
-  test('创建工具上下文和工具调用审计表', () => {
+  test('??????????????? schema_migrations ?', () => {
     closeDatabase()
     initDatabase(resolve(tmp, 'tool-platform.sqlite'))
 
     const tables = getDb().prepare<[], { name: string }>(`
       SELECT name FROM sqlite_master
-      WHERE type = 'table' AND name IN ('tool_contexts', 'tool_call_audit')
+      WHERE type = 'table' AND name IN ('schema_migrations', 'tool_contexts', 'tool_call_audit')
       ORDER BY name
     `).all().map(row => row.name)
+    const migrations = getDb().prepare<[], { version: string }>(`
+      SELECT version FROM schema_migrations ORDER BY version
+    `).all().map(row => row.version)
 
-    expect(tables).toEqual(['tool_call_audit', 'tool_contexts'])
+    expect(tables).toEqual(['schema_migrations', 'tool_call_audit', 'tool_contexts'])
+    expect(migrations).toEqual(['001', '002', '003', '004'])
   })
 
   test('从 JSON 迁移到 SQLite 并保留所有数据', () => {
