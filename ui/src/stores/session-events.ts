@@ -43,7 +43,7 @@ export interface SessionCapabilities {
 }
 
 export interface StreamingMessage {
-  id: string; role: 'agent'; content: string; thinking: string; toolCalls: ToolCallInfo[]; done: boolean
+  id: string; role: 'agent'; content: string; thinking: string; toolCalls: ToolCallInfo[]; done: boolean; stage?: string
 }
 
 export interface SessionEventData {
@@ -200,21 +200,30 @@ function applyEvent(state: ReducedSessionEvents, event: SessionEventData): Reduc
     return streaming
   }
 
+  if (event.type.startsWith('lifecycle.')) {
+    const msg = ensureStreaming(String(payload.messageId || event.message_id || event.id))
+    msg.stage = String(payload.content || payload.contentDelta || '')
+    return { ...state, streamingMessage: msg, capabilities, pendingPermissions, pendingElicitations }
+  }
+
   switch (event.type) {
     case 'message.chunk': {
       if (payload.role !== 'agent') break
       const msg = ensureStreaming(String(payload.messageId || event.message_id || event.id))
       msg.content += String(payload.contentDelta || payload.content || '')
+      msg.stage = undefined
       break
     }
     case 'thinking.chunk': {
       const msg = ensureStreaming(String(payload.messageId || event.message_id || event.id))
       msg.thinking += String(payload.thinking || '')
+      msg.stage = undefined
       break
     }
     case 'tool.call': {
       const msg = ensureStreaming(String(payload.messageId || event.message_id || event.id))
       msg.toolCalls.push(payload.toolCall as ToolCallInfo)
+      msg.stage = undefined
       break
     }
     case 'tool.update': {
@@ -222,6 +231,7 @@ function applyEvent(state: ReducedSessionEvents, event: SessionEventData): Reduc
       if (streaming?.toolCalls.some(t => t.id === update.id) || shouldCreateToolFromUpdate(update)) {
         const msg = ensureStreaming(String(payload.messageId || event.message_id || event.id))
         msg.toolCalls = upsertToolCall(msg.toolCalls, update)
+        msg.stage = undefined
       }
       break
     }

@@ -23,7 +23,7 @@ beforeEach(() => {
 afterAll(() => { closeDatabase(); rmSync(tmp, { recursive: true, force: true }) })
 
 describe('ACP session project context', () => {
-  test('session creation stores project_id and passes project work_dir to ACP host', async () => {
+  test('session creation stores project_id; first prompt passes project work_dir to ACP host', async () => {
     const workDir = resolve(tmp, 'project-a')
     const project = projectStore.create({ name: '项目 A', workDir })
     const agent = agentStore.create({ name: '工程师', type: 'dev', runtime: 'mock', projectId: project.id })
@@ -31,26 +31,32 @@ describe('ACP session project context', () => {
 
     const originalIsRunning = acpHost.isRunning
     const originalStartAgent = acpHost.startAgent
-    const originalNewSession = acpHost.newSession
+    const originalEnsureSession = acpHost.ensureSession
+    const originalPrompt = acpHost.prompt
     const calls: Array<{ agentId: string; sessionId: string; projectId?: string; cwd?: string }> = []
 
     acpHost.isRunning = (() => true) as typeof acpHost.isRunning
     acpHost.startAgent = (async () => undefined) as typeof acpHost.startAgent
-    acpHost.newSession = (async (agentId, ourSessionId, context) => {
+    acpHost.ensureSession = (async (agentId, ourSessionId, _persistedAcpSessionId, context) => {
       calls.push({ agentId, sessionId: ourSessionId, projectId: context?.projectId, cwd: context?.cwd })
       return `acp-${ourSessionId}`
-    }) as typeof acpHost.newSession
+    }) as typeof acpHost.ensureSession
+    acpHost.prompt = (async () => undefined) as typeof acpHost.prompt
 
     try {
       const created = await sessionManager.createSession(agent.id, task.id)
       const stored = sessionStore.get(created.id)
 
       expect(stored?.project_id).toBe(project.id)
+      expect(stored?.acp_session_id).toBeNull()
+      await sessionManager.sendPrompt(created.id, 'hello')
       expect(calls).toEqual([{ agentId: agent.id, sessionId: created.id, projectId: project.id, cwd: workDir }])
+      expect(sessionStore.get(created.id)?.acp_session_id).toBe(`acp-${created.id}`)
     } finally {
       acpHost.isRunning = originalIsRunning
       acpHost.startAgent = originalStartAgent
-      acpHost.newSession = originalNewSession
+      acpHost.ensureSession = originalEnsureSession
+      acpHost.prompt = originalPrompt
     }
   })
 })

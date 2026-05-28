@@ -27,20 +27,19 @@ describe('session done metadata', () => {
     agentStore.upsert({ id: 'agent-prompt-fail', type: 'dev', name: 'Prompt Fail', runtime: 'mock' })
     const session = sessionStore.create({ agentId: 'agent-prompt-fail', acpSessionId: 'acp-fail' })
 
-    const originalIsRunning = acpHost.isRunning
-    const originalHasAcpSession = acpHost.hasAcpSession
+    const originalEnsureSession = acpHost.ensureSession
     const originalPrompt = acpHost.prompt
-    acpHost.isRunning = (() => true) as typeof acpHost.isRunning
-    acpHost.hasAcpSession = (() => true) as typeof acpHost.hasAcpSession
+    acpHost.ensureSession = (async () => 'acp-fail') as typeof acpHost.ensureSession
     acpHost.prompt = (async () => { throw new Error('adapter failed') }) as typeof acpHost.prompt
 
-    await expect(sessionManager.sendPrompt(session.id, 'hello')).rejects.toThrow('adapter failed')
-    const done = eventStore.list(session.id).find(ev => ev.type === 'message.done' && JSON.parse(ev.payload_json).stopReason === 'error')
-    expect(done).toBeTruthy()
-    expect(JSON.parse(done?.payload_json || '{}').error).toBe('adapter failed')
-
-    acpHost.isRunning = originalIsRunning
-    acpHost.hasAcpSession = originalHasAcpSession
-    acpHost.prompt = originalPrompt
+    try {
+      await expect(sessionManager.sendPrompt(session.id, 'hello')).rejects.toThrow('adapter failed')
+      const done = eventStore.list(session.id).find(ev => ev.type === 'message.done' && JSON.parse(ev.payload_json).stopReason === 'error')
+      expect(done).toBeTruthy()
+      expect(JSON.parse(done?.payload_json || '{}').error).toBe('adapter failed')
+    } finally {
+      acpHost.ensureSession = originalEnsureSession
+      acpHost.prompt = originalPrompt
+    }
   })
 })

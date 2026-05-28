@@ -12,6 +12,7 @@ const log = createChildLogger('session')
 
 interface PendingMessage { content: string; thinking: string; toolCalls: ToolCallData[] }
 const pendingBySession = new Map<string, PendingMessage>()
+const activePrompts = new Set<string>()
 
 events.on('session:update', (ev) => {
   const { sessionId, data } = ev
@@ -102,65 +103,54 @@ events.on('session:done', (ev) => {
 export const sessionManager = {
   async createSession(agentId: string, taskId?: string, projectId?: string): Promise<SessionRow> {
     const agent = agentStore.get(agentId)
-    if (!agent) throw new Error(`Agent 不存在: ${agentId}`)
+    if (!agent) throw new Error(`Agent not found: ${agentId}`)
     const projectContext = resolveSessionProjectContext(agentId, taskId, projectId)
 
-    if (!acpHost.isRunning(agentId)) {
-      log.debug({ agentId }, 'Agent 未运行，正在启动')
-      await acpHost.startAgent(agentId)
-    }
-
     const session = sessionStore.create({ agentId, taskId, projectId: projectContext.projectId })
-    const acpSessionId = await acpHost.newSession(agentId, session.id, projectContext)
-    sessionStore.updateAcpSessionId(session.id, acpSessionId)
 
-    log.info({ sessionId: session.id, agentId, acpSessionId, taskId, projectId: projectContext.projectId }, 'Session 已创建')
-    return sessionStore.get(session.id) ?? { ...session, acp_session_id: acpSessionId }
+    log.info({ sessionId: session.id, agentId, taskId, projectId: projectContext.projectId }, 'Local Session created')
+    return session
   },
 
   async sendPrompt(sessionId: string, content: string, images?: ImageAttachment[]): Promise<void> {
     const session = sessionStore.get(sessionId)
-    if (!session) throw new Error(`Session 不存在: ${sessionId}`)
+    if (!session) throw new Error(`Session not found: ${sessionId}`)
+    if (activePrompts.has(sessionId)) throw new Error('当前会话正在生成中，请等待本轮完成或先停止生成')
 
     const promptLen = content.length
     const imageCount = images?.length ?? 0
-    log.debug({ sessionId, agentId: session.agent_id, promptLen, imageCount }, '发送 prompt')
+    log.debug({ sessionId, agentId: session.agent_id, promptLen, imageCount }, 'send prompt')
 
-    const humanMessage = messageStore.append(sessionId, { role: 'human', content, attachments: images })
-    sessionStore.touch(sessionId, humanMessage.timestamp)
-    const stored = eventStore.append(sessionId, {
-      type: 'message.user',
-      agentId: session.agent_id,
-      messageId: humanMessage.id,
-      role: 'human',
-      payload: { messageId: humanMessage.id, content, attachments: images || [] },
-    })
-    events.emit('session:event', { sessionId, agentId: session.agent_id, event: stored })
-
-    if (!acpHost.isRunning(session.agent_id)) {
-      log.warn({ sessionId, agentId: session.agent_id }, 'Agent 进程丢失，正在重启')
-      await acpHost.startAgent(session.agent_id)
-    }
-
-    if (!acpHost.hasAcpSession(session.agent_id, sessionId)) {
-      const projectContext = resolveSessionProjectContext(session.agent_id, session.task_id ?? undefined, session.project_id ?? undefined)
-      if (session.acp_session_id) {
-        log.info({ sessionId, acpSessionId: session.acp_session_id }, '恢复 ACP Session')
-        await acpHost.resumeSession(session.agent_id, sessionId, session.acp_session_id, projectContext)
-      } else {
-        const acpSessionId = await acpHost.newSession(session.agent_id, sessionId, projectContext)
-        sessionStore.updateAcpSessionId(sessionId, acpSessionId)
-        log.info({ sessionId, acpSessionId }, '新建 ACP Session 映射')
-      }
-    }
-
+    activePrompts.add(sessionId)
     try {
+      const humanMessage = messageStore.append(sessionId, { role: 'human', content, attachments: images })
+      sessionStore.touch(sessionId, humanMessage.timestamp)
+      const stored = eventStore.append(sessionId, {
+        type: 'message.user',
+        agentId: session.agent_id,
+        messageId: humanMessage.id,
+        role: 'human',
+        payload: { messageId: humanMessage.id, content, attachments: images || [] },
+      })
+      events.emit('session:event', { sessionId, agentId: session.agent_id, event: stored })
+      emitLifecycle(session.agent_id, sessionId, 'lifecycle.prompt_received', '\u6b63\u5728\u51c6\u5907 Agent...')
+
+      const projectContext = resolveSessionProjectContext(session.agent_id, session.task_id ?? undefined, session.project_id ?? undefined)
+      const acpSessionId = await acpHost.ensureSession(session.agent_id, sessionId, session.acp_session_id, projectContext)
+      if (session.acp_session_id !== acpSessionId) {
+        sessionStore.updateAcpSessionId(sessionId, acpSessionId)
+        log.info({ sessionId, acpSessionId }, 'ACP Session mapped')
+      }
+      emitLifecycle(session.agent_id, sessionId, 'lifecycle.prompt_sent', '\u6b63\u5728\u601d\u8003...')
       await acpHost.prompt(session.agent_id, sessionId, content, images)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      log.error({ err, sessionId, agentId: session.agent_id }, 'prompt 执行失败')
+      emitLifecycle(session.agent_id, sessionId, 'lifecycle.failed', `\u6267\u884c\u5931\u8d25\uff1a${message}`)
+      log.error({ err, sessionId, agentId: session.agent_id }, 'prompt failed')
       events.emit('session:done', { sessionId, agentId: session.agent_id, messageId: `error-${Date.now()}`, stopReason: 'error', error: message })
       throw err
+    } finally {
+      activePrompts.delete(sessionId)
     }
   },
 
@@ -205,6 +195,17 @@ export const sessionManager = {
     events.emit('session:changed', { sessionId, data: { event: 'deleted', deleted: true } })
     log.info({ sessionId, agentId: session.agent_id }, 'Session 已删除')
   },
+}
+
+function emitLifecycle(agentId: string, sessionId: string, eventType: string, content: string): void {
+  sessionStore.updateStage(sessionId, content)
+  const updated = sessionStore.get(sessionId)
+  if (updated) events.emit('session:changed', { sessionId, data: { ...updated } })
+  events.emit('session:update', {
+    sessionId,
+    agentId,
+    data: { messageId: `${eventType}-${Date.now()}`, role: 'system', content, eventType } satisfies SessionUpdateData,
+  })
 }
 
 function resolveSessionProjectContext(agentId: string, taskId?: string, existingProjectId?: string): { projectId?: string; cwd?: string } {

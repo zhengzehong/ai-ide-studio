@@ -199,7 +199,11 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     if (images?.length) msg.images = images
     wsClient.send(msg)
     promptStartTime = Date.now()
-    set({ messages: [...get().messages, { id: `msg-local-${Date.now()}`, session_id: sid, role: 'human', content, thinking: null, tool_calls_json: null, decision_json: null, attachments_json: images?.length ? JSON.stringify(images) : null, timestamp: new Date().toISOString() }], turnUsage: null })
+    set({
+      messages: [...get().messages, { id: `msg-local-${Date.now()}`, session_id: sid, role: 'human', content, thinking: null, tool_calls_json: null, decision_json: null, attachments_json: images?.length ? JSON.stringify(images) : null, timestamp: new Date().toISOString() }],
+      streamingMessage: { id: `pending-${sid}-${Date.now()}`, role: 'agent', content: '', thinking: '', toolCalls: [], done: false, stage: '\u6b63\u5728\u51c6\u5907 Agent...' },
+      turnUsage: null,
+    })
   },
 
   setModel: async (modelId) => {
@@ -262,7 +266,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       const events = [...get().events.filter(e => e.id !== event.id), event].sort((a, b) => a.sequence - b.sequence)
       const activeStreaming = get().streamingMessage
       applyReduced(set, get().capabilities, events)
-      if (activeStreaming && (activeStreaming.content || activeStreaming.thinking || activeStreaming.toolCalls.length > 0)) {
+      if (activeStreaming && (activeStreaming.content || activeStreaming.thinking || activeStreaming.toolCalls.length > 0 || activeStreaming.stage)) {
         lastStreamingSnapshot = activeStreaming
         if (!get().streamingMessage) {
           set({ streamingMessage: activeStreaming })
@@ -275,6 +279,17 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       const sid = msg.sessionId as string; if (sid !== get().currentSessionId) return
       const data = msg.data as Record<string, unknown>
 
+      if (typeof data.eventType === 'string' && data.eventType.startsWith('lifecycle.')) {
+        const stage = String(data.content || '')
+        set((state) => {
+          const cur = state.streamingMessage
+          const up: StreamingMessage = cur ? { ...cur, toolCalls: [...cur.toolCalls] } : { id: String(data.messageId || `stream-${sid}-${Date.now()}`), role: 'agent', content: '', thinking: '', toolCalls: [], done: false }
+          up.stage = stage
+          return { streamingMessage: up }
+        })
+        saveCache(sid, get())
+        return
+      }
       if (data.eventType === 'permission.result' || data.eventType === 'elicitation.result') return
       if (data.usage) { const u = data.usage as UsageInfo; set({ usage: u }); saveCache(sid, get()); return }
       if (data.plan) { set({ plan: data.plan as PlanEntry[] }); saveCache(sid, get()); return }
@@ -286,13 +301,14 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       set((state) => {
         const cur = state.streamingMessage
         const up: StreamingMessage = cur ? { ...cur, toolCalls: [...cur.toolCalls] } : { id: String(data.messageId || `stream-${sid}-${Date.now()}`), role: 'agent', content: '', thinking: '', toolCalls: [], done: false }
-        if (data.contentDelta) up.content += data.contentDelta as string
-        if (data.thinking) up.thinking += data.thinking as string
-        if (data.toolCall) up.toolCalls.push(data.toolCall as ToolCallInfo)
+        if (data.contentDelta) { up.content += data.contentDelta as string; up.stage = undefined }
+        if (data.thinking) { up.thinking += data.thinking as string; up.stage = undefined }
+        if (data.toolCall) { up.toolCalls.push(data.toolCall as ToolCallInfo); up.stage = undefined }
         if (data.toolCallUpdate) {
           const tcu = data.toolCallUpdate as ToolCallInfo
           if (!cur && !shouldCreateToolFromUpdate(tcu)) return {}
           up.toolCalls = upsertToolCall(up.toolCalls, tcu)
+          up.stage = undefined
         }
         lastStreamingSnapshot = up
         return { streamingMessage: up }

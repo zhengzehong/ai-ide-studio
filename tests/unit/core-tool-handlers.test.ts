@@ -63,16 +63,10 @@ describe('core MCP tool handlers', () => {
   test('creates, lists, and gets sessions through the session manager', async () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const agent = agentStore.create({ name: 'Mock', type: 'dev', runtime: 'mock', projectId: project.id })
-    const originalIsRunning = acpHost.isRunning
-    const originalStartAgent = acpHost.startAgent
-    const originalNewSession = acpHost.newSession
-    acpHost.isRunning = (() => true) as typeof acpHost.isRunning
-    acpHost.startAgent = (async () => undefined) as typeof acpHost.startAgent
-    acpHost.newSession = (async (_agentId, ourSessionId) => `acp-${ourSessionId}`) as typeof acpHost.newSession
 
     try {
       const created = await executeJson('core.session.create', { agentId: agent.id }, { projectId: project.id })
-      expect(asRecord(created.session)).toMatchObject({ agent_id: agent.id, project_id: project.id, status: 'active', acp_session_id: `acp-${asRecord(created.session).id}` })
+      expect(asRecord(created.session)).toMatchObject({ agent_id: agent.id, project_id: project.id, status: 'active', acp_session_id: null })
 
       const listed = await executeJson('core.session.list', {}, { projectId: project.id })
       expect(asRecords(listed.sessions).map(session => session.id)).toEqual([asRecord(created.session).id])
@@ -80,9 +74,7 @@ describe('core MCP tool handlers', () => {
       const got = await executeJson('core.session.get', { sessionId: asRecord(created.session).id })
       expect(asRecord(got.session).id).toBe(asRecord(created.session).id)
     } finally {
-      acpHost.isRunning = originalIsRunning
-      acpHost.startAgent = originalStartAgent
-      acpHost.newSession = originalNewSession
+      acpHost.agents.delete(agent.id)
     }
   })
 

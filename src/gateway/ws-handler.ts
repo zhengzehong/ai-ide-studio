@@ -21,6 +21,13 @@ import { modelProviderStore } from '../store/model-providers.js'
 import { skillStore, skillBindingStore } from '../store/skills.js'
 import { createChildLogger } from '../core/logger.js'
 
+function resolveSessionProjectContextForRpc(sessionId: string): { projectId?: string; cwd?: string } {
+  const session = sessionStore.get(sessionId)
+  if (!session) return {}
+  const project = session.project_id ? projectStore.get(session.project_id) : undefined
+  return { projectId: session.project_id ?? undefined, cwd: project?.work_dir }
+}
+
 const log = createChildLogger('ws')
 
 interface ClientState {
@@ -171,6 +178,9 @@ async function handleMessage(ws: WebSocket, state: ClientState, msg: ClientMessa
       const modelId = msg.modelId as string
       const session = sessionStore.get(sessionId)
       if (!session) { sendError(ws, msg.requestId, '会话不存在'); break }
+      const context = resolveSessionProjectContextForRpc(sessionId)
+      const acpSessionId = await acpHost.ensureSession(session.agent_id, sessionId, session.acp_session_id, context)
+      if (session.acp_session_id !== acpSessionId) sessionStore.updateAcpSessionId(sessionId, acpSessionId)
       await acpHost.setModel(session.agent_id, sessionId, modelId)
       sendResult(ws, msg.requestId, { modelId })
       break
@@ -200,6 +210,9 @@ async function handleMessage(ws: WebSocket, state: ClientState, msg: ClientMessa
       const modeId = msg.modeId as string
       const session = sessionStore.get(sessionId)
       if (!session) { sendError(ws, msg.requestId, '会话不存在'); break }
+      const context = resolveSessionProjectContextForRpc(sessionId)
+      const acpSessionId = await acpHost.ensureSession(session.agent_id, sessionId, session.acp_session_id, context)
+      if (session.acp_session_id !== acpSessionId) sessionStore.updateAcpSessionId(sessionId, acpSessionId)
       await acpHost.setMode(session.agent_id, sessionId, modeId)
       sendResult(ws, msg.requestId, { modeId })
       break
@@ -211,6 +224,9 @@ async function handleMessage(ws: WebSocket, state: ClientState, msg: ClientMessa
       const value = msg.value as string | boolean
       const session = sessionStore.get(sessionId)
       if (!session) { sendError(ws, msg.requestId, '会话不存在'); break }
+      const context = resolveSessionProjectContextForRpc(sessionId)
+      const acpSessionId = await acpHost.ensureSession(session.agent_id, sessionId, session.acp_session_id, context)
+      if (session.acp_session_id !== acpSessionId) sessionStore.updateAcpSessionId(sessionId, acpSessionId)
       await acpHost.setConfig(session.agent_id, sessionId, configId, value)
       sendResult(ws, msg.requestId, { configId, value })
       break

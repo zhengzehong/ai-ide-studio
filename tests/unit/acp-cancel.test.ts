@@ -18,7 +18,11 @@ describe('acpHost.cancelPrompt', () => {
         cancel: async (params: unknown) => { cancelledParams = params },
       },
       acpSessions: new Map([['sess-1', 'acp-sess-1']]),
+      runtimeSessions: new Map(),
       sessionCapabilities: new Map(),
+      state: 'running',
+      lastUsedAt: Date.now(),
+      activeTurnCount: 0,
     } as never)
 
     await acpHost.cancelPrompt('agent-cancel-test', 'sess-1')

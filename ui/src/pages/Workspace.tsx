@@ -191,6 +191,7 @@ export default function Workspace() {
       streamingMessage.content.length,
       streamingMessage.thinking.length,
       streamingMessage.toolCalls.length,
+      streamingMessage.stage || '',
       streamingMessage.toolCalls.map(t => [t.id, t.status, t.terminalOutput?.length, t.progress?.length, t.rawOutput != null]),
     ])
   }, [streamingMessage])
@@ -276,7 +277,7 @@ export default function Workspace() {
   const blockingInteraction = pendingPermissions.length > 0 || pendingElicitations.length > 0
   const pendingInteractionId = pendingPermissions[0]?.id || pendingElicitations[0]?.id || ''
   const isStreaming = !!(streamingMessage && !streamingMessage.done)
-  const streamingBubble = isStreaming ? { id: streamingMessage!.id, role: 'agent' as const, content: streamingMessage!.content, thinking: streamingMessage!.thinking, toolCalls: streamingMessage!.toolCalls, timestamp: new Date().toISOString(), streaming: true as const } : null
+  const streamingBubble = isStreaming ? { id: streamingMessage!.id, role: 'agent' as const, content: streamingMessage!.content, thinking: streamingMessage!.thinking, toolCalls: streamingMessage!.toolCalls, stage: streamingMessage!.stage, timestamp: new Date().toISOString(), streaming: true as const } : null
   const interactionPanel = blockingInteraction ? (
     <InteractionPanel
       permission={pendingPermissions[0]}
@@ -924,7 +925,7 @@ function ElicitationCard({ request, onRespond }: { request: ElicitationRequestIn
 
 
 /* ─── Chat Bubble ─── */
-type ChatMsg = { id: string; role: string; content: string; thinking?: string | null; tool_calls_json?: string | null; decision_json?: string | null; attachments_json?: string | null; toolCalls?: ToolCallInfo[]; timestamp?: string; streaming?: boolean }
+type ChatMsg = { id: string; role: string; content: string; thinking?: string | null; tool_calls_json?: string | null; decision_json?: string | null; attachments_json?: string | null; toolCalls?: ToolCallInfo[]; stage?: string; timestamp?: string; streaming?: boolean }
 
 interface TurnStats { inputTokens: number; outputTokens: number; totalTokens: number; cachedReadTokens?: number; thoughtTokens?: number; costAmount?: number; elapsedSeconds?: number }
 const statChipStyle: React.CSSProperties = { padding: '3px 8px', borderRight: '1px solid var(--border)', fontSize: 10, whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 3 }
@@ -964,7 +965,7 @@ function ChatBubble({ message, agent, isStreaming, footer }: { message: ChatMsg;
           {toolCalls.length > 0 && <div style={{ marginBottom: 8 }}>{toolCalls.map(tc => <ToolCallPanel key={tc.id} tc={tc} isStreaming={isStreaming} />)}</div>}
           {message.content
             ? <MarkdownRenderer content={message.content || ''} />
-            : (message.streaming ? <div style={{ fontSize: 13, color: 'var(--text-3)' }}>正在思考...</div> : null)}
+            : (message.streaming ? <div style={{ fontSize: 13, color: 'var(--text-3)', display: 'flex', alignItems: 'center', gap: 6 }}><Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> {message.stage || '正在思考...'}</div> : null)}
           {footer && <div style={{ marginTop: 10 }}>{footer}</div>}
         </div>
         {/* 单次统计 */}
