@@ -1,4 +1,4 @@
-﻿export interface ImageAttachmentInfo {
+export interface ImageAttachmentInfo {
   data: string
   mimeType: string
   name?: string
@@ -219,9 +219,10 @@ function applyEvent(state: ReducedSessionEvents, event: SessionEventData): Reduc
     }
     case 'tool.update': {
       const update = payload.toolCall as ToolCallInfo
-      if (!streaming && !shouldCreateToolFromUpdate(update)) break
-      const msg = ensureStreaming(String(payload.messageId || event.message_id || event.id))
-      msg.toolCalls = upsertToolCall(msg.toolCalls, update)
+      if (streaming?.toolCalls.some(t => t.id === update.id) || shouldCreateToolFromUpdate(update)) {
+        const msg = ensureStreaming(String(payload.messageId || event.message_id || event.id))
+        msg.toolCalls = upsertToolCall(msg.toolCalls, update)
+      }
       break
     }
     case 'message.done': {
@@ -307,9 +308,10 @@ export function completedStreamingFromEvents(events: SessionEventData[]): Stream
       case 'tool.update': {
         const update = payload.toolCall as ToolCallInfo
         const existing = activeById.get(messageId) || lastMessage
-        if (!existing && !shouldCreateToolFromUpdate(update)) break
-        const msg = ensure()
-        msg.toolCalls = upsertToolCall(msg.toolCalls, update)
+        if (existing?.toolCalls.some(t => t.id === update.id) || shouldCreateToolFromUpdate(update)) {
+          const msg = ensure()
+          msg.toolCalls = upsertToolCall(msg.toolCalls, update)
+        }
         break
       }
       case 'message.done': {
