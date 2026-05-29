@@ -83,6 +83,10 @@ backlog → executing → reviewing → completed
 | permission_level | INTEGER | 权限等级 (0-4) |
 | config_json | TEXT | 运行时配置 JSON |
 | created_at | TEXT | ISO 时间戳 |
+| project_id | TEXT | 所属 Project；为空表示全局/兼容 Agent |
+| template_id | TEXT | 来源 AgentTemplate；自定义 Agent 可为空 |
+| system_prompt | TEXT | 项目级 Agent 的系统提示词 |
+| icon | TEXT | UI 图标标识 |
 
 ### sessions
 
@@ -256,6 +260,27 @@ backlog → executing → reviewing → completed
 | created_at | TEXT | 创建时间 |
 | updated_at | TEXT | 更新时间 |
 
+### skill_bindings
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| id | TEXT PK | 绑定 ID |
+| skill_id | TEXT FK | 技能 ID |
+| scope | TEXT | global / project / agent |
+| target_id | TEXT | 绑定目标 ID |
+| enabled | INTEGER | 是否启用 |
+| created_at | TEXT | 创建时间 |
+
+### schema_migrations
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| version | TEXT PK | 迁移版本号 |
+| name | TEXT | 迁移名称 |
+| applied_at | TEXT | 应用时间 |
+
+SQLite schema 由 `src/store/migrator.ts` 和 `src/store/migrations/*` 管理。新增表、字段或索引必须通过新的 migration 文件落地，`db.ts` 只负责数据库初始化和旧 JSON 数据导入。
+
 ## 事件类型 (session_events.type)
 
 | 类型 | 说明 |
@@ -283,21 +308,19 @@ backlog → executing → reviewing → completed
 - `session.fork` 会继承源 Session 的 `project_id`，并将项目 `work_dir` 继续传给 ACP runtime。
 
 
-## ?????????
+## 项目级 Agent 字段约定
 
-`agent_templates` ???????`agents` ???????????????????Session ??? MCP ???????????? `agents.project_id` ?????
+`agent_templates` 保存全局模板，`agents` 保存部署到项目后的运行时实例。项目级 Agent 通过 `agents.project_id` 归属到 Project；Session 创建和 MCP 工具上下文解析都应沿用这个项目边界。
 
-### agents ?????
-
-| ? | ?? | ?? |
+| 字段 | 类型 | 说明 |
 |----|------|------|
-| project_id | TEXT | ?????? UI ??? Agent ???? |
-| template_id | TEXT | ?????????? Agent ??? |
-| system_prompt | TEXT | ???????????????????? |
-| icon | TEXT | ???? |
-| config_json | TEXT | ????????????? `templateId` ? `skills` ?? |
+| project_id | TEXT | 所属项目；为空表示全局/兼容 Agent |
+| template_id | TEXT | 来源模板 ID；自定义 Agent 可为空 |
+| system_prompt | TEXT | 项目级 Agent 的系统提示词 |
+| icon | TEXT | UI 图标标识 |
+| config_json | TEXT | Agent 运行时配置；模板部署会记录 `templateId` 和 `skills` |
 
-???????? `project_id IS NULL` ???? Agent?????????????????????
+项目工作台默认只展示 `project_id = 当前项目` 的 Agent。`project_id IS NULL` 的 Agent 只用于全局兼容场景，不应混入项目会话。
 
 
 ### ACP 生命周期持久化说明

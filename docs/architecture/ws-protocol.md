@@ -21,7 +21,7 @@ ws://localhost:18800
 | 方法 | 参数 | 返回 | 说明 |
 |------|------|------|------|
 | `agents.list` | `{ projectId? }` | `Agent[]` | 列出 Agent，可按项目过滤 |
-| `agents.create` | `{ type, name, runtime, config? }` | `Agent` | 创建 Agent |
+| `agents.create` | `{ type, name, runtime, config? }` | `Agent` | 创建全局/兼容 Agent；项目工作台优先使用模板部署或自定义项目 Agent |
 
 ### Session 管理
 
@@ -110,15 +110,15 @@ ws://localhost:18800
 
 `session.setModel`、`session.setMode`、`session.setConfig` 如果发现当前 session 尚未连接，会先懒连接 ACP session。
 
-## ????? RPC
+## 项目 Agent RPC
 
-??????`agent_templates` ??????`agents` ??????????????????????????? Agent?
+项目 Agent RPC 用于把全局 Agent 模板部署到具体项目，或在项目内创建自定义 Agent。项目级 Session、Task、文件浏览和 MCP 工具上下文都应使用同一个 `projectId`。
 
-| ?? | ?? | ?? | ?? |
+| 方法 | 参数 | 返回 | 说明 |
 |------|------|------|------|
-| `agents.deployTemplate` | `{ projectId, templateId, name?, runtime?, systemPrompt?, icon? }` | `Agent` | ??????????????? |
-| `agents.createCustom` | `{ projectId, name, agentType, runtime, systemPrompt?, icon? }` | `Agent` | ????????????? |
-| `agents.update` | `{ agentId, name?, agentType?, runtime?, systemPrompt?, icon? }` | `Agent` | ????????? |
-| `agents.delete` | `{ agentId }` | `{ deleted: true }` | ??????? |
+| `agents.deployTemplate` | `{ projectId, templateId, name?, runtime?, systemPrompt?, icon? }` | `Agent` | 将全局模板部署为项目级 Agent |
+| `agents.createCustom` | `{ projectId, name, agentType, runtime, systemPrompt?, icon? }` | `Agent` | 创建项目级自定义 Agent |
+| `agents.update` | `{ agentId, name?, agentType?, runtime?, systemPrompt?, icon? }` | `Agent` | 更新项目级 Agent 配置 |
+| `agents.delete` | `{ agentId }` | `{ deleted: true }` | 删除项目级 Agent |
 
-`agents.create` ?????? CLI/???????? UI ???
+`agents.create` 保留给 CLI 或旧调用方兼容；新 UI 不应绕过项目边界直接创建全局 Agent。

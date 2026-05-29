@@ -188,6 +188,29 @@ function parsePayload(event: SessionEventData): Record<string, unknown> {
   try { return JSON.parse(event.payload_json) as Record<string, unknown> } catch { return {} }
 }
 
+const visibleLifecycleEvents = new Set([
+  'lifecycle.runtime_starting',
+  'lifecycle.session_creating',
+  'lifecycle.session_created',
+  'lifecycle.session_resuming',
+  'lifecycle.session_resumed',
+  'lifecycle.prompt_sent',
+  'lifecycle.failed',
+])
+
+function hasStreamingContent(message: StreamingMessage | null): boolean {
+  return !!message && (message.content.length > 0 || message.thinking.length > 0 || message.toolCalls.length > 0)
+}
+
+function applyHiddenLifecycle(streaming: StreamingMessage | null): StreamingMessage | null {
+  if (!streaming || hasStreamingContent(streaming)) return streaming
+  return null
+}
+
+export function shouldShowLifecycleStage(eventType: string): boolean {
+  return visibleLifecycleEvents.has(eventType)
+}
+
 function applyEvent(state: ReducedSessionEvents, event: SessionEventData): ReducedSessionEvents {
   const payload = parsePayload(event)
   let streaming = state.streamingMessage ? { ...state.streamingMessage, toolCalls: [...state.streamingMessage.toolCalls] } : state.streamingMessage
@@ -201,6 +224,9 @@ function applyEvent(state: ReducedSessionEvents, event: SessionEventData): Reduc
   }
 
   if (event.type.startsWith('lifecycle.')) {
+    if (!shouldShowLifecycleStage(event.type)) {
+      return { ...state, streamingMessage: applyHiddenLifecycle(streaming), capabilities, pendingPermissions, pendingElicitations }
+    }
     const msg = ensureStreaming(String(payload.messageId || event.message_id || event.id))
     msg.stage = String(payload.content || payload.contentDelta || '')
     return { ...state, streamingMessage: msg, capabilities, pendingPermissions, pendingElicitations }

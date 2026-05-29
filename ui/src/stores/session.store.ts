@@ -10,6 +10,7 @@ import {
   shouldCreateToolFromUpdate,
   upsertToolCall,
   reduceSessionEvents,
+  shouldShowLifecycleStage,
   type AvailableCommandInfo,
   type ConfigOptionInfo,
   type ElicitationRequestInfo,
@@ -280,6 +281,15 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       const data = msg.data as Record<string, unknown>
 
       if (typeof data.eventType === 'string' && data.eventType.startsWith('lifecycle.')) {
+        if (!shouldShowLifecycleStage(data.eventType)) {
+          set((state) => {
+            const cur = state.streamingMessage
+            if (!cur || cur.content || cur.thinking || cur.toolCalls.length > 0) return {}
+            return { streamingMessage: null }
+          })
+          saveCache(sid, get())
+          return
+        }
         const stage = String(data.content || '')
         set((state) => {
           const cur = state.streamingMessage

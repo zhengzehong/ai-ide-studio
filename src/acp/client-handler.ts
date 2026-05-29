@@ -282,4 +282,3 @@ export function createClientHandler(agentId: string): acp.Client {
     },
   }
 }
-

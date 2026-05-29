@@ -860,6 +860,8 @@ function ChatBubble({ message, agent, isStreaming, footer }: { message: ChatMsg;
   const toolCalls: ToolCallInfo[] = message.toolCalls || (message.tool_calls_json ? (() => { try { return JSON.parse(message.tool_calls_json) } catch { return [] } })() : [])
   const turnStats: TurnStats | null = !isHuman && message.decision_json ? (() => { try { return JSON.parse(message.decision_json) } catch { return null } })() : null
   const attachments: ImageAttachmentInfo[] = message.attachments_json ? (() => { try { return JSON.parse(message.attachments_json) } catch { return [] } })() : []
+  const hasBody = !!message.content || !!message.thinking || attachments.length > 0 || toolCalls.length > 0 || !!footer
+  const streamingLabel = message.stage || '生成中'
 
   return (
     <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', flexDirection: isHuman ? 'row-reverse' : 'row' }}>
@@ -870,9 +872,9 @@ function ChatBubble({ message, agent, isStreaming, footer }: { message: ChatMsg;
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, flexDirection: isHuman ? 'row-reverse' : 'row' }}>
           <span style={{ fontSize: 12, fontWeight: 600 }}>{isHuman ? '你' : agent?.name || 'Agent'}</span>
           {message.timestamp && <span style={{ fontSize: 10, color: 'var(--text-3)' }}>{formatTime(message.timestamp)}</span>}
-          {message.streaming && <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: 'var(--blue)' }}><Loader2 size={10} style={{ animation: 'spin 1s linear infinite' }} /> 生成中</span>}
+          {message.streaming && <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: 'var(--blue)' }}><Loader2 size={10} style={{ animation: 'spin 1s linear infinite' }} /> {streamingLabel}</span>}
         </div>
-        <div style={{ padding: '12px 14px', borderRadius: isHuman ? '12px 2px 12px 12px' : '2px 12px 12px 12px', background: isHuman ? 'var(--blue-light)' : 'var(--bg-0)', border: `1px solid ${isHuman ? 'rgba(37,99,235,0.15)' : 'var(--border)'}`, boxShadow: 'var(--shadow-sm)', maxWidth: '100%', overflow: 'hidden' }}>
+        {hasBody && <div style={{ padding: '12px 14px', borderRadius: isHuman ? '12px 2px 12px 12px' : '2px 12px 12px 12px', background: isHuman ? 'var(--blue-light)' : 'var(--bg-0)', border: `1px solid ${isHuman ? 'rgba(37,99,235,0.15)' : 'var(--border)'}`, boxShadow: 'var(--shadow-sm)', maxWidth: '100%', overflow: 'hidden' }}>
           {message.thinking && (
             <div style={{ marginBottom: 8, borderRadius: 6, border: '1px solid var(--border)', overflow: 'hidden' }}>
               <button type="button" onClick={toggleThinkingOpen} style={{ width: '100%', padding: '6px 10px', border: 'none', background: 'var(--bg-2)', color: 'var(--text-3)', fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, textAlign: 'left' }}>
@@ -884,11 +886,9 @@ function ChatBubble({ message, agent, isStreaming, footer }: { message: ChatMsg;
           )}
           {attachments.length > 0 && <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>{attachments.map((img, i) => <img key={i} src={`data:${img.mimeType};base64,${img.data}`} alt={img.name || '附件'} style={{ maxWidth: 180, maxHeight: 140, borderRadius: 8, border: '1px solid var(--border)', objectFit: 'cover' }} />)}</div>}
           {toolCalls.length > 0 && <div style={{ marginBottom: 8 }}>{toolCalls.map(tc => <ToolCallPanel key={tc.id} tc={tc} isStreaming={isStreaming} />)}</div>}
-          {message.content
-            ? <MarkdownRenderer content={message.content || ''} />
-            : (message.streaming ? <div style={{ fontSize: 13, color: 'var(--text-3)', display: 'flex', alignItems: 'center', gap: 6 }}><Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> {message.stage || '正在思考...'}</div> : null)}
+          {message.content && <MarkdownRenderer content={message.content || ''} />}
           {footer && <div style={{ marginTop: 10 }}>{footer}</div>}
-        </div>
+        </div>}
         {/* 单次统计 */}
         {turnStats && (
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 0, marginTop: 6, fontSize: 10, color: 'var(--text-3)', background: 'var(--bg-2)', borderRadius: 6, overflow: 'hidden' }}>

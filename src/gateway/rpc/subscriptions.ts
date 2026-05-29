@@ -1,4 +1,3 @@
-import { events } from '../../core/events.js'
 import { sessionManager } from '../../core/sessions.js'
 import type { RpcHandlerMap } from './types.js'
 
@@ -29,8 +28,4 @@ export const subscriptionRpcHandlers: RpcHandlerMap = {
   async decision(msg) {
     await sessionManager.sendDecision(msg.sessionId as string, msg.messageId as string, msg.choice as string)
   },
-}
-
-export function emitSessionEvent(sessionId: string, agentId: string | null | undefined, event: unknown): void {
-  events.emit('session:event', { sessionId, agentId, event: event as never })
 }

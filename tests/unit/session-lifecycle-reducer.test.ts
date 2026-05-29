@@ -30,4 +30,21 @@ describe('ACP lifecycle event reducer', () => {
     expect(streaming.streamingMessage?.content).toBe('你好')
     expect(streaming.streamingMessage?.stage).toBeUndefined()
   })
+
+  test('断开类 lifecycle 事件不会恢复成可见 streaming 气泡', () => {
+    const reduced = reduceSessionEvents([
+      ev(1, 'lifecycle.session_disconnected', { messageId: 'life-disconnect', role: 'system', content: '会话已断开' }),
+    ])
+
+    expect(reduced.streamingMessage).toBeNull()
+  })
+
+  test('断开类 lifecycle 事件会清理只有阶段文案的 streaming 气泡', () => {
+    const reduced = reduceSessionEvents([
+      ev(1, 'lifecycle.runtime_starting', { messageId: 'life-start', role: 'system', content: '正在启动 Agent...' }),
+      ev(2, 'lifecycle.runtime_stopped', { messageId: 'life-stop', role: 'system', content: '运行时已停止' }),
+    ])
+
+    expect(reduced.streamingMessage).toBeNull()
+  })
 })

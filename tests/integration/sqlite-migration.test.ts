@@ -33,7 +33,7 @@ const legacyData = {
 }
 
 describe('SQLite 迁移', () => {
-  test('??????????????? schema_migrations ?', () => {
+  test('创建工具上下文、工具调用审计和 schema_migrations 表', () => {
     closeDatabase()
     initDatabase(resolve(tmp, 'tool-platform.sqlite'))
 
