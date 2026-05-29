@@ -5,7 +5,10 @@ import { resolve } from 'node:path'
 import { initDatabase, closeDatabase } from '../../src/store/db.js'
 import { agentStore } from '../../src/store/agents.js'
 import { projectStore } from '../../src/store/projects.js'
+import { sessionStore } from '../../src/store/sessions.js'
+import { teamMemberStore, teamStore } from '../../src/store/teams.js'
 import { toolStore, toolBindingStore } from '../../src/store/tools.js'
+import { validateToolToken } from '../../src/tools/registry/context-registry.js'
 import { resolveToolsAsMcpServers } from '../../src/tools/resolver.js'
 
 let tmp: string
@@ -54,6 +57,83 @@ describe('Tool Gateway resolver', () => {
     })
     const authorization = servers[0]?.headers?.find(header => header.name === 'Authorization')?.value
     expect(authorization).toMatch(/^Bearer .+/)
+  })
+
+  test('injects team context into HTTP tool tokens from member session', () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const agent = agentStore.create({ id: 'agent-team', type: 'dev', name: 'Agent Team', runtime: 'codex', projectId: project.id })
+    const session = sessionStore.create({ agentId: agent.id, projectId: project.id })
+    const team = teamStore.create({ projectId: project.id, name: 'Alpha' })
+    const member = teamMemberStore.create({
+      teamId: team.id,
+      projectId: project.id,
+      agentId: agent.id,
+      sessionId: session.id,
+      name: agent.name,
+      role: 'member',
+    })
+    const builtin = toolStore.create({
+      name: 'team.mailbox.send',
+      displayName: '发送 Team 留言',
+      description: '发送 Team 留言',
+      category: 'automation',
+      type: 'builtin',
+      config: { handler: 'team.mailbox.send' },
+      permissions: { requiresApproval: false, maxExecutionTime: 10_000, networkAccess: false },
+      isBuiltin: true,
+    })
+    toolBindingStore.set(builtin.id, 'global', null)
+
+    const servers = resolveToolsAsMcpServers({
+      agentId: agent.id,
+      projectId: project.id,
+      sessionId: session.id,
+      preferHttp: true,
+    })
+    const authorization = servers[0]?.headers?.find(header => header.name === 'Authorization')?.value
+    const token = authorization?.replace(/^Bearer\s+/i, '') ?? ''
+
+    expect(validateToolToken(token)).toMatchObject({
+      teamId: team.id,
+      teamMemberId: member.id,
+    })
+  })
+
+  test('injects team context into stdio gateway env from member session', () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const agent = agentStore.create({ id: 'agent-team-stdio', type: 'dev', name: 'Agent Team', runtime: 'codex', projectId: project.id })
+    const session = sessionStore.create({ agentId: agent.id, projectId: project.id })
+    const team = teamStore.create({ projectId: project.id, name: 'Alpha' })
+    const member = teamMemberStore.create({
+      teamId: team.id,
+      projectId: project.id,
+      agentId: agent.id,
+      sessionId: session.id,
+      name: agent.name,
+      role: 'member',
+    })
+    const builtin = toolStore.create({
+      name: 'team.mailbox.send',
+      displayName: '发送 Team 留言',
+      description: '发送 Team 留言',
+      category: 'automation',
+      type: 'builtin',
+      config: { handler: 'team.mailbox.send' },
+      permissions: { requiresApproval: false, maxExecutionTime: 10_000, networkAccess: false },
+      isBuiltin: true,
+    })
+    toolBindingStore.set(builtin.id, 'global', null)
+
+    const servers = resolveToolsAsMcpServers({
+      agentId: agent.id,
+      projectId: project.id,
+      sessionId: session.id,
+      preferHttp: false,
+    })
+    const gateway = servers.find(s => s.name === 'ai-ide-tool-gateway')
+
+    expect(gateway?.env).toContainEqual({ name: 'TEAM_ID', value: team.id })
+    expect(gateway?.env).toContainEqual({ name: 'TEAM_MEMBER_ID', value: member.id })
   })
 
   test('merges builtin and script tools into one stable gateway MCP server', () => {

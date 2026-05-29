@@ -2,13 +2,14 @@ import { getDb } from '../store/db.js'
 import { toolStore, toolBindingStore } from '../store/tools.js'
 import { createChildLogger } from '../core/logger.js'
 import type { CreateToolInput } from '../store/tools.js'
+import { TEAM_BUILTIN_TOOLS } from './team-seed.js'
 
 const log = createChildLogger('tool-seed')
 
 const CORE_PERMISSIONS = { requiresApproval: false, maxExecutionTime: 10_000, networkAccess: false }
 const OBSOLETE_BUILTIN_TOOLS = ['search_files', 'get_project_info', 'list_agents', 'http_fetch']
 
-const BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
+const CORE_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
   {
     name: 'core.project.list',
     displayName: '列出项目',
@@ -232,6 +233,11 @@ const BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
     isBuiltin: true,
     defaultScope: 'global',
   },
+]
+
+const BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
+  ...CORE_BUILTIN_TOOLS,
+  ...TEAM_BUILTIN_TOOLS,
 ]
 
 export function seedBuiltinTools(): void {

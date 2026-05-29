@@ -12,6 +12,8 @@ export interface TaskRow {
   created_at: string
   completed_at: string | null
   project_id: string | null
+  team_id: string | null
+  assignee_member_id: string | null
 }
 
 export interface TaskEventRow {
@@ -29,6 +31,15 @@ export interface CreateTaskInput {
   source?: string
   assignAgentId?: string
   projectId?: string
+  teamId?: string
+  assigneeMemberId?: string
+}
+
+export interface UpdateTaskInput {
+  status?: string
+  stage?: string
+  assignAgentId?: string | null
+  assigneeMemberId?: string | null
 }
 
 export interface AppendTaskEventInput {
@@ -49,10 +60,18 @@ export const taskStore = {
       created_at: new Date().toISOString(),
       completed_at: null,
       project_id: input.projectId ?? null,
+      team_id: input.teamId ?? null,
+      assignee_member_id: input.assigneeMemberId ?? null,
     }
     getDb().prepare(`
-      INSERT INTO tasks (id, title, description, source, status, stage, assigned_agent_id, created_at, completed_at, project_id)
-      VALUES (@id, @title, @description, @source, @status, @stage, @assigned_agent_id, @created_at, @completed_at, @project_id)
+      INSERT INTO tasks (
+        id, title, description, source, status, stage, assigned_agent_id,
+        created_at, completed_at, project_id, team_id, assignee_member_id
+      )
+      VALUES (
+        @id, @title, @description, @source, @status, @stage, @assigned_agent_id,
+        @created_at, @completed_at, @project_id, @team_id, @assignee_member_id
+      )
     `).run(task)
     taskEventStore.append(task.id, { type: 'created', payload: { task } })
     return task
@@ -73,6 +92,17 @@ export const taskStore = {
       return getDb().prepare<[string], TaskRow>('SELECT * FROM tasks WHERE project_id = ? ORDER BY created_at ASC').all(projectId)
     }
     return getDb().prepare<[], TaskRow>('SELECT * FROM tasks ORDER BY created_at ASC').all()
+  },
+
+  listByTeam(teamId: string, status?: string): TaskRow[] {
+    if (status) {
+      return getDb().prepare<[string, string], TaskRow>(`
+        SELECT * FROM tasks
+        WHERE team_id = ? AND status = ?
+        ORDER BY created_at ASC
+      `).all(teamId, status)
+    }
+    return getDb().prepare<[string], TaskRow>('SELECT * FROM tasks WHERE team_id = ? ORDER BY created_at ASC').all(teamId)
   },
 
   updateStatus(id: string, status: string, stage?: string): void {
@@ -97,6 +127,40 @@ export const taskStore = {
     if (!existing) return
     getDb().prepare('UPDATE tasks SET assigned_agent_id = ? WHERE id = ?').run(agentId, taskId)
     taskEventStore.append(taskId, { type: 'assigned_agent', payload: { from_agent_id: existing.assigned_agent_id, to_agent_id: agentId } })
+  },
+
+  update(id: string, fields: UpdateTaskInput): TaskRow | undefined {
+    const existing = taskStore.get(id)
+    if (!existing) return undefined
+
+    const updated: TaskRow = {
+      ...existing,
+      status: fields.status ?? existing.status,
+      stage: fields.stage ?? existing.stage,
+      assigned_agent_id: fields.assignAgentId !== undefined ? fields.assignAgentId : existing.assigned_agent_id,
+      assignee_member_id: fields.assigneeMemberId !== undefined ? fields.assigneeMemberId : existing.assignee_member_id,
+      completed_at: fields.status === 'completed' || fields.status === 'cancelled' ? new Date().toISOString() : existing.completed_at,
+    }
+    getDb().prepare(`
+      UPDATE tasks
+      SET status = @status,
+          stage = @stage,
+          assigned_agent_id = @assigned_agent_id,
+          assignee_member_id = @assignee_member_id,
+          completed_at = @completed_at
+      WHERE id = @id
+    `).run(updated)
+    taskEventStore.append(id, {
+      type: 'updated',
+      payload: {
+        from_status: existing.status,
+        to_status: updated.status,
+        stage: updated.stage,
+        assigned_agent_id: updated.assigned_agent_id,
+        assignee_member_id: updated.assignee_member_id,
+      },
+    })
+    return updated
   },
 
   delete(id: string): void {

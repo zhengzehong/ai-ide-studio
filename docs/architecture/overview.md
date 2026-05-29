@@ -16,13 +16,13 @@ Gateway 层
       │ mitt 事件总线
       ▼
 Core 业务层
-  sessions.ts / tasks.ts / projects.ts / agents.ts / events.ts
+  sessions.ts / tasks.ts / projects.ts / agents.ts / teams.ts / events.ts
       │
       ├── Store 持久层
       │     db.ts                  SQLite 初始化、旧 JSON 导入
       │     migrator.ts            schema_migrations 执行器
       │     migrations/*           SQLite schema 迁移
-      │     agents/sessions/tasks/rules/tools/skills 等实体 CRUD
+      │     agents/sessions/tasks/teams/rules/tools/skills 等实体 CRUD
       │
       ├── ACP Host 层
       │     host.ts                 ACP facade 与生命周期编排
@@ -75,7 +75,7 @@ Session 删除采用软删除，仅隐藏列表项并保留 `messages` / `sessio
 | 目录 | 职责 | 核心文件 |
 |------|------|----------|
 | `src/acp/` | ACP 协议集成 | `host.ts`、`client-handler.ts`、`host-state.ts`、`interaction-state.ts`、`terminal-bridge.ts`、`session-capabilities.ts`、`adapters.ts`、`capabilities.ts`、`update-mapper.ts` |
-| `src/core/` | 业务逻辑 | `sessions.ts`、`tasks.ts`、`projects.ts`、`agents.ts`、`events.ts` |
+| `src/core/` | 业务逻辑 | `sessions.ts`、`tasks.ts`、`projects.ts`、`agents.ts`、`teams.ts`、`events.ts` |
 | `src/gateway/` | 对外接口 | `server.ts`、`ws-handler.ts`、`rpc/*` |
 | `src/store/` | 数据持久化 | `db.ts`、`migrator.ts`、`migrations/*`、各实体 store |
 | `src/tools/` | 工具平台与 MCP 发布 | `resolver.ts`、`tool-gateway.ts`、`registry/*`、`runtime/*`、`mcp/http-mcp-server.ts` |
@@ -98,6 +98,7 @@ Session 删除采用软删除，仅隐藏列表项并保留 `messages` / `sessio
 
 - `projectId` 是项目级实体与项目内 Session/Task 的核心边界。
 - `agent_templates` 是全局模板库；`agents` 是部署到具体项目后的运行时实例。
+- Team 是项目级协作容器；TeamMember 绑定项目级 Agent 与当前团队 Session，Team Task 复用 `tasks.team_id`。
 - `ws-handler.ts` 只负责 WS 连接、广播、JSON 解析和 dispatch；新增 RPC 必须放到 `src/gateway/rpc/*` 对应领域模块。
 - SQLite schema 由 `src/store/migrator.ts` 与 `src/store/migrations/*` 管理；`db.ts` 不再承载大段建表/升级逻辑。
 - ACP Host 对外暴露 `acpHost` facade；新增 runtime/session/client callback/terminal/interaction 能力优先下沉到专用模块。
@@ -113,6 +114,12 @@ Session 删除采用软删除，仅隐藏列表项并保留 `messages` / `sessio
 
 详细流程见 `docs/architecture/project-agent-workflow.md`。
 
+## Team MCP 协作边界
+
+Team 能力通过 `team.*` MCP tools 暴露给 Agent。工具 handler 不判断 leader/member 权限，只校验 Team、Member、Task 与 Project 的一致性；谁能看到 `team.member.spawn`、`team.member.message` 等方法，仍由 MCP token 的 `visibleTools` 控制。
+
+TeamMember 的 `session_id` 指向普通 `sessions` 行，成员执行输出继续落到 `messages` 和 `session_events`，所以刷新或切换会话后仍能按现有会话事件恢复。团队上下文通过 ToolContext 的 `teamId` / `teamMemberId` 传递，成员调用 `team.mailbox.send`、`team.task.update` 时不需要在 prompt 中手写 Team ID。
+
 ## ACP 懒生命周期
 
 - `sessions.create` 只创建本地 SQLite 行；在真正连接 session 前，`acp_session_id` 保持为空。
@@ -125,6 +132,5 @@ Session 删除采用软删除，仅隐藏列表项并保留 `messages` / `sessio
 以下在设计文档中有描述，但当前代码未实现：
 
 - Memory/RAG 记忆系统
-- 多 Agent 协作引擎
 - 事件触发自动化执行（当前只有规则/定时管理）
 - 插件系统

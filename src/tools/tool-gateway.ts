@@ -16,6 +16,8 @@ export interface GatewayOptions {
   toolNames?: string[]
   projectId?: string
   agentId?: string
+  teamId?: string
+  teamMemberId?: string
   workDir?: string
 }
 
@@ -51,6 +53,8 @@ export function buildGatewayTools(options: GatewayOptions): GatewayTool[] {
     sessionId: `stdio-${options.agentId ?? 'anonymous'}`,
     agentId: options.agentId ?? 'anonymous',
     projectId: options.projectId,
+    teamId: options.teamId,
+    teamMemberId: options.teamMemberId,
     workDir: options.workDir ?? process.cwd(),
     visibleTools: definitions.map(definition => definition.name),
   }
@@ -148,6 +152,8 @@ function readOptionsFromEnv(): GatewayOptions {
     toolNames: process.env.TOOL_NAMES?.split(',').filter(Boolean),
     projectId: process.env.PROJECT_ID || undefined,
     agentId: process.env.AGENT_ID || undefined,
+    teamId: process.env.TEAM_ID || undefined,
+    teamMemberId: process.env.TEAM_MEMBER_ID || undefined,
     workDir: process.env.WORK_DIR || process.cwd(),
   }
 }

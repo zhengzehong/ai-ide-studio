@@ -5,6 +5,7 @@ import { createChildLogger } from '../core/logger.js'
 import type { ToolConfig, ResolvedTool, ToolDefinition, ToolBinding, ToolPermissions } from './types.js'
 import { createToolContext } from './registry/context-registry.js'
 import { resolveVisiblePlatformTools } from './registry/visibility-resolver.js'
+import { teamMemberStore } from '../store/teams.js'
 import type { McpServer } from '@agentclientprotocol/sdk'
 
 const log = createChildLogger('tool-resolver')
@@ -80,6 +81,8 @@ export interface ResolveToolsAsMcpServersOptions {
   agentId?: string
   projectId?: string
   sessionId?: string
+  teamId?: string
+  teamMemberId?: string
   preferHttp?: boolean
   baseUrl?: string
 }
@@ -93,6 +96,7 @@ export function resolveToolsAsMcpServers(agentIdOrOptions?: string | ResolveTool
   const { agentId, projectId } = options
 
   const tools = resolveToolsForSession(agentId, projectId)
+  const teamContext = resolveTeamContext(options)
   const externalServers: McpServer[] = []
   const gatewayToolIds: string[] = []
 
@@ -117,6 +121,8 @@ export function resolveToolsAsMcpServers(agentIdOrOptions?: string | ResolveTool
       sessionId: options.sessionId,
       agentId: agentId ?? '',
       projectId,
+      teamId: teamContext.teamId,
+      teamMemberId: teamContext.teamMemberId,
       visibleTools,
     })
     const baseUrl = (options.baseUrl ?? `http://127.0.0.1:${process.env.PORT ?? '18800'}`).replace(/\/$/, '')
@@ -142,6 +148,8 @@ export function resolveToolsAsMcpServers(agentIdOrOptions?: string | ResolveTool
         { name: 'TOOL_IDS', value: gatewayToolIds.join(',') },
         { name: 'PROJECT_ID', value: projectId ?? '' },
         { name: 'AGENT_ID', value: agentId ?? '' },
+        { name: 'TEAM_ID', value: teamContext.teamId ?? '' },
+        { name: 'TEAM_MEMBER_ID', value: teamContext.teamMemberId ?? '' },
         { name: 'DATA_DIR', value: process.env.DATA_DIR ?? './data' },
       ],
     })
@@ -149,6 +157,14 @@ export function resolveToolsAsMcpServers(agentIdOrOptions?: string | ResolveTool
 
   log.info({ agentId, projectId, mcpCount: mcpServers.length, gatewayCount: gatewayToolIds.length, transport: 'stdio' }, 'generated MCP server config')
   return mcpServers
+}
+
+function resolveTeamContext(options: ResolveToolsAsMcpServersOptions): { teamId?: string; teamMemberId?: string } {
+  if (options.teamId || options.teamMemberId) return { teamId: options.teamId, teamMemberId: options.teamMemberId }
+  if (!options.sessionId) return {}
+  const member = teamMemberStore.getBySession(options.sessionId)
+  if (!member) return {}
+  return { teamId: member.team_id, teamMemberId: member.id }
 }
 
 /*

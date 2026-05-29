@@ -22,6 +22,8 @@ export function mountHttpMcpServer(app: Hono): void {
       sessionId: contextRecord.sessionId,
       agentId: contextRecord.agentId,
       projectId: contextRecord.projectId,
+      teamId: contextRecord.teamId,
+      teamMemberId: contextRecord.teamMemberId,
       visibleTools: contextRecord.visibleTools,
       workDir: process.cwd(),
     })

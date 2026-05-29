@@ -81,6 +81,8 @@ export interface ToolContext {
   agentId?: string
   sessionId?: string
   workDir?: string
+  teamId?: string
+  teamMemberId?: string
 }
 
 export const DEFAULT_PERMISSIONS: ToolPermissions = {

@@ -12,7 +12,8 @@
 - `tools/call` 再次检查方法是否可见，不可见则拒绝并写审计。
 - HTTP MCP 和 stdio 回退共用 `ToolRuntime`。
 - 已新增 `tool_contexts`、`tool_call_audit` 两张 SQLite 表。
-- 首批平台方法：`core.task.list`、`core.task.create`。
+- 已内置 `core.project.*`、`core.agent.*`、`core.session.*`、`core.task.*`、`team.*` 平台方法。
+- ToolContext 支持 `projectId`、`agentId`、`sessionId`，以及团队协作场景的 `teamId` / `teamMemberId`。
 - 第三方 MCP 仍保持直接注入，不在第一版做方法级代理。
 
 ## 1. 设计目标
@@ -28,8 +29,8 @@ AI IDE Studio 要把平台能力稳定地提供给 Claude Code、Codex 以及未
 2. **Agent 可以绑定到具体 MCP 方法**
    - 不是只能控制“这个 Agent 能不能用整个 MCP 服务”。
    - 而是可以控制到具体方法，比如：
-     - 可以用 `team.team.list`
-     - 不可以用 `team.team.create`
+     - 可以用 `team.list`
+     - 不可以用 `team.create`
      - 可以用 `core.task.list`
      - 不可以用 `core.task.update`
 
@@ -95,9 +96,13 @@ core.session.get
 core.session.create
 core.task.list
 core.task.create
-team.team.list
-team.team.create
+team.list
+team.create
 team.member.list
+team.member.spawn
+team.member.message
+team.mailbox.send
+team.task.update
 admin.model.list
 admin.model.update
 ```
@@ -105,15 +110,15 @@ admin.model.update
 这里的粒度就是“方法”。如果只想允许 Agent 看团队，不允许创建团队，就只绑定：
 
 ```text
-team.team.list
+team.list
 team.member.list
 ```
 
 不要绑定：
 
 ```text
-team.team.create
-team.member.add
+team.create
+team.member.spawn
 ```
 
 ### 3.3 ToolRegistry
@@ -182,7 +187,7 @@ src/tools/
 │   │   ├── task.tools.ts          # core.task.*
 │   │   └── session.tools.ts       # core.session.*
 │   ├── team/
-│   │   ├── team.tools.ts          # team.team.*
+│   │   ├── team.tools.ts          # team.*
 │   │   └── member.tools.ts        # team.member.*
 │   ├── admin/
 │   │   ├── model.tools.ts         # admin.model.*
@@ -276,8 +281,8 @@ Agent 绑定的是具体 tool method。
 ```text
 agent: team-reader
 visible tools:
-  - team.team.list
-  - team.team.status
+  - team.list
+  - team.get
   - team.member.list
   - core.task.list
 ```
@@ -287,12 +292,12 @@ visible tools:
 ```text
 agent: team-manager
 visible tools:
-  - team.team.list
-  - team.team.status
-  - team.team.create
+  - team.list
+  - team.get
+  - team.create
   - team.member.list
-  - team.member.add
-  - team.task.assign
+  - team.member.spawn
+  - team.task.update
   - core.task.list
   - core.task.create
 ```
@@ -498,6 +503,8 @@ CREATE TABLE tool_contexts (
   acp_session_id TEXT,
   agent_id TEXT NOT NULL,
   project_id TEXT,
+  team_id TEXT,
+  team_member_id TEXT,
   visible_tools_json TEXT NOT NULL,
   expires_at TEXT NOT NULL,
   revoked_at TEXT,
@@ -510,6 +517,7 @@ CREATE TABLE tool_contexts (
 - 原始 token 只在创建时返回。
 - 数据库只存 token hash。
 - `visible_tools_json` 是本次会话能看到的方法名列表。
+- `team_id` / `team_member_id` 用于 Team 成员会话的默认工具上下文；没有团队上下文时为空。
 - Session 关闭时撤销 token。
 
 ### 9.4 tool_call_audit
@@ -632,7 +640,7 @@ core.session.get
 core.session.create
 core.task.list
 core.task.create
-team.team.list
+team.list
 team.member.list
 ```
 

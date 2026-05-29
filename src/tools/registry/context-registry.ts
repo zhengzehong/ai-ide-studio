@@ -12,6 +12,8 @@ export interface ToolContextRecord {
   acpSessionId?: string
   agentId: string
   projectId?: string
+  teamId?: string
+  teamMemberId?: string
   visibleTools: string[]
   expiresAt: string
   revokedAt?: string | null
@@ -23,6 +25,8 @@ export interface CreateToolContextInput {
   acpSessionId?: string
   agentId: string
   projectId?: string
+  teamId?: string
+  teamMemberId?: string
   visibleTools: string[]
   ttlMs?: number
 }
@@ -34,6 +38,8 @@ interface ToolContextRow {
   acp_session_id: string | null
   agent_id: string
   project_id: string | null
+  team_id: string | null
+  team_member_id: string | null
   visible_tools_json: string
   expires_at: string
   revoked_at: string | null
@@ -50,6 +56,8 @@ export function createToolContext(input: CreateToolContextInput): { token: strin
     acp_session_id: input.acpSessionId ?? null,
     agent_id: input.agentId,
     project_id: input.projectId ?? null,
+    team_id: input.teamId ?? null,
+    team_member_id: input.teamMemberId ?? null,
     visible_tools_json: JSON.stringify(input.visibleTools),
     expires_at: new Date(now.getTime() + (input.ttlMs ?? DEFAULT_TTL_MS)).toISOString(),
     revoked_at: null,
@@ -57,8 +65,14 @@ export function createToolContext(input: CreateToolContextInput): { token: strin
   }
 
   getDb().prepare(`
-    INSERT INTO tool_contexts (id, token_hash, session_id, acp_session_id, agent_id, project_id, visible_tools_json, expires_at, revoked_at, created_at)
-    VALUES (@id, @token_hash, @session_id, @acp_session_id, @agent_id, @project_id, @visible_tools_json, @expires_at, @revoked_at, @created_at)
+    INSERT INTO tool_contexts (
+      id, token_hash, session_id, acp_session_id, agent_id, project_id,
+      team_id, team_member_id, visible_tools_json, expires_at, revoked_at, created_at
+    )
+    VALUES (
+      @id, @token_hash, @session_id, @acp_session_id, @agent_id, @project_id,
+      @team_id, @team_member_id, @visible_tools_json, @expires_at, @revoked_at, @created_at
+    )
   `).run(row)
 
   log.info({ contextId: row.id, sessionId: row.session_id, agentId: row.agent_id, toolCount: input.visibleTools.length }, '工具上下文已创建')
@@ -91,6 +105,8 @@ function rowToContext(row: ToolContextRow): ToolContextRecord {
     acpSessionId: row.acp_session_id ?? undefined,
     agentId: row.agent_id,
     projectId: row.project_id ?? undefined,
+    teamId: row.team_id ?? undefined,
+    teamMemberId: row.team_member_id ?? undefined,
     visibleTools: parseVisibleTools(row.visible_tools_json),
     expiresAt: row.expires_at,
     revokedAt: row.revoked_at,

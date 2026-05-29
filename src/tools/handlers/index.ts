@@ -13,6 +13,22 @@ import {
   listProjectsHandler,
   listSessionsHandler,
 } from './core/index.js'
+import {
+  createTeamHandler,
+  createTeamTaskHandler,
+  describeTeamTemplateHandler,
+  getTeamHandler,
+  listTeamMailboxHandler,
+  listTeamMembersHandler,
+  listTeamTasksHandler,
+  listTeamTemplatesHandler,
+  listTeamsHandler,
+  messageTeamMemberHandler,
+  sendTeamMailboxHandler,
+  spawnTeamMemberHandler,
+  updateTeamHandler,
+  updateTeamTaskHandler,
+} from './team/index.js'
 
 const handlers = new Map<string, ToolHandler>()
 
@@ -33,6 +49,20 @@ register(createAgentHandler)
 register(listSessionsHandler)
 register(getSessionHandler)
 register(createSessionHandler)
+register(listTeamsHandler)
+register(getTeamHandler)
+register(createTeamHandler)
+register(updateTeamHandler)
+register(listTeamMembersHandler)
+register(spawnTeamMemberHandler)
+register(messageTeamMemberHandler)
+register(listTeamMailboxHandler)
+register(sendTeamMailboxHandler)
+register(listTeamTasksHandler)
+register(createTeamTaskHandler)
+register(updateTeamTaskHandler)
+register(listTeamTemplatesHandler)
+register(describeTeamTemplateHandler)
 
 export function getHandler(name: string): ToolHandler | undefined {
   return handlers.get(name)

@@ -12,8 +12,9 @@ AI IDE Studio 是一个本地部署的全栈 AI 编程协作工具。通过 [ACP
 - **Agent 运行时** — 支持 `mock`（本地开发）、`claude`（Claude Code）、`codex`（Codex）三种运行时
 - **ACP 功能** — 模型切换、模式切换（计划模式等）、权限请求、会话 Fork、上下文用量展示
 - **Task 管理** — 创建任务、指派 Agent、状态追踪、自动流转（Session 完成后 Task 进入 reviewing）
+- **Team MCP 协作** — 通过 `team.*` 工具创建团队、创建成员、派活、反馈和更新团队任务
 - **规则引擎** — Cron 定时任务管理和事件触发规则
-- **MCP 工具平台** — 提供 `/mcp` HTTP MCP 入口，按 Session token 控制 Agent 可见的工具方法，首批支持 `core.task.list` / `core.task.create`
+- **MCP 工具平台** — 提供 `/mcp` HTTP MCP 入口，按 Session token 控制 Agent 可见的 `core.*` / `team.*` 工具方法
 - **SQLite 持久化** — 所有数据持久化到本地 SQLite，支持从旧 JSON 格式自动迁移
 - **CLI** — 命令行管理工具（agents / sessions / tasks / rules / status）
 

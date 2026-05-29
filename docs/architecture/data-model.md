@@ -7,10 +7,18 @@ Project 1:N Agent
 Project 1:N Session
 Project 1:N Task
 Project 1:N Rule
+Project 1:N Team
 AgentTemplate 1:N Agent
 Agent 1:N Session
+Agent 1:N TeamMember
 Task  1:N Session
 Task  N:1 Agent (assigned_agent_id)
+Team  1:N TeamMember
+Team  1:N TeamMailbox
+Team  1:N TeamEvent
+Team  1:N Task (tasks.team_id)
+TeamMember 1:1 Session (current team session)
+TeamMember 1:N Task (tasks.assignee_member_id)
 Session 1:N Message
 Session 1:N SessionEvent (append-only 事件溯源)
 Task    1:N TaskEvent
@@ -148,8 +156,64 @@ backlog → executing → reviewing → completed
 | status | TEXT | backlog / executing / reviewing / blocked / completed |
 | stage | TEXT | 当前阶段描述 |
 | assigned_agent_id | TEXT | 指派的 Agent |
+| team_id | TEXT | 所属 Team；为空表示普通项目任务 |
+| assignee_member_id | TEXT | 指派的 TeamMember；为空表示未按团队成员指派 |
 | created_at | TEXT | 创建时间 |
 | completed_at | TEXT | 完成时间 |
+
+### teams
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| id | TEXT PK | Team ID |
+| project_id | TEXT FK | 所属 Project |
+| name | TEXT | Team 名称 |
+| description | TEXT | Team 描述 |
+| status | TEXT | active / archived |
+| created_at | TEXT | 创建时间 |
+| updated_at | TEXT | 更新时间 |
+| archived_at | TEXT | 归档时间 |
+
+### team_members
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| id | TEXT PK | TeamMember ID |
+| team_id | TEXT FK | 所属 Team |
+| project_id | TEXT FK | 所属 Project |
+| agent_id | TEXT FK | 绑定的项目级 Agent |
+| session_id | TEXT FK | 当前团队会话 |
+| name | TEXT | 成员显示名 |
+| role | TEXT | leader / member 等业务标签 |
+| status | TEXT | active / removed |
+| created_at | TEXT | 创建时间 |
+| updated_at | TEXT | 更新时间 |
+
+### team_mailbox
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| id | TEXT PK | Mailbox 消息 ID |
+| team_id | TEXT FK | 所属 Team |
+| project_id | TEXT FK | 所属 Project |
+| from_member_id | TEXT | 发送成员 |
+| to_member_id | TEXT | 接收成员（可空） |
+| task_id | TEXT | 关联 Team Task（可空） |
+| type | TEXT | message / report / question / result |
+| content | TEXT | 消息内容 |
+| payload_json | TEXT | 结构化附加数据 |
+| created_at | TEXT | 创建时间 |
+
+### team_events
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| id | TEXT PK | Team 事件 ID |
+| team_id | TEXT FK | 所属 Team |
+| type | TEXT | 事件类型 |
+| payload_json | TEXT | 事件载荷 |
+| sequence | INTEGER | Team 内单调递增序号 |
+| created_at | TEXT | 创建时间 |
 
 ### rules
 
@@ -207,6 +271,8 @@ backlog → executing → reviewing → completed
 | acp_session_id | TEXT | ACP Session ID（可空） |
 | agent_id | TEXT | Agent ID |
 | project_id | TEXT | Project ID（可空） |
+| team_id | TEXT | Team ID（可空） |
+| team_member_id | TEXT | TeamMember ID（可空） |
 | visible_tools_json | TEXT | 当前 token 可见的 MCP tool method 名称数组 |
 | expires_at | TEXT | 过期时间 |
 | revoked_at | TEXT | 撤销时间；非空表示不可再用 |

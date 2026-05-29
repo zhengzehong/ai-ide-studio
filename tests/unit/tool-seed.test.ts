@@ -53,6 +53,20 @@ describe('builtin tool seed synchronization', () => {
       'core.task.list',
       'create_schedule',
       'create_task',
+      'team.create',
+      'team.get',
+      'team.list',
+      'team.mailbox.list',
+      'team.mailbox.send',
+      'team.member.list',
+      'team.member.message',
+      'team.member.spawn',
+      'team.task.create',
+      'team.task.list',
+      'team.task.update',
+      'team.template.describe',
+      'team.template.list',
+      'team.update',
     ])
 
     const globalBindings = getDb().prepare<[], { name: string }>(`

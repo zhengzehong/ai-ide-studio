@@ -24,17 +24,26 @@ describe('tool context registry', () => {
       acpSessionId: 'acp-1',
       agentId: 'agent-1',
       projectId: 'proj-1',
+      teamId: 'team-1',
+      teamMemberId: 'tm-1',
       visibleTools: ['core.task.list'],
       ttlMs: 60_000,
     })
 
     expect(token.length).toBeGreaterThan(20)
     expect(context.sessionId).toBe('sess-1')
+    expect(context.teamId).toBe('team-1')
+    expect(context.teamMemberId).toBe('tm-1')
     expect(context.visibleTools).toEqual(['core.task.list'])
 
     const row = getDb().prepare<[], { token_hash: string }>('SELECT token_hash FROM tool_contexts').get()
     expect(row?.token_hash).toBeTruthy()
     expect(row?.token_hash).not.toBe(token)
+
+    expect(validateToolToken(token)).toMatchObject({
+      teamId: 'team-1',
+      teamMemberId: 'tm-1',
+    })
   })
 
   test('validates active tokens and rejects revoked or expired tokens', () => {
