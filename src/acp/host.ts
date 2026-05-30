@@ -14,6 +14,7 @@ import { buildRuntimeEnv, getRuntimeCommand, listRuntimeNames } from './runtime-
 import { resolveMcpServersForAcp, updateInitialCapabilities } from './session-capabilities.js'
 
 const startPromises = new Map<string, Promise<void>>()
+const cancelledSessions = new Set<string>()
 const log = createChildLogger('acp-host')
 
 const ACP_SESSION_IDLE_MS = readPositiveMs(process.env.ACP_SESSION_IDLE_MS, 30 * 60 * 1000)
@@ -136,6 +137,21 @@ export const acpHost = {
     proc.on('exit', (code) => {
       conn.state = 'stopped'
       log.info({ agentId, runtime: effectiveRuntime, code }, 'Agent runtime 进程退出')
+
+      for (const [ourSessionId, sessionState] of conn.runtimeSessions) {
+        if (sessionState.activeTurnCount > 0) {
+          log.warn({ agentId, ourSessionId, code }, 'Agent 进程退出时存在活跃 prompt，强制结束')
+          events.emit('session:done', {
+            sessionId: ourSessionId,
+            agentId,
+            messageId: `exit-${Date.now()}`,
+            stopReason: 'error',
+            error: `Agent 进程意外退出 (code=${code})`,
+          })
+        }
+        cancelPendingInteractions(ourSessionId, agentId)
+      }
+
       agentStore.updateStatus(agentId, 'standby')
       events.emit('agent:status', { agentId, status: 'standby' })
       acpHost.agents.delete(agentId)
@@ -163,11 +179,13 @@ export const acpHost = {
     const acpSessionId = conn.acpSessions.get(ourSessionId)
     if (!acpSessionId) throw new Error(`Session ${ourSessionId} 没有对应的 ACP session`)
 
-    await conn.connection.cancel({ sessionId: acpSessionId })
+    cancelledSessions.add(ourSessionId)
+    try {
+      await conn.connection.cancel({ sessionId: acpSessionId })
+    } catch (err) {
+      log.debug({ err, agentId, ourSessionId }, 'ACP cancel best-effort 失败')
+    }
     cancelPendingInteractions(ourSessionId, agentId)
-    const state = getRuntimeSession(conn, ourSessionId)
-    state.activeTurnCount = 0
-    conn.activeTurnCount = Math.max(0, [...conn.runtimeSessions.values()].reduce((sum, item) => sum + item.activeTurnCount, 0))
     touchRuntime(conn, ourSessionId)
   },
 
@@ -304,9 +322,13 @@ export const acpHost = {
         }
       }
 
-      events.emit('session:done', { sessionId: ourSessionId, agentId, messageId: `done-${ourSessionId}`, turnUsage, stopReason: promptResult.stopReason })
-      log.info({ agentId, ourSessionId, stopReason: promptResult.stopReason, totalTokens: turnUsage?.totalTokens }, 'Agent prompt completed')
+      const wasCancelled = cancelledSessions.delete(ourSessionId)
+      const stopReason = wasCancelled ? 'cancelled' : promptResult.stopReason
+
+      events.emit('session:done', { sessionId: ourSessionId, agentId, messageId: `done-${ourSessionId}`, turnUsage, stopReason })
+      log.info({ agentId, ourSessionId, stopReason, totalTokens: turnUsage?.totalTokens }, 'Agent prompt completed')
     } finally {
+      cancelledSessions.delete(ourSessionId)
       endTurn(conn, ourSessionId)
     }
   },

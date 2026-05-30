@@ -33,7 +33,6 @@ export default function App() {
     if (!connected) return;
 
     useAgentStore.getState().fetchAgents();
-    useSessionStore.getState().fetchSessions();
     useTaskStore.getState().fetchTasks();
     useRuleStore.getState().fetchRules();
     useProjectStore.getState().fetchProjects();

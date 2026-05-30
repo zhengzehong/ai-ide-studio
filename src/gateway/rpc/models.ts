@@ -6,7 +6,7 @@ type ModelItem = { id: string; name: string; isDefault?: boolean }
 
 async function fetchProviderModels(protocol: string, baseUrl: string, apiKey: string): Promise<string[]> {
   const url = `${baseUrl.replace(/\/$/, '')}/v1/models`
-  const headers = protocol === 'claude'
+  const headers: Record<string, string> = protocol === 'claude'
     ? { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' }
     : { Authorization: `Bearer ${apiKey}` }
   const resp = await fetch(url, { headers, signal: AbortSignal.timeout(10_000) })

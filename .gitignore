@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 data/
+release/
+.electron-build/
+electron/dist/
 .env
 .playwright-mcp/
 code-reviews/

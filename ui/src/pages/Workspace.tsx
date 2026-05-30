@@ -162,11 +162,11 @@ export default function Workspace() {
   }
 
   useEffect(() => {
-    if (!currentProjectId) return
+    if (!currentProjectId || !connected) return
     void fetchAgents(currentProjectId)
     void fetchSessions(undefined, currentProjectId)
     void fetchTasks(currentProjectId)
-  }, [currentProjectId, fetchAgents, fetchSessions, fetchTasks])
+  }, [currentProjectId, connected, fetchAgents, fetchSessions, fetchTasks])
 
   const handleSend = () => {
     const v = inputValue.trim(); if (!v || !currentSessionId) return

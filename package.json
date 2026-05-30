@@ -7,10 +7,13 @@
     "ui"
   ],
   "scripts": {
-    "dev": "tsx watch src/entry.ts",
+    "dev": "node --import tsx --watch src/entry.ts",
     "dev:ui": "npm run dev -w ui",
     "dev:all": "concurrently \"npm run dev\" \"npm run dev:ui\"",
     "build": "tsc -p tsconfig.server.json && npm run build -w ui",
+    "build:electron:main": "node scripts/electron-build-main.mjs && node scripts/sync-electron-build.mjs",
+    "dev:electron": "npm run build:electron:main && electron electron/dist/main.js",
+    "build:electron": "npm run build && npm run build:electron:main && electron-builder --config scripts/electron-builder.mjs",
     "start": "node dist/entry.js",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -43,11 +46,16 @@
     "@types/node": "^24.12.3",
     "@types/ws": "^8.18.0",
     "concurrently": "^9.1.0",
+    "electron": "^40.0.0",
+    "electron-builder": "^26.0.12",
     "eslint": "^10.4.0",
     "prettier": "^3.8.3",
     "tsx": "^4.19.0",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.60.0",
     "vitest": "^4.1.7"
-  }
+  },
+  "main": "electron/dist/main.js",
+  "description": "AI coding collaboration desktop app",
+  "author": "AI IDE Studio"
 }

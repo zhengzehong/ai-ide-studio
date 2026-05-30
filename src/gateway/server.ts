@@ -9,9 +9,15 @@ import { sessionStore } from '../store/sessions.js'
 import { taskStore } from '../store/tasks.js'
 import { ruleStore } from '../store/rules.js'
 import { mountHttpMcpServer } from '../tools/mcp/http-mcp-server.js'
+import { mountStaticAssets, staticDirForLog } from './static-assets.js'
+import { createChildLogger } from '../core/logger.js'
+
+const log = createChildLogger('gateway')
 
 export async function startGateway(config: AppConfig) {
   const app = new Hono()
+
+  mountLocalTokenGuard(app, config)
 
   app.get('/health', (c) => c.json({ status: 'ok', uptime: process.uptime() }))
 
@@ -27,11 +33,46 @@ export async function startGateway(config: AppConfig) {
 
   app.get('/api/rules', (c) => c.json(ruleStore.list()))
   mountHttpMcpServer(app)
+  mountStaticAssets(app, config)
+  log.debug({ staticDir: staticDirForLog(config) }, '静态资源托载检查完成')
 
-  const server = serve({ fetch: app.fetch, port: config.port }) as Server
+  const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port }) as Server
 
   const wss = new WebSocketServer({ server })
-  wss.on('connection', (ws, req) => handleWsConnection(ws, req, wss))
+  wss.on('connection', (ws, req) => {
+    if (!isWsAuthorized(req, config)) {
+      ws.close(1008, '未授权')
+      return
+    }
+    handleWsConnection(ws, req, wss)
+  })
 
   return { app, server, wss }
+}
+
+function mountLocalTokenGuard(app: Hono, config: AppConfig): void {
+  if (!config.localToken) return
+
+  app.use('*', async (c, next) => {
+    if (isAssetRequest(c.req.path)) {
+      await next()
+      return
+    }
+
+    const token = c.req.header('x-ai-ide-token') ?? c.req.query('token')
+    if (token !== config.localToken) return c.json({ error: '未授权' }, 401)
+    await next()
+  })
+}
+
+function isAssetRequest(path: string): boolean {
+  return path === '/' || path.startsWith('/assets/') || path === '/favicon.svg' || path === '/icons.svg'
+}
+
+function isWsAuthorized(req: { url?: string; headers: { [key: string]: string | string[] | undefined } }, config: AppConfig): boolean {
+  if (!config.localToken) return true
+  const header = req.headers['x-ai-ide-token']
+  if (header === config.localToken || (Array.isArray(header) && header.includes(config.localToken))) return true
+  const token = new URL(req.url ?? '/', `http://${config.host}:${config.port}`).searchParams.get('token')
+  return token === config.localToken
 }

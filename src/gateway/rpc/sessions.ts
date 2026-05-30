@@ -1,9 +1,12 @@
 import { acpHost } from '../../acp/host.js'
 import { events } from '../../core/events.js'
+import { createChildLogger } from '../../core/logger.js'
 import { sessionManager } from '../../core/sessions.js'
 import { projectStore } from '../../store/projects.js'
 import { eventStore, messageStore, sessionStore } from '../../store/sessions.js'
 import type { RpcHandlerMap } from './types.js'
+
+const log = createChildLogger('rpc-sessions')
 
 function resolveSessionProjectContext(sessionId: string): { projectId?: string; cwd?: string } {
   const session = sessionStore.get(sessionId)
@@ -122,8 +125,18 @@ export const sessionRpcHandlers: RpcHandlerMap = {
     const session = sessionStore.get(sessionId)
     if (!session) throw new Error('会话不存在')
     await acpHost.cancelPrompt(session.agent_id, sessionId)
-    events.emit('session:done', { sessionId, agentId: session.agent_id, messageId: `cancel-${Date.now()}`, stopReason: 'cancelled' })
     sendResult({ ok: true })
+    setTimeout(() => {
+      const conn = acpHost.agents.get(session.agent_id)
+      if (!conn) return
+      const rs = conn.runtimeSessions.get(sessionId)
+      if (rs && rs.activeTurnCount > 0) {
+        log.warn({ sessionId, agentId: session.agent_id }, '取消后 10s prompt 仍未结束，强制发送 done')
+        rs.activeTurnCount = 0
+        conn.activeTurnCount = Math.max(0, conn.activeTurnCount - 1)
+        events.emit('session:done', { sessionId, agentId: session.agent_id, messageId: `cancel-timeout-${Date.now()}`, stopReason: 'cancelled' })
+      }
+    }, 10_000)
   },
 
   'sessions.list'(msg, { sendResult }) {

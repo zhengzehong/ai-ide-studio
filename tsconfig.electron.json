@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023", "DOM"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "outDir": "${configDir}/electron/dist",
+    "rootDir": "./electron",
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "types": ["node"]
+  },
+  "include": ["electron/**/*.ts", "electron.d.ts"],
+  "exclude": ["node_modules", "electron/dist", "release"]
+}

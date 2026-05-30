@@ -28,6 +28,9 @@ export function getRuntimeCommand(runtime: string): RuntimeCommand | undefined {
   const override = process.env[spec.envKey]
   if (override?.trim()) return parseCommandLine(override.trim())
 
+  const packagedBin = resolvePackagedBin(spec.binName)
+  if (packagedBin) return { cmd: packagedBin, args: [] }
+
   const localBin = resolveLocalBin(spec.binName)
   if (localBin) return { cmd: localBin, args: [] }
 
@@ -58,6 +61,18 @@ export function selectSystemCodexPath(paths: string[], platform: NodeJS.Platform
   return findByExtension(candidates, '.cmd')
     ?? findByExtension(candidates, '.bat')
     ?? findByExtension(candidates, '.exe')
+}
+
+function resolvePackagedBin(binName: string): string | undefined {
+  const suffix = process.platform === 'win32' ? '.cmd' : ''
+  const resourcesDir = process.env.AI_IDE_RESOURCES_DIR
+  if (!resourcesDir) return undefined
+
+  const candidates = [
+    resolve(resourcesDir, 'runtimes', `${binName}${suffix}`),
+    resolve(resourcesDir, 'node_modules', '.bin', `${binName}${suffix}`),
+  ]
+  return candidates.find(path => existsSync(path))
 }
 
 function resolveLocalBin(binName: string): string | undefined {
