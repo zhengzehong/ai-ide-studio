@@ -1,12 +1,12 @@
-﻿# 本机正式实例使用说明
+# 本机正式实例使用说明
 
 本目录是 `prd` worktree，用于正式使用 AI IDE Studio。不要在这里做功能开发。
 
 ## 配置
 
 - 分支：`prd`
-- 访问地址：`http://127.0.0.1:18800/workspace`
-- 后端端口：`18800`
+- 访问地址：`http://127.0.0.1:18900/workspace`
+- 后端端口：`18900`
 - 数据库：`data-prd/ai-ide.sqlite`
 - 日志：`data-prd/logs`
 
@@ -15,6 +15,7 @@
 ## 首次启动
 
 ```powershell
+# 如需临时换端口，可先设置：$env:AI_IDE_PRD_PORT="18901"
 npm install
 npm run build
 .\scripts\start-prd-local.ps1
@@ -26,7 +27,7 @@ Agent 广场内置模板包含：`正式 Team Leader`。
 
 使用方式：
 
-1. 打开 `http://127.0.0.1:18800/workspace`。
+1. 打开 `http://127.0.0.1:18900/workspace`。
 2. 左上角创建或选择项目。
 3. 进入 `Agent 广场`。
 4. 找到 `正式 Team Leader`，点击 `添加到项目`。
