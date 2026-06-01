@@ -1,4 +1,4 @@
-import { Bot, Brain, Code, FileText, Search as SearchIcon, Server, Shield, TestTube } from 'lucide-react'
+import { Bot, Brain, Code, FileText, Search as SearchIcon, Server, Shield, TestTube, Users } from 'lucide-react'
 
 export const ICON_MAP: Record<string, typeof Brain> = {
   brain: Brain,
@@ -8,10 +8,12 @@ export const ICON_MAP: Record<string, typeof Brain> = {
   server: Server,
   'test-tube': TestTube,
   shield: Shield,
+  users: Users,
   bot: Bot,
 }
 
 export const TYPE_LABELS: Record<string, string> = {
+  leader: '团队负责人',
   architect: '架构',
   dev: '开发',
   reviewer: '审查',
@@ -22,6 +24,7 @@ export const TYPE_LABELS: Record<string, string> = {
 
 export const TYPE_FILTERS = [
   { value: '', label: '全部' },
+  { value: 'leader', label: '团队负责人' },
   { value: 'architect', label: '架构' },
   { value: 'dev', label: '开发' },
   { value: 'reviewer', label: '审查' },

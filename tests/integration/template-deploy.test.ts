@@ -1,12 +1,15 @@
-﻿import { describe, test, expect, beforeEach, afterAll } from 'vitest'
+import { describe, test, expect, beforeEach, afterAll } from 'vitest'
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
-import { initDatabase, closeDatabase } from '../../src/store/db.js'
+import { initDatabase, closeDatabase, getDb } from '../../src/store/db.js'
 import { projectStore } from '../../src/store/projects.js'
 import { templateStore } from '../../src/store/agent-templates.js'
 import { agentStore } from '../../src/store/agents.js'
 import { deployTemplateToProject, deleteAgentTemplate } from '../../src/core/agents.js'
+import { seedBuiltinTools } from '../../src/tools/seed.js'
+import { seedBuiltinTemplates } from '../../src/store/agent-templates.js'
+import { getToolProfile } from '../../src/tools/team-profiles.js'
 
 const tmp = mkdtempSync(resolve(tmpdir(), 'ai-ide-template-deploy-'))
 let dbIndex = 0
@@ -45,6 +48,44 @@ describe('template deployment', () => {
     expect(agentStore.list(project.id).map(a => a.id)).toEqual([agent.id])
   })
 
+  test('seeds official Team Leader template and binds leader tools on deployment', () => {
+    const project = projectStore.create({ name: '项目', workDir: resolve(tmp, 'project-leader') })
+    seedBuiltinTools()
+    seedBuiltinTemplates()
+
+    const template = templateStore.get('tpl-team-leader')
+    expect(template).toMatchObject({
+      id: 'tpl-team-leader',
+      name: '正式 Team Leader',
+      type: 'leader',
+      runtime: 'claude',
+      icon: 'users',
+      is_builtin: 1,
+    })
+
+    const agent = deployTemplateToProject('tpl-team-leader', project.id)
+
+    expect(agent.project_id).toBe(project.id)
+    expect(agent.template_id).toBe('tpl-team-leader')
+    expect(agent.type).toBe('leader')
+    expect(agent.runtime).toBe('claude')
+    expect(agent.system_prompt).toContain('不要代替成员伪造 report')
+
+    const boundToolNames = getDb()
+      .prepare<[string], { name: string }>(
+        `
+      SELECT tools.name FROM tools
+      JOIN tool_bindings ON tool_bindings.tool_id = tools.id
+      WHERE tool_bindings.scope = 'agent'
+        AND tool_bindings.target_id = ?
+        AND tool_bindings.enabled = 1
+      ORDER BY tools.name
+    `,
+      )
+      .all(agent.id)
+      .map((row) => row.name)
+    expect(boundToolNames).toEqual([...getToolProfile('team-leader')!.toolNames].sort())
+  })
   test('does not delete builtin templates through domain service', () => {
     const template = templateStore.create({ name: '内置', type: 'dev', isBuiltin: true })
     expect(() => deleteAgentTemplate(template.id)).toThrow('内置模板不能删除')

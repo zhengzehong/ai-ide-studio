@@ -12,10 +12,12 @@ dist
 dist-ssr
 *.local
 data/
+data-prd/
 release/
 .electron-build/
 electron/dist/
 .env
+.worktree-meta.json
 .playwright-mcp/
 code-reviews/
 .tmp/

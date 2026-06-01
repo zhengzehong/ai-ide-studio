@@ -3,6 +3,7 @@ import { agentStore, type AgentRow, type UpdateAgentInput } from '../store/agent
 import { templateStore } from '../store/agent-templates.js'
 import { projectStore } from '../store/projects.js'
 import { isSupportedAgentRuntime, SUPPORTED_AGENT_RUNTIMES } from '../acp/adapters.js'
+import { applyToolProfileToAgent } from '../tools/team-profiles.js'
 
 const log = createChildLogger('agents')
 
@@ -50,6 +51,10 @@ export function deployTemplateToProject(templateId: string, projectId: string, i
       skills: template.skills_json ? JSON.parse(template.skills_json) : [],
     },
   })
+
+  if (template.type === 'leader') {
+    applyToolProfileToAgent({ profileId: 'team-leader', agentId: agent.id })
+  }
 
   log.info({ agentId: agent.id, templateId, projectId }, 'Agent 模板已部署到项目')
   return agent
