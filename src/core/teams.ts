@@ -156,6 +156,7 @@ export const teamService = {
     })
     applyToolProfileToAgent({ profileId: 'team-member', agentId: agent.id })
     log.info({ teamId: team.id, memberId: member.id, agentId: agent.id }, 'Team member 已创建')
+    events.emit('session:changed', { sessionId: session.id, data: { ...session } })
     emitTeamUpdate(team.id, 'member.created')
     return { member, agent, session }
   },
@@ -169,7 +170,8 @@ export const teamService = {
     const team = requireTeam(input.teamId)
     const member = requireMember(input.memberId)
     ensureMemberInTeam(member, team)
-    if (input.taskId) ensureTaskInTeam(input.taskId, team.id)
+    const task = input.taskId ? ensureTaskInTeam(input.taskId, team.id) : undefined
+    if (task) markTaskDispatched(team.id, task, member)
     const prompt = buildTeamMemberPrompt({ team, member, content: input.content, taskId: input.taskId })
     const status = dispatchMemberPrompt({ teamId: team.id, memberId: member.id, sessionId: member.session_id, prompt })
     return { status, member }
@@ -294,6 +296,18 @@ function emitTeamUpdate(teamId: string, reason: string): void {
     sessionIds: teamMemberStore.list(teamId).map((member) => member.session_id),
     data: { reason },
   })
+}
+
+function markTaskDispatched(teamId: string, task: TaskRow, member: TeamMemberRow): void {
+  if (!['backlog', 'planning'].includes(task.status)) return
+  const updated = taskStore.update(task.id, {
+    status: 'executing',
+    stage: `已派发给 ${member.name}，等待成员汇报`,
+  })
+  if (!updated) return
+
+  events.emit('task:update', { taskId: updated.id, data: { ...updated } })
+  emitTeamUpdate(teamId, 'task.dispatched')
 }
 
 function buildDetail(team: TeamRow): TeamDetail {

@@ -117,6 +117,8 @@ ws://localhost:18800
 | `team:update` | `{ teamId, sessionIds, data }` | Team 成员、任务或 mailbox 变化；前端仅在当前 `sessionId` 属于 `sessionIds` 时刷新 `teams.current`。 |
 | `rule:update` | `{ ruleId, data }` | Rule 状态变更 |
 
+Team 运行时事件：`team.member.spawn` 会广播包含新成员 Session 行的 `session:changed`。`team.member.message` 携带 `taskId` 时，会把 `backlog/planning` 的 Team Task 更新为 `executing`，再广播 `task:update` 与 `team:update`。工作台在当前 Team 匹配 `team:update` 时应刷新项目 agents/sessions/tasks。
+
 ## 类型定义
 
 完整 TypeScript 类型定义见 `src/types/ws-protocol.ts`。

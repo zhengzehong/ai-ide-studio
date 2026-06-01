@@ -448,6 +448,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         if (st.sessions.some(s => s.id === sessionId)) {
           return { sessions: st.sessions.map(s => s.id === sessionId ? { ...s, ...data } : s) }
         }
+        if (isCompleteSessionData(data, sessionId) && (!activeSessionsProjectId || data.project_id === activeSessionsProjectId)) {
+          return { sessions: [...st.sessions, data] }
+        }
         return { sessions: st.sessions }
       })
     }))
@@ -457,3 +460,15 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     return cleanupFn
   },
 }))
+
+function isCompleteSessionData(data: Partial<SessionData>, sessionId: string): data is SessionData {
+  return data.id === sessionId &&
+    typeof data.agent_id === 'string' &&
+    typeof data.status === 'string' &&
+    typeof data.stage === 'string' &&
+    typeof data.started_at === 'string' &&
+    (data.task_id === null || typeof data.task_id === 'string') &&
+    (data.acp_session_id === null || typeof data.acp_session_id === 'string') &&
+    (data.closed_at === null || typeof data.closed_at === 'string') &&
+    (data.project_id === undefined || data.project_id === null || typeof data.project_id === 'string')
+}

@@ -53,6 +53,7 @@ import { useConnectionStore } from '../stores/connection.store'
 import { useProjectStore } from '../stores/project.store'
 import { useFileSystemStore } from '../stores/filesystem.store'
 import { useTeamStore } from '../stores/team.store'
+import { wsClient } from '../services/ws-client'
 import { FileTree } from '../components/file-viewer/FileTree'
 import { FilePreview } from '../components/file-viewer/FilePreview'
 import { TeamContextPanel } from '../components/team/TeamContextPanel'
@@ -280,6 +281,26 @@ export default function Workspace() {
     void fetchSessions(undefined, currentProjectId)
     void fetchTasks(currentProjectId)
   }, [currentProjectId, connected, fetchAgents, fetchSessions, fetchTasks])
+
+  useEffect(() => {
+    if (!currentProjectId || !connected) return
+    const off = wsClient.on('team:update', (msg) => {
+      const sessionIds = Array.isArray(msg.sessionIds)
+        ? msg.sessionIds.filter((id): id is string => typeof id === 'string')
+        : []
+      const teamId = typeof msg.teamId === 'string' ? msg.teamId : null
+      const currentTeamId = teamContext.team?.id ?? null
+      const shouldRefresh =
+        (!!currentSessionId && sessionIds.includes(currentSessionId)) ||
+        (!!currentTeamId && teamId === currentTeamId)
+      if (!shouldRefresh) return
+
+      void fetchAgents(currentProjectId)
+      void fetchSessions(undefined, currentProjectId)
+      void fetchTasks(currentProjectId)
+    })
+    return () => { off() }
+  }, [connected, currentProjectId, currentSessionId, teamContext.team?.id, fetchAgents, fetchSessions, fetchTasks])
 
   useEffect(() => {
     if (!currentSessionId || !connected) {

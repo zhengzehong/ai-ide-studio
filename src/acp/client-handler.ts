@@ -4,6 +4,7 @@ import { events } from '../core/events.js'
 import { createChildLogger } from '../core/logger.js'
 import type { ElicitationRequestData, PermissionRequestData, SessionInfoData, SessionUpdateData, ToolCallData } from '../types/ws-protocol.js'
 import { mapAvailableCommands, mapConfigOptions, mergeCapabilitiesFromConfig } from './capabilities.js'
+import { resolveAutoPermission } from './auto-permission.js'
 import { agentConnections, findLatestOurSessionId, findOurSessionId } from './host-state.js'
 import { waitForElicitation, waitForPermission } from './interaction-state.js'
 import { createTerminalProcess, killTerminal as killTerminalProcess, releaseTerminal as releaseTerminalProcess, terminalOutput as getTerminalOutput, waitForTerminalExit as getTerminalExit } from './terminal-bridge.js'
@@ -188,6 +189,20 @@ export function createClientHandler(agentId: string): acp.Client {
     async requestPermission(params) {
       const ourSessionId = findOurSessionId(agentId, params.sessionId)
       if (!ourSessionId) return { outcome: { outcome: 'cancelled' } }
+
+      const autoPermission = resolveAutoPermission({
+        agentId,
+        ourSessionId,
+        toolCall: params.toolCall,
+        options: params.options,
+      })
+      if (autoPermission) {
+        log.info(
+          { agentId, sessionId: ourSessionId, toolTitle: params.toolCall.title },
+          'auto-approved internal Team tool permission',
+        )
+        return autoPermission
+      }
 
       const requestId = `${params.toolCall.toolCallId || 'permission'}-${Date.now()}`
       const permissionRequest: PermissionRequestData = {
