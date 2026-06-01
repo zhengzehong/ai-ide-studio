@@ -6,6 +6,7 @@ import {
   capabilitiesFromConfig,
   defaultCaps,
   finalizePlanOnTurnDone,
+  groupChatTimelineItems,
   appendFinalizedMessage,
   mergeCapabilities,
   mergeMessagesById,
@@ -15,6 +16,7 @@ import {
   shouldShowLifecycleStage,
   type AvailableCommandInfo,
   type ChatTimelineItem,
+  type ChatTimelineGroup,
   type ChatTimelineMessageItem,
   type ChatTimelineToolItem,
   type ConfigOptionInfo,
@@ -36,6 +38,7 @@ import {
 export type {
   AvailableCommandInfo,
   ChatTimelineItem,
+  ChatTimelineGroup,
   ChatTimelineMessageItem,
   ChatTimelineToolItem,
   ConfigOptionInfo,
@@ -53,7 +56,7 @@ export type {
   UsageInfo,
 }
 
-export { buildChatTimelineFromEvents }
+export { buildChatTimelineFromEvents, groupChatTimelineItems }
 
 export interface SessionData {
   id: string; agent_id: string; task_id: string | null; acp_session_id: string | null

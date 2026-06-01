@@ -69,6 +69,14 @@ export interface ChatTimelineToolItem {
 
 export type ChatTimelineItem = ChatTimelineMessageItem | ChatTimelineToolItem
 
+export interface ChatTimelineGroup {
+  id: string
+  role: 'human' | 'agent' | 'system'
+  timestamp: string
+  messageId?: string | null
+  blocks: ChatTimelineItem[]
+}
+
 export interface SessionEventData {
   id: string
   session_id: string
@@ -351,6 +359,28 @@ export function buildChatTimelineFromEvents(events: SessionEventData[]): ChatTim
 
   flushPendingTimelineMessage(items, pending)
   return items
+}
+
+export function groupChatTimelineItems(items: ChatTimelineItem[]): ChatTimelineGroup[] {
+  const groups: ChatTimelineGroup[] = []
+
+  for (const item of items) {
+    const current = groups[groups.length - 1]
+    if (current && current.role === item.role && current.messageId === item.messageId) {
+      current.blocks.push(item)
+      continue
+    }
+
+    groups.push({
+      id: `timeline-group-${item.messageId || item.id}`,
+      role: item.role,
+      timestamp: item.timestamp,
+      messageId: item.messageId,
+      blocks: [item],
+    })
+  }
+
+  return groups
 }
 
 const visibleLifecycleEvents = new Set([

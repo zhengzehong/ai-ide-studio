@@ -40,7 +40,9 @@ import {
 import { useAgentStore, type AgentData } from '../stores/agent.store'
 import {
   buildChatTimelineFromEvents,
+  groupChatTimelineItems,
   useSessionStore,
+  type ChatTimelineGroup,
   type ChatTimelineItem,
   type ElicitationRequestInfo,
   type ImageAttachmentInfo,
@@ -194,6 +196,7 @@ export default function Workspace() {
   }, [streamingMessage])
   const shouldScrollStreaming = !!streamingMessage && !streamingMessage.done
   const timelineItems = useMemo(() => buildChatTimelineFromEvents(events), [events])
+  const timelineGroups = useMemo(() => groupChatTimelineItems(timelineItems), [timelineItems])
   const useEventTimeline = timelineItems.length > 0
   const timelineFallbackMessages = useMemo(() => {
     const firstTimelineAt = timelineItems[0]?.timestamp
@@ -870,8 +873,8 @@ export default function Workspace() {
                       {timelineFallbackMessages.map((msg) => (
                         <ChatBubble key={msg.id} message={msg} agent={selectedAgent} isStreaming={false} />
                       ))}
-                      {timelineItems.map((item) => (
-                        <ChatBubble key={item.id} item={item} agent={selectedAgent} isStreaming={false} />
+                      {timelineGroups.map((group) => (
+                        <ChatBubble key={group.id} group={group} agent={selectedAgent} isStreaming={false} />
                       ))}
                     </>
                   )
@@ -2518,7 +2521,8 @@ type ChatMsg = {
   timestamp?: string
   streaming?: boolean
 }
-type ChatBubbleInput = ChatMsg | ChatTimelineItem
+type ChatBubbleInput = ChatMsg | ChatTimelineGroup
+type ChatBubbleBlock = ChatTimelineItem | ChatMsg
 
 interface TurnStats {
   inputTokens: number
@@ -2558,56 +2562,47 @@ function parseJsonObject<T>(raw: string): T | null {
 
 function ChatBubble({
   message,
-  item,
+  group,
   agent,
   isStreaming,
   footer,
 }: {
   message?: ChatMsg
-  item?: ChatTimelineItem
+  group?: ChatTimelineGroup
   agent: AgentData | undefined
   isStreaming: boolean
   footer?: React.ReactNode
 }) {
-  const normalizedMessage: ChatBubbleInput = item || message || { id: 'empty', role: 'system', content: '' }
-  const isTimelineItem = 'kind' in normalizedMessage
+  const normalizedMessage: ChatBubbleInput = group || message || { id: 'empty', role: 'system', content: '' }
+  const isTimelineGroup = 'blocks' in normalizedMessage
   const role = normalizedMessage.role
   const timestamp = normalizedMessage.timestamp
-  let content = ''
-  let thinking: string | null | undefined = null
   let streaming = false
   let stage: string | undefined
-  let toolCalls: ToolCallInfo[] = []
-  let turnStats: TurnStats | null = null
-  let attachments: ImageAttachmentInfo[] = []
 
-  if (isTimelineItem) {
-    if (normalizedMessage.kind === 'tool') {
-      toolCalls = [normalizedMessage.toolCall]
-    } else {
-      content = normalizedMessage.content
-      thinking = normalizedMessage.thinking
-      turnStats = normalizedMessage.turnStats || null
-      attachments = normalizedMessage.attachments || []
-    }
-  } else {
-    content = normalizedMessage.content
-    thinking = normalizedMessage.thinking
+  const blocks: ChatBubbleBlock[] = isTimelineGroup ? normalizedMessage.blocks : [normalizedMessage]
+  const lastTimelineMessageBlock = isTimelineGroup
+    ? [...normalizedMessage.blocks]
+        .reverse()
+        .find((block): block is Extract<ChatTimelineItem, { kind: 'message' }> => block.kind === 'message')
+    : null
+  const timelineTurnStats: TurnStats | null = lastTimelineMessageBlock?.turnStats
+    ? { ...lastTimelineMessageBlock.turnStats }
+    : null
+  const messageTurnStats = !isTimelineGroup && normalizedMessage.decision_json
+    ? parseJsonObject<TurnStats>(normalizedMessage.decision_json)
+    : null
+  let turnStats: TurnStats | null = isTimelineGroup ? timelineTurnStats : messageTurnStats
+
+  if (!isTimelineGroup) {
     streaming = normalizedMessage.streaming || false
     stage = normalizedMessage.stage
-    toolCalls = normalizedMessage.toolCalls || parseJsonArray<ToolCallInfo>(normalizedMessage.tool_calls_json)
-    attachments = parseJsonArray<ImageAttachmentInfo>(normalizedMessage.attachments_json)
-    turnStats = normalizedMessage.decision_json ? parseJsonObject<TurnStats>(normalizedMessage.decision_json) : null
   }
 
-  const defaultThinkingOpen = !!(isStreaming && thinking)
-  const [thinkingOpenOverride, setThinkingOpenOverride] = useState<'open' | 'closed' | null>(null)
-  const thinkingOpen = thinkingOpenOverride === 'open' || (thinkingOpenOverride !== 'closed' && defaultThinkingOpen)
-  const toggleThinkingOpen = () =>
-    setThinkingOpenOverride(thinkingOpen ? 'closed' : defaultThinkingOpen ? null : 'open')
   const isHuman = role === 'human'
   if (isHuman) turnStats = null
-  const hasBody = !!content || !!thinking || attachments.length > 0 || toolCalls.length > 0 || !!footer
+  const visibleBlocks = blocks.filter(chatBubbleBlockHasBody)
+  const hasBody = visibleBlocks.length > 0 || !!footer
   const streamingLabel = stage || '生成中'
 
   return (
@@ -2658,74 +2653,14 @@ function ChatBubble({
               overflow: 'hidden',
             }}
           >
-            {thinking && (
-              <div style={{ marginBottom: 8, borderRadius: 6, border: '1px solid var(--border)', overflow: 'hidden' }}>
-                <button
-                  type="button"
-                  onClick={toggleThinkingOpen}
-                  style={{
-                    width: '100%',
-                    padding: '6px 10px',
-                    border: 'none',
-                    background: 'var(--bg-2)',
-                    color: 'var(--text-3)',
-                    fontSize: 11,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    textAlign: 'left',
-                  }}
-                >
-                  {thinkingOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />} 思考过程
-                  {isStreaming && (
-                    <Loader2 size={10} style={{ animation: 'spin 1s linear infinite', marginLeft: 'auto' }} />
-                  )}
-                </button>
-                {thinkingOpen && (
-                  <div
-                    style={{
-                      padding: '8px 10px',
-                      fontSize: 12,
-                      color: 'var(--text-2)',
-                      fontStyle: 'italic',
-                      lineHeight: 1.6,
-                      maxHeight: 200,
-                      overflow: 'auto',
-                      overflowWrap: 'anywhere',
-                    }}
-                  >
-                    {thinking}
-                  </div>
-                )}
-              </div>
-            )}
-            {attachments.length > 0 && (
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
-                {attachments.map((img, i) => (
-                  <img
-                    key={i}
-                    src={`data:${img.mimeType};base64,${img.data}`}
-                    alt={img.name || '附件'}
-                    style={{
-                      maxWidth: 180,
-                      maxHeight: 140,
-                      borderRadius: 8,
-                      border: '1px solid var(--border)',
-                      objectFit: 'cover',
-                    }}
-                  />
-                ))}
-              </div>
-            )}
-            {toolCalls.length > 0 && (
-              <div style={{ marginBottom: 8 }}>
-                {toolCalls.map((tc) => (
-                  <ToolCallPanel key={tc.id} tc={tc} isStreaming={isStreaming} />
-                ))}
-              </div>
-            )}
-            {content && <MarkdownRenderer content={content || ''} />}
+            {visibleBlocks.map((block, index) => (
+              <ChatBubbleBlockView
+                key={bubbleBlockKey(block, index)}
+                block={block}
+                isLast={index === visibleBlocks.length - 1}
+                isStreaming={isStreaming}
+              />
+            ))}
             {footer && <div style={{ marginTop: 10 }}>{footer}</div>}
           </div>
         )}
@@ -2769,6 +2704,132 @@ function ChatBubble({
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+function bubbleBlockKey(block: ChatBubbleBlock, index: number): string {
+  return `${block.id}-${index}`
+}
+
+function chatBubbleBlockHasBody(block: ChatBubbleBlock): boolean {
+  if ('kind' in block) {
+    if (block.kind === 'tool') return true
+    return !!block.content || !!block.thinking || (block.attachments?.length || 0) > 0
+  }
+
+  const toolCalls = block.toolCalls || parseJsonArray<ToolCallInfo>(block.tool_calls_json)
+  const attachments = parseJsonArray<ImageAttachmentInfo>(block.attachments_json)
+  return !!block.content || !!block.thinking || attachments.length > 0 || toolCalls.length > 0
+}
+
+function ChatBubbleBlockView({
+  block,
+  isLast,
+  isStreaming,
+}: {
+  block: ChatBubbleBlock
+  isLast: boolean
+  isStreaming: boolean
+}) {
+  let content = ''
+  let thinking: string | null | undefined = null
+  let attachments: ImageAttachmentInfo[] = []
+  let toolCalls: ToolCallInfo[] = []
+
+  if ('kind' in block) {
+    if (block.kind === 'tool') {
+      toolCalls = [block.toolCall]
+    } else {
+      content = block.content
+      thinking = block.thinking
+      attachments = block.attachments || []
+    }
+  } else {
+    content = block.content
+    thinking = block.thinking
+    toolCalls = block.toolCalls || parseJsonArray<ToolCallInfo>(block.tool_calls_json)
+    attachments = parseJsonArray<ImageAttachmentInfo>(block.attachments_json)
+  }
+
+  const defaultThinkingOpen = !!(isStreaming && thinking)
+  const [thinkingOpenOverride, setThinkingOpenOverride] = useState<'open' | 'closed' | null>(null)
+  const thinkingOpen = thinkingOpenOverride === 'open' || (thinkingOpenOverride !== 'closed' && defaultThinkingOpen)
+  const toggleThinkingOpen = () =>
+    setThinkingOpenOverride(thinkingOpen ? 'closed' : defaultThinkingOpen ? null : 'open')
+  const hasBlock = !!content || !!thinking || attachments.length > 0 || toolCalls.length > 0
+  if (!hasBlock) return null
+
+  return (
+    <div style={{ marginBottom: isLast ? 0 : 8 }}>
+      {thinking && (
+        <div style={{ marginBottom: 8, borderRadius: 6, border: '1px solid var(--border)', overflow: 'hidden' }}>
+          <button
+            type="button"
+            onClick={toggleThinkingOpen}
+            style={{
+              width: '100%',
+              padding: '6px 10px',
+              border: 'none',
+              background: 'var(--bg-2)',
+              color: 'var(--text-3)',
+              fontSize: 11,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              textAlign: 'left',
+            }}
+          >
+            {thinkingOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />} 思考过程
+            {isStreaming && (
+              <Loader2 size={10} style={{ animation: 'spin 1s linear infinite', marginLeft: 'auto' }} />
+            )}
+          </button>
+          {thinkingOpen && (
+            <div
+              style={{
+                padding: '8px 10px',
+                fontSize: 12,
+                color: 'var(--text-2)',
+                fontStyle: 'italic',
+                lineHeight: 1.6,
+                maxHeight: 200,
+                overflow: 'auto',
+                overflowWrap: 'anywhere',
+              }}
+            >
+              {thinking}
+            </div>
+          )}
+        </div>
+      )}
+      {attachments.length > 0 && (
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+          {attachments.map((img, i) => (
+            <img
+              key={i}
+              src={`data:${img.mimeType};base64,${img.data}`}
+              alt={img.name || '附件'}
+              style={{
+                maxWidth: 180,
+                maxHeight: 140,
+                borderRadius: 8,
+                border: '1px solid var(--border)',
+                objectFit: 'cover',
+              }}
+            />
+          ))}
+        </div>
+      )}
+      {toolCalls.length > 0 && (
+        <div style={{ marginBottom: content ? 8 : 0 }}>
+          {toolCalls.map((tc) => (
+            <ToolCallPanel key={tc.id} tc={tc} isStreaming={isStreaming} />
+          ))}
+        </div>
+      )}
+      {content && <MarkdownRenderer content={content || ''} />}
     </div>
   )
 }

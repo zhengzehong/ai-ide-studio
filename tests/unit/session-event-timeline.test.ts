@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'vitest'
-import { buildChatTimelineFromEvents, type SessionEventData } from '../../ui/src/stores/session-events.ts'
+import {
+  buildChatTimelineFromEvents,
+  groupChatTimelineItems,
+  type SessionEventData,
+} from '../../ui/src/stores/session-events.ts'
 
 function ev(sequence: number, type: string, payload: unknown, messageId = 'msg-agent-1'): SessionEventData {
   return {
@@ -56,5 +60,24 @@ describe('buildChatTimelineFromEvents', () => {
 
     expect(items.map((item) => item.kind)).toEqual(['message', 'tool'])
     expect(items[0]).toMatchObject({ role: 'agent', thinking: '我需要先检查配置。' })
+  })
+
+  test('groups assistant timeline items into one bubble while preserving block order', () => {
+    const items = buildChatTimelineFromEvents([
+      ev(1, 'message.user', { messageId: 'msg-user-1', content: '查一下', attachments: [] }, 'msg-user-1'),
+      ev(2, 'message.chunk', { messageId: 'msg-agent-1', role: 'agent', contentDelta: '先看目录。' }),
+      ev(3, 'tool.call', {
+        messageId: 'msg-agent-1',
+        toolCall: { id: 'tool-1', title: '列目录', status: 'completed' },
+      }),
+      ev(4, 'message.chunk', { messageId: 'msg-agent-1', role: 'agent', contentDelta: '再总结。' }),
+    ])
+
+    const groups = groupChatTimelineItems(items)
+
+    expect(groups).toHaveLength(2)
+    expect(groups[0]).toMatchObject({ role: 'human' })
+    expect(groups[1]).toMatchObject({ role: 'agent', messageId: 'msg-agent-1' })
+    expect(groups[1].blocks.map((block) => block.kind)).toEqual(['message', 'tool', 'message'])
   })
 })
