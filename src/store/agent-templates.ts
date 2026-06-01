@@ -46,10 +46,14 @@ export const templateStore = {
       created_at: now,
       updated_at: now,
     }
-    getDb().prepare(`
+    getDb()
+      .prepare(
+        `
       INSERT INTO agent_templates (id, name, type, runtime, icon, system_prompt, description, skills_json, is_builtin, created_at, updated_at)
       VALUES (@id, @name, @type, @runtime, @icon, @system_prompt, @description, @skills_json, @is_builtin, @created_at, @updated_at)
-    `).run(tpl)
+    `,
+      )
+      .run(tpl)
     log.info({ templateId: tpl.id, name: tpl.name, type: tpl.type }, 'Agent 模板已创建')
     return tpl
   },
@@ -59,7 +63,9 @@ export const templateStore = {
   },
 
   list(): AgentTemplateRow[] {
-    return getDb().prepare<[], AgentTemplateRow>('SELECT * FROM agent_templates ORDER BY is_builtin DESC, created_at ASC').all()
+    return getDb()
+      .prepare<[], AgentTemplateRow>('SELECT * FROM agent_templates ORDER BY is_builtin DESC, created_at ASC')
+      .all()
   },
 
   update(id: string, fields: Partial<Omit<CreateTemplateInput, 'isBuiltin'>>): AgentTemplateRow | undefined {
@@ -77,13 +83,17 @@ export const templateStore = {
       skills_json: fields.skills ? JSON.stringify(fields.skills) : tpl.skills_json,
       updated_at: new Date().toISOString(),
     }
-    getDb().prepare(`
+    getDb()
+      .prepare(
+        `
       UPDATE agent_templates
       SET name = @name, type = @type, runtime = @runtime, icon = @icon,
           system_prompt = @system_prompt, description = @description,
           skills_json = @skills_json, updated_at = @updated_at
       WHERE id = @id
-    `).run(updated)
+    `,
+      )
+      .run(updated)
     return updated
   },
 
@@ -96,6 +106,7 @@ export const templateStore = {
 export function seedBuiltinTemplates(): void {
   const builtins: CreateTemplateInput[] = [
     {
+      id: 'tpl-architect',
       name: '架构师',
       type: 'architect',
       runtime: 'claude',
@@ -112,6 +123,7 @@ export function seedBuiltinTemplates(): void {
       isBuiltin: true,
     },
     {
+      id: 'tpl-dev',
       name: '代码工程师',
       type: 'dev',
       runtime: 'codex',
@@ -128,6 +140,7 @@ export function seedBuiltinTemplates(): void {
       isBuiltin: true,
     },
     {
+      id: 'tpl-reviewer',
       name: '代码审查员',
       type: 'reviewer',
       runtime: 'claude',
@@ -144,6 +157,7 @@ export function seedBuiltinTemplates(): void {
       isBuiltin: true,
     },
     {
+      id: 'tpl-tester',
       name: '测试工程师',
       type: 'tester',
       runtime: 'codex',
@@ -160,6 +174,7 @@ export function seedBuiltinTemplates(): void {
       isBuiltin: true,
     },
     {
+      id: 'tpl-docs',
       name: '文档工程师',
       type: 'docs',
       runtime: 'claude',
@@ -176,6 +191,7 @@ export function seedBuiltinTemplates(): void {
       isBuiltin: true,
     },
     {
+      id: 'tpl-ops',
       name: 'DevOps 工程师',
       type: 'ops',
       runtime: 'codex',
@@ -218,10 +234,28 @@ export function seedBuiltinTemplates(): void {
   ]
 
   let created = 0
+  let skipped = 0
   for (const tpl of builtins) {
-    if (tpl.id && templateStore.get(tpl.id)) continue
+    if (builtinTemplateExists(tpl)) {
+      skipped += 1
+      continue
+    }
     templateStore.create(tpl)
     created += 1
   }
-  log.info({ created, total: builtins.length }, '内置 Agent 模板已初始化')
+  log.info({ created, skipped, total: builtins.length }, '内置 Agent 模板已初始化')
+}
+
+function builtinTemplateExists(input: CreateTemplateInput): boolean {
+  if (input.id && templateStore.get(input.id)) {
+    return true
+  }
+
+  const existing = getDb()
+    .prepare<[string, string, string], AgentTemplateRow>(
+      'SELECT * FROM agent_templates WHERE is_builtin = 1 AND name = ? AND type = ? AND runtime = ? ORDER BY created_at ASC LIMIT 1',
+    )
+    .get(input.name, input.type, input.runtime ?? 'claude')
+
+  return existing !== undefined
 }
