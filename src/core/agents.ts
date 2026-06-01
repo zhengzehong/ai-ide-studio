@@ -3,6 +3,7 @@ import { agentStore, type AgentRow, type UpdateAgentInput } from '../store/agent
 import { templateStore } from '../store/agent-templates.js'
 import { projectStore } from '../store/projects.js'
 import { isSupportedAgentRuntime, SUPPORTED_AGENT_RUNTIMES } from '../acp/adapters.js'
+import { modelProfileStore } from '../store/model-profiles.js'
 
 const log = createChildLogger('agents')
 
@@ -11,6 +12,7 @@ export interface DeployTemplateInput {
   runtime?: string
   systemPrompt?: string
   icon?: string
+  modelProfileId?: string
 }
 
 export interface CreateCustomAgentInput {
@@ -20,6 +22,7 @@ export interface CreateCustomAgentInput {
   runtime: string
   systemPrompt?: string
   icon?: string
+  modelProfileId?: string
 }
 
 export interface UpdateProjectAgentInput {
@@ -28,6 +31,7 @@ export interface UpdateProjectAgentInput {
   runtime?: string
   systemPrompt?: string
   icon?: string
+  modelProfileId?: string | null
 }
 
 export function deployTemplateToProject(templateId: string, projectId: string, input: DeployTemplateInput = {}): AgentRow {
@@ -36,11 +40,13 @@ export function deployTemplateToProject(templateId: string, projectId: string, i
 
   const template = templateStore.get(templateId)
   if (!template) throw new Error(`Agent 模板不存在: ${templateId}`)
+  const runtime = input.runtime || template.runtime
+  ensureModelProfileMatches(input.modelProfileId, runtime)
 
   const agent = agentStore.create({
     name: input.name?.trim() || template.name,
     type: template.type,
-    runtime: input.runtime || template.runtime,
+    runtime,
     projectId,
     templateId,
     systemPrompt: input.systemPrompt ?? template.system_prompt,
@@ -48,6 +54,7 @@ export function deployTemplateToProject(templateId: string, projectId: string, i
     config: {
       templateId,
       skills: template.skills_json ? JSON.parse(template.skills_json) : [],
+      ...(input.modelProfileId ? { modelProfileId: input.modelProfileId } : {}),
     },
   })
 
@@ -70,6 +77,7 @@ export function createCustomProjectAgent(input: CreateCustomAgentInput): AgentRo
   if (!isSupportedAgentRuntime(input.runtime)) {
     throw new Error(`不支持的 Agent runtime: ${input.runtime || '空'}。当前仅支持 ${SUPPORTED_AGENT_RUNTIMES.join('|')}`)
   }
+  ensureModelProfileMatches(input.modelProfileId, input.runtime)
 
   const agent = agentStore.create({
     name,
@@ -78,6 +86,7 @@ export function createCustomProjectAgent(input: CreateCustomAgentInput): AgentRo
     projectId: input.projectId,
     systemPrompt: input.systemPrompt,
     icon: input.icon,
+    config: input.modelProfileId ? { modelProfileId: input.modelProfileId } : undefined,
   })
   log.info({ agentId: agent.id, projectId: input.projectId }, '项目自定义 Agent 已创建')
   return agent
@@ -90,6 +99,10 @@ export function updateProjectAgent(agentId: string, input: UpdateProjectAgentInp
   if (input.runtime !== undefined && !isSupportedAgentRuntime(input.runtime)) {
     throw new Error(`不支持的 Agent runtime: ${input.runtime || '空'}。当前仅支持 ${SUPPORTED_AGENT_RUNTIMES.join('|')}`)
   }
+  const nextRuntime = input.runtime ?? existing.runtime
+  if (input.modelProfileId !== undefined && input.modelProfileId !== null) {
+    ensureModelProfileMatches(input.modelProfileId, nextRuntime)
+  }
 
   const fields: UpdateAgentInput = {}
   if (input.name !== undefined) {
@@ -101,6 +114,15 @@ export function updateProjectAgent(agentId: string, input: UpdateProjectAgentInp
   if (input.runtime !== undefined) fields.runtime = input.runtime
   if (input.systemPrompt !== undefined) fields.systemPrompt = input.systemPrompt
   if (input.icon !== undefined) fields.icon = input.icon
+  const config = parseAgentConfig(existing.config_json)
+  if (input.modelProfileId !== undefined) {
+    if (input.modelProfileId) config.modelProfileId = input.modelProfileId
+    else delete config.modelProfileId
+    fields.config = config
+  } else if (input.runtime !== undefined && hasMismatchedModelProfile(config.modelProfileId, nextRuntime)) {
+    delete config.modelProfileId
+    fields.config = config
+  }
 
   const updated = agentStore.update(agentId, fields)
   if (!updated) throw new Error(`Agent 不存在: ${agentId}`)
@@ -120,4 +142,27 @@ function ensureProject(projectId: string): void {
   if (!projectId) throw new Error('projectId 不能为空')
   const project = projectStore.get(projectId)
   if (!project) throw new Error(`项目不存在: ${projectId}`)
+}
+
+function ensureModelProfileMatches(modelProfileId: string | undefined, runtime: string): void {
+  if (!modelProfileId) return
+  const profile = modelProfileStore.get(modelProfileId)
+  if (!profile) throw new Error(`模型档案不存在: ${modelProfileId}`)
+  if (profile.runtime !== runtime) throw new Error('模型档案运行时与 Agent 运行时不匹配')
+}
+
+function hasMismatchedModelProfile(modelProfileId: unknown, runtime: string): boolean {
+  if (typeof modelProfileId !== 'string' || !modelProfileId) return false
+  const profile = modelProfileStore.get(modelProfileId)
+  return !profile || profile.runtime !== runtime
+}
+
+function parseAgentConfig(raw: string | null): Record<string, unknown> {
+  if (!raw) return {}
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {}
+  } catch {
+    return {}
+  }
 }

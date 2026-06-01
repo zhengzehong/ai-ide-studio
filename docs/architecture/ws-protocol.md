@@ -69,6 +69,23 @@ ws://localhost:18800
 | `rules.update` | `{ ruleId, enabled?, ... }` | `Rule` | 更新规则 |
 | `rules.delete` | `{ ruleId }` | `void` | 删除规则 |
 
+### 模型管理
+
+| 方法 | 参数 | 返回 | 说明 |
+|------|------|------|------|
+| `models.list` | — | `ModelProvider[]` | 列出模型供应商 |
+| `models.create` | `{ name, displayName, protocol, baseUrl, apiKey, models?, isDefault? }` | `ModelProvider` | 创建供应商；`protocol` 支持 `openai`、`claude`、`new-api` |
+| `models.update` | `{ providerId, ...fields }` | `ModelProvider` | 更新供应商配置 |
+| `models.toggle` | `{ providerId, enabled }` | `{ ok: true }` | 启用或停用供应商 |
+| `models.delete` | `{ providerId }` | `{ ok: true }` | 删除供应商 |
+| `models.setDefault` | `{ providerId }` | `{ ok: true }` | 设置默认供应商 |
+| `models.test` | `{ providerId }` | `{ ok, models?, error? }` | 测试供应商并拉取 `/v1/models` 列表 |
+| `modelProfiles.list` | `{ runtime?, enabledOnly? }` | `ModelProfile[]` | 列出模型档案，可按 runtime 过滤 |
+| `modelProfiles.create` | `{ name, runtime, providerId, contextWindow?, config }` | `ModelProfile` | 创建 Claude Code 或 Codex 模型档案 |
+| `modelProfiles.update` | `{ profileId, ...fields }` | `ModelProfile` | 更新模型档案 |
+| `modelProfiles.toggle` | `{ profileId, enabled }` | `{ ok: true }` | 启用或停用模型档案 |
+| `modelProfiles.delete` | `{ profileId }` | `{ ok: true }` | 删除模型档案，并清理 Agent 上的对应绑定 |
+
 ### Tool / MCP 管理
 
 | 方法 | 参数 | 返回 | 说明 |
@@ -138,9 +155,9 @@ ws://localhost:18800
 
 | 方法 | 参数 | 返回 | 说明 |
 |------|------|------|------|
-| `agents.deployTemplate` | `{ projectId, templateId, name?, runtime?, systemPrompt?, icon? }` | `Agent` | 将全局模板部署为项目级 Agent |
-| `agents.createCustom` | `{ projectId, name, agentType, runtime, systemPrompt?, icon? }` | `Agent` | 创建项目级自定义 Agent |
-| `agents.update` | `{ agentId, name?, agentType?, runtime?, systemPrompt?, icon? }` | `Agent` | 更新项目级 Agent 配置 |
+| `agents.deployTemplate` | `{ projectId, templateId, name?, runtime?, systemPrompt?, icon?, modelProfileId? }` | `Agent` | 将全局模板部署为项目级 Agent |
+| `agents.createCustom` | `{ projectId, name, agentType, runtime, systemPrompt?, icon?, modelProfileId? }` | `Agent` | 创建项目级自定义 Agent |
+| `agents.update` | `{ agentId, name?, agentType?, runtime?, systemPrompt?, icon?, modelProfileId? }` | `Agent` | 更新项目级 Agent 配置；`modelProfileId` 为空值时清除绑定 |
 | `agents.delete` | `{ agentId }` | `{ deleted: true }` | 删除项目级 Agent |
 
 `agents.create` 保留给 CLI 或旧调用方兼容；新 UI 不应绕过项目边界直接创建全局 Agent。

@@ -3,6 +3,7 @@ import { projectScopeMigration } from './002-project-scope.js'
 import { toolPlatformMigration } from './003-tool-platform.js'
 import { modelAndSkillMigration } from './004-model-and-skill-settings.js'
 import { teamMcpToolsMigration } from './005-team-mcp-tools.js'
+import { modelProfilesMigration } from './006-model-profiles.js'
 import type { Migration } from '../migrator.js'
 
 export const migrations: Migration[] = [
@@ -11,4 +12,5 @@ export const migrations: Migration[] = [
   toolPlatformMigration,
   modelAndSkillMigration,
   teamMcpToolsMigration,
+  modelProfilesMigration,
 ]

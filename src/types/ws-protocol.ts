@@ -85,6 +85,7 @@ export interface AgentsDeployTemplateMsg extends ClientMessage {
   runtime?: AgentRuntime
   systemPrompt?: string
   icon?: string
+  modelProfileId?: string
 }
 export interface AgentsCreateCustomMsg extends ClientMessage {
   type: 'agents.createCustom'
@@ -94,6 +95,7 @@ export interface AgentsCreateCustomMsg extends ClientMessage {
   runtime: AgentRuntime
   systemPrompt?: string
   icon?: string
+  modelProfileId?: string
 }
 export interface AgentsUpdateMsg extends ClientMessage {
   type: 'agents.update'
@@ -103,6 +105,7 @@ export interface AgentsUpdateMsg extends ClientMessage {
   runtime?: AgentRuntime
   systemPrompt?: string
   icon?: string
+  modelProfileId?: string | null
 }
 export interface AgentsDeleteMsg extends ClientMessage {
   type: 'agents.delete'

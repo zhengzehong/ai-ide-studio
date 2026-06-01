@@ -303,11 +303,25 @@ backlog → executing → reviewing → completed
 | id | TEXT PK | Provider ID |
 | name | TEXT | 名称 |
 | display_name | TEXT | 显示名称 |
-| protocol | TEXT | openai / claude |
+| protocol | TEXT | openai / claude / new-api |
 | base_url | TEXT | API 基础地址 |
 | api_key | TEXT | 密钥 |
 | models_json | TEXT | 模型列表 JSON |
 | is_default | INTEGER | 是否默认 |
+| enabled | INTEGER | 是否启用 |
+| created_at | TEXT | 创建时间 |
+| updated_at | TEXT | 更新时间 |
+
+### model_profiles
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| id | TEXT PK | 模型档案 ID |
+| name | TEXT | 档案名称 |
+| runtime | TEXT | claude / codex |
+| provider_id | TEXT | 关联的模型供应商 ID |
+| config_json | TEXT | runtime 专属配置；Claude 保存 default/haiku/sonnet/opus 映射，Codex 保存 model/effort |
+| context_window | INTEGER | 模型上下文窗口；为空表示未指定 |
 | enabled | INTEGER | 是否启用 |
 | created_at | TEXT | 创建时间 |
 | updated_at | TEXT | 更新时间 |
@@ -386,9 +400,11 @@ SQLite schema 由 `src/store/migrator.ts` 和 `src/store/migrations/*` 管理。
 | template_id | TEXT | 来源模板 ID；自定义 Agent 可为空 |
 | system_prompt | TEXT | 项目级 Agent 的系统提示词 |
 | icon | TEXT | UI 图标标识 |
-| config_json | TEXT | Agent 运行时配置；模板部署会记录 `templateId` 和 `skills` |
+| config_json | TEXT | Agent 运行时配置；模板部署会记录 `templateId` 和 `skills`，模型档案绑定记录为 `modelProfileId` |
 
 项目工作台默认只展示 `project_id = 当前项目` 的 Agent。`project_id IS NULL` 的 Agent 只用于全局兼容场景，不应混入项目会话。
+
+`modelProfileId` 必须指向与 Agent `runtime` 一致的 `model_profiles` 记录。Agent runtime 改变、档案删除或档案 runtime 改变时，后端会移除不再匹配的绑定。
 
 
 ### ACP 生命周期持久化说明

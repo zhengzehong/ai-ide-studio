@@ -22,6 +22,7 @@ export const agentRpcHandlers: RpcHandlerMap = {
       runtime: msg.runtime as string | undefined,
       systemPrompt: msg.systemPrompt as string | undefined,
       icon: msg.icon as string | undefined,
+      modelProfileId: msg.modelProfileId as string | undefined,
     })
     sendResult(agent)
   },
@@ -34,6 +35,7 @@ export const agentRpcHandlers: RpcHandlerMap = {
       runtime: msg.runtime as string,
       systemPrompt: msg.systemPrompt as string | undefined,
       icon: msg.icon as string | undefined,
+      modelProfileId: msg.modelProfileId as string | undefined,
     })
     sendResult(agent)
   },
@@ -45,6 +47,7 @@ export const agentRpcHandlers: RpcHandlerMap = {
       runtime: msg.runtime as string | undefined,
       systemPrompt: msg.systemPrompt as string | undefined,
       icon: msg.icon as string | undefined,
+      modelProfileId: msg.modelProfileId as string | null | undefined,
     })
     sendResult(agent)
   },
