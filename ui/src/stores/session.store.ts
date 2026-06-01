@@ -5,6 +5,7 @@ import {
   buildCompletedAgentMessage,
   capabilitiesFromConfig,
   defaultCaps,
+  finalizePlanOnTurnDone,
   appendFinalizedMessage,
   mergeCapabilities,
   mergeMessagesById,
@@ -366,6 +367,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     offs.push(wsClient.on('session:done', (msg) => {
       const sid = msg.sessionId as string; if (sid !== get().currentSessionId) return
       const tu = msg.turnUsage as TurnUsageInfo | undefined
+      const stopReason = msg.stopReason as string | undefined
       const cost = get().usage?.costAmount
       const elapsed = promptStartTime > 0 ? Math.round((Date.now() - promptStartTime) / 1000) : undefined
       promptStartTime = 0
@@ -388,7 +390,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         }
         set(st => ({
           messages: appendFinalizedMessage(st.messages, newMsg),
-          streamingMessage: null, turnUsage: tu || st.turnUsage,
+          streamingMessage: null, turnUsage: tu || st.turnUsage, plan: finalizePlanOnTurnDone(st.plan, stopReason),
         }))
       } else {
         const finalMessage = buildCompletedAgentMessage(sid, get().events, tu, cost, elapsed)
@@ -396,10 +398,14 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           if (turnStats && !finalMessage.decision_json) finalMessage.decision_json = turnStats
           set(st => ({
             messages: appendFinalizedMessage(st.messages, finalMessage),
-            streamingMessage: null, turnUsage: tu || st.turnUsage,
+            streamingMessage: null, turnUsage: tu || st.turnUsage, plan: finalizePlanOnTurnDone(st.plan, stopReason),
           }))
         } else {
-          set({ streamingMessage: null, turnUsage: tu || get().turnUsage })
+          set(st => ({
+            streamingMessage: null,
+            turnUsage: tu || st.turnUsage,
+            plan: finalizePlanOnTurnDone(st.plan, stopReason),
+          }))
         }
       }
       saveCache(sid, get())

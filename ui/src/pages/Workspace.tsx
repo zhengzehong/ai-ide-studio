@@ -821,6 +821,7 @@ export default function Workspace() {
         {(plan.length > 0 || capabilities.currentModeId === 'plan') && (
           <PlanBar
             plan={plan}
+            isStreaming={isStreaming}
             currentModeId={capabilities.currentModeId}
             modes={capabilities.modes}
             onSetMode={setMode}
@@ -1467,11 +1468,13 @@ function MiniContextCircle({ used, total }: { used: number; total: number }) {
 /* ─── Plan Bar ─── */
 function PlanBar({
   plan,
+  isStreaming,
   currentModeId,
   modes,
   onSetMode,
 }: {
   plan: PlanEntry[]
+  isStreaming: boolean
   currentModeId: string | null
   modes: { modeId: string; name: string; description?: string }[]
   onSetMode: (modeId: string) => Promise<void>
@@ -1564,14 +1567,14 @@ function PlanBar({
                 color:
                   p.status === 'completed'
                     ? 'var(--green)'
-                    : p.status === 'in_progress'
+                    : p.status === 'in_progress' && isStreaming
                       ? 'var(--blue)'
                       : 'var(--text-3)',
               }}
             >
               {p.status === 'completed' ? (
                 <CheckCircle2 size={12} />
-              ) : p.status === 'in_progress' ? (
+              ) : p.status === 'in_progress' && isStreaming ? (
                 <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} />
               ) : (
                 <Circle size={12} />

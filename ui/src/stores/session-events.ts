@@ -207,6 +207,11 @@ export function mergeCapabilities(current: SessionCapabilities, incoming: Sessio
   }
 }
 
+export function finalizePlanOnTurnDone(plan: PlanEntry[], stopReason?: string): PlanEntry[] {
+  if (stopReason && stopReason !== 'end_turn') return plan
+  return plan.map((entry) => entry.status === 'in_progress' ? { ...entry, status: 'completed' } : entry)
+}
+
 function parsePayload(event: SessionEventData): Record<string, unknown> {
   try { return JSON.parse(event.payload_json) as Record<string, unknown> } catch { return {} }
 }
@@ -424,6 +429,7 @@ function applyEvent(state: ReducedSessionEvents, event: SessionEventData): Reduc
     case 'message.done': {
       if (streaming) streaming.done = true
       if (payload.turnUsage) state = { ...state, turnUsage: payload.turnUsage as TurnUsageInfo }
+      state = { ...state, plan: finalizePlanOnTurnDone(state.plan, payload.stopReason as string | undefined) }
       break
     }
     case 'usage.update':
