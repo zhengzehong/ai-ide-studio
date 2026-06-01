@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { wsClient } from '../services/ws-client'
 import {
+  buildChatTimelineFromEvents,
   buildCompletedAgentMessage,
   capabilitiesFromConfig,
   defaultCaps,
@@ -12,6 +13,9 @@ import {
   reduceSessionEvents,
   shouldShowLifecycleStage,
   type AvailableCommandInfo,
+  type ChatTimelineItem,
+  type ChatTimelineMessageItem,
+  type ChatTimelineToolItem,
   type ConfigOptionInfo,
   type ElicitationRequestInfo,
   type ImageAttachmentInfo,
@@ -30,6 +34,9 @@ import {
 
 export type {
   AvailableCommandInfo,
+  ChatTimelineItem,
+  ChatTimelineMessageItem,
+  ChatTimelineToolItem,
   ConfigOptionInfo,
   ElicitationRequestInfo,
   ImageAttachmentInfo,
@@ -44,6 +51,8 @@ export type {
   TurnUsageInfo,
   UsageInfo,
 }
+
+export { buildChatTimelineFromEvents }
 
 export interface SessionData {
   id: string; agent_id: string; task_id: string | null; acp_session_id: string | null

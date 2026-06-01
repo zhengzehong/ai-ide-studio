@@ -46,6 +46,29 @@ export interface StreamingMessage {
   id: string; role: 'agent'; content: string; thinking: string; toolCalls: ToolCallInfo[]; done: boolean; stage?: string
 }
 
+export interface ChatTimelineMessageItem {
+  id: string
+  kind: 'message'
+  role: 'human' | 'agent' | 'system'
+  content: string
+  thinking?: string | null
+  attachments?: ImageAttachmentInfo[]
+  timestamp: string
+  messageId?: string | null
+  turnStats?: TurnUsageInfo
+}
+
+export interface ChatTimelineToolItem {
+  id: string
+  kind: 'tool'
+  role: 'agent'
+  toolCall: ToolCallInfo
+  timestamp: string
+  messageId?: string | null
+}
+
+export type ChatTimelineItem = ChatTimelineMessageItem | ChatTimelineToolItem
+
 export interface SessionEventData {
   id: string
   session_id: string
@@ -186,6 +209,143 @@ export function mergeCapabilities(current: SessionCapabilities, incoming: Sessio
 
 function parsePayload(event: SessionEventData): Record<string, unknown> {
   try { return JSON.parse(event.payload_json) as Record<string, unknown> } catch { return {} }
+}
+
+interface PendingTimelineMessage {
+  role: 'agent' | 'system'
+  messageId: string | null
+  content: string
+  thinking: string
+  startSequence: number
+  timestamp: string
+}
+
+function emptyPendingTimelineMessage(event: SessionEventData, role: 'agent' | 'system', messageId: string | null): PendingTimelineMessage {
+  return {
+    role,
+    messageId,
+    content: '',
+    thinking: '',
+    startSequence: event.sequence,
+    timestamp: event.created_at,
+  }
+}
+
+function hasPendingTimelineContent(pending: PendingTimelineMessage | null): pending is PendingTimelineMessage {
+  return !!pending && (!!pending.content || !!pending.thinking)
+}
+
+function flushPendingTimelineMessage(items: ChatTimelineItem[], pending: PendingTimelineMessage | null): PendingTimelineMessage | null {
+  if (!hasPendingTimelineContent(pending)) return null
+  items.push({
+    id: `timeline-msg-${pending.messageId || 'unknown'}-${pending.startSequence}`,
+    kind: 'message',
+    role: pending.role,
+    content: pending.content,
+    thinking: pending.thinking || null,
+    timestamp: pending.timestamp,
+    messageId: pending.messageId,
+  })
+  return null
+}
+
+function payloadMessageId(event: SessionEventData, payload: Record<string, unknown>): string | null {
+  const messageId = payload.messageId ?? event.message_id
+  return messageId == null ? null : String(messageId)
+}
+
+export function buildChatTimelineFromEvents(events: SessionEventData[]): ChatTimelineItem[] {
+  const items: ChatTimelineItem[] = []
+  const toolIndexById = new Map<string, number>()
+  let pending: PendingTimelineMessage | null = null
+
+  const ensurePending = (event: SessionEventData, role: 'agent' | 'system', messageId: string | null) => {
+    if (!pending || pending.role !== role || pending.messageId !== messageId) {
+      pending = flushPendingTimelineMessage(items, pending)
+      pending = emptyPendingTimelineMessage(event, role, messageId)
+    }
+    return pending
+  }
+
+  for (const event of [...events].sort((a, b) => a.sequence - b.sequence)) {
+    const payload = parsePayload(event)
+    const messageId = payloadMessageId(event, payload)
+
+    switch (event.type) {
+      case 'message.user': {
+        pending = flushPendingTimelineMessage(items, pending)
+        items.push({
+          id: `timeline-user-${messageId || event.id}`,
+          kind: 'message',
+          role: 'human',
+          content: String(payload.content || ''),
+          attachments: (payload.attachments as ImageAttachmentInfo[]) || [],
+          timestamp: event.created_at,
+          messageId,
+        })
+        break
+      }
+      case 'message.chunk': {
+        if (payload.role !== 'agent') break
+        const msg = ensurePending(event, 'agent', messageId)
+        msg.content += String(payload.contentDelta || payload.content || '')
+        break
+      }
+      case 'thinking.chunk': {
+        const msg = ensurePending(event, 'agent', messageId)
+        msg.thinking += String(payload.thinking || '')
+        break
+      }
+      case 'tool.call': {
+        pending = flushPendingTimelineMessage(items, pending)
+        const toolCall = payload.toolCall as ToolCallInfo | undefined
+        if (!toolCall?.id) break
+        toolIndexById.set(toolCall.id, items.length)
+        items.push({
+          id: `timeline-tool-${toolCall.id}-${event.sequence}`,
+          kind: 'tool',
+          role: 'agent',
+          toolCall,
+          timestamp: event.created_at,
+          messageId,
+        })
+        break
+      }
+      case 'tool.update': {
+        const update = payload.toolCall as ToolCallInfo | undefined
+        if (!update?.id) break
+        const index = toolIndexById.get(update.id)
+        if (index == null) {
+          if (!shouldCreateToolFromUpdate(update)) break
+          pending = flushPendingTimelineMessage(items, pending)
+          toolIndexById.set(update.id, items.length)
+          items.push({
+            id: `timeline-tool-${update.id}-${event.sequence}`,
+            kind: 'tool',
+            role: 'agent',
+            toolCall: update,
+            timestamp: event.created_at,
+            messageId,
+          })
+          break
+        }
+        const item = items[index]
+        if (item?.kind === 'tool') item.toolCall = mergeToolCall(item.toolCall, update)
+        break
+      }
+      case 'message.done': {
+        pending = flushPendingTimelineMessage(items, pending)
+        if (payload.turnUsage) {
+          const lastMessage = [...items].reverse().find((item): item is ChatTimelineMessageItem => item.kind === 'message' && item.role === 'agent')
+          if (lastMessage) lastMessage.turnStats = payload.turnUsage as TurnUsageInfo
+        }
+        break
+      }
+    }
+  }
+
+  flushPendingTimelineMessage(items, pending)
+  return items
 }
 
 const visibleLifecycleEvents = new Set([

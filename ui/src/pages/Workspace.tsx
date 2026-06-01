@@ -7,6 +7,8 @@ import {
   type ChangeEvent,
   useMemo,
   type MouseEvent,
+  type DragEvent,
+  type ClipboardEvent,
 } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -37,7 +39,9 @@ import {
 } from 'lucide-react'
 import { useAgentStore, type AgentData } from '../stores/agent.store'
 import {
+  buildChatTimelineFromEvents,
   useSessionStore,
+  type ChatTimelineItem,
   type ElicitationRequestInfo,
   type ImageAttachmentInfo,
   type PermissionRequestInfo,
@@ -88,6 +92,7 @@ export default function Workspace() {
   const sessions = useSessionStore((s) => s.sessions)
   const currentSessionId = useSessionStore((s) => s.currentSessionId)
   const messages = useSessionStore((s) => s.messages)
+  const events = useSessionStore((s) => s.events)
   const streamingMessage = useSessionStore((s) => s.streamingMessage)
   const usage = useSessionStore((s) => s.usage)
   const capabilities = useSessionStore((s) => s.capabilities)
@@ -134,6 +139,7 @@ export default function Workspace() {
   const [inputValue, setInputValue] = useState('')
   const [showNewTask, setShowNewTask] = useState(false)
   const [pendingImages, setPendingImages] = useState<{ data: string; mimeType: string; preview: string }[]>([])
+  const [draggingImages, setDraggingImages] = useState(false)
   const [showModelMenu, setShowModelMenu] = useState(false)
   const [showModeMenu, setShowModeMenu] = useState(false)
   const [showConfigMenu, setShowConfigMenu] = useState<string | null>(null)
@@ -146,6 +152,7 @@ export default function Workspace() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const prevMsgCount = useRef(0)
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingImagePreviewsRef = useRef<string[]>([])
 
   const projectAgents = useMemo(() => filterAgentsByProject(agents, currentProjectId), [agents, currentProjectId])
   const projectSessions = useMemo(
@@ -185,6 +192,14 @@ export default function Workspace() {
     ])
   }, [streamingMessage])
   const shouldScrollStreaming = !!streamingMessage && !streamingMessage.done
+  const timelineItems = useMemo(() => buildChatTimelineFromEvents(events), [events])
+  const useEventTimeline = timelineItems.length > 0
+  const timelineFallbackMessages = useMemo(() => {
+    const firstTimelineAt = timelineItems[0]?.timestamp
+    if (!firstTimelineAt || events.length < 1000) return []
+    const firstTimelineTime = new Date(firstTimelineAt).getTime()
+    return messages.filter((msg) => new Date(msg.timestamp).getTime() < firstTimelineTime)
+  }, [events.length, messages, timelineItems])
 
   useEffect(() => {
     if (messages.length !== prevMsgCount.current) {
@@ -202,6 +217,10 @@ export default function Workspace() {
       if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current)
     }
   }, [shouldScrollStreaming, streamingScrollSignature, scrollToBottom])
+  useEffect(() => {
+    pendingImagePreviewsRef.current = pendingImages.map((img) => img.preview)
+  }, [pendingImages])
+  useEffect(() => () => pendingImagePreviewsRef.current.forEach((preview) => URL.revokeObjectURL(preview)), [])
 
   const autoResize = () => {
     const el = textareaRef.current
@@ -272,13 +291,14 @@ export default function Workspace() {
 
   const handleSend = () => {
     const v = inputValue.trim()
-    if (!v || !currentSessionId) return
+    const hasImages = pendingImages.length > 0
+    if ((!v && !hasImages) || !currentSessionId || !connected || blockingInteraction) return
     sendPrompt(
       v,
-      pendingImages.length > 0 ? pendingImages.map((i) => ({ data: i.data, mimeType: i.mimeType })) : undefined,
+      hasImages ? pendingImages.map((i) => ({ data: i.data, mimeType: i.mimeType })) : undefined,
     )
     setInputValue('')
-    setPendingImages([])
+    clearPendingImages()
     requestAnimationFrame(() => {
       if (textareaRef.current) {
         textareaRef.current.style.height = 'auto'
@@ -294,8 +314,24 @@ export default function Workspace() {
   }
   const handleImageUpload = (e: ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
-    if (!files) return
-    Array.from(files).forEach((file) => {
+    if (files) addImageFiles(Array.from(files))
+    e.target.value = ''
+  }
+  const clearPendingImages = () => {
+    setPendingImages((prev) => {
+      prev.forEach((img) => URL.revokeObjectURL(img.preview))
+      return []
+    })
+  }
+  const removePendingImage = (index: number) => {
+    setPendingImages((prev) => {
+      const removed = prev[index]
+      if (removed) URL.revokeObjectURL(removed.preview)
+      return prev.filter((_, i) => i !== index)
+    })
+  }
+  const addImageFiles = (files: File[]) => {
+    files.filter((file) => file.type.startsWith('image/')).forEach((file) => {
       const reader = new FileReader()
       reader.onload = () =>
         setPendingImages((prev) => [
@@ -304,7 +340,28 @@ export default function Workspace() {
         ])
       reader.readAsDataURL(file)
     })
-    e.target.value = ''
+  }
+  const handlePaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = Array.from(e.clipboardData.files).filter((file) => file.type.startsWith('image/'))
+    if (files.length === 0) return
+    e.preventDefault()
+    addImageFiles(files)
+  }
+  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
+    const files = Array.from(e.dataTransfer.files).filter((file) => file.type.startsWith('image/'))
+    setDraggingImages(false)
+    if (files.length === 0) return
+    e.preventDefault()
+    addImageFiles(files)
+  }
+  const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
+    if (Array.from(e.dataTransfer.items).some((item) => item.type.startsWith('image/'))) {
+      e.preventDefault()
+      setDraggingImages(true)
+    }
+  }
+  const handleDragLeave = (e: DragEvent<HTMLDivElement>) => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDraggingImages(false)
   }
 
   const openMenu = (name: MenuName, e: MouseEvent<HTMLButtonElement>) => {
@@ -318,6 +375,7 @@ export default function Workspace() {
   }
 
   const blockingInteraction = pendingPermissions.length > 0 || pendingElicitations.length > 0
+  const canSendPrompt = !!currentSessionId && connected && !blockingInteraction && (!!inputValue.trim() || pendingImages.length > 0)
   const pendingInteractionId = pendingPermissions[0]?.id || pendingElicitations[0]?.id || ''
   const isStreaming = !!(streamingMessage && !streamingMessage.done)
   const streamingBubble = isStreaming
@@ -332,6 +390,10 @@ export default function Workspace() {
         streaming: true as const,
       }
     : null
+  const showStreamingBubble = !!streamingBubble && (
+    !useEventTimeline ||
+    !!(streamingBubble.stage && !streamingBubble.content && !streamingBubble.thinking && streamingBubble.toolCalls.length === 0)
+  )
   const interactionPanel = blockingInteraction ? (
     <InteractionPanel
       permission={pendingPermissions[0]}
@@ -775,15 +837,26 @@ export default function Workspace() {
             </div>
           ) : (
             <div style={{ padding: '20px 20px 100px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-              {messages.length === 0 && !streamingBubble && !blockingInteraction && (
+              {messages.length === 0 && timelineItems.length === 0 && !showStreamingBubble && !blockingInteraction && (
                 <div style={{ textAlign: 'center', color: 'var(--text-3)', padding: '48px 0' }}>
                   暂无消息，开始对话吧
                 </div>
               )}
-              {messages.map((msg) => (
-                <ChatBubble key={msg.id} message={msg} agent={selectedAgent} isStreaming={false} />
-              ))}
-              {streamingBubble && (
+              {useEventTimeline
+                ? (
+                    <>
+                      {timelineFallbackMessages.map((msg) => (
+                        <ChatBubble key={msg.id} message={msg} agent={selectedAgent} isStreaming={false} />
+                      ))}
+                      {timelineItems.map((item) => (
+                        <ChatBubble key={item.id} item={item} agent={selectedAgent} isStreaming={false} />
+                      ))}
+                    </>
+                  )
+                : messages.map((msg) => (
+                    <ChatBubble key={msg.id} message={msg} agent={selectedAgent} isStreaming={false} />
+                  ))}
+              {showStreamingBubble && streamingBubble && (
                 <ChatBubble
                   key="streaming"
                   message={streamingBubble}
@@ -792,7 +865,7 @@ export default function Workspace() {
                   footer={interactionPanel}
                 />
               )}
-              {blockingInteraction && !streamingBubble && (
+              {blockingInteraction && !showStreamingBubble && (
                 <BlockingInteractionBar agent={selectedAgent} panel={interactionPanel} />
               )}
               <div ref={chatEndRef} />
@@ -820,7 +893,7 @@ export default function Workspace() {
                   <img src={img.preview} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                   <button
                     type="button"
-                    onClick={() => setPendingImages((p) => p.filter((_, j) => j !== i))}
+                  onClick={() => removePendingImage(i)}
                     style={{
                       position: 'absolute',
                       top: 2,
@@ -846,11 +919,14 @@ export default function Workspace() {
           )}
 
           <div
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
             style={{
-              border: '1px solid var(--border)',
+              border: draggingImages ? '1px solid var(--blue)' : '1px solid var(--border)',
               borderRadius: 12,
-              background: 'var(--bg-0)',
-              boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+              background: draggingImages ? 'var(--blue-light)' : 'var(--bg-0)',
+              boxShadow: draggingImages ? '0 0 0 3px rgba(37,99,235,0.12)' : '0 1px 4px rgba(0,0,0,0.06)',
               overflow: 'hidden',
               opacity: currentSessionId ? 1 : 0.5,
             }}
@@ -864,6 +940,7 @@ export default function Workspace() {
                 autoResize()
               }}
               onKeyDown={handleKeyDown}
+              onPaste={handlePaste}
               placeholder={
                 blockingInteraction ? '等待你确认后继续...' : currentSessionId ? '输入消息...' : '先选择一个 Session'
               }
@@ -1040,15 +1117,14 @@ export default function Workspace() {
                 <button
                   type="button"
                   onClick={handleSend}
-                  disabled={!currentSessionId || !connected || blockingInteraction || !inputValue.trim()}
+                  disabled={!canSendPrompt}
                   style={{
                     width: 32,
                     height: 32,
                     borderRadius: '50%',
                     border: 'none',
-                    cursor: currentSessionId && !blockingInteraction && inputValue.trim() ? 'pointer' : 'default',
-                    background:
-                      currentSessionId && !blockingInteraction && inputValue.trim() ? 'var(--text-1)' : 'var(--bg-3)',
+                    cursor: canSendPrompt ? 'pointer' : 'default',
+                    background: canSendPrompt ? 'var(--text-1)' : 'var(--bg-3)',
                     color: 'white',
                     display: 'flex',
                     alignItems: 'center',
@@ -2418,6 +2494,7 @@ type ChatMsg = {
   timestamp?: string
   streaming?: boolean
 }
+type ChatBubbleInput = ChatMsg | ChatTimelineItem
 
 interface TurnStats {
   inputTokens: number
@@ -2438,55 +2515,76 @@ const statChipStyle: React.CSSProperties = {
   gap: 3,
 }
 
+function parseJsonArray<T>(raw?: string | null): T[] {
+  if (!raw) return []
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return []
+  }
+}
+
+function parseJsonObject<T>(raw: string): T | null {
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return null
+  }
+}
+
 function ChatBubble({
   message,
+  item,
   agent,
   isStreaming,
   footer,
 }: {
-  message: ChatMsg
+  message?: ChatMsg
+  item?: ChatTimelineItem
   agent: AgentData | undefined
   isStreaming: boolean
   footer?: React.ReactNode
 }) {
-  const defaultThinkingOpen = !!(isStreaming && message.thinking)
+  const normalizedMessage: ChatBubbleInput = item || message || { id: 'empty', role: 'system', content: '' }
+  const isTimelineItem = 'kind' in normalizedMessage
+  const role = normalizedMessage.role
+  const timestamp = normalizedMessage.timestamp
+  let content = ''
+  let thinking: string | null | undefined = null
+  let streaming = false
+  let stage: string | undefined
+  let toolCalls: ToolCallInfo[] = []
+  let turnStats: TurnStats | null = null
+  let attachments: ImageAttachmentInfo[] = []
+
+  if (isTimelineItem) {
+    if (normalizedMessage.kind === 'tool') {
+      toolCalls = [normalizedMessage.toolCall]
+    } else {
+      content = normalizedMessage.content
+      thinking = normalizedMessage.thinking
+      turnStats = normalizedMessage.turnStats || null
+      attachments = normalizedMessage.attachments || []
+    }
+  } else {
+    content = normalizedMessage.content
+    thinking = normalizedMessage.thinking
+    streaming = normalizedMessage.streaming || false
+    stage = normalizedMessage.stage
+    toolCalls = normalizedMessage.toolCalls || parseJsonArray<ToolCallInfo>(normalizedMessage.tool_calls_json)
+    attachments = parseJsonArray<ImageAttachmentInfo>(normalizedMessage.attachments_json)
+    turnStats = normalizedMessage.decision_json ? parseJsonObject<TurnStats>(normalizedMessage.decision_json) : null
+  }
+
+  const defaultThinkingOpen = !!(isStreaming && thinking)
   const [thinkingOpenOverride, setThinkingOpenOverride] = useState<'open' | 'closed' | null>(null)
   const thinkingOpen = thinkingOpenOverride === 'open' || (thinkingOpenOverride !== 'closed' && defaultThinkingOpen)
   const toggleThinkingOpen = () =>
     setThinkingOpenOverride(thinkingOpen ? 'closed' : defaultThinkingOpen ? null : 'open')
-  const isHuman = message.role === 'human'
-  const toolCalls: ToolCallInfo[] =
-    message.toolCalls ||
-    (message.tool_calls_json
-      ? (() => {
-          try {
-            return JSON.parse(message.tool_calls_json)
-          } catch {
-            return []
-          }
-        })()
-      : [])
-  const turnStats: TurnStats | null =
-    !isHuman && message.decision_json
-      ? (() => {
-          try {
-            return JSON.parse(message.decision_json)
-          } catch {
-            return null
-          }
-        })()
-      : null
-  const attachments: ImageAttachmentInfo[] = message.attachments_json
-    ? (() => {
-        try {
-          return JSON.parse(message.attachments_json)
-        } catch {
-          return []
-        }
-      })()
-    : []
-  const hasBody = !!message.content || !!message.thinking || attachments.length > 0 || toolCalls.length > 0 || !!footer
-  const streamingLabel = message.stage || '生成中'
+  const isHuman = role === 'human'
+  if (isHuman) turnStats = null
+  const hasBody = !!content || !!thinking || attachments.length > 0 || toolCalls.length > 0 || !!footer
+  const streamingLabel = stage || '生成中'
 
   return (
     <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', flexDirection: isHuman ? 'row-reverse' : 'row' }}>
@@ -2515,10 +2613,10 @@ function ChatBubble({
           }}
         >
           <span style={{ fontSize: 12, fontWeight: 600 }}>{isHuman ? '你' : agent?.name || 'Agent'}</span>
-          {message.timestamp && (
-            <span style={{ fontSize: 10, color: 'var(--text-3)' }}>{formatTime(message.timestamp)}</span>
+          {timestamp && (
+            <span style={{ fontSize: 10, color: 'var(--text-3)' }}>{formatTime(timestamp)}</span>
           )}
-          {message.streaming && (
+          {streaming && (
             <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: 'var(--blue)' }}>
               <Loader2 size={10} style={{ animation: 'spin 1s linear infinite' }} /> {streamingLabel}
             </span>
@@ -2536,7 +2634,7 @@ function ChatBubble({
               overflow: 'hidden',
             }}
           >
-            {message.thinking && (
+            {thinking && (
               <div style={{ marginBottom: 8, borderRadius: 6, border: '1px solid var(--border)', overflow: 'hidden' }}>
                 <button
                   type="button"
@@ -2573,7 +2671,7 @@ function ChatBubble({
                       overflowWrap: 'anywhere',
                     }}
                   >
-                    {message.thinking}
+                    {thinking}
                   </div>
                 )}
               </div>
@@ -2603,7 +2701,7 @@ function ChatBubble({
                 ))}
               </div>
             )}
-            {message.content && <MarkdownRenderer content={message.content || ''} />}
+            {content && <MarkdownRenderer content={content || ''} />}
             {footer && <div style={{ marginTop: 10 }}>{footer}</div>}
           </div>
         )}
