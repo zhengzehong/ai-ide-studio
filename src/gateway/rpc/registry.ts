@@ -9,6 +9,7 @@ import { skillRpcHandlers } from './skills.js'
 import { subscriptionRpcHandlers } from './subscriptions.js'
 import { taskRpcHandlers } from './tasks.js'
 import { templateRpcHandlers } from './templates.js'
+import { teamRpcHandlers } from './teams.js'
 import { toolRpcHandlers } from './tools.js'
 import type { RpcContext, RpcHandlerMap } from './types.js'
 
@@ -20,6 +21,7 @@ const rpcHandlers: RpcHandlerMap = {
   ...ruleRpcHandlers,
   ...projectRpcHandlers,
   ...templateRpcHandlers,
+  ...teamRpcHandlers,
   ...toolRpcHandlers,
   ...filesystemRpcHandlers,
   ...modelRpcHandlers,

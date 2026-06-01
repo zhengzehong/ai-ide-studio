@@ -62,10 +62,14 @@ export const toolStore = {
       created_at: now,
       updated_at: now,
     }
-    getDb().prepare(`
+    getDb()
+      .prepare(
+        `
       INSERT INTO tools (id, name, display_name, description, category, type, config_json, input_schema_json, permissions_json, enabled, is_builtin, created_at, updated_at)
       VALUES (@id, @name, @display_name, @description, @category, @type, @config_json, @input_schema_json, @permissions_json, @enabled, @is_builtin, @created_at, @updated_at)
-    `).run(row)
+    `,
+      )
+      .run(row)
     log.info({ toolId: row.id, name: row.name, type: row.type }, '工具已注册')
     return row
   },
@@ -97,17 +101,23 @@ export const toolStore = {
       permissions_json: fields.permissions ? JSON.stringify(fields.permissions) : tool.permissions_json,
       updated_at: new Date().toISOString(),
     }
-    getDb().prepare(`
+    getDb()
+      .prepare(
+        `
       UPDATE tools SET display_name=@display_name, description=@description, category=@category,
         type=@type, config_json=@config_json, input_schema_json=@input_schema_json,
         permissions_json=@permissions_json, updated_at=@updated_at
       WHERE id=@id
-    `).run(updated)
+    `,
+      )
+      .run(updated)
     return updated
   },
 
   toggle(id: string, enabled: boolean): void {
-    getDb().prepare('UPDATE tools SET enabled=?, updated_at=? WHERE id=?').run(enabled ? 1 : 0, new Date().toISOString(), id)
+    getDb()
+      .prepare('UPDATE tools SET enabled=?, updated_at=? WHERE id=?')
+      .run(enabled ? 1 : 0, new Date().toISOString(), id)
   },
 
   delete(id: string): void {
@@ -118,17 +128,38 @@ export const toolStore = {
 }
 
 export const toolBindingStore = {
-  set(toolId: string, scope: BindingScope, targetId: string | null, configOverride?: Record<string, unknown>): ToolBindingRow {
-    const existing = getDb().prepare<[string, string, string | null], ToolBindingRow>(
-      'SELECT * FROM tool_bindings WHERE tool_id=? AND scope=? AND target_id IS ?',
-    ).get(toolId, scope, targetId)
+  set(
+    toolId: string,
+    scope: BindingScope,
+    targetId: string | null,
+    configOverride?: Record<string, unknown>,
+  ): ToolBindingRow {
+    return toolBindingStore.setEnabled(toolId, scope, targetId, true, configOverride)
+  },
+
+  setEnabled(
+    toolId: string,
+    scope: BindingScope,
+    targetId: string | null,
+    enabled: boolean,
+    configOverride?: Record<string, unknown>,
+  ): ToolBindingRow {
+    const existing = getDb()
+      .prepare<
+        [string, string, string | null],
+        ToolBindingRow
+      >('SELECT * FROM tool_bindings WHERE tool_id=? AND scope=? AND target_id IS ?')
+      .get(toolId, scope, targetId)
 
     if (existing) {
-      getDb().prepare('UPDATE tool_bindings SET enabled=1, config_override_json=? WHERE id=?').run(
-        configOverride ? JSON.stringify(configOverride) : null,
-        existing.id,
-      )
-      return { ...existing, enabled: 1, config_override_json: configOverride ? JSON.stringify(configOverride) : null }
+      getDb()
+        .prepare('UPDATE tool_bindings SET enabled=?, config_override_json=? WHERE id=?')
+        .run(enabled ? 1 : 0, configOverride ? JSON.stringify(configOverride) : null, existing.id)
+      return {
+        ...existing,
+        enabled: enabled ? 1 : 0,
+        config_override_json: configOverride ? JSON.stringify(configOverride) : null,
+      }
     }
 
     const row: ToolBindingRow = {
@@ -136,32 +167,43 @@ export const toolBindingStore = {
       tool_id: toolId,
       scope,
       target_id: targetId,
-      enabled: 1,
+      enabled: enabled ? 1 : 0,
       config_override_json: configOverride ? JSON.stringify(configOverride) : null,
       created_at: new Date().toISOString(),
     }
-    getDb().prepare(`
+    getDb()
+      .prepare(
+        `
       INSERT INTO tool_bindings (id, tool_id, scope, target_id, enabled, config_override_json, created_at)
       VALUES (@id, @tool_id, @scope, @target_id, @enabled, @config_override_json, @created_at)
-    `).run(row)
+    `,
+      )
+      .run(row)
     log.info({ bindingId: row.id, toolId, scope, targetId }, '工具绑定已创建')
     return row
   },
 
   remove(toolId: string, scope: BindingScope, targetId: string | null): void {
-    getDb().prepare('DELETE FROM tool_bindings WHERE tool_id=? AND scope=? AND target_id IS ?').run(toolId, scope, targetId)
+    getDb()
+      .prepare('DELETE FROM tool_bindings WHERE tool_id=? AND scope=? AND target_id IS ?')
+      .run(toolId, scope, targetId)
   },
 
   list(toolId?: string): ToolBindingRow[] {
     if (toolId) {
-      return getDb().prepare<[string], ToolBindingRow>('SELECT * FROM tool_bindings WHERE tool_id=? ORDER BY scope').all(toolId)
+      return getDb()
+        .prepare<[string], ToolBindingRow>('SELECT * FROM tool_bindings WHERE tool_id=? ORDER BY scope')
+        .all(toolId)
     }
     return getDb().prepare<[], ToolBindingRow>('SELECT * FROM tool_bindings ORDER BY tool_id, scope').all()
   },
 
   listByTarget(scope: BindingScope, targetId: string | null): ToolBindingRow[] {
-    return getDb().prepare<[string, string | null], ToolBindingRow>(
-      'SELECT * FROM tool_bindings WHERE scope=? AND target_id IS ? AND enabled=1',
-    ).all(scope, targetId)
+    return getDb()
+      .prepare<
+        [string, string | null],
+        ToolBindingRow
+      >('SELECT * FROM tool_bindings WHERE scope=? AND target_id IS ? AND enabled=1')
+      .all(scope, targetId)
   },
 }

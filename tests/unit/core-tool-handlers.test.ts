@@ -41,11 +41,15 @@ describe('core MCP tool handlers', () => {
   test('creates custom agents in the current project when projectId is omitted', async () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
 
-    const created = await executeJson('core.agent.create', { name: 'Dev', type: 'dev', runtime: 'mock' }, { projectId: project.id })
+    const created = await executeJson(
+      'core.agent.create',
+      { name: 'Dev', type: 'dev', runtime: 'mock' },
+      { projectId: project.id },
+    )
     expect(asRecord(created.agent)).toMatchObject({ name: 'Dev', type: 'dev', runtime: 'mock', project_id: project.id })
 
     const listed = await executeJson('core.agent.list', {}, { projectId: project.id })
-    expect(asRecords(listed.agents).map(agent => agent.id)).toEqual([asRecord(created.agent).id])
+    expect(asRecords(listed.agents).map((agent) => agent.id)).toEqual([asRecord(created.agent).id])
 
     const got = await executeJson('core.agent.get', { agentId: asRecord(created.agent).id })
     expect(asRecord(got.agent).id).toBe(asRecord(created.agent).id)
@@ -53,11 +57,22 @@ describe('core MCP tool handlers', () => {
 
   test('creates agents from templates', async () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
-    const template = templateStore.create({ name: '模板工程师', type: 'dev', runtime: 'mock', systemPrompt: '按规范工作' })
+    const template = templateStore.create({
+      name: '模板工程师',
+      type: 'dev',
+      runtime: 'mock',
+      systemPrompt: '按规范工作',
+    })
 
     const created = await executeJson('core.agent.create', { templateId: template.id }, { projectId: project.id })
 
-    expect(asRecord(created.agent)).toMatchObject({ name: '模板工程师', type: 'dev', runtime: 'mock', project_id: project.id, template_id: template.id })
+    expect(asRecord(created.agent)).toMatchObject({
+      name: '模板工程师',
+      type: 'dev',
+      runtime: 'mock',
+      project_id: project.id,
+      template_id: template.id,
+    })
   })
 
   test('creates, lists, and gets sessions through the session manager', async () => {
@@ -66,10 +81,15 @@ describe('core MCP tool handlers', () => {
 
     try {
       const created = await executeJson('core.session.create', { agentId: agent.id }, { projectId: project.id })
-      expect(asRecord(created.session)).toMatchObject({ agent_id: agent.id, project_id: project.id, status: 'active', acp_session_id: null })
+      expect(asRecord(created.session)).toMatchObject({
+        agent_id: agent.id,
+        project_id: project.id,
+        status: 'active',
+        acp_session_id: null,
+      })
 
       const listed = await executeJson('core.session.list', {}, { projectId: project.id })
-      expect(asRecords(listed.sessions).map(session => session.id)).toEqual([asRecord(created.session).id])
+      expect(asRecords(listed.sessions).map((session) => session.id)).toEqual([asRecord(created.session).id])
 
       const got = await executeJson('core.session.get', { sessionId: asRecord(created.session).id })
       expect(asRecord(got.session).id).toBe(asRecord(created.session).id)
@@ -77,7 +97,6 @@ describe('core MCP tool handlers', () => {
       acpHost.agents.delete(agent.id)
     }
   })
-
 
   test('legacy create_task keeps the old response shape', async () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
@@ -90,23 +109,64 @@ describe('core MCP tool handlers', () => {
     expect(typeof created.taskId).toBe('string')
   })
 
-  test('task tools use explicit projectId before context projectId', async () => {
+  test('project-scoped tools use context projectId before model-provided projectId', async () => {
     const projectA = projectStore.create({ name: 'A', workDir: resolve(tmp, 'a') })
     const projectB = projectStore.create({ name: 'B', workDir: resolve(tmp, 'b') })
     taskStore.create({ title: 'A task', source: 'human', projectId: projectA.id })
+    taskStore.create({ title: 'B task', source: 'human', projectId: projectB.id })
 
-    const created = await executeJson('core.task.create', { title: 'B task', projectId: projectB.id }, { projectId: projectA.id })
-    expect(asRecord(created.task).project_id).toBe(projectB.id)
+    const agent = await executeJson(
+      'core.agent.create',
+      { name: 'Dev', type: 'dev', runtime: 'mock', projectId: projectB.id },
+      { projectId: projectA.id },
+    )
+    expect(asRecord(agent.agent).project_id).toBe(projectA.id)
 
-    const listedA = await executeJson('core.task.list', {}, { projectId: projectA.id })
-    expect(asRecords(listedA.tasks).map(task => task.title)).toEqual(['A task'])
+    const created = await executeJson(
+      'core.task.create',
+      { title: 'Context task', projectId: projectB.id },
+      { projectId: projectA.id },
+    )
+    expect(asRecord(created.task).project_id).toBe(projectA.id)
 
-    const listedB = await executeJson('core.task.list', { projectId: projectB.id }, { projectId: projectA.id })
-    expect(asRecords(listedB.tasks).map(task => task.title)).toEqual(['B task'])
+    const listed = await executeJson('core.task.list', { projectId: projectB.id }, { projectId: projectA.id })
+    expect(asRecords(listed.tasks).map((task) => task.title)).toEqual(['A task', 'Context task'])
+  })
+
+  test('core.session.create rejects target agents outside the current project', async () => {
+    const projectA = projectStore.create({ name: 'A', workDir: resolve(tmp, 'a') })
+    const projectB = projectStore.create({ name: 'B', workDir: resolve(tmp, 'b') })
+    const agentB = agentStore.create({ name: 'Other', type: 'dev', runtime: 'mock', projectId: projectB.id })
+    const handler = getHandler('core.session.create')
+    if (!handler) throw new Error('handler missing: core.session.create')
+
+    await expect(
+      handler.execute({ agentId: agentB.id, projectId: projectB.id }, { projectId: projectA.id }),
+    ).rejects.toThrow('Project')
+  })
+
+  test('core.task.create rejects assigned agents outside the current project before creating task rows', async () => {
+    const projectA = projectStore.create({ name: 'A', workDir: resolve(tmp, 'a') })
+    const projectB = projectStore.create({ name: 'B', workDir: resolve(tmp, 'b') })
+    const agentB = agentStore.create({ name: 'Other', type: 'dev', runtime: 'mock', projectId: projectB.id })
+    const handler = getHandler('core.task.create')
+    if (!handler) throw new Error('handler missing: core.task.create')
+
+    await expect(
+      handler.execute(
+        { title: 'Cross project', assignAgentId: agentB.id, projectId: projectB.id },
+        { projectId: projectA.id },
+      ),
+    ).rejects.toThrow('Project')
+    expect(taskStore.list(undefined, projectA.id)).toHaveLength(0)
   })
 })
 
-async function executeJson(handlerName: string, input: Record<string, unknown>, context: ToolContext = {}): Promise<Record<string, unknown>> {
+async function executeJson(
+  handlerName: string,
+  input: Record<string, unknown>,
+  context: ToolContext = {},
+): Promise<Record<string, unknown>> {
   const handler = getHandler(handlerName)
   if (!handler) throw new Error(`handler missing: ${handlerName}`)
   const result: ToolHandlerResult = await handler.execute(input, context)

@@ -29,7 +29,11 @@ const CORE_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
     category: 'data',
     type: 'builtin',
     config: { handler: 'core.project.get' },
-    inputSchema: { type: 'object', properties: { projectId: { type: 'string', description: '项目 ID' } }, required: ['projectId'] },
+    inputSchema: {
+      type: 'object',
+      properties: { projectId: { type: 'string', description: '项目 ID' } },
+      required: ['projectId'],
+    },
     permissions: CORE_PERMISSIONS,
     isBuiltin: true,
     defaultScope: 'global',
@@ -73,7 +77,11 @@ const CORE_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
     category: 'data',
     type: 'builtin',
     config: { handler: 'core.agent.get' },
-    inputSchema: { type: 'object', properties: { agentId: { type: 'string', description: 'Agent ID' } }, required: ['agentId'] },
+    inputSchema: {
+      type: 'object',
+      properties: { agentId: { type: 'string', description: 'Agent ID' } },
+      required: ['agentId'],
+    },
     permissions: CORE_PERMISSIONS,
     isBuiltin: true,
     defaultScope: 'global',
@@ -126,7 +134,11 @@ const CORE_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
     category: 'data',
     type: 'builtin',
     config: { handler: 'core.session.get' },
-    inputSchema: { type: 'object', properties: { sessionId: { type: 'string', description: '会话 ID' } }, required: ['sessionId'] },
+    inputSchema: {
+      type: 'object',
+      properties: { sessionId: { type: 'string', description: '会话 ID' } },
+      required: ['sessionId'],
+    },
     permissions: CORE_PERMISSIONS,
     isBuiltin: true,
     defaultScope: 'global',
@@ -235,13 +247,11 @@ const CORE_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
   },
 ]
 
-const BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
-  ...CORE_BUILTIN_TOOLS,
-  ...TEAM_BUILTIN_TOOLS,
-]
+const BUILTIN_TOOLS: (CreateToolInput & { defaultScope?: 'global' })[] = [...CORE_BUILTIN_TOOLS, ...TEAM_BUILTIN_TOOLS]
 
 export function seedBuiltinTools(): void {
   cleanupObsoleteBuiltinTools()
+  cleanupTeamGlobalBindings()
 
   let created = 0
   let updated = 0
@@ -249,32 +259,59 @@ export function seedBuiltinTools(): void {
     const existing = toolStore.getByName(def.name)
     if (existing) {
       toolStore.update(existing.id, def)
-      toolBindingStore.set(existing.id, def.defaultScope, null)
+      if (def.defaultScope) toolBindingStore.set(existing.id, def.defaultScope, null)
       updated += 1
       continue
     }
 
     const tool = toolStore.create(def)
-    toolBindingStore.set(tool.id, def.defaultScope, null)
+    if (def.defaultScope) toolBindingStore.set(tool.id, def.defaultScope, null)
     created += 1
   }
 
   log.info({ created, updated, obsoleteRemoved: OBSOLETE_BUILTIN_TOOLS.length }, '内置工具已同步')
 }
 
-function cleanupObsoleteBuiltinTools(): void {
-  const db = getDb()
-  const rows = toolStore.list().filter(tool => tool.is_builtin === 1 && OBSOLETE_BUILTIN_TOOLS.includes(tool.name))
+function cleanupTeamGlobalBindings(): void {
+  const rows = getDb()
+    .prepare<[], { id: string }>(
+      `
+    SELECT tool_bindings.id
+    FROM tool_bindings
+    JOIN tools ON tools.id = tool_bindings.tool_id
+    WHERE tools.name LIKE 'team.%'
+      AND tool_bindings.scope = 'global'
+      AND tool_bindings.target_id IS NULL
+  `,
+    )
+    .all()
   if (rows.length === 0) return
 
-  const names = rows.map(row => row.name)
-  const ids = rows.map(row => row.id)
+  const placeholders = rows.map(() => '?').join(', ')
+  getDb()
+    .prepare(`DELETE FROM tool_bindings WHERE id IN (${placeholders})`)
+    .run(...rows.map((row) => row.id))
+  log.warn({ removed: rows.length }, 'Team 工具全局绑定已清理')
+}
+
+function cleanupObsoleteBuiltinTools(): void {
+  const db = getDb()
+  const rows = toolStore.list().filter((tool) => tool.is_builtin === 1 && OBSOLETE_BUILTIN_TOOLS.includes(tool.name))
+  if (rows.length === 0) return
+
+  const names = rows.map((row) => row.name)
+  const ids = rows.map((row) => row.id)
   const placeholders = ids.map(() => '?').join(', ')
   db.prepare(`DELETE FROM tool_bindings WHERE tool_id IN (${placeholders})`).run(...ids)
   db.prepare(`DELETE FROM tools WHERE id IN (${placeholders})`).run(...ids)
 
   const revokedAt = new Date().toISOString()
-  const contexts = db.prepare<[], { id: string; visible_tools_json: string }>('SELECT id, visible_tools_json FROM tool_contexts WHERE revoked_at IS NULL').all()
+  const contexts = db
+    .prepare<
+      [],
+      { id: string; visible_tools_json: string }
+    >('SELECT id, visible_tools_json FROM tool_contexts WHERE revoked_at IS NULL')
+    .all()
   const revoke = db.prepare('UPDATE tool_contexts SET revoked_at = ? WHERE id = ?')
   let revoked = 0
   for (const context of contexts) {
@@ -289,7 +326,7 @@ function cleanupObsoleteBuiltinTools(): void {
 function contextIncludesAnyTool(value: string, names: string[]): boolean {
   try {
     const parsed: unknown = JSON.parse(value)
-    return Array.isArray(parsed) && parsed.some(item => typeof item === 'string' && names.includes(item))
+    return Array.isArray(parsed) && parsed.some((item) => typeof item === 'string' && names.includes(item))
   } catch {
     return false
   }

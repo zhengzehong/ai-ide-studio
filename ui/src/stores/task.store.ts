@@ -12,6 +12,8 @@ export interface TaskData {
   created_at: string
   completed_at: string | null
   project_id?: string | null
+  team_id?: string | null
+  assignee_member_id?: string | null
   sessionId?: string
 }
 
@@ -33,7 +35,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     try {
       const msg: Record<string, unknown> = { type: 'tasks.list' }
       if (projectId) msg.projectId = projectId
-      const data = await wsClient.request(msg) as TaskData[]
+      const data = (await wsClient.request(msg)) as TaskData[]
       set({ tasks: data, loading: false })
     } catch {
       set({ loading: false })
@@ -45,7 +47,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     if (description) msg.description = description
     if (assignAgentId) msg.assignAgentId = assignAgentId
     if (projectId) msg.projectId = projectId
-    const task = await wsClient.request(msg) as TaskData
+    const task = (await wsClient.request(msg)) as TaskData
     set({ tasks: [task, ...get().tasks] })
     return task
   },
@@ -53,8 +55,8 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   updateTask: async (taskId, status, stage) => {
     const msg: Record<string, unknown> = { type: 'tasks.update', taskId, status }
     if (stage !== undefined) msg.stage = stage
-    const task = await wsClient.request(msg) as TaskData
-    set({ tasks: get().tasks.map(t => t.id === taskId ? { ...t, ...task } : t) })
+    const task = (await wsClient.request(msg)) as TaskData
+    set({ tasks: get().tasks.map((t) => (t.id === taskId ? { ...t, ...task } : t)) })
     return task
   },
 
@@ -63,7 +65,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       const taskId = msg.taskId as string
       const data = msg.data as Record<string, unknown>
       set({
-        tasks: get().tasks.map(t => t.id === taskId ? { ...t, ...data } : t),
+        tasks: get().tasks.map((t) => (t.id === taskId ? { ...t, ...data } : t)),
       })
     })
     return off

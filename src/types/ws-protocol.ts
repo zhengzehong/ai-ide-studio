@@ -9,39 +9,198 @@ export interface ClientMessage {
   [key: string]: unknown
 }
 
-export interface SubscribeMsg extends ClientMessage { type: 'subscribe'; sessionIds: string[] }
-export interface UnsubscribeMsg extends ClientMessage { type: 'unsubscribe'; sessionIds: string[] }
-export interface PromptMsg extends ClientMessage { type: 'prompt'; sessionId: string; content: string; images?: ImageAttachment[] }
-export interface DecisionMsg extends ClientMessage { type: 'decision'; sessionId: string; messageId: string; choice: string }
-export interface PermissionDecisionMsg extends ClientMessage { type: 'permission.respond'; sessionId: string; permissionRequestId: string; optionId?: string; cancelled?: boolean }
-export interface ElicitationDecisionMsg extends ClientMessage { type: 'elicitation.respond'; sessionId: string; elicitationRequestId: string; action: 'accept' | 'decline' | 'cancel'; content?: Record<string, string | number | boolean | string[]> }
-export interface SetModelMsg extends ClientMessage { type: 'session.setModel'; sessionId: string; modelId: string }
-export interface GetModelsMsg extends ClientMessage { type: 'session.getModels'; sessionId: string }
-export interface SetConfigMsg extends ClientMessage { type: 'session.setConfig'; sessionId: string; configId: string; value: string | boolean }
-export interface SetModeMsg extends ClientMessage { type: 'session.setMode'; sessionId: string; modeId: string }
-export interface ForkSessionMsg extends ClientMessage { type: 'session.fork'; sessionId: string }
-export interface AgentsListMsg extends ClientMessage { type: 'agents.list'; projectId?: string }
-export interface AgentsCreateMsg extends ClientMessage { type: 'agents.create'; name: string; agentType: string; runtime: AgentRuntime }
-export interface AgentsDeployTemplateMsg extends ClientMessage { type: 'agents.deployTemplate'; projectId: string; templateId: string; name?: string; runtime?: AgentRuntime; systemPrompt?: string; icon?: string }
-export interface AgentsCreateCustomMsg extends ClientMessage { type: 'agents.createCustom'; projectId: string; name: string; agentType: string; runtime: AgentRuntime; systemPrompt?: string; icon?: string }
-export interface AgentsUpdateMsg extends ClientMessage { type: 'agents.update'; agentId: string; name?: string; agentType?: string; runtime?: AgentRuntime; systemPrompt?: string; icon?: string }
-export interface AgentsDeleteMsg extends ClientMessage { type: 'agents.delete'; agentId: string }
-export interface SessionsListMsg extends ClientMessage { type: 'sessions.list'; agentId?: string; projectId?: string }
-export interface SessionsCreateMsg extends ClientMessage { type: 'sessions.create'; agentId: string; taskId?: string; projectId?: string }
-export interface SessionsRenameMsg extends ClientMessage { type: 'sessions.rename'; sessionId: string; title: string }
-export interface SessionsDeleteMsg extends ClientMessage { type: 'sessions.delete'; sessionId: string }
-export interface SessionsCloseMsg extends ClientMessage { type: 'sessions.close'; sessionId: string }
-export interface SessionsArchiveMsg extends ClientMessage { type: 'sessions.archive'; sessionId: string }
-export interface SessionsMessagesMsg extends ClientMessage { type: 'sessions.messages'; sessionId: string; limit?: number; before?: string }
-export interface SessionsEventsMsg extends ClientMessage { type: 'sessions.events'; sessionId: string; limit?: number; afterSequence?: number }
-export interface TasksListMsg extends ClientMessage { type: 'tasks.list'; status?: TaskStatus; projectId?: string }
-export interface TasksCreateMsg extends ClientMessage { type: 'tasks.create'; title: string; description?: string; assignAgentId?: string; projectId?: string }
-export interface TasksUpdateMsg extends ClientMessage { type: 'tasks.update'; taskId: string; status?: TaskStatus; stage?: string }
-export interface RulesListMsg extends ClientMessage { type: 'rules.list' }
-export interface RulesCreateMsg extends ClientMessage { type: 'rules.create'; name: string; cron: string; action: string; actionConfig: { title: string; description?: string; assignAgentId?: string }; description?: string; enabled?: boolean }
-export interface RulesUpdateMsg extends ClientMessage { type: 'rules.update'; ruleId: string; name?: string; cron?: string; action?: string; actionConfig?: Record<string, unknown>; description?: string; enabled?: boolean }
-export interface RulesToggleMsg extends ClientMessage { type: 'rules.toggle'; ruleId: string; enabled: boolean }
-export interface RulesDeleteMsg extends ClientMessage { type: 'rules.delete'; ruleId: string }
+export interface SubscribeMsg extends ClientMessage {
+  type: 'subscribe'
+  sessionIds: string[]
+}
+export interface UnsubscribeMsg extends ClientMessage {
+  type: 'unsubscribe'
+  sessionIds: string[]
+}
+export interface PromptMsg extends ClientMessage {
+  type: 'prompt'
+  sessionId: string
+  content: string
+  images?: ImageAttachment[]
+}
+export interface DecisionMsg extends ClientMessage {
+  type: 'decision'
+  sessionId: string
+  messageId: string
+  choice: string
+}
+export interface PermissionDecisionMsg extends ClientMessage {
+  type: 'permission.respond'
+  sessionId: string
+  permissionRequestId: string
+  optionId?: string
+  cancelled?: boolean
+}
+export interface ElicitationDecisionMsg extends ClientMessage {
+  type: 'elicitation.respond'
+  sessionId: string
+  elicitationRequestId: string
+  action: 'accept' | 'decline' | 'cancel'
+  content?: Record<string, string | number | boolean | string[]>
+}
+export interface SetModelMsg extends ClientMessage {
+  type: 'session.setModel'
+  sessionId: string
+  modelId: string
+}
+export interface GetModelsMsg extends ClientMessage {
+  type: 'session.getModels'
+  sessionId: string
+}
+export interface SetConfigMsg extends ClientMessage {
+  type: 'session.setConfig'
+  sessionId: string
+  configId: string
+  value: string | boolean
+}
+export interface SetModeMsg extends ClientMessage {
+  type: 'session.setMode'
+  sessionId: string
+  modeId: string
+}
+export interface ForkSessionMsg extends ClientMessage {
+  type: 'session.fork'
+  sessionId: string
+}
+export interface AgentsListMsg extends ClientMessage {
+  type: 'agents.list'
+  projectId?: string
+}
+export interface AgentsCreateMsg extends ClientMessage {
+  type: 'agents.create'
+  name: string
+  agentType: string
+  runtime: AgentRuntime
+}
+export interface AgentsDeployTemplateMsg extends ClientMessage {
+  type: 'agents.deployTemplate'
+  projectId: string
+  templateId: string
+  name?: string
+  runtime?: AgentRuntime
+  systemPrompt?: string
+  icon?: string
+}
+export interface AgentsCreateCustomMsg extends ClientMessage {
+  type: 'agents.createCustom'
+  projectId: string
+  name: string
+  agentType: string
+  runtime: AgentRuntime
+  systemPrompt?: string
+  icon?: string
+}
+export interface AgentsUpdateMsg extends ClientMessage {
+  type: 'agents.update'
+  agentId: string
+  name?: string
+  agentType?: string
+  runtime?: AgentRuntime
+  systemPrompt?: string
+  icon?: string
+}
+export interface AgentsDeleteMsg extends ClientMessage {
+  type: 'agents.delete'
+  agentId: string
+}
+export interface SessionsListMsg extends ClientMessage {
+  type: 'sessions.list'
+  agentId?: string
+  projectId?: string
+}
+export interface SessionsCreateMsg extends ClientMessage {
+  type: 'sessions.create'
+  agentId: string
+  taskId?: string
+  projectId?: string
+}
+export interface SessionsRenameMsg extends ClientMessage {
+  type: 'sessions.rename'
+  sessionId: string
+  title: string
+}
+export interface SessionsDeleteMsg extends ClientMessage {
+  type: 'sessions.delete'
+  sessionId: string
+}
+export interface SessionsCloseMsg extends ClientMessage {
+  type: 'sessions.close'
+  sessionId: string
+}
+export interface SessionsArchiveMsg extends ClientMessage {
+  type: 'sessions.archive'
+  sessionId: string
+}
+export interface SessionsMessagesMsg extends ClientMessage {
+  type: 'sessions.messages'
+  sessionId: string
+  limit?: number
+  before?: string
+}
+export interface SessionsEventsMsg extends ClientMessage {
+  type: 'sessions.events'
+  sessionId: string
+  limit?: number
+  afterSequence?: number
+}
+export interface TasksListMsg extends ClientMessage {
+  type: 'tasks.list'
+  status?: TaskStatus
+  projectId?: string
+}
+export interface TasksCreateMsg extends ClientMessage {
+  type: 'tasks.create'
+  title: string
+  description?: string
+  assignAgentId?: string
+  projectId?: string
+}
+export interface TasksUpdateMsg extends ClientMessage {
+  type: 'tasks.update'
+  taskId: string
+  status?: TaskStatus
+  stage?: string
+}
+export interface TeamsCurrentMsg extends ClientMessage {
+  type: 'teams.current'
+  sessionId: string
+}
+export interface RulesListMsg extends ClientMessage {
+  type: 'rules.list'
+}
+export interface RulesCreateMsg extends ClientMessage {
+  type: 'rules.create'
+  name: string
+  cron: string
+  action: string
+  actionConfig: { title: string; description?: string; assignAgentId?: string }
+  description?: string
+  enabled?: boolean
+}
+export interface RulesUpdateMsg extends ClientMessage {
+  type: 'rules.update'
+  ruleId: string
+  name?: string
+  cron?: string
+  action?: string
+  actionConfig?: Record<string, unknown>
+  description?: string
+  enabled?: boolean
+}
+export interface RulesToggleMsg extends ClientMessage {
+  type: 'rules.toggle'
+  ruleId: string
+  enabled: boolean
+}
+export interface RulesDeleteMsg extends ClientMessage {
+  type: 'rules.delete'
+  ruleId: string
+}
 
 export interface ImageAttachment {
   data: string
@@ -206,6 +365,7 @@ export type ServerMessage =
   | { type: 'session:changed'; sessionId: string; data: Record<string, unknown> }
   | { type: 'agent:status'; agentId: string; status: AgentStatus }
   | { type: 'task:update'; taskId: string; data: Record<string, unknown> }
+  | { type: 'team:update'; teamId: string; sessionIds: string[]; data: Record<string, unknown> }
   | { type: 'rule:update'; ruleId: string; data: Record<string, unknown> }
   | { type: 'result'; requestId?: string; data: unknown }
   | { type: 'error'; requestId?: string; message: string }

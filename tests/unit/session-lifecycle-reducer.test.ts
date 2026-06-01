@@ -1,4 +1,4 @@
-﻿import { describe, expect, test } from 'vitest'
+import { describe, expect, test } from 'vitest'
 import { reduceSessionEvents } from '../../ui/src/stores/session-events.ts'
 
 function ev(sequence: number, type: string, payload: unknown) {
@@ -43,6 +43,16 @@ describe('ACP lifecycle event reducer', () => {
     const reduced = reduceSessionEvents([
       ev(1, 'lifecycle.runtime_starting', { messageId: 'life-start', role: 'system', content: '正在启动 Agent...' }),
       ev(2, 'lifecycle.runtime_stopped', { messageId: 'life-stop', role: 'system', content: '运行时已停止' }),
+    ])
+
+    expect(reduced.streamingMessage).toBeNull()
+  })
+
+
+  test('startup interrupted lifecycle does not restore a visible streaming bubble', () => {
+    const reduced = reduceSessionEvents([
+      ev(1, 'lifecycle.interrupted', { messageId: 'life-interrupted', role: 'system', content: '\u751f\u6210\u5df2\u4e2d\u65ad\uff0c\u53ef\u91cd\u65b0\u53d1\u9001' }),
+      ev(2, 'message.done', { messageId: 'life-interrupted', stopReason: 'error', error: '\u670d\u52a1\u91cd\u542f\uff0c\u751f\u6210\u5df2\u4e2d\u65ad' }),
     ])
 
     expect(reduced.streamingMessage).toBeNull()

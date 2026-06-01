@@ -1,4 +1,5 @@
-﻿import { sessionStore } from '../../../store/sessions.js'
+﻿import { agentStore } from '../../../store/agents.js'
+import { sessionStore } from '../../../store/sessions.js'
 import { sessionManager } from '../../../core/sessions.js'
 import type { ToolContext, ToolHandler, ToolHandlerInput, ToolHandlerResult } from '../../types.js'
 
@@ -8,7 +9,7 @@ export const listSessionsHandler: ToolHandler = {
   inputSchema: { type: 'object', properties: { agentId: { type: 'string' }, projectId: { type: 'string' } } },
   async execute(input: ToolHandlerInput, context: ToolContext): Promise<ToolHandlerResult> {
     const agentId = optionalString(input, 'agentId')
-    const projectId = optionalString(input, 'projectId') ?? context.projectId
+    const projectId = context.projectId ?? optionalString(input, 'projectId')
     return jsonResult({ sessions: sessionStore.list(agentId, projectId) })
   },
 }
@@ -39,11 +40,19 @@ export const createSessionHandler: ToolHandler = {
   },
   async execute(input: ToolHandlerInput, context: ToolContext): Promise<ToolHandlerResult> {
     const agentId = requireString(input, 'agentId')
-    const projectId = optionalString(input, 'projectId') ?? context.projectId
+    const projectId = context.projectId ?? optionalString(input, 'projectId')
     const taskId = optionalString(input, 'taskId')
+    assertAgentInProject(agentId, projectId)
     const session = await sessionManager.createSession(agentId, taskId, projectId)
     return jsonResult({ session })
   },
+}
+
+function assertAgentInProject(agentId: string, projectId: string | undefined): void {
+  if (!projectId) return
+  const agent = agentStore.get(agentId)
+  if (!agent) throw new Error(`Agent not found: ${agentId}`)
+  if (agent.project_id !== projectId) throw new Error(`Project mismatch: Agent ${agentId} is outside current project`)
 }
 
 function requireString(input: ToolHandlerInput, key: string): string {

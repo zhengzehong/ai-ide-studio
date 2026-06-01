@@ -31,16 +31,18 @@ export const createTeamHandler: ToolHandler = {
   },
   async execute(input, context) {
     const projectId = resolveProjectId(input, context)
-    const leaderAgentId = optionalString(input, 'leaderAgentId') ?? context.agentId
+    const leaderAgentId = context.agentId
     if (!projectId) throw new Error('projectId 不能为空')
     if (!leaderAgentId) throw new Error('agentId 不能为空')
-    if (context.agentId && leaderAgentId !== context.agentId) throw new Error('leaderAgentId 不匹配当前 Agent 上下文')
-    return jsonResult(teamService.create({
-      projectId,
-      leaderAgentId,
-      name: requireString(input, 'name'),
-      description: optionalString(input, 'description'),
-    }))
+    return jsonResult(
+      teamService.create({
+        projectId,
+        leaderAgentId,
+        leaderSessionId: context.sessionId,
+        name: requireString(input, 'name'),
+        description: optionalString(input, 'description'),
+      }),
+    )
   },
 }
 
@@ -49,7 +51,12 @@ export const updateTeamHandler: ToolHandler = {
   description: '更新 Team 元信息',
   inputSchema: {
     type: 'object',
-    properties: { teamId: { type: 'string' }, name: { type: 'string' }, description: { type: 'string' }, status: { type: 'string' } },
+    properties: {
+      teamId: { type: 'string' },
+      name: { type: 'string' },
+      description: { type: 'string' },
+      status: { type: 'string' },
+    },
     required: ['teamId'],
   },
   async execute(input, context) {
@@ -95,17 +102,19 @@ export const spawnTeamMemberHandler: ToolHandler = {
   async execute(input, context) {
     const teamId = resolveTeamId(input, context)
     assertTeamAccess(teamId, context)
-    return jsonResult(teamService.spawnMember({
-      teamId,
-      templateId: optionalString(input, 'templateId'),
-      agentId: optionalString(input, 'agentId'),
-      name: optionalString(input, 'name'),
-      type: optionalString(input, 'type'),
-      runtime: optionalString(input, 'runtime'),
-      systemPrompt: optionalString(input, 'systemPrompt'),
-      icon: optionalString(input, 'icon'),
-      role: optionalString(input, 'role'),
-    }))
+    return jsonResult(
+      teamService.spawnMember({
+        teamId,
+        templateId: optionalString(input, 'templateId'),
+        agentId: optionalString(input, 'agentId'),
+        name: optionalString(input, 'name'),
+        type: optionalString(input, 'type'),
+        runtime: optionalString(input, 'runtime'),
+        systemPrompt: optionalString(input, 'systemPrompt'),
+        icon: optionalString(input, 'icon'),
+        role: optionalString(input, 'role'),
+      }),
+    )
   },
 }
 
@@ -114,18 +123,25 @@ export const messageTeamMemberHandler: ToolHandler = {
   description: '给 Team 成员派活，异步触发成员 Session 执行',
   inputSchema: {
     type: 'object',
-    properties: { teamId: { type: 'string' }, memberId: { type: 'string' }, content: { type: 'string' }, taskId: { type: 'string' } },
+    properties: {
+      teamId: { type: 'string' },
+      memberId: { type: 'string' },
+      content: { type: 'string' },
+      taskId: { type: 'string' },
+    },
     required: ['memberId', 'content'],
   },
   async execute(input, context) {
     const teamId = resolveTeamId(input, context)
     assertTeamAccess(teamId, context)
-    return jsonResult(teamService.dispatchMessage({
-      teamId,
-      memberId: requireString(input, 'memberId'),
-      content: requireString(input, 'content'),
-      taskId: optionalString(input, 'taskId'),
-    }))
+    return jsonResult(
+      teamService.dispatchMessage({
+        teamId,
+        memberId: requireString(input, 'memberId'),
+        content: requireString(input, 'content'),
+        taskId: optionalString(input, 'taskId'),
+      }),
+    )
   },
 }
 
@@ -159,10 +175,11 @@ export const sendTeamMailboxHandler: ToolHandler = {
   async execute(input, context) {
     const teamId = resolveTeamId(input, context)
     assertTeamAccess(teamId, context)
-    const fromMemberId = optionalString(input, 'fromMemberId') ?? context.teamMemberId
-    if (context.teamMemberId && fromMemberId && fromMemberId !== context.teamMemberId) {
+    const inputFromMemberId = optionalString(input, 'fromMemberId')
+    if (context.teamMemberId && inputFromMemberId && inputFromMemberId !== context.teamMemberId) {
       throw new Error('fromMemberId 不匹配当前成员上下文')
     }
+    const fromMemberId = context.teamMemberId ?? inputFromMemberId
     const message = teamService.sendMailbox({
       teamId,
       type: optionalString(input, 'type') ?? 'message',
@@ -192,7 +209,12 @@ export const createTeamTaskHandler: ToolHandler = {
   description: '创建 Team 任务，可指派成员',
   inputSchema: {
     type: 'object',
-    properties: { teamId: { type: 'string' }, title: { type: 'string' }, description: { type: 'string' }, assigneeMemberId: { type: 'string' } },
+    properties: {
+      teamId: { type: 'string' },
+      title: { type: 'string' },
+      description: { type: 'string' },
+      assigneeMemberId: { type: 'string' },
+    },
     required: ['title'],
   },
   async execute(input, context) {
@@ -231,6 +253,7 @@ export const updateTeamTaskHandler: ToolHandler = {
       status: optionalString(input, 'status'),
       stage: optionalString(input, 'stage'),
       assigneeMemberId: optionalNullableString(input, 'assigneeMemberId'),
+      actor: { teamMemberId: context.teamMemberId },
     })
     return jsonResult({ task })
   },
@@ -261,9 +284,7 @@ function resolveTeamId(input: ToolHandlerInput, context: ToolContext): string {
 }
 
 function resolveProjectId(input: ToolHandlerInput, context: ToolContext): string | undefined {
-  const projectId = optionalString(input, 'projectId') ?? context.projectId
-  if (context.projectId && projectId && projectId !== context.projectId) throw new Error('projectId 不匹配当前项目上下文')
-  return projectId
+  return context.projectId ?? optionalString(input, 'projectId')
 }
 
 function assertTeamAccess(teamId: string, context: ToolContext): void {

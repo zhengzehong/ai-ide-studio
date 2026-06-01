@@ -7,6 +7,7 @@ import { agentStore } from '../../src/store/agents.js'
 import { projectStore } from '../../src/store/projects.js'
 import { toolStore, toolBindingStore } from '../../src/store/tools.js'
 import { resolveVisiblePlatformTools } from '../../src/tools/registry/visibility-resolver.js'
+import { seedBuiltinTools } from '../../src/tools/seed.js'
 
 let tmp: string
 
@@ -32,11 +33,11 @@ describe('tool visibility resolver', () => {
     toolBindingStore.set(projectTool.id, 'project', project.id)
     toolBindingStore.set(agentTool.id, 'agent', agent.id)
 
-    expect(resolveVisiblePlatformTools({ agentId: agent.id, projectId: project.id }).map(t => t.definition.name).sort()).toEqual([
-      'core.project.list',
-      'core.task.list',
-      'custom.hello',
-    ])
+    expect(
+      resolveVisiblePlatformTools({ agentId: agent.id, projectId: project.id })
+        .map((t) => t.definition.name)
+        .sort(),
+    ).toEqual(['core.project.list', 'core.task.list', 'custom.hello'])
   })
 
   test('disabled agent binding hides a globally visible method', () => {
@@ -44,9 +45,11 @@ describe('tool visibility resolver', () => {
     const tool = createBuiltin('core.task.create')
     toolBindingStore.set(tool.id, 'global', null)
     toolBindingStore.set(tool.id, 'agent', agent.id)
-    getDb().prepare('UPDATE tool_bindings SET enabled = 0 WHERE tool_id = ? AND scope = ? AND target_id = ?').run(tool.id, 'agent', agent.id)
+    getDb()
+      .prepare('UPDATE tool_bindings SET enabled = 0 WHERE tool_id = ? AND scope = ? AND target_id = ?')
+      .run(tool.id, 'agent', agent.id)
 
-    expect(resolveVisiblePlatformTools({ agentId: agent.id }).map(t => t.definition.name)).toEqual([])
+    expect(resolveVisiblePlatformTools({ agentId: agent.id }).map((t) => t.definition.name)).toEqual([])
   })
 
   test('external MCP tools are not included in platform visible methods', () => {
@@ -61,7 +64,25 @@ describe('tool visibility resolver', () => {
     })
     toolBindingStore.set(external.id, 'global', null)
 
-    expect(resolveVisiblePlatformTools({}).map(t => t.definition.name)).toEqual([])
+    expect(resolveVisiblePlatformTools({}).map((t) => t.definition.name)).toEqual([])
+  })
+
+  test('seeded team tools are hidden until bound to an agent', () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const agent = agentStore.create({ type: 'dev', name: 'A', runtime: 'mock', projectId: project.id })
+    seedBuiltinTools()
+
+    expect(
+      resolveVisiblePlatformTools({ agentId: agent.id, projectId: project.id }).map((t) => t.definition.name),
+    ).not.toContain('team.create')
+
+    const teamCreate = toolStore.getByName('team.create')
+    if (!teamCreate) throw new Error('team.create missing')
+    toolBindingStore.set(teamCreate.id, 'agent', agent.id)
+
+    expect(
+      resolveVisiblePlatformTools({ agentId: agent.id, projectId: project.id }).map((t) => t.definition.name),
+    ).toContain('team.create')
   })
 })
 

@@ -7,9 +7,23 @@ import { agentStore } from '../store/agents.js'
 import type { SessionUpdateData, TurnUsageData, SessionCapabilities, ImageAttachment } from '../types/ws-protocol.js'
 import { mapConfigOptions, mergeCapabilitiesFromConfig } from './capabilities.js'
 import { createClientHandler } from './client-handler.js'
-import { agentConnections, beginTurn, createConnectionState, endTurn, getRuntimeSession, markSessionConnected, touchRuntime } from './host-state.js'
+import {
+  agentConnections,
+  beginTurn,
+  createConnectionState,
+  endTurn,
+  getRuntimeSession,
+  markSessionConnected,
+  touchRuntime,
+} from './host-state.js'
 import type { AcpSessionContext } from './host-types.js'
-import { cancelPendingInteractions, hasPendingInteractionsForAgent, hasPendingInteractionsForSession, resolveElicitation, resolvePermission } from './interaction-state.js'
+import {
+  cancelPendingInteractions,
+  hasPendingInteractionsForAgent,
+  hasPendingInteractionsForSession,
+  resolveElicitation,
+  resolvePermission,
+} from './interaction-state.js'
 import { buildRuntimeEnv, getRuntimeCommand, listRuntimeNames } from './runtime-registry.js'
 import { resolveMcpServersForAcp, updateInitialCapabilities } from './session-capabilities.js'
 
@@ -44,7 +58,7 @@ function emitLifecycle(agentId: string, ourSessionId: string, eventType: string,
 function ensureIdleTimer(): void {
   if (idleTimer || ACP_IDLE_SWEEP_MS <= 0) return
   idleTimer = setInterval(() => {
-    acpHost.sweepIdle().catch(err => log.warn({ err }, 'ACP 空闲回收失败'))
+    acpHost.sweepIdle().catch((err) => log.warn({ err }, 'ACP 空闲回收失败'))
   }, ACP_IDLE_SWEEP_MS)
   idleTimer.unref?.()
 }
@@ -63,8 +77,7 @@ export const acpHost = {
     const pendingStart = startPromises.get(agentId)
     if (pendingStart) return pendingStart
 
-    const promise = acpHost.startAgentInternal(agentId, runtime)
-      .finally(() => startPromises.delete(agentId))
+    const promise = acpHost.startAgentInternal(agentId, runtime).finally(() => startPromises.delete(agentId))
     startPromises.set(agentId, promise)
     return promise
   },
@@ -120,16 +133,22 @@ export const acpHost = {
       clientInfo: { name: 'ai-ide-studio', version: '0.2.0' },
     })
 
-    log.info({ agentId, runtime: effectiveRuntime, protocolVersion: initResult.protocolVersion }, 'Agent runtime 初始化成功')
+    log.info(
+      { agentId, runtime: effectiveRuntime, protocolVersion: initResult.protocolVersion },
+      'Agent runtime 初始化成功',
+    )
 
     const agentCaps = initResult.agentCapabilities
-    log.info({
-      agentId,
-      runtime: effectiveRuntime,
-      image: agentCaps?.promptCapabilities?.image ?? false,
-      audio: agentCaps?.promptCapabilities?.audio ?? false,
-      loadSession: agentCaps?.loadSession ?? false,
-    }, 'Agent runtime 能力')
+    log.info(
+      {
+        agentId,
+        runtime: effectiveRuntime,
+        image: agentCaps?.promptCapabilities?.image ?? false,
+        audio: agentCaps?.promptCapabilities?.audio ?? false,
+        loadSession: agentCaps?.loadSession ?? false,
+      },
+      'Agent runtime 能力',
+    )
 
     const conn = createConnectionState(agentId, effectiveRuntime, proc, connection, agentCaps ?? undefined)
     acpHost.agents.set(agentId, conn)
@@ -189,9 +208,15 @@ export const acpHost = {
     touchRuntime(conn, ourSessionId)
   },
 
-  async ensureSession(agentId: string, ourSessionId: string, persistedAcpSessionId?: string | null, context: AcpSessionContext = {}): Promise<string> {
+  async ensureSession(
+    agentId: string,
+    ourSessionId: string,
+    persistedAcpSessionId?: string | null,
+    context: AcpSessionContext = {},
+  ): Promise<string> {
     const existed = acpHost.isRunning(agentId)
-    if (!existed) emitLifecycle(agentId, ourSessionId, 'lifecycle.runtime_starting', '\u6b63\u5728\u542f\u52a8 Agent...')
+    if (!existed)
+      emitLifecycle(agentId, ourSessionId, 'lifecycle.runtime_starting', '\u6b63\u5728\u542f\u52a8 Agent...')
     await acpHost.startAgent(agentId)
     const conn = acpHost.agents.get(agentId)
     if (!conn) throw new Error(`Agent ${agentId} not running`)
@@ -224,7 +249,12 @@ export const acpHost = {
       } catch (err) {
         state.state = 'disconnected'
         state.connectPromise = undefined
-        emitLifecycle(agentId, ourSessionId, 'lifecycle.failed', `\u8fde\u63a5\u5931\u8d25\uff1a${err instanceof Error ? err.message : String(err)}`)
+        emitLifecycle(
+          agentId,
+          ourSessionId,
+          'lifecycle.failed',
+          `\u8fde\u63a5\u5931\u8d25\uff1a${err instanceof Error ? err.message : String(err)}`,
+        )
         throw err
       }
     })()
@@ -250,7 +280,12 @@ export const acpHost = {
     return acpSessionId
   },
 
-  async resumeSession(agentId: string, ourSessionId: string, acpSessionId: string, context: AcpSessionContext = {}): Promise<string> {
+  async resumeSession(
+    agentId: string,
+    ourSessionId: string,
+    acpSessionId: string,
+    context: AcpSessionContext = {},
+  ): Promise<string> {
     const conn = acpHost.agents.get(agentId)
     if (!conn) throw new Error(`Agent ${agentId} 未运行`)
     if (conn.acpSessions.get(ourSessionId) === acpSessionId) return acpSessionId
@@ -280,7 +315,10 @@ export const acpHost = {
 
     const newAcpSessionId = await acpHost.newSession(agentId, ourSessionId, context)
     if (newAcpSessionId !== acpSessionId) {
-      log.warn({ agentId, ourSessionId, requestedAcpSessionId: acpSessionId, newAcpSessionId }, 'Agent 不支持恢复会话，已创建新的 ACP session')
+      log.warn(
+        { agentId, ourSessionId, requestedAcpSessionId: acpSessionId, newAcpSessionId },
+        'Agent 不支持恢复会话，已创建新的 ACP session',
+      )
     }
     return newAcpSessionId
   },
@@ -325,7 +363,13 @@ export const acpHost = {
       const wasCancelled = cancelledSessions.delete(ourSessionId)
       const stopReason = wasCancelled ? 'cancelled' : promptResult.stopReason
 
-      events.emit('session:done', { sessionId: ourSessionId, agentId, messageId: `done-${ourSessionId}`, turnUsage, stopReason })
+      events.emit('session:done', {
+        sessionId: ourSessionId,
+        agentId,
+        messageId: `done-${ourSessionId}`,
+        turnUsage,
+        stopReason,
+      })
       log.info({ agentId, ourSessionId, stopReason, totalTokens: turnUsage?.totalTokens }, 'Agent prompt completed')
     } finally {
       cancelledSessions.delete(ourSessionId)
@@ -369,9 +413,10 @@ export const acpHost = {
     const acpSessionId = conn.acpSessions.get(ourSessionId)
     if (!acpSessionId) throw new Error(`Session ${ourSessionId} 没有对应的 ACP session`)
 
-    const result = typeof value === 'boolean'
-      ? await conn.connection.setSessionConfigOption({ sessionId: acpSessionId, configId, type: 'boolean', value })
-      : await conn.connection.setSessionConfigOption({ sessionId: acpSessionId, configId, value })
+    const result =
+      typeof value === 'boolean'
+        ? await conn.connection.setSessionConfigOption({ sessionId: acpSessionId, configId, type: 'boolean', value })
+        : await conn.connection.setSessionConfigOption({ sessionId: acpSessionId, configId, value })
 
     const configOptions = mapConfigOptions(result.configOptions)
     const caps = mergeCapabilitiesFromConfig(conn.sessionCapabilities.get(ourSessionId) || {}, configOptions)
@@ -398,7 +443,12 @@ export const acpHost = {
     touchRuntime(conn, ourSessionId)
   },
 
-  async forkSession(agentId: string, sourceSessionId: string, targetSessionId: string, context: AcpSessionContext = {}): Promise<string> {
+  async forkSession(
+    agentId: string,
+    sourceSessionId: string,
+    targetSessionId: string,
+    context: AcpSessionContext = {},
+  ): Promise<string> {
     const conn = acpHost.agents.get(agentId)
     if (!conn) throw new Error(`Agent ${agentId} 未运行`)
     const sourceAcpSessionId = conn.acpSessions.get(sourceSessionId)
@@ -450,7 +500,12 @@ export const acpHost = {
         if (now - session.lastUsedAt <= ACP_SESSION_IDLE_MS) continue
 
         await acpHost.closeSession(agentId, session.ourSessionId)
-        emitLifecycle(agentId, session.ourSessionId, 'lifecycle.session_disconnected', '\u4f1a\u8bdd\u5df2\u56e0\u7a7a\u95f2\u65ad\u5f00\uff0c\u4e0b\u6b21\u53d1\u9001\u65f6\u4f1a\u81ea\u52a8\u6062\u590d')
+        emitLifecycle(
+          agentId,
+          session.ourSessionId,
+          'lifecycle.session_disconnected',
+          '\u4f1a\u8bdd\u5df2\u56e0\u7a7a\u95f2\u65ad\u5f00\uff0c\u4e0b\u6b21\u53d1\u9001\u65f6\u4f1a\u81ea\u52a8\u6062\u590d',
+        )
       }
 
       if (conn.activeTurnCount > 0) continue
@@ -480,9 +535,7 @@ export const acpHost = {
   resolvePermission,
 
   resolveElicitation,
-
 }
-
 
 async function startMockAgent(agentId: string): Promise<void> {
   const { resolve } = await import('path')
@@ -494,22 +547,34 @@ async function startMockAgent(agentId: string): Promise<void> {
   await mockProc.start()
 
   const mockConnection = {
-    get signal() { return new AbortController().signal },
-    async initialize() { return { protocolVersion: 1 } },
+    get signal() {
+      return new AbortController().signal
+    },
+    async initialize() {
+      return { protocolVersion: 1 }
+    },
     async newSession(params: { cwd: string }) {
       const result = await mockProc.sendRequest('session/create', { workingDirectory: params.cwd })
       return { sessionId: (result as { sessionId: string }).sessionId }
     },
     async prompt(params: { sessionId: string; prompt: { type: string; text?: string }[] }) {
-      const text = params.prompt.map(p => p.text || '').join('\n')
+      const text = params.prompt.map((p) => p.text || '').join('\n')
       await mockProc.sendRequest('session/prompt', { sessionId: params.sessionId, content: text })
       return { stopReason: 'end_turn' }
     },
     async cancel(params: { sessionId: string }) {
-      try { await mockProc.sendRequest('session/cancel', { sessionId: params.sessionId }) } catch { /* ignore */ }
+      try {
+        await mockProc.sendRequest('session/cancel', { sessionId: params.sessionId })
+      } catch {
+        /* ignore */
+      }
     },
     async closeSession(params: { sessionId: string }) {
-      try { await mockProc.sendRequest('session/close', { sessionId: params.sessionId }) } catch { /* ignore */ }
+      try {
+        await mockProc.sendRequest('session/close', { sessionId: params.sessionId })
+      } catch {
+        /* ignore */
+      }
     },
   } as unknown as acp.ClientSideConnection
 
@@ -524,7 +589,10 @@ async function startMockAgent(agentId: string): Promise<void> {
     const acpSessionId = params.sessionId as string
     let ourSessionId: string | undefined
     for (const [ourId, acpId] of conn.acpSessions) {
-      if (acpId === acpSessionId) { ourSessionId = ourId; break }
+      if (acpId === acpSessionId) {
+        ourSessionId = ourId
+        break
+      }
     }
     if (!ourSessionId) return
     handleMockNotification(agentId, ourSessionId, params)
@@ -561,8 +629,6 @@ function handleMockNotification(agentId: string, ourSessionId: string, params: R
       break
     }
     case 'message_done':
-      data.done = true
-      events.emit('session:done', { sessionId: ourSessionId, agentId, messageId, stopReason: 'end_turn' })
       return
     default:
       return

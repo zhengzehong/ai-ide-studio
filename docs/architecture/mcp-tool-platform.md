@@ -13,6 +13,7 @@
 - HTTP MCP 和 stdio 回退共用 `ToolRuntime`。
 - 已新增 `tool_contexts`、`tool_call_audit` 两张 SQLite 表。
 - 已内置 `core.project.*`、`core.agent.*`、`core.session.*`、`core.task.*`、`team.*` 平台方法。
+- `team.*` 只作为内置方法注册，不做全局默认绑定；需要按 Agent 显式绑定或套用 Team Profile。
 - ToolContext 支持 `projectId`、`agentId`、`sessionId`，以及团队协作场景的 `teamId` / `teamMemberId`。
 - 第三方 MCP 仍保持直接注入，不在第一版做方法级代理。
 
@@ -330,15 +331,39 @@ session  某个会话临时可见，后续需要时再加
 最终可见工具 = global + project + agent + session
 ```
 
-如果需要隐藏某个上层工具，可以在 binding 里支持 `visible = 0`，用于覆盖：
+同一个方法如果命中多层绑定，按更具体的层级覆盖：
+
+```text
+agent > project > global
+```
+
+`tool_bindings.enabled = 0` 表示显式隐藏，用于覆盖上层可见绑定：
 
 ```text
 全局默认有 core.task.create
-某个 Agent 设置 core.task.create visible = 0
+某个 Agent 设置 core.task.create enabled = 0
 最终这个 Agent 看不到 core.task.create
 ```
 
 第一版不需要做复杂的权限表达式。
+
+### 6.1 Team Profile
+
+Team Profile 是一组预设的 `team.*` 方法绑定，不是角色权限系统。
+
+```text
+team-readonly  只读观察：team.list / team.get / team.member.list / team.task.list / team.mailbox.list
+team-member    协作成员：只读 + team.mailbox.send / team.task.update
+team-leader    编排者：协作 + team.create / team.update / team.member.spawn / team.member.message / team.task.create / team.template.*
+```
+
+套用 Profile 时，平台写入 Agent 级绑定：
+
+- Profile 内 `team.*` 方法启用。
+- Profile 外 `team.*` 方法禁用，用来隐藏上层 project/global 绑定。
+- 非 Team 方法不变。
+
+前端“工具管理”页提供 Agent 选择、Profile 套用和单个 `team.*` 方法开关。
 
 ## 7. Token 如何控制工具可见性
 
@@ -699,3 +724,12 @@ external MCP proxy
 ```
 
 但当前最重要的是先把“平台功能发布 MCP + Agent 方法级可见性 + token 强制边界”跑通。
+
+
+## Tool Context Boundary
+
+MCP tool schemas expose business inputs only. System-owned scope and identity fields are injected by the platform through the tool context token and `ToolContext`, not by the model.
+
+System-owned fields include `projectId`, `teamId`, `teamMemberId`, `fromMemberId`, `leaderAgentId`, and `sessionId`. When the current session already has project or team context, `tools/list` hides those fields from the model-visible input schema. `tools/call` still validates execution with the same context, so manually submitted scope or identity fields cannot move a call into another project, Team, member, or session.
+
+Business target fields such as `memberId`, `taskId`, `templateId`, and target `agentId` may remain visible when the model must choose a target, but handlers must validate that the target belongs to the current project or Team.

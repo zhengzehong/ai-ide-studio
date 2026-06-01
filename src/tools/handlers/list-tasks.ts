@@ -13,7 +13,7 @@ export const listTasksHandler: ToolHandler = {
   },
   async execute(input, context) {
     const status = typeof input.status === 'string' ? input.status : undefined
-    const projectId = typeof input.projectId === 'string' ? input.projectId : context.projectId
+    const projectId = context.projectId ?? (typeof input.projectId === 'string' ? input.projectId : undefined)
     const tasks = taskStore.list(status, projectId)
     return {
       content: [{ type: 'text', text: JSON.stringify({ tasks }, null, 2) }],

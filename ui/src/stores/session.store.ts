@@ -69,7 +69,7 @@ interface SessionStore {
   deleteSession: (sessionId: string) => Promise<void>
   closeSession: (sessionId: string) => Promise<void>
   archiveSession: (sessionId: string) => Promise<void>
-  selectSession: (id: string) => void
+  selectSession: (id: string | null) => void
   sendPrompt: (content: string, images?: ImageAttachmentInfo[]) => void
   setModel: (modelId: string) => Promise<void>
   setMode: (modeId: string) => Promise<void>
@@ -85,6 +85,8 @@ let listenersSetup = false
 let cleanupFn: (() => void) | null = null
 let promptStartTime = 0
 let lastStreamingSnapshot: StreamingMessage | null = null
+let sessionListRequestSeq = 0
+let activeSessionsProjectId: string | null = null
 const sessionCaches = new Map<string, SessionCache>()
 
 function saveCache(sessionId: string, s: Pick<SessionStore, 'events' | 'usage' | 'turnUsage' | 'capabilities' | 'plan' | 'pendingPermissions' | 'pendingElicitations' | 'streamingMessage'>) {
@@ -113,13 +115,23 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   usage: null, turnUsage: null, capabilities: { ...defaultCaps }, plan: [], pendingPermissions: [], pendingElicitations: [], loading: false,
 
   fetchSessions: async (agentId, projectId) => {
+    const requestSeq = ++sessionListRequestSeq
+    const scopedProjectId = projectId ?? null
+    activeSessionsProjectId = scopedProjectId
     set({ loading: true })
     try {
       const msg: Record<string, unknown> = { type: 'sessions.list' }
       if (agentId) msg.agentId = agentId
       if (projectId) msg.projectId = projectId
-      set({ sessions: await wsClient.request(msg) as SessionData[], loading: false })
-    } catch { set({ loading: false }) }
+      const data = await wsClient.request(msg) as SessionData[]
+      if (requestSeq !== sessionListRequestSeq || activeSessionsProjectId !== scopedProjectId) return
+      set({
+        sessions: scopedProjectId ? data.filter((session) => session.project_id === scopedProjectId) : data,
+        loading: false,
+      })
+    } catch {
+      if (requestSeq === sessionListRequestSeq) set({ loading: false })
+    }
   },
 
   fetchMessages: async (sessionId) => {
@@ -146,7 +158,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     if (taskId) msg.taskId = taskId
     if (projectId) msg.projectId = projectId
     const session = await wsClient.request(msg) as SessionData
-    set({ sessions: [...get().sessions, session] })
+    if (!activeSessionsProjectId || session.project_id === activeSessionsProjectId) {
+      set({ sessions: [...get().sessions.filter((s) => s.id !== session.id), session] })
+    }
     return session
   },
 
@@ -182,6 +196,21 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     const prev = get().currentSessionId
     if (prev) { saveCache(prev, get()); wsClient.unsubscribe([prev]) }
     lastStreamingSnapshot = null
+    if (!id) {
+      set({
+        currentSessionId: null,
+        messages: [],
+        events: [],
+        streamingMessage: null,
+        usage: null,
+        turnUsage: null,
+        capabilities: { ...defaultCaps },
+        plan: [],
+        pendingPermissions: [],
+        pendingElicitations: [],
+      })
+      return
+    }
     wsClient.subscribe([id])
     const c = sessionCaches.get(id)
     set({
@@ -397,9 +426,15 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         }))
         return
       }
-      set(st => ({
-        sessions: st.sessions.map(s => s.id === sessionId ? { ...s, ...data } : s),
-      }))
+      set(st => {
+        const incomingProjectId = data.project_id as string | null | undefined
+        const inCurrentScope = !activeSessionsProjectId || incomingProjectId === undefined || incomingProjectId === activeSessionsProjectId
+        if (!inCurrentScope) return { sessions: st.sessions.filter(s => s.id !== sessionId) }
+        if (st.sessions.some(s => s.id === sessionId)) {
+          return { sessions: st.sessions.map(s => s.id === sessionId ? { ...s, ...data } : s) }
+        }
+        return { sessions: st.sessions }
+      })
     }))
 
     listenersSetup = true

@@ -1,13 +1,17 @@
 import type { ToolHandler, ToolHandlerInput, ToolContext, ToolHandlerResult } from '../types.js'
 
-async function executeCreateTask(input: ToolHandlerInput, context: ToolContext, legacy = false): Promise<ToolHandlerResult> {
+async function executeCreateTask(
+  input: ToolHandlerInput,
+  context: ToolContext,
+  legacy = false,
+): Promise<ToolHandlerResult> {
   const { taskManager } = await import('../../core/tasks.js')
   const task = await taskManager.createTask({
     title: requireString(input, 'title'),
     description: optionalString(input, 'description'),
     source: 'agent',
     assignAgentId: optionalString(input, 'assignAgentId'),
-    projectId: optionalString(input, 'projectId') ?? context.projectId,
+    projectId: context.projectId ?? optionalString(input, 'projectId'),
   })
   const output = legacy ? { taskId: task.id, title: task.title, status: task.status } : { task }
   return {

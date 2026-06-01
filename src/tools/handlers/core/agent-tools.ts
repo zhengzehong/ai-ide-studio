@@ -7,7 +7,7 @@ export const listAgentsHandler: ToolHandler = {
   description: '列出 Agent',
   inputSchema: { type: 'object', properties: { projectId: { type: 'string' } } },
   async execute(input: ToolHandlerInput, context: ToolContext): Promise<ToolHandlerResult> {
-    const projectId = optionalString(input, 'projectId') ?? context.projectId
+    const projectId = context.projectId ?? optionalString(input, 'projectId')
     return jsonResult({ agents: agentStore.list(projectId) })
   },
 }
@@ -63,7 +63,7 @@ export const createAgentHandler: ToolHandler = {
 }
 
 function resolveProjectId(input: ToolHandlerInput, context: ToolContext): string {
-  const projectId = optionalString(input, 'projectId') ?? context.projectId
+  const projectId = context.projectId ?? optionalString(input, 'projectId')
   if (!projectId) throw new Error('projectId 不能为空')
   return projectId
 }

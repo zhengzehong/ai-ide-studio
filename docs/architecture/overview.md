@@ -116,9 +116,11 @@ Session 删除采用软删除，仅隐藏列表项并保留 `messages` / `sessio
 
 ## Team MCP 协作边界
 
-Team 能力通过 `team.*` MCP tools 暴露给 Agent。工具 handler 不判断 leader/member 权限，只校验 Team、Member、Task 与 Project 的一致性；谁能看到 `team.member.spawn`、`team.member.message` 等方法，仍由 MCP token 的 `visibleTools` 控制。
+Team 能力通过 `team.*` MCP tools 暴露给 Agent。`team.*` 方法只注册为内置工具，不做全局默认绑定；工具 handler 不判断 leader/member 权限，只校验 Team、Member、Task 与 Project 的一致性。谁能看到 `team.member.spawn`、`team.member.message` 等方法，由 Agent 级工具绑定或 Team Profile 写入的 `tool_bindings` 控制，并最终固化到 MCP token 的 `visibleTools`。
 
-TeamMember 的 `session_id` 指向普通 `sessions` 行，成员执行输出继续落到 `messages` 和 `session_events`，所以刷新或切换会话后仍能按现有会话事件恢复。团队上下文通过 ToolContext 的 `teamId` / `teamMemberId` 传递，成员调用 `team.mailbox.send`、`team.task.update` 时不需要在 prompt 中手写 Team ID。
+TeamMember 的 `session_id` 指向普通 `sessions` 行，成员执行输出继续落到 `messages` 和 `session_events`，所以刷新或切换会话后仍能按现有会话事件恢复。团队上下文通过 ToolContext 的 `teamId` / `teamMemberId` 传递，成员调用 `team.mailbox.send`、`team.task.update` 时不需要在 prompt 中手写 Team ID。`team.member.spawn` 创建或加入成员后，会自动给成员 Agent 套用 `team-member` Profile，让成员后续会话具备汇报和更新团队任务的基础工具。
+
+前端工作台不为 Team 提供独立页面。`teams.current(sessionId)` 按当前会话反查 Team 上下文；右侧上下文区展示成员、任务和 mailbox，点击成员只切换到该成员的普通 Session。Team 变化通过 `team:update` 广播触发当前会话上下文刷新。
 
 ## ACP 懒生命周期
 
@@ -134,3 +136,8 @@ TeamMember 的 `session_id` 指向普通 `sessions` 行，成员执行输出继�
 - Memory/RAG 记忆系统
 - 事件触发自动化执行（当前只有规则/定时管理）
 - 插件系统
+
+
+## MCP Tool Context Boundary
+
+Platform MCP tools use the session tool context as the source of truth for project, Team, member, current Agent, and session identity. Runtime schema sanitization hides system-owned fields from model-visible schemas, while handlers still validate business target IDs against the current project or Team before creating sessions, tasks, or Team records.

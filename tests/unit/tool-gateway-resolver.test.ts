@@ -10,6 +10,7 @@ import { teamMemberStore, teamStore } from '../../src/store/teams.js'
 import { toolStore, toolBindingStore } from '../../src/store/tools.js'
 import { validateToolToken } from '../../src/tools/registry/context-registry.js'
 import { resolveToolsAsMcpServers } from '../../src/tools/resolver.js'
+import { listRuntimeTools } from '../../src/tools/runtime/tool-runtime.js'
 
 let tmp: string
 
@@ -25,10 +26,95 @@ afterEach(() => {
   rmSync(tmp, { recursive: true, force: true })
 })
 
+describe('runtime tool schema context boundary', () => {
+  test('hides system-owned context fields from model-visible schemas', () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const agent = agentStore.create({
+      id: 'agent-schema',
+      type: 'leader',
+      name: 'Leader',
+      runtime: 'claude',
+      projectId: project.id,
+    })
+    const session = sessionStore.create({ agentId: agent.id, projectId: project.id })
+    const team = teamStore.create({ projectId: project.id, name: 'Alpha' })
+    const member = teamMemberStore.create({
+      teamId: team.id,
+      projectId: project.id,
+      agentId: agent.id,
+      sessionId: session.id,
+      name: agent.name,
+      role: 'member',
+    })
+    const names = ['team.create', 'team.mailbox.send', 'team.task.update', 'core.task.create']
+    for (const name of names) {
+      const tool = toolStore.create({
+        name,
+        displayName: name,
+        description: name,
+        category: 'automation',
+        type: 'builtin',
+        config: { handler: name },
+        inputSchema: {
+          type: 'object',
+          properties: {
+            projectId: { type: 'string' },
+            teamId: { type: 'string' },
+            fromMemberId: { type: 'string' },
+            leaderAgentId: { type: 'string' },
+            sessionId: { type: 'string' },
+            teamMemberId: { type: 'string' },
+            assigneeMemberId: { type: 'string' },
+            title: { type: 'string' },
+            content: { type: 'string' },
+          },
+          required: ['projectId', 'teamId', 'fromMemberId', 'title'],
+        },
+        permissions: { requiresApproval: false, maxExecutionTime: 10_000, networkAccess: false },
+        isBuiltin: true,
+      })
+      toolBindingStore.set(tool.id, 'agent', agent.id)
+    }
+
+    const runtimeTools = listRuntimeTools({
+      sessionId: session.id,
+      agentId: agent.id,
+      projectId: project.id,
+      teamId: team.id,
+      teamMemberId: member.id,
+      visibleTools: names,
+    })
+
+    for (const tool of runtimeTools) {
+      const schema = tool.inputSchema as { properties?: Record<string, unknown>; required?: string[] }
+      expect(schema.properties).not.toHaveProperty('projectId')
+      expect(schema.properties).not.toHaveProperty('teamId')
+      expect(schema.properties).not.toHaveProperty('fromMemberId')
+      expect(schema.properties).not.toHaveProperty('leaderAgentId')
+      expect(schema.properties).not.toHaveProperty('sessionId')
+      expect(schema.properties).not.toHaveProperty('teamMemberId')
+      expect(schema.required ?? []).not.toEqual(expect.arrayContaining(['projectId', 'teamId', 'fromMemberId']))
+    }
+    expect(
+      (
+        runtimeTools.find((tool) => tool.name === 'team.task.update')?.inputSchema as {
+          properties?: Record<string, unknown>
+        }
+      ).properties,
+    ).not.toHaveProperty('assigneeMemberId')
+  })
+})
+
 describe('Tool Gateway resolver', () => {
   test('returns HTTP platform MCP server with token when requested', () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
-    const agent = agentStore.create({ id: 'agent-http', type: 'dev', name: 'Agent HTTP', runtime: 'codex', projectId: project.id })
+    const agent = agentStore.create({
+      id: 'agent-http',
+      type: 'dev',
+      name: 'Agent HTTP',
+      runtime: 'codex',
+      projectId: project.id,
+    })
     const builtin = toolStore.create({
       name: 'core.task.list',
       displayName: '列出任务',
@@ -55,13 +141,19 @@ describe('Tool Gateway resolver', () => {
       name: 'ai-ide-tools',
       url: 'http://127.0.0.1:18800/mcp',
     })
-    const authorization = servers[0]?.headers?.find(header => header.name === 'Authorization')?.value
+    const authorization = servers[0]?.headers?.find((header) => header.name === 'Authorization')?.value
     expect(authorization).toMatch(/^Bearer .+/)
   })
 
   test('injects team context into HTTP tool tokens from member session', () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
-    const agent = agentStore.create({ id: 'agent-team', type: 'dev', name: 'Agent Team', runtime: 'codex', projectId: project.id })
+    const agent = agentStore.create({
+      id: 'agent-team',
+      type: 'dev',
+      name: 'Agent Team',
+      runtime: 'codex',
+      projectId: project.id,
+    })
     const session = sessionStore.create({ agentId: agent.id, projectId: project.id })
     const team = teamStore.create({ projectId: project.id, name: 'Alpha' })
     const member = teamMemberStore.create({
@@ -90,7 +182,7 @@ describe('Tool Gateway resolver', () => {
       sessionId: session.id,
       preferHttp: true,
     })
-    const authorization = servers[0]?.headers?.find(header => header.name === 'Authorization')?.value
+    const authorization = servers[0]?.headers?.find((header) => header.name === 'Authorization')?.value
     const token = authorization?.replace(/^Bearer\s+/i, '') ?? ''
 
     expect(validateToolToken(token)).toMatchObject({
@@ -101,7 +193,13 @@ describe('Tool Gateway resolver', () => {
 
   test('injects team context into stdio gateway env from member session', () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
-    const agent = agentStore.create({ id: 'agent-team-stdio', type: 'dev', name: 'Agent Team', runtime: 'codex', projectId: project.id })
+    const agent = agentStore.create({
+      id: 'agent-team-stdio',
+      type: 'dev',
+      name: 'Agent Team',
+      runtime: 'codex',
+      projectId: project.id,
+    })
     const session = sessionStore.create({ agentId: agent.id, projectId: project.id })
     const team = teamStore.create({ projectId: project.id, name: 'Alpha' })
     const member = teamMemberStore.create({
@@ -130,15 +228,53 @@ describe('Tool Gateway resolver', () => {
       sessionId: session.id,
       preferHttp: false,
     })
-    const gateway = servers.find(s => s.name === 'ai-ide-tool-gateway')
+    const gateway = servers.find((s) => s.name === 'ai-ide-tool-gateway')
 
     expect(gateway?.env).toContainEqual({ name: 'TEAM_ID', value: team.id })
     expect(gateway?.env).toContainEqual({ name: 'TEAM_MEMBER_ID', value: member.id })
   })
 
+  test('disabled agent binding hides inherited platform tool in stdio gateway config', () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const agent = agentStore.create({
+      id: 'agent-hidden',
+      type: 'dev',
+      name: 'Agent Hidden',
+      runtime: 'codex',
+      projectId: project.id,
+    })
+    const builtin = toolStore.create({
+      name: 'team.create',
+      displayName: '创建 Team',
+      description: '创建 Team',
+      category: 'automation',
+      type: 'builtin',
+      config: { handler: 'team.create' },
+      permissions: { requiresApproval: false, maxExecutionTime: 10_000, networkAccess: false },
+      isBuiltin: true,
+    })
+    toolBindingStore.set(builtin.id, 'project', project.id)
+    toolBindingStore.setEnabled(builtin.id, 'agent', agent.id, false)
+
+    const servers = resolveToolsAsMcpServers({
+      agentId: agent.id,
+      projectId: project.id,
+      sessionId: 'sess-hidden',
+      preferHttp: false,
+    })
+
+    expect(servers.find((s) => s.name === 'ai-ide-tool-gateway')).toBeUndefined()
+  })
+
   test('merges builtin and script tools into one stable gateway MCP server', () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
-    const agent = agentStore.create({ id: 'agent-a', type: 'dev', name: 'Agent A', runtime: 'codex', projectId: project.id })
+    const agent = agentStore.create({
+      id: 'agent-a',
+      type: 'dev',
+      name: 'Agent A',
+      runtime: 'codex',
+      projectId: project.id,
+    })
 
     const builtin = toolStore.create({
       name: 'create_task',
@@ -165,12 +301,12 @@ describe('Tool Gateway resolver', () => {
 
     const servers = resolveToolsAsMcpServers(agent.id, project.id)
 
-    const gateway = servers.find(s => s.name === 'ai-ide-tool-gateway')
+    const gateway = servers.find((s) => s.name === 'ai-ide-tool-gateway')
     expect(gateway).toBeTruthy()
     expect(gateway?.command).toBe(process.execPath)
     expect(gateway?.args.join(' ')).toContain('tool-gateway')
     expect(gateway?.args.join(' ')).not.toContain('npx')
-        expect(gateway?.env).toContainEqual({ name: 'TOOL_IDS', value: `${builtin.id},${script.id}` })
+    expect(gateway?.env).toContainEqual({ name: 'TOOL_IDS', value: `${builtin.id},${script.id}` })
     expect(gateway?.env).toContainEqual({ name: 'PROJECT_ID', value: project.id })
     expect(gateway?.env).toContainEqual({ name: 'AGENT_ID', value: agent.id })
     expect(gateway?.env).toContainEqual({ name: 'DATA_DIR', value: tmp })
@@ -200,4 +336,3 @@ describe('Tool Gateway resolver', () => {
     ])
   })
 })
-

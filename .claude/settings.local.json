@@ -4,7 +4,8 @@
       "Bash(npm install *)",
       "Bash(npx tsx *)",
       "Bash(curl -s http://localhost:18800/health)",
-      "Bash(curl -s http://localhost:18800/api/agents)"
+      "Bash(curl -s http://localhost:18800/api/agents)",
+      "WebSearch"
     ]
   }
 }

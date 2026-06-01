@@ -76,6 +76,10 @@ events.on('task:update', (ev) => {
   broadcastToAll({ type: 'task:update', taskId: ev.taskId, data: ev.data })
 })
 
+events.on('team:update', (ev) => {
+  broadcastToAll({ type: 'team:update', teamId: ev.teamId, sessionIds: ev.sessionIds, data: ev.data })
+})
+
 events.on('rule:update', (ev) => {
   broadcastToAll({ type: 'rule:update', ruleId: ev.ruleId, data: ev.data })
 })

@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { wsClient } from '../services/ws-client'
 
 export interface ToolData {
   id: string
@@ -26,12 +27,21 @@ export interface ToolBindingData {
   created_at: string
 }
 
+export interface ToolProfileData {
+  id: string
+  name: string
+  description: string
+  toolNames: string[]
+}
+
 interface ToolStore {
   tools: ToolData[]
   bindings: ToolBindingData[]
+  profiles: ToolProfileData[]
   loading: boolean
 
-  fetchTools: () => void
+  fetchTools: () => Promise<void>
+  fetchProfiles: () => Promise<void>
   createTool: (params: {
     name: string
     displayName: string
@@ -43,134 +53,92 @@ interface ToolStore {
     permissions?: object
     defaultScope?: string
     targetId?: string
-  }) => void
-  updateTool: (toolId: string, fields: Record<string, unknown>) => void
-  toggleTool: (toolId: string, enabled: boolean) => void
-  deleteTool: (toolId: string) => void
+  }) => Promise<void>
+  updateTool: (toolId: string, fields: Record<string, unknown>) => Promise<void>
+  toggleTool: (toolId: string, enabled: boolean) => Promise<void>
+  deleteTool: (toolId: string) => Promise<void>
 
-  setBinding: (toolId: string, scope: string, targetId?: string, configOverride?: object) => void
-  removeBinding: (toolId: string, scope: string, targetId?: string) => void
+  setBinding: (
+    toolId: string,
+    scope: string,
+    targetId?: string,
+    configOverride?: object,
+    enabled?: boolean,
+  ) => Promise<void>
+  removeBinding: (toolId: string, scope: string, targetId?: string) => Promise<void>
+  applyProfile: (profileId: string, agentId: string) => Promise<void>
 
   getBindingsForTool: (toolId: string) => ToolBindingData[]
   isToolBound: (toolId: string, scope: string, targetId?: string) => boolean
 }
 
-let _ws: WebSocket | null = null
-let _nextId = 1
-const _pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>()
-
-function getWs(): WebSocket | null {
-  return _ws
-}
-
-function rpc(type: string, params: Record<string, unknown> = {}): Promise<unknown> {
-  return new Promise((resolve, reject) => {
-    const ws = getWs()
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-      reject(new Error('WebSocket 未连接'))
-      return
-    }
-    const requestId = _nextId++
-    _pending.set(requestId, { resolve, reject })
-    ws.send(JSON.stringify({ type, requestId, ...params }))
-  })
-}
-
-export function initToolStoreWs(ws: WebSocket) {
-  _ws = ws
-  const origHandler = ws.onmessage
-  ws.onmessage = (ev) => {
-    try {
-      const msg = JSON.parse(ev.data as string)
-      if (msg.requestId && _pending.has(msg.requestId)) {
-        const p = _pending.get(msg.requestId)!
-        _pending.delete(msg.requestId)
-        if (msg.type === 'error') p.reject(new Error(msg.error))
-        else p.resolve(msg.data ?? msg)
-        return
-      }
-    } catch { /* not json */ }
-    if (origHandler) (origHandler as (ev: MessageEvent) => void)(ev)
-  }
-}
-
 export const useToolStore = create<ToolStore>((set, get) => ({
   tools: [],
   bindings: [],
+  profiles: [],
   loading: false,
 
   fetchTools: async () => {
     set({ loading: true })
     try {
-      const result = await rpc('tools.list') as { tools: ToolData[]; bindings: ToolBindingData[] }
+      const result = (await wsClient.request({ type: 'tools.list' })) as {
+        tools: ToolData[]
+        bindings: ToolBindingData[]
+      }
       set({ tools: result.tools, bindings: result.bindings, loading: false })
     } catch {
       set({ loading: false })
     }
   },
 
+  fetchProfiles: async () => {
+    const result = (await wsClient.request({ type: 'tool-profiles.list' })) as { profiles: ToolProfileData[] }
+    set({ profiles: result.profiles })
+  },
+
   createTool: async (params) => {
-    try {
-      await rpc('tools.create', params)
-      get().fetchTools()
-    } catch (e) {
-      console.error('创建工具失败', e)
-    }
+    await wsClient.request({ type: 'tools.create', ...params })
+    await get().fetchTools()
   },
 
   updateTool: async (toolId, fields) => {
-    try {
-      await rpc('tools.update', { toolId, ...fields })
-      get().fetchTools()
-    } catch (e) {
-      console.error('更新工具失败', e)
-    }
+    await wsClient.request({ type: 'tools.update', toolId, ...fields })
+    await get().fetchTools()
   },
 
   toggleTool: async (toolId, enabled) => {
-    try {
-      await rpc('tools.toggle', { toolId, enabled })
-      get().fetchTools()
-    } catch (e) {
-      console.error('切换工具状态失败', e)
-    }
+    await wsClient.request({ type: 'tools.toggle', toolId, enabled })
+    await get().fetchTools()
   },
 
   deleteTool: async (toolId) => {
-    try {
-      await rpc('tools.delete', { toolId })
-      get().fetchTools()
-    } catch (e) {
-      console.error('删除工具失败', e)
-    }
+    await wsClient.request({ type: 'tools.delete', toolId })
+    await get().fetchTools()
   },
 
-  setBinding: async (toolId, scope, targetId, configOverride) => {
-    try {
-      await rpc('tool-bindings.set', { toolId, scope, targetId, configOverride })
-      get().fetchTools()
-    } catch (e) {
-      console.error('设置绑定失败', e)
-    }
+  setBinding: async (toolId, scope, targetId, configOverride, enabled = true) => {
+    await wsClient.request({ type: 'tool-bindings.set', toolId, scope, targetId, configOverride, enabled })
+    await get().fetchTools()
   },
 
   removeBinding: async (toolId, scope, targetId) => {
-    try {
-      await rpc('tool-bindings.remove', { toolId, scope, targetId })
-      get().fetchTools()
-    } catch (e) {
-      console.error('移除绑定失败', e)
-    }
+    await wsClient.request({ type: 'tool-bindings.remove', toolId, scope, targetId })
+    await get().fetchTools()
+  },
+
+  applyProfile: async (profileId, agentId) => {
+    await wsClient.request({ type: 'tool-profiles.apply', profileId, agentId })
+    await get().fetchTools()
   },
 
   getBindingsForTool: (toolId) => {
-    return get().bindings.filter(b => b.tool_id === toolId)
+    return get().bindings.filter((b) => b.tool_id === toolId)
   },
 
   isToolBound: (toolId, scope, targetId) => {
-    return get().bindings.some(b =>
-      b.tool_id === toolId && b.scope === scope &&
-      (targetId ? b.target_id === targetId : !b.target_id) && b.enabled,
+    return get().bindings.some(
+      (b) =>
+        b.tool_id === toolId && b.scope === scope && (targetId ? b.target_id === targetId : !b.target_id) && b.enabled,
     )
   },
 }))

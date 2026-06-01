@@ -4,7 +4,15 @@ import { getHandler } from '../handlers/index.js'
 import { assertToolAllowed, toolDeniedResult } from '../permission-guard.js'
 import { runScriptTool } from '../script-runner.js'
 import { failToolCall, finishToolCall, recordToolCallStart } from './audit-service.js'
-import type { ToolConfig, ToolContext, ToolDefinition, ToolHandlerInput, ToolHandlerResult, ToolPermissions } from '../types.js'
+import { sanitizeRuntimeToolInputSchema } from './schema-sanitizer.js'
+import type {
+  ToolConfig,
+  ToolContext,
+  ToolDefinition,
+  ToolHandlerInput,
+  ToolHandlerResult,
+  ToolPermissions,
+} from '../types.js'
 
 const log = createChildLogger('tool-runtime')
 
@@ -24,19 +32,28 @@ type ToolRow = ReturnType<typeof toolStore.list>[number]
 
 export function listRuntimeTools(context: ToolRuntimeContext): RuntimeToolDefinition[] {
   const visible = new Set(context.visibleTools)
-  return toolStore.list()
-    .filter(row => row.enabled === 1 && visible.has(row.name) && row.type !== 'mcp')
-    .map(row => {
+  return toolStore
+    .list()
+    .filter((row) => row.enabled === 1 && visible.has(row.name) && row.type !== 'mcp')
+    .map((row) => {
       const definition = rowToDefinition(row)
       return {
         name: definition.name,
         description: definition.description,
-        inputSchema: definition.inputSchema ?? { type: 'object', properties: {} },
+        inputSchema: sanitizeRuntimeToolInputSchema(
+          definition.name,
+          definition.inputSchema ?? { type: 'object', properties: {} },
+          context,
+        ),
       }
     })
 }
 
-export async function executeRuntimeTool(toolName: string, input: ToolHandlerInput, context: ToolRuntimeContext): Promise<ToolHandlerResult> {
+export async function executeRuntimeTool(
+  toolName: string,
+  input: ToolHandlerInput,
+  context: ToolRuntimeContext,
+): Promise<ToolHandlerResult> {
   if (!context.visibleTools.includes(toolName)) {
     const audit = recordToolCallStart({ ...auditContext(context, toolName), input, status: 'denied' })
     failToolCall(audit.id, `工具不可见: ${toolName}`, 'denied')
@@ -69,7 +86,7 @@ export async function executeRuntimeTool(toolName: string, input: ToolHandlerInp
 
     const result = await executeDefinition(definition, input, context)
     if (result.isError) {
-      failToolCall(audit.id, result.content.map(item => item.text).join('\n'), 'failed')
+      failToolCall(audit.id, result.content.map((item) => item.text).join('\n'), 'failed')
     } else {
       finishToolCall(audit.id, result)
     }
@@ -82,7 +99,11 @@ export async function executeRuntimeTool(toolName: string, input: ToolHandlerInp
   }
 }
 
-async function executeDefinition(definition: ToolDefinition, input: ToolHandlerInput, context: ToolRuntimeContext): Promise<ToolHandlerResult> {
+async function executeDefinition(
+  definition: ToolDefinition,
+  input: ToolHandlerInput,
+  context: ToolRuntimeContext,
+): Promise<ToolHandlerResult> {
   if (definition.type === 'builtin') {
     const handlerName = (definition.config as { handler?: string }).handler ?? definition.name
     const handler = getHandler(definition.name) ?? getHandler(handlerName)
@@ -99,7 +120,10 @@ async function executeDefinition(definition: ToolDefinition, input: ToolHandlerI
   return { content: [{ type: 'text', text: `不支持的工具类型: ${definition.type}` }], isError: true }
 }
 
-function auditContext(context: ToolRuntimeContext, toolName: string): { sessionId: string; agentId: string; projectId?: string; toolName: string } {
+function auditContext(
+  context: ToolRuntimeContext,
+  toolName: string,
+): { sessionId: string; agentId: string; projectId?: string; toolName: string } {
   return {
     sessionId: context.sessionId,
     agentId: context.agentId,
@@ -117,7 +141,7 @@ function rowToDefinition(row: ToolRow): ToolDefinition {
     category: row.category as ToolDefinition['category'],
     type: row.type as ToolDefinition['type'],
     config: JSON.parse(row.config_json) as ToolConfig,
-    inputSchema: row.input_schema_json ? JSON.parse(row.input_schema_json) as object : undefined,
+    inputSchema: row.input_schema_json ? (JSON.parse(row.input_schema_json) as object) : undefined,
     permissions: JSON.parse(row.permissions_json) as ToolPermissions,
     enabled: row.enabled === 1,
     isBuiltin: row.is_builtin === 1,

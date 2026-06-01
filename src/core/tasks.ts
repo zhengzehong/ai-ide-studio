@@ -8,6 +8,7 @@ const log = createChildLogger('task')
 
 export const taskManager = {
   async createTask(input: CreateTaskInput) {
+    validateAssignedAgentProject(input.assignAgentId, input.projectId)
     const task = taskStore.create(input)
     log.info({ taskId: task.id, title: task.title, agentId: input.assignAgentId }, '任务已创建')
 
@@ -17,11 +18,8 @@ export const taskManager = {
     })
 
     if (input.assignAgentId) {
-      const agent = agentStore.get(input.assignAgentId)
-      if (!agent) throw new Error(`Agent 不存在: ${input.assignAgentId}`)
-
       try {
-        const session = await sessionManager.createSession(input.assignAgentId, task.id)
+        const session = await sessionManager.createSession(input.assignAgentId, task.id, input.projectId)
         log.info({ taskId: task.id, sessionId: session.id, agentId: input.assignAgentId }, '任务已分派')
 
         taskStore.updateStatus(task.id, 'executing', '已分派给 Agent')
@@ -79,6 +77,14 @@ export const taskManager = {
 
     return updated
   },
+}
+
+function validateAssignedAgentProject(agentId: string | undefined, projectId: string | undefined): void {
+  if (!agentId) return
+  const agent = agentStore.get(agentId)
+  if (!agent) throw new Error(`Agent not found: ${agentId}`)
+  if (projectId && agent.project_id !== projectId)
+    throw new Error(`Project mismatch: Agent ${agentId} is outside current project`)
 }
 
 function buildTaskPrompt(title: string, description?: string): string {

@@ -1,5 +1,6 @@
 import { execFileSync } from 'child_process'
-import { existsSync } from 'fs'
+import { existsSync, readFileSync } from 'fs'
+import { homedir } from 'os'
 import { dirname, extname, normalize, resolve } from 'path'
 import { fileURLToPath } from 'url'
 
@@ -9,6 +10,7 @@ export interface RuntimeCommand {
 }
 
 type CommandPathResolver = (command: string) => string[]
+type CodexConfigReader = () => string | undefined
 
 interface RuntimeSpec {
   binName: string
@@ -45,22 +47,32 @@ export function buildRuntimeEnv(
   runtime: string,
   baseEnv: NodeJS.ProcessEnv = process.env,
   commandPathResolver: CommandPathResolver = resolveCommandPaths,
+  codexConfigReader: CodexConfigReader = readCodexConfig,
 ): NodeJS.ProcessEnv {
   const env = { ...baseEnv }
-  if (runtime === 'codex' && !env.CODEX_PATH) {
-    const codexPath = selectSystemCodexPath(commandPathResolver('codex'))
-    if (codexPath) env.CODEX_PATH = codexPath
+  if (runtime === 'codex') {
+    if (!env.CODEX_PATH) {
+      const codexPath = selectSystemCodexPath(commandPathResolver('codex'))
+      if (codexPath) env.CODEX_PATH = codexPath
+    }
+    if (!env.MODEL_PROVIDER?.trim()) {
+      const modelProvider = parseCodexModelProvider(codexConfigReader())
+      if (modelProvider) env.MODEL_PROVIDER = modelProvider
+    }
   }
   return env
 }
 
-export function selectSystemCodexPath(paths: string[], platform: NodeJS.Platform = process.platform): string | undefined {
-  const candidates = paths.map(path => path.trim()).filter(path => path && !isProjectLocalBin(path))
+export function selectSystemCodexPath(
+  paths: string[],
+  platform: NodeJS.Platform = process.platform,
+): string | undefined {
+  const candidates = paths.map((path) => path.trim()).filter((path) => path && !isProjectLocalBin(path))
   if (platform !== 'win32') return candidates[0]
 
-  return findByExtension(candidates, '.cmd')
-    ?? findByExtension(candidates, '.bat')
-    ?? findByExtension(candidates, '.exe')
+  return (
+    findByExtension(candidates, '.cmd') ?? findByExtension(candidates, '.bat') ?? findByExtension(candidates, '.exe')
+  )
 }
 
 function resolvePackagedBin(binName: string): string | undefined {
@@ -72,7 +84,7 @@ function resolvePackagedBin(binName: string): string | undefined {
     resolve(resourcesDir, 'runtimes', `${binName}${suffix}`),
     resolve(resourcesDir, 'node_modules', '.bin', `${binName}${suffix}`),
   ]
-  return candidates.find(path => existsSync(path))
+  return candidates.find((path) => existsSync(path))
 }
 
 function resolveLocalBin(binName: string): string | undefined {
@@ -81,7 +93,7 @@ function resolveLocalBin(binName: string): string | undefined {
     resolve(process.cwd(), 'node_modules', '.bin', `${binName}${suffix}`),
     resolve(projectRootFromModule(), 'node_modules', '.bin', `${binName}${suffix}`),
   ]
-  return candidates.find(path => existsSync(path))
+  return candidates.find((path) => existsSync(path))
 }
 
 function projectRootFromModule(): string {
@@ -89,7 +101,7 @@ function projectRootFromModule(): string {
 }
 
 function parseCommandLine(value: string): RuntimeCommand {
-  const parts = value.match(/(?:[^\s"]+|"[^"]*")+/g)?.map(part => part.replace(/^"|"$/g, '')) ?? []
+  const parts = value.match(/(?:[^\s"]+|"[^"]*")+/g)?.map((part) => part.replace(/^"|"$/g, '')) ?? []
   const [cmd, ...args] = parts
   return { cmd, args }
 }
@@ -97,9 +109,14 @@ function parseCommandLine(value: string): RuntimeCommand {
 function resolveCommandPaths(command: string): string[] {
   try {
     if (process.platform === 'win32') {
-      return execFileSync('where.exe', [command], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).split(/\r?\n/)
+      return execFileSync('where.exe', [command], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).split(
+        /\r?\n/,
+      )
     }
-    return execFileSync('sh', ['-lc', `command -v ${command}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).split(/\r?\n/)
+    return execFileSync('sh', ['-lc', `command -v ${command}`], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).split(/\r?\n/)
   } catch {
     return []
   }
@@ -111,5 +128,21 @@ function isProjectLocalBin(path: string): boolean {
 }
 
 function findByExtension(paths: string[], extension: string): string | undefined {
-  return paths.find(path => extname(path).toLowerCase() === extension)
+  return paths.find((path) => extname(path).toLowerCase() === extension)
+}
+
+function readCodexConfig(): string | undefined {
+  try {
+    const codexHome = process.env.CODEX_HOME?.trim() || resolve(homedir(), '.codex')
+    return readFileSync(resolve(codexHome, 'config.toml'), 'utf8')
+  } catch {
+    return undefined
+  }
+}
+
+function parseCodexModelProvider(config: string | undefined): string | undefined {
+  if (!config) return undefined
+  const match = config.match(/^\s*model_provider\s*=\s*["']([^"']+)["']\s*(?:#.*)?$/m)
+  const provider = match?.[1]?.trim()
+  return provider || undefined
 }

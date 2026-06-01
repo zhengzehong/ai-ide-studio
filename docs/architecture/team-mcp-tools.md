@@ -49,6 +49,19 @@ MCP token.visibleTools 决定 Agent 能看到哪些 team.* 工具
 - task 是否属于这个 team / project
 - 当前会话上下文是否能定位到有效 project/team/member
 
+### 2.1 默认可见性
+
+`team.*` 工具是平台内置工具，但**不创建全局默认绑定**。
+
+也就是说：
+
+- `tools` 表中会有 `team.list`、`team.create` 等方法定义。
+- `tool_bindings` 不会默认生成 `scope=global` 的 `team.*` 绑定。
+- 旧数据库里如果残留了 `team.*` 全局绑定，启动时的内置工具同步会清理掉。
+- Agent 只有被显式绑定具体方法，或套用 Team Profile 后，新的 Session token 才会包含这些 `team.*` 方法。
+
+这样可以避免所有 Agent 默认拥有团队创建、成员 spawn、派活等编排能力。
+
 ---
 
 ## 3. Team 数据模型
@@ -170,8 +183,8 @@ Team 页面只是把这些 Session 按成员组织起来展示。
 
 | 场景 | 规则 |
 |---|---|
-| 从模板 spawn | 创建新的项目级 Agent，再创建 TeamMember 绑定 |
-| 加入已有 Agent | 不复制 Agent，只创建 TeamMember 绑定 |
+| 从模板 spawn | 创建新的项目级 Agent，再创建 TeamMember 绑定，并给该 Agent 套用 `team-member` Profile |
+| 加入已有 Agent | 不复制 Agent，只创建 TeamMember 绑定，并给该 Agent 套用 `team-member` Profile |
 | 删除 Team | 默认只归档 Team、TeamMember 和团队会话，不硬删除 Agent |
 | 删除 Member | 默认移除 TeamMember 绑定，保留 Agent 和历史 Session |
 
@@ -314,11 +327,17 @@ member.session_id
 
 工具可见性可以配置成几类 Profile。Profile 只是配置示例，不是工具内置权限。
 
-| Profile | 可见工具 |
-|---|---|
-| 只读观察者 | `team.list`, `team.get`, `team.member.list`, `team.task.list`, `team.mailbox.list` |
-| 协作成员 | 只读工具 + `team.mailbox.send`, `team.task.update` |
-| 编排成员 | 协作工具 + `team.create`, `team.update`, `team.member.spawn`, `team.member.message`, `team.task.create`, `team.template.list`, `team.template.describe` |
+| Profile ID | 名称 | 可见工具 |
+|---|---|---|
+| `team-readonly` | Team 只读观察者 | `team.list`, `team.get`, `team.member.list`, `team.task.list`, `team.mailbox.list` |
+| `team-member` | Team 协作成员 | 只读工具 + `team.mailbox.send`, `team.task.update` |
+| `team-leader` | Team 编排者 | 协作工具 + `team.create`, `team.update`, `team.member.spawn`, `team.member.message`, `team.task.create`, `team.template.list`, `team.template.describe` |
+
+套用 Profile 时，平台会写入该 Agent 的具体 `tool_bindings`：
+
+- Profile 内的方法写为 `enabled=1`。
+- 其他 `team.*` 方法写为 `enabled=0`，用于显式隐藏上层 project/global 绑定。
+- 非 `team.*` 绑定不受影响。
 
 ---
 
@@ -490,3 +509,13 @@ HTTP MCP Gateway
 ```
 
 这样 Team 能力和现有 Project、Agent、Session、Task、Tool 可见性模型保持一致。
+
+---
+
+## Event-driven Team collaboration
+
+Team dispatch is asynchronous. A Leader uses `team.member.message` to assign work, then ends the turn instead of waiting, sleeping, or polling. Members report progress through `team.mailbox.send` and update their own assigned task with `team.task.update`. Report/result/question/blocked mailbox messages and completed/blocked task updates wake the Leader session with a system prompt.
+
+## Member task scope
+
+Tool visibility controls which Team tools an Agent can see. Runtime scope additionally restricts member actions: a non-leader Team member can only update a task whose `assignee_member_id` matches the current `teamMemberId`, and cannot change `assigneeMemberId`. Leaders can update or reassign any task in their Team.

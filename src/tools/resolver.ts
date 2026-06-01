@@ -6,6 +6,7 @@ import type { ToolConfig, ResolvedTool, ToolDefinition, ToolBinding, ToolPermiss
 import { createToolContext } from './registry/context-registry.js'
 import { resolveVisiblePlatformTools } from './registry/visibility-resolver.js'
 import { teamMemberStore } from '../store/teams.js'
+import { TEAM_LEADER_INITIAL_HIDDEN_TOOLS } from './team-profiles.js'
 import type { McpServer } from '@agentclientprotocol/sdk'
 
 const log = createChildLogger('tool-resolver')
@@ -22,7 +23,7 @@ function rowToDefinition(row: ReturnType<typeof toolStore.get>): ToolDefinition 
     category: row.category as ToolDefinition['category'],
     type: row.type as ToolDefinition['type'],
     config: JSON.parse(row.config_json) as ToolConfig,
-    inputSchema: row.input_schema_json ? JSON.parse(row.input_schema_json) as object : undefined,
+    inputSchema: row.input_schema_json ? (JSON.parse(row.input_schema_json) as object) : undefined,
     permissions: JSON.parse(row.permissions_json) as ToolPermissions,
     enabled: row.enabled === 1,
     isBuiltin: row.is_builtin === 1,
@@ -43,22 +44,26 @@ function rowToBinding(row: ReturnType<typeof toolBindingStore.list>[0]): ToolBin
   }
 }
 
-export function resolveToolsForSession(agentId?: string, projectId?: string): ResolvedTool[] {
-  const allTools = toolStore.list().filter(t => t.enabled)
+export function resolveToolsForSession(agentId?: string, projectId?: string, sessionId?: string): ResolvedTool[] {
   const allBindings = toolBindingStore.list()
+  const allTools = toolStore.list().filter((t) => t.enabled)
+  const hiddenToolNames = resolveHiddenToolNames({ agentId, projectId, sessionId }, allTools, allBindings)
   const toolMap = new Map<string, ResolvedTool>()
 
   for (const toolRow of allTools) {
+    if (hiddenToolNames.has(toolRow.name)) continue
     const def = rowToDefinition(toolRow)
     if (!def) continue
 
-    const bindings = allBindings.filter(b => b.tool_id === def.id && b.enabled)
-    const globalBinding = bindings.find(b => b.scope === 'global' && !b.target_id)
-    const projectBinding = projectId ? bindings.find(b => b.scope === 'project' && b.target_id === projectId) : undefined
-    const agentBinding = agentId ? bindings.find(b => b.scope === 'agent' && b.target_id === agentId) : undefined
+    const bindings = allBindings.filter((b) => b.tool_id === def.id)
+    const globalBinding = bindings.find((b) => b.scope === 'global' && !b.target_id)
+    const projectBinding = projectId
+      ? bindings.find((b) => b.scope === 'project' && b.target_id === projectId)
+      : undefined
+    const agentBinding = agentId ? bindings.find((b) => b.scope === 'agent' && b.target_id === agentId) : undefined
     const effectiveBinding = agentBinding || projectBinding || globalBinding
 
-    if (!effectiveBinding) continue
+    if (!effectiveBinding || effectiveBinding.enabled !== 1) continue
 
     const binding = rowToBinding(effectiveBinding)
     const effectiveConfig = binding.configOverride
@@ -89,13 +94,15 @@ export interface ResolveToolsAsMcpServersOptions {
 
 export function resolveToolsAsMcpServers(agentId?: string, projectId?: string): McpServer[]
 export function resolveToolsAsMcpServers(options: ResolveToolsAsMcpServersOptions): McpServer[]
-export function resolveToolsAsMcpServers(agentIdOrOptions?: string | ResolveToolsAsMcpServersOptions, projectIdArg?: string): McpServer[] {
-  const options = typeof agentIdOrOptions === 'object'
-    ? agentIdOrOptions
-    : { agentId: agentIdOrOptions, projectId: projectIdArg }
+export function resolveToolsAsMcpServers(
+  agentIdOrOptions?: string | ResolveToolsAsMcpServersOptions,
+  projectIdArg?: string,
+): McpServer[] {
+  const options =
+    typeof agentIdOrOptions === 'object' ? agentIdOrOptions : { agentId: agentIdOrOptions, projectId: projectIdArg }
   const { agentId, projectId } = options
 
-  const tools = resolveToolsForSession(agentId, projectId)
+  const tools = resolveToolsForSession(agentId, projectId, options.sessionId)
   const teamContext = resolveTeamContext(options)
   const externalServers: McpServer[] = []
   const gatewayToolIds: string[] = []
@@ -115,8 +122,9 @@ export function resolveToolsAsMcpServers(agentIdOrOptions?: string | ResolveTool
   }
 
   if (options.preferHttp && options.sessionId && gatewayToolIds.length > 0) {
-    const visibleTools = resolveVisiblePlatformTools({ agentId, projectId, sessionId: options.sessionId })
-      .map(tool => tool.definition.name)
+    const visibleTools = resolveVisiblePlatformTools({ agentId, projectId, sessionId: options.sessionId }).map(
+      (tool) => tool.definition.name,
+    )
     const { token } = createToolContext({
       sessionId: options.sessionId,
       agentId: agentId ?? '',
@@ -133,7 +141,17 @@ export function resolveToolsAsMcpServers(agentIdOrOptions?: string | ResolveTool
       headers: [{ name: 'Authorization', value: `Bearer ${token}` }],
     }
     const mcpServers = [...externalServers, httpServer]
-    log.info({ agentId, projectId, sessionId: options.sessionId, mcpCount: mcpServers.length, gatewayCount: visibleTools.length, transport: 'http' }, 'generated MCP server config')
+    log.info(
+      {
+        agentId,
+        projectId,
+        sessionId: options.sessionId,
+        mcpCount: mcpServers.length,
+        gatewayCount: visibleTools.length,
+        transport: 'http',
+      },
+      'generated MCP server config',
+    )
     return mcpServers
   }
 
@@ -155,8 +173,43 @@ export function resolveToolsAsMcpServers(agentIdOrOptions?: string | ResolveTool
     })
   }
 
-  log.info({ agentId, projectId, mcpCount: mcpServers.length, gatewayCount: gatewayToolIds.length, transport: 'stdio' }, 'generated MCP server config')
+  log.info(
+    { agentId, projectId, mcpCount: mcpServers.length, gatewayCount: gatewayToolIds.length, transport: 'stdio' },
+    'generated MCP server config',
+  )
   return mcpServers
+}
+
+function resolveHiddenToolNames(
+  input: { agentId?: string; projectId?: string; sessionId?: string },
+  tools: ReturnType<typeof toolStore.list>,
+  bindings: ReturnType<typeof toolBindingStore.list>,
+): Set<string> {
+  if (input.sessionId) {
+    const member = teamMemberStore.getBySession(input.sessionId)
+    if (member?.role === 'leader') return new Set(TEAM_LEADER_INITIAL_HIDDEN_TOOLS)
+  }
+  const leaderTool = tools.find((tool) => tool.name === 'team.member.message')
+  if (!leaderTool) return new Set()
+  const decision = resolveBindingForTool(leaderTool.id, bindings, input.agentId, input.projectId)
+  return decision?.enabled === 1 ? new Set(TEAM_LEADER_INITIAL_HIDDEN_TOOLS) : new Set()
+}
+
+function resolveBindingForTool(
+  toolId: string,
+  bindings: ReturnType<typeof toolBindingStore.list>,
+  agentId?: string,
+  projectId?: string,
+): ReturnType<typeof toolBindingStore.list>[number] | undefined {
+  const candidates = bindings.filter((binding) => binding.tool_id === toolId)
+  const globalBinding = candidates.find((binding) => binding.scope === 'global' && !binding.target_id)
+  const projectBinding = projectId
+    ? candidates.find((binding) => binding.scope === 'project' && binding.target_id === projectId)
+    : undefined
+  const agentBinding = agentId
+    ? candidates.find((binding) => binding.scope === 'agent' && binding.target_id === agentId)
+    : undefined
+  return agentBinding || projectBinding || globalBinding
 }
 
 function resolveTeamContext(options: ResolveToolsAsMcpServersOptions): { teamId?: string; teamMemberId?: string } {

@@ -2,7 +2,7 @@ import type { CreateToolInput } from '../store/tools.js'
 
 const TEAM_PERMISSIONS = { requiresApproval: false, maxExecutionTime: 10_000, networkAccess: false }
 
-type BuiltinToolSeed = CreateToolInput & { defaultScope: 'global' }
+type BuiltinToolSeed = CreateToolInput & { defaultScope?: 'global' }
 
 function teamTool(name: string, displayName: string, description: string, inputSchema: object): BuiltinToolSeed {
   return {
@@ -15,7 +15,6 @@ function teamTool(name: string, displayName: string, description: string, inputS
     inputSchema,
     permissions: TEAM_PERMISSIONS,
     isBuiltin: true,
-    defaultScope: 'global',
   }
 }
 

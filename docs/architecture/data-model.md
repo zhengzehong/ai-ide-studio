@@ -257,9 +257,11 @@ backlog → executing → reviewing → completed
 | tool_id | TEXT FK | 工具 ID |
 | scope | TEXT | global / project / agent |
 | target_id | TEXT | 绑定目标 ID |
-| enabled | INTEGER | 是否启用 |
+| enabled | INTEGER | 是否可见；`0` 表示在该 scope/target 上显式隐藏上层绑定 |
 | config_override_json | TEXT | 覆盖配置 |
 | created_at | TEXT | 创建时间 |
+
+可见性解析按 `agent > project > global` 覆盖。`team.*` 内置工具不会默认写入全局绑定，通常通过 Agent 级 Profile 或单个方法开关写入 `tool_bindings`。
 
 ### tool_contexts
 

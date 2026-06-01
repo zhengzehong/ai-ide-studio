@@ -54,6 +54,12 @@ ws://localhost:18800
 | `tasks.create` | `{ title, description?, assignAgentId?, projectId? }` | `Task` | 创建任务 |
 | `tasks.update` | `{ taskId, status?, stage? }` | `Task` | 更新任务状态 |
 
+### Team 上下文
+
+| 方法 | 参数 | 返回 | 说明 |
+|------|------|------|------|
+| `teams.current` | `{ sessionId }` | `{ team, currentMember, members, tasks, mailbox }` | 按当前普通会话反查 Team 上下文；非 Team 会话返回空上下文。Team 不是独立页面，Leader 和成员都通过各自 `session_id` 复用会话页。 |
+
 ### Rule 管理
 
 | 方法 | 参数 | 返回 | 说明 |
@@ -62,6 +68,21 @@ ws://localhost:18800
 | `rules.create` | `{ name, cron, action, actionConfig }` | `Rule` | 创建规则 |
 | `rules.update` | `{ ruleId, enabled?, ... }` | `Rule` | 更新规则 |
 | `rules.delete` | `{ ruleId }` | `void` | 删除规则 |
+
+### Tool / MCP 管理
+
+| 方法 | 参数 | 返回 | 说明 |
+|------|------|------|------|
+| `tools.list` | — | `{ tools, bindings }` | 列出工具定义和绑定关系 |
+| `tools.get` | `{ toolId }` | `{ tool, bindings }` | 获取单个工具及其绑定 |
+| `tools.create` | `{ name, displayName, description, category, toolType, config, inputSchema?, permissions?, defaultScope?, targetId? }` | `Tool` | 注册工具；可选创建默认绑定 |
+| `tools.update` | `{ toolId, displayName?, description?, category?, toolType?, config?, inputSchema?, permissions? }` | `Tool` | 更新工具配置 |
+| `tools.toggle` | `{ toolId, enabled }` | `{ ok: true }` | 启用或停用工具 |
+| `tools.delete` | `{ toolId }` | `{ ok: true }` | 删除非内置工具 |
+| `tool-bindings.set` | `{ toolId, scope, targetId?, configOverride?, enabled? }` | `ToolBinding` | 设置方法级可见性；`enabled=false` 表示对该 scope/target 显式隐藏 |
+| `tool-bindings.remove` | `{ toolId, scope, targetId? }` | `{ ok: true }` | 删除工具绑定 |
+| `tool-profiles.list` | — | `{ profiles }` | 列出内置工具权限模板 |
+| `tool-profiles.apply` | `{ profileId, agentId }` | `{ profile, agentId, boundToolNames, missingToolNames }` | 将权限模板写入指定 Agent 的工具绑定 |
 
 ## 事件广播
 
@@ -76,6 +97,7 @@ ws://localhost:18800
 | `session:changed` | `{ sessionId, data }` | Session 标题、状态、归档/删除等列表元数据变更 |
 | `agent:status` | `{ agentId, status }` | Agent 在线状态 |
 | `task:update` | `{ taskId, data }` | Task 状态变更 |
+| `team:update` | `{ teamId, sessionIds, data }` | Team 成员、任务或 mailbox 变化；前端仅在当前 `sessionId` 属于 `sessionIds` 时刷新 `teams.current`。 |
 | `rule:update` | `{ ruleId, data }` | Rule 状态变更 |
 
 ## 类型定义

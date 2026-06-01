@@ -43,6 +43,19 @@ export interface SessionEventRow {
   created_at: string
 }
 
+const RUNNING_STAGES = [
+  '\u6b63\u5728\u51c6\u5907 Agent...',
+  '\u6b63\u5728\u542f\u52a8 Agent...',
+  'Agent \u5df2\u5c31\u7eea',
+  '\u6b63\u5728\u6062\u590d\u4f1a\u8bdd...',
+  '\u6b63\u5728\u8fde\u63a5\u4f1a\u8bdd...',
+  '\u4f1a\u8bdd\u5df2\u8fde\u63a5',
+  '\u6b63\u5728\u601d\u8003...',
+]
+const INTERRUPTED_STAGE = '\u751f\u6210\u5df2\u4e2d\u65ad\uff0c\u53ef\u91cd\u65b0\u53d1\u9001'
+const INTERRUPTED_ERROR = '\u670d\u52a1\u91cd\u542f\uff0c\u751f\u6210\u5df2\u4e2d\u65ad'
+
+
 export interface CreateSessionInput {
   agentId: string
   taskId?: string
@@ -121,6 +134,49 @@ export const sessionStore = {
     return getDb().prepare<[string], SessionRow>('SELECT * FROM sessions WHERE task_id = ? ORDER BY started_at ASC').all(taskId)
   },
 
+  reconcileInterruptedStages(): { interrupted: SessionRow[]; cleared: SessionRow[] } {
+    const placeholders = RUNNING_STAGES.map(() => '?').join(', ')
+    const candidates = getDb()
+      .prepare<string[], SessionRow>(`
+        SELECT * FROM sessions
+        WHERE stage IN (${placeholders}) AND deleted_at IS NULL
+        ORDER BY updated_at ASC
+      `)
+      .all(...RUNNING_STAGES)
+
+    const interrupted: SessionRow[] = []
+    const cleared: SessionRow[] = []
+
+    for (const session of candidates) {
+      if (session.status !== 'active' || hasDoneAfterLastUser(session.id)) {
+        sessionStore.updateStage(session.id, '')
+        const updated = sessionStore.get(session.id)
+        cleared.push(updated ?? { ...session, stage: '' })
+        continue
+      }
+
+      const event = eventStore.append(session.id, {
+        type: 'lifecycle.interrupted',
+        agentId: session.agent_id,
+        messageId: `interrupted-${Date.now()}`,
+        role: 'system',
+        payload: { content: INTERRUPTED_STAGE, reason: 'startup_recovery' },
+      })
+      eventStore.append(session.id, {
+        type: 'message.done',
+        agentId: session.agent_id,
+        messageId: event.message_id,
+        role: 'agent',
+        payload: { messageId: event.message_id, stopReason: 'error', error: INTERRUPTED_ERROR },
+      })
+      sessionStore.updateStage(session.id, INTERRUPTED_STAGE)
+      const updated = sessionStore.get(session.id)
+      interrupted.push(updated ?? { ...session, stage: INTERRUPTED_STAGE })
+    }
+
+    return { interrupted, cleared }
+  },
+
   updateStatus(id: string, status: string): void {
     const now = new Date().toISOString()
     const closedAt = status === 'closed' ? now : null
@@ -140,6 +196,13 @@ export const sessionStore = {
 
   updateStage(id: string, stage: string): void {
     getDb().prepare('UPDATE sessions SET stage = ?, updated_at = ? WHERE id = ?').run(stage, new Date().toISOString(), id)
+  },
+
+  clearStageIfRunning(id: string): SessionRow | undefined {
+    const session = sessionStore.get(id)
+    if (!session || !RUNNING_STAGES.includes(session.stage)) return undefined
+    sessionStore.updateStage(id, '')
+    return sessionStore.get(id)
   },
 
   updateTitle(id: string, title: string): SessionRow | undefined {
@@ -175,6 +238,25 @@ export const sessionStore = {
   touch(id: string, timestamp = new Date().toISOString()): void {
     getDb().prepare('UPDATE sessions SET updated_at = ?, last_message_at = ? WHERE id = ?').run(timestamp, timestamp, id)
   },
+}
+
+function hasDoneAfterLastUser(sessionId: string): boolean {
+  const lastUser = getDb()
+    .prepare<[string], { sequence: number }>(`
+      SELECT sequence FROM session_events
+      WHERE session_id = ? AND type = 'message.user'
+      ORDER BY sequence DESC
+      LIMIT 1
+    `)
+    .get(sessionId)
+  if (!lastUser) return true
+  const done = getDb()
+    .prepare<{ sessionId: string; sequence: number }, { count: number }>(`
+      SELECT COUNT(*) AS count FROM session_events
+      WHERE session_id = @sessionId AND type = 'message.done' AND sequence > @sequence
+    `)
+    .get({ sessionId, sequence: lastUser.sequence })
+  return (done?.count ?? 0) > 0
 }
 
 export const messageStore = {

@@ -21,7 +21,14 @@ afterEach(() => {
 
 describe('builtin tool seed synchronization', () => {
   test('adds core tools even when older builtin rows already exist', () => {
-    for (const name of ['create_task', 'create_schedule', 'search_files', 'get_project_info', 'list_agents', 'http_fetch']) {
+    for (const name of [
+      'create_task',
+      'create_schedule',
+      'search_files',
+      'get_project_info',
+      'list_agents',
+      'http_fetch',
+    ]) {
       const tool = toolStore.create({
         name,
         displayName: name,
@@ -38,7 +45,10 @@ describe('builtin tool seed synchronization', () => {
 
     seedBuiltinTools()
 
-    const names = getDb().prepare<[], { name: string }>('SELECT name FROM tools ORDER BY name').all().map(row => row.name)
+    const names = getDb()
+      .prepare<[], { name: string }>('SELECT name FROM tools ORDER BY name')
+      .all()
+      .map((row) => row.name)
     expect(names).toEqual([
       'core.agent.create',
       'core.agent.get',
@@ -69,13 +79,42 @@ describe('builtin tool seed synchronization', () => {
       'team.update',
     ])
 
-    const globalBindings = getDb().prepare<[], { name: string }>(`
+    const globalBindings = getDb()
+      .prepare<[], { name: string }>(
+        `
       SELECT tools.name FROM tools
       JOIN tool_bindings ON tool_bindings.tool_id = tools.id
       WHERE tool_bindings.scope = 'global' AND tool_bindings.enabled = 1
       ORDER BY tools.name
-    `).all().map(row => row.name)
-    expect(globalBindings).toEqual(names)
+    `,
+      )
+      .all()
+      .map((row) => row.name)
+    expect(globalBindings).toEqual(names.filter((name) => !name.startsWith('team.')))
+    expect(names.filter((name) => name.startsWith('team.')).length).toBeGreaterThan(0)
+  })
+
+  test('removes stale global team tool bindings when reseeding', () => {
+    seedBuiltinTools()
+    const teamCreate = toolStore.getByName('team.create')
+    if (!teamCreate) throw new Error('team.create missing')
+    toolBindingStore.set(teamCreate.id, 'global', null)
+
+    seedBuiltinTools()
+
+    const teamGlobalBindings = getDb()
+      .prepare<[], { count: number }>(
+        `
+      SELECT COUNT(*) AS count FROM tool_bindings
+      JOIN tools ON tools.id = tool_bindings.tool_id
+      WHERE tools.name LIKE 'team.%'
+        AND tool_bindings.scope = 'global'
+        AND tool_bindings.target_id IS NULL
+        AND tool_bindings.enabled = 1
+    `,
+      )
+      .get()
+    expect(teamGlobalBindings?.count).toBe(0)
   })
 
   test('removes obsolete broken tools and revokes stale tool contexts', () => {
@@ -91,13 +130,23 @@ describe('builtin tool seed synchronization', () => {
       isBuiltin: true,
     })
     toolBindingStore.set(staleTool.id, 'global', null)
-    createToolContext({ sessionId: 'sess-stale', agentId: 'agent-stale', visibleTools: ['create_task', 'get_project_info'] })
+    createToolContext({
+      sessionId: 'sess-stale',
+      agentId: 'agent-stale',
+      visibleTools: ['create_task', 'get_project_info'],
+    })
 
     seedBuiltinTools()
 
     expect(toolStore.getByName('get_project_info')).toBeUndefined()
-    expect(getDb().prepare('SELECT COUNT(*) AS count FROM tool_bindings WHERE tool_id = ?').get(staleTool.id)).toEqual({ count: 0 })
-    expect(getDb().prepare<[], { revoked_at: string | null }>('SELECT revoked_at FROM tool_contexts WHERE session_id = ?').get('sess-stale')?.revoked_at).toBeTruthy()
+    expect(getDb().prepare('SELECT COUNT(*) AS count FROM tool_bindings WHERE tool_id = ?').get(staleTool.id)).toEqual({
+      count: 0,
+    })
+    expect(
+      getDb()
+        .prepare<[], { revoked_at: string | null }>('SELECT revoked_at FROM tool_contexts WHERE session_id = ?')
+        .get('sess-stale')?.revoked_at,
+    ).toBeTruthy()
   })
 })
 

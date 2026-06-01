@@ -1,5 +1,6 @@
 import type { ToolConfig } from '../../tools/types.js'
 import { toolBindingStore, toolStore } from '../../store/tools.js'
+import { applyToolProfileToAgent, listToolProfiles, type ToolProfileId } from '../../tools/team-profiles.js'
 import type { RpcHandlerMap } from './types.js'
 
 type ToolCategory = 'browser' | 'filesystem' | 'network' | 'automation' | 'code' | 'data' | 'custom'
@@ -11,6 +12,19 @@ type ToolPermissions = { requiresApproval: boolean; maxExecutionTime: number; ne
 export const toolRpcHandlers: RpcHandlerMap = {
   'tools.list'(_msg, { sendResult }) {
     sendResult({ tools: toolStore.list(), bindings: toolBindingStore.list() })
+  },
+
+  'tool-profiles.list'(_msg, { sendResult }) {
+    sendResult({ profiles: listToolProfiles() })
+  },
+
+  'tool-profiles.apply'(msg, { sendResult }) {
+    sendResult(
+      applyToolProfileToAgent({
+        profileId: msg.profileId as ToolProfileId,
+        agentId: msg.agentId as string,
+      }),
+    )
   },
 
   'tools.get'(msg, { sendResult }) {
@@ -31,7 +45,7 @@ export const toolRpcHandlers: RpcHandlerMap = {
       permissions: msg.permissions as ToolPermissions | undefined,
     })
     if (msg.defaultScope) {
-      toolBindingStore.set(tool.id, msg.defaultScope as ToolScope, msg.targetId as string ?? null)
+      toolBindingStore.set(tool.id, msg.defaultScope as ToolScope, (msg.targetId as string) ?? null)
     }
     sendResult(tool)
   },
@@ -64,16 +78,20 @@ export const toolRpcHandlers: RpcHandlerMap = {
   },
 
   'tool-bindings.set'(msg, { sendResult }) {
-    sendResult(toolBindingStore.set(
-      msg.toolId as string,
-      msg.scope as ToolScope,
-      msg.targetId as string ?? null,
-      msg.configOverride as Record<string, unknown> | undefined,
-    ))
+    const enabled = typeof msg.enabled === 'boolean' ? msg.enabled : true
+    sendResult(
+      toolBindingStore.setEnabled(
+        msg.toolId as string,
+        msg.scope as ToolScope,
+        (msg.targetId as string) ?? null,
+        enabled,
+        msg.configOverride as Record<string, unknown> | undefined,
+      ),
+    )
   },
 
   'tool-bindings.remove'(msg, { sendResult }) {
-    toolBindingStore.remove(msg.toolId as string, msg.scope as ToolScope, msg.targetId as string ?? null)
+    toolBindingStore.remove(msg.toolId as string, msg.scope as ToolScope, (msg.targetId as string) ?? null)
     sendResult({ ok: true })
   },
 }

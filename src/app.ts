@@ -6,6 +6,7 @@ import { createChildLogger } from './core/logger.js'
 import { ruleEngine } from './core/rules.js'
 import { initDatabase } from './store/db.js'
 import { agentStore } from './store/agents.js'
+import { sessionStore } from './store/sessions.js'
 import { seedBuiltinTemplates } from './store/agent-templates.js'
 import { seedBuiltinTools } from './tools/seed.js'
 import { startGateway } from './gateway/server.js'
@@ -24,6 +25,13 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
   const dbPath = resolve(config.dataDir, 'ai-ide.sqlite')
   initDatabase(dbPath)
   log.info({ dbPath }, '数据库已初始化')
+  const recovery = sessionStore.reconcileInterruptedStages()
+  if (recovery.interrupted.length > 0 || recovery.cleared.length > 0) {
+    log.warn(
+      { interrupted: recovery.interrupted.length, cleared: recovery.cleared.length },
+      '\u5df2\u4fee\u590d\u91cd\u542f\u9057\u7559\u7684\u4f1a\u8bdd\u751f\u6210\u72b6\u6001',
+    )
+  }
 
   seedDefaultAgents()
   seedBuiltinTemplates()

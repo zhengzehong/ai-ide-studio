@@ -32,12 +32,42 @@ describe('runtime registry', () => {
     expect(env.CODEX_PATH).toBe('custom-codex')
   })
 
+  test('uses Codex config model_provider for codex-acp resume compatibility', () => {
+    const env = buildRuntimeEnv(
+      'codex',
+      {},
+      () => [],
+      () => 'model_provider = "club"\nmodel = "gpt-5.5"\n',
+    )
+    expect(env.MODEL_PROVIDER).toBe('club')
+  })
+
+  test('keeps explicit MODEL_PROVIDER override', () => {
+    const env = buildRuntimeEnv(
+      'codex',
+      { MODEL_PROVIDER: 'openai' },
+      () => [],
+      () => 'model_provider = "club"\n',
+    )
+    expect(env.MODEL_PROVIDER).toBe('openai')
+  })
+
+  test('does not set Codex model provider for non-codex runtimes', () => {
+    const env = buildRuntimeEnv(
+      'claude',
+      {},
+      () => ['C:\\Tools\\codex.cmd'],
+      () => 'model_provider = "club"\n',
+    )
+    expect(env.MODEL_PROVIDER).toBeUndefined()
+    expect(env.CODEX_PATH).toBeUndefined()
+  })
+
   test('selects cmd wrapper before exe on Windows and skips project bin', () => {
-    const selected = selectSystemCodexPath([
-      'D:\\repo\\node_modules\\.bin\\codex.cmd',
-      'D:\\softs\\codex\\codex.exe',
-      'C:\\nvm4w\\nodejs\\codex.cmd',
-    ], 'win32')
+    const selected = selectSystemCodexPath(
+      ['D:\\repo\\node_modules\\.bin\\codex.cmd', 'D:\\softs\\codex\\codex.exe', 'C:\\nvm4w\\nodejs\\codex.cmd'],
+      'win32',
+    )
     expect(selected).toBe('C:\\nvm4w\\nodejs\\codex.cmd')
   })
 })

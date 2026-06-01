@@ -18,6 +18,9 @@ electron/dist/
 .env
 .playwright-mcp/
 code-reviews/
+.tmp/
+references/
+team-ui-smoke.png
 
 # Editor directories and files
 .vscode/*

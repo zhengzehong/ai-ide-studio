@@ -1,58 +1,65 @@
-import { useEffect, useRef } from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import AppLayout from './components/layout/AppLayout';
-import Dashboard from './pages/Dashboard';
-import Workspace from './pages/Workspace';
-import TaskBoard from './pages/TaskBoard';
-import Schedule from './pages/Schedule';
-import AgentSquare from './pages/AgentSquare';
-import SkillCenter from './pages/SkillCenter';
-import ToolManager from './pages/ToolManager';
-import Settings from './pages/Settings';
-import { useConnectionStore } from './stores/connection.store';
-import { useAgentStore } from './stores/agent.store';
-import { useSessionStore } from './stores/session.store';
-import { useTaskStore } from './stores/task.store';
-import { useRuleStore } from './stores/rule.store';
-import { useProjectStore } from './stores/project.store';
-import { useTemplateStore } from './stores/template.store';
-import { useToolStore } from './stores/tool.store';
-import { useModelStore } from './stores/model.store';
-import { useSkillStore } from './stores/skill.store';
+import { useEffect, useRef } from 'react'
+import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import AppLayout from './components/layout/AppLayout'
+import Dashboard from './pages/Dashboard'
+import Workspace from './pages/Workspace'
+import TaskBoard from './pages/TaskBoard'
+import Schedule from './pages/Schedule'
+import AgentSquare from './pages/AgentSquare'
+import SkillCenter from './pages/SkillCenter'
+import ToolManager from './pages/ToolManager'
+import Settings from './pages/Settings'
+import { useConnectionStore } from './stores/connection.store'
+import { useAgentStore } from './stores/agent.store'
+import { useSessionStore } from './stores/session.store'
+import { useTaskStore } from './stores/task.store'
+import { useRuleStore } from './stores/rule.store'
+import { useProjectStore } from './stores/project.store'
+import { useTemplateStore } from './stores/template.store'
+import { useToolStore } from './stores/tool.store'
+import { useModelStore } from './stores/model.store'
+import { useSkillStore } from './stores/skill.store'
+import { useTeamStore } from './stores/team.store'
 
 export default function App() {
-  const init = useConnectionStore(s => s.init);
-  const connected = useConnectionStore(s => s.connected);
-  const listenersReady = useRef(false);
+  const init = useConnectionStore((s) => s.init)
+  const connected = useConnectionStore((s) => s.connected)
+  const listenersReady = useRef(false)
 
   useEffect(() => {
-    init();
-  }, [init]);
+    init()
+  }, [init])
 
   useEffect(() => {
-    if (!connected) return;
+    if (!connected) return
 
-    useAgentStore.getState().fetchAgents();
-    useTaskStore.getState().fetchTasks();
-    useRuleStore.getState().fetchRules();
-    useProjectStore.getState().fetchProjects();
-    useTemplateStore.getState().fetchTemplates();
-    useToolStore.getState().fetchTools();
-    useModelStore.getState().fetchProviders();
-    useSkillStore.getState().fetchSkills();
+    useAgentStore.getState().fetchAgents()
+    useTaskStore.getState().fetchTasks()
+    useRuleStore.getState().fetchRules()
+    useProjectStore.getState().fetchProjects()
+    useTemplateStore.getState().fetchTemplates()
+    useToolStore.getState().fetchTools()
+    useToolStore.getState().fetchProfiles()
+    useModelStore.getState().fetchProviders()
+    useSkillStore.getState().fetchSkills()
 
     if (!listenersReady.current) {
-      listenersReady.current = true;
-      const off1 = useAgentStore.getState().setupListeners();
-      const off2 = useSessionStore.getState().setupListeners();
-      const off3 = useTaskStore.getState().setupListeners();
-      const off4 = useRuleStore.getState().setupListeners();
+      listenersReady.current = true
+      const off1 = useAgentStore.getState().setupListeners()
+      const off2 = useSessionStore.getState().setupListeners()
+      const off3 = useTaskStore.getState().setupListeners()
+      const off4 = useRuleStore.getState().setupListeners()
+      const off5 = useTeamStore.getState().setupListeners(() => useSessionStore.getState().currentSessionId)
       return () => {
-        off1(); off2(); off3(); off4();
-        listenersReady.current = false;
-      };
+        off1()
+        off2()
+        off3()
+        off4()
+        off5()
+        listenersReady.current = false
+      }
     }
-  }, [connected]);
+  }, [connected])
 
   return (
     <BrowserRouter>
@@ -69,5 +76,5 @@ export default function App() {
         </Route>
       </Routes>
     </BrowserRouter>
-  );
+  )
 }

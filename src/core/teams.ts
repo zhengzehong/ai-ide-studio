@@ -12,8 +12,12 @@ import {
   type TeamRow,
 } from '../store/teams.js'
 import { createCustomProjectAgent, deployTemplateToProject } from './agents.js'
+import { events } from './events.js'
 import { createChildLogger } from './logger.js'
-import { sessionManager } from './sessions.js'
+import { dispatchMemberPrompt, type DispatchMemberPromptStatus } from './team-member-dispatcher.js'
+import { buildTeamMemberPrompt } from './team-prompts.js'
+import { teamWakeCoordinator } from './team-wake-coordinator.js'
+import { applyToolProfileToAgent } from '../tools/team-profiles.js'
 
 const log = createChildLogger('teams')
 
@@ -24,9 +28,18 @@ export interface TeamDetail {
   mailbox: TeamMailboxRow[]
 }
 
+export interface TeamContextDetail {
+  team: TeamRow | null
+  currentMember: TeamMemberRow | null
+  members: TeamMemberRow[]
+  tasks: TaskRow[]
+  mailbox: TeamMailboxRow[]
+}
+
 export interface CreateTeamInput {
   projectId: string
   leaderAgentId: string
+  leaderSessionId?: string
   name: string
   description?: string
 }
@@ -53,6 +66,11 @@ export interface CreateTeamResult extends SpawnMemberResult {
   team: TeamRow
 }
 
+export interface DispatchTeamMessageResult {
+  status: DispatchMemberPromptStatus
+  member: TeamMemberRow
+}
+
 export interface CreateTeamTaskInput {
   teamId: string
   title: string
@@ -66,6 +84,7 @@ export interface UpdateTeamTaskInput {
   status?: string
   stage?: string
   assigneeMemberId?: string | null
+  actor?: { teamMemberId?: string }
 }
 
 export interface TeamAccessContext {
@@ -84,12 +103,19 @@ export const teamService = {
     return buildDetail(team)
   },
 
+  currentBySession(sessionId: string): TeamContextDetail {
+    const currentMember = teamMemberStore.getBySession(sessionId)
+    if (!currentMember) return emptyTeamContext()
+    const detail = buildDetail(requireTeam(currentMember.team_id))
+    return { ...detail, currentMember }
+  },
+
   create(input: CreateTeamInput): CreateTeamResult {
     ensureProject(input.projectId)
     const leader = requireAgent(input.leaderAgentId)
     ensureAgentInProject(leader, input.projectId)
     const team = teamStore.create({ projectId: input.projectId, name: input.name, description: input.description })
-    const session = sessionStore.create({ agentId: leader.id, projectId: input.projectId })
+    const session = resolveLeaderSession(input.leaderSessionId, leader, input.projectId)
     const member = teamMemberStore.create({
       teamId: team.id,
       projectId: input.projectId,
@@ -99,12 +125,14 @@ export const teamService = {
       role: 'leader',
     })
     log.info({ teamId: team.id, projectId: input.projectId, memberId: member.id }, 'Team 已创建')
+    emitTeamUpdate(team.id, 'created')
     return { team, member, agent: leader, session }
   },
 
   update(teamId: string, input: { name?: string; description?: string | null; status?: string }): TeamRow {
     const team = teamStore.update(teamId, input)
     if (!team) throw new Error(`Team 不存在: ${teamId}`)
+    emitTeamUpdate(team.id, 'updated')
     return team
   },
 
@@ -126,20 +154,25 @@ export const teamService = {
       name: input.name?.trim() || agent.name,
       role: input.role || 'member',
     })
+    applyToolProfileToAgent({ profileId: 'team-member', agentId: agent.id })
     log.info({ teamId: team.id, memberId: member.id, agentId: agent.id }, 'Team member 已创建')
+    emitTeamUpdate(team.id, 'member.created')
     return { member, agent, session }
   },
 
-  dispatchMessage(input: { teamId: string; memberId: string; content: string; taskId?: string }): { status: string; member: TeamMemberRow } {
+  dispatchMessage(input: {
+    teamId: string
+    memberId: string
+    content: string
+    taskId?: string
+  }): DispatchTeamMessageResult {
     const team = requireTeam(input.teamId)
     const member = requireMember(input.memberId)
     ensureMemberInTeam(member, team)
     if (input.taskId) ensureTaskInTeam(input.taskId, team.id)
-    const prompt = buildMemberPrompt(team, member, input.content, input.taskId)
-    void sessionManager.sendPrompt(member.session_id, prompt).catch((err: unknown) => {
-      log.error({ err, teamId: team.id, memberId: member.id, sessionId: member.session_id }, 'Team member prompt failed')
-    })
-    return { status: 'accepted', member }
+    const prompt = buildTeamMemberPrompt({ team, member, content: input.content, taskId: input.taskId })
+    const status = dispatchMemberPrompt({ teamId: team.id, memberId: member.id, sessionId: member.session_id, prompt })
+    return { status, member }
   },
 
   listMailbox(teamId: string, limit?: number): TeamMailboxRow[] {
@@ -160,7 +193,7 @@ export const teamService = {
     if (input.fromMemberId) ensureMemberInTeam(requireMember(input.fromMemberId), team)
     if (input.toMemberId) ensureMemberInTeam(requireMember(input.toMemberId), team)
     if (input.taskId) ensureTaskInTeam(input.taskId, team.id)
-    return teamMailboxStore.create({
+    const message = teamMailboxStore.create({
       teamId: team.id,
       projectId: team.project_id,
       fromMemberId: input.fromMemberId,
@@ -170,6 +203,9 @@ export const teamService = {
       content: input.content,
       payload: input.payload,
     })
+    teamWakeCoordinator.notifyMailbox(message)
+    emitTeamUpdate(team.id, 'mailbox.created')
+    return message
   },
 
   listTasks(teamId: string, status?: string): TaskRow[] {
@@ -181,7 +217,7 @@ export const teamService = {
     const team = requireTeam(input.teamId)
     const assignee = input.assigneeMemberId ? requireMember(input.assigneeMemberId) : undefined
     if (assignee) ensureMemberInTeam(assignee, team)
-    return taskStore.create({
+    const task = taskStore.create({
       title: input.title,
       description: input.description,
       source: 'agent',
@@ -190,21 +226,35 @@ export const teamService = {
       assigneeMemberId: assignee?.id,
       assignAgentId: assignee?.agent_id,
     })
+    emitTeamUpdate(team.id, 'task.created')
+    return task
   },
 
   updateTask(input: UpdateTeamTaskInput): TaskRow {
     const team = requireTeam(input.teamId)
     const task = ensureTaskInTeam(input.taskId, team.id)
+    const actor = input.actor?.teamMemberId ? requireMember(input.actor.teamMemberId) : undefined
+    if (actor) {
+      ensureMemberInTeam(actor, team)
+      if (actor.role !== 'leader') {
+        if (task.assignee_member_id !== actor.id) throw new Error('只能更新分配给自己的 Team 任务')
+        if (input.assigneeMemberId !== undefined && input.assigneeMemberId !== task.assignee_member_id) {
+          throw new Error('Team 成员不能重新分配任务')
+        }
+      }
+    }
     const assignee = input.assigneeMemberId ? requireMember(input.assigneeMemberId) : undefined
     if (assignee) ensureMemberInTeam(assignee, team)
     const unassigning = input.assigneeMemberId === null
     const updated = taskStore.update(task.id, {
-      status: input.status,
+      status: normalizeTaskStatus(input.status),
       stage: input.stage,
       assigneeMemberId: input.assigneeMemberId,
       assignAgentId: unassigning ? null : assignee?.agent_id,
     })
     if (!updated) throw new Error(`Task 不存在: ${task.id}`)
+    teamWakeCoordinator.notifyTaskUpdated(updated, input.actor)
+    emitTeamUpdate(team.id, 'task.updated')
     return updated
   },
 
@@ -224,6 +274,26 @@ export const teamService = {
     if (context.teamId && context.teamId !== team.id) throw new Error('teamId 不匹配当前 Team 上下文')
     if (context.teamMemberId) ensureMemberInTeam(requireMember(context.teamMemberId), team)
   },
+}
+
+function resolveLeaderSession(leaderSessionId: string | undefined, leader: AgentRow, projectId: string): SessionRow {
+  if (!leaderSessionId) return sessionStore.create({ agentId: leader.id, projectId })
+  const session = sessionStore.get(leaderSessionId)
+  if (!session) throw new Error(`Session 不存在: ${leaderSessionId}`)
+  if (session.agent_id !== leader.id) throw new Error('Leader session 不属于当前 Agent')
+  if (session.project_id !== projectId) throw new Error('Leader session 不属于当前项目')
+  return session
+}
+function emptyTeamContext(): TeamContextDetail {
+  return { team: null, currentMember: null, members: [], tasks: [], mailbox: [] }
+}
+
+function emitTeamUpdate(teamId: string, reason: string): void {
+  events.emit('team:update', {
+    teamId,
+    sessionIds: teamMemberStore.list(teamId).map((member) => member.session_id),
+    data: { reason },
+  })
 }
 
 function buildDetail(team: TeamRow): TeamDetail {
@@ -255,16 +325,6 @@ function resolveSpawnAgent(projectId: string, input: SpawnMemberInput): AgentRow
   })
 }
 
-function buildMemberPrompt(team: TeamRow, member: TeamMemberRow, content: string, taskId?: string): string {
-  return [
-    `Team: ${team.name} (${team.id})`,
-    `Member: ${member.name} (${member.id})`,
-    taskId ? `Task: ${taskId}` : undefined,
-    '',
-    content,
-  ].filter((item): item is string => typeof item === 'string').join('\n')
-}
-
 function ensureProject(projectId: string): void {
   if (!projectStore.get(projectId)) throw new Error(`项目不存在: ${projectId}`)
 }
@@ -292,7 +352,8 @@ function ensureAgentInProject(agent: AgentRow, projectId: string): void {
 }
 
 function ensureMemberInTeam(member: TeamMemberRow, team: TeamRow): void {
-  if (member.team_id !== team.id || member.project_id !== team.project_id) throw new Error('Team member 不属于该 Team')
+  if (member.team_id !== team.id || member.project_id !== team.project_id)
+    throw new Error('Team member 不属于该 Team')
 }
 
 function ensureTaskInTeam(taskId: string, teamId: string): TaskRow {
@@ -305,4 +366,11 @@ function ensureTaskInTeam(taskId: string, teamId: string): TaskRow {
 function required(value: string | undefined, key: string): string {
   if (!value?.trim()) throw new Error(`${key} 不能为空`)
   return value
+}
+
+function normalizeTaskStatus(status: string | undefined): string | undefined {
+  if (!status) return undefined
+  const normalized = status.trim().toLowerCase()
+  if (['done', 'complete', 'finished'].includes(normalized)) return 'completed'
+  return status
 }

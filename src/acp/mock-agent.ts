@@ -28,24 +28,28 @@ async function simulateStreamResponse(sessionId: string, prompt: string) {
   const replyChunks = generateReply(prompt)
 
   sendNotification('session/update', {
-    sessionId, messageId,
+    sessionId,
+    messageId,
     type: 'message_start',
   })
 
   sendNotification('session/update', {
-    sessionId, messageId,
+    sessionId,
+    messageId,
     type: 'content_block_start',
     contentBlock: { type: 'thinking', thinking: thinkingText },
   })
 
   sendNotification('session/update', {
-    sessionId, messageId,
+    sessionId,
+    messageId,
     type: 'content_block_stop',
     contentBlock: { type: 'thinking' },
   })
 
   sendNotification('session/update', {
-    sessionId, messageId,
+    sessionId,
+    messageId,
     type: 'content_block_start',
     contentBlock: { type: 'text', text: '' },
   })
@@ -53,20 +57,23 @@ async function simulateStreamResponse(sessionId: string, prompt: string) {
   for (const chunk of replyChunks) {
     await sleep(50 + Math.random() * 80)
     sendNotification('session/update', {
-      sessionId, messageId,
+      sessionId,
+      messageId,
       type: 'content_block_delta',
       delta: { type: 'text', text: chunk },
     })
   }
 
   sendNotification('session/update', {
-    sessionId, messageId,
+    sessionId,
+    messageId,
     type: 'content_block_stop',
     contentBlock: { type: 'text' },
   })
 
   sendNotification('session/update', {
-    sessionId, messageId,
+    sessionId,
+    messageId,
     type: 'message_done',
   })
 }
@@ -76,11 +83,14 @@ function generateReply(prompt: string): string[] {
 
   let fullReply: string
   if (lowerPrompt.includes('hello') || lowerPrompt.includes('你好')) {
-    fullReply = '你好！我是 Mock Agent，一个用于测试的模拟 AI 助手。我可以响应你的消息，模拟真实 Agent 的流式回复行为。有什么可以帮你的吗？'
+    fullReply =
+      '你好！我是 Mock Agent，一个用于测试的模拟 AI 助手。我可以响应你的消息，模拟真实 Agent 的流式回复行为。有什么可以帮你的吗？'
   } else if (lowerPrompt.includes('任务') || lowerPrompt.includes('task')) {
-    fullReply = '收到任务指派！我正在分析任务需求...\n\n**任务理解：**\n我将按以下步骤执行：\n1. 分析需求和约束\n2. 设计解决方案\n3. 编写代码实现\n4. 测试验证\n\n正在开始第一步...'
+    fullReply =
+      '收到任务指派！我正在分析任务需求...\n\n**任务理解：**\n我将按以下步骤执行：\n1. 分析需求和约束\n2. 设计解决方案\n3. 编写代码实现\n4. 测试验证\n\n正在开始第一步...'
   } else if (lowerPrompt.includes('重构') || lowerPrompt.includes('refactor')) {
-    fullReply = '好的，让我来分析代码结构并提出重构方案。\n\n**分析结果：**\n当前代码存在以下可优化点：\n- 函数过长，需要拆分\n- 重复逻辑可以抽取\n- 类型定义不够严格\n\n我建议分三个阶段进行重构...'
+    fullReply =
+      '好的，让我来分析代码结构并提出重构方案。\n\n**分析结果：**\n当前代码存在以下可优化点：\n- 函数过长，需要拆分\n- 重复逻辑可以抽取\n- 类型定义不够严格\n\n我建议分三个阶段进行重构...'
   } else {
     fullReply = `收到你的消息: "${prompt.slice(0, 100)}"\n\n我是 Mock Agent，这是一条模拟回复。在实际使用中，这里会是真实 AI Agent（如 Claude、Codex）的回复。\n\n当前会话状态正常，流式传输工作正常。`
   }
@@ -149,8 +159,8 @@ rl.on('line', async (line) => {
         sendError(msg.id!, -1, `Session 不存在: ${sessionId}`)
         break
       }
+      await simulateStreamResponse(sessionId, content)
       sendResponse(msg.id!, { accepted: true })
-      simulateStreamResponse(sessionId, content)
       break
     }
 
