@@ -1,6 +1,6 @@
 ﻿import type React from 'react'
 import type { AgentData } from '../../stores/agent.store'
-import type { ConfigOptionInfo, ToolCallInfo } from '../../stores/session.store'
+import type { ConfigOptionInfo, SessionData, ToolCallInfo } from '../../stores/session.store'
 
 export const TYPE_COLORS: Record<string, string> = {
   dev: '#2563eb',
@@ -82,6 +82,21 @@ export function filterAgentsByProject<T extends { project_id?: string | null }>(
   return agents.filter((agent) => agent.project_id === projectId)
 }
 
+export function selectChatAgent({
+  agents,
+  sessions,
+  currentSessionId,
+  selectedAgentId,
+}: {
+  agents: AgentData[]
+  sessions: SessionData[]
+  currentSessionId: string | null
+  selectedAgentId: string | null
+}): AgentData | undefined {
+  const currentSession = currentSessionId ? sessions.find((session) => session.id === currentSessionId) : undefined
+  if (currentSession) return agents.find((agent) => agent.id === currentSession.agent_id)
+  return agents.find((agent) => agent.id === selectedAgentId) ?? agents[0]
+}
 export const sessionMenuItemStyle: React.CSSProperties = {
   display: 'block',
   width: '100%',

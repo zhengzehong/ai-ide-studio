@@ -26,6 +26,7 @@ export type ChatRenderItem<TMessage extends ChatRenderMessage = ChatRenderMessag
   | { id: string; kind: 'blocking' }
 
 export function buildChatRenderItems<TMessage extends ChatRenderMessage>({
+  sessionId,
   messages,
   events,
   streamingBubble,
@@ -33,6 +34,7 @@ export function buildChatRenderItems<TMessage extends ChatRenderMessage>({
   blockingInteraction,
   timelineEventLimit = 1000,
 }: {
+  sessionId?: string | null
   messages: TMessage[]
   events: SessionEventData[]
   streamingBubble: TMessage | null
@@ -40,24 +42,28 @@ export function buildChatRenderItems<TMessage extends ChatRenderMessage>({
   blockingInteraction: boolean
   timelineEventLimit?: number
 }): ChatRenderItem<TMessage>[] {
-  const timelineGroups = groupChatTimelineItems(buildChatTimelineFromEvents(events.slice(-timelineEventLimit)))
+  const scopedMessages = sessionId ? messages.filter((message) => message.session_id === sessionId) : messages
+  const scopedEvents = sessionId ? events.filter((event) => event.session_id === sessionId) : events
+  const scopedStreamingBubble =
+    sessionId && streamingBubble?.session_id && streamingBubble.session_id !== sessionId ? null : streamingBubble
+  const timelineGroups = groupChatTimelineItems(buildChatTimelineFromEvents(scopedEvents.slice(-timelineEventLimit)))
   const timelineMessageIds = collectTimelineMessageIds(timelineGroups)
   const items: ChatRenderItem<TMessage>[] =
     timelineGroups.length > 0
       ? sortTimedItems([
-          ...messages
+          ...scopedMessages
             .filter((message) => !isMessageRepresentedByTimeline(message, timelineGroups, timelineMessageIds))
             .map((message) => ({ item: { id: `msg:${message.id}`, kind: 'message' as const, message }, timestamp: message.timestamp })),
           ...timelineGroups.map((group) => ({ item: { id: `group:${group.id}`, kind: 'group' as const, group }, timestamp: group.timestamp })),
         ])
-      : messages.map((message) => ({ id: `msg:${message.id}`, kind: 'message', message }))
+      : scopedMessages.map((message) => ({ id: `msg:${message.id}`, kind: 'message', message }))
 
   if (
     showStreamingBubble &&
-    streamingBubble &&
-    !isMessageRepresentedByTimeline(streamingBubble, timelineGroups, timelineMessageIds)
+    scopedStreamingBubble &&
+    !isMessageRepresentedByTimeline(scopedStreamingBubble, timelineGroups, timelineMessageIds)
   ) {
-    items.push({ id: `streaming:${streamingBubble.id}`, kind: 'streaming', message: streamingBubble })
+    items.push({ id: `streaming:${scopedStreamingBubble.id}`, kind: 'streaming', message: scopedStreamingBubble })
   }
   if (blockingInteraction && !showStreamingBubble) items.push({ id: 'blocking', kind: 'blocking' })
   return items
