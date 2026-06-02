@@ -254,13 +254,14 @@ export const acpHost = {
     persistedAcpSessionId?: string | null,
     context: AcpSessionContext = {},
   ): Promise<string> {
+    const showLifecycle = context.emitLifecycle !== false
     const existed = acpHost.isRunning(agentId)
-    if (!existed)
+    if (!existed && showLifecycle)
       emitLifecycle(agentId, ourSessionId, 'lifecycle.runtime_starting', '\u6b63\u5728\u542f\u52a8 Agent...')
     await acpHost.startAgent(agentId)
     const conn = acpHost.agents.get(agentId)
     if (!conn) throw new Error(`Agent ${agentId} not running`)
-    if (!existed) emitLifecycle(agentId, ourSessionId, 'lifecycle.runtime_ready', 'Agent \u5df2\u5c31\u7eea')
+    if (!existed && showLifecycle) emitLifecycle(agentId, ourSessionId, 'lifecycle.runtime_ready', 'Agent \u5df2\u5c31\u7eea')
 
     const existingAcpSessionId = conn.acpSessions.get(ourSessionId)
     if (existingAcpSessionId) {
@@ -276,25 +277,27 @@ export const acpHost = {
       try {
         let acpSessionId: string
         if (persistedAcpSessionId) {
-          emitLifecycle(agentId, ourSessionId, 'lifecycle.session_resuming', '\u6b63\u5728\u6062\u590d\u4f1a\u8bdd...')
+          if (showLifecycle) emitLifecycle(agentId, ourSessionId, 'lifecycle.session_resuming', '\u6b63\u5728\u6062\u590d\u4f1a\u8bdd...')
           await acpHost.resumeSession(agentId, ourSessionId, persistedAcpSessionId, context)
           acpSessionId = conn.acpSessions.get(ourSessionId) ?? persistedAcpSessionId
         } else {
-          emitLifecycle(agentId, ourSessionId, 'lifecycle.session_creating', '\u6b63\u5728\u8fde\u63a5\u4f1a\u8bdd...')
+          if (showLifecycle) emitLifecycle(agentId, ourSessionId, 'lifecycle.session_creating', '\u6b63\u5728\u8fde\u63a5\u4f1a\u8bdd...')
           acpSessionId = await acpHost.newSession(agentId, ourSessionId, context)
         }
         markSessionConnected(conn, ourSessionId, acpSessionId)
-        emitLifecycle(agentId, ourSessionId, 'lifecycle.session_ready', '\u4f1a\u8bdd\u5df2\u8fde\u63a5')
+        if (showLifecycle) emitLifecycle(agentId, ourSessionId, 'lifecycle.session_ready', '\u4f1a\u8bdd\u5df2\u8fde\u63a5')
         return acpSessionId
       } catch (err) {
         state.state = 'disconnected'
         state.connectPromise = undefined
-        emitLifecycle(
-          agentId,
-          ourSessionId,
-          'lifecycle.failed',
-          `\u8fde\u63a5\u5931\u8d25\uff1a${err instanceof Error ? err.message : String(err)}`,
-        )
+        if (showLifecycle) {
+          emitLifecycle(
+            agentId,
+            ourSessionId,
+            'lifecycle.failed',
+            `\u8fde\u63a5\u5931\u8d25\uff1a${err instanceof Error ? err.message : String(err)}`,
+          )
+        }
         throw err
       }
     })()

@@ -166,7 +166,9 @@ function flushStreamingBuffer(set: (partial: Partial<SessionStore> | ((state: Se
   set((state) => {
     const cur = state.streamingMessage
     const up: StreamingMessage = cur ? { ...cur, toolCalls: [...cur.toolCalls] } : { id: String(snapshot.messageId || `stream-${sid}-${Date.now()}`), role: 'agent', content: '', thinking: '', toolCalls: [], done: false }
-    if (snapshot.messageId && up.id.startsWith('pending-')) up.id = snapshot.messageId
+    if (snapshot.messageId && (up.id.startsWith('pending-') || (!up.content && !up.thinking && up.toolCalls.length === 0))) {
+      up.id = snapshot.messageId
+    }
     if (snapshot.contentDelta) { up.content += snapshot.contentDelta; up.stage = undefined }
     if (snapshot.thinking) { up.thinking += snapshot.thinking; up.stage = undefined }
     for (const toolCall of snapshot.toolCalls) { up.toolCalls.push(toolCall); up.stage = undefined }

@@ -71,4 +71,37 @@ describe('session store done handling', () => {
       cleanup()
     }
   })
+
+  test('hands off a stage-only resume placeholder to the real assistant message id', async () => {
+    resetStore()
+    useSessionStore.setState({
+      streamingMessage: {
+        id: 'lifecycle.session_resuming-1',
+        role: 'agent',
+        content: '',
+        thinking: '',
+        toolCalls: [],
+        done: false,
+        stage: 'resuming session...',
+      },
+    })
+    const cleanup = useSessionStore.getState().setupListeners()
+
+    try {
+      emit('session:update', {
+        sessionId: 'sess-refresh',
+        agentId: 'agent-1',
+        data: { messageId: 'msg-real-1', role: 'agent', contentDelta: 'hello' },
+      })
+
+      await vi.waitFor(() => {
+        expect(useSessionStore.getState().streamingMessage?.id).toBe('msg-real-1')
+      })
+      expect(useSessionStore.getState().streamingMessage?.content).toBe('hello')
+      expect(useSessionStore.getState().streamingMessage?.stage).toBeUndefined()
+    } finally {
+      cleanup()
+    }
+  })
+
 })
