@@ -16,11 +16,14 @@ function resolveSessionProjectContext(sessionId: string): { projectId?: string; 
   return { projectId: session.project_id ?? undefined, cwd: project?.work_dir }
 }
 
-async function ensureAcpSession(sessionId: string): Promise<{ agentId: string }> {
+async function ensureAcpSession(sessionId: string, emitLifecycle = true): Promise<{ agentId: string }> {
   const session = sessionStore.get(sessionId)
-  if (!session) throw new Error('会话不存在')
+  if (!session) throw new Error('\u4f1a\u8bdd\u4e0d\u5b58\u5728')
   const context = resolveSessionProjectContext(sessionId)
-  const acpSessionId = await acpHost.ensureSession(session.agent_id, sessionId, session.acp_session_id, context)
+  const acpSessionId = await acpHost.ensureSession(session.agent_id, sessionId, session.acp_session_id, {
+    ...context,
+    emitLifecycle,
+  })
   if (session.acp_session_id !== acpSessionId) sessionStore.updateAcpSessionId(sessionId, acpSessionId)
   return { agentId: session.agent_id }
 }
@@ -34,14 +37,14 @@ export const sessionRpcHandlers: RpcHandlerMap = {
   async 'session.setModel'(msg, { sendResult }) {
     const sessionId = msg.sessionId as string
     const modelId = msg.modelId as string
-    const { agentId } = await ensureAcpSession(sessionId)
+    const { agentId } = await ensureAcpSession(sessionId, false)
     await acpHost.setModel(agentId, sessionId, modelId)
     sendResult({ modelId })
   },
 
   async 'session.getModels'(msg, { sendResult }) {
     const sessionId = msg.sessionId as string
-    const { agentId } = await ensureAcpSession(sessionId)
+    const { agentId } = await ensureAcpSession(sessionId, false)
     const caps = acpHost.getSessionCapabilities(agentId, sessionId)
     sendResult({
       models: caps?.models || [],
@@ -59,7 +62,7 @@ export const sessionRpcHandlers: RpcHandlerMap = {
   async 'session.setMode'(msg, { sendResult }) {
     const sessionId = msg.sessionId as string
     const modeId = msg.modeId as string
-    const { agentId } = await ensureAcpSession(sessionId)
+    const { agentId } = await ensureAcpSession(sessionId, false)
     await acpHost.setMode(agentId, sessionId, modeId)
     sendResult({ modeId })
   },
@@ -68,7 +71,7 @@ export const sessionRpcHandlers: RpcHandlerMap = {
     const sessionId = msg.sessionId as string
     const configId = msg.configId as string
     const value = msg.value as string | boolean
-    const { agentId } = await ensureAcpSession(sessionId)
+    const { agentId } = await ensureAcpSession(sessionId, false)
     await acpHost.setConfig(agentId, sessionId, configId, value)
     sendResult({ configId, value })
   },

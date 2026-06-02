@@ -34,6 +34,7 @@ export interface AgentConnection {
 export interface AcpSessionContext {
   projectId?: string
   cwd?: string
+  emitLifecycle?: boolean
 }
 
 export interface PendingPermission {
