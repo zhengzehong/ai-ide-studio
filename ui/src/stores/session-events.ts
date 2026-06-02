@@ -186,8 +186,10 @@ export function mergeMessagesById(serverMessages: MessageData[], currentMessages
   for (const msg of currentMessages) byId.set(msg.id, normalizeMessage(msg))
   for (const msg of serverMessages) {
     const normalized = normalizeMessage(msg)
-    const existing = byId.get(msg.id)
-    byId.set(msg.id, keepExistingFullToolCalls(normalized, existing))
+    const matchingLocal = findMatchingLocalMessage(normalized, Array.from(byId.values()))
+    if (matchingLocal && matchingLocal.id !== normalized.id) byId.delete(matchingLocal.id)
+    const existing = byId.get(normalized.id) ?? matchingLocal
+    byId.set(normalized.id, keepExistingFullToolCalls(normalized, existing))
   }
   return Array.from(byId.values()).sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
 }
@@ -197,6 +199,19 @@ export function mergeMessagesForSession(serverMessages: MessageData[], currentMe
     serverMessages,
     currentMessages.filter((message) => message.session_id === sessionId),
   )
+}
+
+function findMatchingLocalMessage(serverMessage: MessageData, currentMessages: MessageData[]): MessageData | undefined {
+  return currentMessages.find((message) => {
+    if (message.id === serverMessage.id) return true
+    if (message.session_id !== serverMessage.session_id) return false
+    if (message.role !== serverMessage.role) return false
+    if (message.content !== serverMessage.content) return false
+    const currentTime = Date.parse(message.timestamp)
+    const serverTime = Date.parse(serverMessage.timestamp)
+    if (!Number.isFinite(currentTime) || !Number.isFinite(serverTime)) return false
+    return Math.abs(serverTime - currentTime) <= 60_000
+  })
 }
 
 function keepExistingFullToolCalls(next: MessageData, existing?: MessageData): MessageData {

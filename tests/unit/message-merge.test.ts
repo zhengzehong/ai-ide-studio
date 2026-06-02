@@ -35,6 +35,65 @@ describe('mergeMessagesForSession', () => {
 
     expect(merged).toEqual([normalizeMessage(local)])
   })
+
+
+  test('replaces optimistic human message with matching server message', () => {
+    const local = {
+      ...msg('msg-local-123', 'human', '2026-01-01T00:00:01.000Z', 'sess-new'),
+      content: 'same prompt',
+    }
+    const server = {
+      ...msg('msg-server-human', 'human', '2026-01-01T00:00:02.000Z', 'sess-new'),
+      content: 'same prompt',
+    }
+
+    const merged = mergeMessagesForSession([server], [local], 'sess-new')
+
+    expect(merged).toHaveLength(1)
+    expect(merged[0].id).toBe('msg-server-human')
+    expect(merged[0].content).toBe('same prompt')
+  })
+
+  test('replaces locally finalized agent reply with matching server message', () => {
+    const local = {
+      ...msg('msg-stream-agent', 'agent', '2026-01-01T00:00:03.000Z', 'sess-new'),
+      content: 'same answer',
+    }
+    const server = {
+      ...msg('msg-server-agent', 'agent', '2026-01-01T00:00:04.000Z', 'sess-new'),
+      content: 'same answer',
+    }
+
+    const merged = mergeMessagesForSession([server], [local], 'sess-new')
+
+    expect(merged).toHaveLength(1)
+    expect(merged[0].id).toBe('msg-server-agent')
+    expect(merged[0].content).toBe('same answer')
+  })
+
+  test('preserves full live tool calls when replacing a matching lightweight server message', () => {
+    const fullToolJson = JSON.stringify([{ id: 'tool-live', title: 'tool', rawOutput: 'done' }])
+    const local = {
+      ...msg('msg-stream-agent', 'agent', '2026-01-01T00:00:03.000Z', 'sess-new'),
+      content: 'same answer',
+      tool_calls_json: fullToolJson,
+      has_tool_calls: true,
+      tool_call_count: 1,
+    }
+    const server = {
+      ...msg('msg-server-agent', 'agent', '2026-01-01T00:00:04.000Z', 'sess-new'),
+      content: 'same answer',
+      has_tool_calls: true,
+      tool_call_count: 1,
+    }
+
+    const merged = mergeMessagesForSession([server], [local], 'sess-new')
+
+    expect(merged).toHaveLength(1)
+    expect(merged[0].id).toBe('msg-server-agent')
+    expect(merged[0].tool_calls_json).toBe(fullToolJson)
+    expect(merged[0].parsedToolCalls?.[0].id).toBe('tool-live')
+  })
 })
 
 describe('mergeMessagesById', () => {
