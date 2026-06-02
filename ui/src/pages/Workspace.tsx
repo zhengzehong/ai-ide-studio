@@ -82,6 +82,7 @@ import {
   modeCn,
   filterAgentsByProject,
   filterSessionsByProject,
+  chatContentKey,
   selectChatAgent,
   sessionMenuItemStyle,
   sessionTitle,
@@ -928,7 +929,10 @@ export default function Workspace() {
               <div style={{ fontSize: 12 }}>点击左侧 Agent 下方的会话开始</div>
             </div>
           ) : (
-            <div style={{ padding: '20px 20px 20px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div
+              key={chatContentKey(currentSessionId)}
+              style={{ padding: '20px 20px 20px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}
+            >
               {chatItems.length === 0 && !showStreamingBubble && !blockingInteraction && (
                 <div style={{ textAlign: 'center', color: 'var(--text-3)', padding: '48px 0' }}>
                   暂无消息，开始对话吧
