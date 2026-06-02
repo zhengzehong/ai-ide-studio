@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest'
+import { DEFAULT_CHAT_LIST_PADDING_BOTTOM } from '../../ui/src/components/chat/VirtualChatList.tsx'
 import { calculateVirtualRange } from '../../ui/src/components/chat/virtual-range.ts'
 
 describe('calculateVirtualRange', () => {
@@ -25,5 +26,9 @@ describe('calculateVirtualRange', () => {
     expect(range.end).toBe(3)
     expect(range.top).toBe(0)
     expect(range.bottom).toBe(0)
+  })
+
+  test('uses compact default bottom padding because the input is outside the scroll content', () => {
+    expect(DEFAULT_CHAT_LIST_PADDING_BOTTOM).toBeLessThanOrEqual(24)
   })
 })

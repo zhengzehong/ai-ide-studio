@@ -58,6 +58,7 @@ import { FileTree } from '../components/file-viewer/FileTree'
 import { FilePreview } from '../components/file-viewer/FilePreview'
 import { LazyToolCallsBlock } from '../components/chat/LazyToolCallsBlock'
 import { isNearBottom, nextPinnedToBottom } from '../components/chat/auto-scroll'
+import { shouldShowPlanBar } from '../components/chat/plan-visibility'
 import { buildChatRenderItems, type ChatRenderItem } from '../components/chat/render-items'
 import { VirtualChatList } from '../components/chat/VirtualChatList'
 import { TeamContextPanel } from '../components/team/TeamContextPanel'
@@ -454,6 +455,7 @@ export default function Workspace() {
     }
   }, [isStreaming, streamingMessage])
   const showStreamingBubble = !!streamingBubble
+  const showPlanBar = shouldShowPlanBar({ plan, isStreaming, hasBlockingInteraction: blockingInteraction })
   const interactionPanel = useMemo(
     () =>
       blockingInteraction ? (
@@ -904,7 +906,7 @@ export default function Workspace() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }} />
         </header>
 
-        {(plan.length > 0 || capabilities.currentModeId === 'plan') && (
+        {showPlanBar && (
           <PlanBar
             plan={plan}
             isStreaming={isStreaming}
@@ -923,7 +925,7 @@ export default function Workspace() {
               <div style={{ fontSize: 12 }}>点击左侧 Agent 下方的会话开始</div>
             </div>
           ) : (
-            <div style={{ padding: '20px 20px 100px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div style={{ padding: '20px 20px 20px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
               {chatItems.length === 0 && !showStreamingBubble && !blockingInteraction && (
                 <div style={{ textAlign: 'center', color: 'var(--text-3)', padding: '48px 0' }}>
                   暂无消息，开始对话吧
