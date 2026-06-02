@@ -21,6 +21,7 @@ export interface PromptMsg extends ClientMessage {
   type: 'prompt'
   sessionId: string
   content: string
+  clientMessageId?: string
   images?: ImageAttachment[]
 }
 export interface DecisionMsg extends ClientMessage {

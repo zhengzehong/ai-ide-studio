@@ -14,6 +14,7 @@ import { resolveVisiblePlatformTools } from '../tools/registry/visibility-resolv
 const log = createChildLogger('session')
 
 interface PendingMessage {
+  messageId?: string
   content: string
   thinking: string
   toolCalls: ToolCallData[]
@@ -30,6 +31,9 @@ events.on('session:update', (ev) => {
     pendingBySession.set(sessionId, pending)
   }
 
+  if ((data.contentDelta || data.thinking || data.toolCall || data.toolCallUpdate) && data.messageId) {
+    pending.messageId = data.messageId
+  }
   if (data.contentDelta) pending.content += data.contentDelta
   if (data.thinking) pending.thinking += data.thinking
   if (data.toolCall) pending.toolCalls.push(data.toolCall)
@@ -101,6 +105,7 @@ events.on('session:done', (ev) => {
   const pending = pendingBySession.get(ev.sessionId)
   if (pending && (pending.content || pending.thinking || pending.toolCalls.length > 0)) {
     const message = messageStore.append(ev.sessionId, {
+      id: pending.messageId,
       role: 'agent',
       content: pending.content,
       thinking: pending.thinking || undefined,
@@ -149,7 +154,7 @@ export const sessionManager = {
     return session
   },
 
-  async sendPrompt(sessionId: string, content: string, images?: ImageAttachment[]): Promise<void> {
+  async sendPrompt(sessionId: string, content: string, images?: ImageAttachment[], clientMessageId?: string): Promise<void> {
     const session = sessionStore.get(sessionId)
     if (!session) throw new Error(`Session not found: ${sessionId}`)
     if (activePrompts.has(sessionId))
@@ -157,7 +162,7 @@ export const sessionManager = {
         '\u5f53\u524d\u4f1a\u8bdd\u6b63\u5728\u751f\u6210\u4e2d\uff0c\u8bf7\u7b49\u5f85\u672c\u8f6e\u5b8c\u6210\u6216\u5148\u505c\u6b62\u751f\u6210',
       )
     events.emit('session:manual-prompt-started', { sessionId, agentId: session.agent_id })
-    return sendPromptNow(session, content, images)
+    return sendPromptNow(session, content, images, clientMessageId)
   },
 
   async enqueuePrompt(sessionId: string, content: string, images?: ImageAttachment[]): Promise<void> {
@@ -222,7 +227,7 @@ export const sessionManager = {
   },
 }
 
-async function sendPromptNow(session: SessionRow, content: string, images?: ImageAttachment[]): Promise<void> {
+async function sendPromptNow(session: SessionRow, content: string, images?: ImageAttachment[], clientMessageId?: string): Promise<void> {
   const sessionId = session.id
   const promptLen = content.length
   const imageCount = images?.length ?? 0
@@ -230,7 +235,7 @@ async function sendPromptNow(session: SessionRow, content: string, images?: Imag
 
   activePrompts.add(sessionId)
   try {
-    const humanMessage = messageStore.append(sessionId, { role: 'human', content, attachments: images })
+    const humanMessage = messageStore.append(sessionId, { id: clientMessageId, role: 'human', content, attachments: images })
     sessionStore.touch(sessionId, humanMessage.timestamp)
     const stored = eventStore.append(sessionId, {
       type: 'message.user',

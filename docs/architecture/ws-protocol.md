@@ -43,7 +43,7 @@ ws://localhost:18800
 | `sessions.messageToolCalls` | `{ sessionId, messageId }` | `ToolCallSummary[]` | 懒加载单条消息的工具调用摘要 |
 | `sessions.messageToolCallDetail` | `{ sessionId, messageId, toolCallId }` | `ToolCallDetail` | 懒加载单个工具调用详情，长输出会截断 |
 | `sessions.events` | `{ sessionId, limit?, afterSequence? }` | `SessionEvent[]` | 查询事件 |
-| `prompt` | `{ sessionId, content, images? }` | `{ status }` | 发送消息；首次发送时懒启动 runtime，并按需 new/resume ACP session |
+| `prompt` | `{ sessionId, content, clientMessageId?, images? }` | `{ status }` | 发送消息；`clientMessageId` 用于让前端乐观用户消息与 SQLite 持久化消息合并；首次发送时懒启动 runtime，并按需 new/resume ACP session |
 | `permission.respond` | `{ sessionId, permissionRequestId, optionId?, cancelled? }` | `void` | 响应权限请求 |
 | `elicitation.respond` | `{ sessionId, elicitationRequestId, action, content? }` | `void` | 响应提问请求 |
 | `decision` | `{ sessionId, messageId, choice }` | `void` | 响应决定 |

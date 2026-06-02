@@ -6,7 +6,7 @@ import { createChildLogger } from '../core/logger.js'
 import { agentStore } from '../store/agents.js'
 import type { SessionUpdateData, TurnUsageData, SessionCapabilities, ImageAttachment } from '../types/ws-protocol.js'
 import { mapConfigOptions, mergeCapabilitiesFromConfig } from './capabilities.js'
-import { createClientHandler } from './client-handler.js'
+import { createClientHandler, endClientTurn, startClientTurn } from './client-handler.js'
 import {
   agentConnections,
   beginTurn,
@@ -399,6 +399,7 @@ export const acpHost = {
     }
 
     beginTurn(conn, ourSessionId)
+    startClientTurn(agentId, acpSessionId)
     try {
       const promptResult = await conn.connection.prompt({
         sessionId: acpSessionId,
@@ -429,6 +430,7 @@ export const acpHost = {
       log.info({ agentId, ourSessionId, stopReason, totalTokens: turnUsage?.totalTokens }, 'Agent prompt completed')
     } finally {
       cancelledSessions.delete(ourSessionId)
+      endClientTurn(agentId, acpSessionId)
       endTurn(conn, ourSessionId)
     }
   },

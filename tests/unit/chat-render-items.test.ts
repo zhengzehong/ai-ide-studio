@@ -31,15 +31,9 @@ function msg(id: string, role: 'agent' | 'human', content: string): ChatRenderMe
 }
 
 describe('buildChatRenderItems', () => {
-  test('prefers event timeline groups so assistant text and tools stay in sequence order', () => {
+  test('uses event timeline groups only when no persisted messages are loaded', () => {
     const items = buildChatRenderItems({
-      messages: [
-        {
-          ...msg('msg-agent-1', 'agent', 'first text second text final text'),
-          has_tool_calls: true,
-          tool_call_count: 2,
-        },
-      ],
+      messages: [],
       events: [
         ev(1, 'message.chunk', { messageId: 'msg-agent-1', role: 'agent', contentDelta: 'first text' }),
         ev(2, 'tool.call', {
@@ -64,6 +58,22 @@ describe('buildChatRenderItems', () => {
     expect(items[0].group.blocks.map((block) => block.kind)).toEqual(['message', 'tool', 'message', 'tool', 'message'])
   })
 
+  test('prefers persisted messages over historical event timeline groups', () => {
+    const persisted = msg('msg-agent-1', 'agent', 'persisted final answer')
+    const items = buildChatRenderItems({
+      messages: [persisted],
+      events: [
+        ev(1, 'message.chunk', { messageId: 'msg-agent-1', role: 'agent', contentDelta: 'event final answer' }),
+        ev(2, 'message.done', { messageId: 'msg-agent-1' }),
+      ],
+      streamingBubble: null,
+      showStreamingBubble: false,
+      blockingInteraction: false,
+    })
+
+    expect(items).toEqual([{ id: 'msg:msg-agent-1', kind: 'message', message: persisted }])
+  })
+
   test('falls back to messages when no timeline events are available', () => {
     const items = buildChatRenderItems({
       messages: [msg('msg-agent-1', 'agent', 'legacy message')],
@@ -76,7 +86,7 @@ describe('buildChatRenderItems', () => {
     expect(items).toEqual([{ id: 'msg:msg-agent-1', kind: 'message', message: msg('msg-agent-1', 'agent', 'legacy message') }])
   })
 
-  test('keeps older message fallback when event history is truncated by the timeline limit', () => {
+  test('keeps persisted messages when event history is present', () => {
     const oldMessage = { ...msg('msg-old', 'agent', 'older history'), timestamp: new Date(1_000).toISOString() }
     const items = buildChatRenderItems({
       messages: [oldMessage, msg('msg-agent-1', 'agent', 'newer event-backed history')],
@@ -87,7 +97,7 @@ describe('buildChatRenderItems', () => {
       timelineEventLimit: 1,
     })
 
-    expect(items.map((item) => item.kind)).toEqual(['message', 'group'])
+    expect(items.map((item) => item.kind)).toEqual(['message', 'message'])
     expect(items[0]).toEqual({ id: 'msg:msg-old', kind: 'message', message: oldMessage })
   })
 
@@ -105,6 +115,23 @@ describe('buildChatRenderItems', () => {
     expect(items[1]).toEqual({ id: 'streaming:pending-reply', kind: 'streaming', message: streaming })
   })
 
+  test('keeps a streaming bubble even when its id appears in historical events', () => {
+    const streaming = { ...msg('msg-agent-1', 'agent', 'live delta'), streaming: true }
+    const items = buildChatRenderItems({
+      messages: [],
+      events: [
+        ev(1, 'message.chunk', { messageId: 'msg-agent-1', role: 'agent', contentDelta: 'old text' }),
+        ev(2, 'message.done', { messageId: 'msg-agent-1' }),
+      ],
+      streamingBubble: streaming,
+      showStreamingBubble: true,
+      blockingInteraction: false,
+    })
+
+    expect(items.at(-1)).toEqual({ id: 'streaming:msg-agent-1', kind: 'streaming', message: streaming })
+  })
+
+
   test('keeps finalized messages that are not represented by timeline events', () => {
     const finalReply = msg('msg-agent-final', 'agent', 'final answer')
     const items = buildChatRenderItems({
@@ -115,8 +142,7 @@ describe('buildChatRenderItems', () => {
       blockingInteraction: false,
     })
 
-    expect(items.map((item) => item.kind)).toEqual(['group', 'message'])
-    expect(items[1]).toEqual({ id: 'msg:msg-agent-final', kind: 'message', message: finalReply })
+    expect(items).toEqual([{ id: 'msg:msg-agent-final', kind: 'message', message: finalReply }])
   })
 
   test('filters messages and timeline events to the selected session', () => {

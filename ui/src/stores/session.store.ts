@@ -120,6 +120,26 @@ const streamingBuffer = new StreamingBuffer()
 let streamingFlushTimer: ReturnType<typeof setTimeout> | null = null
 const mirroredRealtimeEventTypes = new Set(['message.chunk', 'thinking.chunk', 'tool.call', 'tool.update', 'message.done'])
 
+
+function hasVisibleStreamingState(message: StreamingMessage | null): boolean {
+  return !!message && (!!message.stage || message.content.length > 0 || message.thinking.length > 0 || message.toolCalls.length > 0)
+}
+
+function shouldRecoverStreamingMessage(recovered: StreamingMessage | null, messages: MessageData[]): boolean {
+  return !!recovered && !messages.some((message) => message.role === 'agent' && message.id === recovered.id)
+}
+
+function selectRecoveredStreamingMessage(
+  current: StreamingMessage | null,
+  recovered: StreamingMessage | null,
+  messages: MessageData[],
+): StreamingMessage | null {
+  if (!shouldRecoverStreamingMessage(recovered, messages)) return current
+  if (!hasVisibleStreamingState(current)) return recovered
+  if (!current || current.id.startsWith('pending-')) return recovered
+  return current
+}
+
 function saveCache(sessionId: string, s: Pick<SessionStore, 'events' | 'usage' | 'turnUsage' | 'capabilities' | 'plan' | 'pendingPermissions' | 'pendingElicitations' | 'streamingMessage'>) {
   sessionCaches.set(sessionId, {
     events: [...s.events], usage: s.usage, turnUsage: s.turnUsage, capabilities: { ...s.capabilities, models: [...s.capabilities.models], modes: [...s.capabilities.modes], configOptions: [...s.capabilities.configOptions], commands: [...s.capabilities.commands] },
@@ -231,10 +251,12 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       if (sessionId !== get().currentSessionId) return
       eventCursorBySession.set(sessionId, events.at(-1)?.sequence ?? 0)
       const stateBeforeRecovery = get()
-      const recoveryEvents = stateBeforeRecovery.messages.length > 0
+      const shouldUseMessagePrimaryHistory = stateBeforeRecovery.messages.length > 0
+      const recoveryEvents = shouldUseMessagePrimaryHistory
         ? events.filter((event) => !mirroredRealtimeEventTypes.has(event.type))
         : events
       const reduced = reduceSessionEvents(recoveryEvents)
+      const activeTurnRecovery = shouldUseMessagePrimaryHistory ? reduceSessionEvents(events).streamingMessage : reduced.streamingMessage
       set((state) => ({
         events,
         usage: reduced.usage,
@@ -243,7 +265,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         plan: reduced.plan,
         pendingPermissions: reduced.pendingPermissions,
         pendingElicitations: reduced.pendingElicitations,
-        streamingMessage: stateBeforeRecovery.messages.length > 0 ? state.streamingMessage : reduced.streamingMessage,
+        streamingMessage: shouldUseMessagePrimaryHistory
+          ? selectRecoveredStreamingMessage(state.streamingMessage, activeTurnRecovery, state.messages)
+          : reduced.streamingMessage,
       }))
       saveCache(sessionId, get())
     } catch {
@@ -334,12 +358,13 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   sendPrompt: (content, images) => {
     const sid = get().currentSessionId; if (!sid) return
-    const msg: Record<string, unknown> = { type: 'prompt', sessionId: sid, content }
+    const clientMessageId = `msg-local-${Date.now()}`
+    const msg: Record<string, unknown> = { type: 'prompt', sessionId: sid, content, clientMessageId }
     if (images?.length) msg.images = images
     wsClient.send(msg)
     promptStartTime = Date.now()
     set({
-      messages: [...get().messages, normalizeMessage({ id: `msg-local-${Date.now()}`, session_id: sid, role: 'human', content, thinking: null, tool_calls_json: null, decision_json: null, attachments_json: images?.length ? JSON.stringify(images) : null, timestamp: new Date().toISOString() })],
+      messages: [...get().messages, normalizeMessage({ id: clientMessageId, session_id: sid, role: 'human', content, thinking: null, tool_calls_json: null, decision_json: null, attachments_json: images?.length ? JSON.stringify(images) : null, timestamp: new Date().toISOString() })],
       streamingMessage: { id: `pending-${sid}-${Date.now()}`, role: 'agent', content: '', thinking: '', toolCalls: [], done: false, stage: '\u6b63\u5728\u51c6\u5907 Agent...' },
       turnUsage: null,
     })
@@ -448,6 +473,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       const sid = msg.sessionId as string; if (sid !== get().currentSessionId) return
       const event = msg.event as SessionEventData
       eventCursorBySession.set(sid, Math.max(eventCursorBySession.get(sid) ?? 0, event.sequence))
+      if (event.type.startsWith('lifecycle.') && !shouldShowLifecycleStage(event.type)) {
+        saveCache(sid, get())
+        return
+      }
       const shouldApplyToVisibleState = !mirroredRealtimeEventTypes.has(event.type)
       if (!shouldApplyToVisibleState) return
       set((state) => {
@@ -466,11 +495,6 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
       if (typeof data.eventType === 'string' && data.eventType.startsWith('lifecycle.')) {
         if (!shouldShowLifecycleStage(data.eventType)) {
-          set((state) => {
-            const cur = state.streamingMessage
-            if (!cur || cur.content || cur.thinking || cur.toolCalls.length > 0) return {}
-            return { streamingMessage: null }
-          })
           saveCache(sid, get())
           return
         }
@@ -553,6 +577,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         }
       }
       saveCache(sid, get())
+      void get().fetchMessages(sid)
       void get().fetchEvents(sid)
     }))
 
