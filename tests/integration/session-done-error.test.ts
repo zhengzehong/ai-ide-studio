@@ -1,4 +1,4 @@
-﻿import { describe, expect, test, beforeAll, afterAll } from 'vitest'
+import { describe, expect, test, beforeAll, afterAll } from 'vitest'
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
@@ -43,6 +43,25 @@ describe('session done metadata', () => {
     }
   })
 
+  test('persists the streamed assistant message id when the turn is done', () => {
+    const session = sessionStore.create({ agentId: 'agent-done-id' })
+
+    events.emit('session:update', {
+      sessionId: session.id,
+      agentId: 'agent-done-id',
+      data: { messageId: 'msg-live-turn-1', role: 'agent', contentDelta: 'hello' },
+    })
+    events.emit('session:done', {
+      sessionId: session.id,
+      agentId: 'agent-done-id',
+      messageId: `done-${session.id}`,
+      stopReason: 'end_turn',
+    })
+
+    const agentMessage = messageStore.list(session.id, { includeToolCalls: true }).find((message) => message.role === 'agent')
+    expect(agentMessage?.id).toBe('msg-live-turn-1')
+    expect(agentMessage?.content).toBe('hello')
+  })
   test('sendPrompt appends a visible agent error message when ACP fails before output', async () => {
     agentStore.upsert({ id: 'agent-prompt-visible-fail', type: 'dev', name: 'Visible Prompt Fail', runtime: 'mock' })
     const session = sessionStore.create({ agentId: 'agent-prompt-visible-fail', acpSessionId: 'acp-visible-fail' })

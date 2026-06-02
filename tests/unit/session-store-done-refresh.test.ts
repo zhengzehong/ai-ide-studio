@@ -72,6 +72,211 @@ describe('session store done handling', () => {
     }
   })
 
+  test('refreshes persisted messages and events after a turn is done', async () => {
+    resetStore()
+    wsMock.request.mockClear()
+    const cleanup = useSessionStore.getState().setupListeners()
+
+    try {
+      emit('session:done', {
+        sessionId: 'sess-refresh',
+        agentId: 'agent-1',
+        messageId: 'done-sess-refresh',
+        stopReason: 'end_turn',
+      })
+
+      await vi.waitFor(() => {
+        expect(wsMock.request).toHaveBeenCalledWith({ type: 'sessions.messages', sessionId: 'sess-refresh' })
+        expect(wsMock.request).toHaveBeenCalledWith({ type: 'sessions.events', sessionId: 'sess-refresh', limit: 1000 })
+      })
+    } finally {
+      cleanup()
+    }
+  })
+
+  test('does not duplicate the current turn after persisted message refresh', async () => {
+    resetStore()
+    wsMock.send.mockClear()
+    wsMock.request.mockReset()
+    const cleanup = useSessionStore.getState().setupListeners()
+
+    try {
+      const agentMessageId = 'msg-live-agent-1'
+      let humanMessageId = ''
+      wsMock.request.mockImplementation(async (msg: Record<string, unknown>) => {
+        if (msg.type === 'sessions.messages') {
+          return [
+            {
+              id: humanMessageId,
+              session_id: 'sess-refresh',
+              role: 'human',
+              content: 'hello',
+              thinking: null,
+              tool_calls_json: null,
+              decision_json: null,
+              attachments_json: null,
+              timestamp: '2026-06-02T00:00:00.000Z',
+            },
+            {
+              id: agentMessageId,
+              session_id: 'sess-refresh',
+              role: 'agent',
+              content: 'answer',
+              thinking: null,
+              tool_calls_json: null,
+              decision_json: null,
+              attachments_json: null,
+              timestamp: '2026-06-02T00:00:01.000Z',
+            },
+          ]
+        }
+        return []
+      })
+
+      useSessionStore.getState().sendPrompt('hello')
+      const sentPrompt = wsMock.send.mock.calls[0]?.[0] as Record<string, unknown>
+      humanMessageId = sentPrompt.clientMessageId as string
+
+      emit('session:update', {
+        sessionId: 'sess-refresh',
+        agentId: 'agent-1',
+        data: { messageId: agentMessageId, role: 'agent', contentDelta: 'answer' },
+      })
+      emit('session:done', {
+        sessionId: 'sess-refresh',
+        agentId: 'agent-1',
+        messageId: 'done-sess-refresh',
+        stopReason: 'end_turn',
+      })
+
+      await vi.waitFor(() => {
+        expect(useSessionStore.getState().messages.map((message) => message.id)).toEqual([
+          humanMessageId,
+          agentMessageId,
+        ])
+      })
+    } finally {
+      cleanup()
+    }
+  })
+
+  test('recovers active turn events when historical messages are already loaded', async () => {
+    resetStore()
+    wsMock.request.mockReset()
+    useSessionStore.setState({
+      messages: [
+        {
+          id: 'msg-history-1',
+          session_id: 'sess-refresh',
+          role: 'agent',
+          content: 'old answer',
+          thinking: null,
+          tool_calls_json: null,
+          decision_json: null,
+          attachments_json: null,
+          timestamp: '2026-06-02T00:00:00.000Z',
+        },
+      ],
+    })
+    wsMock.request.mockResolvedValue([
+      {
+        id: 'evt-active-1',
+        session_id: 'sess-refresh',
+        agent_id: 'agent-1',
+        acp_session_id: null,
+        message_id: 'msg-active-1',
+        type: 'message.chunk',
+        role: 'agent',
+        payload_json: JSON.stringify({ messageId: 'msg-active-1', role: 'agent', contentDelta: 'live' }),
+        sequence: 1,
+        created_at: '2026-06-02T00:00:01.000Z',
+      },
+    ])
+
+    await useSessionStore.getState().fetchEvents('sess-refresh')
+
+    expect(useSessionStore.getState().streamingMessage?.id).toBe('msg-active-1')
+    expect(useSessionStore.getState().streamingMessage?.content).toBe('live')
+  })
+
+  test('does not clear a pending streaming placeholder for hidden lifecycle updates', async () => {
+    resetStore()
+    useSessionStore.setState({
+      streamingMessage: {
+        id: 'pending-sess-refresh-1',
+        role: 'agent',
+        content: '',
+        thinking: '',
+        toolCalls: [],
+        done: false,
+        stage: '正在准备 Agent...',
+      },
+    })
+    const cleanup = useSessionStore.getState().setupListeners()
+
+    try {
+      emit('session:update', {
+        sessionId: 'sess-refresh',
+        agentId: 'agent-1',
+        data: {
+          messageId: 'lifecycle.prompt_received-1',
+          role: 'system',
+          eventType: 'lifecycle.prompt_received',
+          content: '正在准备 Agent...',
+        },
+      })
+
+      expect(useSessionStore.getState().streamingMessage?.id).toBe('pending-sess-refresh-1')
+      expect(useSessionStore.getState().streamingMessage?.stage).toBe('正在准备 Agent...')
+    } finally {
+      cleanup()
+    }
+  })
+
+  test('does not clear a pending streaming placeholder for hidden lifecycle events', async () => {
+    resetStore()
+    useSessionStore.setState({
+      streamingMessage: {
+        id: 'pending-sess-refresh-2',
+        role: 'agent',
+        content: '',
+        thinking: '',
+        toolCalls: [],
+        done: false,
+        stage: '正在准备 Agent...',
+      },
+    })
+    const cleanup = useSessionStore.getState().setupListeners()
+
+    try {
+      emit('session:event', {
+        sessionId: 'sess-refresh',
+        agentId: 'agent-1',
+        event: {
+          id: 'evt-hidden-lifecycle',
+          session_id: 'sess-refresh',
+          agent_id: 'agent-1',
+          acp_session_id: null,
+          message_id: 'lifecycle.prompt_received-2',
+          type: 'lifecycle.prompt_received',
+          role: 'system',
+          payload_json: JSON.stringify({
+            messageId: 'lifecycle.prompt_received-2',
+            role: 'system',
+            content: '正在准备 Agent...',
+          }),
+          sequence: 1,
+          created_at: new Date().toISOString(),
+        },
+      })
+
+      expect(useSessionStore.getState().streamingMessage?.id).toBe('pending-sess-refresh-2')
+      expect(useSessionStore.getState().streamingMessage?.stage).toBe('正在准备 Agent...')
+    } finally {
+      cleanup()
+    }
+  })
+
   test('hands off a stage-only resume placeholder to the real assistant message id', async () => {
     resetStore()
     useSessionStore.setState({

@@ -17,10 +17,11 @@ export const subscriptionRpcHandlers: RpcHandlerMap = {
   prompt(msg, { state, sendResult, sendOutOfBandError }) {
     const sessionId = msg.sessionId as string
     const content = msg.content as string
+    const clientMessageId = typeof msg.clientMessageId === 'string' ? msg.clientMessageId : undefined
     const images = msg.images as { data: string; mimeType: string }[] | undefined
     state.subscriptions.add(sessionId)
     sendResult({ status: 'streaming' })
-    sessionManager.sendPrompt(sessionId, content, images).catch((err) => {
+    sessionManager.sendPrompt(sessionId, content, images, clientMessageId).catch((err) => {
       sendOutOfBandError(`Prompt 执行失败: ${err instanceof Error ? err.message : err}`)
     })
   },

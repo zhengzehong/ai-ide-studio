@@ -11,15 +11,39 @@ import { createTerminalProcess, killTerminal as killTerminalProcess, releaseTerm
 import { contentBlockToText, mapToolCallContent, mapToolCallUpdate, toolCallTitle } from './update-mapper.js'
 
 const log = createChildLogger('acp-client')
+const turnIdsByAgent = new Map<string, Map<string, string>>()
+
+function turnIdsForAgent(agentId: string): Map<string, string> {
+  let turnIds = turnIdsByAgent.get(agentId)
+  if (!turnIds) {
+    turnIds = new Map()
+    turnIdsByAgent.set(agentId, turnIds)
+  }
+  return turnIds
+}
+
+export function startClientTurn(agentId: string, acpSessionId: string): void {
+  turnIdsForAgent(agentId).set(acpSessionId, generatedTurnMessageId(acpSessionId))
+}
+
+export function endClientTurn(agentId: string, acpSessionId: string): void {
+  const turnIds = turnIdsByAgent.get(agentId)
+  if (!turnIds) return
+  turnIds.delete(acpSessionId)
+  if (turnIds.size === 0) turnIdsByAgent.delete(agentId)
+}
+
+function generatedTurnMessageId(acpSessionId: string): string {
+  return `msg-${acpSessionId.slice(0, 8)}-${Date.now()}-${randomUUID().slice(0, 8)}`
+}
 
 export function createClientHandler(agentId: string): acp.Client {
-  const turnIds = new Map<string, string>()
-
   function turnMessageId(acpSessionId: string, chunkMsgId?: string | null): string {
+    const turnIds = turnIdsForAgent(agentId)
     if (chunkMsgId) { turnIds.set(acpSessionId, chunkMsgId); return chunkMsgId }
     const existing = turnIds.get(acpSessionId)
     if (existing) return existing
-    const newId = `msg-${acpSessionId.slice(0, 8)}-${Date.now()}`
+    const newId = generatedTurnMessageId(acpSessionId)
     turnIds.set(acpSessionId, newId)
     return newId
   }
