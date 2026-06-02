@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { wsClient } from '../services/ws-client'
 import {
   applySessionEvent,
+  buildErrorAgentMessage,
   buildChatTimelineFromEvents,
   buildCompletedAgentMessage,
   capabilitiesFromConfig,
@@ -10,7 +11,7 @@ import {
   groupChatTimelineItems,
   appendFinalizedMessage,
   mergeCapabilities,
-  mergeMessagesById,
+  mergeMessagesForSession,
   normalizeMessage,
   shouldCreateToolFromUpdate,
   upsertToolCall,
@@ -218,7 +219,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     try {
       const serverMessages = await wsClient.request({ type: 'sessions.messages', sessionId }) as MessageData[]
       if (sessionId !== get().currentSessionId) return
-      set(state => ({ messages: mergeMessagesById(serverMessages, state.messages) }))
+      set(state => ({ messages: mergeMessagesForSession(serverMessages, state.messages, sessionId) }))
     } catch { /* ignore message load errors */ }
   },
 
@@ -531,7 +532,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           streamingMessage: null, turnUsage: tu || st.turnUsage, plan: finalizePlanOnTurnDone(st.plan, stopReason),
         }))
       } else {
-        const finalMessage = buildCompletedAgentMessage(sid, get().events, tu, cost, elapsed)
+        const error = typeof msg.error === 'string' ? msg.error : ''
+        const finalMessage = error
+          ? buildErrorAgentMessage(sid, String(msg.messageId || `error-${Date.now()}`), error)
+          : buildCompletedAgentMessage(sid, get().events, tu, cost, elapsed)
         if (finalMessage) {
           if (turnStats && !finalMessage.decision_json) finalMessage.decision_json = turnStats
           set(st => ({
@@ -547,6 +551,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         }
       }
       saveCache(sid, get())
+      void get().fetchEvents(sid)
     }))
 
     offs.push(wsClient.on('session:capabilities', (msg) => {

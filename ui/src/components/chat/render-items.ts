@@ -40,28 +40,83 @@ export function buildChatRenderItems<TMessage extends ChatRenderMessage>({
   blockingInteraction: boolean
   timelineEventLimit?: number
 }): ChatRenderItem<TMessage>[] {
-  const timelineGroups = groupChatTimelineItems(buildChatTimelineFromEvents(events))
-  const timelineFallbackMessages =
-    timelineGroups.length > 0 && events.length >= timelineEventLimit
-      ? messages.filter((message) => isBeforeTimeline(message, timelineGroups[0].timestamp))
-      : []
+  const timelineGroups = groupChatTimelineItems(buildChatTimelineFromEvents(events.slice(-timelineEventLimit)))
+  const timelineMessageIds = collectTimelineMessageIds(timelineGroups)
   const items: ChatRenderItem<TMessage>[] =
     timelineGroups.length > 0
-      ? [
-          ...timelineFallbackMessages.map((message) => ({ id: `msg:${message.id}`, kind: 'message' as const, message })),
-          ...timelineGroups.map((group) => ({ id: `group:${group.id}`, kind: 'group' as const, group })),
-        ]
+      ? sortTimedItems([
+          ...messages
+            .filter((message) => !isMessageRepresentedByTimeline(message, timelineGroups, timelineMessageIds))
+            .map((message) => ({ item: { id: `msg:${message.id}`, kind: 'message' as const, message }, timestamp: message.timestamp })),
+          ...timelineGroups.map((group) => ({ item: { id: `group:${group.id}`, kind: 'group' as const, group }, timestamp: group.timestamp })),
+        ])
       : messages.map((message) => ({ id: `msg:${message.id}`, kind: 'message', message }))
 
-  if (showStreamingBubble && streamingBubble && timelineGroups.length === 0) {
-    items.push({ id: 'streaming', kind: 'streaming', message: streamingBubble })
+  if (
+    showStreamingBubble &&
+    streamingBubble &&
+    !isMessageRepresentedByTimeline(streamingBubble, timelineGroups, timelineMessageIds)
+  ) {
+    items.push({ id: `streaming:${streamingBubble.id}`, kind: 'streaming', message: streamingBubble })
   }
   if (blockingInteraction && !showStreamingBubble) items.push({ id: 'blocking', kind: 'blocking' })
   return items
 }
 
-function isBeforeTimeline(message: ChatRenderMessage, firstTimelineAt: string): boolean {
-  const messageTime = Date.parse(message.timestamp || '')
-  const timelineTime = Date.parse(firstTimelineAt)
-  return Number.isFinite(messageTime) && Number.isFinite(timelineTime) && messageTime < timelineTime
+function collectTimelineMessageIds(timelineGroups: ChatTimelineGroup[]): Set<string> {
+  const ids = new Set<string>()
+  for (const group of timelineGroups) {
+    if (group.messageId) ids.add(group.messageId)
+    for (const block of group.blocks) {
+      if (block.messageId) ids.add(block.messageId)
+    }
+  }
+  return ids
+}
+
+function sortTimedItems<TMessage extends ChatRenderMessage>(
+  items: { item: ChatRenderItem<TMessage>; timestamp?: string }[],
+): ChatRenderItem<TMessage>[] {
+  return items
+    .map((entry, index) => ({ ...entry, index, time: parseTime(entry.timestamp) }))
+    .sort((a, b) => a.time - b.time || a.index - b.index)
+    .map((entry) => entry.item)
+}
+
+function parseTime(timestamp?: string): number {
+  const time = Date.parse(timestamp || '')
+  return Number.isFinite(time) ? time : Number.MAX_SAFE_INTEGER
+}
+
+function isMessageRepresentedByTimeline(
+  message: ChatRenderMessage,
+  timelineGroups: ChatTimelineGroup[],
+  timelineMessageIds: Set<string>,
+): boolean {
+  if (timelineMessageIds.has(message.id)) return true
+  return timelineGroups.some((group) => timelineGroupMatchesMessage(group, message))
+}
+
+function timelineGroupMatchesMessage(group: ChatTimelineGroup, message: ChatRenderMessage): boolean {
+  if (group.role !== message.role) return false
+  const groupText = group.blocks
+    .filter((block) => block.kind === 'message')
+    .map((block) => block.content)
+    .join('')
+    .trim()
+  const messageText = (message.content || '').trim()
+  const groupThinking = group.blocks
+    .filter((block) => block.kind === 'message')
+    .map((block) => block.thinking || '')
+    .join('')
+    .trim()
+  const messageThinking = (message.thinking || '').trim()
+
+  if (messageText && groupText === messageText) return true
+  if (messageThinking && groupThinking === messageThinking) return true
+  if (message.id.startsWith('msg-local-') && groupText && groupText === messageText) return true
+
+  const groupToolCount = group.blocks.filter((block) => block.kind === 'tool').length
+  const messageToolCount = message.tool_call_count ?? (message.tool_calls_json ? 1 : 0)
+  return message.role === 'agent' && groupToolCount > 0 && messageToolCount > 0 && (!messageText || !groupText)
 }

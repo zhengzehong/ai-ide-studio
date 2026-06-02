@@ -39,11 +39,10 @@ export const sessionRpcHandlers: RpcHandlerMap = {
     sendResult({ modelId })
   },
 
-  'session.getModels'(msg, { sendResult }) {
+  async 'session.getModels'(msg, { sendResult }) {
     const sessionId = msg.sessionId as string
-    const session = sessionStore.get(sessionId)
-    if (!session) throw new Error('会话不存在')
-    const caps = acpHost.getSessionCapabilities(session.agent_id, sessionId)
+    const { agentId } = await ensureAcpSession(sessionId)
+    const caps = acpHost.getSessionCapabilities(agentId, sessionId)
     sendResult({
       models: caps?.models || [],
       currentModelId: caps?.currentModelId || null,

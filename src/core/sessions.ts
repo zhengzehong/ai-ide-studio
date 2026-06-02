@@ -107,6 +107,13 @@ events.on('session:done', (ev) => {
       toolCalls: pending.toolCalls.length > 0 ? pending.toolCalls : undefined,
     })
     sessionStore.touch(ev.sessionId, message.timestamp)
+  } else if (ev.stopReason === 'error' && ev.error) {
+    const message = messageStore.append(ev.sessionId, {
+      id: ev.messageId,
+      role: 'agent',
+      content: `执行失败：${ev.error}`,
+    })
+    sessionStore.touch(ev.sessionId, message.timestamp)
   }
   pendingBySession.delete(ev.sessionId)
 })
@@ -260,7 +267,7 @@ async function sendPromptNow(session: SessionRow, content: string, images?: Imag
     events.emit('session:done', {
       sessionId,
       agentId: session.agent_id,
-      messageId: `error-${Date.now()}`,
+      messageId: `error-${sessionId}-${Date.now()}`,
       stopReason: 'error',
       error: message,
     })
