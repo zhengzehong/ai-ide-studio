@@ -118,4 +118,24 @@ describe('buildChatRenderItems', () => {
     expect(items.map((item) => item.kind)).toEqual(['group', 'message'])
     expect(items[1]).toEqual({ id: 'msg:msg-agent-final', kind: 'message', message: finalReply })
   })
+
+  test('filters messages and timeline events to the selected session', () => {
+    const current = { ...msg('msg-current', 'human', 'current session'), session_id: 'sess-current' }
+    const stale = { ...msg('msg-stale', 'agent', 'stale session'), session_id: 'sess-stale' }
+    const staleEvent = {
+      ...ev(1, 'message.chunk', { messageId: 'msg-stale', role: 'agent', contentDelta: 'stale session' }, 'msg-stale'),
+      session_id: 'sess-stale',
+    }
+
+    const items = buildChatRenderItems({
+      sessionId: 'sess-current',
+      messages: [current, stale],
+      events: [staleEvent],
+      streamingBubble: null,
+      showStreamingBubble: false,
+      blockingInteraction: false,
+    } as Parameters<typeof buildChatRenderItems>[0] & { sessionId: string })
+
+    expect(items).toEqual([{ id: 'msg:msg-current', kind: 'message', message: current }])
+  })
 })

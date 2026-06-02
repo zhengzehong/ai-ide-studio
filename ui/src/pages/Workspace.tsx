@@ -82,6 +82,7 @@ import {
   modeCn,
   filterAgentsByProject,
   filterSessionsByProject,
+  selectChatAgent,
   sessionMenuItemStyle,
   sessionTitle,
   statusDot,
@@ -171,9 +172,9 @@ export default function Workspace() {
     () => expandedAgents ?? new Set(projectAgents.map((a) => a.id)),
     [projectAgents, expandedAgents],
   )
-  const selectedAgent = useMemo(
-    () => projectAgents.find((a) => a.id === selectedAgentId) ?? projectAgents[0],
-    [projectAgents, selectedAgentId],
+  const chatAgent = useMemo(
+    () => selectChatAgent({ agents: projectAgents, sessions: projectSessions, currentSessionId, selectedAgentId }),
+    [currentSessionId, projectAgents, projectSessions, selectedAgentId],
   )
   const agentSessions = useCallback((id: string) => projectSessions.filter((s) => s.agent_id === id), [projectSessions])
 
@@ -445,6 +446,7 @@ export default function Workspace() {
     if (!isStreaming || !streamingMessage) return null
     return {
       id: streamingMessage.id,
+      session_id: currentSessionId ?? undefined,
       role: 'agent',
       content: streamingMessage.content,
       thinking: streamingMessage.thinking,
@@ -453,7 +455,7 @@ export default function Workspace() {
       timestamp: new Date().toISOString(),
       streaming: true,
     }
-  }, [isStreaming, streamingMessage])
+  }, [currentSessionId, isStreaming, streamingMessage])
   const showStreamingBubble = !!streamingBubble
   const showPlanBar = shouldShowPlanBar({ plan, isStreaming, hasBlockingInteraction: blockingInteraction })
   const interactionPanel = useMemo(
@@ -471,24 +473,25 @@ export default function Workspace() {
 
   const chatItems = useMemo<ChatRenderItem<ChatMsg>[]>(
     () => buildChatRenderItems<ChatMsg>({
+      sessionId: currentSessionId,
       messages,
       events,
       streamingBubble,
       showStreamingBubble,
       blockingInteraction,
     }),
-    [blockingInteraction, events, messages, showStreamingBubble, streamingBubble],
+    [blockingInteraction, currentSessionId, events, messages, showStreamingBubble, streamingBubble],
   )
   const renderChatItem = useCallback(
     (item: ChatRenderItem<ChatMsg>) => {
-      if (item.kind === 'group') return <ChatBubble group={item.group} agent={selectedAgent} isStreaming={false} />
+      if (item.kind === 'group') return <ChatBubble group={item.group} agent={chatAgent} isStreaming={false} />
       if (item.kind === 'streaming') {
-        return <ChatBubble message={item.message} agent={selectedAgent} isStreaming footer={interactionPanel} />
+        return <ChatBubble message={item.message} agent={chatAgent} isStreaming footer={interactionPanel} />
       }
-      if (item.kind === 'blocking') return <BlockingInteractionBar agent={selectedAgent} panel={interactionPanel} />
-      return <ChatBubble message={item.message} agent={selectedAgent} isStreaming={false} />
+      if (item.kind === 'blocking') return <BlockingInteractionBar agent={chatAgent} panel={interactionPanel} />
+      return <ChatBubble message={item.message} agent={chatAgent} isStreaming={false} />
     },
-    [interactionPanel, selectedAgent],
+    [chatAgent, interactionPanel],
   )
 
   const currentModeName =
@@ -876,14 +879,14 @@ export default function Workspace() {
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            {selectedAgent && (
+            {chatAgent && (
               <>
                 <div
                   style={{
                     width: 30,
                     height: 30,
                     borderRadius: '50%',
-                    background: agentColor(selectedAgent),
+                    background: agentColor(chatAgent),
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -892,12 +895,12 @@ export default function Workspace() {
                     color: 'white',
                   }}
                 >
-                  {agentAvatar(selectedAgent)}
+                  {agentAvatar(chatAgent)}
                 </div>
                 <div>
-                  <div style={{ fontWeight: 600, fontSize: 14 }}>{selectedAgent.name}</div>
+                  <div style={{ fontWeight: 600, fontSize: 14 }}>{chatAgent.name}</div>
                   <div style={{ fontSize: 11, color: 'var(--text-3)' }}>
-                    {selectedAgent.runtime} · {statusLabel(selectedAgent.status)}
+                    {chatAgent.runtime} · {statusLabel(chatAgent.status)}
                   </div>
                 </div>
               </>
@@ -932,6 +935,7 @@ export default function Workspace() {
                 </div>
               )}
               <VirtualChatList
+                key={currentSessionId}
                 items={chatItems}
                 getKey={(item) => item.id}
                 renderItem={renderChatItem}
