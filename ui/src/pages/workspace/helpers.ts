@@ -97,6 +97,11 @@ export function selectChatAgent({
   if (currentSession) return agents.find((agent) => agent.id === currentSession.agent_id)
   return agents.find((agent) => agent.id === selectedAgentId) ?? agents[0]
 }
+
+export function chatContentKey(sessionId: string | null): string {
+  return `chat-content:${sessionId ?? 'none'}`
+}
+
 export const sessionMenuItemStyle: React.CSSProperties = {
   display: 'block',
   width: '100%',

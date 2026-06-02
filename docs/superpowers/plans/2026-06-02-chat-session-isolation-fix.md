@@ -85,3 +85,26 @@
 - [ ] **Step 4: Run verification on prd and browser test**
   - Same test/build/lint checks.
   - Start PRD local instance if needed and manually verify switching.
+
+### Task 5: Remount the whole message content subtree per session
+
+**Finding:** PRD browser evidence showed `currentSessionId`, header agent, DB rows, RPC responses, and `buildChatRenderItems` session filtering were all correct, but the old Code Engineer chat DOM stayed visible as a detached previous `VirtualChatList` subtree. Keying only `VirtualChatList` was not enough because stale sibling DOM could remain inside the message content wrapper.
+
+**Files:**
+- Modify: `ui/src/pages/workspace/helpers.ts`
+- Modify: `ui/src/pages/Workspace.tsx`
+- Test: `tests/unit/workspace-session-agent.test.ts`
+
+- [x] **Step 1: Write failing helper test**
+  - Add a helper test proving chat content keys are session-scoped.
+
+- [x] **Step 2: Run test and verify red**
+  - Run: `npm test -- tests/unit/workspace-session-agent.test.ts`
+  - Expected before implementation: FAIL because helper does not exist.
+
+- [x] **Step 3: Use the session-scoped key on the message content wrapper**
+  - Add `key={chatContentKey(currentSessionId)}` to the wrapper around `VirtualChatList`.
+  - Keep the existing `VirtualChatList` key as an extra internal-cache guard.
+
+- [x] **Step 4: Run test and verify green**
+  - Run: `npm test -- tests/unit/workspace-session-agent.test.ts`

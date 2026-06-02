@@ -1,5 +1,5 @@
 ﻿import { describe, expect, test } from 'vitest'
-import { selectChatAgent } from '../../ui/src/pages/workspace/helpers.ts'
+import { chatContentKey, selectChatAgent } from '../../ui/src/pages/workspace/helpers.ts'
 import type { AgentData } from '../../ui/src/stores/agent.store.ts'
 import type { SessionData } from '../../ui/src/stores/session.store.ts'
 
@@ -58,5 +58,15 @@ describe('selectChatAgent', () => {
     })
 
     expect(selected?.id).toBe('agent-dev')
+  })
+})
+
+describe('chatContentKey', () => {
+  test('uses a stable session-scoped key for the chat message subtree', () => {
+    expect(chatContentKey('sess-reviewer')).toBe('chat-content:sess-reviewer')
+  })
+
+  test('uses a no-session key before selecting a session', () => {
+    expect(chatContentKey(null)).toBe('chat-content:none')
   })
 })
