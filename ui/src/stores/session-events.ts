@@ -192,6 +192,13 @@ export function mergeMessagesById(serverMessages: MessageData[], currentMessages
   return Array.from(byId.values()).sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
 }
 
+export function mergeMessagesForSession(serverMessages: MessageData[], currentMessages: MessageData[], sessionId: string): MessageData[] {
+  return mergeMessagesById(
+    serverMessages,
+    currentMessages.filter((message) => message.session_id === sessionId),
+  )
+}
+
 function keepExistingFullToolCalls(next: MessageData, existing?: MessageData): MessageData {
   if (!existing?.tool_calls_json || next.tool_calls_json) return next
   if (!next.has_tool_calls) return next
@@ -215,6 +222,20 @@ export function appendFinalizedMessage(currentMessages: MessageData[], message: 
     nextId = `${message.id}-${suffixBase}-${i}`
   }
   return [...currentMessages, { ...normalized, id: nextId }]
+}
+
+export function buildErrorAgentMessage(sessionId: string, messageId: string, error: string): MessageData {
+  return normalizeMessage({
+    id: messageId,
+    session_id: sessionId,
+    role: 'agent',
+    content: `执行失败：${error}`,
+    thinking: null,
+    tool_calls_json: null,
+    decision_json: null,
+    attachments_json: null,
+    timestamp: new Date().toISOString(),
+  })
 }
 
 const GENERIC_TOOL_TITLES = new Set(['工具调用', 'Tool call', 'tool call'])

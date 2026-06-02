@@ -1,10 +1,17 @@
 import { describe, expect, test } from 'vitest'
-import { appendFinalizedMessage, mergeMessagesById, normalizeMessage, type MessageData } from '../../ui/src/stores/session-events.ts'
+import {
+  appendFinalizedMessage,
+  buildErrorAgentMessage,
+  mergeMessagesById,
+  mergeMessagesForSession,
+  normalizeMessage,
+  type MessageData,
+} from '../../ui/src/stores/session-events.ts'
 
-function msg(id: string, role = 'human', timestamp = '2026-01-01T00:00:00.000Z'): MessageData {
+function msg(id: string, role = 'human', timestamp = '2026-01-01T00:00:00.000Z', sessionId = 'sess-1'): MessageData {
   return {
     id,
-    session_id: 'sess-1',
+    session_id: sessionId,
     role,
     content: id,
     thinking: null,
@@ -14,6 +21,21 @@ function msg(id: string, role = 'human', timestamp = '2026-01-01T00:00:00.000Z')
     timestamp,
   }
 }
+
+describe('mergeMessagesForSession', () => {
+  test('drops messages from the previously selected session when the new session has no history', () => {
+    const merged = mergeMessagesForSession([], [msg('old-session-message', 'agent', '2026-01-01T00:00:00.000Z', 'sess-old')], 'sess-new')
+
+    expect(merged).toEqual([])
+  })
+
+  test('keeps optimistic messages that belong to the selected session', () => {
+    const local = msg('msg-local-pending', 'human', '2026-01-01T00:00:01.000Z', 'sess-new')
+    const merged = mergeMessagesForSession([], [local, msg('old-session-message', 'agent', '2026-01-01T00:00:00.000Z', 'sess-old')], 'sess-new')
+
+    expect(merged).toEqual([normalizeMessage(local)])
+  })
+})
 
 describe('mergeMessagesById', () => {
   test('keeps local messages that the server has not returned yet', () => {
@@ -65,6 +87,17 @@ describe('appendFinalizedMessage', () => {
     expect(merged[0].id).toBe('msg-reused')
     expect(merged[2].id).not.toBe('msg-reused')
     expect(merged[2].content).toBe('new answer')
+  })
+})
+
+describe('buildErrorAgentMessage', () => {
+  test('uses the done message id so live fallback and server history merge into one message', () => {
+    const message = buildErrorAgentMessage('sess-1', 'error-123', 'adapter failed')
+
+    expect(message.id).toBe('error-123')
+    expect(message.session_id).toBe('sess-1')
+    expect(message.role).toBe('agent')
+    expect(message.content).toContain('adapter failed')
   })
 })
 

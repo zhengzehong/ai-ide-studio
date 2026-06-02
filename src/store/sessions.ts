@@ -67,6 +67,7 @@ export interface CreateSessionInput {
 }
 
 export interface AppendMessageInput {
+  id?: string
   role: string
   content: string
   thinking?: string
@@ -265,7 +266,7 @@ function hasDoneAfterLastUser(sessionId: string): boolean {
 export const messageStore = {
   append(sessionId: string, input: AppendMessageInput): MessageRow {
     const msg: MessageRow = {
-      id: `msg-${randomUUID().slice(0, 8)}`,
+      id: input.id ?? `msg-${randomUUID().slice(0, 8)}`,
       session_id: sessionId,
       role: input.role,
       content: input.content,

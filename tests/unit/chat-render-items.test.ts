@@ -90,4 +90,32 @@ describe('buildChatRenderItems', () => {
     expect(items.map((item) => item.kind)).toEqual(['message', 'group'])
     expect(items[0]).toEqual({ id: 'msg:msg-old', kind: 'message', message: oldMessage })
   })
+
+  test('keeps a streaming bubble when existing timeline events do not cover the streaming reply', () => {
+    const streaming = { ...msg('pending-reply', 'agent', ''), streaming: true, stage: '正在准备 Agent...' }
+    const items = buildChatRenderItems({
+      messages: [],
+      events: [ev(1, 'message.user', { messageId: 'msg-user-1', content: 'hello' }, 'msg-user-1')],
+      streamingBubble: streaming,
+      showStreamingBubble: true,
+      blockingInteraction: false,
+    })
+
+    expect(items.map((item) => item.kind)).toEqual(['group', 'streaming'])
+    expect(items[1]).toEqual({ id: 'streaming:pending-reply', kind: 'streaming', message: streaming })
+  })
+
+  test('keeps finalized messages that are not represented by timeline events', () => {
+    const finalReply = msg('msg-agent-final', 'agent', 'final answer')
+    const items = buildChatRenderItems({
+      messages: [finalReply],
+      events: [ev(1, 'message.user', { messageId: 'msg-user-1', content: 'hello' }, 'msg-user-1')],
+      streamingBubble: null,
+      showStreamingBubble: false,
+      blockingInteraction: false,
+    })
+
+    expect(items.map((item) => item.kind)).toEqual(['group', 'message'])
+    expect(items[1]).toEqual({ id: 'msg:msg-agent-final', kind: 'message', message: finalReply })
+  })
 })

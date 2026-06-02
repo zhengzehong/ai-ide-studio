@@ -41,6 +41,14 @@ const ACP_SESSION_IDLE_MS = readPositiveMs(process.env.ACP_SESSION_IDLE_MS, 30 *
 const ACP_RUNTIME_IDLE_MS = readPositiveMs(process.env.ACP_RUNTIME_IDLE_MS, 60 * 60 * 1000)
 const ACP_IDLE_SWEEP_MS = readPositiveMs(process.env.ACP_IDLE_SWEEP_MS, 5 * 60 * 1000)
 let idleTimer: ReturnType<typeof setInterval> | null = null
+const MOCK_MODELS = [
+  { modelId: 'mock-fast', name: 'Mock Fast', description: '本地快速测试模型' },
+  { modelId: 'mock-smart', name: 'Mock Smart', description: '本地能力测试模型' },
+]
+const MOCK_MODES = [
+  { id: 'default', name: '执行模式', description: '直接执行用户请求' },
+  { id: 'plan', name: 'PLAN 模式', description: '先给出计划，再等待切换执行' },
+]
 
 function readPositiveMs(raw: string | undefined, fallback: number): number {
   if (!raw) return fallback
@@ -600,7 +608,11 @@ async function startMockAgent(agentId: string, envFingerprint?: string): Promise
     },
     async newSession(params: { cwd: string }) {
       const result = await mockProc.sendRequest('session/create', { workingDirectory: params.cwd })
-      return { sessionId: (result as { sessionId: string }).sessionId }
+      return {
+        sessionId: (result as { sessionId: string }).sessionId,
+        models: { currentModelId: 'mock-fast', availableModels: MOCK_MODELS },
+        modes: { currentModeId: 'default', availableModes: MOCK_MODES },
+      }
     },
     async prompt(params: { sessionId: string; prompt: { type: string; text?: string }[] }) {
       const text = params.prompt.map((p) => p.text || '').join('\n')
@@ -620,6 +632,18 @@ async function startMockAgent(agentId: string, envFingerprint?: string): Promise
       } catch {
         /* ignore */
       }
+    },
+    async unstable_setSessionModel(params: { modelId: string }) {
+      if (!MOCK_MODELS.some((model) => model.modelId === params.modelId)) {
+        throw new Error(`未知 Mock 模型: ${params.modelId}`)
+      }
+      return {}
+    },
+    async setSessionMode(params: { modeId: string }) {
+      if (!MOCK_MODES.some((mode) => mode.id === params.modeId)) {
+        throw new Error(`未知 Mock 模式: ${params.modeId}`)
+      }
+      return {}
     },
   } as unknown as acp.ClientSideConnection
 

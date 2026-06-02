@@ -55,4 +55,30 @@ describe('session.getModels WS RPC', () => {
 
     acpHost.getSessionCapabilities = original
   })
+
+  test('ensures ACP session before returning models for a restored session', async () => {
+    const agent = agentStore.create({ type: 'dev', name: 'Mock restored capabilities', runtime: 'mock' })
+    const session = sessionStore.create({ agentId: agent.id })
+
+    const handlers = new Map<string, (raw?: unknown) => unknown>()
+    const sent: string[] = []
+    const ws = {
+      OPEN: 1, readyState: 1,
+      send(payload: string) { sent.push(payload) },
+      on(event: string, handler: (raw?: unknown) => unknown) { handlers.set(event, handler) },
+    } as unknown as WebSocket
+
+    handleWsConnection(ws, {} as never, {} as WebSocketServer)
+    const onMessage = handlers.get('message')!
+    await Promise.resolve(onMessage(Buffer.from(JSON.stringify({ type: 'session.getModels', requestId: 'req-restored', sessionId: session.id }))))
+
+    const response = JSON.parse(sent.at(-1) || '{}')
+    expect(response.type).toBe('result')
+    expect(response.requestId).toBe('req-restored')
+    expect(response.data.models.map((model: { modelId: string }) => model.modelId)).toEqual(['mock-fast', 'mock-smart'])
+    expect(response.data.currentModelId).toBe('mock-fast')
+    expect(response.data.modes.map((mode: { modeId: string }) => mode.modeId)).toEqual(['default', 'plan'])
+    expect(response.data.currentModeId).toBe('default')
+  }, 10_000)
+
 })
