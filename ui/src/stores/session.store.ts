@@ -1,17 +1,26 @@
 import { create } from 'zustand'
 import { wsClient } from '../services/ws-client'
 import {
+  applySessionEvent,
+  buildChatTimelineFromEvents,
   buildCompletedAgentMessage,
   capabilitiesFromConfig,
   defaultCaps,
+  finalizePlanOnTurnDone,
+  groupChatTimelineItems,
   appendFinalizedMessage,
   mergeCapabilities,
   mergeMessagesById,
+  normalizeMessage,
   shouldCreateToolFromUpdate,
   upsertToolCall,
   reduceSessionEvents,
   shouldShowLifecycleStage,
   type AvailableCommandInfo,
+  type ChatTimelineItem,
+  type ChatTimelineGroup,
+  type ChatTimelineMessageItem,
+  type ChatTimelineToolItem,
   type ConfigOptionInfo,
   type ElicitationRequestInfo,
   type ImageAttachmentInfo,
@@ -23,13 +32,20 @@ import {
   type SessionCapabilities,
   type SessionEventData,
   type StreamingMessage,
+  type ToolCallDetailInfo,
   type ToolCallInfo,
+  type ToolCallSummaryInfo,
   type TurnUsageInfo,
   type UsageInfo,
 } from './session-events'
+import { StreamingBuffer } from './streaming-buffer'
 
 export type {
   AvailableCommandInfo,
+  ChatTimelineItem,
+  ChatTimelineGroup,
+  ChatTimelineMessageItem,
+  ChatTimelineToolItem,
   ConfigOptionInfo,
   ElicitationRequestInfo,
   ImageAttachmentInfo,
@@ -40,10 +56,14 @@ export type {
   PlanEntry,
   SessionCapabilities,
   SessionEventData,
+  ToolCallDetailInfo,
   ToolCallInfo,
+  ToolCallSummaryInfo,
   TurnUsageInfo,
   UsageInfo,
 }
+
+export { buildChatTimelineFromEvents, groupChatTimelineItems }
 
 export interface SessionData {
   id: string; agent_id: string; task_id: string | null; acp_session_id: string | null
@@ -60,6 +80,10 @@ interface SessionStore {
   sessions: SessionData[]; currentSessionId: string | null; messages: MessageData[]; events: SessionEventData[]
   streamingMessage: StreamingMessage | null; usage: UsageInfo | null; turnUsage: TurnUsageInfo | null
   capabilities: SessionCapabilities; plan: PlanEntry[]; pendingPermissions: PermissionRequestInfo[]; pendingElicitations: ElicitationRequestInfo[]; loading: boolean
+  toolCallSummariesByMessageId: Record<string, ToolCallSummaryInfo[]>
+  toolCallDetailsByKey: Record<string, ToolCallDetailInfo>
+  toolCallLoadingByKey: Record<string, boolean>
+  toolCallErrorByKey: Record<string, string>
 
   fetchSessions: (agentId?: string, projectId?: string) => Promise<void>
   fetchMessages: (sessionId: string) => Promise<void>
@@ -78,6 +102,8 @@ interface SessionStore {
   respondPermission: (requestId: string, optionId?: string, cancelled?: boolean) => Promise<void>
   respondElicitation: (requestId: string, action: 'accept' | 'decline' | 'cancel', content?: Record<string, string | number | boolean | string[]>) => Promise<void>
   fetchModels: () => Promise<void>
+  fetchMessageToolCalls: (sessionId: string, messageId: string) => Promise<void>
+  fetchMessageToolCallDetail: (sessionId: string, messageId: string, toolCallId: string) => Promise<void>
   setupListeners: () => () => void
 }
 
@@ -88,6 +114,10 @@ let lastStreamingSnapshot: StreamingMessage | null = null
 let sessionListRequestSeq = 0
 let activeSessionsProjectId: string | null = null
 const sessionCaches = new Map<string, SessionCache>()
+const eventCursorBySession = new Map<string, number>()
+const streamingBuffer = new StreamingBuffer()
+let streamingFlushTimer: ReturnType<typeof setTimeout> | null = null
+const mirroredRealtimeEventTypes = new Set(['message.chunk', 'thinking.chunk', 'tool.call', 'tool.update', 'message.done'])
 
 function saveCache(sessionId: string, s: Pick<SessionStore, 'events' | 'usage' | 'turnUsage' | 'capabilities' | 'plan' | 'pendingPermissions' | 'pendingElicitations' | 'streamingMessage'>) {
   sessionCaches.set(sessionId, {
@@ -96,23 +126,73 @@ function saveCache(sessionId: string, s: Pick<SessionStore, 'events' | 'usage' |
   })
 }
 
-function applyReduced(set: (partial: Partial<SessionStore>) => void, currentCapabilities: SessionCapabilities, events: SessionEventData[]) {
-  const reduced = reduceSessionEvents(events)
-  set({
-    events,
+function reducedStateFromStore(state: SessionStore) {
+  return {
+    streamingMessage: state.streamingMessage,
+    usage: state.usage,
+    turnUsage: state.turnUsage,
+    capabilities: state.capabilities,
+    plan: state.plan,
+    pendingPermissions: state.pendingPermissions,
+    pendingElicitations: state.pendingElicitations,
+  }
+}
+
+function partialFromReduced(reduced: ReturnType<typeof reducedStateFromStore>): Partial<SessionStore> {
+  return {
     streamingMessage: reduced.streamingMessage,
     usage: reduced.usage,
     turnUsage: reduced.turnUsage,
-    capabilities: mergeCapabilities(currentCapabilities, reduced.capabilities),
+    capabilities: reduced.capabilities,
     plan: reduced.plan,
     pendingPermissions: reduced.pendingPermissions,
     pendingElicitations: reduced.pendingElicitations,
+  }
+}
+
+function toolDetailCacheKey(messageId: string, toolCallId: string): string {
+  return `${messageId}:${toolCallId}`
+}
+
+function flushStreamingBuffer(set: (partial: Partial<SessionStore> | ((state: SessionStore) => Partial<SessionStore>)) => void, get: () => SessionStore): void {
+  if (streamingFlushTimer) {
+    clearTimeout(streamingFlushTimer)
+    streamingFlushTimer = null
+  }
+  const snapshot = streamingBuffer.flush()
+  if (!snapshot) return
+  const sid = get().currentSessionId
+  set((state) => {
+    const cur = state.streamingMessage
+    const up: StreamingMessage = cur ? { ...cur, toolCalls: [...cur.toolCalls] } : { id: String(snapshot.messageId || `stream-${sid}-${Date.now()}`), role: 'agent', content: '', thinking: '', toolCalls: [], done: false }
+    if (snapshot.messageId && up.id.startsWith('pending-')) up.id = snapshot.messageId
+    if (snapshot.contentDelta) { up.content += snapshot.contentDelta; up.stage = undefined }
+    if (snapshot.thinking) { up.thinking += snapshot.thinking; up.stage = undefined }
+    for (const toolCall of snapshot.toolCalls) { up.toolCalls.push(toolCall); up.stage = undefined }
+    for (const update of snapshot.toolCallUpdates) {
+      if (!up.toolCalls.some((tool) => tool.id === update.id) && !shouldCreateToolFromUpdate(update)) continue
+      up.toolCalls = upsertToolCall(up.toolCalls, update)
+      up.stage = undefined
+    }
+    lastStreamingSnapshot = up
+    return { streamingMessage: up }
   })
+  const currentSessionId = get().currentSessionId
+  if (currentSessionId) saveCache(currentSessionId, get())
+}
+
+function scheduleStreamingFlush(set: (partial: Partial<SessionStore> | ((state: SessionStore) => Partial<SessionStore>)) => void, get: () => SessionStore): void {
+  if (streamingFlushTimer) return
+  streamingFlushTimer = setTimeout(() => {
+    streamingFlushTimer = null
+    flushStreamingBuffer(set, get)
+  }, 50)
 }
 
 export const useSessionStore = create<SessionStore>((set, get) => ({
   sessions: [], currentSessionId: null, messages: [], events: [], streamingMessage: null,
   usage: null, turnUsage: null, capabilities: { ...defaultCaps }, plan: [], pendingPermissions: [], pendingElicitations: [], loading: false,
+  toolCallSummariesByMessageId: {}, toolCallDetailsByKey: {}, toolCallLoadingByKey: {}, toolCallErrorByKey: {},
 
   fetchSessions: async (agentId, projectId) => {
     const requestSeq = ++sessionListRequestSeq
@@ -146,7 +226,22 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     try {
       const events = await wsClient.request({ type: 'sessions.events', sessionId, limit: 1000 }) as SessionEventData[]
       if (sessionId !== get().currentSessionId) return
-      applyReduced(set, get().capabilities, events)
+      eventCursorBySession.set(sessionId, events.at(-1)?.sequence ?? 0)
+      const stateBeforeRecovery = get()
+      const recoveryEvents = stateBeforeRecovery.messages.length > 0
+        ? events.filter((event) => !mirroredRealtimeEventTypes.has(event.type))
+        : events
+      const reduced = reduceSessionEvents(recoveryEvents)
+      set((state) => ({
+        events,
+        usage: reduced.usage,
+        turnUsage: reduced.turnUsage,
+        capabilities: mergeCapabilities(state.capabilities, reduced.capabilities),
+        plan: reduced.plan,
+        pendingPermissions: reduced.pendingPermissions,
+        pendingElicitations: reduced.pendingElicitations,
+        streamingMessage: stateBeforeRecovery.messages.length > 0 ? state.streamingMessage : reduced.streamingMessage,
+      }))
       saveCache(sessionId, get())
     } catch {
       /* ignore event load errors */
@@ -179,6 +274,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       messages: currentSessionId ? get().messages : [],
       events: currentSessionId ? get().events : [],
       streamingMessage: currentSessionId ? get().streamingMessage : null,
+      toolCallSummariesByMessageId: currentSessionId ? get().toolCallSummariesByMessageId : {},
+      toolCallDetailsByKey: currentSessionId ? get().toolCallDetailsByKey : {},
+      toolCallLoadingByKey: currentSessionId ? get().toolCallLoadingByKey : {},
+      toolCallErrorByKey: currentSessionId ? get().toolCallErrorByKey : {},
     })
   },
 
@@ -208,15 +307,22 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         plan: [],
         pendingPermissions: [],
         pendingElicitations: [],
+        toolCallSummariesByMessageId: {},
+        toolCallDetailsByKey: {},
+        toolCallLoadingByKey: {},
+        toolCallErrorByKey: {},
       })
       return
     }
     wsClient.subscribe([id])
     const c = sessionCaches.get(id)
+    streamingBuffer.clear()
+    if (streamingFlushTimer) { clearTimeout(streamingFlushTimer); streamingFlushTimer = null }
     set({
       currentSessionId: id, messages: [], events: c?.events || [], streamingMessage: c?.streamingMessage || null,
       usage: c?.usage || null, turnUsage: c?.turnUsage || null, capabilities: c?.capabilities || { ...defaultCaps }, plan: c?.plan || [],
       pendingPermissions: c?.pendingPermissions || [], pendingElicitations: c?.pendingElicitations || [],
+      toolCallSummariesByMessageId: {}, toolCallDetailsByKey: {}, toolCallLoadingByKey: {}, toolCallErrorByKey: {},
     })
     void get().fetchMessages(id)
     void get().fetchEvents(id)
@@ -230,7 +336,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     wsClient.send(msg)
     promptStartTime = Date.now()
     set({
-      messages: [...get().messages, { id: `msg-local-${Date.now()}`, session_id: sid, role: 'human', content, thinking: null, tool_calls_json: null, decision_json: null, attachments_json: images?.length ? JSON.stringify(images) : null, timestamp: new Date().toISOString() }],
+      messages: [...get().messages, normalizeMessage({ id: `msg-local-${Date.now()}`, session_id: sid, role: 'human', content, thinking: null, tool_calls_json: null, decision_json: null, attachments_json: images?.length ? JSON.stringify(images) : null, timestamp: new Date().toISOString() })],
       streamingMessage: { id: `pending-${sid}-${Date.now()}`, role: 'agent', content: '', thinking: '', toolCalls: [], done: false, stage: '\u6b63\u5728\u51c6\u5907 Agent...' },
       turnUsage: null,
     })
@@ -286,6 +392,51 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     }
   },
 
+  fetchMessageToolCalls: async (sessionId, messageId) => {
+    if (get().toolCallSummariesByMessageId[messageId]) return
+    set((state) => ({
+      toolCallLoadingByKey: { ...state.toolCallLoadingByKey, [messageId]: true },
+      toolCallErrorByKey: { ...state.toolCallErrorByKey, [messageId]: '' },
+    }))
+    try {
+      const summaries = await wsClient.request({ type: 'sessions.messageToolCalls', sessionId, messageId }) as ToolCallSummaryInfo[]
+      if (sessionId !== get().currentSessionId) return
+      set((state) => ({
+        toolCallSummariesByMessageId: { ...state.toolCallSummariesByMessageId, [messageId]: summaries },
+        toolCallLoadingByKey: { ...state.toolCallLoadingByKey, [messageId]: false },
+      }))
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      set((state) => ({
+        toolCallLoadingByKey: { ...state.toolCallLoadingByKey, [messageId]: false },
+        toolCallErrorByKey: { ...state.toolCallErrorByKey, [messageId]: message },
+      }))
+    }
+  },
+
+  fetchMessageToolCallDetail: async (sessionId, messageId, toolCallId) => {
+    const key = toolDetailCacheKey(messageId, toolCallId)
+    if (get().toolCallDetailsByKey[key]) return
+    set((state) => ({
+      toolCallLoadingByKey: { ...state.toolCallLoadingByKey, [key]: true },
+      toolCallErrorByKey: { ...state.toolCallErrorByKey, [key]: '' },
+    }))
+    try {
+      const detail = await wsClient.request({ type: 'sessions.messageToolCallDetail', sessionId, messageId, toolCallId }) as ToolCallDetailInfo
+      if (sessionId !== get().currentSessionId) return
+      set((state) => ({
+        toolCallDetailsByKey: { ...state.toolCallDetailsByKey, [key]: detail },
+        toolCallLoadingByKey: { ...state.toolCallLoadingByKey, [key]: false },
+      }))
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      set((state) => ({
+        toolCallLoadingByKey: { ...state.toolCallLoadingByKey, [key]: false },
+        toolCallErrorByKey: { ...state.toolCallErrorByKey, [key]: message },
+      }))
+    }
+  },
+
   setupListeners: () => {
     if (listenersSetup && cleanupFn) return cleanupFn
     const offs: (() => void)[] = []
@@ -293,15 +444,16 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     offs.push(wsClient.on('session:event', (msg) => {
       const sid = msg.sessionId as string; if (sid !== get().currentSessionId) return
       const event = msg.event as SessionEventData
-      const events = [...get().events.filter(e => e.id !== event.id), event].sort((a, b) => a.sequence - b.sequence)
-      const activeStreaming = get().streamingMessage
-      applyReduced(set, get().capabilities, events)
-      if (activeStreaming && (activeStreaming.content || activeStreaming.thinking || activeStreaming.toolCalls.length > 0 || activeStreaming.stage)) {
-        lastStreamingSnapshot = activeStreaming
-        if (!get().streamingMessage) {
-          set({ streamingMessage: activeStreaming })
-        }
-      }
+      eventCursorBySession.set(sid, Math.max(eventCursorBySession.get(sid) ?? 0, event.sequence))
+      const shouldApplyToVisibleState = !mirroredRealtimeEventTypes.has(event.type)
+      if (!shouldApplyToVisibleState) return
+      set((state) => {
+        const events = [...state.events.filter(e => e.id !== event.id), event]
+          .sort((a, b) => a.sequence - b.sequence)
+          .slice(-1000)
+        const reduced = applySessionEvent(reducedStateFromStore(state), event)
+        return { events, ...partialFromReduced(reduced) }
+      })
       saveCache(sid, get())
     }))
 
@@ -337,26 +489,23 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       if (data.permissionRequest) { const req = data.permissionRequest as PermissionRequestInfo; set(s => ({ pendingPermissions: [...s.pendingPermissions.filter(p => p.id !== req.id), req] })); saveCache(sid, get()); return }
       if (data.elicitationRequest) { const req = data.elicitationRequest as ElicitationRequestInfo; set(s => ({ pendingElicitations: [...s.pendingElicitations.filter(p => p.id !== req.id), req] })); saveCache(sid, get()); return }
 
-      set((state) => {
-        const cur = state.streamingMessage
-        const up: StreamingMessage = cur ? { ...cur, toolCalls: [...cur.toolCalls] } : { id: String(data.messageId || `stream-${sid}-${Date.now()}`), role: 'agent', content: '', thinking: '', toolCalls: [], done: false }
-        if (data.contentDelta) { up.content += data.contentDelta as string; up.stage = undefined }
-        if (data.thinking) { up.thinking += data.thinking as string; up.stage = undefined }
-        if (data.toolCall) { up.toolCalls.push(data.toolCall as ToolCallInfo); up.stage = undefined }
-        if (data.toolCallUpdate) {
-          const tcu = data.toolCallUpdate as ToolCallInfo
-          if (!cur && !shouldCreateToolFromUpdate(tcu)) return {}
-          up.toolCalls = upsertToolCall(up.toolCalls, tcu)
-          up.stage = undefined
-        }
-        lastStreamingSnapshot = up
-        return { streamingMessage: up }
-      })
+      if (data.contentDelta || data.thinking || data.toolCall || data.toolCallUpdate) {
+        streamingBuffer.push({
+          messageId: typeof data.messageId === 'string' ? data.messageId : undefined,
+          contentDelta: typeof data.contentDelta === 'string' ? data.contentDelta : undefined,
+          thinking: typeof data.thinking === 'string' ? data.thinking : undefined,
+          toolCall: data.toolCall as ToolCallInfo | undefined,
+          toolCallUpdate: data.toolCallUpdate as ToolCallInfo | undefined,
+        })
+        scheduleStreamingFlush(set, get)
+      }
     }))
 
     offs.push(wsClient.on('session:done', (msg) => {
       const sid = msg.sessionId as string; if (sid !== get().currentSessionId) return
+      flushStreamingBuffer(set, get)
       const tu = msg.turnUsage as TurnUsageInfo | undefined
+      const stopReason = msg.stopReason as string | undefined
       const cost = get().usage?.costAmount
       const elapsed = promptStartTime > 0 ? Math.round((Date.now() - promptStartTime) / 1000) : undefined
       promptStartTime = 0
@@ -379,7 +528,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         }
         set(st => ({
           messages: appendFinalizedMessage(st.messages, newMsg),
-          streamingMessage: null, turnUsage: tu || st.turnUsage,
+          streamingMessage: null, turnUsage: tu || st.turnUsage, plan: finalizePlanOnTurnDone(st.plan, stopReason),
         }))
       } else {
         const finalMessage = buildCompletedAgentMessage(sid, get().events, tu, cost, elapsed)
@@ -387,10 +536,14 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           if (turnStats && !finalMessage.decision_json) finalMessage.decision_json = turnStats
           set(st => ({
             messages: appendFinalizedMessage(st.messages, finalMessage),
-            streamingMessage: null, turnUsage: tu || st.turnUsage,
+            streamingMessage: null, turnUsage: tu || st.turnUsage, plan: finalizePlanOnTurnDone(st.plan, stopReason),
           }))
         } else {
-          set({ streamingMessage: null, turnUsage: tu || get().turnUsage })
+          set(st => ({
+            streamingMessage: null,
+            turnUsage: tu || st.turnUsage,
+            plan: finalizePlanOnTurnDone(st.plan, stopReason),
+          }))
         }
       }
       saveCache(sid, get())
@@ -433,6 +586,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         if (st.sessions.some(s => s.id === sessionId)) {
           return { sessions: st.sessions.map(s => s.id === sessionId ? { ...s, ...data } : s) }
         }
+        if (isCompleteSessionData(data, sessionId) && (!activeSessionsProjectId || data.project_id === activeSessionsProjectId)) {
+          return { sessions: [...st.sessions, data] }
+        }
         return { sessions: st.sessions }
       })
     }))
@@ -442,3 +598,15 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     return cleanupFn
   },
 }))
+
+function isCompleteSessionData(data: Partial<SessionData>, sessionId: string): data is SessionData {
+  return data.id === sessionId &&
+    typeof data.agent_id === 'string' &&
+    typeof data.status === 'string' &&
+    typeof data.stage === 'string' &&
+    typeof data.started_at === 'string' &&
+    (data.task_id === null || typeof data.task_id === 'string') &&
+    (data.acp_session_id === null || typeof data.acp_session_id === 'string') &&
+    (data.closed_at === null || typeof data.closed_at === 'string') &&
+    (data.project_id === undefined || data.project_id === null || typeof data.project_id === 'string')
+}

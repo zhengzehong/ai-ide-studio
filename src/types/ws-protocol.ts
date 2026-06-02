@@ -85,6 +85,7 @@ export interface AgentsDeployTemplateMsg extends ClientMessage {
   runtime?: AgentRuntime
   systemPrompt?: string
   icon?: string
+  modelProfileId?: string
 }
 export interface AgentsCreateCustomMsg extends ClientMessage {
   type: 'agents.createCustom'
@@ -94,6 +95,7 @@ export interface AgentsCreateCustomMsg extends ClientMessage {
   runtime: AgentRuntime
   systemPrompt?: string
   icon?: string
+  modelProfileId?: string
 }
 export interface AgentsUpdateMsg extends ClientMessage {
   type: 'agents.update'
@@ -103,6 +105,7 @@ export interface AgentsUpdateMsg extends ClientMessage {
   runtime?: AgentRuntime
   systemPrompt?: string
   icon?: string
+  modelProfileId?: string | null
 }
 export interface AgentsDeleteMsg extends ClientMessage {
   type: 'agents.delete'
@@ -141,6 +144,19 @@ export interface SessionsMessagesMsg extends ClientMessage {
   sessionId: string
   limit?: number
   before?: string
+  includeToolCalls?: boolean
+  includeLatestToolCalls?: boolean
+}
+export interface SessionsMessageToolCallsMsg extends ClientMessage {
+  type: 'sessions.messageToolCalls'
+  sessionId: string
+  messageId: string
+}
+export interface SessionsMessageToolCallDetailMsg extends ClientMessage {
+  type: 'sessions.messageToolCallDetail'
+  sessionId: string
+  messageId: string
+  toolCallId: string
 }
 export interface SessionsEventsMsg extends ClientMessage {
   type: 'sessions.events'
@@ -224,6 +240,51 @@ export interface ToolCallData {
   error?: string
 }
 
+
+export interface ToolCallSummaryData {
+  id: string
+  title: string
+  kind?: string
+  status?: string
+  hasRawInput: boolean
+  hasRawOutput: boolean
+  hasTerminalOutput: boolean
+  outputPreview?: string
+  error?: string
+}
+
+export interface ToolCallDetailData {
+  id: string
+  title: string
+  kind?: string
+  status?: string
+  locations?: { path: string; line?: number }[]
+  rawInputPreview?: string
+  rawInputTruncated?: boolean
+  rawOutputPreview?: string
+  rawOutputTruncated?: boolean
+  terminalOutputTail?: string
+  terminalOutputTruncated?: boolean
+  contentPreview?: ToolCallContentItem[]
+  contentTruncated?: boolean
+  progressTail?: string[]
+  progressTruncated?: boolean
+  error?: string
+}
+
+export interface MessageData {
+  id: string
+  session_id: string
+  role: string
+  content: string
+  thinking: string | null
+  tool_calls_json: string | null
+  decision_json: string | null
+  attachments_json: string | null
+  timestamp: string
+  has_tool_calls?: boolean
+  tool_call_count?: number
+}
 export interface ToolCallContentItem {
   type: 'text' | 'diff' | 'terminal'
   text?: string

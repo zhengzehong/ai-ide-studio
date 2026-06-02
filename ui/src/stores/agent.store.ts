@@ -22,6 +22,7 @@ export interface ProjectAgentInput {
   runtime: string
   systemPrompt?: string
   icon?: string
+  modelProfileId?: string
 }
 
 interface AgentStore {

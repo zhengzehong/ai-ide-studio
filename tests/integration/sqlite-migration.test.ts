@@ -39,15 +39,15 @@ describe('SQLite 迁移', () => {
 
     const tables = getDb().prepare<[], { name: string }>(`
       SELECT name FROM sqlite_master
-      WHERE type = 'table' AND name IN ('schema_migrations', 'tool_contexts', 'tool_call_audit')
+      WHERE type = 'table' AND name IN ('schema_migrations', 'tool_contexts', 'tool_call_audit', 'model_profiles')
       ORDER BY name
     `).all().map(row => row.name)
     const migrations = getDb().prepare<[], { version: string }>(`
       SELECT version FROM schema_migrations ORDER BY version
     `).all().map(row => row.version)
 
-    expect(tables).toEqual(['schema_migrations', 'tool_call_audit', 'tool_contexts'])
-    expect(migrations).toEqual(['001', '002', '003', '004', '005'])
+    expect(tables).toEqual(['model_profiles', 'schema_migrations', 'tool_call_audit', 'tool_contexts'])
+    expect(migrations).toEqual(['001', '002', '003', '004', '005', '006'])
   })
 
   test('从 JSON 迁移到 SQLite 并保留所有数据', () => {

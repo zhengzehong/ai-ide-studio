@@ -4,7 +4,7 @@ import { createChildLogger } from '../core/logger.js'
 
 const log = createChildLogger('store:model')
 
-export type ModelProtocol = 'openai' | 'claude'
+export type ModelProtocol = 'openai' | 'claude' | 'new-api'
 
 export interface ModelEntry {
   id: string

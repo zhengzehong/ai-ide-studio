@@ -1,17 +1,22 @@
 import { useState, useEffect } from 'react'
 import {
   Server, Plus, Pencil, Trash2, ToggleLeft, ToggleRight, CheckCircle2,
-  Star, Loader2, Eye, EyeOff, AlertCircle,
+  Star, Loader2, Eye, EyeOff, AlertCircle, Cpu,
 } from 'lucide-react'
-import { useModelStore, type ModelProviderData } from '../stores/model.store'
+import { useModelStore, type CodexProfileConfig, type ClaudeProfileConfig, type ModelProfileConfig, type ModelProfileData, type ModelProviderData } from '../stores/model.store'
 
 export default function Settings() {
-  const { providers, fetchProviders, createProvider, updateProvider, toggleProvider, deleteProvider, setDefault, testProvider } = useModelStore()
+  const {
+    providers, profiles, fetchProviders, fetchProfiles, createProvider, updateProvider, toggleProvider, deleteProvider,
+    setDefault, testProvider, createProfile, updateProfile, toggleProfile, deleteProfile,
+  } = useModelStore()
   const [showForm, setShowForm] = useState(false)
+  const [showProfileForm, setShowProfileForm] = useState(false)
   const [editProvider, setEditProvider] = useState<ModelProviderData | null>(null)
+  const [editProfile, setEditProfile] = useState<ModelProfileData | null>(null)
   const [testResults, setTestResults] = useState<Record<string, { ok: boolean; models?: string[]; error?: string; loading?: boolean }>>({})
 
-  useEffect(() => { fetchProviders() }, [fetchProviders])
+  useEffect(() => { fetchProviders(); fetchProfiles() }, [fetchProviders, fetchProfiles])
 
   const handleTest = async (id: string) => {
     setTestResults(r => ({ ...r, [id]: { ok: false, loading: true } }))
@@ -51,12 +56,13 @@ export default function Settings() {
               const models: { id: string; name: string }[] = JSON.parse(p.models_json || '[]')
               const tr = testResults[p.id]
               const isOpenAI = p.protocol === 'openai'
+              const isNewApi = p.protocol === 'new-api'
               return (
                 <div key={p.id} style={{ ...providerCard, opacity: p.enabled ? 1 : 0.6 }}>
                   {/* Header */}
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
-                    <div style={providerIcon(isOpenAI)}>
-                      {isOpenAI ? 'AI' : 'C'}
+                    <div style={providerIcon(isOpenAI || isNewApi)}>
+                      {isNewApi ? 'NA' : isOpenAI ? 'AI' : 'C'}
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -106,6 +112,62 @@ export default function Settings() {
         )}
       </div>
 
+      <div style={{ marginBottom: 32 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Cpu size={18} style={{ color: 'var(--blue)' }} />
+            模型档案
+          </h2>
+          <button onClick={() => { setEditProfile(null); setShowProfileForm(true) }} style={btn}>
+            <Plus size={14} /> 新建档案
+          </button>
+        </div>
+
+        {profiles.length === 0 ? (
+          <div style={emptyState}>
+            <Cpu size={36} strokeWidth={1.5} />
+            <p style={{ fontWeight: 600, margin: '12px 0 4px' }}>暂无模型档案</p>
+            <p style={{ fontSize: 13 }}>为 Claude Code 或 Codex 创建可复用的模型配置</p>
+            <button onClick={() => setShowProfileForm(true)} style={{ ...btn, marginTop: 8 }}><Plus size={14} /> 新建档案</button>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {profiles.map(profile => {
+              const provider = providers.find(p => p.id === profile.provider_id)
+              const config = parseProfileConfig(profile)
+              return (
+                <div key={profile.id} style={{ ...providerCard, opacity: profile.enabled ? 1 : 0.6 }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
+                    <div style={providerIcon(profile.runtime !== 'codex')}>{profile.runtime === 'codex' ? 'CX' : 'CC'}</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <span style={{ fontWeight: 600, fontSize: 15 }}>{profile.name}</span>
+                        <span style={protoBadge(profile.runtime === 'codex' ? 'claude' : 'openai')}>{profile.runtime === 'codex' ? 'Codex' : 'Claude Code'}</span>
+                        {!profile.enabled && <span style={disabledBadge}>已禁用</span>}
+                      </div>
+                      <div style={{ fontSize: 13, color: 'var(--text-3)', marginTop: 3 }}>
+                        {provider?.display_name || profile.provider_id}
+                        {profile.context_window ? ` · 上下文 ${formatContextWindow(profile.context_window)}` : ''}
+                      </div>
+                      <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 8 }}>
+                        {profile.runtime === 'claude' ? renderClaudeTags(config as ClaudeProfileConfig) : renderCodexTags(config as CodexProfileConfig)}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                      <button onClick={() => toggleProfile(profile.id, !profile.enabled)} style={{ ...actionBtn, color: profile.enabled ? 'var(--green)' : 'var(--text-3)' }} title={profile.enabled ? '禁用' : '启用'}>
+                        {profile.enabled ? <ToggleRight size={17} /> : <ToggleLeft size={17} />}
+                      </button>
+                      <button onClick={() => { setEditProfile(profile); setShowProfileForm(true) }} style={actionBtn} title="编辑"><Pencil size={14} /></button>
+                      <button onClick={() => { if (confirm('确认删除？')) deleteProfile(profile.id) }} style={{ ...actionBtn, color: 'var(--red)' }} title="删除"><Trash2 size={14} /></button>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
       {/* Form Modal */}
       {showForm && (
         <ProviderForm
@@ -113,6 +175,16 @@ export default function Settings() {
           onClose={() => { setShowForm(false); setEditProvider(null) }}
           onCreate={createProvider}
           onUpdate={updateProvider}
+        />
+      )}
+
+      {showProfileForm && (
+        <ProfileForm
+          profile={editProfile}
+          providers={providers.filter(p => p.enabled)}
+          onClose={() => { setShowProfileForm(false); setEditProfile(null) }}
+          onCreate={createProfile}
+          onUpdate={updateProfile}
         />
       )}
     </div>
@@ -174,6 +246,7 @@ function ProviderForm({ provider, onClose, onCreate, onUpdate }: {
             }} style={fInput}>
               <option value="openai">OpenAI (兼容协议)</option>
               <option value="claude">Claude (Anthropic)</option>
+              <option value="new-api">New API</option>
             </select>
           </label>
           <label style={fLabel}>
@@ -207,6 +280,123 @@ function ProviderForm({ provider, onClose, onCreate, onUpdate }: {
 }
 
 /* ── Styles ── */
+
+function ProfileForm({ profile, providers, onClose, onCreate, onUpdate }: {
+  profile: ModelProfileData | null
+  providers: ModelProviderData[]
+  onClose: () => void
+  onCreate: (p: { name: string; runtime: 'claude' | 'codex'; providerId: string; contextWindow?: number | null; config: ModelProfileConfig }) => Promise<void>
+  onUpdate: (id: string, fields: Record<string, unknown>) => Promise<void>
+}) {
+  const isEdit = !!profile
+  const initialConfig = profile ? parseProfileConfig(profile) : {}
+  const [name, setName] = useState(profile?.name ?? '')
+  const [runtime, setRuntime] = useState<'claude' | 'codex'>(profile?.runtime ?? 'claude')
+  const [providerId, setProviderId] = useState(profile?.provider_id ?? providers[0]?.id ?? '')
+  const [contextWindow, setContextWindow] = useState(profile?.context_window ? String(profile.context_window) : '')
+  const [defaultModel, setDefaultModel] = useState((initialConfig as ClaudeProfileConfig).defaultModel ?? '')
+  const [haikuModel, setHaikuModel] = useState((initialConfig as ClaudeProfileConfig).haikuModel ?? '')
+  const [sonnetModel, setSonnetModel] = useState((initialConfig as ClaudeProfileConfig).sonnetModel ?? '')
+  const [opusModel, setOpusModel] = useState((initialConfig as ClaudeProfileConfig).opusModel ?? '')
+  const [codexModel, setCodexModel] = useState((initialConfig as CodexProfileConfig).model ?? '')
+  const [effort, setEffort] = useState((initialConfig as CodexProfileConfig).effort ?? 'medium')
+
+  const handleRuntimeChange = (next: 'claude' | 'codex') => {
+    setRuntime(next)
+    if (!isEdit) {
+      setDefaultModel('')
+      setHaikuModel('')
+      setSonnetModel('')
+      setOpusModel('')
+      setCodexModel('')
+      setEffort('medium')
+    }
+  }
+
+  const handleSubmit = async () => {
+    if (!name.trim() || !providerId) return
+    const context = contextWindow.trim() ? Number(contextWindow) : null
+    const config: ModelProfileConfig = runtime === 'claude'
+      ? {
+        defaultModel: defaultModel.trim(),
+        haikuModel: haikuModel.trim() || undefined,
+        sonnetModel: sonnetModel.trim() || undefined,
+        opusModel: opusModel.trim() || undefined,
+      }
+      : { model: codexModel.trim(), effort }
+    if (runtime === 'claude' && !(config as ClaudeProfileConfig).defaultModel) return
+    if (runtime === 'codex' && !(config as CodexProfileConfig).model) return
+    if (isEdit && profile) {
+      await onUpdate(profile.id, { name: name.trim(), runtime, providerId, contextWindow: context, config })
+    } else {
+      await onCreate({ name: name.trim(), runtime, providerId, contextWindow: context, config })
+    }
+    onClose()
+  }
+
+  return (
+    <div style={overlay} onClick={onClose}>
+      <div style={modalBox} onClick={e => e.stopPropagation()}>
+        <h2 style={{ margin: '0 0 20px', fontSize: 18, fontWeight: 700 }}>{isEdit ? '编辑模型档案' : '新建模型档案'}</h2>
+        <div style={fGrid}>
+          <label style={fLabel}>档案名称<input value={name} onChange={e => setName(e.target.value)} style={fInput} placeholder="Claude 高配编程" /></label>
+          <label style={fLabel}>运行时<select value={runtime} onChange={e => handleRuntimeChange(e.target.value as 'claude' | 'codex')} style={fInput}><option value="claude">Claude Code</option><option value="codex">Codex</option></select></label>
+        </div>
+        <div style={fGrid}>
+          <label style={fLabel}>模型供应商<select value={providerId} onChange={e => setProviderId(e.target.value)} style={fInput}><option value="">选择供应商</option>{providers.map(p => <option key={p.id} value={p.id}>{p.display_name}</option>)}</select></label>
+          <label style={fLabel}>模型上下文<input value={contextWindow} onChange={e => setContextWindow(e.target.value)} style={fInput} inputMode="numeric" placeholder="例如 200000" /></label>
+        </div>
+        {runtime === 'claude' ? (
+          <>
+            <label style={{ ...fLabel, marginTop: 12 }}>默认模型<input value={defaultModel} onChange={e => setDefaultModel(e.target.value)} style={fInput} placeholder="deepseek-v4-pro[1m]" /></label>
+            <div style={fGrid}>
+              <label style={fLabel}>Haiku 轻量模型<input value={haikuModel} onChange={e => setHaikuModel(e.target.value)} style={fInput} placeholder="deepseek-v4-flash" /></label>
+              <label style={fLabel}>Sonnet 主力模型<input value={sonnetModel} onChange={e => setSonnetModel(e.target.value)} style={fInput} placeholder="deepseek-v4-pro[1m]" /></label>
+            </div>
+            <label style={{ ...fLabel, marginTop: 12 }}>Opus 强力模型<input value={opusModel} onChange={e => setOpusModel(e.target.value)} style={fInput} placeholder="deepseek-v4-pro[1m]" /></label>
+          </>
+        ) : (
+          <div style={fGrid}>
+            <label style={fLabel}>默认模型<input value={codexModel} onChange={e => setCodexModel(e.target.value)} style={fInput} placeholder="deepseek-v4-flash" /></label>
+            <label style={fLabel}>推理强度<select value={effort} onChange={e => setEffort(e.target.value)} style={fInput}><option value="none">none</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option></select></label>
+          </div>
+        )}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
+          <button onClick={onClose} style={btnGhost}>取消</button>
+          <button onClick={handleSubmit} style={btn}>{isEdit ? '保存修改' : '创建档案'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function parseProfileConfig(profile: ModelProfileData): ModelProfileConfig {
+  try {
+    return JSON.parse(profile.config_json) as ModelProfileConfig
+  } catch {
+    return profile.runtime === 'claude' ? { defaultModel: '' } : { model: '', effort: 'medium' }
+  }
+}
+
+function formatContextWindow(value: number): string {
+  return value >= 1000 ? `${Math.round(value / 1000)}K` : String(value)
+}
+
+function renderClaudeTags(config: ClaudeProfileConfig): React.ReactNode[] {
+  return [
+    <span key="default" style={modelTag}>默认 {config.defaultModel || '-'}</span>,
+    <span key="haiku" style={modelTag}>Haiku {config.haikuModel || '-'}</span>,
+    <span key="sonnet" style={modelTag}>Sonnet {config.sonnetModel || '-'}</span>,
+    <span key="opus" style={modelTag}>Opus {config.opusModel || '-'}</span>,
+  ]
+}
+
+function renderCodexTags(config: CodexProfileConfig): React.ReactNode[] {
+  return [
+    <span key="model" style={modelTag}>{config.model || '-'}</span>,
+    <span key="effort" style={modelTag}>effort {config.effort || 'medium'}</span>,
+  ]
+}
 
 const btn: React.CSSProperties = {
   display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 18px',

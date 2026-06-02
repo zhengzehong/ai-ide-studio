@@ -1,6 +1,7 @@
 ﻿import type { ChildProcess } from 'child_process'
 import type * as acp from '@agentclientprotocol/sdk'
 import type { SessionCapabilities } from '../types/ws-protocol.js'
+import type { ClaudeSessionMeta } from './model-profile-env.js'
 
 export type RuntimeState = 'starting' | 'running' | 'stopping' | 'stopped'
 export type AcpSessionState = 'connecting' | 'connected' | 'closing' | 'disconnected'
@@ -26,6 +27,8 @@ export interface AgentConnection {
   lastUsedAt: number
   activeTurnCount: number
   agentCapabilities?: acp.AgentCapabilities
+  envFingerprint?: string
+  sessionMeta?: ClaudeSessionMeta
 }
 
 export interface AcpSessionContext {

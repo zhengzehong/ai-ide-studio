@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { X } from 'lucide-react'
 import type { TemplateData } from '../../stores/template.store'
+import { useModelStore } from '../../stores/model.store'
 import { RUNTIME_OPTIONS } from './constants'
 import { btnOutline, btnPrimary, editorInput, iconButton, modalBackdrop, modalCard } from './styles'
 import { Field } from './Field'
@@ -9,21 +10,31 @@ export function DeployTemplateModal({ template, projects, currentProjectId, onDe
   template: TemplateData
   projects: { id: string; name: string }[]
   currentProjectId: string | null
-  onDeploy: (projectId: string, input: { name?: string; runtime?: string; systemPrompt?: string }) => Promise<void>
+  onDeploy: (projectId: string, input: { name?: string; runtime?: string; systemPrompt?: string; modelProfileId?: string }) => Promise<void>
   onClose: () => void
   onOpenWorkspace: () => void
 }) {
+  const profiles = useModelStore((s) => s.profiles)
+  const fetchProfiles = useModelStore((s) => s.fetchProfiles)
   const [projectId, setProjectId] = useState(currentProjectId ?? projects[0]?.id ?? '')
   const [name, setName] = useState(template.name)
   const [runtime, setRuntime] = useState(template.runtime)
+  const [modelProfileId, setModelProfileId] = useState('')
   const [systemPrompt, setSystemPrompt] = useState(template.system_prompt)
   const [saving, setSaving] = useState(false)
+  const availableProfiles = useMemo(
+    () => profiles.filter((profile) => profile.enabled && profile.runtime === runtime),
+    [profiles, runtime],
+  )
+
+  useEffect(() => { fetchProfiles() }, [fetchProfiles])
 
   const submit = async (openWorkspace: boolean) => {
     if (!projectId || !name.trim() || saving) return
+    const selectedProfileId = availableProfiles.some((profile) => profile.id === modelProfileId) ? modelProfileId : ''
     setSaving(true)
     try {
-      await onDeploy(projectId, { name: name.trim(), runtime, systemPrompt })
+      await onDeploy(projectId, { name: name.trim(), runtime, systemPrompt, modelProfileId: selectedProfileId || undefined })
       if (openWorkspace) onOpenWorkspace()
     } finally {
       setSaving(false)
@@ -54,10 +65,18 @@ export function DeployTemplateModal({ template, projects, currentProjectId, onDe
               <input value={name} onChange={(e) => setName(e.target.value)} style={editorInput} />
             </Field>
             <Field label="运行时">
-              <select value={runtime} onChange={(e) => setRuntime(e.target.value)} style={editorInput}>
+              <select value={runtime} onChange={(e) => { setRuntime(e.target.value); setModelProfileId('') }} style={editorInput}>
                 {RUNTIME_OPTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
               </select>
             </Field>
+            {(runtime === 'claude' || runtime === 'codex') && (
+              <Field label="模型档案">
+                <select value={modelProfileId} onChange={(e) => setModelProfileId(e.target.value)} style={editorInput}>
+                  <option value="">不绑定模型档案</option>
+                  {availableProfiles.map(profile => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
+                </select>
+              </Field>
+            )}
             <Field label="系统提示词快照">
               <textarea value={systemPrompt} onChange={(e) => setSystemPrompt(e.target.value)} rows={6} style={{ ...editorInput, resize: 'vertical' }} />
             </Field>

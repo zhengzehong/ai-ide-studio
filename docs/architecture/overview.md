@@ -51,6 +51,8 @@ Web UI → WS "prompt" → ws-handler → gateway/rpc/subscriptions.prompt
   → session:done → messages 与 session_events 持久化到 SQLite
 ```
 
+前端实时对话以 `session:update` 作为可见流式状态来源；`session:event` 主要用于持久化同步、断线恢复和权限/计划等状态补偿，避免每个流式 chunk 都全量还原事件。历史消息默认通过轻量 `sessions.messages` 加载，完整工具调用保留在 SQLite 并通过 `sessions.messageToolCalls` / `sessions.messageToolCallDetail` 懒加载。
+
 ### 创建任务
 
 ```text
@@ -102,7 +104,7 @@ Session 删除采用软删除，仅隐藏列表项并保留 `messages` / `sessio
 - `ws-handler.ts` 只负责 WS 连接、广播、JSON 解析和 dispatch；新增 RPC 必须放到 `src/gateway/rpc/*` 对应领域模块。
 - SQLite schema 由 `src/store/migrator.ts` 与 `src/store/migrations/*` 管理；`db.ts` 不再承载大段建表/升级逻辑。
 - ACP Host 对外暴露 `acpHost` facade；新增 runtime/session/client callback/terminal/interaction 能力优先下沉到专用模块。
-- `tools` / `tool_bindings` / `skills` / `model_providers` 为全局可扩展能力表。
+- `tools` / `tool_bindings` / `skills` / `model_providers` / `model_profiles` 为全局可扩展能力表。
 - MCP 工具平台目标架构见 `docs/architecture/mcp-tool-platform.md`，第一版按方法级可见性控制推进。
 - ACP 对话生命周期、runtime/session/thread 对应关系与懒连接设计见 `docs/architecture/acp-session-lifecycle.md`。
 
@@ -111,6 +113,8 @@ Session 删除采用软删除，仅隐藏列表项并保留 `messages` / `sessio
 `agent_templates` 是全局模板库，类似工具箱；`agents` 是模板部署到具体项目后的运行时实例。项目工作台只展示当前 `projectId` 下的 Agent，Session、Task、文件浏览和工具上下文都沿用同一个项目边界。
 
 创建或恢复 ACP Session 时，后端会从 Session 的 `project_id` 找到 Project，并把 `work_dir` 作为 ACP `cwd` 传给 runtime；同时按 `agentId/projectId/sessionId` 解析本轮可见的 MCP 工具。
+
+项目级 Agent 可以在 `config_json.modelProfileId` 上绑定一个模型档案。模型档案按 runtime 区分 Claude Code 与 Codex，并保存供应商、模型映射和上下文窗口；Agent runtime 改变、档案删除或档案 runtime 改变时，后端会清理不再匹配的绑定。
 
 详细流程见 `docs/architecture/project-agent-workflow.md`。
 
@@ -121,6 +125,8 @@ Team 能力通过 `team.*` MCP tools 暴露给 Agent。`team.*` 方法只注册�
 TeamMember 的 `session_id` 指向普通 `sessions` 行，成员执行输出继续落到 `messages` 和 `session_events`，所以刷新或切换会话后仍能按现有会话事件恢复。团队上下文通过 ToolContext 的 `teamId` / `teamMemberId` 传递，成员调用 `team.mailbox.send`、`team.task.update` 时不需要在 prompt 中手写 Team ID。`team.member.spawn` 创建或加入成员后，会自动给成员 Agent 套用 `team-member` Profile，让成员后续会话具备汇报和更新团队任务的基础工具。
 
 前端工作台不为 Team 提供独立页面。`teams.current(sessionId)` 按当前会话反查 Team 上下文；右侧上下文区展示成员、任务和 mailbox，点击成员只切换到该成员的普通 Session。Team 变化通过 `team:update` 广播触发当前会话上下文刷新。
+
+Team 运行时事件规则：`team.member.spawn` 会广播包含完整成员 Session 行的 `session:changed`，并为所属 Team 广播 `team:update`。`team.member.message` 携带 `taskId` 时，会把 `backlog/planning` 的 Team Task 推进到 `executing`，并同时广播 `task:update` 与 `team:update`。内部 Team MCP 权限自动放行仅限当前会话可见、且工具定义不需要审批的 `team.mailbox.send` 与 `team.task.update`。
 
 ## ACP 懒生命周期
 

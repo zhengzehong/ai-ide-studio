@@ -7,6 +7,8 @@ export interface ImageAttachmentInfo {
 export interface MessageData {
   id: string; session_id: string; role: string; content: string
   thinking: string | null; tool_calls_json: string | null; decision_json: string | null; attachments_json?: string | null; timestamp: string
+  has_tool_calls?: boolean; tool_call_count?: number
+  parsedToolCalls?: ToolCallInfo[]; parsedAttachments?: ImageAttachmentInfo[]; parsedDecision?: Record<string, unknown> | null
 }
 
 export interface ToolCallInfo {
@@ -21,6 +23,37 @@ export interface ToolCallInfo {
   error?: string
 }
 
+
+export interface ToolCallSummaryInfo {
+  id: string
+  title: string
+  kind?: string
+  status?: string
+  hasRawInput: boolean
+  hasRawOutput: boolean
+  hasTerminalOutput: boolean
+  outputPreview?: string
+  error?: string
+}
+
+export interface ToolCallDetailInfo {
+  id: string
+  title: string
+  kind?: string
+  status?: string
+  locations?: { path: string; line?: number }[]
+  rawInputPreview?: string
+  rawInputTruncated?: boolean
+  rawOutputPreview?: string
+  rawOutputTruncated?: boolean
+  terminalOutputTail?: string
+  terminalOutputTruncated?: boolean
+  contentPreview?: { type: string; text?: string; path?: string; oldText?: string; newText?: string; terminalId?: string }[]
+  contentTruncated?: boolean
+  progressTail?: string[]
+  progressTruncated?: boolean
+  error?: string
+}
 export interface UsageInfo { contextSize: number; contextUsed: number; costAmount?: number; costCurrency?: string }
 export interface TurnUsageInfo { inputTokens: number; outputTokens: number; totalTokens: number; cachedReadTokens?: number; thoughtTokens?: number }
 export interface ModelInfo { modelId: string; name: string; description?: string }
@@ -44,6 +77,37 @@ export interface SessionCapabilities {
 
 export interface StreamingMessage {
   id: string; role: 'agent'; content: string; thinking: string; toolCalls: ToolCallInfo[]; done: boolean; stage?: string
+}
+
+export interface ChatTimelineMessageItem {
+  id: string
+  kind: 'message'
+  role: 'human' | 'agent' | 'system'
+  content: string
+  thinking?: string | null
+  attachments?: ImageAttachmentInfo[]
+  timestamp: string
+  messageId?: string | null
+  turnStats?: TurnUsageInfo
+}
+
+export interface ChatTimelineToolItem {
+  id: string
+  kind: 'tool'
+  role: 'agent'
+  toolCall: ToolCallInfo
+  timestamp: string
+  messageId?: string | null
+}
+
+export type ChatTimelineItem = ChatTimelineMessageItem | ChatTimelineToolItem
+
+export interface ChatTimelineGroup {
+  id: string
+  role: 'human' | 'agent' | 'system'
+  timestamp: string
+  messageId?: string | null
+  blocks: ChatTimelineItem[]
 }
 
 export interface SessionEventData {
@@ -78,15 +142,70 @@ export const defaultCaps: SessionCapabilities = {
 }
 
 
+
+export function parseJsonArray<T>(raw?: string | null): T[] {
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    return Array.isArray(parsed) ? parsed as T[] : []
+  } catch {
+    return []
+  }
+}
+
+export function parseJsonObject<T>(raw?: string | null): T | null {
+  if (!raw) return null
+  try {
+    return JSON.parse(raw) as T
+  } catch {
+    return null
+  }
+}
+
+export function normalizeMessage(message: MessageData): MessageData {
+  const parsedToolCalls = message.tool_calls_json ? parseJsonArray<ToolCallInfo>(message.tool_calls_json) : message.parsedToolCalls
+  const parsedAttachments = message.attachments_json ? parseJsonArray<ImageAttachmentInfo>(message.attachments_json) : message.parsedAttachments
+  const parsedDecision = message.decision_json ? parseJsonObject<Record<string, unknown>>(message.decision_json) : message.parsedDecision
+  const hasToolCalls = message.has_tool_calls ?? (!!message.tool_calls_json || !!parsedToolCalls?.length)
+  const toolCallCount = message.tool_call_count ?? parsedToolCalls?.length
+  return {
+    ...message,
+    has_tool_calls: hasToolCalls,
+    tool_call_count: toolCallCount,
+    parsedToolCalls,
+    parsedAttachments,
+    parsedDecision,
+  }
+}
+
+export function normalizeMessages(messages: MessageData[]): MessageData[] {
+  return messages.map(normalizeMessage)
+}
 export function mergeMessagesById(serverMessages: MessageData[], currentMessages: MessageData[]): MessageData[] {
   const byId = new Map<string, MessageData>()
-  for (const msg of currentMessages) byId.set(msg.id, msg)
-  for (const msg of serverMessages) byId.set(msg.id, msg)
+  for (const msg of currentMessages) byId.set(msg.id, normalizeMessage(msg))
+  for (const msg of serverMessages) {
+    const normalized = normalizeMessage(msg)
+    const existing = byId.get(msg.id)
+    byId.set(msg.id, keepExistingFullToolCalls(normalized, existing))
+  }
   return Array.from(byId.values()).sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
 }
 
+function keepExistingFullToolCalls(next: MessageData, existing?: MessageData): MessageData {
+  if (!existing?.tool_calls_json || next.tool_calls_json) return next
+  if (!next.has_tool_calls) return next
+  return normalizeMessage({
+    ...next,
+    tool_calls_json: existing.tool_calls_json,
+    parsedToolCalls: existing.parsedToolCalls,
+    tool_call_count: next.tool_call_count ?? existing.tool_call_count,
+  })
+}
+
 export function appendFinalizedMessage(currentMessages: MessageData[], message: MessageData): MessageData[] {
-  if (!currentMessages.some(m => m.id === message.id)) return [...currentMessages, message]
+  const normalized = normalizeMessage(message)
+  if (!currentMessages.some(m => m.id === message.id)) return [...currentMessages, normalized]
 
   const suffixBase = Date.parse(message.timestamp) || Date.now()
   let nextId = `${message.id}-${suffixBase}`
@@ -95,7 +214,7 @@ export function appendFinalizedMessage(currentMessages: MessageData[], message: 
     i += 1
     nextId = `${message.id}-${suffixBase}-${i}`
   }
-  return [...currentMessages, { ...message, id: nextId }]
+  return [...currentMessages, { ...normalized, id: nextId }]
 }
 
 const GENERIC_TOOL_TITLES = new Set(['工具调用', 'Tool call', 'tool call'])
@@ -184,8 +303,172 @@ export function mergeCapabilities(current: SessionCapabilities, incoming: Sessio
   }
 }
 
+export function finalizePlanOnTurnDone(plan: PlanEntry[], stopReason?: string): PlanEntry[] {
+  if (stopReason && stopReason !== 'end_turn') return plan
+  return plan.map((entry) => entry.status === 'in_progress' ? { ...entry, status: 'completed' } : entry)
+}
+
 function parsePayload(event: SessionEventData): Record<string, unknown> {
   try { return JSON.parse(event.payload_json) as Record<string, unknown> } catch { return {} }
+}
+
+interface PendingTimelineMessage {
+  role: 'agent' | 'system'
+  messageId: string | null
+  content: string
+  thinking: string
+  startSequence: number
+  timestamp: string
+}
+
+function emptyPendingTimelineMessage(event: SessionEventData, role: 'agent' | 'system', messageId: string | null): PendingTimelineMessage {
+  return {
+    role,
+    messageId,
+    content: '',
+    thinking: '',
+    startSequence: event.sequence,
+    timestamp: event.created_at,
+  }
+}
+
+function hasPendingTimelineContent(pending: PendingTimelineMessage | null): pending is PendingTimelineMessage {
+  return !!pending && (!!pending.content || !!pending.thinking)
+}
+
+function flushPendingTimelineMessage(items: ChatTimelineItem[], pending: PendingTimelineMessage | null): PendingTimelineMessage | null {
+  if (!hasPendingTimelineContent(pending)) return null
+  items.push({
+    id: `timeline-msg-${pending.messageId || 'unknown'}-${pending.startSequence}`,
+    kind: 'message',
+    role: pending.role,
+    content: pending.content,
+    thinking: pending.thinking || null,
+    timestamp: pending.timestamp,
+    messageId: pending.messageId,
+  })
+  return null
+}
+
+function payloadMessageId(event: SessionEventData, payload: Record<string, unknown>): string | null {
+  const messageId = payload.messageId ?? event.message_id
+  return messageId == null ? null : String(messageId)
+}
+
+export function buildChatTimelineFromEvents(events: SessionEventData[]): ChatTimelineItem[] {
+  const items: ChatTimelineItem[] = []
+  const toolIndexById = new Map<string, number>()
+  let pending: PendingTimelineMessage | null = null
+
+  const ensurePending = (event: SessionEventData, role: 'agent' | 'system', messageId: string | null) => {
+    if (!pending || pending.role !== role || pending.messageId !== messageId) {
+      pending = flushPendingTimelineMessage(items, pending)
+      pending = emptyPendingTimelineMessage(event, role, messageId)
+    }
+    return pending
+  }
+
+  for (const event of [...events].sort((a, b) => a.sequence - b.sequence)) {
+    const payload = parsePayload(event)
+    const messageId = payloadMessageId(event, payload)
+
+    switch (event.type) {
+      case 'message.user': {
+        pending = flushPendingTimelineMessage(items, pending)
+        items.push({
+          id: `timeline-user-${messageId || event.id}`,
+          kind: 'message',
+          role: 'human',
+          content: String(payload.content || ''),
+          attachments: (payload.attachments as ImageAttachmentInfo[]) || [],
+          timestamp: event.created_at,
+          messageId,
+        })
+        break
+      }
+      case 'message.chunk': {
+        if (payload.role !== 'agent') break
+        const msg = ensurePending(event, 'agent', messageId)
+        msg.content += String(payload.contentDelta || payload.content || '')
+        break
+      }
+      case 'thinking.chunk': {
+        const msg = ensurePending(event, 'agent', messageId)
+        msg.thinking += String(payload.thinking || '')
+        break
+      }
+      case 'tool.call': {
+        pending = flushPendingTimelineMessage(items, pending)
+        const toolCall = payload.toolCall as ToolCallInfo | undefined
+        if (!toolCall?.id) break
+        toolIndexById.set(toolCall.id, items.length)
+        items.push({
+          id: `timeline-tool-${toolCall.id}-${event.sequence}`,
+          kind: 'tool',
+          role: 'agent',
+          toolCall,
+          timestamp: event.created_at,
+          messageId,
+        })
+        break
+      }
+      case 'tool.update': {
+        const update = payload.toolCall as ToolCallInfo | undefined
+        if (!update?.id) break
+        const index = toolIndexById.get(update.id)
+        if (index == null) {
+          if (!shouldCreateToolFromUpdate(update)) break
+          pending = flushPendingTimelineMessage(items, pending)
+          toolIndexById.set(update.id, items.length)
+          items.push({
+            id: `timeline-tool-${update.id}-${event.sequence}`,
+            kind: 'tool',
+            role: 'agent',
+            toolCall: update,
+            timestamp: event.created_at,
+            messageId,
+          })
+          break
+        }
+        const item = items[index]
+        if (item?.kind === 'tool') item.toolCall = mergeToolCall(item.toolCall, update)
+        break
+      }
+      case 'message.done': {
+        pending = flushPendingTimelineMessage(items, pending)
+        if (payload.turnUsage) {
+          const lastMessage = [...items].reverse().find((item): item is ChatTimelineMessageItem => item.kind === 'message' && item.role === 'agent')
+          if (lastMessage) lastMessage.turnStats = payload.turnUsage as TurnUsageInfo
+        }
+        break
+      }
+    }
+  }
+
+  flushPendingTimelineMessage(items, pending)
+  return items
+}
+
+export function groupChatTimelineItems(items: ChatTimelineItem[]): ChatTimelineGroup[] {
+  const groups: ChatTimelineGroup[] = []
+
+  for (const item of items) {
+    const current = groups[groups.length - 1]
+    if (current && current.role === item.role && current.messageId === item.messageId) {
+      current.blocks.push(item)
+      continue
+    }
+
+    groups.push({
+      id: `timeline-group-${item.messageId || item.id}`,
+      role: item.role,
+      timestamp: item.timestamp,
+      messageId: item.messageId,
+      blocks: [item],
+    })
+  }
+
+  return groups
 }
 
 const visibleLifecycleEvents = new Set([
@@ -211,7 +494,7 @@ export function shouldShowLifecycleStage(eventType: string): boolean {
   return visibleLifecycleEvents.has(eventType)
 }
 
-function applyEvent(state: ReducedSessionEvents, event: SessionEventData): ReducedSessionEvents {
+export function applySessionEvent(state: ReducedSessionEvents, event: SessionEventData): ReducedSessionEvents {
   const payload = parsePayload(event)
   let streaming = state.streamingMessage ? { ...state.streamingMessage, toolCalls: [...state.streamingMessage.toolCalls] } : state.streamingMessage
   let capabilities = state.capabilities
@@ -264,6 +547,7 @@ function applyEvent(state: ReducedSessionEvents, event: SessionEventData): Reduc
     case 'message.done': {
       if (streaming) streaming.done = true
       if (payload.turnUsage) state = { ...state, turnUsage: payload.turnUsage as TurnUsageInfo }
+      state = { ...state, plan: finalizePlanOnTurnDone(state.plan, payload.stopReason as string | undefined) }
       break
     }
     case 'usage.update':
@@ -383,7 +667,7 @@ export function buildCompletedAgentMessage(sessionId: string, events: SessionEve
 }
 
 export function reduceSessionEvents(events: SessionEventData[]): ReducedSessionEvents {
-  return events.sort((a, b) => a.sequence - b.sequence).reduce(applyEvent, {
+  return [...events].sort((a, b) => a.sequence - b.sequence).reduce(applySessionEvent, {
     streamingMessage: null,
     usage: null,
     turnUsage: null,

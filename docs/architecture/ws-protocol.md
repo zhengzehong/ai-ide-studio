@@ -39,7 +39,9 @@ ws://localhost:18800
 | `session.setConfig` | `{ sessionId, configId, value }` | `void` | 切换配置 |
 | `session.cancel` | `{ sessionId }` | `{ ok: true }` | 通过 ACP `session/cancel` 停止当前轮次，不杀 runtime 进程 |
 | `session.fork` | `{ sessionId }` | `Session` | Fork 会话 |
-| `sessions.messages` | `{ sessionId, limit?, before? }` | `Message[]` | 查询消息历史 |
+| `sessions.messages` | `{ sessionId, limit?, before?, includeToolCalls? }` | `Message[]` | 查询消息历史；默认不返回完整历史工具 JSON，只返回 `has_tool_calls` / `tool_call_count` |
+| `sessions.messageToolCalls` | `{ sessionId, messageId }` | `ToolCallSummary[]` | 懒加载单条消息的工具调用摘要 |
+| `sessions.messageToolCallDetail` | `{ sessionId, messageId, toolCallId }` | `ToolCallDetail` | 懒加载单个工具调用详情，长输出会截断 |
 | `sessions.events` | `{ sessionId, limit?, afterSequence? }` | `SessionEvent[]` | 查询事件 |
 | `prompt` | `{ sessionId, content, images? }` | `{ status }` | 发送消息；首次发送时懒启动 runtime，并按需 new/resume ACP session |
 | `permission.respond` | `{ sessionId, permissionRequestId, optionId?, cancelled? }` | `void` | 响应权限请求 |
@@ -68,6 +70,23 @@ ws://localhost:18800
 | `rules.create` | `{ name, cron, action, actionConfig }` | `Rule` | 创建规则 |
 | `rules.update` | `{ ruleId, enabled?, ... }` | `Rule` | 更新规则 |
 | `rules.delete` | `{ ruleId }` | `void` | 删除规则 |
+
+### 模型管理
+
+| 方法 | 参数 | 返回 | 说明 |
+|------|------|------|------|
+| `models.list` | — | `ModelProvider[]` | 列出模型供应商 |
+| `models.create` | `{ name, displayName, protocol, baseUrl, apiKey, models?, isDefault? }` | `ModelProvider` | 创建供应商；`protocol` 支持 `openai`、`claude`、`new-api` |
+| `models.update` | `{ providerId, ...fields }` | `ModelProvider` | 更新供应商配置 |
+| `models.toggle` | `{ providerId, enabled }` | `{ ok: true }` | 启用或停用供应商 |
+| `models.delete` | `{ providerId }` | `{ ok: true }` | 删除供应商 |
+| `models.setDefault` | `{ providerId }` | `{ ok: true }` | 设置默认供应商 |
+| `models.test` | `{ providerId }` | `{ ok, models?, error? }` | 测试供应商并拉取 `/v1/models` 列表 |
+| `modelProfiles.list` | `{ runtime?, enabledOnly? }` | `ModelProfile[]` | 列出模型档案，可按 runtime 过滤 |
+| `modelProfiles.create` | `{ name, runtime, providerId, contextWindow?, config }` | `ModelProfile` | 创建 Claude Code 或 Codex 模型档案 |
+| `modelProfiles.update` | `{ profileId, ...fields }` | `ModelProfile` | 更新模型档案 |
+| `modelProfiles.toggle` | `{ profileId, enabled }` | `{ ok: true }` | 启用或停用模型档案 |
+| `modelProfiles.delete` | `{ profileId }` | `{ ok: true }` | 删除模型档案，并清理 Agent 上的对应绑定 |
 
 ### Tool / MCP 管理
 
@@ -99,6 +118,8 @@ ws://localhost:18800
 | `task:update` | `{ taskId, data }` | Task 状态变更 |
 | `team:update` | `{ teamId, sessionIds, data }` | Team 成员、任务或 mailbox 变化；前端仅在当前 `sessionId` 属于 `sessionIds` 时刷新 `teams.current`。 |
 | `rule:update` | `{ ruleId, data }` | Rule 状态变更 |
+
+Team 运行时事件：`team.member.spawn` 会广播包含新成员 Session 行的 `session:changed`。`team.member.message` 携带 `taskId` 时，会把 `backlog/planning` 的 Team Task 更新为 `executing`，再广播 `task:update` 与 `team:update`。工作台在当前 Team 匹配 `team:update` 时应刷新项目 agents/sessions/tasks。
 
 ## 类型定义
 
@@ -138,9 +159,9 @@ ws://localhost:18800
 
 | 方法 | 参数 | 返回 | 说明 |
 |------|------|------|------|
-| `agents.deployTemplate` | `{ projectId, templateId, name?, runtime?, systemPrompt?, icon? }` | `Agent` | 将全局模板部署为项目级 Agent |
-| `agents.createCustom` | `{ projectId, name, agentType, runtime, systemPrompt?, icon? }` | `Agent` | 创建项目级自定义 Agent |
-| `agents.update` | `{ agentId, name?, agentType?, runtime?, systemPrompt?, icon? }` | `Agent` | 更新项目级 Agent 配置 |
+| `agents.deployTemplate` | `{ projectId, templateId, name?, runtime?, systemPrompt?, icon?, modelProfileId? }` | `Agent` | 将全局模板部署为项目级 Agent |
+| `agents.createCustom` | `{ projectId, name, agentType, runtime, systemPrompt?, icon?, modelProfileId? }` | `Agent` | 创建项目级自定义 Agent |
+| `agents.update` | `{ agentId, name?, agentType?, runtime?, systemPrompt?, icon?, modelProfileId? }` | `Agent` | 更新项目级 Agent 配置；`modelProfileId` 为空值时清除绑定 |
 | `agents.delete` | `{ agentId }` | `{ deleted: true }` | 删除项目级 Agent |
 
 `agents.create` 保留给 CLI 或旧调用方兼容；新 UI 不应绕过项目边界直接创建全局 Agent。

@@ -1,8 +1,9 @@
+import { memo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import rehypeSanitize from 'rehype-sanitize'
 import remarkGfm from 'remark-gfm'
 
-export function MarkdownRenderer({ content }: { content: string }) {
+export const MarkdownRenderer = memo(function MarkdownRenderer({ content }: { content: string }) {
   return (
     <div className="markdown-body">
       <ReactMarkdown
@@ -25,4 +26,4 @@ export function MarkdownRenderer({ content }: { content: string }) {
       </ReactMarkdown>
     </div>
   )
-}
+})
