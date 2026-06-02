@@ -51,6 +51,8 @@ Web UI → WS "prompt" → ws-handler → gateway/rpc/subscriptions.prompt
   → session:done → messages 与 session_events 持久化到 SQLite
 ```
 
+前端实时对话以 `session:update` 作为可见流式状态来源；`session:event` 主要用于持久化同步、断线恢复和权限/计划等状态补偿，避免每个流式 chunk 都全量还原事件。历史消息默认通过轻量 `sessions.messages` 加载，完整工具调用保留在 SQLite 并通过 `sessions.messageToolCalls` / `sessions.messageToolCallDetail` 懒加载。
+
 ### 创建任务
 
 ```text

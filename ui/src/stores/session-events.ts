@@ -7,6 +7,8 @@ export interface ImageAttachmentInfo {
 export interface MessageData {
   id: string; session_id: string; role: string; content: string
   thinking: string | null; tool_calls_json: string | null; decision_json: string | null; attachments_json?: string | null; timestamp: string
+  has_tool_calls?: boolean; tool_call_count?: number
+  parsedToolCalls?: ToolCallInfo[]; parsedAttachments?: ImageAttachmentInfo[]; parsedDecision?: Record<string, unknown> | null
 }
 
 export interface ToolCallInfo {
@@ -21,6 +23,37 @@ export interface ToolCallInfo {
   error?: string
 }
 
+
+export interface ToolCallSummaryInfo {
+  id: string
+  title: string
+  kind?: string
+  status?: string
+  hasRawInput: boolean
+  hasRawOutput: boolean
+  hasTerminalOutput: boolean
+  outputPreview?: string
+  error?: string
+}
+
+export interface ToolCallDetailInfo {
+  id: string
+  title: string
+  kind?: string
+  status?: string
+  locations?: { path: string; line?: number }[]
+  rawInputPreview?: string
+  rawInputTruncated?: boolean
+  rawOutputPreview?: string
+  rawOutputTruncated?: boolean
+  terminalOutputTail?: string
+  terminalOutputTruncated?: boolean
+  contentPreview?: { type: string; text?: string; path?: string; oldText?: string; newText?: string; terminalId?: string }[]
+  contentTruncated?: boolean
+  progressTail?: string[]
+  progressTruncated?: boolean
+  error?: string
+}
 export interface UsageInfo { contextSize: number; contextUsed: number; costAmount?: number; costCurrency?: string }
 export interface TurnUsageInfo { inputTokens: number; outputTokens: number; totalTokens: number; cachedReadTokens?: number; thoughtTokens?: number }
 export interface ModelInfo { modelId: string; name: string; description?: string }
@@ -109,15 +142,70 @@ export const defaultCaps: SessionCapabilities = {
 }
 
 
+
+export function parseJsonArray<T>(raw?: string | null): T[] {
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    return Array.isArray(parsed) ? parsed as T[] : []
+  } catch {
+    return []
+  }
+}
+
+export function parseJsonObject<T>(raw?: string | null): T | null {
+  if (!raw) return null
+  try {
+    return JSON.parse(raw) as T
+  } catch {
+    return null
+  }
+}
+
+export function normalizeMessage(message: MessageData): MessageData {
+  const parsedToolCalls = message.tool_calls_json ? parseJsonArray<ToolCallInfo>(message.tool_calls_json) : message.parsedToolCalls
+  const parsedAttachments = message.attachments_json ? parseJsonArray<ImageAttachmentInfo>(message.attachments_json) : message.parsedAttachments
+  const parsedDecision = message.decision_json ? parseJsonObject<Record<string, unknown>>(message.decision_json) : message.parsedDecision
+  const hasToolCalls = message.has_tool_calls ?? (!!message.tool_calls_json || !!parsedToolCalls?.length)
+  const toolCallCount = message.tool_call_count ?? parsedToolCalls?.length
+  return {
+    ...message,
+    has_tool_calls: hasToolCalls,
+    tool_call_count: toolCallCount,
+    parsedToolCalls,
+    parsedAttachments,
+    parsedDecision,
+  }
+}
+
+export function normalizeMessages(messages: MessageData[]): MessageData[] {
+  return messages.map(normalizeMessage)
+}
 export function mergeMessagesById(serverMessages: MessageData[], currentMessages: MessageData[]): MessageData[] {
   const byId = new Map<string, MessageData>()
-  for (const msg of currentMessages) byId.set(msg.id, msg)
-  for (const msg of serverMessages) byId.set(msg.id, msg)
+  for (const msg of currentMessages) byId.set(msg.id, normalizeMessage(msg))
+  for (const msg of serverMessages) {
+    const normalized = normalizeMessage(msg)
+    const existing = byId.get(msg.id)
+    byId.set(msg.id, keepExistingFullToolCalls(normalized, existing))
+  }
   return Array.from(byId.values()).sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
 }
 
+function keepExistingFullToolCalls(next: MessageData, existing?: MessageData): MessageData {
+  if (!existing?.tool_calls_json || next.tool_calls_json) return next
+  if (!next.has_tool_calls) return next
+  return normalizeMessage({
+    ...next,
+    tool_calls_json: existing.tool_calls_json,
+    parsedToolCalls: existing.parsedToolCalls,
+    tool_call_count: next.tool_call_count ?? existing.tool_call_count,
+  })
+}
+
 export function appendFinalizedMessage(currentMessages: MessageData[], message: MessageData): MessageData[] {
-  if (!currentMessages.some(m => m.id === message.id)) return [...currentMessages, message]
+  const normalized = normalizeMessage(message)
+  if (!currentMessages.some(m => m.id === message.id)) return [...currentMessages, normalized]
 
   const suffixBase = Date.parse(message.timestamp) || Date.now()
   let nextId = `${message.id}-${suffixBase}`
@@ -126,7 +214,7 @@ export function appendFinalizedMessage(currentMessages: MessageData[], message: 
     i += 1
     nextId = `${message.id}-${suffixBase}-${i}`
   }
-  return [...currentMessages, { ...message, id: nextId }]
+  return [...currentMessages, { ...normalized, id: nextId }]
 }
 
 const GENERIC_TOOL_TITLES = new Set(['工具调用', 'Tool call', 'tool call'])
@@ -406,7 +494,7 @@ export function shouldShowLifecycleStage(eventType: string): boolean {
   return visibleLifecycleEvents.has(eventType)
 }
 
-function applyEvent(state: ReducedSessionEvents, event: SessionEventData): ReducedSessionEvents {
+export function applySessionEvent(state: ReducedSessionEvents, event: SessionEventData): ReducedSessionEvents {
   const payload = parsePayload(event)
   let streaming = state.streamingMessage ? { ...state.streamingMessage, toolCalls: [...state.streamingMessage.toolCalls] } : state.streamingMessage
   let capabilities = state.capabilities
@@ -579,7 +667,7 @@ export function buildCompletedAgentMessage(sessionId: string, events: SessionEve
 }
 
 export function reduceSessionEvents(events: SessionEventData[]): ReducedSessionEvents {
-  return events.sort((a, b) => a.sequence - b.sequence).reduce(applyEvent, {
+  return [...events].sort((a, b) => a.sequence - b.sequence).reduce(applySessionEvent, {
     streamingMessage: null,
     usage: null,
     turnUsage: null,

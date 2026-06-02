@@ -129,6 +129,8 @@ backlog → executing → reviewing → completed
 | attachments_json | TEXT | 附件 JSON 数组 |
 | timestamp | TEXT | ISO 时间戳 |
 
+历史消息查询默认返回轻量 DTO：`tool_calls_json` 会被置空，同时附带 `has_tool_calls` 和 `tool_call_count`。完整工具调用仍保存在 SQLite 的 `messages.tool_calls_json` 中，通过工具摘要和详情 RPC 按需读取。
+
 ### session_events
 
 | 列 | 类型 | 说明 |

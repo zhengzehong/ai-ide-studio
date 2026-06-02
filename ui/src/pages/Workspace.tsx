@@ -39,8 +39,6 @@ import {
 } from 'lucide-react'
 import { useAgentStore, type AgentData } from '../stores/agent.store'
 import {
-  buildChatTimelineFromEvents,
-  groupChatTimelineItems,
   useSessionStore,
   type ChatTimelineGroup,
   type ChatTimelineItem,
@@ -58,6 +56,10 @@ import { useTeamStore } from '../stores/team.store'
 import { wsClient } from '../services/ws-client'
 import { FileTree } from '../components/file-viewer/FileTree'
 import { FilePreview } from '../components/file-viewer/FilePreview'
+import { LazyToolCallsBlock } from '../components/chat/LazyToolCallsBlock'
+import { isNearBottom, nextPinnedToBottom } from '../components/chat/auto-scroll'
+import { buildChatRenderItems, type ChatRenderItem } from '../components/chat/render-items'
+import { VirtualChatList } from '../components/chat/VirtualChatList'
 import { TeamContextPanel } from '../components/team/TeamContextPanel'
 import { MarkdownRenderer } from '../components/MarkdownRenderer'
 import { permissionOptionLabel, isAllowPermissionOption, isRejectAlwaysOption } from '../utils/permission'
@@ -155,6 +157,8 @@ export default function Workspace() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const prevMsgCount = useRef(0)
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const stickToBottomRef = useRef(true)
+  const lastScrollHeightRef = useRef(0)
   const pendingImagePreviewsRef = useRef<string[]>([])
 
   const projectAgents = useMemo(() => filterAgentsByProject(agents, currentProjectId), [agents, currentProjectId])
@@ -174,53 +178,86 @@ export default function Workspace() {
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
     const el = chatScrollRef.current
-    if (el) el.scrollTo({ top: el.scrollHeight, behavior })
-    else chatEndRef.current?.scrollIntoView({ behavior })
+    if (el) {
+      el.scrollTo({ top: el.scrollHeight, behavior })
+      stickToBottomRef.current = true
+      lastScrollHeightRef.current = el.scrollHeight
+    } else {
+      chatEndRef.current?.scrollIntoView({ behavior })
+    }
   }, [])
+
+  const scheduleScrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
+    if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current)
+    requestAnimationFrame(() => scrollToBottom(behavior))
+    scrollTimerRef.current = setTimeout(() => {
+      scrollToBottom('auto')
+      scrollTimerRef.current = setTimeout(() => {
+        scrollToBottom('auto')
+        scrollTimerRef.current = null
+      }, 120)
+    }, 40)
+  }, [scrollToBottom])
+
+  const updateStickToBottom = useCallback(() => {
+    const el = chatScrollRef.current
+    if (!el) return
+    stickToBottomRef.current = nextPinnedToBottom({
+      wasPinned: stickToBottomRef.current,
+      previousScrollHeight: lastScrollHeightRef.current,
+      metrics: el,
+    })
+    lastScrollHeightRef.current = el.scrollHeight
+  }, [])
+
+  const handleChatContentResize = useCallback(() => {
+    if (stickToBottomRef.current) scheduleScrollToBottom('auto')
+  }, [scheduleScrollToBottom])
 
   const streamingScrollSignature = useMemo(() => {
     if (!streamingMessage) return ''
-    return JSON.stringify([
+    const lastTool = streamingMessage.toolCalls.at(-1)
+    return [
       streamingMessage.content.length,
       streamingMessage.thinking.length,
       streamingMessage.toolCalls.length,
       streamingMessage.stage || '',
-      streamingMessage.toolCalls.map((t) => [
-        t.id,
-        t.status,
-        t.terminalOutput?.length,
-        t.progress?.length,
-        t.rawOutput != null,
-      ]),
-    ])
+      lastTool?.id || '',
+      lastTool?.status || '',
+      lastTool?.terminalOutput?.length || 0,
+      lastTool?.progress?.length || 0,
+      lastTool?.rawOutput != null ? 1 : 0,
+    ].join(':')
   }, [streamingMessage])
   const shouldScrollStreaming = !!streamingMessage && !streamingMessage.done
-  const timelineItems = useMemo(() => buildChatTimelineFromEvents(events), [events])
-  const timelineGroups = useMemo(() => groupChatTimelineItems(timelineItems), [timelineItems])
-  const useEventTimeline = timelineItems.length > 0
-  const timelineFallbackMessages = useMemo(() => {
-    const firstTimelineAt = timelineItems[0]?.timestamp
-    if (!firstTimelineAt || events.length < 1000) return []
-    const firstTimelineTime = new Date(firstTimelineAt).getTime()
-    return messages.filter((msg) => new Date(msg.timestamp).getTime() < firstTimelineTime)
-  }, [events.length, messages, timelineItems])
+
+  useEffect(() => {
+    const el = chatScrollRef.current
+    if (!el) return undefined
+    lastScrollHeightRef.current = el.scrollHeight
+    stickToBottomRef.current = isNearBottom(el)
+    el.addEventListener('scroll', updateStickToBottom, { passive: true })
+    return () => { el.removeEventListener('scroll', updateStickToBottom) }
+  }, [currentSessionId, updateStickToBottom])
+
+  useEffect(() => {
+    stickToBottomRef.current = true
+    lastScrollHeightRef.current = chatScrollRef.current?.scrollHeight ?? 0
+  }, [currentSessionId])
 
   useEffect(() => {
     if (messages.length !== prevMsgCount.current) {
       prevMsgCount.current = messages.length
-      requestAnimationFrame(() => scrollToBottom('smooth'))
+      const el = chatScrollRef.current
+      if (!el || stickToBottomRef.current || isNearBottom(el)) scheduleScrollToBottom('smooth')
     }
-  }, [messages.length, scrollToBottom])
+  }, [messages.length, scheduleScrollToBottom])
   useEffect(() => {
-    if (shouldScrollStreaming) {
-      if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current)
-      requestAnimationFrame(() => scrollToBottom('auto'))
-      scrollTimerRef.current = setTimeout(() => scrollToBottom('auto'), 40)
-    }
+    if (shouldScrollStreaming && stickToBottomRef.current) scheduleScrollToBottom('auto')
     return () => {
       if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current)
     }
-  }, [shouldScrollStreaming, streamingScrollSignature, scrollToBottom])
+  }, [shouldScrollStreaming, streamingScrollSignature, scheduleScrollToBottom])
   useEffect(() => {
     pendingImagePreviewsRef.current = pendingImages.map((img) => img.preview)
   }, [pendingImages])
@@ -317,6 +354,7 @@ export default function Workspace() {
     const v = inputValue.trim()
     const hasImages = pendingImages.length > 0
     if ((!v && !hasImages) || !currentSessionId || !connected || blockingInteraction) return
+    stickToBottomRef.current = true
     sendPrompt(
       v,
       hasImages ? pendingImages.map((i) => ({ data: i.data, mimeType: i.mimeType })) : undefined,
@@ -402,30 +440,54 @@ export default function Workspace() {
   const canSendPrompt = !!currentSessionId && connected && !blockingInteraction && (!!inputValue.trim() || pendingImages.length > 0)
   const pendingInteractionId = pendingPermissions[0]?.id || pendingElicitations[0]?.id || ''
   const isStreaming = !!(streamingMessage && !streamingMessage.done)
-  const streamingBubble = isStreaming
-    ? {
-        id: streamingMessage!.id,
-        role: 'agent' as const,
-        content: streamingMessage!.content,
-        thinking: streamingMessage!.thinking,
-        toolCalls: streamingMessage!.toolCalls,
-        stage: streamingMessage!.stage,
-        timestamp: new Date().toISOString(),
-        streaming: true as const,
-      }
-    : null
-  const showStreamingBubble = !!streamingBubble && (
-    !useEventTimeline ||
-    !!(streamingBubble.stage && !streamingBubble.content && !streamingBubble.thinking && streamingBubble.toolCalls.length === 0)
+  const streamingBubble = useMemo<ChatMsg | null>(() => {
+    if (!isStreaming || !streamingMessage) return null
+    return {
+      id: streamingMessage.id,
+      role: 'agent',
+      content: streamingMessage.content,
+      thinking: streamingMessage.thinking,
+      toolCalls: streamingMessage.toolCalls,
+      stage: streamingMessage.stage,
+      timestamp: new Date().toISOString(),
+      streaming: true,
+    }
+  }, [isStreaming, streamingMessage])
+  const showStreamingBubble = !!streamingBubble
+  const interactionPanel = useMemo(
+    () =>
+      blockingInteraction ? (
+        <InteractionPanel
+          permission={pendingPermissions[0]}
+          elicitation={pendingPermissions.length === 0 ? pendingElicitations[0] : undefined}
+          onRespondPermission={respondPermission}
+          onRespondElicitation={respondElicitation}
+        />
+      ) : null,
+    [blockingInteraction, pendingElicitations, pendingPermissions, respondElicitation, respondPermission],
   )
-  const interactionPanel = blockingInteraction ? (
-    <InteractionPanel
-      permission={pendingPermissions[0]}
-      elicitation={pendingPermissions.length === 0 ? pendingElicitations[0] : undefined}
-      onRespondPermission={respondPermission}
-      onRespondElicitation={respondElicitation}
-    />
-  ) : null
+
+  const chatItems = useMemo<ChatRenderItem<ChatMsg>[]>(
+    () => buildChatRenderItems<ChatMsg>({
+      messages,
+      events,
+      streamingBubble,
+      showStreamingBubble,
+      blockingInteraction,
+    }),
+    [blockingInteraction, events, messages, showStreamingBubble, streamingBubble],
+  )
+  const renderChatItem = useCallback(
+    (item: ChatRenderItem<ChatMsg>) => {
+      if (item.kind === 'group') return <ChatBubble group={item.group} agent={selectedAgent} isStreaming={false} />
+      if (item.kind === 'streaming') {
+        return <ChatBubble message={item.message} agent={selectedAgent} isStreaming footer={interactionPanel} />
+      }
+      if (item.kind === 'blocking') return <BlockingInteractionBar agent={selectedAgent} panel={interactionPanel} />
+      return <ChatBubble message={item.message} agent={selectedAgent} isStreaming={false} />
+    },
+    [interactionPanel, selectedAgent],
+  )
 
   const currentModeName =
     capabilities.modes.find((m) => m.modeId === capabilities.currentModeId)?.name || capabilities.currentModeId
@@ -862,37 +924,18 @@ export default function Workspace() {
             </div>
           ) : (
             <div style={{ padding: '20px 20px 100px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-              {messages.length === 0 && timelineItems.length === 0 && !showStreamingBubble && !blockingInteraction && (
+              {chatItems.length === 0 && !showStreamingBubble && !blockingInteraction && (
                 <div style={{ textAlign: 'center', color: 'var(--text-3)', padding: '48px 0' }}>
                   暂无消息，开始对话吧
                 </div>
               )}
-              {useEventTimeline
-                ? (
-                    <>
-                      {timelineFallbackMessages.map((msg) => (
-                        <ChatBubble key={msg.id} message={msg} agent={selectedAgent} isStreaming={false} />
-                      ))}
-                      {timelineGroups.map((group) => (
-                        <ChatBubble key={group.id} group={group} agent={selectedAgent} isStreaming={false} />
-                      ))}
-                    </>
-                  )
-                : messages.map((msg) => (
-                    <ChatBubble key={msg.id} message={msg} agent={selectedAgent} isStreaming={false} />
-                  ))}
-              {showStreamingBubble && streamingBubble && (
-                <ChatBubble
-                  key="streaming"
-                  message={streamingBubble}
-                  agent={selectedAgent}
-                  isStreaming
-                  footer={interactionPanel}
-                />
-              )}
-              {blockingInteraction && !showStreamingBubble && (
-                <BlockingInteractionBar agent={selectedAgent} panel={interactionPanel} />
-              )}
+              <VirtualChatList
+                items={chatItems}
+                getKey={(item) => item.id}
+                renderItem={renderChatItem}
+                scrollRef={chatScrollRef}
+                onContentResize={handleChatContentResize}
+              />
               <div ref={chatEndRef} />
             </div>
           )}
@@ -2510,12 +2553,18 @@ function ElicitationCard({
 /* ─── Chat Bubble ─── */
 type ChatMsg = {
   id: string
+  session_id?: string
   role: string
   content: string
   thinking?: string | null
   tool_calls_json?: string | null
   decision_json?: string | null
   attachments_json?: string | null
+  has_tool_calls?: boolean
+  tool_call_count?: number
+  parsedToolCalls?: ToolCallInfo[]
+  parsedAttachments?: ImageAttachmentInfo[]
+  parsedDecision?: Record<string, unknown> | null
   toolCalls?: ToolCallInfo[]
   stage?: string
   timestamp?: string
@@ -2718,9 +2767,9 @@ function chatBubbleBlockHasBody(block: ChatBubbleBlock): boolean {
     return !!block.content || !!block.thinking || (block.attachments?.length || 0) > 0
   }
 
-  const toolCalls = block.toolCalls || parseJsonArray<ToolCallInfo>(block.tool_calls_json)
-  const attachments = parseJsonArray<ImageAttachmentInfo>(block.attachments_json)
-  return !!block.content || !!block.thinking || attachments.length > 0 || toolCalls.length > 0
+  const toolCalls = block.toolCalls || block.parsedToolCalls || parseJsonArray<ToolCallInfo>(block.tool_calls_json)
+  const attachments = block.parsedAttachments || parseJsonArray<ImageAttachmentInfo>(block.attachments_json)
+  return !!block.content || !!block.thinking || attachments.length > 0 || toolCalls.length > 0 || !!block.has_tool_calls
 }
 
 function ChatBubbleBlockView({
@@ -2748,8 +2797,8 @@ function ChatBubbleBlockView({
   } else {
     content = block.content
     thinking = block.thinking
-    toolCalls = block.toolCalls || parseJsonArray<ToolCallInfo>(block.tool_calls_json)
-    attachments = parseJsonArray<ImageAttachmentInfo>(block.attachments_json)
+    toolCalls = block.toolCalls || block.parsedToolCalls || parseJsonArray<ToolCallInfo>(block.tool_calls_json)
+    attachments = block.parsedAttachments || parseJsonArray<ImageAttachmentInfo>(block.attachments_json)
   }
 
   const defaultThinkingOpen = !!(isStreaming && thinking)
@@ -2828,6 +2877,13 @@ function ChatBubbleBlockView({
             <ToolCallPanel key={tc.id} tc={tc} isStreaming={isStreaming} />
           ))}
         </div>
+      )}
+      {!isStreaming && toolCalls.length === 0 && !('kind' in block) && block.has_tool_calls && block.session_id && (
+        <LazyToolCallsBlock
+          sessionId={block.session_id}
+          messageId={block.id}
+          count={block.tool_call_count}
+        />
       )}
       {content && <MarkdownRenderer content={content || ''} />}
     </div>

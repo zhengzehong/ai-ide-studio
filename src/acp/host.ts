@@ -24,6 +24,12 @@ import {
   resolveElicitation,
   resolvePermission,
 } from './interaction-state.js'
+import {
+  buildAgentRuntimeEnv,
+  buildClaudeSessionMeta,
+  fingerprintRuntimeEnv,
+  summarizeRuntimeEnv,
+} from './model-profile-env.js'
 import { buildRuntimeEnv, getRuntimeCommand, listRuntimeNames } from './runtime-registry.js'
 import { resolveMcpServersForAcp, updateInitialCapabilities } from './session-capabilities.js'
 
@@ -67,13 +73,6 @@ export const acpHost = {
   agents: agentConnections,
 
   async startAgent(agentId: string, runtime?: string): Promise<void> {
-    const existing = acpHost.agents.get(agentId)
-    if (existing && !existing.connection.signal.aborted) {
-      touchRuntime(existing)
-      return
-    }
-    if (existing) acpHost.agents.delete(agentId)
-
     const pendingStart = startPromises.get(agentId)
     if (pendingStart) return pendingStart
 
@@ -83,19 +82,34 @@ export const acpHost = {
   },
 
   async startAgentInternal(agentId: string, runtime?: string): Promise<void> {
-    if (acpHost.agents.has(agentId)) {
-      const conn = acpHost.agents.get(agentId)!
-      if (!conn.connection.signal.aborted) return
-      acpHost.agents.delete(agentId)
-    }
+    const stale = acpHost.agents.get(agentId)
+    if (stale?.connection.signal.aborted) acpHost.agents.delete(agentId)
 
     const agent = agentStore.get(agentId)
     if (!agent) throw new Error(`Agent 不存在: ${agentId}`)
 
     const effectiveRuntime = runtime || agent.runtime
+    const runtimeEnv = effectiveRuntime === 'mock'
+      ? { env: buildRuntimeEnv(effectiveRuntime), appliedProfile: undefined }
+      : buildAgentRuntimeEnv(effectiveRuntime, agent)
+    const sessionMeta = runtimeEnv.appliedProfile
+      ? buildClaudeSessionMeta(runtimeEnv.env, effectiveRuntime)
+      : undefined
+    const envFingerprint = fingerprintRuntimeEnv(runtimeEnv.env, effectiveRuntime)
+    const existing = acpHost.agents.get(agentId)
+    if (existing && !existing.connection.signal.aborted) {
+      if (existing.runtime === effectiveRuntime && existing.envFingerprint === envFingerprint) {
+        touchRuntime(existing)
+        return
+      }
+      log.info({ agentId, runtime: effectiveRuntime }, 'Agent runtime 配置已变化，正在重启')
+      await acpHost.stopAgent(agentId)
+    } else if (existing) {
+      acpHost.agents.delete(agentId)
+    }
 
     if (effectiveRuntime === 'mock') {
-      await startMockAgent(agentId)
+      await startMockAgent(agentId, envFingerprint)
       ensureIdleTimer()
       return
     }
@@ -103,11 +117,19 @@ export const acpHost = {
     const spec = getRuntimeCommand(effectiveRuntime)
     if (!spec) throw new Error(`不支持的 runtime: ${effectiveRuntime}，可用: ${listRuntimeNames().join(', ')}, mock`)
 
-    log.info({ agentId, runtime: effectiveRuntime }, '正在启动 Agent runtime')
+    log.info(
+      {
+        agentId,
+        runtime: effectiveRuntime,
+        modelProfileId: runtimeEnv.appliedProfile?.id,
+        runtimeEnv: summarizeRuntimeEnv(runtimeEnv.env, effectiveRuntime),
+      },
+      '正在启动 Agent runtime',
+    )
 
     const proc = spawn(spec.cmd, spec.args, {
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: buildRuntimeEnv(effectiveRuntime),
+      env: runtimeEnv.env,
       shell: process.platform === 'win32',
     })
 
@@ -150,7 +172,15 @@ export const acpHost = {
       'Agent runtime 能力',
     )
 
-    const conn = createConnectionState(agentId, effectiveRuntime, proc, connection, agentCaps ?? undefined)
+    const conn = createConnectionState(
+      agentId,
+      effectiveRuntime,
+      proc,
+      connection,
+      agentCaps ?? undefined,
+      envFingerprint,
+      sessionMeta,
+    )
     acpHost.agents.set(agentId, conn)
 
     proc.on('exit', (code) => {
@@ -171,9 +201,11 @@ export const acpHost = {
         cancelPendingInteractions(ourSessionId, agentId)
       }
 
-      agentStore.updateStatus(agentId, 'standby')
-      events.emit('agent:status', { agentId, status: 'standby' })
-      acpHost.agents.delete(agentId)
+      if (acpHost.agents.get(agentId) === conn) {
+        agentStore.updateStatus(agentId, 'standby')
+        events.emit('agent:status', { agentId, status: 'standby' })
+        acpHost.agents.delete(agentId)
+      }
     })
 
     agentStore.updateStatus(agentId, 'running')
@@ -270,12 +302,23 @@ export const acpHost = {
     const result = await conn.connection.newSession({
       cwd: context.cwd ?? process.cwd(),
       mcpServers,
+      _meta: conn.sessionMeta,
     })
 
     const acpSessionId = result.sessionId
     markSessionConnected(conn, ourSessionId, acpSessionId)
 
     updateInitialCapabilities(conn, ourSessionId, result)
+    log.debug(
+      {
+        agentId,
+        ourSessionId,
+        acpSessionId,
+        currentModelId: result.models?.currentModelId,
+        availableModels: result.models?.availableModels.map(m => ({ modelId: m.modelId, name: m.name })),
+      },
+      'ACP session 模型状态',
+    )
 
     return acpSessionId
   },
@@ -296,6 +339,7 @@ export const acpHost = {
         sessionId: acpSessionId,
         cwd: context.cwd ?? process.cwd(),
         mcpServers,
+        _meta: conn.sessionMeta,
       })
       markSessionConnected(conn, ourSessionId, acpSessionId)
       updateInitialCapabilities(conn, ourSessionId, result)
@@ -307,6 +351,7 @@ export const acpHost = {
         sessionId: acpSessionId,
         cwd: context.cwd ?? process.cwd(),
         mcpServers: resolveMcpServersForAcp(conn, ourSessionId, context),
+        _meta: conn.sessionMeta,
       })
       markSessionConnected(conn, ourSessionId, acpSessionId)
       updateInitialCapabilities(conn, ourSessionId, result)
@@ -537,7 +582,7 @@ export const acpHost = {
   resolveElicitation,
 }
 
-async function startMockAgent(agentId: string): Promise<void> {
+async function startMockAgent(agentId: string, envFingerprint?: string): Promise<void> {
   const { resolve } = await import('path')
   const mockPath = resolve(import.meta.dirname, 'mock-agent.ts')
   const npxCmd = process.platform === 'win32' ? 'npx.cmd' : 'npx'
@@ -580,7 +625,7 @@ async function startMockAgent(agentId: string): Promise<void> {
 
   const proc = (mockProc as unknown as { proc: ChildProcess }).proc
 
-  const conn = createConnectionState(agentId, 'mock', proc, mockConnection, undefined)
+  const conn = createConnectionState(agentId, 'mock', proc, mockConnection, undefined, envFingerprint)
   acpHost.agents.set(agentId, conn)
 
   mockProc.on('notification', (notification: { method: string; params?: Record<string, unknown> }) => {
@@ -601,9 +646,11 @@ async function startMockAgent(agentId: string): Promise<void> {
   mockProc.on('exit', (code: number) => {
     conn.state = 'stopped'
     log.info({ agentId, code }, 'Mock Agent 进程退出')
-    agentStore.updateStatus(agentId, 'standby')
-    events.emit('agent:status', { agentId, status: 'standby' })
-    acpHost.agents.delete(agentId)
+    if (acpHost.agents.get(agentId) === conn) {
+      agentStore.updateStatus(agentId, 'standby')
+      events.emit('agent:status', { agentId, status: 'standby' })
+      acpHost.agents.delete(agentId)
+    }
   })
 
   agentStore.updateStatus(agentId, 'running')

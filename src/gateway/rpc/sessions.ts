@@ -4,6 +4,7 @@ import { createChildLogger } from '../../core/logger.js'
 import { sessionManager } from '../../core/sessions.js'
 import { projectStore } from '../../store/projects.js'
 import { eventStore, messageStore, sessionStore } from '../../store/sessions.js'
+import { parseToolCallsJson, selectToolCallDetail, summarizeToolCalls } from '../../store/tool-call-history.js'
 import type { RpcHandlerMap } from './types.js'
 
 const log = createChildLogger('rpc-sessions')
@@ -24,6 +25,11 @@ async function ensureAcpSession(sessionId: string): Promise<{ agentId: string }>
   return { agentId: session.agent_id }
 }
 
+function getSessionMessage(sessionId: string, messageId: string) {
+  const message = messageStore.get(messageId)
+  if (!message || message.session_id !== sessionId) throw new Error('消息不存在')
+  return message
+}
 export const sessionRpcHandlers: RpcHandlerMap = {
   async 'session.setModel'(msg, { sendResult }) {
     const sessionId = msg.sessionId as string
@@ -131,7 +137,7 @@ export const sessionRpcHandlers: RpcHandlerMap = {
       if (!conn) return
       const rs = conn.runtimeSessions.get(sessionId)
       if (rs && rs.activeTurnCount > 0) {
-        log.warn({ sessionId, agentId: session.agent_id }, '取消后 10s prompt 仍未结束，强制发送 done')
+        log.warn({ sessionId, agentId: session.agent_id }, 'cancel timeout: forcing done after 10s')
         rs.activeTurnCount = 0
         conn.activeTurnCount = Math.max(0, conn.activeTurnCount - 1)
         events.emit('session:done', { sessionId, agentId: session.agent_id, messageId: `cancel-timeout-${Date.now()}`, stopReason: 'cancelled' })
@@ -169,7 +175,26 @@ export const sessionRpcHandlers: RpcHandlerMap = {
   },
 
   'sessions.messages'(msg, { sendResult }) {
-    sendResult(messageStore.list(msg.sessionId as string, { limit: msg.limit as number | undefined, before: msg.before as string | undefined }))
+    sendResult(messageStore.list(msg.sessionId as string, {
+      limit: msg.limit as number | undefined,
+      before: msg.before as string | undefined,
+      includeToolCalls: msg.includeToolCalls as boolean | undefined,
+      includeLatestToolCalls: msg.includeLatestToolCalls as boolean | undefined,
+    }))
+  },
+
+  'sessions.messageToolCalls'(msg, { sendResult }) {
+    const sessionId = msg.sessionId as string
+    const message = getSessionMessage(sessionId, msg.messageId as string)
+    sendResult(summarizeToolCalls(parseToolCallsJson(message.tool_calls_json)))
+  },
+
+  'sessions.messageToolCallDetail'(msg, { sendResult }) {
+    const sessionId = msg.sessionId as string
+    const message = getSessionMessage(sessionId, msg.messageId as string)
+    const detail = selectToolCallDetail(parseToolCallsJson(message.tool_calls_json), msg.toolCallId as string)
+    if (!detail) throw new Error('工具调用不存在')
+    sendResult(detail)
   },
 
   'sessions.events'(msg, { sendResult }) {

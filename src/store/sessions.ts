@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto'
 import { getDb } from './db.js'
+import { countToolCalls } from './tool-call-history.js'
 
 export interface SessionRow {
   id: string
@@ -28,6 +29,8 @@ export interface MessageRow {
   decision_json: string | null
   attachments_json: string | null
   timestamp: string
+  has_tool_calls?: boolean
+  tool_call_count?: number
 }
 
 export interface SessionEventRow {
@@ -207,7 +210,7 @@ export const sessionStore = {
 
   updateTitle(id: string, title: string): SessionRow | undefined {
     const nextTitle = title.trim()
-    if (!nextTitle) throw new Error('会话标题不能为空')
+    if (!nextTitle) throw new Error('Session title cannot be empty')
     getDb().prepare('UPDATE sessions SET title = ?, updated_at = ? WHERE id = ?').run(nextTitle, new Date().toISOString(), id)
     return sessionStore.get(id)
   },
@@ -283,22 +286,25 @@ export const messageStore = {
     return getDb().prepare<[string], MessageRow>('SELECT * FROM messages WHERE id = ?').get(id)
   },
 
-  list(sessionId: string, opts?: { limit?: number; before?: string }): MessageRow[] {
+  list(sessionId: string, opts?: { limit?: number; before?: string; includeToolCalls?: boolean; includeLatestToolCalls?: boolean }): MessageRow[] {
     const limit = opts?.limit || 100
-    if (opts?.before) {
-      return getDb().prepare<{ sessionId: string; before: string; limit: number }, MessageRow>(`
+    const includeToolCalls = opts?.includeToolCalls === true
+    const includeLatestToolCalls = opts?.includeLatestToolCalls !== false
+    const rows = opts?.before
+      ? getDb().prepare<{ sessionId: string; before: string; limit: number }, MessageRow>(`
         SELECT * FROM messages
         WHERE session_id = @sessionId AND timestamp < @before
         ORDER BY timestamp DESC
         LIMIT @limit
       `).all({ sessionId, before: opts.before, limit }).reverse()
-    }
-    return getDb().prepare<{ sessionId: string; limit: number }, MessageRow>(`
-      SELECT * FROM messages
-      WHERE session_id = @sessionId
-      ORDER BY timestamp DESC
-      LIMIT @limit
-    `).all({ sessionId, limit }).reverse()
+      : getDb().prepare<{ sessionId: string; limit: number }, MessageRow>(`
+        SELECT * FROM messages
+        WHERE session_id = @sessionId
+        ORDER BY timestamp DESC
+        LIMIT @limit
+      `).all({ sessionId, limit }).reverse()
+    const latestToolMessageId = includeLatestToolCalls ? findLatestToolMessageId(rows) : null
+    return rows.map((row) => lightweightMessage(row, includeToolCalls || row.id === latestToolMessageId))
   },
 
   updateContent(id: string, content: string): void {
@@ -306,6 +312,23 @@ export const messageStore = {
   },
 }
 
+function findLatestToolMessageId(rows: MessageRow[]): string | null {
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    if (rows[index].tool_calls_json) return rows[index].id
+  }
+  return null
+}
+
+function lightweightMessage(row: MessageRow, includeToolCalls: boolean): MessageRow {
+  const hasToolCalls = !!row.tool_calls_json
+  if (includeToolCalls || !hasToolCalls) return { ...row, has_tool_calls: hasToolCalls, tool_call_count: countToolCalls(row.tool_calls_json) }
+  return {
+    ...row,
+    tool_calls_json: null,
+    has_tool_calls: true,
+    tool_call_count: countToolCalls(row.tool_calls_json),
+  }
+}
 export const eventStore = {
   append(sessionId: string, input: AppendEventInput): SessionEventRow {
     const db = getDb()
