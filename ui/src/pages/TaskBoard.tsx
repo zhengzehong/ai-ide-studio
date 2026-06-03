@@ -69,7 +69,7 @@ export default function TaskBoard() {
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: '24px 28px', overflow: 'hidden' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, flexShrink: 0 }}>
         <h1 style={{ fontSize: 18, fontWeight: 700 }}>任务看板</h1>
-        <button onClick={() => setShowNew(true)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 'var(--radius)', border: 'none', background: 'var(--blue)', color: 'white', fontSize: 13, fontWeight: 500, cursor: 'pointer', boxShadow: 'var(--shadow-sm)' }}>
+        <button onClick={() => setShowNew(true)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 'var(--radius)', border: 'none', background: 'var(--blue)', color: 'white', fontSize: 15, fontWeight: 500, cursor: 'pointer', boxShadow: 'var(--shadow-sm)' }}>
           <Plus size={14} /> 新建任务
         </button>
       </div>
@@ -80,12 +80,12 @@ export default function TaskBoard() {
             <div key={col.id} style={{ minWidth: 280, flex: '1 0 280px', display: 'flex', flexDirection: 'column', borderRadius: 'var(--radius-lg)', overflow: 'hidden', background: 'var(--bg-2)' }}>
               <div style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
                 <span style={{ width: 10, height: 10, borderRadius: '50%', background: col.color, flexShrink: 0 }} />
-                <span style={{ fontSize: 13, fontWeight: 600, flex: 1 }}>{col.title}</span>
-                <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-3)' }}>{items.length}</span>
+                <span style={{ fontSize: 15, fontWeight: 600, flex: 1 }}>{col.title}</span>
+                <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-3)' }}>{items.length}</span>
               </div>
               <div style={{ flex: 1, overflowY: 'auto', padding: '0 10px 10px', display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {items.length === 0
-                  ? <div style={{ textAlign: 'center', color: 'var(--text-3)', fontSize: 12, padding: '32px 16px' }}>暂无任务</div>
+                  ? <div style={{ textAlign: 'center', color: 'var(--text-3)', fontSize: 14, padding: '32px 16px' }}>暂无任务</div>
                   : items.map(t => <TaskCard key={t.id} task={t} agents={agents} onOpen={() => setSelectedTaskId(t.id)} />)
                 }
               </div>
@@ -133,19 +133,19 @@ function TaskCard({ task, agents, onOpen }: { task: TaskData; agents: AgentData[
 
   return (
     <button type="button" onClick={onOpen} style={{ background: 'var(--bg-0)', border: getCardBorder(task.status), borderRadius: 10, padding: 14, cursor: 'pointer', transition: 'box-shadow 0.15s', textAlign: 'left', color: 'var(--text-1)' }}>
-      <div style={{ fontSize: 13, fontWeight: 600, lineHeight: 1.5, marginBottom: 8 }}>{task.title}</div>
+      <div style={{ fontSize: 15, fontWeight: 600, lineHeight: 1.5, marginBottom: 8 }}>{task.title}</div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
-        <span style={{ padding: '2px 7px', borderRadius: 4, background: source.bg, color: source.color, fontWeight: 600, fontSize: 10 }}>{source.label}</span>
-        <span style={{ padding: '2px 7px', borderRadius: 4, background: statusMeta.bg, color: statusMeta.color, fontWeight: 600, fontSize: 10 }}>{statusMeta.label}</span>
+        <span style={{ padding: '2px 7px', borderRadius: 4, background: source.bg, color: source.color, fontWeight: 600, fontSize: 12 }}>{source.label}</span>
+        <span style={{ padding: '2px 7px', borderRadius: 4, background: statusMeta.bg, color: statusMeta.color, fontWeight: 600, fontSize: 12 }}>{statusMeta.label}</span>
       </div>
-      {task.stage && <div style={{ fontSize: 11, color: 'var(--text-2)', marginBottom: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.stage}</div>}
+      {task.stage && <div style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.stage}</div>}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         {agent ? (
-          <div style={{ width: 22, height: 22, borderRadius: '50%', background: TYPE_COLORS[agent.type] ?? '#6b7280', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 700, color: 'white' }} title={agent.name}>{agent.name.charAt(0)}</div>
+          <div style={{ width: 22, height: 22, borderRadius: '50%', background: TYPE_COLORS[agent.type] ?? '#6b7280', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: 'white' }} title={agent.name}>{agent.name.charAt(0)}</div>
         ) : (
-          <span style={{ fontSize: 11, color: 'var(--text-3)' }}>未指派</span>
+          <span style={{ fontSize: 13, color: 'var(--text-3)' }}>未指派</span>
         )}
-        <span style={{ fontSize: 10, color: 'var(--text-3)' }}>{formatRelative(task.created_at)}</span>
+        <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{formatRelative(task.created_at)}</span>
       </div>
     </button>
   );
@@ -209,7 +209,7 @@ function TaskDetailDrawer({ task, agents, onClose, onStatusChange, onDelete }: {
     window.location.hash = '#/workspace';
   };
 
-  const st: React.CSSProperties = { width: '100%', padding: '8px 10px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', fontSize: 13, background: 'var(--bg-1)', color: 'var(--text-1)', outline: 'none', boxSizing: 'border-box' };
+  const st: React.CSSProperties = { width: '100%', padding: '8px 10px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', fontSize: 15, background: 'var(--bg-1)', color: 'var(--text-1)', outline: 'none', boxSizing: 'border-box' };
 
   return (
     <>
@@ -225,17 +225,17 @@ function TaskDetailDrawer({ task, agents, onClose, onStatusChange, onDelete }: {
             <input value={editTitle} onChange={e => setEditTitle(e.target.value)} style={st} placeholder="任务标题" />
             <textarea value={editDesc} onChange={e => setEditDesc(e.target.value)} rows={3} style={{ ...st, resize: 'vertical' }} placeholder="描述" />
             <div style={{ display: 'flex', gap: 6 }}>
-              <button onClick={saveEdit} disabled={!editTitle.trim()} style={{ padding: '6px 12px', borderRadius: 6, border: 'none', background: 'var(--blue)', color: 'white', fontSize: 12, cursor: 'pointer' }}>保存</button>
-              <button onClick={() => setEditing(false)} style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-0)', color: 'var(--text-2)', fontSize: 12, cursor: 'pointer' }}>取消</button>
+              <button onClick={saveEdit} disabled={!editTitle.trim()} style={{ padding: '6px 12px', borderRadius: 6, border: 'none', background: 'var(--blue)', color: 'white', fontSize: 14, cursor: 'pointer' }}>保存</button>
+              <button onClick={() => setEditing(false)} style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-0)', color: 'var(--text-2)', fontSize: 14, cursor: 'pointer' }}>取消</button>
             </div>
           </div>
         ) : (
           <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
               <div style={{ fontSize: 18, fontWeight: 700, lineHeight: 1.45, flex: 1 }}>{task.title}</div>
-              <button type="button" onClick={startEdit} style={{ border: 'none', background: 'var(--bg-2)', borderRadius: 6, padding: '4px 8px', fontSize: 11, color: 'var(--text-2)', cursor: 'pointer' }}>编辑</button>
+              <button type="button" onClick={startEdit} style={{ border: 'none', background: 'var(--bg-2)', borderRadius: 6, padding: '4px 8px', fontSize: 13, color: 'var(--text-2)', cursor: 'pointer' }}>编辑</button>
             </div>
-            <div style={{ color: 'var(--text-2)', fontSize: 13, lineHeight: 1.7, marginBottom: 18, whiteSpace: 'pre-wrap' }}>{task.description || '暂无描述'}</div>
+            <div style={{ color: 'var(--text-2)', fontSize: 15, lineHeight: 1.7, marginBottom: 18, whiteSpace: 'pre-wrap' }}>{task.description || '暂无描述'}</div>
           </>
         )}
 
@@ -247,34 +247,34 @@ function TaskDetailDrawer({ task, agents, onClose, onStatusChange, onDelete }: {
           <DetailRow label="创建时间" value={formatDateTime(task.created_at)} />
           {task.completed_at && <DetailRow label="完成时间" value={formatDateTime(task.completed_at)} />}
           {task.sessionId && (
-            <div style={{ display: 'grid', gridTemplateColumns: '92px 1fr', gap: 10, fontSize: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '92px 1fr', gap: 10, fontSize: 14 }}>
               <span style={{ color: 'var(--text-3)' }}>关联对话</span>
-              <button type="button" onClick={() => goToSession(task.sessionId!)} style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--blue)', cursor: 'pointer', border: 'none', background: 'none', padding: 0, fontSize: 12 }}>
+              <button type="button" onClick={() => goToSession(task.sessionId!)} style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--blue)', cursor: 'pointer', border: 'none', background: 'none', padding: 0, fontSize: 14 }}>
                 <ExternalLink size={11} />跳转到对话
               </button>
             </div>
           )}
         </div>
 
-        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>指派 Agent</div>
+        <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 8 }}>指派 Agent</div>
         <div style={{ display: 'flex', gap: 8, marginBottom: 18 }}>
           <select value={assignAgentId} onChange={e => setAssignAgentId(e.target.value)} style={{ ...st, flex: 1 }}>
             <option value="">{agent ? `当前: ${agent.name}` : '选择 Agent'}</option>
             {agents.filter(a => a.id !== task.assigned_agent_id).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
           </select>
-          <button onClick={handleAssign} disabled={!assignAgentId} style={{ padding: '6px 14px', borderRadius: 6, border: 'none', background: assignAgentId ? 'var(--blue)' : 'var(--bg-2)', color: assignAgentId ? 'white' : 'var(--text-3)', fontSize: 12, cursor: assignAgentId ? 'pointer' : 'not-allowed' }}>指派</button>
+          <button onClick={handleAssign} disabled={!assignAgentId} style={{ padding: '6px 14px', borderRadius: 6, border: 'none', background: assignAgentId ? 'var(--blue)' : 'var(--bg-2)', color: assignAgentId ? 'white' : 'var(--text-3)', fontSize: 14, cursor: assignAgentId ? 'pointer' : 'not-allowed' }}>指派</button>
         </div>
 
-        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>状态操作</div>
+        <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 8 }}>状态操作</div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 20 }}>
           {STATUS_ACTIONS.map(action => (
-            <button key={action.status} type="button" onClick={() => changeStatus(action.status)} disabled={updating !== null || task.status === action.status} style={{ padding: '7px 12px', borderRadius: 8, border: task.status === action.status ? '1px solid var(--blue)' : '1px solid var(--border)', background: task.status === action.status ? 'var(--blue-light)' : 'var(--bg-0)', color: task.status === action.status ? 'var(--blue)' : 'var(--text-2)', fontSize: 12, cursor: task.status === action.status ? 'default' : 'pointer', opacity: updating && updating !== action.status ? 0.6 : 1 }}>
+            <button key={action.status} type="button" onClick={() => changeStatus(action.status)} disabled={updating !== null || task.status === action.status} style={{ padding: '7px 12px', borderRadius: 8, border: task.status === action.status ? '1px solid var(--blue)' : '1px solid var(--border)', background: task.status === action.status ? 'var(--blue-light)' : 'var(--bg-0)', color: task.status === action.status ? 'var(--blue)' : 'var(--text-2)', fontSize: 14, cursor: task.status === action.status ? 'default' : 'pointer', opacity: updating && updating !== action.status ? 0.6 : 1 }}>
               {updating === action.status ? '...' : action.label}
             </button>
           ))}
         </div>
 
-        <button type="button" onClick={handleDelete} disabled={deleting} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, border: '1px solid var(--red)', background: 'transparent', color: 'var(--red)', fontSize: 12, cursor: 'pointer' }}>
+        <button type="button" onClick={handleDelete} disabled={deleting} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, border: '1px solid var(--red)', background: 'transparent', color: 'var(--red)', fontSize: 14, cursor: 'pointer' }}>
           <Trash2 size={13} /> {deleting ? '删除中...' : '删除任务'}
         </button>
       </aside>
@@ -284,7 +284,7 @@ function TaskDetailDrawer({ task, agents, onClose, onStatusChange, onDelete }: {
 
 function DetailRow({ label, value, color }: { label: string; value: string; color?: string }) {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '92px 1fr', gap: 10, fontSize: 12 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: '92px 1fr', gap: 10, fontSize: 14 }}>
       <span style={{ color: 'var(--text-3)' }}>{label}</span>
       <span style={{ color: color || 'var(--text-1)', overflowWrap: 'anywhere' }}>{value}</span>
     </div>
@@ -308,7 +308,7 @@ function NewTaskModal({ agents, projectId, onCreate, onClose }: {
     return sessions.filter(s => s.agent_id === agentId);
   }, [agentId, sessions]);
 
-  const st: React.CSSProperties = { width: '100%', padding: '9px 12px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', fontSize: 13, background: 'var(--bg-1)', color: 'var(--text-1)', outline: 'none', boxSizing: 'border-box' };
+  const st: React.CSSProperties = { width: '100%', padding: '9px 12px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', fontSize: 15, background: 'var(--bg-1)', color: 'var(--text-1)', outline: 'none', boxSizing: 'border-box' };
 
   return (
     <>
@@ -328,7 +328,7 @@ function NewTaskModal({ agents, projectId, onCreate, onClose }: {
                 <option value="">新建会话（默认）</option>
                 {agentSessions.map(s => <option key={s.id} value={s.id}>{s.id.slice(0, 8)}... {s.task_id ? '(有任务)' : ''}</option>)}
               </select>
-              <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: -6 }}>
+              <div style={{ fontSize: 13, color: 'var(--text-3)', marginTop: -6 }}>
                 {sessionId ? '将在该对话中追加任务指派，Agent 可利用已有上下文' : '将为此任务创建新的对话'}
               </div>
             </>
@@ -337,9 +337,9 @@ function NewTaskModal({ agents, projectId, onCreate, onClose }: {
             <button
               onClick={() => { if (title.trim()) onCreate(title, desc || undefined, agentId || undefined, sessionId || undefined); }}
               disabled={!title.trim()}
-              style={{ padding: '9px 18px', borderRadius: 'var(--radius)', border: 'none', background: title.trim() ? 'var(--blue)' : 'var(--bg-2)', color: title.trim() ? 'white' : 'var(--text-3)', fontSize: 13, fontWeight: 500, cursor: title.trim() ? 'pointer' : 'not-allowed' }}
+              style={{ padding: '9px 18px', borderRadius: 'var(--radius)', border: 'none', background: title.trim() ? 'var(--blue)' : 'var(--bg-2)', color: title.trim() ? 'white' : 'var(--text-3)', fontSize: 15, fontWeight: 500, cursor: title.trim() ? 'pointer' : 'not-allowed' }}
             >创建</button>
-            <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', background: 'var(--bg-0)', color: 'var(--text-2)', fontSize: 13, cursor: 'pointer' }}>取消</button>
+            <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', background: 'var(--bg-0)', color: 'var(--text-2)', fontSize: 15, cursor: 'pointer' }}>取消</button>
           </div>
         </div>
       </div>

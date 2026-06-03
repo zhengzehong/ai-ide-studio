@@ -46,7 +46,7 @@ export function TeamContextPanel({ context, agents, currentSessionId, onSelectMe
             display: 'flex',
             alignItems: 'center',
             gap: 7,
-            fontSize: 13,
+            fontSize: 15,
             fontWeight: 700,
             color: 'var(--text-1)',
           }}
@@ -63,7 +63,7 @@ export function TeamContextPanel({ context, agents, currentSessionId, onSelectMe
           )}
         </div>
         {context.team.description && (
-          <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-3)', lineHeight: 1.5 }}>
+          <div style={{ marginTop: 8, fontSize: 14, color: 'var(--text-3)', lineHeight: 1.5 }}>
             {context.team.description}
           </div>
         )}
@@ -128,7 +128,7 @@ function SectionTitle({ icon, title, count }: { icon: React.ReactNode; title: st
         alignItems: 'center',
         gap: 6,
         margin: '4px 0 8px',
-        fontSize: 12,
+        fontSize: 14,
         fontWeight: 700,
         color: 'var(--text-2)',
       }}
@@ -152,7 +152,7 @@ function TaskRow({ task, assignee }: { task: TaskData; assignee?: TeamMemberData
   )
   return (
     <div style={{ padding: '9px 10px', borderRadius: 9, border: '1px solid var(--border)', background: 'var(--bg-1)' }}>
-      <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-1)', lineHeight: 1.4 }}>{task.title}</div>
+      <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-1)', lineHeight: 1.4 }}>{task.title}</div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
         <span
           style={{
@@ -171,7 +171,7 @@ function TaskRow({ task, assignee }: { task: TaskData; assignee?: TeamMemberData
         <div
           style={{
             marginTop: 6,
-            fontSize: 11,
+            fontSize: 13,
             color: 'var(--text-3)',
             lineHeight: 1.45,
             display: '-webkit-box',
@@ -196,7 +196,7 @@ function MailboxRow({ item, from }: { item: TeamMailboxData; from?: TeamMemberDa
         </span>
         <span
           style={{
-            fontSize: 11,
+            fontSize: 13,
             color: 'var(--text-2)',
             overflow: 'hidden',
             textOverflow: 'ellipsis',
@@ -205,11 +205,11 @@ function MailboxRow({ item, from }: { item: TeamMailboxData; from?: TeamMemberDa
         >
           {from?.name || '系统'}
         </span>
-        <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--text-3)', flexShrink: 0 }}>
+        <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--text-3)', flexShrink: 0 }}>
           {formatTime(item.created_at)}
         </span>
       </div>
-      <div style={{ fontSize: 11, color: 'var(--text-2)', lineHeight: 1.5, maxHeight: 100, overflow: 'auto' }}>
+      <div style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.5, maxHeight: 100, overflow: 'auto' }}>
         <MarkdownRenderer content={item.content} />
       </div>
     </div>
@@ -222,7 +222,7 @@ function EmptyText({ text }: { text: string }) {
       style={{
         padding: '16px 8px',
         textAlign: 'center',
-        fontSize: 12,
+        fontSize: 14,
         color: 'var(--text-3)',
         border: '1px dashed var(--border)',
         borderRadius: 9,
@@ -263,7 +263,7 @@ function mailboxColor(type: string): string {
 }
 
 function pillStyle(background: string, color: string): React.CSSProperties {
-  return { padding: '2px 7px', borderRadius: 999, background, color, fontSize: 10, fontWeight: 700, lineHeight: 1.6 }
+  return { padding: '2px 7px', borderRadius: 999, background, color, fontSize: 12, fontWeight: 700, lineHeight: 1.6 }
 }
 
 function formatTime(iso: string): string {

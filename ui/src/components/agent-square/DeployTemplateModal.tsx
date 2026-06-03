@@ -48,12 +48,12 @@ export function DeployTemplateModal({ template, projects, currentProjectId, onDe
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
           <div>
             <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>添加智能体到项目</h3>
-            <p style={{ fontSize: 12, color: 'var(--text-3)', margin: '5px 0 0' }}>模板会复制成项目级智能体，之后可独立配置。</p>
+            <p style={{ fontSize: 14, color: 'var(--text-3)', margin: '5px 0 0' }}>模板会复制成项目级智能体，之后可独立配置。</p>
           </div>
           <button onClick={onClose} style={iconButton}><X size={14} /></button>
         </div>
         {projects.length === 0 ? (
-          <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>请先在左上角创建项目，再添加智能体。</div>
+          <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-3)', fontSize: 15 }}>请先在左上角创建项目，再添加智能体。</div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <Field label="目标项目">

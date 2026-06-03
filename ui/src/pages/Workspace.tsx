@@ -550,7 +550,7 @@ export default function Workspace() {
               background: 'transparent',
               color: sidebarTab === 'sessions' ? 'var(--blue)' : 'var(--text-3)',
               cursor: 'pointer',
-              fontSize: 12,
+              fontSize: 14,
               fontWeight: 600,
               transition: 'all 0.15s',
             }}
@@ -572,7 +572,7 @@ export default function Workspace() {
               background: 'transparent',
               color: sidebarTab === 'files' ? 'var(--blue)' : 'var(--text-3)',
               cursor: 'pointer',
-              fontSize: 12,
+              fontSize: 14,
               fontWeight: 600,
               transition: 'all 0.15s',
             }}
@@ -585,7 +585,7 @@ export default function Workspace() {
           <>
             <div style={{ padding: '6px 14px', display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
               {connected ? <Wifi size={12} color="var(--green)" /> : <WifiOff size={12} color="var(--red)" />}
-              <span style={{ fontSize: 11, color: connected ? 'var(--green)' : 'var(--red)' }}>
+              <span style={{ fontSize: 13, color: connected ? 'var(--green)' : 'var(--red)' }}>
                 {connected ? '已连接' : '未连接'}
               </span>
             </div>
@@ -593,7 +593,7 @@ export default function Workspace() {
               <div
                 style={{
                   padding: '6px 14px 4px',
-                  fontSize: 11,
+                  fontSize: 13,
                   fontWeight: 600,
                   color: 'var(--text-3)',
                   letterSpacing: '0.04em',
@@ -613,10 +613,10 @@ export default function Workspace() {
                   }}
                 >
                   <Bot size={26} color="var(--text-3)" style={{ marginBottom: 8, opacity: 0.5 }} />
-                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-1)', marginBottom: 5 }}>
+                  <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-1)', marginBottom: 5 }}>
                     当前项目暂无智能体
                   </div>
-                  <div style={{ fontSize: 12, color: 'var(--text-3)', lineHeight: 1.5, marginBottom: 10 }}>
+                  <div style={{ fontSize: 14, color: 'var(--text-3)', lineHeight: 1.5, marginBottom: 10 }}>
                     先从 Agent 广场添加到项目，再新建会话开始对话。
                   </div>
                   <button
@@ -629,7 +629,7 @@ export default function Workspace() {
                       cursor: 'pointer',
                       padding: '7px 12px',
                       borderRadius: 7,
-                      fontSize: 12,
+                      fontSize: 14,
                       fontWeight: 600,
                     }}
                   >
@@ -669,7 +669,7 @@ export default function Workspace() {
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        fontSize: 10,
+                        fontSize: 12,
                         fontWeight: 700,
                         color: 'white',
                         flexShrink: 0,
@@ -677,10 +677,10 @@ export default function Workspace() {
                     >
                       {agentAvatar(agent)}
                     </span>
-                    <span style={{ flex: 1, fontSize: 13, fontWeight: 500 }}>{agent.name}</span>
+                    <span style={{ flex: 1, fontSize: 15, fontWeight: 500 }}>{agent.name}</span>
                     <span
                       style={{
-                        fontSize: 10,
+                        fontSize: 12,
                         padding: '1px 6px',
                         borderRadius: 10,
                         background: 'var(--bg-2)',
@@ -744,7 +744,7 @@ export default function Workspace() {
                             <span
                               style={{
                                 flex: 1,
-                                fontSize: 12,
+                                fontSize: 14,
                                 overflow: 'hidden',
                                 textOverflow: 'ellipsis',
                                 whiteSpace: 'nowrap',
@@ -752,7 +752,7 @@ export default function Workspace() {
                             >
                               {sessionTitle(s)}
                             </span>
-                            <span style={{ fontSize: 10, color: 'var(--text-3)' }}>
+                            <span style={{ fontSize: 12, color: 'var(--text-3)' }}>
                               {formatTime(s.last_message_at || s.updated_at || s.started_at)}
                             </span>
                           </button>
@@ -837,7 +837,7 @@ export default function Workspace() {
                           background: 'transparent',
                           color: 'var(--text-3)',
                           cursor: 'pointer',
-                          fontSize: 11,
+                          fontSize: 13,
                         }}
                       >
                         <Plus size={12} /> 新建会话
@@ -851,12 +851,12 @@ export default function Workspace() {
         ) : (
           <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0', minHeight: 0 }}>
             {!currentProjectId ? (
-              <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
+              <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-3)', fontSize: 15 }}>
                 <FolderOpen size={32} style={{ marginBottom: 8, opacity: 0.3 }} />
                 <p>请先在顶部选择一个项目</p>
               </div>
             ) : fileTree.length === 0 ? (
-              <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
+              <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-3)', fontSize: 15 }}>
                 <FolderOpen size={32} style={{ marginBottom: 8, opacity: 0.3 }} />
                 <p>加载文件中...</p>
               </div>
@@ -905,7 +905,7 @@ export default function Workspace() {
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    fontSize: 12,
+                    fontSize: 14,
                     fontWeight: 700,
                     color: 'white',
                   }}
@@ -913,8 +913,8 @@ export default function Workspace() {
                   {agentAvatar(chatAgent)}
                 </div>
                 <div>
-                  <div style={{ fontWeight: 600, fontSize: 14 }}>{chatAgent.name}</div>
-                  <div style={{ fontSize: 11, color: 'var(--text-3)' }}>
+                  <div style={{ fontWeight: 600, fontSize: 15 }}>{chatAgent.name}</div>
+                  <div style={{ fontSize: 13, color: 'var(--text-3)' }}>
                     {chatAgent.runtime} · {statusLabel(chatAgent.status)}
                   </div>
                 </div>
@@ -940,7 +940,7 @@ export default function Workspace() {
             <div style={{ textAlign: 'center', color: 'var(--text-3)', padding: '80px 20px' }}>
               <Bot size={48} color="var(--text-3)" style={{ marginBottom: 16, opacity: 0.3 }} />
               <div style={{ fontSize: 15, marginBottom: 8 }}>选择一个 Session 或新建会话</div>
-              <div style={{ fontSize: 12 }}>点击左侧 Agent 下方的会话开始</div>
+              <div style={{ fontSize: 14 }}>点击左侧 Agent 下方的会话开始</div>
             </div>
           ) : (
             <div
@@ -1047,7 +1047,7 @@ export default function Workspace() {
                 resize: 'none',
                 background: 'transparent',
                 color: 'var(--text-1)',
-                fontSize: 13,
+                fontSize: 15,
                 lineHeight: 1.6,
                 fontFamily: 'inherit',
                 minHeight: 56,
@@ -1099,7 +1099,7 @@ export default function Workspace() {
                     border: 'none',
                     background: 'var(--bg-1)',
                     color: 'var(--text-2)',
-                    fontSize: 11,
+                    fontSize: 13,
                     cursor: 'pointer',
                     fontWeight: 500,
                   }}
@@ -1121,7 +1121,7 @@ export default function Workspace() {
                     border: 'none',
                     background: 'var(--bg-1)',
                     color: 'var(--text-2)',
-                    fontSize: 11,
+                    fontSize: 13,
                     cursor: 'pointer',
                     fontWeight: 500,
                   }}
@@ -1146,7 +1146,7 @@ export default function Workspace() {
                     border: 'none',
                     background: 'var(--bg-1)',
                     color: 'var(--text-2)',
-                    fontSize: 11,
+                    fontSize: 13,
                     cursor: 'pointer',
                     fontWeight: 500,
                   }}
@@ -1170,7 +1170,7 @@ export default function Workspace() {
                     border: 'none',
                     background: 'transparent',
                     color: 'var(--text-2)',
-                    fontSize: 11,
+                    fontSize: 13,
                     cursor: 'pointer',
                     fontWeight: 500,
                   }}
@@ -1180,7 +1180,7 @@ export default function Workspace() {
               )}
 
               {blockingInteraction && (
-                <span style={{ fontSize: 11, color: 'var(--red)', fontWeight: 600, marginRight: 6 }}>等待确认</span>
+                <span style={{ fontSize: 13, color: 'var(--red)', fontWeight: 600, marginRight: 6 }}>等待确认</span>
               )}
 
               {isStreaming ? (
@@ -1257,7 +1257,7 @@ export default function Workspace() {
               style={{
                 padding: '12px 16px',
                 borderBottom: '1px solid var(--border)',
-                fontSize: 13,
+                fontSize: 15,
                 fontWeight: 600,
                 flexShrink: 0,
                 display: 'flex',
@@ -1278,7 +1278,7 @@ export default function Workspace() {
                   cursor: 'pointer',
                   padding: '4px 10px',
                   borderRadius: 6,
-                  fontSize: 11,
+                  fontSize: 13,
                   fontWeight: 500,
                   display: 'flex',
                   alignItems: 'center',
@@ -1324,7 +1324,7 @@ export default function Workspace() {
                 borderRadius: 8,
                 background: 'transparent',
                 color: 'var(--text-1)',
-                fontSize: 12,
+                fontSize: 14,
                 cursor: 'pointer',
                 textAlign: 'left',
                 boxSizing: 'border-box',
@@ -1344,7 +1344,7 @@ export default function Workspace() {
               <span
                 style={{
                   color: 'var(--text-3)',
-                  fontSize: 10,
+                  fontSize: 12,
                   whiteSpace: 'normal',
                   overflowWrap: 'anywhere',
                   lineHeight: 1.4,
@@ -1380,7 +1380,7 @@ export default function Workspace() {
                   borderRadius: 8,
                   background: active ? 'var(--blue-light)' : 'transparent',
                   color: 'var(--text-1)',
-                  fontSize: 12,
+                  fontSize: 14,
                   cursor: 'pointer',
                   textAlign: 'left',
                 }}
@@ -1393,7 +1393,7 @@ export default function Workspace() {
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontWeight: 500 }}>{modeCn(m.name)}</div>
                   {m.description && (
-                    <div style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 2 }}>{m.description}</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>{m.description}</div>
                   )}
                 </div>
               </button>
@@ -1427,7 +1427,7 @@ export default function Workspace() {
                     borderRadius: 8,
                     background: active ? 'var(--blue-light)' : 'transparent',
                     color: 'var(--text-1)',
-                    fontSize: 12,
+                    fontSize: 14,
                     cursor: 'pointer',
                     textAlign: 'left',
                   }}
@@ -1457,7 +1457,7 @@ export default function Workspace() {
                     borderRadius: 8,
                     background: active ? 'var(--blue-light)' : 'transparent',
                     color: 'var(--text-1)',
-                    fontSize: 12,
+                    fontSize: 14,
                     cursor: 'pointer',
                     textAlign: 'left',
                   }}
@@ -1470,7 +1470,7 @@ export default function Workspace() {
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontWeight: 500 }}>{configOptionLabel(item.value, item.name)}</div>
                     {item.description && (
-                      <div style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 2 }}>{item.description}</div>
+                      <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>{item.description}</div>
                     )}
                   </div>
                 </button>
@@ -1503,7 +1503,7 @@ export default function Workspace() {
                   borderRadius: 8,
                   background: active ? 'var(--blue-light)' : 'transparent',
                   color: 'var(--text-1)',
-                  fontSize: 13,
+                  fontSize: 15,
                   cursor: 'pointer',
                   textAlign: 'left',
                 }}
@@ -1549,7 +1549,7 @@ function MiniContextCircle({ used, total }: { used: number; total: number }) {
           strokeLinecap="round"
         />
       </svg>
-      <span style={{ fontSize: 10, color: 'var(--text-3)' }}>
+      <span style={{ fontSize: 12, color: 'var(--text-3)' }}>
         {fmtTokens(used)}/{fmtTokens(total)}
       </span>
     </div>
@@ -1590,7 +1590,7 @@ function PlanBar({
           display: 'flex',
           alignItems: 'center',
           gap: 8,
-          fontSize: 12,
+          fontSize: 14,
           color: 'var(--text-1)',
           textAlign: 'left',
         }}
@@ -1605,7 +1605,7 @@ function PlanBar({
               borderRadius: 999,
               background: 'var(--blue-light)',
               color: 'var(--blue)',
-              fontSize: 11,
+              fontSize: 13,
               fontWeight: 600,
             }}
           >
@@ -1632,7 +1632,7 @@ function PlanBar({
               borderRadius: 7,
               background: 'var(--text-1)',
               color: 'white',
-              fontSize: 11,
+              fontSize: 13,
               fontWeight: 600,
             }}
           >
@@ -1643,7 +1643,7 @@ function PlanBar({
       {open && (
         <div style={{ padding: '0 20px 8px', display: 'flex', flexDirection: 'column', gap: 3 }}>
           {plan.length === 0 && (
-            <div style={{ fontSize: 12, color: 'var(--text-3)' }}>
+            <div style={{ fontSize: 14, color: 'var(--text-3)' }}>
               计划模式已开启，Agent 会先给出计划；如需执行可切换到执行模式。
             </div>
           )}
@@ -1654,7 +1654,7 @@ function PlanBar({
                 display: 'flex',
                 alignItems: 'center',
                 gap: 6,
-                fontSize: 12,
+                fontSize: 14,
                 color:
                   p.status === 'completed'
                     ? 'var(--green)'
@@ -1746,7 +1746,7 @@ function TaskPanel({ tasks, agents }: { tasks: TaskData[]; agents: AgentData[] }
                 border: active ? '1px solid var(--blue)' : '1px solid var(--border)',
                 background: active ? 'var(--blue-light)' : 'var(--bg-1)',
                 color: active ? 'var(--blue)' : 'var(--text-3)',
-                fontSize: 11,
+                fontSize: 13,
                 fontWeight: 500,
                 cursor: 'pointer',
                 transition: 'all 0.15s',
@@ -1759,7 +1759,7 @@ function TaskPanel({ tasks, agents }: { tasks: TaskData[]; agents: AgentData[] }
                   style={{
                     background: active ? 'var(--blue)' : 'var(--bg-3)',
                     color: active ? 'white' : 'var(--text-2)',
-                    fontSize: 9,
+                    fontSize: 11,
                     fontWeight: 700,
                     padding: '1px 5px',
                     borderRadius: 10,
@@ -1779,7 +1779,7 @@ function TaskPanel({ tasks, agents }: { tasks: TaskData[]; agents: AgentData[] }
         {filtered.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '40px 12px', color: 'var(--text-3)' }}>
             <Archive size={28} style={{ opacity: 0.2, marginBottom: 8 }} />
-            <div style={{ fontSize: 12 }}>暂无{TASK_TABS.find((t) => t.key === tab)?.label}任务</div>
+            <div style={{ fontSize: 14 }}>暂无{TASK_TABS.find((t) => t.key === tab)?.label}任务</div>
           </div>
         ) : (
           filtered.map((task) => {
@@ -1797,14 +1797,14 @@ function TaskPanel({ tasks, agents }: { tasks: TaskData[]; agents: AgentData[] }
                 }}
               >
                 <div
-                  style={{ fontSize: 13, fontWeight: 500, marginBottom: 4, lineHeight: 1.4, color: 'var(--text-1)' }}
+                  style={{ fontSize: 15, fontWeight: 500, marginBottom: 4, lineHeight: 1.4, color: 'var(--text-1)' }}
                 >
                   {task.title}
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                   <span
                     style={{
-                      fontSize: 10,
+                      fontSize: 12,
                       color: 'white',
                       fontWeight: 600,
                       padding: '2px 8px',
@@ -1817,7 +1817,7 @@ function TaskPanel({ tasks, agents }: { tasks: TaskData[]; agents: AgentData[] }
                   {ag && (
                     <span
                       style={{
-                        fontSize: 10,
+                        fontSize: 12,
                         padding: '2px 8px',
                         borderRadius: 10,
                         background: agentColor(ag),
@@ -1828,14 +1828,14 @@ function TaskPanel({ tasks, agents }: { tasks: TaskData[]; agents: AgentData[] }
                       {ag.name}
                     </span>
                   )}
-                  <span style={{ fontSize: 10, color: 'var(--text-3)', marginLeft: 'auto' }}>
+                  <span style={{ fontSize: 12, color: 'var(--text-3)', marginLeft: 'auto' }}>
                     {formatTime(task.created_at)}
                   </span>
                 </div>
                 {task.description && (
                   <div
                     style={{
-                      fontSize: 11,
+                      fontSize: 13,
                       color: 'var(--text-3)',
                       marginTop: 6,
                       lineHeight: 1.4,
@@ -1914,7 +1914,7 @@ function ToolCallPanel({ tc }: { tc: ToolCallInfo; isStreaming: boolean }) {
           alignItems: 'center',
           gap: 6,
           textAlign: 'left',
-          fontSize: 12,
+          fontSize: 14,
           color: 'var(--text-1)',
         }}
       >
@@ -1928,7 +1928,7 @@ function ToolCallPanel({ tc }: { tc: ToolCallInfo; isStreaming: boolean }) {
             display: 'flex',
             alignItems: 'center',
             gap: 3,
-            fontSize: 10,
+            fontSize: 12,
             flexShrink: 0,
             fontWeight: 500,
           }}
@@ -1941,7 +1941,7 @@ function ToolCallPanel({ tc }: { tc: ToolCallInfo; isStreaming: boolean }) {
           style={{
             padding: '6px 10px',
             borderTop: '1px solid var(--border)',
-            fontSize: 11,
+            fontSize: 13,
             minWidth: 0,
             overflowX: 'hidden',
           }}
@@ -1957,7 +1957,7 @@ function ToolCallPanel({ tc }: { tc: ToolCallInfo; isStreaming: boolean }) {
                     padding: '2px 8px',
                     borderRadius: 4,
                     background: 'var(--bg-2)',
-                    fontSize: 10,
+                    fontSize: 12,
                     marginRight: 4,
                     color: 'var(--text-2)',
                     fontFamily: 'monospace',
@@ -1974,14 +1974,14 @@ function ToolCallPanel({ tc }: { tc: ToolCallInfo; isStreaming: boolean }) {
           )}
           {tc.rawInput != null && (
             <div style={{ marginBottom: 6 }}>
-              <div style={{ fontSize: 10, color: 'var(--text-3)', marginBottom: 3, fontWeight: 600 }}>参数</div>
+              <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 3, fontWeight: 600 }}>参数</div>
               <div
                 style={{
                   background: 'var(--bg-2)',
                   padding: 8,
                   borderRadius: 6,
                   fontFamily: 'monospace',
-                  fontSize: 10,
+                  fontSize: 12,
                   whiteSpace: 'pre',
                   maxHeight: 120,
                   maxWidth: '100%',
@@ -2005,7 +2005,7 @@ function ToolCallPanel({ tc }: { tc: ToolCallInfo; isStreaming: boolean }) {
                     padding: 8,
                     borderRadius: 6,
                     fontFamily: 'monospace',
-                    fontSize: 10,
+                    fontSize: 12,
                     whiteSpace: 'pre',
                     maxHeight: 200,
                     maxWidth: '100%',
@@ -2024,7 +2024,7 @@ function ToolCallPanel({ tc }: { tc: ToolCallInfo; isStreaming: boolean }) {
                     background: 'var(--bg-2)',
                     padding: 8,
                     borderRadius: 6,
-                    fontSize: 10,
+                    fontSize: 12,
                     whiteSpace: 'pre-wrap',
                     overflowWrap: 'anywhere',
                     maxHeight: 150,
@@ -2041,7 +2041,7 @@ function ToolCallPanel({ tc }: { tc: ToolCallInfo; isStreaming: boolean }) {
           ))}
           {tc.terminalOutput && (
             <div style={{ marginTop: 6 }}>
-              <div style={{ fontSize: 10, color: 'var(--text-3)', marginBottom: 3, fontWeight: 600 }}>终端输出</div>
+              <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 3, fontWeight: 600 }}>终端输出</div>
               <div
                 style={{
                   background: '#0f172a',
@@ -2049,7 +2049,7 @@ function ToolCallPanel({ tc }: { tc: ToolCallInfo; isStreaming: boolean }) {
                   padding: 8,
                   borderRadius: 6,
                   fontFamily: 'monospace',
-                  fontSize: 10,
+                  fontSize: 12,
                   whiteSpace: 'pre',
                   maxHeight: 160,
                   maxWidth: '100%',
@@ -2063,10 +2063,10 @@ function ToolCallPanel({ tc }: { tc: ToolCallInfo; isStreaming: boolean }) {
           )}
           {tc.progress && tc.progress.length > 0 && (
             <div style={{ marginTop: 6 }}>
-              <div style={{ fontSize: 10, color: 'var(--text-3)', marginBottom: 3, fontWeight: 600 }}>进度</div>
+              <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 3, fontWeight: 600 }}>进度</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                 {tc.progress.slice(-6).map((p, i) => (
-                  <div key={i} style={{ fontSize: 10, color: 'var(--text-2)' }}>
+                  <div key={i} style={{ fontSize: 12, color: 'var(--text-2)' }}>
                     • {p}
                   </div>
                 ))}
@@ -2075,14 +2075,14 @@ function ToolCallPanel({ tc }: { tc: ToolCallInfo; isStreaming: boolean }) {
           )}
           {tc.rawOutput != null && (
             <div style={{ marginTop: 6 }}>
-              <div style={{ fontSize: 10, color: 'var(--text-3)', marginBottom: 3, fontWeight: 600 }}>结果</div>
+              <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 3, fontWeight: 600 }}>结果</div>
               <div
                 style={{
                   background: 'var(--bg-2)',
                   padding: 8,
                   borderRadius: 6,
                   fontFamily: 'monospace',
-                  fontSize: 10,
+                  fontSize: 12,
                   whiteSpace: 'pre',
                   maxHeight: 120,
                   maxWidth: '100%',
@@ -2122,8 +2122,8 @@ function BlockingInteractionBar({ agent, panel }: { agent: AgentData | undefined
       </div>
       <div style={{ width: 'min(760px, 75%)', minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-          <span style={{ fontSize: 12, fontWeight: 600 }}>{agent?.name || 'Agent'}</span>
-          <span style={{ fontSize: 10, color: 'var(--red)', fontWeight: 700 }}>等待确认</span>
+          <span style={{ fontSize: 14, fontWeight: 600 }}>{agent?.name || 'Agent'}</span>
+          <span style={{ fontSize: 12, color: 'var(--red)', fontWeight: 700 }}>等待确认</span>
         </div>
         {panel}
       </div>
@@ -2203,8 +2203,8 @@ function PermissionCard({
           <Wrench size={16} />
         </div>
         <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-1)' }}>需要确认工具调用</div>
-          <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 3 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-1)' }}>需要确认工具调用</div>
+          <div style={{ fontSize: 14, color: 'var(--text-3)', marginTop: 3 }}>
             Agent 正在等待你的权限决定，确认前本轮会暂停。
           </div>
         </div>
@@ -2214,7 +2214,7 @@ function PermissionCard({
             borderRadius: 999,
             background: '#fef2f2',
             color: 'var(--red)',
-            fontSize: 11,
+            fontSize: 13,
             fontWeight: 700,
           }}
         >
@@ -2241,7 +2241,7 @@ function PermissionCard({
                 border: allow ? 'none' : '1px solid var(--border)',
                 background: allow ? 'var(--blue)' : rejectAlways ? '#fef2f2' : 'var(--bg-1)',
                 color: allow ? 'white' : rejectAlways ? 'var(--red)' : 'var(--text-2)',
-                fontSize: 12,
+                fontSize: 14,
                 fontWeight: 600,
                 cursor: submitting ? 'default' : 'pointer',
               }}
@@ -2260,7 +2260,7 @@ function PermissionCard({
             border: '1px solid var(--border)',
             background: 'var(--bg-1)',
             color: 'var(--text-3)',
-            fontSize: 12,
+            fontSize: 14,
             fontWeight: 600,
             cursor: submitting ? 'default' : 'pointer',
           }}
@@ -2323,9 +2323,9 @@ function ElicitationCard({
           overflow: 'hidden',
         }}
       >
-        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>Agent 请求你打开页面</div>
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 6 }}>Agent 请求你打开页面</div>
         {request.message && (
-          <div style={{ fontSize: 12, color: 'var(--text-2)', marginBottom: 8, lineHeight: 1.5 }}>
+          <div style={{ fontSize: 14, color: 'var(--text-2)', marginBottom: 8, lineHeight: 1.5 }}>
             {request.message}
           </div>
         )}
@@ -2333,7 +2333,7 @@ function ElicitationCard({
           href={schema.url}
           target="_blank"
           rel="noreferrer"
-          style={{ display: 'block', fontSize: 12, color: 'var(--blue)', overflowWrap: 'anywhere', marginBottom: 12 }}
+          style={{ display: 'block', fontSize: 14, color: 'var(--blue)', overflowWrap: 'anywhere', marginBottom: 12 }}
         >
           {schema.url}
         </a>
@@ -2348,7 +2348,7 @@ function ElicitationCard({
               border: 'none',
               background: 'var(--blue)',
               color: 'white',
-              fontSize: 12,
+              fontSize: 14,
               fontWeight: 600,
               cursor: 'pointer',
             }}
@@ -2365,7 +2365,7 @@ function ElicitationCard({
               border: '1px solid var(--border)',
               background: 'var(--bg-1)',
               color: 'var(--text-3)',
-              fontSize: 12,
+              fontSize: 14,
               fontWeight: 600,
               cursor: 'pointer',
             }}
@@ -2406,9 +2406,9 @@ function ElicitationCard({
           <MessageSquareIcon size={16} />
         </div>
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 14, fontWeight: 700 }}>Agent 提问</div>
+          <div style={{ fontSize: 15, fontWeight: 700 }}>Agent 提问</div>
           {request.message && (
-            <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 3, lineHeight: 1.5 }}>{request.message}</div>
+            <div style={{ fontSize: 14, color: 'var(--text-2)', marginTop: 3, lineHeight: 1.5 }}>{request.message}</div>
           )}
         </div>
       </div>
@@ -2422,15 +2422,15 @@ function ElicitationCard({
           return (
             <label
               key={key}
-              style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: 11, color: 'var(--text-3)' }}
+              style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: 13, color: 'var(--text-3)' }}
             >
               <span style={{ fontWeight: 600 }}>
                 {label}
                 {required && <span style={{ color: 'var(--red)' }}> *</span>}
               </span>
-              {prop.description && <span style={{ fontSize: 10, lineHeight: 1.4 }}>{prop.description}</span>}
+              {prop.description && <span style={{ fontSize: 12, lineHeight: 1.4 }}>{prop.description}</span>}
               {prop.type === 'boolean' ? (
-                <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-2)', fontSize: 12 }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-2)', fontSize: 14 }}>
                   <input
                     type="checkbox"
                     checked={values[key] === true}
@@ -2461,7 +2461,7 @@ function ElicitationCard({
                           border: selected ? '1px solid var(--blue)' : '1px solid var(--border)',
                           background: selected ? 'var(--blue-light)' : 'var(--bg-1)',
                           color: selected ? 'var(--blue)' : 'var(--text-2)',
-                          fontSize: 12,
+                          fontSize: 14,
                           cursor: 'pointer',
                         }}
                       >
@@ -2509,7 +2509,7 @@ function ElicitationCard({
                   }}
                 />
               )}
-              {errors[key] && <span style={{ color: 'var(--red)', fontSize: 10 }}>{errors[key]}</span>}
+              {errors[key] && <span style={{ color: 'var(--red)', fontSize: 12 }}>{errors[key]}</span>}
             </label>
           )
         })}
@@ -2525,7 +2525,7 @@ function ElicitationCard({
             border: 'none',
             background: 'var(--blue)',
             color: 'white',
-            fontSize: 12,
+            fontSize: 14,
             fontWeight: 600,
             cursor: 'pointer',
           }}
@@ -2542,7 +2542,7 @@ function ElicitationCard({
             border: '1px solid var(--border)',
             background: 'var(--bg-1)',
             color: 'var(--text-2)',
-            fontSize: 12,
+            fontSize: 14,
             fontWeight: 600,
             cursor: 'pointer',
           }}
@@ -2559,7 +2559,7 @@ function ElicitationCard({
             border: '1px solid var(--border)',
             background: 'var(--bg-1)',
             color: 'var(--text-3)',
-            fontSize: 12,
+            fontSize: 14,
             fontWeight: 600,
             cursor: 'pointer',
           }}
@@ -2609,7 +2609,7 @@ interface TurnStats {
 const statChipStyle: React.CSSProperties = {
   padding: '3px 8px',
   borderRight: '1px solid var(--border)',
-  fontSize: 10,
+  fontSize: 12,
   whiteSpace: 'nowrap',
   display: 'flex',
   alignItems: 'center',
@@ -2719,12 +2719,12 @@ function ChatBubble({
             flexDirection: isHuman ? 'row-reverse' : 'row',
           }}
         >
-          <span style={{ fontSize: 12, fontWeight: 600 }}>{isHuman ? '你' : agent?.name || 'Agent'}</span>
+          <span style={{ fontSize: 14, fontWeight: 600 }}>{isHuman ? '你' : agent?.name || 'Agent'}</span>
           {timestamp && (
-            <span style={{ fontSize: 10, color: 'var(--text-3)' }}>{formatTime(timestamp)}</span>
+            <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{formatTime(timestamp)}</span>
           )}
           {streaming && (
-            <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: 'var(--blue)' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--blue)' }}>
               <Loader2 size={10} style={{ animation: 'spin 1s linear infinite' }} /> {streamingLabel}
             </span>
           )}
@@ -2774,7 +2774,7 @@ function ChatBubble({
               alignItems: 'center',
               gap: 0,
               marginTop: 6,
-              fontSize: 10,
+              fontSize: 12,
               color: 'var(--text-3)',
               background: 'var(--bg-2)',
               borderRadius: 6,
@@ -2829,14 +2829,14 @@ function ProcessBlockView({ block, isStreaming }: { block: TurnProcessBlock; isS
   if (block.kind === 'tool') return <ToolCallPanel tc={block.toolCall} isStreaming={isStreaming} />
   if (block.kind === 'thinking') {
     return (
-      <div style={{ borderRadius: 6, background: 'var(--bg-2)', padding: '8px 10px', color: 'var(--text-2)', fontSize: 12, lineHeight: 1.6, fontStyle: 'italic', overflowWrap: 'anywhere' }}>
-        <div style={{ fontSize: 10, color: 'var(--text-3)', marginBottom: 4 }}>思考过程</div>
+      <div style={{ borderRadius: 6, background: 'var(--bg-2)', padding: '8px 10px', color: 'var(--text-2)', fontSize: 14, lineHeight: 1.6, fontStyle: 'italic', overflowWrap: 'anywhere' }}>
+        <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 4 }}>思考过程</div>
         {block.text}
       </div>
     )
   }
   if (block.kind === 'stage') {
-    return <div style={{ fontSize: 12, color: 'var(--text-3)' }}>{block.text}</div>
+    return <div style={{ fontSize: 14, color: 'var(--text-3)' }}>{block.text}</div>
   }
   return <ProcessNoteBlock text={block.text} />
 }
@@ -2859,7 +2859,7 @@ function ProcessNoteBlock({ text }: { text: string }) {
           gap: 6,
           cursor: 'pointer',
           color: 'var(--text-2)',
-          fontSize: 12,
+          fontSize: 14,
           textAlign: 'left',
         }}
       >
@@ -2870,7 +2870,7 @@ function ProcessNoteBlock({ text }: { text: string }) {
         </span>
       </button>
       {open && (
-        <div style={{ borderTop: '1px solid var(--border)', padding: '8px 10px', fontSize: 12, lineHeight: 1.6, color: 'var(--text-2)', overflowWrap: 'anywhere', maxHeight: 220, overflow: 'auto' }}>
+        <div style={{ borderTop: '1px solid var(--border)', padding: '8px 10px', fontSize: 14, lineHeight: 1.6, color: 'var(--text-2)', overflowWrap: 'anywhere', maxHeight: 220, overflow: 'auto' }}>
           <MarkdownRenderer content={text} />
         </div>
       )}
@@ -2933,7 +2933,7 @@ function ChatBubbleBlockView({
               border: 'none',
               background: 'var(--bg-2)',
               color: 'var(--text-3)',
-              fontSize: 11,
+              fontSize: 13,
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
@@ -2950,7 +2950,7 @@ function ChatBubbleBlockView({
             <div
               style={{
                 padding: '8px 10px',
-                fontSize: 12,
+                fontSize: 14,
                 color: 'var(--text-2)',
                 fontStyle: 'italic',
                 lineHeight: 1.6,
@@ -3085,7 +3085,7 @@ function NewTaskModal({
         <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>新建任务</h3>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>
+            <label style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>
               任务标题
             </label>
             <input
@@ -3097,7 +3097,7 @@ function NewTaskModal({
                 padding: '10px 12px',
                 borderRadius: 8,
                 border: '1px solid var(--border)',
-                fontSize: 13,
+                fontSize: 15,
                 background: 'var(--bg-1)',
                 color: 'var(--text-1)',
                 outline: 'none',
@@ -3106,7 +3106,7 @@ function NewTaskModal({
             />
           </div>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>
+            <label style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>
               描述
             </label>
             <textarea
@@ -3119,7 +3119,7 @@ function NewTaskModal({
                 padding: '10px 12px',
                 borderRadius: 8,
                 border: '1px solid var(--border)',
-                fontSize: 13,
+                fontSize: 15,
                 background: 'var(--bg-1)',
                 color: 'var(--text-1)',
                 outline: 'none',
@@ -3129,7 +3129,7 @@ function NewTaskModal({
             />
           </div>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>
+            <label style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>
               指派 Agent
             </label>
             <select
@@ -3140,7 +3140,7 @@ function NewTaskModal({
                 padding: '10px 12px',
                 borderRadius: 8,
                 border: '1px solid var(--border)',
-                fontSize: 13,
+                fontSize: 15,
                 background: 'var(--bg-1)',
                 color: 'var(--text-1)',
                 outline: 'none',
@@ -3164,7 +3164,7 @@ function NewTaskModal({
                 border: 'none',
                 background: 'var(--blue)',
                 color: 'white',
-                fontSize: 13,
+                fontSize: 15,
                 fontWeight: 500,
                 cursor: 'pointer',
                 opacity: title.trim() ? 1 : 0.5,
@@ -3180,7 +3180,7 @@ function NewTaskModal({
                 border: '1px solid var(--border)',
                 background: 'var(--bg-0)',
                 color: 'var(--text-2)',
-                fontSize: 13,
+                fontSize: 15,
                 cursor: 'pointer',
               }}
             >

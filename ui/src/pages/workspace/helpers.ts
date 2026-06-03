@@ -111,7 +111,7 @@ export const sessionMenuItemStyle: React.CSSProperties = {
   background: 'transparent',
   color: 'var(--text-1)',
   cursor: 'pointer',
-  fontSize: 12,
+  fontSize: 14,
   textAlign: 'left',
 }
 

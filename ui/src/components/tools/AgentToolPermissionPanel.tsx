@@ -64,7 +64,7 @@ export function AgentToolPermissionPanel({
       >
         <div>
           <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Agent 工具权限</h2>
-          <p style={{ color: 'var(--text-3)', fontSize: 13, margin: '6px 0 0' }}>
+          <p style={{ color: 'var(--text-3)', fontSize: 15, margin: '6px 0 0' }}>
             Team 工具默认不全局开放，需要给具体 Agent 绑定方法或套用权限模板。
           </p>
         </div>
@@ -84,7 +84,7 @@ export function AgentToolPermissionPanel({
       </div>
 
       {!selectedAgent && (
-        <div style={{ marginTop: 14, fontSize: 13, color: 'var(--text-3)' }}>
+        <div style={{ marginTop: 14, fontSize: 15, color: 'var(--text-3)' }}>
           选择一个 Agent 后，可以配置它能看到哪些 team.* MCP 方法。
         </div>
       )}
@@ -105,11 +105,11 @@ export function AgentToolPermissionPanel({
                 onClick={() => onApplyProfile(profile.id, selectedAgent.id)}
                 style={{ ...profileCard, textAlign: 'left' }}
               >
-                <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--text-1)' }}>{profile.name}</div>
-                <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 4, lineHeight: 1.5 }}>
+                <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-1)' }}>{profile.name}</div>
+                <div style={{ fontSize: 14, color: 'var(--text-3)', marginTop: 4, lineHeight: 1.5 }}>
                   {profile.description}
                 </div>
-                <div style={{ fontSize: 11, color: 'var(--blue)', marginTop: 8 }}>
+                <div style={{ fontSize: 13, color: 'var(--blue)', marginTop: 8 }}>
                   {profile.toolNames.length} 个方法
                 </div>
               </button>
@@ -139,13 +139,13 @@ export function AgentToolPermissionPanel({
                     }
                   />
                   <span style={{ minWidth: 0 }}>
-                    <span style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--text-1)' }}>
+                    <span style={{ display: 'block', fontSize: 14, fontWeight: 700, color: 'var(--text-1)' }}>
                       {tool.name}
                     </span>
                     <span
                       style={{
                         display: 'block',
-                        fontSize: 11,
+                        fontSize: 13,
                         color: 'var(--text-3)',
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
@@ -155,7 +155,7 @@ export function AgentToolPermissionPanel({
                       {tool.display_name}
                     </span>
                     {binding?.enabled === 0 && (
-                      <span style={{ display: 'block', fontSize: 11, color: 'var(--red)', marginTop: 3 }}>
+                      <span style={{ display: 'block', fontSize: 13, color: 'var(--red)', marginTop: 3 }}>
                         已显式隐藏
                       </span>
                     )}
@@ -181,7 +181,7 @@ const inputStyle: React.CSSProperties = {
   padding: '9px 12px',
   borderRadius: 8,
   border: '1px solid var(--border)',
-  fontSize: 13,
+  fontSize: 15,
   background: 'var(--bg-1)',
   color: 'var(--text-1)',
   outline: 'none',

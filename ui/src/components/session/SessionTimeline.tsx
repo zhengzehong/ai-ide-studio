@@ -93,7 +93,7 @@ export default function SessionTimeline({ session, agent }: SessionTimelineProps
       <div style={summaryStyle}>
         <div style={{ flex: '1 1 200px', minWidth: 0 }}>
           <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 4 }}>{session.taskName}</div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: c.text2 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, color: c.text2 }}>
             <div
               style={{
                 width: 22,
@@ -103,7 +103,7 @@ export default function SessionTimeline({ session, agent }: SessionTimelineProps
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                fontSize: 9,
+                fontSize: 11,
                 fontWeight: 700,
                 color: c.bg0,
               }}
@@ -115,17 +115,17 @@ export default function SessionTimeline({ session, agent }: SessionTimelineProps
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: c.text2 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, color: c.text2 }}>
           <Clock size={14} />
           <span>{session.duration}</span>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: c.text2 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, color: c.text2 }}>
           <FileCode size={14} />
           <span>{fileCount} files</span>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: c.text2 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, color: c.text2 }}>
           <span style={{ padding: '2px 8px', borderRadius: 4, background: c.bg2, fontWeight: 500 }}>
             {session.stage}
           </span>
@@ -169,7 +169,7 @@ export default function SessionTimeline({ session, agent }: SessionTimelineProps
               {/* Time */}
               <div
                 style={{
-                  fontSize: 11,
+                  fontSize: 13,
                   color: c.text3,
                   fontFamily: 'ui-monospace, monospace',
                   paddingTop: 4,
@@ -222,12 +222,12 @@ export default function SessionTimeline({ session, agent }: SessionTimelineProps
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                  <span style={{ fontSize: 14, lineHeight: 1.2, flexShrink: 0 }}>{meta.icon}</span>
+                  <span style={{ fontSize: 15, lineHeight: 1.2, flexShrink: 0 }}>{meta.icon}</span>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
                       <span
                         style={{
-                          fontSize: 10,
+                          fontSize: 12,
                           fontWeight: 600,
                           textTransform: 'uppercase',
                           letterSpacing: '0.04em',
@@ -243,7 +243,7 @@ export default function SessionTimeline({ session, agent }: SessionTimelineProps
                           <ChevronRight size={12} color={c.text3} />
                         ))}
                     </div>
-                    <div style={{ fontSize: 13, lineHeight: 1.5, color: c.text1 }}>{action.content}</div>
+                    <div style={{ fontSize: 15, lineHeight: 1.5, color: c.text1 }}>{action.content}</div>
 
                     {action.files && action.files.length > 0 && (
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 8 }}>
@@ -251,7 +251,7 @@ export default function SessionTimeline({ session, agent }: SessionTimelineProps
                           <span
                             key={file}
                             style={{
-                              fontSize: 10,
+                              fontSize: 12,
                               fontFamily: 'ui-monospace, monospace',
                               padding: '2px 6px',
                               borderRadius: 4,
@@ -273,7 +273,7 @@ export default function SessionTimeline({ session, agent }: SessionTimelineProps
                           padding: '8px 10px',
                           background: c.bg3,
                           borderRadius: 6,
-                          fontSize: 12,
+                          fontSize: 14,
                           color: c.text2,
                           lineHeight: 1.5,
                           fontFamily: 'ui-monospace, monospace',

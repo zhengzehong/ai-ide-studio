@@ -78,7 +78,7 @@ function ProjectSwitcher() {
           <div className="project-switcher-dropdown">
             <div className="project-switcher-header">切换项目</div>
             {projects.length === 0 && (
-              <div style={{ padding: '12px 16px', color: 'var(--text-3)', fontSize: 13 }}>
+              <div style={{ padding: '12px 16px', color: 'var(--text-3)', fontSize: 15 }}>
                 暂无项目，请创建
               </div>
             )}
@@ -107,14 +107,14 @@ function ProjectSwitcher() {
               </button>
             ) : (
               <form onSubmit={handleCreate} style={{ padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <input name="name" placeholder="项目名称" required className="command-input" style={{ fontSize: 13, padding: '4px 8px' }} />
-                <input name="workDir" placeholder="工作目录路径 (如 D:\my-project)" required className="command-input" style={{ fontSize: 13, padding: '4px 8px' }} />
-                <input name="description" placeholder="描述（可选）" className="command-input" style={{ fontSize: 13, padding: '4px 8px' }} />
+                <input name="name" placeholder="项目名称" required className="command-input" style={{ fontSize: 15, padding: '4px 8px' }} />
+                <input name="workDir" placeholder="工作目录路径 (如 D:\my-project)" required className="command-input" style={{ fontSize: 15, padding: '4px 8px' }} />
+                <input name="description" placeholder="描述（可选）" className="command-input" style={{ fontSize: 15, padding: '4px 8px' }} />
                 <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                  <button type="button" onClick={() => setShowCreate(false)} style={{ fontSize: 12, padding: '3px 8px', background: 'var(--bg-3)', border: 'none', borderRadius: 4, cursor: 'pointer' }}>
+                  <button type="button" onClick={() => setShowCreate(false)} style={{ fontSize: 14, padding: '3px 8px', background: 'var(--bg-3)', border: 'none', borderRadius: 4, cursor: 'pointer' }}>
                     取消
                   </button>
-                  <button type="submit" style={{ fontSize: 12, padding: '3px 8px', background: 'var(--blue)', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}>
+                  <button type="submit" style={{ fontSize: 14, padding: '3px 8px', background: 'var(--blue)', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}>
                     创建
                   </button>
                 </div>

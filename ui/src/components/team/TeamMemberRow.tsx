@@ -43,7 +43,7 @@ export function TeamMemberRow({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            fontSize: 11,
+            fontSize: 13,
             fontWeight: 700,
             flexShrink: 0,
           }}
@@ -54,7 +54,7 @@ export function TeamMemberRow({
           <span
             style={{
               display: 'block',
-              fontSize: 12,
+              fontSize: 14,
               fontWeight: 700,
               color: 'var(--text-1)',
               overflow: 'hidden',
@@ -64,11 +64,11 @@ export function TeamMemberRow({
           >
             {member.name}
           </span>
-          <span style={{ display: 'block', fontSize: 10, color: 'var(--text-3)', marginTop: 2 }}>
+          <span style={{ display: 'block', fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>
             {roleLabel(member.role)} · {agent?.runtime || 'agent'} · {statusLabels[member.status] || member.status}
           </span>
         </span>
-        {active && <span style={{ fontSize: 10, color: 'var(--blue)', fontWeight: 700, flexShrink: 0 }}>当前</span>}
+        {active && <span style={{ fontSize: 12, color: 'var(--blue)', fontWeight: 700, flexShrink: 0 }}>当前</span>}
       </div>
     </button>
   )

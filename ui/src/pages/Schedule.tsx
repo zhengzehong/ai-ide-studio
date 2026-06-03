@@ -31,18 +31,18 @@ function describeCron(cron: string): string {
 }
 
 function formatTime(iso: string | null) {
-  if (!iso) return <span style={{ color: 'var(--text-3)', fontSize: 12 }}>—</span>;
+  if (!iso) return <span style={{ color: 'var(--text-3)', fontSize: 14 }}>—</span>;
   const d = new Date(iso);
   const now = new Date();
   const diff = now.getTime() - d.getTime();
-  if (diff >= 0 && diff < 60_000) return <span style={{ color: 'var(--green)', fontSize: 12 }}>刚刚</span>;
-  if (diff >= 0 && diff < 3_600_000) return <span style={{ fontSize: 12 }}>{Math.floor(diff / 60_000)} 分钟前</span>;
-  if (diff >= 0 && diff < 86_400_000) return <span style={{ fontSize: 12 }}>{Math.floor(diff / 3_600_000)} 小时前</span>;
+  if (diff >= 0 && diff < 60_000) return <span style={{ color: 'var(--green)', fontSize: 14 }}>刚刚</span>;
+  if (diff >= 0 && diff < 3_600_000) return <span style={{ fontSize: 14 }}>{Math.floor(diff / 60_000)} 分钟前</span>;
+  if (diff >= 0 && diff < 86_400_000) return <span style={{ fontSize: 14 }}>{Math.floor(diff / 3_600_000)} 小时前</span>;
   const month = (d.getMonth() + 1).toString().padStart(2, '0');
   const day = d.getDate().toString().padStart(2, '0');
   const hour = d.getHours().toString().padStart(2, '0');
   const min = d.getMinutes().toString().padStart(2, '0');
-  return <span style={{ fontSize: 12 }}>{month}-{day} {hour}:{min}</span>;
+  return <span style={{ fontSize: 14 }}>{month}-{day} {hour}:{min}</span>;
 }
 
 export default function Schedule() {
@@ -74,11 +74,11 @@ export default function Schedule() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, flexShrink: 0 }}>
         <div>
           <h1 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>自动化规则</h1>
-          <p style={{ fontSize: 12, color: 'var(--text-3)', margin: '4px 0 0' }}>
+          <p style={{ fontSize: 14, color: 'var(--text-3)', margin: '4px 0 0' }}>
             共 {rules.length} 条规则，{rules.filter(r => r.enabled).length} 条启用中
           </p>
         </div>
-        <button onClick={handleNew} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 'var(--radius)', border: 'none', background: 'var(--blue)', color: 'white', fontSize: 13, fontWeight: 500, cursor: 'pointer', boxShadow: 'var(--shadow-sm)' }}>
+        <button onClick={handleNew} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 'var(--radius)', border: 'none', background: 'var(--blue)', color: 'white', fontSize: 15, fontWeight: 500, cursor: 'pointer', boxShadow: 'var(--shadow-sm)' }}>
           <Plus size={14} /> 新建规则
         </button>
       </div>
@@ -88,7 +88,7 @@ export default function Schedule() {
           <EmptyState text="暂无定时规则，点击「新建规则」创建第一条" />
         ) : (
           <div style={{ borderRadius: 'var(--radius-lg)', border: '1px solid var(--border)', overflow: 'hidden', background: 'var(--bg-0)' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '48px 1fr 140px 100px 100px 100px 100px 120px', padding: '10px 16px', background: 'var(--bg-2)', borderBottom: '1px solid var(--border)', fontSize: 12, fontWeight: 600, color: 'var(--text-2)' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '48px 1fr 140px 100px 100px 100px 100px 120px', padding: '10px 16px', background: 'var(--bg-2)', borderBottom: '1px solid var(--border)', fontSize: 14, fontWeight: 600, color: 'var(--text-2)' }}>
               <span style={{ textAlign: 'center' }}>启用</span>
               <span>规则</span>
               <span>Cron</span>
@@ -135,7 +135,7 @@ function RuleRow({ rule, onToggle, onDelete, onEdit, onRunNow }: {
 
   return (
     <div style={{ borderBottom: '1px solid var(--border-light)' }}>
-      <div style={{ display: 'grid', gridTemplateColumns: '48px 1fr 140px 100px 100px 100px 100px 120px', padding: '10px 16px', alignItems: 'center', fontSize: 13 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '48px 1fr 140px 100px 100px 100px 100px 120px', padding: '10px 16px', alignItems: 'center', fontSize: 15 }}>
         <div style={{ display: 'flex', justifyContent: 'center', cursor: 'pointer' }} onClick={() => onToggle(!rule.enabled)}>
           {rule.enabled ? <ToggleRight size={20} color="var(--blue)" /> : <ToggleLeft size={20} color="var(--text-3)" />}
         </div>
@@ -144,22 +144,22 @@ function RuleRow({ rule, onToggle, onDelete, onEdit, onRunNow }: {
           {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
           <div>
             <div style={{ fontWeight: 600, marginBottom: 2 }}>{rule.name}</div>
-            {rule.description && <div style={{ fontSize: 11, color: 'var(--text-3)' }}>{rule.description}</div>}
+            {rule.description && <div style={{ fontSize: 13, color: 'var(--text-3)' }}>{rule.description}</div>}
           </div>
         </div>
 
         <div>
-          <span style={{ fontFamily: 'monospace', fontSize: 11, background: 'var(--bg-2)', padding: '2px 6px', borderRadius: 4 }}>{rule.cron}</span>
-          <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>{describeCron(rule.cron)}</div>
+          <span style={{ fontFamily: 'monospace', fontSize: 13, background: 'var(--bg-2)', padding: '2px 6px', borderRadius: 4 }}>{rule.cron}</span>
+          <div style={{ fontSize: 13, color: 'var(--text-3)', marginTop: 2 }}>{describeCron(rule.cron)}</div>
         </div>
 
         <div>
-          <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: rule.action === 'send_prompt' ? 'var(--purple-light, #f3e8ff)' : 'var(--blue-light, #eff6ff)', color: rule.action === 'send_prompt' ? 'var(--purple, #7c3aed)' : 'var(--blue)' }}>
+          <span style={{ fontSize: 13, padding: '2px 8px', borderRadius: 10, background: rule.action === 'send_prompt' ? 'var(--purple-light, #f3e8ff)' : 'var(--blue-light, #eff6ff)', color: rule.action === 'send_prompt' ? 'var(--purple, #7c3aed)' : 'var(--blue)' }}>
             {actionLabel}
           </span>
         </div>
 
-        <div style={{ fontSize: 12 }}>
+        <div style={{ fontSize: 14 }}>
           <span style={{ color: 'var(--green)' }}>{rule.run_count}</span>
           {' / '}
           <span style={{ color: rule.fail_count > 0 ? 'var(--red)' : 'var(--text-3)' }}>{rule.fail_count}</span>
@@ -178,8 +178,8 @@ function RuleRow({ rule, onToggle, onDelete, onEdit, onRunNow }: {
           </button>
           {confirming ? (
             <>
-              <button onClick={() => { onDelete(); setConfirming(false); }} style={{ padding: '2px 6px', borderRadius: 4, border: 'none', background: 'var(--red)', color: 'white', fontSize: 10, cursor: 'pointer' }}>确认</button>
-              <button onClick={() => setConfirming(false)} style={{ padding: '2px 6px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-0)', fontSize: 10, cursor: 'pointer' }}>取消</button>
+              <button onClick={() => { onDelete(); setConfirming(false); }} style={{ padding: '2px 6px', borderRadius: 4, border: 'none', background: 'var(--red)', color: 'white', fontSize: 12, cursor: 'pointer' }}>确认</button>
+              <button onClick={() => setConfirming(false)} style={{ padding: '2px 6px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg-0)', fontSize: 12, cursor: 'pointer' }}>取消</button>
             </>
           ) : (
             <button onClick={() => setConfirming(true)} style={{ padding: 4, borderRadius: 4, border: 'none', background: 'transparent', color: 'var(--text-3)', cursor: 'pointer' }} title="删除">
@@ -191,13 +191,13 @@ function RuleRow({ rule, onToggle, onDelete, onEdit, onRunNow }: {
 
       {expanded && (
         <div style={{ padding: '8px 16px 12px 64px', background: 'var(--bg-1)', borderTop: '1px solid var(--border-light)' }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)', marginBottom: 6 }}>执行历史（最近 10 条）</div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-2)', marginBottom: 6 }}>执行历史（最近 10 条）</div>
           {executions.length === 0 ? (
-            <div style={{ fontSize: 12, color: 'var(--text-3)' }}>暂无执行记录</div>
+            <div style={{ fontSize: 14, color: 'var(--text-3)' }}>暂无执行记录</div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               {executions.map(ex => (
-                <div key={ex.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+                <div key={ex.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14 }}>
                   {ex.status === 'success' ? <CheckCircle2 size={12} color="var(--green)" /> : <XCircle size={12} color="var(--red)" />}
                   <span style={{ color: 'var(--text-2)', minWidth: 120 }}>{new Date(ex.triggered_at).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
                   {ex.task_id && <span style={{ color: 'var(--text-3)' }}>任务: {ex.task_id}</span>}
@@ -234,7 +234,7 @@ function RuleModal({ editRule, onClose }: { editRule: RuleData | null; onClose: 
 
   const st: React.CSSProperties = {
     width: '100%', padding: '9px 12px', borderRadius: 'var(--radius)',
-    border: '1px solid var(--border)', fontSize: 13, background: 'var(--bg-1)',
+    border: '1px solid var(--border)', fontSize: 15, background: 'var(--bg-1)',
     color: 'var(--text-1)', outline: 'none', boxSizing: 'border-box',
   };
 
@@ -285,24 +285,24 @@ function RuleModal({ editRule, onClose }: { editRule: RuleData | null; onClose: 
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)', marginBottom: 4, display: 'block' }}>规则名称 *</label>
+            <label style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-2)', marginBottom: 4, display: 'block' }}>规则名称 *</label>
             <input value={name} onChange={e => setName(e.target.value)} placeholder="例如：每日站会提醒" style={{ ...st, borderColor: errors.name ? 'var(--red)' : 'var(--border)' }} />
-            {errors.name && <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 2 }}>{errors.name}</div>}
+            {errors.name && <div style={{ fontSize: 13, color: 'var(--red)', marginTop: 2 }}>{errors.name}</div>}
           </div>
 
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <label style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-2)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
               Cron 表达式 *
-              <span style={{ fontSize: 10, color: 'var(--text-3)', fontWeight: 400 }}><HelpCircle size={11} style={{ verticalAlign: 'middle' }} /> 分 时 日 月 周</span>
+              <span style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 400 }}><HelpCircle size={11} style={{ verticalAlign: 'middle' }} /> 分 时 日 月 周</span>
             </label>
             <input value={cron} onChange={e => setCron(e.target.value)} placeholder="0 9 * * *" style={{ ...st, fontFamily: 'monospace', borderColor: errors.cron ? 'var(--red)' : 'var(--border)' }} />
-            {errors.cron && <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 2 }}>{errors.cron}</div>}
+            {errors.cron && <div style={{ fontSize: 13, color: 'var(--red)', marginTop: 2 }}>{errors.cron}</div>}
             {cron.trim().split(/\s+/).length === 5 && !errors.cron && (
-              <div style={{ fontSize: 11, color: 'var(--green)', marginTop: 2 }}><Clock size={11} style={{ verticalAlign: 'middle' }} /> {describeCron(cron.trim())}</div>
+              <div style={{ fontSize: 13, color: 'var(--green)', marginTop: 2 }}><Clock size={11} style={{ verticalAlign: 'middle' }} /> {describeCron(cron.trim())}</div>
             )}
             <div style={{ display: 'flex', gap: 4, marginTop: 6, flexWrap: 'wrap' }}>
               {CRON_TEMPLATES.map(t => (
-                <button key={t.cron} onClick={() => { setCron(t.cron); setErrors(prev => ({ ...prev, cron: '' })); }} style={{ padding: '3px 8px', borderRadius: 4, border: '1px solid var(--border)', background: cron === t.cron ? 'var(--blue-light, #eff6ff)' : 'var(--bg-1)', color: cron === t.cron ? 'var(--blue)' : 'var(--text-2)', fontSize: 11, cursor: 'pointer' }}>
+                <button key={t.cron} onClick={() => { setCron(t.cron); setErrors(prev => ({ ...prev, cron: '' })); }} style={{ padding: '3px 8px', borderRadius: 4, border: '1px solid var(--border)', background: cron === t.cron ? 'var(--blue-light, #eff6ff)' : 'var(--bg-1)', color: cron === t.cron ? 'var(--blue)' : 'var(--text-2)', fontSize: 13, cursor: 'pointer' }}>
                   {t.label}
                 </button>
               ))}
@@ -310,12 +310,12 @@ function RuleModal({ editRule, onClose }: { editRule: RuleData | null; onClose: 
           </div>
 
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)', marginBottom: 4, display: 'block' }}>动作类型</label>
+            <label style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-2)', marginBottom: 4, display: 'block' }}>动作类型</label>
             <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={() => setAction('create_task')} style={{ flex: 1, padding: '10px', borderRadius: 'var(--radius)', border: `2px solid ${action === 'create_task' ? 'var(--blue)' : 'var(--border)'}`, background: action === 'create_task' ? 'var(--blue-light, #eff6ff)' : 'var(--bg-1)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+              <button onClick={() => setAction('create_task')} style={{ flex: 1, padding: '10px', borderRadius: 'var(--radius)', border: `2px solid ${action === 'create_task' ? 'var(--blue)' : 'var(--border)'}`, background: action === 'create_task' ? 'var(--blue-light, #eff6ff)' : 'var(--bg-1)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, fontSize: 15 }}>
                 <Clock size={16} /> 创建任务
               </button>
-              <button onClick={() => setAction('send_prompt')} style={{ flex: 1, padding: '10px', borderRadius: 'var(--radius)', border: `2px solid ${action === 'send_prompt' ? 'var(--blue)' : 'var(--border)'}`, background: action === 'send_prompt' ? 'var(--blue-light, #eff6ff)' : 'var(--bg-1)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+              <button onClick={() => setAction('send_prompt')} style={{ flex: 1, padding: '10px', borderRadius: 'var(--radius)', border: `2px solid ${action === 'send_prompt' ? 'var(--blue)' : 'var(--border)'}`, background: action === 'send_prompt' ? 'var(--blue-light, #eff6ff)' : 'var(--bg-1)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, fontSize: 15 }}>
                 <Send size={16} /> 发送 Prompt
               </button>
             </div>
@@ -324,16 +324,16 @@ function RuleModal({ editRule, onClose }: { editRule: RuleData | null; onClose: 
           {action === 'create_task' && (
             <>
               <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)', marginBottom: 4, display: 'block' }}>任务标题 *</label>
+                <label style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-2)', marginBottom: 4, display: 'block' }}>任务标题 *</label>
                 <input value={taskTitle} onChange={e => setTaskTitle(e.target.value)} placeholder="触发时创建的任务标题" style={{ ...st, borderColor: errors.taskTitle ? 'var(--red)' : 'var(--border)' }} />
-                {errors.taskTitle && <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 2 }}>{errors.taskTitle}</div>}
+                {errors.taskTitle && <div style={{ fontSize: 13, color: 'var(--red)', marginTop: 2 }}>{errors.taskTitle}</div>}
               </div>
               <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)', marginBottom: 4, display: 'block' }}>任务描述</label>
+                <label style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-2)', marginBottom: 4, display: 'block' }}>任务描述</label>
                 <textarea value={taskDesc} onChange={e => setTaskDesc(e.target.value)} placeholder="补充任务详情" rows={2} style={{ ...st, resize: 'vertical' }} />
               </div>
               <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)', marginBottom: 4, display: 'block' }}>指派 Agent</label>
+                <label style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-2)', marginBottom: 4, display: 'block' }}>指派 Agent</label>
                 <select value={assignAgentId} onChange={e => setAssignAgentId(e.target.value)} style={st}>
                   <option value="">不指派</option>
                   {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
@@ -345,37 +345,37 @@ function RuleModal({ editRule, onClose }: { editRule: RuleData | null; onClose: 
           {action === 'send_prompt' && (
             <>
               <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)', marginBottom: 4, display: 'block' }}>目标 Agent *</label>
+                <label style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-2)', marginBottom: 4, display: 'block' }}>目标 Agent *</label>
                 <select value={targetAgentId} onChange={e => setTargetAgentId(e.target.value)} style={{ ...st, borderColor: errors.targetAgentId ? 'var(--red)' : 'var(--border)' }}>
                   <option value="">请选择 Agent</option>
                   {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                 </select>
-                {errors.targetAgentId && <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 2 }}>{errors.targetAgentId}</div>}
+                {errors.targetAgentId && <div style={{ fontSize: 13, color: 'var(--red)', marginTop: 2 }}>{errors.targetAgentId}</div>}
               </div>
               <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)', marginBottom: 4, display: 'block' }}>Prompt 内容 *</label>
+                <label style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-2)', marginBottom: 4, display: 'block' }}>Prompt 内容 *</label>
                 <textarea value={prompt} onChange={e => setPrompt(e.target.value)} placeholder="发送给 Agent 的消息，支持 {date}、{time} 变量" rows={3} style={{ ...st, resize: 'vertical', borderColor: errors.prompt ? 'var(--red)' : 'var(--border)' }} />
-                {errors.prompt && <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 2 }}>{errors.prompt}</div>}
+                {errors.prompt && <div style={{ fontSize: 13, color: 'var(--red)', marginTop: 2 }}>{errors.prompt}</div>}
               </div>
             </>
           )}
 
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)', marginBottom: 4, display: 'block' }}>最大执行次数</label>
+            <label style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-2)', marginBottom: 4, display: 'block' }}>最大执行次数</label>
             <input type="number" value={maxRuns} onChange={e => setMaxRuns(e.target.value)} placeholder="不限" style={st} min={1} />
-            <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>达到后自动禁用规则，留空则不限</div>
+            <div style={{ fontSize: 13, color: 'var(--text-3)', marginTop: 2 }}>达到后自动禁用规则，留空则不限</div>
           </div>
 
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)', marginBottom: 4, display: 'block' }}>描述</label>
+            <label style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-2)', marginBottom: 4, display: 'block' }}>描述</label>
             <input value={description} onChange={e => setDescription(e.target.value)} placeholder="规则说明（可选）" style={st} />
           </div>
 
           <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-            <button onClick={handleSubmit} style={{ padding: '9px 18px', borderRadius: 'var(--radius)', border: 'none', background: 'var(--blue)', color: 'white', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>
+            <button onClick={handleSubmit} style={{ padding: '9px 18px', borderRadius: 'var(--radius)', border: 'none', background: 'var(--blue)', color: 'white', fontSize: 15, fontWeight: 500, cursor: 'pointer' }}>
               {isEdit ? '保存修改' : '创建规则'}
             </button>
-            <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', background: 'var(--bg-0)', color: 'var(--text-2)', fontSize: 13, cursor: 'pointer' }}>取消</button>
+            <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', background: 'var(--bg-0)', color: 'var(--text-2)', fontSize: 15, cursor: 'pointer' }}>取消</button>
           </div>
         </div>
       </div>
@@ -385,7 +385,7 @@ function RuleModal({ editRule, onClose }: { editRule: RuleData | null; onClose: 
 
 function EmptyState({ text }: { text: string }) {
   return (
-    <div style={{ padding: '32px 20px', background: 'var(--bg-0)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
+    <div style={{ padding: '32px 20px', background: 'var(--bg-0)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', textAlign: 'center', color: 'var(--text-3)', fontSize: 15 }}>
       {text}
     </div>
   );

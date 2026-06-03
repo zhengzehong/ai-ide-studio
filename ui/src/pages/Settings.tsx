@@ -28,7 +28,7 @@ export default function Settings() {
     <div style={{ padding: '28px 36px', maxWidth: 960, margin: '0 auto' }}>
       <div style={{ marginBottom: 28 }}>
         <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0, letterSpacing: -0.5 }}>设置</h1>
-        <p style={{ color: 'var(--text-3)', fontSize: 14, margin: '6px 0 0' }}>管理模型供应商和全局配置</p>
+        <p style={{ color: 'var(--text-3)', fontSize: 15, margin: '6px 0 0' }}>管理模型供应商和全局配置</p>
       </div>
 
       {/* Section: Model Providers */}
@@ -47,7 +47,7 @@ export default function Settings() {
           <div style={emptyState}>
             <Server size={36} strokeWidth={1.5} />
             <p style={{ fontWeight: 600, margin: '12px 0 4px' }}>尚未添加模型供应商</p>
-            <p style={{ fontSize: 13 }}>添加 OpenAI 或 Claude 协议的模型供应商开始使用</p>
+            <p style={{ fontSize: 15 }}>添加 OpenAI 或 Claude 协议的模型供应商开始使用</p>
             <button onClick={() => setShowForm(true)} style={{ ...btn, marginTop: 8 }}><Plus size={14} /> 添加供应商</button>
           </div>
         ) : (
@@ -71,7 +71,7 @@ export default function Settings() {
                         {p.is_default ? <span style={defaultBadge}><Star size={10} fill="currentColor" /> 默认</span> : null}
                         {!p.enabled && <span style={disabledBadge}>已禁用</span>}
                       </div>
-                      <div style={{ fontSize: 13, color: 'var(--text-3)', marginTop: 3, fontFamily: 'monospace' }}>{p.base_url}</div>
+                      <div style={{ fontSize: 15, color: 'var(--text-3)', marginTop: 3, fontFamily: 'monospace' }}>{p.base_url}</div>
 
                       {/* Models */}
                       {models.length > 0 && (
@@ -82,7 +82,7 @@ export default function Settings() {
 
                       {/* Test Result */}
                       {tr && !tr.loading && (
-                        <div style={{ marginTop: 8, fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <div style={{ marginTop: 8, fontSize: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
                           {tr.ok ? (
                             <><CheckCircle2 size={14} color="#22c55e" /><span style={{ color: '#22c55e' }}>连接成功{tr.models ? `，${tr.models.length} 个模型` : ''}</span></>
                           ) : (
@@ -127,7 +127,7 @@ export default function Settings() {
           <div style={emptyState}>
             <Cpu size={36} strokeWidth={1.5} />
             <p style={{ fontWeight: 600, margin: '12px 0 4px' }}>暂无模型档案</p>
-            <p style={{ fontSize: 13 }}>为 Claude Code 或 Codex 创建可复用的模型配置</p>
+            <p style={{ fontSize: 15 }}>为 Claude Code 或 Codex 创建可复用的模型配置</p>
             <button onClick={() => setShowProfileForm(true)} style={{ ...btn, marginTop: 8 }}><Plus size={14} /> 新建档案</button>
           </div>
         ) : (
@@ -145,7 +145,7 @@ export default function Settings() {
                         <span style={protoBadge(profile.runtime === 'codex' ? 'claude' : 'openai')}>{profile.runtime === 'codex' ? 'Codex' : 'Claude Code'}</span>
                         {!profile.enabled && <span style={disabledBadge}>已禁用</span>}
                       </div>
-                      <div style={{ fontSize: 13, color: 'var(--text-3)', marginTop: 3 }}>
+                      <div style={{ fontSize: 15, color: 'var(--text-3)', marginTop: 3 }}>
                         {provider?.display_name || profile.provider_id}
                         {profile.context_window ? ` · 上下文 ${formatContextWindow(profile.context_window)}` : ''}
                       </div>
@@ -267,7 +267,7 @@ function ProviderForm({ provider, onClose, onCreate, onUpdate }: {
 
         <label style={{ ...fLabel, marginTop: 12 }}>
           模型列表 <span style={{ fontWeight: 400, color: 'var(--text-3)' }}>（每行一个 model ID）</span>
-          <textarea value={modelsStr} onChange={e => setModelsStr(e.target.value)} style={{ ...fInput, minHeight: 90, fontFamily: 'var(--font-mono, monospace)', fontSize: 12, lineHeight: 1.8 }} placeholder={'gpt-4o\ngpt-4o-mini\nclaude-sonnet-4-20250514'} />
+          <textarea value={modelsStr} onChange={e => setModelsStr(e.target.value)} style={{ ...fInput, minHeight: 90, fontFamily: 'var(--font-mono, monospace)', fontSize: 14, lineHeight: 1.8 }} placeholder={'gpt-4o\ngpt-4o-mini\nclaude-sonnet-4-20250514'} />
         </label>
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
@@ -401,7 +401,7 @@ function renderCodexTags(config: CodexProfileConfig): React.ReactNode[] {
 const btn: React.CSSProperties = {
   display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 18px',
   borderRadius: 8, border: 'none', background: 'var(--blue)', color: '#fff',
-  cursor: 'pointer', fontSize: 13, fontWeight: 600, transition: 'opacity .15s',
+  cursor: 'pointer', fontSize: 15, fontWeight: 600, transition: 'opacity .15s',
 }
 const btnGhost: React.CSSProperties = {
   ...btn, background: 'transparent', color: 'var(--text-2)', border: '1px solid var(--border)',
@@ -417,24 +417,24 @@ const providerCard: React.CSSProperties = {
 }
 const providerIcon = (isOpenAI: boolean): React.CSSProperties => ({
   width: 42, height: 42, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center',
-  fontWeight: 800, fontSize: 14, flexShrink: 0, letterSpacing: -0.5,
+  fontWeight: 800, fontSize: 15, flexShrink: 0, letterSpacing: -0.5,
   background: isOpenAI ? '#ecfdf5' : '#fffbeb', color: isOpenAI ? '#059669' : '#d97706',
   border: `1.5px solid ${isOpenAI ? '#a7f3d0' : '#fde68a'}`,
 })
 const protoBadge = (p: string): React.CSSProperties => ({
-  fontSize: 11, padding: '2px 8px', borderRadius: 5, fontWeight: 600,
+  fontSize: 13, padding: '2px 8px', borderRadius: 5, fontWeight: 600,
   background: p === 'openai' ? '#ecfdf5' : '#fffbeb', color: p === 'openai' ? '#059669' : '#d97706',
 })
 const defaultBadge: React.CSSProperties = {
-  fontSize: 11, padding: '2px 8px', borderRadius: 5, fontWeight: 600,
+  fontSize: 13, padding: '2px 8px', borderRadius: 5, fontWeight: 600,
   background: '#fefce8', color: '#ca8a04', display: 'inline-flex', alignItems: 'center', gap: 3,
 }
 const disabledBadge: React.CSSProperties = {
-  fontSize: 11, padding: '2px 8px', borderRadius: 5, fontWeight: 500,
+  fontSize: 13, padding: '2px 8px', borderRadius: 5, fontWeight: 500,
   background: 'var(--bg-2)', color: 'var(--text-3)',
 }
 const modelTag: React.CSSProperties = {
-  fontSize: 11, padding: '3px 8px', borderRadius: 5, background: 'var(--bg-2)',
+  fontSize: 13, padding: '3px 8px', borderRadius: 5, background: 'var(--bg-2)',
   color: 'var(--text-2)', fontFamily: 'var(--font-mono, monospace)', fontWeight: 500,
 }
 const emptyState: React.CSSProperties = {
@@ -451,10 +451,10 @@ const modalBox: React.CSSProperties = {
   boxShadow: '0 24px 80px rgba(0,0,0,0.25)', border: '1px solid var(--border)',
 }
 const fGrid: React.CSSProperties = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }
-const fLabel: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 5, fontSize: 13, fontWeight: 600, color: 'var(--text-2)' }
+const fLabel: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 5, fontSize: 15, fontWeight: 600, color: 'var(--text-2)' }
 const fInput: React.CSSProperties = {
   padding: '9px 12px', borderRadius: 8, border: '1px solid var(--border)',
-  fontSize: 13, background: 'var(--bg-1)', color: 'var(--text-1)',
+  fontSize: 15, background: 'var(--bg-1)', color: 'var(--text-1)',
   outline: 'none', width: '100%', boxSizing: 'border-box',
   transition: 'border-color .15s',
 }
