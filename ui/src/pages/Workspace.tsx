@@ -2838,11 +2838,49 @@ function ProcessBlockView({ block, isStreaming }: { block: TurnProcessBlock; isS
   if (block.kind === 'stage') {
     return <div style={{ fontSize: 12, color: 'var(--text-3)' }}>{block.text}</div>
   }
+  return <ProcessNoteBlock text={block.text} />
+}
+
+function ProcessNoteBlock({ text }: { text: string }) {
+  const [open, setOpen] = useState(false)
+  const preview = compactText(text)
   return (
-    <div style={{ borderRadius: 6, background: 'var(--bg-2)', padding: '8px 10px', fontSize: 12, lineHeight: 1.6, color: 'var(--text-2)', overflowWrap: 'anywhere' }}>
-      <MarkdownRenderer content={block.text} />
+    <div style={{ borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-1)', overflow: 'hidden' }}>
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        style={{
+          width: '100%',
+          border: 'none',
+          background: 'transparent',
+          padding: '7px 9px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          cursor: 'pointer',
+          color: 'var(--text-2)',
+          fontSize: 12,
+          textAlign: 'left',
+        }}
+      >
+        {open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+        <span style={{ flexShrink: 0, fontWeight: 600 }}>中间说明</span>
+        <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-3)' }}>
+          {preview}
+        </span>
+      </button>
+      {open && (
+        <div style={{ borderTop: '1px solid var(--border)', padding: '8px 10px', fontSize: 12, lineHeight: 1.6, color: 'var(--text-2)', overflowWrap: 'anywhere', maxHeight: 220, overflow: 'auto' }}>
+          <MarkdownRenderer content={text} />
+        </div>
+      )}
     </div>
   )
+}
+
+function compactText(text: string): string {
+  const value = text.replace(/\s+/g, ' ').trim()
+  return value.length > 96 ? `${value.slice(0, 96)}…` : value
 }
 
 function ChatBubbleBlockView({
