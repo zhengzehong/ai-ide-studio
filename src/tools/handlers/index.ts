@@ -3,6 +3,23 @@ import { createTaskHandler, legacyCreateTaskHandler } from './create-task.js'
 import { createScheduleHandler } from './create-schedule.js'
 import { listTasksHandler } from './list-tasks.js'
 import {
+  scheduleCreateHandler,
+  scheduleListHandler,
+  scheduleUpdateHandler,
+  scheduleDeleteHandler,
+  scheduleToggleHandler,
+  scheduleExecutionsHandler,
+} from './schedule-tools.js'
+import {
+  studioTaskCreateHandler,
+  studioTaskListHandler,
+  studioTaskGetHandler,
+  studioTaskUpdateProgressHandler,
+  studioTaskRequestInputHandler,
+  studioTaskMarkBlockedHandler,
+  studioTaskMarkDoneHandler,
+} from './studio-task-tools.js'
+import {
   createAgentHandler,
   createProjectHandler,
   createSessionHandler,
@@ -40,6 +57,19 @@ register(legacyCreateTaskHandler)
 register(createTaskHandler)
 register(createScheduleHandler)
 register(listTasksHandler)
+register(scheduleCreateHandler)
+register(scheduleListHandler)
+register(scheduleUpdateHandler)
+register(scheduleDeleteHandler)
+register(scheduleToggleHandler)
+register(scheduleExecutionsHandler)
+register(studioTaskCreateHandler)
+register(studioTaskListHandler)
+register(studioTaskGetHandler)
+register(studioTaskUpdateProgressHandler)
+register(studioTaskRequestInputHandler)
+register(studioTaskMarkBlockedHandler)
+register(studioTaskMarkDoneHandler)
 register(listProjectsHandler)
 register(getProjectHandler)
 register(createProjectHandler)

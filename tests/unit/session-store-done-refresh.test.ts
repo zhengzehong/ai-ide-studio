@@ -17,6 +17,7 @@ const wsMock = vi.hoisted(() => {
     subscribe: vi.fn(),
     unsubscribe: vi.fn(),
   }
+
 })
 
 vi.mock('../../ui/src/services/ws-client', () => ({
@@ -304,6 +305,73 @@ describe('session store done handling', () => {
       })
       expect(useSessionStore.getState().streamingMessage?.content).toBe('hello')
       expect(useSessionStore.getState().streamingMessage?.stage).toBeUndefined()
+    } finally {
+      cleanup()
+    }
+  })
+
+  test('keeps active turn process blocks separate from final answer while streaming', async () => {
+    resetStore()
+    const cleanup = useSessionStore.getState().setupListeners()
+
+    try {
+      emit('session:update', {
+        sessionId: 'sess-refresh',
+        agentId: 'agent-1',
+        data: { messageId: 'msg-active-order', role: 'agent', contentDelta: '我先检查。' },
+      })
+      emit('session:update', {
+        sessionId: 'sess-refresh',
+        agentId: 'agent-1',
+        data: { messageId: 'msg-active-order', role: 'agent', toolCall: { id: 'tool-1', title: '读文件', status: 'completed' } },
+      })
+      emit('session:update', {
+        sessionId: 'sess-refresh',
+        agentId: 'agent-1',
+        data: { messageId: 'msg-active-order', role: 'agent', contentDelta: '最终结论。' },
+      })
+
+      await vi.waitFor(() => {
+        expect(useSessionStore.getState().streamingMessage?.finalAnswer).toBe('最终结论。')
+      })
+      const turn = useSessionStore.getState().streamingMessage
+      expect(turn?.processBlocks.map((block) => block.kind)).toEqual(['note', 'tool'])
+      expect(turn?.processBlocks[0]).toMatchObject({ kind: 'note', text: '我先检查。' })
+    } finally {
+      cleanup()
+    }
+  })
+
+  test('keeps the just-finished turn process expanded until history reload takes over', async () => {
+    resetStore()
+    const cleanup = useSessionStore.getState().setupListeners()
+
+    try {
+      emit('session:update', {
+        sessionId: 'sess-refresh',
+        agentId: 'agent-1',
+        data: { messageId: 'msg-open-process', role: 'agent', contentDelta: 'inspect first.' },
+      })
+      emit('session:update', {
+        sessionId: 'sess-refresh',
+        agentId: 'agent-1',
+        data: { messageId: 'msg-open-process', role: 'agent', toolCall: { id: 'tool-open', title: 'Read file', status: 'completed' } },
+      })
+      emit('session:update', {
+        sessionId: 'sess-refresh',
+        agentId: 'agent-1',
+        data: { messageId: 'msg-open-process', role: 'agent', contentDelta: 'final answer.' },
+      })
+      emit('session:done', {
+        sessionId: 'sess-refresh',
+        agentId: 'agent-1',
+        messageId: 'done-sess-refresh',
+        stopReason: 'end_turn',
+      })
+
+      await vi.waitFor(() => {
+        expect(useSessionStore.getState().messages.find((message) => message.id === 'msg-open-process')?.processDefaultOpen).toBe(true)
+      })
     } finally {
       cleanup()
     }

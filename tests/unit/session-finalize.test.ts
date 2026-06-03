@@ -30,7 +30,7 @@ describe('buildCompletedAgentMessage', () => {
     expect(msg).toBeTruthy()
     expect(msg?.id).toBe('msg-agent-1')
     expect(msg?.role).toBe('agent')
-    expect(msg?.content).toBe('第一段第二段')
+    expect(msg?.content).toBe('第二段')
     expect(msg?.thinking).toBe('思考中')
     expect(JSON.parse(msg?.tool_calls_json || '[]')[0].terminalOutput).toBe('ok\n')
     expect(JSON.parse(msg?.decision_json || '{}').totalTokens).toBe(3)

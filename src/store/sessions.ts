@@ -370,4 +370,45 @@ export const eventStore = {
       LIMIT @limit
     `).all({ sessionId, limit }).reverse()
   },
+
+  listByMessage(sessionId: string, messageId: string): SessionEventRow[] {
+    return getDb().prepare<{ sessionId: string; messageId: string }, SessionEventRow>(`
+      WITH turn_bounds AS (
+        SELECT
+          MIN(sequence) AS start_sequence,
+          (
+            SELECT MIN(done.sequence)
+            FROM session_events done
+            WHERE done.session_id = @sessionId
+              AND done.type = 'message.done'
+              AND done.sequence > MIN(start.sequence)
+          ) AS done_sequence,
+          (
+            SELECT MIN(next.sequence)
+            FROM session_events next
+            WHERE next.session_id = @sessionId
+              AND next.message_id IS NOT NULL
+              AND next.message_id <> @messageId
+              AND next.type IN ('message.chunk', 'thinking.chunk', 'tool.call', 'tool.update')
+              AND next.sequence > MIN(start.sequence)
+          ) AS next_turn_sequence
+        FROM session_events start
+        WHERE start.session_id = @sessionId
+          AND start.message_id = @messageId
+          AND start.type IN ('message.chunk', 'thinking.chunk', 'tool.call', 'tool.update')
+      )
+      SELECT events.*
+      FROM session_events events, turn_bounds
+      WHERE events.session_id = @sessionId
+        AND turn_bounds.start_sequence IS NOT NULL
+        AND events.sequence >= turn_bounds.start_sequence
+        AND events.sequence < COALESCE(turn_bounds.next_turn_sequence, 9223372036854775807)
+        AND events.sequence <= COALESCE(turn_bounds.done_sequence, 9223372036854775807)
+        AND (
+          events.message_id = @messageId
+          OR (events.type = 'message.done' AND events.sequence = turn_bounds.done_sequence)
+        )
+      ORDER BY events.sequence ASC
+    `).all({ sessionId, messageId })
+  },
 }

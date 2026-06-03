@@ -1,7 +1,7 @@
 export type AgentStatus = 'running' | 'idle' | 'standby' | 'sleeping' | 'error'
 export type AgentRuntime = 'mock' | 'claude' | 'codex'
 export type SessionStatus = 'active' | 'idle' | 'closed'
-export type TaskStatus = 'backlog' | 'planning' | 'executing' | 'reviewing' | 'completed' | 'cancelled' | 'blocked'
+export type TaskStatus = 'backlog' | 'executing' | 'needs_input' | 'blocked' | 'reviewing' | 'completed' | 'cancelled'
 
 export interface ClientMessage {
   type: string
@@ -158,6 +158,11 @@ export interface SessionsMessageToolCallDetailMsg extends ClientMessage {
   sessionId: string
   messageId: string
   toolCallId: string
+}
+export interface SessionsMessageEventsMsg extends ClientMessage {
+  type: 'sessions.messageEvents'
+  sessionId: string
+  messageId: string
 }
 export interface SessionsEventsMsg extends ClientMessage {
   type: 'sessions.events'

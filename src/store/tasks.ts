@@ -14,6 +14,7 @@ export interface TaskRow {
   project_id: string | null
   team_id: string | null
   assignee_member_id: string | null
+  rule_id: string | null
 }
 
 export interface TaskEventRow {
@@ -33,9 +34,15 @@ export interface CreateTaskInput {
   projectId?: string
   teamId?: string
   assigneeMemberId?: string
+  ruleId?: string
+  ruleName?: string
+  promptTemplate?: string
+  sessionId?: string
 }
 
 export interface UpdateTaskInput {
+  title?: string
+  description?: string | null
   status?: string
   stage?: string
   assignAgentId?: string | null
@@ -62,17 +69,18 @@ export const taskStore = {
       project_id: input.projectId ?? null,
       team_id: input.teamId ?? null,
       assignee_member_id: input.assigneeMemberId ?? null,
+      rule_id: input.ruleId ?? null,
     }
     getDb()
       .prepare(
         `
       INSERT INTO tasks (
         id, title, description, source, status, stage, assigned_agent_id,
-        created_at, completed_at, project_id, team_id, assignee_member_id
+        created_at, completed_at, project_id, team_id, assignee_member_id, rule_id
       )
       VALUES (
         @id, @title, @description, @source, @status, @stage, @assigned_agent_id,
-        @created_at, @completed_at, @project_id, @team_id, @assignee_member_id
+        @created_at, @completed_at, @project_id, @team_id, @assignee_member_id, @rule_id
       )
     `,
       )
@@ -161,6 +169,8 @@ export const taskStore = {
 
     const updated: TaskRow = {
       ...existing,
+      title: fields.title ?? existing.title,
+      description: fields.description !== undefined ? fields.description : existing.description,
       status: fields.status ?? existing.status,
       stage: fields.stage ?? existing.stage,
       assigned_agent_id: fields.assignAgentId !== undefined ? fields.assignAgentId : existing.assigned_agent_id,
@@ -176,7 +186,9 @@ export const taskStore = {
       .prepare(
         `
       UPDATE tasks
-      SET status = @status,
+      SET title = @title,
+          description = @description,
+          status = @status,
           stage = @stage,
           assigned_agent_id = @assigned_agent_id,
           assignee_member_id = @assignee_member_id,

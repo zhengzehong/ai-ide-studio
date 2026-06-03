@@ -131,6 +131,10 @@ backlog → executing → reviewing → completed
 
 历史消息查询默认返回轻量 DTO：`tool_calls_json` 会被置空，同时附带 `has_tool_calls` 和 `tool_call_count`。完整工具调用仍保存在 SQLite 的 `messages.tool_calls_json` 中，通过工具摘要和详情 RPC 按需读取。
 
+
+
+`messages.content` stores the Agent final answer. It is not used to reconstruct the real order of thinking, intermediate notes, and tool calls. The execution process is restored from `session_events.sequence`, usually through `sessions.messageEvents` for a single historical Agent message.
+
 ### session_events
 
 | 列 | 类型 | 说明 |
@@ -145,6 +149,10 @@ backlog → executing → reviewing → completed
 | payload_json | TEXT | 事件载荷 JSON |
 | sequence | INTEGER | 序号（单调递增） |
 | created_at | TEXT | 时间戳 |
+
+
+
+A single Agent Turn uses a platform-generated Agent `message_id` for streamed chunks and tool events. The closing `message.done` event may have its own done/lifecycle ID, but it belongs to the same Turn by `sequence`. Runtime-provided chunk message IDs are not used as platform message primary keys, so ACP runtimes that reuse IDs cannot merge separate turns.
 
 ### tasks
 

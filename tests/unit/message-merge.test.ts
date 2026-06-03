@@ -104,7 +104,7 @@ describe('mergeMessagesById', () => {
   })
 
   test('lightweight server history does not replace full tool calls already visible in the current turn', () => {
-    const fullToolJson = JSON.stringify([{ id: 'tool-live', title: '????', rawOutput: 'done' }])
+    const fullToolJson = JSON.stringify([{ id: 'tool-live', title: 'Read file', rawOutput: 'done' }])
     const local = {
       ...msg('agent-live', 'agent', '2026-01-01T00:00:02.000Z'),
       tool_calls_json: fullToolJson,
@@ -123,6 +123,29 @@ describe('mergeMessagesById', () => {
     expect(merged).toHaveLength(1)
     expect(merged[0].tool_calls_json).toBe(fullToolJson)
     expect(merged[0].parsedToolCalls?.[0].id).toBe('tool-live')
+  })
+
+
+
+  test('lightweight server history preserves local process blocks from the just-finished turn', () => {
+    const local = {
+      ...msg('agent-live-process', 'agent', '2026-01-01T00:00:02.000Z'),
+      content: 'final answer',
+      processBlocks: [{ id: 'note-1', kind: 'note' as const, text: 'checked first' }],
+      finalAnswer: 'final answer',
+      processDefaultOpen: true,
+    }
+    const serverLight = {
+      ...msg('agent-live-process', 'agent', '2026-01-01T00:00:02.000Z'),
+      content: 'final answer',
+    }
+
+    const merged = mergeMessagesById([serverLight], [local])
+
+    expect(merged).toHaveLength(1)
+    expect(merged[0].processBlocks).toEqual(local.processBlocks)
+    expect(merged[0].finalAnswer).toBe('final answer')
+    expect(merged[0].processDefaultOpen).toBe(true)
   })
 
   test('server message with full content replaces local temporary version', () => {

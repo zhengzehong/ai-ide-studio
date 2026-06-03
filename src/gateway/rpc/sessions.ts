@@ -199,6 +199,17 @@ export const sessionRpcHandlers: RpcHandlerMap = {
     sendResult(detail)
   },
 
+
+  'sessions.messageEvents'(msg, { sendResult }) {
+    const sessionId = msg.sessionId as string
+    const message = getSessionMessage(sessionId, msg.messageId as string)
+    if (message.role !== 'agent') {
+      sendResult([])
+      return
+    }
+    sendResult(eventStore.listByMessage(sessionId, message.id))
+  },
+
   'sessions.events'(msg, { sendResult }) {
     sendResult(eventStore.list(msg.sessionId as string, { limit: msg.limit as number | undefined, afterSequence: msg.afterSequence as number | undefined }))
   },

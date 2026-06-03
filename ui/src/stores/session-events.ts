@@ -1,3 +1,12 @@
+import {
+  applyTurnEntry,
+  createEmptyTurn,
+  flattenProcessText,
+  turnHasFinalizableContent,
+  type TurnProcessBlock,
+  type TurnViewModel,
+} from './turn-blocks'
+
 export interface ImageAttachmentInfo {
   data: string
   mimeType: string
@@ -9,6 +18,8 @@ export interface MessageData {
   thinking: string | null; tool_calls_json: string | null; decision_json: string | null; attachments_json?: string | null; timestamp: string
   has_tool_calls?: boolean; tool_call_count?: number
   parsedToolCalls?: ToolCallInfo[]; parsedAttachments?: ImageAttachmentInfo[]; parsedDecision?: Record<string, unknown> | null
+  processBlocks?: TurnProcessBlock[]; finalAnswer?: string
+  processDefaultOpen?: boolean
 }
 
 export interface ToolCallInfo {
@@ -75,9 +86,7 @@ export interface SessionCapabilities {
   sessionInfo?: SessionInfoData
 }
 
-export interface StreamingMessage {
-  id: string; role: 'agent'; content: string; thinking: string; toolCalls: ToolCallInfo[]; done: boolean; stage?: string
-}
+export type StreamingMessage = TurnViewModel
 
 export interface ChatTimelineMessageItem {
   id: string
@@ -215,13 +224,21 @@ function findMatchingLocalMessage(serverMessage: MessageData, currentMessages: M
 }
 
 function keepExistingFullToolCalls(next: MessageData, existing?: MessageData): MessageData {
-  if (!existing?.tool_calls_json || next.tool_calls_json) return next
-  if (!next.has_tool_calls) return next
+  const withProcess = existing?.processBlocks || existing?.finalAnswer
+    ? {
+        ...next,
+        processBlocks: existing.processBlocks,
+        finalAnswer: existing.finalAnswer ?? next.content,
+        processDefaultOpen: existing.processDefaultOpen,
+      }
+    : next
+  if (!existing?.tool_calls_json || withProcess.tool_calls_json) return withProcess
+  if (!withProcess.has_tool_calls) return withProcess
   return normalizeMessage({
-    ...next,
+    ...withProcess,
     tool_calls_json: existing.tool_calls_json,
     parsedToolCalls: existing.parsedToolCalls,
-    tool_call_count: next.tool_call_count ?? existing.tool_call_count,
+    tool_call_count: withProcess.tool_call_count ?? existing.tool_call_count,
   })
 }
 
@@ -517,12 +534,8 @@ const visibleLifecycleEvents = new Set([
   'lifecycle.failed',
 ])
 
-function hasStreamingContent(message: StreamingMessage | null): boolean {
-  return !!message && (message.content.length > 0 || message.thinking.length > 0 || message.toolCalls.length > 0)
-}
-
 function applyHiddenLifecycle(streaming: StreamingMessage | null): StreamingMessage | null {
-  if (!streaming || hasStreamingContent(streaming)) return streaming
+  if (!streaming || turnHasFinalizableContent(streaming)) return streaming
   return null
 }
 
@@ -532,7 +545,7 @@ export function shouldShowLifecycleStage(eventType: string): boolean {
 
 export function applySessionEvent(state: ReducedSessionEvents, event: SessionEventData): ReducedSessionEvents {
   const payload = parsePayload(event)
-  let streaming = state.streamingMessage ? { ...state.streamingMessage, toolCalls: [...state.streamingMessage.toolCalls] } : state.streamingMessage
+  let streaming = state.streamingMessage
   let capabilities = state.capabilities
   let pendingPermissions = state.pendingPermissions
   let pendingElicitations = state.pendingElicitations
@@ -547,41 +560,37 @@ export function applySessionEvent(state: ReducedSessionEvents, event: SessionEve
       return { ...state, streamingMessage: applyHiddenLifecycle(streaming), capabilities, pendingPermissions, pendingElicitations }
     }
     const msg = ensureStreaming(String(payload.messageId || event.message_id || event.id))
-    msg.stage = String(payload.content || payload.contentDelta || '')
-    return { ...state, streamingMessage: msg, capabilities, pendingPermissions, pendingElicitations }
+    streaming = applyTurnEntry(msg, { kind: 'stage', text: String(payload.content || payload.contentDelta || '') })
+    return { ...state, streamingMessage: streaming, capabilities, pendingPermissions, pendingElicitations }
   }
 
   switch (event.type) {
     case 'message.chunk': {
       if (payload.role !== 'agent') break
       const msg = ensureStreaming(String(payload.messageId || event.message_id || event.id))
-      msg.content += String(payload.contentDelta || payload.content || '')
-      msg.stage = undefined
+      streaming = applyTurnEntry(msg, { kind: 'reply', text: String(payload.contentDelta || payload.content || '') })
       break
     }
     case 'thinking.chunk': {
       const msg = ensureStreaming(String(payload.messageId || event.message_id || event.id))
-      msg.thinking += String(payload.thinking || '')
-      msg.stage = undefined
+      streaming = applyTurnEntry(msg, { kind: 'thinking', text: String(payload.thinking || '') })
       break
     }
     case 'tool.call': {
       const msg = ensureStreaming(String(payload.messageId || event.message_id || event.id))
-      msg.toolCalls.push(payload.toolCall as ToolCallInfo)
-      msg.stage = undefined
+      streaming = applyTurnEntry(msg, { kind: 'toolCall', toolCall: payload.toolCall as ToolCallInfo })
       break
     }
     case 'tool.update': {
       const update = payload.toolCall as ToolCallInfo
-      if (streaming?.toolCalls.some(t => t.id === update.id) || shouldCreateToolFromUpdate(update)) {
+      if (streaming?.processBlocks.some(block => block.kind === 'tool' && block.toolCall.id === update.id) || shouldCreateToolFromUpdate(update)) {
         const msg = ensureStreaming(String(payload.messageId || event.message_id || event.id))
-        msg.toolCalls = upsertToolCall(msg.toolCalls, update)
-        msg.stage = undefined
+        streaming = applyTurnEntry(msg, { kind: 'toolUpdate', toolCall: update })
       }
       break
     }
     case 'message.done': {
-      if (streaming) streaming.done = true
+      if (streaming) streaming = applyTurnEntry(streaming, { kind: 'done', turnStats: payload.turnUsage as TurnUsageInfo | undefined })
       if (payload.turnUsage) state = { ...state, turnUsage: payload.turnUsage as TurnUsageInfo }
       state = { ...state, plan: finalizePlanOnTurnDone(state.plan, payload.stopReason as string | undefined) }
       break
@@ -620,82 +629,93 @@ export function applySessionEvent(state: ReducedSessionEvents, event: SessionEve
 
 
 function emptyStreamingMessage(messageId: string): StreamingMessage {
-  return { id: messageId, role: 'agent', content: '', thinking: '', toolCalls: [], done: false }
+  return createEmptyTurn(messageId)
 }
 
 export function completedStreamingFromEvents(events: SessionEventData[]): StreamingMessage | null {
-  const messages: StreamingMessage[] = []
-  const activeById = new Map<string, StreamingMessage>()
-  let lastMessageId: string | null = null
-  let lastMessage: StreamingMessage | null = null
+  const turns: StreamingMessage[] = []
+  let current: StreamingMessage | null = null
+
+  const ensureTurn = (messageId: string) => {
+    if (!current || current.done || current.id !== messageId) {
+      current = emptyStreamingMessage(messageId)
+      turns.push(current)
+    }
+    return current
+  }
 
   for (const event of [...events].sort((a, b) => a.sequence - b.sequence)) {
     const payload = parsePayload(event)
-    const messageId = String(payload.messageId || event.message_id || lastMessageId || event.id)
-    const ensure = () => {
-      let msg = activeById.get(messageId)
-      if (!msg || msg.done) {
-        msg = emptyStreamingMessage(messageId)
-        activeById.set(messageId, msg)
-        messages.push(msg)
-      }
-      lastMessageId = messageId
-      lastMessage = msg
-      return msg
-    }
+    const explicitMessageId = payloadMessageId(event, payload)
+    const messageId = explicitMessageId || current?.id || event.id
 
     switch (event.type) {
       case 'message.chunk': {
         if (payload.role !== 'agent') break
-        const msg = ensure()
-        msg.content += String(payload.contentDelta || payload.content || '')
+        current = applyTurnEntry(ensureTurn(messageId), {
+          kind: 'reply',
+          text: String(payload.contentDelta || payload.content || ''),
+          sequence: event.sequence,
+        })
+        turns[turns.length - 1] = current
         break
       }
       case 'thinking.chunk': {
-        const msg = ensure()
-        msg.thinking += String(payload.thinking || '')
+        current = applyTurnEntry(ensureTurn(messageId), {
+          kind: 'thinking',
+          text: String(payload.thinking || ''),
+          sequence: event.sequence,
+        })
+        turns[turns.length - 1] = current
         break
       }
       case 'tool.call': {
-        const msg = ensure()
-        msg.toolCalls.push(payload.toolCall as ToolCallInfo)
+        const toolCall = payload.toolCall as ToolCallInfo | undefined
+        if (!toolCall?.id) break
+        current = applyTurnEntry(ensureTurn(messageId), { kind: 'toolCall', toolCall, sequence: event.sequence })
+        turns[turns.length - 1] = current
         break
       }
       case 'tool.update': {
-        const update = payload.toolCall as ToolCallInfo
-        const existing = activeById.get(messageId) || lastMessage
-        if (existing?.toolCalls.some(t => t.id === update.id) || shouldCreateToolFromUpdate(update)) {
-          const msg = ensure()
-          msg.toolCalls = upsertToolCall(msg.toolCalls, update)
-        }
+        const toolCall = payload.toolCall as ToolCallInfo | undefined
+        if (!toolCall?.id) break
+        const target = ensureTurn(messageId)
+        if (!target.processBlocks.some(block => block.kind === 'tool' && block.toolCall.id === toolCall.id) && !shouldCreateToolFromUpdate(toolCall)) break
+        current = applyTurnEntry(target, { kind: 'toolUpdate', toolCall, sequence: event.sequence })
+        turns[turns.length - 1] = current
         break
       }
       case 'message.done': {
-        const msg = activeById.get(messageId) || lastMessage
-        if (msg) msg.done = true
+        if (!current || !turnHasFinalizableContent(current)) break
+        current = applyTurnEntry(current, {
+          kind: 'done',
+          turnStats: payload.turnUsage as TurnUsageInfo | undefined,
+          sequence: event.sequence,
+        })
+        turns[turns.length - 1] = current
         break
       }
     }
   }
 
-  const completed = messages.filter(msg => msg.done && (msg.content || msg.thinking || msg.toolCalls.length > 0))
-  if (completed.length > 0) return completed.at(-1) || null
-
-  const partial = messages.filter(msg => msg.content || msg.thinking || msg.toolCalls.length > 0)
-  return partial.at(-1) || null
+  const finalizable = turns.filter(turnHasFinalizableContent)
+  const completed = finalizable.filter((turn) => turn.done)
+  return completed.at(-1) || finalizable.at(-1) || null
 }
+
 
 export function buildCompletedAgentMessage(sessionId: string, events: SessionEventData[], turnUsage?: TurnUsageInfo, costAmount?: number, elapsedSeconds?: number): MessageData | null {
   const msg = completedStreamingFromEvents(events)
   if (!msg) return null
   const decision = turnUsage ? { ...turnUsage, costAmount, elapsedSeconds } : null
+  const process = flattenProcessText(msg)
   return {
     id: msg.id,
     session_id: sessionId,
     role: 'agent',
-    content: msg.content,
-    thinking: msg.thinking || null,
-    tool_calls_json: msg.toolCalls.length > 0 ? JSON.stringify(msg.toolCalls) : null,
+    content: msg.finalAnswer,
+    thinking: process.thinking || null,
+    tool_calls_json: process.toolCalls.length > 0 ? JSON.stringify(process.toolCalls) : null,
     decision_json: decision ? JSON.stringify(decision) : null,
     attachments_json: null,
     timestamp: new Date().toISOString(),

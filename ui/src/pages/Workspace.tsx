@@ -48,6 +48,7 @@ import {
   type PlanEntry,
   type ToolCallInfo,
 } from '../stores/session.store'
+import type { TurnProcessBlock } from '../stores/turn-blocks'
 import { useTaskStore, type TaskData } from '../stores/task.store'
 import { useConnectionStore } from '../stores/connection.store'
 import { useProjectStore } from '../stores/project.store'
@@ -57,6 +58,7 @@ import { wsClient } from '../services/ws-client'
 import { FileTree } from '../components/file-viewer/FileTree'
 import { FilePreview } from '../components/file-viewer/FilePreview'
 import { LazyToolCallsBlock } from '../components/chat/LazyToolCallsBlock'
+import { TurnContentView } from '../components/chat/TurnContentView'
 import { isNearBottom, nextPinnedToBottom } from '../components/chat/auto-scroll'
 import { shouldShowPlanBar } from '../components/chat/plan-visibility'
 import { buildChatRenderItems, type ChatRenderItem } from '../components/chat/render-items'
@@ -100,6 +102,9 @@ export default function Workspace() {
   const sessions = useSessionStore((s) => s.sessions)
   const currentSessionId = useSessionStore((s) => s.currentSessionId)
   const messages = useSessionStore((s) => s.messages)
+  const fetchMessageProcess = useSessionStore((s) => s.fetchMessageProcess)
+  const turnProcessLoadingByMessageId = useSessionStore((s) => s.turnProcessLoadingByMessageId)
+  const turnProcessErrorByMessageId = useSessionStore((s) => s.turnProcessErrorByMessageId)
   const events = useSessionStore((s) => s.events)
   const streamingMessage = useSessionStore((s) => s.streamingMessage)
   const usage = useSessionStore((s) => s.usage)
@@ -452,6 +457,8 @@ export default function Workspace() {
       content: streamingMessage.content,
       thinking: streamingMessage.thinking,
       toolCalls: streamingMessage.toolCalls,
+      processBlocks: streamingMessage.processBlocks,
+      finalAnswer: streamingMessage.finalAnswer,
       stage: streamingMessage.stage,
       timestamp: new Date().toISOString(),
       streaming: true,
@@ -490,9 +497,18 @@ export default function Workspace() {
         return <ChatBubble message={item.message} agent={chatAgent} isStreaming footer={interactionPanel} />
       }
       if (item.kind === 'blocking') return <BlockingInteractionBar agent={chatAgent} panel={interactionPanel} />
-      return <ChatBubble message={item.message} agent={chatAgent} isStreaming={false} />
+      return (
+        <ChatBubble
+          message={item.message}
+          agent={chatAgent}
+          isStreaming={false}
+          onLoadMessageProcess={fetchMessageProcess}
+          turnProcessLoadingByMessageId={turnProcessLoadingByMessageId}
+          turnProcessErrorByMessageId={turnProcessErrorByMessageId}
+        />
+      )
     },
-    [chatAgent, interactionPanel],
+    [chatAgent, fetchMessageProcess, interactionPanel, turnProcessErrorByMessageId, turnProcessLoadingByMessageId],
   )
 
   const currentModeName =
@@ -1673,9 +1689,9 @@ const TASK_TABS: { key: string; label: string; icon: typeof ListTodo; filter: (t
     key: 'active',
     label: '进行中',
     icon: Loader2,
-    filter: (t) => ['executing', 'planning', 'reviewing'].includes(t.status),
+    filter: (t) => ['executing', 'needs_input'].includes(t.status),
   },
-  { key: 'blocked', label: '需处理', icon: Zap, filter: (t) => t.status === 'blocked' },
+  { key: 'needs_attention', label: '需处理', icon: Zap, filter: (t) => ['blocked', 'reviewing'].includes(t.status) },
   { key: 'done', label: '已完成', icon: CheckCircle2, filter: (t) => ['completed', 'cancelled'].includes(t.status) },
 ]
 
@@ -2576,6 +2592,9 @@ type ChatMsg = {
   parsedAttachments?: ImageAttachmentInfo[]
   parsedDecision?: Record<string, unknown> | null
   toolCalls?: ToolCallInfo[]
+  processBlocks?: TurnProcessBlock[]
+  finalAnswer?: string
+  processDefaultOpen?: boolean
   stage?: string
   timestamp?: string
   streaming?: boolean
@@ -2625,12 +2644,18 @@ function ChatBubble({
   agent,
   isStreaming,
   footer,
+  onLoadMessageProcess,
+  turnProcessLoadingByMessageId = {},
+  turnProcessErrorByMessageId = {},
 }: {
   message?: ChatMsg
   group?: ChatTimelineGroup
   agent: AgentData | undefined
   isStreaming: boolean
   footer?: React.ReactNode
+  onLoadMessageProcess?: (sessionId: string, messageId: string) => void
+  turnProcessLoadingByMessageId?: Record<string, boolean>
+  turnProcessErrorByMessageId?: Record<string, string>
 }) {
   const normalizedMessage: ChatBubbleInput = group || message || { id: 'empty', role: 'system', content: '' }
   const isTimelineGroup = 'blocks' in normalizedMessage
@@ -2661,7 +2686,16 @@ function ChatBubble({
   const isHuman = role === 'human'
   if (isHuman) turnStats = null
   const visibleBlocks = blocks.filter(chatBubbleBlockHasBody)
-  const hasBody = visibleBlocks.length > 0 || !!footer
+  const turnProcessBlocks = !isTimelineGroup ? normalizedMessage.processBlocks || [] : []
+  const canLoadTurnProcess = !isTimelineGroup && !streaming && role === 'agent' && !!normalizedMessage.session_id && !!normalizedMessage.has_tool_calls && !normalizedMessage.processBlocks
+  const turnFinalAnswer = !isTimelineGroup ? (normalizedMessage.finalAnswer ?? (canLoadTurnProcess ? normalizedMessage.content : undefined)) : undefined
+  const hasTurnModel = !isTimelineGroup && (turnProcessBlocks.length > 0 || turnFinalAnswer != null || canLoadTurnProcess)
+  const processLoading = !isTimelineGroup ? turnProcessLoadingByMessageId[normalizedMessage.id] : false
+  const processError = !isTimelineGroup ? turnProcessErrorByMessageId[normalizedMessage.id] : undefined
+  const loadTurnProcess = canLoadTurnProcess && !isTimelineGroup && normalizedMessage.session_id
+    ? () => onLoadMessageProcess?.(normalizedMessage.session_id!, normalizedMessage.id)
+    : undefined
+  const hasBody = hasTurnModel || visibleBlocks.length > 0 || !!footer
   const streamingLabel = stage || '生成中'
 
   return (
@@ -2712,14 +2746,28 @@ function ChatBubble({
               overflow: 'hidden',
             }}
           >
-            {visibleBlocks.map((block, index) => (
-              <ChatBubbleBlockView
-                key={bubbleBlockKey(block, index)}
-                block={block}
-                isLast={index === visibleBlocks.length - 1}
+            {hasTurnModel ? (
+              <TurnContentView
+                processBlocks={turnProcessBlocks}
+                finalAnswer={turnFinalAnswer || ''}
                 isStreaming={isStreaming}
+                fallbackStage={stage}
+                processCount={!isTimelineGroup ? normalizedMessage.tool_call_count : undefined}
+                processLoaded={!canLoadTurnProcess}
+                processLoading={processLoading}
+                processError={processError}
+                defaultProcessOpen={streaming || !!normalizedMessage.processDefaultOpen}
+                onLoadProcess={loadTurnProcess}
+                renderProcessBlock={(block) => <ProcessBlockView key={block.id} block={block} isStreaming={isStreaming} />}
               />
-            ))}
+            ) : visibleBlocks.map((block, index) => (
+                <ChatBubbleBlockView
+                  key={bubbleBlockKey(block, index)}
+                  block={block}
+                  isLast={index === visibleBlocks.length - 1}
+                  isStreaming={isStreaming}
+                />
+              ))}
             {footer && <div style={{ marginTop: 10 }}>{footer}</div>}
           </div>
         )}
@@ -2782,6 +2830,26 @@ function chatBubbleBlockHasBody(block: ChatBubbleBlock): boolean {
   return !!block.content || !!block.thinking || attachments.length > 0 || toolCalls.length > 0 || !!block.has_tool_calls
 }
 
+function ProcessBlockView({ block, isStreaming }: { block: TurnProcessBlock; isStreaming: boolean }) {
+  if (block.kind === 'tool') return <ToolCallPanel tc={block.toolCall} isStreaming={isStreaming} />
+  if (block.kind === 'thinking') {
+    return (
+      <div style={{ borderRadius: 6, background: 'var(--bg-2)', padding: '8px 10px', color: 'var(--text-2)', fontSize: 12, lineHeight: 1.6, fontStyle: 'italic', overflowWrap: 'anywhere' }}>
+        <div style={{ fontSize: 10, color: 'var(--text-3)', marginBottom: 4 }}>思考过程</div>
+        {block.text}
+      </div>
+    )
+  }
+  if (block.kind === 'stage') {
+    return <div style={{ fontSize: 12, color: 'var(--text-3)' }}>{block.text}</div>
+  }
+  return (
+    <div style={{ borderRadius: 6, background: 'var(--bg-2)', padding: '8px 10px', fontSize: 12, lineHeight: 1.6, color: 'var(--text-2)', overflowWrap: 'anywhere' }}>
+      <MarkdownRenderer content={block.text} />
+    </div>
+  )
+}
+
 function ChatBubbleBlockView({
   block,
   isLast,
@@ -2807,7 +2875,7 @@ function ChatBubbleBlockView({
   } else {
     content = block.content
     thinking = block.thinking
-    toolCalls = block.toolCalls || block.parsedToolCalls || parseJsonArray<ToolCallInfo>(block.tool_calls_json)
+    toolCalls = block.streaming ? (block.toolCalls || block.parsedToolCalls || parseJsonArray<ToolCallInfo>(block.tool_calls_json)) : []
     attachments = block.parsedAttachments || parseJsonArray<ImageAttachmentInfo>(block.attachments_json)
   }
 
