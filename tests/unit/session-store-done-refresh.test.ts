@@ -377,4 +377,42 @@ describe('session store done handling', () => {
     }
   })
 
+  test('does not keep lifecycle-only status as a completed execution process', async () => {
+    resetStore()
+    const cleanup = useSessionStore.getState().setupListeners()
+
+    try {
+      emit('session:update', {
+        sessionId: 'sess-refresh',
+        agentId: 'agent-1',
+        data: {
+          messageId: 'lifecycle.prompt_sent-1',
+          role: 'system',
+          eventType: 'lifecycle.prompt_sent',
+          content: 'thinking...',
+        },
+      })
+      emit('session:update', {
+        sessionId: 'sess-refresh',
+        agentId: 'agent-1',
+        data: { messageId: 'msg-stage-only', role: 'agent', contentDelta: 'hello' },
+      })
+      emit('session:done', {
+        sessionId: 'sess-refresh',
+        agentId: 'agent-1',
+        messageId: 'done-sess-refresh',
+        stopReason: 'end_turn',
+      })
+
+      await vi.waitFor(() => {
+        expect(useSessionStore.getState().messages.find((message) => message.id === 'msg-stage-only')?.content).toBe('hello')
+      })
+      const message = useSessionStore.getState().messages.find((item) => item.id === 'msg-stage-only')
+      expect(message?.processBlocks).toEqual([])
+      expect(message?.processDefaultOpen).toBeUndefined()
+    } finally {
+      cleanup()
+    }
+  })
+
 })

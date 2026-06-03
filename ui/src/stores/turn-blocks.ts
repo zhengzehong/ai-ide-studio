@@ -145,6 +145,11 @@ export function turnHasFinalizableContent(turn: TurnViewModel | null): turn is T
   return !!turn && (!!turn.finalAnswer || (turn.processBlocks?.some((block) => block.kind !== 'stage') ?? false))
 }
 
+export function processBlocksForCompletedTurn(turn: TurnViewModel): TurnProcessBlock[] {
+  if (!turn.processBlocks.some((block) => block.kind !== 'stage')) return []
+  return turn.processBlocks.filter((block) => block.kind !== 'stage')
+}
+
 export function flattenProcessText(turn: TurnViewModel): { thinking: string; toolCalls: ToolCallInfo[] } {
   const thinking: string[] = []
   const toolCalls: ToolCallInfo[] = []

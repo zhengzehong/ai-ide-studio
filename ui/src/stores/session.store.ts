@@ -39,7 +39,7 @@ import {
   type UsageInfo,
 } from './session-events'
 import { StreamingBuffer } from './streaming-buffer'
-import { applyTurnEntry, createEmptyTurn, turnFromEvents, turnHasFinalizableContent, turnHasVisibleContent } from './turn-blocks'
+import { applyTurnEntry, createEmptyTurn, processBlocksForCompletedTurn, turnFromEvents, turnHasFinalizableContent, turnHasVisibleContent } from './turn-blocks'
 
 export type {
   AvailableCommandInfo,
@@ -593,7 +593,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         const finalizedToolCalls = s.toolCalls.map(tc =>
           (tc.status === 'pending' || tc.status === 'in_progress') ? { ...tc, status: 'completed' } : tc
         )
-        const finalizedProcessBlocks = s.processBlocks.map(block =>
+        const finalizedProcessBlocks = processBlocksForCompletedTurn(s).map(block =>
           block.kind === 'tool'
             ? {
                 ...block,
@@ -611,7 +611,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           timestamp: new Date().toISOString(),
           processBlocks: finalizedProcessBlocks,
           finalAnswer: s.finalAnswer,
-          processDefaultOpen: true,
+          processDefaultOpen: finalizedProcessBlocks.length > 0 ? true : undefined,
         }
         set(st => ({
           messages: appendFinalizedMessage(st.messages, newMsg),
