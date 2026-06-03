@@ -74,7 +74,6 @@ describe('mergeMessagesById', () => {
       content: 'final answer',
       processBlocks: [{ id: 'note-1', kind: 'note' as const, text: 'checked first' }],
       finalAnswer: 'final answer',
-      processDefaultOpen: true,
     }
     const serverLight = {
       ...msg('agent-live-process', 'agent', '2026-01-01T00:00:02.000Z'),
@@ -86,7 +85,25 @@ describe('mergeMessagesById', () => {
     expect(merged).toHaveLength(1)
     expect(merged[0].processBlocks).toEqual(local.processBlocks)
     expect(merged[0].finalAnswer).toBe('final answer')
-    expect(merged[0].processDefaultOpen).toBe(true)
+    expect(merged[0].processDefaultOpen).toBeUndefined()
+  })
+
+  test('lightweight server history preserves local turn stats from the just-finished turn', () => {
+    const statsJson = JSON.stringify({ inputTokens: 10, outputTokens: 5, totalTokens: 15, elapsedSeconds: 2, costAmount: 0.001 })
+    const local = {
+      ...msg('agent-live-stats', 'agent', '2026-01-01T00:00:02.000Z'),
+      decision_json: statsJson,
+    }
+    const serverLight = {
+      ...msg('agent-live-stats', 'agent', '2026-01-01T00:00:02.000Z'),
+      decision_json: null,
+    }
+
+    const merged = mergeMessagesById([serverLight], [local])
+
+    expect(merged).toHaveLength(1)
+    expect(merged[0].decision_json).toBe(statsJson)
+    expect(merged[0].parsedDecision).toEqual({ inputTokens: 10, outputTokens: 5, totalTokens: 15, elapsedSeconds: 2, costAmount: 0.001 })
   })
 
   test('server message with full content replaces local temporary version', () => {

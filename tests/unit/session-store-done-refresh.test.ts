@@ -342,7 +342,7 @@ describe('session store done handling', () => {
     }
   })
 
-  test('keeps the just-finished turn process expanded until history reload takes over', async () => {
+  test('collapses the just-finished turn process after completion', async () => {
     resetStore()
     const cleanup = useSessionStore.getState().setupListeners()
 
@@ -370,7 +370,8 @@ describe('session store done handling', () => {
       })
 
       await vi.waitFor(() => {
-        expect(useSessionStore.getState().messages.find((message) => message.id === 'msg-open-process')?.processDefaultOpen).toBe(true)
+        expect(useSessionStore.getState().messages.find((message) => message.id === 'msg-open-process')?.processBlocks?.length).toBeGreaterThan(0)
+        expect(useSessionStore.getState().messages.find((message) => message.id === 'msg-open-process')?.processDefaultOpen).toBeUndefined()
       })
     } finally {
       cleanup()
