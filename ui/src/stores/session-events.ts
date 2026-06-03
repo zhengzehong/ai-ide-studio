@@ -224,14 +224,21 @@ function findMatchingLocalMessage(serverMessage: MessageData, currentMessages: M
 }
 
 function keepExistingFullToolCalls(next: MessageData, existing?: MessageData): MessageData {
+  const withStats = !next.decision_json && existing?.decision_json
+    ? normalizeMessage({
+        ...next,
+        decision_json: existing.decision_json,
+        parsedDecision: existing.parsedDecision,
+      })
+    : next
   const withProcess = existing?.processBlocks || existing?.finalAnswer
     ? {
-        ...next,
+        ...withStats,
         processBlocks: existing.processBlocks,
-        finalAnswer: existing.finalAnswer ?? next.content,
-        processDefaultOpen: existing.processDefaultOpen,
+        finalAnswer: existing.finalAnswer ?? withStats.content,
+        processDefaultOpen: withStats.processDefaultOpen,
       }
-    : next
+    : withStats
   if (!existing?.tool_calls_json || withProcess.tool_calls_json) return withProcess
   if (!withProcess.has_tool_calls) return withProcess
   return normalizeMessage({

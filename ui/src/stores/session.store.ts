@@ -611,7 +611,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           timestamp: new Date().toISOString(),
           processBlocks: finalizedProcessBlocks,
           finalAnswer: s.finalAnswer,
-          processDefaultOpen: finalizedProcessBlocks.length > 0 ? true : undefined,
+          processDefaultOpen: undefined,
         }
         set(st => ({
           messages: appendFinalizedMessage(st.messages, newMsg),
