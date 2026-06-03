@@ -181,18 +181,15 @@ function mcpToolSummary(tc: ToolCallInfo): string | null {
   const tool = text(input.tool) || text(input.name)
   if (!tool) return null
 
+  const server = text(input.server)
+  const name = server ? `${server}.${tool}` : tool
   const path = text(args.path) || text(args.file_path) || text(input.path) || text(input.file_path)
   const pattern = text(args.pattern) || text(input.pattern)
   const query = text(args.query) || text(input.query)
   const command = text(args.command) || text(input.command)
+  const parts = [name, command, path, pattern, query].filter(Boolean)
 
-  if (command) return `执行 ${short(command, 80)}`
-  if (tool.includes('search') || pattern || query) return `搜索 ${short(pattern || query || tool, 60)}`
-  if (tool.includes('write') || tool.includes('edit')) return path ? `编辑 ${path}` : `编辑 ${tool}`
-  if (tool.includes('read') || tool.includes('list')) return path ? `读取 ${path}` : `读取 ${tool}`
-
-  const server = text(input.server)
-  return server ? `${server}.${tool}` : tool
+  return short(parts.join(' '), 140)
 }
 
 function teamToolSummary(tc: ToolCallInfo): string | null {

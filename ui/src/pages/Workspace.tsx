@@ -21,8 +21,6 @@ import {
   Wifi,
   WifiOff,
   Wrench,
-  FileCode,
-  Terminal,
   Check,
   X,
   Settings2,
@@ -1873,8 +1871,6 @@ function ToolCallPanel({ tc }: { tc: ToolCallInfo; isStreaming: boolean }) {
   }, [tc.status])
   const open = openOverride === 'open' || (openOverride !== 'closed' && isActive)
   const toggleOpen = () => setOpenOverride(open ? 'closed' : 'open')
-  const kindIcon =
-    tc.kind === 'edit' ? <FileCode size={12} /> : tc.kind === 'execute' ? <Terminal size={12} /> : <Wrench size={12} />
   const statusColor = tc.status === 'completed' ? 'var(--green)' : tc.status === 'failed' ? 'var(--red)' : 'var(--blue)'
   const statusIcon =
     tc.status === 'completed' ? (
@@ -1923,7 +1919,6 @@ function ToolCallPanel({ tc }: { tc: ToolCallInfo; isStreaming: boolean }) {
         }}
       >
         {open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-        {kindIcon}
         <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 }}>
           {summary}
         </span>

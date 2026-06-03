@@ -21,7 +21,7 @@ describe('tool call title and summary', () => {
       title: toolCallTitle(tool),
       rawInput: tool.rawInput,
       status: 'completed',
-    })).toBe('读取 C:\\Users\\lenovo\\.codex\\memories\\MEMORY.md')
+    })).toBe('filesystem.read_text_file C:\\Users\\lenovo\\.codex\\memories\\MEMORY.md')
   })
 
   test('falls back to readable MCP arguments when title is generic', () => {
@@ -37,6 +37,6 @@ describe('tool call title and summary', () => {
         },
       },
       status: 'completed',
-    })).toBe('搜索 *.test.ts')
+    })).toBe('filesystem.search_files D:\\code_space\\python_space\\ai-ide-studio *.test.ts')
   })
 })
