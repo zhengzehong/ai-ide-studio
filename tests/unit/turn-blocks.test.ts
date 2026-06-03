@@ -2,6 +2,7 @@
 import {
   applyTurnEntry,
   createEmptyTurn,
+  processBlocksForCompletedTurn,
   turnFromEntries,
   turnFromEvents,
   type TurnEntry,
@@ -86,6 +87,24 @@ describe('turn block reducer', () => {
     expect(turn.done).toBe(true)
     expect(turn.turnStats?.totalTokens).toBe(3)
     expect(turn.finalAnswer).toBe('final answer.')
+  })
+
+  test('drops lifecycle-only stage blocks from completed turn process', () => {
+    const stageOnly = turnFromEntries('msg-agent-1', [
+      entry(1, { kind: 'stage', text: 'thinking...' }),
+      entry(2, { kind: 'reply', text: 'final answer.' }),
+    ])
+
+    expect(processBlocksForCompletedTurn(stageOnly)).toEqual([])
+
+    const withTool = turnFromEntries('msg-agent-1', [
+      entry(1, { kind: 'stage', text: 'thinking...' }),
+      entry(2, { kind: 'reply', text: 'checking.' }),
+      entry(3, { kind: 'toolCall', toolCall: { id: 'tool-1', title: 'Read file' } }),
+      entry(4, { kind: 'reply', text: 'final answer.' }),
+    ])
+
+    expect(processBlocksForCompletedTurn(withTool).map((block) => block.kind)).toEqual(['note', 'tool'])
   })
 
 })

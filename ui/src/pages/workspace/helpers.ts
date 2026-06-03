@@ -138,6 +138,8 @@ export function menuStyle(anchor: MenuAnchor | null, width = 260): React.CSSProp
 export function toolSummary(tc: ToolCallInfo): string {
   const teamSummary = teamToolSummary(tc)
   if (teamSummary) return teamSummary
+  const mcpSummary = mcpToolSummary(tc)
+  if (mcpSummary) return mcpSummary
 
   const kindLabel =
     {
@@ -171,6 +173,26 @@ export function toolSummary(tc: ToolCallInfo): string {
   )
     return '工具调用 完成'
   return `工具调用 #${tc.id.slice(-6)}`
+}
+
+function mcpToolSummary(tc: ToolCallInfo): string | null {
+  const input = recordOrEmpty(tc.rawInput)
+  const args = recordOrEmpty(input.arguments)
+  const tool = text(input.tool) || text(input.name)
+  if (!tool) return null
+
+  const path = text(args.path) || text(args.file_path) || text(input.path) || text(input.file_path)
+  const pattern = text(args.pattern) || text(input.pattern)
+  const query = text(args.query) || text(input.query)
+  const command = text(args.command) || text(input.command)
+
+  if (command) return `执行 ${short(command, 80)}`
+  if (tool.includes('search') || pattern || query) return `搜索 ${short(pattern || query || tool, 60)}`
+  if (tool.includes('write') || tool.includes('edit')) return path ? `编辑 ${path}` : `编辑 ${tool}`
+  if (tool.includes('read') || tool.includes('list')) return path ? `读取 ${path}` : `读取 ${tool}`
+
+  const server = text(input.server)
+  return server ? `${server}.${tool}` : tool
 }
 
 function teamToolSummary(tc: ToolCallInfo): string | null {
