@@ -6,20 +6,14 @@ import { teamMemberStore } from '../store/teams.js'
 import { acpHost } from '../acp/host.js'
 import { events } from './events.js'
 import { createChildLogger } from './logger.js'
-import type { ImageAttachment, SessionUpdateData, ToolCallData } from '../types/ws-protocol.js'
-import { upsertToolCall } from './tool-calls.js'
+import type { ImageAttachment, SessionUpdateData } from '../types/ws-protocol.js'
+import { createPendingTurn, finalizePendingTurn, updatePendingTurn, type PendingTurn } from './turn-finalizer.js'
 import { buildTeamLeaderPrompt } from './team-prompts.js'
 import { resolveVisiblePlatformTools } from '../tools/registry/visibility-resolver.js'
 
 const log = createChildLogger('session')
 
-interface PendingMessage {
-  messageId?: string
-  content: string
-  thinking: string
-  toolCalls: ToolCallData[]
-}
-const pendingBySession = new Map<string, PendingMessage>()
+const pendingBySession = new Map<string, PendingTurn>()
 const activePrompts = new Set<string>()
 const queuedPrompts = new Map<string, Promise<void>>()
 
@@ -27,17 +21,11 @@ events.on('session:update', (ev) => {
   const { sessionId, data } = ev
   let pending = pendingBySession.get(sessionId)
   if (!pending) {
-    pending = { content: '', thinking: '', toolCalls: [] }
+    pending = createPendingTurn()
     pendingBySession.set(sessionId, pending)
   }
 
-  if ((data.contentDelta || data.thinking || data.toolCall || data.toolCallUpdate) && data.messageId) {
-    pending.messageId = data.messageId
-  }
-  if (data.contentDelta) pending.content += data.contentDelta
-  if (data.thinking) pending.thinking += data.thinking
-  if (data.toolCall) pending.toolCalls.push(data.toolCall)
-  if (data.toolCallUpdate) pending.toolCalls = upsertToolCall(pending.toolCalls, data.toolCallUpdate)
+  pendingBySession.set(sessionId, updatePendingTurn(pending, data))
 })
 
 events.on('session:update', (ev) => {
@@ -103,13 +91,14 @@ function eventPayloadFromUpdate(data: SessionUpdateData): { type: string; payloa
 
 events.on('session:done', (ev) => {
   const pending = pendingBySession.get(ev.sessionId)
-  if (pending && (pending.content || pending.thinking || pending.toolCalls.length > 0)) {
+  const finalized = pending ? finalizePendingTurn(pending) : null
+  if (finalized) {
     const message = messageStore.append(ev.sessionId, {
-      id: pending.messageId,
+      id: finalized.messageId,
       role: 'agent',
-      content: pending.content,
-      thinking: pending.thinking || undefined,
-      toolCalls: pending.toolCalls.length > 0 ? pending.toolCalls : undefined,
+      content: finalized.content,
+      thinking: finalized.thinking || undefined,
+      toolCalls: finalized.toolCalls,
     })
     sessionStore.touch(ev.sessionId, message.timestamp)
   } else if (ev.stopReason === 'error' && ev.error) {
@@ -123,20 +112,7 @@ events.on('session:done', (ev) => {
   pendingBySession.delete(ev.sessionId)
 })
 
-events.on('session:done', (ev) => {
-  const session = sessionStore.get(ev.sessionId)
-  if (!session?.task_id) return
-
-  const task = taskStore.get(session.task_id)
-  if (!task || task.status !== 'executing') return
-
-  const stage = 'Agent 已完成，等待人工确认'
-  taskStore.updateStatus(task.id, 'reviewing', stage)
-  events.emit('task:update', {
-    taskId: task.id,
-    data: { ...taskStore.get(task.id), event: 'agent_completed' },
-  })
-})
+// BR-03: 系统不因 session:done 自动改变任务状态，由 Agent 通过 studio.task.* 工具主动管理
 
 export const sessionManager = {
   isPromptActive(sessionId: string): boolean {

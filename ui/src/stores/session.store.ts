@@ -14,7 +14,6 @@ import {
   mergeMessagesForSession,
   normalizeMessage,
   shouldCreateToolFromUpdate,
-  upsertToolCall,
   reduceSessionEvents,
   shouldShowLifecycleStage,
   type AvailableCommandInfo,
@@ -40,6 +39,7 @@ import {
   type UsageInfo,
 } from './session-events'
 import { StreamingBuffer } from './streaming-buffer'
+import { applyTurnEntry, createEmptyTurn, turnFromEvents, turnHasFinalizableContent, turnHasVisibleContent } from './turn-blocks'
 
 export type {
   AvailableCommandInfo,
@@ -85,6 +85,8 @@ interface SessionStore {
   toolCallDetailsByKey: Record<string, ToolCallDetailInfo>
   toolCallLoadingByKey: Record<string, boolean>
   toolCallErrorByKey: Record<string, string>
+  turnProcessLoadingByMessageId: Record<string, boolean>
+  turnProcessErrorByMessageId: Record<string, string>
 
   fetchSessions: (agentId?: string, projectId?: string) => Promise<void>
   fetchMessages: (sessionId: string) => Promise<void>
@@ -105,6 +107,7 @@ interface SessionStore {
   fetchModels: () => Promise<void>
   fetchMessageToolCalls: (sessionId: string, messageId: string) => Promise<void>
   fetchMessageToolCallDetail: (sessionId: string, messageId: string, toolCallId: string) => Promise<void>
+  fetchMessageProcess: (sessionId: string, messageId: string) => Promise<void>
   setupListeners: () => () => void
 }
 
@@ -120,9 +123,21 @@ const streamingBuffer = new StreamingBuffer()
 let streamingFlushTimer: ReturnType<typeof setTimeout> | null = null
 const mirroredRealtimeEventTypes = new Set(['message.chunk', 'thinking.chunk', 'tool.call', 'tool.update', 'message.done'])
 
+function normalizeActiveTurn(message: StreamingMessage | null | undefined): StreamingMessage | null {
+  if (!message) return null
+  if (Array.isArray(message.processBlocks)) return message
+  let next = createEmptyTurn(message.id)
+  if (message.stage) next = applyTurnEntry(next, { kind: 'stage', text: message.stage })
+  if (message.thinking) next = applyTurnEntry(next, { kind: 'thinking', text: message.thinking })
+  for (const toolCall of message.toolCalls ?? []) next = applyTurnEntry(next, { kind: 'toolCall', toolCall })
+  if (message.content) next = applyTurnEntry(next, { kind: 'reply', text: message.content })
+  if (message.done) next = applyTurnEntry(next, { kind: 'done' })
+  return next
+}
+
 
 function hasVisibleStreamingState(message: StreamingMessage | null): boolean {
-  return !!message && (!!message.stage || message.content.length > 0 || message.thinking.length > 0 || message.toolCalls.length > 0)
+  return turnHasVisibleContent(message)
 }
 
 function shouldRecoverStreamingMessage(recovered: StreamingMessage | null, messages: MessageData[]): boolean {
@@ -184,18 +199,14 @@ function flushStreamingBuffer(set: (partial: Partial<SessionStore> | ((state: Se
   if (!snapshot) return
   const sid = get().currentSessionId
   set((state) => {
-    const cur = state.streamingMessage
-    const up: StreamingMessage = cur ? { ...cur, toolCalls: [...cur.toolCalls] } : { id: String(snapshot.messageId || `stream-${sid}-${Date.now()}`), role: 'agent', content: '', thinking: '', toolCalls: [], done: false }
-    if (snapshot.messageId && (up.id.startsWith('pending-') || (!up.content && !up.thinking && up.toolCalls.length === 0))) {
-      up.id = snapshot.messageId
+    const cur = normalizeActiveTurn(state.streamingMessage)
+    let up: StreamingMessage = cur ? { ...cur, processBlocks: cur.processBlocks.map(block => block.kind === 'tool' ? { ...block, toolCall: { ...block.toolCall } } : { ...block }), toolCalls: [...cur.toolCalls] } : createEmptyTurn(String(snapshot.messageId || `stream-${sid}-${Date.now()}`))
+    if (snapshot.messageId && (up.id.startsWith('pending-') || !turnHasVisibleContent(up) || (!!up.stage && !up.finalAnswer && up.processBlocks.every(block => block.kind === 'stage')))) {
+      up = { ...up, id: snapshot.messageId }
     }
-    if (snapshot.contentDelta) { up.content += snapshot.contentDelta; up.stage = undefined }
-    if (snapshot.thinking) { up.thinking += snapshot.thinking; up.stage = undefined }
-    for (const toolCall of snapshot.toolCalls) { up.toolCalls.push(toolCall); up.stage = undefined }
-    for (const update of snapshot.toolCallUpdates) {
-      if (!up.toolCalls.some((tool) => tool.id === update.id) && !shouldCreateToolFromUpdate(update)) continue
-      up.toolCalls = upsertToolCall(up.toolCalls, update)
-      up.stage = undefined
+    for (const entry of snapshot.entries) {
+      if (entry.kind === 'toolUpdate' && !up.processBlocks.some(block => block.kind === 'tool' && block.toolCall.id === entry.toolCall.id) && !shouldCreateToolFromUpdate(entry.toolCall)) continue
+      up = applyTurnEntry(up, entry)
     }
     lastStreamingSnapshot = up
     return { streamingMessage: up }
@@ -216,6 +227,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   sessions: [], currentSessionId: null, messages: [], events: [], streamingMessage: null,
   usage: null, turnUsage: null, capabilities: { ...defaultCaps }, plan: [], pendingPermissions: [], pendingElicitations: [], loading: false,
   toolCallSummariesByMessageId: {}, toolCallDetailsByKey: {}, toolCallLoadingByKey: {}, toolCallErrorByKey: {},
+  turnProcessLoadingByMessageId: {}, turnProcessErrorByMessageId: {},
 
   fetchSessions: async (agentId, projectId) => {
     const requestSeq = ++sessionListRequestSeq
@@ -305,6 +317,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       toolCallDetailsByKey: currentSessionId ? get().toolCallDetailsByKey : {},
       toolCallLoadingByKey: currentSessionId ? get().toolCallLoadingByKey : {},
       toolCallErrorByKey: currentSessionId ? get().toolCallErrorByKey : {},
+      turnProcessLoadingByMessageId: currentSessionId ? get().turnProcessLoadingByMessageId : {},
+      turnProcessErrorByMessageId: currentSessionId ? get().turnProcessErrorByMessageId : {},
     })
   },
 
@@ -338,6 +352,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         toolCallDetailsByKey: {},
         toolCallLoadingByKey: {},
         toolCallErrorByKey: {},
+        turnProcessLoadingByMessageId: {},
+        turnProcessErrorByMessageId: {},
       })
       return
     }
@@ -350,6 +366,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       usage: c?.usage || null, turnUsage: c?.turnUsage || null, capabilities: c?.capabilities || { ...defaultCaps }, plan: c?.plan || [],
       pendingPermissions: c?.pendingPermissions || [], pendingElicitations: c?.pendingElicitations || [],
       toolCallSummariesByMessageId: {}, toolCallDetailsByKey: {}, toolCallLoadingByKey: {}, toolCallErrorByKey: {},
+      turnProcessLoadingByMessageId: {}, turnProcessErrorByMessageId: {},
     })
     void get().fetchMessages(id)
     void get().fetchEvents(id)
@@ -365,7 +382,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     promptStartTime = Date.now()
     set({
       messages: [...get().messages, normalizeMessage({ id: clientMessageId, session_id: sid, role: 'human', content, thinking: null, tool_calls_json: null, decision_json: null, attachments_json: images?.length ? JSON.stringify(images) : null, timestamp: new Date().toISOString() })],
-      streamingMessage: { id: `pending-${sid}-${Date.now()}`, role: 'agent', content: '', thinking: '', toolCalls: [], done: false, stage: '\u6b63\u5728\u51c6\u5907 Agent...' },
+      streamingMessage: applyTurnEntry(createEmptyTurn(`pending-${sid}-${Date.now()}`), { kind: 'stage', text: '\u6b63\u5728\u51c6\u5907 Agent...' }),
       turnUsage: null,
     })
   },
@@ -465,6 +482,37 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     }
   },
 
+  fetchMessageProcess: async (sessionId, messageId) => {
+    const existing = get().messages.find((message) => message.id === messageId && message.session_id === sessionId)
+    if (existing?.processBlocks) return
+    set((state) => ({
+      turnProcessLoadingByMessageId: { ...state.turnProcessLoadingByMessageId, [messageId]: true },
+      turnProcessErrorByMessageId: { ...state.turnProcessErrorByMessageId, [messageId]: '' },
+    }))
+    try {
+      const events = await wsClient.request({ type: 'sessions.messageEvents', sessionId, messageId }) as SessionEventData[]
+      if (sessionId !== get().currentSessionId) return
+      const turn = turnFromEvents(messageId, events)
+      set((state) => ({
+        messages: state.messages.map((message) => message.id === messageId && message.session_id === sessionId
+          ? {
+              ...message,
+              processBlocks: turn.processBlocks,
+              finalAnswer: turn.finalAnswer || message.content,
+              parsedToolCalls: turn.toolCalls.length > 0 ? turn.toolCalls : message.parsedToolCalls,
+            }
+          : message),
+        turnProcessLoadingByMessageId: { ...state.turnProcessLoadingByMessageId, [messageId]: false },
+      }))
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      set((state) => ({
+        turnProcessLoadingByMessageId: { ...state.turnProcessLoadingByMessageId, [messageId]: false },
+        turnProcessErrorByMessageId: { ...state.turnProcessErrorByMessageId, [messageId]: message },
+      }))
+    }
+  },
+
   setupListeners: () => {
     if (listenersSetup && cleanupFn) return cleanupFn
     const offs: (() => void)[] = []
@@ -501,9 +549,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         const stage = String(data.content || '')
         set((state) => {
           const cur = state.streamingMessage
-          const up: StreamingMessage = cur ? { ...cur, toolCalls: [...cur.toolCalls] } : { id: String(data.messageId || `stream-${sid}-${Date.now()}`), role: 'agent', content: '', thinking: '', toolCalls: [], done: false }
-          up.stage = stage
-          return { streamingMessage: up }
+          const base: StreamingMessage = cur || createEmptyTurn(String(data.messageId || `stream-${sid}-${Date.now()}`))
+          return { streamingMessage: applyTurnEntry(base, { kind: 'stage', text: stage }) }
         })
         saveCache(sid, get())
         return
@@ -542,16 +589,29 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
       const turnStats = tu ? JSON.stringify({ ...tu, costAmount: cost, elapsedSeconds: elapsed }) : null
 
-      if (s && (s.content || s.thinking || s.toolCalls.length > 0)) {
+      if (turnHasFinalizableContent(s)) {
         const finalizedToolCalls = s.toolCalls.map(tc =>
           (tc.status === 'pending' || tc.status === 'in_progress') ? { ...tc, status: 'completed' } : tc
         )
+        const finalizedProcessBlocks = s.processBlocks.map(block =>
+          block.kind === 'tool'
+            ? {
+                ...block,
+                toolCall: (block.toolCall.status === 'pending' || block.toolCall.status === 'in_progress')
+                  ? { ...block.toolCall, status: 'completed' }
+                  : block.toolCall,
+              }
+            : block,
+        )
         const newMsg: MessageData = {
-          id: s.id, session_id: sid, role: 'agent', content: s.content,
+          id: s.id, session_id: sid, role: 'agent', content: s.finalAnswer,
           thinking: s.thinking || null,
           tool_calls_json: finalizedToolCalls.length > 0 ? JSON.stringify(finalizedToolCalls) : null,
           decision_json: turnStats, attachments_json: null,
           timestamp: new Date().toISOString(),
+          processBlocks: finalizedProcessBlocks,
+          finalAnswer: s.finalAnswer,
+          processDefaultOpen: true,
         }
         set(st => ({
           messages: appendFinalizedMessage(st.messages, newMsg),
@@ -608,6 +668,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           messages: st.currentSessionId === sessionId ? [] : st.messages,
           events: st.currentSessionId === sessionId ? [] : st.events,
           streamingMessage: st.currentSessionId === sessionId ? null : st.streamingMessage,
+          turnProcessLoadingByMessageId: st.currentSessionId === sessionId ? {} : st.turnProcessLoadingByMessageId,
+          turnProcessErrorByMessageId: st.currentSessionId === sessionId ? {} : st.turnProcessErrorByMessageId,
         }))
         return
       }

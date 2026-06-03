@@ -13,7 +13,7 @@ beforeAll(() => { mkdirSync(tmp, { recursive: true }); initDatabase(resolve(tmp,
 afterAll(() => { closeDatabase(); rmSync(tmp, { recursive: true, force: true }) })
 
 describe('Task ↔ Session 生命周期', () => {
-  test('session:done 后任务自动进入 reviewing', () => {
+  test('session:done 不会自动改变执行中任务状态', () => {
     const task = taskStore.create({ title: '实现任务闭环', assignAgentId: 'agent-1' })
     taskStore.updateStatus(task.id, 'executing', '已分派给 Agent')
     const session = sessionStore.create({ agentId: 'agent-1', taskId: task.id })
@@ -27,9 +27,9 @@ describe('Task ↔ Session 生命周期', () => {
     events.off('task:update', handler)
 
     const updated = taskStore.get(task.id)
-    expect(updated?.status).toBe('reviewing')
-    expect(updated?.stage).toBe('Agent 已完成，等待人工确认')
-    expect(receivedUpdate?.status).toBe('reviewing')
+    expect(updated?.status).toBe('executing')
+    expect(updated?.stage).toBe('已分派给 Agent')
+    expect(receivedUpdate).toBeNull()
   })
 
   test('已完成的任务不会被 session:done 覆盖', () => {

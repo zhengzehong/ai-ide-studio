@@ -4,6 +4,7 @@ import { toolPlatformMigration } from './003-tool-platform.js'
 import { modelAndSkillMigration } from './004-model-and-skill-settings.js'
 import { teamMcpToolsMigration } from './005-team-mcp-tools.js'
 import { modelProfilesMigration } from './006-model-profiles.js'
+import { scheduleEnhancementMigration } from './007-schedule-enhancement.js'
 import type { Migration } from '../migrator.js'
 
 export const migrations: Migration[] = [
@@ -13,4 +14,5 @@ export const migrations: Migration[] = [
   modelAndSkillMigration,
   teamMcpToolsMigration,
   modelProfilesMigration,
+  scheduleEnhancementMigration,
 ]

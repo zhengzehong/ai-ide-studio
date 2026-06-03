@@ -38,9 +38,8 @@ function generatedTurnMessageId(acpSessionId: string): string {
 }
 
 export function createClientHandler(agentId: string): acp.Client {
-  function turnMessageId(acpSessionId: string, chunkMsgId?: string | null): string {
+  function turnMessageId(acpSessionId: string, _chunkMsgId?: string | null): string {
     const turnIds = turnIdsForAgent(agentId)
-    if (chunkMsgId) { turnIds.set(acpSessionId, chunkMsgId); return chunkMsgId }
     const existing = turnIds.get(acpSessionId)
     if (existing) return existing
     const newId = generatedTurnMessageId(acpSessionId)

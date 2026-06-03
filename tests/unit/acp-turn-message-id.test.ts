@@ -65,4 +65,47 @@ describe('ACP client turn message ids', () => {
     expect(messageIds).toHaveLength(2)
     expect(messageIds[0]).not.toBe(messageIds[1])
   })
+
+  test('keeps platform turn ids unique even when runtime reuses chunk messageId', async () => {
+    installConnection()
+    const handler = createClientHandler(agentId)
+    const messageIds: string[] = []
+    const onUpdate = (ev: AppEvents['session:update']) => {
+      if (ev.sessionId !== ourSessionId) return
+      if (ev.data.contentDelta) messageIds.push(ev.data.messageId)
+    }
+    events.on('session:update', onUpdate)
+
+    try {
+      startClientTurn(agentId, acpSessionId)
+      await handler.sessionUpdate({
+        sessionId: acpSessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'runtime-reused-message',
+          content: { type: 'text', text: 'first' },
+        },
+      } as never)
+      endClientTurn(agentId, acpSessionId)
+
+      startClientTurn(agentId, acpSessionId)
+      await handler.sessionUpdate({
+        sessionId: acpSessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'runtime-reused-message',
+          content: { type: 'text', text: 'second' },
+        },
+      } as never)
+      endClientTurn(agentId, acpSessionId)
+    } finally {
+      events.off('session:update', onUpdate)
+      endClientTurn(agentId, acpSessionId)
+    }
+
+    expect(messageIds).toHaveLength(2)
+    expect(messageIds[0]).not.toBe('runtime-reused-message')
+    expect(messageIds[0]).not.toBe(messageIds[1])
+  })
+
 })
