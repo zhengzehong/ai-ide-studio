@@ -57,7 +57,7 @@ function ToolCallBlock({ tool }: { tool: ToolCall }) {
   return (
     <div
       style={{
-        fontSize: 11,
+        fontSize: 13,
         fontFamily: 'ui-monospace, monospace',
         background: c.bg3,
         borderRadius: 4,
@@ -70,7 +70,7 @@ function ToolCallBlock({ tool }: { tool: ToolCall }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <span>{statusIcon}</span>
         <span style={{ color: c.blue, fontWeight: 600 }}>{tool.name}</span>
-        <span style={{ color: c.text3, fontSize: 10 }}>
+        <span style={{ color: c.text3, fontSize: 12 }}>
           {!expanded && tool.result ? `→ ${tool.result.slice(0, 60)}…` : ''}
         </span>
         {tool.result && (
@@ -87,7 +87,7 @@ function ToolCallBlock({ tool }: { tool: ToolCall }) {
             background: c.bg0,
             borderRadius: 4,
             color: c.text2,
-            fontSize: 10,
+            fontSize: 12,
             lineHeight: 1.6,
             whiteSpace: 'pre-wrap',
             wordBreak: 'break-all',
@@ -96,7 +96,7 @@ function ToolCallBlock({ tool }: { tool: ToolCall }) {
           {tool.result}
         </div>
       )}
-      <div style={{ marginTop: 4, fontSize: 10, color: c.text3 }}>
+      <div style={{ marginTop: 4, fontSize: 12, color: c.text3 }}>
         {tool.args}
       </div>
     </div>
@@ -124,7 +124,7 @@ function ThinkingBlock({ thinking }: { thinking: string }) {
           border: 'none',
           background: c.bg3,
           color: c.text3,
-          fontSize: 11,
+          fontSize: 13,
           cursor: 'pointer',
           display: 'flex',
           alignItems: 'center',
@@ -141,7 +141,7 @@ function ThinkingBlock({ thinking }: { thinking: string }) {
             padding: '8px 12px',
             background: c.bg2,
             color: c.text2,
-            fontSize: 12,
+            fontSize: 14,
             fontStyle: 'italic',
             lineHeight: 1.6,
           }}
@@ -174,7 +174,7 @@ function DecisionBlock({
     >
       <div
         style={{
-          fontSize: 12,
+          fontSize: 14,
           fontWeight: 600,
           color: c.yellow,
           marginBottom: 8,
@@ -200,7 +200,7 @@ function DecisionBlock({
                 border: `1px solid ${isChosen ? c.blue : c.border}`,
                 background: isChosen ? 'rgba(88, 166, 255, 0.12)' : c.bg2,
                 color: isChosen ? c.blue : decision.chosen ? c.text3 : c.text1,
-                fontSize: 12,
+                fontSize: 14,
                 cursor: decision.chosen ? 'default' : 'pointer',
                 fontWeight: isChosen ? 600 : 400,
                 opacity: decision.chosen && !isChosen ? 0.5 : 1,
@@ -212,7 +212,7 @@ function DecisionBlock({
         })}
       </div>
       {decision.chosen && (
-        <div style={{ marginTop: 8, fontSize: 11, color: c.green }}>
+        <div style={{ marginTop: 8, fontSize: 13, color: c.green }}>
           ✅ 决策记录: {decision.chosen}
           <span style={{ color: c.text3, marginLeft: 8 }}>
             由 {decision.decidedBy === 'human' ? '用户' : 'Agent'} 决定
@@ -237,7 +237,7 @@ function MessageBubble({
       <div
         style={{
           textAlign: 'center',
-          fontSize: 11,
+          fontSize: 13,
           color: c.text3,
           padding: '8px 0',
           display: 'flex',
@@ -288,16 +288,16 @@ function MessageBubble({
             flexDirection: isHuman ? 'row-reverse' : 'row',
           }}
         >
-          <span style={{ fontSize: 12, fontWeight: 600, color: c.text1 }}>
+          <span style={{ fontSize: 14, fontWeight: 600, color: c.text1 }}>
             {isHuman ? '你' : agent.name}
           </span>
-          <span style={{ fontSize: 10, color: c.text3 }}>
+          <span style={{ fontSize: 12, color: c.text3 }}>
             {formatTime(message.timestamp)}
           </span>
           {message.sessionId && !isHuman && (
             <span
               style={{
-                fontSize: 9,
+                fontSize: 11,
                 fontFamily: 'ui-monospace, monospace',
                 color: c.text3,
                 background: c.bg4,
@@ -328,7 +328,7 @@ function MessageBubble({
             </div>
           )}
 
-          <div style={{ fontSize: 13, lineHeight: 1.6, color: c.text1 }}>
+          <div style={{ fontSize: 15, lineHeight: 1.6, color: c.text1 }}>
             {message.content}
           </div>
 
@@ -391,7 +391,7 @@ export default function ChatView({
         }}
       >
         {messages.length === 0 ? (
-          <div style={{ textAlign: 'center', color: c.text3, padding: '40px 0', fontSize: 13 }}>
+          <div style={{ textAlign: 'center', color: c.text3, padding: '40px 0', fontSize: 15 }}>
             暂无消息，开始与 {currentAgent.name} 对话
           </div>
         ) : (
@@ -430,7 +430,7 @@ export default function ChatView({
             border: `1px solid ${c.border}`,
             background: c.bg2,
             color: c.text1,
-            fontSize: 13,
+            fontSize: 15,
             outline: 'none',
           }}
         />
@@ -448,7 +448,7 @@ export default function ChatView({
             alignItems: 'center',
             gap: 6,
             fontWeight: 600,
-            fontSize: 13,
+            fontSize: 15,
           }}
         >
           <Send size={16} />

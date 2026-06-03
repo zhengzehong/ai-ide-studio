@@ -55,7 +55,7 @@ function DetailPreview({ detail }: { detail: ToolCallDetailInfo }) {
                 padding: '2px 8px',
                 borderRadius: 4,
                 background: 'var(--bg-2)',
-                fontSize: 10,
+                fontSize: 12,
                 color: 'var(--text-2)',
                 fontFamily: 'monospace',
                 overflow: 'hidden',
@@ -77,7 +77,7 @@ function DetailPreview({ detail }: { detail: ToolCallDetailInfo }) {
                 background: 'var(--bg-2)',
                 padding: 8,
                 borderRadius: 6,
-                fontSize: 10,
+                fontSize: 12,
                 lineHeight: 1.5,
                 overflowWrap: 'anywhere',
                 whiteSpace: 'pre-wrap',
@@ -88,12 +88,12 @@ function DetailPreview({ detail }: { detail: ToolCallDetailInfo }) {
               {item.text || item.oldText || item.newText || item.type}
             </div>
           ))}
-          {detail.contentTruncated && <div style={{ fontSize: 10, color: 'var(--text-3)' }}>内容已截断</div>}
+          {detail.contentTruncated && <div style={{ fontSize: 12, color: 'var(--text-3)' }}>内容已截断</div>}
         </div>
       )}
       {sections.map((section) => (
         <div key={section.title}>
-          <div style={{ fontSize: 10, color: 'var(--text-3)', marginBottom: 3, fontWeight: 600 }}>
+          <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 3, fontWeight: 600 }}>
             {section.title}{section.truncated ? '（已截断）' : ''}
           </div>
           <div
@@ -103,7 +103,7 @@ function DetailPreview({ detail }: { detail: ToolCallDetailInfo }) {
               padding: 8,
               borderRadius: 6,
               fontFamily: 'monospace',
-              fontSize: 10,
+              fontSize: 12,
               whiteSpace: 'pre-wrap',
               maxHeight: 180,
               maxWidth: '100%',
@@ -117,17 +117,17 @@ function DetailPreview({ detail }: { detail: ToolCallDetailInfo }) {
       ))}
       {detail.progressTail && detail.progressTail.length > 0 && (
         <div>
-          <div style={{ fontSize: 10, color: 'var(--text-3)', marginBottom: 3, fontWeight: 600 }}>
+          <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 3, fontWeight: 600 }}>
             进度{detail.progressTruncated ? '（仅显示最近几条）' : ''}
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
             {detail.progressTail.map((item, index) => (
-              <div key={index} style={{ fontSize: 10, color: 'var(--text-2)' }}>• {item}</div>
+              <div key={index} style={{ fontSize: 12, color: 'var(--text-2)' }}>• {item}</div>
             ))}
           </div>
         </div>
       )}
-      {detail.error && <div style={{ fontSize: 10, color: 'var(--red)', overflowWrap: 'anywhere' }}>{detail.error}</div>}
+      {detail.error && <div style={{ fontSize: 12, color: 'var(--red)', overflowWrap: 'anywhere' }}>{detail.error}</div>}
     </div>
   )
 }
@@ -164,7 +164,7 @@ function SummaryRow({
           alignItems: 'center',
           gap: 6,
           textAlign: 'left',
-          fontSize: 12,
+          fontSize: 14,
           color: 'var(--text-1)',
         }}
       >
@@ -179,7 +179,7 @@ function SummaryRow({
             display: 'flex',
             alignItems: 'center',
             gap: 3,
-            fontSize: 10,
+            fontSize: 12,
             flexShrink: 0,
             fontWeight: 500,
           }}
@@ -189,12 +189,12 @@ function SummaryRow({
         </span>
       </button>
       {summary.outputPreview && !open && (
-        <div style={{ padding: '0 10px 8px 29px', fontSize: 11, color: 'var(--text-3)', overflowWrap: 'anywhere' }}>
+        <div style={{ padding: '0 10px 8px 29px', fontSize: 13, color: 'var(--text-3)', overflowWrap: 'anywhere' }}>
           {summary.outputPreview}
         </div>
       )}
       {open && (
-        <div style={{ padding: '0 10px 10px 29px', fontSize: 11 }}>
+        <div style={{ padding: '0 10px 10px 29px', fontSize: 13 }}>
           {loading && <div style={{ color: 'var(--text-3)' }}>正在加载工具详情...</div>}
           {error && <div style={{ color: 'var(--red)' }}>{error}</div>}
           {detail && <DetailPreview detail={{ ...detail, id: detail.id || toolDetailKey(messageId, summary.id) }} />}
@@ -254,7 +254,7 @@ export function LazyToolCallsBlock({ sessionId, messageId, count }: LazyToolCall
           alignItems: 'center',
           gap: 6,
           textAlign: 'left',
-          fontSize: 12,
+          fontSize: 14,
         }}
       >
         {open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
@@ -266,9 +266,9 @@ export function LazyToolCallsBlock({ sessionId, messageId, count }: LazyToolCall
       </button>
       {open && (
         <div>
-          {summaryError && <div style={{ padding: '0 10px 8px', color: 'var(--red)', fontSize: 11 }}>{summaryError}</div>}
+          {summaryError && <div style={{ padding: '0 10px 8px', color: 'var(--red)', fontSize: 13 }}>{summaryError}</div>}
           {!summaries && !summaryError && (
-            <div style={{ padding: '0 10px 8px', color: 'var(--text-3)', fontSize: 11 }}>
+            <div style={{ padding: '0 10px 8px', color: 'var(--text-3)', fontSize: 13 }}>
               {loadingSummaries ? '正在加载工具摘要...' : '暂无工具摘要'}
             </div>
           )}

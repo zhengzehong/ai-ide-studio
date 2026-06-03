@@ -21,10 +21,10 @@ export function FilePreview({ file, onClose }: { file: FileContent; onClose: () 
         borderBottom: '1px solid var(--border)', background: 'var(--bg-1)', flexShrink: 0,
       }}>
         <FileText size={14} style={{ color: 'var(--text-3)', flexShrink: 0 }} />
-        <span style={{ fontSize: 12, color: 'var(--text-2)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <span style={{ fontSize: 14, color: 'var(--text-2)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {file.path}
         </span>
-        <span style={{ fontSize: 11, color: 'var(--text-3)', flexShrink: 0 }}>
+        <span style={{ fontSize: 13, color: 'var(--text-3)', flexShrink: 0 }}>
           {formatSize(file.size)} · {file.language}
         </span>
         <button onClick={handleCopy} title="复制内容" style={iconBtn}>
@@ -36,7 +36,7 @@ export function FilePreview({ file, onClose }: { file: FileContent; onClose: () 
       </div>
 
       {file.truncated && (
-        <div style={{ padding: '6px 12px', background: 'var(--yellow-light, #fef9c3)', fontSize: 12, color: 'var(--yellow, #a16207)', borderBottom: '1px solid var(--border)' }}>
+        <div style={{ padding: '6px 12px', background: 'var(--yellow-light, #fef9c3)', fontSize: 14, color: 'var(--yellow, #a16207)', borderBottom: '1px solid var(--border)' }}>
           文件过大，仅显示前 1MB 内容
         </div>
       )}
@@ -44,17 +44,17 @@ export function FilePreview({ file, onClose }: { file: FileContent; onClose: () 
       <div style={{ flex: 1, overflow: 'auto' }}>
         {isImage ? (
           <div style={{ padding: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <span style={{ color: 'var(--text-3)', fontSize: 13 }}>
+            <span style={{ color: 'var(--text-3)', fontSize: 15 }}>
               图片预览暂不支持（文件来自后端 API，非 URL）
             </span>
           </div>
         ) : isMarkdown ? (
-          <div style={{ padding: 16, fontSize: 13, lineHeight: 1.7, color: 'var(--text-1)', whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>
+          <div style={{ padding: 16, fontSize: 15, lineHeight: 1.7, color: 'var(--text-1)', whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>
             {file.content}
           </div>
         ) : (
           <pre style={{
-            margin: 0, padding: 16, fontSize: 13, lineHeight: 1.6,
+            margin: 0, padding: 16, fontSize: 15, lineHeight: 1.6,
             fontFamily: 'var(--font-mono, "Fira Code", "Cascadia Code", monospace)',
             color: 'var(--text-1)', whiteSpace: 'pre', overflowX: 'auto',
             counterReset: 'line',
@@ -64,7 +64,7 @@ export function FilePreview({ file, onClose }: { file: FileContent; onClose: () 
                 <span style={{
                   display: 'inline-block', width: 48, textAlign: 'right', paddingRight: 16,
                   color: 'var(--text-3)', opacity: 0.5, userSelect: 'none', flexShrink: 0,
-                  fontSize: 12,
+                  fontSize: 14,
                 }}>
                   {i + 1}
                 </span>

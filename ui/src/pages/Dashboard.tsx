@@ -46,7 +46,7 @@ export default function Dashboard() {
           <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-1)', marginBottom: 4 }}>项目概览</h1>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             {connected ? <Wifi size={13} color="var(--green)" /> : <WifiOff size={13} color="var(--red)" />}
-            <p style={{ fontSize: 14, color: 'var(--text-2)', margin: 0 }}>
+            <p style={{ fontSize: 15, color: 'var(--text-2)', margin: 0 }}>
               {connected ? `${runningAgents} 个智能体运行中，${activeSessions} 个活跃会话` : '未连接到后端 Gateway'}
             </p>
           </div>
@@ -68,21 +68,21 @@ export default function Dashboard() {
         <div>
           <SectionHeader icon={<Activity size={15} />} title="智能体状态" />
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 28 }}>
-            {agents.length === 0 && <div style={{ color: 'var(--text-3)', fontSize: 13, padding: 20, textAlign: 'center' }}>暂无 Agent</div>}
+            {agents.length === 0 && <div style={{ color: 'var(--text-3)', fontSize: 15, padding: 20, textAlign: 'center' }}>暂无 Agent</div>}
             {agents.map(agent => {
               const agentSessions = sessions.filter(s => s.agent_id === agent.id && s.status === 'active');
               return (
                 <div key={agent.id} style={{ padding: '14px 16px', background: 'var(--bg-0)', borderRadius: 'var(--radius)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <div style={{ width: 36, height: 36, borderRadius: '50%', background: TYPE_COLORS[agent.type] ?? '#6b7280', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: 14, fontWeight: 700, flexShrink: 0 }}>{agent.name.charAt(0)}</div>
+                  <div style={{ width: 36, height: 36, borderRadius: '50%', background: TYPE_COLORS[agent.type] ?? '#6b7280', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: 15, fontWeight: 700, flexShrink: 0 }}>{agent.name.charAt(0)}</div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
-                      <span style={{ fontSize: 13, fontWeight: 600 }}>{agent.name}</span>
+                      <span style={{ fontSize: 15, fontWeight: 600 }}>{agent.name}</span>
                       <StatusBadge status={agent.status} />
                     </div>
-                    <div style={{ fontSize: 12, color: 'var(--text-2)' }}>{agent.runtime} · {agentSessions.length} 个活跃会话</div>
+                    <div style={{ fontSize: 14, color: 'var(--text-2)' }}>{agent.runtime} · {agentSessions.length} 个活跃会话</div>
                   </div>
                   <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                    <div style={{ fontSize: 12, color: 'var(--text-3)' }}>{agent.type}</div>
+                    <div style={{ fontSize: 14, color: 'var(--text-3)' }}>{agent.type}</div>
                   </div>
                 </div>
               );
@@ -91,17 +91,17 @@ export default function Dashboard() {
 
           <SectionHeader icon={<MessageSquare size={15} />} title="任务列表" action="查看看板" />
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {tasks.length === 0 && <div style={{ color: 'var(--text-3)', fontSize: 13, padding: 20, textAlign: 'center' }}>暂无任务</div>}
+            {tasks.length === 0 && <div style={{ color: 'var(--text-3)', fontSize: 15, padding: 20, textAlign: 'center' }}>暂无任务</div>}
             {tasks.slice(0, 6).map(task => (
               <div key={task.id} style={{ padding: '14px 16px', background: 'var(--bg-0)', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                  <span style={{ fontSize: 13, fontWeight: 500, flex: 1, marginRight: 12 }}>{task.title}</span>
+                  <span style={{ fontSize: 15, fontWeight: 500, flex: 1, marginRight: 12 }}>{task.title}</span>
                   <TaskStatusBadge status={task.status} />
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span style={{ fontSize: 12, color: 'var(--text-2)' }}>{task.stage || task.status}</span>
+                  <span style={{ fontSize: 14, color: 'var(--text-2)' }}>{task.stage || task.status}</span>
                   {task.assigned_agent_id && (
-                    <span style={{ fontSize: 11, color: 'var(--text-3)', background: 'var(--bg-2)', padding: '1px 6px', borderRadius: 4 }}>{task.assigned_agent_id}</span>
+                    <span style={{ fontSize: 13, color: 'var(--text-3)', background: 'var(--bg-2)', padding: '1px 6px', borderRadius: 4 }}>{task.assigned_agent_id}</span>
                   )}
                 </div>
               </div>
@@ -119,16 +119,16 @@ export default function Dashboard() {
           <SectionHeader icon={<Activity size={15} />} title="活跃会话" />
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {sessions.filter(s => s.status === 'active').length === 0 && (
-              <div style={{ color: 'var(--text-3)', fontSize: 12, textAlign: 'center', padding: 20 }}>暂无活跃会话</div>
+              <div style={{ color: 'var(--text-3)', fontSize: 14, textAlign: 'center', padding: 20 }}>暂无活跃会话</div>
             )}
             {sessions.filter(s => s.status === 'active').slice(0, 8).map(s => {
               const agent = agents.find(a => a.id === s.agent_id);
               return (
                 <div key={s.id} style={{ padding: '10px 12px', background: 'var(--bg-0)', borderRadius: 'var(--radius)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <div style={{ width: 24, height: 24, borderRadius: '50%', background: agent ? (TYPE_COLORS[agent.type] ?? '#6b7280') : 'var(--bg-3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, color: 'white', flexShrink: 0 }}>{agent?.name.charAt(0) ?? '?'}</div>
+                  <div style={{ width: 24, height: 24, borderRadius: '50%', background: agent ? (TYPE_COLORS[agent.type] ?? '#6b7280') : 'var(--bg-3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: 'white', flexShrink: 0 }}>{agent?.name.charAt(0) ?? '?'}</div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 12, fontWeight: 500 }}>{agent?.name ?? s.agent_id}</div>
-                    <div style={{ fontSize: 11, color: 'var(--text-3)' }}>{s.id.slice(-8)} · {formatTime(s.started_at)}</div>
+                    <div style={{ fontSize: 14, fontWeight: 500 }}>{agent?.name ?? s.agent_id}</div>
+                    <div style={{ fontSize: 13, color: 'var(--text-3)' }}>{s.id.slice(-8)} · {formatTime(s.started_at)}</div>
                   </div>
                   <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#059669', flexShrink: 0 }} />
                 </div>
@@ -150,15 +150,15 @@ function NewTaskModal({ agents, onCreate, onClose }: { agents: AgentData[]; onCr
   return (
     <Modal title="新建任务" onClose={onClose}>
       <div>
-        <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>任务标题</label>
+        <label style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>任务标题</label>
         <input value={title} onChange={e => setTitle(e.target.value)} placeholder="例如: 实现用户登录功能" style={inputStyle} />
       </div>
       <div>
-        <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>描述</label>
+        <label style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>描述</label>
         <textarea value={desc} onChange={e => setDesc(e.target.value)} placeholder="详细描述需求..." rows={3} style={{ ...inputStyle, resize: 'vertical' }} />
       </div>
       <div>
-        <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>指派 Agent</label>
+        <label style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>指派 Agent</label>
         <select value={agentId} onChange={e => setAgentId(e.target.value)} style={inputStyle}>
           <option value="">不指派</option>
           {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
@@ -172,7 +172,7 @@ function NewTaskModal({ agents, onCreate, onClose }: { agents: AgentData[]; onCr
   );
 }
 
-const inputStyle: React.CSSProperties = { width: '100%', padding: '9px 12px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', fontSize: 13, outline: 'none', background: 'var(--bg-1)', color: 'var(--text-1)', boxSizing: 'border-box' };
+const inputStyle: React.CSSProperties = { width: '100%', padding: '9px 12px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', fontSize: 15, outline: 'none', background: 'var(--bg-1)', color: 'var(--text-1)', boxSizing: 'border-box' };
 
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
@@ -190,18 +190,18 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
 }
 
 function ModalBtn({ label, primary, onClick }: { label: string; primary?: boolean; onClick: () => void }) {
-  return <button onClick={onClick} style={{ padding: '9px 18px', borderRadius: 'var(--radius)', border: primary ? 'none' : '1px solid var(--border)', background: primary ? 'var(--blue)' : 'var(--bg-0)', color: primary ? 'white' : 'var(--text-2)', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>{label}</button>;
+  return <button onClick={onClick} style={{ padding: '9px 18px', borderRadius: 'var(--radius)', border: primary ? 'none' : '1px solid var(--border)', background: primary ? 'var(--blue)' : 'var(--bg-0)', color: primary ? 'white' : 'var(--text-2)', fontSize: 15, fontWeight: 500, cursor: 'pointer' }}>{label}</button>;
 }
 
 function ActionBtn({ icon, label, onClick, primary }: { icon: React.ReactNode; label: string; onClick: () => void; primary?: boolean }) {
-  return <button onClick={onClick} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 'var(--radius)', border: primary ? 'none' : '1px solid var(--border)', background: primary ? 'var(--blue)' : 'var(--bg-0)', color: primary ? 'white' : 'var(--text-1)', fontSize: 13, fontWeight: 500, cursor: 'pointer', boxShadow: 'var(--shadow-sm)' }}>{icon}{label}</button>;
+  return <button onClick={onClick} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 'var(--radius)', border: primary ? 'none' : '1px solid var(--border)', background: primary ? 'var(--blue)' : 'var(--bg-0)', color: primary ? 'white' : 'var(--text-1)', fontSize: 15, fontWeight: 500, cursor: 'pointer', boxShadow: 'var(--shadow-sm)' }}>{icon}{label}</button>;
 }
 
 function StatCard({ icon, label, value, color, bg }: { icon: React.ReactNode; label: string; value: number; color: string; bg: string }) {
   return (
     <div style={{ padding: '18px 20px', background: 'var(--bg-0)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 14 }}>
       <div style={{ width: 40, height: 40, borderRadius: 'var(--radius)', background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center', color, flexShrink: 0 }}>{icon}</div>
-      <div><div style={{ fontSize: 22, fontWeight: 700, lineHeight: 1 }}>{value}</div><div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 4 }}>{label}</div></div>
+      <div><div style={{ fontSize: 22, fontWeight: 700, lineHeight: 1 }}>{value}</div><div style={{ fontSize: 14, color: 'var(--text-2)', marginTop: 4 }}>{label}</div></div>
     </div>
   );
 }
@@ -209,26 +209,26 @@ function StatCard({ icon, label, value, color, bg }: { icon: React.ReactNode; la
 function SectionHeader({ icon, title, action }: { icon: React.ReactNode; title: string; action?: string }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 600 }}><span style={{ color: 'var(--text-3)' }}>{icon}</span>{title}</div>
-      {action && <button style={{ display: 'flex', alignItems: 'center', gap: 4, border: 'none', background: 'none', color: 'var(--blue)', fontSize: 12, cursor: 'pointer', fontWeight: 500 }}>{action} <ArrowRight size={12} /></button>}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 15, fontWeight: 600 }}><span style={{ color: 'var(--text-3)' }}>{icon}</span>{title}</div>
+      {action && <button style={{ display: 'flex', alignItems: 'center', gap: 4, border: 'none', background: 'none', color: 'var(--blue)', fontSize: 14, cursor: 'pointer', fontWeight: 500 }}>{action} <ArrowRight size={12} /></button>}
     </div>
   );
 }
 
 function QuickAction({ icon, label, onClick }: { icon: React.ReactNode; label: string; onClick: () => void }) {
-  return <button onClick={onClick} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', background: 'var(--bg-0)', color: 'var(--text-1)', fontSize: 13, cursor: 'pointer' }}><span style={{ color: 'var(--text-3)' }}>{icon}</span>{label}</button>;
+  return <button onClick={onClick} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', background: 'var(--bg-0)', color: 'var(--text-1)', fontSize: 15, cursor: 'pointer' }}><span style={{ color: 'var(--text-3)' }}>{icon}</span>{label}</button>;
 }
 
 function StatusBadge({ status }: { status: string }) {
   const m: Record<string, { bg: string; color: string; label: string }> = { running: { bg: 'var(--blue-light)', color: 'var(--blue)', label: '运行中' }, idle: { bg: 'var(--green-light)', color: 'var(--green)', label: '空闲' }, standby: { bg: 'var(--bg-2)', color: 'var(--text-3)', label: '待机' }, sleeping: { bg: 'var(--bg-2)', color: 'var(--text-3)', label: '休眠' } };
   const s = m[status] ?? m.standby;
-  return <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 10, background: s.bg, color: s.color, fontWeight: 500 }}>{s.label}</span>;
+  return <span style={{ fontSize: 13, padding: '2px 7px', borderRadius: 10, background: s.bg, color: s.color, fontWeight: 500 }}>{s.label}</span>;
 }
 
 function TaskStatusBadge({ status }: { status: string }) {
   const m: Record<string, { bg: string; color: string; label: string }> = { executing: { bg: 'var(--blue-light)', color: 'var(--blue)', label: '进行中' }, planning: { bg: 'var(--purple-light)', color: 'var(--purple)', label: '规划中' }, reviewing: { bg: 'var(--yellow-light)', color: 'var(--yellow)', label: '审查中' }, blocked: { bg: 'var(--red-light)', color: 'var(--red)', label: '已阻塞' }, completed: { bg: 'var(--green-light)', color: 'var(--green)', label: '已完成' }, backlog: { bg: 'var(--bg-2)', color: 'var(--text-3)', label: '待办' } };
   const s = m[status] ?? m.backlog;
-  return <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: s.bg, color: s.color, fontWeight: 500, flexShrink: 0 }}>{s.label}</span>;
+  return <span style={{ fontSize: 13, padding: '2px 8px', borderRadius: 10, background: s.bg, color: s.color, fontWeight: 500, flexShrink: 0 }}>{s.label}</span>;
 }
 
 function formatTime(iso: string): string { try { return new Date(iso).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }); } catch { return iso; } }

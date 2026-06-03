@@ -23,7 +23,7 @@ export const iconBadge: CSSProperties = {
 }
 
 export const builtinBadge: CSSProperties = {
-  fontSize: 11,
+  fontSize: 13,
   padding: '2px 8px',
   borderRadius: 10,
   background: 'var(--bg-3)',
@@ -32,7 +32,7 @@ export const builtinBadge: CSSProperties = {
 }
 
 export const customBadge: CSSProperties = {
-  fontSize: 11,
+  fontSize: 13,
   padding: '2px 8px',
   borderRadius: 10,
   background: 'var(--blue-light)',
@@ -41,7 +41,7 @@ export const customBadge: CSSProperties = {
 }
 
 export const skillTag: CSSProperties = {
-  fontSize: 11,
+  fontSize: 13,
   padding: '2px 8px',
   borderRadius: 8,
   background: 'var(--bg-2)',
@@ -54,7 +54,7 @@ export const btnPrimary: CSSProperties = {
   alignItems: 'center',
   gap: 6,
   padding: '8px 16px',
-  fontSize: 13,
+  fontSize: 15,
   fontWeight: 600,
   background: 'var(--blue)',
   color: '#fff',
@@ -73,7 +73,7 @@ export const btnOutline: CSSProperties = {
   alignItems: 'center',
   gap: 4,
   padding: '6px 12px',
-  fontSize: 13,
+  fontSize: 15,
   background: 'var(--bg-0)',
   color: 'var(--text-2)',
   border: '1px solid var(--border)',
@@ -85,7 +85,7 @@ export const inputStyle: CSSProperties = {
   width: '100%',
   height: 36,
   padding: '0 14px 0 32px',
-  fontSize: 13,
+  fontSize: 15,
   border: '1px solid var(--border)',
   borderRadius: 8,
   background: 'var(--bg-0)',
@@ -96,7 +96,7 @@ export const inputStyle: CSSProperties = {
 export const editorInput: CSSProperties = {
   width: '100%',
   padding: '8px 12px',
-  fontSize: 13,
+  fontSize: 15,
   border: '1px solid var(--border)',
   borderRadius: 6,
   background: 'var(--bg-0)',

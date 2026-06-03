@@ -56,25 +56,25 @@ export function TurnContentView({
               gap: 6,
               cursor: 'pointer',
               color: 'var(--text-2)',
-              fontSize: 12,
+              fontSize: 14,
               textAlign: 'left',
             }}
           >
             {processOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
             <span style={{ fontWeight: 600 }}>执行过程</span>
-            <span style={{ color: 'var(--text-3)', fontSize: 11 }}>{processLabel(processBlocks.length, processCount, fallbackStage)}</span>
+            <span style={{ color: 'var(--text-3)', fontSize: 13 }}>{processLabel(processBlocks.length, processCount, fallbackStage)}</span>
             {(isStreaming || processLoading) && <Loader2 size={11} style={{ animation: 'spin 1s linear infinite', marginLeft: 'auto' }} />}
           </button>
           {processOpen && (
             <div style={{ borderTop: '1px solid var(--border)', padding: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
               {processBlocks.length === 0 && fallbackStage && (
-                <div style={{ fontSize: 12, color: 'var(--text-3)' }}>{fallbackStage}</div>
+                <div style={{ fontSize: 14, color: 'var(--text-3)' }}>{fallbackStage}</div>
               )}
               {processBlocks.map((block) => renderProcessBlock(block))}
-              {processLoading && <div style={{ fontSize: 12, color: 'var(--text-3)' }}>正在加载执行过程...</div>}
-              {processError && <div style={{ fontSize: 12, color: 'var(--red)', overflowWrap: 'anywhere' }}>{processError}</div>}
+              {processLoading && <div style={{ fontSize: 14, color: 'var(--text-3)' }}>正在加载执行过程...</div>}
+              {processError && <div style={{ fontSize: 14, color: 'var(--red)', overflowWrap: 'anywhere' }}>{processError}</div>}
               {processLoaded && processBlocks.length === 0 && !fallbackStage && !processError && (
-                <div style={{ fontSize: 12, color: 'var(--text-3)' }}>暂无可恢复的执行过程</div>
+                <div style={{ fontSize: 14, color: 'var(--text-3)' }}>暂无可恢复的执行过程</div>
               )}
             </div>
           )}

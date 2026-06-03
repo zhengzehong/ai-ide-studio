@@ -16,7 +16,7 @@ export function FileTree({ entries, onSelectFile, onExpandDir, selectedPath }: {
   selectedPath: string | null;
 }) {
   return (
-    <div style={{ fontSize: 13, userSelect: 'none' }}>
+    <div style={{ fontSize: 15, userSelect: 'none' }}>
       {entries.map((entry) => (
         <FileTreeNode
           key={entry.path}

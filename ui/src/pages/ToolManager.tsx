@@ -89,7 +89,7 @@ export default function ToolManager() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
         <div>
           <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0, letterSpacing: -0.5 }}>工具管理</h1>
-          <p style={{ color: 'var(--text-3)', fontSize: 14, margin: '6px 0 0' }}>
+          <p style={{ color: 'var(--text-3)', fontSize: 15, margin: '6px 0 0' }}>
             注册、管理和绑定工具，支持 MCP 服务、脚本和内置平台方法。
           </p>
         </div>
@@ -207,7 +207,7 @@ function EmptyTools({ onCreate }: { onCreate: () => void }) {
     <div style={emptyState}>
       <Wrench size={40} strokeWidth={1.5} />
       <p style={{ fontWeight: 600, margin: '12px 0 4px', fontSize: 15 }}>暂无工具</p>
-      <p style={{ fontSize: 13 }}>注册你的第一个工具</p>
+      <p style={{ fontSize: 15 }}>注册你的第一个工具</p>
       <button onClick={onCreate} style={{ ...btn, marginTop: 12 }}>
         <Plus size={14} /> 注册工具
       </button>
@@ -264,7 +264,7 @@ function ToolCard({
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <span style={{ fontWeight: 600, fontSize: 14 }}>{tool.display_name}</span>
+            <span style={{ fontWeight: 600, fontSize: 15 }}>{tool.display_name}</span>
             <code style={codeBadge}>{tool.name}</code>
             <span style={typeBadge(tool.type)}>{TYPE_LABELS[tool.type] || tool.type}</span>
             {tool.is_builtin ? <span style={builtinTag}>内置</span> : null}
@@ -272,7 +272,7 @@ function ToolCard({
           <p
             style={{
               margin: '3px 0 0',
-              fontSize: 13,
+              fontSize: 15,
               color: 'var(--text-3)',
               whiteSpace: 'nowrap',
               overflow: 'hidden',
@@ -286,7 +286,7 @@ function ToolCard({
           {bindings.length > 0 && (
             <span
               style={{
-                fontSize: 12,
+                fontSize: 14,
                 color: 'var(--text-3)',
                 padding: '2px 8px',
                 background: 'var(--bg-2)',
@@ -335,7 +335,7 @@ function ToolCard({
             <InfoBlock title="配置" text={tool.config_json} />
             <div>
               <h4 style={sectTitle}>权限</h4>
-              <div style={{ fontSize: 13, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ fontSize: 15, display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <div style={permRow}>
                   <span>需要审批</span>
                   <span style={{ fontWeight: 600 }}>{permissions.requiresApproval ? '是' : '否'}</span>
@@ -420,7 +420,7 @@ function BindingManager({
             </button>
           </div>
         ))}
-        {bindings.length === 0 && <span style={{ fontSize: 12, color: 'var(--text-3)' }}>暂无绑定</span>}
+        {bindings.length === 0 && <span style={{ fontSize: 14, color: 'var(--text-3)' }}>暂无绑定</span>}
       </div>
       <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
         <select
@@ -429,7 +429,7 @@ function BindingManager({
             setAddScope(event.target.value)
             setAddTargetId('')
           }}
-          style={{ ...formInput, width: 'auto', padding: '5px 10px', fontSize: 12 }}
+          style={{ ...formInput, width: 'auto', padding: '5px 10px', fontSize: 14 }}
         >
           <option value="global">全局</option>
           <option value="project">项目</option>
@@ -439,7 +439,7 @@ function BindingManager({
           <select
             value={addTargetId}
             onChange={(event) => setAddTargetId(event.target.value)}
-            style={{ ...formInput, width: 'auto', padding: '5px 10px', fontSize: 12 }}
+            style={{ ...formInput, width: 'auto', padding: '5px 10px', fontSize: 14 }}
           >
             <option value="">选择 Agent</option>
             {agents.map((agent) => (
@@ -453,7 +453,7 @@ function BindingManager({
           <select
             value={addTargetId}
             onChange={(event) => setAddTargetId(event.target.value)}
-            style={{ ...formInput, width: 'auto', padding: '5px 10px', fontSize: 12 }}
+            style={{ ...formInput, width: 'auto', padding: '5px 10px', fontSize: 14 }}
           >
             <option value="">选择项目</option>
             {projects.map((project) => (
@@ -469,7 +469,7 @@ function BindingManager({
             void onSet(toolId, addScope, addScope === 'global' ? undefined : addTargetId)
             setAddTargetId('')
           }}
-          style={{ ...btn, padding: '5px 12px', fontSize: 12 }}
+          style={{ ...btn, padding: '5px 12px', fontSize: 14 }}
         >
           <Link size={12} /> 绑定
         </button>
@@ -578,7 +578,7 @@ function ToolFormModal({
           <textarea
             value={configStr}
             onChange={(event) => setConfigStr(event.target.value)}
-            style={{ ...formInput, minHeight: 100, fontFamily: 'monospace', fontSize: 12, lineHeight: 1.7 }}
+            style={{ ...formInput, minHeight: 100, fontFamily: 'monospace', fontSize: 14, lineHeight: 1.7 }}
           />
         </label>
         {toolType === 'mcp' && (
@@ -591,7 +591,7 @@ function ToolFormModal({
           <textarea
             value={schemaStr}
             onChange={(event) => setSchemaStr(event.target.value)}
-            style={{ ...formInput, minHeight: 80, fontFamily: 'monospace', fontSize: 12, lineHeight: 1.7 }}
+            style={{ ...formInput, minHeight: 80, fontFamily: 'monospace', fontSize: 14, lineHeight: 1.7 }}
             placeholder='{ "type": "object", "properties": { } }'
           />
         </label>
@@ -646,7 +646,7 @@ const btn: React.CSSProperties = {
   background: 'var(--blue)',
   color: '#fff',
   cursor: 'pointer',
-  fontSize: 13,
+  fontSize: 15,
   fontWeight: 600,
 }
 const btnGhost: React.CSSProperties = {
@@ -680,7 +680,7 @@ const statPill: React.CSSProperties = {
   padding: '6px 14px',
   borderRadius: 8,
   background: 'var(--bg-2)',
-  fontSize: 13,
+  fontSize: 15,
 }
 const searchBox: React.CSSProperties = {
   display: 'flex',
@@ -697,7 +697,7 @@ const searchInput: React.CSSProperties = {
   border: 'none',
   background: 'none',
   outline: 'none',
-  fontSize: 14,
+  fontSize: 15,
   flex: 1,
   color: 'var(--text-1)',
 }
@@ -714,7 +714,7 @@ const filterBtn: React.CSSProperties = {
   padding: '6px 14px',
   borderRadius: 8,
   border: 'none',
-  fontSize: 13,
+  fontSize: 15,
   fontWeight: 500,
   cursor: 'pointer',
 }
@@ -763,7 +763,7 @@ const iconBadge = (cat: string): React.CSSProperties => ({
             : '#6b7280',
 })
 const codeBadge: React.CSSProperties = {
-  fontSize: 11,
+  fontSize: 13,
   padding: '2px 7px',
   borderRadius: 5,
   background: 'var(--bg-2)',
@@ -771,7 +771,7 @@ const codeBadge: React.CSSProperties = {
   fontFamily: 'monospace',
 }
 const typeBadge = (type: string): React.CSSProperties => ({
-  fontSize: 10,
+  fontSize: 12,
   padding: '2px 7px',
   borderRadius: 5,
   fontWeight: 600,
@@ -779,16 +779,16 @@ const typeBadge = (type: string): React.CSSProperties => ({
   color: type === 'mcp' ? '#7c3aed' : type === 'script' ? '#d97706' : '#16a34a',
 })
 const builtinTag: React.CSSProperties = {
-  fontSize: 10,
+  fontSize: 12,
   padding: '2px 7px',
   borderRadius: 5,
   background: 'var(--bg-2)',
   color: 'var(--text-3)',
   fontWeight: 500,
 }
-const sectTitle: React.CSSProperties = { fontSize: 13, fontWeight: 600, margin: '0 0 8px', color: 'var(--text-2)' }
+const sectTitle: React.CSSProperties = { fontSize: 15, fontWeight: 600, margin: '0 0 8px', color: 'var(--text-2)' }
 const preStyle: React.CSSProperties = {
-  fontSize: 12,
+  fontSize: 14,
   fontFamily: 'monospace',
   background: 'var(--bg-2)',
   borderRadius: 8,
@@ -806,7 +806,7 @@ const permRow: React.CSSProperties = {
   justifyContent: 'space-between',
   padding: '4px 0',
   borderBottom: '1px solid var(--border)',
-  fontSize: 12,
+  fontSize: 14,
 }
 const bindChip = (scope: string, enabled: boolean): React.CSSProperties => ({
   display: 'inline-flex',
@@ -814,7 +814,7 @@ const bindChip = (scope: string, enabled: boolean): React.CSSProperties => ({
   gap: 3,
   padding: '3px 8px',
   borderRadius: 5,
-  fontSize: 11,
+  fontSize: 13,
   fontWeight: 500,
   opacity: enabled ? 1 : 0.65,
   background: scope === 'global' ? '#dbeafe' : scope === 'project' ? '#d1fae5' : '#fce7f3',
@@ -845,7 +845,7 @@ const formLabel: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: 5,
-  fontSize: 13,
+  fontSize: 15,
   fontWeight: 600,
   color: 'var(--text-2)',
 }
@@ -853,7 +853,7 @@ const formInput: React.CSSProperties = {
   padding: '9px 12px',
   borderRadius: 8,
   border: '1px solid var(--border)',
-  fontSize: 13,
+  fontSize: 15,
   background: 'var(--bg-1)',
   color: 'var(--text-1)',
   outline: 'none',
@@ -861,7 +861,7 @@ const formInput: React.CSSProperties = {
   boxSizing: 'border-box',
 }
 const hintBox: React.CSSProperties = {
-  fontSize: 11,
+  fontSize: 13,
   color: 'var(--text-3)',
   marginTop: 4,
   padding: '8px 10px',

@@ -48,14 +48,14 @@ export default function AgentSquare() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
         <div>
           <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-1)', margin: 0 }}>Agent 广场</h1>
-          <p style={{ fontSize: 13, color: 'var(--text-3)', margin: '6px 0 0' }}>全局管理 Agent 模板；添加到项目后才能在工作台创建会话。</p>
+          <p style={{ fontSize: 15, color: 'var(--text-3)', margin: '6px 0 0' }}>全局管理 Agent 模板；添加到项目后才能在工作台创建会话。</p>
         </div>
         <button onClick={() => setCreating(true)} style={btnPrimary}>
           <Plus size={16} /> 创建模板
         </button>
       </div>
 
-      {successText && <div style={{ padding: '10px 12px', border: '1px solid rgba(5,150,105,0.25)', background: 'var(--green-light)', color: 'var(--green)', borderRadius: 8, fontSize: 13, marginBottom: 16 }}>{successText}</div>}
+      {successText && <div style={{ padding: '10px 12px', border: '1px solid rgba(5,150,105,0.25)', background: 'var(--green-light)', color: 'var(--green)', borderRadius: 8, fontSize: 15, marginBottom: 16 }}>{successText}</div>}
 
       <div style={{ display: 'flex', gap: 12, marginBottom: 20, alignItems: 'center', flexWrap: 'wrap' }}>
         <div style={{ position: 'relative', flex: '1 1 240px', maxWidth: 320 }}>
@@ -64,7 +64,7 @@ export default function AgentSquare() {
         </div>
         <div style={{ display: 'flex', gap: 4 }}>
           {TYPE_FILTERS.map((f) => (
-            <button key={f.value} onClick={() => setFilterType(f.value)} style={{ padding: '5px 12px', fontSize: 13, borderRadius: 16, border: '1px solid var(--border)', background: filterType === f.value ? 'var(--blue)' : 'var(--bg-0)', color: filterType === f.value ? '#fff' : 'var(--text-2)', cursor: 'pointer', transition: 'all 0.15s' }}>
+            <button key={f.value} onClick={() => setFilterType(f.value)} style={{ padding: '5px 12px', fontSize: 15, borderRadius: 16, border: '1px solid var(--border)', background: filterType === f.value ? 'var(--blue)' : 'var(--bg-0)', color: filterType === f.value ? '#fff' : 'var(--text-2)', cursor: 'pointer', transition: 'all 0.15s' }}>
               {f.label}
             </button>
           ))}
@@ -81,11 +81,11 @@ export default function AgentSquare() {
                 <div style={iconBadge}><IconComp size={22} /></div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-1)' }}>{tpl.name}</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>{tpl.runtime} · {TYPE_LABELS[tpl.type] || tpl.type}</div>
+                  <div style={{ fontSize: 14, color: 'var(--text-3)', marginTop: 2 }}>{tpl.runtime} · {TYPE_LABELS[tpl.type] || tpl.type}</div>
                 </div>
                 {tpl.is_builtin ? <span style={builtinBadge}>内置</span> : <span style={customBadge}>自定义</span>}
               </div>
-              <p style={{ fontSize: 13, color: 'var(--text-2)', margin: '0 0 12px', lineHeight: 1.5 }}>{tpl.description || '暂无描述'}</p>
+              <p style={{ fontSize: 15, color: 'var(--text-2)', margin: '0 0 12px', lineHeight: 1.5 }}>{tpl.description || '暂无描述'}</p>
               {skills.length > 0 && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 12 }}>{skills.map((s) => <span key={s} style={skillTag}>{s}</span>)}</div>}
               <div style={{ display: 'flex', gap: 8, marginTop: 'auto', flexWrap: 'wrap' }}>
                 <button onClick={() => setDeploying(tpl)} style={btnPrimarySmall}><Rocket size={13} /> 添加到项目</button>
