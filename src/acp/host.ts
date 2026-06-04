@@ -25,8 +25,8 @@ import {
   resolvePermission,
 } from './interaction-state.js'
 import {
+  buildAgentSessionMeta,
   buildAgentRuntimeEnv,
-  buildClaudeSessionMeta,
   fingerprintRuntimeEnv,
   summarizeRuntimeEnv,
 } from './model-profile-env.js'
@@ -104,13 +104,12 @@ export const acpHost = {
     const runtimeEnv = effectiveRuntime === 'mock'
       ? { env: buildRuntimeEnv(effectiveRuntime), appliedProfile: undefined }
       : buildAgentRuntimeEnv(effectiveRuntime, agent)
-    const sessionMeta = runtimeEnv.appliedProfile
-      ? buildClaudeSessionMeta(runtimeEnv.env, effectiveRuntime)
-      : undefined
+    const sessionMeta = buildAgentSessionMeta(effectiveRuntime, runtimeEnv.env, agent)
     const envFingerprint = fingerprintRuntimeEnv(runtimeEnv.env, effectiveRuntime)
     const existing = acpHost.agents.get(agentId)
     if (existing && !existing.connection.signal.aborted) {
       if (existing.runtime === effectiveRuntime && existing.envFingerprint === envFingerprint) {
+        existing.sessionMeta = sessionMeta
         touchRuntime(existing)
         return
       }

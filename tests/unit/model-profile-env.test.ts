@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import {
+  buildAgentSessionMeta,
   buildAgentRuntimeEnv,
   buildClaudeSessionMeta,
   fingerprintRuntimeEnv,
@@ -163,6 +164,64 @@ describe('model profile runtime env', () => {
           },
         },
       },
+    })
+  })
+
+  test('builds Claude session meta with appended agent system prompt', () => {
+    const provider = modelProviderStore.create({
+      name: 'deepseek',
+      displayName: 'DeepSeek',
+      protocol: 'claude',
+      baseUrl: 'https://api.deepseek.com/anthropic',
+      apiKey: 'sk-test',
+    })
+    const profile = modelProfileStore.create({
+      name: 'claude ds flash',
+      runtime: 'claude',
+      providerId: provider.id,
+      config: {
+        defaultModel: 'deepseek-v4-flash',
+      },
+    })
+    const agent = agentStore.create({
+      name: 'Claude',
+      type: 'dev',
+      runtime: 'claude',
+      config: { modelProfileId: profile.id },
+      systemPrompt: '  Follow the project rules.  ',
+    })
+    const { env } = buildAgentRuntimeEnv('claude', agent, {})
+
+    const meta = buildAgentSessionMeta('claude', env, agent)
+
+    expect(meta).toMatchObject({
+      systemPrompt: {
+        type: 'preset',
+        preset: 'claude_code',
+        append: 'Follow the project rules.',
+      },
+      claudeCode: {
+        options: {
+          settings: {
+            env: {
+              ANTHROPIC_MODEL: 'deepseek-v4-flash',
+            },
+          },
+        },
+      },
+    })
+  })
+
+  test('builds Codex session meta with plain agent system prompt', () => {
+    const agent = agentStore.create({
+      name: 'Codex',
+      type: 'dev',
+      runtime: 'codex',
+      systemPrompt: '  Follow the project rules.  ',
+    })
+
+    expect(buildAgentSessionMeta('codex', {}, agent)).toEqual({
+      systemPrompt: 'Follow the project rules.',
     })
   })
 })

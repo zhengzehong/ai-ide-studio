@@ -26,6 +26,15 @@ export interface ClaudeSessionMeta extends Record<string, unknown> {
   }
 }
 
+export interface AgentSessionMeta extends Record<string, unknown> {
+  systemPrompt?: string | {
+    type: 'preset'
+    preset: 'claude_code'
+    append: string
+  }
+  claudeCode?: ClaudeSessionMeta['claudeCode']
+}
+
 const CLAUDE_PROFILE_ENV_KEYS = [
   'ANTHROPIC_BASE_URL',
   'ANTHROPIC_API_KEY',
@@ -73,6 +82,26 @@ export function buildClaudeSessionMeta(env: NodeJS.ProcessEnv, runtime: string):
       },
     },
   }
+}
+
+export function buildAgentSessionMeta(
+  runtime: string,
+  env: NodeJS.ProcessEnv,
+  agent: AgentRow,
+): AgentSessionMeta | undefined {
+  const systemPrompt = agent.system_prompt.trim()
+  const meta: AgentSessionMeta = {}
+
+  if (systemPrompt) {
+    meta.systemPrompt = runtime === 'claude'
+      ? { type: 'preset', preset: 'claude_code', append: systemPrompt }
+      : systemPrompt
+  }
+
+  const claudeMeta = buildClaudeSessionMeta(env, runtime)
+  if (claudeMeta) meta.claudeCode = claudeMeta.claudeCode
+
+  return Object.keys(meta).length > 0 ? meta : undefined
 }
 
 export function fingerprintRuntimeEnv(env: NodeJS.ProcessEnv, runtime: string): string {
