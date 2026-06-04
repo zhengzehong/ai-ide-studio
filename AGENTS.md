@@ -149,11 +149,24 @@ log.info('done')
 | 环境变量 | 默认值 | 说明 |
 |----------|--------|------|
 | `LOG_LEVEL` | `debug` | 日志级别 |
-| `LOG_DIR` | `./data/logs` | 日志文件目录 |
+| `LOG_DIR` | `DATA_DIR/logs`（未设置 `DATA_DIR` 时为 `./data/logs`） | 日志文件目录；显式设置时会直接作为目录使用，不再追加 `logs` |
+| `PROMPT_WATCHDOG_MS` | `60000` | 单轮 prompt 无进展超过该毫秒数时输出 watchdog 告警 |
+| `PROMPT_WATCHDOG_INTERVAL_MS` | `30000` | active prompt watchdog 扫描间隔 |
 
-- **开发环境**：默认 `debug` 级别，控制台彩色输出 + 文件双写
-- **生产环境**：建议 `info` 级别，JSON 标准输出 + 文件（14 天自动轮转）
-- 日志文件路径：`data/logs/app.log`（按天轮转）
+- **开发环境**：默认 `debug` 级别，控制台彩色输出 + 文件双写。
+- **生产环境**：建议 `info` 级别，JSON 标准输出 + 文件（30 天自动轮转）。
+- 日志文件路径：启动日志会打印 `logDir`、`logFile`、`logLevel`；默认文件为 `data/logs/app.log`，PRD 本地实例通常为 `data-prd/logs/app.log`。
+- 如果设置了 `LOG_DIR`，例如 `LOG_DIR=D:\\path\\data-prd\\logs`，日志就写入该目录下的 `app.log`，不会再变成 `...\\logs\\logs\\app.log`。
+
+### 对话卡住排查
+
+排查对话、流式输出或会话状态问题时，先看后端日志文件，不要只看前端现象：
+
+1. 从启动日志确认 `logDir/logFile/logLevel` 和当前数据库 `dbPath`。
+2. 用 `sessionId`、`agentId`、`acpSessionId`、`turnId` 串联一轮对话。
+3. 一轮 prompt 应该能看到：`prompt received` → `human message persisted` → `ACP ensure session start/done` → `ACP prompt start` → ACP/session update 摘要 → `Agent prompt completed` 或 `ACP prompt failed` → `session done received` → `agent message finalized` → `prompt cleanup complete`。
+4. 如果出现 `active prompt watchdog warning`，重点看 `lastProgress`、`activeForMs`、`idleForMs`，判断卡在 ACP 启动、prompt 调用、事件持久化还是广播阶段。
+5. 核对持久化时，优先对比 `session_events.sequence/messageId/type` 和 `messages.messageId/contentLength/toolCallCount`，普通日志不要打印完整 prompt、图片 base64、工具 rawInput/rawOutput。
 
 ## 测试规范
 

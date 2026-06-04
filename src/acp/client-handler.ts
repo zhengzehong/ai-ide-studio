@@ -11,40 +11,68 @@ import { createTerminalProcess, killTerminal as killTerminalProcess, releaseTerm
 import { contentBlockToText, mapToolCallContent, mapToolCallUpdate, toolCallTitle } from './update-mapper.js'
 
 const log = createChildLogger('acp-client')
-const turnIdsByAgent = new Map<string, Map<string, string>>()
-
-function turnIdsForAgent(agentId: string): Map<string, string> {
-  let turnIds = turnIdsByAgent.get(agentId)
-  if (!turnIds) {
-    turnIds = new Map()
-    turnIdsByAgent.set(agentId, turnIds)
-  }
-  return turnIds
+interface ActiveClientTurn {
+  messageId: string
+  turnId?: string
 }
 
-export function startClientTurn(agentId: string, acpSessionId: string): void {
-  turnIdsForAgent(agentId).set(acpSessionId, generatedTurnMessageId(acpSessionId))
+const turnsByAgent = new Map<string, Map<string, ActiveClientTurn>>()
+
+function turnsForAgent(agentId: string): Map<string, ActiveClientTurn> {
+  let turns = turnsByAgent.get(agentId)
+  if (!turns) {
+    turns = new Map()
+    turnsByAgent.set(agentId, turns)
+  }
+  return turns
+}
+
+export function startClientTurn(agentId: string, acpSessionId: string, turnId?: string): void {
+  turnsForAgent(agentId).set(acpSessionId, { messageId: generatedTurnMessageId(acpSessionId), turnId })
 }
 
 export function endClientTurn(agentId: string, acpSessionId: string): void {
-  const turnIds = turnIdsByAgent.get(agentId)
-  if (!turnIds) return
-  turnIds.delete(acpSessionId)
-  if (turnIds.size === 0) turnIdsByAgent.delete(agentId)
+  const turns = turnsByAgent.get(agentId)
+  if (!turns) return
+  turns.delete(acpSessionId)
+  if (turns.size === 0) turnsByAgent.delete(agentId)
 }
 
 function generatedTurnMessageId(acpSessionId: string): string {
   return `msg-${acpSessionId.slice(0, 8)}-${Date.now()}-${randomUUID().slice(0, 8)}`
 }
 
+function summarizeAcpUpdate(update: { sessionUpdate?: string }): Record<string, unknown> {
+  const data = update as Record<string, unknown>
+  const content = data.content as { type?: string; text?: string } | undefined
+  const toolCall = data.toolCall as { toolCallId?: string; title?: string; status?: string; kind?: string } | undefined
+  const toolCallId = typeof data.toolCallId === 'string' ? data.toolCallId : toolCall?.toolCallId
+  return {
+    updateType: update.sessionUpdate,
+    messageId: typeof data.messageId === 'string' ? data.messageId : undefined,
+    contentType: content?.type,
+    textLength: content?.text?.length,
+    toolCallId,
+    toolTitle: typeof data.title === 'string' ? data.title : toolCall?.title,
+    toolStatus: typeof data.status === 'string' ? data.status : toolCall?.status,
+    toolKind: typeof data.kind === 'string' ? data.kind : toolCall?.kind,
+    used: typeof data.used === 'number' ? data.used : undefined,
+    size: typeof data.size === 'number' ? data.size : undefined,
+  }
+}
+
 export function createClientHandler(agentId: string): acp.Client {
   function turnMessageId(acpSessionId: string, _chunkMsgId?: string | null): string {
-    const turnIds = turnIdsForAgent(agentId)
-    const existing = turnIds.get(acpSessionId)
-    if (existing) return existing
+    const turns = turnsForAgent(agentId)
+    const existing = turns.get(acpSessionId)
+    if (existing) return existing.messageId
     const newId = generatedTurnMessageId(acpSessionId)
-    turnIds.set(acpSessionId, newId)
+    turns.set(acpSessionId, { messageId: newId })
     return newId
+  }
+
+  function activeTurnId(acpSessionId: string): string | undefined {
+    return turnsByAgent.get(agentId)?.get(acpSessionId)?.turnId
   }
 
   return {
@@ -55,6 +83,7 @@ export function createClientHandler(agentId: string): acp.Client {
 
       const update = params.update
       const updateType = update.sessionUpdate
+      log.debug({ agentId, sessionId: ourSessionId, acpSessionId, turnId: activeTurnId(acpSessionId), ...summarizeAcpUpdate(update) }, 'ACP session update received')
 
       switch (updateType) {
         case 'agent_message_chunk': {

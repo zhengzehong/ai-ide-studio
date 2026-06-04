@@ -3,7 +3,9 @@ import { resolve } from 'path'
 import { mkdirSync } from 'fs'
 
 const logLevel = process.env.LOG_LEVEL ?? 'debug'
-const logDir = resolve(process.env.LOG_DIR ?? process.env.DATA_DIR ?? './data', 'logs')
+const logDir = process.env.LOG_DIR
+  ? resolve(process.env.LOG_DIR)
+  : resolve(process.env.DATA_DIR ?? './data', 'logs')
 mkdirSync(logDir, { recursive: true })
 
 const logFile = resolve(logDir, 'app.log')
@@ -44,4 +46,13 @@ export const logger = pino({
 
 export function createChildLogger(module: string) {
   return logger.child({ module })
+}
+
+export function getLogConfig(): { logLevel: string; logDir: string; logFile: string; nodeEnv: string } {
+  return {
+    logLevel,
+    logDir,
+    logFile,
+    nodeEnv: process.env.NODE_ENV ?? 'development',
+  }
 }

@@ -37,6 +37,10 @@ const startPromises = new Map<string, Promise<void>>()
 const cancelledSessions = new Set<string>()
 const log = createChildLogger('acp-host')
 
+interface PromptDiagnosticsOptions {
+  turnId?: string
+}
+
 const ACP_SESSION_IDLE_MS = readPositiveMs(process.env.ACP_SESSION_IDLE_MS, 30 * 60 * 1000)
 const ACP_RUNTIME_IDLE_MS = readPositiveMs(process.env.ACP_RUNTIME_IDLE_MS, 60 * 60 * 1000)
 const ACP_IDLE_SWEEP_MS = readPositiveMs(process.env.ACP_IDLE_SWEEP_MS, 5 * 60 * 1000)
@@ -379,7 +383,7 @@ export const acpHost = {
     return newAcpSessionId
   },
 
-  async prompt(agentId: string, ourSessionId: string, content: string, images?: ImageAttachment[]): Promise<void> {
+  async prompt(agentId: string, ourSessionId: string, content: string, images?: ImageAttachment[], diagnostics: PromptDiagnosticsOptions = {}): Promise<void> {
     const conn = acpHost.agents.get(agentId)
     if (!conn) throw new Error(`Agent ${agentId} 未运行`)
 
@@ -398,8 +402,13 @@ export const acpHost = {
       }
     }
 
+    const startedAt = Date.now()
     beginTurn(conn, ourSessionId)
-    startClientTurn(agentId, acpSessionId)
+    startClientTurn(agentId, acpSessionId, diagnostics.turnId)
+    log.info(
+      { agentId, ourSessionId, acpSessionId, turnId: diagnostics.turnId, textLength: content.length, imageCount: images?.length ?? 0 },
+      'ACP prompt start',
+    )
     try {
       const promptResult = await conn.connection.prompt({
         sessionId: acpSessionId,
@@ -420,18 +429,30 @@ export const acpHost = {
       const wasCancelled = cancelledSessions.delete(ourSessionId)
       const stopReason = wasCancelled ? 'cancelled' : promptResult.stopReason
 
+      log.info(
+        { agentId, ourSessionId, acpSessionId, turnId: diagnostics.turnId, stopReason, totalTokens: turnUsage?.totalTokens, elapsedMs: Date.now() - startedAt },
+        'Agent prompt completed',
+      )
       events.emit('session:done', {
         sessionId: ourSessionId,
         agentId,
         messageId: `done-${ourSessionId}`,
+        turnId: diagnostics.turnId,
         turnUsage,
         stopReason,
       })
-      log.info({ agentId, ourSessionId, stopReason, totalTokens: turnUsage?.totalTokens }, 'Agent prompt completed')
+      log.debug({ agentId, ourSessionId, acpSessionId, turnId: diagnostics.turnId, stopReason }, 'session done emitted from ACP prompt')
+    } catch (err) {
+      log.error({ err, agentId, ourSessionId, acpSessionId, turnId: diagnostics.turnId, elapsedMs: Date.now() - startedAt }, 'ACP prompt failed')
+      throw err
     } finally {
       cancelledSessions.delete(ourSessionId)
       endClientTurn(agentId, acpSessionId)
       endTurn(conn, ourSessionId)
+      log.debug(
+        { agentId, ourSessionId, acpSessionId, turnId: diagnostics.turnId, elapsedMs: Date.now() - startedAt, activeTurnCount: conn.activeTurnCount },
+        'ACP prompt cleanup complete',
+      )
     }
   },
 

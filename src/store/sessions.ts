@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto'
+import { createChildLogger } from '../core/logger.js'
 import { getDb } from './db.js'
 import { countToolCalls } from './tool-call-history.js'
 
@@ -45,6 +46,8 @@ export interface SessionEventRow {
   sequence: number
   created_at: string
 }
+
+const log = createChildLogger('store:sessions')
 
 const RUNNING_STAGES = [
   '\u6b63\u5728\u51c6\u5907 Agent...',
@@ -280,6 +283,20 @@ export const messageStore = {
       INSERT INTO messages (id, session_id, role, content, thinking, tool_calls_json, decision_json, attachments_json, timestamp)
       VALUES (@id, @session_id, @role, @content, @thinking, @tool_calls_json, @decision_json, @attachments_json, @timestamp)
     `).run(msg)
+    log.debug(
+      {
+        sessionId,
+        messageId: msg.id,
+        role: msg.role,
+        contentLength: msg.content.length,
+        thinkingLength: msg.thinking?.length ?? 0,
+        hasToolCalls: !!msg.tool_calls_json,
+        toolCallCount: countToolCalls(msg.tool_calls_json),
+        hasAttachments: !!msg.attachments_json,
+        timestamp: msg.timestamp,
+      },
+      'message persisted',
+    )
     return msg
   },
 
@@ -350,6 +367,19 @@ export const eventStore = {
       INSERT INTO session_events (id, session_id, agent_id, acp_session_id, message_id, type, role, payload_json, sequence, created_at)
       VALUES (@id, @session_id, @agent_id, @acp_session_id, @message_id, @type, @role, @payload_json, @sequence, @created_at)
     `).run(ev)
+    log.debug(
+      {
+        sessionId,
+        eventId: ev.id,
+        sequence: ev.sequence,
+        eventType: ev.type,
+        messageId: ev.message_id,
+        role: ev.role,
+        payloadBytes: Buffer.byteLength(ev.payload_json, 'utf8'),
+        createdAt: ev.created_at,
+      },
+      'session event appended',
+    )
     return ev
   },
 
