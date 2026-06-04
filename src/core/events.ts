@@ -21,6 +21,7 @@ export type AppEvents = {
   'team:update': { teamId: string; sessionIds: string[]; data: Record<string, unknown> }
   'task:created': { taskId: string; title: string; assignAgentId?: string }
   'rule:update': { ruleId: string; data: Record<string, unknown> }
+  'timeline:updated': { sessionId: string }
 }
 
 const mitt = mittModule as unknown as typeof import('mitt').default

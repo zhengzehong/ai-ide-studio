@@ -10,6 +10,7 @@ import { sessionStore } from './store/sessions.js'
 import { seedBuiltinTemplates } from './store/agent-templates.js'
 import { seedBuiltinTools } from './tools/seed.js'
 import { startGateway } from './gateway/server.js'
+import { initTimeline } from './core/timeline.js'
 import { resolve } from 'path'
 
 const log = createChildLogger('app')
@@ -40,6 +41,7 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
 
   const { app, server, wss } = await startGateway(config)
   ruleEngine.start()
+  initTimeline()
   log.info(
     { host: config.host, port: config.port, http: `http://${config.host}:${config.port}`, ws: `ws://${config.host}:${config.port}` },
     '服务已启动',

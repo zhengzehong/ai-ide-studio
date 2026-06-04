@@ -501,5 +501,6 @@ export type ServerMessage =
   | { type: 'task:update'; taskId: string; data: Record<string, unknown> }
   | { type: 'team:update'; teamId: string; sessionIds: string[]; data: Record<string, unknown> }
   | { type: 'rule:update'; ruleId: string; data: Record<string, unknown> }
+  | { type: 'timeline:updated'; sessionId: string }
   | { type: 'result'; requestId?: string; data: unknown }
   | { type: 'error'; requestId?: string; message: string }

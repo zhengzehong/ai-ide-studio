@@ -11,6 +11,7 @@ import { taskRpcHandlers } from './tasks.js'
 import { templateRpcHandlers } from './templates.js'
 import { teamRpcHandlers } from './teams.js'
 import { toolRpcHandlers } from './tools.js'
+import { timelineRpcHandlers } from './timeline.js'
 import type { RpcContext, RpcHandlerMap } from './types.js'
 
 const rpcHandlers: RpcHandlerMap = {
@@ -26,6 +27,7 @@ const rpcHandlers: RpcHandlerMap = {
   ...filesystemRpcHandlers,
   ...modelRpcHandlers,
   ...skillRpcHandlers,
+  ...timelineRpcHandlers,
 }
 
 export async function dispatchRpc(msg: ClientMessage, context: RpcContext): Promise<void> {

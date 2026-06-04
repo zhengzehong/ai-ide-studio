@@ -20,6 +20,7 @@ import { useToolStore } from './stores/tool.store'
 import { useModelStore } from './stores/model.store'
 import { useSkillStore } from './stores/skill.store'
 import { useTeamStore } from './stores/team.store'
+import { useTimelineStore } from './stores/timeline.store'
 
 export default function App() {
   const init = useConnectionStore((s) => s.init)
@@ -50,12 +51,14 @@ export default function App() {
       const off3 = useTaskStore.getState().setupListeners()
       const off4 = useRuleStore.getState().setupListeners()
       const off5 = useTeamStore.getState().setupListeners(() => useSessionStore.getState().currentSessionId)
+      const off6 = useTimelineStore.getState().setupListeners()
       return () => {
         off1()
         off2()
         off3()
         off4()
         off5()
+        off6()
         listenersReady.current = false
       }
     }

@@ -103,6 +103,10 @@ events.on('rule:update', (ev) => {
   broadcastToAll({ type: 'rule:update', ruleId: ev.ruleId, data: ev.data })
 })
 
+events.on('timeline:updated', (ev) => {
+  broadcastToAll({ type: 'timeline:updated', sessionId: ev.sessionId })
+})
+
 function send(ws: WebSocket, msg: ServerMessage): void {
   if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg))
 }

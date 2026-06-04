@@ -67,6 +67,7 @@ import { shouldShowPlanBar } from '../components/chat/plan-visibility'
 import { buildChatRenderItems, type ChatRenderItem } from '../components/chat/render-items'
 import { VirtualChatList } from '../components/chat/VirtualChatList'
 import { TeamContextPanel } from '../components/team/TeamContextPanel'
+import { TimelinePopover } from '../components/chat/TimelinePopover'
 import { MarkdownRenderer } from '../components/MarkdownRenderer'
 import { permissionOptionLabel, isAllowPermissionOption, isRejectAlwaysOption } from '../utils/permission'
 import {
@@ -497,6 +498,7 @@ export default function Workspace() {
   }, [currentSessionId, isStreaming, streamingMessage])
   const showStreamingBubble = !!streamingBubble
   const showPlanBar = shouldShowPlanBar({ plan, isStreaming, hasBlockingInteraction: blockingInteraction })
+  const [showTimeline, setShowTimeline] = useState(false)
   const interactionPanel = useMemo(
     () =>
       blockingInteraction ? (
@@ -964,8 +966,34 @@ export default function Workspace() {
               </>
             )}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {currentSessionId && (
+              <button
+                onClick={() => setShowTimeline((v) => !v)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  padding: '5px 11px',
+                  borderRadius: 7,
+                  border: `1px solid ${showTimeline ? '#93b4f5' : 'var(--border)'}`,
+                  background: showTimeline ? '#eff6ff' : 'var(--bg-0)',
+                  cursor: 'pointer',
+                  fontSize: 13,
+                  color: showTimeline ? '#2563eb' : 'var(--text-2)',
+                  transition: 'all .15s',
+                }}
+              >
+                📋 时间线
+              </button>
+            )}
+          </div>
         </header>
+        {showTimeline && currentSessionId && (
+          <div style={{ position: 'relative' }}>
+            <TimelinePopover sessionId={currentSessionId} onClose={() => setShowTimeline(false)} />
+          </div>
+        )}
 
         {showPlanBar && (
           <PlanBar
