@@ -537,6 +537,7 @@ export const acpHost = {
       sessionId: sourceAcpSessionId,
       cwd: context.cwd ?? process.cwd(),
       mcpServers: resolveMcpServersForAcp(conn, targetSessionId, context),
+      _meta: conn.sessionMeta,
     })
     markSessionConnected(conn, targetSessionId, result.sessionId)
     updateInitialCapabilities(conn, targetSessionId, result)
