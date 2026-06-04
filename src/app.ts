@@ -2,7 +2,7 @@ import type { Server } from 'http'
 import type { WebSocketServer } from 'ws'
 import type { Hono } from 'hono'
 import type { AppConfig } from './core/config.js'
-import { createChildLogger } from './core/logger.js'
+import { createChildLogger, getLogConfig } from './core/logger.js'
 import { ruleEngine } from './core/rules.js'
 import { initDatabase } from './store/db.js'
 import { agentStore } from './store/agents.js'
@@ -25,6 +25,7 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
   const dbPath = resolve(config.dataDir, 'ai-ide.sqlite')
   initDatabase(dbPath)
   log.info({ dbPath }, '数据库已初始化')
+  log.info({ dataDir: config.dataDir, ...getLogConfig() }, '日志配置已加载')
   const recovery = sessionStore.reconcileInterruptedStages()
   if (recovery.interrupted.length > 0 || recovery.cleared.length > 0) {
     log.warn(

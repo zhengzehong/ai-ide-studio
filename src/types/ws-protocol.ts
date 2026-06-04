@@ -329,6 +329,7 @@ export interface SessionDoneData {
   sessionId: string
   agentId: string
   messageId: string
+  turnId?: string
   turnUsage?: TurnUsageData
   stopReason?: SessionStopReason
   error?: string
@@ -402,6 +403,7 @@ export interface SessionEventData {
 export interface SessionActivityData {
   sessionId: string
   agentId: string
+  turnId?: string
   state: SessionActivityState
   reason: SessionActivityReason
   timestamp: string

@@ -112,8 +112,8 @@ ws://localhost:18800
 |------|------|------|
 | `session:update` | `{ sessionId, agentId, data }` | 流式会话更新，包含消息、工具、权限、提问、计划和 `lifecycle.*` 阶段 |
 | `session:event` | `{ sessionId, agentId?, event }` | 持久化事件 |
-| `session:done` | `{ sessionId, agentId, messageId, turnUsage? }` | Agent 回复完成 |
-| `session:activity` | `{ sessionId, agentId, state, reason, timestamp }` | 全局轻量事件：`running` 表示会话开始执行，`idle` 表示会话执行结束；用于左侧会话列表活动/未读提示，不承载聊天内容 |
+| `session:done` | `{ sessionId, agentId, messageId, turnId?, turnUsage? }` | Agent 回复完成；`turnId` 仅用于诊断日志/前后端事件关联 |
+| `session:activity` | `{ sessionId, agentId, turnId?, state, reason, timestamp }` | 全局轻量事件：`running` 表示会话开始执行，`idle` 表示会话执行结束；用于左侧会话列表活动/未读提示，不承载聊天内容；`turnId` 仅用于诊断 |
 | `session:capabilities` | `{ sessionId, capabilities }` | 会话能力信息 |
 | `session:changed` | `{ sessionId, data }` | Session 标题、状态、归档/删除等列表元数据变更 |
 | `agent:status` | `{ agentId, status }` | Agent 在线状态 |

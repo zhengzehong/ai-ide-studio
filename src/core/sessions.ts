@@ -10,6 +10,16 @@ import type { ImageAttachment, SessionActivityReason, SessionActivityState, Sess
 import { createPendingTurn, finalizePendingTurn, updatePendingTurn, type PendingTurn } from './turn-finalizer.js'
 import { buildTeamLeaderPrompt } from './team-prompts.js'
 import { resolveVisiblePlatformTools } from '../tools/registry/visibility-resolver.js'
+import { eventPayloadFromUpdate } from './session-event-payload.js'
+import {
+  createTurnId,
+  finishPromptDiagnostics,
+  getPromptTurnId,
+  recordPromptProgress,
+  startPromptDiagnostics,
+  summarizeSessionUpdate,
+  summarizeSessionUpdateData,
+} from './prompt-diagnostics.js'
 
 const log = createChildLogger('session')
 
@@ -18,6 +28,9 @@ const activePrompts = new Set<string>()
 const queuedPrompts = new Map<string, Promise<void>>()
 
 events.on('session:update', (ev) => {
+  const turnId = getPromptTurnId(ev.sessionId)
+  recordPromptProgress(ev.sessionId, summarizeSessionUpdate(ev.data))
+  log.debug({ sessionId: ev.sessionId, agentId: ev.agentId, turnId, ...summarizeSessionUpdateData(ev.data) }, 'session update received')
   const { sessionId, data } = ev
   let pending = pendingBySession.get(sessionId)
   if (!pending) {
@@ -29,6 +42,7 @@ events.on('session:update', (ev) => {
 })
 
 events.on('session:update', (ev) => {
+  const turnId = getPromptTurnId(ev.sessionId)
   const payload = eventPayloadFromUpdate(ev.data)
   if (!payload) return
   if (ev.data.sessionInfo?.title) {
@@ -42,17 +56,32 @@ events.on('session:update', (ev) => {
     role: ev.data.role,
     payload: payload.payload,
   })
+  log.debug(
+    { sessionId: ev.sessionId, agentId: ev.agentId, turnId, eventId: stored.id, sequence: stored.sequence, eventType: stored.type, messageId: stored.message_id },
+    'session event persisted',
+  )
   events.emit('session:event', { sessionId: ev.sessionId, agentId: ev.agentId, event: stored })
 })
 
+function eventTurnId(ev: { sessionId: string; turnId?: string }): string | undefined {
+  return ev.turnId ?? getPromptTurnId(ev.sessionId)
+}
+
 events.on('session:done', (ev) => {
+  const turnId = eventTurnId(ev)
+  recordPromptProgress(ev.sessionId, 'session.done')
+  log.info({ sessionId: ev.sessionId, agentId: ev.agentId, turnId, messageId: ev.messageId, stopReason: ev.stopReason, hasError: !!ev.error, turnUsage: ev.turnUsage }, 'session done received')
   const stored = eventStore.append(ev.sessionId, {
     type: 'message.done',
     agentId: ev.agentId,
     messageId: ev.messageId,
     role: 'agent',
-    payload: { messageId: ev.messageId, turnUsage: ev.turnUsage, stopReason: ev.stopReason, error: ev.error },
+    payload: { messageId: ev.messageId, turnId, turnUsage: ev.turnUsage, stopReason: ev.stopReason, error: ev.error },
   })
+  log.info(
+    { sessionId: ev.sessionId, agentId: ev.agentId, turnId, eventId: stored.id, sequence: stored.sequence, messageId: stored.message_id, stopReason: ev.stopReason },
+    'session done event persisted',
+  )
   events.emit('session:event', { sessionId: ev.sessionId, agentId: ev.agentId, event: stored })
 })
 
@@ -61,35 +90,8 @@ events.on('session:done', (ev) => {
   if (updated) events.emit('session:changed', { sessionId: ev.sessionId, data: { ...updated } })
 })
 
-function eventPayloadFromUpdate(data: SessionUpdateData): { type: string; payload: unknown } | null {
-  if (data.eventType === 'permission.result')
-    return { type: 'permission.result', payload: { requestId: data.messageId, cancelled: true } }
-  if (data.eventType === 'elicitation.result')
-    return { type: 'elicitation.result', payload: { requestId: data.messageId, action: 'cancel' } }
-  if (data.contentDelta || data.content)
-    return {
-      type: data.eventType || 'message.chunk',
-      payload: { messageId: data.messageId, role: data.role, contentDelta: data.contentDelta, content: data.content },
-    }
-  if (data.thinking) return { type: 'thinking.chunk', payload: { messageId: data.messageId, thinking: data.thinking } }
-  if (data.toolCall) return { type: 'tool.call', payload: { messageId: data.messageId, toolCall: data.toolCall } }
-  if (data.toolCallUpdate)
-    return { type: 'tool.update', payload: { messageId: data.messageId, toolCall: data.toolCallUpdate } }
-  if (data.usage) return { type: 'usage.update', payload: { usage: data.usage } }
-  if (data.plan) return { type: 'plan.update', payload: { plan: data.plan } }
-  if (data.configOptions) return { type: 'config.update', payload: { configOptions: data.configOptions } }
-  if (data.commands) return { type: 'commands.update', payload: { commands: data.commands } }
-  if (data.sessionInfo) return { type: 'session.info', payload: { sessionInfo: data.sessionInfo } }
-  if (data.permissionRequest)
-    return { type: 'permission.request', payload: { permissionRequest: data.permissionRequest } }
-  if (data.elicitationRequest)
-    return { type: 'elicitation.request', payload: { elicitationRequest: data.elicitationRequest } }
-  if (data.attachments)
-    return { type: 'message.attachments', payload: { messageId: data.messageId, attachments: data.attachments } }
-  return null
-}
-
 events.on('session:done', (ev) => {
+  const turnId = eventTurnId(ev)
   const pending = pendingBySession.get(ev.sessionId)
   const finalized = pending ? finalizePendingTurn(pending) : null
   if (finalized) {
@@ -101,6 +103,20 @@ events.on('session:done', (ev) => {
       toolCalls: finalized.toolCalls,
     })
     sessionStore.touch(ev.sessionId, message.timestamp)
+    log.info(
+      {
+        sessionId: ev.sessionId,
+        agentId: ev.agentId,
+        turnId,
+        messageId: message.id,
+        contentLength: message.content.length,
+        thinkingLength: message.thinking?.length ?? 0,
+        toolCallCount: finalized.toolCalls?.length ?? 0,
+        stopReason: ev.stopReason,
+      },
+      'agent message finalized',
+    )
+    recordPromptProgress(ev.sessionId, 'message.finalized')
   } else if (ev.stopReason === 'error' && ev.error) {
     const message = messageStore.append(ev.sessionId, {
       id: ev.messageId,
@@ -108,6 +124,14 @@ events.on('session:done', (ev) => {
       content: `执行失败：${ev.error}`,
     })
     sessionStore.touch(ev.sessionId, message.timestamp)
+    log.info(
+      { sessionId: ev.sessionId, agentId: ev.agentId, turnId, messageId: message.id, contentLength: message.content.length, stopReason: ev.stopReason },
+      'agent error message finalized',
+    )
+    recordPromptProgress(ev.sessionId, 'message.error.finalized')
+  } else {
+    log.debug({ sessionId: ev.sessionId, agentId: ev.agentId, turnId, messageId: ev.messageId, stopReason: ev.stopReason }, 'session done without finalizable message')
+    recordPromptProgress(ev.sessionId, 'message.finalize.skipped')
   }
   pendingBySession.delete(ev.sessionId)
 })
@@ -205,15 +229,44 @@ export const sessionManager = {
 
 async function sendPromptNow(session: SessionRow, content: string, images?: ImageAttachment[], clientMessageId?: string): Promise<void> {
   const sessionId = session.id
+  const turnId = createTurnId()
+  const startedAt = Date.now()
   const promptLen = content.length
   const imageCount = images?.length ?? 0
-  log.debug({ sessionId, agentId: session.agent_id, promptLen, imageCount }, 'send prompt')
+  log.info(
+    {
+      sessionId,
+      agentId: session.agent_id,
+      projectId: session.project_id,
+      taskId: session.task_id,
+      turnId,
+      promptLen,
+      imageCount,
+      clientMessageId,
+    },
+    'prompt received',
+  )
 
   activePrompts.add(sessionId)
+  startPromptDiagnostics({
+    turnId,
+    sessionId,
+    agentId: session.agent_id,
+    projectId: session.project_id,
+    startedAt,
+    lastProgressAt: startedAt,
+    lastProgress: 'prompt.received',
+  })
   let activityEndReason: SessionActivityReason = 'prompt-done'
-  emitSessionActivity(sessionId, session.agent_id, 'running', 'prompt-started')
+  log.debug({ sessionId, agentId: session.agent_id, turnId, activePromptCount: activePrompts.size }, 'prompt marked active')
+  emitSessionActivity(sessionId, session.agent_id, 'running', 'prompt-started', turnId)
   try {
     const humanMessage = messageStore.append(sessionId, { id: clientMessageId, role: 'human', content, attachments: images })
+    recordPromptProgress(sessionId, 'human.message.persisted')
+    log.info(
+      { sessionId, agentId: session.agent_id, turnId, messageId: humanMessage.id, contentLength: humanMessage.content.length, imageCount, timestamp: humanMessage.timestamp },
+      'human message persisted',
+    )
     sessionStore.touch(sessionId, humanMessage.timestamp)
     const stored = eventStore.append(sessionId, {
       type: 'message.user',
@@ -222,45 +275,60 @@ async function sendPromptNow(session: SessionRow, content: string, images?: Imag
       role: 'human',
       payload: { messageId: humanMessage.id, content, attachments: images || [] },
     })
+    log.info(
+      { sessionId, agentId: session.agent_id, turnId, eventId: stored.id, sequence: stored.sequence, messageId: stored.message_id },
+      'human message event persisted',
+    )
     events.emit('session:event', { sessionId, agentId: session.agent_id, event: stored })
-    emitLifecycle(session.agent_id, sessionId, 'lifecycle.prompt_received', '\u6b63\u5728\u51c6\u5907 Agent...')
+    emitLifecycle(session.agent_id, sessionId, 'lifecycle.prompt_received', '正在准备 Agent...')
 
     const projectContext = resolveSessionProjectContext(
       session.agent_id,
       session.task_id ?? undefined,
       session.project_id ?? undefined,
     )
+    recordPromptProgress(sessionId, 'acp.session.ensure.started')
+    log.info({ sessionId, agentId: session.agent_id, turnId, acpSessionId: session.acp_session_id, projectId: projectContext.projectId, cwd: projectContext.cwd }, 'ACP ensure session start')
     const acpSessionId = await acpHost.ensureSession(
       session.agent_id,
       sessionId,
       session.acp_session_id,
       projectContext,
     )
+    recordPromptProgress(sessionId, 'acp.session.ready')
+    log.info({ sessionId, agentId: session.agent_id, turnId, acpSessionId }, 'ACP ensure session done')
     if (session.acp_session_id !== acpSessionId) {
       sessionStore.updateAcpSessionId(sessionId, acpSessionId)
-      log.info({ sessionId, acpSessionId }, 'ACP Session mapped')
+      log.info({ sessionId, agentId: session.agent_id, turnId, acpSessionId }, 'ACP Session mapped')
     }
     const acpContent = maybeWrapTeamLeaderPrompt(sessionId, content)
-    emitLifecycle(session.agent_id, sessionId, 'lifecycle.prompt_sent', '\u6b63\u5728\u601d\u8003...')
-    await acpHost.prompt(session.agent_id, sessionId, acpContent, images)
+    emitLifecycle(session.agent_id, sessionId, 'lifecycle.prompt_sent', '正在思考...')
+    recordPromptProgress(sessionId, 'acp.prompt.started')
+    await acpHost.prompt(session.agent_id, sessionId, acpContent, images, { turnId })
+    recordPromptProgress(sessionId, 'acp.prompt.resolved')
+    log.info({ sessionId, agentId: session.agent_id, turnId, elapsedMs: Date.now() - startedAt }, 'prompt completed')
   } catch (err) {
     activityEndReason = 'prompt-error'
     const message = err instanceof Error ? err.message : String(err)
-    emitLifecycle(session.agent_id, sessionId, 'lifecycle.failed', `\u6267\u884c\u5931\u8d25\uff1a${message}`)
-    log.error({ err, sessionId, agentId: session.agent_id }, 'prompt failed')
+    emitLifecycle(session.agent_id, sessionId, 'lifecycle.failed', `执行失败：${message}`)
+    log.error({ err, sessionId, agentId: session.agent_id, turnId, elapsedMs: Date.now() - startedAt }, 'prompt failed')
     events.emit('session:done', {
       sessionId,
       agentId: session.agent_id,
       messageId: `error-${sessionId}-${Date.now()}`,
+      turnId,
       stopReason: 'error',
       error: message,
     })
     throw err
   } finally {
     activePrompts.delete(sessionId)
-    emitSessionActivity(sessionId, session.agent_id, 'idle', activityEndReason)
+    finishPromptDiagnostics(sessionId, activityEndReason)
+    log.info({ sessionId, agentId: session.agent_id, turnId, reason: activityEndReason, elapsedMs: Date.now() - startedAt, activePromptCount: activePrompts.size }, 'prompt cleanup complete')
+    emitSessionActivity(sessionId, session.agent_id, 'idle', activityEndReason, turnId)
   }
 }
+
 
 async function waitForIdleTurn(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 100))
@@ -295,10 +363,12 @@ function emitSessionActivity(
   agentId: string,
   state: SessionActivityState,
   reason: SessionActivityReason,
+  turnId?: string,
 ): void {
   events.emit('session:activity', {
     sessionId,
     agentId,
+    turnId,
     state,
     reason,
     timestamp: new Date().toISOString(),
