@@ -99,6 +99,7 @@ interface SessionStore {
   turnProcessErrorByMessageId: Record<string, string>
   runningSessionIds: SessionIndicatorStateMap
   unreadSessionIds: SessionIndicatorStateMap
+  staleSessionIds: SessionIndicatorStateMap
 
   fetchSessions: (agentId?: string, projectId?: string) => Promise<void>
   fetchMessages: (sessionId: string) => Promise<void>
@@ -157,11 +158,40 @@ function shouldRecoverStreamingMessage(recovered: StreamingMessage | null, messa
   return !!recovered && !messages.some((message) => message.role === 'agent' && message.id === recovered.id)
 }
 
+function hasAgentMessageAfterLatestHuman(messages: MessageData[], sessionId: string): boolean {
+  const sessionMessages = messages
+    .filter((message) => message.session_id === sessionId)
+    .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+  let latestHumanIndex = -1
+  for (let i = sessionMessages.length - 1; i >= 0; i -= 1) {
+    if (sessionMessages[i].role === 'human') {
+      latestHumanIndex = i
+      break
+    }
+  }
+  if (latestHumanIndex < 0) return sessionMessages.some((message) => message.role === 'agent')
+  return sessionMessages.slice(latestHumanIndex + 1).some((message) => message.role === 'agent')
+}
+
+function shouldClearStreamingAfterMessageLoad(
+  sessionId: string,
+  messages: MessageData[],
+  streamingMessage: StreamingMessage | null,
+  runningSessionIds: SessionIndicatorStateMap,
+  staleSessionIds: SessionIndicatorStateMap,
+): boolean {
+  if (!streamingMessage) return false
+  if (messages.some((message) => message.session_id === sessionId && message.role === 'agent' && message.id === streamingMessage.id)) return true
+  return !runningSessionIds[sessionId] && (!!staleSessionIds[sessionId] || hasAgentMessageAfterLatestHuman(messages, sessionId))
+}
+
 function selectRecoveredStreamingMessage(
   current: StreamingMessage | null,
   recovered: StreamingMessage | null,
   messages: MessageData[],
+  allowRecovery: boolean,
 ): StreamingMessage | null {
+  if (!allowRecovery) return null
   if (!shouldRecoverStreamingMessage(recovered, messages)) return current
   if (!hasVisibleStreamingState(current)) return recovered
   if (!current || current.id.startsWith('pending-')) return recovered
@@ -171,20 +201,30 @@ function selectRecoveredStreamingMessage(
 function applySessionActivity(
   runningSessionIds: SessionIndicatorStateMap,
   unreadSessionIds: SessionIndicatorStateMap,
+  staleSessionIds: SessionIndicatorStateMap,
   sessionId: string,
   state: 'running' | 'idle',
   currentSessionId: string | null,
-): { runningSessionIds: SessionIndicatorStateMap; unreadSessionIds: SessionIndicatorStateMap } {
+): { runningSessionIds: SessionIndicatorStateMap; unreadSessionIds: SessionIndicatorStateMap; staleSessionIds: SessionIndicatorStateMap } {
   const running = { ...runningSessionIds }
   const unread = { ...unreadSessionIds }
+  const stale = { ...staleSessionIds }
   if (state === 'running') {
     running[sessionId] = true
     delete unread[sessionId]
+    delete stale[sessionId]
   } else {
     delete running[sessionId]
+    stale[sessionId] = true
     if (currentSessionId !== sessionId) unread[sessionId] = true
   }
-  return { runningSessionIds: running, unreadSessionIds: unread }
+  return { runningSessionIds: running, unreadSessionIds: unread, staleSessionIds: stale }
+}
+
+function clearCachedStreaming(sessionId: string): void {
+  const cache = sessionCaches.get(sessionId)
+  if (!cache?.streamingMessage) return
+  sessionCaches.set(sessionId, { ...cache, streamingMessage: null })
 }
 
 function saveCache(sessionId: string, s: Pick<SessionStore, 'events' | 'usage' | 'turnUsage' | 'capabilities' | 'plan' | 'pendingPermissions' | 'pendingElicitations' | 'streamingMessage'>) {
@@ -260,7 +300,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   usage: null, turnUsage: null, capabilities: { ...defaultCaps }, plan: [], pendingPermissions: [], pendingElicitations: [], loading: false,
   toolCallSummariesByMessageId: {}, toolCallDetailsByKey: {}, fileChangeDetailsByMessageId: {}, toolCallLoadingByKey: {}, toolCallErrorByKey: {},
   turnProcessLoadingByMessageId: {}, turnProcessErrorByMessageId: {},
-  runningSessionIds: {}, unreadSessionIds: {},
+  runningSessionIds: {}, unreadSessionIds: {}, staleSessionIds: {},
 
   fetchSessions: async (agentId, projectId) => {
     const requestSeq = ++sessionListRequestSeq
@@ -289,7 +329,22 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     try {
       const serverMessages = await wsClient.request({ type: 'sessions.messages', sessionId }) as MessageData[]
       if (sessionId !== get().currentSessionId) return
-      set(state => ({ messages: mergeMessagesForSession(serverMessages, state.messages, sessionId) }))
+      set(state => {
+        const messages = mergeMessagesForSession(serverMessages, state.messages, sessionId)
+        const shouldClearStreaming = shouldClearStreamingAfterMessageLoad(
+          sessionId,
+          messages,
+          state.streamingMessage,
+          state.runningSessionIds,
+          state.staleSessionIds,
+        )
+        return {
+          messages,
+          streamingMessage: shouldClearStreaming ? null : state.streamingMessage,
+          staleSessionIds: removeSessionIndicator(state.staleSessionIds, sessionId),
+        }
+      })
+      saveCache(sessionId, get())
     } catch { /* ignore message load errors */ }
   },
 
@@ -314,8 +369,15 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         pendingPermissions: reduced.pendingPermissions,
         pendingElicitations: reduced.pendingElicitations,
         streamingMessage: shouldUseMessagePrimaryHistory
-          ? selectRecoveredStreamingMessage(state.streamingMessage, activeTurnRecovery, state.messages)
-          : reduced.streamingMessage,
+          ? selectRecoveredStreamingMessage(
+              state.streamingMessage,
+              activeTurnRecovery,
+              state.messages,
+              !!state.runningSessionIds[sessionId] && !state.staleSessionIds[sessionId],
+            )
+          : state.runningSessionIds[sessionId] && !state.staleSessionIds[sessionId]
+            ? reduced.streamingMessage
+            : null,
       }))
       saveCache(sessionId, get())
     } catch {
@@ -358,6 +420,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       turnProcessErrorByMessageId: currentSessionId ? get().turnProcessErrorByMessageId : {},
       runningSessionIds: removeSessionIndicator(get().runningSessionIds, sessionId),
       unreadSessionIds: removeSessionIndicator(get().unreadSessionIds, sessionId),
+      staleSessionIds: removeSessionIndicator(get().staleSessionIds, sessionId),
     })
   },
 
@@ -399,10 +462,11 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     }
     wsClient.subscribe([id])
     const c = sessionCaches.get(id)
+    const shouldRestoreStreaming = !!get().runningSessionIds[id] && !get().staleSessionIds[id]
     streamingBuffer.clear()
     if (streamingFlushTimer) { clearTimeout(streamingFlushTimer); streamingFlushTimer = null }
     set({
-      currentSessionId: id, messages: [], events: c?.events || [], streamingMessage: c?.streamingMessage || null,
+      currentSessionId: id, messages: [], events: c?.events || [], streamingMessage: shouldRestoreStreaming ? c?.streamingMessage || null : null,
       usage: c?.usage || null, turnUsage: c?.turnUsage || null, capabilities: c?.capabilities || { ...defaultCaps }, plan: c?.plan || [],
       pendingPermissions: c?.pendingPermissions || [], pendingElicitations: c?.pendingElicitations || [],
       toolCallSummariesByMessageId: {}, toolCallDetailsByKey: {}, fileChangeDetailsByMessageId: {}, toolCallLoadingByKey: {}, toolCallErrorByKey: {},
@@ -421,11 +485,14 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     if (images?.length) msg.images = images
     wsClient.send(msg)
     promptStartTime = Date.now()
-    set({
-      messages: [...get().messages, normalizeMessage({ id: clientMessageId, session_id: sid, role: 'human', content, thinking: null, tool_calls_json: null, decision_json: null, attachments_json: images?.length ? JSON.stringify(images) : null, file_changes_json: null, timestamp: new Date().toISOString() })],
+    set((state) => ({
+      messages: [...state.messages, normalizeMessage({ id: clientMessageId, session_id: sid, role: 'human', content, thinking: null, tool_calls_json: null, decision_json: null, attachments_json: images?.length ? JSON.stringify(images) : null, file_changes_json: null, timestamp: new Date().toISOString() })],
       streamingMessage: applyTurnEntry(createEmptyTurn(`pending-${sid}-${Date.now()}`), { kind: 'stage', text: '\u6b63\u5728\u51c6\u5907 Agent...' }),
       turnUsage: null,
-    })
+      runningSessionIds: { ...state.runningSessionIds, [sid]: true },
+      unreadSessionIds: removeSessionIndicator(state.unreadSessionIds, sid),
+      staleSessionIds: removeSessionIndicator(state.staleSessionIds, sid),
+    }))
   },
 
   setModel: async (modelId) => {
@@ -641,7 +708,16 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     }))
 
     offs.push(wsClient.on('session:done', (msg) => {
-      const sid = msg.sessionId as string; if (sid !== get().currentSessionId) return
+      const sid = msg.sessionId as string
+      if (sid !== get().currentSessionId) {
+        clearCachedStreaming(sid)
+        set((st) => ({
+          runningSessionIds: removeSessionIndicator(st.runningSessionIds, sid),
+          unreadSessionIds: { ...st.unreadSessionIds, [sid]: true },
+          staleSessionIds: { ...st.staleSessionIds, [sid]: true },
+        }))
+        return
+      }
       flushStreamingBuffer(set, get)
       const tu = msg.turnUsage as TurnUsageInfo | undefined
       const stopReason = msg.stopReason as string | undefined
@@ -682,6 +758,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         set(st => ({
           messages: appendFinalizedMessage(st.messages, newMsg),
           streamingMessage: null, turnUsage: tu || st.turnUsage, plan: finalizePlanOnTurnDone(st.plan, stopReason),
+          runningSessionIds: removeSessionIndicator(st.runningSessionIds, sid),
         }))
       } else {
         const error = typeof msg.error === 'string' ? msg.error : ''
@@ -693,12 +770,14 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           set(st => ({
             messages: appendFinalizedMessage(st.messages, finalMessage),
             streamingMessage: null, turnUsage: tu || st.turnUsage, plan: finalizePlanOnTurnDone(st.plan, stopReason),
+            runningSessionIds: removeSessionIndicator(st.runningSessionIds, sid),
           }))
         } else {
           set(st => ({
             streamingMessage: null,
             turnUsage: tu || st.turnUsage,
             plan: finalizePlanOnTurnDone(st.plan, stopReason),
+            runningSessionIds: removeSessionIndicator(st.runningSessionIds, sid),
           }))
         }
       }
@@ -738,6 +817,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           turnProcessErrorByMessageId: st.currentSessionId === sessionId ? {} : st.turnProcessErrorByMessageId,
           runningSessionIds: removeSessionIndicator(st.runningSessionIds, sessionId),
           unreadSessionIds: removeSessionIndicator(st.unreadSessionIds, sessionId),
+          staleSessionIds: removeSessionIndicator(st.staleSessionIds, sessionId),
         }))
         return
       }
@@ -759,7 +839,17 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       const sessionId = typeof msg.sessionId === 'string' ? msg.sessionId : ''
       if (!sessionId) return
       const state = msg.state === 'running' ? 'running' : 'idle'
-      set((st) => applySessionActivity(st.runningSessionIds, st.unreadSessionIds, sessionId, state, st.currentSessionId))
+      if (state === 'idle') clearCachedStreaming(sessionId)
+      const isCurrent = sessionId === get().currentSessionId
+      if (state === 'idle' && isCurrent) flushStreamingBuffer(set, get)
+      set((st) => ({
+        ...applySessionActivity(st.runningSessionIds, st.unreadSessionIds, st.staleSessionIds, sessionId, state, st.currentSessionId),
+        streamingMessage: state === 'idle' && st.currentSessionId === sessionId ? null : st.streamingMessage,
+      }))
+      if (state === 'idle' && isCurrent) {
+        void get().fetchMessages(sessionId)
+        void get().fetchEvents(sessionId)
+      }
     }))
 
     listenersSetup = true

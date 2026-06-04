@@ -38,6 +38,7 @@ function resetStore(): void {
     turnProcessErrorByMessageId: {},
     runningSessionIds: {},
     unreadSessionIds: {},
+    staleSessionIds: {},
   })
 }
 
