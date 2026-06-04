@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { ChevronRight, FileText, Loader2 } from 'lucide-react'
 import type { FileChangeEntry, TurnFileChanges } from './file-changes-utils'
 import { styles } from './file-changes-card-styles'
+import { MarkdownRenderer } from '../MarkdownRenderer'
 
 interface FileChangesCardProps {
   changes: TurnFileChanges
@@ -91,17 +92,28 @@ function ChangeStats({ changes }: { changes: TurnFileChanges }) {
   )
 }
 
+function isMarkdownFile(path: string): boolean {
+  return /\.(md|mdx|markdown)$/i.test(path)
+}
+
+function getFullNewText(file: FileChangeEntry): string {
+  return file.segments.map((s) => s.newText ?? '').join('\n')
+}
+
 function FileRow({ file }: { file: FileChangeEntry }) {
-  const [diffOpen, setDiffOpen] = useState(false)
+  const isMd = isMarkdownFile(file.path)
+  const [expanded, setExpanded] = useState(false)
+  const [viewMode, setViewMode] = useState<'preview' | 'diff'>(isMd ? 'preview' : 'diff')
   const hasDiffContent = file.segments.some((segment) => segment.lines.length > 0)
+  const canExpand = hasDiffContent || (isMd && getFullNewText(file).length > 0)
 
   return (
     <>
       <button
         type="button"
-        style={{ ...styles.fileRow, ...(diffOpen ? { background: 'var(--bg-2)' } : {}) }}
-        onClick={hasDiffContent ? () => setDiffOpen(!diffOpen) : undefined}
-        disabled={!hasDiffContent}
+        style={{ ...styles.fileRow, ...(expanded ? { background: 'var(--bg-2)' } : {}) }}
+        onClick={canExpand ? () => setExpanded(!expanded) : undefined}
+        disabled={!canExpand}
       >
         <ChangeTypeBadge type={file.changeType} />
         <span style={styles.filePath}>{shortPath(file.path)}</span>
@@ -109,15 +121,37 @@ function FileRow({ file }: { file: FileChangeEntry }) {
           {file.addedLines > 0 && <span style={{ color: 'var(--green)', fontWeight: 600 }}>+{file.addedLines}</span>}
           {file.deletedLines > 0 && <span style={{ color: 'var(--red)', fontWeight: 600 }}>-{file.deletedLines}</span>}
         </span>
-        {hasDiffContent && (
+        {canExpand && (
           <ChevronRight
             size={10}
-            style={{ color: 'var(--text-3)', transition: 'transform 0.2s', transform: diffOpen ? 'rotate(90deg)' : 'none', flexShrink: 0 }}
+            style={{ color: 'var(--text-3)', transition: 'transform 0.2s', transform: expanded ? 'rotate(90deg)' : 'none', flexShrink: 0 }}
           />
         )}
       </button>
-      {diffOpen && hasDiffContent && <InlineDiffView file={file} />}
+      {expanded && (
+        <>
+          {isMd && hasDiffContent && (
+            <div style={{ display: 'flex', gap: 2, padding: '6px 14px', background: 'var(--bg-1)', borderBottom: '1px solid var(--border)' }}>
+              <button type="button" onClick={() => setViewMode('preview')} style={{ padding: '3px 10px', borderRadius: 5, border: viewMode === 'preview' ? '1px solid var(--blue)' : '1px solid var(--border)', background: viewMode === 'preview' ? 'var(--blue-light)' : 'var(--bg-0)', color: viewMode === 'preview' ? 'var(--blue)' : 'var(--text-2)', fontSize: 12, cursor: 'pointer', fontWeight: 500 }}>预览</button>
+              <button type="button" onClick={() => setViewMode('diff')} style={{ padding: '3px 10px', borderRadius: 5, border: viewMode === 'diff' ? '1px solid var(--blue)' : '1px solid var(--border)', background: viewMode === 'diff' ? 'var(--blue-light)' : 'var(--bg-0)', color: viewMode === 'diff' ? 'var(--blue)' : 'var(--text-2)', fontSize: 12, cursor: 'pointer', fontWeight: 500 }}>Diff</button>
+            </div>
+          )}
+          {viewMode === 'preview' && isMd ? (
+            <MarkdownPreviewPanel content={getFullNewText(file)} />
+          ) : hasDiffContent ? (
+            <InlineDiffView file={file} />
+          ) : null}
+        </>
+      )}
     </>
+  )
+}
+
+function MarkdownPreviewPanel({ content }: { content: string }) {
+  return (
+    <div style={{ padding: '14px 18px', maxHeight: 500, overflowY: 'auto', background: 'var(--bg-0)', borderTop: '1px solid var(--border)' }}>
+      <MarkdownRenderer content={content} />
+    </div>
   )
 }
 
