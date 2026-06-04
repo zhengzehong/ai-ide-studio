@@ -36,6 +36,7 @@ export const initialSchemaMigration: Migration = {
         tool_calls_json TEXT,
         decision_json TEXT,
         attachments_json TEXT,
+        file_changes_json TEXT,
         timestamp TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_messages_session_timestamp ON messages(session_id, timestamp);

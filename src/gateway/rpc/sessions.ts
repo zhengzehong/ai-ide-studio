@@ -5,6 +5,7 @@ import { sessionManager } from '../../core/sessions.js'
 import { projectStore } from '../../store/projects.js'
 import { eventStore, messageStore, sessionStore } from '../../store/sessions.js'
 import { parseToolCallsJson, selectToolCallDetail, summarizeToolCalls } from '../../store/tool-call-history.js'
+import { buildFileChangesFromToolCalls } from '../../store/file-changes.js'
 import type { RpcHandlerMap } from './types.js'
 
 const log = createChildLogger('rpc-sessions')
@@ -197,6 +198,12 @@ export const sessionRpcHandlers: RpcHandlerMap = {
     const detail = selectToolCallDetail(parseToolCallsJson(message.tool_calls_json), msg.toolCallId as string)
     if (!detail) throw new Error('工具调用不存在')
     sendResult(detail)
+  },
+
+  'sessions.messageFileChanges'(msg, { sendResult }) {
+    const sessionId = msg.sessionId as string
+    const message = getSessionMessage(sessionId, msg.messageId as string)
+    sendResult(buildFileChangesFromToolCalls(parseToolCallsJson(message.tool_calls_json)))
   },
 
 

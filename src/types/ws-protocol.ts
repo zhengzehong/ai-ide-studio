@@ -167,6 +167,12 @@ export interface SessionsMessageToolCallDetailMsg extends ClientMessage {
   messageId: string
   toolCallId: string
 }
+
+export interface SessionsMessageFileChangesMsg extends ClientMessage {
+  type: 'sessions.messageFileChanges'
+  sessionId: string
+  messageId: string
+}
 export interface SessionsMessageEventsMsg extends ClientMessage {
   type: 'sessions.messageEvents'
   sessionId: string
@@ -286,6 +292,45 @@ export interface ToolCallDetailData {
   error?: string
 }
 
+export interface FileChangeLineData {
+  type: 'add' | 'del' | 'ctx'
+  text: string
+  oldLine?: number
+  newLine?: number
+}
+
+export interface FileChangeSummaryEntryData {
+  path: string
+  changeType: 'A' | 'M' | 'D' | '?'
+  addedLines: number
+  deletedLines: number
+}
+
+export interface FileChangeSegmentData {
+  toolCallId: string
+  oldText?: string
+  newText: string
+  addedLines: number
+  deletedLines: number
+  lines: FileChangeLineData[]
+}
+
+export interface FileChangeDetailEntryData extends FileChangeSummaryEntryData {
+  segments: FileChangeSegmentData[]
+}
+
+export interface FileChangeSummaryData {
+  files: FileChangeSummaryEntryData[]
+  totalAdded: number
+  totalDeleted: number
+}
+
+export interface FileChangeDetailData {
+  files: FileChangeDetailEntryData[]
+  totalAdded: number
+  totalDeleted: number
+}
+
 export interface MessageData {
   id: string
   session_id: string
@@ -295,9 +340,12 @@ export interface MessageData {
   tool_calls_json: string | null
   decision_json: string | null
   attachments_json: string | null
+  file_changes_json: string | null
   timestamp: string
   has_tool_calls?: boolean
   tool_call_count?: number
+  has_file_changes?: boolean
+  file_change_count?: number
 }
 export interface ToolCallContentItem {
   type: 'text' | 'diff' | 'terminal'

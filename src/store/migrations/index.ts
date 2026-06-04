@@ -5,6 +5,7 @@ import { modelAndSkillMigration } from './004-model-and-skill-settings.js'
 import { teamMcpToolsMigration } from './005-team-mcp-tools.js'
 import { modelProfilesMigration } from './006-model-profiles.js'
 import { scheduleEnhancementMigration } from './007-schedule-enhancement.js'
+import { messageFileChangesMigration } from './008-message-file-changes.js'
 import type { Migration } from '../migrator.js'
 
 export const migrations: Migration[] = [
@@ -15,4 +16,5 @@ export const migrations: Migration[] = [
   teamMcpToolsMigration,
   modelProfilesMigration,
   scheduleEnhancementMigration,
+  messageFileChangesMigration,
 ]

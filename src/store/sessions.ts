@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto'
 import { createChildLogger } from '../core/logger.js'
 import { getDb } from './db.js'
+import { fileChangesJsonFromToolCalls, parseFileChangesJson } from './file-changes.js'
 import { countToolCalls } from './tool-call-history.js'
 
 export interface SessionRow {
@@ -29,9 +30,12 @@ export interface MessageRow {
   tool_calls_json: string | null
   decision_json: string | null
   attachments_json: string | null
+  file_changes_json: string | null
   timestamp: string
   has_tool_calls?: boolean
   tool_call_count?: number
+  has_file_changes?: boolean
+  file_change_count?: number
 }
 
 export interface SessionEventRow {
@@ -277,11 +281,12 @@ export const messageStore = {
       tool_calls_json: input.toolCalls ? JSON.stringify(input.toolCalls) : null,
       decision_json: input.decision ? JSON.stringify(input.decision) : null,
       attachments_json: input.attachments ? JSON.stringify(input.attachments) : null,
+      file_changes_json: fileChangesJsonFromToolCalls(input.toolCalls),
       timestamp: new Date().toISOString(),
     }
     getDb().prepare(`
-      INSERT INTO messages (id, session_id, role, content, thinking, tool_calls_json, decision_json, attachments_json, timestamp)
-      VALUES (@id, @session_id, @role, @content, @thinking, @tool_calls_json, @decision_json, @attachments_json, @timestamp)
+      INSERT INTO messages (id, session_id, role, content, thinking, tool_calls_json, decision_json, attachments_json, file_changes_json, timestamp)
+      VALUES (@id, @session_id, @role, @content, @thinking, @tool_calls_json, @decision_json, @attachments_json, @file_changes_json, @timestamp)
     `).run(msg)
     log.debug(
       {
@@ -292,6 +297,7 @@ export const messageStore = {
         thinkingLength: msg.thinking?.length ?? 0,
         hasToolCalls: !!msg.tool_calls_json,
         toolCallCount: countToolCalls(msg.tool_calls_json),
+        hasFileChanges: !!msg.file_changes_json,
         hasAttachments: !!msg.attachments_json,
         timestamp: msg.timestamp,
       },
@@ -339,12 +345,25 @@ function findLatestToolMessageId(rows: MessageRow[]): string | null {
 
 function lightweightMessage(row: MessageRow, includeToolCalls: boolean): MessageRow {
   const hasToolCalls = !!row.tool_calls_json
-  if (includeToolCalls || !hasToolCalls) return { ...row, has_tool_calls: hasToolCalls, tool_call_count: countToolCalls(row.tool_calls_json) }
+  const fileChanges = parseFileChangesJson(row.file_changes_json)
+  const fileChangeFields = {
+    has_file_changes: !!fileChanges?.files.length,
+    file_change_count: fileChanges?.files.length,
+  }
+  if (includeToolCalls || !hasToolCalls) {
+    return {
+      ...row,
+      has_tool_calls: hasToolCalls,
+      tool_call_count: countToolCalls(row.tool_calls_json),
+      ...fileChangeFields,
+    }
+  }
   return {
     ...row,
     tool_calls_json: null,
     has_tool_calls: true,
     tool_call_count: countToolCalls(row.tool_calls_json),
+    ...fileChangeFields,
   }
 }
 export const eventStore = {

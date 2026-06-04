@@ -106,6 +106,27 @@ describe('mergeMessagesById', () => {
     expect(merged[0].parsedDecision).toEqual({ inputTokens: 10, outputTokens: 5, totalTokens: 15, elapsedSeconds: 2, costAmount: 0.001 })
   })
 
+  test('lightweight server history exposes file-change summary metadata', () => {
+    const fileChangesJson = JSON.stringify({
+      files: [{ path: 'src/app.ts', changeType: 'M', addedLines: 1, deletedLines: 1 }],
+      totalAdded: 1,
+      totalDeleted: 1,
+    })
+    const serverLight = {
+      ...msg('agent-file-changes', 'agent', '2026-01-01T00:00:02.000Z'),
+      file_changes_json: fileChangesJson,
+      has_file_changes: true,
+      file_change_count: 1,
+    }
+
+    const merged = mergeMessagesById([serverLight], [])
+
+    expect(merged).toHaveLength(1)
+    expect(merged[0].file_changes_json).toBe(fileChangesJson)
+    expect(merged[0].has_file_changes).toBe(true)
+    expect(merged[0].file_change_count).toBe(1)
+  })
+
   test('server message with full content replaces local temporary version', () => {
     const server = { ...msg('agent-1', 'agent'), content: 'server', thinking: 'done' }
     const local = { ...msg('agent-1', 'agent'), content: 'local' }
@@ -154,6 +175,21 @@ describe('normalizeMessage', () => {
     expect(normalized.has_tool_calls).toBe(true)
     expect(normalized.tool_call_count).toBe(3)
     expect(normalized.parsedToolCalls).toBeUndefined()
+  })
+
+  test('pre-parses file-change summaries', () => {
+    const normalized = normalizeMessage({
+      ...msg('agent-with-file-changes', 'agent'),
+      file_changes_json: JSON.stringify({
+        files: [{ path: 'src/app.ts', changeType: 'M', addedLines: 1, deletedLines: 1 }],
+        totalAdded: 1,
+        totalDeleted: 1,
+      }),
+    })
+
+    expect(normalized.has_file_changes).toBe(true)
+    expect(normalized.file_change_count).toBe(1)
+    expect(normalized.parsedFileChanges?.files[0]?.path).toBe('src/app.ts')
   })
 
   test('derives tool metadata from full tool JSON', () => {

@@ -32,6 +32,7 @@ import {
   Zap,
   Paperclip,
   ArrowUp,
+  FileText,
   FolderOpen,
   MessageSquare as MessageSquareIcon,
 } from 'lucide-react'
@@ -41,6 +42,8 @@ import {
   type ChatTimelineGroup,
   type ChatTimelineItem,
   type ElicitationRequestInfo,
+  type FileChangeDetailInfo,
+  type FileChangeSummaryInfo,
   type ImageAttachmentInfo,
   type PermissionRequestInfo,
   type PlanEntry,
@@ -57,6 +60,8 @@ import { FileTree } from '../components/file-viewer/FileTree'
 import { FilePreview } from '../components/file-viewer/FilePreview'
 import { LazyToolCallsBlock } from '../components/chat/LazyToolCallsBlock'
 import { TurnContentView } from '../components/chat/TurnContentView'
+import { FileChangesCard } from '../components/chat/FileChangesCard'
+import { extractFileChangesFromToolCall, extractTurnFileChanges, fileChangesFromSummary, toolBlockHasDiff } from '../components/chat/file-changes-utils'
 import { isNearBottom, nextPinnedToBottom } from '../components/chat/auto-scroll'
 import { shouldShowPlanBar } from '../components/chat/plan-visibility'
 import { buildChatRenderItems, type ChatRenderItem } from '../components/chat/render-items'
@@ -104,8 +109,12 @@ export default function Workspace() {
   const currentSessionId = useSessionStore((s) => s.currentSessionId)
   const messages = useSessionStore((s) => s.messages)
   const fetchMessageProcess = useSessionStore((s) => s.fetchMessageProcess)
+  const fetchMessageFileChanges = useSessionStore((s) => s.fetchMessageFileChanges)
+  const fileChangeDetailsByMessageId = useSessionStore((s) => s.fileChangeDetailsByMessageId)
   const turnProcessLoadingByMessageId = useSessionStore((s) => s.turnProcessLoadingByMessageId)
   const turnProcessErrorByMessageId = useSessionStore((s) => s.turnProcessErrorByMessageId)
+  const toolCallLoadingByKey = useSessionStore((s) => s.toolCallLoadingByKey)
+  const toolCallErrorByKey = useSessionStore((s) => s.toolCallErrorByKey)
   const events = useSessionStore((s) => s.events)
   const streamingMessage = useSessionStore((s) => s.streamingMessage)
   const usage = useSessionStore((s) => s.usage)
@@ -504,12 +513,16 @@ export default function Workspace() {
           agent={chatAgent}
           isStreaming={false}
           onLoadMessageProcess={fetchMessageProcess}
+          onLoadMessageFileChanges={fetchMessageFileChanges}
+          fileChangeDetailsByMessageId={fileChangeDetailsByMessageId}
+          fileChangeLoadingByKey={toolCallLoadingByKey}
+          fileChangeErrorByKey={toolCallErrorByKey}
           turnProcessLoadingByMessageId={turnProcessLoadingByMessageId}
           turnProcessErrorByMessageId={turnProcessErrorByMessageId}
         />
       )
     },
-    [chatAgent, fetchMessageProcess, interactionPanel, turnProcessErrorByMessageId, turnProcessLoadingByMessageId],
+    [chatAgent, fetchMessageFileChanges, fetchMessageProcess, fileChangeDetailsByMessageId, interactionPanel, toolCallErrorByKey, toolCallLoadingByKey, turnProcessErrorByMessageId, turnProcessLoadingByMessageId],
   )
 
   const currentModeName =
@@ -2590,8 +2603,12 @@ type ChatMsg = {
   tool_calls_json?: string | null
   decision_json?: string | null
   attachments_json?: string | null
+  file_changes_json?: string | null
   has_tool_calls?: boolean
   tool_call_count?: number
+  has_file_changes?: boolean
+  file_change_count?: number
+  parsedFileChanges?: FileChangeSummaryInfo
   parsedToolCalls?: ToolCallInfo[]
   parsedAttachments?: ImageAttachmentInfo[]
   parsedDecision?: Record<string, unknown> | null
@@ -2649,6 +2666,10 @@ function ChatBubble({
   isStreaming,
   footer,
   onLoadMessageProcess,
+  onLoadMessageFileChanges,
+  fileChangeDetailsByMessageId = {},
+  fileChangeLoadingByKey = {},
+  fileChangeErrorByKey = {},
   turnProcessLoadingByMessageId = {},
   turnProcessErrorByMessageId = {},
 }: {
@@ -2658,6 +2679,10 @@ function ChatBubble({
   isStreaming: boolean
   footer?: React.ReactNode
   onLoadMessageProcess?: (sessionId: string, messageId: string) => void
+  onLoadMessageFileChanges?: (sessionId: string, messageId: string) => void
+  fileChangeDetailsByMessageId?: Record<string, FileChangeDetailInfo>
+  fileChangeLoadingByKey?: Record<string, boolean>
+  fileChangeErrorByKey?: Record<string, string>
   turnProcessLoadingByMessageId?: Record<string, boolean>
   turnProcessErrorByMessageId?: Record<string, string>
 }) {
@@ -2696,14 +2721,23 @@ function ChatBubble({
   const hasTurnModel = !isTimelineGroup && (turnProcessBlocks.length > 0 || turnFinalAnswer != null || canLoadTurnProcess)
   const processLoading = !isTimelineGroup ? turnProcessLoadingByMessageId[normalizedMessage.id] : false
   const processError = !isTimelineGroup ? turnProcessErrorByMessageId[normalizedMessage.id] : undefined
+  const fileChangesSummary = !isTimelineGroup
+    ? normalizedMessage.parsedFileChanges || (normalizedMessage.file_changes_json ? parseJsonObject<FileChangeSummaryInfo>(normalizedMessage.file_changes_json) ?? undefined : undefined)
+    : undefined
+  const fileChangesDetail = !isTimelineGroup ? fileChangeDetailsByMessageId[normalizedMessage.id] : undefined
+  const fileChangesLoading = !isTimelineGroup ? !!fileChangeLoadingByKey[`file:${normalizedMessage.id}`] : false
+  const fileChangesError = !isTimelineGroup ? fileChangeErrorByKey[`file:${normalizedMessage.id}`] : undefined
   const loadTurnProcess = canLoadTurnProcess && !isTimelineGroup && normalizedMessage.session_id
     ? () => onLoadMessageProcess?.(normalizedMessage.session_id!, normalizedMessage.id)
+    : undefined
+  const loadFileChanges = !isTimelineGroup && normalizedMessage.session_id && normalizedMessage.has_file_changes
+    ? () => onLoadMessageFileChanges?.(normalizedMessage.session_id!, normalizedMessage.id)
     : undefined
   const hasBody = hasTurnModel || visibleBlocks.length > 0 || !!footer
   const streamingLabel = stage || '生成中'
 
   return (
-    <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', flexDirection: isHuman ? 'row-reverse' : 'row' }}>
+    <div data-bubble style={{ display: 'flex', gap: 10, alignItems: 'flex-start', flexDirection: isHuman ? 'row-reverse' : 'row' }}>
       <div
         style={{
           width: 30,
@@ -2760,8 +2794,13 @@ function ChatBubble({
                 processLoaded={!canLoadTurnProcess}
                 processLoading={processLoading}
                 processError={processError}
+                fileChangesSummary={fileChangesSummary}
+                fileChangesDetail={fileChangesDetail}
+                fileChangesLoading={fileChangesLoading}
+                fileChangesError={fileChangesError}
                 defaultProcessOpen={streaming || !!normalizedMessage.processDefaultOpen}
                 onLoadProcess={loadTurnProcess}
+                onLoadFileChanges={loadFileChanges}
                 renderProcessBlock={(block) => <ProcessBlockView key={block.id} block={block} isStreaming={isStreaming} />}
               />
             ) : visibleBlocks.map((block, index) => (
@@ -2814,7 +2853,66 @@ function ChatBubble({
             )}
           </div>
         )}
+        <TurnFileChangesSummary
+          processBlocks={turnProcessBlocks}
+          fileChangesSummary={fileChangesSummary}
+          fileChangesDetail={fileChangesDetail}
+          isStreaming={isStreaming}
+        />
       </div>
+    </div>
+  )
+}
+
+function TurnFileChangesSummary({
+  processBlocks,
+  fileChangesSummary,
+  fileChangesDetail,
+  isStreaming,
+}: {
+  processBlocks: TurnProcessBlock[]
+  fileChangesSummary?: FileChangeSummaryInfo
+  fileChangesDetail?: FileChangeDetailInfo
+  isStreaming: boolean
+}) {
+  const changes = useMemo(() => {
+    if (fileChangesDetail?.files.length) return fileChangesDetail
+    if (fileChangesSummary?.files.length) return fileChangesFromSummary(fileChangesSummary)
+    return extractTurnFileChanges(processBlocks)
+  }, [fileChangesDetail, fileChangesSummary, processBlocks])
+  const ref = useRef<HTMLDivElement>(null)
+  if (changes.files.length === 0) return null
+
+  const handleClick = () => {
+    const bubble = ref.current?.closest('[data-bubble]')
+    const card = bubble?.querySelector('[data-file-changes-card]')
+    card?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  }
+
+  return (
+    <div
+      ref={ref}
+      onClick={handleClick}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 6,
+        marginTop: 6,
+        fontSize: 12,
+        color: 'var(--text-3)',
+        background: 'var(--bg-2)',
+        borderRadius: 6,
+        padding: '4px 10px',
+        marginLeft: 6,
+        cursor: 'pointer',
+      }}
+    >
+      <FileText size={13} style={{ color: 'var(--primary)', flexShrink: 0 }} />
+      <span style={{ color: 'var(--primary)', fontWeight: 500 }}>
+        {isStreaming ? '正在修改' : '修改'} {changes.files.length} 个文件
+      </span>
+      <span style={{ color: 'var(--green)', fontWeight: 600 }}>+{changes.totalAdded}</span>
+      <span style={{ color: 'var(--red)', fontWeight: 600 }}>-{changes.totalDeleted}</span>
     </div>
   )
 }
@@ -2835,7 +2933,26 @@ function chatBubbleBlockHasBody(block: ChatBubbleBlock): boolean {
 }
 
 function ProcessBlockView({ block, isStreaming }: { block: TurnProcessBlock; isStreaming: boolean }) {
-  if (block.kind === 'tool') return <ToolCallPanel tc={block.toolCall} isStreaming={isStreaming} />
+  if (block.kind === 'tool') {
+    const diffEntries = toolBlockHasDiff(block.toolCall)
+      ? extractFileChangesFromToolCall(block.toolCall)
+      : []
+    return (
+      <>
+        <ToolCallPanel tc={block.toolCall} isStreaming={isStreaming} />
+        {diffEntries.length > 0 && (
+          <FileChangesCard
+            changes={{
+              files: diffEntries,
+              totalAdded: diffEntries.reduce((s, f) => s + f.addedLines, 0),
+              totalDeleted: diffEntries.reduce((s, f) => s + f.deletedLines, 0),
+            }}
+            compact
+          />
+        )}
+      </>
+    )
+  }
   if (block.kind === 'thinking') {
     return (
       <div style={{ borderRadius: 6, background: 'var(--bg-2)', padding: '8px 10px', color: 'var(--text-2)', fontSize: 14, lineHeight: 1.6, fontStyle: 'italic', overflowWrap: 'anywhere' }}>

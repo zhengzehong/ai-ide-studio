@@ -127,9 +127,10 @@ backlog → executing → reviewing → completed
 | tool_calls_json | TEXT | 工具调用 JSON 数组 |
 | decision_json | TEXT | 决策/统计 JSON |
 | attachments_json | TEXT | 附件 JSON 数组 |
+| file_changes_json | TEXT | ACP diff 文件变更轻量摘要 JSON |
 | timestamp | TEXT | ISO 时间戳 |
 
-历史消息查询默认返回轻量 DTO：`tool_calls_json` 会被置空，同时附带 `has_tool_calls` 和 `tool_call_count`。完整工具调用仍保存在 SQLite 的 `messages.tool_calls_json` 中，通过工具摘要和详情 RPC 按需读取。
+历史消息查询默认返回轻量 DTO：`tool_calls_json` 会被置空，同时附带 `has_tool_calls` 和 `tool_call_count`。完整工具调用仍保存在 SQLite 的 `messages.tool_calls_json` 中，通过工具摘要和详情 RPC 按需读取。ACP diff 文件变更摘要保存在 `file_changes_json`，并通过 `has_file_changes` / `file_change_count` 暴露给前端；完整文件变更详情通过 `sessions.messageFileChanges` 从持久化工具调用中按需恢复。
 
 
 
