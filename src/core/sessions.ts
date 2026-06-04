@@ -6,7 +6,7 @@ import { teamMemberStore } from '../store/teams.js'
 import { acpHost } from '../acp/host.js'
 import { events } from './events.js'
 import { createChildLogger } from './logger.js'
-import type { ImageAttachment, SessionUpdateData } from '../types/ws-protocol.js'
+import type { ImageAttachment, SessionActivityReason, SessionActivityState, SessionUpdateData } from '../types/ws-protocol.js'
 import { createPendingTurn, finalizePendingTurn, updatePendingTurn, type PendingTurn } from './turn-finalizer.js'
 import { buildTeamLeaderPrompt } from './team-prompts.js'
 import { resolveVisiblePlatformTools } from '../tools/registry/visibility-resolver.js'
@@ -210,6 +210,8 @@ async function sendPromptNow(session: SessionRow, content: string, images?: Imag
   log.debug({ sessionId, agentId: session.agent_id, promptLen, imageCount }, 'send prompt')
 
   activePrompts.add(sessionId)
+  let activityEndReason: SessionActivityReason = 'prompt-done'
+  emitSessionActivity(sessionId, session.agent_id, 'running', 'prompt-started')
   try {
     const humanMessage = messageStore.append(sessionId, { id: clientMessageId, role: 'human', content, attachments: images })
     sessionStore.touch(sessionId, humanMessage.timestamp)
@@ -242,6 +244,7 @@ async function sendPromptNow(session: SessionRow, content: string, images?: Imag
     emitLifecycle(session.agent_id, sessionId, 'lifecycle.prompt_sent', '\u6b63\u5728\u601d\u8003...')
     await acpHost.prompt(session.agent_id, sessionId, acpContent, images)
   } catch (err) {
+    activityEndReason = 'prompt-error'
     const message = err instanceof Error ? err.message : String(err)
     emitLifecycle(session.agent_id, sessionId, 'lifecycle.failed', `\u6267\u884c\u5931\u8d25\uff1a${message}`)
     log.error({ err, sessionId, agentId: session.agent_id }, 'prompt failed')
@@ -255,6 +258,7 @@ async function sendPromptNow(session: SessionRow, content: string, images?: Imag
     throw err
   } finally {
     activePrompts.delete(sessionId)
+    emitSessionActivity(sessionId, session.agent_id, 'idle', activityEndReason)
   }
 }
 
@@ -283,6 +287,21 @@ function emitLifecycle(agentId: string, sessionId: string, eventType: string, co
     sessionId,
     agentId,
     data: { messageId: `${eventType}-${Date.now()}`, role: 'system', content, eventType } satisfies SessionUpdateData,
+  })
+}
+
+function emitSessionActivity(
+  sessionId: string,
+  agentId: string,
+  state: SessionActivityState,
+  reason: SessionActivityReason,
+): void {
+  events.emit('session:activity', {
+    sessionId,
+    agentId,
+    state,
+    reason,
+    timestamp: new Date().toISOString(),
   })
 }
 

@@ -53,6 +53,8 @@ Web UI → WS "prompt" → ws-handler → gateway/rpc/subscriptions.prompt
 
 前端实时对话以 `session:update` 作为可见流式状态来源；`session:event` 主要用于持久化同步、断线恢复和权限/计划等状态补偿，避免每个流式 chunk 都全量还原事件。历史消息默认通过轻量 `sessions.messages` 加载，完整工具调用保留在 SQLite 并通过 `sessions.messageToolCalls` / `sessions.messageToolCallDetail` 懒加载。
 
+`session:activity` 是独立的轻量全局事件，只表示会话本轮执行从 `running` 到 `idle` 的状态变化，用于左侧会话列表运行中/未读提示；它不承载聊天内容，也不参与历史消息还原。
+
 Chat history uses `messages.content` as the fast final-answer source. Historical execution process blocks are loaded on demand with `sessions.messageEvents` and reconstructed from `session_events.sequence`; tool summaries/details remain lazy-loaded through `sessions.messageToolCalls` / `sessions.messageToolCallDetail`.
 
 

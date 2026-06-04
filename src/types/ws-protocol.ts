@@ -1,6 +1,14 @@
 export type AgentStatus = 'running' | 'idle' | 'standby' | 'sleeping' | 'error'
 export type AgentRuntime = 'mock' | 'claude' | 'codex'
 export type SessionStatus = 'active' | 'idle' | 'closed'
+export type SessionActivityState = 'running' | 'idle'
+export type SessionActivityReason =
+  | 'prompt-started'
+  | 'prompt-done'
+  | 'prompt-error'
+  | 'prompt-cancelled'
+  | 'runtime-exit'
+  | 'startup-recovery'
 export type TaskStatus = 'backlog' | 'executing' | 'needs_input' | 'blocked' | 'reviewing' | 'completed' | 'cancelled'
 
 export interface ClientMessage {
@@ -391,6 +399,14 @@ export interface SessionEventData {
   created_at: string
 }
 
+export interface SessionActivityData {
+  sessionId: string
+  agentId: string
+  state: SessionActivityState
+  reason: SessionActivityReason
+  timestamp: string
+}
+
 export interface SessionCapabilities {
   models?: ModelInfo[]
   currentModelId?: string
@@ -428,6 +444,7 @@ export type ServerMessage =
   | { type: 'session:update'; sessionId: string; agentId: string; data: SessionUpdateData }
   | { type: 'session:event'; sessionId: string; agentId?: string | null; event: SessionEventData }
   | ({ type: 'session:done' } & SessionDoneData)
+  | ({ type: 'session:activity' } & SessionActivityData)
   | { type: 'session:capabilities'; sessionId: string; capabilities: SessionCapabilities }
   | { type: 'session:changed'; sessionId: string; data: Record<string, unknown> }
   | { type: 'agent:status'; agentId: string; status: AgentStatus }

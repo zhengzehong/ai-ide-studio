@@ -56,6 +56,10 @@ events.on('session:done', (ev) => {
   })
 })
 
+events.on('session:activity', (ev) => {
+  broadcastToAll({ type: 'session:activity', ...ev })
+})
+
 events.on('session:capabilities', (ev) => {
   broadcastToSubscribers(ev.sessionId, {
     type: 'session:capabilities',
