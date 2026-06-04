@@ -47,6 +47,7 @@ function resetStore(): void {
     toolCallErrorByKey: {},
     runningSessionIds: {},
     unreadSessionIds: {},
+    staleSessionIds: {},
   })
 }
 
@@ -181,6 +182,7 @@ describe('session store done handling', () => {
           timestamp: '2026-06-02T00:00:00.000Z',
         },
       ],
+      runningSessionIds: { 'sess-refresh': true },
     })
     wsMock.request.mockResolvedValue([
       {
@@ -445,6 +447,7 @@ describe('session store done handling', () => {
 
       expect(useSessionStore.getState().runningSessionIds['sess-bg']).toBeUndefined()
       expect(useSessionStore.getState().unreadSessionIds['sess-bg']).toBe(true)
+      expect(useSessionStore.getState().staleSessionIds['sess-bg']).toBe(true)
 
       useSessionStore.getState().selectSession('sess-bg')
 
@@ -452,6 +455,134 @@ describe('session store done handling', () => {
     } finally {
       cleanup()
     }
+  })
+
+  test('does not restore stale streaming when switching back to a background session that became idle', async () => {
+    resetStore()
+    wsMock.request.mockReset()
+    wsMock.request.mockResolvedValue([])
+    useSessionStore.setState({
+      streamingMessage: {
+        id: 'msg-bg-live',
+        role: 'agent',
+        content: 'partial',
+        thinking: '',
+        toolCalls: [],
+        done: false,
+      },
+    })
+    const cleanup = useSessionStore.getState().setupListeners()
+
+    try {
+      useSessionStore.getState().selectSession('sess-other')
+      emit('session:activity', {
+        sessionId: 'sess-refresh',
+        agentId: 'agent-1',
+        state: 'idle',
+        reason: 'prompt-done',
+        timestamp: '2026-06-03T00:00:01.000Z',
+      })
+
+      useSessionStore.getState().selectSession('sess-refresh')
+
+      expect(useSessionStore.getState().streamingMessage).toBeNull()
+      expect(useSessionStore.getState().staleSessionIds['sess-refresh']).toBe(true)
+    } finally {
+      cleanup()
+    }
+  })
+
+  test('clears stale streaming after persisted final messages are loaded', async () => {
+    resetStore()
+    wsMock.request.mockReset()
+    wsMock.request.mockResolvedValue([
+      {
+        id: 'msg-human-final',
+        session_id: 'sess-refresh',
+        role: 'human',
+        content: 'hello',
+        thinking: null,
+        tool_calls_json: null,
+        decision_json: null,
+        attachments_json: null,
+        timestamp: '2026-06-02T00:00:00.000Z',
+      },
+      {
+        id: 'msg-agent-final',
+        session_id: 'sess-refresh',
+        role: 'agent',
+        content: 'done',
+        thinking: null,
+        tool_calls_json: null,
+        decision_json: null,
+        attachments_json: null,
+        timestamp: '2026-06-02T00:00:01.000Z',
+      },
+    ])
+    useSessionStore.setState({
+      streamingMessage: {
+        id: 'pending-sess-refresh-stale',
+        role: 'agent',
+        content: 'partial',
+        thinking: '',
+        toolCalls: [],
+        done: false,
+      },
+      staleSessionIds: { 'sess-refresh': true },
+    })
+
+    await useSessionStore.getState().fetchMessages('sess-refresh')
+
+    expect(useSessionStore.getState().streamingMessage).toBeNull()
+    expect(useSessionStore.getState().staleSessionIds['sess-refresh']).toBeUndefined()
+    expect(useSessionStore.getState().messages.map((message) => message.id)).toEqual(['msg-human-final', 'msg-agent-final'])
+  })
+
+  test('does not keep old streaming when stale events do not recover an active running turn', async () => {
+    resetStore()
+    wsMock.request.mockReset()
+    wsMock.request.mockResolvedValue([
+      {
+        id: 'evt-stale-chunk',
+        session_id: 'sess-refresh',
+        agent_id: 'agent-1',
+        acp_session_id: null,
+        message_id: 'msg-stale-live',
+        type: 'message.chunk',
+        role: 'agent',
+        payload_json: JSON.stringify({ messageId: 'msg-stale-live', role: 'agent', contentDelta: 'old live' }),
+        sequence: 1,
+        created_at: '2026-06-02T00:00:01.000Z',
+      },
+    ])
+    useSessionStore.setState({
+      messages: [
+        {
+          id: 'msg-history-1',
+          session_id: 'sess-refresh',
+          role: 'agent',
+          content: 'old answer',
+          thinking: null,
+          tool_calls_json: null,
+          decision_json: null,
+          attachments_json: null,
+          timestamp: '2026-06-02T00:00:00.000Z',
+        },
+      ],
+      streamingMessage: {
+        id: 'msg-old-streaming',
+        role: 'agent',
+        content: 'stuck',
+        thinking: '',
+        toolCalls: [],
+        done: false,
+      },
+      staleSessionIds: { 'sess-refresh': true },
+    })
+
+    await useSessionStore.getState().fetchEvents('sess-refresh')
+
+    expect(useSessionStore.getState().streamingMessage).toBeNull()
   })
 
 })
