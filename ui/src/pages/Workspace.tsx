@@ -98,6 +98,7 @@ import {
   type MenuName,
 } from './workspace/helpers'
 import { sessionIndicator } from '../utils/session-indicators'
+import { formatCompactDuration } from '../utils/duration'
 
 export default function Workspace() {
   const navigate = useNavigate()
@@ -458,6 +459,26 @@ export default function Workspace() {
   const canSendPrompt = !!currentSessionId && connected && !blockingInteraction && (!!inputValue.trim() || pendingImages.length > 0)
   const pendingInteractionId = pendingPermissions[0]?.id || pendingElicitations[0]?.id || ''
   const isStreaming = !!(streamingMessage && !streamingMessage.done)
+  const [liveNowMs, setLiveNowMs] = useState(() => Date.now())
+  const latestHumanMessageTime = useMemo(() => {
+    if (!isStreaming || !currentSessionId) return null
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const message = messages[i]
+      if (message.session_id === currentSessionId && message.role === 'human') {
+        const timestamp = Date.parse(message.timestamp)
+        return Number.isFinite(timestamp) ? timestamp : null
+      }
+    }
+    return null
+  }, [currentSessionId, isStreaming, messages])
+  useEffect(() => {
+    if (!isStreaming) return undefined
+    const timer = window.setInterval(() => setLiveNowMs(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [isStreaming])
+  const liveElapsedSeconds = isStreaming && latestHumanMessageTime != null
+    ? Math.max(0, Math.floor((liveNowMs - latestHumanMessageTime) / 1000))
+    : undefined
   const streamingBubble = useMemo<ChatMsg | null>(() => {
     if (!isStreaming || !streamingMessage) return null
     return {
@@ -504,7 +525,7 @@ export default function Workspace() {
     (item: ChatRenderItem<ChatMsg>) => {
       if (item.kind === 'group') return <ChatBubble group={item.group} agent={chatAgent} isStreaming={false} />
       if (item.kind === 'streaming') {
-        return <ChatBubble message={item.message} agent={chatAgent} isStreaming footer={interactionPanel} />
+        return <ChatBubble message={item.message} agent={chatAgent} isStreaming footer={interactionPanel} liveElapsedSeconds={liveElapsedSeconds} />
       }
       if (item.kind === 'blocking') return <BlockingInteractionBar agent={chatAgent} panel={interactionPanel} />
       return (
@@ -522,7 +543,7 @@ export default function Workspace() {
         />
       )
     },
-    [chatAgent, fetchMessageFileChanges, fetchMessageProcess, fileChangeDetailsByMessageId, interactionPanel, toolCallErrorByKey, toolCallLoadingByKey, turnProcessErrorByMessageId, turnProcessLoadingByMessageId],
+    [chatAgent, fetchMessageFileChanges, fetchMessageProcess, fileChangeDetailsByMessageId, interactionPanel, liveElapsedSeconds, toolCallErrorByKey, toolCallLoadingByKey, turnProcessErrorByMessageId, turnProcessLoadingByMessageId],
   )
 
   const currentModeName =
@@ -2665,6 +2686,7 @@ function ChatBubble({
   agent,
   isStreaming,
   footer,
+  liveElapsedSeconds,
   onLoadMessageProcess,
   onLoadMessageFileChanges,
   fileChangeDetailsByMessageId = {},
@@ -2678,6 +2700,7 @@ function ChatBubble({
   agent: AgentData | undefined
   isStreaming: boolean
   footer?: React.ReactNode
+  liveElapsedSeconds?: number
   onLoadMessageProcess?: (sessionId: string, messageId: string) => void
   onLoadMessageFileChanges?: (sessionId: string, messageId: string) => void
   fileChangeDetailsByMessageId?: Record<string, FileChangeDetailInfo>
@@ -2714,6 +2737,8 @@ function ChatBubble({
 
   const isHuman = role === 'human'
   if (isHuman) turnStats = null
+  const elapsedSeconds = turnStats?.elapsedSeconds ?? (streaming ? liveElapsedSeconds : undefined)
+  const showTurnStats = !!turnStats || (!isHuman && streaming && elapsedSeconds != null)
   const visibleBlocks = blocks.filter(chatBubbleBlockHasBody)
   const turnProcessBlocks = !isTimelineGroup ? normalizedMessage.processBlocks || [] : []
   const canLoadTurnProcess = !isTimelineGroup && !streaming && role === 'agent' && !!normalizedMessage.session_id && !!normalizedMessage.has_tool_calls && !normalizedMessage.processBlocks
@@ -2815,7 +2840,7 @@ function ChatBubble({
           </div>
         )}
         {/* 单次统计 */}
-        {turnStats && (
+        {showTurnStats && (
           <div
             style={{
               display: 'inline-flex',
@@ -2829,26 +2854,31 @@ function ChatBubble({
               overflow: 'hidden',
             }}
           >
-            {turnStats.elapsedSeconds != null && (
+            {elapsedSeconds != null && (
               <span style={{ ...statChipStyle, fontWeight: 600, color: 'var(--text-2)' }}>
-                ⏱ {turnStats.elapsedSeconds}s
+                {streaming ? <Loader2 size={11} style={{ animation: 'spin 1s linear infinite', verticalAlign: -2, marginRight: 4 }} /> : '⏱ '}
+                {formatCompactDuration(elapsedSeconds)}
               </span>
             )}
-            <span style={statChipStyle}>
-              <span style={{ color: 'var(--text-3)' }}>输入</span>{' '}
-              <b style={{ color: 'var(--text-2)' }}>{fmtTokens(turnStats.inputTokens)}</b>
-            </span>
-            <span style={statChipStyle}>
-              <span style={{ color: 'var(--text-3)' }}>输出</span>{' '}
-              <b style={{ color: 'var(--text-2)' }}>{fmtTokens(turnStats.outputTokens)}</b>
-            </span>
-            {turnStats.cachedReadTokens != null && turnStats.cachedReadTokens > 0 && (
+            {turnStats && (
+              <>
+                <span style={statChipStyle}>
+                  <span style={{ color: 'var(--text-3)' }}>输入</span>{' '}
+                  <b style={{ color: 'var(--text-2)' }}>{fmtTokens(turnStats.inputTokens)}</b>
+                </span>
+                <span style={statChipStyle}>
+                  <span style={{ color: 'var(--text-3)' }}>输出</span>{' '}
+                  <b style={{ color: 'var(--text-2)' }}>{fmtTokens(turnStats.outputTokens)}</b>
+                </span>
+              </>
+            )}
+            {turnStats?.cachedReadTokens != null && turnStats.cachedReadTokens > 0 && (
               <span style={statChipStyle}>
                 <span style={{ color: 'var(--text-3)' }}>缓存</span>{' '}
                 <b style={{ color: 'var(--text-2)' }}>{fmtTokens(turnStats.cachedReadTokens)}</b>
               </span>
             )}
-            {turnStats.costAmount != null && (
+            {turnStats?.costAmount != null && (
               <span style={{ ...statChipStyle, borderRight: 'none' }}>${turnStats.costAmount.toFixed(4)}</span>
             )}
           </div>
