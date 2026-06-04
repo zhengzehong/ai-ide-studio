@@ -1,7 +1,7 @@
 ﻿import type { ChildProcess } from 'child_process'
 import type * as acp from '@agentclientprotocol/sdk'
 import type { AgentConnection, RuntimeSessionState } from './host-types.js'
-import type { ClaudeSessionMeta } from './model-profile-env.js'
+import type { AgentSessionMeta } from './model-profile-env.js'
 
 export const agentConnections = new Map<string, AgentConnection>()
 
@@ -12,7 +12,7 @@ export function createConnectionState(
   connection: acp.ClientSideConnection,
   agentCapabilities?: acp.AgentCapabilities,
   envFingerprint?: string,
-  sessionMeta?: ClaudeSessionMeta,
+  sessionMeta?: AgentSessionMeta,
 ): AgentConnection {
   const now = Date.now()
   return {

@@ -15,9 +15,10 @@ export interface ImageAttachmentInfo {
 
 export interface MessageData {
   id: string; session_id: string; role: string; content: string
-  thinking: string | null; tool_calls_json: string | null; decision_json: string | null; attachments_json?: string | null; timestamp: string
-  has_tool_calls?: boolean; tool_call_count?: number
+  thinking: string | null; tool_calls_json: string | null; decision_json: string | null; attachments_json?: string | null; file_changes_json?: string | null; timestamp: string
+  has_tool_calls?: boolean; tool_call_count?: number; has_file_changes?: boolean; file_change_count?: number
   parsedToolCalls?: ToolCallInfo[]; parsedAttachments?: ImageAttachmentInfo[]; parsedDecision?: Record<string, unknown> | null
+  parsedFileChanges?: FileChangeSummaryInfo
   processBlocks?: TurnProcessBlock[]; finalAnswer?: string
   processDefaultOpen?: boolean
 }
@@ -64,6 +65,45 @@ export interface ToolCallDetailInfo {
   progressTail?: string[]
   progressTruncated?: boolean
   error?: string
+}
+
+export interface FileChangeLineInfo {
+  type: 'add' | 'del' | 'ctx'
+  text: string
+  oldLine?: number
+  newLine?: number
+}
+
+export interface FileChangeSummaryEntryInfo {
+  path: string
+  changeType: 'A' | 'M' | 'D' | '?'
+  addedLines: number
+  deletedLines: number
+}
+
+export interface FileChangeSegmentInfo {
+  toolCallId: string
+  oldText?: string
+  newText: string
+  addedLines: number
+  deletedLines: number
+  lines: FileChangeLineInfo[]
+}
+
+export interface FileChangeDetailEntryInfo extends FileChangeSummaryEntryInfo {
+  segments: FileChangeSegmentInfo[]
+}
+
+export interface FileChangeSummaryInfo {
+  files: FileChangeSummaryEntryInfo[]
+  totalAdded: number
+  totalDeleted: number
+}
+
+export interface FileChangeDetailInfo {
+  files: FileChangeDetailEntryInfo[]
+  totalAdded: number
+  totalDeleted: number
 }
 export interface UsageInfo { contextSize: number; contextUsed: number; costAmount?: number; costCurrency?: string }
 export interface TurnUsageInfo { inputTokens: number; outputTokens: number; totalTokens: number; cachedReadTokens?: number; thoughtTokens?: number }
@@ -175,15 +215,21 @@ export function normalizeMessage(message: MessageData): MessageData {
   const parsedToolCalls = message.tool_calls_json ? parseJsonArray<ToolCallInfo>(message.tool_calls_json) : message.parsedToolCalls
   const parsedAttachments = message.attachments_json ? parseJsonArray<ImageAttachmentInfo>(message.attachments_json) : message.parsedAttachments
   const parsedDecision = message.decision_json ? parseJsonObject<Record<string, unknown>>(message.decision_json) : message.parsedDecision
+  const parsedFileChanges = message.file_changes_json ? parseJsonObject<FileChangeSummaryInfo>(message.file_changes_json) ?? undefined : message.parsedFileChanges
   const hasToolCalls = message.has_tool_calls ?? (!!message.tool_calls_json || !!parsedToolCalls?.length)
   const toolCallCount = message.tool_call_count ?? parsedToolCalls?.length
+  const hasFileChanges = message.has_file_changes ?? !!parsedFileChanges?.files.length
+  const fileChangeCount = message.file_change_count ?? parsedFileChanges?.files.length
   return {
     ...message,
     has_tool_calls: hasToolCalls,
     tool_call_count: toolCallCount,
+    has_file_changes: hasFileChanges,
+    file_change_count: fileChangeCount,
     parsedToolCalls,
     parsedAttachments,
     parsedDecision,
+    parsedFileChanges,
   }
 }
 
@@ -273,6 +319,7 @@ export function buildErrorAgentMessage(sessionId: string, messageId: string, err
     tool_calls_json: null,
     decision_json: null,
     attachments_json: null,
+    file_changes_json: null,
     timestamp: new Date().toISOString(),
   })
 }
@@ -725,6 +772,7 @@ export function buildCompletedAgentMessage(sessionId: string, events: SessionEve
     tool_calls_json: process.toolCalls.length > 0 ? JSON.stringify(process.toolCalls) : null,
     decision_json: decision ? JSON.stringify(decision) : null,
     attachments_json: null,
+    file_changes_json: null,
     timestamp: new Date().toISOString(),
   }
 }

@@ -1,7 +1,10 @@
-﻿import { useEffect, useState, type ReactNode } from 'react'
+﻿import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ChevronDown, ChevronRight, Loader2 } from 'lucide-react'
 import type { TurnProcessBlock } from '../../stores/turn-blocks'
+import type { FileChangeDetailInfo, FileChangeSummaryInfo } from '../../stores/session-events'
 import { MarkdownRenderer } from '../MarkdownRenderer'
+import { FileChangesCard } from './FileChangesCard'
+import { extractTurnFileChanges, fileChangesFromSummary } from './file-changes-utils'
 
 interface TurnContentViewProps {
   processBlocks: TurnProcessBlock[]
@@ -12,8 +15,13 @@ interface TurnContentViewProps {
   processLoaded?: boolean
   processLoading?: boolean
   processError?: string
+  fileChangesSummary?: FileChangeSummaryInfo
+  fileChangesDetail?: FileChangeDetailInfo
+  fileChangesLoading?: boolean
+  fileChangesError?: string
   defaultProcessOpen?: boolean
   onLoadProcess?: () => void
+  onLoadFileChanges?: () => void
   renderProcessBlock: (block: TurnProcessBlock) => ReactNode
 }
 
@@ -26,14 +34,27 @@ export function TurnContentView({
   processLoaded = true,
   processLoading = false,
   processError,
+  fileChangesSummary,
+  fileChangesDetail,
+  fileChangesLoading = false,
+  fileChangesError,
   defaultProcessOpen = isStreaming,
   onLoadProcess,
+  onLoadFileChanges,
   renderProcessBlock,
 }: TurnContentViewProps) {
   const [processOpenOverride, setProcessOpenOverride] = useState<'open' | 'closed' | null>(null)
   const processOpen = processOpenOverride === 'open' || (processOpenOverride !== 'closed' && defaultProcessOpen)
   const canLoadProcess = !processLoaded && !!onLoadProcess
   const hasProcess = processBlocks.length > 0 || !!fallbackStage || canLoadProcess
+
+  const fileChanges = useMemo(() => {
+    if (fileChangesDetail?.files.length) return fileChangesDetail
+    if (fileChangesSummary?.files.length) return fileChangesFromSummary(fileChangesSummary)
+    return extractTurnFileChanges(processBlocks)
+  }, [fileChangesDetail, fileChangesSummary, processBlocks])
+  const showBottomCard = !isStreaming && fileChanges.files.length > 0
+  const bottomCardRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (processOpen && canLoadProcess && !processLoading) onLoadProcess()
@@ -81,6 +102,15 @@ export function TurnContentView({
         </div>
       )}
       {finalAnswer && <MarkdownRenderer content={finalAnswer} />}
+      {showBottomCard && (
+        <FileChangesCard
+          changes={fileChanges}
+          cardRef={bottomCardRef}
+          loading={fileChangesLoading}
+          error={fileChangesError}
+          onExpand={onLoadFileChanges}
+        />
+      )}
     </div>
   )
 }

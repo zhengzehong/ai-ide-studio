@@ -1,0 +1,44 @@
+diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_modules/@agentclientprotocol/codex-acp/dist/index.js
+index 1b1f5d5..0333435 100644
+--- a/node_modules/@agentclientprotocol/codex-acp/dist/index.js
++++ b/node_modules/@agentclientprotocol/codex-acp/dist/index.js
+@@ -19025,6 +19025,12 @@ var package_default = {
+ };
+
+ // src/CodexAcpClient.ts
++function getSystemPrompt(meta) {
++  const systemPrompt = meta?.systemPrompt;
++  if (typeof systemPrompt !== "string") return null;
++  const trimmed = systemPrompt.trim();
++  return trimmed ? trimmed : null;
++}
+ var CodexAcpClient = class {
+   codexClient;
+   config;
+@@ -19165,7 +19171,7 @@ var CodexAcpClient = class {
+       baseInstructions: null,
+       config: await this.createSessionConfig(request.cwd, request.mcpServers ?? []),
+       cwd: request.cwd,
+-      developerInstructions: null,
++      developerInstructions: getSystemPrompt(request._meta),
+       model: null,
+       modelProvider: this.getResumeModelProvider(),
+       personality: null,
+@@ -19186,7 +19192,7 @@ var CodexAcpClient = class {
+       baseInstructions: null,
+       config: await this.createSessionConfig(request.cwd, request.mcpServers ?? []),
+       cwd: request.cwd,
+-      developerInstructions: null,
++      developerInstructions: getSystemPrompt(request._meta),
+       model: null,
+       modelProvider: this.getResumeModelProvider(),
+       personality: null,
+@@ -19211,7 +19217,7 @@ var CodexAcpClient = class {
+       approvalPolicy: null,
+       sandbox: null,
+       baseInstructions: null,
+-      developerInstructions: null,
++      developerInstructions: getSystemPrompt(request._meta),
+       personality: null,
+       ephemeral: null
+     });

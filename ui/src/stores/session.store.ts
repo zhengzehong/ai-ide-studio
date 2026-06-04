@@ -23,6 +23,8 @@ import {
   type ChatTimelineToolItem,
   type ConfigOptionInfo,
   type ElicitationRequestInfo,
+  type FileChangeDetailInfo,
+  type FileChangeSummaryInfo,
   type ImageAttachmentInfo,
   type MessageData,
   type ModeInfo,
@@ -54,6 +56,8 @@ export type {
   ChatTimelineToolItem,
   ConfigOptionInfo,
   ElicitationRequestInfo,
+  FileChangeDetailInfo,
+  FileChangeSummaryInfo,
   ImageAttachmentInfo,
   MessageData,
   ModeInfo,
@@ -88,6 +92,7 @@ interface SessionStore {
   capabilities: SessionCapabilities; plan: PlanEntry[]; pendingPermissions: PermissionRequestInfo[]; pendingElicitations: ElicitationRequestInfo[]; loading: boolean
   toolCallSummariesByMessageId: Record<string, ToolCallSummaryInfo[]>
   toolCallDetailsByKey: Record<string, ToolCallDetailInfo>
+  fileChangeDetailsByMessageId: Record<string, FileChangeDetailInfo>
   toolCallLoadingByKey: Record<string, boolean>
   toolCallErrorByKey: Record<string, string>
   turnProcessLoadingByMessageId: Record<string, boolean>
@@ -114,6 +119,7 @@ interface SessionStore {
   fetchModels: () => Promise<void>
   fetchMessageToolCalls: (sessionId: string, messageId: string) => Promise<void>
   fetchMessageToolCallDetail: (sessionId: string, messageId: string, toolCallId: string) => Promise<void>
+  fetchMessageFileChanges: (sessionId: string, messageId: string) => Promise<void>
   fetchMessageProcess: (sessionId: string, messageId: string) => Promise<void>
   setupListeners: () => () => void
 }
@@ -252,7 +258,7 @@ function scheduleStreamingFlush(set: (partial: Partial<SessionStore> | ((state: 
 export const useSessionStore = create<SessionStore>((set, get) => ({
   sessions: [], currentSessionId: null, messages: [], events: [], streamingMessage: null,
   usage: null, turnUsage: null, capabilities: { ...defaultCaps }, plan: [], pendingPermissions: [], pendingElicitations: [], loading: false,
-  toolCallSummariesByMessageId: {}, toolCallDetailsByKey: {}, toolCallLoadingByKey: {}, toolCallErrorByKey: {},
+  toolCallSummariesByMessageId: {}, toolCallDetailsByKey: {}, fileChangeDetailsByMessageId: {}, toolCallLoadingByKey: {}, toolCallErrorByKey: {},
   turnProcessLoadingByMessageId: {}, turnProcessErrorByMessageId: {},
   runningSessionIds: {}, unreadSessionIds: {},
 
@@ -345,6 +351,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       streamingMessage: currentSessionId ? get().streamingMessage : null,
       toolCallSummariesByMessageId: currentSessionId ? get().toolCallSummariesByMessageId : {},
       toolCallDetailsByKey: currentSessionId ? get().toolCallDetailsByKey : {},
+      fileChangeDetailsByMessageId: currentSessionId ? get().fileChangeDetailsByMessageId : {},
       toolCallLoadingByKey: currentSessionId ? get().toolCallLoadingByKey : {},
       toolCallErrorByKey: currentSessionId ? get().toolCallErrorByKey : {},
       turnProcessLoadingByMessageId: currentSessionId ? get().turnProcessLoadingByMessageId : {},
@@ -382,6 +389,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         pendingElicitations: [],
         toolCallSummariesByMessageId: {},
         toolCallDetailsByKey: {},
+        fileChangeDetailsByMessageId: {},
         toolCallLoadingByKey: {},
         toolCallErrorByKey: {},
         turnProcessLoadingByMessageId: {},
@@ -397,7 +405,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       currentSessionId: id, messages: [], events: c?.events || [], streamingMessage: c?.streamingMessage || null,
       usage: c?.usage || null, turnUsage: c?.turnUsage || null, capabilities: c?.capabilities || { ...defaultCaps }, plan: c?.plan || [],
       pendingPermissions: c?.pendingPermissions || [], pendingElicitations: c?.pendingElicitations || [],
-      toolCallSummariesByMessageId: {}, toolCallDetailsByKey: {}, toolCallLoadingByKey: {}, toolCallErrorByKey: {},
+      toolCallSummariesByMessageId: {}, toolCallDetailsByKey: {}, fileChangeDetailsByMessageId: {}, toolCallLoadingByKey: {}, toolCallErrorByKey: {},
       turnProcessLoadingByMessageId: {}, turnProcessErrorByMessageId: {},
       unreadSessionIds: removeSessionIndicator(get().unreadSessionIds, id),
     })
@@ -414,7 +422,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     wsClient.send(msg)
     promptStartTime = Date.now()
     set({
-      messages: [...get().messages, normalizeMessage({ id: clientMessageId, session_id: sid, role: 'human', content, thinking: null, tool_calls_json: null, decision_json: null, attachments_json: images?.length ? JSON.stringify(images) : null, timestamp: new Date().toISOString() })],
+      messages: [...get().messages, normalizeMessage({ id: clientMessageId, session_id: sid, role: 'human', content, thinking: null, tool_calls_json: null, decision_json: null, attachments_json: images?.length ? JSON.stringify(images) : null, file_changes_json: null, timestamp: new Date().toISOString() })],
       streamingMessage: applyTurnEntry(createEmptyTurn(`pending-${sid}-${Date.now()}`), { kind: 'stage', text: '\u6b63\u5728\u51c6\u5907 Agent...' }),
       turnUsage: null,
     })
@@ -504,6 +512,30 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       if (sessionId !== get().currentSessionId) return
       set((state) => ({
         toolCallDetailsByKey: { ...state.toolCallDetailsByKey, [key]: detail },
+        toolCallLoadingByKey: { ...state.toolCallLoadingByKey, [key]: false },
+      }))
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      set((state) => ({
+        toolCallLoadingByKey: { ...state.toolCallLoadingByKey, [key]: false },
+        toolCallErrorByKey: { ...state.toolCallErrorByKey, [key]: message },
+      }))
+    }
+  },
+
+  fetchMessageFileChanges: async (sessionId, messageId) => {
+    const key = `file:${messageId}`
+    if (get().fileChangeDetailsByMessageId[messageId]) return
+    if (get().toolCallLoadingByKey[key]) return
+    set((state) => ({
+      toolCallLoadingByKey: { ...state.toolCallLoadingByKey, [key]: true },
+      toolCallErrorByKey: { ...state.toolCallErrorByKey, [key]: '' },
+    }))
+    try {
+      const detail = await wsClient.request({ type: 'sessions.messageFileChanges', sessionId, messageId }) as FileChangeDetailInfo
+      if (sessionId !== get().currentSessionId) return
+      set((state) => ({
+        fileChangeDetailsByMessageId: { ...state.fileChangeDetailsByMessageId, [messageId]: detail },
         toolCallLoadingByKey: { ...state.toolCallLoadingByKey, [key]: false },
       }))
     } catch (err) {
@@ -641,6 +673,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           thinking: s.thinking || null,
           tool_calls_json: finalizedToolCalls.length > 0 ? JSON.stringify(finalizedToolCalls) : null,
           decision_json: turnStats, attachments_json: null,
+          file_changes_json: null,
           timestamp: new Date().toISOString(),
           processBlocks: finalizedProcessBlocks,
           finalAnswer: s.finalAnswer,

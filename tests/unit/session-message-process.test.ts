@@ -31,6 +31,7 @@ function resetStore(): void {
     loading: false,
     toolCallSummariesByMessageId: {},
     toolCallDetailsByKey: {},
+    fileChangeDetailsByMessageId: {},
     toolCallLoadingByKey: {},
     toolCallErrorByKey: {},
     turnProcessLoadingByMessageId: {},
@@ -41,6 +42,22 @@ function resetStore(): void {
 }
 
 describe('session store message process loading', () => {
+  test('deduplicates file-change detail loads while a request is in flight', async () => {
+    resetStore()
+    wsMock.request.mockReset()
+    let resolveRequest: (value: unknown) => void = () => undefined
+    wsMock.request.mockImplementation(async () => new Promise((resolve) => {
+      resolveRequest = resolve
+    }))
+
+    const first = useSessionStore.getState().fetchMessageFileChanges('sess-process', 'msg-agent-1')
+    const second = useSessionStore.getState().fetchMessageFileChanges('sess-process', 'msg-agent-1')
+
+    expect(wsMock.request).toHaveBeenCalledTimes(1)
+    resolveRequest({ files: [], totalAdded: 0, totalDeleted: 0 })
+    await Promise.all([first, second])
+  })
+
   test('loads one historical agent message process from ordered events', async () => {
     resetStore()
     wsMock.request.mockReset()

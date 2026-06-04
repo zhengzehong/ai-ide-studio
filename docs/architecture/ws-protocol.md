@@ -39,9 +39,10 @@ ws://localhost:18800
 | `session.setConfig` | `{ sessionId, configId, value }` | `void` | 切换配置 |
 | `session.cancel` | `{ sessionId }` | `{ ok: true }` | 通过 ACP `session/cancel` 停止当前轮次，不杀 runtime 进程 |
 | `session.fork` | `{ sessionId }` | `Session` | Fork 会话 |
-| `sessions.messages` | `{ sessionId, limit?, before?, includeToolCalls? }` | `Message[]` | 查询消息历史；默认不返回完整历史工具 JSON，只返回 `has_tool_calls` / `tool_call_count` |
+| `sessions.messages` | `{ sessionId, limit?, before?, includeToolCalls? }` | `Message[]` | 查询消息历史；默认不返回完整历史工具 JSON，只返回 `has_tool_calls` / `tool_call_count`，并返回 ACP diff 文件变更轻量摘要 `file_changes_json` / `has_file_changes` / `file_change_count` |
 | `sessions.messageToolCalls` | `{ sessionId, messageId }` | `ToolCallSummary[]` | 懒加载单条消息的工具调用摘要 |
 | `sessions.messageToolCallDetail` | `{ sessionId, messageId, toolCallId }` | `ToolCallDetail` | 懒加载单个工具调用详情，长输出会截断 |
+| `sessions.messageFileChanges` | `{ sessionId, messageId }` | `FileChangeDetail` | 懒加载单条 Agent 消息的 ACP diff 文件变更详情 |
 | `sessions.messageEvents` | `{ sessionId, messageId }` | `SessionEvent[]` | Lazy-load the ordered execution-process events for one Agent message; events are returned in ascending `sequence`. |
 | `sessions.events` | `{ sessionId, limit?, afterSequence? }` | `SessionEvent[]` | 查询事件 |
 | `prompt` | `{ sessionId, content, clientMessageId?, images? }` | `{ status }` | 发送消息；`clientMessageId` 用于让前端乐观用户消息与 SQLite 持久化消息合并；首次发送时懒启动 runtime，并按需 new/resume ACP session |

@@ -42,6 +42,7 @@ function resetStore(): void {
     loading: false,
     toolCallSummariesByMessageId: {},
     toolCallDetailsByKey: {},
+    fileChangeDetailsByMessageId: {},
     toolCallLoadingByKey: {},
     toolCallErrorByKey: {},
     runningSessionIds: {},
