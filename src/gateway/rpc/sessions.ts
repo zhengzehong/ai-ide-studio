@@ -158,6 +158,12 @@ export const sessionRpcHandlers: RpcHandlerMap = {
     sendResult(session)
   },
 
+  async 'sessions.copy'(msg, { state, sendResult }) {
+    const session = await sessionManager.copySession(msg.sessionId as string)
+    state.subscriptions.add(session.id)
+    sendResult(session)
+  },
+
   'sessions.rename'(msg, { sendResult }) {
     sendResult(sessionManager.renameSession(msg.sessionId as string, msg.title as string))
   },
