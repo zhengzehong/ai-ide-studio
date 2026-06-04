@@ -131,6 +131,10 @@ export interface SessionsCreateMsg extends ClientMessage {
   taskId?: string
   projectId?: string
 }
+export interface SessionsCopyMsg extends ClientMessage {
+  type: 'sessions.copy'
+  sessionId: string
+}
 export interface SessionsRenameMsg extends ClientMessage {
   type: 'sessions.rename'
   sessionId: string

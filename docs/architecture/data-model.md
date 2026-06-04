@@ -399,6 +399,7 @@ SQLite schema 由 `src/store/migrator.ts` 和 `src/store/migrations/*` 管理。
 - `sessions.delete` 是软删除，仅写入 `deleted_at`，不级联删除 `messages` / `session_events`。
 - `sessions.rename` 写入 `sessions.title`；如果 Agent 通过 ACP 上报 `sessionInfo.title` 且当前标题为空，后端会自动补全标题。
 - `session.fork` 会继承源 Session 的 `project_id`，并将项目 `work_dir` 继续传给 ACP runtime。
+- `sessions.copy` 会创建新的 Session，先通过 ACP fork 复制 runtime 上下文，再复制最近 10 条 `messages` 及这些消息关联的 `session_events`。复制时会生成新的 message/event id，并重写事件里的 message 引用；不会复制 Team 成员关系或 timeline 摘要缓存。
 
 
 ## 项目级 Agent 字段约定

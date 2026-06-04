@@ -105,6 +105,7 @@ interface SessionStore {
   fetchMessages: (sessionId: string) => Promise<void>
   fetchEvents: (sessionId: string) => Promise<void>
   createSession: (agentId: string, taskId?: string, projectId?: string) => Promise<SessionData>
+  copySession: (sessionId: string) => Promise<SessionData>
   renameSession: (sessionId: string, title: string) => Promise<void>
   deleteSession: (sessionId: string) => Promise<void>
   closeSession: (sessionId: string) => Promise<void>
@@ -390,6 +391,14 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     if (taskId) msg.taskId = taskId
     if (projectId) msg.projectId = projectId
     const session = await wsClient.request(msg) as SessionData
+    if (!activeSessionsProjectId || session.project_id === activeSessionsProjectId) {
+      set({ sessions: [...get().sessions.filter((s) => s.id !== session.id), session] })
+    }
+    return session
+  },
+
+  copySession: async (sessionId) => {
+    const session = await wsClient.request({ type: 'sessions.copy', sessionId }) as SessionData
     if (!activeSessionsProjectId || session.project_id === activeSessionsProjectId) {
       set({ sessions: [...get().sessions.filter((s) => s.id !== session.id), session] })
     }

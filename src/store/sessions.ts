@@ -92,6 +92,11 @@ export interface AppendEventInput {
   payload: unknown
 }
 
+export interface CopyLatestMessagesResult {
+  messageCount: number
+  eventCount: number
+}
+
 export const sessionStore = {
   create(input: CreateSessionInput): SessionRow {
     const now = new Date().toISOString()
@@ -334,6 +339,89 @@ export const messageStore = {
   updateContent(id: string, content: string): void {
     getDb().prepare('UPDATE messages SET content = ? WHERE id = ?').run(content, id)
   },
+
+  copyLatestWithEvents(sourceSessionId: string, targetSessionId: string, limit: number): CopyLatestMessagesResult {
+    const db = getDb()
+    const sourceMessages = db.prepare<{ sessionId: string; limit: number }, MessageRow>(`
+      SELECT * FROM messages
+      WHERE session_id = @sessionId
+      ORDER BY timestamp DESC
+      LIMIT @limit
+    `).all({ sessionId: sourceSessionId, limit }).reverse()
+
+    const messageIdMap = new Map<string, string>()
+    const insertMessage = db.prepare(`
+      INSERT INTO messages (
+        id, session_id, role, content, thinking, tool_calls_json, decision_json,
+        attachments_json, file_changes_json, timestamp
+      )
+      VALUES (
+        @id, @session_id, @role, @content, @thinking, @tool_calls_json, @decision_json,
+        @attachments_json, @file_changes_json, @timestamp
+      )
+    `)
+    const insertEvent = db.prepare(`
+      INSERT INTO session_events (
+        id, session_id, agent_id, acp_session_id, message_id, type, role, payload_json, sequence, created_at
+      )
+      VALUES (
+        @id, @session_id, @agent_id, @acp_session_id, @message_id, @type, @role, @payload_json, @sequence, @created_at
+      )
+    `)
+
+    const copied = db.transaction(() => {
+      for (const sourceMessage of sourceMessages) {
+        const copiedMessage = {
+          ...sourceMessage,
+          id: `msg-${randomUUID().slice(0, 8)}`,
+          session_id: targetSessionId,
+        }
+        messageIdMap.set(sourceMessage.id, copiedMessage.id)
+        insertMessage.run(copiedMessage)
+      }
+
+      if (messageIdMap.size === 0) return { messageCount: 0, eventCount: 0 }
+
+      const sourceMessageIds = Array.from(messageIdMap.keys())
+      const placeholders = sourceMessageIds.map(() => '?').join(', ')
+      const sourceEvents = db.prepare<string[], SessionEventRow>(`
+        SELECT * FROM session_events
+        WHERE session_id = ?
+          AND (
+            message_id IN (${placeholders})
+            OR json_extract(payload_json, '$.messageId') IN (${placeholders})
+          )
+        ORDER BY sequence ASC
+      `).all(sourceSessionId, ...sourceMessageIds, ...sourceMessageIds)
+
+      let copiedEventCount = 0
+      for (const sourceEvent of sourceEvents) {
+        const payload = remapEventPayload(sourceEvent.payload_json, messageIdMap)
+        const nextMessageId = sourceEvent.message_id ? messageIdMap.get(sourceEvent.message_id) ?? null : null
+        copiedEventCount += 1
+        insertEvent.run({
+          id: `evt-${randomUUID().slice(0, 8)}`,
+          session_id: targetSessionId,
+          agent_id: sourceEvent.agent_id,
+          acp_session_id: null,
+          message_id: nextMessageId,
+          type: sourceEvent.type,
+          role: sourceEvent.role,
+          payload_json: JSON.stringify(payload),
+          sequence: copiedEventCount,
+          created_at: sourceEvent.created_at,
+        })
+      }
+
+      return { messageCount: sourceMessages.length, eventCount: copiedEventCount }
+    })()
+
+    log.info(
+      { sourceSessionId, targetSessionId, messageCount: copied.messageCount, eventCount: copied.eventCount },
+      'session recent history copied',
+    )
+    return copied
+  },
 }
 
 function findLatestToolMessageId(rows: MessageRow[]): string | null {
@@ -366,6 +454,22 @@ function lightweightMessage(row: MessageRow, includeToolCalls: boolean): Message
     ...fileChangeFields,
   }
 }
+
+function remapEventPayload(payloadJson: string, messageIdMap: Map<string, string>): unknown {
+  let payload: unknown
+  try {
+    payload = JSON.parse(payloadJson) as unknown
+  } catch {
+    return {}
+  }
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return payload
+  const record = { ...(payload as Record<string, unknown>) }
+  if (typeof record.messageId === 'string') {
+    record.messageId = messageIdMap.get(record.messageId) ?? record.messageId
+  }
+  return record
+}
+
 export const eventStore = {
   append(sessionId: string, input: AppendEventInput): SessionEventRow {
     const db = getDb()

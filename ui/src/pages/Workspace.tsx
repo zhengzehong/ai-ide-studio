@@ -126,7 +126,10 @@ export default function Workspace() {
   const sendPrompt = useSessionStore((s) => s.sendPrompt)
   const createSession = useSessionStore((s) => s.createSession)
   const fetchSessions = useSessionStore((s) => s.fetchSessions)
+  const fetchMessages = useSessionStore((s) => s.fetchMessages)
+  const fetchEvents = useSessionStore((s) => s.fetchEvents)
   const renameSession = useSessionStore((s) => s.renameSession)
+  const copySession = useSessionStore((s) => s.copySession)
   const deleteSession = useSessionStore((s) => s.deleteSession)
   const closeSession = useSessionStore((s) => s.closeSession)
   const archiveSession = useSessionStore((s) => s.archiveSession)
@@ -320,6 +323,15 @@ export default function Workspace() {
     if (!nextTitle?.trim()) return
     await renameSession(sessionId, nextTitle)
     setSessionMenuId(null)
+  }
+  const handleCopySession = async (agentId: string, sessionId: string) => {
+    const copied = await copySession(sessionId)
+    setSelectedAgentId(agentId)
+    selectSession(copied.id)
+    setSessionMenuId(null)
+    await fetchSessions(undefined, currentProjectId ?? undefined)
+    await fetchMessages(copied.id)
+    await fetchEvents(copied.id)
   }
   const handleDeleteSession = async (sessionId: string) => {
     if (!window.confirm('确定删除这个会话吗？历史记录会从列表隐藏。')) return
@@ -849,6 +861,13 @@ export default function Workspace() {
                                 style={sessionMenuItemStyle}
                               >
                                 关闭
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleCopySession(agent.id, s.id)}
+                                style={sessionMenuItemStyle}
+                              >
+                                复制
                               </button>
                               <button
                                 type="button"

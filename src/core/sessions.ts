@@ -154,6 +154,58 @@ export const sessionManager = {
     return session
   },
 
+  async copySession(sourceSessionId: string, historyLimit = 10): Promise<SessionRow> {
+    const source = sessionStore.get(sourceSessionId)
+    if (!source) throw new Error(`Session not found: ${sourceSessionId}`)
+    if (activePrompts.has(sourceSessionId)) {
+      throw new Error('当前会话正在生成中，完成后再复制')
+    }
+
+    const projectContext = resolveSessionProjectContext(
+      source.agent_id,
+      undefined,
+      source.project_id ?? undefined,
+    )
+    const copied = sessionStore.create({ agentId: source.agent_id, projectId: projectContext.projectId })
+
+    try {
+      const sourceAcpSessionId = await acpHost.ensureSession(
+        source.agent_id,
+        source.id,
+        source.acp_session_id,
+        {
+          ...projectContext,
+          emitLifecycle: false,
+        },
+      )
+      if (source.acp_session_id !== sourceAcpSessionId) sessionStore.updateAcpSessionId(source.id, sourceAcpSessionId)
+      const acpSessionId = await acpHost.forkSession(source.agent_id, source.id, copied.id, projectContext)
+      sessionStore.updateAcpSessionId(copied.id, acpSessionId)
+      if (source.title) sessionStore.updateTitle(copied.id, `${source.title} - 副本`)
+      const copiedHistory = messageStore.copyLatestWithEvents(source.id, copied.id, historyLimit)
+      const updated = sessionStore.get(copied.id)
+      if (!updated) throw new Error(`Copied session missing: ${copied.id}`)
+      events.emit('session:changed', { sessionId: copied.id, data: { ...updated } })
+      log.info(
+        {
+          sourceSessionId,
+          copiedSessionId: copied.id,
+          agentId: source.agent_id,
+          acpSessionId,
+          messageCount: copiedHistory.messageCount,
+          eventCount: copiedHistory.eventCount,
+        },
+        'Session copied',
+      )
+      return updated
+    } catch (err) {
+      await acpHost.closeSession(source.agent_id, copied.id)
+      sessionStore.delete(copied.id)
+      log.error({ err, sourceSessionId, copiedSessionId: copied.id, agentId: source.agent_id }, 'Session copy failed')
+      throw err
+    }
+  },
+
   async sendPrompt(sessionId: string, content: string, images?: ImageAttachment[], clientMessageId?: string): Promise<void> {
     const session = sessionStore.get(sessionId)
     if (!session) throw new Error(`Session not found: ${sessionId}`)
