@@ -44,6 +44,8 @@ function resetStore(): void {
     toolCallDetailsByKey: {},
     toolCallLoadingByKey: {},
     toolCallErrorByKey: {},
+    runningSessionIds: {},
+    unreadSessionIds: {},
   })
 }
 
@@ -411,6 +413,41 @@ describe('session store done handling', () => {
       const message = useSessionStore.getState().messages.find((item) => item.id === 'msg-stage-only')
       expect(message?.processBlocks).toEqual([])
       expect(message?.processDefaultOpen).toBeUndefined()
+    } finally {
+      cleanup()
+    }
+  })
+
+  test('marks background session running, unread after idle, and read after selecting it', async () => {
+    resetStore()
+    const cleanup = useSessionStore.getState().setupListeners()
+
+    try {
+      emit('session:activity', {
+        sessionId: 'sess-bg',
+        agentId: 'agent-1',
+        state: 'running',
+        reason: 'prompt-started',
+        timestamp: '2026-06-03T00:00:00.000Z',
+      })
+
+      expect(useSessionStore.getState().runningSessionIds['sess-bg']).toBe(true)
+      expect(useSessionStore.getState().unreadSessionIds['sess-bg']).toBeUndefined()
+
+      emit('session:activity', {
+        sessionId: 'sess-bg',
+        agentId: 'agent-1',
+        state: 'idle',
+        reason: 'prompt-done',
+        timestamp: '2026-06-03T00:00:01.000Z',
+      })
+
+      expect(useSessionStore.getState().runningSessionIds['sess-bg']).toBeUndefined()
+      expect(useSessionStore.getState().unreadSessionIds['sess-bg']).toBe(true)
+
+      useSessionStore.getState().selectSession('sess-bg')
+
+      expect(useSessionStore.getState().unreadSessionIds['sess-bg']).toBeUndefined()
     } finally {
       cleanup()
     }

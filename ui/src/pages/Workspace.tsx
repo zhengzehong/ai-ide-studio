@@ -92,12 +92,15 @@ import {
   type MenuAnchor,
   type MenuName,
 } from './workspace/helpers'
+import { sessionIndicator } from '../utils/session-indicators'
 
 export default function Workspace() {
   const navigate = useNavigate()
   const connected = useConnectionStore((s) => s.connected)
   const agents = useAgentStore((s) => s.agents)
   const sessions = useSessionStore((s) => s.sessions)
+  const runningSessionIds = useSessionStore((s) => s.runningSessionIds)
+  const unreadSessionIds = useSessionStore((s) => s.unreadSessionIds)
   const currentSessionId = useSessionStore((s) => s.currentSessionId)
   const messages = useSessionStore((s) => s.messages)
   const fetchMessageProcess = useSessionStore((s) => s.fetchMessageProcess)
@@ -702,19 +705,21 @@ export default function Workspace() {
                   </button>
                   {expandedAgentIds.has(agent.id) && (
                     <>
-                      {agentSessions(agent.id).map((s) => (
-                        <div
-                          key={s.id}
-                          style={{
-                            position: 'relative',
-                            display: 'flex',
-                            alignItems: 'center',
-                            paddingLeft: 42,
-                            paddingRight: 8,
-                            background: currentSessionId === s.id ? 'var(--blue-light)' : 'transparent',
-                            borderRadius: 4,
-                          }}
-                        >
+                      {agentSessions(agent.id).map((s) => {
+                        const indicator = sessionIndicator(s, runningSessionIds, unreadSessionIds)
+                        return (
+                          <div
+                            key={s.id}
+                            style={{
+                              position: 'relative',
+                              display: 'flex',
+                              alignItems: 'center',
+                              paddingLeft: 42,
+                              paddingRight: 8,
+                              background: currentSessionId === s.id ? 'var(--blue-light)' : 'transparent',
+                              borderRadius: 4,
+                            }}
+                          >
                           <button
                             type="button"
                             onClick={() => handleSelectSession(agent.id, s.id)}
@@ -737,9 +742,12 @@ export default function Workspace() {
                                 width: 6,
                                 height: 6,
                                 borderRadius: '50%',
-                                background: s.status === 'active' ? '#059669' : '#9ca3af',
+                                background: indicator.color,
                                 flexShrink: 0,
+                                animation: indicator.pulse ? 'session-running-pulse 1s ease-in-out infinite' : undefined,
+                                boxShadow: indicator.pulse ? '0 0 0 4px rgba(5, 150, 105, 0.12)' : undefined,
                               }}
+                              title={indicator.title}
                             />
                             <span
                               style={{
@@ -822,8 +830,9 @@ export default function Workspace() {
                               </button>
                             </div>
                           )}
-                        </div>
-                      ))}
+                          </div>
+                        )
+                      })}
                       <button
                         type="button"
                         onClick={() => handleNewSession(agent.id)}

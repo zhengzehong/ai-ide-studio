@@ -191,3 +191,15 @@ input {
   background: var(--bg-2);
   font-weight: 600;
 }
+
+@keyframes session-running-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(1.35);
+  }
+}

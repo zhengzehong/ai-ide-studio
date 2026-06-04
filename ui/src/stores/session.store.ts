@@ -40,6 +40,11 @@ import {
 } from './session-events'
 import { StreamingBuffer } from './streaming-buffer'
 import { applyTurnEntry, createEmptyTurn, processBlocksForCompletedTurn, turnFromEvents, turnHasFinalizableContent, turnHasVisibleContent } from './turn-blocks'
+import {
+  inferRunningSessionsFromStages,
+  removeSessionIndicator,
+  type SessionIndicatorStateMap,
+} from '../utils/session-indicators'
 
 export type {
   AvailableCommandInfo,
@@ -87,6 +92,8 @@ interface SessionStore {
   toolCallErrorByKey: Record<string, string>
   turnProcessLoadingByMessageId: Record<string, boolean>
   turnProcessErrorByMessageId: Record<string, string>
+  runningSessionIds: SessionIndicatorStateMap
+  unreadSessionIds: SessionIndicatorStateMap
 
   fetchSessions: (agentId?: string, projectId?: string) => Promise<void>
   fetchMessages: (sessionId: string) => Promise<void>
@@ -153,6 +160,25 @@ function selectRecoveredStreamingMessage(
   if (!hasVisibleStreamingState(current)) return recovered
   if (!current || current.id.startsWith('pending-')) return recovered
   return current
+}
+
+function applySessionActivity(
+  runningSessionIds: SessionIndicatorStateMap,
+  unreadSessionIds: SessionIndicatorStateMap,
+  sessionId: string,
+  state: 'running' | 'idle',
+  currentSessionId: string | null,
+): { runningSessionIds: SessionIndicatorStateMap; unreadSessionIds: SessionIndicatorStateMap } {
+  const running = { ...runningSessionIds }
+  const unread = { ...unreadSessionIds }
+  if (state === 'running') {
+    running[sessionId] = true
+    delete unread[sessionId]
+  } else {
+    delete running[sessionId]
+    if (currentSessionId !== sessionId) unread[sessionId] = true
+  }
+  return { runningSessionIds: running, unreadSessionIds: unread }
 }
 
 function saveCache(sessionId: string, s: Pick<SessionStore, 'events' | 'usage' | 'turnUsage' | 'capabilities' | 'plan' | 'pendingPermissions' | 'pendingElicitations' | 'streamingMessage'>) {
@@ -228,6 +254,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   usage: null, turnUsage: null, capabilities: { ...defaultCaps }, plan: [], pendingPermissions: [], pendingElicitations: [], loading: false,
   toolCallSummariesByMessageId: {}, toolCallDetailsByKey: {}, toolCallLoadingByKey: {}, toolCallErrorByKey: {},
   turnProcessLoadingByMessageId: {}, turnProcessErrorByMessageId: {},
+  runningSessionIds: {}, unreadSessionIds: {},
 
   fetchSessions: async (agentId, projectId) => {
     const requestSeq = ++sessionListRequestSeq
@@ -240,10 +267,13 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       if (projectId) msg.projectId = projectId
       const data = await wsClient.request(msg) as SessionData[]
       if (requestSeq !== sessionListRequestSeq || activeSessionsProjectId !== scopedProjectId) return
-      set({
-        sessions: scopedProjectId ? data.filter((session) => session.project_id === scopedProjectId) : data,
+      const sessions = scopedProjectId ? data.filter((session) => session.project_id === scopedProjectId) : data
+      const inferredRunning = inferRunningSessionsFromStages(sessions)
+      set((state) => ({
+        sessions,
+        runningSessionIds: { ...inferredRunning, ...state.runningSessionIds },
         loading: false,
-      })
+      }))
     } catch {
       if (requestSeq === sessionListRequestSeq) set({ loading: false })
     }
@@ -319,6 +349,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       toolCallErrorByKey: currentSessionId ? get().toolCallErrorByKey : {},
       turnProcessLoadingByMessageId: currentSessionId ? get().turnProcessLoadingByMessageId : {},
       turnProcessErrorByMessageId: currentSessionId ? get().turnProcessErrorByMessageId : {},
+      runningSessionIds: removeSessionIndicator(get().runningSessionIds, sessionId),
+      unreadSessionIds: removeSessionIndicator(get().unreadSessionIds, sessionId),
     })
   },
 
@@ -367,6 +399,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       pendingPermissions: c?.pendingPermissions || [], pendingElicitations: c?.pendingElicitations || [],
       toolCallSummariesByMessageId: {}, toolCallDetailsByKey: {}, toolCallLoadingByKey: {}, toolCallErrorByKey: {},
       turnProcessLoadingByMessageId: {}, turnProcessErrorByMessageId: {},
+      unreadSessionIds: removeSessionIndicator(get().unreadSessionIds, id),
     })
     void get().fetchMessages(id)
     void get().fetchEvents(id)
@@ -670,6 +703,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           streamingMessage: st.currentSessionId === sessionId ? null : st.streamingMessage,
           turnProcessLoadingByMessageId: st.currentSessionId === sessionId ? {} : st.turnProcessLoadingByMessageId,
           turnProcessErrorByMessageId: st.currentSessionId === sessionId ? {} : st.turnProcessErrorByMessageId,
+          runningSessionIds: removeSessionIndicator(st.runningSessionIds, sessionId),
+          unreadSessionIds: removeSessionIndicator(st.unreadSessionIds, sessionId),
         }))
         return
       }
@@ -685,6 +720,13 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         }
         return { sessions: st.sessions }
       })
+    }))
+
+    offs.push(wsClient.on('session:activity', (msg) => {
+      const sessionId = typeof msg.sessionId === 'string' ? msg.sessionId : ''
+      if (!sessionId) return
+      const state = msg.state === 'running' ? 'running' : 'idle'
+      set((st) => applySessionActivity(st.runningSessionIds, st.unreadSessionIds, sessionId, state, st.currentSessionId))
     }))
 
     listenersSetup = true
