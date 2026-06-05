@@ -136,7 +136,7 @@ describe('team MCP tool handlers', () => {
     expect(sentContent).toContain('不要使用 sleep')
     expect(sentContent).toContain('系统会在成员通过 mailbox')
     expect(sentContent).toContain('用户请求：\n请创建团队并派活')
-    expect(messageStore.list(leaderSessionId).at(-1)?.content).toBe('请创建团队并派活')
+    expect(messageStore.list(leaderSessionId).filter((message) => message.role === 'human').at(-1)?.content).toBe('请创建团队并派活')
   })
 
   test('Team Leader profile prompts include no-wait contract before a Team exists', async () => {
@@ -163,7 +163,7 @@ describe('team MCP tool handlers', () => {
 
     expect(sentContent).toContain('Team Leader 协作规则')
     expect(sentContent).toContain('用户请求：\n创建一个 Team 并派活')
-    expect(messageStore.list(session.id).at(-1)?.content).toBe('创建一个 Team 并派活')
+    expect(messageStore.list(session.id).filter((message) => message.role === 'human').at(-1)?.content).toBe('创建一个 Team 并派活')
   })
 
   test('normal non-Team sessions are not wrapped with Team Leader contract', async () => {

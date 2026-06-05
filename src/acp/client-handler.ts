@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto'
+﻿import { randomUUID } from 'crypto'
 import * as acp from '@agentclientprotocol/sdk'
 import { events } from '../core/events.js'
 import { createChildLogger } from '../core/logger.js'
@@ -27,8 +27,12 @@ function turnsForAgent(agentId: string): Map<string, ActiveClientTurn> {
   return turns
 }
 
-export function startClientTurn(agentId: string, acpSessionId: string, turnId?: string): void {
-  turnsForAgent(agentId).set(acpSessionId, { messageId: generatedTurnMessageId(acpSessionId), turnId })
+export function startClientTurn(agentId: string, acpSessionId: string, turnId?: string, messageId?: string): void {
+  turnsForAgent(agentId).set(acpSessionId, { messageId: messageId ?? generatedTurnMessageId(acpSessionId), turnId })
+}
+
+export function getClientTurnMessageId(agentId: string, acpSessionId: string): string | undefined {
+  return turnsByAgent.get(agentId)?.get(acpSessionId)?.messageId
 }
 
 export function endClientTurn(agentId: string, acpSessionId: string): void {
@@ -233,7 +237,7 @@ export function createClientHandler(agentId: string): acp.Client {
           break
         }
         default:
-          log.debug({ agentId, updateType }, '未处理的 sessionUpdate 类型')
+          log.debug({ agentId, updateType }, '鏈鐞嗙殑 sessionUpdate 绫诲瀷')
           break
       }
     },

@@ -49,8 +49,9 @@ describe('SQLite 迁移', () => {
     expect(tables).toEqual(['model_profiles', 'schema_migrations', 'tool_call_audit', 'tool_contexts'])
     const messageColumns = getDb().prepare<[], { name: string }>('PRAGMA table_info(messages)').all().map(row => row.name)
 
-    expect(migrations).toEqual(['001', '002', '003', '004', '005', '006', '007', '008'])
+    expect(migrations).toEqual(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010'])
     expect(messageColumns).toContain('file_changes_json')
+    expect(messageColumns).toContain('process_item_count')
   })
 
   test('从 JSON 迁移到 SQLite 并保留所有数据', () => {

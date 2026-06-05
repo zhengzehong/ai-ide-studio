@@ -44,7 +44,9 @@ ws://localhost:18800
 | `sessions.messageToolCalls` | `{ sessionId, messageId }` | `ToolCallSummary[]` | 懒加载单条消息的工具调用摘要 |
 | `sessions.messageToolCallDetail` | `{ sessionId, messageId, toolCallId }` | `ToolCallDetail` | 懒加载单个工具调用详情，长输出会截断 |
 | `sessions.messageFileChanges` | `{ sessionId, messageId }` | `FileChangeDetail` | 懒加载单条 Agent 消息的 ACP diff 文件变更详情 |
-| `sessions.messageEvents` | `{ sessionId, messageId }` | `SessionEvent[]` | Lazy-load the ordered execution-process events for one Agent message; events are returned in ascending `sequence`. |
+| `sessions.messageProcess` | `{ sessionId, messageId }` | `TurnProcessItem[]` | 懒加载单条 Agent 消息的执行过程轻量列表；按 `sequence` 升序返回，默认不返回大 `detail_json` |
+| `sessions.processItemDetail` | `{ sessionId, messageId, itemId }` | `TurnProcessItem` | 懒加载单个执行过程块详情，例如工具 raw 输出、权限详情、计划详情或完整 diff |
+| `sessions.messageEvents` | `{ sessionId, messageId }` | `SessionEvent[]` | 兼容旧数据的执行过程事件兜底恢复；新数据优先使用 `sessions.messageProcess` |
 | `sessions.events` | `{ sessionId, limit?, afterSequence? }` | `SessionEvent[]` | 查询事件 |
 | `prompt` | `{ sessionId, content, clientMessageId?, images? }` | `{ status }` | 发送消息；`clientMessageId` 用于让前端乐观用户消息与 SQLite 持久化消息合并；首次发送时懒启动 runtime，并按需 new/resume ACP session |
 | `permission.respond` | `{ sessionId, permissionRequestId, optionId?, cancelled? }` | `void` | 响应权限请求 |
@@ -113,6 +115,7 @@ ws://localhost:18800
 | 事件 | 数据 | 说明 |
 |------|------|------|
 | `session:update` | `{ sessionId, agentId, data }` | 流式会话更新，包含消息、工具、权限、提问、计划和 `lifecycle.*` 阶段 |
+| `session:process_item` | `{ sessionId, agentId?, item }` | 当前轮执行过程块的轻量增量；用于实时展示思考、工具、权限、提问、计划、文件修改等过程 |
 | `session:event` | `{ sessionId, agentId?, event }` | 持久化事件 |
 | `session:done` | `{ sessionId, agentId, messageId, turnId?, turnUsage? }` | Agent 回复完成；`turnId` 仅用于诊断日志/前后端事件关联 |
 | `session:activity` | `{ sessionId, agentId, turnId?, state, reason, timestamp }` | 全局轻量事件：`running` 表示会话开始执行，`idle` 表示会话执行结束；用于左侧会话列表活动/未读提示，不承载聊天内容；`turnId` 仅用于诊断 |

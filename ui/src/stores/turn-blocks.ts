@@ -1,6 +1,6 @@
-﻿import type { SessionEventData, ToolCallInfo, TurnUsageInfo } from './session-events'
+﻿import type { FileChangeDetailInfo, PlanEntry, SessionEventData, ToolCallInfo, TurnProcessItemInfo, TurnUsageInfo } from './session-events'
 
-export type TurnProcessBlockKind = 'thinking' | 'note' | 'tool' | 'stage'
+export type TurnProcessBlockKind = 'thinking' | 'note' | 'tool' | 'stage' | 'file_change' | 'plan'
 
 export interface TurnThinkingBlock {
   id: string
@@ -30,7 +30,23 @@ export interface TurnStageBlock {
   sequence?: number
 }
 
-export type TurnProcessBlock = TurnThinkingBlock | TurnNoteBlock | TurnToolBlock | TurnStageBlock
+export interface TurnFileChangeBlock {
+  id: string
+  kind: 'file_change'
+  changes?: FileChangeDetailInfo
+  summary?: string
+  sequence?: number
+}
+
+export interface TurnPlanBlock {
+  id: string
+  kind: 'plan'
+  plan: PlanEntry[]
+  summary?: string
+  sequence?: number
+}
+
+export type TurnProcessBlock = TurnThinkingBlock | TurnNoteBlock | TurnToolBlock | TurnStageBlock | TurnFileChangeBlock | TurnPlanBlock
 
 export type TurnEntry =
   | { sequence?: number; kind: 'thinking'; text: string }
@@ -137,6 +153,14 @@ export function turnFromEvents(id: string, events: SessionEventData[]): TurnView
   return turnFromEntries(id, entries)
 }
 
+export function turnFromProcessItems(id: string, items: TurnProcessItemInfo[]): TurnViewModel {
+  const turn = createEmptyTurn(id)
+  turn.processBlocks = [...items]
+    .sort((a, b) => a.sequence - b.sequence)
+    .map(processItemToBlock)
+    .filter((block): block is TurnProcessBlock => !!block)
+  return syncDerivedFields(turn)
+}
 export function turnHasVisibleContent(turn: TurnViewModel | null): turn is TurnViewModel {
   return !!turn && (!!turn.stage || !!turn.finalAnswer || (turn.processBlocks?.length ?? 0) > 0)
 }
@@ -215,6 +239,13 @@ function mergeToolCall(existing: ToolCallInfo, update: ToolCallInfo): ToolCallIn
 
 function cloneProcessBlock(block: TurnProcessBlock): TurnProcessBlock {
   if (block.kind === 'tool') return { ...block, toolCall: { ...block.toolCall } }
+  if (block.kind === 'file_change') return {
+    ...block,
+    changes: block.changes
+      ? { ...block.changes, files: block.changes.files.map((file) => ({ ...file, segments: file.segments.map((segment) => ({ ...segment, lines: segment.lines.map((line) => ({ ...line })) })) })) }
+      : undefined,
+  }
+  if (block.kind === 'plan') return { ...block, plan: block.plan.map((item) => ({ ...item })) }
   return { ...block }
 }
 
@@ -233,4 +264,39 @@ function parsePayload(event: SessionEventData): Record<string, unknown> {
 function payloadMessageId(event: SessionEventData, payload: Record<string, unknown>): string | null {
   const messageId = payload.messageId ?? event.message_id
   return messageId == null ? null : String(messageId)
+}
+
+function processItemToBlock(item: TurnProcessItemInfo): TurnProcessBlock | null {
+  if (item.kind === 'thinking') return { id: item.id, kind: 'thinking', text: item.content || item.summary || '', sequence: item.sequence }
+  if (item.kind === 'note') return { id: item.id, kind: 'note', text: item.content || item.summary || '', sequence: item.sequence }
+  if (item.kind === 'stage') return { id: item.id, kind: 'stage', text: item.content || item.summary || '', sequence: item.sequence }
+  if (item.kind === 'tool') {
+    const tool = parseDetail<ToolCallInfo>(item.detail_json) ?? {
+      id: item.id,
+      title: item.title || item.summary || '工具调用',
+      status: item.status ?? undefined,
+    }
+    return { id: item.id, kind: 'tool', toolCall: tool, sequence: item.sequence }
+  }
+  if (item.kind === 'file_change') {
+    const changes = parseDetail<FileChangeDetailInfo>(item.detail_json)
+    if (changes?.files.length) return { id: item.id, kind: 'file_change', changes, summary: item.summary || undefined, sequence: item.sequence }
+    if (item.summary || item.preview) return { id: item.id, kind: 'file_change', summary: item.summary || item.preview || undefined, sequence: item.sequence }
+    return null
+  }
+  if (item.kind === 'plan') {
+    const detail = parseDetail<{ plan?: PlanEntry[] }>(item.detail_json) ?? parseDetail<{ plan?: PlanEntry[] }>(item.content)
+    return { id: item.id, kind: 'plan', plan: detail?.plan || [], summary: item.summary || undefined, sequence: item.sequence }
+  }
+  if (item.summary || item.content) return { id: item.id, kind: 'note', text: item.content || item.summary || '', sequence: item.sequence }
+  return null
+}
+
+function parseDetail<T>(raw?: string | null): T | null {
+  if (!raw) return null
+  try {
+    return JSON.parse(raw) as T
+  } catch {
+    return null
+  }
 }

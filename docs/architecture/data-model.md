@@ -128,13 +128,35 @@ backlog → executing → reviewing → completed
 | decision_json | TEXT | 决策/统计 JSON |
 | attachments_json | TEXT | 附件 JSON 数组 |
 | file_changes_json | TEXT | ACP diff 文件变更轻量摘要 JSON |
+| status | TEXT | completed / running / failed / cancelled |
+| started_at | TEXT | Agent 消息开始生成时间 |
+| completed_at | TEXT | Agent 消息完成时间 |
+| stats_json | TEXT | 本轮 token / 费用 / 耗时等统计 JSON |
+| process_item_count | INTEGER | 本轮执行过程块数量，用于历史消息折叠入口 |
 | timestamp | TEXT | ISO 时间戳 |
 
-历史消息查询默认返回轻量 DTO：`tool_calls_json` 会被置空，同时附带 `has_tool_calls` 和 `tool_call_count`。完整工具调用仍保存在 SQLite 的 `messages.tool_calls_json` 中，通过工具摘要和详情 RPC 按需读取。ACP diff 文件变更摘要保存在 `file_changes_json`，并通过 `has_file_changes` / `file_change_count` 暴露给前端；完整文件变更详情通过 `sessions.messageFileChanges` 从持久化工具调用中按需恢复。
+历史消息查询默认返回轻量 DTO：`tool_calls_json` 会被置空，同时附带 `has_tool_calls` / `tool_call_count`、`process_item_count`、`has_file_changes` / `file_change_count`。新对话中，`messages.content` 是最终回复和运行中快照来源；完整执行过程不再依赖 `messages.tool_calls_json`，而是按顺序保存到 `turn_process_items`。旧消息的完整工具调用仍可通过工具摘要和详情 RPC 按需读取。
 
+### turn_process_items
 
+| 列 | 类型 | 说明 |
+|----|------|------|
+| id | TEXT PK | 执行过程块 ID |
+| session_id | TEXT FK | 所属 Session |
+| message_id | TEXT FK | 所属 Agent 消息 |
+| sequence | INTEGER | 单条 Agent 消息内的过程顺序 |
+| kind | TEXT | stage / thinking / note / tool / file_change / permission / elicitation / plan / usage / error |
+| status | TEXT | running / pending / completed / failed / cancelled 等 |
+| title | TEXT | 展示标题 |
+| summary | TEXT | 轻量摘要 |
+| preview | TEXT | 列表预览文本 |
+| content | TEXT | 轻量文本内容，例如 thinking/note/stage |
+| detail_json | TEXT | 懒加载详情，例如工具 raw、权限请求、计划条目、完整 diff |
+| meta_json | TEXT | 关联 ID 等元数据，例如 toolCallId/requestId |
+| created_at | TEXT | 创建时间 |
+| updated_at | TEXT | 更新时间 |
 
-`messages.content` stores the Agent final answer. It is not used to reconstruct the real order of thinking, intermediate notes, and tool calls. The execution process is restored from `session_events.sequence`, usually through `sessions.messageEvents` for a single historical Agent message.
+`turn_process_items.sequence` 是历史执行过程展示顺序的事实来源。列表查询默认不返回大 `detail_json`；用户点击某个过程块时再通过 `sessions.processItemDetail` 获取详情。ACP plan 更新保存为 `kind = plan`，权限和 AI 提问分别保存为 `permission` / `elicitation`，文件修改完整 diff 保存为 `file_change.detail_json`。
 
 ### session_events
 
@@ -153,7 +175,7 @@ backlog → executing → reviewing → completed
 
 
 
-A single Agent Turn uses a platform-generated Agent `message_id` for streamed chunks and tool events. The closing `message.done` event may have its own done/lifecycle ID, but it belongs to the same Turn by `sequence`. Runtime-provided chunk message IDs are not used as platform message primary keys, so ACP runtimes that reuse IDs cannot merge separate turns.
+`session_events` 保留 raw/diagnostic 事件和旧数据兜底恢复能力。新对话的 UI 历史恢复优先使用 `messages` + `turn_process_items`，不再依赖按 chunk 还原整轮执行过程。单个 Agent Turn 使用平台生成的 Agent `message_id` 作为主消息 ID；runtime 提供的 chunk message id 不作为平台消息主键，避免不同 runtime 的 ID 复用导致串消息。
 
 ### tasks
 

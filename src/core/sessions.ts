@@ -20,6 +20,12 @@ import {
   summarizeSessionUpdate,
   summarizeSessionUpdateData,
 } from './prompt-diagnostics.js'
+import {
+  completeTurnProcess,
+  createAgentMessageId,
+  recordTurnProcessUpdate,
+  startTurnProcess,
+} from './turn-process-runtime.js'
 
 const log = createChildLogger('session')
 
@@ -39,6 +45,10 @@ events.on('session:update', (ev) => {
   }
 
   pendingBySession.set(sessionId, updatePendingTurn(pending, data))
+})
+
+events.on('session:update', (ev) => {
+  recordTurnProcessUpdate(ev.sessionId, ev.agentId, ev.data)
 })
 
 events.on('session:update', (ev) => {
@@ -94,13 +104,32 @@ events.on('session:done', (ev) => {
   const turnId = eventTurnId(ev)
   const pending = pendingBySession.get(ev.sessionId)
   const finalized = pending ? finalizePendingTurn(pending) : null
+  const processStatus = ev.stopReason === 'error'
+    ? 'failed'
+    : ev.stopReason === 'cancelled'
+      ? 'cancelled'
+      : 'completed'
+  const processResult = completeTurnProcess(ev.sessionId, processStatus)
+  const finalMessageId = processResult.messageId ?? finalized?.messageId ?? ev.messageId
+
   if (finalized) {
-    const message = messageStore.append(ev.sessionId, {
-      id: finalized.messageId,
-      role: 'agent',
-      content: finalized.content,
+    const finalContent = processResult.finalAnswer !== undefined ? processResult.finalAnswer : finalized.content
+    const message = messageStore.completeAgentMessage(finalMessageId, {
+      content: finalContent,
       thinking: finalized.thinking || undefined,
       toolCalls: finalized.toolCalls,
+      status: processStatus,
+      stats: ev.turnUsage,
+      fileChangesJson: processResult.fileChangesJson,
+    }) ?? messageStore.append(ev.sessionId, {
+      id: finalMessageId,
+      role: 'agent',
+      content: finalContent,
+      thinking: finalized.thinking || undefined,
+      toolCalls: finalized.toolCalls,
+      status: processStatus,
+      stats: ev.turnUsage,
+      fileChangesJson: processResult.fileChangesJson,
     })
     sessionStore.touch(ev.sessionId, message.timestamp)
     log.info(
@@ -117,11 +146,47 @@ events.on('session:done', (ev) => {
       'agent message finalized',
     )
     recordPromptProgress(ev.sessionId, 'message.finalized')
-  } else if (ev.stopReason === 'error' && ev.error) {
-    const message = messageStore.append(ev.sessionId, {
-      id: ev.messageId,
+  } else if (processResult.messageId && !(ev.stopReason === 'error' && ev.error)) {
+    const message = messageStore.completeAgentMessage(finalMessageId, {
+      content: processResult.finalAnswer ?? '',
+      status: processStatus,
+      stats: ev.turnUsage,
+      fileChangesJson: processResult.fileChangesJson,
+    }) ?? messageStore.append(ev.sessionId, {
+      id: finalMessageId,
       role: 'agent',
-      content: `执行失败：${ev.error}`,
+      content: processResult.finalAnswer ?? '',
+      status: processStatus,
+      stats: ev.turnUsage,
+      fileChangesJson: processResult.fileChangesJson,
+    })
+    sessionStore.touch(ev.sessionId, message.timestamp)
+    log.info(
+      {
+        sessionId: ev.sessionId,
+        agentId: ev.agentId,
+        turnId,
+        messageId: message.id,
+        contentLength: message.content.length,
+        stopReason: ev.stopReason,
+      },
+      'agent message completed from running snapshot',
+    )
+    recordPromptProgress(ev.sessionId, 'message.completed_snapshot')
+  } else if (ev.stopReason === 'error' && ev.error) {
+    const content = `执行失败：${ev.error}`
+    const message = messageStore.completeAgentMessage(finalMessageId, {
+      content,
+      status: 'failed',
+      stats: ev.turnUsage,
+      fileChangesJson: processResult.fileChangesJson,
+    }) ?? messageStore.append(ev.sessionId, {
+      id: finalMessageId,
+      role: 'agent',
+      content,
+      status: 'failed',
+      stats: ev.turnUsage,
+      fileChangesJson: processResult.fileChangesJson,
     })
     sessionStore.touch(ev.sessionId, message.timestamp)
     log.info(
@@ -312,6 +377,7 @@ async function sendPromptNow(session: SessionRow, content: string, images?: Imag
   let activityEndReason: SessionActivityReason = 'prompt-done'
   log.debug({ sessionId, agentId: session.agent_id, turnId, activePromptCount: activePrompts.size }, 'prompt marked active')
   emitSessionActivity(sessionId, session.agent_id, 'running', 'prompt-started', turnId)
+  const agentMessageId = createAgentMessageId()
   try {
     const humanMessage = messageStore.append(sessionId, { id: clientMessageId, role: 'human', content, attachments: images })
     recordPromptProgress(sessionId, 'human.message.persisted')
@@ -332,8 +398,16 @@ async function sendPromptNow(session: SessionRow, content: string, images?: Imag
       'human message event persisted',
     )
     events.emit('session:event', { sessionId, agentId: session.agent_id, event: stored })
-    emitLifecycle(session.agent_id, sessionId, 'lifecycle.prompt_received', '正在准备 Agent...')
-
+    const agentMessage = messageStore.append(sessionId, {
+      id: agentMessageId,
+      role: 'agent',
+      content: '',
+      status: 'running',
+      startedAt: new Date(startedAt).toISOString(),
+    })
+    startTurnProcess(sessionId, agentMessage.id)
+    sessionStore.touch(sessionId, agentMessage.timestamp)
+    emitLifecycle(session.agent_id, sessionId, 'lifecycle.prompt_received', '正在准备 Agent...', agentMessage.id)
     const projectContext = resolveSessionProjectContext(
       session.agent_id,
       session.task_id ?? undefined,
@@ -354,20 +428,20 @@ async function sendPromptNow(session: SessionRow, content: string, images?: Imag
       log.info({ sessionId, agentId: session.agent_id, turnId, acpSessionId }, 'ACP Session mapped')
     }
     const acpContent = maybeWrapTeamLeaderPrompt(sessionId, content)
-    emitLifecycle(session.agent_id, sessionId, 'lifecycle.prompt_sent', '正在思考...')
+    emitLifecycle(session.agent_id, sessionId, 'lifecycle.prompt_sent', '正在思考...', agentMessageId)
     recordPromptProgress(sessionId, 'acp.prompt.started')
-    await acpHost.prompt(session.agent_id, sessionId, acpContent, images, { turnId })
+    await acpHost.prompt(session.agent_id, sessionId, acpContent, images, { turnId, messageId: agentMessageId })
     recordPromptProgress(sessionId, 'acp.prompt.resolved')
     log.info({ sessionId, agentId: session.agent_id, turnId, elapsedMs: Date.now() - startedAt }, 'prompt completed')
   } catch (err) {
     activityEndReason = 'prompt-error'
     const message = err instanceof Error ? err.message : String(err)
-    emitLifecycle(session.agent_id, sessionId, 'lifecycle.failed', `执行失败：${message}`)
+    emitLifecycle(session.agent_id, sessionId, 'lifecycle.failed', `执行失败：${message}`, agentMessageId)
     log.error({ err, sessionId, agentId: session.agent_id, turnId, elapsedMs: Date.now() - startedAt }, 'prompt failed')
     events.emit('session:done', {
       sessionId,
       agentId: session.agent_id,
-      messageId: `error-${sessionId}-${Date.now()}`,
+      messageId: agentMessageId,
       turnId,
       stopReason: 'error',
       error: message,
@@ -399,14 +473,14 @@ function maybeWrapTeamLeaderPrompt(sessionId: string, content: string): string {
   return visibleNames.includes('team.member.message') ? buildTeamLeaderPrompt(content) : content
 }
 
-function emitLifecycle(agentId: string, sessionId: string, eventType: string, content: string): void {
+function emitLifecycle(agentId: string, sessionId: string, eventType: string, content: string, messageId?: string): void {
   sessionStore.updateStage(sessionId, content)
   const updated = sessionStore.get(sessionId)
   if (updated) events.emit('session:changed', { sessionId, data: { ...updated } })
   events.emit('session:update', {
     sessionId,
     agentId,
-    data: { messageId: `${eventType}-${Date.now()}`, role: 'system', content, eventType } satisfies SessionUpdateData,
+    data: { messageId: messageId ?? `${eventType}-${Date.now()}`, role: 'system', content, eventType } satisfies SessionUpdateData,
   })
 }
 

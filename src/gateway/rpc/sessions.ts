@@ -6,6 +6,8 @@ import { projectStore } from '../../store/projects.js'
 import { eventStore, messageStore, sessionStore } from '../../store/sessions.js'
 import { parseToolCallsJson, selectToolCallDetail, summarizeToolCalls } from '../../store/tool-call-history.js'
 import { buildFileChangesFromToolCalls } from '../../store/file-changes.js'
+import { turnProcessItemStore } from '../../store/turn-process-items.js'
+import type { FileChangeDetailData } from '../../types/ws-protocol.js'
 import type { RpcHandlerMap } from './types.js'
 
 const log = createChildLogger('rpc-sessions')
@@ -33,6 +35,48 @@ function getSessionMessage(sessionId: string, messageId: string) {
   const message = messageStore.get(messageId)
   if (!message || message.session_id !== sessionId) throw new Error('消息不存在')
   return message
+}
+function buildProcessFileChanges(messageId: string): FileChangeDetailData | undefined {
+  const items = turnProcessItemStore.list(messageId, { includeDetail: true }).filter((item) => item.kind === 'file_change' && item.detail_json)
+  if (items.length === 0) return undefined
+  const files = new Map<string, FileChangeDetailData['files'][number]>()
+  for (const item of items) {
+    const detail = parseFileChangeDetail(item.detail_json)
+    if (!detail) continue
+    for (const file of detail.files) {
+      const existing = files.get(file.path)
+      if (existing) {
+        existing.addedLines += file.addedLines
+        existing.deletedLines += file.deletedLines
+        existing.segments.push(...file.segments)
+        continue
+      }
+      files.set(file.path, { ...file, segments: [...file.segments] })
+    }
+  }
+  const mergedFiles = Array.from(files.values())
+  if (mergedFiles.length === 0) return undefined
+  return {
+    files: mergedFiles,
+    totalAdded: mergedFiles.reduce((sum, file) => sum + file.addedLines, 0),
+    totalDeleted: mergedFiles.reduce((sum, file) => sum + file.deletedLines, 0),
+  }
+}
+
+function parseFileChangeDetail(raw: string | null | undefined): FileChangeDetailData | undefined {
+  if (!raw) return undefined
+  try {
+    const parsed = JSON.parse(raw) as Partial<FileChangeDetailData>
+    return Array.isArray(parsed.files)
+      ? {
+          files: parsed.files as FileChangeDetailData['files'],
+          totalAdded: typeof parsed.totalAdded === 'number' ? parsed.totalAdded : 0,
+          totalDeleted: typeof parsed.totalDeleted === 'number' ? parsed.totalDeleted : 0,
+        }
+      : undefined
+  } catch {
+    return undefined
+  }
 }
 export const sessionRpcHandlers: RpcHandlerMap = {
   async 'session.setModel'(msg, { sendResult }) {
@@ -209,7 +253,30 @@ export const sessionRpcHandlers: RpcHandlerMap = {
   'sessions.messageFileChanges'(msg, { sendResult }) {
     const sessionId = msg.sessionId as string
     const message = getSessionMessage(sessionId, msg.messageId as string)
+    const processChanges = buildProcessFileChanges(message.id)
+    if (processChanges) {
+      sendResult(processChanges)
+      return
+    }
     sendResult(buildFileChangesFromToolCalls(parseToolCallsJson(message.tool_calls_json)))
+  },
+
+  'sessions.messageProcess'(msg, { sendResult }) {
+    const sessionId = msg.sessionId as string
+    const message = getSessionMessage(sessionId, msg.messageId as string)
+    if (message.role !== 'agent') {
+      sendResult([])
+      return
+    }
+    sendResult(turnProcessItemStore.list(message.id))
+  },
+
+  'sessions.processItemDetail'(msg, { sendResult }) {
+    const sessionId = msg.sessionId as string
+    const message = getSessionMessage(sessionId, msg.messageId as string)
+    const detail = turnProcessItemStore.detail(message.id, msg.itemId as string)
+    if (!detail) throw new Error('执行过程详情不存在')
+    sendResult(detail)
   },
 
 

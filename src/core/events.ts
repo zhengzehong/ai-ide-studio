@@ -6,10 +6,12 @@ import type {
   SessionUpdateData,
   SessionCapabilities,
   SessionEventData,
+  TurnProcessItemData,
 } from '../types/ws-protocol.js'
 
 export type AppEvents = {
   'session:update': { sessionId: string; agentId: string; data: SessionUpdateData }
+  'session:process_item': { sessionId: string; agentId?: string | null; item: TurnProcessItemData }
   'session:event': { sessionId: string; agentId?: string | null; event: SessionEventData }
   'session:manual-prompt-started': { sessionId: string; agentId: string }
   'session:activity': SessionActivityData

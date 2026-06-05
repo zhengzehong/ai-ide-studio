@@ -22,4 +22,19 @@ describe('turn finalizer', () => {
       ],
     })
   })
+
+  test('treats plan updates as process boundaries before the final reply', () => {
+    let turn = createPendingTurn()
+    turn = updatePendingTurn(turn, { messageId: 'msg-1', role: 'agent', contentDelta: '先给一个初步判断。' })
+    turn = updatePendingTurn(turn, {
+      messageId: 'msg-1',
+      role: 'system',
+      plan: [{ content: '检查现状', status: 'completed', priority: 'medium' }],
+    })
+    turn = updatePendingTurn(turn, { messageId: 'msg-1', role: 'agent', contentDelta: '最终结论。' })
+
+    const finalized = finalizePendingTurn(turn)
+
+    expect(finalized?.content).toBe('最终结论。')
+  })
 })
