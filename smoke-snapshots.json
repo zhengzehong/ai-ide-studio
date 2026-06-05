@@ -1,0 +1,1340 @@
+[
+  {
+    "t": 0,
+    "running": {
+      "sess-58adf585": true
+    },
+    "streaming": {
+      "id": "pending-sess-58adf585-1780629674710",
+      "stage": "正在准备 Agent...",
+      "content": "",
+      "contentLen": 0,
+      "thinking": "",
+      "thinkingLen": 0,
+      "kinds": [
+        "stage"
+      ],
+      "done": false
+    },
+    "lastMsgs": [
+      {
+        "id": "msg-local-1780629587346",
+        "role": "human",
+        "status": "completed",
+        "contentLen": 20,
+        "hasProcess": false,
+        "processCount": 0
+      },
+      {
+        "id": "msg-turn-1780629587346-8003b36f",
+        "role": "agent",
+        "status": "completed",
+        "contentLen": 117,
+        "hasProcess": true,
+        "processCount": 1
+      },
+      {
+        "id": "msg-local-1780629674709",
+        "role": "human",
+        "contentLen": 16,
+        "hasProcess": false
+      }
+    ]
+  },
+  {
+    "t": 100,
+    "running": {
+      "sess-58adf585": true
+    },
+    "streaming": {
+      "id": "msg-turn-1780629674711-7e61d451",
+      "content": "",
+      "contentLen": 0,
+      "thinking": "正在思考如何回答: \"第五轮烟测：慢慢回复，观察流式。...\"",
+      "thinkingLen": 31,
+      "kinds": [
+        "stage",
+        "thinking"
+      ],
+      "done": false
+    },
+    "lastMsgs": [
+      {
+        "id": "msg-local-1780629587346",
+        "role": "human",
+        "status": "completed",
+        "contentLen": 20,
+        "hasProcess": false,
+        "processCount": 0
+      },
+      {
+        "id": "msg-turn-1780629587346-8003b36f",
+        "role": "agent",
+        "status": "completed",
+        "contentLen": 117,
+        "hasProcess": true,
+        "processCount": 1
+      },
+      {
+        "id": "msg-local-1780629674709",
+        "role": "human",
+        "contentLen": 16,
+        "hasProcess": false
+      }
+    ]
+  },
+  {
+    "t": 200,
+    "running": {
+      "sess-58adf585": true
+    },
+    "streaming": {
+      "id": "msg-turn-1780629674711-7e61d451",
+      "content": "收到你的消息: ",
+      "contentLen": 8,
+      "thinking": "正在思考如何回答: \"第五轮烟测：慢慢回复，观察流式。...\"",
+      "thinkingLen": 31,
+      "kinds": [
+        "stage",
+        "thinking"
+      ],
+      "done": false
+    },
+    "lastMsgs": [
+      {
+        "id": "msg-local-1780629587346",
+        "role": "human",
+        "status": "completed",
+        "contentLen": 20,
+        "hasProcess": false,
+        "processCount": 0
+      },
+      {
+        "id": "msg-turn-1780629587346-8003b36f",
+        "role": "agent",
+        "status": "completed",
+        "contentLen": 117,
+        "hasProcess": true,
+        "processCount": 1
+      },
+      {
+        "id": "msg-local-1780629674709",
+        "role": "human",
+        "contentLen": 16,
+        "hasProcess": false
+      }
+    ]
+  },
+  {
+    "t": 300,
+    "running": {
+      "sess-58adf585": true
+    },
+    "streaming": {
+      "id": "msg-turn-1780629674711-7e61d451",
+      "content": "收到你的消息: \"第五轮烟测：慢慢回",
+      "contentLen": 18,
+      "thinking": "正在思考如何回答: \"第五轮烟测：慢慢回复，观察流式。...\"",
+      "thinkingLen": 31,
+      "kinds": [
+        "stage",
+        "thinking"
+      ],
+      "done": false
+    },
+    "lastMsgs": [
+      {
+        "id": "msg-local-1780629587346",
+        "role": "human",
+        "status": "completed",
+        "contentLen": 20,
+        "hasProcess": false,
+        "processCount": 0
+      },
+      {
+        "id": "msg-turn-1780629587346-8003b36f",
+        "role": "agent",
+        "status": "completed",
+        "contentLen": 117,
+        "hasProcess": true,
+        "processCount": 1
+      },
+      {
+        "id": "msg-local-1780629674709",
+        "role": "human",
+        "contentLen": 16,
+        "hasProcess": false
+      }
+    ]
+  },
+  {
+    "t": 400,
+    "running": {
+      "sess-58adf585": true
+    },
+    "streaming": {
+      "id": "msg-turn-1780629674711-7e61d451",
+      "content": "收到你的消息: \"第五轮烟测：慢慢回",
+      "contentLen": 18,
+      "thinking": "正在思考如何回答: \"第五轮烟测：慢慢回复，观察流式。...\"",
+      "thinkingLen": 31,
+      "kinds": [
+        "stage",
+        "thinking"
+      ],
+      "done": false
+    },
+    "lastMsgs": [
+      {
+        "id": "msg-local-1780629587346",
+        "role": "human",
+        "status": "completed",
+        "contentLen": 20,
+        "hasProcess": false,
+        "processCount": 0
+      },
+      {
+        "id": "msg-turn-1780629587346-8003b36f",
+        "role": "agent",
+        "status": "completed",
+        "contentLen": 117,
+        "hasProcess": true,
+        "processCount": 1
+      },
+      {
+        "id": "msg-local-1780629674709",
+        "role": "human",
+        "contentLen": 16,
+        "hasProcess": false
+      }
+    ]
+  },
+  {
+    "t": 500,
+    "running": {
+      "sess-58adf585": true
+    },
+    "streaming": {
+      "id": "msg-turn-1780629674711-7e61d451",
+      "content": "收到你的消息: \"第五轮烟测：慢慢回复，观察",
+      "contentLen": 22,
+      "thinking": "正在思考如何回答: \"第五轮烟测：慢慢回复，观察流式。...\"",
+      "thinkingLen": 31,
+      "kinds": [
+        "stage",
+        "thinking"
+      ],
+      "done": false
+    },
+    "lastMsgs": [
+      {
+        "id": "msg-local-1780629587346",
+        "role": "human",
+        "status": "completed",
+        "contentLen": 20,
+        "hasProcess": false,
+        "processCount": 0
+      },
+      {
+        "id": "msg-turn-1780629587346-8003b36f",
+        "role": "agent",
+        "status": "completed",
+        "contentLen": 117,
+        "hasProcess": true,
+        "processCount": 1
+      },
+      {
+        "id": "msg-local-1780629674709",
+        "role": "human",
+        "contentLen": 16,
+        "hasProcess": false
+      }
+    ]
+  },
+  {
+    "t": 600,
+    "running": {
+      "sess-58adf585": true
+    },
+    "streaming": {
+      "id": "msg-turn-1780629674711-7e61d451",
+      "content": "收到你的消息: \"第五轮烟测：慢慢回复，观察流式。\"",
+      "contentLen": 26,
+      "thinking": "正在思考如何回答: \"第五轮烟测：慢慢回复，观察流式。...\"",
+      "thinkingLen": 31,
+      "kinds": [
+        "stage",
+        "thinking"
+      ],
+      "done": false
+    },
+    "lastMsgs": [
+      {
+        "id": "msg-local-1780629587346",
+        "role": "human",
+        "status": "completed",
+        "contentLen": 20,
+        "hasProcess": false,
+        "processCount": 0
+      },
+      {
+        "id": "msg-turn-1780629587346-8003b36f",
+        "role": "agent",
+        "status": "completed",
+        "contentLen": 117,
+        "hasProcess": true,
+        "processCount": 1
+      },
+      {
+        "id": "msg-local-1780629674709",
+        "role": "human",
+        "contentLen": 16,
+        "hasProcess": false
+      }
+    ]
+  },
+  {
+    "t": 700,
+    "running": {
+      "sess-58adf585": true
+    },
+    "streaming": {
+      "id": "msg-turn-1780629674711-7e61d451",
+      "content": "收到你的消息: \"第五轮烟测：慢慢回复，观察流式。\"\n\n我是 Mo",
+      "contentLen": 33,
+      "thinking": "正在思考如何回答: \"第五轮烟测：慢慢回复，观察流式。...\"",
+      "thinkingLen": 31,
+      "kinds": [
+        "stage",
+        "thinking"
+      ],
+      "done": false
+    },
+    "lastMsgs": [
+      {
+        "id": "msg-local-1780629587346",
+        "role": "human",
+        "status": "completed",
+        "contentLen": 20,
+        "hasProcess": false,
+        "processCount": 0
+      },
+      {
+        "id": "msg-turn-1780629587346-8003b36f",
+        "role": "agent",
+        "status": "completed",
+        "contentLen": 117,
+        "hasProcess": true,
+        "processCount": 1
+      },
+      {
+        "id": "msg-local-1780629674709",
+        "role": "human",
+        "contentLen": 16,
+        "hasProcess": false
+      }
+    ]
+  },
+  {
+    "t": 800,
+    "running": {
+      "sess-58adf585": true
+    },
+    "streaming": {
+      "id": "msg-turn-1780629674711-7e61d451",
+      "content": "收到你的消息: \"第五轮烟测：慢慢回复，观察流式。\"\n\n我是 Mock Age",
+      "contentLen": 39,
+      "thinking": "正在思考如何回答: \"第五轮烟测：慢慢回复，观察流式。...\"",
+      "thinkingLen": 31,
+      "kinds": [
+        "stage",
+        "thinking"
+      ],
+      "done": false
+    },
+    "lastMsgs": [
+      {
+        "id": "msg-local-1780629587346",
+        "role": "human",
+        "status": "completed",
+        "contentLen": 20,
+        "hasProcess": false,
+        "processCount": 0
+      },
+      {
+        "id": "msg-turn-1780629587346-8003b36f",
+        "role": "agent",
+        "status": "completed",
+        "contentLen": 117,
+        "hasProcess": true,
+        "processCount": 1
+      },
+      {
+        "id": "msg-local-1780629674709",
+        "role": "human",
+        "contentLen": 16,
+        "hasProcess": false
+      }
+    ]
+  },
+  {
+    "t": 900,
+    "running": {
+      "sess-58adf585": true
+    },
+    "streaming": {
+      "id": "msg-turn-1780629674711-7e61d451",
+      "content": "收到你的消息: \"第五轮烟测：慢慢回复，观察流式。\"\n\n我是 Mock Agent，这是一条",
+      "contentLen": 46,
+      "thinking": "正在思考如何回答: \"第五轮烟测：慢慢回复，观察流式。...\"",
+      "thinkingLen": 31,
+      "kinds": [
+        "stage",
+        "thinking"
+      ],
+      "done": false
+    },
+    "lastMsgs": [
+      {
+        "id": "msg-local-1780629587346",
+        "role": "human",
+        "status": "completed",
+        "contentLen": 20,
+        "hasProcess": false,
+        "processCount": 0
+      },
+      {
+        "id": "msg-turn-1780629587346-8003b36f",
+        "role": "agent",
+        "status": "completed",
+        "contentLen": 117,
+        "hasProcess": true,
+        "processCount": 1
+      },
+      {
+        "id": "msg-local-1780629674709",
+        "role": "human",
+        "contentLen": 16,
+        "hasProcess": false
+      }
+    ]
+  },
+  {
+    "t": 1000,
+    "running": {
+      "sess-58adf585": true
+    },
+    "streaming": {
+      "id": "msg-turn-1780629674711-7e61d451",
+      "content": "收到你的消息: \"第五轮烟测：慢慢回复，观察流式。\"\n\n我是 Mock Agent，这是一条模拟回复",
+      "contentLen": 50,
+      "thinking": "正在思考如何回答: \"第五轮烟测：慢慢回复，观察流式。...\"",
+      "thinkingLen": 31,
+      "kinds": [
+        "stage",
+        "thinking"
+      ],
+      "done": false
+    },
+    "lastMsgs": [
+      {
+        "id": "msg-local-1780629587346",
+        "role": "human",
+        "status": "completed",
+        "contentLen": 20,
+        "hasProcess": false,
+        "processCount": 0
+      },
+      {
+        "id": "msg-turn-1780629587346-8003b36f",
+        "role": "agent",
+        "status": "completed",
+        "contentLen": 117,
+        "hasProcess": true,
+        "processCount": 1
+      },
+      {
+        "id": "msg-local-1780629674709",
+        "role": "human",
+        "contentLen": 16,
+        "hasProcess": false
+      }
+    ]
+  },
+  {
+    "t": 1100,
+    "running": {
+      "sess-58adf585": true
+    },
+    "streaming": {
+      "id": "msg-turn-1780629674711-7e61d451",
+      "content": "收到你的消息: \"第五轮烟测：慢慢回复，观察流式。\"\n\n我是 Mock Agent，这是一条模拟回复。在实际",
+      "contentLen": 54,
+      "thinking": "正在思考如何回答: \"第五轮烟测：慢慢回复，观察流式。...\"",
+      "thinkingLen": 31,
+      "kinds": [
+        "stage",
+        "thinking"
+      ],
+      "done": false
+    },
+    "lastMsgs": [
+      {
+        "id": "msg-local-1780629587346",
+        "role": "human",
+        "status": "completed",
+        "contentLen": 20,
+        "hasProcess": false,
+        "processCount": 0
+      },
+      {
+        "id": "msg-turn-1780629587346-8003b36f",
+        "role": "agent",
+        "status": "completed",
+        "contentLen": 117,
+        "hasProcess": true,
+        "processCount": 1
+      },
+      {
+        "id": "msg-local-1780629674709",
+        "role": "human",
+        "contentLen": 16,
+        "hasProcess": false
+      }
+    ]
+  },
+  {
+    "t": 1200,
+    "running": {
+      "sess-58adf585": true
+    },
+    "streaming": {
+      "id": "msg-turn-1780629674711-7e61d451",
+      "content": "收到你的消息: \"第五轮烟测：慢慢回复，观察流式。\"\n\n我是 Mock Agent，这是一条模拟回复。在实际使用中",
+      "contentLen": 57,
+      "thinking": "正在思考如何回答: \"第五轮烟测：慢慢回复，观察流式。...\"",
+      "thinkingLen": 31,
+      "kinds": [
+        "stage",
+        "thinking"
+      ],
+      "done": false
+    },
+    "lastMsgs": [
+      {
+        "id": "msg-local-1780629587346",
+        "role": "human",
+        "status": "completed",
+        "contentLen": 20,
+        "hasProcess": false,
+        "processCount": 0
+      },
+      {
+        "id": "msg-turn-1780629587346-8003b36f",
+        "role": "agent",
+        "status": "completed",
+        "contentLen": 117,
+        "hasProcess": true,
+        "processCount": 1
+      },
+      {
+        "id": "msg-local-1780629674709",
+        "role": "human",
+        "contentLen": 16,
+        "hasProcess": false
+      }
+    ]
+  },
+  {
+    "t": 1300,
+    "running": {
+      "sess-58adf585": true
+    },
+    "streaming": {
+      "id": "msg-turn-1780629674711-7e61d451",
+      "content": "收到你的消息: \"第五轮烟测：慢慢回复，观察流式。\"\n\n我是 Mock Agent，这是一条模拟回复。在实际使用中，这里会是真",
+      "contentLen": 63,
+      "thinking": "正在思考如何回答: \"第五轮烟测：慢慢回复，观察流式。...\"",
+      "thinkingLen": 31,
+      "kinds": [
+        "stage",
+        "thinking"
+      ],
+      "done": false
+    },
+    "lastMsgs": [
+      {
+        "id": "msg-local-1780629587346",
+        "role": "human",
+        "status": "completed",
+        "contentLen": 20,
+        "hasProcess": false,
+        "processCount": 0
+      },
+      {
+        "id": "msg-turn-1780629587346-8003b36f",
+        "role": "agent",
+        "status": "completed",
+        "contentLen": 117,
+        "hasProcess": true,
+        "processCount": 1
+      },
+      {
+        "id": "msg-local-1780629674709",
+        "role": "human",
+        "contentLen": 16,
+        "hasProcess": false
+      }
+    ]
+  },
+  {
+    "t": 1400,
+    "running": {
+      "sess-58adf585": true
+    },
+    "streaming": {
+      "id": "msg-turn-1780629674711-7e61d451",
+      "content": "收到你的消息: \"第五轮烟测：慢慢回复，观察流式。\"\n\n我是 Mock Agent，这是一条模拟回复。在实际使用中，这里会是真实 AI ",
+      "contentLen": 68,
+      "thinking": "正在思考如何回答: \"第五轮烟测：慢慢回复，观察流式。...\"",
+      "thinkingLen": 31,
+      "kinds": [
+        "stage",
+        "thinking"
+      ],
+      "done": false
+    },
+    "lastMsgs": [
+      {
+        "id": "msg-local-1780629587346",
+        "role": "human",
+        "status": "completed",
+        "contentLen": 20,
+        "hasProcess": false,
+        "processCount": 0
+      },
+      {
+        "id": "msg-turn-1780629587346-8003b36f",
+        "role": "agent",
+        "status": "completed",
+        "contentLen": 117,
+        "hasProcess": true,
+        "processCount": 1
+      },
+      {
+        "id": "msg-local-1780629674709",
+        "role": "human",
+        "contentLen": 16,
+        "hasProcess": false
+      }
+    ]
+  },
+  {
+    "t": 1500,
+    "running": {
+      "sess-58adf585": true
+    },
+    "streaming": {
+      "id": "msg-turn-1780629674711-7e61d451",
+      "content": "收到你的消息: \"第五轮烟测：慢慢回复，观察流式。\"\n\n我是 Mock Agent，这是一条模拟回复。在实际使用中，这里会是真实 AI Agent",
+      "contentLen": 73,
+      "thinking": "正在思考如何回答: \"第五轮烟测：慢慢回复，观察流式。...\"",
+      "thinkingLen": 31,
+      "kinds": [
+        "stage",
+        "thinking"
+      ],
+      "done": false
+    },
+    "lastMsgs": [
+      {
+        "id": "msg-local-1780629587346",
+        "role": "human",
+        "status": "completed",
+        "contentLen": 20,
+        "hasProcess": false,
+        "processCount": 0
+      },
+      {
+        "id": "msg-turn-1780629587346-8003b36f",
+        "role": "agent",
+        "status": "completed",
+        "contentLen": 117,
+        "hasProcess": true,
+        "processCount": 1
+      },
+      {
+        "id": "msg-local-1780629674709",
+        "role": "human",
+        "contentLen": 16,
+        "hasProcess": false
+      }
+    ]
+  },
+  {
+    "t": 1600,
+    "running": {
+      "sess-58adf585": true
+    },
+    "streaming": {
+      "id": "msg-turn-1780629674711-7e61d451",
+      "content": "收到你的消息: \"第五轮烟测：慢慢回复，观察流式。\"\n\n我是 Mock Agent，这是一条模拟回复。在实际使用中，这里会是真实 AI Agent（如 ",
+      "contentLen": 76,
+      "thinking": "正在思考如何回答: \"第五轮烟测：慢慢回复，观察流式。...\"",
+      "thinkingLen": 31,
+      "kinds": [
+        "stage",
+        "thinking"
+      ],
+      "done": false
+    },
+    "lastMsgs": [
+      {
+        "id": "msg-local-1780629587346",
+        "role": "human",
+        "status": "completed",
+        "contentLen": 20,
+        "hasProcess": false,
+        "processCount": 0
+      },
+      {
+        "id": "msg-turn-1780629587346-8003b36f",
+        "role": "agent",
+        "status": "completed",
+        "contentLen": 117,
+        "hasProcess": true,
+        "processCount": 1
+      },
+      {
+        "id": "msg-local-1780629674709",
+        "role": "human",
+        "contentLen": 16,
+        "hasProcess": false
+      }
+    ]
+  },
+  {
+    "t": 1700,
+    "running": {
+      "sess-58adf585": true
+    },
+    "streaming": {
+      "id": "msg-turn-1780629674711-7e61d451",
+      "content": "收到你的消息: \"第五轮烟测：慢慢回复，观察流式。\"\n\n我是 Mock Agent，这是一条模拟回复。在实际使用中，这里会是真实 AI Agent（如 Claud",
+      "contentLen": 81,
+      "thinking": "正在思考如何回答: \"第五轮烟测：慢慢回复，观察流式。...\"",
+      "thinkingLen": 31,
+      "kinds": [
+        "stage",
+        "thinking"
+      ],
+      "done": false
+    },
+    "lastMsgs": [
+      {
+        "id": "msg-local-1780629587346",
+        "role": "human",
+        "status": "completed",
+        "contentLen": 20,
+        "hasProcess": false,
+        "processCount": 0
+      },
+      {
+        "id": "msg-turn-1780629587346-8003b36f",
+        "role": "agent",
+        "status": "completed",
+        "contentLen": 117,
+        "hasProcess": true,
+        "processCount": 1
+      },
+      {
+        "id": "msg-local-1780629674709",
+        "role": "human",
+        "contentLen": 16,
+        "hasProcess": false
+      }
+    ]
+  },
+  {
+    "t": 1800,
+    "running": {
+      "sess-58adf585": true
+    },
+    "streaming": {
+      "id": "msg-turn-1780629674711-7e61d451",
+      "content": "收到你的消息: \"第五轮烟测：慢慢回复，观察流式。\"\n\n我是 Mock Agent，这是一条模拟回复。在实际使用中，这里会是真实 AI Agent（如 Claude、Co",
+      "contentLen": 85,
+      "thinking": "正在思考如何回答: \"第五轮烟测：慢慢回复，观察流式。...\"",
+      "thinkingLen": 31,
+      "kinds": [
+        "stage",
+        "thinking"
+      ],
+      "done": false
+    },
+    "lastMsgs": [
+      {
+        "id": "msg-local-1780629587346",
+        "role": "human",
+        "status": "completed",
+        "contentLen": 20,
+        "hasProcess": false,
+        "processCount": 0
+      },
+      {
+        "id": "msg-turn-1780629587346-8003b36f",
+        "role": "agent",
+        "status": "completed",
+        "contentLen": 117,
+        "hasProcess": true,
+        "processCount": 1
+      },
+      {
+        "id": "msg-local-1780629674709",
+        "role": "human",
+        "contentLen": 16,
+        "hasProcess": false
+      }
+    ]
+  },
+  {
+    "t": 1900,
+    "running": {
+      "sess-58adf585": true
+    },
+    "streaming": {
+      "id": "msg-turn-1780629674711-7e61d451",
+      "content": "收到你的消息: \"第五轮烟测：慢慢回复，观察流式。\"\n\n我是 Mock Agent，这是一条模拟回复。在实际使用中，这里会是真实 AI Agent（如 Claude、Codex）的回复。\n\n",
+      "contentLen": 95,
+      "thinking": "正在思考如何回答: \"第五轮烟测：慢慢回复，观察流式。...\"",
+      "thinkingLen": 31,
+      "kinds": [
+        "stage",
+        "thinking"
+      ],
+      "done": false
+    },
+    "lastMsgs": [
+      {
+        "id": "msg-local-1780629587346",
+        "role": "human",
+        "status": "completed",
+        "contentLen": 20,
+        "hasProcess": false,
+        "processCount": 0
+      },
+      {
+        "id": "msg-turn-1780629587346-8003b36f",
+        "role": "agent",
+        "status": "completed",
+        "contentLen": 117,
+        "hasProcess": true,
+        "processCount": 1
+      },
+      {
+        "id": "msg-local-1780629674709",
+        "role": "human",
+        "contentLen": 16,
+        "hasProcess": false
+      }
+    ]
+  },
+  {
+    "t": 2000,
+    "running": {
+      "sess-58adf585": true
+    },
+    "streaming": {
+      "id": "msg-turn-1780629674711-7e61d451",
+      "content": "收到你的消息: \"第五轮烟测：慢慢回复，观察流式。\"\n\n我是 Mock Agent，这是一条模拟回复。在实际使用中，这里会是真实 AI Agent（如 Claude、Codex）的回复。\n\n当前会话状态",
+      "contentLen": 101,
+      "thinking": "正在思考如何回答: \"第五轮烟测：慢慢回复，观察流式。...\"",
+      "thinkingLen": 31,
+      "kinds": [
+        "stage",
+        "thinking"
+      ],
+      "done": false
+    },
+    "lastMsgs": [
+      {
+        "id": "msg-local-1780629587346",
+        "role": "human",
+        "status": "completed",
+        "contentLen": 20,
+        "hasProcess": false,
+        "processCount": 0
+      },
+      {
+        "id": "msg-turn-1780629587346-8003b36f",
+        "role": "agent",
+        "status": "completed",
+        "contentLen": 117,
+        "hasProcess": true,
+        "processCount": 1
+      },
+      {
+        "id": "msg-local-1780629674709",
+        "role": "human",
+        "contentLen": 16,
+        "hasProcess": false
+      }
+    ]
+  },
+  {
+    "t": 2100,
+    "running": {
+      "sess-58adf585": true
+    },
+    "streaming": {
+      "id": "msg-turn-1780629674711-7e61d451",
+      "content": "收到你的消息: \"第五轮烟测：慢慢回复，观察流式。\"\n\n我是 Mock Agent，这是一条模拟回复。在实际使用中，这里会是真实 AI Agent（如 Claude、Codex）的回复。\n\n当前会话状态正常，流",
+      "contentLen": 105,
+      "thinking": "正在思考如何回答: \"第五轮烟测：慢慢回复，观察流式。...\"",
+      "thinkingLen": 31,
+      "kinds": [
+        "stage",
+        "thinking"
+      ],
+      "done": false
+    },
+    "lastMsgs": [
+      {
+        "id": "msg-local-1780629587346",
+        "role": "human",
+        "status": "completed",
+        "contentLen": 20,
+        "hasProcess": false,
+        "processCount": 0
+      },
+      {
+        "id": "msg-turn-1780629587346-8003b36f",
+        "role": "agent",
+        "status": "completed",
+        "contentLen": 117,
+        "hasProcess": true,
+        "processCount": 1
+      },
+      {
+        "id": "msg-local-1780629674709",
+        "role": "human",
+        "contentLen": 16,
+        "hasProcess": false
+      }
+    ]
+  },
+  {
+    "t": 2200,
+    "running": {
+      "sess-58adf585": true
+    },
+    "streaming": {
+      "id": "msg-turn-1780629674711-7e61d451",
+      "content": "收到你的消息: \"第五轮烟测：慢慢回复，观察流式。\"\n\n我是 Mock Agent，这是一条模拟回复。在实际使用中，这里会是真实 AI Agent（如 Claude、Codex）的回复。\n\n当前会话状态正常，流式传输",
+      "contentLen": 108,
+      "thinking": "正在思考如何回答: \"第五轮烟测：慢慢回复，观察流式。...\"",
+      "thinkingLen": 31,
+      "kinds": [
+        "stage",
+        "thinking"
+      ],
+      "done": false
+    },
+    "lastMsgs": [
+      {
+        "id": "msg-local-1780629587346",
+        "role": "human",
+        "status": "completed",
+        "contentLen": 20,
+        "hasProcess": false,
+        "processCount": 0
+      },
+      {
+        "id": "msg-turn-1780629587346-8003b36f",
+        "role": "agent",
+        "status": "completed",
+        "contentLen": 117,
+        "hasProcess": true,
+        "processCount": 1
+      },
+      {
+        "id": "msg-local-1780629674709",
+        "role": "human",
+        "contentLen": 16,
+        "hasProcess": false
+      }
+    ]
+  },
+  {
+    "t": 2300,
+    "running": {},
+    "streaming": null,
+    "lastMsgs": [
+      {
+        "id": "msg-turn-1780629587346-8003b36f",
+        "role": "agent",
+        "status": "completed",
+        "contentLen": 117,
+        "hasProcess": true,
+        "processCount": 1
+      },
+      {
+        "id": "msg-local-1780629674709",
+        "role": "human",
+        "status": "completed",
+        "contentLen": 16,
+        "hasProcess": false,
+        "processCount": 0
+      },
+      {
+        "id": "msg-turn-1780629674711-7e61d451",
+        "role": "agent",
+        "status": "completed",
+        "contentLen": 113,
+        "hasProcess": true,
+        "processCount": 1
+      }
+    ]
+  },
+  {
+    "t": 2400,
+    "running": {},
+    "streaming": null,
+    "lastMsgs": [
+      {
+        "id": "msg-turn-1780629587346-8003b36f",
+        "role": "agent",
+        "status": "completed",
+        "contentLen": 117,
+        "hasProcess": true,
+        "processCount": 1
+      },
+      {
+        "id": "msg-local-1780629674709",
+        "role": "human",
+        "status": "completed",
+        "contentLen": 16,
+        "hasProcess": false,
+        "processCount": 0
+      },
+      {
+        "id": "msg-turn-1780629674711-7e61d451",
+        "role": "agent",
+        "status": "completed",
+        "contentLen": 113,
+        "hasProcess": true,
+        "processCount": 1
+      }
+    ]
+  },
+  {
+    "t": 2500,
+    "running": {},
+    "streaming": null,
+    "lastMsgs": [
+      {
+        "id": "msg-turn-1780629587346-8003b36f",
+        "role": "agent",
+        "status": "completed",
+        "contentLen": 117,
+        "hasProcess": true,
+        "processCount": 1
+      },
+      {
+        "id": "msg-local-1780629674709",
+        "role": "human",
+        "status": "completed",
+        "contentLen": 16,
+        "hasProcess": false,
+        "processCount": 0
+      },
+      {
+        "id": "msg-turn-1780629674711-7e61d451",
+        "role": "agent",
+        "status": "completed",
+        "contentLen": 113,
+        "hasProcess": true,
+        "processCount": 1
+      }
+    ]
+  },
+  {
+    "t": 2600,
+    "running": {},
+    "streaming": null,
+    "lastMsgs": [
+      {
+        "id": "msg-turn-1780629587346-8003b36f",
+        "role": "agent",
+        "status": "completed",
+        "contentLen": 117,
+        "hasProcess": true,
+        "processCount": 1
+      },
+      {
+        "id": "msg-local-1780629674709",
+        "role": "human",
+        "status": "completed",
+        "contentLen": 16,
+        "hasProcess": false,
+        "processCount": 0
+      },
+      {
+        "id": "msg-turn-1780629674711-7e61d451",
+        "role": "agent",
+        "status": "completed",
+        "contentLen": 113,
+        "hasProcess": true,
+        "processCount": 1
+      }
+    ]
+  },
+  {
+    "t": 2700,
+    "running": {},
+    "streaming": null,
+    "lastMsgs": [
+      {
+        "id": "msg-turn-1780629587346-8003b36f",
+        "role": "agent",
+        "status": "completed",
+        "contentLen": 117,
+        "hasProcess": true,
+        "processCount": 1
+      },
+      {
+        "id": "msg-local-1780629674709",
+        "role": "human",
+        "status": "completed",
+        "contentLen": 16,
+        "hasProcess": false,
+        "processCount": 0
+      },
+      {
+        "id": "msg-turn-1780629674711-7e61d451",
+        "role": "agent",
+        "status": "completed",
+        "contentLen": 113,
+        "hasProcess": true,
+        "processCount": 1
+      }
+    ]
+  },
+  {
+    "t": 2800,
+    "running": {},
+    "streaming": null,
+    "lastMsgs": [
+      {
+        "id": "msg-turn-1780629587346-8003b36f",
+        "role": "agent",
+        "status": "completed",
+        "contentLen": 117,
+        "hasProcess": true,
+        "processCount": 1
+      },
+      {
+        "id": "msg-local-1780629674709",
+        "role": "human",
+        "status": "completed",
+        "contentLen": 16,
+        "hasProcess": false,
+        "processCount": 0
+      },
+      {
+        "id": "msg-turn-1780629674711-7e61d451",
+        "role": "agent",
+        "status": "completed",
+        "contentLen": 113,
+        "hasProcess": true,
+        "processCount": 1
+      }
+    ]
+  },
+  {
+    "t": 2900,
+    "running": {},
+    "streaming": null,
+    "lastMsgs": [
+      {
+        "id": "msg-turn-1780629587346-8003b36f",
+        "role": "agent",
+        "status": "completed",
+        "contentLen": 117,
+        "hasProcess": true,
+        "processCount": 1
+      },
+      {
+        "id": "msg-local-1780629674709",
+        "role": "human",
+        "status": "completed",
+        "contentLen": 16,
+        "hasProcess": false,
+        "processCount": 0
+      },
+      {
+        "id": "msg-turn-1780629674711-7e61d451",
+        "role": "agent",
+        "status": "completed",
+        "contentLen": 113,
+        "hasProcess": true,
+        "processCount": 1
+      }
+    ]
+  },
+  {
+    "t": 3000,
+    "running": {},
+    "streaming": null,
+    "lastMsgs": [
+      {
+        "id": "msg-turn-1780629587346-8003b36f",
+        "role": "agent",
+        "status": "completed",
+        "contentLen": 117,
+        "hasProcess": true,
+        "processCount": 1
+      },
+      {
+        "id": "msg-local-1780629674709",
+        "role": "human",
+        "status": "completed",
+        "contentLen": 16,
+        "hasProcess": false,
+        "processCount": 0
+      },
+      {
+        "id": "msg-turn-1780629674711-7e61d451",
+        "role": "agent",
+        "status": "completed",
+        "contentLen": 113,
+        "hasProcess": true,
+        "processCount": 1
+      }
+    ]
+  },
+  {
+    "t": 3100,
+    "running": {},
+    "streaming": null,
+    "lastMsgs": [
+      {
+        "id": "msg-turn-1780629587346-8003b36f",
+        "role": "agent",
+        "status": "completed",
+        "contentLen": 117,
+        "hasProcess": true,
+        "processCount": 1
+      },
+      {
+        "id": "msg-local-1780629674709",
+        "role": "human",
+        "status": "completed",
+        "contentLen": 16,
+        "hasProcess": false,
+        "processCount": 0
+      },
+      {
+        "id": "msg-turn-1780629674711-7e61d451",
+        "role": "agent",
+        "status": "completed",
+        "contentLen": 113,
+        "hasProcess": true,
+        "processCount": 1
+      }
+    ]
+  },
+  {
+    "t": 3200,
+    "running": {},
+    "streaming": null,
+    "lastMsgs": [
+      {
+        "id": "msg-turn-1780629587346-8003b36f",
+        "role": "agent",
+        "status": "completed",
+        "contentLen": 117,
+        "hasProcess": true,
+        "processCount": 1
+      },
+      {
+        "id": "msg-local-1780629674709",
+        "role": "human",
+        "status": "completed",
+        "contentLen": 16,
+        "hasProcess": false,
+        "processCount": 0
+      },
+      {
+        "id": "msg-turn-1780629674711-7e61d451",
+        "role": "agent",
+        "status": "completed",
+        "contentLen": 113,
+        "hasProcess": true,
+        "processCount": 1
+      }
+    ]
+  },
+  {
+    "t": 3300,
+    "running": {},
+    "streaming": null,
+    "lastMsgs": [
+      {
+        "id": "msg-turn-1780629587346-8003b36f",
+        "role": "agent",
+        "status": "completed",
+        "contentLen": 117,
+        "hasProcess": true,
+        "processCount": 1
+      },
+      {
+        "id": "msg-local-1780629674709",
+        "role": "human",
+        "status": "completed",
+        "contentLen": 16,
+        "hasProcess": false,
+        "processCount": 0
+      },
+      {
+        "id": "msg-turn-1780629674711-7e61d451",
+        "role": "agent",
+        "status": "completed",
+        "contentLen": 113,
+        "hasProcess": true,
+        "processCount": 1
+      }
+    ]
+  },
+  {
+    "t": 3400,
+    "running": {},
+    "streaming": null,
+    "lastMsgs": [
+      {
+        "id": "msg-turn-1780629587346-8003b36f",
+        "role": "agent",
+        "status": "completed",
+        "contentLen": 117,
+        "hasProcess": true,
+        "processCount": 1
+      },
+      {
+        "id": "msg-local-1780629674709",
+        "role": "human",
+        "status": "completed",
+        "contentLen": 16,
+        "hasProcess": false,
+        "processCount": 0
+      },
+      {
+        "id": "msg-turn-1780629674711-7e61d451",
+        "role": "agent",
+        "status": "completed",
+        "contentLen": 113,
+        "hasProcess": true,
+        "processCount": 1
+      }
+    ]
+  }
+]
