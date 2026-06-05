@@ -177,6 +177,17 @@ export interface SessionsMessageFileChangesMsg extends ClientMessage {
   sessionId: string
   messageId: string
 }
+export interface SessionsMessageProcessMsg extends ClientMessage {
+  type: 'sessions.messageProcess'
+  sessionId: string
+  messageId: string
+}
+export interface SessionsProcessItemDetailMsg extends ClientMessage {
+  type: 'sessions.processItemDetail'
+  sessionId: string
+  messageId: string
+  itemId: string
+}
 export interface SessionsMessageEventsMsg extends ClientMessage {
   type: 'sessions.messageEvents'
   sessionId: string
@@ -345,11 +356,34 @@ export interface MessageData {
   decision_json: string | null
   attachments_json: string | null
   file_changes_json: string | null
+  status?: string
+  started_at?: string | null
+  completed_at?: string | null
+  stats_json?: string | null
+  process_item_count?: number
   timestamp: string
   has_tool_calls?: boolean
   tool_call_count?: number
   has_file_changes?: boolean
   file_change_count?: number
+}
+
+export interface TurnProcessItemData {
+  id: string
+  session_id: string
+  message_id: string
+  sequence: number
+  kind: string
+  status: string | null
+  title: string | null
+  summary: string | null
+  preview: string | null
+  content: string | null
+  detail_json?: string | null
+  meta_json: string | null
+  created_at: string
+  updated_at: string
+  has_detail?: boolean
 }
 export interface ToolCallContentItem {
   type: 'text' | 'diff' | 'terminal'
@@ -496,6 +530,7 @@ export interface SessionUpdateData {
 
 export type ServerMessage =
   | { type: 'session:update'; sessionId: string; agentId: string; data: SessionUpdateData }
+  | { type: 'session:process_item'; sessionId: string; agentId?: string | null; item: TurnProcessItemData }
   | { type: 'session:event'; sessionId: string; agentId?: string | null; event: SessionEventData }
   | ({ type: 'session:done' } & SessionDoneData)
   | ({ type: 'session:activity' } & SessionActivityData)

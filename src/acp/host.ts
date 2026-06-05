@@ -39,6 +39,7 @@ const log = createChildLogger('acp-host')
 
 interface PromptDiagnosticsOptions {
   turnId?: string
+  messageId?: string
 }
 
 const ACP_SESSION_IDLE_MS = readPositiveMs(process.env.ACP_SESSION_IDLE_MS, 30 * 60 * 1000)
@@ -403,7 +404,7 @@ export const acpHost = {
 
     const startedAt = Date.now()
     beginTurn(conn, ourSessionId)
-    startClientTurn(agentId, acpSessionId, diagnostics.turnId)
+    startClientTurn(agentId, acpSessionId, diagnostics.turnId, diagnostics.messageId)
     log.info(
       { agentId, ourSessionId, acpSessionId, turnId: diagnostics.turnId, textLength: content.length, imageCount: images?.length ?? 0 },
       'ACP prompt start',
