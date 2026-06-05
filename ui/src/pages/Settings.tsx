@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react'
 import {
   Server, Plus, Pencil, Trash2, ToggleLeft, ToggleRight, CheckCircle2,
-  Star, Loader2, Eye, EyeOff, AlertCircle, Cpu,
+  Star, Loader2, Eye, EyeOff, AlertCircle, Cpu, Clock,
 } from 'lucide-react'
 import { useModelStore, type CodexProfileConfig, type ClaudeProfileConfig, type ModelProfileConfig, type ModelProfileData, type ModelProviderData } from '../stores/model.store'
+import { useTimelineStore } from '../stores/timeline.store'
+import { useProjectStore } from '../stores/project.store'
 
 export default function Settings() {
   const {
@@ -187,6 +189,179 @@ export default function Settings() {
           onUpdate={updateProfile}
         />
       )}
+
+      {/* Section: Timeline Config */}
+      <TimelineConfigSection providers={providers.filter(p => p.enabled)} />
+    </div>
+  )
+}
+
+function TimelineConfigSection({ providers }: { providers: ModelProviderData[] }) {
+  const { config, configLoading, fetchConfig, saveConfig } = useTimelineStore()
+  const { currentProjectId } = useProjectStore()
+
+  const [localModel, setLocalModel] = useState('')
+  const [localApiKey, setLocalApiKey] = useState('')
+  const [localBaseUrl, setLocalBaseUrl] = useState('')
+  const [localProviderId, setLocalProviderId] = useState('')
+  const [localInterval, setLocalInterval] = useState(3)
+  const [showKey, setShowKey] = useState(false)
+  const [dirty, setDirty] = useState(false)
+
+  useEffect(() => {
+    if (currentProjectId) fetchConfig(currentProjectId)
+  }, [currentProjectId, fetchConfig])
+
+  useEffect(() => {
+    if (config) {
+      setLocalModel(config.model || '')
+      setLocalApiKey(config.api_key || '')
+      setLocalBaseUrl(config.base_url || '')
+      setLocalProviderId(config.provider_id || '')
+      setLocalInterval(config.trigger_interval || 3)
+      setDirty(false)
+    }
+  }, [config])
+
+  if (!currentProjectId) {
+    return (
+      <div style={{ marginBottom: 32 }}>
+        <h2 style={{ fontSize: 16, fontWeight: 600, margin: '0 0 12px', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Clock size={18} style={{ color: 'var(--blue)' }} />
+          会话时间线
+        </h2>
+        <div style={{ color: 'var(--text-3)', fontSize: 15 }}>请先选择项目</div>
+      </div>
+    )
+  }
+
+  if (configLoading) {
+    return (
+      <div style={{ marginBottom: 32 }}>
+        <h2 style={{ fontSize: 16, fontWeight: 600, margin: '0 0 12px', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Clock size={18} style={{ color: 'var(--blue)' }} />
+          会话时间线
+        </h2>
+        <div style={{ color: 'var(--text-3)', fontSize: 15 }}>加载中...</div>
+      </div>
+    )
+  }
+
+  const enabled = config?.enabled ?? 0
+  const handleToggle = () => {
+    saveConfig(currentProjectId, { enabled: enabled ? 0 : 1 })
+  }
+
+  const handleSave = () => {
+    saveConfig(currentProjectId, {
+      model: localModel.trim() || null,
+      api_key: localApiKey.trim() || null,
+      base_url: localBaseUrl.trim() || null,
+      provider_id: localProviderId || null,
+      trigger_interval: localInterval,
+    })
+    setDirty(false)
+  }
+
+  const markDirty = () => { if (!dirty) setDirty(true) }
+
+  return (
+    <div style={{ marginBottom: 32 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Clock size={18} style={{ color: 'var(--blue)' }} />
+          会话时间线
+        </h2>
+        <button onClick={handleToggle} style={{ ...actionBtn, color: enabled ? 'var(--green)' : 'var(--text-3)' }} title={enabled ? '禁用时间线' : '启用时间线'}>
+          {enabled ? <ToggleRight size={17} /> : <ToggleLeft size={17} />}
+          <span style={{ fontSize: 13, marginLeft: 4 }}>{enabled ? '已启用' : '已关闭'}</span>
+        </button>
+      </div>
+
+      <div style={{ ...providerCard, opacity: enabled ? 1 : 0.55 }}>
+        <p style={{ fontSize: 14, color: 'var(--text-3)', margin: '0 0 16px' }}>
+          为当前项目配置时间线摘要模型。每完成指定轮数对话后，自动调用 LLM 整理会话时间线。
+        </p>
+
+        <div style={fGrid}>
+          <label style={fLabel}>
+            关联供应商
+            <select
+              value={localProviderId}
+              onChange={e => { setLocalProviderId(e.target.value); markDirty() }}
+              style={fInput}
+              disabled={!enabled}
+            >
+              <option value="">手动配置（不关联）</option>
+              {providers.map(p => <option key={p.id} value={p.id}>{p.display_name}</option>)}
+            </select>
+            <span style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>选择已有供应商可复用其 API Key 和 Base URL</span>
+          </label>
+          <label style={fLabel}>
+            模型名称
+            <input
+              value={localModel}
+              onChange={e => { setLocalModel(e.target.value); markDirty() }}
+              style={fInput}
+              placeholder="gpt-4o-mini"
+              disabled={!enabled}
+            />
+          </label>
+        </div>
+
+        {!localProviderId && (
+          <div style={{ ...fGrid, marginTop: 12 }}>
+            <label style={fLabel}>
+              Base URL
+              <input
+                value={localBaseUrl}
+                onChange={e => { setLocalBaseUrl(e.target.value); markDirty() }}
+                style={fInput}
+                placeholder="https://api.openai.com"
+                disabled={!enabled}
+              />
+            </label>
+            <label style={fLabel}>
+              API Key
+              <div style={{ position: 'relative' }}>
+                <input
+                  value={localApiKey}
+                  onChange={e => { setLocalApiKey(e.target.value); markDirty() }}
+                  style={{ ...fInput, paddingRight: 36 }}
+                  type={showKey ? 'text' : 'password'}
+                  placeholder="sk-..."
+                  disabled={!enabled}
+                />
+                <button onClick={() => setShowKey(!showKey)} style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)', display: 'flex' }}>
+                  {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              </div>
+            </label>
+          </div>
+        )}
+
+        <div style={{ ...fGrid, marginTop: 12 }}>
+          <label style={fLabel}>
+            触发间隔（轮）
+            <input
+              value={localInterval}
+              onChange={e => { setLocalInterval(Number(e.target.value) || 3); markDirty() }}
+              style={{ ...fInput, width: 100 }}
+              type="number"
+              min={1}
+              max={20}
+              disabled={!enabled}
+            />
+            <span style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>每 N 轮对话自动触发模型整理</span>
+          </label>
+        </div>
+
+        {dirty && (
+          <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end' }}>
+            <button onClick={handleSave} style={btn}>保存配置</button>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
