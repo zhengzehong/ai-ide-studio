@@ -62,7 +62,7 @@ describe('session store message process loading', () => {
   test('loads one historical agent message process from ordered events', async () => {
     resetStore()
     wsMock.request.mockReset()
-    wsMock.request.mockResolvedValue([
+    const legacyEvents = [
       {
         id: 'evt-1',
         session_id: 'sess-process',
@@ -99,7 +99,12 @@ describe('session store message process loading', () => {
         sequence: 3,
         created_at: '2026-06-03T00:00:03.000Z',
       },
-    ])
+    ]
+    wsMock.request.mockImplementation(async (request: { type: string }) => {
+      if (request.type === 'sessions.messageProcess') return []
+      if (request.type === 'sessions.messageEvents') return legacyEvents
+      return []
+    })
     useSessionStore.setState({
       messages: [
         {
@@ -120,7 +125,8 @@ describe('session store message process loading', () => {
 
     await useSessionStore.getState().fetchMessageProcess('sess-process', 'msg-agent-1')
 
-    expect(wsMock.request).toHaveBeenCalledWith({ type: 'sessions.messageEvents', sessionId: 'sess-process', messageId: 'msg-agent-1' })
+    expect(wsMock.request).toHaveBeenNthCalledWith(1, { type: 'sessions.messageProcess', sessionId: 'sess-process', messageId: 'msg-agent-1' })
+    expect(wsMock.request).toHaveBeenNthCalledWith(2, { type: 'sessions.messageEvents', sessionId: 'sess-process', messageId: 'msg-agent-1' })
     const message = useSessionStore.getState().messages[0]
     expect(message.finalAnswer).toBe('最终回复。')
     expect(message.processBlocks?.map((block) => block.kind)).toEqual(['note', 'tool'])

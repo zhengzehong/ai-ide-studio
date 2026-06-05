@@ -1,6 +1,27 @@
 import { create } from 'zustand'
 import { wsClient } from '../services/ws-client'
 
+const CURRENT_PROJECT_STORAGE_KEY = 'ai-ide-current-project-id'
+
+function localStorageRef(): Storage | null {
+  try {
+    return globalThis.localStorage ?? null
+  } catch {
+    return null
+  }
+}
+
+function readStoredProjectId(): string | null {
+  return localStorageRef()?.getItem(CURRENT_PROJECT_STORAGE_KEY) ?? null
+}
+
+function writeStoredProjectId(projectId: string | null): void {
+  const storage = localStorageRef()
+  if (!storage) return
+  if (projectId) storage.setItem(CURRENT_PROJECT_STORAGE_KEY, projectId)
+  else storage.removeItem(CURRENT_PROJECT_STORAGE_KEY)
+}
+
 export interface ProjectData {
   id: string
   name: string
@@ -30,10 +51,15 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     set({ loading: true })
     try {
       const data = (await wsClient.request({ type: 'projects.list' })) as ProjectData[]
-      set({ projects: data, loading: false })
-      if (data.length > 0 && !get().currentProjectId) {
-        set({ currentProjectId: data[0].id })
-      }
+      const currentProjectId = get().currentProjectId
+      const storedProjectId = readStoredProjectId()
+      const nextProjectId =
+        (currentProjectId && data.some((project) => project.id === currentProjectId) ? currentProjectId : null)
+        ?? (storedProjectId && data.some((project) => project.id === storedProjectId) ? storedProjectId : null)
+        ?? data[0]?.id
+        ?? null
+      set({ projects: data, currentProjectId: nextProjectId, loading: false })
+      writeStoredProjectId(nextProjectId)
     } catch {
       set({ loading: false })
     }
@@ -49,21 +75,25 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     set({ projects: [...get().projects, project] })
     if (!get().currentProjectId) {
       set({ currentProjectId: project.id })
+      writeStoredProjectId(project.id)
     }
     return project
   },
 
   selectProject: (id) => {
     set({ currentProjectId: id })
+    writeStoredProjectId(id)
   },
 
   deleteProject: async (id) => {
     await wsClient.request({ type: 'projects.delete', projectId: id })
     const remaining = get().projects.filter((p) => p.id !== id)
+    const nextProjectId = get().currentProjectId === id ? (remaining[0]?.id ?? null) : get().currentProjectId
     set({
       projects: remaining,
-      currentProjectId: get().currentProjectId === id ? (remaining[0]?.id ?? null) : get().currentProjectId,
+      currentProjectId: nextProjectId,
     })
+    writeStoredProjectId(nextProjectId)
   },
 
   currentProject: () => {

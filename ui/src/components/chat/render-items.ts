@@ -15,6 +15,11 @@ export interface ChatRenderMessage {
   decision_json?: string | null
   attachments_json?: string | null
   timestamp?: string
+  status?: string
+  started_at?: string | null
+  completed_at?: string | null
+  stats_json?: string | null
+  process_item_count?: number
   has_tool_calls?: boolean
   tool_call_count?: number
 }
@@ -46,8 +51,11 @@ export function buildChatRenderItems<TMessage extends ChatRenderMessage>({
   const scopedEvents = sessionId ? events.filter((event) => event.session_id === sessionId) : events
   const scopedStreamingBubble =
     sessionId && streamingBubble?.session_id && streamingBubble.session_id !== sessionId ? null : streamingBubble
+  const visibleMessages = scopedStreamingBubble
+    ? scopedMessages.filter((message) => message.id !== scopedStreamingBubble.id)
+    : scopedMessages
   const items: ChatRenderItem<TMessage>[] = scopedMessages.length > 0
-    ? scopedMessages.map((message) => ({ id: `msg:${message.id}`, kind: 'message', message }))
+    ? visibleMessages.map((message) => ({ id: `msg:${message.id}`, kind: 'message', message }))
     : groupChatTimelineItems(buildChatTimelineFromEvents(scopedEvents.slice(-timelineEventLimit)))
       .map((group) => ({ id: `group:${group.id}`, kind: 'group', group }))
 

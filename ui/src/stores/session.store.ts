@@ -37,11 +37,12 @@ import {
   type ToolCallDetailInfo,
   type ToolCallInfo,
   type ToolCallSummaryInfo,
+  type TurnProcessItemInfo,
   type TurnUsageInfo,
   type UsageInfo,
 } from './session-events'
 import { StreamingBuffer } from './streaming-buffer'
-import { applyTurnEntry, createEmptyTurn, processBlocksForCompletedTurn, turnFromEvents, turnHasFinalizableContent, turnHasVisibleContent } from './turn-blocks'
+import { applyTurnEntry, createEmptyTurn, processBlocksForCompletedTurn, turnFromEvents, turnFromProcessItems, turnHasFinalizableContent, turnHasVisibleContent, type TurnProcessBlock } from './turn-blocks'
 import {
   inferRunningSessionsFromStages,
   removeSessionIndicator,
@@ -82,7 +83,7 @@ export interface SessionData {
 }
 
 interface SessionCache {
-  events: SessionEventData[]; usage: UsageInfo | null; turnUsage: TurnUsageInfo | null; capabilities: SessionCapabilities; plan: PlanEntry[]
+  messages: MessageData[]; events: SessionEventData[]; usage: UsageInfo | null; turnUsage: TurnUsageInfo | null; capabilities: SessionCapabilities; plan: PlanEntry[]
   pendingPermissions: PermissionRequestInfo[]; pendingElicitations: ElicitationRequestInfo[]; streamingMessage: StreamingMessage | null
 }
 
@@ -131,6 +132,27 @@ let cleanupFn: (() => void) | null = null
 let promptStartTime = 0
 let lastStreamingSnapshot: StreamingMessage | null = null
 let sessionListRequestSeq = 0
+const CURRENT_SESSION_STORAGE_KEY = 'ai-ide-current-session-id'
+
+function localStorageRef(): Storage | null {
+  try {
+    return globalThis.localStorage ?? null
+  } catch {
+    return null
+  }
+}
+
+export function readStoredSessionId(): string | null {
+  return localStorageRef()?.getItem(CURRENT_SESSION_STORAGE_KEY) ?? null
+}
+
+function writeStoredSessionId(sessionId: string | null): void {
+  const storage = localStorageRef()
+  if (!storage) return
+  if (sessionId) storage.setItem(CURRENT_SESSION_STORAGE_KEY, sessionId)
+  else storage.removeItem(CURRENT_SESSION_STORAGE_KEY)
+}
+
 let activeSessionsProjectId: string | null = null
 const sessionCaches = new Map<string, SessionCache>()
 const eventCursorBySession = new Map<string, number>()
@@ -228,8 +250,9 @@ function clearCachedStreaming(sessionId: string): void {
   sessionCaches.set(sessionId, { ...cache, streamingMessage: null })
 }
 
-function saveCache(sessionId: string, s: Pick<SessionStore, 'events' | 'usage' | 'turnUsage' | 'capabilities' | 'plan' | 'pendingPermissions' | 'pendingElicitations' | 'streamingMessage'>) {
+function saveCache(sessionId: string, s: Pick<SessionStore, 'messages' | 'events' | 'usage' | 'turnUsage' | 'capabilities' | 'plan' | 'pendingPermissions' | 'pendingElicitations' | 'streamingMessage'>) {
   sessionCaches.set(sessionId, {
+    messages: [...s.messages],
     events: [...s.events], usage: s.usage, turnUsage: s.turnUsage, capabilities: { ...s.capabilities, models: [...s.capabilities.models], modes: [...s.capabilities.modes], configOptions: [...s.capabilities.configOptions], commands: [...s.capabilities.commands] },
     plan: [...s.plan], pendingPermissions: [...s.pendingPermissions], pendingElicitations: [...s.pendingElicitations], streamingMessage: s.streamingMessage,
   })
@@ -286,6 +309,77 @@ function flushStreamingBuffer(set: (partial: Partial<SessionStore> | ((state: Se
   })
   const currentSessionId = get().currentSessionId
   if (currentSessionId) saveCache(currentSessionId, get())
+}
+
+function mergeProcessBlock(blocks: TurnProcessBlock[], block: TurnProcessBlock): TurnProcessBlock[] {
+  const next = blocks.filter((item) => {
+    if (item.id === block.id) return false
+    if (block.kind === 'stage') return item.kind !== 'stage'
+    if (block.kind === 'tool' && item.kind === 'tool') return item.toolCall.id !== block.toolCall.id
+    if (block.kind === 'note' && item.kind === 'note') return item.text !== block.text
+    return true
+  })
+  next.push(block)
+  return next.sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0))
+}
+
+function mergeProcessBlockIntoStreaming(turn: StreamingMessage, block: TurnProcessBlock): StreamingMessage {
+  const normalizedTurn = normalizeActiveTurn(turn) ?? createEmptyTurn(turn.id)
+  const next: StreamingMessage = {
+    ...normalizedTurn,
+    processBlocks: mergeProcessBlock(normalizedTurn.processBlocks, block),
+  }
+  next.thinking = next.processBlocks
+    .filter((processBlock): processBlock is Extract<TurnProcessBlock, { kind: 'thinking' }> => processBlock.kind === 'thinking')
+    .map((processBlock) => processBlock.text)
+    .join('')
+  next.toolCalls = next.processBlocks
+    .filter((processBlock): processBlock is Extract<TurnProcessBlock, { kind: 'tool' }> => processBlock.kind === 'tool')
+    .map((processBlock) => processBlock.toolCall)
+  if (block.kind === 'note' && next.finalAnswer) {
+    next.finalAnswer = ''
+    next.content = ''
+  }
+  if (block.kind === 'stage') {
+    next.stage = block.text
+  } else {
+    next.stage = undefined
+  }
+  return next
+}
+
+function streamingBaseForProcessItem(
+  current: StreamingMessage | null,
+  item: TurnProcessItemInfo,
+  isSessionRunning: boolean,
+): StreamingMessage | null {
+  const normalized = normalizeActiveTurn(current)
+  if (normalized?.id === item.message_id) return normalized
+  if (!isSessionRunning) return normalized
+
+  const canHandoff =
+    !normalized ||
+    normalized.id.startsWith('pending-') ||
+    (!!normalized.stage && !normalized.finalAnswer && normalized.processBlocks.every((block) => block.kind === 'stage'))
+
+  if (!canHandoff) return normalized
+  return { ...(normalized ?? createEmptyTurn(item.message_id)), id: item.message_id }
+}
+
+function hasCanonicalProcessBlock(turn: StreamingMessage | null, messageId: string | undefined, data: Record<string, unknown>): boolean {
+  if (!turn || !messageId || turn.id !== messageId) return false
+  if (typeof data.thinking === 'string') {
+    return turn.processBlocks.some((block) => block.kind === 'thinking' && block.id.startsWith('tpi-') && block.text.includes(data.thinking as string))
+  }
+  const toolCall = data.toolCall as ToolCallInfo | undefined
+  if (toolCall?.id) {
+    return turn.processBlocks.some((block) => block.kind === 'tool' && block.id.startsWith('tpi-') && block.toolCall.id === toolCall.id)
+  }
+  const toolCallUpdate = data.toolCallUpdate as ToolCallInfo | undefined
+  if (toolCallUpdate?.id) {
+    return turn.processBlocks.some((block) => block.kind === 'tool' && block.id.startsWith('tpi-') && block.toolCall.id === toolCallUpdate.id)
+  }
+  return false
 }
 
 function scheduleStreamingFlush(set: (partial: Partial<SessionStore> | ((state: SessionStore) => Partial<SessionStore>)) => void, get: () => SessionStore): void {
@@ -346,6 +440,15 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         }
       })
       saveCache(sessionId, get())
+      const running = get().messages
+        .filter((message) => message.session_id === sessionId && message.role === 'agent' && message.status === 'running')
+        .at(-1)
+      if (running) {
+        void get().fetchMessageProcess(sessionId, running.id)
+      }
+      if (get().messages.filter((message) => message.session_id === sessionId).length === 0) {
+        void get().fetchEvents(sessionId)
+      }
     } catch { /* ignore message load errors */ }
   },
 
@@ -414,6 +517,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     await wsClient.request({ type: 'sessions.delete', sessionId })
     sessionCaches.delete(sessionId)
     const currentSessionId = get().currentSessionId === sessionId ? null : get().currentSessionId
+    writeStoredSessionId(currentSessionId)
     set({
       sessions: get().sessions.filter(s => s.id !== sessionId),
       currentSessionId,
@@ -448,6 +552,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     if (prev) { saveCache(prev, get()); wsClient.unsubscribe([prev]) }
     lastStreamingSnapshot = null
     if (!id) {
+      writeStoredSessionId(null)
       set({
         currentSessionId: null,
         messages: [],
@@ -469,13 +574,14 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       })
       return
     }
+    writeStoredSessionId(id)
     wsClient.subscribe([id])
     const c = sessionCaches.get(id)
     const shouldRestoreStreaming = !!get().runningSessionIds[id] && !get().staleSessionIds[id]
     streamingBuffer.clear()
     if (streamingFlushTimer) { clearTimeout(streamingFlushTimer); streamingFlushTimer = null }
     set({
-      currentSessionId: id, messages: [], events: c?.events || [], streamingMessage: shouldRestoreStreaming ? c?.streamingMessage || null : null,
+      currentSessionId: id, messages: c?.messages || [], events: c?.events || [], streamingMessage: shouldRestoreStreaming ? c?.streamingMessage || null : null,
       usage: c?.usage || null, turnUsage: c?.turnUsage || null, capabilities: c?.capabilities || { ...defaultCaps }, plan: c?.plan || [],
       pendingPermissions: c?.pendingPermissions || [], pendingElicitations: c?.pendingElicitations || [],
       toolCallSummariesByMessageId: {}, toolCallDetailsByKey: {}, fileChangeDetailsByMessageId: {}, toolCallLoadingByKey: {}, toolCallErrorByKey: {},
@@ -483,7 +589,6 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       unreadSessionIds: removeSessionIndicator(get().unreadSessionIds, id),
     })
     void get().fetchMessages(id)
-    void get().fetchEvents(id)
     void get().fetchModels()
   },
 
@@ -631,9 +736,14 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       turnProcessErrorByMessageId: { ...state.turnProcessErrorByMessageId, [messageId]: '' },
     }))
     try {
-      const events = await wsClient.request({ type: 'sessions.messageEvents', sessionId, messageId }) as SessionEventData[]
+      const items = await wsClient.request({ type: 'sessions.messageProcess', sessionId, messageId }) as TurnProcessItemInfo[]
       if (sessionId !== get().currentSessionId) return
-      const turn = turnFromEvents(messageId, events)
+      let turn = turnFromProcessItems(messageId, items)
+      if (items.length === 0 && existing?.has_tool_calls) {
+        const events = await wsClient.request({ type: 'sessions.messageEvents', sessionId, messageId }) as SessionEventData[]
+        if (sessionId !== get().currentSessionId) return
+        turn = turnFromEvents(messageId, events)
+      }
       set((state) => ({
         messages: state.messages.map((message) => message.id === messageId && message.session_id === sessionId
           ? {
@@ -643,6 +753,14 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
               parsedToolCalls: turn.toolCalls.length > 0 ? turn.toolCalls : message.parsedToolCalls,
             }
           : message),
+        streamingMessage: existing?.status === 'running'
+          ? {
+              ...turn,
+              finalAnswer: existing.content,
+              content: existing.content,
+              done: false,
+            }
+          : state.streamingMessage,
         turnProcessLoadingByMessageId: { ...state.turnProcessLoadingByMessageId, [messageId]: false },
       }))
     } catch (err) {
@@ -678,6 +796,32 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       saveCache(sid, get())
     }))
 
+    offs.push(wsClient.on('session:process_item', (msg) => {
+      const sid = msg.sessionId as string; if (sid !== get().currentSessionId) return
+      const item = msg.item as TurnProcessItemInfo
+      const block = turnFromProcessItems(item.message_id, [item]).processBlocks[0]
+      if (!block) return
+      set((state) => {
+        const streamingBase = streamingBaseForProcessItem(state.streamingMessage, item, !!state.runningSessionIds[sid])
+        const streaming = streamingBase?.id === item.message_id
+          ? mergeProcessBlockIntoStreaming(streamingBase, block)
+          : state.streamingMessage
+        return {
+          streamingMessage: streaming,
+          messages: state.messages.map((message) => {
+            if (message.id !== item.message_id || message.session_id !== sid) return message
+            const processBlocks = mergeProcessBlock(message.processBlocks || [], block)
+            return {
+              ...message,
+              processBlocks,
+              process_item_count: processBlocks.filter((processBlock) => processBlock.kind !== 'stage').length,
+            }
+          }),
+        }
+      })
+      saveCache(sid, get())
+    }))
+
     offs.push(wsClient.on('session:update', (msg) => {
       const sid = msg.sessionId as string; if (sid !== get().currentSessionId) return
       const data = msg.data as Record<string, unknown>
@@ -705,8 +849,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       if (data.elicitationRequest) { const req = data.elicitationRequest as ElicitationRequestInfo; set(s => ({ pendingElicitations: [...s.pendingElicitations.filter(p => p.id !== req.id), req] })); saveCache(sid, get()); return }
 
       if (data.contentDelta || data.thinking || data.toolCall || data.toolCallUpdate) {
+        const messageId = typeof data.messageId === 'string' ? data.messageId : undefined
+        if (!data.contentDelta && hasCanonicalProcessBlock(get().streamingMessage, messageId, data)) return
         streamingBuffer.push({
-          messageId: typeof data.messageId === 'string' ? data.messageId : undefined,
+          messageId,
           contentDelta: typeof data.contentDelta === 'string' ? data.contentDelta : undefined,
           thinking: typeof data.thinking === 'string' ? data.thinking : undefined,
           toolCall: data.toolCall as ToolCallInfo | undefined,
@@ -792,7 +938,6 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       }
       saveCache(sid, get())
       void get().fetchMessages(sid)
-      void get().fetchEvents(sid)
     }))
 
     offs.push(wsClient.on('session:capabilities', (msg) => {
@@ -857,7 +1002,6 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       }))
       if (state === 'idle' && isCurrent) {
         void get().fetchMessages(sessionId)
-        void get().fetchEvents(sessionId)
       }
     }))
 

@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>方案D - 标签页分组</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f3f4f6; height: 100vh; display: flex; }
+.sidebar { width: 280px; background: #fff; border-right: 1px solid #e5e7eb; display: flex; flex-direction: column; height: 100vh; }
+.tabs { display: flex; border-bottom: 1px solid #e5e7eb; padding: 0 10px; }
+.tab { flex: 1; padding: 12px 0; text-align: center; font-size: 13px; cursor: pointer; color: #6b7280; border-bottom: 2px solid transparent; transition: all 0.15s; }
+.tab.active { color: #2563eb; border-bottom-color: #2563eb; font-weight: 600; }
+.tab:hover:not(.active) { color: #374151; }
+.tab .count { font-size: 10px; background: #ef4444; color: white; padding: 1px 5px; border-radius: 8px; margin-left: 4px; font-weight: 600; }
+.content { flex: 1; overflow-y: auto; padding: 8px 0; }
+.time-group { padding: 8px 16px 4px; font-size: 11px; color: #9ca3af; font-weight: 500; }
+.session-card { display: flex; gap: 10px; padding: 10px 16px; cursor: pointer; border-radius: 0; transition: background 0.1s; }
+.session-card:hover { background: #f9fafb; }
+.session-card.active { background: #eff6ff; border-left: 3px solid #2563eb; padding-left: 13px; }
+.card-avatar { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; color: white; flex-shrink: 0; }
+.card-body { flex: 1; min-width: 0; }
+.card-title { font-size: 14px; font-weight: 500; color: #111827; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; gap: 6px; }
+.card-agent { font-size: 11px; color: #6b7280; background: #f3f4f6; padding: 1px 6px; border-radius: 4px; flex-shrink: 0; }
+.card-preview { font-size: 12px; color: #9ca3af; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-meta { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+.card-status { font-size: 11px; padding: 2px 6px; border-radius: 4px; font-weight: 500; }
+.status-running { background: #ecfdf5; color: #059669; }
+.status-done { background: #f3f4f6; color: #6b7280; }
+.card-time { font-size: 11px; color: #9ca3af; }
+.main { flex: 1; display: flex; align-items: center; justify-content: center; color: #9ca3af; font-size: 15px; }
+.legend { position: fixed; bottom: 20px; right: 20px; background: white; padding: 16px 20px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); font-size: 13px; color: #374151; line-height: 2; }
+.legend h4 { font-size: 14px; margin-bottom: 6px; color: #111827; }
+</style>
+</head>
+<body>
+<div class="sidebar">
+  <div class="tabs">
+    <div class="tab active">活跃<span class="count">3</span></div>
+    <div class="tab">全部</div>
+    <div class="tab">归档</div>
+  </div>
+  <div class="content">
+    <div class="time-group">正在运行</div>
+    <div class="session-card active">
+      <div class="card-avatar" style="background:#2563eb">码</div>
+      <div class="card-body">
+        <div class="card-title">模型配置功能 <span class="card-agent">代码工程师</span></div>
+        <div class="card-preview">正在生成 configService 的类型定义...</div>
+        <div class="card-meta">
+          <span class="card-status status-running">● 运行中</span>
+          <span class="card-time">18:57</span>
+        </div>
+      </div>
+    </div>
+    <div class="session-card">
+      <div class="card-avatar" style="background:#2563eb">码</div>
+      <div class="card-body">
+        <div class="card-title">对话功能优化 <span class="card-agent">代码工程师</span></div>
+        <div class="card-preview">正在执行工具调用: Read file...</div>
+        <div class="card-meta">
+          <span class="card-status status-running">● 运行中</span>
+          <span class="card-time">20:01</span>
+        </div>
+      </div>
+    </div>
+    <div class="session-card">
+      <div class="card-avatar" style="background:#1d4ed8">O</div>
+      <div class="card-body">
+        <div class="card-title">版本对比分析 <span class="card-agent">openclaw研究员</span></div>
+        <div class="card-preview">报告已写完，保存为 docs/research/...</div>
+        <div class="card-meta">
+          <span class="card-status status-running">● 运行中</span>
+          <span class="card-time">10:27</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="time-group">今天</div>
+    <div class="session-card">
+      <div class="card-avatar" style="background:#2563eb">码</div>
+      <div class="card-body">
+        <div class="card-title">任务管理优化 <span class="card-agent">代码工程师</span></div>
+        <div class="card-preview">已完成所有任务管理工具的实现</div>
+        <div class="card-meta">
+          <span class="card-status status-done">已完成</span>
+          <span class="card-time">22:40</span>
+        </div>
+      </div>
+    </div>
+    <div class="session-card">
+      <div class="card-avatar" style="background:#7c3aed">领</div>
+      <div class="card-body">
+        <div class="card-title">周报生成 <span class="card-agent">Team Leader</span></div>
+        <div class="card-preview">本周完成了 3 个核心功能模块...</div>
+        <div class="card-meta">
+          <span class="card-status status-done">已完成</span>
+          <span class="card-time">22:21</span>
+        </div>
+      </div>
+    </div>
+    <div class="session-card">
+      <div class="card-avatar" style="background:#ea580c">审</div>
+      <div class="card-body">
+        <div class="card-title">代码审查 <span class="card-agent">代码审查员</span></div>
+        <div class="card-preview">发现 3 个潜在问题，已标记...</div>
+        <div class="card-meta">
+          <span class="card-status status-done">已完成</span>
+          <span class="card-time">19:29</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="main">← 方案D：按 Tab 分组（活跃/全部/归档），以会话卡片形式展示</div>
+<div class="legend">
+  <h4>方案D 核心规则</h4>
+  ✅ 活跃 Tab：只显示正在运行的会话<br>
+  ✅ 全部 Tab：按时间分组显示所有会话<br>
+  ✅ 归档 Tab：已结束的旧会话<br>
+  ✅ 每条会话以卡片展示，含 Agent 标签<br>
+  ✅ 打破 Agent 分组，按时间线排列<br>
+  ⚠️ 丢失了 Agent 分组视图
+</div>
+</body>
+</html>

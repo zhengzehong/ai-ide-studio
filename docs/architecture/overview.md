@@ -48,14 +48,14 @@ Web UI → WS "prompt" → ws-handler → gateway/rpc/subscriptions.prompt
   → sessionManager.sendPrompt() → acpHost.ensureSession() / acpHost.prompt()
   → Agent runtime 子进程 (stdio NDJSON)
   → ACP session/update → core events → ws-handler 广播 → Web UI 流式更新
-  → session:done → messages 与 session_events 持久化到 SQLite
+  → session:done → messages / turn_process_items / session_events 持久化到 SQLite
 ```
 
-前端实时对话以 `session:update` 作为可见流式状态来源；`session:event` 主要用于持久化同步、断线恢复和权限/计划等状态补偿，避免每个流式 chunk 都全量还原事件。历史消息默认通过轻量 `sessions.messages` 加载，完整工具调用保留在 SQLite 并通过 `sessions.messageToolCalls` / `sessions.messageToolCallDetail` 懒加载；ACP diff 文件变更摘要随消息轻量返回，详情通过 `sessions.messageFileChanges` 懒加载。
+前端实时对话以 `session:update` 作为可见流式状态来源；`session:event` 主要用于持久化同步、断线恢复和状态补偿，避免每个流式 chunk 都全量还原事件。后端在用户发送后立即创建一条 `messages.status = running` 的 Agent 消息，流式文本写入 `messages.content` 快照；思考、工具、权限、提问、计划和文件修改等执行过程写入 `turn_process_items`，并通过 `session:process_item` 轻量广播。完成后同一条 Agent 消息更新为 completed/failed/cancelled。
+
+历史消息默认通过轻量 `sessions.messages` 加载，`messages.content` 是最终回复快速来源；历史执行过程通过 `sessions.messageProcess` 按需加载 `turn_process_items` 的轻量列表，单个过程详情再通过 `sessions.processItemDetail` 懒加载。旧数据仍可通过 `sessions.messageEvents` 从 `session_events.sequence` 兜底恢复；工具摘要/详情继续支持 `sessions.messageToolCalls` / `sessions.messageToolCallDetail`，文件修改详情优先从 `turn_process_items` 读取并兼容旧的 `tool_calls_json`。
 
 `session:activity` 是独立的轻量全局事件，只表示会话本轮执行从 `running` 到 `idle` 的状态变化，用于左侧会话列表运行中/未读提示；它不承载聊天内容，也不参与历史消息还原。
-
-Chat history uses `messages.content` as the fast final-answer source. Historical execution process blocks are loaded on demand with `sessions.messageEvents` and reconstructed from `session_events.sequence`; tool summaries/details remain lazy-loaded through `sessions.messageToolCalls` / `sessions.messageToolCallDetail`, while ACP diff file-change details are lazy-loaded through `sessions.messageFileChanges`.
 
 
 ### 创建任务
@@ -82,9 +82,9 @@ Session 删除采用软删除，仅隐藏列表项并保留 `messages` / `sessio
 | 目录 | 职责 | 核心文件 |
 |------|------|----------|
 | `src/acp/` | ACP 协议集成 | `host.ts`、`client-handler.ts`、`host-state.ts`、`interaction-state.ts`、`terminal-bridge.ts`、`session-capabilities.ts`、`adapters.ts`、`capabilities.ts`、`update-mapper.ts` |
-| `src/core/` | 业务逻辑 | `sessions.ts`、`prompt-diagnostics.ts`、`session-event-payload.ts`、`tasks.ts`、`projects.ts`、`agents.ts`、`teams.ts`、`events.ts` |
+| `src/core/` | 业务逻辑 | `sessions.ts`、`turn-process-runtime.ts`、`prompt-diagnostics.ts`、`session-event-payload.ts`、`tasks.ts`、`projects.ts`、`agents.ts`、`teams.ts`、`events.ts` |
 | `src/gateway/` | 对外接口 | `server.ts`、`ws-handler.ts`、`rpc/*` |
-| `src/store/` | 数据持久化 | `db.ts`、`migrator.ts`、`migrations/*`、各实体 store |
+| `src/store/` | 数据持久化 | `db.ts`、`migrator.ts`、`migrations/*`、`turn-process-items.ts`、各实体 store |
 | `src/tools/` | 工具平台与 MCP 发布 | `resolver.ts`、`tool-gateway.ts`、`registry/*`、`runtime/*`、`mcp/http-mcp-server.ts` |
 | `src/cli/` | 命令行工具 | `index.ts`、agents/sessions/tasks/rules 子命令 |
 | `src/types/` | 类型定义 | `ws-protocol.ts` |

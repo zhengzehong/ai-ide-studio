@@ -5,6 +5,7 @@ import {
   processBlocksForCompletedTurn,
   turnFromEntries,
   turnFromEvents,
+  turnFromProcessItems,
   type TurnEntry,
 } from '../../ui/src/stores/turn-blocks.ts'
 import type { SessionEventData } from '../../ui/src/stores/session-events.ts'
@@ -105,6 +106,42 @@ describe('turn block reducer', () => {
     ])
 
     expect(processBlocksForCompletedTurn(withTool).map((block) => block.kind)).toEqual(['note', 'tool'])
+  })
+
+  test('restores ACP plan blocks from lightweight process items without detail JSON', () => {
+    const turn = turnFromProcessItems('msg-agent-1', [
+      {
+        id: 'tpi-plan-1',
+        session_id: 'sess-1',
+        message_id: 'msg-agent-1',
+        sequence: 1,
+        kind: 'plan',
+        status: 'running',
+        title: '计划',
+        summary: '计划 2 项',
+        preview: 'completed 1 · in_progress 1',
+        content: JSON.stringify({
+          plan: [
+            { content: '检查现状', status: 'completed', priority: 'medium' },
+            { content: '实现修复', status: 'in_progress', priority: 'high' },
+          ],
+        }),
+        meta_json: null,
+        created_at: '2026-06-05T00:00:00.000Z',
+        updated_at: '2026-06-05T00:00:00.000Z',
+        has_detail: true,
+      },
+    ])
+
+    expect(turn.processBlocks).toHaveLength(1)
+    expect(turn.processBlocks[0]).toMatchObject({
+      kind: 'plan',
+      summary: '计划 2 项',
+      plan: [
+        { content: '检查现状', status: 'completed', priority: 'medium' },
+        { content: '实现修复', status: 'in_progress', priority: 'high' },
+      ],
+    })
   })
 
 })

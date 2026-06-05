@@ -45,6 +45,9 @@ export function updatePendingTurn(turn: PendingTurn, data: SessionUpdateData): P
     }
     next.toolCalls = upsertToolCall(next.toolCalls, data.toolCallUpdate)
   }
+  if (data.plan || data.permissionRequest || data.elicitationRequest) {
+    demoteFinalAnswer(next)
+  }
   if (data.contentDelta || data.content) next.finalAnswer += data.contentDelta || data.content || ''
 
   return next
@@ -67,6 +70,7 @@ function demoteFinalAnswer(turn: PendingTurn): void {
 }
 
 function isAgentTurnUpdate(data: SessionUpdateData): boolean {
-  if (data.role === 'system') return false
-  return !!(data.contentDelta || data.content || data.thinking || data.toolCall || data.toolCallUpdate)
+  const isProcessBoundary = !!(data.plan || data.permissionRequest || data.elicitationRequest)
+  if (data.role === 'system' && !isProcessBoundary) return false
+  return !!(data.contentDelta || data.content || data.thinking || data.toolCall || data.toolCallUpdate || isProcessBoundary)
 }

@@ -31,6 +31,10 @@ export function startClientTurn(agentId: string, acpSessionId: string, turnId?: 
   turnsForAgent(agentId).set(acpSessionId, { messageId: messageId ?? generatedTurnMessageId(acpSessionId), turnId })
 }
 
+export function getClientTurnMessageId(agentId: string, acpSessionId: string): string | undefined {
+  return turnsByAgent.get(agentId)?.get(acpSessionId)?.messageId
+}
+
 export function endClientTurn(agentId: string, acpSessionId: string): void {
   const turns = turnsByAgent.get(agentId)
   if (!turns) return

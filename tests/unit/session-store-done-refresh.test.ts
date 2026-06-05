@@ -24,7 +24,7 @@ vi.mock('../../ui/src/services/ws-client', () => ({
   wsClient: wsMock,
 }))
 
-const { useSessionStore } = await import('../../ui/src/stores/session.store.ts')
+const { useSessionStore, readStoredSessionId } = await import('../../ui/src/stores/session.store.ts')
 
 function resetStore(): void {
   useSessionStore.setState({
@@ -56,9 +56,25 @@ function emit(event: string, message: Record<string, unknown>): void {
 }
 
 describe('session store done handling', () => {
-  test('refreshes persisted events once after a turn is done so the final reply can use timeline rendering', async () => {
+  test('refreshes persisted messages after a turn is done without default event timeline loading', async () => {
     resetStore()
-    wsMock.request.mockClear()
+    wsMock.request.mockReset()
+    wsMock.request.mockImplementation(async (msg: Record<string, unknown>) => {
+      if (msg.type === 'sessions.messages') {
+        return [{
+          id: 'msg-agent-final',
+          session_id: 'sess-refresh',
+          role: 'agent',
+          content: 'answer',
+          thinking: null,
+          tool_calls_json: null,
+          decision_json: null,
+          attachments_json: null,
+          timestamp: '2026-06-02T00:00:00.000Z',
+        }]
+      }
+      return []
+    })
     const cleanup = useSessionStore.getState().setupListeners()
 
     try {
@@ -70,16 +86,18 @@ describe('session store done handling', () => {
       })
 
       await vi.waitFor(() => {
-        expect(wsMock.request).toHaveBeenCalledWith({ type: 'sessions.events', sessionId: 'sess-refresh', limit: 1000 })
+        expect(wsMock.request).toHaveBeenCalledWith({ type: 'sessions.messages', sessionId: 'sess-refresh' })
       })
+      expect(wsMock.request).not.toHaveBeenCalledWith({ type: 'sessions.events', sessionId: 'sess-refresh', limit: 1000 })
     } finally {
       cleanup()
     }
   })
 
-  test('refreshes persisted messages and events after a turn is done', async () => {
+  test('falls back to event recovery only when message history is empty', async () => {
     resetStore()
-    wsMock.request.mockClear()
+    wsMock.request.mockReset()
+    wsMock.request.mockResolvedValue([])
     const cleanup = useSessionStore.getState().setupListeners()
 
     try {
@@ -323,25 +341,123 @@ describe('session store done handling', () => {
       emit('session:update', {
         sessionId: 'sess-refresh',
         agentId: 'agent-1',
-        data: { messageId: 'msg-active-order', role: 'agent', contentDelta: '我先检查。' },
+        data: { messageId: 'msg-active-order', role: 'agent', contentDelta: 'I will inspect first' },
       })
       emit('session:update', {
         sessionId: 'sess-refresh',
         agentId: 'agent-1',
-        data: { messageId: 'msg-active-order', role: 'agent', toolCall: { id: 'tool-1', title: '读文件', status: 'completed' } },
+        data: { messageId: 'msg-active-order', role: 'agent', toolCall: { id: 'tool-1', title: 'read file', status: 'completed' } },
       })
       emit('session:update', {
         sessionId: 'sess-refresh',
         agentId: 'agent-1',
-        data: { messageId: 'msg-active-order', role: 'agent', contentDelta: '最终结论。' },
+        data: { messageId: 'msg-active-order', role: 'agent', contentDelta: 'Final answer' },
       })
 
       await vi.waitFor(() => {
-        expect(useSessionStore.getState().streamingMessage?.finalAnswer).toBe('最终结论。')
+        expect(useSessionStore.getState().streamingMessage?.finalAnswer).toBe('Final answer')
       })
       const turn = useSessionStore.getState().streamingMessage
       expect(turn?.processBlocks.map((block) => block.kind)).toEqual(['note', 'tool'])
-      expect(turn?.processBlocks[0]).toMatchObject({ kind: 'note', text: '我先检查。' })
+      expect(turn?.processBlocks[0]).toMatchObject({ kind: 'note', text: 'I will inspect first' })
+    } finally {
+      cleanup()
+    }
+  })
+
+  test('does not duplicate canonical thinking process items with mirrored session updates', async () => {
+    resetStore()
+    useSessionStore.setState({
+      streamingMessage: {
+        id: 'msg-thinking-1',
+        role: 'agent',
+        content: '',
+        thinking: '',
+        toolCalls: [],
+        processBlocks: [],
+        finalAnswer: '',
+        done: false,
+      },
+    })
+    const cleanup = useSessionStore.getState().setupListeners()
+
+    try {
+      emit('session:process_item', {
+        sessionId: 'sess-refresh',
+        agentId: 'agent-1',
+        item: {
+          id: 'tpi-thinking-1',
+          session_id: 'sess-refresh',
+          message_id: 'msg-thinking-1',
+          sequence: 1,
+          kind: 'thinking',
+          status: 'running',
+          title: 'Thinking',
+          summary: 'thinking',
+          preview: 'thinking',
+          content: 'thinking',
+          meta_json: null,
+          created_at: '2026-06-02T00:00:00.000Z',
+          updated_at: '2026-06-02T00:00:00.000Z',
+          has_detail: false,
+        },
+      })
+      emit('session:update', {
+        sessionId: 'sess-refresh',
+        agentId: 'agent-1',
+        data: { messageId: 'msg-thinking-1', role: 'agent', thinking: 'thinking' },
+      })
+
+      expect(useSessionStore.getState().streamingMessage?.processBlocks).toHaveLength(1)
+      expect(useSessionStore.getState().streamingMessage?.thinking).toBe('thinking')
+    } finally {
+      cleanup()
+    }
+  })
+
+  test('hands off a pending placeholder when the first canonical process item arrives', async () => {
+    resetStore()
+    useSessionStore.setState({
+      runningSessionIds: { 'sess-refresh': true },
+      streamingMessage: {
+        id: 'pending-sess-refresh-process',
+        role: 'agent',
+        content: '',
+        thinking: '',
+        toolCalls: [],
+        processBlocks: [{ id: 'turn-stage-0', kind: 'stage', text: '正在准备 Agent...' }],
+        finalAnswer: '',
+        done: false,
+        stage: 'Preparing Agent...',
+      },
+    })
+    const cleanup = useSessionStore.getState().setupListeners()
+
+    try {
+      emit('session:process_item', {
+        sessionId: 'sess-refresh',
+        agentId: 'agent-1',
+        item: {
+          id: 'tpi-thinking-first',
+          session_id: 'sess-refresh',
+          message_id: 'msg-real-process-1',
+          sequence: 2,
+          kind: 'thinking',
+          status: 'running',
+          title: 'Thinking',
+          summary: 'thinking',
+          preview: 'thinking',
+          content: 'thinking',
+          meta_json: null,
+          created_at: '2026-06-02T00:00:00.000Z',
+          updated_at: '2026-06-02T00:00:00.000Z',
+          has_detail: false,
+        },
+      })
+
+      expect(useSessionStore.getState().streamingMessage?.id).toBe('msg-real-process-1')
+      expect(useSessionStore.getState().streamingMessage?.thinking).toBe('thinking')
+      expect(useSessionStore.getState().streamingMessage?.processBlocks.map((block) => block.kind)).toEqual(['stage', 'thinking'])
     } finally {
       cleanup()
     }
@@ -492,6 +608,34 @@ describe('session store done handling', () => {
     }
   })
 
+  test('restores cached messages immediately when switching back to a session', async () => {
+    resetStore()
+    wsMock.request.mockReset()
+    wsMock.request.mockResolvedValue([])
+    useSessionStore.setState({
+      messages: [
+        {
+          id: 'msg-cached',
+          session_id: 'sess-refresh',
+          role: 'agent',
+          content: 'cached answer',
+          thinking: null,
+          tool_calls_json: null,
+          decision_json: null,
+          attachments_json: null,
+          timestamp: '2026-06-02T00:00:00.000Z',
+        },
+      ],
+    })
+
+    useSessionStore.getState().selectSession('sess-other')
+    expect(useSessionStore.getState().messages).toEqual([])
+
+    useSessionStore.getState().selectSession('sess-refresh')
+
+    expect(useSessionStore.getState().messages.map((message) => message.id)).toEqual(['msg-cached'])
+  })
+
   test('clears stale streaming after persisted final messages are loaded', async () => {
     resetStore()
     wsMock.request.mockReset()
@@ -585,4 +729,31 @@ describe('session store done handling', () => {
     expect(useSessionStore.getState().streamingMessage).toBeNull()
   })
 
+})
+
+describe('session selection storage', () => {
+  test('persists and reads selected session id', () => {
+    resetStore()
+    wsMock.request.mockReset()
+    wsMock.request.mockResolvedValue([])
+    const storage = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: vi.fn((key: string) => storage.get(key) ?? null),
+      setItem: vi.fn((key: string, value: string) => { storage.set(key, value) }),
+      removeItem: vi.fn((key: string) => { storage.delete(key) }),
+      clear: vi.fn(() => { storage.clear() }),
+      key: vi.fn(() => null),
+      get length() { return storage.size },
+    } as unknown as Storage)
+
+    try {
+      useSessionStore.getState().selectSession('sess-persisted')
+      expect(storage.get('ai-ide-current-session-id')).toBe('sess-persisted')
+      expect(readStoredSessionId()).toBe('sess-persisted')
+      useSessionStore.getState().selectSession(null)
+      expect(readStoredSessionId()).toBeNull()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
 })

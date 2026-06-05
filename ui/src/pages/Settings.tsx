@@ -200,28 +200,31 @@ function TimelineConfigSection({ providers }: { providers: ModelProviderData[] }
   const { config, configLoading, fetchConfig, saveConfig } = useTimelineStore()
   const { currentProjectId } = useProjectStore()
 
-  const [localModel, setLocalModel] = useState('')
-  const [localApiKey, setLocalApiKey] = useState('')
-  const [localBaseUrl, setLocalBaseUrl] = useState('')
-  const [localProviderId, setLocalProviderId] = useState('')
-  const [localInterval, setLocalInterval] = useState(3)
   const [showKey, setShowKey] = useState(false)
-  const [dirty, setDirty] = useState(false)
+  const [draftProjectId, setDraftProjectId] = useState<string | null>(null)
+  const [draft, setDraft] = useState<{
+    model?: string
+    apiKey?: string
+    baseUrl?: string
+    providerId?: string
+    interval?: number
+  }>({})
 
   useEffect(() => {
     if (currentProjectId) fetchConfig(currentProjectId)
   }, [currentProjectId, fetchConfig])
 
-  useEffect(() => {
-    if (config) {
-      setLocalModel(config.model || '')
-      setLocalApiKey(config.api_key || '')
-      setLocalBaseUrl(config.base_url || '')
-      setLocalProviderId(config.provider_id || '')
-      setLocalInterval(config.trigger_interval || 3)
-      setDirty(false)
-    }
-  }, [config])
+  const activeDraft = draftProjectId === currentProjectId ? draft : {}
+  const localModel = activeDraft.model ?? config?.model ?? ''
+  const localApiKey = activeDraft.apiKey ?? config?.api_key ?? ''
+  const localBaseUrl = activeDraft.baseUrl ?? config?.base_url ?? ''
+  const localProviderId = activeDraft.providerId ?? config?.provider_id ?? ''
+  const localInterval = activeDraft.interval ?? config?.trigger_interval ?? 3
+  const dirty = draftProjectId === currentProjectId && Object.keys(draft).length > 0
+  const updateDraft = (fields: typeof draft) => {
+    setDraftProjectId(currentProjectId)
+    setDraft(prev => (draftProjectId === currentProjectId ? { ...prev, ...fields } : fields))
+  }
 
   if (!currentProjectId) {
     return (
@@ -260,10 +263,9 @@ function TimelineConfigSection({ providers }: { providers: ModelProviderData[] }
       provider_id: localProviderId || null,
       trigger_interval: localInterval,
     })
-    setDirty(false)
+    setDraft({})
+    setDraftProjectId(null)
   }
-
-  const markDirty = () => { if (!dirty) setDirty(true) }
 
   return (
     <div style={{ marginBottom: 32 }}>
@@ -288,7 +290,7 @@ function TimelineConfigSection({ providers }: { providers: ModelProviderData[] }
             关联供应商
             <select
               value={localProviderId}
-              onChange={e => { setLocalProviderId(e.target.value); markDirty() }}
+              onChange={e => { updateDraft({ providerId: e.target.value }) }}
               style={fInput}
               disabled={!enabled}
             >
@@ -301,7 +303,7 @@ function TimelineConfigSection({ providers }: { providers: ModelProviderData[] }
             模型名称
             <input
               value={localModel}
-              onChange={e => { setLocalModel(e.target.value); markDirty() }}
+              onChange={e => { updateDraft({ model: e.target.value }) }}
               style={fInput}
               placeholder="gpt-4o-mini"
               disabled={!enabled}
@@ -315,7 +317,7 @@ function TimelineConfigSection({ providers }: { providers: ModelProviderData[] }
               Base URL
               <input
                 value={localBaseUrl}
-                onChange={e => { setLocalBaseUrl(e.target.value); markDirty() }}
+                onChange={e => { updateDraft({ baseUrl: e.target.value }) }}
                 style={fInput}
                 placeholder="https://api.openai.com"
                 disabled={!enabled}
@@ -326,7 +328,7 @@ function TimelineConfigSection({ providers }: { providers: ModelProviderData[] }
               <div style={{ position: 'relative' }}>
                 <input
                   value={localApiKey}
-                  onChange={e => { setLocalApiKey(e.target.value); markDirty() }}
+                  onChange={e => { updateDraft({ apiKey: e.target.value }) }}
                   style={{ ...fInput, paddingRight: 36 }}
                   type={showKey ? 'text' : 'password'}
                   placeholder="sk-..."
@@ -345,7 +347,7 @@ function TimelineConfigSection({ providers }: { providers: ModelProviderData[] }
             触发间隔（轮）
             <input
               value={localInterval}
-              onChange={e => { setLocalInterval(Number(e.target.value) || 3); markDirty() }}
+              onChange={e => { updateDraft({ interval: Number(e.target.value) || 3 }) }}
               style={{ ...fInput, width: 100 }}
               type="number"
               min={1}
