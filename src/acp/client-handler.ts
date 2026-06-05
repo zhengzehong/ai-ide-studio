@@ -27,8 +27,8 @@ function turnsForAgent(agentId: string): Map<string, ActiveClientTurn> {
   return turns
 }
 
-export function startClientTurn(agentId: string, acpSessionId: string, turnId?: string): void {
-  turnsForAgent(agentId).set(acpSessionId, { messageId: generatedTurnMessageId(acpSessionId), turnId })
+export function startClientTurn(agentId: string, acpSessionId: string, turnId?: string, messageId?: string): void {
+  turnsForAgent(agentId).set(acpSessionId, { messageId: messageId ?? generatedTurnMessageId(acpSessionId), turnId })
 }
 
 export function endClientTurn(agentId: string, acpSessionId: string): void {

@@ -31,6 +31,11 @@ export interface MessageRow {
   decision_json: string | null
   attachments_json: string | null
   file_changes_json: string | null
+  status?: string
+  started_at?: string | null
+  completed_at?: string | null
+  stats_json?: string | null
+  process_item_count?: number
   timestamp: string
   has_tool_calls?: boolean
   tool_call_count?: number
@@ -81,6 +86,11 @@ export interface AppendMessageInput {
   toolCalls?: unknown[]
   decision?: unknown
   attachments?: unknown[]
+  status?: string
+  startedAt?: string
+  completedAt?: string | null
+  stats?: unknown
+  fileChangesJson?: string | null
 }
 
 export interface AppendEventInput {
@@ -286,12 +296,25 @@ export const messageStore = {
       tool_calls_json: input.toolCalls ? JSON.stringify(input.toolCalls) : null,
       decision_json: input.decision ? JSON.stringify(input.decision) : null,
       attachments_json: input.attachments ? JSON.stringify(input.attachments) : null,
-      file_changes_json: fileChangesJsonFromToolCalls(input.toolCalls),
+      file_changes_json: input.fileChangesJson ?? fileChangesJsonFromToolCalls(input.toolCalls),
+      status: input.status ?? 'completed',
+      started_at: input.startedAt ?? null,
+      completed_at: input.completedAt ?? (input.status && input.status !== 'running' ? new Date().toISOString() : null),
+      stats_json: input.stats ? JSON.stringify(input.stats) : null,
+      process_item_count: 0,
       timestamp: new Date().toISOString(),
     }
     getDb().prepare(`
-      INSERT INTO messages (id, session_id, role, content, thinking, tool_calls_json, decision_json, attachments_json, file_changes_json, timestamp)
-      VALUES (@id, @session_id, @role, @content, @thinking, @tool_calls_json, @decision_json, @attachments_json, @file_changes_json, @timestamp)
+      INSERT INTO messages (
+        id, session_id, role, content, thinking, tool_calls_json, decision_json,
+        attachments_json, file_changes_json, status, started_at, completed_at,
+        stats_json, process_item_count, timestamp
+      )
+      VALUES (
+        @id, @session_id, @role, @content, @thinking, @tool_calls_json, @decision_json,
+        @attachments_json, @file_changes_json, @status, @started_at, @completed_at,
+        @stats_json, @process_item_count, @timestamp
+      )
     `).run(msg)
     log.debug(
       {
@@ -340,6 +363,46 @@ export const messageStore = {
     getDb().prepare('UPDATE messages SET content = ? WHERE id = ?').run(content, id)
   },
 
+  updateRunningSnapshot(id: string, content: string): void {
+    getDb().prepare(`
+      UPDATE messages
+      SET content = ?, timestamp = ?
+      WHERE id = ? AND role = 'agent' AND status = 'running'
+    `).run(content, new Date().toISOString(), id)
+  },
+
+  completeAgentMessage(
+    id: string,
+    input: { content: string; thinking?: string | null; toolCalls?: unknown[]; status: string; stats?: unknown; fileChangesJson?: string | null },
+  ): MessageRow | undefined {
+    const now = new Date().toISOString()
+    getDb().prepare(`
+      UPDATE messages
+      SET content = @content,
+        thinking = @thinking,
+        tool_calls_json = @tool_calls_json,
+        decision_json = @decision_json,
+        stats_json = @stats_json,
+        file_changes_json = @file_changes_json,
+        status = @status,
+        completed_at = @completed_at,
+        timestamp = @timestamp
+      WHERE id = @id AND role = 'agent'
+    `).run({
+      id,
+      content: input.content,
+      thinking: input.thinking || null,
+      tool_calls_json: input.toolCalls ? JSON.stringify(input.toolCalls) : null,
+      decision_json: input.stats ? JSON.stringify(input.stats) : null,
+      stats_json: input.stats ? JSON.stringify(input.stats) : null,
+      file_changes_json: input.fileChangesJson ?? fileChangesJsonFromToolCalls(input.toolCalls),
+      status: input.status,
+      completed_at: now,
+      timestamp: now,
+    })
+    return messageStore.get(id)
+  },
+
   copyLatestWithEvents(sourceSessionId: string, targetSessionId: string, limit: number): CopyLatestMessagesResult {
     const db = getDb()
     const sourceMessages = db.prepare<{ sessionId: string; limit: number }, MessageRow>(`
@@ -353,11 +416,13 @@ export const messageStore = {
     const insertMessage = db.prepare(`
       INSERT INTO messages (
         id, session_id, role, content, thinking, tool_calls_json, decision_json,
-        attachments_json, file_changes_json, timestamp
+        attachments_json, file_changes_json, status, started_at, completed_at,
+        stats_json, process_item_count, timestamp
       )
       VALUES (
         @id, @session_id, @role, @content, @thinking, @tool_calls_json, @decision_json,
-        @attachments_json, @file_changes_json, @timestamp
+        @attachments_json, @file_changes_json, @status, @started_at, @completed_at,
+        @stats_json, @process_item_count, @timestamp
       )
     `)
     const insertEvent = db.prepare(`
@@ -375,6 +440,11 @@ export const messageStore = {
           ...sourceMessage,
           id: `msg-${randomUUID().slice(0, 8)}`,
           session_id: targetSessionId,
+          status: sourceMessage.status ?? 'completed',
+          started_at: sourceMessage.started_at ?? null,
+          completed_at: sourceMessage.completed_at ?? null,
+          stats_json: sourceMessage.stats_json ?? null,
+          process_item_count: sourceMessage.process_item_count ?? 0,
         }
         messageIdMap.set(sourceMessage.id, copiedMessage.id)
         insertMessage.run(copiedMessage)

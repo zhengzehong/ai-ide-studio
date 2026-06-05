@@ -47,6 +47,15 @@ events.on('session:update', (ev) => {
   })
 })
 
+events.on('session:process_item', (ev) => {
+  broadcastToSubscribers(ev.sessionId, {
+    type: 'session:process_item',
+    sessionId: ev.sessionId,
+    agentId: ev.agentId,
+    item: ev.item,
+  })
+})
+
 events.on('session:event', (ev) => {
   broadcastToSubscribers(ev.sessionId, {
     type: 'session:event',

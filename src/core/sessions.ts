@@ -20,6 +20,12 @@ import {
   summarizeSessionUpdate,
   summarizeSessionUpdateData,
 } from './prompt-diagnostics.js'
+import {
+  completeTurnProcess,
+  createAgentMessageId,
+  recordTurnProcessUpdate,
+  startTurnProcess,
+} from './turn-process-runtime.js'
 
 const log = createChildLogger('session')
 
@@ -39,6 +45,10 @@ events.on('session:update', (ev) => {
   }
 
   pendingBySession.set(sessionId, updatePendingTurn(pending, data))
+})
+
+events.on('session:update', (ev) => {
+  recordTurnProcessUpdate(ev.sessionId, ev.agentId, ev.data)
 })
 
 events.on('session:update', (ev) => {
