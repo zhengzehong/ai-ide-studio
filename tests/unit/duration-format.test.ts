@@ -1,5 +1,5 @@
-﻿import { describe, expect, test } from 'vitest'
-import { formatCompactDuration } from '../../ui/src/utils/duration.ts'
+import { describe, expect, test } from 'vitest'
+import { elapsedSecondsBetween, formatCompactDuration } from '../../ui/src/utils/duration.ts'
 
 describe('formatCompactDuration', () => {
   test('formats seconds', () => {
@@ -22,5 +22,17 @@ describe('formatCompactDuration', () => {
   test('formats days for very long runs', () => {
     expect(formatCompactDuration(86400)).toBe('1d')
     expect(formatCompactDuration(93600)).toBe('1d2h')
+  })
+})
+
+describe('elapsedSecondsBetween', () => {
+  test('computes rounded elapsed seconds between ISO timestamps', () => {
+    expect(elapsedSecondsBetween('2026-06-05T00:00:00.000Z', '2026-06-05T00:02:03.400Z')).toBe(123)
+  })
+
+  test('ignores incomplete or invalid timestamp pairs', () => {
+    expect(elapsedSecondsBetween(null, '2026-06-05T00:00:01.000Z')).toBeUndefined()
+    expect(elapsedSecondsBetween('bad', '2026-06-05T00:00:01.000Z')).toBeUndefined()
+    expect(elapsedSecondsBetween('2026-06-05T00:00:02.000Z', '2026-06-05T00:00:01.000Z')).toBeUndefined()
   })
 })

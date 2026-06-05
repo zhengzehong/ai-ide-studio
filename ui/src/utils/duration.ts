@@ -1,4 +1,12 @@
-﻿export function formatCompactDuration(totalSeconds: number): string {
+export function elapsedSecondsBetween(startedAt?: string | null, completedAt?: string | null): number | undefined {
+  if (!startedAt || !completedAt) return undefined
+  const started = Date.parse(startedAt)
+  const completed = Date.parse(completedAt)
+  if (!Number.isFinite(started) || !Number.isFinite(completed) || completed < started) return undefined
+  return Math.round((completed - started) / 1000)
+}
+
+export function formatCompactDuration(totalSeconds: number): string {
   const seconds = Math.max(0, Math.floor(totalSeconds))
   if (seconds < 60) return `${seconds}s`
 
