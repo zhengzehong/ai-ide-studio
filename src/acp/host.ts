@@ -6,7 +6,7 @@ import { createChildLogger } from '../core/logger.js'
 import { agentStore } from '../store/agents.js'
 import type { SessionUpdateData, TurnUsageData, SessionCapabilities, ImageAttachment } from '../types/ws-protocol.js'
 import { mapConfigOptions, mergeCapabilitiesFromConfig } from './capabilities.js'
-import { createClientHandler, endClientTurn, startClientTurn } from './client-handler.js'
+import { createClientHandler, endClientTurn, getClientTurnMessageId, startClientTurn } from './client-handler.js'
 import {
   agentConnections,
   beginTurn,
@@ -436,7 +436,7 @@ export const acpHost = {
       events.emit('session:done', {
         sessionId: ourSessionId,
         agentId,
-        messageId: `done-${ourSessionId}`,
+        messageId: diagnostics.messageId ?? `done-${ourSessionId}`,
         turnId: diagnostics.turnId,
         turnUsage,
         stopReason,
@@ -712,7 +712,10 @@ async function startMockAgent(agentId: string, envFingerprint?: string): Promise
 
 function handleMockNotification(agentId: string, ourSessionId: string, params: Record<string, unknown>) {
   const updateType = params.type as string
-  const messageId = (params.messageId as string) || `msg-${Date.now()}`
+  const acpSessionId = typeof params.sessionId === 'string' ? params.sessionId : undefined
+  const messageId = (acpSessionId ? getClientTurnMessageId(agentId, acpSessionId) : undefined)
+    ?? (params.messageId as string)
+    ?? `msg-${Date.now()}`
   const data: SessionUpdateData = { messageId, role: 'agent' }
 
   switch (updateType) {

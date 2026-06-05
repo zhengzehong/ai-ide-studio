@@ -35,6 +35,10 @@ export interface TurnProcessItemRow {
   updated_at: string
 }
 
+interface TurnProcessItemQueryRow extends TurnProcessItemRow {
+  has_detail?: 0 | 1
+}
+
 export interface UpsertTurnProcessItemInput {
   id?: string
   sessionId: string
@@ -143,9 +147,10 @@ export const turnProcessItemStore = {
       ? '*'
       : `
         id, session_id, message_id, sequence, kind, status, title, summary, preview,
-        content, NULL AS detail_json, meta_json, created_at, updated_at
+        content, NULL AS detail_json, meta_json, created_at, updated_at,
+        CASE WHEN detail_json IS NULL THEN 0 ELSE 1 END AS has_detail
       `
-    const rows = getDb().prepare<[string], TurnProcessItemRow>(`
+    const rows = getDb().prepare<[string], TurnProcessItemQueryRow>(`
       SELECT ${columns}
       FROM turn_process_items
       WHERE message_id = ?
@@ -219,16 +224,16 @@ function nextSequence(messageId: string): number {
 function updateMessageProcessCount(messageId: string): void {
   getDb().prepare(`
     UPDATE messages
-    SET process_item_count = (SELECT COUNT(*) FROM turn_process_items WHERE message_id = ?)
+    SET process_item_count = (SELECT COUNT(*) FROM turn_process_items WHERE message_id = ? AND kind <> 'stage')
     WHERE id = ?
   `).run(messageId, messageId)
 }
 
-function toData(row: TurnProcessItemRow, includeDetail: boolean): TurnProcessItemData {
+function toData(row: TurnProcessItemQueryRow, includeDetail: boolean): TurnProcessItemData {
   return {
     ...row,
     detail_json: includeDetail ? row.detail_json : undefined,
-    has_detail: !!row.detail_json,
+    has_detail: includeDetail ? !!row.detail_json : row.has_detail === 1,
   }
 }
 

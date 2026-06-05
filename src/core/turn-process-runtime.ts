@@ -213,6 +213,7 @@ function upsertPlan(sessionId: string, messageId: string, plan: PlanEntry[]): Tu
     title: '计划',
     summary: `计划 ${plan.length} 项`,
     preview: Object.entries(counts).map(([status, count]) => `${status} ${count}`).join(' · '),
+    content: JSON.stringify({ plan }),
     detail: { plan },
   })
 }

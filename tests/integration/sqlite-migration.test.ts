@@ -51,6 +51,7 @@ describe('SQLite 迁移', () => {
 
     expect(migrations).toEqual(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010'])
     expect(messageColumns).toContain('file_changes_json')
+    expect(messageColumns).toContain('process_item_count')
   })
 
   test('从 JSON 迁移到 SQLite 并保留所有数据', () => {

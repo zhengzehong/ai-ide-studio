@@ -38,6 +38,7 @@ import {
 } from 'lucide-react'
 import { useAgentStore, type AgentData } from '../stores/agent.store'
 import {
+  readStoredSessionId,
   useSessionStore,
   type ChatTimelineGroup,
   type ChatTimelineItem,
@@ -307,6 +308,15 @@ export default function Workspace() {
     const current = projectSessions.find((session) => session.id === currentSessionId)
     if (!currentProjectId || !current) selectSession(null)
   }, [currentProjectId, currentSessionId, projectSessions, selectSession])
+
+  useEffect(() => {
+    if (currentSessionId || projectSessions.length === 0) return
+    const storedSessionId = readStoredSessionId()
+    if (!storedSessionId) return
+    const storedSession = projectSessions.find((session) => session.id === storedSessionId)
+    if (!storedSession) return
+    selectSession(storedSession.id)
+  }, [currentSessionId, projectSessions, selectSession])
 
   const handleSelectSession = (agentId: string, sessionId: string) => {
     setSelectedAgentId(agentId)
@@ -2674,6 +2684,7 @@ type ChatMsg = {
   file_changes_json?: string | null
   has_tool_calls?: boolean
   tool_call_count?: number
+  process_item_count?: number
   has_file_changes?: boolean
   file_change_count?: number
   parsedFileChanges?: FileChangeSummaryInfo
@@ -2788,7 +2799,8 @@ function ChatBubble({
   const showTurnStats = !!turnStats || (!isHuman && streaming && elapsedSeconds != null)
   const visibleBlocks = blocks.filter(chatBubbleBlockHasBody)
   const turnProcessBlocks = !isTimelineGroup ? normalizedMessage.processBlocks || [] : []
-  const canLoadTurnProcess = !isTimelineGroup && !streaming && role === 'agent' && !!normalizedMessage.session_id && !!normalizedMessage.has_tool_calls && !normalizedMessage.processBlocks
+  const processCount = !isTimelineGroup ? (normalizedMessage.process_item_count ?? normalizedMessage.tool_call_count ?? 0) : 0
+  const canLoadTurnProcess = !isTimelineGroup && !streaming && role === 'agent' && !!normalizedMessage.session_id && processCount > 0 && !normalizedMessage.processBlocks
   const turnFinalAnswer = !isTimelineGroup ? (normalizedMessage.finalAnswer ?? (canLoadTurnProcess ? normalizedMessage.content : undefined)) : undefined
   const hasTurnModel = !isTimelineGroup && (turnProcessBlocks.length > 0 || turnFinalAnswer != null || canLoadTurnProcess)
   const processLoading = !isTimelineGroup ? turnProcessLoadingByMessageId[normalizedMessage.id] : false
@@ -2862,7 +2874,7 @@ function ChatBubble({
                 finalAnswer={turnFinalAnswer || ''}
                 isStreaming={isStreaming}
                 fallbackStage={stage}
-                processCount={!isTimelineGroup ? normalizedMessage.tool_call_count : undefined}
+                processCount={processCount}
                 processLoaded={!canLoadTurnProcess}
                 processLoading={processLoading}
                 processError={processError}
@@ -3035,6 +3047,34 @@ function ProcessBlockView({ block, isStreaming }: { block: TurnProcessBlock; isS
       <div style={{ borderRadius: 6, background: 'var(--bg-2)', padding: '8px 10px', color: 'var(--text-2)', fontSize: 14, lineHeight: 1.6, fontStyle: 'italic', overflowWrap: 'anywhere' }}>
         <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 4 }}>思考过程</div>
         {block.text}
+      </div>
+    )
+  }
+  if (block.kind === 'file_change') {
+    if (block.changes) return <FileChangesCard changes={block.changes} compact />
+    return (
+      <div style={{ borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-1)', padding: '8px 10px', fontSize: 14, color: 'var(--text-2)' }}>
+        <div style={{ fontWeight: 700, marginBottom: 4 }}>文件修改</div>
+        <div style={{ color: 'var(--text-3)' }}>{block.summary || '文件修改详情按需加载'}</div>
+      </div>
+    )
+  }
+  if (block.kind === 'plan') {
+    return (
+      <div style={{ borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-1)', padding: '8px 10px', fontSize: 14, color: 'var(--text-2)' }}>
+        {block.summary && <div style={{ color: 'var(--text-3)', marginBottom: block.plan.length ? 6 : 0 }}>{block.summary}</div>}
+        {block.plan.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {block.plan.map((item, index) => (
+              <div key={`${item.content}-${index}`} style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+                <span style={{ color: item.status === 'completed' ? 'var(--green)' : item.status === 'in_progress' ? 'var(--blue)' : 'var(--text-3)', flexShrink: 0 }}>
+                  {item.status === 'completed' ? '✓' : item.status === 'in_progress' ? '●' : '○'}
+                </span>
+                <span style={{ minWidth: 0 }}>{item.content}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     )
   }

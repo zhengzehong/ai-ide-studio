@@ -1,4 +1,4 @@
-﻿# 对话存储讨论稿：messages + turn_process_items
+# 对话存储讨论稿：messages + turn_process_items
 
 > 这是一份讨论稿，用来固定我们当前讨论出来的方向，方便继续评审。它不是实施清单，也不是最终迁移步骤。
 

@@ -16,6 +16,7 @@ export interface ImageAttachmentInfo {
 export interface MessageData {
   id: string; session_id: string; role: string; content: string
   thinking: string | null; tool_calls_json: string | null; decision_json: string | null; attachments_json?: string | null; file_changes_json?: string | null; timestamp: string
+  status?: string; started_at?: string | null; completed_at?: string | null; stats_json?: string | null; process_item_count?: number
   has_tool_calls?: boolean; tool_call_count?: number; has_file_changes?: boolean; file_change_count?: number
   parsedToolCalls?: ToolCallInfo[]; parsedAttachments?: ImageAttachmentInfo[]; parsedDecision?: Record<string, unknown> | null
   parsedFileChanges?: FileChangeSummaryInfo
@@ -104,6 +105,23 @@ export interface FileChangeDetailInfo {
   files: FileChangeDetailEntryInfo[]
   totalAdded: number
   totalDeleted: number
+}
+export interface TurnProcessItemInfo {
+  id: string
+  session_id: string
+  message_id: string
+  sequence: number
+  kind: string
+  status: string | null
+  title: string | null
+  summary: string | null
+  preview: string | null
+  content: string | null
+  detail_json?: string | null
+  meta_json: string | null
+  created_at: string
+  updated_at: string
+  has_detail?: boolean
 }
 export interface UsageInfo { contextSize: number; contextUsed: number; costAmount?: number; costCurrency?: string }
 export interface TurnUsageInfo { inputTokens: number; outputTokens: number; totalTokens: number; cachedReadTokens?: number; thoughtTokens?: number }

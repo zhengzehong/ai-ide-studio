@@ -391,8 +391,8 @@ export const messageStore = {
     `).run({
       id,
       content: input.content,
-      thinking: input.thinking || null,
-      tool_calls_json: input.toolCalls ? JSON.stringify(input.toolCalls) : null,
+      thinking: null,
+      tool_calls_json: null,
       decision_json: input.stats ? JSON.stringify(input.stats) : null,
       stats_json: input.stats ? JSON.stringify(input.stats) : null,
       file_changes_json: input.fileChangesJson ?? fileChangesJsonFromToolCalls(input.toolCalls),
@@ -431,6 +431,16 @@ export const messageStore = {
       )
       VALUES (
         @id, @session_id, @agent_id, @acp_session_id, @message_id, @type, @role, @payload_json, @sequence, @created_at
+      )
+    `)
+    const insertProcessItem = db.prepare(`
+      INSERT INTO turn_process_items (
+        id, session_id, message_id, sequence, kind, status, title, summary, preview,
+        content, detail_json, meta_json, created_at, updated_at
+      )
+      VALUES (
+        @id, @session_id, @message_id, @sequence, @kind, @status, @title, @summary, @preview,
+        @content, @detail_json, @meta_json, @created_at, @updated_at
       )
     `)
 
@@ -480,6 +490,38 @@ export const messageStore = {
           payload_json: JSON.stringify(payload),
           sequence: copiedEventCount,
           created_at: sourceEvent.created_at,
+        })
+      }
+
+      const sourceProcessItems = db.prepare<string[], {
+        id: string
+        session_id: string
+        message_id: string
+        sequence: number
+        kind: string
+        status: string | null
+        title: string | null
+        summary: string | null
+        preview: string | null
+        content: string | null
+        detail_json: string | null
+        meta_json: string | null
+        created_at: string
+        updated_at: string
+      }>(`
+        SELECT * FROM turn_process_items
+        WHERE session_id = ? AND message_id IN (${placeholders})
+        ORDER BY message_id ASC, sequence ASC
+      `).all(sourceSessionId, ...sourceMessageIds)
+
+      for (const sourceItem of sourceProcessItems) {
+        const nextMessageId = messageIdMap.get(sourceItem.message_id)
+        if (!nextMessageId) continue
+        insertProcessItem.run({
+          ...sourceItem,
+          id: `tpi-${randomUUID().slice(0, 8)}`,
+          session_id: targetSessionId,
+          message_id: nextMessageId,
         })
       }
 
