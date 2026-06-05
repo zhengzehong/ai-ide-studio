@@ -100,7 +100,7 @@ import {
   type MenuName,
 } from './workspace/helpers'
 import { sessionIndicator } from '../utils/session-indicators'
-import { formatCompactDuration } from '../utils/duration'
+import { elapsedSecondsBetween, formatCompactDuration } from '../utils/duration'
 
 export default function Workspace() {
   const navigate = useNavigate()
@@ -2695,6 +2695,8 @@ type ChatMsg = {
   processBlocks?: TurnProcessBlock[]
   finalAnswer?: string
   processDefaultOpen?: boolean
+  started_at?: string | null
+  completed_at?: string | null
   stage?: string
   timestamp?: string
   streaming?: boolean
@@ -2795,7 +2797,10 @@ function ChatBubble({
 
   const isHuman = role === 'human'
   if (isHuman) turnStats = null
-  const elapsedSeconds = turnStats?.elapsedSeconds ?? (streaming ? liveElapsedSeconds : undefined)
+  const messageElapsedSeconds = !isTimelineGroup
+    ? elapsedSecondsBetween(normalizedMessage.started_at, normalizedMessage.completed_at)
+    : undefined
+  const elapsedSeconds = turnStats?.elapsedSeconds ?? (streaming ? liveElapsedSeconds : messageElapsedSeconds)
   const showTurnStats = !!turnStats || (!isHuman && streaming && elapsedSeconds != null)
   const visibleBlocks = blocks.filter(chatBubbleBlockHasBody)
   const turnProcessBlocks = !isTimelineGroup ? normalizedMessage.processBlocks || [] : []
