@@ -9,6 +9,7 @@ import AgentSquare from './pages/AgentSquare'
 import SkillCenter from './pages/SkillCenter'
 import ToolManager from './pages/ToolManager'
 import Settings from './pages/Settings'
+import WidgetPage from './pages/Widget'
 import { useConnectionStore } from './stores/connection.store'
 import { useAgentStore } from './stores/agent.store'
 import { useSessionStore } from './stores/session.store'
@@ -67,6 +68,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
+        <Route path="/widget" element={<WidgetPage />} />
         <Route element={<AppLayout />}>
           <Route path="/" element={<Dashboard />} />
           <Route path="/agents" element={<AgentSquare />} />
