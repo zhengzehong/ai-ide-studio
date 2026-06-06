@@ -1,6 +1,7 @@
-﻿import type { FileChangeDetailInfo, PlanEntry, SessionEventData, ToolCallInfo, TurnProcessItemInfo, TurnUsageInfo } from './session-events'
+﻿import { hasMeaningfulToolTitle } from './tool-title'
+import type { ElicitationRequestInfo, FileChangeDetailInfo, PermissionRequestInfo, PlanEntry, SessionEventData, ToolCallInfo, TurnProcessItemInfo, TurnUsageInfo } from './session-events'
 
-export type TurnProcessBlockKind = 'thinking' | 'note' | 'tool' | 'stage' | 'file_change' | 'plan'
+export type TurnProcessBlockKind = 'thinking' | 'note' | 'tool' | 'stage' | 'file_change' | 'plan' | 'permission' | 'elicitation'
 
 export interface TurnThinkingBlock {
   id: string
@@ -21,6 +22,7 @@ export interface TurnToolBlock {
   kind: 'tool'
   toolCall: ToolCallInfo
   sequence?: number
+  hasDetail?: boolean
 }
 
 export interface TurnStageBlock {
@@ -36,6 +38,7 @@ export interface TurnFileChangeBlock {
   changes?: FileChangeDetailInfo
   summary?: string
   sequence?: number
+  hasDetail?: boolean
 }
 
 export interface TurnPlanBlock {
@@ -44,9 +47,35 @@ export interface TurnPlanBlock {
   plan: PlanEntry[]
   summary?: string
   sequence?: number
+  hasDetail?: boolean
 }
 
-export type TurnProcessBlock = TurnThinkingBlock | TurnNoteBlock | TurnToolBlock | TurnStageBlock | TurnFileChangeBlock | TurnPlanBlock
+export interface TurnPermissionBlock {
+  id: string
+  kind: 'permission'
+  title: string
+  summary?: string
+  preview?: string
+  status?: string
+  request?: PermissionRequestInfo
+  sequence?: number
+  hasDetail?: boolean
+}
+
+export interface TurnElicitationBlock {
+  id: string
+  kind: 'elicitation'
+  title: string
+  message?: string
+  summary?: string
+  preview?: string
+  status?: string
+  request?: ElicitationRequestInfo
+  sequence?: number
+  hasDetail?: boolean
+}
+
+export type TurnProcessBlock = TurnThinkingBlock | TurnNoteBlock | TurnToolBlock | TurnStageBlock | TurnFileChangeBlock | TurnPlanBlock | TurnPermissionBlock | TurnElicitationBlock
 
 export type TurnEntry =
   | { sequence?: number; kind: 'thinking'; text: string }
@@ -222,7 +251,7 @@ function upsertToolBlock(turn: TurnViewModel, update: ToolCallInfo, sequence?: n
 
 function mergeToolCall(existing: ToolCallInfo, update: ToolCallInfo): ToolCallInfo {
   const next: ToolCallInfo = { ...existing }
-  if (update.title) next.title = update.title
+  if (hasMeaningfulToolTitle(update.title) || !hasMeaningfulToolTitle(next.title)) next.title = update.title
   if (update.kind) next.kind = update.kind
   if (update.status) next.status = update.status
   if (update.locations) next.locations = update.locations
@@ -246,6 +275,8 @@ function cloneProcessBlock(block: TurnProcessBlock): TurnProcessBlock {
       : undefined,
   }
   if (block.kind === 'plan') return { ...block, plan: block.plan.map((item) => ({ ...item })) }
+  if (block.kind === 'permission') return { ...block, request: block.request ? { ...block.request, toolCall: { ...block.request.toolCall }, options: block.request.options.map((option) => ({ ...option })) } : undefined }
+  if (block.kind === 'elicitation') return { ...block, request: block.request ? { ...block.request } : undefined }
   return { ...block }
 }
 
@@ -276,17 +307,48 @@ function processItemToBlock(item: TurnProcessItemInfo): TurnProcessBlock | null 
       title: item.title || item.summary || '工具调用',
       status: item.status ?? undefined,
     }
-    return { id: item.id, kind: 'tool', toolCall: tool, sequence: item.sequence }
+    return { id: item.id, kind: 'tool', toolCall: tool, sequence: item.sequence, hasDetail: (!!item.has_detail && !item.detail_json) }
   }
   if (item.kind === 'file_change') {
     const changes = parseDetail<FileChangeDetailInfo>(item.detail_json)
-    if (changes?.files.length) return { id: item.id, kind: 'file_change', changes, summary: item.summary || undefined, sequence: item.sequence }
-    if (item.summary || item.preview) return { id: item.id, kind: 'file_change', summary: item.summary || item.preview || undefined, sequence: item.sequence }
+    if (changes?.files.length) return { id: item.id, kind: 'file_change', changes, summary: item.summary || undefined, sequence: item.sequence, hasDetail: (!!item.has_detail && !item.detail_json) }
+    if (item.summary || item.preview) return { id: item.id, kind: 'file_change', summary: item.summary || item.preview || undefined, sequence: item.sequence, hasDetail: (!!item.has_detail && !item.detail_json) }
     return null
   }
   if (item.kind === 'plan') {
     const detail = parseDetail<{ plan?: PlanEntry[] }>(item.detail_json) ?? parseDetail<{ plan?: PlanEntry[] }>(item.content)
-    return { id: item.id, kind: 'plan', plan: detail?.plan || [], summary: item.summary || undefined, sequence: item.sequence }
+    return { id: item.id, kind: 'plan', plan: detail?.plan || [], summary: item.summary || undefined, sequence: item.sequence, hasDetail: (!!item.has_detail && !item.detail_json) }
+  }
+  if (item.kind === 'permission') {
+    const detail = parseDetail<{ permissionRequest?: PermissionRequestInfo }>(item.detail_json)
+    const request = detail?.permissionRequest
+    return {
+      id: item.id,
+      kind: 'permission',
+      title: item.title || '权限请求',
+      summary: item.summary || request?.toolCall?.title || undefined,
+      preview: item.preview || undefined,
+      status: item.status ?? undefined,
+      request,
+      sequence: item.sequence,
+      hasDetail: (!!item.has_detail && !item.detail_json),
+    }
+  }
+  if (item.kind === 'elicitation') {
+    const detail = parseDetail<{ elicitationRequest?: ElicitationRequestInfo }>(item.detail_json)
+    const request = detail?.elicitationRequest
+    return {
+      id: item.id,
+      kind: 'elicitation',
+      title: item.title || 'AI 提问',
+      message: request?.message || item.summary || item.preview || undefined,
+      summary: item.summary || undefined,
+      preview: item.preview || undefined,
+      status: item.status ?? undefined,
+      request,
+      sequence: item.sequence,
+      hasDetail: (!!item.has_detail && !item.detail_json),
+    }
   }
   if (item.summary || item.content) return { id: item.id, kind: 'note', text: item.content || item.summary || '', sequence: item.sequence }
   return null

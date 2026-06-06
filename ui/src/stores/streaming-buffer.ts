@@ -85,5 +85,5 @@ function upsertBufferedToolUpdate(tools: ToolCallInfo[], update: ToolCallInfo): 
     next[idx] = mergeToolCall(next[idx], update)
     return next
   }
-  return [...tools, mergeToolCall({ id: update.id, title: update.title || `宸ュ叿璋冪敤 #${update.id.slice(-6)}` }, update)]
+  return [...tools, mergeToolCall({ id: update.id, title: update.title || `工具调用 #${update.id.slice(-6)}` }, update)]
 }

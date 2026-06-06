@@ -108,6 +108,83 @@ describe('turn block reducer', () => {
     expect(processBlocksForCompletedTurn(withTool).map((block) => block.kind)).toEqual(['note', 'tool'])
   })
 
+
+  test('preserves meaningful tool title when a later update uses a generic title', () => {
+    const turn = turnFromEntries('msg-agent-1', [
+      entry(1, { kind: 'toolCall', toolCall: { id: 'tool-1', title: 'filesystem.read_text_file src/app.ts', status: 'in_progress' } }),
+      entry(2, { kind: 'toolUpdate', toolCall: { id: 'tool-1', title: '工具调用 #abc123', status: 'completed' } }),
+    ])
+
+    const tool = turn.processBlocks.find((block) => block.kind === 'tool')
+    expect(tool?.toolCall.title).toBe('filesystem.read_text_file src/app.ts')
+    expect(tool?.toolCall.status).toBe('completed')
+  })
+
+  test('restores permission and elicitation process items as first-class blocks', () => {
+    const turn = turnFromProcessItems('msg-agent-1', [
+      {
+        id: 'tpi-perm-1',
+        session_id: 'sess-1',
+        message_id: 'msg-agent-1',
+        sequence: 1,
+        kind: 'permission',
+        status: 'pending',
+        title: '权限请求',
+        summary: 'filesystem.read_text_file src/app.ts',
+        preview: '允许 / 拒绝',
+        content: null,
+        detail_json: JSON.stringify({
+          permissionRequest: {
+            id: 'perm-1',
+            toolCall: { id: 'tool-1', title: 'filesystem.read_text_file src/app.ts' },
+            options: [{ optionId: 'allow', name: '允许', kind: 'allow_once' }],
+          },
+        }),
+        meta_json: null,
+        created_at: '2026-06-05T00:00:00.000Z',
+        updated_at: '2026-06-05T00:00:00.000Z',
+        has_detail: true,
+      },
+      {
+        id: 'tpi-ask-1',
+        session_id: 'sess-1',
+        message_id: 'msg-agent-1',
+        sequence: 2,
+        kind: 'elicitation',
+        status: 'pending',
+        title: 'AI 提问',
+        summary: '需要选择目标目录',
+        preview: '需要选择目标目录',
+        content: null,
+        detail_json: JSON.stringify({
+          elicitationRequest: {
+            id: 'ask-1',
+            message: '需要选择目标目录',
+            resolved: false,
+          },
+        }),
+        meta_json: null,
+        created_at: '2026-06-05T00:00:01.000Z',
+        updated_at: '2026-06-05T00:00:01.000Z',
+        has_detail: true,
+      },
+    ])
+
+    expect(turn.processBlocks.map((block) => block.kind)).toEqual(['permission', 'elicitation'])
+    expect(turn.processBlocks[0]).toMatchObject({
+      kind: 'permission',
+      title: '权限请求',
+      summary: 'filesystem.read_text_file src/app.ts',
+      request: { id: 'perm-1' },
+    })
+    expect(turn.processBlocks[1]).toMatchObject({
+      kind: 'elicitation',
+      title: 'AI 提问',
+      message: '需要选择目标目录',
+      request: { id: 'ask-1' },
+    })
+  })
+
   test('restores ACP plan blocks from lightweight process items without detail JSON', () => {
     const turn = turnFromProcessItems('msg-agent-1', [
       {

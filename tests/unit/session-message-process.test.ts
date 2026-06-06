@@ -36,6 +36,8 @@ function resetStore(): void {
     toolCallErrorByKey: {},
     turnProcessLoadingByMessageId: {},
     turnProcessErrorByMessageId: {},
+    processItemLoadingByKey: {},
+    processItemErrorByKey: {},
     runningSessionIds: {},
     unreadSessionIds: {},
     staleSessionIds: {},
@@ -57,6 +59,58 @@ describe('session store message process loading', () => {
     expect(wsMock.request).toHaveBeenCalledTimes(1)
     resolveRequest({ files: [], totalAdded: 0, totalDeleted: 0 })
     await Promise.all([first, second])
+  })
+
+
+  test('loads one process item detail and merges it into the message process block', async () => {
+    resetStore()
+    wsMock.request.mockReset()
+    wsMock.request.mockImplementation(async (request: { type: string }) => {
+      if (request.type === 'sessions.processItemDetail') {
+        return {
+          id: 'tpi-tool-1',
+          session_id: 'sess-process',
+          message_id: 'msg-agent-1',
+          sequence: 1,
+          kind: 'tool',
+          status: 'completed',
+          title: 'filesystem.read_text_file src/app.ts',
+          summary: 'read file',
+          preview: 'src/app.ts',
+          content: null,
+          detail_json: JSON.stringify({ id: 'tool-1', title: 'filesystem.read_text_file src/app.ts', status: 'completed', rawOutput: 'file content' }),
+          meta_json: null,
+          created_at: '2026-06-03T00:00:01.000Z',
+          updated_at: '2026-06-03T00:00:02.000Z',
+          has_detail: true,
+        }
+      }
+      return []
+    })
+    useSessionStore.setState({
+      messages: [
+        {
+          id: 'msg-agent-1',
+          session_id: 'sess-process',
+          role: 'agent',
+          content: '完成',
+          thinking: null,
+          tool_calls_json: null,
+          decision_json: null,
+          attachments_json: null,
+          timestamp: '2026-06-03T00:00:04.000Z',
+          processBlocks: [
+            { id: 'tpi-tool-1', kind: 'tool', toolCall: { id: 'tool-1', title: 'filesystem.read_text_file src/app.ts', status: 'completed' }, sequence: 1, hasDetail: true },
+          ],
+        },
+      ],
+    })
+
+    await useSessionStore.getState().fetchProcessItemDetail('sess-process', 'msg-agent-1', 'tpi-tool-1')
+
+    expect(wsMock.request).toHaveBeenCalledWith({ type: 'sessions.processItemDetail', sessionId: 'sess-process', messageId: 'msg-agent-1', itemId: 'tpi-tool-1' })
+    const block = useSessionStore.getState().messages[0].processBlocks?.[0]
+    expect(block).toMatchObject({ kind: 'tool', toolCall: { id: 'tool-1', rawOutput: 'file content' } })
   })
 
   test('loads one historical agent message process from ordered events', async () => {

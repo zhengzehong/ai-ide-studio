@@ -113,11 +113,14 @@ export default function Workspace() {
   const messages = useSessionStore((s) => s.messages)
   const fetchMessageProcess = useSessionStore((s) => s.fetchMessageProcess)
   const fetchMessageFileChanges = useSessionStore((s) => s.fetchMessageFileChanges)
+  const fetchProcessItemDetail = useSessionStore((s) => s.fetchProcessItemDetail)
   const fileChangeDetailsByMessageId = useSessionStore((s) => s.fileChangeDetailsByMessageId)
   const turnProcessLoadingByMessageId = useSessionStore((s) => s.turnProcessLoadingByMessageId)
   const turnProcessErrorByMessageId = useSessionStore((s) => s.turnProcessErrorByMessageId)
   const toolCallLoadingByKey = useSessionStore((s) => s.toolCallLoadingByKey)
   const toolCallErrorByKey = useSessionStore((s) => s.toolCallErrorByKey)
+  const processItemLoadingByKey = useSessionStore((s) => s.processItemLoadingByKey)
+  const processItemErrorByKey = useSessionStore((s) => s.processItemErrorByKey)
   const events = useSessionStore((s) => s.events)
   const streamingMessage = useSessionStore((s) => s.streamingMessage)
   const usage = useSessionStore((s) => s.usage)
@@ -559,15 +562,18 @@ export default function Workspace() {
           isStreaming={false}
           onLoadMessageProcess={fetchMessageProcess}
           onLoadMessageFileChanges={fetchMessageFileChanges}
+          onLoadProcessItemDetail={fetchProcessItemDetail}
           fileChangeDetailsByMessageId={fileChangeDetailsByMessageId}
           fileChangeLoadingByKey={toolCallLoadingByKey}
           fileChangeErrorByKey={toolCallErrorByKey}
+          processItemLoadingByKey={processItemLoadingByKey}
+          processItemErrorByKey={processItemErrorByKey}
           turnProcessLoadingByMessageId={turnProcessLoadingByMessageId}
           turnProcessErrorByMessageId={turnProcessErrorByMessageId}
         />
       )
     },
-    [chatAgent, fetchMessageFileChanges, fetchMessageProcess, fileChangeDetailsByMessageId, interactionPanel, liveElapsedSeconds, toolCallErrorByKey, toolCallLoadingByKey, turnProcessErrorByMessageId, turnProcessLoadingByMessageId],
+    [chatAgent, fetchMessageFileChanges, fetchMessageProcess, fetchProcessItemDetail, fileChangeDetailsByMessageId, interactionPanel, liveElapsedSeconds, processItemErrorByKey, processItemLoadingByKey, toolCallErrorByKey, toolCallLoadingByKey, turnProcessErrorByMessageId, turnProcessLoadingByMessageId],
   )
 
   const currentModeName =
@@ -1958,7 +1964,20 @@ function TaskPanel({ tasks, agents }: { tasks: TaskData[]; agents: AgentData[] }
 }
 
 /* ─── Tool Call Panel ─── */
-function ToolCallPanel({ tc }: { tc: ToolCallInfo; isStreaming: boolean }) {
+function ToolCallPanel({
+  tc,
+  hasDetail,
+  detailLoading,
+  detailError,
+  onLoadDetail,
+}: {
+  tc: ToolCallInfo
+  isStreaming: boolean
+  hasDetail?: boolean
+  detailLoading?: boolean
+  detailError?: string
+  onLoadDetail?: () => void
+}) {
   const isActive = tc.status === 'in_progress' || tc.status === 'pending'
   const [openOverride, setOpenOverride] = useState<'open' | 'closed' | null>(null)
   const prevStatusRef = useRef(tc.status)
@@ -1971,6 +1990,9 @@ function ToolCallPanel({ tc }: { tc: ToolCallInfo; isStreaming: boolean }) {
   }, [tc.status])
   const open = openOverride === 'open' || (openOverride !== 'closed' && isActive)
   const toggleOpen = () => setOpenOverride(open ? 'closed' : 'open')
+  useEffect(() => {
+    if (open && hasDetail && !detailLoading && !detailError) onLoadDetail?.()
+  }, [detailError, detailLoading, hasDetail, onLoadDetail, open])
   const statusColor = tc.status === 'completed' ? 'var(--green)' : tc.status === 'failed' ? 'var(--red)' : 'var(--blue)'
   const statusIcon =
     tc.status === 'completed' ? (
@@ -2046,6 +2068,8 @@ function ToolCallPanel({ tc }: { tc: ToolCallInfo; isStreaming: boolean }) {
             overflowX: 'hidden',
           }}
         >
+          {detailLoading && <div style={{ color: 'var(--text-3)', marginBottom: 6 }}>正在加载工具详情...</div>}
+          {detailError && <div style={{ color: 'var(--red)', marginBottom: 6, overflowWrap: 'anywhere' }}>{detailError}</div>}
           {tc.locations && tc.locations.length > 0 && (
             <div style={{ marginBottom: 6 }}>
               {tc.locations.map((l, i) => (
@@ -2749,9 +2773,12 @@ function ChatBubble({
   liveElapsedSeconds,
   onLoadMessageProcess,
   onLoadMessageFileChanges,
+  onLoadProcessItemDetail,
   fileChangeDetailsByMessageId = {},
   fileChangeLoadingByKey = {},
   fileChangeErrorByKey = {},
+  processItemLoadingByKey = {},
+  processItemErrorByKey = {},
   turnProcessLoadingByMessageId = {},
   turnProcessErrorByMessageId = {},
 }: {
@@ -2763,9 +2790,12 @@ function ChatBubble({
   liveElapsedSeconds?: number
   onLoadMessageProcess?: (sessionId: string, messageId: string) => void
   onLoadMessageFileChanges?: (sessionId: string, messageId: string) => void
+  onLoadProcessItemDetail?: (sessionId: string, messageId: string, itemId: string) => void
   fileChangeDetailsByMessageId?: Record<string, FileChangeDetailInfo>
   fileChangeLoadingByKey?: Record<string, boolean>
   fileChangeErrorByKey?: Record<string, string>
+  processItemLoadingByKey?: Record<string, boolean>
+  processItemErrorByKey?: Record<string, string>
   turnProcessLoadingByMessageId?: Record<string, boolean>
   turnProcessErrorByMessageId?: Record<string, string>
 }) {
@@ -2890,7 +2920,22 @@ function ChatBubble({
                 defaultProcessOpen={streaming || !!normalizedMessage.processDefaultOpen}
                 onLoadProcess={loadTurnProcess}
                 onLoadFileChanges={loadFileChanges}
-                renderProcessBlock={(block) => <ProcessBlockView key={block.id} block={block} isStreaming={isStreaming} />}
+                renderProcessBlock={(block) => {
+                  const processItemKey = !isTimelineGroup ? `${normalizedMessage.id}:${block.id}` : ''
+                  const loadDetail = !isTimelineGroup && normalizedMessage.session_id
+                    ? () => onLoadProcessItemDetail?.(normalizedMessage.session_id!, normalizedMessage.id, block.id)
+                    : undefined
+                  return (
+                    <ProcessBlockView
+                      key={block.id}
+                      block={block}
+                      isStreaming={isStreaming}
+                      detailLoading={!!processItemLoadingByKey[processItemKey]}
+                      detailError={processItemErrorByKey[processItemKey]}
+                      onLoadDetail={loadDetail}
+                    />
+                  )
+                }}
               />
             ) : visibleBlocks.map((block, index) => (
                 <ChatBubbleBlockView
@@ -3026,14 +3071,33 @@ function chatBubbleBlockHasBody(block: ChatBubbleBlock): boolean {
   return !!block.content || !!block.thinking || attachments.length > 0 || toolCalls.length > 0 || !!block.has_tool_calls
 }
 
-function ProcessBlockView({ block, isStreaming }: { block: TurnProcessBlock; isStreaming: boolean }) {
+function ProcessBlockView({
+  block,
+  isStreaming,
+  detailLoading,
+  detailError,
+  onLoadDetail,
+}: {
+  block: TurnProcessBlock
+  isStreaming: boolean
+  detailLoading?: boolean
+  detailError?: string
+  onLoadDetail?: () => void
+}) {
   if (block.kind === 'tool') {
     const diffEntries = toolBlockHasDiff(block.toolCall)
       ? extractFileChangesFromToolCall(block.toolCall)
       : []
     return (
       <>
-        <ToolCallPanel tc={block.toolCall} isStreaming={isStreaming} />
+        <ToolCallPanel
+          tc={block.toolCall}
+          isStreaming={isStreaming}
+          hasDetail={block.hasDetail}
+          detailLoading={detailLoading}
+          detailError={detailError}
+          onLoadDetail={onLoadDetail}
+        />
         {diffEntries.length > 0 && (
           <FileChangesCard
             changes={{
@@ -3085,6 +3149,31 @@ function ProcessBlockView({ block, isStreaming }: { block: TurnProcessBlock; isS
   }
   if (block.kind === 'stage') {
     return <div style={{ fontSize: 14, color: 'var(--text-3)' }}>{block.text}</div>
+  }
+  if (block.kind === 'permission') {
+    return (
+      <div style={{ borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-1)', padding: '8px 10px', fontSize: 14, color: 'var(--text-2)' }}>
+        <div style={{ fontWeight: 700, marginBottom: 4 }}>权限请求</div>
+        <div style={{ overflowWrap: 'anywhere' }}>
+          {block.summary || block.request?.toolCall.title || '需要确认工具权限'}
+        </div>
+        {(block.preview || block.request?.options.length) && (
+          <div style={{ marginTop: 4, fontSize: 13, color: 'var(--text-3)' }}>
+            {block.preview || block.request?.options.map((option) => option.name).join(' / ')}
+          </div>
+        )}
+      </div>
+    )
+  }
+  if (block.kind === 'elicitation') {
+    return (
+      <div style={{ borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-1)', padding: '8px 10px', fontSize: 14, color: 'var(--text-2)' }}>
+        <div style={{ fontWeight: 700, marginBottom: 4 }}>AI 提问</div>
+        <div style={{ overflowWrap: 'anywhere' }}>
+          {block.message || block.summary || block.preview || '需要补充信息'}
+        </div>
+      </div>
+    )
   }
   return <ProcessNoteBlock text={block.text} />
 }
