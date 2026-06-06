@@ -293,6 +293,12 @@ function processItemCacheKey(messageId: string, itemId: string): string {
   return `${messageId}:${itemId}`
 }
 
+function withoutRecordKey<T>(record: Record<string, T>, key: string): Record<string, T> {
+  const next = { ...record }
+  delete next[key]
+  return next
+}
+
 function flushStreamingBuffer(set: (partial: Partial<SessionStore> | ((state: SessionStore) => Partial<SessionStore>)) => void, get: () => SessionStore): void {
   if (streamingFlushTimer) {
     clearTimeout(streamingFlushTimer)
@@ -538,6 +544,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       toolCallErrorByKey: currentSessionId ? get().toolCallErrorByKey : {},
       turnProcessLoadingByMessageId: currentSessionId ? get().turnProcessLoadingByMessageId : {},
       turnProcessErrorByMessageId: currentSessionId ? get().turnProcessErrorByMessageId : {},
+      processItemLoadingByKey: currentSessionId ? get().processItemLoadingByKey : {},
+      processItemErrorByKey: currentSessionId ? get().processItemErrorByKey : {},
       runningSessionIds: removeSessionIndicator(get().runningSessionIds, sessionId),
       unreadSessionIds: removeSessionIndicator(get().unreadSessionIds, sessionId),
       staleSessionIds: removeSessionIndicator(get().staleSessionIds, sessionId),
@@ -578,6 +586,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         toolCallErrorByKey: {},
         turnProcessLoadingByMessageId: {},
         turnProcessErrorByMessageId: {},
+        processItemLoadingByKey: {},
+        processItemErrorByKey: {},
       })
       return
     }
@@ -592,7 +602,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       usage: c?.usage || null, turnUsage: c?.turnUsage || null, capabilities: c?.capabilities || { ...defaultCaps }, plan: c?.plan || [],
       pendingPermissions: c?.pendingPermissions || [], pendingElicitations: c?.pendingElicitations || [],
       toolCallSummariesByMessageId: {}, toolCallDetailsByKey: {}, fileChangeDetailsByMessageId: {}, toolCallLoadingByKey: {}, toolCallErrorByKey: {},
-      turnProcessLoadingByMessageId: {}, turnProcessErrorByMessageId: {},
+      turnProcessLoadingByMessageId: {}, turnProcessErrorByMessageId: {}, processItemLoadingByKey: {}, processItemErrorByKey: {},
       unreadSessionIds: removeSessionIndicator(get().unreadSessionIds, id),
     })
     void get().fetchMessages(id)
@@ -792,10 +802,13 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     }))
     try {
       const item = await wsClient.request({ type: 'sessions.processItemDetail', sessionId, messageId, itemId }) as TurnProcessItemInfo
-      if (sessionId !== get().currentSessionId) return
+      if (sessionId !== get().currentSessionId) {
+        set((state) => ({ processItemLoadingByKey: withoutRecordKey(state.processItemLoadingByKey, key) }))
+        return
+      }
       const detailBlock = turnFromProcessItems(messageId, [item]).processBlocks[0]
       if (!detailBlock) {
-        set((state) => ({ processItemLoadingByKey: { ...state.processItemLoadingByKey, [key]: false } }))
+        set((state) => ({ processItemLoadingByKey: withoutRecordKey(state.processItemLoadingByKey, key) }))
         return
       }
       set((state) => {
@@ -807,14 +820,15 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             ? { ...current, processBlocks: mergeProcessBlock(current.processBlocks || [], detailBlock) }
             : current),
           streamingMessage: streaming,
-          processItemLoadingByKey: { ...state.processItemLoadingByKey, [key]: false },
+          processItemLoadingByKey: withoutRecordKey(state.processItemLoadingByKey, key),
+          processItemErrorByKey: withoutRecordKey(state.processItemErrorByKey, key),
         }
       })
       saveCache(sessionId, get())
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       set((state) => ({
-        processItemLoadingByKey: { ...state.processItemLoadingByKey, [key]: false },
+        processItemLoadingByKey: withoutRecordKey(state.processItemLoadingByKey, key),
         processItemErrorByKey: { ...state.processItemErrorByKey, [key]: message },
       }))
     }
@@ -1017,6 +1031,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           streamingMessage: st.currentSessionId === sessionId ? null : st.streamingMessage,
           turnProcessLoadingByMessageId: st.currentSessionId === sessionId ? {} : st.turnProcessLoadingByMessageId,
           turnProcessErrorByMessageId: st.currentSessionId === sessionId ? {} : st.turnProcessErrorByMessageId,
+          processItemLoadingByKey: st.currentSessionId === sessionId ? {} : st.processItemLoadingByKey,
+          processItemErrorByKey: st.currentSessionId === sessionId ? {} : st.processItemErrorByKey,
           runningSessionIds: removeSessionIndicator(st.runningSessionIds, sessionId),
           unreadSessionIds: removeSessionIndicator(st.unreadSessionIds, sessionId),
           staleSessionIds: removeSessionIndicator(st.staleSessionIds, sessionId),
