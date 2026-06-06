@@ -12,6 +12,7 @@ import { templateRpcHandlers } from './templates.js'
 import { teamRpcHandlers } from './teams.js'
 import { toolRpcHandlers } from './tools.js'
 import { timelineRpcHandlers } from './timeline.js'
+import { widgetRpcHandlers } from './widget.js'
 import type { RpcContext, RpcHandlerMap } from './types.js'
 
 const rpcHandlers: RpcHandlerMap = {
@@ -28,6 +29,7 @@ const rpcHandlers: RpcHandlerMap = {
   ...modelRpcHandlers,
   ...skillRpcHandlers,
   ...timelineRpcHandlers,
+  ...widgetRpcHandlers,
 }
 
 export async function dispatchRpc(msg: ClientMessage, context: RpcContext): Promise<void> {

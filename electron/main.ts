@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Tray, Menu, nativeImage } from 'electron'
 import { spawn, type ChildProcess } from 'child_process'
 import { createServer } from 'net'
 import { randomBytes } from 'crypto'
@@ -6,6 +6,7 @@ import { existsSync } from 'fs'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 import { createBackendLaunchOptions, resolveBackendNodeCommand } from './backend-launch.js'
+import { createWidgetWindow, toggleWidgetPin, hideWidget, showWidget, getWidgetWindow } from './widget-window.js'
 
 const electronDir = dirname(fileURLToPath(import.meta.url))
 
@@ -33,6 +34,11 @@ async function main(): Promise<void> {
   try {
     await waitForHealth(port, token)
     mainWindow = createWindow(port, token)
+
+    const userDataDir = app.getPath('userData')
+    createWidgetWindow({ port, token, electronDir, userDataDir })
+    setupWidgetIpc()
+    createTray(port, token)
   } catch (err) {
     dialog.showErrorBox('AI IDE Studio 启动失败', err instanceof Error ? err.message : String(err))
     app.quit()
@@ -125,12 +131,59 @@ function getResourcesPath(): string {
 }
 
 app.on('window-all-closed', () => {
-  app.quit()
+  if (process.platform !== 'darwin') app.quit()
 })
 
 app.on('before-quit', () => {
   isQuitting = true
   backendProcess?.kill()
 })
+
+function setupWidgetIpc(): void {
+  ipcMain.handle('widget:toggle-pin', () => toggleWidgetPin())
+  ipcMain.handle('widget:minimize', () => hideWidget())
+  ipcMain.handle('widget:open-main', () => {
+    mainWindow?.show()
+    mainWindow?.focus()
+  })
+}
+
+function createTray(_port: number, _token: string): void {
+  const iconPath = join(electronDir, 'icon-16.png')
+  const icon = existsSync(iconPath)
+    ? nativeImage.createFromPath(iconPath)
+    : nativeImage.createEmpty()
+
+  const tray = new Tray(icon.isEmpty() ? nativeImage.createFromBuffer(Buffer.alloc(16 * 16 * 4, 128)) : icon)
+
+  tray.setToolTip('AI IDE Studio')
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      {
+        label: '显示主窗口',
+        click: () => {
+          mainWindow?.show()
+          mainWindow?.focus()
+        },
+      },
+      {
+        label: '显示/隐藏部件',
+        click: () => {
+          const widget = getWidgetWindow()
+          if (widget?.isVisible()) hideWidget()
+          else showWidget()
+        },
+      },
+      { type: 'separator' },
+      { label: '退出', click: () => app.quit() },
+    ]),
+  )
+
+  tray.on('click', () => {
+    const widget = getWidgetWindow()
+    if (widget?.isVisible()) hideWidget()
+    else showWidget()
+  })
+}
 
 void main()
