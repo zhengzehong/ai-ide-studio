@@ -1,7 +1,6 @@
 import * as acp from '@agentclientprotocol/sdk'
 import type { ToolCallContentItem, ToolCallData } from '../types/ws-protocol.js'
-
-const GENERIC_TOOL_TITLES = new Set(['工具调用', 'Tool call', 'tool call'])
+import { hasMeaningfulToolTitle } from '../core/tool-title.js'
 
 export function contentBlockToText(block: acp.ContentBlock): string {
   if (block.type === 'text') return (block as acp.TextContent).text
@@ -62,7 +61,7 @@ export function toolCallTitle(toolCall: { title?: string | null; locations?: acp
 }
 
 function hasMeaningfulTitle(title?: string | null): title is string {
-  return !!title && !GENERIC_TOOL_TITLES.has(title) && !title.startsWith('工具调用 #')
+  return hasMeaningfulToolTitle(title)
 }
 
 function mcpToolTitle(rawInput: unknown): string | undefined {

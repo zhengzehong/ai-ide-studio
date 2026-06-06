@@ -1,9 +1,8 @@
 import type { ToolCallData } from '../types/ws-protocol.js'
-
-const GENERIC_TOOL_TITLES = new Set(['工具调用', 'Tool call', 'tool call'])
+import { hasMeaningfulToolTitle } from './tool-title.js'
 
 function hasMeaningfulTitle(tool: ToolCallData): boolean {
-  return !!tool.title && !GENERIC_TOOL_TITLES.has(tool.title) && !tool.title.startsWith('工具调用 #')
+  return hasMeaningfulToolTitle(tool.title)
 }
 
 export function shouldCreateToolFromUpdate(update: ToolCallData): boolean {

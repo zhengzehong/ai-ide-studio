@@ -98,6 +98,8 @@ interface SessionStore {
   toolCallErrorByKey: Record<string, string>
   turnProcessLoadingByMessageId: Record<string, boolean>
   turnProcessErrorByMessageId: Record<string, string>
+  processItemLoadingByKey: Record<string, boolean>
+  processItemErrorByKey: Record<string, string>
   runningSessionIds: SessionIndicatorStateMap
   unreadSessionIds: SessionIndicatorStateMap
   staleSessionIds: SessionIndicatorStateMap
@@ -124,6 +126,7 @@ interface SessionStore {
   fetchMessageToolCallDetail: (sessionId: string, messageId: string, toolCallId: string) => Promise<void>
   fetchMessageFileChanges: (sessionId: string, messageId: string) => Promise<void>
   fetchMessageProcess: (sessionId: string, messageId: string) => Promise<void>
+  fetchProcessItemDetail: (sessionId: string, messageId: string, itemId: string) => Promise<void>
   setupListeners: () => () => void
 }
 
@@ -286,6 +289,10 @@ function toolDetailCacheKey(messageId: string, toolCallId: string): string {
   return `${messageId}:${toolCallId}`
 }
 
+function processItemCacheKey(messageId: string, itemId: string): string {
+  return `${messageId}:${itemId}`
+}
+
 function flushStreamingBuffer(set: (partial: Partial<SessionStore> | ((state: SessionStore) => Partial<SessionStore>)) => void, get: () => SessionStore): void {
   if (streamingFlushTimer) {
     clearTimeout(streamingFlushTimer)
@@ -394,7 +401,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   sessions: [], currentSessionId: null, messages: [], events: [], streamingMessage: null,
   usage: null, turnUsage: null, capabilities: { ...defaultCaps }, plan: [], pendingPermissions: [], pendingElicitations: [], loading: false,
   toolCallSummariesByMessageId: {}, toolCallDetailsByKey: {}, fileChangeDetailsByMessageId: {}, toolCallLoadingByKey: {}, toolCallErrorByKey: {},
-  turnProcessLoadingByMessageId: {}, turnProcessErrorByMessageId: {},
+  turnProcessLoadingByMessageId: {}, turnProcessErrorByMessageId: {}, processItemLoadingByKey: {}, processItemErrorByKey: {},
   runningSessionIds: {}, unreadSessionIds: {}, staleSessionIds: {},
 
   fetchSessions: async (agentId, projectId) => {
@@ -768,6 +775,47 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       set((state) => ({
         turnProcessLoadingByMessageId: { ...state.turnProcessLoadingByMessageId, [messageId]: false },
         turnProcessErrorByMessageId: { ...state.turnProcessErrorByMessageId, [messageId]: message },
+      }))
+    }
+  },
+
+
+  fetchProcessItemDetail: async (sessionId, messageId, itemId) => {
+    const key = processItemCacheKey(messageId, itemId)
+    const message = get().messages.find((item) => item.id === messageId && item.session_id === sessionId)
+    const block = message?.processBlocks?.find((item) => item.id === itemId)
+    if (block && !('hasDetail' in block && block.hasDetail)) return
+    if (get().processItemLoadingByKey[key]) return
+    set((state) => ({
+      processItemLoadingByKey: { ...state.processItemLoadingByKey, [key]: true },
+      processItemErrorByKey: { ...state.processItemErrorByKey, [key]: '' },
+    }))
+    try {
+      const item = await wsClient.request({ type: 'sessions.processItemDetail', sessionId, messageId, itemId }) as TurnProcessItemInfo
+      if (sessionId !== get().currentSessionId) return
+      const detailBlock = turnFromProcessItems(messageId, [item]).processBlocks[0]
+      if (!detailBlock) {
+        set((state) => ({ processItemLoadingByKey: { ...state.processItemLoadingByKey, [key]: false } }))
+        return
+      }
+      set((state) => {
+        const streaming = state.streamingMessage?.id === messageId
+          ? mergeProcessBlockIntoStreaming(state.streamingMessage, detailBlock)
+          : state.streamingMessage
+        return {
+          messages: state.messages.map((current) => current.id === messageId && current.session_id === sessionId
+            ? { ...current, processBlocks: mergeProcessBlock(current.processBlocks || [], detailBlock) }
+            : current),
+          streamingMessage: streaming,
+          processItemLoadingByKey: { ...state.processItemLoadingByKey, [key]: false },
+        }
+      })
+      saveCache(sessionId, get())
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      set((state) => ({
+        processItemLoadingByKey: { ...state.processItemLoadingByKey, [key]: false },
+        processItemErrorByKey: { ...state.processItemErrorByKey, [key]: message },
       }))
     }
   },

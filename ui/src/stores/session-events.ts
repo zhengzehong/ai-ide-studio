@@ -1,3 +1,4 @@
+import { hasMeaningfulToolTitle } from './tool-title'
 import {
   applyTurnEntry,
   createEmptyTurn,
@@ -298,8 +299,8 @@ function keepExistingFullToolCalls(next: MessageData, existing?: MessageData): M
   const withProcess = existing?.processBlocks || existing?.finalAnswer
     ? {
         ...withStats,
-        processBlocks: existing.processBlocks,
-        finalAnswer: existing.finalAnswer ?? withStats.content,
+        processBlocks: withStats.processBlocks ?? existing.processBlocks,
+        finalAnswer: withStats.finalAnswer ?? existing.finalAnswer ?? withStats.content,
         processDefaultOpen: withStats.processDefaultOpen,
       }
     : withStats
@@ -315,16 +316,13 @@ function keepExistingFullToolCalls(next: MessageData, existing?: MessageData): M
 
 export function appendFinalizedMessage(currentMessages: MessageData[], message: MessageData): MessageData[] {
   const normalized = normalizeMessage(message)
-  if (!currentMessages.some(m => m.id === message.id)) return [...currentMessages, normalized]
-
-  const suffixBase = Date.parse(message.timestamp) || Date.now()
-  let nextId = `${message.id}-${suffixBase}`
-  let i = 1
-  while (currentMessages.some(m => m.id === nextId)) {
-    i += 1
-    nextId = `${message.id}-${suffixBase}-${i}`
-  }
-  return [...currentMessages, { ...normalized, id: nextId }]
+  let replaced = false
+  const messages = currentMessages.map((current) => {
+    if (current.id !== message.id) return current
+    replaced = true
+    return keepExistingFullToolCalls(normalized, current)
+  })
+  return replaced ? messages : [...messages, normalized]
 }
 
 export function buildErrorAgentMessage(sessionId: string, messageId: string, error: string): MessageData {
@@ -342,10 +340,8 @@ export function buildErrorAgentMessage(sessionId: string, messageId: string, err
   })
 }
 
-const GENERIC_TOOL_TITLES = new Set(['工具调用', 'Tool call', 'tool call'])
-
 function hasMeaningfulTitle(tool: ToolCallInfo): boolean {
-  return !!tool.title && !GENERIC_TOOL_TITLES.has(tool.title) && !tool.title.startsWith('工具调用 #')
+  return hasMeaningfulToolTitle(tool.title)
 }
 
 export function shouldCreateToolFromUpdate(update: ToolCallInfo): boolean {

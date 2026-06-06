@@ -21,7 +21,7 @@ export function statusDot(s: string): string {
   return s === 'running' ? '#2563eb' : s === 'idle' ? '#059669' : '#9ca3af'
 }
 export function statusLabel(s: string): string {
-  return { running: '运行中', idle: '空闲', standby: '待机', sleeping: '休眠' }[s] ?? s
+  return { running: '已连接', idle: '空闲', standby: '待机', sleeping: '休眠' }[s] ?? s
 }
 export function formatTime(iso: string): string {
   try {

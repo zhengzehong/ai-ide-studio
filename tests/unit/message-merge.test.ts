@@ -4,6 +4,7 @@ import {
   buildErrorAgentMessage,
   mergeMessagesById,
   mergeMessagesForSession,
+  mergeToolCall,
   normalizeMessage,
   type MessageData,
 } from '../../ui/src/stores/session-events.ts'
@@ -198,15 +199,72 @@ describe('mergeMessagesById', () => {
 })
 
 describe('appendFinalizedMessage', () => {
-  test('appends a new reply even when ACP reuses a message id', () => {
-    const oldAgent = msg('msg-reused', 'agent', '2026-01-01T00:00:00.000Z')
-    const nextAgent = { ...msg('msg-reused', 'agent', '2026-01-01T00:00:02.000Z'), content: 'new answer' }
-    const merged = appendFinalizedMessage([oldAgent, msg('human-2', 'human', '2026-01-01T00:00:01.000Z')], nextAgent)
+  test('replaces a same-id live reply instead of appending a duplicate', () => {
+    const liveAgent = {
+      ...msg('msg-turn', 'agent', '2026-01-01T00:00:00.000Z'),
+      content: 'partial',
+      status: 'running',
+      processBlocks: [{ id: 'note-live', kind: 'note' as const, text: 'live note' }],
+      finalAnswer: 'partial',
+    }
+    const finalAgent = {
+      ...msg('msg-turn', 'agent', '2026-01-01T00:00:02.000Z'),
+      content: 'final answer',
+      status: 'completed',
+      processBlocks: [{ id: 'note-final', kind: 'note' as const, text: 'final note' }],
+      finalAnswer: 'final answer',
+    }
 
-    expect(merged).toHaveLength(3)
-    expect(merged[0].id).toBe('msg-reused')
-    expect(merged[2].id).not.toBe('msg-reused')
-    expect(merged[2].content).toBe('new answer')
+    const merged = appendFinalizedMessage([liveAgent], finalAgent)
+
+    expect(merged).toHaveLength(1)
+    expect(merged[0].id).toBe('msg-turn')
+    expect(merged[0].content).toBe('final answer')
+    expect(merged[0].processBlocks).toEqual(finalAgent.processBlocks)
+    expect(merged[0].finalAnswer).toBe('final answer')
+  })
+
+  test('same-id final message preserves existing process details when the incoming row is lightweight', () => {
+    const localProcess = [{ id: 'note-local', kind: 'note' as const, text: 'kept process' }]
+    const existing = {
+      ...msg('msg-turn-light', 'agent', '2026-01-01T00:00:00.000Z'),
+      content: 'old local final',
+      processBlocks: localProcess,
+      finalAnswer: 'old local final',
+    }
+    const lightweightFinal = {
+      ...msg('msg-turn-light', 'agent', '2026-01-01T00:00:02.000Z'),
+      content: 'server final',
+      status: 'completed',
+    }
+
+    const merged = appendFinalizedMessage([existing], lightweightFinal)
+
+    expect(merged).toHaveLength(1)
+    expect(merged[0].content).toBe('server final')
+    expect(merged[0].processBlocks).toEqual(localProcess)
+    expect(merged[0].finalAnswer).toBe('old local final')
+  })
+})
+
+describe('mergeToolCall', () => {
+  test('does not let generic tool update titles overwrite a meaningful title', () => {
+    const merged = mergeToolCall(
+      { id: 'tool-1', title: 'filesystem.read_text_file src/app.ts', status: 'in_progress' },
+      { id: 'tool-1', title: '工具调用 #abc123', status: 'completed' },
+    )
+
+    expect(merged.title).toBe('filesystem.read_text_file src/app.ts')
+    expect(merged.status).toBe('completed')
+  })
+
+  test('treats mojibake generic tool titles as non-meaningful', () => {
+    const merged = mergeToolCall(
+      { id: 'tool-1', title: 'filesystem.read_text_file src/app.ts' },
+      { id: 'tool-1', title: '宸ュ叿璋冪敤 #abc123' },
+    )
+
+    expect(merged.title).toBe('filesystem.read_text_file src/app.ts')
   })
 })
 
