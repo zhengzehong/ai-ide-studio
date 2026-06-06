@@ -165,7 +165,7 @@ describe('appendFinalizedMessage', () => {
     expect(merged[0].finalAnswer).toBe('final answer')
   })
 
-  test('same-id final message preserves existing process details when the incoming row is lightweight', () => {
+  test('same-id final message preserves process details but refreshes stale final answer from server content', () => {
     const localProcess = [{ id: 'note-local', kind: 'note' as const, text: 'kept process' }]
     const existing = {
       ...msg('msg-turn-light', 'agent', '2026-01-01T00:00:00.000Z'),
@@ -184,7 +184,7 @@ describe('appendFinalizedMessage', () => {
     expect(merged).toHaveLength(1)
     expect(merged[0].content).toBe('server final')
     expect(merged[0].processBlocks).toEqual(localProcess)
-    expect(merged[0].finalAnswer).toBe('old local final')
+    expect(merged[0].finalAnswer).toBe('server final')
   })
 })
 

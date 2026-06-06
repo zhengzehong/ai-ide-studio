@@ -281,11 +281,12 @@ function keepExistingFullToolCalls(next: MessageData, existing?: MessageData): M
         parsedDecision: existing.parsedDecision,
       })
     : next
+  const shouldRefreshFinalAnswer = existing?.finalAnswer != null && withStats.finalAnswer == null && withStats.content !== existing.content
   const withProcess = existing?.processBlocks || existing?.finalAnswer
     ? {
         ...withStats,
         processBlocks: withStats.processBlocks ?? existing.processBlocks,
-        finalAnswer: withStats.finalAnswer ?? existing.finalAnswer ?? withStats.content,
+        finalAnswer: withStats.finalAnswer ?? (shouldRefreshFinalAnswer ? withStats.content : existing.finalAnswer) ?? withStats.content,
         processDefaultOpen: withStats.processDefaultOpen,
       }
     : withStats

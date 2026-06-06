@@ -69,6 +69,7 @@ import { buildChatRenderItems, type ChatRenderItem } from '../components/chat/re
 import { VirtualChatList } from '../components/chat/VirtualChatList'
 import { TeamContextPanel } from '../components/team/TeamContextPanel'
 import { TimelinePopover } from '../components/chat/TimelinePopover'
+import { processBlockNeedsDetail } from '../components/chat/process-detail'
 import { MarkdownRenderer } from '../components/MarkdownRenderer'
 import { permissionOptionLabel, isAllowPermissionOption, isRejectAlwaysOption } from '../utils/permission'
 import {
@@ -3084,6 +3085,12 @@ function ProcessBlockView({
   detailError?: string
   onLoadDetail?: () => void
 }) {
+  const needsDetail = processBlockNeedsDetail(block)
+  const shouldAutoLoadDetail = needsDetail && block.kind !== 'tool'
+  useEffect(() => {
+    if (shouldAutoLoadDetail && !detailLoading && !detailError) onLoadDetail?.()
+  }, [detailError, detailLoading, onLoadDetail, shouldAutoLoadDetail])
+
   if (block.kind === 'tool') {
     const diffEntries = toolBlockHasDiff(block.toolCall)
       ? extractFileChangesFromToolCall(block.toolCall)
@@ -3093,7 +3100,7 @@ function ProcessBlockView({
         <ToolCallPanel
           tc={block.toolCall}
           isStreaming={isStreaming}
-          hasDetail={block.hasDetail}
+          hasDetail={needsDetail}
           detailLoading={detailLoading}
           detailError={detailError}
           onLoadDetail={onLoadDetail}
@@ -3124,6 +3131,7 @@ function ProcessBlockView({
     return (
       <div style={{ borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-1)', padding: '8px 10px', fontSize: 14, color: 'var(--text-2)' }}>
         <div style={{ fontWeight: 700, marginBottom: 4 }}>文件修改</div>
+        <ProcessDetailState loading={detailLoading} error={detailError} />
         <div style={{ color: 'var(--text-3)' }}>{block.summary || '文件修改详情按需加载'}</div>
       </div>
     )
@@ -3131,6 +3139,7 @@ function ProcessBlockView({
   if (block.kind === 'plan') {
     return (
       <div style={{ borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-1)', padding: '8px 10px', fontSize: 14, color: 'var(--text-2)' }}>
+        <ProcessDetailState loading={detailLoading} error={detailError} />
         {block.summary && <div style={{ color: 'var(--text-3)', marginBottom: block.plan.length ? 6 : 0 }}>{block.summary}</div>}
         {block.plan.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -3154,6 +3163,7 @@ function ProcessBlockView({
     return (
       <div style={{ borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-1)', padding: '8px 10px', fontSize: 14, color: 'var(--text-2)' }}>
         <div style={{ fontWeight: 700, marginBottom: 4 }}>权限请求</div>
+        <ProcessDetailState loading={detailLoading} error={detailError} />
         <div style={{ overflowWrap: 'anywhere' }}>
           {block.summary || block.request?.toolCall.title || '需要确认工具权限'}
         </div>
@@ -3169,6 +3179,7 @@ function ProcessBlockView({
     return (
       <div style={{ borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-1)', padding: '8px 10px', fontSize: 14, color: 'var(--text-2)' }}>
         <div style={{ fontWeight: 700, marginBottom: 4 }}>AI 提问</div>
+        <ProcessDetailState loading={detailLoading} error={detailError} />
         <div style={{ overflowWrap: 'anywhere' }}>
           {block.message || block.summary || block.preview || '需要补充信息'}
         </div>
@@ -3176,6 +3187,15 @@ function ProcessBlockView({
     )
   }
   return <ProcessNoteBlock text={block.text} />
+}
+
+function ProcessDetailState({ loading, error }: { loading?: boolean; error?: string }) {
+  if (!loading && !error) return null
+  return (
+    <div style={{ marginBottom: 6, fontSize: 13, color: error ? 'var(--red)' : 'var(--text-3)', overflowWrap: 'anywhere' }}>
+      {error || '\u6b63\u5728\u52a0\u8f7d\u8be6\u60c5...'}
+    </div>
+  )
 }
 
 function ProcessNoteBlock({ text }: { text: string }) {
