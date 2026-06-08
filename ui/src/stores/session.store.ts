@@ -506,12 +506,15 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         const running = messages
           .filter((message) => message.session_id === sessionId && message.role === 'agent' && message.status === 'running')
           .at(-1)
+        const shouldRestoreRunning = !!running && (
+          state.streamingMessage?.id !== running.id || !hasVisibleStreamingState(state.streamingMessage)
+        )
         const shouldConfirmDoneState = !!state.staleSessionIds[sessionId]
         return {
           messages,
           streamingMessage: shouldClearStreaming
             ? null
-            : running && !hasVisibleStreamingState(state.streamingMessage)
+            : shouldRestoreRunning
               ? streamingFromRunningMessage(running)
               : state.streamingMessage,
           runningSessionIds: hasRunning

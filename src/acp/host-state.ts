@@ -41,6 +41,7 @@ export function getRuntimeSession(conn: AgentConnection, ourSessionId: string): 
       state: conn.acpSessions.has(ourSessionId) ? 'connected' : 'disconnected',
       lastUsedAt: Date.now(),
       activeTurnCount: 0,
+      nextTurnKey: 0,
     }
     conn.runtimeSessions.set(ourSessionId, state)
   }
@@ -64,19 +65,23 @@ export function touchRuntime(conn: AgentConnection, ourSessionId?: string): void
   if (ourSessionId) getRuntimeSession(conn, ourSessionId).lastUsedAt = now
 }
 
-export function beginTurn(conn: AgentConnection, ourSessionId: string): void {
+export function beginTurn(conn: AgentConnection, ourSessionId: string): number {
   const session = getRuntimeSession(conn, ourSessionId)
   if (session.activeTurnCount > 0) {
     throw new Error('当前会话正在生成中，请等待本轮完成或先停止生成')
   }
+  session.nextTurnKey = (session.nextTurnKey ?? 0) + 1
+  session.activeTurnKey = session.nextTurnKey
   session.activeTurnCount += 1
   conn.activeTurnCount += 1
   touchRuntime(conn, ourSessionId)
+  return session.activeTurnKey
 }
 
 export function endTurn(conn: AgentConnection, ourSessionId: string): void {
   const session = getRuntimeSession(conn, ourSessionId)
   session.activeTurnCount = Math.max(0, session.activeTurnCount - 1)
+  if (session.activeTurnCount === 0) session.activeTurnKey = undefined
   conn.activeTurnCount = Math.max(0, conn.activeTurnCount - 1)
   touchRuntime(conn, ourSessionId)
 }
