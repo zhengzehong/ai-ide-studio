@@ -2,6 +2,7 @@ export type AgentStatus = 'running' | 'idle' | 'standby' | 'sleeping' | 'error'
 export type AgentRuntime = 'mock' | 'claude' | 'codex'
 export type SessionStatus = 'active' | 'idle' | 'closed'
 export type SessionActivityState = 'running' | 'idle'
+export type SessionRuntimeState = SessionActivityState
 export type SessionActivityReason =
   | 'prompt-started'
   | 'prompt-done'

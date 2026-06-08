@@ -44,7 +44,7 @@ import {
 import { StreamingBuffer } from './streaming-buffer'
 import { applyTurnEntry, createEmptyTurn, processBlocksForCompletedTurn, turnFromEvents, turnFromProcessItems, turnHasFinalizableContent, turnHasVisibleContent, type TurnProcessBlock } from './turn-blocks'
 import {
-  inferRunningSessionsFromStages,
+  inferRunningSessions,
   removeSessionIndicator,
   type SessionIndicatorStateMap,
 } from '../utils/session-indicators'
@@ -79,6 +79,7 @@ export { buildChatTimelineFromEvents, groupChatTimelineItems }
 export interface SessionData {
   id: string; agent_id: string; task_id: string | null; acp_session_id: string | null
   status: string; stage: string; started_at: string; closed_at: string | null
+  activity_state?: 'running' | 'idle'
   project_id?: string | null; title?: string | null; updated_at?: string | null; last_message_at?: string | null; archived_at?: string | null; deleted_at?: string | null
 }
 
@@ -222,6 +223,29 @@ function selectRecoveredStreamingMessage(
   if (!hasVisibleStreamingState(current)) return recovered
   if (!current || current.id.startsWith('pending-')) return recovered
   return current
+}
+
+
+function reconcileRunningSessionIndicators(
+  current: SessionIndicatorStateMap,
+  sessions: SessionData[],
+): SessionIndicatorStateMap {
+  const next = { ...current }
+  for (const session of sessions) delete next[session.id]
+  return { ...next, ...inferRunningSessions(sessions) }
+}
+
+function hasRunningAgentMessage(messages: MessageData[], sessionId: string): boolean {
+  return messages.some((message) => message.session_id === sessionId && message.role === 'agent' && message.status === 'running')
+}
+
+function removeSessionIndicators(
+  source: SessionIndicatorStateMap,
+  sessionIds: string[],
+): SessionIndicatorStateMap {
+  let next = source
+  for (const sessionId of sessionIds) next = removeSessionIndicator(next, sessionId)
+  return next
 }
 
 function applySessionActivity(
@@ -422,10 +446,12 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       const data = await wsClient.request(msg) as SessionData[]
       if (requestSeq !== sessionListRequestSeq || activeSessionsProjectId !== scopedProjectId) return
       const sessions = scopedProjectId ? data.filter((session) => session.project_id === scopedProjectId) : data
-      const inferredRunning = inferRunningSessionsFromStages(sessions)
+      const runningSessions = Object.keys(inferRunningSessions(sessions))
       set((state) => ({
         sessions,
-        runningSessionIds: { ...inferredRunning, ...state.runningSessionIds },
+        runningSessionIds: reconcileRunningSessionIndicators(state.runningSessionIds, sessions),
+        unreadSessionIds: removeSessionIndicators(state.unreadSessionIds, runningSessions),
+        staleSessionIds: removeSessionIndicators(state.staleSessionIds, runningSessions),
         loading: false,
       }))
     } catch {
@@ -446,9 +472,17 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           state.runningSessionIds,
           state.staleSessionIds,
         )
+        const hasRunning = hasRunningAgentMessage(messages, sessionId)
+        const shouldConfirmDoneState = !!state.staleSessionIds[sessionId]
         return {
           messages,
           streamingMessage: shouldClearStreaming ? null : state.streamingMessage,
+          runningSessionIds: hasRunning
+            ? { ...state.runningSessionIds, [sessionId]: true }
+            : shouldConfirmDoneState
+              ? removeSessionIndicator(state.runningSessionIds, sessionId)
+              : state.runningSessionIds,
+          unreadSessionIds: hasRunning ? removeSessionIndicator(state.unreadSessionIds, sessionId) : state.unreadSessionIds,
           staleSessionIds: removeSessionIndicator(state.staleSessionIds, sessionId),
         }
       })
@@ -457,6 +491,11 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         .filter((message) => message.session_id === sessionId && message.role === 'agent' && message.status === 'running')
         .at(-1)
       if (running) {
+        set((state) => ({
+          runningSessionIds: { ...state.runningSessionIds, [sessionId]: true },
+          unreadSessionIds: removeSessionIndicator(state.unreadSessionIds, sessionId),
+          staleSessionIds: removeSessionIndicator(state.staleSessionIds, sessionId),
+        }))
         void get().fetchMessageProcess(sessionId, running.id)
       }
       if (get().messages.filter((message) => message.session_id === sessionId).length === 0) {
@@ -936,6 +975,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         return
       }
       flushStreamingBuffer(set, get)
+      set((st) => ({ staleSessionIds: { ...st.staleSessionIds, [sid]: true } }))
       const tu = msg.turnUsage as TurnUsageInfo | undefined
       const stopReason = msg.stopReason as string | undefined
       const cost = get().usage?.costAmount
@@ -975,7 +1015,6 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         set(st => ({
           messages: appendFinalizedMessage(st.messages, newMsg),
           streamingMessage: null, turnUsage: tu || st.turnUsage, plan: finalizePlanOnTurnDone(st.plan, stopReason),
-          runningSessionIds: removeSessionIndicator(st.runningSessionIds, sid),
         }))
       } else {
         const error = typeof msg.error === 'string' ? msg.error : ''
@@ -987,14 +1026,12 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           set(st => ({
             messages: appendFinalizedMessage(st.messages, finalMessage),
             streamingMessage: null, turnUsage: tu || st.turnUsage, plan: finalizePlanOnTurnDone(st.plan, stopReason),
-            runningSessionIds: removeSessionIndicator(st.runningSessionIds, sid),
           }))
         } else {
           set(st => ({
             streamingMessage: null,
             turnUsage: tu || st.turnUsage,
             plan: finalizePlanOnTurnDone(st.plan, stopReason),
-            runningSessionIds: removeSessionIndicator(st.runningSessionIds, sid),
           }))
         }
       }
