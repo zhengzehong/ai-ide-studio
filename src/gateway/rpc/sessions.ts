@@ -8,6 +8,7 @@ import { parseToolCallsJson, selectToolCallDetail, summarizeToolCalls } from '..
 import { buildFileChangesFromToolCalls } from '../../store/file-changes.js'
 import { turnProcessItemStore } from '../../store/turn-process-items.js'
 import type { FileChangeDetailData } from '../../types/ws-protocol.js'
+import type { AgentConnection } from '../../acp/host-types.js'
 import type { RpcHandlerMap } from './types.js'
 
 const log = createChildLogger('rpc-sessions')
@@ -78,6 +79,22 @@ function parseFileChangeDetail(raw: string | null | undefined): FileChangeDetail
     return undefined
   }
 }
+
+export function forceCancelTimedOutTurn(
+  conn: AgentConnection,
+  sessionId: string,
+  cancelledTurnKey: number | undefined,
+): boolean {
+  if (cancelledTurnKey === undefined) return false
+  const runtimeSession = conn.runtimeSessions.get(sessionId)
+  if (!runtimeSession || runtimeSession.activeTurnCount <= 0) return false
+  if (runtimeSession.activeTurnKey !== cancelledTurnKey) return false
+  runtimeSession.activeTurnCount = 0
+  runtimeSession.activeTurnKey = undefined
+  conn.activeTurnCount = Math.max(0, conn.activeTurnCount - 1)
+  return true
+}
+
 export const sessionRpcHandlers: RpcHandlerMap = {
   async 'session.setModel'(msg, { sendResult }) {
     const sessionId = msg.sessionId as string
@@ -177,16 +194,15 @@ export const sessionRpcHandlers: RpcHandlerMap = {
     const sessionId = msg.sessionId as string
     const session = sessionStore.get(sessionId)
     if (!session) throw new Error('会话不存在')
+    const activeConn = acpHost.agents.get(session.agent_id)
+    const cancelledTurnKey = activeConn?.runtimeSessions.get(sessionId)?.activeTurnKey
     await acpHost.cancelPrompt(session.agent_id, sessionId)
     sendResult({ ok: true })
     setTimeout(() => {
       const conn = acpHost.agents.get(session.agent_id)
       if (!conn) return
-      const rs = conn.runtimeSessions.get(sessionId)
-      if (rs && rs.activeTurnCount > 0) {
-        log.warn({ sessionId, agentId: session.agent_id }, 'cancel timeout: forcing done after 10s')
-        rs.activeTurnCount = 0
-        conn.activeTurnCount = Math.max(0, conn.activeTurnCount - 1)
+      if (forceCancelTimedOutTurn(conn, sessionId, cancelledTurnKey)) {
+        log.warn({ sessionId, agentId: session.agent_id, cancelledTurnKey }, 'cancel timeout: forcing done after 10s')
         events.emit('session:done', { sessionId, agentId: session.agent_id, messageId: `cancel-timeout-${Date.now()}`, stopReason: 'cancelled' })
       }
     }, 10_000)

@@ -12,6 +12,8 @@ export interface RuntimeSessionState {
   state: AcpSessionState
   lastUsedAt: number
   activeTurnCount: number
+  activeTurnKey?: number
+  nextTurnKey: number
   connectPromise?: Promise<string>
 }
 

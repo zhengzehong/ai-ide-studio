@@ -936,6 +936,51 @@ describe('session store done handling', () => {
     expect(state.streamingMessage?.finalAnswer).toBe('partial answer')
   })
 
+  test('replaces visible streaming from another session with the loaded running message', async () => {
+    resetStore()
+    wsMock.request.mockReset()
+    wsMock.request.mockImplementation(async (msg: Record<string, unknown>) => {
+      if (msg.type === 'sessions.messages') {
+        return [
+          {
+            id: 'msg-agent-running-current',
+            session_id: 'sess-refresh',
+            role: 'agent',
+            content: 'current partial',
+            thinking: null,
+            tool_calls_json: null,
+            decision_json: null,
+            attachments_json: null,
+            timestamp: '2026-06-02T00:00:01.000Z',
+            status: 'running',
+            process_item_count: 0,
+          },
+        ]
+      }
+      if (msg.type === 'sessions.messageProcess') return []
+      return []
+    })
+    useSessionStore.setState({
+      runningSessionIds: { 'sess-refresh': true, 'sess-other': true },
+      streamingMessage: {
+        id: 'msg-other-running',
+        role: 'agent',
+        content: 'other partial',
+        thinking: '',
+        toolCalls: [],
+        finalAnswer: 'other partial',
+        done: false,
+      },
+    })
+
+    await useSessionStore.getState().fetchMessages('sess-refresh')
+
+    const state = useSessionStore.getState()
+    expect(state.streamingMessage?.id).toBe('msg-agent-running-current')
+    expect(state.streamingMessage?.finalAnswer).toBe('current partial')
+    expect(state.streamingMessage?.done).toBe(false)
+  })
+
   test('keeps cached running streaming visible while refreshing the same running message', async () => {
     resetStore()
     wsMock.request.mockReset()
