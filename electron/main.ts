@@ -18,6 +18,7 @@ app.commandLine.appendSwitch('disable-gpu-sandbox')
 let mainWindow: BrowserWindow | null = null
 let backendProcess: ChildProcess | null = null
 let isQuitting = false
+let trayRef: Tray | null = null
 
 async function main(): Promise<void> {
   await app.whenReady()
@@ -37,7 +38,7 @@ async function main(): Promise<void> {
 
     const userDataDir = app.getPath('userData')
     createWidgetWindow({ port, token, electronDir, userDataDir })
-    setupWidgetIpc()
+    setupWidgetIpc(port, token)
     createTray(port, token)
   } catch (err) {
     dialog.showErrorBox('AI IDE Studio 启动失败', err instanceof Error ? err.message : String(err))
@@ -139,10 +140,17 @@ app.on('before-quit', () => {
   backendProcess?.kill()
 })
 
-function setupWidgetIpc(): void {
+function setupWidgetIpc(port: number, token: string): void {
   ipcMain.handle('widget:toggle-pin', () => toggleWidgetPin())
   ipcMain.handle('widget:minimize', () => hideWidget())
-  ipcMain.handle('widget:open-main', () => {
+  ipcMain.handle('widget:open-main', (_event, target?: { projectId?: string | null; sessionId?: string | null }) => {
+    if (target?.sessionId) {
+      const params = new URLSearchParams()
+      params.set('token', token)
+      params.set('sessionId', target.sessionId)
+      if (target.projectId) params.set('projectId', target.projectId)
+      void mainWindow?.loadURL(`http://127.0.0.1:${port}/workspace?${params.toString()}`)
+    }
     mainWindow?.show()
     mainWindow?.focus()
   })
@@ -154,10 +162,10 @@ function createTray(_port: number, _token: string): void {
     ? nativeImage.createFromPath(iconPath)
     : nativeImage.createEmpty()
 
-  const tray = new Tray(icon.isEmpty() ? nativeImage.createFromBuffer(Buffer.alloc(16 * 16 * 4, 128)) : icon)
+  trayRef = new Tray(icon.isEmpty() ? nativeImage.createFromBuffer(Buffer.alloc(16 * 16 * 4, 128)) : icon)
 
-  tray.setToolTip('AI IDE Studio')
-  tray.setContextMenu(
+  trayRef.setToolTip('AI IDE Studio')
+  trayRef.setContextMenu(
     Menu.buildFromTemplate([
       {
         label: '显示主窗口',
@@ -179,7 +187,7 @@ function createTray(_port: number, _token: string): void {
     ]),
   )
 
-  tray.on('click', () => {
+  trayRef.on('click', () => {
     const widget = getWidgetWindow()
     if (widget?.isVisible()) hideWidget()
     else showWidget()

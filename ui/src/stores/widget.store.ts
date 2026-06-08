@@ -1,19 +1,23 @@
 import { create } from 'zustand'
 import { wsClient } from '../services/ws-client'
 
-export interface WidgetAgentItem {
+export interface WidgetSessionItem {
+  sessionId: string
   agentId: string
   agentName: string
-  agentIcon: string
+  agentIcon: string | null
   projectId: string | null
   projectName: string | null
-  sessionId: string | null
+  taskId: string | null
+  taskTitle: string | null
   sessionTitle: string | null
   status: string
+  activityState: 'running' | 'idle'
   stage: string
-  isRunning: boolean
-  isUnread: boolean
-  startedAt: string | null
+  unread: boolean
+  startedAt: string
+  lastMessageAt: string | null
+  completedAt: string | null
   closedAt: string | null
 }
 
@@ -23,13 +27,13 @@ interface WidgetPreferences {
 }
 
 interface WidgetStore {
-  agents: WidgetAgentItem[]
-  agentsLoading: boolean
+  sessions: WidgetSessionItem[]
+  sessionsLoading: boolean
   preferences: WidgetPreferences
   preferencesLoaded: boolean
 
-  fetchAgents: (projectId?: string | null, filter?: string) => Promise<void>
-  markRead: (sessionId: string) => Promise<void>
+  fetchSessions: (projectId?: string | null, filter?: string) => Promise<void>
+  markSessionRead: (sessionId: string) => Promise<void>
 
   loadPreferences: () => Promise<void>
   setPinnedProject: (projectId: string | null) => Promise<void>
@@ -39,30 +43,32 @@ interface WidgetStore {
 }
 
 export const useWidgetStore = create<WidgetStore>((set, get) => ({
-  agents: [],
-  agentsLoading: false,
+  sessions: [],
+  sessionsLoading: false,
   preferences: { pinnedProjectId: null, pinnedAgentId: null },
   preferencesLoaded: false,
 
-  fetchAgents: async (projectId, filter) => {
-    set({ agentsLoading: true })
+  fetchSessions: async (projectId, filter) => {
+    set({ sessionsLoading: true })
     try {
-      const msg: Record<string, unknown> = { type: 'widget.agents.list' }
+      const msg: Record<string, unknown> = { type: 'widget.sessions.list' }
       if (projectId) msg.projectId = projectId
       if (filter) msg.filter = filter
-      const data = (await wsClient.request(msg)) as WidgetAgentItem[]
-      set({ agents: data, agentsLoading: false })
+      const data = (await wsClient.request(msg)) as WidgetSessionItem[]
+      set({ sessions: data, sessionsLoading: false })
     } catch {
-      set({ agentsLoading: false })
+      set({ sessionsLoading: false })
     }
   },
 
-  markRead: async (sessionId) => {
-    await wsClient.request({ type: 'widget.markRead', sessionId })
+  markSessionRead: async (sessionId) => {
+    await wsClient.request({ type: 'widget.sessions.markRead', sessionId })
     set({
-      agents: get().agents.map((a) =>
-        a.sessionId === sessionId ? { ...a, isUnread: false } : a,
-      ),
+      sessions: get().sessions.flatMap((session) => {
+        if (session.sessionId !== sessionId) return [session]
+        if (session.activityState !== 'running') return []
+        return [{ ...session, unread: false }]
+      }),
     })
   },
 
@@ -83,39 +89,28 @@ export const useWidgetStore = create<WidgetStore>((set, get) => ({
 
   setPinnedProject: async (projectId) => {
     set({ preferences: { ...get().preferences, pinnedProjectId: projectId } })
-    if (projectId) {
-      await wsClient.request({ type: 'widget.preferences.set', key: 'pinnedProjectId', value: projectId })
-    } else {
-      await wsClient.request({ type: 'widget.preferences.set', key: 'pinnedProjectId', value: null })
-    }
+    await wsClient.request({ type: 'widget.preferences.set', key: 'pinnedProjectId', value: projectId })
   },
 
   setPinnedAgent: async (agentId) => {
     set({ preferences: { ...get().preferences, pinnedAgentId: agentId } })
-    if (agentId) {
-      await wsClient.request({ type: 'widget.preferences.set', key: 'pinnedAgentId', value: agentId })
-    } else {
-      await wsClient.request({ type: 'widget.preferences.set', key: 'pinnedAgentId', value: null })
-    }
+    await wsClient.request({ type: 'widget.preferences.set', key: 'pinnedAgentId', value: agentId })
   },
 
   setupListeners: () => {
-    const off1 = wsClient.on('agent:status', () => {
+    const refresh = () => {
       const { preferences } = get()
-      get().fetchAgents(preferences.pinnedProjectId, 'active')
-    })
-    const off2 = wsClient.on('session:activity', () => {
-      const { preferences } = get()
-      get().fetchAgents(preferences.pinnedProjectId, 'active')
-    })
-    const off3 = wsClient.on('session:done', () => {
-      const { preferences } = get()
-      get().fetchAgents(preferences.pinnedProjectId, 'active')
-    })
+      void get().fetchSessions(preferences.pinnedProjectId, 'active')
+    }
+    const off1 = wsClient.on('agent:status', refresh)
+    const off2 = wsClient.on('session:activity', refresh)
+    const off3 = wsClient.on('session:done', refresh)
+    const off4 = wsClient.on('session:changed', refresh)
     return () => {
       off1()
       off2()
       off3()
+      off4()
     }
   },
 }))

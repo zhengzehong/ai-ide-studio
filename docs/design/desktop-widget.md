@@ -1,210 +1,109 @@
 # 桌面悬浮部件（Desktop Widget）设计文档
 
-## 1. 功能概述
+桌面悬浮部件是 Electron 模式下的常驻迷你窗口，用于在不切回主窗口的情况下查看 Agent 会话进度，并快速添加或查看任务。
 
-在 Electron 桌面应用模式下，提供一个**常驻桌面的迷你悬浮窗**，让用户无需切换到主窗口即可：
-- 查看正在执行的 Agent 及其状态
-- 快速记录和管理待办事项
+## 设计原则
 
-## 2. 设计原则
+- **会话优先**：Agent Tab 展示的是活跃或未读的 Session，Agent 名称只是 Session 的归属信息。
+- **轻量进度**：Widget 展示阶段、运行状态、未读状态和所属项目，不承载完整聊天历史。
+- **任务直达**：任务面板复用 Task 系统，支持按项目查看、快速创建和 Agent 分派。
+- **可恢复偏好**：固定项目和固定 Agent 保存到本地数据库，重启后恢复。
 
-- **简约**：像桌面便签一样干净，没有多余的视觉噪音
-- **单色调**：黑白灰为主，不堆砌彩色元素
-- **信息密度**：每条只显示关键信息（名称 + 描述 + 时间）
-- **Tab 切换**：Agent 和待办共用一个窗口，通过 Tab 签切换
+## 窗口结构
 
-## 3. 界面结构
-
-```
+```text
 ┌──────────────────────────────┐
-│ ● [ai-ide-studio ▾] 📌  − ✕ │  ← 状态点 + 项目选择(可固定) + 按钮
+│ ● [全部项目▾]          −  ↗  │
 ├──────────────────────────────┤
-│ Agent [3]     任务 [4]       │  ← Tab 签切换
+│ Agent [2]       任务 [4]      │
 ├──────────────────────────────┤
+│ 🤖 Codex        ide     2:15  │
+│    修复登录问题              │
+│    正在思考...               │
 │                              │
-│ 🤖● frontend-dev  ide 2:15  │  ← 绿点闪烁 + 名称 + 项目缩写 + 时间
-│    正在编辑 Settings.tsx     │  ← 描述行
-│                              │
-│ 🤖◉ backend-api   ide 0:45  │  ← 橙点闪烁 = 需操作
-│    ⚠ 等待权限确认           │
-│                              │
-│ 🤖● doc-writer    ide 1:02  │  ← 运行中
-│    生成 API 文档...          │
-│                              │
-│ 🤖◉ test-runner   ide 3m前  │  ← 蓝点 = 已完成未读
-│    ● 已完成 · 未读           │
-│                              │
-│ (↕ 滚动更多)                 │
+│ 🤖 Claude       docs    5m前 │
+│    README 更新               │
+│    已完成 · 未读             │
 └──────────────────────────────┘
 ```
 
 任务面板：
 
-```
+```text
+┌──────────────────────────────┐
+│ Agent [2]       任务 [4]      │
 ├──────────────────────────────┤
-│ Agent [3]     任务 [4]       │
-├──────────────────────────────┤
-│ [待处理] [进行中] [全部]     │  ← 状态筛选
-│                              │
-│ ○ 优化登录页性能             │
-│   → frontend-dev             │  ← 分派的 Agent
-│ ○ 修复移动端侧边栏          │
+│ [待办] [进行中] [全部]        │
 │ ○ 补充单元测试               │
-│   → test-runner              │
-│ ○ 撰写部署文档               │
-│   → doc-writer               │
-│                              │
-│ (↕ 滚动更多)                 │
+│   待办 → test-runner         │
+│ ● 修复构建失败               │
+│   执行中 → backend-dev       │
 ├──────────────────────────────┤
-│ [新建任务...] [🤖 front•] [+]│  ← 快速创建 + 固定Agent
+│ [新建任务...] [Agent▾] [+]   │
 └──────────────────────────────┘
 ```
 
-## 4. 视觉规范
+## Agent Tab 显示规则
 
-| 元素 | 规格 |
-|------|------|
-| 窗口尺寸 | 300×360 固定（高度固定，内容超出滚动） |
-| 圆角 | 14px |
-| 背景 | 半透明白 `rgba(255,255,255,0.82)` + `backdrop-filter: blur(20px)` |
-| 边框 | `1px solid rgba(255,255,255,0.45)` |
-| 阴影 | `0 8px 40px rgba(0,0,0,0.12)` |
-| 字号 | 标题 12px，描述 11px，时间 10px |
-| 色调 | 灰白半透明为主，极简 |
-| 执行中指示 | 绿色小圆点 + 呼吸脉冲动画 |
-| 需操作提示 | 橙色小圆点 + 闪烁动画 + 橙色描述文字 |
-| 已完成 | opacity 0.4 |
-| Tab 激活 | 下划线 + 加粗 |
-| 滚动条 | 4px 宽，半透明，hover 加深 |
-| 收起态 | 44×44 圆角方块 + 绿色角标 |
+Agent Tab 默认只显示：
 
-## 5. Agent 条目显示规则
+- 正在执行的 Session。
+- 已完成但未查看的 Session。
 
-每个 Agent 条目显示：
-- **图标**：🤖 统一使用
-- **状态指示**：图标右上角小圆点
-  - 执行中：绿色圆点 + 呼吸脉冲动画
-  - 需操作：橙色圆点 + 闪烁动画
-  - 已完成未读：蓝色静态圆点
-  - 已完成已读：无圆点，整行 opacity 0.4
-- **会话名称**：Agent 实例名
-- **项目名**：小灰字缩写（如 "ide-studio"）
-- **时间**：运行中显示已用时（m:ss），已完成显示结束时间距今
-- **描述行**：一行文字
-  - 正常运行：当前步骤（如"正在编辑 xxx"）
-  - 需要操作：橙色 "⚠ 等待权限确认"
-  - 未读完成：蓝色 "● 已完成 · 未读"
-  - 已读完成：灰色 "已完成 · 摘要"
+每条 Session 显示：
 
-**默认筛选：**
-- 只显示「运行中」+「需操作」+「未读已完成」
-- 已读已完成的保留最近 3 条，低透明度显示
+- Agent 图标和名称。
+- 项目名。
+- Session 标题，优先使用会话标题，其次使用关联任务标题。
+- 进度描述：运行中显示 `sessions.stage`，未读完成显示“已完成 · 未读”。
+- 时间：运行中显示已用时，完成后显示距今时间。
+- 状态点：绿色表示运行中，蓝色表示已完成未读。
 
-**项目筛选：**
-- 顶栏有项目选择下拉（全部 / 具体项目）
-- 选择后可**固定**（📌），下次启动自动选中，不用每次选
+点击 Session 后：
 
-## 6. 任务面板
+- Widget 调用已读 RPC 标记该 Session 已读。
+- Electron 主窗口打开并定位到对应 Workspace Session。
 
-### 数据来源
+## 任务面板
 
-直接复用现有 Task 系统（`tasks` 表），不新建待办表。
+任务面板复用 `tasks` 表和 `tasks.*` RPC。
 
-### 筛选
+筛选规则：
 
-- 子筛选按钮：「待处理」/「进行中」/「全部」
-- 默认"待处理"（status = pending）
-- 自动按固定的项目过滤
+- **待办**：`backlog`
+- **进行中**：`executing`、`needs_input`、`reviewing`、`blocked`
+- **全部**：当前项目下全部任务，包含 `completed` 和 `cancelled`
 
-### 条目显示
+快速创建任务：
 
-- 状态圆圈：○ pending / ◔ in_progress / ● completed
-- 任务标题
-- 分派 Agent 名称（如有，显示 "→ frontend-dev"）
+- 输入标题后回车或点击 `+` 创建。
+- Agent 下拉只显示当前固定项目内可用 Agent。
+- 固定 Agent 不属于当前项目时自动清空，避免跨项目误分派。
+- 创建时调用 `tasks.create`，携带 `title`、`assignAgentId` 和 `projectId`。
 
-### 快速创建任务
+## 偏好
 
-底部创建栏：`[输入框] [Agent选择] [+按钮]`
+Widget 保存两类偏好：
 
-- 输入框回车或点 [+]：创建任务
-- Agent 选择下拉：当前项目的可用 Agent，选中后任务自动分派
-- Agent 选择**可固定**（带蓝色 • 标记），固定后每次创建自动使用
-- 调用 `tasks.create` RPC，传入 `title` + `assignAgentId` + `projectId`
+- `pinnedProjectId`：固定项目，影响 Agent Tab 和任务面板的过滤。
+- `pinnedAgentId`：固定任务创建时的默认分派 Agent。
 
-## 7. 技术实现
+偏好存储在 `widget_preferences` 表中。
 
-### 7.1 Electron 窗口
+## 技术通信
 
-```typescript
-function createWidgetWindow(): BrowserWindow {
-  return new BrowserWindow({
-    width: 300,
-    height: 380,
-    frame: false,
-    alwaysOnTop: true,
-    skipTaskbar: true,
-    resizable: false,
-    transparent: true,
-    hasShadow: false,
-    webPreferences: {
-      preload: join(electronDir, 'preload.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-    },
-  })
-}
-```
+- Session 列表：`widget.sessions.list`
+- Session 已读：`widget.sessions.markRead`
+- 偏好读取/保存：`widget.preferences.get` / `widget.preferences.set`
+- 任务列表与创建：复用 `tasks.list` / `tasks.create`
+- 实时刷新：监听 `session:activity`、`session:done`、`session:changed`、`agent:status`、`task:update`
 
-### 7.2 前端路由
+Widget 不订阅完整 `session:update` 流。完整聊天内容仍由 Workspace 负责。
 
-```
-/widget → WidgetPage（独立布局，无侧边栏）
-```
-
-### 7.3 数据通信
-
-- Agent 状态：WS 订阅 `agent:status` / `session:activity` / `session:done`
-- 任务列表：复用 `tasks.list` RPC + WS 订阅 `task:update` / `task:created`
-- 创建任务：复用 `tasks.create` RPC（已支持 `assignAgentId` + `projectId`）
-- 已读标记：新增 `widget.markRead` RPC
-- 偏好固定：新增 `widget.preferences.get/set` RPC
-
-### 7.4 IPC（最小化）
+## Electron IPC
 
 | Channel | 用途 |
-|---------|------|
-| `widget:toggle-pin` | 切换置顶 |
-| `widget:minimize` | 收起为图标态 |
-| `widget:open-main` | 激活主窗口 |
-
-## 8. 两种形态
-
-| 形态 | 尺寸 | 触发 |
-|------|------|------|
-| 展开态 | 300×380 固定高度（内容滚动） | 点击收起态图标 |
-| 收起态 | 44×44 | 点击顶栏收起按钮 |
-
-收起态只显示一个 ⚡ 图标 + 右上角运行中 Agent 数量角标（绿色）。
-
-## 9. 实施计划
-
-### Phase 1：骨架
-- [ ] Tray 系统托盘
-- [ ] Widget BrowserWindow 创建
-- [ ] `/widget` 路由 + WidgetPage
-- [ ] Preload IPC bridge
-
-### Phase 2：Agent 面板
-- [ ] `widget.agents.list` RPC + 项目筛选
-- [ ] 运行中/未读 Agent 列表 + 绿点动画
-- [ ] 已读标记 + 点击跳转主窗口
-
-### Phase 3：任务面板
-- [ ] 复用 `tasks.list` + 状态筛选
-- [ ] 快速创建 + Agent 分派
-- [ ] 项目/Agent 固定偏好（`widget_preferences`）
-
-### Phase 4：体验
-- [ ] 位置记忆
-- [ ] 收起态角标
-- [ ] 深色模式
+| --- | --- |
+| `widget:minimize` | 隐藏悬浮窗口 |
+| `widget:toggle-pin` | 切换窗口置顶 |
+| `widget:open-main` | 激活主窗口，可携带 `sessionId` / `projectId` 定位会话 |

@@ -10,7 +10,7 @@ import {
   type DragEvent,
   type ClipboardEvent,
 } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Bot,
   ChevronDown,
@@ -105,6 +105,7 @@ import { elapsedSecondsBetween, formatCompactDuration } from '../utils/duration'
 
 export default function Workspace() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const connected = useConnectionStore((s) => s.connected)
   const agents = useAgentStore((s) => s.agents)
   const sessions = useSessionStore((s) => s.sessions)
@@ -155,6 +156,7 @@ export default function Workspace() {
   const clearCurrentTeam = useTeamStore((s) => s.clearCurrent)
 
   const currentProjectId = useProjectStore((s) => s.currentProjectId)
+  const selectProject = useProjectStore((s) => s.selectProject)
   const fileTree = useFileSystemStore((s) => s.tree)
   const openFile = useFileSystemStore((s) => s.openFile)
   const fetchTree = useFileSystemStore((s) => s.fetchTree)
@@ -314,13 +316,36 @@ export default function Workspace() {
   }, [currentProjectId, currentSessionId, projectSessions, selectSession])
 
   useEffect(() => {
+    const targetProjectId = searchParams.get('projectId')
+    if (targetProjectId && currentProjectId !== targetProjectId) {
+      selectProject(targetProjectId)
+      return
+    }
+    const targetSessionId = searchParams.get('sessionId')
+    if (!targetSessionId) return
+    const targetSession = projectSessions.find((session) => session.id === targetSessionId)
+    if (!targetSession) return
+    queueMicrotask(() => {
+      setSelectedAgentId(targetSession.agent_id)
+      selectSession(targetSession.id)
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev)
+        next.delete('sessionId')
+        next.delete('projectId')
+        return next
+      }, { replace: true })
+    })
+  }, [currentProjectId, projectSessions, searchParams, selectProject, selectSession, setSearchParams])
+
+  useEffect(() => {
+    if (searchParams.get('sessionId')) return
     if (currentSessionId || projectSessions.length === 0) return
     const storedSessionId = readStoredSessionId()
     if (!storedSessionId) return
     const storedSession = projectSessions.find((session) => session.id === storedSessionId)
     if (!storedSession) return
     selectSession(storedSession.id)
-  }, [currentSessionId, projectSessions, selectSession])
+  }, [currentSessionId, projectSessions, searchParams, selectSession])
 
   const handleSelectSession = (agentId: string, sessionId: string) => {
     setSelectedAgentId(agentId)

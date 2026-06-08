@@ -172,3 +172,14 @@ Team 运行时事件：`team.member.spawn` 会广播包含新成员 Session 行�
 | `agents.delete` | `{ agentId }` | `{ deleted: true }` | 删除项目级 Agent |
 
 `agents.create` 保留给 CLI 或旧调用方兼容；新 UI 不应绕过项目边界直接创建全局 Agent。
+
+## Desktop Widget RPC
+
+| Method | Params | Returns | Notes |
+|------|------|------|------|
+| `widget.sessions.list` | `{ projectId?, filter?: "active" \| "all" }` | `WidgetSessionItem[]` | Session-first floating widget list. The default `active` filter returns running or unread sessions. |
+| `widget.sessions.markRead` | `{ sessionId }` | `{ ok: true }` | Marks a widget session as read after validating the Session exists. |
+| `widget.preferences.get` | `{ key? }` | `Record<string,string>` or `{ key, value }` | Reads widget preferences such as pinned project and pinned task Agent. |
+| `widget.preferences.set` | `{ key, value }` | `{ ok: true }` | Saves or deletes a widget preference. |
+
+`WidgetSessionItem.activityState` is derived from Session runtime-state evidence, not from `agents.status`. `agents.status = running` means the runtime process is online; it does not mean a specific Session is currently generating.
