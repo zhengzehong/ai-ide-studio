@@ -17,6 +17,12 @@ export interface TaskData {
   sessionId?: string
 }
 
+export function mergeTaskById(tasks: TaskData[], incoming: TaskData): TaskData[] {
+  const existingIndex = tasks.findIndex((task) => task.id === incoming.id)
+  if (existingIndex < 0) return [incoming, ...tasks]
+  return tasks.map((task, index) => (index === existingIndex ? { ...task, ...incoming } : task))
+}
+
 interface TaskStore {
   tasks: TaskData[]
   loading: boolean
@@ -52,7 +58,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     if (projectId) msg.projectId = projectId
     if (sessionId) msg.sessionId = sessionId
     const task = (await wsClient.request(msg)) as TaskData
-    set({ tasks: [task, ...get().tasks] })
+    set({ tasks: mergeTaskById(get().tasks, task) })
     return task
   },
 
@@ -98,7 +104,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       if (existing) {
         set({ tasks: get().tasks.map((t) => (t.id === taskId ? { ...t, ...data } : t)) })
       } else if (data.id) {
-        set({ tasks: [data as unknown as TaskData, ...get().tasks] })
+        set({ tasks: mergeTaskById(get().tasks, data as unknown as TaskData) })
       }
     })
     return off
