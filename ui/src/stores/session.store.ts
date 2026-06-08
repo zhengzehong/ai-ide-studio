@@ -208,7 +208,7 @@ function shouldClearStreamingAfterMessageLoad(
   staleSessionIds: SessionIndicatorStateMap,
 ): boolean {
   if (!streamingMessage) return false
-  if (messages.some((message) => message.session_id === sessionId && message.role === 'agent' && message.id === streamingMessage.id)) return true
+  if (messages.some((message) => message.session_id === sessionId && message.role === 'agent' && message.id === streamingMessage.id && message.status !== 'running')) return true
   return !runningSessionIds[sessionId] && (!!staleSessionIds[sessionId] || hasAgentMessageAfterLatestHuman(messages, sessionId))
 }
 
@@ -237,6 +237,36 @@ function reconcileRunningSessionIndicators(
 
 function hasRunningAgentMessage(messages: MessageData[], sessionId: string): boolean {
   return messages.some((message) => message.session_id === sessionId && message.role === 'agent' && message.status === 'running')
+}
+
+function loadedProcessBlockCount(message: MessageData | undefined): number {
+  return message?.processBlocks?.filter((block) => block.kind !== 'stage').length ?? 0
+}
+
+function shouldLoadMessageProcess(message: MessageData | undefined): boolean {
+  if (!message) return true
+  const expectedCount = message.process_item_count ?? message.tool_call_count ?? 0
+  if (message.status === 'running') return true
+  if (!message.processBlocks) return expectedCount > 0 || !!message.has_tool_calls
+  return expectedCount > loadedProcessBlockCount(message)
+}
+
+function streamingFromRunningMessage(message: MessageData): StreamingMessage {
+  const processBlocks = message.processBlocks ?? []
+  return {
+    ...createEmptyTurn(message.id),
+    processBlocks,
+    thinking: processBlocks
+      .filter((block): block is Extract<TurnProcessBlock, { kind: 'thinking' }> => block.kind === 'thinking')
+      .map((block) => block.text)
+      .join(''),
+    toolCalls: processBlocks
+      .filter((block): block is Extract<TurnProcessBlock, { kind: 'tool' }> => block.kind === 'tool')
+      .map((block) => block.toolCall),
+    finalAnswer: message.finalAnswer ?? message.content,
+    content: message.finalAnswer ?? message.content,
+    done: false,
+  }
 }
 
 function removeSessionIndicators(
@@ -473,10 +503,17 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           state.staleSessionIds,
         )
         const hasRunning = hasRunningAgentMessage(messages, sessionId)
+        const running = messages
+          .filter((message) => message.session_id === sessionId && message.role === 'agent' && message.status === 'running')
+          .at(-1)
         const shouldConfirmDoneState = !!state.staleSessionIds[sessionId]
         return {
           messages,
-          streamingMessage: shouldClearStreaming ? null : state.streamingMessage,
+          streamingMessage: shouldClearStreaming
+            ? null
+            : running && !hasVisibleStreamingState(state.streamingMessage)
+              ? streamingFromRunningMessage(running)
+              : state.streamingMessage,
           runningSessionIds: hasRunning
             ? { ...state.runningSessionIds, [sessionId]: true }
             : shouldConfirmDoneState
@@ -786,7 +823,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   fetchMessageProcess: async (sessionId, messageId) => {
     const existing = get().messages.find((message) => message.id === messageId && message.session_id === sessionId)
-    if (existing?.processBlocks) return
+    if (!shouldLoadMessageProcess(existing)) return
     set((state) => ({
       turnProcessLoadingByMessageId: { ...state.turnProcessLoadingByMessageId, [messageId]: true },
       turnProcessErrorByMessageId: { ...state.turnProcessErrorByMessageId, [messageId]: '' },

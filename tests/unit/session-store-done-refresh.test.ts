@@ -795,6 +795,279 @@ describe('session store done handling', () => {
     expect(useSessionStore.getState().messages.map((message) => message.id)).toEqual(['msg-cached'])
   })
 
+  test('restores a running message as streaming with complete process after switching back', async () => {
+    resetStore()
+    wsMock.request.mockReset()
+    wsMock.request.mockImplementation(async (msg: Record<string, unknown>) => {
+      if (msg.type === 'sessions.messages') {
+        return [
+          {
+            id: 'msg-human-running',
+            session_id: 'sess-refresh',
+            role: 'human',
+            content: 'please inspect',
+            thinking: null,
+            tool_calls_json: null,
+            decision_json: null,
+            attachments_json: null,
+            timestamp: '2026-06-02T00:00:00.000Z',
+          },
+          {
+            id: 'msg-agent-running',
+            session_id: 'sess-refresh',
+            role: 'agent',
+            content: 'partial answer',
+            thinking: null,
+            tool_calls_json: null,
+            decision_json: null,
+            attachments_json: null,
+            timestamp: '2026-06-02T00:00:01.000Z',
+            status: 'running',
+            process_item_count: 3,
+          },
+        ]
+      }
+      if (msg.type === 'sessions.messageProcess') {
+        return [
+          {
+            id: 'tpi-note-1',
+            session_id: 'sess-refresh',
+            message_id: 'msg-agent-running',
+            sequence: 1,
+            kind: 'note',
+            status: 'completed',
+            title: 'note',
+            summary: 'look around',
+            preview: 'look around',
+            content: 'look around',
+            meta_json: null,
+            created_at: '2026-06-02T00:00:01.000Z',
+            updated_at: '2026-06-02T00:00:01.000Z',
+            has_detail: false,
+          },
+          {
+            id: 'tpi-tool-1',
+            session_id: 'sess-refresh',
+            message_id: 'msg-agent-running',
+            sequence: 2,
+            kind: 'tool',
+            status: 'running',
+            title: 'filesystem.read_text_file src/app.ts',
+            summary: 'read file',
+            preview: 'src/app.ts',
+            content: null,
+            meta_json: null,
+            created_at: '2026-06-02T00:00:02.000Z',
+            updated_at: '2026-06-02T00:00:02.000Z',
+            has_detail: true,
+          },
+          {
+            id: 'tpi-thinking-1',
+            session_id: 'sess-refresh',
+            message_id: 'msg-agent-running',
+            sequence: 3,
+            kind: 'thinking',
+            status: 'running',
+            title: 'thinking',
+            summary: 'still thinking',
+            preview: 'still thinking',
+            content: 'still thinking',
+            meta_json: null,
+            created_at: '2026-06-02T00:00:03.000Z',
+            updated_at: '2026-06-02T00:00:03.000Z',
+            has_detail: false,
+          },
+        ]
+      }
+      return []
+    })
+    useSessionStore.setState({ runningSessionIds: { 'sess-refresh': true } })
+
+    useSessionStore.getState().selectSession('sess-other')
+    useSessionStore.getState().selectSession('sess-refresh')
+
+    await vi.waitFor(() => {
+      expect(wsMock.request).toHaveBeenCalledWith({ type: 'sessions.messageProcess', sessionId: 'sess-refresh', messageId: 'msg-agent-running' })
+    })
+
+    const state = useSessionStore.getState()
+    expect(state.streamingMessage?.id).toBe('msg-agent-running')
+    expect(state.streamingMessage?.done).toBe(false)
+    expect(state.streamingMessage?.finalAnswer).toBe('partial answer')
+    expect(state.streamingMessage?.processBlocks.map((block) => block.kind)).toEqual(['note', 'tool', 'thinking'])
+    expect(state.messages.find((message) => message.id === 'msg-agent-running')?.processBlocks).toHaveLength(3)
+  })
+
+  test('restores a running message as streaming even before process items exist', async () => {
+    resetStore()
+    wsMock.request.mockReset()
+    wsMock.request.mockImplementation(async (msg: Record<string, unknown>) => {
+      if (msg.type === 'sessions.messages') {
+        return [
+          {
+            id: 'msg-agent-running-empty-process',
+            session_id: 'sess-refresh',
+            role: 'agent',
+            content: 'partial answer',
+            thinking: null,
+            tool_calls_json: null,
+            decision_json: null,
+            attachments_json: null,
+            timestamp: '2026-06-02T00:00:01.000Z',
+            status: 'running',
+            process_item_count: 0,
+          },
+        ]
+      }
+      if (msg.type === 'sessions.messageProcess') return []
+      return []
+    })
+    useSessionStore.setState({ runningSessionIds: { 'sess-refresh': true } })
+
+    useSessionStore.getState().selectSession('sess-refresh')
+
+    await vi.waitFor(() => {
+      expect(useSessionStore.getState().messages.map((message) => message.id)).toEqual(['msg-agent-running-empty-process'])
+    })
+
+    const state = useSessionStore.getState()
+    expect(state.streamingMessage?.id).toBe('msg-agent-running-empty-process')
+    expect(state.streamingMessage?.done).toBe(false)
+    expect(state.streamingMessage?.finalAnswer).toBe('partial answer')
+  })
+
+  test('keeps cached running streaming visible while refreshing the same running message', async () => {
+    resetStore()
+    wsMock.request.mockReset()
+    let resolveProcess: (value: unknown) => void = () => undefined
+    wsMock.request.mockImplementation(async (msg: Record<string, unknown>) => {
+      if (msg.type === 'sessions.messages') {
+        return [
+          {
+            id: 'msg-agent-running-visible',
+            session_id: 'sess-refresh',
+            role: 'agent',
+            content: 'new partial',
+            thinking: null,
+            tool_calls_json: null,
+            decision_json: null,
+            attachments_json: null,
+            timestamp: '2026-06-02T00:00:01.000Z',
+            status: 'running',
+            process_item_count: 1,
+          },
+        ]
+      }
+      if (msg.type === 'sessions.messageProcess') {
+        return new Promise((resolve) => { resolveProcess = resolve })
+      }
+      return []
+    })
+    useSessionStore.setState({
+      runningSessionIds: { 'sess-refresh': true },
+      streamingMessage: {
+        id: 'msg-agent-running-visible',
+        role: 'agent',
+        content: 'old partial',
+        thinking: '',
+        toolCalls: [],
+        processBlocks: [{ id: 'tpi-note-old', kind: 'note', text: 'old process' }],
+        finalAnswer: 'old partial',
+        done: false,
+      },
+    })
+
+    await useSessionStore.getState().fetchMessages('sess-refresh')
+
+    expect(useSessionStore.getState().streamingMessage?.id).toBe('msg-agent-running-visible')
+    expect(useSessionStore.getState().streamingMessage?.finalAnswer).toBe('old partial')
+    resolveProcess([])
+  })
+
+  test('reloads process blocks when cached blocks are fewer than the server count', async () => {
+    resetStore()
+    wsMock.request.mockReset()
+    wsMock.request.mockImplementation(async (msg: Record<string, unknown>) => {
+      if (msg.type === 'sessions.messageProcess') {
+        return [
+          {
+            id: 'tpi-note-1',
+            session_id: 'sess-refresh',
+            message_id: 'msg-agent-running',
+            sequence: 1,
+            kind: 'note',
+            status: 'completed',
+            title: 'note',
+            summary: 'one',
+            preview: 'one',
+            content: 'one',
+            meta_json: null,
+            created_at: '2026-06-02T00:00:01.000Z',
+            updated_at: '2026-06-02T00:00:01.000Z',
+            has_detail: false,
+          },
+          {
+            id: 'tpi-tool-1',
+            session_id: 'sess-refresh',
+            message_id: 'msg-agent-running',
+            sequence: 2,
+            kind: 'tool',
+            status: 'completed',
+            title: 'filesystem.read_text_file src/app.ts',
+            summary: 'two',
+            preview: 'two',
+            content: null,
+            meta_json: null,
+            created_at: '2026-06-02T00:00:02.000Z',
+            updated_at: '2026-06-02T00:00:02.000Z',
+            has_detail: false,
+          },
+          {
+            id: 'tpi-thinking-1',
+            session_id: 'sess-refresh',
+            message_id: 'msg-agent-running',
+            sequence: 3,
+            kind: 'thinking',
+            status: 'running',
+            title: 'thinking',
+            summary: 'three',
+            preview: 'three',
+            content: 'three',
+            meta_json: null,
+            created_at: '2026-06-02T00:00:03.000Z',
+            updated_at: '2026-06-02T00:00:03.000Z',
+            has_detail: false,
+          },
+        ]
+      }
+      return []
+    })
+    useSessionStore.setState({
+      messages: [
+        {
+          id: 'msg-agent-running',
+          session_id: 'sess-refresh',
+          role: 'agent',
+          content: 'partial answer',
+          thinking: null,
+          tool_calls_json: null,
+          decision_json: null,
+          attachments_json: null,
+          timestamp: '2026-06-02T00:00:01.000Z',
+          status: 'running',
+          process_item_count: 3,
+          processBlocks: [{ id: 'tpi-note-1', kind: 'note', text: 'one' }],
+          finalAnswer: 'partial answer',
+        },
+      ],
+    })
+
+    await useSessionStore.getState().fetchMessageProcess('sess-refresh', 'msg-agent-running')
+
+    expect(wsMock.request).toHaveBeenCalledWith({ type: 'sessions.messageProcess', sessionId: 'sess-refresh', messageId: 'msg-agent-running' })
+    expect(useSessionStore.getState().messages[0].processBlocks).toHaveLength(3)
+  })
+
   test('clears stale streaming after persisted final messages are loaded', async () => {
     resetStore()
     wsMock.request.mockReset()
