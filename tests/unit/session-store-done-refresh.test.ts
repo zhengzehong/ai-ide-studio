@@ -537,6 +537,165 @@ describe('session store done handling', () => {
     }
   })
 
+
+  test('restores running indicators from session list runtime state', async () => {
+    resetStore()
+    wsMock.request.mockReset()
+    wsMock.request.mockImplementation(async (msg: Record<string, unknown>) => {
+      if (msg.type === 'sessions.list') {
+        return [
+          {
+            id: 'sess-refresh',
+            agent_id: 'agent-1',
+            task_id: null,
+            acp_session_id: null,
+            status: 'active',
+            stage: '',
+            started_at: '2026-06-03T00:00:00.000Z',
+            closed_at: null,
+            project_id: 'proj-1',
+            activity_state: 'running',
+          },
+          {
+            id: 'sess-stale',
+            agent_id: 'agent-1',
+            task_id: null,
+            acp_session_id: null,
+            status: 'active',
+            stage: '',
+            started_at: '2026-06-03T00:00:00.000Z',
+            closed_at: null,
+            project_id: 'proj-1',
+            activity_state: 'idle',
+          },
+        ]
+      }
+      return []
+    })
+    useSessionStore.setState({ runningSessionIds: { 'sess-stale': true } })
+
+    await useSessionStore.getState().fetchSessions(undefined, 'proj-1')
+
+    expect(useSessionStore.getState().runningSessionIds).toEqual({ 'sess-refresh': true })
+  })
+
+  test('does not clear running indicator on done when refreshed messages still show a running agent turn', async () => {
+    resetStore()
+    wsMock.request.mockReset()
+    wsMock.request.mockImplementation(async (msg: Record<string, unknown>) => {
+      if (msg.type === 'sessions.messages') {
+        return [
+          {
+            id: 'msg-running-agent',
+            session_id: 'sess-refresh',
+            role: 'agent',
+            content: '',
+            thinking: null,
+            tool_calls_json: null,
+            decision_json: null,
+            attachments_json: null,
+            file_changes_json: null,
+            status: 'running',
+            timestamp: '2026-06-03T00:00:01.000Z',
+          },
+        ]
+      }
+      return []
+    })
+    useSessionStore.setState({ runningSessionIds: { 'sess-refresh': true } })
+    const cleanup = useSessionStore.getState().setupListeners()
+
+    try {
+      emit('session:done', {
+        sessionId: 'sess-refresh',
+        agentId: 'agent-1',
+        messageId: 'cancel-timeout-1',
+        stopReason: 'cancelled',
+      })
+
+      await vi.waitFor(() => {
+        expect(wsMock.request).toHaveBeenCalledWith({ type: 'sessions.messages', sessionId: 'sess-refresh' })
+      })
+      expect(useSessionStore.getState().runningSessionIds['sess-refresh']).toBe(true)
+      expect(useSessionStore.getState().staleSessionIds['sess-refresh']).toBeUndefined()
+    } finally {
+      cleanup()
+    }
+  })
+
+
+  test('clears running indicator after done when refreshed messages have no running agent turn', async () => {
+    resetStore()
+    wsMock.request.mockReset()
+    wsMock.request.mockImplementation(async (msg: Record<string, unknown>) => {
+      if (msg.type === 'sessions.messages') {
+        return [
+          {
+            id: 'msg-completed-agent',
+            session_id: 'sess-refresh',
+            role: 'agent',
+            content: 'done',
+            thinking: null,
+            tool_calls_json: null,
+            decision_json: null,
+            attachments_json: null,
+            file_changes_json: null,
+            status: 'completed',
+            timestamp: '2026-06-03T00:00:02.000Z',
+          },
+        ]
+      }
+      return []
+    })
+    useSessionStore.setState({ runningSessionIds: { 'sess-refresh': true } })
+    const cleanup = useSessionStore.getState().setupListeners()
+
+    try {
+      emit('session:done', {
+        sessionId: 'sess-refresh',
+        agentId: 'agent-1',
+        messageId: 'done-sess-refresh',
+        stopReason: 'end_turn',
+      })
+
+      await vi.waitFor(() => {
+        expect(wsMock.request).toHaveBeenCalledWith({ type: 'sessions.messages', sessionId: 'sess-refresh' })
+      })
+      expect(useSessionStore.getState().runningSessionIds['sess-refresh']).toBeUndefined()
+      expect(useSessionStore.getState().staleSessionIds['sess-refresh']).toBeUndefined()
+    } finally {
+      cleanup()
+    }
+  })
+
+  test('turns background done into unread stale state instead of leaving a stale running indicator', async () => {
+    resetStore()
+    const cleanup = useSessionStore.getState().setupListeners()
+
+    try {
+      emit('session:activity', {
+        sessionId: 'sess-bg',
+        agentId: 'agent-1',
+        state: 'running',
+        reason: 'prompt-started',
+        timestamp: '2026-06-03T00:00:00.000Z',
+      })
+      expect(useSessionStore.getState().runningSessionIds['sess-bg']).toBe(true)
+
+      emit('session:done', {
+        sessionId: 'sess-bg',
+        agentId: 'agent-1',
+        messageId: 'done-sess-bg',
+        stopReason: 'end_turn',
+      })
+
+      expect(useSessionStore.getState().runningSessionIds['sess-bg']).toBeUndefined()
+      expect(useSessionStore.getState().unreadSessionIds['sess-bg']).toBe(true)
+      expect(useSessionStore.getState().staleSessionIds['sess-bg']).toBe(true)
+    } finally {
+      cleanup()
+    }
+  })
   test('marks background session running, unread after idle, and read after selecting it', async () => {
     resetStore()
     const cleanup = useSessionStore.getState().setupListeners()

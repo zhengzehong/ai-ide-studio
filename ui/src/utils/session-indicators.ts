@@ -2,6 +2,7 @@ interface IndicatorSession {
   id: string
   status: string
   stage?: string | null
+  activity_state?: 'running' | 'idle' | null
 }
 
 export type SessionIndicatorStateMap = Record<string, true>
@@ -37,10 +38,20 @@ export function sessionIndicator(
   return { color: 'var(--text-3)', pulse: false, title: '已关闭' }
 }
 
-export function inferRunningSessionsFromStages(sessions: IndicatorSession[]): SessionIndicatorStateMap {
+export function inferRunningSessions(sessions: IndicatorSession[]): SessionIndicatorStateMap {
   return Object.fromEntries(
-    sessions.filter((session) => isRunningStage(session.stage)).map((session) => [session.id, true]),
+    sessions.filter(isRunningSession).map((session) => [session.id, true]),
   ) as SessionIndicatorStateMap
+}
+
+export function inferRunningSessionsFromStages(sessions: IndicatorSession[]): SessionIndicatorStateMap {
+  return inferRunningSessions(sessions)
+}
+
+function isRunningSession(session: IndicatorSession): boolean {
+  if (session.activity_state === 'running') return true
+  if (session.activity_state === 'idle') return false
+  return isRunningStage(session.stage)
 }
 
 export function removeSessionIndicator(

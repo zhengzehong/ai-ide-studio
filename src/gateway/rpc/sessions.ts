@@ -193,7 +193,11 @@ export const sessionRpcHandlers: RpcHandlerMap = {
   },
 
   'sessions.list'(msg, { sendResult }) {
-    sendResult(sessionStore.list(msg.agentId as string | undefined, msg.projectId as string | undefined))
+    sendResult(sessionStore.listWithRuntimeState(
+      msg.agentId as string | undefined,
+      msg.projectId as string | undefined,
+      (sessionId) => sessionManager.isPromptActive(sessionId),
+    ))
   },
 
   async 'sessions.create'(msg, { state, sendResult }) {

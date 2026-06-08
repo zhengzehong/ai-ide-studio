@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { isRunningStage, sessionIndicator } from '../../ui/src/utils/session-indicators.ts'
+import { inferRunningSessions, isRunningStage, sessionIndicator } from '../../ui/src/utils/session-indicators.ts'
 
 describe('session activity indicators', () => {
   test('prioritizes running over unread and lifecycle status', () => {
@@ -33,6 +33,14 @@ describe('session activity indicators', () => {
       pulse: false,
       title: '已关闭',
     })
+  })
+
+
+  test('infers running from backend runtime state before stage fallback', () => {
+    expect(inferRunningSessions([
+      { id: 'sess-runtime', status: 'active', stage: '', activity_state: 'running' },
+      { id: 'sess-idle-stage', status: 'active', stage: '正在思考...', activity_state: 'idle' },
+    ])).toEqual({ 'sess-runtime': true })
   })
 
   test('recognizes only known running stages as recovery fallback', () => {
