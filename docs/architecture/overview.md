@@ -57,6 +57,8 @@ Web UI → WS "prompt" → ws-handler → gateway/rpc/subscriptions.prompt
 
 `session:activity` 是独立的轻量全局事件，只表示会话本轮执行从 `running` 到 `idle` 的状态变化，用于左侧会话列表运行中/未读提示；它不承载聊天内容，也不参与历史消息还原。
 
+桌面悬浮 Widget 也使用 `session:activity`，但不订阅完整 `session:update` 聊天流。Widget 通过 `widget.sessions.list` 获取会话优先的轻量 DTO：后端聚合 Session、Agent、Project、Task、运行态和已读状态，只把运行中或未读的 Session 暴露给小窗口。
+
 
 ### 创建任务
 

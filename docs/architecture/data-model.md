@@ -447,3 +447,26 @@ SQLite schema 由 `src/store/migrator.ts` 和 `src/store/migrations/*` 管理。
 - Session 空闲回收只关闭/断开 runtime 侧 ACP session 映射；保留 `sessions.acp_session_id`、messages 和 `session_events`，所以下次 prompt 可以 resume/load 同一个 ACP session 或 Codex thread。
 - Runtime 空闲回收会在没有已连接 session 后停止 `codex-acp` / `claude-agent-acp` 进程，不修改已持久化的会话历史。
 - `session_events.type = lifecycle.*` 记录可见阶段，例如 runtime 启动、session 恢复/创建、prompt 已发送、空闲断开和失败。
+
+## Desktop Widget State
+
+Desktop Widget 使用两张轻量表保存本地状态，不复制 Session、Agent 或 Task 数据。
+
+### widget_read_state
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| session_id | TEXT PK | 已查看的 Session ID |
+| read_at | TEXT | 最后查看时间 |
+
+Widget 会话未读判断使用最新非 running Agent 消息时间和最新 `session_events.type = message.done` 时间中的较新值，与 `read_at` 比较。完成时间晚于 `read_at`，或没有 `read_at`，表示未读。
+
+### widget_preferences
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| key | TEXT PK | 偏好键，例如 `pinnedProjectId` / `pinnedAgentId` |
+| value | TEXT | 偏好值 |
+| updated_at | TEXT | 更新时间 |
+
+Widget 偏好只影响悬浮窗过滤和任务快速创建，不改变 Project、Agent、Session 或 Task 的所有权。

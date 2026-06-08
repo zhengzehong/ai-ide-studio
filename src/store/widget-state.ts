@@ -28,6 +28,13 @@ export const widgetStateStore = {
     return !!row
   },
 
+  getReadAt(sessionId: string): string | undefined {
+    const row = getDb()
+      .prepare<[string], ReadStateRow>('SELECT read_at FROM widget_read_state WHERE session_id = ?')
+      .get(sessionId)
+    return row?.read_at
+  },
+
   listUnread(sessionIds: string[]): string[] {
     if (sessionIds.length === 0) return []
     const placeholders = sessionIds.map(() => '?').join(',')
