@@ -1168,7 +1168,7 @@ function WorkspaceChatPane({
                 transition: 'all .15s',
               }}
             >
-              时间线
+              📋 时间线
             </button>
           )}
         </div>
@@ -1440,6 +1440,7 @@ function WorkspaceChatPane({
                 key={m.modeId}
                 active={active}
                 label={modeCn(m.name)}
+                labelWeight={500}
                 description={m.description}
                 onClick={() => {
                   void setMode(m.modeId)
@@ -1467,6 +1468,8 @@ function WorkspaceChatPane({
               key={m.modelId}
               active={m.modelId === capabilities.currentModelId}
               label={m.name || m.modelId}
+              fontSize={15}
+              labelWeight={m.modelId === capabilities.currentModelId ? 600 : 400}
               onClick={() => {
                 void setModel(m.modelId)
                 setShowModelMenu(false)
@@ -1513,11 +1516,15 @@ const commandMenuItemStyle: React.CSSProperties = {
 function MenuOption({
   active,
   label,
+  fontSize = 14,
+  labelWeight = active ? 600 : 500,
   description,
   onClick,
 }: {
   active: boolean
   label: string
+  fontSize?: number
+  labelWeight?: React.CSSProperties['fontWeight']
   description?: string
   onClick: () => void
 }) {
@@ -1535,7 +1542,7 @@ function MenuOption({
         borderRadius: 8,
         background: active ? 'var(--blue-light)' : 'transparent',
         color: 'var(--text-1)',
-        fontSize: 14,
+        fontSize,
         cursor: 'pointer',
         textAlign: 'left',
       }}
@@ -1546,7 +1553,7 @@ function MenuOption({
         <Circle size={13} color="var(--text-3)" style={{ flexShrink: 0 }} />
       )}
       <div style={{ minWidth: 0 }}>
-        <div style={{ fontWeight: active ? 600 : 500 }}>{label}</div>
+        <div style={{ fontWeight: labelWeight }}>{label}</div>
         {description && <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>{description}</div>}
       </div>
     </button>
@@ -1572,6 +1579,7 @@ function renderConfigMenu({
       <MenuOption
         active={active}
         label={opt.name}
+        labelWeight={400}
         onClick={() => {
           void setConfig(opt.id, !active)
           onClose()
@@ -1584,6 +1592,7 @@ function renderConfigMenu({
       key={item.value}
       active={item.value === opt.currentValue}
       label={configOptionLabel(item.value, item.name)}
+      labelWeight={500}
       description={item.description}
       onClick={() => {
         void setConfig(opt.id, item.value)
