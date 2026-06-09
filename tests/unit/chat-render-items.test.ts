@@ -164,4 +164,32 @@ describe('buildChatRenderItems', () => {
 
     expect(items).toEqual([{ id: 'msg:msg-current', kind: 'message', message: current }])
   })
+
+  test('reuses unchanged persisted message items across streaming-only updates', () => {
+    const first = msg('msg-human-1', 'human', 'hello')
+    const second = msg('msg-agent-1', 'agent', 'done')
+    const initial = buildChatRenderItems({
+      sessionId: 'sess-1',
+      messages: [first, second],
+      events: [],
+      streamingBubble: null,
+      showStreamingBubble: false,
+      blockingInteraction: false,
+    })
+
+    const streaming = { ...msg('msg-agent-live', 'agent', 'live delta'), streaming: true }
+    const next = buildChatRenderItems({
+      sessionId: 'sess-1',
+      messages: [first, second],
+      events: [],
+      streamingBubble: streaming,
+      showStreamingBubble: true,
+      blockingInteraction: false,
+      previousItems: initial,
+    })
+
+    expect(next[0]).toBe(initial[0])
+    expect(next[1]).toBe(initial[1])
+    expect(next[2]).toEqual({ id: 'streaming:msg-agent-live', kind: 'streaming', message: streaming })
+  })
 })

@@ -38,6 +38,7 @@ export function buildChatRenderItems<TMessage extends ChatRenderMessage>({
   showStreamingBubble,
   blockingInteraction,
   timelineEventLimit = 1000,
+  previousItems,
 }: {
   sessionId?: string | null
   messages: TMessage[]
@@ -46,7 +47,9 @@ export function buildChatRenderItems<TMessage extends ChatRenderMessage>({
   showStreamingBubble: boolean
   blockingInteraction: boolean
   timelineEventLimit?: number
+  previousItems?: ChatRenderItem<TMessage>[]
 }): ChatRenderItem<TMessage>[] {
+  const previousById = new Map(previousItems?.map((item) => [item.id, item]))
   const scopedMessages = sessionId ? messages.filter((message) => message.session_id === sessionId) : messages
   const scopedEvents = sessionId ? events.filter((event) => event.session_id === sessionId) : events
   const scopedStreamingBubble =
@@ -55,13 +58,33 @@ export function buildChatRenderItems<TMessage extends ChatRenderMessage>({
     ? scopedMessages.filter((message) => message.id !== scopedStreamingBubble.id)
     : scopedMessages
   const items: ChatRenderItem<TMessage>[] = scopedMessages.length > 0
-    ? visibleMessages.map((message) => ({ id: `msg:${message.id}`, kind: 'message', message }))
+    ? visibleMessages.map((message) => reuseMessageItem(previousById, message))
     : groupChatTimelineItems(buildChatTimelineFromEvents(scopedEvents.slice(-timelineEventLimit)))
-      .map((group) => ({ id: `group:${group.id}`, kind: 'group', group }))
+      .map((group) => reuseGroupItem(previousById, group))
 
   if (showStreamingBubble && scopedStreamingBubble) {
     items.push({ id: `streaming:${scopedStreamingBubble.id}`, kind: 'streaming', message: scopedStreamingBubble })
   }
   if (blockingInteraction && !showStreamingBubble) items.push({ id: 'blocking', kind: 'blocking' })
   return items
+}
+
+function reuseMessageItem<TMessage extends ChatRenderMessage>(
+  previousById: Map<string, ChatRenderItem<TMessage>>,
+  message: TMessage,
+): ChatRenderItem<TMessage> {
+  const id = `msg:${message.id}`
+  const previous = previousById.get(id)
+  if (previous?.kind === 'message' && previous.message === message) return previous
+  return { id, kind: 'message', message }
+}
+
+function reuseGroupItem<TMessage extends ChatRenderMessage>(
+  previousById: Map<string, ChatRenderItem<TMessage>>,
+  group: ChatTimelineGroup,
+): ChatRenderItem<TMessage> {
+  const id = `group:${group.id}`
+  const previous = previousById.get(id)
+  if (previous?.kind === 'group' && previous.group === group) return previous
+  return { id, kind: 'group', group }
 }

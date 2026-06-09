@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  memo,
   useRef,
   useState,
   type KeyboardEvent,
@@ -112,24 +113,7 @@ export default function Workspace() {
   const runningSessionIds = useSessionStore((s) => s.runningSessionIds)
   const unreadSessionIds = useSessionStore((s) => s.unreadSessionIds)
   const currentSessionId = useSessionStore((s) => s.currentSessionId)
-  const messages = useSessionStore((s) => s.messages)
-  const fetchMessageProcess = useSessionStore((s) => s.fetchMessageProcess)
-  const fetchMessageFileChanges = useSessionStore((s) => s.fetchMessageFileChanges)
-  const fetchProcessItemDetail = useSessionStore((s) => s.fetchProcessItemDetail)
-  const fileChangeDetailsByMessageId = useSessionStore((s) => s.fileChangeDetailsByMessageId)
-  const turnProcessLoadingByMessageId = useSessionStore((s) => s.turnProcessLoadingByMessageId)
-  const turnProcessErrorByMessageId = useSessionStore((s) => s.turnProcessErrorByMessageId)
-  const toolCallLoadingByKey = useSessionStore((s) => s.toolCallLoadingByKey)
-  const toolCallErrorByKey = useSessionStore((s) => s.toolCallErrorByKey)
-  const processItemLoadingByKey = useSessionStore((s) => s.processItemLoadingByKey)
-  const processItemErrorByKey = useSessionStore((s) => s.processItemErrorByKey)
-  const events = useSessionStore((s) => s.events)
-  const streamingMessage = useSessionStore((s) => s.streamingMessage)
-  const usage = useSessionStore((s) => s.usage)
-  const capabilities = useSessionStore((s) => s.capabilities)
-  const plan = useSessionStore((s) => s.plan)
   const selectSession = useSessionStore((s) => s.selectSession)
-  const sendPrompt = useSessionStore((s) => s.sendPrompt)
   const createSession = useSessionStore((s) => s.createSession)
   const fetchSessions = useSessionStore((s) => s.fetchSessions)
   const fetchMessages = useSessionStore((s) => s.fetchMessages)
@@ -141,14 +125,6 @@ export default function Workspace() {
   const archiveSession = useSessionStore((s) => s.archiveSession)
   const fetchAgents = useAgentStore((s) => s.fetchAgents)
   const fetchTasks = useTaskStore((s) => s.fetchTasks)
-  const setModel = useSessionStore((s) => s.setModel)
-  const setMode = useSessionStore((s) => s.setMode)
-  const setConfig = useSessionStore((s) => s.setConfig)
-  const cancelTurn = useSessionStore((s) => s.cancelTurn)
-  const pendingPermissions = useSessionStore((s) => s.pendingPermissions)
-  const pendingElicitations = useSessionStore((s) => s.pendingElicitations)
-  const respondPermission = useSessionStore((s) => s.respondPermission)
-  const respondElicitation = useSessionStore((s) => s.respondElicitation)
   const tasks = useTaskStore((s) => s.tasks)
   const createTask = useTaskStore((s) => s.createTask)
   const teamContext = useTeamStore((s) => s.current)
@@ -171,25 +147,8 @@ export default function Workspace() {
   useEffect(() => {
     if (currentProjectId && sidebarTab === 'files') fetchTree(currentProjectId)
   }, [currentProjectId, sidebarTab, fetchTree])
-  const [inputValue, setInputValue] = useState('')
   const [showNewTask, setShowNewTask] = useState(false)
-  const [pendingImages, setPendingImages] = useState<{ data: string; mimeType: string; preview: string }[]>([])
-  const [draggingImages, setDraggingImages] = useState(false)
-  const [showModelMenu, setShowModelMenu] = useState(false)
-  const [showModeMenu, setShowModeMenu] = useState(false)
-  const [showConfigMenu, setShowConfigMenu] = useState<string | null>(null)
-  const [showCommandMenu, setShowCommandMenu] = useState(false)
-  const [menuAnchor, setMenuAnchor] = useState<MenuAnchor | null>(null)
   const [sessionMenuId, setSessionMenuId] = useState<string | null>(null)
-  const chatEndRef = useRef<HTMLDivElement>(null)
-  const chatScrollRef = useRef<HTMLDivElement>(null)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const prevMsgCount = useRef(0)
-  const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const stickToBottomRef = useRef(true)
-  const lastScrollHeightRef = useRef(0)
-  const pendingImagePreviewsRef = useRef<string[]>([])
 
   const projectAgents = useMemo(() => filterAgentsByProject(agents, currentProjectId), [agents, currentProjectId])
   const projectSessions = useMemo(
@@ -205,101 +164,6 @@ export default function Workspace() {
     [currentSessionId, projectAgents, projectSessions, selectedAgentId],
   )
   const agentSessions = useCallback((id: string) => projectSessions.filter((s) => s.agent_id === id), [projectSessions])
-
-  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
-    const el = chatScrollRef.current
-    if (el) {
-      el.scrollTo({ top: el.scrollHeight, behavior })
-      stickToBottomRef.current = true
-      lastScrollHeightRef.current = el.scrollHeight
-    } else {
-      chatEndRef.current?.scrollIntoView({ behavior })
-    }
-  }, [])
-
-  const scheduleScrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
-    if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current)
-    requestAnimationFrame(() => scrollToBottom(behavior))
-    scrollTimerRef.current = setTimeout(() => {
-      scrollToBottom('auto')
-      scrollTimerRef.current = setTimeout(() => {
-        scrollToBottom('auto')
-        scrollTimerRef.current = null
-      }, 120)
-    }, 40)
-  }, [scrollToBottom])
-
-  const updateStickToBottom = useCallback(() => {
-    const el = chatScrollRef.current
-    if (!el) return
-    stickToBottomRef.current = nextPinnedToBottom({
-      wasPinned: stickToBottomRef.current,
-      previousScrollHeight: lastScrollHeightRef.current,
-      metrics: el,
-    })
-    lastScrollHeightRef.current = el.scrollHeight
-  }, [])
-
-  const handleChatContentResize = useCallback(() => {
-    if (stickToBottomRef.current) scheduleScrollToBottom('auto')
-  }, [scheduleScrollToBottom])
-
-  const streamingScrollSignature = useMemo(() => {
-    if (!streamingMessage) return ''
-    const lastTool = streamingMessage.toolCalls.at(-1)
-    return [
-      streamingMessage.content.length,
-      streamingMessage.thinking.length,
-      streamingMessage.toolCalls.length,
-      streamingMessage.stage || '',
-      lastTool?.id || '',
-      lastTool?.status || '',
-      lastTool?.terminalOutput?.length || 0,
-      lastTool?.progress?.length || 0,
-      lastTool?.rawOutput != null ? 1 : 0,
-    ].join(':')
-  }, [streamingMessage])
-  const shouldScrollStreaming = !!streamingMessage && !streamingMessage.done
-
-  useEffect(() => {
-    const el = chatScrollRef.current
-    if (!el) return undefined
-    lastScrollHeightRef.current = el.scrollHeight
-    stickToBottomRef.current = isNearBottom(el)
-    el.addEventListener('scroll', updateStickToBottom, { passive: true })
-    return () => { el.removeEventListener('scroll', updateStickToBottom) }
-  }, [currentSessionId, updateStickToBottom])
-
-  useEffect(() => {
-    stickToBottomRef.current = true
-    lastScrollHeightRef.current = chatScrollRef.current?.scrollHeight ?? 0
-  }, [currentSessionId])
-
-  useEffect(() => {
-    if (messages.length !== prevMsgCount.current) {
-      prevMsgCount.current = messages.length
-      const el = chatScrollRef.current
-      if (!el || stickToBottomRef.current || isNearBottom(el)) scheduleScrollToBottom('smooth')
-    }
-  }, [messages.length, scheduleScrollToBottom])
-  useEffect(() => {
-    if (shouldScrollStreaming && stickToBottomRef.current) scheduleScrollToBottom('auto')
-    return () => {
-      if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current)
-    }
-  }, [shouldScrollStreaming, streamingScrollSignature, scheduleScrollToBottom])
-  useEffect(() => {
-    pendingImagePreviewsRef.current = pendingImages.map((img) => img.preview)
-  }, [pendingImages])
-  useEffect(() => () => pendingImagePreviewsRef.current.forEach((preview) => URL.revokeObjectURL(preview)), [])
-
-  const autoResize = () => {
-    const el = textareaRef.current
-    if (el) {
-      el.style.height = 'auto'
-      el.style.height = Math.min(el.scrollHeight, 160) + 'px'
-    }
-  }
 
   const toggleAgent = (id: string) =>
     setExpandedAgents((p) => {
@@ -420,200 +284,6 @@ export default function Workspace() {
     }
     void fetchCurrentTeam(currentSessionId)
   }, [currentSessionId, connected, fetchCurrentTeam, clearCurrentTeam])
-
-  const handleSend = () => {
-    const v = inputValue.trim()
-    const hasImages = pendingImages.length > 0
-    if ((!v && !hasImages) || !currentSessionId || !connected || blockingInteraction) return
-    stickToBottomRef.current = true
-    sendPrompt(
-      v,
-      hasImages ? pendingImages.map((i) => ({ data: i.data, mimeType: i.mimeType })) : undefined,
-    )
-    setInputValue('')
-    clearPendingImages()
-    requestAnimationFrame(() => {
-      if (textareaRef.current) {
-        textareaRef.current.style.height = 'auto'
-        textareaRef.current.focus()
-      }
-    })
-  }
-  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleSend()
-    }
-  }
-  const handleImageUpload = (e: ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files
-    if (files) addImageFiles(Array.from(files))
-    e.target.value = ''
-  }
-  const clearPendingImages = () => {
-    setPendingImages((prev) => {
-      prev.forEach((img) => URL.revokeObjectURL(img.preview))
-      return []
-    })
-  }
-  const removePendingImage = (index: number) => {
-    setPendingImages((prev) => {
-      const removed = prev[index]
-      if (removed) URL.revokeObjectURL(removed.preview)
-      return prev.filter((_, i) => i !== index)
-    })
-  }
-  const addImageFiles = (files: File[]) => {
-    files.filter((file) => file.type.startsWith('image/')).forEach((file) => {
-      const reader = new FileReader()
-      reader.onload = () =>
-        setPendingImages((prev) => [
-          ...prev,
-          { data: (reader.result as string).split(',')[1], mimeType: file.type, preview: URL.createObjectURL(file) },
-        ])
-      reader.readAsDataURL(file)
-    })
-  }
-  const handlePaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
-    const files = Array.from(e.clipboardData.files).filter((file) => file.type.startsWith('image/'))
-    if (files.length === 0) return
-    e.preventDefault()
-    addImageFiles(files)
-  }
-  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
-    const files = Array.from(e.dataTransfer.files).filter((file) => file.type.startsWith('image/'))
-    setDraggingImages(false)
-    if (files.length === 0) return
-    e.preventDefault()
-    addImageFiles(files)
-  }
-  const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
-    if (Array.from(e.dataTransfer.items).some((item) => item.type.startsWith('image/'))) {
-      e.preventDefault()
-      setDraggingImages(true)
-    }
-  }
-  const handleDragLeave = (e: DragEvent<HTMLDivElement>) => {
-    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDraggingImages(false)
-  }
-
-  const openMenu = (name: MenuName, e: MouseEvent<HTMLButtonElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect()
-    const nextAnchor = { name, left: rect.left, top: rect.top - 8, minWidth: rect.width }
-    setMenuAnchor(nextAnchor)
-    setShowCommandMenu(name === 'command' ? !showCommandMenu : false)
-    setShowModeMenu(name === 'mode' ? !showModeMenu : false)
-    setShowModelMenu(name === 'model' ? !showModelMenu : false)
-    setShowConfigMenu(name.startsWith('config:') ? (showConfigMenu === name.slice(7) ? null : name.slice(7)) : null)
-  }
-
-  const blockingInteraction = pendingPermissions.length > 0 || pendingElicitations.length > 0
-  const canSendPrompt = !!currentSessionId && connected && !blockingInteraction && (!!inputValue.trim() || pendingImages.length > 0)
-  const pendingInteractionId = pendingPermissions[0]?.id || pendingElicitations[0]?.id || ''
-  const isStreaming = !!(streamingMessage && !streamingMessage.done)
-  const [liveNowMs, setLiveNowMs] = useState(() => Date.now())
-  const latestHumanMessageTime = useMemo(() => {
-    if (!isStreaming || !currentSessionId) return null
-    for (let i = messages.length - 1; i >= 0; i -= 1) {
-      const message = messages[i]
-      if (message.session_id === currentSessionId && message.role === 'human') {
-        const timestamp = Date.parse(message.timestamp)
-        return Number.isFinite(timestamp) ? timestamp : null
-      }
-    }
-    return null
-  }, [currentSessionId, isStreaming, messages])
-  useEffect(() => {
-    if (!isStreaming) return undefined
-    const timer = window.setInterval(() => setLiveNowMs(Date.now()), 1000)
-    return () => window.clearInterval(timer)
-  }, [isStreaming])
-  const liveElapsedSeconds = isStreaming && latestHumanMessageTime != null
-    ? Math.max(0, Math.floor((liveNowMs - latestHumanMessageTime) / 1000))
-    : undefined
-  const streamingBubble = useMemo<ChatMsg | null>(() => {
-    if (!isStreaming || !streamingMessage) return null
-    return {
-      id: streamingMessage.id,
-      session_id: currentSessionId ?? undefined,
-      role: 'agent',
-      content: streamingMessage.content,
-      thinking: streamingMessage.thinking,
-      toolCalls: streamingMessage.toolCalls,
-      processBlocks: streamingMessage.processBlocks,
-      finalAnswer: streamingMessage.finalAnswer,
-      stage: streamingMessage.stage,
-      timestamp: new Date().toISOString(),
-      streaming: true,
-    }
-  }, [currentSessionId, isStreaming, streamingMessage])
-  const showStreamingBubble = !!streamingBubble
-  const showPlanBar = shouldShowPlanBar({ plan, isStreaming, hasBlockingInteraction: blockingInteraction })
-  const [showTimeline, setShowTimeline] = useState(false)
-  const interactionPanel = useMemo(
-    () =>
-      blockingInteraction ? (
-        <InteractionPanel
-          permission={pendingPermissions[0]}
-          elicitation={pendingPermissions.length === 0 ? pendingElicitations[0] : undefined}
-          onRespondPermission={respondPermission}
-          onRespondElicitation={respondElicitation}
-        />
-      ) : null,
-    [blockingInteraction, pendingElicitations, pendingPermissions, respondElicitation, respondPermission],
-  )
-
-  const chatItems = useMemo<ChatRenderItem<ChatMsg>[]>(
-    () => buildChatRenderItems<ChatMsg>({
-      sessionId: currentSessionId,
-      messages,
-      events,
-      streamingBubble,
-      showStreamingBubble,
-      blockingInteraction,
-    }),
-    [blockingInteraction, currentSessionId, events, messages, showStreamingBubble, streamingBubble],
-  )
-  const renderChatItem = useCallback(
-    (item: ChatRenderItem<ChatMsg>) => {
-      if (item.kind === 'group') return <ChatBubble group={item.group} agent={chatAgent} isStreaming={false} />
-      if (item.kind === 'streaming') {
-        return <ChatBubble message={item.message} agent={chatAgent} isStreaming footer={interactionPanel} liveElapsedSeconds={liveElapsedSeconds} />
-      }
-      if (item.kind === 'blocking') return <BlockingInteractionBar agent={chatAgent} panel={interactionPanel} />
-      return (
-        <ChatBubble
-          message={item.message}
-          agent={chatAgent}
-          isStreaming={false}
-          onLoadMessageProcess={fetchMessageProcess}
-          onLoadMessageFileChanges={fetchMessageFileChanges}
-          onLoadProcessItemDetail={fetchProcessItemDetail}
-          fileChangeDetailsByMessageId={fileChangeDetailsByMessageId}
-          fileChangeLoadingByKey={toolCallLoadingByKey}
-          fileChangeErrorByKey={toolCallErrorByKey}
-          processItemLoadingByKey={processItemLoadingByKey}
-          processItemErrorByKey={processItemErrorByKey}
-          turnProcessLoadingByMessageId={turnProcessLoadingByMessageId}
-          turnProcessErrorByMessageId={turnProcessErrorByMessageId}
-        />
-      )
-    },
-    [chatAgent, fetchMessageFileChanges, fetchMessageProcess, fetchProcessItemDetail, fileChangeDetailsByMessageId, interactionPanel, liveElapsedSeconds, processItemErrorByKey, processItemLoadingByKey, toolCallErrorByKey, toolCallLoadingByKey, turnProcessErrorByMessageId, turnProcessLoadingByMessageId],
-  )
-
-  const currentModeName =
-    capabilities.modes.find((m) => m.modeId === capabilities.currentModeId)?.name || capabilities.currentModeId
-  const currentModelName =
-    capabilities.models.find((m) => m.modelId === capabilities.currentModelId)?.name || capabilities.currentModelId
-  const secondaryConfigs = capabilities.configOptions.filter(
-    (o) => o.category !== 'model' && o.category !== 'mode' && o.id !== 'model' && o.id !== 'mode',
-  )
-
-  useEffect(() => {
-    if (blockingInteraction) requestAnimationFrame(() => scrollToBottom('smooth'))
-  }, [blockingInteraction, pendingInteractionId, scrollToBottom])
-
   return (
     <div style={{ display: 'flex', height: '100%', background: 'var(--bg-1)' }}>
       {/* ─── Left Sidebar ─── */}
@@ -987,382 +657,11 @@ export default function Workspace() {
 
       {/* ─── Center Chat ─── */}
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-        {/* Header */}
-        <header
-          style={{
-            padding: '10px 20px',
-            borderBottom: '1px solid var(--border)',
-            background: 'var(--bg-0)',
-            flexShrink: 0,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            {chatAgent && (
-              <>
-                <div
-                  style={{
-                    width: 30,
-                    height: 30,
-                    borderRadius: '50%',
-                    background: agentColor(chatAgent),
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: 14,
-                    fontWeight: 700,
-                    color: 'white',
-                  }}
-                >
-                  {agentAvatar(chatAgent)}
-                </div>
-                <div>
-                  <div style={{ fontWeight: 600, fontSize: 15 }}>{chatAgent.name}</div>
-                  <div style={{ fontSize: 13, color: 'var(--text-3)' }}>
-                    {chatAgent.runtime} · {statusLabel(chatAgent.status)}
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            {currentSessionId && (
-              <button
-                onClick={() => setShowTimeline((v) => !v)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 5,
-                  padding: '5px 11px',
-                  borderRadius: 7,
-                  border: `1px solid ${showTimeline ? '#93b4f5' : 'var(--border)'}`,
-                  background: showTimeline ? '#eff6ff' : 'var(--bg-0)',
-                  cursor: 'pointer',
-                  fontSize: 13,
-                  color: showTimeline ? '#2563eb' : 'var(--text-2)',
-                  transition: 'all .15s',
-                }}
-              >
-                📋 时间线
-              </button>
-            )}
-          </div>
-        </header>
-        {showTimeline && currentSessionId && (
-          <div style={{ position: 'relative' }}>
-            <TimelinePopover sessionId={currentSessionId} onClose={() => setShowTimeline(false)} />
-          </div>
-        )}
-
-        {showPlanBar && (
-          <PlanBar
-            plan={plan}
-            isStreaming={isStreaming}
-            currentModeId={capabilities.currentModeId}
-            modes={capabilities.modes}
-            onSetMode={setMode}
-          />
-        )}
-
-        {/* Messages */}
-        <div ref={chatScrollRef} style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
-          {!currentSessionId ? (
-            <div style={{ textAlign: 'center', color: 'var(--text-3)', padding: '80px 20px' }}>
-              <Bot size={48} color="var(--text-3)" style={{ marginBottom: 16, opacity: 0.3 }} />
-              <div style={{ fontSize: 15, marginBottom: 8 }}>选择一个 Session 或新建会话</div>
-              <div style={{ fontSize: 14 }}>点击左侧 Agent 下方的会话开始</div>
-            </div>
-          ) : (
-            <div
-              key={chatContentKey(currentSessionId)}
-              style={{ padding: '20px 20px 20px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}
-            >
-              {chatItems.length === 0 && !showStreamingBubble && !blockingInteraction && (
-                <div style={{ textAlign: 'center', color: 'var(--text-3)', padding: '48px 0' }}>
-                  暂无消息，开始对话吧
-                </div>
-              )}
-              <VirtualChatList
-                key={currentSessionId}
-                items={chatItems}
-                getKey={(item) => item.id}
-                renderItem={renderChatItem}
-                scrollRef={chatScrollRef}
-                onContentResize={handleChatContentResize}
-              />
-              <div ref={chatEndRef} />
-            </div>
-          )}
-        </div>
-
-        {/* ─── Codex-style Input Card ─── */}
-        <div style={{ padding: '0 20px 16px', flexShrink: 0 }}>
-          {/* Image previews */}
-          {pendingImages.length > 0 && (
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
-              {pendingImages.map((img, i) => (
-                <div
-                  key={i}
-                  style={{
-                    position: 'relative',
-                    width: 52,
-                    height: 52,
-                    borderRadius: 6,
-                    overflow: 'hidden',
-                    border: '1px solid var(--border)',
-                  }}
-                >
-                  <img src={img.preview} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                  <button
-                    type="button"
-                  onClick={() => removePendingImage(i)}
-                    style={{
-                      position: 'absolute',
-                      top: 2,
-                      right: 2,
-                      width: 16,
-                      height: 16,
-                      borderRadius: '50%',
-                      background: 'rgba(0,0,0,0.6)',
-                      border: 'none',
-                      color: 'white',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      padding: 0,
-                    }}
-                  >
-                    <X size={10} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <div
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-            style={{
-              border: draggingImages ? '1px solid var(--blue)' : '1px solid var(--border)',
-              borderRadius: 12,
-              background: draggingImages ? 'var(--blue-light)' : 'var(--bg-0)',
-              boxShadow: draggingImages ? '0 0 0 3px rgba(37,99,235,0.12)' : '0 1px 4px rgba(0,0,0,0.06)',
-              overflow: 'hidden',
-              opacity: currentSessionId ? 1 : 0.5,
-            }}
-          >
-            {/* Textarea */}
-            <textarea
-              ref={textareaRef}
-              value={inputValue}
-              onChange={(e) => {
-                setInputValue(e.target.value)
-                autoResize()
-              }}
-              onKeyDown={handleKeyDown}
-              onPaste={handlePaste}
-              placeholder={
-                blockingInteraction ? '等待你确认后继续...' : currentSessionId ? '输入消息...' : '先选择一个 Session'
-              }
-              disabled={!currentSessionId || !connected || blockingInteraction}
-              autoFocus
-              rows={2}
-              style={{
-                width: '100%',
-                padding: '14px 16px 8px',
-                border: 'none',
-                outline: 'none',
-                resize: 'none',
-                background: 'transparent',
-                color: 'var(--text-1)',
-                fontSize: 15,
-                lineHeight: 1.6,
-                fontFamily: 'inherit',
-                minHeight: 56,
-                maxHeight: 160,
-                boxSizing: 'border-box',
-              }}
-            />
-            {/* Bottom toolbar (inside the card) */}
-            <div style={{ display: 'flex', alignItems: 'center', padding: '6px 12px 10px', gap: 4 }}>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                multiple
-                onChange={handleImageUpload}
-                style={{ display: 'none' }}
-              />
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={!currentSessionId}
-                title="添加附件"
-                style={{
-                  width: 30,
-                  height: 30,
-                  borderRadius: 6,
-                  border: 'none',
-                  background: 'transparent',
-                  color: 'var(--text-3)',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <Paperclip size={15} />
-              </button>
-
-              {capabilities.commands.length > 0 && (
-                <button
-                  type="button"
-                  onClick={(e) => openMenu('command', e)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 4,
-                    padding: '4px 10px',
-                    borderRadius: 6,
-                    border: 'none',
-                    background: 'var(--bg-1)',
-                    color: 'var(--text-2)',
-                    fontSize: 13,
-                    cursor: 'pointer',
-                    fontWeight: 500,
-                  }}
-                >
-                  <Wrench size={12} /> 命令 <ChevronDown size={10} />
-                </button>
-              )}
-
-              {capabilities.modes.length > 0 && (
-                <button
-                  type="button"
-                  onClick={(e) => openMenu('mode', e)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 4,
-                    padding: '4px 10px',
-                    borderRadius: 6,
-                    border: 'none',
-                    background: 'var(--bg-1)',
-                    color: 'var(--text-2)',
-                    fontSize: 13,
-                    cursor: 'pointer',
-                    fontWeight: 500,
-                  }}
-                >
-                  <Settings2 size={12} /> {modeCn(currentModeName)} <ChevronDown size={10} />
-                </button>
-              )}
-
-              <div style={{ flex: 1 }} />
-
-              {secondaryConfigs.map((opt) => (
-                <button
-                  key={opt.id}
-                  type="button"
-                  onClick={(e) => openMenu(`config:${opt.id}`, e)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 4,
-                    padding: '4px 10px',
-                    borderRadius: 6,
-                    border: 'none',
-                    background: 'var(--bg-1)',
-                    color: 'var(--text-2)',
-                    fontSize: 13,
-                    cursor: 'pointer',
-                    fontWeight: 500,
-                  }}
-                >
-                  {configLabel(opt)} <ChevronDown size={10} />
-                </button>
-              ))}
-
-              {usage && <MiniContextCircle used={usage.contextUsed} total={usage.contextSize} />}
-
-              {capabilities.models.length > 0 && (
-                <button
-                  type="button"
-                  onClick={(e) => openMenu('model', e)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 4,
-                    padding: '4px 10px',
-                    borderRadius: 6,
-                    border: 'none',
-                    background: 'transparent',
-                    color: 'var(--text-2)',
-                    fontSize: 13,
-                    cursor: 'pointer',
-                    fontWeight: 500,
-                  }}
-                >
-                  {currentModelName || '模型'} <ChevronDown size={10} />
-                </button>
-              )}
-
-              {blockingInteraction && (
-                <span style={{ fontSize: 13, color: 'var(--red)', fontWeight: 600, marginRight: 6 }}>等待确认</span>
-              )}
-
-              {isStreaming ? (
-                <button
-                  type="button"
-                  onClick={cancelTurn}
-                  title="停止生成"
-                  style={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: '50%',
-                    border: '2px solid var(--red)',
-                    cursor: 'pointer',
-                    background: 'transparent',
-                    color: 'var(--red)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexShrink: 0,
-                    transition: 'all 0.15s',
-                  }}
-                >
-                  <Square size={14} fill="var(--red)" />
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={handleSend}
-                  disabled={!canSendPrompt}
-                  style={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: '50%',
-                    border: 'none',
-                    cursor: canSendPrompt ? 'pointer' : 'default',
-                    background: canSendPrompt ? 'var(--text-1)' : 'var(--bg-3)',
-                    color: 'white',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexShrink: 0,
-                    transition: 'background 0.15s',
-                  }}
-                >
-                  <ArrowUp size={16} />
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
+        <WorkspaceChatPane
+          connected={connected}
+          currentSessionId={currentSessionId}
+          chatAgent={chatAgent}
+        />
       </main>
 
       {/* Right Sidebar: session context */}
@@ -1433,7 +732,668 @@ export default function Workspace() {
         />
       )}
 
-      {/* 命令菜单 */}
+    </div>
+  )
+}
+
+function WorkspaceChatPane({
+  connected,
+  currentSessionId,
+  chatAgent,
+}: {
+  connected: boolean
+  currentSessionId: string | null
+  chatAgent: AgentData | undefined
+}) {
+  const messages = useSessionStore((s) => s.messages)
+  const events = useSessionStore((s) => s.events)
+  const streamingMessage = useSessionStore((s) => s.streamingMessage)
+  const usage = useSessionStore((s) => s.usage)
+  const capabilities = useSessionStore((s) => s.capabilities)
+  const plan = useSessionStore((s) => s.plan)
+  const sendPrompt = useSessionStore((s) => s.sendPrompt)
+  const setModel = useSessionStore((s) => s.setModel)
+  const setMode = useSessionStore((s) => s.setMode)
+  const setConfig = useSessionStore((s) => s.setConfig)
+  const cancelTurn = useSessionStore((s) => s.cancelTurn)
+  const pendingPermissions = useSessionStore((s) => s.pendingPermissions)
+  const pendingElicitations = useSessionStore((s) => s.pendingElicitations)
+  const respondPermission = useSessionStore((s) => s.respondPermission)
+  const respondElicitation = useSessionStore((s) => s.respondElicitation)
+  const fetchMessageProcess = useSessionStore((s) => s.fetchMessageProcess)
+  const fetchMessageFileChanges = useSessionStore((s) => s.fetchMessageFileChanges)
+  const fetchProcessItemDetail = useSessionStore((s) => s.fetchProcessItemDetail)
+  const fileChangeDetailsByMessageId = useSessionStore((s) => s.fileChangeDetailsByMessageId)
+  const turnProcessLoadingByMessageId = useSessionStore((s) => s.turnProcessLoadingByMessageId)
+  const turnProcessErrorByMessageId = useSessionStore((s) => s.turnProcessErrorByMessageId)
+  const toolCallLoadingByKey = useSessionStore((s) => s.toolCallLoadingByKey)
+  const toolCallErrorByKey = useSessionStore((s) => s.toolCallErrorByKey)
+  const processItemLoadingByKey = useSessionStore((s) => s.processItemLoadingByKey)
+  const processItemErrorByKey = useSessionStore((s) => s.processItemErrorByKey)
+
+  const [inputValue, setInputValue] = useState('')
+  const [pendingImages, setPendingImages] = useState<{ data: string; mimeType: string; preview: string }[]>([])
+  const [draggingImages, setDraggingImages] = useState(false)
+  const [showTimeline, setShowTimeline] = useState(false)
+  const [showModelMenu, setShowModelMenu] = useState(false)
+  const [showModeMenu, setShowModeMenu] = useState(false)
+  const [showConfigMenu, setShowConfigMenu] = useState<string | null>(null)
+  const [showCommandMenu, setShowCommandMenu] = useState(false)
+  const [menuAnchor, setMenuAnchor] = useState<MenuAnchor | null>(null)
+  const [liveNowMs, setLiveNowMs] = useState(() => Date.now())
+
+  const chatEndRef = useRef<HTMLDivElement>(null)
+  const chatScrollRef = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const prevMsgCount = useRef(0)
+  const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const stickToBottomRef = useRef(true)
+  const lastScrollHeightRef = useRef(0)
+  const pendingImagePreviewsRef = useRef<string[]>([])
+
+  const blockingInteraction = pendingPermissions.length > 0 || pendingElicitations.length > 0
+  const canSendPrompt = !!currentSessionId && connected && !blockingInteraction && (!!inputValue.trim() || pendingImages.length > 0)
+  const pendingInteractionId = pendingPermissions[0]?.id || pendingElicitations[0]?.id || ''
+  const isStreaming = !!(streamingMessage && !streamingMessage.done)
+  const currentModeName =
+    capabilities.modes.find((m) => m.modeId === capabilities.currentModeId)?.name || capabilities.currentModeId
+  const currentModelName =
+    capabilities.models.find((m) => m.modelId === capabilities.currentModelId)?.name || capabilities.currentModelId
+  const secondaryConfigs = capabilities.configOptions.filter(
+    (o) => o.category !== 'model' && o.category !== 'mode' && o.id !== 'model' && o.id !== 'mode',
+  )
+
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
+    const el = chatScrollRef.current
+    if (el) {
+      el.scrollTo({ top: el.scrollHeight, behavior })
+      stickToBottomRef.current = true
+      lastScrollHeightRef.current = el.scrollHeight
+    } else {
+      chatEndRef.current?.scrollIntoView({ behavior })
+    }
+  }, [])
+
+  const scheduleScrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
+    if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current)
+    requestAnimationFrame(() => scrollToBottom(behavior))
+    scrollTimerRef.current = setTimeout(() => {
+      scrollToBottom('auto')
+      scrollTimerRef.current = setTimeout(() => {
+        scrollToBottom('auto')
+        scrollTimerRef.current = null
+      }, 120)
+    }, 40)
+  }, [scrollToBottom])
+
+  const updateStickToBottom = useCallback(() => {
+    const el = chatScrollRef.current
+    if (!el) return
+    stickToBottomRef.current = nextPinnedToBottom({
+      wasPinned: stickToBottomRef.current,
+      previousScrollHeight: lastScrollHeightRef.current,
+      metrics: el,
+    })
+    lastScrollHeightRef.current = el.scrollHeight
+  }, [])
+
+  const handleChatContentResize = useCallback(() => {
+    if (stickToBottomRef.current) scheduleScrollToBottom('auto')
+  }, [scheduleScrollToBottom])
+
+  const streamingScrollSignature = useMemo(() => {
+    if (!streamingMessage) return ''
+    const lastTool = streamingMessage.toolCalls.at(-1)
+    return [
+      streamingMessage.content.length,
+      streamingMessage.thinking.length,
+      streamingMessage.toolCalls.length,
+      streamingMessage.stage || '',
+      lastTool?.id || '',
+      lastTool?.status || '',
+      lastTool?.terminalOutput?.length || 0,
+      lastTool?.progress?.length || 0,
+      lastTool?.rawOutput != null ? 1 : 0,
+    ].join(':')
+  }, [streamingMessage])
+  const shouldScrollStreaming = !!streamingMessage && !streamingMessage.done
+
+  useEffect(() => {
+    const el = chatScrollRef.current
+    if (!el) return undefined
+    lastScrollHeightRef.current = el.scrollHeight
+    stickToBottomRef.current = isNearBottom(el)
+    el.addEventListener('scroll', updateStickToBottom, { passive: true })
+    return () => { el.removeEventListener('scroll', updateStickToBottom) }
+  }, [currentSessionId, updateStickToBottom])
+
+  useEffect(() => {
+    stickToBottomRef.current = true
+    lastScrollHeightRef.current = chatScrollRef.current?.scrollHeight ?? 0
+  }, [currentSessionId])
+
+  useEffect(() => {
+    if (messages.length !== prevMsgCount.current) {
+      prevMsgCount.current = messages.length
+      const el = chatScrollRef.current
+      if (!el || stickToBottomRef.current || isNearBottom(el)) scheduleScrollToBottom('smooth')
+    }
+  }, [messages.length, scheduleScrollToBottom])
+
+  useEffect(() => {
+    if (shouldScrollStreaming && stickToBottomRef.current) scheduleScrollToBottom('auto')
+    return () => {
+      if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current)
+    }
+  }, [shouldScrollStreaming, streamingScrollSignature, scheduleScrollToBottom])
+
+  useEffect(() => {
+    pendingImagePreviewsRef.current = pendingImages.map((img) => img.preview)
+  }, [pendingImages])
+
+  useEffect(() => () => pendingImagePreviewsRef.current.forEach((preview) => URL.revokeObjectURL(preview)), [])
+
+  useEffect(() => {
+    if (!isStreaming) return undefined
+    const timer = window.setInterval(() => setLiveNowMs(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [isStreaming])
+
+  useEffect(() => {
+    if (blockingInteraction) requestAnimationFrame(() => scrollToBottom('smooth'))
+  }, [blockingInteraction, pendingInteractionId, scrollToBottom])
+
+  const autoResize = () => {
+    const el = textareaRef.current
+    if (el) {
+      el.style.height = 'auto'
+      el.style.height = Math.min(el.scrollHeight, 160) + 'px'
+    }
+  }
+
+  const clearPendingImages = () => {
+    setPendingImages((prev) => {
+      prev.forEach((img) => URL.revokeObjectURL(img.preview))
+      return []
+    })
+  }
+
+  const handleSend = () => {
+    const v = inputValue.trim()
+    const hasImages = pendingImages.length > 0
+    if ((!v && !hasImages) || !currentSessionId || !connected || blockingInteraction) return
+    stickToBottomRef.current = true
+    sendPrompt(
+      v,
+      hasImages ? pendingImages.map((i) => ({ data: i.data, mimeType: i.mimeType })) : undefined,
+    )
+    setInputValue('')
+    clearPendingImages()
+    requestAnimationFrame(() => {
+      if (textareaRef.current) {
+        textareaRef.current.style.height = 'auto'
+        textareaRef.current.focus()
+      }
+    })
+  }
+
+  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleSend()
+    }
+  }
+
+  const addImageFiles = (files: File[]) => {
+    files.filter((file) => file.type.startsWith('image/')).forEach((file) => {
+      const reader = new FileReader()
+      reader.onload = () =>
+        setPendingImages((prev) => [
+          ...prev,
+          { data: (reader.result as string).split(',')[1], mimeType: file.type, preview: URL.createObjectURL(file) },
+        ])
+      reader.readAsDataURL(file)
+    })
+  }
+
+  const handleImageUpload = (e: ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (files) addImageFiles(Array.from(files))
+    e.target.value = ''
+  }
+
+  const removePendingImage = (index: number) => {
+    setPendingImages((prev) => {
+      const removed = prev[index]
+      if (removed) URL.revokeObjectURL(removed.preview)
+      return prev.filter((_, i) => i !== index)
+    })
+  }
+
+  const handlePaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = Array.from(e.clipboardData.files).filter((file) => file.type.startsWith('image/'))
+    if (files.length === 0) return
+    e.preventDefault()
+    addImageFiles(files)
+  }
+
+  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
+    const files = Array.from(e.dataTransfer.files).filter((file) => file.type.startsWith('image/'))
+    setDraggingImages(false)
+    if (files.length === 0) return
+    e.preventDefault()
+    addImageFiles(files)
+  }
+
+  const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
+    if (Array.from(e.dataTransfer.items).some((item) => item.type.startsWith('image/'))) {
+      e.preventDefault()
+      setDraggingImages(true)
+    }
+  }
+
+  const handleDragLeave = (e: DragEvent<HTMLDivElement>) => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDraggingImages(false)
+  }
+
+  const openMenu = (name: MenuName, e: MouseEvent<HTMLButtonElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const nextAnchor = { name, left: rect.left, top: rect.top - 8, minWidth: rect.width }
+    setMenuAnchor(nextAnchor)
+    setShowCommandMenu(name === 'command' ? !showCommandMenu : false)
+    setShowModeMenu(name === 'mode' ? !showModeMenu : false)
+    setShowModelMenu(name === 'model' ? !showModelMenu : false)
+    setShowConfigMenu(name.startsWith('config:') ? (showConfigMenu === name.slice(7) ? null : name.slice(7)) : null)
+  }
+
+  const latestHumanMessageTime = useMemo(() => {
+    if (!isStreaming || !currentSessionId) return null
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const message = messages[i]
+      if (message.session_id === currentSessionId && message.role === 'human') {
+        const timestamp = Date.parse(message.timestamp)
+        return Number.isFinite(timestamp) ? timestamp : null
+      }
+    }
+    return null
+  }, [currentSessionId, isStreaming, messages])
+
+  const liveElapsedSeconds = isStreaming && latestHumanMessageTime != null
+    ? Math.max(0, Math.floor((liveNowMs - latestHumanMessageTime) / 1000))
+    : undefined
+
+  const streamingBubble = useMemo<ChatMsg | null>(() => {
+    if (!isStreaming || !streamingMessage) return null
+    return {
+      id: streamingMessage.id,
+      session_id: currentSessionId ?? undefined,
+      role: 'agent',
+      content: streamingMessage.content,
+      thinking: streamingMessage.thinking,
+      toolCalls: streamingMessage.toolCalls,
+      processBlocks: streamingMessage.processBlocks,
+      finalAnswer: streamingMessage.finalAnswer,
+      stage: streamingMessage.stage,
+      timestamp: new Date().toISOString(),
+      streaming: true,
+    }
+  }, [currentSessionId, isStreaming, streamingMessage])
+  const showStreamingBubble = !!streamingBubble
+  const showPlanBar = shouldShowPlanBar({ plan, isStreaming, hasBlockingInteraction: blockingInteraction })
+
+  const interactionPanel = useMemo(
+    () =>
+      blockingInteraction ? (
+        <InteractionPanel
+          permission={pendingPermissions[0]}
+          elicitation={pendingPermissions.length === 0 ? pendingElicitations[0] : undefined}
+          onRespondPermission={respondPermission}
+          onRespondElicitation={respondElicitation}
+        />
+      ) : null,
+    [blockingInteraction, pendingElicitations, pendingPermissions, respondElicitation, respondPermission],
+  )
+
+  const chatItems = useMemo<ChatRenderItem<ChatMsg>[]>(
+    () => buildChatRenderItems<ChatMsg>({
+      sessionId: currentSessionId,
+      messages,
+      events,
+      streamingBubble,
+      showStreamingBubble,
+      blockingInteraction,
+    }),
+    [blockingInteraction, currentSessionId, events, messages, showStreamingBubble, streamingBubble],
+  )
+
+  const renderChatItem = useCallback(
+    (item: ChatRenderItem<ChatMsg>) => {
+      if (item.kind === 'group') return <MemoChatBubble group={item.group} agent={chatAgent} isStreaming={false} />
+      if (item.kind === 'streaming') {
+        return <MemoChatBubble message={item.message} agent={chatAgent} isStreaming footer={interactionPanel} liveElapsedSeconds={liveElapsedSeconds} />
+      }
+      if (item.kind === 'blocking') return <BlockingInteractionBar agent={chatAgent} panel={interactionPanel} />
+      return (
+        <MemoChatBubble
+          message={item.message}
+          agent={chatAgent}
+          isStreaming={false}
+          onLoadMessageProcess={fetchMessageProcess}
+          onLoadMessageFileChanges={fetchMessageFileChanges}
+          onLoadProcessItemDetail={fetchProcessItemDetail}
+          fileChangeDetailsByMessageId={fileChangeDetailsByMessageId}
+          fileChangeLoadingByKey={toolCallLoadingByKey}
+          fileChangeErrorByKey={toolCallErrorByKey}
+          processItemLoadingByKey={processItemLoadingByKey}
+          processItemErrorByKey={processItemErrorByKey}
+          turnProcessLoadingByMessageId={turnProcessLoadingByMessageId}
+          turnProcessErrorByMessageId={turnProcessErrorByMessageId}
+        />
+      )
+    },
+    [chatAgent, fetchMessageFileChanges, fetchMessageProcess, fetchProcessItemDetail, fileChangeDetailsByMessageId, interactionPanel, liveElapsedSeconds, processItemErrorByKey, processItemLoadingByKey, toolCallErrorByKey, toolCallLoadingByKey, turnProcessErrorByMessageId, turnProcessLoadingByMessageId],
+  )
+
+  return (
+    <>
+      <header
+        style={{
+          padding: '10px 20px',
+          borderBottom: '1px solid var(--border)',
+          background: 'var(--bg-0)',
+          flexShrink: 0,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {chatAgent && (
+            <>
+              <div
+                style={{
+                  width: 30,
+                  height: 30,
+                  borderRadius: '50%',
+                  background: agentColor(chatAgent),
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 14,
+                  fontWeight: 700,
+                  color: 'white',
+                }}
+              >
+                {agentAvatar(chatAgent)}
+              </div>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 15 }}>{chatAgent.name}</div>
+                <div style={{ fontSize: 13, color: 'var(--text-3)' }}>
+                  {chatAgent.runtime} · {statusLabel(chatAgent.status)}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {currentSessionId && (
+            <button
+              onClick={() => setShowTimeline((v) => !v)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5,
+                padding: '5px 11px',
+                borderRadius: 7,
+                border: `1px solid ${showTimeline ? '#93b4f5' : 'var(--border)'}`,
+                background: showTimeline ? '#eff6ff' : 'var(--bg-0)',
+                cursor: 'pointer',
+                fontSize: 13,
+                color: showTimeline ? '#2563eb' : 'var(--text-2)',
+                transition: 'all .15s',
+              }}
+            >
+              时间线
+            </button>
+          )}
+        </div>
+      </header>
+      {showTimeline && currentSessionId && (
+        <div style={{ position: 'relative' }}>
+          <TimelinePopover sessionId={currentSessionId} onClose={() => setShowTimeline(false)} />
+        </div>
+      )}
+      {showPlanBar && (
+        <PlanBar
+          plan={plan}
+          isStreaming={isStreaming}
+          currentModeId={capabilities.currentModeId}
+          modes={capabilities.modes}
+          onSetMode={setMode}
+        />
+      )}
+      <div ref={chatScrollRef} style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
+        {!currentSessionId ? (
+          <div style={{ textAlign: 'center', color: 'var(--text-3)', padding: '80px 20px' }}>
+            <Bot size={48} color="var(--text-3)" style={{ marginBottom: 16, opacity: 0.3 }} />
+            <div style={{ fontSize: 15, marginBottom: 8 }}>选择一个 Session 或新建会话</div>
+            <div style={{ fontSize: 14 }}>点击左侧 Agent 下方的会话开始</div>
+          </div>
+        ) : (
+          <div
+            key={chatContentKey(currentSessionId)}
+            style={{ padding: '20px 20px 20px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}
+          >
+            {chatItems.length === 0 && !showStreamingBubble && !blockingInteraction && (
+              <div style={{ textAlign: 'center', color: 'var(--text-3)', padding: '48px 0' }}>
+                暂无消息，开始对话吧
+              </div>
+            )}
+            <VirtualChatList
+              key={currentSessionId}
+              items={chatItems}
+              getKey={(item) => item.id}
+              renderItem={renderChatItem}
+              scrollRef={chatScrollRef}
+              onContentResize={handleChatContentResize}
+            />
+            <div ref={chatEndRef} />
+          </div>
+        )}
+      </div>
+      <div style={{ padding: '0 20px 16px', flexShrink: 0 }}>
+        {pendingImages.length > 0 && (
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+            {pendingImages.map((img, i) => (
+              <div
+                key={i}
+                style={{
+                  position: 'relative',
+                  width: 52,
+                  height: 52,
+                  borderRadius: 6,
+                  overflow: 'hidden',
+                  border: '1px solid var(--border)',
+                }}
+              >
+                <img src={img.preview} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                <button
+                  type="button"
+                  onClick={() => removePendingImage(i)}
+                  style={{
+                    position: 'absolute',
+                    top: 2,
+                    right: 2,
+                    width: 16,
+                    height: 16,
+                    borderRadius: '50%',
+                    background: 'rgba(0,0,0,0.6)',
+                    border: 'none',
+                    color: 'white',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: 0,
+                  }}
+                >
+                  <X size={10} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          style={{
+            border: draggingImages ? '1px solid var(--blue)' : '1px solid var(--border)',
+            borderRadius: 12,
+            background: draggingImages ? 'var(--blue-light)' : 'var(--bg-0)',
+            boxShadow: draggingImages ? '0 0 0 3px rgba(37,99,235,0.12)' : '0 1px 4px rgba(0,0,0,0.06)',
+            overflow: 'hidden',
+            opacity: currentSessionId ? 1 : 0.5,
+          }}
+        >
+          <textarea
+            ref={textareaRef}
+            value={inputValue}
+            onChange={(e) => {
+              setInputValue(e.target.value)
+              autoResize()
+            }}
+            onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
+            placeholder={
+              blockingInteraction ? '等待你确认后继续...' : currentSessionId ? '输入消息...' : '先选择一个 Session'
+            }
+            disabled={!currentSessionId || !connected || blockingInteraction}
+            autoFocus
+            rows={2}
+            style={{
+              width: '100%',
+              padding: '14px 16px 8px',
+              border: 'none',
+              outline: 'none',
+              resize: 'none',
+              background: 'transparent',
+              color: 'var(--text-1)',
+              fontSize: 15,
+              lineHeight: 1.6,
+              fontFamily: 'inherit',
+              minHeight: 56,
+              maxHeight: 160,
+              boxSizing: 'border-box',
+            }}
+          />
+          <div style={{ display: 'flex', alignItems: 'center', padding: '6px 12px 10px', gap: 4 }}>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={handleImageUpload}
+              style={{ display: 'none' }}
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={!currentSessionId}
+              title="添加附件"
+              style={{
+                width: 30,
+                height: 30,
+                borderRadius: 6,
+                border: 'none',
+                background: 'transparent',
+                color: 'var(--text-3)',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Paperclip size={15} />
+            </button>
+            {capabilities.commands.length > 0 && (
+              <button type="button" onClick={(e) => openMenu('command', e)} style={toolbarButtonStyle}>
+                <Wrench size={12} /> 命令 <ChevronDown size={10} />
+              </button>
+            )}
+            {capabilities.modes.length > 0 && (
+              <button type="button" onClick={(e) => openMenu('mode', e)} style={toolbarButtonStyle}>
+                <Settings2 size={12} /> {modeCn(currentModeName)} <ChevronDown size={10} />
+              </button>
+            )}
+            <div style={{ flex: 1 }} />
+            {secondaryConfigs.map((opt) => (
+              <button key={opt.id} type="button" onClick={(e) => openMenu(`config:${opt.id}`, e)} style={toolbarButtonStyle}>
+                {configLabel(opt)} <ChevronDown size={10} />
+              </button>
+            ))}
+            {usage && <MiniContextCircle used={usage.contextUsed} total={usage.contextSize} />}
+            {capabilities.models.length > 0 && (
+              <button
+                type="button"
+                onClick={(e) => openMenu('model', e)}
+                style={{ ...toolbarButtonStyle, background: 'transparent' }}
+              >
+                {currentModelName || '模型'} <ChevronDown size={10} />
+              </button>
+            )}
+            {blockingInteraction && (
+              <span style={{ fontSize: 13, color: 'var(--red)', fontWeight: 600, marginRight: 6 }}>等待确认</span>
+            )}
+            {isStreaming ? (
+              <button
+                type="button"
+                onClick={cancelTurn}
+                title="停止生成"
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: '50%',
+                  border: '2px solid var(--red)',
+                  cursor: 'pointer',
+                  background: 'transparent',
+                  color: 'var(--red)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                  transition: 'all 0.15s',
+                }}
+              >
+                <Square size={14} fill="var(--red)" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleSend}
+                disabled={!canSendPrompt}
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: '50%',
+                  border: 'none',
+                  cursor: canSendPrompt ? 'pointer' : 'default',
+                  background: canSendPrompt ? 'var(--text-1)' : 'var(--bg-3)',
+                  color: 'white',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                  transition: 'background 0.15s',
+                }}
+              >
+                <ArrowUp size={16} />
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
       {showCommandMenu && (
         <DropdownPortal onClose={() => setShowCommandMenu(false)} style={menuStyle(menuAnchor, 320)}>
           {capabilities.commands.map((cmd) => (
@@ -1445,214 +1405,186 @@ export default function Workspace() {
                 setShowCommandMenu(false)
                 textareaRef.current?.focus()
               }}
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 2,
-                width: '100%',
-                minWidth: 0,
-                padding: '10px 14px',
-                border: 'none',
-                borderRadius: 8,
-                background: 'transparent',
-                color: 'var(--text-1)',
-                fontSize: 14,
-                cursor: 'pointer',
-                textAlign: 'left',
-                boxSizing: 'border-box',
-              }}
+              style={commandMenuItemStyle}
             >
-              <span
-                style={{
-                  fontWeight: 600,
-                  maxWidth: '100%',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}
-              >
+              <span style={{ fontWeight: 600, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 /{cmd.name}
               </span>
-              <span
-                style={{
-                  color: 'var(--text-3)',
-                  fontSize: 12,
-                  whiteSpace: 'normal',
-                  overflowWrap: 'anywhere',
-                  lineHeight: 1.4,
-                }}
-              >
+              <span style={{ color: 'var(--text-3)', fontSize: 12, whiteSpace: 'normal', overflowWrap: 'anywhere', lineHeight: 1.4 }}>
                 {cmd.description || cmd.input?.hint || '插入命令'}
               </span>
             </button>
           ))}
         </DropdownPortal>
       )}
-
-      {/* 模式菜单 */}
       {showModeMenu && (
         <DropdownPortal onClose={() => setShowModeMenu(false)} style={menuStyle(menuAnchor, 260)}>
           {capabilities.modes.map((m) => {
             const active = m.modeId === capabilities.currentModeId
             return (
-              <button
+              <MenuOption
                 key={m.modeId}
-                type="button"
+                active={active}
+                label={modeCn(m.name)}
+                description={m.description}
                 onClick={() => {
-                  setMode(m.modeId)
+                  void setMode(m.modeId)
                   setShowModeMenu(false)
                 }}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  width: '100%',
-                  padding: '10px 14px',
-                  border: 'none',
-                  borderRadius: 8,
-                  background: active ? 'var(--blue-light)' : 'transparent',
-                  color: 'var(--text-1)',
-                  fontSize: 14,
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                }}
-              >
-                {active ? (
-                  <Check size={13} color="var(--blue)" style={{ flexShrink: 0 }} />
-                ) : (
-                  <Circle size={13} color="var(--text-3)" style={{ flexShrink: 0 }} />
-                )}
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontWeight: 500 }}>{modeCn(m.name)}</div>
-                  {m.description && (
-                    <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>{m.description}</div>
-                  )}
-                </div>
-              </button>
+              />
             )
           })}
         </DropdownPortal>
       )}
-
-      {/* 配置菜单 */}
       {showConfigMenu && (
         <DropdownPortal onClose={() => setShowConfigMenu(null)} style={menuStyle(menuAnchor, 240)}>
-          {(() => {
-            const opt = secondaryConfigs.find((o) => o.id === showConfigMenu)
-            if (!opt) return null
-            if (opt.type === 'boolean') {
-              const active = opt.currentValue === true
-              return (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setConfig(opt.id, !active)
-                    setShowConfigMenu(null)
-                  }}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    width: '100%',
-                    padding: '10px 14px',
-                    border: 'none',
-                    borderRadius: 8,
-                    background: active ? 'var(--blue-light)' : 'transparent',
-                    color: 'var(--text-1)',
-                    fontSize: 14,
-                    cursor: 'pointer',
-                    textAlign: 'left',
-                  }}
-                >
-                  {active ? <Check size={13} color="var(--blue)" /> : <Circle size={13} color="var(--text-3)" />}{' '}
-                  {opt.name}
-                </button>
-              )
-            }
-            return opt.options?.map((item) => {
-              const active = item.value === opt.currentValue
-              return (
-                <button
-                  key={item.value}
-                  type="button"
-                  onClick={() => {
-                    setConfig(opt.id, item.value)
-                    setShowConfigMenu(null)
-                  }}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    width: '100%',
-                    padding: '10px 14px',
-                    border: 'none',
-                    borderRadius: 8,
-                    background: active ? 'var(--blue-light)' : 'transparent',
-                    color: 'var(--text-1)',
-                    fontSize: 14,
-                    cursor: 'pointer',
-                    textAlign: 'left',
-                  }}
-                >
-                  {active ? (
-                    <Check size={13} color="var(--blue)" style={{ flexShrink: 0 }} />
-                  ) : (
-                    <Circle size={13} color="var(--text-3)" style={{ flexShrink: 0 }} />
-                  )}
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontWeight: 500 }}>{configOptionLabel(item.value, item.name)}</div>
-                    {item.description && (
-                      <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>{item.description}</div>
-                    )}
-                  </div>
-                </button>
-              )
-            })
-          })()}
-        </DropdownPortal>
-      )}
-
-      {/* 模型菜单 */}
-      {showModelMenu && (
-        <DropdownPortal onClose={() => setShowModelMenu(false)} style={menuStyle(menuAnchor, 280)}>
-          {capabilities.models.map((m) => {
-            const active = m.modelId === capabilities.currentModelId
-            return (
-              <button
-                key={m.modelId}
-                type="button"
-                onClick={() => {
-                  setModel(m.modelId)
-                  setShowModelMenu(false)
-                }}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  width: '100%',
-                  padding: '10px 14px',
-                  border: 'none',
-                  borderRadius: 8,
-                  background: active ? 'var(--blue-light)' : 'transparent',
-                  color: 'var(--text-1)',
-                  fontSize: 15,
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                }}
-              >
-                {active ? (
-                  <Check size={13} color="var(--blue)" style={{ flexShrink: 0 }} />
-                ) : (
-                  <Circle size={13} color="var(--text-3)" style={{ flexShrink: 0 }} />
-                )}
-                <span style={{ fontWeight: active ? 600 : 400 }}>{m.name || m.modelId}</span>
-              </button>
-            )
+          {renderConfigMenu({
+            configId: showConfigMenu,
+            options: secondaryConfigs,
+            setConfig,
+            onClose: () => setShowConfigMenu(null),
           })}
         </DropdownPortal>
       )}
-    </div>
+      {showModelMenu && (
+        <DropdownPortal onClose={() => setShowModelMenu(false)} style={menuStyle(menuAnchor, 280)}>
+          {capabilities.models.map((m) => (
+            <MenuOption
+              key={m.modelId}
+              active={m.modelId === capabilities.currentModelId}
+              label={m.name || m.modelId}
+              onClick={() => {
+                void setModel(m.modelId)
+                setShowModelMenu(false)
+              }}
+            />
+          ))}
+        </DropdownPortal>
+      )}
+    </>
   )
+}
+
+const toolbarButtonStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 4,
+  padding: '4px 10px',
+  borderRadius: 6,
+  border: 'none',
+  background: 'var(--bg-1)',
+  color: 'var(--text-2)',
+  fontSize: 13,
+  cursor: 'pointer',
+  fontWeight: 500,
+}
+
+const commandMenuItemStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 2,
+  width: '100%',
+  minWidth: 0,
+  padding: '10px 14px',
+  border: 'none',
+  borderRadius: 8,
+  background: 'transparent',
+  color: 'var(--text-1)',
+  fontSize: 14,
+  cursor: 'pointer',
+  textAlign: 'left',
+  boxSizing: 'border-box',
+}
+
+function MenuOption({
+  active,
+  label,
+  description,
+  onClick,
+}: {
+  active: boolean
+  label: string
+  description?: string
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        width: '100%',
+        padding: '10px 14px',
+        border: 'none',
+        borderRadius: 8,
+        background: active ? 'var(--blue-light)' : 'transparent',
+        color: 'var(--text-1)',
+        fontSize: 14,
+        cursor: 'pointer',
+        textAlign: 'left',
+      }}
+    >
+      {active ? (
+        <Check size={13} color="var(--blue)" style={{ flexShrink: 0 }} />
+      ) : (
+        <Circle size={13} color="var(--text-3)" style={{ flexShrink: 0 }} />
+      )}
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontWeight: active ? 600 : 500 }}>{label}</div>
+        {description && <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>{description}</div>}
+      </div>
+    </button>
+  )
+}
+
+function renderConfigMenu({
+  configId,
+  options,
+  setConfig,
+  onClose,
+}: {
+  configId: string
+  options: PlanConfigOption[]
+  setConfig: (configId: string, value: string | boolean) => Promise<void>
+  onClose: () => void
+}) {
+  const opt = options.find((o) => o.id === configId)
+  if (!opt) return null
+  if (opt.type === 'boolean') {
+    const active = opt.currentValue === true
+    return (
+      <MenuOption
+        active={active}
+        label={opt.name}
+        onClick={() => {
+          void setConfig(opt.id, !active)
+          onClose()
+        }}
+      />
+    )
+  }
+  return opt.options?.map((item) => (
+    <MenuOption
+      key={item.value}
+      active={item.value === opt.currentValue}
+      label={configOptionLabel(item.value, item.name)}
+      description={item.description}
+      onClick={() => {
+        void setConfig(opt.id, item.value)
+        onClose()
+      }}
+    />
+  ))
+}
+
+type PlanConfigOption = {
+  id: string
+  name: string
+  type: string
+  currentValue?: string | boolean
+  options?: { value: string; name: string; description?: string }[]
 }
 
 /* ─── Mini Context Circle (input toolbar) ─── */
@@ -3028,6 +2960,8 @@ function ChatBubble({
     </div>
   )
 }
+
+const MemoChatBubble = memo(ChatBubble)
 
 function TurnFileChangesSummary({
   processBlocks,

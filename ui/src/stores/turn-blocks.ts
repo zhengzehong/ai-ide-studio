@@ -105,7 +105,7 @@ export function createEmptyTurn(id: string): TurnViewModel {
 export function applyTurnEntry(turn: TurnViewModel, entry: TurnEntry): TurnViewModel {
   const next: TurnViewModel = {
     ...turn,
-    processBlocks: turn.processBlocks.map(cloneProcessBlock),
+    processBlocks: [...turn.processBlocks],
   }
 
   switch (entry.kind) {
@@ -227,7 +227,10 @@ function appendTextBlock(turn: TurnViewModel, kind: 'thinking' | 'note' | 'stage
   if (!text) return
   const last = turn.processBlocks.at(-1)
   if (last?.kind === kind) {
-    last.text = kind === 'stage' ? text : `${last.text}${text}`
+    turn.processBlocks[turn.processBlocks.length - 1] = {
+      ...last,
+      text: kind === 'stage' ? text : `${last.text}${text}`,
+    }
     return
   }
   turn.processBlocks.push({ id: processBlockId(kind, turn.processBlocks.length, sequence), kind, text, sequence })
@@ -243,7 +246,9 @@ function upsertToolBlock(turn: TurnViewModel, update: ToolCallInfo, sequence?: n
   const index = turn.processBlocks.findIndex((block) => block.kind === 'tool' && block.toolCall.id === update.id)
   if (index >= 0) {
     const block = turn.processBlocks[index]
-    if (block.kind === 'tool') block.toolCall = mergeToolCall(block.toolCall, update)
+    if (block.kind === 'tool') {
+      turn.processBlocks[index] = { ...block, toolCall: mergeToolCall(block.toolCall, update) }
+    }
     return
   }
   turn.processBlocks.push({ id: processBlockId('tool', update.id, sequence), kind: 'tool', toolCall: update, sequence })
@@ -266,19 +271,6 @@ function mergeToolCall(existing: ToolCallInfo, update: ToolCallInfo): ToolCallIn
   return next
 }
 
-function cloneProcessBlock(block: TurnProcessBlock): TurnProcessBlock {
-  if (block.kind === 'tool') return { ...block, toolCall: { ...block.toolCall } }
-  if (block.kind === 'file_change') return {
-    ...block,
-    changes: block.changes
-      ? { ...block.changes, files: block.changes.files.map((file) => ({ ...file, segments: file.segments.map((segment) => ({ ...segment, lines: segment.lines.map((line) => ({ ...line })) })) })) }
-      : undefined,
-  }
-  if (block.kind === 'plan') return { ...block, plan: block.plan.map((item) => ({ ...item })) }
-  if (block.kind === 'permission') return { ...block, request: block.request ? { ...block.request, toolCall: { ...block.request.toolCall }, options: block.request.options.map((option) => ({ ...option })) } : undefined }
-  if (block.kind === 'elicitation') return { ...block, request: block.request ? { ...block.request } : undefined }
-  return { ...block }
-}
 
 function processBlockId(kind: TurnProcessBlockKind, seed: string | number, sequence?: number): string {
   return `turn-${kind}-${sequence ?? seed}`
