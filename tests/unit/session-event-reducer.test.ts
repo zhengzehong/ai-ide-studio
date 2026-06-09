@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { finalizePlanOnTurnDone, reduceSessionEvents } from '../../ui/src/stores/session-events.ts'
+import { clearPlanOnTurnDone, reduceSessionEvents } from '../../ui/src/stores/session-events.ts'
 
 function ev(sequence: number, type: string, payload: unknown) {
   return {
@@ -47,7 +47,7 @@ describe('reduceSessionEvents', () => {
     expect(state.streamingMessage?.toolCalls[0].progress).toEqual(['开始'])
   })
 
-  test('marks in-progress plan entries completed after a normal turn ends', () => {
+  test('clears live plan after a normal turn ends', () => {
     const state = reduceSessionEvents([
       ev(1, 'plan.update', {
         plan: [
@@ -58,16 +58,16 @@ describe('reduceSessionEvents', () => {
       ev(2, 'message.done', { messageId: 'done-sess-1', stopReason: 'end_turn' }),
     ])
 
-    expect(state.plan.map((entry) => entry.status)).toEqual(['completed', 'completed'])
+    expect(state.plan).toEqual([])
   })
 
-  test('does not complete in-progress plan entries when a turn is cancelled or failed', () => {
+  test('clears live plan after a cancelled or failed turn', () => {
     const plan = [
       { content: 'inspect failure', status: 'in_progress', priority: 'medium' },
       { content: 'report result', status: 'pending', priority: 'medium' },
     ]
 
-    expect(finalizePlanOnTurnDone(plan, 'cancelled').map((entry) => entry.status)).toEqual(['in_progress', 'pending'])
-    expect(finalizePlanOnTurnDone(plan, 'error').map((entry) => entry.status)).toEqual(['in_progress', 'pending'])
+    expect(plan).toHaveLength(2)
+    expect(clearPlanOnTurnDone()).toEqual([])
   })
 })
