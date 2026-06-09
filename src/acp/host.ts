@@ -32,6 +32,7 @@ import {
 } from './model-profile-env.js'
 import { buildRuntimeEnv, getRuntimeCommand, listRuntimeNames } from './runtime-registry.js'
 import { resolveMcpServersForAcp, updateInitialCapabilities } from './session-capabilities.js'
+import { applySessionRuntimePreferences, emitRuntimePreferencesApplied } from './session-runtime-preferences.js'
 
 const startPromises = new Map<string, Promise<void>>()
 const cancelledSessions = new Set<string>()
@@ -324,6 +325,8 @@ export const acpHost = {
     markSessionConnected(conn, ourSessionId, acpSessionId)
 
     updateInitialCapabilities(conn, ourSessionId, result)
+    await applySessionRuntimePreferences(conn, ourSessionId)
+    emitRuntimePreferencesApplied(conn, ourSessionId)
     log.debug(
       {
         agentId,
@@ -358,6 +361,8 @@ export const acpHost = {
       })
       markSessionConnected(conn, ourSessionId, acpSessionId)
       updateInitialCapabilities(conn, ourSessionId, result)
+      await applySessionRuntimePreferences(conn, ourSessionId)
+      emitRuntimePreferencesApplied(conn, ourSessionId)
       return acpSessionId
     }
 
@@ -370,6 +375,8 @@ export const acpHost = {
       })
       markSessionConnected(conn, ourSessionId, acpSessionId)
       updateInitialCapabilities(conn, ourSessionId, result)
+      await applySessionRuntimePreferences(conn, ourSessionId)
+      emitRuntimePreferencesApplied(conn, ourSessionId)
       return acpSessionId
     }
 
@@ -542,6 +549,8 @@ export const acpHost = {
     })
     markSessionConnected(conn, targetSessionId, result.sessionId)
     updateInitialCapabilities(conn, targetSessionId, result)
+    await applySessionRuntimePreferences(conn, targetSessionId)
+    emitRuntimePreferencesApplied(conn, targetSessionId)
     return result.sessionId
   },
 

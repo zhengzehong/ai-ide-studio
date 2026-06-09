@@ -141,6 +141,7 @@ Team 运行时事件规则：`team.member.spawn` 会广播包含完整成员 Ses
 - 首次 `prompt`，或显式切换 model/mode/config 时，调用 `acpHost.ensureSession()` 启动 Agent runtime，并创建或恢复 ACP session。
 - 同一个 Agent 可以同时保持多个 ACP session 连接；平台只拒绝同一个本地 Session 内的并发 turn。
 - 空闲回收分两层：先 close/disconnect 空闲 ACP session，再停止空闲 ACP runtime 进程。已持久化 messages/events 和 `sessions.acp_session_id` 都会保留。
+- Session 级 runtime preferences 保存在 `sessions.runtime_preferences_json`。ACP session 创建、恢复、加载或 fork 后，host 会在能力列表可用时恢复保存的 model/mode/config；没有保存 mode 时，Codex 默认请求 `agent-full-access`，Claude Code 默认请求 `bypassPermissions`，不可用时保留 runtime 实际返回值。
 
 ## 未实现的设计目标
 

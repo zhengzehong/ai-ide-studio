@@ -42,4 +42,24 @@ describe('mock agent capabilities', () => {
     expect(updated?.currentModelId).toBe('mock-smart')
     expect(updated?.currentModeId).toBe('plan')
   }, 10_000)
+
+  test('RPC model and mode switches persist session runtime preferences', async () => {
+    const { sessionRpcHandlers } = await import('../../src/gateway/rpc/sessions.js')
+    const agent = agentStore.create({ name: 'Mock RPC 能力测试', type: 'dev', runtime: 'mock' })
+    const session = sessionStore.create({ agentId: agent.id })
+    const context = {
+      state: { subscriptions: new Set<string>() },
+      sendResult: () => undefined,
+      sendError: () => undefined,
+      sendOutOfBandError: () => undefined,
+    }
+
+    await sessionRpcHandlers['session.setModel']({ type: 'session.setModel', sessionId: session.id, modelId: 'mock-smart' } as never, context)
+    await sessionRpcHandlers['session.setMode']({ type: 'session.setMode', sessionId: session.id, modeId: 'plan' } as never, context)
+
+    expect(sessionStore.getRuntimePreferences(session.id)).toMatchObject({
+      modelId: 'mock-smart',
+      modeId: 'plan',
+    })
+  }, 15_000)
 })

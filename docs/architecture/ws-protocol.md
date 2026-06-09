@@ -35,9 +35,9 @@ ws://localhost:18800
 | `sessions.archive` | `{ sessionId }` | `Session` | 归档 Session |
 | `sessions.delete` | `{ sessionId }` | `{ deleted: true }` | 软删除 Session，默认列表不再返回 |
 | `session.getModels` | `{ sessionId }` | `SessionCapabilities` | 获取模型/模式/配置选项 |
-| `session.setModel` | `{ sessionId, modelId }` | `void` | 切换模型 |
-| `session.setMode` | `{ sessionId, modeId }` | `void` | 切换模式 |
-| `session.setConfig` | `{ sessionId, configId, value }` | `void` | 切换配置 |
+| `session.setModel` | `{ sessionId, modelId }` | `void` | 切换模型；成功后写入 `sessions.runtime_preferences_json.modelId` |
+| `session.setMode` | `{ sessionId, modeId }` | `void` | 切换模式；成功后写入 `sessions.runtime_preferences_json.modeId` |
+| `session.setConfig` | `{ sessionId, configId, value }` | `void` | 切换配置；成功后写入 `sessions.runtime_preferences_json.config[configId]` |
 | `session.cancel` | `{ sessionId }` | `{ ok: true }` | 通过 ACP `session/cancel` 停止当前轮次，不杀 runtime 进程 |
 | `session.fork` | `{ sessionId }` | `Session` | Fork 会话 |
 | `sessions.messages` | `{ sessionId, limit?, before?, includeToolCalls? }` | `Message[]` | 查询消息历史；默认不返回完整历史工具 JSON，只返回 `has_tool_calls` / `tool_call_count`，并返回 ACP diff 文件变更轻量摘要 `file_changes_json` / `has_file_changes` / `file_change_count` |
@@ -137,6 +137,7 @@ Team 运行时事件：`team.member.spawn` 会广播包含新成员 Session 行�
 - 项目级能力（工作台、任务、自动化、文件浏览）必须携带 `projectId`。
 - `projectId` 缺失时，只允许访问全局页（概览、Agent 广场、设置）。
 - `session.getModels` 返回的 capabilities 由 ACP host 合并模型、模式、配置、命令等能力后上报。
+- `session.setModel`、`session.setMode`、`session.setConfig` 会懒连接 ACP session；保存的 runtime preferences 会在后续 `newSession`、`resumeSession`、`loadSession` 或 fork 后重新应用。
 - Session 删除使用软删除：`sessions.delete` 写入 `deleted_at`，保留 `messages` 和 `session_events` 历史数据；`sessions.list` 默认过滤已删除记录。
 
 
