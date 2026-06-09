@@ -6,6 +6,7 @@ import { initDatabase, closeDatabase } from '../../src/store/db.js'
 import { messageStore, sessionStore } from '../../src/store/sessions.js'
 import { stableProcessItemId, turnProcessItemStore } from '../../src/store/turn-process-items.js'
 import { sessionRpcHandlers } from '../../src/gateway/rpc/sessions.js'
+import { recordTurnProcessUpdate, startTurnProcess } from '../../src/core/turn-process-runtime.js'
 import type { RpcContext } from '../../src/gateway/rpc/types.js'
 
 const tmp = mkdtempSync(resolve(tmpdir(), 'ai-ide-turn-process-items-'))
@@ -97,5 +98,49 @@ describe('turn process items', () => {
     const changes = await callRpc('sessions.messageFileChanges', { sessionId: session.id, messageId: message.id }) as Record<string, unknown>
     expect(changes.totalAdded).toBe(1)
     expect(JSON.stringify(changes)).toContain('src/app.ts')
+  })
+
+  test('keeps meaningful tool title when later process updates only have generic numbered titles', async () => {
+    const session = sessionStore.create({ agentId: 'agent-1' })
+    const message = messageStore.append(session.id, {
+      id: 'msg-agent-running',
+      role: 'agent',
+      content: '',
+      status: 'running',
+      startedAt: '2026-06-05T00:00:00.000Z',
+    })
+    const itemId = stableProcessItemId(message.id, 'tool', 'tool-1')
+
+    startTurnProcess(session.id, message.id)
+    recordTurnProcessUpdate(session.id, 'agent-1', {
+      messageId: message.id,
+      role: 'agent',
+      toolCall: {
+        id: 'tool-1',
+        title: "Get-Content -Path 'README.md'",
+        kind: 'execute',
+        status: 'in_progress',
+        rawInput: { command: "Get-Content -Path 'README.md'", cwd: 'D:\\code_space\\python_space\\ai-ide-studio' },
+      },
+    })
+    recordTurnProcessUpdate(session.id, 'agent-1', {
+      messageId: message.id,
+      role: 'agent',
+      toolCallUpdate: {
+        id: 'tool-1',
+        title: '工具调用 #abc123',
+        status: 'completed',
+        rawOutput: { formatted_output: 'README content', exit_code: 0 },
+      },
+    })
+
+    const stored = turnProcessItemStore.detail(message.id, itemId)
+    const detail = JSON.parse(stored?.detail_json as string) as Record<string, unknown>
+
+    expect(stored?.title).toBe("Get-Content -Path 'README.md'")
+    expect(stored?.summary).toBe("Get-Content -Path 'README.md' · completed")
+    expect(detail.title).toBe("Get-Content -Path 'README.md'")
+    expect(detail.rawInput).toEqual({ command: "Get-Content -Path 'README.md'", cwd: 'D:\\code_space\\python_space\\ai-ide-studio' })
+    expect(detail.rawOutput).toEqual({ formatted_output: 'README content', exit_code: 0 })
   })
 })
