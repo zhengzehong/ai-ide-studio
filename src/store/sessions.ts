@@ -21,6 +21,7 @@ export interface SessionRow {
   last_message_at: string | null
   archived_at: string | null
   deleted_at: string | null
+  runtime_preferences_json: string | null
 }
 
 export interface SessionListRow extends SessionRow {
@@ -84,6 +85,12 @@ export interface CreateSessionInput {
   projectId?: string
 }
 
+export interface SessionRuntimePreferences {
+  modelId?: string
+  modeId?: string
+  config?: Record<string, string | boolean>
+}
+
 export interface AppendMessageInput {
   id?: string
   role: string
@@ -131,15 +138,16 @@ export const sessionStore = {
       last_message_at: null,
       archived_at: null,
       deleted_at: null,
+      runtime_preferences_json: null,
     }
     getDb().prepare(`
       INSERT INTO sessions (
         id, agent_id, task_id, acp_session_id, status, stage, started_at, closed_at,
-        project_id, title, updated_at, last_message_at, archived_at, deleted_at
+        project_id, title, updated_at, last_message_at, archived_at, deleted_at, runtime_preferences_json
       )
       VALUES (
         @id, @agent_id, @task_id, @acp_session_id, @status, @stage, @started_at, @closed_at,
-        @project_id, @title, @updated_at, @last_message_at, @archived_at, @deleted_at
+        @project_id, @title, @updated_at, @last_message_at, @archived_at, @deleted_at, @runtime_preferences_json
       )
     `).run(session)
     return session
@@ -233,6 +241,23 @@ export const sessionStore = {
     getDb().prepare('UPDATE sessions SET stage = ?, updated_at = ? WHERE id = ?').run(stage, new Date().toISOString(), id)
   },
 
+  getRuntimePreferences(id: string): SessionRuntimePreferences {
+    const session = sessionStore.get(id)
+    return parseRuntimePreferences(session?.runtime_preferences_json)
+  },
+
+  updateRuntimePreferences(id: string, patch: SessionRuntimePreferences): SessionRuntimePreferences {
+    const current = sessionStore.getRuntimePreferences(id)
+    const next: SessionRuntimePreferences = {
+      ...current,
+      ...patch,
+      config: patch.config ? { ...(current.config ?? {}), ...patch.config } : current.config,
+    }
+    getDb().prepare('UPDATE sessions SET runtime_preferences_json = ?, updated_at = ? WHERE id = ?')
+      .run(JSON.stringify(next), new Date().toISOString(), id)
+    return next
+  },
+
   clearStageIfRunning(id: string): SessionRow | undefined {
     const session = sessionStore.get(id)
     if (!session || !RUNNING_STAGES.includes(session.stage)) return undefined
@@ -321,6 +346,28 @@ function resolveSessionRuntimeState(
   if (session.status !== 'active') return 'idle'
   if (RUNNING_STAGES.includes(session.stage)) return 'running'
   return 'idle'
+}
+
+function parseRuntimePreferences(raw: string | null | undefined): SessionRuntimePreferences {
+  if (!raw) return {}
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+    const record = parsed as Record<string, unknown>
+    const prefs: SessionRuntimePreferences = {}
+    if (typeof record.modelId === 'string' && record.modelId.trim()) prefs.modelId = record.modelId
+    if (typeof record.modeId === 'string' && record.modeId.trim()) prefs.modeId = record.modeId
+    if (record.config && typeof record.config === 'object' && !Array.isArray(record.config)) {
+      const config: Record<string, string | boolean> = {}
+      for (const [key, value] of Object.entries(record.config as Record<string, unknown>)) {
+        if (typeof value === 'string' || typeof value === 'boolean') config[key] = value
+      }
+      if (Object.keys(config).length > 0) prefs.config = config
+    }
+    return prefs
+  } catch {
+    return {}
+  }
 }
 
 function hasRunningAgentMessage(sessionId: string): boolean {

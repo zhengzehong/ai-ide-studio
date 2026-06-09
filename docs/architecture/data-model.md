@@ -114,6 +114,7 @@ backlog → executing → reviewing → completed
 | closed_at | TEXT | 关闭时间 |
 | archived_at | TEXT | 归档时间 |
 | deleted_at | TEXT | 软删除时间；非空时默认列表隐藏 |
+| runtime_preferences_json | TEXT | Session runtime preferences JSON；保存 `modelId`、`modeId` 和 session config 选择 |
 
 ### messages
 
@@ -445,6 +446,8 @@ SQLite schema 由 `src/store/migrator.ts` 和 `src/store/migrations/*` 管理。
 
 - `sessions.create` 只写入本地 SQLite session。直到首次 prompt 或显式切换 model/mode/config 连接 ACP runtime 前，`sessions.acp_session_id` 都是 `NULL`。
 - Session 空闲回收只关闭/断开 runtime 侧 ACP session 映射；保留 `sessions.acp_session_id`、messages 和 `session_events`，所以下次 prompt 可以 resume/load 同一个 ACP session 或 Codex thread。
+- `sessions.runtime_preferences_json` 是 session 级模型、模式和配置选择的后端事实源。`session.setModel`、`session.setMode`、`session.setConfig` 成功后写入该字段；ACP `newSession` / `resumeSession` / `loadSession` / fork 初始化能力后会优先恢复保存值。
+- 没有保存模式时，Codex session 默认请求 `agent-full-access`，Claude Code session 默认请求 `bypassPermissions`；如果 runtime 当前能力没有提供该模式，则保留 ACP 返回的实际模式。
 - Runtime 空闲回收会在没有已连接 session 后停止 `codex-acp` / `claude-agent-acp` 进程，不修改已持久化的会话历史。
 - `session_events.type = lifecycle.*` 记录可见阶段，例如 runtime 启动、session 恢复/创建、prompt 已发送、空闲断开和失败。
 

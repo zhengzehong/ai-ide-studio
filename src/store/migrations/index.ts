@@ -9,6 +9,7 @@ import { messageFileChangesMigration } from './008-message-file-changes.js'
 import { timelineSummariesMigration } from './009-timeline-summaries.js'
 import { turnProcessItemsMigration } from './010-turn-process-items.js'
 import { widgetStateMigration } from './011-widget-state.js'
+import { sessionRuntimePreferencesMigration } from './012-session-runtime-preferences.js'
 import type { Migration } from '../migrator.js'
 
 export const migrations: Migration[] = [
@@ -23,4 +24,5 @@ export const migrations: Migration[] = [
   timelineSummariesMigration,
   turnProcessItemsMigration,
   widgetStateMigration,
+  sessionRuntimePreferencesMigration,
 ]

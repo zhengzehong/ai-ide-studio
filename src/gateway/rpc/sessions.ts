@@ -101,6 +101,7 @@ export const sessionRpcHandlers: RpcHandlerMap = {
     const modelId = msg.modelId as string
     const { agentId } = await ensureAcpSession(sessionId, false)
     await acpHost.setModel(agentId, sessionId, modelId)
+    sessionStore.updateRuntimePreferences(sessionId, { modelId })
     sendResult({ modelId })
   },
 
@@ -126,6 +127,7 @@ export const sessionRpcHandlers: RpcHandlerMap = {
     const modeId = msg.modeId as string
     const { agentId } = await ensureAcpSession(sessionId, false)
     await acpHost.setMode(agentId, sessionId, modeId)
+    sessionStore.updateRuntimePreferences(sessionId, { modeId })
     sendResult({ modeId })
   },
 
@@ -135,6 +137,7 @@ export const sessionRpcHandlers: RpcHandlerMap = {
     const value = msg.value as string | boolean
     const { agentId } = await ensureAcpSession(sessionId, false)
     await acpHost.setConfig(agentId, sessionId, configId, value)
+    sessionStore.updateRuntimePreferences(sessionId, { config: { [configId]: value } })
     sendResult({ configId, value })
   },
 
