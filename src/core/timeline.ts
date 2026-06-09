@@ -28,6 +28,10 @@ function getConfigForSession(sessionId: string): TimelineConfigRow | undefined {
   return timelineConfigStore.get(session.project_id)
 }
 
+function isUserMessageRole(role: string): boolean {
+  return role === 'human' || role === 'user'
+}
+
 function resolveApiCredentials(config: TimelineConfigRow): { apiKey: string; baseUrl: string; model: string } | undefined {
   let apiKey = config.api_key || ''
   let baseUrl = config.base_url || ''
@@ -195,14 +199,14 @@ function collectNewTurns(sessionId: string, rawItems: TimelineSummaryRow[]): { t
     const turnNum = parseInt(raw.turns, 10)
     if (isNaN(turnNum)) continue
 
-    const userMsgs = messages.filter((m) => m.role === 'user')
+    const userMsgs = messages.filter((m) => isUserMessageRole(m.role))
     const userMsg = userMsgs[turnNum - 1]
     if (!userMsg) continue
 
     const userIdx = messages.indexOf(userMsg)
     let agentReply = ''
     for (let i = userIdx + 1; i < messages.length; i++) {
-      if (messages[i].role === 'user') break
+      if (isUserMessageRole(messages[i].role)) break
       if (messages[i].role === 'agent' || messages[i].role === 'assistant') {
         agentReply = messages[i].content
       }
@@ -258,7 +262,7 @@ function onTurnDone(sessionId: string): void {
   if (!config || !config.enabled) return
 
   const messages = messageStore.list(sessionId, { limit: 500 })
-  const userMessages = messages.filter((m) => m.role === 'user')
+  const userMessages = messages.filter((m) => isUserMessageRole(m.role))
   const turnIndex = userMessages.length
   if (turnIndex <= 0) return
 
@@ -323,7 +327,7 @@ export async function generateHistoricalTimeline(sessionId: string): Promise<voi
   if (existing.length > 0) return
 
   const messages = messageStore.list(sessionId, { limit: 500 })
-  const userMessages = messages.filter((m) => m.role === 'user')
+  const userMessages = messages.filter((m) => isUserMessageRole(m.role))
   if (userMessages.length === 0) return
 
   for (let i = 0; i < userMessages.length; i++) {
