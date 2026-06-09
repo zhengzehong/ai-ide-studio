@@ -19,13 +19,9 @@ interface TimelineOutputItem {
 
 type TimelineTextPart = { part: 'beginning' | 'middle' | 'ending'; text: string }
 
-interface TimelineTurnInput {
-  turn: number
-  time: string
-  user_input: string
-  agent_output?: string
-  agent_output_note?: string
-  agent_output_parts?: TimelineTextPart[]
+type TimelineTurnInput = {
+  turn: number; time: string; user_input: string; agent_output?: string
+  agent_output_note?: string; agent_output_parts?: TimelineTextPart[]
 }
 
 const TIMELINE_FULL_TEXT_UNIT_LIMIT = 3000
@@ -51,10 +47,7 @@ function normalizeTimelineText(value: string): string {
     .replace(/data:[^;\s]+;base64,[A-Za-z0-9+/=]+/g, '[omitted base64 data]')
     .replace(/[A-Za-z0-9+/]{800,}={0,2}/g, '[omitted encoded data]')
     .split('')
-    .filter((char) => {
-      const code = char.charCodeAt(0)
-      return code === 9 || code === 10 || code === 13 || code >= 32
-    })
+    .filter((char) => [9, 10, 13].includes(char.charCodeAt(0)) || char.charCodeAt(0) >= 32)
     .join('')
     .replace(/\r\n/g, '\n')
     .trim()
@@ -103,53 +96,26 @@ function buildPrompt(
   existingSummaries: { id: string; text: string; turns: string; time: string }[],
   newTurns: TimelineTurnInput[],
 ): string {
-  const existingJson = JSON.stringify(existingSummaries, null, 2)
-  const turnsJson = JSON.stringify(newTurns, null, 2)
-
   return `你是会话工作时间线整理助手。你的任务是生成工作记录，不是复述用户指令。
-每条摘要必须说明：
-1. 处理对象：具体功能、模块、问题、文件范围或任务主题。
-2. 实际动作：分析、修复、实现、审查、验证、提交、同步等。
-3. 最终结果：发现了什么、改了什么、是否通过验证、是否已提交/同步、是否中断。
+每条摘要必须说明：处理对象（具体功能、模块、问题、文件范围或任务主题）、实际动作（分析、修复、实现、审查、验证、提交、同步等）、最终结果（发现/改动/验证/提交/同步/中断状态）。
 规则：
 1. 优先从 agent_output 或 agent_output_parts 里提取最终结果；user_input 只用于理解任务背景。
 2. 如果 agent_output 为空或会话中断，再说明“未形成最终结论/会话中断”。
 3. 每条 1-2 句话，最多 3 句话；不要超过 120 个中文字符。
 4. 不要输出泛泛摘要，如“审查代码”“查询当前状态”“请求分析”“按方案改造”。
-5. 如果新增轮次和已有摘要在做同一件事，合并为一条，turns 写范围如 "3-5"。
-6. 如果已有摘要描述需要更准确，直接更新文本；如果无需改动，原样保留在输出中。
-7. 不要加序号和时间前缀。
-Good example 1:
-user_input: 审查一下，没问题提交commit，并且更新到prd分支
-agent_output: 审查后没发现阻塞问题，已提交并更新到 prd。master: bb11d98 feat: show ACP diff file changes；prd: a2a3427。npm test/build/lint 通过。
-summary: 审查 ACP diff 文件变更展示逻辑，确认 test、build、lint 通过。已提交 master 并同步到 prd。
-Good example 2:
-user_input: ok，按这个方案改一下，改完做好审查，如果没问题同步到prd分支
-agent_output: 已按“会话优先”把桌面悬浮部件改完，改为显示运行中/未读 Session 并支持定位主窗口。审查通过，已同步 prd。
-summary: 实现桌面悬浮部件的会话优先活动流，改为展示运行中/未读 Session 并支持定位主窗口。审查通过后已同步到 prd。
-Bad example:
-- 审查代码并提交commit，同步到prd分支
-- 按方案改造并审查，同步到prd分支
-- 查询当前状态
-这些只是在复述请求，没有说明处理对象、实际动作和最终结果。
-重要：输出必须包含所有条目（已有的+新增的），我会用输出直接覆盖数据库中对应的记录。
-如果某条已有摘要不需要改，也必须原样输出，不能省略。
-输出严格 JSON，格式为 {"items":[...]}：
-{"items":[
-  { "id": "tl-xxx", "text": "摘要内容", "turns": "1-2", "time": "10:17" },
-  { "text": "新摘要", "turns": "6", "time": "15:30" }
-]}
-说明：
-- 带 id 的是已有条目（保留或更新文本）。
-- 不带 id 的是新增条目。
-- 如果两条被合并，保留其中一条的 id，更新 turns 范围。
-- 被合并掉的条目不要出现在输出中。
+5. 同一事项可合并，turns 写范围如 "3-5"；已有摘要可更新或原样保留；不要加序号和时间前缀。
+Good example 1: user_input=审查一下，没问题提交commit，并且更新到prd分支；agent_output=审查后没发现阻塞问题，已提交并更新到 prd。master: bb11d98；prd: a2a3427。npm test/build/lint 通过。summary=审查 ACP diff 文件变更展示逻辑，确认 test、build、lint 通过。已提交 master 并同步到 prd。
+Good example 2: user_input=ok，按这个方案改一下，改完做好审查，如果没问题同步到prd分支；agent_output=已按“会话优先”把桌面悬浮部件改完，改为显示运行中/未读 Session 并支持定位主窗口。审查通过，已同步 prd。summary=实现桌面悬浮部件的会话优先活动流，改为展示运行中/未读 Session 并支持定位主窗口。审查通过后已同步到 prd。
+Bad example: 审查代码并提交commit，同步到prd分支 / 按方案改造并审查，同步到prd分支 / 查询当前状态。这些只是在复述请求，没有说明处理对象、实际动作和最终结果。
+重要：输出必须包含所有条目（已有的+新增的），否则会删除数据库对应记录；已有摘要无需改动也必须原样输出。
+输出严格 JSON：{"items":[{"id":"tl-xxx","text":"摘要内容","turns":"1-2","time":"10:17"},{"text":"新摘要","turns":"6","time":"15:30"}]}
+说明：带 id 的是已有条目；不带 id 的是新增条目；合并时保留一个 id 并更新 turns；被合并掉的条目不要输出。
 
 已有摘要：
-${existingJson}
+${JSON.stringify(existingSummaries, null, 2)}
 
 新增轮次：
-${turnsJson}
+${JSON.stringify(newTurns, null, 2)}
 
 输出 JSON：`
 }
