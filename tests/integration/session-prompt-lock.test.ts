@@ -51,4 +51,12 @@ describe('sessionManager prompt lifecycle', () => {
       acpHost.prompt = originalPrompt
     }
   })
+
+  test('closed sessions reject new prompts', async () => {
+    const agent = agentStore.create({ name: 'Mock', type: 'dev', runtime: 'mock' })
+    const session = sessionStore.create({ agentId: agent.id, acpSessionId: 'acp-existing' })
+    sessionStore.updateStatus(session.id, 'closed')
+
+    await expect(sessionManager.sendPrompt(session.id, 'hello')).rejects.toThrow('当前会话已关闭')
+  })
 })

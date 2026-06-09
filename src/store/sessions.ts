@@ -315,10 +315,10 @@ function resolveSessionRuntimeState(
   session: SessionRow,
   isPromptActive: (sessionId: string) => boolean,
 ): SessionRuntimeState {
-  if (session.status !== 'active') return 'idle'
   if (isPromptActive(session.id)) return 'running'
   if (hasRunningAgentMessage(session.id)) return 'running'
   if (hasRunningProcessItem(session.id)) return 'running'
+  if (session.status !== 'active') return 'idle'
   if (RUNNING_STAGES.includes(session.stage)) return 'running'
   return 'idle'
 }

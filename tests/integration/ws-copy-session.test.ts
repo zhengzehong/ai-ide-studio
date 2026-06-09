@@ -41,11 +41,12 @@ function setMessageTimestamp(messageId: string, timestamp: string): void {
 }
 
 describe('sessions.copy WS RPC', () => {
-  test('copies runtime session and only the latest 10 messages with matching events', async () => {
+  test('forks runtime session without copying local history', async () => {
     const workDir = resolve(tmp, 'project-copy')
     const project = projectStore.create({ name: 'Copy 项目', workDir })
     agentStore.upsert({ id: 'agent-copy', type: 'dev', name: 'Copy 测试', runtime: 'mock', projectId: project.id })
     const source = sessionStore.create({ agentId: 'agent-copy', acpSessionId: 'acp-source-copy', projectId: project.id })
+    sessionStore.updateTitle(source.id, 'Source Session')
     const sourceMessageIds: string[] = []
 
     for (let index = 1; index <= 12; index += 1) {
@@ -100,6 +101,7 @@ describe('sessions.copy WS RPC', () => {
       expect(response.data.project_id).toBe(project.id)
       expect(response.data.acp_session_id).toBe(`acp-${response.data.id}`)
       expect(response.data.task_id).toBeNull()
+      expect(response.data.title).toBe('Fork from Source Session')
 
       expect(ensureCalls).toEqual([{ sessionId: source.id, acpSessionId: 'acp-source-copy' }])
       expect(calls).toEqual([{
@@ -109,33 +111,10 @@ describe('sessions.copy WS RPC', () => {
         cwd: workDir,
       }])
 
-      const copiedMessages = messageStore.list(response.data.id, { includeToolCalls: true })
-      expect(copiedMessages).toHaveLength(10)
-      expect(copiedMessages.map((message) => message.content)).toEqual([
-        'message-3',
-        'message-4',
-        'message-5',
-        'message-6',
-        'message-7',
-        'message-8',
-        'message-9',
-        'message-10',
-        'message-11',
-        'message-12',
-      ])
-      expect(copiedMessages.every((message) => message.session_id === response.data.id)).toBe(true)
-      expect(copiedMessages.some((message) => sourceMessageIds.includes(message.id))).toBe(false)
-
-      const copiedEvents = eventStore.list(response.data.id, { limit: 50 })
-      expect(copiedEvents).toHaveLength(10)
-      expect(copiedEvents.map((event) => event.sequence)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
-      const copiedMessageIds = new Set(copiedMessages.map((message) => message.id))
-      expect(copiedEvents.every((event) => event.session_id === response.data.id)).toBe(true)
-      expect(copiedEvents.every((event) => event.message_id && copiedMessageIds.has(event.message_id))).toBe(true)
-      expect(copiedEvents.every((event) => {
-        const payload = JSON.parse(event.payload_json) as { messageId?: string }
-        return !!payload.messageId && copiedMessageIds.has(payload.messageId)
-      })).toBe(true)
+      expect(sourceMessageIds).toHaveLength(12)
+      expect(messageStore.list(response.data.id, { includeToolCalls: true })).toHaveLength(0)
+      expect(eventStore.list(response.data.id, { limit: 50 })).toHaveLength(0)
+      expect(getDb().prepare('SELECT COUNT(*) AS count FROM turn_process_items WHERE session_id = ?').get(response.data.id)).toEqual({ count: 0 })
     } finally {
       acpHost.ensureSession = originalEnsureSession
       acpHost.forkSession = original

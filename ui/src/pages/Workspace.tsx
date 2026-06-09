@@ -149,6 +149,7 @@ export default function Workspace() {
   }, [currentProjectId, sidebarTab, fetchTree])
   const [showNewTask, setShowNewTask] = useState(false)
   const [sessionMenuId, setSessionMenuId] = useState<string | null>(null)
+  const [copyingSessionId, setCopyingSessionId] = useState<string | null>(null)
 
   const projectAgents = useMemo(() => filterAgentsByProject(agents, currentProjectId), [agents, currentProjectId])
   const projectSessions = useMemo(
@@ -228,13 +229,21 @@ export default function Workspace() {
     setSessionMenuId(null)
   }
   const handleCopySession = async (agentId: string, sessionId: string) => {
-    const copied = await copySession(sessionId)
-    setSelectedAgentId(agentId)
-    selectSession(copied.id)
-    setSessionMenuId(null)
-    await fetchSessions(undefined, currentProjectId ?? undefined)
-    await fetchMessages(copied.id)
-    await fetchEvents(copied.id)
+    if (copyingSessionId) return
+    setCopyingSessionId(sessionId)
+    try {
+      const copied = await copySession(sessionId)
+      setSelectedAgentId(agentId)
+      selectSession(copied.id)
+      setSessionMenuId(null)
+      await fetchSessions(undefined, currentProjectId ?? undefined)
+      await fetchMessages(copied.id)
+      await fetchEvents(copied.id)
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : '复制会话失败')
+    } finally {
+      setCopyingSessionId((current) => (current === sessionId ? null : current))
+    }
   }
   const handleDeleteSession = async (sessionId: string) => {
     if (!window.confirm('确定删除这个会话吗？历史记录会从列表隐藏。')) return
@@ -577,9 +586,14 @@ export default function Workspace() {
                               <button
                                 type="button"
                                 onClick={() => handleCopySession(agent.id, s.id)}
-                                style={sessionMenuItemStyle}
+                                disabled={copyingSessionId === s.id}
+                                style={{
+                                  ...sessionMenuItemStyle,
+                                  opacity: copyingSessionId === s.id ? 0.6 : 1,
+                                  cursor: copyingSessionId === s.id ? 'not-allowed' : sessionMenuItemStyle.cursor,
+                                }}
                               >
-                                复制
+                                {copyingSessionId === s.id ? '复制中...' : '复制'}
                               </button>
                               <button
                                 type="button"
