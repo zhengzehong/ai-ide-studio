@@ -64,6 +64,6 @@
 - [x] Run `npm run lint`.
 - [x] Run `npm run build`.
 - [x] Review `git diff --check`.
-- [ ] Commit only this task's tracked changes on the current branch.
-- [ ] Cherry-pick or merge the commit to `D:\code_space\python_space\ai-ide-studio-prd`.
-- [ ] Build/verify PRD branch without touching unrelated untracked Excel files.
+- [x] Commit only this task's tracked changes on the current branch.
+- [x] Cherry-pick or merge the commit to `D:\code_space\python_space\ai-ide-studio-prd`.
+- [x] Build/verify PRD branch without touching unrelated untracked Excel files.
