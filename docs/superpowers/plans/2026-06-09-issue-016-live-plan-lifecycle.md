@@ -58,6 +58,6 @@ Run: `npm test -- tests/unit/session-event-reducer.test.ts tests/unit/session-st
 
 Run: `npm test`
 
-- [ ] **Step 3: Commit and sync PRD**
+- [x] **Step 3: Commit and sync PRD**
 
 Commit only ISSUE-016 related files on master, cherry-pick to PRD, and verify the targeted tests on PRD.
