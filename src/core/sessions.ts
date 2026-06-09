@@ -219,7 +219,7 @@ export const sessionManager = {
     return session
   },
 
-  async copySession(sourceSessionId: string, historyLimit = 10): Promise<SessionRow> {
+  async copySession(sourceSessionId: string): Promise<SessionRow> {
     const source = sessionStore.get(sourceSessionId)
     if (!source) throw new Error(`Session not found: ${sourceSessionId}`)
     if (activePrompts.has(sourceSessionId)) {
@@ -246,8 +246,7 @@ export const sessionManager = {
       if (source.acp_session_id !== sourceAcpSessionId) sessionStore.updateAcpSessionId(source.id, sourceAcpSessionId)
       const acpSessionId = await acpHost.forkSession(source.agent_id, source.id, copied.id, projectContext)
       sessionStore.updateAcpSessionId(copied.id, acpSessionId)
-      if (source.title) sessionStore.updateTitle(copied.id, `${source.title} - 副本`)
-      const copiedHistory = messageStore.copyLatestWithEvents(source.id, copied.id, historyLimit)
+      sessionStore.updateTitle(copied.id, `Fork from ${source.title || source.id}`)
       const updated = sessionStore.get(copied.id)
       if (!updated) throw new Error(`Copied session missing: ${copied.id}`)
       events.emit('session:changed', { sessionId: copied.id, data: { ...updated } })
@@ -257,8 +256,6 @@ export const sessionManager = {
           copiedSessionId: copied.id,
           agentId: source.agent_id,
           acpSessionId,
-          messageCount: copiedHistory.messageCount,
-          eventCount: copiedHistory.eventCount,
         },
         'Session copied',
       )
@@ -274,6 +271,7 @@ export const sessionManager = {
   async sendPrompt(sessionId: string, content: string, images?: ImageAttachment[], clientMessageId?: string): Promise<void> {
     const session = sessionStore.get(sessionId)
     if (!session) throw new Error(`Session not found: ${sessionId}`)
+    if (session.status !== 'active') throw new Error('当前会话已关闭，不能继续发送消息')
     if (activePrompts.has(sessionId))
       throw new Error(
         '\u5f53\u524d\u4f1a\u8bdd\u6b63\u5728\u751f\u6210\u4e2d\uff0c\u8bf7\u7b49\u5f85\u672c\u8f6e\u5b8c\u6210\u6216\u5148\u505c\u6b62\u751f\u6210',
@@ -290,6 +288,7 @@ export const sessionManager = {
         while (activePrompts.has(sessionId)) await waitForIdleTurn()
         const session = sessionStore.get(sessionId)
         if (!session) throw new Error(`Session not found: ${sessionId}`)
+        if (session.status !== 'active') throw new Error('当前会话已关闭，不能继续发送消息')
         await sendPromptNow(session, content, images)
       })
     queuedPrompts.set(sessionId, next)
