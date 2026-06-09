@@ -5,7 +5,7 @@ import { messageStore } from '../store/sessions.js'
 import { stableProcessItemId, turnProcessItemStore, type TurnProcessItemRow } from '../store/turn-process-items.js'
 import { events } from './events.js'
 import { createChildLogger } from './logger.js'
-import { shouldCreateToolFromUpdate } from './tool-calls.js'
+import { mergeToolCall, shouldCreateToolFromUpdate } from './tool-calls.js'
 
 const log = createChildLogger('turn-process-runtime')
 
@@ -167,18 +167,26 @@ function appendText(
 }
 
 function upsertTool(sessionId: string, messageId: string, toolCall: ToolCallData): TurnProcessItemRow {
+  const id = stableProcessItemId(messageId, 'tool', toolCall.id)
+  const merged = mergeStoredToolCall(id, toolCall)
   return turnProcessItemStore.upsert({
-    id: stableProcessItemId(messageId, 'tool', toolCall.id),
+    id,
     sessionId,
     messageId,
     kind: 'tool',
-    status: toolCall.status ?? 'running',
-    title: toolCall.title,
-    summary: toolSummary(toolCall),
+    status: merged.status ?? 'running',
+    title: merged.title,
+    summary: toolSummary(merged),
     preview: toolPreview(toolCall),
-    detail: toolCallWithoutDiff(toolCall),
-    meta: { toolCallId: toolCall.id },
+    detail: toolCallWithoutDiff(merged),
+    meta: { toolCallId: merged.id },
   })
+}
+
+function mergeStoredToolCall(itemId: string, update: ToolCallData): ToolCallData {
+  const existing = turnProcessItemStore.get(itemId)
+  const previous = parseToolCallDetail(existing?.detail_json)
+  return previous ? mergeToolCall(previous, update) : update
 }
 
 function emitFileChangeIfPresent(sessionId: string, agentId: string, messageId: string, toolCall: ToolCallData): void {
@@ -277,6 +285,17 @@ function toolCallWithoutDiff(toolCall: ToolCallData): ToolCallData {
   return {
     ...toolCall,
     content: toolCall.content?.filter((item) => item.type !== 'diff'),
+  }
+}
+
+function parseToolCallDetail(raw?: string | null): ToolCallData | null {
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw) as Partial<ToolCallData>
+    if (!parsed.id || !parsed.title) return null
+    return parsed as ToolCallData
+  } catch {
+    return null
   }
 }
 
