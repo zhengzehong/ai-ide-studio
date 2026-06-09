@@ -56,6 +56,30 @@ function emit(event: string, message: Record<string, unknown>): void {
 }
 
 describe('session store done handling', () => {
+  test('clears the live plan after the current turn is done', () => {
+    resetStore()
+    useSessionStore.setState({
+      plan: [
+        { content: 'inspect live state', status: 'in_progress', priority: 'medium' },
+        { content: 'report result', status: 'pending', priority: 'medium' },
+      ],
+    })
+    const cleanup = useSessionStore.getState().setupListeners()
+
+    try {
+      emit('session:done', {
+        sessionId: 'sess-refresh',
+        agentId: 'agent-1',
+        messageId: 'done-sess-refresh',
+        stopReason: 'end_turn',
+      })
+
+      expect(useSessionStore.getState().plan).toEqual([])
+    } finally {
+      cleanup()
+    }
+  })
+
   test('refreshes persisted messages after a turn is done without default event timeline loading', async () => {
     resetStore()
     wsMock.request.mockReset()

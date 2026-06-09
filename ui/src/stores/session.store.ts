@@ -6,8 +6,8 @@ import {
   buildChatTimelineFromEvents,
   buildCompletedAgentMessage,
   capabilitiesFromConfig,
+  clearPlanOnTurnDone,
   defaultCaps,
-  finalizePlanOnTurnDone,
   groupChatTimelineItems,
   appendFinalizedMessage,
   mergeCapabilities,
@@ -1017,7 +1017,6 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       flushStreamingBuffer(set, get)
       set((st) => ({ staleSessionIds: { ...st.staleSessionIds, [sid]: true } }))
       const tu = msg.turnUsage as TurnUsageInfo | undefined
-      const stopReason = msg.stopReason as string | undefined
       const cost = get().usage?.costAmount
       const elapsed = promptStartTime > 0 ? Math.round((Date.now() - promptStartTime) / 1000) : undefined
       promptStartTime = 0
@@ -1054,7 +1053,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         }
         set(st => ({
           messages: appendFinalizedMessage(st.messages, newMsg),
-          streamingMessage: null, turnUsage: tu || st.turnUsage, plan: finalizePlanOnTurnDone(st.plan, stopReason),
+          streamingMessage: null, turnUsage: tu || st.turnUsage, plan: clearPlanOnTurnDone(),
         }))
       } else {
         const error = typeof msg.error === 'string' ? msg.error : ''
@@ -1065,13 +1064,13 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           if (turnStats && !finalMessage.decision_json) finalMessage.decision_json = turnStats
           set(st => ({
             messages: appendFinalizedMessage(st.messages, finalMessage),
-            streamingMessage: null, turnUsage: tu || st.turnUsage, plan: finalizePlanOnTurnDone(st.plan, stopReason),
+            streamingMessage: null, turnUsage: tu || st.turnUsage, plan: clearPlanOnTurnDone(),
           }))
         } else {
           set(st => ({
             streamingMessage: null,
             turnUsage: tu || st.turnUsage,
-            plan: finalizePlanOnTurnDone(st.plan, stopReason),
+            plan: clearPlanOnTurnDone(),
           }))
         }
       }

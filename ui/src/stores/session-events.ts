@@ -410,9 +410,8 @@ export function mergeCapabilities(current: SessionCapabilities, incoming: Sessio
   }
 }
 
-export function finalizePlanOnTurnDone(plan: PlanEntry[], stopReason?: string): PlanEntry[] {
-  if (stopReason && stopReason !== 'end_turn') return plan
-  return plan.map((entry) => entry.status === 'in_progress' ? { ...entry, status: 'completed' } : entry)
+export function clearPlanOnTurnDone(): PlanEntry[] {
+  return []
 }
 
 function parsePayload(event: SessionEventData): Record<string, unknown> {
@@ -646,7 +645,7 @@ export function applySessionEvent(state: ReducedSessionEvents, event: SessionEve
     case 'message.done': {
       if (streaming) streaming = applyTurnEntry(streaming, { kind: 'done', turnStats: payload.turnUsage as TurnUsageInfo | undefined })
       if (payload.turnUsage) state = { ...state, turnUsage: payload.turnUsage as TurnUsageInfo }
-      state = { ...state, plan: finalizePlanOnTurnDone(state.plan, payload.stopReason as string | undefined) }
+      state = { ...state, plan: clearPlanOnTurnDone() }
       break
     }
     case 'usage.update':
