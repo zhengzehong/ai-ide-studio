@@ -93,7 +93,6 @@ import {
   filterSessionsByProject,
   chatContentKey,
   selectChatAgent,
-  sessionMenuItemStyle,
   sessionTitle,
   statusDot,
   statusLabel,
@@ -103,6 +102,7 @@ import {
 } from './workspace/helpers'
 import { sessionIndicator } from '../utils/session-indicators'
 import { elapsedSecondsBetween, formatCompactDuration } from '../utils/duration'
+import { ContextMenu, PromptDialog, ConfirmDialog, AlertDialog } from '../components/ModalDialog'
 
 export default function Workspace() {
   const navigate = useNavigate()
@@ -148,8 +148,12 @@ export default function Workspace() {
     if (currentProjectId && sidebarTab === 'files') fetchTree(currentProjectId)
   }, [currentProjectId, sidebarTab, fetchTree])
   const [showNewTask, setShowNewTask] = useState(false)
-  const [sessionMenuId, setSessionMenuId] = useState<string | null>(null)
   const [copyingSessionId, setCopyingSessionId] = useState<string | null>(null)
+
+  const [ctxMenu, setCtxMenu] = useState<{ sessionId: string; agentId: string; x: number; y: number } | null>(null)
+  const [renameDialog, setRenameDialog] = useState<{ sessionId: string; currentTitle: string } | null>(null)
+  const [confirmDialog, setConfirmDialog] = useState<{ title: string; message: string; danger?: boolean; onConfirm: () => void } | null>(null)
+  const [alertMsg, setAlertMsg] = useState<string | null>(null)
 
   const projectAgents = useMemo(() => filterAgentsByProject(agents, currentProjectId), [agents, currentProjectId])
   const projectSessions = useMemo(
@@ -222,11 +226,13 @@ export default function Workspace() {
     selectSession(s.id)
     await fetchSessions(undefined, currentProjectId ?? undefined)
   }
-  const handleRenameSession = async (sessionId: string, currentTitle: string) => {
-    const nextTitle = window.prompt('请输入新的会话名称', currentTitle)
-    if (!nextTitle?.trim()) return
-    await renameSession(sessionId, nextTitle)
-    setSessionMenuId(null)
+  const handleRenameSession = (sessionId: string, currentTitle: string) => {
+    setRenameDialog({ sessionId, currentTitle })
+  }
+  const handleRenameConfirm = async (nextTitle: string) => {
+    if (!renameDialog) return
+    await renameSession(renameDialog.sessionId, nextTitle)
+    setRenameDialog(null)
   }
   const handleCopySession = async (agentId: string, sessionId: string) => {
     if (copyingSessionId) return
@@ -235,28 +241,31 @@ export default function Workspace() {
       const copied = await copySession(sessionId)
       setSelectedAgentId(agentId)
       selectSession(copied.id)
-      setSessionMenuId(null)
       await fetchSessions(undefined, currentProjectId ?? undefined)
       await fetchMessages(copied.id)
       await fetchEvents(copied.id)
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : '复制会话失败')
+      setAlertMsg(err instanceof Error ? err.message : '复制会话失败')
     } finally {
       setCopyingSessionId((current) => (current === sessionId ? null : current))
     }
   }
-  const handleDeleteSession = async (sessionId: string) => {
-    if (!window.confirm('确定删除这个会话吗？历史记录会从列表隐藏。')) return
-    await deleteSession(sessionId)
-    setSessionMenuId(null)
+  const handleDeleteSession = (sessionId: string) => {
+    setConfirmDialog({
+      title: '删除会话',
+      message: '确定删除这个会话吗？历史记录会从列表隐藏。',
+      danger: true,
+      onConfirm: async () => {
+        await deleteSession(sessionId)
+        setConfirmDialog(null)
+      },
+    })
   }
   const handleCloseSession = async (sessionId: string) => {
     await closeSession(sessionId)
-    setSessionMenuId(null)
   }
   const handleArchiveSession = async (sessionId: string) => {
     await archiveSession(sessionId)
-    setSessionMenuId(null)
   }
 
   useEffect(() => {
@@ -479,6 +488,10 @@ export default function Workspace() {
                         return (
                           <div
                             key={s.id}
+                            onContextMenu={(e) => {
+                              e.preventDefault()
+                              setCtxMenu({ sessionId: s.id, agentId: agent.id, x: e.clientX, y: e.clientY })
+                            }}
                             style={{
                               position: 'relative',
                               display: 'flex',
@@ -533,84 +546,6 @@ export default function Workspace() {
                               {formatTime(s.last_message_at || s.updated_at || s.started_at)}
                             </span>
                           </button>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setSessionMenuId(sessionMenuId === s.id ? null : s.id)
-                            }}
-                            title="会话操作"
-                            style={{
-                              width: 22,
-                              height: 22,
-                              border: 'none',
-                              borderRadius: 4,
-                              background: 'transparent',
-                              color: 'var(--text-3)',
-                              cursor: 'pointer',
-                              fontSize: 16,
-                              lineHeight: 1,
-                            }}
-                          >
-                            ⋯
-                          </button>
-                          {sessionMenuId === s.id && (
-                            <div
-                              style={{
-                                position: 'absolute',
-                                right: 8,
-                                top: 28,
-                                zIndex: 20,
-                                width: 120,
-                                padding: 4,
-                                background: 'var(--bg-0)',
-                                border: '1px solid var(--border)',
-                                borderRadius: 8,
-                                boxShadow: 'var(--shadow-lg)',
-                              }}
-                            >
-                              <button
-                                type="button"
-                                onClick={() => handleRenameSession(s.id, sessionTitle(s))}
-                                style={sessionMenuItemStyle}
-                              >
-                                重命名
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleCloseSession(s.id)}
-                                style={sessionMenuItemStyle}
-                              >
-                                关闭
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleCopySession(agent.id, s.id)}
-                                disabled={copyingSessionId === s.id}
-                                style={{
-                                  ...sessionMenuItemStyle,
-                                  opacity: copyingSessionId === s.id ? 0.6 : 1,
-                                  cursor: copyingSessionId === s.id ? 'not-allowed' : sessionMenuItemStyle.cursor,
-                                }}
-                              >
-                                {copyingSessionId === s.id ? '复制中...' : '复制'}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleArchiveSession(s.id)}
-                                style={sessionMenuItemStyle}
-                              >
-                                归档
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteSession(s.id)}
-                                style={{ ...sessionMenuItemStyle, color: 'var(--red)' }}
-                              >
-                                删除
-                              </button>
-                            </div>
-                          )}
                           </div>
                         )
                       })}
@@ -675,6 +610,7 @@ export default function Workspace() {
           connected={connected}
           currentSessionId={currentSessionId}
           chatAgent={chatAgent}
+          currentSessionTitle={currentSessionId ? sessionTitle(projectSessions.find(ss => ss.id === currentSessionId) ?? { id: currentSessionId }) : undefined}
         />
       </main>
 
@@ -746,6 +682,45 @@ export default function Workspace() {
         />
       )}
 
+      <ContextMenu
+        open={!!ctxMenu}
+        x={ctxMenu?.x ?? 0}
+        y={ctxMenu?.y ?? 0}
+        onClose={() => setCtxMenu(null)}
+        items={ctxMenu ? [
+          { label: '重命名', onClick: () => { const s = projectSessions.find(ss => ss.id === ctxMenu.sessionId); handleRenameSession(ctxMenu.sessionId, sessionTitle(s ?? { id: ctxMenu.sessionId })) } },
+          { label: '关闭', onClick: () => handleCloseSession(ctxMenu.sessionId) },
+          { label: copyingSessionId === ctxMenu.sessionId ? '复制中...' : '复制', disabled: copyingSessionId === ctxMenu.sessionId, onClick: () => handleCopySession(ctxMenu.agentId, ctxMenu.sessionId) },
+          { label: '归档', onClick: () => handleArchiveSession(ctxMenu.sessionId) },
+          { label: '删除', danger: true, onClick: () => handleDeleteSession(ctxMenu.sessionId) },
+        ] : []}
+      />
+
+      <PromptDialog
+        open={!!renameDialog}
+        title="重命名会话"
+        defaultValue={renameDialog?.currentTitle ?? ''}
+        placeholder="输入新的会话名称"
+        onConfirm={handleRenameConfirm}
+        onCancel={() => setRenameDialog(null)}
+      />
+
+      <ConfirmDialog
+        open={!!confirmDialog}
+        title={confirmDialog?.title ?? ''}
+        message={confirmDialog?.message ?? ''}
+        danger={confirmDialog?.danger}
+        onConfirm={() => confirmDialog?.onConfirm()}
+        onCancel={() => setConfirmDialog(null)}
+      />
+
+      <AlertDialog
+        open={!!alertMsg}
+        title="提示"
+        message={alertMsg ?? ''}
+        onClose={() => setAlertMsg(null)}
+      />
+
     </div>
   )
 }
@@ -754,10 +729,12 @@ function WorkspaceChatPane({
   connected,
   currentSessionId,
   chatAgent,
+  currentSessionTitle,
 }: {
   connected: boolean
   currentSessionId: string | null
   chatAgent: AgentData | undefined
+  currentSessionTitle?: string
 }) {
   const messages = useSessionStore((s) => s.messages)
   const events = useSessionStore((s) => s.events)
@@ -1141,8 +1118,16 @@ function WorkspaceChatPane({
               >
                 {agentAvatar(chatAgent)}
               </div>
-              <div>
-                <div style={{ fontWeight: 600, fontSize: 15 }}>{chatAgent.name}</div>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, fontSize: 15 }}>
+                  <span>{chatAgent.name}</span>
+                  {currentSessionTitle && (
+                    <>
+                      <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>·</span>
+                      <span style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{currentSessionTitle}</span>
+                    </>
+                  )}
+                </div>
                 <div style={{ fontSize: 13, color: 'var(--text-3)' }}>
                   {chatAgent.runtime} · {statusLabel(chatAgent.status)}
                 </div>
