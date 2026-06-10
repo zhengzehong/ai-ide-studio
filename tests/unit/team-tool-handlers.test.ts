@@ -10,6 +10,7 @@ import { taskStore } from '../../src/store/tasks.js'
 import { teamMailboxStore } from '../../src/store/teams.js'
 import { sessionManager } from '../../src/core/sessions.js'
 import { events } from '../../src/core/events.js'
+import { teamService } from '../../src/core/teams.js'
 import { acpHost } from '../../src/acp/host.js'
 import { messageStore, sessionStore } from '../../src/store/sessions.js'
 import { getHandler } from '../../src/tools/handlers/index.js'
@@ -35,6 +36,49 @@ afterEach(() => {
 })
 
 describe('team MCP tool handlers', () => {
+  test('team task creation emits global task update for task boards', () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const leader = agentStore.create({ name: 'Leader', type: 'architect', runtime: 'mock', projectId: project.id })
+    const created = teamService.create({ projectId: project.id, leaderAgentId: leader.id, name: 'Alpha' })
+    const updates: Array<{ taskId: string; data: Record<string, unknown> }> = []
+    const handler = (ev: { taskId: string; data: Record<string, unknown> }) => updates.push(ev)
+    events.on('task:update', handler)
+
+    try {
+      const task = teamService.createTask({ teamId: created.team.id, title: 'Build UI' })
+
+      expect(updates).toHaveLength(1)
+      expect(updates[0]).toMatchObject({
+        taskId: task.id,
+        data: { id: task.id, team_id: created.team.id, event: 'created' },
+      })
+    } finally {
+      events.off('task:update', handler)
+    }
+  })
+
+  test('team task updates emit global task update for task boards', () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const leader = agentStore.create({ name: 'Leader', type: 'architect', runtime: 'mock', projectId: project.id })
+    const created = teamService.create({ projectId: project.id, leaderAgentId: leader.id, name: 'Alpha' })
+    const task = teamService.createTask({ teamId: created.team.id, title: 'Build API' })
+    const updates: Array<{ taskId: string; data: Record<string, unknown> }> = []
+    const handler = (ev: { taskId: string; data: Record<string, unknown> }) => updates.push(ev)
+    events.on('task:update', handler)
+
+    try {
+      teamService.updateTask({ teamId: created.team.id, taskId: task.id, status: 'completed', stage: 'Done' })
+
+      expect(updates).toHaveLength(1)
+      expect(updates[0]).toMatchObject({
+        taskId: task.id,
+        data: { id: task.id, status: 'completed', stage: 'Done', event: 'updated' },
+      })
+    } finally {
+      events.off('task:update', handler)
+    }
+  })
+
   test('team.create ignores model-provided projectId when session context already has a project', async () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const agent = agentStore.create({ name: 'Leader', type: 'architect', runtime: 'mock', projectId: project.id })
