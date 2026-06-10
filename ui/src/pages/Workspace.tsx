@@ -775,6 +775,9 @@ function WorkspaceChatPane({
   const capabilities = useSessionStore((s) => s.capabilities)
   const plan = useSessionStore((s) => s.plan)
   const sendPrompt = useSessionStore((s) => s.sendPrompt)
+  const hasMoreMessagesBySession = useSessionStore((s) => s.hasMoreMessagesBySession)
+  const loadingOlderMessagesBySession = useSessionStore((s) => s.loadingOlderMessagesBySession)
+  const loadOlderMessages = useSessionStore((s) => s.loadOlderMessages)
   const setModel = useSessionStore((s) => s.setModel)
   const setMode = useSessionStore((s) => s.setMode)
   const setConfig = useSessionStore((s) => s.setConfig)
@@ -813,10 +816,13 @@ function WorkspaceChatPane({
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const stickToBottomRef = useRef(true)
   const lastScrollHeightRef = useRef(0)
+  const olderLoadAnchorRef = useRef<{ sessionId: string; scrollHeight: number; scrollTop: number } | null>(null)
   const pendingImagePreviewsRef = useRef<string[]>([])
 
   const blockingInteraction = pendingPermissions.length > 0 || pendingElicitations.length > 0
   const canSendPrompt = !!currentSessionId && connected && !blockingInteraction && !currentSessionCopying && (!!inputValue.trim() || pendingImages.length > 0)
+  const hasMoreMessages = currentSessionId ? hasMoreMessagesBySession[currentSessionId] === true : false
+  const loadingOlderMessages = currentSessionId ? !!loadingOlderMessagesBySession[currentSessionId] : false
   const pendingInteractionId = pendingPermissions[0]?.id || pendingElicitations[0]?.id || ''
   const isStreaming = !!(streamingMessage && !streamingMessage.done)
   const currentModeName =
@@ -853,13 +859,21 @@ function WorkspaceChatPane({
   const updateStickToBottom = useCallback(() => {
     const el = chatScrollRef.current
     if (!el) return
+    if (currentSessionId && el.scrollTop <= 120 && hasMoreMessages && !loadingOlderMessages) {
+      olderLoadAnchorRef.current = {
+        sessionId: currentSessionId,
+        scrollHeight: el.scrollHeight,
+        scrollTop: el.scrollTop,
+      }
+      void loadOlderMessages(currentSessionId)
+    }
     stickToBottomRef.current = nextPinnedToBottom({
       wasPinned: stickToBottomRef.current,
       previousScrollHeight: lastScrollHeightRef.current,
       metrics: el,
     })
     lastScrollHeightRef.current = el.scrollHeight
-  }, [])
+  }, [currentSessionId, hasMoreMessages, loadOlderMessages, loadingOlderMessages])
 
   const handleChatContentResize = useCallback(() => {
     if (stickToBottomRef.current) scheduleScrollToBottom('auto')
@@ -897,12 +911,23 @@ function WorkspaceChatPane({
   }, [currentSessionId])
 
   useEffect(() => {
+    const olderLoadAnchor = olderLoadAnchorRef.current
+    if (olderLoadAnchor && olderLoadAnchor.sessionId === currentSessionId) {
+      const el = chatScrollRef.current
+      if (el) {
+        const delta = el.scrollHeight - olderLoadAnchor.scrollHeight
+        el.scrollTop = olderLoadAnchor.scrollTop + delta
+        lastScrollHeightRef.current = el.scrollHeight
+      }
+      olderLoadAnchorRef.current = null
+      return
+    }
     if (messages.length !== prevMsgCount.current) {
       prevMsgCount.current = messages.length
       const el = chatScrollRef.current
       if (!el || stickToBottomRef.current || isNearBottom(el)) scheduleScrollToBottom('smooth')
     }
-  }, [messages.length, scheduleScrollToBottom])
+  }, [currentSessionId, messages.length, scheduleScrollToBottom])
 
   useEffect(() => {
     if (shouldScrollStreaming && stickToBottomRef.current) scheduleScrollToBottom('auto')

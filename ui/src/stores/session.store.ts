@@ -51,6 +51,8 @@ import {
 
 const COPYING_STAGE = '正在复制会话...'
 
+const CHAT_MESSAGE_PAGE_SIZE = 20
+
 export type {
   AvailableCommandInfo,
   ChatTimelineItem,
@@ -97,6 +99,8 @@ interface SessionStore {
   copyingTargetSessionIds: Record<string, string>
   copyingSourceSessionIds: Record<string, string>
   lastCopyError: { sourceSessionId: string; targetSessionId: string; message: string } | null
+  hasMoreMessagesBySession: Record<string, boolean>
+  loadingOlderMessagesBySession: Record<string, boolean>
   toolCallSummariesByMessageId: Record<string, ToolCallSummaryInfo[]>
   toolCallDetailsByKey: Record<string, ToolCallDetailInfo>
   fileChangeDetailsByMessageId: Record<string, FileChangeDetailInfo>
@@ -112,6 +116,7 @@ interface SessionStore {
 
   fetchSessions: (agentId?: string, projectId?: string) => Promise<void>
   fetchMessages: (sessionId: string) => Promise<void>
+  loadOlderMessages: (sessionId: string) => Promise<void>
   fetchEvents: (sessionId: string) => Promise<void>
   createSession: (agentId: string, taskId?: string, projectId?: string) => Promise<SessionData>
   copySession: (sessionId: string) => Promise<SessionData>
@@ -493,6 +498,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   sessions: [], currentSessionId: null, messages: [], events: [], streamingMessage: null,
   usage: null, turnUsage: null, capabilities: { ...defaultCaps }, plan: [], pendingPermissions: [], pendingElicitations: [], loading: false,
   copyingTargetSessionIds: {}, copyingSourceSessionIds: {}, lastCopyError: null,
+  hasMoreMessagesBySession: {}, loadingOlderMessagesBySession: {},
   toolCallSummariesByMessageId: {}, toolCallDetailsByKey: {}, fileChangeDetailsByMessageId: {}, toolCallLoadingByKey: {}, toolCallErrorByKey: {},
   turnProcessLoadingByMessageId: {}, turnProcessErrorByMessageId: {}, processItemLoadingByKey: {}, processItemErrorByKey: {},
   runningSessionIds: {}, unreadSessionIds: {}, staleSessionIds: {},
@@ -525,7 +531,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   fetchMessages: async (sessionId) => {
     try {
-      const serverMessages = await wsClient.request({ type: 'sessions.messages', sessionId }) as MessageData[]
+      const serverMessages = await wsClient.request({ type: 'sessions.messages', sessionId, limit: CHAT_MESSAGE_PAGE_SIZE }) as MessageData[]
       if (sessionId !== get().currentSessionId) return
       set(state => {
         const messages = mergeMessagesForSession(serverMessages, state.messages, sessionId)
@@ -558,6 +564,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
               : state.runningSessionIds,
           unreadSessionIds: hasRunning ? removeSessionIndicator(state.unreadSessionIds, sessionId) : state.unreadSessionIds,
           staleSessionIds: removeSessionIndicator(state.staleSessionIds, sessionId),
+          hasMoreMessagesBySession: {
+            ...state.hasMoreMessagesBySession,
+            [sessionId]: serverMessages.length >= CHAT_MESSAGE_PAGE_SIZE,
+          },
         }
       })
       saveCache(sessionId, get())
@@ -576,6 +586,42 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         void get().fetchEvents(sessionId)
       }
     } catch { /* ignore message load errors */ }
+  },
+
+  loadOlderMessages: async (sessionId) => {
+    const state = get()
+    if (state.loadingOlderMessagesBySession[sessionId] || state.hasMoreMessagesBySession[sessionId] === false) return
+    const sessionMessages = state.messages
+      .filter((message) => message.session_id === sessionId)
+      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+    const oldest = sessionMessages[0]
+    if (!oldest) return
+    set((current) => ({
+      loadingOlderMessagesBySession: { ...current.loadingOlderMessagesBySession, [sessionId]: true },
+    }))
+    try {
+      const olderMessages = await wsClient.request({
+        type: 'sessions.messages',
+        sessionId,
+        limit: CHAT_MESSAGE_PAGE_SIZE,
+        before: oldest.timestamp,
+      }) as MessageData[]
+      if (sessionId !== get().currentSessionId) return
+      set((current) => ({
+        messages: mergeMessagesForSession(olderMessages, current.messages, sessionId),
+        hasMoreMessagesBySession: {
+          ...current.hasMoreMessagesBySession,
+          [sessionId]: olderMessages.length >= CHAT_MESSAGE_PAGE_SIZE,
+        },
+      }))
+      saveCache(sessionId, get())
+    } catch {
+      // ignore older history load errors
+    } finally {
+      set((current) => ({
+        loadingOlderMessagesBySession: withoutKey(current.loadingOlderMessagesBySession, sessionId),
+      }))
+    }
   },
 
   fetchEvents: async (sessionId) => {
