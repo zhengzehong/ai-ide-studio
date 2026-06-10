@@ -70,8 +70,7 @@ function readTree(dirPath: string, rootPath: string, depth: number): FileEntry[]
 
   for (const name of entries) {
     if (result.length >= MAX_ENTRIES) break
-    if (IGNORE_DIRS.has(name) || IGNORE_FILES.has(name)) continue
-    if (name.startsWith('.') && name !== '.env.example') continue
+    if (isHiddenFileTreeEntry(name)) continue
 
     const fullPath = join(dirPath, name)
     const relPath = relative(rootPath, fullPath).replace(/\\/g, '/')
@@ -110,6 +109,10 @@ export function readFile(workDir: string, filePath: string): FileContent | null 
     log.warn({ workDir, filePath }, '路径逃逸尝试')
     return null
   }
+  if (isHiddenPath(normalizedRel)) {
+    log.warn({ workDir, filePath }, 'blocked hidden file read')
+    return null
+  }
 
   if (!existsSync(fullPath)) return null
 
@@ -134,6 +137,14 @@ export function readFile(workDir: string, filePath: string): FileContent | null 
     log.error({ err, path: fullPath }, '读取文件失败')
     return null
   }
+}
+
+function isHiddenFileTreeEntry(name: string): boolean {
+  return IGNORE_DIRS.has(name) || IGNORE_FILES.has(name) || (name.startsWith('.') && name !== '.env.example')
+}
+
+function isHiddenPath(filePath: string): boolean {
+  return filePath.split(/[\\/]+/).some((part) => part.length > 0 && isHiddenFileTreeEntry(part))
 }
 
 export function expandDirectory(workDir: string, dirPath: string): FileEntry[] {
