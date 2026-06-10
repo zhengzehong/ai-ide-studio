@@ -52,10 +52,14 @@ export function PromptDialog({ open, title, defaultValue = '', placeholder, onCo
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    if (open) {
+    if (!open) return undefined
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
       setValue(defaultValue)
       setTimeout(() => inputRef.current?.select(), 50)
-    }
+    })
+    return () => { cancelled = true }
   }, [open, defaultValue])
 
   const handleSubmit = () => {

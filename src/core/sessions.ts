@@ -32,6 +32,8 @@ const log = createChildLogger('session')
 const pendingBySession = new Map<string, PendingTurn>()
 const activePrompts = new Set<string>()
 const queuedPrompts = new Map<string, Promise<void>>()
+const copyingSourceSessions = new Set<string>()
+const COPYING_STAGE = '正在复制会话...'
 
 events.on('session:update', (ev) => {
   const turnId = getPromptTurnId(ev.sessionId)
@@ -226,46 +228,29 @@ export const sessionManager = {
       throw new Error('当前会话正在生成中，完成后再复制')
     }
 
+    if (copyingSourceSessions.has(sourceSessionId)) {
+      throw new Error('当前会话正在复制中，请稍后')
+    }
+    if (!source.acp_session_id) {
+      throw new Error('当前会话暂无可复制的运行时上下文')
+    }
+
     const projectContext = resolveSessionProjectContext(
       source.agent_id,
       undefined,
       source.project_id ?? undefined,
     )
     const copied = sessionStore.create({ agentId: source.agent_id, projectId: projectContext.projectId })
+    sessionStore.updateTitle(copied.id, `Fork from ${source.title || source.id}`)
+    sessionStore.updateStage(copied.id, COPYING_STAGE)
+    copyingSourceSessions.add(sourceSessionId)
 
-    try {
-      const sourceAcpSessionId = await acpHost.ensureSession(
-        source.agent_id,
-        source.id,
-        source.acp_session_id,
-        {
-          ...projectContext,
-          emitLifecycle: false,
-        },
-      )
-      if (source.acp_session_id !== sourceAcpSessionId) sessionStore.updateAcpSessionId(source.id, sourceAcpSessionId)
-      const acpSessionId = await acpHost.forkSession(source.agent_id, source.id, copied.id, projectContext)
-      sessionStore.updateAcpSessionId(copied.id, acpSessionId)
-      sessionStore.updateTitle(copied.id, `Fork from ${source.title || source.id}`)
-      const updated = sessionStore.get(copied.id)
-      if (!updated) throw new Error(`Copied session missing: ${copied.id}`)
-      events.emit('session:changed', { sessionId: copied.id, data: { ...updated } })
-      log.info(
-        {
-          sourceSessionId,
-          copiedSessionId: copied.id,
-          agentId: source.agent_id,
-          acpSessionId,
-        },
-        'Session copied',
-      )
-      return updated
-    } catch (err) {
-      await acpHost.closeSession(source.agent_id, copied.id)
-      sessionStore.delete(copied.id)
-      log.error({ err, sourceSessionId, copiedSessionId: copied.id, agentId: source.agent_id }, 'Session copy failed')
-      throw err
-    }
+    const placeholder = sessionStore.get(copied.id)
+    if (!placeholder) throw new Error(`Copied session missing: ${copied.id}`)
+    events.emit('session:changed', { sessionId: copied.id, data: { ...placeholder } })
+
+    void completeCopiedSessionFork(source, copied.id, source.acp_session_id, projectContext)
+    return placeholder
   },
 
   async sendPrompt(sessionId: string, content: string, images?: ImageAttachment[], clientMessageId?: string): Promise<void> {
@@ -520,4 +505,44 @@ function resolveSessionProjectContext(
   const project = projectStore.get(projectId)
   if (!project) throw new Error(`Project not found: ${projectId}`)
   return { projectId, cwd: project.work_dir }
+}
+
+async function completeCopiedSessionFork(
+  source: SessionRow,
+  copiedSessionId: string,
+  sourceAcpSessionId: string,
+  projectContext: { projectId?: string; cwd?: string },
+): Promise<void> {
+  try {
+    const acpSessionId = await acpHost.forkSessionFromAcpSessionId(
+      source.agent_id,
+      sourceAcpSessionId,
+      copiedSessionId,
+      projectContext,
+    )
+    sessionStore.updateAcpSessionId(copiedSessionId, acpSessionId)
+    sessionStore.updateStage(copiedSessionId, '')
+    const updated = sessionStore.get(copiedSessionId)
+    if (!updated) throw new Error(`Copied session missing: ${copiedSessionId}`)
+    events.emit('session:changed', { sessionId: copiedSessionId, data: { ...updated } })
+    log.info(
+      {
+        sourceSessionId: source.id,
+        copiedSessionId,
+        agentId: source.agent_id,
+        acpSessionId,
+      },
+      'Session copied',
+    )
+  } catch (err) {
+    await acpHost.closeSession(source.agent_id, copiedSessionId)
+    sessionStore.delete(copiedSessionId)
+    copyingSourceSessions.delete(source.id)
+    const message = err instanceof Error ? err.message : String(err)
+    events.emit('session:copy_failed', { sourceSessionId: source.id, targetSessionId: copiedSessionId, message })
+    log.error({ err, sourceSessionId: source.id, copiedSessionId, agentId: source.agent_id }, 'Session copy failed')
+    return
+  }
+
+  copyingSourceSessions.delete(source.id)
 }

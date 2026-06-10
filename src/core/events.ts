@@ -18,6 +18,7 @@ export type AppEvents = {
   'session:done': SessionDoneData
   'session:capabilities': { sessionId: string; capabilities: SessionCapabilities }
   'session:changed': { sessionId: string; data: Record<string, unknown> }
+  'session:copy_failed': { sourceSessionId: string; targetSessionId: string; message: string }
   'agent:status': { agentId: string; status: AgentStatus }
   'task:update': { taskId: string; data: Record<string, unknown> }
   'team:update': { teamId: string; sessionIds: string[]; data: Record<string, unknown> }

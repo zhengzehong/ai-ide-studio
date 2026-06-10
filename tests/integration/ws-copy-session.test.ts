@@ -41,7 +41,7 @@ function setMessageTimestamp(messageId: string, timestamp: string): void {
 }
 
 describe('sessions.copy WS RPC', () => {
-  test('forks runtime session without copying local history', async () => {
+  test('returns a copying placeholder and forks runtime without resuming source', async () => {
     const workDir = resolve(tmp, 'project-copy')
     const project = projectStore.create({ name: 'Copy 项目', workDir })
     agentStore.upsert({ id: 'agent-copy', type: 'dev', name: 'Copy 测试', runtime: 'mock', projectId: project.id })
@@ -76,18 +76,23 @@ describe('sessions.copy WS RPC', () => {
       payload: { usage: { contextSize: 100, contextUsed: 20 } },
     })
 
-    const calls: Array<{ sourceSessionId: string; targetSessionId: string; projectId?: string; cwd?: string }> = []
+    const calls: Array<{ sourceAcpSessionId: string; targetSessionId: string; projectId?: string; cwd?: string }> = []
     const ensureCalls: Array<{ sessionId: string; acpSessionId?: string | null }> = []
+    let releaseFork!: () => void
+    const forkStarted = new Promise<void>((resolveStarted) => {
+      releaseFork = resolveStarted
+    })
     const originalEnsureSession = acpHost.ensureSession
-    const original = acpHost.forkSession
+    const original = acpHost.forkSessionFromAcpSessionId
     acpHost.ensureSession = (async (_agentId, sessionId, acpSessionId) => {
       ensureCalls.push({ sessionId, acpSessionId })
       return acpSessionId ?? 'acp-restored-source'
     }) as typeof acpHost.ensureSession
-    acpHost.forkSession = (async (_agentId, sourceSessionId, targetSessionId, context) => {
-      calls.push({ sourceSessionId, targetSessionId, projectId: context?.projectId, cwd: context?.cwd })
+    acpHost.forkSessionFromAcpSessionId = (async (_agentId, sourceAcpSessionId, targetSessionId, context) => {
+      calls.push({ sourceAcpSessionId, targetSessionId, projectId: context?.projectId, cwd: context?.cwd })
+      await forkStarted
       return `acp-${targetSessionId}`
-    }) as typeof acpHost.forkSession
+    }) as typeof acpHost.forkSessionFromAcpSessionId
 
     try {
       const ws = createWs()
@@ -99,17 +104,26 @@ describe('sessions.copy WS RPC', () => {
       expect(response.data.id).not.toBe(source.id)
       expect(response.data.agent_id).toBe('agent-copy')
       expect(response.data.project_id).toBe(project.id)
-      expect(response.data.acp_session_id).toBe(`acp-${response.data.id}`)
+      expect(response.data.acp_session_id).toBeNull()
       expect(response.data.task_id).toBeNull()
       expect(response.data.title).toBe('Fork from Source Session')
+      expect(response.data.stage).toBe('正在复制会话...')
 
-      expect(ensureCalls).toEqual([{ sessionId: source.id, acpSessionId: 'acp-source-copy' }])
+      expect(ensureCalls).toEqual([])
       expect(calls).toEqual([{
-        sourceSessionId: source.id,
+        sourceAcpSessionId: 'acp-source-copy',
         targetSessionId: response.data.id,
         projectId: project.id,
         cwd: workDir,
       }])
+      expect(sessionStore.get(response.data.id)?.acp_session_id).toBeNull()
+
+      releaseFork()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      const copied = sessionStore.get(response.data.id)
+      expect(copied?.acp_session_id).toBe(`acp-${response.data.id}`)
+      expect(copied?.stage).toBe('')
+      expect(copied?.title).toBe('Fork from Source Session')
 
       expect(sourceMessageIds).toHaveLength(12)
       expect(messageStore.list(response.data.id, { includeToolCalls: true })).toHaveLength(0)
@@ -117,7 +131,7 @@ describe('sessions.copy WS RPC', () => {
       expect(getDb().prepare('SELECT COUNT(*) AS count FROM turn_process_items WHERE session_id = ?').get(response.data.id)).toEqual({ count: 0 })
     } finally {
       acpHost.ensureSession = originalEnsureSession
-      acpHost.forkSession = original
+      acpHost.forkSessionFromAcpSessionId = original
     }
   })
 })

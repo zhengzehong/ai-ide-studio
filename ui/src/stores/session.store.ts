@@ -49,6 +49,8 @@ import {
   type SessionIndicatorStateMap,
 } from '../utils/session-indicators'
 
+const COPYING_STAGE = '正在复制会话...'
+
 export type {
   AvailableCommandInfo,
   ChatTimelineItem,
@@ -92,6 +94,9 @@ interface SessionStore {
   sessions: SessionData[]; currentSessionId: string | null; messages: MessageData[]; events: SessionEventData[]
   streamingMessage: StreamingMessage | null; usage: UsageInfo | null; turnUsage: TurnUsageInfo | null
   capabilities: SessionCapabilities; plan: PlanEntry[]; pendingPermissions: PermissionRequestInfo[]; pendingElicitations: ElicitationRequestInfo[]; loading: boolean
+  copyingTargetSessionIds: Record<string, string>
+  copyingSourceSessionIds: Record<string, string>
+  lastCopyError: { sourceSessionId: string; targetSessionId: string; message: string } | null
   toolCallSummariesByMessageId: Record<string, ToolCallSummaryInfo[]>
   toolCallDetailsByKey: Record<string, ToolCallDetailInfo>
   fileChangeDetailsByMessageId: Record<string, FileChangeDetailInfo>
@@ -114,6 +119,7 @@ interface SessionStore {
   deleteSession: (sessionId: string) => Promise<void>
   closeSession: (sessionId: string) => Promise<void>
   archiveSession: (sessionId: string) => Promise<void>
+  clearCopyError: () => void
   selectSession: (id: string | null) => void
   sendPrompt: (content: string, images?: ImageAttachmentInfo[]) => void
   setModel: (modelId: string) => Promise<void>
@@ -457,9 +463,36 @@ function scheduleStreamingFlush(set: (partial: Partial<SessionStore> | ((state: 
   }, 50)
 }
 
+function isCopyingSession(session?: Partial<Pick<SessionData, 'stage' | 'acp_session_id'>> | null): boolean {
+  return !!session && session.stage === COPYING_STAGE && !session.acp_session_id
+}
+
+function withoutKey<T>(record: Record<string, T>, key: string): Record<string, T> {
+  if (!(key in record)) return record
+  const next = { ...record }
+  delete next[key]
+  return next
+}
+
+function reconcileCopyingSessions(
+  sessions: SessionData[],
+  currentTargets: Record<string, string>,
+): { copyingTargetSessionIds: Record<string, string>; copyingSourceSessionIds: Record<string, string> } {
+  const copyingTargetSessionIds = Object.fromEntries(
+    sessions.filter((session) => isCopyingSession(session)).map((session) => [session.id, currentTargets[session.id] ?? '']),
+  )
+  const copyingSourceSessionIds = Object.fromEntries(
+    Object.entries(copyingTargetSessionIds)
+      .filter(([, sourceSessionId]) => !!sourceSessionId)
+      .map(([targetSessionId, sourceSessionId]) => [sourceSessionId, targetSessionId]),
+  )
+  return { copyingTargetSessionIds, copyingSourceSessionIds }
+}
+
 export const useSessionStore = create<SessionStore>((set, get) => ({
   sessions: [], currentSessionId: null, messages: [], events: [], streamingMessage: null,
   usage: null, turnUsage: null, capabilities: { ...defaultCaps }, plan: [], pendingPermissions: [], pendingElicitations: [], loading: false,
+  copyingTargetSessionIds: {}, copyingSourceSessionIds: {}, lastCopyError: null,
   toolCallSummariesByMessageId: {}, toolCallDetailsByKey: {}, fileChangeDetailsByMessageId: {}, toolCallLoadingByKey: {}, toolCallErrorByKey: {},
   turnProcessLoadingByMessageId: {}, turnProcessErrorByMessageId: {}, processItemLoadingByKey: {}, processItemErrorByKey: {},
   runningSessionIds: {}, unreadSessionIds: {}, staleSessionIds: {},
@@ -479,6 +512,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       const runningSessions = Object.keys(inferRunningSessions(sessions))
       set((state) => ({
         sessions,
+        ...reconcileCopyingSessions(sessions, state.copyingTargetSessionIds),
         runningSessionIds: reconcileRunningSessionIndicators(state.runningSessionIds, sessions),
         unreadSessionIds: removeSessionIndicators(state.unreadSessionIds, runningSessions),
         staleSessionIds: removeSessionIndicators(state.staleSessionIds, runningSessions),
@@ -595,7 +629,16 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   copySession: async (sessionId) => {
     const session = await wsClient.request({ type: 'sessions.copy', sessionId }) as SessionData
     if (!activeSessionsProjectId || session.project_id === activeSessionsProjectId) {
-      set({ sessions: [...get().sessions.filter((s) => s.id !== session.id), session] })
+      set((state) => ({
+        sessions: [...state.sessions.filter((s) => s.id !== session.id), session],
+        copyingTargetSessionIds: isCopyingSession(session)
+          ? { ...state.copyingTargetSessionIds, [session.id]: sessionId }
+          : state.copyingTargetSessionIds,
+        copyingSourceSessionIds: isCopyingSession(session)
+          ? { ...state.copyingSourceSessionIds, [sessionId]: session.id }
+          : state.copyingSourceSessionIds,
+        lastCopyError: null,
+      }))
     }
     return session
   },
@@ -640,6 +683,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     const session = await wsClient.request({ type: 'sessions.archive', sessionId }) as SessionData
     set({ sessions: get().sessions.map(s => s.id === sessionId ? { ...s, ...session } : s) })
   },
+  clearCopyError: () => set({ lastCopyError: null }),
 
   selectSession: (id) => {
     const prev = get().currentSessionId
@@ -690,6 +734,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   sendPrompt: (content, images) => {
     const sid = get().currentSessionId; if (!sid) return
+    const session = get().sessions.find((item) => item.id === sid)
+    if (isCopyingSession(session) || get().copyingTargetSessionIds[sid]) return
     const clientMessageId = `msg-local-${Date.now()}`
     const msg: Record<string, unknown> = { type: 'prompt', sessionId: sid, content, clientMessageId }
     if (images?.length) msg.images = images
@@ -1119,14 +1165,41 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         const incomingProjectId = data.project_id as string | null | undefined
         const inCurrentScope = !activeSessionsProjectId || incomingProjectId === undefined || incomingProjectId === activeSessionsProjectId
         if (!inCurrentScope) return { sessions: st.sessions.filter(s => s.id !== sessionId) }
+        const sourceSessionId = st.copyingTargetSessionIds[sessionId]
+        const copyDone = !!sourceSessionId && !isCopyingSession(data)
+        const copyState = copyDone
+          ? {
+              copyingTargetSessionIds: withoutKey(st.copyingTargetSessionIds, sessionId),
+              copyingSourceSessionIds: withoutKey(st.copyingSourceSessionIds, sourceSessionId),
+            }
+          : {}
         if (st.sessions.some(s => s.id === sessionId)) {
-          return { sessions: st.sessions.map(s => s.id === sessionId ? { ...s, ...data } : s) }
+          return { sessions: st.sessions.map(s => s.id === sessionId ? { ...s, ...data } : s), ...copyState }
         }
         if (isCompleteSessionData(data, sessionId) && (!activeSessionsProjectId || data.project_id === activeSessionsProjectId)) {
-          return { sessions: [...st.sessions, data] }
+          return { sessions: [...st.sessions, data], ...copyState }
         }
         return { sessions: st.sessions }
       })
+    }))
+
+    offs.push(wsClient.on('session:copy_failed', (msg) => {
+      const sourceSessionId = String(msg.sourceSessionId || '')
+      const targetSessionId = String(msg.targetSessionId || '')
+      const message = String(msg.message || '复制会话失败')
+      if (!sourceSessionId || !targetSessionId) return
+      const shouldSelectSource = get().currentSessionId === targetSessionId
+      sessionCaches.delete(targetSessionId)
+      set(st => ({
+        sessions: st.sessions.filter((session) => session.id !== targetSessionId),
+        messages: st.currentSessionId === targetSessionId ? [] : st.messages,
+        events: st.currentSessionId === targetSessionId ? [] : st.events,
+        streamingMessage: st.currentSessionId === targetSessionId ? null : st.streamingMessage,
+        copyingTargetSessionIds: withoutKey(st.copyingTargetSessionIds, targetSessionId),
+        copyingSourceSessionIds: withoutKey(st.copyingSourceSessionIds, sourceSessionId),
+        lastCopyError: { sourceSessionId, targetSessionId, message },
+      }))
+      if (shouldSelectSource) get().selectSession(sourceSessionId)
     }))
 
     offs.push(wsClient.on('session:activity', (msg) => {

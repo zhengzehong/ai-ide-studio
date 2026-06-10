@@ -40,11 +40,18 @@ function resetStore(): void {
     pendingPermissions: [],
     pendingElicitations: [],
     loading: false,
+    copyingTargetSessionIds: {},
+    copyingSourceSessionIds: {},
+    lastCopyError: null,
     toolCallSummariesByMessageId: {},
     toolCallDetailsByKey: {},
     fileChangeDetailsByMessageId: {},
     toolCallLoadingByKey: {},
     toolCallErrorByKey: {},
+    turnProcessLoadingByMessageId: {},
+    turnProcessErrorByMessageId: {},
+    processItemLoadingByKey: {},
+    processItemErrorByKey: {},
     runningSessionIds: {},
     unreadSessionIds: {},
     staleSessionIds: {},
@@ -56,6 +63,91 @@ function emit(event: string, message: Record<string, unknown>): void {
 }
 
 describe('session store done handling', () => {
+  test('tracks a copying placeholder and blocks prompt sending until the fork completes', async () => {
+    resetStore()
+    wsMock.request.mockReset()
+    wsMock.send.mockReset()
+    wsMock.request.mockImplementation(async (msg: Record<string, unknown>) => {
+      if (msg.type === 'sessions.list') return []
+      if (msg.type === 'sessions.copy') {
+        return {
+          id: 'sess-copy-target',
+          agent_id: 'agent-1',
+          task_id: null,
+          acp_session_id: null,
+          status: 'active',
+          stage: '正在复制会话...',
+          started_at: '2026-06-10T00:00:00.000Z',
+          closed_at: null,
+          project_id: null,
+        }
+      }
+      return []
+    })
+    await useSessionStore.getState().fetchSessions()
+
+    const copied = await useSessionStore.getState().copySession('sess-copy-source')
+    expect(copied.id).toBe('sess-copy-target')
+    expect(useSessionStore.getState().copyingTargetSessionIds).toEqual({ 'sess-copy-target': 'sess-copy-source' })
+    expect(useSessionStore.getState().copyingSourceSessionIds).toEqual({ 'sess-copy-source': 'sess-copy-target' })
+
+    useSessionStore.setState({ currentSessionId: 'sess-copy-target' })
+    useSessionStore.getState().sendPrompt('hello')
+    expect(wsMock.send).not.toHaveBeenCalled()
+  })
+
+  test('clears copy state on fork completion and copy failure events', () => {
+    resetStore()
+    const target = {
+      id: 'sess-copy-target',
+      agent_id: 'agent-1',
+      task_id: null,
+      acp_session_id: null,
+      status: 'active',
+      stage: '正在复制会话...',
+      started_at: '2026-06-10T00:00:00.000Z',
+      closed_at: null,
+      project_id: null,
+    }
+    const cleanup = useSessionStore.getState().setupListeners()
+
+    try {
+      useSessionStore.setState({
+        sessions: [target],
+        copyingTargetSessionIds: { 'sess-copy-target': 'sess-copy-source' },
+        copyingSourceSessionIds: { 'sess-copy-source': 'sess-copy-target' },
+      })
+      emit('session:changed', {
+        sessionId: 'sess-copy-target',
+        data: { ...target, acp_session_id: 'acp-copy-target', stage: '' },
+      })
+      expect(useSessionStore.getState().copyingTargetSessionIds).toEqual({})
+      expect(useSessionStore.getState().copyingSourceSessionIds).toEqual({})
+
+      useSessionStore.setState({
+        sessions: [target],
+        currentSessionId: 'sess-copy-target',
+        copyingTargetSessionIds: { 'sess-copy-target': 'sess-copy-source' },
+        copyingSourceSessionIds: { 'sess-copy-source': 'sess-copy-target' },
+      })
+      emit('session:copy_failed', {
+        sourceSessionId: 'sess-copy-source',
+        targetSessionId: 'sess-copy-target',
+        message: 'fork failed',
+      })
+      expect(useSessionStore.getState().sessions).toEqual([])
+      expect(useSessionStore.getState().currentSessionId).toBe('sess-copy-source')
+      expect(useSessionStore.getState().copyingTargetSessionIds).toEqual({})
+      expect(useSessionStore.getState().copyingSourceSessionIds).toEqual({})
+      expect(useSessionStore.getState().lastCopyError?.message).toBe('fork failed')
+
+      useSessionStore.getState().clearCopyError()
+      expect(useSessionStore.getState().lastCopyError).toBeNull()
+    } finally {
+      cleanup()
+    }
+  })
+
   test('clears the live plan after the current turn is done', () => {
     resetStore()
     useSessionStore.setState({
