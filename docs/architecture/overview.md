@@ -6,7 +6,7 @@
 
 ```text
 客户端层
-  Web UI / CLI / 外部调用方
+  Web UI / Mobile Web App / CLI / 外部调用方
       │ WebSocket / HTTP / CLI
       ▼
 Gateway 层
@@ -44,7 +44,7 @@ Core 业务层
 ### 用户发送消息
 
 ```text
-Web UI → WS "prompt" → ws-handler → gateway/rpc/subscriptions.prompt
+Web UI / Mobile Web App → WS "prompt" → ws-handler → gateway/rpc/subscriptions.prompt
   → sessionManager.sendPrompt() → acpHost.ensureSession() / acpHost.prompt()
   → Agent runtime 子进程 (stdio NDJSON)
   → ACP session/update → core events → ws-handler 广播 → Web UI 流式更新
@@ -90,9 +90,10 @@ Session 删除采用软删除，仅隐藏列表项并保留 `messages` / `sessio
 | `src/tools/` | 工具平台与 MCP 发布 | `resolver.ts`、`tool-gateway.ts`、`registry/*`、`runtime/*`、`mcp/http-mcp-server.ts` |
 | `src/cli/` | 命令行工具 | `index.ts`、agents/sessions/tasks/rules 子命令 |
 | `src/types/` | 类型定义 | `ws-protocol.ts` |
-| `ui/src/pages/` | 页面组件 | Workspace/Dashboard/TaskBoard/Schedule/AgentSquare/ToolManager/Settings |
+| `ui/src/pages/` | PC 端页面组件 | Workspace/Dashboard/TaskBoard/Schedule/AgentSquare/ToolManager/Settings |
 | `ui/src/stores/` | 前端状态 | Zustand store、`session-events.ts` 事件还原、项目/工具/模板/模型状态 |
 | `ui/src/services/` | 通信层 | `ws-client.ts` |
+| `mobile/src/` | 移动端 Web App | `/app/` 下的手机端页面、组件和 Zustand store；复用 `ui/src/services/ws-client.ts` 与会话事件还原辅助逻辑 |
 
 ## 支持的 Agent 运行时
 

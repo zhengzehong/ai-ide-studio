@@ -8,6 +8,7 @@ AI IDE Studio 是一个本地部署的全栈 AI 编程协作工具。通过 [ACP
 
 - **Gateway** — HTTP + WebSocket 服务，提供 Agent / Session / Task / Rule 的 RPC 接口和实时事件推送
 - **Workspace** — 主工作台，支持流式对话、执行过程持久化/恢复、工具调用懒加载/折叠、ACP diff 文件变更查看、思考过程展示、图片附件、Markdown 渲染和长会话虚拟滚动
+- **移动端 Web App** — `/app/` 下提供手机浏览器访问的轻量客户端，支持远程连接、会话列表、对话、任务列表和设置页
 - **Session 管理** — 会话按项目/Agent 归属展示，支持标题、重命名、复制、关闭、归档和软删除
 - **桌面悬浮部件** — Electron 常驻小窗口，按会话优先显示运行中/未读 Agent 会话进度，并支持快速查看和创建任务
 - **Agent 运行时** — 支持 `mock`（本地开发）、`claude`（Claude Code）、`codex`（Codex）三种运行时
@@ -31,6 +32,7 @@ npm run dev:all    # 启动 Gateway + UI
 ```
 
 - Web UI: http://localhost:5173
+- Mobile UI: http://localhost:5174/app/（开发）或 http://localhost:18800/app/（生产构建后）
 - Gateway: http://localhost:18800
 
 详细配置见 [快速上手指南](docs/guides/getting-started.md)。
@@ -51,6 +53,7 @@ npm run dev:all    # 启动 Gateway + UI
 ai-ide-studio/
 ├── src/           # 后端 Gateway（ACP + WS + SQLite）
 ├── ui/            # 前端 React 应用
+├── mobile/        # 移动端 React 应用（/app/）
 ├── tests/         # 测试（Vitest）
 │   ├── unit/          # 单元测试
 │   └── integration/   # 集成测试
@@ -68,8 +71,10 @@ ai-ide-studio/
 ```bash
 npm run dev          # 后端 Gateway（热重载）
 npm run dev:ui       # 前端开发服务器
+npm run dev:mobile   # 移动端开发服务器
 npm run dev:all      # 全栈开发
-npm run build        # 生产构建
+npm run build        # 生产构建（后端 + PC 端 + 移动端）
+npm run build:mobile # 仅构建移动端
 npm test             # 运行所有测试
 npm run lint         # ESLint 检查
 npm run format       # Prettier 格式化

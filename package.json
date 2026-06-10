@@ -4,13 +4,16 @@
   "private": true,
   "type": "module",
   "workspaces": [
-    "ui"
+    "ui",
+    "mobile"
   ],
   "scripts": {
     "dev": "node --import tsx --watch src/entry.ts",
     "dev:ui": "npm run dev -w ui",
+    "dev:mobile": "npm run dev -w mobile",
     "dev:all": "concurrently \"npm run dev\" \"npm run dev:ui\"",
-    "build": "tsc -p tsconfig.server.json && npm run build -w ui",
+    "build": "tsc -p tsconfig.server.json && npm run build -w ui && npm run build -w mobile",
+    "build:mobile": "npm run build -w mobile",
     "build:electron:main": "node scripts/electron-build-main.mjs && node scripts/sync-electron-build.mjs",
     "dev:electron": "npm run build:electron:main && electron electron/dist/main.js",
     "build:electron": "npm run build && npm run build:electron:main && electron-builder --config scripts/electron-builder.mjs",
@@ -19,9 +22,9 @@
     "test:watch": "vitest",
     "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
-    "lint": "eslint src/ && npm run lint -w ui",
-    "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\" \"ui/src/**/*.{ts,tsx}\"",
-    "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\" \"ui/src/**/*.{ts,tsx}\"",
+    "lint": "eslint src/ && npm run lint -w ui && npm run lint -w mobile",
+    "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\" \"ui/src/**/*.{ts,tsx}\" \"mobile/src/**/*.{ts,tsx}\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\" \"ui/src/**/*.{ts,tsx}\" \"mobile/src/**/*.{ts,tsx}\"",
     "postinstall": "patch-package"
   },
   "dependencies": {

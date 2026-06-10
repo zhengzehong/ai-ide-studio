@@ -50,6 +50,7 @@ export function createBackendLaunchOptions(input: BackendLaunchInput): BackendLa
       PORT: String(input.port),
       DATA_DIR: input.dataDir,
       STATIC_DIR: join(input.resourcesDir, 'app', 'ui', 'dist'),
+      MOBILE_STATIC_DIR: join(input.resourcesDir, 'app', 'mobile', 'dist'),
       AI_IDE_RUNTIME: 'electron',
       AI_IDE_LOCAL_TOKEN: input.token,
       AI_IDE_RESOURCES_DIR: input.resourcesDir,
