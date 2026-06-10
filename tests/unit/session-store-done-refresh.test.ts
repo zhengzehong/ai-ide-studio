@@ -43,6 +43,8 @@ function resetStore(): void {
     copyingTargetSessionIds: {},
     copyingSourceSessionIds: {},
     lastCopyError: null,
+    hasMoreMessagesBySession: {},
+    loadingOlderMessagesBySession: {},
     toolCallSummariesByMessageId: {},
     toolCallDetailsByKey: {},
     fileChangeDetailsByMessageId: {},
@@ -63,6 +65,96 @@ function emit(event: string, message: Record<string, unknown>): void {
 }
 
 describe('session store done handling', () => {
+  test('fetches only the latest 20 messages on initial session load', async () => {
+    resetStore()
+    wsMock.request.mockReset()
+    wsMock.request.mockResolvedValue([])
+
+    await useSessionStore.getState().fetchMessages('sess-refresh')
+
+    expect(wsMock.request).toHaveBeenCalledWith({ type: 'sessions.messages', sessionId: 'sess-refresh', limit: 20 })
+    expect(useSessionStore.getState().hasMoreMessagesBySession['sess-refresh']).toBe(false)
+  })
+
+  test('loads older messages before the oldest loaded message', async () => {
+    resetStore()
+    wsMock.request.mockReset()
+    wsMock.request.mockImplementation(async (msg: Record<string, unknown>) => {
+      if (msg.type === 'sessions.messages' && msg.before) {
+        return [
+          {
+            id: 'msg-older-human',
+            session_id: 'sess-refresh',
+            role: 'human',
+            content: 'older',
+            thinking: null,
+            tool_calls_json: null,
+            decision_json: null,
+            attachments_json: null,
+            timestamp: '2026-06-01T23:59:00.000Z',
+          },
+        ]
+      }
+      return []
+    })
+    useSessionStore.setState({
+      messages: [
+        {
+          id: 'msg-current-human',
+          session_id: 'sess-refresh',
+          role: 'human',
+          content: 'current',
+          thinking: null,
+          tool_calls_json: null,
+          decision_json: null,
+          attachments_json: null,
+          timestamp: '2026-06-02T00:00:00.000Z',
+        },
+      ],
+      hasMoreMessagesBySession: { 'sess-refresh': true },
+    })
+
+    await useSessionStore.getState().loadOlderMessages('sess-refresh')
+
+    expect(wsMock.request).toHaveBeenCalledWith({
+      type: 'sessions.messages',
+      sessionId: 'sess-refresh',
+      limit: 20,
+      before: '2026-06-02T00:00:00.000Z',
+    })
+    expect(useSessionStore.getState().messages.map((message) => message.id)).toEqual([
+      'msg-older-human',
+      'msg-current-human',
+    ])
+    expect(useSessionStore.getState().hasMoreMessagesBySession['sess-refresh']).toBe(false)
+  })
+
+  test('does not request older messages after a short page marks the session complete', async () => {
+    resetStore()
+    wsMock.request.mockReset()
+    wsMock.request.mockResolvedValue([])
+    useSessionStore.setState({
+      messages: [
+        {
+          id: 'msg-current-human',
+          session_id: 'sess-refresh',
+          role: 'human',
+          content: 'current',
+          thinking: null,
+          tool_calls_json: null,
+          decision_json: null,
+          attachments_json: null,
+          timestamp: '2026-06-02T00:00:00.000Z',
+        },
+      ],
+      hasMoreMessagesBySession: { 'sess-refresh': false },
+    })
+
+    await useSessionStore.getState().loadOlderMessages('sess-refresh')
+
+    expect(wsMock.request).not.toHaveBeenCalled()
+  })
+
   test('tracks a copying placeholder and blocks prompt sending until the fork completes', async () => {
     resetStore()
     wsMock.request.mockReset()
@@ -202,7 +294,7 @@ describe('session store done handling', () => {
       })
 
       await vi.waitFor(() => {
-        expect(wsMock.request).toHaveBeenCalledWith({ type: 'sessions.messages', sessionId: 'sess-refresh' })
+        expect(wsMock.request).toHaveBeenCalledWith({ type: 'sessions.messages', sessionId: 'sess-refresh', limit: 20 })
       })
       expect(wsMock.request).not.toHaveBeenCalledWith({ type: 'sessions.events', sessionId: 'sess-refresh', limit: 1000 })
     } finally {
@@ -225,7 +317,7 @@ describe('session store done handling', () => {
       })
 
       await vi.waitFor(() => {
-        expect(wsMock.request).toHaveBeenCalledWith({ type: 'sessions.messages', sessionId: 'sess-refresh' })
+        expect(wsMock.request).toHaveBeenCalledWith({ type: 'sessions.messages', sessionId: 'sess-refresh', limit: 20 })
         expect(wsMock.request).toHaveBeenCalledWith({ type: 'sessions.events', sessionId: 'sess-refresh', limit: 1000 })
       })
     } finally {
@@ -730,7 +822,7 @@ describe('session store done handling', () => {
       })
 
       await vi.waitFor(() => {
-        expect(wsMock.request).toHaveBeenCalledWith({ type: 'sessions.messages', sessionId: 'sess-refresh' })
+        expect(wsMock.request).toHaveBeenCalledWith({ type: 'sessions.messages', sessionId: 'sess-refresh', limit: 20 })
       })
       expect(useSessionStore.getState().runningSessionIds['sess-refresh']).toBe(true)
       expect(useSessionStore.getState().staleSessionIds['sess-refresh']).toBeUndefined()
@@ -775,7 +867,7 @@ describe('session store done handling', () => {
       })
 
       await vi.waitFor(() => {
-        expect(wsMock.request).toHaveBeenCalledWith({ type: 'sessions.messages', sessionId: 'sess-refresh' })
+        expect(wsMock.request).toHaveBeenCalledWith({ type: 'sessions.messages', sessionId: 'sess-refresh', limit: 20 })
       })
       expect(useSessionStore.getState().runningSessionIds['sess-refresh']).toBeUndefined()
       expect(useSessionStore.getState().staleSessionIds['sess-refresh']).toBeUndefined()
