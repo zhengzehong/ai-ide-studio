@@ -205,6 +205,7 @@ SQLite、日志和用户配置不能依赖不稳定的当前工作目录。
 - 打包时携带当前 Node 可执行文件到 `resources/node/node.exe`。
 - 后端入口放到 `resources/app/electron/backend-main.js`，由 `resources/node/node.exe` 启动。
 - 后端依赖从打包后的 `resources/app/node_modules` 解析，`.node` 文件通过 `asarUnpack` 留在可加载位置。
+- PC 前端静态资源放到 `resources/app/ui/dist`，移动端 Web App 静态资源放到 `resources/app/mobile/dist`。
 - 不在 Electron 主进程或 renderer 中 import `better-sqlite3`。
 - 在启动前验证 SQLite 能打开用户数据目录下的数据库。
 
@@ -279,6 +280,7 @@ Electron 产物必须包含：
 
 - 后端编译产物 `dist/`
 - 前端静态产物 `ui/dist/`
+- 移动端静态产物 `mobile/dist/`
 - Electron 主进程产物 `electron/dist/`
 - Node 后端入口 `resources/app/electron/backend-main.js`
 - 普通 Node 可执行文件 `resources/node/node.exe`
@@ -306,7 +308,7 @@ Electron main process 负责：
 | `src/app.ts` | 新增，共享后端生命周期边界 |
 | `src/gateway/server.ts` | 保持 HTTP/WS/MCP 组合职责，静态资源逻辑下沉到 helper |
 | `src/acp/runtime-registry.ts` | 增加 Electron resources 路径解析，保留现有环境变量覆盖 |
-| `src/core/config.ts` | 增加 HOST、运行模式、本地 token、数据目录策略读取 |
+| `src/core/config.ts` | 增加 HOST、运行模式、本地 token、数据目录策略和 PC/移动端静态资源目录读取 |
 | `ui/src/stores/connection.store.ts` | 从页面地址推导 WS URL，保留开发覆盖能力 |
 | SQLite store/migrations | 不因 Electron 改变，仍由现有 migrator 管理 |
 | WS RPC / MCP / ACP | 不因 Electron 改变协议，只复用同一后端服务 |

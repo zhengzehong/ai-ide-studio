@@ -9,6 +9,7 @@ export interface AppConfig {
   dataDir: string
   runtime: AppRuntime
   staticDir?: string
+  mobileStaticDir?: string
   localToken?: string
   anthropicApiKey?: string
   openaiApiKey?: string
@@ -25,6 +26,7 @@ export function loadConfig(): AppConfig {
     dataDir: resolve(process.env.DATA_DIR || './data'),
     runtime,
     staticDir: process.env.STATIC_DIR ? resolve(process.env.STATIC_DIR) : resolve('./ui/dist'),
+    mobileStaticDir: process.env.MOBILE_STATIC_DIR ? resolve(process.env.MOBILE_STATIC_DIR) : resolve('./mobile/dist'),
     localToken: process.env.AI_IDE_LOCAL_TOKEN || undefined,
     anthropicApiKey: process.env.ANTHROPIC_API_KEY || undefined,
     openaiApiKey: process.env.OPENAI_API_KEY || undefined,
