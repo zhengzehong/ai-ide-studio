@@ -228,6 +228,7 @@ export const teamService = {
       assigneeMemberId: assignee?.id,
       assignAgentId: assignee?.agent_id,
     })
+    emitTaskUpdate(task, 'created')
     emitTeamUpdate(team.id, 'task.created')
     return task
   },
@@ -256,6 +257,7 @@ export const teamService = {
     })
     if (!updated) throw new Error(`Task 不存在: ${task.id}`)
     teamWakeCoordinator.notifyTaskUpdated(updated, input.actor)
+    emitTaskUpdate(updated, 'updated')
     emitTeamUpdate(team.id, 'task.updated')
     return updated
   },
@@ -296,6 +298,10 @@ function emitTeamUpdate(teamId: string, reason: string): void {
     sessionIds: teamMemberStore.list(teamId).map((member) => member.session_id),
     data: { reason },
   })
+}
+
+function emitTaskUpdate(task: TaskRow, event: 'created' | 'updated'): void {
+  events.emit('task:update', { taskId: task.id, data: { ...task, event } })
 }
 
 function markTaskDispatched(teamId: string, task: TaskRow, member: TeamMemberRow): void {
