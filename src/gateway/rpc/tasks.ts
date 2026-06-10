@@ -38,6 +38,7 @@ export const taskRpcHandlers: RpcHandlerMap = {
     const task = taskStore.get(taskId)
     if (!task) return sendError('任务不存在')
 
+    let updated
     if (msg.title !== undefined || msg.description !== undefined) {
       taskStore.update(taskId, {
         title: msg.title as string | undefined,
@@ -45,12 +46,12 @@ export const taskRpcHandlers: RpcHandlerMap = {
         status: msg.status as string | undefined,
         stage: msg.stage as string | undefined,
       })
+      updated = taskStore.get(taskId)
+      events.emit('task:update', { taskId, data: { ...updated, event: 'updated' } })
     } else {
-      taskManager.updateTask(taskId, msg.status as string | undefined, msg.stage as string | undefined)
+      updated = taskManager.updateTask(taskId, msg.status as string | undefined, msg.stage as string | undefined)
     }
 
-    const updated = taskStore.get(taskId)
-    events.emit('task:update', { taskId, data: { ...updated, event: 'updated' } })
     sendResult(updated)
   },
 
