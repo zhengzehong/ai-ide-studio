@@ -3,7 +3,10 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { events } from '../../src/core/events.js'
+import { agentStore } from '../../src/store/agents.js'
 import { closeDatabase, initDatabase } from '../../src/store/db.js'
+import { projectStore } from '../../src/store/projects.js'
+import { sessionStore } from '../../src/store/sessions.js'
 import { taskStore } from '../../src/store/tasks.js'
 import { taskRpcHandlers } from '../../src/gateway/rpc/tasks.js'
 
@@ -42,6 +45,42 @@ describe('task RPC handlers', () => {
       taskId: task.id,
       data: { id: task.id, status: 'executing', stage: 'Running', event: 'updated' },
     })
+  })
+
+  test('tasks.assign rejects a reused session from another agent before assigning the task', async () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const targetAgent = agentStore.create({ name: 'Target', type: 'dev', runtime: 'mock', projectId: project.id })
+    const otherAgent = agentStore.create({ name: 'Other', type: 'dev', runtime: 'mock', projectId: project.id })
+    const otherSession = sessionStore.create({ agentId: otherAgent.id, projectId: project.id })
+    const task = taskStore.create({ title: 'Assign safely', projectId: project.id })
+
+    await expect(callTaskRpc('tasks.assign', {
+      type: 'tasks.assign',
+      taskId: task.id,
+      agentId: targetAgent.id,
+      sessionId: otherSession.id,
+    })).rejects.toThrow('会话不属于被指派 Agent')
+
+    const updated = taskStore.get(task.id)
+    expect(updated?.assigned_agent_id).toBeNull()
+    expect(updated?.status).toBe('backlog')
+  })
+
+  test('tasks.create rejects a reused session from another project without persisting a bad assignment', async () => {
+    const projectA = projectStore.create({ name: 'A', workDir: resolve(tmp, 'a') })
+    const projectB = projectStore.create({ name: 'B', workDir: resolve(tmp, 'b') })
+    const agent = agentStore.create({ name: 'Agent A', type: 'dev', runtime: 'mock', projectId: projectA.id })
+    const otherSession = sessionStore.create({ agentId: agent.id, projectId: projectB.id })
+
+    await expect(callTaskRpc('tasks.create', {
+      type: 'tasks.create',
+      title: 'Create safely',
+      projectId: projectA.id,
+      assignAgentId: agent.id,
+      sessionId: otherSession.id,
+    })).rejects.toThrow('会话不属于当前项目')
+
+    expect(taskStore.list(undefined, projectA.id)).toEqual([])
   })
 })
 

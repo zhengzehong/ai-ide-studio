@@ -1,4 +1,4 @@
-import { taskManager, buildTaskPrompt } from '../../core/tasks.js'
+import { taskManager, buildTaskPrompt, validateTaskAssignment } from '../../core/tasks.js'
 import { taskStore } from '../../store/tasks.js'
 import { sessionStore } from '../../store/sessions.js'
 import { events } from '../../core/events.js'
@@ -73,11 +73,11 @@ export const taskRpcHandlers: RpcHandlerMap = {
     if (!task) return sendError('任务不存在')
     if (!agentId) return sendError('agentId 不能为空')
 
-    taskStore.assignAgent(taskId, agentId)
-
+    validateTaskAssignment(agentId, task.project_id, sessionId)
     const { sessionManager } = await import('../../core/sessions.js')
 
     try {
+      taskStore.assignAgent(taskId, agentId)
       const session = sessionId
         ? { id: sessionId }
         : await sessionManager.createSession(agentId, taskId, task.project_id ?? undefined)

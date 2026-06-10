@@ -1,5 +1,6 @@
 import { taskStore, type CreateTaskInput } from '../store/tasks.js'
 import { agentStore } from '../store/agents.js'
+import { sessionStore } from '../store/sessions.js'
 import { sessionManager } from './sessions.js'
 import { events } from './events.js'
 import { createChildLogger } from './logger.js'
@@ -9,7 +10,7 @@ const log = createChildLogger('task')
 export const taskManager = {
   async createTask(input: CreateTaskInput) {
     if (!input.title?.trim()) throw new Error('任务标题不能为空')
-    validateAssignedAgentProject(input.assignAgentId, input.projectId)
+    validateTaskAssignment(input.assignAgentId, input.projectId, input.sessionId)
     const task = taskStore.create(input)
     log.info({ taskId: task.id, title: task.title, agentId: input.assignAgentId }, '任务已创建')
 
@@ -87,6 +88,19 @@ export const taskManager = {
 
     return updated
   },
+}
+
+export function validateTaskAssignment(
+  agentId: string | undefined,
+  projectId: string | null | undefined,
+  sessionId?: string,
+): void {
+  validateAssignedAgentProject(agentId, projectId ?? undefined)
+  if (!agentId || !sessionId) return
+  const session = sessionStore.get(sessionId)
+  if (!session) throw new Error(`会话不存在: ${sessionId}`)
+  if (session.agent_id !== agentId) throw new Error('会话不属于被指派 Agent')
+  if (projectId && session.project_id !== projectId) throw new Error('会话不属于当前项目')
 }
 
 function validateAssignedAgentProject(agentId: string | undefined, projectId: string | undefined): void {
