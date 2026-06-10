@@ -48,22 +48,43 @@ interface PromptDialogProps {
 }
 
 export function PromptDialog({ open, title, defaultValue = '', placeholder, onConfirm, onCancel }: PromptDialogProps) {
+  return (
+    <ModalOverlay open={open} onClose={onCancel} title={title}>
+      {open ? (
+        <PromptDialogBody
+          key={defaultValue}
+          defaultValue={defaultValue}
+          placeholder={placeholder}
+          onConfirm={onConfirm}
+          onCancel={onCancel}
+        />
+      ) : null}
+    </ModalOverlay>
+  )
+}
+
+interface PromptDialogBodyProps {
+  defaultValue: string
+  placeholder?: string
+  onConfirm: (value: string) => void
+  onCancel: () => void
+}
+
+function PromptDialogBody({ defaultValue, placeholder, onConfirm, onCancel }: PromptDialogBodyProps) {
   const [value, setValue] = useState(defaultValue)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    if (open) {
-      setValue(defaultValue)
-      setTimeout(() => inputRef.current?.select(), 50)
-    }
-  }, [open, defaultValue])
+    const timer = setTimeout(() => inputRef.current?.select(), 50)
+    return () => clearTimeout(timer)
+  }, [])
 
   const handleSubmit = () => {
     if (value.trim()) onConfirm(value.trim())
   }
 
   return (
-    <ModalOverlay open={open} onClose={onCancel} title={title}>
+    <>
       <input
         ref={inputRef}
         value={value}
@@ -77,7 +98,7 @@ export function PromptDialog({ open, title, defaultValue = '', placeholder, onCo
         <button type="button" onClick={onCancel} style={styles.btnSecondary}>取消</button>
         <button type="button" onClick={handleSubmit} disabled={!value.trim()} style={{ ...styles.btnPrimary, opacity: value.trim() ? 1 : 0.5 }}>确定</button>
       </div>
-    </ModalOverlay>
+    </>
   )
 }
 

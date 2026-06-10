@@ -1,6 +1,8 @@
-import { useEffect, useRef, type CSSProperties } from 'react'
+import { useEffect, useMemo, useRef, type CSSProperties } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Bot } from 'lucide-react'
+import { buildChatRenderItems } from '@desktop/components/chat/render-items'
+import type { ChatTimelineGroup, MessageData, StreamingMessage } from '@desktop/stores/session-events'
 import { useChatStore } from '../stores/chat.store'
 import { useSessionStore } from '../stores/session.store'
 import ChatBubble from '../components/chat/ChatBubble'
@@ -10,12 +12,17 @@ import PlanBar from '../components/chat/PlanBar'
 import PermissionCard from '../components/chat/PermissionCard'
 import ElicitationCard from '../components/chat/ElicitationCard'
 
+type MobileChatMessage = MessageData | (StreamingMessage & { session_id?: string })
+
 export default function ChatPage() {
   const { sessionId } = useParams<{ sessionId: string }>()
   const navigate = useNavigate()
   const listRef = useRef<HTMLDivElement>(null)
-  const { messages, streamingMessage, loading, isRunning, plan, pendingPermissions, pendingElicitations, capabilities,
-    enterSession, leaveSession, sendPrompt, cancelTurn, respondPermission, respondElicitation } = useChatStore()
+  const {
+    messages, events, streamingMessage, loading, isRunning, plan, pendingPermissions, pendingElicitations, capabilities,
+    turnProcessLoadingByMessageId, turnProcessErrorByMessageId,
+    enterSession, leaveSession, sendPrompt, cancelTurn, fetchMessageProcess, respondPermission, respondElicitation,
+  } = useChatStore()
   const sessions = useSessionStore(s => s.sessions)
   const session = sessions.find(s => s.sessionId === sessionId)
   const listenersRef = useRef(false)
@@ -32,13 +39,21 @@ export default function ChatPage() {
     return () => leaveSession()
   }, [sessionId])
 
+  const hasBlockingInteraction = pendingPermissions.length > 0 || pendingElicitations.length > 0
+  const chatItems = useMemo(() => buildChatRenderItems<MobileChatMessage>({
+    sessionId: sessionId ?? null,
+    messages,
+    events,
+    streamingBubble: streamingMessage ? { ...streamingMessage, session_id: sessionId } : null,
+    showStreamingBubble: !!streamingMessage,
+    blockingInteraction: hasBlockingInteraction,
+  }), [events, hasBlockingInteraction, messages, sessionId, streamingMessage])
+
   useEffect(() => {
     if (listRef.current) {
       listRef.current.scrollTop = listRef.current.scrollHeight
     }
-  }, [messages, streamingMessage])
-
-  const hasBlockingInteraction = pendingPermissions.length > 0 || pendingElicitations.length > 0
+  }, [chatItems, pendingPermissions, pendingElicitations])
 
   return (
     <div style={styles.page}>
@@ -66,20 +81,40 @@ export default function ChatPage() {
             <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>加载中...</span>
           </div>
         )}
-        {messages.map((msg) => (
-          <ChatBubble key={msg.id} role={msg.role as 'human' | 'agent'}>
-            {msg.role === 'agent' ? (
-              <TurnContent message={msg} />
-            ) : (
-              <span>{msg.content}</span>
-            )}
-          </ChatBubble>
-        ))}
-        {streamingMessage && (
-          <ChatBubble role="agent">
-            <TurnContent streaming={streamingMessage} />
-          </ChatBubble>
-        )}
+        {chatItems.map((item) => {
+          if (item.kind === 'message') {
+            const msg = item.message as MessageData
+            return (
+              <ChatBubble key={item.id} role={msg.role === 'human' ? 'human' : 'agent'}>
+                {msg.role === 'agent' ? (
+                  <TurnContent
+                    message={msg}
+                    processLoading={!!turnProcessLoadingByMessageId[msg.id]}
+                    processError={turnProcessErrorByMessageId[msg.id]}
+                    onLoadProcess={fetchMessageProcess}
+                  />
+                ) : (
+                  <span>{msg.content}</span>
+                )}
+              </ChatBubble>
+            )
+          }
+          if (item.kind === 'streaming') {
+            return (
+              <ChatBubble key={item.id} role="agent">
+                <TurnContent streaming={item.message as StreamingMessage} />
+              </ChatBubble>
+            )
+          }
+          if (item.kind === 'group') {
+            return (
+              <ChatBubble key={item.id} role={item.group.role === 'human' ? 'human' : 'agent'}>
+                <TimelineGroupContent group={item.group} />
+              </ChatBubble>
+            )
+          }
+          return null
+        })}
 
         {pendingPermissions.map(p => (
           <PermissionCard
@@ -105,6 +140,19 @@ export default function ChatPage() {
         disabledPlaceholder="等待确认..."
         supportsImages={capabilities.supportsImages}
       />
+    </div>
+  )
+}
+
+function TimelineGroupContent({ group }: { group: ChatTimelineGroup }) {
+  return (
+    <div style={styles.timelineGroup}>
+      {group.blocks.map((block) => {
+        if (block.kind === 'message') {
+          return <div key={block.id}>{block.content}</div>
+        }
+        return <div key={block.id} style={styles.timelineTool}>{block.toolCall.title || '工具调用'}</div>
+      })}
     </div>
   )
 }
@@ -171,5 +219,14 @@ const styles: Record<string, CSSProperties> = {
     display: 'flex',
     justifyContent: 'center',
     padding: 20,
+  },
+  timelineGroup: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 6,
+  },
+  timelineTool: {
+    fontSize: 12,
+    color: 'var(--text-muted)',
   },
 }

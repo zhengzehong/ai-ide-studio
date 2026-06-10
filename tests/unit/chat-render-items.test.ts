@@ -131,6 +131,37 @@ describe('buildChatRenderItems', () => {
     expect(items.at(-1)).toEqual({ id: 'streaming:msg-agent-1', kind: 'streaming', message: streaming })
   })
 
+  test('uses the streaming bubble instead of a persisted message with the same id', () => {
+    const persisted = msg('msg-agent-live', 'agent', 'partial persisted text')
+    const streaming = { ...msg('msg-agent-live', 'agent', 'live text'), streaming: true }
+    const items = buildChatRenderItems({
+      sessionId: 'sess-1',
+      messages: [msg('msg-human-1', 'human', 'hello'), persisted],
+      events: [],
+      streamingBubble: streaming,
+      showStreamingBubble: true,
+      blockingInteraction: false,
+    })
+
+    expect(items.map((item) => item.id)).toEqual(['msg:msg-human-1', 'streaming:msg-agent-live'])
+    expect(items.at(-1)).toEqual({ id: 'streaming:msg-agent-live', kind: 'streaming', message: streaming })
+  })
+
+  test('keeps persisted and streaming messages separate when their ids differ', () => {
+    const persisted = msg('msg-agent-done', 'agent', 'done')
+    const streaming = { ...msg('msg-agent-live', 'agent', 'live text'), streaming: true }
+    const items = buildChatRenderItems({
+      sessionId: 'sess-1',
+      messages: [persisted],
+      events: [],
+      streamingBubble: streaming,
+      showStreamingBubble: true,
+      blockingInteraction: false,
+    })
+
+    expect(items.map((item) => item.id)).toEqual(['msg:msg-agent-done', 'streaming:msg-agent-live'])
+  })
+
 
   test('keeps finalized messages that are not represented by timeline events', () => {
     const finalReply = msg('msg-agent-final', 'agent', 'final answer')

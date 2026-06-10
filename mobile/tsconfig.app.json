@@ -20,5 +20,5 @@
       "@desktop/*": ["../ui/src/*"]
     }
   },
-  "include": ["src", "../ui/src/types", "../ui/src/services", "../ui/src/stores/turn-blocks.ts", "../ui/src/stores/streaming-buffer.ts", "../ui/src/stores/session-events.ts"]
+  "include": ["src", "../ui/src/types", "../ui/src/services", "../ui/src/components/chat/render-items.ts", "../ui/src/stores/turn-blocks.ts", "../ui/src/stores/streaming-buffer.ts", "../ui/src/stores/session-events.ts"]
 }

@@ -36,6 +36,7 @@ import {
   applyTurnEntry,
   createEmptyTurn,
   processBlocksForCompletedTurn,
+  turnFromEvents,
   turnFromProcessItems,
   turnHasFinalizableContent,
   turnHasVisibleContent,
@@ -55,10 +56,13 @@ interface ChatState {
   turnUsage: TurnUsageInfo | null
   loading: boolean
   isRunning: boolean
+  turnProcessLoadingByMessageId: Record<string, boolean>
+  turnProcessErrorByMessageId: Record<string, string>
 
   enterSession: (sessionId: string) => void
   leaveSession: () => void
   sendPrompt: (content: string, images?: ImageAttachmentInfo[]) => void
+  fetchMessageProcess: (sessionId: string, messageId: string) => Promise<void>
   cancelTurn: () => Promise<void>
   respondPermission: (requestId: string, optionId?: string, cancelled?: boolean) => Promise<void>
   respondElicitation: (requestId: string, action: 'accept' | 'decline' | 'cancel', content?: Record<string, string | number | boolean | string[]>) => Promise<void>
@@ -88,6 +92,7 @@ function mergeProcessBlock(blocks: TurnProcessBlock[], block: TurnProcessBlock):
     if (item.id === block.id) return false
     if (block.kind === 'stage') return item.kind !== 'stage'
     if (block.kind === 'tool' && item.kind === 'tool') return item.toolCall.id !== block.toolCall.id
+    if (block.kind === 'note' && item.kind === 'note') return item.text !== block.text
     return true
   })
   next.push(block)
@@ -99,8 +104,42 @@ function mergeProcessBlockIntoStreaming(turn: StreamingMessage, block: TurnProce
   const next: StreamingMessage = { ...base, processBlocks: mergeProcessBlock(base.processBlocks, block) }
   next.thinking = next.processBlocks.filter((b): b is Extract<TurnProcessBlock, { kind: 'thinking' }> => b.kind === 'thinking').map(b => b.text).join('')
   next.toolCalls = next.processBlocks.filter((b): b is Extract<TurnProcessBlock, { kind: 'tool' }> => b.kind === 'tool').map(b => b.toolCall)
+  if (block.kind === 'note' && next.finalAnswer) {
+    next.finalAnswer = ''
+    next.content = ''
+  }
   if (block.kind === 'stage') { next.stage = block.text } else { next.stage = undefined }
   return next
+}
+
+function streamingBaseForProcessItem(
+  current: StreamingMessage | null,
+  item: TurnProcessItemInfo,
+  isSessionRunning: boolean,
+): StreamingMessage | null {
+  const normalized = normalizeActiveTurn(current)
+  if (normalized?.id === item.message_id) return normalized
+  if (!isSessionRunning) return normalized
+
+  const canHandoff =
+    !normalized ||
+    normalized.id.startsWith('pending-') ||
+    (!!normalized.stage && !normalized.finalAnswer && normalized.processBlocks.every((block) => block.kind === 'stage'))
+
+  if (!canHandoff) return normalized
+  return { ...(normalized ?? createEmptyTurn(item.message_id)), id: item.message_id }
+}
+
+function loadedProcessBlockCount(message: MessageData | undefined): number {
+  return message?.processBlocks?.filter((block) => block.kind !== 'stage').length ?? 0
+}
+
+function shouldLoadMessageProcess(message: MessageData | undefined): boolean {
+  if (!message) return true
+  const expectedCount = message.process_item_count ?? message.tool_call_count ?? 0
+  if (message.status === 'running') return true
+  if (!message.processBlocks) return expectedCount > 0 || !!message.has_tool_calls
+  return expectedCount > loadedProcessBlockCount(message)
 }
 
 function flushBuffer(set: (p: Partial<ChatState> | ((s: ChatState) => Partial<ChatState>)) => void, get: () => ChatState): void {
@@ -143,6 +182,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   turnUsage: null,
   loading: false,
   isRunning: false,
+  turnProcessLoadingByMessageId: {},
+  turnProcessErrorByMessageId: {},
 
   enterSession: (sessionId) => {
     const prev = get().sessionId
@@ -154,6 +195,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       sessionId, messages: [], events: [], streamingMessage: null,
       plan: [], pendingPermissions: [], pendingElicitations: [],
       capabilities: { ...defaultCaps }, usage: null, turnUsage: null, loading: true, isRunning: false,
+      turnProcessLoadingByMessageId: {}, turnProcessErrorByMessageId: {},
     })
     wsClient.subscribe([sessionId])
 
@@ -163,16 +205,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const running = messages.filter(m => m.session_id === sessionId && m.role === 'agent' && m.status === 'running').at(-1)
       set({ messages: messages.map(normalizeMessage), loading: false, isRunning: !!running })
 
-      if (running) {
-        wsClient.request({ type: 'sessions.messageProcess', sessionId, messageId: running.id }).then((items) => {
-          if (get().sessionId !== sessionId) return
-          const turn = turnFromProcessItems(running.id, items as TurnProcessItemInfo[])
-          set({
-            streamingMessage: { ...turn, finalAnswer: running.content, content: running.content, done: false },
-            messages: get().messages.map(m => m.id === running.id ? { ...m, processBlocks: turn.processBlocks, finalAnswer: turn.finalAnswer || m.content } : m),
-          })
-        }).catch(() => {})
-      }
+      if (running) void get().fetchMessageProcess(sessionId, running.id)
     }).catch(() => { if (get().sessionId === sessionId) set({ loading: false }) })
 
     wsClient.request({ type: 'sessions.events', sessionId, limit: 500 }).then((data) => {
@@ -194,7 +227,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (sid) wsClient.unsubscribe([sid])
     streamingBuffer.clear()
     if (streamingFlushTimer) { clearTimeout(streamingFlushTimer); streamingFlushTimer = null }
-    set({ sessionId: null, messages: [], events: [], streamingMessage: null, plan: [], pendingPermissions: [], pendingElicitations: [], isRunning: false })
+    set({
+      sessionId: null,
+      messages: [],
+      events: [],
+      streamingMessage: null,
+      plan: [],
+      pendingPermissions: [],
+      pendingElicitations: [],
+      isRunning: false,
+      turnProcessLoadingByMessageId: {},
+      turnProcessErrorByMessageId: {},
+    })
   },
 
   sendPrompt: (content, images) => {
@@ -215,6 +259,53 @@ export const useChatStore = create<ChatState>((set, get) => ({
       streamingMessage: applyTurnEntry(createEmptyTurn(`pending-${sid}-${Date.now()}`), { kind: 'stage', text: '正在准备 Agent...' }),
       turnUsage: null, isRunning: true,
     }))
+  },
+
+  fetchMessageProcess: async (sessionId, messageId) => {
+    const existing = get().messages.find((message) => message.id === messageId && message.session_id === sessionId)
+    if (!shouldLoadMessageProcess(existing)) return
+    set((state) => ({
+      turnProcessLoadingByMessageId: { ...state.turnProcessLoadingByMessageId, [messageId]: true },
+      turnProcessErrorByMessageId: { ...state.turnProcessErrorByMessageId, [messageId]: '' },
+    }))
+    try {
+      const items = await wsClient.request({ type: 'sessions.messageProcess', sessionId, messageId }) as TurnProcessItemInfo[]
+      if (get().sessionId !== sessionId) return
+      let turn = turnFromProcessItems(messageId, items)
+      if (items.length === 0 && existing?.has_tool_calls) {
+        const events = await wsClient.request({ type: 'sessions.messageEvents', sessionId, messageId }) as SessionEventData[]
+        if (get().sessionId !== sessionId) return
+        turn = turnFromEvents(messageId, events)
+      }
+      set((state) => {
+        const current = state.messages.find((message) => message.id === messageId && message.session_id === sessionId)
+        return {
+          messages: state.messages.map((message) => message.id === messageId && message.session_id === sessionId
+            ? {
+                ...message,
+                processBlocks: turn.processBlocks,
+                finalAnswer: turn.finalAnswer || message.content,
+                parsedToolCalls: turn.toolCalls.length > 0 ? turn.toolCalls : message.parsedToolCalls,
+              }
+            : message),
+          streamingMessage: current?.status === 'running'
+            ? {
+                ...turn,
+                finalAnswer: current.content,
+                content: current.content,
+                done: false,
+              }
+            : state.streamingMessage,
+          turnProcessLoadingByMessageId: { ...state.turnProcessLoadingByMessageId, [messageId]: false },
+        }
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      set((state) => ({
+        turnProcessLoadingByMessageId: { ...state.turnProcessLoadingByMessageId, [messageId]: false },
+        turnProcessErrorByMessageId: { ...state.turnProcessErrorByMessageId, [messageId]: message },
+      }))
+    }
   },
 
   cancelTurn: async () => {
@@ -268,9 +359,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const block = turnFromProcessItems(item.message_id, [item]).processBlocks[0]
       if (!block) return
       set(state => {
-        const base = normalizeActiveTurn(state.streamingMessage)
+        const base = streamingBaseForProcessItem(state.streamingMessage, item, state.isRunning)
         const streaming = base?.id === item.message_id ? mergeProcessBlockIntoStreaming(base, block) : state.streamingMessage
-        return { streamingMessage: streaming }
+        return {
+          streamingMessage: streaming,
+          messages: state.messages.map((message) => {
+            if (message.id !== item.message_id || message.session_id !== sid) return message
+            const processBlocks = mergeProcessBlock(message.processBlocks || [], block)
+            return {
+              ...message,
+              processBlocks,
+              process_item_count: processBlocks.filter((processBlock) => processBlock.kind !== 'stage').length,
+            }
+          }),
+        }
       })
     }))
 

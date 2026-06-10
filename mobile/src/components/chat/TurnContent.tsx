@@ -10,9 +10,12 @@ import FileChangesCard, { extractFileChangesFromBlocks } from './FileChangesCard
 interface Props {
   message?: MessageData
   streaming?: TurnViewModel | null
+  processLoading?: boolean
+  processError?: string
+  onLoadProcess?: (sessionId: string, messageId: string) => void
 }
 
-export default function TurnContent({ message, streaming }: Props) {
+export default function TurnContent({ message, streaming, processLoading = false, processError, onLoadProcess }: Props) {
   const [processOpen, setProcessOpen] = useState(false)
 
   const processBlocks = streaming?.processBlocks ?? message?.processBlocks ?? []
@@ -22,18 +25,34 @@ export default function TurnContent({ message, streaming }: Props) {
   const turnStats = useMemo(() => parseTurnStats(message?.decision_json), [message?.decision_json])
   const visibleBlocks = processBlocks.filter(b => b.kind !== 'stage')
   const fileChanges = useMemo(() => extractFileChangesFromBlocks(processBlocks), [processBlocks])
+  const processCount = message?.process_item_count ?? message?.tool_call_count ?? 0
+  const canLoadProcess = !isStreaming && !!message?.session_id && processCount > 0 && !message.processBlocks
+  const hasProcess = visibleBlocks.length > 0 || canLoadProcess
+
+  const toggleProcess = () => {
+    const nextOpen = !processOpen
+    setProcessOpen(nextOpen)
+    if (nextOpen && canLoadProcess && !processLoading) {
+      onLoadProcess?.(message.session_id, message.id)
+    }
+  }
 
   return (
     <div>
-      {visibleBlocks.length > 0 && (
+      {hasProcess && (
         <div style={styles.processSection}>
-          <button style={styles.processToggle} onClick={() => setProcessOpen(!processOpen)}>
+          <button style={styles.processToggle} onClick={toggleProcess}>
             {processOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-            <span style={styles.processLabel}>执行过程 ({visibleBlocks.length})</span>
+            <span style={styles.processLabel}>执行过程 ({visibleBlocks.length > 0 ? visibleBlocks.length : processCount})</span>
           </button>
           {processOpen && (
             <div style={styles.processList}>
               {visibleBlocks.map(block => <ProcessBlock key={block.id} block={block} />)}
+              {processLoading && <div style={styles.processState}>正在加载执行过程...</div>}
+              {processError && <div style={{ ...styles.processState, color: 'var(--error)' }}>{processError}</div>}
+              {!processLoading && !processError && visibleBlocks.length === 0 && (
+                <div style={styles.processState}>暂无可恢复的执行过程</div>
+              )}
             </div>
           )}
         </div>
@@ -107,6 +126,11 @@ const styles: Record<string, CSSProperties> = {
   },
   processList: {
     paddingLeft: 4,
+  },
+  processState: {
+    fontSize: 12,
+    color: 'var(--text-muted)',
+    padding: '4px 0',
   },
   stageIndicator: {
     fontSize: 13,
