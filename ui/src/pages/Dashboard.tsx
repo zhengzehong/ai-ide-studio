@@ -19,6 +19,7 @@ import { useSessionStore } from '../stores/session.store';
 import { useTaskStore } from '../stores/task.store';
 import { useConnectionStore } from '../stores/connection.store';
 import { useProjectStore } from '../stores/project.store';
+import { scopeDashboardData } from './dashboard-scope';
 
 type ModalType = null | 'task';
 const TYPE_COLORS: Record<string, string> = { dev: '#2563eb', test: '#059669', ops: '#ea580c', security: '#dc2626', architect: '#7c3aed', pm: '#7c3aed' };
@@ -34,10 +35,16 @@ export default function Dashboard() {
   const fetchTasks = useTaskStore(s => s.fetchTasks);
   const currentProjectId = useProjectStore(s => s.currentProjectId);
 
-  const activeSessions = sessions.filter(s => s.status === 'active').length;
-  const runningAgents = agents.filter(a => a.status === 'running').length;
-  const inProgressTasks = tasks.filter(t => t.status === 'executing' || t.status === 'planning').length;
-  const completedTasks = tasks.filter(t => t.status === 'completed').length;
+  const dashboard = scopeDashboardData({ agents, sessions, tasks, currentProjectId });
+  const {
+    agents: projectAgents,
+    sessions: projectSessions,
+    tasks: projectTasks,
+    activeSessions,
+    runningAgents,
+    inProgressTasks,
+    completedTasks,
+  } = dashboard;
 
   return (
     <div style={{ height: '100%', overflow: 'auto', padding: '28px 32px', position: 'relative' }}>
@@ -68,9 +75,9 @@ export default function Dashboard() {
         <div>
           <SectionHeader icon={<Activity size={15} />} title="智能体状态" />
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 28 }}>
-            {agents.length === 0 && <div style={{ color: 'var(--text-3)', fontSize: 15, padding: 20, textAlign: 'center' }}>暂无 Agent</div>}
-            {agents.map(agent => {
-              const agentSessions = sessions.filter(s => s.agent_id === agent.id && s.status === 'active');
+            {projectAgents.length === 0 && <div style={{ color: 'var(--text-3)', fontSize: 15, padding: 20, textAlign: 'center' }}>暂无 Agent</div>}
+            {projectAgents.map(agent => {
+              const agentSessions = projectSessions.filter(s => s.agent_id === agent.id && s.status === 'active');
               return (
                 <div key={agent.id} style={{ padding: '14px 16px', background: 'var(--bg-0)', borderRadius: 'var(--radius)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12 }}>
                   <div style={{ width: 36, height: 36, borderRadius: '50%', background: TYPE_COLORS[agent.type] ?? '#6b7280', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: 15, fontWeight: 700, flexShrink: 0 }}>{agent.name.charAt(0)}</div>
@@ -91,8 +98,8 @@ export default function Dashboard() {
 
           <SectionHeader icon={<MessageSquare size={15} />} title="任务列表" action="查看看板" />
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {tasks.length === 0 && <div style={{ color: 'var(--text-3)', fontSize: 15, padding: 20, textAlign: 'center' }}>暂无任务</div>}
-            {tasks.slice(0, 6).map(task => (
+            {projectTasks.length === 0 && <div style={{ color: 'var(--text-3)', fontSize: 15, padding: 20, textAlign: 'center' }}>暂无任务</div>}
+            {projectTasks.slice(0, 6).map(task => (
               <div key={task.id} style={{ padding: '14px 16px', background: 'var(--bg-0)', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
                   <span style={{ fontSize: 15, fontWeight: 500, flex: 1, marginRight: 12 }}>{task.title}</span>
@@ -118,11 +125,11 @@ export default function Dashboard() {
 
           <SectionHeader icon={<Activity size={15} />} title="活跃会话" />
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {sessions.filter(s => s.status === 'active').length === 0 && (
+            {projectSessions.filter(s => s.status === 'active').length === 0 && (
               <div style={{ color: 'var(--text-3)', fontSize: 14, textAlign: 'center', padding: 20 }}>暂无活跃会话</div>
             )}
-            {sessions.filter(s => s.status === 'active').slice(0, 8).map(s => {
-              const agent = agents.find(a => a.id === s.agent_id);
+            {projectSessions.filter(s => s.status === 'active').slice(0, 8).map(s => {
+              const agent = projectAgents.find(a => a.id === s.agent_id);
               return (
                 <div key={s.id} style={{ padding: '10px 12px', background: 'var(--bg-0)', borderRadius: 'var(--radius)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10 }}>
                   <div style={{ width: 24, height: 24, borderRadius: '50%', background: agent ? (TYPE_COLORS[agent.type] ?? '#6b7280') : 'var(--bg-3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: 'white', flexShrink: 0 }}>{agent?.name.charAt(0) ?? '?'}</div>
@@ -138,7 +145,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {modal === 'task' && <NewTaskModal agents={agents} onCreate={async (t, d, a) => { await createTask(t, d, a, currentProjectId ?? undefined); await fetchTasks(currentProjectId ?? undefined); setModal(null); }} onClose={() => setModal(null)} />}
+      {modal === 'task' && <NewTaskModal agents={projectAgents} onCreate={async (t, d, a) => { await createTask(t, d, a, currentProjectId ?? undefined); await fetchTasks(currentProjectId ?? undefined); setModal(null); }} onClose={() => setModal(null)} />}
     </div>
   );
 }
