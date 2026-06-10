@@ -104,6 +104,8 @@ import { sessionIndicator } from '../utils/session-indicators'
 import { elapsedSecondsBetween, formatCompactDuration } from '../utils/duration'
 import { ContextMenu, PromptDialog, ConfirmDialog, AlertDialog } from '../components/ModalDialog'
 
+const COPYING_STAGE = '正在复制会话...'
+
 export default function Workspace() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -112,6 +114,10 @@ export default function Workspace() {
   const sessions = useSessionStore((s) => s.sessions)
   const runningSessionIds = useSessionStore((s) => s.runningSessionIds)
   const unreadSessionIds = useSessionStore((s) => s.unreadSessionIds)
+  const copyingTargetSessionIds = useSessionStore((s) => s.copyingTargetSessionIds)
+  const copyingSourceSessionIds = useSessionStore((s) => s.copyingSourceSessionIds)
+  const lastCopyError = useSessionStore((s) => s.lastCopyError)
+  const clearCopyError = useSessionStore((s) => s.clearCopyError)
   const currentSessionId = useSessionStore((s) => s.currentSessionId)
   const selectSession = useSessionStore((s) => s.selectSession)
   const createSession = useSessionStore((s) => s.createSession)
@@ -167,6 +173,14 @@ export default function Workspace() {
   const chatAgent = useMemo(
     () => selectChatAgent({ agents: projectAgents, sessions: projectSessions, currentSessionId, selectedAgentId }),
     [currentSessionId, projectAgents, projectSessions, selectedAgentId],
+  )
+  const currentSession = useMemo(
+    () => projectSessions.find((session) => session.id === currentSessionId),
+    [currentSessionId, projectSessions],
+  )
+  const currentSessionCopying = !!currentSessionId && (
+    !!copyingTargetSessionIds[currentSessionId] ||
+    (!!currentSession && currentSession.stage === COPYING_STAGE && !currentSession.acp_session_id)
   )
   const agentSessions = useCallback((id: string) => projectSessions.filter((s) => s.agent_id === id), [projectSessions])
 
@@ -267,6 +281,17 @@ export default function Workspace() {
   const handleArchiveSession = async (sessionId: string) => {
     await archiveSession(sessionId)
   }
+
+  useEffect(() => {
+    if (!lastCopyError) return
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
+      setAlertMsg(lastCopyError.message)
+      clearCopyError()
+    })
+    return () => { cancelled = true }
+  }, [clearCopyError, lastCopyError])
 
   useEffect(() => {
     if (!currentProjectId || !connected) return
@@ -610,7 +635,8 @@ export default function Workspace() {
           connected={connected}
           currentSessionId={currentSessionId}
           chatAgent={chatAgent}
-          currentSessionTitle={currentSessionId ? sessionTitle(projectSessions.find(ss => ss.id === currentSessionId) ?? { id: currentSessionId }) : undefined}
+          currentSessionTitle={currentSessionId ? sessionTitle(currentSession ?? { id: currentSessionId }) : undefined}
+          currentSessionCopying={currentSessionCopying}
         />
       </main>
 
@@ -690,7 +716,11 @@ export default function Workspace() {
         items={ctxMenu ? [
           { label: '重命名', onClick: () => { const s = projectSessions.find(ss => ss.id === ctxMenu.sessionId); handleRenameSession(ctxMenu.sessionId, sessionTitle(s ?? { id: ctxMenu.sessionId })) } },
           { label: '关闭', onClick: () => handleCloseSession(ctxMenu.sessionId) },
-          { label: copyingSessionId === ctxMenu.sessionId ? '复制中...' : '复制', disabled: copyingSessionId === ctxMenu.sessionId, onClick: () => handleCopySession(ctxMenu.agentId, ctxMenu.sessionId) },
+          {
+            label: copyingSessionId === ctxMenu.sessionId || copyingSourceSessionIds[ctxMenu.sessionId] ? '复制中...' : '复制',
+            disabled: copyingSessionId === ctxMenu.sessionId || !!copyingSourceSessionIds[ctxMenu.sessionId],
+            onClick: () => handleCopySession(ctxMenu.agentId, ctxMenu.sessionId),
+          },
           { label: '归档', onClick: () => handleArchiveSession(ctxMenu.sessionId) },
           { label: '删除', danger: true, onClick: () => handleDeleteSession(ctxMenu.sessionId) },
         ] : []}
@@ -730,11 +760,13 @@ function WorkspaceChatPane({
   currentSessionId,
   chatAgent,
   currentSessionTitle,
+  currentSessionCopying,
 }: {
   connected: boolean
   currentSessionId: string | null
   chatAgent: AgentData | undefined
   currentSessionTitle?: string
+  currentSessionCopying: boolean
 }) {
   const messages = useSessionStore((s) => s.messages)
   const events = useSessionStore((s) => s.events)
@@ -784,7 +816,7 @@ function WorkspaceChatPane({
   const pendingImagePreviewsRef = useRef<string[]>([])
 
   const blockingInteraction = pendingPermissions.length > 0 || pendingElicitations.length > 0
-  const canSendPrompt = !!currentSessionId && connected && !blockingInteraction && (!!inputValue.trim() || pendingImages.length > 0)
+  const canSendPrompt = !!currentSessionId && connected && !blockingInteraction && !currentSessionCopying && (!!inputValue.trim() || pendingImages.length > 0)
   const pendingInteractionId = pendingPermissions[0]?.id || pendingElicitations[0]?.id || ''
   const isStreaming = !!(streamingMessage && !streamingMessage.done)
   const currentModeName =
@@ -913,7 +945,7 @@ function WorkspaceChatPane({
   const handleSend = () => {
     const v = inputValue.trim()
     const hasImages = pendingImages.length > 0
-    if ((!v && !hasImages) || !currentSessionId || !connected || blockingInteraction) return
+    if ((!v && !hasImages) || !currentSessionId || !connected || blockingInteraction || currentSessionCopying) return
     stickToBottomRef.current = true
     sendPrompt(
       v,
@@ -1266,9 +1298,9 @@ function WorkspaceChatPane({
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             placeholder={
-              blockingInteraction ? '等待你确认后继续...' : currentSessionId ? '输入消息...' : '先选择一个 Session'
+              currentSessionCopying ? '正在复制会话，完成后可继续输入...' : blockingInteraction ? '等待你确认后继续...' : currentSessionId ? '输入消息...' : '先选择一个 Session'
             }
-            disabled={!currentSessionId || !connected || blockingInteraction}
+            disabled={!currentSessionId || !connected || blockingInteraction || currentSessionCopying}
             autoFocus
             rows={2}
             style={{
@@ -1299,7 +1331,7 @@ function WorkspaceChatPane({
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              disabled={!currentSessionId}
+              disabled={!currentSessionId || currentSessionCopying}
               title="添加附件"
               style={{
                 width: 30,

@@ -537,6 +537,7 @@ export type ServerMessage =
   | ({ type: 'session:activity' } & SessionActivityData)
   | { type: 'session:capabilities'; sessionId: string; capabilities: SessionCapabilities }
   | { type: 'session:changed'; sessionId: string; data: Record<string, unknown> }
+  | { type: 'session:copy_failed'; sourceSessionId: string; targetSessionId: string; message: string }
   | { type: 'agent:status'; agentId: string; status: AgentStatus }
   | { type: 'task:update'; taskId: string; data: Record<string, unknown> }
   | { type: 'team:update'; teamId: string; sessionIds: string[]; data: Record<string, unknown> }

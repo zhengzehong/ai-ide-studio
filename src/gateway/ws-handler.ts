@@ -96,6 +96,10 @@ events.on('session:changed', (ev) => {
   broadcastToAll({ type: 'session:changed', sessionId: ev.sessionId, data: ev.data })
 })
 
+events.on('session:copy_failed', (ev) => {
+  broadcastToAll({ type: 'session:copy_failed', ...ev })
+})
+
 events.on('agent:status', (ev) => {
   broadcastToAll({ type: 'agent:status', agentId: ev.agentId, status: ev.status })
 })

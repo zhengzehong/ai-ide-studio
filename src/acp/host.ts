@@ -539,6 +539,21 @@ export const acpHost = {
     if (!conn) throw new Error(`Agent ${agentId} 未运行`)
     const sourceAcpSessionId = conn.acpSessions.get(sourceSessionId)
     if (!sourceAcpSessionId) throw new Error(`Session ${sourceSessionId} 没有对应的 ACP session`)
+    return acpHost.forkSessionFromAcpSessionId(agentId, sourceAcpSessionId, targetSessionId, context)
+  },
+
+  async forkSessionFromAcpSessionId(
+    agentId: string,
+    sourceAcpSessionId: string,
+    targetSessionId: string,
+    context: AcpSessionContext = {},
+  ): Promise<string> {
+    let conn = acpHost.agents.get(agentId)
+    if (!conn) {
+      await acpHost.startAgent(agentId)
+      conn = acpHost.agents.get(agentId)
+    }
+    if (!conn) throw new Error(`Agent ${agentId} 未运行`)
     if (!conn.agentCapabilities?.sessionCapabilities?.fork) throw new Error(`Agent ${agentId} 不支持 fork 会话`)
 
     const result = await conn.connection.unstable_forkSession({
