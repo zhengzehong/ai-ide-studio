@@ -13,10 +13,17 @@ interface Props {
   processLoading?: boolean
   processError?: string
   onLoadProcess?: (sessionId: string, messageId: string) => void
+  liveElapsedSeconds?: number
 }
 
-export default function TurnContent({ message, streaming, processLoading = false, processError, onLoadProcess }: Props) {
-  const [processOpen, setProcessOpen] = useState(false)
+type ProcessOpenOverride = 'open' | 'closed' | null
+
+export function resolveProcessOpen(defaultProcessOpen: boolean, override: ProcessOpenOverride): boolean {
+  return override === 'open' || (override !== 'closed' && defaultProcessOpen)
+}
+
+export default function TurnContent({ message, streaming, processLoading = false, processError, onLoadProcess, liveElapsedSeconds }: Props) {
+  const [processOpenOverride, setProcessOpenOverride] = useState<ProcessOpenOverride>(null)
 
   const processBlocks = streaming?.processBlocks ?? message?.processBlocks ?? []
   const finalAnswer = streaming?.finalAnswer ?? message?.finalAnswer ?? message?.content ?? ''
@@ -27,11 +34,15 @@ export default function TurnContent({ message, streaming, processLoading = false
   const fileChanges = useMemo(() => extractFileChangesFromBlocks(processBlocks), [processBlocks])
   const processCount = message?.process_item_count ?? message?.tool_call_count ?? 0
   const canLoadProcess = !isStreaming && !!message?.session_id && processCount > 0 && !message.processBlocks
-  const hasProcess = visibleBlocks.length > 0 || canLoadProcess
+  const hasProcess = visibleBlocks.length > 0 || canLoadProcess || (isStreaming && !!stage)
+  const processOpen = resolveProcessOpen(isStreaming, processOpenOverride)
+  const processLabelCount = visibleBlocks.length > 0 ? visibleBlocks.length : processCount
+  const elapsedSeconds = turnStats?.elapsedSeconds ?? (isStreaming ? liveElapsedSeconds : undefined)
+  const showStats = !!turnStats || (isStreaming && elapsedSeconds != null)
 
   const toggleProcess = () => {
     const nextOpen = !processOpen
-    setProcessOpen(nextOpen)
+    setProcessOpenOverride(nextOpen ? 'open' : 'closed')
     if (nextOpen && canLoadProcess && !processLoading) {
       onLoadProcess?.(message.session_id, message.id)
     }
@@ -43,14 +54,15 @@ export default function TurnContent({ message, streaming, processLoading = false
         <div style={styles.processSection}>
           <button style={styles.processToggle} onClick={toggleProcess}>
             {processOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-            <span style={styles.processLabel}>执行过程 ({visibleBlocks.length > 0 ? visibleBlocks.length : processCount})</span>
+            <span style={styles.processLabel}>执行过程{processLabelCount > 0 ? ` (${processLabelCount})` : ''}</span>
           </button>
           {processOpen && (
             <div style={styles.processList}>
               {visibleBlocks.map(block => <ProcessBlock key={block.id} block={block} />)}
+              {visibleBlocks.length === 0 && stage && <div style={styles.processState}>{stage}</div>}
               {processLoading && <div style={styles.processState}>正在加载执行过程...</div>}
               {processError && <div style={{ ...styles.processState, color: 'var(--error)' }}>{processError}</div>}
-              {!processLoading && !processError && visibleBlocks.length === 0 && (
+              {!processLoading && !processError && visibleBlocks.length === 0 && !stage && (
                 <div style={styles.processState}>暂无可恢复的执行过程</div>
               )}
             </div>
@@ -58,7 +70,7 @@ export default function TurnContent({ message, streaming, processLoading = false
         </div>
       )}
 
-      {stage && !finalAnswer && (
+      {stage && !finalAnswer && !hasProcess && (
         <div style={styles.stageIndicator}>{stage}</div>
       )}
 
@@ -78,15 +90,15 @@ export default function TurnContent({ message, streaming, processLoading = false
 
       {!isStreaming && fileChanges.length > 0 && <FileChangesCard files={fileChanges} />}
 
-      {!isStreaming && turnStats && (
+      {showStats && (
         <div style={styles.stats}>
-          {turnStats.elapsedSeconds != null && (
-            <span style={styles.statItem}><Clock size={11} /> {turnStats.elapsedSeconds}s</span>
+          {elapsedSeconds != null && (
+            <span style={styles.statItem}><Clock size={11} /> {elapsedSeconds}s</span>
           )}
-          {turnStats.inputTokens != null && (
+          {turnStats?.inputTokens != null && (
             <span style={styles.statItem}><Zap size={11} /> {formatTokens(turnStats.inputTokens + (turnStats.outputTokens ?? 0))}</span>
           )}
-          {turnStats.costAmount != null && (
+          {turnStats?.costAmount != null && (
             <span style={styles.statItem}><DollarSign size={11} /> ${turnStats.costAmount.toFixed(4)}</span>
           )}
         </div>

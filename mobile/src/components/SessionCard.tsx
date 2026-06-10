@@ -1,7 +1,8 @@
 import { useNavigate } from 'react-router-dom'
-import { Bot, Clock } from 'lucide-react'
+import { Bot } from 'lucide-react'
 import type { CSSProperties } from 'react'
 import type { WidgetSessionItem } from '@desktop/stores/widget.store'
+import { mobileSessionIndicator } from '../utils/session-indicator'
 
 function formatTime(iso: string | null): string {
   if (!iso) return ''
@@ -14,25 +15,9 @@ function formatTime(iso: string | null): string {
   return `${d.getMonth() + 1}/${d.getDate()}`
 }
 
-const statusColors: Record<string, string> = {
-  running: 'var(--success)',
-  waiting: 'var(--warning)',
-  completed: 'var(--text-muted)',
-  cancelled: 'var(--error)',
-  failed: 'var(--error)',
-}
-
-const stageLabels: Record<string, string> = {
-  running: '运行中',
-  waiting: '等待中',
-  completed: '已完成',
-  cancelled: '已取消',
-  failed: '失败',
-}
-
 export default function SessionCard({ session }: { session: WidgetSessionItem }) {
   const navigate = useNavigate()
-  const isActive = session.activityState === 'running'
+  const indicator = mobileSessionIndicator(session)
 
   return (
     <div
@@ -42,25 +27,27 @@ export default function SessionCard({ session }: { session: WidgetSessionItem })
       <div style={styles.row}>
         <div style={styles.titleArea}>
           <span style={styles.title}>{session.sessionTitle || session.agentName}</span>
-          {session.unread && <span style={styles.badge} />}
         </div>
         <span style={styles.time}>{formatTime(session.lastMessageAt || session.startedAt)}</span>
       </div>
 
       <div style={styles.row}>
         <div style={styles.meta}>
-          <span style={{ ...styles.statusDot, background: statusColors[session.status] || 'var(--text-muted)' }} />
-          <span style={styles.statusText}>{stageLabels[session.status] || session.stage || session.status}</span>
+          <span
+            style={{
+              ...styles.statusDot,
+              background: indicator.color,
+              animation: indicator.pulse ? 'mobile-session-running-pulse 1s ease-in-out infinite' : undefined,
+              boxShadow: indicator.pulse ? '0 0 0 4px rgba(16, 185, 129, 0.12)' : undefined,
+            }}
+            title={indicator.title}
+          />
+          <span style={styles.statusText}>{indicator.label}</span>
           <span style={styles.agentTag}>
             <Bot size={11} style={{ marginRight: 3 }} />
             {session.agentName}
           </span>
         </div>
-        {isActive && (
-          <span style={styles.runningIcon}>
-            <Clock size={13} color="var(--success)" />
-          </span>
-        )}
       </div>
 
       {session.projectName && (
@@ -102,13 +89,6 @@ const styles: Record<string, CSSProperties> = {
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
   },
-  badge: {
-    width: 8,
-    height: 8,
-    borderRadius: '50%',
-    background: 'var(--primary)',
-    flexShrink: 0,
-  },
   time: {
     fontSize: 12,
     color: 'var(--text-muted)',
@@ -141,9 +121,6 @@ const styles: Record<string, CSSProperties> = {
     display: 'flex',
     alignItems: 'center',
     whiteSpace: 'nowrap',
-  },
-  runningIcon: {
-    flexShrink: 0,
   },
   project: {
     fontSize: 11,

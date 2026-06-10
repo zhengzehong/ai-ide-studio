@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, type CSSProperties } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Bot } from 'lucide-react'
 import { buildChatRenderItems } from '@desktop/components/chat/render-items'
@@ -11,6 +11,7 @@ import TurnContent from '../components/chat/TurnContent'
 import PlanBar from '../components/chat/PlanBar'
 import PermissionCard from '../components/chat/PermissionCard'
 import ElicitationCard from '../components/chat/ElicitationCard'
+import { deriveLiveElapsedSeconds } from '../utils/chat-elapsed'
 
 type MobileChatMessage = MessageData | (StreamingMessage & { session_id?: string })
 
@@ -26,6 +27,7 @@ export default function ChatPage() {
   const sessions = useSessionStore(s => s.sessions)
   const session = sessions.find(s => s.sessionId === sessionId)
   const listenersRef = useRef(false)
+  const [liveNowMs, setLiveNowMs] = useState(() => Date.now())
 
   useEffect(() => {
     if (!sessionId) return
@@ -40,6 +42,20 @@ export default function ChatPage() {
   }, [sessionId])
 
   const hasBlockingInteraction = pendingPermissions.length > 0 || pendingElicitations.length > 0
+  useEffect(() => {
+    if (!isRunning) return undefined
+    setLiveNowMs(Date.now())
+    const timer = window.setInterval(() => setLiveNowMs(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [isRunning, sessionId])
+
+  const liveElapsedSeconds = useMemo(() => deriveLiveElapsedSeconds({
+    isRunning,
+    sessionId,
+    nowMs: liveNowMs,
+    messages,
+  }), [isRunning, liveNowMs, messages, sessionId])
+
   const chatItems = useMemo(() => buildChatRenderItems<MobileChatMessage>({
     sessionId: sessionId ?? null,
     messages,
@@ -102,7 +118,7 @@ export default function ChatPage() {
           if (item.kind === 'streaming') {
             return (
               <ChatBubble key={item.id} role="agent">
-                <TurnContent streaming={item.message as StreamingMessage} />
+                <TurnContent streaming={item.message as StreamingMessage} liveElapsedSeconds={liveElapsedSeconds} />
               </ChatBubble>
             )
           }
