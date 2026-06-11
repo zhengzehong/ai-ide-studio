@@ -90,6 +90,7 @@ export const eventCenterService = {
     if (!category || category.enabled !== 1) throw new Error(`事件类别不可用: ${input.categoryId}`)
     if (!input.title?.trim()) throw new Error('事件标题不能为空')
     assertAgentProject(input.createdByAgentId, input.projectId ?? undefined)
+    assertCategoryAccess(category, input.createdByAgentId, 'writer')
 
     const event = eventCenterEventStore.create({
       ...input,
@@ -124,6 +125,7 @@ export const eventCenterService = {
     const category = eventCategoryStore.get(input.categoryId)
     if (!category) throw new Error(`事件类别不存在: ${input.categoryId}`)
     assertAgentProject(input.consumerAgentId, input.projectId ?? undefined)
+    assertCategoryAccess(category, input.consumerAgentId, 'consumer')
     const subscription = eventSubscriptionStore.create({
       ...input,
       name: input.name.trim(),
@@ -149,8 +151,15 @@ export const eventCenterService = {
 
   claimNextEvent(input: ClaimNextEventInput): ClaimedEvent | null {
     assertAgentProject(input.agentId, input.projectId)
-    const consumption = eventConsumptionStore.claimNext(input)
-    if (!consumption) return null
+    const candidates = eventConsumptionStore.listPendingForAgent(input)
+    const match = candidates.find((candidate) => {
+      const event = eventCenterEventStore.get(candidate.event_id)
+      if (!event) return false
+      const category = eventCategoryStore.get(event.category_id)
+      return Boolean(category && hasCategoryAccess(category, input.agentId, 'consumer'))
+    })
+    if (!match) return null
+    const consumption = eventConsumptionStore.claim(match.id)
     const event = eventCenterEventStore.get(consumption.event_id)
     if (!event) throw new Error(`事件不存在: ${consumption.event_id}`)
     const runningEvent = eventCenterEventStore.updateStatus(event.id, 'running') ?? event
@@ -166,6 +175,9 @@ export const eventCenterService = {
     const event = eventCenterEventStore.get(existing.event_id)
     if (!event) throw new Error(`事件不存在: ${existing.event_id}`)
     assertAgentProject(existing.consumer_agent_id, event.project_id ?? undefined)
+    const category = eventCategoryStore.get(event.category_id)
+    if (!category) throw new Error(`事件类别不存在: ${event.category_id}`)
+    assertCategoryAccess(category, existing.consumer_agent_id, 'consumer')
 
     const consumption = eventConsumptionStore.claim(existing.id)
     const runningEvent = eventCenterEventStore.updateStatus(event.id, 'running') ?? event
@@ -254,6 +266,19 @@ function assertAgentProject(agentId: string | null | undefined, projectId: strin
   if (agent.project_id !== projectId) throw new Error(`Project mismatch: Agent ${agentId} is outside current project`)
 }
 
+function assertCategoryAccess(category: EventCategoryRow, agentId: string | null | undefined, role: 'writer' | 'consumer'): void {
+  if (hasCategoryAccess(category, agentId, role)) return
+  throw new Error(`Agent ${agentId} is not allowed as event ${role} for category ${category.id}`)
+}
+
+function hasCategoryAccess(category: EventCategoryRow, agentId: string | null | undefined, role: 'writer' | 'consumer'): boolean {
+  if (!agentId) return true
+  const allowed = parseStringArray(role === 'writer' ? category.allowed_writers_json : category.allowed_consumers_json)
+  if (allowed.includes('*') || allowed.includes(agentId)) return true
+  const agent = agentStore.get(agentId)
+  return Boolean(agent && allowed.includes(agent.type))
+}
+
 function agentLabel(agentId: string | null | undefined): string | null {
   if (!agentId) return null
   return agentStore.get(agentId)?.name ?? agentId
@@ -270,6 +295,15 @@ function parseJson(value: string): Record<string, unknown> {
     return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {}
   } catch {
     return {}
+  }
+}
+
+function parseStringArray(value: string): string[] {
+  try {
+    const parsed: unknown = JSON.parse(value)
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : []
+  } catch {
+    return []
   }
 }
 
