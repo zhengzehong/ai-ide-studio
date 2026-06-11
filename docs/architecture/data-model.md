@@ -8,11 +8,16 @@ Project 1:N Session
 Project 1:N Task
 Project 1:N Rule
 Project 1:N Team
+Project 1:N EventCenterEvent
 AgentTemplate 1:N Agent
 Agent 1:N Session
 Agent 1:N TeamMember
 Task  1:N Session
 Task  N:1 Agent (assigned_agent_id)
+EventCategory 1:N EventCenterEvent
+EventCategory 1:N EventSubscription
+EventCenterEvent 1:N EventConsumption
+EventCenterEvent N:N Task (event_task_links)
 Team  1:N TeamMember
 Team  1:N TeamMailbox
 Team  1:N TeamEvent
@@ -75,6 +80,14 @@ active → idle → closed
 backlog → executing → reviewing → completed
               ↓           ↓
            blocked     backlog
+```
+
+### Event Status
+
+```
+pending → running → consumed → archived
+   ↓          ↓          ↓
+ignored     failed      task
 ```
 
 ## SQLite Schema
@@ -209,6 +222,94 @@ backlog → executing → reviewing → completed
 | assignee_member_id | TEXT | 指派的 TeamMember；为空表示未按团队成员指派 |
 | created_at | TEXT | 创建时间 |
 | completed_at | TEXT | 完成时间 |
+
+### event_categories
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| id | TEXT PK | 事件类别 key，例如 `ai.hot_project` |
+| name | TEXT | 类别显示名称 |
+| description | TEXT | 类别说明 |
+| schema_json | TEXT | 该类别 `payload_json` 的字段模板 JSON |
+| default_priority | TEXT | 默认优先级 |
+| allowed_writers_json | TEXT | 允许写入的 Agent/来源列表，`["*"]` 表示不限 |
+| allowed_consumers_json | TEXT | 允许消费的 Agent 列表，`["*"]` 表示不限 |
+| enabled | INTEGER | 是否启用 |
+| created_at | TEXT | 创建时间 |
+| updated_at | TEXT | 更新时间 |
+
+系统默认种子类别为 `ai.hot_project`、`repo.commit`、`task.candidate`、`work.shipped`。类别只能停用或更新，不应让 Agent 运行时随意创建未管理类别。
+
+### event_center_events
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| id | TEXT PK | 事件 ID |
+| project_id | TEXT | 所属 Project；为空表示全局事件 |
+| category_id | TEXT | 事件类别 key |
+| title | TEXT | 事件标题 |
+| summary | TEXT | 事件摘要 |
+| source_type | TEXT | 来源类型，例如 agent / system / manual |
+| source_id | TEXT | 来源 ID |
+| source_label | TEXT | 来源显示名 |
+| priority | TEXT | low / medium / high |
+| confidence | REAL | 0 到 1 的置信度 |
+| status | TEXT | pending / running / consumed / failed / ignored / task / archived |
+| tags_json | TEXT | 标签数组 JSON |
+| payload_json | TEXT | 类别动态字段 JSON |
+| evidence_json | TEXT | 证据数组 JSON |
+| dedupe_key | TEXT | 去重 key |
+| created_by_agent_id | TEXT | 写入事件的 Agent ID |
+| created_at | TEXT | 创建时间 |
+| updated_at | TEXT | 更新时间 |
+| archived_at | TEXT | 归档时间 |
+
+`event_center_events` 是产品事件收件箱，不是 `session_events`。`session_events` 保存会话执行过程和诊断事件；`event_center_events` 保存可筛选、可消费、可转任务的业务信号。
+
+### event_subscriptions
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| id | TEXT PK | 订阅规则 ID |
+| project_id | TEXT | 所属 Project；为空表示全局规则 |
+| name | TEXT | 规则名称 |
+| category_id | TEXT | 订阅的事件类别 |
+| consumer_agent_id | TEXT | 消费 Agent ID |
+| consumer_label | TEXT | 消费者显示名 |
+| action_mode | TEXT | create_pending 等动作模式 |
+| filter_json | TEXT | 过滤条件 JSON，例如 priority / sourceType / minConfidence |
+| enabled | INTEGER | 是否启用 |
+| auto_start | INTEGER | 是否自动启动消费者 |
+| created_at | TEXT | 创建时间 |
+| updated_at | TEXT | 更新时间 |
+
+### event_consumptions
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| id | TEXT PK | 消费记录 ID |
+| event_id | TEXT | 事件 ID |
+| subscription_id | TEXT | 来源订阅规则 ID |
+| project_id | TEXT | 所属 Project |
+| consumer_agent_id | TEXT | 消费 Agent ID |
+| consumer_label | TEXT | 消费者显示名 |
+| status | TEXT | pending / running / succeeded / failed |
+| result_summary | TEXT | 消费结果摘要 |
+| result_json | TEXT | 消费结果结构化 JSON |
+| error | TEXT | 失败信息 |
+| claimed_at | TEXT | 领取时间 |
+| completed_at | TEXT | 完成时间 |
+| created_at | TEXT | 创建时间 |
+| updated_at | TEXT | 更新时间 |
+
+### event_task_links
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| id | TEXT PK | 链接 ID |
+| event_id | TEXT | 事件 ID |
+| task_id | TEXT | 普通任务 ID |
+| created_at | TEXT | 创建时间 |
 
 ### teams
 

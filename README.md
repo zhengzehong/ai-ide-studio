@@ -17,6 +17,7 @@ AI IDE Studio 是一个本地部署的全栈 AI 编程协作工具。通过 [ACP
 - **ACP 功能** — 模型切换、模式切换（计划模式等）、权限请求、会话 Fork、上下文用量展示
 - **会话运行偏好** — 每个 Session 会保留已切换的模型、模式和配置；重启服务或重连 ACP 后会自动恢复，Codex 默认 full access，Claude Code 默认 bypass permissions（可用时）
 - **Task 管理** — 创建任务、指派 Agent、状态追踪、自动流转（Session 完成后 Task 进入 reviewing）
+- **事件中心** — 分类事件收件箱，支持 Agent 写入事件、订阅规则生成待消费记录、消费者 Agent 处理事件并转成任务
 - **Team MCP 协作** — 通过 `team.*` 工具创建团队、创建成员、派活、反馈和更新团队任务
 - **规则引擎** — Cron 定时任务管理和事件触发规则
 - **MCP 工具平台** — 提供 `/mcp` HTTP MCP 入口，按 Session token 控制 Agent 可见的 `core.*` / `team.*` 工具方法；`team.*` 默认不全局开放，可在工具管理页给 Agent 套用 Team 权限模板或单独开关方法
@@ -94,6 +95,7 @@ npm run format       # Prettier 格式化
 | 文档 | 说明 |
 |------|------|
 | [设计愿景](docs/design/vision.md) | 核心理念和产品方向 |
+| [事件中心设计](docs/design/event-center.md) | 事件收件箱、类别、订阅和 Agent 消费模型 |
 | [架构总览](docs/architecture/overview.md) | 当前系统架构 |
 | [MCP 工具平台](docs/architecture/mcp-tool-platform.md) | HTTP MCP、方法级可见性、工具 token 和审计 |
 | [数据模型](docs/architecture/data-model.md) | 实体、状态机、Schema |

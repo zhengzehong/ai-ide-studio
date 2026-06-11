@@ -16,7 +16,7 @@ Gateway 层
       │ mitt 事件总线
       ▼
 Core 业务层
-  sessions.ts / tasks.ts / projects.ts / agents.ts / teams.ts / events.ts
+  sessions.ts / tasks.ts / projects.ts / agents.ts / teams.ts / event-center.ts / events.ts
       │
       ├── Store 持久层
       │     db.ts                  SQLite 初始化、旧 JSON 导入
@@ -68,6 +68,18 @@ Web UI → WS "tasks.create" → ws-handler → gateway/rpc/tasks
   → mitt "task:update" → ws-handler 广播 → Web UI / 其他订阅方
 ```
 
+### 事件中心
+
+```text
+Agent MCP tool / Web UI → WS 或 MCP event.* → core/event-center
+  → event_center_events + event_consumptions 持久化
+  → mitt "event-center:update" → ws-handler 广播 → Event Center 页面刷新
+  → 可选 eventConsumptions.run 创建消费者 Session 并发送消费 Prompt
+  → 可选 events.convertToTask 创建普通 Task 并写入 event_task_links
+```
+
+事件中心用于承接“任务之前”的信号和候选工作。事件类别保存在 `event_categories`，事件固定元数据保存在 `event_center_events`，类别差异放入 `payload_json`；订阅规则保存在 `event_subscriptions`，匹配后生成 `event_consumptions`。事件被用户确认后可以通过 `events.convertToTask` 转为普通任务，任务仍归 `tasks` 状态机管理。
+
 ### 管理 Session
 
 ```text
@@ -84,13 +96,13 @@ Session 删除采用软删除，仅隐藏列表项并保留 `messages` / `sessio
 | 目录 | 职责 | 核心文件 |
 |------|------|----------|
 | `src/acp/` | ACP 协议集成 | `host.ts`、`client-handler.ts`、`host-state.ts`、`interaction-state.ts`、`terminal-bridge.ts`、`session-capabilities.ts`、`adapters.ts`、`capabilities.ts`、`update-mapper.ts` |
-| `src/core/` | 业务逻辑 | `sessions.ts`、`turn-process-runtime.ts`、`prompt-diagnostics.ts`、`session-event-payload.ts`、`tasks.ts`、`projects.ts`、`agents.ts`、`teams.ts`、`events.ts` |
+| `src/core/` | 业务逻辑 | `sessions.ts`、`turn-process-runtime.ts`、`prompt-diagnostics.ts`、`session-event-payload.ts`、`tasks.ts`、`projects.ts`、`agents.ts`、`teams.ts`、`event-center.ts`、`events.ts` |
 | `src/gateway/` | 对外接口 | `server.ts`、`ws-handler.ts`、`rpc/*` |
 | `src/store/` | 数据持久化 | `db.ts`、`migrator.ts`、`migrations/*`、`turn-process-items.ts`、各实体 store |
 | `src/tools/` | 工具平台与 MCP 发布 | `resolver.ts`、`tool-gateway.ts`、`registry/*`、`runtime/*`、`mcp/http-mcp-server.ts` |
 | `src/cli/` | 命令行工具 | `index.ts`、agents/sessions/tasks/rules 子命令 |
 | `src/types/` | 类型定义 | `ws-protocol.ts` |
-| `ui/src/pages/` | PC 端页面组件 | Workspace/Dashboard/TaskBoard/Schedule/AgentSquare/ToolManager/Settings |
+| `ui/src/pages/` | PC 端页面组件 | Workspace/Dashboard/TaskBoard/Schedule/EventCenter/AgentSquare/ToolManager/Settings |
 | `ui/src/stores/` | 前端状态 | Zustand store、`session-events.ts` 事件还原、项目/工具/模板/模型状态 |
 | `ui/src/services/` | 通信层 | `ws-client.ts` |
 | `mobile/src/` | 移动端 Web App | `/app/` 下的手机端页面、组件和 Zustand store；复用 `ui/src/services/ws-client.ts` 与会话事件还原辅助逻辑 |
@@ -110,6 +122,7 @@ Session 删除采用软删除，仅隐藏列表项并保留 `messages` / `sessio
 - `agent_templates` 是全局模板库；`agents` 是部署到具体项目后的运行时实例。
 - `global_assistant` 保存应用唯一全局助理绑定；它复用普通 Agent/Session，但 ACP `cwd` 来自 `global_assistant.workspace_dir`。
 - Team 是项目级协作容器；TeamMember 绑定项目级 Agent 与当前团队 Session，Team Task 复用 `tasks.team_id`。
+- Event Center 是项目级事件收件箱；事件可以被忽略、消费、归档或转为普通 Task，但不会替代 `tasks` 的交付状态机。
 - `ws-handler.ts` 只负责 WS 连接、广播、JSON 解析和 dispatch；新增 RPC 必须放到 `src/gateway/rpc/*` 对应领域模块。
 - SQLite schema 由 `src/store/migrator.ts` 与 `src/store/migrations/*` 管理；`db.ts` 不再承载大段建表/升级逻辑。
 - ACP Host 对外暴露 `acpHost` facade；新增 runtime/session/client callback/terminal/interaction 能力优先下沉到专用模块。

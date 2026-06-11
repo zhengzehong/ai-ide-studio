@@ -69,6 +69,28 @@ ws://localhost:18800
 | `tasks.create` | `{ title, description?, assignAgentId?, projectId? }` | `Task` | 创建任务 |
 | `tasks.update` | `{ taskId, status?, stage? }` | `Task` | 更新任务状态 |
 
+### 事件中心
+
+| 方法 | 参数 | 返回 | 说明 |
+|------|------|------|------|
+| `eventCategories.list` | `{}` | `EventCategory[]` | 列出事件类别 |
+| `eventCategories.create` | `{ categoryId, name, description?, schema?, defaultPriority?, allowedWriters?, allowedConsumers?, enabled? }` | `EventCategory` | 创建或更新事件类别 |
+| `eventCategories.update` | `{ categoryId, ...fields }` | `EventCategory` | 更新事件类别 |
+| `eventCategories.toggle` | `{ categoryId, enabled }` | `EventCategory` | 启用或停用事件类别 |
+| `events.list` | `{ projectId?, categoryId?, status? }` | `EventCenterEvent[]` | 查询事件 |
+| `events.get` | `{ eventId }` | `EventCenterEvent & { consumptions }` | 获取事件详情和消费记录 |
+| `events.create` | `{ projectId?, categoryId, title, summary?, sourceType?, sourceId?, sourceLabel?, priority?, confidence?, tags?, payload?, evidence?, dedupeKey?, createdByAgentId? }` | `EventCenterEvent` | 写入事件 |
+| `events.ignore` | `{ eventId }` | `EventCenterEvent` | 忽略事件 |
+| `events.archive` | `{ eventId }` | `EventCenterEvent` | 归档事件 |
+| `events.reopen` | `{ eventId }` | `EventCenterEvent` | 重新打开事件 |
+| `events.convertToTask` | `{ eventId, title?, description?, assignAgentId?, projectId? }` | `Task` | 将事件转成普通任务并写入关联 |
+| `eventSubscriptions.list` | `{ projectId? }` | `EventSubscription[]` | 查询订阅规则 |
+| `eventSubscriptions.create` | `{ projectId?, name, categoryId, consumerAgentId?, consumerLabel?, actionMode?, filter?, enabled?, autoStart? }` | `EventSubscription` | 创建订阅规则 |
+| `eventSubscriptions.toggle` | `{ subscriptionId, enabled }` | `EventSubscription` | 启用或停用订阅规则 |
+| `eventConsumptions.claimNext` | `{ projectId?, agentId }` | `{ event, consumption } \| null` | 消费 Agent 领取下一条待消费事件 |
+| `eventConsumptions.run` | `{ consumptionId }` | `{ event, consumption, sessionId }` | 从 UI 手动启动指定消费记录的消费者 Agent 会话 |
+| `eventConsumptions.consume` | `{ consumptionId, resultSummary?, result?, error? }` | `EventConsumption` | 提交消费结果 |
+
 ### Team 上下文
 
 | 方法 | 参数 | 返回 | 说明 |
@@ -131,6 +153,7 @@ ws://localhost:18800
 | `session:changed` | `{ sessionId, data }` | Session 标题、状态、归档/删除等列表元数据变更 |
 | `agent:status` | `{ agentId, status }` | Agent 在线状态 |
 | `task:update` | `{ taskId, data }` | Task 状态变更 |
+| `event-center:update` | `{ eventId?, categoryId?, subscriptionId?, consumptionId?, taskId?, sessionId?, event }` | 事件中心类别、事件、订阅或消费记录变化 |
 | `team:update` | `{ teamId, sessionIds, data }` | Team 成员、任务或 mailbox 变化；前端仅在当前 `sessionId` 属于 `sessionIds` 时刷新 `teams.current`。 |
 | `rule:update` | `{ ruleId, data }` | Rule 状态变更 |
 

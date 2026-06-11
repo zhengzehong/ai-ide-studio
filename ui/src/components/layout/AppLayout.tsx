@@ -7,6 +7,7 @@ import {
   Clock,
   FolderKanban,
   FolderOpen,
+  Inbox,
   LayoutDashboard,
   MessageSquare,
   Plus,
@@ -33,6 +34,7 @@ const projectNav = [
   { to: '/workspace', icon: MessageSquare, label: '工作台' },
   { to: '/tasks', icon: FolderKanban, label: '任务' },
   { to: '/schedule', icon: Clock, label: '自动化' },
+  { to: '/events', icon: Inbox, label: '事件' },
 ];
 
 function ProjectSwitcher() {

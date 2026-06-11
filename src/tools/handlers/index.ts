@@ -46,6 +46,17 @@ import {
   updateTeamHandler,
   updateTeamTaskHandler,
 } from './team/index.js'
+import {
+  eventCategoryListHandler,
+  eventClaimNextHandler,
+  eventConsumeHandler,
+  eventConvertToTaskHandler,
+  eventCreateHandler,
+  eventGetHandler,
+  eventIgnoreHandler,
+  eventListHandler,
+  eventSubscriptionCreateHandler,
+} from './event-center-tools.js'
 
 const handlers = new Map<string, ToolHandler>()
 
@@ -93,6 +104,15 @@ register(createTeamTaskHandler)
 register(updateTeamTaskHandler)
 register(listTeamTemplatesHandler)
 register(describeTeamTemplateHandler)
+register(eventCategoryListHandler)
+register(eventCreateHandler)
+register(eventListHandler)
+register(eventGetHandler)
+register(eventClaimNextHandler)
+register(eventConsumeHandler)
+register(eventConvertToTaskHandler)
+register(eventIgnoreHandler)
+register(eventSubscriptionCreateHandler)
 
 export function getHandler(name: string): ToolHandler | undefined {
   return handlers.get(name)
