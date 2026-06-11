@@ -23,6 +23,7 @@ export function GlobalAssistantRail() {
 
   return (
     <>
+      <GlobalAssistantDrawer />
       <aside className="global-assistant-rail">
         <button
           type="button"
@@ -47,7 +48,6 @@ export function GlobalAssistantRail() {
         </button>
         {assistant && <div className="global-assistant-rail-line" />}
       </aside>
-      <GlobalAssistantDrawer />
     </>
   )
 }

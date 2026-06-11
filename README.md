@@ -115,6 +115,7 @@ MIT
 | `ACP_SESSION_IDLE_MS` | `1800000` | 单个 runtime 侧 ACP session 的空闲断开时间；保留 SQLite `acp_session_id` |
 | `ACP_RUNTIME_IDLE_MS` | `3600000` | ACP runtime 进程空闲停止时间 |
 | `ACP_IDLE_SWEEP_MS` | `300000` | 空闲回收扫描间隔 |
+| `GLOBAL_ASSISTANT_WORKSPACE_ROOT` | 系统应用数据目录下的 `global-assistants` | 全局助理工作空间根目录；实际工作目录为 `<root>/<agentId>/workspace` |
 
 ## ????????
 

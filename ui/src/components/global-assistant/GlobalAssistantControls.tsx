@@ -1,4 +1,5 @@
 import type { CSSProperties, ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { Check, Circle, Loader2 } from 'lucide-react'
 import type { ConfigOptionInfo, ImageAttachmentInfo } from '../../stores/session-events'
 import { configOptionLabel } from '../../pages/workspace/helpers'
@@ -17,11 +18,13 @@ export function CompactPlanBar({ plan }: { plan: { content: string; status: stri
 }
 
 export function Dropdown({ children, onClose, style }: { children: ReactNode; onClose: () => void; style: CSSProperties }) {
-  return (
+  if (typeof document === 'undefined') return null
+  return createPortal(
     <>
       <div className="global-assistant-menu-backdrop" onClick={onClose} />
       <div className="global-assistant-menu" style={style}>{children}</div>
-    </>
+    </>,
+    document.body,
   )
 }
 

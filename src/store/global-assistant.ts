@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { resolve } from 'node:path'
-import { getDb, getDbPath } from './db.js'
+import { getDb } from './db.js'
 
 export const GLOBAL_ASSISTANT_ID = 'default'
 
@@ -22,20 +23,30 @@ export interface UpsertGlobalAssistantInput {
 }
 
 export const globalAssistantStore = {
-  defaultWorkspaceDir(): string {
-    return resolve(getDbPath(), 'global-assistant', 'workspace')
+  defaultWorkspaceRoot(): string {
+    const configured = process.env.GLOBAL_ASSISTANT_WORKSPACE_ROOT?.trim()
+    if (configured) return resolve(configured)
+    const localAppData = process.env.LOCALAPPDATA?.trim()
+    if (localAppData) return resolve(localAppData, 'AI IDE Studio', 'global-assistants')
+    return resolve(homedir(), '.ai-ide-studio', 'global-assistants')
+  },
+
+  defaultWorkspaceDir(agentId: string): string {
+    return resolve(globalAssistantStore.defaultWorkspaceRoot(), agentId, 'workspace')
   },
 
   get(): GlobalAssistantRow | undefined {
-    return getDb()
+    const row = getDb()
       .prepare<[string], GlobalAssistantRow>('SELECT * FROM global_assistant WHERE id = ?')
       .get(GLOBAL_ASSISTANT_ID)
+    return row ? globalAssistantStore.ensureAgentWorkspace(row) : undefined
   },
 
   getBySessionId(sessionId: string): GlobalAssistantRow | undefined {
-    return getDb()
+    const row = getDb()
       .prepare<[string], GlobalAssistantRow>('SELECT * FROM global_assistant WHERE session_id = ? AND enabled = 1')
       .get(sessionId)
+    return row ? globalAssistantStore.ensureAgentWorkspace(row) : undefined
   },
 
   workspaceForSession(sessionId: string): string | undefined {
@@ -45,7 +56,7 @@ export const globalAssistantStore = {
   upsert(input: UpsertGlobalAssistantInput): GlobalAssistantRow {
     const existing = globalAssistantStore.get()
     const now = new Date().toISOString()
-    const workspaceDir = input.workspaceDir || existing?.workspace_dir || globalAssistantStore.defaultWorkspaceDir()
+    const workspaceDir = resolve(input.workspaceDir || globalAssistantStore.defaultWorkspaceDir(input.agentId))
     mkdirSync(workspaceDir, { recursive: true })
 
     const row: GlobalAssistantRow = {
@@ -81,6 +92,21 @@ export const globalAssistantStore = {
       )
     `).run(row)
     return row
+  },
+
+  ensureAgentWorkspace(row: GlobalAssistantRow): GlobalAssistantRow {
+    const workspaceDir = globalAssistantStore.defaultWorkspaceDir(row.agent_id)
+    mkdirSync(workspaceDir, { recursive: true })
+    if (resolve(row.workspace_dir) === workspaceDir) return row
+
+    const updated = { ...row, workspace_dir: workspaceDir, updated_at: new Date().toISOString() }
+    getDb().prepare(`
+      UPDATE global_assistant
+      SET workspace_dir = @workspace_dir,
+          updated_at = @updated_at
+      WHERE id = @id
+    `).run(updated)
+    return updated
   },
 
   touch(): GlobalAssistantRow | undefined {

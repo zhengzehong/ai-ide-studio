@@ -15,30 +15,27 @@ export function GlobalAssistantDrawer() {
   const payload = useGlobalAssistantPayload()
 
   return (
-    <>
-      {open && <div className="global-assistant-backdrop" onClick={closeDrawer} />}
-      <section className={`global-assistant-drawer${open ? ' global-assistant-drawer--open' : ''}`}>
-        {!payload ? (
-          <div className="global-assistant-empty">
-            <Bot size={34} />
-            <div className="global-assistant-empty-title">还没有设置全局助理</div>
-            <div className="global-assistant-empty-text">在 Agent 广场选择一个模板，设为全局助理后就可以随时从右侧唤出。</div>
-            <button
-              type="button"
-              className="global-assistant-primary-btn"
-              onClick={() => {
-                closeDrawer()
-                navigate('/agents')
-              }}
-            >
-              去 Agent 广场
-            </button>
-          </div>
-        ) : (
-          <GlobalAssistantChat connected={connected} payload={payload} />
-        )}
-      </section>
-    </>
+    <section className={`global-assistant-drawer${open ? ' global-assistant-drawer--open' : ''}`} aria-hidden={!open}>
+      {!payload ? (
+        <div className="global-assistant-empty">
+          <Bot size={34} />
+          <div className="global-assistant-empty-title">还没有设置全局助理</div>
+          <div className="global-assistant-empty-text">在 Agent 广场选择一个模板，设为全局助理后就可以随时从右侧唤出。</div>
+          <button
+            type="button"
+            className="global-assistant-primary-btn"
+            onClick={() => {
+              closeDrawer()
+              navigate('/agents')
+            }}
+          >
+            去 Agent 广场
+          </button>
+        </div>
+      ) : (
+        <GlobalAssistantChat connected={connected} payload={payload} />
+      )}
+    </section>
   )
 }
 

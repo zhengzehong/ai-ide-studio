@@ -5,23 +5,28 @@ import { resolve } from 'node:path'
 import { acpHost } from '../../src/acp/host.js'
 import { handleWsConnection } from '../../src/gateway/ws-handler.js'
 import { agentStore } from '../../src/store/agents.js'
-import { closeDatabase, initDatabase } from '../../src/store/db.js'
+import { closeDatabase, getDb, initDatabase } from '../../src/store/db.js'
+import { globalAssistantStore } from '../../src/store/global-assistant.js'
 import { sessionStore } from '../../src/store/sessions.js'
 import { templateStore } from '../../src/store/agent-templates.js'
 import type { WebSocket, WebSocketServer } from 'ws'
 
 const tmp = mkdtempSync(resolve(tmpdir(), 'ai-ide-global-assistant-'))
 let dbIndex = 0
+const originalWorkspaceRoot = process.env.GLOBAL_ASSISTANT_WORKSPACE_ROOT
 
 beforeEach(() => {
   closeDatabase()
   const dbDir = resolve(tmp, `case-${++dbIndex}`)
   mkdirSync(dbDir, { recursive: true })
+  process.env.GLOBAL_ASSISTANT_WORKSPACE_ROOT = resolve(tmp, 'global-assistants')
   initDatabase(resolve(dbDir, 'test.sqlite'))
 })
 
 afterEach(() => {
   vi.restoreAllMocks()
+  if (originalWorkspaceRoot === undefined) delete process.env.GLOBAL_ASSISTANT_WORKSPACE_ROOT
+  else process.env.GLOBAL_ASSISTANT_WORKSPACE_ROOT = originalWorkspaceRoot
 })
 
 afterAll(() => {
@@ -79,7 +84,10 @@ describe('Global assistant RPC', () => {
     expect(data.session.project_id).toBeNull()
     expect(data.session.title).toBe('全局助理')
     expect(data.assistant.session_id).toBe(data.session.id)
-    expect(data.assistant.workspace_dir.replace(/\\/g, '/')).toContain('/global-assistant/workspace')
+    const normalizedWorkspace = data.assistant.workspace_dir.replace(/\\/g, '/')
+    expect(normalizedWorkspace).toContain(`/global-assistants/${data.agent.id}/workspace`)
+    expect(normalizedWorkspace).not.toContain('/case-')
+    expect(normalizedWorkspace).not.toContain(template.name)
     expect(existsSync(data.assistant.workspace_dir)).toBe(true)
 
     await ws.send({ type: 'globalAssistant.get', requestId: 'req-get' })
@@ -118,5 +126,76 @@ describe('Global assistant RPC', () => {
     )
     expect(sessionStore.get(binding.session.id)?.acp_session_id).toBe('acp-global')
     expect(agentStore.get(binding.session.agent_id)?.project_id).toBeNull()
+  })
+
+  test('switching global assistant templates creates a new agent-specific workspace', async () => {
+    const first = templateStore.create({
+      name: '知识助理',
+      type: 'pm',
+      runtime: 'mock',
+      icon: 'bot',
+      systemPrompt: '整理知识',
+    })
+    const second = templateStore.create({
+      name: '文档工程师',
+      type: 'pm',
+      runtime: 'mock',
+      icon: 'bot',
+      systemPrompt: '维护文档',
+    })
+    const ws = createWs()
+
+    await ws.send({ type: 'globalAssistant.setTemplate', requestId: 'req-first', templateId: first.id })
+    const firstBinding = ws.last().data as { assistant: { workspace_dir: string }; agent: { id: string; name: string } }
+
+    await ws.send({ type: 'globalAssistant.setTemplate', requestId: 'req-second', templateId: second.id })
+    const secondBinding = ws.last().data as { assistant: { workspace_dir: string }; agent: { id: string; name: string } }
+
+    expect(secondBinding.agent.id).not.toBe(firstBinding.agent.id)
+    expect(secondBinding.assistant.workspace_dir).not.toBe(firstBinding.assistant.workspace_dir)
+    expect(secondBinding.assistant.workspace_dir.replace(/\\/g, '/')).toContain(`/global-assistants/${secondBinding.agent.id}/workspace`)
+    expect(secondBinding.assistant.workspace_dir).not.toContain(secondBinding.agent.name)
+    expect(existsSync(secondBinding.assistant.workspace_dir)).toBe(true)
+  })
+
+  test('normalizes an existing legacy workspace to the agent-specific root', async () => {
+    const agent = agentStore.create({
+      name: '旧助理',
+      type: 'pm',
+      runtime: 'mock',
+      icon: 'bot',
+      systemPrompt: '整理旧数据',
+    })
+    const session = sessionStore.create({ agentId: agent.id })
+    const now = new Date().toISOString()
+    const legacyWorkspace = resolve(tmp, 'legacy-global-assistant', 'workspace')
+    getDb().prepare(`
+      INSERT INTO global_assistant (
+        id, agent_id, session_id, workspace_dir, enabled, created_at, updated_at, last_opened_at
+      )
+      VALUES (
+        @id, @agent_id, @session_id, @workspace_dir, @enabled, @created_at, @updated_at, @last_opened_at
+      )
+    `).run({
+      id: 'default',
+      agent_id: agent.id,
+      session_id: session.id,
+      workspace_dir: legacyWorkspace,
+      enabled: 1,
+      created_at: now,
+      updated_at: now,
+      last_opened_at: null,
+    })
+    const ws = createWs()
+
+    await ws.send({ type: 'globalAssistant.get', requestId: 'req-get' })
+
+    const data = ws.last().data as { assistant: { workspace_dir: string }; agent: { id: string } }
+    const normalizedWorkspace = data.assistant.workspace_dir.replace(/\\/g, '/')
+    expect(normalizedWorkspace).toContain(`/global-assistants/${agent.id}/workspace`)
+    expect(normalizedWorkspace).not.toContain('legacy-global-assistant')
+    expect(normalizedWorkspace).not.toContain(agent.name)
+    expect(globalAssistantStore.get()?.workspace_dir).toBe(data.assistant.workspace_dir)
+    expect(existsSync(data.assistant.workspace_dir)).toBe(true)
   })
 })
