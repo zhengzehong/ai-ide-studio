@@ -13,7 +13,7 @@ const builderConfig = {
     {
       from: electronBuildDir,
       to: 'electron/dist',
-      filter: ['backend-launch.js', 'builder.config.js', 'main.js', 'preload.js'],
+      filter: ['backend-launch.js', 'builder.config.js', 'main.js', 'preload.js', 'widget-window.js'],
     },
     'package.json',
     'node_modules/**',

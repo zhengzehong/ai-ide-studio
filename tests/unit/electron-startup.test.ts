@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import { join } from 'node:path'
 import { createBackendLaunchOptions, resolveBackendNodeCommand } from '../../electron/backend-launch.js'
+import builderConfig from '../../scripts/electron-builder.mjs'
 
 describe('Electron backend launch options', () => {
   test('uses a Node command instead of the packaged Electron executable', () => {
@@ -61,5 +62,23 @@ describe('Electron backend launch options', () => {
     })
     expect(options.env.ELECTRON_RUN_AS_NODE).toBeUndefined()
     expect(options.env.STATIC_DIR).toBe(join('C:/app/resources', 'app', 'ui', 'dist'))
+  })
+})
+
+describe('Electron builder config', () => {
+  test('packages every Electron main-process module imported by main.js', () => {
+    const electronDistEntry = builderConfig.files.find((entry) =>
+      typeof entry !== 'string' && entry.to === 'electron/dist'
+    )
+
+    expect(electronDistEntry).toBeTruthy()
+    expect(typeof electronDistEntry).not.toBe('string')
+    if (typeof electronDistEntry === 'string') return
+    expect(electronDistEntry.filter).toEqual(expect.arrayContaining([
+      'backend-launch.js',
+      'main.js',
+      'preload.js',
+      'widget-window.js',
+    ]))
   })
 })
