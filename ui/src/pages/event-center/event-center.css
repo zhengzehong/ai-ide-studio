@@ -188,6 +188,26 @@
   border-bottom: 1px solid var(--border);
 }
 
+.ec-list-toolbar--between {
+  justify-content: space-between;
+}
+
+.ec-list-toolbar--between > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.ec-list-toolbar--between strong {
+  font-size: 14px;
+}
+
+.ec-list-toolbar--between span {
+  color: var(--text-3);
+  font-size: 12px;
+}
+
 .ec-search {
   flex: 1;
   height: 32px;
@@ -242,6 +262,40 @@
   font-weight: 600;
   padding: 0 12px;
   white-space: nowrap;
+}
+
+.ec-icon-btn,
+.ec-segment button {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-0);
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.ec-segment {
+  display: inline-flex;
+  gap: 3px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-1);
+}
+
+.ec-segment button {
+  border: 0;
+  background: transparent;
+}
+
+.ec-segment button.active {
+  color: var(--blue);
+  background: var(--bg-0);
+  box-shadow: var(--shadow-sm);
 }
 
 .ec-btn--primary {
@@ -456,6 +510,7 @@
 
 .ec-table-scroll {
   flex: 1;
+  min-height: 0;
   overflow: auto;
   padding: 12px;
 }
@@ -492,6 +547,185 @@
 .ec-table tbody tr:hover,
 .ec-table tbody tr.active {
   background: var(--blue-light);
+}
+
+.ec-event-table {
+  table-layout: fixed;
+}
+
+.ec-event-table th:nth-child(1),
+.ec-event-table td:nth-child(1) { width: 86px; }
+.ec-event-table th:nth-child(2),
+.ec-event-table td:nth-child(2) { width: 76px; }
+.ec-event-table th:nth-child(3),
+.ec-event-table td:nth-child(3) { width: 120px; }
+.ec-event-table th:nth-child(5),
+.ec-event-table td:nth-child(5) { width: 120px; }
+.ec-event-table th:nth-child(6),
+.ec-event-table td:nth-child(6) { width: 78px; }
+.ec-event-table th:nth-child(7),
+.ec-event-table td:nth-child(7) { width: 112px; }
+
+.ec-event-table td {
+  vertical-align: middle;
+  padding: 8px 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ec-event-table .ec-chip {
+  min-height: 22px;
+  padding: 2px 7px;
+}
+
+.ec-pagination {
+  min-height: 44px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 0 14px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-0);
+  color: var(--text-3);
+  font-size: 13px;
+}
+
+.ec-pagination select,
+.ec-field select,
+.ec-field input,
+.ec-field textarea {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-0);
+  color: var(--text-1);
+  outline: none;
+  font-size: 13px;
+}
+
+.ec-pagination select,
+.ec-field select,
+.ec-field input {
+  height: 32px;
+  padding: 0 10px;
+}
+
+.ec-field textarea {
+  resize: vertical;
+  padding: 9px 10px;
+  line-height: 1.5;
+}
+
+.ec-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(15 23 42 / 0.28);
+  padding: 24px;
+}
+
+.ec-modal {
+  width: min(720px, 100%);
+  max-height: min(760px, calc(100vh - 48px));
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-0);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+
+.ec-modal--narrow {
+  width: min(560px, 100%);
+}
+
+.ec-modal-head {
+  flex-shrink: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.ec-modal-head h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.ec-modal-head p {
+  margin: 5px 0 0;
+  color: var(--text-3);
+  font-size: 13px;
+}
+
+.ec-modal-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px;
+}
+
+.ec-modal-actions {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-1);
+}
+
+.ec-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.ec-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.ec-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.ec-checkbox input {
+  width: 16px;
+  height: 16px;
+}
+
+.ec-code-input {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.ec-form-error {
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  background: var(--red-light);
+  color: var(--red);
+  padding: 9px 10px;
+  font-size: 13px;
 }
 
 .ec-code {

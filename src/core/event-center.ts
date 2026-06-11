@@ -5,6 +5,7 @@ import {
   type EventCenterEventRow,
   type EventEvidenceItem,
   type EventListFilter,
+  type EventListPage,
 } from '../store/event-center-events.js'
 import {
   eventSubscriptionStore,
@@ -79,6 +80,10 @@ export const eventCenterService = {
 
   listEvents(filter?: EventListFilter): EventCenterEventRow[] {
     return eventCenterEventStore.list(filter)
+  },
+
+  listEventsPage(filter?: EventListFilter): EventListPage {
+    return eventCenterEventStore.listPage(filter)
   },
 
   getEvent(eventId: string): EventCenterEventRow | undefined {

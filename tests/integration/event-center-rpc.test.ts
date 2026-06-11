@@ -57,6 +57,36 @@ describe('event center RPC', () => {
     await rpc.send({ type: 'events.list', projectId: project.id })
     expect(asRecords(rpc.last().data)).toHaveLength(1)
   })
+
+  test('paginates event list when limit is provided', async () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const rpc = createRpc()
+
+    for (const title of ['Alpha Agent', 'Beta Agent', 'Gamma Tool']) {
+      await rpc.send({
+        type: 'events.create',
+        projectId: project.id,
+        categoryId: 'ai.hot_project',
+        title,
+        confidence: 0.9,
+      })
+    }
+
+    await rpc.send({
+      type: 'events.list',
+      projectId: project.id,
+      keyword: 'Agent',
+      limit: 1,
+      offset: 1,
+    })
+
+    const page = asRecord(rpc.last().data)
+    expect(page.total).toBe(2)
+    expect(page.limit).toBe(1)
+    expect(page.offset).toBe(1)
+    expect(asRecords(page.items)).toHaveLength(1)
+    expect(asRecords(page.items)[0].title).toContain('Agent')
+  })
 })
 
 function createRpc(): {

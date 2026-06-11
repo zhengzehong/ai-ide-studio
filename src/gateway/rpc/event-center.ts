@@ -9,6 +9,14 @@ function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
 }
 
+function numberValue(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function hasPaginationInput(msg: Record<string, unknown>): boolean {
+  return typeof msg.limit === 'number' || typeof msg.offset === 'number' || typeof msg.keyword === 'string'
+}
+
 export const eventCenterRpcHandlers: RpcHandlerMap = {
   'eventCategories.list'(_msg, { sendResult }) {
     sendResult(eventCenterService.listCategories())
@@ -45,11 +53,15 @@ export const eventCenterRpcHandlers: RpcHandlerMap = {
   },
 
   'events.list'(msg, { sendResult }) {
-    sendResult(eventCenterService.listEvents({
+    const filter = {
       projectId: msg.projectId as string | undefined,
       categoryId: msg.categoryId as string | undefined,
       status: msg.status as string | undefined,
-    }))
+      keyword: msg.keyword as string | undefined,
+      limit: numberValue(msg.limit),
+      offset: numberValue(msg.offset),
+    }
+    sendResult(hasPaginationInput(msg) ? eventCenterService.listEventsPage(filter) : eventCenterService.listEvents(filter))
   },
 
   'events.get'(msg, { sendResult, sendError }) {

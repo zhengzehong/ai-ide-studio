@@ -292,6 +292,16 @@ export interface RulesDeleteMsg extends ClientMessage {
   ruleId: string
 }
 
+export interface EventsListMsg extends ClientMessage {
+  type: 'events.list'
+  projectId?: string
+  categoryId?: string
+  status?: string
+  keyword?: string
+  limit?: number
+  offset?: number
+}
+
 export interface ImageAttachment {
   data: string
   mimeType: string

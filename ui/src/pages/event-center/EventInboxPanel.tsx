@@ -1,7 +1,8 @@
-import { Plus, Search } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { LayoutList, Plus, Search, Table2 } from 'lucide-react'
+import { useState } from 'react'
 import { useEventCenterStore, type EventCenterEventData } from '../../stores/event-center.store'
 import { categoryName, formatTime, parseJson, PRIORITY_META, STATUS_META } from './helpers'
+import { EventCreateModal } from './EventCreateModal'
 import { EventDetailPanel } from './EventDetailPanel'
 
 const STATUS_FILTERS = [
@@ -15,41 +16,52 @@ const STATUS_FILTERS = [
   { key: 'archived', label: '已归档' },
 ]
 
+type ViewMode = 'table' | 'summary'
+
 export function EventInboxPanel({ projectId }: { projectId: string | null }) {
   const events = useEventCenterStore((s) => s.events)
   const categories = useEventCenterStore((s) => s.categories)
   const selectedEventId = useEventCenterStore((s) => s.selectedEventId)
   const selectEvent = useEventCenterStore((s) => s.selectEvent)
-  const createEvent = useEventCenterStore((s) => s.createEvent)
-  const [status, setStatus] = useState('all')
-  const [keyword, setKeyword] = useState('')
+  const fetchEvents = useEventCenterStore((s) => s.fetchEvents)
+  const eventTotal = useEventCenterStore((s) => s.eventTotal)
+  const eventLimit = useEventCenterStore((s) => s.eventLimit)
+  const eventOffset = useEventCenterStore((s) => s.eventOffset)
+  const eventStatus = useEventCenterStore((s) => s.eventStatus)
+  const eventCategoryId = useEventCenterStore((s) => s.eventCategoryId)
+  const eventKeyword = useEventCenterStore((s) => s.eventKeyword)
+  const [keyword, setKeyword] = useState(eventKeyword)
+  const [viewMode, setViewMode] = useState<ViewMode>('table')
+  const [creating, setCreating] = useState(false)
   const selectedEvent = events.find((event) => event.id === selectedEventId) ?? events[0]
 
-  const filtered = useMemo(() => events.filter((event) => {
-    if (status !== 'all' && event.status !== status) return false
-    if (!keyword.trim()) return true
-    const tags = parseJson<string[]>(event.tags_json, []).join(' ')
-    return `${event.title} ${event.summary ?? ''} ${event.source_label ?? ''} ${tags}`.toLowerCase().includes(keyword.toLowerCase())
-  }), [events, keyword, status])
+  const page = Math.floor(eventOffset / eventLimit) + 1
+  const pageCount = Math.max(1, Math.ceil(eventTotal / eventLimit))
+  const pageStart = eventTotal === 0 ? 0 : eventOffset + 1
+  const pageEnd = Math.min(eventOffset + events.length, eventTotal)
 
-  const counts = useMemo(() => {
-    const next: Record<string, number> = { all: events.length }
-    for (const event of events) next[event.status] = (next[event.status] ?? 0) + 1
-    return next
-  }, [events])
+  const reload = (filter: { status?: string; categoryId?: string; keyword?: string; limit?: number; offset?: number }) => {
+    void fetchEvents(projectId ?? undefined, filter)
+  }
 
-  const simulateEvent = async () => {
-    await createEvent({
-      projectId: projectId ?? undefined,
-      categoryId: 'ai.hot_project',
-      title: '新发现的 Agent 调试工具',
-      summary: '采集 Agent 写入了一条事件，用来验证订阅和消费链路。',
-      priority: 'medium',
-      confidence: 0.82,
-      tags: ['Agent', 'Debug'],
-      payload: { projectName: 'Agent Debug Kit', hotReason: '工具调用时间线调试能力被多次提到', recommendedAction: '交给分析 Agent 判断是否试用' },
-      evidence: [{ title: '模拟采集记录', url: 'collector://mock/agent-debug-kit' }],
-    })
+  const changeStatus = (status: string) => {
+    reload({ status, categoryId: eventCategoryId, keyword, limit: eventLimit, offset: 0 })
+  }
+
+  const changeCategory = (categoryId: string) => {
+    reload({ status: eventStatus, categoryId, keyword, limit: eventLimit, offset: 0 })
+  }
+
+  const submitSearch = () => {
+    reload({ status: eventStatus, categoryId: eventCategoryId, keyword, limit: eventLimit, offset: 0 })
+  }
+
+  const changeLimit = (limit: number) => {
+    reload({ status: eventStatus, categoryId: eventCategoryId, keyword, limit, offset: 0 })
+  }
+
+  const goPage = (offset: number) => {
+    reload({ status: eventStatus, categoryId: eventCategoryId, keyword, limit: eventLimit, offset })
   }
 
   return (
@@ -57,33 +69,109 @@ export function EventInboxPanel({ projectId }: { projectId: string | null }) {
       <aside className="ec-filter-rail">
         <div className="ec-rail-title">状态</div>
         {STATUS_FILTERS.map((item) => (
-          <button key={item.key} className={`ec-filter ${status === item.key ? 'active' : ''}`} onClick={() => setStatus(item.key)}>
-            <span>{item.label}</span><b>{counts[item.key] ?? 0}</b>
+          <button key={item.key} className={`ec-filter ${eventStatus === item.key ? 'active' : ''}`} onClick={() => changeStatus(item.key)}>
+            <span>{item.label}</span>{item.key === 'all' && <b>{eventTotal}</b>}
           </button>
         ))}
         <div className="ec-rail-section">
           <div className="ec-rail-title">类别</div>
-          <div className="ec-chip-list">{categories.map((category) => <span className="ec-chip ec-chip--blue" key={category.id}>{category.name}</span>)}</div>
+          <button className={`ec-filter ${eventCategoryId === 'all' ? 'active' : ''}`} onClick={() => changeCategory('all')}>
+            <span>全部类别</span>
+          </button>
+          {categories.map((category) => (
+            <button className={`ec-filter ${eventCategoryId === category.id ? 'active' : ''}`} key={category.id} onClick={() => changeCategory(category.id)}>
+              <span>{category.name}</span>
+            </button>
+          ))}
         </div>
       </aside>
       <section className="ec-list-pane">
         <div className="ec-list-toolbar">
-          <div className="ec-search"><Search size={14} /><input value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="搜索事件、来源、标签..." /></div>
-          <button className="ec-btn ec-btn--primary" onClick={simulateEvent}><Plus size={14} />模拟写入</button>
+          <div className="ec-search">
+            <Search size={14} />
+            <input
+              value={keyword}
+              onChange={(e) => setKeyword(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') submitSearch() }}
+              placeholder="搜索事件、来源、标签..."
+            />
+          </div>
+          <div className="ec-segment">
+            <button className={viewMode === 'table' ? 'active' : ''} onClick={() => setViewMode('table')} title="表格视图"><Table2 size={14} /></button>
+            <button className={viewMode === 'summary' ? 'active' : ''} onClick={() => setViewMode('summary')} title="摘要视图"><LayoutList size={14} /></button>
+          </div>
+          <button className="ec-btn" onClick={submitSearch}>搜索</button>
+          <button className="ec-btn ec-btn--primary" onClick={() => setCreating(true)}><Plus size={14} />新建事件</button>
         </div>
-        <div className="ec-event-list">
-          {filtered.map((event) => (
-            <EventRow key={event.id} event={event} active={event.id === selectedEvent?.id} onClick={() => selectEvent(event.id)} />
-          ))}
-          {filtered.length === 0 && <div className="ec-empty">没有匹配的事件</div>}
+        {viewMode === 'table' ? (
+          <EventTable events={events} selectedEvent={selectedEvent} onSelect={selectEvent} />
+        ) : (
+          <div className="ec-event-list">
+            {events.map((event) => (
+              <EventSummaryRow key={event.id} event={event} active={event.id === selectedEvent?.id} onClick={() => selectEvent(event.id)} />
+            ))}
+            {events.length === 0 && <div className="ec-empty">没有匹配的事件</div>}
+          </div>
+        )}
+        <div className="ec-pagination">
+          <span>{pageStart}-{pageEnd} / {eventTotal}</span>
+          <select value={eventLimit} onChange={(e) => changeLimit(Number(e.target.value))}>
+            <option value={30}>30 条/页</option>
+            <option value={50}>50 条/页</option>
+            <option value={100}>100 条/页</option>
+          </select>
+          <button className="ec-btn" disabled={page <= 1} onClick={() => goPage(Math.max(0, eventOffset - eventLimit))}>上一页</button>
+          <span>第 {page} / {pageCount} 页</span>
+          <button className="ec-btn" disabled={page >= pageCount} onClick={() => goPage(eventOffset + eventLimit)}>下一页</button>
         </div>
       </section>
       <EventDetailPanel event={selectedEvent} projectId={projectId} />
+      <EventCreateModal open={creating} projectId={projectId} onClose={() => setCreating(false)} />
     </div>
   )
 }
 
-function EventRow({ event, active, onClick }: { event: EventCenterEventData; active: boolean; onClick: () => void }) {
+function EventTable({ events, selectedEvent, onSelect }: {
+  events: EventCenterEventData[]
+  selectedEvent: EventCenterEventData | undefined
+  onSelect: (eventId: string) => void
+}) {
+  const categories = useEventCenterStore((s) => s.categories)
+
+  return (
+    <div className="ec-table-scroll">
+      <table className="ec-table ec-event-table">
+        <thead>
+          <tr>
+            <th>状态</th>
+            <th>优先级</th>
+            <th>类别</th>
+            <th>标题</th>
+            <th>来源</th>
+            <th>置信度</th>
+            <th>创建时间</th>
+          </tr>
+        </thead>
+        <tbody>
+          {events.map((event) => (
+            <tr key={event.id} className={event.id === selectedEvent?.id ? 'active' : ''} onClick={() => onSelect(event.id)}>
+              <td><span className="ec-chip" style={{ color: STATUS_META[event.status]?.color }}>{STATUS_META[event.status]?.label ?? event.status}</span></td>
+              <td><span className={PRIORITY_META[event.priority]?.className ?? 'ec-chip'}>{PRIORITY_META[event.priority]?.label ?? event.priority}</span></td>
+              <td>{categoryName(categories, event.category_id)}</td>
+              <td><strong>{event.title}</strong></td>
+              <td>{event.source_label || event.source_type}</td>
+              <td>{Math.round(event.confidence * 100)}%</td>
+              <td>{formatTime(event.created_at)}</td>
+            </tr>
+          ))}
+          {events.length === 0 && <tr><td colSpan={7}><div className="ec-empty">没有匹配的事件</div></td></tr>}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function EventSummaryRow({ event, active, onClick }: { event: EventCenterEventData; active: boolean; onClick: () => void }) {
   const categories = useEventCenterStore((s) => s.categories)
   const tags = parseJson<string[]>(event.tags_json, [])
 
