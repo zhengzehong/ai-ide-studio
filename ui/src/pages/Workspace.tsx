@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   memo,
   useRef,
   useState,
@@ -101,6 +102,7 @@ import {
   type MenuAnchor,
   type MenuName,
 } from './workspace/helpers'
+import { createSessionDraftStore, type WorkspacePendingImage } from './workspace/session-drafts'
 import { sessionIndicator } from '../utils/session-indicators'
 import { elapsedSecondsBetween, formatCompactDuration } from '../utils/duration'
 import { ContextMenu, PromptDialog, ConfirmDialog, AlertDialog } from '../components/ModalDialog'
@@ -851,7 +853,7 @@ function WorkspaceChatPane({
   const processItemErrorByKey = useSessionStore((s) => s.processItemErrorByKey)
 
   const [inputValue, setInputValue] = useState('')
-  const [pendingImages, setPendingImages] = useState<{ data: string; mimeType: string; preview: string }[]>([])
+  const [pendingImages, setPendingImages] = useState<WorkspacePendingImage[]>([])
   const [draggingImages, setDraggingImages] = useState(false)
   const [showTimeline, setShowTimeline] = useState(false)
   const [showModelMenu, setShowModelMenu] = useState(false)
@@ -870,7 +872,10 @@ function WorkspaceChatPane({
   const stickToBottomRef = useRef(true)
   const lastScrollHeightRef = useRef(0)
   const olderLoadAnchorRef = useRef<{ sessionId: string; scrollHeight: number; scrollTop: number } | null>(null)
-  const pendingImagePreviewsRef = useRef<string[]>([])
+  const inputValueRef = useRef('')
+  const pendingImagesRef = useRef<WorkspacePendingImage[]>([])
+  const draftSessionIdRef = useRef<string | null>(currentSessionId)
+  const sessionDraftsRef = useRef(createSessionDraftStore({ revokePreview: (preview) => URL.revokeObjectURL(preview) }))
 
   const blockingInteraction = pendingPermissions.length > 0 || pendingElicitations.length > 0
   const canSendPrompt = !!currentSessionId && connected && !blockingInteraction && !currentSessionCopying && (!!inputValue.trim() || pendingImages.length > 0)
@@ -885,6 +890,41 @@ function WorkspaceChatPane({
   const secondaryConfigs = capabilities.configOptions.filter(
     (o) => o.category !== 'model' && o.category !== 'mode' && o.id !== 'model' && o.id !== 'mode',
   )
+
+  const updateInputValue = useCallback((value: string) => {
+    inputValueRef.current = value
+    setInputValue(value)
+  }, [])
+
+  const updatePendingImages = useCallback((updater: (current: WorkspacePendingImage[]) => WorkspacePendingImage[]) => {
+    const next = updater(pendingImagesRef.current)
+    pendingImagesRef.current = next
+    setPendingImages(next)
+  }, [])
+
+  const resetTextareaHeight = useCallback(() => {
+    const el = textareaRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = Math.min(el.scrollHeight, 160) + 'px'
+  }, [])
+
+  const saveActiveDraft = useCallback(() => {
+    sessionDraftsRef.current.save(draftSessionIdRef.current, {
+      text: inputValueRef.current,
+      images: pendingImagesRef.current,
+    })
+  }, [])
+
+  const restoreDraft = useCallback((sessionId: string | null) => {
+    const draft = sessionDraftsRef.current.take(sessionId)
+    draftSessionIdRef.current = sessionId
+    inputValueRef.current = draft.text
+    pendingImagesRef.current = draft.images
+    setInputValue(draft.text)
+    setPendingImages(draft.images)
+    requestAnimationFrame(resetTextareaHeight)
+  }, [resetTextareaHeight])
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
     const el = chatScrollRef.current
@@ -949,6 +989,17 @@ function WorkspaceChatPane({
   }, [streamingMessage])
   const shouldScrollStreaming = !!streamingMessage && !streamingMessage.done
 
+  useLayoutEffect(() => {
+    if (draftSessionIdRef.current === currentSessionId) return
+    saveActiveDraft()
+    restoreDraft(currentSessionId)
+  }, [currentSessionId, restoreDraft, saveActiveDraft])
+
+  useEffect(() => () => {
+    saveActiveDraft()
+    sessionDraftsRef.current.dispose()
+  }, [saveActiveDraft])
+
   useEffect(() => {
     const el = chatScrollRef.current
     if (!el) return undefined
@@ -990,12 +1041,6 @@ function WorkspaceChatPane({
   }, [shouldScrollStreaming, streamingScrollSignature, scheduleScrollToBottom])
 
   useEffect(() => {
-    pendingImagePreviewsRef.current = pendingImages.map((img) => img.preview)
-  }, [pendingImages])
-
-  useEffect(() => () => pendingImagePreviewsRef.current.forEach((preview) => URL.revokeObjectURL(preview)), [])
-
-  useEffect(() => {
     if (!isStreaming) return undefined
     const timer = window.setInterval(() => setLiveNowMs(Date.now()), 1000)
     return () => window.clearInterval(timer)
@@ -1014,7 +1059,7 @@ function WorkspaceChatPane({
   }
 
   const clearPendingImages = () => {
-    setPendingImages((prev) => {
+    updatePendingImages((prev) => {
       prev.forEach((img) => URL.revokeObjectURL(img.preview))
       return []
     })
@@ -1029,7 +1074,8 @@ function WorkspaceChatPane({
       v,
       hasImages ? pendingImages.map((i) => ({ data: i.data, mimeType: i.mimeType })) : undefined,
     )
-    setInputValue('')
+    sessionDraftsRef.current.clear(currentSessionId)
+    updateInputValue('')
     clearPendingImages()
     requestAnimationFrame(() => {
       if (textareaRef.current) {
@@ -1047,13 +1093,19 @@ function WorkspaceChatPane({
   }
 
   const addImageFiles = (files: File[]) => {
+    const targetSessionId = currentSessionId
+    if (!targetSessionId) return
     files.filter((file) => file.type.startsWith('image/')).forEach((file) => {
       const reader = new FileReader()
-      reader.onload = () =>
-        setPendingImages((prev) => [
-          ...prev,
-          { data: (reader.result as string).split(',')[1], mimeType: file.type, preview: URL.createObjectURL(file) },
-        ])
+      reader.onload = () => {
+        const image = { data: (reader.result as string).split(',')[1], mimeType: file.type, preview: URL.createObjectURL(file) }
+        if (draftSessionIdRef.current === targetSessionId) {
+          updatePendingImages((prev) => [...prev, image])
+          return
+        }
+        const draft = sessionDraftsRef.current.take(targetSessionId)
+        sessionDraftsRef.current.save(targetSessionId, { ...draft, images: [...draft.images, image] })
+      }
       reader.readAsDataURL(file)
     })
   }
@@ -1065,7 +1117,7 @@ function WorkspaceChatPane({
   }
 
   const removePendingImage = (index: number) => {
-    setPendingImages((prev) => {
+    updatePendingImages((prev) => {
       const removed = prev[index]
       if (removed) URL.revokeObjectURL(removed.preview)
       return prev.filter((_, i) => i !== index)
@@ -1370,7 +1422,7 @@ function WorkspaceChatPane({
             ref={textareaRef}
             value={inputValue}
             onChange={(e) => {
-              setInputValue(e.target.value)
+              updateInputValue(e.target.value)
               autoResize()
             }}
             onKeyDown={handleKeyDown}
@@ -1510,7 +1562,7 @@ function WorkspaceChatPane({
               key={cmd.name}
               type="button"
               onClick={() => {
-                setInputValue(`/${cmd.name} `)
+                updateInputValue(`/${cmd.name} `)
                 setShowCommandMenu(false)
                 textareaRef.current?.focus()
               }}
