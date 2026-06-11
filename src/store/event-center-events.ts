@@ -50,6 +50,16 @@ export interface EventListFilter {
   projectId?: string
   categoryId?: string
   status?: string
+  keyword?: string
+  limit?: number
+  offset?: number
+}
+
+export interface EventListPage {
+  items: EventCenterEventRow[]
+  total: number
+  limit: number
+  offset: number
 }
 
 export const eventCenterEventStore = {
@@ -97,21 +107,7 @@ export const eventCenterEventStore = {
   },
 
   list(filter: EventListFilter = {}): EventCenterEventRow[] {
-    const clauses: string[] = []
-    const params: Record<string, string> = {}
-    if (filter.projectId) {
-      clauses.push('project_id = @projectId')
-      params.projectId = filter.projectId
-    }
-    if (filter.categoryId) {
-      clauses.push('category_id = @categoryId')
-      params.categoryId = filter.categoryId
-    }
-    if (filter.status) {
-      clauses.push('status = @status')
-      params.status = filter.status
-    }
-    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''
+    const { where, params } = buildListQuery(filter)
     return getDb()
       .prepare<Record<string, string>, EventCenterEventRow>(`
         SELECT * FROM event_center_events
@@ -119,6 +115,27 @@ export const eventCenterEventStore = {
         ORDER BY created_at DESC
       `)
       .all(params)
+  },
+
+  listPage(filter: EventListFilter = {}): EventListPage {
+    const { where, params } = buildListQuery(filter)
+    const limit = clampLimit(filter.limit)
+    const offset = clampOffset(filter.offset)
+    const total = getDb()
+      .prepare<Record<string, string>, { total: number }>(`
+        SELECT COUNT(*) AS total FROM event_center_events
+        ${where}
+      `)
+      .get(params)?.total ?? 0
+    const items = getDb()
+      .prepare<Record<string, string | number>, EventCenterEventRow>(`
+        SELECT * FROM event_center_events
+        ${where}
+        ORDER BY created_at DESC
+        LIMIT @limit OFFSET @offset
+      `)
+      .all({ ...params, limit, offset })
+    return { items, total, limit, offset }
   },
 
   updateStatus(id: string, status: string): EventCenterEventRow | undefined {
@@ -130,4 +147,42 @@ export const eventCenterEventStore = {
     `).run(status, new Date().toISOString(), archivedAt, id)
     return eventCenterEventStore.get(id)
   },
+}
+
+function buildListQuery(filter: EventListFilter): { where: string; params: Record<string, string> } {
+  const clauses: string[] = []
+  const params: Record<string, string> = {}
+  if (filter.projectId) {
+    clauses.push('project_id = @projectId')
+    params.projectId = filter.projectId
+  }
+  if (filter.categoryId) {
+    clauses.push('category_id = @categoryId')
+    params.categoryId = filter.categoryId
+  }
+  if (filter.status) {
+    clauses.push('status = @status')
+    params.status = filter.status
+  }
+  if (filter.keyword?.trim()) {
+    clauses.push(`(
+      title LIKE @keyword
+      OR COALESCE(summary, '') LIKE @keyword
+      OR COALESCE(source_label, '') LIKE @keyword
+      OR tags_json LIKE @keyword
+    )`)
+    params.keyword = `%${filter.keyword.trim()}%`
+  }
+  const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''
+  return { where, params }
+}
+
+function clampLimit(value: number | undefined): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 30
+  return Math.max(1, Math.min(100, Math.floor(value)))
+}
+
+function clampOffset(value: number | undefined): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 0
+  return Math.max(0, Math.floor(value))
 }

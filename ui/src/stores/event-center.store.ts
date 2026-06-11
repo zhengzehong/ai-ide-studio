@@ -72,16 +72,37 @@ export interface EventDetailData extends EventCenterEventData {
   consumptions: EventConsumptionData[]
 }
 
+export interface EventListFilterInput {
+  status?: string
+  categoryId?: string
+  keyword?: string
+  limit?: number
+  offset?: number
+}
+
+interface EventListPageData {
+  items: EventCenterEventData[]
+  total: number
+  limit: number
+  offset: number
+}
+
 interface EventCenterStore {
   categories: EventCategoryData[]
   events: EventCenterEventData[]
+  eventTotal: number
+  eventLimit: number
+  eventOffset: number
+  eventStatus: string
+  eventCategoryId: string
+  eventKeyword: string
   subscriptions: EventSubscriptionData[]
   details: Record<string, EventDetailData>
   selectedEventId: string | null
   loading: boolean
   activeProjectId: string | null
   fetchCategories: () => Promise<void>
-  fetchEvents: (projectId?: string, filter?: { status?: string; categoryId?: string }) => Promise<void>
+  fetchEvents: (projectId?: string, filter?: EventListFilterInput) => Promise<void>
   fetchEventDetail: (eventId: string) => Promise<EventDetailData | null>
   fetchSubscriptions: (projectId?: string) => Promise<void>
   selectEvent: (eventId: string | null) => void
@@ -99,6 +120,12 @@ interface EventCenterStore {
 export const useEventCenterStore = create<EventCenterStore>((set, get) => ({
   categories: [],
   events: [],
+  eventTotal: 0,
+  eventLimit: 30,
+  eventOffset: 0,
+  eventStatus: 'all',
+  eventCategoryId: 'all',
+  eventKeyword: '',
   subscriptions: [],
   details: {},
   selectedEventId: null,
@@ -113,15 +140,35 @@ export const useEventCenterStore = create<EventCenterStore>((set, get) => ({
   fetchEvents: async (projectId, filter = {}) => {
     set({ loading: true, activeProjectId: projectId ?? null })
     try {
+      const state = get()
+      const status = filter.status ?? state.eventStatus
+      const categoryId = filter.categoryId ?? state.eventCategoryId
+      const keyword = filter.keyword ?? state.eventKeyword
+      const limit = filter.limit ?? state.eventLimit
+      const offset = filter.offset ?? state.eventOffset
       const msg: Record<string, unknown> = { type: 'events.list' }
       if (projectId) msg.projectId = projectId
-      if (filter.status) msg.status = filter.status
-      if (filter.categoryId) msg.categoryId = filter.categoryId
-      const events = await wsClient.request(msg) as EventCenterEventData[]
+      if (status && status !== 'all') msg.status = status
+      if (categoryId && categoryId !== 'all') msg.categoryId = categoryId
+      if (keyword.trim()) msg.keyword = keyword.trim()
+      msg.limit = limit
+      msg.offset = offset
+      const response = await wsClient.request(msg) as EventCenterEventData[] | EventListPageData
+      const page = Array.isArray(response)
+        ? { items: response, total: response.length, limit, offset }
+        : response
       set((state) => ({
-        events,
+        events: page.items,
+        eventTotal: page.total,
+        eventLimit: page.limit,
+        eventOffset: page.offset,
+        eventStatus: status,
+        eventCategoryId: categoryId,
+        eventKeyword: keyword,
         loading: false,
-        selectedEventId: state.selectedEventId ?? events[0]?.id ?? null,
+        selectedEventId: page.items.some((event) => event.id === state.selectedEventId)
+          ? state.selectedEventId
+          : page.items[0]?.id ?? null,
       }))
     } catch {
       set({ loading: false })
@@ -145,7 +192,7 @@ export const useEventCenterStore = create<EventCenterStore>((set, get) => ({
 
   createEvent: async (input) => {
     const event = await wsClient.request({ type: 'events.create', ...input }) as EventCenterEventData
-    set((state) => ({ events: [event, ...state.events], selectedEventId: event.id }))
+    set((state) => ({ events: [event, ...state.events].slice(0, state.eventLimit), eventTotal: state.eventTotal + 1, selectedEventId: event.id }))
     return event
   },
 

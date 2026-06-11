@@ -266,6 +266,8 @@ ignored     failed      task
 
 `event_center_events` 是产品事件收件箱，不是 `session_events`。`session_events` 保存会话执行过程和诊断事件；`event_center_events` 保存可筛选、可消费、可转任务的业务信号。
 
+事件列表支持按 `project_id`、`category_id`、`status` 和关键字过滤，并通过 `limit` / `offset` 分页返回，避免事件量增长后前端一次性加载完整收件箱。
+
 ### event_subscriptions
 
 | 列 | 类型 | 说明 |

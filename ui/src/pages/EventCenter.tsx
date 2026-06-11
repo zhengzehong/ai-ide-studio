@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Inbox } from 'lucide-react'
+import { useConnectionStore } from '../stores/connection.store'
 import { useProjectStore } from '../stores/project.store'
 import { useEventCenterStore } from '../stores/event-center.store'
 import { EventInboxPanel } from './event-center/EventInboxPanel'
@@ -16,6 +17,7 @@ const tabs: Array<{ key: Tab; label: string }> = [
 ]
 
 export default function EventCenter() {
+  const connected = useConnectionStore((s) => s.connected)
   const currentProjectId = useProjectStore((s) => s.currentProjectId)
   const fetchCategories = useEventCenterStore((s) => s.fetchCategories)
   const fetchEvents = useEventCenterStore((s) => s.fetchEvents)
@@ -24,10 +26,11 @@ export default function EventCenter() {
   const [tab, setTab] = useState<Tab>('events')
 
   useEffect(() => {
-    void fetchCategories()
-    void fetchEvents(currentProjectId ?? undefined)
-    void fetchSubscriptions(currentProjectId ?? undefined)
-  }, [currentProjectId, fetchCategories, fetchEvents, fetchSubscriptions])
+    if (!connected) return
+    void fetchCategories().catch(() => undefined)
+    void fetchEvents(currentProjectId ?? undefined, { offset: 0 })
+    void fetchSubscriptions(currentProjectId ?? undefined).catch(() => undefined)
+  }, [connected, currentProjectId, fetchCategories, fetchEvents, fetchSubscriptions])
 
   useEffect(() => setupListeners(), [setupListeners])
 
