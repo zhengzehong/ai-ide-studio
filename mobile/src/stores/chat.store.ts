@@ -75,6 +75,12 @@ let promptStartTime = 0
 let lastStreamingSnapshot: StreamingMessage | null = null
 const mirroredRealtimeEventTypes = new Set(['message.chunk', 'thinking.chunk', 'tool.call', 'tool.update', 'message.done'])
 
+function timestampMs(value: string | null | undefined): number | undefined {
+  if (!value) return undefined
+  const parsed = Date.parse(value)
+  return Number.isFinite(parsed) ? parsed : undefined
+}
+
 function normalizeActiveTurn(message: StreamingMessage | null | undefined): StreamingMessage | null {
   if (!message) return null
   if (Array.isArray(message.processBlocks)) return message
@@ -203,6 +209,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       if (get().sessionId !== sessionId) return
       const messages = data as MessageData[]
       const running = messages.filter(m => m.session_id === sessionId && m.role === 'agent' && m.status === 'running').at(-1)
+      if (running) promptStartTime = timestampMs(running.started_at) ?? timestampMs(running.timestamp) ?? promptStartTime
       set({ messages: messages.map(normalizeMessage), loading: false, isRunning: !!running })
 
       if (running) void get().fetchMessageProcess(sessionId, running.id)

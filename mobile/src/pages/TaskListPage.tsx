@@ -1,7 +1,8 @@
-import { useEffect, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useState, type CSSProperties } from 'react'
 import { wsClient } from '@desktop/services/ws-client'
 import { ListTodo, Clock, CheckCircle2, AlertCircle, Circle, RefreshCw, PauseCircle } from 'lucide-react'
 import type { TaskStatus } from '../../../src/types/ws-protocol'
+import { useAppStore } from '../stores/app.store'
 
 interface TaskItem {
   id: string
@@ -11,6 +12,7 @@ interface TaskItem {
   priority?: string
   created_at: string
   agent_id?: string
+  project_id?: string | null
 }
 
 type TaskStatusMeta = { icon: typeof Clock; color: string; label: string }
@@ -29,20 +31,61 @@ export function mobileTaskStatusMeta(status: TaskStatus): TaskStatusMeta {
   return statusConfig[status] || statusConfig.backlog
 }
 
+export function taskListRequest(projectId: string | null): Record<string, unknown> {
+  const request: Record<string, unknown> = { type: 'tasks.list' }
+  if (projectId) request.projectId = projectId
+  return request
+}
+
+function taskInProject(data: Record<string, unknown>, projectId: string | null, existing?: TaskItem): boolean {
+  if (!projectId) return true
+  if (data.project_id === undefined) return existing?.project_id === projectId
+  return data.project_id === projectId
+}
+
+export function mergeMobileTaskUpdate(
+  tasks: TaskItem[],
+  data: Record<string, unknown>,
+  projectId: string | null,
+): TaskItem[] {
+  const taskId = typeof data.id === 'string' ? data.id : ''
+  if (!taskId) return tasks
+  if (data.event === 'deleted') return tasks.filter((task) => task.id !== taskId)
+
+  const incoming = data as unknown as TaskItem
+  const existingIndex = tasks.findIndex((task) => task.id === taskId)
+  const existing = existingIndex >= 0 ? tasks[existingIndex] : undefined
+  if (!taskInProject(data, projectId, existing)) return tasks
+  if (existingIndex < 0) return [incoming, ...tasks]
+  return tasks.map((task, index) => (index === existingIndex ? { ...task, ...incoming } : task))
+}
+
 export default function TaskListPage() {
   const [tasks, setTasks] = useState<TaskItem[]>([])
   const [loading, setLoading] = useState(true)
+  const currentProjectId = useAppStore((state) => state.currentProjectId)
 
-  const fetchTasks = async () => {
+  const fetchTasks = useCallback(async () => {
     setLoading(true)
     try {
-      const data = await wsClient.request({ type: 'tasks.list' }) as TaskItem[]
+      const data = await wsClient.request(taskListRequest(currentProjectId)) as TaskItem[]
       setTasks(data)
     } catch { /* ignore */ }
     setLoading(false)
-  }
+  }, [currentProjectId])
 
-  useEffect(() => { fetchTasks() }, [])
+  useEffect(() => { void fetchTasks() }, [fetchTasks])
+
+  useEffect(() => {
+    const off = wsClient.on('task:update', (msg) => {
+      const taskId = typeof msg.taskId === 'string' ? msg.taskId : ''
+      const data = msg.data && typeof msg.data === 'object'
+        ? { ...(msg.data as Record<string, unknown>), id: (msg.data as Record<string, unknown>).id ?? taskId }
+        : { id: taskId }
+      setTasks((current) => mergeMobileTaskUpdate(current, data, currentProjectId))
+    })
+    return () => { off() }
+  }, [currentProjectId])
 
   return (
     <div style={styles.page}>

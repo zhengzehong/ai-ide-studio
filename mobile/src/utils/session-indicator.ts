@@ -1,6 +1,6 @@
-import type { WidgetSessionItem } from '@desktop/stores/widget.store'
+import type { MobileSessionItem } from '../stores/session.store'
 
-type MobileSessionIndicatorInput = Pick<WidgetSessionItem, 'activityState' | 'unread' | 'status'>
+type MobileSessionIndicatorInput = Pick<MobileSessionItem, 'activityState' | 'unread' | 'status'>
 
 export interface MobileSessionIndicator {
   color: string

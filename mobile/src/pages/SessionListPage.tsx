@@ -53,7 +53,7 @@ export default function SessionListPage() {
           </div>
         )}
         {filtered.map((s) => (
-          <SessionCard key={s.sessionId} session={s} />
+          <SessionCard key={s.id} session={s} />
         ))}
       </div>
     </div>

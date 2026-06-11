@@ -25,20 +25,29 @@ export default function ChatPage() {
     enterSession, leaveSession, sendPrompt, cancelTurn, fetchMessageProcess, respondPermission, respondElicitation,
   } = useChatStore()
   const sessions = useSessionStore(s => s.sessions)
-  const session = sessions.find(s => s.sessionId === sessionId)
+  const session = sessions.find(s => s.id === sessionId)
   const listenersRef = useRef(false)
   const [liveNowMs, setLiveNowMs] = useState(() => Date.now())
 
   useEffect(() => {
     if (!sessionId) return
+    useSessionStore.getState().setCurrentSession(sessionId)
     enterSession(sessionId)
     useSessionStore.getState().markRead(sessionId)
     if (!listenersRef.current) {
       listenersRef.current = true
       const off = useChatStore.getState().setupListeners()
-      return () => { off(); listenersRef.current = false; leaveSession() }
+      return () => {
+        off()
+        listenersRef.current = false
+        leaveSession()
+        useSessionStore.getState().setCurrentSession(null)
+      }
     }
-    return () => leaveSession()
+    return () => {
+      leaveSession()
+      useSessionStore.getState().setCurrentSession(null)
+    }
   }, [sessionId])
 
   const hasBlockingInteraction = pendingPermissions.length > 0 || pendingElicitations.length > 0

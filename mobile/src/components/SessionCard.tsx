@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom'
 import { Bot } from 'lucide-react'
 import type { CSSProperties } from 'react'
-import type { WidgetSessionItem } from '@desktop/stores/widget.store'
+import type { MobileSessionItem } from '../stores/session.store'
 import { mobileSessionIndicator } from '../utils/session-indicator'
 
 function formatTime(iso: string | null): string {
@@ -15,14 +15,14 @@ function formatTime(iso: string | null): string {
   return `${d.getMonth() + 1}/${d.getDate()}`
 }
 
-export default function SessionCard({ session }: { session: WidgetSessionItem }) {
+export default function SessionCard({ session }: { session: MobileSessionItem }) {
   const navigate = useNavigate()
   const indicator = mobileSessionIndicator(session)
 
   return (
     <div
       style={{ ...styles.card, ...(session.unread ? styles.unread : {}) }}
-      onClick={() => navigate(`/chat/${session.sessionId}`)}
+      onClick={() => navigate(`/chat/${session.id}`)}
     >
       <div style={styles.row}>
         <div style={styles.titleArea}>
