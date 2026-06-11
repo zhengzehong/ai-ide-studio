@@ -1,7 +1,16 @@
 import { acpHost } from '../../acp/host.js'
 import { events } from '../../core/events.js'
+import {
+  listLocalSessionCandidates,
+  localSessionCwdWarning,
+  parseLocalSessionFile,
+  validateLocalSessionRuntime,
+  type ImportableLocalRuntime,
+  type LocalSessionCandidate,
+} from '../../core/local-session-import.js'
 import { createChildLogger } from '../../core/logger.js'
 import { sessionManager } from '../../core/sessions.js'
+import { agentStore } from '../../store/agents.js'
 import { globalAssistantStore } from '../../store/global-assistant.js'
 import { projectStore } from '../../store/projects.js'
 import { eventStore, messageStore, sessionStore } from '../../store/sessions.js'
@@ -10,6 +19,7 @@ import { buildFileChangesFromToolCalls } from '../../store/file-changes.js'
 import { turnProcessItemStore } from '../../store/turn-process-items.js'
 import type { FileChangeDetailData } from '../../types/ws-protocol.js'
 import type { AgentConnection } from '../../acp/host-types.js'
+import type { AgentRow } from '../../store/agents.js'
 import type { RpcHandlerMap } from './types.js'
 
 const log = createChildLogger('rpc-sessions')
@@ -21,6 +31,38 @@ function resolveSessionProjectContext(sessionId: string): { projectId?: string; 
   if (globalWorkspaceDir) return { projectId: session.project_id ?? undefined, cwd: globalWorkspaceDir }
   const project = session.project_id ? projectStore.get(session.project_id) : undefined
   return { projectId: session.project_id ?? undefined, cwd: project?.work_dir }
+}
+
+function resolveImportRuntime(runtime: string): ImportableLocalRuntime {
+  if (runtime === 'codex' || runtime === 'claude') return runtime
+  throw new Error('仅支持导入 Codex 或 Claude Code 本地会话')
+}
+
+function requireProjectAgent(agentId: string, projectId?: string): AgentRow {
+  const agent = agentStore.get(agentId)
+  if (!agent) throw new Error('Agent 不存在')
+  if (projectId && agent.project_id !== projectId) throw new Error('Agent 不属于当前项目')
+  return agent
+}
+
+function candidateFromRpcInput(msg: Record<string, unknown>, fallbackRuntime: ImportableLocalRuntime): LocalSessionCandidate {
+  if (typeof msg.jsonlPath === 'string' && msg.jsonlPath.trim()) {
+    return parseLocalSessionFile(msg.jsonlPath.trim())
+  }
+  if (typeof msg.externalSessionId !== 'string' || !msg.externalSessionId.trim()) {
+    throw new Error('请提供 JSONL 文件路径或本地会话 id')
+  }
+  const runtime = typeof msg.runtime === 'string' && msg.runtime.trim()
+    ? resolveImportRuntime(msg.runtime)
+    : fallbackRuntime
+  return {
+    runtime,
+    sessionId: msg.externalSessionId.trim(),
+    path: typeof msg.sourcePath === 'string' ? msg.sourcePath : '',
+    label: typeof msg.title === 'string' && msg.title.trim() ? msg.title.trim() : `${runtime} ${msg.externalSessionId.slice(0, 8)}`,
+    updatedAt: new Date().toISOString(),
+    cwd: typeof msg.cwd === 'string' && msg.cwd.trim() ? msg.cwd.trim() : undefined,
+  }
 }
 
 async function ensureAcpSession(sessionId: string, emitLifecycle = true): Promise<{ agentId: string }> {
@@ -222,10 +264,55 @@ export const sessionRpcHandlers: RpcHandlerMap = {
     ))
   },
 
+  'sessions.listLocalImportCandidates'(msg, { sendResult }) {
+    const agentId = msg.agentId as string
+    const projectId = msg.projectId as string | undefined
+    const agent = requireProjectAgent(agentId, projectId)
+    const runtime = resolveImportRuntime(agent.runtime)
+    const project = projectId ? projectStore.get(projectId) : undefined
+    if (projectId && !project) throw new Error('项目不存在')
+    sendResult(listLocalSessionCandidates({
+      runtime,
+      cwd: project?.work_dir,
+      codexHome: typeof msg.codexHome === 'string' ? msg.codexHome : undefined,
+      claudeHome: typeof msg.claudeHome === 'string' ? msg.claudeHome : undefined,
+      limit: typeof msg.limit === 'number' ? msg.limit : undefined,
+    }))
+  },
+
   async 'sessions.create'(msg, { state, sendResult }) {
     const session = await sessionManager.createSession(msg.agentId as string, msg.taskId as string | undefined, msg.projectId as string | undefined)
     state.subscriptions.add(session.id)
     sendResult(session)
+  },
+
+  'sessions.importLocal'(msg, { state, sendResult }) {
+    const agentId = msg.agentId as string
+    const projectId = msg.projectId as string | undefined
+    const agent = requireProjectAgent(agentId, projectId)
+    const runtime = resolveImportRuntime(agent.runtime)
+    const project = projectId ? projectStore.get(projectId) : undefined
+    if (projectId && !project) throw new Error('项目不存在')
+    const candidate = candidateFromRpcInput(msg, runtime)
+    validateLocalSessionRuntime(candidate, runtime)
+    const warning = localSessionCwdWarning(candidate, project?.work_dir) ?? null
+    const session = sessionStore.create({ agentId, projectId, acpSessionId: candidate.sessionId })
+    sessionStore.updateTitleIfEmpty(session.id, `导入本地会话 ${candidate.sessionId.slice(0, 8)}`)
+    const imported = sessionStore.get(session.id) ?? session
+    state.subscriptions.add(imported.id)
+    log.info(
+      {
+        sessionId: imported.id,
+        agentId,
+        projectId,
+        runtime,
+        acpSessionId: candidate.sessionId,
+        sourcePath: candidate.path || undefined,
+        hasWarning: !!warning,
+      },
+      'local ACP session imported',
+    )
+    sendResult({ session: imported, warning, candidate })
   },
 
   async 'sessions.copy'(msg, { state, sendResult }) {

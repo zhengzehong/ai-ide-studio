@@ -38,6 +38,8 @@ ws://localhost:18800
 | `sessions.list` | `{ agentId?, projectId? }` | `Session[]` | 列出 Session |
 | `sessions.create` | `{ agentId, taskId?, projectId? }` | `Session` | 只创建本地 SQLite Session；不启动 ACP runtime，也不创建 ACP session |
 | `sessions.copy` | `{ sessionId }` | `Session` | 复制会话：先通过 ACP fork 复制 runtime 上下文，再复制 SQLite 中最近 10 条消息及相关 `session_events` |
+| `sessions.listLocalImportCandidates` | `{ agentId, projectId? }` | `LocalSessionCandidate[]` | 扫描当前机器上的 Codex / Claude Code JSONL 本地会话候选，按 Agent runtime 和项目工作目录排序 |
+| `sessions.importLocal` | `{ agentId, projectId?, jsonlPath? }` 或 `{ agentId, projectId?, externalSessionId, sourcePath?, runtime?, cwd?, title? }` | `{ session, warning, candidate }` | 绑定本地 Codex / Claude Code 原生会话 id，创建一个空平台 Session，不导入历史消息或事件 |
 | `sessions.rename` | `{ sessionId, title }` | `Session` | 重命名 Session |
 | `sessions.close` | `{ sessionId }` | `Session` | 关闭 ACP 会话并标记为 closed |
 | `sessions.archive` | `{ sessionId }` | `Session` | 归档 Session |

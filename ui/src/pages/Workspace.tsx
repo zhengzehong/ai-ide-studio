@@ -49,6 +49,7 @@ import {
   type ImageAttachmentInfo,
   type PermissionRequestInfo,
   type PlanEntry,
+  type SessionData,
   type ToolCallInfo,
 } from '../stores/session.store'
 import type { TurnProcessBlock } from '../stores/turn-blocks'
@@ -103,8 +104,13 @@ import {
 import { sessionIndicator } from '../utils/session-indicators'
 import { elapsedSecondsBetween, formatCompactDuration } from '../utils/duration'
 import { ContextMenu, PromptDialog, ConfirmDialog, AlertDialog } from '../components/ModalDialog'
+import { LocalSessionImportModal } from './workspace/LocalSessionImportModal'
 
 const COPYING_STAGE = '正在复制会话...'
+
+function canImportLocalSession(runtime: string): runtime is 'codex' | 'claude' {
+  return runtime === 'codex' || runtime === 'claude'
+}
 
 export default function Workspace() {
   const navigate = useNavigate()
@@ -157,6 +163,8 @@ export default function Workspace() {
   const [copyingSessionId, setCopyingSessionId] = useState<string | null>(null)
 
   const [ctxMenu, setCtxMenu] = useState<{ sessionId: string; agentId: string; x: number; y: number } | null>(null)
+  const [agentCtxMenu, setAgentCtxMenu] = useState<{ agentId: string; x: number; y: number } | null>(null)
+  const [importDialogAgentId, setImportDialogAgentId] = useState<string | null>(null)
   const [renameDialog, setRenameDialog] = useState<{ sessionId: string; currentTitle: string } | null>(null)
   const [confirmDialog, setConfirmDialog] = useState<{ title: string; message: string; danger?: boolean; onConfirm: () => void } | null>(null)
   const [alertMsg, setAlertMsg] = useState<string | null>(null)
@@ -177,6 +185,14 @@ export default function Workspace() {
   const currentSession = useMemo(
     () => projectSessions.find((session) => session.id === currentSessionId),
     [currentSessionId, projectSessions],
+  )
+  const importDialogAgent = useMemo(
+    () => projectAgents.find((agent) => agent.id === importDialogAgentId),
+    [importDialogAgentId, projectAgents],
+  )
+  const agentContextAgent = useMemo(
+    () => projectAgents.find((agent) => agent.id === agentCtxMenu?.agentId),
+    [agentCtxMenu?.agentId, projectAgents],
   )
   const currentSessionCopying = !!currentSessionId && (
     !!copyingTargetSessionIds[currentSessionId] ||
@@ -263,6 +279,13 @@ export default function Workspace() {
     } finally {
       setCopyingSessionId((current) => (current === sessionId ? null : current))
     }
+  }
+  const handleLocalSessionImported = async (agentId: string, session: SessionData) => {
+    setSelectedAgentId(agentId)
+    selectSession(session.id)
+    await fetchSessions(undefined, currentProjectId ?? undefined)
+    await fetchMessages(session.id)
+    await fetchEvents(session.id)
   }
   const handleDeleteSession = (sessionId: string) => {
     setConfirmDialog({
@@ -448,6 +471,12 @@ export default function Workspace() {
                   <button
                     type="button"
                     onClick={() => toggleAgent(agent.id)}
+                    onContextMenu={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      setCtxMenu(null)
+                      setAgentCtxMenu({ agentId: agent.id, x: e.clientX, y: e.clientY })
+                    }}
                     style={{
                       display: 'flex',
                       alignItems: 'center',
@@ -515,6 +544,7 @@ export default function Workspace() {
                             key={s.id}
                             onContextMenu={(e) => {
                               e.preventDefault()
+                              setAgentCtxMenu(null)
                               setCtxMenu({ sessionId: s.id, agentId: agent.id, x: e.clientX, y: e.clientY })
                             }}
                             style={{
@@ -707,6 +737,29 @@ export default function Workspace() {
           onClose={() => setShowNewTask(false)}
         />
       )}
+
+      {importDialogAgent && (
+        <LocalSessionImportModal
+          agent={importDialogAgent}
+          projectId={currentProjectId ?? undefined}
+          onImported={(session) => handleLocalSessionImported(importDialogAgent.id, session)}
+          onClose={() => setImportDialogAgentId(null)}
+        />
+      )}
+
+      <ContextMenu
+        open={!!agentCtxMenu}
+        x={agentCtxMenu?.x ?? 0}
+        y={agentCtxMenu?.y ?? 0}
+        onClose={() => setAgentCtxMenu(null)}
+        items={agentCtxMenu && agentContextAgent ? [
+          {
+            label: canImportLocalSession(agentContextAgent.runtime) ? '导入本地会话' : '导入本地会话（仅 Codex/Claude）',
+            disabled: !canImportLocalSession(agentContextAgent.runtime),
+            onClick: () => setImportDialogAgentId(agentContextAgent.id),
+          },
+        ] : []}
+      />
 
       <ContextMenu
         open={!!ctxMenu}
