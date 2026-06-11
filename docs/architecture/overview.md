@@ -91,6 +91,8 @@ Web UI → WS "sessions.rename/delete/archive/close"
 
 Session 删除采用软删除，仅隐藏列表项并保留 `messages` / `session_events` 历史数据。项目工作台中的 `agents.list`、`sessions.list`、`tasks.list`、`sessions.create`、`tasks.create` 均应传递当前 `projectId`，避免跨项目混用 Agent、Task 和 Session。
 
+项目 Agent 可以从当前机器导入 Codex / Claude Code 的 JSONL 本地会话。导入只解析原生会话 id 并写入新的平台 `sessions.acp_session_id`，不会复制或解析历史 `messages`、`session_events`、`turn_process_items`；后续发送消息时按普通懒连接流程恢复该 ACP 会话。
+
 ## 目录功能映射
 
 | 目录 | 职责 | 核心文件 |

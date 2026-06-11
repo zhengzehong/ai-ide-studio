@@ -87,6 +87,31 @@ export interface SessionData {
   project_id?: string | null; title?: string | null; updated_at?: string | null; last_message_at?: string | null; archived_at?: string | null; deleted_at?: string | null
 }
 
+export interface LocalSessionCandidateInfo {
+  runtime: 'codex' | 'claude'
+  sessionId: string
+  path: string
+  label: string
+  updatedAt: string
+  cwd?: string
+}
+
+export interface ImportLocalSessionInput {
+  projectId?: string
+  jsonlPath?: string
+  externalSessionId?: string
+  sourcePath?: string
+  runtime?: 'codex' | 'claude'
+  cwd?: string
+  title?: string
+}
+
+export interface LocalSessionImportResult {
+  session: SessionData
+  warning: string | null
+  candidate: LocalSessionCandidateInfo
+}
+
 interface SessionCache {
   messages: MessageData[]; events: SessionEventData[]; usage: UsageInfo | null; turnUsage: TurnUsageInfo | null; capabilities: SessionCapabilities; plan: PlanEntry[]
   pendingPermissions: PermissionRequestInfo[]; pendingElicitations: ElicitationRequestInfo[]; streamingMessage: StreamingMessage | null
@@ -120,6 +145,8 @@ interface SessionStore {
   fetchEvents: (sessionId: string) => Promise<void>
   createSession: (agentId: string, taskId?: string, projectId?: string) => Promise<SessionData>
   copySession: (sessionId: string) => Promise<SessionData>
+  listLocalImportCandidates: (agentId: string, projectId?: string) => Promise<LocalSessionCandidateInfo[]>
+  importLocalSession: (agentId: string, input: ImportLocalSessionInput) => Promise<LocalSessionImportResult>
   renameSession: (sessionId: string, title: string) => Promise<void>
   deleteSession: (sessionId: string) => Promise<void>
   closeSession: (sessionId: string) => Promise<void>
@@ -685,6 +712,20 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           : state.copyingSourceSessionIds,
         lastCopyError: null,
       }))
+    }
+    return session
+  },
+
+  listLocalImportCandidates: async (agentId, projectId) => {
+    const msg: Record<string, unknown> = { type: 'sessions.listLocalImportCandidates', agentId }
+    if (projectId) msg.projectId = projectId
+    return await wsClient.request(msg) as LocalSessionCandidateInfo[]
+  },
+
+  importLocalSession: async (agentId, input) => {
+    const session = await wsClient.request({ type: 'sessions.importLocal', agentId, ...input }) as LocalSessionImportResult
+    if (!activeSessionsProjectId || session.session.project_id === activeSessionsProjectId) {
+      set((state) => ({ sessions: [...state.sessions.filter((s) => s.id !== session.session.id), session.session] }))
     }
     return session
   },

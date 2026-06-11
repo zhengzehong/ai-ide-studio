@@ -146,6 +146,34 @@ export interface SessionsCopyMsg extends ClientMessage {
   type: 'sessions.copy'
   sessionId: string
 }
+export type LocalSessionImportRuntime = Extract<AgentRuntime, 'claude' | 'codex'>
+export interface LocalSessionCandidateData {
+  runtime: LocalSessionImportRuntime
+  sessionId: string
+  path: string
+  label: string
+  updatedAt: string
+  cwd?: string
+}
+export interface SessionsListLocalImportCandidatesMsg extends ClientMessage {
+  type: 'sessions.listLocalImportCandidates'
+  agentId: string
+  projectId?: string
+  codexHome?: string
+  claudeHome?: string
+  limit?: number
+}
+export interface SessionsImportLocalMsg extends ClientMessage {
+  type: 'sessions.importLocal'
+  agentId: string
+  projectId?: string
+  jsonlPath?: string
+  externalSessionId?: string
+  sourcePath?: string
+  runtime?: LocalSessionImportRuntime
+  cwd?: string
+  title?: string
+}
 export interface SessionsRenameMsg extends ClientMessage {
   type: 'sessions.rename'
   sessionId: string
