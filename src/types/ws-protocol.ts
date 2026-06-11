@@ -121,6 +121,16 @@ export interface AgentsDeleteMsg extends ClientMessage {
   type: 'agents.delete'
   agentId: string
 }
+export interface GlobalAssistantGetMsg extends ClientMessage {
+  type: 'globalAssistant.get'
+}
+export interface GlobalAssistantSetTemplateMsg extends ClientMessage {
+  type: 'globalAssistant.setTemplate'
+  templateId: string
+}
+export interface GlobalAssistantTouchMsg extends ClientMessage {
+  type: 'globalAssistant.touch'
+}
 export interface SessionsListMsg extends ClientMessage {
   type: 'sessions.list'
   agentId?: string

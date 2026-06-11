@@ -2,6 +2,7 @@ import { acpHost } from '../../acp/host.js'
 import { events } from '../../core/events.js'
 import { createChildLogger } from '../../core/logger.js'
 import { sessionManager } from '../../core/sessions.js'
+import { globalAssistantStore } from '../../store/global-assistant.js'
 import { projectStore } from '../../store/projects.js'
 import { eventStore, messageStore, sessionStore } from '../../store/sessions.js'
 import { parseToolCallsJson, selectToolCallDetail, summarizeToolCalls } from '../../store/tool-call-history.js'
@@ -16,6 +17,8 @@ const log = createChildLogger('rpc-sessions')
 function resolveSessionProjectContext(sessionId: string): { projectId?: string; cwd?: string } {
   const session = sessionStore.get(sessionId)
   if (!session) return {}
+  const globalWorkspaceDir = globalAssistantStore.workspaceForSession(sessionId)
+  if (globalWorkspaceDir) return { projectId: session.project_id ?? undefined, cwd: globalWorkspaceDir }
   const project = session.project_id ? projectStore.get(session.project_id) : undefined
   return { projectId: session.project_id ?? undefined, cwd: project?.work_dir }
 }

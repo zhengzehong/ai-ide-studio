@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Bot, Pencil, Plus, Rocket, Search as SearchIcon, Trash2 } from 'lucide-react'
+import { Bot, Loader2, Pencil, Plus, Rocket, Search as SearchIcon, Sparkles, Trash2 } from 'lucide-react'
 import { useTemplateStore, type TemplateData } from '../stores/template.store'
 import { useAgentStore } from '../stores/agent.store'
+import { useGlobalAssistantStore } from '../stores/global-assistant.store'
 import { useProjectStore } from '../stores/project.store'
 import { DeployTemplateModal } from '../components/agent-square/DeployTemplateModal'
 import { TemplateEditor } from '../components/agent-square/TemplateEditor'
@@ -18,6 +19,8 @@ export default function AgentSquare() {
   const getSkills = useTemplateStore((s) => s.getSkills)
   const deployTemplate = useAgentStore((s) => s.deployTemplate)
   const fetchAgents = useAgentStore((s) => s.fetchAgents)
+  const setGlobalAssistantFromTemplate = useGlobalAssistantStore((s) => s.setFromTemplate)
+  const settingTemplateIds = useGlobalAssistantStore((s) => s.settingTemplateIds)
   const projects = useProjectStore((s) => s.projects)
   const currentProjectId = useProjectStore((s) => s.currentProjectId)
   const selectProject = useProjectStore((s) => s.selectProject)
@@ -89,6 +92,18 @@ export default function AgentSquare() {
               {skills.length > 0 && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 12 }}>{skills.map((s) => <span key={s} style={skillTag}>{s}</span>)}</div>}
               <div style={{ display: 'flex', gap: 8, marginTop: 'auto', flexWrap: 'wrap' }}>
                 <button onClick={() => setDeploying(tpl)} style={btnPrimarySmall}><Rocket size={13} /> 添加到项目</button>
+                <button
+                  onClick={async () => {
+                    await setGlobalAssistantFromTemplate(tpl.id)
+                    await fetchAgents()
+                    setSuccessText(`已将「${tpl.name}」设为全局助理，可从右侧竖条打开。`)
+                  }}
+                  disabled={!!settingTemplateIds[tpl.id]}
+                  style={btnOutline}
+                >
+                  {settingTemplateIds[tpl.id] ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Sparkles size={13} />}
+                  设为全局助理
+                </button>
                 <button onClick={() => setEditing(tpl)} style={btnOutline}><Pencil size={13} /> 编辑模板</button>
                 {!tpl.is_builtin && <button onClick={() => { if (confirm(`确定删除模板「${tpl.name}」吗？`)) deleteTemplate(tpl.id) }} style={{ ...btnOutline, color: 'var(--red, #ef4444)', borderColor: 'var(--red, #ef4444)' }}><Trash2 size={13} /> 删除</button>}
               </div>

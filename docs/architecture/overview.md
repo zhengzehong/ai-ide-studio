@@ -108,6 +108,7 @@ Session 删除采用软删除，仅隐藏列表项并保留 `messages` / `sessio
 
 - `projectId` 是项目级实体与项目内 Session/Task 的核心边界。
 - `agent_templates` 是全局模板库；`agents` 是部署到具体项目后的运行时实例。
+- `global_assistant` 保存应用唯一全局助理绑定；它复用普通 Agent/Session，但 ACP `cwd` 来自 `global_assistant.workspace_dir`。
 - Team 是项目级协作容器；TeamMember 绑定项目级 Agent 与当前团队 Session，Team Task 复用 `tasks.team_id`。
 - `ws-handler.ts` 只负责 WS 连接、广播、JSON 解析和 dispatch；新增 RPC 必须放到 `src/gateway/rpc/*` 对应领域模块。
 - SQLite schema 由 `src/store/migrator.ts` 与 `src/store/migrations/*` 管理；`db.ts` 不再承载大段建表/升级逻辑。

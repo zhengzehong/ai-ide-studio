@@ -1,6 +1,7 @@
 import { sessionStore, messageStore, eventStore, type SessionRow } from '../store/sessions.js'
 import { taskStore } from '../store/tasks.js'
 import { agentStore } from '../store/agents.js'
+import { globalAssistantStore } from '../store/global-assistant.js'
 import { projectStore } from '../store/projects.js'
 import { teamMemberStore } from '../store/teams.js'
 import { acpHost } from '../acp/host.js'
@@ -396,6 +397,7 @@ async function sendPromptNow(session: SessionRow, content: string, images?: Imag
       session.agent_id,
       session.task_id ?? undefined,
       session.project_id ?? undefined,
+      session.id,
     )
     recordPromptProgress(sessionId, 'acp.session.ensure.started')
     log.info({ sessionId, agentId: session.agent_id, turnId, acpSessionId: session.acp_session_id, projectId: projectContext.projectId, cwd: projectContext.cwd }, 'ACP ensure session start')
@@ -489,11 +491,15 @@ function resolveSessionProjectContext(
   agentId: string,
   taskId?: string,
   existingProjectId?: string,
+  sessionId?: string,
 ): { projectId?: string; cwd?: string } {
   const agent = agentStore.get(agentId)
   if (!agent) throw new Error(`Agent not found: ${agentId}`)
   const task = taskId ? taskStore.get(taskId) : undefined
   if (taskId && !task) throw new Error(`Task not found: ${taskId}`)
+
+  const globalWorkspaceDir = sessionId ? globalAssistantStore.workspaceForSession(sessionId) : undefined
+  if (globalWorkspaceDir) return { projectId: existingProjectId, cwd: globalWorkspaceDir }
 
   const projectIds = [existingProjectId, agent.project_id ?? undefined, task?.project_id ?? undefined].filter(Boolean)
   const projectId = projectIds[0]
