@@ -23,7 +23,6 @@ export function SubscriptionCreateModal({ open, projectId, onClose }: Props) {
   const [name, setName] = useState('')
   const [categoryId, setCategoryId] = useState('ai.hot_project')
   const [consumerAgentId, setConsumerAgentId] = useState('')
-  const [minConfidence, setMinConfidence] = useState(70)
   const [priority, setPriority] = useState('')
   const [sourceType, setSourceType] = useState('')
   const [enabled, setEnabled] = useState(true)
@@ -63,7 +62,6 @@ export function SubscriptionCreateModal({ open, projectId, onClose }: Props) {
         consumerLabel: agent?.name,
         actionMode: 'create_pending',
         filter: {
-          minConfidence: minConfidence / 100,
           ...(priority ? { priority } : {}),
           ...(sourceType.trim() ? { sourceType: sourceType.trim() } : {}),
         },
@@ -86,7 +84,6 @@ export function SubscriptionCreateModal({ open, projectId, onClose }: Props) {
   const reset = () => {
     setName('')
     setConsumerAgentId('')
-    setMinConfidence(70)
     setPriority('')
     setSourceType('')
     setEnabled(true)
@@ -124,18 +121,12 @@ export function SubscriptionCreateModal({ open, projectId, onClose }: Props) {
             </select>
           </label>
           {projectAgents.length === 0 && <div className="ec-form-error">当前项目还没有可消费事件的 Agent，请先在 Agent 广场创建或部署 Agent。</div>}
-          <div className="ec-form-grid">
-            <label className="ec-field">
-              <span>最低置信度：{minConfidence}%</span>
-              <input type="range" min="0" max="100" value={minConfidence} onChange={(e) => setMinConfidence(Number(e.target.value))} />
-            </label>
-            <label className="ec-field">
-              <span>优先级过滤</span>
-              <select value={priority} onChange={(e) => setPriority(e.target.value)}>
-                {priorityOptions.map((item) => <option key={item.value || 'all'} value={item.value}>{item.label}</option>)}
-              </select>
-            </label>
-          </div>
+          <label className="ec-field">
+            <span>优先级过滤</span>
+            <select value={priority} onChange={(e) => setPriority(e.target.value)}>
+              {priorityOptions.map((item) => <option key={item.value || 'all'} value={item.value}>{item.label}</option>)}
+            </select>
+          </label>
           <label className="ec-field">
             <span>来源类型过滤</span>
             <input value={sourceType} onChange={(e) => setSourceType(e.target.value)} placeholder="留空表示不限，例如 manual / agent / schedule" />

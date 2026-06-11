@@ -87,6 +87,46 @@ describe('event center RPC', () => {
     expect(asRecords(page.items)).toHaveLength(1)
     expect(asRecords(page.items)[0].title).toContain('Agent')
   })
+
+  test('deletes unused categories but rejects categories referenced by events', async () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const rpc = createRpc()
+
+    await rpc.send({
+      type: 'eventCategories.create',
+      categoryId: 'custom.topic',
+      name: '自定义主题',
+      schema: { type: 'object', properties: { reason: { type: 'string' } } },
+    })
+    expect(rpc.last().type).toBe('result')
+
+    await rpc.send({
+      type: 'eventCategories.delete',
+      categoryId: 'custom.topic',
+    })
+    expect(rpc.last().type).toBe('result')
+    expect(asRecord(rpc.last().data).deleted).toBe(true)
+
+    await rpc.send({
+      type: 'eventCategories.create',
+      categoryId: 'custom.referenced',
+      name: '已使用类别',
+      schema: { type: 'object', properties: { reason: { type: 'string' } } },
+    })
+    await rpc.send({
+      type: 'events.create',
+      projectId: project.id,
+      categoryId: 'custom.referenced',
+      title: '保留引用',
+    })
+
+    await rpc.send({
+      type: 'eventCategories.delete',
+      categoryId: 'custom.referenced',
+    })
+    expect(rpc.last().type).toBe('error')
+    expect(rpc.last().message).toContain('已有事件或订阅使用')
+  })
 })
 
 function createRpc(): {

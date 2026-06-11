@@ -79,6 +79,7 @@ ws://localhost:18800
 | `eventCategories.create` | `{ categoryId, name, description?, schema?, defaultPriority?, allowedWriters?, allowedConsumers?, enabled? }` | `EventCategory` | 创建或更新事件类别 |
 | `eventCategories.update` | `{ categoryId, ...fields }` | `EventCategory` | 更新事件类别 |
 | `eventCategories.toggle` | `{ categoryId, enabled }` | `EventCategory` | 启用或停用事件类别 |
+| `eventCategories.delete` | `{ categoryId }` | `{ categoryId, deleted }` | 删除未被事件或订阅引用的事件类别；已有引用时应停用而不是删除 |
 | `events.list` | `{ projectId?, categoryId?, status?, keyword?, limit?, offset? }` | `EventCenterEvent[]` 或 `{ items, total, limit, offset }` | 查询事件；传入 `limit`、`offset` 或 `keyword` 时返回分页结果 |
 | `events.get` | `{ eventId }` | `EventCenterEvent & { consumptions }` | 获取事件详情和消费记录 |
 | `events.create` | `{ projectId?, categoryId, title, summary?, sourceType?, sourceId?, sourceLabel?, priority?, confidence?, tags?, payload?, evidence?, dedupeKey?, createdByAgentId? }` | `EventCenterEvent` | 写入事件 |

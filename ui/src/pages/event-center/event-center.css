@@ -560,11 +560,9 @@
 .ec-event-table th:nth-child(3),
 .ec-event-table td:nth-child(3) { width: 120px; }
 .ec-event-table th:nth-child(5),
-.ec-event-table td:nth-child(5) { width: 120px; }
+.ec-event-table td:nth-child(5) { width: 220px; }
 .ec-event-table th:nth-child(6),
-.ec-event-table td:nth-child(6) { width: 78px; }
-.ec-event-table th:nth-child(7),
-.ec-event-table td:nth-child(7) { width: 112px; }
+.ec-event-table td:nth-child(6) { width: 112px; }
 
 .ec-event-table td {
   vertical-align: middle;
@@ -701,6 +699,27 @@
   gap: 12px;
 }
 
+.ec-form-section {
+  border-top: 1px solid var(--border-light);
+  padding-top: 14px;
+}
+
+.ec-form-section h3,
+.ec-section-head h3 {
+  margin: 0;
+  color: var(--text-3);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ec-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
 .ec-checkbox {
   display: flex;
   align-items: center;
@@ -713,6 +732,11 @@
 .ec-checkbox input {
   width: 16px;
   height: 16px;
+}
+
+.ec-checkbox--field {
+  align-self: end;
+  min-height: 32px;
 }
 
 .ec-code-input {
@@ -737,6 +761,77 @@
   padding: 10px 12px;
   font-size: 12px;
   line-height: 1.6;
+}
+
+.ec-field-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ec-field-card {
+  display: grid;
+  grid-template-columns: minmax(96px, 0.8fr) minmax(0, 1.2fr);
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-1);
+  padding: 9px 10px;
+  font-size: 13px;
+}
+
+.ec-field-card strong {
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ec-field-card span {
+  color: var(--text-3);
+  overflow-wrap: anywhere;
+}
+
+.ec-field-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ec-field-editor-head,
+.ec-field-editor-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) minmax(120px, 1fr) minmax(160px, 1.4fr) 48px 32px;
+  gap: 8px;
+  align-items: center;
+}
+
+.ec-field-editor-head {
+  color: var(--text-3);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ec-field-editor-row input {
+  min-width: 0;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-0);
+  color: var(--text-1);
+  outline: none;
+  padding: 0 10px;
+  font-size: 13px;
+}
+
+.ec-mini-check {
+  display: flex;
+  justify-content: center;
+}
+
+.ec-mini-check input {
+  width: 16px;
+  height: 16px;
 }
 
 .ec-perm-row {
