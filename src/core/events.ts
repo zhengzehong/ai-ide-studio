@@ -25,6 +25,7 @@ export type AppEvents = {
   'task:created': { taskId: string; title: string; assignAgentId?: string }
   'rule:update': { ruleId: string; data: Record<string, unknown> }
   'timeline:updated': { sessionId: string }
+  'event-center:update': Record<string, unknown>
 }
 
 const mitt = mittModule as unknown as typeof import('mitt').default

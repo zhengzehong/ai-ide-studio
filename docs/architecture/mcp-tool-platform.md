@@ -12,7 +12,7 @@
 - `tools/call` 再次检查方法是否可见，不可见则拒绝并写审计。
 - HTTP MCP 和 stdio 回退共用 `ToolRuntime`。
 - 已新增 `tool_contexts`、`tool_call_audit` 两张 SQLite 表。
-- 已内置 `core.project.*`、`core.agent.*`、`core.session.*`、`core.task.*`、`team.*` 平台方法。
+- 已内置 `core.project.*`、`core.agent.*`、`core.session.*`、`core.task.*`、`team.*`、`event.*` 平台方法。
 - `team.*` 只作为内置方法注册，不做全局默认绑定；需要按 Agent 显式绑定或套用 Team Profile。
 - ToolContext 支持 `projectId`、`agentId`、`sessionId`，以及团队协作场景的 `teamId` / `teamMemberId`。
 - 第三方 MCP 仍保持直接注入，不在第一版做方法级代理。
@@ -175,6 +175,24 @@ revokedAt
 - 返回 MCP 格式结果
 
 业务 handler 不应该绕过 ToolRuntime 被直接暴露给 MCP。
+
+### 3.7 Event Center Tools
+
+事件中心通过 `event.*` 方法暴露给 Agent，用于“发现事件 -> 订阅消费 -> 写回结果 -> 转任务”的闭环：
+
+| 方法 | 用途 |
+|------|------|
+| `event.category.list` | 列出可见事件类别和 payload schema 提示 |
+| `event.create` | 写入一条分类事件 |
+| `event.list` | 查询事件中心事件 |
+| `event.get` | 查看事件详情和消费记录 |
+| `event.claim_next` | 领取当前 Agent 订阅的下一条待消费事件 |
+| `event.consume` | 提交消费结果 |
+| `event.convert_to_task` | 把事件转成普通任务 |
+| `event.ignore` | 忽略事件 |
+| `event.subscription.create` | 创建事件订阅规则 |
+
+`event.*` handler 只调用 `core/event-center`，工具上下文中的 `projectId` 和 `agentId` 是默认边界；模型可传的 `projectId` 只在没有会话项目上下文时作为兼容输入。
 
 ## 4. 目录结构建议
 

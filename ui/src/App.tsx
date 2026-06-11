@@ -5,6 +5,7 @@ import Dashboard from './pages/Dashboard'
 import Workspace from './pages/Workspace'
 import TaskBoard from './pages/TaskBoard'
 import Schedule from './pages/Schedule'
+import EventCenter from './pages/EventCenter'
 import AgentSquare from './pages/AgentSquare'
 import SkillCenter from './pages/SkillCenter'
 import ToolManager from './pages/ToolManager'
@@ -77,6 +78,7 @@ export default function App() {
           <Route path="/workspace" element={<Workspace />} />
           <Route path="/tasks" element={<TaskBoard />} />
           <Route path="/schedule" element={<Schedule />} />
+          <Route path="/events" element={<EventCenter />} />
           <Route path="/settings" element={<Settings />} />
         </Route>
       </Routes>

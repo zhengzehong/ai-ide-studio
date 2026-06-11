@@ -553,5 +553,6 @@ export type ServerMessage =
   | { type: 'team:update'; teamId: string; sessionIds: string[]; data: Record<string, unknown> }
   | { type: 'rule:update'; ruleId: string; data: Record<string, unknown> }
   | { type: 'timeline:updated'; sessionId: string }
+  | { type: 'event-center:update'; data: Record<string, unknown> }
   | { type: 'result'; requestId?: string; data: unknown }
   | { type: 'error'; requestId?: string; message: string }

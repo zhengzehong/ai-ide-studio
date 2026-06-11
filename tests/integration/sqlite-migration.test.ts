@@ -48,10 +48,28 @@ describe('SQLite 迁移', () => {
 
     expect(tables).toEqual(['global_assistant', 'model_profiles', 'schema_migrations', 'tool_call_audit', 'tool_contexts'])
     const messageColumns = getDb().prepare<[], { name: string }>('PRAGMA table_info(messages)').all().map(row => row.name)
+    const eventCenterTables = getDb().prepare<[], { name: string }>(`
+      SELECT name FROM sqlite_master
+      WHERE type = 'table' AND name IN (
+        'event_categories',
+        'event_center_events',
+        'event_subscriptions',
+        'event_consumptions',
+        'event_task_links'
+      )
+      ORDER BY name
+    `).all().map(row => row.name)
 
-    expect(migrations).toEqual(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011', '012', '013'])
+    expect(migrations).toEqual(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011', '012', '013', '014'])
     expect(messageColumns).toContain('file_changes_json')
     expect(messageColumns).toContain('process_item_count')
+    expect(eventCenterTables).toEqual([
+      'event_categories',
+      'event_center_events',
+      'event_consumptions',
+      'event_subscriptions',
+      'event_task_links',
+    ])
   })
 
   test('从 JSON 迁移到 SQLite 并保留所有数据', () => {

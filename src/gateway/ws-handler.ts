@@ -120,6 +120,10 @@ events.on('timeline:updated', (ev) => {
   broadcastToAll({ type: 'timeline:updated', sessionId: ev.sessionId })
 })
 
+events.on('event-center:update', (ev) => {
+  broadcastToAll({ type: 'event-center:update', data: ev })
+})
+
 function send(ws: WebSocket, msg: ServerMessage): void {
   if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg))
 }
