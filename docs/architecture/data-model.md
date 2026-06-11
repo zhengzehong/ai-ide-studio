@@ -116,6 +116,21 @@ backlog → executing → reviewing → completed
 | deleted_at | TEXT | 软删除时间；非空时默认列表隐藏 |
 | runtime_preferences_json | TEXT | Session runtime preferences JSON；保存 `modelId`、`modeId` 和 session config 选择 |
 
+### global_assistant
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| id | TEXT PK | 固定为 `default`，表示当前应用唯一全局助理绑定 |
+| agent_id | TEXT FK | 全局助理使用的普通 Agent 实例 |
+| session_id | TEXT FK | 全局助理复用的普通 Session |
+| workspace_dir | TEXT | 全局助理专属工作目录 |
+| enabled | INTEGER | 是否启用当前绑定 |
+| created_at | TEXT | ISO 时间戳 |
+| updated_at | TEXT | ISO 时间戳 |
+| last_opened_at | TEXT | 最近打开时间 |
+
+全局助理只保留一个活动绑定。它复用 `agents` 和 `sessions` 的既有运行时能力，但 `agents.project_id` 与 `sessions.project_id` 保持为空；创建或恢复 ACP Session 时，后端优先使用 `global_assistant.workspace_dir` 作为 runtime `cwd`。
+
 ### messages
 
 | 列 | 类型 | 说明 |

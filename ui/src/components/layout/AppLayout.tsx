@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { useAgentStore } from '../../stores/agent.store';
 import { useProjectStore, type ProjectData } from '../../stores/project.store';
+import { GlobalAssistantRail } from '../global-assistant/GlobalAssistantRail';
 import './AppLayout.css';
 
 const globalNav = [
@@ -217,6 +218,7 @@ export default function AppLayout() {
           <Outlet />
         </main>
       </div>
+      <GlobalAssistantRail />
     </div>
   );
 }

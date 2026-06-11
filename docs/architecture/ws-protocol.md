@@ -23,6 +23,14 @@ ws://localhost:18800
 | `agents.list` | `{ projectId? }` | `Agent[]` | 列出 Agent，可按项目过滤 |
 | `agents.create` | `{ type, name, runtime, config? }` | `Agent` | 创建全局/兼容 Agent；项目工作台优先使用模板部署或自定义项目 Agent |
 
+### 全局助理
+
+| 方法 | 参数 | 返回 | 说明 |
+|------|------|------|------|
+| `globalAssistant.get` | `{}` | `{ assistant, agent, session } \| null` | 获取当前全局助理绑定 |
+| `globalAssistant.setTemplate` | `{ templateId }` | `{ assistant, agent, session }` | 从 Agent 模板设置唯一全局助理，并创建或复用普通 Agent/Session |
+| `globalAssistant.touch` | `{}` | `{ assistant, agent, session } \| null` | 更新全局助理最近使用时间并返回当前绑定 |
+
 ### Session 管理
 
 | 方法 | 参数 | 返回 | 说明 |

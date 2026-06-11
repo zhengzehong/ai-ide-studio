@@ -10,6 +10,7 @@ import { timelineSummariesMigration } from './009-timeline-summaries.js'
 import { turnProcessItemsMigration } from './010-turn-process-items.js'
 import { widgetStateMigration } from './011-widget-state.js'
 import { sessionRuntimePreferencesMigration } from './012-session-runtime-preferences.js'
+import { globalAssistantMigration } from './013-global-assistant.js'
 import type { Migration } from '../migrator.js'
 
 export const migrations: Migration[] = [
@@ -25,4 +26,5 @@ export const migrations: Migration[] = [
   turnProcessItemsMigration,
   widgetStateMigration,
   sessionRuntimePreferencesMigration,
+  globalAssistantMigration,
 ]
