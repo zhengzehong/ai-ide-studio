@@ -133,4 +133,77 @@ describe('event center service', () => {
     expect(eventConsumptionStore.listByEvent(first.id)[0].status).toBe('pending')
     expect(sendPrompt).toHaveBeenCalledWith(result.sessionId, expect.stringContaining(targetConsumption.id))
   })
+
+  test('enforces category writer and consumer allow lists', () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const allowedWriter = agentStore.create({ name: 'Writer', type: 'research', runtime: 'mock', projectId: project.id })
+    const blockedWriter = agentStore.create({ name: 'Blocked Writer', type: 'research', runtime: 'mock', projectId: project.id })
+    const allowedConsumer = agentStore.create({ name: 'Consumer', type: 'pm', runtime: 'mock', projectId: project.id })
+    const blockedConsumer = agentStore.create({ name: 'Blocked Consumer', type: 'pm', runtime: 'mock', projectId: project.id })
+
+    eventCenterService.upsertCategory({
+      id: 'ai.hot_project',
+      name: 'AI hot project',
+      allowedWriters: [allowedWriter.id],
+      allowedConsumers: [allowedConsumer.id],
+    })
+
+    expect(() => eventCenterService.createEvent({
+      projectId: project.id,
+      categoryId: 'ai.hot_project',
+      title: 'Blocked event',
+      createdByAgentId: blockedWriter.id,
+    })).toThrow(/not allowed/i)
+
+    expect(() => eventCenterService.createSubscription({
+      projectId: project.id,
+      name: 'Blocked subscription',
+      categoryId: 'ai.hot_project',
+      consumerAgentId: blockedConsumer.id,
+    })).toThrow(/not allowed/i)
+
+    eventCenterService.createSubscription({
+      projectId: project.id,
+      name: 'Allowed subscription',
+      categoryId: 'ai.hot_project',
+      consumerAgentId: allowedConsumer.id,
+    })
+    const event = eventCenterService.createEvent({
+      projectId: project.id,
+      categoryId: 'ai.hot_project',
+      title: 'Allowed event',
+      createdByAgentId: allowedWriter.id,
+    })
+
+    expect(eventConsumptionStore.listByEvent(event.id).map((item) => item.consumer_agent_id)).toEqual([allowedConsumer.id])
+  })
+
+  test('does not let an agent claim events after consumer permission is removed', () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const writer = agentStore.create({ name: 'Writer', type: 'research', runtime: 'mock', projectId: project.id })
+    const consumer = agentStore.create({ name: 'Consumer', type: 'pm', runtime: 'mock', projectId: project.id })
+    const replacement = agentStore.create({ name: 'Replacement', type: 'pm', runtime: 'mock', projectId: project.id })
+
+    eventCenterService.createSubscription({
+      projectId: project.id,
+      name: 'Allowed subscription',
+      categoryId: 'ai.hot_project',
+      consumerAgentId: consumer.id,
+    })
+    const event = eventCenterService.createEvent({
+      projectId: project.id,
+      categoryId: 'ai.hot_project',
+      title: 'Permission can change',
+      createdByAgentId: writer.id,
+    })
+
+    eventCenterService.upsertCategory({
+      id: 'ai.hot_project',
+      name: 'AI hot project',
+      allowedConsumers: [replacement.id],
+    })
+
+    expect(eventCenterService.claimNextEvent({ projectId: project.id, agentId: consumer.id })).toBeNull()
+    expect(eventConsumptionStore.listByEvent(event.id)[0].status).toBe('pending')
+  })
 })

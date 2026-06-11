@@ -81,29 +81,25 @@ export const eventConsumptionStore = {
       .all(eventId)
   },
 
-  claimNext(input: { projectId?: string; agentId: string }): EventConsumptionRow | undefined {
+  listPendingForAgent(input: { projectId?: string; agentId: string }): EventConsumptionRow[] {
     const db = getDb()
-    const row = input.projectId
+    return input.projectId
       ? db.prepare<[string, string], EventConsumptionRow>(`
           SELECT * FROM event_consumptions
           WHERE status = 'pending' AND consumer_agent_id = ? AND project_id = ?
           ORDER BY created_at ASC
-          LIMIT 1
-        `).get(input.agentId, input.projectId)
+        `).all(input.agentId, input.projectId)
       : db.prepare<[string], EventConsumptionRow>(`
           SELECT * FROM event_consumptions
           WHERE status = 'pending' AND consumer_agent_id = ?
           ORDER BY created_at ASC
-          LIMIT 1
-        `).get(input.agentId)
+        `).all(input.agentId)
+  },
+
+  claimNext(input: { projectId?: string; agentId: string }): EventConsumptionRow | undefined {
+    const row = eventConsumptionStore.listPendingForAgent(input)[0]
     if (!row) return undefined
-    const now = new Date().toISOString()
-    db.prepare(`
-      UPDATE event_consumptions
-      SET status = 'running', claimed_at = ?, updated_at = ?
-      WHERE id = ? AND status = 'pending'
-    `).run(now, now, row.id)
-    return eventConsumptionStore.get(row.id)
+    return eventConsumptionStore.claim(row.id)
   },
 
   claim(id: string): EventConsumptionRow {
