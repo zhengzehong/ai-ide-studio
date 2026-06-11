@@ -78,6 +78,18 @@ export const eventCenterService = {
     return category
   },
 
+  deleteCategory(id: string): { categoryId: string; deleted: boolean } {
+    const category = eventCategoryStore.get(id)
+    if (!category) throw new Error(`事件类别不存在: ${id}`)
+    const references = eventCategoryStore.referenceCounts(id)
+    if (references.events > 0 || references.subscriptions > 0) {
+      throw new Error('已有事件或订阅使用该类别，请先停用类别')
+    }
+    const deleted = eventCategoryStore.remove(id)
+    emitUpdate({ categoryId: id, event: 'category.deleted' })
+    return { categoryId: id, deleted }
+  },
+
   listEvents(filter?: EventListFilter): EventCenterEventRow[] {
     return eventCenterEventStore.list(filter)
   },

@@ -52,6 +52,14 @@ export const eventCenterRpcHandlers: RpcHandlerMap = {
     sendResult(eventCenterService.toggleCategory(msg.categoryId as string, msg.enabled as boolean))
   },
 
+  'eventCategories.delete'(msg, { sendResult, sendError }) {
+    try {
+      sendResult(eventCenterService.deleteCategory(msg.categoryId as string))
+    } catch (err) {
+      sendError(err instanceof Error ? err.message : '删除事件类别失败')
+    }
+  },
+
   'events.list'(msg, { sendResult }) {
     const filter = {
       projectId: msg.projectId as string | undefined,

@@ -1,80 +1,109 @@
-import { Plus } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { Edit3, Plus, Power, Trash2 } from 'lucide-react'
+import { useState } from 'react'
 import { useEventCenterStore, type EventCategoryData } from '../../stores/event-center.store'
-import { parseJson } from './helpers'
+import { categoryFields, PRIORITY_META } from './helpers'
+import { CategoryCreateModal } from './CategoryCreateModal'
 
 export function CategoryPanel() {
   const categories = useEventCenterStore((s) => s.categories)
-  const createCategory = useEventCenterStore((s) => s.createCategory)
+  const toggleCategory = useEventCenterStore((s) => s.toggleCategory)
+  const deleteCategory = useEventCenterStore((s) => s.deleteCategory)
   const [selectedId, setSelectedId] = useState<string | null>(categories[0]?.id ?? null)
-  const [name, setName] = useState('')
+  const [editing, setEditing] = useState<EventCategoryData | null>(null)
+  const [creating, setCreating] = useState(false)
+  const [error, setError] = useState('')
   const selected = categories.find((category) => category.id === selectedId) ?? categories[0]
 
-  const fields = useMemo(() => {
-    const schema = parseJson<{ properties?: Record<string, unknown> }>(selected?.schema_json, {})
-    return Object.keys(schema.properties ?? {})
-  }, [selected?.schema_json])
+  const toggleSelected = async () => {
+    if (!selected) return
+    setError('')
+    await toggleCategory(selected.id, selected.enabled !== 1).catch((err: unknown) => setError(errorMessage(err, '切换类别状态失败')))
+  }
 
-  const addCategory = async () => {
-    if (!name.trim()) return
-    const id = name.trim().toLowerCase().replace(/\s+/g, '.')
-    const category = await createCategory({
-      categoryId: id,
-      name: name.trim(),
-      description: '自定义事件类别',
-      schema: { type: 'object', properties: { title: { type: 'string' } } },
-    })
-    setSelectedId(category.id)
-    setName('')
+  const deleteSelected = async () => {
+    if (!selected) return
+    setError('')
+    await deleteCategory(selected.id).catch((err: unknown) => setError(errorMessage(err, '删除类别失败')))
   }
 
   return (
     <div className="ec-manage">
       <section className="ec-table-pane">
-        <div className="ec-list-toolbar">
-          <input className="ec-inline-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="新类别名称，例如 AI 趋势" />
-          <button className="ec-btn ec-btn--primary" onClick={addCategory}><Plus size={14} />新建类别</button>
+        <div className="ec-list-toolbar ec-list-toolbar--between">
+          <div>
+            <strong>事件类别</strong>
+            <span>管理事件分类和每类事件需要填写的字段。</span>
+          </div>
+          <button className="ec-btn ec-btn--primary" onClick={() => setCreating(true)}><Plus size={14} />新建类别</button>
         </div>
         <div className="ec-table-scroll">
           <table className="ec-table">
-            <thead><tr><th>类别</th><th>字段模板</th><th>状态</th></tr></thead>
+            <thead><tr><th>类别</th><th>字段模板</th><th>默认优先级</th><th>状态</th></tr></thead>
             <tbody>
               {categories.map((category) => <CategoryRow key={category.id} category={category} active={category.id === selected?.id} onClick={() => setSelectedId(category.id)} />)}
+              {categories.length === 0 && <tr><td colSpan={4}><div className="ec-empty">暂无事件类别</div></td></tr>}
             </tbody>
           </table>
         </div>
       </section>
       <aside className="ec-side-panel">
-        {selected && (
+        {selected ? (
           <>
             <div className="ec-detail-head">
-              <span className="ec-chip ec-chip--blue">{selected.id}</span>
+              <span className={selected.enabled ? 'ec-chip ec-chip--green' : 'ec-chip'}>{selected.enabled ? '启用' : '停用'}</span>
               <h2>{selected.name}</h2>
-              <p>{selected.description || '暂无描述'}</p>
+              <p>{selected.description || '暂无说明'}</p>
             </div>
             <div className="ec-detail-body">
-              <section className="ec-section"><h3>字段模板</h3><div className="ec-chip-list">{fields.map((field) => <span className="ec-chip" key={field}>{field}</span>)}</div></section>
-              <section className="ec-section"><h3>权限</h3><PermissionChips title="允许写入" value={selected.allowed_writers_json} /><PermissionChips title="允许消费" value={selected.allowed_consumers_json} /></section>
-              <section className="ec-section"><h3>schema_json</h3><pre className="ec-code">{JSON.stringify(parseJson(selected.schema_json, {}), null, 2)}</pre></section>
+              {error && <div className="ec-form-error">{error}</div>}
+              <section className="ec-section">
+                <h3>字段模板</h3>
+                <div className="ec-field-list">
+                  {categoryFields(selected).map((field) => (
+                    <div className="ec-field-card" key={field.key}>
+                      <strong>{field.label}</strong>
+                      <span>{field.key}{field.required ? ' · 必填' : ''}</span>
+                    </div>
+                  ))}
+                  {categoryFields(selected).length === 0 && <div className="ec-muted">暂无字段模板</div>}
+                </div>
+              </section>
+              <section className="ec-section">
+                <h3>处理设置</h3>
+                <div className="ec-kv">
+                  <div className="ec-kv-row"><span>类别标识</span><b>{selected.id}</b></div>
+                  <div className="ec-kv-row"><span>默认优先级</span><b>{PRIORITY_META[selected.default_priority]?.label ?? selected.default_priority}</b></div>
+                </div>
+              </section>
+            </div>
+            <div className="ec-detail-actions">
+              <button className="ec-btn" onClick={() => setEditing(selected)}><Edit3 size={14} />编辑</button>
+              <button className="ec-btn" onClick={toggleSelected}><Power size={14} />{selected.enabled ? '停用' : '启用'}</button>
+              <button className="ec-btn ec-btn--danger" onClick={deleteSelected}><Trash2 size={14} />删除</button>
             </div>
           </>
+        ) : (
+          <div className="ec-empty">请选择一个事件类别</div>
         )}
       </aside>
+      <CategoryCreateModal open={creating} onClose={() => setCreating(false)} />
+      <CategoryCreateModal open={Boolean(editing)} category={editing ?? undefined} onClose={() => setEditing(null)} />
     </div>
   )
 }
 
 function CategoryRow({ category, active, onClick }: { category: EventCategoryData; active: boolean; onClick: () => void }) {
-  const schema = parseJson<{ properties?: Record<string, unknown> }>(category.schema_json, {})
+  const fields = categoryFields(category)
   return (
     <tr className={active ? 'active' : ''} onClick={onClick}>
       <td><strong>{category.name}</strong><small>{category.id}</small></td>
-      <td>{Object.keys(schema.properties ?? {}).length} 个字段</td>
+      <td>{fields.length} 个字段</td>
+      <td>{PRIORITY_META[category.default_priority]?.label ?? category.default_priority}</td>
       <td><span className={category.enabled ? 'ec-chip ec-chip--green' : 'ec-chip'}>{category.enabled ? '启用' : '停用'}</span></td>
     </tr>
   )
 }
 
-function PermissionChips({ title, value }: { title: string; value: string }) {
-  return <div className="ec-perm-row"><span>{title}</span><div className="ec-chip-list">{parseJson<string[]>(value, []).map((item) => <span className="ec-chip" key={item}>{item}</span>)}</div></div>
+function errorMessage(err: unknown, fallback: string): string {
+  return err instanceof Error ? err.message : fallback
 }

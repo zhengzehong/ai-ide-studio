@@ -302,6 +302,11 @@ export interface EventsListMsg extends ClientMessage {
   offset?: number
 }
 
+export interface EventCategoriesDeleteMsg extends ClientMessage {
+  type: 'eventCategories.delete'
+  categoryId: string
+}
+
 export interface ImageAttachment {
   data: string
   mimeType: string

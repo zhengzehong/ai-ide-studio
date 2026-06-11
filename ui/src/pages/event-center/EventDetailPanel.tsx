@@ -1,7 +1,7 @@
 import { Archive, CheckSquare, Play, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useEventCenterStore, type EventCenterEventData } from '../../stores/event-center.store'
-import { categoryName, formatTime, parseJson, PRIORITY_META, STATUS_META } from './helpers'
+import { categoryFields, categoryName, parseJson, PRIORITY_META, STATUS_META } from './helpers'
 
 interface Props {
   event: EventCenterEventData | undefined
@@ -24,7 +24,8 @@ export function EventDetailPanel({ event, projectId }: Props) {
 
   const detail = event ? details[event.id] : null
   const payload = useMemo(() => parseJson<Record<string, unknown>>(event?.payload_json, {}), [event?.payload_json])
-  const evidence = useMemo(() => parseJson<Array<{ title?: string; url?: string }>>(event?.evidence_json, []), [event?.evidence_json])
+  const selectedCategory = categories.find((category) => category.id === event?.category_id)
+  const fields = useMemo(() => categoryFields(selectedCategory), [selectedCategory])
 
   if (!event) return <aside className="ec-detail"><div className="ec-empty">请选择一个事件</div></aside>
 
@@ -40,28 +41,17 @@ export function EventDetailPanel({ event, projectId }: Props) {
           <span className="ec-chip ec-chip--blue">{categoryName(categories, event.category_id)}</span>
           <span className="ec-chip" style={{ color: STATUS_META[event.status]?.color }}>{STATUS_META[event.status]?.label ?? event.status}</span>
           <span className={PRIORITY_META[event.priority]?.className ?? 'ec-chip'}>{PRIORITY_META[event.priority]?.label ?? event.priority}</span>
-          <span className="ec-chip">{Math.round(event.confidence * 100)}% 置信</span>
         </div>
         <h2>{event.title}</h2>
-        <p>{event.summary || '暂无摘要'}</p>
+        <p>{event.summary || '暂无说明'}</p>
       </div>
       <div className="ec-detail-body">
-        <Section title="动态字段">
+        <Section title="类别字段">
           <div className="ec-kv">
-            {Object.entries(payload).map(([key, value]) => (
-              <div className="ec-kv-row" key={key}><span>{key}</span><b>{String(value)}</b></div>
-            ))}
-          </div>
-        </Section>
-        <Section title="来源证据">
-          <div className="ec-stack">
-            {evidence.length === 0 && <div className="ec-muted">暂无证据</div>}
-            {evidence.map((item, index) => (
-              <div className="ec-evidence" key={`${item.title}-${index}`}>
-                <strong>{item.title || '证据'}</strong>
-                <span>{item.url || '-'}</span>
-              </div>
-            ))}
+            {fields.length > 0
+              ? fields.map((field) => <div className="ec-kv-row" key={field.key}><span>{field.label}</span><b>{String(payload[field.key] ?? '-')}</b></div>)
+              : Object.entries(payload).map(([key, value]) => <div className="ec-kv-row" key={key}><span>{key}</span><b>{String(value)}</b></div>)}
+            {fields.length === 0 && Object.keys(payload).length === 0 && <div className="ec-muted">暂无类别字段</div>}
           </div>
         </Section>
         <Section title="消费记录">
@@ -73,13 +63,6 @@ export function EventDetailPanel({ event, projectId }: Props) {
               </div>
             ))}
             {detail?.consumptions.length === 0 && <div className="ec-muted">暂无消费记录</div>}
-          </div>
-        </Section>
-        <Section title="系统字段">
-          <div className="ec-kv">
-            <div className="ec-kv-row"><span>事件 ID</span><b>{event.id}</b></div>
-            <div className="ec-kv-row"><span>来源</span><b>{event.source_label || event.source_type}</b></div>
-            <div className="ec-kv-row"><span>创建时间</span><b>{formatTime(event.created_at)}</b></div>
           </div>
         </Section>
       </div>

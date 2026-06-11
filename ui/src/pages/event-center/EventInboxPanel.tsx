@@ -147,8 +147,7 @@ function EventTable({ events, selectedEvent, onSelect }: {
             <th>优先级</th>
             <th>类别</th>
             <th>标题</th>
-            <th>来源</th>
-            <th>置信度</th>
+            <th>说明</th>
             <th>创建时间</th>
           </tr>
         </thead>
@@ -159,12 +158,11 @@ function EventTable({ events, selectedEvent, onSelect }: {
               <td><span className={PRIORITY_META[event.priority]?.className ?? 'ec-chip'}>{PRIORITY_META[event.priority]?.label ?? event.priority}</span></td>
               <td>{categoryName(categories, event.category_id)}</td>
               <td><strong>{event.title}</strong></td>
-              <td>{event.source_label || event.source_type}</td>
-              <td>{Math.round(event.confidence * 100)}%</td>
+              <td>{event.summary || event.source_label || event.source_type}</td>
               <td>{formatTime(event.created_at)}</td>
             </tr>
           ))}
-          {events.length === 0 && <tr><td colSpan={7}><div className="ec-empty">没有匹配的事件</div></td></tr>}
+          {events.length === 0 && <tr><td colSpan={6}><div className="ec-empty">没有匹配的事件</div></td></tr>}
         </tbody>
       </table>
     </div>
@@ -189,7 +187,7 @@ function EventSummaryRow({ event, active, onClick }: { event: EventCenterEventDa
       </div>
       <div className="ec-row-side">
         <span>{formatTime(event.created_at)}</span>
-        <b>{Math.round(event.confidence * 100)}%</b>
+        <b>{event.source_label || event.source_type}</b>
       </div>
     </button>
   )

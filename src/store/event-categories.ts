@@ -24,6 +24,11 @@ export interface UpsertEventCategoryInput {
   enabled?: boolean
 }
 
+export interface EventCategoryReferenceCounts {
+  events: number
+  subscriptions: number
+}
+
 export const eventCategoryStore = {
   list(): EventCategoryRow[] {
     return getDb().prepare<[], EventCategoryRow>('SELECT * FROM event_categories ORDER BY id ASC').all()
@@ -76,5 +81,20 @@ export const eventCategoryStore = {
     getDb().prepare('UPDATE event_categories SET enabled = ?, updated_at = ? WHERE id = ?')
       .run(enabled ? 1 : 0, new Date().toISOString(), id)
     return eventCategoryStore.get(id)
+  },
+
+  referenceCounts(id: string): EventCategoryReferenceCounts {
+    const events = getDb()
+      .prepare<[string], { count: number }>('SELECT COUNT(*) AS count FROM event_center_events WHERE category_id = ?')
+      .get(id)?.count ?? 0
+    const subscriptions = getDb()
+      .prepare<[string], { count: number }>('SELECT COUNT(*) AS count FROM event_subscriptions WHERE category_id = ?')
+      .get(id)?.count ?? 0
+    return { events, subscriptions }
+  },
+
+  remove(id: string): boolean {
+    const result = getDb().prepare('DELETE FROM event_categories WHERE id = ?').run(id)
+    return result.changes > 0
   },
 }
