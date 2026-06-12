@@ -94,14 +94,28 @@ describe('mobile connection store', () => {
     })
   })
 
-  test('connection close while connecting waits for the timeout before failing', () => {
+  test('connection close while connecting fails immediately', () => {
     useConnectionStore.getState().setServer('http://127.0.0.1:18800')
-    wsMock.connectionHandler?.({ connected: false })
+    wsMock.connectionHandler?.({ connected: false, message: 'WebSocket connection failed' })
 
     expect(useConnectionStore.getState()).toMatchObject({
       connected: false,
-      status: 'connecting',
-      lastError: '',
+      status: 'failed',
+      lastError: 'WebSocket connection failed',
+    })
+  })
+
+  test('synchronous websocket connection errors fail immediately', () => {
+    wsMock.connect.mockImplementationOnce(() => {
+      throw new Error('SecurityError')
+    })
+
+    expect(() => useConnectionStore.getState().setServer('http://192.168.115.42:18900')).not.toThrow()
+
+    expect(useConnectionStore.getState()).toMatchObject({
+      connected: false,
+      status: 'failed',
+      lastError: 'SecurityError',
     })
   })
 })

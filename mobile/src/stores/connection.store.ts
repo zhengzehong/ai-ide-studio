@@ -37,22 +37,36 @@ function startConnectionTimer(set: (p: Partial<ConnectionState>) => void): void 
   }, CONNECTION_TIMEOUT_MS)
 }
 
+function resolveConnectionError(msg?: Record<string, unknown>, fallback = '连接已断开，请检查服务器状态'): string {
+  const raw = msg?.message ?? msg?.error
+  return typeof raw === 'string' && raw.trim() ? raw : fallback
+}
+
+function connectToServer(url: string, token: string, set: (p: Partial<ConnectionState>) => void): void {
+  startConnectionTimer(set)
+  try {
+    wsClient.connect(buildWsUrl(url, token))
+  } catch (error) {
+    clearConnectionTimer()
+    set({
+      connected: false,
+      status: 'failed',
+      lastError: resolveConnectionError({ message: error instanceof Error ? error.message : String(error) }),
+    })
+  }
+}
+
 function ensureListener(set: (p: Partial<ConnectionState> | ((state: ConnectionState) => Partial<ConnectionState>)) => void) {
   if (listenerRegistered) return
   listenerRegistered = true
   wsClient.on('connection', (msg) => {
     const connected = msg.connected === true
-    if (connected) clearConnectionTimer()
-    set((state) => {
-      if (!connected && state.status === 'connecting') {
-        return { connected: false }
-      }
-      return {
-        connected,
-        status: connected ? 'connected' : 'failed',
-        lastError: connected ? '' : '连接已断开，请检查服务器状态',
-      }
-    })
+    clearConnectionTimer()
+    set((state) => ({
+      connected,
+      status: connected ? 'connected' : 'failed',
+      lastError: connected ? '' : resolveConnectionError(msg, state.lastError || '连接失败，请检查地址或 Token'),
+    }))
   })
 }
 
@@ -70,9 +84,9 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
     try {
       const { serverUrl, token } = JSON.parse(saved)
       if (serverUrl) {
-        set({ serverUrl, token: token || '', connected: false, status: 'connecting', lastError: '' })
-        wsClient.connect(buildWsUrl(serverUrl, token))
-        startConnectionTimer(set)
+        const t = token || ''
+        set({ serverUrl, token: t, connected: false, status: 'connecting', lastError: '' })
+        connectToServer(serverUrl, t, set)
       }
     } catch { /* ignore */ }
   },
@@ -82,8 +96,7 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
     const t = token || ''
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ serverUrl: url, token: t }))
     set({ serverUrl: url, token: t, connected: false, status: 'connecting', lastError: '' })
-    wsClient.connect(buildWsUrl(url, t))
-    startConnectionTimer(set)
+    connectToServer(url, t, set)
   },
 
   disconnect: () => {

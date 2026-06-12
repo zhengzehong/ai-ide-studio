@@ -20,9 +20,17 @@ class WSClient {
     if (this.ws) { this.ws.close(); this.ws = null }
 
     this.intentionalClose = false
-    this.ws = new WebSocket(url)
+    try {
+      this.ws = new WebSocket(url)
+    } catch (error) {
+      this._connected = false
+      this.emit('connection', { connected: false, message: toErrorMessage(error) })
+      return
+    }
+    const socket = this.ws
 
     this.ws.onopen = () => {
+      if (this.ws !== socket) return
       this._connected = true
       this.emit('connection', { connected: true })
       if (this.currentSubscriptions.size > 0) {
@@ -31,6 +39,7 @@ class WSClient {
     }
 
     this.ws.onclose = () => {
+      if (this.ws !== socket) return
       this._connected = false
       this.emit('connection', { connected: false })
       if (!this.intentionalClose) {
@@ -38,9 +47,14 @@ class WSClient {
       }
     }
 
-    this.ws.onerror = () => {}
+    this.ws.onerror = () => {
+      if (this.ws !== socket) return
+      this._connected = false
+      this.emit('connection', { connected: false, message: 'WebSocket connection failed' })
+    }
 
     this.ws.onmessage = (event) => {
+      if (this.ws !== socket) return
       try {
         const msg = JSON.parse(event.data as string)
         if (msg.requestId && this.pendingRequests.has(msg.requestId)) {
@@ -128,3 +142,7 @@ class WSClient {
 }
 
 export const wsClient = new WSClient()
+
+function toErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'WebSocket connection failed'
+}
