@@ -8,6 +8,7 @@ import type { SessionUpdateData, TurnUsageData, SessionCapabilities, ImageAttach
 import { mapConfigOptions, mergeCapabilitiesFromConfig } from './capabilities.js'
 import { createClientHandler, endClientTurn, getClientTurnMessageId, startClientTurn } from './client-handler.js'
 import {
+  acpSessionContextKey,
   agentConnections,
   beginTurn,
   createConnectionState,
@@ -268,28 +269,29 @@ export const acpHost = {
     if (!conn) throw new Error(`Agent ${agentId} not running`)
     if (!existed && showLifecycle) emitLifecycle(agentId, ourSessionId, 'lifecycle.runtime_ready', 'Agent \u5df2\u5c31\u7eea')
 
+    const state = getRuntimeSession(conn, ourSessionId)
     const existingAcpSessionId = conn.acpSessions.get(ourSessionId)
-    if (existingAcpSessionId) {
-      markSessionConnected(conn, ourSessionId, existingAcpSessionId)
+    const nextContextKey = acpSessionContextKey(context)
+    if (existingAcpSessionId && state.contextKey === nextContextKey) {
+      markSessionConnected(conn, ourSessionId, existingAcpSessionId, context)
       return existingAcpSessionId
     }
-
-    const state = getRuntimeSession(conn, ourSessionId)
     if (state.connectPromise) return state.connectPromise
 
     state.state = 'connecting'
     state.connectPromise = (async () => {
       try {
         let acpSessionId: string
-        if (persistedAcpSessionId) {
+        const acpSessionIdToResume = persistedAcpSessionId ?? existingAcpSessionId
+        if (acpSessionIdToResume) {
           if (showLifecycle) emitLifecycle(agentId, ourSessionId, 'lifecycle.session_resuming', '\u6b63\u5728\u6062\u590d\u4f1a\u8bdd...')
-          await acpHost.resumeSession(agentId, ourSessionId, persistedAcpSessionId, context)
-          acpSessionId = conn.acpSessions.get(ourSessionId) ?? persistedAcpSessionId
+          await acpHost.resumeSession(agentId, ourSessionId, acpSessionIdToResume, context)
+          acpSessionId = conn.acpSessions.get(ourSessionId) ?? acpSessionIdToResume
         } else {
           if (showLifecycle) emitLifecycle(agentId, ourSessionId, 'lifecycle.session_creating', '\u6b63\u5728\u8fde\u63a5\u4f1a\u8bdd...')
           acpSessionId = await acpHost.newSession(agentId, ourSessionId, context)
         }
-        markSessionConnected(conn, ourSessionId, acpSessionId)
+        markSessionConnected(conn, ourSessionId, acpSessionId, context)
         if (showLifecycle) emitLifecycle(agentId, ourSessionId, 'lifecycle.session_ready', '\u4f1a\u8bdd\u5df2\u8fde\u63a5')
         return acpSessionId
       } catch (err) {
@@ -322,7 +324,7 @@ export const acpHost = {
     })
 
     const acpSessionId = result.sessionId
-    markSessionConnected(conn, ourSessionId, acpSessionId)
+    markSessionConnected(conn, ourSessionId, acpSessionId, context)
 
     updateInitialCapabilities(conn, ourSessionId, result)
     await applySessionRuntimePreferences(conn, ourSessionId)
@@ -349,7 +351,8 @@ export const acpHost = {
   ): Promise<string> {
     const conn = acpHost.agents.get(agentId)
     if (!conn) throw new Error(`Agent ${agentId} 未运行`)
-    if (conn.acpSessions.get(ourSessionId) === acpSessionId) return acpSessionId
+    const state = getRuntimeSession(conn, ourSessionId)
+    if (conn.acpSessions.get(ourSessionId) === acpSessionId && state.contextKey === acpSessionContextKey(context)) return acpSessionId
 
     if (conn.agentCapabilities?.sessionCapabilities?.resume) {
       const mcpServers = resolveMcpServersForAcp(conn, ourSessionId, context)
@@ -359,7 +362,7 @@ export const acpHost = {
         mcpServers,
         _meta: conn.sessionMeta,
       })
-      markSessionConnected(conn, ourSessionId, acpSessionId)
+      markSessionConnected(conn, ourSessionId, acpSessionId, context)
       updateInitialCapabilities(conn, ourSessionId, result)
       await applySessionRuntimePreferences(conn, ourSessionId)
       emitRuntimePreferencesApplied(conn, ourSessionId)
@@ -373,7 +376,7 @@ export const acpHost = {
         mcpServers: resolveMcpServersForAcp(conn, ourSessionId, context),
         _meta: conn.sessionMeta,
       })
-      markSessionConnected(conn, ourSessionId, acpSessionId)
+      markSessionConnected(conn, ourSessionId, acpSessionId, context)
       updateInitialCapabilities(conn, ourSessionId, result)
       await applySessionRuntimePreferences(conn, ourSessionId)
       emitRuntimePreferencesApplied(conn, ourSessionId)
@@ -562,7 +565,7 @@ export const acpHost = {
       mcpServers: resolveMcpServersForAcp(conn, targetSessionId, context),
       _meta: conn.sessionMeta,
     })
-    markSessionConnected(conn, targetSessionId, result.sessionId)
+    markSessionConnected(conn, targetSessionId, result.sessionId, context)
     updateInitialCapabilities(conn, targetSessionId, result)
     await applySessionRuntimePreferences(conn, targetSessionId)
     emitRuntimePreferencesApplied(conn, targetSessionId)

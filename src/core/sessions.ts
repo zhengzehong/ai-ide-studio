@@ -34,6 +34,11 @@ const pendingBySession = new Map<string, PendingTurn>()
 const activePrompts = new Set<string>()
 const queuedPrompts = new Map<string, Promise<void>>()
 const copyingSourceSessions = new Set<string>()
+
+interface PromptOptions {
+  clientMessageId?: string
+  contextProjectId?: string
+}
 const COPYING_STAGE = '正在复制会话...'
 
 events.on('session:update', (ev) => {
@@ -254,7 +259,7 @@ export const sessionManager = {
     return placeholder
   },
 
-  async sendPrompt(sessionId: string, content: string, images?: ImageAttachment[], clientMessageId?: string): Promise<void> {
+  async sendPrompt(sessionId: string, content: string, images?: ImageAttachment[], options?: string | PromptOptions): Promise<void> {
     const session = sessionStore.get(sessionId)
     if (!session) throw new Error(`Session not found: ${sessionId}`)
     if (session.status !== 'active') throw new Error('当前会话已关闭，不能继续发送消息')
@@ -263,7 +268,7 @@ export const sessionManager = {
         '\u5f53\u524d\u4f1a\u8bdd\u6b63\u5728\u751f\u6210\u4e2d\uff0c\u8bf7\u7b49\u5f85\u672c\u8f6e\u5b8c\u6210\u6216\u5148\u505c\u6b62\u751f\u6210',
       )
     events.emit('session:manual-prompt-started', { sessionId, agentId: session.agent_id })
-    return sendPromptNow(session, content, images, clientMessageId)
+    return sendPromptNow(session, content, images, normalizePromptOptions(options))
   },
 
   async enqueuePrompt(sessionId: string, content: string, images?: ImageAttachment[]): Promise<void> {
@@ -329,22 +334,34 @@ export const sessionManager = {
   },
 }
 
-async function sendPromptNow(session: SessionRow, content: string, images?: ImageAttachment[], clientMessageId?: string): Promise<void> {
+function normalizePromptOptions(options?: string | PromptOptions): PromptOptions {
+  return typeof options === 'string' ? { clientMessageId: options } : options ?? {}
+}
+
+function resolvePromptProjectId(session: SessionRow, options: PromptOptions): string | undefined {
+  const sessionProjectId = session.project_id ?? undefined
+  if (!options.contextProjectId || options.contextProjectId === sessionProjectId) return sessionProjectId
+  if (!sessionProjectId) return options.contextProjectId
+  throw new Error(`Project mismatch between session and prompt context: ${sessionProjectId}, ${options.contextProjectId}`)
+}
+
+async function sendPromptNow(session: SessionRow, content: string, images?: ImageAttachment[], options: PromptOptions = {}): Promise<void> {
   const sessionId = session.id
   const turnId = createTurnId()
   const startedAt = Date.now()
   const promptLen = content.length
   const imageCount = images?.length ?? 0
+  const effectiveProjectId = resolvePromptProjectId(session, options)
   log.info(
     {
       sessionId,
       agentId: session.agent_id,
-      projectId: session.project_id,
+      projectId: effectiveProjectId,
       taskId: session.task_id,
       turnId,
       promptLen,
       imageCount,
-      clientMessageId,
+      clientMessageId: options.clientMessageId,
     },
     'prompt received',
   )
@@ -354,7 +371,7 @@ async function sendPromptNow(session: SessionRow, content: string, images?: Imag
     turnId,
     sessionId,
     agentId: session.agent_id,
-    projectId: session.project_id,
+    projectId: effectiveProjectId,
     startedAt,
     lastProgressAt: startedAt,
     lastProgress: 'prompt.received',
@@ -364,7 +381,7 @@ async function sendPromptNow(session: SessionRow, content: string, images?: Imag
   emitSessionActivity(sessionId, session.agent_id, 'running', 'prompt-started', turnId)
   const agentMessageId = createAgentMessageId()
   try {
-    const humanMessage = messageStore.append(sessionId, { id: clientMessageId, role: 'human', content, attachments: images })
+    const humanMessage = messageStore.append(sessionId, { id: options.clientMessageId, role: 'human', content, attachments: images })
     recordPromptProgress(sessionId, 'human.message.persisted')
     log.info(
       { sessionId, agentId: session.agent_id, turnId, messageId: humanMessage.id, contentLength: humanMessage.content.length, imageCount, timestamp: humanMessage.timestamp },
@@ -396,7 +413,7 @@ async function sendPromptNow(session: SessionRow, content: string, images?: Imag
     const projectContext = resolveSessionProjectContext(
       session.agent_id,
       session.task_id ?? undefined,
-      session.project_id ?? undefined,
+      effectiveProjectId,
       session.id,
     )
     recordPromptProgress(sessionId, 'acp.session.ensure.started')
@@ -413,7 +430,7 @@ async function sendPromptNow(session: SessionRow, content: string, images?: Imag
       sessionStore.updateAcpSessionId(sessionId, acpSessionId)
       log.info({ sessionId, agentId: session.agent_id, turnId, acpSessionId }, 'ACP Session mapped')
     }
-    const acpContent = maybeWrapTeamLeaderPrompt(sessionId, content)
+    const acpContent = maybeWrapTeamLeaderPrompt(sessionId, content, effectiveProjectId)
     emitLifecycle(session.agent_id, sessionId, 'lifecycle.prompt_sent', '正在思考...', agentMessageId)
     recordPromptProgress(sessionId, 'acp.prompt.started')
     await acpHost.prompt(session.agent_id, sessionId, acpContent, images, { turnId, messageId: agentMessageId })
@@ -446,14 +463,14 @@ async function waitForIdleTurn(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 100))
 }
 
-function maybeWrapTeamLeaderPrompt(sessionId: string, content: string): string {
+function maybeWrapTeamLeaderPrompt(sessionId: string, content: string, contextProjectId?: string): string {
   const session = sessionStore.get(sessionId)
   if (!session) return content
   const member = teamMemberStore.getBySession(sessionId)
   if (member?.role === 'leader') return buildTeamLeaderPrompt(content)
   const visibleNames = resolveVisiblePlatformTools({
     agentId: session.agent_id,
-    projectId: session.project_id ?? undefined,
+    projectId: contextProjectId ?? session.project_id ?? undefined,
     sessionId,
   }).map((tool) => tool.definition.name)
   return visibleNames.includes('team.member.message') ? buildTeamLeaderPrompt(content) : content

@@ -1,6 +1,6 @@
 ﻿import type { ChildProcess } from 'child_process'
 import type * as acp from '@agentclientprotocol/sdk'
-import type { AgentConnection, RuntimeSessionState } from './host-types.js'
+import type { AcpSessionContext, AgentConnection, RuntimeSessionState } from './host-types.js'
 import type { AgentSessionMeta } from './model-profile-env.js'
 
 export const agentConnections = new Map<string, AgentConnection>()
@@ -48,12 +48,20 @@ export function getRuntimeSession(conn: AgentConnection, ourSessionId: string): 
   return state
 }
 
-export function markSessionConnected(conn: AgentConnection, ourSessionId: string, acpSessionId: string): void {
+export function acpSessionContextKey(context: AcpSessionContext = {}): string {
+  return JSON.stringify({
+    projectId: context.projectId ?? null,
+    cwd: context.cwd ?? null,
+  })
+}
+
+export function markSessionConnected(conn: AgentConnection, ourSessionId: string, acpSessionId: string, context?: AcpSessionContext): void {
   const now = Date.now()
   conn.acpSessions.set(ourSessionId, acpSessionId)
   const session = getRuntimeSession(conn, ourSessionId)
   session.acpSessionId = acpSessionId
   session.state = 'connected'
+  if (context) session.contextKey = acpSessionContextKey(context)
   session.lastUsedAt = now
   session.connectPromise = undefined
   conn.lastUsedAt = now
