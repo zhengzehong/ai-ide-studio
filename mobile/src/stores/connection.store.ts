@@ -2,28 +2,66 @@ import { create } from 'zustand'
 import { wsClient } from '@desktop/services/ws-client'
 
 const STORAGE_KEY = 'ai-ide-mobile-server'
+const CONNECTION_TIMEOUT_MS = 5000
+
+type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'failed'
 
 interface ConnectionState {
   serverUrl: string
   token: string
   connected: boolean
+  status: ConnectionStatus
+  lastError: string
   init: () => void
   setServer: (url: string, token?: string) => void
   disconnect: () => void
 }
 
 let listenerRegistered = false
+let connectionTimer: ReturnType<typeof setTimeout> | null = null
 
-function ensureListener(set: (p: Partial<ConnectionState>) => void) {
+function clearConnectionTimer(): void {
+  if (!connectionTimer) return
+  clearTimeout(connectionTimer)
+  connectionTimer = null
+}
+
+function startConnectionTimer(set: (p: Partial<ConnectionState>) => void): void {
+  clearConnectionTimer()
+  connectionTimer = setTimeout(() => {
+    set({
+      connected: false,
+      status: 'failed',
+      lastError: '连接失败，请检查地址或 Token',
+    })
+  }, CONNECTION_TIMEOUT_MS)
+}
+
+function ensureListener(set: (p: Partial<ConnectionState> | ((state: ConnectionState) => Partial<ConnectionState>)) => void) {
   if (listenerRegistered) return
   listenerRegistered = true
-  wsClient.on('connection', (msg) => set({ connected: msg.connected as boolean }))
+  wsClient.on('connection', (msg) => {
+    const connected = msg.connected === true
+    if (connected) clearConnectionTimer()
+    set((state) => {
+      if (!connected && state.status === 'connecting') {
+        return { connected: false }
+      }
+      return {
+        connected,
+        status: connected ? 'connected' : 'failed',
+        lastError: connected ? '' : '连接已断开，请检查服务器状态',
+      }
+    })
+  })
 }
 
 export const useConnectionStore = create<ConnectionState>((set) => ({
   serverUrl: '',
   token: '',
   connected: false,
+  status: 'idle',
+  lastError: '',
 
   init: () => {
     ensureListener(set)
@@ -32,8 +70,9 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
     try {
       const { serverUrl, token } = JSON.parse(saved)
       if (serverUrl) {
-        set({ serverUrl, token: token || '' })
+        set({ serverUrl, token: token || '', connected: false, status: 'connecting', lastError: '' })
         wsClient.connect(buildWsUrl(serverUrl, token))
+        startConnectionTimer(set)
       }
     } catch { /* ignore */ }
   },
@@ -42,14 +81,16 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
     ensureListener(set)
     const t = token || ''
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ serverUrl: url, token: t }))
-    set({ serverUrl: url, token: t, connected: false })
+    set({ serverUrl: url, token: t, connected: false, status: 'connecting', lastError: '' })
     wsClient.connect(buildWsUrl(url, t))
+    startConnectionTimer(set)
   },
 
   disconnect: () => {
+    clearConnectionTimer()
     localStorage.removeItem(STORAGE_KEY)
     wsClient.disconnect()
-    set({ serverUrl: '', token: '', connected: false })
+    set({ serverUrl: '', token: '', connected: false, status: 'idle', lastError: '' })
   },
 }))
 

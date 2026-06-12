@@ -10,17 +10,21 @@ import ChatPage from './pages/ChatPage'
 import TaskListPage from './pages/TaskListPage'
 import SettingsPage from './pages/SettingsPage'
 
+export async function bootstrapMobileData(): Promise<void> {
+  const appStore = useAppStore.getState()
+  await Promise.all([appStore.fetchProjects(), appStore.fetchAgents()])
+  await useSessionStore.getState().fetchSessions(useAppStore.getState().currentProjectId)
+}
+
 export default function App() {
-  const { connected, serverUrl, init } = useConnectionStore()
+  const { connected, status, init } = useConnectionStore()
   const listenersReady = useRef(false)
 
   useEffect(() => { init() }, [init])
 
   useEffect(() => {
     if (!connected) return
-    useAppStore.getState().fetchProjects()
-    useAppStore.getState().fetchAgents()
-    useSessionStore.getState().fetchSessions()
+    void bootstrapMobileData()
 
     if (!listenersReady.current) {
       listenersReady.current = true
@@ -29,7 +33,7 @@ export default function App() {
     }
   }, [connected])
 
-  if (!serverUrl) {
+  if (!connected || status !== 'connected') {
     return (
       <BrowserRouter basename="/app">
         <Routes>

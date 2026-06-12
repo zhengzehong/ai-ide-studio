@@ -68,6 +68,7 @@ function resetStore(): void {
     turnUsage: null,
     loading: false,
     isRunning: false,
+    runningStartedAtMs: null,
     turnProcessLoadingByMessageId: {},
     turnProcessErrorByMessageId: {},
   })
@@ -202,5 +203,29 @@ describe('mobile chat store', () => {
     })
 
     cleanup()
+  })
+
+  test('stores restored running message start time for live elapsed display', async () => {
+    const startedAt = '2026-06-10T00:01:00.000Z'
+    const running = agentMessage({
+      id: 'msg-running-1',
+      content: 'partial answer',
+      status: 'running',
+      started_at: startedAt,
+      timestamp: '2026-06-10T00:02:00.000Z',
+    })
+    wsMock.request.mockImplementation(async (msg: Record<string, unknown>) => {
+      if (msg.type === 'sessions.messages') return [running]
+      if (msg.type === 'sessions.events') return []
+      if (msg.type === 'sessions.messageProcess') return []
+      return []
+    })
+    useChatStore.setState({ sessionId: null, messages: [], streamingMessage: null, isRunning: false })
+
+    useChatStore.getState().enterSession('sess-1')
+
+    await vi.waitFor(() => {
+      expect(useChatStore.getState().runningStartedAtMs).toBe(Date.parse(startedAt))
+    })
   })
 })

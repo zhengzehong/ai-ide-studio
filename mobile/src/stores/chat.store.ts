@@ -56,6 +56,7 @@ interface ChatState {
   turnUsage: TurnUsageInfo | null
   loading: boolean
   isRunning: boolean
+  runningStartedAtMs: number | null
   turnProcessLoadingByMessageId: Record<string, boolean>
   turnProcessErrorByMessageId: Record<string, string>
 
@@ -188,6 +189,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   turnUsage: null,
   loading: false,
   isRunning: false,
+  runningStartedAtMs: null,
   turnProcessLoadingByMessageId: {},
   turnProcessErrorByMessageId: {},
 
@@ -200,7 +202,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({
       sessionId, messages: [], events: [], streamingMessage: null,
       plan: [], pendingPermissions: [], pendingElicitations: [],
-      capabilities: { ...defaultCaps }, usage: null, turnUsage: null, loading: true, isRunning: false,
+      capabilities: { ...defaultCaps }, usage: null, turnUsage: null, loading: true, isRunning: false, runningStartedAtMs: null,
       turnProcessLoadingByMessageId: {}, turnProcessErrorByMessageId: {},
     })
     wsClient.subscribe([sessionId])
@@ -209,8 +211,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
       if (get().sessionId !== sessionId) return
       const messages = data as MessageData[]
       const running = messages.filter(m => m.session_id === sessionId && m.role === 'agent' && m.status === 'running').at(-1)
-      if (running) promptStartTime = timestampMs(running.started_at) ?? timestampMs(running.timestamp) ?? promptStartTime
-      set({ messages: messages.map(normalizeMessage), loading: false, isRunning: !!running })
+      const runningStartedAtMs = running ? (timestampMs(running.started_at) ?? timestampMs(running.timestamp) ?? null) : null
+      if (runningStartedAtMs) promptStartTime = runningStartedAtMs
+      set({ messages: messages.map(normalizeMessage), loading: false, isRunning: !!running, runningStartedAtMs })
 
       if (running) void get().fetchMessageProcess(sessionId, running.id)
     }).catch(() => { if (get().sessionId === sessionId) set({ loading: false }) })
@@ -243,6 +246,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       pendingPermissions: [],
       pendingElicitations: [],
       isRunning: false,
+      runningStartedAtMs: null,
       turnProcessLoadingByMessageId: {},
       turnProcessErrorByMessageId: {},
     })
@@ -255,7 +259,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const msg: Record<string, unknown> = { type: 'prompt', sessionId: sid, content, clientMessageId }
     if (images?.length) msg.images = images
     wsClient.send(msg)
-    promptStartTime = Date.now()
+    const startedAtMs = Date.now()
+    promptStartTime = startedAtMs
     set(state => ({
       messages: [...state.messages, normalizeMessage({
         id: clientMessageId, session_id: sid, role: 'human', content,
@@ -264,7 +269,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         file_changes_json: null, timestamp: new Date().toISOString(),
       })],
       streamingMessage: applyTurnEntry(createEmptyTurn(`pending-${sid}-${Date.now()}`), { kind: 'stage', text: '正在准备 Agent...' }),
-      turnUsage: null, isRunning: true,
+      turnUsage: null, isRunning: true, runningStartedAtMs: startedAtMs,
     }))
   },
 
@@ -393,7 +398,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const stage = String(data.content || '')
         set(state => {
           const base: StreamingMessage = state.streamingMessage || createEmptyTurn(String(data.messageId || `stream-${sid}-${Date.now()}`))
-          return { streamingMessage: applyTurnEntry(base, { kind: 'stage', text: stage }), isRunning: true }
+          return { streamingMessage: applyTurnEntry(base, { kind: 'stage', text: stage }), isRunning: true, runningStartedAtMs: state.runningStartedAtMs ?? Date.now() }
         })
         return
       }
@@ -413,7 +418,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           toolCall: data.toolCall as ToolCallInfo | undefined,
           toolCallUpdate: data.toolCallUpdate as ToolCallInfo | undefined,
         })
-        set({ isRunning: true })
+        set(state => ({ isRunning: true, runningStartedAtMs: state.runningStartedAtMs ?? Date.now() }))
         scheduleFlush(set, get)
       }
     }))
@@ -445,7 +450,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         }
         set(st => ({
           messages: appendFinalizedMessage(st.messages, newMsg),
-          streamingMessage: null, turnUsage: tu || st.turnUsage, plan: clearPlanOnTurnDone(), isRunning: false,
+          streamingMessage: null, turnUsage: tu || st.turnUsage, plan: clearPlanOnTurnDone(), isRunning: false, runningStartedAtMs: null,
         }))
       } else {
         const error = typeof msg.error === 'string' ? msg.error : ''
@@ -454,9 +459,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
           : buildCompletedAgentMessage(sid, get().events, tu, cost, elapsed)
         if (fm) {
           if (turnStats && !fm.decision_json) fm.decision_json = turnStats
-          set(st => ({ messages: appendFinalizedMessage(st.messages, fm), streamingMessage: null, turnUsage: tu || st.turnUsage, plan: clearPlanOnTurnDone(), isRunning: false }))
+          set(st => ({ messages: appendFinalizedMessage(st.messages, fm), streamingMessage: null, turnUsage: tu || st.turnUsage, plan: clearPlanOnTurnDone(), isRunning: false, runningStartedAtMs: null }))
         } else {
-          set(st => ({ streamingMessage: null, turnUsage: tu || st.turnUsage, plan: clearPlanOnTurnDone(), isRunning: false }))
+          set(st => ({ streamingMessage: null, turnUsage: tu || st.turnUsage, plan: clearPlanOnTurnDone(), isRunning: false, runningStartedAtMs: null }))
         }
       }
       wsClient.request({ type: 'sessions.messages', sessionId: sid }).then((data) => {
@@ -471,13 +476,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const state = msg.state === 'running' ? 'running' : 'idle'
       if (state === 'idle') {
         flushBuffer(set, get)
-        set({ streamingMessage: null, isRunning: false })
+        promptStartTime = 0
+        set({ streamingMessage: null, isRunning: false, runningStartedAtMs: null })
         wsClient.request({ type: 'sessions.messages', sessionId }).then((data) => {
           if (get().sessionId !== sessionId) return
           set({ messages: mergeMessagesForSession(data as MessageData[], get().messages, sessionId) })
         }).catch(() => {})
       } else {
-        set({ isRunning: true })
+        set(state => ({ isRunning: true, runningStartedAtMs: state.runningStartedAtMs ?? Date.now() }))
       }
     }))
 

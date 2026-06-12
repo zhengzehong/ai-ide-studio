@@ -21,7 +21,7 @@ export default function ChatPage() {
   const listRef = useRef<HTMLDivElement>(null)
   const {
     messages, events, streamingMessage, loading, isRunning, plan, pendingPermissions, pendingElicitations, capabilities,
-    turnProcessLoadingByMessageId, turnProcessErrorByMessageId,
+    turnProcessLoadingByMessageId, turnProcessErrorByMessageId, runningStartedAtMs,
     enterSession, leaveSession, sendPrompt, cancelTurn, fetchMessageProcess, respondPermission, respondElicitation,
   } = useChatStore()
   const sessions = useSessionStore(s => s.sessions)
@@ -62,8 +62,9 @@ export default function ChatPage() {
     isRunning,
     sessionId,
     nowMs: liveNowMs,
+    runningStartedAtMs,
     messages,
-  }), [isRunning, liveNowMs, messages, sessionId])
+  }), [isRunning, liveNowMs, messages, runningStartedAtMs, sessionId])
 
   const chatItems = useMemo(() => buildChatRenderItems<MobileChatMessage>({
     sessionId: sessionId ?? null,

@@ -77,9 +77,13 @@ function mapSession(session: SessionData, unreadSessionIds: SessionIndicatorMap)
   }
 }
 
-function reconcileUnread(unreadSessionIds: SessionIndicatorMap, sessions: SessionData[]): SessionIndicatorMap {
+function reconcileUnread(
+  unreadSessionIds: SessionIndicatorMap,
+  sessions: SessionData[],
+  preserveMissing: boolean,
+): SessionIndicatorMap {
   const ids = new Set(sessions.map((session) => session.id))
-  const next: SessionIndicatorMap = {}
+  const next: SessionIndicatorMap = preserveMissing ? { ...unreadSessionIds } : {}
   for (const sessionId of Object.keys(unreadSessionIds)) {
     if (ids.has(sessionId)) next[sessionId] = true
   }
@@ -89,8 +93,13 @@ function reconcileUnread(unreadSessionIds: SessionIndicatorMap, sessions: Sessio
   return next
 }
 
-function runningFromSessions(sessions: SessionData[]): SessionIndicatorMap {
-  const running: SessionIndicatorMap = {}
+function reconcileRunning(
+  runningSessionIds: SessionIndicatorMap,
+  sessions: SessionData[],
+  preserveMissing: boolean,
+): SessionIndicatorMap {
+  const running: SessionIndicatorMap = preserveMissing ? { ...runningSessionIds } : {}
+  for (const session of sessions) delete running[session.id]
   for (const session of sessions) {
     if (session.activity_state === 'running') running[session.id] = true
   }
@@ -115,10 +124,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       const data = (await wsClient.request(msg)) as SessionData[]
       if (requestSeq !== sessionListRequestSeq) return
       set((state) => {
-        const unreadSessionIds = reconcileUnread(state.unreadSessionIds, data)
+        const preserveMissingIndicators = !!projectId
+        const unreadSessionIds = reconcileUnread(state.unreadSessionIds, data, preserveMissingIndicators)
         return {
           sessions: data.map((session) => mapSession(session, unreadSessionIds)),
-          runningSessionIds: runningFromSessions(data),
+          runningSessionIds: reconcileRunning(state.runningSessionIds, data, preserveMissingIndicators),
           unreadSessionIds,
           loading: false,
         }

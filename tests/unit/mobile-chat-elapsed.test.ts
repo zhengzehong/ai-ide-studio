@@ -34,6 +34,18 @@ describe('mobile chat elapsed time', () => {
     expect(elapsed).toBe(10)
   })
 
+  test('prefers restored running agent start time when there is no human message', () => {
+    const elapsed = deriveLiveElapsedSeconds({
+      isRunning: true,
+      sessionId: 'sess-1',
+      nowMs: Date.parse('2026-06-10T00:01:10.000Z'),
+      runningStartedAtMs: Date.parse('2026-06-10T00:01:00.000Z'),
+      messages: [],
+    })
+
+    expect(elapsed).toBe(10)
+  })
+
   test('returns undefined when the chat is not running or has no valid human timestamp', () => {
     expect(deriveLiveElapsedSeconds({
       isRunning: false,

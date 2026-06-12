@@ -1,11 +1,33 @@
-import { beforeEach, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { wsClient } from '@desktop/services/ws-client'
 import { useAppStore } from '../../mobile/src/stores/app.store'
 import { useSessionStore } from '../../mobile/src/stores/session.store'
 
+function sessionRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'sess-a',
+    agent_id: 'agent-a',
+    task_id: null,
+    acp_session_id: null,
+    status: 'active',
+    stage: '',
+    started_at: '2026-06-10T00:00:00.000Z',
+    updated_at: '2026-06-10T00:01:00.000Z',
+    last_message_at: '2026-06-10T00:02:00.000Z',
+    closed_at: null,
+    project_id: 'project-a',
+    title: 'Session A',
+    activity_state: 'idle',
+    ...overrides,
+  }
+}
+
 beforeEach(() => {
   useAppStore.setState({
-    projects: [{ id: 'project-a', name: 'Project A' }],
+    projects: [
+      { id: 'project-a', name: 'Project A' },
+      { id: 'project-b', name: 'Project B' },
+    ],
     agents: [{ id: 'agent-a', name: 'Agent A' }],
     currentProjectId: null,
   })
@@ -20,24 +42,12 @@ beforeEach(() => {
   } as unknown as Parameters<typeof useSessionStore.setState>[0])
 })
 
+afterEach(() => {
+  vi.restoreAllMocks()
+})
+
 test('fetchSessions uses the main session list and maps project and agent labels', async () => {
-  const request = vi.spyOn(wsClient, 'request').mockResolvedValue([
-    {
-      id: 'sess-a',
-      agent_id: 'agent-a',
-      task_id: null,
-      acp_session_id: null,
-      status: 'active',
-      stage: '',
-      started_at: '2026-06-10T00:00:00.000Z',
-      updated_at: '2026-06-10T00:01:00.000Z',
-      last_message_at: '2026-06-10T00:02:00.000Z',
-      closed_at: null,
-      project_id: 'project-a',
-      title: 'Session A',
-      activity_state: 'idle',
-    },
-  ])
+  const request = vi.spyOn(wsClient, 'request').mockResolvedValue([sessionRow()])
 
   await useSessionStore.getState().fetchSessions('project-a')
 
@@ -52,7 +62,48 @@ test('fetchSessions uses the main session list and maps project and agent labels
     unread: false,
   })
 
-  request.mockRestore()
+})
+
+test('project-scoped fetch preserves unread indicators outside the current project', async () => {
+  const request = vi.spyOn(wsClient, 'request').mockResolvedValue([sessionRow()])
+  useSessionStore.setState({
+    unreadSessionIds: { 'sess-b': true },
+    runningSessionIds: { 'sess-b': true },
+  } as unknown as Parameters<typeof useSessionStore.setState>[0])
+
+  await useSessionStore.getState().fetchSessions('project-a')
+
+  expect((useSessionStore.getState() as unknown as { unreadSessionIds: Record<string, true> }).unreadSessionIds['sess-b']).toBe(true)
+  expect((useSessionStore.getState() as unknown as { runningSessionIds: Record<string, true> }).runningSessionIds['sess-b']).toBe(true)
+
+})
+
+test('all-project fetch prunes stale unread indicators', async () => {
+  const request = vi.spyOn(wsClient, 'request').mockResolvedValue([sessionRow()])
+  useSessionStore.setState({
+    unreadSessionIds: { 'sess-a': true, 'sess-missing': true },
+  } as unknown as Parameters<typeof useSessionStore.setState>[0])
+
+  await useSessionStore.getState().fetchSessions(null)
+
+  const unread = (useSessionStore.getState() as unknown as { unreadSessionIds: Record<string, true> }).unreadSessionIds
+  expect(unread['sess-a']).toBe(true)
+  expect(unread['sess-missing']).toBeUndefined()
+
+})
+
+test('fetching a running session clears its unread indicator', async () => {
+  const request = vi.spyOn(wsClient, 'request').mockResolvedValue([sessionRow({ activity_state: 'running' })])
+  useSessionStore.setState({
+    unreadSessionIds: { 'sess-a': true, 'sess-b': true },
+  } as unknown as Parameters<typeof useSessionStore.setState>[0])
+
+  await useSessionStore.getState().fetchSessions('project-a')
+
+  const unread = (useSessionStore.getState() as unknown as { unreadSessionIds: Record<string, true> }).unreadSessionIds
+  expect(unread['sess-a']).toBeUndefined()
+  expect(unread['sess-b']).toBe(true)
+
 })
 
 test('markRead clears local unread state without hiding or calling widget read state', async () => {
@@ -84,7 +135,6 @@ test('markRead clears local unread state without hiding or calling widget read s
   expect(useSessionStore.getState().sessions[0]).toMatchObject({ id: 'sess-a', unread: false })
   expect((useSessionStore.getState() as unknown as { unreadSessionIds: Record<string, true> }).unreadSessionIds['sess-a']).toBeUndefined()
 
-  request.mockRestore()
 })
 
 test('session activity updates local running and unread indicators within the current project', async () => {
@@ -130,6 +180,4 @@ test('session activity updates local running and unread indicators within the cu
   })
 
   cleanup()
-  request.mockRestore()
-  on.mockRestore()
 })

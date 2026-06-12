@@ -3,7 +3,9 @@ import { Settings, Server, Wifi, WifiOff, LogOut, Info } from 'lucide-react'
 import { useConnectionStore } from '../stores/connection.store'
 
 export default function SettingsPage() {
-  const { serverUrl, token, connected, disconnect } = useConnectionStore()
+  const { serverUrl, token, connected, status, disconnect } = useConnectionStore()
+  const statusText = status === 'connecting' ? '连接中' : connected ? '已连接' : status === 'failed' ? '连接失败' : '未连接'
+  const statusColor = connected ? 'var(--success)' : status === 'connecting' ? 'var(--warning)' : 'var(--error)'
 
   return (
     <div style={styles.page}>
@@ -23,10 +25,10 @@ export default function SettingsPage() {
             </div>
             <div style={styles.divider} />
             <div style={styles.row}>
-              {connected ? <Wifi size={16} color="var(--success)" /> : <WifiOff size={16} color="var(--error)" />}
+              {connected ? <Wifi size={16} color="var(--success)" /> : <WifiOff size={16} color={statusColor} />}
               <span style={styles.label}>状态</span>
-              <span style={{ ...styles.value, color: connected ? 'var(--success)' : 'var(--error)' }}>
-                {connected ? '已连接' : '未连接'}
+              <span style={{ ...styles.value, color: statusColor }}>
+                {statusText}
               </span>
             </div>
             {token && (

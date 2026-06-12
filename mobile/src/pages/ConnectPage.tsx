@@ -4,37 +4,19 @@ import { Wifi, ArrowRight, Server, Key } from 'lucide-react'
 import { useConnectionStore } from '../stores/connection.store'
 
 export default function ConnectPage() {
-  const { serverUrl, setServer, connected } = useConnectionStore()
+  const { serverUrl, setServer, connected, status, lastError } = useConnectionStore()
   const navigate = useNavigate()
   const [url, setUrl] = useState(serverUrl || 'http://192.168.')
   const [token, setToken] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+  const loading = status === 'connecting'
 
   useEffect(() => {
     if (connected && serverUrl) navigate('/', { replace: true })
-    if (connected) {
-      setLoading(false)
-      setError('')
-    }
   }, [connected, serverUrl, navigate])
-
-  useEffect(() => {
-    if (!loading) return
-    const timer = setTimeout(() => {
-      if (!useConnectionStore.getState().connected) {
-        setLoading(false)
-        setError('连接失败，请检查地址或 Token')
-      }
-    }, 5000)
-    return () => clearTimeout(timer)
-  }, [loading])
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault()
     if (!url.trim()) return
-    setLoading(true)
-    setError('')
     setServer(url.trim(), token.trim() || undefined)
   }
 
@@ -71,7 +53,7 @@ export default function ConnectPage() {
           {loading ? '连接中...' : '连接'}
           {!loading && <ArrowRight size={18} />}
         </button>
-        {error && <div style={styles.error}>{error}</div>}
+        {lastError && <div style={styles.error}>{lastError}</div>}
       </form>
     </div>
   )
