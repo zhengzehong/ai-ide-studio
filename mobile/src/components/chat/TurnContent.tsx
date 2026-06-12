@@ -4,6 +4,7 @@ import remarkGfm from 'remark-gfm'
 import { ChevronDown, ChevronRight, Clock, Zap, DollarSign } from 'lucide-react'
 import type { MessageData } from '@desktop/stores/session-events'
 import type { TurnViewModel } from '@desktop/stores/turn-blocks'
+import { elapsedSecondsBetween } from '@desktop/utils/duration'
 import ProcessBlock from './ProcessBlock'
 import FileChangesCard, { extractFileChangesFromBlocks } from './FileChangesCard'
 
@@ -22,6 +23,28 @@ export function resolveProcessOpen(defaultProcessOpen: boolean, override: Proces
   return override === 'open' || (override !== 'closed' && defaultProcessOpen)
 }
 
+export const markdownListStyle: CSSProperties = {
+  margin: '4px 0',
+  paddingInlineStart: 18,
+}
+
+export const markdownListItemStyle: CSSProperties = {
+  margin: '2px 0',
+  paddingLeft: 2,
+}
+
+export function deriveTurnElapsedSeconds(input: {
+  turnStats: Record<string, number> | null
+  message?: Pick<MessageData, 'started_at' | 'completed_at'> | null
+  isStreaming: boolean
+  liveElapsedSeconds?: number
+}): number | undefined {
+  return input.turnStats?.elapsedSeconds
+    ?? (input.isStreaming
+      ? input.liveElapsedSeconds
+      : elapsedSecondsBetween(input.message?.started_at, input.message?.completed_at))
+}
+
 export default function TurnContent({ message, streaming, processLoading = false, processError, onLoadProcess, liveElapsedSeconds }: Props) {
   const [processOpenOverride, setProcessOpenOverride] = useState<ProcessOpenOverride>(null)
 
@@ -37,8 +60,8 @@ export default function TurnContent({ message, streaming, processLoading = false
   const hasProcess = visibleBlocks.length > 0 || canLoadProcess || (isStreaming && !!stage)
   const processOpen = resolveProcessOpen(isStreaming, processOpenOverride)
   const processLabelCount = visibleBlocks.length > 0 ? visibleBlocks.length : processCount
-  const elapsedSeconds = turnStats?.elapsedSeconds ?? (isStreaming ? liveElapsedSeconds : undefined)
-  const showStats = !!turnStats || (isStreaming && elapsedSeconds != null)
+  const elapsedSeconds = deriveTurnElapsedSeconds({ turnStats, message, isStreaming, liveElapsedSeconds })
+  const showStats = !!turnStats || elapsedSeconds != null
 
   const toggleProcess = () => {
     const nextOpen = !processOpen
@@ -81,6 +104,10 @@ export default function TurnContent({ message, streaming, processLoading = false
             components={{
               pre: ({ children }) => <pre style={styles.codePre}>{children}</pre>,
               code: ({ children }) => <code style={styles.codeInline}>{children}</code>,
+              ol: ({ children }) => <ol style={markdownListStyle}>{children}</ol>,
+              ul: ({ children }) => <ul style={markdownListStyle}>{children}</ul>,
+              li: ({ children }) => <li style={markdownListItemStyle}>{children}</li>,
+              p: ({ children }) => <p style={styles.paragraph}>{children}</p>,
             }}
           >
             {finalAnswer}
@@ -154,6 +181,9 @@ const styles: Record<string, CSSProperties> = {
     fontSize: 14,
     lineHeight: 1.7,
     overflowWrap: 'break-word',
+  },
+  paragraph: {
+    margin: '4px 0',
   },
   codePre: {
     margin: '8px 0',
