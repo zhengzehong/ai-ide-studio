@@ -24,38 +24,14 @@ function Get-LanIPv4Address {
     Select-Object -First 1 -ExpandProperty IPAddress
 }
 
-function Ensure-LocalFirewallRule {
-  param(
-    [Parameter(Mandatory=$true)][int]$Port
-  )
-
-  $ruleName = "AI IDE Studio PRD $Port"
-  $existing = Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue
-  if ($existing) { return }
-
-  try {
-    New-NetFirewallRule `
-      -DisplayName $ruleName `
-      -Direction Inbound `
-      -Action Allow `
-      -Protocol TCP `
-      -LocalPort $Port `
-      -Profile Any | Out-Null
-    Write-Host "Firewall: allowed inbound TCP $Port ($ruleName)"
-  } catch {
-    Write-Host "WARNING: failed to create firewall rule for TCP $($Port): $($_.Exception.Message)" -ForegroundColor Yellow
-    Write-Host "If the phone still cannot connect, run PowerShell as Administrator and allow inbound TCP $Port." -ForegroundColor Yellow
-  }
-}
-
 $env:PORT = if ($env:AI_IDE_PRD_PORT) { $env:AI_IDE_PRD_PORT } else { "18900" }
-$env:HOST = if ($env:HOST) { $env:HOST } else { "0.0.0.0" }
+$env:HOST = if ($env:AI_IDE_PRD_HOST) { $env:AI_IDE_PRD_HOST } else { "0.0.0.0" }
 $lanIp = if ($env:AI_IDE_PRD_LAN_IP) { $env:AI_IDE_PRD_LAN_IP } else { Get-LanIPv4Address }
 $env:DATA_DIR = Join-Path $Root "data-prd"
 $env:LOG_DIR = Join-Path $env:DATA_DIR "logs"
 $env:STATIC_DIR = Join-Path $Root "ui\dist"
-$env:PUBLIC_BASE_URL = if ($env:PUBLIC_BASE_URL) {
-  $env:PUBLIC_BASE_URL
+$env:PUBLIC_BASE_URL = if ($env:AI_IDE_PRD_PUBLIC_BASE_URL) {
+  $env:AI_IDE_PRD_PUBLIC_BASE_URL
 } elseif ($lanIp) {
   "http://$($lanIp):$($env:PORT)"
 } else {
@@ -80,8 +56,6 @@ Write-Host "Public:    $($env:PUBLIC_BASE_URL)"
 Write-Host "DATA_DIR:  $env:DATA_DIR"
 Write-Host "LOG_DIR:   $env:LOG_DIR"
 Write-Host ""
-
-Ensure-LocalFirewallRule -Port ([int]$env:PORT)
 
 $portInUse = Get-NetTCPConnection -LocalPort ([int]$env:PORT) -State Listen -ErrorAction SilentlyContinue
 if ($portInUse) {
