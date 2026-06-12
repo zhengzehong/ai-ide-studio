@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { wsClient } from '../services/ws-client'
 import type { AgentData } from './agent.store'
+import { useProjectStore } from './project.store'
 import type { SessionData } from './session.store'
 import {
   appendFinalizedMessage,
@@ -371,6 +372,8 @@ export const useGlobalAssistantStore = create<GlobalAssistantStore>((set, get) =
     if (!trimmed && !images?.length) return
     const clientMessageId = `msg-local-${Date.now()}`
     const msg: Record<string, unknown> = { type: 'prompt', sessionId: sid, content: trimmed, clientMessageId }
+    const currentProjectId = useProjectStore.getState().currentProjectId
+    if (currentProjectId) msg.contextProjectId = currentProjectId
     if (images?.length) msg.images = images
     wsClient.send(msg)
     promptStartTime = Date.now()

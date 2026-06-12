@@ -7,6 +7,7 @@ import { handleWsConnection } from '../../src/gateway/ws-handler.js'
 import { agentStore } from '../../src/store/agents.js'
 import { closeDatabase, getDb, initDatabase } from '../../src/store/db.js'
 import { globalAssistantStore } from '../../src/store/global-assistant.js'
+import { projectStore } from '../../src/store/projects.js'
 import { sessionStore } from '../../src/store/sessions.js'
 import { templateStore } from '../../src/store/agent-templates.js'
 import type { WebSocket, WebSocketServer } from 'ws'
@@ -126,6 +127,49 @@ describe('Global assistant RPC', () => {
     )
     expect(sessionStore.get(binding.session.id)?.acp_session_id).toBe('acp-global')
     expect(agentStore.get(binding.session.agent_id)?.project_id).toBeNull()
+  })
+
+  test('uses prompt project context for global assistant tools without changing workspace cwd', async () => {
+    const projectWorkDir = resolve(tmp, 'project-context')
+    const project = projectStore.create({ name: '项目上下文', workDir: projectWorkDir })
+    const template = templateStore.create({
+      name: '项目助理',
+      type: 'pm',
+      runtime: 'mock',
+      icon: 'bot',
+      systemPrompt: '处理当前项目事务',
+    })
+    const ws = createWs()
+    await ws.send({ type: 'globalAssistant.setTemplate', requestId: 'req-set', templateId: template.id })
+    const binding = ws.last().data as { assistant: { workspace_dir: string }; session: { id: string; agent_id: string } }
+
+    const ensureSession = vi.spyOn(acpHost, 'ensureSession').mockResolvedValue('acp-global')
+    const prompt = vi.spyOn(acpHost, 'prompt').mockResolvedValue(undefined)
+
+    await ws.send({
+      type: 'prompt',
+      requestId: 'req-prompt',
+      sessionId: binding.session.id,
+      content: '创建当前项目的定时任务',
+      contextProjectId: project.id,
+    })
+
+    expect(ws.sent.map((item) => JSON.parse(item) as { type: string; requestId?: string; data?: unknown })).toContainEqual(
+      { type: 'result', requestId: 'req-prompt', data: { status: 'streaming' } },
+    )
+    await vi.waitFor(() => {
+      expect(prompt).toHaveBeenCalled()
+    })
+    expect(ensureSession).toHaveBeenCalledWith(
+      binding.session.agent_id,
+      binding.session.id,
+      null,
+      expect.objectContaining({
+        projectId: project.id,
+        cwd: binding.assistant.workspace_dir,
+      }),
+    )
+    expect(sessionStore.get(binding.session.id)?.project_id).toBeNull()
   })
 
   test('switching global assistant templates creates a new agent-specific workspace', async () => {

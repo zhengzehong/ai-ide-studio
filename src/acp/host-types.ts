@@ -10,6 +10,7 @@ export interface RuntimeSessionState {
   ourSessionId: string
   acpSessionId?: string
   state: AcpSessionState
+  contextKey?: string
   lastUsedAt: number
   activeTurnCount: number
   activeTurnKey?: number

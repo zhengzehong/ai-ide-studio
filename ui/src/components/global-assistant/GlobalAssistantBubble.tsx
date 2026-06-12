@@ -58,7 +58,7 @@ export function GlobalChatBubble({
   const fileChangesDetail = fileChangeDetailsByMessageId[message.id]
   const attachments = message.parsedAttachments || parseJsonArray<ImageAttachmentInfo>(message.attachments_json)
   const fallbackToolCalls = message.toolCalls || message.parsedToolCalls || parseJsonArray<ToolCallInfo>(message.tool_calls_json)
-  const finalAnswer = message.finalAnswer ?? (processBlocks.length > 0 ? message.content : '')
+  const finalAnswer = message.finalAnswer ?? message.content ?? ''
   const showTurnView = processBlocks.length > 0 || finalAnswer || processCount > 0 || !!message.stage
 
   return (
