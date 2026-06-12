@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { useEffect, useRef, type ReactNode } from 'react'
+import { BrowserRouter, HashRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useConnectionStore } from './stores/connection.store'
 import { useAppStore } from './stores/app.store'
 import { useSessionStore } from './stores/session.store'
@@ -9,6 +9,16 @@ import SessionListPage from './pages/SessionListPage'
 import ChatPage from './pages/ChatPage'
 import TaskListPage from './pages/TaskListPage'
 import SettingsPage from './pages/SettingsPage'
+
+const isAndroidBuild = import.meta.env.VITE_MOBILE_BUILD_TARGET === 'android'
+
+function AppRouter({ children }: { children: ReactNode }) {
+  if (isAndroidBuild) {
+    return <HashRouter>{children}</HashRouter>
+  }
+
+  return <BrowserRouter basename="/app">{children}</BrowserRouter>
+}
 
 export async function bootstrapMobileData(): Promise<void> {
   const appStore = useAppStore.getState()
@@ -35,16 +45,16 @@ export default function App() {
 
   if (!connected || status !== 'connected') {
     return (
-      <BrowserRouter basename="/app">
+      <AppRouter>
         <Routes>
           <Route path="*" element={<ConnectPage />} />
         </Routes>
-      </BrowserRouter>
+      </AppRouter>
     )
   }
 
   return (
-    <BrowserRouter basename="/app">
+    <AppRouter>
       <Routes>
         <Route path="/connect" element={<ConnectPage />} />
         <Route path="/chat/:sessionId" element={<ChatPage />} />
@@ -55,6 +65,6 @@ export default function App() {
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-    </BrowserRouter>
+    </AppRouter>
   )
 }

@@ -2,8 +2,10 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { resolve } from 'path'
 
+const isAndroidBuild = process.env.MOBILE_BUILD_TARGET === 'android'
+
 export default defineConfig({
-  base: '/app/',
+  base: isAndroidBuild ? './' : '/app/',
   plugins: [react()],
   resolve: {
     alias: {

@@ -46,6 +46,8 @@ function defaultJavaHome() {
 const env = { ...process.env }
 env.ANDROID_HOME = defaultAndroidSdk()
 env.ANDROID_SDK_ROOT = env.ANDROID_HOME
+env.MOBILE_BUILD_TARGET = 'android'
+env.VITE_MOBILE_BUILD_TARGET = 'android'
 
 const javaHome = defaultJavaHome()
 if (javaHome) {
