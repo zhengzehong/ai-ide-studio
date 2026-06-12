@@ -84,7 +84,7 @@ export interface SessionData {
   id: string; agent_id: string; task_id: string | null; acp_session_id: string | null
   status: string; stage: string; started_at: string; closed_at: string | null
   activity_state?: 'running' | 'idle'
-  project_id?: string | null; title?: string | null; updated_at?: string | null; last_message_at?: string | null; archived_at?: string | null; deleted_at?: string | null
+  project_id?: string | null; title?: string | null; updated_at?: string | null; last_message_at?: string | null; archived_at?: string | null; deleted_at?: string | null; sort_order?: number | null
 }
 
 export interface LocalSessionCandidateInfo {
@@ -151,6 +151,7 @@ interface SessionStore {
   deleteSession: (sessionId: string) => Promise<void>
   closeSession: (sessionId: string) => Promise<void>
   archiveSession: (sessionId: string) => Promise<void>
+  reorderSessions: (projectId: string, agentId: string, sessionIds: string[]) => Promise<SessionData[]>
   clearCopyError: () => void
   selectSession: (id: string | null) => void
   sendPrompt: (content: string, images?: ImageAttachmentInfo[]) => void
@@ -770,6 +771,19 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     const session = await wsClient.request({ type: 'sessions.archive', sessionId }) as SessionData
     set({ sessions: get().sessions.map(s => s.id === sessionId ? { ...s, ...session } : s) })
   },
+
+  reorderSessions: async (projectId, agentId, sessionIds) => {
+    const ordered = await wsClient.request({ type: 'sessions.reorder', projectId, agentId, sessionIds }) as SessionData[]
+    const orderedIds = new Set(ordered.map((session) => session.id))
+    set((state) => ({
+      sessions: [
+        ...state.sessions.filter((session) => session.agent_id !== agentId || session.project_id !== projectId || !orderedIds.has(session.id)),
+        ...ordered,
+      ],
+    }))
+    return ordered
+  },
+
   clearCopyError: () => set({ lastCopyError: null }),
 
   selectSession: (id) => {

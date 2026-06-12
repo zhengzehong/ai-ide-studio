@@ -12,6 +12,7 @@ import { widgetStateMigration } from './011-widget-state.js'
 import { sessionRuntimePreferencesMigration } from './012-session-runtime-preferences.js'
 import { globalAssistantMigration } from './013-global-assistant.js'
 import { eventCenterMigration } from './014-event-center.js'
+import { workspaceCustomOrderingMigration } from './015-workspace-custom-ordering.js'
 import type { Migration } from '../migrator.js'
 
 export const migrations: Migration[] = [
@@ -29,4 +30,5 @@ export const migrations: Migration[] = [
   sessionRuntimePreferencesMigration,
   globalAssistantMigration,
   eventCenterMigration,
+  workspaceCustomOrderingMigration,
 ]
