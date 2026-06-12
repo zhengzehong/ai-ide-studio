@@ -33,9 +33,11 @@ import {
   Archive,
   Zap,
   Paperclip,
+  ArrowDown,
   ArrowUp,
   FileText,
   FolderOpen,
+  GripVertical,
   MessageSquare as MessageSquareIcon,
 } from 'lucide-react'
 import { useAgentStore, type AgentData } from '../stores/agent.store'
@@ -103,6 +105,7 @@ import {
   type MenuName,
 } from './workspace/helpers'
 import { createSessionDraftStore, type WorkspacePendingImage } from './workspace/session-drafts'
+import { moveItemById, sortWorkspaceItems } from './workspace/ordering'
 import { sessionIndicator } from '../utils/session-indicators'
 import { elapsedSecondsBetween, formatCompactDuration } from '../utils/duration'
 import { ContextMenu, PromptDialog, ConfirmDialog, AlertDialog } from '../components/ModalDialog'
@@ -137,7 +140,9 @@ export default function Workspace() {
   const deleteSession = useSessionStore((s) => s.deleteSession)
   const closeSession = useSessionStore((s) => s.closeSession)
   const archiveSession = useSessionStore((s) => s.archiveSession)
+  const reorderSessions = useSessionStore((s) => s.reorderSessions)
   const fetchAgents = useAgentStore((s) => s.fetchAgents)
+  const reorderAgents = useAgentStore((s) => s.reorderAgents)
   const fetchTasks = useTaskStore((s) => s.fetchTasks)
   const tasks = useTaskStore((s) => s.tasks)
   const createTask = useTaskStore((s) => s.createTask)
@@ -157,6 +162,8 @@ export default function Workspace() {
   const [sidebarTab, setSidebarTab] = useState<'sessions' | 'files'>('sessions')
   const [expandedAgents, setExpandedAgents] = useState<Set<string> | null>(null)
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
+  const [orderingMode, setOrderingMode] = useState(false)
+  const [draggedOrderItem, setDraggedOrderItem] = useState<{ type: 'agent' | 'session'; id: string; agentId?: string } | null>(null)
 
   useEffect(() => {
     if (currentProjectId && sidebarTab === 'files') fetchTree(currentProjectId)
@@ -176,9 +183,11 @@ export default function Workspace() {
     () => filterSessionsByProject(sessions, currentProjectId),
     [sessions, currentProjectId],
   )
+  const orderedProjectAgents = useMemo(() => sortWorkspaceItems(projectAgents), [projectAgents])
+  const orderedProjectSessions = useMemo(() => sortWorkspaceItems(projectSessions), [projectSessions])
   const expandedAgentIds = useMemo(
-    () => expandedAgents ?? new Set(projectAgents.map((a) => a.id)),
-    [projectAgents, expandedAgents],
+    () => expandedAgents ?? new Set(orderedProjectAgents.map((a) => a.id)),
+    [orderedProjectAgents, expandedAgents],
   )
   const chatAgent = useMemo(
     () => selectChatAgent({ agents: projectAgents, sessions: projectSessions, currentSessionId, selectedAgentId }),
@@ -200,15 +209,63 @@ export default function Workspace() {
     !!copyingTargetSessionIds[currentSessionId] ||
     (!!currentSession && currentSession.stage === COPYING_STAGE && !currentSession.acp_session_id)
   )
-  const agentSessions = useCallback((id: string) => projectSessions.filter((s) => s.agent_id === id), [projectSessions])
+  const agentSessions = useCallback((id: string) => orderedProjectSessions.filter((s) => s.agent_id === id), [orderedProjectSessions])
 
   const toggleAgent = (id: string) =>
     setExpandedAgents((p) => {
-      const n = new Set(p ?? projectAgents.map((a) => a.id))
+      const n = new Set(p ?? orderedProjectAgents.map((a) => a.id))
       if (n.has(id)) n.delete(id)
       else n.add(id)
       return n
     })
+
+  const persistAgentOrder = useCallback(async (agentIds: string[]) => {
+    if (!currentProjectId) return
+    try {
+      await reorderAgents(currentProjectId, agentIds)
+    } catch (err) {
+      setAlertMsg(err instanceof Error ? err.message : 'Agent 排序保存失败')
+    }
+  }, [currentProjectId, reorderAgents])
+
+  const persistSessionOrder = useCallback(async (agentId: string, sessionIds: string[]) => {
+    if (!currentProjectId) return
+    try {
+      await reorderSessions(currentProjectId, agentId, sessionIds)
+    } catch (err) {
+      setAlertMsg(err instanceof Error ? err.message : '会话排序保存失败')
+    }
+  }, [currentProjectId, reorderSessions])
+
+  const moveAgent = useCallback((agentId: string, targetIndex: number) => {
+    const ids = orderedProjectAgents.map((agent) => agent.id)
+    const next = moveItemById(ids, agentId, targetIndex)
+    if (next !== ids) void persistAgentOrder(next)
+  }, [orderedProjectAgents, persistAgentOrder])
+
+  const moveSession = useCallback((agentId: string, sessionId: string, targetIndex: number) => {
+    const ids = agentSessions(agentId).map((session) => session.id)
+    const next = moveItemById(ids, sessionId, targetIndex)
+    if (next !== ids) void persistSessionOrder(agentId, next)
+  }, [agentSessions, persistSessionOrder])
+
+  const dropAgentOn = useCallback((targetAgentId: string) => {
+    if (draggedOrderItem?.type !== 'agent') return
+    const ids = orderedProjectAgents.map((agent) => agent.id)
+    const targetIndex = ids.indexOf(targetAgentId)
+    const next = moveItemById(ids, draggedOrderItem.id, targetIndex)
+    setDraggedOrderItem(null)
+    if (next !== ids) void persistAgentOrder(next)
+  }, [draggedOrderItem, orderedProjectAgents, persistAgentOrder])
+
+  const dropSessionOn = useCallback((agentId: string, targetSessionId: string) => {
+    if (draggedOrderItem?.type !== 'session' || draggedOrderItem.agentId !== agentId) return
+    const ids = agentSessions(agentId).map((session) => session.id)
+    const targetIndex = ids.indexOf(targetSessionId)
+    const next = moveItemById(ids, draggedOrderItem.id, targetIndex)
+    setDraggedOrderItem(null)
+    if (next !== ids) void persistSessionOrder(agentId, next)
+  }, [agentSessions, draggedOrderItem, persistSessionOrder])
 
   useEffect(() => {
     if (!currentSessionId) return
@@ -432,6 +489,28 @@ export default function Workspace() {
               >
                 智能体
               </div>
+              <div style={{ padding: '4px 14px 6px', display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  onClick={() => setOrderingMode((value) => !value)}
+                  title={orderingMode ? '完成排序' : '自定义排序'}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    border: '1px solid var(--border)',
+                    background: orderingMode ? 'var(--blue-light)' : 'var(--bg-1)',
+                    color: orderingMode ? 'var(--blue)' : 'var(--text-3)',
+                    borderRadius: 6,
+                    padding: '3px 7px',
+                    cursor: 'pointer',
+                    fontSize: 12,
+                    fontWeight: 600,
+                  }}
+                >
+                  <GripVertical size={12} /> {orderingMode ? '完成' : '排序'}
+                </button>
+              </div>
               {projectAgents.length === 0 && (
                 <div
                   style={{
@@ -468,12 +547,33 @@ export default function Workspace() {
                   </button>
                 </div>
               )}
-              {projectAgents.map((agent) => (
-                <div key={agent.id} style={{ marginBottom: 2 }}>
+              {orderedProjectAgents.map((agent, agentIndex) => (
+                <div
+                  key={agent.id}
+                  draggable={orderingMode}
+                  onDragStart={() => orderingMode && setDraggedOrderItem({ type: 'agent', id: agent.id })}
+                  onDragOver={(e) => orderingMode && e.preventDefault()}
+                  onDrop={(e) => {
+                    if (!orderingMode) return
+                    e.preventDefault()
+                    dropAgentOn(agent.id)
+                  }}
+                  onDragEnd={() => setDraggedOrderItem(null)}
+                  style={{
+                    marginBottom: 2,
+                    display: 'grid',
+                    gridTemplateColumns: orderingMode ? 'minmax(0, 1fr) auto' : '1fr',
+                    alignItems: 'center',
+                    opacity: draggedOrderItem?.type === 'agent' && draggedOrderItem.id === agent.id ? 0.55 : 1,
+                  }}
+                >
                   <button
                     type="button"
-                    onClick={() => toggleAgent(agent.id)}
+                    onClick={() => {
+                      if (!orderingMode) toggleAgent(agent.id)
+                    }}
                     onContextMenu={(e) => {
+                      if (orderingMode) return
                       e.preventDefault()
                       e.stopPropagation()
                       setCtxMenu(null)
@@ -483,7 +583,8 @@ export default function Workspace() {
                       display: 'flex',
                       alignItems: 'center',
                       gap: 8,
-                      width: '100%',
+                      flex: 1,
+                      minWidth: 0,
                       padding: '7px 14px',
                       border: 'none',
                       background: 'transparent',
@@ -492,6 +593,11 @@ export default function Workspace() {
                       textAlign: 'left',
                     }}
                   >
+                    {orderingMode && (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', color: 'var(--text-3)', cursor: 'grab' }} title="拖拽排序">
+                        <GripVertical size={14} />
+                      </span>
+                    )}
                     {expandedAgentIds.has(agent.id) ? (
                       <ChevronDown size={13} color="var(--text-3)" />
                     ) : (
@@ -537,14 +643,46 @@ export default function Workspace() {
                       title={statusLabel(agent.status)}
                     />
                   </button>
+                  {orderingMode && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 2, paddingRight: 8 }}>
+                      <button
+                        type="button"
+                        onClick={() => moveAgent(agent.id, agentIndex - 1)}
+                        disabled={agentIndex === 0}
+                        title="上移"
+                        style={orderIconButtonStyle}
+                      >
+                        <ArrowUp size={12} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => moveAgent(agent.id, agentIndex + 1)}
+                        disabled={agentIndex === orderedProjectAgents.length - 1}
+                        title="下移"
+                        style={orderIconButtonStyle}
+                      >
+                        <ArrowDown size={12} />
+                      </button>
+                    </div>
+                  )}
                   {expandedAgentIds.has(agent.id) && (
-                    <>
-                      {agentSessions(agent.id).map((s) => {
+                    <div style={{ gridColumn: '1 / -1' }}>
+                      {agentSessions(agent.id).map((s, sessionIndex) => {
                         const indicator = sessionIndicator(s, runningSessionIds, unreadSessionIds)
                         return (
                           <div
                             key={s.id}
+                            draggable={orderingMode}
+                            onDragStart={() => orderingMode && setDraggedOrderItem({ type: 'session', id: s.id, agentId: agent.id })}
+                            onDragOver={(e) => orderingMode && e.preventDefault()}
+                            onDrop={(e) => {
+                              if (!orderingMode) return
+                              e.preventDefault()
+                              dropSessionOn(agent.id, s.id)
+                            }}
+                            onDragEnd={() => setDraggedOrderItem(null)}
                             onContextMenu={(e) => {
+                              if (orderingMode) return
                               e.preventDefault()
                               setAgentCtxMenu(null)
                               setCtxMenu({ sessionId: s.id, agentId: agent.id, x: e.clientX, y: e.clientY })
@@ -557,11 +695,14 @@ export default function Workspace() {
                               paddingRight: 8,
                               background: currentSessionId === s.id ? 'var(--blue-light)' : 'transparent',
                               borderRadius: 4,
+                              opacity: draggedOrderItem?.type === 'session' && draggedOrderItem.id === s.id ? 0.55 : 1,
                             }}
                           >
                           <button
                             type="button"
-                            onClick={() => handleSelectSession(agent.id, s.id)}
+                            onClick={() => {
+                              if (!orderingMode) handleSelectSession(agent.id, s.id)
+                            }}
                             style={{
                               display: 'flex',
                               alignItems: 'center',
@@ -572,10 +713,15 @@ export default function Workspace() {
                               border: 'none',
                               background: 'transparent',
                               color: 'var(--text-1)',
-                              cursor: 'pointer',
+                              cursor: orderingMode ? 'grab' : 'pointer',
                               textAlign: 'left',
                             }}
                           >
+                            {orderingMode && (
+                              <span style={{ display: 'inline-flex', alignItems: 'center', color: 'var(--text-3)', cursor: 'grab' }} title="拖拽排序">
+                                <GripVertical size={13} />
+                              </span>
+                            )}
                             <span
                               style={{
                                 width: 6,
@@ -603,6 +749,28 @@ export default function Workspace() {
                               {formatTime(s.last_message_at || s.updated_at || s.started_at)}
                             </span>
                           </button>
+                          {orderingMode && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 2, paddingLeft: 4 }}>
+                              <button
+                                type="button"
+                                onClick={() => moveSession(agent.id, s.id, sessionIndex - 1)}
+                                disabled={sessionIndex === 0}
+                                title="上移"
+                                style={orderIconButtonStyle}
+                              >
+                                <ArrowUp size={12} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => moveSession(agent.id, s.id, sessionIndex + 1)}
+                                disabled={sessionIndex === agentSessions(agent.id).length - 1}
+                                title="下移"
+                                style={orderIconButtonStyle}
+                              >
+                                <ArrowDown size={12} />
+                              </button>
+                            </div>
+                          )}
                           </div>
                         )
                       })}
@@ -624,7 +792,7 @@ export default function Workspace() {
                       >
                         <Plus size={12} /> 新建会话
                       </button>
-                    </>
+                    </div>
                   )}
                 </div>
               ))}
@@ -1641,6 +1809,21 @@ const toolbarButtonStyle: React.CSSProperties = {
   fontSize: 13,
   cursor: 'pointer',
   fontWeight: 500,
+}
+
+const orderIconButtonStyle: React.CSSProperties = {
+  width: 24,
+  height: 24,
+  border: '1px solid var(--border)',
+  borderRadius: 6,
+  background: 'var(--bg-1)',
+  color: 'var(--text-3)',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  cursor: 'pointer',
+  padding: 0,
+  flexShrink: 0,
 }
 
 const commandMenuItemStyle: React.CSSProperties = {

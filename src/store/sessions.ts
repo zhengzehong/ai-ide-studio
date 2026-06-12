@@ -22,6 +22,7 @@ export interface SessionRow {
   archived_at: string | null
   deleted_at: string | null
   runtime_preferences_json: string | null
+  sort_order: number | null
 }
 
 export interface SessionListRow extends SessionRow {
@@ -139,15 +140,16 @@ export const sessionStore = {
       archived_at: null,
       deleted_at: null,
       runtime_preferences_json: null,
+      sort_order: nextSessionSortOrder(input.projectId ?? null, input.agentId),
     }
     getDb().prepare(`
       INSERT INTO sessions (
         id, agent_id, task_id, acp_session_id, status, stage, started_at, closed_at,
-        project_id, title, updated_at, last_message_at, archived_at, deleted_at, runtime_preferences_json
+        project_id, title, updated_at, last_message_at, archived_at, deleted_at, runtime_preferences_json, sort_order
       )
       VALUES (
         @id, @agent_id, @task_id, @acp_session_id, @status, @stage, @started_at, @closed_at,
-        @project_id, @title, @updated_at, @last_message_at, @archived_at, @deleted_at, @runtime_preferences_json
+        @project_id, @title, @updated_at, @last_message_at, @archived_at, @deleted_at, @runtime_preferences_json, @sort_order
       )
     `).run(session)
     return session
@@ -159,6 +161,25 @@ export const sessionStore = {
 
   list(agentId?: string, projectId?: string): SessionRow[] {
     return listSessions(agentId, projectId)
+  },
+
+  reorder(projectId: string, agentId: string, sessionIds: string[]): SessionRow[] {
+    if (!projectId) throw new Error('projectId is required')
+    if (!agentId) throw new Error('agentId is required')
+    const uniqueIds = uniqueOrderedIds(sessionIds)
+    const current = sessionStore.list(agentId, projectId)
+    const currentById = new Map(current.map((session) => [session.id, session]))
+    for (const sessionId of uniqueIds) {
+      if (!currentById.has(sessionId)) throw new Error(`Session does not belong to agent/project: ${sessionId}`)
+    }
+    const orderedIds = [...uniqueIds, ...current.filter((session) => !uniqueIds.includes(session.id)).map((session) => session.id)]
+    const update = getDb().prepare('UPDATE sessions SET sort_order = ?, updated_at = ? WHERE id = ? AND agent_id = ? AND project_id = ?')
+    const now = new Date().toISOString()
+    const apply = getDb().transaction(() => {
+      orderedIds.forEach((sessionId, index) => update.run(index + 1, now, sessionId, agentId, projectId))
+    })
+    apply()
+    return sessionStore.list(agentId, projectId)
   },
 
   listWithRuntimeState(
@@ -324,16 +345,42 @@ function markRunningAgentMessagesInterrupted(): void {
 }
 
 function listSessions(agentId?: string, projectId?: string): SessionRow[] {
+  const orderBy = 'ORDER BY COALESCE(sort_order, 9223372036854775807) ASC, started_at ASC, id ASC'
   if (agentId && projectId) {
-    return getDb().prepare<[string, string], SessionRow>('SELECT * FROM sessions WHERE agent_id = ? AND project_id = ? AND deleted_at IS NULL ORDER BY started_at ASC').all(agentId, projectId)
+    return getDb().prepare<[string, string], SessionRow>(`SELECT * FROM sessions WHERE agent_id = ? AND project_id = ? AND deleted_at IS NULL ${orderBy}`).all(agentId, projectId)
   }
   if (agentId) {
-    return getDb().prepare<[string], SessionRow>('SELECT * FROM sessions WHERE agent_id = ? AND deleted_at IS NULL ORDER BY started_at ASC').all(agentId)
+    return getDb().prepare<[string], SessionRow>(`SELECT * FROM sessions WHERE agent_id = ? AND deleted_at IS NULL ${orderBy}`).all(agentId)
   }
   if (projectId) {
-    return getDb().prepare<[string], SessionRow>('SELECT * FROM sessions WHERE project_id = ? AND deleted_at IS NULL ORDER BY started_at ASC').all(projectId)
+    return getDb().prepare<[string], SessionRow>(`SELECT * FROM sessions WHERE project_id = ? AND deleted_at IS NULL ${orderBy}`).all(projectId)
   }
   return getDb().prepare<[], SessionRow>('SELECT * FROM sessions WHERE deleted_at IS NULL ORDER BY started_at ASC').all()
+}
+
+function nextSessionSortOrder(projectId: string | null, agentId: string): number {
+  const db = getDb()
+  const row = projectId
+    ? db.prepare<{ projectId: string; agentId: string }, { min_order: number | null }>(`
+      SELECT MIN(sort_order) AS min_order FROM sessions
+      WHERE project_id = @projectId AND agent_id = @agentId
+    `).get({ projectId, agentId })
+    : db.prepare<[string], { min_order: number | null }>(`
+      SELECT MIN(sort_order) AS min_order FROM sessions
+      WHERE project_id IS NULL AND agent_id = ?
+    `).get(agentId)
+  return (row?.min_order ?? 1) - 1
+}
+
+function uniqueOrderedIds(ids: string[]): string[] {
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const id of ids) {
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    result.push(id)
+  }
+  return result
 }
 
 function resolveSessionRuntimeState(

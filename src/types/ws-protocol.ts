@@ -121,6 +121,11 @@ export interface AgentsDeleteMsg extends ClientMessage {
   type: 'agents.delete'
   agentId: string
 }
+export interface AgentsReorderMsg extends ClientMessage {
+  type: 'agents.reorder'
+  projectId: string
+  agentIds: string[]
+}
 export interface GlobalAssistantGetMsg extends ClientMessage {
   type: 'globalAssistant.get'
 }
@@ -190,6 +195,12 @@ export interface SessionsCloseMsg extends ClientMessage {
 export interface SessionsArchiveMsg extends ClientMessage {
   type: 'sessions.archive'
   sessionId: string
+}
+export interface SessionsReorderMsg extends ClientMessage {
+  type: 'sessions.reorder'
+  projectId: string
+  agentId: string
+  sessionIds: string[]
 }
 export interface SessionsMessagesMsg extends ClientMessage {
   type: 'sessions.messages'

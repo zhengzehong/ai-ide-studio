@@ -22,6 +22,7 @@ ws://localhost:18800
 |------|------|------|------|
 | `agents.list` | `{ projectId? }` | `Agent[]` | 列出 Agent，可按项目过滤 |
 | `agents.create` | `{ type, name, runtime, config? }` | `Agent` | 创建全局/兼容 Agent；项目工作台优先使用模板部署或自定义项目 Agent |
+| `agents.reorder` | `{ projectId, agentIds }` | `Agent[]` | 保存当前项目内 Agent 自定义排序；传入 ID 必须全部属于该项目 |
 
 ### 全局助理
 
@@ -44,6 +45,7 @@ ws://localhost:18800
 | `sessions.close` | `{ sessionId }` | `Session` | 关闭 ACP 会话并标记为 closed |
 | `sessions.archive` | `{ sessionId }` | `Session` | 归档 Session |
 | `sessions.delete` | `{ sessionId }` | `{ deleted: true }` | 软删除 Session，默认列表不再返回 |
+| `sessions.reorder` | `{ projectId, agentId, sessionIds }` | `Session[]` | 保存同一项目、同一 Agent 下的 Session 自定义排序 |
 | `session.getModels` | `{ sessionId }` | `SessionCapabilities` | 获取模型/模式/配置选项 |
 | `session.setModel` | `{ sessionId, modelId }` | `void` | 切换模型；成功后写入 `sessions.runtime_preferences_json.modelId` |
 | `session.setMode` | `{ sessionId, modeId }` | `void` | 切换模式；成功后写入 `sessions.runtime_preferences_json.modeId` |
@@ -205,6 +207,7 @@ Team 运行时事件：`team.member.spawn` 会广播包含新成员 Session 行�
 | `agents.createCustom` | `{ projectId, name, agentType, runtime, systemPrompt?, icon?, modelProfileId? }` | `Agent` | 创建项目级自定义 Agent |
 | `agents.update` | `{ agentId, name?, agentType?, runtime?, systemPrompt?, icon?, modelProfileId? }` | `Agent` | 更新项目级 Agent 配置；`modelProfileId` 为空值时清除绑定 |
 | `agents.delete` | `{ agentId }` | `{ deleted: true }` | 删除项目级 Agent |
+| `agents.reorder` | `{ projectId, agentIds }` | `Agent[]` | 调整当前项目工作台左侧 Agent 顺序 |
 
 `agents.create` 保留给 CLI 或旧调用方兼容；新 UI 不应绕过项目边界直接创建全局 Agent。
 

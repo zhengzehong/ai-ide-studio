@@ -334,6 +334,10 @@ export const sessionRpcHandlers: RpcHandlerMap = {
     sendResult(sessionManager.archiveSession(msg.sessionId as string))
   },
 
+  'sessions.reorder'(msg, { sendResult }) {
+    sendResult(sessionStore.reorder(msg.projectId as string, msg.agentId as string, msg.sessionIds as string[]))
+  },
+
   async 'sessions.delete'(msg, { state, sendResult }) {
     await sessionManager.deleteSession(msg.sessionId as string)
     state.subscriptions.delete(msg.sessionId as string)

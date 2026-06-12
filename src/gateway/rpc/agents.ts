@@ -56,4 +56,8 @@ export const agentRpcHandlers: RpcHandlerMap = {
     deleteProjectAgent(msg.agentId as string)
     sendResult({ deleted: true })
   },
+
+  'agents.reorder'(msg, { sendResult }) {
+    sendResult(agentStore.reorder(msg.projectId as string, msg.agentIds as string[]))
+  },
 }
