@@ -14,6 +14,7 @@
     "dev:all": "concurrently \"npm run dev\" \"npm run dev:ui\"",
     "build": "tsc -p tsconfig.server.json && npm run build -w ui && npm run build -w mobile",
     "build:mobile": "npm run build -w mobile",
+    "build:mobile:android:debug": "node scripts/build-mobile-android-debug.mjs",
     "build:electron:main": "node scripts/electron-build-main.mjs && node scripts/sync-electron-build.mjs",
     "dev:electron": "npm run build:electron:main && electron electron/dist/main.js",
     "build:electron": "npm run build && npm run build:electron:main && electron-builder --config scripts/electron-builder.mjs",
