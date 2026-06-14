@@ -125,6 +125,7 @@ Session 删除采用软删除，仅隐藏列表项并保留 `messages` / `sessio
 - `global_assistant` 保存应用唯一全局助理绑定；它复用普通 Agent/Session，但 ACP `cwd` 来自 `global_assistant.workspace_dir`。
 - Team 是项目级协作容器；TeamMember 绑定项目级 Agent 与当前团队 Session，Team Task 复用 `tasks.team_id`。
 - Event Center 是项目级事件收件箱；事件可以被忽略、消费、归档或转为普通 Task，但不会替代 `tasks` 的交付状态机。
+- 非 Team Agent 间通信使用 `agent.*` MCP 工具和普通 Session 投递；平台记录通信与 watch 状态，但不引入独立通信线程。
 - `ws-handler.ts` 只负责 WS 连接、广播、JSON 解析和 dispatch；新增 RPC 必须放到 `src/gateway/rpc/*` 对应领域模块。
 - SQLite schema 由 `src/store/migrator.ts` 与 `src/store/migrations/*` 管理；`db.ts` 不再承载大段建表/升级逻辑。
 - ACP Host 对外暴露 `acpHost` facade；新增 runtime/session/client callback/terminal/interaction 能力优先下沉到专用模块。
@@ -141,6 +142,14 @@ Session 删除采用软删除，仅隐藏列表项并保留 `messages` / `sessio
 项目级 Agent 可以在 `config_json.modelProfileId` 上绑定一个模型档案。模型档案按 runtime 区分 Claude Code 与 Codex，并保存供应商、模型映射和上下文窗口；Agent runtime 改变、档案删除或档案 runtime 改变时，后端会清理不再匹配的绑定。
 
 详细流程见 `docs/architecture/project-agent-workflow.md`。
+
+## Agent 会话通信
+
+非 Team 场景下，Agent 通过 `agent.message.send` 向另一个 Agent 的 Session 发送平台消息；只指定 `targetAgentId` 时，后端创建新的目标 Session，不复用最新会话。消息来源的 `sourceAgentId`、`sourceSessionId` 和 `projectId` 由当前 MCP tool context 注入，业务关联信息统一放入 `relatedInfo` JSON。
+
+投递链路不阻塞调用方整轮执行：后端先写入 `agent_session_messages`，再后台调用 `sessionManager.enqueuePrompt(targetSessionId, prompt)`。`needReply` 只表示目标 Agent 完成后应主动调用 `agent.message.send` 回到来源 Session；如果目标 Session 完成后仍未检测到反向消息，系统最多补发一次提醒。
+
+`agent.watch.create` 记录一条 `agent_session_watches`，用于在被监听 Session 下一次 `session:done` 后唤醒 watcher 所在 Session。watch 默认只触发一次；如果被监听 Session 已经通过 `agent.message.send` 给 watcher 发过消息，watch 会标记触发但抑制重复 prompt。
 
 ## Team MCP 协作边界
 

@@ -39,14 +39,30 @@ describe('SQLite 迁移', () => {
 
     const tables = getDb().prepare<[], { name: string }>(`
       SELECT name FROM sqlite_master
-      WHERE type = 'table' AND name IN ('schema_migrations', 'tool_contexts', 'tool_call_audit', 'model_profiles', 'global_assistant')
+      WHERE type = 'table' AND name IN (
+        'schema_migrations',
+        'tool_contexts',
+        'tool_call_audit',
+        'model_profiles',
+        'global_assistant',
+        'agent_session_messages',
+        'agent_session_watches'
+      )
       ORDER BY name
     `).all().map(row => row.name)
     const migrations = getDb().prepare<[], { version: string }>(`
       SELECT version FROM schema_migrations ORDER BY version
     `).all().map(row => row.version)
 
-    expect(tables).toEqual(['global_assistant', 'model_profiles', 'schema_migrations', 'tool_call_audit', 'tool_contexts'])
+    expect(tables).toEqual([
+      'agent_session_messages',
+      'agent_session_watches',
+      'global_assistant',
+      'model_profiles',
+      'schema_migrations',
+      'tool_call_audit',
+      'tool_contexts',
+    ])
     const messageColumns = getDb().prepare<[], { name: string }>('PRAGMA table_info(messages)').all().map(row => row.name)
     const eventCenterTables = getDb().prepare<[], { name: string }>(`
       SELECT name FROM sqlite_master
@@ -60,7 +76,7 @@ describe('SQLite 迁移', () => {
       ORDER BY name
     `).all().map(row => row.name)
 
-    expect(migrations).toEqual(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011', '012', '013', '014', '015'])
+    expect(migrations).toEqual(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011', '012', '013', '014', '015', '016'])
     expect(messageColumns).toContain('file_changes_json')
     expect(messageColumns).toContain('process_item_count')
     expect(getDb().prepare<[], { name: string }>('PRAGMA table_info(agents)').all().map(row => row.name)).toContain('sort_order')

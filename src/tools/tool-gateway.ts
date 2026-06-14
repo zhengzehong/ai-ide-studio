@@ -14,6 +14,7 @@ import type { ToolDefinition, ToolHandler, ToolHandlerInput, ToolHandlerResult }
 export interface GatewayOptions {
   toolIds?: string[]
   toolNames?: string[]
+  sessionId?: string
   projectId?: string
   agentId?: string
   teamId?: string
@@ -50,7 +51,7 @@ function rowToDefinition(row: ReturnType<typeof toolStore.get>): ToolDefinition 
 export function buildGatewayTools(options: GatewayOptions): GatewayTool[] {
   const definitions = selectDefinitions(options)
   const context: ToolRuntimeContext = {
-    sessionId: `stdio-${options.agentId ?? 'anonymous'}`,
+    sessionId: options.sessionId ?? `stdio-${options.agentId ?? 'anonymous'}`,
     agentId: options.agentId ?? 'anonymous',
     projectId: options.projectId,
     teamId: options.teamId,
@@ -150,6 +151,7 @@ function readOptionsFromEnv(): GatewayOptions {
   return {
     toolIds: process.env.TOOL_IDS?.split(',').filter(Boolean),
     toolNames: process.env.TOOL_NAMES?.split(',').filter(Boolean),
+    sessionId: process.env.SESSION_ID || undefined,
     projectId: process.env.PROJECT_ID || undefined,
     agentId: process.env.AGENT_ID || undefined,
     teamId: process.env.TEAM_ID || undefined,

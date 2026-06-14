@@ -23,7 +23,7 @@ afterEach(() => {
 describe('Tool Gateway execution', () => {
   test('loads selected builtin and script tools by TOOL_IDS and executes script tools', async () => {
     const script = resolve(tmp, 'hello.mjs')
-    writeFileSync(script, "export default (input) => ({ ok: true, name: input.name })\n", 'utf-8')
+    writeFileSync(script, "export default (input, context) => ({ ok: true, name: input.name, sessionId: context.sessionId, projectId: context.projectId, agentId: context.agentId })\n", 'utf-8')
     const builtin = toolStore.create({
       name: 'create_task',
       displayName: '创建任务',
@@ -47,11 +47,11 @@ describe('Tool Gateway execution', () => {
     toolBindingStore.set(builtin.id, 'global', null)
     toolBindingStore.set(scriptTool.id, 'global', null)
 
-    const tools = buildGatewayTools({ toolIds: [builtin.id, scriptTool.id], projectId: 'p1', agentId: 'a1', workDir: tmp })
+    const tools = buildGatewayTools({ toolIds: [builtin.id, scriptTool.id], sessionId: 'sess-1', projectId: 'p1', agentId: 'a1', workDir: tmp })
 
     expect(tools.map(t => t.name)).toEqual(['create_task', 'hello_script'])
     const result = await tools.find(t => t.name === 'hello_script')?.execute({ name: 'Ada' })
-    expect(result).toEqual({ content: [{ type: 'text', text: JSON.stringify({ ok: true, name: 'Ada' }, null, 2) }] })
+    expect(result).toEqual({ content: [{ type: 'text', text: JSON.stringify({ ok: true, name: 'Ada', sessionId: 'sess-1', projectId: 'p1', agentId: 'a1' }, null, 2) }] })
   })
 
   test('returns a clear error result instead of executing tools that require approval', async () => {

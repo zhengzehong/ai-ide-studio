@@ -164,6 +164,7 @@ export function resolveToolsAsMcpServers(
       args: resolveToolGatewayArgs(),
       env: [
         { name: 'TOOL_IDS', value: gatewayToolIds.join(',') },
+        { name: 'SESSION_ID', value: options.sessionId ?? '' },
         { name: 'PROJECT_ID', value: projectId ?? '' },
         { name: 'AGENT_ID', value: agentId ?? '' },
         { name: 'TEAM_ID', value: teamContext.teamId ?? '' },
@@ -174,7 +175,7 @@ export function resolveToolsAsMcpServers(
   }
 
   log.info(
-    { agentId, projectId, mcpCount: mcpServers.length, gatewayCount: gatewayToolIds.length, transport: 'stdio' },
+    { agentId, projectId, sessionId: options.sessionId, mcpCount: mcpServers.length, gatewayCount: gatewayToolIds.length, transport: 'stdio' },
     'generated MCP server config',
   )
   return mcpServers
