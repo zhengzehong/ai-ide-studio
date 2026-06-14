@@ -6,7 +6,7 @@ export const AGENT_SESSION_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'gl
   {
     name: 'agent.message.send',
     displayName: '发送 Agent 消息',
-    description: '向另一个 Agent 会话发送消息；只传 targetAgentId 时会创建新会话。',
+    description: '向另一个 Agent 会话发送消息。异步投递，调用后立即返回，不要等待目标 Agent 完成。如果 needReply=true，发送后结束当前轮；目标 Agent 回传后系统会自动唤醒来源会话。只传 targetAgentId 时会创建新会话。',
     category: 'automation',
     type: 'builtin',
     config: { handler: 'agent.message.send' },
@@ -17,7 +17,7 @@ export const AGENT_SESSION_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'gl
         targetSessionId: { type: 'string', description: '目标会话 ID' },
         content: { type: 'string', description: '消息内容' },
         relatedInfo: { type: 'object', description: '动态关联信息 JSON' },
-        needReply: { type: 'boolean', description: '是否要求目标 Agent 完成后回复' },
+        needReply: { type: 'boolean', description: '是否要求目标 Agent 完成后回复；系统会在收到回复后自动唤醒来源会话' },
       },
       required: ['content'],
     },

@@ -2,7 +2,8 @@ import type { ToolRuntimeContext } from './tool-runtime.js'
 
 type JsonObject = Record<string, unknown>
 
-const ALWAYS_HIDDEN_FIELDS = ['fromMemberId', 'leaderAgentId', 'teamMemberId', 'sessionId']
+const ALWAYS_HIDDEN_FIELDS = ['fromMemberId', 'leaderAgentId', 'teamMemberId']
+const PROJECT_ID_VISIBLE_TOOLS = new Set(['core.project.get'])
 
 export function sanitizeRuntimeToolInputSchema(
   toolName: string,
@@ -14,7 +15,7 @@ export function sanitizeRuntimeToolInputSchema(
   if (!isRecord(properties)) return schema
 
   const hidden = new Set(ALWAYS_HIDDEN_FIELDS)
-  if (context.projectId) hidden.add('projectId')
+  if (context.projectId && !PROJECT_ID_VISIBLE_TOOLS.has(toolName)) hidden.add('projectId')
   if (context.teamId) hidden.add('teamId')
   if (toolName === 'team.task.update' && context.teamMemberId) hidden.add('assigneeMemberId')
 
