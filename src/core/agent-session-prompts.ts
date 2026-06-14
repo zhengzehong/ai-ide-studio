@@ -35,7 +35,8 @@ ${message.content}
 2. 完成后必须调用 agent.message.send 回复来源会话。
 3. 回复时 targetSessionId 必须使用 "${message.source_session_id}"。
 4. 回复时 relatedInfo 建议沿用上面的关联信息 JSON。
-5. 不要只在最终回答里说明结果；必须通过 agent.message.send 把结果发回来源会话。`
+5. 不要只在最终回答里说明结果；必须通过 agent.message.send 把结果发回来源会话。
+6. 调用 agent.message.send 后即可结束当前轮，不要等待来源 Agent；系统会自动唤醒来源会话。`
   }
 
   return `[系统消息] 你收到了一条来自 AI IDE Studio 中其他 Agent 的消息。
@@ -73,7 +74,8 @@ ${message.content}
 调用要求：
 - targetSessionId 必须使用 "${message.source_session_id}"。
 - content 写清楚你的处理结果、结论、阻塞原因或需要对方继续的信息。
-- relatedInfo 建议沿用上面的关联信息 JSON。`
+- relatedInfo 建议沿用上面的关联信息 JSON。
+- 发送回复后即可结束当前轮，不要等待来源 Agent；系统会自动唤醒来源会话。`
 }
 
 export function buildAgentSessionWatchPrompt(input: WatchPromptInput): string {

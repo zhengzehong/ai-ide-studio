@@ -62,7 +62,6 @@ describe('runtime tool schema context boundary', () => {
             teamId: { type: 'string' },
             fromMemberId: { type: 'string' },
             leaderAgentId: { type: 'string' },
-            sessionId: { type: 'string' },
             teamMemberId: { type: 'string' },
             assigneeMemberId: { type: 'string' },
             title: { type: 'string' },
@@ -91,7 +90,6 @@ describe('runtime tool schema context boundary', () => {
       expect(schema.properties).not.toHaveProperty('teamId')
       expect(schema.properties).not.toHaveProperty('fromMemberId')
       expect(schema.properties).not.toHaveProperty('leaderAgentId')
-      expect(schema.properties).not.toHaveProperty('sessionId')
       expect(schema.properties).not.toHaveProperty('teamMemberId')
       expect(schema.required ?? []).not.toEqual(expect.arrayContaining(['projectId', 'teamId', 'fromMemberId']))
     }
@@ -102,6 +100,104 @@ describe('runtime tool schema context boundary', () => {
         }
       ).properties,
     ).not.toHaveProperty('assigneeMemberId')
+  })
+
+  test('keeps explicit sessionId fields visible for target-session tools', () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const agent = agentStore.create({
+      id: 'agent-session-schema',
+      type: 'dev',
+      name: 'Session Schema',
+      runtime: 'codex',
+      projectId: project.id,
+    })
+    const session = sessionStore.create({ agentId: agent.id, projectId: project.id })
+    const names = ['agent.watch.create', 'agent.session.messages', 'core.session.get']
+    for (const name of names) {
+      const tool = toolStore.create({
+        name,
+        displayName: name,
+        description: name,
+        category: 'data',
+        type: 'builtin',
+        config: { handler: name },
+        inputSchema: {
+          type: 'object',
+          properties: {
+            sessionId: { type: 'string' },
+            limit: { type: 'number' },
+          },
+          required: ['sessionId'],
+        },
+        permissions: { requiresApproval: false, maxExecutionTime: 10_000, networkAccess: false },
+        isBuiltin: true,
+      })
+      toolBindingStore.set(tool.id, 'agent', agent.id)
+    }
+
+    const runtimeTools = listRuntimeTools({
+      sessionId: session.id,
+      agentId: agent.id,
+      projectId: project.id,
+      visibleTools: names,
+    })
+
+    for (const tool of runtimeTools) {
+      const schema = tool.inputSchema as { properties?: Record<string, unknown>; required?: string[] }
+      expect(schema.properties).toHaveProperty('sessionId')
+      expect(schema.required).toEqual(expect.arrayContaining(['sessionId']))
+    }
+  })
+
+  test('keeps core.project.get projectId visible while hiding current projectId on scoped tools', () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const agent = agentStore.create({
+      id: 'agent-project-schema',
+      type: 'dev',
+      name: 'Project Schema',
+      runtime: 'codex',
+      projectId: project.id,
+    })
+    const session = sessionStore.create({ agentId: agent.id, projectId: project.id })
+    for (const name of ['core.project.get', 'core.task.list']) {
+      const tool = toolStore.create({
+        name,
+        displayName: name,
+        description: name,
+        category: 'data',
+        type: 'builtin',
+        config: { handler: name },
+        inputSchema: {
+          type: 'object',
+          properties: {
+            projectId: { type: 'string' },
+            status: { type: 'string' },
+          },
+          required: ['projectId'],
+        },
+        permissions: { requiresApproval: false, maxExecutionTime: 10_000, networkAccess: false },
+        isBuiltin: true,
+      })
+      toolBindingStore.set(tool.id, 'agent', agent.id)
+    }
+
+    const runtimeTools = listRuntimeTools({
+      sessionId: session.id,
+      agentId: agent.id,
+      projectId: project.id,
+      visibleTools: ['core.project.get', 'core.task.list'],
+    })
+    const schemas = Object.fromEntries(
+      runtimeTools.map((tool) => [
+        tool.name,
+        tool.inputSchema as { properties?: Record<string, unknown>; required?: string[] },
+      ]),
+    )
+
+    expect(schemas['core.project.get']?.properties).toHaveProperty('projectId')
+    expect(schemas['core.project.get']?.required).toEqual(expect.arrayContaining(['projectId']))
+    expect(schemas['core.task.list']?.properties).not.toHaveProperty('projectId')
+    expect(schemas['core.task.list']?.required ?? []).not.toEqual(expect.arrayContaining(['projectId']))
   })
 })
 

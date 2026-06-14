@@ -50,6 +50,10 @@ describe('agent session communication service', () => {
       targetSession.id,
       expect.stringContaining(`targetSessionId 必须使用 "${sourceSession.id}"`),
     )
+    expect(enqueuePrompt).toHaveBeenCalledWith(
+      targetSession.id,
+      expect.stringContaining('调用 agent.message.send 后即可结束当前轮，不要等待来源 Agent；系统会自动唤醒来源会话。'),
+    )
   })
 
   test('sendMessage creates a new target session when only targetAgentId is provided', async () => {
@@ -103,6 +107,10 @@ describe('agent session communication service', () => {
     expect(enqueuePrompt).toHaveBeenCalledWith(
       targetSession.id,
       expect.stringContaining('系统还没有检测到你调用 agent.message.send 回传结果'),
+    )
+    expect(enqueuePrompt).toHaveBeenCalledWith(
+      targetSession.id,
+      expect.stringContaining('发送回复后即可结束当前轮，不要等待来源 Agent；系统会自动唤醒来源会话。'),
     )
 
     events.emit('session:done', { sessionId: targetSession.id, agentId: target.id, messageId: 'done-2' })

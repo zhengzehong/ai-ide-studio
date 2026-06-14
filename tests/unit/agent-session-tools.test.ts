@@ -9,6 +9,7 @@ import { sessionStore, messageStore } from '../../src/store/sessions.js'
 import { sessionManager } from '../../src/core/sessions.js'
 import { getHandler } from '../../src/tools/handlers/index.js'
 import { seedBuiltinTools } from '../../src/tools/seed.js'
+import { AGENT_SESSION_BUILTIN_TOOLS } from '../../src/tools/agent-session-seed.js'
 import type { ToolContext, ToolHandlerResult } from '../../src/tools/types.js'
 
 let tmp: string
@@ -41,6 +42,20 @@ describe('agent session MCP tools', () => {
       prompt_status: 'queued',
     })
     expect(asRecord(result.targetSession).id).toBe(targetSession.id)
+  })
+
+  test('agent.message.send descriptions tell agents the send call is async and should not wait', () => {
+    const seeded = AGENT_SESSION_BUILTIN_TOOLS.find((tool) => tool.name === 'agent.message.send')
+    const handler = getHandler('agent.message.send')
+
+    expect(seeded?.description).toContain('异步投递')
+    expect(seeded?.description).toContain('立即返回')
+    expect(seeded?.description).toContain('不要等待')
+    expect(seeded?.description).toContain('自动唤醒来源会话')
+    expect(handler?.description).toContain('异步投递')
+    expect(handler?.description).toContain('立即返回')
+    expect(handler?.description).toContain('不要等待')
+    expect(handler?.description).toContain('自动唤醒来源会话')
   })
 
   test('agent session list and messages enforce current project scope', async () => {

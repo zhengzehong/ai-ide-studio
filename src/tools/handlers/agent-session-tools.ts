@@ -3,7 +3,7 @@ import type { ToolHandler, ToolHandlerInput, ToolHandlerResult } from '../types.
 
 export const agentMessageSendHandler: ToolHandler = {
   name: 'agent.message.send',
-  description: '向另一个 Agent 会话发送消息；只传 targetAgentId 时会创建新会话。',
+  description: '向另一个 Agent 会话发送消息。异步投递，调用后立即返回，不要等待目标 Agent 完成。如果 needReply=true，发送后结束当前轮；目标 Agent 回传后系统会自动唤醒来源会话。只传 targetAgentId 时会创建新会话。',
   inputSchema: {
     type: 'object',
     properties: {
