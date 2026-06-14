@@ -5,6 +5,16 @@ export interface WorkspaceOrderedItem {
   started_at?: string | null
 }
 
+export interface NestedOrderDragEvent {
+  preventDefault: () => void
+  stopPropagation: () => void
+}
+
+export function prepareNestedOrderDragEvent(event: NestedOrderDragEvent): void {
+  event.preventDefault()
+  event.stopPropagation()
+}
+
 export function sortWorkspaceItems<T extends WorkspaceOrderedItem>(items: T[]): T[] {
   return [...items].sort((a, b) => {
     const orderA = typeof a.sort_order === 'number' ? a.sort_order : Number.MAX_SAFE_INTEGER
