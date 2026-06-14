@@ -33,7 +33,6 @@ import {
   Archive,
   Zap,
   Paperclip,
-  ArrowDown,
   ArrowUp,
   FileText,
   FolderOpen,
@@ -105,7 +104,7 @@ import {
   type MenuName,
 } from './workspace/helpers'
 import { createSessionDraftStore, type WorkspacePendingImage } from './workspace/session-drafts'
-import { moveItemById, sortWorkspaceItems } from './workspace/ordering'
+import { prepareNestedOrderDragEvent, moveItemById, sortWorkspaceItems } from './workspace/ordering'
 import { sessionIndicator } from '../utils/session-indicators'
 import { elapsedSecondsBetween, formatCompactDuration } from '../utils/duration'
 import { ContextMenu, PromptDialog, ConfirmDialog, AlertDialog } from '../components/ModalDialog'
@@ -236,18 +235,6 @@ export default function Workspace() {
       setAlertMsg(err instanceof Error ? err.message : '会话排序保存失败')
     }
   }, [currentProjectId, reorderSessions])
-
-  const moveAgent = useCallback((agentId: string, targetIndex: number) => {
-    const ids = orderedProjectAgents.map((agent) => agent.id)
-    const next = moveItemById(ids, agentId, targetIndex)
-    if (next !== ids) void persistAgentOrder(next)
-  }, [orderedProjectAgents, persistAgentOrder])
-
-  const moveSession = useCallback((agentId: string, sessionId: string, targetIndex: number) => {
-    const ids = agentSessions(agentId).map((session) => session.id)
-    const next = moveItemById(ids, sessionId, targetIndex)
-    if (next !== ids) void persistSessionOrder(agentId, next)
-  }, [agentSessions, persistSessionOrder])
 
   const dropAgentOn = useCallback((targetAgentId: string) => {
     if (draggedOrderItem?.type !== 'agent') return
@@ -471,11 +458,34 @@ export default function Workspace() {
 
         {sidebarTab === 'sessions' ? (
           <>
-            <div style={{ padding: '6px 14px', display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-              {connected ? <Wifi size={12} color="var(--green)" /> : <WifiOff size={12} color="var(--red)" />}
-              <span style={{ fontSize: 13, color: connected ? 'var(--green)' : 'var(--red)' }}>
-                {connected ? '已连接' : '未连接'}
-              </span>
+            <div style={{ padding: '6px 14px', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 }}>
+                {connected ? <Wifi size={12} color="var(--green)" /> : <WifiOff size={12} color="var(--red)" />}
+                <span style={{ fontSize: 13, color: connected ? 'var(--green)' : 'var(--red)' }}>
+                  {connected ? '已连接' : '未连接'}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setOrderingMode((value) => !value)}
+                title={orderingMode ? '完成排序' : '自定义排序'}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  height: 24,
+                  border: orderingMode ? '1px solid rgba(37, 99, 235, 0.28)' : '1px solid transparent',
+                  background: orderingMode ? 'var(--blue-light)' : 'transparent',
+                  color: orderingMode ? 'var(--blue)' : 'var(--text-3)',
+                  borderRadius: 6,
+                  padding: '0 7px',
+                  cursor: 'pointer',
+                  fontSize: 12,
+                  fontWeight: 600,
+                }}
+              >
+                <GripVertical size={12} /> {orderingMode ? '完成' : '排序'}
+              </button>
             </div>
             <div style={{ flex: 1, overflowY: 'auto', padding: '4px 0', minHeight: 0 }}>
               <div
@@ -488,28 +498,6 @@ export default function Workspace() {
                 }}
               >
                 智能体
-              </div>
-              <div style={{ padding: '4px 14px 6px', display: 'flex', justifyContent: 'flex-end' }}>
-                <button
-                  type="button"
-                  onClick={() => setOrderingMode((value) => !value)}
-                  title={orderingMode ? '完成排序' : '自定义排序'}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 4,
-                    border: '1px solid var(--border)',
-                    background: orderingMode ? 'var(--blue-light)' : 'var(--bg-1)',
-                    color: orderingMode ? 'var(--blue)' : 'var(--text-3)',
-                    borderRadius: 6,
-                    padding: '3px 7px',
-                    cursor: 'pointer',
-                    fontSize: 12,
-                    fontWeight: 600,
-                  }}
-                >
-                  <GripVertical size={12} /> {orderingMode ? '完成' : '排序'}
-                </button>
               </div>
               {projectAgents.length === 0 && (
                 <div
@@ -547,11 +535,9 @@ export default function Workspace() {
                   </button>
                 </div>
               )}
-              {orderedProjectAgents.map((agent, agentIndex) => (
+              {orderedProjectAgents.map((agent) => (
                 <div
                   key={agent.id}
-                  draggable={orderingMode}
-                  onDragStart={() => orderingMode && setDraggedOrderItem({ type: 'agent', id: agent.id })}
                   onDragOver={(e) => orderingMode && e.preventDefault()}
                   onDrop={(e) => {
                     if (!orderingMode) return
@@ -562,7 +548,7 @@ export default function Workspace() {
                   style={{
                     marginBottom: 2,
                     display: 'grid',
-                    gridTemplateColumns: orderingMode ? 'minmax(0, 1fr) auto' : '1fr',
+                    gridTemplateColumns: '1fr',
                     alignItems: 'center',
                     opacity: draggedOrderItem?.type === 'agent' && draggedOrderItem.id === agent.id ? 0.55 : 1,
                   }}
@@ -589,12 +575,24 @@ export default function Workspace() {
                       border: 'none',
                       background: 'transparent',
                       color: 'var(--text-1)',
-                      cursor: 'pointer',
+                      cursor: orderingMode ? 'default' : 'pointer',
                       textAlign: 'left',
                     }}
                   >
                     {orderingMode && (
-                      <span style={{ display: 'inline-flex', alignItems: 'center', color: 'var(--text-3)', cursor: 'grab' }} title="拖拽排序">
+                      <span
+                        draggable
+                        onDragStart={(e) => {
+                          e.stopPropagation()
+                          setDraggedOrderItem({ type: 'agent', id: agent.id })
+                        }}
+                        onDragEnd={(e) => {
+                          e.stopPropagation()
+                          setDraggedOrderItem(null)
+                        }}
+                        style={orderGripStyle}
+                        title="拖拽排序"
+                      >
                         <GripVertical size={14} />
                       </span>
                     )}
@@ -643,44 +641,22 @@ export default function Workspace() {
                       title={statusLabel(agent.status)}
                     />
                   </button>
-                  {orderingMode && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 2, paddingRight: 8 }}>
-                      <button
-                        type="button"
-                        onClick={() => moveAgent(agent.id, agentIndex - 1)}
-                        disabled={agentIndex === 0}
-                        title="上移"
-                        style={orderIconButtonStyle}
-                      >
-                        <ArrowUp size={12} />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => moveAgent(agent.id, agentIndex + 1)}
-                        disabled={agentIndex === orderedProjectAgents.length - 1}
-                        title="下移"
-                        style={orderIconButtonStyle}
-                      >
-                        <ArrowDown size={12} />
-                      </button>
-                    </div>
-                  )}
                   {expandedAgentIds.has(agent.id) && (
                     <div style={{ gridColumn: '1 / -1' }}>
-                      {agentSessions(agent.id).map((s, sessionIndex) => {
+                      {agentSessions(agent.id).map((s) => {
                         const indicator = sessionIndicator(s, runningSessionIds, unreadSessionIds)
                         return (
                           <div
                             key={s.id}
-                            draggable={orderingMode}
-                            onDragStart={() => orderingMode && setDraggedOrderItem({ type: 'session', id: s.id, agentId: agent.id })}
-                            onDragOver={(e) => orderingMode && e.preventDefault()}
+                            onDragOver={(e) => {
+                              if (!orderingMode) return
+                              prepareNestedOrderDragEvent(e)
+                            }}
                             onDrop={(e) => {
                               if (!orderingMode) return
-                              e.preventDefault()
+                              prepareNestedOrderDragEvent(e)
                               dropSessionOn(agent.id, s.id)
                             }}
-                            onDragEnd={() => setDraggedOrderItem(null)}
                             onContextMenu={(e) => {
                               if (orderingMode) return
                               e.preventDefault()
@@ -713,12 +689,24 @@ export default function Workspace() {
                               border: 'none',
                               background: 'transparent',
                               color: 'var(--text-1)',
-                              cursor: orderingMode ? 'grab' : 'pointer',
+                              cursor: orderingMode ? 'default' : 'pointer',
                               textAlign: 'left',
                             }}
                           >
                             {orderingMode && (
-                              <span style={{ display: 'inline-flex', alignItems: 'center', color: 'var(--text-3)', cursor: 'grab' }} title="拖拽排序">
+                              <span
+                                draggable
+                                onDragStart={(e) => {
+                                  e.stopPropagation()
+                                  setDraggedOrderItem({ type: 'session', id: s.id, agentId: agent.id })
+                                }}
+                                onDragEnd={(e) => {
+                                  e.stopPropagation()
+                                  setDraggedOrderItem(null)
+                                }}
+                                style={orderGripStyle}
+                                title="拖拽排序"
+                              >
                                 <GripVertical size={13} />
                               </span>
                             )}
@@ -749,28 +737,6 @@ export default function Workspace() {
                               {formatTime(s.last_message_at || s.updated_at || s.started_at)}
                             </span>
                           </button>
-                          {orderingMode && (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 2, paddingLeft: 4 }}>
-                              <button
-                                type="button"
-                                onClick={() => moveSession(agent.id, s.id, sessionIndex - 1)}
-                                disabled={sessionIndex === 0}
-                                title="上移"
-                                style={orderIconButtonStyle}
-                              >
-                                <ArrowUp size={12} />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => moveSession(agent.id, s.id, sessionIndex + 1)}
-                                disabled={sessionIndex === agentSessions(agent.id).length - 1}
-                                title="下移"
-                                style={orderIconButtonStyle}
-                              >
-                                <ArrowDown size={12} />
-                              </button>
-                            </div>
-                          )}
                           </div>
                         )
                       })}
@@ -1811,19 +1777,17 @@ const toolbarButtonStyle: React.CSSProperties = {
   fontWeight: 500,
 }
 
-const orderIconButtonStyle: React.CSSProperties = {
-  width: 24,
-  height: 24,
-  border: '1px solid var(--border)',
-  borderRadius: 6,
-  background: 'var(--bg-1)',
+const orderGripStyle: React.CSSProperties = {
+  width: 16,
+  height: 20,
+  borderRadius: 4,
   color: 'var(--text-3)',
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
-  cursor: 'pointer',
-  padding: 0,
+  cursor: 'grab',
   flexShrink: 0,
+  opacity: 0.72,
 }
 
 const commandMenuItemStyle: React.CSSProperties = {

@@ -1,5 +1,5 @@
-import { describe, expect, test } from 'vitest'
-import { moveItemById, sortWorkspaceItems } from '../../ui/src/pages/workspace/ordering.ts'
+import { describe, expect, test, vi } from 'vitest'
+import { prepareNestedOrderDragEvent, moveItemById, sortWorkspaceItems } from '../../ui/src/pages/workspace/ordering.ts'
 
 describe('workspace ordering helpers', () => {
   test('sorts items by custom order with stable fallback order', () => {
@@ -26,5 +26,17 @@ describe('workspace ordering helpers', () => {
   test('leaves order unchanged for missing ids or same index', () => {
     expect(moveItemById(['a', 'b', 'c'], 'x', 0)).toEqual(['a', 'b', 'c'])
     expect(moveItemById(['a', 'b', 'c'], 'b', 1)).toEqual(['a', 'b', 'c'])
+  })
+
+  test('prevents nested drag events from reaching parent order targets', () => {
+    const event = {
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    }
+
+    prepareNestedOrderDragEvent(event)
+
+    expect(event.preventDefault).toHaveBeenCalledOnce()
+    expect(event.stopPropagation).toHaveBeenCalledOnce()
   })
 })
