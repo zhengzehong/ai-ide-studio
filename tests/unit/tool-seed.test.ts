@@ -50,6 +50,11 @@ describe('builtin tool seed synchronization', () => {
       .all()
       .map((row) => row.name)
     expect(names).toEqual([
+      'agent.message.send',
+      'agent.session.list',
+      'agent.session.messages',
+      'agent.watch.cancel',
+      'agent.watch.create',
       'core.agent.create',
       'core.agent.get',
       'core.agent.list',

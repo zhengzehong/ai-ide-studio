@@ -232,6 +232,7 @@ describe('Tool Gateway resolver', () => {
 
     expect(gateway?.env).toContainEqual({ name: 'TEAM_ID', value: team.id })
     expect(gateway?.env).toContainEqual({ name: 'TEAM_MEMBER_ID', value: member.id })
+    expect(gateway?.env).toContainEqual({ name: 'SESSION_ID', value: session.id })
   })
 
   test('disabled agent binding hides inherited platform tool in stdio gateway config', () => {

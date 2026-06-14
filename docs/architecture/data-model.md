@@ -26,6 +26,8 @@ TeamMember 1:1 Session (current team session)
 TeamMember 1:N Task (tasks.assignee_member_id)
 Session 1:N Message
 Session 1:N SessionEvent (append-only 事件溯源)
+Session 1:N AgentSessionMessage (source/target)
+Session 1:N AgentSessionWatch (watcher/watched)
 Task    1:N TaskEvent
 ```
 
@@ -207,6 +209,54 @@ ignored     failed      task
 
 
 `session_events` 保留 raw/diagnostic 事件和旧数据兜底恢复能力。新对话的 UI 历史恢复优先使用 `messages` + `turn_process_items`，不再依赖按 chunk 还原整轮执行过程。单个 Agent Turn 使用平台生成的 Agent `message_id` 作为主消息 ID；runtime 提供的 chunk message id 不作为平台消息主键，避免不同 runtime 的 ID 复用导致串消息。
+
+### agent_session_messages
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| id | TEXT PK | Agent 会话消息 ID |
+| project_id | TEXT | 所属 Project；为空表示全局/兼容会话 |
+| source_agent_id | TEXT | 来源 Agent ID |
+| source_session_id | TEXT | 来源 Session ID |
+| target_agent_id | TEXT | 目标 Agent ID |
+| target_session_id | TEXT | 目标 Session ID |
+| content | TEXT | 投递给目标 Agent 的消息内容 |
+| related_info_json | TEXT | 动态关联信息 JSON，例如 issue/task/event/file 等业务 ID |
+| need_reply | INTEGER | 是否要求目标 Agent 主动回传 |
+| reply_satisfied_at | TEXT | 反向回复被检测到的时间 |
+| reply_reminder_sent_at | TEXT | 未回复提醒发送时间 |
+| reply_reminder_count | INTEGER | 未回复提醒次数；当前最多一次 |
+| prompt_status | TEXT | queued / completed / failed |
+| prompt_error | TEXT | 后台投递失败原因 |
+| prompt_completed_at | TEXT | 后台 `enqueuePrompt()` 完成时间 |
+| created_at | TEXT | 创建时间 |
+| updated_at | TEXT | 更新时间 |
+
+`agent.message.send` 先写入该表，再后台调用 `sessionManager.enqueuePrompt(target_session_id, prompt)`。只传 `targetAgentId` 时会创建新的目标 Session；`source_*` 与 `project_id` 来自 MCP tool context。
+
+### agent_session_watches
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| id | TEXT PK | Watch ID |
+| project_id | TEXT | 所属 Project；为空表示全局/兼容会话 |
+| watcher_agent_id | TEXT | 创建 watch 的 Agent ID |
+| watcher_session_id | TEXT | 创建 watch 并接收唤醒的 Session ID |
+| watched_agent_id | TEXT | 被监听 Session 所属 Agent ID |
+| watched_session_id | TEXT | 被监听 Session ID |
+| related_info_json | TEXT | 动态关联信息 JSON |
+| once | INTEGER | 是否只触发一次，默认 1 |
+| status | TEXT | active / triggered / cancelled / failed |
+| trigger_count | INTEGER | 触发次数 |
+| triggered_at | TEXT | 最近触发时间 |
+| triggered_message_id | TEXT | 触发时 `session:done` 的消息 ID |
+| triggered_turn_id | TEXT | 触发时 `session:done` 的 turn ID |
+| last_error | TEXT | 投递 watcher prompt 失败原因 |
+| cancelled_at | TEXT | 取消时间 |
+| created_at | TEXT | 创建时间 |
+| updated_at | TEXT | 更新时间 |
+
+watch 监听 `session:done`，触发后后台唤醒 `watcher_session_id`。如果被监听 Session 已经向 watcher Session 发过 Agent 会话消息，watch 会记录触发但抑制重复唤醒。
 
 ### tasks
 

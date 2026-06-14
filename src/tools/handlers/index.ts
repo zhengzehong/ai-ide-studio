@@ -57,6 +57,13 @@ import {
   eventListHandler,
   eventSubscriptionCreateHandler,
 } from './event-center-tools.js'
+import {
+  agentMessageSendHandler,
+  agentSessionListHandler,
+  agentSessionMessagesHandler,
+  agentWatchCancelHandler,
+  agentWatchCreateHandler,
+} from './agent-session-tools.js'
 
 const handlers = new Map<string, ToolHandler>()
 
@@ -113,6 +120,11 @@ register(eventConsumeHandler)
 register(eventConvertToTaskHandler)
 register(eventIgnoreHandler)
 register(eventSubscriptionCreateHandler)
+register(agentMessageSendHandler)
+register(agentSessionListHandler)
+register(agentSessionMessagesHandler)
+register(agentWatchCreateHandler)
+register(agentWatchCancelHandler)
 
 export function getHandler(name: string): ToolHandler | undefined {
   return handlers.get(name)
