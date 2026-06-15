@@ -92,6 +92,7 @@ core.project.create
 core.agent.list
 core.agent.get
 core.agent.create
+core.model_profile.list
 core.session.list
 core.session.get
 core.session.create
@@ -680,6 +681,7 @@ core.project.create
 core.agent.list
 core.agent.get
 core.agent.create
+core.model_profile.list
 core.session.list
 core.session.get
 core.session.create

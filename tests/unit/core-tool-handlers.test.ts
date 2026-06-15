@@ -9,6 +9,8 @@ import { sessionStore } from '../../src/store/sessions.js'
 import { templateStore } from '../../src/store/agent-templates.js'
 import { taskStore } from '../../src/store/tasks.js'
 import { ruleStore } from '../../src/store/rules.js'
+import { modelProviderStore } from '../../src/store/model-providers.js'
+import { modelProfileStore } from '../../src/store/model-profiles.js'
 import { acpHost } from '../../src/acp/host.js'
 import { getHandler } from '../../src/tools/handlers/index.js'
 import type { ToolContext, ToolHandlerResult } from '../../src/tools/types.js'
@@ -74,6 +76,76 @@ describe('core MCP tool handlers', () => {
       project_id: project.id,
       template_id: template.id,
     })
+  })
+
+  test('creates custom and template agents with model profiles', async () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const provider = modelProviderStore.create({
+      name: 'new-api',
+      displayName: 'New API',
+      protocol: 'new-api',
+      baseUrl: 'http://127.0.0.1:29000',
+      apiKey: 'sk-test',
+    })
+    const profile = modelProfileStore.create({
+      name: 'Codex Profile',
+      runtime: 'codex',
+      providerId: provider.id,
+      config: { model: 'deepseek-v4-flash', effort: 'medium' },
+    })
+    const template = templateStore.create({
+      name: '模板 Codex',
+      type: 'dev',
+      runtime: 'codex',
+      systemPrompt: '按规范工作',
+    })
+
+    const custom = await executeJson(
+      'core.agent.create',
+      { name: 'Codex Dev', type: 'dev', runtime: 'codex', modelProfileId: profile.id },
+      { projectId: project.id },
+    )
+    const fromTemplate = await executeJson(
+      'core.agent.create',
+      { templateId: template.id, modelProfileId: profile.id },
+      { projectId: project.id },
+    )
+
+    expect(readAgentConfig(asRecord(custom.agent)).modelProfileId).toBe(profile.id)
+    expect(readAgentConfig(asRecord(fromTemplate.agent)).modelProfileId).toBe(profile.id)
+  })
+
+  test('lists model profiles through a core MCP tool', async () => {
+    const provider = modelProviderStore.create({
+      name: 'new-api',
+      displayName: 'New API',
+      protocol: 'new-api',
+      baseUrl: 'http://127.0.0.1:29000',
+      apiKey: 'sk-test',
+    })
+    const claudeProfile = modelProfileStore.create({
+      name: 'Claude Profile',
+      runtime: 'claude',
+      providerId: provider.id,
+      config: { defaultModel: 'deepseek-v4-pro' },
+    })
+    modelProfileStore.create({
+      name: 'Disabled Claude Profile',
+      runtime: 'claude',
+      providerId: provider.id,
+      config: { defaultModel: 'deepseek-v4-flash' },
+      enabled: false,
+    })
+    modelProfileStore.create({
+      name: 'Codex Profile',
+      runtime: 'codex',
+      providerId: provider.id,
+      config: { model: 'deepseek-v4-flash', effort: 'medium' },
+    })
+
+    const listed = await executeJson('core.model_profile.list', { runtime: 'claude', enabledOnly: true })
+
+    expect(asRecords(listed.profiles).map((profile) => profile.id)).toEqual([claudeProfile.id])
   })
 
   test('creates, lists, and gets sessions through the session manager', async () => {
@@ -239,4 +311,11 @@ function asRecord(value: unknown): Record<string, unknown> {
 function asRecords(value: unknown): Record<string, unknown>[] {
   if (!Array.isArray(value)) throw new Error('expected array')
   return value.map(asRecord)
+}
+
+function readAgentConfig(agent: Record<string, unknown>): Record<string, unknown> {
+  const raw = agent.config_json
+  if (typeof raw !== 'string') return {}
+  const parsed = JSON.parse(raw) as unknown
+  return asRecord(parsed)
 }
