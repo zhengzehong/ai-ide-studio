@@ -27,6 +27,7 @@ import {
   getProjectHandler,
   getSessionHandler,
   listAgentsHandler,
+  listModelProfilesHandler,
   listProjectsHandler,
   listSessionsHandler,
 } from './core/index.js'
@@ -96,6 +97,7 @@ register(createProjectHandler)
 register(listAgentsHandler)
 register(getAgentHandler)
 register(createAgentHandler)
+register(listModelProfilesHandler)
 register(listSessionsHandler)
 register(getSessionHandler)
 register(createSessionHandler)

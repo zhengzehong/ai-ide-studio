@@ -58,6 +58,7 @@ describe('builtin tool seed synchronization', () => {
       'core.agent.create',
       'core.agent.get',
       'core.agent.list',
+      'core.model_profile.list',
       'core.project.create',
       'core.project.get',
       'core.project.list',
@@ -121,6 +122,13 @@ describe('builtin tool seed synchronization', () => {
       .map((row) => row.name)
     expect(globalBindings).toEqual(names.filter((name) => !name.startsWith('team.')))
     expect(names.filter((name) => name.startsWith('team.')).length).toBeGreaterThan(0)
+
+    const createAgent = toolStore.getByName('core.agent.create')
+    const createAgentSchema = createAgent?.input_schema_json
+      ? JSON.parse(createAgent.input_schema_json) as Record<string, unknown>
+      : {}
+    const createAgentProperties = asRecord(createAgentSchema.properties)
+    expect(createAgentProperties.modelProfileId).toMatchObject({ type: 'string' })
   })
 
   test('removes stale global team tool bindings when reseeding', () => {
@@ -189,4 +197,9 @@ function legacyHandlerName(name: string): string {
     http_fetch: 'httpFetch',
   }
   return handlers[name] ?? name
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('expected object')
+  return value as Record<string, unknown>
 }
