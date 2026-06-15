@@ -3,6 +3,8 @@ import { wsClient } from '../services/ws-client'
 
 export interface EventCategoryData {
   id: string
+  project_id: string | null
+  scope_key: string
   name: string
   description: string | null
   schema_json: string
@@ -101,16 +103,16 @@ interface EventCenterStore {
   selectedEventId: string | null
   loading: boolean
   activeProjectId: string | null
-  fetchCategories: () => Promise<void>
+  fetchCategories: (projectId?: string) => Promise<void>
   fetchEvents: (projectId?: string, filter?: EventListFilterInput) => Promise<void>
   fetchEventDetail: (eventId: string) => Promise<EventDetailData | null>
   fetchSubscriptions: (projectId?: string) => Promise<void>
   selectEvent: (eventId: string | null) => void
   createEvent: (input: Record<string, unknown>) => Promise<EventCenterEventData>
-  createCategory: (input: Record<string, unknown>) => Promise<EventCategoryData>
-  updateCategory: (input: Record<string, unknown>) => Promise<EventCategoryData>
-  toggleCategory: (categoryId: string, enabled: boolean) => Promise<void>
-  deleteCategory: (categoryId: string) => Promise<void>
+  createCategory: (input: Record<string, unknown>, projectId?: string) => Promise<EventCategoryData>
+  updateCategory: (input: Record<string, unknown>, projectId?: string) => Promise<EventCategoryData>
+  toggleCategory: (categoryId: string, enabled: boolean, projectId?: string) => Promise<void>
+  deleteCategory: (categoryId: string, projectId?: string) => Promise<void>
   createSubscription: (input: Record<string, unknown>) => Promise<EventSubscriptionData>
   toggleSubscription: (subscriptionId: string, enabled: boolean) => Promise<void>
   ignoreEvent: (eventId: string) => Promise<void>
@@ -135,8 +137,10 @@ export const useEventCenterStore = create<EventCenterStore>((set, get) => ({
   loading: false,
   activeProjectId: null,
 
-  fetchCategories: async () => {
-    const categories = await wsClient.request({ type: 'eventCategories.list' }) as EventCategoryData[]
+  fetchCategories: async (projectId) => {
+    const msg: Record<string, unknown> = { type: 'eventCategories.list' }
+    if (projectId) msg.projectId = projectId
+    const categories = await wsClient.request(msg) as EventCategoryData[]
     set({ categories })
   },
 
@@ -199,25 +203,33 @@ export const useEventCenterStore = create<EventCenterStore>((set, get) => ({
     return event
   },
 
-  createCategory: async (input) => {
-    const category = await wsClient.request({ type: 'eventCategories.create', ...input }) as EventCategoryData
+  createCategory: async (input, projectId) => {
+    const msg: Record<string, unknown> = { type: 'eventCategories.create', ...input }
+    if (projectId) msg.projectId = projectId
+    const category = await wsClient.request(msg) as EventCategoryData
     set((state) => ({ categories: [category, ...state.categories.filter((item) => item.id !== category.id)] }))
     return category
   },
 
-  updateCategory: async (input) => {
-    const category = await wsClient.request({ type: 'eventCategories.update', ...input }) as EventCategoryData
+  updateCategory: async (input, projectId) => {
+    const msg: Record<string, unknown> = { type: 'eventCategories.update', ...input }
+    if (projectId) msg.projectId = projectId
+    const category = await wsClient.request(msg) as EventCategoryData
     set((state) => ({ categories: state.categories.map((item) => item.id === category.id ? category : item) }))
     return category
   },
 
-  toggleCategory: async (categoryId, enabled) => {
-    const category = await wsClient.request({ type: 'eventCategories.toggle', categoryId, enabled }) as EventCategoryData
+  toggleCategory: async (categoryId, enabled, projectId) => {
+    const msg: Record<string, unknown> = { type: 'eventCategories.toggle', categoryId, enabled }
+    if (projectId) msg.projectId = projectId
+    const category = await wsClient.request(msg) as EventCategoryData
     set((state) => ({ categories: state.categories.map((item) => item.id === category.id ? category : item) }))
   },
 
-  deleteCategory: async (categoryId) => {
-    await wsClient.request({ type: 'eventCategories.delete', categoryId })
+  deleteCategory: async (categoryId, projectId) => {
+    const msg: Record<string, unknown> = { type: 'eventCategories.delete', categoryId }
+    if (projectId) msg.projectId = projectId
+    await wsClient.request(msg)
     set((state) => ({
       categories: state.categories.filter((item) => item.id !== categoryId),
       eventCategoryId: state.eventCategoryId === categoryId ? 'all' : state.eventCategoryId,
@@ -262,7 +274,7 @@ export const useEventCenterStore = create<EventCenterStore>((set, get) => ({
 
   setupListeners: () => wsClient.on('event-center:update', () => {
     const projectId = get().activeProjectId ?? undefined
-    void get().fetchCategories()
+    void get().fetchCategories(projectId)
     void get().fetchSubscriptions(projectId)
     void get().fetchEvents(projectId)
     const selectedEventId = get().selectedEventId

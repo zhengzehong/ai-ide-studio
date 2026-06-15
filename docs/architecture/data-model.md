@@ -277,9 +277,13 @@ watch 监听 `session:done`，触发后后台唤醒 `watcher_session_id`。如�
 
 ### event_categories
 
+事件类别支持全局和项目两种作用域：`project_id` 为空表示全局类别，`scope_key` 固定为 `__global__`；项目类别的 `project_id` 和 `scope_key` 都使用项目 ID。同一作用域内 `(scope_key, id)` 唯一。项目页面读取类别时返回“全局类别 + 当前项目类别”，同名类别由项目类别覆盖全局类别。事件和订阅只保存 `category_id`，运行时按 `project_id` 先解析项目类别，再回退全局类别。
+
 | 列 | 类型 | 说明 |
 |----|------|------|
-| id | TEXT PK | 事件类别 key，例如 `ai.hot_project` |
+| id | TEXT | 事件类别 key，例如 `ai.hot_project` |
+| project_id | TEXT | 所属 Project；为空表示全局类别 |
+| scope_key | TEXT | 类别作用域键；全局固定为 `__global__`，项目类别使用 `project_id` |
 | name | TEXT | 类别显示名称 |
 | description | TEXT | 类别说明 |
 | schema_json | TEXT | 该类别 `payload_json` 的字段模板 JSON |

@@ -33,6 +33,53 @@ describe('event center service', () => {
     ])
   })
 
+  test('scopes categories by project and resolves project overrides before global defaults', () => {
+    const projectA = projectStore.create({ name: 'Project A', workDir: resolve(tmp, 'a') })
+    const projectB = projectStore.create({ name: 'Project B', workDir: resolve(tmp, 'b') })
+
+    const globalCategory = eventCenterService.upsertCategory({
+      id: 'custom.scope',
+      name: 'Global Scope',
+      defaultPriority: 'low',
+    })
+    const projectOverride = eventCenterService.upsertCategory({
+      projectId: projectA.id,
+      id: 'custom.scope',
+      name: 'Project A Scope',
+      defaultPriority: 'high',
+    })
+    const projectOnly = eventCenterService.upsertCategory({
+      projectId: projectB.id,
+      id: 'custom.only_b',
+      name: 'Project B Only',
+      defaultPriority: 'medium',
+    })
+
+    expect(globalCategory.project_id).toBeNull()
+    expect(projectOverride.project_id).toBe(projectA.id)
+    expect(projectOnly.project_id).toBe(projectB.id)
+
+    expect(eventCenterService.listCategories().find((category) => category.id === 'custom.scope')?.name).toBe('Global Scope')
+    expect(eventCenterService.listCategories(projectA.id).find((category) => category.id === 'custom.scope')?.name).toBe('Project A Scope')
+    expect(eventCenterService.listCategories(projectB.id).find((category) => category.id === 'custom.scope')?.name).toBe('Global Scope')
+    expect(eventCenterService.listCategories(projectA.id).some((category) => category.id === 'custom.only_b')).toBe(false)
+    expect(eventCenterService.listCategories(projectB.id).some((category) => category.id === 'custom.only_b')).toBe(true)
+
+    const eventA = eventCenterService.createEvent({
+      projectId: projectA.id,
+      categoryId: 'custom.scope',
+      title: 'Project A event',
+    })
+    const eventB = eventCenterService.createEvent({
+      projectId: projectB.id,
+      categoryId: 'custom.scope',
+      title: 'Project B event',
+    })
+
+    expect(eventA.priority).toBe('high')
+    expect(eventB.priority).toBe('low')
+  })
+
   test('creates an event, creates pending consumption, consumes it, and converts it to a task', () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const collector = agentStore.create({ name: '采集 Agent', type: 'research', runtime: 'mock', projectId: project.id })

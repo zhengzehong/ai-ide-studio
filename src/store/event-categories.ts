@@ -1,7 +1,11 @@
 import { getDb } from './db.js'
 
+export const GLOBAL_EVENT_CATEGORY_SCOPE = '__global__'
+
 export interface EventCategoryRow {
   id: string
+  project_id: string | null
+  scope_key: string
   name: string
   description: string | null
   schema_json: string
@@ -15,6 +19,7 @@ export interface EventCategoryRow {
 
 export interface UpsertEventCategoryInput {
   id: string
+  projectId?: string | null
   name: string
   description?: string | null
   schema?: Record<string, unknown>
@@ -30,19 +35,46 @@ export interface EventCategoryReferenceCounts {
 }
 
 export const eventCategoryStore = {
-  list(): EventCategoryRow[] {
-    return getDb().prepare<[], EventCategoryRow>('SELECT * FROM event_categories ORDER BY id ASC').all()
+  list(projectId?: string | null): EventCategoryRow[] {
+    const normalizedProjectId = normalizeProjectId(projectId)
+    const globalRows = getDb()
+      .prepare<[string], EventCategoryRow>('SELECT * FROM event_categories WHERE scope_key = ? ORDER BY id ASC')
+      .all(GLOBAL_EVENT_CATEGORY_SCOPE)
+
+    if (!normalizedProjectId) return globalRows
+
+    const projectRows = getDb()
+      .prepare<[string], EventCategoryRow>('SELECT * FROM event_categories WHERE scope_key = ? ORDER BY id ASC')
+      .all(scopeKey(normalizedProjectId))
+    const rowsById = new Map(globalRows.map((category) => [category.id, category]))
+    for (const category of projectRows) rowsById.set(category.id, category)
+    return [...rowsById.values()].sort((left, right) => left.id.localeCompare(right.id))
   },
 
-  get(id: string): EventCategoryRow | undefined {
-    return getDb().prepare<[string], EventCategoryRow>('SELECT * FROM event_categories WHERE id = ?').get(id)
+  get(id: string, projectId?: string | null): EventCategoryRow | undefined {
+    return getDb()
+      .prepare<[string, string], EventCategoryRow>('SELECT * FROM event_categories WHERE scope_key = ? AND id = ?')
+      .get(scopeKey(projectId), id)
+  },
+
+  resolve(id: string, projectId?: string | null): EventCategoryRow | undefined {
+    const normalizedProjectId = normalizeProjectId(projectId)
+    if (normalizedProjectId) {
+      const projectCategory = eventCategoryStore.get(id, normalizedProjectId)
+      if (projectCategory) return projectCategory
+    }
+    return eventCategoryStore.get(id)
   },
 
   upsert(input: UpsertEventCategoryInput): EventCategoryRow {
     const now = new Date().toISOString()
-    const existing = eventCategoryStore.get(input.id)
+    const normalizedProjectId = normalizeProjectId(input.projectId)
+    const scope = scopeKey(normalizedProjectId)
+    const existing = eventCategoryStore.get(input.id, normalizedProjectId)
     const category: EventCategoryRow = {
       id: input.id,
+      project_id: normalizedProjectId,
+      scope_key: scope,
       name: input.name,
       description: input.description ?? null,
       schema_json: JSON.stringify(input.schema ?? {}),
@@ -56,14 +88,15 @@ export const eventCategoryStore = {
 
     getDb().prepare(`
       INSERT INTO event_categories (
-        id, name, description, schema_json, default_priority,
+        id, project_id, scope_key, name, description, schema_json, default_priority,
         allowed_writers_json, allowed_consumers_json, enabled, created_at, updated_at
       )
       VALUES (
-        @id, @name, @description, @schema_json, @default_priority,
+        @id, @project_id, @scope_key, @name, @description, @schema_json, @default_priority,
         @allowed_writers_json, @allowed_consumers_json, @enabled, @created_at, @updated_at
       )
-      ON CONFLICT(id) DO UPDATE SET
+      ON CONFLICT(scope_key, id) DO UPDATE SET
+        project_id = excluded.project_id,
         name = excluded.name,
         description = excluded.description,
         schema_json = excluded.schema_json,
@@ -74,16 +107,29 @@ export const eventCategoryStore = {
         updated_at = excluded.updated_at
     `).run(category)
 
-    return eventCategoryStore.get(input.id)!
+    return eventCategoryStore.get(input.id, normalizedProjectId)!
   },
 
-  toggle(id: string, enabled: boolean): EventCategoryRow | undefined {
-    getDb().prepare('UPDATE event_categories SET enabled = ?, updated_at = ? WHERE id = ?')
-      .run(enabled ? 1 : 0, new Date().toISOString(), id)
-    return eventCategoryStore.get(id)
+  toggle(id: string, enabled: boolean, projectId?: string | null): EventCategoryRow | undefined {
+    const normalizedProjectId = normalizeProjectId(projectId)
+    getDb()
+      .prepare('UPDATE event_categories SET enabled = ?, updated_at = ? WHERE scope_key = ? AND id = ?')
+      .run(enabled ? 1 : 0, new Date().toISOString(), scopeKey(normalizedProjectId), id)
+    return eventCategoryStore.get(id, normalizedProjectId)
   },
 
-  referenceCounts(id: string): EventCategoryReferenceCounts {
+  referenceCounts(id: string, projectId?: string | null): EventCategoryReferenceCounts {
+    const normalizedProjectId = normalizeProjectId(projectId)
+    if (normalizedProjectId) {
+      const events = getDb()
+        .prepare<[string, string], { count: number }>('SELECT COUNT(*) AS count FROM event_center_events WHERE category_id = ? AND project_id = ?')
+        .get(id, normalizedProjectId)?.count ?? 0
+      const subscriptions = getDb()
+        .prepare<[string, string], { count: number }>('SELECT COUNT(*) AS count FROM event_subscriptions WHERE category_id = ? AND project_id = ?')
+        .get(id, normalizedProjectId)?.count ?? 0
+      return { events, subscriptions }
+    }
+
     const events = getDb()
       .prepare<[string], { count: number }>('SELECT COUNT(*) AS count FROM event_center_events WHERE category_id = ?')
       .get(id)?.count ?? 0
@@ -93,8 +139,16 @@ export const eventCategoryStore = {
     return { events, subscriptions }
   },
 
-  remove(id: string): boolean {
-    const result = getDb().prepare('DELETE FROM event_categories WHERE id = ?').run(id)
+  remove(id: string, projectId?: string | null): boolean {
+    const result = getDb().prepare('DELETE FROM event_categories WHERE scope_key = ? AND id = ?').run(scopeKey(projectId), id)
     return result.changes > 0
   },
+}
+
+export function scopeKey(projectId?: string | null): string {
+  return normalizeProjectId(projectId) ?? GLOBAL_EVENT_CATEGORY_SCOPE
+}
+
+function normalizeProjectId(projectId?: string | null): string | null {
+  return typeof projectId === 'string' && projectId.trim() ? projectId.trim() : null
 }

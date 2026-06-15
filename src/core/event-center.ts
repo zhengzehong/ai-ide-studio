@@ -62,31 +62,35 @@ export interface RunEventConsumerResult {
 }
 
 export const eventCenterService = {
-  listCategories(): EventCategoryRow[] {
-    return eventCategoryStore.list()
+  listCategories(projectId?: string | null): EventCategoryRow[] {
+    return eventCategoryStore.list(projectId)
+  },
+
+  getCategory(categoryId: string, projectId?: string | null): EventCategoryRow | undefined {
+    return eventCategoryStore.get(categoryId, projectId)
   },
 
   upsertCategory(input: UpsertEventCategoryInput): EventCategoryRow {
     const category = eventCategoryStore.upsert(input)
-    emitUpdate({ categoryId: category.id, event: 'category.updated' })
+    emitUpdate({ categoryId: category.id, projectId: category.project_id, event: 'category.updated' })
     return category
   },
 
-  toggleCategory(id: string, enabled: boolean): EventCategoryRow | undefined {
-    const category = eventCategoryStore.toggle(id, enabled)
-    emitUpdate({ categoryId: id, event: 'category.toggled', enabled })
+  toggleCategory(id: string, enabled: boolean, projectId?: string | null): EventCategoryRow | undefined {
+    const category = eventCategoryStore.toggle(id, enabled, projectId)
+    emitUpdate({ categoryId: id, projectId: category?.project_id ?? projectId ?? null, event: 'category.toggled', enabled })
     return category
   },
 
-  deleteCategory(id: string): { categoryId: string; deleted: boolean } {
-    const category = eventCategoryStore.get(id)
+  deleteCategory(id: string, projectId?: string | null): { categoryId: string; deleted: boolean } {
+    const category = eventCategoryStore.get(id, projectId)
     if (!category) throw new Error(`事件类别不存在: ${id}`)
-    const references = eventCategoryStore.referenceCounts(id)
+    const references = eventCategoryStore.referenceCounts(id, projectId)
     if (references.events > 0 || references.subscriptions > 0) {
       throw new Error('已有事件或订阅使用该类别，请先停用类别')
     }
-    const deleted = eventCategoryStore.remove(id)
-    emitUpdate({ categoryId: id, event: 'category.deleted' })
+    const deleted = eventCategoryStore.remove(id, projectId)
+    emitUpdate({ categoryId: id, projectId: category.project_id, event: 'category.deleted' })
     return { categoryId: id, deleted }
   },
 
@@ -103,7 +107,7 @@ export const eventCenterService = {
   },
 
   createEvent(input: CreateEventInput): EventCenterEventRow {
-    const category = eventCategoryStore.get(input.categoryId)
+    const category = eventCategoryStore.resolve(input.categoryId, input.projectId ?? undefined)
     if (!category || category.enabled !== 1) throw new Error(`事件类别不可用: ${input.categoryId}`)
     if (!input.title?.trim()) throw new Error('事件标题不能为空')
     assertAgentProject(input.createdByAgentId, input.projectId ?? undefined)
@@ -139,7 +143,7 @@ export const eventCenterService = {
 
   createSubscription(input: CreateEventSubscriptionInput): EventSubscriptionRow {
     if (!input.name?.trim()) throw new Error('订阅名称不能为空')
-    const category = eventCategoryStore.get(input.categoryId)
+    const category = eventCategoryStore.resolve(input.categoryId, input.projectId ?? undefined)
     if (!category) throw new Error(`事件类别不存在: ${input.categoryId}`)
     assertAgentProject(input.consumerAgentId, input.projectId ?? undefined)
     assertCategoryAccess(category, input.consumerAgentId, 'consumer')
@@ -172,7 +176,7 @@ export const eventCenterService = {
     const match = candidates.find((candidate) => {
       const event = eventCenterEventStore.get(candidate.event_id)
       if (!event) return false
-      const category = eventCategoryStore.get(event.category_id)
+      const category = eventCategoryStore.resolve(event.category_id, event.project_id ?? undefined)
       return Boolean(category && hasCategoryAccess(category, input.agentId, 'consumer'))
     })
     if (!match) return null
@@ -192,7 +196,7 @@ export const eventCenterService = {
     const event = eventCenterEventStore.get(existing.event_id)
     if (!event) throw new Error(`事件不存在: ${existing.event_id}`)
     assertAgentProject(existing.consumer_agent_id, event.project_id ?? undefined)
-    const category = eventCategoryStore.get(event.category_id)
+    const category = eventCategoryStore.resolve(event.category_id, event.project_id ?? undefined)
     if (!category) throw new Error(`事件类别不存在: ${event.category_id}`)
     assertCategoryAccess(category, existing.consumer_agent_id, 'consumer')
 
