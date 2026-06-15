@@ -68,7 +68,7 @@ export const agentSessionCommunicationService = {
       needReply: input.needReply,
     })
     const prompt = buildAgentSessionMessagePrompt({ message, sourceAgent, targetSessionId: targetSession.id })
-    enqueueMessagePrompt(message.id, targetSession.id, prompt)
+    enqueueMessagePrompt(message.id, targetSession.id, prompt, message.project_id)
     agentSessionMessageStore.markLatestReplySatisfiedByResponse(message)
     return { message, targetSession }
   },
@@ -118,8 +118,13 @@ events.on('session:done', (ev) => {
   agentSessionCommunicationService.handleSessionDone(ev)
 })
 
-function enqueueMessagePrompt(messageId: string, sessionId: string, prompt: string): void {
-  void sessionManager.enqueuePrompt(sessionId, prompt)
+function enqueueMessagePrompt(messageId: string, sessionId: string, prompt: string, projectId?: string | null): void {
+  void sessionManager.enqueuePrompt(
+    sessionId,
+    prompt,
+    undefined,
+    projectId ? { contextProjectId: projectId } : undefined,
+  )
     .then(() => {
       agentSessionMessageStore.updatePromptCompleted(messageId)
     })
@@ -152,7 +157,7 @@ function handleNeedReplyReminders(targetSessionId: string): void {
     const reminded = agentSessionMessageStore.markReminderSent(message.id)
     if (!reminded) continue
     const prompt = buildAgentSessionReplyReminderPrompt({ message: reminded, sourceAgent, targetSessionId })
-    enqueueMessagePrompt(reminded.id, targetSessionId, prompt)
+    enqueueMessagePrompt(reminded.id, targetSessionId, prompt, reminded.project_id)
   }
 }
 
@@ -183,13 +188,36 @@ async function resolveTargetSession(input: {
 }): Promise<SessionRow> {
   if (!input.targetAgentId && !input.targetSessionId) throw new Error('targetAgentId 或 targetSessionId 至少需要一个')
   if (input.targetSessionId) {
-    const session = requireVisibleSession(input.targetSessionId, input.sourceProjectId)
+    const session = requireMessageTargetSession(input.targetSessionId, input.sourceProjectId)
     if (input.targetAgentId && input.targetAgentId !== session.agent_id) throw new Error('targetAgentId 与 targetSessionId 不匹配')
     if (session.status !== 'active') throw new Error('目标会话已关闭')
     return session
   }
+  const globalAssistantSession = getGlobalAssistantTargetSession(input.targetAgentId!, input.sourceProjectId)
+  if (globalAssistantSession) {
+    if (globalAssistantSession.status !== 'active') throw new Error('目标会话已关闭')
+    return globalAssistantSession
+  }
   assertAgentProject(input.targetAgentId!, input.sourceProjectId)
   return sessionManager.createSession(input.targetAgentId!, undefined, input.sourceProjectId)
+}
+
+function requireMessageTargetSession(sessionId: string, projectId: string | undefined): SessionRow {
+  const session = sessionStore.get(sessionId)
+  if (!session) throw new Error(`Session 不存在: ${sessionId}`)
+  if (projectId && session.project_id !== projectId && !isGlobalAssistantSession(session)) {
+    throw new Error('会话不属于当前项目')
+  }
+  return session
+}
+
+function getGlobalAssistantTargetSession(agentId: string, projectId: string | undefined): SessionRow | undefined {
+  if (!projectId) return undefined
+  const assistant = globalAssistantStore.get()
+  if (!assistant || assistant.agent_id !== agentId) return undefined
+  const session = sessionStore.get(assistant.session_id)
+  if (!session || session.agent_id !== assistant.agent_id) return undefined
+  return session
 }
 
 function requireContextSession(context: { sessionId?: string; projectId?: string }): SessionRow {
