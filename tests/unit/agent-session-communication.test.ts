@@ -6,6 +6,7 @@ import { closeDatabase, initDatabase } from '../../src/store/db.js'
 import { projectStore } from '../../src/store/projects.js'
 import { agentStore } from '../../src/store/agents.js'
 import { sessionStore } from '../../src/store/sessions.js'
+import { globalAssistantStore } from '../../src/store/global-assistant.js'
 import { sessionManager } from '../../src/core/sessions.js'
 import { events } from '../../src/core/events.js'
 import { agentSessionCommunicationService } from '../../src/core/agent-session-communication.js'
@@ -136,7 +137,12 @@ describe('agent session communication service', () => {
     await Promise.resolve()
 
     expect(agentSessionWatchStore.get(watch.id)?.status).toBe('triggered')
-    expect(enqueuePrompt).toHaveBeenCalledWith(sourceSession.id, expect.stringContaining(`Watch ID：${watch.id}`))
+    expect(enqueuePrompt).toHaveBeenCalledWith(
+      sourceSession.id,
+      expect.stringContaining(`Watch ID：${watch.id}`),
+      undefined,
+      { contextProjectId: project.id },
+    )
 
     const secondWatch = agentSessionWatchStore.create({
       projectId: project.id,
@@ -160,6 +166,54 @@ describe('agent session communication service', () => {
 
     expect(agentSessionWatchStore.get(secondWatch.id)?.status).toBe('triggered')
     expect(enqueuePrompt).toHaveBeenCalledTimes(1)
+  })
+
+  test('global assistant can create a project-scoped watch from explicit project context', () => {
+    const { target, targetSession, project } = createTwoAgentProject()
+    const globalAgent = agentStore.create({ name: 'Global Assistant', type: 'pm', runtime: 'mock' })
+    const globalSession = sessionStore.create({ agentId: globalAgent.id })
+    globalAssistantStore.upsert({ agentId: globalAgent.id, sessionId: globalSession.id })
+
+    const watch = agentSessionCommunicationService.createWatch({
+      context: { agentId: globalAgent.id, sessionId: globalSession.id, projectId: project.id },
+      sessionId: targetSession.id,
+      relatedInfo: { source: 'global-assistant' },
+    })
+
+    expect(watch).toMatchObject({
+      project_id: project.id,
+      watcher_agent_id: globalAgent.id,
+      watcher_session_id: globalSession.id,
+      watched_agent_id: target.id,
+      watched_session_id: targetSession.id,
+      status: 'active',
+    })
+  })
+
+  test('watch trigger preserves project context when waking global assistant', async () => {
+    const enqueuePrompt = vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue(undefined)
+    const { target, targetSession, project } = createTwoAgentProject()
+    const globalAgent = agentStore.create({ name: 'Global Assistant', type: 'pm', runtime: 'mock' })
+    const globalSession = sessionStore.create({ agentId: globalAgent.id })
+    globalAssistantStore.upsert({ agentId: globalAgent.id, sessionId: globalSession.id })
+    agentSessionWatchStore.create({
+      projectId: project.id,
+      watcherAgentId: globalAgent.id,
+      watcherSessionId: globalSession.id,
+      watchedAgentId: target.id,
+      watchedSessionId: targetSession.id,
+      once: true,
+    })
+
+    events.emit('session:done', { sessionId: targetSession.id, agentId: target.id, messageId: 'done-global-watch' })
+    await Promise.resolve()
+
+    expect(enqueuePrompt).toHaveBeenCalledWith(
+      globalSession.id,
+      expect.stringContaining('done-global-watch'),
+      undefined,
+      { contextProjectId: project.id },
+    )
   })
 })
 

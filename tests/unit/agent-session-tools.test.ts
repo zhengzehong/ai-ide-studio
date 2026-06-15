@@ -6,6 +6,7 @@ import { closeDatabase, getDb, initDatabase } from '../../src/store/db.js'
 import { projectStore } from '../../src/store/projects.js'
 import { agentStore } from '../../src/store/agents.js'
 import { sessionStore, messageStore } from '../../src/store/sessions.js'
+import { globalAssistantStore } from '../../src/store/global-assistant.js'
 import { sessionManager } from '../../src/core/sessions.js'
 import { getHandler } from '../../src/tools/handlers/index.js'
 import { seedBuiltinTools } from '../../src/tools/seed.js'
@@ -98,6 +99,26 @@ describe('agent session MCP tools', () => {
       { projectId: project.id, agentId: source.id, sessionId: sourceSession.id },
     )
     expect(asRecord(cancelled.watch).status).toBe('cancelled')
+  })
+
+  test('agent.watch.create accepts global assistant session with explicit project context', async () => {
+    const { targetSession, project } = createTwoAgentProject()
+    const globalAgent = agentStore.create({ name: 'Global Assistant', type: 'pm', runtime: 'mock' })
+    const globalSession = sessionStore.create({ agentId: globalAgent.id })
+    globalAssistantStore.upsert({ agentId: globalAgent.id, sessionId: globalSession.id })
+
+    const created = await executeJson(
+      'agent.watch.create',
+      { sessionId: targetSession.id, relatedInfo: { source: 'global-assistant' } },
+      { projectId: project.id, agentId: globalAgent.id, sessionId: globalSession.id },
+    )
+
+    expect(asRecord(created.watch)).toMatchObject({
+      project_id: project.id,
+      watcher_session_id: globalSession.id,
+      watched_session_id: targetSession.id,
+      status: 'active',
+    })
   })
 
   test('seed registers agent communication tools globally', () => {
