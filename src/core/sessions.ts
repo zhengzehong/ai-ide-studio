@@ -271,7 +271,7 @@ export const sessionManager = {
     return sendPromptNow(session, content, images, normalizePromptOptions(options))
   },
 
-  async enqueuePrompt(sessionId: string, content: string, images?: ImageAttachment[]): Promise<void> {
+  async enqueuePrompt(sessionId: string, content: string, images?: ImageAttachment[], options?: PromptOptions): Promise<void> {
     const previous = queuedPrompts.get(sessionId) ?? Promise.resolve()
     const next = previous
       .catch(() => undefined)
@@ -280,7 +280,7 @@ export const sessionManager = {
         const session = sessionStore.get(sessionId)
         if (!session) throw new Error(`Session not found: ${sessionId}`)
         if (session.status !== 'active') throw new Error('当前会话已关闭，不能继续发送消息')
-        await sendPromptNow(session, content, images)
+        await sendPromptNow(session, content, images, options)
       })
     queuedPrompts.set(sessionId, next)
     next

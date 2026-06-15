@@ -6,6 +6,7 @@ import {
   type AgentSessionWatchRow,
 } from '../store/agent-session-communication.js'
 import { messageStore, sessionStore, type MessageRow, type SessionListRow, type SessionRow } from '../store/sessions.js'
+import { globalAssistantStore } from '../store/global-assistant.js'
 import { events } from './events.js'
 import { createChildLogger } from './logger.js'
 import { sessionManager } from './sessions.js'
@@ -129,8 +130,13 @@ function enqueueMessagePrompt(messageId: string, sessionId: string, prompt: stri
     })
 }
 
-function enqueueWatchPrompt(watchId: string, sessionId: string, prompt: string): void {
-  void sessionManager.enqueuePrompt(sessionId, prompt)
+function enqueueWatchPrompt(watchId: string, sessionId: string, prompt: string, projectId?: string | null): void {
+  void sessionManager.enqueuePrompt(
+    sessionId,
+    prompt,
+    undefined,
+    projectId ? { contextProjectId: projectId } : undefined,
+  )
     .catch((err: unknown) => {
       const message = err instanceof Error ? err.message : String(err)
       agentSessionWatchStore.markFailed(watchId, message)
@@ -166,7 +172,7 @@ function handleWatchTriggers(ev: { sessionId: string; agentId?: string | null; m
     const watchedAgent = agentStore.get(watch.watched_agent_id)
     if (!watchedAgent) continue
     const prompt = buildAgentSessionWatchPrompt({ watch: triggered, watchedAgent, messageId: ev.messageId })
-    enqueueWatchPrompt(watch.id, watch.watcher_session_id, prompt)
+    enqueueWatchPrompt(watch.id, watch.watcher_session_id, prompt, watch.project_id)
   }
 }
 
@@ -188,7 +194,12 @@ async function resolveTargetSession(input: {
 
 function requireContextSession(context: { sessionId?: string; projectId?: string }): SessionRow {
   if (!context.sessionId) throw new Error('当前工具上下文缺少 sessionId')
-  return requireVisibleSession(context.sessionId, context.projectId)
+  const session = sessionStore.get(context.sessionId)
+  if (!session) throw new Error(`Session 不存在: ${context.sessionId}`)
+  if (context.projectId && session.project_id !== context.projectId && !isGlobalAssistantSession(session)) {
+    throw new Error('会话不属于当前项目')
+  }
+  return session
 }
 
 function requireContextAgent(context: { agentId?: string }, session: SessionRow) {
@@ -205,6 +216,11 @@ function requireVisibleSession(sessionId: string, projectId: string | undefined)
   if (projectId && session.project_id !== projectId) throw new Error('会话不属于当前项目')
   if (!projectId && session.project_id) return session
   return session
+}
+
+function isGlobalAssistantSession(session: SessionRow): boolean {
+  const assistant = globalAssistantStore.getBySessionId(session.id)
+  return assistant?.agent_id === session.agent_id
 }
 
 function resolveContextProjectId(contextProjectId: string | undefined, sessionProjectId: string | null): string | undefined {
