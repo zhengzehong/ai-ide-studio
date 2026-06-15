@@ -50,10 +50,14 @@ describe('agent session communication service', () => {
     expect(enqueuePrompt).toHaveBeenCalledWith(
       targetSession.id,
       expect.stringContaining(`targetSessionId 必须使用 "${sourceSession.id}"`),
+      undefined,
+      { contextProjectId: project.id },
     )
     expect(enqueuePrompt).toHaveBeenCalledWith(
       targetSession.id,
       expect.stringContaining('调用 agent.message.send 后即可结束当前轮，不要等待来源 Agent；系统会自动唤醒来源会话。'),
+      undefined,
+      { contextProjectId: project.id },
     )
   })
 
@@ -70,6 +74,98 @@ describe('agent session communication service', () => {
     expect(result.targetSession.agent_id).toBe(target.id)
     expect(result.targetSession.project_id).toBe(project.id)
     expect(result.message.target_session_id).toBe(result.targetSession.id)
+  })
+
+  test('project agent can send a project-scoped reply to the configured global assistant session', async () => {
+    const enqueuePrompt = vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue(undefined)
+    const { source, sourceSession, project } = createTwoAgentProject()
+    const globalAgent = agentStore.create({ name: 'Global Assistant', type: 'pm', runtime: 'mock' })
+    const globalSession = sessionStore.create({ agentId: globalAgent.id })
+    globalAssistantStore.upsert({ agentId: globalAgent.id, sessionId: globalSession.id })
+    const originalMessage = agentSessionMessageStore.create({
+      projectId: project.id,
+      sourceAgentId: globalAgent.id,
+      sourceSessionId: globalSession.id,
+      targetAgentId: source.id,
+      targetSessionId: sourceSession.id,
+      content: '请处理项目任务',
+      needReply: true,
+    })
+
+    const result = await agentSessionCommunicationService.sendMessage({
+      context: { agentId: source.id, sessionId: sourceSession.id, projectId: project.id },
+      targetSessionId: globalSession.id,
+      content: '处理完成，结果已同步',
+    })
+
+    expect(result.targetSession.id).toBe(globalSession.id)
+    expect(result.message).toMatchObject({
+      project_id: project.id,
+      source_agent_id: source.id,
+      source_session_id: sourceSession.id,
+      target_agent_id: globalAgent.id,
+      target_session_id: globalSession.id,
+    })
+    expect(enqueuePrompt).toHaveBeenCalledWith(
+      globalSession.id,
+      expect.stringContaining('处理完成，结果已同步'),
+      undefined,
+      { contextProjectId: project.id },
+    )
+    expect(agentSessionMessageStore.get(originalMessage.id)?.reply_satisfied_at).toBeTruthy()
+  })
+
+  test('project agent can send to the configured global assistant by targetAgentId without creating a project session', async () => {
+    const enqueuePrompt = vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue(undefined)
+    const { source, sourceSession, project } = createTwoAgentProject()
+    const globalAgent = agentStore.create({ name: 'Global Assistant', type: 'pm', runtime: 'mock' })
+    const globalSession = sessionStore.create({ agentId: globalAgent.id })
+    globalAssistantStore.upsert({ agentId: globalAgent.id, sessionId: globalSession.id })
+
+    const result = await agentSessionCommunicationService.sendMessage({
+      context: { agentId: source.id, sessionId: sourceSession.id, projectId: project.id },
+      targetAgentId: globalAgent.id,
+      content: '请全局助理继续汇总',
+    })
+
+    expect(result.targetSession.id).toBe(globalSession.id)
+    expect(result.targetSession.project_id).toBeNull()
+    expect(sessionStore.list(globalAgent.id, project.id)).toHaveLength(0)
+    expect(enqueuePrompt).toHaveBeenCalledWith(
+      globalSession.id,
+      expect.stringContaining('请全局助理继续汇总'),
+      undefined,
+      { contextProjectId: project.id },
+    )
+  })
+
+  test('project agent cannot send to a closed global assistant session by targetAgentId', async () => {
+    const enqueuePrompt = vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue(undefined)
+    const { source, sourceSession, project } = createTwoAgentProject()
+    const globalAgent = agentStore.create({ name: 'Global Assistant', type: 'pm', runtime: 'mock' })
+    const globalSession = sessionStore.create({ agentId: globalAgent.id })
+    globalAssistantStore.upsert({ agentId: globalAgent.id, sessionId: globalSession.id })
+    sessionStore.updateStatus(globalSession.id, 'closed')
+
+    await expect(agentSessionCommunicationService.sendMessage({
+      context: { agentId: source.id, sessionId: sourceSession.id, projectId: project.id },
+      targetAgentId: globalAgent.id,
+      content: '不应该投递到关闭会话',
+    })).rejects.toThrow('目标会话已关闭')
+    expect(enqueuePrompt).not.toHaveBeenCalled()
+  })
+
+  test('project agent cannot send to an arbitrary projectless session', async () => {
+    vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue(undefined)
+    const { source, sourceSession, project } = createTwoAgentProject()
+    const externalAgent = agentStore.create({ name: 'External', type: 'pm', runtime: 'mock' })
+    const externalSession = sessionStore.create({ agentId: externalAgent.id })
+
+    await expect(agentSessionCommunicationService.sendMessage({
+      context: { agentId: source.id, sessionId: sourceSession.id, projectId: project.id },
+      targetSessionId: externalSession.id,
+      content: '不应该允许',
+    })).rejects.toThrow('会话不属于当前项目')
   })
 
   test('sendMessage rejects blank content before creating a target session', async () => {
@@ -108,10 +204,14 @@ describe('agent session communication service', () => {
     expect(enqueuePrompt).toHaveBeenCalledWith(
       targetSession.id,
       expect.stringContaining('系统还没有检测到你调用 agent.message.send 回传结果'),
+      undefined,
+      { contextProjectId: project.id },
     )
     expect(enqueuePrompt).toHaveBeenCalledWith(
       targetSession.id,
       expect.stringContaining('发送回复后即可结束当前轮，不要等待来源 Agent；系统会自动唤醒来源会话。'),
+      undefined,
+      { contextProjectId: project.id },
     )
 
     events.emit('session:done', { sessionId: targetSession.id, agentId: target.id, messageId: 'done-2' })
