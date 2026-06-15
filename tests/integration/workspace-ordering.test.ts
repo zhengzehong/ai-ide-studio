@@ -28,6 +28,7 @@ describe('workspace custom ordering persistence', () => {
     const sessionColumns = getDb().prepare<[], { name: string }>('PRAGMA table_info(sessions)').all().map((row) => row.name)
 
     expect(agentColumns).toContain('sort_order')
+    expect(agentColumns).toContain('hidden_at')
     expect(sessionColumns).toContain('sort_order')
   })
 
@@ -52,5 +53,20 @@ describe('workspace custom ordering persistence', () => {
     sessionStore.reorder(project.id, agent.id, [third.id, first.id, second.id])
 
     expect(sessionStore.list(agent.id, project.id).map((session) => session.id)).toEqual([third.id, first.id, second.id])
+  })
+
+  test('persists project agent hidden state', () => {
+    const project = projectStore.create({ name: 'Visibility', workDir: resolve(tmp, 'visibility') })
+    const agent = agentStore.create({ type: 'dev', name: 'Hidden Agent', runtime: 'mock', projectId: project.id })
+
+    const hidden = agentStore.setHidden(agent.id, true)
+
+    expect(hidden.hidden_at).toEqual(expect.any(String))
+    expect(agentStore.get(agent.id)?.hidden_at).toEqual(hidden.hidden_at)
+
+    const visible = agentStore.setHidden(agent.id, false)
+
+    expect(visible.hidden_at).toBeNull()
+    expect(agentStore.get(agent.id)?.hidden_at).toBeNull()
   })
 })

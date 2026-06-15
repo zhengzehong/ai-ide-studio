@@ -15,6 +15,7 @@ export interface AgentRow {
   system_prompt: string
   icon: string
   sort_order: number | null
+  hidden_at: string | null
 }
 
 export interface CreateAgentInput {
@@ -60,10 +61,11 @@ export const agentStore = {
       system_prompt: input.systemPrompt ?? '',
       icon: input.icon ?? 'bot',
       sort_order: nextAgentSortOrder(input.projectId ?? null),
+      hidden_at: null,
     }
     getDb().prepare(`
-      INSERT INTO agents (id, type, name, runtime, status, permission_level, config_json, created_at, project_id, template_id, system_prompt, icon, sort_order)
-      VALUES (@id, @type, @name, @runtime, @status, @permission_level, @config_json, @created_at, @project_id, @template_id, @system_prompt, @icon, @sort_order)
+      INSERT INTO agents (id, type, name, runtime, status, permission_level, config_json, created_at, project_id, template_id, system_prompt, icon, sort_order, hidden_at)
+      VALUES (@id, @type, @name, @runtime, @status, @permission_level, @config_json, @created_at, @project_id, @template_id, @system_prompt, @icon, @sort_order, @hidden_at)
     `).run(agent)
     return agent
   },
@@ -98,6 +100,17 @@ export const agentStore = {
 
   updateStatus(id: string, status: string): void {
     getDb().prepare('UPDATE agents SET status = ? WHERE id = ?').run(status, id)
+  },
+
+  setHidden(id: string, hidden: boolean): AgentRow {
+    const existing = agentStore.get(id)
+    if (!existing) throw new Error(`Agent 不存在: ${id}`)
+    if (!existing.project_id) throw new Error('只能操作项目级 Agent')
+    const hiddenAt = hidden ? new Date().toISOString() : null
+    getDb().prepare('UPDATE agents SET hidden_at = ? WHERE id = ?').run(hiddenAt, id)
+    const updated = agentStore.get(id)
+    if (!updated) throw new Error(`Agent 不存在: ${id}`)
+    return updated
   },
 
   update(id: string, fields: UpdateAgentInput): AgentRow | undefined {
