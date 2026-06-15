@@ -9,6 +9,8 @@ import { eventCategoryStore } from '../../src/store/event-categories.js'
 import { eventConsumptionStore } from '../../src/store/event-consumptions.js'
 import { eventCenterService } from '../../src/core/event-center.js'
 import { sessionManager } from '../../src/core/sessions.js'
+import { eventSubscriptionStore } from '../../src/store/event-subscriptions.js'
+import { sessionStore } from '../../src/store/sessions.js'
 
 let tmp: string
 
@@ -26,10 +28,26 @@ afterEach(() => {
 describe('event center service', () => {
   test('seeds phase-one default categories', () => {
     expect(eventCategoryStore.list().map((category) => category.id).sort()).toEqual([
+      'agent.project',
       'ai.hot_project',
       'repo.commit',
       'task.candidate',
       'work.shipped',
+    ])
+    const category = eventCategoryStore.get('agent.project')
+    expect(category).toMatchObject({
+      name: 'Agent项目',
+      default_priority: 'medium',
+      enabled: 1,
+    })
+    expect(Object.keys(JSON.parse(category?.schema_json ?? '{}').properties)).toEqual([
+      'projectName',
+      'projectUrl',
+      'agentName',
+      'agentId',
+      'status',
+      'reason',
+      'recommendedAction',
     ])
   })
 
@@ -100,7 +118,8 @@ describe('event center service', () => {
   })
 
   test('runs the selected consumption instead of the oldest pending event', async () => {
-    const sendPrompt = vi.spyOn(sessionManager, 'sendPrompt').mockResolvedValue(undefined)
+    const enqueuePrompt = vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue(undefined)
+    vi.spyOn(sessionManager, 'sendPrompt').mockResolvedValue(undefined)
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const consumer = agentStore.create({ name: '分析 Agent', type: 'pm', runtime: 'mock', projectId: project.id })
 
@@ -131,7 +150,100 @@ describe('event center service', () => {
     expect(result.consumption.event_id).toBe(second.id)
     expect(eventConsumptionStore.listByEvent(second.id)[0].status).toBe('running')
     expect(eventConsumptionStore.listByEvent(first.id)[0].status).toBe('pending')
-    expect(sendPrompt).toHaveBeenCalledWith(result.sessionId, expect.stringContaining(targetConsumption.id))
+    expect(enqueuePrompt).toHaveBeenCalledWith(result.sessionId, expect.stringContaining(targetConsumption.id), undefined, { contextProjectId: project.id })
+  })
+
+  test('reuses the configured existing consumer session', async () => {
+    const enqueuePrompt = vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue(undefined)
+    vi.spyOn(sessionManager, 'sendPrompt').mockResolvedValue(undefined)
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const consumer = agentStore.create({ name: 'Consumer', type: 'pm', runtime: 'mock', projectId: project.id })
+    const session = sessionStore.create({ agentId: consumer.id, projectId: project.id })
+
+    eventCenterService.createSubscription(subscriptionInput({
+      projectId: project.id,
+      name: 'Existing session consumer',
+      categoryId: 'ai.hot_project',
+      consumerAgentId: consumer.id,
+      consumerSessionMode: 'existing',
+      consumerSessionId: session.id,
+    }))
+    const event = eventCenterService.createEvent({
+      projectId: project.id,
+      categoryId: 'ai.hot_project',
+      title: 'Use existing session',
+      confidence: 0.9,
+    })
+
+    const consumption = eventConsumptionStore.listByEvent(event.id)[0]
+    const result = await eventCenterService.runConsumer(consumption.id)
+
+    expect(result.sessionId).toBe(session.id)
+    expect(asRecord(eventConsumptionStore.get(consumption.id)).session_id).toBe(session.id)
+    expect(enqueuePrompt).toHaveBeenCalledWith(session.id, expect.stringContaining(consumption.id), undefined, { contextProjectId: project.id })
+  })
+
+  test('new_fixed consumer sessions are created once and reused', async () => {
+    vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue(undefined)
+    vi.spyOn(sessionManager, 'sendPrompt').mockResolvedValue(undefined)
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const consumer = agentStore.create({ name: 'Consumer', type: 'pm', runtime: 'mock', projectId: project.id })
+
+    const subscription = eventCenterService.createSubscription(subscriptionInput({
+      projectId: project.id,
+      name: 'Fixed session consumer',
+      categoryId: 'ai.hot_project',
+      consumerAgentId: consumer.id,
+      consumerSessionMode: 'new_fixed',
+    }))
+    const first = eventCenterService.createEvent({
+      projectId: project.id,
+      categoryId: 'ai.hot_project',
+      title: 'First fixed event',
+      confidence: 0.9,
+    })
+    const firstResult = await eventCenterService.runConsumer(eventConsumptionStore.listByEvent(first.id)[0].id)
+    const storedAfterFirst = eventSubscriptionStore.get(subscription.id)
+
+    const second = eventCenterService.createEvent({
+      projectId: project.id,
+      categoryId: 'ai.hot_project',
+      title: 'Second fixed event',
+      confidence: 0.9,
+    })
+    const secondResult = await eventCenterService.runConsumer(eventConsumptionStore.listByEvent(second.id)[0].id)
+
+    expect(asRecord(storedAfterFirst).consumer_session_id).toBe(firstResult.sessionId)
+    expect(secondResult.sessionId).toBe(firstResult.sessionId)
+    expect(asRecord(eventConsumptionStore.listByEvent(first.id)[0]).session_id).toBe(firstResult.sessionId)
+    expect(asRecord(eventConsumptionStore.listByEvent(second.id)[0]).session_id).toBe(firstResult.sessionId)
+  })
+
+  test('auto_start subscriptions schedule matching consumptions', async () => {
+    const enqueuePrompt = vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue(undefined)
+    vi.spyOn(sessionManager, 'sendPrompt').mockResolvedValue(undefined)
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const consumer = agentStore.create({ name: 'Consumer', type: 'pm', runtime: 'mock', projectId: project.id })
+
+    eventCenterService.createSubscription(subscriptionInput({
+      projectId: project.id,
+      name: 'Auto consumer',
+      categoryId: 'ai.hot_project',
+      consumerAgentId: consumer.id,
+      autoStart: true,
+      consumerSessionMode: 'new_fixed',
+    }))
+    const event = eventCenterService.createEvent({
+      projectId: project.id,
+      categoryId: 'ai.hot_project',
+      title: 'Auto event',
+      confidence: 0.9,
+    })
+
+    await waitFor(() => {
+      expect(enqueuePrompt).toHaveBeenCalledTimes(1)
+      expect(eventConsumptionStore.listByEvent(event.id)[0].status).toBe('running')
+    })
   })
 
   test('enforces category writer and consumer allow lists', () => {
@@ -207,3 +319,27 @@ describe('event center service', () => {
     expect(eventConsumptionStore.listByEvent(event.id)[0].status).toBe('pending')
   })
 })
+
+async function waitFor(assertion: () => void): Promise<void> {
+  let lastError: unknown
+  for (let index = 0; index < 20; index += 1) {
+    try {
+      assertion()
+      return
+    } catch (err) {
+      lastError = err
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    }
+  }
+  if (lastError instanceof Error) throw lastError
+  throw new Error(String(lastError))
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('expected object')
+  return value as Record<string, unknown>
+}
+
+function subscriptionInput(input: Parameters<typeof eventCenterService.createSubscription>[0] & Record<string, unknown>): Parameters<typeof eventCenterService.createSubscription>[0] {
+  return input
+}

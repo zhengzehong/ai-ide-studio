@@ -12,6 +12,7 @@ export interface EventConsumptionRow {
   result_summary: string | null
   result_json: string | null
   error: string | null
+  session_id: string | null
   claimed_at: string | null
   completed_at: string | null
   created_at: string
@@ -24,6 +25,7 @@ export interface CreateEventConsumptionInput {
   projectId?: string | null
   consumerAgentId?: string | null
   consumerLabel?: string | null
+  sessionId?: string | null
   status?: string
 }
 
@@ -41,6 +43,7 @@ export const eventConsumptionStore = {
       result_summary: null,
       result_json: null,
       error: null,
+      session_id: input.sessionId ?? null,
       claimed_at: null,
       completed_at: null,
       created_at: now,
@@ -49,11 +52,13 @@ export const eventConsumptionStore = {
     getDb().prepare(`
       INSERT OR IGNORE INTO event_consumptions (
         id, event_id, subscription_id, project_id, consumer_agent_id, consumer_label,
-        status, result_summary, result_json, error, claimed_at, completed_at, created_at, updated_at
+        status, result_summary, result_json, error, session_id, claimed_at, completed_at,
+        created_at, updated_at
       )
       VALUES (
         @id, @event_id, @subscription_id, @project_id, @consumer_agent_id, @consumer_label,
-        @status, @result_summary, @result_json, @error, @claimed_at, @completed_at, @created_at, @updated_at
+        @status, @result_summary, @result_json, @error, @session_id, @claimed_at,
+        @completed_at, @created_at, @updated_at
       )
     `).run(row)
     return eventConsumptionStore.findExisting(input) ?? row
@@ -111,6 +116,14 @@ export const eventConsumptionStore = {
     `).run(now, now, id)
     const updated = eventConsumptionStore.get(id)
     if (!updated) throw new Error(`消费记录不存在: ${id}`)
+    return updated
+  },
+
+  setSession(id: string, sessionId: string): EventConsumptionRow {
+    getDb().prepare('UPDATE event_consumptions SET session_id = ?, updated_at = ? WHERE id = ?')
+      .run(sessionId, new Date().toISOString(), id)
+    const updated = eventConsumptionStore.get(id)
+    if (!updated) throw new Error(`娑堣垂璁板綍涓嶅瓨鍦? ${id}`)
     return updated
   },
 

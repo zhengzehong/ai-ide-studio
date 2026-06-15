@@ -6,6 +6,7 @@ import { initDatabase, closeDatabase } from '../../src/store/db.js'
 import { agentStore } from '../../src/store/agents.js'
 import { projectStore } from '../../src/store/projects.js'
 import { eventConsumptionStore } from '../../src/store/event-consumptions.js'
+import { sessionStore } from '../../src/store/sessions.js'
 import { dispatchRpc } from '../../src/gateway/rpc/registry.js'
 import type { ClientMessage } from '../../src/types/ws-protocol.js'
 
@@ -86,6 +87,30 @@ describe('event center RPC', () => {
     expect(page.offset).toBe(1)
     expect(asRecords(page.items)).toHaveLength(1)
     expect(asRecords(page.items)[0].title).toContain('Agent')
+  })
+
+  test('creates subscriptions with auto consume and session strategy through RPC', async () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const consumer = agentStore.create({ name: 'Consumer', type: 'pm', runtime: 'mock', projectId: project.id })
+    const session = sessionStore.create({ agentId: consumer.id, projectId: project.id })
+    const rpc = createRpc()
+
+    await rpc.send({
+      type: 'eventSubscriptions.create',
+      name: 'Existing session auto consumer',
+      projectId: project.id,
+      categoryId: 'ai.hot_project',
+      consumerAgentId: consumer.id,
+      autoStart: true,
+      consumerSessionMode: 'existing',
+      consumerSessionId: session.id,
+    })
+
+    const response = rpc.last()
+    expect(response.type).toBe('result')
+    expect(asRecord(response.data).auto_start).toBe(1)
+    expect(asRecord(response.data).consumer_session_mode).toBe('existing')
+    expect(asRecord(response.data).consumer_session_id).toBe(session.id)
   })
 
   test('deletes unused categories but rejects categories referenced by events', async () => {

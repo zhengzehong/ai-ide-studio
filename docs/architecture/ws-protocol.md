@@ -90,10 +90,10 @@ ws://localhost:18800
 | `events.reopen` | `{ eventId }` | `EventCenterEvent` | 重新打开事件 |
 | `events.convertToTask` | `{ eventId, title?, description?, assignAgentId?, projectId? }` | `Task` | 将事件转成普通任务并写入关联 |
 | `eventSubscriptions.list` | `{ projectId? }` | `EventSubscription[]` | 查询订阅规则 |
-| `eventSubscriptions.create` | `{ projectId?, name, categoryId, consumerAgentId?, consumerLabel?, actionMode?, filter?, enabled?, autoStart? }` | `EventSubscription` | 创建订阅规则 |
+| `eventSubscriptions.create` | `{ projectId?, name, categoryId, consumerAgentId?, consumerLabel?, actionMode?, filter?, enabled?, autoStart?, consumerSessionMode?, consumerSessionId? }` | `EventSubscription` | 创建订阅规则；`consumerSessionMode` 支持 `existing` / `new_each` / `new_fixed` |
 | `eventSubscriptions.toggle` | `{ subscriptionId, enabled }` | `EventSubscription` | 启用或停用订阅规则 |
 | `eventConsumptions.claimNext` | `{ projectId?, agentId }` | `{ event, consumption } \| null` | 消费 Agent 领取下一条待消费事件 |
-| `eventConsumptions.run` | `{ consumptionId }` | `{ event, consumption, sessionId }` | 从 UI 手动启动指定消费记录的消费者 Agent 会话 |
+| `eventConsumptions.run` | `{ consumptionId, sessionId? }` | `{ event, consumption, sessionId }` | 从 UI 手动启动指定消费记录的消费者 Agent 会话；传入 `sessionId` 时优先复用该会话 |
 | `eventConsumptions.consume` | `{ consumptionId, resultSummary?, result?, error? }` | `EventConsumption` | 提交消费结果 |
 
 ### Team 上下文

@@ -47,6 +47,8 @@ export interface EventSubscriptionData {
   filter_json: string
   enabled: number
   auto_start: number
+  consumer_session_mode: 'existing' | 'new_each' | 'new_fixed'
+  consumer_session_id: string | null
   created_at: string
   updated_at: string
 }
@@ -62,6 +64,7 @@ export interface EventConsumptionData {
   result_summary: string | null
   result_json: string | null
   error: string | null
+  session_id: string | null
   claimed_at: string | null
   completed_at: string | null
   created_at: string
@@ -116,7 +119,7 @@ interface EventCenterStore {
   ignoreEvent: (eventId: string) => Promise<void>
   archiveEvent: (eventId: string) => Promise<void>
   convertToTask: (eventId: string, input: { title: string; description?: string; projectId?: string }) => Promise<void>
-  runConsumer: (eventId: string, projectId?: string) => Promise<void>
+  runConsumer: (eventId: string, projectId?: string, sessionId?: string) => Promise<void>
   setupListeners: () => () => void
 }
 
@@ -251,11 +254,11 @@ export const useEventCenterStore = create<EventCenterStore>((set, get) => ({
     await get().fetchEventDetail(eventId).catch(() => null)
   },
 
-  runConsumer: async (eventId, projectId) => {
+  runConsumer: async (eventId, projectId, sessionId) => {
     const detail = get().details[eventId] ?? await get().fetchEventDetail(eventId)
     const pending = detail?.consumptions.find((item) => item.status === 'pending' && item.consumer_agent_id)
     if (!pending) throw new Error('没有可运行的待消费 Agent')
-    await wsClient.request({ type: 'eventConsumptions.run', projectId, consumptionId: pending.id })
+    await wsClient.request({ type: 'eventConsumptions.run', projectId, consumptionId: pending.id, sessionId })
     await get().fetchEventDetail(eventId)
     await get().fetchEvents(get().activeProjectId ?? undefined)
   },

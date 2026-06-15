@@ -70,6 +70,8 @@ function RuleDetail({ rule }: { rule: EventSubscriptionData | undefined }) {
             <div className="ec-kv-row"><span>Agent</span><b>{rule.consumer_label || rule.consumer_agent_id || '-'}</b></div>
             <div className="ec-kv-row"><span>动作</span><b>{actionModeLabel(rule.action_mode)}</b></div>
             <div className="ec-kv-row"><span>自动启动</span><b>{rule.auto_start ? '是' : '否'}</b></div>
+            <div className="ec-kv-row"><span>会话策略</span><b>{consumerSessionModeLabel(rule.consumer_session_mode)}</b></div>
+            <div className="ec-kv-row"><span>消费会话</span><b>{rule.consumer_session_id || '-'}</b></div>
           </div>
         </section>
       </div>
@@ -82,4 +84,10 @@ function readableFilter(filter: Record<string, unknown>): Array<{ label: string;
   if (typeof filter.priority === 'string') rows.push({ label: '优先级', value: PRIORITY_META[filter.priority]?.label ?? filter.priority })
   if (typeof filter.sourceType === 'string') rows.push({ label: '来源类型', value: filter.sourceType })
   return rows.length > 0 ? rows : [{ label: '条件', value: '匹配该类别的全部事件' }]
+}
+
+function consumerSessionModeLabel(value: EventSubscriptionData['consumer_session_mode']): string {
+  if (value === 'existing') return '指定已有会话'
+  if (value === 'new_fixed') return '固定新会话'
+  return '每次新会话'
 }
