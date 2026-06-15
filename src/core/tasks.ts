@@ -28,6 +28,7 @@ export const taskManager = {
         log.info({ taskId: task.id, sessionId: session.id, agentId: input.assignAgentId, reuse: sessionReuse }, '任务已分派')
 
         taskStore.updateStatus(task.id, 'executing', '已分派给 Agent')
+        taskStore.linkSession(task.id, session.id)
 
         events.emit('task:update', {
           taskId: task.id,

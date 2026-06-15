@@ -82,6 +82,55 @@ describe('task RPC handlers', () => {
 
     expect(taskStore.list(undefined, projectA.id)).toEqual([])
   })
+
+  test('tasks.create keeps reused session visible after task list reload', async () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const agent = agentStore.create({ name: 'Target', type: 'dev', runtime: 'mock', projectId: project.id })
+    const existingSession = sessionStore.create({ agentId: agent.id, projectId: project.id })
+
+    const created = await callTaskRpc('tasks.create', {
+      type: 'tasks.create',
+      title: 'Reuse existing',
+      projectId: project.id,
+      assignAgentId: agent.id,
+      sessionId: existingSession.id,
+    }) as Record<string, unknown>
+
+    expect(created.sessionId).toBe(existingSession.id)
+
+    const listed = await callTaskRpc('tasks.list', {
+      type: 'tasks.list',
+      projectId: project.id,
+    }) as Array<Record<string, unknown>>
+
+    expect(listed).toHaveLength(1)
+    expect(listed[0]).toMatchObject({ id: created.id, sessionId: existingSession.id })
+  })
+
+  test('tasks.assign keeps reused session visible in task detail', async () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const agent = agentStore.create({ name: 'Target', type: 'dev', runtime: 'mock', projectId: project.id })
+    const existingSession = sessionStore.create({ agentId: agent.id, projectId: project.id })
+    const task = taskStore.create({ title: 'Assign existing', projectId: project.id })
+
+    const assigned = await callTaskRpc('tasks.assign', {
+      type: 'tasks.assign',
+      taskId: task.id,
+      agentId: agent.id,
+      sessionId: existingSession.id,
+    }) as Record<string, unknown>
+
+    expect(assigned.sessionId).toBe(existingSession.id)
+
+    const detail = await callTaskRpc('tasks.get', {
+      type: 'tasks.get',
+      taskId: task.id,
+    }) as Record<string, unknown>
+
+    expect(detail.sessions).toEqual([
+      expect.objectContaining({ id: existingSession.id, agentId: agent.id }),
+    ])
+  })
 })
 
 async function callTaskRpc(type: string, msg: Record<string, unknown>): Promise<unknown> {

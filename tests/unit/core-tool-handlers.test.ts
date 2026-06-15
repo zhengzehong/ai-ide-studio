@@ -8,6 +8,7 @@ import { agentStore } from '../../src/store/agents.js'
 import { sessionStore } from '../../src/store/sessions.js'
 import { templateStore } from '../../src/store/agent-templates.js'
 import { taskStore } from '../../src/store/tasks.js'
+import { ruleStore } from '../../src/store/rules.js'
 import { acpHost } from '../../src/acp/host.js'
 import { getHandler } from '../../src/tools/handlers/index.js'
 import type { ToolContext, ToolHandlerResult } from '../../src/tools/types.js'
@@ -159,6 +160,62 @@ describe('core MCP tool handlers', () => {
       ),
     ).rejects.toThrow('Project')
     expect(taskStore.list(undefined, projectA.id)).toHaveLength(0)
+  })
+
+  test('studio.schedule.create stores explicit session target for scheduled tasks and prompts', async () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const agent = agentStore.create({ name: 'Scheduler', type: 'dev', runtime: 'mock', projectId: project.id })
+    const session = sessionStore.create({ agentId: agent.id, projectId: project.id })
+
+    const taskRule = await executeJson(
+      'studio.schedule.create',
+      {
+        name: 'Task reuse',
+        cron: '0 9 * * *',
+        action: 'create_task',
+        taskTitle: 'Daily task',
+        assignAgentId: agent.id,
+        sessionId: session.id,
+      },
+      { projectId: project.id },
+    )
+    const storedTaskRule = ruleStore.get(taskRule.ruleId as string)
+    expect(storedTaskRule?.action_config).toMatchObject({ assign_agent_id: agent.id, session_id: session.id })
+
+    const promptRule = await executeJson(
+      'studio.schedule.create',
+      {
+        name: 'Prompt reuse',
+        cron: '0 10 * * *',
+        action: 'send_prompt',
+        prompt: 'daily check',
+        agentId: agent.id,
+        sessionId: session.id,
+      },
+      { projectId: project.id },
+    )
+    const storedPromptRule = ruleStore.get(promptRule.ruleId as string)
+    expect(storedPromptRule?.action_config).toMatchObject({ agent_id: agent.id, session_id: session.id })
+  })
+
+  test('studio.schedule.update stores explicit session target', async () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const agent = agentStore.create({ name: 'Scheduler', type: 'dev', runtime: 'mock', projectId: project.id })
+    const session = sessionStore.create({ agentId: agent.id, projectId: project.id })
+    const rule = ruleStore.create({
+      name: 'Rule',
+      cron: '0 9 * * *',
+      action: 'create_task',
+      projectId: project.id,
+      actionConfig: { title: 'Before', assign_agent_id: agent.id },
+    })
+
+    await executeJson('studio.schedule.update', {
+      ruleId: rule.id,
+      sessionId: session.id,
+    })
+
+    expect(ruleStore.get(rule.id)?.action_config).toMatchObject({ session_id: session.id })
   })
 })
 
