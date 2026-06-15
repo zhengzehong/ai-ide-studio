@@ -183,6 +183,8 @@ revokedAt
 | 方法 | 用途 |
 |------|------|
 | `event.category.list` | 列出可见事件类别和 payload schema 提示 |
+| `event.category.create` | 创建新的事件类别；已存在时失败 |
+| `event.category.update` | 部分更新已有事件类别；未传字段保持不变 |
 | `event.create` | 写入一条分类事件 |
 | `event.list` | 查询事件中心事件 |
 | `event.get` | 查看事件详情和消费记录 |

@@ -29,6 +29,8 @@ describe('event center MCP tools', () => {
 
     expect(names).toEqual(expect.arrayContaining([
       'event.category.list',
+      'event.category.create',
+      'event.category.update',
       'event.create',
       'event.list',
       'event.get',
@@ -37,6 +39,64 @@ describe('event center MCP tools', () => {
       'event.convert_to_task',
       'event.ignore',
     ]))
+  })
+
+  test('lets an agent create and partially update event categories through tools', async () => {
+    const created = await executeJson('event.category.create', {
+      categoryId: 'custom.alert',
+      name: 'Custom Alert',
+      description: 'Initial category',
+      schema: {
+        type: 'object',
+        properties: {
+          severity: { type: 'string' },
+        },
+      },
+      defaultPriority: 'high',
+      allowedWriters: ['agent-writer'],
+      allowedConsumers: ['agent-consumer'],
+    })
+    const createdCategory = asRecord(created.category)
+
+    expect(createdCategory.id).toBe('custom.alert')
+    expect(JSON.parse(createdCategory.schema_json as string)).toEqual({
+      type: 'object',
+      properties: {
+        severity: { type: 'string' },
+      },
+    })
+    expect(JSON.parse(createdCategory.allowed_writers_json as string)).toEqual(['agent-writer'])
+    expect(JSON.parse(createdCategory.allowed_consumers_json as string)).toEqual(['agent-consumer'])
+
+    await expect(executeJson('event.category.create', {
+      categoryId: 'custom.alert',
+      name: 'Duplicate',
+    })).rejects.toThrow(/already exists|已存在/i)
+
+    await expect(executeJson('event.category.update', {
+      categoryId: 'custom.alert',
+      allowedWriters: 'agent-writer',
+    })).rejects.toThrow(/allowedWriters/)
+
+    const updated = await executeJson('event.category.update', {
+      categoryId: 'custom.alert',
+      description: 'Updated category',
+      enabled: false,
+    })
+    const updatedCategory = asRecord(updated.category)
+
+    expect(updatedCategory.name).toBe('Custom Alert')
+    expect(updatedCategory.description).toBe('Updated category')
+    expect(updatedCategory.default_priority).toBe('high')
+    expect(updatedCategory.enabled).toBe(0)
+    expect(JSON.parse(updatedCategory.schema_json as string)).toEqual({
+      type: 'object',
+      properties: {
+        severity: { type: 'string' },
+      },
+    })
+    expect(JSON.parse(updatedCategory.allowed_writers_json as string)).toEqual(['agent-writer'])
+    expect(JSON.parse(updatedCategory.allowed_consumers_json as string)).toEqual(['agent-consumer'])
   })
 
   test('lets an agent create and claim an event through tools', async () => {

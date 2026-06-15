@@ -47,7 +47,9 @@ import {
   updateTeamTaskHandler,
 } from './team/index.js'
 import {
+  eventCategoryCreateHandler,
   eventCategoryListHandler,
+  eventCategoryUpdateHandler,
   eventClaimNextHandler,
   eventConsumeHandler,
   eventConvertToTaskHandler,
@@ -112,6 +114,8 @@ register(updateTeamTaskHandler)
 register(listTeamTemplatesHandler)
 register(describeTeamTemplateHandler)
 register(eventCategoryListHandler)
+register(eventCategoryCreateHandler)
+register(eventCategoryUpdateHandler)
 register(eventCreateHandler)
 register(eventListHandler)
 register(eventGetHandler)
