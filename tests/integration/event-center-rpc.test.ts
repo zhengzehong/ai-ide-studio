@@ -88,6 +88,33 @@ describe('event center RPC', () => {
     expect(asRecords(page.items)[0].title).toContain('Agent')
   })
 
+  test('scopes category RPCs to the requested project', async () => {
+    const projectA = projectStore.create({ name: 'Project A', workDir: resolve(tmp, 'a') })
+    const projectB = projectStore.create({ name: 'Project B', workDir: resolve(tmp, 'b') })
+    const rpc = createRpc()
+
+    await rpc.send({
+      type: 'eventCategories.create',
+      projectId: projectA.id,
+      categoryId: 'custom.project_a',
+      name: 'Project A Category',
+      defaultPriority: 'high',
+      schema: { type: 'object', properties: { note: { type: 'string' } } },
+    })
+
+    expect(rpc.last().type).toBe('result')
+    expect(asRecord(rpc.last().data).project_id).toBe(projectA.id)
+
+    await rpc.send({ type: 'eventCategories.list', projectId: projectA.id })
+    expect(asRecords(rpc.last().data).some((category) => category.id === 'custom.project_a')).toBe(true)
+
+    await rpc.send({ type: 'eventCategories.list', projectId: projectB.id })
+    expect(asRecords(rpc.last().data).some((category) => category.id === 'custom.project_a')).toBe(false)
+
+    await rpc.send({ type: 'eventCategories.list' })
+    expect(asRecords(rpc.last().data).some((category) => category.id === 'custom.project_a')).toBe(false)
+  })
+
   test('deletes unused categories but rejects categories referenced by events', async () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const rpc = createRpc()

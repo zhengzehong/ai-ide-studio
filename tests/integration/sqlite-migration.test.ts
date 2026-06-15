@@ -76,7 +76,7 @@ describe('SQLite 迁移', () => {
       ORDER BY name
     `).all().map(row => row.name)
 
-    expect(migrations).toEqual(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011', '012', '013', '014', '015', '016'])
+    expect(migrations).toEqual(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011', '012', '013', '014', '015', '016', '017'])
     expect(messageColumns).toContain('file_changes_json')
     expect(messageColumns).toContain('process_item_count')
     expect(getDb().prepare<[], { name: string }>('PRAGMA table_info(agents)').all().map(row => row.name)).toContain('sort_order')
@@ -88,6 +88,9 @@ describe('SQLite 迁移', () => {
       'event_subscriptions',
       'event_task_links',
     ])
+    const categoryColumns = getDb().prepare<[], { name: string }>('PRAGMA table_info(event_categories)').all().map(row => row.name)
+    expect(categoryColumns).toContain('project_id')
+    expect(categoryColumns).toContain('scope_key')
   })
 
   test('从 JSON 迁移到 SQLite 并保留所有数据', () => {

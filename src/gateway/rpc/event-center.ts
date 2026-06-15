@@ -18,13 +18,14 @@ function hasPaginationInput(msg: Record<string, unknown>): boolean {
 }
 
 export const eventCenterRpcHandlers: RpcHandlerMap = {
-  'eventCategories.list'(_msg, { sendResult }) {
-    sendResult(eventCenterService.listCategories())
+  'eventCategories.list'(msg, { sendResult }) {
+    sendResult(eventCenterService.listCategories(msg.projectId as string | undefined))
   },
 
   'eventCategories.create'(msg, { sendResult }) {
     sendResult(eventCenterService.upsertCategory({
       id: msg.categoryId as string,
+      projectId: msg.projectId as string | undefined,
       name: msg.name as string,
       description: msg.description as string | undefined,
       schema: record(msg.schema),
@@ -38,6 +39,7 @@ export const eventCenterRpcHandlers: RpcHandlerMap = {
   'eventCategories.update'(msg, { sendResult }) {
     sendResult(eventCenterService.upsertCategory({
       id: msg.categoryId as string,
+      projectId: msg.projectId as string | undefined,
       name: msg.name as string,
       description: msg.description as string | undefined,
       schema: record(msg.schema),
@@ -49,12 +51,12 @@ export const eventCenterRpcHandlers: RpcHandlerMap = {
   },
 
   'eventCategories.toggle'(msg, { sendResult }) {
-    sendResult(eventCenterService.toggleCategory(msg.categoryId as string, msg.enabled as boolean))
+    sendResult(eventCenterService.toggleCategory(msg.categoryId as string, msg.enabled as boolean, msg.projectId as string | undefined))
   },
 
   'eventCategories.delete'(msg, { sendResult, sendError }) {
     try {
-      sendResult(eventCenterService.deleteCategory(msg.categoryId as string))
+      sendResult(eventCenterService.deleteCategory(msg.categoryId as string, msg.projectId as string | undefined))
     } catch (err) {
       sendError(err instanceof Error ? err.message : '删除事件类别失败')
     }

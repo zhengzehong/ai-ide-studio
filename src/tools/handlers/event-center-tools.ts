@@ -61,8 +61,8 @@ export const eventCategoryListHandler: ToolHandler = {
   name: 'event.category.list',
   description: '列出当前 Agent 可见的事件类别及 payload schema 提示。',
   inputSchema: { type: 'object', properties: {} },
-  async execute() {
-    return json({ categories: eventCenterService.listCategories().filter((category) => category.enabled === 1) })
+  async execute(_input, context) {
+    return json({ categories: eventCenterService.listCategories(context.projectId).filter((category) => category.enabled === 1) })
   },
 }
 
@@ -83,15 +83,16 @@ export const eventCategoryCreateHandler: ToolHandler = {
     },
     required: ['categoryId', 'name'],
   },
-  async execute(input) {
+  async execute(input, context) {
     const categoryId = requireStr(input, 'categoryId')
-    if (eventCenterService.listCategories().some((category) => category.id === categoryId)) {
+    if (eventCenterService.getCategory(categoryId, context.projectId)) {
       throw new Error(`Event category already exists: ${categoryId}`)
     }
 
     return json({
       category: eventCenterService.upsertCategory({
         id: categoryId,
+        projectId: context.projectId,
         name: requireStr(input, 'name'),
         description: hasOwn(input, 'description') ? optStr(input, 'description') ?? null : undefined,
         schema: record(input.schema),
@@ -121,14 +122,15 @@ export const eventCategoryUpdateHandler: ToolHandler = {
     },
     required: ['categoryId'],
   },
-  async execute(input) {
+  async execute(input, context) {
     const categoryId = requireStr(input, 'categoryId')
-    const existing = eventCenterService.listCategories().find((category) => category.id === categoryId)
+    const existing = eventCenterService.getCategory(categoryId, context.projectId)
     if (!existing) throw new Error(`Event category does not exist: ${categoryId}`)
 
     return json({
       category: eventCenterService.upsertCategory({
         id: categoryId,
+        projectId: context.projectId,
         name: optStr(input, 'name') ?? existing.name,
         description: hasOwn(input, 'description') ? optStr(input, 'description') ?? null : existing.description,
         schema: hasOwn(input, 'schema') ? record(input.schema) : parseRecord(existing.schema_json),

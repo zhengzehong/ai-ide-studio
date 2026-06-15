@@ -4,7 +4,11 @@ import { useEventCenterStore, type EventCategoryData } from '../../stores/event-
 import { categoryFields, PRIORITY_META } from './helpers'
 import { CategoryCreateModal } from './CategoryCreateModal'
 
-export function CategoryPanel() {
+interface Props {
+  projectId: string | null
+}
+
+export function CategoryPanel({ projectId }: Props) {
   const categories = useEventCenterStore((s) => s.categories)
   const toggleCategory = useEventCenterStore((s) => s.toggleCategory)
   const deleteCategory = useEventCenterStore((s) => s.deleteCategory)
@@ -13,17 +17,28 @@ export function CategoryPanel() {
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState('')
   const selected = categories.find((category) => category.id === selectedId) ?? categories[0]
+  const selectedReadonly = Boolean(projectId && selected?.project_id === null)
 
   const toggleSelected = async () => {
     if (!selected) return
     setError('')
-    await toggleCategory(selected.id, selected.enabled !== 1).catch((err: unknown) => setError(errorMessage(err, '切换类别状态失败')))
+    if (selectedReadonly) {
+      setError('全局类别需要在全局视图编辑')
+      return
+    }
+    await toggleCategory(selected.id, selected.enabled !== 1, projectId ?? undefined)
+      .catch((err: unknown) => setError(errorMessage(err, '切换类别状态失败')))
   }
 
   const deleteSelected = async () => {
     if (!selected) return
     setError('')
-    await deleteCategory(selected.id).catch((err: unknown) => setError(errorMessage(err, '删除类别失败')))
+    if (selectedReadonly) {
+      setError('全局类别需要在全局视图编辑')
+      return
+    }
+    await deleteCategory(selected.id, projectId ?? undefined)
+      .catch((err: unknown) => setError(errorMessage(err, '删除类别失败')))
   }
 
   return (
@@ -50,19 +65,21 @@ export function CategoryPanel() {
         {selected ? (
           <>
             <div className="ec-detail-head">
-              <span className={selected.enabled ? 'ec-chip ec-chip--green' : 'ec-chip'}>{selected.enabled ? '启用' : '停用'}</span>
+              <span className="ec-chip">{scopeLabel(selected)}</span>
+              <span className={selected.enabled === 1 ? 'ec-chip ec-chip--green' : 'ec-chip'}>{selected.enabled === 1 ? '启用' : '停用'}</span>
               <h2>{selected.name}</h2>
               <p>{selected.description || '暂无说明'}</p>
             </div>
             <div className="ec-detail-body">
               {error && <div className="ec-form-error">{error}</div>}
+              {selectedReadonly && <div className="ec-muted">这是全局类别。当前项目可以直接使用它，编辑或删除需要在全局视图中进行。</div>}
               <section className="ec-section">
                 <h3>字段模板</h3>
                 <div className="ec-field-list">
                   {categoryFields(selected).map((field) => (
                     <div className="ec-field-card" key={field.key}>
                       <strong>{field.label}</strong>
-                      <span>{field.key}{field.required ? ' · 必填' : ''}</span>
+                      <span>{field.key}{field.required ? ' / 必填' : ''}</span>
                     </div>
                   ))}
                   {categoryFields(selected).length === 0 && <div className="ec-muted">暂无字段模板</div>}
@@ -72,22 +89,23 @@ export function CategoryPanel() {
                 <h3>处理设置</h3>
                 <div className="ec-kv">
                   <div className="ec-kv-row"><span>类别标识</span><b>{selected.id}</b></div>
+                  <div className="ec-kv-row"><span>作用域</span><b>{scopeLabel(selected)}</b></div>
                   <div className="ec-kv-row"><span>默认优先级</span><b>{PRIORITY_META[selected.default_priority]?.label ?? selected.default_priority}</b></div>
                 </div>
               </section>
             </div>
             <div className="ec-detail-actions">
-              <button className="ec-btn" onClick={() => setEditing(selected)}><Edit3 size={14} />编辑</button>
-              <button className="ec-btn" onClick={toggleSelected}><Power size={14} />{selected.enabled ? '停用' : '启用'}</button>
-              <button className="ec-btn ec-btn--danger" onClick={deleteSelected}><Trash2 size={14} />删除</button>
+              <button className="ec-btn" disabled={selectedReadonly} onClick={() => setEditing(selected)} title={selectedReadonly ? '全局类别需要在全局视图编辑' : undefined}><Edit3 size={14} />编辑</button>
+              <button className="ec-btn" disabled={selectedReadonly} onClick={toggleSelected} title={selectedReadonly ? '全局类别需要在全局视图编辑' : undefined}><Power size={14} />{selected.enabled === 1 ? '停用' : '启用'}</button>
+              <button className="ec-btn ec-btn--danger" disabled={selectedReadonly} onClick={deleteSelected} title={selectedReadonly ? '全局类别需要在全局视图编辑' : undefined}><Trash2 size={14} />删除</button>
             </div>
           </>
         ) : (
           <div className="ec-empty">请选择一个事件类别</div>
         )}
       </aside>
-      <CategoryCreateModal open={creating} onClose={() => setCreating(false)} />
-      <CategoryCreateModal open={Boolean(editing)} category={editing ?? undefined} onClose={() => setEditing(null)} />
+      <CategoryCreateModal open={creating} projectId={projectId} onClose={() => setCreating(false)} />
+      <CategoryCreateModal open={Boolean(editing)} projectId={projectId} category={editing ?? undefined} onClose={() => setEditing(null)} />
     </div>
   )
 }
@@ -96,12 +114,16 @@ function CategoryRow({ category, active, onClick }: { category: EventCategoryDat
   const fields = categoryFields(category)
   return (
     <tr className={active ? 'active' : ''} onClick={onClick}>
-      <td><strong>{category.name}</strong><small>{category.id}</small></td>
+      <td><strong>{category.name}</strong><small>{category.id} / {scopeLabel(category)}</small></td>
       <td>{fields.length} 个字段</td>
       <td>{PRIORITY_META[category.default_priority]?.label ?? category.default_priority}</td>
-      <td><span className={category.enabled ? 'ec-chip ec-chip--green' : 'ec-chip'}>{category.enabled ? '启用' : '停用'}</span></td>
+      <td><span className={category.enabled === 1 ? 'ec-chip ec-chip--green' : 'ec-chip'}>{category.enabled === 1 ? '启用' : '停用'}</span></td>
     </tr>
   )
+}
+
+function scopeLabel(category: EventCategoryData): string {
+  return category.project_id ? '项目' : '全局'
 }
 
 function errorMessage(err: unknown, fallback: string): string {

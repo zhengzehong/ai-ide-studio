@@ -196,6 +196,8 @@ revokedAt
 
 `event.*` handler 只调用 `core/event-center`，工具上下文中的 `projectId` 和 `agentId` 是默认边界；模型可传的 `projectId` 只在没有会话项目上下文时作为兼容输入。
 
+`event.category.list`、`event.category.create` 和 `event.category.update` 不向 Agent 暴露 `projectId` 参数。运行时会使用 `ToolContext.projectId`：有项目上下文时操作该项目的类别，并可用项目类别覆盖同名全局类别；没有项目上下文时操作全局类别。
+
 ## 4. 目录结构建议
 
 建议把 MCP 工具平台拆成几个小模块，避免继续堆大文件。

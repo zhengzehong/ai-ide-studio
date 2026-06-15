@@ -20,15 +20,16 @@ interface CategoryFieldDraft {
 interface Props {
   open: boolean
   category?: EventCategoryData
+  projectId?: string | null
   onClose: () => void
 }
 
-export function CategoryCreateModal({ open, category, onClose }: Props) {
+export function CategoryCreateModal({ open, category, projectId, onClose }: Props) {
   if (!open) return null
-  return <CategoryForm key={category?.id ?? 'new'} category={category} onClose={onClose} />
+  return <CategoryForm key={category?.id ?? 'new'} category={category} projectId={projectId} onClose={onClose} />
 }
 
-function CategoryForm({ category, onClose }: { category?: EventCategoryData; onClose: () => void }) {
+function CategoryForm({ category, projectId, onClose }: { category?: EventCategoryData; projectId?: string | null; onClose: () => void }) {
   const createCategory = useEventCenterStore((s) => s.createCategory)
   const updateCategory = useEventCenterStore((s) => s.updateCategory)
   const initialFields = category ? categoryFields(category).map((field) => ({
@@ -83,8 +84,8 @@ function CategoryForm({ category, onClose }: { category?: EventCategoryData; onC
         enabled,
         schema: buildSchema(normalizedFields),
       }
-      if (category) await updateCategory(input)
-      else await createCategory(input)
+      if (category) await updateCategory(input, projectId ?? undefined)
+      else await createCategory(input, projectId ?? undefined)
       onClose()
     } catch (err) {
       setError(err instanceof Error ? err.message : '保存事件类别失败')

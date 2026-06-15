@@ -27,7 +27,7 @@ export default function EventCenter() {
 
   useEffect(() => {
     if (!connected) return
-    void fetchCategories().catch(() => undefined)
+    void fetchCategories(currentProjectId ?? undefined).catch(() => undefined)
     void fetchEvents(currentProjectId ?? undefined, { offset: 0 })
     void fetchSubscriptions(currentProjectId ?? undefined).catch(() => undefined)
   }, [connected, currentProjectId, fetchCategories, fetchEvents, fetchSubscriptions])
@@ -54,7 +54,7 @@ export default function EventCenter() {
       </header>
       <main className="ec-body">
         {tab === 'events' && <EventInboxPanel projectId={currentProjectId} />}
-        {tab === 'categories' && <CategoryPanel />}
+        {tab === 'categories' && <CategoryPanel projectId={currentProjectId} />}
         {tab === 'subscriptions' && <SubscriptionPanel projectId={currentProjectId} />}
       </main>
     </div>
