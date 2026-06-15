@@ -20,6 +20,19 @@ function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
 }
 
+function hasOwn(input: ToolHandlerInput, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(input, key)
+}
+
+function optionalStringArray(input: ToolHandlerInput, key: string): string[] | undefined {
+  if (!hasOwn(input, key)) return undefined
+  const value = input[key]
+  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) {
+    throw new Error(`Parameter ${key} must be an array of strings`)
+  }
+  return value
+}
+
 function json(value: unknown): ToolHandlerResult {
   return { content: [{ type: 'text', text: JSON.stringify(value, null, 2) }] }
 }
@@ -28,12 +41,103 @@ function projectId(input: ToolHandlerInput, context: ToolContext): string | unde
   return context.projectId ?? optStr(input, 'projectId')
 }
 
+function parseRecord(value: string): Record<string, unknown> {
+  try {
+    return record(JSON.parse(value) as unknown)
+  } catch {
+    return {}
+  }
+}
+
+function parseStringArray(value: string): string[] {
+  try {
+    return stringArray(JSON.parse(value) as unknown)
+  } catch {
+    return []
+  }
+}
+
 export const eventCategoryListHandler: ToolHandler = {
   name: 'event.category.list',
   description: '列出当前 Agent 可见的事件类别及 payload schema 提示。',
   inputSchema: { type: 'object', properties: {} },
   async execute() {
     return json({ categories: eventCenterService.listCategories().filter((category) => category.enabled === 1) })
+  },
+}
+
+export const eventCategoryCreateHandler: ToolHandler = {
+  name: 'event.category.create',
+  description: 'Create a new event center category. Fails if the category already exists.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      categoryId: { type: 'string' },
+      name: { type: 'string' },
+      description: { type: 'string' },
+      schema: { type: 'object' },
+      defaultPriority: { type: 'string' },
+      allowedWriters: { type: 'array', items: { type: 'string' } },
+      allowedConsumers: { type: 'array', items: { type: 'string' } },
+      enabled: { type: 'boolean' },
+    },
+    required: ['categoryId', 'name'],
+  },
+  async execute(input) {
+    const categoryId = requireStr(input, 'categoryId')
+    if (eventCenterService.listCategories().some((category) => category.id === categoryId)) {
+      throw new Error(`Event category already exists: ${categoryId}`)
+    }
+
+    return json({
+      category: eventCenterService.upsertCategory({
+        id: categoryId,
+        name: requireStr(input, 'name'),
+        description: hasOwn(input, 'description') ? optStr(input, 'description') ?? null : undefined,
+        schema: record(input.schema),
+        defaultPriority: optStr(input, 'defaultPriority'),
+        allowedWriters: optionalStringArray(input, 'allowedWriters'),
+        allowedConsumers: optionalStringArray(input, 'allowedConsumers'),
+        enabled: typeof input.enabled === 'boolean' ? input.enabled : undefined,
+      }),
+    })
+  },
+}
+
+export const eventCategoryUpdateHandler: ToolHandler = {
+  name: 'event.category.update',
+  description: 'Partially update an existing event center category. Fields not provided are preserved.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      categoryId: { type: 'string' },
+      name: { type: 'string' },
+      description: { type: 'string' },
+      schema: { type: 'object' },
+      defaultPriority: { type: 'string' },
+      allowedWriters: { type: 'array', items: { type: 'string' } },
+      allowedConsumers: { type: 'array', items: { type: 'string' } },
+      enabled: { type: 'boolean' },
+    },
+    required: ['categoryId'],
+  },
+  async execute(input) {
+    const categoryId = requireStr(input, 'categoryId')
+    const existing = eventCenterService.listCategories().find((category) => category.id === categoryId)
+    if (!existing) throw new Error(`Event category does not exist: ${categoryId}`)
+
+    return json({
+      category: eventCenterService.upsertCategory({
+        id: categoryId,
+        name: optStr(input, 'name') ?? existing.name,
+        description: hasOwn(input, 'description') ? optStr(input, 'description') ?? null : existing.description,
+        schema: hasOwn(input, 'schema') ? record(input.schema) : parseRecord(existing.schema_json),
+        defaultPriority: optStr(input, 'defaultPriority') ?? existing.default_priority,
+        allowedWriters: optionalStringArray(input, 'allowedWriters') ?? parseStringArray(existing.allowed_writers_json),
+        allowedConsumers: optionalStringArray(input, 'allowedConsumers') ?? parseStringArray(existing.allowed_consumers_json),
+        enabled: typeof input.enabled === 'boolean' ? input.enabled : existing.enabled === 1,
+      }),
+    })
   },
 }
 

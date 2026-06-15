@@ -194,6 +194,8 @@ AI IDE Studio 当前以任务和 Agent 协作为核心。任务适合表达已�
 基础工具：
 
 - `event.category.list`：列出当前 Agent 可见的事件类别。
+- `event.category.create`：创建新的事件类别；如果类别已存在则失败。
+- `event.category.update`：部分更新已有事件类别；未传入的字段保持不变。
 - `event.create`：写入事件。
 - `event.list`：查询事件。
 - `event.get`：查看事件详情。
