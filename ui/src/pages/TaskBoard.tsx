@@ -164,15 +164,20 @@ function TaskDetailDrawer({ task, agents, onClose, onStatusChange, onDelete }: {
   const [editDesc, setEditDesc] = useState('');
   const [editing, setEditing] = useState(false);
   const [assignAgentId, setAssignAgentId] = useState('');
+  const [assignSessionId, setAssignSessionId] = useState('');
   const updateTaskInfo = useTaskStore(s => s.updateTaskInfo);
   const assignTask = useTaskStore(s => s.assignTask);
   const selectSession = useSessionStore(s => s.selectSession);
+  const sessions = useSessionStore(s => s.sessions);
 
   if (!task) return null;
 
   const source = SOURCE_META[task.source] ?? SOURCE_META.human;
   const statusMeta = STATUS_META[task.status] ?? STATUS_META.backlog;
   const agent = task.assigned_agent_id ? agents.find(a => a.id === task.assigned_agent_id) : null;
+  const assignAgentSessions = assignAgentId
+    ? sessions.filter(s => s.agent_id === assignAgentId && (!task.project_id || s.project_id === task.project_id))
+    : [];
 
   const startEdit = () => {
     setEditTitle(task.title);
@@ -193,8 +198,9 @@ function TaskDetailDrawer({ task, agents, onClose, onStatusChange, onDelete }: {
 
   const handleAssign = async () => {
     if (!assignAgentId) return;
-    await assignTask(task.id, assignAgentId);
+    await assignTask(task.id, assignAgentId, assignSessionId || undefined);
     setAssignAgentId('');
+    setAssignSessionId('');
   };
 
   const handleDelete = async () => {
@@ -257,13 +263,24 @@ function TaskDetailDrawer({ task, agents, onClose, onStatusChange, onDelete }: {
         </div>
 
         <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 8 }}>指派 Agent</div>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 18 }}>
-          <select value={assignAgentId} onChange={e => setAssignAgentId(e.target.value)} style={{ ...st, flex: 1 }}>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+          <select value={assignAgentId} onChange={e => { setAssignAgentId(e.target.value); setAssignSessionId(''); }} style={{ ...st, flex: 1 }}>
             <option value="">{agent ? `当前: ${agent.name}` : '选择 Agent'}</option>
             {agents.filter(a => a.id !== task.assigned_agent_id).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
           </select>
           <button onClick={handleAssign} disabled={!assignAgentId} style={{ padding: '6px 14px', borderRadius: 6, border: 'none', background: assignAgentId ? 'var(--blue)' : 'var(--bg-2)', color: assignAgentId ? 'white' : 'var(--text-3)', fontSize: 14, cursor: assignAgentId ? 'pointer' : 'not-allowed' }}>指派</button>
         </div>
+        {assignAgentId && (
+          <div style={{ marginBottom: 18 }}>
+            <select value={assignSessionId} onChange={e => setAssignSessionId(e.target.value)} style={st}>
+              <option value="">新建会话（默认）</option>
+              {assignAgentSessions.map(s => <option key={s.id} value={s.id}>{sessionOptionLabel(s)}</option>)}
+            </select>
+            <div style={{ fontSize: 13, color: 'var(--text-3)', marginTop: 4 }}>
+              {assignSessionId ? '将在该会话中追加任务指派。' : '将为此任务创建新的会话。'}
+            </div>
+          </div>
+        )}
 
         <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 8 }}>状态操作</div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 20 }}>
@@ -349,6 +366,11 @@ function NewTaskModal({ agents, projectId, onCreate, onClose }: {
 
 function formatDateTime(iso: string): string {
   try { return new Date(iso).toLocaleString('zh-CN'); } catch { return iso; }
+}
+
+function sessionOptionLabel(session: { id: string; title?: string | null; task_id?: string | null }): string {
+  const title = session.title?.trim();
+  return title ? title : `${session.id.slice(0, 8)}...${session.task_id ? '（有任务）' : ''}`;
 }
 
 function formatRelative(iso: string): string {

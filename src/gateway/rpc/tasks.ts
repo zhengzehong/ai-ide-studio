@@ -1,6 +1,6 @@
 import { taskManager, buildTaskPrompt, validateTaskAssignment } from '../../core/tasks.js'
 import { taskStore } from '../../store/tasks.js'
-import { sessionStore } from '../../store/sessions.js'
+import { sessionStore, type SessionRow } from '../../store/sessions.js'
 import { events } from '../../core/events.js'
 import type { RpcHandlerMap } from './types.js'
 
@@ -8,7 +8,7 @@ export const taskRpcHandlers: RpcHandlerMap = {
   'tasks.list'(msg, { sendResult }) {
     const tasks = taskStore.list(msg.status as string | undefined, msg.projectId as string | undefined)
     const tasksWithSession = tasks.map(t => {
-      const sessions = sessionStore.listByTask(t.id)
+      const sessions = listTaskSessions(t.id)
       return { ...t, sessionId: sessions.length > 0 ? sessions[sessions.length - 1].id : null }
     })
     sendResult(tasksWithSession)
@@ -17,7 +17,7 @@ export const taskRpcHandlers: RpcHandlerMap = {
   'tasks.get'(msg, { sendResult, sendError }) {
     const task = taskStore.get(msg.taskId as string)
     if (!task) return sendError('任务不存在')
-    const sessions = sessionStore.listByTask(task.id).map(s => ({ id: s.id, agentId: s.agent_id, status: s.status, startedAt: s.started_at }))
+    const sessions = listTaskSessions(task.id).map(s => ({ id: s.id, agentId: s.agent_id, status: s.status, startedAt: s.started_at }))
     sendResult({ ...task, sessions })
   },
 
@@ -83,6 +83,7 @@ export const taskRpcHandlers: RpcHandlerMap = {
         : await sessionManager.createSession(agentId, taskId, task.project_id ?? undefined)
 
       taskStore.updateStatus(taskId, 'executing', '已分派给 Agent')
+      taskStore.linkSession(taskId, session.id)
       events.emit('task:update', {
         taskId,
         data: { ...taskStore.get(taskId), sessionId: session.id, assignedAgentId: agentId, event: 'assigned' },
@@ -104,4 +105,17 @@ export const taskRpcHandlers: RpcHandlerMap = {
       sendError(`指派失败: ${(err as Error).message}`)
     }
   },
+}
+
+function listTaskSessions(taskId: string): SessionRow[] {
+  const sessions = sessionStore.listByTask(taskId)
+  const seen = new Set(sessions.map((session) => session.id))
+  for (const sessionId of taskStore.listSessionIds(taskId)) {
+    if (seen.has(sessionId)) continue
+    const session = sessionStore.get(sessionId)
+    if (!session) continue
+    sessions.push(session)
+    seen.add(session.id)
+  }
+  return sessions
 }

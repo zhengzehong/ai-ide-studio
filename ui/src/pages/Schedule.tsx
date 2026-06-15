@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, type CSSProperties } from 'react';
 import { Plus, Clock, Trash2, ToggleLeft, ToggleRight, Calendar, HelpCircle, Play, Edit2, ChevronDown, ChevronRight, CheckCircle2, XCircle, Send } from 'lucide-react';
 import { useRuleStore, type RuleData, type RuleExecution } from '../stores/rule.store';
 import { useAgentStore } from '../stores/agent.store';
+import { useSessionStore, type SessionData } from '../stores/session.store';
 import { useProjectStore } from '../stores/project.store';
 
 const CRON_TEMPLATES = [
@@ -215,6 +216,7 @@ function RuleRow({ rule, onToggle, onDelete, onEdit, onRunNow }: {
 
 function RuleModal({ editRule, onClose }: { editRule: RuleData | null; onClose: () => void }) {
   const agents = useAgentStore(s => s.agents);
+  const sessions = useSessionStore(s => s.sessions);
   const createRule = useRuleStore(s => s.createRule);
   const updateRule = useRuleStore(s => s.updateRule);
   const currentProjectId = useProjectStore(s => s.currentProjectId);
@@ -226,17 +228,26 @@ function RuleModal({ editRule, onClose }: { editRule: RuleData | null; onClose: 
   const [taskTitle, setTaskTitle] = useState((editRule?.action_config?.title as string) ?? '');
   const [taskDesc, setTaskDesc] = useState((editRule?.action_config?.description as string) ?? '');
   const [assignAgentId, setAssignAgentId] = useState((editRule?.action_config?.assign_agent_id as string) ?? '');
+  const [sessionId, setSessionId] = useState((editRule?.action_config?.session_id as string) ?? '');
   const [prompt, setPrompt] = useState((editRule?.action_config?.prompt as string) ?? '');
   const [targetAgentId, setTargetAgentId] = useState((editRule?.action_config?.agent_id as string) ?? '');
   const [maxRuns, setMaxRuns] = useState(editRule?.max_runs?.toString() ?? '');
   const [description, setDescription] = useState(editRule?.description ?? '');
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  const st: React.CSSProperties = {
+  const st: CSSProperties = {
     width: '100%', padding: '9px 12px', borderRadius: 'var(--radius)',
     border: '1px solid var(--border)', fontSize: 15, background: 'var(--bg-1)',
     color: 'var(--text-1)', outline: 'none', boxSizing: 'border-box',
   };
+  const selectedAgentId = action === 'create_task' ? assignAgentId : targetAgentId;
+  const targetSessions = useMemo(() => {
+    if (!selectedAgentId) return [];
+    return sessions.filter(s =>
+      s.agent_id === selectedAgentId &&
+      (!currentProjectId || s.project_id === currentProjectId),
+    );
+  }, [currentProjectId, selectedAgentId, sessions]);
 
   const handleSubmit = async () => {
     const errs: Record<string, string> = {};
@@ -248,9 +259,10 @@ function RuleModal({ editRule, onClose }: { editRule: RuleData | null; onClose: 
     if (action === 'send_prompt' && !targetAgentId) errs.targetAgentId = '请选择目标 Agent';
     if (Object.keys(errs).length > 0) { setErrors(errs); return; }
 
+    const reusableSessionId = selectedAgentId ? sessionId || undefined : undefined;
     const actionConfig: Record<string, unknown> = action === 'create_task'
-      ? { title: taskTitle.trim(), description: taskDesc.trim() || undefined, assign_agent_id: assignAgentId || undefined }
-      : { prompt: prompt.trim(), agent_id: targetAgentId };
+      ? { title: taskTitle.trim(), description: taskDesc.trim() || undefined, assign_agent_id: assignAgentId || undefined, session_id: reusableSessionId }
+      : { prompt: prompt.trim(), agent_id: targetAgentId, session_id: reusableSessionId };
 
     if (isEdit) {
       await updateRule(editRule!.id, {
@@ -334,11 +346,19 @@ function RuleModal({ editRule, onClose }: { editRule: RuleData | null; onClose: 
               </div>
               <div>
                 <label style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-2)', marginBottom: 4, display: 'block' }}>指派 Agent</label>
-                <select value={assignAgentId} onChange={e => setAssignAgentId(e.target.value)} style={st}>
+                <select value={assignAgentId} onChange={e => { setAssignAgentId(e.target.value); setSessionId(''); }} style={st}>
                   <option value="">不指派</option>
                   {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                 </select>
               </div>
+              {assignAgentId && (
+                <SessionTargetSelect
+                  value={sessionId}
+                  sessions={targetSessions}
+                  onChange={setSessionId}
+                  inputStyle={st}
+                />
+              )}
             </>
           )}
 
@@ -346,12 +366,20 @@ function RuleModal({ editRule, onClose }: { editRule: RuleData | null; onClose: 
             <>
               <div>
                 <label style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-2)', marginBottom: 4, display: 'block' }}>目标 Agent *</label>
-                <select value={targetAgentId} onChange={e => setTargetAgentId(e.target.value)} style={{ ...st, borderColor: errors.targetAgentId ? 'var(--red)' : 'var(--border)' }}>
+                <select value={targetAgentId} onChange={e => { setTargetAgentId(e.target.value); setSessionId(''); }} style={{ ...st, borderColor: errors.targetAgentId ? 'var(--red)' : 'var(--border)' }}>
                   <option value="">请选择 Agent</option>
                   {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                 </select>
                 {errors.targetAgentId && <div style={{ fontSize: 13, color: 'var(--red)', marginTop: 2 }}>{errors.targetAgentId}</div>}
               </div>
+              {targetAgentId && (
+                <SessionTargetSelect
+                  value={sessionId}
+                  sessions={targetSessions}
+                  onChange={setSessionId}
+                  inputStyle={st}
+                />
+              )}
               <div>
                 <label style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-2)', marginBottom: 4, display: 'block' }}>Prompt 内容 *</label>
                 <textarea value={prompt} onChange={e => setPrompt(e.target.value)} placeholder="发送给 Agent 的消息，支持 {date}、{time} 变量" rows={3} style={{ ...st, resize: 'vertical', borderColor: errors.prompt ? 'var(--red)' : 'var(--border)' }} />
@@ -381,6 +409,33 @@ function RuleModal({ editRule, onClose }: { editRule: RuleData | null; onClose: 
       </div>
     </>
   );
+}
+
+function SessionTargetSelect({ value, sessions, onChange, inputStyle }: {
+  value: string;
+  sessions: SessionData[];
+  onChange: (value: string) => void;
+  inputStyle: CSSProperties;
+}) {
+  return (
+    <div>
+      <label style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-2)', marginBottom: 4, display: 'block' }}>会话目标</label>
+      <select value={value} onChange={e => onChange(e.target.value)} style={inputStyle}>
+        <option value="">每次新建会话（默认）</option>
+        {sessions.map(session => (
+          <option key={session.id} value={session.id}>{sessionLabel(session)}</option>
+        ))}
+      </select>
+      <div style={{ fontSize: 13, color: 'var(--text-3)', marginTop: 2 }}>
+        {value ? '触发时会复用该会话。' : '触发时会创建新的会话。'}
+      </div>
+    </div>
+  );
+}
+
+function sessionLabel(session: SessionData): string {
+  const title = session.title?.trim();
+  return title ? title : `${session.id.slice(0, 8)}...`;
 }
 
 function EmptyState({ text }: { text: string }) {

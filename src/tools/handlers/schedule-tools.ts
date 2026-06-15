@@ -44,6 +44,7 @@ export const scheduleCreateHandler: ToolHandler = {
       taskTitle: { type: 'string', description: 'action=create_task 时必填：任务标题' },
       taskDescription: { type: 'string', description: '任务描述' },
       assignAgentId: { type: 'string', description: '指派的 Agent ID' },
+      sessionId: { type: 'string', description: '复用的会话 ID，不传则每次新建会话' },
       promptTemplate: { type: 'string', description: '自定义 prompt 模板' },
       prompt: { type: 'string', description: 'action=send_prompt 时必填：发送的 prompt 内容' },
       agentId: { type: 'string', description: 'action=send_prompt 时必填：目标 Agent' },
@@ -69,6 +70,7 @@ export const scheduleCreateHandler: ToolHandler = {
         title: input.taskTitle,
         description: input.taskDescription,
         assign_agent_id: input.assignAgentId,
+        session_id: input.sessionId,
         prompt_template: input.promptTemplate,
       }
     } else if (action === 'send_prompt') {
@@ -78,6 +80,7 @@ export const scheduleCreateHandler: ToolHandler = {
       actionConfig = {
         prompt: input.prompt,
         agent_id: input.agentId,
+        session_id: input.sessionId,
       }
     }
 
@@ -159,6 +162,7 @@ export const scheduleUpdateHandler: ToolHandler = {
       taskTitle: { type: 'string' },
       taskDescription: { type: 'string' },
       assignAgentId: { type: 'string' },
+      sessionId: { type: 'string' },
       maxRuns: { type: 'number' },
     },
     required: ['ruleId'],
@@ -176,13 +180,14 @@ export const scheduleUpdateHandler: ToolHandler = {
     if (input.cron !== undefined) fields.cron = (input.cron as string).trim()
     if (input.enabled !== undefined) fields.enabled = input.enabled
     if (input.maxRuns !== undefined) fields.max_runs = input.maxRuns
-    if (input.taskTitle !== undefined || input.taskDescription !== undefined || input.assignAgentId !== undefined) {
+    if (input.taskTitle !== undefined || input.taskDescription !== undefined || input.assignAgentId !== undefined || input.sessionId !== undefined) {
       const rule = ruleStore.get(ruleId)!
       fields.action_config = {
         ...rule.action_config,
         ...(input.taskTitle !== undefined ? { title: input.taskTitle } : {}),
         ...(input.taskDescription !== undefined ? { description: input.taskDescription } : {}),
         ...(input.assignAgentId !== undefined ? { assign_agent_id: input.assignAgentId } : {}),
+        ...(input.sessionId !== undefined ? { session_id: input.sessionId } : {}),
       }
     }
 

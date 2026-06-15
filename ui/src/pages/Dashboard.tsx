@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Activity,
@@ -15,7 +15,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { useAgentStore, type AgentData } from '../stores/agent.store';
-import { useSessionStore } from '../stores/session.store';
+import { useSessionStore, type SessionData } from '../stores/session.store';
 import { useTaskStore } from '../stores/task.store';
 import { useConnectionStore } from '../stores/connection.store';
 import { useProjectStore } from '../stores/project.store';
@@ -145,15 +145,20 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {modal === 'task' && <NewTaskModal agents={projectAgents} onCreate={async (t, d, a) => { await createTask(t, d, a, currentProjectId ?? undefined); await fetchTasks(currentProjectId ?? undefined); setModal(null); }} onClose={() => setModal(null)} />}
+      {modal === 'task' && <NewTaskModal agents={projectAgents} sessions={projectSessions} onCreate={async (t, d, a, s) => { await createTask(t, d, a, currentProjectId ?? undefined, s); await fetchTasks(currentProjectId ?? undefined); setModal(null); }} onClose={() => setModal(null)} />}
     </div>
   );
 }
 
-function NewTaskModal({ agents, onCreate, onClose }: { agents: AgentData[]; onCreate: (t: string, d?: string, a?: string) => Promise<void>; onClose: () => void }) {
+function NewTaskModal({ agents, sessions, onCreate, onClose }: { agents: AgentData[]; sessions: SessionData[]; onCreate: (t: string, d?: string, a?: string, s?: string) => Promise<void>; onClose: () => void }) {
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
   const [agentId, setAgentId] = useState('');
+  const [sessionId, setSessionId] = useState('');
+  const agentSessions = useMemo(() => {
+    if (!agentId) return [];
+    return sessions.filter(s => s.agent_id === agentId);
+  }, [agentId, sessions]);
   return (
     <Modal title="新建任务" onClose={onClose}>
       <div>
@@ -166,13 +171,23 @@ function NewTaskModal({ agents, onCreate, onClose }: { agents: AgentData[]; onCr
       </div>
       <div>
         <label style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>指派 Agent</label>
-        <select value={agentId} onChange={e => setAgentId(e.target.value)} style={inputStyle}>
+        <select value={agentId} onChange={e => { setAgentId(e.target.value); setSessionId(''); }} style={inputStyle}>
           <option value="">不指派</option>
           {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
         </select>
       </div>
+      {agentId && (
+        <div>
+          <label style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>会话目标</label>
+          <select value={sessionId} onChange={e => setSessionId(e.target.value)} style={inputStyle}>
+            <option value="">新建会话（默认）</option>
+            {agentSessions.map(s => <option key={s.id} value={s.id}>{sessionLabel(s)}</option>)}
+          </select>
+          <div style={{ fontSize: 13, color: 'var(--text-3)', marginTop: 4 }}>{sessionId ? '将在该会话中追加任务指派。' : '将为此任务创建新的会话。'}</div>
+        </div>
+      )}
       <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-        <ModalBtn label="创建任务" primary onClick={() => onCreate(title, desc || undefined, agentId || undefined)} />
+        <ModalBtn label="创建任务" primary onClick={() => onCreate(title, desc || undefined, agentId || undefined, sessionId || undefined)} />
         <ModalBtn label="取消" onClick={onClose} />
       </div>
     </Modal>
@@ -239,3 +254,8 @@ function TaskStatusBadge({ status }: { status: string }) {
 }
 
 function formatTime(iso: string): string { try { return new Date(iso).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }); } catch { return iso; } }
+
+function sessionLabel(session: SessionData): string {
+  const title = session.title?.trim()
+  return title ? title : `${session.id.slice(0, 8)}...`
+}

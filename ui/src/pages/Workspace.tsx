@@ -869,7 +869,8 @@ export default function Workspace() {
       {showNewTask && (
         <NewTaskModal
           agents={projectAgents}
-          onCreate={(title, desc, agentId) => createTask(title, desc, agentId, currentProjectId ?? undefined)}
+          projectId={currentProjectId}
+          onCreate={(title, desc, agentId, sessionId) => createTask(title, desc, agentId, currentProjectId ?? undefined, sessionId)}
           onClose={() => setShowNewTask(false)}
         />
       )}
@@ -3674,22 +3675,33 @@ function DropdownPortal({
 /* ─── New Task Modal ─── */
 function NewTaskModal({
   agents,
+  projectId,
   onCreate,
   onClose,
 }: {
   agents: AgentData[]
-  onCreate: (title: string, desc?: string, agentId?: string) => Promise<TaskData>
+  projectId: string | null
+  onCreate: (title: string, desc?: string, agentId?: string, sessionId?: string) => Promise<TaskData>
   onClose: () => void
 }) {
   const [title, setTitle] = useState('')
   const [desc, setDesc] = useState('')
   const [agentId, setAgentId] = useState('')
+  const [sessionId, setSessionId] = useState('')
   const [creating, setCreating] = useState(false)
+  const sessions = useSessionStore((s) => s.sessions)
+  const agentSessions = useMemo(() => {
+    if (!agentId) return []
+    return sessions.filter((session) =>
+      session.agent_id === agentId &&
+      (!projectId || session.project_id === projectId),
+    )
+  }, [agentId, projectId, sessions])
   const handleCreate = async () => {
     if (!title.trim()) return
     setCreating(true)
     try {
-      await onCreate(title, desc || undefined, agentId || undefined)
+      await onCreate(title, desc || undefined, agentId || undefined, sessionId || undefined)
       onClose()
     } catch (e) {
       console.error('创建任务失败:', e)
@@ -3767,7 +3779,10 @@ function NewTaskModal({
             </label>
             <select
               value={agentId}
-              onChange={(e) => setAgentId(e.target.value)}
+              onChange={(e) => {
+                setAgentId(e.target.value)
+                setSessionId('')
+              }}
               style={{
                 width: '100%',
                 padding: '10px 12px',
@@ -3787,6 +3802,37 @@ function NewTaskModal({
               ))}
             </select>
           </div>
+          {agentId && (
+            <div>
+              <label style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>
+                会话目标
+              </label>
+              <select
+                value={sessionId}
+                onChange={(e) => setSessionId(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  borderRadius: 8,
+                  border: '1px solid var(--border)',
+                  fontSize: 15,
+                  background: 'var(--bg-1)',
+                  color: 'var(--text-1)',
+                  outline: 'none',
+                }}
+              >
+                <option value="">新建会话（默认）</option>
+                {agentSessions.map((session) => (
+                  <option key={session.id} value={session.id}>
+                    {sessionTitle(session)}
+                  </option>
+                ))}
+              </select>
+              <div style={{ fontSize: 13, color: 'var(--text-3)', marginTop: 4 }}>
+                {sessionId ? '将在该会话中追加任务指派。' : '将为此任务创建新的会话。'}
+              </div>
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
             <button
               onClick={handleCreate}

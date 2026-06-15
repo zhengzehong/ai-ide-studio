@@ -215,6 +215,22 @@ export const taskStore = {
     taskEventStore.append(id, { type: 'deleted', payload: { task_id: id } })
     getDb().prepare('DELETE FROM tasks WHERE id = ?').run(id)
   },
+
+  linkSession(taskId: string, sessionId: string): void {
+    taskEventStore.append(taskId, { type: 'session_linked', payload: { session_id: sessionId } })
+  },
+
+  listSessionIds(taskId: string): string[] {
+    const rows = taskEventStore.list(taskId)
+    const ids: string[] = []
+    for (const row of rows) {
+      if (row.type !== 'session_linked') continue
+      const parsed = parseTaskEventPayload(row.payload_json)
+      const sessionId = typeof parsed.session_id === 'string' ? parsed.session_id : undefined
+      if (sessionId && !ids.includes(sessionId)) ids.push(sessionId)
+    }
+    return ids
+  },
 }
 
 function isTerminalStatus(status: string): boolean {
@@ -274,4 +290,13 @@ export const taskEventStore = {
       .all({ taskId, limit })
       .reverse()
   },
+}
+
+function parseTaskEventPayload(raw: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {}
+  } catch {
+    return {}
+  }
 }

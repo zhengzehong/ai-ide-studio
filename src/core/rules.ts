@@ -1,6 +1,6 @@
 import { ruleStore, type RuleRow } from '../store/rules.js'
 import { ruleExecutionStore } from '../store/rule-executions.js'
-import { taskManager } from './tasks.js'
+import { taskManager, validateTaskAssignment } from './tasks.js'
 import { sessionManager } from './sessions.js'
 import { events } from './events.js'
 import { matchCron, getNextRunTime } from './cron.js'
@@ -23,6 +23,7 @@ const actionHandlers: Record<string, ActionHandler> = {
       source: 'schedule',
       assignAgentId: config.assign_agent_id,
       projectId: rule.project_id ?? undefined,
+      sessionId: config.session_id,
       ruleId: rule.id,
       ruleName: rule.name,
       promptTemplate: config.prompt_template
@@ -43,6 +44,7 @@ const actionHandlers: Record<string, ActionHandler> = {
     let sessionId = config.session_id
 
     if (sessionId) {
+      validateTaskAssignment(agentId, rule.project_id, sessionId)
       try {
         await sessionManager.sendPrompt(sessionId, prompt)
       } catch {
