@@ -339,8 +339,12 @@ watch 监听 `session:done`，触发后后台唤醒 `watcher_session_id`。如�
 | filter_json | TEXT | 过滤条件 JSON，例如 priority / sourceType / minConfidence |
 | enabled | INTEGER | 是否启用 |
 | auto_start | INTEGER | 是否自动启动消费者 |
+| consumer_session_mode | TEXT | 消费会话策略：`existing` / `new_each` / `new_fixed` |
+| consumer_session_id | TEXT | 指定或固定复用的消费者 Session ID；`new_fixed` 首次自动创建后写回 |
 | created_at | TEXT | 创建时间 |
 | updated_at | TEXT | 更新时间 |
+
+`auto_start = 1` 时，新匹配事件会自动创建消费记录并触发消费者 Agent。自动触发按 `subscription_id` 串行调度；当策略为 `existing` 或 `new_fixed` 时，实际 Prompt 进入同一个 Session 的 `enqueuePrompt` 队列，避免并发轮次互相冲突。
 
 ### event_consumptions
 
@@ -356,6 +360,7 @@ watch 监听 `session:done`，触发后后台唤醒 `watcher_session_id`。如�
 | result_summary | TEXT | 消费结果摘要 |
 | result_json | TEXT | 消费结果结构化 JSON |
 | error | TEXT | 失败信息 |
+| session_id | TEXT | 实际启动消费者 Agent 时使用的 Session ID |
 | claimed_at | TEXT | 领取时间 |
 | completed_at | TEXT | 完成时间 |
 | created_at | TEXT | 创建时间 |

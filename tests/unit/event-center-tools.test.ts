@@ -9,6 +9,7 @@ import { seedBuiltinTools } from '../../src/tools/seed.js'
 import { toolStore } from '../../src/store/tools.js'
 import { getHandler } from '../../src/tools/handlers/index.js'
 import type { ToolContext, ToolHandlerResult } from '../../src/tools/types.js'
+import { sessionStore } from '../../src/store/sessions.js'
 
 let tmp: string
 
@@ -161,6 +162,27 @@ describe('event center MCP tools', () => {
     const claimed = await executeJson('event.claim_next', {}, { projectId: project.id, agentId: consumer.id })
     expect(asRecord(claimed.event).title).toBe('Agent Debug Kit')
     expect(asRecord(claimed.consumption).status).toBe('running')
+  })
+
+  test('lets an agent create an auto subscription with a consumer session strategy', async () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const collector = agentStore.create({ name: 'Collector', type: 'research', runtime: 'mock', projectId: project.id })
+    const consumer = agentStore.create({ name: 'Consumer', type: 'pm', runtime: 'mock', projectId: project.id })
+    const session = sessionStore.create({ agentId: consumer.id, projectId: project.id })
+
+    const result = await executeJson('event.subscription.create', {
+      name: 'Auto existing session consumer',
+      categoryId: 'ai.hot_project',
+      consumerAgentId: consumer.id,
+      autoStart: true,
+      consumerSessionMode: 'existing',
+      consumerSessionId: session.id,
+    }, { projectId: project.id, agentId: collector.id })
+
+    const subscription = asRecord(result.subscription)
+    expect(subscription.auto_start).toBe(1)
+    expect(subscription.consumer_session_mode).toBe('existing')
+    expect(subscription.consumer_session_id).toBe(session.id)
   })
 })
 

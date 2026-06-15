@@ -59,7 +59,11 @@ export function EventDetailPanel({ event, projectId }: Props) {
             {(detail?.consumptions ?? []).map((item) => (
               <div className="ec-timeline-item" key={item.id}>
                 <span className={`ec-dot ec-dot--${item.status}`} />
-                <div><strong>{item.consumer_label || item.consumer_agent_id || '消费者'}</strong><p>{item.result_summary || item.error || item.status}</p></div>
+                <div>
+                  <strong>{item.consumer_label || item.consumer_agent_id || '消费者'}</strong>
+                  <p>{item.result_summary || item.error || item.status}</p>
+                  {item.session_id && <p>会话：{item.session_id}</p>}
+                </div>
               </div>
             ))}
             {detail?.consumptions.length === 0 && <div className="ec-muted">暂无消费记录</div>}

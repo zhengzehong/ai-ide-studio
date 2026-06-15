@@ -1,6 +1,8 @@
 import { randomUUID } from 'crypto'
 import { getDb } from './db.js'
 
+export type EventConsumerSessionMode = 'existing' | 'new_each' | 'new_fixed'
+
 export interface EventSubscriptionRow {
   id: string
   project_id: string | null
@@ -12,6 +14,8 @@ export interface EventSubscriptionRow {
   filter_json: string
   enabled: number
   auto_start: number
+  consumer_session_mode: EventConsumerSessionMode
+  consumer_session_id: string | null
   created_at: string
   updated_at: string
 }
@@ -26,6 +30,8 @@ export interface CreateEventSubscriptionInput {
   filter?: Record<string, unknown>
   enabled?: boolean
   autoStart?: boolean
+  consumerSessionMode?: EventConsumerSessionMode
+  consumerSessionId?: string | null
 }
 
 export const eventSubscriptionStore = {
@@ -42,17 +48,21 @@ export const eventSubscriptionStore = {
       filter_json: JSON.stringify(input.filter ?? {}),
       enabled: input.enabled === false ? 0 : 1,
       auto_start: input.autoStart ? 1 : 0,
+      consumer_session_mode: input.consumerSessionMode ?? 'new_each',
+      consumer_session_id: input.consumerSessionId ?? null,
       created_at: now,
       updated_at: now,
     }
     getDb().prepare(`
       INSERT INTO event_subscriptions (
         id, project_id, name, category_id, consumer_agent_id, consumer_label,
-        action_mode, filter_json, enabled, auto_start, created_at, updated_at
+        action_mode, filter_json, enabled, auto_start, consumer_session_mode,
+        consumer_session_id, created_at, updated_at
       )
       VALUES (
         @id, @project_id, @name, @category_id, @consumer_agent_id, @consumer_label,
-        @action_mode, @filter_json, @enabled, @auto_start, @created_at, @updated_at
+        @action_mode, @filter_json, @enabled, @auto_start, @consumer_session_mode,
+        @consumer_session_id, @created_at, @updated_at
       )
     `).run(subscription)
     return subscription
@@ -97,6 +107,12 @@ export const eventSubscriptionStore = {
   toggle(id: string, enabled: boolean): EventSubscriptionRow | undefined {
     getDb().prepare('UPDATE event_subscriptions SET enabled = ?, updated_at = ? WHERE id = ?')
       .run(enabled ? 1 : 0, new Date().toISOString(), id)
+    return eventSubscriptionStore.get(id)
+  },
+
+  setConsumerSession(id: string, sessionId: string | null): EventSubscriptionRow | undefined {
+    getDb().prepare('UPDATE event_subscriptions SET consumer_session_id = ?, updated_at = ? WHERE id = ?')
+      .run(sessionId, new Date().toISOString(), id)
     return eventSubscriptionStore.get(id)
   },
 }

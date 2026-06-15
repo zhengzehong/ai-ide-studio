@@ -16,6 +16,7 @@ import { workspaceCustomOrderingMigration } from './015-workspace-custom-orderin
 import { agentSessionCommunicationMigration } from './016-agent-session-communication.js'
 import { eventCategoryProjectScopeMigration } from './017-event-category-project-scope.js'
 import { agentVisibilityMigration } from './018-agent-visibility.js'
+import { eventConsumerSessionStrategyMigration } from './019-event-consumer-session-strategy.js'
 import type { Migration } from '../migrator.js'
 
 export const migrations: Migration[] = [
@@ -37,4 +38,5 @@ export const migrations: Migration[] = [
   agentSessionCommunicationMigration,
   eventCategoryProjectScopeMigration,
   agentVisibilityMigration,
+  eventConsumerSessionStrategyMigration,
 ]

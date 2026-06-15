@@ -309,6 +309,9 @@ export const eventSubscriptionCreateHandler: ToolHandler = {
       consumerLabel: { type: 'string' },
       actionMode: { type: 'string' },
       filter: { type: 'object' },
+      autoStart: { type: 'boolean' },
+      consumerSessionMode: { type: 'string', enum: ['existing', 'new_each', 'new_fixed'] },
+      consumerSessionId: { type: 'string' },
     },
     required: ['name', 'categoryId'],
   },
@@ -322,7 +325,14 @@ export const eventSubscriptionCreateHandler: ToolHandler = {
         consumerLabel: optStr(input, 'consumerLabel'),
         actionMode: optStr(input, 'actionMode'),
         filter: record(input.filter),
+        autoStart: typeof input.autoStart === 'boolean' ? input.autoStart : undefined,
+        consumerSessionMode: optConsumerSessionMode(input.consumerSessionMode),
+        consumerSessionId: optStr(input, 'consumerSessionId'),
       }),
     })
   },
+}
+
+function optConsumerSessionMode(value: unknown): 'existing' | 'new_each' | 'new_fixed' | undefined {
+  return value === 'existing' || value === 'new_each' || value === 'new_fixed' ? value : undefined
 }

@@ -138,6 +138,8 @@ export const eventCenterRpcHandlers: RpcHandlerMap = {
       filter: record(msg.filter),
       enabled: msg.enabled as boolean | undefined,
       autoStart: msg.autoStart as boolean | undefined,
+      consumerSessionMode: msg.consumerSessionMode as never,
+      consumerSessionId: msg.consumerSessionId as string | null | undefined,
     }))
   },
 
@@ -153,7 +155,10 @@ export const eventCenterRpcHandlers: RpcHandlerMap = {
   },
 
   async 'eventConsumptions.run'(msg, { sendResult }) {
-    sendResult(await eventCenterService.runConsumer(msg.consumptionId as string))
+    sendResult(await eventCenterService.runConsumer({
+      consumptionId: msg.consumptionId as string,
+      sessionId: msg.sessionId as string | undefined,
+    }))
   },
 
   'eventConsumptions.consume'(msg, { sendResult }) {

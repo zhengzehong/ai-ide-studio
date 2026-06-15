@@ -15,11 +15,13 @@ import {
 import { eventConsumptionStore, type EventConsumptionRow } from '../store/event-consumptions.js'
 import { eventTaskLinkStore } from '../store/event-task-links.js'
 import { taskStore, type CreateTaskInput, type TaskRow } from '../store/tasks.js'
+import { sessionStore, type SessionRow } from '../store/sessions.js'
 import { sessionManager } from './sessions.js'
 import { events } from './events.js'
 import { createChildLogger } from './logger.js'
 
 const log = createChildLogger('event-center')
+const autoConsumerQueues = new Map<string, Promise<void>>()
 
 export interface CreateEventInput {
   projectId?: string | null
@@ -59,6 +61,11 @@ export interface RunEventConsumerResult {
   event: EventCenterEventRow
   consumption: EventConsumptionRow
   sessionId: string
+}
+
+export interface RunEventConsumerInput {
+  consumptionId: string
+  sessionId?: string
 }
 
 export const eventCenterService = {
@@ -147,6 +154,7 @@ export const eventCenterService = {
     if (!category) throw new Error(`事件类别不存在: ${input.categoryId}`)
     assertAgentProject(input.consumerAgentId, input.projectId ?? undefined)
     assertCategoryAccess(category, input.consumerAgentId, 'consumer')
+    validateSubscriptionSession(input)
     const subscription = eventSubscriptionStore.create({
       ...input,
       name: input.name.trim(),
@@ -188,7 +196,9 @@ export const eventCenterService = {
     return { event: runningEvent, consumption }
   },
 
-  async runConsumer(consumptionId: string): Promise<RunEventConsumerResult> {
+  async runConsumer(input: string | RunEventConsumerInput): Promise<RunEventConsumerResult> {
+    const runInput = typeof input === 'string' ? { consumptionId: input } : input
+    const consumptionId = runInput.consumptionId
     const existing = eventConsumptionStore.get(consumptionId)
     if (!existing) throw new Error(`消费记录不存在: ${consumptionId}`)
     if (!existing.consumer_agent_id) throw new Error('消费记录没有绑定 Agent')
@@ -199,11 +209,18 @@ export const eventCenterService = {
     const category = eventCategoryStore.resolve(event.category_id, event.project_id ?? undefined)
     if (!category) throw new Error(`事件类别不存在: ${event.category_id}`)
     assertCategoryAccess(category, existing.consumer_agent_id, 'consumer')
+    const subscription = existing.subscription_id ? eventSubscriptionStore.get(existing.subscription_id) : undefined
+    const session = await resolveConsumerSession({
+      event,
+      consumption: existing,
+      subscription,
+      requestedSessionId: runInput.sessionId,
+    })
 
-    const consumption = eventConsumptionStore.claim(existing.id)
+    const claimed = eventConsumptionStore.claim(existing.id)
+    const consumption = eventConsumptionStore.setSession(claimed.id, session.id)
     const runningEvent = eventCenterEventStore.updateStatus(event.id, 'running') ?? event
-    const session = await sessionManager.createSession(existing.consumer_agent_id, undefined, event.project_id ?? undefined)
-    void sessionManager.sendPrompt(session.id, buildConsumerPrompt(event, consumption)).catch((err: unknown) => {
+    void sessionManager.enqueuePrompt(session.id, buildConsumerPrompt(event, consumption), undefined, { contextProjectId: event.project_id ?? undefined }).catch((err: unknown) => {
       const message = err instanceof Error ? err.message : String(err)
       log.error({ err, eventId: event.id, consumptionId: consumption.id, sessionId: session.id }, '事件消费 Agent 启动失败')
       eventConsumptionStore.complete(consumption.id, { error: message })
@@ -247,13 +264,87 @@ function evaluateSubscriptions(event: EventCenterEventRow): EventConsumptionRow[
   const subscriptions = eventSubscriptionStore
     .listMatching(event.category_id, event.project_id)
     .filter((subscription) => matchesSubscription(subscription, event))
-  return subscriptions.map((subscription) => eventConsumptionStore.create({
-    eventId: event.id,
-    subscriptionId: subscription.id,
-    projectId: event.project_id,
-    consumerAgentId: subscription.consumer_agent_id,
-    consumerLabel: subscription.consumer_label,
-  }))
+  return subscriptions.map((subscription) => {
+    const consumption = eventConsumptionStore.create({
+      eventId: event.id,
+      subscriptionId: subscription.id,
+      projectId: event.project_id,
+      consumerAgentId: subscription.consumer_agent_id,
+      consumerLabel: subscription.consumer_label,
+    })
+    if (subscription.auto_start === 1 && subscription.consumer_agent_id && consumption.status === 'pending') {
+      scheduleAutoConsumer(subscription.id, consumption.id)
+    }
+    return consumption
+  })
+}
+
+function scheduleAutoConsumer(subscriptionId: string, consumptionId: string): void {
+  const previous = autoConsumerQueues.get(subscriptionId) ?? Promise.resolve()
+  const next = previous
+    .catch(() => undefined)
+    .then(async () => {
+      try {
+        await eventCenterService.runConsumer({ consumptionId })
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        log.error({ err, subscriptionId, consumptionId }, '事件自动消费失败')
+        const consumption = eventConsumptionStore.get(consumptionId)
+        if (consumption?.status === 'pending') {
+          eventConsumptionStore.complete(consumptionId, { error: message })
+          eventCenterEventStore.updateStatus(consumption.event_id, 'failed')
+          emitUpdate({ eventId: consumption.event_id, consumptionId, event: 'consumption.auto_failed' })
+        }
+      }
+    })
+  autoConsumerQueues.set(subscriptionId, next)
+  next
+    .finally(() => {
+      if (autoConsumerQueues.get(subscriptionId) === next) autoConsumerQueues.delete(subscriptionId)
+    })
+    .catch(() => undefined)
+}
+
+async function resolveConsumerSession(input: {
+  event: EventCenterEventRow
+  consumption: EventConsumptionRow
+  subscription?: EventSubscriptionRow
+  requestedSessionId?: string
+}): Promise<SessionRow> {
+  const agentId = input.consumption.consumer_agent_id
+  if (!agentId) throw new Error('消费记录没有绑定 Agent')
+  const projectId = input.event.project_id ?? undefined
+  if (input.requestedSessionId) return validateConsumerSession(input.requestedSessionId, agentId, projectId)
+
+  const mode = input.subscription?.consumer_session_mode ?? 'new_each'
+  if (mode === 'existing') {
+    if (!input.subscription?.consumer_session_id) throw new Error('订阅规则没有指定消费会话')
+    return validateConsumerSession(input.subscription.consumer_session_id, agentId, projectId)
+  }
+  if (mode === 'new_fixed') {
+    if (input.subscription?.consumer_session_id) return validateConsumerSession(input.subscription.consumer_session_id, agentId, projectId)
+    const session = await sessionManager.createSession(agentId, undefined, projectId)
+    if (input.subscription) eventSubscriptionStore.setConsumerSession(input.subscription.id, session.id)
+    return session
+  }
+  return sessionManager.createSession(agentId, undefined, projectId)
+}
+
+function validateConsumerSession(sessionId: string, agentId: string, projectId?: string): SessionRow {
+  const session = sessionStore.get(sessionId)
+  if (!session) throw new Error(`Session not found: ${sessionId}`)
+  if (session.status !== 'active') throw new Error(`Session is not active: ${sessionId}`)
+  if (session.agent_id !== agentId) throw new Error(`Session ${sessionId} does not belong to consumer Agent ${agentId}`)
+  if (projectId && session.project_id !== projectId) throw new Error(`Session ${sessionId} is outside current project`)
+  return session
+}
+
+function validateSubscriptionSession(input: CreateEventSubscriptionInput): void {
+  if (!input.consumerAgentId) return
+  if (input.consumerSessionMode === 'existing' && !input.consumerSessionId) {
+    throw new Error('existing consumer session mode requires consumerSessionId')
+  }
+  if (input.consumerSessionId) validateConsumerSession(input.consumerSessionId, input.consumerAgentId, input.projectId ?? undefined)
 }
 
 function matchesSubscription(subscription: EventSubscriptionRow, event: EventCenterEventRow): boolean {
