@@ -122,6 +122,11 @@ export interface AgentsDeleteMsg extends ClientMessage {
   type: 'agents.delete'
   agentId: string
 }
+export interface AgentsSetHiddenMsg extends ClientMessage {
+  type: 'agents.setHidden'
+  agentId: string
+  hidden: boolean
+}
 export interface AgentsReorderMsg extends ClientMessage {
   type: 'agents.reorder'
   projectId: string

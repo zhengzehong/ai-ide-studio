@@ -211,4 +211,26 @@ describe('Project Agent RPC', () => {
     expect(agentStore.list(project.id).map(a => a.id)).toEqual([])
     expect(agentStore.get(agent.id)).toBeUndefined()
   })
+
+  test('agents.setHidden toggles project Agent visibility', async () => {
+    const project = projectStore.create({ name: '??', workDir: resolve(tmp, 'project-hide-agent') })
+    const agent = agentStore.create({ name: '???', type: 'dev', runtime: 'mock', projectId: project.id })
+    const ws = createWs()
+
+    await ws.send({ type: 'agents.setHidden', requestId: 'req-hide-agent', agentId: agent.id, hidden: true })
+
+    expect(ws.last().type).toBe('result')
+    const hidden = ws.last().data as Record<string, unknown>
+    expect(hidden.id).toBe(agent.id)
+    expect(hidden.hidden_at).toEqual(expect.any(String))
+    expect(agentStore.get(agent.id)?.hidden_at).toBe(hidden.hidden_at)
+
+    await ws.send({ type: 'agents.setHidden', requestId: 'req-show-agent', agentId: agent.id, hidden: false })
+
+    expect(ws.last().type).toBe('result')
+    const visible = ws.last().data as Record<string, unknown>
+    expect(visible.id).toBe(agent.id)
+    expect(visible.hidden_at).toBeNull()
+    expect(agentStore.get(agent.id)?.hidden_at).toBeNull()
+  })
 })

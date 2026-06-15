@@ -207,6 +207,7 @@ Team 运行时事件：`team.member.spawn` 会广播包含新成员 Session 行�
 | `agents.createCustom` | `{ projectId, name, agentType, runtime, systemPrompt?, icon?, modelProfileId? }` | `Agent` | 创建项目级自定义 Agent |
 | `agents.update` | `{ agentId, name?, agentType?, runtime?, systemPrompt?, icon?, modelProfileId? }` | `Agent` | 更新项目级 Agent 配置；`modelProfileId` 为空值时清除绑定 |
 | `agents.delete` | `{ agentId }` | `{ deleted: true }` | 删除项目级 Agent |
+| `agents.setHidden` | `{ agentId, hidden }` | `Agent` | 设置项目级 Agent 是否在工作台会话侧栏隐藏 |
 | `agents.reorder` | `{ projectId, agentIds }` | `Agent[]` | 调整当前项目工作台左侧 Agent 顺序 |
 
 `agents.create` 保留给 CLI 或旧调用方兼容；新 UI 不应绕过项目边界直接创建全局 Agent。

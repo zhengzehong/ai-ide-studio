@@ -37,6 +37,8 @@ import {
   FileText,
   FolderOpen,
   GripVertical,
+  Eye,
+  EyeOff,
   MessageSquare as MessageSquareIcon,
 } from 'lucide-react'
 import { useAgentStore, type AgentData } from '../stores/agent.store'
@@ -141,6 +143,8 @@ export default function Workspace() {
   const archiveSession = useSessionStore((s) => s.archiveSession)
   const reorderSessions = useSessionStore((s) => s.reorderSessions)
   const fetchAgents = useAgentStore((s) => s.fetchAgents)
+  const deleteAgent = useAgentStore((s) => s.deleteAgent)
+  const setAgentHidden = useAgentStore((s) => s.setAgentHidden)
   const reorderAgents = useAgentStore((s) => s.reorderAgents)
   const fetchTasks = useTaskStore((s) => s.fetchTasks)
   const tasks = useTaskStore((s) => s.tasks)
@@ -162,6 +166,7 @@ export default function Workspace() {
   const [expandedAgents, setExpandedAgents] = useState<Set<string> | null>(null)
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
   const [orderingMode, setOrderingMode] = useState(false)
+  const [agentVisibilityOpen, setAgentVisibilityOpen] = useState(false)
   const [draggedOrderItem, setDraggedOrderItem] = useState<{ type: 'agent' | 'session'; id: string; agentId?: string } | null>(null)
 
   useEffect(() => {
@@ -178,19 +183,22 @@ export default function Workspace() {
   const [alertMsg, setAlertMsg] = useState<string | null>(null)
 
   const projectAgents = useMemo(() => filterAgentsByProject(agents, currentProjectId), [agents, currentProjectId])
+  const visibleProjectAgents = useMemo(() => projectAgents.filter((agent) => !agent.hidden_at), [projectAgents])
+  const hiddenProjectAgents = useMemo(() => projectAgents.filter((agent) => !!agent.hidden_at), [projectAgents])
   const projectSessions = useMemo(
     () => filterSessionsByProject(sessions, currentProjectId),
     [sessions, currentProjectId],
   )
-  const orderedProjectAgents = useMemo(() => sortWorkspaceItems(projectAgents), [projectAgents])
+  const orderedProjectAgents = useMemo(() => sortWorkspaceItems(visibleProjectAgents), [visibleProjectAgents])
+  const orderedAllProjectAgents = useMemo(() => sortWorkspaceItems(projectAgents), [projectAgents])
   const orderedProjectSessions = useMemo(() => sortWorkspaceItems(projectSessions), [projectSessions])
   const expandedAgentIds = useMemo(
     () => expandedAgents ?? new Set(orderedProjectAgents.map((a) => a.id)),
     [orderedProjectAgents, expandedAgents],
   )
   const chatAgent = useMemo(
-    () => selectChatAgent({ agents: projectAgents, sessions: projectSessions, currentSessionId, selectedAgentId }),
-    [currentSessionId, projectAgents, projectSessions, selectedAgentId],
+    () => selectChatAgent({ agents: visibleProjectAgents, sessions: projectSessions, currentSessionId, selectedAgentId }),
+    [currentSessionId, visibleProjectAgents, projectSessions, selectedAgentId],
   )
   const currentSession = useMemo(
     () => projectSessions.find((session) => session.id === currentSessionId),
@@ -259,6 +267,19 @@ export default function Workspace() {
     const current = projectSessions.find((session) => session.id === currentSessionId)
     if (!currentProjectId || !current) selectSession(null)
   }, [currentProjectId, currentSessionId, projectSessions, selectSession])
+
+  useEffect(() => {
+    if (!currentSessionId) return
+    const current = projectSessions.find((session) => session.id === currentSessionId)
+    if (!current) return
+    const currentAgent = projectAgents.find((agent) => agent.id === current.agent_id)
+    if (currentAgent?.hidden_at) {
+      queueMicrotask(() => {
+        setSelectedAgentId(null)
+        selectSession(null)
+      })
+    }
+  }, [currentSessionId, projectAgents, projectSessions, selectSession])
 
   useEffect(() => {
     const targetProjectId = searchParams.get('projectId')
@@ -349,6 +370,45 @@ export default function Workspace() {
   }
   const handleArchiveSession = async (sessionId: string) => {
     await archiveSession(sessionId)
+  }
+  const handleHideAgent = async (agentId: string) => {
+    try {
+      await setAgentHidden(agentId, true)
+      if (selectedAgentId === agentId) setSelectedAgentId(null)
+      if (currentSession?.agent_id === agentId) {
+        setSelectedAgentId(null)
+        selectSession(null)
+      }
+    } catch (err) {
+      setAlertMsg(err instanceof Error ? err.message : '隐藏 Agent 失败')
+    }
+  }
+  const handleShowAgent = async (agentId: string) => {
+    try {
+      await setAgentHidden(agentId, false)
+    } catch (err) {
+      setAlertMsg(err instanceof Error ? err.message : '显示 Agent 失败')
+    }
+  }
+  const handleDeleteAgent = (agent: AgentData) => {
+    setConfirmDialog({
+      title: '删除 Agent',
+      message: `确定删除「${agent.name}」吗？该 Agent 会从项目中移除，已有会话和任务记录不会自动清理。`,
+      danger: true,
+      onConfirm: async () => {
+        try {
+          const deletingCurrentSession = currentSession?.agent_id === agent.id
+          await deleteAgent(agent.id)
+          if (selectedAgentId === agent.id) setSelectedAgentId(null)
+          if (deletingCurrentSession) selectSession(null)
+          setConfirmDialog(null)
+          setAgentVisibilityOpen(false)
+        } catch (err) {
+          setConfirmDialog(null)
+          setAlertMsg(err instanceof Error ? err.message : '删除 Agent 失败')
+        }
+      },
+    })
   }
 
   useEffect(() => {
@@ -467,6 +527,28 @@ export default function Workspace() {
               </div>
               <button
                 type="button"
+                onClick={() => setAgentVisibilityOpen((value) => !value)}
+                title="显示/隐藏 Agent"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  height: 24,
+                  border: agentVisibilityOpen ? '1px solid rgba(37, 99, 235, 0.28)' : '1px solid transparent',
+                  background: agentVisibilityOpen ? 'var(--blue-light)' : 'transparent',
+                  color: agentVisibilityOpen ? 'var(--blue)' : 'var(--text-3)',
+                  borderRadius: 6,
+                  padding: '0 7px',
+                  cursor: 'pointer',
+                  fontSize: 12,
+                  fontWeight: 600,
+                }}
+              >
+                {hiddenProjectAgents.length > 0 ? <EyeOff size={12} /> : <Eye size={12} />}
+                显示
+              </button>
+              <button
+                type="button"
                 onClick={() => setOrderingMode((value) => !value)}
                 title={orderingMode ? '完成排序' : '自定义排序'}
                 style={{
@@ -532,6 +614,42 @@ export default function Workspace() {
                     }}
                   >
                     添加智能体
+                  </button>
+                </div>
+              )}
+              {projectAgents.length > 0 && orderedProjectAgents.length === 0 && (
+                <div
+                  style={{
+                    margin: '18px 14px',
+                    padding: 14,
+                    border: '1px dashed var(--border)',
+                    borderRadius: 10,
+                    background: 'var(--bg-1)',
+                    textAlign: 'center',
+                  }}
+                >
+                  <EyeOff size={24} color="var(--text-3)" style={{ marginBottom: 8, opacity: 0.5 }} />
+                  <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-1)', marginBottom: 5 }}>
+                    Agent 已全部隐藏
+                  </div>
+                  <div style={{ fontSize: 14, color: 'var(--text-3)', lineHeight: 1.5, marginBottom: 10 }}>
+                    当前项目有 {hiddenProjectAgents.length} 个隐藏 Agent。
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setAgentVisibilityOpen(true)}
+                    style={{
+                      border: 'none',
+                      background: 'var(--blue)',
+                      color: 'white',
+                      cursor: 'pointer',
+                      padding: '7px 12px',
+                      borderRadius: 7,
+                      fontSize: 14,
+                      fontWeight: 600,
+                    }}
+                  >
+                    管理显示
                   </button>
                 </div>
               )}
@@ -895,6 +1013,15 @@ export default function Workspace() {
             disabled: !canImportLocalSession(agentContextAgent.runtime),
             onClick: () => setImportDialogAgentId(agentContextAgent.id),
           },
+          {
+            label: '隐藏 Agent',
+            onClick: () => { void handleHideAgent(agentContextAgent.id) },
+          },
+          {
+            label: '删除 Agent',
+            danger: true,
+            onClick: () => handleDeleteAgent(agentContextAgent),
+          },
         ] : []}
       />
 
@@ -915,6 +1042,116 @@ export default function Workspace() {
           { label: '删除', danger: true, onClick: () => handleDeleteSession(ctxMenu.sessionId) },
         ] : []}
       />
+
+      {agentVisibilityOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            left: 252,
+            top: 108,
+            zIndex: 9998,
+            width: 300,
+            maxWidth: 'calc(100vw - 24px)',
+            background: 'var(--bg-0)',
+            border: '1px solid var(--border)',
+            borderRadius: 8,
+            boxShadow: '0 12px 28px rgba(15,23,42,0.14), 0 3px 8px rgba(15,23,42,0.08)',
+            padding: 10,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-1)' }}>显示/隐藏 Agent</div>
+              <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>
+                {visibleProjectAgents.length} 个显示，{hiddenProjectAgents.length} 个隐藏
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setAgentVisibilityOpen(false)}
+              style={{
+                width: 24,
+                height: 24,
+                border: 'none',
+                borderRadius: 6,
+                background: 'transparent',
+                color: 'var(--text-3)',
+                cursor: 'pointer',
+              }}
+              title="关闭"
+            >
+              <X size={15} />
+            </button>
+          </div>
+          <div style={{ maxHeight: 320, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {orderedAllProjectAgents.map((agent) => {
+              const hidden = !!agent.hidden_at
+              return (
+                <div
+                  key={agent.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    padding: '7px 6px',
+                    borderRadius: 7,
+                    background: hidden ? 'var(--bg-1)' : 'transparent',
+                    opacity: hidden ? 0.72 : 1,
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 24,
+                      height: 24,
+                      borderRadius: '50%',
+                      background: agentColor(agent),
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: 12,
+                      fontWeight: 700,
+                      color: 'white',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {agentAvatar(agent)}
+                  </span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-1)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {agent.name}
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--text-3)' }}>{hidden ? '已隐藏' : '显示中'}</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => { void (hidden ? handleShowAgent(agent.id) : handleHideAgent(agent.id)) }}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      height: 26,
+                      border: '1px solid var(--border)',
+                      background: 'var(--bg-0)',
+                      color: hidden ? 'var(--blue)' : 'var(--text-2)',
+                      borderRadius: 6,
+                      padding: '0 8px',
+                      cursor: 'pointer',
+                      fontSize: 12,
+                      fontWeight: 600,
+                    }}
+                  >
+                    {hidden ? <Eye size={12} /> : <EyeOff size={12} />}
+                    {hidden ? '显示' : '隐藏'}
+                  </button>
+                </div>
+              )
+            })}
+            {orderedAllProjectAgents.length === 0 && (
+              <div style={{ padding: 16, color: 'var(--text-3)', fontSize: 14, textAlign: 'center' }}>当前项目暂无 Agent</div>
+            )}
+          </div>
+        </div>
+      )}
 
       <PromptDialog
         open={!!renameDialog}

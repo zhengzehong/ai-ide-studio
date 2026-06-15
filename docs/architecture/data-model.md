@@ -111,6 +111,7 @@ ignored     failed      task
 | system_prompt | TEXT | 项目级 Agent 的系统提示词 |
 | icon | TEXT | UI 图标标识 |
 | sort_order | INTEGER | 项目工作台 Agent 自定义排序；仅在项目作用域列表中生效 |
+| hidden_at | TEXT | 项目工作台隐藏时间；为空表示在会话侧栏显示 |
 
 ### sessions
 
