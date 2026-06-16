@@ -19,22 +19,27 @@ export function DeployTemplateModal({ template, projects, currentProjectId, onDe
   const [projectId, setProjectId] = useState(currentProjectId ?? projects[0]?.id ?? '')
   const [name, setName] = useState(template.name)
   const [runtime, setRuntime] = useState(template.runtime)
-  const [modelProfileId, setModelProfileId] = useState('')
+  const [modelProfileId, setModelProfileId] = useState<string | null>(null)
   const [systemPrompt, setSystemPrompt] = useState(template.system_prompt)
   const [saving, setSaving] = useState(false)
   const availableProfiles = useMemo(
     () => profiles.filter((profile) => profile.enabled && profile.runtime === runtime),
     [profiles, runtime],
   )
+  const defaultModelProfileId = availableProfiles.find((profile) => profile.is_default === 1)?.id ?? ''
+  const selectedModelProfileId = modelProfileId === null
+    ? defaultModelProfileId
+    : availableProfiles.some((profile) => profile.id === modelProfileId)
+      ? modelProfileId
+      : ''
 
   useEffect(() => { fetchProfiles() }, [fetchProfiles])
 
   const submit = async (openWorkspace: boolean) => {
     if (!projectId || !name.trim() || saving) return
-    const selectedProfileId = availableProfiles.some((profile) => profile.id === modelProfileId) ? modelProfileId : ''
     setSaving(true)
     try {
-      await onDeploy(projectId, { name: name.trim(), runtime, systemPrompt, modelProfileId: selectedProfileId || undefined })
+      await onDeploy(projectId, { name: name.trim(), runtime, systemPrompt, modelProfileId: selectedModelProfileId || undefined })
       if (openWorkspace) onOpenWorkspace()
     } finally {
       setSaving(false)
@@ -65,13 +70,13 @@ export function DeployTemplateModal({ template, projects, currentProjectId, onDe
               <input value={name} onChange={(e) => setName(e.target.value)} style={editorInput} />
             </Field>
             <Field label="运行时">
-              <select value={runtime} onChange={(e) => { setRuntime(e.target.value); setModelProfileId('') }} style={editorInput}>
+              <select value={runtime} onChange={(e) => { setRuntime(e.target.value); setModelProfileId(null) }} style={editorInput}>
                 {RUNTIME_OPTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
               </select>
             </Field>
             {(runtime === 'claude' || runtime === 'codex') && (
               <Field label="模型档案">
-                <select value={modelProfileId} onChange={(e) => setModelProfileId(e.target.value)} style={editorInput}>
+                <select value={selectedModelProfileId} onChange={(e) => setModelProfileId(e.target.value)} style={editorInput}>
                   <option value="">不绑定模型档案</option>
                   {availableProfiles.map(profile => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
                 </select>

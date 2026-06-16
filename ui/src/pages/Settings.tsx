@@ -10,7 +10,7 @@ import { useProjectStore } from '../stores/project.store'
 export default function Settings() {
   const {
     providers, profiles, fetchProviders, fetchProfiles, createProvider, updateProvider, toggleProvider, deleteProvider,
-    setDefault, testProvider, createProfile, updateProfile, toggleProfile, deleteProfile,
+    setDefault, testProvider, createProfile, updateProfile, toggleProfile, setDefaultProfile, deleteProfile,
   } = useModelStore()
   const [showForm, setShowForm] = useState(false)
   const [showProfileForm, setShowProfileForm] = useState(false)
@@ -145,6 +145,7 @@ export default function Settings() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                         <span style={{ fontWeight: 600, fontSize: 15 }}>{profile.name}</span>
                         <span style={protoBadge(profile.runtime === 'codex' ? 'claude' : 'openai')}>{profile.runtime === 'codex' ? 'Codex' : 'Claude Code'}</span>
+                        {profile.is_default ? <span style={defaultBadge}><Star size={10} fill="currentColor" /> 默认</span> : null}
                         {!profile.enabled && <span style={disabledBadge}>已禁用</span>}
                       </div>
                       <div style={{ fontSize: 15, color: 'var(--text-3)', marginTop: 3 }}>
@@ -156,6 +157,7 @@ export default function Settings() {
                       </div>
                     </div>
                     <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                      {!profile.is_default && profile.enabled === 1 && <button onClick={() => setDefaultProfile(profile.id)} style={actionBtn} title="设为默认档案"><Star size={15} /></button>}
                       <button onClick={() => toggleProfile(profile.id, !profile.enabled)} style={{ ...actionBtn, color: profile.enabled ? 'var(--green)' : 'var(--text-3)' }} title={profile.enabled ? '禁用' : '启用'}>
                         {profile.enabled ? <ToggleRight size={17} /> : <ToggleLeft size={17} />}
                       </button>

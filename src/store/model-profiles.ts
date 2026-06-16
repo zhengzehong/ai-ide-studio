@@ -27,6 +27,7 @@ export interface ModelProfileRow {
   provider_id: string
   config_json: string
   context_window: number | null
+  is_default: number
   enabled: number
   created_at: string
   updated_at: string
@@ -38,6 +39,7 @@ export interface CreateModelProfileInput {
   providerId: string
   config: ModelProfileConfig
   contextWindow?: number | null
+  isDefault?: boolean
   enabled?: boolean
 }
 
@@ -47,6 +49,7 @@ export interface UpdateModelProfileInput {
   providerId?: string
   config?: ModelProfileConfig
   contextWindow?: number | null
+  isDefault?: boolean
   enabled?: boolean
 }
 
@@ -71,13 +74,15 @@ export const modelProfileStore = {
       provider_id: input.providerId,
       config_json: JSON.stringify(input.config),
       context_window: input.contextWindow ?? null,
+      is_default: input.isDefault ? 1 : 0,
       enabled: input.enabled === false ? 0 : 1,
       created_at: now,
       updated_at: now,
     }
+    if (row.is_default) clearRuntimeDefaults(row.runtime)
     getDb().prepare(`
-      INSERT INTO model_profiles (id, name, runtime, provider_id, config_json, context_window, enabled, created_at, updated_at)
-      VALUES (@id, @name, @runtime, @provider_id, @config_json, @context_window, @enabled, @created_at, @updated_at)
+      INSERT INTO model_profiles (id, name, runtime, provider_id, config_json, context_window, is_default, enabled, created_at, updated_at)
+      VALUES (@id, @name, @runtime, @provider_id, @config_json, @context_window, @is_default, @enabled, @created_at, @updated_at)
     `).run(row)
     log.info({ profileId: row.id, runtime: row.runtime, providerId: row.provider_id }, '模型档案已创建')
     return row
@@ -112,13 +117,15 @@ export const modelProfileStore = {
       provider_id: fields.providerId ?? existing.provider_id,
       config_json: fields.config !== undefined ? JSON.stringify(fields.config) : existing.config_json,
       context_window: fields.contextWindow !== undefined ? fields.contextWindow : existing.context_window,
+      is_default: fields.isDefault !== undefined ? (fields.isDefault ? 1 : 0) : existing.is_default,
       enabled: fields.enabled !== undefined ? (fields.enabled ? 1 : 0) : existing.enabled,
       updated_at: new Date().toISOString(),
     }
+    if (updated.is_default) clearRuntimeDefaults(updated.runtime, id)
     getDb().prepare(`
       UPDATE model_profiles
       SET name=@name, runtime=@runtime, provider_id=@provider_id, config_json=@config_json,
-          context_window=@context_window, enabled=@enabled, updated_at=@updated_at
+          context_window=@context_window, is_default=@is_default, enabled=@enabled, updated_at=@updated_at
       WHERE id=@id
     `).run(updated)
     if (fields.runtime !== undefined && fields.runtime !== existing.runtime) {
@@ -129,8 +136,11 @@ export const modelProfileStore = {
   },
 
   toggle(id: string, enabled: boolean): void {
-    getDb().prepare('UPDATE model_profiles SET enabled=?, updated_at=? WHERE id=?').run(
+    const existing = modelProfileStore.get(id)
+    const nextDefault = enabled ? existing?.is_default ?? 0 : 0
+    getDb().prepare('UPDATE model_profiles SET enabled=?, is_default=?, updated_at=? WHERE id=?').run(
       enabled ? 1 : 0,
+      nextDefault,
       new Date().toISOString(),
       id,
     )
@@ -142,6 +152,25 @@ export const modelProfileStore = {
     getDb().prepare('DELETE FROM model_profiles WHERE id = ?').run(id)
     log.info({ profileId: id }, '模型档案已删除')
   },
+
+  setDefault(id: string): ModelProfileRow {
+    const profile = modelProfileStore.get(id)
+    if (!profile) throw new Error(`模型档案不存在: ${id}`)
+    if (profile.enabled !== 1) throw new Error('不能将已禁用的模型档案设为默认')
+    clearRuntimeDefaults(profile.runtime, id)
+    getDb().prepare('UPDATE model_profiles SET is_default = 1, updated_at = ? WHERE id = ?').run(new Date().toISOString(), id)
+    const updated = modelProfileStore.get(id)
+    if (!updated) throw new Error(`模型档案不存在: ${id}`)
+    return updated
+  },
+}
+
+function clearRuntimeDefaults(runtime: string, exceptId?: string): void {
+  if (exceptId) {
+    getDb().prepare('UPDATE model_profiles SET is_default = 0 WHERE runtime = ? AND id <> ?').run(runtime, exceptId)
+    return
+  }
+  getDb().prepare('UPDATE model_profiles SET is_default = 0 WHERE runtime = ?').run(runtime)
 }
 
 function unbindAgentsFromProfile(profileId: string, options: { allowedRuntime?: string } = {}): void {

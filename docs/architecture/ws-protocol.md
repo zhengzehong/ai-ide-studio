@@ -29,7 +29,7 @@ ws://localhost:18800
 | 方法 | 参数 | 返回 | 说明 |
 |------|------|------|------|
 | `globalAssistant.get` | `{}` | `{ assistant, agent, session } \| null` | 获取当前全局助理绑定 |
-| `globalAssistant.setTemplate` | `{ templateId }` | `{ assistant, agent, session }` | 从 Agent 模板设置唯一全局助理，并创建或复用普通 Agent/Session |
+| `globalAssistant.setTemplate` | `{ templateId, name?, runtime?, systemPrompt?, modelProfileId? }` | `{ assistant, agent, session }` | 从 Agent 模板设置唯一全局助理，并创建或复用普通 Agent/Session；`modelProfileId` 为空值时清除绑定 |
 | `globalAssistant.touch` | `{}` | `{ assistant, agent, session } \| null` | 更新全局助理最近使用时间并返回当前绑定 |
 
 ### Session 管理
@@ -126,6 +126,7 @@ ws://localhost:18800
 | `modelProfiles.create` | `{ name, runtime, providerId, contextWindow?, config }` | `ModelProfile` | 创建 Claude Code 或 Codex 模型档案 |
 | `modelProfiles.update` | `{ profileId, ...fields }` | `ModelProfile` | 更新模型档案 |
 | `modelProfiles.toggle` | `{ profileId, enabled }` | `{ ok: true }` | 启用或停用模型档案 |
+| `modelProfiles.setDefault` | `{ profileId }` | `ModelProfile` | 将启用中的模型档案设为该 runtime 的默认档案 |
 | `modelProfiles.delete` | `{ profileId }` | `{ ok: true }` | 删除模型档案，并清理 Agent 上的对应绑定 |
 
 ### Tool / MCP 管理

@@ -111,9 +111,9 @@ describe('global assistant store', () => {
       return null
     })
 
-    await useGlobalAssistantStore.getState().setFromTemplate('tpl-1')
+    await useGlobalAssistantStore.getState().setFromTemplate('tpl-1', { modelProfileId: 'mpf-1' })
 
-    expect(wsMock.request).toHaveBeenCalledWith({ type: 'globalAssistant.setTemplate', templateId: 'tpl-1' })
+    expect(wsMock.request).toHaveBeenCalledWith({ type: 'globalAssistant.setTemplate', templateId: 'tpl-1', modelProfileId: 'mpf-1' })
     expect(wsMock.subscribe).toHaveBeenCalledWith(['sess-global'])
     expect(useGlobalAssistantStore.getState().agent?.name).toBe('知识助理')
     expect(useGlobalAssistantStore.getState().session?.id).toBe('sess-global')
