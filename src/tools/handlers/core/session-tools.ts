@@ -10,7 +10,7 @@ export const listSessionsHandler: ToolHandler = {
   async execute(input: ToolHandlerInput, context: ToolContext): Promise<ToolHandlerResult> {
     const agentId = optionalString(input, 'agentId')
     const projectId = context.projectId ?? optionalString(input, 'projectId')
-    return jsonResult({ sessions: sessionStore.list(agentId, projectId) })
+    return jsonResult({ sessions: sessionStore.listWithRuntimeState(agentId, projectId, sessionManager.isPromptActive) })
   },
 }
 

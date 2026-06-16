@@ -297,7 +297,7 @@ watch 监听 `session:done`，触发后后台唤醒 `watcher_session_id`。如�
 | created_at | TEXT | 创建时间 |
 | updated_at | TEXT | 更新时间 |
 
-系统默认种子类别为 `ai.hot_project`、`repo.commit`、`task.candidate`、`work.shipped`。类别只能停用或更新，不应让 Agent 运行时随意创建未管理类别。
+系统默认种子类别为 `agent.project`、`ai.hot_project`、`repo.commit`、`task.candidate`、`work.shipped`；任务生命周期事件使用内置类别 `task.lifecycle`，通过 payload 字段表达任务状态、指派对象和变更类型。类别只能停用或更新，不应让 Agent 运行时随意创建未管理类别。
 
 ### event_center_events
 
@@ -338,7 +338,7 @@ watch 监听 `session:done`，触发后后台唤醒 `watcher_session_id`。如�
 | consumer_agent_id | TEXT | 消费 Agent ID |
 | consumer_label | TEXT | 消费者显示名 |
 | action_mode | TEXT | create_pending 等动作模式 |
-| filter_json | TEXT | 过滤条件 JSON，例如 priority / sourceType / minConfidence |
+| filter_json | TEXT | 过滤条件 JSON，例如 priority / sourceType / minConfidence / payload 字段 |
 | enabled | INTEGER | 是否启用 |
 | auto_start | INTEGER | 是否自动启动消费者 |
 | consumer_session_mode | TEXT | 消费会话策略：`existing` / `new_each` / `new_fixed` |
@@ -347,6 +347,8 @@ watch 监听 `session:done`，触发后后台唤醒 `watcher_session_id`。如�
 | updated_at | TEXT | 更新时间 |
 
 `auto_start = 1` 时，新匹配事件会自动创建消费记录并触发消费者 Agent。自动触发按 `subscription_id` 串行调度；当策略为 `existing` 或 `new_fixed` 时，实际 Prompt 进入同一个 Session 的 `enqueuePrompt` 队列，避免并发轮次互相冲突。
+
+订阅过滤支持 `filter.payload`，可按 payload 字段路径匹配。字段值支持相等、`null`、`{ "in": [...] }` 和 `{ "exists": true/false }`，用于把同一事件类别按业务状态细分给不同消费者。
 
 ### event_consumptions
 

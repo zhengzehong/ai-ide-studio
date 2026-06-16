@@ -1,7 +1,7 @@
 import type { ToolHandler, ToolHandlerInput, ToolHandlerResult } from '../types.js'
 import { taskStore } from '../../store/tasks.js'
 import { sessionStore } from '../../store/sessions.js'
-import { resolveSessionMode, taskManager } from '../../core/tasks.js'
+import { emitTaskLifecycleEvent, resolveSessionMode, taskManager } from '../../core/tasks.js'
 import { events } from '../../core/events.js'
 import { createChildLogger } from '../../core/logger.js'
 
@@ -104,6 +104,52 @@ export const studioTaskGetHandler: ToolHandler = {
   },
 }
 
+export const studioTaskAssignHandler: ToolHandler = {
+  name: 'studio.task.assign',
+  description: '将一个未分派的 AI IDE Studio 项目任务分派给指定 Agent。默认不允许改派，除非显式传入 allowReassign=true。',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      taskId: { type: 'string', description: '任务 ID' },
+      agentId: { type: 'string', description: '目标 Agent ID' },
+      sessionMode: { type: 'string', enum: ['existing', 'new_each', 'new_fixed'], description: '会话策略' },
+      sessionId: { type: 'string', description: '复用已有会话 ID' },
+      reason: { type: 'string', description: '分派原因' },
+      allowReassign: { type: 'boolean', description: '是否允许改派已分派任务' },
+    },
+    required: ['taskId', 'agentId'],
+  },
+  async execute(input, context) {
+    const taskId = requireStr(input, 'taskId')
+    const agentId = requireStr(input, 'agentId')
+    const task = taskStore.get(taskId)
+    if (!task) return errResult('任务不存在')
+    try { assertProjectAccess(task, context?.projectId) } catch (e) { return errResult((e as Error).message) }
+    if (task.assigned_agent_id && input.allowReassign !== true) {
+      return errResult('任务已分派，如需改派请传 allowReassign=true')
+    }
+
+    let assigned: Awaited<ReturnType<typeof taskManager.assignTask>>
+    try {
+      assigned = await taskManager.assignTask({
+        taskId,
+        agentId,
+        sessionId: optStr(input, 'sessionId'),
+        sessionMode: resolveSessionMode(input.sessionMode, optStr(input, 'sessionId')),
+      })
+    } catch (e) {
+      return errResult((e as Error).message)
+    }
+    log.info({ taskId, agentId, reason: optStr(input, 'reason') }, 'Agent 分派任务')
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({ task: assigned, sessionId: assigned.sessionId, reason: optStr(input, 'reason') }, null, 2),
+      }],
+    }
+  },
+}
+
 export const studioTaskUpdateProgressHandler: ToolHandler = {
   name: 'studio.task.update_progress',
   description: '更新你当前正在执行的 AI IDE Studio 项目任务的进度。每完成一个阶段都应该调用此工具让用户了解进展。当从待确认或阻塞状态恢复时也用此工具。',
@@ -125,6 +171,7 @@ export const studioTaskUpdateProgressHandler: ToolHandler = {
     const shouldRecover = task.status === 'needs_input' || task.status === 'blocked'
     const newStatus = shouldRecover ? 'executing' : task.status
     taskStore.updateStatus(taskId, newStatus, stage)
+    emitTaskLifecycleEvent(taskStore.get(taskId)!, shouldRecover ? 'status_changed' : 'progress_updated', task.status)
 
     log.info({ taskId, stage, recovered: shouldRecover }, 'Agent 更新进度')
     events.emit('task:update', {
@@ -155,6 +202,7 @@ export const studioTaskRequestInputHandler: ToolHandler = {
     try { assertProjectAccess(task, context?.projectId) } catch (e) { return errResult((e as Error).message) }
 
     taskStore.updateStatus(taskId, 'needs_input', question)
+    emitTaskLifecycleEvent(taskStore.get(taskId)!, 'input_requested', task.status)
     log.info({ taskId, question }, 'Agent 请求输入')
     events.emit('task:update', {
       taskId,
@@ -184,6 +232,7 @@ export const studioTaskMarkBlockedHandler: ToolHandler = {
     try { assertProjectAccess(task, context?.projectId) } catch (e) { return errResult((e as Error).message) }
 
     taskStore.updateStatus(taskId, 'blocked', reason)
+    emitTaskLifecycleEvent(taskStore.get(taskId)!, 'marked_blocked', task.status)
     log.info({ taskId, reason }, 'Agent 标记阻塞')
     events.emit('task:update', {
       taskId,
@@ -213,6 +262,7 @@ export const studioTaskMarkDoneHandler: ToolHandler = {
     try { assertProjectAccess(task, context?.projectId) } catch (e) { return errResult((e as Error).message) }
 
     taskStore.updateStatus(taskId, 'reviewing', summary)
+    emitTaskLifecycleEvent(taskStore.get(taskId)!, 'marked_done', task.status)
     log.info({ taskId, summary }, 'Agent 标记完成')
     events.emit('task:update', {
       taskId,

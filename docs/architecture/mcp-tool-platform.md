@@ -199,7 +199,11 @@ revokedAt
 
 `event.category.list`、`event.category.create` 和 `event.category.update` 不向 Agent 暴露 `projectId` 参数。运行时会使用 `ToolContext.projectId`：有项目上下文时操作该项目的类别，并可用项目类别覆盖同名全局类别；没有项目上下文时操作全局类别。
 
+事件类别可以通过 schema hint 暴露可视字段和可过滤字段，例如 `x-list` / `x-filter` / `enum`。事件中心会把这些提示用于收件箱展示和订阅创建器中的字段过滤配置。
+
 任务和定时工具也暴露统一会话策略：`core.task.create` / `studio.task.create` / `create_task` 支持 `sessionMode/sessionId`，`create_schedule` / `studio.schedule.create` / `studio.schedule.update` 会把策略写入规则 `action_config`。`existing` 复用指定会话，`new_each` 每次新建，`new_fixed` 在可持久化的规则或订阅上首次新建后固定复用。
+
+`studio.task.assign` 是面向动态分派场景的显式任务分派工具，默认只接受未分派任务；如果需要改派，必须显式传 `allowReassign=true`。`core.timeline.list` 则把会话时间线摘要暴露给 Agent，便于订阅者基于历史过程做调度判断。
 
 ## 4. 目录结构建议
 

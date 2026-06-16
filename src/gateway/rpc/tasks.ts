@@ -1,4 +1,4 @@
-import { taskManager, buildTaskPrompt, resolveSessionMode, resolveTaskSession, validateSessionModeTarget, validateTaskAssignment } from '../../core/tasks.js'
+import { taskManager, buildTaskPrompt, emitTaskLifecycleEvent, resolveSessionMode, resolveTaskSession, validateSessionModeTarget, validateTaskAssignment } from '../../core/tasks.js'
 import { taskStore } from '../../store/tasks.js'
 import { sessionStore, type SessionRow } from '../../store/sessions.js'
 import { events } from '../../core/events.js'
@@ -99,6 +99,7 @@ export const taskRpcHandlers: RpcHandlerMap = {
         taskId,
         data: { ...taskStore.get(taskId), sessionId: session.id, assignedAgentId: agentId, event: 'assigned' },
       })
+      emitTaskLifecycleEvent(taskStore.get(taskId)!, 'assigned', task.status)
 
       const prompt = buildTaskPrompt(
         { id: task.id, title: task.title, description: task.description, source: task.source },
@@ -107,12 +108,14 @@ export const taskRpcHandlers: RpcHandlerMap = {
       sessionManager.enqueuePrompt(session.id, prompt).catch((err: Error) => {
         taskStore.updateStatus(taskId, 'blocked', `指派 prompt 发送失败: ${err.message}`)
         events.emit('task:update', { taskId, data: { ...taskStore.get(taskId), event: 'prompt_failed' } })
+        emitTaskLifecycleEvent(taskStore.get(taskId)!, 'prompt_failed', 'executing')
       })
 
       sendResult({ ...taskStore.get(taskId), sessionId: session.id })
     } catch (err) {
       taskStore.updateStatus(taskId, 'blocked', `指派失败: ${(err as Error).message}`)
       events.emit('task:update', { taskId, data: { ...taskStore.get(taskId), event: 'assign_failed' } })
+      emitTaskLifecycleEvent(taskStore.get(taskId)!, 'assign_failed', task.status)
       sendError(`指派失败: ${(err as Error).message}`)
     }
   },

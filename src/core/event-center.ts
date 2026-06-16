@@ -22,6 +22,27 @@ import { createChildLogger } from './logger.js'
 
 const log = createChildLogger('event-center')
 const autoConsumerQueues = new Map<string, Promise<void>>()
+const TASK_LIFECYCLE_CATEGORY_ID = 'task.lifecycle'
+
+const TASK_LIFECYCLE_SCHEMA = {
+  type: 'object',
+  properties: {
+    taskId: { type: 'string', title: '任务 ID' },
+    taskTitle: { type: 'string', title: '任务' },
+    taskStatus: {
+      type: 'string',
+      title: '任务状态',
+      enum: ['backlog', 'executing', 'needs_input', 'blocked', 'reviewing', 'completed', 'cancelled'],
+      'x-list': true,
+      'x-filter': true,
+    },
+    previousStatus: { type: 'string', title: '原状态', 'x-list': true },
+    assignedAgentId: { type: 'string', title: '指派 Agent', 'x-list': true, 'x-filter': true },
+    changeType: { type: 'string', title: '变更类型', 'x-list': true, 'x-filter': true },
+    stage: { type: 'string', title: '阶段' },
+    source: { type: 'string', title: '来源', 'x-filter': true },
+  },
+}
 
 export interface CreateEventInput {
   projectId?: string | null
@@ -70,6 +91,7 @@ export interface RunEventConsumerInput {
 
 export const eventCenterService = {
   listCategories(projectId?: string | null): EventCategoryRow[] {
+    ensureBuiltinEventCategories()
     return eventCategoryStore.list(projectId)
   },
 
@@ -114,6 +136,7 @@ export const eventCenterService = {
   },
 
   createEvent(input: CreateEventInput): EventCenterEventRow {
+    ensureBuiltinEventCategories()
     const category = eventCategoryStore.resolve(input.categoryId, input.projectId ?? undefined)
     if (!category || category.enabled !== 1) throw new Error(`事件类别不可用: ${input.categoryId}`)
     if (!input.title?.trim()) throw new Error('事件标题不能为空')
@@ -149,6 +172,7 @@ export const eventCenterService = {
   },
 
   createSubscription(input: CreateEventSubscriptionInput): EventSubscriptionRow {
+    ensureBuiltinEventCategories()
     if (!input.name?.trim()) throw new Error('订阅名称不能为空')
     const category = eventCategoryStore.resolve(input.categoryId, input.projectId ?? undefined)
     if (!category) throw new Error(`事件类别不存在: ${input.categoryId}`)
@@ -253,11 +277,53 @@ export const eventCenterService = {
       source: 'event',
       projectId: input.projectId ?? event.project_id ?? undefined,
     })
+    emitConvertedTaskLifecycleEvent(task)
     eventTaskLinkStore.create(event.id, task.id)
     eventCenterEventStore.updateStatus(event.id, 'task')
     emitUpdate({ eventId: event.id, taskId: task.id, event: 'event.converted_to_task' })
     return task
   },
+}
+
+export function ensureBuiltinEventCategories(): void {
+  if (eventCategoryStore.get(TASK_LIFECYCLE_CATEGORY_ID)) return
+  eventCategoryStore.upsert({
+    id: TASK_LIFECYCLE_CATEGORY_ID,
+    name: '任务生命周期',
+    description: '记录任务创建、指派、执行、阻塞、待审查、完成和取消等生命周期变化。',
+    schema: TASK_LIFECYCLE_SCHEMA,
+    defaultPriority: 'medium',
+    allowedWriters: ['*'],
+    allowedConsumers: ['*'],
+    enabled: true,
+  })
+}
+
+function emitConvertedTaskLifecycleEvent(task: TaskRow): void {
+  try {
+    eventCenterService.createEvent({
+      projectId: task.project_id ?? undefined,
+      categoryId: TASK_LIFECYCLE_CATEGORY_ID,
+      title: `任务变更：${task.title}`,
+      summary: task.stage || `任务状态：${task.status}`,
+      sourceType: 'task',
+      sourceId: task.id,
+      sourceLabel: task.title,
+      priority: 'medium',
+      payload: {
+        taskId: task.id,
+        taskTitle: task.title,
+        taskStatus: task.status,
+        previousStatus: null,
+        assignedAgentId: task.assigned_agent_id,
+        changeType: 'created',
+        stage: task.stage,
+        source: task.source,
+      },
+    })
+  } catch (err) {
+    log.warn({ err, taskId: task.id }, 'Failed to write converted task lifecycle event')
+  }
 }
 
 function evaluateSubscriptions(event: EventCenterEventRow): EventConsumptionRow[] {
@@ -355,7 +421,44 @@ function matchesSubscription(subscription: EventSubscriptionRow, event: EventCen
   if (priority && event.priority !== priority) return false
   const sourceType = typeof filter.sourceType === 'string' ? filter.sourceType : undefined
   if (sourceType && event.source_type !== sourceType) return false
+  if (!matchesPayloadFilter(filter.payload, parseJson(event.payload_json))) return false
   return true
+}
+
+function matchesPayloadFilter(filter: unknown, payload: Record<string, unknown>): boolean {
+  if (!filter || typeof filter !== 'object' || Array.isArray(filter)) return true
+  return Object.entries(filter as Record<string, unknown>).every(([path, expected]) => {
+    const resolved = getPayloadValue(payload, path)
+    return matchesPayloadValue(resolved.value, resolved.exists, expected)
+  })
+}
+
+function matchesPayloadValue(value: unknown, exists: boolean, expected: unknown): boolean {
+  if (expected && typeof expected === 'object' && !Array.isArray(expected)) {
+    const record = expected as Record<string, unknown>
+    if (typeof record.exists === 'boolean' && record.exists !== exists) return false
+    if (Array.isArray(record.in)) return record.in.some((item) => sameJsonValue(value, item))
+    if (Object.prototype.hasOwnProperty.call(record, 'eq')) return sameJsonValue(value, record.eq)
+    if (Object.keys(record).length === 1 && typeof record.exists === 'boolean') return true
+  }
+  if (expected === null) return exists && value === null
+  return exists && sameJsonValue(value, expected)
+}
+
+function getPayloadValue(payload: Record<string, unknown>, path: string): { exists: boolean; value: unknown } {
+  const parts = path.split('.').filter(Boolean)
+  let current: unknown = payload
+  for (const part of parts) {
+    if (!current || typeof current !== 'object' || Array.isArray(current)) return { exists: false, value: undefined }
+    const record = current as Record<string, unknown>
+    if (!Object.prototype.hasOwnProperty.call(record, part)) return { exists: false, value: undefined }
+    current = record[part]
+  }
+  return { exists: parts.length > 0, value: current }
+}
+
+function sameJsonValue(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b)
 }
 
 function updateEventStatus(eventId: string, status: string): EventCenterEventRow {
