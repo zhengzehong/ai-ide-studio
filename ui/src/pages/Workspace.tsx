@@ -57,7 +57,7 @@ import {
   type ToolCallInfo,
 } from '../stores/session.store'
 import type { TurnProcessBlock } from '../stores/turn-blocks'
-import { useTaskStore, type TaskData } from '../stores/task.store'
+import { useTaskStore, type SessionMode, type TaskData } from '../stores/task.store'
 import { useConnectionStore } from '../stores/connection.store'
 import { useProjectStore } from '../stores/project.store'
 import { useFileSystemStore } from '../stores/filesystem.store'
@@ -74,6 +74,7 @@ import { shouldShowPlanBar } from '../components/chat/plan-visibility'
 import { buildChatRenderItems, type ChatRenderItem } from '../components/chat/render-items'
 import { VirtualChatList } from '../components/chat/VirtualChatList'
 import { TeamContextPanel } from '../components/team/TeamContextPanel'
+import { buildWorkspaceTaskCreateTarget } from './workspace/task-session-target'
 import { TimelinePopover } from '../components/chat/TimelinePopover'
 import { processBlockNeedsDetail } from '../components/chat/process-detail'
 import { MarkdownRenderer } from '../components/MarkdownRenderer'
@@ -988,7 +989,7 @@ export default function Workspace() {
         <NewTaskModal
           agents={projectAgents}
           projectId={currentProjectId}
-          onCreate={(title, desc, agentId, sessionId) => createTask(title, desc, agentId, currentProjectId ?? undefined, sessionId)}
+          onCreate={(title, desc, agentId, sessionId, sessionMode) => createTask(title, desc, agentId, currentProjectId ?? undefined, sessionId, sessionMode)}
           onClose={() => setShowNewTask(false)}
         />
       )}
@@ -3910,6 +3911,18 @@ function DropdownPortal({
 }
 
 /* ─── New Task Modal ─── */
+const WORKSPACE_TASK_SESSION_MODE_OPTIONS: Array<{ value: SessionMode; label: string }> = [
+  { value: 'new_fixed', label: '固定新会话' },
+  { value: 'new_each', label: '每次新会话' },
+  { value: 'existing', label: '指定已有会话' },
+]
+
+function workspaceTaskSessionModeHelp(mode: SessionMode, hasSession: boolean): string {
+  if (mode === 'existing') return hasSession ? '将在该会话中追加任务指派。' : '请选择一个已有会话。'
+  if (mode === 'new_fixed') return '将创建一个新的固定会话用于这次任务。'
+  return '将为这次任务创建新的会话。'
+}
+
 function NewTaskModal({
   agents,
   projectId,
@@ -3918,12 +3931,13 @@ function NewTaskModal({
 }: {
   agents: AgentData[]
   projectId: string | null
-  onCreate: (title: string, desc?: string, agentId?: string, sessionId?: string) => Promise<TaskData>
+  onCreate: (title: string, desc?: string, agentId?: string, sessionId?: string, sessionMode?: SessionMode) => Promise<TaskData>
   onClose: () => void
 }) {
   const [title, setTitle] = useState('')
   const [desc, setDesc] = useState('')
   const [agentId, setAgentId] = useState('')
+  const [sessionMode, setSessionMode] = useState<SessionMode>('new_fixed')
   const [sessionId, setSessionId] = useState('')
   const [creating, setCreating] = useState(false)
   const sessions = useSessionStore((s) => s.sessions)
@@ -3934,11 +3948,13 @@ function NewTaskModal({
       (!projectId || session.project_id === projectId),
     )
   }, [agentId, projectId, sessions])
+  const canCreate = Boolean(title.trim()) && (!agentId || sessionMode !== 'existing' || Boolean(sessionId))
   const handleCreate = async () => {
-    if (!title.trim()) return
+    if (!canCreate) return
     setCreating(true)
     try {
-      await onCreate(title, desc || undefined, agentId || undefined, sessionId || undefined)
+      const target = buildWorkspaceTaskCreateTarget({ agentId, sessionMode, sessionId })
+      await onCreate(title, desc || undefined, target.agentId, target.sessionId, target.sessionMode)
       onClose()
     } catch (e) {
       console.error('创建任务失败:', e)
@@ -4018,6 +4034,7 @@ function NewTaskModal({
               value={agentId}
               onChange={(e) => {
                 setAgentId(e.target.value)
+                setSessionMode('new_fixed')
                 setSessionId('')
               }}
               style={{
@@ -4045,8 +4062,11 @@ function NewTaskModal({
                 会话目标
               </label>
               <select
-                value={sessionId}
-                onChange={(e) => setSessionId(e.target.value)}
+                value={sessionMode}
+                onChange={(e) => {
+                  setSessionMode(e.target.value as SessionMode)
+                  setSessionId('')
+                }}
                 style={{
                   width: '100%',
                   padding: '10px 12px',
@@ -4058,22 +4078,45 @@ function NewTaskModal({
                   outline: 'none',
                 }}
               >
-                <option value="">新建会话（默认）</option>
-                {agentSessions.map((session) => (
-                  <option key={session.id} value={session.id}>
-                    {sessionTitle(session)}
+                {WORKSPACE_TASK_SESSION_MODE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
                   </option>
                 ))}
               </select>
+              {sessionMode === 'existing' && (
+                <select
+                  value={sessionId}
+                  onChange={(e) => setSessionId(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    borderRadius: 8,
+                    border: '1px solid var(--border)',
+                    fontSize: 15,
+                    background: 'var(--bg-1)',
+                    color: 'var(--text-1)',
+                    outline: 'none',
+                    marginTop: 8,
+                  }}
+                >
+                  <option value="">请选择已有会话</option>
+                  {agentSessions.map((session) => (
+                    <option key={session.id} value={session.id}>
+                      {sessionTitle(session)}
+                    </option>
+                  ))}
+                </select>
+              )}
               <div style={{ fontSize: 13, color: 'var(--text-3)', marginTop: 4 }}>
-                {sessionId ? '将在该会话中追加任务指派。' : '将为此任务创建新的会话。'}
+                {workspaceTaskSessionModeHelp(sessionMode, Boolean(sessionId))}
               </div>
             </div>
           )}
           <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
             <button
               onClick={handleCreate}
-              disabled={!title.trim() || creating}
+              disabled={!canCreate || creating}
               style={{
                 padding: '10px 20px',
                 borderRadius: 8,
@@ -4082,8 +4125,8 @@ function NewTaskModal({
                 color: 'white',
                 fontSize: 15,
                 fontWeight: 500,
-                cursor: 'pointer',
-                opacity: title.trim() ? 1 : 0.5,
+                cursor: canCreate && !creating ? 'pointer' : 'not-allowed',
+                opacity: canCreate ? 1 : 0.5,
               }}
             >
               {creating ? '创建中...' : '创建任务'}
