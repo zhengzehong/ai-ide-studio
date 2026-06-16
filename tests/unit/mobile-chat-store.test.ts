@@ -15,7 +15,7 @@ vi.mock('@desktop/services/ws-client', () => ({
   wsClient: wsMock,
 }))
 
-const { useChatStore } = await import('../../mobile/src/stores/chat.store.ts')
+const { resetMobileChatSessionCachesForTest, useChatStore } = await import('../../mobile/src/stores/chat.store.ts')
 
 function agentMessage(overrides: Partial<MessageData> = {}): MessageData {
   return {
@@ -55,6 +55,7 @@ function processItem(overrides: Partial<TurnProcessItemInfo> = {}): TurnProcessI
 }
 
 function resetStore(): void {
+  resetMobileChatSessionCachesForTest()
   useChatStore.setState({
     sessionId: 'sess-1',
     messages: [],
@@ -69,6 +70,8 @@ function resetStore(): void {
     loading: false,
     isRunning: false,
     runningStartedAtMs: null,
+    hasMoreMessagesBySession: {},
+    loadingOlderMessagesBySession: {},
     turnProcessLoadingByMessageId: {},
     turnProcessErrorByMessageId: {},
   })
@@ -123,6 +126,75 @@ describe('mobile chat store', () => {
     expect(message.processBlocks?.[0]).toMatchObject({ kind: 'tool', toolCall: { id: 'tool-1' } })
     expect(message.finalAnswer).toBe('完成')
     expect(useChatStore.getState().streamingMessage).toBeNull()
+  })
+
+  test('loads the initial mobile chat page with ten messages', async () => {
+    wsMock.request.mockResolvedValue([])
+    useChatStore.setState({ sessionId: null, messages: [], streamingMessage: null, isRunning: false })
+
+    useChatStore.getState().enterSession('sess-1')
+
+    await vi.waitFor(() => {
+      expect(wsMock.request).toHaveBeenCalledWith({ type: 'sessions.messages', sessionId: 'sess-1', limit: 10 })
+    })
+  })
+
+  test('loads older mobile chat messages before the oldest cached message', async () => {
+    const older = agentMessage({ id: 'older-msg', timestamp: '2026-06-09T23:59:00.000Z' })
+    wsMock.request.mockResolvedValue([older])
+    useChatStore.setState({
+      sessionId: 'sess-1',
+      messages: [
+        agentMessage({ id: 'oldest-msg', timestamp: '2026-06-10T00:00:00.000Z' }),
+        agentMessage({ id: 'newest-msg', timestamp: '2026-06-10T00:01:00.000Z' }),
+      ],
+      hasMoreMessagesBySession: { 'sess-1': true },
+      loadingOlderMessagesBySession: {},
+    })
+
+    await useChatStore.getState().loadOlderMessages('sess-1')
+
+    expect(wsMock.request).toHaveBeenCalledWith({
+      type: 'sessions.messages',
+      sessionId: 'sess-1',
+      limit: 10,
+      before: '2026-06-10T00:00:00.000Z',
+    })
+    expect(useChatStore.getState().messages.map((message) => message.id)).toEqual([
+      'older-msg',
+      'oldest-msg',
+      'newest-msg',
+    ])
+  })
+
+  test('restores cached mobile chat state before refreshing the session', async () => {
+    let resolveMessages: (value: MessageData[]) => void = () => {}
+    wsMock.request.mockImplementation(async (msg: Record<string, unknown>) => {
+      if (msg.type === 'sessions.messages') {
+        return new Promise<MessageData[]>((resolve) => { resolveMessages = resolve })
+      }
+      if (msg.type === 'sessions.events') return []
+      return []
+    })
+    useChatStore.setState({
+      sessionId: 'sess-1',
+      messages: [agentMessage({ id: 'cached-msg' })],
+      events: [],
+      streamingMessage: null,
+      isRunning: false,
+      runningStartedAtMs: null,
+    })
+
+    useChatStore.getState().leaveSession()
+    useChatStore.getState().enterSession('sess-1')
+
+    expect(useChatStore.getState().messages.map((message) => message.id)).toEqual(['cached-msg'])
+
+    resolveMessages([agentMessage({ id: 'fresh-msg', timestamp: '2026-06-10T00:02:00.000Z' })])
+    await vi.waitFor(() => {
+      expect(useChatStore.getState().messages.map((message) => message.id)).toEqual(['cached-msg', 'fresh-msg'])
+    })
+    expect(useChatStore.getState().isRunning).toBe(false)
   })
 
   test('restores a running message as one streaming render item without a duplicate persisted bubble', async () => {

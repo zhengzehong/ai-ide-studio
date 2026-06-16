@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Bot } from 'lucide-react'
 import { buildChatRenderItems } from '@desktop/components/chat/render-items'
@@ -19,18 +19,25 @@ export default function ChatPage() {
   const { sessionId } = useParams<{ sessionId: string }>()
   const navigate = useNavigate()
   const listRef = useRef<HTMLDivElement>(null)
+  const stickToBottomRef = useRef(true)
+  const olderLoadAnchorRef = useRef<{ sessionId: string; scrollHeight: number; scrollTop: number } | null>(null)
   const {
     messages, events, streamingMessage, loading, isRunning, plan, pendingPermissions, pendingElicitations, capabilities,
     turnProcessLoadingByMessageId, turnProcessErrorByMessageId, runningStartedAtMs,
-    enterSession, leaveSession, sendPrompt, cancelTurn, fetchMessageProcess, respondPermission, respondElicitation,
+    hasMoreMessagesBySession, loadingOlderMessagesBySession,
+    enterSession, leaveSession, loadOlderMessages, sendPrompt, cancelTurn, fetchMessageProcess, respondPermission, respondElicitation,
   } = useChatStore()
   const sessions = useSessionStore(s => s.sessions)
   const session = sessions.find(s => s.id === sessionId)
   const listenersRef = useRef(false)
   const [liveNowMs, setLiveNowMs] = useState(() => Date.now())
+  const hasMoreMessages = sessionId ? hasMoreMessagesBySession[sessionId] === true : false
+  const loadingOlderMessages = sessionId ? !!loadingOlderMessagesBySession[sessionId] : false
 
   useEffect(() => {
     if (!sessionId) return
+    stickToBottomRef.current = true
+    olderLoadAnchorRef.current = null
     useSessionStore.getState().setCurrentSession(sessionId)
     enterSession(sessionId)
     useSessionStore.getState().markRead(sessionId)
@@ -75,11 +82,43 @@ export default function ChatPage() {
     blockingInteraction: hasBlockingInteraction,
   }), [events, hasBlockingInteraction, messages, sessionId, streamingMessage])
 
-  useEffect(() => {
-    if (listRef.current) {
-      listRef.current.scrollTop = listRef.current.scrollHeight
+  const handleScroll = useCallback(() => {
+    const el = listRef.current
+    if (!el) return
+    stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= 120
+    if (!sessionId || !hasMoreMessages || loadingOlderMessages || el.scrollTop > 80) return
+    olderLoadAnchorRef.current = {
+      sessionId,
+      scrollHeight: el.scrollHeight,
+      scrollTop: el.scrollTop,
     }
-  }, [chatItems, pendingPermissions, pendingElicitations])
+    void loadOlderMessages(sessionId)
+  }, [hasMoreMessages, loadOlderMessages, loadingOlderMessages, sessionId])
+
+  useEffect(() => {
+    const el = listRef.current
+    if (!el) return
+    const olderLoadAnchor = olderLoadAnchorRef.current
+    if (olderLoadAnchor && olderLoadAnchor.sessionId === sessionId) {
+      const delta = el.scrollHeight - olderLoadAnchor.scrollHeight
+      el.scrollTop = olderLoadAnchor.scrollTop + delta
+      olderLoadAnchorRef.current = null
+      return
+    }
+    if (stickToBottomRef.current) {
+      el.scrollTop = el.scrollHeight
+    }
+  }, [chatItems, pendingPermissions, pendingElicitations, sessionId])
+
+  useEffect(() => {
+    if (loadingOlderMessages) return
+    const el = listRef.current
+    const olderLoadAnchor = olderLoadAnchorRef.current
+    if (!el || !olderLoadAnchor || olderLoadAnchor.sessionId !== sessionId) return
+    const delta = el.scrollHeight - olderLoadAnchor.scrollHeight
+    el.scrollTop = olderLoadAnchor.scrollTop + delta
+    olderLoadAnchorRef.current = null
+  }, [loadingOlderMessages, sessionId])
 
   return (
     <div style={styles.page}>
@@ -101,7 +140,7 @@ export default function ChatPage() {
 
       {plan.length > 0 && <PlanBar plan={plan} />}
 
-      <div ref={listRef} style={styles.messages}>
+      <div ref={listRef} style={styles.messages} onScroll={handleScroll}>
         {loading && (
           <div style={styles.loadingWrap}>
             <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>加载中...</span>

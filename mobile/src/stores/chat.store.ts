@@ -57,11 +57,14 @@ interface ChatState {
   loading: boolean
   isRunning: boolean
   runningStartedAtMs: number | null
+  hasMoreMessagesBySession: Record<string, boolean>
+  loadingOlderMessagesBySession: Record<string, boolean>
   turnProcessLoadingByMessageId: Record<string, boolean>
   turnProcessErrorByMessageId: Record<string, string>
 
   enterSession: (sessionId: string) => void
   leaveSession: () => void
+  loadOlderMessages: (sessionId: string) => Promise<void>
   sendPrompt: (content: string, images?: ImageAttachmentInfo[]) => void
   fetchMessageProcess: (sessionId: string, messageId: string) => Promise<void>
   cancelTurn: () => Promise<void>
@@ -70,11 +73,31 @@ interface ChatState {
   setupListeners: () => () => void
 }
 
+interface ChatSessionCache {
+  messages: MessageData[]
+  events: SessionEventData[]
+  streamingMessage: StreamingMessage | null
+  plan: PlanEntry[]
+  pendingPermissions: PermissionRequestInfo[]
+  pendingElicitations: ElicitationRequestInfo[]
+  capabilities: SessionCapabilities
+  usage: UsageInfo | null
+  turnUsage: TurnUsageInfo | null
+  isRunning: boolean
+  runningStartedAtMs: number | null
+}
+
+const MOBILE_CHAT_MESSAGE_PAGE_SIZE = 10
 const streamingBuffer = new StreamingBuffer()
 let streamingFlushTimer: ReturnType<typeof setTimeout> | null = null
 let promptStartTime = 0
 let lastStreamingSnapshot: StreamingMessage | null = null
+const sessionCaches = new Map<string, ChatSessionCache>()
 const mirroredRealtimeEventTypes = new Set(['message.chunk', 'thinking.chunk', 'tool.call', 'tool.update', 'message.done'])
+
+export function resetMobileChatSessionCachesForTest(): void {
+  sessionCaches.clear()
+}
 
 function timestampMs(value: string | null | undefined): number | undefined {
   if (!value) return undefined
@@ -149,6 +172,82 @@ function shouldLoadMessageProcess(message: MessageData | undefined): boolean {
   return expectedCount > loadedProcessBlockCount(message)
 }
 
+function saveCache(sessionId: string, state: ChatState): void {
+  sessionCaches.set(sessionId, {
+    messages: [...state.messages],
+    events: [...state.events],
+    streamingMessage: state.streamingMessage,
+    plan: [...state.plan],
+    pendingPermissions: [...state.pendingPermissions],
+    pendingElicitations: [...state.pendingElicitations],
+    capabilities: {
+      ...state.capabilities,
+      models: [...state.capabilities.models],
+      modes: [...state.capabilities.modes],
+      configOptions: [...state.capabilities.configOptions],
+      commands: [...state.capabilities.commands],
+    },
+    usage: state.usage,
+    turnUsage: state.turnUsage,
+    isRunning: state.isRunning,
+    runningStartedAtMs: state.runningStartedAtMs,
+  })
+}
+
+function withoutRecordKey<T>(record: Record<string, T>, key: string): Record<string, T> {
+  const next = { ...record }
+  delete next[key]
+  return next
+}
+
+function mergeMessagesByExactId(incoming: MessageData[], current: MessageData[], sessionId: string): MessageData[] {
+  const byId = new Map<string, MessageData>()
+  for (const message of current.filter((item) => item.session_id === sessionId)) byId.set(message.id, normalizeMessage(message))
+  for (const message of incoming) {
+    const next = normalizeMessage(message)
+    const existing = byId.get(next.id)
+    byId.set(next.id, existing
+      ? {
+          ...next,
+          processBlocks: next.processBlocks ?? existing.processBlocks,
+          finalAnswer: next.finalAnswer ?? existing.finalAnswer,
+          parsedToolCalls: next.parsedToolCalls ?? existing.parsedToolCalls,
+        }
+      : next)
+  }
+  return Array.from(byId.values()).sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+}
+
+async function refreshLatestMessages(
+  get: () => ChatState,
+  set: (p: Partial<ChatState> | ((s: ChatState) => Partial<ChatState>)) => void,
+  sessionId: string,
+): Promise<void> {
+  const data = await wsClient.request({
+    type: 'sessions.messages',
+    sessionId,
+    limit: MOBILE_CHAT_MESSAGE_PAGE_SIZE,
+  }) as MessageData[]
+  if (get().sessionId !== sessionId) return
+  const messages = data.map(normalizeMessage)
+  const running = messages.filter(m => m.session_id === sessionId && m.role === 'agent' && m.status === 'running').at(-1)
+  const runningStartedAtMs = running ? (timestampMs(running.started_at) ?? timestampMs(running.timestamp) ?? null) : null
+  if (runningStartedAtMs) promptStartTime = runningStartedAtMs
+  set(state => ({
+    messages: mergeMessagesForSession(messages, state.messages, sessionId),
+    loading: false,
+    isRunning: !!running,
+    runningStartedAtMs,
+    hasMoreMessagesBySession: {
+      ...state.hasMoreMessagesBySession,
+      [sessionId]: data.length >= MOBILE_CHAT_MESSAGE_PAGE_SIZE,
+    },
+  }))
+
+  if (running) void get().fetchMessageProcess(sessionId, running.id)
+  saveCache(sessionId, get())
+}
+
 function flushBuffer(set: (p: Partial<ChatState> | ((s: ChatState) => Partial<ChatState>)) => void, get: () => ChatState): void {
   if (streamingFlushTimer) { clearTimeout(streamingFlushTimer); streamingFlushTimer = null }
   const snapshot = streamingBuffer.flush()
@@ -169,6 +268,7 @@ function flushBuffer(set: (p: Partial<ChatState> | ((s: ChatState) => Partial<Ch
     lastStreamingSnapshot = up
     return { streamingMessage: up }
   })
+  if (sid) saveCache(sid, get())
 }
 
 function scheduleFlush(set: (p: Partial<ChatState> | ((s: ChatState) => Partial<ChatState>)) => void, get: () => ChatState): void {
@@ -190,33 +290,31 @@ export const useChatStore = create<ChatState>((set, get) => ({
   loading: false,
   isRunning: false,
   runningStartedAtMs: null,
+  hasMoreMessagesBySession: {},
+  loadingOlderMessagesBySession: {},
   turnProcessLoadingByMessageId: {},
   turnProcessErrorByMessageId: {},
 
   enterSession: (sessionId) => {
     const prev = get().sessionId
-    if (prev) wsClient.unsubscribe([prev])
+    if (prev) {
+      saveCache(prev, get())
+      wsClient.unsubscribe([prev])
+    }
     streamingBuffer.clear()
     if (streamingFlushTimer) { clearTimeout(streamingFlushTimer); streamingFlushTimer = null }
     lastStreamingSnapshot = null
+    const cached = sessionCaches.get(sessionId)
     set({
-      sessionId, messages: [], events: [], streamingMessage: null,
-      plan: [], pendingPermissions: [], pendingElicitations: [],
-      capabilities: { ...defaultCaps }, usage: null, turnUsage: null, loading: true, isRunning: false, runningStartedAtMs: null,
+      sessionId, messages: cached?.messages ?? [], events: cached?.events ?? [], streamingMessage: cached?.streamingMessage ?? null,
+      plan: cached?.plan ?? [], pendingPermissions: cached?.pendingPermissions ?? [], pendingElicitations: cached?.pendingElicitations ?? [],
+      capabilities: cached?.capabilities ?? { ...defaultCaps }, usage: cached?.usage ?? null, turnUsage: cached?.turnUsage ?? null,
+      loading: !cached, isRunning: cached?.isRunning ?? false, runningStartedAtMs: cached?.runningStartedAtMs ?? null,
       turnProcessLoadingByMessageId: {}, turnProcessErrorByMessageId: {},
     })
     wsClient.subscribe([sessionId])
 
-    wsClient.request({ type: 'sessions.messages', sessionId }).then((data) => {
-      if (get().sessionId !== sessionId) return
-      const messages = data as MessageData[]
-      const running = messages.filter(m => m.session_id === sessionId && m.role === 'agent' && m.status === 'running').at(-1)
-      const runningStartedAtMs = running ? (timestampMs(running.started_at) ?? timestampMs(running.timestamp) ?? null) : null
-      if (runningStartedAtMs) promptStartTime = runningStartedAtMs
-      set({ messages: messages.map(normalizeMessage), loading: false, isRunning: !!running, runningStartedAtMs })
-
-      if (running) void get().fetchMessageProcess(sessionId, running.id)
-    }).catch(() => { if (get().sessionId === sessionId) set({ loading: false }) })
+    refreshLatestMessages(get, set, sessionId).catch(() => { if (get().sessionId === sessionId) set({ loading: false }) })
 
     wsClient.request({ type: 'sessions.events', sessionId, limit: 500 }).then((data) => {
       if (get().sessionId !== sessionId) return
@@ -229,12 +327,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
         pendingPermissions: reduced.pendingPermissions,
         pendingElicitations: reduced.pendingElicitations,
       }))
+      saveCache(sessionId, get())
     }).catch(() => {})
   },
 
   leaveSession: () => {
     const sid = get().sessionId
-    if (sid) wsClient.unsubscribe([sid])
+    if (sid) {
+      saveCache(sid, get())
+      wsClient.unsubscribe([sid])
+    }
     streamingBuffer.clear()
     if (streamingFlushTimer) { clearTimeout(streamingFlushTimer); streamingFlushTimer = null }
     set({
@@ -250,6 +352,42 @@ export const useChatStore = create<ChatState>((set, get) => ({
       turnProcessLoadingByMessageId: {},
       turnProcessErrorByMessageId: {},
     })
+  },
+
+  loadOlderMessages: async (sessionId) => {
+    const state = get()
+    if (state.sessionId !== sessionId) return
+    if (state.loadingOlderMessagesBySession[sessionId] || state.hasMoreMessagesBySession[sessionId] === false) return
+    const oldest = state.messages
+      .filter((message) => message.session_id === sessionId)
+      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())[0]
+    if (!oldest) return
+    set(current => ({
+      loadingOlderMessagesBySession: { ...current.loadingOlderMessagesBySession, [sessionId]: true },
+    }))
+    try {
+      const olderMessages = await wsClient.request({
+        type: 'sessions.messages',
+        sessionId,
+        limit: MOBILE_CHAT_MESSAGE_PAGE_SIZE,
+        before: oldest.timestamp,
+      }) as MessageData[]
+      if (get().sessionId !== sessionId) return
+      set(current => ({
+        messages: mergeMessagesByExactId(olderMessages, current.messages, sessionId),
+        hasMoreMessagesBySession: {
+          ...current.hasMoreMessagesBySession,
+          [sessionId]: olderMessages.length >= MOBILE_CHAT_MESSAGE_PAGE_SIZE,
+        },
+      }))
+      saveCache(sessionId, get())
+    } catch {
+      // Keep the current page intact; scrolling to the top can retry.
+    } finally {
+      set(current => ({
+        loadingOlderMessagesBySession: withoutRecordKey(current.loadingOlderMessagesBySession, sessionId),
+      }))
+    }
   },
 
   sendPrompt: (content, images) => {
@@ -271,6 +409,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       streamingMessage: applyTurnEntry(createEmptyTurn(`pending-${sid}-${Date.now()}`), { kind: 'stage', text: '正在准备 Agent...' }),
       turnUsage: null, isRunning: true, runningStartedAtMs: startedAtMs,
     }))
+    saveCache(sid, get())
   },
 
   fetchMessageProcess: async (sessionId, messageId) => {
@@ -311,6 +450,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           turnProcessLoadingByMessageId: { ...state.turnProcessLoadingByMessageId, [messageId]: false },
         }
       })
+      saveCache(sessionId, get())
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       set((state) => ({
@@ -362,6 +502,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           pendingPermissions: reduced.pendingPermissions, pendingElicitations: reduced.pendingElicitations,
         }
       })
+      saveCache(sid, get())
     }))
 
     offs.push(wsClient.on('session:process_item', (msg) => {
@@ -386,6 +527,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           }),
         }
       })
+      saveCache(sid, get())
     }))
 
     offs.push(wsClient.on('session:update', (msg) => {
@@ -400,15 +542,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
           const base: StreamingMessage = state.streamingMessage || createEmptyTurn(String(data.messageId || `stream-${sid}-${Date.now()}`))
           return { streamingMessage: applyTurnEntry(base, { kind: 'stage', text: stage }), isRunning: true, runningStartedAtMs: state.runningStartedAtMs ?? Date.now() }
         })
+        saveCache(sid, get())
         return
       }
       if (data.eventType === 'permission.result' || data.eventType === 'elicitation.result') return
-      if (data.usage) { set({ usage: data.usage as UsageInfo }); return }
-      if (data.plan) { set({ plan: data.plan as PlanEntry[] }); return }
-      if (data.configOptions) { set(s => ({ capabilities: capabilitiesFromConfig(s.capabilities, data.configOptions as ConfigOptionInfo[]) })); return }
-      if (data.commands) { set(s => ({ capabilities: { ...s.capabilities, commands: data.commands as AvailableCommandInfo[] } })); return }
-      if (data.permissionRequest) { const r = data.permissionRequest as PermissionRequestInfo; set(s => ({ pendingPermissions: [...s.pendingPermissions.filter(p => p.id !== r.id), r] })); return }
-      if (data.elicitationRequest) { const r = data.elicitationRequest as ElicitationRequestInfo; set(s => ({ pendingElicitations: [...s.pendingElicitations.filter(p => p.id !== r.id), r] })); return }
+      if (data.usage) { set({ usage: data.usage as UsageInfo }); saveCache(sid, get()); return }
+      if (data.plan) { set({ plan: data.plan as PlanEntry[] }); saveCache(sid, get()); return }
+      if (data.configOptions) { set(s => ({ capabilities: capabilitiesFromConfig(s.capabilities, data.configOptions as ConfigOptionInfo[]) })); saveCache(sid, get()); return }
+      if (data.commands) { set(s => ({ capabilities: { ...s.capabilities, commands: data.commands as AvailableCommandInfo[] } })); saveCache(sid, get()); return }
+      if (data.permissionRequest) { const r = data.permissionRequest as PermissionRequestInfo; set(s => ({ pendingPermissions: [...s.pendingPermissions.filter(p => p.id !== r.id), r] })); saveCache(sid, get()); return }
+      if (data.elicitationRequest) { const r = data.elicitationRequest as ElicitationRequestInfo; set(s => ({ pendingElicitations: [...s.pendingElicitations.filter(p => p.id !== r.id), r] })); saveCache(sid, get()); return }
 
       if (data.contentDelta || data.thinking || data.toolCall || data.toolCallUpdate) {
         streamingBuffer.push({
@@ -420,6 +563,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         })
         set(state => ({ isRunning: true, runningStartedAtMs: state.runningStartedAtMs ?? Date.now() }))
         scheduleFlush(set, get)
+        saveCache(sid, get())
       }
     }))
 
@@ -464,10 +608,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
           set(st => ({ streamingMessage: null, turnUsage: tu || st.turnUsage, plan: clearPlanOnTurnDone(), isRunning: false, runningStartedAtMs: null }))
         }
       }
-      wsClient.request({ type: 'sessions.messages', sessionId: sid }).then((data) => {
-        if (get().sessionId !== sid) return
-        set({ messages: mergeMessagesForSession(data as MessageData[], get().messages, sid) })
-      }).catch(() => {})
+      saveCache(sid, get())
+      refreshLatestMessages(get, set, sid).catch(() => {})
     }))
 
     offs.push(wsClient.on('session:activity', (msg) => {
@@ -478,12 +620,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
         flushBuffer(set, get)
         promptStartTime = 0
         set({ streamingMessage: null, isRunning: false, runningStartedAtMs: null })
-        wsClient.request({ type: 'sessions.messages', sessionId }).then((data) => {
-          if (get().sessionId !== sessionId) return
-          set({ messages: mergeMessagesForSession(data as MessageData[], get().messages, sessionId) })
-        }).catch(() => {})
+        saveCache(sessionId, get())
+        refreshLatestMessages(get, set, sessionId).catch(() => {})
       } else {
         set(state => ({ isRunning: true, runningStartedAtMs: state.runningStartedAtMs ?? Date.now() }))
+        saveCache(sessionId, get())
       }
     }))
 
@@ -504,6 +645,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           sessionInfo: c.sessionInfo || st.capabilities.sessionInfo,
         },
       }))
+      saveCache(sid, get())
     }))
 
     return () => offs.forEach(f => f())
