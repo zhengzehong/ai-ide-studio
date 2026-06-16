@@ -3,11 +3,21 @@ import { agentStore } from '../store/agents.js'
 import { sessionStore } from '../store/sessions.js'
 import { sessionManager } from './sessions.js'
 import { events } from './events.js'
+import { emitTaskLifecycleEvent } from './task-lifecycle-events.js'
 import { createChildLogger } from './logger.js'
 
 const log = createChildLogger('task')
 
 export type AgentSessionMode = 'existing' | 'new_each' | 'new_fixed'
+
+export interface AssignTaskInput {
+  taskId: string
+  agentId: string
+  sessionId?: string
+  sessionMode?: AgentSessionMode
+  promptTemplate?: string
+  ruleName?: string
+}
 
 export const taskManager = {
   async createTask(input: CreateTaskInput) {
@@ -26,6 +36,7 @@ export const taskManager = {
       taskId: task.id,
       data: { ...task, event: 'created' },
     })
+    emitTaskLifecycleEvent(task, 'created', null)
 
     if (input.assignAgentId) {
       try {
@@ -51,6 +62,7 @@ export const taskManager = {
             assignedAgentId: input.assignAgentId,
           },
         })
+        emitTaskLifecycleEvent(taskStore.get(task.id)!, 'assigned', task.status)
 
         const prompt = input.promptTemplate || buildTaskPrompt(
           { id: task.id, title: task.title, description: task.description, source: task.source },
@@ -63,6 +75,7 @@ export const taskManager = {
             taskId: task.id,
             data: { status: 'blocked', stage: `执行失败: ${(err as Error).message}` },
           })
+          emitTaskLifecycleEvent(taskStore.get(task.id)!, 'prompt_failed', 'executing')
         })
 
         const updated = taskStore.get(task.id)!
@@ -74,6 +87,7 @@ export const taskManager = {
           taskId: task.id,
           data: { status: 'blocked', stage: `分派失败: ${(err as Error).message}` },
         })
+        emitTaskLifecycleEvent(taskStore.get(task.id)!, 'assign_failed', task.status)
         return taskStore.get(task.id)!
       }
     }
@@ -81,7 +95,65 @@ export const taskManager = {
     return task
   },
 
-  updateTask(taskId: string, status?: string, stage?: string) {
+  async assignTask(input: AssignTaskInput) {
+    const task = taskStore.get(input.taskId)
+    if (!task) throw new Error(`Task not found: ${input.taskId}`)
+    if (!input.agentId) throw new Error('agentId is required')
+
+    const sessionMode = resolveSessionMode(input.sessionMode, input.sessionId)
+    validateSessionModeTarget(sessionMode, input.sessionId)
+    validateTaskAssignment(
+      input.agentId,
+      task.project_id,
+      sessionMode === 'existing' || (sessionMode === 'new_fixed' && input.sessionId) ? input.sessionId : undefined,
+    )
+
+    const previousStatus = task.status
+    try {
+      const session = await resolveTaskSession({
+        agentId: input.agentId,
+        projectId: task.project_id,
+        taskId: input.taskId,
+        sessionId: input.sessionId,
+        sessionMode,
+      })
+
+      taskStore.assignAgent(input.taskId, input.agentId)
+      taskStore.updateStatus(input.taskId, 'executing', '已分派给 Agent')
+      taskStore.linkSession(input.taskId, session.id)
+      const updated = taskStore.get(input.taskId)!
+      log.info({ taskId: input.taskId, sessionId: session.id, agentId: input.agentId, reuse: session.reuse }, '任务已分派')
+
+      events.emit('task:update', {
+        taskId: input.taskId,
+        data: { ...updated, sessionId: session.id, assignedAgentId: input.agentId, event: 'assigned' },
+      })
+      emitTaskLifecycleEvent(updated, 'assigned', previousStatus)
+
+      const prompt = input.promptTemplate || buildTaskPrompt(
+        { id: task.id, title: task.title, description: task.description, source: task.source },
+        { sessionReuse: session.reuse, ruleName: input.ruleName },
+      )
+      sessionManager.enqueuePrompt(session.id, prompt).catch((err: Error) => {
+        log.error({ err, taskId: input.taskId, sessionId: session.id }, 'Task prompt failed')
+        taskStore.updateStatus(input.taskId, 'blocked', `Execution failed: ${err.message}`)
+        const failed = taskStore.get(input.taskId)!
+        events.emit('task:update', { taskId: input.taskId, data: { ...failed, event: 'prompt_failed' } })
+        emitTaskLifecycleEvent(failed, 'prompt_failed', 'executing')
+      })
+
+      return { ...updated, sessionId: session.id }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      taskStore.updateStatus(input.taskId, 'blocked', `分派失败: ${message}`)
+      const failed = taskStore.get(input.taskId)!
+      events.emit('task:update', { taskId: input.taskId, data: { ...failed, event: 'assign_failed' } })
+      emitTaskLifecycleEvent(failed, 'assign_failed', previousStatus)
+      throw err
+    }
+  },
+
+  updateTask(taskId: string, status?: string, stage?: string, changeType?: string) {
     const task = taskStore.get(taskId)
     if (!task) throw new Error(`Task 不存在: ${taskId}`)
 
@@ -98,10 +170,14 @@ export const taskManager = {
       taskId,
       data: { ...updated, event: 'updated' },
     })
+    const lifecycleChange = changeType ?? (status && status !== task.status ? 'status_changed' : 'progress_updated')
+    emitTaskLifecycleEvent(updated, lifecycleChange, task.status)
 
     return updated
   },
 }
+
+export { emitTaskLifecycleEvent } from './task-lifecycle-events.js'
 
 export function resolveSessionMode(mode: unknown, sessionId?: string): AgentSessionMode {
   if (mode === 'existing' || mode === 'new_each' || mode === 'new_fixed') return mode

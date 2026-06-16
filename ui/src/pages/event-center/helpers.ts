@@ -6,6 +6,9 @@ export interface EventSchemaField {
   type: string
   required: boolean
   placeholder: string
+  list: boolean
+  filter: boolean
+  enumValues: string[]
 }
 
 export const STATUS_META: Record<string, { label: string; color: string }> = {
@@ -47,7 +50,7 @@ export function actionModeLabel(value: string | null | undefined): string {
 
 export function categoryFields(category: EventCategoryData | null | undefined): EventSchemaField[] {
   const schema = parseJson<{
-    properties?: Record<string, { type?: string; title?: string; description?: string }>
+    properties?: Record<string, { type?: string; title?: string; description?: string; enum?: unknown[]; 'x-list'?: boolean; 'x-filter'?: boolean }>
     required?: string[]
   }>(category?.schema_json, {})
   const required = new Set(schema.required ?? [])
@@ -57,6 +60,9 @@ export function categoryFields(category: EventCategoryData | null | undefined): 
     type: config.type || 'string',
     required: required.has(key),
     placeholder: config.description || '',
+    list: config['x-list'] === true,
+    filter: config['x-filter'] === true,
+    enumValues: Array.isArray(config.enum) ? config.enum.filter((item): item is string => typeof item === 'string') : [],
   }))
 }
 

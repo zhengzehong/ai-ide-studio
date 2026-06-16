@@ -20,6 +20,7 @@ import { resolveVisiblePlatformTools } from '../../src/tools/registry/visibility
 import { resolveToolsForSession } from '../../src/tools/resolver.js'
 import { listRuntimeTools } from '../../src/tools/runtime/tool-runtime.js'
 import { teamMemberStore } from '../../src/store/teams.js'
+import { eventCenterService } from '../../src/core/event-center.js'
 import type { ToolContext, ToolHandler, ToolHandlerResult } from '../../src/tools/types.js'
 
 let tmp: string
@@ -52,6 +53,13 @@ describe('team MCP tool handlers', () => {
         taskId: task.id,
         data: { id: task.id, team_id: created.team.id, event: 'created' },
       })
+      const taskEvents = eventCenterService.listEvents({ projectId: project.id, categoryId: 'task.lifecycle' })
+      expect(taskEvents).toHaveLength(1)
+      expect(JSON.parse(taskEvents[0].payload_json)).toMatchObject({
+        taskId: task.id,
+        taskStatus: 'backlog',
+        changeType: 'created',
+      })
     } finally {
       events.off('task:update', handler)
     }
@@ -73,6 +81,13 @@ describe('team MCP tool handlers', () => {
       expect(updates[0]).toMatchObject({
         taskId: task.id,
         data: { id: task.id, status: 'completed', stage: 'Done', event: 'updated' },
+      })
+      const taskEvents = eventCenterService.listEvents({ projectId: project.id, categoryId: 'task.lifecycle' })
+      expect(taskEvents.map((event) => JSON.parse(event.payload_json).changeType)).toEqual(['status_changed', 'created'])
+      expect(JSON.parse(taskEvents[0].payload_json)).toMatchObject({
+        taskId: task.id,
+        taskStatus: 'completed',
+        previousStatus: 'backlog',
       })
     } finally {
       events.off('task:update', handler)

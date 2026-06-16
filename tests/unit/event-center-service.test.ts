@@ -115,6 +115,14 @@ describe('event center service', () => {
     expect(task.source).toBe('event')
     expect(task.project_id).toBe(project.id)
     expect(eventCenterService.getEvent(event.id)?.status).toBe('task')
+    const taskEvents = eventCenterService.listEvents({ projectId: project.id, categoryId: 'task.lifecycle' })
+    expect(taskEvents).toHaveLength(1)
+    expect(JSON.parse(taskEvents[0].payload_json)).toMatchObject({
+      taskId: task.id,
+      taskStatus: 'backlog',
+      changeType: 'created',
+      source: 'event',
+    })
   })
 
   test('runs the selected consumption instead of the oldest pending event', async () => {
@@ -244,6 +252,58 @@ describe('event center service', () => {
       expect(enqueuePrompt).toHaveBeenCalledTimes(1)
       expect(eventConsumptionStore.listByEvent(event.id)[0].status).toBe('running')
     })
+  })
+
+  test('matches subscriptions by payload field filters', () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const dispatcher = agentStore.create({ name: 'Dispatcher', type: 'pm', runtime: 'mock', projectId: project.id })
+    const reviewer = agentStore.create({ name: 'Reviewer', type: 'pm', runtime: 'mock', projectId: project.id })
+    const blockedWatcher = agentStore.create({ name: 'Blocked watcher', type: 'pm', runtime: 'mock', projectId: project.id })
+
+    eventCenterService.createSubscription(subscriptionInput({
+      projectId: project.id,
+      name: 'Unassigned task dispatcher',
+      categoryId: 'task.lifecycle',
+      consumerAgentId: dispatcher.id,
+      filter: { payload: { taskStatus: 'backlog', assignedAgentId: null } },
+    }))
+    eventCenterService.createSubscription(subscriptionInput({
+      projectId: project.id,
+      name: 'Review states',
+      categoryId: 'task.lifecycle',
+      consumerAgentId: reviewer.id,
+      filter: { payload: { taskStatus: { in: ['reviewing', 'completed'] } } },
+    }))
+    eventCenterService.createSubscription(subscriptionInput({
+      projectId: project.id,
+      name: 'Blocked task has stage',
+      categoryId: 'task.lifecycle',
+      consumerAgentId: blockedWatcher.id,
+      filter: { payload: { taskStatus: 'blocked', stage: { exists: true } } },
+    }))
+
+    const backlog = eventCenterService.createEvent({
+      projectId: project.id,
+      categoryId: 'task.lifecycle',
+      title: 'Backlog task',
+      payload: { taskId: 'task-a', taskStatus: 'backlog', assignedAgentId: null },
+    })
+    const reviewing = eventCenterService.createEvent({
+      projectId: project.id,
+      categoryId: 'task.lifecycle',
+      title: 'Reviewing task',
+      payload: { taskId: 'task-b', taskStatus: 'reviewing', assignedAgentId: dispatcher.id },
+    })
+    const blocked = eventCenterService.createEvent({
+      projectId: project.id,
+      categoryId: 'task.lifecycle',
+      title: 'Blocked task',
+      payload: { taskId: 'task-c', taskStatus: 'blocked', stage: 'Missing token' },
+    })
+
+    expect(eventConsumptionStore.listByEvent(backlog.id).map((item) => item.consumer_agent_id)).toEqual([dispatcher.id])
+    expect(eventConsumptionStore.listByEvent(reviewing.id).map((item) => item.consumer_agent_id)).toEqual([reviewer.id])
+    expect(eventConsumptionStore.listByEvent(blocked.id).map((item) => item.consumer_agent_id)).toEqual([blockedWatcher.id])
   })
 
   test('enforces category writer and consumer allow lists', () => {

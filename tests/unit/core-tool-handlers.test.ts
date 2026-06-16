@@ -6,12 +6,14 @@ import { initDatabase, closeDatabase } from '../../src/store/db.js'
 import { projectStore } from '../../src/store/projects.js'
 import { agentStore } from '../../src/store/agents.js'
 import { sessionStore } from '../../src/store/sessions.js'
+import { timelineStore } from '../../src/store/timeline.js'
 import { templateStore } from '../../src/store/agent-templates.js'
 import { taskStore } from '../../src/store/tasks.js'
 import { ruleStore } from '../../src/store/rules.js'
 import { modelProviderStore } from '../../src/store/model-providers.js'
 import { modelProfileStore } from '../../src/store/model-profiles.js'
 import { acpHost } from '../../src/acp/host.js'
+import { sessionManager } from '../../src/core/sessions.js'
 import { getHandler } from '../../src/tools/handlers/index.js'
 import type { ToolContext, ToolHandlerResult } from '../../src/tools/types.js'
 
@@ -163,12 +165,25 @@ describe('core MCP tool handlers', () => {
 
       const listed = await executeJson('core.session.list', {}, { projectId: project.id })
       expect(asRecords(listed.sessions).map((session) => session.id)).toEqual([asRecord(created.session).id])
+      expect(asRecord(asRecords(listed.sessions)[0]).activity_state).toBe('idle')
 
       const got = await executeJson('core.session.get', { sessionId: asRecord(created.session).id })
       expect(asRecord(got.session).id).toBe(asRecord(created.session).id)
     } finally {
       acpHost.agents.delete(agent.id)
     }
+  })
+
+  test('lists timeline summaries through a core MCP tool', async () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const agent = agentStore.create({ name: 'Mock', type: 'dev', runtime: 'mock', projectId: project.id })
+    const session = sessionStore.create({ agentId: agent.id, projectId: project.id })
+    timelineStore.insertRaw(session.id, 1, '分析了任务背景', '2026-06-16T01:00:00.000Z')
+    timelineStore.insertRefined(session.id, '完成登录模块审查并确认无改动', '2-3', '2026-06-16T02:00:00.000Z', 'model-a')
+
+    const listed = await executeJson('core.timeline.list', { sessionId: session.id, status: 'refined' }, { projectId: project.id })
+
+    expect(asRecords(listed.items).map((item) => item.summary)).toEqual(['完成登录模块审查并确认无改动'])
   })
 
   test('legacy create_task keeps the old response shape', async () => {
@@ -232,6 +247,60 @@ describe('core MCP tool handlers', () => {
       ),
     ).rejects.toThrow('Project')
     expect(taskStore.list(undefined, projectA.id)).toHaveLength(0)
+  })
+
+  test('studio.task.assign assigns unassigned tasks and rejects reassignment unless explicit', async () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const firstAgent = agentStore.create({ name: 'First', type: 'dev', runtime: 'mock', projectId: project.id })
+    const secondAgent = agentStore.create({ name: 'Second', type: 'dev', runtime: 'mock', projectId: project.id })
+    const task = taskStore.create({ title: 'Needs owner', projectId: project.id })
+
+    const assigned = await executeJson(
+      'studio.task.assign',
+      { taskId: task.id, agentId: firstAgent.id },
+      { projectId: project.id },
+    )
+
+    expect(asRecord(assigned.task)).toMatchObject({ id: task.id, assigned_agent_id: firstAgent.id, status: 'executing' })
+
+    const handler = getHandler('studio.task.assign')
+    if (!handler) throw new Error('handler missing: studio.task.assign')
+    const duplicate = await handler.execute({ taskId: task.id, agentId: firstAgent.id }, { projectId: project.id })
+    expect(duplicate.isError).toBe(true)
+
+    const rejected = await handler.execute({ taskId: task.id, agentId: secondAgent.id }, { projectId: project.id })
+    expect(rejected.isError).toBe(true)
+    expect(taskStore.get(task.id)?.assigned_agent_id).toBe(firstAgent.id)
+
+    const reassigned = await executeJson(
+      'studio.task.assign',
+      { taskId: task.id, agentId: secondAgent.id, allowReassign: true },
+      { projectId: project.id },
+    )
+    expect(asRecord(reassigned.task).assigned_agent_id).toBe(secondAgent.id)
+  })
+
+  test('studio.task.assign does not persist the assignee when session creation fails', async () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const agent = agentStore.create({ name: 'Target', type: 'dev', runtime: 'mock', projectId: project.id })
+    const task = taskStore.create({ title: 'Needs owner', projectId: project.id })
+    const handler = getHandler('studio.task.assign')
+    if (!handler) throw new Error('handler missing: studio.task.assign')
+    const originalCreateSession = sessionManager.createSession
+    sessionManager.createSession = async () => { throw new Error('session boot failed') }
+
+    try {
+      const result = await handler.execute({ taskId: task.id, agentId: agent.id }, { projectId: project.id })
+
+      expect(result.isError).toBe(true)
+      expect(result.content[0]?.text).toContain('session boot failed')
+      expect(taskStore.get(task.id)).toMatchObject({
+        assigned_agent_id: null,
+        status: 'blocked',
+      })
+    } finally {
+      sessionManager.createSession = originalCreateSession
+    }
   })
 
   test('studio.schedule.create stores explicit session target for scheduled tasks and prompts', async () => {

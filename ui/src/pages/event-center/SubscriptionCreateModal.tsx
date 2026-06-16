@@ -3,6 +3,7 @@ import { X } from 'lucide-react'
 import { useAgentStore } from '../../stores/agent.store'
 import { useEventCenterStore } from '../../stores/event-center.store'
 import { useSessionStore } from '../../stores/session.store'
+import { categoryFields } from './helpers'
 
 const priorityOptions = [
   { value: '', label: '不限' },
@@ -12,6 +13,13 @@ const priorityOptions = [
 ]
 
 type ConsumerSessionMode = 'existing' | 'new_each' | 'new_fixed'
+type PayloadFilterOp = 'eq' | 'isNull' | 'in'
+
+interface PayloadFilterDraft {
+  key: string
+  op: PayloadFilterOp
+  value: string
+}
 
 const sessionModeOptions: Array<{ value: ConsumerSessionMode; label: string }> = [
   { value: 'new_fixed', label: '固定新会话' },
@@ -39,6 +47,7 @@ export function SubscriptionCreateModal({ open, projectId, onClose }: Props) {
   const [autoStart, setAutoStart] = useState(false)
   const [priority, setPriority] = useState('')
   const [sourceType, setSourceType] = useState('')
+  const [payloadFilters, setPayloadFilters] = useState<PayloadFilterDraft[]>([])
   const [enabled, setEnabled] = useState(true)
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -56,6 +65,10 @@ export function SubscriptionCreateModal({ open, projectId, onClose }: Props) {
     )),
     [consumerAgentId, projectId, sessions],
   )
+  const filterableFields = useMemo(() => {
+    const category = categories.find((item) => item.id === categoryId)
+    return categoryFields(category).filter((field) => field.filter)
+  }, [categories, categoryId])
 
   useEffect(() => {
     if (open) void fetchSessions(undefined, projectId ?? undefined)
@@ -83,6 +96,7 @@ export function SubscriptionCreateModal({ open, projectId, onClose }: Props) {
     }
 
     const agent = projectAgents.find((item) => item.id === consumerAgentId)
+    const payloadFilter = buildPayloadFilter(payloadFilters)
     setSubmitting(true)
     try {
       await createSubscription({
@@ -95,6 +109,7 @@ export function SubscriptionCreateModal({ open, projectId, onClose }: Props) {
         filter: {
           ...(priority ? { priority } : {}),
           ...(sourceType.trim() ? { sourceType: sourceType.trim() } : {}),
+          ...(Object.keys(payloadFilter).length > 0 ? { payload: payloadFilter } : {}),
         },
         enabled,
         autoStart,
@@ -123,8 +138,23 @@ export function SubscriptionCreateModal({ open, projectId, onClose }: Props) {
     setAutoStart(false)
     setPriority('')
     setSourceType('')
+    setPayloadFilters([])
     setEnabled(true)
     setError('')
+  }
+
+  const addPayloadFilter = () => {
+    const firstField = filterableFields[0]
+    if (!firstField) return
+    setPayloadFilters((items) => [...items, { key: firstField.key, op: 'eq', value: '' }])
+  }
+
+  const updatePayloadFilter = (index: number, patch: Partial<PayloadFilterDraft>) => {
+    setPayloadFilters((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item))
+  }
+
+  const removePayloadFilter = (index: number) => {
+    setPayloadFilters((items) => items.filter((_, itemIndex) => itemIndex !== index))
   }
 
   return (
@@ -144,7 +174,13 @@ export function SubscriptionCreateModal({ open, projectId, onClose }: Props) {
           </label>
           <label className="ec-field">
             <span>事件类别</span>
-            <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
+            <select
+              value={categoryId}
+              onChange={(e) => {
+                setCategoryId(e.target.value)
+                setPayloadFilters([])
+              }}
+            >
               {categories.filter((category) => category.enabled === 1).map((category) => (
                 <option key={category.id} value={category.id}>{category.name}</option>
               ))}
@@ -202,6 +238,48 @@ export function SubscriptionCreateModal({ open, projectId, onClose }: Props) {
             <input type="checkbox" checked={autoStart} onChange={(e) => setAutoStart(e.target.checked)} />
             <span>有新事件时自动消费</span>
           </label>
+          {filterableFields.length > 0 && (
+            <div className="ec-field">
+              <span>字段过滤</span>
+              <div className="ec-payload-filter-list">
+                {payloadFilters.map((filter, index) => {
+                  const field = filterableFields.find((item) => item.key === filter.key)
+                  return (
+                    <div className="ec-payload-filter-row" key={`${filter.key}-${index}`}>
+                      <select
+                        value={filter.key}
+                        onChange={(e) => updatePayloadFilter(index, { key: e.target.value, value: '' })}
+                      >
+                        {filterableFields.map((item) => (
+                          <option key={item.key} value={item.key}>{item.label}</option>
+                        ))}
+                      </select>
+                      <select
+                        value={filter.op}
+                        onChange={(e) => updatePayloadFilter(index, { op: e.target.value as PayloadFilterOp })}
+                      >
+                        <option value="eq">=</option>
+                        <option value="isNull">为空</option>
+                        <option value="in">in</option>
+                      </select>
+                      {filter.op !== 'isNull' && field?.enumValues.length ? (
+                        <select value={filter.value} onChange={(e) => updatePayloadFilter(index, { value: e.target.value })}>
+                          <option value="">请选择</option>
+                          {field.enumValues.map((value) => <option key={value} value={value}>{value}</option>)}
+                        </select>
+                      ) : filter.op !== 'isNull' ? (
+                        <input value={filter.value} onChange={(e) => updatePayloadFilter(index, { value: e.target.value })} placeholder={filter.op === 'in' ? '值1,值2,值3' : '过滤值'} />
+                      ) : (
+                        <input value="空值" disabled />
+                      )}
+                      <button className="ec-btn" type="button" onClick={() => removePayloadFilter(index)}>移除</button>
+                    </div>
+                  )
+                })}
+                <button className="ec-btn" type="button" onClick={addPayloadFilter}>添加字段过滤</button>
+              </div>
+            </div>
+          )}
           {error && <div className="ec-form-error">{error}</div>}
         </div>
         <div className="ec-modal-actions">
@@ -211,4 +289,22 @@ export function SubscriptionCreateModal({ open, projectId, onClose }: Props) {
       </div>
     </div>
   )
+}
+
+function buildPayloadFilter(filters: PayloadFilterDraft[]): Record<string, unknown> {
+  const payload: Record<string, unknown> = {}
+  for (const filter of filters) {
+    if (!filter.key) continue
+    if (filter.op === 'isNull') {
+      payload[filter.key] = null
+      continue
+    }
+    if (filter.op === 'in') {
+      const values = filter.value.split(',').map((item) => item.trim()).filter(Boolean)
+      if (values.length > 0) payload[filter.key] = { in: values }
+      continue
+    }
+    if (filter.value.trim()) payload[filter.key] = filter.value.trim()
+  }
+  return payload
 }

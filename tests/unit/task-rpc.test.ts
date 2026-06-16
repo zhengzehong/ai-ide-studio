@@ -8,6 +8,7 @@ import { closeDatabase, initDatabase } from '../../src/store/db.js'
 import { projectStore } from '../../src/store/projects.js'
 import { sessionStore } from '../../src/store/sessions.js'
 import { taskStore } from '../../src/store/tasks.js'
+import { eventCenterService } from '../../src/core/event-center.js'
 import { taskRpcHandlers } from '../../src/gateway/rpc/tasks.js'
 
 let tmp: string
@@ -44,6 +45,47 @@ describe('task RPC handlers', () => {
     expect(updates[0]).toMatchObject({
       taskId: task.id,
       data: { id: task.id, status: 'executing', stage: 'Running', event: 'updated' },
+    })
+  })
+
+  test('tasks.create and tasks.assign emit task lifecycle events', async () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const agent = agentStore.create({ name: 'Target', type: 'dev', runtime: 'mock', projectId: project.id })
+
+    const created = await callTaskRpc('tasks.create', {
+      type: 'tasks.create',
+      title: 'Dispatch me',
+      projectId: project.id,
+    }) as Record<string, unknown>
+
+    const createdEvents = eventCenterService.listEvents({
+      projectId: project.id,
+      categoryId: 'task.lifecycle',
+    })
+    expect(createdEvents).toHaveLength(1)
+    expect(JSON.parse(createdEvents[0].payload_json)).toMatchObject({
+      taskId: created.id,
+      taskStatus: 'backlog',
+      assignedAgentId: null,
+      changeType: 'created',
+    })
+
+    await callTaskRpc('tasks.assign', {
+      type: 'tasks.assign',
+      taskId: created.id,
+      agentId: agent.id,
+    })
+
+    const events = eventCenterService.listEvents({
+      projectId: project.id,
+      categoryId: 'task.lifecycle',
+    })
+    expect(events.map((event) => JSON.parse(event.payload_json).changeType)).toEqual(['assigned', 'created'])
+    expect(JSON.parse(events[0].payload_json)).toMatchObject({
+      taskId: created.id,
+      taskStatus: 'executing',
+      previousStatus: 'backlog',
+      assignedAgentId: agent.id,
     })
   })
 

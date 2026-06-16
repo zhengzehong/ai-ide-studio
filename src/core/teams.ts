@@ -13,6 +13,7 @@ import {
 } from '../store/teams.js'
 import { createCustomProjectAgent, deployTemplateToProject } from './agents.js'
 import { events } from './events.js'
+import { emitTaskLifecycleEvent, resolveTaskLifecycleChangeType } from './task-lifecycle-events.js'
 import { createChildLogger } from './logger.js'
 import { dispatchMemberPrompt, type DispatchMemberPromptStatus } from './team-member-dispatcher.js'
 import { buildTeamMemberPrompt } from './team-prompts.js'
@@ -229,6 +230,7 @@ export const teamService = {
       assignAgentId: assignee?.agent_id,
     })
     emitTaskUpdate(task, 'created')
+    emitTaskLifecycleEvent(task, 'created', null)
     emitTeamUpdate(team.id, 'task.created')
     return task
   },
@@ -258,6 +260,7 @@ export const teamService = {
     if (!updated) throw new Error(`Task 不存在: ${task.id}`)
     teamWakeCoordinator.notifyTaskUpdated(updated, input.actor)
     emitTaskUpdate(updated, 'updated')
+    emitTaskLifecycleEvent(updated, resolveTaskLifecycleChangeType(task, updated), task.status)
     emitTeamUpdate(team.id, 'task.updated')
     return updated
   },
@@ -288,9 +291,7 @@ function resolveLeaderSession(leaderSessionId: string | undefined, leader: Agent
   if (session.project_id !== projectId) throw new Error('Leader session 不属于当前项目')
   return session
 }
-function emptyTeamContext(): TeamContextDetail {
-  return { team: null, currentMember: null, members: [], tasks: [], mailbox: [] }
-}
+function emptyTeamContext(): TeamContextDetail { return { team: null, currentMember: null, members: [], tasks: [], mailbox: [] } }
 
 function emitTeamUpdate(teamId: string, reason: string): void {
   events.emit('team:update', {
@@ -313,6 +314,7 @@ function markTaskDispatched(teamId: string, task: TaskRow, member: TeamMemberRow
   if (!updated) return
 
   events.emit('task:update', { taskId: updated.id, data: { ...updated } })
+  emitTaskLifecycleEvent(updated, 'assigned', task.status)
   emitTeamUpdate(teamId, 'task.dispatched')
 }
 

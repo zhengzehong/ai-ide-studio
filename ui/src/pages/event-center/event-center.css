@@ -577,6 +577,14 @@
   padding: 2px 7px;
 }
 
+.ec-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 5px;
+  white-space: normal;
+}
+
 .ec-pagination {
   min-height: 44px;
   flex-shrink: 0;
@@ -737,6 +745,23 @@
 .ec-checkbox--field {
   align-self: end;
   min-height: 32px;
+}
+
+.ec-payload-filter-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ec-payload-filter-row {
+  display: grid;
+  grid-template-columns: minmax(96px, 1fr) 88px minmax(112px, 1.2fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.ec-payload-filter-row > * {
+  min-width: 0;
 }
 
 .ec-code-input {

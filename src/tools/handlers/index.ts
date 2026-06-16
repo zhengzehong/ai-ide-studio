@@ -12,6 +12,7 @@ import {
 } from './schedule-tools.js'
 import {
   studioTaskCreateHandler,
+  studioTaskAssignHandler,
   studioTaskListHandler,
   studioTaskGetHandler,
   studioTaskUpdateProgressHandler,
@@ -26,6 +27,7 @@ import {
   getAgentHandler,
   getProjectHandler,
   getSessionHandler,
+  listTimelineHandler,
   listAgentsHandler,
   listModelProfilesHandler,
   listProjectsHandler,
@@ -85,6 +87,7 @@ register(scheduleDeleteHandler)
 register(scheduleToggleHandler)
 register(scheduleExecutionsHandler)
 register(studioTaskCreateHandler)
+register(studioTaskAssignHandler)
 register(studioTaskListHandler)
 register(studioTaskGetHandler)
 register(studioTaskUpdateProgressHandler)
@@ -101,6 +104,7 @@ register(listModelProfilesHandler)
 register(listSessionsHandler)
 register(getSessionHandler)
 register(createSessionHandler)
+register(listTimelineHandler)
 register(listTeamsHandler)
 register(getTeamHandler)
 register(createTeamHandler)

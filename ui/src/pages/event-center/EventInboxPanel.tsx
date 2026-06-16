@@ -1,7 +1,7 @@
 import { LayoutList, Plus, Search, Table2 } from 'lucide-react'
 import { useState } from 'react'
 import { useEventCenterStore, type EventCenterEventData } from '../../stores/event-center.store'
-import { categoryName, formatTime, parseJson, PRIORITY_META, STATUS_META } from './helpers'
+import { categoryFields, categoryName, formatTime, parseJson, PRIORITY_META, STATUS_META } from './helpers'
 import { EventCreateModal } from './EventCreateModal'
 import { EventDetailPanel } from './EventDetailPanel'
 
@@ -158,7 +158,10 @@ function EventTable({ events, selectedEvent, onSelect }: {
               <td><span className={PRIORITY_META[event.priority]?.className ?? 'ec-chip'}>{PRIORITY_META[event.priority]?.label ?? event.priority}</span></td>
               <td>{categoryName(categories, event.category_id)}</td>
               <td><strong>{event.title}</strong></td>
-              <td>{event.summary || event.source_label || event.source_type}</td>
+              <td>
+                <div>{event.summary || event.source_label || event.source_type}</div>
+                <EventPayloadChips event={event} />
+              </td>
               <td>{formatTime(event.created_at)}</td>
             </tr>
           ))}
@@ -183,6 +186,7 @@ function EventSummaryRow({ event, active, onClick }: { event: EventCenterEventDa
         </div>
         <strong>{event.title}</strong>
         <p>{event.summary || '暂无摘要'}</p>
+        <EventPayloadChips event={event} />
         <small>{event.source_label || event.source_type} · {tags.join(' / ') || '无标签'}</small>
       </div>
       <div className="ec-row-side">
@@ -191,4 +195,29 @@ function EventSummaryRow({ event, active, onClick }: { event: EventCenterEventDa
       </div>
     </button>
   )
+}
+
+function EventPayloadChips({ event }: { event: EventCenterEventData }) {
+  const categories = useEventCenterStore((s) => s.categories)
+  const category = categories.find((item) => item.id === event.category_id)
+  const payload = parseJson<Record<string, unknown>>(event.payload_json, {})
+  const chips = categoryFields(category)
+    .filter((field) => field.list)
+    .map((field) => ({ field, value: payload[field.key] }))
+    .filter((item) => item.value !== undefined && item.value !== null && String(item.value).trim() !== '')
+
+  if (chips.length === 0) return null
+  return (
+    <div className="ec-chip-row">
+      {chips.map(({ field, value }) => (
+        <span className="ec-chip" key={field.key}>{field.label}: {formatPayloadValue(value)}</span>
+      ))}
+    </div>
+  )
+}
+
+function formatPayloadValue(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  return JSON.stringify(value)
 }
