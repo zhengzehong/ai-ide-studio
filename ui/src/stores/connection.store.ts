@@ -1,6 +1,12 @@
 import { create } from 'zustand'
 import { wsClient } from '../services/ws-client'
 
+interface ConnectionClient {
+  connect: (url: string) => void
+  disconnect: () => void
+  on: (event: string, handler: (msg: Record<string, unknown>) => void) => () => void
+}
+
 interface ConnectionStore {
   connected: boolean
   authRequired: boolean
@@ -11,6 +17,7 @@ interface ConnectionStore {
 }
 
 let initialized = false
+let connectionClient: ConnectionClient = wsClient
 const ACCESS_TOKEN_STORAGE_KEY = 'ai-ide-access-token'
 
 export const useConnectionStore = create<ConnectionStore>((set) => ({
@@ -22,7 +29,7 @@ export const useConnectionStore = create<ConnectionStore>((set) => ({
     if (initialized) return
     initialized = true
     const url = resolveWsUrl()
-    wsClient.on('connection', (msg) => {
+    connectionClient.on('connection', (msg) => {
       const connected = msg.connected as boolean
       if (connected) {
         set({ connected: true, authRequired: false, authError: null })
@@ -30,19 +37,20 @@ export const useConnectionStore = create<ConnectionStore>((set) => ({
       }
 
       if (isUnauthorizedClose(Number(msg.code), String(msg.reason || ''))) {
+        connectionClient.disconnect()
         set({ connected: false, authRequired: true, authError: '访问密钥无效或已过期' })
         return
       }
 
       set({ connected: false })
     })
-    wsClient.connect(url)
+    connectionClient.connect(url)
   },
   saveToken: (token) => {
     const nextToken = token.trim()
     storeAccessToken(nextToken)
     set({ token: nextToken, authRequired: false, authError: null, connected: false })
-    wsClient.connect(resolveWsUrl(window.location, nextToken))
+    connectionClient.connect(resolveWsUrl(window.location, nextToken))
   },
 }))
 
@@ -75,4 +83,9 @@ export function storeAccessToken(token: string): void {
 export function isUnauthorizedClose(code: number, reason: string): boolean {
   void reason
   return code === 1008
+}
+
+export function setConnectionClientForTest(client: ConnectionClient | null): void {
+  connectionClient = client ?? wsClient
+  initialized = false
 }
