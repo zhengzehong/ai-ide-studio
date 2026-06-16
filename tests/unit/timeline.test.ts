@@ -210,4 +210,63 @@ describe('timeline', () => {
     expect(capturedPrompt).toContain('WORD_LIMIT_MARKER_START')
     expect(capturedPrompt).toContain('WORD_LIMIT_MARKER_END')
   })
+
+  test('refines historical raw timeline items in batches of ten with larger output budget', async () => {
+    const project = projectStore.create({ name: 'Batch Project', workDir: tmp })
+    const agent = agentStore.create({ name: 'Dev', type: 'dev', runtime: 'codex', projectId: project.id })
+    const session = sessionStore.create({ agentId: agent.id, projectId: project.id })
+    timelineConfigStore.upsert(project.id, {
+      enabled: 1,
+      model: 'timeline-model',
+      api_key: 'sk-test',
+      base_url: 'http://127.0.0.1:1',
+      trigger_interval: 3,
+    })
+
+    for (let i = 1; i <= 12; i++) {
+      messageStore.append(session.id, { role: 'human', content: `Batch user request ${i}` })
+      messageStore.append(session.id, { role: 'agent', content: `Batch agent result ${i}` })
+    }
+
+    const capturedBodies: { max_tokens?: number; messages: { content: string }[] }[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_url, init) => {
+      const body = JSON.parse(String(init?.body)) as { max_tokens?: number; messages: { content: string }[] }
+      capturedBodies.push(body)
+      const prompt = body.messages[0]?.content ?? ''
+      const turnMatches = [...prompt.matchAll(/"turn":\s*(\d+)/g)].map(match => Number(match[1]))
+      const existingIds = [...prompt.matchAll(/"id":\s*"(tl-[^"]+)"/g)].map(match => match[1])
+      const existingItems = existingIds.map((id, index) => ({
+        id,
+        text: `Kept existing summary ${index + 1}`,
+        turns: String(index + 1),
+        time: '12:00',
+      }))
+      const items = turnMatches.map(turn => ({
+        text: `Refined batch turn ${turn}`,
+        turns: String(turn),
+        time: '12:00',
+      }))
+      return {
+        ok: true,
+        json: async () => ({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({ items: [...existingItems, ...items] }),
+              },
+            },
+          ],
+        }),
+      }
+    }) as unknown as typeof fetch)
+
+    await generateHistoricalTimeline(session.id)
+
+    expect(capturedBodies).toHaveLength(2)
+    expect(capturedBodies.every(body => body.max_tokens === 20000)).toBe(true)
+    expect(capturedBodies[0].messages[0]?.content.match(/"turn":/g)).toHaveLength(10)
+    expect(capturedBodies[1].messages[0]?.content.match(/"turn":/g)).toHaveLength(2)
+    expect(timelineStore.list(session.id)).toHaveLength(12)
+    expect(timelineStore.listRaw(session.id)).toHaveLength(0)
+  })
 })

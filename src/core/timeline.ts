@@ -26,6 +26,8 @@ type TimelineTurnInput = {
 
 const TIMELINE_FULL_TEXT_UNIT_LIMIT = 3000
 const TIMELINE_LONG_SECTION_CHARS = 2000
+const TIMELINE_REFINE_MAX_RAW_BATCH = 10
+const TIMELINE_MODEL_MAX_TOKENS = 20000
 
 function generateRawPlaceholder(userMessage: string): string {
   const text = (userMessage || '').trim().slice(0, 30)
@@ -129,7 +131,7 @@ async function callOpenAIModel(
     model: creds.model,
     messages: [{ role: 'user', content: prompt }],
     temperature: 0.3,
-    max_tokens: 800,
+    max_tokens: TIMELINE_MODEL_MAX_TOKENS,
   }
 
   const resp = await fetch(url, {
@@ -263,6 +265,7 @@ async function runModelRefine(sessionId: string, config: TimelineConfigRow): Pro
 
   const allRaw = timelineStore.listRaw(sessionId)
   if (allRaw.length === 0) return
+  const rawBatch = allRaw.slice(0, TIMELINE_REFINE_MAX_RAW_BATCH)
 
   const recentRefined = timelineStore.getRecentRefined(sessionId, 5)
 
@@ -273,17 +276,17 @@ async function runModelRefine(sessionId: string, config: TimelineConfigRow): Pro
     time: new Date(r.turn_start_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }),
   }))
 
-  const newTurns = collectNewTurns(sessionId, allRaw)
+  const newTurns = collectNewTurns(sessionId, rawBatch)
   if (newTurns.length === 0) return
 
-  const inputIds = [...recentRefined, ...allRaw].map((r) => r.id)
+  const inputIds = [...recentRefined, ...rawBatch].map((r) => r.id)
   const prompt = buildPrompt(existingSummaries, newTurns)
 
-  log.info({ sessionId, refinedCount: recentRefined.length, rawCount: allRaw.length, model: creds.model }, 'Timeline: 开始模型整理')
+  log.info({ sessionId, refinedCount: recentRefined.length, rawCount: allRaw.length, batchRawCount: rawBatch.length, model: creds.model }, 'Timeline: 开始模型整理')
 
   const raw = await callOpenAIModel(creds, prompt)
   const output = parseModelOutput(raw)
-  applyModelOutput(sessionId, inputIds, allRaw, output, creds.model)
+  applyModelOutput(sessionId, inputIds, rawBatch, output, creds.model)
   events.emit('timeline:updated', { sessionId })
   log.info({ sessionId, outputCount: output.length }, 'Timeline: 模型整理完成')
 }
