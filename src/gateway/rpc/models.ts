@@ -134,6 +134,10 @@ export const modelRpcHandlers: RpcHandlerMap = {
     sendResult({ ok: true })
   },
 
+  'modelProfiles.setDefault'(msg, { sendResult }) {
+    sendResult(modelProfileStore.setDefault(msg.profileId as string))
+  },
+
   'modelProfiles.delete'(msg, { sendResult }) {
     modelProfileStore.delete(msg.profileId as string)
     sendResult({ ok: true })

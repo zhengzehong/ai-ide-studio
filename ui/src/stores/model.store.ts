@@ -36,6 +36,7 @@ export interface ModelProfileData {
   provider_id: string
   config_json: string
   context_window: number | null
+  is_default: number
   enabled: number
   created_at: string
   updated_at: string
@@ -56,6 +57,7 @@ interface ModelStore {
   createProfile: (p: { name: string; runtime: 'claude' | 'codex'; providerId: string; contextWindow?: number | null; config: ModelProfileConfig }) => Promise<void>
   updateProfile: (id: string, fields: Record<string, unknown>) => Promise<void>
   toggleProfile: (id: string, enabled: boolean) => void
+  setDefaultProfile: (id: string) => void
   deleteProfile: (id: string) => void
 }
 
@@ -122,6 +124,11 @@ export const useModelStore = create<ModelStore>((set, get) => ({
 
   toggleProfile: async (id, enabled) => {
     await wsRpc('modelProfiles.toggle', { profileId: id, enabled })
+    get().fetchProfiles()
+  },
+
+  setDefaultProfile: async (id) => {
+    await wsRpc('modelProfiles.setDefault', { profileId: id })
     get().fetchProfiles()
   },
 

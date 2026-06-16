@@ -92,7 +92,7 @@ interface GlobalAssistantStore {
   processItemErrorByKey: Record<string, string>
 
   load: () => Promise<void>
-  setFromTemplate: (templateId: string) => Promise<void>
+  setFromTemplate: (templateId: string, input?: { name?: string; runtime?: string; systemPrompt?: string; modelProfileId?: string | null }) => Promise<void>
   openDrawer: () => Promise<void>
   closeDrawer: () => void
   sendPrompt: (content: string, images?: ImageAttachmentInfo[]) => void
@@ -341,10 +341,10 @@ export const useGlobalAssistantStore = create<GlobalAssistantStore>((set, get) =
     }
   },
 
-  setFromTemplate: async (templateId) => {
+  setFromTemplate: async (templateId, input = {}) => {
     set((state) => ({ settingTemplateIds: { ...state.settingTemplateIds, [templateId]: true }, error: null }))
     try {
-      const payload = await wsClient.request({ type: 'globalAssistant.setTemplate', templateId }) as GlobalAssistantPayload
+      const payload = await wsClient.request({ type: 'globalAssistant.setTemplate', templateId, ...input }) as GlobalAssistantPayload
       await activatePayload(payload, set, get, true)
     } catch (err) {
       set({ error: err instanceof Error ? err.message : String(err) })

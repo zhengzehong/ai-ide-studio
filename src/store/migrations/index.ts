@@ -17,6 +17,7 @@ import { agentSessionCommunicationMigration } from './016-agent-session-communic
 import { agentProjectEventCategoryMigration } from './017-agent-project-event-category.js'
 import { agentVisibilityMigration } from './018-agent-visibility.js'
 import { eventConsumerSessionStrategyMigration } from './019-event-consumer-session-strategy.js'
+import { modelProfileDefaultMigration } from './020-model-profile-default.js'
 import type { Migration } from '../migrator.js'
 
 export const migrations: Migration[] = [
@@ -39,4 +40,5 @@ export const migrations: Migration[] = [
   agentProjectEventCategoryMigration,
   agentVisibilityMigration,
   eventConsumerSessionStrategyMigration,
+  modelProfileDefaultMigration,
 ]

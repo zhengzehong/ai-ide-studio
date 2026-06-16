@@ -138,6 +138,10 @@ export interface GlobalAssistantGetMsg extends ClientMessage {
 export interface GlobalAssistantSetTemplateMsg extends ClientMessage {
   type: 'globalAssistant.setTemplate'
   templateId: string
+  name?: string
+  runtime?: AgentRuntime
+  systemPrompt?: string
+  modelProfileId?: string | null
 }
 export interface GlobalAssistantTouchMsg extends ClientMessage {
   type: 'globalAssistant.touch'

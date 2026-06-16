@@ -60,6 +60,7 @@ import type { TurnProcessBlock } from '../stores/turn-blocks'
 import { useTaskStore, type SessionMode, type TaskData } from '../stores/task.store'
 import { useConnectionStore } from '../stores/connection.store'
 import { useProjectStore } from '../stores/project.store'
+import { useModelStore, type ModelProfileData } from '../stores/model.store'
 import { useFileSystemStore } from '../stores/filesystem.store'
 import { useTeamStore } from '../stores/team.store'
 import { wsClient } from '../services/ws-client'
@@ -147,6 +148,9 @@ export default function Workspace() {
   const deleteAgent = useAgentStore((s) => s.deleteAgent)
   const setAgentHidden = useAgentStore((s) => s.setAgentHidden)
   const reorderAgents = useAgentStore((s) => s.reorderAgents)
+  const updateAgent = useAgentStore((s) => s.updateAgent)
+  const modelProfiles = useModelStore((s) => s.profiles)
+  const fetchModelProfiles = useModelStore((s) => s.fetchProfiles)
   const fetchTasks = useTaskStore((s) => s.fetchTasks)
   const tasks = useTaskStore((s) => s.tasks)
   const createTask = useTaskStore((s) => s.createTask)
@@ -178,6 +182,7 @@ export default function Workspace() {
 
   const [ctxMenu, setCtxMenu] = useState<{ sessionId: string; agentId: string; x: number; y: number } | null>(null)
   const [agentCtxMenu, setAgentCtxMenu] = useState<{ agentId: string; x: number; y: number } | null>(null)
+  const [modelProfileAgentId, setModelProfileAgentId] = useState<string | null>(null)
   const [importDialogAgentId, setImportDialogAgentId] = useState<string | null>(null)
   const [renameDialog, setRenameDialog] = useState<{ sessionId: string; currentTitle: string } | null>(null)
   const [confirmDialog, setConfirmDialog] = useState<{ title: string; message: string; danger?: boolean; onConfirm: () => void } | null>(null)
@@ -212,6 +217,10 @@ export default function Workspace() {
   const agentContextAgent = useMemo(
     () => projectAgents.find((agent) => agent.id === agentCtxMenu?.agentId),
     [agentCtxMenu?.agentId, projectAgents],
+  )
+  const modelProfileAgent = useMemo(
+    () => projectAgents.find((agent) => agent.id === modelProfileAgentId),
+    [modelProfileAgentId, projectAgents],
   )
   const currentSessionCopying = !!currentSessionId && (
     !!copyingTargetSessionIds[currentSessionId] ||
@@ -1015,6 +1024,11 @@ export default function Workspace() {
             onClick: () => setImportDialogAgentId(agentContextAgent.id),
           },
           {
+            label: '模型档案',
+            disabled: agentContextAgent.runtime !== 'claude' && agentContextAgent.runtime !== 'codex',
+            onClick: () => setModelProfileAgentId(agentContextAgent.id),
+          },
+          {
             label: '隐藏 Agent',
             onClick: () => { void handleHideAgent(agentContextAgent.id) },
           },
@@ -1025,6 +1039,20 @@ export default function Workspace() {
           },
         ] : []}
       />
+
+      {modelProfileAgent && (
+        <AgentModelProfileDialog
+          key={modelProfileAgent.id}
+          agent={modelProfileAgent}
+          profiles={modelProfiles}
+          onLoadProfiles={() => fetchModelProfiles()}
+          onSave={async (modelProfileId) => {
+            await updateAgent(modelProfileAgent.id, { modelProfileId })
+            setModelProfileAgentId(null)
+          }}
+          onClose={() => setModelProfileAgentId(null)}
+        />
+      )}
 
       <ContextMenu
         open={!!ctxMenu}
@@ -3905,6 +3933,126 @@ function DropdownPortal({
         }}
       >
         {children}
+      </div>
+    </>
+  )
+}
+
+function readAgentModelProfileId(agent: AgentData): string {
+  if (!agent.config_json) return ''
+  try {
+    const config = JSON.parse(agent.config_json) as { modelProfileId?: unknown }
+    return typeof config.modelProfileId === 'string' ? config.modelProfileId : ''
+  } catch {
+    return ''
+  }
+}
+
+function AgentModelProfileDialog({
+  agent,
+  profiles,
+  onLoadProfiles,
+  onSave,
+  onClose,
+}: {
+  agent: AgentData
+  profiles: ModelProfileData[]
+  onLoadProfiles: () => void
+  onSave: (modelProfileId: string | null) => Promise<void>
+  onClose: () => void
+}) {
+  const availableProfiles = useMemo(
+    () => profiles.filter((profile) => profile.enabled && profile.runtime === agent.runtime),
+    [agent.runtime, profiles],
+  )
+  const currentProfileId = readAgentModelProfileId(agent)
+  const [modelProfileId, setModelProfileId] = useState(currentProfileId)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => { onLoadProfiles() }, [onLoadProfiles])
+  const selectedModelProfileId = availableProfiles.some((profile) => profile.id === modelProfileId) ? modelProfileId : ''
+
+  const handleSave = async () => {
+    if (saving) return
+    setSaving(true)
+    try {
+      await onSave(selectedModelProfileId || null)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.28)', zIndex: 1000 }} />
+      <div
+        style={{
+          position: 'fixed',
+          left: '50%',
+          top: '50%',
+          transform: 'translate(-50%, -50%)',
+          width: 420,
+          maxWidth: 'calc(100vw - 32px)',
+          background: 'var(--bg-0)',
+          border: '1px solid var(--border)',
+          borderRadius: 12,
+          boxShadow: 'var(--shadow-lg)',
+          zIndex: 1001,
+          padding: 22,
+        }}
+      >
+        <div style={{ marginBottom: 16 }}>
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--text-1)' }}>模型档案</h3>
+          <p style={{ margin: '6px 0 0', fontSize: 14, color: 'var(--text-3)' }}>
+            为「{agent.name}」单独绑定 Claude Code / Codex 的模型配置。
+          </p>
+        </div>
+        <label style={{ display: 'block', fontSize: 14, fontWeight: 600, color: 'var(--text-2)', marginBottom: 6 }}>
+          选择档案
+        </label>
+        <select
+          value={selectedModelProfileId}
+          onChange={(event) => setModelProfileId(event.target.value)}
+          style={{
+            width: '100%',
+            padding: '10px 12px',
+            borderRadius: 8,
+            border: '1px solid var(--border)',
+            background: 'var(--bg-1)',
+            color: 'var(--text-1)',
+            outline: 'none',
+            fontSize: 14,
+          }}
+        >
+          <option value="">不绑定模型档案</option>
+          {availableProfiles.map((profile) => (
+            <option key={profile.id} value={profile.id}>
+              {profile.name}{profile.is_default ? '（默认）' : ''}
+            </option>
+          ))}
+        </select>
+        {availableProfiles.length === 0 && (
+          <div style={{ marginTop: 8, fontSize: 13, color: 'var(--text-3)' }}>
+            当前运行时暂无可用模型档案，可先到设置页新增。
+          </div>
+        )}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{ height: 34, padding: '0 14px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-0)', color: 'var(--text-2)', cursor: 'pointer' }}
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={saving}
+            style={{ height: 34, padding: '0 14px', borderRadius: 8, border: '1px solid var(--blue)', background: 'var(--blue)', color: '#fff', cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.65 : 1 }}
+          >
+            {saving ? '保存中...' : '保存'}
+          </button>
+        </div>
       </div>
     </>
   )
