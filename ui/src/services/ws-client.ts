@@ -30,9 +30,9 @@ class WSClient {
       }
     }
 
-    this.ws.onclose = () => {
+    this.ws.onclose = (event) => {
       this._connected = false
-      this.emit('connection', { connected: false })
+      this.emit('connection', { connected: false, code: event.code, reason: event.reason })
       if (!this.intentionalClose) {
         this.reconnectTimer = setTimeout(() => this.reconnect(), 3000)
       }

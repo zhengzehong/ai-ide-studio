@@ -58,6 +58,25 @@ describe('HTTP MCP tool platform', () => {
       await clientB.close()
     }
   })
+
+  test('keeps MCP bearer-token auth separate from local access token guard', async () => {
+    await startTestGateway('local-secret')
+    seedBuiltin('core.task.list', listHandler)
+    const token = createToolContext({ sessionId: 'sess-local-token', agentId: 'agent-a', visibleTools: ['core.task.list'] }).token
+
+    const health = await fetch(`${baseUrl()}/health`)
+    expect(health.status).toBe(401)
+
+    const workspace = await fetch(`${baseUrl()}/workspace`)
+    expect(workspace.status).not.toBe(401)
+
+    const client = await connectClient(token)
+    try {
+      expect((await client.listTools()).tools.map(tool => tool.name)).toEqual(['core.task.list'])
+    } finally {
+      await client.close()
+    }
+  })
 })
 
 const listHandler: ToolHandler = {
@@ -78,8 +97,8 @@ const createHandler: ToolHandler = {
   },
 }
 
-async function startTestGateway(): Promise<void> {
-  const handle: GatewayHandle = await startGateway({ port: 0, dataDir: tmp })
+async function startTestGateway(localToken?: string): Promise<void> {
+  const handle: GatewayHandle = await startGateway({ port: 0, dataDir: tmp, localToken })
   server = handle.server
   wss = handle.wss
 }

@@ -11,6 +11,7 @@ import SkillCenter from './pages/SkillCenter'
 import ToolManager from './pages/ToolManager'
 import Settings from './pages/Settings'
 import WidgetPage from './pages/Widget'
+import AccessTokenPage from './pages/AccessTokenPage'
 import { useConnectionStore } from './stores/connection.store'
 import { useAgentStore } from './stores/agent.store'
 import { useSessionStore } from './stores/session.store'
@@ -27,6 +28,7 @@ import { useTimelineStore } from './stores/timeline.store'
 export default function App() {
   const init = useConnectionStore((s) => s.init)
   const connected = useConnectionStore((s) => s.connected)
+  const authRequired = useConnectionStore((s) => s.authRequired)
   const listenersReady = useRef(false)
 
   useEffect(() => {
@@ -66,7 +68,9 @@ export default function App() {
     }
   }, [connected])
 
-  return (
+  return authRequired ? (
+    <AccessTokenPage />
+  ) : (
     <BrowserRouter>
       <Routes>
         <Route path="/widget" element={<WidgetPage />} />
