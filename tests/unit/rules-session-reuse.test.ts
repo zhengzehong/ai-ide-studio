@@ -50,6 +50,34 @@ describe('rule session reuse', () => {
     expect(taskStore.listSessionIds(task.id)).toEqual([session.id])
   })
 
+  test('scheduled create_task new_fixed stores and reuses the first created session', async () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const agent = agentStore.create({ name: 'Agent', type: 'dev', runtime: 'mock', projectId: project.id })
+    const rule = ruleStore.create({
+      name: 'Fixed task',
+      cron: '* * * * *',
+      action: 'create_task',
+      projectId: project.id,
+      actionConfig: {
+        title: 'Scheduled fixed',
+        assign_agent_id: agent.id,
+        session_mode: 'new_fixed',
+      },
+    })
+
+    await ruleEngine.runNow(rule.id)
+    const storedAfterFirst = ruleStore.get(rule.id)
+    const fixedSessionId = storedAfterFirst?.action_config.session_id
+    expect(fixedSessionId).toBeTruthy()
+
+    await ruleEngine.runNow(rule.id)
+
+    const tasks = taskStore.list(undefined, project.id)
+    expect(tasks).toHaveLength(2)
+    expect(tasks.map((task) => taskStore.listSessionIds(task.id))).toEqual([[fixedSessionId], [fixedSessionId]])
+    expect(ruleStore.get(rule.id)?.action_config.session_id).toBe(fixedSessionId)
+  })
+
   test('scheduled send_prompt rejects sessions outside target agent', async () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const targetAgent = agentStore.create({ name: 'Target', type: 'dev', runtime: 'mock', projectId: project.id })
@@ -71,5 +99,27 @@ describe('rule session reuse', () => {
 
     const updated = ruleStore.get(rule.id)
     expect(updated?.fail_count).toBe(1)
+  })
+
+  test('scheduled send_prompt new_fixed stores the created session target', async () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const targetAgent = agentStore.create({ name: 'Target', type: 'dev', runtime: 'mock', projectId: project.id })
+    const rule = ruleStore.create({
+      name: 'Fixed prompt',
+      cron: '* * * * *',
+      action: 'send_prompt',
+      projectId: project.id,
+      actionConfig: {
+        prompt: 'hello',
+        agent_id: targetAgent.id,
+        session_mode: 'new_fixed',
+      },
+    })
+
+    await ruleEngine.runNow(rule.id)
+
+    const fixedSessionId = ruleStore.get(rule.id)?.action_config.session_id
+    expect(fixedSessionId).toBeTruthy()
+    expect(sessionStore.get(fixedSessionId!)).toMatchObject({ agent_id: targetAgent.id, project_id: project.id })
   })
 })

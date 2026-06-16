@@ -70,7 +70,7 @@ ws://localhost:18800
 | 方法 | 参数 | 返回 | 说明 |
 |------|------|------|------|
 | `tasks.list` | `{ status?, projectId? }` | `Task[]` | 列出任务，可按项目过滤 |
-| `tasks.create` | `{ title, description?, assignAgentId?, projectId? }` | `Task` | 创建任务 |
+| `tasks.create` | `{ title, description?, assignAgentId?, projectId?, sessionMode?, sessionId? }` | `Task` | 创建任务；`sessionMode` 支持 `existing` / `new_each` / `new_fixed`，旧版仅传 `sessionId` 时按 `existing` 兼容 |
 | `tasks.update` | `{ taskId, status?, stage? }` | `Task` | 更新任务状态 |
 
 ### 事件中心
@@ -107,7 +107,7 @@ ws://localhost:18800
 | 方法 | 参数 | 返回 | 说明 |
 |------|------|------|------|
 | `rules.list` | — | `Rule[]` | 列出所有规则 |
-| `rules.create` | `{ name, cron, action, actionConfig }` | `Rule` | 创建规则 |
+| `rules.create` | `{ name, cron, action, actionConfig }` | `Rule` | 创建规则；`actionConfig.session_mode/session_id` 支持定时任务或定时 Prompt 的 `existing` / `new_each` / `new_fixed` 会话策略 |
 | `rules.update` | `{ ruleId, enabled?, ... }` | `Rule` | 更新规则 |
 | `rules.delete` | `{ ruleId }` | `void` | 删除规则 |
 

@@ -38,6 +38,7 @@ export interface CreateTaskInput {
   ruleName?: string
   promptTemplate?: string
   sessionId?: string
+  sessionMode?: 'existing' | 'new_each' | 'new_fixed'
 }
 
 export interface UpdateTaskInput {

@@ -5,13 +5,16 @@ async function executeCreateTask(
   context: ToolContext,
   legacy = false,
 ): Promise<ToolHandlerResult> {
-  const { taskManager } = await import('../../core/tasks.js')
+  const { resolveSessionMode, taskManager } = await import('../../core/tasks.js')
+  const sessionId = optionalString(input, 'sessionId')
   const task = await taskManager.createTask({
     title: requireString(input, 'title'),
     description: optionalString(input, 'description'),
     source: 'agent',
     assignAgentId: optionalString(input, 'assignAgentId'),
     projectId: context.projectId ?? optionalString(input, 'projectId'),
+    sessionId,
+    sessionMode: resolveSessionMode(input.sessionMode, sessionId),
   })
   const output = legacy ? { taskId: task.id, title: task.title, status: task.status } : { task }
   return {
@@ -26,6 +29,8 @@ const createTaskSchema = {
     description: { type: 'string' },
     assignAgentId: { type: 'string' },
     projectId: { type: 'string' },
+    sessionMode: { type: 'string', enum: ['existing', 'new_each', 'new_fixed'] },
+    sessionId: { type: 'string' },
   },
   required: ['title'],
 }

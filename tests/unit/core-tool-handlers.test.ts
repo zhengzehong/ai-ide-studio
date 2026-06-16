@@ -270,6 +270,41 @@ describe('core MCP tool handlers', () => {
     expect(storedPromptRule?.action_config).toMatchObject({ agent_id: agent.id, session_id: session.id })
   })
 
+  test('studio.schedule.create stores explicit session mode for scheduled tasks and prompts', async () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const agent = agentStore.create({ name: 'Scheduler', type: 'dev', runtime: 'mock', projectId: project.id })
+
+    const taskRule = await executeJson(
+      'studio.schedule.create',
+      {
+        name: 'Task fixed',
+        cron: '0 9 * * *',
+        action: 'create_task',
+        taskTitle: 'Daily task',
+        assignAgentId: agent.id,
+        sessionMode: 'new_fixed',
+      },
+      { projectId: project.id },
+    )
+    const storedTaskRule = ruleStore.get(taskRule.ruleId as string)
+    expect(storedTaskRule?.action_config).toMatchObject({ assign_agent_id: agent.id, session_mode: 'new_fixed' })
+
+    const promptRule = await executeJson(
+      'studio.schedule.create',
+      {
+        name: 'Prompt fixed',
+        cron: '0 10 * * *',
+        action: 'send_prompt',
+        prompt: 'daily check',
+        agentId: agent.id,
+        sessionMode: 'new_fixed',
+      },
+      { projectId: project.id },
+    )
+    const storedPromptRule = ruleStore.get(promptRule.ruleId as string)
+    expect(storedPromptRule?.action_config).toMatchObject({ agent_id: agent.id, session_mode: 'new_fixed' })
+  })
+
   test('studio.schedule.update stores explicit session target', async () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const agent = agentStore.create({ name: 'Scheduler', type: 'dev', runtime: 'mock', projectId: project.id })

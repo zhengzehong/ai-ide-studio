@@ -129,6 +129,31 @@ describe('builtin tool seed synchronization', () => {
       : {}
     const createAgentProperties = asRecord(createAgentSchema.properties)
     expect(createAgentProperties.modelProfileId).toMatchObject({ type: 'string' })
+
+    const eventSubscription = toolStore.getByName('event.subscription.create')
+    const eventSubscriptionSchema = eventSubscription?.input_schema_json
+      ? JSON.parse(eventSubscription.input_schema_json) as Record<string, unknown>
+      : {}
+    const eventSubscriptionProperties = asRecord(eventSubscriptionSchema.properties)
+    expect(eventSubscriptionProperties.autoStart).toMatchObject({ type: 'boolean' })
+    expect(eventSubscriptionProperties.consumerSessionMode).toMatchObject({ enum: ['existing', 'new_each', 'new_fixed'] })
+    expect(eventSubscriptionProperties.consumerSessionId).toMatchObject({ type: 'string' })
+
+    const studioTaskCreate = toolStore.getByName('studio.task.create')
+    const studioTaskCreateSchema = studioTaskCreate?.input_schema_json
+      ? JSON.parse(studioTaskCreate.input_schema_json) as Record<string, unknown>
+      : {}
+    const studioTaskCreateProperties = asRecord(studioTaskCreateSchema.properties)
+    expect(studioTaskCreateProperties.sessionMode).toMatchObject({ enum: ['existing', 'new_each', 'new_fixed'] })
+    expect(studioTaskCreateProperties.sessionId).toMatchObject({ type: 'string' })
+
+    const studioScheduleCreate = toolStore.getByName('studio.schedule.create')
+    const studioScheduleCreateSchema = studioScheduleCreate?.input_schema_json
+      ? JSON.parse(studioScheduleCreate.input_schema_json) as Record<string, unknown>
+      : {}
+    const studioScheduleCreateProperties = asRecord(studioScheduleCreateSchema.properties)
+    expect(studioScheduleCreateProperties.sessionMode).toMatchObject({ enum: ['existing', 'new_each', 'new_fixed'] })
+    expect(studioScheduleCreateProperties.sessionId).toMatchObject({ type: 'string' })
   })
 
   test('removes stale global team tool bindings when reseeding', () => {
