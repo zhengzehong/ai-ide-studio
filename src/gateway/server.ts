@@ -66,7 +66,7 @@ function mountLocalTokenGuard(app: Hono, config: AppConfig): void {
 }
 
 function isAssetRequest(path: string): boolean {
-  return path === '/' || path.startsWith('/assets/') || path === '/favicon.svg' || path === '/icons.svg' || path.startsWith('/app/')
+  return !path.startsWith('/api/') && path !== '/health'
 }
 
 function isWsAuthorized(req: { url?: string; headers: { [key: string]: string | string[] | undefined } }, config: AppConfig): boolean {
