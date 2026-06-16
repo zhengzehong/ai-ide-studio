@@ -3,6 +3,7 @@ import {
   getStoredAccessToken,
   isUnauthorizedClose,
   resolveWsUrl,
+  setConnectionClientForTest,
   storeAccessToken,
   useConnectionStore,
 } from '../../ui/src/stores/connection.store'
@@ -10,8 +11,10 @@ import {
 describe('PC connection auth', () => {
   beforeEach(() => {
     vi.stubGlobal('localStorage', createMemoryStorage())
+    vi.stubGlobal('window', { location: new URL('http://localhost:18900/workspace') })
     localStorage.clear()
     useConnectionStore.setState({ connected: false, authRequired: false, authError: null, token: '' })
+    setConnectionClientForTest(null)
   })
 
   test('keeps websocket URL token-free when no token is available', () => {
@@ -39,6 +42,25 @@ describe('PC connection auth', () => {
     expect(isUnauthorizedClose(1008, '未授权')).toBe(true)
     expect(isUnauthorizedClose(1008, '乱码reason')).toBe(true)
     expect(isUnauthorizedClose(1008, 'Unauthorized')).toBe(true)
+  })
+
+  test('stops automatic websocket reconnects after unauthorized close', () => {
+    let connectionHandler: ((msg: Record<string, unknown>) => void) | undefined
+    const client = {
+      connect: vi.fn(),
+      disconnect: vi.fn(),
+      on: vi.fn((event: string, handler: (msg: Record<string, unknown>) => void) => {
+        if (event === 'connection') connectionHandler = handler
+        return () => undefined
+      }),
+    }
+    setConnectionClientForTest(client)
+
+    useConnectionStore.getState().init()
+    connectionHandler?.({ connected: false, code: 1008, reason: '未授权' })
+
+    expect(client.disconnect).toHaveBeenCalledTimes(1)
+    expect(useConnectionStore.getState().authRequired).toBe(true)
   })
 })
 
