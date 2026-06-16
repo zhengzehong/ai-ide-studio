@@ -7,10 +7,18 @@ import { createChildLogger } from './logger.js'
 
 const log = createChildLogger('task')
 
+export type AgentSessionMode = 'existing' | 'new_each' | 'new_fixed'
+
 export const taskManager = {
   async createTask(input: CreateTaskInput) {
     if (!input.title?.trim()) throw new Error('任务标题不能为空')
-    validateTaskAssignment(input.assignAgentId, input.projectId, input.sessionId)
+    const sessionMode = resolveSessionMode(input.sessionMode, input.sessionId)
+    validateSessionModeTarget(sessionMode, input.sessionId)
+    validateTaskAssignment(
+      input.assignAgentId,
+      input.projectId,
+      sessionMode === 'existing' || (sessionMode === 'new_fixed' && input.sessionId) ? input.sessionId : undefined,
+    )
     const task = taskStore.create(input)
     log.info({ taskId: task.id, title: task.title, agentId: input.assignAgentId }, '任务已创建')
 
@@ -21,10 +29,14 @@ export const taskManager = {
 
     if (input.assignAgentId) {
       try {
-        const sessionReuse = !!input.sessionId
-        const session = input.sessionId
-          ? { id: input.sessionId }
-          : await sessionManager.createSession(input.assignAgentId, task.id, input.projectId)
+        const session = await resolveTaskSession({
+          agentId: input.assignAgentId,
+          projectId: input.projectId,
+          taskId: task.id,
+          sessionId: input.sessionId,
+          sessionMode,
+        })
+        const sessionReuse = session.reuse
         log.info({ taskId: task.id, sessionId: session.id, agentId: input.assignAgentId, reuse: sessionReuse }, '任务已分派')
 
         taskStore.updateStatus(task.id, 'executing', '已分派给 Agent')
@@ -44,7 +56,7 @@ export const taskManager = {
           { id: task.id, title: task.title, description: task.description, source: task.source },
           { sessionReuse, ruleName: input.ruleName },
         )
-        sessionManager.sendPrompt(session.id, prompt).catch((err) => {
+        sessionManager.enqueuePrompt(session.id, prompt).catch((err) => {
           log.error({ err, taskId: task.id, sessionId: session.id }, '任务 prompt 发送失败')
           taskStore.updateStatus(task.id, 'blocked', `执行失败: ${(err as Error).message}`)
           events.emit('task:update', {
@@ -89,6 +101,38 @@ export const taskManager = {
 
     return updated
   },
+}
+
+export function resolveSessionMode(mode: unknown, sessionId?: string): AgentSessionMode {
+  if (mode === 'existing' || mode === 'new_each' || mode === 'new_fixed') return mode
+  return sessionId ? 'existing' : 'new_each'
+}
+
+export function validateSessionModeTarget(mode: AgentSessionMode, sessionId?: string): void {
+  if (mode === 'existing' && !sessionId) throw new Error('existing session mode requires sessionId')
+}
+
+export async function resolveTaskSession(input: {
+  agentId: string
+  projectId?: string | null
+  taskId?: string
+  sessionId?: string
+  sessionMode?: AgentSessionMode
+}): Promise<{ id: string; reuse: boolean }> {
+  const mode = input.sessionMode ?? resolveSessionMode(undefined, input.sessionId)
+  validateSessionModeTarget(mode, input.sessionId)
+  if (mode === 'existing') {
+    const sessionId = input.sessionId
+    if (!sessionId) throw new Error('existing session mode requires sessionId')
+    validateTaskAssignment(input.agentId, input.projectId, sessionId)
+    return { id: sessionId, reuse: true }
+  }
+  if (mode === 'new_fixed' && input.sessionId) {
+    validateTaskAssignment(input.agentId, input.projectId, input.sessionId)
+    return { id: input.sessionId, reuse: true }
+  }
+  const session = await sessionManager.createSession(input.agentId, input.taskId, input.projectId ?? undefined)
+  return { id: session.id, reuse: false }
 }
 
 export function validateTaskAssignment(

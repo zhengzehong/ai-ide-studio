@@ -276,6 +276,8 @@ watch 监听 `session:done`，触发后后台唤醒 `watcher_session_id`。如�
 | created_at | TEXT | 创建时间 |
 | completed_at | TEXT | 完成时间 |
 
+任务自身不持久化会话策略；创建或指派任务时的 `sessionMode/sessionId` 只用于本次投递，实际会话关联仍通过 `task_events` 的 `session_linked` 事件记录。
+
 ### event_categories
 
 事件类别支持全局和项目两种作用域：`project_id` 为空表示全局类别，`scope_key` 固定为 `__global__`；项目类别的 `project_id` 和 `scope_key` 都使用项目 ID。同一作用域内 `(scope_key, id)` 唯一。项目页面读取类别时返回“全局类别 + 当前项目类别”，同名类别由项目类别覆盖全局类别。事件和订阅只保存 `category_id`，运行时按 `project_id` 先解析项目类别，再回退全局类别。
@@ -444,6 +446,8 @@ watch 监听 `session:done`，触发后后台唤醒 `watcher_session_id`。如�
 | last_run_at | TEXT | 上次执行时间 |
 | next_run_at | TEXT | 下次执行时间 |
 | run_count | INTEGER | 执行次数 |
+
+定时规则的会话策略保存在 `action_config.session_mode` 与 `action_config.session_id`。`new_fixed` 首次执行会创建会话并把生成的 `session_id` 写回 `action_config`，后续触发继续复用；`existing` 必须指向已存在且属于目标 Agent/Project 的会话；`new_each` 每次触发创建新会话。
 
 ### tools
 

@@ -5,6 +5,14 @@ import { useAgentStore } from '../stores/agent.store';
 import { useSessionStore, type SessionData } from '../stores/session.store';
 import { useProjectStore } from '../stores/project.store';
 
+type SessionMode = 'existing' | 'new_each' | 'new_fixed';
+
+const SESSION_MODE_OPTIONS: Array<{ value: SessionMode; label: string }> = [
+  { value: 'new_fixed', label: '固定新会话' },
+  { value: 'new_each', label: '每次新会话' },
+  { value: 'existing', label: '指定已有会话' },
+];
+
 const CRON_TEMPLATES = [
   { label: '每分钟', cron: '* * * * *' },
   { label: '每30分钟', cron: '*/30 * * * *' },
@@ -228,6 +236,7 @@ function RuleModal({ editRule, onClose }: { editRule: RuleData | null; onClose: 
   const [taskTitle, setTaskTitle] = useState((editRule?.action_config?.title as string) ?? '');
   const [taskDesc, setTaskDesc] = useState((editRule?.action_config?.description as string) ?? '');
   const [assignAgentId, setAssignAgentId] = useState((editRule?.action_config?.assign_agent_id as string) ?? '');
+  const [sessionMode, setSessionMode] = useState<SessionMode>(readSessionMode(editRule?.action_config));
   const [sessionId, setSessionId] = useState((editRule?.action_config?.session_id as string) ?? '');
   const [prompt, setPrompt] = useState((editRule?.action_config?.prompt as string) ?? '');
   const [targetAgentId, setTargetAgentId] = useState((editRule?.action_config?.agent_id as string) ?? '');
@@ -257,12 +266,13 @@ function RuleModal({ editRule, onClose }: { editRule: RuleData | null; onClose: 
     if (action === 'create_task' && !taskTitle.trim()) errs.taskTitle = '请输入任务标题';
     if (action === 'send_prompt' && !prompt.trim()) errs.prompt = '请输入 Prompt 内容';
     if (action === 'send_prompt' && !targetAgentId) errs.targetAgentId = '请选择目标 Agent';
+    if (selectedAgentId && sessionMode === 'existing' && !sessionId) errs.sessionId = '请选择已有会话';
     if (Object.keys(errs).length > 0) { setErrors(errs); return; }
 
-    const reusableSessionId = selectedAgentId ? sessionId || undefined : undefined;
+    const reusableSessionId = selectedAgentId && (sessionMode === 'existing' || sessionMode === 'new_fixed') ? sessionId || undefined : undefined;
     const actionConfig: Record<string, unknown> = action === 'create_task'
-      ? { title: taskTitle.trim(), description: taskDesc.trim() || undefined, assign_agent_id: assignAgentId || undefined, session_id: reusableSessionId }
-      : { prompt: prompt.trim(), agent_id: targetAgentId, session_id: reusableSessionId };
+      ? { title: taskTitle.trim(), description: taskDesc.trim() || undefined, assign_agent_id: assignAgentId || undefined, session_mode: selectedAgentId ? sessionMode : undefined, session_id: reusableSessionId }
+      : { prompt: prompt.trim(), agent_id: targetAgentId, session_mode: sessionMode, session_id: reusableSessionId };
 
     if (isEdit) {
       await updateRule(editRule!.id, {
@@ -346,17 +356,20 @@ function RuleModal({ editRule, onClose }: { editRule: RuleData | null; onClose: 
               </div>
               <div>
                 <label style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-2)', marginBottom: 4, display: 'block' }}>指派 Agent</label>
-                <select value={assignAgentId} onChange={e => { setAssignAgentId(e.target.value); setSessionId(''); }} style={st}>
+                <select value={assignAgentId} onChange={e => { setAssignAgentId(e.target.value); setSessionMode('new_fixed'); setSessionId(''); }} style={st}>
                   <option value="">不指派</option>
                   {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                 </select>
               </div>
               {assignAgentId && (
                 <SessionTargetSelect
-                  value={sessionId}
+                  mode={sessionMode}
+                  sessionId={sessionId}
                   sessions={targetSessions}
-                  onChange={setSessionId}
+                  onModeChange={(value) => { setSessionMode(value); setSessionId(''); }}
+                  onSessionChange={setSessionId}
                   inputStyle={st}
+                  error={errors.sessionId}
                 />
               )}
             </>
@@ -366,7 +379,7 @@ function RuleModal({ editRule, onClose }: { editRule: RuleData | null; onClose: 
             <>
               <div>
                 <label style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-2)', marginBottom: 4, display: 'block' }}>目标 Agent *</label>
-                <select value={targetAgentId} onChange={e => { setTargetAgentId(e.target.value); setSessionId(''); }} style={{ ...st, borderColor: errors.targetAgentId ? 'var(--red)' : 'var(--border)' }}>
+                <select value={targetAgentId} onChange={e => { setTargetAgentId(e.target.value); setSessionMode('new_fixed'); setSessionId(''); }} style={{ ...st, borderColor: errors.targetAgentId ? 'var(--red)' : 'var(--border)' }}>
                   <option value="">请选择 Agent</option>
                   {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                 </select>
@@ -374,10 +387,13 @@ function RuleModal({ editRule, onClose }: { editRule: RuleData | null; onClose: 
               </div>
               {targetAgentId && (
                 <SessionTargetSelect
-                  value={sessionId}
+                  mode={sessionMode}
+                  sessionId={sessionId}
                   sessions={targetSessions}
-                  onChange={setSessionId}
+                  onModeChange={(value) => { setSessionMode(value); setSessionId(''); }}
+                  onSessionChange={setSessionId}
                   inputStyle={st}
+                  error={errors.sessionId}
                 />
               )}
               <div>
@@ -411,26 +427,47 @@ function RuleModal({ editRule, onClose }: { editRule: RuleData | null; onClose: 
   );
 }
 
-function SessionTargetSelect({ value, sessions, onChange, inputStyle }: {
-  value: string;
+function SessionTargetSelect({ mode, sessionId, sessions, onModeChange, onSessionChange, inputStyle, error }: {
+  mode: SessionMode;
+  sessionId: string;
   sessions: SessionData[];
-  onChange: (value: string) => void;
+  onModeChange: (value: SessionMode) => void;
+  onSessionChange: (value: string) => void;
   inputStyle: CSSProperties;
+  error?: string;
 }) {
   return (
     <div>
       <label style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-2)', marginBottom: 4, display: 'block' }}>会话目标</label>
-      <select value={value} onChange={e => onChange(e.target.value)} style={inputStyle}>
-        <option value="">每次新建会话（默认）</option>
-        {sessions.map(session => (
-          <option key={session.id} value={session.id}>{sessionLabel(session)}</option>
-        ))}
+      <select value={mode} onChange={e => onModeChange(e.target.value as SessionMode)} style={inputStyle}>
+        {SESSION_MODE_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
       </select>
+      {mode === 'existing' && (
+        <select value={sessionId} onChange={e => onSessionChange(e.target.value)} style={{ ...inputStyle, marginTop: 8, borderColor: error ? 'var(--red)' : inputStyle.borderColor }}>
+          <option value="">请选择已有会话</option>
+          {sessions.map(session => (
+            <option key={session.id} value={session.id}>{sessionLabel(session)}</option>
+          ))}
+        </select>
+      )}
       <div style={{ fontSize: 13, color: 'var(--text-3)', marginTop: 2 }}>
-        {value ? '触发时会复用该会话。' : '触发时会创建新的会话。'}
+        {sessionModeDescription(mode, Boolean(sessionId))}
       </div>
+      {error && <div style={{ fontSize: 13, color: 'var(--red)', marginTop: 2 }}>{error}</div>}
     </div>
   );
+}
+
+function readSessionMode(actionConfig?: Record<string, unknown>): SessionMode {
+  const mode = actionConfig?.session_mode
+  if (mode === 'existing' || mode === 'new_each' || mode === 'new_fixed') return mode
+  return typeof actionConfig?.session_id === 'string' && actionConfig.session_id ? 'existing' : 'new_each'
+}
+
+function sessionModeDescription(mode: SessionMode, hasSession: boolean): string {
+  if (mode === 'existing') return hasSession ? '触发时会复用该会话。' : '请选择一个已有会话。'
+  if (mode === 'new_fixed') return '首次触发会创建固定会话，后续触发继续复用。'
+  return '每次触发都会创建新的会话。'
 }
 
 function sessionLabel(session: SessionData): string {

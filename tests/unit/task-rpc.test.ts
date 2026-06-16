@@ -83,6 +83,21 @@ describe('task RPC handlers', () => {
     expect(taskStore.list(undefined, projectA.id)).toEqual([])
   })
 
+  test('tasks.create rejects explicit existing mode without session before creating a task', async () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const agent = agentStore.create({ name: 'Target', type: 'dev', runtime: 'mock', projectId: project.id })
+
+    await expect(callTaskRpc('tasks.create', {
+      type: 'tasks.create',
+      title: 'Missing session',
+      projectId: project.id,
+      assignAgentId: agent.id,
+      sessionMode: 'existing',
+    })).rejects.toThrow('existing session mode requires sessionId')
+
+    expect(taskStore.list(undefined, project.id)).toEqual([])
+  })
+
   test('tasks.create keeps reused session visible after task list reload', async () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const agent = agentStore.create({ name: 'Target', type: 'dev', runtime: 'mock', projectId: project.id })
@@ -105,6 +120,25 @@ describe('task RPC handlers', () => {
 
     expect(listed).toHaveLength(1)
     expect(listed[0]).toMatchObject({ id: created.id, sessionId: existingSession.id })
+  })
+
+  test('tasks.create treats explicit new_each as a fresh session even when sessionId is present', async () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const agent = agentStore.create({ name: 'Target', type: 'dev', runtime: 'mock', projectId: project.id })
+    const existingSession = sessionStore.create({ agentId: agent.id, projectId: project.id })
+
+    const created = await callTaskRpc('tasks.create', {
+      type: 'tasks.create',
+      title: 'Fresh task',
+      projectId: project.id,
+      assignAgentId: agent.id,
+      sessionMode: 'new_each',
+      sessionId: existingSession.id,
+    }) as Record<string, unknown>
+
+    expect(created.sessionId).toBeTruthy()
+    expect(created.sessionId).not.toBe(existingSession.id)
+    expect(taskStore.listSessionIds(created.id as string)).toEqual([created.sessionId])
   })
 
   test('tasks.assign keeps reused session visible in task detail', async () => {
@@ -130,6 +164,42 @@ describe('task RPC handlers', () => {
     expect(detail.sessions).toEqual([
       expect.objectContaining({ id: existingSession.id, agentId: agent.id }),
     ])
+  })
+
+  test('tasks.assign accepts explicit existing session mode', async () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const agent = agentStore.create({ name: 'Target', type: 'dev', runtime: 'mock', projectId: project.id })
+    const existingSession = sessionStore.create({ agentId: agent.id, projectId: project.id })
+    const task = taskStore.create({ title: 'Assign mode', projectId: project.id })
+
+    const assigned = await callTaskRpc('tasks.assign', {
+      type: 'tasks.assign',
+      taskId: task.id,
+      agentId: agent.id,
+      sessionMode: 'existing',
+      sessionId: existingSession.id,
+    }) as Record<string, unknown>
+
+    expect(assigned.sessionId).toBe(existingSession.id)
+    expect(taskStore.listSessionIds(task.id)).toEqual([existingSession.id])
+  })
+
+  test('tasks.assign rejects explicit existing mode without session before mutating the task', async () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const agent = agentStore.create({ name: 'Target', type: 'dev', runtime: 'mock', projectId: project.id })
+    const task = taskStore.create({ title: 'Assign missing session', projectId: project.id })
+
+    await expect(callTaskRpc('tasks.assign', {
+      type: 'tasks.assign',
+      taskId: task.id,
+      agentId: agent.id,
+      sessionMode: 'existing',
+    })).rejects.toThrow('existing session mode requires sessionId')
+
+    const updated = taskStore.get(task.id)
+    expect(updated?.assigned_agent_id).toBeNull()
+    expect(updated?.status).toBe('backlog')
+    expect(taskStore.listSessionIds(task.id)).toEqual([])
   })
 })
 

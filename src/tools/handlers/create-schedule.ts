@@ -1,6 +1,7 @@
 import type { ToolHandler } from '../types.js'
 import { getNextRunTime } from '../../core/cron.js'
 import { events } from '../../core/events.js'
+import { resolveSessionMode } from '../../core/tasks.js'
 
 export const createScheduleHandler: ToolHandler = {
   name: 'create_schedule',
@@ -13,6 +14,7 @@ export const createScheduleHandler: ToolHandler = {
       taskTitle: { type: 'string' },
       taskDescription: { type: 'string' },
       assignAgentId: { type: 'string' },
+      sessionMode: { type: 'string', enum: ['existing', 'new_each', 'new_fixed'] },
       sessionId: { type: 'string' },
     },
     required: ['name', 'cron', 'taskTitle'],
@@ -33,6 +35,7 @@ export const createScheduleHandler: ToolHandler = {
         title: input.taskTitle as string,
         description: input.taskDescription as string | undefined,
         assign_agent_id: input.assignAgentId as string | undefined,
+        session_mode: resolveSessionMode(input.sessionMode, input.sessionId as string | undefined),
         session_id: input.sessionId as string | undefined,
       },
       enabled: true,

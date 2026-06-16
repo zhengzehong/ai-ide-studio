@@ -17,6 +17,8 @@ export interface TaskData {
   sessionId?: string
 }
 
+export type SessionMode = 'existing' | 'new_each' | 'new_fixed'
+
 export function mergeTaskById(tasks: TaskData[], incoming: TaskData): TaskData[] {
   const existingIndex = tasks.findIndex((task) => task.id === incoming.id)
   if (existingIndex < 0) return [incoming, ...tasks]
@@ -27,11 +29,11 @@ interface TaskStore {
   tasks: TaskData[]
   loading: boolean
   fetchTasks: (projectId?: string) => Promise<void>
-  createTask: (title: string, description?: string, assignAgentId?: string, projectId?: string, sessionId?: string) => Promise<TaskData>
+  createTask: (title: string, description?: string, assignAgentId?: string, projectId?: string, sessionId?: string, sessionMode?: SessionMode) => Promise<TaskData>
   updateTask: (taskId: string, status: string, stage?: string) => Promise<TaskData>
   updateTaskInfo: (taskId: string, fields: { title?: string; description?: string }) => Promise<TaskData>
   deleteTask: (taskId: string) => Promise<void>
-  assignTask: (taskId: string, agentId: string, sessionId?: string) => Promise<TaskData>
+  assignTask: (taskId: string, agentId: string, sessionId?: string, sessionMode?: SessionMode) => Promise<TaskData>
   setupListeners: () => () => void
 }
 
@@ -51,12 +53,13 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     }
   },
 
-  createTask: async (title, description, assignAgentId, projectId, sessionId) => {
+  createTask: async (title, description, assignAgentId, projectId, sessionId, sessionMode) => {
     const msg: Record<string, unknown> = { type: 'tasks.create', title }
     if (description) msg.description = description
     if (assignAgentId) msg.assignAgentId = assignAgentId
     if (projectId) msg.projectId = projectId
     if (sessionId) msg.sessionId = sessionId
+    if (sessionMode) msg.sessionMode = sessionMode
     const task = (await wsClient.request(msg)) as TaskData
     set({ tasks: mergeTaskById(get().tasks, task) })
     return task
@@ -84,9 +87,10 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     set({ tasks: get().tasks.filter((t) => t.id !== taskId) })
   },
 
-  assignTask: async (taskId, agentId, sessionId) => {
+  assignTask: async (taskId, agentId, sessionId, sessionMode) => {
     const msg: Record<string, unknown> = { type: 'tasks.assign', taskId, agentId }
     if (sessionId) msg.sessionId = sessionId
+    if (sessionMode) msg.sessionMode = sessionMode
     const task = (await wsClient.request(msg)) as TaskData
     set({ tasks: get().tasks.map((t) => (t.id === taskId ? { ...t, ...task } : t)) })
     return task

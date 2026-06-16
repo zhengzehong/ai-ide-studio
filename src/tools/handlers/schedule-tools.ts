@@ -3,6 +3,7 @@ import { ruleStore } from '../../store/rules.js'
 import { ruleExecutionStore } from '../../store/rule-executions.js'
 import { getNextRunTime, matchCron } from '../../core/cron.js'
 import { events } from '../../core/events.js'
+import { resolveSessionMode } from '../../core/tasks.js'
 
 function validateCronFormat(cron: string): boolean {
   const fields = cron.trim().split(/\s+/)
@@ -44,6 +45,7 @@ export const scheduleCreateHandler: ToolHandler = {
       taskTitle: { type: 'string', description: 'action=create_task 时必填：任务标题' },
       taskDescription: { type: 'string', description: '任务描述' },
       assignAgentId: { type: 'string', description: '指派的 Agent ID' },
+      sessionMode: { type: 'string', enum: ['existing', 'new_each', 'new_fixed'], description: '会话策略：existing=指定已有会话，new_each=每次新会话，new_fixed=固定新会话' },
       sessionId: { type: 'string', description: '复用的会话 ID，不传则每次新建会话' },
       promptTemplate: { type: 'string', description: '自定义 prompt 模板' },
       prompt: { type: 'string', description: 'action=send_prompt 时必填：发送的 prompt 内容' },
@@ -70,6 +72,7 @@ export const scheduleCreateHandler: ToolHandler = {
         title: input.taskTitle,
         description: input.taskDescription,
         assign_agent_id: input.assignAgentId,
+        session_mode: resolveSessionMode(input.sessionMode, input.sessionId as string | undefined),
         session_id: input.sessionId,
         prompt_template: input.promptTemplate,
       }
@@ -80,6 +83,7 @@ export const scheduleCreateHandler: ToolHandler = {
       actionConfig = {
         prompt: input.prompt,
         agent_id: input.agentId,
+        session_mode: resolveSessionMode(input.sessionMode, input.sessionId as string | undefined),
         session_id: input.sessionId,
       }
     }
@@ -162,6 +166,7 @@ export const scheduleUpdateHandler: ToolHandler = {
       taskTitle: { type: 'string' },
       taskDescription: { type: 'string' },
       assignAgentId: { type: 'string' },
+      sessionMode: { type: 'string', enum: ['existing', 'new_each', 'new_fixed'] },
       sessionId: { type: 'string' },
       maxRuns: { type: 'number' },
     },
@@ -180,13 +185,15 @@ export const scheduleUpdateHandler: ToolHandler = {
     if (input.cron !== undefined) fields.cron = (input.cron as string).trim()
     if (input.enabled !== undefined) fields.enabled = input.enabled
     if (input.maxRuns !== undefined) fields.max_runs = input.maxRuns
-    if (input.taskTitle !== undefined || input.taskDescription !== undefined || input.assignAgentId !== undefined || input.sessionId !== undefined) {
+    if (input.taskTitle !== undefined || input.taskDescription !== undefined || input.assignAgentId !== undefined || input.sessionMode !== undefined || input.sessionId !== undefined) {
       const rule = ruleStore.get(ruleId)!
+      const nextSessionId = input.sessionId !== undefined ? input.sessionId as string : rule.action_config.session_id ?? undefined
       fields.action_config = {
         ...rule.action_config,
         ...(input.taskTitle !== undefined ? { title: input.taskTitle } : {}),
         ...(input.taskDescription !== undefined ? { description: input.taskDescription } : {}),
         ...(input.assignAgentId !== undefined ? { assign_agent_id: input.assignAgentId } : {}),
+        ...(input.sessionMode !== undefined ? { session_mode: resolveSessionMode(input.sessionMode, nextSessionId) } : {}),
         ...(input.sessionId !== undefined ? { session_id: input.sessionId } : {}),
       }
     }

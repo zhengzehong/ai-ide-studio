@@ -164,10 +164,6 @@ export function SubscriptionCreateModal({ open, projectId, onClose }: Props) {
             </select>
           </label>
           {projectAgents.length === 0 && <div className="ec-form-error">当前项目还没有可消费事件的 Agent，请先在 Agent 广场创建或部署 Agent。</div>}
-          <label className="ec-checkbox">
-            <input type="checkbox" checked={autoStart} onChange={(e) => setAutoStart(e.target.checked)} />
-            <span>有新事件时自动消费</span>
-          </label>
           <label className="ec-field">
             <span>消费会话</span>
             <select value={consumerSessionMode} onChange={(e) => setConsumerSessionMode(e.target.value as ConsumerSessionMode)}>
@@ -201,6 +197,10 @@ export function SubscriptionCreateModal({ open, projectId, onClose }: Props) {
           <label className="ec-checkbox">
             <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
             <span>创建后立即启用</span>
+          </label>
+          <label className="ec-checkbox">
+            <input type="checkbox" checked={autoStart} onChange={(e) => setAutoStart(e.target.checked)} />
+            <span>有新事件时自动消费</span>
           </label>
           {error && <div className="ec-form-error">{error}</div>}
         </div>

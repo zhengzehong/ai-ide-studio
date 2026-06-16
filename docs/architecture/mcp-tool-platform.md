@@ -193,11 +193,13 @@ revokedAt
 | `event.consume` | 提交消费结果 |
 | `event.convert_to_task` | 把事件转成普通任务 |
 | `event.ignore` | 忽略事件 |
-| `event.subscription.create` | 创建事件订阅规则 |
+| `event.subscription.create` | 创建事件订阅规则；可设置 `autoStart` 和 `consumerSessionMode/consumerSessionId` |
 
 `event.*` handler 只调用 `core/event-center`，工具上下文中的 `projectId` 和 `agentId` 是默认边界；模型可传的 `projectId` 只在没有会话项目上下文时作为兼容输入。
 
 `event.category.list`、`event.category.create` 和 `event.category.update` 不向 Agent 暴露 `projectId` 参数。运行时会使用 `ToolContext.projectId`：有项目上下文时操作该项目的类别，并可用项目类别覆盖同名全局类别；没有项目上下文时操作全局类别。
+
+任务和定时工具也暴露统一会话策略：`core.task.create` / `studio.task.create` / `create_task` 支持 `sessionMode/sessionId`，`create_schedule` / `studio.schedule.create` / `studio.schedule.update` 会把策略写入规则 `action_config`。`existing` 复用指定会话，`new_each` 每次新建，`new_fixed` 在可持久化的规则或订阅上首次新建后固定复用。
 
 ## 4. 目录结构建议
 

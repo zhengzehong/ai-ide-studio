@@ -1,4 +1,4 @@
-import { taskManager, buildTaskPrompt, validateTaskAssignment } from '../../core/tasks.js'
+import { taskManager, buildTaskPrompt, resolveSessionMode, resolveTaskSession, validateSessionModeTarget, validateTaskAssignment } from '../../core/tasks.js'
 import { taskStore } from '../../store/tasks.js'
 import { sessionStore, type SessionRow } from '../../store/sessions.js'
 import { events } from '../../core/events.js'
@@ -28,6 +28,7 @@ export const taskRpcHandlers: RpcHandlerMap = {
       assignAgentId: msg.assignAgentId as string | undefined,
       projectId: msg.projectId as string | undefined,
       sessionId: msg.sessionId as string | undefined,
+      sessionMode: resolveSessionMode(msg.sessionMode, msg.sessionId as string | undefined),
     })
     sendResult(task)
   },
@@ -68,19 +69,29 @@ export const taskRpcHandlers: RpcHandlerMap = {
     const taskId = msg.taskId as string
     const agentId = msg.agentId as string
     const sessionId = msg.sessionId as string | undefined
+    const sessionMode = resolveSessionMode(msg.sessionMode, sessionId)
 
     const task = taskStore.get(taskId)
     if (!task) return sendError('任务不存在')
     if (!agentId) return sendError('agentId 不能为空')
 
-    validateTaskAssignment(agentId, task.project_id, sessionId)
+    validateSessionModeTarget(sessionMode, sessionId)
+    validateTaskAssignment(
+      agentId,
+      task.project_id,
+      sessionMode === 'existing' || (sessionMode === 'new_fixed' && sessionId) ? sessionId : undefined,
+    )
     const { sessionManager } = await import('../../core/sessions.js')
 
     try {
       taskStore.assignAgent(taskId, agentId)
-      const session = sessionId
-        ? { id: sessionId }
-        : await sessionManager.createSession(agentId, taskId, task.project_id ?? undefined)
+      const session = await resolveTaskSession({
+        agentId,
+        projectId: task.project_id,
+        taskId,
+        sessionId,
+        sessionMode,
+      })
 
       taskStore.updateStatus(taskId, 'executing', '已分派给 Agent')
       taskStore.linkSession(taskId, session.id)
@@ -91,9 +102,9 @@ export const taskRpcHandlers: RpcHandlerMap = {
 
       const prompt = buildTaskPrompt(
         { id: task.id, title: task.title, description: task.description, source: task.source },
-        { sessionReuse: !!sessionId },
+        { sessionReuse: session.reuse },
       )
-      sessionManager.sendPrompt(session.id, prompt).catch((err: Error) => {
+      sessionManager.enqueuePrompt(session.id, prompt).catch((err: Error) => {
         taskStore.updateStatus(taskId, 'blocked', `指派 prompt 发送失败: ${err.message}`)
         events.emit('task:update', { taskId, data: { ...taskStore.get(taskId), event: 'prompt_failed' } })
       })

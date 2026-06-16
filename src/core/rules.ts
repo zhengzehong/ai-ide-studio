@@ -1,6 +1,6 @@
 import { ruleStore, type RuleRow } from '../store/rules.js'
 import { ruleExecutionStore } from '../store/rule-executions.js'
-import { taskManager, validateTaskAssignment } from './tasks.js'
+import { resolveSessionMode, resolveTaskSession, taskManager, validateTaskAssignment } from './tasks.js'
 import { sessionManager } from './sessions.js'
 import { events } from './events.js'
 import { matchCron, getNextRunTime } from './cron.js'
@@ -17,13 +17,17 @@ type ActionHandler = (rule: RuleRow, now: Date) => Promise<{ taskId?: string; se
 const actionHandlers: Record<string, ActionHandler> = {
   async create_task(rule, _now) {
     const config = rule.action_config
+    const configuredSessionId = config.session_id ?? undefined
+    const sessionMode = resolveSessionMode(config.session_mode, configuredSessionId)
+    const sessionId = await resolveScheduledSessionId(rule, config.assign_agent_id, sessionMode)
     const result = await taskManager.createTask({
       title: config.title ?? rule.name,
       description: config.description,
       source: 'schedule',
       assignAgentId: config.assign_agent_id,
       projectId: rule.project_id ?? undefined,
-      sessionId: config.session_id,
+      sessionId,
+      sessionMode,
       ruleId: rule.id,
       ruleName: rule.name,
       promptTemplate: config.prompt_template
@@ -41,25 +45,43 @@ const actionHandlers: Record<string, ActionHandler> = {
     if (!agentId) throw new Error('send_prompt action 缺少 agent_id')
 
     const prompt = replaceVariables(config.prompt ?? '', new Date())
-    let sessionId = config.session_id
-
-    if (sessionId) {
-      validateTaskAssignment(agentId, rule.project_id, sessionId)
-      try {
-        await sessionManager.sendPrompt(sessionId, prompt)
-      } catch {
-        const session = await sessionManager.createSession(agentId, undefined, rule.project_id ?? undefined)
-        sessionId = session.id
-        await sessionManager.sendPrompt(session.id, prompt)
-      }
-    } else {
-      const session = await sessionManager.createSession(agentId, undefined, rule.project_id ?? undefined)
-      sessionId = session.id
-      await sessionManager.sendPrompt(session.id, prompt)
+    const configuredSessionId = config.session_id ?? undefined
+    const sessionMode = resolveSessionMode(config.session_mode, configuredSessionId)
+    const session = await resolveTaskSession({
+      agentId,
+      projectId: rule.project_id,
+      sessionId: configuredSessionId,
+      sessionMode,
+    })
+    if (sessionMode === 'new_fixed' && !configuredSessionId) {
+      ruleStore.update(rule.id, { action_config: { session_id: session.id } })
     }
+    await sessionManager.enqueuePrompt(session.id, prompt)
 
-    return { sessionId }
+    return { sessionId: session.id }
   },
+}
+
+async function resolveScheduledSessionId(
+  rule: RuleRow,
+  agentId: string | undefined,
+  sessionMode: ReturnType<typeof resolveSessionMode>,
+): Promise<string | undefined> {
+  if (!agentId) return undefined
+  const configuredSessionId = rule.action_config.session_id ?? undefined
+  if (sessionMode === 'new_each') return undefined
+  if (sessionMode === 'existing') {
+    if (!configuredSessionId) throw new Error('existing session mode requires sessionId')
+    validateTaskAssignment(agentId, rule.project_id, configuredSessionId)
+    return configuredSessionId
+  }
+  if (configuredSessionId) {
+    validateTaskAssignment(agentId, rule.project_id, configuredSessionId)
+    return configuredSessionId
+  }
+  const session = await sessionManager.createSession(agentId, undefined, rule.project_id ?? undefined)
+  ruleStore.update(rule.id, { action_config: { session_id: session.id } })
+  return session.id
 }
 
 function replaceVariables(template: string, now: Date): string {

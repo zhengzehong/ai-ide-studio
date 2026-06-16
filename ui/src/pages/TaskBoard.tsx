@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Plus, X, Trash2, ExternalLink } from 'lucide-react';
 import { useAgentStore, type AgentData } from '../stores/agent.store';
-import { useTaskStore, type TaskData } from '../stores/task.store';
+import { useTaskStore, type SessionMode, type TaskData } from '../stores/task.store';
 import { useProjectStore } from '../stores/project.store';
 import { useSessionStore } from '../stores/session.store';
 
@@ -38,6 +38,18 @@ const STATUS_ACTIONS = [
   { status: 'blocked', label: '已阻塞' },
   { status: 'cancelled', label: '已取消' },
 ];
+
+const SESSION_MODE_OPTIONS: Array<{ value: SessionMode; label: string }> = [
+  { value: 'new_fixed', label: '固定新会话' },
+  { value: 'new_each', label: '每次新会话' },
+  { value: 'existing', label: '指定已有会话' },
+];
+
+function sessionModeHelp(mode: SessionMode, hasSession: boolean): string {
+  if (mode === 'existing') return hasSession ? '将在该会话中追加任务指派。' : '请选择一个已有会话。';
+  if (mode === 'new_fixed') return '将创建一个新的固定会话用于这次任务。';
+  return '将为这次任务创建新的会话。';
+}
 
 export default function TaskBoard() {
   const tasks = useTaskStore(s => s.tasks);
@@ -97,8 +109,8 @@ export default function TaskBoard() {
         <NewTaskModal
           agents={agents}
           projectId={currentProjectId}
-          onCreate={async (title, desc, agentId, sessionId) => {
-            await createTask(title, desc, agentId, currentProjectId ?? undefined, sessionId);
+          onCreate={async (title, desc, agentId, sessionId, sessionMode) => {
+            await createTask(title, desc, agentId, currentProjectId ?? undefined, sessionId, sessionMode);
             setShowNew(false);
           }}
           onClose={() => setShowNew(false)}
@@ -164,6 +176,7 @@ function TaskDetailDrawer({ task, agents, onClose, onStatusChange, onDelete }: {
   const [editDesc, setEditDesc] = useState('');
   const [editing, setEditing] = useState(false);
   const [assignAgentId, setAssignAgentId] = useState('');
+  const [assignSessionMode, setAssignSessionMode] = useState<SessionMode>('new_fixed');
   const [assignSessionId, setAssignSessionId] = useState('');
   const updateTaskInfo = useTaskStore(s => s.updateTaskInfo);
   const assignTask = useTaskStore(s => s.assignTask);
@@ -198,8 +211,10 @@ function TaskDetailDrawer({ task, agents, onClose, onStatusChange, onDelete }: {
 
   const handleAssign = async () => {
     if (!assignAgentId) return;
-    await assignTask(task.id, assignAgentId, assignSessionId || undefined);
+    if (assignSessionMode === 'existing' && !assignSessionId) return;
+    await assignTask(task.id, assignAgentId, assignSessionMode === 'existing' ? assignSessionId || undefined : undefined, assignSessionMode);
     setAssignAgentId('');
+    setAssignSessionMode('new_fixed');
     setAssignSessionId('');
   };
 
@@ -264,21 +279,22 @@ function TaskDetailDrawer({ task, agents, onClose, onStatusChange, onDelete }: {
 
         <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 8 }}>指派 Agent</div>
         <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-          <select value={assignAgentId} onChange={e => { setAssignAgentId(e.target.value); setAssignSessionId(''); }} style={{ ...st, flex: 1 }}>
+          <select value={assignAgentId} onChange={e => { setAssignAgentId(e.target.value); setAssignSessionMode('new_fixed'); setAssignSessionId(''); }} style={{ ...st, flex: 1 }}>
             <option value="">{agent ? `当前: ${agent.name}` : '选择 Agent'}</option>
             {agents.filter(a => a.id !== task.assigned_agent_id).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
           </select>
-          <button onClick={handleAssign} disabled={!assignAgentId} style={{ padding: '6px 14px', borderRadius: 6, border: 'none', background: assignAgentId ? 'var(--blue)' : 'var(--bg-2)', color: assignAgentId ? 'white' : 'var(--text-3)', fontSize: 14, cursor: assignAgentId ? 'pointer' : 'not-allowed' }}>指派</button>
+          <button onClick={handleAssign} disabled={!assignAgentId || (assignSessionMode === 'existing' && !assignSessionId)} style={{ padding: '6px 14px', borderRadius: 6, border: 'none', background: assignAgentId && !(assignSessionMode === 'existing' && !assignSessionId) ? 'var(--blue)' : 'var(--bg-2)', color: assignAgentId && !(assignSessionMode === 'existing' && !assignSessionId) ? 'white' : 'var(--text-3)', fontSize: 14, cursor: assignAgentId && !(assignSessionMode === 'existing' && !assignSessionId) ? 'pointer' : 'not-allowed' }}>指派</button>
         </div>
         {assignAgentId && (
           <div style={{ marginBottom: 18 }}>
-            <select value={assignSessionId} onChange={e => setAssignSessionId(e.target.value)} style={st}>
-              <option value="">新建会话（默认）</option>
-              {assignAgentSessions.map(s => <option key={s.id} value={s.id}>{sessionOptionLabel(s)}</option>)}
-            </select>
-            <div style={{ fontSize: 13, color: 'var(--text-3)', marginTop: 4 }}>
-              {assignSessionId ? '将在该会话中追加任务指派。' : '将为此任务创建新的会话。'}
-            </div>
+            <SessionModeSelect
+              mode={assignSessionMode}
+              sessionId={assignSessionId}
+              sessions={assignAgentSessions}
+              onModeChange={(value) => { setAssignSessionMode(value); setAssignSessionId(''); }}
+              onSessionChange={setAssignSessionId}
+              inputStyle={st}
+            />
           </div>
         )}
 
@@ -311,12 +327,13 @@ function DetailRow({ label, value, color }: { label: string; value: string; colo
 function NewTaskModal({ agents, projectId, onCreate, onClose }: {
   agents: AgentData[];
   projectId: string | null;
-  onCreate: (title: string, desc?: string, agentId?: string, sessionId?: string) => Promise<void>;
+  onCreate: (title: string, desc?: string, agentId?: string, sessionId?: string, sessionMode?: SessionMode) => Promise<void>;
   onClose: () => void;
 }) {
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
   const [agentId, setAgentId] = useState('');
+  const [sessionMode, setSessionMode] = useState<SessionMode>('new_fixed');
   const [sessionId, setSessionId] = useState('');
   const sessions = useSessionStore(s => s.sessions);
 
@@ -326,6 +343,7 @@ function NewTaskModal({ agents, projectId, onCreate, onClose }: {
   }, [agentId, sessions]);
 
   const st: React.CSSProperties = { width: '100%', padding: '9px 12px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', fontSize: 15, background: 'var(--bg-1)', color: 'var(--text-1)', outline: 'none', boxSizing: 'border-box' };
+  const canCreate = title.trim() && (!agentId || sessionMode !== 'existing' || sessionId);
 
   return (
     <>
@@ -335,26 +353,25 @@ function NewTaskModal({ agents, projectId, onCreate, onClose }: {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <input value={title} onChange={e => setTitle(e.target.value)} placeholder="任务标题（必填）" style={st} />
           <textarea value={desc} onChange={e => setDesc(e.target.value)} placeholder="描述（可选）" rows={3} style={{ ...st, resize: 'vertical' }} />
-          <select value={agentId} onChange={e => { setAgentId(e.target.value); setSessionId(''); }} style={st}>
+          <select value={agentId} onChange={e => { setAgentId(e.target.value); setSessionMode('new_fixed'); setSessionId(''); }} style={st}>
             <option value="">不指派 Agent</option>
             {agents.filter(a => !projectId || a.project_id === projectId).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
           </select>
           {agentId && (
-            <>
-              <select value={sessionId} onChange={e => setSessionId(e.target.value)} style={st}>
-                <option value="">新建会话（默认）</option>
-                {agentSessions.map(s => <option key={s.id} value={s.id}>{s.id.slice(0, 8)}... {s.task_id ? '(有任务)' : ''}</option>)}
-              </select>
-              <div style={{ fontSize: 13, color: 'var(--text-3)', marginTop: -6 }}>
-                {sessionId ? '将在该对话中追加任务指派，Agent 可利用已有上下文' : '将为此任务创建新的对话'}
-              </div>
-            </>
+            <SessionModeSelect
+              mode={sessionMode}
+              sessionId={sessionId}
+              sessions={agentSessions}
+              onModeChange={(value) => { setSessionMode(value); setSessionId(''); }}
+              onSessionChange={setSessionId}
+              inputStyle={st}
+            />
           )}
           <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
             <button
-              onClick={() => { if (title.trim()) onCreate(title, desc || undefined, agentId || undefined, sessionId || undefined); }}
-              disabled={!title.trim()}
-              style={{ padding: '9px 18px', borderRadius: 'var(--radius)', border: 'none', background: title.trim() ? 'var(--blue)' : 'var(--bg-2)', color: title.trim() ? 'white' : 'var(--text-3)', fontSize: 15, fontWeight: 500, cursor: title.trim() ? 'pointer' : 'not-allowed' }}
+              onClick={() => { if (canCreate) onCreate(title, desc || undefined, agentId || undefined, sessionMode === 'existing' ? sessionId || undefined : undefined, agentId ? sessionMode : undefined); }}
+              disabled={!canCreate}
+              style={{ padding: '9px 18px', borderRadius: 'var(--radius)', border: 'none', background: canCreate ? 'var(--blue)' : 'var(--bg-2)', color: canCreate ? 'white' : 'var(--text-3)', fontSize: 15, fontWeight: 500, cursor: canCreate ? 'pointer' : 'not-allowed' }}
             >创建</button>
             <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', background: 'var(--bg-0)', color: 'var(--text-2)', fontSize: 15, cursor: 'pointer' }}>取消</button>
           </div>
@@ -366,6 +383,32 @@ function NewTaskModal({ agents, projectId, onCreate, onClose }: {
 
 function formatDateTime(iso: string): string {
   try { return new Date(iso).toLocaleString('zh-CN'); } catch { return iso; }
+}
+
+function SessionModeSelect({ mode, sessionId, sessions, onModeChange, onSessionChange, inputStyle }: {
+  mode: SessionMode;
+  sessionId: string;
+  sessions: Array<{ id: string; title?: string | null; task_id?: string | null }>;
+  onModeChange: (value: SessionMode) => void;
+  onSessionChange: (value: string) => void;
+  inputStyle: React.CSSProperties;
+}) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <select value={mode} onChange={e => onModeChange(e.target.value as SessionMode)} style={inputStyle}>
+        {SESSION_MODE_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+      </select>
+      {mode === 'existing' && (
+        <select value={sessionId} onChange={e => onSessionChange(e.target.value)} style={inputStyle}>
+          <option value="">请选择已有会话</option>
+          {sessions.map(s => <option key={s.id} value={s.id}>{sessionOptionLabel(s)}</option>)}
+        </select>
+      )}
+      <div style={{ fontSize: 13, color: 'var(--text-3)' }}>
+        {sessionModeHelp(mode, Boolean(sessionId))}
+      </div>
+    </div>
+  );
 }
 
 function sessionOptionLabel(session: { id: string; title?: string | null; task_id?: string | null }): string {

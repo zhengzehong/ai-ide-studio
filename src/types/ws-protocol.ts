@@ -266,12 +266,21 @@ export interface TasksCreateMsg extends ClientMessage {
   description?: string
   assignAgentId?: string
   projectId?: string
+  sessionMode?: 'existing' | 'new_each' | 'new_fixed'
+  sessionId?: string
 }
 export interface TasksUpdateMsg extends ClientMessage {
   type: 'tasks.update'
   taskId: string
   status?: TaskStatus
   stage?: string
+}
+export interface TasksAssignMsg extends ClientMessage {
+  type: 'tasks.assign'
+  taskId: string
+  agentId: string
+  sessionMode?: 'existing' | 'new_each' | 'new_fixed'
+  sessionId?: string
 }
 export interface TeamsCurrentMsg extends ClientMessage {
   type: 'teams.current'

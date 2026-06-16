@@ -1,7 +1,7 @@
 import type { ToolHandler, ToolHandlerInput, ToolHandlerResult } from '../types.js'
 import { taskStore } from '../../store/tasks.js'
 import { sessionStore } from '../../store/sessions.js'
-import { taskManager } from '../../core/tasks.js'
+import { resolveSessionMode, taskManager } from '../../core/tasks.js'
 import { events } from '../../core/events.js'
 import { createChildLogger } from '../../core/logger.js'
 
@@ -37,6 +37,7 @@ export const studioTaskCreateHandler: ToolHandler = {
       title: { type: 'string', description: '任务标题' },
       description: { type: 'string', description: '任务描述' },
       assignAgentId: { type: 'string', description: '指派 Agent（可选）' },
+      sessionMode: { type: 'string', enum: ['existing', 'new_each', 'new_fixed'], description: '会话策略：existing=指定已有会话，new_each=新建会话，new_fixed=固定新会话' },
       sessionId: { type: 'string', description: '复用已有会话 ID（可选，不传则新建）' },
       projectId: { type: 'string', description: '项目 ID（不传用当前会话项目）' },
     },
@@ -50,6 +51,7 @@ export const studioTaskCreateHandler: ToolHandler = {
       source: 'agent',
       assignAgentId: optStr(input, 'assignAgentId'),
       sessionId: optStr(input, 'sessionId'),
+      sessionMode: resolveSessionMode(input.sessionMode, optStr(input, 'sessionId')),
       projectId: context?.projectId ?? optStr(input, 'projectId'),
     })
     log.info({ taskId: task.id, title }, 'Agent 创建任务')
