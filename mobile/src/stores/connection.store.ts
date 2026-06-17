@@ -4,7 +4,7 @@ import { wsClient } from '@desktop/services/ws-client'
 const STORAGE_KEY = 'ai-ide-mobile-server'
 const CONNECTION_TIMEOUT_MS = 5000
 
-type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'failed'
+export type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'failed'
 
 interface ConnectionState {
   serverUrl: string

@@ -17,6 +17,7 @@ vi.mock('@desktop/services/ws-client', () => ({
 }))
 
 const { useConnectionStore } = await import('../../mobile/src/stores/connection.store.ts')
+const { shouldShowConnectPage } = await import('../../mobile/src/App.tsx')
 
 const storage = new Map<string, string>()
 
@@ -50,6 +51,12 @@ describe('mobile connection store', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     resetStore()
+  })
+
+  test('shows connect page only when no server is configured', () => {
+    expect(shouldShowConnectPage({ serverUrl: '', connected: false, status: 'idle' })).toBe(true)
+    expect(shouldShowConnectPage({ serverUrl: 'http://127.0.0.1:18900', connected: false, status: 'failed' })).toBe(false)
+    expect(shouldShowConnectPage({ serverUrl: 'http://127.0.0.1:18900', connected: false, status: 'connecting' })).toBe(false)
   })
 
   test('initializes a saved server as connecting and starts websocket connection', () => {
