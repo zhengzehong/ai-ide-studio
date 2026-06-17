@@ -38,6 +38,7 @@ beforeEach(() => {
     filterStatus: null,
     runningSessionIds: {},
     unreadSessionIds: {},
+    protectedUnreadSessionIds: {},
     currentSessionId: null,
   } as unknown as Parameters<typeof useSessionStore.setState>[0])
 })
@@ -180,4 +181,69 @@ test('session activity updates local running and unread indicators within the cu
   })
 
   cleanup()
+})
+
+test('session done keeps unread when immediate list refresh still reports running', async () => {
+  useAppStore.getState().setCurrentProject('project-a')
+  vi.useFakeTimers()
+  const request = vi.spyOn(wsClient, 'request').mockResolvedValue([sessionRow({ activity_state: 'running' })])
+  const handlers = new Map<string, (msg: Record<string, unknown>) => void>()
+  vi.spyOn(wsClient, 'on').mockImplementation((event, handler) => {
+    handlers.set(event, handler)
+    return () => handlers.delete(event)
+  })
+
+  useSessionStore.setState({
+    sessions: [{
+      id: 'sess-a',
+      agentId: 'agent-a',
+      agentName: 'Agent A',
+      projectId: 'project-a',
+      projectName: 'Project A',
+      sessionTitle: 'Session A',
+      status: 'active',
+      activityState: 'running',
+      stage: '执行中',
+      unread: false,
+      startedAt: '2026-06-10T00:00:00.000Z',
+      updatedAt: '2026-06-10T00:01:00.000Z',
+      lastMessageAt: '2026-06-10T00:02:00.000Z',
+      closedAt: null,
+    }],
+    runningSessionIds: { 'sess-a': true },
+    currentSessionId: null,
+  } as unknown as Parameters<typeof useSessionStore.setState>[0])
+
+  const cleanupDone = useSessionStore.getState().setupListeners()
+  handlers.get('session:done')?.({ type: 'session:done', sessionId: 'sess-a' })
+  await Promise.resolve()
+
+  expect(request).toHaveBeenCalledTimes(1)
+  expect((useSessionStore.getState() as unknown as { unreadSessionIds: Record<string, true> }).unreadSessionIds['sess-a']).toBe(true)
+  expect(useSessionStore.getState().sessions[0]).toMatchObject({ unread: true })
+
+  cleanupDone()
+})
+
+test('session done schedules a delayed second list refresh', async () => {
+  useAppStore.getState().setCurrentProject('project-a')
+  vi.useFakeTimers()
+  const request = vi.spyOn(wsClient, 'request').mockResolvedValue([])
+  const handlers = new Map<string, (msg: Record<string, unknown>) => void>()
+  vi.spyOn(wsClient, 'on').mockImplementation((event, handler) => {
+    handlers.set(event, handler)
+    return () => handlers.delete(event)
+  })
+
+  const cleanupDone = useSessionStore.getState().setupListeners()
+  handlers.get('session:done')?.({ type: 'session:done', sessionId: 'sess-a' })
+
+  expect(request).toHaveBeenCalledTimes(1)
+
+  vi.advanceTimersByTime(500)
+  await Promise.resolve()
+
+  expect(request).toHaveBeenCalledTimes(2)
+
+  cleanupDone()
 })

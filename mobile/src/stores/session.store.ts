@@ -31,6 +31,7 @@ interface SessionState {
   filterStatus: string | null
   runningSessionIds: SessionIndicatorMap
   unreadSessionIds: SessionIndicatorMap
+  protectedUnreadSessionIds: SessionIndicatorMap
   currentSessionId: string | null
 
   fetchSessions: (projectId?: string | null) => Promise<void>
@@ -79,6 +80,7 @@ function mapSession(session: SessionData, unreadSessionIds: SessionIndicatorMap)
 
 function reconcileUnread(
   unreadSessionIds: SessionIndicatorMap,
+  protectedUnreadSessionIds: SessionIndicatorMap,
   sessions: SessionData[],
   preserveMissing: boolean,
 ): SessionIndicatorMap {
@@ -88,7 +90,7 @@ function reconcileUnread(
     if (ids.has(sessionId)) next[sessionId] = true
   }
   for (const session of sessions) {
-    if (session.activity_state === 'running') delete next[session.id]
+    if (session.activity_state === 'running' && !protectedUnreadSessionIds[session.id]) delete next[session.id]
   }
   return next
 }
@@ -113,6 +115,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   filterStatus: null,
   runningSessionIds: {},
   unreadSessionIds: {},
+  protectedUnreadSessionIds: {},
   currentSessionId: null,
 
   fetchSessions: async (projectId) => {
@@ -125,7 +128,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       if (requestSeq !== sessionListRequestSeq) return
       set((state) => {
         const preserveMissingIndicators = !!projectId
-        const unreadSessionIds = reconcileUnread(state.unreadSessionIds, data, preserveMissingIndicators)
+        const unreadSessionIds = reconcileUnread(state.unreadSessionIds, state.protectedUnreadSessionIds, data, preserveMissingIndicators)
         return {
           sessions: data.map((session) => mapSession(session, unreadSessionIds)),
           runningSessionIds: reconcileRunning(state.runningSessionIds, data, preserveMissingIndicators),
@@ -145,8 +148,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   markRead: async (sessionId) => {
     set((state) => {
       const unreadSessionIds = removeIndicator(state.unreadSessionIds, sessionId)
+      const protectedUnreadSessionIds = removeIndicator(state.protectedUnreadSessionIds, sessionId)
       return {
         unreadSessionIds,
+        protectedUnreadSessionIds,
         sessions: state.sessions.map((session) =>
           session.id === sessionId ? { ...session, unread: false } : session
         ),
@@ -156,10 +161,17 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   setupListeners: () => {
     const refresh = () => void get().fetchSessions(useAppStore.getState().currentProjectId)
+    let delayedRefreshTimer: ReturnType<typeof setTimeout> | null = null
+    const refreshAfterPersistence = () => {
+      refresh()
+      if (delayedRefreshTimer) clearTimeout(delayedRefreshTimer)
+      delayedRefreshTimer = setTimeout(refresh, 500)
+    }
     const markRunning = (sessionId: string) => {
       set((state) => ({
         runningSessionIds: addIndicator(state.runningSessionIds, sessionId),
         unreadSessionIds: removeIndicator(state.unreadSessionIds, sessionId),
+        protectedUnreadSessionIds: removeIndicator(state.protectedUnreadSessionIds, sessionId),
         sessions: state.sessions.map((session) =>
           session.id === sessionId ? { ...session, activityState: 'running', unread: false } : session
         ),
@@ -172,9 +184,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         const unreadSessionIds = shouldMarkUnread
           ? addIndicator(state.unreadSessionIds, sessionId)
           : removeIndicator(state.unreadSessionIds, sessionId)
+        const protectedUnreadSessionIds = shouldMarkUnread
+          ? addIndicator(state.protectedUnreadSessionIds, sessionId)
+          : removeIndicator(state.protectedUnreadSessionIds, sessionId)
         return {
           runningSessionIds,
           unreadSessionIds,
+          protectedUnreadSessionIds,
           sessions: state.sessions.map((session) =>
             session.id === sessionId
               ? { ...session, activityState: 'idle', unread: !!unreadSessionIds[sessionId] }
@@ -188,15 +204,21 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       if (!sessionId) return
       if (msg.state === 'running') markRunning(sessionId)
       else markIdle(sessionId)
-      refresh()
+      if (msg.state === 'running') refresh()
+      else refreshAfterPersistence()
     })
     const off2 = wsClient.on('session:done', (msg) => {
       const sessionId = typeof msg.sessionId === 'string' ? msg.sessionId : ''
       if (!sessionId) return
       markIdle(sessionId)
-      refresh()
+      refreshAfterPersistence()
     })
     const off3 = wsClient.on('session:changed', refresh)
-    return () => { off1(); off2(); off3() }
+    return () => {
+      if (delayedRefreshTimer) clearTimeout(delayedRefreshTimer)
+      off1()
+      off2()
+      off3()
+    }
   },
 }))
