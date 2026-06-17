@@ -57,6 +57,7 @@ interface ChatState {
   loading: boolean
   isRunning: boolean
   runningStartedAtMs: number | null
+  sendError: string
   hasMoreMessagesBySession: Record<string, boolean>
   loadingOlderMessagesBySession: Record<string, boolean>
   turnProcessLoadingByMessageId: Record<string, boolean>
@@ -312,6 +313,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   loading: false,
   isRunning: false,
   runningStartedAtMs: null,
+  sendError: '',
   hasMoreMessagesBySession: {},
   loadingOlderMessagesBySession: {},
   turnProcessLoadingByMessageId: {},
@@ -332,7 +334,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       sessionId, messages: cached?.messages ?? [], events: cached?.events ?? [], streamingMessage: cached?.streamingMessage ?? null,
       plan: cached?.plan ?? [], pendingPermissions: cached?.pendingPermissions ?? [], pendingElicitations: cached?.pendingElicitations ?? [],
       capabilities: cached?.capabilities ?? { ...defaultCaps }, usage: cached?.usage ?? null, turnUsage: cached?.turnUsage ?? null,
-      loading: !cached, isRunning: cached?.isRunning ?? false, runningStartedAtMs: cached?.runningStartedAtMs ?? null,
+      loading: !cached, isRunning: cached?.isRunning ?? false, runningStartedAtMs: cached?.runningStartedAtMs ?? null, sendError: '',
       turnProcessLoadingByMessageId: {}, turnProcessErrorByMessageId: {},
     })
     wsClient.subscribe([sessionId])
@@ -373,6 +375,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       pendingElicitations: [],
       isRunning: false,
       runningStartedAtMs: null,
+      sendError: '',
       turnProcessLoadingByMessageId: {},
       turnProcessErrorByMessageId: {},
     })
@@ -417,6 +420,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
   sendPrompt: (content, images) => {
     const sid = get().sessionId
     if (!sid) return
+    if (!wsClient.connected) {
+      set({ sendError: '连接已断开，消息未发送' })
+      return
+    }
     const clientMessageId = `msg-local-${Date.now()}`
     const msg: Record<string, unknown> = { type: 'prompt', sessionId: sid, content, clientMessageId }
     if (images?.length) msg.images = images
@@ -431,7 +438,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         file_changes_json: null, timestamp: new Date().toISOString(),
       })],
       streamingMessage: applyTurnEntry(createEmptyTurn(`pending-${sid}-${Date.now()}`), { kind: 'stage', text: '正在准备 Agent...' }),
-      turnUsage: null, isRunning: true, runningStartedAtMs: startedAtMs,
+      turnUsage: null, isRunning: true, runningStartedAtMs: startedAtMs, sendError: '',
     }))
     saveCache(sid, get())
   },

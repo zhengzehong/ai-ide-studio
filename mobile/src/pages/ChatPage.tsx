@@ -5,6 +5,7 @@ import { buildChatRenderItems } from '@desktop/components/chat/render-items'
 import type { ChatTimelineGroup, MessageData, StreamingMessage } from '@desktop/stores/session-events'
 import { useChatStore } from '../stores/chat.store'
 import { useSessionStore } from '../stores/session.store'
+import { useConnectionStore } from '../stores/connection.store'
 import ChatBubble from '../components/chat/ChatBubble'
 import ChatInput from '../components/chat/ChatInput'
 import TurnContent from '../components/chat/TurnContent'
@@ -22,12 +23,13 @@ export default function ChatPage() {
   const stickToBottomRef = useRef(true)
   const olderLoadAnchorRef = useRef<{ sessionId: string; scrollHeight: number; scrollTop: number } | null>(null)
   const {
-    messages, events, streamingMessage, loading, isRunning, plan, pendingPermissions, pendingElicitations, capabilities,
+    messages, events, streamingMessage, loading, isRunning, sendError, plan, pendingPermissions, pendingElicitations, capabilities,
     turnProcessLoadingByMessageId, turnProcessErrorByMessageId, runningStartedAtMs,
     hasMoreMessagesBySession, loadingOlderMessagesBySession,
     enterSession, leaveSession, loadOlderMessages, sendPrompt, cancelTurn, fetchMessageProcess, respondPermission, respondElicitation,
   } = useChatStore()
   const sessions = useSessionStore(s => s.sessions)
+  const { connected, status } = useConnectionStore()
   const session = sessions.find(s => s.id === sessionId)
   const listenersRef = useRef(false)
   const [liveNowMs, setLiveNowMs] = useState(() => Date.now())
@@ -58,6 +60,10 @@ export default function ChatPage() {
   }, [sessionId])
 
   const hasBlockingInteraction = pendingPermissions.length > 0 || pendingElicitations.length > 0
+  const inputDisabled = hasBlockingInteraction || !connected
+  const disabledPlaceholder = !connected
+    ? (status === 'connecting' ? '正在重连服务器...' : '连接失败，请先恢复连接')
+    : '等待确认...'
   useEffect(() => {
     if (!isRunning) return undefined
     setLiveNowMs(Date.now())
@@ -197,12 +203,13 @@ export default function ChatPage() {
         ))}
       </div>
 
+      {sendError && <div style={styles.sendError}>{sendError}</div>}
       <ChatInput
         onSend={sendPrompt}
         onCancel={cancelTurn}
         isRunning={isRunning}
-        disabled={hasBlockingInteraction}
-        disabledPlaceholder="等待确认..."
+        disabled={inputDisabled}
+        disabledPlaceholder={disabledPlaceholder}
         supportsImages={capabilities.supportsImages}
       />
     </div>
@@ -293,5 +300,13 @@ const styles: Record<string, CSSProperties> = {
   timelineTool: {
     fontSize: 12,
     color: 'var(--text-muted)',
+  },
+  sendError: {
+    padding: '7px 12px',
+    background: 'var(--error-bg)',
+    color: 'var(--error)',
+    fontSize: 12,
+    textAlign: 'center',
+    borderTop: '1px solid var(--border-light)',
   },
 }

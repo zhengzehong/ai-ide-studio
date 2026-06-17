@@ -4,6 +4,7 @@ import { createEmptyTurn } from '../../ui/src/stores/turn-blocks.ts'
 import { defaultCaps, type MessageData, type TurnProcessItemInfo } from '../../ui/src/stores/session-events.ts'
 
 const wsMock = vi.hoisted(() => ({
+  connected: true,
   request: vi.fn(async () => []),
   on: vi.fn(),
   send: vi.fn(),
@@ -70,6 +71,7 @@ function resetStore(): void {
     loading: false,
     isRunning: false,
     runningStartedAtMs: null,
+    sendError: '',
     hasMoreMessagesBySession: {},
     loadingOlderMessagesBySession: {},
     turnProcessLoadingByMessageId: {},
@@ -79,6 +81,7 @@ function resetStore(): void {
   wsMock.request.mockResolvedValue([])
   wsMock.on.mockReset()
   wsMock.send.mockReset()
+  wsMock.connected = true
   wsMock.subscribe.mockReset()
   wsMock.unsubscribe.mockReset()
 }
@@ -86,6 +89,19 @@ function resetStore(): void {
 describe('mobile chat store', () => {
   beforeEach(() => {
     resetStore()
+  })
+
+  test('does not create optimistic running state when websocket is disconnected', () => {
+    wsMock.connected = false
+
+    useChatStore.getState().sendPrompt('hello')
+
+    expect(wsMock.send).not.toHaveBeenCalled()
+    expect(useChatStore.getState().messages).toEqual([])
+    expect(useChatStore.getState().streamingMessage).toBeNull()
+    expect(useChatStore.getState().isRunning).toBe(false)
+    expect(useChatStore.getState().runningStartedAtMs).toBeNull()
+    expect(useChatStore.getState().sendError).toBe('连接已断开，消息未发送')
   })
 
   test('merges realtime process items into the matching persisted message', () => {
