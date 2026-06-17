@@ -301,3 +301,46 @@ describe('mobile chat store', () => {
     })
   })
 })
+
+test('refreshes latest messages again after session done persistence settles', async () => {
+  resetStore()
+  vi.useFakeTimers()
+  const handlers = new Map<string, (message: Record<string, unknown>) => void>()
+  const initial = agentMessage({ id: 'msg-old', content: '旧回复', timestamp: '2026-06-10T00:00:00.000Z' })
+  const final = agentMessage({ id: 'msg-final', content: '最终回复', timestamp: '2026-06-10T00:00:01.000Z' })
+  let messageFetchCount = 0
+
+  wsMock.on.mockImplementation((event: string, handler: (message: Record<string, unknown>) => void) => {
+    handlers.set(event, handler)
+    return () => handlers.delete(event)
+  })
+  wsMock.request.mockImplementation(async (msg: Record<string, unknown>) => {
+    if (msg.type === 'sessions.messages') {
+      messageFetchCount += 1
+      return messageFetchCount >= 3 ? [final] : [initial]
+    }
+    if (msg.type === 'sessions.events') return []
+    if (msg.type === 'sessions.messageProcess') return []
+    return []
+  })
+
+  useChatStore.setState({ sessionId: null, messages: [], streamingMessage: null, isRunning: false })
+  const cleanup = useChatStore.getState().setupListeners()
+  useChatStore.getState().enterSession('sess-1')
+
+  await vi.waitFor(() => {
+    expect(useChatStore.getState().messages.map((message) => message.id)).toEqual(['msg-old'])
+  })
+
+  handlers.get('session:done')?.({ type: 'session:done', sessionId: 'sess-1', messageId: 'msg-final' })
+  await Promise.resolve()
+
+  expect(useChatStore.getState().messages.map((message) => message.id)).toEqual(['msg-old'])
+
+  vi.advanceTimersByTime(500)
+  await Promise.resolve()
+
+  expect(useChatStore.getState().messages.map((message) => message.id)).toContain('msg-final')
+
+  cleanup()
+})
