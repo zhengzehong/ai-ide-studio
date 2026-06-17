@@ -1,6 +1,6 @@
 import { useEffect, useRef, type ReactNode } from 'react'
 import { BrowserRouter, HashRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { useConnectionStore } from './stores/connection.store'
+import { useConnectionStore, type ConnectionStatus } from './stores/connection.store'
 import { useAppStore } from './stores/app.store'
 import { useSessionStore } from './stores/session.store'
 import MobileShell from './components/MobileShell'
@@ -26,8 +26,12 @@ export async function bootstrapMobileData(): Promise<void> {
   await useSessionStore.getState().fetchSessions(useAppStore.getState().currentProjectId)
 }
 
+export function shouldShowConnectPage(input: { serverUrl: string; connected: boolean; status: ConnectionStatus }): boolean {
+  return !input.serverUrl.trim()
+}
+
 export default function App() {
-  const { connected, status, init } = useConnectionStore()
+  const { serverUrl, connected, status, init } = useConnectionStore()
   const listenersReady = useRef(false)
 
   useEffect(() => { init() }, [init])
@@ -43,7 +47,7 @@ export default function App() {
     }
   }, [connected])
 
-  if (!connected || status !== 'connected') {
+  if (shouldShowConnectPage({ serverUrl, connected, status })) {
     return (
       <AppRouter>
         <Routes>
