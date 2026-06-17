@@ -4,6 +4,7 @@ import { useConnectionStore, type ConnectionStatus } from './stores/connection.s
 import { useAppStore } from './stores/app.store'
 import { useSessionStore } from './stores/session.store'
 import MobileShell from './components/MobileShell'
+import AndroidBackHandler from './components/AndroidBackHandler'
 import ConnectPage from './pages/ConnectPage'
 import SessionListPage from './pages/SessionListPage'
 import ChatPage from './pages/ChatPage'
@@ -50,6 +51,7 @@ export default function App() {
   if (shouldShowConnectPage({ serverUrl, connected, status })) {
     return (
       <AppRouter>
+        <AndroidBackHandler />
         <Routes>
           <Route path="*" element={<ConnectPage />} />
         </Routes>
@@ -59,6 +61,7 @@ export default function App() {
 
   return (
     <AppRouter>
+      <AndroidBackHandler />
       <Routes>
         <Route path="/connect" element={<ConnectPage />} />
         <Route path="/chat/:sessionId" element={<ChatPage />} />

@@ -90,6 +90,7 @@ interface ChatSessionCache {
 const MOBILE_CHAT_MESSAGE_PAGE_SIZE = 10
 const streamingBuffer = new StreamingBuffer()
 let streamingFlushTimer: ReturnType<typeof setTimeout> | null = null
+let postCompletionRefreshTimer: ReturnType<typeof setTimeout> | null = null
 let promptStartTime = 0
 let lastStreamingSnapshot: StreamingMessage | null = null
 const sessionCaches = new Map<string, ChatSessionCache>()
@@ -97,6 +98,7 @@ const mirroredRealtimeEventTypes = new Set(['message.chunk', 'thinking.chunk', '
 
 export function resetMobileChatSessionCachesForTest(): void {
   sessionCaches.clear()
+  clearPostCompletionRefreshTimer()
 }
 
 function timestampMs(value: string | null | undefined): number | undefined {
@@ -248,6 +250,26 @@ async function refreshLatestMessages(
   saveCache(sessionId, get())
 }
 
+function clearPostCompletionRefreshTimer(): void {
+  if (!postCompletionRefreshTimer) return
+  clearTimeout(postCompletionRefreshTimer)
+  postCompletionRefreshTimer = null
+}
+
+function refreshLatestMessagesAfterPersistence(
+  get: () => ChatState,
+  set: (p: Partial<ChatState> | ((s: ChatState) => Partial<ChatState>)) => void,
+  sessionId: string,
+): void {
+  refreshLatestMessages(get, set, sessionId).catch(() => {})
+  clearPostCompletionRefreshTimer()
+  postCompletionRefreshTimer = setTimeout(() => {
+    postCompletionRefreshTimer = null
+    if (get().sessionId !== sessionId) return
+    refreshLatestMessages(get, set, sessionId).catch(() => {})
+  }, 500)
+}
+
 function flushBuffer(set: (p: Partial<ChatState> | ((s: ChatState) => Partial<ChatState>)) => void, get: () => ChatState): void {
   if (streamingFlushTimer) { clearTimeout(streamingFlushTimer); streamingFlushTimer = null }
   const snapshot = streamingBuffer.flush()
@@ -303,6 +325,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
     streamingBuffer.clear()
     if (streamingFlushTimer) { clearTimeout(streamingFlushTimer); streamingFlushTimer = null }
+    clearPostCompletionRefreshTimer()
     lastStreamingSnapshot = null
     const cached = sessionCaches.get(sessionId)
     set({
@@ -339,6 +362,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
     streamingBuffer.clear()
     if (streamingFlushTimer) { clearTimeout(streamingFlushTimer); streamingFlushTimer = null }
+    clearPostCompletionRefreshTimer()
     set({
       sessionId: null,
       messages: [],
@@ -609,7 +633,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         }
       }
       saveCache(sid, get())
-      refreshLatestMessages(get, set, sid).catch(() => {})
+      refreshLatestMessagesAfterPersistence(get, set, sid)
     }))
 
     offs.push(wsClient.on('session:activity', (msg) => {
@@ -621,7 +645,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         promptStartTime = 0
         set({ streamingMessage: null, isRunning: false, runningStartedAtMs: null })
         saveCache(sessionId, get())
-        refreshLatestMessages(get, set, sessionId).catch(() => {})
+        refreshLatestMessagesAfterPersistence(get, set, sessionId)
       } else {
         set(state => ({ isRunning: true, runningStartedAtMs: state.runningStartedAtMs ?? Date.now() }))
         saveCache(sessionId, get())

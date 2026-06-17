@@ -123,7 +123,7 @@ export default function ChatPage() {
   return (
     <div style={styles.page}>
       <div style={styles.header}>
-        <button style={styles.backBtn} onClick={() => navigate(-1)}>
+        <button style={styles.backBtn} onClick={() => navigate('/')}>
           <ArrowLeft size={20} />
         </button>
         <div style={styles.headerInfo}>
