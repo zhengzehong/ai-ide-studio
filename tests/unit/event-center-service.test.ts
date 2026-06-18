@@ -306,6 +306,113 @@ describe('event center service', () => {
     expect(eventConsumptionStore.listByEvent(blocked.id).map((item) => item.consumer_agent_id)).toEqual([blockedWatcher.id])
   })
 
+  test('normalizes flat task lifecycle payload filters before matching', () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const dispatcher = agentStore.create({ name: 'Dispatcher', type: 'pm', runtime: 'mock', projectId: project.id })
+
+    const subscription = eventCenterService.createSubscription(subscriptionInput({
+      projectId: project.id,
+      name: 'Flat task backlog filter',
+      categoryId: 'task.lifecycle',
+      consumerAgentId: dispatcher.id,
+      filter: { taskStatus: 'backlog' },
+    }))
+
+    expect(JSON.parse(subscription.filter_json)).toEqual({ payload: { taskStatus: 'backlog' } })
+
+    const backlog = eventCenterService.createEvent({
+      projectId: project.id,
+      categoryId: 'task.lifecycle',
+      title: 'Backlog task',
+      payload: { taskId: 'task-a', taskStatus: 'backlog' },
+    })
+    const executing = eventCenterService.createEvent({
+      projectId: project.id,
+      categoryId: 'task.lifecycle',
+      title: 'Executing task',
+      payload: { taskId: 'task-b', taskStatus: 'executing' },
+    })
+
+    expect(eventConsumptionStore.listByEvent(backlog.id).map((item) => item.consumer_agent_id)).toEqual([dispatcher.id])
+    expect(eventConsumptionStore.listByEvent(executing.id)).toEqual([])
+  })
+
+  test('matches legacy flat task lifecycle subscription filters', () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const dispatcher = agentStore.create({ name: 'Dispatcher', type: 'pm', runtime: 'mock', projectId: project.id })
+    const subscription = eventSubscriptionStore.create({
+      projectId: project.id,
+      name: 'Legacy backlog filter',
+      categoryId: 'task.lifecycle',
+      consumerAgentId: dispatcher.id,
+      filter: { taskStatus: 'backlog' },
+    })
+
+    const backlog = eventCenterService.createEvent({
+      projectId: project.id,
+      categoryId: 'task.lifecycle',
+      title: 'Backlog task',
+      payload: { taskId: 'task-a', taskStatus: 'backlog' },
+    })
+    const executing = eventCenterService.createEvent({
+      projectId: project.id,
+      categoryId: 'task.lifecycle',
+      title: 'Executing task',
+      payload: { taskId: 'task-b', taskStatus: 'executing' },
+    })
+
+    expect(JSON.parse(subscription.filter_json)).toEqual({ taskStatus: 'backlog' })
+    expect(eventConsumptionStore.listByEvent(backlog.id).map((item) => item.consumer_agent_id)).toEqual([dispatcher.id])
+    expect(eventConsumptionStore.listByEvent(executing.id)).toEqual([])
+  })
+
+  test('skips legacy subscriptions with unknown filter fields', () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const dispatcher = agentStore.create({ name: 'Dispatcher', type: 'pm', runtime: 'mock', projectId: project.id })
+    eventSubscriptionStore.create({
+      projectId: project.id,
+      name: 'Legacy bad filter',
+      categoryId: 'task.lifecycle',
+      consumerAgentId: dispatcher.id,
+      filter: { typoStatus: 'backlog' },
+    })
+
+    const event = eventCenterService.createEvent({
+      projectId: project.id,
+      categoryId: 'task.lifecycle',
+      title: 'Backlog task',
+      payload: { taskId: 'task-a', taskStatus: 'backlog' },
+    })
+
+    expect(eventConsumptionStore.listByEvent(event.id)).toEqual([])
+  })
+
+  test('rejects unknown top-level subscription filter fields', () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const dispatcher = agentStore.create({ name: 'Dispatcher', type: 'pm', runtime: 'mock', projectId: project.id })
+
+    expect(() => eventCenterService.createSubscription(subscriptionInput({
+      projectId: project.id,
+      name: 'Bad filter',
+      categoryId: 'task.lifecycle',
+      consumerAgentId: dispatcher.id,
+      filter: { typoStatus: 'backlog' },
+    }))).toThrow(/未知订阅过滤字段|unknown subscription filter/i)
+  })
+
+  test('rejects non-object payload subscription filters', () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const dispatcher = agentStore.create({ name: 'Dispatcher', type: 'pm', runtime: 'mock', projectId: project.id })
+
+    expect(() => eventCenterService.createSubscription(subscriptionInput({
+      projectId: project.id,
+      name: 'Bad payload filter',
+      categoryId: 'task.lifecycle',
+      consumerAgentId: dispatcher.id,
+      filter: { payload: 'taskStatus=backlog' },
+    }))).toThrow(/filter\.payload/)
+  })
+
   test('enforces category writer and consumer allow lists', () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const allowedWriter = agentStore.create({ name: 'Writer', type: 'research', runtime: 'mock', projectId: project.id })

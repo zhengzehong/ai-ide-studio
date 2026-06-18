@@ -201,7 +201,7 @@ export const EVENT_CENTER_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'glo
   {
     name: 'event.subscription.create',
     displayName: '创建事件订阅',
-    description: '创建事件订阅规则，定义哪个 Agent 消费哪类事件。',
+    description: '创建事件订阅规则，定义哪个 Agent 消费哪类事件。filter 顶层仅支持 minConfidence、priority、sourceType、payload；事件 payload 字段必须放入 filter.payload，例如 task.lifecycle 待办任务使用 {"payload":{"taskStatus":"backlog"}}。',
     category: 'automation',
     type: 'builtin',
     config: { handler: 'event.subscription.create' },
@@ -214,7 +214,19 @@ export const EVENT_CENTER_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'glo
         consumerAgentId: { type: 'string' },
         consumerLabel: { type: 'string' },
         actionMode: { type: 'string' },
-        filter: { type: 'object' },
+        filter: {
+          type: 'object',
+          description: '订阅过滤条件。顶层支持 minConfidence、priority、sourceType、payload。payload 是事件 payload 字段过滤，如 {"payload":{"taskStatus":"backlog","assignedAgentId":null}}；不要传扁平 {"taskStatus":"backlog"}。',
+          properties: {
+            minConfidence: { type: 'number', description: '最低置信度，0-1' },
+            priority: { type: 'string', description: '事件优先级，如 low/medium/high' },
+            sourceType: { type: 'string', description: '事件来源类型' },
+            payload: {
+              type: 'object',
+              description: '事件 payload 字段过滤。值可为直接值、null、{"in":[...]}, 或 {"exists":true/false}。',
+            },
+          },
+        },
         autoStart: { type: 'boolean' },
         consumerSessionMode: { type: 'string', enum: ['existing', 'new_each', 'new_fixed'] },
         consumerSessionId: { type: 'string' },

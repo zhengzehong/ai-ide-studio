@@ -148,6 +148,22 @@ describe('event center MCP tools', () => {
     expect(subscription.consumer_session_mode).toBe('existing')
     expect(subscription.consumer_session_id).toBe(session.id)
   })
+
+  test('normalizes flat payload filters passed through subscription tool', async () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const collector = agentStore.create({ name: 'Collector', type: 'research', runtime: 'mock', projectId: project.id })
+    const consumer = agentStore.create({ name: 'Consumer', type: 'pm', runtime: 'mock', projectId: project.id })
+
+    const result = await executeJson('event.subscription.create', {
+      name: 'Backlog dispatcher',
+      categoryId: 'task.lifecycle',
+      consumerAgentId: consumer.id,
+      filter: { taskStatus: 'backlog' },
+    }, { projectId: project.id, agentId: collector.id })
+
+    const subscription = asRecord(result.subscription)
+    expect(JSON.parse(subscription.filter_json as string)).toEqual({ payload: { taskStatus: 'backlog' } })
+  })
 })
 
 async function executeJson(
