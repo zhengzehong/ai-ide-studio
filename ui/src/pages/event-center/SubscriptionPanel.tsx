@@ -1,4 +1,4 @@
-import { Plus } from 'lucide-react'
+import { Edit3, Plus, Power, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { useEventCenterStore, type EventSubscriptionData } from '../../stores/event-center.store'
 import { actionModeLabel, categoryName, parseJson } from './helpers'
@@ -9,9 +9,24 @@ export function SubscriptionPanel({ projectId }: { projectId: string | null }) {
   const categories = useEventCenterStore((s) => s.categories)
   const subscriptions = useEventCenterStore((s) => s.subscriptions)
   const toggleSubscription = useEventCenterStore((s) => s.toggleSubscription)
+  const deleteSubscription = useEventCenterStore((s) => s.deleteSubscription)
   const [creating, setCreating] = useState(false)
+  const [editing, setEditing] = useState<EventSubscriptionData | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(subscriptions[0]?.id ?? null)
+  const [error, setError] = useState('')
   const selected = subscriptions.find((item) => item.id === selectedId) ?? subscriptions[0]
+
+  const toggleSelected = async () => {
+    if (!selected) return
+    setError('')
+    await toggleSubscription(selected.id, !selected.enabled).catch((err: unknown) => setError(errorMessage(err, '切换订阅规则状态失败')))
+  }
+
+  const deleteSelected = async () => {
+    if (!selected) return
+    setError('')
+    await deleteSubscription(selected.id).catch((err: unknown) => setError(errorMessage(err, '删除订阅规则失败')))
+  }
 
   return (
     <div className="ec-manage">
@@ -41,13 +56,32 @@ export function SubscriptionPanel({ projectId }: { projectId: string | null }) {
           </table>
         </div>
       </section>
-      <RuleDetail rule={selected} />
+      <RuleDetail
+        error={error}
+        rule={selected}
+        onDelete={deleteSelected}
+        onEdit={() => selected && setEditing(selected)}
+        onToggle={toggleSelected}
+      />
       <SubscriptionCreateModal open={creating} projectId={projectId} onClose={() => setCreating(false)} />
+      <SubscriptionCreateModal open={Boolean(editing)} projectId={projectId} subscription={editing ?? undefined} onClose={() => setEditing(null)} />
     </div>
   )
 }
 
-function RuleDetail({ rule }: { rule: EventSubscriptionData | undefined }) {
+function RuleDetail({
+  error,
+  rule,
+  onDelete,
+  onEdit,
+  onToggle,
+}: {
+  error: string
+  rule: EventSubscriptionData | undefined
+  onDelete: () => void
+  onEdit: () => void
+  onToggle: () => void
+}) {
   if (!rule) return <aside className="ec-side-panel"><div className="ec-empty">请选择一个订阅规则</div></aside>
   const filter = parseJson(rule.filter_json, {})
   const filterRows = readableFilter(filter)
@@ -59,6 +93,7 @@ function RuleDetail({ rule }: { rule: EventSubscriptionData | undefined }) {
         <p>匹配事件后创建待消费记录，消费者可以从工具领取，或由 UI 手动运行。</p>
       </div>
       <div className="ec-detail-body">
+        {error && <div className="ec-form-error">{error}</div>}
         <section className="ec-section">
           <h3>匹配条件</h3>
           <div className="ec-kv">
@@ -76,6 +111,11 @@ function RuleDetail({ rule }: { rule: EventSubscriptionData | undefined }) {
           </div>
         </section>
       </div>
+      <div className="ec-detail-actions">
+        <button className="ec-btn" onClick={onEdit}><Edit3 size={14} />编辑</button>
+        <button className="ec-btn" onClick={onToggle}><Power size={14} />{rule.enabled ? '停用' : '启用'}</button>
+        <button className="ec-btn ec-btn--danger" onClick={onDelete}><Trash2 size={14} />删除</button>
+      </div>
     </aside>
   )
 }
@@ -84,4 +124,8 @@ function consumerSessionModeLabel(value: EventSubscriptionData['consumer_session
   if (value === 'existing') return '指定已有会话'
   if (value === 'new_fixed') return '固定新会话'
   return '每次新会话'
+}
+
+function errorMessage(err: unknown, fallback: string): string {
+  return err instanceof Error ? err.message : fallback
 }

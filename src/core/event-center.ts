@@ -11,6 +11,7 @@ import {
   eventSubscriptionStore,
   type CreateEventSubscriptionInput,
   type EventSubscriptionRow,
+  type UpdateEventSubscriptionInput,
 } from '../store/event-subscriptions.js'
 import { eventConsumptionStore, type EventConsumptionRow } from '../store/event-consumptions.js'
 import { eventTaskLinkStore } from '../store/event-task-links.js'
@@ -172,19 +173,10 @@ export const eventCenterService = {
   },
 
   createSubscription(input: CreateEventSubscriptionInput): EventSubscriptionRow {
-    ensureBuiltinEventCategories()
-    if (!input.name?.trim()) throw new Error('订阅名称不能为空')
-    const category = eventCategoryStore.resolve(input.categoryId, input.projectId ?? undefined)
-    if (!category) throw new Error(`事件类别不存在: ${input.categoryId}`)
-    assertAgentProject(input.consumerAgentId, input.projectId ?? undefined)
-    assertCategoryAccess(category, input.consumerAgentId, 'consumer')
-    validateSubscriptionSession(input)
-    const filter = normalizeSubscriptionFilter(input.filter, category)
+    const normalized = normalizeSubscriptionInput(input)
     const subscription = eventSubscriptionStore.create({
-      ...input,
-      name: input.name.trim(),
-      consumerLabel: input.consumerLabel ?? agentLabel(input.consumerAgentId),
-      filter,
+      ...normalized.input,
+      filter: normalized.filter,
     })
     emitUpdate({ subscriptionId: subscription.id, event: 'subscription.created' })
     return subscription
@@ -198,6 +190,27 @@ export const eventCenterService = {
     const subscription = eventSubscriptionStore.toggle(subscriptionId, enabled)
     emitUpdate({ subscriptionId, event: 'subscription.toggled', enabled })
     return subscription
+  },
+
+  updateSubscription(subscriptionId: string, input: UpdateEventSubscriptionInput): EventSubscriptionRow {
+    const existing = eventSubscriptionStore.get(subscriptionId)
+    if (!existing) throw new Error(`订阅规则不存在: ${subscriptionId}`)
+    const normalized = normalizeSubscriptionInput(input)
+    const subscription = eventSubscriptionStore.update(subscriptionId, {
+      ...normalized.input,
+      filter: normalized.filter,
+    })
+    if (!subscription) throw new Error(`订阅规则不存在: ${subscriptionId}`)
+    emitUpdate({ subscriptionId, projectId: subscription.project_id, event: 'subscription.updated' })
+    return subscription
+  },
+
+  deleteSubscription(subscriptionId: string): { subscriptionId: string; deleted: boolean } {
+    const existing = eventSubscriptionStore.get(subscriptionId)
+    if (!existing) throw new Error(`订阅规则不存在: ${subscriptionId}`)
+    const deleted = eventSubscriptionStore.remove(subscriptionId)
+    emitUpdate({ subscriptionId, projectId: existing.project_id, event: 'subscription.deleted' })
+    return { subscriptionId, deleted }
   },
 
   listConsumptions(eventId: string): EventConsumptionRow[] {
@@ -413,6 +426,31 @@ function validateSubscriptionSession(input: CreateEventSubscriptionInput): void 
     throw new Error('existing consumer session mode requires consumerSessionId')
   }
   if (input.consumerSessionId) validateConsumerSession(input.consumerSessionId, input.consumerAgentId, input.projectId ?? undefined)
+}
+
+function normalizeSubscriptionInput(input: CreateEventSubscriptionInput | UpdateEventSubscriptionInput): {
+  input: UpdateEventSubscriptionInput
+  filter: Record<string, unknown>
+} {
+  ensureBuiltinEventCategories()
+  if (!input.name?.trim()) throw new Error('订阅名称不能为空')
+  const category = eventCategoryStore.resolve(input.categoryId, input.projectId ?? undefined)
+  if (!category) throw new Error(`事件类别不存在: ${input.categoryId}`)
+  assertAgentProject(input.consumerAgentId, input.projectId ?? undefined)
+  assertCategoryAccess(category, input.consumerAgentId, 'consumer')
+  validateSubscriptionSession(input)
+  const filter = normalizeSubscriptionFilter(input.filter, category)
+  const consumerSessionMode = input.consumerSessionMode ?? 'new_each'
+  return {
+    input: {
+      ...input,
+      name: input.name.trim(),
+      consumerLabel: input.consumerLabel ?? agentLabel(input.consumerAgentId),
+      consumerSessionMode,
+      consumerSessionId: consumerSessionMode === 'new_each' ? null : input.consumerSessionId,
+    },
+    filter,
+  }
 }
 
 function matchesSubscription(subscription: EventSubscriptionRow, event: EventCenterEventRow): boolean {

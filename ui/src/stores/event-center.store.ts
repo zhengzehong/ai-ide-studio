@@ -117,7 +117,9 @@ interface EventCenterStore {
   toggleCategory: (categoryId: string, enabled: boolean, projectId?: string) => Promise<void>
   deleteCategory: (categoryId: string, projectId?: string) => Promise<void>
   createSubscription: (input: Record<string, unknown>) => Promise<EventSubscriptionData>
+  updateSubscription: (subscriptionId: string, input: Record<string, unknown>) => Promise<EventSubscriptionData>
   toggleSubscription: (subscriptionId: string, enabled: boolean) => Promise<void>
+  deleteSubscription: (subscriptionId: string) => Promise<void>
   ignoreEvent: (eventId: string) => Promise<void>
   archiveEvent: (eventId: string) => Promise<void>
   convertToTask: (eventId: string, input: { title: string; description?: string; projectId?: string }) => Promise<void>
@@ -245,9 +247,20 @@ export const useEventCenterStore = create<EventCenterStore>((set, get) => ({
     return subscription
   },
 
+  updateSubscription: async (subscriptionId, input) => {
+    const subscription = await wsClient.request({ type: 'eventSubscriptions.update', subscriptionId, ...input }) as EventSubscriptionData
+    set((state) => ({ subscriptions: state.subscriptions.map((item) => item.id === subscriptionId ? subscription : item) }))
+    return subscription
+  },
+
   toggleSubscription: async (subscriptionId, enabled) => {
     const subscription = await wsClient.request({ type: 'eventSubscriptions.toggle', subscriptionId, enabled }) as EventSubscriptionData
     set((state) => ({ subscriptions: state.subscriptions.map((item) => item.id === subscriptionId ? subscription : item) }))
+  },
+
+  deleteSubscription: async (subscriptionId) => {
+    await wsClient.request({ type: 'eventSubscriptions.delete', subscriptionId })
+    set((state) => ({ subscriptions: state.subscriptions.filter((item) => item.id !== subscriptionId) }))
   },
 
   ignoreEvent: async (eventId) => {
