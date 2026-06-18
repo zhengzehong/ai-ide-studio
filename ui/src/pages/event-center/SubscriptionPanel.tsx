@@ -1,7 +1,8 @@
 import { Plus } from 'lucide-react'
 import { useState } from 'react'
 import { useEventCenterStore, type EventSubscriptionData } from '../../stores/event-center.store'
-import { actionModeLabel, categoryName, parseJson, PRIORITY_META } from './helpers'
+import { actionModeLabel, categoryName, parseJson } from './helpers'
+import { readableFilter } from './subscription-filter'
 import { SubscriptionCreateModal } from './SubscriptionCreateModal'
 
 export function SubscriptionPanel({ projectId }: { projectId: string | null }) {
@@ -77,13 +78,6 @@ function RuleDetail({ rule }: { rule: EventSubscriptionData | undefined }) {
       </div>
     </aside>
   )
-}
-
-function readableFilter(filter: Record<string, unknown>): Array<{ label: string; value: string }> {
-  const rows: Array<{ label: string; value: string }> = []
-  if (typeof filter.priority === 'string') rows.push({ label: '优先级', value: PRIORITY_META[filter.priority]?.label ?? filter.priority })
-  if (typeof filter.sourceType === 'string') rows.push({ label: '来源类型', value: filter.sourceType })
-  return rows.length > 0 ? rows : [{ label: '条件', value: '匹配该类别的全部事件' }]
 }
 
 function consumerSessionModeLabel(value: EventSubscriptionData['consumer_session_mode']): string {

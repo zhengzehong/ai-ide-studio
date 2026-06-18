@@ -179,10 +179,12 @@ export const eventCenterService = {
     assertAgentProject(input.consumerAgentId, input.projectId ?? undefined)
     assertCategoryAccess(category, input.consumerAgentId, 'consumer')
     validateSubscriptionSession(input)
+    const filter = normalizeSubscriptionFilter(input.filter, category)
     const subscription = eventSubscriptionStore.create({
       ...input,
       name: input.name.trim(),
       consumerLabel: input.consumerLabel ?? agentLabel(input.consumerAgentId),
+      filter,
     })
     emitUpdate({ subscriptionId: subscription.id, event: 'subscription.created' })
     return subscription
@@ -414,7 +416,14 @@ function validateSubscriptionSession(input: CreateEventSubscriptionInput): void 
 }
 
 function matchesSubscription(subscription: EventSubscriptionRow, event: EventCenterEventRow): boolean {
-  const filter = parseJson(subscription.filter_json)
+  const category = eventCategoryStore.get(event.category_id)
+  let filter: Record<string, unknown>
+  try {
+    filter = normalizeSubscriptionFilter(parseJson(subscription.filter_json), category)
+  } catch (err) {
+    log.warn({ err, subscriptionId: subscription.id, eventId: event.id }, '事件订阅过滤条件无效，已跳过')
+    return false
+  }
   const minConfidence = numberField(filter.minConfidence)
   if (minConfidence !== undefined && event.confidence < minConfidence) return false
   const priority = typeof filter.priority === 'string' ? filter.priority : undefined
@@ -423,6 +432,50 @@ function matchesSubscription(subscription: EventSubscriptionRow, event: EventCen
   if (sourceType && event.source_type !== sourceType) return false
   if (!matchesPayloadFilter(filter.payload, parseJson(event.payload_json))) return false
   return true
+}
+
+function normalizeSubscriptionFilter(input: Record<string, unknown> | undefined, category: EventCategoryRow | undefined): Record<string, unknown> {
+  if (!input || Object.keys(input).length === 0) return {}
+  const allowedTopLevelKeys = new Set(['minConfidence', 'priority', 'sourceType', 'payload'])
+  const payloadFieldKeys = filterablePayloadFields(category)
+  const normalized: Record<string, unknown> = {}
+  const payload = input.payload === undefined ? {} : recordField(input.payload)
+  for (const [key, value] of Object.entries(input)) {
+    if (key === 'payload') {
+      continue
+    }
+    if (allowedTopLevelKeys.has(key)) {
+      normalized[key] = value
+      continue
+    }
+    if (payloadFieldKeys.has(key)) {
+      payload[key] = value
+      continue
+    }
+    throw new Error(`未知订阅过滤字段: ${key}。Payload 字段请放在 filter.payload.${key}`)
+  }
+  if (Object.keys(payload).length > 0) normalized.payload = payload
+  return normalized
+}
+
+function filterablePayloadFields(category: EventCategoryRow | undefined): Set<string> {
+  if (!category) return new Set()
+  const schema = parseJson(category.schema_json)
+  const properties = schema.properties
+  if (!properties || typeof properties !== 'object' || Array.isArray(properties)) return new Set()
+  const fields = new Set<string>()
+  for (const [key, value] of Object.entries(properties as Record<string, unknown>)) {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      const field = value as Record<string, unknown>
+      if (field['x-filter'] === true) fields.add(key)
+    }
+  }
+  return fields
+}
+
+function recordField(value: unknown): Record<string, unknown> {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return { ...value as Record<string, unknown> }
+  throw new Error('filter.payload 必须是对象')
 }
 
 function matchesPayloadFilter(filter: unknown, payload: Record<string, unknown>): boolean {
