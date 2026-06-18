@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { X } from 'lucide-react'
 import { useAgentStore } from '../../stores/agent.store'
-import { useEventCenterStore } from '../../stores/event-center.store'
+import { useEventCenterStore, type EventSubscriptionData } from '../../stores/event-center.store'
 import { useSessionStore } from '../../stores/session.store'
-import { categoryFields } from './helpers'
+import { categoryFields, parseJson } from './helpers'
 
 const priorityOptions = [
   { value: '', label: '不限' },
@@ -30,27 +30,38 @@ const sessionModeOptions: Array<{ value: ConsumerSessionMode; label: string }> =
 interface Props {
   open: boolean
   projectId: string | null
+  subscription?: EventSubscriptionData
   onClose: () => void
 }
 
-export function SubscriptionCreateModal({ open, projectId, onClose }: Props) {
+export function SubscriptionCreateModal({ open, projectId, subscription, onClose }: Props) {
+  if (!open) return null
+  return <SubscriptionForm key={subscription?.id ?? 'new'} projectId={projectId} subscription={subscription} onClose={onClose} />
+}
+
+function SubscriptionForm({ projectId, subscription, onClose }: Omit<Props, 'open'>) {
   const categories = useEventCenterStore((s) => s.categories)
   const createSubscription = useEventCenterStore((s) => s.createSubscription)
+  const updateSubscription = useEventCenterStore((s) => s.updateSubscription)
   const agents = useAgentStore((s) => s.agents)
   const sessions = useSessionStore((s) => s.sessions)
   const fetchSessions = useSessionStore((s) => s.fetchSessions)
-  const [name, setName] = useState('')
-  const [categoryId, setCategoryId] = useState('ai.hot_project')
-  const [consumerAgentId, setConsumerAgentId] = useState('')
-  const [consumerSessionMode, setConsumerSessionMode] = useState<ConsumerSessionMode>('new_fixed')
-  const [consumerSessionId, setConsumerSessionId] = useState('')
-  const [autoStart, setAutoStart] = useState(false)
-  const [priority, setPriority] = useState('')
-  const [sourceType, setSourceType] = useState('')
-  const [payloadFilters, setPayloadFilters] = useState<PayloadFilterDraft[]>([])
-  const [enabled, setEnabled] = useState(true)
+  const initialFilter = parseJson<Record<string, unknown>>(subscription?.filter_json, {})
+  const initialPayload = parsePayloadFilters(initialFilter.payload)
+  const [name, setName] = useState(subscription?.name ?? '')
+  const [categoryId, setCategoryId] = useState(subscription?.category_id ?? categories.find((category) => category.enabled === 1)?.id ?? '')
+  const [consumerAgentId, setConsumerAgentId] = useState(subscription?.consumer_agent_id ?? '')
+  const [consumerSessionMode, setConsumerSessionMode] = useState<ConsumerSessionMode>(subscription?.consumer_session_mode ?? 'new_fixed')
+  const [consumerSessionId, setConsumerSessionId] = useState(subscription?.consumer_session_id ?? '')
+  const [autoStart, setAutoStart] = useState(subscription ? subscription.auto_start === 1 : false)
+  const [priority, setPriority] = useState(typeof initialFilter.priority === 'string' ? initialFilter.priority : '')
+  const [sourceType, setSourceType] = useState(typeof initialFilter.sourceType === 'string' ? initialFilter.sourceType : '')
+  const [payloadFilters, setPayloadFilters] = useState<PayloadFilterDraft[]>(initialPayload)
+  const [enabled, setEnabled] = useState(subscription ? subscription.enabled === 1 : true)
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const isEdit = Boolean(subscription)
+  const targetProjectId = subscription ? subscription.project_id ?? undefined : projectId ?? undefined
 
   const projectAgents = useMemo(
     () => agents.filter((agent) => !projectId || agent.project_id === projectId),
@@ -69,12 +80,14 @@ export function SubscriptionCreateModal({ open, projectId, onClose }: Props) {
     const category = categories.find((item) => item.id === categoryId)
     return categoryFields(category).filter((field) => field.filter)
   }, [categories, categoryId])
+  const categoryOptions = useMemo(
+    () => categories.filter((category) => category.enabled === 1 || category.id === subscription?.category_id),
+    [categories, subscription?.category_id],
+  )
 
   useEffect(() => {
-    if (open) void fetchSessions(undefined, projectId ?? undefined)
-  }, [fetchSessions, open, projectId])
-
-  if (!open) return null
+    void fetchSessions(undefined, projectId ?? undefined)
+  }, [fetchSessions, projectId])
 
   const submit = async () => {
     setError('')
@@ -99,8 +112,8 @@ export function SubscriptionCreateModal({ open, projectId, onClose }: Props) {
     const payloadFilter = buildPayloadFilter(payloadFilters)
     setSubmitting(true)
     try {
-      await createSubscription({
-        projectId: projectId ?? undefined,
+      const payload = {
+        projectId: targetProjectId,
         name: name.trim(),
         categoryId,
         consumerAgentId,
@@ -114,12 +127,14 @@ export function SubscriptionCreateModal({ open, projectId, onClose }: Props) {
         enabled,
         autoStart,
         consumerSessionMode,
-        consumerSessionId: consumerSessionMode === 'existing' ? consumerSessionId : undefined,
-      })
+        consumerSessionId: consumerSessionMode === 'existing' || consumerSessionMode === 'new_fixed' ? consumerSessionId || undefined : undefined,
+      }
+      if (subscription) await updateSubscription(subscription.id, payload)
+      else await createSubscription(payload)
       reset()
       onClose()
     } catch (err) {
-      setError(err instanceof Error ? err.message : '创建订阅规则失败')
+      setError(err instanceof Error ? err.message : '保存订阅规则失败')
     } finally {
       setSubmitting(false)
     }
@@ -162,7 +177,7 @@ export function SubscriptionCreateModal({ open, projectId, onClose }: Props) {
       <div className="ec-modal ec-modal--narrow" role="dialog" aria-modal="true" aria-labelledby="subscription-create-title">
         <div className="ec-modal-head">
           <div>
-            <h2 id="subscription-create-title">新建订阅规则</h2>
+            <h2 id="subscription-create-title">{isEdit ? '编辑订阅规则' : '新建订阅规则'}</h2>
             <p>定义哪些事件进入哪个 Agent 的待消费队列。</p>
           </div>
           <button className="ec-icon-btn" onClick={close} aria-label="关闭"><X size={16} /></button>
@@ -181,7 +196,7 @@ export function SubscriptionCreateModal({ open, projectId, onClose }: Props) {
                 setPayloadFilters([])
               }}
             >
-              {categories.filter((category) => category.enabled === 1).map((category) => (
+              {categoryOptions.map((category) => (
                 <option key={category.id} value={category.id}>{category.name}</option>
               ))}
             </select>
@@ -284,11 +299,31 @@ export function SubscriptionCreateModal({ open, projectId, onClose }: Props) {
         </div>
         <div className="ec-modal-actions">
           <button className="ec-btn" onClick={close} disabled={submitting}>取消</button>
-          <button className="ec-btn ec-btn--primary" onClick={submit} disabled={submitting}>{submitting ? '创建中...' : '创建规则'}</button>
+          <button className="ec-btn ec-btn--primary" onClick={submit} disabled={submitting}>{submitting ? '保存中...' : isEdit ? '保存规则' : '创建规则'}</button>
         </div>
       </div>
     </div>
   )
+}
+
+function parsePayloadFilters(value: unknown): PayloadFilterDraft[] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return []
+  return Object.entries(value).flatMap(([key, filterValue]): PayloadFilterDraft[] => {
+    if (filterValue === null) return [{ key, op: 'isNull' as const, value: '' }]
+    if (isInFilter(filterValue)) return [{ key, op: 'in' as const, value: filterValue.in.join(',') }]
+    if (typeof filterValue === 'string' || typeof filterValue === 'number' || typeof filterValue === 'boolean') {
+      return [{ key, op: 'eq' as const, value: String(filterValue) }]
+    }
+    return []
+  })
+}
+
+function isInFilter(value: unknown): value is { in: string[] } {
+  return !!value &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    Array.isArray((value as { in?: unknown }).in) &&
+    (value as { in: unknown[] }).in.every((item) => typeof item === 'string')
 }
 
 function buildPayloadFilter(filters: PayloadFilterDraft[]): Record<string, unknown> {

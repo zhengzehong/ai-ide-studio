@@ -34,6 +34,8 @@ export interface CreateEventSubscriptionInput {
   consumerSessionId?: string | null
 }
 
+export type UpdateEventSubscriptionInput = CreateEventSubscriptionInput
+
 export const eventSubscriptionStore = {
   create(input: CreateEventSubscriptionInput): EventSubscriptionRow {
     const now = new Date().toISOString()
@@ -108,6 +110,46 @@ export const eventSubscriptionStore = {
     getDb().prepare('UPDATE event_subscriptions SET enabled = ?, updated_at = ? WHERE id = ?')
       .run(enabled ? 1 : 0, new Date().toISOString(), id)
     return eventSubscriptionStore.get(id)
+  },
+
+  update(id: string, input: UpdateEventSubscriptionInput): EventSubscriptionRow | undefined {
+    getDb().prepare(`
+      UPDATE event_subscriptions
+      SET
+        project_id = ?,
+        name = ?,
+        category_id = ?,
+        consumer_agent_id = ?,
+        consumer_label = ?,
+        action_mode = ?,
+        filter_json = ?,
+        enabled = ?,
+        auto_start = ?,
+        consumer_session_mode = ?,
+        consumer_session_id = ?,
+        updated_at = ?
+      WHERE id = ?
+    `).run(
+      input.projectId ?? null,
+      input.name,
+      input.categoryId,
+      input.consumerAgentId ?? null,
+      input.consumerLabel ?? null,
+      input.actionMode ?? 'create_pending',
+      JSON.stringify(input.filter ?? {}),
+      input.enabled === false ? 0 : 1,
+      input.autoStart ? 1 : 0,
+      input.consumerSessionMode ?? 'new_each',
+      input.consumerSessionId ?? null,
+      new Date().toISOString(),
+      id,
+    )
+    return eventSubscriptionStore.get(id)
+  },
+
+  remove(id: string): boolean {
+    const result = getDb().prepare('DELETE FROM event_subscriptions WHERE id = ?').run(id)
+    return result.changes > 0
   },
 
   setConsumerSession(id: string, sessionId: string | null): EventSubscriptionRow | undefined {

@@ -337,6 +337,27 @@ export interface EventCategoriesDeleteMsg extends ClientMessage {
   categoryId: string
 }
 
+export interface EventSubscriptionsUpdateMsg extends ClientMessage {
+  type: 'eventSubscriptions.update'
+  subscriptionId: string
+  projectId?: string
+  name: string
+  categoryId: string
+  consumerAgentId?: string
+  consumerLabel?: string
+  actionMode?: string
+  filter?: Record<string, unknown>
+  enabled?: boolean
+  autoStart?: boolean
+  consumerSessionMode?: 'existing' | 'new_each' | 'new_fixed'
+  consumerSessionId?: string | null
+}
+
+export interface EventSubscriptionsDeleteMsg extends ClientMessage {
+  type: 'eventSubscriptions.delete'
+  subscriptionId: string
+}
+
 export interface ImageAttachment {
   data: string
   mimeType: string

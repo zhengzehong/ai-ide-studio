@@ -145,6 +145,30 @@ export const eventCenterRpcHandlers: RpcHandlerMap = {
     sendResult(eventCenterService.toggleSubscription(msg.subscriptionId as string, msg.enabled as boolean))
   },
 
+  'eventSubscriptions.update'(msg, { sendResult }) {
+    sendResult(eventCenterService.updateSubscription(msg.subscriptionId as string, {
+      projectId: msg.projectId as string | undefined,
+      name: msg.name as string,
+      categoryId: msg.categoryId as string,
+      consumerAgentId: msg.consumerAgentId as string | undefined,
+      consumerLabel: msg.consumerLabel as string | undefined,
+      actionMode: msg.actionMode as string | undefined,
+      filter: record(msg.filter),
+      enabled: msg.enabled as boolean | undefined,
+      autoStart: msg.autoStart as boolean | undefined,
+      consumerSessionMode: msg.consumerSessionMode as never,
+      consumerSessionId: msg.consumerSessionId as string | null | undefined,
+    }))
+  },
+
+  'eventSubscriptions.delete'(msg, { sendResult, sendError }) {
+    try {
+      sendResult(eventCenterService.deleteSubscription(msg.subscriptionId as string))
+    } catch (err) {
+      sendError(err instanceof Error ? err.message : '删除订阅规则失败')
+    }
+  },
+
   'eventConsumptions.claimNext'(msg, { sendResult }) {
     sendResult(eventCenterService.claimNextEvent({
       projectId: msg.projectId as string | undefined,

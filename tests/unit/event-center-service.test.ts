@@ -254,6 +254,100 @@ describe('event center service', () => {
     })
   })
 
+  test('updates a subscription and applies the new filter only to future events', () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const firstConsumer = agentStore.create({ name: 'First consumer', type: 'pm', runtime: 'mock', projectId: project.id })
+    const secondConsumer = agentStore.create({ name: 'Second consumer', type: 'pm', runtime: 'mock', projectId: project.id })
+
+    const subscription = eventCenterService.createSubscription(subscriptionInput({
+      projectId: project.id,
+      name: 'High priority watcher',
+      categoryId: 'ai.hot_project',
+      consumerAgentId: firstConsumer.id,
+      filter: { priority: 'high' },
+    }))
+    const highBeforeUpdate = eventCenterService.createEvent({
+      projectId: project.id,
+      categoryId: 'ai.hot_project',
+      title: 'High before update',
+      priority: 'high',
+    })
+    const lowBeforeUpdate = eventCenterService.createEvent({
+      projectId: project.id,
+      categoryId: 'ai.hot_project',
+      title: 'Low before update',
+      priority: 'low',
+    })
+
+    const updated = eventCenterService.updateSubscription(subscription.id, subscriptionInput({
+      projectId: project.id,
+      name: 'Low priority watcher',
+      categoryId: 'ai.hot_project',
+      consumerAgentId: secondConsumer.id,
+      consumerLabel: secondConsumer.name,
+      filter: { priority: 'low' },
+      enabled: true,
+      autoStart: false,
+      consumerSessionMode: 'new_each',
+    }))
+    const lowAfterUpdate = eventCenterService.createEvent({
+      projectId: project.id,
+      categoryId: 'ai.hot_project',
+      title: 'Low after update',
+      priority: 'low',
+    })
+    const highAfterUpdate = eventCenterService.createEvent({
+      projectId: project.id,
+      categoryId: 'ai.hot_project',
+      title: 'High after update',
+      priority: 'high',
+    })
+
+    expect(updated).toMatchObject({
+      id: subscription.id,
+      name: 'Low priority watcher',
+      consumer_agent_id: secondConsumer.id,
+      consumer_label: secondConsumer.name,
+    })
+    expect(JSON.parse(updated.filter_json)).toEqual({ priority: 'low' })
+    expect(eventConsumptionStore.listByEvent(highBeforeUpdate.id).map((item) => item.consumer_agent_id)).toEqual([firstConsumer.id])
+    expect(eventConsumptionStore.listByEvent(lowBeforeUpdate.id)).toEqual([])
+    expect(eventConsumptionStore.listByEvent(lowAfterUpdate.id).map((item) => item.consumer_agent_id)).toEqual([secondConsumer.id])
+    expect(eventConsumptionStore.listByEvent(highAfterUpdate.id)).toEqual([])
+  })
+
+  test('deletes a subscription without removing existing consumption history', () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const consumer = agentStore.create({ name: 'Consumer', type: 'pm', runtime: 'mock', projectId: project.id })
+
+    const subscription = eventCenterService.createSubscription(subscriptionInput({
+      projectId: project.id,
+      name: 'Temporary watcher',
+      categoryId: 'ai.hot_project',
+      consumerAgentId: consumer.id,
+      filter: { priority: 'high' },
+    }))
+    const beforeDelete = eventCenterService.createEvent({
+      projectId: project.id,
+      categoryId: 'ai.hot_project',
+      title: 'Before delete',
+      priority: 'high',
+    })
+
+    expect(eventCenterService.deleteSubscription(subscription.id)).toEqual({ subscriptionId: subscription.id, deleted: true })
+    const afterDelete = eventCenterService.createEvent({
+      projectId: project.id,
+      categoryId: 'ai.hot_project',
+      title: 'After delete',
+      priority: 'high',
+    })
+
+    expect(eventSubscriptionStore.get(subscription.id)).toBeUndefined()
+    expect(eventConsumptionStore.listByEvent(beforeDelete.id)).toHaveLength(1)
+    expect(eventConsumptionStore.listByEvent(beforeDelete.id)[0].subscription_id).toBe(subscription.id)
+    expect(eventConsumptionStore.listByEvent(afterDelete.id)).toEqual([])
+  })
+
   test('matches subscriptions by payload field filters', () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const dispatcher = agentStore.create({ name: 'Dispatcher', type: 'pm', runtime: 'mock', projectId: project.id })
