@@ -16,7 +16,7 @@ Gateway 层
       │ mitt 事件总线
       ▼
 Core 业务层
-  sessions.ts / tasks.ts / projects.ts / agents.ts / teams.ts / event-center.ts / events.ts
+  sessions.ts / tasks.ts / projects.ts / agents.ts / teams.ts / event-center.ts / events.ts / knowledge-base.ts
       │
       ├── Store 持久层
       │     db.ts                  SQLite 初始化、旧 JSON 导入
@@ -80,6 +80,18 @@ Agent MCP tool / Web UI → WS 或 MCP event.* → core/event-center
 
 事件中心用于承接“任务之前”的信号和候选工作。事件类别保存在 `event_categories`，事件固定元数据保存在 `event_center_events`，类别差异放入 `payload_json`；订阅规则保存在 `event_subscriptions`，匹配后生成 `event_consumptions`。事件被用户确认后可以通过 `events.convertToTask` 转为普通任务，任务仍归 `tasks` 状态机管理。
 
+### 知识库 LLM Wiki
+
+```text
+Web UI / Agent MCP tool -> WS knowledge* 或 MCP core.kb.* -> core/knowledge-base
+  -> knowledge_bases + knowledge_pages + knowledge_mounts + knowledge_activities
+  -> mitt "knowledge-base:update" -> ws-handler 广播 -> 知识库页面刷新
+```
+
+知识库是项目可见的 markdown Wiki。每个项目懒创建一个 `kind=project` 项目库；`kind=shared` 库不绑定单一项目，通过 `knowledge_mounts` 多对多挂载到项目。页面使用 `[[标题]]` 和 `[[库名/标题]]` 解析双向链接；读取页面时返回出链和反向链接。AI 通过 `core.kb.*` 直接读写同一套数据，写入记录进入 `knowledge_activities`，撤销以 activity 快照为准，不做多版本合并。
+
+`src=code` 的页面记录源文件路径和 sha256 指纹。读/列页面时会懒检测指纹变化并标记 `stale`；刷新不会自动调用 LLM，必须由人或 Agent 读取源文件后显式调用 `core.kb.refresh_from_code` 写入新正文。
+
 ### 管理 Session
 
 ```text
@@ -98,7 +110,7 @@ Session 删除采用软删除，仅隐藏列表项并保留 `messages` / `sessio
 | 目录 | 职责 | 核心文件 |
 |------|------|----------|
 | `src/acp/` | ACP 协议集成 | `host.ts`、`client-handler.ts`、`host-state.ts`、`interaction-state.ts`、`terminal-bridge.ts`、`session-capabilities.ts`、`adapters.ts`、`capabilities.ts`、`update-mapper.ts` |
-| `src/core/` | 业务逻辑 | `sessions.ts`、`turn-process-runtime.ts`、`prompt-diagnostics.ts`、`session-event-payload.ts`、`tasks.ts`、`projects.ts`、`agents.ts`、`teams.ts`、`event-center.ts`、`events.ts` |
+| `src/core/` | 业务逻辑 | `sessions.ts`、`turn-process-runtime.ts`、`prompt-diagnostics.ts`、`session-event-payload.ts`、`tasks.ts`、`projects.ts`、`agents.ts`、`teams.ts`、`event-center.ts`、`events.ts`、`knowledge-base.ts` |
 | `src/gateway/` | 对外接口 | `server.ts`、`ws-handler.ts`、`rpc/*` |
 | `src/store/` | 数据持久化 | `db.ts`、`migrator.ts`、`migrations/*`、`turn-process-items.ts`、各实体 store |
 | `src/tools/` | 工具平台与 MCP 发布 | `resolver.ts`、`tool-gateway.ts`、`registry/*`、`runtime/*`、`mcp/http-mcp-server.ts` |
@@ -125,6 +137,7 @@ Session 删除采用软删除，仅隐藏列表项并保留 `messages` / `sessio
 - `global_assistant` 保存应用唯一全局助理绑定；它复用普通 Agent/Session，但 ACP `cwd` 来自 `global_assistant.workspace_dir`。
 - Team 是项目级协作容器；TeamMember 绑定项目级 Agent 与当前团队 Session，Team Task 复用 `tasks.team_id`。
 - Event Center 是项目级事件收件箱；事件可以被忽略、消费、归档或转为普通 Task，但不会替代 `tasks` 的交付状态机。
+- Knowledge Base 是项目可见知识层；项目库绑定单项目，shared 库通过挂载进入项目可见范围，AI 和人读写同一份 markdown 页面。
 - 非 Team Agent 间通信使用 `agent.*` MCP 工具和普通 Session 投递；平台记录通信与 watch 状态，但不引入独立通信线程。
 - `ws-handler.ts` 只负责 WS 连接、广播、JSON 解析和 dispatch；新增 RPC 必须放到 `src/gateway/rpc/*` 对应领域模块。
 - SQLite schema 由 `src/store/migrator.ts` 与 `src/store/migrations/*` 管理；`db.ts` 不再承载大段建表/升级逻辑。

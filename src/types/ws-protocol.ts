@@ -648,5 +648,6 @@ export type ServerMessage =
   | { type: 'rule:update'; ruleId: string; data: Record<string, unknown> }
   | { type: 'timeline:updated'; sessionId: string }
   | { type: 'event-center:update'; data: Record<string, unknown> }
+  | { type: 'knowledge-base:update'; data: Record<string, unknown> }
   | { type: 'result'; requestId?: string; data: unknown }
   | { type: 'error'; requestId?: string; message: string }

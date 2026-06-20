@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI IDE Studio — 知识库 (LLM Wiki · 多库)</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#f2f3f5;--surface:#fff;--border:#e5e6ea;--border-light:#f0f1f4;
+  --text:#16171a;--text-2:#4a4d55;--text-3:#7c7f88;--text-4:#a8abb3;
+  --accent:#5b5ff0;--accent-soft:#ededfe;--accent-dark:#4a4ed0;
+  --red:#e5484d;--red-soft:#feecee;--amber:#f5a623;--amber-soft:#fef5e7;
+  --green:#30a46c;--green-soft:#e9f9f1;--blue:#0090ff;--blue-soft:#e8f4ff;
+  --purple:#8e4ec6;--purple-soft:#f3edfe;
+  --radius:10px;--ease:cubic-bezier(.4,0,.2,1);
+}
+html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','PingFang SC',sans-serif;background:var(--bg);color:var(--text);font-size:13px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button{cursor:pointer;border:none;background:none;font:inherit;color:inherit}
+input{border:none;outline:none;font:inherit;background:transparent}
+::-webkit-scrollbar{width:5px;height:5px}::-webkit-scrollbar-thumb{background:#d8d8dc;border-radius:4px}
+.app{display:flex;height:100vh;overflow:hidden}
+.rail{width:56px;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:4px;flex-shrink:0}
+.rail-logo{width:32px;height:32px;background:var(--accent);border-radius:8px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:15px;margin-bottom:12px}
+.rail-item{width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--text-3);transition:all .15s;font-size:18px}
+.rail-item:hover{background:var(--bg);color:var(--text-2)}
+.rail-item.active{background:var(--accent-soft);color:var(--accent)}
+/* left KB panel */
+.kbpanel{width:280px;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0}
+.kbp-head{padding:14px 16px 10px;display:flex;align-items:center;gap:8px}
+.kbp-title{font-size:15px;font-weight:700;display:flex;align-items:center;gap:7px}
+.kbp-sub{font-size:11px;color:var(--text-3);margin-top:3px}
+.kbp-head .grow{flex:1}
+.icon-btn{width:26px;height:26px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:var(--text-3);font-size:16px;transition:all .15s}
+.icon-btn:hover{background:var(--bg);color:var(--accent)}
+.kblist{padding:2px 12px 6px;max-height:236px;overflow-y:auto}
+.kb-sec{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-4);padding:8px 6px 4px;display:flex;align-items:center;gap:5px}
+.kb{display:flex;align-items:center;gap:9px;padding:7px 9px;border-radius:8px;transition:all .15s;cursor:pointer}
+.kb:hover{background:var(--bg)}
+.kb.on{background:var(--accent-soft)}
+.kb-ic{width:26px;height:26px;border-radius:7px;background:var(--bg);display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
+.kb.on .kb-ic{background:#fff}
+.kb-meta{flex:1;min-width:0}
+.kb-nm{font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kb.on .kb-nm{color:var(--accent-dark)}
+.kb-ds{font-size:10px;color:var(--text-4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kb-ct{font-size:10px;color:var(--text-4);font-weight:600}
+.kb-badge{flex-shrink:0;font-size:8px;font-weight:700;padding:1px 5px;border-radius:4px}
+.kb-badge.code{background:var(--blue-soft);color:var(--blue)}
+.kb-badge.shared{background:var(--green-soft);color:var(--green)}
+.kbp-divider{height:1px;background:var(--border-light);margin:6px 14px}
+.tree-search{margin:0 12px 8px;display:flex;align-items:center;gap:6px;padding:6px 10px;background:var(--bg);border-radius:8px;border:1.5px solid transparent;transition:all .2s}
+.tree-search:focus-within{border-color:var(--accent);background:#fff}
+.tree-search svg{width:12px;height:12px;color:var(--text-4);flex-shrink:0}
+.tree-search input{flex:1;font-size:12px}
+.tree{flex:1;overflow-y:auto;padding:0 8px 12px}
+.tree-sec{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-4);padding:10px 8px 4px}
+.pg{display:flex;align-items:flex-start;gap:8px;padding:7px 8px;border-radius:7px;transition:all .12s;cursor:pointer;position:relative}
+.pg:hover{background:var(--bg)}
+.pg.on{background:var(--accent-soft)}
+.pg-ic{font-size:13px;flex-shrink:0;margin-top:1px;opacity:.8}
+.pg-body{flex:1;min-width:0}
+.pg-nm{font-size:12.5px;font-weight:500;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pg.on .pg-nm{color:var(--accent-dark);font-weight:600}
+.pg-sm{font-size:10.5px;color:var(--text-4);line-height:1.4;margin-top:1px;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
+.pg-badge{flex-shrink:0;font-size:8.5px;font-weight:700;padding:1px 5px;border-radius:4px;margin-top:1px}
+.pg-badge.ai{background:var(--purple-soft);color:var(--purple)}
+.pg-badge.stale{background:var(--amber-soft);color:#b8860b}
+/* main doc area */
+.main{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--surface)}
+.doc-top{display:flex;align-items:center;gap:10px;padding:0 24px;height:48px;border-bottom:1px solid var(--border);flex-shrink:0}
+.crumb{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-3)}
+.crumb b{color:var(--text);font-weight:600}
+.crumb svg{width:12px;height:12px;color:var(--text-4)}
+.doc-top-right{margin-left:auto;display:flex;align-items:center;gap:7px}
+.dbtn{padding:5px 12px;border-radius:7px;font-size:12px;font-weight:500;display:flex;align-items:center;gap:5px;transition:all .15s;border:1px solid var(--border);color:var(--text-2)}
+.dbtn:hover{background:var(--bg)}
+.dbtn svg{width:13px;height:13px}
+.dbtn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+.dbtn.primary:hover{background:var(--accent-dark)}
+.dbtn.on{background:var(--accent-soft);color:var(--accent);border-color:transparent}
+.doc-scroll{flex:1;overflow-y:auto}
+.doc-wrap{max-width:760px;margin:0 auto;padding:28px 40px 80px}
+/* mounted libs bar */
+.mounts{display:flex;align-items:center;gap:7px;flex-wrap:wrap;background:var(--bg);border-radius:9px;padding:9px 12px;margin-bottom:22px;font-size:11px;color:var(--text-3)}
+.mounts b{color:var(--text-2);font-weight:600}
+.mount-chip{display:inline-flex;align-items:center;gap:4px;background:#fff;border:1px solid var(--border);border-radius:13px;padding:2px 9px;font-size:11px;font-weight:500;color:var(--text-2)}
+.mount-chip .x{color:var(--text-4);font-weight:700;margin-left:2px}
+.mount-chip .x:hover{color:var(--red)}
+.mount-add{color:var(--accent);font-weight:600;cursor:pointer}
+/* stale banner */
+.stale-banner{display:flex;align-items:center;gap:9px;background:var(--amber-soft);border:1px solid #f3d999;border-radius:9px;padding:10px 13px;margin-bottom:20px;font-size:12px;color:#8a6d1b}
+.stale-banner svg{width:15px;height:15px;flex-shrink:0}
+.stale-banner .grow{flex:1}
+.stale-banner button{background:#fff;border:1px solid #e5c97a;color:#8a6d1b;font-weight:600;padding:4px 11px;border-radius:7px;font-size:11.5px}
+.stale-banner button:hover{background:#fffaf0}
+.doc-h1{font-size:27px;font-weight:700;line-height:1.25;letter-spacing:-.3px}
+.doc-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:14px;padding-bottom:18px;border-bottom:1px solid var(--border-light);margin-bottom:24px}
+.chip{display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:3px 9px;border-radius:13px;background:var(--bg);color:var(--text-3);font-weight:500}
+.chip.ai{background:var(--purple-soft);color:var(--purple)}
+.chip.human{background:var(--blue-soft);color:var(--blue)}
+.chip svg{width:11px;height:11px}
+.chip .av{width:15px;height:15px;border-radius:50%;background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;font-size:8px;display:flex;align-items:center;justify-content:center;font-weight:700}
+.tag{font-size:10.5px;color:var(--text-3);padding:2px 8px;border-radius:5px;background:var(--bg);font-weight:500}
+.md{font-size:14px;line-height:1.75;color:var(--text)}
+.md h2{font-size:19px;font-weight:700;margin:30px 0 12px;letter-spacing:-.2px}
+.md h3{font-size:15px;font-weight:700;margin:22px 0 8px;color:var(--text-2)}
+.md p{margin:12px 0;color:var(--text-2)}
+.md ul,.md ol{margin:12px 0;padding-left:22px}
+.md li{margin:5px 0;color:var(--text-2)}
+.md code{font-family:'SF Mono',Menlo,monospace;font-size:12.5px;background:var(--bg);padding:1.5px 6px;border-radius:5px;color:var(--accent-dark)}
+.md pre{background:#1c1d22;color:#e6e6e8;border-radius:10px;padding:14px 16px;margin:14px 0;overflow-x:auto;font-size:12.5px;line-height:1.65}
+.md pre code{background:none;color:inherit;padding:0;font-family:'SF Mono',Menlo,monospace}
+.md blockquote{border-left:3px solid var(--accent);background:var(--accent-soft);margin:14px 0;padding:10px 16px;border-radius:0 8px 8px 0;color:var(--text-2)}
+.md strong{font-weight:700;color:var(--text)}
+.md table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13px}
+.md th,.md td{border:1px solid var(--border);padding:7px 11px;text-align:left}
+.md th{background:var(--bg);font-weight:600}
+.md hr{border:none;border-top:1px solid var(--border-light);margin:24px 0}
+.wikilink{color:var(--accent);font-weight:500;cursor:pointer;border-bottom:1px dashed var(--accent);padding-bottom:1px;transition:all .12s}
+.wikilink:hover{background:var(--accent-soft);border-bottom-style:solid;border-radius:3px}
+.wikilink.dead{color:var(--text-4);border-color:var(--text-4)}
+.editor{width:100%;min-height:420px;font-family:'SF Mono',Menlo,monospace;font-size:13px;line-height:1.7;color:var(--text);background:var(--bg);border:1.5px solid var(--border);border-radius:10px;padding:16px 18px;resize:vertical}
+.editor:focus{border-color:var(--accent);background:#fff}
+.edit-hint{font-size:11px;color:var(--text-4);margin-top:8px;display:flex;align-items:center;gap:6px}
+.backlinks{margin-top:36px;padding-top:20px;border-top:1px solid var(--border-light)}
+.bl-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-4);margin-bottom:10px}
+.bl-item{display:flex;align-items:center;gap:8px;padding:8px 11px;border-radius:8px;background:var(--bg);margin-bottom:5px;cursor:pointer;transition:all .12s}
+.bl-item:hover{background:var(--accent-soft)}
+.bl-item .bl-ic{font-size:13px}
+.bl-item .bl-nm{font-size:12.5px;font-weight:500;color:var(--text-2)}
+.bl-item .bl-ctx{font-size:11px;color:var(--text-4);margin-left:auto}
+/* right activity panel */
+.inbox{width:0;overflow:hidden;background:var(--surface);border-left:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0;transition:width .25s var(--ease)}
+.inbox.open{width:348px}
+.ib-head{display:flex;align-items:center;gap:8px;padding:13px 16px;border-bottom:1px solid var(--border);flex-shrink:0}
+.ib-title{font-size:13.5px;font-weight:700;flex:1;display:flex;align-items:center;gap:7px}
+.ib-close{width:24px;height:24px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--text-3)}
+.ib-close:hover{background:var(--bg)}
+.ib-body{flex:1;overflow-y:auto;padding:12px 14px}
+.ib-intro{font-size:11.5px;color:var(--text-3);line-height:1.6;background:var(--bg);border-radius:9px;padding:11px 13px;margin-bottom:14px}
+.ib-intro b{color:var(--text-2)}
+.feed{position:relative;padding-left:6px}
+.fe{position:relative;padding:0 0 16px 20px;border-left:2px solid var(--border-light)}
+.fe:last-child{border-left-color:transparent}
+.fe-dot{position:absolute;left:-7px;top:1px;width:12px;height:12px;border-radius:50%;border:2px solid #fff;background:var(--purple)}
+.fe-dot.create{background:var(--green)}
+.fe-dot.edit{background:var(--blue)}
+.fe-dot.refresh{background:var(--amber)}
+.fe-dot.human{background:var(--text-3)}
+.fe-top{display:flex;align-items:center;gap:6px;margin-bottom:3px}
+.fe-act{font-size:9.5px;font-weight:700;padding:1px 6px;border-radius:5px;background:var(--bg);color:var(--text-3)}
+.fe-act.create{background:var(--green-soft);color:var(--green)}
+.fe-act.edit{background:var(--blue-soft);color:var(--blue)}
+.fe-act.refresh{background:var(--amber-soft);color:#b8860b}
+.fe-time{font-size:10px;color:var(--text-4);margin-left:auto}
+.fe-pg{font-size:12.5px;font-weight:600;line-height:1.4;cursor:pointer}
+.fe-pg:hover{color:var(--accent)}
+.fe-by{font-size:11px;color:var(--text-3);margin-top:2px}
+.fe-by b{color:var(--text-2);font-weight:600}
+.fe-tool{font-family:'SF Mono',Menlo,monospace;font-size:10px;color:var(--purple);background:var(--purple-soft);padding:1px 5px;border-radius:4px}
+.fe-revert{margin-top:6px;font-size:10.5px;font-weight:600;color:var(--text-3);display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:6px;background:var(--bg)}
+.fe-revert:hover{background:var(--red-soft);color:var(--red)}
+/* toast */
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--text);color:#fff;padding:10px 18px;border-radius:10px;font-size:12.5px;font-weight:500;display:flex;align-items:center;gap:8px;box-shadow:0 8px 30px rgba(0,0,0,.2);opacity:0;transition:all .3s var(--ease);z-index:100}
+.toast.show{transform:translateX(-50%) translateY(0);opacity:1}
+.toast svg{width:15px;height:15px;color:var(--green)}
+.empty-note{font-size:11px;color:var(--text-4);background:var(--amber-soft);border-radius:8px;padding:6px 10px;display:inline-flex;align-items:center;gap:6px;margin-top:8px}
+/* modal */
+.mask{position:fixed;inset:0;background:rgba(20,21,26,.4);display:none;align-items:center;justify-content:center;z-index:200}
+.mask.show{display:flex}
+.modal{background:#fff;border-radius:14px;width:420px;max-width:90vw;padding:22px;box-shadow:0 20px 60px rgba(0,0,0,.25)}
+.modal h3{font-size:16px;font-weight:700;margin-bottom:4px}
+.modal .sub{font-size:11.5px;color:var(--text-3);margin-bottom:16px}
+.fld{margin-bottom:14px}
+.fld label{font-size:11.5px;font-weight:600;color:var(--text-2);display:block;margin-bottom:6px}
+.fld input{width:100%;background:var(--bg);border:1.5px solid var(--border);border-radius:8px;padding:8px 11px;font-size:13px}
+.fld input:focus{border-color:var(--accent);background:#fff}
+.seg{display:flex;gap:6px}
+.seg button{flex:1;padding:8px;border-radius:8px;font-size:11.5px;font-weight:600;background:var(--bg);color:var(--text-3);border:1.5px solid transparent;transition:all .15s}
+.seg button.on{background:var(--accent-soft);color:var(--accent-dark);border-color:var(--accent)}
+.seg-hint{font-size:10.5px;color:var(--text-4);margin-top:6px;line-height:1.5}
+.modal-acts{display:flex;gap:8px;justify-content:flex-end;margin-top:20px}
+.modal-acts button{padding:8px 16px;border-radius:8px;font-size:12.5px;font-weight:600}
+.modal-acts .cancel{background:var(--bg);color:var(--text-2)}
+.modal-acts .ok{background:var(--accent);color:#fff}
+.modal-acts .ok:hover{background:var(--accent-dark)}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="rail">
+    <div class="rail-logo">AI</div>
+    <div class="rail-item" title="工作台">💬</div>
+    <div class="rail-item" title="任务">📋</div>
+    <div class="rail-item" title="事件中心">📬</div>
+    <div class="rail-item active" title="知识库">📚</div>
+    <div class="rail-item" title="设置" style="margin-top:auto">⚙️</div>
+  </div>
+
+  <div class="kbpanel">
+    <div class="kbp-head">
+      <div>
+        <div class="kbp-title">📚 知识库</div>
+        <div class="kbp-sub">LLM Wiki · 人和 AI 共写</div>
+      </div>
+      <div class="grow"></div>
+      <button class="icon-btn" id="btnNewKb" title="新建知识库">＋</button>
+    </div>
+    <div class="kblist" id="kblist"></div>
+    <div class="kbp-divider"></div>
+    <div class="tree-search">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+      <input id="searchInput" placeholder="在当前库内搜索…">
+    </div>
+    <div class="tree" id="tree"></div>
+  </div>
+
+  <div class="main">
+    <div class="doc-top">
+      <div class="crumb" id="crumb"></div>
+      <div class="doc-top-right">
+        <button class="dbtn" id="btnGen" title="基于代码库结构自动生成页面">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2 3 14h7l-1 8 10-12h-7z"/></svg>
+          从代码库生成
+        </button>
+        <button class="dbtn" id="btnEdit">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+          编辑
+        </button>
+        <button class="dbtn primary" id="btnFeed">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4l3 2"/><circle cx="12" cy="12" r="9"/></svg>
+          AI 活动
+        </button>
+      </div>
+    </div>
+    <div class="doc-scroll">
+      <div class="doc-wrap" id="docWrap"></div>
+    </div>
+  </div>
+
+  <div class="inbox" id="inbox">
+    <div class="ib-head">
+      <div class="ib-title">🕑 知识库活动</div>
+      <button class="ib-close" id="ibClose">✕</button>
+    </div>
+    <div class="ib-body" id="ibBody"></div>
+  </div>
+</div>
+
+<div class="mask" id="mask">
+  <div class="modal">
+    <h3>新建知识库</h3>
+    <div class="sub">知识库是一份纯 Markdown wiki,人和 AI 读写同一份。</div>
+    <div class="fld">
+      <label>名称</label>
+      <input id="kbName" placeholder="如:前端规范库 / 安全规范库">
+    </div>
+    <div class="fld">
+      <label>归属</label>
+      <div class="seg" id="segScope">
+        <button class="on" data-v="shared">共享库(可被多项目挂载)</button>
+        <button data-v="project">仅当前项目</button>
+      </div>
+      <div class="seg-hint" id="hintScope">共享库不绑定单一项目,任何项目都能挂载它。可以建多个:前端规范、安全规范、ACP 经验……</div>
+    </div>
+    <div class="fld">
+      <label>内容来源</label>
+      <div class="seg" id="segSrc">
+        <button class="on" data-v="manual">人工 + 会话沉淀</button>
+        <button data-v="code">绑定代码库(跟随代码)</button>
+      </div>
+      <div class="seg-hint" id="hintSrc">人和 AI 通过工具直接写;不自动归档,所有写入记录在活动流里可回滚。</div>
+    </div>
+    <div class="modal-acts">
+      <button class="cancel" id="kbCancel">取消</button>
+      <button class="ok" id="kbCreate">创建</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ========== 数据模型:多个知识库 ========== */
+/* KB = 一等公民。kind: 'project' 绑定项目 / 'shared' 可被多项目挂载。
+   src: 'manual' 人+会话沉淀 / 'code' 跟随代码库。 */
+const KBS = [
+  {id:'kb-proj-aiide', name:'ai-ide-studio', kind:'project', src:'code', icon:'📦', desc:'当前项目库 · 跟随代码'},
+  {id:'kb-fe',         name:'前端规范库',     kind:'shared',  src:'manual', icon:'🎨', desc:'共享 · React/TS 约定'},
+  {id:'kb-sec',        name:'安全规范库',     kind:'shared',  src:'manual', icon:'🛡️', desc:'共享 · 安全基线'},
+  {id:'kb-acp',        name:'ACP 经验库',     kind:'shared',  src:'manual', icon:'🔌', desc:'共享 · 接入踩坑'},
+];
+
+/* 当前项目挂载了哪些共享库(决定"提供给 AI 的知识"并集) */
+let MOUNTED = ['kb-fe','kb-acp'];
+
+const CUR_PROJECT_KB = 'kb-proj-aiide';
+
+/* 页面:每页归属一个 kbId。code 源的页带 srcFiles(来源指纹) */
+const PAGES = {
+  'p-index':{kb:'kb-proj-aiide',icon:'🏠',section:'入口',title:'项目索引',summary:'AI 进来先读这页',author:'ai',by:'curator-agent',at:'1 天前',tags:['index'],
+    body:`# ai-ide-studio 项目索引
+
+> AI 每次进来先读这页,顺着 [[wikilink]] 按需翻页。本库绑定代码库,架构类页面跟随代码变化。
+
+## 架构(跟随代码)
+- [[p-arch]] — 系统架构总览 ⚡
+- [[p-session]] — Session:唯一执行原语
+
+## 模块
+- [[p-task]] — Task 状态机
+- [[p-event]] — 事件中心机制
+
+## 挂载的共享库
+- 本项目还挂载了「前端规范库」「ACP 经验库」,AI 也会读到它们。`},
+  'p-arch':{kb:'kb-proj-aiide',icon:'🏗️',section:'架构',title:'系统架构总览',summary:'跟随代码自动生成',author:'ai',by:'gen-agent',at:'3 小时前',tags:['架构'],srcFiles:'src/ · ui/ · mobile/',stale:true,
+    body:`# 系统架构总览
+
+> ⚡ 本页由「从代码库生成」产出,来源:\`src/ · ui/ · mobile/\`。代码变了会标记陈旧。
+
+## 分层
+- \`src/\` — 后端 Gateway(ACP + WS + SQLite)
+- \`ui/\` — 前端 React 应用
+- \`mobile/\` — 移动端
+
+执行原语见 [[p-session]]。`},
+  'p-session':{kb:'kb-proj-aiide',icon:'⚙️',section:'架构',title:'Session:唯一执行原语',summary:'对话与任务只差 task_id',author:'human',by:'@zzehong',at:'2 天前',tags:['核心'],
+    body:`# Session:唯一执行原语
+
+底层只有一个执行原语 **Session**。任务、团队、定时、事件中心都是包在外面的壳。
+
+- 无 task 的 Session = 纯对话
+- 有 task 的 Session = 任务执行,只差 \`task_id\`
+
+状态推进见 [[p-task]]。`},
+  'p-task':{kb:'kb-proj-aiide',icon:'📋',section:'模块',title:'Task 状态机',summary:'状态全靠 Agent 调工具推',author:'ai',by:'curator-agent',at:'2 天前',tags:['task'],
+    body:`# Task 状态机
+
+系统唯一自动设置的状态是创建时的 \`executing\`。其余全靠 Agent 调 MCP 工具:
+
+| 工具 | 置为 |
+|------|------|
+| update_progress | executing |
+| mark_done | reviewing |
+
+这就是 BR-03。`},
+  'p-event':{kb:'kb-proj-aiide',icon:'📬',section:'模块',title:'事件中心机制',summary:'自动只到 pending consumption',author:'human',by:'@zzehong',at:'3 天前',tags:['事件'],
+    body:`# 事件中心机制
+
+\`createEvent\` 自动产出的只有一行 pending consumption,真正消费靠人点或 Agent claimNextEvent。
+
+⚠️ \`auto_start\` 是死字段,无人读取。`},
+
+  /* 前端规范库 */
+  'fe-index':{kb:'kb-fe',icon:'🏠',section:'入口',title:'前端规范索引',summary:'',author:'human',by:'@zzehong',at:'1 周前',tags:['index'],
+    body:`# 前端规范库
+
+共享库,被多个前端项目挂载。
+
+- [[fe-naming]] — 命名约定
+- [[fe-state]] — 状态管理`},
+  'fe-naming':{kb:'kb-fe',icon:'📐',section:'规范',title:'命名约定',summary:'',author:'human',by:'@zzehong',at:'1 周前',tags:['规范'],
+    body:`# 命名约定
+
+- 组件 PascalCase,hook \`useXxx\`
+- 数据库列 snake_case,在 store 层转 camelCase`},
+  'fe-state':{kb:'kb-fe',icon:'🔄',section:'规范',title:'状态管理',summary:'',author:'ai',by:'curator-agent',at:'4 天前',tags:['规范'],
+    body:`# 状态管理
+
+本项目用 Zustand。全局状态尽量瘦,能局部就局部。`},
+
+  /* 安全规范库 */
+  'sec-index':{kb:'kb-sec',icon:'🏠',section:'入口',title:'安全规范索引',summary:'',author:'human',by:'@zzehong',at:'2 周前',tags:['index'],
+    body:`# 安全规范库
+
+- [[sec-input]] — 输入校验基线`},
+  'sec-input':{kb:'kb-sec',icon:'🛡️',section:'规范',title:'输入校验基线',summary:'',author:'human',by:'@zzehong',at:'2 周前',tags:['安全'],
+    body:`# 输入校验基线
+
+只在系统边界校验(用户输入 / 外部 API)。参数化查询防注入。`},
+
+  /* ACP 经验库 */
+  'acp-index':{kb:'kb-acp',icon:'🏠',section:'入口',title:'ACP 经验索引',summary:'',author:'ai',by:'curator-agent',at:'4 天前',tags:['index'],
+    body:`# ACP 经验库
+
+AI 从多次调试会话沉淀,人工校对。
+
+- [[acp-done]] — session:done 不带业务语义
+- [[acp-reconnect]] — 重连恢复`},
+  'acp-done':{kb:'kb-acp',icon:'🔌',section:'经验',title:'session:done 不带业务语义',summary:'',author:'ai',by:'curator-agent',at:'4 天前',tags:['经验'],
+    body:`# session:done 不带业务语义
+
+ACP 只说"这一轮结束了",不说任务完没完成。所以状态推进必须靠 Agent 主动调 \`studio.task.*\`。`},
+  'acp-reconnect':{kb:'kb-acp',icon:'♻️',section:'经验',title:'重连恢复',summary:'',author:'human',by:'@zzehong',at:'5 天前',tags:['经验'],
+    body:`# 重连恢复
+
+runtime 偏好(模型/模式)存在 session 上,重连后自动恢复。`},
+};
+
+/* 活动流:AI / 人 通过工具对知识库的每一次写入,可回滚 */
+const FEED = [
+  {act:'refresh',kb:'kb-proj-aiide',page:'p-arch',by:'gen-agent',tool:'core.kb.update_page',at:'3 小时前',note:'检测到 src/ 变化,刷新架构页'},
+  {act:'create', kb:'kb-acp',page:'acp-done',by:'curator-agent',tool:'core.kb.create_page',at:'4 小时前',note:'从会话 #4821 沉淀'},
+  {act:'edit',   kb:'kb-proj-aiide',page:'p-session',by:'@zzehong',tool:'人工编辑',at:'2 天前',note:'补充 task_id 说明'},
+  {act:'create', kb:'kb-fe',page:'fe-state',by:'curator-agent',tool:'core.kb.create_page',at:'4 天前',note:'从 review 会话沉淀'},
+];
+
+/* ========== 状态 ========== */
+let curKb = 'kb-proj-aiide';
+let curPage = 'p-index';
+let editing = false;
+let modalScope = 'shared', modalSrc = 'manual';
+
+const $ = s => document.querySelector(s);
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function kbOf(id){return KBS.find(k=>k.id===id);}
+
+/* ========== markdown ========== */
+function mdToHtml(md){
+  const lines=md.split('\n');let html='',i=0,inUl=false;
+  const closeUl=()=>{if(inUl){html+='</ul>';inUl=false;}};
+  const inline=t=>esc(t)
+    .replace(/\[\[([a-z0-9-]+)\]\]/gi,(m,id)=>{const p=PAGES[id];
+      return p?`<span class="wikilink" data-link="${id}">${p.title}</span>`
+              :`<span class="wikilink dead" data-link="${id}">${id}</span>`;})
+    .replace(/`([^`]+)`/g,'<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>');
+  while(i<lines.length){let l=lines[i];
+    if(l.startsWith('```')){closeUl();let c='';i++;while(i<lines.length&&!lines[i].startsWith('```')){c+=lines[i]+'\n';i++;}html+=`<pre><code>${esc(c)}</code></pre>`;i++;continue;}
+    if(/^\|/.test(l)){closeUl();const rows=[];while(i<lines.length&&/^\|/.test(lines[i])){rows.push(lines[i]);i++;}
+      html+='<table>';rows.forEach((r,ri)=>{if(/^\|[\s:|-]+\|?$/.test(r))return;const cells=r.split('|').slice(1,-1);const tg=ri===0?'th':'td';html+='<tr>'+cells.map(c=>`<${tg}>${inline(c.trim())}</${tg}>`).join('')+'</tr>';});html+='</table>';continue;}
+    if(l.startsWith('# ')){closeUl();html+=`<h1 style="font-size:25px;font-weight:700;margin:0 0 4px">${inline(l.slice(2))}</h1>`;i++;continue;}
+    if(l.startsWith('## ')){closeUl();html+=`<h2>${inline(l.slice(3))}</h2>`;i++;continue;}
+    if(l.startsWith('### ')){closeUl();html+=`<h3>${inline(l.slice(4))}</h3>`;i++;continue;}
+    if(l.startsWith('> ')){closeUl();html+=`<blockquote>${inline(l.slice(2))}</blockquote>`;i++;continue;}
+    if(/^[-*] /.test(l)){if(!inUl){html+='<ul>';inUl=true;}html+=`<li>${inline(l.slice(2))}</li>`;i++;continue;}
+    if(l.trim()===''){closeUl();i++;continue;}
+    closeUl();html+=`<p>${inline(l)}</p>`;i++;}
+  closeUl();return html;
+}
+
+/* ========== 渲染:左侧 KB 列表 ========== */
+function renderKbList(){
+  const proj=KBS.filter(k=>k.kind==='project');
+  const shared=KBS.filter(k=>k.kind==='shared');
+  const card=k=>{
+    const mounted=MOUNTED.includes(k.id);
+    const badge=k.src==='code'?'<span class="kb-badge code">跟随代码</span>'
+              :(k.kind==='shared'?'<span class="kb-badge shared">共享</span>':'');
+    return `<div class="kb ${k.id===curKb?'on':''}" data-kb="${k.id}">
+      <div class="kb-ic">${k.icon}</div>
+      <div class="kb-meta"><div class="kb-nm">${k.name}</div><div class="kb-ds">${k.desc}</div></div>
+      ${badge}
+    </div>`;
+  };
+  $('#kblist').innerHTML =
+    `<div class="kb-sec">📍 当前项目</div>`+proj.map(card).join('')+
+    `<div class="kb-sec">🌐 共享库（可挂载）</div>`+shared.map(card).join('');
+  document.querySelectorAll('.kb').forEach(el=>el.onclick=()=>{
+    curKb=el.dataset.kb;const first=Object.keys(PAGES).find(k=>PAGES[k].kb===curKb);
+    curPage=first||null;editing=false;renderKbList();renderTree();renderDoc();
+  });
+}
+
+/* ========== 渲染:页面树 ========== */
+function renderTree(){
+  const q=($('#searchInput').value||'').toLowerCase();
+  let pages=Object.entries(PAGES).filter(([id,p])=>p.kb===curKb);
+  if(q)pages=pages.filter(([id,p])=>(p.title+p.summary+p.body).toLowerCase().includes(q));
+  if(pages.length===0){$('#tree').innerHTML=`<div style="padding:30px 16px;text-align:center;color:var(--text-4)"><div style="font-size:30px;margin-bottom:8px">🌱</div><div style="font-size:12px">这个库还没有页面</div><div class="empty-note">让 AI 起草,或点「从代码库生成」</div></div>`;return;}
+  const secs={};pages.forEach(([id,p])=>{(secs[p.section]=secs[p.section]||[]).push([id,p]);});
+  let html='';
+  for(const s in secs){html+=`<div class="tree-sec">${s}</div>`;
+    secs[s].forEach(([id,p])=>{html+=`<div class="pg ${id===curPage?'on':''}" data-pg="${id}"><div class="pg-ic">${p.icon}</div><div class="pg-body"><div class="pg-nm">${p.title}</div><div class="pg-sm">${p.summary||p.by}</div></div>${p.stale?'<span class="pg-badge stale">陈旧</span>':(p.author==='ai'?'<span class="pg-badge ai">AI</span>':'')}</div>`;});}
+  $('#tree').innerHTML=html;
+  document.querySelectorAll('.pg').forEach(el=>el.onclick=()=>{curPage=el.dataset.pg;editing=false;renderTree();renderDoc();});
+}
+
+function backlinks(id){const r=[];for(const k in PAGES){if(k===id)continue;if(new RegExp(`\\[\\[${id}\\]\\]`).test(PAGES[k].body))r.push([k,PAGES[k]]);}return r;}
+
+/* ========== 渲染:文档 ========== */
+function renderDoc(){
+  if(!curPage){$('#docWrap').innerHTML='<div style="padding:60px 0;text-align:center;color:var(--text-4)">选择左侧页面查看</div>';$('#crumb').innerHTML='';return;}
+  const p=PAGES[curPage],kb=kbOf(p.kb);
+  $('#crumb').innerHTML=`${kb.icon} ${kb.name} <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg> <b>${p.title}</b>`;
+
+  /* 挂载条:只在当前项目库顶部显示 */
+  let mountsBar='';
+  if(p.kb===CUR_PROJECT_KB){
+    const chips=MOUNTED.map(id=>{const k=kbOf(id);return `<span class="mount-chip">${k.icon} ${k.name}<span class="x" data-unmount="${id}">✕</span></span>`;}).join('');
+    mountsBar=`<div class="mounts"><b>提供给 AI 的知识 =</b> 本项目库 + ${chips} <span class="mount-add" id="mountAdd">＋ 挂载共享库</span></div>`;
+  }
+
+  const authorChip=p.author==='ai'?`<span class="chip ai">✨ AI 写入</span>`:`<span class="chip human"><span class="av">人</span>人工编写</span>`;
+  const meta=`<div class="doc-meta">${authorChip}<span class="chip">最近 ${p.by} · ${p.at}</span>${(p.tags||[]).map(t=>`<span class="tag">#${t}</span>`).join('')}</div>`;
+
+  if(editing){
+    $('#docWrap').innerHTML=mountsBar+`<div class="doc-h1">${p.title}</div>${meta}<textarea class="editor" id="editArea">${esc(p.body)}</textarea><div class="edit-hint">✏️ 纯 Markdown,用 [[页面id]] 双链。保存后人和 AI 读同一份。AI 也能通过 core.kb.update_page 改这页。</div>`;
+    return;
+  }
+  let banner='';
+  if(p.stale)banner=`<div class="stale-banner"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg><div class="grow">来源 <b>${p.srcFiles||'代码'}</b> 已变化,本页可能过时。</div><button id="btnRefresh">让 AI 刷新</button></div>`;
+  let html=mountsBar+banner+`<div class="md">${mdToHtml(p.body)}</div>`;
+  const bl=backlinks(curPage);
+  if(bl.length){html+=`<div class="backlinks"><div class="bl-title">↩ 被这些页面引用</div>`;bl.forEach(([id,bp])=>{html+=`<div class="bl-item" data-link="${id}"><span class="bl-ic">${bp.icon}</span><span class="bl-nm">${bp.title}</span><span class="bl-ctx">${kbOf(bp.kb).name}</span></div>`;});html+=`</div>`;}
+  $('#docWrap').innerHTML=html;
+
+  document.querySelectorAll('[data-link]').forEach(el=>el.onclick=()=>{const id=el.dataset.link,tp=PAGES[id];if(!tp){toast('这个页面还不存在');return;}curKb=tp.kb;curPage=id;editing=false;renderKbList();renderTree();renderDoc();});
+  document.querySelectorAll('[data-unmount]').forEach(el=>el.onclick=()=>{MOUNTED=MOUNTED.filter(x=>x!==el.dataset.unmount);renderDoc();toast('已卸载,AI 不再读这个库');});
+  const ma=$('#mountAdd');if(ma)ma.onclick=()=>{const avail=KBS.filter(k=>k.kind==='shared'&&!MOUNTED.includes(k.id));if(!avail.length){toast('共享库都挂上了');return;}MOUNTED.push(avail[0].id);renderDoc();toast('已挂载 '+avail[0].name);};
+  const br=$('#btnRefresh');if(br)br.onclick=()=>doRefresh(curPage);
+}
+
+/* ========== 右侧活动流 ========== */
+function renderFeed(){
+  $('#ibBody').innerHTML=`<div class="ib-intro">这里是人和 AI 对知识库的<b>每一次写入</b>。AI 通过 <span class="fe-tool">core.kb.*</span> 工具<b>直接读写</b>,不走审批——但每条都<b>可回滚</b>,人是兜底。</div>`+
+    `<div class="feed">`+FEED.map((f,idx)=>{
+      const pg=PAGES[f.page];
+      return `<div class="fe"><div class="fe-dot ${f.by.startsWith('@')?'human':f.act}"></div>
+        <div class="fe-top"><span class="fe-act ${f.act}">${f.act==='create'?'新建':f.act==='edit'?'编辑':'刷新'}</span><span class="fe-time">${f.at}</span></div>
+        <div class="fe-pg" data-link="${f.page}">${pg?pg.title:f.page}</div>
+        <div class="fe-by">${f.by.startsWith('@')?'<b>'+f.by+'</b> 人工':'<b>'+f.by+'</b> 调用 <span class="fe-tool">'+f.tool+'</span>'} · ${kbOf(f.kb).name}</div>
+        <div class="fe-by" style="color:var(--text-4)">${f.note}</div>
+        <span class="fe-revert" data-revert="${idx}">↩ 回滚此次写入</span>
+      </div>`;
+    }).join('')+`</div>`;
+  document.querySelectorAll('[data-revert]').forEach(el=>el.onclick=()=>toast('已回滚(原型示意)'));
+  document.querySelectorAll('#ibBody [data-link]').forEach(el=>el.onclick=()=>{const id=el.dataset.link,tp=PAGES[id];if(tp){curKb=tp.kb;curPage=id;editing=false;renderKbList();renderTree();renderDoc();}});
+}
+
+function doRefresh(pageId){
+  const p=PAGES[pageId];if(!p)return;
+  toast('gen-agent 调用 core.kb.update_page 刷新中…');
+  setTimeout(()=>{
+    p.stale=false;p.by='gen-agent';p.at='刚刚';
+    FEED.unshift({act:'refresh',kb:p.kb,page:pageId,by:'gen-agent',tool:'core.kb.update_page',at:'刚刚',note:'按最新代码重写'});
+    renderTree();renderDoc();renderFeed();toast('已刷新并写入,记录在活动流 ✓');
+  },1300);
+}
+
+function toast(msg){const t=$('#toast');t.innerHTML=`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6 9 17l-5-5"/></svg>${msg}`;t.classList.add('show');clearTimeout(toast._t);toast._t=setTimeout(()=>t.classList.remove('show'),2200);}
+
+/* ========== 交互 ========== */
+$('#searchInput').oninput=renderTree;
+$('#btnEdit').onclick=()=>{if(!curPage)return;
+  if(editing){PAGES[curPage].body=$('#editArea').value;PAGES[curPage].author='human';PAGES[curPage].by='你刚编辑';PAGES[curPage].at='刚刚';PAGES[curPage].stale=false;
+    FEED.unshift({act:'edit',kb:curPage&&PAGES[curPage].kb,page:curPage,by:'@you',tool:'人工编辑',at:'刚刚',note:'手动修改'});
+    editing=false;$('#btnEdit').classList.remove('on');toast('已保存,人和 AI 读同一份');renderTree();renderFeed();}
+  else{editing=true;$('#btnEdit').classList.add('on');}
+  renderDoc();};
+$('#btnFeed').onclick=()=>$('#inbox').classList.toggle('open');
+$('#ibClose').onclick=()=>$('#inbox').classList.remove('open');
+$('#btnGen').onclick=()=>{const kb=kbOf(curKb);
+  if(kb.src!=='code'){toast('只有「跟随代码」的库能从代码生成');return;}
+  toast('读取 .codegraph 索引,起草页面…');
+  setTimeout(()=>{const id='p-gen-'+Date.now();
+    PAGES[id]={kb:curKb,icon:'🧬',section:'架构',title:'依赖关系图谱',summary:'自动生成',author:'ai',by:'gen-agent',at:'刚刚',tags:['架构'],srcFiles:'.codegraph',body:`# 依赖关系图谱\n\n> ⚡ 基于 .codegraph 符号边自动产出。\n\n- src → ui → mobile 模块依赖\n- 核心见 [[p-session]]`};
+    FEED.unshift({act:'create',kb:curKb,page:id,by:'gen-agent',tool:'core.kb.create_page',at:'刚刚',note:'从 .codegraph 生成'});
+    curPage=id;renderTree();renderDoc();renderFeed();$('#inbox').classList.add('open');toast('AI 已生成并写入页面 ✓');
+  },1400);};
+
+/* 新建 KB 弹窗 */
+$('#btnNewKb').onclick=()=>$('#mask').classList.add('show');
+$('#kbCancel').onclick=()=>$('#mask').classList.remove('show');
+$('#mask').onclick=e=>{if(e.target===$('#mask'))$('#mask').classList.remove('show');};
+document.querySelectorAll('#segScope button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#segScope button').forEach(x=>x.classList.remove('on'));b.classList.add('on');modalScope=b.dataset.v;
+  $('#hintScope').textContent=modalScope==='shared'?'共享库不绑定单一项目,任何项目都能挂载它。可以建多个:前端规范、安全规范、ACP 经验……':'仅当前项目可见。';});
+document.querySelectorAll('#segSrc button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#segSrc button').forEach(x=>x.classList.remove('on'));b.classList.add('on');modalSrc=b.dataset.v;
+  $('#hintSrc').textContent=modalSrc==='manual'?'人和 AI 通过工具直接写;不自动归档,所有写入记录在活动流里可回滚。':'绑定一个代码库,架构类页面跟随代码变化,变更后标记陈旧。';});
+$('#kbCreate').onclick=()=>{const nm=($('#kbName').value||'').trim();if(!nm){toast('给库起个名字');return;}
+  const id='kb-'+Date.now();KBS.push({id,name:nm,kind:modalScope,src:modalSrc,icon:modalScope==='shared'?'🌐':'📁',desc:(modalScope==='shared'?'共享':'项目')+' · '+(modalSrc==='code'?'跟随代码':'人工')});
+  $('#kbName').value='';$('#mask').classList.remove('show');curKb=id;curPage=null;renderKbList();renderTree();renderDoc();toast('已创建知识库「'+nm+'」');};
+
+/* 启动 */
+renderKbList();renderTree();renderDoc();renderFeed();
+</script>
+</body>
+</html>

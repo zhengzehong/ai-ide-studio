@@ -159,7 +159,7 @@ describe('runtime tool schema context boundary', () => {
       projectId: project.id,
     })
     const session = sessionStore.create({ agentId: agent.id, projectId: project.id })
-    for (const name of ['core.project.get', 'core.task.list']) {
+    for (const name of ['core.project.get', 'core.task.list', 'core.kb.list']) {
       const tool = toolStore.create({
         name,
         displayName: name,
@@ -185,7 +185,7 @@ describe('runtime tool schema context boundary', () => {
       sessionId: session.id,
       agentId: agent.id,
       projectId: project.id,
-      visibleTools: ['core.project.get', 'core.task.list'],
+      visibleTools: ['core.project.get', 'core.task.list', 'core.kb.list'],
     })
     const schemas = Object.fromEntries(
       runtimeTools.map((tool) => [
@@ -198,6 +198,8 @@ describe('runtime tool schema context boundary', () => {
     expect(schemas['core.project.get']?.required).toEqual(expect.arrayContaining(['projectId']))
     expect(schemas['core.task.list']?.properties).not.toHaveProperty('projectId')
     expect(schemas['core.task.list']?.required ?? []).not.toEqual(expect.arrayContaining(['projectId']))
+    expect(schemas['core.kb.list']?.properties).not.toHaveProperty('projectId')
+    expect(schemas['core.kb.list']?.required ?? []).not.toEqual(expect.arrayContaining(['projectId']))
   })
 })
 

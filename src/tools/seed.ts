@@ -5,6 +5,7 @@ import type { CreateToolInput } from '../store/tools.js'
 import { TEAM_BUILTIN_TOOLS } from './team-seed.js'
 import { EVENT_CENTER_BUILTIN_TOOLS } from './event-center-seed.js'
 import { AGENT_SESSION_BUILTIN_TOOLS } from './agent-session-seed.js'
+import { KB_BUILTIN_TOOLS } from './kb-seed.js'
 
 const log = createChildLogger('tool-seed')
 
@@ -579,6 +580,7 @@ const CORE_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
 
 const BUILTIN_TOOLS: (CreateToolInput & { defaultScope?: 'global' })[] = [
   ...CORE_BUILTIN_TOOLS,
+  ...KB_BUILTIN_TOOLS,
   ...EVENT_CENTER_BUILTIN_TOOLS,
   ...AGENT_SESSION_BUILTIN_TOOLS,
   ...TEAM_BUILTIN_TOOLS,

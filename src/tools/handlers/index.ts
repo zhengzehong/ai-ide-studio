@@ -29,6 +29,17 @@ import {
   getSessionHandler,
   listTimelineHandler,
   listAgentsHandler,
+  listKnowledgeBasesHandler,
+  readKnowledgeIndexHandler,
+  readKnowledgePageHandler,
+  searchKnowledgePagesHandler,
+  createKnowledgePageHandler,
+  updateKnowledgePageHandler,
+  refreshKnowledgeFromCodeHandler,
+  createKnowledgeBaseHandler,
+  mountKnowledgeBaseHandler,
+  unmountKnowledgeBaseHandler,
+  revertKnowledgeActivityHandler,
   listModelProfilesHandler,
   listProjectsHandler,
   listSessionsHandler,
@@ -105,6 +116,17 @@ register(listSessionsHandler)
 register(getSessionHandler)
 register(createSessionHandler)
 register(listTimelineHandler)
+register(listKnowledgeBasesHandler)
+register(readKnowledgeIndexHandler)
+register(readKnowledgePageHandler)
+register(searchKnowledgePagesHandler)
+register(createKnowledgePageHandler)
+register(updateKnowledgePageHandler)
+register(refreshKnowledgeFromCodeHandler)
+register(createKnowledgeBaseHandler)
+register(mountKnowledgeBaseHandler)
+register(unmountKnowledgeBaseHandler)
+register(revertKnowledgeActivityHandler)
 register(listTeamsHandler)
 register(getTeamHandler)
 register(createTeamHandler)

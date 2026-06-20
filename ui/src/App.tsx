@@ -6,6 +6,7 @@ import Workspace from './pages/Workspace'
 import TaskBoard from './pages/TaskBoard'
 import Schedule from './pages/Schedule'
 import EventCenter from './pages/EventCenter'
+import KnowledgeBase from './pages/KnowledgeBase'
 import AgentSquare from './pages/AgentSquare'
 import SkillCenter from './pages/SkillCenter'
 import ToolManager from './pages/ToolManager'
@@ -24,6 +25,7 @@ import { useModelStore } from './stores/model.store'
 import { useSkillStore } from './stores/skill.store'
 import { useTeamStore } from './stores/team.store'
 import { useTimelineStore } from './stores/timeline.store'
+import { useKnowledgeBaseStore } from './stores/knowledge-base.store'
 
 export default function App() {
   const init = useConnectionStore((s) => s.init)
@@ -56,6 +58,7 @@ export default function App() {
       const off4 = useRuleStore.getState().setupListeners()
       const off5 = useTeamStore.getState().setupListeners(() => useSessionStore.getState().currentSessionId)
       const off6 = useTimelineStore.getState().setupListeners()
+      const off7 = useKnowledgeBaseStore.getState().setupListeners()
       return () => {
         off1()
         off2()
@@ -63,6 +66,7 @@ export default function App() {
         off4()
         off5()
         off6()
+        off7()
         listenersReady.current = false
       }
     }
@@ -83,6 +87,7 @@ export default function App() {
           <Route path="/tasks" element={<TaskBoard />} />
           <Route path="/schedule" element={<Schedule />} />
           <Route path="/events" element={<EventCenter />} />
+          <Route path="/knowledge" element={<KnowledgeBase />} />
           <Route path="/settings" element={<Settings />} />
         </Route>
       </Routes>

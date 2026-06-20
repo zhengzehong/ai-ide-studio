@@ -104,6 +104,24 @@ ws://localhost:18800
 |------|------|------|------|
 | `teams.current` | `{ sessionId }` | `{ team, currentMember, members, tasks, mailbox }` | 按当前普通会话反查 Team 上下文；非 Team 会话返回空上下文。Team 不是独立页面，Leader 和成员都通过各自 `session_id` 复用会话页。 |
 
+### 知识库
+
+| 方法 | 参数 | 返回 | 说明 |
+|------|------|------|------|
+| `knowledgeBases.list` | `{ projectId }` | `{ knowledgeBases }` | 列出项目可见知识库：项目库 + 已挂载 shared 库；缺失项目库时会懒创建 |
+| `knowledgeBases.shared` | `{}` | `{ knowledgeBases }` | 列出所有 shared 知识库，供项目挂载 |
+| `knowledgeBases.create` | `{ projectId, name, kind, src, icon?, description?, note? }` | `{ kb }` | 创建 project/shared 知识库；project 库受每项目唯一约束 |
+| `knowledgeBases.mount` | `{ projectId, kbId, note? }` | `{ mount }` | 将 shared 知识库挂载到项目 |
+| `knowledgeBases.unmount` | `{ projectId, kbId, note? }` | `{ ok: true }` | 卸载 shared 知识库，不删除内容 |
+| `knowledgePages.list` | `{ projectId, kbId }` | `{ pages }` | 列出知识库页面，并在 code 页面源文件变化时懒标记 stale |
+| `knowledgePages.read` | `{ projectId, pageId?，kbId?, title? }` | `{ kb, page, outLinks, backlinks }` | 读取页面正文、wikilink 出链和反向链接 |
+| `knowledgePages.search` | `{ projectId, query, kbIds?, limit? }` | `{ pages }` | 在可见知识库内用 SQL LIKE 搜索 |
+| `knowledgePages.create` | `{ projectId, kbId, title, section?, summary?, body, tags?, srcFiles?, note? }` | `{ page, activity, warnings }` | 人工创建页面并写 activity |
+| `knowledgePages.update` | `{ projectId, pageId, title?, section?, summary?, body, tags?, note? }` | `{ page, activity }` | 人工编辑页面并写 activity |
+| `knowledgePages.refreshFromCode` | `{ projectId, pageId, body, srcFiles?, confirmOverwriteHumanEdit?, note? }` | `{ page, activity }` | 显式刷新 code 页面；人工编辑过的页面需要确认 |
+| `knowledgeActivities.list` | `{ projectId, kbId? }` | `{ activities }` | 列出当前项目可见知识库活动 |
+| `knowledgeActivities.revert` | `{ projectId, activityId, note? }` | `{ page?, activity }` | 按 activity 快照撤销写入 |
+
 ### Rule 管理
 
 | 方法 | 参数 | 返回 | 说明 |
@@ -163,6 +181,7 @@ ws://localhost:18800
 | `task:update` | `{ taskId, data }` | Task 状态变更 |
 | `event-center:update` | `{ eventId?, categoryId?, subscriptionId?, consumptionId?, taskId?, sessionId?, event }` | 事件中心类别、事件、订阅或消费记录变化 |
 | `team:update` | `{ teamId, sessionIds, data }` | Team 成员、任务或 mailbox 变化；前端仅在当前 `sessionId` 属于 `sessionIds` 时刷新 `teams.current`。 |
+| `knowledge-base:update` | `{ projectId?, kbId?, pageId?, event }` | 知识库、页面、挂载或 activity 变化；前端据此刷新当前项目知识库视图 |
 | `rule:update` | `{ ruleId, data }` | Rule 状态变更 |
 
 Team 运行时事件：`team.member.spawn` 会广播包含新成员 Session 行的 `session:changed`。`team.member.message` 携带 `taskId` 时，会把 `backlog/planning` 的 Team Task 更新为 `executing`，再广播 `task:update` 与 `team:update`。工作台在当前 Team 匹配 `team:update` 时应刷新项目 agents/sessions/tasks。
