@@ -29,6 +29,11 @@ Session 1:N SessionEvent (append-only 事件溯源)
 Session 1:N AgentSessionMessage (source/target)
 Session 1:N AgentSessionWatch (watcher/watched)
 Task    1:N TaskEvent
+Project 1:1 KnowledgeBase (kind=project)
+Project N:N KnowledgeBase (shared mounts)
+KnowledgeBase 1:N KnowledgePage
+KnowledgeBase 1:N KnowledgeActivity
+KnowledgePage 1:N KnowledgeActivity
 ```
 
 ## 实体状态机
@@ -258,6 +263,85 @@ ignored     failed      task
 | updated_at | TEXT | 更新时间 |
 
 watch 监听 `session:done`，触发后后台唤醒 `watcher_session_id`。如果被监听 Session 已经向 watcher Session 发过 Agent 会话消息，watch 会记录触发但抑制重复唤醒。
+
+### knowledge_bases
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| id | TEXT PK | 知识库 ID |
+| name | TEXT | 显示名称 |
+| kind | TEXT | project / shared；project 绑定单个项目，shared 可被多个项目挂载 |
+| src | TEXT | manual / code；code 页面可记录源文件指纹并检测陈旧 |
+| icon | TEXT | 展示图标 |
+| description | TEXT | 描述 |
+| project_id | TEXT | kind=project 时的项目 ID；shared 为空 |
+| index_page_id | TEXT | 索引页 ID |
+| created_at | TEXT | 创建时间 |
+| updated_at | TEXT | 更新时间 |
+| deleted_at | TEXT | 软删除时间；本期不提供删库入口 |
+
+每个项目通过唯一索引保证只有一个未删除的 `kind=project` 知识库。项目可见知识 = 项目库 + 已挂载的 shared 库。
+
+### knowledge_pages
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| id | TEXT PK | 页面 ID |
+| kb_id | TEXT | 所属知识库 |
+| title | TEXT | 页面标题 |
+| title_norm | TEXT | 标题归一化值，用于 `[[标题]]` 解析和唯一约束 |
+| section | TEXT | 页面分组 |
+| summary | TEXT | 页面摘要 |
+| body | TEXT | Markdown 正文 |
+| author | TEXT | human / ai |
+| by | TEXT | 最后写入者 ID 或标签 |
+| tags_json | TEXT | 标签 JSON 数组 |
+| is_index | INTEGER | 是否索引页 |
+| src_files_json | TEXT | code 页面关联的源文件路径数组 |
+| src_fingerprint_json | TEXT | 源文件 sha256/size/mtime 指纹 |
+| stale | INTEGER | 源文件变化后标记为 1，刷新后清 0 |
+| last_human_edit_at | TEXT | 最近人工编辑时间；AI 刷新覆盖前需要显式确认 |
+| last_activity_id | TEXT | 最近写入活动 ID |
+| created_at | TEXT | 创建时间 |
+| updated_at | TEXT | 更新时间 |
+| deleted_at | TEXT | 软删除时间 |
+
+页面以 `(kb_id, title_norm)` 在未删除范围内唯一。Wikilink 解析在当前项目可见知识库范围内查找目标；跨库重名用 `[[库名/标题]]` 消歧。
+
+### knowledge_mounts
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| id | TEXT PK | 挂载 ID |
+| project_id | TEXT | 使用 shared 库的项目 |
+| kb_id | TEXT | 被挂载的 shared 知识库 |
+| created_by | TEXT | 操作者 |
+| created_at | TEXT | 创建时间 |
+| deleted_at | TEXT | 卸载时间 |
+
+挂载只改变项目可见范围，不复制页面，也不删除 shared 库内容。仅 `kind=shared` 的知识库可进入挂载关系。
+
+### knowledge_activities
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| id | TEXT PK | 活动 ID |
+| kb_id | TEXT | 知识库 ID |
+| page_id | TEXT | 页面 ID；库级活动可为空 |
+| act | TEXT | create / edit / refresh / revert / mount / unmount / create_kb |
+| actor | TEXT | human 或 Agent ID |
+| actor_type | TEXT | human / ai / system |
+| tool | TEXT | 写入来源；AI 写入为 `core.kb.*`，人工写入为 manual |
+| note | TEXT | 操作备注 |
+| prev_body | TEXT | 旧正文兼容字段 |
+| prev_snapshot_json | TEXT | 写入前页面快照 |
+| next_snapshot_json | TEXT | 写入后页面快照 |
+| reverted_at | TEXT | 被撤销时间 |
+| reverted_by | TEXT | 撤销操作者 |
+| revert_activity_id | TEXT | 对应撤销活动 ID |
+| created_at | TEXT | 创建时间 |
+
+撤销按 activity 顺序还原快照，不做多版本合并。`create` 撤销会软删除页面，`edit` / `refresh` 撤销会恢复 `prev_snapshot_json`。
 
 ### tasks
 

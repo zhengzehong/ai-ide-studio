@@ -18,6 +18,7 @@ import { eventCategoryProjectScopeMigration } from './017-event-category-project
 import { agentVisibilityMigration } from './018-agent-visibility.js'
 import { eventConsumerSessionStrategyMigration } from './019-event-consumer-session-strategy.js'
 import { modelProfileDefaultMigration } from './020-model-profile-default.js'
+import { knowledgeBaseMigration } from './021-knowledge-base.js'
 import type { Migration } from '../migrator.js'
 
 export const migrations: Migration[] = [
@@ -41,4 +42,5 @@ export const migrations: Migration[] = [
   agentVisibilityMigration,
   eventConsumerSessionStrategyMigration,
   modelProfileDefaultMigration,
+  knowledgeBaseMigration,
 ]

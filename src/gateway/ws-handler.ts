@@ -124,6 +124,10 @@ events.on('event-center:update', (ev) => {
   broadcastToAll({ type: 'event-center:update', data: ev })
 })
 
+events.on('knowledge-base:update', (ev) => {
+  broadcastToAll({ type: 'knowledge-base:update', data: ev })
+})
+
 function send(ws: WebSocket, msg: ServerMessage): void {
   if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg))
 }

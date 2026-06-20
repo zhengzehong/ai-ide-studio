@@ -3,6 +3,7 @@ import { agentRpcHandlers } from './agents.js'
 import { filesystemRpcHandlers } from './filesystem.js'
 import { globalAssistantRpcHandlers } from './global-assistant.js'
 import { eventCenterRpcHandlers } from './event-center.js'
+import { knowledgeBaseRpcHandlers } from './knowledge-base.js'
 import { modelRpcHandlers } from './models.js'
 import { projectRpcHandlers } from './projects.js'
 import { ruleRpcHandlers } from './rules.js'
@@ -20,6 +21,7 @@ import type { RpcContext, RpcHandlerMap } from './types.js'
 const rpcHandlers: RpcHandlerMap = {
   ...subscriptionRpcHandlers,
   ...eventCenterRpcHandlers,
+  ...knowledgeBaseRpcHandlers,
   ...globalAssistantRpcHandlers,
   ...sessionRpcHandlers,
   ...agentRpcHandlers,
