@@ -53,6 +53,11 @@ describe('builtin tool seed synchronization', () => {
       'agent.message.send',
       'agent.session.list',
       'agent.session.messages',
+      'agent.template.create',
+      'agent.template.delete',
+      'agent.template.get',
+      'agent.template.list',
+      'agent.template.update',
       'agent.watch.cancel',
       'agent.watch.create',
       'core.agent.create',
@@ -142,6 +147,21 @@ describe('builtin tool seed synchronization', () => {
       : {}
     const createAgentProperties = asRecord(createAgentSchema.properties)
     expect(createAgentProperties.modelProfileId).toMatchObject({ type: 'string' })
+
+    const createTemplate = toolStore.getByName('agent.template.create')
+    const createTemplateSchema = createTemplate?.input_schema_json
+      ? JSON.parse(createTemplate.input_schema_json) as Record<string, unknown>
+      : {}
+    const createTemplateProperties = asRecord(createTemplateSchema.properties)
+    expect(createTemplateProperties.systemPrompt).toMatchObject({ type: 'string' })
+    expect(createTemplateProperties.skills).toMatchObject({ type: 'array' })
+
+    const updateTemplate = toolStore.getByName('agent.template.update')
+    const updateTemplateSchema = updateTemplate?.input_schema_json
+      ? JSON.parse(updateTemplate.input_schema_json) as Record<string, unknown>
+      : {}
+    const updateTemplateProperties = asRecord(updateTemplateSchema.properties)
+    expect(updateTemplateProperties.templateId).toMatchObject({ type: 'string' })
 
     const eventSubscription = toolStore.getByName('event.subscription.create')
     const eventSubscriptionSchema = eventSubscription?.input_schema_json

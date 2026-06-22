@@ -80,6 +80,60 @@ describe('core MCP tool handlers', () => {
     })
   })
 
+  test('creates, lists, gets, updates, and deletes Agent Square templates', async () => {
+    const created = await executeJson('agent.template.create', {
+      name: '任务分派员',
+      type: 'leader',
+      runtime: 'claude',
+      icon: 'git-branch',
+      description: '把待办任务分派给合适的 Agent',
+      systemPrompt: '你是任务分派员，只负责分派任务。',
+      skills: ['任务分派', 'Agent 调度'],
+    })
+    const template = asRecord(created.template)
+    expect(template).toMatchObject({
+      name: '任务分派员',
+      type: 'leader',
+      runtime: 'claude',
+      icon: 'git-branch',
+      description: '把待办任务分派给合适的 Agent',
+      system_prompt: '你是任务分派员，只负责分派任务。',
+      is_builtin: 0,
+    })
+    expect(JSON.parse(template.skills_json as string)).toEqual(['任务分派', 'Agent 调度'])
+
+    const listed = await executeJson('agent.template.list', {})
+    expect(asRecords(listed.templates).map((item) => item.id)).toContain(template.id)
+
+    const got = await executeJson('agent.template.get', { templateId: template.id })
+    expect(asRecord(got.template).id).toBe(template.id)
+
+    const updated = await executeJson('agent.template.update', {
+      templateId: template.id,
+      description: '更新后的描述',
+      skills: ['任务分派'],
+    })
+    expect(asRecord(updated.template).description).toBe('更新后的描述')
+    expect(JSON.parse(asRecord(updated.template).skills_json as string)).toEqual(['任务分派'])
+
+    const deleted = await executeJson('agent.template.delete', { templateId: template.id })
+    expect(deleted).toEqual({ deleted: true, templateId: template.id })
+    expect(templateStore.get(template.id as string)).toBeUndefined()
+  })
+
+  test('rejects blank Agent Square template names on update', async () => {
+    const created = await executeJson('agent.template.create', {
+      name: '任务分派员',
+      type: 'leader',
+    })
+    const template = asRecord(created.template)
+
+    await expect(
+      executeJson('agent.template.update', { templateId: template.id, name: '   ' }),
+    ).rejects.toThrow('name 不能为空')
+    expect(templateStore.get(template.id as string)?.name).toBe('任务分派员')
+  })
+
   test('creates custom and template agents with model profiles', async () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const provider = modelProviderStore.create({
