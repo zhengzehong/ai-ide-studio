@@ -22,13 +22,17 @@ import {
 } from './studio-task-tools.js'
 import {
   createAgentHandler,
+  createAgentTemplateHandler,
   createProjectHandler,
   createSessionHandler,
+  deleteAgentTemplateHandler,
   getAgentHandler,
+  getAgentTemplateHandler,
   getProjectHandler,
   getSessionHandler,
   listTimelineHandler,
   listAgentsHandler,
+  listAgentTemplatesHandler,
   listKnowledgeBasesHandler,
   readKnowledgeIndexHandler,
   readKnowledgePageHandler,
@@ -43,6 +47,7 @@ import {
   listModelProfilesHandler,
   listProjectsHandler,
   listSessionsHandler,
+  updateAgentTemplateHandler,
 } from './core/index.js'
 import {
   createTeamHandler,
@@ -111,6 +116,11 @@ register(createProjectHandler)
 register(listAgentsHandler)
 register(getAgentHandler)
 register(createAgentHandler)
+register(listAgentTemplatesHandler)
+register(getAgentTemplateHandler)
+register(createAgentTemplateHandler)
+register(updateAgentTemplateHandler)
+register(deleteAgentTemplateHandler)
 register(listModelProfilesHandler)
 register(listSessionsHandler)
 register(getSessionHandler)

@@ -139,6 +139,11 @@ describe('agent session MCP tools', () => {
       'agent.message.send',
       'agent.session.list',
       'agent.session.messages',
+      'agent.template.create',
+      'agent.template.delete',
+      'agent.template.get',
+      'agent.template.list',
+      'agent.template.update',
       'agent.watch.cancel',
       'agent.watch.create',
     ])
