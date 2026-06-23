@@ -697,6 +697,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
       saveCache(sid, get())
     }))
 
+    // Reconnect recovery: wsClient emits 'reconnected' on onopen after a close,
+    // which fires even when React's `connected` state doesn't observe the
+    // transition (e.g. onclose/onerror race in the ws-client that can leave
+    // `connected` stuck at false). Refill the current conversation directly.
+    offs.push(wsClient.on('reconnected', () => {
+      const sid = get().sessionId
+      if (!sid) return
+      void get().refreshCurrentSession(sid)
+    }))
+
     return () => offs.forEach(f => f())
   },
 }))

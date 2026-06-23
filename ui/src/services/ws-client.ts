@@ -10,6 +10,7 @@ class WSClient {
   private url = ''
   private intentionalClose = false
   private currentSubscriptions = new Set<string>()
+  private hasConnectedBefore = false
 
   get connected() { return this._connected }
 
@@ -33,6 +34,14 @@ class WSClient {
       if (this.ws !== socket) return
       this._connected = true
       this.emit('connection', { connected: true })
+      // Emit 'reconnected' after the first successful connect so subscribers
+      // can refresh state that may have gone stale during the disconnect.
+      // The onclose/onerror race in some WebSocket impls can leave React's
+      // `connected` state stuck at false; this event bypasses that.
+      if (this.hasConnectedBefore) {
+        this.emit('reconnected', {})
+      }
+      this.hasConnectedBefore = true
       if (this.currentSubscriptions.size > 0) {
         this.send({ type: 'subscribe', sessionIds: [...this.currentSubscriptions] })
       }
