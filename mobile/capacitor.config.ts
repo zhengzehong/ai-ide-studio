@@ -5,7 +5,7 @@ const config: CapacitorConfig = {
   appName: 'AI IDE Studio',
   webDir: 'dist',
   server: {
-    androidScheme: 'https',
+    androidScheme: 'http',
   },
   android: {
     allowMixedContent: true,
