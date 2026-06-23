@@ -1,9 +1,11 @@
 import { useState, type CSSProperties } from 'react'
-import { ArrowLeft, Copy, Check, FileText, AlertCircle } from 'lucide-react'
+import { ArrowLeft, Copy, Check, FileText, AlertCircle, Download } from 'lucide-react'
 import type { FileContent } from '../../stores/filesystem.store'
 import { MarkdownView } from './MarkdownView'
 import { CodeView } from './CodeView'
 import { PlainTextView } from './PlainTextView'
+import { ImageView } from './ImageView'
+import { BinaryFileView } from './BinaryFileView'
 
 const MARKDOWN_EXTS = ['.md', '.mdx']
 const CODE_EXTS = [
@@ -41,6 +43,8 @@ export function FileDetail({ file, loading, error, onBack }: FileDetailProps) {
     CODE_EXTS.includes(ext) ||
     (!!file.language && file.language !== 'plaintext' && file.language !== 'markdown')
   )
+  const kind = file.kind ?? 'text'
+  const showCopyButton = kind === 'text' && !loading && !error
 
   return (
     <div style={styles.container}>
@@ -52,12 +56,19 @@ export function FileDetail({ file, loading, error, onBack }: FileDetailProps) {
         <div style={styles.titleWrap}>
           <span style={styles.title}>{file.path.split('/').pop() || file.path}</span>
           <span style={styles.subtitle}>
-            {formatSize(file.size)} · {file.language}
+            {formatSize(file.size)} · {file.language || kind}
           </span>
         </div>
-        <button style={styles.iconBtn} onClick={handleCopy} aria-label="复制">
-          {copied ? <Check size={18} color="var(--success)" /> : <Copy size={18} />}
-        </button>
+        {showCopyButton && (
+          <button style={styles.iconBtn} onClick={handleCopy} aria-label="复制">
+            {copied ? <Check size={18} color="var(--success)" /> : <Copy size={18} />}
+          </button>
+        )}
+        {kind !== 'text' && !loading && !error && (
+          <button style={styles.iconBtn} onClick={() => BinaryFileView.download(file)} aria-label="下载">
+            <Download size={18} />
+          </button>
+        )}
       </div>
 
       {file.truncated && (
@@ -74,6 +85,10 @@ export function FileDetail({ file, loading, error, onBack }: FileDetailProps) {
             <AlertCircle size={32} color="var(--error)" />
             <span style={styles.errorText}>{error}</span>
           </div>
+        ) : kind === 'image' ? (
+          <ImageView file={file} />
+        ) : kind === 'binary' ? (
+          <BinaryFileView file={file} />
         ) : isMarkdown ? (
           <MarkdownView content={file.content} />
         ) : isCode ? (

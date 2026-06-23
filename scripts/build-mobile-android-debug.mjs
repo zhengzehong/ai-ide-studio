@@ -57,7 +57,7 @@ if (javaHome) {
 
 run('npm', ['run', 'build'], { cwd: mobileDir, env })
 run('npx', ['cap', 'sync', 'android'], { cwd: mobileDir, env })
-run(process.platform === 'win32' ? 'gradlew.bat' : './gradlew', ['assembleDebug'], { cwd: androidDir, env })
+run(process.platform === 'win32' ? '.\\gradlew.bat' : './gradlew', ['assembleDebug'], { cwd: androidDir, env })
 
 mkdirSync(releaseDir, { recursive: true })
 copyFileSync(apkSource, apkTarget)

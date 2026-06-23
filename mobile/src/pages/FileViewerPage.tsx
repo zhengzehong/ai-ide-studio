@@ -137,7 +137,8 @@ const PLACEHOLDER_FILE = {
   extension: '',
   language: '',
   truncated: false,
-} as const
+  kind: 'text' as const,
+}
 
 const styles: Record<string, CSSProperties> = {
   page: {

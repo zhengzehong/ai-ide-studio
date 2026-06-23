@@ -20,3 +20,4 @@ export const filesystemRpcHandlers: RpcHandlerMap = {
     sendResult(fileContent)
   },
 }
+
