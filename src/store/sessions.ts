@@ -19,6 +19,7 @@ export interface SessionRow {
   title: string | null
   updated_at: string | null
   last_message_at: string | null
+  last_read_at: string | null
   archived_at: string | null
   deleted_at: string | null
   runtime_preferences_json: string | null
@@ -137,6 +138,7 @@ export const sessionStore = {
       title: null,
       updated_at: now,
       last_message_at: null,
+      last_read_at: now,
       archived_at: null,
       deleted_at: null,
       runtime_preferences_json: null,
@@ -318,6 +320,11 @@ export const sessionStore = {
 
   touch(id: string, timestamp = new Date().toISOString()): void {
     getDb().prepare('UPDATE sessions SET updated_at = ?, last_message_at = ? WHERE id = ?').run(timestamp, timestamp, id)
+  },
+
+  markRead(id: string, timestamp = new Date().toISOString()): string {
+    getDb().prepare('UPDATE sessions SET last_read_at = ? WHERE id = ?').run(timestamp, id)
+    return timestamp
   },
 }
 

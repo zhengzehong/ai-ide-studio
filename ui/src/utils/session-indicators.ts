@@ -3,6 +3,8 @@ interface IndicatorSession {
   status: string
   stage?: string | null
   activity_state?: 'running' | 'idle' | null
+  last_message_at?: string | null
+  last_read_at?: string | null
 }
 
 export type SessionIndicatorStateMap = Record<string, true>
@@ -25,6 +27,19 @@ const RUNNING_STAGE_TEXTS = new Set([
 
 export function isRunningStage(stage?: string | null): boolean {
   return !!stage && RUNNING_STAGE_TEXTS.has(stage)
+}
+
+function timestampMs(value: string | null | undefined): number | undefined {
+  if (!value) return undefined
+  const parsed = Date.parse(value)
+  return Number.isFinite(parsed) ? parsed : undefined
+}
+
+export function isSessionUnreadByTimestamps(session: { last_message_at?: string | null; last_read_at?: string | null }): boolean {
+  const lastMessageMs = timestampMs(session.last_message_at)
+  if (!lastMessageMs) return false
+  const lastReadMs = timestampMs(session.last_read_at)
+  return !lastReadMs || lastMessageMs > lastReadMs
 }
 
 export function sessionIndicator(

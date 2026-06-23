@@ -68,6 +68,7 @@ interface ChatState {
   loadOlderMessages: (sessionId: string) => Promise<void>
   sendPrompt: (content: string, images?: ImageAttachmentInfo[]) => void
   fetchMessageProcess: (sessionId: string, messageId: string) => Promise<void>
+  refreshCurrentSession: (sessionId: string) => Promise<void>
   cancelTurn: () => Promise<void>
   respondPermission: (requestId: string, optionId?: string, cancelled?: boolean) => Promise<void>
   respondElicitation: (requestId: string, action: 'accept' | 'decline' | 'cancel', content?: Record<string, string | number | boolean | string[]>) => Promise<void>
@@ -271,6 +272,25 @@ function refreshLatestMessagesAfterPersistence(
   }, 500)
 }
 
+async function refreshSessionEvents(
+  get: () => ChatState,
+  set: (p: Partial<ChatState> | ((s: ChatState) => Partial<ChatState>)) => void,
+  sessionId: string,
+): Promise<void> {
+  const data = await wsClient.request({ type: 'sessions.events', sessionId, limit: 500 }) as SessionEventData[]
+  if (get().sessionId !== sessionId) return
+  const events = data as SessionEventData[]
+  const reduced = reduceSessionEvents(events.filter(e => !mirroredRealtimeEventTypes.has(e.type)))
+  set(state => ({
+    events,
+    capabilities: mergeCapabilities(state.capabilities, reduced.capabilities),
+    plan: reduced.plan,
+    pendingPermissions: reduced.pendingPermissions,
+    pendingElicitations: reduced.pendingElicitations,
+  }))
+  saveCache(sessionId, get())
+}
+
 function flushBuffer(set: (p: Partial<ChatState> | ((s: ChatState) => Partial<ChatState>)) => void, get: () => ChatState): void {
   if (streamingFlushTimer) { clearTimeout(streamingFlushTimer); streamingFlushTimer = null }
   const snapshot = streamingBuffer.flush()
@@ -331,7 +351,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
     lastStreamingSnapshot = null
     const cached = sessionCaches.get(sessionId)
     set({
-      sessionId, messages: cached?.messages ?? [], events: cached?.events ?? [], streamingMessage: cached?.streamingMessage ?? null,
+      sessionId, messages: cached?.messages ?? [], events: cached?.events ?? [],
+      // Never restore streamingMessage from cache: it may be stale across reconnects
+      // or app backgrounding, and a phantom streaming bubble is worse than none.
+      streamingMessage: null,
       plan: cached?.plan ?? [], pendingPermissions: cached?.pendingPermissions ?? [], pendingElicitations: cached?.pendingElicitations ?? [],
       capabilities: cached?.capabilities ?? { ...defaultCaps }, usage: cached?.usage ?? null, turnUsage: cached?.turnUsage ?? null,
       loading: !cached, isRunning: cached?.isRunning ?? false, runningStartedAtMs: cached?.runningStartedAtMs ?? null, sendError: '',
@@ -340,20 +363,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     wsClient.subscribe([sessionId])
 
     refreshLatestMessages(get, set, sessionId).catch(() => { if (get().sessionId === sessionId) set({ loading: false }) })
-
-    wsClient.request({ type: 'sessions.events', sessionId, limit: 500 }).then((data) => {
-      if (get().sessionId !== sessionId) return
-      const events = data as SessionEventData[]
-      const reduced = reduceSessionEvents(events.filter(e => !mirroredRealtimeEventTypes.has(e.type)))
-      set(state => ({
-        events,
-        capabilities: mergeCapabilities(state.capabilities, reduced.capabilities),
-        plan: reduced.plan,
-        pendingPermissions: reduced.pendingPermissions,
-        pendingElicitations: reduced.pendingElicitations,
-      }))
-      saveCache(sessionId, get())
-    }).catch(() => {})
+    refreshSessionEvents(get, set, sessionId).catch(() => {})
   },
 
   leaveSession: () => {
@@ -489,6 +499,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
         turnProcessErrorByMessageId: { ...state.turnProcessErrorByMessageId, [messageId]: message },
       }))
     }
+  },
+
+  refreshCurrentSession: async (sessionId) => {
+    if (get().sessionId !== sessionId) return
+    if (!wsClient.connected) return
+    await refreshLatestMessages(get, set, sessionId).catch(() => {})
+    if (get().sessionId !== sessionId) return
+    await refreshSessionEvents(get, set, sessionId).catch(() => {})
   },
 
   cancelTurn: async () => {

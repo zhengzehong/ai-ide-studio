@@ -84,9 +84,10 @@ describe('SQLite 迁移', () => {
       ORDER BY name
     `).all().map(row => row.name)
 
-    expect(migrations).toEqual(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011', '012', '013', '014', '015', '016', '017', '018', '019', '020', '021'])
+    expect(migrations).toEqual(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011', '012', '013', '014', '015', '016', '017', '018', '019', '020', '021', '022'])
     expect(messageColumns).toContain('file_changes_json')
     expect(messageColumns).toContain('process_item_count')
+    expect(getDb().prepare<[], { name: string }>('PRAGMA table_info(sessions)').all().map(row => row.name)).toContain('last_read_at')
     expect(getDb().prepare<[], { name: string }>('PRAGMA table_info(model_profiles)').all().map(row => row.name)).toContain('is_default')
     expect(getDb().prepare<[], { name: string }>('PRAGMA table_info(agents)').all().map(row => row.name)).toContain('sort_order')
     expect(getDb().prepare<[], { name: string }>('PRAGMA table_info(agents)').all().map(row => row.name)).toContain('hidden_at')

@@ -19,6 +19,7 @@ import { agentVisibilityMigration } from './018-agent-visibility.js'
 import { eventConsumerSessionStrategyMigration } from './019-event-consumer-session-strategy.js'
 import { modelProfileDefaultMigration } from './020-model-profile-default.js'
 import { knowledgeBaseMigration } from './021-knowledge-base.js'
+import { sessionReadStateMigration } from './022-session-read-state.js'
 import type { Migration } from '../migrator.js'
 
 export const migrations: Migration[] = [
@@ -43,4 +44,5 @@ export const migrations: Migration[] = [
   eventConsumerSessionStrategyMigration,
   modelProfileDefaultMigration,
   knowledgeBaseMigration,
+  sessionReadStateMigration,
 ]

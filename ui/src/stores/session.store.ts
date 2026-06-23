@@ -45,6 +45,7 @@ import { StreamingBuffer } from './streaming-buffer'
 import { applyTurnEntry, createEmptyTurn, processBlocksForCompletedTurn, turnFromEvents, turnFromProcessItems, turnHasFinalizableContent, turnHasVisibleContent, type TurnProcessBlock } from './turn-blocks'
 import {
   inferRunningSessions,
+  isSessionUnreadByTimestamps,
   removeSessionIndicator,
   type SessionIndicatorStateMap,
 } from '../utils/session-indicators'
@@ -84,7 +85,7 @@ export interface SessionData {
   id: string; agent_id: string; task_id: string | null; acp_session_id: string | null
   status: string; stage: string; started_at: string; closed_at: string | null
   activity_state?: 'running' | 'idle'
-  project_id?: string | null; title?: string | null; updated_at?: string | null; last_message_at?: string | null; archived_at?: string | null; deleted_at?: string | null; sort_order?: number | null
+  project_id?: string | null; title?: string | null; updated_at?: string | null; last_message_at?: string | null; last_read_at?: string | null; archived_at?: string | null; deleted_at?: string | null; sort_order?: number | null
 }
 
 export interface LocalSessionCandidateInfo {
@@ -378,6 +379,14 @@ function partialFromReduced(reduced: ReturnType<typeof reducedStateFromStore>): 
   }
 }
 
+async function markSessionReadOnServer(sessionId: string): Promise<void> {
+  try {
+    await wsClient.request({ type: 'sessions.markRead', sessionId })
+  } catch {
+    // Best-effort: server-side last_read_at will catch up on next fetchSessions
+  }
+}
+
 function toolDetailCacheKey(messageId: string, toolCallId: string): string {
   return `${messageId}:${toolCallId}`
 }
@@ -544,14 +553,23 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       if (requestSeq !== sessionListRequestSeq || activeSessionsProjectId !== scopedProjectId) return
       const sessions = scopedProjectId ? data.filter((session) => session.project_id === scopedProjectId) : data
       const runningSessions = Object.keys(inferRunningSessions(sessions))
-      set((state) => ({
-        sessions,
-        ...reconcileCopyingSessions(sessions, state.copyingTargetSessionIds),
-        runningSessionIds: reconcileRunningSessionIndicators(state.runningSessionIds, sessions),
-        unreadSessionIds: removeSessionIndicators(state.unreadSessionIds, runningSessions),
-        staleSessionIds: removeSessionIndicators(state.staleSessionIds, runningSessions),
-        loading: false,
-      }))
+      set((state) => {
+        const serverUnread: SessionIndicatorStateMap = {}
+        for (const session of sessions) {
+          if (state.currentSessionId === session.id) continue
+          if (isSessionUnreadByTimestamps(session)) serverUnread[session.id] = true
+        }
+        const mergedUnread: SessionIndicatorStateMap = { ...state.unreadSessionIds, ...serverUnread }
+        const unreadAfterRunning = removeSessionIndicators(mergedUnread, runningSessions)
+        return {
+          sessions,
+          ...reconcileCopyingSessions(sessions, state.copyingTargetSessionIds),
+          runningSessionIds: reconcileRunningSessionIndicators(state.runningSessionIds, sessions),
+          unreadSessionIds: unreadAfterRunning,
+          staleSessionIds: removeSessionIndicators(state.staleSessionIds, runningSessions),
+          loading: false,
+        }
+      })
     } catch {
       if (requestSeq === sessionListRequestSeq) set({ loading: false })
     }
@@ -831,6 +849,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     })
     void get().fetchMessages(id)
     void get().fetchModels()
+    void markSessionReadOnServer(id)
   },
 
   sendPrompt: (content, images) => {
@@ -1275,7 +1294,19 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             }
           : {}
         if (st.sessions.some(s => s.id === sessionId)) {
-          return { sessions: st.sessions.map(s => s.id === sessionId ? { ...s, ...data } : s), ...copyState }
+          const mergedSession = { ...st.sessions.find(s => s.id === sessionId)!, ...data } as SessionData
+          const isCurrent = st.currentSessionId === sessionId
+          const nextUnread = data.last_read_at
+            ? (isCurrent ? false : isSessionUnreadByTimestamps(mergedSession))
+            : st.unreadSessionIds[sessionId] ? true : false
+          const unreadSessionIds = nextUnread
+            ? { ...st.unreadSessionIds, [sessionId]: true as const }
+            : removeSessionIndicator(st.unreadSessionIds, sessionId)
+          return {
+            sessions: st.sessions.map(s => s.id === sessionId ? mergedSession : s),
+            unreadSessionIds,
+            ...copyState,
+          }
         }
         if (isCompleteSessionData(data, sessionId) && (!activeSessionsProjectId || data.project_id === activeSessionsProjectId)) {
           return { sessions: [...st.sessions, data], ...copyState }

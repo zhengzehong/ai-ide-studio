@@ -26,7 +26,7 @@ export default function ChatPage() {
     messages, events, streamingMessage, loading, isRunning, sendError, plan, pendingPermissions, pendingElicitations, capabilities,
     turnProcessLoadingByMessageId, turnProcessErrorByMessageId, runningStartedAtMs,
     hasMoreMessagesBySession, loadingOlderMessagesBySession,
-    enterSession, leaveSession, loadOlderMessages, sendPrompt, cancelTurn, fetchMessageProcess, respondPermission, respondElicitation,
+    enterSession, leaveSession, loadOlderMessages, sendPrompt, cancelTurn, fetchMessageProcess, refreshCurrentSession, respondPermission, respondElicitation,
   } = useChatStore()
   const sessions = useSessionStore(s => s.sessions)
   const { connected, status } = useConnectionStore()
@@ -58,6 +58,14 @@ export default function ChatPage() {
       useSessionStore.getState().setCurrentSession(null)
     }
   }, [sessionId])
+
+  // Reconnect recovery: when the websocket comes back online, refill the
+  // current conversation with the latest persisted messages and events so we
+  // don't leave the user staring at stale state after a background disconnect.
+  useEffect(() => {
+    if (!connected || !sessionId) return
+    void refreshCurrentSession(sessionId)
+  }, [connected, sessionId, refreshCurrentSession])
 
   const hasBlockingInteraction = pendingPermissions.length > 0 || pendingElicitations.length > 0
   const inputDisabled = hasBlockingInteraction || !connected

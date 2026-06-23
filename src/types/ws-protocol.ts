@@ -259,6 +259,10 @@ export interface SessionsEventsMsg extends ClientMessage {
   limit?: number
   afterSequence?: number
 }
+export interface SessionsMarkReadMsg extends ClientMessage {
+  type: 'sessions.markRead'
+  sessionId: string
+}
 export interface TasksListMsg extends ClientMessage {
   type: 'tasks.list'
   status?: TaskStatus

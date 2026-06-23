@@ -3,6 +3,7 @@ import { agentStore } from '../../store/agents.js'
 import { sessionStore } from '../../store/sessions.js'
 import { getDb } from '../../store/db.js'
 import { sessionManager } from '../../core/sessions.js'
+import { events } from '../../core/events.js'
 import type { RpcHandlerMap } from './types.js'
 
 interface ProjectNameRow {
@@ -144,6 +145,8 @@ export const widgetRpcHandlers: RpcHandlerMap = {
     if (!sessionId) return sendError('sessionId 不能为空')
     if (!sessionStore.get(sessionId)) return sendError('会话不存在')
     widgetStateStore.markRead(sessionId)
+    sessionStore.markRead(sessionId)
+    events.emit('session:changed', { sessionId, data: { lastReadAt: new Date().toISOString() } })
     sendResult({ ok: true })
   },
 
