@@ -39,7 +39,10 @@ export function isSessionUnreadByTimestamps(session: { last_message_at?: string 
   const lastMessageMs = timestampMs(session.last_message_at)
   if (!lastMessageMs) return false
   const lastReadMs = timestampMs(session.last_read_at)
-  return !lastReadMs || lastMessageMs > lastReadMs
+  // Old servers don't have last_read_at (migration 022 missing). Treat missing
+  // as read to avoid painting every session unread on version mismatch.
+  if (!lastReadMs) return false
+  return lastMessageMs > lastReadMs
 }
 
 export function sessionIndicator(

@@ -58,7 +58,10 @@ export function isSessionUnread(
   const lastMessageMs = timestampMs(session.last_message_at)
   if (!lastMessageMs) return false
   const lastReadMs = timestampMs(session.last_read_at)
-  return !lastReadMs || lastMessageMs > lastReadMs
+  // Old servers don't have last_read_at (migration 022 missing). Treat missing
+  // as read to avoid painting every session unread on version mismatch.
+  if (!lastReadMs) return false
+  return lastMessageMs > lastReadMs
 }
 
 function removeIndicator(source: SessionIndicatorMap, sessionId: string): SessionIndicatorMap {
@@ -186,11 +189,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             ? {
                 ...session,
                 activityState: 'idle',
-                unread: isSessionUnread(
-                  { last_message_at: session.lastMessageAt, last_read_at: session.lastReadAt },
-                  state.currentSessionId,
-                  sessionId,
-                ),
+                // Don't override the unread flag here: a fresh fetchSessions will
+                // recompute it from last_message_at/last_read_at. Setting it from
+                // possibly-stale local fields caused the yellow flash after the
+                // green running dot disappeared.
               }
             : session
         ),

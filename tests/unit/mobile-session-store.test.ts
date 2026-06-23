@@ -75,7 +75,8 @@ test('fetchSessions computes unread from last_message_at > last_read_at', async 
   const sessions = useSessionStore.getState().sessions
   expect(sessions.find((s) => s.id === 'sess-a')?.unread).toBe(true)
   expect(sessions.find((s) => s.id === 'sess-b')?.unread).toBe(false)
-  expect(sessions.find((s) => s.id === 'sess-c')?.unread).toBe(true)
+  // Old server (no last_read_at) is treated as read to avoid mass-unread on version mismatch.
+  expect(sessions.find((s) => s.id === 'sess-c')?.unread).toBe(false)
 })
 
 test('all-project fetch preserves running indicators for sessions not in the returned set', async () => {
