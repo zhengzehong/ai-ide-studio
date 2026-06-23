@@ -8,6 +8,7 @@ import AndroidBackHandler from './components/AndroidBackHandler'
 import ConnectPage from './pages/ConnectPage'
 import SessionListPage from './pages/SessionListPage'
 import ChatPage from './pages/ChatPage'
+import FileViewerPage from './pages/FileViewerPage'
 import TaskListPage from './pages/TaskListPage'
 import SettingsPage from './pages/SettingsPage'
 
@@ -65,6 +66,7 @@ export default function App() {
       <Routes>
         <Route path="/connect" element={<ConnectPage />} />
         <Route path="/chat/:sessionId" element={<ChatPage />} />
+        <Route path="/files" element={<FileViewerPage />} />
         <Route element={<MobileShell />}>
           <Route path="/" element={<SessionListPage />} />
           <Route path="/tasks" element={<TaskListPage />} />

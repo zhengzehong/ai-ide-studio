@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Bot } from 'lucide-react'
+import { ArrowLeft, Bot, FolderOpen } from 'lucide-react'
 import { buildChatRenderItems } from '@desktop/components/chat/render-items'
 import type { ChatTimelineGroup, MessageData, StreamingMessage } from '@desktop/stores/session-events'
 import { useChatStore } from '../stores/chat.store'
@@ -64,6 +64,13 @@ export default function ChatPage() {
   const disabledPlaceholder = !connected
     ? (status === 'connecting' ? '正在重连服务器...' : '连接失败，请先恢复连接')
     : '等待确认...'
+  const projectId = session?.projectId ?? null
+  const canViewFiles = !!projectId
+
+  const handleOpenFiles = () => {
+    if (!canViewFiles) return
+    navigate('/files', { state: { projectId, sessionId } })
+  }
   useEffect(() => {
     if (!isRunning) return undefined
     setLiveNowMs(Date.now())
@@ -142,6 +149,15 @@ export default function ChatPage() {
           )}
         </div>
         {isRunning && <span style={styles.runningDot} />}
+        <button
+          style={{ ...styles.backBtn, opacity: canViewFiles ? 1 : 0.4 }}
+          onClick={handleOpenFiles}
+          disabled={!canViewFiles}
+          aria-label="查看文件"
+          title={canViewFiles ? '查看项目文件' : '当前会话未绑定项目'}
+        >
+          <FolderOpen size={20} />
+        </button>
       </div>
 
       {plan.length > 0 && <PlanBar plan={plan} />}
