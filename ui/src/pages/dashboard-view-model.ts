@@ -6,6 +6,9 @@ import type { TaskData } from '../stores/task.store'
 
 export type DashboardTab = 'agents' | 'tasks' | 'events'
 export type DashboardScope = { type: 'all' } | { type: 'project'; projectId: string }
+export type AgentDynamicsView = 'agent' | 'project' | 'timeline'
+export type AgentDynamicsFilter = 'all' | 'needs_attention' | 'running' | 'idle'
+export type SessionBucket = 'needs_attention' | 'running' | 'idle' | 'history'
 
 export interface DashboardStats {
   activeSessions: number
@@ -60,4 +63,136 @@ export function filterByDashboardScope<T extends { project_id?: string | null }>
 
 export function dashboardScopeProjectId(scope: DashboardScope): string | undefined {
   return scope.type === 'project' ? scope.projectId : undefined
+}
+
+export interface AgentDynamicsRow {
+  session: SessionData
+  agent: AgentData | null
+  project: ProjectData | null
+  task: TaskData | null
+  title: string
+  subtitle: string
+  badge: { kind: 'task' | 'activity'; value: string }
+  activityState: 'running' | 'idle'
+  lastActivityAt: string
+  isAbnormal: boolean
+  bucket: SessionBucket
+}
+
+export interface AgentDynamicsGroup {
+  id: string
+  title: string
+  rows: AgentDynamicsRow[]
+}
+
+export interface AgentDynamicsViewModel {
+  activeRows: AgentDynamicsRow[]
+  historyRows: AgentDynamicsRow[]
+  groups: AgentDynamicsGroup[]
+}
+
+export interface AgentDynamicsInput {
+  agents: AgentData[]
+  projects: ProjectData[]
+  tasks: TaskData[]
+  sessions: SessionData[]
+  filter: AgentDynamicsFilter
+  view: AgentDynamicsView
+  now?: Date
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000
+
+export function buildAgentDynamicsViewModel(input: AgentDynamicsInput): AgentDynamicsViewModel {
+  const nowMs = input.now?.getTime() ?? Date.now()
+  const agentsById = new Map(input.agents.map((agent) => [agent.id, agent]))
+  const projectsById = new Map(input.projects.map((project) => [project.id, project]))
+  const tasksById = new Map(input.tasks.map((task) => [task.id, task]))
+  const rows = input.sessions.map((session) => buildAgentDynamicsRow(session, agentsById, projectsById, tasksById, nowMs))
+    .sort(compareAgentRows)
+  const visibleRows = rows.filter((row) => matchesAgentFilter(row, input.filter))
+  const activeRows = visibleRows.filter((row) => row.bucket !== 'history')
+  const historyRows = visibleRows.filter((row) => row.bucket === 'history')
+
+  return {
+    activeRows,
+    historyRows,
+    groups: groupAgentRows(activeRows, input.view),
+  }
+}
+
+function buildAgentDynamicsRow(
+  session: SessionData,
+  agentsById: Map<string, AgentData>,
+  projectsById: Map<string, ProjectData>,
+  tasksById: Map<string, TaskData>,
+  nowMs: number,
+): AgentDynamicsRow {
+  const task = session.task_id ? tasksById.get(session.task_id) ?? null : null
+  const activityState = session.activity_state ?? (session.status === 'active' ? 'running' : 'idle')
+  const lastActivityAt = coalesceLastActivityAt(session)
+  const isAbnormal = activityState === 'idle' && task?.status === 'executing'
+  const isHistory = activityState === 'idle'
+    && !isAbnormal
+    && nowMs - new Date(lastActivityAt).getTime() > DAY_MS
+  const bucket: SessionBucket = isAbnormal
+    ? 'needs_attention'
+    : isHistory
+      ? 'history'
+      : activityState === 'running'
+        ? 'running'
+        : 'idle'
+
+  return {
+    session,
+    agent: agentsById.get(session.agent_id) ?? null,
+    project: session.project_id ? projectsById.get(session.project_id) ?? null : null,
+    task,
+    title: task?.title ?? session.title?.trim() ?? '临时对话',
+    subtitle: task?.stage || session.stage || activityState,
+    badge: task ? { kind: 'task', value: task.status } : { kind: 'activity', value: activityState },
+    activityState,
+    lastActivityAt,
+    isAbnormal,
+    bucket,
+  }
+}
+
+export function coalesceLastActivityAt(session: SessionData): string {
+  return session.last_message_at ?? session.updated_at ?? session.started_at
+}
+
+function matchesAgentFilter(row: AgentDynamicsRow, filter: AgentDynamicsFilter): boolean {
+  if (filter === 'all') return true
+  if (filter === 'needs_attention') return row.bucket === 'needs_attention'
+  if (filter === 'running') return row.bucket === 'running'
+  if (filter === 'idle') return row.bucket === 'idle' || row.bucket === 'history'
+  return true
+}
+
+function groupAgentRows(rows: AgentDynamicsRow[], view: AgentDynamicsView): AgentDynamicsGroup[] {
+  if (view === 'timeline') return [{ id: 'timeline', title: '时间线', rows }]
+
+  const groups = new Map<string, AgentDynamicsGroup>()
+  for (const row of rows) {
+    const id = view === 'agent' ? row.session.agent_id : row.session.project_id ?? 'global'
+    const title = view === 'agent' ? row.agent?.name ?? row.session.agent_id : row.project?.name ?? '未归属项目'
+    const group = groups.get(id) ?? { id, title, rows: [] }
+    group.rows.push(row)
+    groups.set(id, group)
+  }
+  return [...groups.values()]
+}
+
+function compareAgentRows(a: AgentDynamicsRow, b: AgentDynamicsRow): number {
+  const bucketDiff = bucketRank(a.bucket) - bucketRank(b.bucket)
+  if (bucketDiff !== 0) return bucketDiff
+  return new Date(b.lastActivityAt).getTime() - new Date(a.lastActivityAt).getTime()
+}
+
+function bucketRank(bucket: SessionBucket): number {
+  if (bucket === 'needs_attention') return 0
+  if (bucket === 'running') return 1
+  if (bucket === 'idle') return 2
+  return 3
 }

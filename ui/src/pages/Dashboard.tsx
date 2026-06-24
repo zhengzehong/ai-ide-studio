@@ -1,15 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import {
-  Activity,
-  AlertCircle,
-  Bot,
-  CheckCircle2,
-  Loader2,
-  Plus,
-  Wifi,
-  WifiOff,
-  Zap,
-} from 'lucide-react'
+import { Activity, AlertCircle, Bot, CheckCircle2, Loader2, Plus, Wifi, WifiOff, Zap } from 'lucide-react'
 import { DashboardScopeSwitcher } from '../components/dashboard/DashboardScopeSwitcher'
 import { useAgentStore } from '../stores/agent.store'
 import { useConnectionStore } from '../stores/connection.store'
@@ -23,8 +13,7 @@ import {
   type DashboardScope,
   type DashboardTab,
 } from './dashboard-view-model'
-
-const TYPE_COLORS: Record<string, string> = { dev: '#2563eb', test: '#059669', ops: '#ea580c', security: '#dc2626', architect: '#7c3aed', pm: '#7c3aed' }
+import { AgentDynamicsTab } from './dashboard/AgentDynamicsTab'
 
 const tabs: Array<{ key: DashboardTab; label: string }> = [
   { key: 'agents', label: 'Agent 动态' },
@@ -107,7 +96,11 @@ export default function Dashboard() {
 
       <main style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 360px', gap: 18, minHeight: 420 }}>
         <section style={{ minWidth: 0 }}>
-          {activeTab === 'agents' && <AgentShell agents={dashboard.agents} sessions={dashboard.sessions} loading={loading} />}
+          {activeTab === 'agents' && (
+            loading && dashboard.agents.length === 0 && dashboard.sessions.length === 0
+              ? <SkeletonRows label="正在加载 Agent 动态" />
+              : <AgentDynamicsTab agents={dashboard.agents} projects={projects} sessions={dashboard.sessions} tasks={dashboard.tasks} />
+          )}
           {activeTab === 'tasks' && <TaskShell tasks={dashboard.tasks} loading={loading} />}
           {activeTab === 'events' && <EventShell events={dashboard.events} loading={loading} />}
         </section>
@@ -126,29 +119,6 @@ export default function Dashboard() {
           <Plus size={13} /> 新建
         </button>
       </div>
-    </div>
-  )
-}
-
-function AgentShell({ agents, sessions, loading }: { agents: ReturnType<typeof buildDashboardViewModel>['agents']; sessions: ReturnType<typeof buildDashboardViewModel>['sessions']; loading: boolean }) {
-  if (loading && agents.length === 0) return <SkeletonRows label="正在加载 Agent 动态" />
-  if (agents.length === 0) return <EmptyState label="暂无 Agent" />
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      {agents.map((agent) => {
-        const activeSessions = sessions.filter((session) => session.agent_id === agent.id && session.status === 'active')
-        return (
-          <div key={agent.id} style={{ padding: '14px 16px', background: 'var(--bg-0)', borderRadius: 'var(--radius)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div style={{ width: 36, height: 36, borderRadius: '50%', background: TYPE_COLORS[agent.type] ?? '#6b7280', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: 15, fontWeight: 700, flexShrink: 0 }}>{agent.name.charAt(0)}</div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 15, fontWeight: 600 }}>{agent.name}</div>
-              <div style={{ fontSize: 14, color: 'var(--text-2)' }}>{agent.runtime} · {activeSessions.length} 个活跃会话</div>
-            </div>
-            <StatusBadge status={agent.status} />
-          </div>
-        )
-      })}
     </div>
   )
 }
@@ -222,16 +192,6 @@ function SectionHeader({ icon, title }: { icon: React.ReactNode; title: string }
       <span style={{ color: 'var(--text-3)' }}>{icon}</span>{title}
     </div>
   )
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, { bg: string; color: string; label: string }> = {
-    running: { bg: 'var(--blue-light)', color: 'var(--blue)', label: '运行中' },
-    idle: { bg: 'var(--green-light)', color: 'var(--green)', label: '空闲' },
-    standby: { bg: 'var(--bg-2)', color: 'var(--text-3)', label: '待机' },
-  }
-  const item = map[status] ?? map.standby
-  return <span style={{ fontSize: 13, padding: '2px 7px', borderRadius: 10, background: item.bg, color: item.color, fontWeight: 500 }}>{item.label}</span>
 }
 
 function TaskStatusBadge({ status }: { status: string }) {
