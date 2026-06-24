@@ -18,7 +18,7 @@ class WSClient {
     this.url = url
     this.intentionalClose = true
     if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null }
-    if (this.ws) { this.ws.close(); this.ws = null }
+    if (this.ws) { this.detachSocket(this.ws); this.ws.close(); this.ws = null }
 
     this.intentionalClose = false
     try {
@@ -56,10 +56,14 @@ class WSClient {
       }
     }
 
+    // Per the WebSocket spec, an onerror is always followed by onclose. We
+    // intentionally do NOT emit `connected: false` here: onerror and onclose
+    // firing in close succession (or an old socket's onerror firing after a
+    // new socket has already opened) used to flip the React `connected` state
+    // back to false even though the new connection was healthy. onclose is
+    // the single source of truth for disconnection.
     this.ws.onerror = () => {
       if (this.ws !== socket) return
-      this._connected = false
-      this.emit('connection', { connected: false, message: 'WebSocket connection failed' })
     }
 
     this.ws.onmessage = (event) => {
@@ -87,8 +91,15 @@ class WSClient {
   disconnect() {
     this.intentionalClose = true
     if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null }
-    if (this.ws) { this.ws.close(); this.ws = null }
+    if (this.ws) { this.detachSocket(this.ws); this.ws.close(); this.ws = null }
     this._connected = false
+  }
+
+  private detachSocket(socket: WebSocket): void {
+    socket.onopen = null
+    socket.onclose = null
+    socket.onerror = null
+    socket.onmessage = null
   }
 
   async request(msg: Record<string, unknown>): Promise<unknown> {
