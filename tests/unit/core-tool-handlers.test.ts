@@ -350,7 +350,7 @@ describe('core MCP tool handlers', () => {
       expect(result.content[0]?.text).toContain('session boot failed')
       expect(taskStore.get(task.id)).toMatchObject({
         assigned_agent_id: null,
-        status: 'blocked',
+        status: 'needs_input',
       })
     } finally {
       sessionManager.createSession = originalCreateSession

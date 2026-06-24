@@ -10,4 +10,4 @@ export interface ElectronWidgetApi {
 
 export const electronApi = (window as unknown as { electronWidget?: ElectronWidgetApi }).electronWidget
 
-export const ACTIVE_TASK_STATUSES = new Set(['executing', 'needs_input', 'reviewing', 'blocked'])
+export const ACTIVE_TASK_STATUSES = new Set(['executing', 'needs_input'])

@@ -152,12 +152,12 @@ export const studioTaskAssignHandler: ToolHandler = {
 
 export const studioTaskUpdateProgressHandler: ToolHandler = {
   name: 'studio.task.update_progress',
-  description: '更新你当前正在执行的 AI IDE Studio 项目任务的进度。每完成一个阶段都应该调用此工具让用户了解进展。当从待确认或阻塞状态恢复时也用此工具。',
+  description: '更新你当前正在执行的 AI IDE Studio 项目任务的进度（轻量，仅更新阶段描述）。每完成一个小步骤都调用此工具。当任务处于「待确认」状态时调用此工具会自动恢复为「行动中」。',
   inputSchema: {
     type: 'object',
     properties: {
       taskId: { type: 'string', description: '任务 ID' },
-      stage: { type: 'string', description: '当前阶段描述' },
+      stage: { type: 'string', description: '当前阶段描述（一句话）' },
     },
     required: ['taskId', 'stage'],
   },
@@ -168,9 +168,10 @@ export const studioTaskUpdateProgressHandler: ToolHandler = {
     if (!task) return errResult('任务不存在')
     try { assertProjectAccess(task, context?.projectId) } catch (e) { return errResult((e as Error).message) }
 
-    const shouldRecover = task.status === 'needs_input' || task.status === 'blocked'
+    const shouldRecover = task.status === 'needs_input'
     const newStatus = shouldRecover ? 'executing' : task.status
     taskStore.updateStatus(taskId, newStatus, stage)
+    if (shouldRecover) taskStore.updateAgentReportStatus(taskId, 'in_progress')
     emitTaskLifecycleEvent(taskStore.get(taskId)!, shouldRecover ? 'status_changed' : 'progress_updated', task.status)
 
     log.info({ taskId, stage, recovered: shouldRecover }, 'Agent 更新进度')
@@ -183,92 +184,37 @@ export const studioTaskUpdateProgressHandler: ToolHandler = {
   },
 }
 
-export const studioTaskRequestInputHandler: ToolHandler = {
-  name: 'studio.task.request_input',
-  description: '当你在执行 AI IDE Studio 项目任务时，遇到需要人工决策或确认的分支，调用此工具。用户会在任务面板中看到你的问题。',
+export const studioTaskReportHandler: ToolHandler = {
+  name: 'studio.task.report',
+  description: '关键节点汇报：带 Markdown 报告向用户同步进展，并更新你的自我评估状态（agentStatus）。任务状态会根据 agentStatus 自动推导：in_progress 保持/恢复行动中；blocked 和 done 都会让任务进入「待确认」等待人工处理。',
   inputSchema: {
     type: 'object',
     properties: {
       taskId: { type: 'string', description: '任务 ID' },
-      question: { type: 'string', description: '需要人工确认的问题' },
+      agentStatus: { type: 'string', enum: ['in_progress', 'blocked', 'done'], description: '你的自我评估状态：in_progress=正在执行；blocked=遇到问题需要人工决策；done=本轮完成等待验收' },
+      reportMd: { type: 'string', description: 'Markdown 报告，建议结构：## 本轮工作 / ## 下一步计划 / ## 问题或总结' },
+      stage: { type: 'string', description: '当前阶段描述（可选，一句话）' },
     },
-    required: ['taskId', 'question'],
+    required: ['taskId', 'agentStatus'],
   },
   async execute(input, context) {
     const taskId = requireStr(input, 'taskId')
-    const question = requireStr(input, 'question')
+    const agentStatus = requireStr(input, 'agentStatus')
+    if (agentStatus !== 'in_progress' && agentStatus !== 'blocked' && agentStatus !== 'done') {
+      return errResult('agentStatus 必须是 in_progress / blocked / done 之一')
+    }
+    const reportMd = optStr(input, 'reportMd')
+    const stage = optStr(input, 'stage')
     const task = taskStore.get(taskId)
     if (!task) return errResult('任务不存在')
     try { assertProjectAccess(task, context?.projectId) } catch (e) { return errResult((e as Error).message) }
 
-    taskStore.updateStatus(taskId, 'needs_input', question)
-    emitTaskLifecycleEvent(taskStore.get(taskId)!, 'input_requested', task.status)
-    log.info({ taskId, question }, 'Agent 请求输入')
-    events.emit('task:update', {
-      taskId,
-      data: { ...taskStore.get(taskId), event: 'input_requested' },
-    })
-
-    return { content: [{ type: 'text', text: JSON.stringify({ taskId, status: 'needs_input' }) }] }
+    try {
+      const updated = taskManager.reportTask({ taskId, agentStatus, reportMd, stage })
+      return { content: [{ type: 'text', text: JSON.stringify({ taskId, status: updated.status, agentReportStatus: updated.agent_report_status }) }] }
+    } catch (e) {
+      return errResult((e as Error).message)
+    }
   },
 }
 
-export const studioTaskMarkBlockedHandler: ToolHandler = {
-  name: 'studio.task.mark_blocked',
-  description: '当你在执行 AI IDE Studio 项目任务时，遇到自己无法解决的问题（如缺少权限、缺少依赖、需要外部操作），调用此工具上报阻塞。',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      taskId: { type: 'string', description: '任务 ID' },
-      reason: { type: 'string', description: '阻塞原因' },
-    },
-    required: ['taskId', 'reason'],
-  },
-  async execute(input, context) {
-    const taskId = requireStr(input, 'taskId')
-    const reason = requireStr(input, 'reason')
-    const task = taskStore.get(taskId)
-    if (!task) return errResult('任务不存在')
-    try { assertProjectAccess(task, context?.projectId) } catch (e) { return errResult((e as Error).message) }
-
-    taskStore.updateStatus(taskId, 'blocked', reason)
-    emitTaskLifecycleEvent(taskStore.get(taskId)!, 'marked_blocked', task.status)
-    log.info({ taskId, reason }, 'Agent 标记阻塞')
-    events.emit('task:update', {
-      taskId,
-      data: { ...taskStore.get(taskId), event: 'marked_blocked' },
-    })
-
-    return { content: [{ type: 'text', text: JSON.stringify({ taskId, status: 'blocked' }) }] }
-  },
-}
-
-export const studioTaskMarkDoneHandler: ToolHandler = {
-  name: 'studio.task.mark_done',
-  description: '当你认为 AI IDE Studio 项目任务已经完成，调用此工具通知用户进行审查。请在 summary 中说明你完成了什么。',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      taskId: { type: 'string', description: '任务 ID' },
-      summary: { type: 'string', description: '完成总结' },
-    },
-    required: ['taskId'],
-  },
-  async execute(input, context) {
-    const taskId = requireStr(input, 'taskId')
-    const summary = optStr(input, 'summary') || 'Agent 已完成，等待人工确认'
-    const task = taskStore.get(taskId)
-    if (!task) return errResult('任务不存在')
-    try { assertProjectAccess(task, context?.projectId) } catch (e) { return errResult((e as Error).message) }
-
-    taskStore.updateStatus(taskId, 'reviewing', summary)
-    emitTaskLifecycleEvent(taskStore.get(taskId)!, 'marked_done', task.status)
-    log.info({ taskId, summary }, 'Agent 标记完成')
-    events.emit('task:update', {
-      taskId,
-      data: { ...taskStore.get(taskId), event: 'marked_done' },
-    })
-
-    return { content: [{ type: 'text', text: JSON.stringify({ taskId, status: 'reviewing' }) }] }
-  },
-}

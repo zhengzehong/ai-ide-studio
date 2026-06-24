@@ -30,7 +30,7 @@ export function scopeDashboardData(input: DashboardScopeInput): DashboardScopeRe
     tasks,
     activeSessions: sessions.filter((session) => session.status === 'active').length,
     runningAgents: agents.filter((agent) => agent.status === 'running').length,
-    inProgressTasks: tasks.filter((task) => task.status === 'executing' || task.status === 'planning').length,
+    inProgressTasks: tasks.filter((task) => task.status === 'executing').length,
     completedTasks: tasks.filter((task) => task.status === 'completed').length,
   }
 }

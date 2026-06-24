@@ -6,9 +6,7 @@ test('mobile task status labels cover backend task statuses', () => {
   const cases: Array<[TaskStatus, string]> = [
     ['backlog', '待办'],
     ['executing', '执行中'],
-    ['needs_input', '需输入'],
-    ['blocked', '受阻'],
-    ['reviewing', '待确认'],
+    ['needs_input', '需确认'],
     ['completed', '已完成'],
     ['cancelled', '已取消'],
   ]

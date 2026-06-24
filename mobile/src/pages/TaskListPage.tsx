@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type CSSProperties } from 'react'
 import { wsClient } from '@desktop/services/ws-client'
-import { ListTodo, Clock, CheckCircle2, AlertCircle, Circle, RefreshCw, PauseCircle } from 'lucide-react'
+import { ListTodo, Clock, CheckCircle2, AlertCircle, Circle, RefreshCw } from 'lucide-react'
 import type { TaskStatus } from '../../../src/types/ws-protocol'
 import { useAppStore } from '../stores/app.store'
 
@@ -20,9 +20,7 @@ type TaskStatusMeta = { icon: typeof Clock; color: string; label: string }
 const statusConfig: Record<TaskStatus, TaskStatusMeta> = {
   backlog: { icon: Circle, color: 'var(--text-muted)', label: '待办' },
   executing: { icon: Clock, color: 'var(--info)', label: '执行中' },
-  needs_input: { icon: AlertCircle, color: 'var(--warning)', label: '需输入' },
-  blocked: { icon: PauseCircle, color: 'var(--error)', label: '受阻' },
-  reviewing: { icon: AlertCircle, color: 'var(--primary)', label: '待确认' },
+  needs_input: { icon: AlertCircle, color: 'var(--warning)', label: '需确认' },
   completed: { icon: CheckCircle2, color: 'var(--success)', label: '已完成' },
   cancelled: { icon: AlertCircle, color: 'var(--text-muted)', label: '已取消' },
 }

@@ -1,5 +1,5 @@
 import { taskManager, resolveSessionMode, validateSessionModeTarget, validateTaskAssignment } from '../../core/tasks.js'
-import { taskStore } from '../../store/tasks.js'
+import { taskStore, taskEventStore } from '../../store/tasks.js'
 import { sessionStore, type SessionRow } from '../../store/sessions.js'
 import { events } from '../../core/events.js'
 import type { RpcHandlerMap } from './types.js'
@@ -52,7 +52,8 @@ export const taskRpcHandlers: RpcHandlerMap = {
       updated = taskStore.get(taskId)
       events.emit('task:update', { taskId, data: { ...updated, event: 'updated' } })
     } else {
-      updated = taskManager.updateTask(taskId, msg.status as string | undefined, msg.stage as string | undefined)
+      const reason = typeof msg.reason === 'string' ? msg.reason : undefined
+      updated = taskManager.updateTask(taskId, msg.status as string | undefined, msg.stage as string | undefined, undefined, reason)
     }
 
     sendResult(updated)
@@ -89,6 +90,27 @@ export const taskRpcHandlers: RpcHandlerMap = {
     } catch (err) {
       sendError(`指派失败: ${(err as Error).message}`)
     }
+  },
+
+  async 'tasks.reply'(msg, { sendResult, sendError }) {
+    const taskId = msg.taskId as string
+    const message = msg.message as string
+    if (!taskId) return sendError('taskId 不能为空')
+    if (!message || !message.trim()) return sendError('回复内容不能为空')
+    try {
+      const task = await taskManager.replyTask({ taskId, message })
+      sendResult(task)
+    } catch (err) {
+      sendError((err as Error).message)
+    }
+  },
+
+  'tasks.events.list'(msg, { sendResult, sendError }) {
+    const taskId = msg.taskId as string
+    if (!taskId) return sendError('taskId 不能为空')
+    const afterSequence = typeof msg.afterSequence === 'number' ? msg.afterSequence : undefined
+    const events = taskEventStore.list(taskId, afterSequence != null ? { afterSequence } : undefined)
+    sendResult(events)
   },
 }
 

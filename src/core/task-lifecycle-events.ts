@@ -21,7 +21,7 @@ export function emitTaskLifecycleEvent(task: TaskRow, changeType: string, previo
       sourceType: 'task',
       sourceId: task.id,
       sourceLabel: task.title,
-      priority: task.status === 'blocked' || task.status === 'needs_input' ? 'high' : 'medium',
+      priority: task.status === 'needs_input' ? 'high' : 'medium',
       payload: {
         taskId: task.id,
         taskTitle: task.title,

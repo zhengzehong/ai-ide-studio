@@ -16,6 +16,7 @@ export interface TaskRow {
   team_id: string | null
   assignee_member_id: string | null
   rule_id: string | null
+  agent_report_status: string | null
 }
 
 export interface TaskEventRow {
@@ -86,17 +87,20 @@ export const taskStore = {
       team_id: input.teamId ?? null,
       assignee_member_id: input.assigneeMemberId ?? null,
       rule_id: input.ruleId ?? null,
+      agent_report_status: null,
     }
     getDb()
       .prepare(
         `
       INSERT INTO tasks (
         id, title, description, source, status, stage, assigned_agent_id,
-        created_at, completed_at, project_id, team_id, assignee_member_id, rule_id
+        created_at, completed_at, project_id, team_id, assignee_member_id, rule_id,
+        agent_report_status
       )
       VALUES (
         @id, @title, @description, @source, @status, @stage, @assigned_agent_id,
-        @created_at, @completed_at, @project_id, @team_id, @assignee_member_id, @rule_id
+        @created_at, @completed_at, @project_id, @team_id, @assignee_member_id, @rule_id,
+        @agent_report_status
       )
     `,
       )
@@ -176,6 +180,17 @@ export const taskStore = {
     taskEventStore.append(taskId, {
       type: 'assigned_agent',
       payload: { from_agent_id: existing.assigned_agent_id, to_agent_id: agentId },
+    })
+  },
+
+  updateAgentReportStatus(taskId: string, status: string | null): void {
+    const existing = taskStore.get(taskId)
+    if (!existing) return
+    const previous = existing.agent_report_status
+    getDb().prepare('UPDATE tasks SET agent_report_status = ? WHERE id = ?').run(status, taskId)
+    taskEventStore.append(taskId, {
+      type: 'agent_status_changed',
+      payload: { from_agent_report_status: previous, to_agent_report_status: status },
     })
   },
 

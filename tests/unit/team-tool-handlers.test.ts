@@ -768,13 +768,13 @@ describe('team MCP tool handlers', () => {
       teamId: asRecord(team.team).id,
       taskId: task.id,
       status: 'in_progress',
-      stage: 'reviewing',
+      stage: '复审中',
     })
 
     expect(asRecord(reopened.task)).toMatchObject({
       id: task.id,
       status: 'in_progress',
-      stage: 'reviewing',
+      stage: '复审中',
       completed_at: null,
     })
     expect(taskStore.get(task.id)?.completed_at).toBeNull()

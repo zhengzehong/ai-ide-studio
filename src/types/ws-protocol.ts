@@ -10,7 +10,8 @@ export type SessionActivityReason =
   | 'prompt-cancelled'
   | 'runtime-exit'
   | 'startup-recovery'
-export type TaskStatus = 'backlog' | 'executing' | 'needs_input' | 'blocked' | 'reviewing' | 'completed' | 'cancelled'
+export type TaskStatus = 'backlog' | 'executing' | 'needs_input' | 'completed' | 'cancelled'
+export type AgentReportStatus = 'in_progress' | 'blocked' | 'done'
 
 export interface ClientMessage {
   type: string
@@ -282,6 +283,7 @@ export interface TasksUpdateMsg extends ClientMessage {
   taskId: string
   status?: TaskStatus
   stage?: string
+  reason?: string
 }
 export interface TasksAssignMsg extends ClientMessage {
   type: 'tasks.assign'
@@ -289,6 +291,16 @@ export interface TasksAssignMsg extends ClientMessage {
   agentId: string
   sessionMode?: 'existing' | 'new_each' | 'new_fixed'
   sessionId?: string
+}
+export interface TasksReplyMsg extends ClientMessage {
+  type: 'tasks.reply'
+  taskId: string
+  message: string
+}
+export interface TasksEventsListMsg extends ClientMessage {
+  type: 'tasks.events.list'
+  taskId: string
+  afterSequence?: number
 }
 export interface TeamsCurrentMsg extends ClientMessage {
   type: 'teams.current'

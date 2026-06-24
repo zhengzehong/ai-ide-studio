@@ -2338,7 +2338,7 @@ const TASK_TABS: { key: string; label: string; icon: typeof ListTodo; filter: (t
     icon: Loader2,
     filter: (t) => ['executing', 'needs_input'].includes(t.status),
   },
-  { key: 'needs_attention', label: '需处理', icon: Zap, filter: (t) => ['blocked', 'reviewing'].includes(t.status) },
+  { key: 'needs_attention', label: '需处理', icon: Zap, filter: (t) => t.status === 'needs_input' },
   { key: 'done', label: '已完成', icon: CheckCircle2, filter: (t) => ['completed', 'cancelled'].includes(t.status) },
 ]
 
@@ -2346,9 +2346,7 @@ function taskStageLabel(s: string): string {
   return (
     {
       executing: '执行中',
-      planning: '规划中',
-      reviewing: '审查中',
-      blocked: '已阻塞',
+      needs_input: '待确认',
       completed: '已完成',
       backlog: '待办',
       cancelled: '已取消',
@@ -2359,9 +2357,7 @@ function taskStageColor(s: string): string {
   return (
     {
       executing: 'var(--blue)',
-      planning: 'var(--purple)',
-      reviewing: '#f59e0b',
-      blocked: 'var(--red)',
+      needs_input: '#f59e0b',
       completed: 'var(--green)',
       backlog: 'var(--text-3)',
     }[s] ?? 'var(--text-3)'

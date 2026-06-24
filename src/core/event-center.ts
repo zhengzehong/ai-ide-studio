@@ -33,7 +33,7 @@ const TASK_LIFECYCLE_SCHEMA = {
     taskStatus: {
       type: 'string',
       title: '任务状态',
-      enum: ['backlog', 'executing', 'needs_input', 'blocked', 'reviewing', 'completed', 'cancelled'],
+      enum: ['backlog', 'executing', 'needs_input', 'completed', 'cancelled'],
       'x-list': true,
       'x-filter': true,
     },
