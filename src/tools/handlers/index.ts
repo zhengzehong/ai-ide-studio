@@ -16,9 +16,7 @@ import {
   studioTaskListHandler,
   studioTaskGetHandler,
   studioTaskUpdateProgressHandler,
-  studioTaskRequestInputHandler,
-  studioTaskMarkBlockedHandler,
-  studioTaskMarkDoneHandler,
+  studioTaskReportHandler,
 } from './studio-task-tools.js'
 import {
   createAgentHandler,
@@ -107,9 +105,7 @@ register(studioTaskAssignHandler)
 register(studioTaskListHandler)
 register(studioTaskGetHandler)
 register(studioTaskUpdateProgressHandler)
-register(studioTaskRequestInputHandler)
-register(studioTaskMarkBlockedHandler)
-register(studioTaskMarkDoneHandler)
+register(studioTaskReportHandler)
 register(listProjectsHandler)
 register(getProjectHandler)
 register(createProjectHandler)

@@ -252,7 +252,7 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 function TaskStatusBadge({ status }: { status: string }) {
-  const m: Record<string, { bg: string; color: string; label: string }> = { executing: { bg: 'var(--blue-light)', color: 'var(--blue)', label: '进行中' }, planning: { bg: 'var(--purple-light)', color: 'var(--purple)', label: '规划中' }, reviewing: { bg: 'var(--yellow-light)', color: 'var(--yellow)', label: '审查中' }, blocked: { bg: 'var(--red-light)', color: 'var(--red)', label: '已阻塞' }, completed: { bg: 'var(--green-light)', color: 'var(--green)', label: '已完成' }, backlog: { bg: 'var(--bg-2)', color: 'var(--text-3)', label: '待办' } };
+  const m: Record<string, { bg: string; color: string; label: string }> = { executing: { bg: 'var(--blue-light)', color: 'var(--blue)', label: '进行中' }, needs_input: { bg: 'var(--yellow-light)', color: 'var(--yellow)', label: '需确认' }, completed: { bg: 'var(--green-light)', color: 'var(--green)', label: '已完成' }, cancelled: { bg: 'var(--bg-2)', color: 'var(--text-3)', label: '已取消' }, backlog: { bg: 'var(--bg-2)', color: 'var(--text-3)', label: '待办' } };
   const s = m[status] ?? m.backlog;
   return <span style={{ fontSize: 13, padding: '2px 8px', borderRadius: 10, background: s.bg, color: s.color, fontWeight: 500, flexShrink: 0 }}>{s.label}</span>;
 }

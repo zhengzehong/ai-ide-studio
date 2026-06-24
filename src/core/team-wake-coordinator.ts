@@ -7,7 +7,7 @@ import { buildLeaderWakePrompt } from './team-prompts.js'
 
 const log = createChildLogger('team-wake')
 const WAKE_MAILBOX_TYPES = new Set(['report', 'result', 'question', 'blocked'])
-const WAKE_TASK_STATUSES = new Set(['completed', 'blocked'])
+const WAKE_TASK_STATUSES = new Set(['completed', 'needs_input'])
 const WAKE_DELAY_MS = 2_000
 const TASK_MAILBOX_WAKE_DELAY_MS = 15_000
 const activeLeaderSessions = new Set<string>()

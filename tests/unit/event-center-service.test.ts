@@ -397,14 +397,14 @@ describe('event center service', () => {
       name: 'Review states',
       categoryId: 'task.lifecycle',
       consumerAgentId: reviewer.id,
-      filter: { payload: { taskStatus: { in: ['reviewing', 'completed'] } } },
+      filter: { payload: { taskStatus: { in: ['completed', 'cancelled'] } } },
     }))
     eventCenterService.createSubscription(subscriptionInput({
       projectId: project.id,
       name: 'Blocked task has stage',
       categoryId: 'task.lifecycle',
       consumerAgentId: blockedWatcher.id,
-      filter: { payload: { taskStatus: 'blocked', stage: { exists: true } } },
+      filter: { payload: { taskStatus: 'needs_input', stage: { exists: true } } },
     }))
 
     const backlog = eventCenterService.createEvent({
@@ -417,13 +417,13 @@ describe('event center service', () => {
       projectId: project.id,
       categoryId: 'task.lifecycle',
       title: 'Reviewing task',
-      payload: { taskId: 'task-b', taskStatus: 'reviewing', assignedAgentId: dispatcher.id },
+      payload: { taskId: 'task-b', taskStatus: 'completed', assignedAgentId: dispatcher.id },
     })
     const blocked = eventCenterService.createEvent({
       projectId: project.id,
       categoryId: 'task.lifecycle',
       title: 'Blocked task',
-      payload: { taskId: 'task-c', taskStatus: 'blocked', stage: 'Missing token' },
+      payload: { taskId: 'task-c', taskStatus: 'needs_input', stage: 'Missing token' },
     })
 
     expect(eventConsumptionStore.listByEvent(backlog.id).map((item) => item.consumer_agent_id)).toEqual([dispatcher.id])

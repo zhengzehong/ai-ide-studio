@@ -15,8 +15,6 @@ export function formatTimeAgo(time: string): string {
 export function taskStatusMeta(status: string): { label: string; color: string; active: boolean; filled: boolean } {
   if (status === 'executing') return { label: '执行中', color: '#2563eb', active: true, filled: false }
   if (status === 'needs_input') return { label: '待确认', color: '#d97706', active: true, filled: false }
-  if (status === 'reviewing') return { label: '审查中', color: '#2563eb', active: true, filled: false }
-  if (status === 'blocked') return { label: '已阻塞', color: '#dc2626', active: true, filled: false }
   if (status === 'completed') return { label: '已完成', color: '#16a34a', active: false, filled: true }
   if (status === 'cancelled') return { label: '已取消', color: '#9ca3af', active: false, filled: false }
   return { label: '待办', color: '#9ca3af', active: false, filled: false }

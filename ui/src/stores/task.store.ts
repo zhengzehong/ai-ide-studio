@@ -15,7 +15,17 @@ export interface TaskData {
   project_id?: string | null
   team_id?: string | null
   assignee_member_id?: string | null
+  agent_report_status?: string | null
   sessionId?: string
+}
+
+export interface TaskEventData {
+  id: string
+  task_id: string
+  type: string
+  payload_json: string
+  sequence: number
+  created_at: string
 }
 
 export type SessionMode = 'existing' | 'new_each' | 'new_fixed'
@@ -31,10 +41,12 @@ interface TaskStore {
   loading: boolean
   fetchTasks: (projectId?: string) => Promise<void>
   createTask: (title: string, description?: string, assignAgentId?: string, projectId?: string, sessionId?: string, sessionMode?: SessionMode, images?: ImageAttachmentInfo[]) => Promise<TaskData>
-  updateTask: (taskId: string, status: string, stage?: string) => Promise<TaskData>
+  updateTask: (taskId: string, status: string, stage?: string, reason?: string) => Promise<TaskData>
   updateTaskInfo: (taskId: string, fields: { title?: string; description?: string }) => Promise<TaskData>
   deleteTask: (taskId: string) => Promise<void>
   assignTask: (taskId: string, agentId: string, sessionId?: string, sessionMode?: SessionMode) => Promise<TaskData>
+  replyTask: (taskId: string, message: string) => Promise<TaskData>
+  fetchTaskEvents: (taskId: string, afterSequence?: number) => Promise<TaskEventData[]>
   setupListeners: () => () => void
 }
 
@@ -67,9 +79,10 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     return task
   },
 
-  updateTask: async (taskId, status, stage) => {
+  updateTask: async (taskId, status, stage, reason) => {
     const msg: Record<string, unknown> = { type: 'tasks.update', taskId, status }
     if (stage !== undefined) msg.stage = stage
+    if (reason !== undefined) msg.reason = reason
     const task = (await wsClient.request(msg)) as TaskData
     set({ tasks: get().tasks.map((t) => (t.id === taskId ? { ...t, ...task } : t)) })
     return task
@@ -96,6 +109,19 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     const task = (await wsClient.request(msg)) as TaskData
     set({ tasks: get().tasks.map((t) => (t.id === taskId ? { ...t, ...task } : t)) })
     return task
+  },
+
+  replyTask: async (taskId, message) => {
+    const task = (await wsClient.request({ type: 'tasks.reply', taskId, message })) as TaskData
+    set({ tasks: get().tasks.map((t) => (t.id === taskId ? { ...t, ...task } : t)) })
+    return task
+  },
+
+  fetchTaskEvents: async (taskId, afterSequence) => {
+    const msg: Record<string, unknown> = { type: 'tasks.events.list', taskId }
+    if (afterSequence != null) msg.afterSequence = afterSequence
+    const events = (await wsClient.request(msg)) as TaskEventData[]
+    return events
   },
 
   setupListeners: () => {

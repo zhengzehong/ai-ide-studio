@@ -17,12 +17,10 @@ const statusLabels: Record<string, string> = {
   active: '活跃',
   removed: '已移除',
   backlog: '待办',
-  planning: '规划中',
   executing: '执行中',
-  reviewing: '审查中',
+  needs_input: '待确认',
   completed: '已完成',
   cancelled: '已取消',
-  blocked: '已阻塞',
 }
 
 const mailboxLabels: Record<string, string> = {
@@ -142,10 +140,10 @@ function SectionTitle({ icon, title, count }: { icon: React.ReactNode; title: st
 
 function TaskRow({ task, assignee }: { task: TaskData; assignee?: TeamMemberData }) {
   const terminal = task.status === 'completed' || task.status === 'cancelled'
-  const blocked = task.status === 'blocked'
+  const needsInput = task.status === 'needs_input'
   const icon = terminal ? (
     <CheckCircle2 size={12} />
-  ) : blocked ? (
+  ) : needsInput ? (
     <Zap size={12} />
   ) : (
     <Loader2 size={12} style={task.status === 'executing' ? { animation: 'spin 1s linear infinite' } : undefined} />
@@ -236,15 +234,15 @@ function EmptyText({ text }: { text: string }) {
 
 function statusBg(status: string): string {
   if (status === 'completed') return '#ecfdf5'
-  if (status === 'blocked') return '#fef2f2'
-  if (status === 'executing' || status === 'planning' || status === 'reviewing') return 'var(--blue-light)'
+  if (status === 'needs_input') return '#fffbeb'
+  if (status === 'executing') return 'var(--blue-light)'
   return 'var(--bg-2)'
 }
 
 function statusColor(status: string): string {
   if (status === 'completed') return 'var(--green)'
-  if (status === 'blocked') return 'var(--red)'
-  if (status === 'executing' || status === 'planning' || status === 'reviewing') return 'var(--blue)'
+  if (status === 'needs_input') return '#d97706'
+  if (status === 'executing') return 'var(--blue)'
   return 'var(--text-3)'
 }
 
