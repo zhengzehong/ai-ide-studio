@@ -242,6 +242,13 @@ async function refreshLatestMessages(
     loading: false,
     isRunning: !!running,
     runningStartedAtMs,
+    // Clear the streaming bubble when the server reports no running turn. A
+    // reconnect (or any refreshCurrentSession call) can arrive after the turn
+    // already finished server-side; without this, the optimistic pending
+    // streaming bubble set in sendPrompt stays on screen with isRunning=false,
+    // leaving the chat visually stuck until the user leaves and re-enters.
+    // Keep the existing streaming bubble when a turn is genuinely still running.
+    streamingMessage: running ? state.streamingMessage : null,
     hasMoreMessagesBySession: {
       ...state.hasMoreMessagesBySession,
       [sessionId]: data.length >= MOBILE_CHAT_MESSAGE_PAGE_SIZE,

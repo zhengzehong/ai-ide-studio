@@ -360,3 +360,30 @@ test('refreshes latest messages again after session done persistence settles', a
 
   cleanup()
 })
+
+test('clears the phantom streaming bubble when a reconnect refresh finds no running turn server-side', async () => {
+  resetStore()
+  vi.useRealTimers()
+  const final = agentMessage({ id: 'msg-final', content: '最终回复', timestamp: '2026-06-10T00:00:01.000Z' })
+  wsMock.request.mockImplementation(async (msg: Record<string, unknown>) => {
+    if (msg.type === 'sessions.messages') return [final]
+    if (msg.type === 'sessions.events') return []
+    return []
+  })
+
+  // Simulate the optimistic state sendPrompt leaves behind, then a reconnect
+  // triggering refreshCurrentSession after the turn already finished.
+  useChatStore.setState({
+    sessionId: 'sess-1',
+    messages: [],
+    streamingMessage: createEmptyTurn('pending-sess-1'),
+    isRunning: true,
+    runningStartedAtMs: Date.now(),
+  })
+
+  await useChatStore.getState().refreshCurrentSession('sess-1')
+
+  expect(useChatStore.getState().streamingMessage).toBeNull()
+  expect(useChatStore.getState().isRunning).toBe(false)
+  expect(useChatStore.getState().messages.map((message) => message.id)).toEqual(['msg-final'])
+})
