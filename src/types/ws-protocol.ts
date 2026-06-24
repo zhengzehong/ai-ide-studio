@@ -366,6 +366,11 @@ export interface ImageAttachment {
   data: string
   mimeType: string
   name?: string
+  relativePath?: string
+  path?: string
+  url?: string
+  size?: number
+  order?: number
 }
 
 export interface ToolCallData {

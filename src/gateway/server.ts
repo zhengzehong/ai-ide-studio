@@ -12,6 +12,7 @@ import { taskStore } from '../store/tasks.js'
 import { ruleStore } from '../store/rules.js'
 import { projectStore } from '../store/projects.js'
 import { getAssetStream } from '../core/filesystem.js'
+import { getImageAsset } from '../core/image-attachments.js'
 import { mountHttpMcpServer } from '../tools/mcp/http-mcp-server.js'
 import { mountStaticAssets, staticDirForLog } from './static-assets.js'
 import { createChildLogger } from '../core/logger.js'
@@ -37,6 +38,7 @@ export async function startGateway(config: AppConfig) {
 
   app.get('/api/rules', (c) => c.json(ruleStore.list()))
   app.get('/api/fs/asset', (c) => handleFsAsset(c))
+  app.get('/api/images/*', (c) => handleImageAsset(c))
   mountHttpMcpServer(app)
   mountStaticAssets(app, config)
   log.debug({ staticDir: staticDirForLog(config) }, '静态资源托载检查完成')
@@ -53,6 +55,37 @@ export async function startGateway(config: AppConfig) {
   })
 
   return { app, server, wss }
+}
+
+function handleImageAsset(c: Context): Response {
+  const relativePath = c.req.path.replace(/^\/api\/images\/?/, '')
+  const decodedPath = decodePath(relativePath)
+  if (decodedPath == null) {
+    return c.json({ error: '图片路径无效' }, 400)
+  }
+  const asset = getImageAsset(decodedPath)
+  if (!asset) {
+    return c.json({ error: '图片不存在或无法读取' }, 404)
+  }
+
+  c.header('Content-Type', asset.mimeType)
+  c.header('Content-Length', String(asset.size))
+  c.header('Cache-Control', 'private, max-age=86400')
+
+  const nodeStream = asset.stream as Readable
+  const webStream = nodeStreamToWebStream(nodeStream)
+  return new Response(webStream, {
+    status: 200,
+    headers: c.res.headers,
+  })
+}
+
+function decodePath(path: string): string | null {
+  try {
+    return decodeURIComponent(path)
+  } catch {
+    return null
+  }
 }
 
 function handleFsAsset(c: Context): Response {
@@ -80,7 +113,16 @@ function handleFsAsset(c: Context): Response {
   c.header('Cache-Control', 'no-store')
 
   const nodeStream = asset.stream as Readable
-  const webStream = new ReadableStream({
+  const webStream = nodeStreamToWebStream(nodeStream)
+
+  return new Response(webStream, {
+    status: 200,
+    headers: c.res.headers,
+  })
+}
+
+function nodeStreamToWebStream(nodeStream: Readable): ReadableStream<Uint8Array> {
+  return new ReadableStream({
     start(controller) {
       const onData = (chunk: Buffer) => {
         try {
@@ -109,11 +151,6 @@ function handleFsAsset(c: Context): Response {
     cancel() {
       try { nodeStream.destroy() } catch { /* ignore */ }
     },
-  })
-
-  return new Response(webStream, {
-    status: 200,
-    headers: c.res.headers,
   })
 }
 

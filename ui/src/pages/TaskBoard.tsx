@@ -4,6 +4,8 @@ import { useAgentStore, type AgentData } from '../stores/agent.store';
 import { useTaskStore, type SessionMode, type TaskData } from '../stores/task.store';
 import { useProjectStore } from '../stores/project.store';
 import { useSessionStore } from '../stores/session.store';
+import { TaskImageInput } from '../components/task/TaskImageInput';
+import type { ImageAttachmentInfo } from '../stores/session-events';
 
 const TYPE_COLORS: Record<string, string> = { dev: '#2563eb', test: '#059669', ops: '#ea580c', security: '#dc2626', architect: '#7c3aed', pm: '#7c3aed' };
 const SOURCE_META: Record<string, { bg: string; color: string; label: string }> = {
@@ -109,8 +111,8 @@ export default function TaskBoard() {
         <NewTaskModal
           agents={agents}
           projectId={currentProjectId}
-          onCreate={async (title, desc, agentId, sessionId, sessionMode) => {
-            await createTask(title, desc, agentId, currentProjectId ?? undefined, sessionId, sessionMode);
+          onCreate={async (title, desc, agentId, sessionId, sessionMode, images) => {
+            await createTask(title, desc, agentId, currentProjectId ?? undefined, sessionId, sessionMode, images);
             setShowNew(false);
           }}
           onClose={() => setShowNew(false)}
@@ -327,7 +329,7 @@ function DetailRow({ label, value, color }: { label: string; value: string; colo
 function NewTaskModal({ agents, projectId, onCreate, onClose }: {
   agents: AgentData[];
   projectId: string | null;
-  onCreate: (title: string, desc?: string, agentId?: string, sessionId?: string, sessionMode?: SessionMode) => Promise<void>;
+  onCreate: (title: string, desc?: string, agentId?: string, sessionId?: string, sessionMode?: SessionMode, images?: ImageAttachmentInfo[]) => Promise<void>;
   onClose: () => void;
 }) {
   const [title, setTitle] = useState('');
@@ -335,6 +337,7 @@ function NewTaskModal({ agents, projectId, onCreate, onClose }: {
   const [agentId, setAgentId] = useState('');
   const [sessionMode, setSessionMode] = useState<SessionMode>('new_fixed');
   const [sessionId, setSessionId] = useState('');
+  const [images, setImages] = useState<ImageAttachmentInfo[]>([]);
   const sessions = useSessionStore(s => s.sessions);
 
   const agentSessions = useMemo(() => {
@@ -353,6 +356,7 @@ function NewTaskModal({ agents, projectId, onCreate, onClose }: {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <input value={title} onChange={e => setTitle(e.target.value)} placeholder="任务标题（必填）" style={st} />
           <textarea value={desc} onChange={e => setDesc(e.target.value)} placeholder="描述（可选）" rows={3} style={{ ...st, resize: 'vertical' }} />
+          <TaskImageInput images={images} onChange={setImages} />
           <select value={agentId} onChange={e => { setAgentId(e.target.value); setSessionMode('new_fixed'); setSessionId(''); }} style={st}>
             <option value="">不指派 Agent</option>
             {agents.filter(a => !projectId || a.project_id === projectId).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
@@ -369,7 +373,7 @@ function NewTaskModal({ agents, projectId, onCreate, onClose }: {
           )}
           <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
             <button
-              onClick={() => { if (canCreate) onCreate(title, desc || undefined, agentId || undefined, sessionMode === 'existing' ? sessionId || undefined : undefined, agentId ? sessionMode : undefined); }}
+              onClick={() => { if (canCreate) onCreate(title, desc || undefined, agentId || undefined, sessionMode === 'existing' ? sessionId || undefined : undefined, agentId ? sessionMode : undefined, images); }}
               disabled={!canCreate}
               style={{ padding: '9px 18px', borderRadius: 'var(--radius)', border: 'none', background: canCreate ? 'var(--blue)' : 'var(--bg-2)', color: canCreate ? 'white' : 'var(--text-3)', fontSize: 15, fontWeight: 500, cursor: canCreate ? 'pointer' : 'not-allowed' }}
             >创建</button>
