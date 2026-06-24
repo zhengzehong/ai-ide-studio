@@ -35,8 +35,8 @@ export function EventTableTab({ events, categories, projects, selectedEventId, o
   const selectedEvent = visibleEvents.find((event) => event.id === selectedEventId)
 
   return (
-    <section style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', background: 'var(--bg-0)', overflow: 'hidden', minHeight: 360, display: 'flex', flexDirection: 'column' }}>
-      <header style={{ minHeight: 52, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '10px 12px', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
+    <section style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', background: 'var(--bg-0)', overflow: 'hidden', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+      <header style={{ minHeight: 48, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '8px 12px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
         <Segment items={statusTabs} value={status} onChange={setStatus} />
         <select
           value={projectId}
@@ -47,14 +47,16 @@ export function EventTableTab({ events, categories, projects, selectedEventId, o
           {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
         </select>
       </header>
-      <EventTable
-        events={visibleEvents}
-        selectedEvent={selectedEvent}
-        categories={categories}
-        projectsById={projectsById}
-        showProjectColumn
-        onSelect={onSelectEvent}
-      />
+      <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+        <EventTable
+          events={visibleEvents}
+          selectedEvent={selectedEvent}
+          categories={categories}
+          projectsById={projectsById}
+          showProjectColumn
+          onSelect={onSelectEvent}
+        />
+      </div>
     </section>
   )
 }
@@ -65,7 +67,7 @@ function Segment<T extends string>({ items, value, onChange }: {
   onChange: (value: T) => void
 }) {
   return (
-    <div style={{ display: 'flex', gap: 4, background: 'var(--bg-2)', borderRadius: 'var(--radius)', padding: 3, flexWrap: 'wrap' }}>
+    <div style={{ display: 'flex', gap: 4, background: 'var(--bg-2)', borderRadius: 'var(--radius)', padding: 3, flexShrink: 0, overflow: 'hidden' }}>
       {items.map((item) => (
         <button
           key={item.key}
@@ -80,10 +82,11 @@ function Segment<T extends string>({ items, value, onChange }: {
             background: value === item.key ? 'var(--bg-0)' : 'transparent',
             color: value === item.key ? 'var(--text-1)' : 'var(--text-2)',
             padding: '6px 9px',
-            fontSize: 14,
+            fontSize: 13,
             fontWeight: 600,
             cursor: 'pointer',
             boxShadow: value === item.key ? 'var(--shadow-sm)' : 'none',
+            whiteSpace: 'nowrap',
           }}
         >
           {item.icon}{item.label}
@@ -94,12 +97,14 @@ function Segment<T extends string>({ items, value, onChange }: {
 }
 
 const selectStyle: React.CSSProperties = {
-  height: 34,
-  minWidth: 150,
+  height: 32,
+  minWidth: 140,
   border: '1px solid var(--border)',
   borderRadius: 'var(--radius)',
-  background: 'var(--bg-0)',
+  background: 'var(--bg-2)',
   color: 'var(--text-1)',
   padding: '0 10px',
   outline: 'none',
+  fontSize: 13,
+  flexShrink: 0,
 }

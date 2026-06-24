@@ -36,7 +36,7 @@ export function ContextPanel({ context, agents, sessions, tasks, events, project
         : '上下文'
 
   return (
-    <aside style={{ border: '1px solid var(--border)', background: 'var(--bg-0)', borderRadius: 'var(--radius-lg)', minHeight: 420, maxHeight: 'calc(100vh - 230px)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+    <aside style={{ border: '1px solid var(--border)', background: 'var(--bg-0)', borderRadius: 'var(--radius-lg)', minHeight: 0, height: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
       <header style={{ height: 46, display: 'flex', alignItems: 'center', gap: 8, padding: '0 12px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
         <Activity size={15} color="var(--text-3)" />
         <strong style={{ flex: 1, fontSize: 15 }}>{title}</strong>

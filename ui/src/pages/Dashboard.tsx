@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { AlertCircle, Bot, CheckCircle2, Loader2, Wifi, WifiOff } from 'lucide-react'
+import { Wifi, WifiOff } from 'lucide-react'
 import { DashboardScopeSwitcher } from '../components/dashboard/DashboardScopeSwitcher'
 import { useAgentStore } from '../stores/agent.store'
 import { useConnectionStore } from '../stores/connection.store'
@@ -77,13 +77,13 @@ export default function Dashboard() {
   }, [fetchAgents, fetchCategories, fetchEvents, fetchSessions, fetchTasks])
 
   return (
-    <div style={{ height: '100%', overflow: 'auto', padding: '24px 28px 96px', position: 'relative' }}>
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 20 }}>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: '20px 28px 16px' }}>
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, marginBottom: 16, flexShrink: 0 }}>
         <div>
-          <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-1)', marginBottom: 4 }}>全局看板</h1>
+          <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-1)', marginBottom: 4 }}>全局看板</h1>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             {connected ? <Wifi size={13} color="var(--green)" /> : <WifiOff size={13} color="var(--red)" />}
-            <p style={{ fontSize: 15, color: 'var(--text-2)', margin: 0 }}>
+            <p style={{ fontSize: 14, color: 'var(--text-2)', margin: 0 }}>
               {connected ? `${dashboard.stats.runningAgents} 个智能体运行中，${dashboard.stats.activeSessions} 个活跃会话` : '未连接到后端 Gateway'}
             </p>
           </div>
@@ -91,14 +91,7 @@ export default function Dashboard() {
         <DashboardScopeSwitcher scope={scope} projects={projects} onChange={setScope} />
       </header>
 
-      <section style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 14, marginBottom: 18 }}>
-        <StatCard icon={<Bot size={18} />} label="运行中 Agent" value={dashboard.stats.runningAgents} color="var(--blue)" bg="var(--blue-light)" />
-        <StatCard icon={<Loader2 size={18} />} label="进行中任务" value={dashboard.stats.inProgressTasks} color="var(--purple)" bg="var(--purple-light)" />
-        <StatCard icon={<CheckCircle2 size={18} />} label="已完成任务" value={dashboard.stats.completedTasks} color="var(--green)" bg="var(--green-light)" />
-        <StatCard icon={<AlertCircle size={18} />} label="活跃会话" value={dashboard.stats.activeSessions} color="var(--orange)" bg="var(--orange-light)" />
-      </section>
-
-      <nav style={{ display: 'flex', gap: 6, borderBottom: '1px solid var(--border)', marginBottom: 18 }}>
+      <nav style={{ display: 'flex', gap: 6, borderBottom: '1px solid var(--border)', marginBottom: 14, flexShrink: 0 }}>
         {tabs.map((tab) => (
           <button
             key={tab.key}
@@ -109,8 +102,8 @@ export default function Dashboard() {
               borderBottom: activeTab === tab.key ? '2px solid var(--blue)' : '2px solid transparent',
               background: 'transparent',
               color: activeTab === tab.key ? 'var(--blue)' : 'var(--text-2)',
-              padding: '10px 12px',
-              fontSize: 15,
+              padding: '8px 12px',
+              fontSize: 14,
               fontWeight: 600,
               cursor: 'pointer',
             }}
@@ -120,8 +113,8 @@ export default function Dashboard() {
         ))}
       </nav>
 
-      <main style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 380px', gap: 18, minHeight: 420 }}>
-        <section style={{ minWidth: 0 }}>
+      <main style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 360px', gap: 16, flex: 1, minHeight: 0 }}>
+        <section style={{ minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
           {activeTab === 'agents' && (
             loading && dashboard.agents.length === 0 && dashboard.sessions.length === 0
               ? <SkeletonRows label="正在加载 Agent 动态" />
@@ -191,21 +184,12 @@ export default function Dashboard() {
 
 function SkeletonRows({ label }: { label: string }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1 }}>
       {[0, 1, 2].map((item) => (
         <div key={item} style={{ height: 62, borderRadius: 'var(--radius)', border: '1px solid var(--border)', background: 'var(--bg-0)', display: 'flex', alignItems: 'center', padding: '0 16px', color: 'var(--text-3)', fontSize: 14 }}>
           {item === 0 ? label : ''}
         </div>
       ))}
-    </div>
-  )
-}
-
-function StatCard({ icon, label, value, color, bg }: { icon: React.ReactNode; label: string; value: number; color: string; bg: string }) {
-  return (
-    <div style={{ padding: '16px 18px', background: 'var(--bg-0)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12 }}>
-      <div style={{ width: 38, height: 38, borderRadius: 'var(--radius)', background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center', color, flexShrink: 0 }}>{icon}</div>
-      <div><div style={{ fontSize: 22, fontWeight: 700, lineHeight: 1 }}>{value}</div><div style={{ fontSize: 14, color: 'var(--text-2)', marginTop: 4 }}>{label}</div></div>
     </div>
   )
 }

@@ -43,17 +43,17 @@ export function AgentDynamicsTab({ agents, projects, sessions, tasks, selectedSe
   )
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, flex: 1, minHeight: 0, overflow: 'auto', paddingRight: 2 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexShrink: 0 }}>
         <Segment items={filterTabs} value={filter} onChange={setFilter} />
         <Segment items={viewTabs} value={view} onChange={setView} />
       </div>
       {model.groups.length === 0 && model.historyRows.length === 0 && <EmptyState />}
       {model.groups.map((group) => (
-        <section key={group.id} style={{ border: '1px solid var(--border)', background: 'var(--bg-0)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
-          <header style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <strong style={{ fontSize: 15 }}>{group.title}</strong>
-            <span style={{ color: 'var(--text-3)', fontSize: 13 }}>{group.rows.length}</span>
+        <section key={group.id} style={{ border: '1px solid var(--border)', background: 'var(--bg-0)', borderRadius: 'var(--radius-lg)', overflow: 'hidden', flexShrink: 0 }}>
+          <header style={{ padding: '9px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <strong style={{ fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{group.title}</strong>
+            <span style={{ color: 'var(--text-3)', fontSize: 13, flexShrink: 0 }}>{group.rows.length}</span>
           </header>
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             {group.rows.map((row) => (
@@ -63,8 +63,8 @@ export function AgentDynamicsTab({ agents, projects, sessions, tasks, selectedSe
         </section>
       ))}
       {model.historyRows.length > 0 && (
-        <section style={{ border: '1px solid var(--border)', background: 'var(--bg-0)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
-          <button type="button" onClick={() => setHistoryOpen((open) => !open)} style={{ width: '100%', padding: '10px 14px', border: 'none', borderBottom: historyOpen ? '1px solid var(--border)' : 'none', background: 'transparent', color: 'var(--text-2)', fontSize: 14, fontWeight: 600, display: 'flex', justifyContent: 'space-between', cursor: 'pointer' }}>
+        <section style={{ border: '1px solid var(--border)', background: 'var(--bg-0)', borderRadius: 'var(--radius-lg)', overflow: 'hidden', flexShrink: 0 }}>
+          <button type="button" onClick={() => setHistoryOpen((open) => !open)} style={{ width: '100%', padding: '9px 14px', border: 'none', borderBottom: historyOpen ? '1px solid var(--border)' : 'none', background: 'transparent', color: 'var(--text-2)', fontSize: 14, fontWeight: 600, display: 'flex', justifyContent: 'space-between', cursor: 'pointer' }}>
             <span>历史会话 ({model.historyRows.length})</span>
             <span>{historyOpen ? '收起' : '展开'}</span>
           </button>
@@ -83,7 +83,7 @@ function Segment<T extends string>({ items, value, onChange }: {
   onChange: (value: T) => void
 }) {
   return (
-    <div style={{ display: 'flex', gap: 4, background: 'var(--bg-2)', borderRadius: 'var(--radius)', padding: 3 }}>
+    <div style={{ display: 'flex', gap: 4, background: 'var(--bg-2)', borderRadius: 'var(--radius)', padding: 3, flexShrink: 0, overflow: 'hidden' }}>
       {items.map((item) => (
         <button
           key={item.key}
@@ -97,10 +97,11 @@ function Segment<T extends string>({ items, value, onChange }: {
             background: value === item.key ? 'var(--bg-0)' : 'transparent',
             color: value === item.key ? 'var(--text-1)' : 'var(--text-2)',
             padding: '6px 9px',
-            fontSize: 14,
+            fontSize: 13,
             fontWeight: 600,
             cursor: 'pointer',
             boxShadow: value === item.key ? 'var(--shadow-sm)' : 'none',
+            whiteSpace: 'nowrap',
           }}
         >
           {item.icon}{item.label}
@@ -122,7 +123,7 @@ function SessionRow({ row, active, onSelect }: { row: AgentDynamicsRow; active: 
         gap: 12,
         alignItems: 'center',
         width: '100%',
-        padding: '12px 14px',
+        padding: '10px 14px',
         border: 'none',
         borderBottom: '1px solid var(--border)',
         background: row.isAbnormal ? '#fef2f2' : active ? 'var(--blue-light)' : 'transparent',
@@ -134,18 +135,18 @@ function SessionRow({ row, active, onSelect }: { row: AgentDynamicsRow; active: 
     >
       <div style={{ minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-          <strong style={{ fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.title}</strong>
-          {row.isAbnormal && <AlertTriangle size={14} color="var(--red)" />}
+          <strong style={{ fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{row.title}</strong>
+          {row.isAbnormal && <AlertTriangle size={14} color="var(--red)" style={{ flexShrink: 0 }} />}
         </div>
-        <div style={{ display: 'flex', gap: 8, color: 'var(--text-2)', fontSize: 13, flexWrap: 'wrap' }}>
-          <span>{row.agent?.name ?? row.session.agent_id}</span>
-          <span>{row.project?.name ?? '未归属项目'}</span>
-          <span>{row.subtitle}</span>
+        <div style={{ display: 'flex', gap: 8, color: 'var(--text-2)', fontSize: 12, flexWrap: 'nowrap', overflow: 'hidden' }}>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 1, minWidth: 0 }}>{row.agent?.name ?? row.session.agent_id}</span>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 1, minWidth: 0 }}>{row.project?.name ?? '未归属项目'}</span>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 0 }}>{row.subtitle}</span>
         </div>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
         <Badge kind={row.badge.kind} value={row.badge.value} abnormal={row.isAbnormal} />
-        <span style={{ color: 'var(--text-3)', fontSize: 12 }}>{formatTime(row.lastActivityAt)}</span>
+        <span style={{ color: 'var(--text-3)', fontSize: 12, whiteSpace: 'nowrap' }}>{formatTime(row.lastActivityAt)}</span>
       </div>
     </button>
   )

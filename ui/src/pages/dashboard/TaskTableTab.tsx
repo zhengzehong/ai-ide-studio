@@ -46,8 +46,8 @@ export function TaskTableTab({ agents, projects, tasks, selectedTaskId, onSelect
   )
 
   return (
-    <section style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', background: 'var(--bg-0)', overflow: 'hidden' }}>
-      <header style={{ minHeight: 52, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '10px 12px', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
+    <section style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', background: 'var(--bg-0)', overflow: 'hidden', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+      <header style={{ minHeight: 48, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '8px 12px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
         <Segment items={statusTabs} value={status} onChange={setStatus} />
         <select
           value={projectId}
@@ -58,8 +58,16 @@ export function TaskTableTab({ agents, projects, tasks, selectedTaskId, onSelect
           {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
         </select>
       </header>
-      <div style={{ overflow: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+      <div style={{ overflow: 'auto', flex: 1, minHeight: 0 }}>
+        <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse', fontSize: 13 }}>
+          <colgroup>
+            <col style={{ width: '32%' }} />
+            <col style={{ width: '11%' }} />
+            <col style={{ width: '16%' }} />
+            <col style={{ width: '14%' }} />
+            <col style={{ width: '12%' }} />
+            <col style={{ width: '15%' }} />
+          </colgroup>
           <thead>
             <tr style={{ background: 'var(--bg-1)', color: 'var(--text-3)' }}>
               <HeaderCell>任务</HeaderCell>
@@ -82,12 +90,12 @@ export function TaskTableTab({ agents, projects, tasks, selectedTaskId, onSelect
                   onClick={() => onSelectTask(task.id)}
                   style={{ background: active ? 'var(--blue-light)' : 'transparent', cursor: 'pointer' }}
                 >
-                  <BodyCell><strong style={{ display: 'block', maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.title}</strong></BodyCell>
+                  <BodyCell><strong style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.title}</strong></BodyCell>
                   <BodyCell><StatusBadge label={meta.label} color={meta.color} bg={meta.bg} /></BodyCell>
-                  <BodyCell>{projectName}</BodyCell>
-                  <BodyCell>{agentName}</BodyCell>
-                  <BodyCell>{task.stage || task.status}</BodyCell>
-                  <BodyCell>{formatTime(task.created_at)}</BodyCell>
+                  <BodyCell><span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>{projectName}</span></BodyCell>
+                  <BodyCell><span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>{agentName}</span></BodyCell>
+                  <BodyCell><span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>{task.stage || task.status}</span></BodyCell>
+                  <BodyCell><span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>{formatTime(task.created_at)}</span></BodyCell>
                 </tr>
               )
             })}
@@ -109,7 +117,7 @@ function Segment<T extends string>({ items, value, onChange }: {
   onChange: (value: T) => void
 }) {
   return (
-    <div style={{ display: 'flex', gap: 4, background: 'var(--bg-2)', borderRadius: 'var(--radius)', padding: 3, flexWrap: 'wrap' }}>
+    <div style={{ display: 'flex', gap: 4, background: 'var(--bg-2)', borderRadius: 'var(--radius)', padding: 3, flexShrink: 0, overflow: 'hidden' }}>
       {items.map((item) => (
         <button
           key={item.key}
@@ -124,10 +132,11 @@ function Segment<T extends string>({ items, value, onChange }: {
             background: value === item.key ? 'var(--bg-0)' : 'transparent',
             color: value === item.key ? 'var(--text-1)' : 'var(--text-2)',
             padding: '6px 9px',
-            fontSize: 14,
+            fontSize: 13,
             fontWeight: 600,
             cursor: 'pointer',
             boxShadow: value === item.key ? 'var(--shadow-sm)' : 'none',
+            whiteSpace: 'nowrap',
           }}
         >
           {item.icon}{item.label}
@@ -138,15 +147,15 @@ function Segment<T extends string>({ items, value, onChange }: {
 }
 
 function HeaderCell({ children }: { children: React.ReactNode }) {
-  return <th style={{ padding: '10px 12px', textAlign: 'left', borderBottom: '1px solid var(--border)' }}>{children}</th>
+  return <th style={{ padding: '10px 12px', textAlign: 'left', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{children}</th>
 }
 
 function BodyCell({ children }: { children: React.ReactNode }) {
-  return <td style={{ padding: '11px 12px', borderBottom: '1px solid var(--border-light)', color: 'var(--text-2)', verticalAlign: 'middle' }}>{children}</td>
+  return <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-light)', color: 'var(--text-2)', verticalAlign: 'middle', overflow: 'hidden' }}>{children}</td>
 }
 
 function StatusBadge({ label, color, bg }: { label: string; color: string; bg: string }) {
-  return <span style={{ display: 'inline-flex', alignItems: 'center', minHeight: 24, borderRadius: 999, background: bg, color, fontSize: 12, fontWeight: 700, padding: '2px 8px' }}>{label}</span>
+  return <span style={{ display: 'inline-flex', alignItems: 'center', minHeight: 22, borderRadius: 999, background: bg, color, fontSize: 12, fontWeight: 700, padding: '2px 8px', whiteSpace: 'nowrap' }}>{label}</span>
 }
 
 function formatTime(iso: string): string {
@@ -158,12 +167,14 @@ function formatTime(iso: string): string {
 }
 
 const selectStyle: React.CSSProperties = {
-  height: 34,
-  minWidth: 150,
+  height: 32,
+  minWidth: 140,
   border: '1px solid var(--border)',
   borderRadius: 'var(--radius)',
-  background: 'var(--bg-0)',
+  background: 'var(--bg-2)',
   color: 'var(--text-1)',
   padding: '0 10px',
   outline: 'none',
+  fontSize: 13,
+  flexShrink: 0,
 }

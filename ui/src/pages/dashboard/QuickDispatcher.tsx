@@ -49,8 +49,8 @@ export function QuickDispatcher({ agents, projects, tasks, scope, onCreated }: P
   }
 
   return (
-    <div style={{ position: 'sticky', bottom: 16, marginTop: 20, border: '1px solid var(--border)', background: 'var(--bg-0)', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-sm)', padding: 10, display: 'grid', gridTemplateColumns: 'auto minmax(180px, 1fr) 150px 150px auto', alignItems: 'center', gap: 10 }}>
-      <Sparkles size={16} color="var(--blue)" />
+    <div style={{ position: 'sticky', bottom: 0, marginTop: 12, border: '1px solid var(--border)', background: 'var(--bg-0)', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-sm)', padding: 10, display: 'grid', gridTemplateColumns: 'auto minmax(160px, 1fr) minmax(130px, 160px) minmax(130px, 160px) auto', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+      <Sparkles size={16} color="var(--blue)" style={{ flexShrink: 0 }} />
       <input
         value={title}
         onChange={(event) => setTitle(event.target.value)}
@@ -73,7 +73,7 @@ export function QuickDispatcher({ agents, projects, tasks, scope, onCreated }: P
         <option value="">不指派 Agent</option>
         {availableAgents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
       </select>
-      <button type="button" disabled={!canCreate} onClick={() => void submit()} style={{ ...buttonStyle, opacity: canCreate ? 1 : 0.55 }}>
+      <button type="button" disabled={!canCreate} onClick={() => void submit()} style={{ ...buttonStyle, opacity: canCreate ? 1 : 0.55, flexShrink: 0 }}>
         <SendHorizonal size={14} />{creating ? '创建中' : '派发'}
       </button>
     </div>
@@ -81,7 +81,7 @@ export function QuickDispatcher({ agents, projects, tasks, scope, onCreated }: P
 }
 
 const inputStyle: React.CSSProperties = {
-  height: 36,
+  height: 34,
   border: '1px solid var(--border)',
   borderRadius: 8,
   background: 'var(--bg-1)',
@@ -90,6 +90,7 @@ const inputStyle: React.CSSProperties = {
   outline: 'none',
   fontSize: 14,
   minWidth: 0,
+  width: '100%',
 }
 
 const buttonStyle: React.CSSProperties = {
