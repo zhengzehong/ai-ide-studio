@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Plus, X, Trash2, ExternalLink } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { useAgentStore, type AgentData } from '../stores/agent.store';
 import { useTaskStore, type SessionMode, type TaskData } from '../stores/task.store';
 import { useProjectStore } from '../stores/project.store';
 import { useSessionStore } from '../stores/session.store';
 import { TaskImageInput } from '../components/task/TaskImageInput';
+import { TaskDetailDrawer } from '../components/tasks/TaskDetailDrawer';
 import type { ImageAttachmentInfo } from '../stores/session-events';
 
 const TYPE_COLORS: Record<string, string> = { dev: '#2563eb', test: '#059669', ops: '#ea580c', security: '#dc2626', architect: '#7c3aed', pm: '#7c3aed' };
@@ -32,15 +33,6 @@ const COLUMNS: Column[] = [
   { id: 'done', title: '已完成', color: 'var(--green)', match: s => s === 'completed' || s === 'cancelled' },
 ];
 
-const STATUS_ACTIONS = [
-  { status: 'backlog', label: '待办' },
-  { status: 'executing', label: '执行中' },
-  { status: 'reviewing', label: '审查中' },
-  { status: 'completed', label: '已完成' },
-  { status: 'blocked', label: '已阻塞' },
-  { status: 'cancelled', label: '已取消' },
-];
-
 const SESSION_MODE_OPTIONS: Array<{ value: SessionMode; label: string }> = [
   { value: 'new_fixed', label: '固定新会话' },
   { value: 'new_each', label: '每次新会话' },
@@ -57,8 +49,6 @@ export default function TaskBoard() {
   const tasks = useTaskStore(s => s.tasks);
   const agents = useAgentStore(s => s.agents);
   const createTask = useTaskStore(s => s.createTask);
-  const updateTask = useTaskStore(s => s.updateTask);
-  const deleteTask = useTaskStore(s => s.deleteTask);
   const fetchTasks = useTaskStore(s => s.fetchTasks);
   const currentProjectId = useProjectStore(s => s.currentProjectId);
   const [showNew, setShowNew] = useState(false);
@@ -123,8 +113,7 @@ export default function TaskBoard() {
           task={projectTasks.find(t => t.id === selectedTaskId)}
           agents={agents}
           onClose={() => setSelectedTaskId(null)}
-          onStatusChange={(status) => updateTask(selectedTaskId, status)}
-          onDelete={async () => { await deleteTask(selectedTaskId); setSelectedTaskId(null); }}
+          onDeleteComplete={() => setSelectedTaskId(null)}
         />
       )}
     </div>
@@ -162,167 +151,6 @@ function TaskCard({ task, agents, onOpen }: { task: TaskData; agents: AgentData[
         <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{formatRelative(task.created_at)}</span>
       </div>
     </button>
-  );
-}
-
-function TaskDetailDrawer({ task, agents, onClose, onStatusChange, onDelete }: {
-  task: TaskData | undefined;
-  agents: AgentData[];
-  onClose: () => void;
-  onStatusChange: (status: string) => Promise<TaskData>;
-  onDelete: () => Promise<void>;
-}) {
-  const [updating, setUpdating] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState(false);
-  const [editTitle, setEditTitle] = useState('');
-  const [editDesc, setEditDesc] = useState('');
-  const [editing, setEditing] = useState(false);
-  const [assignAgentId, setAssignAgentId] = useState('');
-  const [assignSessionMode, setAssignSessionMode] = useState<SessionMode>('new_fixed');
-  const [assignSessionId, setAssignSessionId] = useState('');
-  const updateTaskInfo = useTaskStore(s => s.updateTaskInfo);
-  const assignTask = useTaskStore(s => s.assignTask);
-  const selectSession = useSessionStore(s => s.selectSession);
-  const sessions = useSessionStore(s => s.sessions);
-
-  if (!task) return null;
-
-  const source = SOURCE_META[task.source] ?? SOURCE_META.human;
-  const statusMeta = STATUS_META[task.status] ?? STATUS_META.backlog;
-  const agent = task.assigned_agent_id ? agents.find(a => a.id === task.assigned_agent_id) : null;
-  const assignAgentSessions = assignAgentId
-    ? sessions.filter(s => s.agent_id === assignAgentId && (!task.project_id || s.project_id === task.project_id))
-    : [];
-
-  const startEdit = () => {
-    setEditTitle(task.title);
-    setEditDesc(task.description || '');
-    setEditing(true);
-  };
-
-  const saveEdit = async () => {
-    if (!editTitle.trim()) return;
-    await updateTaskInfo(task.id, { title: editTitle.trim(), description: editDesc.trim() || undefined });
-    setEditing(false);
-  };
-
-  const changeStatus = async (status: string) => {
-    setUpdating(status);
-    try { await onStatusChange(status); } finally { setUpdating(null); }
-  };
-
-  const handleAssign = async () => {
-    if (!assignAgentId) return;
-    if (assignSessionMode === 'existing' && !assignSessionId) return;
-    await assignTask(task.id, assignAgentId, assignSessionMode === 'existing' ? assignSessionId || undefined : undefined, assignSessionMode);
-    setAssignAgentId('');
-    setAssignSessionMode('new_fixed');
-    setAssignSessionId('');
-  };
-
-  const handleDelete = async () => {
-    if (!confirm('确定删除此任务？')) return;
-    setDeleting(true);
-    try { await onDelete(); } finally { setDeleting(false); }
-  };
-
-  const goToSession = (sessionId: string) => {
-    selectSession(sessionId);
-    onClose();
-    window.location.hash = '#/workspace';
-  };
-
-  const st: React.CSSProperties = { width: '100%', padding: '8px 10px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', fontSize: 15, background: 'var(--bg-1)', color: 'var(--text-1)', outline: 'none', boxSizing: 'border-box' };
-
-  return (
-    <>
-      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.24)', zIndex: 1000 }} />
-      <aside style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 'min(480px, 92vw)', background: 'var(--bg-0)', borderLeft: '1px solid var(--border)', boxShadow: 'var(--shadow-lg)', zIndex: 1001, padding: 24, overflowY: 'auto' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18 }}>
-          <h2 style={{ flex: 1, fontSize: 16, fontWeight: 700 }}>任务详情</h2>
-          <button type="button" onClick={onClose} style={{ border: 'none', background: 'var(--bg-2)', borderRadius: 6, width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--text-2)' }}><X size={15} /></button>
-        </div>
-
-        {editing ? (
-          <div style={{ marginBottom: 18, display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <input value={editTitle} onChange={e => setEditTitle(e.target.value)} style={st} placeholder="任务标题" />
-            <textarea value={editDesc} onChange={e => setEditDesc(e.target.value)} rows={3} style={{ ...st, resize: 'vertical' }} placeholder="描述" />
-            <div style={{ display: 'flex', gap: 6 }}>
-              <button onClick={saveEdit} disabled={!editTitle.trim()} style={{ padding: '6px 12px', borderRadius: 6, border: 'none', background: 'var(--blue)', color: 'white', fontSize: 14, cursor: 'pointer' }}>保存</button>
-              <button onClick={() => setEditing(false)} style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-0)', color: 'var(--text-2)', fontSize: 14, cursor: 'pointer' }}>取消</button>
-            </div>
-          </div>
-        ) : (
-          <>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-              <div style={{ fontSize: 18, fontWeight: 700, lineHeight: 1.45, flex: 1 }}>{task.title}</div>
-              <button type="button" onClick={startEdit} style={{ border: 'none', background: 'var(--bg-2)', borderRadius: 6, padding: '4px 8px', fontSize: 13, color: 'var(--text-2)', cursor: 'pointer' }}>编辑</button>
-            </div>
-            <div style={{ color: 'var(--text-2)', fontSize: 15, lineHeight: 1.7, marginBottom: 18, whiteSpace: 'pre-wrap' }}>{task.description || '暂无描述'}</div>
-          </>
-        )}
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 14, borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg-1)', marginBottom: 18 }}>
-          <DetailRow label="状态" value={statusMeta.label} color={statusMeta.color} />
-          <DetailRow label="阶段" value={task.stage || '未设置'} />
-          <DetailRow label="指派 Agent" value={agent ? `${agent.name} (${agent.runtime})` : '未指派'} />
-          <DetailRow label="来源" value={source.label} color={source.color} />
-          <DetailRow label="创建时间" value={formatDateTime(task.created_at)} />
-          {task.completed_at && <DetailRow label="完成时间" value={formatDateTime(task.completed_at)} />}
-          {task.sessionId && (
-            <div style={{ display: 'grid', gridTemplateColumns: '92px 1fr', gap: 10, fontSize: 14 }}>
-              <span style={{ color: 'var(--text-3)' }}>关联对话</span>
-              <button type="button" onClick={() => goToSession(task.sessionId!)} style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--blue)', cursor: 'pointer', border: 'none', background: 'none', padding: 0, fontSize: 14 }}>
-                <ExternalLink size={11} />跳转到对话
-              </button>
-            </div>
-          )}
-        </div>
-
-        <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 8 }}>指派 Agent</div>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-          <select value={assignAgentId} onChange={e => { setAssignAgentId(e.target.value); setAssignSessionMode('new_fixed'); setAssignSessionId(''); }} style={{ ...st, flex: 1 }}>
-            <option value="">{agent ? `当前: ${agent.name}` : '选择 Agent'}</option>
-            {agents.filter(a => a.id !== task.assigned_agent_id).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-          </select>
-          <button onClick={handleAssign} disabled={!assignAgentId || (assignSessionMode === 'existing' && !assignSessionId)} style={{ padding: '6px 14px', borderRadius: 6, border: 'none', background: assignAgentId && !(assignSessionMode === 'existing' && !assignSessionId) ? 'var(--blue)' : 'var(--bg-2)', color: assignAgentId && !(assignSessionMode === 'existing' && !assignSessionId) ? 'white' : 'var(--text-3)', fontSize: 14, cursor: assignAgentId && !(assignSessionMode === 'existing' && !assignSessionId) ? 'pointer' : 'not-allowed' }}>指派</button>
-        </div>
-        {assignAgentId && (
-          <div style={{ marginBottom: 18 }}>
-            <SessionModeSelect
-              mode={assignSessionMode}
-              sessionId={assignSessionId}
-              sessions={assignAgentSessions}
-              onModeChange={(value) => { setAssignSessionMode(value); setAssignSessionId(''); }}
-              onSessionChange={setAssignSessionId}
-              inputStyle={st}
-            />
-          </div>
-        )}
-
-        <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 8 }}>状态操作</div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 20 }}>
-          {STATUS_ACTIONS.map(action => (
-            <button key={action.status} type="button" onClick={() => changeStatus(action.status)} disabled={updating !== null || task.status === action.status} style={{ padding: '7px 12px', borderRadius: 8, border: task.status === action.status ? '1px solid var(--blue)' : '1px solid var(--border)', background: task.status === action.status ? 'var(--blue-light)' : 'var(--bg-0)', color: task.status === action.status ? 'var(--blue)' : 'var(--text-2)', fontSize: 14, cursor: task.status === action.status ? 'default' : 'pointer', opacity: updating && updating !== action.status ? 0.6 : 1 }}>
-              {updating === action.status ? '...' : action.label}
-            </button>
-          ))}
-        </div>
-
-        <button type="button" onClick={handleDelete} disabled={deleting} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, border: '1px solid var(--red)', background: 'transparent', color: 'var(--red)', fontSize: 14, cursor: 'pointer' }}>
-          <Trash2 size={13} /> {deleting ? '删除中...' : '删除任务'}
-        </button>
-      </aside>
-    </>
-  );
-}
-
-function DetailRow({ label, value, color }: { label: string; value: string; color?: string }) {
-  return (
-    <div style={{ display: 'grid', gridTemplateColumns: '92px 1fr', gap: 10, fontSize: 14 }}>
-      <span style={{ color: 'var(--text-3)' }}>{label}</span>
-      <span style={{ color: color || 'var(--text-1)', overflowWrap: 'anywhere' }}>{value}</span>
-    </div>
   );
 }
 
@@ -383,10 +211,6 @@ function NewTaskModal({ agents, projectId, onCreate, onClose }: {
       </div>
     </>
   );
-}
-
-function formatDateTime(iso: string): string {
-  try { return new Date(iso).toLocaleString('zh-CN'); } catch { return iso; }
 }
 
 function SessionModeSelect({ mode, sessionId, sessions, onModeChange, onSessionChange, inputStyle }: {

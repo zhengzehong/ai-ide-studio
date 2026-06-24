@@ -3,8 +3,12 @@ import {
   buildDashboardViewModel,
   buildAgentDynamicsViewModel,
   filterByDashboardScope,
+  chooseQuickDispatchProjectId,
+  filterDashboardEvents,
+  filterDashboardTasks,
   type DashboardScope,
 } from '../../ui/src/pages/dashboard-view-model'
+import type { EventCenterEventData } from '../../ui/src/stores/event-center.store'
 import type { AgentData } from '../../ui/src/stores/agent.store'
 import type { ProjectData } from '../../ui/src/stores/project.store'
 import type { SessionData } from '../../ui/src/stores/session.store'
@@ -154,6 +158,41 @@ describe('buildAgentDynamicsViewModel', () => {
   })
 })
 
+describe('dashboard tab selectors', () => {
+  test('filters task rows by segmented status and project filter', () => {
+    const tasks = [
+      task('task-a', 'project-a', 'executing'),
+      task('task-b', 'project-a', 'completed'),
+      task('task-c', 'project-b', 'blocked'),
+    ]
+
+    expect(filterDashboardTasks(tasks, { status: 'active', projectId: 'project-a' }).map((item) => item.id)).toEqual(['task-a'])
+    expect(filterDashboardTasks(tasks, { status: 'needs_attention', projectId: 'all' }).map((item) => item.id)).toEqual(['task-c'])
+  })
+
+  test('filters event rows by status and project filter', () => {
+    const events = [
+      event('event-a', 'project-a', 'pending'),
+      event('event-b', 'project-a', 'consumed'),
+      event('event-c', 'project-b', 'failed'),
+    ]
+
+    expect(filterDashboardEvents(events, { status: 'open', projectId: 'project-a' }).map((item) => item.id)).toEqual(['event-a'])
+    expect(filterDashboardEvents(events, { status: 'failed', projectId: 'all' }).map((item) => item.id)).toEqual(['event-c'])
+  })
+
+  test('chooses quick-dispatch project from scoped project or most recent task project', () => {
+    const projects = [project('project-a'), project('project-b')]
+    const tasks = [
+      task('older', 'project-a', 'backlog', 'older', '2026-06-23T09:00:00.000Z'),
+      task('newer', 'project-b', 'backlog', 'newer', '2026-06-24T09:00:00.000Z'),
+    ]
+
+    expect(chooseQuickDispatchProjectId({ scope: { type: 'project', projectId: 'project-a' }, tasks, projects })).toBe('project-a')
+    expect(chooseQuickDispatchProjectId({ scope: { type: 'all' }, tasks, projects })).toBe('project-b')
+  })
+})
+
 function agent(id: string, projectId: string | null, status = 'standby'): AgentData {
   return {
     id,
@@ -183,7 +222,7 @@ function session(id: string, agentId: string, projectId: string | null, status: 
   }
 }
 
-function task(id: string, projectId: string | null, status = 'backlog', title = id): TaskData {
+function task(id: string, projectId: string | null, status = 'backlog', title = id, createdAt = '2026-06-10T00:00:00.000Z'): TaskData {
   return {
     id,
     title,
@@ -192,7 +231,7 @@ function task(id: string, projectId: string | null, status = 'backlog', title = 
     status,
     stage: status,
     assigned_agent_id: null,
-    created_at: '2026-06-10T00:00:00.000Z',
+    created_at: createdAt,
     completed_at: null,
     project_id: projectId,
   }
@@ -206,5 +245,29 @@ function project(id: string): ProjectData {
     description: null,
     created_at: '2026-06-10T00:00:00.000Z',
     updated_at: '2026-06-10T00:00:00.000Z',
+  }
+}
+
+function event(id: string, projectId: string | null, status = 'pending'): EventCenterEventData {
+  return {
+    id,
+    project_id: projectId,
+    category_id: 'category-a',
+    title: id,
+    summary: null,
+    source_type: 'agent',
+    source_id: null,
+    source_label: null,
+    priority: 'normal',
+    confidence: 1,
+    status,
+    tags_json: '[]',
+    payload_json: '{}',
+    evidence_json: '[]',
+    dedupe_key: null,
+    created_by_agent_id: null,
+    created_at: '2026-06-10T00:00:00.000Z',
+    updated_at: '2026-06-10T00:00:00.000Z',
+    archived_at: null,
   }
 }

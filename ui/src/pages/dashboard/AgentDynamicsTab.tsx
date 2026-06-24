@@ -16,6 +16,8 @@ interface Props {
   projects: ProjectData[]
   sessions: SessionData[]
   tasks: TaskData[]
+  selectedSessionId?: string
+  onSelectSession?: (sessionId: string) => void
 }
 
 const filterTabs: Array<{ key: AgentDynamicsFilter; label: string }> = [
@@ -31,7 +33,7 @@ const viewTabs: Array<{ key: AgentDynamicsView; label: string; icon: React.React
   { key: 'timeline', label: '时间线', icon: <Columns3 size={14} /> },
 ]
 
-export function AgentDynamicsTab({ agents, projects, sessions, tasks }: Props) {
+export function AgentDynamicsTab({ agents, projects, sessions, tasks, selectedSessionId, onSelectSession }: Props) {
   const [filter, setFilter] = useState<AgentDynamicsFilter>('all')
   const [view, setView] = useState<AgentDynamicsView>('agent')
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -54,7 +56,9 @@ export function AgentDynamicsTab({ agents, projects, sessions, tasks }: Props) {
             <span style={{ color: 'var(--text-3)', fontSize: 13 }}>{group.rows.length}</span>
           </header>
           <div style={{ display: 'flex', flexDirection: 'column' }}>
-            {group.rows.map((row) => <SessionRow key={row.session.id} row={row} />)}
+            {group.rows.map((row) => (
+              <SessionRow key={row.session.id} row={row} active={row.session.id === selectedSessionId} onSelect={onSelectSession} />
+            ))}
           </div>
         </section>
       ))}
@@ -64,7 +68,9 @@ export function AgentDynamicsTab({ agents, projects, sessions, tasks }: Props) {
             <span>历史会话 ({model.historyRows.length})</span>
             <span>{historyOpen ? '收起' : '展开'}</span>
           </button>
-          {historyOpen && model.historyRows.map((row) => <SessionRow key={row.session.id} row={row} />)}
+          {historyOpen && model.historyRows.map((row) => (
+            <SessionRow key={row.session.id} row={row} active={row.session.id === selectedSessionId} onSelect={onSelectSession} />
+          ))}
         </section>
       )}
     </div>
@@ -104,10 +110,12 @@ function Segment<T extends string>({ items, value, onChange }: {
   )
 }
 
-function SessionRow({ row }: { row: AgentDynamicsRow }) {
+function SessionRow({ row, active, onSelect }: { row: AgentDynamicsRow; active: boolean; onSelect?: (sessionId: string) => void }) {
   return (
     <button
       type="button"
+      aria-pressed={active}
+      onClick={() => onSelect?.(row.session.id)}
       style={{
         display: 'grid',
         gridTemplateColumns: 'minmax(0, 1fr) auto',
@@ -117,7 +125,8 @@ function SessionRow({ row }: { row: AgentDynamicsRow }) {
         padding: '12px 14px',
         border: 'none',
         borderBottom: '1px solid var(--border)',
-        background: row.isAbnormal ? '#fef2f2' : 'transparent',
+        background: row.isAbnormal ? '#fef2f2' : active ? 'var(--blue-light)' : 'transparent',
+        boxShadow: active ? 'inset 3px 0 0 var(--blue)' : 'none',
         color: 'var(--text-1)',
         textAlign: 'left',
         cursor: 'pointer',

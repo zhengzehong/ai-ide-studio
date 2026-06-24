@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Activity, AlertCircle, Bot, CheckCircle2, Loader2, Plus, Wifi, WifiOff, Zap } from 'lucide-react'
+import { AlertCircle, Bot, CheckCircle2, Loader2, Wifi, WifiOff } from 'lucide-react'
 import { DashboardScopeSwitcher } from '../components/dashboard/DashboardScopeSwitcher'
 import { useAgentStore } from '../stores/agent.store'
 import { useConnectionStore } from '../stores/connection.store'
@@ -14,6 +14,10 @@ import {
   type DashboardTab,
 } from './dashboard-view-model'
 import { AgentDynamicsTab } from './dashboard/AgentDynamicsTab'
+import { ContextPanel, type DashboardContext } from './dashboard/ContextPanel'
+import { EventTableTab } from './dashboard/EventTableTab'
+import { QuickDispatcher } from './dashboard/QuickDispatcher'
+import { TaskTableTab } from './dashboard/TaskTableTab'
 
 const tabs: Array<{ key: DashboardTab; label: string }> = [
   { key: 'agents', label: 'Agent 动态' },
@@ -24,19 +28,24 @@ const tabs: Array<{ key: DashboardTab; label: string }> = [
 export default function Dashboard() {
   const [scope, setScope] = useState<DashboardScope>({ type: 'all' })
   const [activeTab, setActiveTab] = useState<DashboardTab>('agents')
-  const connected = useConnectionStore((s) => s.connected)
-  const agents = useAgentStore((s) => s.agents)
-  const sessions = useSessionStore((s) => s.sessions)
-  const fetchSessions = useSessionStore((s) => s.fetchSessions)
-  const tasks = useTaskStore((s) => s.tasks)
-  const events = useEventCenterStore((s) => s.events)
-  const fetchEvents = useEventCenterStore((s) => s.fetchEvents)
-  const fetchCategories = useEventCenterStore((s) => s.fetchCategories)
-  const projects = useProjectStore((s) => s.projects)
-  const agentsLoading = useAgentStore((s) => s.loading)
-  const sessionsLoading = useSessionStore((s) => s.loading)
-  const tasksLoading = useTaskStore((s) => s.loading)
-  const eventsLoading = useEventCenterStore((s) => s.loading)
+  const [context, setContext] = useState<DashboardContext>({ kind: 'empty' })
+  const connected = useConnectionStore((state) => state.connected)
+  const agents = useAgentStore((state) => state.agents)
+  const fetchAgents = useAgentStore((state) => state.fetchAgents)
+  const sessions = useSessionStore((state) => state.sessions)
+  const fetchSessions = useSessionStore((state) => state.fetchSessions)
+  const tasks = useTaskStore((state) => state.tasks)
+  const fetchTasks = useTaskStore((state) => state.fetchTasks)
+  const events = useEventCenterStore((state) => state.events)
+  const categories = useEventCenterStore((state) => state.categories)
+  const fetchEvents = useEventCenterStore((state) => state.fetchEvents)
+  const fetchCategories = useEventCenterStore((state) => state.fetchCategories)
+  const setupEventListeners = useEventCenterStore((state) => state.setupListeners)
+  const projects = useProjectStore((state) => state.projects)
+  const agentsLoading = useAgentStore((state) => state.loading)
+  const sessionsLoading = useSessionStore((state) => state.loading)
+  const tasksLoading = useTaskStore((state) => state.loading)
+  const eventsLoading = useEventCenterStore((state) => state.loading)
 
   const dashboard = useMemo(
     () => buildDashboardViewModel({ agents, sessions, tasks, events, projects, scope }),
@@ -45,11 +54,21 @@ export default function Dashboard() {
   const loading = agentsLoading || sessionsLoading || tasksLoading || eventsLoading
   const scopeProjectId = dashboardScopeProjectId(scope)
 
+  useEffect(() => setupEventListeners(), [setupEventListeners])
+
   useEffect(() => {
-    void fetchSessions(undefined, scopeProjectId)
-    void fetchEvents(scopeProjectId, { offset: 0 })
-    void fetchCategories(scopeProjectId).catch(() => undefined)
-  }, [fetchCategories, fetchEvents, fetchSessions, scopeProjectId])
+    void fetchAgents()
+    void fetchTasks()
+    void fetchSessions(undefined, undefined)
+    void fetchEvents(undefined, { offset: 0 })
+    void fetchCategories(undefined).catch(() => undefined)
+  }, [fetchAgents, fetchCategories, fetchEvents, fetchSessions, fetchTasks])
+
+  useEffect(() => {
+    if (context.kind === 'session' && !dashboard.sessions.some((session) => session.id === context.sessionId)) setContext({ kind: 'empty' })
+    if (context.kind === 'task' && !dashboard.tasks.some((task) => task.id === context.taskId)) setContext({ kind: 'empty' })
+    if (context.kind === 'event' && !dashboard.events.some((event) => event.id === context.eventId)) setContext({ kind: 'empty' })
+  }, [context, dashboard.events, dashboard.sessions, dashboard.tasks])
 
   return (
     <div style={{ height: '100%', overflow: 'auto', padding: '24px 28px 96px', position: 'relative' }}>
@@ -77,6 +96,7 @@ export default function Dashboard() {
         {tabs.map((tab) => (
           <button
             key={tab.key}
+            type="button"
             onClick={() => setActiveTab(tab.key)}
             style={{
               border: 'none',
@@ -94,69 +114,71 @@ export default function Dashboard() {
         ))}
       </nav>
 
-      <main style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 360px', gap: 18, minHeight: 420 }}>
+      <main style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 380px', gap: 18, minHeight: 420 }}>
         <section style={{ minWidth: 0 }}>
           {activeTab === 'agents' && (
             loading && dashboard.agents.length === 0 && dashboard.sessions.length === 0
               ? <SkeletonRows label="正在加载 Agent 动态" />
-              : <AgentDynamicsTab agents={dashboard.agents} projects={projects} sessions={dashboard.sessions} tasks={dashboard.tasks} />
+              : (
+                <AgentDynamicsTab
+                  agents={dashboard.agents}
+                  projects={projects}
+                  sessions={dashboard.sessions}
+                  tasks={dashboard.tasks}
+                  selectedSessionId={context.kind === 'session' ? context.sessionId : undefined}
+                  onSelectSession={(sessionId) => setContext({ kind: 'session', sessionId })}
+                />
+              )
           )}
-          {activeTab === 'tasks' && <TaskShell tasks={dashboard.tasks} loading={loading} />}
-          {activeTab === 'events' && <EventShell events={dashboard.events} loading={loading} />}
+          {activeTab === 'tasks' && (
+            loading && dashboard.tasks.length === 0
+              ? <SkeletonRows label="正在加载任务" />
+              : (
+                <TaskTableTab
+                  agents={dashboard.agents}
+                  projects={projects}
+                  tasks={dashboard.tasks}
+                  selectedTaskId={context.kind === 'task' ? context.taskId : undefined}
+                  onSelectTask={(taskId) => setContext({ kind: 'task', taskId })}
+                />
+              )
+          )}
+          {activeTab === 'events' && (
+            loading && dashboard.events.length === 0
+              ? <SkeletonRows label="正在加载事件" />
+              : (
+                <EventTableTab
+                  events={dashboard.events}
+                  categories={categories}
+                  projects={projects}
+                  selectedEventId={context.kind === 'event' ? context.eventId : undefined}
+                  onSelectEvent={(eventId) => setContext({ kind: 'event', eventId })}
+                />
+              )
+          )}
         </section>
-        <aside style={{ border: '1px solid var(--border)', background: 'var(--bg-0)', borderRadius: 'var(--radius-lg)', padding: 16, minHeight: 300 }}>
-          <SectionHeader icon={<Activity size={15} />} title="上下文" />
-          <p style={{ color: 'var(--text-2)', fontSize: 14, lineHeight: 1.7, margin: 0 }}>
-            {scopeProjectId ? '当前看板已按单项目过滤，顶部全局项目选择器不会随之变化。' : '当前展示全部项目数据。选择左侧会话、任务或事件后，这里会显示详情。'}
-          </p>
-        </aside>
+        <ContextPanel
+          context={context}
+          agents={dashboard.agents}
+          sessions={dashboard.sessions}
+          tasks={dashboard.tasks}
+          events={dashboard.events}
+          projects={projects}
+          projectId={scopeProjectId ?? null}
+          onChangeContext={setContext}
+        />
       </main>
 
-      <div style={{ position: 'sticky', bottom: 16, marginTop: 20, border: '1px solid var(--border)', background: 'var(--bg-0)', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-sm)', padding: 12, display: 'flex', alignItems: 'center', gap: 10 }}>
-        <Zap size={15} color="var(--text-3)" />
-        <span style={{ color: 'var(--text-2)', fontSize: 14, flex: 1 }}>快速派发条将在 Phase 3 接入任务创建。</span>
-        <button disabled style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--bg-2)', color: 'var(--text-3)', padding: '7px 12px' }}>
-          <Plus size={13} /> 新建
-        </button>
-      </div>
-    </div>
-  )
-}
-
-function TaskShell({ tasks, loading }: { tasks: ReturnType<typeof buildDashboardViewModel>['tasks']; loading: boolean }) {
-  if (loading && tasks.length === 0) return <SkeletonRows label="正在加载任务" />
-  if (tasks.length === 0) return <EmptyState label="暂无任务" />
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      {tasks.slice(0, 20).map((task) => (
-        <div key={task.id} style={{ padding: '14px 16px', background: 'var(--bg-0)', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 6 }}>
-            <strong style={{ fontSize: 15 }}>{task.title}</strong>
-            <TaskStatusBadge status={task.status} />
-          </div>
-          <div style={{ fontSize: 14, color: 'var(--text-2)' }}>{task.stage || task.status}</div>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function EventShell({ events, loading }: { events: ReturnType<typeof buildDashboardViewModel>['events']; loading: boolean }) {
-  if (loading && events.length === 0) return <SkeletonRows label="正在加载事件" />
-  if (events.length === 0) return <EmptyState label="暂无事件" />
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      {events.slice(0, 20).map((event) => (
-        <div key={event.id} style={{ padding: '14px 16px', background: 'var(--bg-0)', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 6 }}>
-            <strong style={{ fontSize: 15 }}>{event.title}</strong>
-            <span style={{ color: 'var(--text-3)', fontSize: 13 }}>{event.status}</span>
-          </div>
-          <div style={{ color: 'var(--text-2)', fontSize: 14 }}>{event.summary || event.source_label || event.source_type}</div>
-        </div>
-      ))}
+      <QuickDispatcher
+        agents={dashboard.agents}
+        projects={projects}
+        tasks={dashboard.tasks}
+        scope={scope}
+        onCreated={(taskId) => {
+          setActiveTab('tasks')
+          setContext({ kind: 'task', taskId })
+        }}
+      />
     </div>
   )
 }
@@ -173,10 +195,6 @@ function SkeletonRows({ label }: { label: string }) {
   )
 }
 
-function EmptyState({ label }: { label: string }) {
-  return <div style={{ border: '1px solid var(--border)', background: 'var(--bg-0)', borderRadius: 'var(--radius)', padding: 28, textAlign: 'center', color: 'var(--text-3)', fontSize: 14 }}>{label}</div>
-}
-
 function StatCard({ icon, label, value, color, bg }: { icon: React.ReactNode; label: string; value: number; color: string; bg: string }) {
   return (
     <div style={{ padding: '16px 18px', background: 'var(--bg-0)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -184,25 +202,4 @@ function StatCard({ icon, label, value, color, bg }: { icon: React.ReactNode; la
       <div><div style={{ fontSize: 22, fontWeight: 700, lineHeight: 1 }}>{value}</div><div style={{ fontSize: 14, color: 'var(--text-2)', marginTop: 4 }}>{label}</div></div>
     </div>
   )
-}
-
-function SectionHeader({ icon, title }: { icon: React.ReactNode; title: string }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 15, fontWeight: 600, marginBottom: 12 }}>
-      <span style={{ color: 'var(--text-3)' }}>{icon}</span>{title}
-    </div>
-  )
-}
-
-function TaskStatusBadge({ status }: { status: string }) {
-  const map: Record<string, { bg: string; color: string; label: string }> = {
-    executing: { bg: 'var(--blue-light)', color: 'var(--blue)', label: '进行中' },
-    planning: { bg: 'var(--purple-light)', color: 'var(--purple)', label: '规划中' },
-    reviewing: { bg: 'var(--yellow-light)', color: 'var(--yellow)', label: '审查中' },
-    blocked: { bg: 'var(--red-light)', color: 'var(--red)', label: '已阻塞' },
-    completed: { bg: 'var(--green-light)', color: 'var(--green)', label: '已完成' },
-    backlog: { bg: 'var(--bg-2)', color: 'var(--text-3)', label: '待办' },
-  }
-  const item = map[status] ?? map.backlog
-  return <span style={{ fontSize: 13, padding: '2px 8px', borderRadius: 10, background: item.bg, color: item.color, fontWeight: 500, flexShrink: 0 }}>{item.label}</span>
 }
