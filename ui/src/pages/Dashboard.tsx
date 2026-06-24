@@ -53,6 +53,18 @@ export default function Dashboard() {
   )
   const loading = agentsLoading || sessionsLoading || tasksLoading || eventsLoading
   const scopeProjectId = dashboardScopeProjectId(scope)
+  const visibleContext = useMemo<DashboardContext>(() => {
+    if (context.kind === 'session') {
+      return dashboard.sessions.some((session) => session.id === context.sessionId) ? context : { kind: 'empty' }
+    }
+    if (context.kind === 'task') {
+      return dashboard.tasks.some((task) => task.id === context.taskId) ? context : { kind: 'empty' }
+    }
+    if (context.kind === 'event') {
+      return dashboard.events.some((event) => event.id === context.eventId) ? context : { kind: 'empty' }
+    }
+    return context
+  }, [context, dashboard.events, dashboard.sessions, dashboard.tasks])
 
   useEffect(() => setupEventListeners(), [setupEventListeners])
 
@@ -63,12 +75,6 @@ export default function Dashboard() {
     void fetchEvents(undefined, { offset: 0 })
     void fetchCategories(undefined).catch(() => undefined)
   }, [fetchAgents, fetchCategories, fetchEvents, fetchSessions, fetchTasks])
-
-  useEffect(() => {
-    if (context.kind === 'session' && !dashboard.sessions.some((session) => session.id === context.sessionId)) setContext({ kind: 'empty' })
-    if (context.kind === 'task' && !dashboard.tasks.some((task) => task.id === context.taskId)) setContext({ kind: 'empty' })
-    if (context.kind === 'event' && !dashboard.events.some((event) => event.id === context.eventId)) setContext({ kind: 'empty' })
-  }, [context, dashboard.events, dashboard.sessions, dashboard.tasks])
 
   return (
     <div style={{ height: '100%', overflow: 'auto', padding: '24px 28px 96px', position: 'relative' }}>
@@ -125,7 +131,7 @@ export default function Dashboard() {
                   projects={projects}
                   sessions={dashboard.sessions}
                   tasks={dashboard.tasks}
-                  selectedSessionId={context.kind === 'session' ? context.sessionId : undefined}
+                  selectedSessionId={visibleContext.kind === 'session' ? visibleContext.sessionId : undefined}
                   onSelectSession={(sessionId) => setContext({ kind: 'session', sessionId })}
                 />
               )
@@ -138,7 +144,7 @@ export default function Dashboard() {
                   agents={dashboard.agents}
                   projects={projects}
                   tasks={dashboard.tasks}
-                  selectedTaskId={context.kind === 'task' ? context.taskId : undefined}
+                  selectedTaskId={visibleContext.kind === 'task' ? visibleContext.taskId : undefined}
                   onSelectTask={(taskId) => setContext({ kind: 'task', taskId })}
                 />
               )
@@ -151,14 +157,14 @@ export default function Dashboard() {
                   events={dashboard.events}
                   categories={categories}
                   projects={projects}
-                  selectedEventId={context.kind === 'event' ? context.eventId : undefined}
+                  selectedEventId={visibleContext.kind === 'event' ? visibleContext.eventId : undefined}
                   onSelectEvent={(eventId) => setContext({ kind: 'event', eventId })}
                 />
               )
           )}
         </section>
         <ContextPanel
-          context={context}
+          context={visibleContext}
           agents={dashboard.agents}
           sessions={dashboard.sessions}
           tasks={dashboard.tasks}

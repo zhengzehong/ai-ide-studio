@@ -1,5 +1,5 @@
 import { SendHorizonal, Sparkles } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { AgentData } from '../../stores/agent.store'
 import type { ProjectData } from '../../stores/project.store'
 import { useTaskStore, type TaskData } from '../../stores/task.store'
@@ -27,27 +27,20 @@ export function QuickDispatcher({ agents, projects, tasks, scope, onCreated }: P
     [projects, scope, tasks],
   )
   const projectLocked = scope.type === 'project'
+  const selectedProjectId = projectLocked ? defaultProjectId : (projectId || defaultProjectId)
   const availableAgents = useMemo(
-    () => agents.filter((agent) => !projectId || !agent.project_id || agent.project_id === projectId),
-    [agents, projectId],
+    () => agents.filter((agent) => !selectedProjectId || !agent.project_id || agent.project_id === selectedProjectId),
+    [agents, selectedProjectId],
   )
-
-  useEffect(() => {
-    setProjectId(defaultProjectId)
-  }, [defaultProjectId])
-
-  useEffect(() => {
-    if (agentId && !availableAgents.some((agent) => agent.id === agentId)) setAgentId('')
-  }, [agentId, availableAgents])
-
-  const canCreate = Boolean(title.trim() && projectId && !creating)
+  const effectiveAgentId = availableAgents.some((agent) => agent.id === agentId) ? agentId : ''
+  const canCreate = Boolean(title.trim() && selectedProjectId && !creating)
 
   const submit = async () => {
     const nextTitle = title.trim()
-    if (!nextTitle || !projectId) return
+    if (!nextTitle || !selectedProjectId) return
     setCreating(true)
     try {
-      const task = await createTask(nextTitle, undefined, agentId || undefined, projectId)
+      const task = await createTask(nextTitle, undefined, effectiveAgentId || undefined, selectedProjectId)
       setTitle('')
       onCreated?.(task.id)
     } finally {
@@ -68,7 +61,7 @@ export function QuickDispatcher({ agents, projects, tasks, scope, onCreated }: P
         style={inputStyle}
       />
       <select
-        value={projectId}
+        value={selectedProjectId}
         disabled={projectLocked}
         onChange={(event) => setProjectId(event.target.value)}
         style={inputStyle}
@@ -76,7 +69,7 @@ export function QuickDispatcher({ agents, projects, tasks, scope, onCreated }: P
         <option value="">选择项目</option>
         {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
       </select>
-      <select value={agentId} onChange={(event) => setAgentId(event.target.value)} style={inputStyle}>
+      <select value={effectiveAgentId} onChange={(event) => setAgentId(event.target.value)} style={inputStyle}>
         <option value="">不指派 Agent</option>
         {availableAgents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
       </select>

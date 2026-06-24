@@ -118,6 +118,13 @@ function classifyExtension(ext: string): FileKind {
   return 'binary'
 }
 
+function classifyReadableFile(filePath: string, ext: string): FileKind {
+  const kind = classifyExtension(ext)
+  if (kind !== 'binary') return kind
+  if (basename(filePath).toLowerCase() === '.env.example') return 'text'
+  return kind
+}
+
 export function resolveMimeType(ext: string, kind: FileKind): string {
   const lower = ext.toLowerCase()
   if (kind === 'image') return IMAGE_MIME[lower] ?? 'image/*'
@@ -208,7 +215,7 @@ export function readFile(workDir: string, filePath: string): FileContent | null 
     if (!stat.isFile()) return null
 
     const ext = extname(fullPath).toLowerCase()
-    const kind = classifyExtension(ext)
+    const kind = classifyReadableFile(fullPath, ext)
     const language = EXT_TO_LANG[ext] || 'plaintext'
 
     if (kind !== 'text') {

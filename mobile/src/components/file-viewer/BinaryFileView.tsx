@@ -17,18 +17,14 @@ export function BinaryFileView({ file }: BinaryFileViewProps) {
     if (state === 'downloading') return
     setState('downloading')
     setMessage('正在下载...')
-    let nextState: DownloadState = 'idle'
-    let nextMessage = ''
     try {
       await download(file)
-      nextState = 'success'
-      nextMessage = '已保存到下载目录'
+      setState('success')
+      setMessage('已保存到下载目录')
     } catch (err) {
-      nextState = 'error'
-      nextMessage = err instanceof Error ? err.message : '下载失败'
+      setState('error')
+      setMessage(err instanceof Error ? err.message : '下载失败')
     }
-    setState(nextState)
-    setMessage(nextMessage)
     setTimeout(() => {
       setState('idle')
       setMessage('')
