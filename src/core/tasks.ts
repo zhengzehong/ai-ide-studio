@@ -214,7 +214,7 @@ export const taskManager = {
     const stage = input.stage ?? task.stage
     if (nextStatus !== task.status) {
       taskStore.updateStatus(input.taskId, nextStatus, stage)
-    } else if (input.stage !== undefined) {
+    } else if (input.stage !== undefined && input.stage !== task.stage) {
       taskStore.updateStatus(input.taskId, task.status, stage)
     }
     taskStore.updateAgentReportStatus(input.taskId, input.agentStatus)
@@ -230,6 +230,7 @@ export const taskManager = {
         stage,
         from_status: previousStatus,
         to_status: nextStatus,
+        recovered: nextStatus !== previousStatus,
       },
     })
 

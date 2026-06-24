@@ -157,6 +157,10 @@ export const taskStore = {
     if (!existing) return
 
     const nextStage = stage !== undefined ? stage : existing.stage
+    const statusChanged = status !== existing.status
+    const stageChanged = nextStage !== existing.stage
+    if (!statusChanged && !stageChanged) return
+
     const completedAt = isTerminalStatus(status) ? new Date().toISOString() : null
     getDb()
       .prepare(
@@ -168,8 +172,8 @@ export const taskStore = {
       )
       .run(status, nextStage, completedAt, id)
     taskEventStore.append(id, {
-      type: 'status_changed',
-      payload: { from_status: existing.status, to_status: status, stage: nextStage },
+      type: statusChanged ? 'status_changed' : 'stage_updated',
+      payload: { from_status: existing.status, to_status: status, from_stage: existing.stage, to_stage: nextStage },
     })
   },
 
@@ -187,6 +191,7 @@ export const taskStore = {
     const existing = taskStore.get(taskId)
     if (!existing) return
     const previous = existing.agent_report_status
+    if (previous === status) return
     getDb().prepare('UPDATE tasks SET agent_report_status = ? WHERE id = ?').run(status, taskId)
     taskEventStore.append(taskId, {
       type: 'agent_status_changed',
