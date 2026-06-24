@@ -1,261 +1,248 @@
-import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react'
 import {
   Activity,
   AlertCircle,
-  ArrowRight,
   Bot,
   CheckCircle2,
   Loader2,
-  MessageSquare,
   Plus,
   Wifi,
   WifiOff,
-  X,
   Zap,
-} from 'lucide-react';
-import { useAgentStore, type AgentData } from '../stores/agent.store';
-import { useSessionStore, type SessionData } from '../stores/session.store';
-import { useTaskStore } from '../stores/task.store';
-import { useConnectionStore } from '../stores/connection.store';
-import { useProjectStore } from '../stores/project.store';
-import { scopeDashboardData } from './dashboard-scope';
+} from 'lucide-react'
+import { DashboardScopeSwitcher } from '../components/dashboard/DashboardScopeSwitcher'
+import { useAgentStore } from '../stores/agent.store'
+import { useConnectionStore } from '../stores/connection.store'
+import { useEventCenterStore } from '../stores/event-center.store'
+import { useProjectStore } from '../stores/project.store'
+import { useSessionStore } from '../stores/session.store'
+import { useTaskStore } from '../stores/task.store'
+import {
+  buildDashboardViewModel,
+  dashboardScopeProjectId,
+  type DashboardScope,
+  type DashboardTab,
+} from './dashboard-view-model'
 
-type ModalType = null | 'task';
-const TYPE_COLORS: Record<string, string> = { dev: '#2563eb', test: '#059669', ops: '#ea580c', security: '#dc2626', architect: '#7c3aed', pm: '#7c3aed' };
+const TYPE_COLORS: Record<string, string> = { dev: '#2563eb', test: '#059669', ops: '#ea580c', security: '#dc2626', architect: '#7c3aed', pm: '#7c3aed' }
+
+const tabs: Array<{ key: DashboardTab; label: string }> = [
+  { key: 'agents', label: 'Agent 动态' },
+  { key: 'tasks', label: '任务' },
+  { key: 'events', label: '事件' },
+]
 
 export default function Dashboard() {
-  const [modal, setModal] = useState<ModalType>(null);
-  const navigate = useNavigate();
-  const connected = useConnectionStore(s => s.connected);
-  const agents = useAgentStore(s => s.agents);
-  const sessions = useSessionStore(s => s.sessions);
-  const tasks = useTaskStore(s => s.tasks);
-  const createTask = useTaskStore(s => s.createTask);
-  const fetchTasks = useTaskStore(s => s.fetchTasks);
-  const currentProjectId = useProjectStore(s => s.currentProjectId);
+  const [scope, setScope] = useState<DashboardScope>({ type: 'all' })
+  const [activeTab, setActiveTab] = useState<DashboardTab>('agents')
+  const connected = useConnectionStore((s) => s.connected)
+  const agents = useAgentStore((s) => s.agents)
+  const sessions = useSessionStore((s) => s.sessions)
+  const fetchSessions = useSessionStore((s) => s.fetchSessions)
+  const tasks = useTaskStore((s) => s.tasks)
+  const events = useEventCenterStore((s) => s.events)
+  const fetchEvents = useEventCenterStore((s) => s.fetchEvents)
+  const fetchCategories = useEventCenterStore((s) => s.fetchCategories)
+  const projects = useProjectStore((s) => s.projects)
+  const agentsLoading = useAgentStore((s) => s.loading)
+  const sessionsLoading = useSessionStore((s) => s.loading)
+  const tasksLoading = useTaskStore((s) => s.loading)
+  const eventsLoading = useEventCenterStore((s) => s.loading)
 
-  const dashboard = scopeDashboardData({ agents, sessions, tasks, currentProjectId });
-  const {
-    agents: projectAgents,
-    sessions: projectSessions,
-    tasks: projectTasks,
-    activeSessions,
-    runningAgents,
-    inProgressTasks,
-    completedTasks,
-  } = dashboard;
+  const dashboard = useMemo(
+    () => buildDashboardViewModel({ agents, sessions, tasks, events, projects, scope }),
+    [agents, events, projects, scope, sessions, tasks],
+  )
+  const loading = agentsLoading || sessionsLoading || tasksLoading || eventsLoading
+  const scopeProjectId = dashboardScopeProjectId(scope)
+
+  useEffect(() => {
+    void fetchSessions(undefined, scopeProjectId)
+    void fetchEvents(scopeProjectId, { offset: 0 })
+    void fetchCategories(scopeProjectId).catch(() => undefined)
+  }, [fetchCategories, fetchEvents, fetchSessions, scopeProjectId])
 
   return (
-    <div style={{ height: '100%', overflow: 'auto', padding: '28px 32px', position: 'relative' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 28 }}>
+    <div style={{ height: '100%', overflow: 'auto', padding: '24px 28px 96px', position: 'relative' }}>
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 20 }}>
         <div>
-          <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-1)', marginBottom: 4 }}>项目概览</h1>
+          <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-1)', marginBottom: 4 }}>全局看板</h1>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             {connected ? <Wifi size={13} color="var(--green)" /> : <WifiOff size={13} color="var(--red)" />}
             <p style={{ fontSize: 15, color: 'var(--text-2)', margin: 0 }}>
-              {connected ? `${runningAgents} 个智能体运行中，${activeSessions} 个活跃会话` : '未连接到后端 Gateway'}
+              {connected ? `${dashboard.stats.runningAgents} 个智能体运行中，${dashboard.stats.activeSessions} 个活跃会话` : '未连接到后端 Gateway'}
             </p>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <ActionBtn icon={<Plus size={14} />} label="新建任务" onClick={() => setModal('task')} primary />
-          <ActionBtn icon={<Bot size={14} />} label="添加智能体" onClick={() => navigate('/agents')} />
-        </div>
+        <DashboardScopeSwitcher scope={scope} projects={projects} onChange={setScope} />
+      </header>
+
+      <section style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 14, marginBottom: 18 }}>
+        <StatCard icon={<Bot size={18} />} label="运行中 Agent" value={dashboard.stats.runningAgents} color="var(--blue)" bg="var(--blue-light)" />
+        <StatCard icon={<Loader2 size={18} />} label="进行中任务" value={dashboard.stats.inProgressTasks} color="var(--purple)" bg="var(--purple-light)" />
+        <StatCard icon={<CheckCircle2 size={18} />} label="已完成任务" value={dashboard.stats.completedTasks} color="var(--green)" bg="var(--green-light)" />
+        <StatCard icon={<AlertCircle size={18} />} label="活跃会话" value={dashboard.stats.activeSessions} color="var(--orange)" bg="var(--orange-light)" />
+      </section>
+
+      <nav style={{ display: 'flex', gap: 6, borderBottom: '1px solid var(--border)', marginBottom: 18 }}>
+        {tabs.map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            style={{
+              border: 'none',
+              borderBottom: activeTab === tab.key ? '2px solid var(--blue)' : '2px solid transparent',
+              background: 'transparent',
+              color: activeTab === tab.key ? 'var(--blue)' : 'var(--text-2)',
+              padding: '10px 12px',
+              fontSize: 15,
+              fontWeight: 600,
+              cursor: 'pointer',
+            }}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </nav>
+
+      <main style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 360px', gap: 18, minHeight: 420 }}>
+        <section style={{ minWidth: 0 }}>
+          {activeTab === 'agents' && <AgentShell agents={dashboard.agents} sessions={dashboard.sessions} loading={loading} />}
+          {activeTab === 'tasks' && <TaskShell tasks={dashboard.tasks} loading={loading} />}
+          {activeTab === 'events' && <EventShell events={dashboard.events} loading={loading} />}
+        </section>
+        <aside style={{ border: '1px solid var(--border)', background: 'var(--bg-0)', borderRadius: 'var(--radius-lg)', padding: 16, minHeight: 300 }}>
+          <SectionHeader icon={<Activity size={15} />} title="上下文" />
+          <p style={{ color: 'var(--text-2)', fontSize: 14, lineHeight: 1.7, margin: 0 }}>
+            {scopeProjectId ? '当前看板已按单项目过滤，顶部全局项目选择器不会随之变化。' : '当前展示全部项目数据。选择左侧会话、任务或事件后，这里会显示详情。'}
+          </p>
+        </aside>
+      </main>
+
+      <div style={{ position: 'sticky', bottom: 16, marginTop: 20, border: '1px solid var(--border)', background: 'var(--bg-0)', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-sm)', padding: 12, display: 'flex', alignItems: 'center', gap: 10 }}>
+        <Zap size={15} color="var(--text-3)" />
+        <span style={{ color: 'var(--text-2)', fontSize: 14, flex: 1 }}>快速派发条将在 Phase 3 接入任务创建。</span>
+        <button disabled style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--bg-2)', color: 'var(--text-3)', padding: '7px 12px' }}>
+          <Plus size={13} /> 新建
+        </button>
       </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 28 }}>
-        <StatCard icon={<Bot size={18} />} label="运行中 Agent" value={runningAgents} color="var(--blue)" bg="var(--blue-light)" />
-        <StatCard icon={<Loader2 size={18} />} label="进行中任务" value={inProgressTasks} color="var(--purple)" bg="var(--purple-light)" />
-        <StatCard icon={<CheckCircle2 size={18} />} label="已完成任务" value={completedTasks} color="var(--green)" bg="var(--green-light)" />
-        <StatCard icon={<AlertCircle size={18} />} label="活跃会话" value={activeSessions} color="var(--orange)" bg="var(--orange-light)" />
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 360px', gap: 24 }}>
-        <div>
-          <SectionHeader icon={<Activity size={15} />} title="智能体状态" />
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 28 }}>
-            {projectAgents.length === 0 && <div style={{ color: 'var(--text-3)', fontSize: 15, padding: 20, textAlign: 'center' }}>暂无 Agent</div>}
-            {projectAgents.map(agent => {
-              const agentSessions = projectSessions.filter(s => s.agent_id === agent.id && s.status === 'active');
-              return (
-                <div key={agent.id} style={{ padding: '14px 16px', background: 'var(--bg-0)', borderRadius: 'var(--radius)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <div style={{ width: 36, height: 36, borderRadius: '50%', background: TYPE_COLORS[agent.type] ?? '#6b7280', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: 15, fontWeight: 700, flexShrink: 0 }}>{agent.name.charAt(0)}</div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
-                      <span style={{ fontSize: 15, fontWeight: 600 }}>{agent.name}</span>
-                      <StatusBadge status={agent.status} />
-                    </div>
-                    <div style={{ fontSize: 14, color: 'var(--text-2)' }}>{agent.runtime} · {agentSessions.length} 个活跃会话</div>
-                  </div>
-                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                    <div style={{ fontSize: 14, color: 'var(--text-3)' }}>{agent.type}</div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          <SectionHeader icon={<MessageSquare size={15} />} title="任务列表" action="查看看板" />
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {projectTasks.length === 0 && <div style={{ color: 'var(--text-3)', fontSize: 15, padding: 20, textAlign: 'center' }}>暂无任务</div>}
-            {projectTasks.slice(0, 6).map(task => (
-              <div key={task.id} style={{ padding: '14px 16px', background: 'var(--bg-0)', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                  <span style={{ fontSize: 15, fontWeight: 500, flex: 1, marginRight: 12 }}>{task.title}</span>
-                  <TaskStatusBadge status={task.status} />
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span style={{ fontSize: 14, color: 'var(--text-2)' }}>{task.stage || task.status}</span>
-                  {task.assigned_agent_id && (
-                    <span style={{ fontSize: 13, color: 'var(--text-3)', background: 'var(--bg-2)', padding: '1px 6px', borderRadius: 4 }}>{task.assigned_agent_id}</span>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div>
-          <SectionHeader icon={<Zap size={15} />} title="快捷操作" />
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 24 }}>
-            <QuickAction icon={<Plus size={16} />} label="新建任务" onClick={() => setModal('task')} />
-            <QuickAction icon={<Bot size={16} />} label="添加智能体" onClick={() => navigate('/agents')} />
-          </div>
-
-          <SectionHeader icon={<Activity size={15} />} title="活跃会话" />
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {projectSessions.filter(s => s.status === 'active').length === 0 && (
-              <div style={{ color: 'var(--text-3)', fontSize: 14, textAlign: 'center', padding: 20 }}>暂无活跃会话</div>
-            )}
-            {projectSessions.filter(s => s.status === 'active').slice(0, 8).map(s => {
-              const agent = projectAgents.find(a => a.id === s.agent_id);
-              return (
-                <div key={s.id} style={{ padding: '10px 12px', background: 'var(--bg-0)', borderRadius: 'var(--radius)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <div style={{ width: 24, height: 24, borderRadius: '50%', background: agent ? (TYPE_COLORS[agent.type] ?? '#6b7280') : 'var(--bg-3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: 'white', flexShrink: 0 }}>{agent?.name.charAt(0) ?? '?'}</div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 14, fontWeight: 500 }}>{agent?.name ?? s.agent_id}</div>
-                    <div style={{ fontSize: 13, color: 'var(--text-3)' }}>{s.id.slice(-8)} · {formatTime(s.started_at)}</div>
-                  </div>
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#059669', flexShrink: 0 }} />
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-
-      {modal === 'task' && <NewTaskModal agents={projectAgents} sessions={projectSessions} onCreate={async (t, d, a, s) => { await createTask(t, d, a, currentProjectId ?? undefined, s); await fetchTasks(currentProjectId ?? undefined); setModal(null); }} onClose={() => setModal(null)} />}
     </div>
-  );
+  )
 }
 
-function NewTaskModal({ agents, sessions, onCreate, onClose }: { agents: AgentData[]; sessions: SessionData[]; onCreate: (t: string, d?: string, a?: string, s?: string) => Promise<void>; onClose: () => void }) {
-  const [title, setTitle] = useState('');
-  const [desc, setDesc] = useState('');
-  const [agentId, setAgentId] = useState('');
-  const [sessionId, setSessionId] = useState('');
-  const agentSessions = useMemo(() => {
-    if (!agentId) return [];
-    return sessions.filter(s => s.agent_id === agentId);
-  }, [agentId, sessions]);
+function AgentShell({ agents, sessions, loading }: { agents: ReturnType<typeof buildDashboardViewModel>['agents']; sessions: ReturnType<typeof buildDashboardViewModel>['sessions']; loading: boolean }) {
+  if (loading && agents.length === 0) return <SkeletonRows label="正在加载 Agent 动态" />
+  if (agents.length === 0) return <EmptyState label="暂无 Agent" />
+
   return (
-    <Modal title="新建任务" onClose={onClose}>
-      <div>
-        <label style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>任务标题</label>
-        <input value={title} onChange={e => setTitle(e.target.value)} placeholder="例如: 实现用户登录功能" style={inputStyle} />
-      </div>
-      <div>
-        <label style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>描述</label>
-        <textarea value={desc} onChange={e => setDesc(e.target.value)} placeholder="详细描述需求..." rows={3} style={{ ...inputStyle, resize: 'vertical' }} />
-      </div>
-      <div>
-        <label style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>指派 Agent</label>
-        <select value={agentId} onChange={e => { setAgentId(e.target.value); setSessionId(''); }} style={inputStyle}>
-          <option value="">不指派</option>
-          {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-        </select>
-      </div>
-      {agentId && (
-        <div>
-          <label style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>会话目标</label>
-          <select value={sessionId} onChange={e => setSessionId(e.target.value)} style={inputStyle}>
-            <option value="">新建会话（默认）</option>
-            {agentSessions.map(s => <option key={s.id} value={s.id}>{sessionLabel(s)}</option>)}
-          </select>
-          <div style={{ fontSize: 13, color: 'var(--text-3)', marginTop: 4 }}>{sessionId ? '将在该会话中追加任务指派。' : '将为此任务创建新的会话。'}</div>
-        </div>
-      )}
-      <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-        <ModalBtn label="创建任务" primary onClick={() => onCreate(title, desc || undefined, agentId || undefined, sessionId || undefined)} />
-        <ModalBtn label="取消" onClick={onClose} />
-      </div>
-    </Modal>
-  );
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {agents.map((agent) => {
+        const activeSessions = sessions.filter((session) => session.agent_id === agent.id && session.status === 'active')
+        return (
+          <div key={agent.id} style={{ padding: '14px 16px', background: 'var(--bg-0)', borderRadius: 'var(--radius)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ width: 36, height: 36, borderRadius: '50%', background: TYPE_COLORS[agent.type] ?? '#6b7280', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: 15, fontWeight: 700, flexShrink: 0 }}>{agent.name.charAt(0)}</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 15, fontWeight: 600 }}>{agent.name}</div>
+              <div style={{ fontSize: 14, color: 'var(--text-2)' }}>{agent.runtime} · {activeSessions.length} 个活跃会话</div>
+            </div>
+            <StatusBadge status={agent.status} />
+          </div>
+        )
+      })}
+    </div>
+  )
 }
 
-const inputStyle: React.CSSProperties = { width: '100%', padding: '9px 12px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', fontSize: 15, outline: 'none', background: 'var(--bg-1)', color: 'var(--text-1)', boxSizing: 'border-box' };
+function TaskShell({ tasks, loading }: { tasks: ReturnType<typeof buildDashboardViewModel>['tasks']; loading: boolean }) {
+  if (loading && tasks.length === 0) return <SkeletonRows label="正在加载任务" />
+  if (tasks.length === 0) return <EmptyState label="暂无任务" />
 
-function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
-    <>
-      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.3)', zIndex: 1000 }} />
-      <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: 440, background: 'var(--bg-0)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-lg)', zIndex: 1001, padding: 24 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-          <h3 style={{ fontSize: 16, fontWeight: 600 }}>{title}</h3>
-          <button onClick={onClose} style={{ border: 'none', background: 'var(--bg-2)', borderRadius: 6, width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--text-2)' }}><X size={14} /></button>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {tasks.slice(0, 20).map((task) => (
+        <div key={task.id} style={{ padding: '14px 16px', background: 'var(--bg-0)', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 6 }}>
+            <strong style={{ fontSize: 15 }}>{task.title}</strong>
+            <TaskStatusBadge status={task.status} />
+          </div>
+          <div style={{ fontSize: 14, color: 'var(--text-2)' }}>{task.stage || task.status}</div>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>{children}</div>
-      </div>
-    </>
-  );
+      ))}
+    </div>
+  )
 }
 
-function ModalBtn({ label, primary, onClick }: { label: string; primary?: boolean; onClick: () => void }) {
-  return <button onClick={onClick} style={{ padding: '9px 18px', borderRadius: 'var(--radius)', border: primary ? 'none' : '1px solid var(--border)', background: primary ? 'var(--blue)' : 'var(--bg-0)', color: primary ? 'white' : 'var(--text-2)', fontSize: 15, fontWeight: 500, cursor: 'pointer' }}>{label}</button>;
+function EventShell({ events, loading }: { events: ReturnType<typeof buildDashboardViewModel>['events']; loading: boolean }) {
+  if (loading && events.length === 0) return <SkeletonRows label="正在加载事件" />
+  if (events.length === 0) return <EmptyState label="暂无事件" />
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {events.slice(0, 20).map((event) => (
+        <div key={event.id} style={{ padding: '14px 16px', background: 'var(--bg-0)', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 6 }}>
+            <strong style={{ fontSize: 15 }}>{event.title}</strong>
+            <span style={{ color: 'var(--text-3)', fontSize: 13 }}>{event.status}</span>
+          </div>
+          <div style={{ color: 'var(--text-2)', fontSize: 14 }}>{event.summary || event.source_label || event.source_type}</div>
+        </div>
+      ))}
+    </div>
+  )
 }
 
-function ActionBtn({ icon, label, onClick, primary }: { icon: React.ReactNode; label: string; onClick: () => void; primary?: boolean }) {
-  return <button onClick={onClick} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 'var(--radius)', border: primary ? 'none' : '1px solid var(--border)', background: primary ? 'var(--blue)' : 'var(--bg-0)', color: primary ? 'white' : 'var(--text-1)', fontSize: 15, fontWeight: 500, cursor: 'pointer', boxShadow: 'var(--shadow-sm)' }}>{icon}{label}</button>;
+function SkeletonRows({ label }: { label: string }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {[0, 1, 2].map((item) => (
+        <div key={item} style={{ height: 62, borderRadius: 'var(--radius)', border: '1px solid var(--border)', background: 'var(--bg-0)', display: 'flex', alignItems: 'center', padding: '0 16px', color: 'var(--text-3)', fontSize: 14 }}>
+          {item === 0 ? label : ''}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function EmptyState({ label }: { label: string }) {
+  return <div style={{ border: '1px solid var(--border)', background: 'var(--bg-0)', borderRadius: 'var(--radius)', padding: 28, textAlign: 'center', color: 'var(--text-3)', fontSize: 14 }}>{label}</div>
 }
 
 function StatCard({ icon, label, value, color, bg }: { icon: React.ReactNode; label: string; value: number; color: string; bg: string }) {
   return (
-    <div style={{ padding: '18px 20px', background: 'var(--bg-0)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 14 }}>
-      <div style={{ width: 40, height: 40, borderRadius: 'var(--radius)', background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center', color, flexShrink: 0 }}>{icon}</div>
+    <div style={{ padding: '16px 18px', background: 'var(--bg-0)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12 }}>
+      <div style={{ width: 38, height: 38, borderRadius: 'var(--radius)', background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center', color, flexShrink: 0 }}>{icon}</div>
       <div><div style={{ fontSize: 22, fontWeight: 700, lineHeight: 1 }}>{value}</div><div style={{ fontSize: 14, color: 'var(--text-2)', marginTop: 4 }}>{label}</div></div>
     </div>
-  );
+  )
 }
 
-function SectionHeader({ icon, title, action }: { icon: React.ReactNode; title: string; action?: string }) {
+function SectionHeader({ icon, title }: { icon: React.ReactNode; title: string }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 15, fontWeight: 600 }}><span style={{ color: 'var(--text-3)' }}>{icon}</span>{title}</div>
-      {action && <button style={{ display: 'flex', alignItems: 'center', gap: 4, border: 'none', background: 'none', color: 'var(--blue)', fontSize: 14, cursor: 'pointer', fontWeight: 500 }}>{action} <ArrowRight size={12} /></button>}
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 15, fontWeight: 600, marginBottom: 12 }}>
+      <span style={{ color: 'var(--text-3)' }}>{icon}</span>{title}
     </div>
-  );
-}
-
-function QuickAction({ icon, label, onClick }: { icon: React.ReactNode; label: string; onClick: () => void }) {
-  return <button onClick={onClick} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', background: 'var(--bg-0)', color: 'var(--text-1)', fontSize: 15, cursor: 'pointer' }}><span style={{ color: 'var(--text-3)' }}>{icon}</span>{label}</button>;
+  )
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const m: Record<string, { bg: string; color: string; label: string }> = { running: { bg: 'var(--blue-light)', color: 'var(--blue)', label: '运行中' }, idle: { bg: 'var(--green-light)', color: 'var(--green)', label: '空闲' }, standby: { bg: 'var(--bg-2)', color: 'var(--text-3)', label: '待机' }, sleeping: { bg: 'var(--bg-2)', color: 'var(--text-3)', label: '休眠' } };
-  const s = m[status] ?? m.standby;
-  return <span style={{ fontSize: 13, padding: '2px 7px', borderRadius: 10, background: s.bg, color: s.color, fontWeight: 500 }}>{s.label}</span>;
+  const map: Record<string, { bg: string; color: string; label: string }> = {
+    running: { bg: 'var(--blue-light)', color: 'var(--blue)', label: '运行中' },
+    idle: { bg: 'var(--green-light)', color: 'var(--green)', label: '空闲' },
+    standby: { bg: 'var(--bg-2)', color: 'var(--text-3)', label: '待机' },
+  }
+  const item = map[status] ?? map.standby
+  return <span style={{ fontSize: 13, padding: '2px 7px', borderRadius: 10, background: item.bg, color: item.color, fontWeight: 500 }}>{item.label}</span>
 }
 
 function TaskStatusBadge({ status }: { status: string }) {
-  const m: Record<string, { bg: string; color: string; label: string }> = { executing: { bg: 'var(--blue-light)', color: 'var(--blue)', label: '进行中' }, planning: { bg: 'var(--purple-light)', color: 'var(--purple)', label: '规划中' }, reviewing: { bg: 'var(--yellow-light)', color: 'var(--yellow)', label: '审查中' }, blocked: { bg: 'var(--red-light)', color: 'var(--red)', label: '已阻塞' }, completed: { bg: 'var(--green-light)', color: 'var(--green)', label: '已完成' }, backlog: { bg: 'var(--bg-2)', color: 'var(--text-3)', label: '待办' } };
-  const s = m[status] ?? m.backlog;
-  return <span style={{ fontSize: 13, padding: '2px 8px', borderRadius: 10, background: s.bg, color: s.color, fontWeight: 500, flexShrink: 0 }}>{s.label}</span>;
-}
-
-function formatTime(iso: string): string { try { return new Date(iso).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }); } catch { return iso; } }
-
-function sessionLabel(session: SessionData): string {
-  const title = session.title?.trim()
-  return title ? title : `${session.id.slice(0, 8)}...`
+  const map: Record<string, { bg: string; color: string; label: string }> = {
+    executing: { bg: 'var(--blue-light)', color: 'var(--blue)', label: '进行中' },
+    planning: { bg: 'var(--purple-light)', color: 'var(--purple)', label: '规划中' },
+    reviewing: { bg: 'var(--yellow-light)', color: 'var(--yellow)', label: '审查中' },
+    blocked: { bg: 'var(--red-light)', color: 'var(--red)', label: '已阻塞' },
+    completed: { bg: 'var(--green-light)', color: 'var(--green)', label: '已完成' },
+    backlog: { bg: 'var(--bg-2)', color: 'var(--text-3)', label: '待办' },
+  }
+  const item = map[status] ?? map.backlog
+  return <span style={{ fontSize: 13, padding: '2px 8px', borderRadius: 10, background: item.bg, color: item.color, fontWeight: 500, flexShrink: 0 }}>{item.label}</span>
 }
