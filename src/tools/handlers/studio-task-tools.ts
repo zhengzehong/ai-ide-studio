@@ -68,7 +68,7 @@ export const studioTaskListHandler: ToolHandler = {
     type: 'object',
     properties: {
       projectId: { type: 'string', description: '项目 ID（不传用当前会话项目）' },
-      status: { type: 'string', description: '按状态过滤：backlog/executing/needs_input/blocked/reviewing/completed/cancelled' },
+      status: { type: 'string', description: '按状态过滤：backlog/executing/needs_input/completed/cancelled' },
     },
   },
   async execute(input, context) {
