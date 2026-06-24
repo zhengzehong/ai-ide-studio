@@ -1,10 +1,11 @@
-import { taskStore, type CreateTaskInput } from '../store/tasks.js'
+import { taskAttachmentStore, taskStore, type CreateTaskInput, type TaskAttachmentRow } from '../store/tasks.js'
 import { agentStore } from '../store/agents.js'
 import { sessionStore } from '../store/sessions.js'
 import { sessionManager } from './sessions.js'
 import { events } from './events.js'
 import { emitTaskLifecycleEvent } from './task-lifecycle-events.js'
 import { createChildLogger } from './logger.js'
+import { appendHiddenAttachmentNote, loadStoredImagesForAcp, saveTaskImages, type StoredImageAttachment } from './image-attachments.js'
 
 const log = createChildLogger('task')
 
@@ -30,6 +31,12 @@ export const taskManager = {
       sessionMode === 'existing' || (sessionMode === 'new_fixed' && input.sessionId) ? input.sessionId : undefined,
     )
     const task = taskStore.create(input)
+    const savedImages = await saveTaskImages({
+      projectId: input.projectId,
+      taskId: task.id,
+      images: input.images,
+    })
+    if (savedImages.length > 0) taskAttachmentStore.replace(task.id, savedImages)
     log.info({ taskId: task.id, title: task.title, agentId: input.assignAgentId }, '任务已创建')
 
     events.emit('task:update', {
@@ -68,7 +75,12 @@ export const taskManager = {
           { id: task.id, title: task.title, description: task.description, source: task.source },
           { sessionReuse, ruleName: input.ruleName },
         )
-        sessionManager.enqueuePrompt(session.id, prompt).catch((err) => {
+        const promptWithAttachments = appendHiddenAttachmentNote(prompt, savedImages)
+        const promptImages = savedImages.length > 0 ? await loadStoredImagesForAcp(savedImages) : undefined
+        const queued = promptImages
+          ? sessionManager.enqueuePrompt(session.id, promptWithAttachments, promptImages)
+          : sessionManager.enqueuePrompt(session.id, promptWithAttachments)
+        queued.catch((err) => {
           log.error({ err, taskId: task.id, sessionId: session.id }, '任务 prompt 发送失败')
           taskStore.updateStatus(task.id, 'blocked', `执行失败: ${(err as Error).message}`)
           events.emit('task:update', {
@@ -134,7 +146,13 @@ export const taskManager = {
         { id: task.id, title: task.title, description: task.description, source: task.source },
         { sessionReuse: session.reuse, ruleName: input.ruleName },
       )
-      sessionManager.enqueuePrompt(session.id, prompt).catch((err: Error) => {
+      const taskImages = toStoredImageAttachments(taskAttachmentStore.list(input.taskId))
+      const promptWithAttachments = appendHiddenAttachmentNote(prompt, taskImages)
+      const promptImages = taskImages.length > 0 ? await loadStoredImagesForAcp(taskImages) : undefined
+      const queued = promptImages
+        ? sessionManager.enqueuePrompt(session.id, promptWithAttachments, promptImages)
+        : sessionManager.enqueuePrompt(session.id, promptWithAttachments)
+      queued.catch((err: Error) => {
         log.error({ err, taskId: input.taskId, sessionId: session.id }, 'Task prompt failed')
         taskStore.updateStatus(input.taskId, 'blocked', `Execution failed: ${err.message}`)
         const failed = taskStore.get(input.taskId)!
@@ -230,6 +248,18 @@ function validateAssignedAgentProject(agentId: string | undefined, projectId: st
   if (!agent) throw new Error(`Agent not found: ${agentId}`)
   if (projectId && agent.project_id !== projectId)
     throw new Error(`Project mismatch: Agent ${agentId} is outside current project`)
+}
+
+function toStoredImageAttachments(rows: TaskAttachmentRow[]): StoredImageAttachment[] {
+  return rows.map((row) => ({
+    mimeType: row.mime_type,
+    name: row.name ?? undefined,
+    relativePath: row.relative_path,
+    path: row.absolute_path,
+    url: row.url,
+    size: row.size,
+    order: row.sort_order,
+  }))
 }
 
 export function buildTaskPrompt(task: { id: string; title: string; description?: string | null; source: string }, opts?: { sessionReuse?: boolean; ruleName?: string }): string {

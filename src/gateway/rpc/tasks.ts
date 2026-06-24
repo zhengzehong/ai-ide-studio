@@ -1,8 +1,9 @@
-import { taskManager, buildTaskPrompt, emitTaskLifecycleEvent, resolveSessionMode, resolveTaskSession, validateSessionModeTarget, validateTaskAssignment } from '../../core/tasks.js'
+import { taskManager, resolveSessionMode, validateSessionModeTarget, validateTaskAssignment } from '../../core/tasks.js'
 import { taskStore } from '../../store/tasks.js'
 import { sessionStore, type SessionRow } from '../../store/sessions.js'
 import { events } from '../../core/events.js'
 import type { RpcHandlerMap } from './types.js'
+import type { ImageAttachment } from '../../types/ws-protocol.js'
 
 export const taskRpcHandlers: RpcHandlerMap = {
   'tasks.list'(msg, { sendResult }) {
@@ -29,6 +30,7 @@ export const taskRpcHandlers: RpcHandlerMap = {
       projectId: msg.projectId as string | undefined,
       sessionId: msg.sessionId as string | undefined,
       sessionMode: resolveSessionMode(msg.sessionMode, msg.sessionId as string | undefined),
+      images: msg.images as ImageAttachment[] | undefined,
     })
     sendResult(task)
   },
@@ -81,41 +83,10 @@ export const taskRpcHandlers: RpcHandlerMap = {
       task.project_id,
       sessionMode === 'existing' || (sessionMode === 'new_fixed' && sessionId) ? sessionId : undefined,
     )
-    const { sessionManager } = await import('../../core/sessions.js')
-
     try {
-      taskStore.assignAgent(taskId, agentId)
-      const session = await resolveTaskSession({
-        agentId,
-        projectId: task.project_id,
-        taskId,
-        sessionId,
-        sessionMode,
-      })
-
-      taskStore.updateStatus(taskId, 'executing', '已分派给 Agent')
-      taskStore.linkSession(taskId, session.id)
-      events.emit('task:update', {
-        taskId,
-        data: { ...taskStore.get(taskId), sessionId: session.id, assignedAgentId: agentId, event: 'assigned' },
-      })
-      emitTaskLifecycleEvent(taskStore.get(taskId)!, 'assigned', task.status)
-
-      const prompt = buildTaskPrompt(
-        { id: task.id, title: task.title, description: task.description, source: task.source },
-        { sessionReuse: session.reuse },
-      )
-      sessionManager.enqueuePrompt(session.id, prompt).catch((err: Error) => {
-        taskStore.updateStatus(taskId, 'blocked', `指派 prompt 发送失败: ${err.message}`)
-        events.emit('task:update', { taskId, data: { ...taskStore.get(taskId), event: 'prompt_failed' } })
-        emitTaskLifecycleEvent(taskStore.get(taskId)!, 'prompt_failed', 'executing')
-      })
-
-      sendResult({ ...taskStore.get(taskId), sessionId: session.id })
+      const assigned = await taskManager.assignTask({ taskId, agentId, sessionId, sessionMode })
+      sendResult(assigned)
     } catch (err) {
-      taskStore.updateStatus(taskId, 'blocked', `指派失败: ${(err as Error).message}`)
-      events.emit('task:update', { taskId, data: { ...taskStore.get(taskId), event: 'assign_failed' } })
-      emitTaskLifecycleEvent(taskStore.get(taskId)!, 'assign_failed', task.status)
       sendError(`指派失败: ${(err as Error).message}`)
     }
   },

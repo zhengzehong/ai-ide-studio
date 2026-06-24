@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { wsClient } from '../services/ws-client'
+import type { ImageAttachmentInfo } from './session-events'
 
 export interface TaskData {
   id: string
@@ -29,7 +30,7 @@ interface TaskStore {
   tasks: TaskData[]
   loading: boolean
   fetchTasks: (projectId?: string) => Promise<void>
-  createTask: (title: string, description?: string, assignAgentId?: string, projectId?: string, sessionId?: string, sessionMode?: SessionMode) => Promise<TaskData>
+  createTask: (title: string, description?: string, assignAgentId?: string, projectId?: string, sessionId?: string, sessionMode?: SessionMode, images?: ImageAttachmentInfo[]) => Promise<TaskData>
   updateTask: (taskId: string, status: string, stage?: string) => Promise<TaskData>
   updateTaskInfo: (taskId: string, fields: { title?: string; description?: string }) => Promise<TaskData>
   deleteTask: (taskId: string) => Promise<void>
@@ -53,13 +54,14 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     }
   },
 
-  createTask: async (title, description, assignAgentId, projectId, sessionId, sessionMode) => {
+  createTask: async (title, description, assignAgentId, projectId, sessionId, sessionMode, images) => {
     const msg: Record<string, unknown> = { type: 'tasks.create', title }
     if (description) msg.description = description
     if (assignAgentId) msg.assignAgentId = assignAgentId
     if (projectId) msg.projectId = projectId
     if (sessionId) msg.sessionId = sessionId
     if (sessionMode) msg.sessionMode = sessionMode
+    if (images?.length) msg.images = images
     const task = (await wsClient.request(msg)) as TaskData
     set({ tasks: mergeTaskById(get().tasks, task) })
     return task

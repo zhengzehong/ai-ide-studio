@@ -113,6 +113,7 @@ import { sessionIndicator } from '../utils/session-indicators'
 import { elapsedSecondsBetween, formatCompactDuration } from '../utils/duration'
 import { ContextMenu, PromptDialog, ConfirmDialog, AlertDialog } from '../components/ModalDialog'
 import { LocalSessionImportModal } from './workspace/LocalSessionImportModal'
+import { TaskImageInput } from '../components/task/TaskImageInput'
 
 const COPYING_STAGE = '正在复制会话...'
 
@@ -998,7 +999,7 @@ export default function Workspace() {
         <NewTaskModal
           agents={projectAgents}
           projectId={currentProjectId}
-          onCreate={(title, desc, agentId, sessionId, sessionMode) => createTask(title, desc, agentId, currentProjectId ?? undefined, sessionId, sessionMode)}
+          onCreate={(title, desc, agentId, sessionId, sessionMode, images) => createTask(title, desc, agentId, currentProjectId ?? undefined, sessionId, sessionMode, images)}
           onClose={() => setShowNewTask(false)}
         />
       )}
@@ -3869,7 +3870,7 @@ function ChatBubbleBlockView({
           {attachments.map((img, i) => (
             <img
               key={i}
-              src={`data:${img.mimeType};base64,${img.data}`}
+              src={imageAttachmentSrc(img)}
               alt={img.name || '附件'}
               style={{
                 maxWidth: 180,
@@ -3902,6 +3903,18 @@ function ChatBubbleBlockView({
 }
 
 /* ─── Dropdown Portal ─── */
+function imageAttachmentSrc(img: ImageAttachmentInfo): string {
+  return img.data ? `data:${img.mimeType};base64,${img.data}` : withCurrentToken(img.url || '')
+}
+
+function withCurrentToken(url: string): string {
+  if (!url || typeof window === 'undefined') return url
+  const token = new URLSearchParams(window.location.search).get('token')
+  if (!token) return url
+  const separator = url.includes('?') ? '&' : '?'
+  return `${url}${separator}token=${encodeURIComponent(token)}`
+}
+
 function DropdownPortal({
   children,
   onClose,
@@ -4079,7 +4092,7 @@ function NewTaskModal({
 }: {
   agents: AgentData[]
   projectId: string | null
-  onCreate: (title: string, desc?: string, agentId?: string, sessionId?: string, sessionMode?: SessionMode) => Promise<TaskData>
+  onCreate: (title: string, desc?: string, agentId?: string, sessionId?: string, sessionMode?: SessionMode, images?: ImageAttachmentInfo[]) => Promise<TaskData>
   onClose: () => void
 }) {
   const [title, setTitle] = useState('')
@@ -4087,6 +4100,7 @@ function NewTaskModal({
   const [agentId, setAgentId] = useState('')
   const [sessionMode, setSessionMode] = useState<SessionMode>('new_fixed')
   const [sessionId, setSessionId] = useState('')
+  const [images, setImages] = useState<ImageAttachmentInfo[]>([])
   const [creating, setCreating] = useState(false)
   const sessions = useSessionStore((s) => s.sessions)
   const agentSessions = useMemo(() => {
@@ -4102,7 +4116,7 @@ function NewTaskModal({
     setCreating(true)
     try {
       const target = buildWorkspaceTaskCreateTarget({ agentId, sessionMode, sessionId })
-      await onCreate(title, desc || undefined, target.agentId, target.sessionId, target.sessionMode)
+      await onCreate(title, desc || undefined, target.agentId, target.sessionId, target.sessionMode, images)
       onClose()
     } catch (e) {
       console.error('创建任务失败:', e)
@@ -4174,6 +4188,7 @@ function NewTaskModal({
               }}
             />
           </div>
+          <TaskImageInput images={images} onChange={setImages} />
           <div>
             <label style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>
               指派 Agent

@@ -9,9 +9,14 @@ import {
 } from './turn-blocks'
 
 export interface ImageAttachmentInfo {
-  data: string
+  data?: string
   mimeType: string
   name?: string
+  url?: string
+  relativePath?: string
+  path?: string
+  size?: number
+  order?: number
 }
 
 export interface MessageData {

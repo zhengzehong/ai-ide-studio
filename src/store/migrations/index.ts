@@ -20,6 +20,7 @@ import { eventConsumerSessionStrategyMigration } from './019-event-consumer-sess
 import { modelProfileDefaultMigration } from './020-model-profile-default.js'
 import { knowledgeBaseMigration } from './021-knowledge-base.js'
 import { sessionReadStateMigration } from './022-session-read-state.js'
+import { taskAttachmentsMigration } from './023-task-attachments.js'
 import type { Migration } from '../migrator.js'
 
 export const migrations: Migration[] = [
@@ -45,4 +46,5 @@ export const migrations: Migration[] = [
   modelProfileDefaultMigration,
   knowledgeBaseMigration,
   sessionReadStateMigration,
+  taskAttachmentsMigration,
 ]

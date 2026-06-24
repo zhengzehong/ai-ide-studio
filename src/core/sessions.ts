@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { sessionStore, messageStore, eventStore, type SessionRow } from '../store/sessions.js'
 import { taskStore } from '../store/tasks.js'
 import { agentStore } from '../store/agents.js'
@@ -27,6 +28,7 @@ import {
   recordTurnProcessUpdate,
   startTurnProcess,
 } from './turn-process-runtime.js'
+import { appendHiddenAttachmentNote, loadStoredImagesForAcp, saveSessionImages } from './image-attachments.js'
 
 const log = createChildLogger('session')
 
@@ -381,7 +383,16 @@ async function sendPromptNow(session: SessionRow, content: string, images?: Imag
   emitSessionActivity(sessionId, session.agent_id, 'running', 'prompt-started', turnId)
   const agentMessageId = createAgentMessageId()
   try {
-    const humanMessage = messageStore.append(sessionId, { id: options.clientMessageId, role: 'human', content, attachments: images })
+    const generatedHumanMessageId = imageCount > 0 ? `msg-${randomUUID().slice(0, 8)}` : undefined
+    const humanMessageId = options.clientMessageId ?? generatedHumanMessageId
+    const storedImages = await saveSessionImages({
+      projectId: effectiveProjectId,
+      sessionId,
+      messageId: humanMessageId ?? `msg-${randomUUID().slice(0, 8)}`,
+      images,
+    })
+    const messageAttachments = storedImages.length > 0 ? storedImages : images
+    const humanMessage = messageStore.append(sessionId, { id: humanMessageId, role: 'human', content, attachments: messageAttachments })
     recordPromptProgress(sessionId, 'human.message.persisted')
     log.info(
       { sessionId, agentId: session.agent_id, turnId, messageId: humanMessage.id, contentLength: humanMessage.content.length, imageCount, timestamp: humanMessage.timestamp },
@@ -393,7 +404,7 @@ async function sendPromptNow(session: SessionRow, content: string, images?: Imag
       agentId: session.agent_id,
       messageId: humanMessage.id,
       role: 'human',
-      payload: { messageId: humanMessage.id, content, attachments: images || [] },
+      payload: { messageId: humanMessage.id, content, attachments: messageAttachments || [] },
     })
     log.info(
       { sessionId, agentId: session.agent_id, turnId, eventId: stored.id, sequence: stored.sequence, messageId: stored.message_id },
@@ -430,10 +441,14 @@ async function sendPromptNow(session: SessionRow, content: string, images?: Imag
       sessionStore.updateAcpSessionId(sessionId, acpSessionId)
       log.info({ sessionId, agentId: session.agent_id, turnId, acpSessionId }, 'ACP Session mapped')
     }
-    const acpContent = maybeWrapTeamLeaderPrompt(sessionId, content, effectiveProjectId)
+    const acpContent = appendHiddenAttachmentNote(
+      maybeWrapTeamLeaderPrompt(sessionId, content, effectiveProjectId),
+      storedImages,
+    )
+    const acpImages = storedImages.length > 0 ? await loadStoredImagesForAcp(storedImages) : images
     emitLifecycle(session.agent_id, sessionId, 'lifecycle.prompt_sent', '正在思考...', agentMessageId)
     recordPromptProgress(sessionId, 'acp.prompt.started')
-    await acpHost.prompt(session.agent_id, sessionId, acpContent, images, { turnId, messageId: agentMessageId })
+    await acpHost.prompt(session.agent_id, sessionId, acpContent, acpImages, { turnId, messageId: agentMessageId })
     recordPromptProgress(sessionId, 'acp.prompt.resolved')
     log.info({ sessionId, agentId: session.agent_id, turnId, elapsedMs: Date.now() - startedAt }, 'prompt completed')
   } catch (err) {

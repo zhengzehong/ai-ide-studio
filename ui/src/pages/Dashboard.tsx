@@ -20,6 +20,8 @@ import { useTaskStore } from '../stores/task.store';
 import { useConnectionStore } from '../stores/connection.store';
 import { useProjectStore } from '../stores/project.store';
 import { scopeDashboardData } from './dashboard-scope';
+import { TaskImageInput } from '../components/task/TaskImageInput';
+import type { ImageAttachmentInfo } from '../stores/session-events';
 
 type ModalType = null | 'task';
 const TYPE_COLORS: Record<string, string> = { dev: '#2563eb', test: '#059669', ops: '#ea580c', security: '#dc2626', architect: '#7c3aed', pm: '#7c3aed' };
@@ -145,16 +147,17 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {modal === 'task' && <NewTaskModal agents={projectAgents} sessions={projectSessions} onCreate={async (t, d, a, s) => { await createTask(t, d, a, currentProjectId ?? undefined, s); await fetchTasks(currentProjectId ?? undefined); setModal(null); }} onClose={() => setModal(null)} />}
+      {modal === 'task' && <NewTaskModal agents={projectAgents} sessions={projectSessions} onCreate={async (t, d, a, s, images) => { await createTask(t, d, a, currentProjectId ?? undefined, s, undefined, images); await fetchTasks(currentProjectId ?? undefined); setModal(null); }} onClose={() => setModal(null)} />}
     </div>
   );
 }
 
-function NewTaskModal({ agents, sessions, onCreate, onClose }: { agents: AgentData[]; sessions: SessionData[]; onCreate: (t: string, d?: string, a?: string, s?: string) => Promise<void>; onClose: () => void }) {
+function NewTaskModal({ agents, sessions, onCreate, onClose }: { agents: AgentData[]; sessions: SessionData[]; onCreate: (t: string, d?: string, a?: string, s?: string, images?: ImageAttachmentInfo[]) => Promise<void>; onClose: () => void }) {
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
   const [agentId, setAgentId] = useState('');
   const [sessionId, setSessionId] = useState('');
+  const [images, setImages] = useState<ImageAttachmentInfo[]>([]);
   const agentSessions = useMemo(() => {
     if (!agentId) return [];
     return sessions.filter(s => s.agent_id === agentId);
@@ -169,6 +172,7 @@ function NewTaskModal({ agents, sessions, onCreate, onClose }: { agents: AgentDa
         <label style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>描述</label>
         <textarea value={desc} onChange={e => setDesc(e.target.value)} placeholder="详细描述需求..." rows={3} style={{ ...inputStyle, resize: 'vertical' }} />
       </div>
+      <TaskImageInput images={images} onChange={setImages} />
       <div>
         <label style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>指派 Agent</label>
         <select value={agentId} onChange={e => { setAgentId(e.target.value); setSessionId(''); }} style={inputStyle}>
@@ -187,7 +191,7 @@ function NewTaskModal({ agents, sessions, onCreate, onClose }: { agents: AgentDa
         </div>
       )}
       <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-        <ModalBtn label="创建任务" primary onClick={() => onCreate(title, desc || undefined, agentId || undefined, sessionId || undefined)} />
+        <ModalBtn label="创建任务" primary onClick={() => onCreate(title, desc || undefined, agentId || undefined, sessionId || undefined, images)} />
         <ModalBtn label="取消" onClick={onClose} />
       </div>
     </Modal>
