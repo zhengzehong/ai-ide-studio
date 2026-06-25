@@ -35,6 +35,7 @@ import {
   Paperclip,
   ArrowUp,
   FileText,
+  Clock,
   FolderOpen,
   GripVertical,
   Eye,
@@ -57,7 +58,7 @@ import {
   type ToolCallInfo,
 } from '../stores/session.store'
 import type { TurnProcessBlock } from '../stores/turn-blocks'
-import { useTaskStore, type SessionMode, type TaskData } from '../stores/task.store'
+import { useTaskStore, type SessionMode, type TaskData, type TaskEventData } from '../stores/task.store'
 import { useConnectionStore } from '../stores/connection.store'
 import { useProjectStore } from '../stores/project.store'
 import { useModelStore, type ModelProfileData } from '../stores/model.store'
@@ -155,6 +156,8 @@ export default function Workspace() {
   const fetchTasks = useTaskStore((s) => s.fetchTasks)
   const tasks = useTaskStore((s) => s.tasks)
   const createTask = useTaskStore((s) => s.createTask)
+  const modes = useTaskStore((s) => s.modes)
+  const fetchModes = useTaskStore((s) => s.fetchModes)
   const teamContext = useTeamStore((s) => s.current)
   const fetchCurrentTeam = useTeamStore((s) => s.fetchCurrent)
   const clearCurrentTeam = useTeamStore((s) => s.clearCurrent)
@@ -456,9 +459,10 @@ export default function Workspace() {
       void fetchAgents(currentProjectId)
       void fetchSessions(undefined, currentProjectId)
       void fetchTasks(currentProjectId)
+      void fetchModes(currentProjectId ?? undefined)
     })
     return () => { off() }
-  }, [connected, currentProjectId, currentSessionId, teamContext.team?.id, fetchAgents, fetchSessions, fetchTasks])
+  }, [connected, currentProjectId, currentSessionId, teamContext.team?.id, fetchAgents, fetchSessions, fetchTasks, fetchModes])
 
   useEffect(() => {
     if (!currentSessionId || !connected) {
@@ -472,7 +476,7 @@ export default function Workspace() {
       {/* ─── Left Sidebar ─── */}
       <aside
         style={{
-          width: 250,
+          width: 220,
           flexShrink: 0,
           display: 'flex',
           flexDirection: 'column',
@@ -925,20 +929,22 @@ export default function Workspace() {
       )}
 
       {/* ─── Center Chat ─── */}
-      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-        <WorkspaceChatPane
-          connected={connected}
-          currentSessionId={currentSessionId}
-          chatAgent={chatAgent}
-          currentSessionTitle={currentSessionId ? sessionTitle(currentSession ?? { id: currentSessionId }) : undefined}
-          currentSessionCopying={currentSessionCopying}
-        />
+      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, alignItems: 'center' }}>
+        <div style={{ width: '100%', maxWidth: 720, display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+          <WorkspaceChatPane
+            connected={connected}
+            currentSessionId={currentSessionId}
+            chatAgent={chatAgent}
+            currentSessionTitle={currentSessionId ? sessionTitle(currentSession ?? { id: currentSessionId }) : undefined}
+            currentSessionCopying={currentSessionCopying}
+          />
+        </div>
       </main>
 
       {/* Right Sidebar: session context */}
       <aside
         style={{
-          width: 280,
+          width: 420,
           flexShrink: 0,
           display: 'flex',
           flexDirection: 'column',
@@ -990,7 +996,14 @@ export default function Workspace() {
                 <Plus size={12} /> 新建
               </button>
             </div>
-            <TaskPanel tasks={tasks} agents={projectAgents} />
+            <TaskPanel
+              tasks={tasks}
+              agents={projectAgents}
+              modes={modes}
+              currentSessionTaskId={currentSession?.task_id ?? null}
+              onSelectSession={handleSelectSession}
+              projectId={currentProjectId ?? undefined}
+            />
           </>
         )}
       </aside>
@@ -2364,10 +2377,56 @@ function taskStageColor(s: string): string {
   )
 }
 
-function TaskPanel({ tasks, agents }: { tasks: TaskData[]; agents: AgentData[] }) {
+function TaskPanel({
+  tasks,
+  agents,
+  modes,
+  currentSessionTaskId,
+  onSelectSession,
+  projectId,
+}: {
+  tasks: TaskData[]
+  agents: AgentData[]
+  modes: Array<{ id: string; name: string }>
+  currentSessionTaskId: string | null
+  onSelectSession: (agentId: string, sessionId: string) => void
+  projectId?: string
+}) {
   const [tab, setTab] = useState('all')
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const filtered = tasks.filter(TASK_TABS.find((t) => t.key === tab)!.filter)
   const agentMap = new Map(agents.map((a) => [a.id, a]))
+  const sessions = useSessionStore((s) => s.sessions)
+  const selectSession = useSessionStore((s) => s.selectSession)
+
+  const selectedTask = selectedTaskId ? tasks.find((t) => t.id === selectedTaskId) ?? null : null
+  const sessionsForTask = useMemo(() => {
+    if (!selectedTask) return []
+    return sessions.filter((s) => {
+      if (s.task_id !== selectedTask.id) return false
+      if (projectId && s.project_id !== projectId) return false
+      return true
+    })
+  }, [selectedTask, sessions, projectId])
+
+  const handleJumpToSession = (sessionId: string, agentId: string) => {
+    selectSession(sessionId)
+    onSelectSession(agentId, sessionId)
+    setSelectedTaskId(null)
+  }
+
+  if (selectedTask) {
+    return (
+      <TaskDetailInline
+        task={selectedTask}
+        agents={agents}
+        modes={modes}
+        sessions={sessionsForTask}
+        onBack={() => setSelectedTaskId(null)}
+        onJumpToSession={handleJumpToSession}
+      />
+    )
+  }
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
@@ -2420,7 +2479,7 @@ function TaskPanel({ tasks, agents }: { tasks: TaskData[]; agents: AgentData[] }
         })}
       </div>
       {/* Task list */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '6px 12px' }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '6px 12px 12px' }}>
         {filtered.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '40px 12px', color: 'var(--text-3)' }}>
             <Archive size={28} style={{ opacity: 0.2, marginBottom: 8 }} />
@@ -2429,27 +2488,34 @@ function TaskPanel({ tasks, agents }: { tasks: TaskData[]; agents: AgentData[] }
         ) : (
           filtered.map((task) => {
             const ag = task.assigned_agent_id ? agentMap.get(task.assigned_agent_id) : null
+            const isCurrent = task.id === currentSessionTaskId
+            const reportBadge = task.agent_report_status
+              ? AGENT_REPORT_STATUS_BADGE[task.agent_report_status] ?? null
+              : null
             return (
               <div
                 key={task.id}
+                onClick={() => setSelectedTaskId(task.id)}
                 style={{
-                  padding: '10px 12px',
+                  padding: isCurrent ? '10px 12px 10px 10px' : '10px 12px',
                   borderRadius: 8,
-                  border: '1px solid var(--border)',
-                  background: 'var(--bg-1)',
+                  border: isCurrent ? '1px solid var(--blue)' : '1px solid var(--border)',
+                  borderLeft: isCurrent ? '3px solid var(--blue)' : '1px solid var(--border)',
+                  background: isCurrent ? 'var(--blue-light)' : 'var(--bg-1)',
                   marginBottom: 6,
-                  transition: 'box-shadow 0.15s',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s',
                 }}
               >
                 <div
-                  style={{ fontSize: 15, fontWeight: 500, marginBottom: 4, lineHeight: 1.4, color: 'var(--text-1)' }}
+                  style={{ fontSize: 14, fontWeight: 500, marginBottom: 4, lineHeight: 1.4, color: 'var(--text-1)' }}
                 >
                   {task.title}
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                   <span
                     style={{
-                      fontSize: 12,
+                      fontSize: 11,
                       color: 'white',
                       fontWeight: 600,
                       padding: '2px 8px',
@@ -2459,10 +2525,24 @@ function TaskPanel({ tasks, agents }: { tasks: TaskData[]; agents: AgentData[] }
                   >
                     {task.stage || taskStageLabel(task.status)}
                   </span>
+                  {reportBadge && (
+                    <span
+                      style={{
+                        fontSize: 11,
+                        padding: '1px 6px',
+                        borderRadius: 8,
+                        background: reportBadge.bg,
+                        color: reportBadge.color,
+                        fontWeight: 500,
+                      }}
+                    >
+                      {reportBadge.label}
+                    </span>
+                  )}
                   {ag && (
                     <span
                       style={{
-                        fontSize: 12,
+                        fontSize: 11,
                         padding: '2px 8px',
                         borderRadius: 10,
                         background: agentColor(ag),
@@ -2473,14 +2553,28 @@ function TaskPanel({ tasks, agents }: { tasks: TaskData[]; agents: AgentData[] }
                       {ag.name}
                     </span>
                   )}
-                  <span style={{ fontSize: 12, color: 'var(--text-3)', marginLeft: 'auto' }}>
+                  {isCurrent && (
+                    <span
+                      style={{
+                        fontSize: 10,
+                        padding: '1px 6px',
+                        borderRadius: 8,
+                        background: 'var(--blue)',
+                        color: 'white',
+                        fontWeight: 600,
+                      }}
+                    >
+                      当前
+                    </span>
+                  )}
+                  <span style={{ fontSize: 11, color: 'var(--text-3)', marginLeft: 'auto' }}>
                     {formatTime(task.created_at)}
                   </span>
                 </div>
                 {task.description && (
                   <div
                     style={{
-                      fontSize: 13,
+                      fontSize: 12,
                       color: 'var(--text-3)',
                       marginTop: 6,
                       lineHeight: 1.4,
@@ -2501,6 +2595,826 @@ function TaskPanel({ tasks, agents }: { tasks: TaskData[]; agents: AgentData[] }
     </div>
   )
 }
+
+const AGENT_REPORT_STATUS_BADGE: Record<string, { label: string; color: string; bg: string }> = {
+  in_progress: { label: '进行中', color: 'var(--blue)', bg: 'var(--blue-light)' },
+  milestone: { label: '里程碑', color: '#7c3aed', bg: '#ede9fe' },
+  blocked: { label: '卡住', color: 'var(--red)', bg: '#fee2e2' },
+  done: { label: '已完成', color: 'var(--green)', bg: 'var(--green-light)' },
+}
+
+const TASK_EVENT_TYPE_META: Record<string, { label: string; color: string; bg: string }> = {
+  created: { label: '创建', color: 'var(--text-3)', bg: 'var(--bg-2)' },
+  assigned: { label: '分派', color: '#7c3aed', bg: '#ede9fe' },
+  assigned_agent: { label: '分派', color: '#7c3aed', bg: '#ede9fe' },
+  self_claimed: { label: '自认领', color: 'var(--blue)', bg: 'var(--blue-light)' },
+  progress: { label: '进度', color: 'var(--text-2)', bg: 'var(--bg-2)' },
+  milestone: { label: '里程碑', color: '#7c3aed', bg: '#ede9fe' },
+  input_requested: { label: '请求确认', color: 'var(--red)', bg: '#fee2e2' },
+  marked_done: { label: '本轮完成', color: 'var(--green)', bg: 'var(--green-light)' },
+  replied: { label: '人工回复', color: 'var(--blue)', bg: 'var(--blue-light)' },
+  status_changed: { label: '状态变更', color: 'var(--text-2)', bg: 'var(--bg-2)' },
+  manual_status_change: { label: '手动改状态', color: 'var(--text-2)', bg: 'var(--bg-2)' },
+  agent_status_changed: { label: 'Agent状态', color: 'var(--text-2)', bg: 'var(--bg-2)' },
+  session_linked: { label: '关联会话', color: 'var(--text-2)', bg: 'var(--bg-2)' },
+  updated: { label: '更新', color: 'var(--text-2)', bg: 'var(--bg-2)' },
+}
+
+function parseEventPayload(json: string): Record<string, unknown> {
+  try { return JSON.parse(json) as Record<string, unknown> } catch { return {} }
+}
+
+function formatRelativeTime(iso: string): string {
+  try {
+    const diff = Date.now() - new Date(iso).getTime()
+    const mins = Math.floor(diff / 60000)
+    if (mins < 1) return '刚刚'
+    if (mins < 60) return `${mins}分钟前`
+    const hours = Math.floor(mins / 60)
+    if (hours < 24) return `${hours}小时前`
+    const days = Math.floor(hours / 24)
+    return `${days}天前`
+  } catch { return iso }
+}
+
+function TaskDetailInline({
+  task,
+  agents,
+  modes,
+  sessions,
+  onBack,
+  onJumpToSession,
+}: {
+  task: TaskData
+  agents: AgentData[]
+  modes: Array<{ id: string; name: string }>
+  sessions: SessionData[]
+  onBack: () => void
+  onJumpToSession: (sessionId: string, agentId: string) => void
+}) {
+  const fetchTaskEvents = useTaskStore((s) => s.fetchTaskEvents)
+  const replyTask = useTaskStore((s) => s.replyTask)
+  const updateTask = useTaskStore((s) => s.updateTask)
+  const [events, setEvents] = useState<TaskEventData[]>([])
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null)
+  const [showReportModal, setShowReportModal] = useState(false)
+  const [replyOpen, setReplyOpen] = useState(false)
+  const [replyText, setReplyText] = useState('')
+  const [updating, setUpdating] = useState(false)
+  const [statusModalOpen, setStatusModalOpen] = useState(false)
+  const [statusValue, setStatusValue] = useState(task.status)
+  const [statusReason, setStatusReason] = useState('')
+  const [timelineCollapsed, setTimelineCollapsed] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    fetchTaskEvents(task.id).then((loaded) => {
+      if (cancelled) return
+      setEvents(loaded)
+      const latestWithMd = loaded.find((ev) => {
+        const payload = parseEventPayload(ev.payload_json)
+        return typeof payload.report_md === 'string' && payload.report_md
+      }) ?? loaded[0] ?? null
+      setSelectedEventId(latestWithMd?.id ?? null)
+    })
+    return () => { cancelled = true }
+  }, [task.id, fetchTaskEvents])
+
+  const effectiveStatusValue = statusModalOpen ? statusValue : task.status
+
+  const agent = task.assigned_agent_id ? agents.find((a) => a.id === task.assigned_agent_id) : null
+  const currentMode = task.execution_mode_id ? modes.find((m) => m.id === task.execution_mode_id) : null
+  const sortedEvents = [...events].sort((a, b) => b.sequence - a.sequence)
+  const selectedEvent = selectedEventId ? sortedEvents.find((ev) => ev.id === selectedEventId) ?? null : sortedEvents[0] ?? null
+  const selectedPayload = selectedEvent ? parseEventPayload(selectedEvent.payload_json) : {}
+  const selectedReportMd = typeof selectedPayload.report_md === 'string'
+    ? selectedPayload.report_md
+    : typeof selectedPayload.message === 'string'
+      ? selectedPayload.message
+      : typeof selectedPayload.reason === 'string'
+        ? selectedPayload.reason
+        : ''
+  const reportBadge = task.agent_report_status ? AGENT_REPORT_STATUS_BADGE[task.agent_report_status] ?? null : null
+  const iterationCount = events.filter((ev) => ev.type === 'input_requested' || ev.type === 'marked_done').length
+
+  const eventTitle = (ev: TaskEventData): string => {
+    const p = parseEventPayload(ev.payload_json)
+    if (ev.type === 'replied') return '人工回复'
+    if (ev.type === 'input_requested') return '请求确认'
+    if (ev.type === 'marked_done') return '标记完成'
+    if (ev.type === 'milestone') return '里程碑汇报'
+    if (ev.type === 'progress') return '更新进度'
+    if (ev.type === 'self_claimed') return '自认领任务'
+    if (ev.type === 'status_changed' || ev.type === 'manual_status_change') {
+      const from = typeof p.from_status === 'string' ? p.from_status : '?'
+      const to = typeof p.to_status === 'string' ? p.to_status : '?'
+      return `状态: ${from} → ${to}`
+    }
+    if (ev.type === 'assigned' || ev.type === 'assigned_agent') return '分派 Agent'
+    if (ev.type === 'created') return '创建任务'
+    if (ev.type === 'session_linked') return '关联会话'
+    return ev.type
+  }
+
+  const handleReply = async () => {
+    if (!replyText.trim()) return
+    setUpdating(true)
+    try {
+      await replyTask(task.id, replyText.trim())
+      setReplyText('')
+      setReplyOpen(false)
+      const refreshed = await fetchTaskEvents(task.id)
+      setEvents(refreshed)
+      const latest = refreshed[0]
+      if (latest) setSelectedEventId(latest.id)
+    } finally { setUpdating(false) }
+  }
+
+  const openStatusModal = () => {
+    setStatusValue(task.status)
+    setStatusReason('')
+    setStatusModalOpen(true)
+  }
+
+  const confirmStatusChange = async () => {
+    setUpdating(true)
+    try {
+      await updateTask(task.id, effectiveStatusValue, undefined, statusReason.trim() || undefined)
+      setStatusModalOpen(false)
+      const refreshed = await fetchTaskEvents(task.id)
+      setEvents(refreshed)
+    } finally { setUpdating(false) }
+  }
+
+  const copyReport = async () => {
+    try {
+      await navigator.clipboard.writeText(selectedReportMd)
+    } catch { /* ignore */ }
+  }
+
+  return (
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+      {/* Detail header */}
+      <div style={{
+        padding: '10px 14px',
+        borderBottom: '1px solid var(--border)',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        flexShrink: 0,
+      }}>
+        <button
+          type="button"
+          onClick={onBack}
+          style={{
+            border: 'none',
+            background: 'transparent',
+            cursor: 'pointer',
+            padding: 4,
+            borderRadius: 6,
+            color: 'var(--text-3)',
+            display: 'flex',
+            alignItems: 'center',
+          }}
+          title="返回任务列表"
+        >
+          <ChevronRight size={16} style={{ transform: 'rotate(180deg)' }} />
+        </button>
+        <div style={{ fontSize: 14, fontWeight: 600, flex: 1, minWidth: 0, lineHeight: 1.3 }}>
+          {task.title}
+        </div>
+      </div>
+
+      {/* Detail body */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '12px 14px 80px' }}>
+        {/* Info rows */}
+        <div style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 8,
+          padding: '10px 12px',
+          background: 'var(--bg-1)',
+          borderRadius: 8,
+          marginBottom: 14,
+          fontSize: 12,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ color: 'var(--text-3)', minWidth: 48, fontWeight: 500 }}>状态</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 }}>
+              <span style={{
+                fontSize: 11,
+                color: 'white',
+                fontWeight: 600,
+                padding: '2px 8px',
+                borderRadius: 10,
+                background: taskStageColor(task.status),
+              }}>
+                {taskStageLabel(task.status)}
+              </span>
+              {reportBadge && (
+                <span style={{
+                  fontSize: 11,
+                  padding: '1px 6px',
+                  borderRadius: 8,
+                  background: reportBadge.bg,
+                  color: reportBadge.color,
+                  fontWeight: 500,
+                }}>
+                  {reportBadge.label}
+                </span>
+              )}
+            </span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ color: 'var(--text-3)', minWidth: 48, fontWeight: 500 }}>Agent</span>
+            <span style={{ color: 'var(--text-1)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {agent ? agent.name : '未指派'}
+            </span>
+          </div>
+          {currentMode && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ color: 'var(--text-3)', minWidth: 48, fontWeight: 500 }}>模式</span>
+              <span style={{ color: 'var(--text-1)', flex: 1, minWidth: 0 }}>{currentMode.name}</span>
+            </div>
+          )}
+          {task.stage && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ color: 'var(--text-3)', minWidth: 48, fontWeight: 500 }}>阶段</span>
+              <span style={{
+                color: 'var(--text-2)',
+                fontSize: 12,
+                flex: 1,
+                minWidth: 0,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}>
+                {task.stage}
+              </span>
+            </div>
+          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ color: 'var(--text-3)', minWidth: 48, fontWeight: 500 }}>会话</span>
+            <span style={{ flex: 1, minWidth: 0, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+              {sessions.length === 0 ? (
+                <span style={{ color: 'var(--text-3)' }}>无关联会话</span>
+              ) : sessions.map((s) => {
+                const sessionAgent = agents.find((a) => a.id === s.agent_id)
+                return (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => onJumpToSession(s.id, s.agent_id)}
+                    title={`跳转到会话: ${s.title ?? s.id}`}
+                    style={{
+                      border: '1px solid var(--blue)',
+                      background: 'var(--blue-light)',
+                      color: 'var(--blue)',
+                      fontSize: 12,
+                      padding: '2px 8px',
+                      borderRadius: 8,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      maxWidth: '100%',
+                    }}
+                  >
+                    <MessageSquareIcon size={11} />
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }}>
+                      {s.title?.trim() || (sessionAgent ? `${sessionAgent.name} 会话` : s.id.slice(0, 8))}
+                    </span>
+                  </button>
+                )
+              })}
+            </span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ color: 'var(--text-3)', minWidth: 48, fontWeight: 500 }}>迭代</span>
+            <span style={{ color: 'var(--text-1)', flex: 1 }}>
+              {iterationCount} 轮 · 创建于 {formatRelativeTime(task.created_at)}
+            </span>
+          </div>
+        </div>
+
+        {/* Timeline section */}
+        <div style={{ marginBottom: 14 }}>
+          <div
+            onClick={() => setTimelineCollapsed((v) => !v)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '6px 0',
+              marginBottom: 6,
+              cursor: 'pointer',
+              userSelect: 'none',
+            }}
+          >
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-3)', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Clock size={12} />
+              历史时间线
+              <span style={{ fontSize: 11, color: 'var(--text-4)', fontWeight: 500 }}>({events.length})</span>
+            </div>
+            <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{timelineCollapsed ? '展开' : '收起'}</span>
+          </div>
+          {!timelineCollapsed && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, paddingLeft: 4 }}>
+              {sortedEvents.length === 0 && (
+                <div style={{ padding: '14px', fontSize: 12, color: 'var(--text-3)' }}>暂无记录</div>
+              )}
+              {sortedEvents.map((ev, idx) => {
+                const meta = TASK_EVENT_TYPE_META[ev.type] ?? { label: ev.type, color: 'var(--text-3)', bg: 'var(--bg-2)' }
+                const isSelected = selectedEvent?.id === ev.id
+                const isLast = idx === 0
+                return (
+                  <div
+                    key={ev.id}
+                    onClick={() => setSelectedEventId(ev.id)}
+                    style={{
+                      display: 'flex',
+                      gap: 10,
+                      padding: '6px 4px',
+                      borderRadius: 6,
+                      cursor: 'pointer',
+                      position: 'relative',
+                      background: isSelected ? 'var(--blue-light)' : 'transparent',
+                      transition: 'background 0.15s',
+                    }}
+                  >
+                    <div style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: '50%',
+                      background: isSelected ? 'var(--blue)' : meta.color,
+                      marginTop: 5,
+                      flexShrink: 0,
+                      border: '2px solid var(--bg-0)',
+                      position: 'relative',
+                      zIndex: 1,
+                    }} />
+                    {!isLast && (
+                      <div style={{
+                        position: 'absolute',
+                        left: 7,
+                        top: 14,
+                        bottom: -6,
+                        width: 1,
+                        background: 'var(--border)',
+                      }} />
+                    )}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                        <span style={{
+                          fontSize: 11,
+                          fontWeight: 600,
+                          padding: '1px 6px',
+                          borderRadius: 8,
+                          background: meta.bg,
+                          color: meta.color,
+                          whiteSpace: 'nowrap',
+                        }}>
+                          {meta.label}
+                        </span>
+                        <span style={{ fontSize: 10, color: 'var(--text-4)', marginLeft: 'auto' }}>
+                          {formatRelativeTime(ev.created_at)}
+                        </span>
+                      </div>
+                      <div style={{
+                        fontSize: 12,
+                        color: 'var(--text-2)',
+                        lineHeight: 1.4,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}>
+                        {eventTitle(ev)}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Report preview */}
+        {selectedReportMd && (
+          <div style={{ marginBottom: 14 }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '6px 0',
+              marginBottom: 6,
+            }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-3)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <FileText size={12} />
+                汇报内容
+              </div>
+            </div>
+            <div
+              onClick={() => setShowReportModal(true)}
+              style={{
+                position: 'relative',
+                background: 'var(--bg-1)',
+                border: '1px solid var(--border)',
+                borderRadius: 8,
+                padding: '10px 12px',
+                maxHeight: 140,
+                overflow: 'hidden',
+                cursor: 'pointer',
+                transition: 'border-color 0.15s',
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--blue)' }}
+              onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border)' }}
+            >
+              <div style={{
+                position: 'absolute',
+                left: 0,
+                right: 0,
+                bottom: 0,
+                height: 50,
+                background: 'linear-gradient(transparent, var(--bg-1))',
+                pointerEvents: 'none',
+              }} />
+              <div style={{ fontSize: 13, lineHeight: 1.6, color: 'var(--text-1)', maxHeight: 120, overflow: 'hidden' }}>
+                <MarkdownRenderer content={selectedReportMd} />
+              </div>
+              <span style={{
+                position: 'absolute',
+                right: 8,
+                bottom: 6,
+                fontSize: 11,
+                color: 'var(--blue)',
+                fontWeight: 500,
+                background: 'var(--bg-0)',
+                padding: '2px 8px',
+                borderRadius: 10,
+                border: '1px solid var(--border)',
+                zIndex: 1,
+              }}>
+                点击放大
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Bottom actions */}
+      <div style={{
+        borderTop: '1px solid var(--border)',
+        padding: '10px 14px',
+        display: 'flex',
+        gap: 8,
+        flexShrink: 0,
+        background: 'var(--bg-0)',
+      }}>
+        <button
+          type="button"
+          onClick={openStatusModal}
+          disabled={updating}
+          style={{
+            padding: '6px 12px',
+            borderRadius: 6,
+            border: '1px solid var(--border)',
+            background: 'var(--bg-1)',
+            color: 'var(--text-2)',
+            fontSize: 13,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
+          }}
+        >
+          改状态
+        </button>
+        {task.status === 'needs_input' && (
+          <button
+            type="button"
+            onClick={() => setReplyOpen((v) => !v)}
+            disabled={updating}
+            style={{
+              marginLeft: 'auto',
+              padding: '6px 12px',
+              borderRadius: 6,
+              border: 'none',
+              background: 'var(--blue)',
+              color: 'white',
+              fontSize: 13,
+              fontWeight: 500,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+            }}
+          >
+            <MessageSquareIcon size={12} />
+            回复 AI
+          </button>
+        )}
+      </div>
+
+      {/* Reply box */}
+      {replyOpen && task.status === 'needs_input' && (
+        <div style={{
+          padding: '0 14px 12px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 6,
+          background: 'var(--bg-0)',
+        }}>
+          <textarea
+            value={replyText}
+            onChange={(e) => setReplyText(e.target.value)}
+            placeholder="回复内容,AI 会继续执行..."
+            style={{
+              padding: '8px 10px',
+              border: '1px solid var(--border)',
+              borderRadius: 6,
+              fontSize: 13,
+              resize: 'vertical',
+              minHeight: 60,
+              background: 'var(--bg-1)',
+              color: 'var(--text-1)',
+              outline: 'none',
+              boxSizing: 'border-box',
+              width: '100%',
+            }}
+          />
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
+            <button
+              type="button"
+              onClick={() => { setReplyOpen(false); setReplyText('') }}
+              style={{
+                padding: '5px 10px',
+                borderRadius: 6,
+                border: 'none',
+                background: 'transparent',
+                color: 'var(--text-3)',
+                fontSize: 13,
+                cursor: 'pointer',
+              }}
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              onClick={handleReply}
+              disabled={updating || !replyText.trim()}
+              style={{
+                padding: '5px 12px',
+                borderRadius: 6,
+                border: 'none',
+                background: updating || !replyText.trim() ? 'var(--bg-2)' : 'var(--blue)',
+                color: updating || !replyText.trim() ? 'var(--text-3)' : 'white',
+                fontSize: 13,
+                fontWeight: 500,
+                cursor: updating || !replyText.trim() ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {updating ? '发送中...' : '发送'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Report markdown modal */}
+      {showReportModal && selectedReportMd && (
+        <>
+          <div
+            onClick={() => setShowReportModal(false)}
+            style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(0,0,0,0.45)',
+              zIndex: 1000,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 40,
+            }}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                background: 'var(--bg-0)',
+                borderRadius: 12,
+                width: '100%',
+                maxWidth: 900,
+                maxHeight: '100%',
+                display: 'flex',
+                flexDirection: 'column',
+                overflow: 'hidden',
+                boxShadow: 'var(--shadow-lg)',
+              }}
+            >
+              <div style={{
+                padding: '14px 20px',
+                borderBottom: '1px solid var(--border)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexShrink: 0,
+              }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <div style={{ fontSize: 15, fontWeight: 600 }}>汇报内容</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-3)' }}>
+                    {task.title}
+                    {selectedEvent && ` · ${formatRelativeTime(selectedEvent.created_at)}`}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowReportModal(false)}
+                  style={{
+                    width: 28,
+                    height: 28,
+                    borderRadius: 6,
+                    border: 'none',
+                    background: 'transparent',
+                    color: 'var(--text-3)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              <div style={{ flex: 1, overflowY: 'auto', padding: '20px 28px' }}>
+                <MarkdownRenderer content={selectedReportMd} />
+              </div>
+              <div style={{
+                padding: '10px 20px',
+                borderTop: '1px solid var(--border)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexShrink: 0,
+                background: 'var(--bg-1)',
+              }}>
+                <span style={{ fontSize: 12, color: 'var(--text-3)' }}>
+                  Markdown 渲染 · 共 {events.length} 个事件
+                </span>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    type="button"
+                    onClick={copyReport}
+                    style={{
+                      padding: '5px 10px',
+                      borderRadius: 6,
+                      border: '1px solid var(--border)',
+                      background: 'var(--bg-0)',
+                      color: 'var(--text-2)',
+                      fontSize: 13,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    复制原文
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowReportModal(false)}
+                    style={{
+                      padding: '5px 10px',
+                      borderRadius: 6,
+                      border: 'none',
+                      background: 'transparent',
+                      color: 'var(--text-3)',
+                      fontSize: 13,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    关闭
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Status change modal */}
+      {statusModalOpen && (
+        <>
+          <div
+            onClick={() => setStatusModalOpen(false)}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.3)', zIndex: 1100 }}
+          />
+          <div style={{
+            position: 'fixed',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            width: 360,
+            background: 'var(--bg-0)',
+            borderRadius: 10,
+            border: '1px solid var(--border)',
+            boxShadow: 'var(--shadow-lg)',
+            zIndex: 1101,
+            padding: 20,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 12,
+          }}>
+            <h3 style={{ fontSize: 15, fontWeight: 600 }}>修改任务状态</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {TASK_STATUS_OPTIONS.map((opt) => {
+                const active = effectiveStatusValue === opt.status
+                return (
+                  <button
+                    key={opt.status}
+                    type="button"
+                    onClick={() => setStatusValue(opt.status)}
+                    style={{
+                      padding: '8px 12px',
+                      borderRadius: 6,
+                      cursor: 'pointer',
+                      fontSize: 13,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      border: active ? '1px solid var(--blue)' : '1px solid transparent',
+                      background: active ? 'var(--blue-light)' : 'transparent',
+                      color: active ? 'var(--blue)' : 'var(--text-1)',
+                      fontWeight: active ? 500 : 400,
+                      textAlign: 'left',
+                    }}
+                  >
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: opt.dot }} />
+                    {opt.label}
+                  </button>
+                )
+              })}
+            </div>
+            <textarea
+              value={statusReason}
+              onChange={(e) => setStatusReason(e.target.value)}
+              placeholder="原因(可选)"
+              rows={2}
+              style={{
+                padding: '8px 10px',
+                border: '1px solid var(--border)',
+                borderRadius: 6,
+                fontSize: 13,
+                resize: 'none',
+                background: 'var(--bg-1)',
+                color: 'var(--text-1)',
+                outline: 'none',
+                boxSizing: 'border-box',
+                width: '100%',
+              }}
+            />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => setStatusModalOpen(false)}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: 6,
+                  border: 'none',
+                  background: 'transparent',
+                  color: 'var(--text-3)',
+                  fontSize: 13,
+                  cursor: 'pointer',
+                }}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={confirmStatusChange}
+                disabled={updating || effectiveStatusValue === task.status}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: 6,
+                  border: 'none',
+                  background: updating || effectiveStatusValue === task.status ? 'var(--bg-2)' : 'var(--blue)',
+                  color: updating || effectiveStatusValue === task.status ? 'var(--text-3)' : 'white',
+                  fontSize: 13,
+                  fontWeight: 500,
+                  cursor: updating || effectiveStatusValue === task.status ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {updating ? '更新中...' : '确认'}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+const TASK_STATUS_OPTIONS: Array<{ status: string; label: string; dot: string }> = [
+  { status: 'backlog', label: '待办', dot: 'var(--text-3)' },
+  { status: 'executing', label: '行动中', dot: 'var(--blue)' },
+  { status: 'needs_input', label: '需确认', dot: '#f59e0b' },
+  { status: 'completed', label: '已完成', dot: 'var(--green)' },
+  { status: 'cancelled', label: '已取消', dot: 'var(--text-3)' },
+]
 
 /* ─── Tool Call Panel ─── */
 function ToolCallPanel({
