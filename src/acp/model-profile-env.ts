@@ -3,6 +3,7 @@ import type { AgentRow } from '../store/agents.js'
 import { modelProfileStore, type ClaudeModelProfileConfig, type ModelProfileRow } from '../store/model-profiles.js'
 import { modelProviderStore, type ModelProviderRow } from '../store/model-providers.js'
 import { buildRuntimeEnv } from './runtime-registry.js'
+import { buildAiIdeSystemPrompt } from '../core/ai-ide-system-prompt.js'
 
 export interface AppliedModelProfile {
   id: string
@@ -89,13 +90,16 @@ export function buildAgentSessionMeta(
   env: NodeJS.ProcessEnv,
   agent: AgentRow,
 ): AgentSessionMeta | undefined {
-  const systemPrompt = agent.system_prompt.trim()
+  const platformPrompt = buildAiIdeSystemPrompt()
+  const userPrompt = agent.system_prompt.trim()
+  const combined = userPrompt ? `${platformPrompt}\n\n---\n\n${userPrompt}` : platformPrompt
+
   const meta: AgentSessionMeta = {}
 
-  if (systemPrompt) {
+  if (combined) {
     meta.systemPrompt = runtime === 'claude'
-      ? { type: 'preset', preset: 'claude_code', append: systemPrompt }
-      : systemPrompt
+      ? { type: 'preset', preset: 'claude_code', append: combined }
+      : combined
   }
 
   const claudeMeta = buildClaudeSessionMeta(env, runtime)
