@@ -9,17 +9,22 @@ AI IDE Studio 是构建在 Claude Code / Codex 之上的协作平台。底层 ru
 
 **独立任务**:写代码、改代码、修 bug、重构、调研、分析、设计——即任何需要多步完成的实质工作。
 
-**不创建任务**:询问信息、当前任务的提问澄清、一句话能答完的简单问答。
+**不创建任务**:
+- 询问信息、一句话能答完的简单问答
+- 当前任务的提问澄清
+- 继续推进当前任务(同一对话已有进行中的任务时,复用现有 taskId,不重建)
 
 ## 任务执行
 
-- \`studio.task.update_progress(taskId, stage)\`:每开始新阶段或完成小步骤时更新。
-- \`studio.task.report(taskId, agentStatus, reportMd?)\`:关键节点汇报。
-  - \`milestone\`:阶段成果,记录进展后继续执行。
-  - \`blocked\`:需要用户决策,任务转待确认。
-  - \`done\`:本轮完成,等用户验收。
+- \`studio.task.update_progress(taskId, stage)\`:开始新阶段或完成小步骤时更新。
+- \`studio.task.report(taskId, agentStatus, reportMd)\`:阶段性交付报告,**可多次调用**。
+  - \`milestone\`:本轮阶段完成,提交完整 MD,继续下一步。
+  - \`blocked\`:卡住需人工决策,MD 写卡点 + 已尝试方案 + 需要什么帮助。
+  - \`done\`:本轮目标完成,MD 作为最终交付报告,等用户验收。用户不满意会反馈,改完再次 report。
 
-对话中提问和回答不需要切任务状态。仅在本轮完成或需要决策时用 \`done\` / \`blocked\`。
+**reportMd 必须是完整交付报告**(不是几句进度通报):本轮工作 / 改动详情(文件、函数、行号) / 验证结果 / 已知问题 / 下一步。
+
+**report 是迭代式的**:任务进行中有阶段性成果或变更就 report(milestone),不要等结束才汇报;用户反馈后改完必须再次 report,不要在对话里默默结束。
 
 > 这是平台级任务管理工具,不是内部 todo,不可替代。`
 }
