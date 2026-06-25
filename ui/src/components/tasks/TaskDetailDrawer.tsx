@@ -108,6 +108,7 @@ export function TaskDetailDrawer({ task, agents, embedded = false, onClose, onOp
       source={source}
       statusMeta={statusMeta}
       agentLabel={agent ? `${agent.name} (${agent.runtime})` : '未指派'}
+      compact={embedded}
       editing={editing}
       editTitle={editTitle}
       editDesc={editDesc}
@@ -132,7 +133,7 @@ export function TaskDetailDrawer({ task, agents, embedded = false, onClose, onOp
     />
   )
 
-  if (embedded) return <div style={{ height: '100%', overflowY: 'auto' }}>{content}</div>
+  if (embedded) return <div style={{ height: '100%', overflowY: 'auto', padding: 16 }}>{content}</div>
 
   return (
     <>
@@ -151,6 +152,7 @@ function TaskDetailContent(props: {
   source: { color: string; label: string }
   statusMeta: { label: string; color: string }
   agentLabel: string
+  compact?: boolean
   editing: boolean
   editTitle: string
   editDesc: string
@@ -173,13 +175,14 @@ function TaskDetailContent(props: {
   handleAssign: () => Promise<void>
   onOpenSession?: (sessionId: string) => void
 }) {
-  const st: React.CSSProperties = { width: '100%', padding: '8px 10px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', fontSize: 15, background: 'var(--bg-1)', color: 'var(--text-1)', outline: 'none', boxSizing: 'border-box' }
+  const c = props.compact
+  const st: React.CSSProperties = { width: '100%', padding: c ? '7px 9px' : '8px 10px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', fontSize: c ? 14 : 15, background: 'var(--bg-1)', color: 'var(--text-1)', outline: 'none', boxSizing: 'border-box' }
   const canAssign = props.assignAgentId && !(props.assignSessionMode === 'existing' && !props.assignSessionId)
 
   return (
     <>
       {props.editing ? (
-        <div style={{ marginBottom: 18, display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ marginBottom: c ? 14 : 18, display: 'flex', flexDirection: 'column', gap: 8 }}>
           <input value={props.editTitle} onChange={(event) => props.setEditTitle(event.target.value)} style={st} placeholder="任务标题" />
           <textarea value={props.editDesc} onChange={(event) => props.setEditDesc(event.target.value)} rows={3} style={{ ...st, resize: 'vertical' }} placeholder="描述" />
           <div style={{ display: 'flex', gap: 6 }}>
@@ -189,32 +192,32 @@ function TaskDetailContent(props: {
         </div>
       ) : (
         <>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-            <div style={{ fontSize: 18, fontWeight: 700, lineHeight: 1.45, flex: 1 }}>{props.task.title}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: c ? 8 : 10 }}>
+            <div style={{ fontSize: c ? 16 : 18, fontWeight: 700, lineHeight: 1.4, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{props.task.title}</div>
             <button type="button" onClick={props.startEdit} style={smallGhostButtonStyle}>编辑</button>
           </div>
-          <div style={{ color: 'var(--text-2)', fontSize: 15, lineHeight: 1.7, marginBottom: 18, whiteSpace: 'pre-wrap' }}>{props.task.description || '暂无描述'}</div>
+          <div style={{ color: 'var(--text-2)', fontSize: c ? 13 : 15, lineHeight: 1.6, marginBottom: c ? 14 : 18, whiteSpace: 'pre-wrap' }}>{props.task.description || '暂无描述'}</div>
         </>
       )}
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 14, borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg-1)', marginBottom: 18 }}>
-        <DetailRow label="状态" value={props.statusMeta.label} color={props.statusMeta.color} />
-        <DetailRow label="阶段" value={props.task.stage || '未设置'} />
-        <DetailRow label="指派 Agent" value={props.agentLabel} />
-        <DetailRow label="来源" value={props.source.label} color={props.source.color} />
-        <DetailRow label="创建时间" value={formatDateTime(props.task.created_at)} />
-        {props.task.completed_at && <DetailRow label="完成时间" value={formatDateTime(props.task.completed_at)} />}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: c ? 10 : 12, padding: c ? 12 : 14, borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg-1)', marginBottom: c ? 14 : 18 }}>
+        <DetailRow label="状态" value={props.statusMeta.label} color={props.statusMeta.color} compact={c} />
+        <DetailRow label="阶段" value={props.task.stage || '未设置'} compact={c} />
+        <DetailRow label="指派 Agent" value={props.agentLabel} compact={c} />
+        <DetailRow label="来源" value={props.source.label} color={props.source.color} compact={c} />
+        <DetailRow label="创建时间" value={formatDateTime(props.task.created_at)} compact={c} />
+        {props.task.completed_at && <DetailRow label="完成时间" value={formatDateTime(props.task.completed_at)} compact={c} />}
         {props.task.sessionId && props.onOpenSession && (
-          <div style={{ display: 'grid', gridTemplateColumns: '92px 1fr', gap: 10, fontSize: 14 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: c ? '80px 1fr' : '92px 1fr', gap: 10, fontSize: c ? 13 : 14 }}>
             <span style={{ color: 'var(--text-3)' }}>关联对话</span>
-            <button type="button" onClick={() => props.onOpenSession?.(props.task.sessionId!)} style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--blue)', cursor: 'pointer', border: 'none', background: 'none', padding: 0, fontSize: 14 }}>
+            <button type="button" onClick={() => props.onOpenSession?.(props.task.sessionId!)} style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--blue)', cursor: 'pointer', border: 'none', background: 'none', padding: 0, fontSize: c ? 13 : 14 }}>
               <ExternalLink size={11} />打开对话
             </button>
           </div>
         )}
       </div>
 
-      <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 8 }}>指派 Agent</div>
+      <div style={{ fontSize: c ? 14 : 15, fontWeight: 600, marginBottom: 8 }}>指派 Agent</div>
       <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
         <select value={props.assignAgentId} onChange={(event) => props.setAssignAgentId(event.target.value)} style={{ ...st, flex: 1 }}>
           <option value="">选择 Agent</option>
@@ -223,7 +226,7 @@ function TaskDetailContent(props: {
         <button onClick={props.handleAssign} disabled={!canAssign} style={{ ...primaryButtonStyle, background: canAssign ? 'var(--blue)' : 'var(--bg-2)', color: canAssign ? 'white' : 'var(--text-3)' }}>指派</button>
       </div>
       {props.assignAgentId && (
-        <div style={{ marginBottom: 18 }}>
+        <div style={{ marginBottom: c ? 14 : 18 }}>
           <SessionModeSelect
             mode={props.assignSessionMode}
             sessionId={props.assignSessionId}
@@ -235,10 +238,10 @@ function TaskDetailContent(props: {
         </div>
       )}
 
-      <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 8 }}>状态操作</div>
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 20 }}>
+      <div style={{ fontSize: c ? 14 : 15, fontWeight: 600, marginBottom: 8 }}>状态操作</div>
+      <div style={{ display: 'flex', gap: c ? 6 : 8, flexWrap: 'wrap', marginBottom: c ? 16 : 20 }}>
         {STATUS_ACTIONS.map((action) => (
-          <button key={action.status} type="button" onClick={() => props.changeStatus(action.status)} disabled={props.updating !== null || props.task.status === action.status} style={{ padding: '7px 12px', borderRadius: 8, border: props.task.status === action.status ? '1px solid var(--blue)' : '1px solid var(--border)', background: props.task.status === action.status ? 'var(--blue-light)' : 'var(--bg-0)', color: props.task.status === action.status ? 'var(--blue)' : 'var(--text-2)', fontSize: 14, cursor: props.task.status === action.status ? 'default' : 'pointer', opacity: props.updating && props.updating !== action.status ? 0.6 : 1 }}>
+          <button key={action.status} type="button" onClick={() => props.changeStatus(action.status)} disabled={props.updating !== null || props.task.status === action.status} style={{ padding: c ? '6px 10px' : '7px 12px', borderRadius: 8, border: props.task.status === action.status ? '1px solid var(--blue)' : '1px solid var(--border)', background: props.task.status === action.status ? 'var(--blue-light)' : 'var(--bg-0)', color: props.task.status === action.status ? 'var(--blue)' : 'var(--text-2)', fontSize: c ? 13 : 14, cursor: props.task.status === action.status ? 'default' : 'pointer', opacity: props.updating && props.updating !== action.status ? 0.6 : 1 }}>
             {props.updating === action.status ? '...' : action.label}
           </button>
         ))}
@@ -274,9 +277,9 @@ function PanelHeader({ title, onClose }: { title: string; onClose?: () => void }
   )
 }
 
-function DetailRow({ label, value, color }: { label: string; value: string; color?: string }) {
+function DetailRow({ label, value, color, compact }: { label: string; value: string; color?: string; compact?: boolean }) {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '92px 1fr', gap: 10, fontSize: 14 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: compact ? '80px 1fr' : '92px 1fr', gap: 10, fontSize: compact ? 13 : 14 }}>
       <span style={{ color: 'var(--text-3)' }}>{label}</span>
       <span style={{ color: color || 'var(--text-1)', overflowWrap: 'anywhere' }}>{value}</span>
     </div>

@@ -15,10 +15,11 @@ export function EventTable({ events, selectedEvent, categories: categoriesProp, 
   const storeCategories = useEventCenterStore((s) => s.categories)
   const categories = categoriesProp ?? storeCategories
   const colSpan = showProjectColumn ? 7 : 6
+  const tableClass = `ec-table ec-event-table${showProjectColumn ? ' ec-event-table--with-project' : ''}`
 
   return (
     <div className="ec-table-scroll">
-      <table className="ec-table ec-event-table">
+      <table className={tableClass}>
         <thead>
           <tr>
             <th>状态</th>
@@ -38,7 +39,7 @@ export function EventTable({ events, selectedEvent, categories: categoriesProp, 
               <td>{categoryName(categories, event.category_id)}</td>
               {showProjectColumn && <td>{event.project_id ? projectsById?.get(event.project_id) ?? event.project_id : '未归属'}</td>}
               <td><strong>{event.title}</strong></td>
-              <td>
+              <td className="ec-event-table__desc">
                 <div>{event.summary || event.source_label || event.source_type}</div>
                 <EventPayloadChips event={event} categories={categories} />
               </td>

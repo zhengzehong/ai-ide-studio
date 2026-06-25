@@ -564,12 +564,34 @@
 .ec-event-table th:nth-child(6),
 .ec-event-table td:nth-child(6) { width: 112px; }
 
+.ec-event-table--with-project th:nth-child(4),
+.ec-event-table--with-project td:nth-child(4) { width: 100px; }
+.ec-event-table--with-project th:nth-child(5),
+.ec-event-table--with-project td:nth-child(5) { width: 170px; }
+.ec-event-table--with-project th:nth-child(6),
+.ec-event-table--with-project td:nth-child(6) { width: auto; min-width: 200px; }
+.ec-event-table--with-project th:nth-child(7),
+.ec-event-table--with-project td:nth-child(7) { width: 112px; }
+
 .ec-event-table td {
   vertical-align: middle;
   padding: 8px 10px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.ec-event-table__desc {
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+}
+
+.ec-event-table__desc > div {
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+  color: var(--text-2);
+  font-size: 13px;
 }
 
 .ec-event-table .ec-chip {

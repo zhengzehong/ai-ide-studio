@@ -8,6 +8,7 @@ import { useSessionStore, type MessageData, type SessionData } from '../../store
 import type { TaskData } from '../../stores/task.store'
 import { EventDetailPanel } from '../event-center/EventDetailPanel'
 import '../event-center/event-center.css'
+import './dashboard-event-detail.css'
 
 export type DashboardContext =
   | { kind: 'empty' }
@@ -64,7 +65,7 @@ export function ContextPanel({ context, agents, sessions, tasks, events, project
         />
       )}
       {context.kind === 'event' && (
-        <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+        <div className="dashboard-event-detail" style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
           <EventDetailPanel event={events.find((event) => event.id === context.eventId)} projectId={projectId} />
         </div>
       )}
