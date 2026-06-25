@@ -13,6 +13,7 @@ import { agentStore } from '../../src/store/agents.js'
 import { closeDatabase, initDatabase } from '../../src/store/db.js'
 import { modelProfileStore } from '../../src/store/model-profiles.js'
 import { modelProviderStore } from '../../src/store/model-providers.js'
+import { buildAiIdeSystemPrompt } from '../../src/core/ai-ide-system-prompt.js'
 
 const tmp = mkdtempSync(resolve(tmpdir(), 'ai-ide-model-profile-env-'))
 let dbIndex = 0
@@ -198,7 +199,7 @@ describe('model profile runtime env', () => {
       systemPrompt: {
         type: 'preset',
         preset: 'claude_code',
-        append: 'Follow the project rules.',
+        append: `${buildAiIdeSystemPrompt()}\n\n---\n\nFollow the project rules.`,
       },
       claudeCode: {
         options: {
@@ -221,7 +222,19 @@ describe('model profile runtime env', () => {
     })
 
     expect(buildAgentSessionMeta('codex', {}, agent)).toEqual({
-      systemPrompt: 'Follow the project rules.',
+      systemPrompt: `${buildAiIdeSystemPrompt()}\n\n---\n\nFollow the project rules.`,
+    })
+  })
+
+  test('injects platform prompt when agent has no system prompt', () => {
+    const agent = agentStore.create({
+      name: 'NoPrompt',
+      type: 'dev',
+      runtime: 'codex',
+    })
+
+    expect(buildAgentSessionMeta('codex', {}, agent)).toEqual({
+      systemPrompt: buildAiIdeSystemPrompt(),
     })
   })
 })
