@@ -56,42 +56,47 @@ export const taskManager = {
           sessionMode,
         })
         const sessionReuse = session.reuse
-        log.info({ taskId: task.id, sessionId: session.id, agentId: input.assignAgentId, reuse: sessionReuse }, '任务已分派')
+        log.info({ taskId: task.id, sessionId: session.id, agentId: input.assignAgentId, reuse: sessionReuse, selfExecute: input.selfExecute }, '任务已分派')
 
-        taskStore.updateStatus(task.id, 'executing', '已分派给 Agent')
+        taskStore.updateStatus(task.id, 'executing', input.selfExecute ? '已自认领' : '已分派给 Agent')
         taskStore.linkSession(task.id, session.id)
+        if (input.selfExecute) taskStore.updateAgentReportStatus(task.id, 'in_progress')
 
         events.emit('task:update', {
           taskId: task.id,
           data: {
             status: 'executing',
-            stage: '已分派给 Agent',
+            stage: input.selfExecute ? '已自认领' : '已分派给 Agent',
             sessionId: session.id,
             assignedAgentId: input.assignAgentId,
           },
         })
         const assignedTask = taskStore.get(task.id)
-        if (assignedTask) emitTaskLifecycleEvent(assignedTask, 'assigned', task.status)
+        if (assignedTask) emitTaskLifecycleEvent(assignedTask, input.selfExecute ? 'self_claimed' : 'assigned', task.status)
 
-        const prompt = input.promptTemplate || buildTaskPrompt(
-          { id: task.id, title: task.title, description: task.description, source: task.source },
-          { sessionReuse, ruleName: input.ruleName, mode: getTaskMode(task.execution_mode_id) },
-        )
-        const promptWithAttachments = appendHiddenAttachmentNote(prompt, savedImages)
-        const promptImages = savedImages.length > 0 ? await loadStoredImagesForAcp(savedImages) : undefined
-        const queued = promptImages
-          ? sessionManager.enqueuePrompt(session.id, promptWithAttachments, promptImages)
-          : sessionManager.enqueuePrompt(session.id, promptWithAttachments)
-        queued.catch((err) => {
-          log.error({ err, taskId: task.id, sessionId: session.id }, '任务 prompt 发送失败')
-          taskStore.updateStatus(task.id, 'needs_input', `执行失败: ${(err as Error).message}`)
-          events.emit('task:update', {
-            taskId: task.id,
-            data: { status: 'needs_input', stage: `执行失败: ${(err as Error).message}` },
+        if (input.selfExecute) {
+          log.info({ taskId: task.id, sessionId: session.id }, '自认领任务,跳过 prompt 注入')
+        } else {
+          const prompt = input.promptTemplate || buildTaskPrompt(
+            { id: task.id, title: task.title, description: task.description, source: task.source },
+            { sessionReuse, ruleName: input.ruleName, mode: getTaskMode(task.execution_mode_id) },
+          )
+          const promptWithAttachments = appendHiddenAttachmentNote(prompt, savedImages)
+          const promptImages = savedImages.length > 0 ? await loadStoredImagesForAcp(savedImages) : undefined
+          const queued = promptImages
+            ? sessionManager.enqueuePrompt(session.id, promptWithAttachments, promptImages)
+            : sessionManager.enqueuePrompt(session.id, promptWithAttachments)
+          queued.catch((err) => {
+            log.error({ err, taskId: task.id, sessionId: session.id }, '任务 prompt 发送失败')
+            taskStore.updateStatus(task.id, 'needs_input', `执行失败: ${(err as Error).message}`)
+            events.emit('task:update', {
+              taskId: task.id,
+              data: { status: 'needs_input', stage: `执行失败: ${(err as Error).message}` },
+            })
+            const failedTask = taskStore.get(task.id)
+            if (failedTask) emitTaskLifecycleEvent(failedTask, 'prompt_failed', 'executing')
           })
-          const failedTask = taskStore.get(task.id)
-          if (failedTask) emitTaskLifecycleEvent(failedTask, 'prompt_failed', 'executing')
-        })
+        }
 
         const updated = taskStore.get(task.id)
         if (!updated) throw new Error('任务分派后无法找到任务')

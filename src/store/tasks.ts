@@ -57,6 +57,7 @@ export interface CreateTaskInput {
   sessionMode?: 'existing' | 'new_each' | 'new_fixed'
   images?: ImageAttachment[]
   executionModeId?: string
+  selfExecute?: boolean
 }
 
 export interface UpdateTaskInput {
