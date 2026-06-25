@@ -4,6 +4,7 @@ import AppLayout from './components/layout/AppLayout'
 import Dashboard from './pages/Dashboard'
 import Workspace from './pages/Workspace'
 import TaskBoard from './pages/TaskBoard'
+import TaskModesSettings from './pages/TaskModesSettings'
 import Schedule from './pages/Schedule'
 import EventCenter from './pages/EventCenter'
 import KnowledgeBase from './pages/KnowledgeBase'
@@ -85,6 +86,7 @@ export default function App() {
           <Route path="/tools" element={<ToolManager />} />
           <Route path="/workspace" element={<Workspace />} />
           <Route path="/tasks" element={<TaskBoard />} />
+          <Route path="/tasks/modes" element={<TaskModesSettings />} />
           <Route path="/schedule" element={<Schedule />} />
           <Route path="/events" element={<EventCenter />} />
           <Route path="/knowledge" element={<KnowledgeBase />} />

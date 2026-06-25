@@ -8,6 +8,7 @@ import { initDatabase } from './store/db.js'
 import { agentStore } from './store/agents.js'
 import { sessionStore } from './store/sessions.js'
 import { seedBuiltinTemplates } from './store/agent-templates.js'
+import { seedBuiltinTaskExecutionModes } from './store/seed-task-execution-modes.js'
 import { seedBuiltinTools } from './tools/seed.js'
 import { startGateway } from './gateway/server.js'
 import { initTimeline } from './core/timeline.js'
@@ -37,6 +38,7 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
 
   seedDefaultAgents()
   seedBuiltinTemplates()
+  seedBuiltinTaskExecutionModes()
   seedBuiltinTools()
 
   const { app, server, wss } = await startGateway(config)

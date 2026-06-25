@@ -1,4 +1,5 @@
 import { taskAttachmentStore, taskStore, taskEventStore, type CreateTaskInput, type TaskAttachmentRow } from '../store/tasks.js'
+import { taskExecutionModeStore, type TaskExecutionModeRow } from '../store/task-execution-modes.js'
 import { agentStore } from '../store/agents.js'
 import { sessionStore } from '../store/sessions.js'
 import { sessionManager } from './sessions.js'
@@ -69,11 +70,12 @@ export const taskManager = {
             assignedAgentId: input.assignAgentId,
           },
         })
-        emitTaskLifecycleEvent(taskStore.get(task.id)!, 'assigned', task.status)
+        const assignedTask = taskStore.get(task.id)
+        if (assignedTask) emitTaskLifecycleEvent(assignedTask, 'assigned', task.status)
 
         const prompt = input.promptTemplate || buildTaskPrompt(
           { id: task.id, title: task.title, description: task.description, source: task.source },
-          { sessionReuse, ruleName: input.ruleName },
+          { sessionReuse, ruleName: input.ruleName, mode: getTaskMode(task.execution_mode_id) },
         )
         const promptWithAttachments = appendHiddenAttachmentNote(prompt, savedImages)
         const promptImages = savedImages.length > 0 ? await loadStoredImagesForAcp(savedImages) : undefined
@@ -87,10 +89,12 @@ export const taskManager = {
             taskId: task.id,
             data: { status: 'needs_input', stage: `执行失败: ${(err as Error).message}` },
           })
-          emitTaskLifecycleEvent(taskStore.get(task.id)!, 'prompt_failed', 'executing')
+          const failedTask = taskStore.get(task.id)
+          if (failedTask) emitTaskLifecycleEvent(failedTask, 'prompt_failed', 'executing')
         })
 
-        const updated = taskStore.get(task.id)!
+        const updated = taskStore.get(task.id)
+        if (!updated) throw new Error('任务分派后无法找到任务')
         return { ...updated, sessionId: session.id }
       } catch (err) {
         log.error({ err, taskId: task.id, agentId: input.assignAgentId }, '任务分派失败')
@@ -99,8 +103,9 @@ export const taskManager = {
           taskId: task.id,
           data: { status: 'needs_input', stage: `分派失败: ${(err as Error).message}` },
         })
-        emitTaskLifecycleEvent(taskStore.get(task.id)!, 'assign_failed', task.status)
-        return taskStore.get(task.id)!
+        const failedTask = taskStore.get(task.id)
+        if (failedTask) emitTaskLifecycleEvent(failedTask, 'assign_failed', task.status)
+        return taskStore.get(task.id)
       }
     }
 
@@ -133,7 +138,8 @@ export const taskManager = {
       taskStore.assignAgent(input.taskId, input.agentId)
       taskStore.updateStatus(input.taskId, 'executing', '已分派给 Agent')
       taskStore.linkSession(input.taskId, session.id)
-      const updated = taskStore.get(input.taskId)!
+      const updated = taskStore.get(input.taskId)
+      if (!updated) throw new Error('任务分派后无法找到任务')
       log.info({ taskId: input.taskId, sessionId: session.id, agentId: input.agentId, reuse: session.reuse }, '任务已分派')
 
       events.emit('task:update', {
@@ -144,7 +150,7 @@ export const taskManager = {
 
       const prompt = input.promptTemplate || buildTaskPrompt(
         { id: task.id, title: task.title, description: task.description, source: task.source },
-        { sessionReuse: session.reuse, ruleName: input.ruleName },
+        { sessionReuse: session.reuse, ruleName: input.ruleName, mode: getTaskMode(task.execution_mode_id) },
       )
       const taskImages = toStoredImageAttachments(taskAttachmentStore.list(input.taskId))
       const promptWithAttachments = appendHiddenAttachmentNote(prompt, taskImages)
@@ -155,18 +161,18 @@ export const taskManager = {
       queued.catch((err: Error) => {
         log.error({ err, taskId: input.taskId, sessionId: session.id }, 'Task prompt failed')
         taskStore.updateStatus(input.taskId, 'needs_input', `Execution failed: ${err.message}`)
-        const failed = taskStore.get(input.taskId)!
-        events.emit('task:update', { taskId: input.taskId, data: { ...failed, event: 'prompt_failed' } })
-        emitTaskLifecycleEvent(failed, 'prompt_failed', 'executing')
+        const failed = taskStore.get(input.taskId)
+        events.emit('task:update', { taskId: input.taskId, data: failed ? { ...failed, event: 'prompt_failed' } : { event: 'prompt_failed' } })
+        if (failed) emitTaskLifecycleEvent(failed, 'prompt_failed', 'executing')
       })
 
       return { ...updated, sessionId: session.id }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       taskStore.updateStatus(input.taskId, 'needs_input', `分派失败: ${message}`)
-      const failed = taskStore.get(input.taskId)!
-      events.emit('task:update', { taskId: input.taskId, data: { ...failed, event: 'assign_failed' } })
-      emitTaskLifecycleEvent(failed, 'assign_failed', previousStatus)
+      const failed = taskStore.get(input.taskId)
+      events.emit('task:update', { taskId: input.taskId, data: failed ? { ...failed, event: 'assign_failed' } : { event: 'assign_failed' } })
+      if (failed) emitTaskLifecycleEvent(failed, 'assign_failed', previousStatus)
       throw err
     }
   },
@@ -186,7 +192,8 @@ export const taskManager = {
       log.info({ taskId, stage }, '任务阶段更新')
     }
 
-    const updated = taskStore.get(taskId)!
+    const updated = taskStore.get(taskId)
+    if (!updated) return undefined
     events.emit('task:update', {
       taskId,
       data: { ...updated, event: 'updated' },
@@ -197,13 +204,13 @@ export const taskManager = {
     return updated
   },
 
-  reportTask(input: { taskId: string; agentStatus: 'in_progress' | 'blocked' | 'done'; reportMd?: string; stage?: string }) {
+  reportTask(input: { taskId: string; agentStatus: 'milestone' | 'blocked' | 'done'; reportMd?: string; stage?: string }) {
     const task = taskStore.get(input.taskId)
     if (!task) throw new Error(`Task 不存在: ${input.taskId}`)
 
     const previousStatus = task.status
     let nextStatus = task.status
-    if (input.agentStatus === 'in_progress') {
+    if (input.agentStatus === 'milestone') {
       if (task.status === 'needs_input') nextStatus = 'executing'
     } else if (input.agentStatus === 'blocked') {
       nextStatus = 'needs_input'
@@ -219,7 +226,7 @@ export const taskManager = {
     }
     taskStore.updateAgentReportStatus(input.taskId, input.agentStatus)
 
-    const eventType = input.agentStatus === 'in_progress' ? 'progress'
+    const eventType = input.agentStatus === 'milestone' ? 'milestone'
       : input.agentStatus === 'blocked' ? 'input_requested'
       : 'marked_done'
     taskEventStore.append(input.taskId, {
@@ -234,13 +241,15 @@ export const taskManager = {
       },
     })
 
-    const updated = taskStore.get(input.taskId)!
-    const lifecycleChange = input.agentStatus === 'in_progress' ? 'progress_updated'
+    const updated = taskStore.get(input.taskId)
+    const lifecycleChange = input.agentStatus === 'milestone' ? 'milestone'
       : input.agentStatus === 'blocked' ? 'input_requested'
       : 'marked_done'
     log.info({ taskId: input.taskId, agentStatus: input.agentStatus, from: previousStatus, to: nextStatus }, 'Agent 汇报')
-    events.emit('task:update', { taskId: input.taskId, data: { ...updated, event: 'reported' } })
-    emitTaskLifecycleEvent(updated, lifecycleChange, previousStatus)
+    if (updated) {
+      events.emit('task:update', { taskId: input.taskId, data: { ...updated, event: 'reported' } })
+      emitTaskLifecycleEvent(updated, lifecycleChange, previousStatus)
+    }
 
     return updated
   },
@@ -269,10 +278,12 @@ export const taskManager = {
       },
     })
 
-    const updated = taskStore.get(input.taskId)!
+    const updated = taskStore.get(input.taskId)
     log.info({ taskId: input.taskId, sessionId }, '人工回复任务')
-    events.emit('task:update', { taskId: input.taskId, data: { ...updated, event: 'replied' } })
-    emitTaskLifecycleEvent(updated, 'replied', previousStatus)
+    if (updated) {
+      events.emit('task:update', { taskId: input.taskId, data: { ...updated, event: 'replied' } })
+      emitTaskLifecycleEvent(updated, 'replied', previousStatus)
+    }
 
     const prompt = `[人工回复] ${input.message}\n\n请继续执行任务。`
     sessionManager.enqueuePrompt(sessionId, prompt).catch((err: Error) => {
@@ -350,7 +361,15 @@ function toStoredImageAttachments(rows: TaskAttachmentRow[]): StoredImageAttachm
   }))
 }
 
-export function buildTaskPrompt(task: { id: string; title: string; description?: string | null; source: string }, opts?: { sessionReuse?: boolean; ruleName?: string }): string {
+function getTaskMode(modeId: string | null | undefined): TaskExecutionModeRow | null {
+  if (!modeId) return null
+  return taskExecutionModeStore.get(modeId) ?? null
+}
+
+export function buildTaskPrompt(
+  task: { id: string; title: string; description?: string | null; source: string },
+  opts?: { sessionReuse?: boolean; ruleName?: string; mode?: TaskExecutionModeRow | null },
+): string {
   const parts: string[] = []
 
   if (opts?.sessionReuse) {
@@ -370,6 +389,21 @@ export function buildTaskPrompt(task: { id: string; title: string; description?:
     parts.push(`定时规则：${opts.ruleName}`)
   }
 
+  if (opts?.mode) {
+    parts.push(`
+━━━ 执行模式 ━━━
+当前任务采用「${opts.mode.name}」执行模式
+${opts.mode.description ? opts.mode.description : ''}
+${opts.mode.prompt_template ? `\n${opts.mode.prompt_template}` : ''}`)
+  }
+
+  const reportTemplate = opts?.mode?.report_template || `## 本轮工作
+- 完成了什么
+## 下一步计划
+- 接下来要做什么
+## 问题/总结
+- blocked 时写需要确认的问题；done 时写完成总结`
+
   parts.push(`
 ━━━ 任务管理工具 ━━━
 本次对话中你可以使用以下 AI IDE Studio 平台工具来管理任务进度。
@@ -386,29 +420,25 @@ export function buildTaskPrompt(task: { id: string; title: string; description?:
    - 用途：关键节点汇报，带 Markdown 报告，并更新你的自我评估状态
    - 参数：
      * agentStatus（必填）：你当前的状态，三选一
-       - in_progress：正在执行，汇报进度（任务状态保持/恢复为「行动中」）
+       - milestone：中间步骤完成，汇报阶段性成果（任务状态保持/恢复为「行动中」，Agent 继续工作）
        - blocked：遇到问题需要人工决策（任务状态变为「待确认」）
        - done：本轮工作已完成，等待人工验收（任务状态变为「待确认」）
-     * reportMd（建议填）：Markdown 报告，结构建议：
-       ## 本轮工作
-       - 完成了什么
-       ## 下一步计划
-       - 接下来要做什么
-       ## 问题/总结
-       - blocked 时写需要确认的问题；done 时写完成总结
+     * reportMd（建议填）：Markdown 报告，按当前执行模式要求填写，参考模板：
+${reportTemplate.split('\n').map((line) => `       ${line}`).join('\n')}
      * stage（可选）：一句话阶段描述
    - 示例：
-     studio.task.report("${task.id}", "in_progress", "## 本轮工作\\n- 完成 JWT 中间件\\n## 下一步计划\\n- 接入 Refresh Token", "重构登录模块")
+     studio.task.report("${task.id}", "milestone", "## 根因分析\\n- 问题根因是 XXX\\n## 修复方案\\n- 计划修改 YYY", "已完成根因分析")
      studio.task.report("${task.id}", "blocked", "## 需要确认\\n- Token 过期策略选黑名单还是滑动续期？")
      studio.task.report("${task.id}", "done", "## 完成总结\\n- 登录模块已重构为 JWT 方案，涉及 5 个文件")
 
 ━━━ 执行要求 ━━━
 1. 开始工作前，先调用 studio.task.update_progress 标记 "开始执行"
 2. 执行过程中，每完成一个关键步骤都调用 studio.task.update_progress 更新阶段
-3. 遇到需要决策的问题或无法解决的障碍，调用 studio.task.report(agentStatus="blocked") 并附上问题
-4. 本轮工作完成后，调用 studio.task.report(agentStatus="done") 并附上完成总结
-5. 被人工回复后，你会收到 [人工回复] 消息，继续执行，完成后再次 report
-6. 不要在没有 report(agentStatus="done") 的情况下就结束对话
+3. 完成中间步骤（如根因分析、规划完成、阶段性成果）时，调用 studio.task.report(agentStatus="milestone") 汇报阶段性成果，Agent 继续工作
+4. 遇到需要决策的问题或无法解决的障碍，调用 studio.task.report(agentStatus="blocked") 并附上问题
+5. 本轮工作完成后，调用 studio.task.report(agentStatus="done") 并附上完成总结
+6. 被人工回复后，你会收到 [人工回复] 消息，继续执行，完成后再次 report
+7. 不要在没有 report(agentStatus="done") 的情况下就结束对话
 
 请现在开始执行任务。`)
 

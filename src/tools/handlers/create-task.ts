@@ -16,6 +16,7 @@ async function executeCreateTask(
     sessionId,
     sessionMode: resolveSessionMode(input.sessionMode, sessionId),
   })
+  if (!task) throw new Error('任务创建失败')
   const output = legacy ? { taskId: task.id, title: task.title, status: task.status } : { task }
   return {
     content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],
