@@ -17,6 +17,7 @@ export interface TaskRow {
   assignee_member_id: string | null
   rule_id: string | null
   agent_report_status: string | null
+  execution_mode_id: string | null
 }
 
 export interface TaskEventRow {
@@ -55,6 +56,7 @@ export interface CreateTaskInput {
   sessionId?: string
   sessionMode?: 'existing' | 'new_each' | 'new_fixed'
   images?: ImageAttachment[]
+  executionModeId?: string
 }
 
 export interface UpdateTaskInput {
@@ -88,6 +90,7 @@ export const taskStore = {
       assignee_member_id: input.assigneeMemberId ?? null,
       rule_id: input.ruleId ?? null,
       agent_report_status: null,
+      execution_mode_id: input.executionModeId ?? null,
     }
     getDb()
       .prepare(
@@ -95,12 +98,12 @@ export const taskStore = {
       INSERT INTO tasks (
         id, title, description, source, status, stage, assigned_agent_id,
         created_at, completed_at, project_id, team_id, assignee_member_id, rule_id,
-        agent_report_status
+        agent_report_status, execution_mode_id
       )
       VALUES (
         @id, @title, @description, @source, @status, @stage, @assigned_agent_id,
         @created_at, @completed_at, @project_id, @team_id, @assignee_member_id, @rule_id,
-        @agent_report_status
+        @agent_report_status, @execution_mode_id
       )
     `,
       )

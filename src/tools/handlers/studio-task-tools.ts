@@ -54,6 +54,7 @@ export const studioTaskCreateHandler: ToolHandler = {
       sessionMode: resolveSessionMode(input.sessionMode, optStr(input, 'sessionId')),
       projectId: context?.projectId ?? optStr(input, 'projectId'),
     })
+    if (!task) throw new Error('任务创建失败')
     log.info({ taskId: task.id, title }, 'Agent 创建任务')
     return {
       content: [{ type: 'text', text: JSON.stringify({ taskId: task.id, title: task.title, status: task.status, sessionId: (task as Record<string, unknown>).sessionId }, null, 2) }],
@@ -186,13 +187,13 @@ export const studioTaskUpdateProgressHandler: ToolHandler = {
 
 export const studioTaskReportHandler: ToolHandler = {
   name: 'studio.task.report',
-  description: '关键节点汇报：带 Markdown 报告向用户同步进展，并更新你的自我评估状态（agentStatus）。任务状态会根据 agentStatus 自动推导：in_progress 保持/恢复行动中；blocked 和 done 都会让任务进入「待确认」等待人工处理。',
+  description: '关键节点汇报：带 Markdown 报告向用户同步进展，并更新自我评估状态（agentStatus）。任务状态会根据 agentStatus 自动推导：milestone 保持/恢复行动中（Agent 继续工作）；blocked 和 done 都会让任务进入「待确认」等待人工处理。',
   inputSchema: {
     type: 'object',
     properties: {
       taskId: { type: 'string', description: '任务 ID' },
-      agentStatus: { type: 'string', enum: ['in_progress', 'blocked', 'done'], description: '你的自我评估状态：in_progress=正在执行；blocked=遇到问题需要人工决策；done=本轮完成等待验收' },
-      reportMd: { type: 'string', description: 'Markdown 报告，建议结构：## 本轮工作 / ## 下一步计划 / ## 问题或总结' },
+      agentStatus: { type: 'string', enum: ['milestone', 'blocked', 'done'], description: '自我评估状态：milestone=中间步骤完成（阶段性成果，任务保持行动中，继续执行）；blocked=遇到问题需要人工决策；done=本轮完成等待验收' },
+      reportMd: { type: 'string', description: 'Markdown 报告，按当前执行模式要求填写，参考任务指派 prompt 中的模板' },
       stage: { type: 'string', description: '当前阶段描述（可选，一句话）' },
     },
     required: ['taskId', 'agentStatus'],
@@ -200,8 +201,8 @@ export const studioTaskReportHandler: ToolHandler = {
   async execute(input, context) {
     const taskId = requireStr(input, 'taskId')
     const agentStatus = requireStr(input, 'agentStatus')
-    if (agentStatus !== 'in_progress' && agentStatus !== 'blocked' && agentStatus !== 'done') {
-      return errResult('agentStatus 必须是 in_progress / blocked / done 之一')
+    if (agentStatus !== 'milestone' && agentStatus !== 'blocked' && agentStatus !== 'done') {
+      return errResult('agentStatus 必须是 milestone / blocked / done 之一')
     }
     const reportMd = optStr(input, 'reportMd')
     const stage = optStr(input, 'stage')
@@ -211,6 +212,7 @@ export const studioTaskReportHandler: ToolHandler = {
 
     try {
       const updated = taskManager.reportTask({ taskId, agentStatus, reportMd, stage })
+      if (!updated) return errResult('任务不存在')
       return { content: [{ type: 'text', text: JSON.stringify({ taskId, status: updated.status, agentReportStatus: updated.agent_report_status }) }] }
     } catch (e) {
       return errResult((e as Error).message)

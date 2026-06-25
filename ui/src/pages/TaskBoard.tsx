@@ -25,6 +25,7 @@ const STATUS_META: Record<string, { label: string; color: string; bg: string }> 
 
 const AGENT_REPORT_STATUS_META: Record<string, { label: string; color: string; bg: string }> = {
   in_progress: { label: '进行中', color: 'var(--blue)', bg: 'var(--blue-light)' },
+  milestone: { label: '里程碑', color: '#7c3aed', bg: '#ede9fe' },
   blocked: { label: '卡住', color: 'var(--red)', bg: '#fee2e2' },
   done: { label: '已完成', color: 'var(--green)', bg: 'var(--green-light)' },
 };
@@ -56,6 +57,7 @@ const EVENT_TYPE_META: Record<string, { label: string; color: string }> = {
   assigned_agent: { label: '分派', color: '#7c3aed' },
   assigned: { label: '分派', color: '#7c3aed' },
   progress: { label: '进度', color: 'var(--text-3)' },
+  milestone: { label: '里程碑', color: '#7c3aed' },
   input_requested: { label: '请求确认', color: '#d97706' },
   marked_done: { label: '标记完成', color: 'var(--green)' },
   replied: { label: '人工回复', color: 'var(--blue)' },
@@ -75,18 +77,21 @@ function sessionModeHelp(mode: SessionMode, hasSession: boolean): string {
 
 export default function TaskBoard() {
   const tasks = useTaskStore(s => s.tasks);
+  const modes = useTaskStore(s => s.modes);
   const agents = useAgentStore(s => s.agents);
   const createTask = useTaskStore(s => s.createTask);
   const updateTask = useTaskStore(s => s.updateTask);
   const deleteTask = useTaskStore(s => s.deleteTask);
   const fetchTasks = useTaskStore(s => s.fetchTasks);
+  const fetchModes = useTaskStore(s => s.fetchModes);
   const currentProjectId = useProjectStore(s => s.currentProjectId);
   const [showNew, setShowNew] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchTasks(currentProjectId ?? undefined);
-  }, [currentProjectId, fetchTasks]);
+    fetchModes(currentProjectId ?? undefined);
+  }, [currentProjectId, fetchTasks, fetchModes]);
 
   const projectTasks = useMemo(() => {
     if (!currentProjectId) return tasks;
@@ -103,9 +108,14 @@ export default function TaskBoard() {
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: '24px 28px', overflow: 'hidden' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, flexShrink: 0 }}>
         <h1 style={{ fontSize: 18, fontWeight: 700 }}>任务看板</h1>
-        <button onClick={() => setShowNew(true)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 'var(--radius)', border: 'none', background: 'var(--blue)', color: 'white', fontSize: 15, fontWeight: 500, cursor: 'pointer', boxShadow: 'var(--shadow-sm)' }}>
-          <Plus size={14} /> 新建任务
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={() => window.location.hash = '#/tasks/modes'} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', background: 'var(--bg-1)', color: 'var(--text-2)', fontSize: 14, cursor: 'pointer' }}>
+            执行模式
+          </button>
+          <button onClick={() => setShowNew(true)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 'var(--radius)', border: 'none', background: 'var(--blue)', color: 'white', fontSize: 15, fontWeight: 500, cursor: 'pointer', boxShadow: 'var(--shadow-sm)' }}>
+            <Plus size={14} /> 新建任务
+          </button>
+        </div>
       </div>
       <div style={{ display: 'flex', gap: 16, overflowX: 'auto', flex: 1, minHeight: 0 }}>
         {COLUMNS.map(col => {
@@ -131,8 +141,9 @@ export default function TaskBoard() {
         <NewTaskModal
           agents={agents}
           projectId={currentProjectId}
-          onCreate={async (title, desc, agentId, sessionId, sessionMode, images) => {
-            await createTask(title, desc, agentId, currentProjectId ?? undefined, sessionId, sessionMode, images);
+          modes={modes}
+          onCreate={async (title, desc, agentId, sessionId, sessionMode, images, executionModeId) => {
+            await createTask(title, desc, agentId, currentProjectId ?? undefined, sessionId, sessionMode, images, executionModeId);
             setShowNew(false);
           }}
           onClose={() => setShowNew(false)}
@@ -142,6 +153,7 @@ export default function TaskBoard() {
         <TaskDetailDrawer
           task={projectTasks.find(t => t.id === selectedTaskId)}
           agents={agents}
+          modes={modes}
           onClose={() => setSelectedTaskId(null)}
           onStatusChange={(status, reason) => updateTask(selectedTaskId, status, undefined, reason)}
           onDelete={async () => { await deleteTask(selectedTaskId); setSelectedTaskId(null); }}
@@ -189,9 +201,10 @@ function parseEventPayload(json: string): Record<string, unknown> {
   try { return JSON.parse(json) as Record<string, unknown>; } catch { return {}; }
 }
 
-function TaskDetailDrawer({ task, agents, onClose, onStatusChange, onDelete }: {
+function TaskDetailDrawer({ task, agents, modes, onClose, onStatusChange, onDelete }: {
   task: TaskData | undefined;
   agents: AgentData[];
+  modes: Array<{ id: string; name: string }>;
   onClose: () => void;
   onStatusChange: (status: string, reason?: string) => Promise<TaskData>;
   onDelete: () => Promise<void>;
@@ -239,6 +252,7 @@ function TaskDetailDrawer({ task, agents, onClose, onStatusChange, onDelete }: {
   const statusMeta = STATUS_META[task.status] ?? STATUS_META.backlog;
   const agentReportMeta = task.agent_report_status ? AGENT_REPORT_STATUS_META[task.agent_report_status] : null;
   const agent = task.assigned_agent_id ? agents.find(a => a.id === task.assigned_agent_id) : null;
+  const currentMode = task.execution_mode_id ? modes.find(m => m.id === task.execution_mode_id) : null;
   const assignAgentSessions = assignAgentId
     ? sessions.filter(s => s.agent_id === assignAgentId && (!task.project_id || s.project_id === task.project_id))
     : [];
@@ -323,6 +337,7 @@ function TaskDetailDrawer({ task, agents, onClose, onStatusChange, onDelete }: {
     if (ev.type === 'replied') return '人工回复';
     if (ev.type === 'input_requested') return '请求确认';
     if (ev.type === 'marked_done') return '标记完成';
+    if (ev.type === 'milestone') return '里程碑汇报';
     if (ev.type === 'progress') return '更新进度';
     if (ev.type === 'status_changed' || ev.type === 'manual_status_change') {
       const from = typeof p.from_status === 'string' ? p.from_status : '?';
@@ -425,6 +440,7 @@ function TaskDetailDrawer({ task, agents, onClose, onStatusChange, onDelete }: {
                 {task.stage && <DetailRow label="阶段" value={task.stage} />}
                 <DetailRow label="指派 Agent" value={agent ? agent.name : '未指派'} />
                 <DetailRow label="来源" value={source.label} color={source.color} />
+                {currentMode && <DetailRow label="执行模式" value={currentMode.name} color="#7c3aed" />}
                 <DetailRow label="创建时间" value={formatDateTime(task.created_at)} />
                 {task.completed_at && <DetailRow label="完成时间" value={formatDateTime(task.completed_at)} />}
                 {task.sessionId && (
@@ -510,10 +526,11 @@ function DetailRow({ label, value, color }: { label: string; value: string; colo
   );
 }
 
-function NewTaskModal({ agents, projectId, onCreate, onClose }: {
+function NewTaskModal({ agents, projectId, modes, onCreate, onClose }: {
   agents: AgentData[];
   projectId: string | null;
-  onCreate: (title: string, desc?: string, agentId?: string, sessionId?: string, sessionMode?: SessionMode, images?: ImageAttachmentInfo[]) => Promise<void>;
+  modes: Array<{ id: string; name: string }>;
+  onCreate: (title: string, desc?: string, agentId?: string, sessionId?: string, sessionMode?: SessionMode, images?: ImageAttachmentInfo[], executionModeId?: string) => Promise<void>;
   onClose: () => void;
 }) {
   const [title, setTitle] = useState('');
@@ -522,6 +539,7 @@ function NewTaskModal({ agents, projectId, onCreate, onClose }: {
   const [sessionMode, setSessionMode] = useState<SessionMode>('new_fixed');
   const [sessionId, setSessionId] = useState('');
   const [images, setImages] = useState<ImageAttachmentInfo[]>([]);
+  const [executionModeId, setExecutionModeId] = useState('');
   const sessions = useSessionStore(s => s.sessions);
 
   const agentSessions = useMemo(() => {
@@ -541,6 +559,12 @@ function NewTaskModal({ agents, projectId, onCreate, onClose }: {
           <input value={title} onChange={e => setTitle(e.target.value)} placeholder="任务标题（必填）" style={st} />
           <textarea value={desc} onChange={e => setDesc(e.target.value)} placeholder="描述（可选）" rows={3} style={{ ...st, resize: 'vertical' }} />
           <TaskImageInput images={images} onChange={setImages} />
+          {modes.length > 0 && (
+            <select value={executionModeId} onChange={e => setExecutionModeId(e.target.value)} style={st}>
+              <option value="">默认执行</option>
+              {modes.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
+          )}
           <select value={agentId} onChange={e => { setAgentId(e.target.value); setSessionMode('new_fixed'); setSessionId(''); }} style={st}>
             <option value="">不指派 Agent</option>
             {agents.filter(a => !projectId || a.project_id === projectId).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
@@ -557,7 +581,7 @@ function NewTaskModal({ agents, projectId, onCreate, onClose }: {
           )}
           <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
             <button
-              onClick={() => { if (canCreate) onCreate(title, desc || undefined, agentId || undefined, sessionMode === 'existing' ? sessionId || undefined : undefined, agentId ? sessionMode : undefined, images); }}
+              onClick={() => { if (canCreate) onCreate(title, desc || undefined, agentId || undefined, sessionMode === 'existing' ? sessionId || undefined : undefined, agentId ? sessionMode : undefined, images, executionModeId || undefined); }}
               disabled={!canCreate}
               style={{ padding: '9px 18px', borderRadius: 'var(--radius)', border: 'none', background: canCreate ? 'var(--blue)' : 'var(--bg-2)', color: canCreate ? 'white' : 'var(--text-3)', fontSize: 15, fontWeight: 500, cursor: canCreate ? 'pointer' : 'not-allowed' }}
             >创建</button>

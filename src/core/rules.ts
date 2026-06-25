@@ -36,6 +36,7 @@ const actionHandlers: Record<string, ActionHandler> = {
             .replace(/\{description\}/g, config.description ?? '')
         : undefined,
     })
+    if (!result) throw new Error('定时任务创建失败')
     return { taskId: result.id }
   },
 

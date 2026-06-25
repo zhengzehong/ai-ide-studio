@@ -615,7 +615,7 @@ const CORE_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
   {
     name: 'studio.task.report',
     displayName: '汇报任务状态',
-    description: '关键节点汇报：带 Markdown 报告向用户同步进展，并更新自我评估状态。agentStatus=in_progress 保持/恢复行动中；blocked 和 done 让任务进入待确认等待人工处理。',
+    description: '关键节点汇报：带 Markdown 报告向用户同步进展，并更新自我评估状态。agentStatus=milestone 保持/恢复行动中（Agent 继续工作）；blocked 和 done 让任务进入待确认等待人工处理。',
     category: 'automation',
     type: 'builtin',
     config: { handler: 'studio.task.report' },
@@ -623,8 +623,8 @@ const CORE_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
       type: 'object',
       properties: {
         taskId: { type: 'string', description: '任务 ID' },
-        agentStatus: { type: 'string', enum: ['in_progress', 'blocked', 'done'], description: '自我评估状态：in_progress=正在执行；blocked=遇到问题需要人工决策；done=本轮完成等待验收' },
-        reportMd: { type: 'string', description: 'Markdown 报告，建议结构：## 本轮工作 / ## 下一步计划 / ## 问题或总结' },
+        agentStatus: { type: 'string', enum: ['milestone', 'blocked', 'done'], description: '自我评估状态：milestone=中间步骤完成（阶段性成果，任务保持行动中，继续执行）；blocked=遇到问题需要人工决策；done=本轮完成等待验收' },
+        reportMd: { type: 'string', description: 'Markdown 报告，按当前执行模式要求填写，参考任务指派 prompt 中的模板' },
         stage: { type: 'string', description: '当前阶段描述（可选）' },
       },
       required: ['taskId', 'agentStatus'],

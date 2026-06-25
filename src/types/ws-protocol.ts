@@ -11,7 +11,7 @@ export type SessionActivityReason =
   | 'runtime-exit'
   | 'startup-recovery'
 export type TaskStatus = 'backlog' | 'executing' | 'needs_input' | 'completed' | 'cancelled'
-export type AgentReportStatus = 'in_progress' | 'blocked' | 'done'
+export type AgentReportStatus = 'in_progress' | 'milestone' | 'blocked' | 'done'
 
 export interface ClientMessage {
   type: string
@@ -277,6 +277,7 @@ export interface TasksCreateMsg extends ClientMessage {
   projectId?: string
   sessionMode?: 'existing' | 'new_each' | 'new_fixed'
   sessionId?: string
+  executionModeId?: string
 }
 export interface TasksUpdateMsg extends ClientMessage {
   type: 'tasks.update'
@@ -301,6 +302,31 @@ export interface TasksEventsListMsg extends ClientMessage {
   type: 'tasks.events.list'
   taskId: string
   afterSequence?: number
+}
+export interface TasksModesListMsg extends ClientMessage {
+  type: 'tasks.modes.list'
+  projectId?: string
+}
+export interface TasksModesCreateMsg extends ClientMessage {
+  type: 'tasks.modes.create'
+  name: string
+  description?: string
+  promptTemplate?: string
+  reportTemplate?: string
+  projectId?: string
+}
+export interface TasksModesUpdateMsg extends ClientMessage {
+  type: 'tasks.modes.update'
+  id: string
+  name?: string
+  description?: string | null
+  promptTemplate?: string
+  reportTemplate?: string
+  sortOrder?: number
+}
+export interface TasksModesDeleteMsg extends ClientMessage {
+  type: 'tasks.modes.delete'
+  id: string
 }
 export interface TeamsCurrentMsg extends ClientMessage {
   type: 'teams.current'
