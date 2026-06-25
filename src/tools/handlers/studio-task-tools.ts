@@ -30,32 +30,52 @@ function assertProjectAccess(task: { project_id: string | null }, contextProject
 
 export const studioTaskCreateHandler: ToolHandler = {
   name: 'studio.task.create',
-  description: '在 AI IDE Studio 项目中创建一个新任务。这是平台级任务管理，用于追踪需要完成的工作项。指派 Agent 后会自动发送任务指派消息。',
+  description: `在 AI IDE Studio 项目中创建任务。两种模式:
+- selfExecute=true(对话任务化,常用):自己认领并立即在当前会话开始执行。用于用户在当前对话中布置的实质任务——写代码、修 bug、调研、重构等多步骤工作。不创建新会话,不发任务指派 prompt,创建后任务直接进入"执行中"。识别信号:用户说"帮我..."、"修复..."、"重构..."、"调研..."等,且工作需要多步完成。不要用于:简单问答、单次解释、闲聊、一句话能答完的问题。
+- selfExecute=false(默认):创建任务并可指派给其他 Agent,会发送任务指派 prompt 到目标会话。跨 Agent 分派用此模式。`,
   inputSchema: {
     type: 'object',
     properties: {
       title: { type: 'string', description: '任务标题' },
       description: { type: 'string', description: '任务描述' },
-      assignAgentId: { type: 'string', description: '指派 Agent（可选）' },
-      sessionMode: { type: 'string', enum: ['existing', 'new_each', 'new_fixed'], description: '会话策略：existing=指定已有会话，new_each=新建会话，new_fixed=固定新会话' },
-      sessionId: { type: 'string', description: '复用已有会话 ID（可选，不传则新建）' },
-      projectId: { type: 'string', description: '项目 ID（不传用当前会话项目）' },
+      selfExecute: { type: 'boolean', description: '自己认领并立即在当前会话开始执行。true 时强制使用当前 Agent + 当前会话,不创建新会话,不发送任务指派 prompt(用户消息本身就是任务上下文)。默认 false。' },
+      assignAgentId: { type: 'string', description: '指派 Agent(selfExecute=true 时忽略此参数;selfExecute=false 且不传时任务进入待办)' },
+      sessionMode: { type: 'string', enum: ['existing', 'new_each', 'new_fixed'], description: '会话策略:selfExecute=true 时忽略此参数' },
+      sessionId: { type: 'string', description: '复用的会话 ID:selfExecute=true 时忽略此参数' },
+      executionModeId: { type: 'string', description: '执行模式 ID,决定 prompt 模板和报告模板' },
+      projectId: { type: 'string', description: '项目 ID(不传用当前会话项目)' },
     },
     required: ['title'],
   },
   async execute(input, context) {
     const title = requireStr(input, 'title')
+    const selfExecute = input.selfExecute === true
+
+    let assignAgentId = optStr(input, 'assignAgentId')
+    let sessionId = optStr(input, 'sessionId')
+    let sessionMode = resolveSessionMode(input.sessionMode, sessionId)
+
+    if (selfExecute) {
+      if (!context?.agentId) throw new Error('selfExecute=true 需要在 Agent 会话上下文中使用')
+      if (!context?.sessionId) throw new Error('selfExecute=true 需要在当前会话中使用')
+      assignAgentId = context.agentId
+      sessionId = context.sessionId
+      sessionMode = 'existing'
+    }
+
     const task = await taskManager.createTask({
       title,
       description: optStr(input, 'description'),
       source: 'agent',
-      assignAgentId: optStr(input, 'assignAgentId'),
-      sessionId: optStr(input, 'sessionId'),
-      sessionMode: resolveSessionMode(input.sessionMode, optStr(input, 'sessionId')),
+      assignAgentId,
+      sessionId,
+      sessionMode,
       projectId: context?.projectId ?? optStr(input, 'projectId'),
+      executionModeId: optStr(input, 'executionModeId'),
+      selfExecute,
     })
     if (!task) throw new Error('任务创建失败')
-    log.info({ taskId: task.id, title }, 'Agent 创建任务')
+    log.info({ taskId: task.id, title, selfExecute }, 'Agent 创建任务')
     return {
       content: [{ type: 'text', text: JSON.stringify({ taskId: task.id, title: task.title, status: task.status, sessionId: (task as Record<string, unknown>).sessionId }, null, 2) }],
     }
