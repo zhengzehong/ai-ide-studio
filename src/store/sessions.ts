@@ -660,7 +660,7 @@ export const messageStore = {
         const nextMessageId = sourceEvent.message_id ? messageIdMap.get(sourceEvent.message_id) ?? null : null
         copiedEventCount += 1
         insertEvent.run({
-          id: `evt-${randomUUID().slice(0, 8)}`,
+          id: `evt-${randomUUID()}`,
           session_id: targetSessionId,
           agent_id: sourceEvent.agent_id,
           acp_session_id: null,
@@ -767,7 +767,7 @@ export const eventStore = {
     const db = getDb()
     const last = db.prepare<[string], { sequence: number }>('SELECT sequence FROM session_events WHERE session_id = ? ORDER BY sequence DESC LIMIT 1').get(sessionId)
     const ev: SessionEventRow = {
-      id: `evt-${randomUUID().slice(0, 8)}`,
+      id: `evt-${randomUUID()}`,
       session_id: sessionId,
       agent_id: input.agentId ?? null,
       acp_session_id: input.acpSessionId ?? null,
