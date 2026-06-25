@@ -929,22 +929,20 @@ export default function Workspace() {
       )}
 
       {/* ─── Center Chat ─── */}
-      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, alignItems: 'center' }}>
-        <div style={{ width: '100%', maxWidth: 720, display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-          <WorkspaceChatPane
-            connected={connected}
-            currentSessionId={currentSessionId}
-            chatAgent={chatAgent}
-            currentSessionTitle={currentSessionId ? sessionTitle(currentSession ?? { id: currentSessionId }) : undefined}
-            currentSessionCopying={currentSessionCopying}
-          />
-        </div>
+      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        <WorkspaceChatPane
+          connected={connected}
+          currentSessionId={currentSessionId}
+          chatAgent={chatAgent}
+          currentSessionTitle={currentSessionId ? sessionTitle(currentSession ?? { id: currentSessionId }) : undefined}
+          currentSessionCopying={currentSessionCopying}
+        />
       </main>
 
       {/* Right Sidebar: session context */}
       <aside
         style={{
-          width: 420,
+          width: 380,
           flexShrink: 0,
           display: 'flex',
           flexDirection: 'column',
