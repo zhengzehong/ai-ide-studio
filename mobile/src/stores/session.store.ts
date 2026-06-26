@@ -42,6 +42,8 @@ interface SessionState {
 }
 
 let sessionListRequestSeq = 0
+let sessionListRefreshTimer: ReturnType<typeof setTimeout> | null = null
+const SESSION_LIST_REFRESH_DEBOUNCE_MS = 300
 
 function timestampMs(value: string | null | undefined): number | undefined {
   if (!value) return undefined
@@ -172,7 +174,16 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
 
   setupListeners: () => {
-    const refresh = () => void get().fetchSessions(useAppStore.getState().currentProjectId)
+    // 重连或批量事件时,服务端会补发一串 session:activity / session:done /
+    // session:changed,每个原本都调一次 fetchSessions,造成列表反复重排。
+    // 防抖到 300ms 内只发一次请求。
+    const refresh = () => {
+      if (sessionListRefreshTimer) return
+      sessionListRefreshTimer = setTimeout(() => {
+        sessionListRefreshTimer = null
+        void get().fetchSessions(useAppStore.getState().currentProjectId)
+      }, SESSION_LIST_REFRESH_DEBOUNCE_MS)
+    }
     const markRunning = (sessionId: string) => {
       set((state) => ({
         runningSessionIds: addIndicator(state.runningSessionIds, sessionId),
@@ -243,6 +254,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       off1()
       off2()
       off3()
+      if (sessionListRefreshTimer) {
+        clearTimeout(sessionListRefreshTimer)
+        sessionListRefreshTimer = null
+      }
     }
   },
 }))

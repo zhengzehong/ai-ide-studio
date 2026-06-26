@@ -22,14 +22,39 @@ export default function ChatPage() {
   const listRef = useRef<HTMLDivElement>(null)
   const stickToBottomRef = useRef(true)
   const olderLoadAnchorRef = useRef<{ sessionId: string; scrollHeight: number; scrollTop: number } | null>(null)
-  const {
-    messages, events, streamingMessage, loading, isRunning, sendError, plan, pendingPermissions, pendingElicitations, capabilities,
-    turnProcessLoadingByMessageId, turnProcessErrorByMessageId, runningStartedAtMs,
-    hasMoreMessagesBySession, loadingOlderMessagesBySession,
-    enterSession, leaveSession, loadOlderMessages, sendPrompt, cancelTurn, fetchMessageProcess, refreshCurrentSession, respondPermission, respondElicitation,
-  } = useChatStore()
+  const prevMsgCountRef = useRef(0)
+
+  // 拆 selector 订阅:每个字段独立订阅,避免一把抓导致任一变化都触发整个组件重渲染。
+  // 流式期间 streamingMessage 每 16ms(RAF)变一次,如果订阅整个 store,整个 ChatPage
+  // 都会重渲染;拆开后只有 streaming 子组件重渲染,历史消息列表纹丝不动。
+  const messages = useChatStore(s => s.messages)
+  const events = useChatStore(s => s.events)
+  const streamingMessage = useChatStore(s => s.streamingMessage)
+  const loading = useChatStore(s => s.loading)
+  const isRunning = useChatStore(s => s.isRunning)
+  const sendError = useChatStore(s => s.sendError)
+  const plan = useChatStore(s => s.plan)
+  const pendingPermissions = useChatStore(s => s.pendingPermissions)
+  const pendingElicitations = useChatStore(s => s.pendingElicitations)
+  const capabilities = useChatStore(s => s.capabilities)
+  const turnProcessLoadingByMessageId = useChatStore(s => s.turnProcessLoadingByMessageId)
+  const turnProcessErrorByMessageId = useChatStore(s => s.turnProcessErrorByMessageId)
+  const runningStartedAtMs = useChatStore(s => s.runningStartedAtMs)
+  const hasMoreMessagesBySession = useChatStore(s => s.hasMoreMessagesBySession)
+  const loadingOlderMessagesBySession = useChatStore(s => s.loadingOlderMessagesBySession)
+  const enterSession = useChatStore(s => s.enterSession)
+  const leaveSession = useChatStore(s => s.leaveSession)
+  const loadOlderMessages = useChatStore(s => s.loadOlderMessages)
+  const sendPrompt = useChatStore(s => s.sendPrompt)
+  const cancelTurn = useChatStore(s => s.cancelTurn)
+  const fetchMessageProcess = useChatStore(s => s.fetchMessageProcess)
+  const refreshCurrentSession = useChatStore(s => s.refreshCurrentSession)
+  const respondPermission = useChatStore(s => s.respondPermission)
+  const respondElicitation = useChatStore(s => s.respondElicitation)
+
   const sessions = useSessionStore(s => s.sessions)
-  const { connected, status } = useConnectionStore()
+  const connected = useConnectionStore(s => s.connected)
+  const status = useConnectionStore(s => s.status)
   const session = sessions.find(s => s.id === sessionId)
   const listenersRef = useRef(false)
   const [liveNowMs, setLiveNowMs] = useState(() => Date.now())
@@ -40,6 +65,7 @@ export default function ChatPage() {
     if (!sessionId) return
     stickToBottomRef.current = true
     olderLoadAnchorRef.current = null
+    prevMsgCountRef.current = 0
     useSessionStore.getState().setCurrentSession(sessionId)
     enterSession(sessionId)
     useSessionStore.getState().markRead(sessionId)
@@ -62,6 +88,8 @@ export default function ChatPage() {
   // Reconnect recovery: when the websocket comes back online, refill the
   // current conversation with the latest persisted messages and events so we
   // don't leave the user staring at stale state after a background disconnect.
+  // 单触发:refreshCurrentSession 内部用 refreshInFlight 去重,避免重连时
+  // 4 路并发刷新(ChatPage effect + chat.store reconnected listener 已删除)。
   useEffect(() => {
     if (!connected || !sessionId) return
     void refreshCurrentSession(sessionId)
@@ -116,6 +144,10 @@ export default function ChatPage() {
     void loadOlderMessages(sessionId)
   }, [hasMoreMessages, loadOlderMessages, loadingOlderMessages, sessionId])
 
+  // 滚动 effect 改为 messages.length 驱动:流式期间 streamingMessage 每 16ms 变化,
+  // 旧实现依赖 chatItems(包含 streamingMessage),每 16ms 强制 scrollTop = scrollHeight,
+  // 触发 forced reflow。改为只依赖 messages.length,流式期间不强制滚动,浏览器原生
+  // overflow-anchor 处理滚动跟随(若支持),零 JS reflow。
   useEffect(() => {
     const el = listRef.current
     if (!el) return
@@ -124,12 +156,15 @@ export default function ChatPage() {
       const delta = el.scrollHeight - olderLoadAnchor.scrollHeight
       el.scrollTop = olderLoadAnchor.scrollTop + delta
       olderLoadAnchorRef.current = null
+      prevMsgCountRef.current = messages.length
       return
     }
-    if (stickToBottomRef.current) {
+    // 只在消息条数变化时强制滚底,流式内容增长不触发 forced reflow
+    if (messages.length !== prevMsgCountRef.current && stickToBottomRef.current) {
       el.scrollTop = el.scrollHeight
     }
-  }, [chatItems, pendingPermissions, pendingElicitations, sessionId])
+    prevMsgCountRef.current = messages.length
+  }, [messages.length, sessionId])
 
   useEffect(() => {
     if (loadingOlderMessages) return
