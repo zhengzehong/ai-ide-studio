@@ -1,4 +1,4 @@
-import { useState, useMemo, type CSSProperties } from 'react'
+import { memo, useState, useMemo, type CSSProperties } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { ChevronDown, ChevronRight, Clock, Zap, DollarSign } from 'lucide-react'
@@ -45,7 +45,7 @@ export function deriveTurnElapsedSeconds(input: {
       : elapsedSecondsBetween(input.message?.started_at, input.message?.completed_at))
 }
 
-export default function TurnContent({ message, streaming, processLoading = false, processError, onLoadProcess, liveElapsedSeconds }: Props) {
+export default memo(function TurnContent({ message, streaming, processLoading = false, processError, onLoadProcess, liveElapsedSeconds }: Props) {
   const [processOpenOverride, setProcessOpenOverride] = useState<ProcessOpenOverride>(null)
 
   const processBlocks = streaming?.processBlocks ?? message?.processBlocks ?? []
@@ -132,7 +132,7 @@ export default function TurnContent({ message, streaming, processLoading = false
       )}
     </div>
   )
-}
+})
 
 function parseTurnStats(json: string | null | undefined): Record<string, number> | null {
   if (!json) return null

@@ -91,16 +91,24 @@ interface ChatSessionCache {
 
 const MOBILE_CHAT_MESSAGE_PAGE_SIZE = 10
 const streamingBuffer = new StreamingBuffer()
-let streamingFlushTimer: ReturnType<typeof setTimeout> | null = null
+let streamingFlushRaf: number | null = null
 let postCompletionRefreshTimer: ReturnType<typeof setTimeout> | null = null
 let promptStartTime = 0
 let lastStreamingSnapshot: StreamingMessage | null = null
 const sessionCaches = new Map<string, ChatSessionCache>()
+const refreshInFlight = new Set<string>()
 const mirroredRealtimeEventTypes = new Set(['message.chunk', 'thinking.chunk', 'tool.call', 'tool.update', 'message.done'])
 
 export function resetMobileChatSessionCachesForTest(): void {
   sessionCaches.clear()
   clearPostCompletionRefreshTimer()
+  clearStreamingFlushRaf()
+}
+
+function clearStreamingFlushRaf(): void {
+  if (streamingFlushRaf === null) return
+  cancelAnimationFrame(streamingFlushRaf)
+  streamingFlushRaf = null
 }
 
 function timestampMs(value: string | null | undefined): number | undefined {
@@ -299,7 +307,7 @@ async function refreshSessionEvents(
 }
 
 function flushBuffer(set: (p: Partial<ChatState> | ((s: ChatState) => Partial<ChatState>)) => void, get: () => ChatState): void {
-  if (streamingFlushTimer) { clearTimeout(streamingFlushTimer); streamingFlushTimer = null }
+  if (streamingFlushRaf !== null) { cancelAnimationFrame(streamingFlushRaf); streamingFlushRaf = null }
   const snapshot = streamingBuffer.flush()
   if (!snapshot) return
   const sid = get().sessionId
@@ -318,12 +326,17 @@ function flushBuffer(set: (p: Partial<ChatState> | ((s: ChatState) => Partial<Ch
     lastStreamingSnapshot = up
     return { streamingMessage: up }
   })
-  if (sid) saveCache(sid, get())
+  // 流式刷新期间不 saveCache:saveCache 会深拷贝整个 state(messages/events/capabilities),
+  // 50ms 一次的 flush 在 100 条消息时会造成明显 GC 压力。cache 只在关键节点
+  // (turn done / leaveSession / loadOlder / enterSession 切换) 写入。
 }
 
 function scheduleFlush(set: (p: Partial<ChatState> | ((s: ChatState) => Partial<ChatState>)) => void, get: () => ChatState): void {
-  if (streamingFlushTimer) return
-  streamingFlushTimer = setTimeout(() => { streamingFlushTimer = null; flushBuffer(set, get) }, 50)
+  if (streamingFlushRaf !== null) return
+  streamingFlushRaf = requestAnimationFrame(() => {
+    streamingFlushRaf = null
+    flushBuffer(set, get)
+  })
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -353,8 +366,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
       wsClient.unsubscribe([prev])
     }
     streamingBuffer.clear()
-    if (streamingFlushTimer) { clearTimeout(streamingFlushTimer); streamingFlushTimer = null }
+    clearStreamingFlushRaf()
     clearPostCompletionRefreshTimer()
+    refreshInFlight.delete(sessionId)
     lastStreamingSnapshot = null
     const cached = sessionCaches.get(sessionId)
     set({
@@ -380,8 +394,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
       wsClient.unsubscribe([sid])
     }
     streamingBuffer.clear()
-    if (streamingFlushTimer) { clearTimeout(streamingFlushTimer); streamingFlushTimer = null }
+    clearStreamingFlushRaf()
     clearPostCompletionRefreshTimer()
+    refreshInFlight.clear()
     set({
       sessionId: null,
       messages: [],
@@ -511,9 +526,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
   refreshCurrentSession: async (sessionId) => {
     if (get().sessionId !== sessionId) return
     if (!wsClient.connected) return
-    await refreshLatestMessages(get, set, sessionId).catch(() => {})
-    if (get().sessionId !== sessionId) return
-    await refreshSessionEvents(get, set, sessionId).catch(() => {})
+    // 并发去重:重连时 ChatPage 的 useEffect 触发一次,期间 WS 的 session:*
+    // 事件也可能各自触发 refreshLatestMessagesAfterPersistence,如果没有去重,
+    // 4 路并发请求会连续 set() 4 次触发 4 次重渲染。
+    if (refreshInFlight.has(sessionId)) return
+    refreshInFlight.add(sessionId)
+    try {
+      await refreshLatestMessages(get, set, sessionId).catch(() => {})
+      if (get().sessionId !== sessionId) return
+      await refreshSessionEvents(get, set, sessionId).catch(() => {})
+    } finally {
+      // 只删除自己加的条目,避免快速切换 session 时误删别的 session 的 in-flight 标记
+      refreshInFlight.delete(sessionId)
+    }
   },
 
   cancelTurn: async () => {
@@ -558,7 +583,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
           pendingPermissions: reduced.pendingPermissions, pendingElicitations: reduced.pendingElicitations,
         }
       })
-      saveCache(sid, get())
+      // 高频事件不 saveCache:流式期间 event 频繁到达,深拷贝整个 state 浪费 CPU。
+      // cache 只在关键节点(turn done / leaveSession / loadOlder / enterSession)写。
     }))
 
     offs.push(wsClient.on('session:process_item', (msg) => {
@@ -583,7 +609,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           }),
         }
       })
-      saveCache(sid, get())
+      // 高频事件不 saveCache
     }))
 
     offs.push(wsClient.on('session:update', (msg) => {
@@ -598,14 +624,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
           const base: StreamingMessage = state.streamingMessage || createEmptyTurn(String(data.messageId || `stream-${sid}-${Date.now()}`))
           return { streamingMessage: applyTurnEntry(base, { kind: 'stage', text: stage }), isRunning: true, runningStartedAtMs: state.runningStartedAtMs ?? Date.now() }
         })
-        saveCache(sid, get())
+        // lifecycle.stage 高频更新不 saveCache
         return
       }
       if (data.eventType === 'permission.result' || data.eventType === 'elicitation.result') return
-      if (data.usage) { set({ usage: data.usage as UsageInfo }); saveCache(sid, get()); return }
-      if (data.plan) { set({ plan: data.plan as PlanEntry[] }); saveCache(sid, get()); return }
-      if (data.configOptions) { set(s => ({ capabilities: capabilitiesFromConfig(s.capabilities, data.configOptions as ConfigOptionInfo[]) })); saveCache(sid, get()); return }
-      if (data.commands) { set(s => ({ capabilities: { ...s.capabilities, commands: data.commands as AvailableCommandInfo[] } })); saveCache(sid, get()); return }
+      if (data.usage) { set({ usage: data.usage as UsageInfo }); return }
+      if (data.plan) { set({ plan: data.plan as PlanEntry[] }); return }
+      if (data.configOptions) { set(s => ({ capabilities: capabilitiesFromConfig(s.capabilities, data.configOptions as ConfigOptionInfo[]) })); return }
+      if (data.commands) { set(s => ({ capabilities: { ...s.capabilities, commands: data.commands as AvailableCommandInfo[] } })); return }
       if (data.permissionRequest) { const r = data.permissionRequest as PermissionRequestInfo; set(s => ({ pendingPermissions: [...s.pendingPermissions.filter(p => p.id !== r.id), r] })); saveCache(sid, get()); return }
       if (data.elicitationRequest) { const r = data.elicitationRequest as ElicitationRequestInfo; set(s => ({ pendingElicitations: [...s.pendingElicitations.filter(p => p.id !== r.id), r] })); saveCache(sid, get()); return }
 
@@ -619,7 +645,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         })
         set(state => ({ isRunning: true, runningStartedAtMs: state.runningStartedAtMs ?? Date.now() }))
         scheduleFlush(set, get)
-        saveCache(sid, get())
+        // 流式增量不 saveCache
       }
     }))
 
@@ -704,15 +730,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
       saveCache(sid, get())
     }))
 
-    // Reconnect recovery: wsClient emits 'reconnected' on onopen after a close,
-    // which fires even when React's `connected` state doesn't observe the
-    // transition (e.g. onclose/onerror race in the ws-client that can leave
-    // `connected` stuck at false). Refill the current conversation directly.
-    offs.push(wsClient.on('reconnected', () => {
-      const sid = get().sessionId
-      if (!sid) return
-      void get().refreshCurrentSession(sid)
-    }))
+    // Reconnect recovery handled solely by ChatPage's useEffect on `connected`.
+    // Previously this listener double-fired with that effect (4 concurrent
+    // refresh requests on every reconnect). Dropping it keeps a single trigger
+    // path; refreshCurrentSession itself dedupes with refreshInFlight.
 
     return () => offs.forEach(f => f())
   },
