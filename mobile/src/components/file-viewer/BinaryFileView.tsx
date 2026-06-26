@@ -16,11 +16,11 @@ export function BinaryFileView({ file }: BinaryFileViewProps) {
   const handleDownload = async () => {
     if (state === 'downloading') return
     setState('downloading')
-    setMessage('正在下载...')
+    setMessage('正在唤起系统下载...')
     try {
       await download(file)
       setState('success')
-      setMessage('已保存到下载目录')
+      setMessage('已交给系统浏览器下载')
     } catch (err) {
       setState('error')
       setMessage(err instanceof Error ? err.message : '下载失败')
@@ -51,7 +51,7 @@ export function BinaryFileView({ file }: BinaryFileViewProps) {
         {formatSize(file.size)} · {file.extension || '未知类型'}
       </div>
       <div style={styles.hint}>
-        此文件类型不支持预览,可下载到本地查看
+        此文件类型不支持预览,点击下方按钮由系统浏览器下载
       </div>
       <button
         style={{
@@ -78,51 +78,28 @@ export function BinaryFileView({ file }: BinaryFileViewProps) {
 
 BinaryFileView.download = download
 
+// 统一走系统浏览器下载。Capacitor 原生平台用 @capacitor/browser 弹外部浏览器
+// (WebView 内 fetch+Filesystem.writeFile 对大文件会 OOM/fetch fail);
+// 浏览器平台用 <a download> 触发导出。
 async function download(file: FileContent): Promise<void> {
   const url = buildAssetUrl(file.path, 'attachment')
-  const fileName = file.path.split('/').pop() || file.path
 
-  const isCapacitorAndroid = typeof window !== 'undefined'
+  const isCapacitorNative = typeof window !== 'undefined'
     && (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.() === true
 
-  if (isCapacitorAndroid) {
-    const { Filesystem, Directory } = await import('@capacitor/filesystem')
-    const resp = await fetch(url)
-    if (!resp.ok) throw new Error(`下载失败 (${resp.status})`)
-    const blob = await resp.blob()
-    const base64 = await blobToBase64(blob)
-    await Filesystem.writeFile({
-      path: fileName,
-      data: base64,
-      directory: Directory.Documents,
-      recursive: true,
-    })
+  if (isCapacitorNative) {
+    const { Browser } = await import('@capacitor/browser')
+    await Browser.open({ url })
     return
   }
 
+  const fileName = file.path.split('/').pop() || file.path
   const a = document.createElement('a')
   a.href = url
   a.download = fileName
   document.body.appendChild(a)
   a.click()
   document.body.removeChild(a)
-}
-
-function blobToBase64(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => {
-      const result = reader.result
-      if (typeof result !== 'string') {
-        reject(new Error('读取文件失败'))
-        return
-      }
-      const commaIdx = result.indexOf(',')
-      resolve(commaIdx >= 0 ? result.slice(commaIdx + 1) : result)
-    }
-    reader.onerror = () => reject(reader.error ?? new Error('读取文件失败'))
-    reader.readAsDataURL(blob)
-  })
 }
 
 function formatSize(bytes: number): string {
