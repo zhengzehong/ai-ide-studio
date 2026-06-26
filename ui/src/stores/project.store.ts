@@ -29,22 +29,41 @@ export interface ProjectData {
   description: string | null
   created_at: string
   updated_at: string
+  color: string | null
+  icon: string | null
+  last_visited_at: string | null
+  visit_count: number
 }
 
 interface ProjectStore {
   projects: ProjectData[]
   currentProjectId: string | null
+  previousProjectId: string | null
   loading: boolean
   fetchProjects: () => Promise<void>
-  createProject: (name: string, workDir: string, description?: string) => Promise<ProjectData>
+  createProject: (input: {
+    name: string
+    workDir: string
+    description?: string
+    color?: string
+    icon?: string
+  }) => Promise<ProjectData>
   selectProject: (id: string | null) => void
   deleteProject: (id: string) => Promise<void>
+  updateProject: (id: string, fields: {
+    name?: string
+    workDir?: string
+    description?: string
+    color?: string
+    icon?: string
+  }) => Promise<ProjectData | undefined>
   currentProject: () => ProjectData | undefined
 }
 
 export const useProjectStore = create<ProjectStore>((set, get) => ({
   projects: [],
   currentProjectId: null,
+  previousProjectId: null,
   loading: false,
 
   fetchProjects: async () => {
@@ -65,12 +84,14 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     }
   },
 
-  createProject: async (name, workDir, description) => {
+  createProject: async (input) => {
     const project = (await wsClient.request({
       type: 'projects.create',
-      name,
-      workDir,
-      description,
+      name: input.name,
+      workDir: input.workDir,
+      description: input.description,
+      color: input.color,
+      icon: input.icon,
     })) as ProjectData
     set({ projects: [...get().projects, project] })
     if (!get().currentProjectId) {
@@ -80,9 +101,37 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     return project
   },
 
+  updateProject: async (id, fields) => {
+    const msg: Record<string, unknown> = { type: 'projects.update', projectId: id }
+    if (fields.name !== undefined) msg.name = fields.name
+    if (fields.workDir !== undefined) msg.workDir = fields.workDir
+    if (fields.description !== undefined) msg.description = fields.description
+    if (fields.color !== undefined) msg.color = fields.color
+    if (fields.icon !== undefined) msg.icon = fields.icon
+    const updated = (await wsClient.request(msg)) as ProjectData
+    set({ projects: get().projects.map((p) => (p.id === id ? updated : p)) })
+    return updated
+  },
+
   selectProject: (id) => {
-    set({ currentProjectId: id })
+    const prev = get().currentProjectId
+    if (prev === id) return
+    set({ previousProjectId: prev, currentProjectId: id })
     writeStoredProjectId(id)
+    if (id) {
+      void wsClient
+        .request({ type: 'projects.select', projectId: id })
+        .then((touched) => {
+          if (touched) {
+            set({
+              projects: get().projects.map((p) => (p.id === id ? (touched as ProjectData) : p)),
+            })
+          }
+        })
+        .catch(() => {
+          // ignore — visit tracking is best-effort
+        })
+    }
   },
 
   deleteProject: async (id) => {
@@ -92,6 +141,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     set({
       projects: remaining,
       currentProjectId: nextProjectId,
+      previousProjectId: get().previousProjectId === id ? null : get().previousProjectId,
     })
     writeStoredProjectId(nextProjectId)
   },
