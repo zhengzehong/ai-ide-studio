@@ -1,4 +1,4 @@
-﻿import { initialSchemaMigration } from './001-initial-schema.js'
+import { initialSchemaMigration } from './001-initial-schema.js'
 import { projectScopeMigration } from './002-project-scope.js'
 import { toolPlatformMigration } from './003-tool-platform.js'
 import { modelAndSkillMigration } from './004-model-and-skill-settings.js'
@@ -23,6 +23,7 @@ import { sessionReadStateMigration } from './022-session-read-state.js'
 import { taskAttachmentsMigration } from './023-task-attachments.js'
 import { taskReportStatusMigration } from './024-task-report-status.js'
 import { taskExecutionModesMigration } from './025-task-execution-modes.js'
+import { projectMetaMigration } from './026-project-meta.js'
 import type { Migration } from '../migrator.js'
 
 export const migrations: Migration[] = [
@@ -51,4 +52,5 @@ export const migrations: Migration[] = [
   taskAttachmentsMigration,
   taskReportStatusMigration,
   taskExecutionModesMigration,
+  projectMetaMigration,
 ]

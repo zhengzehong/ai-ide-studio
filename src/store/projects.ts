@@ -11,12 +11,18 @@ export interface ProjectRow {
   description: string | null
   created_at: string
   updated_at: string
+  color: string | null
+  icon: string | null
+  last_visited_at: string | null
+  visit_count: number
 }
 
 export interface CreateProjectInput {
   name: string
   workDir: string
   description?: string
+  color?: string
+  icon?: string
 }
 
 export const projectStore = {
@@ -29,10 +35,14 @@ export const projectStore = {
       description: input.description ?? null,
       created_at: now,
       updated_at: now,
+      color: input.color ?? null,
+      icon: input.icon ?? null,
+      last_visited_at: null,
+      visit_count: 0,
     }
     getDb().prepare(`
-      INSERT INTO projects (id, name, work_dir, description, created_at, updated_at)
-      VALUES (@id, @name, @work_dir, @description, @created_at, @updated_at)
+      INSERT INTO projects (id, name, work_dir, description, created_at, updated_at, color, icon, last_visited_at, visit_count)
+      VALUES (@id, @name, @work_dir, @description, @created_at, @updated_at, @color, @icon, @last_visited_at, @visit_count)
     `).run(project)
     log.info({ projectId: project.id, name: project.name, workDir: project.work_dir }, '项目已创建')
     return project
@@ -43,18 +53,43 @@ export const projectStore = {
   },
 
   list(): ProjectRow[] {
-    return getDb().prepare<[], ProjectRow>('SELECT * FROM projects ORDER BY updated_at DESC').all()
+    return getDb()
+      .prepare<[], ProjectRow>(
+        `SELECT * FROM projects ORDER BY (last_visited_at IS NULL) ASC, last_visited_at DESC, created_at DESC`,
+      )
+      .all()
   },
 
-  update(id: string, fields: Partial<Pick<ProjectRow, 'name' | 'work_dir' | 'description'>>): ProjectRow | undefined {
+  update(
+    id: string,
+    fields: Partial<Pick<ProjectRow, 'name' | 'work_dir' | 'description' | 'color' | 'icon'>>,
+  ): ProjectRow | undefined {
     const project = projectStore.get(id)
     if (!project) return undefined
 
     const updated = { ...project, ...fields, updated_at: new Date().toISOString() }
     getDb().prepare(`
-      UPDATE projects SET name = @name, work_dir = @work_dir, description = @description, updated_at = @updated_at
+      UPDATE projects SET name = @name, work_dir = @work_dir, description = @description, color = @color, icon = @icon, updated_at = @updated_at
       WHERE id = @id
     `).run(updated)
+    return updated
+  },
+
+  touchVisit(id: string): ProjectRow | undefined {
+    const project = projectStore.get(id)
+    if (!project) return undefined
+    const now = new Date().toISOString()
+    const updated = {
+      ...project,
+      last_visited_at: now,
+      visit_count: project.visit_count + 1,
+      updated_at: project.updated_at,
+    }
+    getDb()
+      .prepare(
+        `UPDATE projects SET last_visited_at = @last_visited_at, visit_count = @visit_count WHERE id = @id`,
+      )
+      .run(updated)
     return updated
   },
 
