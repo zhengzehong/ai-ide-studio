@@ -22,7 +22,6 @@ export default function ChatPage() {
   const listRef = useRef<HTMLDivElement>(null)
   const stickToBottomRef = useRef(true)
   const olderLoadAnchorRef = useRef<{ sessionId: string; scrollHeight: number; scrollTop: number } | null>(null)
-  const prevMsgCountRef = useRef(0)
 
   // 拆 selector 订阅:每个字段独立订阅,避免一把抓导致任一变化都触发整个组件重渲染。
   // 流式期间 streamingMessage 每 16ms(RAF)变一次,如果订阅整个 store,整个 ChatPage
@@ -65,7 +64,6 @@ export default function ChatPage() {
     if (!sessionId) return
     stickToBottomRef.current = true
     olderLoadAnchorRef.current = null
-    prevMsgCountRef.current = 0
     useSessionStore.getState().setCurrentSession(sessionId)
     enterSession(sessionId)
     useSessionStore.getState().markRead(sessionId)
@@ -144,7 +142,7 @@ export default function ChatPage() {
     void loadOlderMessages(sessionId)
   }, [hasMoreMessages, loadOlderMessages, loadingOlderMessages, sessionId])
 
-  // 滚动 effect 改为 messages.length 驱动:流式期间 streamingMessage 每 16ms 变化,
+  // 滚动 effect 改为 messages.length 驱动:流式期间 streamingMessage 每 16ms(RAF)变,
   // 旧实现依赖 chatItems(包含 streamingMessage),每 16ms 强制 scrollTop = scrollHeight,
   // 触发 forced reflow。改为只依赖 messages.length,流式期间不强制滚动,浏览器原生
   // overflow-anchor 处理滚动跟随(若支持),零 JS reflow。
@@ -156,14 +154,12 @@ export default function ChatPage() {
       const delta = el.scrollHeight - olderLoadAnchor.scrollHeight
       el.scrollTop = olderLoadAnchor.scrollTop + delta
       olderLoadAnchorRef.current = null
-      prevMsgCountRef.current = messages.length
       return
     }
     // 只在消息条数变化时强制滚底,流式内容增长不触发 forced reflow
-    if (messages.length !== prevMsgCountRef.current && stickToBottomRef.current) {
+    if (stickToBottomRef.current) {
       el.scrollTop = el.scrollHeight
     }
-    prevMsgCountRef.current = messages.length
   }, [messages.length, sessionId])
 
   useEffect(() => {
