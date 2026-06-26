@@ -13,20 +13,25 @@ interface Props {
   options: FilterSelectOption[]
   onChange: (value: string) => void
   compact?: boolean
+  disabled?: boolean
 }
 
-export default function FilterSelectSheet({ icon, title, value, options, onChange, compact }: Props) {
+export default function FilterSelectSheet({ icon, title, value, options, onChange, compact, disabled }: Props) {
   const [open, setOpen] = useState(false)
   const current = options.find((option) => option.value === value) ?? options[0]
+  const triggerDisabled = disabled || options.length === 0
 
   return (
     <>
-      <button style={{ ...styles.trigger, ...(compact ? styles.triggerCompact : {}) }} onClick={() => setOpen(true)}>
+      <button
+        style={{ ...styles.trigger, ...(compact ? styles.triggerCompact : {}), ...(triggerDisabled ? styles.triggerDisabled : {}) }}
+        onClick={() => !triggerDisabled && setOpen(true)}
+        disabled={triggerDisabled}
+      >
         {icon}
         <span style={styles.triggerText}>{current?.label || title}</span>
         <ChevronDown size={14} color="var(--text-muted)" />
       </button>
-
       {open && (
         <div style={styles.overlay} onClick={() => setOpen(false)}>
           <div style={styles.sheet} onClick={(event) => event.stopPropagation()}>
@@ -53,6 +58,9 @@ export default function FilterSelectSheet({ icon, title, value, options, onChang
                   </button>
                 )
               })}
+              {options.length === 0 && (
+                <div style={styles.empty}>暂无可选项</div>
+              )}
             </div>
           </div>
         </div>
@@ -73,10 +81,15 @@ const styles: Record<string, CSSProperties> = {
     padding: '0 10px',
     borderRadius: 'var(--radius-sm)',
     background: 'var(--bg-input)',
+    cursor: 'pointer',
   },
   triggerCompact: {
     flex: '0 0 auto',
     minWidth: 116,
+  },
+  triggerDisabled: {
+    opacity: 0.45,
+    cursor: 'default',
   },
   triggerText: {
     minWidth: 0,
@@ -147,5 +160,11 @@ const styles: Record<string, CSSProperties> = {
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
+  },
+  empty: {
+    padding: '20px',
+    textAlign: 'center',
+    color: 'var(--text-muted)',
+    fontSize: 14,
   },
 }

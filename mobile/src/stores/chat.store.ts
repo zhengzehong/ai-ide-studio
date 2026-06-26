@@ -70,6 +70,8 @@ interface ChatState {
   fetchMessageProcess: (sessionId: string, messageId: string) => Promise<void>
   refreshCurrentSession: (sessionId: string) => Promise<void>
   cancelTurn: () => Promise<void>
+  setModel: (modelId: string) => Promise<void>
+  setMode: (modeId: string) => Promise<void>
   respondPermission: (requestId: string, optionId?: string, cancelled?: boolean) => Promise<void>
   respondElicitation: (requestId: string, action: 'accept' | 'decline' | 'cancel', content?: Record<string, string | number | boolean | string[]>) => Promise<void>
   setupListeners: () => () => void
@@ -545,6 +547,29 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const sid = get().sessionId
     if (!sid) return
     try { await wsClient.request({ type: 'session.cancel', sessionId: sid }) } catch { /* ignore */ }
+  },
+
+  setModel: async (modelId) => {
+    const sid = get().sessionId
+    if (!sid) return
+    // 乐观更新:RPC 失败时由服务端后续下发的 session:capabilities 修正回真实状态
+    set(s => ({ capabilities: { ...s.capabilities, currentModelId: modelId } }))
+    try {
+      await wsClient.request({ type: 'session.setModel', sessionId: sid, modelId })
+    } catch (err) {
+      console.error('模型切换失败:', err)
+    }
+  },
+
+  setMode: async (modeId) => {
+    const sid = get().sessionId
+    if (!sid) return
+    set(s => ({ capabilities: { ...s.capabilities, currentModeId: modeId } }))
+    try {
+      await wsClient.request({ type: 'session.setMode', sessionId: sid, modeId })
+    } catch (err) {
+      console.error('模式切换失败:', err)
+    }
   },
 
   respondPermission: async (requestId, optionId, cancelled) => {

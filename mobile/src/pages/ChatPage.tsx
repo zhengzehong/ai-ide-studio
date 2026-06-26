@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Bot, FolderOpen } from 'lucide-react'
+import { ArrowLeft, Bot, FolderOpen, Cpu, SlidersHorizontal } from 'lucide-react'
 import { buildChatRenderItems } from '@desktop/components/chat/render-items'
 import type { ChatTimelineGroup, MessageData, StreamingMessage } from '@desktop/stores/session-events'
 import { useChatStore } from '../stores/chat.store'
@@ -12,6 +12,8 @@ import TurnContent from '../components/chat/TurnContent'
 import PlanBar from '../components/chat/PlanBar'
 import PermissionCard from '../components/chat/PermissionCard'
 import ElicitationCard from '../components/chat/ElicitationCard'
+import ContextCircle from '../components/chat/ContextCircle'
+import FilterSelectSheet from '../components/FilterSelectSheet'
 import { deriveLiveElapsedSeconds } from '../utils/chat-elapsed'
 
 type MobileChatMessage = MessageData | (StreamingMessage & { session_id?: string })
@@ -55,6 +57,22 @@ export default function ChatPage() {
   const connected = useConnectionStore(s => s.connected)
   const status = useConnectionStore(s => s.status)
   const session = sessions.find(s => s.id === sessionId)
+
+  const models = useChatStore(s => s.capabilities.models)
+  const currentModelId = useChatStore(s => s.capabilities.currentModelId)
+  const modes = useChatStore(s => s.capabilities.modes)
+  const currentModeId = useChatStore(s => s.capabilities.currentModeId)
+  const setModel = useChatStore(s => s.setModel)
+  const setMode = useChatStore(s => s.setMode)
+
+  const modelOptions = useMemo(
+    () => models.map(m => ({ value: m.modelId, label: m.name || m.modelId })),
+    [models],
+  )
+  const modeOptions = useMemo(
+    () => modes.map(m => ({ value: m.modeId, label: m.name || m.modeId })),
+    [modes],
+  )
   const listenersRef = useRef(false)
   const [liveNowMs, setLiveNowMs] = useState(() => Date.now())
   const hasMoreMessages = sessionId ? hasMoreMessagesBySession[sessionId] === true : false
@@ -187,6 +205,7 @@ export default function ChatPage() {
             </span>
           )}
         </div>
+        <ContextCircle />
         {isRunning && <span style={styles.runningDot} />}
         <button
           style={{ ...styles.backBtn, opacity: canViewFiles ? 1 : 0.4 }}
@@ -197,6 +216,25 @@ export default function ChatPage() {
         >
           <FolderOpen size={20} />
         </button>
+      </div>
+
+      <div style={styles.toolbar}>
+        <FilterSelectSheet
+          compact
+          icon={<Cpu size={15} color="var(--primary)" />}
+          title="选择模型"
+          value={currentModelId ?? ''}
+          options={modelOptions}
+          onChange={setModel}
+        />
+        <FilterSelectSheet
+          compact
+          icon={<SlidersHorizontal size={15} color="var(--primary)" />}
+          title="模式"
+          value={currentModeId ?? ''}
+          options={modeOptions}
+          onChange={setMode}
+        />
       </div>
 
       {plan.length > 0 && <PlanBar plan={plan} />}
@@ -336,6 +374,14 @@ const styles: Record<string, CSSProperties> = {
     background: 'var(--success)',
     flexShrink: 0,
     animation: 'pulse 1.5s infinite',
+  },
+  toolbar: {
+    display: 'flex',
+    gap: 8,
+    padding: '6px 12px',
+    borderBottom: '1px solid var(--border-light)',
+    background: 'var(--bg-card)',
+    flexShrink: 0,
   },
   messages: {
     flex: 1,
