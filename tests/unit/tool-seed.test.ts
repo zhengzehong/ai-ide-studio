@@ -86,6 +86,7 @@ describe('builtin tool seed synchronization', () => {
       'core.timeline.list',
       'create_schedule',
       'create_task',
+      'delete_memory',
       'event.category.create',
       'event.category.list',
       'event.category.update',
@@ -97,6 +98,10 @@ describe('builtin tool seed synchronization', () => {
       'event.ignore',
       'event.list',
       'event.subscription.create',
+      'get_memory',
+      'list_memory',
+      'recall_memory',
+      'record_memory',
       'studio.schedule.create',
       'studio.schedule.delete',
       'studio.schedule.executions',
@@ -123,6 +128,7 @@ describe('builtin tool seed synchronization', () => {
       'team.template.describe',
       'team.template.list',
       'team.update',
+      'update_memory',
     ])
 
     const globalBindings = getDb()

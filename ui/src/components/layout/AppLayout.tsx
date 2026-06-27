@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import {
   Bot,
+  Brain,
   Check,
   ChevronDown,
   Clock,
@@ -46,6 +47,7 @@ const projectNav = [
   { to: '/schedule', icon: Clock, label: '自动化' },
   { to: '/events', icon: Inbox, label: '事件' },
   { to: '/knowledge', icon: Library, label: '知识库' },
+  { to: '/agent-memory', icon: Brain, label: 'Agent 记忆' },
 ];
 
 function ProjectSwitcher() {
