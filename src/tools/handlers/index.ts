@@ -23,6 +23,7 @@ import {
   createAgentTemplateHandler,
   createProjectHandler,
   createSessionHandler,
+  defineMemoryDimensionHandler,
   deleteAgentTemplateHandler,
   getAgentHandler,
   getAgentTemplateHandler,
@@ -112,6 +113,7 @@ register(studioTaskListHandler)
 register(studioTaskGetHandler)
 register(studioTaskUpdateProgressHandler)
 register(studioTaskReportHandler)
+register(defineMemoryDimensionHandler)
 register(listProjectsHandler)
 register(getProjectHandler)
 register(createProjectHandler)

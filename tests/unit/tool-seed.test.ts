@@ -86,6 +86,7 @@ describe('builtin tool seed synchronization', () => {
       'core.timeline.list',
       'create_schedule',
       'create_task',
+      'define_memory_dimension',
       'delete_memory',
       'event.category.create',
       'event.category.list',

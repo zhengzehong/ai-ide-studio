@@ -1,5 +1,6 @@
 ﻿export { createAgentHandler, getAgentHandler, listAgentsHandler } from './agent-tools.js'
 export {
+  defineMemoryDimensionHandler,
   recallMemoryHandler,
   listMemoryHandler,
   getMemoryHandler,

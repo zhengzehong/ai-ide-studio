@@ -5,7 +5,7 @@ import { resolve } from 'node:path'
 import { closeDatabase, initDatabase } from '../../src/store/db.js'
 import { projectStore } from '../../src/store/projects.js'
 import { agentStore } from '../../src/store/agents.js'
-import { agentMemoryService, AGENT_MEMORY_MAX_PINNED } from '../../src/core/agent-memory.js'
+import { agentMemoryService, AGENT_MEMORY_MAX_DIMENSIONS, AGENT_MEMORY_MAX_PINNED } from '../../src/core/agent-memory.js'
 import { getHandler } from '../../src/tools/handlers/index.js'
 import type { ToolContext, ToolHandlerResult } from '../../src/tools/types.js'
 
@@ -269,6 +269,7 @@ describe('agent memory system prompt injection', () => {
     expect(prompt).toContain('维度: 经验库')
     expect(prompt).toContain('recall_memory')
     expect(prompt).toContain('[用户偏好] 驼峰命名')
+    expect(prompt).toContain('define_memory_dimension')
   })
 
   test('returns empty string when agent has no dimensions', () => {
@@ -290,6 +291,55 @@ describe('agent memory system prompt injection', () => {
 
     const prompt = agentMemoryService.buildAgentMemoryPrompt(agentId)
     expect(prompt).not.toContain('低置信度')
+  })
+})
+
+describe('agent memory define_memory_dimension tool', () => {
+  test('define_memory_dimension succeeds and returns dimension_id + name', async () => {
+    const { agentId, projectId } = setupAgent()
+    const result = await executeJson('define_memory_dimension',
+      {
+        name: '协作习惯',
+        description: '用户交互风格偏好',
+        prompt: '何时记录: 用户纠正协作方式时\n何时使用: 会话开始时 recall',
+      },
+      { projectId, agentId },
+    )
+    expect(result.dimension_id).toBeTruthy()
+    expect(result.name).toBe('协作习惯')
+
+    const dims = agentMemoryService.listDimensions(projectId, agentId)
+    expect(dims.find((d) => d.name === '协作习惯')).toBeTruthy()
+  })
+
+  test('define_memory_dimension rejects duplicate name', async () => {
+    const { agentId, projectId } = setupAgent()
+    agentMemoryService.createDimension({
+      projectId, agentId, name: '用户偏好', description: '已有', prompt: '',
+    })
+
+    await expect(
+      executeJson('define_memory_dimension',
+        { name: '用户偏好', description: '冲突', prompt: 'xxx' },
+        { projectId, agentId },
+      ),
+    ).rejects.toThrow('维度已存在')
+  })
+
+  test('define_memory_dimension rejects when agent has 10 dimensions', async () => {
+    const { agentId, projectId } = setupAgent()
+    for (let i = 0; i < AGENT_MEMORY_MAX_DIMENSIONS; i++) {
+      agentMemoryService.createDimension({
+        projectId, agentId, name: `维度${i}`, description: '', prompt: '',
+      })
+    }
+
+    await expect(
+      executeJson('define_memory_dimension',
+        { name: '第11个', description: '超限', prompt: 'xxx' },
+        { projectId, agentId },
+      ),
+    ).rejects.toThrow('DIMENSION_LIMIT_EXCEEDED')
   })
 })
 
