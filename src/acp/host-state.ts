@@ -13,6 +13,8 @@ export function createConnectionState(
   agentCapabilities?: acp.AgentCapabilities,
   envFingerprint?: string,
   sessionMeta?: AgentSessionMeta,
+  runtimeEnv?: NodeJS.ProcessEnv,
+  agent?: import('../store/agents.js').AgentRow,
 ): AgentConnection {
   const now = Date.now()
   return {
@@ -20,6 +22,8 @@ export function createConnectionState(
     proc,
     connection,
     runtime,
+    runtimeEnv: runtimeEnv ?? process.env,
+    agent: agent ?? ({} as import('../store/agents.js').AgentRow),
     acpSessions: new Map(),
     runtimeSessions: new Map(),
     sessionCapabilities: new Map(),

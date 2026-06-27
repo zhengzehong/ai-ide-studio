@@ -229,7 +229,19 @@ export default function Workspace() {
     !!copyingTargetSessionIds[currentSessionId] ||
     (!!currentSession && currentSession.stage === COPYING_STAGE && !currentSession.acp_session_id)
   )
-  const agentSessions = useCallback((id: string) => orderedProjectSessions.filter((s) => s.agent_id === id), [orderedProjectSessions])
+  const agentSessions = useCallback(
+    (id: string) => {
+      const list = orderedProjectSessions.filter((s) => s.agent_id === id)
+      return list.sort((a, b) => {
+        const aPrimary = !!a.is_primary
+        const bPrimary = !!b.is_primary
+        if (aPrimary && !bPrimary) return -1
+        if (!aPrimary && bPrimary) return 1
+        return 0
+      })
+    },
+    [orderedProjectSessions],
+  )
 
   const toggleAgent = (id: string) =>
     setExpandedAgents((p) => {
@@ -238,6 +250,21 @@ export default function Workspace() {
       else n.add(id)
       return n
     })
+
+  const handleAgentClick = (agentId: string) => {
+    if (orderingMode) return
+    if (currentSessionId) {
+      toggleAgent(agentId)
+      return
+    }
+    const mainSession = agentSessions(agentId).find((s) => s.is_primary)
+    if (mainSession) {
+      setSelectedAgentId(agentId)
+      selectSession(mainSession.id)
+    } else {
+      toggleAgent(agentId)
+    }
+  }
 
   const persistAgentOrder = useCallback(async (agentIds: string[]) => {
     if (!currentProjectId) return
@@ -688,7 +715,7 @@ export default function Workspace() {
                   <button
                     type="button"
                     onClick={() => {
-                      if (!orderingMode) toggleAgent(agent.id)
+                      if (!orderingMode) handleAgentClick(agent.id)
                     }}
                     onContextMenu={(e) => {
                       if (orderingMode) return
@@ -854,6 +881,21 @@ export default function Workspace() {
                               }}
                               title={indicator.title}
                             />
+                            {s.is_primary ? (
+                              <span
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 3,
+                                  color: 'var(--blue)',
+                                  fontSize: 13,
+                                  flexShrink: 0,
+                                }}
+                                title="主会话"
+                              >
+                                <Zap size={12} fill="var(--blue)" />
+                              </span>
+                            ) : null}
                             <span
                               style={{
                                 flex: 1,
@@ -861,9 +903,10 @@ export default function Workspace() {
                                 overflow: 'hidden',
                                 textOverflow: 'ellipsis',
                                 whiteSpace: 'nowrap',
+                                fontWeight: s.is_primary ? 600 : 400,
                               }}
                             >
-                              {sessionTitle(s)}
+                              {sessionTitle(s)}{s.is_primary ? ' · 主会话' : ''}
                             </span>
                             <span style={{ fontSize: 12, color: 'var(--text-3)' }}>
                               {formatTime(s.last_message_at || s.updated_at || s.started_at)}
@@ -1070,17 +1113,23 @@ export default function Workspace() {
         x={ctxMenu?.x ?? 0}
         y={ctxMenu?.y ?? 0}
         onClose={() => setCtxMenu(null)}
-        items={ctxMenu ? [
-          { label: '重命名', onClick: () => { const s = projectSessions.find(ss => ss.id === ctxMenu.sessionId); handleRenameSession(ctxMenu.sessionId, sessionTitle(s ?? { id: ctxMenu.sessionId })) } },
-          { label: '关闭', onClick: () => handleCloseSession(ctxMenu.sessionId) },
-          {
-            label: copyingSessionId === ctxMenu.sessionId || copyingSourceSessionIds[ctxMenu.sessionId] ? '复制中...' : '复制',
-            disabled: copyingSessionId === ctxMenu.sessionId || !!copyingSourceSessionIds[ctxMenu.sessionId],
-            onClick: () => handleCopySession(ctxMenu.agentId, ctxMenu.sessionId),
-          },
-          { label: '归档', onClick: () => handleArchiveSession(ctxMenu.sessionId) },
-          { label: '删除', danger: true, onClick: () => handleDeleteSession(ctxMenu.sessionId) },
-        ] : []}
+        items={ctxMenu ? (() => {
+          const targetSession = projectSessions.find((ss) => ss.id === ctxMenu.sessionId)
+          const isPrimary = !!targetSession?.is_primary
+          return [
+            { label: '重命名', onClick: () => handleRenameSession(ctxMenu.sessionId, sessionTitle(targetSession ?? { id: ctxMenu.sessionId })) },
+            { label: '关闭', onClick: () => handleCloseSession(ctxMenu.sessionId) },
+            {
+              label: copyingSessionId === ctxMenu.sessionId || copyingSourceSessionIds[ctxMenu.sessionId] ? '复制中...' : '复制',
+              disabled: copyingSessionId === ctxMenu.sessionId || !!copyingSourceSessionIds[ctxMenu.sessionId],
+              onClick: () => handleCopySession(ctxMenu.agentId, ctxMenu.sessionId),
+            },
+            ...(isPrimary ? [] : [
+              { label: '归档', onClick: () => handleArchiveSession(ctxMenu.sessionId) },
+              { label: '删除', danger: true, onClick: () => handleDeleteSession(ctxMenu.sessionId) },
+            ]),
+          ]
+        })() : []}
       />
 
       {agentVisibilityOpen && (

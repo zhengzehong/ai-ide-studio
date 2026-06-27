@@ -24,6 +24,7 @@ import { taskAttachmentsMigration } from './023-task-attachments.js'
 import { taskReportStatusMigration } from './024-task-report-status.js'
 import { taskExecutionModesMigration } from './025-task-execution-modes.js'
 import { projectMetaMigration } from './026-project-meta.js'
+import { sessionPrimaryMigration } from './027-session-primary.js'
 import type { Migration } from '../migrator.js'
 
 export const migrations: Migration[] = [
@@ -53,4 +54,5 @@ export const migrations: Migration[] = [
   taskReportStatusMigration,
   taskExecutionModesMigration,
   projectMetaMigration,
+  sessionPrimaryMigration,
 ]

@@ -24,6 +24,7 @@ export interface SessionRow {
   deleted_at: string | null
   runtime_preferences_json: string | null
   sort_order: number | null
+  is_primary: number
 }
 
 export interface SessionListRow extends SessionRow {
@@ -85,6 +86,8 @@ export interface CreateSessionInput {
   taskId?: string
   acpSessionId?: string
   projectId?: string
+  isPrimary?: boolean
+  title?: string
 }
 
 export interface SessionRuntimePreferences {
@@ -135,7 +138,7 @@ export const sessionStore = {
       started_at: now,
       closed_at: null,
       project_id: input.projectId ?? null,
-      title: null,
+      title: input.title ?? null,
       updated_at: now,
       last_message_at: null,
       last_read_at: now,
@@ -143,15 +146,16 @@ export const sessionStore = {
       deleted_at: null,
       runtime_preferences_json: null,
       sort_order: nextSessionSortOrder(input.projectId ?? null, input.agentId),
+      is_primary: input.isPrimary ? 1 : 0,
     }
     getDb().prepare(`
       INSERT INTO sessions (
         id, agent_id, task_id, acp_session_id, status, stage, started_at, closed_at,
-        project_id, title, updated_at, last_message_at, archived_at, deleted_at, runtime_preferences_json, sort_order
+        project_id, title, updated_at, last_message_at, archived_at, deleted_at, runtime_preferences_json, sort_order, is_primary
       )
       VALUES (
         @id, @agent_id, @task_id, @acp_session_id, @status, @stage, @started_at, @closed_at,
-        @project_id, @title, @updated_at, @last_message_at, @archived_at, @deleted_at, @runtime_preferences_json, @sort_order
+        @project_id, @title, @updated_at, @last_message_at, @archived_at, @deleted_at, @runtime_preferences_json, @sort_order, @is_primary
       )
     `).run(session)
     return session
@@ -163,6 +167,14 @@ export const sessionStore = {
 
   list(agentId?: string, projectId?: string): SessionRow[] {
     return listSessions(agentId, projectId)
+  },
+
+  findPrimaryByAgent(agentId: string): SessionRow | undefined {
+    return getDb()
+      .prepare<[string], SessionRow>(
+        `SELECT * FROM sessions WHERE agent_id = ? AND is_primary = 1 AND deleted_at IS NULL LIMIT 1`,
+      )
+      .get(agentId)
   },
 
   reorder(projectId: string, agentId: string, sessionIds: string[]): SessionRow[] {
@@ -307,12 +319,16 @@ export const sessionStore = {
   },
 
   archive(id: string): SessionRow | undefined {
+    const session = sessionStore.get(id)
+    if (session?.is_primary) throw new Error('主会话不可归档')
     const now = new Date().toISOString()
     getDb().prepare('UPDATE sessions SET archived_at = ?, updated_at = ? WHERE id = ?').run(now, now, id)
     return sessionStore.get(id)
   },
 
   delete(id: string): SessionRow | undefined {
+    const session = sessionStore.get(id)
+    if (session?.is_primary) throw new Error('主会话不可删除')
     const now = new Date().toISOString()
     getDb().prepare('UPDATE sessions SET deleted_at = ?, updated_at = ? WHERE id = ?').run(now, now, id)
     return sessionStore.get(id)
