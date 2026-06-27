@@ -4,6 +4,7 @@ import { modelProfileStore, type ClaudeModelProfileConfig, type ModelProfileRow 
 import { modelProviderStore, type ModelProviderRow } from '../store/model-providers.js'
 import { buildRuntimeEnv } from './runtime-registry.js'
 import { buildAiIdeSystemPrompt } from '../core/ai-ide-system-prompt.js'
+import { buildMasterPrompt } from '../core/master-prompt.js'
 
 export interface AppliedModelProfile {
   id: string
@@ -89,10 +90,14 @@ export function buildAgentSessionMeta(
   runtime: string,
   env: NodeJS.ProcessEnv,
   agent: AgentRow,
+  options: { isPrimary?: boolean } = {},
 ): AgentSessionMeta | undefined {
   const platformPrompt = buildAiIdeSystemPrompt()
   const userPrompt = agent.system_prompt.trim()
-  const combined = userPrompt ? `${platformPrompt}\n\n---\n\n${userPrompt}` : platformPrompt
+  let combined = userPrompt ? `${platformPrompt}\n\n---\n\n${userPrompt}` : platformPrompt
+  if (options.isPrimary) {
+    combined = `${combined}\n\n---\n\n${buildMasterPrompt(agent.name)}`
+  }
 
   const meta: AgentSessionMeta = {}
 

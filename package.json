@@ -26,7 +26,8 @@
     "lint": "eslint src/ && npm run lint -w ui && npm run lint -w mobile",
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\" \"ui/src/**/*.{ts,tsx}\" \"mobile/src/**/*.{ts,tsx}\"",
     "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\" \"ui/src/**/*.{ts,tsx}\" \"mobile/src/**/*.{ts,tsx}\"",
-    "postinstall": "patch-package"
+    "postinstall": "patch-package",
+    "backfill:main-sessions": "tsx scripts/backfill-main-sessions.ts"
   },
   "dependencies": {
     "@agentclientprotocol/claude-agent-acp": "^0.37.0",

@@ -86,6 +86,7 @@ export interface SessionData {
   status: string; stage: string; started_at: string; closed_at: string | null
   activity_state?: 'running' | 'idle'
   project_id?: string | null; title?: string | null; updated_at?: string | null; last_message_at?: string | null; last_read_at?: string | null; archived_at?: string | null; deleted_at?: string | null; sort_order?: number | null
+  is_primary?: number | boolean
 }
 
 export interface LocalSessionCandidateInfo {

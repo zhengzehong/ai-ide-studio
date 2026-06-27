@@ -1,5 +1,6 @@
 ﻿import type { ChildProcess } from 'child_process'
 import type * as acp from '@agentclientprotocol/sdk'
+import type { AgentRow } from '../store/agents.js'
 import type { SessionCapabilities } from '../types/ws-protocol.js'
 import type { AgentSessionMeta } from './model-profile-env.js'
 
@@ -23,6 +24,8 @@ export interface AgentConnection {
   proc: ChildProcess
   connection: acp.ClientSideConnection
   runtime: string
+  runtimeEnv: NodeJS.ProcessEnv
+  agent: AgentRow
   acpSessions: Map<string, string>
   runtimeSessions: Map<string, RuntimeSessionState>
   sessionCapabilities: Map<string, SessionCapabilities>

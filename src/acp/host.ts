@@ -4,6 +4,7 @@ import * as acp from '@agentclientprotocol/sdk'
 import { events } from '../core/events.js'
 import { createChildLogger } from '../core/logger.js'
 import { agentStore } from '../store/agents.js'
+import { sessionStore } from '../store/sessions.js'
 import type { SessionUpdateData, TurnUsageData, SessionCapabilities, ImageAttachment } from '../types/ws-protocol.js'
 import { mapConfigOptions, mergeCapabilitiesFromConfig } from './capabilities.js'
 import { createClientHandler, endClientTurn, getClientTurnMessageId, startClientTurn } from './client-handler.js'
@@ -194,6 +195,8 @@ export const acpHost = {
       agentCaps ?? undefined,
       envFingerprint,
       sessionMeta,
+      runtimeEnv.env,
+      agent,
     )
     acpHost.agents.set(agentId, conn)
 
@@ -316,11 +319,16 @@ export const acpHost = {
     if (!conn) throw new Error(`Agent ${agentId} 未运行`)
 
     const mcpServers = resolveMcpServersForAcp(conn, ourSessionId, context)
+    const session = sessionStore.get(ourSessionId)
+    const isPrimary = !!session?.is_primary
+    const sessionMeta = isPrimary
+      ? buildAgentSessionMeta(conn.runtime, conn.runtimeEnv, conn.agent, { isPrimary: true })
+      : conn.sessionMeta
 
     const result = await conn.connection.newSession({
       cwd: context.cwd ?? process.cwd(),
       mcpServers,
-      _meta: conn.sessionMeta,
+      _meta: sessionMeta,
     })
 
     const acpSessionId = result.sessionId
@@ -354,13 +362,19 @@ export const acpHost = {
     const state = getRuntimeSession(conn, ourSessionId)
     if (conn.acpSessions.get(ourSessionId) === acpSessionId && state.contextKey === acpSessionContextKey(context)) return acpSessionId
 
+    const session = sessionStore.get(ourSessionId)
+    const isPrimary = !!session?.is_primary
+    const sessionMeta = isPrimary
+      ? buildAgentSessionMeta(conn.runtime, conn.runtimeEnv, conn.agent, { isPrimary: true })
+      : conn.sessionMeta
+
     if (conn.agentCapabilities?.sessionCapabilities?.resume) {
       const mcpServers = resolveMcpServersForAcp(conn, ourSessionId, context)
       const result = await conn.connection.resumeSession({
         sessionId: acpSessionId,
         cwd: context.cwd ?? process.cwd(),
         mcpServers,
-        _meta: conn.sessionMeta,
+        _meta: sessionMeta,
       })
       markSessionConnected(conn, ourSessionId, acpSessionId, context)
       updateInitialCapabilities(conn, ourSessionId, result)
@@ -374,7 +388,7 @@ export const acpHost = {
         sessionId: acpSessionId,
         cwd: context.cwd ?? process.cwd(),
         mcpServers: resolveMcpServersForAcp(conn, ourSessionId, context),
-        _meta: conn.sessionMeta,
+        _meta: sessionMeta,
       })
       markSessionConnected(conn, ourSessionId, acpSessionId, context)
       updateInitialCapabilities(conn, ourSessionId, result)
@@ -703,7 +717,18 @@ async function startMockAgent(agentId: string, envFingerprint?: string): Promise
 
   const proc = (mockProc as unknown as { proc: ChildProcess }).proc
 
-  const conn = createConnectionState(agentId, 'mock', proc, mockConnection, undefined, envFingerprint)
+  const agent = agentStore.get(agentId)
+  const conn = createConnectionState(
+    agentId,
+    'mock',
+    proc,
+    mockConnection,
+    undefined,
+    envFingerprint,
+    undefined,
+    process.env,
+    agent,
+  )
   acpHost.agents.set(agentId, conn)
 
   mockProc.on('notification', (notification: { method: string; params?: Record<string, unknown> }) => {
