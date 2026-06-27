@@ -6,6 +6,7 @@ import { TEAM_BUILTIN_TOOLS } from './team-seed.js'
 import { EVENT_CENTER_BUILTIN_TOOLS } from './event-center-seed.js'
 import { AGENT_SESSION_BUILTIN_TOOLS } from './agent-session-seed.js'
 import { KB_BUILTIN_TOOLS } from './kb-seed.js'
+import { AGENT_MEMORY_BUILTIN_TOOLS } from './agent-memory-seed.js'
 
 const log = createChildLogger('tool-seed')
 
@@ -645,6 +646,7 @@ const BUILTIN_TOOLS: (CreateToolInput & { defaultScope?: 'global' })[] = [
   ...EVENT_CENTER_BUILTIN_TOOLS,
   ...AGENT_SESSION_BUILTIN_TOOLS,
   ...TEAM_BUILTIN_TOOLS,
+  ...AGENT_MEMORY_BUILTIN_TOOLS,
 ]
 
 export function seedBuiltinTools(): void {

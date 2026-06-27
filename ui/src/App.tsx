@@ -8,6 +8,7 @@ import TaskModesSettings from './pages/TaskModesSettings'
 import Schedule from './pages/Schedule'
 import EventCenter from './pages/EventCenter'
 import KnowledgeBase from './pages/KnowledgeBase'
+import AgentMemory from './pages/AgentMemory'
 import AgentSquare from './pages/AgentSquare'
 import SkillCenter from './pages/SkillCenter'
 import ToolManager from './pages/ToolManager'
@@ -90,6 +91,7 @@ export default function App() {
           <Route path="/schedule" element={<Schedule />} />
           <Route path="/events" element={<EventCenter />} />
           <Route path="/knowledge" element={<KnowledgeBase />} />
+          <Route path="/agent-memory" element={<AgentMemory />} />
           <Route path="/settings" element={<Settings />} />
         </Route>
       </Routes>

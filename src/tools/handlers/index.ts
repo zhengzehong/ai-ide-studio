@@ -42,6 +42,12 @@ import {
   mountKnowledgeBaseHandler,
   unmountKnowledgeBaseHandler,
   revertKnowledgeActivityHandler,
+  recallMemoryHandler,
+  listMemoryHandler,
+  getMemoryHandler,
+  recordMemoryHandler,
+  updateMemoryHandler,
+  deleteMemoryHandler,
   listModelProfilesHandler,
   listProjectsHandler,
   listSessionsHandler,
@@ -133,6 +139,12 @@ register(createKnowledgeBaseHandler)
 register(mountKnowledgeBaseHandler)
 register(unmountKnowledgeBaseHandler)
 register(revertKnowledgeActivityHandler)
+register(recallMemoryHandler)
+register(listMemoryHandler)
+register(getMemoryHandler)
+register(recordMemoryHandler)
+register(updateMemoryHandler)
+register(deleteMemoryHandler)
 register(listTeamsHandler)
 register(getTeamHandler)
 register(createTeamHandler)

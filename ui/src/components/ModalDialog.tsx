@@ -36,6 +36,8 @@ function ModalOverlay({ open, onClose, title, children, width = 360 }: ModalBase
   )
 }
 
+export { ModalOverlay }
+
 /* ── PromptDialog：替代 window.prompt ── */
 
 interface PromptDialogProps {

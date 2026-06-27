@@ -5,6 +5,7 @@ import { modelProviderStore, type ModelProviderRow } from '../store/model-provid
 import { buildRuntimeEnv } from './runtime-registry.js'
 import { buildAiIdeSystemPrompt } from '../core/ai-ide-system-prompt.js'
 import { buildMasterPrompt } from '../core/master-prompt.js'
+import { agentMemoryService } from '../core/agent-memory.js'
 
 export interface AppliedModelProfile {
   id: string
@@ -97,6 +98,10 @@ export function buildAgentSessionMeta(
   let combined = userPrompt ? `${platformPrompt}\n\n---\n\n${userPrompt}` : platformPrompt
   if (options.isPrimary) {
     combined = `${combined}\n\n---\n\n${buildMasterPrompt(agent.name)}`
+  }
+  const memoryPrompt = agentMemoryService.buildAgentMemoryPrompt(agent.id)
+  if (memoryPrompt) {
+    combined = `${combined}\n\n---\n\n${memoryPrompt}`
   }
 
   const meta: AgentSessionMeta = {}
