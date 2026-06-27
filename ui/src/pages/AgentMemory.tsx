@@ -40,8 +40,12 @@ export default function AgentMemory() {
   useEffect(() => {
     if (!currentProjectId || !selectedAgentId) return
     fetchDimensions(currentProjectId, selectedAgentId)
-    setSelectedDimensionId(null)
   }, [currentProjectId, selectedAgentId, fetchDimensions])
+
+  const handleSelectAgent = (id: string) => {
+    setSelectedAgentId(id)
+    setSelectedDimensionId(null)
+  }
 
   const currentDimension = useMemo(
     () => dimensions.find((d) => d.id === selectedDimensionId) ?? null,
@@ -130,7 +134,7 @@ export default function AgentMemory() {
         </div>
       ) : null}
       <div className="am-page">
-        <AgentList selectedAgentId={selectedAgentId} onSelect={setSelectedAgentId} />
+        <AgentList selectedAgentId={selectedAgentId} onSelect={handleSelectAgent} />
         <DimensionList
           dimensions={dimensions}
           selectedDimensionId={selectedDimensionId}
