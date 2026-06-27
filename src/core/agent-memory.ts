@@ -11,6 +11,7 @@ import { createChildLogger } from './logger.js'
 
 const log = createChildLogger('agent-memory')
 export const AGENT_MEMORY_MAX_PINNED = 20
+export const AGENT_MEMORY_MAX_DIMENSIONS = 10
 const PINNED_MIN_CONFIDENCE = 0.7
 
 export interface AgentMemoryEntrySummary {
@@ -154,6 +155,31 @@ export const agentMemoryService = {
       description: input.description ?? null,
       prompt: input.prompt ?? null,
     })
+  },
+
+  defineDimension(input: {
+    projectId: string
+    agentId: string
+    name: string
+    description: string
+    prompt: string
+  }): AgentMemoryDimensionRow {
+    assertAgentInProject(input.agentId, input.projectId)
+    const count = agentMemoryDimensionStore.countByAgent(input.projectId, input.agentId)
+    if (count >= AGENT_MEMORY_MAX_DIMENSIONS) {
+      throw new Error(`DIMENSION_LIMIT_EXCEEDED: max ${AGENT_MEMORY_MAX_DIMENSIONS}, current ${count}`)
+    }
+    const existing = agentMemoryDimensionStore.getByNames(input.projectId, input.agentId, input.name)
+    if (existing) throw new Error(`维度已存在: ${input.name}`)
+    const dim = agentMemoryDimensionStore.create({
+      projectId: input.projectId,
+      agentId: input.agentId,
+      name: input.name,
+      description: input.description,
+      prompt: input.prompt,
+    })
+    log.info({ dimensionId: dim.id, agentId: input.agentId, name: input.name }, 'agent memory dimension defined by AI')
+    return dim
   },
 
   updateDimension(input: {
@@ -343,6 +369,8 @@ export const agentMemoryService = {
       '- record_memory(dimension, title, content, tags?) — 记录新条目(content 支持 MD)',
       '- update_memory(entry_id, title?, content?, tags?) — 更新条目(content 支持 MD)',
       '- delete_memory(entry_id) — 删除条目',
+      '',
+      '你可以调用 define_memory_dimension 为自己新增维度(仅当现有维度装不下时)。不要为单条信息建维度,优先 record 到已有维度。维度上限 10 个。',
     ].join('\n')
 
     const pinnedSection = pinnedRows.length === 0

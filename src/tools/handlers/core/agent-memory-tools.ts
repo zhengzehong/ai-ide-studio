@@ -1,6 +1,32 @@
 import { agentMemoryService, AGENT_MEMORY_MAX_PINNED } from '../../../core/agent-memory.js'
 import type { ToolContext, ToolHandler, ToolHandlerInput, ToolHandlerResult } from '../../types.js'
 
+export const defineMemoryDimensionHandler: ToolHandler = {
+  name: 'define_memory_dimension',
+  description:
+    '为当前 Agent 定义一个新的记忆维度。仅当现有维度无法承载某类信息时调用(如发现一类新的偏好/经验需要单独管理)。不要为单条信息建维度,优先 record 到已有维度。',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      name: { type: 'string', description: '维度名,如"协作习惯"。同 Agent 下唯一。' },
+      description: { type: 'string', description: '维度用途简述' },
+      prompt: { type: 'string', description: '注入 System Prompt 的指令,含何时记录/何时使用/条目结构' },
+    },
+    required: ['name', 'description', 'prompt'],
+  },
+  async execute(input: ToolHandlerInput, context: ToolContext): Promise<ToolHandlerResult> {
+    const { projectId, agentId } = resolveContext(input, context)
+    const dim = agentMemoryService.defineDimension({
+      projectId,
+      agentId,
+      name: requireString(input, 'name'),
+      description: requireString(input, 'description'),
+      prompt: requireString(input, 'prompt'),
+    })
+    return jsonResult({ dimension_id: dim.id, name: dim.name })
+  },
+}
+
 export const recallMemoryHandler: ToolHandler = {
   name: 'recall_memory',
   description:

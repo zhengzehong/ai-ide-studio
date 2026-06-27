@@ -4,6 +4,26 @@ const PERMS = { requiresApproval: false, maxExecutionTime: 10_000, networkAccess
 
 export const AGENT_MEMORY_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
   {
+    name: 'define_memory_dimension',
+    displayName: '定义记忆维度',
+    description: '为当前 Agent 定义一个新的记忆维度(仅当现有维度装不下时)。不要为单条信息建维度,优先 record 到已有维度。维度上限 10 个。',
+    category: 'automation',
+    type: 'builtin',
+    config: { handler: 'define_memory_dimension' },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: '维度名,如"协作习惯"。同 Agent 下唯一。' },
+        description: { type: 'string', description: '维度用途简述' },
+        prompt: { type: 'string', description: '注入 System Prompt 的指令,含何时记录/何时使用/条目结构' },
+      },
+      required: ['name', 'description', 'prompt'],
+    },
+    permissions: PERMS,
+    isBuiltin: true,
+    defaultScope: 'global',
+  },
+  {
     name: 'recall_memory',
     displayName: '回忆记忆',
     description: '从指定维度按关键词查询记忆摘要。多关键词 OR 匹配,FTS5 bm25 排序,短词 LIKE 兜底。',

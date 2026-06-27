@@ -81,6 +81,16 @@ export const agentMemoryDimensionStore = {
       .all(projectId, agentId)
   },
 
+  countByAgent(projectId: string, agentId: string): number {
+    const row = getDb()
+      .prepare<[string, string], { count: number }>(`
+        SELECT COUNT(*) AS count FROM agent_memory_dimensions
+        WHERE project_id = ? AND agent_id = ? AND deleted_at IS NULL
+      `)
+      .get(projectId, agentId)
+    return row?.count ?? 0
+  },
+
   listByProject(projectId: string): AgentMemoryDimensionRow[] {
     return getDb()
       .prepare<[string], AgentMemoryDimensionRow>(`
