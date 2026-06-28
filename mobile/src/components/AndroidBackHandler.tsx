@@ -6,12 +6,14 @@ import { useConnectionStore } from '../stores/connection.store'
 
 export type AndroidBackAction =
   | { type: 'navigate'; to: string }
+  | { type: 'navigateBack' }
   | { type: 'exit' }
 
 export interface AndroidBackSnapshot {
   pathname: string
   serverUrl: string
   navigate: (to: string, options: { replace: boolean }) => void
+  navigateBack: () => void
 }
 
 interface AndroidBackListenerDeps {
@@ -21,6 +23,12 @@ interface AndroidBackListenerDeps {
 }
 
 export function resolveAndroidBackAction(pathname: string, serverUrl: string): AndroidBackAction {
+  if (pathname.startsWith('/task/') && pathname.includes('/report/')) {
+    return { type: 'navigateBack' }
+  }
+  if (pathname.startsWith('/task/')) {
+    return { type: 'navigate', to: '/tasks' }
+  }
   if (pathname.startsWith('/chat/') || pathname === '/tasks' || pathname === '/settings') {
     return { type: 'navigate', to: '/' }
   }
@@ -41,6 +49,10 @@ export function registerAndroidBackListener({ addListener, exitApp, getSnapshot 
       snapshot.navigate(action.to, { replace: true })
       return
     }
+    if (action.type === 'navigateBack') {
+      snapshot.navigateBack()
+      return
+    }
     void exitApp()
   }).then((handle) => {
     removeListener = () => { void handle.remove() }
@@ -57,10 +69,20 @@ export default function AndroidBackHandler() {
   const location = useLocation()
   const navigate = useNavigate()
   const serverUrl = useConnectionStore((state) => state.serverUrl)
-  const latestRef = useRef<AndroidBackSnapshot>({ pathname: location.pathname, serverUrl, navigate })
+  const latestRef = useRef<AndroidBackSnapshot>({
+    pathname: location.pathname,
+    serverUrl,
+    navigate,
+    navigateBack: () => navigate(-1),
+  })
 
   useEffect(() => {
-    latestRef.current = { pathname: location.pathname, serverUrl, navigate }
+    latestRef.current = {
+      pathname: location.pathname,
+      serverUrl,
+      navigate,
+      navigateBack: () => navigate(-1),
+    }
   }, [location.pathname, navigate, serverUrl])
 
   useEffect(() => {
