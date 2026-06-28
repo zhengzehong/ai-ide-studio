@@ -1,32 +1,70 @@
-import { useCallback, useEffect, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { wsClient } from '@desktop/services/ws-client'
-import { ListTodo, Clock, CheckCircle2, AlertCircle, Circle, RefreshCw } from 'lucide-react'
+import { ListTodo, RefreshCw, Search, X } from 'lucide-react'
 import type { TaskStatus } from '../../../src/types/ws-protocol'
 import { useAppStore } from '../stores/app.store'
+import ActionSheet from '../components/ActionSheet'
+import ConfirmDialog from '../components/ConfirmDialog'
+import TaskCard, { type TaskCardItem } from '../components/task/TaskCard'
+import { showToast } from '../utils/toast'
+import { markTaskRead, isTaskUnread } from '../utils/task-unread'
+
+type TaskFilter = 'mine' | 'all' | 'executing' | 'backlog' | 'done'
 
 interface TaskItem {
   id: string
   title: string
-  description?: string
+  description?: string | null
   status: TaskStatus
-  priority?: string
   created_at: string
-  agent_id?: string
+  updated_at?: string | null
+  assigned_agent_id?: string | null
   project_id?: string | null
+  stage?: string | null
 }
 
-type TaskStatusMeta = { icon: typeof Clock; color: string; label: string }
+const FILTERS: { key: TaskFilter; label: string }[] = [
+  { key: 'mine', label: '需要我处理' },
+  { key: 'all', label: '全部' },
+  { key: 'executing', label: '进行中' },
+  { key: 'backlog', label: '待办' },
+  { key: 'done', label: '已完成' },
+]
 
-const statusConfig: Record<TaskStatus, TaskStatusMeta> = {
-  backlog: { icon: Circle, color: 'var(--text-muted)', label: '待办' },
-  executing: { icon: Clock, color: 'var(--info)', label: '执行中' },
-  needs_input: { icon: AlertCircle, color: 'var(--warning)', label: '需确认' },
-  completed: { icon: CheckCircle2, color: 'var(--success)', label: '已完成' },
-  cancelled: { icon: AlertCircle, color: 'var(--text-muted)', label: '已取消' },
+const EMPTY_TEXT: Record<TaskFilter, string> = {
+  mine: '暂无需要处理的任务,挺好的',
+  all: '暂无任务',
+  executing: '暂无进行中的任务',
+  backlog: '暂无待办任务',
+  done: '暂无已完成任务',
 }
 
-export function mobileTaskStatusMeta(status: TaskStatus): TaskStatusMeta {
-  return statusConfig[status] || statusConfig.backlog
+function matchesFilter(status: TaskStatus, filter: TaskFilter): boolean {
+  switch (filter) {
+    case 'mine': return status === 'needs_input'
+    case 'executing': return status === 'executing'
+    case 'backlog': return status === 'backlog'
+    case 'done': return status === 'completed' || status === 'cancelled'
+    case 'all': return true
+  }
+}
+
+function matchesSearch(title: string, description: string | null | undefined, keyword: string): boolean {
+  if (!keyword) return true
+  const lower = keyword.toLowerCase()
+  if (title.toLowerCase().includes(lower)) return true
+  if (description && description.toLowerCase().includes(lower)) return true
+  return false
+}
+
+function toTime(iso: string | null | undefined): number {
+  if (!iso) return 0
+  const t = new Date(iso).getTime()
+  return Number.isFinite(t) ? t : 0
+}
+
+function sortTasks<T extends { updated_at?: string | null; created_at: string }>(tasks: T[]): T[] {
+  return tasks.slice().sort((a, b) => toTime(b.updated_at || b.created_at) - toTime(a.updated_at || a.created_at))
 }
 
 export function taskListRequest(projectId: string | null): Record<string, unknown> {
@@ -61,7 +99,15 @@ export function mergeMobileTaskUpdate(
 export default function TaskListPage() {
   const [tasks, setTasks] = useState<TaskItem[]>([])
   const [loading, setLoading] = useState(true)
+  const [filter, setFilter] = useState<TaskFilter>('mine')
+  const [keyword, setKeyword] = useState('')
+  const [actionTask, setActionTask] = useState<TaskItem | null>(null)
+  const [confirmTask, setConfirmTask] = useState<TaskItem | null>(null)
+  const [deleting, setDeleting] = useState(false)
   const currentProjectId = useAppStore((state) => state.currentProjectId)
+  const agents = useAppStore((state) => state.agents)
+  const agentsRef = useRef(agents)
+  agentsRef.current = agents
 
   const fetchTasks = useCallback(async () => {
     setLoading(true)
@@ -85,6 +131,98 @@ export default function TaskListPage() {
     return () => { off() }
   }, [currentProjectId])
 
+  const tasksWithAgent = useMemo<TaskCardItem[]>(() => {
+    const agentMap = new Map(agentsRef.current.map(a => [a.id, a.name]))
+    return tasks.map(t => ({
+      id: t.id,
+      title: t.title,
+      description: t.description ?? null,
+      status: t.status,
+      stage: t.stage ?? null,
+      created_at: t.created_at,
+      updated_at: t.updated_at ?? null,
+      assigned_agent_id: t.assigned_agent_id ?? null,
+      agent_name: t.assigned_agent_id ? agentMap.get(t.assigned_agent_id) ?? null : null,
+      project_id: t.project_id ?? null,
+    }))
+  }, [tasks])
+
+  const filteredTasks = useMemo(() => {
+    const filtered = tasksWithAgent.filter(t => matchesFilter(t.status, filter) && matchesSearch(t.title, t.description, keyword))
+    return sortTasks(filtered)
+  }, [tasksWithAgent, filter, keyword])
+
+  const handleCardClick = useCallback((task: TaskCardItem) => {
+    // 详情页下个任务做, 暂时 console.log
+    console.log('open task', task.id)
+    // 列表页点击时清掉对应未读
+    markTaskRead(task.id)
+  }, [])
+
+  const handleLongPress = useCallback((task: TaskCardItem) => {
+    setActionTask(tasks.find(t => t.id === task.id) ?? null)
+  }, [tasks])
+
+  const handleCopyTitle = useCallback(async () => {
+    if (!actionTask) return
+    try {
+      await navigator.clipboard.writeText(actionTask.title)
+      showToast('已复制任务标题')
+    } catch {
+      showToast('复制失败')
+    }
+  }, [actionTask])
+
+  const handleMarkRead = useCallback(() => {
+    if (!actionTask) return
+    markTaskRead(actionTask.id)
+    showToast('已标记为已读')
+    setTasks(prev => prev.map(t => t.id === actionTask.id ? { ...t } : t))
+  }, [actionTask])
+
+  const handleDeleteRequest = useCallback(() => {
+    if (!actionTask) return
+    setConfirmTask(actionTask)
+  }, [actionTask])
+
+  const handleDeleteConfirm = useCallback(async () => {
+    if (!confirmTask) return
+    const taskToDelete = confirmTask
+    setConfirmTask(null)
+    setActionTask(null)
+    setDeleting(true)
+    const snapshot = tasks
+    setTasks(prev => prev.filter(t => t.id !== taskToDelete.id))
+    try {
+      await wsClient.request({ type: 'tasks.delete', taskId: taskToDelete.id })
+      showToast('任务已删除')
+    } catch {
+      setTasks(snapshot)
+      showToast('删除失败,已恢复')
+    } finally {
+      setDeleting(false)
+    }
+  }, [confirmTask, tasks])
+
+  const hasUnread = actionTask ? ((): boolean => {
+    const t = tasksWithAgent.find(x => x.id === actionTask.id)
+    if (!t) return false
+    return isTaskUnread(t.id, t.updated_at || undefined)
+  })() : false
+
+  const actionSheetItems = (() => {
+    if (!actionTask) return []
+    type Item = { key: string; label: string; danger?: boolean; onClick: () => void }
+    const items: Item[] = [
+      { key: 'copy', label: '复制任务标题', onClick: () => { void handleCopyTitle() } },
+    ]
+    if (hasUnread) {
+      items.push({ key: 'read', label: '标记已读', onClick: handleMarkRead })
+    }
+    items.push({ key: 'delete', label: '删除任务', danger: true, onClick: handleDeleteRequest })
+    return items
+  })()
+
   return (
     <div style={styles.page}>
       <div style={styles.header}>
@@ -92,36 +230,76 @@ export default function TaskListPage() {
           <ListTodo size={20} color="var(--primary)" />
           <span style={styles.headerTitle}>任务</span>
         </div>
-        <button style={styles.refreshBtn} onClick={fetchTasks}>
-          <RefreshCw size={16} color="var(--text-secondary)" />
+        <button style={styles.refreshBtn} onClick={fetchTasks} disabled={loading || deleting}>
+          <RefreshCw size={16} color="var(--text-secondary)" className={loading ? 'spin' : ''} />
         </button>
+      </div>
+
+      <div style={styles.filterBar}>
+        <div style={styles.chips}>
+          {FILTERS.map(f => {
+            const active = f.key === filter
+            return (
+              <button
+                key={f.key}
+                style={{ ...styles.chip, ...(active ? styles.chipActive : {}) }}
+                onClick={() => setFilter(f.key)}
+              >
+                {f.label}
+              </button>
+            )
+          })}
+        </div>
+        <div style={styles.searchBox}>
+          <Search size={14} color="var(--text-muted)" />
+          <input
+            style={styles.searchInput}
+            value={keyword}
+            onChange={e => setKeyword(e.target.value)}
+            placeholder="搜索任务"
+          />
+          {keyword && (
+            <button style={styles.clearBtn} onClick={() => setKeyword('')}>
+              <X size={12} color="var(--text-muted)" />
+            </button>
+          )}
+        </div>
       </div>
 
       <div style={styles.list}>
         {loading && <div style={styles.empty}>加载中...</div>}
-        {!loading && tasks.length === 0 && (
+        {!loading && filteredTasks.length === 0 && (
           <div style={styles.empty}>
             <ListTodo size={40} color="var(--text-muted)" strokeWidth={1.2} />
-            <span style={{ color: 'var(--text-muted)', fontSize: 14, marginTop: 12 }}>暂无任务</span>
+            <span style={{ color: 'var(--text-muted)', fontSize: 14, marginTop: 12 }}>{EMPTY_TEXT[filter]}</span>
           </div>
         )}
-        {tasks.map(task => {
-          const cfg = mobileTaskStatusMeta(task.status)
-          const Icon = cfg.icon
-          return (
-            <div key={task.id} style={styles.card}>
-              <div style={styles.cardRow}>
-                <Icon size={16} color={cfg.color} />
-                <span style={styles.cardTitle}>{task.title}</span>
-                <span style={{ ...styles.statusTag, color: cfg.color, background: `${cfg.color}15` }}>{cfg.label}</span>
-              </div>
-              {task.description && (
-                <div style={styles.cardDesc}>{task.description}</div>
-              )}
-            </div>
-          )
-        })}
+        {!loading && filteredTasks.map(task => (
+          <TaskCard
+            key={task.id}
+            task={task}
+            onClick={handleCardClick}
+            onLongPress={handleLongPress}
+          />
+        ))}
       </div>
+
+      <ActionSheet
+        open={!!actionTask && !confirmTask}
+        title={actionTask?.title ?? ''}
+        onClose={() => setActionTask(null)}
+        items={actionSheetItems}
+      />
+
+      <ConfirmDialog
+        open={!!confirmTask}
+        title="删除任务"
+        message={`确定要删除任务「${confirmTask?.title ?? ''}」吗?此操作不可恢复。`}
+        confirmText="删除"
+        danger
+        onConfirm={handleDeleteConfirm}
+        onCancel={() => setConfirmTask(null)}
+      />
     </div>
   )
 }
@@ -161,6 +339,65 @@ const styles: Record<string, CSSProperties> = {
     justifyContent: 'center',
     background: 'var(--bg-input)',
   },
+  filterBar: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 10,
+    padding: '10px 16px',
+    background: 'var(--bg-card)',
+    borderBottom: '1px solid var(--border-light)',
+    flexShrink: 0,
+  },
+  chips: {
+    display: 'flex',
+    gap: 8,
+    overflowX: 'auto',
+    scrollbarWidth: 'none',
+    msOverflowStyle: 'none',
+  },
+  chip: {
+    flexShrink: 0,
+    padding: '6px 14px',
+    borderRadius: 16,
+    fontSize: 13,
+    fontWeight: 500,
+    color: 'var(--text-secondary)',
+    background: 'var(--bg-input)',
+    border: '1px solid transparent',
+    whiteSpace: 'nowrap',
+  },
+  chipActive: {
+    background: 'var(--primary)',
+    color: '#fff',
+    fontWeight: 600,
+  },
+  searchBox: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    padding: '6px 12px',
+    background: 'var(--bg-input)',
+    borderRadius: 'var(--radius-sm)',
+  },
+  searchInput: {
+    flex: 1,
+    border: 'none',
+    outline: 'none',
+    background: 'transparent',
+    fontSize: 13,
+    color: 'var(--text-primary)',
+    minWidth: 0,
+  },
+  clearBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 18,
+    height: 18,
+    borderRadius: '50%',
+    background: 'var(--border-light)',
+    flexShrink: 0,
+  },
   list: {
     flex: 1,
     overflowY: 'auto',
@@ -174,43 +411,5 @@ const styles: Record<string, CSSProperties> = {
     height: '60%',
     color: 'var(--text-muted)',
     fontSize: 13,
-  },
-  card: {
-    padding: '12px 14px',
-    background: 'var(--bg-card)',
-    borderRadius: 'var(--radius)',
-    marginBottom: 8,
-    border: '1px solid var(--border-light)',
-  },
-  cardRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-  },
-  cardTitle: {
-    flex: 1,
-    fontSize: 14,
-    fontWeight: 600,
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-  },
-  statusTag: {
-    fontSize: 11,
-    padding: '2px 8px',
-    borderRadius: 10,
-    fontWeight: 500,
-    flexShrink: 0,
-  },
-  cardDesc: {
-    fontSize: 13,
-    color: 'var(--text-secondary)',
-    marginTop: 6,
-    lineHeight: 1.5,
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    display: '-webkit-box',
-    WebkitLineClamp: 2,
-    WebkitBoxOrient: 'vertical',
   },
 }
