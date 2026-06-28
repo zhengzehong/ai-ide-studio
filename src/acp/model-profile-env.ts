@@ -3,6 +3,9 @@ import type { AgentRow } from '../store/agents.js'
 import { modelProfileStore, type ClaudeModelProfileConfig, type ModelProfileRow } from '../store/model-profiles.js'
 import { modelProviderStore, type ModelProviderRow } from '../store/model-providers.js'
 import { buildRuntimeEnv } from './runtime-registry.js'
+import { buildAiIdeSystemPrompt } from '../core/ai-ide-system-prompt.js'
+import { buildMasterPrompt } from '../core/master-prompt.js'
+import { agentMemoryService } from '../core/agent-memory.js'
 
 export interface AppliedModelProfile {
   id: string
@@ -24,6 +27,15 @@ export interface ClaudeSessionMeta extends Record<string, unknown> {
       }
     }
   }
+}
+
+export interface AgentSessionMeta extends Record<string, unknown> {
+  systemPrompt?: string | {
+    type: 'preset'
+    preset: 'claude_code'
+    append: string
+  }
+  claudeCode?: ClaudeSessionMeta['claudeCode']
 }
 
 const CLAUDE_PROFILE_ENV_KEYS = [
@@ -73,6 +85,37 @@ export function buildClaudeSessionMeta(env: NodeJS.ProcessEnv, runtime: string):
       },
     },
   }
+}
+
+export function buildAgentSessionMeta(
+  runtime: string,
+  env: NodeJS.ProcessEnv,
+  agent: AgentRow,
+  options: { isPrimary?: boolean } = {},
+): AgentSessionMeta | undefined {
+  const platformPrompt = buildAiIdeSystemPrompt()
+  const userPrompt = agent.system_prompt.trim()
+  let combined = userPrompt ? `${platformPrompt}\n\n---\n\n${userPrompt}` : platformPrompt
+  if (options.isPrimary) {
+    combined = `${combined}\n\n---\n\n${buildMasterPrompt(agent.name)}`
+  }
+  const memoryPrompt = agentMemoryService.buildAgentMemoryPrompt(agent.id)
+  if (memoryPrompt) {
+    combined = `${combined}\n\n---\n\n${memoryPrompt}`
+  }
+
+  const meta: AgentSessionMeta = {}
+
+  if (combined) {
+    meta.systemPrompt = runtime === 'claude'
+      ? { type: 'preset', preset: 'claude_code', append: combined }
+      : combined
+  }
+
+  const claudeMeta = buildClaudeSessionMeta(env, runtime)
+  if (claudeMeta) meta.claudeCode = claudeMeta.claudeCode
+
+  return Object.keys(meta).length > 0 ? meta : undefined
 }
 
 export function fingerprintRuntimeEnv(env: NodeJS.ProcessEnv, runtime: string): string {

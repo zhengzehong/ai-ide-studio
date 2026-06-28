@@ -14,6 +14,8 @@ export interface AgentData {
   template_id?: string | null
   system_prompt?: string
   icon?: string
+  sort_order?: number | null
+  hidden_at?: string | null
 }
 
 export interface ProjectAgentInput {
@@ -22,7 +24,7 @@ export interface ProjectAgentInput {
   runtime: string
   systemPrompt?: string
   icon?: string
-  modelProfileId?: string
+  modelProfileId?: string | null
 }
 
 interface AgentStore {
@@ -34,6 +36,8 @@ interface AgentStore {
   createCustomAgent: (projectId: string, input: ProjectAgentInput) => Promise<AgentData>
   updateAgent: (agentId: string, input: Partial<ProjectAgentInput>) => Promise<AgentData>
   deleteAgent: (agentId: string) => Promise<void>
+  setAgentHidden: (agentId: string, hidden: boolean) => Promise<AgentData>
+  reorderAgents: (projectId: string, agentIds: string[]) => Promise<AgentData[]>
   setupListeners: () => () => void
 }
 
@@ -80,6 +84,24 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
   deleteAgent: async (agentId) => {
     await wsClient.request({ type: 'agents.delete', agentId })
     set({ agents: get().agents.filter(a => a.id !== agentId) })
+  },
+
+  setAgentHidden: async (agentId, hidden) => {
+    const agent = await wsClient.request({ type: 'agents.setHidden', agentId, hidden }) as AgentData
+    set({ agents: get().agents.map(a => a.id === agentId ? agent : a) })
+    return agent
+  },
+
+  reorderAgents: async (projectId, agentIds) => {
+    const ordered = await wsClient.request({ type: 'agents.reorder', projectId, agentIds }) as AgentData[]
+    const orderedIds = new Set(ordered.map((agent) => agent.id))
+    set({
+      agents: [
+        ...get().agents.filter((agent) => agent.project_id !== projectId || !orderedIds.has(agent.id)),
+        ...ordered,
+      ],
+    })
+    return ordered
   },
 
   setupListeners: () => {

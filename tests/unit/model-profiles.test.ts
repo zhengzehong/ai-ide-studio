@@ -86,6 +86,43 @@ describe('model profiles', () => {
     expect(JSON.parse(updated?.config_json ?? '{}')).toEqual({ model: 'deepseek-v4-pro', effort: 'medium' })
   })
 
+  test('keeps one default profile per runtime and clears default when disabled', () => {
+    const provider = modelProviderStore.create({
+      name: 'new-api',
+      displayName: 'New API',
+      protocol: 'new-api',
+      baseUrl: 'http://127.0.0.1:29000',
+      apiKey: 'sk-test',
+    })
+    const light = modelProfileStore.create({
+      name: 'Codex light',
+      runtime: 'codex',
+      providerId: provider.id,
+      config: { model: 'deepseek-v4-flash', effort: 'low' },
+      isDefault: true,
+    })
+    const pro = modelProfileStore.create({
+      name: 'Codex pro',
+      runtime: 'codex',
+      providerId: provider.id,
+      config: { model: 'deepseek-v4-pro', effort: 'medium' },
+      isDefault: true,
+    })
+
+    expect(modelProfileStore.get(light.id)?.is_default).toBe(0)
+    expect(modelProfileStore.get(pro.id)?.is_default).toBe(1)
+
+    modelProfileStore.setDefault(light.id)
+
+    expect(modelProfileStore.get(light.id)?.is_default).toBe(1)
+    expect(modelProfileStore.get(pro.id)?.is_default).toBe(0)
+
+    modelProfileStore.toggle(light.id, false)
+
+    expect(modelProfileStore.get(light.id)?.enabled).toBe(0)
+    expect(modelProfileStore.get(light.id)?.is_default).toBe(0)
+  })
+
   test('binds a model profile to an Agent without removing existing config', () => {
     const agent = agentStore.create({
       name: '工程师',

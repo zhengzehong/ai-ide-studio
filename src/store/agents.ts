@@ -14,6 +14,8 @@ export interface AgentRow {
   template_id: string | null
   system_prompt: string
   icon: string
+  sort_order: number | null
+  hidden_at: string | null
 }
 
 export interface CreateAgentInput {
@@ -58,10 +60,12 @@ export const agentStore = {
       template_id: input.templateId ?? null,
       system_prompt: input.systemPrompt ?? '',
       icon: input.icon ?? 'bot',
+      sort_order: nextAgentSortOrder(input.projectId ?? null),
+      hidden_at: null,
     }
     getDb().prepare(`
-      INSERT INTO agents (id, type, name, runtime, status, permission_level, config_json, created_at, project_id, template_id, system_prompt, icon)
-      VALUES (@id, @type, @name, @runtime, @status, @permission_level, @config_json, @created_at, @project_id, @template_id, @system_prompt, @icon)
+      INSERT INTO agents (id, type, name, runtime, status, permission_level, config_json, created_at, project_id, template_id, system_prompt, icon, sort_order, hidden_at)
+      VALUES (@id, @type, @name, @runtime, @status, @permission_level, @config_json, @created_at, @project_id, @template_id, @system_prompt, @icon, @sort_order, @hidden_at)
     `).run(agent)
     return agent
   },
@@ -72,13 +76,41 @@ export const agentStore = {
 
   list(projectId?: string): AgentRow[] {
     if (projectId) {
-      return getDb().prepare<[string], AgentRow>('SELECT * FROM agents WHERE project_id = ? ORDER BY created_at ASC').all(projectId)
+      return getDb().prepare<[string], AgentRow>('SELECT * FROM agents WHERE project_id = ? ORDER BY COALESCE(sort_order, 9223372036854775807) ASC, created_at ASC, id ASC').all(projectId)
     }
     return getDb().prepare<[], AgentRow>('SELECT * FROM agents ORDER BY created_at ASC').all()
   },
 
+  reorder(projectId: string, agentIds: string[]): AgentRow[] {
+    if (!projectId) throw new Error('projectId is required')
+    const uniqueIds = uniqueOrderedIds(agentIds)
+    const current = agentStore.list(projectId)
+    const currentById = new Map(current.map((agent) => [agent.id, agent]))
+    for (const agentId of uniqueIds) {
+      if (!currentById.has(agentId)) throw new Error(`Agent does not belong to project: ${agentId}`)
+    }
+    const orderedIds = [...uniqueIds, ...current.filter((agent) => !uniqueIds.includes(agent.id)).map((agent) => agent.id)]
+    const update = getDb().prepare('UPDATE agents SET sort_order = ? WHERE id = ? AND project_id = ?')
+    const apply = getDb().transaction(() => {
+      orderedIds.forEach((agentId, index) => update.run(index + 1, agentId, projectId))
+    })
+    apply()
+    return agentStore.list(projectId)
+  },
+
   updateStatus(id: string, status: string): void {
     getDb().prepare('UPDATE agents SET status = ? WHERE id = ?').run(status, id)
+  },
+
+  setHidden(id: string, hidden: boolean): AgentRow {
+    const existing = agentStore.get(id)
+    if (!existing) throw new Error(`Agent 不存在: ${id}`)
+    if (!existing.project_id) throw new Error('只能操作项目级 Agent')
+    const hiddenAt = hidden ? new Date().toISOString() : null
+    getDb().prepare('UPDATE agents SET hidden_at = ? WHERE id = ?').run(hiddenAt, id)
+    const updated = agentStore.get(id)
+    if (!updated) throw new Error(`Agent 不存在: ${id}`)
+    return updated
   },
 
   update(id: string, fields: UpdateAgentInput): AgentRow | undefined {
@@ -129,4 +161,23 @@ export const agentStore = {
     }
     return agentStore.create(input)
   },
+}
+
+function nextAgentSortOrder(projectId: string | null): number {
+  const db = getDb()
+  const row = projectId
+    ? db.prepare<[string], { min_order: number | null }>('SELECT MIN(sort_order) AS min_order FROM agents WHERE project_id = ?').get(projectId)
+    : db.prepare<[], { min_order: number | null }>('SELECT MIN(sort_order) AS min_order FROM agents WHERE project_id IS NULL').get()
+  return (row?.min_order ?? 1) - 1
+}
+
+function uniqueOrderedIds(ids: string[]): string[] {
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const id of ids) {
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    result.push(id)
+  }
+  return result
 }

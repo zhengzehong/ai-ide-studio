@@ -4,11 +4,17 @@ import AppLayout from './components/layout/AppLayout'
 import Dashboard from './pages/Dashboard'
 import Workspace from './pages/Workspace'
 import TaskBoard from './pages/TaskBoard'
+import TaskModesSettings from './pages/TaskModesSettings'
 import Schedule from './pages/Schedule'
+import EventCenter from './pages/EventCenter'
+import KnowledgeBase from './pages/KnowledgeBase'
+import AgentMemory from './pages/AgentMemory'
 import AgentSquare from './pages/AgentSquare'
 import SkillCenter from './pages/SkillCenter'
 import ToolManager from './pages/ToolManager'
 import Settings from './pages/Settings'
+import WidgetPage from './pages/Widget'
+import AccessTokenPage from './pages/AccessTokenPage'
 import { useConnectionStore } from './stores/connection.store'
 import { useAgentStore } from './stores/agent.store'
 import { useSessionStore } from './stores/session.store'
@@ -20,10 +26,13 @@ import { useToolStore } from './stores/tool.store'
 import { useModelStore } from './stores/model.store'
 import { useSkillStore } from './stores/skill.store'
 import { useTeamStore } from './stores/team.store'
+import { useTimelineStore } from './stores/timeline.store'
+import { useKnowledgeBaseStore } from './stores/knowledge-base.store'
 
 export default function App() {
   const init = useConnectionStore((s) => s.init)
   const connected = useConnectionStore((s) => s.connected)
+  const authRequired = useConnectionStore((s) => s.authRequired)
   const listenersReady = useRef(false)
 
   useEffect(() => {
@@ -50,20 +59,27 @@ export default function App() {
       const off3 = useTaskStore.getState().setupListeners()
       const off4 = useRuleStore.getState().setupListeners()
       const off5 = useTeamStore.getState().setupListeners(() => useSessionStore.getState().currentSessionId)
+      const off6 = useTimelineStore.getState().setupListeners()
+      const off7 = useKnowledgeBaseStore.getState().setupListeners()
       return () => {
         off1()
         off2()
         off3()
         off4()
         off5()
+        off6()
+        off7()
         listenersReady.current = false
       }
     }
   }, [connected])
 
-  return (
+  return authRequired ? (
+    <AccessTokenPage />
+  ) : (
     <BrowserRouter>
       <Routes>
+        <Route path="/widget" element={<WidgetPage />} />
         <Route element={<AppLayout />}>
           <Route path="/" element={<Dashboard />} />
           <Route path="/agents" element={<AgentSquare />} />
@@ -71,7 +87,11 @@ export default function App() {
           <Route path="/tools" element={<ToolManager />} />
           <Route path="/workspace" element={<Workspace />} />
           <Route path="/tasks" element={<TaskBoard />} />
+          <Route path="/tasks/modes" element={<TaskModesSettings />} />
           <Route path="/schedule" element={<Schedule />} />
+          <Route path="/events" element={<EventCenter />} />
+          <Route path="/knowledge" element={<KnowledgeBase />} />
+          <Route path="/agent-memory" element={<AgentMemory />} />
           <Route path="/settings" element={<Settings />} />
         </Route>
       </Routes>

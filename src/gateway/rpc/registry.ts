@@ -1,6 +1,10 @@
 import type { ClientMessage } from '../../types/ws-protocol.js'
 import { agentRpcHandlers } from './agents.js'
 import { filesystemRpcHandlers } from './filesystem.js'
+import { globalAssistantRpcHandlers } from './global-assistant.js'
+import { agentMemoryRpcHandlers } from './agent-memory.js'
+import { eventCenterRpcHandlers } from './event-center.js'
+import { knowledgeBaseRpcHandlers } from './knowledge-base.js'
 import { modelRpcHandlers } from './models.js'
 import { projectRpcHandlers } from './projects.js'
 import { ruleRpcHandlers } from './rules.js'
@@ -11,10 +15,16 @@ import { taskRpcHandlers } from './tasks.js'
 import { templateRpcHandlers } from './templates.js'
 import { teamRpcHandlers } from './teams.js'
 import { toolRpcHandlers } from './tools.js'
+import { timelineRpcHandlers } from './timeline.js'
+import { widgetRpcHandlers } from './widget.js'
 import type { RpcContext, RpcHandlerMap } from './types.js'
 
 const rpcHandlers: RpcHandlerMap = {
   ...subscriptionRpcHandlers,
+  ...eventCenterRpcHandlers,
+  ...agentMemoryRpcHandlers,
+  ...knowledgeBaseRpcHandlers,
+  ...globalAssistantRpcHandlers,
   ...sessionRpcHandlers,
   ...agentRpcHandlers,
   ...taskRpcHandlers,
@@ -26,6 +36,8 @@ const rpcHandlers: RpcHandlerMap = {
   ...filesystemRpcHandlers,
   ...modelRpcHandlers,
   ...skillRpcHandlers,
+  ...timelineRpcHandlers,
+  ...widgetRpcHandlers,
 }
 
 export async function dispatchRpc(msg: ClientMessage, context: RpcContext): Promise<void> {

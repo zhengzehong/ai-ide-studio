@@ -85,14 +85,14 @@ export function TemplateEditor({ template, onSave, onCancel }: {
         </div>
 
         <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-2)' }}>系统提示词</label>
+          <label style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-2)' }}>系统提示词</label>
           <textarea
             value={systemPrompt}
             onChange={(e) => setSystemPrompt(e.target.value)}
-            style={{ flex: 1, fontFamily: 'var(--font-mono, "Fira Code", monospace)', fontSize: 13, lineHeight: 1.6, padding: 16, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-2)', color: 'var(--text-1)', resize: 'none', outline: 'none' }}
+            style={{ flex: 1, fontFamily: 'var(--font-mono, "Fira Code", monospace)', fontSize: 15, lineHeight: 1.6, padding: 16, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-2)', color: 'var(--text-1)', resize: 'none', outline: 'none' }}
             placeholder={'编写 Agent 模板的系统提示词...\n\n例如：\n你是一位资深系统架构师。你的核心职责：\n- 分析需求并设计系统架构\n- 技术选型和方案评估'}
           />
-          <div style={{ fontSize: 12, color: 'var(--text-3)' }}>
+          <div style={{ fontSize: 14, color: 'var(--text-3)' }}>
             添加到项目时会复制一份提示词快照，项目智能体后续可独立调整。
           </div>
         </div>

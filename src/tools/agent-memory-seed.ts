@@ -1,0 +1,153 @@
+import type { CreateToolInput } from '../store/tools.js'
+
+const PERMS = { requiresApproval: false, maxExecutionTime: 10_000, networkAccess: false }
+
+export const AGENT_MEMORY_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
+  {
+    name: 'define_memory_dimension',
+    displayName: '定义记忆维度',
+    description: '为当前 Agent 定义一个新的记忆维度(仅当现有维度装不下时)。不要为单条信息建维度,优先 record 到已有维度。维度上限 10 个。',
+    category: 'automation',
+    type: 'builtin',
+    config: { handler: 'define_memory_dimension' },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: '维度名,如"协作习惯"。同 Agent 下唯一。' },
+        description: { type: 'string', description: '维度用途简述' },
+        prompt: { type: 'string', description: '注入 System Prompt 的指令,含何时记录/何时使用/条目结构' },
+      },
+      required: ['name', 'description', 'prompt'],
+    },
+    permissions: PERMS,
+    isBuiltin: true,
+    defaultScope: 'global',
+  },
+  {
+    name: 'recall_memory',
+    displayName: '回忆记忆',
+    description: '从指定维度按关键词查询记忆摘要。多关键词 OR 匹配,FTS5 bm25 排序,短词 LIKE 兜底。',
+    category: 'data',
+    type: 'builtin',
+    config: { handler: 'recall_memory' },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        dimension: { type: 'string', description: '维度名称' },
+        keywords: {
+          type: 'array',
+          items: { type: 'string' },
+          description: '多关键词,OR 匹配(任一命中即返回)',
+        },
+        limit: { type: 'number', description: '返回条数,默认 5' },
+      },
+      required: ['dimension', 'keywords'],
+    },
+    permissions: PERMS,
+    isBuiltin: true,
+    defaultScope: 'global',
+  },
+  {
+    name: 'list_memory',
+    displayName: '列出记忆',
+    description: '列出某维度下所有条目摘要,按 pinned/use_count 排序。',
+    category: 'data',
+    type: 'builtin',
+    config: { handler: 'list_memory' },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        dimension: { type: 'string', description: '维度名称' },
+        limit: { type: 'number', description: '返回条数,默认 50' },
+      },
+      required: ['dimension'],
+    },
+    permissions: PERMS,
+    isBuiltin: true,
+    defaultScope: 'global',
+  },
+  {
+    name: 'get_memory',
+    displayName: '获取记忆全文',
+    description: '按 entry_id 获取单条记忆的完整 Markdown 内容。',
+    category: 'data',
+    type: 'builtin',
+    config: { handler: 'get_memory' },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        entry_id: { type: 'string', description: '条目 id' },
+      },
+      required: ['entry_id'],
+    },
+    permissions: PERMS,
+    isBuiltin: true,
+    defaultScope: 'global',
+  },
+  {
+    name: 'record_memory',
+    displayName: '记录记忆',
+    description: '向指定维度记录一条新条目(content 支持 Markdown)。按维度 prompt 的"何时记录"规则调用。',
+    category: 'automation',
+    type: 'builtin',
+    config: { handler: 'record_memory' },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        dimension: { type: 'string', description: '维度名称' },
+        title: { type: 'string', description: '一句话标题' },
+        content: {
+          type: 'string',
+          description: '条目正文,支持 Markdown。短条目可纯文本,长条目用 MD 结构化',
+        },
+        tags: { type: 'array', items: { type: 'string' }, description: '标签列表' },
+        confidence: { type: 'number', description: '置信度 0-1,默认 1.0' },
+      },
+      required: ['dimension', 'title', 'content'],
+    },
+    permissions: PERMS,
+    isBuiltin: true,
+    defaultScope: 'global',
+  },
+  {
+    name: 'update_memory',
+    displayName: '更新记忆',
+    description: '更新已存在条目的 title/content/tags/pinned。未传字段保持原值。',
+    category: 'automation',
+    type: 'builtin',
+    config: { handler: 'update_memory' },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        entry_id: { type: 'string', description: '条目 id' },
+        title: { type: 'string', description: '新标题' },
+        content: { type: 'string', description: '条目正文,支持 Markdown' },
+        tags: { type: 'array', items: { type: 'string' }, description: '新标签列表(覆盖)' },
+        confidence: { type: 'number', description: '置信度 0-1' },
+        pinned: { type: 'boolean', description: '是否置顶(单 Agent 上限 20 条)' },
+      },
+      required: ['entry_id'],
+    },
+    permissions: PERMS,
+    isBuiltin: true,
+    defaultScope: 'global',
+  },
+  {
+    name: 'delete_memory',
+    displayName: '删除记忆',
+    description: '软删除一条记忆条目。',
+    category: 'automation',
+    type: 'builtin',
+    config: { handler: 'delete_memory' },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        entry_id: { type: 'string', description: '条目 id' },
+      },
+      required: ['entry_id'],
+    },
+    permissions: PERMS,
+    isBuiltin: true,
+    defaultScope: 'global',
+  },
+]

@@ -6,7 +6,14 @@
       "Bash(curl -s http://localhost:18800/health)",
       "Bash(curl -s http://localhost:18800/api/agents)",
       "WebSearch",
-      "mcp__ai-ide-tools__team_member_list"
+      "mcp__ai-ide-tools__team_member_list",
+      "mcp__ai-ide-tools__team_mailbox_send",
+      "mcp__ai-ide-tools__studio_schedule_create",
+      "mcp__ai-ide-tools__core_agent_list",
+      "mcp__ai-ide-tools__studio_task_get",
+      "mcp__ai-ide-tools__studio_task_update_progress",
+      "WebFetch(domain:github.com)",
+      "mcp__ai-ide-tools__studio_task_mark_done"
     ]
   }
 }

@@ -1,7 +1,17 @@
 export type AgentStatus = 'running' | 'idle' | 'standby' | 'sleeping' | 'error'
 export type AgentRuntime = 'mock' | 'claude' | 'codex'
 export type SessionStatus = 'active' | 'idle' | 'closed'
-export type TaskStatus = 'backlog' | 'planning' | 'executing' | 'reviewing' | 'completed' | 'cancelled' | 'blocked'
+export type SessionActivityState = 'running' | 'idle'
+export type SessionRuntimeState = SessionActivityState
+export type SessionActivityReason =
+  | 'prompt-started'
+  | 'prompt-done'
+  | 'prompt-error'
+  | 'prompt-cancelled'
+  | 'runtime-exit'
+  | 'startup-recovery'
+export type TaskStatus = 'backlog' | 'executing' | 'needs_input' | 'completed' | 'cancelled'
+export type AgentReportStatus = 'in_progress' | 'milestone' | 'blocked' | 'done'
 
 export interface ClientMessage {
   type: string
@@ -21,6 +31,8 @@ export interface PromptMsg extends ClientMessage {
   type: 'prompt'
   sessionId: string
   content: string
+  clientMessageId?: string
+  contextProjectId?: string
   images?: ImageAttachment[]
 }
 export interface DecisionMsg extends ClientMessage {
@@ -111,6 +123,30 @@ export interface AgentsDeleteMsg extends ClientMessage {
   type: 'agents.delete'
   agentId: string
 }
+export interface AgentsSetHiddenMsg extends ClientMessage {
+  type: 'agents.setHidden'
+  agentId: string
+  hidden: boolean
+}
+export interface AgentsReorderMsg extends ClientMessage {
+  type: 'agents.reorder'
+  projectId: string
+  agentIds: string[]
+}
+export interface GlobalAssistantGetMsg extends ClientMessage {
+  type: 'globalAssistant.get'
+}
+export interface GlobalAssistantSetTemplateMsg extends ClientMessage {
+  type: 'globalAssistant.setTemplate'
+  templateId: string
+  name?: string
+  runtime?: AgentRuntime
+  systemPrompt?: string
+  modelProfileId?: string | null
+}
+export interface GlobalAssistantTouchMsg extends ClientMessage {
+  type: 'globalAssistant.touch'
+}
 export interface SessionsListMsg extends ClientMessage {
   type: 'sessions.list'
   agentId?: string
@@ -121,6 +157,38 @@ export interface SessionsCreateMsg extends ClientMessage {
   agentId: string
   taskId?: string
   projectId?: string
+}
+export interface SessionsCopyMsg extends ClientMessage {
+  type: 'sessions.copy'
+  sessionId: string
+}
+export type LocalSessionImportRuntime = Extract<AgentRuntime, 'claude' | 'codex'>
+export interface LocalSessionCandidateData {
+  runtime: LocalSessionImportRuntime
+  sessionId: string
+  path: string
+  label: string
+  updatedAt: string
+  cwd?: string
+}
+export interface SessionsListLocalImportCandidatesMsg extends ClientMessage {
+  type: 'sessions.listLocalImportCandidates'
+  agentId: string
+  projectId?: string
+  codexHome?: string
+  claudeHome?: string
+  limit?: number
+}
+export interface SessionsImportLocalMsg extends ClientMessage {
+  type: 'sessions.importLocal'
+  agentId: string
+  projectId?: string
+  jsonlPath?: string
+  externalSessionId?: string
+  sourcePath?: string
+  runtime?: LocalSessionImportRuntime
+  cwd?: string
+  title?: string
 }
 export interface SessionsRenameMsg extends ClientMessage {
   type: 'sessions.rename'
@@ -138,6 +206,12 @@ export interface SessionsCloseMsg extends ClientMessage {
 export interface SessionsArchiveMsg extends ClientMessage {
   type: 'sessions.archive'
   sessionId: string
+}
+export interface SessionsReorderMsg extends ClientMessage {
+  type: 'sessions.reorder'
+  projectId: string
+  agentId: string
+  sessionIds: string[]
 }
 export interface SessionsMessagesMsg extends ClientMessage {
   type: 'sessions.messages'
@@ -158,11 +232,37 @@ export interface SessionsMessageToolCallDetailMsg extends ClientMessage {
   messageId: string
   toolCallId: string
 }
+
+export interface SessionsMessageFileChangesMsg extends ClientMessage {
+  type: 'sessions.messageFileChanges'
+  sessionId: string
+  messageId: string
+}
+export interface SessionsMessageProcessMsg extends ClientMessage {
+  type: 'sessions.messageProcess'
+  sessionId: string
+  messageId: string
+}
+export interface SessionsProcessItemDetailMsg extends ClientMessage {
+  type: 'sessions.processItemDetail'
+  sessionId: string
+  messageId: string
+  itemId: string
+}
+export interface SessionsMessageEventsMsg extends ClientMessage {
+  type: 'sessions.messageEvents'
+  sessionId: string
+  messageId: string
+}
 export interface SessionsEventsMsg extends ClientMessage {
   type: 'sessions.events'
   sessionId: string
   limit?: number
   afterSequence?: number
+}
+export interface SessionsMarkReadMsg extends ClientMessage {
+  type: 'sessions.markRead'
+  sessionId: string
 }
 export interface TasksListMsg extends ClientMessage {
   type: 'tasks.list'
@@ -175,12 +275,58 @@ export interface TasksCreateMsg extends ClientMessage {
   description?: string
   assignAgentId?: string
   projectId?: string
+  sessionMode?: 'existing' | 'new_each' | 'new_fixed'
+  sessionId?: string
+  executionModeId?: string
 }
 export interface TasksUpdateMsg extends ClientMessage {
   type: 'tasks.update'
   taskId: string
   status?: TaskStatus
   stage?: string
+  reason?: string
+}
+export interface TasksAssignMsg extends ClientMessage {
+  type: 'tasks.assign'
+  taskId: string
+  agentId: string
+  sessionMode?: 'existing' | 'new_each' | 'new_fixed'
+  sessionId?: string
+}
+export interface TasksReplyMsg extends ClientMessage {
+  type: 'tasks.reply'
+  taskId: string
+  message: string
+}
+export interface TasksEventsListMsg extends ClientMessage {
+  type: 'tasks.events.list'
+  taskId: string
+  afterSequence?: number
+}
+export interface TasksModesListMsg extends ClientMessage {
+  type: 'tasks.modes.list'
+  projectId?: string
+}
+export interface TasksModesCreateMsg extends ClientMessage {
+  type: 'tasks.modes.create'
+  name: string
+  description?: string
+  promptTemplate?: string
+  reportTemplate?: string
+  projectId?: string
+}
+export interface TasksModesUpdateMsg extends ClientMessage {
+  type: 'tasks.modes.update'
+  id: string
+  name?: string
+  description?: string | null
+  promptTemplate?: string
+  reportTemplate?: string
+  sortOrder?: number
+}
+export interface TasksModesDeleteMsg extends ClientMessage {
+  type: 'tasks.modes.delete'
+  id: string
 }
 export interface TeamsCurrentMsg extends ClientMessage {
   type: 'teams.current'
@@ -218,10 +364,51 @@ export interface RulesDeleteMsg extends ClientMessage {
   ruleId: string
 }
 
+export interface EventsListMsg extends ClientMessage {
+  type: 'events.list'
+  projectId?: string
+  categoryId?: string
+  status?: string
+  keyword?: string
+  limit?: number
+  offset?: number
+}
+
+export interface EventCategoriesDeleteMsg extends ClientMessage {
+  type: 'eventCategories.delete'
+  categoryId: string
+}
+
+export interface EventSubscriptionsUpdateMsg extends ClientMessage {
+  type: 'eventSubscriptions.update'
+  subscriptionId: string
+  projectId?: string
+  name: string
+  categoryId: string
+  consumerAgentId?: string
+  consumerLabel?: string
+  actionMode?: string
+  filter?: Record<string, unknown>
+  enabled?: boolean
+  autoStart?: boolean
+  consumerSessionMode?: 'existing' | 'new_each' | 'new_fixed'
+  consumerSessionId?: string | null
+}
+
+export interface EventSubscriptionsDeleteMsg extends ClientMessage {
+  type: 'eventSubscriptions.delete'
+  subscriptionId: string
+}
+
 export interface ImageAttachment {
   data: string
   mimeType: string
   name?: string
+  relativePath?: string
+  path?: string
+  url?: string
+  size?: number
+  order?: number
 }
 
 export interface ToolCallData {
@@ -272,6 +459,45 @@ export interface ToolCallDetailData {
   error?: string
 }
 
+export interface FileChangeLineData {
+  type: 'add' | 'del' | 'ctx'
+  text: string
+  oldLine?: number
+  newLine?: number
+}
+
+export interface FileChangeSummaryEntryData {
+  path: string
+  changeType: 'A' | 'M' | 'D' | '?'
+  addedLines: number
+  deletedLines: number
+}
+
+export interface FileChangeSegmentData {
+  toolCallId: string
+  oldText?: string
+  newText: string
+  addedLines: number
+  deletedLines: number
+  lines: FileChangeLineData[]
+}
+
+export interface FileChangeDetailEntryData extends FileChangeSummaryEntryData {
+  segments: FileChangeSegmentData[]
+}
+
+export interface FileChangeSummaryData {
+  files: FileChangeSummaryEntryData[]
+  totalAdded: number
+  totalDeleted: number
+}
+
+export interface FileChangeDetailData {
+  files: FileChangeDetailEntryData[]
+  totalAdded: number
+  totalDeleted: number
+}
+
 export interface MessageData {
   id: string
   session_id: string
@@ -281,9 +507,35 @@ export interface MessageData {
   tool_calls_json: string | null
   decision_json: string | null
   attachments_json: string | null
+  file_changes_json: string | null
+  status?: string
+  started_at?: string | null
+  completed_at?: string | null
+  stats_json?: string | null
+  process_item_count?: number
   timestamp: string
   has_tool_calls?: boolean
   tool_call_count?: number
+  has_file_changes?: boolean
+  file_change_count?: number
+}
+
+export interface TurnProcessItemData {
+  id: string
+  session_id: string
+  message_id: string
+  sequence: number
+  kind: string
+  status: string | null
+  title: string | null
+  summary: string | null
+  preview: string | null
+  content: string | null
+  detail_json?: string | null
+  meta_json: string | null
+  created_at: string
+  updated_at: string
+  has_detail?: boolean
 }
 export interface ToolCallContentItem {
   type: 'text' | 'diff' | 'terminal'
@@ -315,6 +567,7 @@ export interface SessionDoneData {
   sessionId: string
   agentId: string
   messageId: string
+  turnId?: string
   turnUsage?: TurnUsageData
   stopReason?: SessionStopReason
   error?: string
@@ -385,6 +638,15 @@ export interface SessionEventData {
   created_at: string
 }
 
+export interface SessionActivityData {
+  sessionId: string
+  agentId: string
+  turnId?: string
+  state: SessionActivityState
+  reason: SessionActivityReason
+  timestamp: string
+}
+
 export interface SessionCapabilities {
   models?: ModelInfo[]
   currentModelId?: string
@@ -420,13 +682,19 @@ export interface SessionUpdateData {
 
 export type ServerMessage =
   | { type: 'session:update'; sessionId: string; agentId: string; data: SessionUpdateData }
+  | { type: 'session:process_item'; sessionId: string; agentId?: string | null; item: TurnProcessItemData }
   | { type: 'session:event'; sessionId: string; agentId?: string | null; event: SessionEventData }
   | ({ type: 'session:done' } & SessionDoneData)
+  | ({ type: 'session:activity' } & SessionActivityData)
   | { type: 'session:capabilities'; sessionId: string; capabilities: SessionCapabilities }
   | { type: 'session:changed'; sessionId: string; data: Record<string, unknown> }
+  | { type: 'session:copy_failed'; sourceSessionId: string; targetSessionId: string; message: string }
   | { type: 'agent:status'; agentId: string; status: AgentStatus }
   | { type: 'task:update'; taskId: string; data: Record<string, unknown> }
   | { type: 'team:update'; teamId: string; sessionIds: string[]; data: Record<string, unknown> }
   | { type: 'rule:update'; ruleId: string; data: Record<string, unknown> }
+  | { type: 'timeline:updated'; sessionId: string }
+  | { type: 'event-center:update'; data: Record<string, unknown> }
+  | { type: 'knowledge-base:update'; data: Record<string, unknown> }
   | { type: 'result'; requestId?: string; data: unknown }
   | { type: 'error'; requestId?: string; message: string }

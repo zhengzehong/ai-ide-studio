@@ -44,7 +44,7 @@ export default function SkillCenter() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
         <div>
           <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0, letterSpacing: -0.5 }}>技能中心</h1>
-          <p style={{ color: 'var(--text-3)', fontSize: 14, margin: '6px 0 0' }}>
+          <p style={{ color: 'var(--text-3)', fontSize: 15, margin: '6px 0 0' }}>
             创建和管理 Agent 技能，提示词、文件或 MCP 工具均可作为技能绑定到 Agent
           </p>
         </div>
@@ -63,7 +63,7 @@ export default function SkillCenter() {
           { label: '文件', count: skills.filter(s => s.type === 'file').length, color: '#2563eb' },
           { label: 'MCP', count: skills.filter(s => s.type === 'mcp').length, color: '#db2777' },
         ].map(s => (
-          <div key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 8, background: 'var(--bg-2)', fontSize: 13 }}>
+          <div key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 8, background: 'var(--bg-2)', fontSize: 15 }}>
             <span style={{ fontWeight: 700, color: s.color }}>{s.count}</span>
             <span style={{ color: 'var(--text-3)' }}>{s.label}</span>
           </div>
@@ -95,7 +95,7 @@ export default function SkillCenter() {
         <div style={emptyState}>
           <BookOpen size={40} strokeWidth={1.5} />
           <p style={{ fontWeight: 600, margin: '12px 0 4px', fontSize: 15 }}>暂无技能</p>
-          <p style={{ fontSize: 13 }}>创建你的第一个技能，赋予 Agent 更多能力</p>
+          <p style={{ fontSize: 15 }}>创建你的第一个技能，赋予 Agent 更多能力</p>
           <button onClick={() => setShowForm(true)} style={{ ...btn, marginTop: 12 }}><Plus size={14} /> 创建技能</button>
         </div>
       ) : (
@@ -114,11 +114,11 @@ export default function SkillCenter() {
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                      <span style={{ fontWeight: 600, fontSize: 14 }}>{s.display_name}</span>
-                      <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 4, fontWeight: 600, background: meta.bg, color: meta.color }}>{meta.label}</span>
-                      {s.is_builtin ? <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: 'var(--bg-2)', color: 'var(--text-3)' }}>内置</span> : null}
+                      <span style={{ fontWeight: 600, fontSize: 15 }}>{s.display_name}</span>
+                      <span style={{ fontSize: 12, padding: '2px 7px', borderRadius: 4, fontWeight: 600, background: meta.bg, color: meta.color }}>{meta.label}</span>
+                      {s.is_builtin ? <span style={{ fontSize: 12, padding: '2px 6px', borderRadius: 4, background: 'var(--bg-2)', color: 'var(--text-3)' }}>内置</span> : null}
                     </div>
-                    <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>
+                    <div style={{ fontSize: 14, color: 'var(--text-3)', marginTop: 2 }}>
                       {CAT_LABELS[s.category] || s.category}
                       {sBindings.length > 0 && <span> · {sBindings.length} 个绑定</span>}
                     </div>
@@ -126,9 +126,9 @@ export default function SkillCenter() {
                 </div>
 
                 {/* Description / Preview */}
-                {s.description && <p style={{ fontSize: 13, color: 'var(--text-2)', margin: '0 0 8px', lineHeight: 1.5 }}>{s.description}</p>}
+                {s.description && <p style={{ fontSize: 15, color: 'var(--text-2)', margin: '0 0 8px', lineHeight: 1.5 }}>{s.description}</p>}
                 {preview && (
-                  <div style={{ fontSize: 12, color: 'var(--text-3)', background: 'var(--bg-2)', borderRadius: 6, padding: '8px 10px', fontFamily: 'monospace', lineHeight: 1.5, maxHeight: 54, overflow: 'hidden', marginBottom: 12 }}>
+                  <div style={{ fontSize: 14, color: 'var(--text-3)', background: 'var(--bg-2)', borderRadius: 6, padding: '8px 10px', fontFamily: 'monospace', lineHeight: 1.5, maxHeight: 54, overflow: 'hidden', marginBottom: 12 }}>
                     {preview}{s.content.length > 120 ? '...' : ''}
                   </div>
                 )}
@@ -142,7 +142,7 @@ export default function SkillCenter() {
                         {b.target_id && `: ${b.scope === 'agent' ? (agents.find(a => a.id === b.target_id)?.name ?? '?') : (projects.find(p => p.id === b.target_id)?.name ?? '?')}`}
                       </span>
                     ))}
-                    {sBindings.length > 4 && <span style={{ fontSize: 11, color: 'var(--text-3)', padding: '3px 0' }}>+{sBindings.length - 4}</span>}
+                    {sBindings.length > 4 && <span style={{ fontSize: 13, color: 'var(--text-3)', padding: '3px 0' }}>+{sBindings.length - 4}</span>}
                   </div>
                 )}
 
@@ -250,10 +250,10 @@ function SkillForm({ skill, onClose, onCreate, onUpdate }: {
         <div style={{ marginTop: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
             <label style={{ ...fLabel, margin: 0 }}>内容</label>
-            <button onClick={() => fileRef.current?.click()} style={{ ...btnGhost, padding: '4px 10px', fontSize: 12 }}><Upload size={12} /> 从文件导入</button>
+            <button onClick={() => fileRef.current?.click()} style={{ ...btnGhost, padding: '4px 10px', fontSize: 14 }}><Upload size={12} /> 从文件导入</button>
             <input ref={fileRef} type="file" accept=".md,.txt,.json" style={{ display: 'none' }} onChange={handleFile} />
           </div>
-          <textarea value={content} onChange={e => setContent(e.target.value)} style={{ ...fInput, minHeight: 220, fontFamily: 'monospace', fontSize: 12, lineHeight: 1.7 }} placeholder={'# 技能名称\n\n## 角色\n你是一个...\n\n## 规范\n- 规则1\n- 规则2'} />
+          <textarea value={content} onChange={e => setContent(e.target.value)} style={{ ...fInput, minHeight: 220, fontFamily: 'monospace', fontSize: 14, lineHeight: 1.7 }} placeholder={'# 技能名称\n\n## 角色\n你是一个...\n\n## 规范\n- 规则1\n- 规则2'} />
         </div>
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
@@ -288,21 +288,21 @@ function SkillViewer({ skill, bindings: sBindings, agents, projects, onClose, on
           <div style={{ flex: 1 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <h2 style={{ margin: 0, fontSize: 18 }}>{skill.display_name}</h2>
-              <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 5, fontWeight: 600, background: meta.bg, color: meta.color }}>{meta.label}</span>
+              <span style={{ fontSize: 13, padding: '2px 8px', borderRadius: 5, fontWeight: 600, background: meta.bg, color: meta.color }}>{meta.label}</span>
             </div>
-            {skill.description && <p style={{ color: 'var(--text-3)', fontSize: 13, margin: '4px 0 0' }}>{skill.description}</p>}
+            {skill.description && <p style={{ color: 'var(--text-3)', fontSize: 15, margin: '4px 0 0' }}>{skill.description}</p>}
           </div>
           <button onClick={onClose} style={{ ...cardIconBtn, padding: 6 }}><X size={18} /></button>
         </div>
 
         {/* Content */}
-        <pre style={{ background: 'var(--bg-2)', borderRadius: 10, padding: '16px 18px', fontSize: 13, fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 360, overflow: 'auto', margin: '0 0 16px', lineHeight: 1.7, border: '1px solid var(--border)' }}>
+        <pre style={{ background: 'var(--bg-2)', borderRadius: 10, padding: '16px 18px', fontSize: 15, fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 360, overflow: 'auto', margin: '0 0 16px', lineHeight: 1.7, border: '1px solid var(--border)' }}>
           {skill.content || '(无内容)'}
         </pre>
 
         {/* Bindings */}
         <div style={{ borderTop: '1px solid var(--border)', paddingTop: 14 }}>
-          <h3 style={{ fontSize: 13, fontWeight: 600, margin: '0 0 8px', color: 'var(--text-2)' }}>绑定关系</h3>
+          <h3 style={{ fontSize: 15, fontWeight: 600, margin: '0 0 8px', color: 'var(--text-2)' }}>绑定关系</h3>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
             {sBindings.map(b => (
               <div key={b.id} style={{ ...bindChip(b.scope), paddingRight: 4 }}>
@@ -311,15 +311,15 @@ function SkillViewer({ skill, bindings: sBindings, agents, projects, onClose, on
                 <button onClick={() => onUnbind(skill.id, b.scope, b.target_id ?? undefined)} style={{ ...cardIconBtn, padding: 1, marginLeft: 2 }}><Unlink size={11} /></button>
               </div>
             ))}
-            {sBindings.length === 0 && <span style={{ fontSize: 12, color: 'var(--text-3)' }}>暂无绑定</span>}
+            {sBindings.length === 0 && <span style={{ fontSize: 14, color: 'var(--text-3)' }}>暂无绑定</span>}
           </div>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-            <select value={addScope} onChange={e => { setAddScope(e.target.value); setAddTarget('') }} style={{ ...fInput, width: 'auto', padding: '5px 10px', fontSize: 12 }}>
+            <select value={addScope} onChange={e => { setAddScope(e.target.value); setAddTarget('') }} style={{ ...fInput, width: 'auto', padding: '5px 10px', fontSize: 14 }}>
               <option value="global">全局</option><option value="project">项目</option><option value="agent">Agent</option>
             </select>
-            {addScope === 'agent' && <select value={addTarget} onChange={e => setAddTarget(e.target.value)} style={{ ...fInput, width: 'auto', padding: '5px 10px', fontSize: 12 }}><option value="">选择 Agent</option>{agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select>}
-            {addScope === 'project' && <select value={addTarget} onChange={e => setAddTarget(e.target.value)} style={{ ...fInput, width: 'auto', padding: '5px 10px', fontSize: 12 }}><option value="">选择项目</option>{projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select>}
-            <button onClick={() => { if (addScope !== 'global' && !addTarget) return; onBind(skill.id, addScope, addScope === 'global' ? undefined : addTarget); setAddTarget('') }} style={{ ...btn, padding: '5px 12px', fontSize: 12 }}><Link size={12} /> 绑定</button>
+            {addScope === 'agent' && <select value={addTarget} onChange={e => setAddTarget(e.target.value)} style={{ ...fInput, width: 'auto', padding: '5px 10px', fontSize: 14 }}><option value="">选择 Agent</option>{agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select>}
+            {addScope === 'project' && <select value={addTarget} onChange={e => setAddTarget(e.target.value)} style={{ ...fInput, width: 'auto', padding: '5px 10px', fontSize: 14 }}><option value="">选择项目</option>{projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select>}
+            <button onClick={() => { if (addScope !== 'global' && !addTarget) return; onBind(skill.id, addScope, addScope === 'global' ? undefined : addTarget); setAddTarget('') }} style={{ ...btn, padding: '5px 12px', fontSize: 14 }}><Link size={12} /> 绑定</button>
           </div>
         </div>
       </div>
@@ -328,23 +328,23 @@ function SkillViewer({ skill, bindings: sBindings, agents, projects, onClose, on
 }
 
 /* ── Styles ── */
-const btn: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 18px', borderRadius: 8, border: 'none', background: 'var(--blue)', color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600 }
+const btn: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 18px', borderRadius: 8, border: 'none', background: 'var(--blue)', color: '#fff', cursor: 'pointer', fontSize: 15, fontWeight: 600 }
 const btnGhost: React.CSSProperties = { ...btn, background: 'transparent', color: 'var(--text-2)', border: '1px solid var(--border)' }
-const cardBtn: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-1)', fontSize: 12, cursor: 'pointer', color: 'var(--text-2)' }
+const cardBtn: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-1)', fontSize: 14, cursor: 'pointer', color: 'var(--text-2)' }
 const cardIconBtn: React.CSSProperties = { background: 'none', border: 'none', cursor: 'pointer', padding: 4, borderRadius: 4, color: 'var(--text-3)', display: 'flex' }
 const searchBox: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg-1)', flex: 1, maxWidth: 360 }
-const searchInput: React.CSSProperties = { border: 'none', background: 'none', outline: 'none', fontSize: 14, flex: 1, color: 'var(--text-1)' }
+const searchInput: React.CSSProperties = { border: 'none', background: 'none', outline: 'none', fontSize: 15, flex: 1, color: 'var(--text-1)' }
 const clearBtn: React.CSSProperties = { background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)', display: 'flex', padding: 2, borderRadius: 4 }
-const filterBtn: React.CSSProperties = { padding: '6px 14px', borderRadius: 8, border: 'none', fontSize: 13, fontWeight: 500, cursor: 'pointer' }
+const filterBtn: React.CSSProperties = { padding: '6px 14px', borderRadius: 8, border: 'none', fontSize: 15, fontWeight: 500, cursor: 'pointer' }
 const emptyState: React.CSSProperties = { textAlign: 'center', padding: '52px 24px', color: 'var(--text-3)', border: '2px dashed var(--border)', borderRadius: 12, background: 'var(--bg-2)' }
 const skillCard: React.CSSProperties = { borderRadius: 12, border: '1px solid var(--border)', background: 'var(--bg-1)', padding: '16px 18px', transition: 'box-shadow .2s' }
 const bindChip = (scope: string): React.CSSProperties => ({
-  display: 'inline-flex', alignItems: 'center', gap: 3, padding: '3px 8px', borderRadius: 5, fontSize: 11, fontWeight: 500,
+  display: 'inline-flex', alignItems: 'center', gap: 3, padding: '3px 8px', borderRadius: 5, fontSize: 13, fontWeight: 500,
   background: scope === 'global' ? '#dbeafe' : scope === 'project' ? '#d1fae5' : '#fce7f3',
   color: scope === 'global' ? '#2563eb' : scope === 'project' ? '#059669' : '#db2777',
 })
 const overlay: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }
 const modalBox: React.CSSProperties = { background: 'var(--bg-1)', borderRadius: 14, padding: '28px 28px 24px', width: 560, maxHeight: '85vh', overflow: 'auto', boxShadow: '0 24px 80px rgba(0,0,0,0.25)', border: '1px solid var(--border)' }
 const fGrid: React.CSSProperties = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }
-const fLabel: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 5, fontSize: 13, fontWeight: 600, color: 'var(--text-2)' }
-const fInput: React.CSSProperties = { padding: '9px 12px', borderRadius: 8, border: '1px solid var(--border)', fontSize: 13, background: 'var(--bg-1)', color: 'var(--text-1)', outline: 'none', width: '100%', boxSizing: 'border-box' }
+const fLabel: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 5, fontSize: 15, fontWeight: 600, color: 'var(--text-2)' }
+const fInput: React.CSSProperties = { padding: '9px 12px', borderRadius: 8, border: '1px solid var(--border)', fontSize: 15, background: 'var(--bg-1)', color: 'var(--text-1)', outline: 'none', width: '100%', boxSizing: 'border-box' }

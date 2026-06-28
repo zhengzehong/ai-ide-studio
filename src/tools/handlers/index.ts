@@ -3,15 +3,56 @@ import { createTaskHandler, legacyCreateTaskHandler } from './create-task.js'
 import { createScheduleHandler } from './create-schedule.js'
 import { listTasksHandler } from './list-tasks.js'
 import {
+  scheduleCreateHandler,
+  scheduleListHandler,
+  scheduleUpdateHandler,
+  scheduleDeleteHandler,
+  scheduleToggleHandler,
+  scheduleExecutionsHandler,
+} from './schedule-tools.js'
+import {
+  studioTaskCreateHandler,
+  studioTaskAssignHandler,
+  studioTaskListHandler,
+  studioTaskGetHandler,
+  studioTaskUpdateProgressHandler,
+  studioTaskReportHandler,
+} from './studio-task-tools.js'
+import {
   createAgentHandler,
+  createAgentTemplateHandler,
   createProjectHandler,
   createSessionHandler,
+  defineMemoryDimensionHandler,
+  deleteAgentTemplateHandler,
   getAgentHandler,
+  getAgentTemplateHandler,
   getProjectHandler,
   getSessionHandler,
+  listTimelineHandler,
   listAgentsHandler,
+  listAgentTemplatesHandler,
+  listKnowledgeBasesHandler,
+  readKnowledgeIndexHandler,
+  readKnowledgePageHandler,
+  searchKnowledgePagesHandler,
+  createKnowledgePageHandler,
+  updateKnowledgePageHandler,
+  refreshKnowledgeFromCodeHandler,
+  createKnowledgeBaseHandler,
+  mountKnowledgeBaseHandler,
+  unmountKnowledgeBaseHandler,
+  revertKnowledgeActivityHandler,
+  recallMemoryHandler,
+  listMemoryHandler,
+  getMemoryHandler,
+  recordMemoryHandler,
+  updateMemoryHandler,
+  deleteMemoryHandler,
+  listModelProfilesHandler,
   listProjectsHandler,
   listSessionsHandler,
+  updateAgentTemplateHandler,
 } from './core/index.js'
 import {
   createTeamHandler,
@@ -29,6 +70,26 @@ import {
   updateTeamHandler,
   updateTeamTaskHandler,
 } from './team/index.js'
+import {
+  eventCategoryCreateHandler,
+  eventCategoryListHandler,
+  eventCategoryUpdateHandler,
+  eventClaimNextHandler,
+  eventConsumeHandler,
+  eventConvertToTaskHandler,
+  eventCreateHandler,
+  eventGetHandler,
+  eventIgnoreHandler,
+  eventListHandler,
+  eventSubscriptionCreateHandler,
+} from './event-center-tools.js'
+import {
+  agentMessageSendHandler,
+  agentSessionListHandler,
+  agentSessionMessagesHandler,
+  agentWatchCancelHandler,
+  agentWatchCreateHandler,
+} from './agent-session-tools.js'
 
 const handlers = new Map<string, ToolHandler>()
 
@@ -40,15 +101,52 @@ register(legacyCreateTaskHandler)
 register(createTaskHandler)
 register(createScheduleHandler)
 register(listTasksHandler)
+register(scheduleCreateHandler)
+register(scheduleListHandler)
+register(scheduleUpdateHandler)
+register(scheduleDeleteHandler)
+register(scheduleToggleHandler)
+register(scheduleExecutionsHandler)
+register(studioTaskCreateHandler)
+register(studioTaskAssignHandler)
+register(studioTaskListHandler)
+register(studioTaskGetHandler)
+register(studioTaskUpdateProgressHandler)
+register(studioTaskReportHandler)
+register(defineMemoryDimensionHandler)
 register(listProjectsHandler)
 register(getProjectHandler)
 register(createProjectHandler)
 register(listAgentsHandler)
 register(getAgentHandler)
 register(createAgentHandler)
+register(listAgentTemplatesHandler)
+register(getAgentTemplateHandler)
+register(createAgentTemplateHandler)
+register(updateAgentTemplateHandler)
+register(deleteAgentTemplateHandler)
+register(listModelProfilesHandler)
 register(listSessionsHandler)
 register(getSessionHandler)
 register(createSessionHandler)
+register(listTimelineHandler)
+register(listKnowledgeBasesHandler)
+register(readKnowledgeIndexHandler)
+register(readKnowledgePageHandler)
+register(searchKnowledgePagesHandler)
+register(createKnowledgePageHandler)
+register(updateKnowledgePageHandler)
+register(refreshKnowledgeFromCodeHandler)
+register(createKnowledgeBaseHandler)
+register(mountKnowledgeBaseHandler)
+register(unmountKnowledgeBaseHandler)
+register(revertKnowledgeActivityHandler)
+register(recallMemoryHandler)
+register(listMemoryHandler)
+register(getMemoryHandler)
+register(recordMemoryHandler)
+register(updateMemoryHandler)
+register(deleteMemoryHandler)
 register(listTeamsHandler)
 register(getTeamHandler)
 register(createTeamHandler)
@@ -63,6 +161,22 @@ register(createTeamTaskHandler)
 register(updateTeamTaskHandler)
 register(listTeamTemplatesHandler)
 register(describeTeamTemplateHandler)
+register(eventCategoryListHandler)
+register(eventCategoryCreateHandler)
+register(eventCategoryUpdateHandler)
+register(eventCreateHandler)
+register(eventListHandler)
+register(eventGetHandler)
+register(eventClaimNextHandler)
+register(eventConsumeHandler)
+register(eventConvertToTaskHandler)
+register(eventIgnoreHandler)
+register(eventSubscriptionCreateHandler)
+register(agentMessageSendHandler)
+register(agentSessionListHandler)
+register(agentSessionMessagesHandler)
+register(agentWatchCreateHandler)
+register(agentWatchCancelHandler)
 
 export function getHandler(name: string): ToolHandler | undefined {
   return handlers.get(name)

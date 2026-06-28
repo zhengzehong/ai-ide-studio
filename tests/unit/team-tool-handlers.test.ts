@@ -10,6 +10,7 @@ import { taskStore } from '../../src/store/tasks.js'
 import { teamMailboxStore } from '../../src/store/teams.js'
 import { sessionManager } from '../../src/core/sessions.js'
 import { events } from '../../src/core/events.js'
+import { teamService } from '../../src/core/teams.js'
 import { acpHost } from '../../src/acp/host.js'
 import { messageStore, sessionStore } from '../../src/store/sessions.js'
 import { getHandler } from '../../src/tools/handlers/index.js'
@@ -19,6 +20,7 @@ import { resolveVisiblePlatformTools } from '../../src/tools/registry/visibility
 import { resolveToolsForSession } from '../../src/tools/resolver.js'
 import { listRuntimeTools } from '../../src/tools/runtime/tool-runtime.js'
 import { teamMemberStore } from '../../src/store/teams.js'
+import { eventCenterService } from '../../src/core/event-center.js'
 import type { ToolContext, ToolHandler, ToolHandlerResult } from '../../src/tools/types.js'
 
 let tmp: string
@@ -35,6 +37,63 @@ afterEach(() => {
 })
 
 describe('team MCP tool handlers', () => {
+  test('team task creation emits global task update for task boards', () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const leader = agentStore.create({ name: 'Leader', type: 'architect', runtime: 'mock', projectId: project.id })
+    const created = teamService.create({ projectId: project.id, leaderAgentId: leader.id, name: 'Alpha' })
+    const updates: Array<{ taskId: string; data: Record<string, unknown> }> = []
+    const handler = (ev: { taskId: string; data: Record<string, unknown> }) => updates.push(ev)
+    events.on('task:update', handler)
+
+    try {
+      const task = teamService.createTask({ teamId: created.team.id, title: 'Build UI' })
+
+      expect(updates).toHaveLength(1)
+      expect(updates[0]).toMatchObject({
+        taskId: task.id,
+        data: { id: task.id, team_id: created.team.id, event: 'created' },
+      })
+      const taskEvents = eventCenterService.listEvents({ projectId: project.id, categoryId: 'task.lifecycle' })
+      expect(taskEvents).toHaveLength(1)
+      expect(JSON.parse(taskEvents[0].payload_json)).toMatchObject({
+        taskId: task.id,
+        taskStatus: 'backlog',
+        changeType: 'created',
+      })
+    } finally {
+      events.off('task:update', handler)
+    }
+  })
+
+  test('team task updates emit global task update for task boards', () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const leader = agentStore.create({ name: 'Leader', type: 'architect', runtime: 'mock', projectId: project.id })
+    const created = teamService.create({ projectId: project.id, leaderAgentId: leader.id, name: 'Alpha' })
+    const task = teamService.createTask({ teamId: created.team.id, title: 'Build API' })
+    const updates: Array<{ taskId: string; data: Record<string, unknown> }> = []
+    const handler = (ev: { taskId: string; data: Record<string, unknown> }) => updates.push(ev)
+    events.on('task:update', handler)
+
+    try {
+      teamService.updateTask({ teamId: created.team.id, taskId: task.id, status: 'completed', stage: 'Done' })
+
+      expect(updates).toHaveLength(1)
+      expect(updates[0]).toMatchObject({
+        taskId: task.id,
+        data: { id: task.id, status: 'completed', stage: 'Done', event: 'updated' },
+      })
+      const taskEvents = eventCenterService.listEvents({ projectId: project.id, categoryId: 'task.lifecycle' })
+      expect(taskEvents.map((event) => JSON.parse(event.payload_json).changeType)).toEqual(['status_changed', 'created'])
+      expect(JSON.parse(taskEvents[0].payload_json)).toMatchObject({
+        taskId: task.id,
+        taskStatus: 'completed',
+        previousStatus: 'backlog',
+      })
+    } finally {
+      events.off('task:update', handler)
+    }
+  })
+
   test('team.create ignores model-provided projectId when session context already has a project', async () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const agent = agentStore.create({ name: 'Leader', type: 'architect', runtime: 'mock', projectId: project.id })
@@ -136,7 +195,7 @@ describe('team MCP tool handlers', () => {
     expect(sentContent).toContain('不要使用 sleep')
     expect(sentContent).toContain('系统会在成员通过 mailbox')
     expect(sentContent).toContain('用户请求：\n请创建团队并派活')
-    expect(messageStore.list(leaderSessionId).at(-1)?.content).toBe('请创建团队并派活')
+    expect(messageStore.list(leaderSessionId).filter((message) => message.role === 'human').at(-1)?.content).toBe('请创建团队并派活')
   })
 
   test('Team Leader profile prompts include no-wait contract before a Team exists', async () => {
@@ -163,7 +222,7 @@ describe('team MCP tool handlers', () => {
 
     expect(sentContent).toContain('Team Leader 协作规则')
     expect(sentContent).toContain('用户请求：\n创建一个 Team 并派活')
-    expect(messageStore.list(session.id).at(-1)?.content).toBe('创建一个 Team 并派活')
+    expect(messageStore.list(session.id).filter((message) => message.role === 'human').at(-1)?.content).toBe('创建一个 Team 并派活')
   })
 
   test('normal non-Team sessions are not wrapped with Team Leader contract', async () => {
@@ -709,13 +768,13 @@ describe('team MCP tool handlers', () => {
       teamId: asRecord(team.team).id,
       taskId: task.id,
       status: 'in_progress',
-      stage: 'reviewing',
+      stage: '复审中',
     })
 
     expect(asRecord(reopened.task)).toMatchObject({
       id: task.id,
       status: 'in_progress',
-      stage: 'reviewing',
+      stage: '复审中',
       completed_at: null,
     })
     expect(taskStore.get(task.id)?.completed_at).toBeNull()

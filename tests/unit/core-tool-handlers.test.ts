@@ -6,9 +6,14 @@ import { initDatabase, closeDatabase } from '../../src/store/db.js'
 import { projectStore } from '../../src/store/projects.js'
 import { agentStore } from '../../src/store/agents.js'
 import { sessionStore } from '../../src/store/sessions.js'
+import { timelineStore } from '../../src/store/timeline.js'
 import { templateStore } from '../../src/store/agent-templates.js'
 import { taskStore } from '../../src/store/tasks.js'
+import { ruleStore } from '../../src/store/rules.js'
+import { modelProviderStore } from '../../src/store/model-providers.js'
+import { modelProfileStore } from '../../src/store/model-profiles.js'
 import { acpHost } from '../../src/acp/host.js'
+import { sessionManager } from '../../src/core/sessions.js'
 import { getHandler } from '../../src/tools/handlers/index.js'
 import type { ToolContext, ToolHandlerResult } from '../../src/tools/types.js'
 
@@ -75,6 +80,130 @@ describe('core MCP tool handlers', () => {
     })
   })
 
+  test('creates, lists, gets, updates, and deletes Agent Square templates', async () => {
+    const created = await executeJson('agent.template.create', {
+      name: '任务分派员',
+      type: 'leader',
+      runtime: 'claude',
+      icon: 'git-branch',
+      description: '把待办任务分派给合适的 Agent',
+      systemPrompt: '你是任务分派员，只负责分派任务。',
+      skills: ['任务分派', 'Agent 调度'],
+    })
+    const template = asRecord(created.template)
+    expect(template).toMatchObject({
+      name: '任务分派员',
+      type: 'leader',
+      runtime: 'claude',
+      icon: 'git-branch',
+      description: '把待办任务分派给合适的 Agent',
+      system_prompt: '你是任务分派员，只负责分派任务。',
+      is_builtin: 0,
+    })
+    expect(JSON.parse(template.skills_json as string)).toEqual(['任务分派', 'Agent 调度'])
+
+    const listed = await executeJson('agent.template.list', {})
+    expect(asRecords(listed.templates).map((item) => item.id)).toContain(template.id)
+
+    const got = await executeJson('agent.template.get', { templateId: template.id })
+    expect(asRecord(got.template).id).toBe(template.id)
+
+    const updated = await executeJson('agent.template.update', {
+      templateId: template.id,
+      description: '更新后的描述',
+      skills: ['任务分派'],
+    })
+    expect(asRecord(updated.template).description).toBe('更新后的描述')
+    expect(JSON.parse(asRecord(updated.template).skills_json as string)).toEqual(['任务分派'])
+
+    const deleted = await executeJson('agent.template.delete', { templateId: template.id })
+    expect(deleted).toEqual({ deleted: true, templateId: template.id })
+    expect(templateStore.get(template.id as string)).toBeUndefined()
+  })
+
+  test('rejects blank Agent Square template names on update', async () => {
+    const created = await executeJson('agent.template.create', {
+      name: '任务分派员',
+      type: 'leader',
+    })
+    const template = asRecord(created.template)
+
+    await expect(
+      executeJson('agent.template.update', { templateId: template.id, name: '   ' }),
+    ).rejects.toThrow('name 不能为空')
+    expect(templateStore.get(template.id as string)?.name).toBe('任务分派员')
+  })
+
+  test('creates custom and template agents with model profiles', async () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const provider = modelProviderStore.create({
+      name: 'new-api',
+      displayName: 'New API',
+      protocol: 'new-api',
+      baseUrl: 'http://127.0.0.1:29000',
+      apiKey: 'sk-test',
+    })
+    const profile = modelProfileStore.create({
+      name: 'Codex Profile',
+      runtime: 'codex',
+      providerId: provider.id,
+      config: { model: 'deepseek-v4-flash', effort: 'medium' },
+    })
+    const template = templateStore.create({
+      name: '模板 Codex',
+      type: 'dev',
+      runtime: 'codex',
+      systemPrompt: '按规范工作',
+    })
+
+    const custom = await executeJson(
+      'core.agent.create',
+      { name: 'Codex Dev', type: 'dev', runtime: 'codex', modelProfileId: profile.id },
+      { projectId: project.id },
+    )
+    const fromTemplate = await executeJson(
+      'core.agent.create',
+      { templateId: template.id, modelProfileId: profile.id },
+      { projectId: project.id },
+    )
+
+    expect(readAgentConfig(asRecord(custom.agent)).modelProfileId).toBe(profile.id)
+    expect(readAgentConfig(asRecord(fromTemplate.agent)).modelProfileId).toBe(profile.id)
+  })
+
+  test('lists model profiles through a core MCP tool', async () => {
+    const provider = modelProviderStore.create({
+      name: 'new-api',
+      displayName: 'New API',
+      protocol: 'new-api',
+      baseUrl: 'http://127.0.0.1:29000',
+      apiKey: 'sk-test',
+    })
+    const claudeProfile = modelProfileStore.create({
+      name: 'Claude Profile',
+      runtime: 'claude',
+      providerId: provider.id,
+      config: { defaultModel: 'deepseek-v4-pro' },
+    })
+    modelProfileStore.create({
+      name: 'Disabled Claude Profile',
+      runtime: 'claude',
+      providerId: provider.id,
+      config: { defaultModel: 'deepseek-v4-flash' },
+      enabled: false,
+    })
+    modelProfileStore.create({
+      name: 'Codex Profile',
+      runtime: 'codex',
+      providerId: provider.id,
+      config: { model: 'deepseek-v4-flash', effort: 'medium' },
+    })
+
+    const listed = await executeJson('core.model_profile.list', { runtime: 'claude', enabledOnly: true })
+
+    expect(asRecords(listed.profiles).map((profile) => profile.id)).toEqual([claudeProfile.id])
+  })
+
   test('creates, lists, and gets sessions through the session manager', async () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const agent = agentStore.create({ name: 'Mock', type: 'dev', runtime: 'mock', projectId: project.id })
@@ -90,12 +219,25 @@ describe('core MCP tool handlers', () => {
 
       const listed = await executeJson('core.session.list', {}, { projectId: project.id })
       expect(asRecords(listed.sessions).map((session) => session.id)).toEqual([asRecord(created.session).id])
+      expect(asRecord(asRecords(listed.sessions)[0]).activity_state).toBe('idle')
 
       const got = await executeJson('core.session.get', { sessionId: asRecord(created.session).id })
       expect(asRecord(got.session).id).toBe(asRecord(created.session).id)
     } finally {
       acpHost.agents.delete(agent.id)
     }
+  })
+
+  test('lists timeline summaries through a core MCP tool', async () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const agent = agentStore.create({ name: 'Mock', type: 'dev', runtime: 'mock', projectId: project.id })
+    const session = sessionStore.create({ agentId: agent.id, projectId: project.id })
+    timelineStore.insertRaw(session.id, 1, '分析了任务背景', '2026-06-16T01:00:00.000Z')
+    timelineStore.insertRefined(session.id, '完成登录模块审查并确认无改动', '2-3', '2026-06-16T02:00:00.000Z', 'model-a')
+
+    const listed = await executeJson('core.timeline.list', { sessionId: session.id, status: 'refined' }, { projectId: project.id })
+
+    expect(asRecords(listed.items).map((item) => item.summary)).toEqual(['完成登录模块审查并确认无改动'])
   })
 
   test('legacy create_task keeps the old response shape', async () => {
@@ -160,6 +302,151 @@ describe('core MCP tool handlers', () => {
     ).rejects.toThrow('Project')
     expect(taskStore.list(undefined, projectA.id)).toHaveLength(0)
   })
+
+  test('studio.task.assign assigns unassigned tasks and rejects reassignment unless explicit', async () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const firstAgent = agentStore.create({ name: 'First', type: 'dev', runtime: 'mock', projectId: project.id })
+    const secondAgent = agentStore.create({ name: 'Second', type: 'dev', runtime: 'mock', projectId: project.id })
+    const task = taskStore.create({ title: 'Needs owner', projectId: project.id })
+
+    const assigned = await executeJson(
+      'studio.task.assign',
+      { taskId: task.id, agentId: firstAgent.id },
+      { projectId: project.id },
+    )
+
+    expect(asRecord(assigned.task)).toMatchObject({ id: task.id, assigned_agent_id: firstAgent.id, status: 'executing' })
+
+    const handler = getHandler('studio.task.assign')
+    if (!handler) throw new Error('handler missing: studio.task.assign')
+    const duplicate = await handler.execute({ taskId: task.id, agentId: firstAgent.id }, { projectId: project.id })
+    expect(duplicate.isError).toBe(true)
+
+    const rejected = await handler.execute({ taskId: task.id, agentId: secondAgent.id }, { projectId: project.id })
+    expect(rejected.isError).toBe(true)
+    expect(taskStore.get(task.id)?.assigned_agent_id).toBe(firstAgent.id)
+
+    const reassigned = await executeJson(
+      'studio.task.assign',
+      { taskId: task.id, agentId: secondAgent.id, allowReassign: true },
+      { projectId: project.id },
+    )
+    expect(asRecord(reassigned.task).assigned_agent_id).toBe(secondAgent.id)
+  })
+
+  test('studio.task.assign does not persist the assignee when session creation fails', async () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const agent = agentStore.create({ name: 'Target', type: 'dev', runtime: 'mock', projectId: project.id })
+    const task = taskStore.create({ title: 'Needs owner', projectId: project.id })
+    const handler = getHandler('studio.task.assign')
+    if (!handler) throw new Error('handler missing: studio.task.assign')
+    const originalCreateSession = sessionManager.createSession
+    sessionManager.createSession = async () => { throw new Error('session boot failed') }
+
+    try {
+      const result = await handler.execute({ taskId: task.id, agentId: agent.id }, { projectId: project.id })
+
+      expect(result.isError).toBe(true)
+      expect(result.content[0]?.text).toContain('session boot failed')
+      expect(taskStore.get(task.id)).toMatchObject({
+        assigned_agent_id: null,
+        status: 'needs_input',
+      })
+    } finally {
+      sessionManager.createSession = originalCreateSession
+    }
+  })
+
+  test('studio.schedule.create stores explicit session target for scheduled tasks and prompts', async () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const agent = agentStore.create({ name: 'Scheduler', type: 'dev', runtime: 'mock', projectId: project.id })
+    const session = sessionStore.create({ agentId: agent.id, projectId: project.id })
+
+    const taskRule = await executeJson(
+      'studio.schedule.create',
+      {
+        name: 'Task reuse',
+        cron: '0 9 * * *',
+        action: 'create_task',
+        taskTitle: 'Daily task',
+        assignAgentId: agent.id,
+        sessionId: session.id,
+      },
+      { projectId: project.id },
+    )
+    const storedTaskRule = ruleStore.get(taskRule.ruleId as string)
+    expect(storedTaskRule?.action_config).toMatchObject({ assign_agent_id: agent.id, session_id: session.id })
+
+    const promptRule = await executeJson(
+      'studio.schedule.create',
+      {
+        name: 'Prompt reuse',
+        cron: '0 10 * * *',
+        action: 'send_prompt',
+        prompt: 'daily check',
+        agentId: agent.id,
+        sessionId: session.id,
+      },
+      { projectId: project.id },
+    )
+    const storedPromptRule = ruleStore.get(promptRule.ruleId as string)
+    expect(storedPromptRule?.action_config).toMatchObject({ agent_id: agent.id, session_id: session.id })
+  })
+
+  test('studio.schedule.create stores explicit session mode for scheduled tasks and prompts', async () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const agent = agentStore.create({ name: 'Scheduler', type: 'dev', runtime: 'mock', projectId: project.id })
+
+    const taskRule = await executeJson(
+      'studio.schedule.create',
+      {
+        name: 'Task fixed',
+        cron: '0 9 * * *',
+        action: 'create_task',
+        taskTitle: 'Daily task',
+        assignAgentId: agent.id,
+        sessionMode: 'new_fixed',
+      },
+      { projectId: project.id },
+    )
+    const storedTaskRule = ruleStore.get(taskRule.ruleId as string)
+    expect(storedTaskRule?.action_config).toMatchObject({ assign_agent_id: agent.id, session_mode: 'new_fixed' })
+
+    const promptRule = await executeJson(
+      'studio.schedule.create',
+      {
+        name: 'Prompt fixed',
+        cron: '0 10 * * *',
+        action: 'send_prompt',
+        prompt: 'daily check',
+        agentId: agent.id,
+        sessionMode: 'new_fixed',
+      },
+      { projectId: project.id },
+    )
+    const storedPromptRule = ruleStore.get(promptRule.ruleId as string)
+    expect(storedPromptRule?.action_config).toMatchObject({ agent_id: agent.id, session_mode: 'new_fixed' })
+  })
+
+  test('studio.schedule.update stores explicit session target', async () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const agent = agentStore.create({ name: 'Scheduler', type: 'dev', runtime: 'mock', projectId: project.id })
+    const session = sessionStore.create({ agentId: agent.id, projectId: project.id })
+    const rule = ruleStore.create({
+      name: 'Rule',
+      cron: '0 9 * * *',
+      action: 'create_task',
+      projectId: project.id,
+      actionConfig: { title: 'Before', assign_agent_id: agent.id },
+    })
+
+    await executeJson('studio.schedule.update', {
+      ruleId: rule.id,
+      sessionId: session.id,
+    })
+
+    expect(ruleStore.get(rule.id)?.action_config).toMatchObject({ session_id: session.id })
+  })
 })
 
 async function executeJson(
@@ -182,4 +469,11 @@ function asRecord(value: unknown): Record<string, unknown> {
 function asRecords(value: unknown): Record<string, unknown>[] {
   if (!Array.isArray(value)) throw new Error('expected array')
   return value.map(asRecord)
+}
+
+function readAgentConfig(agent: Record<string, unknown>): Record<string, unknown> {
+  const raw = agent.config_json
+  if (typeof raw !== 'string') return {}
+  const parsed = JSON.parse(raw) as unknown
+  return asRecord(parsed)
 }

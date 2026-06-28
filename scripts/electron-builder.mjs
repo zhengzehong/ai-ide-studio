@@ -9,10 +9,11 @@ const builderConfig = {
   files: [
     'dist/**',
     'ui/dist/**',
+    'mobile/dist/**',
     {
       from: electronBuildDir,
       to: 'electron/dist',
-      filter: ['backend-launch.js', 'builder.config.js', 'main.js', 'preload.js'],
+      filter: ['backend-launch.js', 'builder.config.js', 'main.js', 'preload.js', 'widget-window.js'],
     },
     'package.json',
     'node_modules/**',
@@ -26,6 +27,7 @@ const builderConfig = {
     { from: 'dist', to: 'app/dist' },
     { from: electronBuildDir, to: 'app/electron', filter: ['backend-main.js'] },
     { from: 'ui/dist', to: 'app/ui/dist' },
+    { from: 'mobile/dist', to: 'app/mobile/dist' },
   ],
   asar: false,
   asarUnpack: [

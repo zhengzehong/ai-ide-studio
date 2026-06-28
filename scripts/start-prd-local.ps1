@@ -1,0 +1,93 @@
+﻿$ErrorActionPreference = "Stop"
+
+$Root = Split-Path -Parent $PSScriptRoot
+Set-Location $Root
+
+function Get-LanIPv4Address {
+  $address = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+    Where-Object {
+      $_.IPAddress -notlike "127.*" -and
+      $_.IPAddress -notlike "169.254.*" -and
+      $_.AddressState -eq "Preferred" -and
+      $_.InterfaceAlias -notmatch "vEthernet|Loopback|VMware|VirtualBox"
+    } |
+    Select-Object -First 1 -ExpandProperty IPAddress
+
+  if ($address) { return $address }
+
+  return Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+    Where-Object {
+      $_.IPAddress -notlike "127.*" -and
+      $_.IPAddress -notlike "169.254.*" -and
+      $_.AddressState -eq "Preferred"
+    } |
+    Select-Object -First 1 -ExpandProperty IPAddress
+}
+
+$env:PORT = if ($env:AI_IDE_PRD_PORT) { $env:AI_IDE_PRD_PORT } else { "18900" }
+$env:HOST = if ($env:AI_IDE_PRD_HOST) { $env:AI_IDE_PRD_HOST } else { "0.0.0.0" }
+$lanIp = if ($env:AI_IDE_PRD_LAN_IP) { $env:AI_IDE_PRD_LAN_IP } else { Get-LanIPv4Address }
+$env:DATA_DIR = Join-Path $Root "data-prd"
+$env:LOG_DIR = Join-Path $env:DATA_DIR "logs"
+$env:STATIC_DIR = Join-Path $Root "ui\dist"
+$env:PUBLIC_BASE_URL = if ($env:AI_IDE_PRD_PUBLIC_BASE_URL) {
+  $env:AI_IDE_PRD_PUBLIC_BASE_URL
+} elseif ($lanIp) {
+  "http://$($lanIp):$($env:PORT)"
+} else {
+  "http://127.0.0.1:$($env:PORT)"
+}
+$env:PYTHONIOENCODING = "utf-8"
+$env:LOG_LEVEL = if ($env:LOG_LEVEL) { $env:LOG_LEVEL } else { "info" }
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+
+New-Item -ItemType Directory -Force $env:DATA_DIR | Out-Null
+New-Item -ItemType Directory -Force $env:LOG_DIR | Out-Null
+
+Write-Host "AI IDE Studio PRD local instance"
+Write-Host "Root:      $Root"
+Write-Host "PC URL:    http://127.0.0.1:$($env:PORT)/workspace"
+if ($lanIp) {
+  Write-Host "LAN URL:   http://$($lanIp):$($env:PORT)/workspace"
+  Write-Host "App URL:   http://$($lanIp):$($env:PORT)"
+}
+Write-Host "Bind:      $($env:HOST):$($env:PORT)"
+Write-Host "Public:    $($env:PUBLIC_BASE_URL)"
+Write-Host "DATA_DIR:  $env:DATA_DIR"
+Write-Host "LOG_DIR:   $env:LOG_DIR"
+Write-Host ""
+
+$portInUse = Get-NetTCPConnection -LocalPort ([int]$env:PORT) -State Listen -ErrorAction SilentlyContinue
+if ($portInUse) {
+  $processIds = $portInUse | Select-Object -ExpandProperty OwningProcess -Unique
+  foreach ($processId in $processIds) {
+    Write-Host "Stopping existing process on port $($env:PORT): PID $processId"
+    try {
+      Stop-Process -Id $processId -Force -ErrorAction Stop
+    } catch {
+      Write-Host "ERROR: failed to stop process PID $processId on port $($env:PORT): $($_.Exception.Message)" -ForegroundColor Red
+      Write-Host "Close the original start window, or run this script in an elevated PowerShell session."
+      exit 1
+    }
+  }
+}
+
+$stillInUse = Get-NetTCPConnection -LocalPort ([int]$env:PORT) -State Listen -ErrorAction SilentlyContinue
+for ($attempt = 0; $attempt -lt 20; $attempt++) {
+  if (-not $stillInUse) { break }
+  Start-Sleep -Milliseconds 500
+  $stillInUse = Get-NetTCPConnection -LocalPort ([int]$env:PORT) -State Listen -ErrorAction SilentlyContinue
+}
+if ($stillInUse) {
+  Write-Host "ERROR: port $($env:PORT) is still in use after stopping existing process." -ForegroundColor Red
+  $stillInUse | Format-Table -AutoSize
+  exit 1
+}
+
+Write-Host "Building latest code..."
+npm run build
+Write-Host ""
+
+Write-Host "Press Ctrl+C to stop."
+
+npm start

@@ -8,6 +8,7 @@ import { agentStore } from '../../src/store/agents.js'
 import { sessionStore } from '../../src/store/sessions.js'
 import { taskStore } from '../../src/store/tasks.js'
 import { ruleStore } from '../../src/store/rules.js'
+import { eventCenterService } from '../../src/core/event-center.js'
 
 const tmp = mkdtempSync(resolve(tmpdir(), 'ai-ide-project-scope-'))
 let dbIndex = 0
@@ -46,5 +47,35 @@ describe('project scoped entities', () => {
     expect(sessionStore.list(undefined, projectB.id).map(s => s.id)).toEqual([sessionB.id])
     expect(ruleStore.list(projectA.id).map(r => r.id)).toEqual([ruleA.id])
     expect(ruleStore.list(projectB.id).map(r => r.id)).toEqual([ruleB.id])
+  })
+
+  test('dashboard list sources return cross-project data when projectId is omitted', () => {
+    const projectA = projectStore.create({ name: '项目 A', workDir: resolve(tmp, 'all-a') })
+    const projectB = projectStore.create({ name: '项目 B', workDir: resolve(tmp, 'all-b') })
+
+    const agentA = agentStore.create({ type: 'dev', name: 'Agent A', runtime: 'mock', projectId: projectA.id })
+    const agentB = agentStore.create({ type: 'dev', name: 'Agent B', runtime: 'mock', projectId: projectB.id })
+
+    const taskA = taskStore.create({ title: '任务 A', projectId: projectA.id, assignAgentId: agentA.id })
+    const taskB = taskStore.create({ title: '任务 B', projectId: projectB.id, assignAgentId: agentB.id })
+
+    const sessionA = sessionStore.create({ agentId: agentA.id, taskId: taskA.id, projectId: projectA.id })
+    const sessionB = sessionStore.create({ agentId: agentB.id, taskId: taskB.id, projectId: projectB.id })
+
+    const eventA = eventCenterService.createEvent({
+      projectId: projectA.id,
+      categoryId: 'task.lifecycle',
+      title: '事件 A',
+    })
+    const eventB = eventCenterService.createEvent({
+      projectId: projectB.id,
+      categoryId: 'task.lifecycle',
+      title: '事件 B',
+    })
+
+    expect(agentStore.list().map((item) => item.id)).toEqual([agentA.id, agentB.id])
+    expect(taskStore.list().map((item) => item.id)).toEqual([taskA.id, taskB.id])
+    expect(sessionStore.list().map((item) => item.id)).toEqual([sessionA.id, sessionB.id])
+    expect(eventCenterService.listEvents().map((item) => item.id)).toEqual([eventB.id, eventA.id])
   })
 })

@@ -20,10 +20,11 @@ const builderConfig: BuilderConfiguration = {
   files: [
     'dist/**',
     'ui/dist/**',
+    'mobile/dist/**',
     {
       from: process.env.AI_IDE_ELECTRON_BUILD_DIR || 'electron/dist',
       to: 'electron/dist',
-      filter: ['backend-launch.js', 'builder.config.js', 'main.js', 'preload.js'],
+      filter: ['backend-launch.js', 'builder.config.js', 'main.js', 'preload.js', 'widget-window.js'],
     },
     'package.json',
     'node_modules/**',
@@ -37,6 +38,7 @@ const builderConfig: BuilderConfiguration = {
     { from: 'dist', to: 'app/dist' },
     { from: process.env.AI_IDE_ELECTRON_BUILD_DIR || 'electron/dist', to: 'app/electron', filter: ['backend-main.js'] },
     { from: 'ui/dist', to: 'app/ui/dist' },
+    { from: 'mobile/dist', to: 'app/mobile/dist' },
   ],
   asar: false,
   asarUnpack: [

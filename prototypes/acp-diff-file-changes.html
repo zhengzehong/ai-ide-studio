@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>ACP Diff 文件变更 - 对话内原型</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif; background: #f3f4f6; color: #111827; }
+.container { max-width: 780px; margin: 0 auto; padding: 30px 20px 60px; }
+.scene-label { font-size: 11px; font-weight: 600; color: #9ca3af; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; margin-top: 32px; }
+
+/* === 对话气泡 === */
+.bubble { background: white; border-radius: 16px; padding: 20px 22px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+.bubble-header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.avatar { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; color: white; flex-shrink: 0; }
+.agent-name { font-size: 14px; font-weight: 600; color: #111827; }
+.agent-meta { font-size: 12px; color: #9ca3af; }
+.bubble-text { font-size: 14px; line-height: 1.75; color: #374151; margin-bottom: 14px; }
+
+/* === 执行过程 === */
+.process-toggle { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #6b7280; cursor: pointer; padding: 6px 0; margin-bottom: 10px; user-select: none; }
+.process-toggle:hover { color: #374151; }
+.process-toggle .chevron { transition: transform 0.2s; font-size: 10px; }
+.process-toggle .chevron.open { transform: rotate(90deg); }
+.process-content { margin-bottom: 14px; padding-left: 4px; border-left: 2px solid #e5e7eb; }
+.process-item { padding: 6px 12px; font-size: 13px; color: #6b7280; display: flex; align-items: center; gap: 8px; }
+.process-item .icon { font-size: 14px; }
+
+/* === 文件变更卡片（核心） === */
+.file-changes-card { border: 1px solid #e5e7eb; border-radius: 12px; overflow: hidden; margin: 12px 0; }
+.file-changes-header { display: flex; align-items: center; gap: 12px; padding: 14px 16px; background: #fafbfc; border-bottom: 1px solid #e5e7eb; }
+.file-changes-icon { width: 32px; height: 32px; border-radius: 8px; background: #f0fdf4; border: 1px solid #bbf7d0; display: flex; align-items: center; justify-content: center; font-size: 16px; }
+.file-changes-info { flex: 1; }
+.file-changes-title { font-size: 14px; font-weight: 600; color: #111827; }
+.file-changes-stats { font-size: 12px; margin-top: 2px; }
+.stat-add { color: #16a34a; font-weight: 600; }
+.stat-del { color: #dc2626; font-weight: 600; }
+.file-changes-toggle { font-size: 13px; color: #2563eb; font-weight: 600; cursor: pointer; }
+
+.file-list { }
+.file-row { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid #f3f4f6; cursor: pointer; transition: background 0.1s; }
+.file-row:last-child { border-bottom: none; }
+.file-row:hover { background: #f9fafb; }
+.file-row.expanded { background: #f0f7ff; }
+.file-type-badge { width: 20px; height: 20px; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; flex-shrink: 0; }
+.badge-M { background: #fef3c7; color: #d97706; }
+.badge-A { background: #dcfce7; color: #16a34a; }
+.badge-D { background: #fef2f2; color: #dc2626; }
+.file-path { flex: 1; font-size: 13px; color: #374151; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-stat { font-size: 12px; display: flex; gap: 6px; flex-shrink: 0; }
+.file-chevron { font-size: 10px; color: #9ca3af; transition: transform 0.2s; }
+.file-chevron.open { transform: rotate(90deg); }
+
+/* === Diff 详情 === */
+.diff-panel { background: #0f172a; padding: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.7; overflow-x: auto; }
+.diff-hunk-header { padding: 6px 14px; color: #64748b; background: #1e293b; font-size: 11px; }
+.diff-line { padding: 1px 14px 1px 44px; position: relative; white-space: pre; }
+.diff-line .ln { position: absolute; left: 0; width: 40px; text-align: right; padding-right: 8px; color: #475569; font-size: 11px; user-select: none; }
+.diff-add { background: rgba(22,163,74,0.15); color: #86efac; }
+.diff-del { background: rgba(220,38,38,0.15); color: #fca5a5; }
+.diff-ctx { color: #94a3b8; }
+.diff-add .ln { color: #4ade80; }
+.diff-del .ln { color: #f87171; }
+
+/* === 底部摘要栏 === */
+.bubble-footer { display: flex; align-items: center; gap: 12px; padding-top: 12px; border-top: 1px solid #f3f4f6; font-size: 12px; color: #9ca3af; flex-wrap: wrap; }
+.footer-item { display: flex; align-items: center; gap: 4px; }
+.footer-files { color: #2563eb; cursor: pointer; font-weight: 500; }
+.footer-files:hover { text-decoration: underline; }
+
+/* === 用户消息 === */
+.user-msg { background: #eff6ff; border-radius: 16px; padding: 14px 18px; margin-bottom: 16px; margin-left: 80px; font-size: 14px; color: #1e40af; text-align: right; }
+
+/* === 实时状态指示 === */
+.streaming-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #2563eb; animation: blink 1s infinite; margin-left: 4px; vertical-align: middle; }
+@keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- ====== 场景1：当前轮实时生成中 ====== -->
+  <div class="scene-label">场景 1：当前轮实时生成中</div>
+
+  <div class="user-msg">帮我优化 session store 的刷新逻辑，减少不必要的重渲染</div>
+
+  <div class="bubble">
+    <div class="bubble-header">
+      <div class="avatar" style="background:#2563eb">码</div>
+      <div>
+        <span class="agent-name">代码工程师</span>
+        <span class="agent-meta"> · 生成中<span class="streaming-dot"></span></span>
+      </div>
+    </div>
+
+    <!-- 执行过程（当前轮默认展开） -->
+    <div class="process-toggle" onclick="this.querySelector('.chevron').classList.toggle('open'); this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'">
+      <span class="chevron open">▶</span> 执行过程 · 4 项
+    </div>
+    <div class="process-content">
+      <div class="process-item"><span class="icon">🔍</span> Read text file — src/stores/session.store.ts</div>
+      <div class="process-item"><span class="icon">🔍</span> Read text file — src/stores/streaming-buffer.ts</div>
+      <div class="process-item"><span class="icon">✏️</span> Edit file — src/stores/session.store.ts</div>
+
+      <!-- 文件变更块（在执行过程里，按真实位置出现） -->
+      <div class="file-changes-card" style="margin: 8px 0 8px 12px;">
+        <div class="file-changes-header">
+          <div class="file-changes-icon">📄</div>
+          <div class="file-changes-info">
+            <div class="file-changes-title">已编辑 1 个文件</div>
+            <div class="file-changes-stats"><span class="stat-add">+12</span> <span class="stat-del">-3</span></div>
+          </div>
+        </div>
+        <div class="file-list">
+          <div class="file-row" onclick="toggleDiff(this)">
+            <span class="file-type-badge badge-M">M</span>
+            <span class="file-path">src/stores/session.store.ts</span>
+            <span class="file-stat"><span class="stat-add">+12</span> <span class="stat-del">-3</span></span>
+            <span class="file-chevron">▶</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="process-item"><span class="icon">✏️</span> Edit file — src/stores/streaming-buffer.ts<span class="streaming-dot"></span></div>
+    </div>
+
+    <div class="bubble-text" style="color: #9ca3af; font-style: italic;">正在继续修改...</div>
+  </div>
+
+  <!-- ====== 场景2：当前轮完成后 ====== -->
+  <div class="scene-label">场景 2：当前轮完成后（执行过程折叠）</div>
+
+  <div class="user-msg">帮我修复对话流式展示的闪烁问题，并补充单测</div>
+
+  <div class="bubble">
+    <div class="bubble-header">
+      <div class="avatar" style="background:#2563eb">码</div>
+      <div>
+        <span class="agent-name">代码工程师</span>
+        <span class="agent-meta"> · 已完成</span>
+      </div>
+    </div>
+
+    <!-- 执行过程（完成后默认折叠） -->
+    <div class="process-toggle" onclick="this.querySelector('.chevron').classList.toggle('open'); this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'">
+      <span class="chevron">▶</span> 执行过程 · 6 项
+    </div>
+    <div class="process-content" style="display:none">
+      <div class="process-item"><span class="icon">💭</span> 思考：分析闪烁原因...</div>
+      <div class="process-item"><span class="icon">🔍</span> Read — ui/src/stores/session.store.ts</div>
+      <div class="process-item"><span class="icon">✏️</span> Edit — ui/src/stores/session.store.ts</div>
+      <div class="process-item"><span class="icon">✏️</span> Edit — ui/src/components/chat/ChatView.tsx</div>
+
+      <div class="file-changes-card" style="margin: 8px 0 8px 12px;">
+        <div class="file-changes-header">
+          <div class="file-changes-icon">📄</div>
+          <div class="file-changes-info">
+            <div class="file-changes-title">已编辑 2 个文件</div>
+            <div class="file-changes-stats"><span class="stat-add">+24</span> <span class="stat-del">-8</span></div>
+          </div>
+        </div>
+        <div class="file-list">
+          <div class="file-row" onclick="toggleDiff(this)">
+            <span class="file-type-badge badge-M">M</span>
+            <span class="file-path">ui/src/stores/session.store.ts</span>
+            <span class="file-stat"><span class="stat-add">+15</span> <span class="stat-del">-6</span></span>
+            <span class="file-chevron">▶</span>
+          </div>
+          <div class="file-row" onclick="toggleDiff(this)">
+            <span class="file-type-badge badge-M">M</span>
+            <span class="file-path">ui/src/components/chat/ChatView.tsx</span>
+            <span class="file-stat"><span class="stat-add">+9</span> <span class="stat-del">-2</span></span>
+            <span class="file-chevron">▶</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="process-item"><span class="icon">✏️</span> Write — tests/unit/streaming-flicker.test.ts</div>
+
+      <div class="file-changes-card" style="margin: 8px 0 8px 12px;">
+        <div class="file-changes-header">
+          <div class="file-changes-icon" style="background:#eff6ff; border-color:#bfdbfe;">🆕</div>
+          <div class="file-changes-info">
+            <div class="file-changes-title">新增 1 个文件</div>
+            <div class="file-changes-stats"><span class="stat-add">+42</span> <span class="stat-del">-0</span></div>
+          </div>
+        </div>
+        <div class="file-list">
+          <div class="file-row" onclick="toggleDiff(this)">
+            <span class="file-type-badge badge-A">A</span>
+            <span class="file-path">tests/unit/streaming-flicker.test.ts</span>
+            <span class="file-stat"><span class="stat-add">+42</span> <span class="stat-del">-0</span></span>
+            <span class="file-chevron">▶</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="process-item"><span class="icon">▶️</span> Run command — npx vitest run</div>
+    </div>
+
+    <div class="bubble-text">已修复对话流式展示的闪烁问题。根本原因是 <code>flushStreamingBuffer</code> 在每次 flush 时创建了新的 <code>toolCalls</code> 数组引用，导致依赖该数组的组件不必要地重渲染。已改为浅比较后再更新，并补充了对应的单元测试。</div>
+
+    <!-- 文件变更独立卡片 -->
+    <div class="file-changes-card">
+      <div class="file-changes-header">
+        <div class="file-changes-icon">📄</div>
+        <div class="file-changes-info">
+          <div class="file-changes-title">已编辑 2 个文件 · 新增 1 个文件</div>
+          <div class="file-changes-stats"><span class="stat-add">+66</span> <span class="stat-del">-8</span></div>
+        </div>
+        <div class="file-changes-toggle">查看变更</div>
+      </div>
+      <div class="file-list">
+        <div class="file-row" onclick="toggleDiff(this)">
+          <span class="file-type-badge badge-M">M</span>
+          <span class="file-path">ui/src/stores/session.store.ts</span>
+          <span class="file-stat"><span class="stat-add">+15</span> <span class="stat-del">-6</span></span>
+          <span class="file-chevron">▶</span>
+        </div>
+        <div id="diff-demo-1" class="diff-panel" style="display:none">
+          <div class="diff-hunk-header">@@ -184,9 +184,18 @@ function flushStreamingBuffer</div>
+          <div class="diff-line diff-ctx"><span class="ln">184</span>  const snapshot = streamingBuffer.flush()</div>
+          <div class="diff-line diff-ctx"><span class="ln">185</span>  if (!snapshot) return</div>
+          <div class="diff-line diff-ctx"><span class="ln">186</span>  set((state) =&gt; {</div>
+          <div class="diff-line diff-del"><span class="ln">187</span>-   const up = { ...cur, toolCalls: [...cur.toolCalls] }</div>
+          <div class="diff-line diff-add"><span class="ln">187</span>+   const prevCalls = cur?.toolCalls ?? []</div>
+          <div class="diff-line diff-add"><span class="ln">188</span>+   const nextCalls = snapshot.toolCalls</div>
+          <div class="diff-line diff-add"><span class="ln">189</span>+   const callsChanged = prevCalls.length !== nextCalls.length</div>
+          <div class="diff-line diff-add"><span class="ln">190</span>+     || prevCalls.some((c, i) =&gt; c.id !== nextCalls[i]?.id || c.status !== nextCalls[i]?.status)</div>
+          <div class="diff-line diff-add"><span class="ln">191</span>+   const up = { ...cur, toolCalls: callsChanged ? [...nextCalls] : prevCalls }</div>
+          <div class="diff-line diff-ctx"><span class="ln">192</span>    lastStreamingSnapshot = up</div>
+          <div class="diff-line diff-ctx"><span class="ln">193</span>    return { streamingMessage: up }</div>
+          <div class="diff-line diff-ctx"><span class="ln">194</span>  })</div>
+        </div>
+
+        <div class="file-row" onclick="toggleDiff(this)">
+          <span class="file-type-badge badge-M">M</span>
+          <span class="file-path">ui/src/components/chat/ChatView.tsx</span>
+          <span class="file-stat"><span class="stat-add">+9</span> <span class="stat-del">-2</span></span>
+          <span class="file-chevron">▶</span>
+        </div>
+        <div id="diff-demo-2" class="diff-panel" style="display:none">
+          <div class="diff-hunk-header">@@ -45,8 +45,15 @@ function ToolCallRow({ toolCall }</div>
+          <div class="diff-line diff-ctx"><span class="ln">45</span>  const ToolCallRow = memo(function ToolCallRow({ toolCall }: Props) {</div>
+          <div class="diff-line diff-del"><span class="ln">46</span>-   const [expanded, setExpanded] = useState(false)</div>
+          <div class="diff-line diff-del"><span class="ln">47</span>-   return &lt;div onClick={() =&gt; setExpanded(!expanded)}&gt;</div>
+          <div class="diff-line diff-add"><span class="ln">46</span>+   const [expanded, setExpanded] = useState(false)</div>
+          <div class="diff-line diff-add"><span class="ln">47</span>+   const stableId = useRef(toolCall.id)</div>
+          <div class="diff-line diff-add"><span class="ln">48</span>+   if (stableId.current !== toolCall.id) {</div>
+          <div class="diff-line diff-add"><span class="ln">49</span>+     stableId.current = toolCall.id</div>
+          <div class="diff-line diff-add"><span class="ln">50</span>+     setExpanded(false)</div>
+          <div class="diff-line diff-add"><span class="ln">51</span>+   }</div>
+          <div class="diff-line diff-add"><span class="ln">52</span>+   return &lt;div onClick={() =&gt; setExpanded(!expanded)}&gt;</div>
+          <div class="diff-line diff-ctx"><span class="ln">53</span>      &lt;ToolCallHeader status={toolCall.status} /&gt;</div>
+          <div class="diff-line diff-ctx"><span class="ln">54</span>      {expanded &amp;&amp; &lt;ToolCallDetail /&gt;}</div>
+        </div>
+
+        <div class="file-row" onclick="toggleDiff(this)">
+          <span class="file-type-badge badge-A">A</span>
+          <span class="file-path">tests/unit/streaming-flicker.test.ts</span>
+          <span class="file-stat"><span class="stat-add">+42</span> <span class="stat-del">-0</span></span>
+          <span class="file-chevron">▶</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 底部摘要 -->
+    <div class="bubble-footer">
+      <span class="footer-item">⏱ 1m 24s</span>
+      <span class="footer-item">📥 12.3k</span>
+      <span class="footer-item">📤 1.8k</span>
+      <span class="footer-item footer-files" onclick="document.querySelector('.file-changes-card').scrollIntoView({behavior:'smooth'})">📁 修改文件 3 个</span>
+    </div>
+  </div>
+
+  <!-- ====== 场景3：历史消息（轻量加载） ====== -->
+  <div class="scene-label">场景 3：历史消息（默认折叠，按需加载）</div>
+
+  <div class="user-msg">重构 WebSocket 重连逻辑</div>
+
+  <div class="bubble">
+    <div class="bubble-header">
+      <div class="avatar" style="background:#2563eb">码</div>
+      <div>
+        <span class="agent-name">代码工程师</span>
+        <span class="agent-meta"> · 6月2日 14:30</span>
+      </div>
+    </div>
+
+    <div class="process-toggle" onclick="this.querySelector('.chevron').classList.toggle('open'); this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'">
+      <span class="chevron">▶</span> 执行过程 · 8 项
+    </div>
+    <div class="process-content" style="display:none; text-align:center; padding: 20px; color: #9ca3af; font-size: 13px;">
+      点击加载执行过程详情...
+    </div>
+
+    <div class="bubble-text">已重构 WebSocket 重连逻辑，改为指数退避策略（初始 1s，最大 30s），支持手动重连和连接状态回调。</div>
+
+    <div class="bubble-footer">
+      <span class="footer-item">⏱ 2m 10s</span>
+      <span class="footer-item">📥 8.1k</span>
+      <span class="footer-item">📤 2.4k</span>
+      <span class="footer-item footer-files">📁 修改文件 4 个</span>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function toggleDiff(row) {
+  const chevron = row.querySelector('.file-chevron')
+  const diffPanel = row.nextElementSibling
+  if (diffPanel && diffPanel.classList.contains('diff-panel')) {
+    const isOpen = diffPanel.style.display !== 'none'
+    diffPanel.style.display = isOpen ? 'none' : 'block'
+    chevron.classList.toggle('open', !isOpen)
+    row.classList.toggle('expanded', !isOpen)
+  } else {
+    chevron.classList.toggle('open')
+  }
+}
+</script>
+</body>
+</html>

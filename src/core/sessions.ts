@@ -1,42 +1,68 @@
+import { randomUUID } from 'node:crypto'
 import { sessionStore, messageStore, eventStore, type SessionRow } from '../store/sessions.js'
 import { taskStore } from '../store/tasks.js'
 import { agentStore } from '../store/agents.js'
+import { globalAssistantStore } from '../store/global-assistant.js'
 import { projectStore } from '../store/projects.js'
 import { teamMemberStore } from '../store/teams.js'
 import { acpHost } from '../acp/host.js'
 import { events } from './events.js'
 import { createChildLogger } from './logger.js'
-import type { ImageAttachment, SessionUpdateData, ToolCallData } from '../types/ws-protocol.js'
-import { upsertToolCall } from './tool-calls.js'
+import type { ImageAttachment, SessionActivityReason, SessionActivityState, SessionUpdateData } from '../types/ws-protocol.js'
+import { createPendingTurn, finalizePendingTurn, updatePendingTurn, type PendingTurn } from './turn-finalizer.js'
 import { buildTeamLeaderPrompt } from './team-prompts.js'
 import { resolveVisiblePlatformTools } from '../tools/registry/visibility-resolver.js'
+import { eventPayloadFromUpdate } from './session-event-payload.js'
+import {
+  createTurnId,
+  finishPromptDiagnostics,
+  getPromptTurnId,
+  recordPromptProgress,
+  startPromptDiagnostics,
+  summarizeSessionUpdate,
+  summarizeSessionUpdateData,
+} from './prompt-diagnostics.js'
+import {
+  completeTurnProcess,
+  createAgentMessageId,
+  recordTurnProcessUpdate,
+  startTurnProcess,
+} from './turn-process-runtime.js'
+import { appendHiddenAttachmentNote, loadStoredImagesForAcp, saveSessionImages } from './image-attachments.js'
 
 const log = createChildLogger('session')
 
-interface PendingMessage {
-  content: string
-  thinking: string
-  toolCalls: ToolCallData[]
-}
-const pendingBySession = new Map<string, PendingMessage>()
+const pendingBySession = new Map<string, PendingTurn>()
 const activePrompts = new Set<string>()
 const queuedPrompts = new Map<string, Promise<void>>()
+const copyingSourceSessions = new Set<string>()
+
+interface PromptOptions {
+  clientMessageId?: string
+  contextProjectId?: string
+}
+const COPYING_STAGE = '正在复制会话...'
 
 events.on('session:update', (ev) => {
+  const turnId = getPromptTurnId(ev.sessionId)
+  recordPromptProgress(ev.sessionId, summarizeSessionUpdate(ev.data))
+  log.debug({ sessionId: ev.sessionId, agentId: ev.agentId, turnId, ...summarizeSessionUpdateData(ev.data) }, 'session update received')
   const { sessionId, data } = ev
   let pending = pendingBySession.get(sessionId)
   if (!pending) {
-    pending = { content: '', thinking: '', toolCalls: [] }
+    pending = createPendingTurn()
     pendingBySession.set(sessionId, pending)
   }
 
-  if (data.contentDelta) pending.content += data.contentDelta
-  if (data.thinking) pending.thinking += data.thinking
-  if (data.toolCall) pending.toolCalls.push(data.toolCall)
-  if (data.toolCallUpdate) pending.toolCalls = upsertToolCall(pending.toolCalls, data.toolCallUpdate)
+  pendingBySession.set(sessionId, updatePendingTurn(pending, data))
 })
 
 events.on('session:update', (ev) => {
+  recordTurnProcessUpdate(ev.sessionId, ev.agentId, ev.data)
+})
+
+events.on('session:update', (ev) => {
+  const turnId = getPromptTurnId(ev.sessionId)
   const payload = eventPayloadFromUpdate(ev.data)
   if (!payload) return
   if (ev.data.sessionInfo?.title) {
@@ -50,17 +76,32 @@ events.on('session:update', (ev) => {
     role: ev.data.role,
     payload: payload.payload,
   })
+  log.debug(
+    { sessionId: ev.sessionId, agentId: ev.agentId, turnId, eventId: stored.id, sequence: stored.sequence, eventType: stored.type, messageId: stored.message_id },
+    'session event persisted',
+  )
   events.emit('session:event', { sessionId: ev.sessionId, agentId: ev.agentId, event: stored })
 })
 
+function eventTurnId(ev: { sessionId: string; turnId?: string }): string | undefined {
+  return ev.turnId ?? getPromptTurnId(ev.sessionId)
+}
+
 events.on('session:done', (ev) => {
+  const turnId = eventTurnId(ev)
+  recordPromptProgress(ev.sessionId, 'session.done')
+  log.info({ sessionId: ev.sessionId, agentId: ev.agentId, turnId, messageId: ev.messageId, stopReason: ev.stopReason, hasError: !!ev.error, turnUsage: ev.turnUsage }, 'session done received')
   const stored = eventStore.append(ev.sessionId, {
     type: 'message.done',
     agentId: ev.agentId,
     messageId: ev.messageId,
     role: 'agent',
-    payload: { messageId: ev.messageId, turnUsage: ev.turnUsage, stopReason: ev.stopReason, error: ev.error },
+    payload: { messageId: ev.messageId, turnId, turnUsage: ev.turnUsage, stopReason: ev.stopReason, error: ev.error },
   })
+  log.info(
+    { sessionId: ev.sessionId, agentId: ev.agentId, turnId, eventId: stored.id, sequence: stored.sequence, messageId: stored.message_id, stopReason: ev.stopReason },
+    'session done event persisted',
+  )
   events.emit('session:event', { sessionId: ev.sessionId, agentId: ev.agentId, event: stored })
 })
 
@@ -69,62 +110,108 @@ events.on('session:done', (ev) => {
   if (updated) events.emit('session:changed', { sessionId: ev.sessionId, data: { ...updated } })
 })
 
-function eventPayloadFromUpdate(data: SessionUpdateData): { type: string; payload: unknown } | null {
-  if (data.eventType === 'permission.result')
-    return { type: 'permission.result', payload: { requestId: data.messageId, cancelled: true } }
-  if (data.eventType === 'elicitation.result')
-    return { type: 'elicitation.result', payload: { requestId: data.messageId, action: 'cancel' } }
-  if (data.contentDelta || data.content)
-    return {
-      type: data.eventType || 'message.chunk',
-      payload: { messageId: data.messageId, role: data.role, contentDelta: data.contentDelta, content: data.content },
-    }
-  if (data.thinking) return { type: 'thinking.chunk', payload: { messageId: data.messageId, thinking: data.thinking } }
-  if (data.toolCall) return { type: 'tool.call', payload: { messageId: data.messageId, toolCall: data.toolCall } }
-  if (data.toolCallUpdate)
-    return { type: 'tool.update', payload: { messageId: data.messageId, toolCall: data.toolCallUpdate } }
-  if (data.usage) return { type: 'usage.update', payload: { usage: data.usage } }
-  if (data.plan) return { type: 'plan.update', payload: { plan: data.plan } }
-  if (data.configOptions) return { type: 'config.update', payload: { configOptions: data.configOptions } }
-  if (data.commands) return { type: 'commands.update', payload: { commands: data.commands } }
-  if (data.sessionInfo) return { type: 'session.info', payload: { sessionInfo: data.sessionInfo } }
-  if (data.permissionRequest)
-    return { type: 'permission.request', payload: { permissionRequest: data.permissionRequest } }
-  if (data.elicitationRequest)
-    return { type: 'elicitation.request', payload: { elicitationRequest: data.elicitationRequest } }
-  if (data.attachments)
-    return { type: 'message.attachments', payload: { messageId: data.messageId, attachments: data.attachments } }
-  return null
-}
-
 events.on('session:done', (ev) => {
+  const turnId = eventTurnId(ev)
   const pending = pendingBySession.get(ev.sessionId)
-  if (pending && (pending.content || pending.thinking || pending.toolCalls.length > 0)) {
-    const message = messageStore.append(ev.sessionId, {
+  const finalized = pending ? finalizePendingTurn(pending) : null
+  const processStatus = ev.stopReason === 'error'
+    ? 'failed'
+    : ev.stopReason === 'cancelled'
+      ? 'cancelled'
+      : 'completed'
+  const processResult = completeTurnProcess(ev.sessionId, processStatus)
+  const finalMessageId = processResult.messageId ?? finalized?.messageId ?? ev.messageId
+
+  if (finalized) {
+    const finalContent = processResult.finalAnswer !== undefined ? processResult.finalAnswer : finalized.content
+    const message = messageStore.completeAgentMessage(finalMessageId, {
+      content: finalContent,
+      thinking: finalized.thinking || undefined,
+      toolCalls: finalized.toolCalls,
+      status: processStatus,
+      stats: ev.turnUsage,
+      fileChangesJson: processResult.fileChangesJson,
+    }) ?? messageStore.append(ev.sessionId, {
+      id: finalMessageId,
       role: 'agent',
-      content: pending.content,
-      thinking: pending.thinking || undefined,
-      toolCalls: pending.toolCalls.length > 0 ? pending.toolCalls : undefined,
+      content: finalContent,
+      thinking: finalized.thinking || undefined,
+      toolCalls: finalized.toolCalls,
+      status: processStatus,
+      stats: ev.turnUsage,
+      fileChangesJson: processResult.fileChangesJson,
     })
     sessionStore.touch(ev.sessionId, message.timestamp)
+    log.info(
+      {
+        sessionId: ev.sessionId,
+        agentId: ev.agentId,
+        turnId,
+        messageId: message.id,
+        contentLength: message.content.length,
+        thinkingLength: message.thinking?.length ?? 0,
+        toolCallCount: finalized.toolCalls?.length ?? 0,
+        stopReason: ev.stopReason,
+      },
+      'agent message finalized',
+    )
+    recordPromptProgress(ev.sessionId, 'message.finalized')
+  } else if (processResult.messageId && !(ev.stopReason === 'error' && ev.error)) {
+    const message = messageStore.completeAgentMessage(finalMessageId, {
+      content: processResult.finalAnswer ?? '',
+      status: processStatus,
+      stats: ev.turnUsage,
+      fileChangesJson: processResult.fileChangesJson,
+    }) ?? messageStore.append(ev.sessionId, {
+      id: finalMessageId,
+      role: 'agent',
+      content: processResult.finalAnswer ?? '',
+      status: processStatus,
+      stats: ev.turnUsage,
+      fileChangesJson: processResult.fileChangesJson,
+    })
+    sessionStore.touch(ev.sessionId, message.timestamp)
+    log.info(
+      {
+        sessionId: ev.sessionId,
+        agentId: ev.agentId,
+        turnId,
+        messageId: message.id,
+        contentLength: message.content.length,
+        stopReason: ev.stopReason,
+      },
+      'agent message completed from running snapshot',
+    )
+    recordPromptProgress(ev.sessionId, 'message.completed_snapshot')
+  } else if (ev.stopReason === 'error' && ev.error) {
+    const content = `执行失败：${ev.error}`
+    const message = messageStore.completeAgentMessage(finalMessageId, {
+      content,
+      status: 'failed',
+      stats: ev.turnUsage,
+      fileChangesJson: processResult.fileChangesJson,
+    }) ?? messageStore.append(ev.sessionId, {
+      id: finalMessageId,
+      role: 'agent',
+      content,
+      status: 'failed',
+      stats: ev.turnUsage,
+      fileChangesJson: processResult.fileChangesJson,
+    })
+    sessionStore.touch(ev.sessionId, message.timestamp)
+    log.info(
+      { sessionId: ev.sessionId, agentId: ev.agentId, turnId, messageId: message.id, contentLength: message.content.length, stopReason: ev.stopReason },
+      'agent error message finalized',
+    )
+    recordPromptProgress(ev.sessionId, 'message.error.finalized')
+  } else {
+    log.debug({ sessionId: ev.sessionId, agentId: ev.agentId, turnId, messageId: ev.messageId, stopReason: ev.stopReason }, 'session done without finalizable message')
+    recordPromptProgress(ev.sessionId, 'message.finalize.skipped')
   }
   pendingBySession.delete(ev.sessionId)
 })
 
-events.on('session:done', (ev) => {
-  const session = sessionStore.get(ev.sessionId)
-  if (!session?.task_id) return
-
-  const task = taskStore.get(session.task_id)
-  if (!task || task.status !== 'executing') return
-
-  const stage = 'Agent 已完成，等待人工确认'
-  taskStore.updateStatus(task.id, 'reviewing', stage)
-  events.emit('task:update', {
-    taskId: task.id,
-    data: { ...taskStore.get(task.id), event: 'agent_completed' },
-  })
-})
+// BR-03: 系统不因 session:done 自动改变任务状态，由 Agent 通过 studio.task.* 工具主动管理
 
 export const sessionManager = {
   isPromptActive(sessionId: string): boolean {
@@ -142,18 +229,51 @@ export const sessionManager = {
     return session
   },
 
-  async sendPrompt(sessionId: string, content: string, images?: ImageAttachment[]): Promise<void> {
+  async copySession(sourceSessionId: string): Promise<SessionRow> {
+    const source = sessionStore.get(sourceSessionId)
+    if (!source) throw new Error(`Session not found: ${sourceSessionId}`)
+    if (activePrompts.has(sourceSessionId)) {
+      throw new Error('当前会话正在生成中，完成后再复制')
+    }
+
+    if (copyingSourceSessions.has(sourceSessionId)) {
+      throw new Error('当前会话正在复制中，请稍后')
+    }
+    if (!source.acp_session_id) {
+      throw new Error('当前会话暂无可复制的运行时上下文')
+    }
+
+    const projectContext = resolveSessionProjectContext(
+      source.agent_id,
+      undefined,
+      source.project_id ?? undefined,
+    )
+    const copied = sessionStore.create({ agentId: source.agent_id, projectId: projectContext.projectId })
+    sessionStore.updateTitle(copied.id, `Fork from ${source.title || source.id}`)
+    sessionStore.updateStage(copied.id, COPYING_STAGE)
+    copyingSourceSessions.add(sourceSessionId)
+
+    const placeholder = sessionStore.get(copied.id)
+    if (!placeholder) throw new Error(`Copied session missing: ${copied.id}`)
+    events.emit('session:changed', { sessionId: copied.id, data: { ...placeholder } })
+
+    void completeCopiedSessionFork(source, copied.id, source.acp_session_id, projectContext)
+    return placeholder
+  },
+
+  async sendPrompt(sessionId: string, content: string, images?: ImageAttachment[], options?: string | PromptOptions): Promise<void> {
     const session = sessionStore.get(sessionId)
     if (!session) throw new Error(`Session not found: ${sessionId}`)
+    if (session.status !== 'active') throw new Error('当前会话已关闭，不能继续发送消息')
     if (activePrompts.has(sessionId))
       throw new Error(
         '\u5f53\u524d\u4f1a\u8bdd\u6b63\u5728\u751f\u6210\u4e2d\uff0c\u8bf7\u7b49\u5f85\u672c\u8f6e\u5b8c\u6210\u6216\u5148\u505c\u6b62\u751f\u6210',
       )
     events.emit('session:manual-prompt-started', { sessionId, agentId: session.agent_id })
-    return sendPromptNow(session, content, images)
+    return sendPromptNow(session, content, images, normalizePromptOptions(options))
   },
 
-  async enqueuePrompt(sessionId: string, content: string, images?: ImageAttachment[]): Promise<void> {
+  async enqueuePrompt(sessionId: string, content: string, images?: ImageAttachment[], options?: PromptOptions): Promise<void> {
     const previous = queuedPrompts.get(sessionId) ?? Promise.resolve()
     const next = previous
       .catch(() => undefined)
@@ -161,7 +281,8 @@ export const sessionManager = {
         while (activePrompts.has(sessionId)) await waitForIdleTurn()
         const session = sessionStore.get(sessionId)
         if (!session) throw new Error(`Session not found: ${sessionId}`)
-        await sendPromptNow(session, content, images)
+        if (session.status !== 'active') throw new Error('当前会话已关闭，不能继续发送消息')
+        await sendPromptNow(session, content, images, options)
       })
     queuedPrompts.set(sessionId, next)
     next
@@ -215,86 +336,186 @@ export const sessionManager = {
   },
 }
 
-async function sendPromptNow(session: SessionRow, content: string, images?: ImageAttachment[]): Promise<void> {
+function normalizePromptOptions(options?: string | PromptOptions): PromptOptions {
+  return typeof options === 'string' ? { clientMessageId: options } : options ?? {}
+}
+
+function resolvePromptProjectId(session: SessionRow, options: PromptOptions): string | undefined {
+  const sessionProjectId = session.project_id ?? undefined
+  if (!options.contextProjectId || options.contextProjectId === sessionProjectId) return sessionProjectId
+  if (!sessionProjectId) return options.contextProjectId
+  throw new Error(`Project mismatch between session and prompt context: ${sessionProjectId}, ${options.contextProjectId}`)
+}
+
+async function sendPromptNow(session: SessionRow, content: string, images?: ImageAttachment[], options: PromptOptions = {}): Promise<void> {
   const sessionId = session.id
+  const turnId = createTurnId()
+  const startedAt = Date.now()
   const promptLen = content.length
   const imageCount = images?.length ?? 0
-  log.debug({ sessionId, agentId: session.agent_id, promptLen, imageCount }, 'send prompt')
+  const effectiveProjectId = resolvePromptProjectId(session, options)
+  log.info(
+    {
+      sessionId,
+      agentId: session.agent_id,
+      projectId: effectiveProjectId,
+      taskId: session.task_id,
+      turnId,
+      promptLen,
+      imageCount,
+      clientMessageId: options.clientMessageId,
+    },
+    'prompt received',
+  )
 
   activePrompts.add(sessionId)
+  startPromptDiagnostics({
+    turnId,
+    sessionId,
+    agentId: session.agent_id,
+    projectId: effectiveProjectId,
+    startedAt,
+    lastProgressAt: startedAt,
+    lastProgress: 'prompt.received',
+  })
+  let activityEndReason: SessionActivityReason = 'prompt-done'
+  log.debug({ sessionId, agentId: session.agent_id, turnId, activePromptCount: activePrompts.size }, 'prompt marked active')
+  emitSessionActivity(sessionId, session.agent_id, 'running', 'prompt-started', turnId)
+  const agentMessageId = createAgentMessageId()
   try {
-    const humanMessage = messageStore.append(sessionId, { role: 'human', content, attachments: images })
+    const generatedHumanMessageId = imageCount > 0 ? `msg-${randomUUID().slice(0, 8)}` : undefined
+    const humanMessageId = options.clientMessageId ?? generatedHumanMessageId
+    const storedImages = await saveSessionImages({
+      projectId: effectiveProjectId,
+      sessionId,
+      messageId: humanMessageId ?? `msg-${randomUUID().slice(0, 8)}`,
+      images,
+    })
+    const messageAttachments = storedImages.length > 0 ? storedImages : images
+    const humanMessage = messageStore.append(sessionId, { id: humanMessageId, role: 'human', content, attachments: messageAttachments })
+    recordPromptProgress(sessionId, 'human.message.persisted')
+    log.info(
+      { sessionId, agentId: session.agent_id, turnId, messageId: humanMessage.id, contentLength: humanMessage.content.length, imageCount, timestamp: humanMessage.timestamp },
+      'human message persisted',
+    )
     sessionStore.touch(sessionId, humanMessage.timestamp)
     const stored = eventStore.append(sessionId, {
       type: 'message.user',
       agentId: session.agent_id,
       messageId: humanMessage.id,
       role: 'human',
-      payload: { messageId: humanMessage.id, content, attachments: images || [] },
+      payload: { messageId: humanMessage.id, content, attachments: messageAttachments || [] },
     })
+    log.info(
+      { sessionId, agentId: session.agent_id, turnId, eventId: stored.id, sequence: stored.sequence, messageId: stored.message_id },
+      'human message event persisted',
+    )
     events.emit('session:event', { sessionId, agentId: session.agent_id, event: stored })
-    emitLifecycle(session.agent_id, sessionId, 'lifecycle.prompt_received', '\u6b63\u5728\u51c6\u5907 Agent...')
-
+    const agentMessage = messageStore.append(sessionId, {
+      id: agentMessageId,
+      role: 'agent',
+      content: '',
+      status: 'running',
+      startedAt: new Date(startedAt).toISOString(),
+    })
+    startTurnProcess(sessionId, agentMessage.id)
+    sessionStore.touch(sessionId, agentMessage.timestamp)
+    emitLifecycle(session.agent_id, sessionId, 'lifecycle.prompt_received', '正在准备 Agent...', agentMessage.id)
     const projectContext = resolveSessionProjectContext(
       session.agent_id,
       session.task_id ?? undefined,
-      session.project_id ?? undefined,
+      effectiveProjectId,
+      session.id,
     )
+    recordPromptProgress(sessionId, 'acp.session.ensure.started')
+    log.info({ sessionId, agentId: session.agent_id, turnId, acpSessionId: session.acp_session_id, projectId: projectContext.projectId, cwd: projectContext.cwd }, 'ACP ensure session start')
     const acpSessionId = await acpHost.ensureSession(
       session.agent_id,
       sessionId,
       session.acp_session_id,
       projectContext,
     )
+    recordPromptProgress(sessionId, 'acp.session.ready')
+    log.info({ sessionId, agentId: session.agent_id, turnId, acpSessionId }, 'ACP ensure session done')
     if (session.acp_session_id !== acpSessionId) {
       sessionStore.updateAcpSessionId(sessionId, acpSessionId)
-      log.info({ sessionId, acpSessionId }, 'ACP Session mapped')
+      log.info({ sessionId, agentId: session.agent_id, turnId, acpSessionId }, 'ACP Session mapped')
     }
-    const acpContent = maybeWrapTeamLeaderPrompt(sessionId, content)
-    emitLifecycle(session.agent_id, sessionId, 'lifecycle.prompt_sent', '\u6b63\u5728\u601d\u8003...')
-    await acpHost.prompt(session.agent_id, sessionId, acpContent, images)
+    const acpContent = appendHiddenAttachmentNote(
+      maybeWrapTeamLeaderPrompt(sessionId, content, effectiveProjectId),
+      storedImages,
+    )
+    const acpImages = storedImages.length > 0 ? await loadStoredImagesForAcp(storedImages) : images
+    emitLifecycle(session.agent_id, sessionId, 'lifecycle.prompt_sent', '正在思考...', agentMessageId)
+    recordPromptProgress(sessionId, 'acp.prompt.started')
+    await acpHost.prompt(session.agent_id, sessionId, acpContent, acpImages, { turnId, messageId: agentMessageId })
+    recordPromptProgress(sessionId, 'acp.prompt.resolved')
+    log.info({ sessionId, agentId: session.agent_id, turnId, elapsedMs: Date.now() - startedAt }, 'prompt completed')
   } catch (err) {
+    activityEndReason = 'prompt-error'
     const message = err instanceof Error ? err.message : String(err)
-    emitLifecycle(session.agent_id, sessionId, 'lifecycle.failed', `\u6267\u884c\u5931\u8d25\uff1a${message}`)
-    log.error({ err, sessionId, agentId: session.agent_id }, 'prompt failed')
+    emitLifecycle(session.agent_id, sessionId, 'lifecycle.failed', `执行失败：${message}`, agentMessageId)
+    log.error({ err, sessionId, agentId: session.agent_id, turnId, elapsedMs: Date.now() - startedAt }, 'prompt failed')
     events.emit('session:done', {
       sessionId,
       agentId: session.agent_id,
-      messageId: `error-${Date.now()}`,
+      messageId: agentMessageId,
+      turnId,
       stopReason: 'error',
       error: message,
     })
     throw err
   } finally {
     activePrompts.delete(sessionId)
+    finishPromptDiagnostics(sessionId, activityEndReason)
+    log.info({ sessionId, agentId: session.agent_id, turnId, reason: activityEndReason, elapsedMs: Date.now() - startedAt, activePromptCount: activePrompts.size }, 'prompt cleanup complete')
+    emitSessionActivity(sessionId, session.agent_id, 'idle', activityEndReason, turnId)
   }
 }
+
 
 async function waitForIdleTurn(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 100))
 }
 
-function maybeWrapTeamLeaderPrompt(sessionId: string, content: string): string {
+function maybeWrapTeamLeaderPrompt(sessionId: string, content: string, contextProjectId?: string): string {
   const session = sessionStore.get(sessionId)
   if (!session) return content
   const member = teamMemberStore.getBySession(sessionId)
   if (member?.role === 'leader') return buildTeamLeaderPrompt(content)
   const visibleNames = resolveVisiblePlatformTools({
     agentId: session.agent_id,
-    projectId: session.project_id ?? undefined,
+    projectId: contextProjectId ?? session.project_id ?? undefined,
     sessionId,
   }).map((tool) => tool.definition.name)
   return visibleNames.includes('team.member.message') ? buildTeamLeaderPrompt(content) : content
 }
 
-function emitLifecycle(agentId: string, sessionId: string, eventType: string, content: string): void {
+function emitLifecycle(agentId: string, sessionId: string, eventType: string, content: string, messageId?: string): void {
   sessionStore.updateStage(sessionId, content)
   const updated = sessionStore.get(sessionId)
   if (updated) events.emit('session:changed', { sessionId, data: { ...updated } })
   events.emit('session:update', {
     sessionId,
     agentId,
-    data: { messageId: `${eventType}-${Date.now()}`, role: 'system', content, eventType } satisfies SessionUpdateData,
+    data: { messageId: messageId ?? `${eventType}-${Date.now()}`, role: 'system', content, eventType } satisfies SessionUpdateData,
+  })
+}
+
+function emitSessionActivity(
+  sessionId: string,
+  agentId: string,
+  state: SessionActivityState,
+  reason: SessionActivityReason,
+  turnId?: string,
+): void {
+  events.emit('session:activity', {
+    sessionId,
+    agentId,
+    turnId,
+    state,
+    reason,
+    timestamp: new Date().toISOString(),
   })
 }
 
@@ -302,11 +523,15 @@ function resolveSessionProjectContext(
   agentId: string,
   taskId?: string,
   existingProjectId?: string,
+  sessionId?: string,
 ): { projectId?: string; cwd?: string } {
   const agent = agentStore.get(agentId)
   if (!agent) throw new Error(`Agent not found: ${agentId}`)
   const task = taskId ? taskStore.get(taskId) : undefined
   if (taskId && !task) throw new Error(`Task not found: ${taskId}`)
+
+  const globalWorkspaceDir = sessionId ? globalAssistantStore.workspaceForSession(sessionId) : undefined
+  if (globalWorkspaceDir) return { projectId: existingProjectId, cwd: globalWorkspaceDir }
 
   const projectIds = [existingProjectId, agent.project_id ?? undefined, task?.project_id ?? undefined].filter(Boolean)
   const projectId = projectIds[0]
@@ -318,4 +543,44 @@ function resolveSessionProjectContext(
   const project = projectStore.get(projectId)
   if (!project) throw new Error(`Project not found: ${projectId}`)
   return { projectId, cwd: project.work_dir }
+}
+
+async function completeCopiedSessionFork(
+  source: SessionRow,
+  copiedSessionId: string,
+  sourceAcpSessionId: string,
+  projectContext: { projectId?: string; cwd?: string },
+): Promise<void> {
+  try {
+    const acpSessionId = await acpHost.forkSessionFromAcpSessionId(
+      source.agent_id,
+      sourceAcpSessionId,
+      copiedSessionId,
+      projectContext,
+    )
+    sessionStore.updateAcpSessionId(copiedSessionId, acpSessionId)
+    sessionStore.updateStage(copiedSessionId, '')
+    const updated = sessionStore.get(copiedSessionId)
+    if (!updated) throw new Error(`Copied session missing: ${copiedSessionId}`)
+    events.emit('session:changed', { sessionId: copiedSessionId, data: { ...updated } })
+    log.info(
+      {
+        sourceSessionId: source.id,
+        copiedSessionId,
+        agentId: source.agent_id,
+        acpSessionId,
+      },
+      'Session copied',
+    )
+  } catch (err) {
+    await acpHost.closeSession(source.agent_id, copiedSessionId)
+    sessionStore.delete(copiedSessionId)
+    copyingSourceSessions.delete(source.id)
+    const message = err instanceof Error ? err.message : String(err)
+    events.emit('session:copy_failed', { sourceSessionId: source.id, targetSessionId: copiedSessionId, message })
+    log.error({ err, sourceSessionId: source.id, copiedSessionId, agentId: source.agent_id }, 'Session copy failed')
+    return
+  }
+
+  copyingSourceSessions.delete(source.id)
 }

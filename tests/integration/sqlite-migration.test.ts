@@ -39,15 +39,75 @@ describe('SQLite 迁移', () => {
 
     const tables = getDb().prepare<[], { name: string }>(`
       SELECT name FROM sqlite_master
-      WHERE type = 'table' AND name IN ('schema_migrations', 'tool_contexts', 'tool_call_audit', 'model_profiles')
+      WHERE type = 'table' AND name IN (
+        'schema_migrations',
+        'tool_contexts',
+        'tool_call_audit',
+        'model_profiles',
+        'global_assistant',
+        'agent_session_messages',
+        'agent_session_watches',
+        'knowledge_bases',
+        'knowledge_pages',
+        'knowledge_mounts',
+        'knowledge_activities',
+        'task_attachments'
+      )
       ORDER BY name
     `).all().map(row => row.name)
     const migrations = getDb().prepare<[], { version: string }>(`
       SELECT version FROM schema_migrations ORDER BY version
     `).all().map(row => row.version)
 
-    expect(tables).toEqual(['model_profiles', 'schema_migrations', 'tool_call_audit', 'tool_contexts'])
-    expect(migrations).toEqual(['001', '002', '003', '004', '005', '006'])
+    expect(tables).toEqual([
+      'agent_session_messages',
+      'agent_session_watches',
+      'global_assistant',
+      'knowledge_activities',
+      'knowledge_bases',
+      'knowledge_mounts',
+      'knowledge_pages',
+      'model_profiles',
+      'schema_migrations',
+      'task_attachments',
+      'tool_call_audit',
+      'tool_contexts',
+    ])
+    const messageColumns = getDb().prepare<[], { name: string }>('PRAGMA table_info(messages)').all().map(row => row.name)
+    const eventCenterTables = getDb().prepare<[], { name: string }>(`
+      SELECT name FROM sqlite_master
+      WHERE type = 'table' AND name IN (
+        'event_categories',
+        'event_center_events',
+        'event_subscriptions',
+        'event_consumptions',
+        'event_task_links'
+      )
+      ORDER BY name
+    `).all().map(row => row.name)
+
+    expect(migrations).toEqual(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011', '012', '013', '014', '015', '016', '017', '018', '019', '020', '021', '022', '023', '024', '025', '026', '027', '028'])
+    expect(messageColumns).toContain('file_changes_json')
+    expect(messageColumns).toContain('process_item_count')
+    expect(getDb().prepare<[], { name: string }>('PRAGMA table_info(sessions)').all().map(row => row.name)).toContain('last_read_at')
+    expect(getDb().prepare<[], { name: string }>('PRAGMA table_info(model_profiles)').all().map(row => row.name)).toContain('is_default')
+    expect(getDb().prepare<[], { name: string }>('PRAGMA table_info(agents)').all().map(row => row.name)).toContain('sort_order')
+    expect(getDb().prepare<[], { name: string }>('PRAGMA table_info(agents)').all().map(row => row.name)).toContain('hidden_at')
+    expect(getDb().prepare<[], { name: string }>('PRAGMA table_info(sessions)').all().map(row => row.name)).toContain('sort_order')
+    expect(getDb().prepare<[], { name: string }>('PRAGMA table_info(event_subscriptions)').all().map(row => row.name)).toEqual(expect.arrayContaining(['consumer_session_mode', 'consumer_session_id']))
+    expect(getDb().prepare<[], { name: string }>('PRAGMA table_info(event_consumptions)').all().map(row => row.name)).toContain('session_id')
+    expect(eventCenterTables).toEqual([
+      'event_categories',
+      'event_center_events',
+      'event_consumptions',
+      'event_subscriptions',
+      'event_task_links',
+    ])
+    const categoryColumns = getDb().prepare<[], { name: string }>('PRAGMA table_info(event_categories)').all().map(row => row.name)
+    expect(categoryColumns).toContain('project_id')
+    expect(categoryColumns).toContain('scope_key')
+    expect(getDb().prepare<[], { name: string }>('PRAGMA table_info(projects)').all().map(row => row.name)).toEqual(expect.arrayContaining(['color', 'icon', 'last_visited_at', 'visit_count']))
+    expect(getDb().prepare<[], { name: string }>('PRAGMA table_info(sessions)').all().map(row => row.name)).toContain('is_primary')
   })
 
   test('从 JSON 迁移到 SQLite 并保留所有数据', () => {

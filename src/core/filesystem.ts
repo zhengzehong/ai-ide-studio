@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync, existsSync } from 'fs'
+import { readdirSync, readFileSync, statSync, existsSync, createReadStream } from 'fs'
 import { join, relative, extname, basename } from 'path'
 import { createChildLogger } from './logger.js'
 
@@ -25,6 +25,8 @@ export interface FileEntry {
   children?: FileEntry[]
 }
 
+export type FileKind = 'text' | 'image' | 'binary'
+
 export interface FileContent {
   path: string
   content: string
@@ -32,6 +34,15 @@ export interface FileContent {
   extension: string
   language: string
   truncated: boolean
+  kind: FileKind
+}
+
+export interface FileAssetInfo {
+  path: string
+  size: number
+  extension: string
+  kind: FileKind
+  mimeType: string
 }
 
 const EXT_TO_LANG: Record<string, string> = {
@@ -43,6 +54,99 @@ const EXT_TO_LANG: Record<string, string> = {
   '.bash': 'shell', '.ps1': 'powershell', '.xml': 'xml', '.svg': 'xml',
   '.vue': 'vue', '.svelte': 'svelte', '.graphql': 'graphql',
   '.dockerfile': 'dockerfile', '.env': 'dotenv', '.txt': 'plaintext',
+  '.log': 'plaintext', '.ini': 'ini', '.conf': 'ini', '.env.example': 'dotenv',
+  '.properties': 'properties', '.csv': 'csv', '.tsv': 'csv',
+  '.rb': 'ruby', '.php': 'php', '.c': 'c', '.h': 'c',
+  '.cpp': 'cpp', '.hpp': 'cpp', '.cs': 'csharp',
+  '.swift': 'swift', '.kt': 'kotlin', '.dart': 'dart',
+  '.lua': 'lua', '.r': 'r', '.scala': 'scala',
+  '.clj': 'clojure', '.ex': 'elixir', '.exs': 'elixir',
+  '.erl': 'erlang', '.hs': 'haskell', '.ml': 'ocaml',
+  '.pl': 'perl', '.asm': 'asm', '.wasm': 'wasm',
+  '.proto': 'proto', '.thrift': 'thrift',
+}
+
+const IMAGE_EXTS = new Set([
+  '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.ico', '.avif',
+])
+
+const IMAGE_MIME: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.bmp': 'image/bmp',
+  '.ico': 'image/x-icon',
+  '.avif': 'image/avif',
+  '.svg': 'image/svg+xml',
+}
+
+const BINARY_MIME_FALLBACK: Record<string, string> = {
+  '.apk': 'application/vnd.android.package-archive',
+  '.zip': 'application/zip',
+  '.gz': 'application/gzip',
+  '.tar': 'application/x-tar',
+  '.7z': 'application/x-7z-compressed',
+  '.rar': 'application/vnd.rar',
+  '.pdf': 'application/pdf',
+  '.doc': 'application/msword',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.xls': 'application/vnd.ms-excel',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.ppt': 'application/vnd.ms-powerpoint',
+  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  '.mp3': 'audio/mpeg',
+  '.mp4': 'video/mp4',
+  '.wav': 'audio/wav',
+  '.webm': 'video/webm',
+  '.exe': 'application/x-msdownload',
+  '.dll': 'application/x-msdownload',
+  '.so': 'application/x-sharedlib',
+  '.dylib': 'application/x-sharedlib',
+  '.class': 'application/x-java-applet',
+  '.jar': 'application/java-archive',
+  '.ttf': 'font/ttf',
+  '.otf': 'font/otf',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+}
+
+function classifyExtension(ext: string): FileKind {
+  if (IMAGE_EXTS.has(ext) || ext === '.svg') return 'image'
+  if (EXT_TO_LANG[ext]) return 'text'
+  return 'binary'
+}
+
+function classifyReadableFile(filePath: string, ext: string): FileKind {
+  const kind = classifyExtension(ext)
+  if (kind !== 'binary') return kind
+  if (basename(filePath).toLowerCase() === '.env.example') return 'text'
+  return kind
+}
+
+export function resolveMimeType(ext: string, kind: FileKind): string {
+  const lower = ext.toLowerCase()
+  if (kind === 'image') return IMAGE_MIME[lower] ?? 'image/*'
+  return BINARY_MIME_FALLBACK[lower] ?? 'application/octet-stream'
+}
+
+export function isHiddenPathRel(filePath: string): boolean {
+  return filePath.split(/[\\/]+/).some((part) => part.length > 0 && isHiddenFileTreeEntry(part))
+}
+
+function resolveSafePath(workDir: string, filePath: string): string | null {
+  const fullPath = join(workDir, filePath)
+  const normalizedRel = relative(workDir, fullPath)
+  if (normalizedRel.startsWith('..')) {
+    log.warn({ workDir, filePath }, '路径逃逸尝试')
+    return null
+  }
+  if (isHiddenPathRel(normalizedRel)) {
+    log.warn({ workDir, filePath }, 'blocked hidden file read')
+    return null
+  }
+  return fullPath
 }
 
 export function listDirectory(workDir: string, subPath?: string): FileEntry[] {
@@ -70,8 +174,7 @@ function readTree(dirPath: string, rootPath: string, depth: number): FileEntry[]
 
   for (const name of entries) {
     if (result.length >= MAX_ENTRIES) break
-    if (IGNORE_DIRS.has(name) || IGNORE_FILES.has(name)) continue
-    if (name.startsWith('.') && name !== '.env.example') continue
+    if (isHiddenFileTreeEntry(name)) continue
 
     const fullPath = join(dirPath, name)
     const relPath = relative(rootPath, fullPath).replace(/\\/g, '/')
@@ -104,21 +207,29 @@ function readTree(dirPath: string, rootPath: string, depth: number): FileEntry[]
 }
 
 export function readFile(workDir: string, filePath: string): FileContent | null {
-  const fullPath = join(workDir, filePath)
-  const normalizedRel = relative(workDir, fullPath)
-  if (normalizedRel.startsWith('..')) {
-    log.warn({ workDir, filePath }, '路径逃逸尝试')
-    return null
-  }
-
-  if (!existsSync(fullPath)) return null
+  const fullPath = resolveSafePath(workDir, filePath)
+  if (!fullPath || !existsSync(fullPath)) return null
 
   try {
     const stat = statSync(fullPath)
     if (!stat.isFile()) return null
 
     const ext = extname(fullPath).toLowerCase()
+    const kind = classifyReadableFile(fullPath, ext)
     const language = EXT_TO_LANG[ext] || 'plaintext'
+
+    if (kind !== 'text') {
+      return {
+        path: filePath,
+        content: '',
+        size: stat.size,
+        extension: ext,
+        language,
+        truncated: false,
+        kind,
+      }
+    }
+
     const truncated = stat.size > MAX_FILE_SIZE
     const content = readFileSync(fullPath, 'utf-8').slice(0, MAX_FILE_SIZE)
 
@@ -129,11 +240,39 @@ export function readFile(workDir: string, filePath: string): FileContent | null 
       extension: ext,
       language,
       truncated,
+      kind,
     }
   } catch (err) {
     log.error({ err, path: fullPath }, '读取文件失败')
     return null
   }
+}
+
+export function getAssetStream(workDir: string, filePath: string): FileAssetInfo & { stream: NodeJS.ReadableStream } | null {
+  const fullPath = resolveSafePath(workDir, filePath)
+  if (!fullPath || !existsSync(fullPath)) return null
+
+  try {
+    const stat = statSync(fullPath)
+    if (!stat.isFile()) return null
+    const ext = extname(fullPath).toLowerCase()
+    const kind = classifyExtension(ext)
+    return {
+      path: filePath,
+      size: stat.size,
+      extension: ext,
+      kind,
+      mimeType: resolveMimeType(ext, kind),
+      stream: createReadStream(fullPath),
+    }
+  } catch (err) {
+    log.error({ err, path: fullPath }, '获取文件流失败')
+    return null
+  }
+}
+
+function isHiddenFileTreeEntry(name: string): boolean {
+  return IGNORE_DIRS.has(name) || IGNORE_FILES.has(name) || (name.startsWith('.') && name !== '.env.example')
 }
 
 export function expandDirectory(workDir: string, dirPath: string): FileEntry[] {

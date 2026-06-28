@@ -1,7 +1,8 @@
 ﻿import type { ChildProcess } from 'child_process'
 import type * as acp from '@agentclientprotocol/sdk'
+import type { AgentRow } from '../store/agents.js'
 import type { SessionCapabilities } from '../types/ws-protocol.js'
-import type { ClaudeSessionMeta } from './model-profile-env.js'
+import type { AgentSessionMeta } from './model-profile-env.js'
 
 export type RuntimeState = 'starting' | 'running' | 'stopping' | 'stopped'
 export type AcpSessionState = 'connecting' | 'connected' | 'closing' | 'disconnected'
@@ -10,8 +11,11 @@ export interface RuntimeSessionState {
   ourSessionId: string
   acpSessionId?: string
   state: AcpSessionState
+  contextKey?: string
   lastUsedAt: number
   activeTurnCount: number
+  activeTurnKey?: number
+  nextTurnKey: number
   connectPromise?: Promise<string>
 }
 
@@ -20,6 +24,8 @@ export interface AgentConnection {
   proc: ChildProcess
   connection: acp.ClientSideConnection
   runtime: string
+  runtimeEnv: NodeJS.ProcessEnv
+  agent: AgentRow
   acpSessions: Map<string, string>
   runtimeSessions: Map<string, RuntimeSessionState>
   sessionCapabilities: Map<string, SessionCapabilities>
@@ -28,12 +34,13 @@ export interface AgentConnection {
   activeTurnCount: number
   agentCapabilities?: acp.AgentCapabilities
   envFingerprint?: string
-  sessionMeta?: ClaudeSessionMeta
+  sessionMeta?: AgentSessionMeta
 }
 
 export interface AcpSessionContext {
   projectId?: string
   cwd?: string
+  emitLifecycle?: boolean
 }
 
 export interface PendingPermission {

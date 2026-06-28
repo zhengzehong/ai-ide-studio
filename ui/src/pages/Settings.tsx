@@ -1,14 +1,16 @@
 import { useState, useEffect } from 'react'
 import {
   Server, Plus, Pencil, Trash2, ToggleLeft, ToggleRight, CheckCircle2,
-  Star, Loader2, Eye, EyeOff, AlertCircle, Cpu,
+  Star, Loader2, Eye, EyeOff, AlertCircle, Cpu, Clock,
 } from 'lucide-react'
 import { useModelStore, type CodexProfileConfig, type ClaudeProfileConfig, type ModelProfileConfig, type ModelProfileData, type ModelProviderData } from '../stores/model.store'
+import { useTimelineStore } from '../stores/timeline.store'
+import { useProjectStore } from '../stores/project.store'
 
 export default function Settings() {
   const {
     providers, profiles, fetchProviders, fetchProfiles, createProvider, updateProvider, toggleProvider, deleteProvider,
-    setDefault, testProvider, createProfile, updateProfile, toggleProfile, deleteProfile,
+    setDefault, testProvider, createProfile, updateProfile, toggleProfile, setDefaultProfile, deleteProfile,
   } = useModelStore()
   const [showForm, setShowForm] = useState(false)
   const [showProfileForm, setShowProfileForm] = useState(false)
@@ -28,7 +30,7 @@ export default function Settings() {
     <div style={{ padding: '28px 36px', maxWidth: 960, margin: '0 auto' }}>
       <div style={{ marginBottom: 28 }}>
         <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0, letterSpacing: -0.5 }}>设置</h1>
-        <p style={{ color: 'var(--text-3)', fontSize: 14, margin: '6px 0 0' }}>管理模型供应商和全局配置</p>
+        <p style={{ color: 'var(--text-3)', fontSize: 15, margin: '6px 0 0' }}>管理模型供应商和全局配置</p>
       </div>
 
       {/* Section: Model Providers */}
@@ -47,7 +49,7 @@ export default function Settings() {
           <div style={emptyState}>
             <Server size={36} strokeWidth={1.5} />
             <p style={{ fontWeight: 600, margin: '12px 0 4px' }}>尚未添加模型供应商</p>
-            <p style={{ fontSize: 13 }}>添加 OpenAI 或 Claude 协议的模型供应商开始使用</p>
+            <p style={{ fontSize: 15 }}>添加 OpenAI 或 Claude 协议的模型供应商开始使用</p>
             <button onClick={() => setShowForm(true)} style={{ ...btn, marginTop: 8 }}><Plus size={14} /> 添加供应商</button>
           </div>
         ) : (
@@ -71,7 +73,7 @@ export default function Settings() {
                         {p.is_default ? <span style={defaultBadge}><Star size={10} fill="currentColor" /> 默认</span> : null}
                         {!p.enabled && <span style={disabledBadge}>已禁用</span>}
                       </div>
-                      <div style={{ fontSize: 13, color: 'var(--text-3)', marginTop: 3, fontFamily: 'monospace' }}>{p.base_url}</div>
+                      <div style={{ fontSize: 15, color: 'var(--text-3)', marginTop: 3, fontFamily: 'monospace' }}>{p.base_url}</div>
 
                       {/* Models */}
                       {models.length > 0 && (
@@ -82,7 +84,7 @@ export default function Settings() {
 
                       {/* Test Result */}
                       {tr && !tr.loading && (
-                        <div style={{ marginTop: 8, fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <div style={{ marginTop: 8, fontSize: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
                           {tr.ok ? (
                             <><CheckCircle2 size={14} color="#22c55e" /><span style={{ color: '#22c55e' }}>连接成功{tr.models ? `，${tr.models.length} 个模型` : ''}</span></>
                           ) : (
@@ -127,7 +129,7 @@ export default function Settings() {
           <div style={emptyState}>
             <Cpu size={36} strokeWidth={1.5} />
             <p style={{ fontWeight: 600, margin: '12px 0 4px' }}>暂无模型档案</p>
-            <p style={{ fontSize: 13 }}>为 Claude Code 或 Codex 创建可复用的模型配置</p>
+            <p style={{ fontSize: 15 }}>为 Claude Code 或 Codex 创建可复用的模型配置</p>
             <button onClick={() => setShowProfileForm(true)} style={{ ...btn, marginTop: 8 }}><Plus size={14} /> 新建档案</button>
           </div>
         ) : (
@@ -143,9 +145,10 @@ export default function Settings() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                         <span style={{ fontWeight: 600, fontSize: 15 }}>{profile.name}</span>
                         <span style={protoBadge(profile.runtime === 'codex' ? 'claude' : 'openai')}>{profile.runtime === 'codex' ? 'Codex' : 'Claude Code'}</span>
+                        {profile.is_default ? <span style={defaultBadge}><Star size={10} fill="currentColor" /> 默认</span> : null}
                         {!profile.enabled && <span style={disabledBadge}>已禁用</span>}
                       </div>
-                      <div style={{ fontSize: 13, color: 'var(--text-3)', marginTop: 3 }}>
+                      <div style={{ fontSize: 15, color: 'var(--text-3)', marginTop: 3 }}>
                         {provider?.display_name || profile.provider_id}
                         {profile.context_window ? ` · 上下文 ${formatContextWindow(profile.context_window)}` : ''}
                       </div>
@@ -154,6 +157,7 @@ export default function Settings() {
                       </div>
                     </div>
                     <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                      {!profile.is_default && profile.enabled === 1 && <button onClick={() => setDefaultProfile(profile.id)} style={actionBtn} title="设为默认档案"><Star size={15} /></button>}
                       <button onClick={() => toggleProfile(profile.id, !profile.enabled)} style={{ ...actionBtn, color: profile.enabled ? 'var(--green)' : 'var(--text-3)' }} title={profile.enabled ? '禁用' : '启用'}>
                         {profile.enabled ? <ToggleRight size={17} /> : <ToggleLeft size={17} />}
                       </button>
@@ -187,6 +191,181 @@ export default function Settings() {
           onUpdate={updateProfile}
         />
       )}
+
+      {/* Section: Timeline Config */}
+      <TimelineConfigSection providers={providers.filter(p => p.enabled)} />
+    </div>
+  )
+}
+
+function TimelineConfigSection({ providers }: { providers: ModelProviderData[] }) {
+  const { config, configLoading, fetchConfig, saveConfig } = useTimelineStore()
+  const { currentProjectId } = useProjectStore()
+
+  const [showKey, setShowKey] = useState(false)
+  const [draftProjectId, setDraftProjectId] = useState<string | null>(null)
+  const [draft, setDraft] = useState<{
+    model?: string
+    apiKey?: string
+    baseUrl?: string
+    providerId?: string
+    interval?: number
+  }>({})
+
+  useEffect(() => {
+    if (currentProjectId) fetchConfig(currentProjectId)
+  }, [currentProjectId, fetchConfig])
+
+  const activeDraft = draftProjectId === currentProjectId ? draft : {}
+  const localModel = activeDraft.model ?? config?.model ?? ''
+  const localApiKey = activeDraft.apiKey ?? config?.api_key ?? ''
+  const localBaseUrl = activeDraft.baseUrl ?? config?.base_url ?? ''
+  const localProviderId = activeDraft.providerId ?? config?.provider_id ?? ''
+  const localInterval = activeDraft.interval ?? config?.trigger_interval ?? 3
+  const dirty = draftProjectId === currentProjectId && Object.keys(draft).length > 0
+  const updateDraft = (fields: typeof draft) => {
+    setDraftProjectId(currentProjectId)
+    setDraft(prev => (draftProjectId === currentProjectId ? { ...prev, ...fields } : fields))
+  }
+
+  if (!currentProjectId) {
+    return (
+      <div style={{ marginBottom: 32 }}>
+        <h2 style={{ fontSize: 16, fontWeight: 600, margin: '0 0 12px', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Clock size={18} style={{ color: 'var(--blue)' }} />
+          会话时间线
+        </h2>
+        <div style={{ color: 'var(--text-3)', fontSize: 15 }}>请先选择项目</div>
+      </div>
+    )
+  }
+
+  if (configLoading) {
+    return (
+      <div style={{ marginBottom: 32 }}>
+        <h2 style={{ fontSize: 16, fontWeight: 600, margin: '0 0 12px', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Clock size={18} style={{ color: 'var(--blue)' }} />
+          会话时间线
+        </h2>
+        <div style={{ color: 'var(--text-3)', fontSize: 15 }}>加载中...</div>
+      </div>
+    )
+  }
+
+  const enabled = config?.enabled ?? 0
+  const handleToggle = () => {
+    saveConfig(currentProjectId, { enabled: enabled ? 0 : 1 })
+  }
+
+  const handleSave = () => {
+    saveConfig(currentProjectId, {
+      model: localModel.trim() || null,
+      api_key: localApiKey.trim() || null,
+      base_url: localBaseUrl.trim() || null,
+      provider_id: localProviderId || null,
+      trigger_interval: localInterval,
+    })
+    setDraft({})
+    setDraftProjectId(null)
+  }
+
+  return (
+    <div style={{ marginBottom: 32 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Clock size={18} style={{ color: 'var(--blue)' }} />
+          会话时间线
+        </h2>
+        <button onClick={handleToggle} style={{ ...actionBtn, color: enabled ? 'var(--green)' : 'var(--text-3)' }} title={enabled ? '禁用时间线' : '启用时间线'}>
+          {enabled ? <ToggleRight size={17} /> : <ToggleLeft size={17} />}
+          <span style={{ fontSize: 13, marginLeft: 4 }}>{enabled ? '已启用' : '已关闭'}</span>
+        </button>
+      </div>
+
+      <div style={{ ...providerCard, opacity: enabled ? 1 : 0.55 }}>
+        <p style={{ fontSize: 14, color: 'var(--text-3)', margin: '0 0 16px' }}>
+          为当前项目配置时间线摘要模型。每完成指定轮数对话后，自动调用 LLM 整理会话时间线。
+        </p>
+
+        <div style={fGrid}>
+          <label style={fLabel}>
+            关联供应商
+            <select
+              value={localProviderId}
+              onChange={e => { updateDraft({ providerId: e.target.value }) }}
+              style={fInput}
+              disabled={!enabled}
+            >
+              <option value="">手动配置（不关联）</option>
+              {providers.map(p => <option key={p.id} value={p.id}>{p.display_name}</option>)}
+            </select>
+            <span style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>选择已有供应商可复用其 API Key 和 Base URL</span>
+          </label>
+          <label style={fLabel}>
+            模型名称
+            <input
+              value={localModel}
+              onChange={e => { updateDraft({ model: e.target.value }) }}
+              style={fInput}
+              placeholder="gpt-4o-mini"
+              disabled={!enabled}
+            />
+          </label>
+        </div>
+
+        {!localProviderId && (
+          <div style={{ ...fGrid, marginTop: 12 }}>
+            <label style={fLabel}>
+              Base URL
+              <input
+                value={localBaseUrl}
+                onChange={e => { updateDraft({ baseUrl: e.target.value }) }}
+                style={fInput}
+                placeholder="https://api.openai.com"
+                disabled={!enabled}
+              />
+            </label>
+            <label style={fLabel}>
+              API Key
+              <div style={{ position: 'relative' }}>
+                <input
+                  value={localApiKey}
+                  onChange={e => { updateDraft({ apiKey: e.target.value }) }}
+                  style={{ ...fInput, paddingRight: 36 }}
+                  type={showKey ? 'text' : 'password'}
+                  placeholder="sk-..."
+                  disabled={!enabled}
+                />
+                <button onClick={() => setShowKey(!showKey)} style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)', display: 'flex' }}>
+                  {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              </div>
+            </label>
+          </div>
+        )}
+
+        <div style={{ ...fGrid, marginTop: 12 }}>
+          <label style={fLabel}>
+            触发间隔（轮）
+            <input
+              value={localInterval}
+              onChange={e => { updateDraft({ interval: Number(e.target.value) || 3 }) }}
+              style={{ ...fInput, width: 100 }}
+              type="number"
+              min={1}
+              max={20}
+              disabled={!enabled}
+            />
+            <span style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>每 N 轮对话自动触发模型整理</span>
+          </label>
+        </div>
+
+        {dirty && (
+          <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end' }}>
+            <button onClick={handleSave} style={btn}>保存配置</button>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -267,7 +446,7 @@ function ProviderForm({ provider, onClose, onCreate, onUpdate }: {
 
         <label style={{ ...fLabel, marginTop: 12 }}>
           模型列表 <span style={{ fontWeight: 400, color: 'var(--text-3)' }}>（每行一个 model ID）</span>
-          <textarea value={modelsStr} onChange={e => setModelsStr(e.target.value)} style={{ ...fInput, minHeight: 90, fontFamily: 'var(--font-mono, monospace)', fontSize: 12, lineHeight: 1.8 }} placeholder={'gpt-4o\ngpt-4o-mini\nclaude-sonnet-4-20250514'} />
+          <textarea value={modelsStr} onChange={e => setModelsStr(e.target.value)} style={{ ...fInput, minHeight: 90, fontFamily: 'var(--font-mono, monospace)', fontSize: 14, lineHeight: 1.8 }} placeholder={'gpt-4o\ngpt-4o-mini\nclaude-sonnet-4-20250514'} />
         </label>
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
@@ -401,7 +580,7 @@ function renderCodexTags(config: CodexProfileConfig): React.ReactNode[] {
 const btn: React.CSSProperties = {
   display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 18px',
   borderRadius: 8, border: 'none', background: 'var(--blue)', color: '#fff',
-  cursor: 'pointer', fontSize: 13, fontWeight: 600, transition: 'opacity .15s',
+  cursor: 'pointer', fontSize: 15, fontWeight: 600, transition: 'opacity .15s',
 }
 const btnGhost: React.CSSProperties = {
   ...btn, background: 'transparent', color: 'var(--text-2)', border: '1px solid var(--border)',
@@ -417,24 +596,24 @@ const providerCard: React.CSSProperties = {
 }
 const providerIcon = (isOpenAI: boolean): React.CSSProperties => ({
   width: 42, height: 42, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center',
-  fontWeight: 800, fontSize: 14, flexShrink: 0, letterSpacing: -0.5,
+  fontWeight: 800, fontSize: 15, flexShrink: 0, letterSpacing: -0.5,
   background: isOpenAI ? '#ecfdf5' : '#fffbeb', color: isOpenAI ? '#059669' : '#d97706',
   border: `1.5px solid ${isOpenAI ? '#a7f3d0' : '#fde68a'}`,
 })
 const protoBadge = (p: string): React.CSSProperties => ({
-  fontSize: 11, padding: '2px 8px', borderRadius: 5, fontWeight: 600,
+  fontSize: 13, padding: '2px 8px', borderRadius: 5, fontWeight: 600,
   background: p === 'openai' ? '#ecfdf5' : '#fffbeb', color: p === 'openai' ? '#059669' : '#d97706',
 })
 const defaultBadge: React.CSSProperties = {
-  fontSize: 11, padding: '2px 8px', borderRadius: 5, fontWeight: 600,
+  fontSize: 13, padding: '2px 8px', borderRadius: 5, fontWeight: 600,
   background: '#fefce8', color: '#ca8a04', display: 'inline-flex', alignItems: 'center', gap: 3,
 }
 const disabledBadge: React.CSSProperties = {
-  fontSize: 11, padding: '2px 8px', borderRadius: 5, fontWeight: 500,
+  fontSize: 13, padding: '2px 8px', borderRadius: 5, fontWeight: 500,
   background: 'var(--bg-2)', color: 'var(--text-3)',
 }
 const modelTag: React.CSSProperties = {
-  fontSize: 11, padding: '3px 8px', borderRadius: 5, background: 'var(--bg-2)',
+  fontSize: 13, padding: '3px 8px', borderRadius: 5, background: 'var(--bg-2)',
   color: 'var(--text-2)', fontFamily: 'var(--font-mono, monospace)', fontWeight: 500,
 }
 const emptyState: React.CSSProperties = {
@@ -451,10 +630,10 @@ const modalBox: React.CSSProperties = {
   boxShadow: '0 24px 80px rgba(0,0,0,0.25)', border: '1px solid var(--border)',
 }
 const fGrid: React.CSSProperties = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }
-const fLabel: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 5, fontSize: 13, fontWeight: 600, color: 'var(--text-2)' }
+const fLabel: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 5, fontSize: 15, fontWeight: 600, color: 'var(--text-2)' }
 const fInput: React.CSSProperties = {
   padding: '9px 12px', borderRadius: 8, border: '1px solid var(--border)',
-  fontSize: 13, background: 'var(--bg-1)', color: 'var(--text-1)',
+  fontSize: 15, background: 'var(--bg-1)', color: 'var(--text-1)',
   outline: 'none', width: '100%', boxSizing: 'border-box',
   transition: 'border-color .15s',
 }

@@ -10,6 +10,7 @@ class WSClient {
   private url = ''
   private intentionalClose = false
   private currentSubscriptions = new Set<string>()
+  private hasConnectedBefore = false
 
   get connected() { return this._connected }
 
@@ -17,30 +18,56 @@ class WSClient {
     this.url = url
     this.intentionalClose = true
     if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null }
-    if (this.ws) { this.ws.close(); this.ws = null }
+    if (this.ws) { this.detachSocket(this.ws); this.ws.close(); this.ws = null }
 
     this.intentionalClose = false
-    this.ws = new WebSocket(url)
+    try {
+      this.ws = new WebSocket(url)
+    } catch (error) {
+      this._connected = false
+      this.emit('connection', { connected: false, message: toErrorMessage(error) })
+      return
+    }
+    const socket = this.ws
 
     this.ws.onopen = () => {
+      if (this.ws !== socket) return
       this._connected = true
       this.emit('connection', { connected: true })
+      // Emit 'reconnected' after the first successful connect so subscribers
+      // can refresh state that may have gone stale during the disconnect.
+      // The onclose/onerror race in some WebSocket impls can leave React's
+      // `connected` state stuck at false; this event bypasses that.
+      if (this.hasConnectedBefore) {
+        this.emit('reconnected', {})
+      }
+      this.hasConnectedBefore = true
       if (this.currentSubscriptions.size > 0) {
         this.send({ type: 'subscribe', sessionIds: [...this.currentSubscriptions] })
       }
     }
 
-    this.ws.onclose = () => {
+    this.ws.onclose = (event) => {
+      if (this.ws !== socket) return
       this._connected = false
-      this.emit('connection', { connected: false })
+      this.emit('connection', { connected: false, code: event.code, reason: event.reason })
       if (!this.intentionalClose) {
         this.reconnectTimer = setTimeout(() => this.reconnect(), 3000)
       }
     }
 
-    this.ws.onerror = () => {}
+    // Per the WebSocket spec, an onerror is always followed by onclose. We
+    // intentionally do NOT emit `connected: false` here: onerror and onclose
+    // firing in close succession (or an old socket's onerror firing after a
+    // new socket has already opened) used to flip the React `connected` state
+    // back to false even though the new connection was healthy. onclose is
+    // the single source of truth for disconnection.
+    this.ws.onerror = () => {
+      if (this.ws !== socket) return
+    }
 
     this.ws.onmessage = (event) => {
+      if (this.ws !== socket) return
       try {
         const msg = JSON.parse(event.data as string)
         if (msg.requestId && this.pendingRequests.has(msg.requestId)) {
@@ -64,8 +91,15 @@ class WSClient {
   disconnect() {
     this.intentionalClose = true
     if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null }
-    if (this.ws) { this.ws.close(); this.ws = null }
+    if (this.ws) { this.detachSocket(this.ws); this.ws.close(); this.ws = null }
     this._connected = false
+  }
+
+  private detachSocket(socket: WebSocket): void {
+    socket.onopen = null
+    socket.onclose = null
+    socket.onerror = null
+    socket.onmessage = null
   }
 
   async request(msg: Record<string, unknown>): Promise<unknown> {
@@ -128,3 +162,7 @@ class WSClient {
 }
 
 export const wsClient = new WSClient()
+
+function toErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'WebSocket connection failed'
+}

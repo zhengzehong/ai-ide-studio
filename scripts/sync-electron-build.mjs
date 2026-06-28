@@ -3,7 +3,7 @@ import { join } from 'node:path'
 
 const root = process.cwd()
 const buildDir = process.env.AI_IDE_ELECTRON_BUILD_DIR ?? join(root, 'electron', 'dist')
-const files = ['backend-launch.js', 'backend-main.js', 'builder.config.js', 'main.js', 'preload.js']
+const files = ['backend-launch.js', 'backend-main.js', 'builder.config.js', 'main.js', 'preload.js', 'widget-window.js']
 
 if (!existsSync(buildDir)) {
   throw new Error(`Electron build directory does not exist: ${buildDir}`)

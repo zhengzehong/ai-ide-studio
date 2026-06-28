@@ -4,10 +4,12 @@ import * as acp from '@agentclientprotocol/sdk'
 import { events } from '../core/events.js'
 import { createChildLogger } from '../core/logger.js'
 import { agentStore } from '../store/agents.js'
+import { sessionStore } from '../store/sessions.js'
 import type { SessionUpdateData, TurnUsageData, SessionCapabilities, ImageAttachment } from '../types/ws-protocol.js'
 import { mapConfigOptions, mergeCapabilitiesFromConfig } from './capabilities.js'
-import { createClientHandler } from './client-handler.js'
+import { createClientHandler, endClientTurn, getClientTurnMessageId, startClientTurn } from './client-handler.js'
 import {
+  acpSessionContextKey,
   agentConnections,
   beginTurn,
   createConnectionState,
@@ -25,22 +27,36 @@ import {
   resolvePermission,
 } from './interaction-state.js'
 import {
+  buildAgentSessionMeta,
   buildAgentRuntimeEnv,
-  buildClaudeSessionMeta,
   fingerprintRuntimeEnv,
   summarizeRuntimeEnv,
 } from './model-profile-env.js'
 import { buildRuntimeEnv, getRuntimeCommand, listRuntimeNames } from './runtime-registry.js'
 import { resolveMcpServersForAcp, updateInitialCapabilities } from './session-capabilities.js'
+import { applySessionRuntimePreferences, emitRuntimePreferencesApplied } from './session-runtime-preferences.js'
 
 const startPromises = new Map<string, Promise<void>>()
 const cancelledSessions = new Set<string>()
 const log = createChildLogger('acp-host')
 
+interface PromptDiagnosticsOptions {
+  turnId?: string
+  messageId?: string
+}
+
 const ACP_SESSION_IDLE_MS = readPositiveMs(process.env.ACP_SESSION_IDLE_MS, 30 * 60 * 1000)
 const ACP_RUNTIME_IDLE_MS = readPositiveMs(process.env.ACP_RUNTIME_IDLE_MS, 60 * 60 * 1000)
 const ACP_IDLE_SWEEP_MS = readPositiveMs(process.env.ACP_IDLE_SWEEP_MS, 5 * 60 * 1000)
 let idleTimer: ReturnType<typeof setInterval> | null = null
+const MOCK_MODELS = [
+  { modelId: 'mock-fast', name: 'Mock Fast', description: '本地快速测试模型' },
+  { modelId: 'mock-smart', name: 'Mock Smart', description: '本地能力测试模型' },
+]
+const MOCK_MODES = [
+  { id: 'default', name: '执行模式', description: '直接执行用户请求' },
+  { id: 'plan', name: 'PLAN 模式', description: '先给出计划，再等待切换执行' },
+]
 
 function readPositiveMs(raw: string | undefined, fallback: number): number {
   if (!raw) return fallback
@@ -92,13 +108,12 @@ export const acpHost = {
     const runtimeEnv = effectiveRuntime === 'mock'
       ? { env: buildRuntimeEnv(effectiveRuntime), appliedProfile: undefined }
       : buildAgentRuntimeEnv(effectiveRuntime, agent)
-    const sessionMeta = runtimeEnv.appliedProfile
-      ? buildClaudeSessionMeta(runtimeEnv.env, effectiveRuntime)
-      : undefined
+    const sessionMeta = buildAgentSessionMeta(effectiveRuntime, runtimeEnv.env, agent)
     const envFingerprint = fingerprintRuntimeEnv(runtimeEnv.env, effectiveRuntime)
     const existing = acpHost.agents.get(agentId)
     if (existing && !existing.connection.signal.aborted) {
       if (existing.runtime === effectiveRuntime && existing.envFingerprint === envFingerprint) {
+        existing.sessionMeta = sessionMeta
         touchRuntime(existing)
         return
       }
@@ -180,6 +195,8 @@ export const acpHost = {
       agentCaps ?? undefined,
       envFingerprint,
       sessionMeta,
+      runtimeEnv.env,
+      agent,
     )
     acpHost.agents.set(agentId, conn)
 
@@ -246,47 +263,51 @@ export const acpHost = {
     persistedAcpSessionId?: string | null,
     context: AcpSessionContext = {},
   ): Promise<string> {
+    const showLifecycle = context.emitLifecycle !== false
     const existed = acpHost.isRunning(agentId)
-    if (!existed)
+    if (!existed && showLifecycle)
       emitLifecycle(agentId, ourSessionId, 'lifecycle.runtime_starting', '\u6b63\u5728\u542f\u52a8 Agent...')
     await acpHost.startAgent(agentId)
     const conn = acpHost.agents.get(agentId)
     if (!conn) throw new Error(`Agent ${agentId} not running`)
-    if (!existed) emitLifecycle(agentId, ourSessionId, 'lifecycle.runtime_ready', 'Agent \u5df2\u5c31\u7eea')
-
-    const existingAcpSessionId = conn.acpSessions.get(ourSessionId)
-    if (existingAcpSessionId) {
-      markSessionConnected(conn, ourSessionId, existingAcpSessionId)
-      return existingAcpSessionId
-    }
+    if (!existed && showLifecycle) emitLifecycle(agentId, ourSessionId, 'lifecycle.runtime_ready', 'Agent \u5df2\u5c31\u7eea')
 
     const state = getRuntimeSession(conn, ourSessionId)
+    const existingAcpSessionId = conn.acpSessions.get(ourSessionId)
+    const nextContextKey = acpSessionContextKey(context)
+    if (existingAcpSessionId && state.contextKey === nextContextKey) {
+      markSessionConnected(conn, ourSessionId, existingAcpSessionId, context)
+      return existingAcpSessionId
+    }
     if (state.connectPromise) return state.connectPromise
 
     state.state = 'connecting'
     state.connectPromise = (async () => {
       try {
         let acpSessionId: string
-        if (persistedAcpSessionId) {
-          emitLifecycle(agentId, ourSessionId, 'lifecycle.session_resuming', '\u6b63\u5728\u6062\u590d\u4f1a\u8bdd...')
-          await acpHost.resumeSession(agentId, ourSessionId, persistedAcpSessionId, context)
-          acpSessionId = conn.acpSessions.get(ourSessionId) ?? persistedAcpSessionId
+        const acpSessionIdToResume = persistedAcpSessionId ?? existingAcpSessionId
+        if (acpSessionIdToResume) {
+          if (showLifecycle) emitLifecycle(agentId, ourSessionId, 'lifecycle.session_resuming', '\u6b63\u5728\u6062\u590d\u4f1a\u8bdd...')
+          await acpHost.resumeSession(agentId, ourSessionId, acpSessionIdToResume, context)
+          acpSessionId = conn.acpSessions.get(ourSessionId) ?? acpSessionIdToResume
         } else {
-          emitLifecycle(agentId, ourSessionId, 'lifecycle.session_creating', '\u6b63\u5728\u8fde\u63a5\u4f1a\u8bdd...')
+          if (showLifecycle) emitLifecycle(agentId, ourSessionId, 'lifecycle.session_creating', '\u6b63\u5728\u8fde\u63a5\u4f1a\u8bdd...')
           acpSessionId = await acpHost.newSession(agentId, ourSessionId, context)
         }
-        markSessionConnected(conn, ourSessionId, acpSessionId)
-        emitLifecycle(agentId, ourSessionId, 'lifecycle.session_ready', '\u4f1a\u8bdd\u5df2\u8fde\u63a5')
+        markSessionConnected(conn, ourSessionId, acpSessionId, context)
+        if (showLifecycle) emitLifecycle(agentId, ourSessionId, 'lifecycle.session_ready', '\u4f1a\u8bdd\u5df2\u8fde\u63a5')
         return acpSessionId
       } catch (err) {
         state.state = 'disconnected'
         state.connectPromise = undefined
-        emitLifecycle(
-          agentId,
-          ourSessionId,
-          'lifecycle.failed',
-          `\u8fde\u63a5\u5931\u8d25\uff1a${err instanceof Error ? err.message : String(err)}`,
-        )
+        if (showLifecycle) {
+          emitLifecycle(
+            agentId,
+            ourSessionId,
+            'lifecycle.failed',
+            `\u8fde\u63a5\u5931\u8d25\uff1a${err instanceof Error ? err.message : String(err)}`,
+          )
+        }
         throw err
       }
     })()
@@ -298,17 +319,24 @@ export const acpHost = {
     if (!conn) throw new Error(`Agent ${agentId} 未运行`)
 
     const mcpServers = resolveMcpServersForAcp(conn, ourSessionId, context)
+    const session = sessionStore.get(ourSessionId)
+    const isPrimary = !!session?.is_primary
+    const sessionMeta = isPrimary
+      ? buildAgentSessionMeta(conn.runtime, conn.runtimeEnv, conn.agent, { isPrimary: true })
+      : conn.sessionMeta
 
     const result = await conn.connection.newSession({
       cwd: context.cwd ?? process.cwd(),
       mcpServers,
-      _meta: conn.sessionMeta,
+      _meta: sessionMeta,
     })
 
     const acpSessionId = result.sessionId
-    markSessionConnected(conn, ourSessionId, acpSessionId)
+    markSessionConnected(conn, ourSessionId, acpSessionId, context)
 
     updateInitialCapabilities(conn, ourSessionId, result)
+    await applySessionRuntimePreferences(conn, ourSessionId)
+    emitRuntimePreferencesApplied(conn, ourSessionId)
     log.debug(
       {
         agentId,
@@ -331,7 +359,14 @@ export const acpHost = {
   ): Promise<string> {
     const conn = acpHost.agents.get(agentId)
     if (!conn) throw new Error(`Agent ${agentId} 未运行`)
-    if (conn.acpSessions.get(ourSessionId) === acpSessionId) return acpSessionId
+    const state = getRuntimeSession(conn, ourSessionId)
+    if (conn.acpSessions.get(ourSessionId) === acpSessionId && state.contextKey === acpSessionContextKey(context)) return acpSessionId
+
+    const session = sessionStore.get(ourSessionId)
+    const isPrimary = !!session?.is_primary
+    const sessionMeta = isPrimary
+      ? buildAgentSessionMeta(conn.runtime, conn.runtimeEnv, conn.agent, { isPrimary: true })
+      : conn.sessionMeta
 
     if (conn.agentCapabilities?.sessionCapabilities?.resume) {
       const mcpServers = resolveMcpServersForAcp(conn, ourSessionId, context)
@@ -339,10 +374,12 @@ export const acpHost = {
         sessionId: acpSessionId,
         cwd: context.cwd ?? process.cwd(),
         mcpServers,
-        _meta: conn.sessionMeta,
+        _meta: sessionMeta,
       })
-      markSessionConnected(conn, ourSessionId, acpSessionId)
+      markSessionConnected(conn, ourSessionId, acpSessionId, context)
       updateInitialCapabilities(conn, ourSessionId, result)
+      await applySessionRuntimePreferences(conn, ourSessionId)
+      emitRuntimePreferencesApplied(conn, ourSessionId)
       return acpSessionId
     }
 
@@ -351,10 +388,12 @@ export const acpHost = {
         sessionId: acpSessionId,
         cwd: context.cwd ?? process.cwd(),
         mcpServers: resolveMcpServersForAcp(conn, ourSessionId, context),
-        _meta: conn.sessionMeta,
+        _meta: sessionMeta,
       })
-      markSessionConnected(conn, ourSessionId, acpSessionId)
+      markSessionConnected(conn, ourSessionId, acpSessionId, context)
       updateInitialCapabilities(conn, ourSessionId, result)
+      await applySessionRuntimePreferences(conn, ourSessionId)
+      emitRuntimePreferencesApplied(conn, ourSessionId)
       return acpSessionId
     }
 
@@ -368,7 +407,7 @@ export const acpHost = {
     return newAcpSessionId
   },
 
-  async prompt(agentId: string, ourSessionId: string, content: string, images?: ImageAttachment[]): Promise<void> {
+  async prompt(agentId: string, ourSessionId: string, content: string, images?: ImageAttachment[], diagnostics: PromptDiagnosticsOptions = {}): Promise<void> {
     const conn = acpHost.agents.get(agentId)
     if (!conn) throw new Error(`Agent ${agentId} 未运行`)
 
@@ -387,7 +426,13 @@ export const acpHost = {
       }
     }
 
+    const startedAt = Date.now()
     beginTurn(conn, ourSessionId)
+    startClientTurn(agentId, acpSessionId, diagnostics.turnId, diagnostics.messageId)
+    log.info(
+      { agentId, ourSessionId, acpSessionId, turnId: diagnostics.turnId, textLength: content.length, imageCount: images?.length ?? 0 },
+      'ACP prompt start',
+    )
     try {
       const promptResult = await conn.connection.prompt({
         sessionId: acpSessionId,
@@ -408,17 +453,30 @@ export const acpHost = {
       const wasCancelled = cancelledSessions.delete(ourSessionId)
       const stopReason = wasCancelled ? 'cancelled' : promptResult.stopReason
 
+      log.info(
+        { agentId, ourSessionId, acpSessionId, turnId: diagnostics.turnId, stopReason, totalTokens: turnUsage?.totalTokens, elapsedMs: Date.now() - startedAt },
+        'Agent prompt completed',
+      )
       events.emit('session:done', {
         sessionId: ourSessionId,
         agentId,
-        messageId: `done-${ourSessionId}`,
+        messageId: diagnostics.messageId ?? `done-${ourSessionId}`,
+        turnId: diagnostics.turnId,
         turnUsage,
         stopReason,
       })
-      log.info({ agentId, ourSessionId, stopReason, totalTokens: turnUsage?.totalTokens }, 'Agent prompt completed')
+      log.debug({ agentId, ourSessionId, acpSessionId, turnId: diagnostics.turnId, stopReason }, 'session done emitted from ACP prompt')
+    } catch (err) {
+      log.error({ err, agentId, ourSessionId, acpSessionId, turnId: diagnostics.turnId, elapsedMs: Date.now() - startedAt }, 'ACP prompt failed')
+      throw err
     } finally {
       cancelledSessions.delete(ourSessionId)
+      endClientTurn(agentId, acpSessionId)
       endTurn(conn, ourSessionId)
+      log.debug(
+        { agentId, ourSessionId, acpSessionId, turnId: diagnostics.turnId, elapsedMs: Date.now() - startedAt, activeTurnCount: conn.activeTurnCount },
+        'ACP prompt cleanup complete',
+      )
     }
   },
 
@@ -498,15 +556,33 @@ export const acpHost = {
     if (!conn) throw new Error(`Agent ${agentId} 未运行`)
     const sourceAcpSessionId = conn.acpSessions.get(sourceSessionId)
     if (!sourceAcpSessionId) throw new Error(`Session ${sourceSessionId} 没有对应的 ACP session`)
+    return acpHost.forkSessionFromAcpSessionId(agentId, sourceAcpSessionId, targetSessionId, context)
+  },
+
+  async forkSessionFromAcpSessionId(
+    agentId: string,
+    sourceAcpSessionId: string,
+    targetSessionId: string,
+    context: AcpSessionContext = {},
+  ): Promise<string> {
+    let conn = acpHost.agents.get(agentId)
+    if (!conn) {
+      await acpHost.startAgent(agentId)
+      conn = acpHost.agents.get(agentId)
+    }
+    if (!conn) throw new Error(`Agent ${agentId} 未运行`)
     if (!conn.agentCapabilities?.sessionCapabilities?.fork) throw new Error(`Agent ${agentId} 不支持 fork 会话`)
 
     const result = await conn.connection.unstable_forkSession({
       sessionId: sourceAcpSessionId,
       cwd: context.cwd ?? process.cwd(),
       mcpServers: resolveMcpServersForAcp(conn, targetSessionId, context),
+      _meta: conn.sessionMeta,
     })
-    markSessionConnected(conn, targetSessionId, result.sessionId)
+    markSessionConnected(conn, targetSessionId, result.sessionId, context)
     updateInitialCapabilities(conn, targetSessionId, result)
+    await applySessionRuntimePreferences(conn, targetSessionId)
+    emitRuntimePreferencesApplied(conn, targetSessionId)
     return result.sessionId
   },
 
@@ -600,7 +676,11 @@ async function startMockAgent(agentId: string, envFingerprint?: string): Promise
     },
     async newSession(params: { cwd: string }) {
       const result = await mockProc.sendRequest('session/create', { workingDirectory: params.cwd })
-      return { sessionId: (result as { sessionId: string }).sessionId }
+      return {
+        sessionId: (result as { sessionId: string }).sessionId,
+        models: { currentModelId: 'mock-fast', availableModels: MOCK_MODELS },
+        modes: { currentModeId: 'default', availableModes: MOCK_MODES },
+      }
     },
     async prompt(params: { sessionId: string; prompt: { type: string; text?: string }[] }) {
       const text = params.prompt.map((p) => p.text || '').join('\n')
@@ -621,11 +701,34 @@ async function startMockAgent(agentId: string, envFingerprint?: string): Promise
         /* ignore */
       }
     },
+    async unstable_setSessionModel(params: { modelId: string }) {
+      if (!MOCK_MODELS.some((model) => model.modelId === params.modelId)) {
+        throw new Error(`未知 Mock 模型: ${params.modelId}`)
+      }
+      return {}
+    },
+    async setSessionMode(params: { modeId: string }) {
+      if (!MOCK_MODES.some((mode) => mode.id === params.modeId)) {
+        throw new Error(`未知 Mock 模式: ${params.modeId}`)
+      }
+      return {}
+    },
   } as unknown as acp.ClientSideConnection
 
   const proc = (mockProc as unknown as { proc: ChildProcess }).proc
 
-  const conn = createConnectionState(agentId, 'mock', proc, mockConnection, undefined, envFingerprint)
+  const agent = agentStore.get(agentId)
+  const conn = createConnectionState(
+    agentId,
+    'mock',
+    proc,
+    mockConnection,
+    undefined,
+    envFingerprint,
+    undefined,
+    process.env,
+    agent,
+  )
   acpHost.agents.set(agentId, conn)
 
   mockProc.on('notification', (notification: { method: string; params?: Record<string, unknown> }) => {
@@ -661,7 +764,10 @@ async function startMockAgent(agentId: string, envFingerprint?: string): Promise
 
 function handleMockNotification(agentId: string, ourSessionId: string, params: Record<string, unknown>) {
   const updateType = params.type as string
-  const messageId = (params.messageId as string) || `msg-${Date.now()}`
+  const acpSessionId = typeof params.sessionId === 'string' ? params.sessionId : undefined
+  const messageId = (acpSessionId ? getClientTurnMessageId(agentId, acpSessionId) : undefined)
+    ?? (params.messageId as string)
+    ?? `msg-${Date.now()}`
   const data: SessionUpdateData = { messageId, role: 'agent' }
 
   switch (updateType) {

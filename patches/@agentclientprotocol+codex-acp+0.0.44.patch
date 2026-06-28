@@ -1,0 +1,165 @@
+diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_modules/@agentclientprotocol/codex-acp/dist/index.js
+index 1b1f5d5..a94f3f6 100644
+--- a/node_modules/@agentclientprotocol/codex-acp/dist/index.js
++++ b/node_modules/@agentclientprotocol/codex-acp/dist/index.js
+@@ -19025,6 +19025,12 @@ var package_default = {
+ };
+
+ // src/CodexAcpClient.ts
++function getSystemPrompt(meta) {
++  const systemPrompt = meta?.systemPrompt;
++  if (typeof systemPrompt !== "string") return null;
++  const trimmed = systemPrompt.trim();
++  return trimmed ? trimmed : null;
++}
+ var CodexAcpClient = class {
+   codexClient;
+   config;
+@@ -19165,7 +19171,7 @@ var CodexAcpClient = class {
+       baseInstructions: null,
+       config: await this.createSessionConfig(request.cwd, request.mcpServers ?? []),
+       cwd: request.cwd,
+-      developerInstructions: null,
++      developerInstructions: getSystemPrompt(request._meta),
+       model: null,
+       modelProvider: this.getResumeModelProvider(),
+       personality: null,
+@@ -19186,7 +19192,7 @@ var CodexAcpClient = class {
+       baseInstructions: null,
+       config: await this.createSessionConfig(request.cwd, request.mcpServers ?? []),
+       cwd: request.cwd,
+-      developerInstructions: null,
++      developerInstructions: getSystemPrompt(request._meta),
+       model: null,
+       modelProvider: this.getResumeModelProvider(),
+       personality: null,
+@@ -19201,6 +19207,33 @@ var CodexAcpClient = class {
+       thread: response.thread
+     };
+   }
++  async forkSession(request) {
++    await this.refreshSkills(request.cwd, request._meta);
++    const response = await this.codexClient.threadFork({
++      threadId: request.sessionId,
++      config: await this.createSessionConfig(request.cwd, request.mcpServers ?? []),
++      modelProvider: this.getResumeModelProvider(),
++      model: null,
++      serviceTier: null,
++      cwd: request.cwd,
++      approvalPolicy: null,
++      approvalsReviewer: null,
++      sandbox: null,
++      baseInstructions: null,
++      developerInstructions: getSystemPrompt(request._meta),
++      ephemeral: false
++    });
++    const codexModels = await this.fetchAvailableModels();
++    if (codexModels.length === 0) {
++      throw new Error("Codex did not return any models");
++    }
++    const currentModelId = this.createModelId(codexModels, response.model, response.reasoningEffort).toString();
++    return {
++      sessionId: response.thread.id,
++      currentModelId,
++      models: codexModels
++    };
++  }
+   async newSession(request) {
+     await this.refreshSkills(request.cwd, request._meta);
+     const response = await this.codexClient.threadStart({
+@@ -19211,7 +19244,7 @@ var CodexAcpClient = class {
+       approvalPolicy: null,
+       sandbox: null,
+       baseInstructions: null,
+-      developerInstructions: null,
++      developerInstructions: getSystemPrompt(request._meta),
+       personality: null,
+       ephemeral: null
+     });
+@@ -19900,7 +19933,8 @@ var CodexAcpServer = class {
+         },
+         sessionCapabilities: {
+           resume: {},
+-          list: {}
++          list: {},
++          fork: {}
+         },
+         mcpCapabilities: {
+           http: true,
+@@ -19984,6 +20018,44 @@ var CodexAcpServer = class {
+     const sessionModeState = sessionState.agentMode.toSessionModeState();
+     return [sessionId, sessionModelState, sessionModeState];
+   }
++  async forkSessionState(request) {
++    await this.checkAuthorization();
++    const requestedMcpServers = request.mcpServers ?? [];
++    const mcpServerStartupVersion = requestedMcpServers.length > 0 ? this.codexAcpClient.getMcpServerStartupVersion() : null;
++    logger.log(`Fork existing session: ${request.sessionId}...`);
++    const sessionMetadata = await this.runWithProcessCheck(() => this.codexAcpClient.forkSession(request));
++    const account = await this.getActiveAccount();
++    const { sessionId, currentModelId, models } = sessionMetadata;
++    const sessionMcpServers = this.resolveSessionMcpServers(requestedMcpServers, false);
++    const currentModel = this.findCurrentModel(models, currentModelId);
++    const sessionState = {
++      sessionId,
++      currentModelId,
++      supportedReasoningEfforts: currentModel?.supportedReasoningEfforts ?? [],
++      supportedInputModalities: currentModel?.inputModalities ?? ["text", "image"],
++      agentMode: AgentMode.getInitialAgentMode(),
++      currentTurnId: null,
++      lastTokenUsage: null,
++      totalTokenUsage: null,
++      modelContextWindow: null,
++      rateLimits: null,
++      account,
++      cwd: request.cwd,
++      sessionMcpServers
++    };
++    this.sessions.set(sessionId, sessionState);
++    if (requestedMcpServers.length > 0 && mcpServerStartupVersion !== null) {
++      this.pendingMcpStartupSessions.set(sessionId, {
++        requestedServers: new Set(requestedMcpServers.map((server) => server.name)),
++        afterVersion: mcpServerStartupVersion
++      });
++      this.publishMcpStartupStatusAsync(sessionId);
++    }
++    this.publishAvailableCommandsAsync(sessionId);
++    const sessionModelState = this.createModelState(models, currentModelId);
++    const sessionModeState = sessionState.agentMode.toSessionModeState();
++    return [sessionId, sessionModelState, sessionModeState];
++  }
+   async getActiveAccount() {
+     if (this.codexAcpClient.getModelProvider()) {
+       return null;
+@@ -20042,6 +20114,21 @@ var CodexAcpServer = class {
+       modes: modeState
+     };
+   }
++  async unstable_forkSession(params) {
++    logger.log("Forking session...", { sessionId: params.sessionId });
++    const [sessionId, modelState, modeState] = await this.forkSessionState(params);
++    logger.log("Session forked", {
++      sourceSessionId: params.sessionId,
++      sessionId,
++      modelId: modelState.currentModelId,
++      availableModelCount: modelState.availableModels.length
++    });
++    return {
++      sessionId,
++      models: modelState,
++      modes: modeState
++    };
++  }
+   async authenticate(_params) {
+     logger.log("Authenticate request received");
+     const isAuthenticated = await this.runWithProcessCheck(() => this.codexAcpClient.authenticate(_params));
+@@ -20656,6 +20743,9 @@ var CodexAppServerClient = class {
+   async threadResume(params) {
+     return await this.sendRequest({ method: "thread/resume", params });
+   }
++  async threadFork(params) {
++    return await this.sendRequest({ method: "thread/fork", params });
++  }
+   async threadList(params) {
+     return await this.sendRequest({ method: "thread/list", params });
+   }

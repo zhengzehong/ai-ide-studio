@@ -1,0 +1,41 @@
+.dashboard-event-detail .ec-detail {
+  border: 0;
+  height: 100%;
+}
+
+.dashboard-event-detail .ec-detail-head {
+  padding: 14px 16px;
+}
+
+.dashboard-event-detail .ec-detail-head h2 {
+  font-size: 16px;
+  line-height: 1.4;
+}
+
+.dashboard-event-detail .ec-detail-head p {
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.dashboard-event-detail .ec-detail-body {
+  padding: 12px 14px 16px;
+}
+
+.dashboard-event-detail .ec-kv-row {
+  grid-template-columns: 84px 1fr;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.dashboard-event-detail .ec-detail-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px 14px;
+}
+
+.dashboard-event-detail .ec-detail-actions .ec-btn {
+  width: 100%;
+  justify-content: center;
+}

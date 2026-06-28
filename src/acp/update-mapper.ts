@@ -1,5 +1,6 @@
 import * as acp from '@agentclientprotocol/sdk'
 import type { ToolCallContentItem, ToolCallData } from '../types/ws-protocol.js'
+import { hasMeaningfulToolTitle } from '../core/tool-title.js'
 
 export function contentBlockToText(block: acp.ContentBlock): string {
   if (block.type === 'text') return (block as acp.TextContent).text
@@ -46,7 +47,9 @@ export function mapToolCallContent(items?: acp.ToolCallContent[]): ToolCallConte
 }
 
 export function toolCallTitle(toolCall: { title?: string | null; locations?: acp.ToolCallLocation[] | null; rawInput?: unknown; toolCallId: string }): string {
-  if (toolCall.title) return toolCall.title
+  if (hasMeaningfulTitle(toolCall.title)) return toolCall.title
+  const mcpTitle = mcpToolTitle(toolCall.rawInput)
+  if (mcpTitle) return mcpTitle
   if (toolCall.locations?.[0]) return toolCall.locations[0].path.split(/[/\\]/).pop() || ''
   if (toolCall.rawInput && typeof toolCall.rawInput === 'object') {
     const inp = toolCall.rawInput as Record<string, unknown>
@@ -55,6 +58,28 @@ export function toolCallTitle(toolCall: { title?: string | null; locations?: acp
     if (inp.file_path) return String(inp.file_path).split(/[/\\]/).pop() || ''
   }
   return `工具调用 #${toolCall.toolCallId.slice(-6)}`
+}
+
+function hasMeaningfulTitle(title?: string | null): title is string {
+  return hasMeaningfulToolTitle(title)
+}
+
+function mcpToolTitle(rawInput: unknown): string | undefined {
+  const input = record(rawInput)
+  if (!input) return undefined
+  const tool = stringField(input, 'tool') || stringField(input, 'name')
+  if (!tool) return undefined
+  const server = stringField(input, 'server')
+  return server ? `${server}.${tool}` : tool
+}
+
+function record(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
+}
+
+function stringField(input: Record<string, unknown>, key: string): string | undefined {
+  const value = input[key]
+  return typeof value === 'string' && value.trim() ? value : undefined
 }
 
 export function mapToolCallUpdate(toolCall: acp.ToolCallUpdate): ToolCallData {

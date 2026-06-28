@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto'
 import { getDb } from './db.js'
+import type { ImageAttachment } from '../types/ws-protocol.js'
 
 export interface TaskRow {
   id: string
@@ -14,6 +15,9 @@ export interface TaskRow {
   project_id: string | null
   team_id: string | null
   assignee_member_id: string | null
+  rule_id: string | null
+  agent_report_status: string | null
+  execution_mode_id: string | null
 }
 
 export interface TaskEventRow {
@@ -25,6 +29,19 @@ export interface TaskEventRow {
   created_at: string
 }
 
+export interface TaskAttachmentRow {
+  id: string
+  task_id: string
+  name: string | null
+  mime_type: string
+  relative_path: string
+  absolute_path: string
+  url: string
+  size: number
+  sort_order: number
+  created_at: string
+}
+
 export interface CreateTaskInput {
   title: string
   description?: string
@@ -33,9 +50,19 @@ export interface CreateTaskInput {
   projectId?: string
   teamId?: string
   assigneeMemberId?: string
+  ruleId?: string
+  ruleName?: string
+  promptTemplate?: string
+  sessionId?: string
+  sessionMode?: 'existing' | 'new_each' | 'new_fixed'
+  images?: ImageAttachment[]
+  executionModeId?: string
+  selfExecute?: boolean
 }
 
 export interface UpdateTaskInput {
+  title?: string
+  description?: string | null
   status?: string
   stage?: string
   assignAgentId?: string | null
@@ -62,17 +89,22 @@ export const taskStore = {
       project_id: input.projectId ?? null,
       team_id: input.teamId ?? null,
       assignee_member_id: input.assigneeMemberId ?? null,
+      rule_id: input.ruleId ?? null,
+      agent_report_status: null,
+      execution_mode_id: input.executionModeId ?? null,
     }
     getDb()
       .prepare(
         `
       INSERT INTO tasks (
         id, title, description, source, status, stage, assigned_agent_id,
-        created_at, completed_at, project_id, team_id, assignee_member_id
+        created_at, completed_at, project_id, team_id, assignee_member_id, rule_id,
+        agent_report_status, execution_mode_id
       )
       VALUES (
         @id, @title, @description, @source, @status, @stage, @assigned_agent_id,
-        @created_at, @completed_at, @project_id, @team_id, @assignee_member_id
+        @created_at, @completed_at, @project_id, @team_id, @assignee_member_id, @rule_id,
+        @agent_report_status, @execution_mode_id
       )
     `,
       )
@@ -129,6 +161,10 @@ export const taskStore = {
     if (!existing) return
 
     const nextStage = stage !== undefined ? stage : existing.stage
+    const statusChanged = status !== existing.status
+    const stageChanged = nextStage !== existing.stage
+    if (!statusChanged && !stageChanged) return
+
     const completedAt = isTerminalStatus(status) ? new Date().toISOString() : null
     getDb()
       .prepare(
@@ -140,8 +176,8 @@ export const taskStore = {
       )
       .run(status, nextStage, completedAt, id)
     taskEventStore.append(id, {
-      type: 'status_changed',
-      payload: { from_status: existing.status, to_status: status, stage: nextStage },
+      type: statusChanged ? 'status_changed' : 'stage_updated',
+      payload: { from_status: existing.status, to_status: status, from_stage: existing.stage, to_stage: nextStage },
     })
   },
 
@@ -155,12 +191,26 @@ export const taskStore = {
     })
   },
 
+  updateAgentReportStatus(taskId: string, status: string | null): void {
+    const existing = taskStore.get(taskId)
+    if (!existing) return
+    const previous = existing.agent_report_status
+    if (previous === status) return
+    getDb().prepare('UPDATE tasks SET agent_report_status = ? WHERE id = ?').run(status, taskId)
+    taskEventStore.append(taskId, {
+      type: 'agent_status_changed',
+      payload: { from_agent_report_status: previous, to_agent_report_status: status },
+    })
+  },
+
   update(id: string, fields: UpdateTaskInput): TaskRow | undefined {
     const existing = taskStore.get(id)
     if (!existing) return undefined
 
     const updated: TaskRow = {
       ...existing,
+      title: fields.title ?? existing.title,
+      description: fields.description !== undefined ? fields.description : existing.description,
       status: fields.status ?? existing.status,
       stage: fields.stage ?? existing.stage,
       assigned_agent_id: fields.assignAgentId !== undefined ? fields.assignAgentId : existing.assigned_agent_id,
@@ -176,7 +226,9 @@ export const taskStore = {
       .prepare(
         `
       UPDATE tasks
-      SET status = @status,
+      SET title = @title,
+          description = @description,
+          status = @status,
           stage = @stage,
           assigned_agent_id = @assigned_agent_id,
           assignee_member_id = @assignee_member_id,
@@ -202,6 +254,22 @@ export const taskStore = {
     if (!taskStore.get(id)) return
     taskEventStore.append(id, { type: 'deleted', payload: { task_id: id } })
     getDb().prepare('DELETE FROM tasks WHERE id = ?').run(id)
+  },
+
+  linkSession(taskId: string, sessionId: string): void {
+    taskEventStore.append(taskId, { type: 'session_linked', payload: { session_id: sessionId } })
+  },
+
+  listSessionIds(taskId: string): string[] {
+    const rows = taskEventStore.list(taskId)
+    const ids: string[] = []
+    for (const row of rows) {
+      if (row.type !== 'session_linked') continue
+      const parsed = parseTaskEventPayload(row.payload_json)
+      const sessionId = typeof parsed.session_id === 'string' ? parsed.session_id : undefined
+      if (sessionId && !ids.includes(sessionId)) ids.push(sessionId)
+    }
+    return ids
   },
 }
 
@@ -262,4 +330,62 @@ export const taskEventStore = {
       .all({ taskId, limit })
       .reverse()
   },
+}
+
+export const taskAttachmentStore = {
+  replace(taskId: string, attachments: Array<{
+    name?: string
+    mimeType: string
+    relativePath: string
+    path: string
+    url: string
+    size: number
+    order: number
+  }>): TaskAttachmentRow[] {
+    const db = getDb()
+    const now = new Date().toISOString()
+    const rows: TaskAttachmentRow[] = attachments.map((attachment) => ({
+      id: `tatt-${randomUUID().slice(0, 8)}`,
+      task_id: taskId,
+      name: attachment.name ?? null,
+      mime_type: attachment.mimeType,
+      relative_path: attachment.relativePath,
+      absolute_path: attachment.path,
+      url: attachment.url,
+      size: attachment.size,
+      sort_order: attachment.order,
+      created_at: now,
+    }))
+    const apply = db.transaction(() => {
+      db.prepare('DELETE FROM task_attachments WHERE task_id = ?').run(taskId)
+      const insert = db.prepare(`
+        INSERT INTO task_attachments (
+          id, task_id, name, mime_type, relative_path, absolute_path, url,
+          size, sort_order, created_at
+        )
+        VALUES (
+          @id, @task_id, @name, @mime_type, @relative_path, @absolute_path, @url,
+          @size, @sort_order, @created_at
+        )
+      `)
+      for (const row of rows) insert.run(row)
+    })
+    apply()
+    return rows
+  },
+
+  list(taskId: string): TaskAttachmentRow[] {
+    return getDb()
+      .prepare<[string], TaskAttachmentRow>('SELECT * FROM task_attachments WHERE task_id = ? ORDER BY sort_order ASC')
+      .all(taskId)
+  },
+}
+
+function parseTaskEventPayload(raw: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {}
+  } catch {
+    return {}
+  }
 }

@@ -1,0 +1,83 @@
+interface IndicatorSession {
+  id: string
+  status: string
+  stage?: string | null
+  activity_state?: 'running' | 'idle' | null
+  last_message_at?: string | null
+  last_read_at?: string | null
+}
+
+export type SessionIndicatorStateMap = Record<string, true>
+
+export interface SessionIndicatorView {
+  color: string
+  pulse: boolean
+  title: string
+}
+
+const RUNNING_STAGE_TEXTS = new Set([
+  '正在准备 Agent...',
+  '正在启动 Agent...',
+  'Agent 已就绪',
+  '正在连接会话...',
+  '正在恢复会话...',
+  '会话已连接',
+  '正在思考...',
+])
+
+export function isRunningStage(stage?: string | null): boolean {
+  return !!stage && RUNNING_STAGE_TEXTS.has(stage)
+}
+
+function timestampMs(value: string | null | undefined): number | undefined {
+  if (!value) return undefined
+  const parsed = Date.parse(value)
+  return Number.isFinite(parsed) ? parsed : undefined
+}
+
+export function isSessionUnreadByTimestamps(session: { last_message_at?: string | null; last_read_at?: string | null }): boolean {
+  const lastMessageMs = timestampMs(session.last_message_at)
+  if (!lastMessageMs) return false
+  const lastReadMs = timestampMs(session.last_read_at)
+  // Old servers don't have last_read_at (migration 022 missing). Treat missing
+  // as read to avoid painting every session unread on version mismatch.
+  if (!lastReadMs) return false
+  return lastMessageMs > lastReadMs
+}
+
+export function sessionIndicator(
+  session: IndicatorSession,
+  runningSessionIds: SessionIndicatorStateMap,
+  unreadSessionIds: SessionIndicatorStateMap,
+): SessionIndicatorView {
+  if (runningSessionIds[session.id]) return { color: 'var(--green)', pulse: true, title: '正在执行' }
+  if (unreadSessionIds[session.id]) return { color: 'var(--yellow)', pulse: false, title: '有新回复' }
+  if (session.status === 'active') return { color: 'var(--green)', pulse: false, title: '可用' }
+  return { color: 'var(--text-3)', pulse: false, title: '已关闭' }
+}
+
+export function inferRunningSessions(sessions: IndicatorSession[]): SessionIndicatorStateMap {
+  return Object.fromEntries(
+    sessions.filter(isRunningSession).map((session) => [session.id, true]),
+  ) as SessionIndicatorStateMap
+}
+
+export function inferRunningSessionsFromStages(sessions: IndicatorSession[]): SessionIndicatorStateMap {
+  return inferRunningSessions(sessions)
+}
+
+function isRunningSession(session: IndicatorSession): boolean {
+  if (session.activity_state === 'running') return true
+  if (session.activity_state === 'idle') return false
+  return isRunningStage(session.stage)
+}
+
+export function removeSessionIndicator(
+  source: SessionIndicatorStateMap,
+  sessionId: string,
+): SessionIndicatorStateMap {
+  if (!source[sessionId]) return source
+  const next = { ...source }
+  delete next[sessionId]
+  return next
+}

@@ -288,8 +288,8 @@ function importSessions(db: SqliteDatabase, sessions: Record<string, unknown>): 
 
 function importMessages(db: SqliteDatabase, messages: Record<string, unknown[]>): void {
   const stmt = db.prepare(`
-    INSERT OR IGNORE INTO messages (id, session_id, role, content, thinking, tool_calls_json, decision_json, attachments_json, timestamp)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT OR IGNORE INTO messages (id, session_id, role, content, thinking, tool_calls_json, decision_json, attachments_json, file_changes_json, timestamp)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `)
   for (const [sessionId, rows] of Object.entries(messages)) {
     if (!Array.isArray(rows)) continue
@@ -303,6 +303,7 @@ function importMessages(db: SqliteDatabase, messages: Record<string, unknown[]>)
         jsonOrNull(row.tool_calls_json),
         jsonOrNull(row.decision_json),
         jsonOrNull(row.attachments_json),
+        jsonOrNull(row.file_changes_json),
         stringOr(row.timestamp, new Date().toISOString()),
       )
     }

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { calculateVirtualRange } from './virtual-range'
 
+export const DEFAULT_CHAT_LIST_PADDING_BOTTOM = 16
+
 interface VirtualChatListProps<T> {
   items: T[]
   getKey: (item: T) => string
@@ -22,7 +24,7 @@ export function VirtualChatList<T>({
   estimateHeight = 112,
   overscan = 8,
   gap = 14,
-  paddingBottom = 100,
+  paddingBottom = DEFAULT_CHAT_LIST_PADDING_BOTTOM,
   threshold = 30,
   onContentResize,
 }: VirtualChatListProps<T>) {

@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>方案C - 搜索过滤 + 精简列表</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f3f4f6; height: 100vh; display: flex; }
+.sidebar { width: 280px; background: #fff; border-right: 1px solid #e5e7eb; display: flex; flex-direction: column; height: 100vh; }
+.search-area { padding: 12px 14px 8px; }
+.search-box { width: 100%; padding: 7px 10px 7px 32px; border-radius: 8px; border: 1px solid #e5e7eb; font-size: 13px; outline: none; background: #f9fafb url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.3-4.3'/%3E%3C/svg%3E") 10px center no-repeat; }
+.search-box:focus { border-color: #2563eb; background-color: #fff; }
+.filter-row { display: flex; gap: 6px; padding: 6px 14px 10px; }
+.filter-btn { padding: 4px 10px; border-radius: 12px; border: 1px solid #e5e7eb; font-size: 12px; cursor: pointer; background: white; color: #6b7280; transition: all 0.15s; }
+.filter-btn.active { background: #2563eb; border-color: #2563eb; color: white; }
+.filter-btn:hover:not(.active) { background: #f3f4f6; }
+.agent-list { flex: 1; overflow-y: auto; padding: 0 0 8px; }
+.agent-section { margin-bottom: 4px; }
+.agent-row { display: flex; align-items: center; gap: 9px; padding: 8px 14px; cursor: pointer; }
+.agent-row:hover { background: #f9fafb; }
+.agent-avatar { width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: white; flex-shrink: 0; }
+.agent-name { flex: 1; font-size: 14px; font-weight: 500; color: #111827; }
+.agent-dot { width: 7px; height: 7px; border-radius: 50%; }
+.sessions { padding-left: 49px; }
+.session-item { display: flex; align-items: center; gap: 7px; padding: 5px 12px 5px 0; cursor: pointer; border-radius: 4px; }
+.session-item:hover { background: #f9fafb; }
+.session-item.active { background: #eff6ff; }
+.s-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+.s-name { flex: 1; font-size: 13px; color: #374151; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.s-time { font-size: 11px; color: #9ca3af; }
+.more-link { font-size: 12px; color: #2563eb; padding: 4px 0; cursor: pointer; }
+.more-link:hover { text-decoration: underline; }
+.empty-section { padding: 12px 14px; display: flex; align-items: center; justify-content: center; }
+.empty-section span { font-size: 12px; color: #9ca3af; background: #f9fafb; padding: 6px 14px; border-radius: 8px; }
+.main { flex: 1; display: flex; align-items: center; justify-content: center; color: #9ca3af; font-size: 15px; }
+.legend { position: fixed; bottom: 20px; right: 20px; background: white; padding: 16px 20px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); font-size: 13px; color: #374151; line-height: 2; }
+.legend h4 { font-size: 14px; margin-bottom: 6px; color: #111827; }
+</style>
+</head>
+<body>
+<div class="sidebar">
+  <div class="search-area">
+    <input class="search-box" placeholder="搜索会话或智能体..." />
+  </div>
+  <div class="filter-row">
+    <span class="filter-btn active">运行中</span>
+    <span class="filter-btn">全部</span>
+    <span class="filter-btn">已完成</span>
+  </div>
+  <div class="agent-list">
+    <!-- 筛选"运行中"后只显示有活跃会话的 Agent -->
+    <div class="agent-section">
+      <div class="agent-row">
+        <span class="agent-avatar" style="background:#2563eb">码</span>
+        <span class="agent-name">代码工程师</span>
+        <span class="agent-dot" style="background:#059669"></span>
+      </div>
+      <div class="sessions">
+        <div class="session-item active">
+          <span class="s-dot" style="background:#059669"></span>
+          <span class="s-name">模型配置功能</span>
+          <span class="s-time">18:57</span>
+        </div>
+        <div class="session-item">
+          <span class="s-dot" style="background:#059669"></span>
+          <span class="s-name">对话功能优化</span>
+          <span class="s-time">20:01</span>
+        </div>
+        <div class="session-item">
+          <span class="s-dot" style="background:#d1d5db"></span>
+          <span class="s-name">任务管理优化</span>
+          <span class="s-time">22:40</span>
+        </div>
+        <div class="more-link">查看全部 5 条 →</div>
+      </div>
+    </div>
+
+    <div class="agent-section">
+      <div class="agent-row">
+        <span class="agent-avatar" style="background:#1d4ed8">O</span>
+        <span class="agent-name">openclaw研究员</span>
+        <span class="agent-dot" style="background:#059669"></span>
+      </div>
+      <div class="sessions">
+        <div class="session-item">
+          <span class="s-dot" style="background:#059669"></span>
+          <span class="s-name">版本对比分析</span>
+          <span class="s-time">10:27</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="empty-section">
+      <span>其他 4 个智能体暂无运行中会话</span>
+    </div>
+  </div>
+</div>
+<div class="main">← 方案C：搜索 + 过滤按钮，默认只显示运行中</div>
+<div class="legend">
+  <h4>方案C 核心规则</h4>
+  ✅ 顶部搜索框可搜会话标题和 Agent 名<br>
+  ✅ 过滤按钮：运行中 / 全部 / 已完成<br>
+  ✅ 默认「运行中」只显示有活跃会话的 Agent<br>
+  ✅ 每个 Agent 最多显示 3 条，多的「查看全部」<br>
+  ✅ 不改变布局结构，只优化信息密度
+</div>
+</body>
+</html>

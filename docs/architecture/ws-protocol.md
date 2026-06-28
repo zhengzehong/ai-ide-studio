@@ -22,6 +22,15 @@ ws://localhost:18800
 |------|------|------|------|
 | `agents.list` | `{ projectId? }` | `Agent[]` | 列出 Agent，可按项目过滤 |
 | `agents.create` | `{ type, name, runtime, config? }` | `Agent` | 创建全局/兼容 Agent；项目工作台优先使用模板部署或自定义项目 Agent |
+| `agents.reorder` | `{ projectId, agentIds }` | `Agent[]` | 保存当前项目内 Agent 自定义排序；传入 ID 必须全部属于该项目 |
+
+### 全局助理
+
+| 方法 | 参数 | 返回 | 说明 |
+|------|------|------|------|
+| `globalAssistant.get` | `{}` | `{ assistant, agent, session } \| null` | 获取当前全局助理绑定 |
+| `globalAssistant.setTemplate` | `{ templateId, name?, runtime?, systemPrompt?, modelProfileId? }` | `{ assistant, agent, session }` | 从 Agent 模板设置唯一全局助理，并创建或复用普通 Agent/Session；`modelProfileId` 为空值时清除绑定 |
+| `globalAssistant.touch` | `{}` | `{ assistant, agent, session } \| null` | 更新全局助理最近使用时间并返回当前绑定 |
 
 ### Session 管理
 
@@ -29,21 +38,29 @@ ws://localhost:18800
 |------|------|------|------|
 | `sessions.list` | `{ agentId?, projectId? }` | `Session[]` | 列出 Session |
 | `sessions.create` | `{ agentId, taskId?, projectId? }` | `Session` | 只创建本地 SQLite Session；不启动 ACP runtime，也不创建 ACP session |
+| `sessions.copy` | `{ sessionId }` | `Session` | 复制会话：先通过 ACP fork 复制 runtime 上下文，再复制 SQLite 中最近 10 条消息及相关 `session_events` |
+| `sessions.listLocalImportCandidates` | `{ agentId, projectId? }` | `LocalSessionCandidate[]` | 扫描当前机器上的 Codex / Claude Code JSONL 本地会话候选，按 Agent runtime 和项目工作目录排序 |
+| `sessions.importLocal` | `{ agentId, projectId?, jsonlPath? }` 或 `{ agentId, projectId?, externalSessionId, sourcePath?, runtime?, cwd?, title? }` | `{ session, warning, candidate }` | 绑定本地 Codex / Claude Code 原生会话 id，创建一个空平台 Session，不导入历史消息或事件 |
 | `sessions.rename` | `{ sessionId, title }` | `Session` | 重命名 Session |
 | `sessions.close` | `{ sessionId }` | `Session` | 关闭 ACP 会话并标记为 closed |
 | `sessions.archive` | `{ sessionId }` | `Session` | 归档 Session |
 | `sessions.delete` | `{ sessionId }` | `{ deleted: true }` | 软删除 Session，默认列表不再返回 |
+| `sessions.reorder` | `{ projectId, agentId, sessionIds }` | `Session[]` | 保存同一项目、同一 Agent 下的 Session 自定义排序 |
 | `session.getModels` | `{ sessionId }` | `SessionCapabilities` | 获取模型/模式/配置选项 |
-| `session.setModel` | `{ sessionId, modelId }` | `void` | 切换模型 |
-| `session.setMode` | `{ sessionId, modeId }` | `void` | 切换模式 |
-| `session.setConfig` | `{ sessionId, configId, value }` | `void` | 切换配置 |
+| `session.setModel` | `{ sessionId, modelId }` | `void` | 切换模型；成功后写入 `sessions.runtime_preferences_json.modelId` |
+| `session.setMode` | `{ sessionId, modeId }` | `void` | 切换模式；成功后写入 `sessions.runtime_preferences_json.modeId` |
+| `session.setConfig` | `{ sessionId, configId, value }` | `void` | 切换配置；成功后写入 `sessions.runtime_preferences_json.config[configId]` |
 | `session.cancel` | `{ sessionId }` | `{ ok: true }` | 通过 ACP `session/cancel` 停止当前轮次，不杀 runtime 进程 |
 | `session.fork` | `{ sessionId }` | `Session` | Fork 会话 |
-| `sessions.messages` | `{ sessionId, limit?, before?, includeToolCalls? }` | `Message[]` | 查询消息历史；默认不返回完整历史工具 JSON，只返回 `has_tool_calls` / `tool_call_count` |
+| `sessions.messages` | `{ sessionId, limit?, before?, includeToolCalls? }` | `Message[]` | 查询消息历史；默认不返回完整历史工具 JSON，只返回 `has_tool_calls` / `tool_call_count`，并返回 ACP diff 文件变更轻量摘要 `file_changes_json` / `has_file_changes` / `file_change_count` |
 | `sessions.messageToolCalls` | `{ sessionId, messageId }` | `ToolCallSummary[]` | 懒加载单条消息的工具调用摘要 |
 | `sessions.messageToolCallDetail` | `{ sessionId, messageId, toolCallId }` | `ToolCallDetail` | 懒加载单个工具调用详情，长输出会截断 |
+| `sessions.messageFileChanges` | `{ sessionId, messageId }` | `FileChangeDetail` | 懒加载单条 Agent 消息的 ACP diff 文件变更详情 |
+| `sessions.messageProcess` | `{ sessionId, messageId }` | `TurnProcessItem[]` | 懒加载单条 Agent 消息的执行过程轻量列表；按 `sequence` 升序返回，默认不返回大 `detail_json` |
+| `sessions.processItemDetail` | `{ sessionId, messageId, itemId }` | `TurnProcessItem` | 懒加载单个执行过程块详情，例如工具 raw 输出、权限详情、计划详情或完整 diff |
+| `sessions.messageEvents` | `{ sessionId, messageId }` | `SessionEvent[]` | 兼容旧数据的执行过程事件兜底恢复；新数据优先使用 `sessions.messageProcess` |
 | `sessions.events` | `{ sessionId, limit?, afterSequence? }` | `SessionEvent[]` | 查询事件 |
-| `prompt` | `{ sessionId, content, images? }` | `{ status }` | 发送消息；首次发送时懒启动 runtime，并按需 new/resume ACP session |
+| `prompt` | `{ sessionId, content, clientMessageId?, contextProjectId?, images? }` | `{ status }` | 发送消息；`clientMessageId` 用于让前端乐观用户消息与 SQLite 持久化消息合并；`contextProjectId` 用于全局助理等无项目 Session 的本轮项目工具上下文，不写入 Session；首次发送时懒启动 runtime，并按需 new/resume ACP session |
 | `permission.respond` | `{ sessionId, permissionRequestId, optionId?, cancelled? }` | `void` | 响应权限请求 |
 | `elicitation.respond` | `{ sessionId, elicitationRequestId, action, content? }` | `void` | 响应提问请求 |
 | `decision` | `{ sessionId, messageId, choice }` | `void` | 响应决定 |
@@ -53,8 +70,33 @@ ws://localhost:18800
 | 方法 | 参数 | 返回 | 说明 |
 |------|------|------|------|
 | `tasks.list` | `{ status?, projectId? }` | `Task[]` | 列出任务，可按项目过滤 |
-| `tasks.create` | `{ title, description?, assignAgentId?, projectId? }` | `Task` | 创建任务 |
+| `tasks.create` | `{ title, description?, assignAgentId?, projectId?, sessionMode?, sessionId? }` | `Task` | 创建任务；`sessionMode` 支持 `existing` / `new_each` / `new_fixed`，旧版仅传 `sessionId` 时按 `existing` 兼容 |
 | `tasks.update` | `{ taskId, status?, stage? }` | `Task` | 更新任务状态 |
+
+### 事件中心
+
+| 方法 | 参数 | 返回 | 说明 |
+|------|------|------|------|
+| `eventCategories.list` | `{ projectId? }` | `EventCategory[]` | 列出事件类别；传入项目时返回全局类别 + 项目类别，同名项目类别覆盖全局类别 |
+| `eventCategories.create` | `{ projectId?, categoryId, name, description?, schema?, defaultPriority?, allowedWriters?, allowedConsumers?, enabled? }` | `EventCategory` | 创建事件类别；传入 `projectId` 时创建项目类别，不传时创建全局类别 |
+| `eventCategories.update` | `{ projectId?, categoryId, ...fields }` | `EventCategory` | 更新同一作用域内的事件类别 |
+| `eventCategories.toggle` | `{ projectId?, categoryId, enabled }` | `EventCategory` | 启用或停用同一作用域内的事件类别 |
+| `eventCategories.delete` | `{ projectId?, categoryId }` | `{ categoryId, deleted }` | 删除同一作用域内未被事件或订阅引用的事件类别；已有引用时应停用而不是删除 |
+| `events.list` | `{ projectId?, categoryId?, status?, keyword?, limit?, offset? }` | `EventCenterEvent[]` 或 `{ items, total, limit, offset }` | 查询事件；传入 `limit`、`offset` 或 `keyword` 时返回分页结果 |
+| `events.get` | `{ eventId }` | `EventCenterEvent & { consumptions }` | 获取事件详情和消费记录 |
+| `events.create` | `{ projectId?, categoryId, title, summary?, sourceType?, sourceId?, sourceLabel?, priority?, confidence?, tags?, payload?, evidence?, dedupeKey?, createdByAgentId? }` | `EventCenterEvent` | 写入事件 |
+| `events.ignore` | `{ eventId }` | `EventCenterEvent` | 忽略事件 |
+| `events.archive` | `{ eventId }` | `EventCenterEvent` | 归档事件 |
+| `events.reopen` | `{ eventId }` | `EventCenterEvent` | 重新打开事件 |
+| `events.convertToTask` | `{ eventId, title?, description?, assignAgentId?, projectId? }` | `Task` | 将事件转成普通任务并写入关联 |
+| `eventSubscriptions.list` | `{ projectId? }` | `EventSubscription[]` | 查询订阅规则 |
+| `eventSubscriptions.create` | `{ projectId?, name, categoryId, consumerAgentId?, consumerLabel?, actionMode?, filter?, enabled?, autoStart?, consumerSessionMode?, consumerSessionId? }` | `EventSubscription` | 创建订阅规则；`consumerSessionMode` 支持 `existing` / `new_each` / `new_fixed` |
+| `eventSubscriptions.update` | `{ subscriptionId, projectId?, name, categoryId, consumerAgentId?, consumerLabel?, actionMode?, filter?, enabled?, autoStart?, consumerSessionMode?, consumerSessionId? }` | `EventSubscription` | 更新订阅规则；仅影响后续匹配，不回写历史消费记录 |
+| `eventSubscriptions.toggle` | `{ subscriptionId, enabled }` | `EventSubscription` | 启用或停用订阅规则 |
+| `eventSubscriptions.delete` | `{ subscriptionId }` | `{ subscriptionId, deleted }` | 删除订阅规则；历史消费记录保留 |
+| `eventConsumptions.claimNext` | `{ projectId?, agentId }` | `{ event, consumption } \| null` | 消费 Agent 领取下一条待消费事件 |
+| `eventConsumptions.run` | `{ consumptionId, sessionId? }` | `{ event, consumption, sessionId }` | 从 UI 手动启动指定消费记录的消费者 Agent 会话；传入 `sessionId` 时优先复用该会话 |
+| `eventConsumptions.consume` | `{ consumptionId, resultSummary?, result?, error? }` | `EventConsumption` | 提交消费结果 |
 
 ### Team 上下文
 
@@ -62,12 +104,30 @@ ws://localhost:18800
 |------|------|------|------|
 | `teams.current` | `{ sessionId }` | `{ team, currentMember, members, tasks, mailbox }` | 按当前普通会话反查 Team 上下文；非 Team 会话返回空上下文。Team 不是独立页面，Leader 和成员都通过各自 `session_id` 复用会话页。 |
 
+### 知识库
+
+| 方法 | 参数 | 返回 | 说明 |
+|------|------|------|------|
+| `knowledgeBases.list` | `{ projectId }` | `{ knowledgeBases }` | 列出项目可见知识库：项目库 + 已挂载 shared 库；缺失项目库时会懒创建 |
+| `knowledgeBases.shared` | `{}` | `{ knowledgeBases }` | 列出所有 shared 知识库，供项目挂载 |
+| `knowledgeBases.create` | `{ projectId, name, kind, src, icon?, description?, note? }` | `{ kb }` | 创建 project/shared 知识库；project 库受每项目唯一约束 |
+| `knowledgeBases.mount` | `{ projectId, kbId, note? }` | `{ mount }` | 将 shared 知识库挂载到项目 |
+| `knowledgeBases.unmount` | `{ projectId, kbId, note? }` | `{ ok: true }` | 卸载 shared 知识库，不删除内容 |
+| `knowledgePages.list` | `{ projectId, kbId }` | `{ pages }` | 列出知识库页面，并在 code 页面源文件变化时懒标记 stale |
+| `knowledgePages.read` | `{ projectId, pageId?，kbId?, title? }` | `{ kb, page, outLinks, backlinks }` | 读取页面正文、wikilink 出链和反向链接 |
+| `knowledgePages.search` | `{ projectId, query, kbIds?, limit? }` | `{ pages }` | 在可见知识库内用 SQL LIKE 搜索 |
+| `knowledgePages.create` | `{ projectId, kbId, title, section?, summary?, body, tags?, srcFiles?, note? }` | `{ page, activity, warnings }` | 人工创建页面并写 activity |
+| `knowledgePages.update` | `{ projectId, pageId, title?, section?, summary?, body, tags?, note? }` | `{ page, activity }` | 人工编辑页面并写 activity |
+| `knowledgePages.refreshFromCode` | `{ projectId, pageId, body, srcFiles?, confirmOverwriteHumanEdit?, note? }` | `{ page, activity }` | 显式刷新 code 页面；人工编辑过的页面需要确认 |
+| `knowledgeActivities.list` | `{ projectId, kbId? }` | `{ activities }` | 列出当前项目可见知识库活动 |
+| `knowledgeActivities.revert` | `{ projectId, activityId, note? }` | `{ page?, activity }` | 按 activity 快照撤销写入 |
+
 ### Rule 管理
 
 | 方法 | 参数 | 返回 | 说明 |
 |------|------|------|------|
 | `rules.list` | — | `Rule[]` | 列出所有规则 |
-| `rules.create` | `{ name, cron, action, actionConfig }` | `Rule` | 创建规则 |
+| `rules.create` | `{ name, cron, action, actionConfig }` | `Rule` | 创建规则；`actionConfig.session_mode/session_id` 支持定时任务或定时 Prompt 的 `existing` / `new_each` / `new_fixed` 会话策略 |
 | `rules.update` | `{ ruleId, enabled?, ... }` | `Rule` | 更新规则 |
 | `rules.delete` | `{ ruleId }` | `void` | 删除规则 |
 
@@ -86,6 +146,7 @@ ws://localhost:18800
 | `modelProfiles.create` | `{ name, runtime, providerId, contextWindow?, config }` | `ModelProfile` | 创建 Claude Code 或 Codex 模型档案 |
 | `modelProfiles.update` | `{ profileId, ...fields }` | `ModelProfile` | 更新模型档案 |
 | `modelProfiles.toggle` | `{ profileId, enabled }` | `{ ok: true }` | 启用或停用模型档案 |
+| `modelProfiles.setDefault` | `{ profileId }` | `ModelProfile` | 将启用中的模型档案设为该 runtime 的默认档案 |
 | `modelProfiles.delete` | `{ profileId }` | `{ ok: true }` | 删除模型档案，并清理 Agent 上的对应绑定 |
 
 ### Tool / MCP 管理
@@ -110,13 +171,17 @@ ws://localhost:18800
 | 事件 | 数据 | 说明 |
 |------|------|------|
 | `session:update` | `{ sessionId, agentId, data }` | 流式会话更新，包含消息、工具、权限、提问、计划和 `lifecycle.*` 阶段 |
+| `session:process_item` | `{ sessionId, agentId?, item }` | 当前轮执行过程块的轻量增量；用于实时展示思考、工具、权限、提问、计划、文件修改等过程 |
 | `session:event` | `{ sessionId, agentId?, event }` | 持久化事件 |
-| `session:done` | `{ sessionId, agentId, messageId, turnUsage? }` | Agent 回复完成 |
+| `session:done` | `{ sessionId, agentId, messageId, turnId?, turnUsage? }` | Agent 回复完成；`turnId` 仅用于诊断日志/前后端事件关联 |
+| `session:activity` | `{ sessionId, agentId, turnId?, state, reason, timestamp }` | 全局轻量事件：`running` 表示会话开始执行，`idle` 表示会话执行结束；用于左侧会话列表活动/未读提示，不承载聊天内容；`turnId` 仅用于诊断 |
 | `session:capabilities` | `{ sessionId, capabilities }` | 会话能力信息 |
 | `session:changed` | `{ sessionId, data }` | Session 标题、状态、归档/删除等列表元数据变更 |
 | `agent:status` | `{ agentId, status }` | Agent 在线状态 |
 | `task:update` | `{ taskId, data }` | Task 状态变更 |
+| `event-center:update` | `{ eventId?, categoryId?, subscriptionId?, consumptionId?, taskId?, sessionId?, event }` | 事件中心类别、事件、订阅或消费记录变化 |
 | `team:update` | `{ teamId, sessionIds, data }` | Team 成员、任务或 mailbox 变化；前端仅在当前 `sessionId` 属于 `sessionIds` 时刷新 `teams.current`。 |
+| `knowledge-base:update` | `{ projectId?, kbId?, pageId?, event }` | 知识库、页面、挂载或 activity 变化；前端据此刷新当前项目知识库视图 |
 | `rule:update` | `{ ruleId, data }` | Rule 状态变更 |
 
 Team 运行时事件：`team.member.spawn` 会广播包含新成员 Session 行的 `session:changed`。`team.member.message` 携带 `taskId` 时，会把 `backlog/planning` 的 Team Task 更新为 `executing`，再广播 `task:update` 与 `team:update`。工作台在当前 Team 匹配 `team:update` 时应刷新项目 agents/sessions/tasks。
@@ -130,6 +195,7 @@ Team 运行时事件：`team.member.spawn` 会广播包含新成员 Session 行�
 - 项目级能力（工作台、任务、自动化、文件浏览）必须携带 `projectId`。
 - `projectId` 缺失时，只允许访问全局页（概览、Agent 广场、设置）。
 - `session.getModels` 返回的 capabilities 由 ACP host 合并模型、模式、配置、命令等能力后上报。
+- `session.setModel`、`session.setMode`、`session.setConfig` 会懒连接 ACP session；保存的 runtime preferences 会在后续 `newSession`、`resumeSession`、`loadSession` 或 fork 后重新应用。
 - Session 删除使用软删除：`sessions.delete` 写入 `deleted_at`，保留 `messages` 和 `session_events` 历史数据；`sessions.list` 默认过滤已删除记录。
 
 
@@ -163,5 +229,18 @@ Team 运行时事件：`team.member.spawn` 会广播包含新成员 Session 行�
 | `agents.createCustom` | `{ projectId, name, agentType, runtime, systemPrompt?, icon?, modelProfileId? }` | `Agent` | 创建项目级自定义 Agent |
 | `agents.update` | `{ agentId, name?, agentType?, runtime?, systemPrompt?, icon?, modelProfileId? }` | `Agent` | 更新项目级 Agent 配置；`modelProfileId` 为空值时清除绑定 |
 | `agents.delete` | `{ agentId }` | `{ deleted: true }` | 删除项目级 Agent |
+| `agents.setHidden` | `{ agentId, hidden }` | `Agent` | 设置项目级 Agent 是否在工作台会话侧栏隐藏 |
+| `agents.reorder` | `{ projectId, agentIds }` | `Agent[]` | 调整当前项目工作台左侧 Agent 顺序 |
 
 `agents.create` 保留给 CLI 或旧调用方兼容；新 UI 不应绕过项目边界直接创建全局 Agent。
+
+## Desktop Widget RPC
+
+| Method | Params | Returns | Notes |
+|------|------|------|------|
+| `widget.sessions.list` | `{ projectId?, filter?: "active" \| "all" }` | `WidgetSessionItem[]` | Session-first floating widget list. The default `active` filter returns running or unread sessions. |
+| `widget.sessions.markRead` | `{ sessionId }` | `{ ok: true }` | Marks a widget session as read after validating the Session exists. |
+| `widget.preferences.get` | `{ key? }` | `Record<string,string>` or `{ key, value }` | Reads widget preferences such as pinned project and pinned task Agent. |
+| `widget.preferences.set` | `{ key, value }` | `{ ok: true }` | Saves or deletes a widget preference. |
+
+`WidgetSessionItem.activityState` is derived from Session runtime-state evidence, not from `agents.status`. `agents.status = running` means the runtime process is online; it does not mean a specific Session is currently generating.

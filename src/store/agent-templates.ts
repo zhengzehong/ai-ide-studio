@@ -21,6 +21,7 @@ export interface AgentTemplateRow {
 export interface CreateTemplateInput {
   name: string
   type: string
+  id?: string
   runtime?: string
   icon?: string
   systemPrompt?: string
@@ -33,7 +34,7 @@ export const templateStore = {
   create(input: CreateTemplateInput): AgentTemplateRow {
     const now = new Date().toISOString()
     const tpl: AgentTemplateRow = {
-      id: `tpl-${randomUUID().slice(0, 8)}`,
+      id: input.id ?? `tpl-${randomUUID().slice(0, 8)}`,
       name: input.name,
       type: input.type,
       runtime: input.runtime ?? 'claude',
@@ -45,10 +46,14 @@ export const templateStore = {
       created_at: now,
       updated_at: now,
     }
-    getDb().prepare(`
+    getDb()
+      .prepare(
+        `
       INSERT INTO agent_templates (id, name, type, runtime, icon, system_prompt, description, skills_json, is_builtin, created_at, updated_at)
       VALUES (@id, @name, @type, @runtime, @icon, @system_prompt, @description, @skills_json, @is_builtin, @created_at, @updated_at)
-    `).run(tpl)
+    `,
+      )
+      .run(tpl)
     log.info({ templateId: tpl.id, name: tpl.name, type: tpl.type }, 'Agent 模板已创建')
     return tpl
   },
@@ -58,7 +63,9 @@ export const templateStore = {
   },
 
   list(): AgentTemplateRow[] {
-    return getDb().prepare<[], AgentTemplateRow>('SELECT * FROM agent_templates ORDER BY is_builtin DESC, created_at ASC').all()
+    return getDb()
+      .prepare<[], AgentTemplateRow>('SELECT * FROM agent_templates ORDER BY is_builtin DESC, created_at ASC')
+      .all()
   },
 
   update(id: string, fields: Partial<Omit<CreateTemplateInput, 'isBuiltin'>>): AgentTemplateRow | undefined {
@@ -76,13 +83,17 @@ export const templateStore = {
       skills_json: fields.skills ? JSON.stringify(fields.skills) : tpl.skills_json,
       updated_at: new Date().toISOString(),
     }
-    getDb().prepare(`
+    getDb()
+      .prepare(
+        `
       UPDATE agent_templates
       SET name = @name, type = @type, runtime = @runtime, icon = @icon,
           system_prompt = @system_prompt, description = @description,
           skills_json = @skills_json, updated_at = @updated_at
       WHERE id = @id
-    `).run(updated)
+    `,
+      )
+      .run(updated)
     return updated
   },
 
@@ -93,12 +104,9 @@ export const templateStore = {
 }
 
 export function seedBuiltinTemplates(): void {
-  const db = getDb()
-  const count = db.prepare<[], { cnt: number }>('SELECT COUNT(*) as cnt FROM agent_templates WHERE is_builtin = 1').get()
-  if (count && count.cnt > 0) return
-
   const builtins: CreateTemplateInput[] = [
     {
+      id: 'tpl-architect',
       name: '架构师',
       type: 'architect',
       runtime: 'claude',
@@ -115,6 +123,7 @@ export function seedBuiltinTemplates(): void {
       isBuiltin: true,
     },
     {
+      id: 'tpl-dev',
       name: '代码工程师',
       type: 'dev',
       runtime: 'codex',
@@ -131,6 +140,7 @@ export function seedBuiltinTemplates(): void {
       isBuiltin: true,
     },
     {
+      id: 'tpl-reviewer',
       name: '代码审查员',
       type: 'reviewer',
       runtime: 'claude',
@@ -147,6 +157,7 @@ export function seedBuiltinTemplates(): void {
       isBuiltin: true,
     },
     {
+      id: 'tpl-tester',
       name: '测试工程师',
       type: 'tester',
       runtime: 'codex',
@@ -163,6 +174,7 @@ export function seedBuiltinTemplates(): void {
       isBuiltin: true,
     },
     {
+      id: 'tpl-docs',
       name: '文档工程师',
       type: 'docs',
       runtime: 'claude',
@@ -179,6 +191,7 @@ export function seedBuiltinTemplates(): void {
       isBuiltin: true,
     },
     {
+      id: 'tpl-ops',
       name: 'DevOps 工程师',
       type: 'ops',
       runtime: 'codex',
@@ -194,10 +207,55 @@ export function seedBuiltinTemplates(): void {
       skills: ['CI/CD', 'Docker', '监控', '自动化部署'],
       isBuiltin: true,
     },
+    {
+      id: 'tpl-team-leader',
+      name: '正式 Team Leader',
+      type: 'leader',
+      runtime: 'claude',
+      icon: 'users',
+      description: '负责创建团队、招募真实成员、拆分任务、派活和闭环总结',
+      systemPrompt: `你是 AI IDE Studio 的正式 Team Leader，负责把用户目标拆解成可执行的团队协作流程。
+
+核心职责：
+- 创建 Team，并根据任务需要招募真实成员。
+- 为成员创建明确的 Team Task，并通过 team.member.message 派发。
+- 读取成员通过 team.mailbox.send 提交的报告。
+- 根据成员进展继续派活、汇总风险，并给用户输出最终结论。
+
+协作规则：
+- 创建成员时优先使用真实 runtime：codex 或 claude，不要使用 mock。
+- 不要代替成员伪造 report；成员必须自己使用 team.mailbox.send 汇报，并使用 team.task.update 更新自己的任务状态。
+- 成员完成、阻塞或提问后，系统会通过异步进展唤醒你；不要 sleep、不要轮询等待。
+- Team 工具中的 project/team/member/session 上下文由系统补齐，不要求用户手填项目名称。
+- 每一轮回复都要说明当前 Team、成员、任务状态，以及下一步是否需要等待系统唤醒。`,
+      skills: ['团队编排', '任务拆解', '成员派活', '进展汇总', '闭环交付'],
+      isBuiltin: true,
+    },
   ]
 
+  let created = 0
+  let skipped = 0
   for (const tpl of builtins) {
+    if (builtinTemplateExists(tpl)) {
+      skipped += 1
+      continue
+    }
     templateStore.create(tpl)
+    created += 1
   }
-  log.info({ count: builtins.length }, '内置 Agent 模板已初始化')
+  log.info({ created, skipped, total: builtins.length }, '内置 Agent 模板已初始化')
+}
+
+function builtinTemplateExists(input: CreateTemplateInput): boolean {
+  if (input.id && templateStore.get(input.id)) {
+    return true
+  }
+
+  const existing = getDb()
+    .prepare<[string, string, string], AgentTemplateRow>(
+      'SELECT * FROM agent_templates WHERE is_builtin = 1 AND name = ? AND type = ? AND runtime = ? ORDER BY created_at ASC LIMIT 1',
+    )
+    .get(input.name, input.type, input.runtime ?? 'claude')
+
+  return existing !== undefined
 }

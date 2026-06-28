@@ -17,12 +17,10 @@ const statusLabels: Record<string, string> = {
   active: '活跃',
   removed: '已移除',
   backlog: '待办',
-  planning: '规划中',
   executing: '执行中',
-  reviewing: '审查中',
+  needs_input: '待确认',
   completed: '已完成',
   cancelled: '已取消',
-  blocked: '已阻塞',
 }
 
 const mailboxLabels: Record<string, string> = {
@@ -46,7 +44,7 @@ export function TeamContextPanel({ context, agents, currentSessionId, onSelectMe
             display: 'flex',
             alignItems: 'center',
             gap: 7,
-            fontSize: 13,
+            fontSize: 15,
             fontWeight: 700,
             color: 'var(--text-1)',
           }}
@@ -63,7 +61,7 @@ export function TeamContextPanel({ context, agents, currentSessionId, onSelectMe
           )}
         </div>
         {context.team.description && (
-          <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-3)', lineHeight: 1.5 }}>
+          <div style={{ marginTop: 8, fontSize: 14, color: 'var(--text-3)', lineHeight: 1.5 }}>
             {context.team.description}
           </div>
         )}
@@ -128,7 +126,7 @@ function SectionTitle({ icon, title, count }: { icon: React.ReactNode; title: st
         alignItems: 'center',
         gap: 6,
         margin: '4px 0 8px',
-        fontSize: 12,
+        fontSize: 14,
         fontWeight: 700,
         color: 'var(--text-2)',
       }}
@@ -142,17 +140,17 @@ function SectionTitle({ icon, title, count }: { icon: React.ReactNode; title: st
 
 function TaskRow({ task, assignee }: { task: TaskData; assignee?: TeamMemberData }) {
   const terminal = task.status === 'completed' || task.status === 'cancelled'
-  const blocked = task.status === 'blocked'
+  const needsInput = task.status === 'needs_input'
   const icon = terminal ? (
     <CheckCircle2 size={12} />
-  ) : blocked ? (
+  ) : needsInput ? (
     <Zap size={12} />
   ) : (
     <Loader2 size={12} style={task.status === 'executing' ? { animation: 'spin 1s linear infinite' } : undefined} />
   )
   return (
     <div style={{ padding: '9px 10px', borderRadius: 9, border: '1px solid var(--border)', background: 'var(--bg-1)' }}>
-      <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-1)', lineHeight: 1.4 }}>{task.title}</div>
+      <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-1)', lineHeight: 1.4 }}>{task.title}</div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
         <span
           style={{
@@ -171,7 +169,7 @@ function TaskRow({ task, assignee }: { task: TaskData; assignee?: TeamMemberData
         <div
           style={{
             marginTop: 6,
-            fontSize: 11,
+            fontSize: 13,
             color: 'var(--text-3)',
             lineHeight: 1.45,
             display: '-webkit-box',
@@ -196,7 +194,7 @@ function MailboxRow({ item, from }: { item: TeamMailboxData; from?: TeamMemberDa
         </span>
         <span
           style={{
-            fontSize: 11,
+            fontSize: 13,
             color: 'var(--text-2)',
             overflow: 'hidden',
             textOverflow: 'ellipsis',
@@ -205,11 +203,11 @@ function MailboxRow({ item, from }: { item: TeamMailboxData; from?: TeamMemberDa
         >
           {from?.name || '系统'}
         </span>
-        <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--text-3)', flexShrink: 0 }}>
+        <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--text-3)', flexShrink: 0 }}>
           {formatTime(item.created_at)}
         </span>
       </div>
-      <div style={{ fontSize: 11, color: 'var(--text-2)', lineHeight: 1.5, maxHeight: 100, overflow: 'auto' }}>
+      <div style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.5, maxHeight: 100, overflow: 'auto' }}>
         <MarkdownRenderer content={item.content} />
       </div>
     </div>
@@ -222,7 +220,7 @@ function EmptyText({ text }: { text: string }) {
       style={{
         padding: '16px 8px',
         textAlign: 'center',
-        fontSize: 12,
+        fontSize: 14,
         color: 'var(--text-3)',
         border: '1px dashed var(--border)',
         borderRadius: 9,
@@ -236,15 +234,15 @@ function EmptyText({ text }: { text: string }) {
 
 function statusBg(status: string): string {
   if (status === 'completed') return '#ecfdf5'
-  if (status === 'blocked') return '#fef2f2'
-  if (status === 'executing' || status === 'planning' || status === 'reviewing') return 'var(--blue-light)'
+  if (status === 'needs_input') return '#fffbeb'
+  if (status === 'executing') return 'var(--blue-light)'
   return 'var(--bg-2)'
 }
 
 function statusColor(status: string): string {
   if (status === 'completed') return 'var(--green)'
-  if (status === 'blocked') return 'var(--red)'
-  if (status === 'executing' || status === 'planning' || status === 'reviewing') return 'var(--blue)'
+  if (status === 'needs_input') return '#d97706'
+  if (status === 'executing') return 'var(--blue)'
   return 'var(--text-3)'
 }
 
@@ -263,7 +261,7 @@ function mailboxColor(type: string): string {
 }
 
 function pillStyle(background: string, color: string): React.CSSProperties {
-  return { padding: '2px 7px', borderRadius: 999, background, color, fontSize: 10, fontWeight: 700, lineHeight: 1.6 }
+  return { padding: '2px 7px', borderRadius: 999, background, color, fontSize: 12, fontWeight: 700, lineHeight: 1.6 }
 }
 
 function formatTime(iso: string): string {

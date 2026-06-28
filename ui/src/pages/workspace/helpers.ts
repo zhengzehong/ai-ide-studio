@@ -1,6 +1,6 @@
 ﻿import type React from 'react'
 import type { AgentData } from '../../stores/agent.store'
-import type { ConfigOptionInfo, ToolCallInfo } from '../../stores/session.store'
+import type { ConfigOptionInfo, SessionData, ToolCallInfo } from '../../stores/session.store'
 
 export const TYPE_COLORS: Record<string, string> = {
   dev: '#2563eb',
@@ -21,7 +21,7 @@ export function statusDot(s: string): string {
   return s === 'running' ? '#2563eb' : s === 'idle' ? '#059669' : '#9ca3af'
 }
 export function statusLabel(s: string): string {
-  return { running: '运行中', idle: '空闲', standby: '待机', sleeping: '休眠' }[s] ?? s
+  return { running: '已连接', idle: '空闲', standby: '待机', sleeping: '休眠' }[s] ?? s
 }
 export function formatTime(iso: string): string {
   try {
@@ -82,6 +82,26 @@ export function filterAgentsByProject<T extends { project_id?: string | null }>(
   return agents.filter((agent) => agent.project_id === projectId)
 }
 
+export function selectChatAgent({
+  agents,
+  sessions,
+  currentSessionId,
+  selectedAgentId,
+}: {
+  agents: AgentData[]
+  sessions: SessionData[]
+  currentSessionId: string | null
+  selectedAgentId: string | null
+}): AgentData | undefined {
+  const currentSession = currentSessionId ? sessions.find((session) => session.id === currentSessionId) : undefined
+  if (currentSession) return agents.find((agent) => agent.id === currentSession.agent_id)
+  return agents.find((agent) => agent.id === selectedAgentId) ?? agents[0]
+}
+
+export function chatContentKey(sessionId: string | null): string {
+  return `chat-content:${sessionId ?? 'none'}`
+}
+
 export const sessionMenuItemStyle: React.CSSProperties = {
   display: 'block',
   width: '100%',
@@ -91,7 +111,7 @@ export const sessionMenuItemStyle: React.CSSProperties = {
   background: 'transparent',
   color: 'var(--text-1)',
   cursor: 'pointer',
-  fontSize: 12,
+  fontSize: 14,
   textAlign: 'left',
 }
 
@@ -118,6 +138,8 @@ export function menuStyle(anchor: MenuAnchor | null, width = 260): React.CSSProp
 export function toolSummary(tc: ToolCallInfo): string {
   const teamSummary = teamToolSummary(tc)
   if (teamSummary) return teamSummary
+  const mcpSummary = mcpToolSummary(tc)
+  if (mcpSummary) return mcpSummary
 
   const kindLabel =
     {
@@ -151,6 +173,23 @@ export function toolSummary(tc: ToolCallInfo): string {
   )
     return '工具调用 完成'
   return `工具调用 #${tc.id.slice(-6)}`
+}
+
+function mcpToolSummary(tc: ToolCallInfo): string | null {
+  const input = recordOrEmpty(tc.rawInput)
+  const args = recordOrEmpty(input.arguments)
+  const tool = text(input.tool) || text(input.name)
+  if (!tool) return null
+
+  const server = text(input.server)
+  const name = server ? `${server}.${tool}` : tool
+  const path = text(args.path) || text(args.file_path) || text(input.path) || text(input.file_path)
+  const pattern = text(args.pattern) || text(input.pattern)
+  const query = text(args.query) || text(input.query)
+  const command = text(args.command) || text(input.command)
+  const parts = [name, command, path, pattern, query].filter(Boolean)
+
+  return short(parts.join(' '), 140)
 }
 
 function teamToolSummary(tc: ToolCallInfo): string | null {

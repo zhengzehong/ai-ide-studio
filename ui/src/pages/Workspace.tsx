@@ -1,6 +1,8 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
+  memo,
   useRef,
   useState,
   type KeyboardEvent,
@@ -10,7 +12,7 @@ import {
   type DragEvent,
   type ClipboardEvent,
 } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Bot,
   ChevronDown,
@@ -21,8 +23,6 @@ import {
   Wifi,
   WifiOff,
   Wrench,
-  FileCode,
-  Terminal,
   Check,
   X,
   Settings2,
@@ -34,33 +34,50 @@ import {
   Zap,
   Paperclip,
   ArrowUp,
+  FileText,
   FolderOpen,
+  GripVertical,
+  Eye,
+  EyeOff,
   MessageSquare as MessageSquareIcon,
 } from 'lucide-react'
 import { useAgentStore, type AgentData } from '../stores/agent.store'
 import {
+  readStoredSessionId,
   useSessionStore,
   type ChatTimelineGroup,
   type ChatTimelineItem,
   type ElicitationRequestInfo,
+  type FileChangeDetailInfo,
+  type FileChangeSummaryInfo,
   type ImageAttachmentInfo,
   type PermissionRequestInfo,
   type PlanEntry,
+  type SessionData,
   type ToolCallInfo,
 } from '../stores/session.store'
-import { useTaskStore, type TaskData } from '../stores/task.store'
+import type { TurnProcessBlock } from '../stores/turn-blocks'
+import { useTaskStore, type SessionMode, type TaskData, type TaskEventData } from '../stores/task.store'
 import { useConnectionStore } from '../stores/connection.store'
 import { useProjectStore } from '../stores/project.store'
+import { useModelStore, type ModelProfileData } from '../stores/model.store'
 import { useFileSystemStore } from '../stores/filesystem.store'
 import { useTeamStore } from '../stores/team.store'
 import { wsClient } from '../services/ws-client'
 import { FileTree } from '../components/file-viewer/FileTree'
 import { FilePreview } from '../components/file-viewer/FilePreview'
 import { LazyToolCallsBlock } from '../components/chat/LazyToolCallsBlock'
+import { TurnContentView } from '../components/chat/TurnContentView'
+import { FileChangesCard } from '../components/chat/FileChangesCard'
+import { extractFileChangesFromToolCall, extractTurnFileChanges, fileChangesFromSummary, toolBlockHasDiff } from '../components/chat/file-changes-utils'
 import { isNearBottom, nextPinnedToBottom } from '../components/chat/auto-scroll'
+import { shouldShowPlanBar } from '../components/chat/plan-visibility'
 import { buildChatRenderItems, type ChatRenderItem } from '../components/chat/render-items'
 import { VirtualChatList } from '../components/chat/VirtualChatList'
 import { TeamContextPanel } from '../components/team/TeamContextPanel'
+import { buildWorkspaceTaskCreateTarget } from './workspace/task-session-target'
+import { TimelinePopover } from '../components/chat/TimelinePopover'
+import { processBlockNeedsDetail } from '../components/chat/process-detail'
 import { MarkdownRenderer } from '../components/MarkdownRenderer'
 import { permissionOptionLabel, isAllowPermissionOption, isRejectAlwaysOption } from '../utils/permission'
 import {
@@ -81,7 +98,8 @@ import {
   modeCn,
   filterAgentsByProject,
   filterSessionsByProject,
-  sessionMenuItemStyle,
+  chatContentKey,
+  selectChatAgent,
   sessionTitle,
   statusDot,
   statusLabel,
@@ -89,44 +107,62 @@ import {
   type MenuAnchor,
   type MenuName,
 } from './workspace/helpers'
+import { createSessionDraftStore, type WorkspacePendingImage } from './workspace/session-drafts'
+import { prepareNestedOrderDragEvent, moveItemById, sortWorkspaceItems } from './workspace/ordering'
+import { sessionIndicator } from '../utils/session-indicators'
+import { elapsedSecondsBetween, formatCompactDuration } from '../utils/duration'
+import { ContextMenu, PromptDialog, ConfirmDialog, AlertDialog } from '../components/ModalDialog'
+import { LocalSessionImportModal } from './workspace/LocalSessionImportModal'
+import { TaskImageInput } from '../components/task/TaskImageInput'
+
+const COPYING_STAGE = '正在复制会话...'
+
+function canImportLocalSession(runtime: string): runtime is 'codex' | 'claude' {
+  return runtime === 'codex' || runtime === 'claude'
+}
 
 export default function Workspace() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const connected = useConnectionStore((s) => s.connected)
   const agents = useAgentStore((s) => s.agents)
   const sessions = useSessionStore((s) => s.sessions)
+  const runningSessionIds = useSessionStore((s) => s.runningSessionIds)
+  const unreadSessionIds = useSessionStore((s) => s.unreadSessionIds)
+  const copyingTargetSessionIds = useSessionStore((s) => s.copyingTargetSessionIds)
+  const copyingSourceSessionIds = useSessionStore((s) => s.copyingSourceSessionIds)
+  const lastCopyError = useSessionStore((s) => s.lastCopyError)
+  const clearCopyError = useSessionStore((s) => s.clearCopyError)
   const currentSessionId = useSessionStore((s) => s.currentSessionId)
-  const messages = useSessionStore((s) => s.messages)
-  const events = useSessionStore((s) => s.events)
-  const streamingMessage = useSessionStore((s) => s.streamingMessage)
-  const usage = useSessionStore((s) => s.usage)
-  const capabilities = useSessionStore((s) => s.capabilities)
-  const plan = useSessionStore((s) => s.plan)
   const selectSession = useSessionStore((s) => s.selectSession)
-  const sendPrompt = useSessionStore((s) => s.sendPrompt)
   const createSession = useSessionStore((s) => s.createSession)
   const fetchSessions = useSessionStore((s) => s.fetchSessions)
+  const fetchMessages = useSessionStore((s) => s.fetchMessages)
+  const fetchEvents = useSessionStore((s) => s.fetchEvents)
   const renameSession = useSessionStore((s) => s.renameSession)
+  const copySession = useSessionStore((s) => s.copySession)
   const deleteSession = useSessionStore((s) => s.deleteSession)
   const closeSession = useSessionStore((s) => s.closeSession)
   const archiveSession = useSessionStore((s) => s.archiveSession)
+  const reorderSessions = useSessionStore((s) => s.reorderSessions)
   const fetchAgents = useAgentStore((s) => s.fetchAgents)
+  const deleteAgent = useAgentStore((s) => s.deleteAgent)
+  const setAgentHidden = useAgentStore((s) => s.setAgentHidden)
+  const reorderAgents = useAgentStore((s) => s.reorderAgents)
+  const updateAgent = useAgentStore((s) => s.updateAgent)
+  const modelProfiles = useModelStore((s) => s.profiles)
+  const fetchModelProfiles = useModelStore((s) => s.fetchProfiles)
   const fetchTasks = useTaskStore((s) => s.fetchTasks)
-  const setModel = useSessionStore((s) => s.setModel)
-  const setMode = useSessionStore((s) => s.setMode)
-  const setConfig = useSessionStore((s) => s.setConfig)
-  const cancelTurn = useSessionStore((s) => s.cancelTurn)
-  const pendingPermissions = useSessionStore((s) => s.pendingPermissions)
-  const pendingElicitations = useSessionStore((s) => s.pendingElicitations)
-  const respondPermission = useSessionStore((s) => s.respondPermission)
-  const respondElicitation = useSessionStore((s) => s.respondElicitation)
   const tasks = useTaskStore((s) => s.tasks)
   const createTask = useTaskStore((s) => s.createTask)
+  const modes = useTaskStore((s) => s.modes)
+  const fetchModes = useTaskStore((s) => s.fetchModes)
   const teamContext = useTeamStore((s) => s.current)
   const fetchCurrentTeam = useTeamStore((s) => s.fetchCurrent)
   const clearCurrentTeam = useTeamStore((s) => s.clearCurrent)
 
   const currentProjectId = useProjectStore((s) => s.currentProjectId)
+  const selectProject = useProjectStore((s) => s.selectProject)
   const fileTree = useFileSystemStore((s) => s.tree)
   const openFile = useFileSystemStore((s) => s.openFile)
   const fetchTree = useFileSystemStore((s) => s.fetchTree)
@@ -137,20 +173,1157 @@ export default function Workspace() {
   const [sidebarTab, setSidebarTab] = useState<'sessions' | 'files'>('sessions')
   const [expandedAgents, setExpandedAgents] = useState<Set<string> | null>(null)
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
+  const [orderingMode, setOrderingMode] = useState(false)
+  const [agentVisibilityOpen, setAgentVisibilityOpen] = useState(false)
+  const [draggedOrderItem, setDraggedOrderItem] = useState<{ type: 'agent' | 'session'; id: string; agentId?: string } | null>(null)
 
   useEffect(() => {
     if (currentProjectId && sidebarTab === 'files') fetchTree(currentProjectId)
   }, [currentProjectId, sidebarTab, fetchTree])
-  const [inputValue, setInputValue] = useState('')
   const [showNewTask, setShowNewTask] = useState(false)
-  const [pendingImages, setPendingImages] = useState<{ data: string; mimeType: string; preview: string }[]>([])
+  const [copyingSessionId, setCopyingSessionId] = useState<string | null>(null)
+
+  const [ctxMenu, setCtxMenu] = useState<{ sessionId: string; agentId: string; x: number; y: number } | null>(null)
+  const [agentCtxMenu, setAgentCtxMenu] = useState<{ agentId: string; x: number; y: number } | null>(null)
+  const [modelProfileAgentId, setModelProfileAgentId] = useState<string | null>(null)
+  const [importDialogAgentId, setImportDialogAgentId] = useState<string | null>(null)
+  const [renameDialog, setRenameDialog] = useState<{ sessionId: string; currentTitle: string } | null>(null)
+  const [confirmDialog, setConfirmDialog] = useState<{ title: string; message: string; danger?: boolean; onConfirm: () => void } | null>(null)
+  const [alertMsg, setAlertMsg] = useState<string | null>(null)
+
+  const projectAgents = useMemo(() => filterAgentsByProject(agents, currentProjectId), [agents, currentProjectId])
+  const visibleProjectAgents = useMemo(() => projectAgents.filter((agent) => !agent.hidden_at), [projectAgents])
+  const hiddenProjectAgents = useMemo(() => projectAgents.filter((agent) => !!agent.hidden_at), [projectAgents])
+  const projectSessions = useMemo(
+    () => filterSessionsByProject(sessions, currentProjectId),
+    [sessions, currentProjectId],
+  )
+  const orderedProjectAgents = useMemo(() => sortWorkspaceItems(visibleProjectAgents), [visibleProjectAgents])
+  const orderedAllProjectAgents = useMemo(() => sortWorkspaceItems(projectAgents), [projectAgents])
+  const orderedProjectSessions = useMemo(() => sortWorkspaceItems(projectSessions), [projectSessions])
+  const expandedAgentIds = useMemo(
+    () => expandedAgents ?? new Set(orderedProjectAgents.map((a) => a.id)),
+    [orderedProjectAgents, expandedAgents],
+  )
+  const chatAgent = useMemo(
+    () => selectChatAgent({ agents: visibleProjectAgents, sessions: projectSessions, currentSessionId, selectedAgentId }),
+    [currentSessionId, visibleProjectAgents, projectSessions, selectedAgentId],
+  )
+  const currentSession = useMemo(
+    () => projectSessions.find((session) => session.id === currentSessionId),
+    [currentSessionId, projectSessions],
+  )
+  const importDialogAgent = useMemo(
+    () => projectAgents.find((agent) => agent.id === importDialogAgentId),
+    [importDialogAgentId, projectAgents],
+  )
+  const agentContextAgent = useMemo(
+    () => projectAgents.find((agent) => agent.id === agentCtxMenu?.agentId),
+    [agentCtxMenu?.agentId, projectAgents],
+  )
+  const modelProfileAgent = useMemo(
+    () => projectAgents.find((agent) => agent.id === modelProfileAgentId),
+    [modelProfileAgentId, projectAgents],
+  )
+  const currentSessionCopying = !!currentSessionId && (
+    !!copyingTargetSessionIds[currentSessionId] ||
+    (!!currentSession && currentSession.stage === COPYING_STAGE && !currentSession.acp_session_id)
+  )
+  const agentSessions = useCallback(
+    (id: string) => {
+      const list = orderedProjectSessions.filter((s) => s.agent_id === id)
+      return list.sort((a, b) => {
+        const aPrimary = !!a.is_primary
+        const bPrimary = !!b.is_primary
+        if (aPrimary && !bPrimary) return -1
+        if (!aPrimary && bPrimary) return 1
+        return 0
+      })
+    },
+    [orderedProjectSessions],
+  )
+
+  const toggleAgent = (id: string) =>
+    setExpandedAgents((p) => {
+      const n = new Set(p ?? orderedProjectAgents.map((a) => a.id))
+      if (n.has(id)) n.delete(id)
+      else n.add(id)
+      return n
+    })
+
+  const handleAgentClick = (agentId: string) => {
+    if (orderingMode) return
+    if (currentSessionId) {
+      toggleAgent(agentId)
+      return
+    }
+    const mainSession = agentSessions(agentId).find((s) => s.is_primary)
+    if (mainSession) {
+      setSelectedAgentId(agentId)
+      selectSession(mainSession.id)
+    } else {
+      toggleAgent(agentId)
+    }
+  }
+
+  const persistAgentOrder = useCallback(async (agentIds: string[]) => {
+    if (!currentProjectId) return
+    try {
+      await reorderAgents(currentProjectId, agentIds)
+    } catch (err) {
+      setAlertMsg(err instanceof Error ? err.message : 'Agent 排序保存失败')
+    }
+  }, [currentProjectId, reorderAgents])
+
+  const persistSessionOrder = useCallback(async (agentId: string, sessionIds: string[]) => {
+    if (!currentProjectId) return
+    try {
+      await reorderSessions(currentProjectId, agentId, sessionIds)
+    } catch (err) {
+      setAlertMsg(err instanceof Error ? err.message : '会话排序保存失败')
+    }
+  }, [currentProjectId, reorderSessions])
+
+  const dropAgentOn = useCallback((targetAgentId: string) => {
+    if (draggedOrderItem?.type !== 'agent') return
+    const ids = orderedProjectAgents.map((agent) => agent.id)
+    const targetIndex = ids.indexOf(targetAgentId)
+    const next = moveItemById(ids, draggedOrderItem.id, targetIndex)
+    setDraggedOrderItem(null)
+    if (next !== ids) void persistAgentOrder(next)
+  }, [draggedOrderItem, orderedProjectAgents, persistAgentOrder])
+
+  const dropSessionOn = useCallback((agentId: string, targetSessionId: string) => {
+    if (draggedOrderItem?.type !== 'session' || draggedOrderItem.agentId !== agentId) return
+    const ids = agentSessions(agentId).map((session) => session.id)
+    const targetIndex = ids.indexOf(targetSessionId)
+    const next = moveItemById(ids, draggedOrderItem.id, targetIndex)
+    setDraggedOrderItem(null)
+    if (next !== ids) void persistSessionOrder(agentId, next)
+  }, [agentSessions, draggedOrderItem, persistSessionOrder])
+
+  useEffect(() => {
+    if (!currentSessionId) return
+    const current = projectSessions.find((session) => session.id === currentSessionId)
+    if (!currentProjectId || !current) selectSession(null)
+  }, [currentProjectId, currentSessionId, projectSessions, selectSession])
+
+  useEffect(() => {
+    if (!currentSessionId) return
+    const current = projectSessions.find((session) => session.id === currentSessionId)
+    if (!current) return
+    const currentAgent = projectAgents.find((agent) => agent.id === current.agent_id)
+    if (currentAgent?.hidden_at) {
+      queueMicrotask(() => {
+        setSelectedAgentId(null)
+        selectSession(null)
+      })
+    }
+  }, [currentSessionId, projectAgents, projectSessions, selectSession])
+
+  useEffect(() => {
+    const targetProjectId = searchParams.get('projectId')
+    if (targetProjectId && currentProjectId !== targetProjectId) {
+      selectProject(targetProjectId)
+      return
+    }
+    const targetSessionId = searchParams.get('sessionId')
+    if (!targetSessionId) return
+    const targetSession = projectSessions.find((session) => session.id === targetSessionId)
+    if (!targetSession) return
+    queueMicrotask(() => {
+      setSelectedAgentId(targetSession.agent_id)
+      selectSession(targetSession.id)
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev)
+        next.delete('sessionId')
+        next.delete('projectId')
+        return next
+      }, { replace: true })
+    })
+  }, [currentProjectId, projectSessions, searchParams, selectProject, selectSession, setSearchParams])
+
+  useEffect(() => {
+    if (searchParams.get('sessionId')) return
+    if (currentSessionId || projectSessions.length === 0) return
+    const storedSessionId = readStoredSessionId()
+    if (!storedSessionId) return
+    const storedSession = projectSessions.find((session) => session.id === storedSessionId)
+    if (!storedSession) return
+    selectSession(storedSession.id)
+  }, [currentSessionId, projectSessions, searchParams, selectSession])
+
+  const handleSelectSession = (agentId: string, sessionId: string) => {
+    setSelectedAgentId(agentId)
+    selectSession(sessionId)
+  }
+  const handleNewSession = async (agentId: string) => {
+    const s = await createSession(agentId, undefined, currentProjectId ?? undefined)
+    setSelectedAgentId(agentId)
+    selectSession(s.id)
+    await fetchSessions(undefined, currentProjectId ?? undefined)
+  }
+  const handleRenameSession = (sessionId: string, currentTitle: string) => {
+    setRenameDialog({ sessionId, currentTitle })
+  }
+  const handleRenameConfirm = async (nextTitle: string) => {
+    if (!renameDialog) return
+    await renameSession(renameDialog.sessionId, nextTitle)
+    setRenameDialog(null)
+  }
+  const handleCopySession = async (agentId: string, sessionId: string) => {
+    if (copyingSessionId) return
+    setCopyingSessionId(sessionId)
+    try {
+      const copied = await copySession(sessionId)
+      setSelectedAgentId(agentId)
+      selectSession(copied.id)
+      await fetchSessions(undefined, currentProjectId ?? undefined)
+      await fetchMessages(copied.id)
+      await fetchEvents(copied.id)
+    } catch (err) {
+      setAlertMsg(err instanceof Error ? err.message : '复制会话失败')
+    } finally {
+      setCopyingSessionId((current) => (current === sessionId ? null : current))
+    }
+  }
+  const handleLocalSessionImported = async (agentId: string, session: SessionData) => {
+    setSelectedAgentId(agentId)
+    selectSession(session.id)
+    await fetchSessions(undefined, currentProjectId ?? undefined)
+    await fetchMessages(session.id)
+    await fetchEvents(session.id)
+  }
+  const handleDeleteSession = (sessionId: string) => {
+    setConfirmDialog({
+      title: '删除会话',
+      message: '确定删除这个会话吗？历史记录会从列表隐藏。',
+      danger: true,
+      onConfirm: async () => {
+        await deleteSession(sessionId)
+        setConfirmDialog(null)
+      },
+    })
+  }
+  const handleCloseSession = async (sessionId: string) => {
+    await closeSession(sessionId)
+  }
+  const handleArchiveSession = async (sessionId: string) => {
+    await archiveSession(sessionId)
+  }
+  const handleHideAgent = async (agentId: string) => {
+    try {
+      await setAgentHidden(agentId, true)
+      if (selectedAgentId === agentId) setSelectedAgentId(null)
+      if (currentSession?.agent_id === agentId) {
+        setSelectedAgentId(null)
+        selectSession(null)
+      }
+    } catch (err) {
+      setAlertMsg(err instanceof Error ? err.message : '隐藏 Agent 失败')
+    }
+  }
+  const handleShowAgent = async (agentId: string) => {
+    try {
+      await setAgentHidden(agentId, false)
+    } catch (err) {
+      setAlertMsg(err instanceof Error ? err.message : '显示 Agent 失败')
+    }
+  }
+  const handleDeleteAgent = (agent: AgentData) => {
+    setConfirmDialog({
+      title: '删除 Agent',
+      message: `确定删除「${agent.name}」吗？该 Agent 会从项目中移除，已有会话和任务记录不会自动清理。`,
+      danger: true,
+      onConfirm: async () => {
+        try {
+          const deletingCurrentSession = currentSession?.agent_id === agent.id
+          await deleteAgent(agent.id)
+          if (selectedAgentId === agent.id) setSelectedAgentId(null)
+          if (deletingCurrentSession) selectSession(null)
+          setConfirmDialog(null)
+          setAgentVisibilityOpen(false)
+        } catch (err) {
+          setConfirmDialog(null)
+          setAlertMsg(err instanceof Error ? err.message : '删除 Agent 失败')
+        }
+      },
+    })
+  }
+
+  useEffect(() => {
+    if (!lastCopyError) return
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
+      setAlertMsg(lastCopyError.message)
+      clearCopyError()
+    })
+    return () => { cancelled = true }
+  }, [clearCopyError, lastCopyError])
+
+  useEffect(() => {
+    if (!currentProjectId || !connected) return
+    void fetchAgents(currentProjectId)
+    void fetchSessions(undefined, currentProjectId)
+    void fetchTasks(currentProjectId)
+  }, [currentProjectId, connected, fetchAgents, fetchSessions, fetchTasks])
+
+  useEffect(() => {
+    if (!currentProjectId || !connected) return
+    const off = wsClient.on('team:update', (msg) => {
+      const sessionIds = Array.isArray(msg.sessionIds)
+        ? msg.sessionIds.filter((id): id is string => typeof id === 'string')
+        : []
+      const teamId = typeof msg.teamId === 'string' ? msg.teamId : null
+      const currentTeamId = teamContext.team?.id ?? null
+      const shouldRefresh =
+        (!!currentSessionId && sessionIds.includes(currentSessionId)) ||
+        (!!currentTeamId && teamId === currentTeamId)
+      if (!shouldRefresh) return
+
+      void fetchAgents(currentProjectId)
+      void fetchSessions(undefined, currentProjectId)
+      void fetchTasks(currentProjectId)
+      void fetchModes(currentProjectId ?? undefined)
+    })
+    return () => { off() }
+  }, [connected, currentProjectId, currentSessionId, teamContext.team?.id, fetchAgents, fetchSessions, fetchTasks, fetchModes])
+
+  useEffect(() => {
+    if (!currentSessionId || !connected) {
+      clearCurrentTeam()
+      return
+    }
+    void fetchCurrentTeam(currentSessionId)
+  }, [currentSessionId, connected, fetchCurrentTeam, clearCurrentTeam])
+  return (
+    <div style={{ display: 'flex', height: '100%', background: 'var(--bg-1)' }}>
+      {/* ─── Left Sidebar ─── */}
+      <aside
+        style={{
+          width: 220,
+          flexShrink: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          borderRight: '1px solid var(--border)',
+          background: 'var(--bg-0)',
+        }}
+      >
+        <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+          <button
+            type="button"
+            onClick={() => setSidebarTab('sessions')}
+            style={{
+              flex: 1,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 5,
+              padding: '9px 0',
+              border: 'none',
+              borderBottom: sidebarTab === 'sessions' ? '2px solid var(--blue)' : '2px solid transparent',
+              background: 'transparent',
+              color: sidebarTab === 'sessions' ? 'var(--blue)' : 'var(--text-3)',
+              cursor: 'pointer',
+              fontSize: 14,
+              fontWeight: 600,
+              transition: 'all 0.15s',
+            }}
+          >
+            <MessageSquareIcon size={14} /> 会话
+          </button>
+          <button
+            type="button"
+            onClick={() => setSidebarTab('files')}
+            style={{
+              flex: 1,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 5,
+              padding: '9px 0',
+              border: 'none',
+              borderBottom: sidebarTab === 'files' ? '2px solid var(--blue)' : '2px solid transparent',
+              background: 'transparent',
+              color: sidebarTab === 'files' ? 'var(--blue)' : 'var(--text-3)',
+              cursor: 'pointer',
+              fontSize: 14,
+              fontWeight: 600,
+              transition: 'all 0.15s',
+            }}
+          >
+            <FolderOpen size={14} /> 文件
+          </button>
+        </div>
+
+        {sidebarTab === 'sessions' ? (
+          <>
+            <div style={{ padding: '6px 14px', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 }}>
+                {connected ? <Wifi size={12} color="var(--green)" /> : <WifiOff size={12} color="var(--red)" />}
+                <span style={{ fontSize: 13, color: connected ? 'var(--green)' : 'var(--red)' }}>
+                  {connected ? '已连接' : '未连接'}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAgentVisibilityOpen((value) => !value)}
+                title="显示/隐藏 Agent"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  height: 24,
+                  border: agentVisibilityOpen ? '1px solid rgba(37, 99, 235, 0.28)' : '1px solid transparent',
+                  background: agentVisibilityOpen ? 'var(--blue-light)' : 'transparent',
+                  color: agentVisibilityOpen ? 'var(--blue)' : 'var(--text-3)',
+                  borderRadius: 6,
+                  padding: '0 7px',
+                  cursor: 'pointer',
+                  fontSize: 12,
+                  fontWeight: 600,
+                }}
+              >
+                {hiddenProjectAgents.length > 0 ? <EyeOff size={12} /> : <Eye size={12} />}
+                显示
+              </button>
+              <button
+                type="button"
+                onClick={() => setOrderingMode((value) => !value)}
+                title={orderingMode ? '完成排序' : '自定义排序'}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  height: 24,
+                  border: orderingMode ? '1px solid rgba(37, 99, 235, 0.28)' : '1px solid transparent',
+                  background: orderingMode ? 'var(--blue-light)' : 'transparent',
+                  color: orderingMode ? 'var(--blue)' : 'var(--text-3)',
+                  borderRadius: 6,
+                  padding: '0 7px',
+                  cursor: 'pointer',
+                  fontSize: 12,
+                  fontWeight: 600,
+                }}
+              >
+                <GripVertical size={12} /> {orderingMode ? '完成' : '排序'}
+              </button>
+            </div>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '4px 0', minHeight: 0 }}>
+              <div
+                style={{
+                  padding: '6px 14px 4px',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: 'var(--text-3)',
+                  letterSpacing: '0.04em',
+                }}
+              >
+                智能体
+              </div>
+              {projectAgents.length === 0 && (
+                <div
+                  style={{
+                    margin: '18px 14px',
+                    padding: 14,
+                    border: '1px dashed var(--border)',
+                    borderRadius: 10,
+                    background: 'var(--bg-1)',
+                    textAlign: 'center',
+                  }}
+                >
+                  <Bot size={26} color="var(--text-3)" style={{ marginBottom: 8, opacity: 0.5 }} />
+                  <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-1)', marginBottom: 5 }}>
+                    当前项目暂无智能体
+                  </div>
+                  <div style={{ fontSize: 14, color: 'var(--text-3)', lineHeight: 1.5, marginBottom: 10 }}>
+                    先从 Agent 广场添加到项目，再新建会话开始对话。
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => navigate('/agents')}
+                    style={{
+                      border: 'none',
+                      background: 'var(--blue)',
+                      color: 'white',
+                      cursor: 'pointer',
+                      padding: '7px 12px',
+                      borderRadius: 7,
+                      fontSize: 14,
+                      fontWeight: 600,
+                    }}
+                  >
+                    添加智能体
+                  </button>
+                </div>
+              )}
+              {projectAgents.length > 0 && orderedProjectAgents.length === 0 && (
+                <div
+                  style={{
+                    margin: '18px 14px',
+                    padding: 14,
+                    border: '1px dashed var(--border)',
+                    borderRadius: 10,
+                    background: 'var(--bg-1)',
+                    textAlign: 'center',
+                  }}
+                >
+                  <EyeOff size={24} color="var(--text-3)" style={{ marginBottom: 8, opacity: 0.5 }} />
+                  <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-1)', marginBottom: 5 }}>
+                    Agent 已全部隐藏
+                  </div>
+                  <div style={{ fontSize: 14, color: 'var(--text-3)', lineHeight: 1.5, marginBottom: 10 }}>
+                    当前项目有 {hiddenProjectAgents.length} 个隐藏 Agent。
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setAgentVisibilityOpen(true)}
+                    style={{
+                      border: 'none',
+                      background: 'var(--blue)',
+                      color: 'white',
+                      cursor: 'pointer',
+                      padding: '7px 12px',
+                      borderRadius: 7,
+                      fontSize: 14,
+                      fontWeight: 600,
+                    }}
+                  >
+                    管理显示
+                  </button>
+                </div>
+              )}
+              {orderedProjectAgents.map((agent) => (
+                <div
+                  key={agent.id}
+                  onDragOver={(e) => orderingMode && e.preventDefault()}
+                  onDrop={(e) => {
+                    if (!orderingMode) return
+                    e.preventDefault()
+                    dropAgentOn(agent.id)
+                  }}
+                  onDragEnd={() => setDraggedOrderItem(null)}
+                  style={{
+                    marginBottom: 2,
+                    display: 'grid',
+                    gridTemplateColumns: '1fr',
+                    alignItems: 'center',
+                    opacity: draggedOrderItem?.type === 'agent' && draggedOrderItem.id === agent.id ? 0.55 : 1,
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!orderingMode) handleAgentClick(agent.id)
+                    }}
+                    onContextMenu={(e) => {
+                      if (orderingMode) return
+                      e.preventDefault()
+                      e.stopPropagation()
+                      setCtxMenu(null)
+                      setAgentCtxMenu({ agentId: agent.id, x: e.clientX, y: e.clientY })
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      flex: 1,
+                      minWidth: 0,
+                      padding: '7px 14px',
+                      border: 'none',
+                      background: 'transparent',
+                      color: 'var(--text-1)',
+                      cursor: orderingMode ? 'default' : 'pointer',
+                      textAlign: 'left',
+                    }}
+                  >
+                    {orderingMode && (
+                      <span
+                        draggable
+                        onDragStart={(e) => {
+                          e.stopPropagation()
+                          setDraggedOrderItem({ type: 'agent', id: agent.id })
+                        }}
+                        onDragEnd={(e) => {
+                          e.stopPropagation()
+                          setDraggedOrderItem(null)
+                        }}
+                        style={orderGripStyle}
+                        title="拖拽排序"
+                      >
+                        <GripVertical size={14} />
+                      </span>
+                    )}
+                    {expandedAgentIds.has(agent.id) ? (
+                      <ChevronDown size={13} color="var(--text-3)" />
+                    ) : (
+                      <ChevronRight size={13} color="var(--text-3)" />
+                    )}
+                    <span
+                      style={{
+                        width: 24,
+                        height: 24,
+                        borderRadius: '50%',
+                        background: agentColor(agent),
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: 12,
+                        fontWeight: 700,
+                        color: 'white',
+                        flexShrink: 0,
+                      }}
+                    >
+                      {agentAvatar(agent)}
+                    </span>
+                    <span style={{ flex: 1, fontSize: 15, fontWeight: 500 }}>{agent.name}</span>
+                    <span
+                      style={{
+                        fontSize: 12,
+                        padding: '1px 6px',
+                        borderRadius: 10,
+                        background: 'var(--bg-2)',
+                        color: 'var(--text-3)',
+                      }}
+                    >
+                      {agentSessions(agent.id).length}
+                    </span>
+                    <span
+                      style={{
+                        width: 7,
+                        height: 7,
+                        borderRadius: '50%',
+                        background: statusDot(agent.status),
+                        flexShrink: 0,
+                      }}
+                      title={statusLabel(agent.status)}
+                    />
+                  </button>
+                  {expandedAgentIds.has(agent.id) && (
+                    <div style={{ gridColumn: '1 / -1' }}>
+                      {agentSessions(agent.id).map((s) => {
+                        const indicator = sessionIndicator(s, runningSessionIds, unreadSessionIds)
+                        return (
+                          <div
+                            key={s.id}
+                            onDragOver={(e) => {
+                              if (!orderingMode) return
+                              prepareNestedOrderDragEvent(e)
+                            }}
+                            onDrop={(e) => {
+                              if (!orderingMode) return
+                              prepareNestedOrderDragEvent(e)
+                              dropSessionOn(agent.id, s.id)
+                            }}
+                            onContextMenu={(e) => {
+                              if (orderingMode) return
+                              e.preventDefault()
+                              setAgentCtxMenu(null)
+                              setCtxMenu({ sessionId: s.id, agentId: agent.id, x: e.clientX, y: e.clientY })
+                            }}
+                            style={{
+                              position: 'relative',
+                              display: 'flex',
+                              alignItems: 'center',
+                              paddingLeft: 42,
+                              paddingRight: 8,
+                              background: currentSessionId === s.id ? 'var(--blue-light)' : 'transparent',
+                              borderRadius: 4,
+                              opacity: draggedOrderItem?.type === 'session' && draggedOrderItem.id === s.id ? 0.55 : 1,
+                            }}
+                          >
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!orderingMode) handleSelectSession(agent.id, s.id)
+                            }}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 8,
+                              flex: 1,
+                              minWidth: 0,
+                              padding: '5px 0',
+                              border: 'none',
+                              background: 'transparent',
+                              color: 'var(--text-1)',
+                              cursor: orderingMode ? 'default' : 'pointer',
+                              textAlign: 'left',
+                            }}
+                          >
+                            {orderingMode && (
+                              <span
+                                draggable
+                                onDragStart={(e) => {
+                                  e.stopPropagation()
+                                  setDraggedOrderItem({ type: 'session', id: s.id, agentId: agent.id })
+                                }}
+                                onDragEnd={(e) => {
+                                  e.stopPropagation()
+                                  setDraggedOrderItem(null)
+                                }}
+                                style={orderGripStyle}
+                                title="拖拽排序"
+                              >
+                                <GripVertical size={13} />
+                              </span>
+                            )}
+                            <span
+                              style={{
+                                width: 6,
+                                height: 6,
+                                borderRadius: '50%',
+                                background: indicator.color,
+                                flexShrink: 0,
+                                animation: indicator.pulse ? 'session-running-pulse 1s ease-in-out infinite' : undefined,
+                                boxShadow: indicator.pulse ? '0 0 0 4px rgba(5, 150, 105, 0.12)' : undefined,
+                              }}
+                              title={indicator.title}
+                            />
+                            {s.is_primary ? (
+                              <span
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 3,
+                                  color: 'var(--blue)',
+                                  fontSize: 13,
+                                  flexShrink: 0,
+                                }}
+                                title="主会话"
+                              >
+                                <Zap size={12} fill="var(--blue)" />
+                              </span>
+                            ) : null}
+                            <span
+                              style={{
+                                flex: 1,
+                                fontSize: 14,
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                                fontWeight: s.is_primary ? 600 : 400,
+                              }}
+                            >
+                              {sessionTitle(s)}{s.is_primary ? ' · 主会话' : ''}
+                            </span>
+                            <span style={{ fontSize: 12, color: 'var(--text-3)' }}>
+                              {formatTime(s.last_message_at || s.updated_at || s.started_at)}
+                            </span>
+                          </button>
+                          </div>
+                        )
+                      })}
+                      <button
+                        type="button"
+                        onClick={() => handleNewSession(agent.id)}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          width: '100%',
+                          padding: '5px 14px 5px 42px',
+                          border: 'none',
+                          background: 'transparent',
+                          color: 'var(--text-3)',
+                          cursor: 'pointer',
+                          fontSize: 13,
+                        }}
+                      >
+                        <Plus size={12} /> 新建会话
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </>
+        ) : (
+          <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0', minHeight: 0 }}>
+            {!currentProjectId ? (
+              <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-3)', fontSize: 15 }}>
+                <FolderOpen size={32} style={{ marginBottom: 8, opacity: 0.3 }} />
+                <p>请先在顶部选择一个项目</p>
+              </div>
+            ) : fileTree.length === 0 ? (
+              <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-3)', fontSize: 15 }}>
+                <FolderOpen size={32} style={{ marginBottom: 8, opacity: 0.3 }} />
+                <p>加载文件中...</p>
+              </div>
+            ) : (
+              <FileTree
+                entries={fileTree}
+                selectedPath={openFile?.path ?? null}
+                onSelectFile={(path) => currentProjectId && openFileByPath(currentProjectId, path)}
+                onExpandDir={(path) => currentProjectId && expandDir(currentProjectId, path)}
+              />
+            )}
+          </div>
+        )}
+      </aside>
+
+      {/* ─── File Preview (optional) ─── */}
+      {openFile && (
+        <div style={{ width: 420, flexShrink: 0 }}>
+          <FilePreview file={openFile} onClose={closeFile} />
+        </div>
+      )}
+
+      {/* ─── Center Chat ─── */}
+      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        <WorkspaceChatPane
+          connected={connected}
+          currentSessionId={currentSessionId}
+          chatAgent={chatAgent}
+          currentSessionTitle={currentSessionId ? sessionTitle(currentSession ?? { id: currentSessionId }) : undefined}
+          currentSessionCopying={currentSessionCopying}
+        />
+      </main>
+
+      {/* Right Sidebar: session context */}
+      <aside
+        style={{
+          width: 380,
+          flexShrink: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          borderLeft: '1px solid var(--border)',
+          background: 'var(--bg-0)',
+        }}
+      >
+        {teamContext.team ? (
+          <TeamContextPanel
+            context={teamContext}
+            agents={projectAgents}
+            currentSessionId={currentSessionId}
+            onSelectMember={handleSelectSession}
+          />
+        ) : (
+          <>
+            <div
+              style={{
+                padding: '12px 16px',
+                borderBottom: '1px solid var(--border)',
+                fontSize: 15,
+                fontWeight: 600,
+                flexShrink: 0,
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <ListTodo size={14} /> 任务
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowNewTask(true)}
+                style={{
+                  border: 'none',
+                  background: 'var(--blue)',
+                  color: 'white',
+                  cursor: 'pointer',
+                  padding: '4px 10px',
+                  borderRadius: 6,
+                  fontSize: 13,
+                  fontWeight: 500,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                }}
+              >
+                <Plus size={12} /> 新建
+              </button>
+            </div>
+            <TaskPanel
+              tasks={tasks}
+              agents={projectAgents}
+              modes={modes}
+              currentSessionTaskId={currentSession?.task_id ?? null}
+              onSelectSession={handleSelectSession}
+              projectId={currentProjectId ?? undefined}
+            />
+          </>
+        )}
+      </aside>
+
+      {showNewTask && (
+        <NewTaskModal
+          agents={projectAgents}
+          projectId={currentProjectId}
+          onCreate={(title, desc, agentId, sessionId, sessionMode, images) => createTask(title, desc, agentId, currentProjectId ?? undefined, sessionId, sessionMode, images)}
+          onClose={() => setShowNewTask(false)}
+        />
+      )}
+
+      {importDialogAgent && (
+        <LocalSessionImportModal
+          agent={importDialogAgent}
+          projectId={currentProjectId ?? undefined}
+          onImported={(session) => handleLocalSessionImported(importDialogAgent.id, session)}
+          onClose={() => setImportDialogAgentId(null)}
+        />
+      )}
+
+      <ContextMenu
+        open={!!agentCtxMenu}
+        x={agentCtxMenu?.x ?? 0}
+        y={agentCtxMenu?.y ?? 0}
+        onClose={() => setAgentCtxMenu(null)}
+        items={agentCtxMenu && agentContextAgent ? [
+          {
+            label: canImportLocalSession(agentContextAgent.runtime) ? '导入本地会话' : '导入本地会话（仅 Codex/Claude）',
+            disabled: !canImportLocalSession(agentContextAgent.runtime),
+            onClick: () => setImportDialogAgentId(agentContextAgent.id),
+          },
+          {
+            label: '模型档案',
+            disabled: agentContextAgent.runtime !== 'claude' && agentContextAgent.runtime !== 'codex',
+            onClick: () => setModelProfileAgentId(agentContextAgent.id),
+          },
+          {
+            label: '隐藏 Agent',
+            onClick: () => { void handleHideAgent(agentContextAgent.id) },
+          },
+          {
+            label: '删除 Agent',
+            danger: true,
+            onClick: () => handleDeleteAgent(agentContextAgent),
+          },
+        ] : []}
+      />
+
+      {modelProfileAgent && (
+        <AgentModelProfileDialog
+          key={modelProfileAgent.id}
+          agent={modelProfileAgent}
+          profiles={modelProfiles}
+          onLoadProfiles={() => fetchModelProfiles()}
+          onSave={async (modelProfileId) => {
+            await updateAgent(modelProfileAgent.id, { modelProfileId })
+            setModelProfileAgentId(null)
+          }}
+          onClose={() => setModelProfileAgentId(null)}
+        />
+      )}
+
+      <ContextMenu
+        open={!!ctxMenu}
+        x={ctxMenu?.x ?? 0}
+        y={ctxMenu?.y ?? 0}
+        onClose={() => setCtxMenu(null)}
+        items={ctxMenu ? (() => {
+          const targetSession = projectSessions.find((ss) => ss.id === ctxMenu.sessionId)
+          const isPrimary = !!targetSession?.is_primary
+          return [
+            { label: '重命名', onClick: () => handleRenameSession(ctxMenu.sessionId, sessionTitle(targetSession ?? { id: ctxMenu.sessionId })) },
+            { label: '关闭', onClick: () => handleCloseSession(ctxMenu.sessionId) },
+            {
+              label: copyingSessionId === ctxMenu.sessionId || copyingSourceSessionIds[ctxMenu.sessionId] ? '复制中...' : '复制',
+              disabled: copyingSessionId === ctxMenu.sessionId || !!copyingSourceSessionIds[ctxMenu.sessionId],
+              onClick: () => handleCopySession(ctxMenu.agentId, ctxMenu.sessionId),
+            },
+            ...(isPrimary ? [] : [
+              { label: '归档', onClick: () => handleArchiveSession(ctxMenu.sessionId) },
+              { label: '删除', danger: true, onClick: () => handleDeleteSession(ctxMenu.sessionId) },
+            ]),
+          ]
+        })() : []}
+      />
+
+      {agentVisibilityOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            left: 252,
+            top: 108,
+            zIndex: 9998,
+            width: 300,
+            maxWidth: 'calc(100vw - 24px)',
+            background: 'var(--bg-0)',
+            border: '1px solid var(--border)',
+            borderRadius: 8,
+            boxShadow: '0 12px 28px rgba(15,23,42,0.14), 0 3px 8px rgba(15,23,42,0.08)',
+            padding: 10,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-1)' }}>显示/隐藏 Agent</div>
+              <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>
+                {visibleProjectAgents.length} 个显示，{hiddenProjectAgents.length} 个隐藏
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setAgentVisibilityOpen(false)}
+              style={{
+                width: 24,
+                height: 24,
+                border: 'none',
+                borderRadius: 6,
+                background: 'transparent',
+                color: 'var(--text-3)',
+                cursor: 'pointer',
+              }}
+              title="关闭"
+            >
+              <X size={15} />
+            </button>
+          </div>
+          <div style={{ maxHeight: 320, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {orderedAllProjectAgents.map((agent) => {
+              const hidden = !!agent.hidden_at
+              return (
+                <div
+                  key={agent.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    padding: '7px 6px',
+                    borderRadius: 7,
+                    background: hidden ? 'var(--bg-1)' : 'transparent',
+                    opacity: hidden ? 0.72 : 1,
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 24,
+                      height: 24,
+                      borderRadius: '50%',
+                      background: agentColor(agent),
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: 12,
+                      fontWeight: 700,
+                      color: 'white',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {agentAvatar(agent)}
+                  </span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-1)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {agent.name}
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--text-3)' }}>{hidden ? '已隐藏' : '显示中'}</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => { void (hidden ? handleShowAgent(agent.id) : handleHideAgent(agent.id)) }}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      height: 26,
+                      border: '1px solid var(--border)',
+                      background: 'var(--bg-0)',
+                      color: hidden ? 'var(--blue)' : 'var(--text-2)',
+                      borderRadius: 6,
+                      padding: '0 8px',
+                      cursor: 'pointer',
+                      fontSize: 12,
+                      fontWeight: 600,
+                    }}
+                  >
+                    {hidden ? <Eye size={12} /> : <EyeOff size={12} />}
+                    {hidden ? '显示' : '隐藏'}
+                  </button>
+                </div>
+              )
+            })}
+            {orderedAllProjectAgents.length === 0 && (
+              <div style={{ padding: 16, color: 'var(--text-3)', fontSize: 14, textAlign: 'center' }}>当前项目暂无 Agent</div>
+            )}
+          </div>
+        </div>
+      )}
+
+      <PromptDialog
+        open={!!renameDialog}
+        title="重命名会话"
+        defaultValue={renameDialog?.currentTitle ?? ''}
+        placeholder="输入新的会话名称"
+        onConfirm={handleRenameConfirm}
+        onCancel={() => setRenameDialog(null)}
+      />
+
+      <ConfirmDialog
+        open={!!confirmDialog}
+        title={confirmDialog?.title ?? ''}
+        message={confirmDialog?.message ?? ''}
+        danger={confirmDialog?.danger}
+        onConfirm={() => confirmDialog?.onConfirm()}
+        onCancel={() => setConfirmDialog(null)}
+      />
+
+      <AlertDialog
+        open={!!alertMsg}
+        title="提示"
+        message={alertMsg ?? ''}
+        onClose={() => setAlertMsg(null)}
+      />
+
+    </div>
+  )
+}
+
+function WorkspaceChatPane({
+  connected,
+  currentSessionId,
+  chatAgent,
+  currentSessionTitle,
+  currentSessionCopying,
+}: {
+  connected: boolean
+  currentSessionId: string | null
+  chatAgent: AgentData | undefined
+  currentSessionTitle?: string
+  currentSessionCopying: boolean
+}) {
+  const messages = useSessionStore((s) => s.messages)
+  const events = useSessionStore((s) => s.events)
+  const streamingMessage = useSessionStore((s) => s.streamingMessage)
+  const usage = useSessionStore((s) => s.usage)
+  const capabilities = useSessionStore((s) => s.capabilities)
+  const plan = useSessionStore((s) => s.plan)
+  const sendPrompt = useSessionStore((s) => s.sendPrompt)
+  const hasMoreMessagesBySession = useSessionStore((s) => s.hasMoreMessagesBySession)
+  const loadingOlderMessagesBySession = useSessionStore((s) => s.loadingOlderMessagesBySession)
+  const loadOlderMessages = useSessionStore((s) => s.loadOlderMessages)
+  const setModel = useSessionStore((s) => s.setModel)
+  const setMode = useSessionStore((s) => s.setMode)
+  const setConfig = useSessionStore((s) => s.setConfig)
+  const cancelTurn = useSessionStore((s) => s.cancelTurn)
+  const pendingPermissions = useSessionStore((s) => s.pendingPermissions)
+  const pendingElicitations = useSessionStore((s) => s.pendingElicitations)
+  const respondPermission = useSessionStore((s) => s.respondPermission)
+  const respondElicitation = useSessionStore((s) => s.respondElicitation)
+  const fetchMessageProcess = useSessionStore((s) => s.fetchMessageProcess)
+  const fetchMessageFileChanges = useSessionStore((s) => s.fetchMessageFileChanges)
+  const fetchProcessItemDetail = useSessionStore((s) => s.fetchProcessItemDetail)
+  const fileChangeDetailsByMessageId = useSessionStore((s) => s.fileChangeDetailsByMessageId)
+  const turnProcessLoadingByMessageId = useSessionStore((s) => s.turnProcessLoadingByMessageId)
+  const turnProcessErrorByMessageId = useSessionStore((s) => s.turnProcessErrorByMessageId)
+  const toolCallLoadingByKey = useSessionStore((s) => s.toolCallLoadingByKey)
+  const toolCallErrorByKey = useSessionStore((s) => s.toolCallErrorByKey)
+  const processItemLoadingByKey = useSessionStore((s) => s.processItemLoadingByKey)
+  const processItemErrorByKey = useSessionStore((s) => s.processItemErrorByKey)
+
+  const [inputValue, setInputValue] = useState('')
+  const [pendingImages, setPendingImages] = useState<WorkspacePendingImage[]>([])
   const [draggingImages, setDraggingImages] = useState(false)
+  const [showTimeline, setShowTimeline] = useState(false)
   const [showModelMenu, setShowModelMenu] = useState(false)
   const [showModeMenu, setShowModeMenu] = useState(false)
   const [showConfigMenu, setShowConfigMenu] = useState<string | null>(null)
   const [showCommandMenu, setShowCommandMenu] = useState(false)
   const [menuAnchor, setMenuAnchor] = useState<MenuAnchor | null>(null)
-  const [sessionMenuId, setSessionMenuId] = useState<string | null>(null)
+  const [liveNowMs, setLiveNowMs] = useState(() => Date.now())
+
   const chatEndRef = useRef<HTMLDivElement>(null)
   const chatScrollRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -159,22 +1332,60 @@ export default function Workspace() {
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const stickToBottomRef = useRef(true)
   const lastScrollHeightRef = useRef(0)
-  const pendingImagePreviewsRef = useRef<string[]>([])
+  const olderLoadAnchorRef = useRef<{ sessionId: string; scrollHeight: number; scrollTop: number } | null>(null)
+  const inputValueRef = useRef('')
+  const pendingImagesRef = useRef<WorkspacePendingImage[]>([])
+  const draftSessionIdRef = useRef<string | null>(currentSessionId)
+  const sessionDraftsRef = useRef(createSessionDraftStore({ revokePreview: (preview) => URL.revokeObjectURL(preview) }))
 
-  const projectAgents = useMemo(() => filterAgentsByProject(agents, currentProjectId), [agents, currentProjectId])
-  const projectSessions = useMemo(
-    () => filterSessionsByProject(sessions, currentProjectId),
-    [sessions, currentProjectId],
+  const blockingInteraction = pendingPermissions.length > 0 || pendingElicitations.length > 0
+  const canSendPrompt = !!currentSessionId && connected && !blockingInteraction && !currentSessionCopying && (!!inputValue.trim() || pendingImages.length > 0)
+  const hasMoreMessages = currentSessionId ? hasMoreMessagesBySession[currentSessionId] === true : false
+  const loadingOlderMessages = currentSessionId ? !!loadingOlderMessagesBySession[currentSessionId] : false
+  const pendingInteractionId = pendingPermissions[0]?.id || pendingElicitations[0]?.id || ''
+  const isStreaming = !!(streamingMessage && !streamingMessage.done)
+  const currentModeName =
+    capabilities.modes.find((m) => m.modeId === capabilities.currentModeId)?.name || capabilities.currentModeId
+  const currentModelName =
+    capabilities.models.find((m) => m.modelId === capabilities.currentModelId)?.name || capabilities.currentModelId
+  const secondaryConfigs = capabilities.configOptions.filter(
+    (o) => o.category !== 'model' && o.category !== 'mode' && o.id !== 'model' && o.id !== 'mode',
   )
-  const expandedAgentIds = useMemo(
-    () => expandedAgents ?? new Set(projectAgents.map((a) => a.id)),
-    [projectAgents, expandedAgents],
-  )
-  const selectedAgent = useMemo(
-    () => projectAgents.find((a) => a.id === selectedAgentId) ?? projectAgents[0],
-    [projectAgents, selectedAgentId],
-  )
-  const agentSessions = useCallback((id: string) => projectSessions.filter((s) => s.agent_id === id), [projectSessions])
+
+  const updateInputValue = useCallback((value: string) => {
+    inputValueRef.current = value
+    setInputValue(value)
+  }, [])
+
+  const updatePendingImages = useCallback((updater: (current: WorkspacePendingImage[]) => WorkspacePendingImage[]) => {
+    const next = updater(pendingImagesRef.current)
+    pendingImagesRef.current = next
+    setPendingImages(next)
+  }, [])
+
+  const resetTextareaHeight = useCallback(() => {
+    const el = textareaRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = Math.min(el.scrollHeight, 160) + 'px'
+  }, [])
+
+  const saveActiveDraft = useCallback(() => {
+    sessionDraftsRef.current.save(draftSessionIdRef.current, {
+      text: inputValueRef.current,
+      images: pendingImagesRef.current,
+    })
+  }, [])
+
+  const restoreDraft = useCallback((sessionId: string | null) => {
+    const draft = sessionDraftsRef.current.take(sessionId)
+    draftSessionIdRef.current = sessionId
+    inputValueRef.current = draft.text
+    pendingImagesRef.current = draft.images
+    setInputValue(draft.text)
+    setPendingImages(draft.images)
+    requestAnimationFrame(resetTextareaHeight)
+  }, [resetTextareaHeight])
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
     const el = chatScrollRef.current
@@ -202,13 +1413,21 @@ export default function Workspace() {
   const updateStickToBottom = useCallback(() => {
     const el = chatScrollRef.current
     if (!el) return
+    if (currentSessionId && el.scrollTop <= 120 && hasMoreMessages && !loadingOlderMessages) {
+      olderLoadAnchorRef.current = {
+        sessionId: currentSessionId,
+        scrollHeight: el.scrollHeight,
+        scrollTop: el.scrollTop,
+      }
+      void loadOlderMessages(currentSessionId)
+    }
     stickToBottomRef.current = nextPinnedToBottom({
       wasPinned: stickToBottomRef.current,
       previousScrollHeight: lastScrollHeightRef.current,
       metrics: el,
     })
     lastScrollHeightRef.current = el.scrollHeight
-  }, [])
+  }, [currentSessionId, hasMoreMessages, loadOlderMessages, loadingOlderMessages])
 
   const handleChatContentResize = useCallback(() => {
     if (stickToBottomRef.current) scheduleScrollToBottom('auto')
@@ -231,6 +1450,17 @@ export default function Workspace() {
   }, [streamingMessage])
   const shouldScrollStreaming = !!streamingMessage && !streamingMessage.done
 
+  useLayoutEffect(() => {
+    if (draftSessionIdRef.current === currentSessionId) return
+    saveActiveDraft()
+    restoreDraft(currentSessionId)
+  }, [currentSessionId, restoreDraft, saveActiveDraft])
+
+  useEffect(() => () => {
+    saveActiveDraft()
+    sessionDraftsRef.current.dispose()
+  }, [saveActiveDraft])
+
   useEffect(() => {
     const el = chatScrollRef.current
     if (!el) return undefined
@@ -246,22 +1476,40 @@ export default function Workspace() {
   }, [currentSessionId])
 
   useEffect(() => {
+    const olderLoadAnchor = olderLoadAnchorRef.current
+    if (olderLoadAnchor && olderLoadAnchor.sessionId === currentSessionId) {
+      const el = chatScrollRef.current
+      if (el) {
+        const delta = el.scrollHeight - olderLoadAnchor.scrollHeight
+        el.scrollTop = olderLoadAnchor.scrollTop + delta
+        lastScrollHeightRef.current = el.scrollHeight
+      }
+      olderLoadAnchorRef.current = null
+      return
+    }
     if (messages.length !== prevMsgCount.current) {
       prevMsgCount.current = messages.length
       const el = chatScrollRef.current
       if (!el || stickToBottomRef.current || isNearBottom(el)) scheduleScrollToBottom('smooth')
     }
-  }, [messages.length, scheduleScrollToBottom])
+  }, [currentSessionId, messages.length, scheduleScrollToBottom])
+
   useEffect(() => {
     if (shouldScrollStreaming && stickToBottomRef.current) scheduleScrollToBottom('auto')
     return () => {
       if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current)
     }
   }, [shouldScrollStreaming, streamingScrollSignature, scheduleScrollToBottom])
+
   useEffect(() => {
-    pendingImagePreviewsRef.current = pendingImages.map((img) => img.preview)
-  }, [pendingImages])
-  useEffect(() => () => pendingImagePreviewsRef.current.forEach((preview) => URL.revokeObjectURL(preview)), [])
+    if (!isStreaming) return undefined
+    const timer = window.setInterval(() => setLiveNowMs(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [isStreaming])
+
+  useEffect(() => {
+    if (blockingInteraction) requestAnimationFrame(() => scrollToBottom('smooth'))
+  }, [blockingInteraction, pendingInteractionId, scrollToBottom])
 
   const autoResize = () => {
     const el = textareaRef.current
@@ -271,95 +1519,24 @@ export default function Workspace() {
     }
   }
 
-  const toggleAgent = (id: string) =>
-    setExpandedAgents((p) => {
-      const n = new Set(p ?? projectAgents.map((a) => a.id))
-      if (n.has(id)) n.delete(id)
-      else n.add(id)
-      return n
+  const clearPendingImages = () => {
+    updatePendingImages((prev) => {
+      prev.forEach((img) => URL.revokeObjectURL(img.preview))
+      return []
     })
-
-  useEffect(() => {
-    if (!currentSessionId) return
-    const current = projectSessions.find((session) => session.id === currentSessionId)
-    if (!currentProjectId || !current) selectSession(null)
-  }, [currentProjectId, currentSessionId, projectSessions, selectSession])
-
-  const handleSelectSession = (agentId: string, sessionId: string) => {
-    setSelectedAgentId(agentId)
-    selectSession(sessionId)
   }
-  const handleNewSession = async (agentId: string) => {
-    const s = await createSession(agentId, undefined, currentProjectId ?? undefined)
-    setSelectedAgentId(agentId)
-    selectSession(s.id)
-    await fetchSessions(undefined, currentProjectId ?? undefined)
-  }
-  const handleRenameSession = async (sessionId: string, currentTitle: string) => {
-    const nextTitle = window.prompt('请输入新的会话名称', currentTitle)
-    if (!nextTitle?.trim()) return
-    await renameSession(sessionId, nextTitle)
-    setSessionMenuId(null)
-  }
-  const handleDeleteSession = async (sessionId: string) => {
-    if (!window.confirm('确定删除这个会话吗？历史记录会从列表隐藏。')) return
-    await deleteSession(sessionId)
-    setSessionMenuId(null)
-  }
-  const handleCloseSession = async (sessionId: string) => {
-    await closeSession(sessionId)
-    setSessionMenuId(null)
-  }
-  const handleArchiveSession = async (sessionId: string) => {
-    await archiveSession(sessionId)
-    setSessionMenuId(null)
-  }
-
-  useEffect(() => {
-    if (!currentProjectId || !connected) return
-    void fetchAgents(currentProjectId)
-    void fetchSessions(undefined, currentProjectId)
-    void fetchTasks(currentProjectId)
-  }, [currentProjectId, connected, fetchAgents, fetchSessions, fetchTasks])
-
-  useEffect(() => {
-    if (!currentProjectId || !connected) return
-    const off = wsClient.on('team:update', (msg) => {
-      const sessionIds = Array.isArray(msg.sessionIds)
-        ? msg.sessionIds.filter((id): id is string => typeof id === 'string')
-        : []
-      const teamId = typeof msg.teamId === 'string' ? msg.teamId : null
-      const currentTeamId = teamContext.team?.id ?? null
-      const shouldRefresh =
-        (!!currentSessionId && sessionIds.includes(currentSessionId)) ||
-        (!!currentTeamId && teamId === currentTeamId)
-      if (!shouldRefresh) return
-
-      void fetchAgents(currentProjectId)
-      void fetchSessions(undefined, currentProjectId)
-      void fetchTasks(currentProjectId)
-    })
-    return () => { off() }
-  }, [connected, currentProjectId, currentSessionId, teamContext.team?.id, fetchAgents, fetchSessions, fetchTasks])
-
-  useEffect(() => {
-    if (!currentSessionId || !connected) {
-      clearCurrentTeam()
-      return
-    }
-    void fetchCurrentTeam(currentSessionId)
-  }, [currentSessionId, connected, fetchCurrentTeam, clearCurrentTeam])
 
   const handleSend = () => {
     const v = inputValue.trim()
     const hasImages = pendingImages.length > 0
-    if ((!v && !hasImages) || !currentSessionId || !connected || blockingInteraction) return
+    if ((!v && !hasImages) || !currentSessionId || !connected || blockingInteraction || currentSessionCopying) return
     stickToBottomRef.current = true
     sendPrompt(
       v,
       hasImages ? pendingImages.map((i) => ({ data: i.data, mimeType: i.mimeType })) : undefined,
     )
-    setInputValue('')
+    sessionDraftsRef.current.clear(currentSessionId)
+    updateInputValue('')
     clearPendingImages()
     requestAnimationFrame(() => {
       if (textareaRef.current) {
@@ -368,47 +1545,53 @@ export default function Workspace() {
       }
     })
   }
+
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSend()
     }
   }
+
+  const addImageFiles = (files: File[]) => {
+    const targetSessionId = currentSessionId
+    if (!targetSessionId) return
+    files.filter((file) => file.type.startsWith('image/')).forEach((file) => {
+      const reader = new FileReader()
+      reader.onload = () => {
+        const image = { data: (reader.result as string).split(',')[1], mimeType: file.type, preview: URL.createObjectURL(file) }
+        if (draftSessionIdRef.current === targetSessionId) {
+          updatePendingImages((prev) => [...prev, image])
+          return
+        }
+        const draft = sessionDraftsRef.current.take(targetSessionId)
+        sessionDraftsRef.current.save(targetSessionId, { ...draft, images: [...draft.images, image] })
+      }
+      reader.readAsDataURL(file)
+    })
+  }
+
   const handleImageUpload = (e: ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
     if (files) addImageFiles(Array.from(files))
     e.target.value = ''
   }
-  const clearPendingImages = () => {
-    setPendingImages((prev) => {
-      prev.forEach((img) => URL.revokeObjectURL(img.preview))
-      return []
-    })
-  }
+
   const removePendingImage = (index: number) => {
-    setPendingImages((prev) => {
+    updatePendingImages((prev) => {
       const removed = prev[index]
       if (removed) URL.revokeObjectURL(removed.preview)
       return prev.filter((_, i) => i !== index)
     })
   }
-  const addImageFiles = (files: File[]) => {
-    files.filter((file) => file.type.startsWith('image/')).forEach((file) => {
-      const reader = new FileReader()
-      reader.onload = () =>
-        setPendingImages((prev) => [
-          ...prev,
-          { data: (reader.result as string).split(',')[1], mimeType: file.type, preview: URL.createObjectURL(file) },
-        ])
-      reader.readAsDataURL(file)
-    })
-  }
+
   const handlePaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
     const files = Array.from(e.clipboardData.files).filter((file) => file.type.startsWith('image/'))
     if (files.length === 0) return
     e.preventDefault()
     addImageFiles(files)
   }
+
   const handleDrop = (e: DragEvent<HTMLDivElement>) => {
     const files = Array.from(e.dataTransfer.files).filter((file) => file.type.startsWith('image/'))
     setDraggingImages(false)
@@ -416,12 +1599,14 @@ export default function Workspace() {
     e.preventDefault()
     addImageFiles(files)
   }
+
   const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
     if (Array.from(e.dataTransfer.items).some((item) => item.type.startsWith('image/'))) {
       e.preventDefault()
       setDraggingImages(true)
     }
   }
+
   const handleDragLeave = (e: DragEvent<HTMLDivElement>) => {
     if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDraggingImages(false)
   }
@@ -436,24 +1621,41 @@ export default function Workspace() {
     setShowConfigMenu(name.startsWith('config:') ? (showConfigMenu === name.slice(7) ? null : name.slice(7)) : null)
   }
 
-  const blockingInteraction = pendingPermissions.length > 0 || pendingElicitations.length > 0
-  const canSendPrompt = !!currentSessionId && connected && !blockingInteraction && (!!inputValue.trim() || pendingImages.length > 0)
-  const pendingInteractionId = pendingPermissions[0]?.id || pendingElicitations[0]?.id || ''
-  const isStreaming = !!(streamingMessage && !streamingMessage.done)
+  const latestHumanMessageTime = useMemo(() => {
+    if (!isStreaming || !currentSessionId) return null
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const message = messages[i]
+      if (message.session_id === currentSessionId && message.role === 'human') {
+        const timestamp = Date.parse(message.timestamp)
+        return Number.isFinite(timestamp) ? timestamp : null
+      }
+    }
+    return null
+  }, [currentSessionId, isStreaming, messages])
+
+  const liveElapsedSeconds = isStreaming && latestHumanMessageTime != null
+    ? Math.max(0, Math.floor((liveNowMs - latestHumanMessageTime) / 1000))
+    : undefined
+
   const streamingBubble = useMemo<ChatMsg | null>(() => {
     if (!isStreaming || !streamingMessage) return null
     return {
       id: streamingMessage.id,
+      session_id: currentSessionId ?? undefined,
       role: 'agent',
       content: streamingMessage.content,
       thinking: streamingMessage.thinking,
       toolCalls: streamingMessage.toolCalls,
+      processBlocks: streamingMessage.processBlocks,
+      finalAnswer: streamingMessage.finalAnswer,
       stage: streamingMessage.stage,
       timestamp: new Date().toISOString(),
       streaming: true,
     }
-  }, [isStreaming, streamingMessage])
+  }, [currentSessionId, isStreaming, streamingMessage])
   const showStreamingBubble = !!streamingBubble
+  const showPlanBar = shouldShowPlanBar({ plan, isStreaming, hasBlockingInteraction: blockingInteraction })
+
   const interactionPanel = useMemo(
     () =>
       blockingInteraction ? (
@@ -469,815 +1671,351 @@ export default function Workspace() {
 
   const chatItems = useMemo<ChatRenderItem<ChatMsg>[]>(
     () => buildChatRenderItems<ChatMsg>({
+      sessionId: currentSessionId,
       messages,
       events,
       streamingBubble,
       showStreamingBubble,
       blockingInteraction,
     }),
-    [blockingInteraction, events, messages, showStreamingBubble, streamingBubble],
+    [blockingInteraction, currentSessionId, events, messages, showStreamingBubble, streamingBubble],
   )
+
   const renderChatItem = useCallback(
     (item: ChatRenderItem<ChatMsg>) => {
-      if (item.kind === 'group') return <ChatBubble group={item.group} agent={selectedAgent} isStreaming={false} />
+      if (item.kind === 'group') return <MemoChatBubble group={item.group} agent={chatAgent} isStreaming={false} />
       if (item.kind === 'streaming') {
-        return <ChatBubble message={item.message} agent={selectedAgent} isStreaming footer={interactionPanel} />
+        return <MemoChatBubble message={item.message} agent={chatAgent} isStreaming footer={interactionPanel} liveElapsedSeconds={liveElapsedSeconds} />
       }
-      if (item.kind === 'blocking') return <BlockingInteractionBar agent={selectedAgent} panel={interactionPanel} />
-      return <ChatBubble message={item.message} agent={selectedAgent} isStreaming={false} />
+      if (item.kind === 'blocking') return <BlockingInteractionBar agent={chatAgent} panel={interactionPanel} />
+      return (
+        <MemoChatBubble
+          message={item.message}
+          agent={chatAgent}
+          isStreaming={false}
+          onLoadMessageProcess={fetchMessageProcess}
+          onLoadMessageFileChanges={fetchMessageFileChanges}
+          onLoadProcessItemDetail={fetchProcessItemDetail}
+          fileChangeDetailsByMessageId={fileChangeDetailsByMessageId}
+          fileChangeLoadingByKey={toolCallLoadingByKey}
+          fileChangeErrorByKey={toolCallErrorByKey}
+          processItemLoadingByKey={processItemLoadingByKey}
+          processItemErrorByKey={processItemErrorByKey}
+          turnProcessLoadingByMessageId={turnProcessLoadingByMessageId}
+          turnProcessErrorByMessageId={turnProcessErrorByMessageId}
+        />
+      )
     },
-    [interactionPanel, selectedAgent],
+    [chatAgent, fetchMessageFileChanges, fetchMessageProcess, fetchProcessItemDetail, fileChangeDetailsByMessageId, interactionPanel, liveElapsedSeconds, processItemErrorByKey, processItemLoadingByKey, toolCallErrorByKey, toolCallLoadingByKey, turnProcessErrorByMessageId, turnProcessLoadingByMessageId],
   )
-
-  const currentModeName =
-    capabilities.modes.find((m) => m.modeId === capabilities.currentModeId)?.name || capabilities.currentModeId
-  const currentModelName =
-    capabilities.models.find((m) => m.modelId === capabilities.currentModelId)?.name || capabilities.currentModelId
-  const secondaryConfigs = capabilities.configOptions.filter(
-    (o) => o.category !== 'model' && o.category !== 'mode' && o.id !== 'model' && o.id !== 'mode',
-  )
-
-  useEffect(() => {
-    if (blockingInteraction) requestAnimationFrame(() => scrollToBottom('smooth'))
-  }, [blockingInteraction, pendingInteractionId, scrollToBottom])
 
   return (
-    <div style={{ display: 'flex', height: '100%', background: 'var(--bg-1)' }}>
-      {/* ─── Left Sidebar ─── */}
-      <aside
+    <>
+      <header
         style={{
-          width: 250,
+          padding: '10px 20px',
+          borderBottom: '1px solid var(--border)',
+          background: 'var(--bg-0)',
           flexShrink: 0,
           display: 'flex',
-          flexDirection: 'column',
-          borderRight: '1px solid var(--border)',
-          background: 'var(--bg-0)',
+          alignItems: 'center',
+          justifyContent: 'space-between',
         }}
       >
-        <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
-          <button
-            type="button"
-            onClick={() => setSidebarTab('sessions')}
-            style={{
-              flex: 1,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 5,
-              padding: '9px 0',
-              border: 'none',
-              borderBottom: sidebarTab === 'sessions' ? '2px solid var(--blue)' : '2px solid transparent',
-              background: 'transparent',
-              color: sidebarTab === 'sessions' ? 'var(--blue)' : 'var(--text-3)',
-              cursor: 'pointer',
-              fontSize: 12,
-              fontWeight: 600,
-              transition: 'all 0.15s',
-            }}
-          >
-            <MessageSquareIcon size={14} /> 会话
-          </button>
-          <button
-            type="button"
-            onClick={() => setSidebarTab('files')}
-            style={{
-              flex: 1,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 5,
-              padding: '9px 0',
-              border: 'none',
-              borderBottom: sidebarTab === 'files' ? '2px solid var(--blue)' : '2px solid transparent',
-              background: 'transparent',
-              color: sidebarTab === 'files' ? 'var(--blue)' : 'var(--text-3)',
-              cursor: 'pointer',
-              fontSize: 12,
-              fontWeight: 600,
-              transition: 'all 0.15s',
-            }}
-          >
-            <FolderOpen size={14} /> 文件
-          </button>
-        </div>
-
-        {sidebarTab === 'sessions' ? (
-          <>
-            <div style={{ padding: '6px 14px', display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-              {connected ? <Wifi size={12} color="var(--green)" /> : <WifiOff size={12} color="var(--red)" />}
-              <span style={{ fontSize: 11, color: connected ? 'var(--green)' : 'var(--red)' }}>
-                {connected ? '已连接' : '未连接'}
-              </span>
-            </div>
-            <div style={{ flex: 1, overflowY: 'auto', padding: '4px 0', minHeight: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {chatAgent && (
+            <>
               <div
-                style={{
-                  padding: '6px 14px 4px',
-                  fontSize: 11,
-                  fontWeight: 600,
-                  color: 'var(--text-3)',
-                  letterSpacing: '0.04em',
-                }}
-              >
-                智能体
-              </div>
-              {projectAgents.length === 0 && (
-                <div
-                  style={{
-                    margin: '18px 14px',
-                    padding: 14,
-                    border: '1px dashed var(--border)',
-                    borderRadius: 10,
-                    background: 'var(--bg-1)',
-                    textAlign: 'center',
-                  }}
-                >
-                  <Bot size={26} color="var(--text-3)" style={{ marginBottom: 8, opacity: 0.5 }} />
-                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-1)', marginBottom: 5 }}>
-                    当前项目暂无智能体
-                  </div>
-                  <div style={{ fontSize: 12, color: 'var(--text-3)', lineHeight: 1.5, marginBottom: 10 }}>
-                    先从 Agent 广场添加到项目，再新建会话开始对话。
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => navigate('/agents')}
-                    style={{
-                      border: 'none',
-                      background: 'var(--blue)',
-                      color: 'white',
-                      cursor: 'pointer',
-                      padding: '7px 12px',
-                      borderRadius: 7,
-                      fontSize: 12,
-                      fontWeight: 600,
-                    }}
-                  >
-                    添加智能体
-                  </button>
-                </div>
-              )}
-              {projectAgents.map((agent) => (
-                <div key={agent.id} style={{ marginBottom: 2 }}>
-                  <button
-                    type="button"
-                    onClick={() => toggleAgent(agent.id)}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 8,
-                      width: '100%',
-                      padding: '7px 14px',
-                      border: 'none',
-                      background: 'transparent',
-                      color: 'var(--text-1)',
-                      cursor: 'pointer',
-                      textAlign: 'left',
-                    }}
-                  >
-                    {expandedAgentIds.has(agent.id) ? (
-                      <ChevronDown size={13} color="var(--text-3)" />
-                    ) : (
-                      <ChevronRight size={13} color="var(--text-3)" />
-                    )}
-                    <span
-                      style={{
-                        width: 24,
-                        height: 24,
-                        borderRadius: '50%',
-                        background: agentColor(agent),
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: 10,
-                        fontWeight: 700,
-                        color: 'white',
-                        flexShrink: 0,
-                      }}
-                    >
-                      {agentAvatar(agent)}
-                    </span>
-                    <span style={{ flex: 1, fontSize: 13, fontWeight: 500 }}>{agent.name}</span>
-                    <span
-                      style={{
-                        fontSize: 10,
-                        padding: '1px 6px',
-                        borderRadius: 10,
-                        background: 'var(--bg-2)',
-                        color: 'var(--text-3)',
-                      }}
-                    >
-                      {agentSessions(agent.id).length}
-                    </span>
-                    <span
-                      style={{
-                        width: 7,
-                        height: 7,
-                        borderRadius: '50%',
-                        background: statusDot(agent.status),
-                        flexShrink: 0,
-                      }}
-                      title={statusLabel(agent.status)}
-                    />
-                  </button>
-                  {expandedAgentIds.has(agent.id) && (
-                    <>
-                      {agentSessions(agent.id).map((s) => (
-                        <div
-                          key={s.id}
-                          style={{
-                            position: 'relative',
-                            display: 'flex',
-                            alignItems: 'center',
-                            paddingLeft: 42,
-                            paddingRight: 8,
-                            background: currentSessionId === s.id ? 'var(--blue-light)' : 'transparent',
-                            borderRadius: 4,
-                          }}
-                        >
-                          <button
-                            type="button"
-                            onClick={() => handleSelectSession(agent.id, s.id)}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 8,
-                              flex: 1,
-                              minWidth: 0,
-                              padding: '5px 0',
-                              border: 'none',
-                              background: 'transparent',
-                              color: 'var(--text-1)',
-                              cursor: 'pointer',
-                              textAlign: 'left',
-                            }}
-                          >
-                            <span
-                              style={{
-                                width: 6,
-                                height: 6,
-                                borderRadius: '50%',
-                                background: s.status === 'active' ? '#059669' : '#9ca3af',
-                                flexShrink: 0,
-                              }}
-                            />
-                            <span
-                              style={{
-                                flex: 1,
-                                fontSize: 12,
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap',
-                              }}
-                            >
-                              {sessionTitle(s)}
-                            </span>
-                            <span style={{ fontSize: 10, color: 'var(--text-3)' }}>
-                              {formatTime(s.last_message_at || s.updated_at || s.started_at)}
-                            </span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setSessionMenuId(sessionMenuId === s.id ? null : s.id)
-                            }}
-                            title="会话操作"
-                            style={{
-                              width: 22,
-                              height: 22,
-                              border: 'none',
-                              borderRadius: 4,
-                              background: 'transparent',
-                              color: 'var(--text-3)',
-                              cursor: 'pointer',
-                              fontSize: 16,
-                              lineHeight: 1,
-                            }}
-                          >
-                            ⋯
-                          </button>
-                          {sessionMenuId === s.id && (
-                            <div
-                              style={{
-                                position: 'absolute',
-                                right: 8,
-                                top: 28,
-                                zIndex: 20,
-                                width: 120,
-                                padding: 4,
-                                background: 'var(--bg-0)',
-                                border: '1px solid var(--border)',
-                                borderRadius: 8,
-                                boxShadow: 'var(--shadow-lg)',
-                              }}
-                            >
-                              <button
-                                type="button"
-                                onClick={() => handleRenameSession(s.id, sessionTitle(s))}
-                                style={sessionMenuItemStyle}
-                              >
-                                重命名
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleCloseSession(s.id)}
-                                style={sessionMenuItemStyle}
-                              >
-                                关闭
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleArchiveSession(s.id)}
-                                style={sessionMenuItemStyle}
-                              >
-                                归档
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteSession(s.id)}
-                                style={{ ...sessionMenuItemStyle, color: 'var(--red)' }}
-                              >
-                                删除
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                      <button
-                        type="button"
-                        onClick={() => handleNewSession(agent.id)}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 6,
-                          width: '100%',
-                          padding: '5px 14px 5px 42px',
-                          border: 'none',
-                          background: 'transparent',
-                          color: 'var(--text-3)',
-                          cursor: 'pointer',
-                          fontSize: 11,
-                        }}
-                      >
-                        <Plus size={12} /> 新建会话
-                      </button>
-                    </>
-                  )}
-                </div>
-              ))}
-            </div>
-          </>
-        ) : (
-          <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0', minHeight: 0 }}>
-            {!currentProjectId ? (
-              <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
-                <FolderOpen size={32} style={{ marginBottom: 8, opacity: 0.3 }} />
-                <p>请先在顶部选择一个项目</p>
-              </div>
-            ) : fileTree.length === 0 ? (
-              <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
-                <FolderOpen size={32} style={{ marginBottom: 8, opacity: 0.3 }} />
-                <p>加载文件中...</p>
-              </div>
-            ) : (
-              <FileTree
-                entries={fileTree}
-                selectedPath={openFile?.path ?? null}
-                onSelectFile={(path) => currentProjectId && openFileByPath(currentProjectId, path)}
-                onExpandDir={(path) => currentProjectId && expandDir(currentProjectId, path)}
-              />
-            )}
-          </div>
-        )}
-      </aside>
-
-      {/* ─── File Preview (optional) ─── */}
-      {openFile && (
-        <div style={{ width: 420, flexShrink: 0 }}>
-          <FilePreview file={openFile} onClose={closeFile} />
-        </div>
-      )}
-
-      {/* ─── Center Chat ─── */}
-      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-        {/* Header */}
-        <header
-          style={{
-            padding: '10px 20px',
-            borderBottom: '1px solid var(--border)',
-            background: 'var(--bg-0)',
-            flexShrink: 0,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            {selectedAgent && (
-              <>
-                <div
-                  style={{
-                    width: 30,
-                    height: 30,
-                    borderRadius: '50%',
-                    background: agentColor(selectedAgent),
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: 12,
-                    fontWeight: 700,
-                    color: 'white',
-                  }}
-                >
-                  {agentAvatar(selectedAgent)}
-                </div>
-                <div>
-                  <div style={{ fontWeight: 600, fontSize: 14 }}>{selectedAgent.name}</div>
-                  <div style={{ fontSize: 11, color: 'var(--text-3)' }}>
-                    {selectedAgent.runtime} · {statusLabel(selectedAgent.status)}
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }} />
-        </header>
-
-        {(plan.length > 0 || capabilities.currentModeId === 'plan') && (
-          <PlanBar
-            plan={plan}
-            isStreaming={isStreaming}
-            currentModeId={capabilities.currentModeId}
-            modes={capabilities.modes}
-            onSetMode={setMode}
-          />
-        )}
-
-        {/* Messages */}
-        <div ref={chatScrollRef} style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
-          {!currentSessionId ? (
-            <div style={{ textAlign: 'center', color: 'var(--text-3)', padding: '80px 20px' }}>
-              <Bot size={48} color="var(--text-3)" style={{ marginBottom: 16, opacity: 0.3 }} />
-              <div style={{ fontSize: 15, marginBottom: 8 }}>选择一个 Session 或新建会话</div>
-              <div style={{ fontSize: 12 }}>点击左侧 Agent 下方的会话开始</div>
-            </div>
-          ) : (
-            <div style={{ padding: '20px 20px 100px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-              {chatItems.length === 0 && !showStreamingBubble && !blockingInteraction && (
-                <div style={{ textAlign: 'center', color: 'var(--text-3)', padding: '48px 0' }}>
-                  暂无消息，开始对话吧
-                </div>
-              )}
-              <VirtualChatList
-                items={chatItems}
-                getKey={(item) => item.id}
-                renderItem={renderChatItem}
-                scrollRef={chatScrollRef}
-                onContentResize={handleChatContentResize}
-              />
-              <div ref={chatEndRef} />
-            </div>
-          )}
-        </div>
-
-        {/* ─── Codex-style Input Card ─── */}
-        <div style={{ padding: '0 20px 16px', flexShrink: 0 }}>
-          {/* Image previews */}
-          {pendingImages.length > 0 && (
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
-              {pendingImages.map((img, i) => (
-                <div
-                  key={i}
-                  style={{
-                    position: 'relative',
-                    width: 52,
-                    height: 52,
-                    borderRadius: 6,
-                    overflow: 'hidden',
-                    border: '1px solid var(--border)',
-                  }}
-                >
-                  <img src={img.preview} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                  <button
-                    type="button"
-                  onClick={() => removePendingImage(i)}
-                    style={{
-                      position: 'absolute',
-                      top: 2,
-                      right: 2,
-                      width: 16,
-                      height: 16,
-                      borderRadius: '50%',
-                      background: 'rgba(0,0,0,0.6)',
-                      border: 'none',
-                      color: 'white',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      padding: 0,
-                    }}
-                  >
-                    <X size={10} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <div
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-            style={{
-              border: draggingImages ? '1px solid var(--blue)' : '1px solid var(--border)',
-              borderRadius: 12,
-              background: draggingImages ? 'var(--blue-light)' : 'var(--bg-0)',
-              boxShadow: draggingImages ? '0 0 0 3px rgba(37,99,235,0.12)' : '0 1px 4px rgba(0,0,0,0.06)',
-              overflow: 'hidden',
-              opacity: currentSessionId ? 1 : 0.5,
-            }}
-          >
-            {/* Textarea */}
-            <textarea
-              ref={textareaRef}
-              value={inputValue}
-              onChange={(e) => {
-                setInputValue(e.target.value)
-                autoResize()
-              }}
-              onKeyDown={handleKeyDown}
-              onPaste={handlePaste}
-              placeholder={
-                blockingInteraction ? '等待你确认后继续...' : currentSessionId ? '输入消息...' : '先选择一个 Session'
-              }
-              disabled={!currentSessionId || !connected || blockingInteraction}
-              autoFocus
-              rows={2}
-              style={{
-                width: '100%',
-                padding: '14px 16px 8px',
-                border: 'none',
-                outline: 'none',
-                resize: 'none',
-                background: 'transparent',
-                color: 'var(--text-1)',
-                fontSize: 13,
-                lineHeight: 1.6,
-                fontFamily: 'inherit',
-                minHeight: 56,
-                maxHeight: 160,
-                boxSizing: 'border-box',
-              }}
-            />
-            {/* Bottom toolbar (inside the card) */}
-            <div style={{ display: 'flex', alignItems: 'center', padding: '6px 12px 10px', gap: 4 }}>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                multiple
-                onChange={handleImageUpload}
-                style={{ display: 'none' }}
-              />
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={!currentSessionId}
-                title="添加附件"
                 style={{
                   width: 30,
                   height: 30,
-                  borderRadius: 6,
-                  border: 'none',
-                  background: 'transparent',
-                  color: 'var(--text-3)',
-                  cursor: 'pointer',
+                  borderRadius: '50%',
+                  background: agentColor(chatAgent),
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
+                  fontSize: 14,
+                  fontWeight: 700,
+                  color: 'white',
                 }}
               >
-                <Paperclip size={15} />
-              </button>
-
-              {capabilities.commands.length > 0 && (
-                <button
-                  type="button"
-                  onClick={(e) => openMenu('command', e)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 4,
-                    padding: '4px 10px',
-                    borderRadius: 6,
-                    border: 'none',
-                    background: 'var(--bg-1)',
-                    color: 'var(--text-2)',
-                    fontSize: 11,
-                    cursor: 'pointer',
-                    fontWeight: 500,
-                  }}
-                >
-                  <Wrench size={12} /> 命令 <ChevronDown size={10} />
-                </button>
-              )}
-
-              {capabilities.modes.length > 0 && (
-                <button
-                  type="button"
-                  onClick={(e) => openMenu('mode', e)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 4,
-                    padding: '4px 10px',
-                    borderRadius: 6,
-                    border: 'none',
-                    background: 'var(--bg-1)',
-                    color: 'var(--text-2)',
-                    fontSize: 11,
-                    cursor: 'pointer',
-                    fontWeight: 500,
-                  }}
-                >
-                  <Settings2 size={12} /> {modeCn(currentModeName)} <ChevronDown size={10} />
-                </button>
-              )}
-
-              <div style={{ flex: 1 }} />
-
-              {secondaryConfigs.map((opt) => (
-                <button
-                  key={opt.id}
-                  type="button"
-                  onClick={(e) => openMenu(`config:${opt.id}`, e)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 4,
-                    padding: '4px 10px',
-                    borderRadius: 6,
-                    border: 'none',
-                    background: 'var(--bg-1)',
-                    color: 'var(--text-2)',
-                    fontSize: 11,
-                    cursor: 'pointer',
-                    fontWeight: 500,
-                  }}
-                >
-                  {configLabel(opt)} <ChevronDown size={10} />
-                </button>
-              ))}
-
-              {usage && <MiniContextCircle used={usage.contextUsed} total={usage.contextSize} />}
-
-              {capabilities.models.length > 0 && (
-                <button
-                  type="button"
-                  onClick={(e) => openMenu('model', e)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 4,
-                    padding: '4px 10px',
-                    borderRadius: 6,
-                    border: 'none',
-                    background: 'transparent',
-                    color: 'var(--text-2)',
-                    fontSize: 11,
-                    cursor: 'pointer',
-                    fontWeight: 500,
-                  }}
-                >
-                  {currentModelName || '模型'} <ChevronDown size={10} />
-                </button>
-              )}
-
-              {blockingInteraction && (
-                <span style={{ fontSize: 11, color: 'var(--red)', fontWeight: 600, marginRight: 6 }}>等待确认</span>
-              )}
-
-              {isStreaming ? (
-                <button
-                  type="button"
-                  onClick={cancelTurn}
-                  title="停止生成"
-                  style={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: '50%',
-                    border: '2px solid var(--red)',
-                    cursor: 'pointer',
-                    background: 'transparent',
-                    color: 'var(--red)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexShrink: 0,
-                    transition: 'all 0.15s',
-                  }}
-                >
-                  <Square size={14} fill="var(--red)" />
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={handleSend}
-                  disabled={!canSendPrompt}
-                  style={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: '50%',
-                    border: 'none',
-                    cursor: canSendPrompt ? 'pointer' : 'default',
-                    background: canSendPrompt ? 'var(--text-1)' : 'var(--bg-3)',
-                    color: 'white',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexShrink: 0,
-                    transition: 'background 0.15s',
-                  }}
-                >
-                  <ArrowUp size={16} />
-                </button>
-              )}
-            </div>
-          </div>
+                {agentAvatar(chatAgent)}
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, fontSize: 15 }}>
+                  <span>{chatAgent.name}</span>
+                  {currentSessionTitle && (
+                    <>
+                      <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>·</span>
+                      <span style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{currentSessionTitle}</span>
+                    </>
+                  )}
+                </div>
+                <div style={{ fontSize: 13, color: 'var(--text-3)' }}>
+                  {chatAgent.runtime} · {statusLabel(chatAgent.status)}
+                </div>
+              </div>
+            </>
+          )}
         </div>
-      </main>
-
-      {/* Right Sidebar: session context */}
-      <aside
-        style={{
-          width: 280,
-          flexShrink: 0,
-          display: 'flex',
-          flexDirection: 'column',
-          borderLeft: '1px solid var(--border)',
-          background: 'var(--bg-0)',
-        }}
-      >
-        {teamContext.team ? (
-          <TeamContextPanel
-            context={teamContext}
-            agents={projectAgents}
-            currentSessionId={currentSessionId}
-            onSelectMember={handleSelectSession}
-          />
-        ) : (
-          <>
-            <div
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {currentSessionId && (
+            <button
+              onClick={() => setShowTimeline((v) => !v)}
               style={{
-                padding: '12px 16px',
-                borderBottom: '1px solid var(--border)',
-                fontSize: 13,
-                fontWeight: 600,
-                flexShrink: 0,
                 display: 'flex',
-                justifyContent: 'space-between',
                 alignItems: 'center',
+                gap: 5,
+                padding: '5px 11px',
+                borderRadius: 7,
+                border: `1px solid ${showTimeline ? '#93b4f5' : 'var(--border)'}`,
+                background: showTimeline ? '#eff6ff' : 'var(--bg-0)',
+                cursor: 'pointer',
+                fontSize: 13,
+                color: showTimeline ? '#2563eb' : 'var(--text-2)',
+                transition: 'all .15s',
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <ListTodo size={14} /> 任务
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowNewTask(true)}
-                style={{
-                  border: 'none',
-                  background: 'var(--blue)',
-                  color: 'white',
-                  cursor: 'pointer',
-                  padding: '4px 10px',
-                  borderRadius: 6,
-                  fontSize: 11,
-                  fontWeight: 500,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 4,
-                }}
-              >
-                <Plus size={12} /> 新建
-              </button>
-            </div>
-            <TaskPanel tasks={tasks} agents={projectAgents} />
-          </>
-        )}
-      </aside>
-
-      {showNewTask && (
-        <NewTaskModal
-          agents={projectAgents}
-          onCreate={(title, desc, agentId) => createTask(title, desc, agentId, currentProjectId ?? undefined)}
-          onClose={() => setShowNewTask(false)}
+              📋 时间线
+            </button>
+          )}
+        </div>
+      </header>
+      {showTimeline && currentSessionId && (
+        <div style={{ position: 'relative' }}>
+          <TimelinePopover sessionId={currentSessionId} onClose={() => setShowTimeline(false)} />
+        </div>
+      )}
+      {showPlanBar && (
+        <PlanBar
+          plan={plan}
+          isStreaming={isStreaming}
+          currentModeId={capabilities.currentModeId}
+          modes={capabilities.modes}
+          onSetMode={setMode}
         />
       )}
-
-      {/* 命令菜单 */}
+      <div ref={chatScrollRef} style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
+        {!currentSessionId ? (
+          <div style={{ textAlign: 'center', color: 'var(--text-3)', padding: '80px 20px' }}>
+            <Bot size={48} color="var(--text-3)" style={{ marginBottom: 16, opacity: 0.3 }} />
+            <div style={{ fontSize: 15, marginBottom: 8 }}>选择一个 Session 或新建会话</div>
+            <div style={{ fontSize: 14 }}>点击左侧 Agent 下方的会话开始</div>
+          </div>
+        ) : (
+          <div
+            key={chatContentKey(currentSessionId)}
+            style={{ padding: '20px 20px 20px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}
+          >
+            {chatItems.length === 0 && !showStreamingBubble && !blockingInteraction && (
+              <div style={{ textAlign: 'center', color: 'var(--text-3)', padding: '48px 0' }}>
+                暂无消息，开始对话吧
+              </div>
+            )}
+            <VirtualChatList
+              key={currentSessionId}
+              items={chatItems}
+              getKey={(item) => item.id}
+              renderItem={renderChatItem}
+              scrollRef={chatScrollRef}
+              onContentResize={handleChatContentResize}
+            />
+            <div ref={chatEndRef} />
+          </div>
+        )}
+      </div>
+      <div style={{ padding: '0 20px 16px', flexShrink: 0 }}>
+        {pendingImages.length > 0 && (
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+            {pendingImages.map((img, i) => (
+              <div
+                key={i}
+                style={{
+                  position: 'relative',
+                  width: 52,
+                  height: 52,
+                  borderRadius: 6,
+                  overflow: 'hidden',
+                  border: '1px solid var(--border)',
+                }}
+              >
+                <img src={img.preview} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                <button
+                  type="button"
+                  onClick={() => removePendingImage(i)}
+                  style={{
+                    position: 'absolute',
+                    top: 2,
+                    right: 2,
+                    width: 16,
+                    height: 16,
+                    borderRadius: '50%',
+                    background: 'rgba(0,0,0,0.6)',
+                    border: 'none',
+                    color: 'white',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: 0,
+                  }}
+                >
+                  <X size={10} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          style={{
+            border: draggingImages ? '1px solid var(--blue)' : '1px solid var(--border)',
+            borderRadius: 12,
+            background: draggingImages ? 'var(--blue-light)' : 'var(--bg-0)',
+            boxShadow: draggingImages ? '0 0 0 3px rgba(37,99,235,0.12)' : '0 1px 4px rgba(0,0,0,0.06)',
+            overflow: 'hidden',
+            opacity: currentSessionId ? 1 : 0.5,
+          }}
+        >
+          <textarea
+            ref={textareaRef}
+            value={inputValue}
+            onChange={(e) => {
+              updateInputValue(e.target.value)
+              autoResize()
+            }}
+            onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
+            placeholder={
+              currentSessionCopying ? '正在复制会话，完成后可继续输入...' : blockingInteraction ? '等待你确认后继续...' : currentSessionId ? '输入消息...' : '先选择一个 Session'
+            }
+            disabled={!currentSessionId || !connected || blockingInteraction || currentSessionCopying}
+            autoFocus
+            rows={2}
+            style={{
+              width: '100%',
+              padding: '14px 16px 8px',
+              border: 'none',
+              outline: 'none',
+              resize: 'none',
+              background: 'transparent',
+              color: 'var(--text-1)',
+              fontSize: 15,
+              lineHeight: 1.6,
+              fontFamily: 'inherit',
+              minHeight: 56,
+              maxHeight: 160,
+              boxSizing: 'border-box',
+            }}
+          />
+          <div style={{ display: 'flex', alignItems: 'center', padding: '6px 12px 10px', gap: 4 }}>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={handleImageUpload}
+              style={{ display: 'none' }}
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={!currentSessionId || currentSessionCopying}
+              title="添加附件"
+              style={{
+                width: 30,
+                height: 30,
+                borderRadius: 6,
+                border: 'none',
+                background: 'transparent',
+                color: 'var(--text-3)',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Paperclip size={15} />
+            </button>
+            {capabilities.commands.length > 0 && (
+              <button type="button" onClick={(e) => openMenu('command', e)} style={toolbarButtonStyle}>
+                <Wrench size={12} /> 命令 <ChevronDown size={10} />
+              </button>
+            )}
+            {capabilities.modes.length > 0 && (
+              <button type="button" onClick={(e) => openMenu('mode', e)} style={toolbarButtonStyle}>
+                <Settings2 size={12} /> {modeCn(currentModeName)} <ChevronDown size={10} />
+              </button>
+            )}
+            <div style={{ flex: 1 }} />
+            {secondaryConfigs.map((opt) => (
+              <button key={opt.id} type="button" onClick={(e) => openMenu(`config:${opt.id}`, e)} style={toolbarButtonStyle}>
+                {configLabel(opt)} <ChevronDown size={10} />
+              </button>
+            ))}
+            {usage && <MiniContextCircle used={usage.contextUsed} total={usage.contextSize} />}
+            {capabilities.models.length > 0 && (
+              <button
+                type="button"
+                onClick={(e) => openMenu('model', e)}
+                style={{ ...toolbarButtonStyle, background: 'transparent' }}
+              >
+                {currentModelName || '模型'} <ChevronDown size={10} />
+              </button>
+            )}
+            {blockingInteraction && (
+              <span style={{ fontSize: 13, color: 'var(--red)', fontWeight: 600, marginRight: 6 }}>等待确认</span>
+            )}
+            {isStreaming ? (
+              <button
+                type="button"
+                onClick={cancelTurn}
+                title="停止生成"
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: '50%',
+                  border: '2px solid var(--red)',
+                  cursor: 'pointer',
+                  background: 'transparent',
+                  color: 'var(--red)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                  transition: 'all 0.15s',
+                }}
+              >
+                <Square size={14} fill="var(--red)" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleSend}
+                disabled={!canSendPrompt}
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: '50%',
+                  border: 'none',
+                  cursor: canSendPrompt ? 'pointer' : 'default',
+                  background: canSendPrompt ? 'var(--text-1)' : 'var(--bg-3)',
+                  color: 'white',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                  transition: 'background 0.15s',
+                }}
+              >
+                <ArrowUp size={16} />
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
       {showCommandMenu && (
         <DropdownPortal onClose={() => setShowCommandMenu(false)} style={menuStyle(menuAnchor, 320)}>
           {capabilities.commands.map((cmd) => (
@@ -1285,218 +2023,212 @@ export default function Workspace() {
               key={cmd.name}
               type="button"
               onClick={() => {
-                setInputValue(`/${cmd.name} `)
+                updateInputValue(`/${cmd.name} `)
                 setShowCommandMenu(false)
                 textareaRef.current?.focus()
               }}
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 2,
-                width: '100%',
-                minWidth: 0,
-                padding: '10px 14px',
-                border: 'none',
-                borderRadius: 8,
-                background: 'transparent',
-                color: 'var(--text-1)',
-                fontSize: 12,
-                cursor: 'pointer',
-                textAlign: 'left',
-                boxSizing: 'border-box',
-              }}
+              style={commandMenuItemStyle}
             >
-              <span
-                style={{
-                  fontWeight: 600,
-                  maxWidth: '100%',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}
-              >
+              <span style={{ fontWeight: 600, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 /{cmd.name}
               </span>
-              <span
-                style={{
-                  color: 'var(--text-3)',
-                  fontSize: 10,
-                  whiteSpace: 'normal',
-                  overflowWrap: 'anywhere',
-                  lineHeight: 1.4,
-                }}
-              >
+              <span style={{ color: 'var(--text-3)', fontSize: 12, whiteSpace: 'normal', overflowWrap: 'anywhere', lineHeight: 1.4 }}>
                 {cmd.description || cmd.input?.hint || '插入命令'}
               </span>
             </button>
           ))}
         </DropdownPortal>
       )}
-
-      {/* 模式菜单 */}
       {showModeMenu && (
         <DropdownPortal onClose={() => setShowModeMenu(false)} style={menuStyle(menuAnchor, 260)}>
           {capabilities.modes.map((m) => {
             const active = m.modeId === capabilities.currentModeId
             return (
-              <button
+              <MenuOption
                 key={m.modeId}
-                type="button"
+                active={active}
+                label={modeCn(m.name)}
+                labelWeight={500}
+                description={m.description}
                 onClick={() => {
-                  setMode(m.modeId)
+                  void setMode(m.modeId)
                   setShowModeMenu(false)
                 }}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  width: '100%',
-                  padding: '10px 14px',
-                  border: 'none',
-                  borderRadius: 8,
-                  background: active ? 'var(--blue-light)' : 'transparent',
-                  color: 'var(--text-1)',
-                  fontSize: 12,
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                }}
-              >
-                {active ? (
-                  <Check size={13} color="var(--blue)" style={{ flexShrink: 0 }} />
-                ) : (
-                  <Circle size={13} color="var(--text-3)" style={{ flexShrink: 0 }} />
-                )}
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontWeight: 500 }}>{modeCn(m.name)}</div>
-                  {m.description && (
-                    <div style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 2 }}>{m.description}</div>
-                  )}
-                </div>
-              </button>
+              />
             )
           })}
         </DropdownPortal>
       )}
-
-      {/* 配置菜单 */}
       {showConfigMenu && (
         <DropdownPortal onClose={() => setShowConfigMenu(null)} style={menuStyle(menuAnchor, 240)}>
-          {(() => {
-            const opt = secondaryConfigs.find((o) => o.id === showConfigMenu)
-            if (!opt) return null
-            if (opt.type === 'boolean') {
-              const active = opt.currentValue === true
-              return (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setConfig(opt.id, !active)
-                    setShowConfigMenu(null)
-                  }}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    width: '100%',
-                    padding: '10px 14px',
-                    border: 'none',
-                    borderRadius: 8,
-                    background: active ? 'var(--blue-light)' : 'transparent',
-                    color: 'var(--text-1)',
-                    fontSize: 12,
-                    cursor: 'pointer',
-                    textAlign: 'left',
-                  }}
-                >
-                  {active ? <Check size={13} color="var(--blue)" /> : <Circle size={13} color="var(--text-3)" />}{' '}
-                  {opt.name}
-                </button>
-              )
-            }
-            return opt.options?.map((item) => {
-              const active = item.value === opt.currentValue
-              return (
-                <button
-                  key={item.value}
-                  type="button"
-                  onClick={() => {
-                    setConfig(opt.id, item.value)
-                    setShowConfigMenu(null)
-                  }}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    width: '100%',
-                    padding: '10px 14px',
-                    border: 'none',
-                    borderRadius: 8,
-                    background: active ? 'var(--blue-light)' : 'transparent',
-                    color: 'var(--text-1)',
-                    fontSize: 12,
-                    cursor: 'pointer',
-                    textAlign: 'left',
-                  }}
-                >
-                  {active ? (
-                    <Check size={13} color="var(--blue)" style={{ flexShrink: 0 }} />
-                  ) : (
-                    <Circle size={13} color="var(--text-3)" style={{ flexShrink: 0 }} />
-                  )}
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontWeight: 500 }}>{configOptionLabel(item.value, item.name)}</div>
-                    {item.description && (
-                      <div style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 2 }}>{item.description}</div>
-                    )}
-                  </div>
-                </button>
-              )
-            })
-          })()}
-        </DropdownPortal>
-      )}
-
-      {/* 模型菜单 */}
-      {showModelMenu && (
-        <DropdownPortal onClose={() => setShowModelMenu(false)} style={menuStyle(menuAnchor, 280)}>
-          {capabilities.models.map((m) => {
-            const active = m.modelId === capabilities.currentModelId
-            return (
-              <button
-                key={m.modelId}
-                type="button"
-                onClick={() => {
-                  setModel(m.modelId)
-                  setShowModelMenu(false)
-                }}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  width: '100%',
-                  padding: '10px 14px',
-                  border: 'none',
-                  borderRadius: 8,
-                  background: active ? 'var(--blue-light)' : 'transparent',
-                  color: 'var(--text-1)',
-                  fontSize: 13,
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                }}
-              >
-                {active ? (
-                  <Check size={13} color="var(--blue)" style={{ flexShrink: 0 }} />
-                ) : (
-                  <Circle size={13} color="var(--text-3)" style={{ flexShrink: 0 }} />
-                )}
-                <span style={{ fontWeight: active ? 600 : 400 }}>{m.name || m.modelId}</span>
-              </button>
-            )
+          {renderConfigMenu({
+            configId: showConfigMenu,
+            options: secondaryConfigs,
+            setConfig,
+            onClose: () => setShowConfigMenu(null),
           })}
         </DropdownPortal>
       )}
-    </div>
+      {showModelMenu && (
+        <DropdownPortal onClose={() => setShowModelMenu(false)} style={menuStyle(menuAnchor, 280)}>
+          {capabilities.models.map((m) => (
+            <MenuOption
+              key={m.modelId}
+              active={m.modelId === capabilities.currentModelId}
+              label={m.name || m.modelId}
+              fontSize={15}
+              labelWeight={m.modelId === capabilities.currentModelId ? 600 : 400}
+              onClick={() => {
+                void setModel(m.modelId)
+                setShowModelMenu(false)
+              }}
+            />
+          ))}
+        </DropdownPortal>
+      )}
+    </>
   )
+}
+
+const toolbarButtonStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 4,
+  padding: '4px 10px',
+  borderRadius: 6,
+  border: 'none',
+  background: 'var(--bg-1)',
+  color: 'var(--text-2)',
+  fontSize: 13,
+  cursor: 'pointer',
+  fontWeight: 500,
+}
+
+const orderGripStyle: React.CSSProperties = {
+  width: 16,
+  height: 20,
+  borderRadius: 4,
+  color: 'var(--text-3)',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  cursor: 'grab',
+  flexShrink: 0,
+  opacity: 0.72,
+}
+
+const commandMenuItemStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 2,
+  width: '100%',
+  minWidth: 0,
+  padding: '10px 14px',
+  border: 'none',
+  borderRadius: 8,
+  background: 'transparent',
+  color: 'var(--text-1)',
+  fontSize: 14,
+  cursor: 'pointer',
+  textAlign: 'left',
+  boxSizing: 'border-box',
+}
+
+function MenuOption({
+  active,
+  label,
+  fontSize = 14,
+  labelWeight = active ? 600 : 500,
+  description,
+  onClick,
+}: {
+  active: boolean
+  label: string
+  fontSize?: number
+  labelWeight?: React.CSSProperties['fontWeight']
+  description?: string
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        width: '100%',
+        padding: '10px 14px',
+        border: 'none',
+        borderRadius: 8,
+        background: active ? 'var(--blue-light)' : 'transparent',
+        color: 'var(--text-1)',
+        fontSize,
+        cursor: 'pointer',
+        textAlign: 'left',
+      }}
+    >
+      {active ? (
+        <Check size={13} color="var(--blue)" style={{ flexShrink: 0 }} />
+      ) : (
+        <Circle size={13} color="var(--text-3)" style={{ flexShrink: 0 }} />
+      )}
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontWeight: labelWeight }}>{label}</div>
+        {description && <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>{description}</div>}
+      </div>
+    </button>
+  )
+}
+
+function renderConfigMenu({
+  configId,
+  options,
+  setConfig,
+  onClose,
+}: {
+  configId: string
+  options: PlanConfigOption[]
+  setConfig: (configId: string, value: string | boolean) => Promise<void>
+  onClose: () => void
+}) {
+  const opt = options.find((o) => o.id === configId)
+  if (!opt) return null
+  if (opt.type === 'boolean') {
+    const active = opt.currentValue === true
+    return (
+      <MenuOption
+        active={active}
+        label={opt.name}
+        labelWeight={400}
+        onClick={() => {
+          void setConfig(opt.id, !active)
+          onClose()
+        }}
+      />
+    )
+  }
+  return opt.options?.map((item) => (
+    <MenuOption
+      key={item.value}
+      active={item.value === opt.currentValue}
+      label={configOptionLabel(item.value, item.name)}
+      labelWeight={500}
+      description={item.description}
+      onClick={() => {
+        void setConfig(opt.id, item.value)
+        onClose()
+      }}
+    />
+  ))
+}
+
+type PlanConfigOption = {
+  id: string
+  name: string
+  type: string
+  currentValue?: string | boolean
+  options?: { value: string; name: string; description?: string }[]
 }
 
 /* ─── Mini Context Circle (input toolbar) ─── */
@@ -1525,7 +2257,7 @@ function MiniContextCircle({ used, total }: { used: number; total: number }) {
           strokeLinecap="round"
         />
       </svg>
-      <span style={{ fontSize: 10, color: 'var(--text-3)' }}>
+      <span style={{ fontSize: 12, color: 'var(--text-3)' }}>
         {fmtTokens(used)}/{fmtTokens(total)}
       </span>
     </div>
@@ -1566,7 +2298,7 @@ function PlanBar({
           display: 'flex',
           alignItems: 'center',
           gap: 8,
-          fontSize: 12,
+          fontSize: 14,
           color: 'var(--text-1)',
           textAlign: 'left',
         }}
@@ -1581,7 +2313,7 @@ function PlanBar({
               borderRadius: 999,
               background: 'var(--blue-light)',
               color: 'var(--blue)',
-              fontSize: 11,
+              fontSize: 13,
               fontWeight: 600,
             }}
           >
@@ -1608,7 +2340,7 @@ function PlanBar({
               borderRadius: 7,
               background: 'var(--text-1)',
               color: 'white',
-              fontSize: 11,
+              fontSize: 13,
               fontWeight: 600,
             }}
           >
@@ -1619,7 +2351,7 @@ function PlanBar({
       {open && (
         <div style={{ padding: '0 20px 8px', display: 'flex', flexDirection: 'column', gap: 3 }}>
           {plan.length === 0 && (
-            <div style={{ fontSize: 12, color: 'var(--text-3)' }}>
+            <div style={{ fontSize: 14, color: 'var(--text-3)' }}>
               计划模式已开启，Agent 会先给出计划；如需执行可切换到执行模式。
             </div>
           )}
@@ -1630,7 +2362,7 @@ function PlanBar({
                 display: 'flex',
                 alignItems: 'center',
                 gap: 6,
-                fontSize: 12,
+                fontSize: 14,
                 color:
                   p.status === 'completed'
                     ? 'var(--green)'
@@ -1663,9 +2395,9 @@ const TASK_TABS: { key: string; label: string; icon: typeof ListTodo; filter: (t
     key: 'active',
     label: '进行中',
     icon: Loader2,
-    filter: (t) => ['executing', 'planning', 'reviewing'].includes(t.status),
+    filter: (t) => ['executing', 'needs_input'].includes(t.status),
   },
-  { key: 'blocked', label: '需处理', icon: Zap, filter: (t) => t.status === 'blocked' },
+  { key: 'needs_attention', label: '需处理', icon: Zap, filter: (t) => t.status === 'needs_input' },
   { key: 'done', label: '已完成', icon: CheckCircle2, filter: (t) => ['completed', 'cancelled'].includes(t.status) },
 ]
 
@@ -1673,9 +2405,7 @@ function taskStageLabel(s: string): string {
   return (
     {
       executing: '执行中',
-      planning: '规划中',
-      reviewing: '审查中',
-      blocked: '已阻塞',
+      needs_input: '待确认',
       completed: '已完成',
       backlog: '待办',
       cancelled: '已取消',
@@ -1686,23 +2416,69 @@ function taskStageColor(s: string): string {
   return (
     {
       executing: 'var(--blue)',
-      planning: 'var(--purple)',
-      reviewing: '#f59e0b',
-      blocked: 'var(--red)',
+      needs_input: '#f59e0b',
       completed: 'var(--green)',
       backlog: 'var(--text-3)',
     }[s] ?? 'var(--text-3)'
   )
 }
 
-function TaskPanel({ tasks, agents }: { tasks: TaskData[]; agents: AgentData[] }) {
+function TaskPanel({
+  tasks,
+  agents,
+  modes,
+  currentSessionTaskId,
+  onSelectSession,
+  projectId,
+}: {
+  tasks: TaskData[]
+  agents: AgentData[]
+  modes: Array<{ id: string; name: string }>
+  currentSessionTaskId: string | null
+  onSelectSession: (agentId: string, sessionId: string) => void
+  projectId?: string
+}) {
   const [tab, setTab] = useState('all')
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
+  const [reportModalTaskId, setReportModalTaskId] = useState<string | null>(null)
   const filtered = tasks.filter(TASK_TABS.find((t) => t.key === tab)!.filter)
   const agentMap = new Map(agents.map((a) => [a.id, a]))
+  const sessions = useSessionStore((s) => s.sessions)
+  const selectSession = useSessionStore((s) => s.selectSession)
+
+  const selectedTask = selectedTaskId ? tasks.find((t) => t.id === selectedTaskId) ?? null : null
+  const reportModalTask = reportModalTaskId ? tasks.find((t) => t.id === reportModalTaskId) ?? null : null
+  const sessionsForTask = useMemo(() => {
+    if (!selectedTask) return []
+    return sessions.filter((s) => {
+      if (s.task_id !== selectedTask.id) return false
+      if (projectId && s.project_id !== projectId) return false
+      return true
+    })
+  }, [selectedTask, sessions, projectId])
+
+  const handleJumpToSession = (sessionId: string, agentId: string) => {
+    selectSession(sessionId)
+    onSelectSession(agentId, sessionId)
+    setSelectedTaskId(null)
+  }
+
+  if (selectedTask) {
+    return (
+      <TaskDetailInline
+        task={selectedTask}
+        agents={agents}
+        modes={modes}
+        sessions={sessionsForTask}
+        onBack={() => setSelectedTaskId(null)}
+        onJumpToSession={handleJumpToSession}
+      />
+    )
+  }
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-      {/* Tabs — 重新设计为 pill 样式 */}
+      {/* Tabs — pill 样式 */}
       <div style={{ display: 'flex', gap: 4, padding: '10px 12px 6px', flexWrap: 'wrap' }}>
         {TASK_TABS.map((t) => {
           const count = tasks.filter(t.filter).length
@@ -1722,7 +2498,7 @@ function TaskPanel({ tasks, agents }: { tasks: TaskData[]; agents: AgentData[] }
                 border: active ? '1px solid var(--blue)' : '1px solid var(--border)',
                 background: active ? 'var(--blue-light)' : 'var(--bg-1)',
                 color: active ? 'var(--blue)' : 'var(--text-3)',
-                fontSize: 11,
+                fontSize: 13,
                 fontWeight: 500,
                 cursor: 'pointer',
                 transition: 'all 0.15s',
@@ -1735,7 +2511,7 @@ function TaskPanel({ tasks, agents }: { tasks: TaskData[]; agents: AgentData[] }
                   style={{
                     background: active ? 'var(--blue)' : 'var(--bg-3)',
                     color: active ? 'white' : 'var(--text-2)',
-                    fontSize: 9,
+                    fontSize: 11,
                     fontWeight: 700,
                     padding: '1px 5px',
                     borderRadius: 10,
@@ -1751,36 +2527,87 @@ function TaskPanel({ tasks, agents }: { tasks: TaskData[]; agents: AgentData[] }
         })}
       </div>
       {/* Task list */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '6px 12px' }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '6px 12px 12px' }}>
         {filtered.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '40px 12px', color: 'var(--text-3)' }}>
             <Archive size={28} style={{ opacity: 0.2, marginBottom: 8 }} />
-            <div style={{ fontSize: 12 }}>暂无{TASK_TABS.find((t) => t.key === tab)?.label}任务</div>
+            <div style={{ fontSize: 14 }}>暂无{TASK_TABS.find((t) => t.key === tab)?.label}任务</div>
           </div>
         ) : (
           filtered.map((task) => {
             const ag = task.assigned_agent_id ? agentMap.get(task.assigned_agent_id) : null
+            const isCurrent = task.id === currentSessionTaskId
+            const reportBadge = task.agent_report_status
+              ? AGENT_REPORT_STATUS_BADGE[task.agent_report_status] ?? null
+              : null
+            const hasStage = Boolean(task.stage)
             return (
               <div
                 key={task.id}
+                onClick={() => setSelectedTaskId(task.id)}
                 style={{
-                  padding: '10px 12px',
+                  padding: isCurrent ? '10px 12px 10px 10px' : '10px 12px',
                   borderRadius: 8,
-                  border: '1px solid var(--border)',
-                  background: 'var(--bg-1)',
+                  border: isCurrent ? '1px solid var(--blue)' : '1px solid var(--border)',
+                  borderLeft: isCurrent ? '3px solid var(--blue)' : '1px solid var(--border)',
+                  background: isCurrent ? 'var(--blue-light)' : 'var(--bg-1)',
                   marginBottom: 6,
-                  transition: 'box-shadow 0.15s',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s',
                 }}
               >
-                <div
-                  style={{ fontSize: 13, fontWeight: 500, marginBottom: 4, lineHeight: 1.4, color: 'var(--text-1)' }}
-                >
-                  {task.title}
+                {/* 第一行:Agent + 标题 */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                  {ag ? (
+                    <span
+                      style={{
+                        fontSize: 11,
+                        padding: '1px 6px',
+                        borderRadius: 8,
+                        background: agentColor(ag),
+                        color: 'white',
+                        fontWeight: 500,
+                        flexShrink: 0,
+                      }}
+                    >
+                      {ag.name}
+                    </span>
+                  ) : (
+                    <span
+                      style={{
+                        fontSize: 11,
+                        padding: '1px 6px',
+                        borderRadius: 8,
+                        background: 'var(--bg-3)',
+                        color: 'var(--text-3)',
+                        fontWeight: 500,
+                        flexShrink: 0,
+                      }}
+                    >
+                      未分派
+                    </span>
+                  )}
+                  <span
+                    style={{
+                      fontSize: 14,
+                      fontWeight: 500,
+                      lineHeight: 1.4,
+                      color: 'var(--text-1)',
+                      flex: 1,
+                      minWidth: 0,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {task.title}
+                  </span>
                 </div>
+                {/* 第二行:状态徽标 + 时间 + 查看汇报按钮(无 stage 时) */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                   <span
                     style={{
-                      fontSize: 10,
+                      fontSize: 11,
                       color: 'white',
                       fontWeight: 600,
                       padding: '2px 8px',
@@ -1788,40 +2615,107 @@ function TaskPanel({ tasks, agents }: { tasks: TaskData[]; agents: AgentData[] }
                       background: taskStageColor(task.status),
                     }}
                   >
-                    {task.stage || taskStageLabel(task.status)}
+                    {taskStageLabel(task.status)}
                   </span>
-                  {ag && (
+                  {reportBadge && (
                     <span
                       style={{
-                        fontSize: 10,
-                        padding: '2px 8px',
-                        borderRadius: 10,
-                        background: agentColor(ag),
-                        color: 'white',
+                        fontSize: 11,
+                        padding: '1px 6px',
+                        borderRadius: 8,
+                        background: reportBadge.bg,
+                        color: reportBadge.color,
                         fontWeight: 500,
                       }}
                     >
-                      {ag.name}
+                      {reportBadge.label}
                     </span>
                   )}
-                  <span style={{ fontSize: 10, color: 'var(--text-3)', marginLeft: 'auto' }}>
+                  {isCurrent && (
+                    <span
+                      style={{
+                        fontSize: 10,
+                        padding: '1px 6px',
+                        borderRadius: 8,
+                        background: 'var(--blue)',
+                        color: 'white',
+                        fontWeight: 600,
+                      }}
+                    >
+                      当前
+                    </span>
+                  )}
+                  <span style={{ fontSize: 11, color: 'var(--text-3)', marginLeft: 'auto' }}>
                     {formatTime(task.created_at)}
                   </span>
+                  {!hasStage && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setReportModalTaskId(task.id)
+                      }}
+                      title="查看汇报"
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 3,
+                        padding: '2px 7px',
+                        borderRadius: 8,
+                        border: '1px solid var(--blue)',
+                        background: 'var(--blue-light)',
+                        color: 'var(--blue)',
+                        fontSize: 11,
+                        fontWeight: 500,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <FileText size={11} />
+                      查看汇报
+                    </button>
+                  )}
                 </div>
-                {task.description && (
-                  <div
-                    style={{
-                      fontSize: 11,
-                      color: 'var(--text-3)',
-                      marginTop: 6,
-                      lineHeight: 1.4,
-                      display: '-webkit-box',
-                      WebkitLineClamp: 2,
-                      WebkitBoxOrient: 'vertical',
-                      overflow: 'hidden',
-                    }}
-                  >
-                    {task.description}
+                {/* 第三行:stage + 查看汇报按钮(有 stage 时) */}
+                {hasStage && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                    <span
+                      style={{
+                        fontSize: 12,
+                        color: 'var(--text-3)',
+                        flex: 1,
+                        minWidth: 0,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      → {task.stage}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setReportModalTaskId(task.id)
+                      }}
+                      title="查看汇报"
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 3,
+                        padding: '2px 7px',
+                        borderRadius: 8,
+                        border: '1px solid var(--blue)',
+                        background: 'var(--blue-light)',
+                        color: 'var(--blue)',
+                        fontSize: 11,
+                        fontWeight: 500,
+                        cursor: 'pointer',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <FileText size={11} />
+                      查看汇报
+                    </button>
                   </div>
                 )}
               </div>
@@ -1829,12 +2723,769 @@ function TaskPanel({ tasks, agents }: { tasks: TaskData[]; agents: AgentData[] }
           })
         )}
       </div>
+      {reportModalTask && (
+        <ReportHistoryModal task={reportModalTask} onClose={() => setReportModalTaskId(null)} />
+      )}
     </div>
   )
 }
 
+const AGENT_REPORT_STATUS_BADGE: Record<string, { label: string; color: string; bg: string }> = {
+  in_progress: { label: '进行中', color: 'var(--blue)', bg: 'var(--blue-light)' },
+  milestone: { label: '里程碑', color: '#7c3aed', bg: '#ede9fe' },
+  blocked: { label: '卡住', color: 'var(--red)', bg: '#fee2e2' },
+  done: { label: '已完成', color: 'var(--green)', bg: 'var(--green-light)' },
+}
+
+const TASK_EVENT_TYPE_META: Record<string, { label: string; color: string; bg: string }> = {
+  created: { label: '创建', color: 'var(--text-3)', bg: 'var(--bg-2)' },
+  assigned: { label: '分派', color: '#7c3aed', bg: '#ede9fe' },
+  assigned_agent: { label: '分派', color: '#7c3aed', bg: '#ede9fe' },
+  self_claimed: { label: '自认领', color: 'var(--blue)', bg: 'var(--blue-light)' },
+  progress: { label: '进度', color: 'var(--text-2)', bg: 'var(--bg-2)' },
+  milestone: { label: '里程碑', color: '#7c3aed', bg: '#ede9fe' },
+  input_requested: { label: '请求确认', color: 'var(--red)', bg: '#fee2e2' },
+  marked_done: { label: '本轮完成', color: 'var(--green)', bg: 'var(--green-light)' },
+  replied: { label: '人工回复', color: 'var(--blue)', bg: 'var(--blue-light)' },
+  status_changed: { label: '状态变更', color: 'var(--text-2)', bg: 'var(--bg-2)' },
+  manual_status_change: { label: '手动改状态', color: 'var(--text-2)', bg: 'var(--bg-2)' },
+  agent_status_changed: { label: 'Agent状态', color: 'var(--text-2)', bg: 'var(--bg-2)' },
+  session_linked: { label: '关联会话', color: 'var(--text-2)', bg: 'var(--bg-2)' },
+  updated: { label: '更新', color: 'var(--text-2)', bg: 'var(--bg-2)' },
+}
+
+function parseEventPayload(json: string): Record<string, unknown> {
+  try { return JSON.parse(json) as Record<string, unknown> } catch { return {} }
+}
+
+function formatRelativeTime(iso: string): string {
+  try {
+    const diff = Date.now() - new Date(iso).getTime()
+    const mins = Math.floor(diff / 60000)
+    if (mins < 1) return '刚刚'
+    if (mins < 60) return `${mins}分钟前`
+    const hours = Math.floor(mins / 60)
+    if (hours < 24) return `${hours}小时前`
+    const days = Math.floor(hours / 24)
+    return `${days}天前`
+  } catch { return iso }
+}
+
+const TASK_REPORT_EVENT_TYPES = new Set(['progress', 'input_requested', 'marked_done', 'milestone', 'replied'])
+
+function eventReportMd(ev: TaskEventData): string {
+  const p = parseEventPayload(ev.payload_json)
+  if (typeof p.report_md === 'string' && p.report_md) return p.report_md
+  if (typeof p.message === 'string' && p.message) return p.message
+  return ''
+}
+
+function eventStage(ev: TaskEventData): string {
+  const p = parseEventPayload(ev.payload_json)
+  if (typeof p.stage === 'string' && p.stage) return p.stage
+  return ''
+}
+
+function TaskDetailInline({
+  task,
+  agents,
+  sessions,
+  onBack,
+  onJumpToSession,
+}: {
+  task: TaskData
+  agents: AgentData[]
+  modes: Array<{ id: string; name: string }>
+  sessions: SessionData[]
+  onBack: () => void
+  onJumpToSession: (sessionId: string, agentId: string) => void
+}) {
+  const fetchTaskEvents = useTaskStore((s) => s.fetchTaskEvents)
+  const updateTask = useTaskStore((s) => s.updateTask)
+  const [events, setEvents] = useState<TaskEventData[]>([])
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null)
+  const [showReportModal, setShowReportModal] = useState(false)
+  const [sessionPickerOpen, setSessionPickerOpen] = useState(false)
+  const [updating, setUpdating] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    fetchTaskEvents(task.id).then((loaded) => {
+      if (cancelled) return
+      setEvents(loaded)
+      const sorted = [...loaded].sort((a, b) => b.sequence - a.sequence)
+      const latestWithMd = sorted.find((ev) => TASK_REPORT_EVENT_TYPES.has(ev.type) && eventReportMd(ev))
+      setSelectedEventId(latestWithMd?.id ?? null)
+    })
+    return () => { cancelled = true }
+  }, [task.id, fetchTaskEvents])
+
+  const agent = task.assigned_agent_id ? agents.find((a) => a.id === task.assigned_agent_id) : null
+  const reportBadge = task.agent_report_status ? AGENT_REPORT_STATUS_BADGE[task.agent_report_status] ?? null : null
+  const sortedEvents = [...events].sort((a, b) => b.sequence - a.sequence)
+  const reportEvents = sortedEvents.filter((ev) => TASK_REPORT_EVENT_TYPES.has(ev.type) && eventReportMd(ev))
+  const isTerminal = task.status === 'completed' || task.status === 'cancelled'
+  const isBacklog = task.status === 'backlog' || !task.assigned_agent_id
+
+  const handleMarkComplete = async () => {
+    setUpdating(true)
+    try {
+      await updateTask(task.id, 'completed', undefined, '人工验收通过')
+      const refreshed = await fetchTaskEvents(task.id)
+      setEvents(refreshed)
+    } finally { setUpdating(false) }
+  }
+
+  const handleReopen = async () => {
+    setUpdating(true)
+    try {
+      await updateTask(task.id, 'executing', undefined, '人工重新打开')
+      const refreshed = await fetchTaskEvents(task.id)
+      setEvents(refreshed)
+    } finally { setUpdating(false) }
+  }
+
+  const handleJumpToSession = () => {
+    if (sessions.length === 0) return
+    if (sessions.length === 1) {
+      onJumpToSession(sessions[0].id, sessions[0].agent_id)
+      return
+    }
+    setSessionPickerOpen((v) => !v)
+  }
+
+  return (
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+      {/* Detail header: 返回 + Agent + 标题 + 状态徽标 */}
+      <div style={{
+        padding: '10px 14px',
+        borderBottom: '1px solid var(--border)',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 6,
+        flexShrink: 0,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button
+            type="button"
+            onClick={onBack}
+            style={{
+              border: 'none',
+              background: 'transparent',
+              cursor: 'pointer',
+              padding: 4,
+              borderRadius: 6,
+              color: 'var(--text-3)',
+              display: 'flex',
+              alignItems: 'center',
+            }}
+            title="返回任务列表"
+          >
+            <ChevronRight size={16} style={{ transform: 'rotate(180deg)' }} />
+          </button>
+          {agent ? (
+            <span
+              style={{
+                fontSize: 11,
+                padding: '2px 8px',
+                borderRadius: 10,
+                background: agentColor(agent),
+                color: 'white',
+                fontWeight: 500,
+                flexShrink: 0,
+              }}
+            >
+              {agent.name}
+            </span>
+          ) : (
+            <span
+              style={{
+                fontSize: 11,
+                padding: '2px 8px',
+                borderRadius: 10,
+                background: 'var(--bg-3)',
+                color: 'var(--text-3)',
+                fontWeight: 500,
+                flexShrink: 0,
+              }}
+            >
+              未分派
+            </span>
+          )}
+          <div style={{ fontSize: 14, fontWeight: 600, flex: 1, minWidth: 0, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {task.title}
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, paddingLeft: 28 }}>
+          <span style={{
+            fontSize: 11,
+            color: 'white',
+            fontWeight: 600,
+            padding: '2px 8px',
+            borderRadius: 10,
+            background: taskStageColor(task.status),
+          }}>
+            {taskStageLabel(task.status)}
+          </span>
+          {reportBadge && (
+            <span style={{
+              fontSize: 11,
+              padding: '1px 6px',
+              borderRadius: 8,
+              background: reportBadge.bg,
+              color: reportBadge.color,
+              fontWeight: 500,
+            }}>
+              {reportBadge.label}
+            </span>
+          )}
+          <span style={{ fontSize: 11, color: 'var(--text-3)', marginLeft: 'auto' }}>
+            创建于 {formatRelativeTime(task.created_at)}
+          </span>
+        </div>
+      </div>
+
+      {/* Detail body */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '12px 14px 80px' }}>
+        {/* 任务描述 */}
+        {task.description && (
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-3)', marginBottom: 6 }}>
+              任务描述
+            </div>
+            <div style={{
+              fontSize: 13,
+              lineHeight: 1.6,
+              color: 'var(--text-1)',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+            }}>
+              {task.description}
+            </div>
+          </div>
+        )}
+
+        {/* 最新进度 */}
+        {task.stage && (
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-3)', marginBottom: 6 }}>
+              最新进度
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.4 }}>
+              → {task.stage}
+            </div>
+          </div>
+        )}
+
+        {/* 汇报历史 */}
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-3)', marginBottom: 8 }}>
+            汇报历史{reportEvents.length > 0 && (
+              <span style={{ fontSize: 11, color: 'var(--text-4)', fontWeight: 500, marginLeft: 4 }}>
+                ({reportEvents.length})
+              </span>
+            )}
+          </div>
+          {reportEvents.length === 0 ? (
+            <div style={{
+              padding: '24px 12px',
+              textAlign: 'center',
+              fontSize: 12,
+              color: 'var(--text-3)',
+              background: 'var(--bg-1)',
+              borderRadius: 8,
+              border: '1px dashed var(--border)',
+            }}>
+              <FileText size={20} style={{ opacity: 0.3, marginBottom: 6 }} />
+              <div>Agent 还没有汇报</div>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {reportEvents.map((ev) => {
+                const meta = TASK_EVENT_TYPE_META[ev.type] ?? { label: ev.type, color: 'var(--text-3)', bg: 'var(--bg-2)' }
+                const stage = eventStage(ev)
+                const isSelected = selectedEventId === ev.id
+                return (
+                  <button
+                    key={ev.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedEventId(ev.id)
+                      setShowReportModal(true)
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 10,
+                      padding: '8px 10px',
+                      borderRadius: 8,
+                      border: isSelected ? '1px solid var(--blue)' : '1px solid var(--border)',
+                      background: isSelected ? 'var(--blue-light)' : 'var(--bg-1)',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      transition: 'all 0.15s',
+                    }}
+                  >
+                    <div style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: '50%',
+                      background: meta.color,
+                      flexShrink: 0,
+                    }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                        <span style={{
+                          fontSize: 11,
+                          fontWeight: 600,
+                          padding: '1px 6px',
+                          borderRadius: 8,
+                          background: meta.bg,
+                          color: meta.color,
+                          whiteSpace: 'nowrap',
+                        }}>
+                          {meta.label}
+                        </span>
+                        <span style={{ fontSize: 10, color: 'var(--text-4)', marginLeft: 'auto' }}>
+                          {formatRelativeTime(ev.created_at)}
+                        </span>
+                      </div>
+                      {stage && (
+                        <div style={{
+                          fontSize: 12,
+                          color: 'var(--text-2)',
+                          lineHeight: 1.4,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}>
+                          → {stage}
+                        </div>
+                      )}
+                    </div>
+                    <ChevronRight size={14} color="var(--text-3)" style={{ flexShrink: 0 }} />
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Bottom actions */}
+      {!isBacklog && (
+        <div style={{
+          borderTop: '1px solid var(--border)',
+          padding: '10px 14px',
+          display: 'flex',
+          gap: 8,
+          flexShrink: 0,
+          background: 'var(--bg-0)',
+          position: 'relative',
+        }}>
+          <button
+            type="button"
+            onClick={handleJumpToSession}
+            disabled={sessions.length === 0}
+            style={{
+              padding: '6px 12px',
+              borderRadius: 6,
+              border: '1px solid var(--border)',
+              background: sessions.length === 0 ? 'var(--bg-2)' : 'var(--bg-1)',
+              color: sessions.length === 0 ? 'var(--text-3)' : 'var(--text-2)',
+              fontSize: 13,
+              cursor: sessions.length === 0 ? 'not-allowed' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+            }}
+          >
+            <MessageSquareIcon size={12} />
+            跳转到会话
+            {sessions.length > 1 && (
+              <span style={{ fontSize: 11, color: 'var(--text-3)' }}>({sessions.length})</span>
+            )}
+          </button>
+          <div style={{ flex: 1 }} />
+          {isTerminal ? (
+            <button
+              type="button"
+              onClick={handleReopen}
+              disabled={updating}
+              style={{
+                padding: '6px 12px',
+                borderRadius: 6,
+                border: '1px solid var(--border)',
+                background: 'var(--bg-1)',
+                color: 'var(--text-2)',
+                fontSize: 13,
+                cursor: 'pointer',
+              }}
+            >
+              {updating ? '更新中...' : '重新打开'}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={handleMarkComplete}
+              disabled={updating}
+              style={{
+                padding: '6px 14px',
+                borderRadius: 6,
+                border: 'none',
+                background: updating ? 'var(--bg-2)' : 'var(--green)',
+                color: updating ? 'var(--text-3)' : 'white',
+                fontSize: 13,
+                fontWeight: 500,
+                cursor: updating ? 'not-allowed' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+              }}
+            >
+              <Check size={12} />
+              {updating ? '更新中...' : '标记完成'}
+            </button>
+          )}
+          {sessionPickerOpen && sessions.length > 1 && (
+            <div style={{
+              position: 'absolute',
+              bottom: '100%',
+              left: 14,
+              marginBottom: 4,
+              background: 'var(--bg-0)',
+              border: '1px solid var(--border)',
+              borderRadius: 8,
+              boxShadow: 'var(--shadow-lg)',
+              padding: 4,
+              minWidth: 200,
+              maxHeight: 240,
+              overflowY: 'auto',
+              zIndex: 10,
+            }}>
+              {sessions.map((s) => {
+                const sessionAgent = agents.find((a) => a.id === s.agent_id)
+                return (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => {
+                      setSessionPickerOpen(false)
+                      onJumpToSession(s.id, s.agent_id)
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '6px 8px',
+                      borderRadius: 6,
+                      border: 'none',
+                      background: 'transparent',
+                      color: 'var(--text-1)',
+                      fontSize: 12,
+                      cursor: 'pointer',
+                      width: '100%',
+                      textAlign: 'left',
+                    }}
+                  >
+                    <MessageSquareIcon size={11} color="var(--text-3)" />
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                      {s.title?.trim() || (sessionAgent ? `${sessionAgent.name} 会话` : s.id.slice(0, 8))}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Report markdown modal */}
+      {showReportModal && (
+        <ReportModal
+          task={task}
+          events={reportEvents}
+          initialEventId={selectedEventId}
+          onClose={() => setShowReportModal(false)}
+        />
+      )}
+    </div>
+  )
+}
+
+function ReportModal({
+  task,
+  events,
+  initialEventId,
+  onClose,
+}: {
+  task: TaskData
+  events: TaskEventData[]
+  initialEventId: string | null
+  onClose: () => void
+}) {
+  const [selectedId, setSelectedId] = useState<string | null>(
+    initialEventId && events.some((ev) => ev.id === initialEventId) ? initialEventId : (events[0]?.id ?? null)
+  )
+  const selected = events.find((ev) => ev.id === selectedId) ?? events[0] ?? null
+  const reportMd = selected ? eventReportMd(selected) : ''
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(reportMd)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch { /* ignore */ }
+  }
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,0.5)',
+        zIndex: 1200,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 40,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: 'var(--bg-0)',
+          borderRadius: 12,
+          width: '100%',
+          maxWidth: 960,
+          maxHeight: '100%',
+          height: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+          boxShadow: 'var(--shadow-lg)',
+        }}
+      >
+        {/* Header */}
+        <div style={{
+          padding: '12px 20px',
+          borderBottom: '1px solid var(--border)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          flexShrink: 0,
+        }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 14, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              汇报历史 · {task.title}
+            </div>
+            {selected && (
+              <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>
+                {TASK_EVENT_TYPE_META[selected.type]?.label ?? selected.type} · {formatRelativeTime(selected.created_at)}
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              width: 28,
+              height: 28,
+              borderRadius: 6,
+              border: 'none',
+              background: 'transparent',
+              color: 'var(--text-3)',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Body: 左侧列表 + 右侧 MD */}
+        <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+          {events.length > 1 && (
+            <div style={{
+              width: 240,
+              borderRight: '1px solid var(--border)',
+              overflowY: 'auto',
+              padding: 8,
+              flexShrink: 0,
+            }}>
+              {events.map((ev) => {
+                const meta = TASK_EVENT_TYPE_META[ev.type] ?? { label: ev.type, color: 'var(--text-3)', bg: 'var(--bg-2)' }
+                const stage = eventStage(ev)
+                const isSelected = selected?.id === ev.id
+                return (
+                  <button
+                    key={ev.id}
+                    type="button"
+                    onClick={() => setSelectedId(ev.id)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: '8px 10px',
+                      borderRadius: 6,
+                      border: isSelected ? '1px solid var(--blue)' : '1px solid transparent',
+                      background: isSelected ? 'var(--blue-light)' : 'transparent',
+                      color: 'var(--text-1)',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      width: '100%',
+                      marginBottom: 2,
+                    }}
+                  >
+                    <div style={{ width: 6, height: 6, borderRadius: '50%', background: meta.color, flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <span style={{
+                          fontSize: 10,
+                          fontWeight: 600,
+                          padding: '1px 5px',
+                          borderRadius: 6,
+                          background: meta.bg,
+                          color: meta.color,
+                        }}>
+                          {meta.label}
+                        </span>
+                        <span style={{ fontSize: 10, color: 'var(--text-4)', marginLeft: 'auto' }}>
+                          {formatRelativeTime(ev.created_at)}
+                        </span>
+                      </div>
+                      {stage && (
+                        <div style={{
+                          fontSize: 11,
+                          color: 'var(--text-3)',
+                          marginTop: 2,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}>
+                          → {stage}
+                        </div>
+                      )}
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+          <div style={{ flex: 1, overflowY: 'auto', padding: '20px 28px', minWidth: 0 }}>
+            {reportMd ? (
+              <MarkdownRenderer content={reportMd} />
+            ) : (
+              <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
+                该条记录没有汇报内容
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div style={{
+          padding: '10px 20px',
+          borderTop: '1px solid var(--border)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexShrink: 0,
+          background: 'var(--bg-1)',
+        }}>
+          <span style={{ fontSize: 12, color: 'var(--text-3)' }}>
+            共 {events.length} 条汇报
+          </span>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              type="button"
+              onClick={handleCopy}
+              style={{
+                padding: '5px 10px',
+                borderRadius: 6,
+                border: '1px solid var(--border)',
+                background: 'var(--bg-0)',
+                color: 'var(--text-2)',
+                fontSize: 13,
+                cursor: 'pointer',
+              }}
+            >
+              {copied ? '已复制' : '复制原文'}
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              style={{
+                padding: '5px 10px',
+                borderRadius: 6,
+                border: 'none',
+                background: 'transparent',
+                color: 'var(--text-3)',
+                fontSize: 13,
+                cursor: 'pointer',
+              }}
+            >
+              关闭
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ReportHistoryModal({
+  task,
+  onClose,
+}: {
+  task: TaskData
+  onClose: () => void
+}) {
+  const fetchTaskEvents = useTaskStore((s) => s.fetchTaskEvents)
+  const [events, setEvents] = useState<TaskEventData[]>([])
+
+  useEffect(() => {
+    let cancelled = false
+    fetchTaskEvents(task.id).then((loaded) => {
+      if (cancelled) return
+      setEvents(loaded)
+    })
+    return () => { cancelled = true }
+  }, [task.id, fetchTaskEvents])
+
+  const reportEvents = events
+    .filter((ev) => TASK_REPORT_EVENT_TYPES.has(ev.type) && eventReportMd(ev))
+    .sort((a, b) => b.sequence - a.sequence)
+
+  return (
+    <ReportModal
+      task={task}
+      events={reportEvents}
+      initialEventId={reportEvents[0]?.id ?? null}
+      onClose={onClose}
+    />
+  )
+}
+
 /* ─── Tool Call Panel ─── */
-function ToolCallPanel({ tc }: { tc: ToolCallInfo; isStreaming: boolean }) {
+function ToolCallPanel({
+  tc,
+  hasDetail,
+  detailLoading,
+  detailError,
+  onLoadDetail,
+}: {
+  tc: ToolCallInfo
+  isStreaming: boolean
+  hasDetail?: boolean
+  detailLoading?: boolean
+  detailError?: string
+  onLoadDetail?: () => void
+}) {
   const isActive = tc.status === 'in_progress' || tc.status === 'pending'
   const [openOverride, setOpenOverride] = useState<'open' | 'closed' | null>(null)
   const prevStatusRef = useRef(tc.status)
@@ -1847,8 +3498,9 @@ function ToolCallPanel({ tc }: { tc: ToolCallInfo; isStreaming: boolean }) {
   }, [tc.status])
   const open = openOverride === 'open' || (openOverride !== 'closed' && isActive)
   const toggleOpen = () => setOpenOverride(open ? 'closed' : 'open')
-  const kindIcon =
-    tc.kind === 'edit' ? <FileCode size={12} /> : tc.kind === 'execute' ? <Terminal size={12} /> : <Wrench size={12} />
+  useEffect(() => {
+    if (open && hasDetail && !detailLoading && !detailError) onLoadDetail?.()
+  }, [detailError, detailLoading, hasDetail, onLoadDetail, open])
   const statusColor = tc.status === 'completed' ? 'var(--green)' : tc.status === 'failed' ? 'var(--red)' : 'var(--blue)'
   const statusIcon =
     tc.status === 'completed' ? (
@@ -1892,12 +3544,11 @@ function ToolCallPanel({ tc }: { tc: ToolCallInfo; isStreaming: boolean }) {
           alignItems: 'center',
           gap: 6,
           textAlign: 'left',
-          fontSize: 12,
+          fontSize: 14,
           color: 'var(--text-1)',
         }}
       >
         {open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-        {kindIcon}
         <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 }}>
           {summary}
         </span>
@@ -1907,7 +3558,7 @@ function ToolCallPanel({ tc }: { tc: ToolCallInfo; isStreaming: boolean }) {
             display: 'flex',
             alignItems: 'center',
             gap: 3,
-            fontSize: 10,
+            fontSize: 12,
             flexShrink: 0,
             fontWeight: 500,
           }}
@@ -1920,11 +3571,13 @@ function ToolCallPanel({ tc }: { tc: ToolCallInfo; isStreaming: boolean }) {
           style={{
             padding: '6px 10px',
             borderTop: '1px solid var(--border)',
-            fontSize: 11,
+            fontSize: 13,
             minWidth: 0,
             overflowX: 'hidden',
           }}
         >
+          {detailLoading && <div style={{ color: 'var(--text-3)', marginBottom: 6 }}>正在加载工具详情...</div>}
+          {detailError && <div style={{ color: 'var(--red)', marginBottom: 6, overflowWrap: 'anywhere' }}>{detailError}</div>}
           {tc.locations && tc.locations.length > 0 && (
             <div style={{ marginBottom: 6 }}>
               {tc.locations.map((l, i) => (
@@ -1936,7 +3589,7 @@ function ToolCallPanel({ tc }: { tc: ToolCallInfo; isStreaming: boolean }) {
                     padding: '2px 8px',
                     borderRadius: 4,
                     background: 'var(--bg-2)',
-                    fontSize: 10,
+                    fontSize: 12,
                     marginRight: 4,
                     color: 'var(--text-2)',
                     fontFamily: 'monospace',
@@ -1953,14 +3606,14 @@ function ToolCallPanel({ tc }: { tc: ToolCallInfo; isStreaming: boolean }) {
           )}
           {tc.rawInput != null && (
             <div style={{ marginBottom: 6 }}>
-              <div style={{ fontSize: 10, color: 'var(--text-3)', marginBottom: 3, fontWeight: 600 }}>参数</div>
+              <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 3, fontWeight: 600 }}>参数</div>
               <div
                 style={{
                   background: 'var(--bg-2)',
                   padding: 8,
                   borderRadius: 6,
                   fontFamily: 'monospace',
-                  fontSize: 10,
+                  fontSize: 12,
                   whiteSpace: 'pre',
                   maxHeight: 120,
                   maxWidth: '100%',
@@ -1984,7 +3637,7 @@ function ToolCallPanel({ tc }: { tc: ToolCallInfo; isStreaming: boolean }) {
                     padding: 8,
                     borderRadius: 6,
                     fontFamily: 'monospace',
-                    fontSize: 10,
+                    fontSize: 12,
                     whiteSpace: 'pre',
                     maxHeight: 200,
                     maxWidth: '100%',
@@ -2003,7 +3656,7 @@ function ToolCallPanel({ tc }: { tc: ToolCallInfo; isStreaming: boolean }) {
                     background: 'var(--bg-2)',
                     padding: 8,
                     borderRadius: 6,
-                    fontSize: 10,
+                    fontSize: 12,
                     whiteSpace: 'pre-wrap',
                     overflowWrap: 'anywhere',
                     maxHeight: 150,
@@ -2020,7 +3673,7 @@ function ToolCallPanel({ tc }: { tc: ToolCallInfo; isStreaming: boolean }) {
           ))}
           {tc.terminalOutput && (
             <div style={{ marginTop: 6 }}>
-              <div style={{ fontSize: 10, color: 'var(--text-3)', marginBottom: 3, fontWeight: 600 }}>终端输出</div>
+              <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 3, fontWeight: 600 }}>终端输出</div>
               <div
                 style={{
                   background: '#0f172a',
@@ -2028,7 +3681,7 @@ function ToolCallPanel({ tc }: { tc: ToolCallInfo; isStreaming: boolean }) {
                   padding: 8,
                   borderRadius: 6,
                   fontFamily: 'monospace',
-                  fontSize: 10,
+                  fontSize: 12,
                   whiteSpace: 'pre',
                   maxHeight: 160,
                   maxWidth: '100%',
@@ -2042,10 +3695,10 @@ function ToolCallPanel({ tc }: { tc: ToolCallInfo; isStreaming: boolean }) {
           )}
           {tc.progress && tc.progress.length > 0 && (
             <div style={{ marginTop: 6 }}>
-              <div style={{ fontSize: 10, color: 'var(--text-3)', marginBottom: 3, fontWeight: 600 }}>进度</div>
+              <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 3, fontWeight: 600 }}>进度</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                 {tc.progress.slice(-6).map((p, i) => (
-                  <div key={i} style={{ fontSize: 10, color: 'var(--text-2)' }}>
+                  <div key={i} style={{ fontSize: 12, color: 'var(--text-2)' }}>
                     • {p}
                   </div>
                 ))}
@@ -2054,14 +3707,14 @@ function ToolCallPanel({ tc }: { tc: ToolCallInfo; isStreaming: boolean }) {
           )}
           {tc.rawOutput != null && (
             <div style={{ marginTop: 6 }}>
-              <div style={{ fontSize: 10, color: 'var(--text-3)', marginBottom: 3, fontWeight: 600 }}>结果</div>
+              <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 3, fontWeight: 600 }}>结果</div>
               <div
                 style={{
                   background: 'var(--bg-2)',
                   padding: 8,
                   borderRadius: 6,
                   fontFamily: 'monospace',
-                  fontSize: 10,
+                  fontSize: 12,
                   whiteSpace: 'pre',
                   maxHeight: 120,
                   maxWidth: '100%',
@@ -2101,8 +3754,8 @@ function BlockingInteractionBar({ agent, panel }: { agent: AgentData | undefined
       </div>
       <div style={{ width: 'min(760px, 75%)', minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-          <span style={{ fontSize: 12, fontWeight: 600 }}>{agent?.name || 'Agent'}</span>
-          <span style={{ fontSize: 10, color: 'var(--red)', fontWeight: 700 }}>等待确认</span>
+          <span style={{ fontSize: 14, fontWeight: 600 }}>{agent?.name || 'Agent'}</span>
+          <span style={{ fontSize: 12, color: 'var(--red)', fontWeight: 700 }}>等待确认</span>
         </div>
         {panel}
       </div>
@@ -2182,8 +3835,8 @@ function PermissionCard({
           <Wrench size={16} />
         </div>
         <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-1)' }}>需要确认工具调用</div>
-          <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 3 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-1)' }}>需要确认工具调用</div>
+          <div style={{ fontSize: 14, color: 'var(--text-3)', marginTop: 3 }}>
             Agent 正在等待你的权限决定，确认前本轮会暂停。
           </div>
         </div>
@@ -2193,7 +3846,7 @@ function PermissionCard({
             borderRadius: 999,
             background: '#fef2f2',
             color: 'var(--red)',
-            fontSize: 11,
+            fontSize: 13,
             fontWeight: 700,
           }}
         >
@@ -2220,7 +3873,7 @@ function PermissionCard({
                 border: allow ? 'none' : '1px solid var(--border)',
                 background: allow ? 'var(--blue)' : rejectAlways ? '#fef2f2' : 'var(--bg-1)',
                 color: allow ? 'white' : rejectAlways ? 'var(--red)' : 'var(--text-2)',
-                fontSize: 12,
+                fontSize: 14,
                 fontWeight: 600,
                 cursor: submitting ? 'default' : 'pointer',
               }}
@@ -2239,7 +3892,7 @@ function PermissionCard({
             border: '1px solid var(--border)',
             background: 'var(--bg-1)',
             color: 'var(--text-3)',
-            fontSize: 12,
+            fontSize: 14,
             fontWeight: 600,
             cursor: submitting ? 'default' : 'pointer',
           }}
@@ -2302,9 +3955,9 @@ function ElicitationCard({
           overflow: 'hidden',
         }}
       >
-        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>Agent 请求你打开页面</div>
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 6 }}>Agent 请求你打开页面</div>
         {request.message && (
-          <div style={{ fontSize: 12, color: 'var(--text-2)', marginBottom: 8, lineHeight: 1.5 }}>
+          <div style={{ fontSize: 14, color: 'var(--text-2)', marginBottom: 8, lineHeight: 1.5 }}>
             {request.message}
           </div>
         )}
@@ -2312,7 +3965,7 @@ function ElicitationCard({
           href={schema.url}
           target="_blank"
           rel="noreferrer"
-          style={{ display: 'block', fontSize: 12, color: 'var(--blue)', overflowWrap: 'anywhere', marginBottom: 12 }}
+          style={{ display: 'block', fontSize: 14, color: 'var(--blue)', overflowWrap: 'anywhere', marginBottom: 12 }}
         >
           {schema.url}
         </a>
@@ -2327,7 +3980,7 @@ function ElicitationCard({
               border: 'none',
               background: 'var(--blue)',
               color: 'white',
-              fontSize: 12,
+              fontSize: 14,
               fontWeight: 600,
               cursor: 'pointer',
             }}
@@ -2344,7 +3997,7 @@ function ElicitationCard({
               border: '1px solid var(--border)',
               background: 'var(--bg-1)',
               color: 'var(--text-3)',
-              fontSize: 12,
+              fontSize: 14,
               fontWeight: 600,
               cursor: 'pointer',
             }}
@@ -2385,9 +4038,9 @@ function ElicitationCard({
           <MessageSquareIcon size={16} />
         </div>
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 14, fontWeight: 700 }}>Agent 提问</div>
+          <div style={{ fontSize: 15, fontWeight: 700 }}>Agent 提问</div>
           {request.message && (
-            <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 3, lineHeight: 1.5 }}>{request.message}</div>
+            <div style={{ fontSize: 14, color: 'var(--text-2)', marginTop: 3, lineHeight: 1.5 }}>{request.message}</div>
           )}
         </div>
       </div>
@@ -2401,15 +4054,15 @@ function ElicitationCard({
           return (
             <label
               key={key}
-              style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: 11, color: 'var(--text-3)' }}
+              style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: 13, color: 'var(--text-3)' }}
             >
               <span style={{ fontWeight: 600 }}>
                 {label}
                 {required && <span style={{ color: 'var(--red)' }}> *</span>}
               </span>
-              {prop.description && <span style={{ fontSize: 10, lineHeight: 1.4 }}>{prop.description}</span>}
+              {prop.description && <span style={{ fontSize: 12, lineHeight: 1.4 }}>{prop.description}</span>}
               {prop.type === 'boolean' ? (
-                <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-2)', fontSize: 12 }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-2)', fontSize: 14 }}>
                   <input
                     type="checkbox"
                     checked={values[key] === true}
@@ -2440,7 +4093,7 @@ function ElicitationCard({
                           border: selected ? '1px solid var(--blue)' : '1px solid var(--border)',
                           background: selected ? 'var(--blue-light)' : 'var(--bg-1)',
                           color: selected ? 'var(--blue)' : 'var(--text-2)',
-                          fontSize: 12,
+                          fontSize: 14,
                           cursor: 'pointer',
                         }}
                       >
@@ -2488,7 +4141,7 @@ function ElicitationCard({
                   }}
                 />
               )}
-              {errors[key] && <span style={{ color: 'var(--red)', fontSize: 10 }}>{errors[key]}</span>}
+              {errors[key] && <span style={{ color: 'var(--red)', fontSize: 12 }}>{errors[key]}</span>}
             </label>
           )
         })}
@@ -2504,7 +4157,7 @@ function ElicitationCard({
             border: 'none',
             background: 'var(--blue)',
             color: 'white',
-            fontSize: 12,
+            fontSize: 14,
             fontWeight: 600,
             cursor: 'pointer',
           }}
@@ -2521,7 +4174,7 @@ function ElicitationCard({
             border: '1px solid var(--border)',
             background: 'var(--bg-1)',
             color: 'var(--text-2)',
-            fontSize: 12,
+            fontSize: 14,
             fontWeight: 600,
             cursor: 'pointer',
           }}
@@ -2538,7 +4191,7 @@ function ElicitationCard({
             border: '1px solid var(--border)',
             background: 'var(--bg-1)',
             color: 'var(--text-3)',
-            fontSize: 12,
+            fontSize: 14,
             fontWeight: 600,
             cursor: 'pointer',
           }}
@@ -2560,12 +4213,22 @@ type ChatMsg = {
   tool_calls_json?: string | null
   decision_json?: string | null
   attachments_json?: string | null
+  file_changes_json?: string | null
   has_tool_calls?: boolean
   tool_call_count?: number
+  process_item_count?: number
+  has_file_changes?: boolean
+  file_change_count?: number
+  parsedFileChanges?: FileChangeSummaryInfo
   parsedToolCalls?: ToolCallInfo[]
   parsedAttachments?: ImageAttachmentInfo[]
   parsedDecision?: Record<string, unknown> | null
   toolCalls?: ToolCallInfo[]
+  processBlocks?: TurnProcessBlock[]
+  finalAnswer?: string
+  processDefaultOpen?: boolean
+  started_at?: string | null
+  completed_at?: string | null
   stage?: string
   timestamp?: string
   streaming?: boolean
@@ -2585,7 +4248,7 @@ interface TurnStats {
 const statChipStyle: React.CSSProperties = {
   padding: '3px 8px',
   borderRight: '1px solid var(--border)',
-  fontSize: 10,
+  fontSize: 12,
   whiteSpace: 'nowrap',
   display: 'flex',
   alignItems: 'center',
@@ -2615,12 +4278,34 @@ function ChatBubble({
   agent,
   isStreaming,
   footer,
+  liveElapsedSeconds,
+  onLoadMessageProcess,
+  onLoadMessageFileChanges,
+  onLoadProcessItemDetail,
+  fileChangeDetailsByMessageId = {},
+  fileChangeLoadingByKey = {},
+  fileChangeErrorByKey = {},
+  processItemLoadingByKey = {},
+  processItemErrorByKey = {},
+  turnProcessLoadingByMessageId = {},
+  turnProcessErrorByMessageId = {},
 }: {
   message?: ChatMsg
   group?: ChatTimelineGroup
   agent: AgentData | undefined
   isStreaming: boolean
   footer?: React.ReactNode
+  liveElapsedSeconds?: number
+  onLoadMessageProcess?: (sessionId: string, messageId: string) => void
+  onLoadMessageFileChanges?: (sessionId: string, messageId: string) => void
+  onLoadProcessItemDetail?: (sessionId: string, messageId: string, itemId: string) => void
+  fileChangeDetailsByMessageId?: Record<string, FileChangeDetailInfo>
+  fileChangeLoadingByKey?: Record<string, boolean>
+  fileChangeErrorByKey?: Record<string, string>
+  processItemLoadingByKey?: Record<string, boolean>
+  processItemErrorByKey?: Record<string, string>
+  turnProcessLoadingByMessageId?: Record<string, boolean>
+  turnProcessErrorByMessageId?: Record<string, string>
 }) {
   const normalizedMessage: ChatBubbleInput = group || message || { id: 'empty', role: 'system', content: '' }
   const isTimelineGroup = 'blocks' in normalizedMessage
@@ -2650,12 +4335,36 @@ function ChatBubble({
 
   const isHuman = role === 'human'
   if (isHuman) turnStats = null
+  const messageElapsedSeconds = !isTimelineGroup
+    ? elapsedSecondsBetween(normalizedMessage.started_at, normalizedMessage.completed_at)
+    : undefined
+  const elapsedSeconds = turnStats?.elapsedSeconds ?? (streaming ? liveElapsedSeconds : messageElapsedSeconds)
+  const showTurnStats = !!turnStats || (!isHuman && streaming && elapsedSeconds != null)
   const visibleBlocks = blocks.filter(chatBubbleBlockHasBody)
-  const hasBody = visibleBlocks.length > 0 || !!footer
+  const turnProcessBlocks = !isTimelineGroup ? normalizedMessage.processBlocks || [] : []
+  const processCount = !isTimelineGroup ? (normalizedMessage.process_item_count ?? normalizedMessage.tool_call_count ?? 0) : 0
+  const canLoadTurnProcess = !isTimelineGroup && !streaming && role === 'agent' && !!normalizedMessage.session_id && processCount > 0 && !normalizedMessage.processBlocks
+  const turnFinalAnswer = !isTimelineGroup ? (normalizedMessage.finalAnswer ?? (canLoadTurnProcess ? normalizedMessage.content : undefined)) : undefined
+  const hasTurnModel = !isTimelineGroup && (turnProcessBlocks.length > 0 || turnFinalAnswer != null || canLoadTurnProcess)
+  const processLoading = !isTimelineGroup ? turnProcessLoadingByMessageId[normalizedMessage.id] : false
+  const processError = !isTimelineGroup ? turnProcessErrorByMessageId[normalizedMessage.id] : undefined
+  const fileChangesSummary = !isTimelineGroup
+    ? normalizedMessage.parsedFileChanges || (normalizedMessage.file_changes_json ? parseJsonObject<FileChangeSummaryInfo>(normalizedMessage.file_changes_json) ?? undefined : undefined)
+    : undefined
+  const fileChangesDetail = !isTimelineGroup ? fileChangeDetailsByMessageId[normalizedMessage.id] : undefined
+  const fileChangesLoading = !isTimelineGroup ? !!fileChangeLoadingByKey[`file:${normalizedMessage.id}`] : false
+  const fileChangesError = !isTimelineGroup ? fileChangeErrorByKey[`file:${normalizedMessage.id}`] : undefined
+  const loadTurnProcess = canLoadTurnProcess && !isTimelineGroup && normalizedMessage.session_id
+    ? () => onLoadMessageProcess?.(normalizedMessage.session_id!, normalizedMessage.id)
+    : undefined
+  const loadFileChanges = !isTimelineGroup && normalizedMessage.session_id && normalizedMessage.has_file_changes
+    ? () => onLoadMessageFileChanges?.(normalizedMessage.session_id!, normalizedMessage.id)
+    : undefined
+  const hasBody = hasTurnModel || visibleBlocks.length > 0 || !!footer
   const streamingLabel = stage || '生成中'
 
   return (
-    <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', flexDirection: isHuman ? 'row-reverse' : 'row' }}>
+    <div data-bubble style={{ display: 'flex', gap: 10, alignItems: 'flex-start', flexDirection: isHuman ? 'row-reverse' : 'row' }}>
       <div
         style={{
           width: 30,
@@ -2680,12 +4389,12 @@ function ChatBubble({
             flexDirection: isHuman ? 'row-reverse' : 'row',
           }}
         >
-          <span style={{ fontSize: 12, fontWeight: 600 }}>{isHuman ? '你' : agent?.name || 'Agent'}</span>
+          <span style={{ fontSize: 14, fontWeight: 600 }}>{isHuman ? '你' : agent?.name || 'Agent'}</span>
           {timestamp && (
-            <span style={{ fontSize: 10, color: 'var(--text-3)' }}>{formatTime(timestamp)}</span>
+            <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{formatTime(timestamp)}</span>
           )}
           {streaming && (
-            <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: 'var(--blue)' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--blue)' }}>
               <Loader2 size={10} style={{ animation: 'spin 1s linear infinite' }} /> {streamingLabel}
             </span>
           )}
@@ -2702,57 +4411,157 @@ function ChatBubble({
               overflow: 'hidden',
             }}
           >
-            {visibleBlocks.map((block, index) => (
-              <ChatBubbleBlockView
-                key={bubbleBlockKey(block, index)}
-                block={block}
-                isLast={index === visibleBlocks.length - 1}
+            {hasTurnModel ? (
+              <TurnContentView
+                processBlocks={turnProcessBlocks}
+                finalAnswer={turnFinalAnswer || ''}
                 isStreaming={isStreaming}
+                fallbackStage={stage}
+                processCount={processCount}
+                processLoaded={!canLoadTurnProcess}
+                processLoading={processLoading}
+                processError={processError}
+                fileChangesSummary={fileChangesSummary}
+                fileChangesDetail={fileChangesDetail}
+                fileChangesLoading={fileChangesLoading}
+                fileChangesError={fileChangesError}
+                defaultProcessOpen={streaming || !!normalizedMessage.processDefaultOpen}
+                onLoadProcess={loadTurnProcess}
+                onLoadFileChanges={loadFileChanges}
+                renderProcessBlock={(block) => {
+                  const processItemKey = !isTimelineGroup ? `${normalizedMessage.id}:${block.id}` : ''
+                  const loadDetail = !isTimelineGroup && normalizedMessage.session_id
+                    ? () => onLoadProcessItemDetail?.(normalizedMessage.session_id!, normalizedMessage.id, block.id)
+                    : undefined
+                  return (
+                    <ProcessBlockView
+                      key={block.id}
+                      block={block}
+                      isStreaming={isStreaming}
+                      detailLoading={!!processItemLoadingByKey[processItemKey]}
+                      detailError={processItemErrorByKey[processItemKey]}
+                      onLoadDetail={loadDetail}
+                    />
+                  )
+                }}
               />
-            ))}
+            ) : visibleBlocks.map((block, index) => (
+                <ChatBubbleBlockView
+                  key={bubbleBlockKey(block, index)}
+                  block={block}
+                  isLast={index === visibleBlocks.length - 1}
+                  isStreaming={isStreaming}
+                />
+              ))}
             {footer && <div style={{ marginTop: 10 }}>{footer}</div>}
           </div>
         )}
         {/* 单次统计 */}
-        {turnStats && (
+        {showTurnStats && (
           <div
             style={{
               display: 'inline-flex',
               alignItems: 'center',
               gap: 0,
               marginTop: 6,
-              fontSize: 10,
+              fontSize: 12,
               color: 'var(--text-3)',
               background: 'var(--bg-2)',
               borderRadius: 6,
               overflow: 'hidden',
             }}
           >
-            {turnStats.elapsedSeconds != null && (
+            {elapsedSeconds != null && (
               <span style={{ ...statChipStyle, fontWeight: 600, color: 'var(--text-2)' }}>
-                ⏱ {turnStats.elapsedSeconds}s
+                {streaming ? <Loader2 size={11} style={{ animation: 'spin 1s linear infinite', verticalAlign: -2, marginRight: 4 }} /> : '⏱ '}
+                {formatCompactDuration(elapsedSeconds)}
               </span>
             )}
-            <span style={statChipStyle}>
-              <span style={{ color: 'var(--text-3)' }}>输入</span>{' '}
-              <b style={{ color: 'var(--text-2)' }}>{fmtTokens(turnStats.inputTokens)}</b>
-            </span>
-            <span style={statChipStyle}>
-              <span style={{ color: 'var(--text-3)' }}>输出</span>{' '}
-              <b style={{ color: 'var(--text-2)' }}>{fmtTokens(turnStats.outputTokens)}</b>
-            </span>
-            {turnStats.cachedReadTokens != null && turnStats.cachedReadTokens > 0 && (
+            {turnStats && (
+              <>
+                <span style={statChipStyle}>
+                  <span style={{ color: 'var(--text-3)' }}>输入</span>{' '}
+                  <b style={{ color: 'var(--text-2)' }}>{fmtTokens(turnStats.inputTokens)}</b>
+                </span>
+                <span style={statChipStyle}>
+                  <span style={{ color: 'var(--text-3)' }}>输出</span>{' '}
+                  <b style={{ color: 'var(--text-2)' }}>{fmtTokens(turnStats.outputTokens)}</b>
+                </span>
+              </>
+            )}
+            {turnStats?.cachedReadTokens != null && turnStats.cachedReadTokens > 0 && (
               <span style={statChipStyle}>
                 <span style={{ color: 'var(--text-3)' }}>缓存</span>{' '}
                 <b style={{ color: 'var(--text-2)' }}>{fmtTokens(turnStats.cachedReadTokens)}</b>
               </span>
             )}
-            {turnStats.costAmount != null && (
+            {turnStats?.costAmount != null && (
               <span style={{ ...statChipStyle, borderRight: 'none' }}>${turnStats.costAmount.toFixed(4)}</span>
             )}
           </div>
         )}
+        <TurnFileChangesSummary
+          processBlocks={turnProcessBlocks}
+          fileChangesSummary={fileChangesSummary}
+          fileChangesDetail={fileChangesDetail}
+          isStreaming={isStreaming}
+        />
       </div>
+    </div>
+  )
+}
+
+const MemoChatBubble = memo(ChatBubble)
+
+function TurnFileChangesSummary({
+  processBlocks,
+  fileChangesSummary,
+  fileChangesDetail,
+  isStreaming,
+}: {
+  processBlocks: TurnProcessBlock[]
+  fileChangesSummary?: FileChangeSummaryInfo
+  fileChangesDetail?: FileChangeDetailInfo
+  isStreaming: boolean
+}) {
+  const changes = useMemo(() => {
+    if (fileChangesDetail?.files.length) return fileChangesDetail
+    if (fileChangesSummary?.files.length) return fileChangesFromSummary(fileChangesSummary)
+    return extractTurnFileChanges(processBlocks)
+  }, [fileChangesDetail, fileChangesSummary, processBlocks])
+  const ref = useRef<HTMLDivElement>(null)
+  if (changes.files.length === 0) return null
+
+  const handleClick = () => {
+    const bubble = ref.current?.closest('[data-bubble]')
+    const card = bubble?.querySelector('[data-file-changes-card]')
+    card?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  }
+
+  return (
+    <div
+      ref={ref}
+      onClick={handleClick}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 6,
+        marginTop: 6,
+        fontSize: 12,
+        color: 'var(--text-3)',
+        background: 'var(--bg-2)',
+        borderRadius: 6,
+        padding: '4px 10px',
+        marginLeft: 6,
+        cursor: 'pointer',
+      }}
+    >
+      <FileText size={13} style={{ color: 'var(--primary)', flexShrink: 0 }} />
+      <span style={{ color: 'var(--primary)', fontWeight: 500 }}>
+        {isStreaming ? '正在修改' : '修改'} {changes.files.length} 个文件
+      </span>
+      <span style={{ color: 'var(--green)', fontWeight: 600 }}>+{changes.totalAdded}</span>
+      <span style={{ color: 'var(--red)', fontWeight: 600 }}>-{changes.totalDeleted}</span>
     </div>
   )
 }
@@ -2770,6 +4579,174 @@ function chatBubbleBlockHasBody(block: ChatBubbleBlock): boolean {
   const toolCalls = block.toolCalls || block.parsedToolCalls || parseJsonArray<ToolCallInfo>(block.tool_calls_json)
   const attachments = block.parsedAttachments || parseJsonArray<ImageAttachmentInfo>(block.attachments_json)
   return !!block.content || !!block.thinking || attachments.length > 0 || toolCalls.length > 0 || !!block.has_tool_calls
+}
+
+function ProcessBlockView({
+  block,
+  isStreaming,
+  detailLoading,
+  detailError,
+  onLoadDetail,
+}: {
+  block: TurnProcessBlock
+  isStreaming: boolean
+  detailLoading?: boolean
+  detailError?: string
+  onLoadDetail?: () => void
+}) {
+  const needsDetail = processBlockNeedsDetail(block)
+  const shouldAutoLoadDetail = needsDetail && block.kind !== 'tool'
+  useEffect(() => {
+    if (shouldAutoLoadDetail && !detailLoading && !detailError) onLoadDetail?.()
+  }, [detailError, detailLoading, onLoadDetail, shouldAutoLoadDetail])
+
+  if (block.kind === 'tool') {
+    const diffEntries = toolBlockHasDiff(block.toolCall)
+      ? extractFileChangesFromToolCall(block.toolCall)
+      : []
+    return (
+      <>
+        <ToolCallPanel
+          tc={block.toolCall}
+          isStreaming={isStreaming}
+          hasDetail={needsDetail}
+          detailLoading={detailLoading}
+          detailError={detailError}
+          onLoadDetail={onLoadDetail}
+        />
+        {diffEntries.length > 0 && (
+          <FileChangesCard
+            changes={{
+              files: diffEntries,
+              totalAdded: diffEntries.reduce((s, f) => s + f.addedLines, 0),
+              totalDeleted: diffEntries.reduce((s, f) => s + f.deletedLines, 0),
+            }}
+            compact
+          />
+        )}
+      </>
+    )
+  }
+  if (block.kind === 'thinking') {
+    return (
+      <div style={{ borderRadius: 6, background: 'var(--bg-2)', padding: '8px 10px', color: 'var(--text-2)', fontSize: 14, lineHeight: 1.6, fontStyle: 'italic', overflowWrap: 'anywhere' }}>
+        <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 4 }}>思考过程</div>
+        {block.text}
+      </div>
+    )
+  }
+  if (block.kind === 'file_change') {
+    if (block.changes) return <FileChangesCard changes={block.changes} compact />
+    return (
+      <div style={{ borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-1)', padding: '8px 10px', fontSize: 14, color: 'var(--text-2)' }}>
+        <div style={{ fontWeight: 700, marginBottom: 4 }}>文件修改</div>
+        <ProcessDetailState loading={detailLoading} error={detailError} />
+        <div style={{ color: 'var(--text-3)' }}>{block.summary || '文件修改详情按需加载'}</div>
+      </div>
+    )
+  }
+  if (block.kind === 'plan') {
+    return (
+      <div style={{ borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-1)', padding: '8px 10px', fontSize: 14, color: 'var(--text-2)' }}>
+        <ProcessDetailState loading={detailLoading} error={detailError} />
+        {block.summary && <div style={{ color: 'var(--text-3)', marginBottom: block.plan.length ? 6 : 0 }}>{block.summary}</div>}
+        {block.plan.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {block.plan.map((item, index) => (
+              <div key={`${item.content}-${index}`} style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+                <span style={{ color: item.status === 'completed' ? 'var(--green)' : item.status === 'in_progress' ? 'var(--blue)' : 'var(--text-3)', flexShrink: 0 }}>
+                  {item.status === 'completed' ? '✓' : item.status === 'in_progress' ? '●' : '○'}
+                </span>
+                <span style={{ minWidth: 0 }}>{item.content}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    )
+  }
+  if (block.kind === 'stage') {
+    return <div style={{ fontSize: 14, color: 'var(--text-3)' }}>{block.text}</div>
+  }
+  if (block.kind === 'permission') {
+    return (
+      <div style={{ borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-1)', padding: '8px 10px', fontSize: 14, color: 'var(--text-2)' }}>
+        <div style={{ fontWeight: 700, marginBottom: 4 }}>权限请求</div>
+        <ProcessDetailState loading={detailLoading} error={detailError} />
+        <div style={{ overflowWrap: 'anywhere' }}>
+          {block.summary || block.request?.toolCall.title || '需要确认工具权限'}
+        </div>
+        {(block.preview || block.request?.options.length) && (
+          <div style={{ marginTop: 4, fontSize: 13, color: 'var(--text-3)' }}>
+            {block.preview || block.request?.options.map((option) => option.name).join(' / ')}
+          </div>
+        )}
+      </div>
+    )
+  }
+  if (block.kind === 'elicitation') {
+    return (
+      <div style={{ borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-1)', padding: '8px 10px', fontSize: 14, color: 'var(--text-2)' }}>
+        <div style={{ fontWeight: 700, marginBottom: 4 }}>AI 提问</div>
+        <ProcessDetailState loading={detailLoading} error={detailError} />
+        <div style={{ overflowWrap: 'anywhere' }}>
+          {block.message || block.summary || block.preview || '需要补充信息'}
+        </div>
+      </div>
+    )
+  }
+  return <ProcessNoteBlock text={block.text} />
+}
+
+function ProcessDetailState({ loading, error }: { loading?: boolean; error?: string }) {
+  if (!loading && !error) return null
+  return (
+    <div style={{ marginBottom: 6, fontSize: 13, color: error ? 'var(--red)' : 'var(--text-3)', overflowWrap: 'anywhere' }}>
+      {error || '\u6b63\u5728\u52a0\u8f7d\u8be6\u60c5...'}
+    </div>
+  )
+}
+
+function ProcessNoteBlock({ text }: { text: string }) {
+  const [open, setOpen] = useState(false)
+  const preview = compactText(text)
+  return (
+    <div style={{ borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-1)', overflow: 'hidden' }}>
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        style={{
+          width: '100%',
+          border: 'none',
+          background: 'transparent',
+          padding: '7px 9px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          cursor: 'pointer',
+          color: 'var(--text-2)',
+          fontSize: 14,
+          textAlign: 'left',
+        }}
+      >
+        {open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+        <span style={{ flexShrink: 0, fontWeight: 600 }}>中间说明</span>
+        <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-3)' }}>
+          {preview}
+        </span>
+      </button>
+      {open && (
+        <div style={{ borderTop: '1px solid var(--border)', padding: '8px 10px', fontSize: 14, lineHeight: 1.6, color: 'var(--text-2)', overflowWrap: 'anywhere', maxHeight: 220, overflow: 'auto' }}>
+          <MarkdownRenderer content={text} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+function compactText(text: string): string {
+  const value = text.replace(/\s+/g, ' ').trim()
+  return value.length > 96 ? `${value.slice(0, 96)}…` : value
 }
 
 function ChatBubbleBlockView({
@@ -2797,7 +4774,7 @@ function ChatBubbleBlockView({
   } else {
     content = block.content
     thinking = block.thinking
-    toolCalls = block.toolCalls || block.parsedToolCalls || parseJsonArray<ToolCallInfo>(block.tool_calls_json)
+    toolCalls = block.streaming ? (block.toolCalls || block.parsedToolCalls || parseJsonArray<ToolCallInfo>(block.tool_calls_json)) : []
     attachments = block.parsedAttachments || parseJsonArray<ImageAttachmentInfo>(block.attachments_json)
   }
 
@@ -2822,7 +4799,7 @@ function ChatBubbleBlockView({
               border: 'none',
               background: 'var(--bg-2)',
               color: 'var(--text-3)',
-              fontSize: 11,
+              fontSize: 13,
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
@@ -2839,7 +4816,7 @@ function ChatBubbleBlockView({
             <div
               style={{
                 padding: '8px 10px',
-                fontSize: 12,
+                fontSize: 14,
                 color: 'var(--text-2)',
                 fontStyle: 'italic',
                 lineHeight: 1.6,
@@ -2858,7 +4835,7 @@ function ChatBubbleBlockView({
           {attachments.map((img, i) => (
             <img
               key={i}
-              src={`data:${img.mimeType};base64,${img.data}`}
+              src={imageAttachmentSrc(img)}
               alt={img.name || '附件'}
               style={{
                 maxWidth: 180,
@@ -2891,6 +4868,18 @@ function ChatBubbleBlockView({
 }
 
 /* ─── Dropdown Portal ─── */
+function imageAttachmentSrc(img: ImageAttachmentInfo): string {
+  return img.data ? `data:${img.mimeType};base64,${img.data}` : withCurrentToken(img.url || '')
+}
+
+function withCurrentToken(url: string): string {
+  if (!url || typeof window === 'undefined') return url
+  const token = new URLSearchParams(window.location.search).get('token')
+  if (!token) return url
+  const separator = url.includes('?') ? '&' : '?'
+  return `${url}${separator}token=${encodeURIComponent(token)}`
+}
+
 function DropdownPortal({
   children,
   onClose,
@@ -2927,25 +4916,172 @@ function DropdownPortal({
   )
 }
 
+function readAgentModelProfileId(agent: AgentData): string {
+  if (!agent.config_json) return ''
+  try {
+    const config = JSON.parse(agent.config_json) as { modelProfileId?: unknown }
+    return typeof config.modelProfileId === 'string' ? config.modelProfileId : ''
+  } catch {
+    return ''
+  }
+}
+
+function AgentModelProfileDialog({
+  agent,
+  profiles,
+  onLoadProfiles,
+  onSave,
+  onClose,
+}: {
+  agent: AgentData
+  profiles: ModelProfileData[]
+  onLoadProfiles: () => void
+  onSave: (modelProfileId: string | null) => Promise<void>
+  onClose: () => void
+}) {
+  const availableProfiles = useMemo(
+    () => profiles.filter((profile) => profile.enabled && profile.runtime === agent.runtime),
+    [agent.runtime, profiles],
+  )
+  const currentProfileId = readAgentModelProfileId(agent)
+  const [modelProfileId, setModelProfileId] = useState(currentProfileId)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => { onLoadProfiles() }, [onLoadProfiles])
+  const selectedModelProfileId = availableProfiles.some((profile) => profile.id === modelProfileId) ? modelProfileId : ''
+
+  const handleSave = async () => {
+    if (saving) return
+    setSaving(true)
+    try {
+      await onSave(selectedModelProfileId || null)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.28)', zIndex: 1000 }} />
+      <div
+        style={{
+          position: 'fixed',
+          left: '50%',
+          top: '50%',
+          transform: 'translate(-50%, -50%)',
+          width: 420,
+          maxWidth: 'calc(100vw - 32px)',
+          background: 'var(--bg-0)',
+          border: '1px solid var(--border)',
+          borderRadius: 12,
+          boxShadow: 'var(--shadow-lg)',
+          zIndex: 1001,
+          padding: 22,
+        }}
+      >
+        <div style={{ marginBottom: 16 }}>
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--text-1)' }}>模型档案</h3>
+          <p style={{ margin: '6px 0 0', fontSize: 14, color: 'var(--text-3)' }}>
+            为「{agent.name}」单独绑定 Claude Code / Codex 的模型配置。
+          </p>
+        </div>
+        <label style={{ display: 'block', fontSize: 14, fontWeight: 600, color: 'var(--text-2)', marginBottom: 6 }}>
+          选择档案
+        </label>
+        <select
+          value={selectedModelProfileId}
+          onChange={(event) => setModelProfileId(event.target.value)}
+          style={{
+            width: '100%',
+            padding: '10px 12px',
+            borderRadius: 8,
+            border: '1px solid var(--border)',
+            background: 'var(--bg-1)',
+            color: 'var(--text-1)',
+            outline: 'none',
+            fontSize: 14,
+          }}
+        >
+          <option value="">不绑定模型档案</option>
+          {availableProfiles.map((profile) => (
+            <option key={profile.id} value={profile.id}>
+              {profile.name}{profile.is_default ? '（默认）' : ''}
+            </option>
+          ))}
+        </select>
+        {availableProfiles.length === 0 && (
+          <div style={{ marginTop: 8, fontSize: 13, color: 'var(--text-3)' }}>
+            当前运行时暂无可用模型档案，可先到设置页新增。
+          </div>
+        )}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{ height: 34, padding: '0 14px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-0)', color: 'var(--text-2)', cursor: 'pointer' }}
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={saving}
+            style={{ height: 34, padding: '0 14px', borderRadius: 8, border: '1px solid var(--blue)', background: 'var(--blue)', color: '#fff', cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.65 : 1 }}
+          >
+            {saving ? '保存中...' : '保存'}
+          </button>
+        </div>
+      </div>
+    </>
+  )
+}
+
 /* ─── New Task Modal ─── */
+const WORKSPACE_TASK_SESSION_MODE_OPTIONS: Array<{ value: SessionMode; label: string }> = [
+  { value: 'new_fixed', label: '固定新会话' },
+  { value: 'new_each', label: '每次新会话' },
+  { value: 'existing', label: '指定已有会话' },
+]
+
+function workspaceTaskSessionModeHelp(mode: SessionMode, hasSession: boolean): string {
+  if (mode === 'existing') return hasSession ? '将在该会话中追加任务指派。' : '请选择一个已有会话。'
+  if (mode === 'new_fixed') return '将创建一个新的固定会话用于这次任务。'
+  return '将为这次任务创建新的会话。'
+}
+
 function NewTaskModal({
   agents,
+  projectId,
   onCreate,
   onClose,
 }: {
   agents: AgentData[]
-  onCreate: (title: string, desc?: string, agentId?: string) => Promise<TaskData>
+  projectId: string | null
+  onCreate: (title: string, desc?: string, agentId?: string, sessionId?: string, sessionMode?: SessionMode, images?: ImageAttachmentInfo[]) => Promise<TaskData>
   onClose: () => void
 }) {
   const [title, setTitle] = useState('')
   const [desc, setDesc] = useState('')
   const [agentId, setAgentId] = useState('')
+  const [sessionMode, setSessionMode] = useState<SessionMode>('new_fixed')
+  const [sessionId, setSessionId] = useState('')
+  const [images, setImages] = useState<ImageAttachmentInfo[]>([])
   const [creating, setCreating] = useState(false)
+  const sessions = useSessionStore((s) => s.sessions)
+  const agentSessions = useMemo(() => {
+    if (!agentId) return []
+    return sessions.filter((session) =>
+      session.agent_id === agentId &&
+      (!projectId || session.project_id === projectId),
+    )
+  }, [agentId, projectId, sessions])
+  const canCreate = Boolean(title.trim()) && (!agentId || sessionMode !== 'existing' || Boolean(sessionId))
   const handleCreate = async () => {
-    if (!title.trim()) return
+    if (!canCreate) return
     setCreating(true)
     try {
-      await onCreate(title, desc || undefined, agentId || undefined)
+      const target = buildWorkspaceTaskCreateTarget({ agentId, sessionMode, sessionId })
+      await onCreate(title, desc || undefined, target.agentId, target.sessionId, target.sessionMode, images)
       onClose()
     } catch (e) {
       console.error('创建任务失败:', e)
@@ -2974,7 +5110,7 @@ function NewTaskModal({
         <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>新建任务</h3>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>
+            <label style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>
               任务标题
             </label>
             <input
@@ -2986,7 +5122,7 @@ function NewTaskModal({
                 padding: '10px 12px',
                 borderRadius: 8,
                 border: '1px solid var(--border)',
-                fontSize: 13,
+                fontSize: 15,
                 background: 'var(--bg-1)',
                 color: 'var(--text-1)',
                 outline: 'none',
@@ -2995,7 +5131,7 @@ function NewTaskModal({
             />
           </div>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>
+            <label style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>
               描述
             </label>
             <textarea
@@ -3008,7 +5144,7 @@ function NewTaskModal({
                 padding: '10px 12px',
                 borderRadius: 8,
                 border: '1px solid var(--border)',
-                fontSize: 13,
+                fontSize: 15,
                 background: 'var(--bg-1)',
                 color: 'var(--text-1)',
                 outline: 'none',
@@ -3017,19 +5153,24 @@ function NewTaskModal({
               }}
             />
           </div>
+          <TaskImageInput images={images} onChange={setImages} />
           <div>
-            <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>
+            <label style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>
               指派 Agent
             </label>
             <select
               value={agentId}
-              onChange={(e) => setAgentId(e.target.value)}
+              onChange={(e) => {
+                setAgentId(e.target.value)
+                setSessionMode('new_fixed')
+                setSessionId('')
+              }}
               style={{
                 width: '100%',
                 padding: '10px 12px',
                 borderRadius: 8,
                 border: '1px solid var(--border)',
-                fontSize: 13,
+                fontSize: 15,
                 background: 'var(--bg-1)',
                 color: 'var(--text-1)',
                 outline: 'none',
@@ -3043,20 +5184,77 @@ function NewTaskModal({
               ))}
             </select>
           </div>
+          {agentId && (
+            <div>
+              <label style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>
+                会话目标
+              </label>
+              <select
+                value={sessionMode}
+                onChange={(e) => {
+                  setSessionMode(e.target.value as SessionMode)
+                  setSessionId('')
+                }}
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  borderRadius: 8,
+                  border: '1px solid var(--border)',
+                  fontSize: 15,
+                  background: 'var(--bg-1)',
+                  color: 'var(--text-1)',
+                  outline: 'none',
+                }}
+              >
+                {WORKSPACE_TASK_SESSION_MODE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              {sessionMode === 'existing' && (
+                <select
+                  value={sessionId}
+                  onChange={(e) => setSessionId(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    borderRadius: 8,
+                    border: '1px solid var(--border)',
+                    fontSize: 15,
+                    background: 'var(--bg-1)',
+                    color: 'var(--text-1)',
+                    outline: 'none',
+                    marginTop: 8,
+                  }}
+                >
+                  <option value="">请选择已有会话</option>
+                  {agentSessions.map((session) => (
+                    <option key={session.id} value={session.id}>
+                      {sessionTitle(session)}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <div style={{ fontSize: 13, color: 'var(--text-3)', marginTop: 4 }}>
+                {workspaceTaskSessionModeHelp(sessionMode, Boolean(sessionId))}
+              </div>
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
             <button
               onClick={handleCreate}
-              disabled={!title.trim() || creating}
+              disabled={!canCreate || creating}
               style={{
                 padding: '10px 20px',
                 borderRadius: 8,
                 border: 'none',
                 background: 'var(--blue)',
                 color: 'white',
-                fontSize: 13,
+                fontSize: 15,
                 fontWeight: 500,
-                cursor: 'pointer',
-                opacity: title.trim() ? 1 : 0.5,
+                cursor: canCreate && !creating ? 'pointer' : 'not-allowed',
+                opacity: canCreate ? 1 : 0.5,
               }}
             >
               {creating ? '创建中...' : '创建任务'}
@@ -3069,7 +5267,7 @@ function NewTaskModal({
                 border: '1px solid var(--border)',
                 background: 'var(--bg-0)',
                 color: 'var(--text-2)',
-                fontSize: 13,
+                fontSize: 15,
                 cursor: 'pointer',
               }}
             >

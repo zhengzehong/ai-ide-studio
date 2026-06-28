@@ -19,22 +19,27 @@ export function DeployTemplateModal({ template, projects, currentProjectId, onDe
   const [projectId, setProjectId] = useState(currentProjectId ?? projects[0]?.id ?? '')
   const [name, setName] = useState(template.name)
   const [runtime, setRuntime] = useState(template.runtime)
-  const [modelProfileId, setModelProfileId] = useState('')
+  const [modelProfileId, setModelProfileId] = useState<string | null>(null)
   const [systemPrompt, setSystemPrompt] = useState(template.system_prompt)
   const [saving, setSaving] = useState(false)
   const availableProfiles = useMemo(
     () => profiles.filter((profile) => profile.enabled && profile.runtime === runtime),
     [profiles, runtime],
   )
+  const defaultModelProfileId = availableProfiles.find((profile) => profile.is_default === 1)?.id ?? ''
+  const selectedModelProfileId = modelProfileId === null
+    ? defaultModelProfileId
+    : availableProfiles.some((profile) => profile.id === modelProfileId)
+      ? modelProfileId
+      : ''
 
   useEffect(() => { fetchProfiles() }, [fetchProfiles])
 
   const submit = async (openWorkspace: boolean) => {
     if (!projectId || !name.trim() || saving) return
-    const selectedProfileId = availableProfiles.some((profile) => profile.id === modelProfileId) ? modelProfileId : ''
     setSaving(true)
     try {
-      await onDeploy(projectId, { name: name.trim(), runtime, systemPrompt, modelProfileId: selectedProfileId || undefined })
+      await onDeploy(projectId, { name: name.trim(), runtime, systemPrompt, modelProfileId: selectedModelProfileId || undefined })
       if (openWorkspace) onOpenWorkspace()
     } finally {
       setSaving(false)
@@ -48,12 +53,12 @@ export function DeployTemplateModal({ template, projects, currentProjectId, onDe
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
           <div>
             <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>添加智能体到项目</h3>
-            <p style={{ fontSize: 12, color: 'var(--text-3)', margin: '5px 0 0' }}>模板会复制成项目级智能体，之后可独立配置。</p>
+            <p style={{ fontSize: 14, color: 'var(--text-3)', margin: '5px 0 0' }}>模板会复制成项目级智能体，之后可独立配置。</p>
           </div>
           <button onClick={onClose} style={iconButton}><X size={14} /></button>
         </div>
         {projects.length === 0 ? (
-          <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>请先在左上角创建项目，再添加智能体。</div>
+          <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-3)', fontSize: 15 }}>请先在左上角创建项目，再添加智能体。</div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <Field label="目标项目">
@@ -65,13 +70,13 @@ export function DeployTemplateModal({ template, projects, currentProjectId, onDe
               <input value={name} onChange={(e) => setName(e.target.value)} style={editorInput} />
             </Field>
             <Field label="运行时">
-              <select value={runtime} onChange={(e) => { setRuntime(e.target.value); setModelProfileId('') }} style={editorInput}>
+              <select value={runtime} onChange={(e) => { setRuntime(e.target.value); setModelProfileId(null) }} style={editorInput}>
                 {RUNTIME_OPTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
               </select>
             </Field>
             {(runtime === 'claude' || runtime === 'codex') && (
               <Field label="模型档案">
-                <select value={modelProfileId} onChange={(e) => setModelProfileId(e.target.value)} style={editorInput}>
+                <select value={selectedModelProfileId} onChange={(e) => setModelProfileId(e.target.value)} style={editorInput}>
                   <option value="">不绑定模型档案</option>
                   {availableProfiles.map(profile => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
                 </select>

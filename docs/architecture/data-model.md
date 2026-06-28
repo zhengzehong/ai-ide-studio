@@ -8,11 +8,16 @@ Project 1:N Session
 Project 1:N Task
 Project 1:N Rule
 Project 1:N Team
+Project 1:N EventCenterEvent
 AgentTemplate 1:N Agent
 Agent 1:N Session
 Agent 1:N TeamMember
 Task  1:N Session
 Task  N:1 Agent (assigned_agent_id)
+EventCategory 1:N EventCenterEvent
+EventCategory 1:N EventSubscription
+EventCenterEvent 1:N EventConsumption
+EventCenterEvent N:N Task (event_task_links)
 Team  1:N TeamMember
 Team  1:N TeamMailbox
 Team  1:N TeamEvent
@@ -21,7 +26,14 @@ TeamMember 1:1 Session (current team session)
 TeamMember 1:N Task (tasks.assignee_member_id)
 Session 1:N Message
 Session 1:N SessionEvent (append-only 事件溯源)
+Session 1:N AgentSessionMessage (source/target)
+Session 1:N AgentSessionWatch (watcher/watched)
 Task    1:N TaskEvent
+Project 1:1 KnowledgeBase (kind=project)
+Project N:N KnowledgeBase (shared mounts)
+KnowledgeBase 1:N KnowledgePage
+KnowledgeBase 1:N KnowledgeActivity
+KnowledgePage 1:N KnowledgeActivity
 ```
 
 ## 实体状态机
@@ -77,6 +89,14 @@ backlog → executing → reviewing → completed
            blocked     backlog
 ```
 
+### Event Status
+
+```
+pending → running → consumed → archived
+   ↓          ↓          ↓
+ignored     failed      task
+```
+
 ## SQLite Schema
 
 ### agents
@@ -95,6 +115,8 @@ backlog → executing → reviewing → completed
 | template_id | TEXT | 来源 AgentTemplate；自定义 Agent 可为空 |
 | system_prompt | TEXT | 项目级 Agent 的系统提示词 |
 | icon | TEXT | UI 图标标识 |
+| sort_order | INTEGER | 项目工作台 Agent 自定义排序；仅在项目作用域列表中生效 |
+| hidden_at | TEXT | 项目工作台隐藏时间；为空表示在会话侧栏显示 |
 
 ### sessions
 
@@ -114,6 +136,23 @@ backlog → executing → reviewing → completed
 | closed_at | TEXT | 关闭时间 |
 | archived_at | TEXT | 归档时间 |
 | deleted_at | TEXT | 软删除时间；非空时默认列表隐藏 |
+| runtime_preferences_json | TEXT | Session runtime preferences JSON；保存 `modelId`、`modeId` 和 session config 选择 |
+| sort_order | INTEGER | 项目工作台内同一 Agent 下 Session 自定义排序；仅在项目/Agent 作用域列表中生效 |
+
+### global_assistant
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| id | TEXT PK | 固定为 `default`，表示当前应用唯一全局助理绑定 |
+| agent_id | TEXT FK | 全局助理使用的普通 Agent 实例 |
+| session_id | TEXT FK | 全局助理复用的普通 Session |
+| workspace_dir | TEXT | 全局助理专属工作目录 |
+| enabled | INTEGER | 是否启用当前绑定 |
+| created_at | TEXT | ISO 时间戳 |
+| updated_at | TEXT | ISO 时间戳 |
+| last_opened_at | TEXT | 最近打开时间 |
+
+全局助理只保留一个活动绑定。它复用 `agents` 和 `sessions` 的既有运行时能力，但 `agents.project_id` 与 `sessions.project_id` 保持为空；创建或恢复 ACP Session 时，后端优先使用 `global_assistant.workspace_dir` 作为 runtime `cwd`。
 
 ### messages
 
@@ -127,9 +166,36 @@ backlog → executing → reviewing → completed
 | tool_calls_json | TEXT | 工具调用 JSON 数组 |
 | decision_json | TEXT | 决策/统计 JSON |
 | attachments_json | TEXT | 附件 JSON 数组 |
+| file_changes_json | TEXT | ACP diff 文件变更轻量摘要 JSON |
+| status | TEXT | completed / running / failed / cancelled |
+| started_at | TEXT | Agent 消息开始生成时间 |
+| completed_at | TEXT | Agent 消息完成时间 |
+| stats_json | TEXT | 本轮 token / 费用 / 耗时等统计 JSON |
+| process_item_count | INTEGER | 本轮执行过程块数量，用于历史消息折叠入口 |
 | timestamp | TEXT | ISO 时间戳 |
 
-历史消息查询默认返回轻量 DTO：`tool_calls_json` 会被置空，同时附带 `has_tool_calls` 和 `tool_call_count`。完整工具调用仍保存在 SQLite 的 `messages.tool_calls_json` 中，通过工具摘要和详情 RPC 按需读取。
+历史消息查询默认返回轻量 DTO：`tool_calls_json` 会被置空，同时附带 `has_tool_calls` / `tool_call_count`、`process_item_count`、`has_file_changes` / `file_change_count`。新对话中，`messages.content` 是最终回复和运行中快照来源；完整执行过程不再依赖 `messages.tool_calls_json`，而是按顺序保存到 `turn_process_items`。旧消息的完整工具调用仍可通过工具摘要和详情 RPC 按需读取。
+
+### turn_process_items
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| id | TEXT PK | 执行过程块 ID |
+| session_id | TEXT FK | 所属 Session |
+| message_id | TEXT FK | 所属 Agent 消息 |
+| sequence | INTEGER | 单条 Agent 消息内的过程顺序 |
+| kind | TEXT | stage / thinking / note / tool / file_change / permission / elicitation / plan / usage / error |
+| status | TEXT | running / pending / completed / failed / cancelled 等 |
+| title | TEXT | 展示标题 |
+| summary | TEXT | 轻量摘要 |
+| preview | TEXT | 列表预览文本 |
+| content | TEXT | 轻量文本内容，例如 thinking/note/stage |
+| detail_json | TEXT | 懒加载详情，例如工具 raw、权限请求、计划条目、完整 diff |
+| meta_json | TEXT | 关联 ID 等元数据，例如 toolCallId/requestId |
+| created_at | TEXT | 创建时间 |
+| updated_at | TEXT | 更新时间 |
+
+`turn_process_items.sequence` 是历史执行过程展示顺序的事实来源。列表查询默认不返回大 `detail_json`；用户点击某个过程块时再通过 `sessions.processItemDetail` 获取详情。ACP plan 更新保存为 `kind = plan`，权限和 AI 提问分别保存为 `permission` / `elicitation`，文件修改完整 diff 保存为 `file_change.detail_json`。
 
 ### session_events
 
@@ -145,6 +211,137 @@ backlog → executing → reviewing → completed
 | payload_json | TEXT | 事件载荷 JSON |
 | sequence | INTEGER | 序号（单调递增） |
 | created_at | TEXT | 时间戳 |
+
+
+
+`session_events` 保留 raw/diagnostic 事件和旧数据兜底恢复能力。新对话的 UI 历史恢复优先使用 `messages` + `turn_process_items`，不再依赖按 chunk 还原整轮执行过程。单个 Agent Turn 使用平台生成的 Agent `message_id` 作为主消息 ID；runtime 提供的 chunk message id 不作为平台消息主键，避免不同 runtime 的 ID 复用导致串消息。
+
+### agent_session_messages
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| id | TEXT PK | Agent 会话消息 ID |
+| project_id | TEXT | 所属 Project；为空表示全局/兼容会话 |
+| source_agent_id | TEXT | 来源 Agent ID |
+| source_session_id | TEXT | 来源 Session ID |
+| target_agent_id | TEXT | 目标 Agent ID |
+| target_session_id | TEXT | 目标 Session ID |
+| content | TEXT | 投递给目标 Agent 的消息内容 |
+| related_info_json | TEXT | 动态关联信息 JSON，例如 issue/task/event/file 等业务 ID |
+| need_reply | INTEGER | 是否要求目标 Agent 主动回传 |
+| reply_satisfied_at | TEXT | 反向回复被检测到的时间 |
+| reply_reminder_sent_at | TEXT | 未回复提醒发送时间 |
+| reply_reminder_count | INTEGER | 未回复提醒次数；当前最多一次 |
+| prompt_status | TEXT | queued / completed / failed |
+| prompt_error | TEXT | 后台投递失败原因 |
+| prompt_completed_at | TEXT | 后台 `enqueuePrompt()` 完成时间 |
+| created_at | TEXT | 创建时间 |
+| updated_at | TEXT | 更新时间 |
+
+`agent.message.send` 先写入该表，再后台调用 `sessionManager.enqueuePrompt(target_session_id, prompt)`。只传 `targetAgentId` 时会创建新的目标 Session；`source_*` 与 `project_id` 来自 MCP tool context。
+
+### agent_session_watches
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| id | TEXT PK | Watch ID |
+| project_id | TEXT | 所属 Project；为空表示全局/兼容会话 |
+| watcher_agent_id | TEXT | 创建 watch 的 Agent ID |
+| watcher_session_id | TEXT | 创建 watch 并接收唤醒的 Session ID |
+| watched_agent_id | TEXT | 被监听 Session 所属 Agent ID |
+| watched_session_id | TEXT | 被监听 Session ID |
+| related_info_json | TEXT | 动态关联信息 JSON |
+| once | INTEGER | 是否只触发一次，默认 1 |
+| status | TEXT | active / triggered / cancelled / failed |
+| trigger_count | INTEGER | 触发次数 |
+| triggered_at | TEXT | 最近触发时间 |
+| triggered_message_id | TEXT | 触发时 `session:done` 的消息 ID |
+| triggered_turn_id | TEXT | 触发时 `session:done` 的 turn ID |
+| last_error | TEXT | 投递 watcher prompt 失败原因 |
+| cancelled_at | TEXT | 取消时间 |
+| created_at | TEXT | 创建时间 |
+| updated_at | TEXT | 更新时间 |
+
+watch 监听 `session:done`，触发后后台唤醒 `watcher_session_id`。如果被监听 Session 已经向 watcher Session 发过 Agent 会话消息，watch 会记录触发但抑制重复唤醒。
+
+### knowledge_bases
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| id | TEXT PK | 知识库 ID |
+| name | TEXT | 显示名称 |
+| kind | TEXT | project / shared；project 绑定单个项目，shared 可被多个项目挂载 |
+| src | TEXT | manual / code；code 页面可记录源文件指纹并检测陈旧 |
+| icon | TEXT | 展示图标 |
+| description | TEXT | 描述 |
+| project_id | TEXT | kind=project 时的项目 ID；shared 为空 |
+| index_page_id | TEXT | 索引页 ID |
+| created_at | TEXT | 创建时间 |
+| updated_at | TEXT | 更新时间 |
+| deleted_at | TEXT | 软删除时间；本期不提供删库入口 |
+
+每个项目通过唯一索引保证只有一个未删除的 `kind=project` 知识库。项目可见知识 = 项目库 + 已挂载的 shared 库。
+
+### knowledge_pages
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| id | TEXT PK | 页面 ID |
+| kb_id | TEXT | 所属知识库 |
+| title | TEXT | 页面标题 |
+| title_norm | TEXT | 标题归一化值，用于 `[[标题]]` 解析和唯一约束 |
+| section | TEXT | 页面分组 |
+| summary | TEXT | 页面摘要 |
+| body | TEXT | Markdown 正文 |
+| author | TEXT | human / ai |
+| by | TEXT | 最后写入者 ID 或标签 |
+| tags_json | TEXT | 标签 JSON 数组 |
+| is_index | INTEGER | 是否索引页 |
+| src_files_json | TEXT | code 页面关联的源文件路径数组 |
+| src_fingerprint_json | TEXT | 源文件 sha256/size/mtime 指纹 |
+| stale | INTEGER | 源文件变化后标记为 1，刷新后清 0 |
+| last_human_edit_at | TEXT | 最近人工编辑时间；AI 刷新覆盖前需要显式确认 |
+| last_activity_id | TEXT | 最近写入活动 ID |
+| created_at | TEXT | 创建时间 |
+| updated_at | TEXT | 更新时间 |
+| deleted_at | TEXT | 软删除时间 |
+
+页面以 `(kb_id, title_norm)` 在未删除范围内唯一。Wikilink 解析在当前项目可见知识库范围内查找目标；跨库重名用 `[[库名/标题]]` 消歧。
+
+### knowledge_mounts
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| id | TEXT PK | 挂载 ID |
+| project_id | TEXT | 使用 shared 库的项目 |
+| kb_id | TEXT | 被挂载的 shared 知识库 |
+| created_by | TEXT | 操作者 |
+| created_at | TEXT | 创建时间 |
+| deleted_at | TEXT | 卸载时间 |
+
+挂载只改变项目可见范围，不复制页面，也不删除 shared 库内容。仅 `kind=shared` 的知识库可进入挂载关系。
+
+### knowledge_activities
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| id | TEXT PK | 活动 ID |
+| kb_id | TEXT | 知识库 ID |
+| page_id | TEXT | 页面 ID；库级活动可为空 |
+| act | TEXT | create / edit / refresh / revert / mount / unmount / create_kb |
+| actor | TEXT | human 或 Agent ID |
+| actor_type | TEXT | human / ai / system |
+| tool | TEXT | 写入来源；AI 写入为 `core.kb.*`，人工写入为 manual |
+| note | TEXT | 操作备注 |
+| prev_body | TEXT | 旧正文兼容字段 |
+| prev_snapshot_json | TEXT | 写入前页面快照 |
+| next_snapshot_json | TEXT | 写入后页面快照 |
+| reverted_at | TEXT | 被撤销时间 |
+| reverted_by | TEXT | 撤销操作者 |
+| revert_activity_id | TEXT | 对应撤销活动 ID |
+| created_at | TEXT | 创建时间 |
+
+撤销按 activity 顺序还原快照，不做多版本合并。`create` 撤销会软删除页面，`edit` / `refresh` 撤销会恢复 `prev_snapshot_json`。
 
 ### tasks
 
@@ -162,6 +359,109 @@ backlog → executing → reviewing → completed
 | assignee_member_id | TEXT | 指派的 TeamMember；为空表示未按团队成员指派 |
 | created_at | TEXT | 创建时间 |
 | completed_at | TEXT | 完成时间 |
+
+任务自身不持久化会话策略；创建或指派任务时的 `sessionMode/sessionId` 只用于本次投递，实际会话关联仍通过 `task_events` 的 `session_linked` 事件记录。
+
+### event_categories
+
+事件类别支持全局和项目两种作用域：`project_id` 为空表示全局类别，`scope_key` 固定为 `__global__`；项目类别的 `project_id` 和 `scope_key` 都使用项目 ID。同一作用域内 `(scope_key, id)` 唯一。项目页面读取类别时返回“全局类别 + 当前项目类别”，同名类别由项目类别覆盖全局类别。事件和订阅只保存 `category_id`，运行时按 `project_id` 先解析项目类别，再回退全局类别。
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| id | TEXT | 事件类别 key，例如 `ai.hot_project` |
+| project_id | TEXT | 所属 Project；为空表示全局类别 |
+| scope_key | TEXT | 类别作用域键；全局固定为 `__global__`，项目类别使用 `project_id` |
+| name | TEXT | 类别显示名称 |
+| description | TEXT | 类别说明 |
+| schema_json | TEXT | 该类别 `payload_json` 的字段模板 JSON |
+| default_priority | TEXT | 默认优先级 |
+| allowed_writers_json | TEXT | 允许写入的 Agent/来源列表，`["*"]` 表示不限 |
+| allowed_consumers_json | TEXT | 允许消费的 Agent 列表，`["*"]` 表示不限 |
+| enabled | INTEGER | 是否启用 |
+| created_at | TEXT | 创建时间 |
+| updated_at | TEXT | 更新时间 |
+
+系统默认种子类别为 `agent.project`、`ai.hot_project`、`repo.commit`、`task.candidate`、`work.shipped`；任务生命周期事件使用内置类别 `task.lifecycle`，通过 payload 字段表达任务状态、指派对象和变更类型。类别只能停用或更新，不应让 Agent 运行时随意创建未管理类别。
+
+### event_center_events
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| id | TEXT PK | 事件 ID |
+| project_id | TEXT | 所属 Project；为空表示全局事件 |
+| category_id | TEXT | 事件类别 key |
+| title | TEXT | 事件标题 |
+| summary | TEXT | 事件摘要 |
+| source_type | TEXT | 来源类型，例如 agent / system / manual |
+| source_id | TEXT | 来源 ID |
+| source_label | TEXT | 来源显示名 |
+| priority | TEXT | low / medium / high |
+| confidence | REAL | 0 到 1 的置信度 |
+| status | TEXT | pending / running / consumed / failed / ignored / task / archived |
+| tags_json | TEXT | 标签数组 JSON |
+| payload_json | TEXT | 类别动态字段 JSON |
+| evidence_json | TEXT | 证据数组 JSON |
+| dedupe_key | TEXT | 去重 key |
+| created_by_agent_id | TEXT | 写入事件的 Agent ID |
+| created_at | TEXT | 创建时间 |
+| updated_at | TEXT | 更新时间 |
+| archived_at | TEXT | 归档时间 |
+
+`event_center_events` 是产品事件收件箱，不是 `session_events`。`session_events` 保存会话执行过程和诊断事件；`event_center_events` 保存可筛选、可消费、可转任务的业务信号。
+
+事件列表支持按 `project_id`、`category_id`、`status` 和关键字过滤，并通过 `limit` / `offset` 分页返回，避免事件量增长后前端一次性加载完整收件箱。
+
+### event_subscriptions
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| id | TEXT PK | 订阅规则 ID |
+| project_id | TEXT | 所属 Project；为空表示全局规则 |
+| name | TEXT | 规则名称 |
+| category_id | TEXT | 订阅的事件类别 |
+| consumer_agent_id | TEXT | 消费 Agent ID |
+| consumer_label | TEXT | 消费者显示名 |
+| action_mode | TEXT | create_pending 等动作模式 |
+| filter_json | TEXT | 过滤条件 JSON，例如 priority / sourceType / minConfidence / payload 字段 |
+| enabled | INTEGER | 是否启用 |
+| auto_start | INTEGER | 是否自动启动消费者 |
+| consumer_session_mode | TEXT | 消费会话策略：`existing` / `new_each` / `new_fixed` |
+| consumer_session_id | TEXT | 指定或固定复用的消费者 Session ID；`new_fixed` 首次自动创建后写回 |
+| created_at | TEXT | 创建时间 |
+| updated_at | TEXT | 更新时间 |
+
+`auto_start = 1` 时，新匹配事件会自动创建消费记录并触发消费者 Agent。自动触发按 `subscription_id` 串行调度；当策略为 `existing` 或 `new_fixed` 时，实际 Prompt 进入同一个 Session 的 `enqueuePrompt` 队列，避免并发轮次互相冲突。
+
+订阅过滤支持 `filter.payload`，可按 payload 字段路径匹配。字段值支持相等、`null`、`{ "in": [...] }` 和 `{ "exists": true/false }`，用于把同一事件类别按业务状态细分给不同消费者。
+
+### event_consumptions
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| id | TEXT PK | 消费记录 ID |
+| event_id | TEXT | 事件 ID |
+| subscription_id | TEXT | 来源订阅规则 ID |
+| project_id | TEXT | 所属 Project |
+| consumer_agent_id | TEXT | 消费 Agent ID |
+| consumer_label | TEXT | 消费者显示名 |
+| status | TEXT | pending / running / succeeded / failed |
+| result_summary | TEXT | 消费结果摘要 |
+| result_json | TEXT | 消费结果结构化 JSON |
+| error | TEXT | 失败信息 |
+| session_id | TEXT | 实际启动消费者 Agent 时使用的 Session ID |
+| claimed_at | TEXT | 领取时间 |
+| completed_at | TEXT | 完成时间 |
+| created_at | TEXT | 创建时间 |
+| updated_at | TEXT | 更新时间 |
+
+### event_task_links
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| id | TEXT PK | 链接 ID |
+| event_id | TEXT | 事件 ID |
+| task_id | TEXT | 普通任务 ID |
+| created_at | TEXT | 创建时间 |
 
 ### teams
 
@@ -232,6 +532,8 @@ backlog → executing → reviewing → completed
 | last_run_at | TEXT | 上次执行时间 |
 | next_run_at | TEXT | 下次执行时间 |
 | run_count | INTEGER | 执行次数 |
+
+定时规则的会话策略保存在 `action_config.session_mode` 与 `action_config.session_id`。`new_fixed` 首次执行会创建会话并把生成的 `session_id` 写回 `action_config`，后续触发继续复用；`existing` 必须指向已存在且属于目标 Agent/Project 的会话；`new_each` 每次触发创建新会话。
 
 ### tools
 
@@ -324,6 +626,7 @@ backlog → executing → reviewing → completed
 | provider_id | TEXT | 关联的模型供应商 ID |
 | config_json | TEXT | runtime 专属配置；Claude 保存 default/haiku/sonnet/opus 映射，Codex 保存 model/effort |
 | context_window | INTEGER | 模型上下文窗口；为空表示未指定 |
+| is_default | INTEGER | 是否为该 runtime 的默认档案；同一 runtime 仅一个启用档案应为默认 |
 | enabled | INTEGER | 是否启用 |
 | created_at | TEXT | 创建时间 |
 | updated_at | TEXT | 更新时间 |
@@ -390,6 +693,7 @@ SQLite schema 由 `src/store/migrator.ts` 和 `src/store/migrations/*` 管理。
 - `sessions.delete` 是软删除，仅写入 `deleted_at`，不级联删除 `messages` / `session_events`。
 - `sessions.rename` 写入 `sessions.title`；如果 Agent 通过 ACP 上报 `sessionInfo.title` 且当前标题为空，后端会自动补全标题。
 - `session.fork` 会继承源 Session 的 `project_id`，并将项目 `work_dir` 继续传给 ACP runtime。
+- `sessions.copy` 会创建新的 Session，先通过 ACP fork 复制 runtime 上下文，再复制最近 10 条 `messages` 及这些消息关联的 `session_events`。复制时会生成新的 message/event id，并重写事件里的 message 引用；不会复制 Team 成员关系或 timeline 摘要缓存。
 
 
 ## 项目级 Agent 字段约定
@@ -413,5 +717,31 @@ SQLite schema 由 `src/store/migrator.ts` 和 `src/store/migrations/*` 管理。
 
 - `sessions.create` 只写入本地 SQLite session。直到首次 prompt 或显式切换 model/mode/config 连接 ACP runtime 前，`sessions.acp_session_id` 都是 `NULL`。
 - Session 空闲回收只关闭/断开 runtime 侧 ACP session 映射；保留 `sessions.acp_session_id`、messages 和 `session_events`，所以下次 prompt 可以 resume/load 同一个 ACP session 或 Codex thread。
+- `sessions.runtime_preferences_json` 是 session 级模型、模式和配置选择的后端事实源。`session.setModel`、`session.setMode`、`session.setConfig` 成功后写入该字段；ACP `newSession` / `resumeSession` / `loadSession` / fork 初始化能力后会优先恢复保存值。
+- `agents.sort_order` 和 `sessions.sort_order` 只表达工作台左侧列表的用户自定义顺序。Agent 排序限定在同一 `project_id` 内；Session 排序限定在同一 `project_id + agent_id` 内。未传项目/Agent 作用域的兼容列表仍保持原有时间顺序。
+- 没有保存模式时，Codex session 默认请求 `agent-full-access`，Claude Code session 默认请求 `bypassPermissions`；如果 runtime 当前能力没有提供该模式，则保留 ACP 返回的实际模式。
 - Runtime 空闲回收会在没有已连接 session 后停止 `codex-acp` / `claude-agent-acp` 进程，不修改已持久化的会话历史。
 - `session_events.type = lifecycle.*` 记录可见阶段，例如 runtime 启动、session 恢复/创建、prompt 已发送、空闲断开和失败。
+
+## Desktop Widget State
+
+Desktop Widget 使用两张轻量表保存本地状态，不复制 Session、Agent 或 Task 数据。
+
+### widget_read_state
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| session_id | TEXT PK | 已查看的 Session ID |
+| read_at | TEXT | 最后查看时间 |
+
+Widget 会话未读判断使用最新非 running Agent 消息时间和最新 `session_events.type = message.done` 时间中的较新值，与 `read_at` 比较。完成时间晚于 `read_at`，或没有 `read_at`，表示未读。
+
+### widget_preferences
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| key | TEXT PK | 偏好键，例如 `pinnedProjectId` / `pinnedAgentId` |
+| value | TEXT | 偏好值 |
+| updated_at | TEXT | 更新时间 |
+
+Widget 偏好只影响悬浮窗过滤和任务快速创建，不改变 Project、Agent、Session 或 Task 的所有权。

@@ -4,13 +4,17 @@
   "private": true,
   "type": "module",
   "workspaces": [
-    "ui"
+    "ui",
+    "mobile"
   ],
   "scripts": {
     "dev": "node --import tsx --watch src/entry.ts",
     "dev:ui": "npm run dev -w ui",
+    "dev:mobile": "npm run dev -w mobile",
     "dev:all": "concurrently \"npm run dev\" \"npm run dev:ui\"",
-    "build": "tsc -p tsconfig.server.json && npm run build -w ui",
+    "build": "tsc -p tsconfig.server.json && npm run build -w ui && npm run build -w mobile",
+    "build:mobile": "npm run build -w mobile",
+    "build:mobile:android:debug": "node scripts/build-mobile-android-debug.mjs",
     "build:electron:main": "node scripts/electron-build-main.mjs && node scripts/sync-electron-build.mjs",
     "dev:electron": "npm run build:electron:main && electron electron/dist/main.js",
     "build:electron": "npm run build && npm run build:electron:main && electron-builder --config scripts/electron-builder.mjs",
@@ -19,13 +23,15 @@
     "test:watch": "vitest",
     "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
-    "lint": "eslint src/ && npm run lint -w ui",
-    "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\" \"ui/src/**/*.{ts,tsx}\"",
-    "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\" \"ui/src/**/*.{ts,tsx}\""
+    "lint": "eslint src/ && npm run lint -w ui && npm run lint -w mobile",
+    "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\" \"ui/src/**/*.{ts,tsx}\" \"mobile/src/**/*.{ts,tsx}\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\" \"ui/src/**/*.{ts,tsx}\" \"mobile/src/**/*.{ts,tsx}\"",
+    "postinstall": "patch-package",
+    "backfill:main-sessions": "tsx scripts/backfill-main-sessions.ts"
   },
   "dependencies": {
     "@agentclientprotocol/claude-agent-acp": "^0.37.0",
-    "@agentclientprotocol/codex-acp": "^0.0.44",
+    "@agentclientprotocol/codex-acp": "0.0.44",
     "@agentclientprotocol/sdk": "^0.22.1",
     "@hono/node-server": "^1.14.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
@@ -49,6 +55,7 @@
     "electron": "^40.0.0",
     "electron-builder": "^26.0.12",
     "eslint": "^10.4.0",
+    "patch-package": "^8.0.1",
     "prettier": "^3.8.3",
     "tsx": "^4.19.0",
     "typescript": "~6.0.2",

@@ -2,14 +2,16 @@ import type { Server } from 'http'
 import type { WebSocketServer } from 'ws'
 import type { Hono } from 'hono'
 import type { AppConfig } from './core/config.js'
-import { createChildLogger } from './core/logger.js'
+import { createChildLogger, getLogConfig } from './core/logger.js'
 import { ruleEngine } from './core/rules.js'
 import { initDatabase } from './store/db.js'
 import { agentStore } from './store/agents.js'
 import { sessionStore } from './store/sessions.js'
 import { seedBuiltinTemplates } from './store/agent-templates.js'
+import { seedBuiltinTaskExecutionModes } from './store/seed-task-execution-modes.js'
 import { seedBuiltinTools } from './tools/seed.js'
 import { startGateway } from './gateway/server.js'
+import { initTimeline } from './core/timeline.js'
 import { resolve } from 'path'
 
 const log = createChildLogger('app')
@@ -25,6 +27,7 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
   const dbPath = resolve(config.dataDir, 'ai-ide.sqlite')
   initDatabase(dbPath)
   log.info({ dbPath }, '数据库已初始化')
+  log.info({ dataDir: config.dataDir, ...getLogConfig() }, '日志配置已加载')
   const recovery = sessionStore.reconcileInterruptedStages()
   if (recovery.interrupted.length > 0 || recovery.cleared.length > 0) {
     log.warn(
@@ -35,10 +38,12 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
 
   seedDefaultAgents()
   seedBuiltinTemplates()
+  seedBuiltinTaskExecutionModes()
   seedBuiltinTools()
 
   const { app, server, wss } = await startGateway(config)
   ruleEngine.start()
+  initTimeline()
   log.info(
     { host: config.host, port: config.port, http: `http://${config.host}:${config.port}`, ws: `ws://${config.host}:${config.port}` },
     '服务已启动',

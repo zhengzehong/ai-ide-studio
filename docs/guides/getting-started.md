@@ -25,6 +25,7 @@ cp .env.example .env
 默认配置：
 - `PORT=18800` — Gateway 端口
 - `DATA_DIR=./data` — 数据目录（SQLite 数据库）
+- `GLOBAL_ASSISTANT_WORKSPACE_ROOT` — 可选；全局助理工作空间根目录，未设置时使用系统应用数据目录
 
 ## 启动
 

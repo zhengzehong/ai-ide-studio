@@ -12,7 +12,8 @@
 - `tools/call` 再次检查方法是否可见，不可见则拒绝并写审计。
 - HTTP MCP 和 stdio 回退共用 `ToolRuntime`。
 - 已新增 `tool_contexts`、`tool_call_audit` 两张 SQLite 表。
-- 已内置 `core.project.*`、`core.agent.*`、`core.session.*`、`core.task.*`、`team.*` 平台方法。
+- 已内置 `core.project.*`、`core.agent.*`、`agent.template.*`、`core.session.*`、`core.task.*`、`team.*`、`event.*` 平台方法。
+- 已内置 `core.kb.*` 知识库方法，用于 Agent 读写 LLM Wiki、挂载 shared 库、刷新 code 页面和撤销活动。
 - `team.*` 只作为内置方法注册，不做全局默认绑定；需要按 Agent 显式绑定或套用 Team Profile。
 - ToolContext 支持 `projectId`、`agentId`、`sessionId`，以及团队协作场景的 `teamId` / `teamMemberId`。
 - 第三方 MCP 仍保持直接注入，不在第一版做方法级代理。
@@ -92,11 +93,24 @@ core.project.create
 core.agent.list
 core.agent.get
 core.agent.create
+agent.template.list
+agent.template.get
+agent.template.create
+agent.template.update
+agent.template.delete
+core.model_profile.list
 core.session.list
 core.session.get
 core.session.create
 core.task.list
 core.task.create
+core.kb.list
+core.kb.read_index
+core.kb.read_page
+core.kb.search
+core.kb.create_page
+core.kb.update_page
+core.kb.refresh_from_code
 team.list
 team.create
 team.member.list
@@ -175,6 +189,53 @@ revokedAt
 - 返回 MCP 格式结果
 
 业务 handler 不应该绕过 ToolRuntime 被直接暴露给 MCP。
+
+### 3.7 Event Center Tools
+
+事件中心通过 `event.*` 方法暴露给 Agent，用于“发现事件 -> 订阅消费 -> 写回结果 -> 转任务”的闭环：
+
+| 方法 | 用途 |
+|------|------|
+| `event.category.list` | 列出可见事件类别和 payload schema 提示 |
+| `event.category.create` | 创建新的事件类别；已存在时失败 |
+| `event.category.update` | 部分更新已有事件类别；未传字段保持不变 |
+| `event.create` | 写入一条分类事件 |
+| `event.list` | 查询事件中心事件 |
+| `event.get` | 查看事件详情和消费记录 |
+| `event.claim_next` | 领取当前 Agent 订阅的下一条待消费事件 |
+| `event.consume` | 提交消费结果 |
+| `event.convert_to_task` | 把事件转成普通任务 |
+| `event.ignore` | 忽略事件 |
+| `event.subscription.create` | 创建事件订阅规则；可设置 `autoStart` 和 `consumerSessionMode/consumerSessionId` |
+
+`event.*` handler 只调用 `core/event-center`，工具上下文中的 `projectId` 和 `agentId` 是默认边界；模型可传的 `projectId` 只在没有会话项目上下文时作为兼容输入。
+
+`event.category.list`、`event.category.create` 和 `event.category.update` 不向 Agent 暴露 `projectId` 参数。运行时会使用 `ToolContext.projectId`：有项目上下文时操作该项目的类别，并可用项目类别覆盖同名全局类别；没有项目上下文时操作全局类别。
+
+事件类别可以通过 schema hint 暴露可视字段和可过滤字段，例如 `x-list` / `x-filter` / `enum`。事件中心会把这些提示用于收件箱展示和订阅创建器中的字段过滤配置。
+
+任务和定时工具也暴露统一会话策略：`core.task.create` / `studio.task.create` / `create_task` 支持 `sessionMode/sessionId`，`create_schedule` / `studio.schedule.create` / `studio.schedule.update` 会把策略写入规则 `action_config`。`existing` 复用指定会话，`new_each` 每次新建，`new_fixed` 在可持久化的规则或订阅上首次新建后固定复用。
+
+`studio.task.assign` 是面向动态分派场景的显式任务分派工具，默认只接受未分派任务；如果需要改派，必须显式传 `allowReassign=true`。`core.timeline.list` 则把会话时间线摘要暴露给 Agent，便于订阅者基于历史过程做调度判断。
+
+### 3.8 Knowledge Base Tools
+
+知识库通过 `core.kb.*` 方法暴露给 Agent，读写边界来自当前 tool context 的 `projectId`。Agent 的标准检索路径是 index-first：先 `core.kb.list` 看当前项目可见库，再 `core.kb.read_index` 读索引页，必要时用 `core.kb.read_page` 或 `core.kb.search` 深入页面。
+
+| 方法 | 用途 |
+|------|------|
+| `core.kb.list` | 列出当前项目可见知识库：项目库 + 已挂载 shared 库 |
+| `core.kb.read_index` | 读取某个可见库的索引页 |
+| `core.kb.read_page` | 按 pageId 或 kbId + title 读取页面正文、出链和反向链接 |
+| `core.kb.search` | 在可见知识库内用 SQL LIKE 搜索标题、摘要和正文 |
+| `core.kb.create_page` | 创建 Markdown 页面并记录 activity；孤儿页会返回 warning |
+| `core.kb.update_page` | 更新页面正文/元数据，并保存旧快照 |
+| `core.kb.refresh_from_code` | 对 src=code 页面写入刷新后的正文、更新指纹并清 stale |
+| `core.kb.create_kb` | 创建 project 或 shared 知识库；project 库受每项目唯一约束 |
+| `core.kb.mount` / `core.kb.unmount` | 将 shared 库挂载到当前项目或卸载 |
+| `core.kb.revert` | 按 activity 快照撤销某次 create/edit/refresh |
+
+工具本身不调用 LLM，也不自动从源文件生成正文。code 页面刷新由调用方先读取当前源文件并形成 markdown，再调用 `core.kb.refresh_from_code` 写入；若页面有人工编辑记录，需要显式传确认参数。
 
 ## 4. 目录结构建议
 
@@ -660,6 +721,7 @@ core.project.create
 core.agent.list
 core.agent.get
 core.agent.create
+core.model_profile.list
 core.session.list
 core.session.get
 core.session.create

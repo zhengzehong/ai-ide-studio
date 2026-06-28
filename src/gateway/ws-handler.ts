@@ -12,17 +12,29 @@ const clients = new Map<WebSocket, RpcClientState>()
 
 export function broadcastToSubscribers(sessionId: string, msg: ServerMessage): void {
   const payload = JSON.stringify(msg)
+  let delivered = 0
   for (const [ws, state] of clients) {
     if (state.subscriptions.has(sessionId) && ws.readyState === ws.OPEN) {
       ws.send(payload)
+      delivered += 1
     }
+  }
+  if (msg.type === 'session:done') {
+    log.debug({ sessionId, type: msg.type, delivered, totalClients: clients.size }, 'broadcast to subscribers complete')
   }
 }
 
 export function broadcastToAll(msg: ServerMessage): void {
   const payload = JSON.stringify(msg)
+  let delivered = 0
   for (const [ws] of clients) {
-    if (ws.readyState === ws.OPEN) ws.send(payload)
+    if (ws.readyState === ws.OPEN) {
+      ws.send(payload)
+      delivered += 1
+    }
+  }
+  if (msg.type === 'session:activity' || msg.type === 'agent:status') {
+    log.debug({ type: msg.type, delivered, totalClients: clients.size }, 'broadcast to all complete')
   }
 }
 
@@ -32,6 +44,15 @@ events.on('session:update', (ev) => {
     sessionId: ev.sessionId,
     agentId: ev.agentId,
     data: ev.data,
+  })
+})
+
+events.on('session:process_item', (ev) => {
+  broadcastToSubscribers(ev.sessionId, {
+    type: 'session:process_item',
+    sessionId: ev.sessionId,
+    agentId: ev.agentId,
+    item: ev.item,
   })
 })
 
@@ -45,15 +66,22 @@ events.on('session:event', (ev) => {
 })
 
 events.on('session:done', (ev) => {
+  log.info({ sessionId: ev.sessionId, agentId: ev.agentId, turnId: ev.turnId, messageId: ev.messageId, stopReason: ev.stopReason, hasError: !!ev.error }, 'broadcasting session done')
   broadcastToSubscribers(ev.sessionId, {
     type: 'session:done',
     sessionId: ev.sessionId,
     agentId: ev.agentId,
     messageId: ev.messageId,
+    turnId: ev.turnId,
     turnUsage: ev.turnUsage,
     stopReason: ev.stopReason,
     error: ev.error,
   })
+})
+
+events.on('session:activity', (ev) => {
+  log.info({ sessionId: ev.sessionId, agentId: ev.agentId, turnId: ev.turnId, state: ev.state, reason: ev.reason, timestamp: ev.timestamp }, 'broadcasting session activity')
+  broadcastToAll({ type: 'session:activity', ...ev })
 })
 
 events.on('session:capabilities', (ev) => {
@@ -66,6 +94,10 @@ events.on('session:capabilities', (ev) => {
 
 events.on('session:changed', (ev) => {
   broadcastToAll({ type: 'session:changed', sessionId: ev.sessionId, data: ev.data })
+})
+
+events.on('session:copy_failed', (ev) => {
+  broadcastToAll({ type: 'session:copy_failed', ...ev })
 })
 
 events.on('agent:status', (ev) => {
@@ -82,6 +114,18 @@ events.on('team:update', (ev) => {
 
 events.on('rule:update', (ev) => {
   broadcastToAll({ type: 'rule:update', ruleId: ev.ruleId, data: ev.data })
+})
+
+events.on('timeline:updated', (ev) => {
+  broadcastToAll({ type: 'timeline:updated', sessionId: ev.sessionId })
+})
+
+events.on('event-center:update', (ev) => {
+  broadcastToAll({ type: 'event-center:update', data: ev })
+})
+
+events.on('knowledge-base:update', (ev) => {
+  broadcastToAll({ type: 'knowledge-base:update', data: ev })
 })
 
 function send(ws: WebSocket, msg: ServerMessage): void {

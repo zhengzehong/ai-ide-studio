@@ -50,9 +50,31 @@ describe('builtin tool seed synchronization', () => {
       .all()
       .map((row) => row.name)
     expect(names).toEqual([
+      'agent.message.send',
+      'agent.session.list',
+      'agent.session.messages',
+      'agent.template.create',
+      'agent.template.delete',
+      'agent.template.get',
+      'agent.template.list',
+      'agent.template.update',
+      'agent.watch.cancel',
+      'agent.watch.create',
       'core.agent.create',
       'core.agent.get',
       'core.agent.list',
+      'core.kb.create_kb',
+      'core.kb.create_page',
+      'core.kb.list',
+      'core.kb.mount',
+      'core.kb.read_index',
+      'core.kb.read_page',
+      'core.kb.refresh_from_code',
+      'core.kb.revert',
+      'core.kb.search',
+      'core.kb.unmount',
+      'core.kb.update_page',
+      'core.model_profile.list',
       'core.project.create',
       'core.project.get',
       'core.project.list',
@@ -61,8 +83,38 @@ describe('builtin tool seed synchronization', () => {
       'core.session.list',
       'core.task.create',
       'core.task.list',
+      'core.timeline.list',
       'create_schedule',
       'create_task',
+      'define_memory_dimension',
+      'delete_memory',
+      'event.category.create',
+      'event.category.list',
+      'event.category.update',
+      'event.claim_next',
+      'event.consume',
+      'event.convert_to_task',
+      'event.create',
+      'event.get',
+      'event.ignore',
+      'event.list',
+      'event.subscription.create',
+      'get_memory',
+      'list_memory',
+      'recall_memory',
+      'record_memory',
+      'studio.schedule.create',
+      'studio.schedule.delete',
+      'studio.schedule.executions',
+      'studio.schedule.list',
+      'studio.schedule.toggle',
+      'studio.schedule.update',
+      'studio.task.assign',
+      'studio.task.create',
+      'studio.task.get',
+      'studio.task.list',
+      'studio.task.report',
+      'studio.task.update_progress',
       'team.create',
       'team.get',
       'team.list',
@@ -77,6 +129,7 @@ describe('builtin tool seed synchronization', () => {
       'team.template.describe',
       'team.template.list',
       'team.update',
+      'update_memory',
     ])
 
     const globalBindings = getDb()
@@ -92,6 +145,53 @@ describe('builtin tool seed synchronization', () => {
       .map((row) => row.name)
     expect(globalBindings).toEqual(names.filter((name) => !name.startsWith('team.')))
     expect(names.filter((name) => name.startsWith('team.')).length).toBeGreaterThan(0)
+
+    const createAgent = toolStore.getByName('core.agent.create')
+    const createAgentSchema = createAgent?.input_schema_json
+      ? JSON.parse(createAgent.input_schema_json) as Record<string, unknown>
+      : {}
+    const createAgentProperties = asRecord(createAgentSchema.properties)
+    expect(createAgentProperties.modelProfileId).toMatchObject({ type: 'string' })
+
+    const createTemplate = toolStore.getByName('agent.template.create')
+    const createTemplateSchema = createTemplate?.input_schema_json
+      ? JSON.parse(createTemplate.input_schema_json) as Record<string, unknown>
+      : {}
+    const createTemplateProperties = asRecord(createTemplateSchema.properties)
+    expect(createTemplateProperties.systemPrompt).toMatchObject({ type: 'string' })
+    expect(createTemplateProperties.skills).toMatchObject({ type: 'array' })
+
+    const updateTemplate = toolStore.getByName('agent.template.update')
+    const updateTemplateSchema = updateTemplate?.input_schema_json
+      ? JSON.parse(updateTemplate.input_schema_json) as Record<string, unknown>
+      : {}
+    const updateTemplateProperties = asRecord(updateTemplateSchema.properties)
+    expect(updateTemplateProperties.templateId).toMatchObject({ type: 'string' })
+
+    const eventSubscription = toolStore.getByName('event.subscription.create')
+    const eventSubscriptionSchema = eventSubscription?.input_schema_json
+      ? JSON.parse(eventSubscription.input_schema_json) as Record<string, unknown>
+      : {}
+    const eventSubscriptionProperties = asRecord(eventSubscriptionSchema.properties)
+    expect(eventSubscriptionProperties.autoStart).toMatchObject({ type: 'boolean' })
+    expect(eventSubscriptionProperties.consumerSessionMode).toMatchObject({ enum: ['existing', 'new_each', 'new_fixed'] })
+    expect(eventSubscriptionProperties.consumerSessionId).toMatchObject({ type: 'string' })
+
+    const studioTaskCreate = toolStore.getByName('studio.task.create')
+    const studioTaskCreateSchema = studioTaskCreate?.input_schema_json
+      ? JSON.parse(studioTaskCreate.input_schema_json) as Record<string, unknown>
+      : {}
+    const studioTaskCreateProperties = asRecord(studioTaskCreateSchema.properties)
+    expect(studioTaskCreateProperties.sessionMode).toMatchObject({ enum: ['existing', 'new_each', 'new_fixed'] })
+    expect(studioTaskCreateProperties.sessionId).toMatchObject({ type: 'string' })
+
+    const studioScheduleCreate = toolStore.getByName('studio.schedule.create')
+    const studioScheduleCreateSchema = studioScheduleCreate?.input_schema_json
+      ? JSON.parse(studioScheduleCreate.input_schema_json) as Record<string, unknown>
+      : {}
+    const studioScheduleCreateProperties = asRecord(studioScheduleCreateSchema.properties)
+    expect(studioScheduleCreateProperties.sessionMode).toMatchObject({ enum: ['existing', 'new_each', 'new_fixed'] })
+    expect(studioScheduleCreateProperties.sessionId).toMatchObject({ type: 'string' })
   })
 
   test('removes stale global team tool bindings when reseeding', () => {
@@ -160,4 +260,9 @@ function legacyHandlerName(name: string): string {
     http_fetch: 'httpFetch',
   }
   return handlers[name] ?? name
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('expected object')
+  return value as Record<string, unknown>
 }
