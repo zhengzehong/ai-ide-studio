@@ -1,10 +1,15 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { Bot, Clock3, MessageSquarePlus, RefreshCw } from 'lucide-react'
+import { Archive, Edit3, Trash2, XCircle } from 'lucide-react'
 import { useSessionStore } from '../stores/session.store'
 import { useAppStore } from '../stores/app.store'
+import type { MobileSessionItem } from '../stores/session.store'
 import SessionCard from '../components/SessionCard'
 import ProjectSwitcher from '../components/ProjectSwitcher'
 import FilterSelectSheet from '../components/FilterSelectSheet'
+import ActionSheet from '../components/ActionSheet'
+import ConfirmDialog from '../components/ConfirmDialog'
+import RenameDialog from '../components/RenameDialog'
 import {
   filterAndSortMobileSessions,
   type MobileSessionSortMode,
@@ -24,10 +29,23 @@ const SORT_OPTIONS: Array<{ value: MobileSessionSortMode; label: string }> = [
 ]
 
 export default function SessionListPage() {
-  const { sessions, loading, filterAgent, setFilterAgent, fetchSessions } = useSessionStore()
+  const {
+    sessions,
+    loading,
+    filterAgent,
+    setFilterAgent,
+    fetchSessions,
+    renameSession,
+    archiveSession,
+    closeSession,
+    deleteSession,
+  } = useSessionStore()
   const { projects, currentProjectId, setCurrentProject } = useAppStore()
   const [statusFilter, setStatusFilter] = useState<MobileSessionStatusFilter>('all')
   const [sortMode, setSortMode] = useState<MobileSessionSortMode>('recent')
+  const [actionSession, setActionSession] = useState<MobileSessionItem | null>(null)
+  const [renameTarget, setRenameTarget] = useState<MobileSessionItem | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<MobileSessionItem | null>(null)
 
   useEffect(() => {
     fetchSessions(currentProjectId)
@@ -68,6 +86,54 @@ export default function SessionListPage() {
   }
 
   const handleRefresh = () => fetchSessions(currentProjectId)
+
+  const handleLongPress = (session: MobileSessionItem) => {
+    setActionSession(session)
+  }
+
+  const handleRenameConfirm = (title: string) => {
+    if (!renameTarget) return
+    const target = renameTarget
+    setRenameTarget(null)
+    void renameSession(target.id, title)
+  }
+
+  const handleDeleteConfirm = () => {
+    if (!deleteTarget) return
+    const target = deleteTarget
+    setDeleteTarget(null)
+    void deleteSession(target.id)
+  }
+
+  const actionItems = actionSession
+    ? [
+        {
+          key: 'rename',
+          label: '重命名',
+          icon: <Edit3 size={18} color="var(--text-primary)" />,
+          onClick: () => setRenameTarget(actionSession),
+        },
+        {
+          key: 'archive',
+          label: '归档',
+          icon: <Archive size={18} color="var(--text-primary)" />,
+          onClick: () => void archiveSession(actionSession.id),
+        },
+        {
+          key: 'close',
+          label: '关闭会话',
+          icon: <XCircle size={18} color="var(--text-primary)" />,
+          onClick: () => void closeSession(actionSession.id),
+        },
+        {
+          key: 'delete',
+          label: '删除会话',
+          icon: <Trash2 size={18} color="var(--error)" />,
+          danger: true,
+          onClick: () => setDeleteTarget(actionSession),
+        },
+      ]
+    : []
 
   return (
     <div style={styles.page}>
@@ -121,9 +187,33 @@ export default function SessionListPage() {
           </div>
         )}
         {filtered.map((session) => (
-          <SessionCard key={session.id} session={session} />
+          <SessionCard key={session.id} session={session} onLongPress={handleLongPress} />
         ))}
       </div>
+
+      <ActionSheet
+        open={!!actionSession}
+        title={actionSession?.sessionTitle || actionSession?.agentName || '会话操作'}
+        items={actionItems}
+        onClose={() => setActionSession(null)}
+      />
+
+      <RenameDialog
+        open={!!renameTarget}
+        initialTitle={renameTarget?.sessionTitle || renameTarget?.agentName || ''}
+        onConfirm={handleRenameConfirm}
+        onCancel={() => setRenameTarget(null)}
+      />
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        title="删除会话"
+        message="删除后不可恢复,确定要删除该会话吗?"
+        confirmText="删除"
+        danger
+        onConfirm={handleDeleteConfirm}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </div>
   )
 }

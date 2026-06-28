@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { wsClient } from '@desktop/services/ws-client'
 import type { SessionData } from '@desktop/stores/session.store'
 import { useAppStore } from './app.store'
+import { showToast } from '../utils/toast'
 
 export type MobileSessionActivityState = 'running' | 'idle'
 type SessionIndicatorMap = Record<string, true>
@@ -38,6 +39,10 @@ interface SessionState {
   setFilterStatus: (status: string | null) => void
   setCurrentSession: (sessionId: string | null) => void
   markRead: (sessionId: string) => Promise<void>
+  renameSession: (sessionId: string, title: string) => Promise<void>
+  archiveSession: (sessionId: string) => Promise<void>
+  closeSession: (sessionId: string) => Promise<void>
+  deleteSession: (sessionId: string) => Promise<void>
   setupListeners: () => () => void
 }
 
@@ -170,6 +175,58 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     } catch {
       // Best-effort: the optimistic update above keeps the UI correct locally.
       // The next fetchSessions will resync from the server.
+    }
+  },
+
+  renameSession: async (sessionId, title) => {
+    const trimmed = title.trim()
+    if (!trimmed) return
+    set((state) => ({
+      sessions: state.sessions.map((session) =>
+        session.id === sessionId ? { ...session, sessionTitle: trimmed } : session
+      ),
+    }))
+    try {
+      await wsClient.request({ type: 'sessions.rename', sessionId, title: trimmed })
+    } catch {
+      showToast('操作失败')
+      void get().fetchSessions(useAppStore.getState().currentProjectId)
+    }
+  },
+
+  archiveSession: async (sessionId) => {
+    set((state) => ({
+      sessions: state.sessions.filter((session) => session.id !== sessionId),
+    }))
+    try {
+      await wsClient.request({ type: 'sessions.archive', sessionId })
+    } catch {
+      showToast('操作失败')
+      void get().fetchSessions(useAppStore.getState().currentProjectId)
+    }
+  },
+
+  closeSession: async (sessionId) => {
+    set((state) => ({
+      sessions: state.sessions.filter((session) => session.id !== sessionId),
+    }))
+    try {
+      await wsClient.request({ type: 'sessions.close', sessionId })
+    } catch {
+      showToast('操作失败')
+      void get().fetchSessions(useAppStore.getState().currentProjectId)
+    }
+  },
+
+  deleteSession: async (sessionId) => {
+    set((state) => ({
+      sessions: state.sessions.filter((session) => session.id !== sessionId),
+    }))
+    try {
+      await wsClient.request({ type: 'sessions.delete', sessionId })
+    } catch {
+      showToast('操作失败')
+      void get().fetchSessions(useAppStore.getState().currentProjectId)
     }
   },
 

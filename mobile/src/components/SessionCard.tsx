@@ -1,8 +1,17 @@
 import { useNavigate } from 'react-router-dom'
 import { Bot } from 'lucide-react'
-import type { CSSProperties } from 'react'
+import { useRef, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 import type { MobileSessionItem } from '../stores/session.store'
 import { mobileSessionIndicator } from '../utils/session-indicator'
+import { triggerHaptic } from '../utils/haptic'
+
+const LONG_PRESS_MS = 500
+const MOVE_CANCEL_PX = 10
+
+interface Props {
+  session: MobileSessionItem
+  onLongPress?: (session: MobileSessionItem) => void
+}
 
 function formatTime(iso: string | null): string {
   if (!iso) return ''
@@ -15,14 +24,63 @@ function formatTime(iso: string | null): string {
   return `${d.getMonth() + 1}/${d.getDate()}`
 }
 
-export default function SessionCard({ session }: { session: MobileSessionItem }) {
+export default function SessionCard({ session, onLongPress }: Props) {
   const navigate = useNavigate()
   const indicator = mobileSessionIndicator(session)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const startPosRef = useRef<{ x: number; y: number } | null>(null)
+  const longPressFiredRef = useRef(false)
+
+  const clearTimer = () => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current)
+      timerRef.current = null
+    }
+  }
+
+  const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!onLongPress) return
+    longPressFiredRef.current = false
+    startPosRef.current = { x: event.clientX, y: event.clientY }
+    timerRef.current = setTimeout(() => {
+      timerRef.current = null
+      longPressFiredRef.current = true
+      triggerHaptic()
+      onLongPress(session)
+    }, LONG_PRESS_MS)
+  }
+
+  const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!startPosRef.current || !timerRef.current) return
+    const dx = event.clientX - startPosRef.current.x
+    const dy = event.clientY - startPosRef.current.y
+    if (dx * dx + dy * dy > MOVE_CANCEL_PX * MOVE_CANCEL_PX) {
+      clearTimer()
+    }
+  }
+
+  const handlePointerUpOrCancel = () => {
+    clearTimer()
+    startPosRef.current = null
+  }
+
+  const handleClick = () => {
+    if (longPressFiredRef.current) {
+      longPressFiredRef.current = false
+      return
+    }
+    navigate(`/chat/${session.id}`)
+  }
 
   return (
     <div
       style={{ ...styles.card, ...(session.unread ? styles.unread : {}) }}
-      onClick={() => navigate(`/chat/${session.id}`)}
+      onPointerDown={onLongPress ? handlePointerDown : undefined}
+      onPointerMove={onLongPress ? handlePointerMove : undefined}
+      onPointerUp={onLongPress ? handlePointerUpOrCancel : undefined}
+      onPointerCancel={onLongPress ? handlePointerUpOrCancel : undefined}
+      onPointerLeave={onLongPress ? handlePointerUpOrCancel : undefined}
+      onClick={handleClick}
     >
       <div style={styles.row}>
         <div style={styles.titleArea}>
@@ -64,6 +122,7 @@ const styles: Record<string, CSSProperties> = {
     borderBottom: '1px solid var(--border-light)',
     cursor: 'pointer',
     transition: 'background .15s',
+    touchAction: 'pan-y',
   },
   unread: {
     background: '#fafaff',

@@ -1,17 +1,41 @@
 import { taskManager, resolveSessionMode, validateSessionModeTarget, validateTaskAssignment } from '../../core/tasks.js'
-import { taskStore, taskEventStore } from '../../store/tasks.js'
+import { taskStore, taskEventStore, extractReportPreview } from '../../store/tasks.js'
 import { taskExecutionModeStore } from '../../store/task-execution-modes.js'
 import { sessionStore, type SessionRow } from '../../store/sessions.js'
 import { events } from '../../core/events.js'
 import type { RpcHandlerMap } from './types.js'
 import type { ImageAttachment } from '../../types/ws-protocol.js'
 
+interface TaskLatestReportSummary {
+  latestReportPreview: string | null
+  latestReportAt: string | null
+  latestReportType: string | null
+}
+
+function buildLatestReportSummary(taskId: string, latestByTask: Record<string, import('../../store/tasks.js').TaskEventRow>): TaskLatestReportSummary {
+  const ev = latestByTask[taskId]
+  if (!ev) {
+    return { latestReportPreview: null, latestReportAt: null, latestReportType: null }
+  }
+  return {
+    latestReportPreview: extractReportPreview(ev.payload_json),
+    latestReportAt: ev.created_at,
+    latestReportType: ev.type,
+  }
+}
+
 export const taskRpcHandlers: RpcHandlerMap = {
   'tasks.list'(msg, { sendResult }) {
     const tasks = taskStore.list(msg.status as string | undefined, msg.projectId as string | undefined)
+    const taskIds = tasks.map(t => t.id)
+    const latestByTask = taskEventStore.listLatestByTaskIds(taskIds)
     const tasksWithSession = tasks.map(t => {
       const sessions = listTaskSessions(t.id)
-      return { ...t, sessionId: sessions.length > 0 ? sessions[sessions.length - 1].id : null }
+      return {
+        ...t,
+        sessionId: sessions.length > 0 ? sessions[sessions.length - 1].id : null,
+        ...buildLatestReportSummary(t.id, latestByTask),
+      }
     })
     sendResult(tasksWithSession)
   },
@@ -115,6 +139,28 @@ export const taskRpcHandlers: RpcHandlerMap = {
     sendResult(events)
   },
 
+  'tasks.events.get'(msg, { sendResult, sendError }) {
+    const taskId = msg.taskId as string
+    const eventId = msg.eventId as string
+    if (!taskId) return sendError('taskId 不能为空')
+    if (!eventId) return sendError('eventId 不能为空')
+    const row = taskEventStore.getById(eventId)
+    if (!row) return sendError('事件不存在')
+    if (row.task_id !== taskId) return sendError('事件不存在')
+    const parsed = parseEventPayload(row.payload_json)
+    const reportMd = typeof parsed.report_md === 'string' ? parsed.report_md : null
+    const agentStatus = typeof parsed.agent_status === 'string' ? parsed.agent_status : null
+    sendResult({
+      id: row.id,
+      taskId: row.task_id,
+      type: row.type,
+      sequence: row.sequence,
+      createdAt: row.created_at,
+      reportMd,
+      agentStatus,
+    })
+  },
+
   'tasks.modes.list'(msg, { sendResult }) {
     const projectId = (msg.projectId as string | undefined) ?? null
     const modes = taskExecutionModeStore.list(projectId)
@@ -180,4 +226,15 @@ function listTaskSessions(taskId: string): SessionRow[] {
     seen.add(session.id)
   }
   return sessions
+}
+
+function parseEventPayload(raw: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {}
+  } catch {
+    return {}
+  }
 }
