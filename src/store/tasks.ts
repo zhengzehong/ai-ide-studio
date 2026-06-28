@@ -330,6 +330,36 @@ export const taskEventStore = {
       .all({ taskId, limit })
       .reverse()
   },
+
+  getById(eventId: string): TaskEventRow | null {
+    return (
+      getDb()
+        .prepare<[string], TaskEventRow>('SELECT * FROM task_events WHERE id = ?')
+        .get(eventId) ?? null
+    )
+  },
+
+  listLatestByTaskIds(taskIds: string[]): Record<string, TaskEventRow> {
+    if (taskIds.length === 0) return {}
+    const placeholders = taskIds.map(() => '?').join(',')
+    const rows = getDb()
+      .prepare<string[], TaskEventRow>(
+        `
+        SELECT id, task_id, type, payload_json, sequence, created_at FROM (
+          SELECT id, task_id, type, payload_json, sequence, created_at,
+            ROW_NUMBER() OVER (PARTITION BY task_id ORDER BY sequence DESC) AS rn
+          FROM task_events
+          WHERE type IN ('milestone', 'input_requested', 'marked_done')
+            AND task_id IN (${placeholders})
+        )
+        WHERE rn = 1
+      `,
+      )
+      .all(...taskIds)
+    const map: Record<string, TaskEventRow> = {}
+    for (const row of rows) map[row.task_id] = row
+    return map
+  },
 }
 
 export const taskAttachmentStore = {
@@ -388,4 +418,15 @@ function parseTaskEventPayload(raw: string): Record<string, unknown> {
   } catch {
     return {}
   }
+}
+
+const REPORT_PREVIEW_MAX_LENGTH = 50
+
+export function extractReportPreview(raw: string): string | null {
+  const payload = parseTaskEventPayload(raw)
+  const reportMd = payload.report_md
+  if (typeof reportMd !== 'string' || !reportMd) return null
+  const firstLine = reportMd.split('\n')[0]?.trim() ?? ''
+  if (!firstLine) return null
+  return firstLine.slice(0, REPORT_PREVIEW_MAX_LENGTH)
 }
