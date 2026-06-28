@@ -44,6 +44,12 @@ export function markTaskRead(taskId: string): void {
   writeMap(map)
 }
 
+export function getTaskLastSeen(taskId: string): string | null {
+  if (!taskId) return null
+  const map = readMap()
+  return map[taskId] ?? null
+}
+
 export function markAllVisibleRead(taskIds: string[]): void {
   if (!taskIds.length) return
   const now = new Date().toISOString()

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { wsClient } from '@desktop/services/ws-client'
 import { ListTodo, RefreshCw, Search, X } from 'lucide-react'
 import type { TaskStatus } from '../../../src/types/ws-protocol'
@@ -97,6 +98,7 @@ export function mergeMobileTaskUpdate(
 }
 
 export default function TaskListPage() {
+  const navigate = useNavigate()
   const [tasks, setTasks] = useState<TaskItem[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<TaskFilter>('mine')
@@ -153,11 +155,9 @@ export default function TaskListPage() {
   }, [tasksWithAgent, filter, keyword])
 
   const handleCardClick = useCallback((task: TaskCardItem) => {
-    // 详情页下个任务做, 暂时 console.log
-    console.log('open task', task.id)
-    // 列表页点击时清掉对应未读
     markTaskRead(task.id)
-  }, [])
+    navigate(`/task/${task.id}`)
+  }, [navigate])
 
   const handleLongPress = useCallback((task: TaskCardItem) => {
     setActionTask(tasks.find(t => t.id === task.id) ?? null)
