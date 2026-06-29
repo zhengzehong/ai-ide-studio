@@ -145,7 +145,7 @@ export const eventCategoryUpdateHandler: ToolHandler = {
 
 export const eventCreateHandler: ToolHandler = {
   name: 'event.create',
-  description: '写入事件中心事件。只能写入已启用类别，payload 按类别语义填写。',
+  description: '写入事件中心事件。只能写入已启用类别，payload 按类别语义填写。payload 字段可在类别 schema 配 default，不传则用默认值；required 字段必须传或配 default，缺失会抛错。',
   inputSchema: {
     type: 'object',
     properties: {
@@ -298,7 +298,7 @@ export const eventIgnoreHandler: ToolHandler = {
 
 export const eventSubscriptionCreateHandler: ToolHandler = {
   name: 'event.subscription.create',
-  description: '创建事件订阅规则，定义哪个 Agent 消费哪类事件。filter 顶层仅支持 minConfidence、priority、sourceType、payload；事件 payload 字段必须放入 filter.payload，例如 task.lifecycle 待办任务使用 {"payload":{"taskStatus":"backlog"}}。',
+  description: '创建事件订阅规则，定义哪个 Agent 消费哪类事件。filter 顶层仅支持 minConfidence、priority、sourceType、payload；事件 payload 字段必须放入 filter.payload，例如 task.lifecycle 待办任务使用 {"payload":{"taskStatus":"backlog"}}。未在顶层声明的 key 会被当作 payload 字段处理。',
   inputSchema: {
     type: 'object',
     properties: {
@@ -310,7 +310,7 @@ export const eventSubscriptionCreateHandler: ToolHandler = {
       actionMode: { type: 'string' },
       filter: {
         type: 'object',
-        description: '订阅过滤条件。顶层支持 minConfidence、priority、sourceType、payload。payload 是事件 payload 字段过滤，如 {"payload":{"taskStatus":"backlog","assignedAgentId":null}}；不要传扁平 {"taskStatus":"backlog"}。',
+        description: '订阅过滤条件。顶层支持 minConfidence、priority、sourceType、payload。payload 是事件 payload 字段过滤，值可为直接值、null、{"in":[...]}、{"exists":true/false}；schema 标记 x-filter 的字段在前端有快捷选项，但任意 payload 子字段都允许过滤。',
         properties: {
           minConfidence: { type: 'number', description: '最低置信度，0-1' },
           priority: { type: 'string', description: '事件优先级，如 low/medium/high' },

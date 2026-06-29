@@ -90,6 +90,7 @@ import {
   agentWatchCancelHandler,
   agentWatchCreateHandler,
 } from './agent-session-tools.js'
+import { previewPublishHandler } from './preview-publish.js'
 
 const handlers = new Map<string, ToolHandler>()
 
@@ -177,6 +178,7 @@ register(agentSessionListHandler)
 register(agentSessionMessagesHandler)
 register(agentWatchCreateHandler)
 register(agentWatchCancelHandler)
+register(previewPublishHandler)
 
 export function getHandler(name: string): ToolHandler | undefined {
   return handlers.get(name)

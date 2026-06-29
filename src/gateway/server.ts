@@ -3,7 +3,8 @@ import { serve } from '@hono/node-server'
 import type { Server } from 'http'
 import { WebSocketServer } from 'ws'
 import { Readable } from 'stream'
-import { basename } from 'path'
+import { basename, extname, join, normalize } from 'path'
+import { createReadStream, existsSync, statSync } from 'fs'
 import type { AppConfig } from '../core/config.js'
 import { handleWsConnection } from './ws-handler.js'
 import { agentStore } from '../store/agents.js'
@@ -11,6 +12,7 @@ import { sessionStore } from '../store/sessions.js'
 import { taskStore } from '../store/tasks.js'
 import { ruleStore } from '../store/rules.js'
 import { projectStore } from '../store/projects.js'
+import { previewStore } from '../store/previews.js'
 import { getAssetStream } from '../core/filesystem.js'
 import { getImageAsset } from '../core/image-attachments.js'
 import { mountHttpMcpServer } from '../tools/mcp/http-mcp-server.js'
@@ -39,6 +41,8 @@ export async function startGateway(config: AppConfig) {
   app.get('/api/rules', (c) => c.json(ruleStore.list()))
   app.get('/api/fs/asset', (c) => handleFsAsset(c))
   app.get('/api/images/*', (c) => handleImageAsset(c))
+  app.get('/preview/:previewId/*', (c) => handlePreviewAsset(c, config))
+  app.get('/preview/:previewId', (c) => handlePreviewAsset(c, config))
   mountHttpMcpServer(app)
   mountStaticAssets(app, config)
   log.debug({ staticDir: staticDirForLog(config) }, '静态资源托载检查完成')
@@ -170,7 +174,7 @@ function mountLocalTokenGuard(app: Hono, config: AppConfig): void {
 }
 
 function isAssetRequest(path: string): boolean {
-  return !path.startsWith('/api/') && path !== '/health'
+  return !path.startsWith('/api/') && !path.startsWith('/preview/') && path !== '/health'
 }
 
 function isWsAuthorized(req: { url?: string; headers: { [key: string]: string | string[] | undefined } }, config: AppConfig): boolean {
@@ -179,4 +183,84 @@ function isWsAuthorized(req: { url?: string; headers: { [key: string]: string | 
   if (header === config.localToken || (Array.isArray(header) && header.includes(config.localToken))) return true
   const token = new URL(req.url ?? '/', `http://${config.host}:${config.port}`).searchParams.get('token')
   return token === config.localToken
+}
+
+const PREVIEW_MIME_TYPES: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.htm': 'text/html; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'application/javascript; charset=utf-8',
+  '.mjs': 'application/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.ico': 'image/x-icon',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.ttf': 'font/ttf',
+  '.otf': 'font/otf',
+  '.map': 'application/json; charset=utf-8',
+}
+
+function resolvePreviewMimeType(filePath: string): string {
+  return PREVIEW_MIME_TYPES[extname(filePath).toLowerCase()] ?? 'application/octet-stream'
+}
+
+function handlePreviewAsset(c: Context, config: AppConfig): Response {
+  const previewId = c.req.param('previewId')
+  if (!previewId) return c.json({ error: 'previewId 缺失' }, 400)
+
+  const preview = previewStore.get(previewId)
+  if (!preview) return c.json({ error: '预览不存在' }, 404)
+
+  if (config.localToken) {
+    const token = c.req.header('x-ai-ide-token') ?? c.req.query('token')
+    if (token !== config.localToken) return c.json({ error: '未授权' }, 401)
+  }
+
+  const prefix = `/preview/${previewId}/`
+  const rawSubPath = c.req.path.startsWith(prefix)
+    ? c.req.path.slice(prefix.length)
+    : ''
+  const subPath = decodePreviewPath(rawSubPath)
+  if (subPath == null) return c.json({ error: '预览路径无效' }, 400)
+
+  const relativeFile = subPath || preview.entry_file
+  const fullPath = normalize(join(preview.source_path, relativeFile))
+  const baseDir = normalize(preview.source_path)
+  if (fullPath !== baseDir && !fullPath.startsWith(baseDir + '/')) {
+    return c.json({ error: '预览路径越界' }, 400)
+  }
+
+  if (!existsSync(fullPath)) return c.json({ error: '预览文件不存在' }, 404)
+  let stat: ReturnType<typeof statSync>
+  try {
+    stat = statSync(fullPath)
+  } catch {
+    return c.json({ error: '预览文件不可读' }, 500)
+  }
+  if (!stat.isFile()) return c.json({ error: '预览路径不是文件' }, 400)
+
+  c.header('Content-Type', resolvePreviewMimeType(fullPath))
+  c.header('Content-Length', String(stat.size))
+  c.header('Cache-Control', 'no-store')
+
+  const nodeStream = createReadStream(fullPath) as Readable
+  const webStream = nodeStreamToWebStream(nodeStream)
+  return new Response(webStream, {
+    status: 200,
+    headers: c.res.headers,
+  })
+}
+
+function decodePreviewPath(path: string): string | null {
+  try {
+    return decodeURIComponent(path)
+  } catch {
+    return null
+  }
 }

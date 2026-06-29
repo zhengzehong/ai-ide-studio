@@ -1,9 +1,30 @@
 import { useState, type CSSProperties } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Wrench, Brain, FileText, ChevronDown, ChevronRight, AlertCircle, Loader } from 'lucide-react'
 import type { TurnProcessBlock } from '@desktop/stores/turn-blocks'
+import PreviewCard, { type PreviewCardData } from './PreviewCard'
+
+function parsePreviewOutput(raw: unknown): PreviewCardData | null {
+  if (raw == null) return null
+  let obj: unknown = raw
+  if (typeof raw === 'string') {
+    try { obj = JSON.parse(raw) } catch { return null }
+  }
+  if (!obj || typeof obj !== 'object') return null
+  const rec = obj as Record<string, unknown>
+  if (rec.error !== undefined) return null
+  const previewId = typeof rec.previewId === 'string' ? rec.previewId : null
+  if (!previewId) return null
+  const target = rec.target === 'pc' ? 'pc' : rec.target === 'app' ? 'app' : 'pc'
+  const title = typeof rec.title === 'string' ? rec.title : '预览'
+  const taskId = typeof rec.taskId === 'string' ? rec.taskId : null
+  const createdAt = typeof rec.createdAt === 'string' ? rec.createdAt : ''
+  return { previewId, title, target, taskId, createdAt }
+}
 
 export default function ProcessBlock({ block }: { block: TurnProcessBlock }) {
   const [expanded, setExpanded] = useState(false)
+  const navigate = useNavigate()
 
   if (block.kind === 'stage') {
     return (
@@ -29,6 +50,12 @@ export default function ProcessBlock({ block }: { block: TurnProcessBlock }) {
 
   if (block.kind === 'tool') {
     const tc = block.toolCall
+    if (tc.title === 'preview.publish') {
+      const preview = parsePreviewOutput(tc.rawOutput)
+      if (preview) {
+        return <PreviewCard preview={preview} onOpen={(id) => navigate(`/preview/${id}`)} />
+      }
+    }
     const isError = !!tc.error
     const isPending = tc.status === 'pending' || tc.status === 'in_progress'
     return (
