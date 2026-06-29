@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>App 端 - 对话内原型预览交互原型</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; font-family: -apple-system, "PingFang SC", sans-serif; }
+  body { background: #0a0a0a; display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 20px; }
+
+  /* 手机外壳(演示用,实际 App 没有这层) */
+  .device {
+    width: 375px; height: 812px; background: #000;
+    border-radius: 40px; padding: 8px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.6);
+    position: relative; overflow: hidden;
+  }
+  .device-screen {
+    width: 100%; height: 100%; background: #f4f4f5;
+    border-radius: 32px; overflow: hidden;
+    position: relative;
+  }
+
+  /* ============ 对话页 ============ */
+  .page { display: none; flex-direction: column; height: 100%; }
+  .page.active { display: flex; }
+
+  /* 状态栏 */
+  .statusbar { height: 44px; background: #fff; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; font-size: 14px; font-weight: 600; color: #000; flex-shrink: 0; }
+  .statusbar .right { display: flex; gap: 4px; align-items: center; font-size: 12px; }
+
+  /* 顶栏 */
+  .navbar { height: 48px; background: #fff; border-bottom: 1px solid #e4e4e7; display: flex; align-items: center; padding: 0 12px; gap: 8px; flex-shrink: 0; }
+  .nav-btn { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; color: #3b82f6; font-size: 18px; cursor: pointer; }
+  .nav-title { flex: 1; font-size: 16px; font-weight: 600; color: #18181b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .nav-tag { font-size: 11px; color: #3b82f6; background: rgba(59,130,246,.1); padding: 2px 8px; border-radius: 4px; }
+
+  /* 对话区 */
+  .messages { flex: 1; overflow-y: auto; padding: 12px 14px; background: #f4f4f5; }
+  .msg { margin-bottom: 14px; max-width: 80%; }
+  .msg.user { margin-left: auto; }
+  .msg-bubble { padding: 9px 12px; border-radius: 14px; line-height: 1.55; font-size: 14px; }
+  .msg.user .msg-bubble { background: #3b82f6; color: #fff; border-bottom-right-radius: 4px; }
+  .msg.agent .msg-bubble { background: #fff; color: #18181b; border-bottom-left-radius: 4px; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+  .msg-meta { font-size: 10px; color: #a1a1aa; margin-top: 3px; }
+  .msg.user .msg-meta { text-align: right; }
+
+  /* 预览卡片(无缩略图) */
+  .preview-card {
+    margin-top: 8px;
+    background: #fff;
+    border: 1px solid #e4e4e7;
+    border-left: 3px solid #3b82f6;
+    border-radius: 10px;
+    padding: 11px 12px;
+    cursor: pointer;
+    transition: all .15s;
+    box-shadow: 0 1px 2px rgba(0,0,0,.04);
+  }
+  .preview-card:active { background: #fafafa; transform: scale(.98); }
+  .pc-top { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; }
+  .pc-icon { font-size: 14px; }
+  .pc-title { font-size: 13px; font-weight: 600; color: #18181b; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pc-target { font-size: 10px; padding: 1px 5px; border-radius: 3px; flex-shrink: 0; }
+  .pc-target.app { color: #10b981; background: rgba(16,185,129,.12); }
+  .pc-target.pc { color: #8b5cf6; background: rgba(139,92,246,.12); }
+  .pc-meta { font-size: 11px; color: #71717a; margin-bottom: 6px; line-height: 1.4; }
+  .pc-meta .link { color: #3b82f6; }
+  .pc-action { display: flex; justify-content: flex-end; align-items: center; font-size: 12px; color: #3b82f6; font-weight: 500; }
+
+  /* ============ 全屏预览页 ============ */
+  .preview-page { display: none; flex-direction: column; height: 100%; background: #fff; }
+  .preview-page.active { display: flex; }
+  .preview-page .navbar { background: #fff; }
+  .preview-frame { flex: 1; overflow: hidden; }
+  .preview-frame iframe { width: 100%; height: 100%; border: none; }
+
+  /* ============ 演示用原型内容 ============ */
+  .demo-list { padding: 14px; background: #f4f4f5; height: 100%; overflow-y: auto; }
+  .demo-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+  .demo-header h1 { font-size: 18px; color: #18181b; }
+  .demo-chips { display: flex; gap: 6px; margin-bottom: 10px; overflow-x: auto; scrollbar-width: none; }
+  .demo-chips::-webkit-scrollbar { display: none; }
+  .demo-chip { padding: 5px 12px; border-radius: 14px; font-size: 12px; background: #fff; color: #52525b; white-space: nowrap; border: 1px solid #e4e4e7; flex-shrink: 0; }
+  .demo-chip.active { background: #3b82f6; color: #fff; border-color: #3b82f6; }
+  .demo-search { background: #fff; border-radius: 8px; padding: 7px 10px; display: flex; align-items: center; gap: 6px; margin-bottom: 10px; border: 1px solid #e4e4e7; font-size: 12px; color: #a1a1aa; }
+  .demo-card { background: #fff; border-radius: 8px; padding: 11px; margin-bottom: 7px; border: 1px solid #e4e4e7; border-left: 3px solid #f59e0b; }
+  .demo-card .dc-title { font-size: 13px; font-weight: 600; color: #18181b; margin-bottom: 3px; }
+  .demo-card .dc-meta { font-size: 11px; color: #71717a; }
+  .demo-card.executing { border-left-color: #3b82f6; }
+  .demo-card.backlog { border-left-color: #a1a1aa; opacity: .75; }
+</style>
+</head>
+<body>
+
+<div class="device">
+  <div class="device-screen">
+
+    <!-- ============ 对话页 ============ -->
+    <div class="page active" id="chatPage">
+      <div class="statusbar">
+        <span>9:41</span>
+        <span class="right">📶 🔋 100%</span>
+      </div>
+      <div class="navbar">
+        <div class="nav-btn">←</div>
+        <div class="nav-title">任务管理列表重构</div>
+        <div class="nav-tag">任务</div>
+      </div>
+
+      <div class="messages">
+        <!-- 用户消息 -->
+        <div class="msg user">
+          <div class="msg-bubble">帮我看下任务列表的原型</div>
+          <div class="msg-meta">10:24</div>
+        </div>
+
+        <!-- Agent 回复 -->
+        <div class="msg agent">
+          <div class="msg-bubble">
+            做好了,5 个筛选 + 三种卡片样式,已发布预览:
+          </div>
+          <div class="msg-meta">10:25 · coder-prd</div>
+
+          <!-- 预览卡片(target=app) -->
+          <div class="preview-card" onclick="openPreview('app')">
+            <div class="pc-top">
+              <span class="pc-icon">📱</span>
+              <span class="pc-title">任务管理列表页原型</span>
+              <span class="pc-target app">APP</span>
+            </div>
+            <div class="pc-meta">
+              🔗 <span class="link">任务管理列表重构</span> · 2 小时前
+            </div>
+            <div class="pc-action">点击查看 →</div>
+          </div>
+        </div>
+
+        <!-- 用户消息 -->
+        <div class="msg user">
+          <div class="msg-bubble">PC 端的也看下</div>
+          <div class="msg-meta">10:28</div>
+        </div>
+
+        <!-- Agent 回复2 -->
+        <div class="msg agent">
+          <div class="msg-bubble">PC 工作区原型也发了,这个是宽屏的:</div>
+          <div class="msg-meta">10:29 · coder-prd</div>
+
+          <!-- 预览卡片2(target=pc) -->
+          <div class="preview-card" onclick="openPreview('pc')">
+            <div class="pc-top">
+              <span class="pc-icon">🖥</span>
+              <span class="pc-title">PC 工作区布局原型</span>
+              <span class="pc-target pc">PC</span>
+            </div>
+            <div class="pc-meta">
+              🔗 <span class="link">多项目切换 Phase 2</span> · 1 小时前
+            </div>
+            <div class="pc-action">点击查看 →</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ 全屏预览页 ============ -->
+    <div class="page preview-page" id="previewPage">
+      <div class="statusbar">
+        <span>9:41</span>
+        <span class="right">📶 🔋 100%</span>
+      </div>
+      <div class="navbar">
+        <div class="nav-btn" onclick="backToChat()">←</div>
+        <div class="nav-title" id="previewTitle">原型预览</div>
+        <div class="nav-btn" onclick="refreshPreview()">↻</div>
+      </div>
+      <div class="preview-frame">
+        <iframe id="previewIframe" srcdoc=""></iframe>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const appPrototype = `
+<div class="demo-list">
+  <div class="demo-header"><h1>任务</h1><span style="font-size:16px;color:#52525b;">↻</span></div>
+  <div class="demo-chips">
+    <div class="demo-chip active">需要我处理</div>
+    <div class="demo-chip">全部</div>
+    <div class="demo-chip">进行中</div>
+    <div class="demo-chip">待办</div>
+    <div class="demo-chip">已完成</div>
+  </div>
+  <div class="demo-search">🔍 <span>搜索任务</span></div>
+  <div class="demo-card">
+    <div class="dc-title">审查任务列表+详情页</div>
+    <div class="dc-meta">⚠ 需要确认 · 等待 2 小时 · 2 条新汇报</div>
+  </div>
+  <div class="demo-card executing">
+    <div class="dc-title">Android 返回键修复</div>
+    <div class="dc-meta">● 行动中 · 已用 15 分钟</div>
+  </div>
+  <div class="demo-card">
+    <div class="dc-title">后端 tasks.events.get</div>
+    <div class="dc-meta">⚠ 需要确认 · 等待 3 小时</div>
+  </div>
+  <div class="demo-card backlog">
+    <div class="dc-title">会话操作菜单</div>
+    <div class="dc-meta">○ 待办 · ⏰ 已搁置 8 天</div>
+  </div>
+</div>`;
+
+const pcPrototype = `
+<div style="padding:20px;background:#1a1a1a;color:#fff;height:100%;font-family:sans-serif;overflow:auto;">
+  <h2 style="margin-bottom:14px;font-size:16px;">PC 工作区(宽屏原型)</h2>
+  <div style="display:flex;gap:12px;height:75%;">
+    <div style="width:160px;background:#161618;border-radius:6px;padding:10px;">
+      <div style="font-size:10px;color:#71717a;margin-bottom:6px;">项目</div>
+      <div style="padding:6px;background:#2a2a30;border-radius:4px;margin-bottom:3px;font-size:11px;">AI IDE Studio</div>
+      <div style="padding:6px;color:#a1a1aa;font-size:11px;">个人项目</div>
+    </div>
+    <div style="flex:1;background:#161618;border-radius:6px;padding:12px;">
+      <div style="font-size:11px;color:#71717a;margin-bottom:8px;">对话区</div>
+      <div style="background:#27272a;padding:8px;border-radius:4px;margin-bottom:5px;font-size:11px;">用户消息</div>
+      <div style="background:#27272a;padding:8px;border-radius:4px;font-size:11px;">Agent 回复</div>
+    </div>
+    <div style="width:200px;background:#161618;border-radius:6px;padding:10px;">
+      <div style="font-size:10px;color:#71717a;margin-bottom:6px;">任务面板</div>
+      <div style="padding:6px;background:#2a2a30;border-radius:4px;margin-bottom:3px;font-size:10px;">任务1</div>
+      <div style="padding:6px;background:#2a2a30;border-radius:4px;font-size:10px;">任务2</div>
+    </div>
+  </div>
+  <div style="margin-top:14px;padding:10px;background:#27272a;border-radius:6px;font-size:11px;color:#a1a1aa;">
+    💡 这是 PC 宽屏原型,在 App 上看会偏小,建议在 PC 端查看
+  </div>
+</div>`;
+
+function openPreview(target) {
+  const title = target === 'app' ? '任务管理列表页原型' : 'PC 工作区布局原型';
+  const content = target === 'app' ? appPrototype : pcPrototype;
+  document.getElementById('previewTitle').textContent = title;
+  document.getElementById('previewIframe').srcdoc = content;
+  document.getElementById('chatPage').classList.remove('active');
+  document.getElementById('previewPage').classList.add('active');
+}
+
+function backToChat() {
+  document.getElementById('previewPage').classList.remove('active');
+  document.getElementById('chatPage').classList.add('active');
+  document.getElementById('previewIframe').srcdoc = '';
+}
+
+function refreshPreview() {
+  const f = document.getElementById('previewIframe');
+  const src = f.srcdoc;
+  f.srcdoc = '';
+  setTimeout(() => { f.srcdoc = src; }, 50);
+}
+</script>
+
+</body>
+</html>

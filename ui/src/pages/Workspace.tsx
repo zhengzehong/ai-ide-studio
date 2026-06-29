@@ -114,6 +114,8 @@ import { elapsedSecondsBetween, formatCompactDuration } from '../utils/duration'
 import { ContextMenu, PromptDialog, ConfirmDialog, AlertDialog } from '../components/ModalDialog'
 import { LocalSessionImportModal } from './workspace/LocalSessionImportModal'
 import { TaskImageInput } from '../components/task/TaskImageInput'
+import { PreviewCard } from '../components/chat/PreviewCard'
+import { PreviewModal } from '../components/preview/PreviewModal'
 
 const COPYING_STAGE = '正在复制会话...'
 
@@ -1323,6 +1325,23 @@ function WorkspaceChatPane({
   const [showCommandMenu, setShowCommandMenu] = useState(false)
   const [menuAnchor, setMenuAnchor] = useState<MenuAnchor | null>(null)
   const [liveNowMs, setLiveNowMs] = useState(() => Date.now())
+  const [previewModal, setPreviewModal] = useState<{
+    previewId: string
+    title: string
+    target: 'pc' | 'app'
+    url: string
+    taskId?: string | null
+  } | null>(null)
+
+  const openPreview = useCallback((p: {
+    previewId: string
+    title: string
+    target: 'pc' | 'app'
+    url: string
+    taskId?: string | null
+  }) => {
+    setPreviewModal(p)
+  }, [])
 
   const chatEndRef = useRef<HTMLDivElement>(null)
   const chatScrollRef = useRef<HTMLDivElement>(null)
@@ -1683,9 +1702,9 @@ function WorkspaceChatPane({
 
   const renderChatItem = useCallback(
     (item: ChatRenderItem<ChatMsg>) => {
-      if (item.kind === 'group') return <MemoChatBubble group={item.group} agent={chatAgent} isStreaming={false} />
+      if (item.kind === 'group') return <MemoChatBubble group={item.group} agent={chatAgent} isStreaming={false} onOpenPreview={openPreview} />
       if (item.kind === 'streaming') {
-        return <MemoChatBubble message={item.message} agent={chatAgent} isStreaming footer={interactionPanel} liveElapsedSeconds={liveElapsedSeconds} />
+        return <MemoChatBubble message={item.message} agent={chatAgent} isStreaming footer={interactionPanel} liveElapsedSeconds={liveElapsedSeconds} onOpenPreview={openPreview} />
       }
       if (item.kind === 'blocking') return <BlockingInteractionBar agent={chatAgent} panel={interactionPanel} />
       return (
@@ -1703,10 +1722,11 @@ function WorkspaceChatPane({
           processItemErrorByKey={processItemErrorByKey}
           turnProcessLoadingByMessageId={turnProcessLoadingByMessageId}
           turnProcessErrorByMessageId={turnProcessErrorByMessageId}
+          onOpenPreview={openPreview}
         />
       )
     },
-    [chatAgent, fetchMessageFileChanges, fetchMessageProcess, fetchProcessItemDetail, fileChangeDetailsByMessageId, interactionPanel, liveElapsedSeconds, processItemErrorByKey, processItemLoadingByKey, toolCallErrorByKey, toolCallLoadingByKey, turnProcessErrorByMessageId, turnProcessLoadingByMessageId],
+    [chatAgent, fetchMessageFileChanges, fetchMessageProcess, fetchProcessItemDetail, fileChangeDetailsByMessageId, interactionPanel, liveElapsedSeconds, openPreview, processItemErrorByKey, processItemLoadingByKey, toolCallErrorByKey, toolCallLoadingByKey, turnProcessErrorByMessageId, turnProcessLoadingByMessageId],
   )
 
   return (
@@ -2085,6 +2105,12 @@ function WorkspaceChatPane({
             />
           ))}
         </DropdownPortal>
+      )}
+      {previewModal && (
+        <PreviewModal
+          preview={previewModal}
+          onClose={() => setPreviewModal(null)}
+        />
       )}
     </>
   )
@@ -4289,6 +4315,7 @@ function ChatBubble({
   processItemErrorByKey = {},
   turnProcessLoadingByMessageId = {},
   turnProcessErrorByMessageId = {},
+  onOpenPreview,
 }: {
   message?: ChatMsg
   group?: ChatTimelineGroup
@@ -4306,6 +4333,13 @@ function ChatBubble({
   processItemErrorByKey?: Record<string, string>
   turnProcessLoadingByMessageId?: Record<string, boolean>
   turnProcessErrorByMessageId?: Record<string, string>
+  onOpenPreview?: (p: {
+    previewId: string
+    title: string
+    target: 'pc' | 'app'
+    url: string
+    taskId?: string | null
+  }) => void
 }) {
   const normalizedMessage: ChatBubbleInput = group || message || { id: 'empty', role: 'system', content: '' }
   const isTimelineGroup = 'blocks' in normalizedMessage
@@ -4441,6 +4475,7 @@ function ChatBubble({
                       detailLoading={!!processItemLoadingByKey[processItemKey]}
                       detailError={processItemErrorByKey[processItemKey]}
                       onLoadDetail={loadDetail}
+                      onOpenPreview={onOpenPreview}
                     />
                   )
                 }}
@@ -4587,12 +4622,20 @@ function ProcessBlockView({
   detailLoading,
   detailError,
   onLoadDetail,
+  onOpenPreview,
 }: {
   block: TurnProcessBlock
   isStreaming: boolean
   detailLoading?: boolean
   detailError?: string
   onLoadDetail?: () => void
+  onOpenPreview?: (p: {
+    previewId: string
+    title: string
+    target: 'pc' | 'app'
+    url: string
+    taskId?: string | null
+  }) => void
 }) {
   const needsDetail = processBlockNeedsDetail(block)
   const shouldAutoLoadDetail = needsDetail && block.kind !== 'tool'
@@ -4601,6 +4644,23 @@ function ProcessBlockView({
   }, [detailError, detailLoading, onLoadDetail, shouldAutoLoadDetail])
 
   if (block.kind === 'tool') {
+    if (block.toolCall.title === 'preview.publish' && !isStreaming && block.toolCall.rawOutput != null && onOpenPreview) {
+      const parsed = parsePreviewPublishOutput(block.toolCall.rawOutput)
+      if (parsed) {
+        return (
+          <PreviewCard
+            preview={{
+              previewId: parsed.previewId,
+              title: parsed.title,
+              target: parsed.target,
+              taskId: parsed.taskId ?? null,
+              createdAt: parsed.createdAt,
+            }}
+            onOpen={onOpenPreview}
+          />
+        )
+      }
+    }
     const diffEntries = toolBlockHasDiff(block.toolCall)
       ? extractFileChangesFromToolCall(block.toolCall)
       : []
@@ -4696,6 +4756,39 @@ function ProcessBlockView({
     )
   }
   return <ProcessNoteBlock text={block.text} />
+}
+
+interface PreviewPublishOutput {
+  previewId: string
+  url: string
+  title: string
+  target: 'pc' | 'app'
+  taskId?: string | null
+  createdAt: string
+}
+
+function parsePreviewPublishOutput(raw: unknown): PreviewPublishOutput | null {
+  try {
+    const obj = typeof raw === 'string' ? JSON.parse(raw) : raw
+    if (!obj || typeof obj !== 'object') return null
+    const previewId = obj.previewId
+    const url = obj.url
+    const title = obj.title
+    const target = obj.target
+    const createdAt = obj.createdAt
+    if (typeof previewId !== 'string' || typeof title !== 'string' || typeof createdAt !== 'string') return null
+    if (target !== 'pc' && target !== 'app') return null
+    return {
+      previewId,
+      url: typeof url === 'string' ? url : `/preview/${previewId}/`,
+      title,
+      target,
+      taskId: typeof obj.taskId === 'string' ? obj.taskId : null,
+      createdAt,
+    }
+  } catch {
+    return null
+  }
 }
 
 function ProcessDetailState({ loading, error }: { loading?: boolean; error?: string }) {

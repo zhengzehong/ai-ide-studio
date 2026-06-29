@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>PC 端 - 对话内原型预览交互原型</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; font-family: -apple-system, "Segoe UI", "PingFang SC", sans-serif; }
+  body { background: #1a1a1a; color: #e4e4e7; height: 100vh; overflow: hidden; font-size: 14px; }
+
+  /* ============ 工作区布局 ============ */
+  .workspace { display: flex; height: 100vh; }
+  .sidebar { width: 240px; background: #161618; border-right: 1px solid #27272a; display: flex; flex-direction: column; }
+  .sidebar-header { padding: 16px; font-size: 13px; color: #71717a; border-bottom: 1px solid #27272a; }
+  .session-list { flex: 1; overflow-y: auto; padding: 8px; }
+  .session-item { padding: 10px 12px; border-radius: 6px; cursor: pointer; margin-bottom: 2px; }
+  .session-item:hover { background: #1f1f23; }
+  .session-item.active { background: #2a2a30; }
+  .session-item .name { font-size: 13px; color: #d4d4d8; margin-bottom: 2px; }
+  .session-item .preview { font-size: 11px; color: #71717a; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .session-item.active .name { color: #fff; }
+
+  .chat-area { flex: 1; display: flex; flex-direction: column; background: #1a1a1a; }
+  .chat-header { padding: 14px 20px; border-bottom: 1px solid #27272a; display: flex; align-items: center; gap: 10px; }
+  .chat-header .title { font-size: 15px; font-weight: 600; color: #fff; }
+  .chat-header .tag { font-size: 11px; color: #3b82f6; background: rgba(59,130,246,.12); padding: 2px 8px; border-radius: 4px; }
+
+  .messages { flex: 1; overflow-y: auto; padding: 20px 24px; }
+  .msg { margin-bottom: 20px; max-width: 72%; }
+  .msg.user { margin-left: auto; }
+  .msg-bubble { padding: 10px 14px; border-radius: 10px; line-height: 1.6; }
+  .msg.user .msg-bubble { background: #2563eb; color: #fff; }
+  .msg.agent .msg-bubble { background: #27272a; color: #e4e4e7; }
+  .msg.agent { max-width: 78%; }
+  .msg-meta { font-size: 11px; color: #71717a; margin-top: 4px; }
+  .msg.user .msg-meta { text-align: right; }
+
+  /* ============ 预览卡片(无缩略图) ============ */
+  .preview-card {
+    margin-top: 10px;
+    background: #1f1f23;
+    border: 1px solid #3f3f46;
+    border-left: 3px solid #3b82f6;
+    border-radius: 8px;
+    padding: 12px 14px;
+    cursor: pointer;
+    transition: all .15s;
+  }
+  .preview-card:hover { border-color: #3b82f6; background: #232328; }
+  .preview-card .pc-top { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .preview-card .pc-icon { font-size: 16px; }
+  .preview-card .pc-title { font-size: 14px; font-weight: 600; color: #fff; flex: 1; }
+  .preview-card .pc-target { font-size: 11px; padding: 1px 6px; border-radius: 3px; }
+  .pc-target.app { color: #10b981; background: rgba(16,185,129,.12); }
+  .pc-target.pc { color: #8b5cf6; background: rgba(139,92,246,.12); }
+  .preview-card .pc-meta { font-size: 12px; color: #a1a1aa; margin-bottom: 8px; }
+  .preview-card .pc-meta .link { color: #3b82f6; }
+  .preview-card .pc-action { display: flex; justify-content: flex-end; align-items: center; gap: 4px; font-size: 12px; color: #3b82f6; font-weight: 500; }
+
+  /* ============ 预览模态层 ============ */
+  .modal-mask {
+    position: fixed; inset: 0; background: rgba(0,0,0,.75);
+    display: none; align-items: center; justify-content: center; z-index: 100;
+  }
+  .modal-mask.show { display: flex; }
+  .modal-container { display: flex; flex-direction: column; align-items: center; }
+  .modal-toolbar {
+    width: 100%; max-width: 460px; display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 16px; margin-bottom: 12px;
+  }
+  .modal-toolbar .mt-title { font-size: 14px; color: #fff; font-weight: 600; }
+  .modal-toolbar .mt-btns { display: flex; gap: 8px; }
+  .mt-btn { width: 32px; height: 32px; border-radius: 6px; background: #27272a; border: 1px solid #3f3f46; color: #d4d4d8; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 14px; }
+  .mt-btn:hover { background: #3f3f46; }
+
+  /* 手机框 */
+  .phone-frame {
+    width: 390px; height: 844px; background: #000;
+    border-radius: 40px; padding: 12px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.5), 0 0 0 2px #27272a;
+    position: relative;
+    transition: all .3s;
+  }
+  .phone-frame.fullscreen { width: 90vw; height: 85vh; border-radius: 8px; padding: 0; }
+  .phone-screen { width: 100%; height: 100%; background: #fff; border-radius: 30px; overflow: hidden; }
+  .phone-frame.fullscreen .phone-screen { border-radius: 8px; }
+
+  /* 假状态栏 */
+  .fake-statusbar { height: 36px; background: #fff; display: flex; align-items: center; justify-content: space-between; padding: 0 24px; font-size: 13px; font-weight: 600; color: #000; }
+  .fake-statusbar .right { display: flex; gap: 4px; align-items: center; font-size: 11px; }
+
+  /* 底部切换 */
+  .modal-switch { margin-top: 14px; display: flex; gap: 8px; background: #27272a; padding: 4px; border-radius: 8px; }
+  .switch-btn { padding: 6px 14px; font-size: 12px; color: #a1a1aa; background: transparent; border: none; cursor: pointer; border-radius: 5px; }
+  .switch-btn.active { background: #3f3f46; color: #fff; }
+
+  /* ============ 演示用原型内容(iframe srcdoc) ============ */
+  .demo-list { padding: 16px; background: #f4f4f5; height: calc(100% - 36px); overflow-y: auto; }
+  .demo-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+  .demo-header h1 { font-size: 20px; color: #18181b; }
+  .demo-chips { display: flex; gap: 8px; margin-bottom: 12px; overflow-x: auto; }
+  .demo-chip { padding: 6px 14px; border-radius: 16px; font-size: 13px; background: #fff; color: #52525b; white-space: nowrap; border: 1px solid #e4e4e7; }
+  .demo-chip.active { background: #3b82f6; color: #fff; border-color: #3b82f6; }
+  .demo-search { background: #fff; border-radius: 8px; padding: 8px 12px; display: flex; align-items: center; gap: 8px; margin-bottom: 12px; border: 1px solid #e4e4e7; }
+  .demo-search input { border: none; outline: none; flex: 1; font-size: 13px; }
+  .demo-card { background: #fff; border-radius: 8px; padding: 12px; margin-bottom: 8px; border: 1px solid #e4e4e7; border-left: 3px solid #f59e0b; }
+  .demo-card .dc-title { font-size: 14px; font-weight: 600; color: #18181b; margin-bottom: 4px; }
+  .demo-card .dc-meta { font-size: 12px; color: #71717a; }
+  .demo-card.executing { border-left-color: #3b82f6; }
+  .demo-card.backlog { border-left-color: #a1a1aa; opacity: .8; }
+</style>
+</head>
+<body>
+
+<div class="workspace">
+  <!-- 左侧栏 -->
+  <div class="sidebar">
+    <div class="sidebar-header">会话</div>
+    <div class="session-list">
+      <div class="session-item active">
+        <div class="name">任务管理列表重构</div>
+        <div class="preview">PM: 我做了个原型,你看下</div>
+      </div>
+      <div class="session-item">
+        <div class="name">AndroidBackHandler 修复</div>
+        <div class="preview">已合并到 prd</div>
+      </div>
+      <div class="session-item">
+        <div class="name">后端 tasks.events.get</div>
+        <div class="preview">QA 审查通过</div>
+      </div>
+      <div class="session-item">
+        <div class="name">会话长按操作菜单</div>
+        <div class="preview">已完成</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 对话区 -->
+  <div class="chat-area">
+    <div class="chat-header">
+      <span class="title">任务管理列表重构</span>
+      <span class="tag">关联任务 task-0e49c1cc</span>
+    </div>
+
+    <div class="messages">
+      <!-- 用户消息 -->
+      <div class="msg user">
+        <div class="msg-bubble">帮我看下任务列表的原型,我想要那种筛选 + 三种卡片样式的</div>
+        <div class="msg-meta">10:24 · 你</div>
+      </div>
+
+      <!-- Agent 回复 -->
+      <div class="msg agent">
+        <div class="msg-bubble">
+          好的,我做了个任务管理列表页的原型,包含 5 个筛选 chips、搜索框、三种卡片样式(needs_input 橙色竖条 / executing 蓝色计时 / backlog 灰色老化提示)。<br><br>
+          已经发布预览了,你可以直接点开看效果:
+        </div>
+        <div class="msg-meta">10:25 · coder-prd</div>
+
+        <!-- 预览卡片(target=app,因为原型是手机端) -->
+        <div class="preview-card" onclick="openPreview()">
+          <div class="pc-top">
+            <span class="pc-icon">📱</span>
+            <span class="pc-title">任务管理列表页原型</span>
+            <span class="pc-target app">APP</span>
+          </div>
+          <div class="pc-meta">
+            🔗 关联任务:<span class="link">任务管理列表重构</span> · 2 小时前
+          </div>
+          <div class="pc-action">点击查看 →</div>
+        </div>
+      </div>
+
+      <!-- 用户消息 -->
+      <div class="msg user">
+        <div class="msg-bubble">看到了,效果不错。再做一个 PC 端工作区的原型?</div>
+        <div class="msg-meta">10:28 · 你</div>
+      </div>
+
+      <!-- Agent 回复2 -->
+      <div class="msg agent">
+        <div class="msg-bubble">
+          PC 端工作区原型也做好了,这个是宽屏的:
+        </div>
+        <div class="msg-meta">10:29 · coder-prd</div>
+
+        <!-- 预览卡片2(target=pc) -->
+        <div class="preview-card" onclick="openPreviewPC()">
+          <div class="pc-top">
+            <span class="pc-icon">🖥</span>
+            <span class="pc-title">PC 工作区布局原型</span>
+            <span class="pc-target pc">PC</span>
+          </div>
+          <div class="pc-meta">
+            🔗 关联任务:<span class="link">多项目切换 Phase 2</span> · 1 小时前
+          </div>
+          <div class="pc-action">点击查看 →</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 预览模态层 -->
+<div class="modal-mask" id="modalMask">
+  <div class="modal-container">
+    <div class="modal-toolbar">
+      <span class="mt-title" id="modalTitle">任务管理列表页原型</span>
+      <div class="mt-btns">
+        <button class="mt-btn" onclick="refreshPreview()" title="刷新">🔄</button>
+        <button class="mt-btn" onclick="closePreview()" title="关闭">✕</button>
+      </div>
+    </div>
+
+    <div class="phone-frame" id="phoneFrame">
+      <div class="phone-screen">
+        <div class="fake-statusbar">
+          <span>9:41</span>
+          <span class="right">📶 🔋 100%</span>
+        </div>
+        <iframe id="previewIframe" style="width:100%; height:calc(100% - 36px); border:none;" srcdoc=""></iframe>
+      </div>
+    </div>
+
+    <div class="modal-switch">
+      <button class="switch-btn active" id="switchPhone" onclick="switchToPhone()">📱 手机框</button>
+      <button class="switch-btn" id="switchFull" onclick="switchToFull()">🖥 全屏</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const appPrototype = `
+<div class="demo-list">
+  <div class="demo-header"><h1>任务</h1><span style="font-size:18px;color:#52525b;">↻</span></div>
+  <div class="demo-chips">
+    <div class="demo-chip active">需要我处理</div>
+    <div class="demo-chip">全部</div>
+    <div class="demo-chip">进行中</div>
+    <div class="demo-chip">待办</div>
+    <div class="demo-chip">已完成</div>
+  </div>
+  <div class="demo-search">🔍 <input placeholder="搜索任务" value=""></div>
+  <div class="demo-card">
+    <div class="dc-title">审查任务列表+详情页实现</div>
+    <div class="dc-meta">⚠ 需要确认 · 等待 2 小时 · 2 条新汇报</div>
+  </div>
+  <div class="demo-card executing">
+    <div class="dc-title">Android 返回键修复</div>
+    <div class="dc-meta">● 行动中 · 已用 15 分钟</div>
+  </div>
+  <div class="demo-card">
+    <div class="dc-title">后端补 tasks.events.get</div>
+    <div class="dc-meta">⚠ 需要确认 · 等待 3 小时</div>
+  </div>
+  <div class="demo-card backlog">
+    <div class="dc-title">会话操作菜单</div>
+    <div class="dc-meta">○ 待办 · ⏰ 已搁置 8 天</div>
+  </div>
+</div>`;
+
+const pcPrototype = `
+<div style="padding:24px;background:#1a1a1a;color:#fff;height:100%;font-family:sans-serif;">
+  <h2 style="margin-bottom:16px;">PC 工作区(宽屏原型示例)</h2>
+  <div style="display:flex;gap:16px;height:80%;">
+    <div style="width:200px;background:#161618;border-radius:8px;padding:12px;">
+      <div style="font-size:12px;color:#71717a;margin-bottom:8px;">项目</div>
+      <div style="padding:8px;background:#2a2a30;border-radius:6px;margin-bottom:4px;">AI IDE Studio</div>
+      <div style="padding:8px;color:#a1a1aa;">个人项目</div>
+    </div>
+    <div style="flex:1;background:#161618;border-radius:8px;padding:16px;">
+      <div style="font-size:14px;color:#71717a;margin-bottom:12px;">对话区</div>
+      <div style="background:#27272a;padding:12px;border-radius:6px;margin-bottom:8px;">用户消息示例</div>
+      <div style="background:#27272a;padding:12px;border-radius:6px;">Agent 回复示例</div>
+    </div>
+    <div style="width:280px;background:#161618;border-radius:8px;padding:12px;">
+      <div style="font-size:12px;color:#71717a;margin-bottom:8px;">任务面板</div>
+      <div style="padding:8px;background:#2a2a30;border-radius:6px;margin-bottom:4px;font-size:13px;">任务1</div>
+      <div style="padding:8px;background:#2a2a30;border-radius:6px;font-size:13px;">任务2</div>
+    </div>
+  </div>
+</div>`;
+
+function openPreview() {
+  document.getElementById('modalTitle').textContent = '任务管理列表页原型';
+  document.getElementById('previewIframe').srcdoc = appPrototype;
+  switchToPhone();
+  document.getElementById('modalMask').classList.add('show');
+}
+
+function openPreviewPC() {
+  document.getElementById('modalTitle').textContent = 'PC 工作区布局原型';
+  document.getElementById('previewIframe').srcdoc = pcPrototype;
+  switchToFull();
+  document.getElementById('modalMask').classList.add('show');
+}
+
+function closePreview() {
+  document.getElementById('modalMask').classList.remove('show');
+}
+
+function refreshPreview() {
+  const f = document.getElementById('previewIframe');
+  const src = f.srcdoc;
+  f.srcdoc = '';
+  setTimeout(() => { f.srcdoc = src; }, 50);
+}
+
+function switchToPhone() {
+  document.getElementById('phoneFrame').classList.remove('fullscreen');
+  document.getElementById('switchPhone').classList.add('active');
+  document.getElementById('switchFull').classList.remove('active');
+}
+
+function switchToFull() {
+  document.getElementById('phoneFrame').classList.add('fullscreen');
+  document.getElementById('switchFull').classList.add('active');
+  document.getElementById('switchPhone').classList.remove('active');
+}
+
+document.getElementById('modalMask').addEventListener('click', (e) => {
+  if (e.target.id === 'modalMask') closePreview();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closePreview();
+});
+</script>
+
+</body>
+</html>
