@@ -512,17 +512,19 @@ describe('event center service', () => {
     expect(eventConsumptionStore.listByEvent(event.id)).toEqual([])
   })
 
-  test('rejects unknown top-level subscription filter fields', () => {
+  test('treats unknown top-level subscription filter fields as payload fields', () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const dispatcher = agentStore.create({ name: 'Dispatcher', type: 'pm', runtime: 'mock', projectId: project.id })
 
-    expect(() => eventCenterService.createSubscription(subscriptionInput({
+    const subscription = eventCenterService.createSubscription(subscriptionInput({
       projectId: project.id,
-      name: 'Bad filter',
+      name: 'Flat custom filter',
       categoryId: 'task.lifecycle',
       consumerAgentId: dispatcher.id,
       filter: { typoStatus: 'backlog' },
-    }))).toThrow(/未知订阅过滤字段|unknown subscription filter/i)
+    }))
+
+    expect(JSON.parse(subscription.filter_json)).toEqual({ payload: { typoStatus: 'backlog' } })
   })
 
   test('rejects non-object payload subscription filters', () => {
@@ -609,6 +611,172 @@ describe('event center service', () => {
 
     expect(eventCenterService.claimNextEvent({ projectId: project.id, agentId: consumer.id })).toBeNull()
     expect(eventConsumptionStore.listByEvent(event.id)[0].status).toBe('pending')
+  })
+
+  test('applies payload field defaults from category schema when payload omits them', () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const writer = agentStore.create({ name: 'Writer', type: 'research', runtime: 'mock', projectId: project.id })
+    eventCenterService.upsertCategory({
+      id: 'formal.code.merge',
+      name: '正式代码合并',
+      defaultPriority: 'high',
+      schema: {
+        type: 'object',
+        properties: {
+          branchName: { type: 'string', 'x-filter': true },
+          commitHash: { type: 'string' },
+          status: { type: 'string', enum: ['pending', 'approved', 'changes_requested', 'error'], default: 'pending', 'x-filter': true, 'x-list': true },
+        },
+        required: ['branchName', 'commitHash', 'status'],
+      },
+      allowedWriters: ['*'],
+      allowedConsumers: ['*'],
+    })
+
+    const event = eventCenterService.createEvent({
+      projectId: project.id,
+      categoryId: 'formal.code.merge',
+      title: '合并 dev-app',
+      sourceType: 'agent',
+      sourceId: writer.id,
+      sourceLabel: writer.name,
+      payload: { branchName: 'dev-app', commitHash: 'abc123' },
+      createdByAgentId: writer.id,
+    })
+    const payload = JSON.parse(event.payload_json)
+    expect(payload.status).toBe('pending')
+    expect(payload.branchName).toBe('dev-app')
+    expect(payload.commitHash).toBe('abc123')
+  })
+
+  test('explicit null payload value overrides schema default', () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const writer = agentStore.create({ name: 'Writer', type: 'research', runtime: 'mock', projectId: project.id })
+    eventCenterService.upsertCategory({
+      id: 'formal.code.merge',
+      name: '正式代码合并',
+      defaultPriority: 'high',
+      schema: {
+        type: 'object',
+        properties: {
+          branchName: { type: 'string' },
+          commitHash: { type: 'string' },
+          status: { type: 'string', enum: ['pending', 'approved'], default: 'pending' },
+        },
+        required: ['branchName', 'commitHash'],
+      },
+      allowedWriters: ['*'],
+      allowedConsumers: ['*'],
+    })
+
+    const event = eventCenterService.createEvent({
+      projectId: project.id,
+      categoryId: 'formal.code.merge',
+      title: '合并 dev-app',
+      payload: { branchName: 'dev-app', commitHash: 'abc123', status: null },
+      createdByAgentId: writer.id,
+    })
+    expect(JSON.parse(event.payload_json).status).toBeNull()
+  })
+
+  test('rejects required payload fields missing from event payload', () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const writer = agentStore.create({ name: 'Writer', type: 'research', runtime: 'mock', projectId: project.id })
+    eventCenterService.upsertCategory({
+      id: 'formal.code.merge',
+      name: '正式代码合并',
+      defaultPriority: 'high',
+      schema: {
+        type: 'object',
+        properties: {
+          branchName: { type: 'string' },
+          commitHash: { type: 'string' },
+          status: { type: 'string', enum: ['pending', 'approved'] },
+        },
+        required: ['branchName', 'commitHash', 'status'],
+      },
+      allowedWriters: ['*'],
+      allowedConsumers: ['*'],
+    })
+
+    expect(() => eventCenterService.createEvent({
+      projectId: project.id,
+      categoryId: 'formal.code.merge',
+      title: '合并 dev-app',
+      payload: { branchName: 'dev-app' },
+      createdByAgentId: writer.id,
+    })).toThrow(/缺少必填字段.*commitHash.*status|缺少必填字段.*status.*commitHash|缺少必填字段: commitHash, status/)
+  })
+
+  test('rejects required payload fields with empty strings', () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const writer = agentStore.create({ name: 'Writer', type: 'research', runtime: 'mock', projectId: project.id })
+    eventCenterService.upsertCategory({
+      id: 'formal.code.merge',
+      name: '正式代码合并',
+      defaultPriority: 'high',
+      schema: {
+        type: 'object',
+        properties: {
+          branchName: { type: 'string' },
+          commitHash: { type: 'string' },
+        },
+        required: ['branchName', 'commitHash'],
+      },
+      allowedWriters: ['*'],
+      allowedConsumers: ['*'],
+    })
+
+    expect(() => eventCenterService.createEvent({
+      projectId: project.id,
+      categoryId: 'formal.code.merge',
+      title: '合并 dev-app',
+      payload: { branchName: 'dev-app', commitHash: '   ' },
+      createdByAgentId: writer.id,
+    })).toThrow(/缺少必填字段: commitHash/)
+  })
+
+  test('subscription filter payload allows arbitrary payload field not marked x-filter', () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const dispatcher = agentStore.create({ name: 'Dispatcher', type: 'pm', runtime: 'mock', projectId: project.id })
+    eventCenterService.upsertCategory({
+      id: 'custom.no_x_filter',
+      name: 'No x-filter fields',
+      schema: {
+        type: 'object',
+        properties: {
+          arbitraryField: { type: 'string' },
+          anotherField: { type: 'string' },
+        },
+      },
+      allowedWriters: ['*'],
+      allowedConsumers: ['*'],
+    })
+
+    const subscription = eventCenterService.createSubscription(subscriptionInput({
+      projectId: project.id,
+      name: 'Arbitrary payload filter',
+      categoryId: 'custom.no_x_filter',
+      consumerAgentId: dispatcher.id,
+      filter: { payload: { arbitraryField: 'value-a' } },
+    }))
+    expect(JSON.parse(subscription.filter_json)).toEqual({ payload: { arbitraryField: 'value-a' } })
+
+    const match = eventCenterService.createEvent({
+      projectId: project.id,
+      categoryId: 'custom.no_x_filter',
+      title: 'Matches arbitrary',
+      payload: { arbitraryField: 'value-a', anotherField: 'whatever' },
+    })
+    expect(eventConsumptionStore.listByEvent(match.id).map((item) => item.consumer_agent_id)).toEqual([dispatcher.id])
+
+    const noMatch = eventCenterService.createEvent({
+      projectId: project.id,
+      categoryId: 'custom.no_x_filter',
+      title: 'No match',
+      payload: { arbitraryField: 'value-b', anotherField: 'whatever' },
+    })
+    expect(eventConsumptionStore.listByEvent(noMatch.id)).toEqual([])
   })
 })
 

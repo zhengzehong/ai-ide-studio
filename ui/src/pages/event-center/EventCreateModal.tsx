@@ -27,7 +27,7 @@ export function EventCreateModal({ open, projectId, onClose }: Props) {
   const [priority, setPriority] = useState('medium')
   const [tags, setTags] = useState('')
   const [sourceLabel, setSourceLabel] = useState('人工录入')
-  const [fieldValues, setFieldValues] = useState<Record<string, string>>({})
+  const [fieldValues, setFieldValues] = useState<Record<string, string>>(() => seedDefaultValues(fields))
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -87,7 +87,7 @@ export function EventCreateModal({ open, projectId, onClose }: Props) {
     setPriority('medium')
     setTags('')
     setSourceLabel('人工录入')
-    setFieldValues({})
+    setFieldValues(seedDefaultValues(fields))
     setError('')
   }
 
@@ -104,7 +104,11 @@ export function EventCreateModal({ open, projectId, onClose }: Props) {
         <div className="ec-modal-body">
           <label className="ec-field">
             <span>事件类别</span>
-            <select value={selectedCategory?.id ?? ''} onChange={(e) => setCategoryId(e.target.value)}>
+            <select value={selectedCategory?.id ?? ''} onChange={(e) => {
+              setCategoryId(e.target.value)
+              const nextCategory = enabledCategories.find((category) => category.id === e.target.value)
+              setFieldValues(seedDefaultValues(categoryFields(nextCategory)))
+            }}>
               {enabledCategories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
             </select>
           </label>
@@ -139,11 +143,21 @@ export function EventCreateModal({ open, projectId, onClose }: Props) {
                 {fields.map((field) => (
                   <label className="ec-field" key={field.key}>
                     <span>{field.label}{field.required ? ' *' : ''}</span>
-                    <input
-                      value={fieldValues[field.key] ?? ''}
-                      onChange={(e) => setFieldValues((current) => ({ ...current, [field.key]: e.target.value }))}
-                      placeholder={field.placeholder || `填写${field.label}`}
-                    />
+                    {field.enumValues.length > 0 ? (
+                      <select
+                        value={fieldValues[field.key] ?? field.defaultValue ?? ''}
+                        onChange={(e) => setFieldValues((current) => ({ ...current, [field.key]: e.target.value }))}
+                      >
+                        <option value="">请选择</option>
+                        {field.enumValues.map((value) => <option key={value} value={value}>{value}</option>)}
+                      </select>
+                    ) : (
+                      <input
+                        value={fieldValues[field.key] ?? field.defaultValue ?? ''}
+                        onChange={(e) => setFieldValues((current) => ({ ...current, [field.key]: e.target.value }))}
+                        placeholder={field.placeholder || `填写${field.label}`}
+                      />
+                    )}
                   </label>
                 ))}
               </div>
@@ -158,6 +172,14 @@ export function EventCreateModal({ open, projectId, onClose }: Props) {
       </div>
     </div>
   )
+}
+
+function seedDefaultValues(fields: { key: string; defaultValue?: string }[]): Record<string, string> {
+  const values: Record<string, string> = {}
+  for (const field of fields) {
+    if (field.defaultValue) values[field.key] = field.defaultValue
+  }
+  return values
 }
 
 function splitTags(value: string): string[] {

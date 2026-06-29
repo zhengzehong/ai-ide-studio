@@ -3,7 +3,7 @@ import { X } from 'lucide-react'
 import { useAgentStore } from '../../stores/agent.store'
 import { useEventCenterStore, type EventSubscriptionData } from '../../stores/event-center.store'
 import { useSessionStore } from '../../stores/session.store'
-import { categoryFields, parseJson } from './helpers'
+import { categoryAllFieldKeys, categoryFields, fieldLabel, parseJson } from './helpers'
 
 const priorityOptions = [
   { value: '', label: '不限' },
@@ -17,10 +17,12 @@ type PayloadFilterOp = 'eq' | 'isNull' | 'in'
 
 interface PayloadFilterDraft {
   key: string
+  custom?: boolean
   op: PayloadFilterOp
   value: string
 }
 
+const CUSTOM_FIELD_SENTINEL = '__custom__'
 const sessionModeOptions: Array<{ value: ConsumerSessionMode; label: string }> = [
   { value: 'new_fixed', label: '固定新会话' },
   { value: 'new_each', label: '每次新会话' },
@@ -76,10 +78,12 @@ function SubscriptionForm({ projectId, subscription, onClose }: Omit<Props, 'ope
     )),
     [consumerAgentId, projectId, sessions],
   )
+  const selectedCategory = useMemo(() => categories.find((item) => item.id === categoryId), [categories, categoryId])
   const filterableFields = useMemo(() => {
-    const category = categories.find((item) => item.id === categoryId)
-    return categoryFields(category).filter((field) => field.filter)
-  }, [categories, categoryId])
+    if (!selectedCategory) return []
+    return categoryFields(selectedCategory).filter((field) => field.filter)
+  }, [selectedCategory])
+  const allFieldKeys = useMemo(() => categoryAllFieldKeys(selectedCategory), [selectedCategory])
   const categoryOptions = useMemo(
     () => categories.filter((category) => category.enabled === 1 || category.id === subscription?.category_id),
     [categories, subscription?.category_id],
@@ -105,6 +109,12 @@ function SubscriptionForm({ projectId, subscription, onClose }: Omit<Props, 'ope
     }
     if (consumerSessionMode === 'existing' && !consumerSessionId) {
       setError('请选择已有消费会话')
+      return
+    }
+
+    const invalidCustom = payloadFilters.find((item) => item.custom && !item.key.trim())
+    if (invalidCustom) {
+      setError('请填写自定义字段名')
       return
     }
 
@@ -160,12 +170,24 @@ function SubscriptionForm({ projectId, subscription, onClose }: Omit<Props, 'ope
 
   const addPayloadFilter = () => {
     const firstField = filterableFields[0]
-    if (!firstField) return
-    setPayloadFilters((items) => [...items, { key: firstField.key, op: 'eq', value: '' }])
+    setPayloadFilters((items) => [...items, firstField ? { key: firstField.key, op: 'eq', value: '' } : { key: '', custom: true, op: 'eq', value: '' }])
   }
 
   const updatePayloadFilter = (index: number, patch: Partial<PayloadFilterDraft>) => {
-    setPayloadFilters((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item))
+    setPayloadFilters((items) => items.map((item, itemIndex) => {
+      if (itemIndex !== index) return item
+      const next = { ...item, ...patch }
+      if (patch.key !== undefined) {
+        if (patch.key === CUSTOM_FIELD_SENTINEL) {
+          next.custom = true
+          next.key = ''
+        } else {
+          next.custom = false
+        }
+      }
+      if (patch.op !== undefined && patch.op !== item.op) next.value = ''
+      return next
+    }))
   }
 
   const removePayloadFilter = (index: number) => {
@@ -253,48 +275,60 @@ function SubscriptionForm({ projectId, subscription, onClose }: Omit<Props, 'ope
             <input type="checkbox" checked={autoStart} onChange={(e) => setAutoStart(e.target.checked)} />
             <span>有新事件时自动消费</span>
           </label>
-          {filterableFields.length > 0 && (
-            <div className="ec-field">
-              <span>字段过滤</span>
-              <div className="ec-payload-filter-list">
-                {payloadFilters.map((filter, index) => {
-                  const field = filterableFields.find((item) => item.key === filter.key)
-                  return (
-                    <div className="ec-payload-filter-row" key={`${filter.key}-${index}`}>
-                      <select
+          <div className="ec-field">
+            <span>字段过滤</span>
+            <div className="ec-payload-filter-list">
+              {payloadFilters.map((filter, index) => {
+                const isCustom = filter.custom === true
+                const selectedField = filterableFields.find((item) => item.key === filter.key)
+                const valueOptions = selectedField?.enumValues ?? []
+                return (
+                  <div className="ec-payload-filter-row" key={`${filter.key}-${index}`}>
+                    <select
+                      value={isCustom ? CUSTOM_FIELD_SENTINEL : filter.key}
+                      onChange={(e) => updatePayloadFilter(index, { key: e.target.value, value: '' })}
+                    >
+                      {filterableFields.map((item) => (
+                        <option key={item.key} value={item.key}>{item.label}</option>
+                      ))}
+                      <option value={CUSTOM_FIELD_SENTINEL}>自定义字段名…</option>
+                    </select>
+                    {isCustom && (
+                      <input
                         value={filter.key}
-                        onChange={(e) => updatePayloadFilter(index, { key: e.target.value, value: '' })}
-                      >
-                        {filterableFields.map((item) => (
-                          <option key={item.key} value={item.key}>{item.label}</option>
-                        ))}
+                        onChange={(e) => updatePayloadFilter(index, { key: e.target.value })}
+                        placeholder={allFieldKeys[0] ? `例如 ${allFieldKeys[0]}` : '字段名'}
+                        list="ec-payload-filter-custom-fields"
+                      />
+                    )}
+                    <select
+                      value={filter.op}
+                      onChange={(e) => updatePayloadFilter(index, { op: e.target.value as PayloadFilterOp })}
+                    >
+                      <option value="eq">=</option>
+                      <option value="isNull">为空</option>
+                      <option value="in">in</option>
+                    </select>
+                    {filter.op !== 'isNull' && valueOptions.length > 0 && !isCustom ? (
+                      <select value={filter.value} onChange={(e) => updatePayloadFilter(index, { value: e.target.value })}>
+                        <option value="">请选择</option>
+                        {valueOptions.map((value) => <option key={value} value={value}>{value}</option>)}
                       </select>
-                      <select
-                        value={filter.op}
-                        onChange={(e) => updatePayloadFilter(index, { op: e.target.value as PayloadFilterOp })}
-                      >
-                        <option value="eq">=</option>
-                        <option value="isNull">为空</option>
-                        <option value="in">in</option>
-                      </select>
-                      {filter.op !== 'isNull' && field?.enumValues.length ? (
-                        <select value={filter.value} onChange={(e) => updatePayloadFilter(index, { value: e.target.value })}>
-                          <option value="">请选择</option>
-                          {field.enumValues.map((value) => <option key={value} value={value}>{value}</option>)}
-                        </select>
-                      ) : filter.op !== 'isNull' ? (
-                        <input value={filter.value} onChange={(e) => updatePayloadFilter(index, { value: e.target.value })} placeholder={filter.op === 'in' ? '值1,值2,值3' : '过滤值'} />
-                      ) : (
-                        <input value="空值" disabled />
-                      )}
-                      <button className="ec-btn" type="button" onClick={() => removePayloadFilter(index)}>移除</button>
-                    </div>
-                  )
-                })}
-                <button className="ec-btn" type="button" onClick={addPayloadFilter}>添加字段过滤</button>
-              </div>
+                    ) : filter.op !== 'isNull' ? (
+                      <input value={filter.value} onChange={(e) => updatePayloadFilter(index, { value: e.target.value })} placeholder={filter.op === 'in' ? '值1,值2,值3' : '过滤值'} />
+                    ) : (
+                      <input value="空值" disabled />
+                    )}
+                    <button className="ec-btn" type="button" onClick={() => removePayloadFilter(index)}>移除</button>
+                  </div>
+                )
+              })}
+              <datalist id="ec-payload-filter-custom-fields">
+                {allFieldKeys.map((key) => <option key={key} value={key}>{fieldLabel(selectedCategory, key)}</option>)}
+              </datalist>
+              <button className="ec-btn" type="button" onClick={addPayloadFilter}>添加字段过滤</button>
             </div>
-          )}
+          </div>
           {error && <div className="ec-form-error">{error}</div>}
         </div>
         <div className="ec-modal-actions">
@@ -314,7 +348,7 @@ function parsePayloadFilters(value: unknown): PayloadFilterDraft[] {
     if (typeof filterValue === 'string' || typeof filterValue === 'number' || typeof filterValue === 'boolean') {
       return [{ key, op: 'eq' as const, value: String(filterValue) }]
     }
-    return []
+    return [{ key, custom: true, op: 'eq' as const, value: '' }]
   })
 }
 
