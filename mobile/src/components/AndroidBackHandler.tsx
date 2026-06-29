@@ -29,7 +29,7 @@ export function resolveAndroidBackAction(pathname: string, serverUrl: string): A
   if (pathname.startsWith('/task/')) {
     return { type: 'navigate', to: '/tasks' }
   }
-  if (pathname.startsWith('/chat/') || pathname === '/tasks' || pathname === '/settings') {
+  if (pathname.startsWith('/chat/') || pathname.startsWith('/task/') || pathname.startsWith('/preview/') || pathname === '/tasks' || pathname === '/settings') {
     return { type: 'navigate', to: '/' }
   }
   if (pathname === '/connect' && serverUrl.trim()) {
