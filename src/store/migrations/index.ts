@@ -26,6 +26,7 @@ import { taskExecutionModesMigration } from './025-task-execution-modes.js'
 import { projectMetaMigration } from './026-project-meta.js'
 import { sessionPrimaryMigration } from './027-session-primary.js'
 import { agentMemoryMigration } from './028-agent-memory.js'
+import { previewsMigration } from './029-previews.js'
 import type { Migration } from '../migrator.js'
 
 export const migrations: Migration[] = [
@@ -57,4 +58,5 @@ export const migrations: Migration[] = [
   projectMetaMigration,
   sessionPrimaryMigration,
   agentMemoryMigration,
+  previewsMigration,
 ]
