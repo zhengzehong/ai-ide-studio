@@ -1,7 +1,7 @@
 import { memo, useState, useMemo, type CSSProperties } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { ChevronDown, ChevronRight, Clock, Zap, DollarSign } from 'lucide-react'
+import { ChevronDown, ChevronRight, Clock, DollarSign } from 'lucide-react'
 import type { MessageData } from '@desktop/stores/session-events'
 import type { TurnViewModel } from '@desktop/stores/turn-blocks'
 import { elapsedSecondsBetween } from '@desktop/utils/duration'
@@ -123,7 +123,13 @@ export default memo(function TurnContent({ message, streaming, processLoading = 
             <span style={styles.statItem}><Clock size={11} /> {elapsedSeconds}s</span>
           )}
           {turnStats?.inputTokens != null && (
-            <span style={styles.statItem}><Zap size={11} /> {formatTokens(turnStats.inputTokens + (turnStats.outputTokens ?? 0))}</span>
+            <span style={styles.statItem}>输入 {formatTokens(turnStats.inputTokens)}</span>
+          )}
+          {turnStats?.outputTokens != null && (
+            <span style={styles.statItem}>输出 {formatTokens(turnStats.outputTokens)}</span>
+          )}
+          {turnStats?.cachedReadTokens != null && turnStats.cachedReadTokens > 0 && (
+            <span style={styles.statItem}>缓存 {formatTokens(turnStats.cachedReadTokens)}</span>
           )}
           {turnStats?.costAmount != null && (
             <span style={styles.statItem}><DollarSign size={11} /> ${turnStats.costAmount.toFixed(4)}</span>

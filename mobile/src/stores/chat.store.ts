@@ -72,6 +72,7 @@ interface ChatState {
   cancelTurn: () => Promise<void>
   setModel: (modelId: string) => Promise<void>
   setMode: (modeId: string) => Promise<void>
+  setConfig: (configId: string, value: string | boolean) => Promise<void>
   respondPermission: (requestId: string, optionId?: string, cancelled?: boolean) => Promise<void>
   respondElicitation: (requestId: string, action: 'accept' | 'decline' | 'cancel', content?: Record<string, string | number | boolean | string[]>) => Promise<void>
   setupListeners: () => () => void
@@ -569,6 +570,25 @@ export const useChatStore = create<ChatState>((set, get) => ({
       await wsClient.request({ type: 'session.setMode', sessionId: sid, modeId })
     } catch (err) {
       console.error('模式切换失败:', err)
+    }
+  },
+
+  setConfig: async (configId, value) => {
+    const sid = get().sessionId
+    if (!sid) return
+    // 乐观更新:RPC 失败时由服务端后续下发的 session:capabilities 修正回真实状态
+    set(s => ({
+      capabilities: {
+        ...s.capabilities,
+        configOptions: s.capabilities.configOptions.map(opt =>
+          opt.id === configId ? { ...opt, currentValue: value } : opt,
+        ),
+      },
+    }))
+    try {
+      await wsClient.request({ type: 'session.setConfig', sessionId: sid, configId, value })
+    } catch (err) {
+      console.error('配置切换失败:', err)
     }
   },
 
