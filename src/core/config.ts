@@ -14,6 +14,8 @@ export interface AppConfig {
   anthropicApiKey?: string
   openaiApiKey?: string
   googleApiKey?: string
+  bridgeCallbackToken?: string
+  bridgeServerUrl?: string
 }
 
 export function loadConfig(): AppConfig {
@@ -31,6 +33,8 @@ export function loadConfig(): AppConfig {
     anthropicApiKey: process.env.ANTHROPIC_API_KEY || undefined,
     openaiApiKey: process.env.OPENAI_API_KEY || undefined,
     googleApiKey: process.env.GOOGLE_API_KEY || undefined,
+    bridgeCallbackToken: process.env.BRIDGE_CALLBACK_TOKEN || undefined,
+    bridgeServerUrl: process.env.BRIDGE_SERVER_URL || undefined,
   }
 }
 

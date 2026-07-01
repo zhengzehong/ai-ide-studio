@@ -17,6 +17,7 @@ import { getAssetStream } from '../core/filesystem.js'
 import { getImageAsset } from '../core/image-attachments.js'
 import { mountHttpMcpServer } from '../tools/mcp/http-mcp-server.js'
 import { mountStaticAssets, staticDirForLog } from './static-assets.js'
+import { handleBridgeCallback } from './bridge-callback.js'
 import { createChildLogger } from '../core/logger.js'
 
 const log = createChildLogger('gateway')
@@ -43,6 +44,7 @@ export async function startGateway(config: AppConfig) {
   app.get('/api/images/*', (c) => handleImageAsset(c))
   app.get('/preview/:previewId/*', (c) => handlePreviewAsset(c, config))
   app.get('/preview/:previewId', (c) => handlePreviewAsset(c, config))
+  app.post('/api/bridge/callback', (c) => handleBridgeCallback(c, config))
   mountHttpMcpServer(app)
   mountStaticAssets(app, config)
   log.debug({ staticDir: staticDirForLog(config) }, '静态资源托载检查完成')
@@ -174,6 +176,7 @@ function mountLocalTokenGuard(app: Hono, config: AppConfig): void {
 }
 
 function isAssetRequest(path: string): boolean {
+  if (path.startsWith('/api/bridge/')) return true
   return !path.startsWith('/api/') && !path.startsWith('/preview/') && path !== '/health'
 }
 
