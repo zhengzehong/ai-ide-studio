@@ -2,7 +2,11 @@ import { describe, expect, test } from 'vitest'
 import { forceCancelTimedOutTurn } from '../../src/gateway/rpc/sessions.ts'
 import type { AgentConnection } from '../../src/acp/host-types.ts'
 
-function createConnection(activeTurnKey: number | undefined): AgentConnection {
+function createConnection(activeTurnKey: number | undefined, withReject = false): AgentConnection {
+  let capturedReject: ((err: Error) => void) | undefined
+  if (withReject) {
+    capturedReject = (_err: Error) => { /* sentinel, no-op for type stability */ }
+  }
   return {
     agentId: 'agent-cancel-timeout',
     runtime: 'mock',
@@ -20,6 +24,7 @@ function createConnection(activeTurnKey: number | undefined): AgentConnection {
           activeTurnCount: 1,
           activeTurnKey,
           nextTurnKey: activeTurnKey ?? 0,
+          activeTurnReject: capturedReject,
         },
       ],
     ]),
@@ -27,7 +32,7 @@ function createConnection(activeTurnKey: number | undefined): AgentConnection {
     state: 'running',
     lastUsedAt: Date.now(),
     activeTurnCount: 1,
-  }
+  } as unknown as AgentConnection
 }
 
 describe('session cancel timeout', () => {
@@ -61,5 +66,15 @@ describe('session cancel timeout', () => {
     expect(forced).toBe(false)
     expect(conn.activeTurnCount).toBe(1)
     expect(conn.runtimeSessions.get('sess-1')?.activeTurnCount).toBe(1)
+  })
+
+  test('clears activeTurnReject when forcing done', () => {
+    const conn = createConnection(1, true)
+    expect(conn.runtimeSessions.get('sess-1')?.activeTurnReject).toBeDefined()
+
+    const forced = forceCancelTimedOutTurn(conn, 'sess-1', 1)
+
+    expect(forced).toBe(true)
+    expect(conn.runtimeSessions.get('sess-1')?.activeTurnReject).toBeUndefined()
   })
 })
