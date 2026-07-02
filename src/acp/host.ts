@@ -16,6 +16,7 @@ import {
   endTurn,
   getRuntimeSession,
   markSessionConnected,
+  setActiveTurnReject,
   touchRuntime,
 } from './host-state.js'
 import type { AcpSessionContext } from './host-types.js'
@@ -433,11 +434,19 @@ export const acpHost = {
       { agentId, ourSessionId, acpSessionId, turnId: diagnostics.turnId, textLength: content.length, imageCount: images?.length ?? 0 },
       'ACP prompt start',
     )
+    let turnReject: ((err: Error) => void) | undefined
     try {
-      const promptResult = await conn.connection.prompt({
+      const promptPromise = conn.connection.prompt({
         sessionId: acpSessionId,
         prompt: promptBlocks,
       })
+      turnReject = (err: Error) => {
+        log.warn({ agentId, ourSessionId, acpSessionId, turnId: diagnostics.turnId, err: err.message }, 'active turn forcibly rejected')
+      }
+      setActiveTurnReject(conn, ourSessionId, turnReject)
+      const promptResult = await promptPromise
+      setActiveTurnReject(conn, ourSessionId, undefined)
+      turnReject = undefined
 
       let turnUsage: TurnUsageData | undefined
       if (promptResult.usage) {
@@ -467,9 +476,14 @@ export const acpHost = {
       })
       log.debug({ agentId, ourSessionId, acpSessionId, turnId: diagnostics.turnId, stopReason }, 'session done emitted from ACP prompt')
     } catch (err) {
+      if (turnReject) {
+        setActiveTurnReject(conn, ourSessionId, undefined)
+        turnReject = undefined
+      }
       log.error({ err, agentId, ourSessionId, acpSessionId, turnId: diagnostics.turnId, elapsedMs: Date.now() - startedAt }, 'ACP prompt failed')
       throw err
     } finally {
+      if (turnReject) setActiveTurnReject(conn, ourSessionId, undefined)
       cancelledSessions.delete(ourSessionId)
       endClientTurn(agentId, acpSessionId)
       endTurn(conn, ourSessionId)

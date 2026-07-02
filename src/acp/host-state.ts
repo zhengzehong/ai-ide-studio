@@ -93,9 +93,17 @@ export function beginTurn(conn: AgentConnection, ourSessionId: string): number {
 export function endTurn(conn: AgentConnection, ourSessionId: string): void {
   const session = getRuntimeSession(conn, ourSessionId)
   session.activeTurnCount = Math.max(0, session.activeTurnCount - 1)
-  if (session.activeTurnCount === 0) session.activeTurnKey = undefined
+  if (session.activeTurnCount === 0) {
+    session.activeTurnKey = undefined
+    session.activeTurnReject = undefined
+  }
   conn.activeTurnCount = Math.max(0, conn.activeTurnCount - 1)
   touchRuntime(conn, ourSessionId)
+}
+
+export function setActiveTurnReject(conn: AgentConnection, ourSessionId: string, reject: ((err: Error) => void) | undefined): void {
+  const session = getRuntimeSession(conn, ourSessionId)
+  session.activeTurnReject = reject
 }
 
 export function findLatestOurSessionId(agentId: string): string | undefined {

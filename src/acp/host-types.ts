@@ -17,6 +17,7 @@ export interface RuntimeSessionState {
   activeTurnKey?: number
   nextTurnKey: number
   connectPromise?: Promise<string>
+  activeTurnReject?: (err: Error) => void
 }
 
 export interface AgentConnection {

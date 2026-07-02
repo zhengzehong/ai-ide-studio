@@ -448,7 +448,16 @@ async function sendPromptNow(session: SessionRow, content: string, images?: Imag
     const acpImages = storedImages.length > 0 ? await loadStoredImagesForAcp(storedImages) : images
     emitLifecycle(session.agent_id, sessionId, 'lifecycle.prompt_sent', '正在思考...', agentMessageId)
     recordPromptProgress(sessionId, 'acp.prompt.started')
-    await acpHost.prompt(session.agent_id, sessionId, acpContent, acpImages, { turnId, messageId: agentMessageId })
+    try {
+      await acpHost.prompt(session.agent_id, sessionId, acpContent, acpImages, { turnId, messageId: agentMessageId })
+    } catch (err) {
+      const isForceCancel = err instanceof Error && err.message.startsWith('cancel timeout: forcing done')
+      if (isForceCancel) {
+        log.warn({ sessionId, agentId: session.agent_id, turnId, elapsedMs: Date.now() - startedAt }, 'acp prompt force-cancelled, swallowing to avoid blocking next turn')
+      } else {
+        throw err
+      }
+    }
     recordPromptProgress(sessionId, 'acp.prompt.resolved')
     log.info({ sessionId, agentId: session.agent_id, turnId, elapsedMs: Date.now() - startedAt }, 'prompt completed')
   } catch (err) {

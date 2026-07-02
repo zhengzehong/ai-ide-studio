@@ -134,9 +134,14 @@ export function forceCancelTimedOutTurn(
   const runtimeSession = conn.runtimeSessions.get(sessionId)
   if (!runtimeSession || runtimeSession.activeTurnCount <= 0) return false
   if (runtimeSession.activeTurnKey !== cancelledTurnKey) return false
+  const reject = runtimeSession.activeTurnReject
   runtimeSession.activeTurnCount = 0
   runtimeSession.activeTurnKey = undefined
+  runtimeSession.activeTurnReject = undefined
   conn.activeTurnCount = Math.max(0, conn.activeTurnCount - 1)
+  if (reject) {
+    try { reject(new Error('cancel timeout: forcing done after 10s')) } catch { /* noop */ }
+  }
   return true
 }
 
