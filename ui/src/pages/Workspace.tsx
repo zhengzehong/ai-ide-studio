@@ -43,7 +43,8 @@ import {
 } from 'lucide-react'
 import { useAgentStore, type AgentData } from '../stores/agent.store'
 import {
-  readStoredSessionId,
+  clearProjectLastSession,
+  readProjectLastSession,
   useSessionStore,
   type ChatTimelineGroup,
   type ChatTimelineItem,
@@ -307,7 +308,11 @@ export default function Workspace() {
   useEffect(() => {
     if (!currentSessionId) return
     const current = projectSessions.find((session) => session.id === currentSessionId)
-    if (!currentProjectId || !current) selectSession(null)
+    if (!currentProjectId || !current) {
+      // 切换项目或会话在新项目里找不到:清掉 per-project 映射,避免下次还恢复到一个不存在的会话
+      if (currentProjectId) clearProjectLastSession(currentProjectId)
+      selectSession(null)
+    }
   }, [currentProjectId, currentSessionId, projectSessions, selectSession])
 
   useEffect(() => {
@@ -348,12 +353,17 @@ export default function Workspace() {
   useEffect(() => {
     if (searchParams.get('sessionId')) return
     if (currentSessionId || projectSessions.length === 0) return
-    const storedSessionId = readStoredSessionId()
+    // 优先 per-project 映射;映射没有时 readProjectLastSession 内部 fallback 到全局 key(老用户兼容)
+    const storedSessionId = readProjectLastSession(currentProjectId)
     if (!storedSessionId) return
     const storedSession = projectSessions.find((session) => session.id === storedSessionId)
-    if (!storedSession) return
+    if (!storedSession) {
+      // 会话已被删除或不在当前项目:清掉映射里这条,避免下次还来恢复
+      clearProjectLastSession(currentProjectId)
+      return
+    }
     selectSession(storedSession.id)
-  }, [currentSessionId, projectSessions, searchParams, selectSession])
+  }, [currentProjectId, currentSessionId, projectSessions, searchParams, selectSession])
 
   const handleSelectSession = (agentId: string, sessionId: string) => {
     setSelectedAgentId(agentId)

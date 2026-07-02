@@ -177,7 +177,15 @@ let cleanupFn: (() => void) | null = null
 let promptStartTime = 0
 let lastStreamingSnapshot: StreamingMessage | null = null
 let sessionListRequestSeq = 0
+let activeSessionsProjectId: string | null = null
+const sessionCaches = new Map<string, SessionCache>()
+const eventCursorBySession = new Map<string, number>()
+const streamingBuffer = new StreamingBuffer()
+let streamingFlushTimer: ReturnType<typeof setTimeout> | null = null
+const mirroredRealtimeEventTypes = new Set(['message.chunk', 'thinking.chunk', 'tool.call', 'tool.update', 'message.done'])
+
 const CURRENT_SESSION_STORAGE_KEY = 'ai-ide-current-session-id'
+const PROJECT_LAST_SESSION_STORAGE_KEY = 'ai-ide-project-last-session'
 
 function localStorageRef(): Storage | null {
   try {
@@ -198,12 +206,57 @@ function writeStoredSessionId(sessionId: string | null): void {
   else storage.removeItem(CURRENT_SESSION_STORAGE_KEY)
 }
 
-let activeSessionsProjectId: string | null = null
-const sessionCaches = new Map<string, SessionCache>()
-const eventCursorBySession = new Map<string, number>()
-const streamingBuffer = new StreamingBuffer()
-let streamingFlushTimer: ReturnType<typeof setTimeout> | null = null
-const mirroredRealtimeEventTypes = new Set(['message.chunk', 'thinking.chunk', 'tool.call', 'tool.update', 'message.done'])
+function readProjectLastSessionMap(): Record<string, string> {
+  const storage = localStorageRef()
+  if (!storage) return {}
+  try {
+    const raw = storage.getItem(PROJECT_LAST_SESSION_STORAGE_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+    const result: Record<string, string> = {}
+    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof value === 'string' && value) result[key] = value
+    }
+    return result
+  } catch {
+    return {}
+  }
+}
+
+function writeProjectLastSessionMap(map: Record<string, string>): void {
+  const storage = localStorageRef()
+  if (!storage) return
+  try {
+    storage.setItem(PROJECT_LAST_SESSION_STORAGE_KEY, JSON.stringify(map))
+  } catch {
+    // ignore storage write errors (quota, private mode, etc.)
+  }
+}
+
+export function readProjectLastSession(projectId: string | null | undefined): string | null {
+  if (!projectId) return null
+  const map = readProjectLastSessionMap()
+  if (map[projectId]) return map[projectId]
+  // 兼容老用户:per-project 映射没有时 fallback 到全局 key
+  return readStoredSessionId()
+}
+
+export function writeProjectLastSession(projectId: string | null | undefined, sessionId: string): void {
+  if (!projectId) return
+  const map = readProjectLastSessionMap()
+  if (map[projectId] === sessionId) return
+  map[projectId] = sessionId
+  writeProjectLastSessionMap(map)
+}
+
+export function clearProjectLastSession(projectId: string | null | undefined): void {
+  if (!projectId) return
+  const map = readProjectLastSessionMap()
+  if (!(projectId in map)) return
+  delete map[projectId]
+  writeProjectLastSessionMap(map)
+}
 
 function normalizeActiveTurn(message: StreamingMessage | null | undefined): StreamingMessage | null {
   if (!message) return null
@@ -759,7 +812,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     await wsClient.request({ type: 'sessions.delete', sessionId })
     sessionCaches.delete(sessionId)
     const currentSessionId = get().currentSessionId === sessionId ? null : get().currentSessionId
-    writeStoredSessionId(currentSessionId)
+    // 删除当前会话时,清掉 per-project 映射里指向它的记录,避免下次恢复到已删除会话
+    if (!currentSessionId && activeSessionsProjectId) clearProjectLastSession(activeSessionsProjectId)
     set({
       sessions: get().sessions.filter(s => s.id !== sessionId),
       currentSessionId,
@@ -810,7 +864,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     if (prev) { saveCache(prev, get()); wsClient.unsubscribe([prev]) }
     lastStreamingSnapshot = null
     if (!id) {
-      writeStoredSessionId(null)
+      // 不清全局 key:保留作为老用户 fallback;per-project 映射由 Workspace 切项目时按需清理
       set({
         currentSessionId: null,
         messages: [],
@@ -835,6 +889,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       return
     }
     writeStoredSessionId(id)
+    // per-project 映射:用当前激活的项目 scope(由 fetchSessions 设置)作为 key
+    if (activeSessionsProjectId) writeProjectLastSession(activeSessionsProjectId, id)
     wsClient.subscribe([id])
     const c = sessionCaches.get(id)
     const shouldRestoreStreaming = !!get().runningSessionIds[id] && !get().staleSessionIds[id]
