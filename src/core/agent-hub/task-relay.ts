@@ -53,9 +53,15 @@ export function formatInboundPrompt(message: TaskEventData['message'], task: Inb
   const textParts = (message?.parts || [])
     .filter((p) => p.type === 'text' && p.text)
     .map((p) => p.text as string)
-  const text = textParts.join('\n')
+  const text = textParts.join('\n') || '(无内容)'
   const source = task.sourceName || task.sourceHubAgentId
-  return `[Hub 请求 from ${source}]: ${text}`
+  return `[Agent Hub 请求]\n来自:${source}\n\n${text}`
+}
+
+export function formatOutboundPrompt(task: OutboundTask, resultText: string): string {
+  const sourceName = task.targetName || task.targetHubAgentId
+  const text = resultText || '(无结果内容)'
+  return `[Agent Hub 回复]\n来自:${sourceName}\n\n${text}\n\n---\n如需继续对话对方,可用 agent_hub.send 工具。`
 }
 
 export function extractResultText(task: ResultEventData['task']): string {
@@ -207,8 +213,7 @@ export async function handleOutboundResult(conn: HubConnection, data: ResultEven
   if (!outbound) return
 
   const resultText = extractResultText(task)
-  const sourceName = outbound.targetName || outbound.targetHubAgentId
-  const prompt = `[Hub 回复 from ${sourceName}]: ${resultText}`
+  const prompt = formatOutboundPrompt(outbound, resultText)
   try {
     await sessionManager.enqueuePrompt(conn.sessionId, prompt)
   } catch (e) {

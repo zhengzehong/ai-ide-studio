@@ -84,6 +84,39 @@ export const agentHubSendHandler: ToolHandler = {
   },
 }
 
+export const agentHubUploadFileHandler: ToolHandler = {
+  name: 'agent_hub.upload_file',
+  description:
+    '上传文件到 Agent Hub,返回可下载的 url。上传后请将返回的 url 直接写入你的消息文本中发给对方,对方即可通过该 url 下载文件。用于跨 Agent 传文件场景(如发送代码片段、文档、图片等)。',
+  inputSchema: {
+    type: 'object',
+    required: ['filePath'],
+    properties: {
+      filePath: { type: 'string', description: '本地文件绝对路径' },
+      purpose: { type: 'string', description: '用途标记,可选' },
+    },
+    additionalProperties: false,
+  },
+  async execute(input, context): Promise<ToolHandlerResult> {
+    if (!context.sessionId) return err('缺少 sessionId')
+    const filePath = requireString(input, 'filePath')
+    const purpose = optionalString(input, 'purpose')
+    try {
+      const result = await agentHubService.uploadFile(context.sessionId, filePath, purpose)
+      const guideText = `文件已上传到 Hub。
+- url: ${result.url}
+- filename: ${result.filename}
+- mediaType: ${result.mediaType}
+- size: ${result.size}
+
+请在你的回复消息中直接写入上面的 url,对方 Agent 即可通过该 url 下载文件。`
+      return { content: [{ type: 'text', text: guideText }] }
+    } catch (e) {
+      return err((e as Error).message)
+    }
+  },
+}
+
 function requireString(input: ToolHandlerInput, key: string): string {
   const value = input[key]
   if (typeof value !== 'string' || !value.trim()) throw new Error(`${key} 不能为空`)

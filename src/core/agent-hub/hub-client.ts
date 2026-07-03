@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises'
+import { basename } from 'node:path'
 import { createChildLogger } from '../logger.js'
 
 const log = createChildLogger('agent-hub:http')
@@ -95,6 +97,21 @@ export interface SendMessageResponse {
   }
 }
 
+export interface UploadFileResult {
+  fileId: string
+  filename: string
+  mediaType: string
+  size: number
+  url: string
+}
+
+interface HubUploadResponse {
+  file_id: string
+  filename?: string
+  media_type?: string
+  size?: number
+}
+
 export const hubClient = {
   async register(hubUrl: string, providerToken: string, payload: {
     provider: string
@@ -141,5 +158,57 @@ export const hubClient = {
 
   async pushResult(pushUrl: string, internalToken: string, payload: unknown): Promise<void> {
     await request('POST', pushUrl, internalToken, payload)
+  },
+
+  async uploadFile(
+    hubUrl: string,
+    token: string,
+    filePath: string,
+    purpose?: string,
+  ): Promise<UploadFileResult> {
+    const fileBuffer = await readFile(filePath)
+    const form = new FormData()
+    form.append('file', new Blob([fileBuffer]), basename(filePath))
+    if (purpose) form.append('purpose', purpose)
+
+    let response: Response
+    try {
+      response = await fetch(`${hubUrl}/hub/v1/files`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
+      })
+    } catch (e) {
+      const err = e as Error
+      throw { status: 0, body: null, message: `uploadFile 网络错误: ${err.message}` } satisfies HubHttpError
+    }
+
+    const text = await response.text()
+    let parsed: unknown = null
+    if (text) {
+      try {
+        parsed = JSON.parse(text)
+      } catch {
+        parsed = text
+      }
+    }
+
+    if (!response.ok) {
+      const message = typeof parsed === 'object' && parsed && 'detail' in parsed
+        ? String((parsed as { detail: unknown }).detail)
+        : `uploadFile HTTP ${response.status}`
+      throw { status: response.status, body: parsed, message } satisfies HubHttpError
+    }
+
+    const data = parsed as HubUploadResponse
+    const fileId = data.file_id
+    if (!fileId) throw new Error('Hub upload 响应缺少 file_id')
+    return {
+      fileId,
+      filename: data.filename || basename(filePath),
+      mediaType: data.media_type || 'application/octet-stream',
+      size: data.size ?? fileBuffer.length,
+      url: `${hubUrl}/hub/v1/files/${fileId}/download`,
+    }
   },
 }

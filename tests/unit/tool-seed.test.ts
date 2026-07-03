@@ -64,6 +64,7 @@ describe('builtin tool seed synchronization', () => {
       'agent_hub.disconnect',
       'agent_hub.list',
       'agent_hub.send',
+      'agent_hub.upload_file',
       'core.agent.create',
       'core.agent.get',
       'core.agent.list',

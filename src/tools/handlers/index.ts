@@ -96,6 +96,7 @@ import {
   agentHubDisconnectHandler,
   agentHubListHandler,
   agentHubSendHandler,
+  agentHubUploadFileHandler,
 } from './agent-hub.js'
 
 const handlers = new Map<string, ToolHandler>()
@@ -189,6 +190,7 @@ register(agentHubConnectHandler)
 register(agentHubDisconnectHandler)
 register(agentHubListHandler)
 register(agentHubSendHandler)
+register(agentHubUploadFileHandler)
 
 export function getHandler(name: string): ToolHandler | undefined {
   return handlers.get(name)
