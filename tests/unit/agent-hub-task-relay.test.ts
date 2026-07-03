@@ -22,9 +22,9 @@ describe('agent-hub task-relay 文本处理', () => {
           receivedAt: 0,
         },
       )
-      expect(prompt).toBe('[Agent Hub 请求]\n来自:产品经理 · c3d4 · 8110ac\n\n帮我审合同\n关注风险点')
-      // 关键:inbound 不带任何工具提示
-      expect(prompt).not.toContain('agent_hub.send')
+      expect(prompt).toBe('[Agent Hub 请求]\n来自:产品经理 · c3d4 · 8110ac\n\n帮我审合同\n关注风险点\n\n---\n直接输出结果即可,系统自动回调。不要用 agent_hub.send 回发。规范:')
+      // 关键:inbound 不带"可用 agent_hub.send"这种鼓励回发的提示
+      expect(prompt).not.toContain('可用 agent_hub.send')
     })
 
     test('没有 sourceName 时回退到 hubAgentId', () => {
@@ -40,7 +40,7 @@ describe('agent-hub task-relay 文本处理', () => {
           receivedAt: 0,
         },
       )
-      expect(prompt).toBe('[Agent Hub 请求]\n来自:h-1\n\nhi')
+      expect(prompt).toBe('[Agent Hub 请求]\n来自:h-1\n\nhi\n\n---\n直接输出结果即可,系统自动回调。不要用 agent_hub.send 回发。规范:')
     })
 
     test('过滤非 text part', () => {
@@ -62,7 +62,7 @@ describe('agent-hub task-relay 文本处理', () => {
           receivedAt: 0,
         },
       )
-      expect(prompt).toBe('[Agent Hub 请求]\n来自:h-1\n\nreal text')
+      expect(prompt).toBe('[Agent Hub 请求]\n来自:h-1\n\nreal text\n\n---\n直接输出结果即可,系统自动回调。不要用 agent_hub.send 回发。规范:')
     })
 
     test('无文本内容时显示占位', () => {
@@ -78,7 +78,7 @@ describe('agent-hub task-relay 文本处理', () => {
           receivedAt: 0,
         },
       )
-      expect(prompt).toBe('[Agent Hub 请求]\n来自:h-1\n\n(无内容)')
+      expect(prompt).toBe('[Agent Hub 请求]\n来自:h-1\n\n(无内容)\n\n---\n直接输出结果即可,系统自动回调。不要用 agent_hub.send 回发。规范:')
     })
   })
 
@@ -96,7 +96,7 @@ describe('agent-hub task-relay 文本处理', () => {
         '2',
       )
       expect(prompt).toBe(
-        '[Agent Hub 回复]\n来自:coder-prd · 公司Mac · ec72ef\n\n2\n\n---\n如需继续对话对方,可用 agent_hub.send 工具。',
+        '[Agent Hub 回复]\n来自:coder-prd · 公司Mac · ec72ef\n\n2\n\n---\n如需继续对话对方,可用 agent_hub.send。规范:',
       )
     })
 
