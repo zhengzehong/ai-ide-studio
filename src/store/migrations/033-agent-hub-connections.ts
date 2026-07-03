@@ -1,7 +1,7 @@
 import type { Migration } from '../migrator.js'
 
 export const agentHubConnectionsMigration: Migration = {
-  version: '032',
+  version: '033',
   name: 'agent-hub-connections',
   up(db) {
     db.exec(`
