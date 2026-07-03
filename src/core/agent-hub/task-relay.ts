@@ -118,6 +118,27 @@ export async function handleInboundTask(conn: HubConnection, data: TaskEventData
       conn.contextSessionMap.set(contextId, localSessionId)
     } catch (e) {
       log.error({ err: e, agentId: conn.agentId }, 'inbound 创建本地 session 失败')
+      const failResult = {
+        task: {
+          id: hubTaskId,
+          contextId,
+          status: {
+            state: 'TASK_STATE_FAILED',
+            timestamp: new Date().toISOString(),
+            message: {
+              messageId: `msg-${randomUUID().slice(0, 8)}`,
+              role: 'ROLE_AGENT',
+              parts: [{ type: 'text', text: `本地 session 创建失败: ${(e as Error).message}`, mediaType: 'text/plain' }],
+            },
+          },
+          artifacts: [] as unknown[],
+        },
+      }
+      try {
+        await hubClient.pushResult(pushUrl, pushToken, failResult)
+      } catch (pushErr) {
+        log.warn({ err: pushErr, hubTaskId }, 'createSession 失败后回传 FAILED 也失败')
+      }
       return
     }
   }
