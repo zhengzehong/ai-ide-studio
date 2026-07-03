@@ -8,6 +8,7 @@ import { teamMemberStore } from '../store/teams.js'
 import { acpHost } from '../acp/host.js'
 import { events } from './events.js'
 import { createChildLogger } from './logger.js'
+import { agentHubService } from './agent-hub/index.js'
 import type { ImageAttachment, SessionActivityReason, SessionActivityState, SessionUpdateData } from '../types/ws-protocol.js'
 import { createPendingTurn, finalizePendingTurn, updatePendingTurn, type PendingTurn } from './turn-finalizer.js'
 import { buildTeamLeaderPrompt } from './team-prompts.js'
@@ -303,6 +304,7 @@ export const sessionManager = {
     const session = sessionStore.get(sessionId)
     if (!session) return
 
+    await agentHubService.disconnectBySession(sessionId)
     await acpHost.closeSession(session.agent_id, sessionId)
     sessionStore.updateStatus(sessionId, 'closed')
     const updated = sessionStore.get(sessionId)
@@ -321,6 +323,7 @@ export const sessionManager = {
   archiveSession(sessionId: string): SessionRow {
     const session = sessionStore.archive(sessionId)
     if (!session) throw new Error(`Session \u4e0d\u5b58\u5728: ${sessionId}`)
+    void agentHubService.disconnectBySession(sessionId)
     events.emit('session:changed', { sessionId, data: { ...session, event: 'archived' } })
     log.info({ sessionId }, 'Session \u5df2\u5f52\u6863')
     return session
@@ -329,6 +332,7 @@ export const sessionManager = {
   async deleteSession(sessionId: string): Promise<void> {
     const session = sessionStore.get(sessionId)
     if (!session) return
+    await agentHubService.disconnectBySession(sessionId)
     await acpHost.closeSession(session.agent_id, sessionId)
     sessionStore.delete(sessionId)
     events.emit('session:changed', { sessionId, data: { event: 'deleted', deleted: true } })

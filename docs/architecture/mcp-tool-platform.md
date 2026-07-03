@@ -14,6 +14,7 @@
 - 已新增 `tool_contexts`、`tool_call_audit` 两张 SQLite 表。
 - 已内置 `core.project.*`、`core.agent.*`、`agent.template.*`、`core.session.*`、`core.task.*`、`team.*`、`event.*` 平台方法。
 - 已内置 `core.kb.*` 知识库方法，用于 Agent 读写 LLM Wiki、挂载 shared 库、刷新 code 页面和撤销活动。
+- 已内置 `agent_hub.*` A2A Hub 方法(`agent_hub.connect` / `agent_hub.disconnect` / `agent_hub.list` / `agent_hub.send`),让 Agent 跨机器互相调用,详见 `docs/architecture/overview.md` A2A Hub 章节。
 - `team.*` 只作为内置方法注册，不做全局默认绑定；需要按 Agent 显式绑定或套用 Team Profile。
 - ToolContext 支持 `projectId`、`agentId`、`sessionId`，以及团队协作场景的 `teamId` / `teamMemberId`。
 - 第三方 MCP 仍保持直接注入，不在第一版做方法级代理。
@@ -120,6 +121,10 @@ team.mailbox.send
 team.task.update
 admin.model.list
 admin.model.update
+agent_hub.connect
+agent_hub.disconnect
+agent_hub.list
+agent_hub.send
 ```
 
 这里的粒度就是“方法”。如果只想允许 Agent 看团队，不允许创建团队，就只绑定：

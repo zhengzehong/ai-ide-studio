@@ -12,6 +12,7 @@ import { seedBuiltinTaskExecutionModes } from './store/seed-task-execution-modes
 import { seedBuiltinTools } from './tools/seed.js'
 import { startGateway } from './gateway/server.js'
 import { initTimeline } from './core/timeline.js'
+import { getOrCreateMachineId } from './core/agent-hub/index.js'
 import { resolve } from 'path'
 
 const log = createChildLogger('app')
@@ -40,6 +41,11 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
   seedBuiltinTemplates()
   seedBuiltinTaskExecutionModes()
   seedBuiltinTools()
+
+  void getOrCreateMachineId().then(
+    (machineId) => log.info({ machineId }, 'machineId 已就绪'),
+    (err) => log.warn({ err }, '预热 machineId 失败,首次 connect 时再生成'),
+  )
 
   const { app, server, wss } = await startGateway(config)
   ruleEngine.start()

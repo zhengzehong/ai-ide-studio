@@ -130,6 +130,25 @@ Session 删除采用软删除，仅隐藏列表项并保留 `messages` / `sessio
 | `codex` | `@agentclientprotocol/codex-acp` | 可用 |
 | `gemini` | — | 未接入 |
 
+## A2A Hub 跨机器通信
+
+AI IDE Studio 作为 A2A Hub 的一个 provider 接入,通过 `agent_hub.*` MCP 工具让本地 Agent 跨机器互相调用。
+
+```text
+Agent MCP tool → agent_hub.connect → core/agent-hub/connection-manager
+  → POST {hubUrl}/hub/v1/agents/register (provider token, transportMode=sse)
+  → 起 SSE 长连接 GET /hub/v1/agents/{registrationId}/stream
+  → 返回 hubAgentId / 可见 Agent 列表
+```
+
+注册粒度是 `(Agent, Session)` 组合,每个 session 独立 connect、独立 SSE、独立可见。`machineId` 持久化在本地 `settings` 表,首次 connect 时生成(`mac-` 前缀 + 8 位 hex),塞进 `instanceId` 和 `name` 后 4 位,别的机器能区分。同 `provider + instanceId` 重复 connect,Hub 返回相同 `registrationId` 和 `hubAgentId`,不会因重连断链。
+
+`agent_hub.send` 异步发送:Hub 返回 `hubTaskId` 后立即返回,对方处理完成后 Hub 通过同一 SSE 通道推 `result` event,`task-relay` 把结果以 `[Hub 回复 from {对方name}]: ...` 注入回原 session。inbound 任务通过 SSE `task` event 接收,按 `contextId` 复用或新建本地 session,完成后通过 HTTP POST 回传 Hub 的 push url。
+
+session 关闭(close/archive/delete)自动 `disconnectBySession`:off 所有未完成的 doneListeners、DELETE Hub 注册、关 SSE、清内存。inbound 任务的本地 session 不主动关,让其自然完成或超时回收。
+
+模块组织见 `src/core/agent-hub/`:`config.ts`(内置配置)、`machine-id.ts`(并发锁持久化)、`naming.ts`(name/description/scopeKeys 规则)、`connection-manager.ts`(HubConnection 状态)、`sse-client.ts`(SSE 客户端 + 重连)、`hub-client.ts`(HTTP 客户端)、`task-relay.ts`(出/入站任务中继)、`index.ts`。
+
 ## 当前架构约束
 
 - `projectId` 是项目级实体与项目内 Session/Task 的核心边界。
