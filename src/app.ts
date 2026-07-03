@@ -12,7 +12,7 @@ import { seedBuiltinTaskExecutionModes } from './store/seed-task-execution-modes
 import { seedBuiltinTools } from './tools/seed.js'
 import { startGateway } from './gateway/server.js'
 import { initTimeline } from './core/timeline.js'
-import { getOrCreateMachineId } from './core/agent-hub/index.js'
+import { getOrCreateMachineId, agentHubService } from './core/agent-hub/index.js'
 import { resolve } from 'path'
 
 const log = createChildLogger('app')
@@ -47,6 +47,11 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
     (err) => log.warn({ err }, '预热 machineId 失败,首次 connect 时再生成'),
   )
 
+  void agentHubService.reconnectAll().then(
+    () => log.info('Hub 连接恢复完成'),
+    (err) => log.warn({ err }, 'Hub 连接恢复失败,不阻塞启动'),
+  )
+
   const { app, server, wss } = await startGateway(config)
   ruleEngine.start()
   initTimeline()
@@ -56,6 +61,7 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
   )
 
   let stopped = false
+  const hubCleanupTimer = agentHubService.startCleanupTimer()
 
   return {
     app,
@@ -65,6 +71,7 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
       if (stopped) return
       stopped = true
       ruleEngine.stop()
+      clearInterval(hubCleanupTimer)
       await closeWebSocketServer(wss)
       await closeHttpServer(server)
       log.info('服务已关闭')
