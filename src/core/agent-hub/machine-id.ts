@@ -23,6 +23,10 @@ export async function getOrCreateMachineId(): Promise<string> {
   }
 }
 
+export function getMachineLabel(): string | undefined {
+  return process.env.AGENT_HUB_MACHINE_LABEL || undefined
+}
+
 export function resetCachedMachineIdForTest(): void {
   cachedMachineId = undefined
   generating = undefined

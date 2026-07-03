@@ -5,6 +5,7 @@ export interface AgentHubConfig {
   callerToken: string
   internalToken: string
   defaultScopeKeys: string[]
+  machineLabel?: string
 }
 
 export function loadAgentHubConfig(): AgentHubConfig {
@@ -16,5 +17,6 @@ export function loadAgentHubConfig(): AgentHubConfig {
     callerToken: process.env.AGENT_HUB_CALLER_TOKEN || '',
     internalToken: process.env.AGENT_HUB_INTERNAL_TOKEN || '',
     defaultScopeKeys: ['ai-ide-studio'],
+    machineLabel: process.env.AGENT_HUB_MACHINE_LABEL || undefined,
   }
 }
