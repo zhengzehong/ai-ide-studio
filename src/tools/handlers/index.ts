@@ -91,6 +91,12 @@ import {
   agentWatchCreateHandler,
 } from './agent-session-tools.js'
 import { previewPublishHandler } from './preview-publish.js'
+import {
+  agentHubConnectHandler,
+  agentHubDisconnectHandler,
+  agentHubListHandler,
+  agentHubSendHandler,
+} from './agent-hub.js'
 
 const handlers = new Map<string, ToolHandler>()
 
@@ -179,6 +185,10 @@ register(agentSessionMessagesHandler)
 register(agentWatchCreateHandler)
 register(agentWatchCancelHandler)
 register(previewPublishHandler)
+register(agentHubConnectHandler)
+register(agentHubDisconnectHandler)
+register(agentHubListHandler)
+register(agentHubSendHandler)
 
 export function getHandler(name: string): ToolHandler | undefined {
   return handlers.get(name)

@@ -668,6 +668,16 @@ watch 监听 `session:done`，触发后后台唤醒 `watcher_session_id`。如�
 
 SQLite schema 由 `src/store/migrator.ts` 和 `src/store/migrations/*` 管理。新增表、字段或索引必须通过新的 migration 文件落地，`db.ts` 只负责数据库初始化和旧 JSON 数据导入。
 
+### settings
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| key | TEXT PK | 设置键,如 `machineId` |
+| value | TEXT NOT NULL | 设置值 |
+| updated_at | TEXT NOT NULL | 更新时间 |
+
+通用键值存储,目前用于持久化 `machineId`(`src/core/agent-hub/machine-id.ts`),A2A Hub 跨机器通信时区分不同机器。后续其他全局设置也可放入此表。
+
 ## 事件类型 (session_events.type)
 
 | 类型 | 说明 |

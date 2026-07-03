@@ -20,6 +20,7 @@ AI IDE Studio 是一个本地部署的全栈 AI 编程协作工具。通过 [ACP
 - **事件中心** — 分类事件收件箱，支持项目作用域事件类别、Agent 写入事件、按 payload 字段订阅过滤、自动消费、指定/固定消费者会话，并可转成任务
 - **Team MCP 协作** — 通过 `team.*` 工具创建团队、创建成员、派活、反馈和更新团队任务
 - **Agent 会话通信** — 通过 `agent.*` 工具在非 Team Agent 会话之间发送消息、查看会话消息、要求回复和监听会话完成
+- **A2A Hub 跨机器通信** — 通过 `agent_hub.*` 工具(`agent_hub.connect` / `agent_hub.disconnect` / `agent_hub.list` / `agent_hub.send`)接入外部 A2A Hub,让本地 Agent 跨机器互相调用;注册粒度为 (Agent, Session),`machineId` 持久化在本地 `settings` 表,SSE 混合传输,结果通过同一 SSE 通道自动回注入原会话;session 关闭自动断开 Hub 连接
 - **知识库 LLM Wiki** — 每个项目自动拥有项目库，可挂载多个共享库；人和 AI 读写同一份 Markdown 页面，支持 `[[wikilink]]`、活动日志撤销、code 页面陈旧检测和显式 AI 刷新
 - **规则引擎** — Cron 定时任务管理和事件触发规则，支持指定已有会话、每次新会话或固定新会话执行
 - **MCP 工具平台** — 提供 `/mcp` HTTP MCP 入口，按 Session token 控制 Agent 可见的 `core.*` / `agent.*` / `team.*` 工具方法；Agent 可通过 `agent.template.*` 管理 Agent 广场模板，通过 `core.timeline.list` 读取会话时间线，通过 `studio.task.assign` 动态分派任务；`team.*` 默认不全局开放，可在工具管理页给 Agent 套用 Team 权限模板或单独开关方法
