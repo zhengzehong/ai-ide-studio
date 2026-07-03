@@ -254,6 +254,16 @@ export const agentHubService = {
     return { hubTaskId, status: response.task.status?.state || 'TASK_STATE_SUBMITTED' }
   },
 
+  async uploadFile(
+    sessionId: string,
+    filePath: string,
+    purpose?: string,
+  ): Promise<{ fileId: string; filename: string; mediaType: string; size: number; url: string }> {
+    const conn = connections.get(sessionId)
+    if (!conn) throw new Error('未连接 Hub,请先 agent_hub.connect')
+    return hubClient.uploadFile(conn.hubUrl, conn.providerToken, filePath, purpose)
+  },
+
   _resetForTest(): void {
     for (const [, conn] of connections) {
       conn.sseClient.stop()

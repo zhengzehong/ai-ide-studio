@@ -71,4 +71,24 @@ export const AGENT_HUB_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global
     isBuiltin: true,
     defaultScope: 'global',
   },
+  {
+    name: 'agent_hub.upload_file',
+    displayName: '上传 Hub 文件',
+    description:
+      '上传文件到 Agent Hub,返回可下载的 url。上传后请将返回的 url 直接写入你的消息文本中发给对方,对方即可通过该 url 下载文件。用于跨 Agent 传文件场景(如发送代码片段、文档、图片等)。',
+    category: 'automation',
+    type: 'builtin',
+    config: { handler: 'agent_hub.upload_file' },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        filePath: { type: 'string', description: '本地文件绝对路径' },
+        purpose: { type: 'string', description: '用途标记,可选' },
+      },
+      required: ['filePath'],
+    },
+    permissions: AGENT_HUB_PERMISSIONS,
+    isBuiltin: true,
+    defaultScope: 'global',
+  },
 ]
