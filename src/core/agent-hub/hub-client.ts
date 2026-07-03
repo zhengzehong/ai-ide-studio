@@ -106,10 +106,11 @@ export interface UploadFileResult {
 }
 
 interface HubUploadResponse {
-  file_id: string
+  fileId: string
   filename?: string
-  media_type?: string
+  mediaType?: string
   size?: number
+  url?: string
 }
 
 export const hubClient = {
@@ -201,14 +202,14 @@ export const hubClient = {
     }
 
     const data = parsed as HubUploadResponse
-    const fileId = data.file_id
-    if (!fileId) throw new Error('Hub upload 响应缺少 file_id')
+    const fileId = data.fileId
+    if (!fileId) throw new Error('Hub upload 响应缺少 fileId')
     return {
       fileId,
       filename: data.filename || basename(filePath),
-      mediaType: data.media_type || 'application/octet-stream',
+      mediaType: data.mediaType || 'application/octet-stream',
       size: data.size ?? fileBuffer.length,
-      url: `${hubUrl}/hub/v1/files/${fileId}/download`,
+      url: data.url || `${hubUrl}/hub/v1/files/${fileId}/download`,
     }
   },
 }
