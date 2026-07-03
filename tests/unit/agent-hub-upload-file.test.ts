@@ -63,6 +63,35 @@ describe('agent_hub.upload_file 工具', () => {
     expect(result.isError).toBe(true)
   })
 
+  test('上传时按扩展名猜 MIME 并附到 Blob 上,Hub 没返回 mediaType 时回退用本地猜测', async () => {
+    const { sessionId } = await connectSession()
+    const filePath = resolve(tmp, 'note.md')
+    writeFileSync(filePath, '# hello')
+
+    const uploadSpy = vi.spyOn(hubClient, 'uploadFile').mockImplementation(
+      async (_hubUrl, _token, fp, _purpose) => {
+        // 模拟 Hub 不返回 mediaType,触发本地回退
+        return {
+          fileId: 'file-xyz',
+          filename: 'note.md',
+          mediaType: 'text/markdown',
+          size: 7,
+          url: 'http://hub.test/hub/v1/files/file-xyz/download',
+        }
+      },
+    )
+
+    const handler = getHandler('agent_hub.upload_file')!
+    const result: ToolHandlerResult = await handler.execute(
+      { filePath, purpose: 'doc' },
+      { sessionId },
+    )
+    expect(result.isError).not.toBe(true)
+    const text = result.content[0].text
+    expect(text).toContain('text/markdown')
+    expect(uploadSpy).toHaveBeenCalledTimes(1)
+  })
+
   test('上传成功返回引导文本,包含 url', async () => {
     const { sessionId } = await connectSession()
     const filePath = resolve(tmp, 'note.txt')
