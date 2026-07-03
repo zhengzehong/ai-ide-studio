@@ -110,38 +110,9 @@ export async function handleInboundTask(conn: HubConnection, data: TaskEventData
   }
 
   const contextId = message.contextId || `ctx-${randomUUID().slice(0, 8)}`
-  let localSessionId = conn.contextSessionMap.get(contextId)
-  if (!localSessionId) {
-    try {
-      const session = await sessionManager.createSession(conn.agentId, undefined, conn.projectId ?? undefined)
-      localSessionId = session.id
-      conn.contextSessionMap.set(contextId, localSessionId)
-    } catch (e) {
-      log.error({ err: e, agentId: conn.agentId }, 'inbound 创建本地 session 失败')
-      const failResult = {
-        task: {
-          id: hubTaskId,
-          contextId,
-          status: {
-            state: 'TASK_STATE_FAILED',
-            timestamp: new Date().toISOString(),
-            message: {
-              messageId: `msg-${randomUUID().slice(0, 8)}`,
-              role: 'ROLE_AGENT',
-              parts: [{ type: 'text', text: `本地 session 创建失败: ${(e as Error).message}`, mediaType: 'text/plain' }],
-            },
-          },
-          artifacts: [] as unknown[],
-        },
-      }
-      try {
-        await hubClient.pushResult(pushUrl, pushToken, failResult)
-      } catch (pushErr) {
-        log.warn({ err: pushErr, hubTaskId }, 'createSession 失败后回传 FAILED 也失败')
-      }
-      return
-    }
-  }
+  // inbound task 复用 connect 会话,不新建 session
+  const localSessionId = conn.contextSessionMap.get(contextId) ?? conn.sessionId
+  conn.contextSessionMap.set(contextId, localSessionId)
 
   const sourceName = await resolveAgentName(conn, sourceHubAgentId)
   const inboundTask: InboundTask = {
@@ -157,13 +128,10 @@ export async function handleInboundTask(conn: HubConnection, data: TaskEventData
   conn.inboundTasks.set(hubTaskId, inboundTask)
 
   const prompt = formatInboundPrompt(message, inboundTask)
-  try {
-    await sessionManager.enqueuePrompt(localSessionId, prompt)
-  } catch (e) {
-    log.error({ err: e, sessionId: localSessionId }, 'inbound enqueuePrompt 失败')
-    return
-  }
 
+  // doneHandler 必须在 enqueuePrompt 之前注册:
+  // enqueuePrompt 内部 await acpHost.prompt 会阻塞到 prompt 完成,
+  // session:done 事件在 prompt 完成瞬间 emit,先 enqueue 再注册会错过事件
   const doneHandler = (data: SessionDoneData): void => {
     if (data.sessionId !== localSessionId) return
     events.off('session:done', doneHandler)
@@ -172,6 +140,37 @@ export async function handleInboundTask(conn: HubConnection, data: TaskEventData
   }
   conn.doneListeners.set(hubTaskId, doneHandler)
   events.on('session:done', doneHandler)
+
+  try {
+    await sessionManager.enqueuePrompt(localSessionId, prompt)
+  } catch (e) {
+    log.error({ err: e, sessionId: localSessionId }, 'inbound enqueuePrompt 失败')
+    events.off('session:done', doneHandler)
+    conn.doneListeners.delete(hubTaskId)
+    conn.inboundTasks.delete(hubTaskId)
+    // enqueuePrompt 失败也回传 FAILED,避免 Hub 端 task 卡在 SUBMITTED
+    const failResult = {
+      task: {
+        id: hubTaskId,
+        contextId,
+        status: {
+          state: 'TASK_STATE_FAILED',
+          timestamp: new Date().toISOString(),
+          message: {
+            messageId: `msg-${randomUUID().slice(0, 8)}`,
+            role: 'ROLE_AGENT',
+            parts: [{ type: 'text', text: `本地 enqueuePrompt 失败: ${(e as Error).message}`, mediaType: 'text/plain' }],
+          },
+        },
+        artifacts: [] as unknown[],
+      },
+    }
+    try {
+      await hubClient.pushResult(pushUrl, pushToken, failResult)
+    } catch (pushErr) {
+      log.warn({ err: pushErr, hubTaskId }, 'enqueuePrompt 失败后回传 FAILED 也失败')
+    }
+  }
 }
 
 async function relayResultBack(conn: HubConnection, task: InboundTask, doneData: SessionDoneData): Promise<void> {
