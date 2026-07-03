@@ -29,6 +29,7 @@ import { agentMemoryMigration } from './028-agent-memory.js'
 import { previewsMigration } from './029-previews.js'
 import { formalCodeMergeSchemaMigration } from './030-formal-code-merge-schema.js'
 import { addSettingsTableMigration } from './031-add-settings-table.js'
+import { agentHubConnectionsMigration } from './032-agent-hub-connections.js'
 import type { Migration } from '../migrator.js'
 
 export const migrations: Migration[] = [
@@ -63,4 +64,5 @@ export const migrations: Migration[] = [
   previewsMigration,
   formalCodeMergeSchemaMigration,
   addSettingsTableMigration,
+  agentHubConnectionsMigration,
 ]

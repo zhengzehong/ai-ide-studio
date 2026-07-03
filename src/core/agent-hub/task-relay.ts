@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { events } from '../events.js'
 import { sessionManager } from '../sessions.js'
 import { messageStore } from '../../store/sessions.js'
+import { agentHubConnectionStore } from '../../store/agent-hub-connections.js'
 import { hubClient, type SearchAgentResult } from './hub-client.js'
 import type { SseClient, TaskEventData, ResultEventData } from './sse-client.js'
 import type { AgentHubConfig } from './config.js'
@@ -132,6 +133,7 @@ export async function handleInboundTask(conn: HubConnection, data: TaskEventData
     receivedAt: Date.now(),
   }
   conn.inboundTasks.set(hubTaskId, inboundTask)
+  agentHubConnectionStore.updateActivity(conn.sessionId, new Date().toISOString())
 
   const prompt = formatInboundPrompt(message, inboundTask)
 

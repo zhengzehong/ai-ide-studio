@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { agentStore } from '../../store/agents.js'
+import { sessionStore } from '../../store/sessions.js'
+import { agentHubConnectionStore, type AgentHubConnectionRow } from '../../store/agent-hub-connections.js'
 import { createChildLogger } from '../logger.js'
 import { loadAgentHubConfig } from './config.js'
 import { getOrCreateMachineId, getMachineLabel } from './machine-id.js'
@@ -15,6 +17,9 @@ import { events } from '../events.js'
 import type { SessionDoneData } from '../../types/ws-protocol.js'
 
 const log = createChildLogger('agent-hub:manager')
+
+const IDLE_THRESHOLD_MS = 12 * 60 * 60 * 1000
+const CLEANUP_INTERVAL_MS = 60 * 60 * 1000
 
 const connections = new Map<string, HubConnection & { config_defaultScopeKeys: string[] }>()
 
@@ -143,6 +148,19 @@ export const agentHubService = {
     connections.set(sessionId, conn)
     sseClient.start()
 
+    const nowIso = new Date().toISOString()
+    agentHubConnectionStore.upsert({
+      session_id: sessionId,
+      agent_id: agentId,
+      project_id: projectId ?? agent.project_id ?? null,
+      registration_id: conn.registrationId,
+      hub_url: conn.hubUrl,
+      hub_agent_id: conn.hubAgentId,
+      machine_id: machineId,
+      connected_at: nowIso,
+      last_activity_at: nowIso,
+    })
+
     let discoveredAgents: AgentInfo[] = []
     try {
       discoveredAgents = await searchVisibleAgents(conn, config.defaultScopeKeys)
@@ -187,6 +205,7 @@ export const agentHubService = {
     conn.inboundTasks.clear()
     conn.contextSessionMap.clear()
     connections.delete(sessionId)
+    agentHubConnectionStore.delete(sessionId)
     log.info({ sessionId, registrationId: conn.registrationId }, 'Hub 连接已断开')
   },
 
@@ -248,6 +267,7 @@ export const agentHubService = {
       sentAt: Date.now(),
     }
     conn.outboundTasks.set(hubTaskId, outbound)
+    agentHubConnectionStore.updateActivity(sessionId, new Date().toISOString())
 
     log.info({ sessionId, hubTaskId, targetHubAgentId, contextId: finalContextId }, '已发送 Hub 消息')
 
@@ -264,10 +284,65 @@ export const agentHubService = {
     return hubClient.uploadFile(conn.hubUrl, conn.providerToken, filePath, purpose)
   },
 
+  async reconnectAll(): Promise<void> {
+    const rows = agentHubConnectionStore.list()
+    if (rows.length === 0) return
+    log.info({ count: rows.length }, '启动时恢复 Hub 连接')
+    await Promise.all(rows.map((row) => reconnectRow(row)))
+  },
+
+  async cleanupStale(): Promise<void> {
+    const threshold = new Date(Date.now() - IDLE_THRESHOLD_MS).toISOString()
+    const stale = agentHubConnectionStore.listStale(threshold)
+    if (stale.length === 0) return
+    log.info({ count: stale.length, threshold }, '清理 12h 无活动 Hub 连接')
+    const config = loadAgentHubConfig()
+    for (const row of stale) {
+      try {
+        await hubClient.unregister(row.hub_url, config.providerToken, row.registration_id)
+      } catch (e) {
+        log.warn({ err: e, sessionId: row.session_id }, '清理注销失败,继续删 DB')
+      }
+      agentHubConnectionStore.delete(row.session_id)
+      const conn = connections.get(row.session_id)
+      if (conn) {
+        conn.sseClient.stop()
+        connections.delete(row.session_id)
+      }
+    }
+  },
+
+  startCleanupTimer(): NodeJS.Timeout {
+    return setInterval(() => {
+      void this.cleanupStale()
+    }, CLEANUP_INTERVAL_MS)
+  },
+
   _resetForTest(): void {
     for (const [, conn] of connections) {
       conn.sseClient.stop()
     }
     connections.clear()
   },
+}
+
+async function reconnectRow(row: AgentHubConnectionRow): Promise<void> {
+  const session = sessionStore.get(row.session_id)
+  if (!session || session.status !== 'active' || session.deleted_at) {
+    log.info({ sessionId: row.session_id, reason: 'session 不活跃' }, '启动恢复:注销残留')
+    const config = loadAgentHubConfig()
+    try {
+      await hubClient.unregister(row.hub_url, config.providerToken, row.registration_id)
+    } catch (e) {
+      log.warn({ err: e, sessionId: row.session_id }, '启动注销失败,继续删 DB')
+    }
+    agentHubConnectionStore.delete(row.session_id)
+    return
+  }
+  try {
+    await agentHubService.connect(row.session_id, row.agent_id, row.project_id)
+    log.info({ sessionId: row.session_id }, '启动恢复:重连成功')
+  } catch (e) {
+    log.warn({ err: e, sessionId: row.session_id }, '启动恢复:重连失败,保留 DB 记录等下次')
+  }
 }
