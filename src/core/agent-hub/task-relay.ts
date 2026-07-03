@@ -11,6 +11,8 @@ import { createChildLogger } from '../logger.js'
 
 const log = createChildLogger('agent-hub:relay')
 
+const HUB_PROTOCOL_URL = process.env.AGENT_HUB_PROTOCOL_DOC_URL || ''
+
 export interface OutboundTask {
   hubTaskId: string
   targetHubAgentId: string
@@ -56,13 +58,13 @@ export function formatInboundPrompt(message: TaskEventData['message'], task: Inb
     .map((p) => p.text as string)
   const text = textParts.join('\n') || '(无内容)'
   const source = task.sourceName || task.sourceHubAgentId
-  return `[Agent Hub 请求]\n来自:${source}\n\n${text}`
+  return `[Agent Hub 请求]\n来自:${source}\n\n${text}\n\n---\n直接输出结果即可,系统自动回调。不要用 agent_hub.send 回发。规范:${HUB_PROTOCOL_URL}`
 }
 
 export function formatOutboundPrompt(task: OutboundTask, resultText: string): string {
   const sourceName = task.targetName || task.targetHubAgentId
   const text = resultText || '(无结果内容)'
-  return `[Agent Hub 回复]\n来自:${sourceName}\n\n${text}\n\n---\n如需继续对话对方,可用 agent_hub.send 工具。`
+  return `[Agent Hub 回复]\n来自:${sourceName}\n\n${text}\n\n---\n如需继续对话对方,可用 agent_hub.send。规范:${HUB_PROTOCOL_URL}`
 }
 
 export function extractResultText(task: ResultEventData['task']): string {
