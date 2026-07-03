@@ -1,7 +1,13 @@
 import { describe, expect, test } from 'vitest'
-import { formatInboundPrompt, formatOutboundPrompt, extractResultText } from '../../src/core/agent-hub/task-relay.js'
+import {
+  formatInboundPrompt,
+  formatOutboundPrompt,
+  extractResultText,
+  type InboundTask,
+  type OutboundTask,
+} from '../../src/core/agent-hub/task-relay.js'
 
-// HUB_PROTOCOL_URL 在模块加载时读 process.env.AGENT_HUB_PROTOCOL_DOC_URL,
+// formatInboundPrompt / formatOutboundPrompt 在函数内读 process.env.AGENT_HUB_PROTOCOL_DOC_URL,
 // 测试环境 shell 可能已设此 env,导致 url 非空。断言不依赖 url 具体值,
 // 用 toContain 验证关键文案,toMatch 验证结构。
 
@@ -91,6 +97,29 @@ describe('agent-hub task-relay 文本处理', () => {
       )
       expect(prompt).toContain('(无内容)')
     })
+
+    test('在 env 设了 AGENT_HUB_PROTOCOL_DOC_URL 时提示带 url', () => {
+      const originalUrl = process.env.AGENT_HUB_PROTOCOL_DOC_URL
+      process.env.AGENT_HUB_PROTOCOL_DOC_URL = 'http://test-url/protocol.md'
+      try {
+        const prompt = formatInboundPrompt(
+          { parts: [{ type: 'text', text: 'hi' }] },
+          {
+            hubTaskId: 't1',
+            sourceHubAgentId: 'h-1',
+            pushUrl: 'u',
+            pushToken: 't',
+            localSessionId: 's',
+            contextId: 'c',
+            receivedAt: 0,
+          } as InboundTask,
+        )
+        expect(prompt).toContain('规范:http://test-url/protocol.md')
+      } finally {
+        if (originalUrl === undefined) delete process.env.AGENT_HUB_PROTOCOL_DOC_URL
+        else process.env.AGENT_HUB_PROTOCOL_DOC_URL = originalUrl
+      }
+    })
   })
 
   describe('formatOutboundPrompt', () => {
@@ -142,6 +171,28 @@ describe('agent-hub task-relay 文本处理', () => {
       )
       expect(prompt).toContain('(无结果内容)')
       expect(prompt).toContain('agent_hub.send')
+    })
+
+    test('在 env 设了 AGENT_HUB_PROTOCOL_DOC_URL 时提示带 url', () => {
+      const originalUrl = process.env.AGENT_HUB_PROTOCOL_DOC_URL
+      process.env.AGENT_HUB_PROTOCOL_DOC_URL = 'http://test-url/protocol.md'
+      try {
+        const prompt = formatOutboundPrompt(
+          {
+            hubTaskId: 't1',
+            targetHubAgentId: 'h-2',
+            targetName: 'B',
+            message: '原始',
+            contextId: 'ctx-1',
+            sentAt: 0,
+          } as OutboundTask,
+          'result',
+        )
+        expect(prompt).toContain('规范:http://test-url/protocol.md')
+      } finally {
+        if (originalUrl === undefined) delete process.env.AGENT_HUB_PROTOCOL_DOC_URL
+        else process.env.AGENT_HUB_PROTOCOL_DOC_URL = originalUrl
+      }
     })
   })
 
