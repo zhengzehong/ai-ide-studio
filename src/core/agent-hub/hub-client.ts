@@ -1,8 +1,48 @@
 import { readFile } from 'node:fs/promises'
-import { basename } from 'node:path'
+import { basename, extname } from 'node:path'
 import { createChildLogger } from '../logger.js'
 
 const log = createChildLogger('agent-hub:http')
+
+const MIME_BY_EXT: Record<string, string> = {
+  '.txt': 'text/plain',
+  '.md': 'text/markdown',
+  '.html': 'text/html',
+  '.htm': 'text/html',
+  '.css': 'text/css',
+  '.csv': 'text/csv',
+  '.json': 'application/json',
+  '.yaml': 'application/x-yaml',
+  '.yml': 'application/x-yaml',
+  '.xml': 'application/xml',
+  '.pdf': 'application/pdf',
+  '.zip': 'application/zip',
+  '.gz': 'application/gzip',
+  '.tar': 'application/x-tar',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.bmp': 'image/bmp',
+  '.ico': 'image/x-icon',
+  '.svg': 'image/svg+xml',
+  '.mp3': 'audio/mpeg',
+  '.mp4': 'video/mp4',
+  '.wav': 'audio/wav',
+  '.webm': 'video/webm',
+  '.doc': 'application/msword',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.xls': 'application/vnd.ms-excel',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.ppt': 'application/vnd.ms-powerpoint',
+  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+}
+
+export function inferMimeType(filePath: string): string {
+  const ext = extname(filePath).toLowerCase()
+  return MIME_BY_EXT[ext] ?? 'application/octet-stream'
+}
 
 export interface HubHttpError {
   status: number
@@ -168,8 +208,10 @@ export const hubClient = {
     purpose?: string,
   ): Promise<UploadFileResult> {
     const fileBuffer = await readFile(filePath)
+    const filename = basename(filePath)
+    const mediaType = inferMimeType(filePath)
     const form = new FormData()
-    form.append('file', new Blob([fileBuffer]), basename(filePath))
+    form.append('file', new Blob([fileBuffer], { type: mediaType }), filename)
     if (purpose) form.append('purpose', purpose)
 
     let response: Response
@@ -206,8 +248,8 @@ export const hubClient = {
     if (!fileId) throw new Error('Hub upload 响应缺少 fileId')
     return {
       fileId,
-      filename: data.filename || basename(filePath),
-      mediaType: data.mediaType || 'application/octet-stream',
+      filename: data.filename || filename,
+      mediaType: data.mediaType || mediaType,
       size: data.size ?? fileBuffer.length,
       url: data.url || `${hubUrl}/hub/v1/files/${fileId}/download`,
     }
