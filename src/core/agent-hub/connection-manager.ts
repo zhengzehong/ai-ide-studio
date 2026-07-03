@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { agentStore } from '../../store/agents.js'
 import { createChildLogger } from '../logger.js'
 import { loadAgentHubConfig } from './config.js'
-import { getOrCreateMachineId } from './machine-id.js'
+import { getOrCreateMachineId, getMachineLabel } from './machine-id.js'
 import { buildHubNaming, type AgentInfo } from './naming.js'
 import { hubClient, type RegisterResponse, type SearchAgentResult } from './hub-client.js'
 import { SseClient } from './sse-client.js'
@@ -83,6 +83,7 @@ export const agentHubService = {
       agentName: agent.name,
       agentDescription: agent.system_prompt,
       machineId,
+      machineLabel: getMachineLabel(),
       sessionId,
       projectId: projectId ?? agent.project_id ?? null,
     })

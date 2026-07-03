@@ -3,6 +3,7 @@ export interface NamingInput {
   agentName: string
   agentDescription?: string | null
   machineId: string
+  machineLabel?: string
   sessionId: string
   projectId?: string | null
 }
@@ -16,16 +17,17 @@ export interface NamingResult {
 
 export function buildHubNaming(input: NamingInput): NamingResult {
   const machineShort = input.machineId.replace(/^mac-/, '').slice(-4)
+  const label = input.machineLabel || machineShort
   const sessionShort = input.sessionId.replace(/^sess-/, '').slice(0, 6)
 
   const instanceId = `${input.machineId}-${input.agentId}-${input.sessionId}`
-  const name = `${input.agentName} · ${machineShort} · ${sessionShort}`
+  const name = `${input.agentName} · ${label} · ${sessionShort}`
   const baseDescription = input.agentDescription && input.agentDescription.trim().length > 0
     ? input.agentDescription.trim()
     : input.agentName
-  const description = `${baseDescription} [${input.machineId} · session ${sessionShort}]`
+  const description = `${baseDescription} [${label} · session ${sessionShort}]`
 
-  const scopeKeys = ['ai-ide-studio', `machine:${input.machineId}`, `agent:${input.agentId}`]
+  const scopeKeys = ['ai-ide-studio', `machine:${input.machineId}`, `machine-label:${label}`, `agent:${input.agentId}`]
   if (input.projectId) scopeKeys.push(`project:${input.projectId}`)
 
   return { instanceId, name, description, scopeKeys }

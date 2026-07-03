@@ -1,5 +1,5 @@
 export { agentHubService } from './connection-manager.js'
-export { getOrCreateMachineId, resetCachedMachineIdForTest } from './machine-id.js'
+export { getOrCreateMachineId, getMachineLabel, resetCachedMachineIdForTest } from './machine-id.js'
 export { loadAgentHubConfig, type AgentHubConfig } from './config.js'
 export { buildHubNaming, type AgentInfo, type NamingInput, type NamingResult } from './naming.js'
 export { SseClient, type TaskEventData, type ResultEventData } from './sse-client.js'
