@@ -6,6 +6,7 @@ import { sessionStore } from '../store/sessions.js'
 import { isSupportedAgentRuntime, SUPPORTED_AGENT_RUNTIMES } from '../acp/adapters.js'
 import { applyToolProfileToAgent } from '../tools/team-profiles.js'
 import { modelProfileStore } from '../store/model-profiles.js'
+import { agentMemoryService } from './agent-memory.js'
 
 const log = createChildLogger('agents')
 
@@ -98,6 +99,16 @@ export function createCustomProjectAgent(input: CreateCustomAgentInput): AgentRo
   })
   ensurePrimarySession(agent)
   log.info({ agentId: agent.id, projectId: input.projectId }, '项目自定义 Agent 已创建')
+
+  try {
+    const seeded = agentMemoryService.seedBuiltinDimensions(input.projectId, agent.id)
+    if (seeded.length > 0) {
+      log.info({ agentId: agent.id, seeded: seeded.length }, '内置记忆维度已 seed')
+    }
+  } catch (err) {
+    log.error({ agentId: agent.id, err }, '内置记忆维度 seed 失败(不阻塞 Agent 创建)')
+  }
+
   return agent
 }
 

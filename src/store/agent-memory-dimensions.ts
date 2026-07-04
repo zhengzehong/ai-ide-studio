@@ -8,6 +8,7 @@ export interface AgentMemoryDimensionRow {
   name: string
   description: string | null
   prompt: string | null
+  is_builtin: number
   created_at: string
   updated_at: string
   deleted_at: string | null
@@ -19,6 +20,7 @@ export interface CreateAgentMemoryDimensionInput {
   name: string
   description?: string | null
   prompt?: string | null
+  isBuiltin?: boolean
 }
 
 export interface UpdateAgentMemoryDimensionInput {
@@ -37,17 +39,18 @@ export const agentMemoryDimensionStore = {
       name: input.name,
       description: input.description ?? null,
       prompt: input.prompt ?? null,
+      is_builtin: input.isBuiltin ? 1 : 0,
       created_at: now,
       updated_at: now,
       deleted_at: null,
     }
     getDb().prepare(`
       INSERT INTO agent_memory_dimensions (
-        id, project_id, agent_id, name, description, prompt,
+        id, project_id, agent_id, name, description, prompt, is_builtin,
         created_at, updated_at, deleted_at
       )
       VALUES (
-        @id, @project_id, @agent_id, @name, @description, @prompt,
+        @id, @project_id, @agent_id, @name, @description, @prompt, @is_builtin,
         @created_at, @updated_at, @deleted_at
       )
     `).run(row)
@@ -86,6 +89,16 @@ export const agentMemoryDimensionStore = {
       .prepare<[string, string], { count: number }>(`
         SELECT COUNT(*) AS count FROM agent_memory_dimensions
         WHERE project_id = ? AND agent_id = ? AND deleted_at IS NULL
+      `)
+      .get(projectId, agentId)
+    return row?.count ?? 0
+  },
+
+  countCustomByAgent(projectId: string, agentId: string): number {
+    const row = getDb()
+      .prepare<[string, string], { count: number }>(`
+        SELECT COUNT(*) AS count FROM agent_memory_dimensions
+        WHERE project_id = ? AND agent_id = ? AND deleted_at IS NULL AND is_builtin = 0
       `)
       .get(projectId, agentId)
     return row?.count ?? 0

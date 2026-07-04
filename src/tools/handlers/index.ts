@@ -49,6 +49,7 @@ import {
   recordMemoryHandler,
   updateMemoryHandler,
   deleteMemoryHandler,
+  seedBuiltinMemoryDimensionsHandler,
   listModelProfilesHandler,
   listProjectsHandler,
   listSessionsHandler,
@@ -155,6 +156,7 @@ register(getMemoryHandler)
 register(recordMemoryHandler)
 register(updateMemoryHandler)
 register(deleteMemoryHandler)
+register(seedBuiltinMemoryDimensionsHandler)
 register(listTeamsHandler)
 register(getTeamHandler)
 register(createTeamHandler)
