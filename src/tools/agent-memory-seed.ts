@@ -1,6 +1,7 @@
 import type { CreateToolInput } from '../store/tools.js'
 
 const PERMS = { requiresApproval: false, maxExecutionTime: 10_000, networkAccess: false }
+const PERMS_WRITE = { requiresApproval: true, maxExecutionTime: 10_000, networkAccess: false }
 
 export const AGENT_MEMORY_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
   {
@@ -20,6 +21,24 @@ export const AGENT_MEMORY_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'glo
       required: ['name', 'description', 'prompt'],
     },
     permissions: PERMS,
+    isBuiltin: true,
+    defaultScope: 'global',
+  },
+  {
+    name: 'agent_memory.seed_builtin',
+    displayName: '补齐内置记忆维度',
+    description: '为指定 Agent 补齐内置记忆维度(lessons/facts/preferences)。已有同名维度会跳过。用于老 Agent 升级到内置维度方案。',
+    category: 'automation',
+    type: 'builtin',
+    config: { handler: 'agent_memory.seed_builtin' },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        agentId: { type: 'string', description: '目标 Agent ID' },
+      },
+      required: ['agentId'],
+    },
+    permissions: PERMS_WRITE,
     isBuiltin: true,
     defaultScope: 'global',
   },

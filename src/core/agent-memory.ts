@@ -7,6 +7,7 @@ import {
   agentMemoryEntryStore,
   type AgentMemoryEntryRow,
 } from '../store/agent-memory-entries.js'
+import { BUILTIN_MEMORY_DIMENSIONS } from '../store/agent-memory-builtin-dimensions.js'
 import { createChildLogger } from './logger.js'
 
 const log = createChildLogger('agent-memory')
@@ -165,7 +166,7 @@ export const agentMemoryService = {
     prompt: string
   }): AgentMemoryDimensionRow {
     assertAgentInProject(input.agentId, input.projectId)
-    const count = agentMemoryDimensionStore.countByAgent(input.projectId, input.agentId)
+    const count = agentMemoryDimensionStore.countCustomByAgent(input.projectId, input.agentId)
     if (count >= AGENT_MEMORY_MAX_DIMENSIONS) {
       throw new Error(`DIMENSION_LIMIT_EXCEEDED: max ${AGENT_MEMORY_MAX_DIMENSIONS}, current ${count}`)
     }
@@ -214,7 +215,39 @@ export const agentMemoryService = {
     if (current.project_id !== input.projectId || current.agent_id !== input.agentId) {
       throw new Error('DIMENSION_OWNERSHIP_MISMATCH')
     }
+    if (current.is_builtin === 1) {
+      throw new Error(`BUILTIN_DIMENSION_CANNOT_DELETE: ${current.name}`)
+    }
     agentMemoryDimensionStore.softDelete(input.dimensionId)
+  },
+
+  seedBuiltinDimensions(projectId: string, agentId: string): AgentMemoryDimensionRow[] {
+    assertAgentInProject(agentId, projectId)
+    const created: AgentMemoryDimensionRow[] = []
+    for (const def of BUILTIN_MEMORY_DIMENSIONS) {
+      const existing = agentMemoryDimensionStore.getByNames(projectId, agentId, def.name)
+      if (existing) {
+        log.info({ agentId, name: def.name, existingId: existing.id }, '内置维度已存在,跳过 seed')
+        continue
+      }
+      try {
+        const dim = agentMemoryDimensionStore.create({
+          projectId,
+          agentId,
+          name: def.name,
+          description: def.description,
+          prompt: def.prompt,
+          isBuiltin: true,
+        })
+        created.push(dim)
+      } catch (err) {
+        log.error({ agentId, name: def.name, err }, '内置维度 seed 失败')
+      }
+    }
+    if (created.length > 0) {
+      log.info({ agentId, seeded: created.length }, '内置记忆维度已 seed')
+    }
+    return created
   },
 
   listEntries(projectId: string, agentId: string, dimension: string): AgentMemoryEntrySummary[] {

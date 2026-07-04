@@ -7,6 +7,7 @@ export {
   recordMemoryHandler,
   updateMemoryHandler,
   deleteMemoryHandler,
+  seedBuiltinMemoryDimensionsHandler,
 } from './agent-memory-tools.js'
 export { listModelProfilesHandler } from './model-profile-tools.js'
 export { createProjectHandler, getProjectHandler, listProjectsHandler } from './project-tools.js'

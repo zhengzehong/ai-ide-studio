@@ -1,4 +1,5 @@
 import { agentMemoryService, AGENT_MEMORY_MAX_PINNED } from '../../../core/agent-memory.js'
+import { agentStore } from '../../../store/agents.js'
 import type { ToolContext, ToolHandler, ToolHandlerInput, ToolHandlerResult } from '../../types.js'
 
 export const defineMemoryDimensionHandler: ToolHandler = {
@@ -182,6 +183,32 @@ export const deleteMemoryHandler: ToolHandler = {
       entryId: requireString(input, 'entry_id'),
     })
     return jsonResult({ ok: true })
+  },
+}
+
+export const seedBuiltinMemoryDimensionsHandler: ToolHandler = {
+  name: 'agent_memory.seed_builtin',
+  description:
+    '为指定 Agent 补齐内置记忆维度(lessons/facts/preferences)。已有同名维度会跳过。用于老 Agent 升级到内置维度方案。',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      agentId: { type: 'string', description: '目标 Agent ID' },
+    },
+    required: ['agentId'],
+  },
+  async execute(input: ToolHandlerInput, context: ToolContext): Promise<ToolHandlerResult> {
+    const agentId = requireString(input, 'agentId')
+    const agent = agentStore.get(agentId)
+    if (!agent) throw new Error(`AGENT_NOT_FOUND: ${agentId}`)
+    const projectId = context.projectId ?? agent.project_id
+    if (!projectId) throw new Error('projectId is required (set in context or agent has no project)')
+    const created = agentMemoryService.seedBuiltinDimensions(projectId, agentId)
+    return jsonResult({
+      ok: true,
+      seeded: created.map((d) => ({ id: d.id, name: d.name })),
+      seededCount: created.length,
+    })
   },
 }
 
