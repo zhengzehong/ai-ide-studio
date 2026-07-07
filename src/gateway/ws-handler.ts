@@ -12,15 +12,43 @@ const clients = new Map<WebSocket, RpcClientState>()
 
 export function broadcastToSubscribers(sessionId: string, msg: ServerMessage): void {
   const payload = JSON.stringify(msg)
-  let delivered = 0
+  let subscriberCount = 0
+  let deliveredCount = 0
   for (const [ws, state] of clients) {
-    if (state.subscriptions.has(sessionId) && ws.readyState === ws.OPEN) {
-      ws.send(payload)
-      delivered += 1
+    if (state.subscriptions.has(sessionId)) {
+      subscriberCount++
+      if (ws.readyState === ws.OPEN) {
+        ws.send(payload)
+        deliveredCount++
+      }
     }
   }
-  if (msg.type === 'session:done') {
-    log.debug({ sessionId, type: msg.type, delivered, totalClients: clients.size }, 'broadcast to subscribers complete')
+  if (msg.type === 'session:update') {
+    const data = msg.data
+    const hasToolCall = !!(data.toolCall || data.toolCallUpdate)
+    const hasContent = !!(data.contentDelta || data.content)
+    const isLifecycle = typeof data.eventType === 'string' && data.eventType.startsWith('lifecycle.')
+    if (hasToolCall || hasContent || isLifecycle) {
+      log.info(
+        {
+          sessionId,
+          msgType: msg.type,
+          eventType: data.eventType,
+          hasToolCall,
+          hasContent,
+          hasThinking: !!data.thinking,
+          toolCallId: data.toolCall?.id || data.toolCallUpdate?.id,
+          subscriberCount,
+          deliveredCount,
+        },
+        'broadcast session:update',
+      )
+    }
+  } else if (msg.type === 'session:done') {
+    log.info(
+      { sessionId, msgType: msg.type, stopReason: msg.stopReason, hasError: !!msg.error, subscriberCount, deliveredCount },
+      'broadcast session:done',
+    )
   }
 }
 

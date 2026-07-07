@@ -461,8 +461,19 @@ function flushStreamingBuffer(set: (partial: Partial<SessionStore> | ((state: Se
     streamingFlushTimer = null
   }
   const snapshot = streamingBuffer.flush()
-  if (!snapshot) return
+  if (!snapshot) {
+    console.debug('[flushStreamingBuffer] empty snapshot, skip')
+    return
+  }
   const sid = get().currentSessionId
+  console.info('[flushStreamingBuffer] flush', {
+    sid,
+    hasContent: !!snapshot.contentDelta,
+    hasThinking: !!snapshot.thinking,
+    toolCallCount: snapshot.toolCalls.length,
+    toolCallUpdateCount: snapshot.toolCallUpdates.length,
+    toolCallIds: [...snapshot.toolCalls.map(t => t.id), ...snapshot.toolCallUpdates.map(t => t.id)],
+  })
   set((state) => {
     const cur = normalizeActiveTurn(state.streamingMessage)
     let up: StreamingMessage = cur ? { ...cur, processBlocks: cur.processBlocks.map(block => block.kind === 'tool' ? { ...block, toolCall: { ...block.toolCall } } : { ...block }), toolCalls: [...cur.toolCalls] } : createEmptyTurn(String(snapshot.messageId || `stream-${sid}-${Date.now()}`))
@@ -1191,11 +1202,41 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     }))
 
     offs.push(wsClient.on('session:update', (msg) => {
-      const sid = msg.sessionId as string; if (sid !== get().currentSessionId) return
+      const sid = msg.sessionId as string
+      const curSid = get().currentSessionId
       const data = msg.data as Record<string, unknown>
+      const hasToolCall = !!(data.toolCall || data.toolCallUpdate)
+      const hasContent = !!(data.contentDelta || data.content)
+      const hasThinking = !!data.thinking
+      const isLifecycle = typeof data.eventType === 'string' && data.eventType.startsWith('lifecycle.')
+      if (sid !== curSid) {
+        console.info('[session:update] drop: sid !== currentSessionId', {
+          sid, currentSessionId: curSid, eventType: data.eventType,
+          hasToolCall, hasContent, hasThinking,
+        })
+        return
+      }
 
-      if (typeof data.eventType === 'string' && data.eventType.startsWith('lifecycle.')) {
-        if (!shouldShowLifecycleStage(data.eventType)) {
+      if (isLifecycle) {
+        console.info('[session:update] lifecycle', {
+          sid, eventType: data.eventType, visible: shouldShowLifecycleStage(data.eventType as string),
+          stage: data.content,
+        })
+      } else if (hasToolCall || hasContent || hasThinking) {
+        console.info('[session:update] receive', {
+          sid, eventType: data.eventType,
+          hasToolCall, toolCallId: (data.toolCall as { id?: string } | undefined)?.id || (data.toolCallUpdate as { id?: string } | undefined)?.id,
+          hasContent, hasThinking,
+        })
+      }
+
+      if (isLifecycle) {
+        if (!shouldShowLifecycleStage(data.eventType as string)) {
+          set((state) => {
+            const cur = state.streamingMessage
+            if (!cur || cur.content || cur.thinking || cur.toolCalls.length > 0) return {}
+            return { streamingMessage: null }
+          })
           saveCache(sid, get())
           return
         }
