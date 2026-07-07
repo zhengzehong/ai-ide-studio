@@ -2477,13 +2477,28 @@ function TaskPanel({
   const [tab, setTab] = useState('all')
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [reportModalTaskId, setReportModalTaskId] = useState<string | null>(null)
+  const [markCompleteError, setMarkCompleteError] = useState<string | null>(null)
   const filtered = tasks.filter(TASK_TABS.find((t) => t.key === tab)!.filter)
   const agentMap = new Map(agents.map((a) => [a.id, a]))
   const sessions = useSessionStore((s) => s.sessions)
   const selectSession = useSessionStore((s) => s.selectSession)
+  const updateTask = useTaskStore((s) => s.updateTask)
+  const fetchTasks = useTaskStore((s) => s.fetchTasks)
 
   const selectedTask = selectedTaskId ? tasks.find((t) => t.id === selectedTaskId) ?? null : null
   const reportModalTask = reportModalTaskId ? tasks.find((t) => t.id === reportModalTaskId) ?? null : null
+
+  const handleReportMarkComplete = async (taskId: string) => {
+    setMarkCompleteError(null)
+    try {
+      await updateTask(taskId, 'completed', undefined, '人工验收通过')
+      setReportModalTaskId(null)
+      await fetchTasks(projectId)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setMarkCompleteError(msg || '标记完成失败')
+    }
+  }
   const sessionsForTask = useMemo(() => {
     if (!selectedTask) return []
     return sessions.filter((s) => {
@@ -2760,7 +2775,31 @@ function TaskPanel({
         )}
       </div>
       {reportModalTask && (
-        <ReportHistoryModal task={reportModalTask} onClose={() => setReportModalTaskId(null)} />
+        <ReportHistoryModal
+          task={reportModalTask}
+          onClose={() => {
+            setReportModalTaskId(null)
+            setMarkCompleteError(null)
+          }}
+          onMarkCompleted={() => handleReportMarkComplete(reportModalTask.id)}
+        />
+      )}
+      {markCompleteError && (
+        <div style={{
+          position: 'fixed',
+          bottom: 24,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          background: 'var(--red)',
+          color: 'white',
+          padding: '8px 16px',
+          borderRadius: 8,
+          fontSize: 13,
+          zIndex: 1300,
+          boxShadow: 'var(--shadow-lg)',
+        }}>
+          {markCompleteError}
+        </div>
       )}
     </div>
   )
@@ -3254,11 +3293,13 @@ function ReportModal({
   events,
   initialEventId,
   onClose,
+  onMarkCompleted,
 }: {
   task: TaskData
   events: TaskEventData[]
   initialEventId: string | null
   onClose: () => void
+  onMarkCompleted?: () => Promise<void> | void
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(
     initialEventId && events.some((ev) => ev.id === initialEventId) ? initialEventId : (events[0]?.id ?? null)
@@ -3266,6 +3307,7 @@ function ReportModal({
   const selected = events.find((ev) => ev.id === selectedId) ?? events[0] ?? null
   const reportMd = selected ? eventReportMd(selected) : ''
   const [copied, setCopied] = useState(false)
+  const [marking, setMarking] = useState(false)
 
   const handleCopy = async () => {
     try {
@@ -3273,6 +3315,18 @@ function ReportModal({
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
     } catch { /* ignore */ }
+  }
+
+  const canMarkComplete = !!onMarkCompleted && (task.status === 'executing' || task.status === 'needs_input')
+
+  const handleMarkComplete = async () => {
+    if (!onMarkCompleted || marking) return
+    setMarking(true)
+    try {
+      await onMarkCompleted()
+    } finally {
+      setMarking(false)
+    }
   }
 
   return (
@@ -3467,6 +3521,29 @@ function ReportModal({
             >
               关闭
             </button>
+            {canMarkComplete && (
+              <button
+                type="button"
+                onClick={handleMarkComplete}
+                disabled={marking}
+                style={{
+                  padding: '5px 14px',
+                  borderRadius: 6,
+                  border: 'none',
+                  background: marking ? 'var(--bg-2)' : 'var(--green)',
+                  color: marking ? 'var(--text-3)' : 'white',
+                  fontSize: 13,
+                  fontWeight: 500,
+                  cursor: marking ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                }}
+              >
+                <Check size={12} />
+                {marking ? '处理中...' : '标记完成'}
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -3477,9 +3554,11 @@ function ReportModal({
 function ReportHistoryModal({
   task,
   onClose,
+  onMarkCompleted,
 }: {
   task: TaskData
   onClose: () => void
+  onMarkCompleted?: () => Promise<void> | void
 }) {
   const fetchTaskEvents = useTaskStore((s) => s.fetchTaskEvents)
   const [events, setEvents] = useState<TaskEventData[]>([])
@@ -3503,6 +3582,7 @@ function ReportHistoryModal({
       events={reportEvents}
       initialEventId={reportEvents[0]?.id ?? null}
       onClose={onClose}
+      onMarkCompleted={onMarkCompleted}
     />
   )
 }
