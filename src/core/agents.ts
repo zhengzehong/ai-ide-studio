@@ -188,7 +188,7 @@ function ensurePrimarySession(agent: AgentRow): void {
     agentId: agent.id,
     projectId: agent.project_id ?? undefined,
     isPrimary: true,
-    title: `${agent.name} 的主会话`,
+    title: '主会话',
   })
 }
 

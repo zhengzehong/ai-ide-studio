@@ -918,7 +918,7 @@ export default function Workspace() {
                                 fontWeight: s.is_primary ? 600 : 400,
                               }}
                             >
-                              {sessionTitle(s)}{s.is_primary ? ' · 主会话' : ''}
+                              {sessionTitle(s)}
                             </span>
                             <span style={{ fontSize: 12, color: 'var(--text-3)' }}>
                               {formatTime(s.last_message_at || s.updated_at || s.started_at)}
@@ -988,6 +988,7 @@ export default function Workspace() {
           connected={connected}
           currentSessionId={currentSessionId}
           chatAgent={chatAgent}
+          currentSession={currentSession}
           currentSessionTitle={currentSessionId ? sessionTitle(currentSession ?? { id: currentSessionId }) : undefined}
           currentSessionCopying={currentSessionCopying}
         />
@@ -1287,12 +1288,14 @@ function WorkspaceChatPane({
   connected,
   currentSessionId,
   chatAgent,
+  currentSession,
   currentSessionTitle,
   currentSessionCopying,
 }: {
   connected: boolean
   currentSessionId: string | null
   chatAgent: AgentData | undefined
+  currentSession?: SessionData | null
   currentSessionTitle?: string
   currentSessionCopying: boolean
 }) {
@@ -1773,11 +1776,20 @@ function WorkspaceChatPane({
               </div>
               <div style={{ minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, fontSize: 15 }}>
-                  <span>{chatAgent.name}</span>
-                  {currentSessionTitle && (
+                  {currentSession?.is_primary ? (
                     <>
-                      <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>·</span>
-                      <span style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{currentSessionTitle}</span>
+                      <Zap size={14} fill="var(--blue)" />
+                      <span>{chatAgent.name}</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>{chatAgent.name}</span>
+                      {currentSessionTitle && (
+                        <>
+                          <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>·</span>
+                          <span style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{currentSessionTitle}</span>
+                        </>
+                      )}
                     </>
                   )}
                 </div>
