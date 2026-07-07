@@ -42,6 +42,10 @@ export const logger = pino({
   level: logLevel,
   transport,
   redact: ['*.password', '*.token', '*.apiKey', '*.secret', 'req.headers.authorization'],
+  timestamp: () => {
+    const now = new Date()
+    return `,"time":${now.getTime()},"localTime":"${now.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}"`
+  },
 })
 
 export function createChildLogger(module: string) {
