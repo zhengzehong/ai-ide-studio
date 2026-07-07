@@ -861,6 +861,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   selectSession: (id) => {
     const prev = get().currentSessionId
+    // 幂等短路:同一 id 重复调用不再重发 fetchMessages / fetchModels / markRead,
+    // 防止 markRead → session:changed → sessions 引用变 → effect 重触发 → 又调 selectSession 的死循环。
+    // prev === id 时直接返回,避免切断订阅 / 重置缓存等副作用也重新执行一遍。
+    if (prev === id) return
     if (prev) { saveCache(prev, get()); wsClient.unsubscribe([prev]) }
     lastStreamingSnapshot = null
     if (!id) {
@@ -1351,8 +1355,16 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             }
           : {}
         if (st.sessions.some(s => s.id === sessionId)) {
-          const mergedSession = { ...st.sessions.find(s => s.id === sessionId)!, ...data } as SessionData
           const isCurrent = st.currentSessionId === sessionId
+          // 仅 last_read_at 变化且是当前会话:不替换 sessions 数组引用,
+          // 避免 ContextPanel 等 effect 因 sessions 引用变更而重触发 → 又调 selectSession → markRead 死循环。
+          // 服务端 markRead 后 broadcastToAll 的 session:changed 就走这条短路。
+          if (isCurrent && data.last_read_at && Object.keys(data).every(k => k === 'last_read_at' || k === 'event')) {
+            return {
+              ...copyState,
+            }
+          }
+          const mergedSession = { ...st.sessions.find(s => s.id === sessionId)!, ...data } as SessionData
           const nextUnread = data.last_read_at
             ? (isCurrent ? false : isSessionUnreadByTimestamps(mergedSession))
             : st.unreadSessionIds[sessionId] ? true : false
