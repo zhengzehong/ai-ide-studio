@@ -294,6 +294,115 @@ describe('agent memory system prompt injection', () => {
   })
 })
 
+describe('agent memory inject_full (全文注入)', () => {
+  test('开启 inject_full 自动置顶;关闭置顶自动关闭 inject_full', () => {
+    const { agentId, projectId } = setupAgent()
+    agentMemoryService.createDimension({
+      projectId, agentId, name: '经验库', description: '', prompt: '',
+    })
+    const e = agentMemoryService.recordEntry({
+      projectId, agentId, dimension: '经验库',
+      title: '团队成员名单', content: 'Alice, Bob, Carol', tags: [],
+      confidence: 0.95,
+    })
+
+    const injected = agentMemoryService.updateEntry({
+      projectId, agentId, entryId: e.id, injectFull: true,
+    })
+    expect(injected.pinned).toBe(true)
+    expect(injected.inject_full).toBe(true)
+
+    const unpinned = agentMemoryService.updateEntry({
+      projectId, agentId, entryId: e.id, pinned: false,
+    })
+    expect(unpinned.pinned).toBe(false)
+    expect(unpinned.inject_full).toBe(false)
+  })
+
+  test('inject_full 要求 confidence ≥ 0.9,不达标报错', () => {
+    const { agentId, projectId } = setupAgent()
+    agentMemoryService.createDimension({
+      projectId, agentId, name: '经验库', description: '', prompt: '',
+    })
+    const e = agentMemoryService.recordEntry({
+      projectId, agentId, dimension: '经验库',
+      title: '低置信度', content: 'x', tags: [],
+      confidence: 0.7,
+    })
+    expect(() =>
+      agentMemoryService.updateEntry({ projectId, agentId, entryId: e.id, injectFull: true }),
+    ).toThrow('INJECT_FULL_MIN_CONFIDENCE')
+  })
+
+  test('inject_full 要求 content ≤ 1500 字,超出报错', () => {
+    const { agentId, projectId } = setupAgent()
+    agentMemoryService.createDimension({
+      projectId, agentId, name: '经验库', description: '', prompt: '',
+    })
+    const longContent = 'x'.repeat(1501)
+    const e = agentMemoryService.recordEntry({
+      projectId, agentId, dimension: '经验库',
+      title: '长内容', content: longContent, tags: [],
+      confidence: 0.95,
+    })
+    expect(() =>
+      agentMemoryService.updateEntry({ projectId, agentId, entryId: e.id, injectFull: true }),
+    ).toThrow('INJECT_FULL_MAX_CONTENT_LENGTH')
+  })
+
+  test('inject_full 上限 3 条,第 4 条报错', () => {
+    const { agentId, projectId } = setupAgent()
+    agentMemoryService.createDimension({
+      projectId, agentId, name: '经验库', description: '', prompt: '',
+    })
+    for (let i = 0; i < 3; i++) {
+      const e = agentMemoryService.recordEntry({
+        projectId, agentId, dimension: '经验库',
+        title: `条目${i}`, content: `内容${i}`, tags: [],
+        confidence: 0.95,
+      })
+      agentMemoryService.updateEntry({ projectId, agentId, entryId: e.id, injectFull: true })
+    }
+    const fourth = agentMemoryService.recordEntry({
+      projectId, agentId, dimension: '经验库',
+      title: '第4条', content: '内容4', tags: [],
+      confidence: 0.95,
+    })
+    expect(() =>
+      agentMemoryService.updateEntry({ projectId, agentId, entryId: fourth.id, injectFull: true }),
+    ).toThrow('INJECT_FULL_LIMIT_EXCEEDED')
+  })
+
+  test('buildAgentMemoryPrompt 含"核心记忆(全文注入)"段 + content 全文 + "索引"段', () => {
+    const { agentId, projectId } = setupAgent()
+    agentMemoryService.createDimension({
+      projectId, agentId, name: 'facts', description: '', prompt: '',
+    })
+    const injectContent = '## 团队\n- Alice: PM\n- Bob: 后端\n- Carol: 设计'
+    const injectEntry = agentMemoryService.recordEntry({
+      projectId, agentId, dimension: 'facts',
+      title: '团队成员', content: injectContent, tags: [],
+      confidence: 0.95,
+    })
+    agentMemoryService.updateEntry({ projectId, agentId, entryId: injectEntry.id, injectFull: true })
+
+    const pinnedOnly = agentMemoryService.recordEntry({
+      projectId, agentId, dimension: 'facts',
+      title: '仅置顶条目', content: '不该出现在全文段', tags: [],
+      confidence: 0.9,
+    })
+    agentMemoryService.updateEntry({ projectId, agentId, entryId: pinnedOnly.id, pinned: true })
+
+    const prompt = agentMemoryService.buildAgentMemoryPrompt(agentId)
+    expect(prompt).toContain('### 核心记忆（全文注入）')
+    expect(prompt).toContain('[facts] 团队成员')
+    expect(prompt).toContain(injectContent)
+    expect(prompt).toContain('### 索引')
+    expect(prompt).toContain('[facts] 仅置顶条目')
+    expect(prompt).not.toContain('不该出现在全文段')
+  })
+})
+
 describe('agent memory define_memory_dimension tool', () => {
   test('define_memory_dimension succeeds and returns dimension_id + name', async () => {
     const { agentId, projectId } = setupAgent()

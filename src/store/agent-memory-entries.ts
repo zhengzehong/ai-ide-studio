@@ -11,6 +11,7 @@ export interface AgentMemoryEntryRow {
   source_task_id: string | null
   confidence: number
   pinned: number
+  inject_full: number
   last_used_at: string | null
   use_count: number
   created_at: string
@@ -27,6 +28,7 @@ export interface CreateAgentMemoryEntryInput {
   sourceTaskId?: string | null
   confidence?: number
   pinned?: boolean
+  injectFull?: boolean
 }
 
 export interface UpdateAgentMemoryEntryInput {
@@ -35,6 +37,7 @@ export interface UpdateAgentMemoryEntryInput {
   tags?: string[]
   confidence?: number
   pinned?: boolean
+  injectFull?: boolean
 }
 
 export const agentMemoryEntryStore = {
@@ -50,6 +53,7 @@ export const agentMemoryEntryStore = {
       source_task_id: input.sourceTaskId ?? null,
       confidence: input.confidence ?? 1.0,
       pinned: input.pinned ? 1 : 0,
+      inject_full: input.injectFull ? 1 : 0,
       last_used_at: null,
       use_count: 0,
       created_at: now,
@@ -59,12 +63,12 @@ export const agentMemoryEntryStore = {
     getDb().prepare(`
       INSERT INTO agent_memory_entries (
         id, dimension_id, title, content, tags,
-        source_session_id, source_task_id, confidence, pinned,
+        source_session_id, source_task_id, confidence, pinned, inject_full,
         last_used_at, use_count, created_at, updated_at, deleted_at
       )
       VALUES (
         @id, @dimension_id, @title, @content, @tags,
-        @source_session_id, @source_task_id, @confidence, @pinned,
+        @source_session_id, @source_task_id, @confidence, @pinned, @inject_full,
         @last_used_at, @use_count, @created_at, @updated_at, @deleted_at
       )
     `).run(row)
@@ -84,7 +88,7 @@ export const agentMemoryEntryStore = {
       .prepare<[string], AgentMemoryEntryRow>(`
         SELECT * FROM agent_memory_entries
         WHERE dimension_id = ? AND deleted_at IS NULL
-        ORDER BY pinned DESC, use_count DESC, created_at DESC
+        ORDER BY pinned DESC, inject_full DESC, use_count DESC, created_at DESC
       `)
       .all(dimensionId)
   },
@@ -101,6 +105,23 @@ export const agentMemoryEntryStore = {
       .all(...dimensionIds)
   },
 
+  listInjectFullByDimensions(dimensionIds: string[], minConfidence: number, limit: number): AgentMemoryEntryRow[] {
+    if (dimensionIds.length === 0) return []
+    const placeholders = dimensionIds.map(() => '?').join(',')
+    return getDb()
+      .prepare<Array<string | number>, AgentMemoryEntryRow>(`
+        SELECT * FROM agent_memory_entries
+        WHERE deleted_at IS NULL
+          AND pinned = 1
+          AND inject_full = 1
+          AND dimension_id IN (${placeholders})
+          AND confidence >= ?
+        ORDER BY use_count DESC
+        LIMIT ?
+      `)
+      .all(...dimensionIds, minConfidence, limit)
+  },
+
   countPinnedByDimensions(dimensionIds: string[]): number {
     if (dimensionIds.length === 0) return 0
     const placeholders = dimensionIds.map(() => '?').join(',')
@@ -108,6 +129,18 @@ export const agentMemoryEntryStore = {
       .prepare<string[], { count: number }>(`
         SELECT COUNT(*) AS count FROM agent_memory_entries
         WHERE deleted_at IS NULL AND pinned = 1 AND dimension_id IN (${placeholders})
+      `)
+      .get(...dimensionIds)
+    return row?.count ?? 0
+  },
+
+  countInjectFullByDimensions(dimensionIds: string[]): number {
+    if (dimensionIds.length === 0) return 0
+    const placeholders = dimensionIds.map(() => '?').join(',')
+    const row = getDb()
+      .prepare<string[], { count: number }>(`
+        SELECT COUNT(*) AS count FROM agent_memory_entries
+        WHERE deleted_at IS NULL AND pinned = 1 AND inject_full = 1 AND dimension_id IN (${placeholders})
       `)
       .get(...dimensionIds)
     return row?.count ?? 0
@@ -123,6 +156,7 @@ export const agentMemoryEntryStore = {
       tags: input.tags ? JSON.stringify(input.tags) : current.tags,
       confidence: input.confidence ?? current.confidence,
       pinned: input.pinned !== undefined ? (input.pinned ? 1 : 0) : current.pinned,
+      inject_full: input.injectFull !== undefined ? (input.injectFull ? 1 : 0) : current.inject_full,
       updated_at: new Date().toISOString(),
     }
     getDb().prepare(`
@@ -132,6 +166,7 @@ export const agentMemoryEntryStore = {
         tags = @tags,
         confidence = @confidence,
         pinned = @pinned,
+        inject_full = @inject_full,
         updated_at = @updated_at
       WHERE id = @id
     `).run(next)

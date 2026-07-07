@@ -1,14 +1,17 @@
 import { useMemo, useState } from 'react'
-import { ConfirmDialog } from '../../components/ModalDialog'
+import { ConfirmDialog, ModalOverlay } from '../../components/ModalDialog'
 import { MarkdownRenderer } from '../../components/MarkdownRenderer'
 import type { AgentMemoryEntrySummary } from '../../stores/agent-memory.store'
 
 const PAGE_SIZE = 8
+const INJECT_FULL_LIMIT = 3
 
 interface EntryListProps {
   entries: AgentMemoryEntrySummary[]
   pinnedLimit: number
   pinnedCount: number
+  injectFullLimit: number
+  injectFullCount: number
   loading: boolean
   saving: boolean
   allTags: string[]
@@ -18,6 +21,7 @@ interface EntryListProps {
   onEdit: (entry: AgentMemoryEntrySummary) => void
   onDelete: (entry: AgentMemoryEntrySummary) => Promise<void>
   onTogglePinned: (entry: AgentMemoryEntrySummary) => Promise<void>
+  onToggleInjectFull: (entry: AgentMemoryEntrySummary, downgradeOldest: boolean | null) => Promise<void>
   onExpand: (entry: AgentMemoryEntrySummary) => void
 }
 
@@ -25,6 +29,8 @@ export function EntryList({
   entries,
   pinnedLimit,
   pinnedCount,
+  injectFullLimit,
+  injectFullCount,
   loading,
   saving,
   allTags,
@@ -34,6 +40,7 @@ export function EntryList({
   onEdit,
   onDelete,
   onTogglePinned,
+  onToggleInjectFull,
   onExpand,
 }: EntryListProps) {
   const [keywordInput, setKeywordInput] = useState('')
@@ -42,6 +49,7 @@ export function EntryList({
   const [page, setPage] = useState(1)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [deleting, setDeleting] = useState<AgentMemoryEntrySummary | null>(null)
+  const [injectFullTarget, setInjectFullTarget] = useState<AgentMemoryEntrySummary | null>(null)
 
   const keywords = useMemo(
     () => keywordInput.trim().split(/\s+/).filter(Boolean),
@@ -74,6 +82,26 @@ export function EntryList({
       onExpand(e)
     }
   }
+
+  const handleToggleInjectFull = (entry: AgentMemoryEntrySummary) => {
+    if (entry.inject_full) {
+      onToggleInjectFull(entry, null)
+      return
+    }
+    if (injectFullCount >= injectFullLimit) {
+      setInjectFullTarget(entry)
+      return
+    }
+    onToggleInjectFull(entry, null)
+  }
+
+  const oldestInjectFull = useMemo(() => {
+    if (!injectFullTarget) return null
+    const candidates = entries
+      .filter((e) => e.inject_full && e.id !== injectFullTarget.id)
+      .sort((a, b) => a.use_count - b.use_count || (a.last_used_at ?? '').localeCompare(b.last_used_at ?? ''))
+    return candidates[0] ?? null
+  }, [injectFullTarget, entries])
 
   return (
     <main className="am-col">
@@ -124,12 +152,13 @@ export function EntryList({
               onEdit={() => onEdit(e)}
               onDelete={() => setDeleting(e)}
               onTogglePinned={() => onTogglePinned(e)}
+              onToggleInjectFull={() => handleToggleInjectFull(e)}
             />
           ))
         )}
       </div>
       <div className="am-pager">
-        <span>共 {filtered.length} 条 · 置顶 {pinnedCount}/{pinnedLimit}</span>
+        <span>共 {filtered.length} 条 · 全文 {injectFullCount}/{injectFullLimit} · 置顶 {pinnedCount}/{pinnedLimit}</span>
         <span>
           <button type="button" className="am-btn" disabled={currentPage <= 1} onClick={() => setPage(currentPage - 1)}>上一页</button>
           <span>{currentPage} / {totalPages}</span>
@@ -150,7 +179,59 @@ export function EntryList({
         }}
         onCancel={() => setDeleting(null)}
       />
+      <ModalOverlay
+        open={injectFullTarget !== null}
+        onClose={() => setInjectFullTarget(null)}
+        title="全文注入上限 3 条,已满"
+        width={420}
+      >
+        {injectFullTarget ? (
+          <InjectFullConfirmBody
+            targetTitle={injectFullTarget.title}
+            oldestTitle={oldestInjectFull?.title ?? ''}
+            onCancel={() => setInjectFullTarget(null)}
+            onDowngrade={async () => {
+              const target = injectFullTarget
+              setInjectFullTarget(null)
+              await onToggleInjectFull(target, true)
+            }}
+            onPinnedOnly={async () => {
+              const target = injectFullTarget
+              setInjectFullTarget(null)
+              await onToggleInjectFull(target, false)
+            }}
+          />
+        ) : null}
+      </ModalOverlay>
     </main>
+  )
+}
+
+interface InjectFullConfirmBodyProps {
+  targetTitle: string
+  oldestTitle: string
+  onCancel: () => void
+  onDowngrade: () => void
+  onPinnedOnly: () => void
+}
+
+function InjectFullConfirmBody({ targetTitle, oldestTitle, onCancel, onDowngrade, onPinnedOnly }: InjectFullConfirmBodyProps) {
+  return (
+    <>
+      <p style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.6, marginBottom: 16 }}>
+        当前要把 <strong>&quot;{targetTitle}&quot;</strong> 设为全文注入,但全文注入上限 {INJECT_FULL_LIMIT} 条已满。
+        最旧的全文条目是 <strong>&quot;{oldestTitle}&quot;</strong>。请选择:
+      </p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <button type="button" className="am-btn am-btn-primary" onClick={onDowngrade}>
+          降级旧条目 &quot;{oldestTitle}&quot; 为仅置顶,并开启当前全文注入
+        </button>
+        <button type="button" className="am-btn" onClick={onPinnedOnly}>
+          改用仅置顶(本次不开全文注入)
+        </button>
+        <button type="button" className="am-btn" onClick={onCancel}>取消</button>
+      </div>
+    </>
   )
 }
 
@@ -163,13 +244,15 @@ interface EntryCardProps {
   onEdit: () => void
   onDelete: () => void
   onTogglePinned: () => void
+  onToggleInjectFull: () => void
 }
 
-function EntryCard({ entry, expanded, expandedContent, saving, onExpand, onEdit, onDelete, onTogglePinned }: EntryCardProps) {
+function EntryCard({ entry, expanded, expandedContent, saving, onExpand, onEdit, onDelete, onTogglePinned, onToggleInjectFull }: EntryCardProps) {
   return (
     <div className="am-entry">
       <div className="am-entry-title" onClick={onExpand}>
         {entry.pinned ? <span className="am-entry-pin">置顶</span> : null}
+        {entry.inject_full ? <span className="am-entry-pin am-entry-pin-full">全文</span> : null}
         {entry.title}
         <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-3)', fontWeight: 400 }}>
           {expanded ? '▾ 收起' : '▸ 查看全文'}
@@ -202,6 +285,9 @@ function EntryCard({ entry, expanded, expandedContent, saving, onExpand, onEdit,
         <button type="button" className="am-btn" onClick={onEdit} disabled={saving}>编辑</button>
         <button type="button" className="am-btn" onClick={onTogglePinned} disabled={saving}>
           {entry.pinned ? '取消置顶' : '置顶'}
+        </button>
+        <button type="button" className="am-btn" onClick={onToggleInjectFull} disabled={saving}>
+          {entry.inject_full ? '取消全文' : '全文注入'}
         </button>
         <button type="button" className="am-btn am-btn-danger" onClick={onDelete} disabled={saving}>删除</button>
       </div>

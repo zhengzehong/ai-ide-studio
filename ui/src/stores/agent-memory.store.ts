@@ -21,6 +21,7 @@ export interface AgentMemoryEntrySummary {
   use_count: number
   last_used_at: string | null
   pinned: boolean
+  inject_full: boolean
   matched_keywords?: string[]
 }
 
@@ -35,6 +36,7 @@ export interface AgentMemoryEntryFull {
   source_task_id: string | null
   confidence: number
   pinned: boolean
+  inject_full: boolean
   use_count: number
   last_used_at: string | null
   created_at: string
@@ -57,7 +59,7 @@ interface AgentMemoryStore {
   fetchEntries: (projectId: string, agentId: string, dimension: string) => Promise<void>
   getEntry: (projectId: string, agentId: string, entryId: string) => Promise<AgentMemoryEntryFull>
   createEntry: (projectId: string, agentId: string, input: { dimension: string; title: string; content: string; tags?: string[]; confidence?: number }) => Promise<AgentMemoryEntryFull>
-  updateEntry: (projectId: string, agentId: string, entryId: string, input: { title?: string; content?: string; tags?: string[]; confidence?: number; pinned?: boolean }) => Promise<AgentMemoryEntryFull>
+  updateEntry: (projectId: string, agentId: string, entryId: string, input: { title?: string; content?: string; tags?: string[]; confidence?: number; pinned?: boolean; injectFull?: boolean }) => Promise<AgentMemoryEntryFull>
   deleteEntry: (projectId: string, agentId: string, entryId: string) => Promise<void>
   recall: (projectId: string, agentId: string, dimension: string, keywords: string[], limit?: number) => Promise<AgentMemoryEntrySummary[]>
 }

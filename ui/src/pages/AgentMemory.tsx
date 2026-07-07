@@ -66,6 +66,7 @@ export default function AgentMemory() {
   }, [entries])
 
   const pinnedCount = useMemo(() => entries.filter((e) => e.pinned).length, [entries])
+  const injectFullCount = useMemo(() => entries.filter((e) => e.inject_full).length, [entries])
 
   const handleExpand = async (entry: AgentMemoryEntrySummary) => {
     if (expandedContent[entry.id]) return
@@ -114,6 +115,32 @@ export default function AgentMemory() {
     await fetchEntries(currentProjectId, selectedAgentId, currentDimension.name)
   }
 
+  const handleToggleInjectFull = async (
+    entry: AgentMemoryEntrySummary,
+    downgradeOldest: boolean | null,
+  ) => {
+    if (!currentProjectId || !selectedAgentId || !currentDimension) return
+    if (entry.inject_full) {
+      await updateEntry(currentProjectId, selectedAgentId, entry.id, { injectFull: false })
+      await fetchEntries(currentProjectId, selectedAgentId, currentDimension.name)
+      return
+    }
+    if (downgradeOldest === true) {
+      const oldest = entries
+        .filter((e) => e.inject_full && e.id !== entry.id)
+        .sort((a, b) => a.use_count - b.use_count || (a.last_used_at ?? '').localeCompare(b.last_used_at ?? ''))[0]
+      if (oldest) {
+        await updateEntry(currentProjectId, selectedAgentId, oldest.id, { injectFull: false })
+      }
+      await updateEntry(currentProjectId, selectedAgentId, entry.id, { injectFull: true })
+    } else if (downgradeOldest === false) {
+      await updateEntry(currentProjectId, selectedAgentId, entry.id, { pinned: true })
+    } else {
+      await updateEntry(currentProjectId, selectedAgentId, entry.id, { injectFull: true })
+    }
+    await fetchEntries(currentProjectId, selectedAgentId, currentDimension.name)
+  }
+
   const handleDeleteEntry = async (entry: AgentMemoryEntrySummary) => {
     if (!currentProjectId || !selectedAgentId || !currentDimension) return
     await deleteEntry(currentProjectId, selectedAgentId, entry.id)
@@ -148,6 +175,8 @@ export default function AgentMemory() {
           entries={entries}
           pinnedLimit={pinnedLimit}
           pinnedCount={pinnedCount}
+          injectFullLimit={3}
+          injectFullCount={injectFullCount}
           loading={loading}
           saving={saving}
           allTags={allTags}
@@ -156,6 +185,7 @@ export default function AgentMemory() {
           onEdit={(e) => setEntryModal({ mode: 'edit', target: e })}
           onDelete={handleDeleteEntry}
           onTogglePinned={handleTogglePinned}
+          onToggleInjectFull={handleToggleInjectFull}
           onExpand={handleExpand}
           expandedContent={expandedContent}
         />

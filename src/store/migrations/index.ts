@@ -31,6 +31,7 @@ import { formalCodeMergeSchemaMigration } from './030-formal-code-merge-schema.j
 import { addSettingsTableMigration } from './031-add-settings-table.js'
 import { agentHubConnectionsMigration } from './033-agent-hub-connections.js'
 import { agentMemoryBuiltinDimsMigration } from './034-agent-memory-builtin-dims.js'
+import { agentMemoryInjectFullMigration } from './035-agent-memory-inject-full.js'
 import type { Migration } from '../migrator.js'
 
 export const migrations: Migration[] = [
@@ -67,4 +68,5 @@ export const migrations: Migration[] = [
   addSettingsTableMigration,
   agentHubConnectionsMigration,
   agentMemoryBuiltinDimsMigration,
+  agentMemoryInjectFullMigration,
 ]

@@ -13,7 +13,11 @@ import { createChildLogger } from './logger.js'
 const log = createChildLogger('agent-memory')
 export const AGENT_MEMORY_MAX_PINNED = 20
 export const AGENT_MEMORY_MAX_DIMENSIONS = 10
+export const AGENT_MEMORY_MAX_INJECT_FULL = 3
+export const INJECT_FULL_MIN_CONFIDENCE = 0.9
+export const INJECT_FULL_MAX_CONTENT_LENGTH = 1500
 const PINNED_MIN_CONFIDENCE = 0.7
+const PINNED_INDEX_LIMIT = 20
 
 export interface AgentMemoryEntrySummary {
   id: string
@@ -23,6 +27,7 @@ export interface AgentMemoryEntrySummary {
   use_count: number
   last_used_at: string | null
   pinned: boolean
+  inject_full: boolean
   matched_keywords?: string[]
 }
 
@@ -37,6 +42,7 @@ export interface AgentMemoryEntryFull {
   source_task_id: string | null
   confidence: number
   pinned: boolean
+  inject_full: boolean
   use_count: number
   last_used_at: string | null
   created_at: string
@@ -71,6 +77,7 @@ export interface AgentMemoryUpdateInput {
   tags?: string[]
   confidence?: number
   pinned?: boolean
+  injectFull?: boolean
 }
 
 function assertAgentInProject(agentId: string | undefined, projectId: string): void {
@@ -111,6 +118,7 @@ function toSummary(row: AgentMemoryEntryRow, matched?: string[]): AgentMemoryEnt
     use_count: row.use_count,
     last_used_at: row.last_used_at,
     pinned: row.pinned === 1,
+    inject_full: row.inject_full === 1,
     matched_keywords: matched,
   }
 }
@@ -127,6 +135,7 @@ function toFull(row: AgentMemoryEntryRow, dimensionName: string): AgentMemoryEnt
     source_task_id: row.source_task_id,
     confidence: row.confidence,
     pinned: row.pinned === 1,
+    inject_full: row.inject_full === 1,
     use_count: row.use_count,
     last_used_at: row.last_used_at,
     created_at: row.created_at,
@@ -279,6 +288,7 @@ export const agentMemoryService = {
       sourceTaskId: input.sourceTaskId ?? null,
       confidence: input.confidence,
       pinned: false,
+      injectFull: false,
     })
     log.info({ entryId: entry.id, dimensionId: dim.id }, 'agent memory recorded')
     return toFull(entry, dim.name)
@@ -292,23 +302,50 @@ export const agentMemoryService = {
     if (!dim || dim.project_id !== input.projectId || dim.agent_id !== input.agentId) {
       throw new Error('ENTRY_OWNERSHIP_MISMATCH')
     }
-    if (input.pinned !== undefined) {
-      const willPin = input.pinned && entry.pinned !== 1
-      if (willPin) {
-        const allDims = agentMemoryDimensionStore.listByAgent(input.projectId, input.agentId)
-        const dimIds = allDims.map((d) => d.id)
-        const count = agentMemoryEntryStore.countPinnedByDimensions(dimIds)
-        if (count >= AGENT_MEMORY_MAX_PINNED) {
-          throw new Error(`PINNED_LIMIT_EXCEEDED: max ${AGENT_MEMORY_MAX_PINNED}`)
-        }
+
+    const allDims = agentMemoryDimensionStore.listByAgent(input.projectId, input.agentId)
+    const dimIds = allDims.map((d) => d.id)
+
+    let nextPinned = input.pinned
+    let nextInjectFull = input.injectFull
+
+    if (nextInjectFull === true && entry.inject_full !== 1) {
+      if (nextPinned === false) {
+        throw new Error('INJECT_FULL_REQUIRES_PINNED: 开启全文注入会自动置顶,请先开启置顶或同时开启')
+      }
+      nextPinned = true
+      const effectiveConfidence = input.confidence ?? entry.confidence
+      if (effectiveConfidence < INJECT_FULL_MIN_CONFIDENCE) {
+        throw new Error(`INJECT_FULL_MIN_CONFIDENCE: 全文注入要求 confidence ≥ ${INJECT_FULL_MIN_CONFIDENCE},当前 ${effectiveConfidence}`)
+      }
+      const effectiveContent = input.content ?? entry.content
+      if (effectiveContent.length > INJECT_FULL_MAX_CONTENT_LENGTH) {
+        throw new Error(`INJECT_FULL_MAX_CONTENT_LENGTH: 全文注入要求 content ≤ ${INJECT_FULL_MAX_CONTENT_LENGTH} 字,当前 ${effectiveContent.length} 字`)
+      }
+      const currentCount = agentMemoryEntryStore.countInjectFullByDimensions(dimIds)
+      if (currentCount >= AGENT_MEMORY_MAX_INJECT_FULL) {
+        throw new Error(`INJECT_FULL_LIMIT_EXCEEDED: 全文注入上限 ${AGENT_MEMORY_MAX_INJECT_FULL} 条,已达上限`)
       }
     }
+
+    if (nextPinned === false && entry.pinned === 1) {
+      nextInjectFull = false
+    }
+
+    if (nextPinned === true && entry.pinned !== 1) {
+      const count = agentMemoryEntryStore.countPinnedByDimensions(dimIds)
+      if (count >= AGENT_MEMORY_MAX_PINNED) {
+        throw new Error(`PINNED_LIMIT_EXCEEDED: max ${AGENT_MEMORY_MAX_PINNED}`)
+      }
+    }
+
     const updated = agentMemoryEntryStore.update(input.entryId, {
       title: input.title,
       content: input.content,
       tags: input.tags,
       confidence: input.confidence,
-      pinned: input.pinned,
+      pinned: nextPinned,
+      injectFull: nextInjectFull,
     })!
     return toFull(updated, dim.name)
   },
@@ -381,10 +418,14 @@ export const agentMemoryService = {
     if (dims.length === 0) return ''
 
     const dimIds = dims.map((d) => d.id)
+    const injectFullRows = agentMemoryEntryStore
+      .listInjectFullByDimensions(dimIds, INJECT_FULL_MIN_CONFIDENCE, AGENT_MEMORY_MAX_INJECT_FULL)
+
+    const injectFullIds = new Set(injectFullRows.map((r) => r.id))
     const pinnedRows = agentMemoryEntryStore
       .listPinnedByDimensions(dimIds)
-      .filter((e) => e.confidence >= PINNED_MIN_CONFIDENCE)
-      .slice(0, AGENT_MEMORY_MAX_PINNED)
+      .filter((e) => e.confidence >= PINNED_MIN_CONFIDENCE && !injectFullIds.has(e.id))
+      .slice(0, PINNED_INDEX_LIMIT)
 
     const dimSection = dims
       .map((d) => {
@@ -406,8 +447,17 @@ export const agentMemoryService = {
       '你可以调用 define_memory_dimension 为自己新增维度(仅当现有维度装不下时)。不要为单条信息建维度,优先 record 到已有维度。维度上限 10 个。',
     ].join('\n')
 
+    const injectFullSection = injectFullRows.length === 0
+      ? '（暂无全文注入记忆。）'
+      : injectFullRows
+          .map((e) => {
+            const dim = dims.find((d) => d.id === e.dimension_id)
+            return `- [${dim?.name ?? '?'}] ${e.title}\n  ${e.content.trim()}`
+          })
+          .join('\n\n')
+
     const pinnedSection = pinnedRows.length === 0
-      ? '（暂无置顶记忆。需要时通过 recall_memory 查询。）'
+      ? '（暂无索引记忆。）'
       : pinnedRows
           .map((e) => {
             const dim = dims.find((d) => d.id === e.dimension_id)
@@ -424,7 +474,13 @@ export const agentMemoryService = {
       toolSection,
       '',
       '## 置顶记忆（永久生效，不占用对话）',
+      '',
+      '### 核心记忆（全文注入）',
+      injectFullSection,
+      '',
+      '### 索引（需要时 recall_memory 拉全文）',
       pinnedSection,
+      '',
       '（其余记忆通过 recall_memory 查询，不在此列出）',
     ].join('\n')
   },
