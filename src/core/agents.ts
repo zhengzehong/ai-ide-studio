@@ -66,6 +66,7 @@ export function deployTemplateToProject(templateId: string, projectId: string, i
   }
 
   ensurePrimarySession(agent)
+  seedBuiltinDimensionsForAgent(projectId, agent.id)
 
   log.info({ agentId: agent.id, templateId, projectId }, 'Agent 模板已部署到项目')
   return agent
@@ -100,14 +101,7 @@ export function createCustomProjectAgent(input: CreateCustomAgentInput): AgentRo
   ensurePrimarySession(agent)
   log.info({ agentId: agent.id, projectId: input.projectId }, '项目自定义 Agent 已创建')
 
-  try {
-    const seeded = agentMemoryService.seedBuiltinDimensions(input.projectId, agent.id)
-    if (seeded.length > 0) {
-      log.info({ agentId: agent.id, seeded: seeded.length }, '内置记忆维度已 seed')
-    }
-  } catch (err) {
-    log.error({ agentId: agent.id, err }, '内置记忆维度 seed 失败(不阻塞 Agent 创建)')
-  }
+  seedBuiltinDimensionsForAgent(input.projectId, agent.id)
 
   return agent
 }
@@ -196,4 +190,15 @@ function ensurePrimarySession(agent: AgentRow): void {
     isPrimary: true,
     title: `${agent.name} 的主会话`,
   })
+}
+
+function seedBuiltinDimensionsForAgent(projectId: string, agentId: string): void {
+  try {
+    const seeded = agentMemoryService.seedBuiltinDimensions(projectId, agentId)
+    if (seeded.length > 0) {
+      log.info({ agentId, seeded: seeded.length }, '内置记忆维度已 seed')
+    }
+  } catch (err) {
+    log.error({ agentId, err }, '内置记忆维度 seed 失败(不阻塞 Agent 创建)')
+  }
 }
