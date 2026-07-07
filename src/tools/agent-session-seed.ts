@@ -6,15 +6,15 @@ export const AGENT_SESSION_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'gl
   {
     name: 'agent.message.send',
     displayName: '发送 Agent 消息',
-    description: '向另一个 Agent 会话发送消息。异步投递，调用后立即返回，不要等待目标 Agent 完成。如果 needReply=true，发送后结束当前轮；目标 Agent 回传后系统会自动唤醒来源会话。只传 targetAgentId 时会创建新会话。',
+    description: '向另一个 Agent 会话发送消息。异步投递，调用后立即返回，不要等待目标 Agent 完成。\n\ntargetSessionId 建议:\n- 回复对方消息时:填对方系统消息里的"来源会话 ID",确保回复进原上下文\n- 主动发起对话时:填对方 primary 会话 ID(可用 agent.session.list 查)\n- 仅首次联系对方、对方没有任何活跃会话时,才只传 targetAgentId 新建会话\n- 已有活跃会话但只传 targetAgentId,会新建空壳会话,对方很可能看不到\n\n如果 needReply=true,发送后结束当前轮;目标 Agent 回传后系统会自动唤醒来源会话。',
     category: 'automation',
     type: 'builtin',
     config: { handler: 'agent.message.send' },
     inputSchema: {
       type: 'object',
       properties: {
-        targetAgentId: { type: 'string', description: '目标 Agent ID；不传 targetSessionId 时必填' },
-        targetSessionId: { type: 'string', description: '目标会话 ID' },
+        targetAgentId: { type: 'string', description: '目标 Agent ID。通常和 targetSessionId 一起传;仅在首次联系对方且无活跃会话时单独传,会新建会话' },
+        targetSessionId: { type: 'string', description: '目标会话 ID。回复对方消息时填对方系统消息里的"来源会话 ID";主动发起对话时填对方 primary 会话 ID。除非是首次联系对方且无活跃会话,否则建议总是传入,避免消息落到空壳会话' },
         content: { type: 'string', description: '消息内容' },
         relatedInfo: { type: 'object', description: '动态关联信息 JSON' },
         needReply: { type: 'boolean', description: '是否要求目标 Agent 完成后回复；系统会在收到回复后自动唤醒来源会话' },
