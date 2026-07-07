@@ -22,7 +22,7 @@ async function main(): Promise<void> {
         agentId: agent.id,
         projectId: agent.project_id ?? undefined,
         isPrimary: true,
-        title: `${agent.name} 的主会话`,
+        title: '主会话',
       })
       created += 1
       console.log(`为 Agent ${agent.name} (${agent.id}) 补建主会话`)
