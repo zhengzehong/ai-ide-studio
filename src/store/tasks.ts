@@ -123,20 +123,20 @@ export const taskStore = {
         .prepare<
           [string, string],
           TaskRow
-        >('SELECT * FROM tasks WHERE status = ? AND project_id = ? ORDER BY created_at ASC')
+        >('SELECT * FROM tasks WHERE status = ? AND project_id = ? ORDER BY created_at DESC')
         .all(status, projectId)
     }
     if (status) {
       return getDb()
-        .prepare<[string], TaskRow>('SELECT * FROM tasks WHERE status = ? ORDER BY created_at ASC')
+        .prepare<[string], TaskRow>('SELECT * FROM tasks WHERE status = ? ORDER BY created_at DESC')
         .all(status)
     }
     if (projectId) {
       return getDb()
-        .prepare<[string], TaskRow>('SELECT * FROM tasks WHERE project_id = ? ORDER BY created_at ASC')
+        .prepare<[string], TaskRow>('SELECT * FROM tasks WHERE project_id = ? ORDER BY created_at DESC')
         .all(projectId)
     }
-    return getDb().prepare<[], TaskRow>('SELECT * FROM tasks ORDER BY created_at ASC').all()
+    return getDb().prepare<[], TaskRow>('SELECT * FROM tasks ORDER BY created_at DESC').all()
   },
 
   listByTeam(teamId: string, status?: string): TaskRow[] {
@@ -146,13 +146,13 @@ export const taskStore = {
           `
         SELECT * FROM tasks
         WHERE team_id = ? AND status = ?
-        ORDER BY created_at ASC
+        ORDER BY created_at DESC
       `,
         )
         .all(teamId, status)
     }
     return getDb()
-      .prepare<[string], TaskRow>('SELECT * FROM tasks WHERE team_id = ? ORDER BY created_at ASC')
+      .prepare<[string], TaskRow>('SELECT * FROM tasks WHERE team_id = ? ORDER BY created_at DESC')
       .all(teamId)
   },
 
