@@ -136,7 +136,8 @@ export const recordMemoryHandler: ToolHandler = {
 
 export const updateMemoryHandler: ToolHandler = {
   name: 'update_memory',
-  description: '更新已存在条目的 title/content/tags。用于修正或补充记忆。content 支持 Markdown。',
+  description:
+    '更新已存在条目的 title/content/tags/pinned/inject_full。用于修正或补充记忆。content 支持 Markdown。开启 inject_full 会自动置顶;关闭置顶会自动关闭 inject_full。',
   inputSchema: {
     type: 'object',
     properties: {
@@ -146,6 +147,11 @@ export const updateMemoryHandler: ToolHandler = {
       tags: { type: 'array', items: { type: 'string' }, description: '新标签列表(覆盖)' },
       confidence: { type: 'number', description: '置信度 0-1' },
       pinned: { type: 'boolean', description: '是否置顶(单 Agent 上限 20 条)' },
+      inject_full: {
+        type: 'boolean',
+        description:
+          '是否全文注入到系统提示词(单 Agent 上限 3 条,要求 confidence≥0.9 且 content≤1500 字)。开启时自动置顶;关闭置顶时自动关闭全文注入。',
+      },
     },
     required: ['entry_id'],
   },
@@ -160,6 +166,7 @@ export const updateMemoryHandler: ToolHandler = {
       tags: optionalStringArray(input, 'tags'),
       confidence: optionalNumber(input, 'confidence'),
       pinned: optionalBoolean(input, 'pinned'),
+      injectFull: optionalBoolean(input, 'inject_full'),
     })
     return jsonResult({ entry })
   },

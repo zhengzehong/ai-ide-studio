@@ -82,6 +82,7 @@ export const agentMemoryRpcHandlers: RpcHandlerMap = {
       tags: optionalStringArray(msg.tags),
       confidence: optionalNumber(msg.confidence),
       pinned: optionalBoolean(msg.pinned),
+      injectFull: optionalBoolean(msg.injectFull),
     })
     sendResult({ entry })
   },
