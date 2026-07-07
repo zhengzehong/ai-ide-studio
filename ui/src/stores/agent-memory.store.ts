@@ -48,6 +48,7 @@ interface AgentMemoryStore {
   loading: boolean
   saving: boolean
   error: string | null
+  fetchEntriesSeq: number
   clearError: () => void
   fetchDimensions: (projectId: string, agentId: string) => Promise<void>
   createDimension: (projectId: string, agentId: string, input: { name: string; description?: string | null; prompt?: string | null }) => Promise<AgentMemoryDimensionData>
@@ -69,6 +70,7 @@ export const useAgentMemoryStore = create<AgentMemoryStore>((set, get) => ({
   loading: false,
   saving: false,
   error: null,
+  fetchEntriesSeq: 0,
   clearError: () => set({ error: null }),
 
   fetchDimensions: async (projectId, agentId) => {
@@ -120,11 +122,14 @@ export const useAgentMemoryStore = create<AgentMemoryStore>((set, get) => ({
   },
 
   fetchEntries: async (projectId, agentId, dimension) => {
-    set({ loading: true, error: null })
+    const seq = get().fetchEntriesSeq + 1
+    set({ loading: true, error: null, fetchEntriesSeq: seq })
     try {
       const data = await wsClient.request({ type: 'agentMemory.entries.list', projectId, agentId, dimension }) as { entries: AgentMemoryEntrySummary[]; pinnedLimit: number }
+      if (seq !== get().fetchEntriesSeq) return
       set({ entries: data.entries, pinnedLimit: data.pinnedLimit ?? 20, loading: false })
     } catch (err) {
+      if (seq !== get().fetchEntriesSeq) return
       set({ loading: false, error: errorMessage(err) })
     }
   },
