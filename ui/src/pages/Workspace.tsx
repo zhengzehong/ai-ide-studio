@@ -950,7 +950,7 @@ export default function Workspace() {
               </button>
             </div>
             <TaskPanel
-              tasks={tasks}
+              tasks={currentProjectId ? tasks.filter((t) => t.project_id === currentProjectId) : tasks}
               agents={projectAgents}
               modes={modes}
               currentSessionTaskId={currentSession?.task_id ?? null}
