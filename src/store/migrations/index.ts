@@ -29,6 +29,7 @@ import { agentMemoryMigration } from './028-agent-memory.js'
 import { previewsMigration } from './029-previews.js'
 import { formalCodeMergeSchemaMigration } from './030-formal-code-merge-schema.js'
 import { addSettingsTableMigration } from './031-add-settings-table.js'
+import { agentAvatarMigration } from './032-agent-avatar.js'
 import { agentHubConnectionsMigration } from './033-agent-hub-connections.js'
 import { agentMemoryBuiltinDimsMigration } from './034-agent-memory-builtin-dims.js'
 import { agentMemoryInjectFullMigration } from './035-agent-memory-inject-full.js'
@@ -66,6 +67,7 @@ export const migrations: Migration[] = [
   previewsMigration,
   formalCodeMergeSchemaMigration,
   addSettingsTableMigration,
+  agentAvatarMigration,
   agentHubConnectionsMigration,
   agentMemoryBuiltinDimsMigration,
   agentMemoryInjectFullMigration,

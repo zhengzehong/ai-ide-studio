@@ -10,6 +10,7 @@ export interface AgentTemplateRow {
   type: string
   runtime: string
   icon: string
+  avatar_url: string | null
   system_prompt: string
   description: string | null
   skills_json: string | null
@@ -24,6 +25,7 @@ export interface CreateTemplateInput {
   id?: string
   runtime?: string
   icon?: string
+  avatarUrl?: string | null
   systemPrompt?: string
   description?: string
   skills?: string[]
@@ -39,6 +41,7 @@ export const templateStore = {
       type: input.type,
       runtime: input.runtime ?? 'claude',
       icon: input.icon ?? 'bot',
+      avatar_url: input.avatarUrl ?? null,
       system_prompt: input.systemPrompt ?? '',
       description: input.description ?? null,
       skills_json: input.skills ? JSON.stringify(input.skills) : null,
@@ -49,8 +52,8 @@ export const templateStore = {
     getDb()
       .prepare(
         `
-      INSERT INTO agent_templates (id, name, type, runtime, icon, system_prompt, description, skills_json, is_builtin, created_at, updated_at)
-      VALUES (@id, @name, @type, @runtime, @icon, @system_prompt, @description, @skills_json, @is_builtin, @created_at, @updated_at)
+      INSERT INTO agent_templates (id, name, type, runtime, icon, avatar_url, system_prompt, description, skills_json, is_builtin, created_at, updated_at)
+      VALUES (@id, @name, @type, @runtime, @icon, @avatar_url, @system_prompt, @description, @skills_json, @is_builtin, @created_at, @updated_at)
     `,
       )
       .run(tpl)
@@ -78,6 +81,7 @@ export const templateStore = {
       type: fields.type ?? tpl.type,
       runtime: fields.runtime ?? tpl.runtime,
       icon: fields.icon ?? tpl.icon,
+      avatar_url: fields.avatarUrl !== undefined ? (fields.avatarUrl ?? null) : tpl.avatar_url,
       system_prompt: fields.systemPrompt ?? tpl.system_prompt,
       description: fields.description !== undefined ? (fields.description ?? null) : tpl.description,
       skills_json: fields.skills ? JSON.stringify(fields.skills) : tpl.skills_json,
@@ -88,7 +92,7 @@ export const templateStore = {
         `
       UPDATE agent_templates
       SET name = @name, type = @type, runtime = @runtime, icon = @icon,
-          system_prompt = @system_prompt, description = @description,
+          avatar_url = @avatar_url, system_prompt = @system_prompt, description = @description,
           skills_json = @skills_json, updated_at = @updated_at
       WHERE id = @id
     `,

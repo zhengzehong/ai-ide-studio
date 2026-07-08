@@ -14,6 +14,7 @@ export interface AgentData {
   template_id?: string | null
   system_prompt?: string
   icon?: string
+  avatar_url?: string | null
   sort_order?: number | null
   hidden_at?: string | null
 }
@@ -24,6 +25,7 @@ export interface ProjectAgentInput {
   runtime: string
   systemPrompt?: string
   icon?: string
+  avatarUrl?: string | null
   modelProfileId?: string | null
 }
 

@@ -14,6 +14,7 @@ export interface AgentRow {
   template_id: string | null
   system_prompt: string
   icon: string
+  avatar_url: string | null
   sort_order: number | null
   hidden_at: string | null
 }
@@ -29,6 +30,7 @@ export interface CreateAgentInput {
   templateId?: string
   systemPrompt?: string
   icon?: string
+  avatarUrl?: string | null
 }
 
 
@@ -42,6 +44,7 @@ export interface UpdateAgentInput {
   config?: Record<string, unknown> | null
   systemPrompt?: string
   icon?: string
+  avatarUrl?: string | null
 }
 
 export const agentStore = {
@@ -60,12 +63,13 @@ export const agentStore = {
       template_id: input.templateId ?? null,
       system_prompt: input.systemPrompt ?? '',
       icon: input.icon ?? 'bot',
+      avatar_url: input.avatarUrl ?? null,
       sort_order: nextAgentSortOrder(input.projectId ?? null),
       hidden_at: null,
     }
     getDb().prepare(`
-      INSERT INTO agents (id, type, name, runtime, status, permission_level, config_json, created_at, project_id, template_id, system_prompt, icon, sort_order, hidden_at)
-      VALUES (@id, @type, @name, @runtime, @status, @permission_level, @config_json, @created_at, @project_id, @template_id, @system_prompt, @icon, @sort_order, @hidden_at)
+      INSERT INTO agents (id, type, name, runtime, status, permission_level, config_json, created_at, project_id, template_id, system_prompt, icon, avatar_url, sort_order, hidden_at)
+      VALUES (@id, @type, @name, @runtime, @status, @permission_level, @config_json, @created_at, @project_id, @template_id, @system_prompt, @icon, @avatar_url, @sort_order, @hidden_at)
     `).run(agent)
     return agent
   },
@@ -126,12 +130,13 @@ export const agentStore = {
       config_json: fields.config !== undefined ? (fields.config ? JSON.stringify(fields.config) : null) : existing.config_json,
       system_prompt: fields.systemPrompt ?? existing.system_prompt,
       icon: fields.icon ?? existing.icon,
+      avatar_url: fields.avatarUrl !== undefined ? (fields.avatarUrl ?? null) : existing.avatar_url,
     }
     getDb().prepare(`
       UPDATE agents
       SET name = @name, type = @type, runtime = @runtime, status = @status,
           permission_level = @permission_level, config_json = @config_json,
-          system_prompt = @system_prompt, icon = @icon
+          system_prompt = @system_prompt, icon = @icon, avatar_url = @avatar_url
       WHERE id = @id
     `).run(updated)
     return updated
@@ -154,7 +159,7 @@ export const agentStore = {
         UPDATE agents
         SET type = @type, name = @name, runtime = @runtime,
             project_id = @project_id, template_id = @template_id,
-            system_prompt = @system_prompt, icon = @icon
+            system_prompt = @system_prompt, icon = @icon, avatar_url = @avatar_url
         WHERE id = @id
       `).run(updated)
       return updated

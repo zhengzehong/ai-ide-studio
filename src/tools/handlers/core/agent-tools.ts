@@ -37,6 +37,7 @@ export const createAgentHandler: ToolHandler = {
       runtime: { type: 'string' },
       systemPrompt: { type: 'string' },
       icon: { type: 'string' },
+      avatarUrl: { type: 'string' },
       modelProfileId: { type: 'string' },
     },
   },
@@ -47,10 +48,11 @@ export const createAgentHandler: ToolHandler = {
     const runtime = optionalString(input, 'runtime')
     const systemPrompt = optionalString(input, 'systemPrompt')
     const icon = optionalString(input, 'icon')
+    const avatarUrl = optionalString(input, 'avatarUrl')
     const modelProfileId = optionalString(input, 'modelProfileId')
 
     const agent = templateId
-      ? deployTemplateToProject(templateId, projectId, { name, runtime, systemPrompt, icon, modelProfileId })
+      ? deployTemplateToProject(templateId, projectId, { name, runtime, systemPrompt, icon, avatarUrl, modelProfileId })
       : createCustomProjectAgent({
           projectId,
           name: requireString(input, 'name'),
@@ -58,6 +60,7 @@ export const createAgentHandler: ToolHandler = {
           runtime: requireString(input, 'runtime'),
           systemPrompt,
           icon,
+          avatarUrl,
           modelProfileId,
         })
 

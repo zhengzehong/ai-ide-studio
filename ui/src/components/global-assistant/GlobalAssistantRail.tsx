@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { Bot, Loader2 } from 'lucide-react'
 import { useGlobalAssistantStore } from '../../stores/global-assistant.store'
 import { agentAvatar, agentColor } from '../../pages/workspace/helpers'
+import { ICON_MAP } from '../agent-square/constants'
 import { GlobalAssistantDrawer } from './GlobalAssistantDrawer'
 
 export function GlobalAssistantRail() {
@@ -36,7 +37,7 @@ export function GlobalAssistantRail() {
               className="global-assistant-avatar-text"
               style={{ background: agentColor(agent) }}
             >
-              {agentAvatar(agent)}
+              <GlobalAssistantAvatar agent={agent} size={28} />
             </span>
           ) : loading ? (
             <Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} />
@@ -50,4 +51,22 @@ export function GlobalAssistantRail() {
       </aside>
     </>
   )
+}
+
+function GlobalAssistantAvatar({ agent, size }: { agent: { name: string; avatar_url?: string | null; icon?: string }; size: number }) {
+  const result = agentAvatar(agent as never)
+  if (result.kind === 'image') {
+    return (
+      <img
+        src={result.src}
+        alt={agent.name}
+        style={{ width: size, height: size, objectFit: 'cover', borderRadius: 'inherit', display: 'block' }}
+      />
+    )
+  }
+  if (result.kind === 'icon') {
+    const IconComp = ICON_MAP[result.name]
+    return IconComp ? <IconComp size={Math.floor(size * 0.6)} color="white" /> : null
+  }
+  return <>{result.text}</>
 }

@@ -15,6 +15,7 @@ export interface DeployTemplateInput {
   runtime?: string
   systemPrompt?: string
   icon?: string
+  avatarUrl?: string | null
   modelProfileId?: string
 }
 
@@ -25,6 +26,7 @@ export interface CreateCustomAgentInput {
   runtime: string
   systemPrompt?: string
   icon?: string
+  avatarUrl?: string | null
   modelProfileId?: string
 }
 
@@ -34,6 +36,7 @@ export interface UpdateProjectAgentInput {
   runtime?: string
   systemPrompt?: string
   icon?: string
+  avatarUrl?: string | null
   modelProfileId?: string | null
 }
 
@@ -54,6 +57,7 @@ export function deployTemplateToProject(templateId: string, projectId: string, i
     templateId,
     systemPrompt: input.systemPrompt ?? template.system_prompt,
     icon: input.icon || template.icon,
+    avatarUrl: input.avatarUrl !== undefined ? input.avatarUrl : template.avatar_url,
     config: {
       templateId,
       skills: template.skills_json ? JSON.parse(template.skills_json) : [],
@@ -96,6 +100,7 @@ export function createCustomProjectAgent(input: CreateCustomAgentInput): AgentRo
     projectId: input.projectId,
     systemPrompt: input.systemPrompt,
     icon: input.icon,
+    avatarUrl: input.avatarUrl,
     config: input.modelProfileId ? { modelProfileId: input.modelProfileId } : undefined,
   })
   ensurePrimarySession(agent)
@@ -128,6 +133,7 @@ export function updateProjectAgent(agentId: string, input: UpdateProjectAgentInp
   if (input.runtime !== undefined) fields.runtime = input.runtime
   if (input.systemPrompt !== undefined) fields.systemPrompt = input.systemPrompt
   if (input.icon !== undefined) fields.icon = input.icon
+  if (input.avatarUrl !== undefined) fields.avatarUrl = input.avatarUrl
   const config = parseAgentConfig(existing.config_json)
   if (input.modelProfileId !== undefined) {
     if (input.modelProfileId) config.modelProfileId = input.modelProfileId

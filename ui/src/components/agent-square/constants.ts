@@ -1,6 +1,6 @@
 import { Bot, Brain, Code, FileText, Search as SearchIcon, Server, Shield, TestTube, Users } from 'lucide-react'
 
-export const ICON_MAP: Record<string, typeof Brain> = {
+export const ICON_MAP = {
   brain: Brain,
   code: Code,
   search: SearchIcon,
@@ -10,7 +10,9 @@ export const ICON_MAP: Record<string, typeof Brain> = {
   shield: Shield,
   users: Users,
   bot: Bot,
-}
+} satisfies Record<string, typeof Brain>
+
+export type IconName = keyof typeof ICON_MAP
 
 export const TYPE_LABELS: Record<string, string> = {
   leader: '团队负责人',
@@ -39,4 +41,4 @@ export const RUNTIME_OPTIONS = [
   { value: 'mock', label: 'Mock' },
 ]
 
-export const ICON_OPTIONS = Object.keys(ICON_MAP)
+export const ICON_OPTIONS: IconName[] = Object.keys(ICON_MAP) as IconName[]

@@ -1,6 +1,9 @@
 ﻿import type React from 'react'
 import type { AgentData } from '../../stores/agent.store'
 import type { ConfigOptionInfo, SessionData, ToolCallInfo } from '../../stores/session.store'
+import { ICON_MAP, type IconName } from '../../components/agent-square/constants'
+
+export type { IconName }
 
 export const TYPE_COLORS: Record<string, string> = {
   dev: '#2563eb',
@@ -14,9 +17,18 @@ export const TYPE_COLORS: Record<string, string> = {
 export function agentColor(a: AgentData): string {
   return TYPE_COLORS[a.type] ?? '#6b7280'
 }
-export function agentAvatar(a: AgentData): string {
-  return a.name.charAt(0).toUpperCase()
+
+export type AvatarResult =
+  | { kind: 'image'; src: string }
+  | { kind: 'icon'; name: IconName }
+  | { kind: 'text'; text: string }
+
+export function agentAvatar(a: AgentData): AvatarResult {
+  if (a.avatar_url) return { kind: 'image', src: a.avatar_url }
+  if (a.icon && ICON_MAP[a.icon as IconName]) return { kind: 'icon', name: a.icon as IconName }
+  return { kind: 'text', text: a.name.charAt(0).toUpperCase() }
 }
+
 export function statusDot(s: string): string {
   return s === 'running' ? '#2563eb' : s === 'idle' ? '#059669' : '#9ca3af'
 }

@@ -24,6 +24,7 @@ code-reviews/
 .tmp/
 references/
 team-ui-smoke.png
+*.tsbuildinfo
 
 # Editor directories and files
 .vscode/*

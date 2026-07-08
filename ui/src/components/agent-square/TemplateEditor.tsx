@@ -1,19 +1,25 @@
 import { useState } from 'react'
-import { Bot, ChevronLeft, Save, X } from 'lucide-react'
+import { ChevronLeft, Save, X } from 'lucide-react'
 import type { CreateTemplateInput, TemplateData } from '../../stores/template.store'
-import { ICON_MAP, ICON_OPTIONS, RUNTIME_OPTIONS, TYPE_FILTERS } from './constants'
+import { RUNTIME_OPTIONS, TYPE_FILTERS } from './constants'
 import { btnOutline, btnPrimary, editorInput } from './styles'
 import { Field } from './Field'
+import { AvatarUploader } from '../agent/AvatarUploader'
+import { wsClient } from '../../services/ws-client'
 
-export function TemplateEditor({ template, onSave, onCancel }: {
+interface TemplateEditorProps {
   template?: TemplateData
   onSave: (input: CreateTemplateInput) => Promise<void>
   onCancel: () => void
-}) {
+}
+
+export function TemplateEditor({ template, onSave, onCancel }: TemplateEditorProps) {
   const [name, setName] = useState(template?.name ?? '')
   const [type, setType] = useState(template?.type ?? 'dev')
   const [runtime, setRuntime] = useState(template?.runtime ?? 'claude')
   const [icon, setIcon] = useState(template?.icon ?? 'bot')
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(template?.avatar_url ?? null)
+  const [pendingDataUrl, setPendingDataUrl] = useState<string | null>(null)
   const [systemPrompt, setSystemPrompt] = useState(template?.system_prompt ?? '')
   const [description, setDescription] = useState(template?.description ?? '')
   const [skillsText, setSkillsText] = useState(() => {
@@ -21,13 +27,41 @@ export function TemplateEditor({ template, onSave, onCancel }: {
     try { return (JSON.parse(template.skills_json) as string[]).join(', ') } catch { return '' }
   })
   const [saving, setSaving] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
 
   const handleSubmit = async () => {
     if (!name.trim()) return
     setSaving(true)
-    const skills = skillsText.split(/[,，]/).map((s) => s.trim()).filter(Boolean)
-    await onSave({ name, agentType: type, runtime, icon, systemPrompt, description: description || undefined, skills: skills.length > 0 ? skills : undefined })
-    setSaving(false)
+    setUploadError(null)
+    try {
+      let finalAvatarUrl: string | null | undefined = avatarUrl
+      if (pendingDataUrl) {
+        const ext = 'png'
+        const res = await wsClient.request({
+          type: 'assets.uploadTemp',
+          base64: pendingDataUrl,
+          ext,
+        }) as { url?: string }
+        finalAvatarUrl = res.url ?? null
+      } else if (pendingDataUrl === null && avatarUrl === null && template?.avatar_url) {
+        finalAvatarUrl = null
+      }
+      const skills = skillsText.split(/[,，]/).map((s) => s.trim()).filter(Boolean)
+      await onSave({
+        name,
+        agentType: type,
+        runtime,
+        icon,
+        avatarUrl: finalAvatarUrl,
+        systemPrompt,
+        description: description || undefined,
+        skills: skills.length > 0 ? skills : undefined,
+      })
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -64,17 +98,18 @@ export function TemplateEditor({ template, onSave, onCancel }: {
               {RUNTIME_OPTIONS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
             </select>
           </Field>
-          <Field label="图标">
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {ICON_OPTIONS.map((ic) => {
-                const Ic = ICON_MAP[ic] || Bot
-                return (
-                  <button key={ic} onClick={() => setIcon(ic)} type="button" style={{ width: 36, height: 36, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', border: icon === ic ? '2px solid var(--blue)' : '1px solid var(--border)', background: icon === ic ? 'var(--blue-light)' : 'var(--bg-0)', color: icon === ic ? 'var(--blue)' : 'var(--text-3)', cursor: 'pointer' }}>
-                    <Ic size={18} />
-                  </button>
-                )
-              })}
-            </div>
+          <Field label="头像">
+            <AvatarUploader
+              currentAvatarUrl={template?.avatar_url}
+              currentIcon={icon}
+              pendingDataUrl={pendingDataUrl}
+              onPendingChange={setPendingDataUrl}
+              onChange={(value) => {
+                setIcon(value.icon)
+                if (value.avatarUrl === null) setAvatarUrl(null)
+              }}
+            />
+            {uploadError && <div style={{ fontSize: 12, color: 'var(--red, #dc2626)', marginTop: 6 }}>{uploadError}</div>}
           </Field>
           <Field label="描述">
             <textarea value={description} onChange={(e) => setDescription(e.target.value)} style={{ ...editorInput, height: 60, resize: 'vertical' }} placeholder="一句话描述 Agent 模板的能力" />

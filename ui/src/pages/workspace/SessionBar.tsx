@@ -6,6 +6,7 @@ import type { SessionIndicatorStateMap } from '../../utils/session-indicators'
 import { agentAvatar, agentColor, formatTime, sessionTitle } from './helpers'
 import { prepareNestedOrderDragEvent } from './ordering'
 import { sessionIndicator } from '../../utils/session-indicators'
+import { ICON_MAP } from '../../components/agent-square/constants'
 
 const orderGripStyle: React.CSSProperties = {
   width: 16,
@@ -120,9 +121,10 @@ export function SessionBar(props: SessionBarProps) {
                 fontWeight: 600,
                 color: 'white',
                 flexShrink: 0,
+                overflow: 'hidden',
               }}
             >
-              {agentAvatar(agent)}
+              <SessionBarAvatar agent={agent} size={18} />
             </span>
             <span
               style={{
@@ -312,4 +314,22 @@ export function SessionBar(props: SessionBarProps) {
       ) : null}
     </aside>
   )
+}
+
+function SessionBarAvatar({ agent, size }: { agent: AgentData; size: number }) {
+  const result = agentAvatar(agent)
+  if (result.kind === 'image') {
+    return (
+      <img
+        src={result.src}
+        alt={agent.name}
+        style={{ width: size, height: size, objectFit: 'cover', borderRadius: 'inherit', display: 'block' }}
+      />
+    )
+  }
+  if (result.kind === 'icon') {
+    const IconComp = ICON_MAP[result.name]
+    return IconComp ? <IconComp size={Math.floor(size * 0.6)} color="white" /> : null
+  }
+  return <>{result.text}</>
 }
