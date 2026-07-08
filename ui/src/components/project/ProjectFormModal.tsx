@@ -40,8 +40,25 @@ function computeInitialFormState(mode: 'create' | 'edit', initial?: ProjectData 
 }
 
 export function ProjectFormModal({ open, mode, initial, onClose, onSubmit }: ProjectFormModalProps) {
-  const recentPaths = useProjectStore((s) => s.recentPaths)
-  const paths = useProjectStore(recentPaths)
+  const projects = useProjectStore((s) => s.projects)
+  const paths = useMemo(() => {
+    const seen = new Set<string>()
+    const sorted = [...projects].sort((a, b) => {
+      const at = a.last_visited_at ? Date.parse(a.last_visited_at) : 0
+      const bt = b.last_visited_at ? Date.parse(b.last_visited_at) : 0
+      return bt - at
+    })
+    const result: string[] = []
+    for (const p of sorted) {
+      const path = p.work_dir?.trim()
+      if (!path) continue
+      if (seen.has(path)) continue
+      seen.add(path)
+      result.push(path)
+      if (result.length >= 5) break
+    }
+    return result
+  }, [projects])
 
   const initialFormState = useMemo(() => computeInitialFormState(mode, initial), [mode, initial])
 
