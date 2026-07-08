@@ -58,6 +58,8 @@ interface ProjectStore {
     icon?: string
   }) => Promise<ProjectData | undefined>
   currentProject: () => ProjectData | undefined
+  recentPaths: () => string[]
+  checkPath: (path: string) => Promise<{ exists: boolean; isDir: boolean }>
 }
 
 export const useProjectStore = create<ProjectStore>((set, get) => ({
@@ -149,5 +151,33 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   currentProject: () => {
     const { projects, currentProjectId } = get()
     return projects.find((p) => p.id === currentProjectId)
+  },
+
+  recentPaths: () => {
+    const { projects } = get()
+    const seen = new Set<string>()
+    const sorted = [...projects].sort((a, b) => {
+      const at = a.last_visited_at ? Date.parse(a.last_visited_at) : 0
+      const bt = b.last_visited_at ? Date.parse(b.last_visited_at) : 0
+      return bt - at
+    })
+    const result: string[] = []
+    for (const p of sorted) {
+      const path = p.work_dir?.trim()
+      if (!path) continue
+      if (seen.has(path)) continue
+      seen.add(path)
+      result.push(path)
+      if (result.length >= 5) break
+    }
+    return result
+  },
+
+  checkPath: async (path: string) => {
+    try {
+      return (await wsClient.request({ type: 'projects.check_path', path })) as { exists: boolean; isDir: boolean }
+    } catch {
+      return { exists: false, isDir: false }
+    }
   },
 }))

@@ -24,14 +24,11 @@ import { useProjectStore, type ProjectData } from '../../stores/project.store';
 import { GlobalAssistantRail } from '../global-assistant/GlobalAssistantRail';
 import {
   MAX_PINNED,
-  PROJECT_COLORS,
-  PROJECT_ICONS,
-  autoColor,
-  autoIcon,
   resolveProjectColor,
   resolveProjectIcon,
   usePinnedProjects,
 } from '../../utils/project-meta';
+import { ProjectFormModal, type ProjectFormValue } from '../project/ProjectFormModal';
 import './AppLayout.css';
 
 const globalNav = [
@@ -52,13 +49,14 @@ const projectNav = [
 
 function ProjectSwitcher() {
   const [open, setOpen] = useState(false);
-  const [showCreate, setShowCreate] = useState(false);
+  const [formOpen, setFormOpen] = useState(false);
   const projects = useProjectStore((s) => s.projects);
   const currentProjectId = useProjectStore((s) => s.currentProjectId);
   const selectProject = useProjectStore((s) => s.selectProject);
   const createProject = useProjectStore((s) => s.createProject);
   const togglePin = usePinnedProjects((s) => s.togglePin);
   const isPinned = usePinnedProjects((s) => s.isPinned);
+  const navigate = useNavigate();
 
   const current = projects.find((p) => p.id === currentProjectId);
 
@@ -71,20 +69,24 @@ function ProjectSwitcher() {
     togglePin(id);
   };
 
-  const handleCreate = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const form = new FormData(e.currentTarget);
-    const name = form.get('name') as string;
-    const workDir = form.get('workDir') as string;
-    if (!name || !workDir) return;
+  const handleOpenCreate = () => {
+    setFormOpen(true);
+  };
+
+  const handleFormSubmit = async (value: ProjectFormValue) => {
     await createProject({
-      name,
-      workDir,
-      description: form.get('description') as string || undefined,
-      color: form.get('color') as string || undefined,
-      icon: form.get('icon') as string || undefined,
+      name: value.name,
+      workDir: value.workDir,
+      description: value.description || undefined,
+      color: value.color || undefined,
+      icon: value.icon || undefined,
     });
-    setShowCreate(false);
+    setFormOpen(false);
+    setOpen(false);
+  };
+
+  const handleManageAll = () => {
+    navigate('/projects');
     setOpen(false);
   };
 
@@ -107,7 +109,7 @@ function ProjectSwitcher() {
       </button>
       {open && (
         <>
-          <div className="project-switcher-backdrop" onClick={() => { setOpen(false); setShowCreate(false); }} />
+          <div className="project-switcher-backdrop" onClick={() => setOpen(false)} />
           <div className="project-switcher-dropdown">
             <div className="project-switcher-header">切换项目</div>
             {projects.length === 0 && (
@@ -138,30 +140,43 @@ function ProjectSwitcher() {
               </button>
             ))}
             <div className="project-switcher-divider" />
-            {!showCreate ? (
-              <button className="project-switcher-item create" onClick={() => setShowCreate(true)} type="button">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 12px' }}>
+              <button
+                type="button"
+                className="project-switcher-item create"
+                onClick={handleOpenCreate}
+                style={{ flex: 1, textAlign: 'left' }}
+              >
                 <Plus size={14} color="var(--blue)" />
                 <span style={{ color: 'var(--blue)' }}>新建项目</span>
               </button>
-            ) : (
-              <form onSubmit={handleCreate} style={{ padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <input name="name" placeholder="项目名称" required className="command-input" style={{ fontSize: 15, padding: '4px 8px' }} />
-                <input name="workDir" placeholder="工作目录路径 (如 D:\my-project)" required className="command-input" style={{ fontSize: 15, padding: '4px 8px' }} />
-                <input name="description" placeholder="描述（可选）" className="command-input" style={{ fontSize: 15, padding: '4px 8px' }} />
-                <ProjectMetaPicker defaultName="" />
-                <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                  <button type="button" onClick={() => setShowCreate(false)} style={{ fontSize: 14, padding: '3px 8px', background: 'var(--bg-3)', border: 'none', borderRadius: 4, cursor: 'pointer' }}>
-                    取消
-                  </button>
-                  <button type="submit" style={{ fontSize: 14, padding: '3px 8px', background: 'var(--blue)', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}>
-                    创建
-                  </button>
-                </div>
-              </form>
-            )}
+              <button
+                type="button"
+                onClick={handleManageAll}
+                style={{
+                  border: 'none',
+                  background: 'transparent',
+                  color: 'var(--blue)',
+                  fontSize: 13,
+                  cursor: 'pointer',
+                  fontWeight: 500,
+                  padding: '6px 8px',
+                }}
+                title="跳转项目管理页"
+              >
+                管理全部 →
+              </button>
+            </div>
           </div>
         </>
       )}
+      <ProjectFormModal
+        open={formOpen}
+        mode="create"
+        initial={null}
+        onClose={() => setFormOpen(false)}
+        onSubmit={handleFormSubmit}
+      />
     </div>
   );
 }
@@ -299,80 +314,11 @@ function ProjectTabBar() {
   );
 }
 
-function ProjectMetaPicker({ defaultName }: { defaultName: string }) {
-  const [name, setName] = useState(defaultName);
-  const [color, setColor] = useState<string>('');
-  const [icon, setIcon] = useState<string>('');
-
-  const effectiveColor = color || autoColor(name);
-  const effectiveIcon = icon || autoIcon(name);
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '4px 0' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span
-          className="project-switcher-item-icon"
-          style={{ background: effectiveColor, width: 22, height: 22, fontSize: 12 }}
-        >
-          {effectiveIcon}
-        </span>
-        <input
-          name="icon-name-mirror"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="预览（按项目名自动生成）"
-          className="command-input"
-          style={{ flex: 1, fontSize: 12, padding: '3px 6px', color: 'var(--text-3)' }}
-          readOnly
-        />
-      </div>
-      <input type="hidden" name="color" value={color} />
-      <input type="hidden" name="icon" value={icon} />
-      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-        {PROJECT_COLORS.map((c) => (
-          <button
-            key={c}
-            type="button"
-            onClick={() => setColor(color === c ? '' : c)}
-            style={{
-              width: 16,
-              height: 16,
-              borderRadius: 4,
-              background: c,
-              border: color === c ? '2px solid var(--text-1)' : '1px solid var(--border)',
-              cursor: 'pointer',
-              padding: 0,
-            }}
-            title={c}
-          />
-        ))}
-      </div>
-      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-        {PROJECT_ICONS.map((ic) => (
-          <button
-            key={ic}
-            type="button"
-            onClick={() => setIcon(icon === ic ? '' : ic)}
-            style={{
-              width: 22,
-              height: 22,
-              borderRadius: 4,
-              background: icon === ic ? 'var(--bg-3)' : 'transparent',
-              border: icon === ic ? '1px solid var(--blue)' : '1px solid transparent',
-              cursor: 'pointer',
-              padding: 0,
-              fontSize: 13,
-              lineHeight: 1,
-            }}
-            title={ic}
-          >
-            {ic}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
+function ProjectMetaPicker() {
+  return null;
 }
+
+void ProjectMetaPicker;
 
 function AgentStatusBar() {
   const agents = useAgentStore((s) => s.agents);

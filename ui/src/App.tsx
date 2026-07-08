@@ -13,6 +13,7 @@ import AgentSquare from './pages/AgentSquare'
 import SkillCenter from './pages/SkillCenter'
 import ToolManager from './pages/ToolManager'
 import Settings from './pages/Settings'
+import Projects from './pages/Projects'
 import WidgetPage from './pages/Widget'
 import AccessTokenPage from './pages/AccessTokenPage'
 import { useConnectionStore } from './stores/connection.store'
@@ -93,6 +94,7 @@ export default function App() {
           <Route path="/events" element={<EventCenter />} />
           <Route path="/knowledge" element={<KnowledgeBase />} />
           <Route path="/agent-memory" element={<AgentMemory />} />
+          <Route path="/projects" element={<Projects />} />
           <Route path="/settings" element={<Settings />} />
         </Route>
       </Routes>
