@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { wsClient } from '../services/ws-client'
+import { useProjectStore } from './project.store'
 import type { ImageAttachmentInfo } from './session-events'
 
 export interface TaskData {
@@ -193,6 +194,11 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       if (existing) {
         set({ tasks: get().tasks.map((t) => (t.id === taskId ? { ...t, ...data } : t)) })
       } else if (data.id) {
+        const currentProjectId = useProjectStore.getState().currentProjectId
+        const taskProjectId = (data as { project_id?: string | null }).project_id
+        if (currentProjectId && taskProjectId && taskProjectId !== currentProjectId) {
+          return
+        }
         set({ tasks: mergeTaskById(get().tasks, data as unknown as TaskData) })
       }
     })

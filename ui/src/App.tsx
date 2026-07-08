@@ -42,8 +42,9 @@ export default function App() {
   useEffect(() => {
     if (!connected) return
 
-    useAgentStore.getState().fetchAgents()
-    useTaskStore.getState().fetchTasks()
+    const projectId = useProjectStore.getState().currentProjectId
+    useAgentStore.getState().fetchAgents(projectId ?? undefined)
+    useTaskStore.getState().fetchTasks(projectId ?? undefined)
     useRuleStore.getState().fetchRules()
     useProjectStore.getState().fetchProjects()
     useTemplateStore.getState().fetchTemplates()
