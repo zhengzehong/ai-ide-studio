@@ -1,3 +1,4 @@
+import { existsSync, statSync } from 'fs'
 import { projectStore } from '../../store/projects.js'
 import type { RpcHandlerMap } from './types.js'
 
@@ -34,5 +35,20 @@ export const projectRpcHandlers: RpcHandlerMap = {
   'projects.delete'(msg, { sendResult }) {
     projectStore.delete(msg.projectId as string)
     sendResult({ deleted: true })
+  },
+
+  'projects.check_path'(msg, { sendResult }) {
+    const path = msg.path as string
+    if (!path || typeof path !== 'string') {
+      sendResult({ exists: false, isDir: false })
+      return
+    }
+    try {
+      const exists = existsSync(path)
+      const isDir = exists ? statSync(path).isDirectory() : false
+      sendResult({ exists, isDir })
+    } catch {
+      sendResult({ exists: false, isDir: false })
+    }
   },
 }
