@@ -109,14 +109,14 @@ import {
   type MenuName,
 } from './workspace/helpers'
 import { createSessionDraftStore, type WorkspacePendingImage } from './workspace/session-drafts'
-import { prepareNestedOrderDragEvent, moveItemById, sortWorkspaceItems } from './workspace/ordering'
-import { sessionIndicator } from '../utils/session-indicators'
+import { moveItemById, sortWorkspaceItems } from './workspace/ordering'
 import { elapsedSecondsBetween, formatCompactDuration } from '../utils/duration'
 import { ContextMenu, PromptDialog, ConfirmDialog, AlertDialog } from '../components/ModalDialog'
 import { LocalSessionImportModal } from './workspace/LocalSessionImportModal'
 import { TaskImageInput } from '../components/task/TaskImageInput'
 import { PreviewCard } from '../components/chat/PreviewCard'
 import { PreviewModal } from '../components/preview/PreviewModal'
+import { SessionBar } from './workspace/SessionBar'
 
 const COPYING_STAGE = '正在复制会话...'
 
@@ -174,7 +174,6 @@ export default function Workspace() {
   const closeFile = useFileSystemStore((s) => s.closeFile)
 
   const [sidebarTab, setSidebarTab] = useState<'sessions' | 'files'>('sessions')
-  const [expandedAgents, setExpandedAgents] = useState<Set<string> | null>(null)
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
   const [orderingMode, setOrderingMode] = useState(false)
   const [agentVisibilityOpen, setAgentVisibilityOpen] = useState(false)
@@ -204,13 +203,11 @@ export default function Workspace() {
   const orderedProjectAgents = useMemo(() => sortWorkspaceItems(visibleProjectAgents), [visibleProjectAgents])
   const orderedAllProjectAgents = useMemo(() => sortWorkspaceItems(projectAgents), [projectAgents])
   const orderedProjectSessions = useMemo(() => sortWorkspaceItems(projectSessions), [projectSessions])
-  const expandedAgentIds = useMemo(
-    () => expandedAgents ?? new Set(orderedProjectAgents.map((a) => a.id)),
-    [orderedProjectAgents, expandedAgents],
-  )
+  const defaultAgentId = orderedProjectAgents[0]?.id ?? null
+  const effectiveSelectedAgentId = selectedAgentId ?? defaultAgentId
   const chatAgent = useMemo(
-    () => selectChatAgent({ agents: visibleProjectAgents, sessions: projectSessions, currentSessionId, selectedAgentId }),
-    [currentSessionId, visibleProjectAgents, projectSessions, selectedAgentId],
+    () => selectChatAgent({ agents: visibleProjectAgents, sessions: projectSessions, currentSessionId, selectedAgentId: effectiveSelectedAgentId }),
+    [currentSessionId, visibleProjectAgents, projectSessions, effectiveSelectedAgentId],
   )
   const currentSession = useMemo(
     () => projectSessions.find((session) => session.id === currentSessionId),
@@ -246,26 +243,12 @@ export default function Workspace() {
     [orderedProjectSessions],
   )
 
-  const toggleAgent = (id: string) =>
-    setExpandedAgents((p) => {
-      const n = new Set(p ?? orderedProjectAgents.map((a) => a.id))
-      if (n.has(id)) n.delete(id)
-      else n.add(id)
-      return n
-    })
-
   const handleAgentClick = (agentId: string) => {
     if (orderingMode) return
-    if (currentSessionId) {
-      toggleAgent(agentId)
-      return
-    }
+    setSelectedAgentId(agentId)
     const mainSession = agentSessions(agentId).find((s) => s.is_primary)
-    if (mainSession) {
-      setSelectedAgentId(agentId)
+    if (mainSession && currentSessionId !== mainSession.id) {
       selectSession(mainSession.id)
-    } else {
-      toggleAgent(agentId)
     }
   }
 
@@ -744,7 +727,7 @@ export default function Workspace() {
                       minWidth: 0,
                       padding: '7px 14px',
                       border: 'none',
-                      background: 'transparent',
+                      background: (selectedAgentId ?? defaultAgentId) === agent.id ? 'var(--blue-light)' : 'transparent',
                       color: 'var(--text-1)',
                       cursor: orderingMode ? 'default' : 'pointer',
                       textAlign: 'left',
@@ -767,11 +750,6 @@ export default function Workspace() {
                         <GripVertical size={14} />
                       </span>
                     )}
-                    {expandedAgentIds.has(agent.id) ? (
-                      <ChevronDown size={13} color="var(--text-3)" />
-                    ) : (
-                      <ChevronRight size={13} color="var(--text-3)" />
-                    )}
                     <span
                       style={{
                         width: 24,
@@ -789,7 +767,20 @@ export default function Workspace() {
                     >
                       {agentAvatar(agent)}
                     </span>
-                    <span style={{ flex: 1, fontSize: 15, fontWeight: 500 }}>{agent.name}</span>
+                    <span
+                      style={{
+                        flex: 1,
+                        fontSize: 15,
+                        fontWeight: 500,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        minWidth: 0,
+                      }}
+                      title={agent.name}
+                    >
+                      {agent.name}
+                    </span>
                     <span
                       style={{
                         fontSize: 12,
@@ -812,141 +803,6 @@ export default function Workspace() {
                       title={statusLabel(agent.status)}
                     />
                   </button>
-                  {expandedAgentIds.has(agent.id) && (
-                    <div style={{ gridColumn: '1 / -1' }}>
-                      {agentSessions(agent.id).map((s) => {
-                        const indicator = sessionIndicator(s, runningSessionIds, unreadSessionIds)
-                        return (
-                          <div
-                            key={s.id}
-                            onDragOver={(e) => {
-                              if (!orderingMode) return
-                              prepareNestedOrderDragEvent(e)
-                            }}
-                            onDrop={(e) => {
-                              if (!orderingMode) return
-                              prepareNestedOrderDragEvent(e)
-                              dropSessionOn(agent.id, s.id)
-                            }}
-                            onContextMenu={(e) => {
-                              if (orderingMode) return
-                              e.preventDefault()
-                              setAgentCtxMenu(null)
-                              setCtxMenu({ sessionId: s.id, agentId: agent.id, x: e.clientX, y: e.clientY })
-                            }}
-                            style={{
-                              position: 'relative',
-                              display: 'flex',
-                              alignItems: 'center',
-                              paddingLeft: 42,
-                              paddingRight: 8,
-                              background: currentSessionId === s.id ? 'var(--blue-light)' : 'transparent',
-                              borderRadius: 4,
-                              opacity: draggedOrderItem?.type === 'session' && draggedOrderItem.id === s.id ? 0.55 : 1,
-                            }}
-                          >
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (!orderingMode) handleSelectSession(agent.id, s.id)
-                            }}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 8,
-                              flex: 1,
-                              minWidth: 0,
-                              padding: '5px 0',
-                              border: 'none',
-                              background: 'transparent',
-                              color: 'var(--text-1)',
-                              cursor: orderingMode ? 'default' : 'pointer',
-                              textAlign: 'left',
-                            }}
-                          >
-                            {orderingMode && (
-                              <span
-                                draggable
-                                onDragStart={(e) => {
-                                  e.stopPropagation()
-                                  setDraggedOrderItem({ type: 'session', id: s.id, agentId: agent.id })
-                                }}
-                                onDragEnd={(e) => {
-                                  e.stopPropagation()
-                                  setDraggedOrderItem(null)
-                                }}
-                                style={orderGripStyle}
-                                title="拖拽排序"
-                              >
-                                <GripVertical size={13} />
-                              </span>
-                            )}
-                            <span
-                              style={{
-                                width: 6,
-                                height: 6,
-                                borderRadius: '50%',
-                                background: indicator.color,
-                                flexShrink: 0,
-                                animation: indicator.pulse ? 'session-running-pulse 1s ease-in-out infinite' : undefined,
-                                boxShadow: indicator.pulse ? '0 0 0 4px rgba(5, 150, 105, 0.12)' : undefined,
-                              }}
-                              title={indicator.title}
-                            />
-                            {s.is_primary ? (
-                              <span
-                                style={{
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: 3,
-                                  color: 'var(--blue)',
-                                  fontSize: 13,
-                                  flexShrink: 0,
-                                }}
-                                title="主会话"
-                              >
-                                <Zap size={12} fill="var(--blue)" />
-                              </span>
-                            ) : null}
-                            <span
-                              style={{
-                                flex: 1,
-                                fontSize: 14,
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap',
-                                fontWeight: s.is_primary ? 600 : 400,
-                              }}
-                            >
-                              {sessionTitle(s)}
-                            </span>
-                            <span style={{ fontSize: 12, color: 'var(--text-3)' }}>
-                              {formatTime(s.last_message_at || s.updated_at || s.started_at)}
-                            </span>
-                          </button>
-                          </div>
-                        )
-                      })}
-                      <button
-                        type="button"
-                        onClick={() => handleNewSession(agent.id)}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 6,
-                          width: '100%',
-                          padding: '5px 14px 5px 42px',
-                          border: 'none',
-                          background: 'transparent',
-                          color: 'var(--text-3)',
-                          cursor: 'pointer',
-                          fontSize: 13,
-                        }}
-                      >
-                        <Plus size={12} /> 新建会话
-                      </button>
-                    </div>
-                  )}
                 </div>
               ))}
             </div>
@@ -974,6 +830,50 @@ export default function Workspace() {
           </div>
         )}
       </aside>
+
+      {sidebarTab === 'sessions' ? (
+        <SessionBar
+          agent={orderedProjectAgents.find((a) => a.id === effectiveSelectedAgentId) ?? null}
+          sessions={effectiveSelectedAgentId ? agentSessions(effectiveSelectedAgentId) : []}
+          currentSessionId={currentSessionId}
+          runningSessionIds={runningSessionIds}
+          unreadSessionIds={unreadSessionIds}
+          orderingMode={orderingMode}
+          draggedOrderItem={draggedOrderItem}
+          onSelectSession={handleSelectSession}
+          onNewSession={handleNewSession}
+          onContextMenu={(e, sessionId, agentId) => {
+            setAgentCtxMenu(null)
+            setCtxMenu({ sessionId, agentId, x: e.clientX, y: e.clientY })
+          }}
+          onReorder={persistSessionOrder}
+          onSetDraggedOrderItem={setDraggedOrderItem}
+          onDropSession={dropSessionOn}
+        />
+      ) : (
+        <aside
+          style={{
+            width: 200,
+            flexShrink: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            borderRight: '1px solid var(--border)',
+            background: 'var(--bg-0)',
+            pointerEvents: 'none',
+            opacity: 0.4,
+          }}
+        >
+          <header
+            style={{
+              padding: '10px 12px',
+              borderBottom: '1px solid var(--border)',
+              flexShrink: 0,
+            }}
+          >
+            <span style={{ fontSize: 13, color: 'var(--text-3)' }}>文件浏览中</span>
+          </header>
+        </aside>
+      )}
 
       {/* ─── File Preview (optional) ─── */}
       {openFile && (
