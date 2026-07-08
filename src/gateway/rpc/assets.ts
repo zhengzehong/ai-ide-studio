@@ -7,10 +7,10 @@ import { getDbPath } from '../../store/db.js'
 import type { RpcHandlerMap } from './types.js'
 
 const ALLOWED_EXTS = new Set(['png', 'jpg', 'jpeg', 'webp'])
-const MAX_BYTES = 2 * 1024 * 1024
+const MAX_BYTES = 512 * 1024
 
 export const assetRpcHandlers: RpcHandlerMap = {
-  'assets.upload'(msg, { sendResult }) {
+  async 'assets.upload'(msg, { sendResult }) {
     const agentId = msg.agentId as string
     const base64 = msg.base64 as string
     const ext = (msg.ext as string || 'png').toLowerCase()
@@ -24,27 +24,26 @@ export const assetRpcHandlers: RpcHandlerMap = {
     if (buffer.length === 0) throw new Error('头像数据为空')
     if (buffer.length > MAX_BYTES) throw new Error(`头像过大: ${buffer.length} bytes (上限 ${MAX_BYTES})`)
 
-    const dir = resolveAvatarDir()
-    void removeExistingAvatars(agentId)
-    const filename = `${agentId}.${ext}`
-    const fullPath = join(dir, filename)
-    void writeFile(fullPath, buffer).catch((err) => {
-      throw err
-    })
-
+    const dir = await resolveAvatarDir()
+    await removeExistingAvatars(agentId, dir)
     const normalizedExt = ext === 'jpeg' ? 'jpg' : ext
-    const url = `/avatars/${agentId}.${normalizedExt}?t=${Date.now()}`
+    const filename = `${agentId}.${normalizedExt}`
+    const fullPath = join(dir, filename)
+    await writeFile(fullPath, buffer)
+
+    const url = `/avatars/${filename}?t=${Date.now()}`
     sendResult({ url })
   },
 
-  'assets.delete'(msg, { sendResult }) {
+  async 'assets.delete'(msg, { sendResult }) {
     const agentId = msg.agentId as string
     if (!agentId) throw new Error('agentId 不能为空')
-    void removeExistingAvatars(agentId)
+    const dir = await resolveAvatarDir()
+    await removeExistingAvatars(agentId, dir)
     sendResult({ ok: true })
   },
 
-  'assets.uploadTemp'(msg, { sendResult }) {
+  async 'assets.uploadTemp'(msg, { sendResult }) {
     const base64 = msg.base64 as string
     const ext = (msg.ext as string || 'png').toLowerCase()
     if (!base64) throw new Error('base64 不能为空')
@@ -53,27 +52,27 @@ export const assetRpcHandlers: RpcHandlerMap = {
     if (buffer.length === 0) throw new Error('头像数据为空')
     if (buffer.length > MAX_BYTES) throw new Error(`头像过大: ${buffer.length} bytes`)
 
-    const dir = resolveAvatarDir()
+    const dir = await resolveAvatarDir()
+    const normalizedExt = ext === 'jpeg' ? 'jpg' : ext
     const tempId = `tmp-${randomUUID().slice(0, 12)}`
-    const filename = `${tempId}.${ext}`
+    const filename = `${tempId}.${normalizedExt}`
     const fullPath = join(dir, filename)
-    void writeFile(fullPath, buffer)
+    await writeFile(fullPath, buffer)
     sendResult({ url: `/avatars/${filename}?t=${Date.now()}`, tempId })
   },
 }
 
-function resolveAvatarDir(): string {
+async function resolveAvatarDir(): Promise<string> {
   const dbPath = getDbPath()
   if (!dbPath) throw new Error('Database not initialized. Call initDatabase() first.')
   const dir = resolve(dbPath, 'avatars')
   if (!existsSync(dir)) {
-    void mkdir(dir, { recursive: true })
+    await mkdir(dir, { recursive: true })
   }
   return dir
 }
 
-async function removeExistingAvatars(agentId: string): Promise<void> {
-  const dir = resolveAvatarDir()
+async function removeExistingAvatars(agentId: string, dir: string): Promise<void> {
   if (!existsSync(dir)) return
   try {
     const files = await readdir(dir)

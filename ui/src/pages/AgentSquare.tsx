@@ -8,7 +8,7 @@ import { useModelStore } from '../stores/model.store'
 import { useProjectStore } from '../stores/project.store'
 import { DeployTemplateModal } from '../components/agent-square/DeployTemplateModal'
 import { TemplateEditor } from '../components/agent-square/TemplateEditor'
-import { ICON_MAP, TYPE_FILTERS, TYPE_LABELS, RUNTIME_OPTIONS } from '../components/agent-square/constants'
+import { ICON_MAP, TYPE_FILTERS, TYPE_LABELS, RUNTIME_OPTIONS, type IconName } from '../components/agent-square/constants'
 import { Field } from '../components/agent-square/Field'
 import {
   btnOutline,
@@ -93,7 +93,7 @@ export default function AgentSquare() {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
         {filtered.map((template) => {
-          const IconComp = ICON_MAP[template.icon] || Bot
+          const IconComp = ICON_MAP[template.icon as IconName] || Bot
           const skills = getSkills(template)
           return (
             <div key={template.id} style={cardStyle}>

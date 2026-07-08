@@ -211,9 +211,7 @@ function GlobalAssistantTitleAvatar({ agent, size }: { agent: { name: string; av
   }
   if (result.kind === 'icon') {
     const IconComp = ICON_MAP[result.name]
-    if (IconComp) {
-      return <IconComp size={Math.floor(size * 0.6)} color="white" />
-    }
+    return IconComp ? <IconComp size={Math.floor(size * 0.6)} color="white" /> : null
   }
   return <>{result.text}</>
 }

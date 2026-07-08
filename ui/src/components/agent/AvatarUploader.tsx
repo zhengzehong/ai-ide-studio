@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { RotateCcw, Upload, X } from 'lucide-react'
-import { ICON_MAP, ICON_OPTIONS } from '../agent-square/constants'
+import { ICON_MAP, ICON_OPTIONS, type IconName } from '../agent-square/constants'
 
 const PREVIEW_SIZE = 96
 const CROP_SIZE = 320
@@ -38,8 +38,8 @@ export function AvatarUploader(props: AvatarUploaderProps) {
       setError('仅支持 PNG / JPG / WebP 格式')
       return
     }
-    if (file.size > MAX_FILE_BYTES * 4) {
-      setError('文件过大,请选择小于 2MB 的图片')
+    if (file.size > MAX_FILE_BYTES) {
+      setError(`文件过大,请选择小于 ${Math.round(MAX_FILE_BYTES / 1024)}KB 的图片`)
       return
     }
     const reader = new FileReader()
@@ -150,7 +150,7 @@ export function AvatarUploader(props: AvatarUploaderProps) {
 }
 
 function FallbackIcon({ name }: { name: string }) {
-  const Ic = ICON_MAP[name] ?? ICON_MAP.bot
+  const Ic = ICON_MAP[name as IconName] ?? ICON_MAP.bot
   return <Ic size={36} color="var(--text-3)" />
 }
 
