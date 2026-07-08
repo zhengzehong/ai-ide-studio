@@ -16,6 +16,7 @@ export const templateRpcHandlers: RpcHandlerMap = {
       type: msg.agentType as string,
       runtime: msg.runtime as string | undefined,
       icon: msg.icon as string | undefined,
+      avatarUrl: msg.avatarUrl as string | null | undefined,
       systemPrompt: msg.systemPrompt as string | undefined,
       description: msg.description as string | undefined,
       skills: msg.skills as string[] | undefined,
@@ -29,6 +30,7 @@ export const templateRpcHandlers: RpcHandlerMap = {
     if (msg.agentType !== undefined) fields.type = msg.agentType
     if (msg.runtime !== undefined) fields.runtime = msg.runtime
     if (msg.icon !== undefined) fields.icon = msg.icon
+    if (msg.avatarUrl !== undefined) fields.avatarUrl = msg.avatarUrl
     if (msg.systemPrompt !== undefined) fields.systemPrompt = msg.systemPrompt
     if (msg.description !== undefined) fields.description = msg.description
     if (msg.skills !== undefined) fields.skills = msg.skills

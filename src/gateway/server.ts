@@ -18,6 +18,7 @@ import { getImageAsset } from '../core/image-attachments.js'
 import { mountHttpMcpServer } from '../tools/mcp/http-mcp-server.js'
 import { mountStaticAssets, staticDirForLog } from './static-assets.js'
 import { handleBridgeCallback } from './bridge-callback.js'
+import { resolveAvatarPath } from './rpc/assets.js'
 import { createChildLogger } from '../core/logger.js'
 
 const log = createChildLogger('gateway')
@@ -42,6 +43,7 @@ export async function startGateway(config: AppConfig) {
   app.get('/api/rules', (c) => c.json(ruleStore.list()))
   app.get('/api/fs/asset', (c) => handleFsAsset(c))
   app.get('/api/images/*', (c) => handleImageAsset(c))
+  app.get('/avatars/*', (c) => handleAvatarAsset(c))
   app.get('/preview/:previewId/*', (c) => handlePreviewAsset(c, config))
   app.get('/preview/:previewId', (c) => handlePreviewAsset(c, config))
   app.post('/api/bridge/callback', (c) => handleBridgeCallback(c, config))
@@ -61,6 +63,55 @@ export async function startGateway(config: AppConfig) {
   })
 
   return { app, server, wss }
+}
+
+const AVATAR_MIME_TYPES: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+}
+
+function handleAvatarAsset(c: Context): Response {
+  const relativePath = c.req.path.replace(/^\/avatars\/?/, '')
+  const decodedPath = decodeAvatarPath(relativePath)
+  if (decodedPath == null) {
+    return c.json({ error: '头像路径无效' }, 400)
+  }
+  const cleaned = decodedPath.split('?')[0]
+  if (!cleaned) return c.json({ error: '头像不存在' }, 404)
+
+  const fullPath = resolveAvatarPath(cleaned)
+  if (!fullPath || !existsSync(fullPath)) {
+    return c.json({ error: '头像不存在' }, 404)
+  }
+  let stat: ReturnType<typeof statSync>
+  try {
+    stat = statSync(fullPath)
+  } catch {
+    return c.json({ error: '头像不可读' }, 500)
+  }
+  if (!stat.isFile()) return c.json({ error: '头像路径不是文件' }, 400)
+
+  const mime = AVATAR_MIME_TYPES[extname(fullPath).toLowerCase()] ?? 'application/octet-stream'
+  c.header('Content-Type', mime)
+  c.header('Content-Length', String(stat.size))
+  c.header('Cache-Control', 'no-store')
+
+  const nodeStream = createReadStream(fullPath) as Readable
+  const webStream = nodeStreamToWebStream(nodeStream)
+  return new Response(webStream, {
+    status: 200,
+    headers: c.res.headers,
+  })
+}
+
+function decodeAvatarPath(path: string): string | null {
+  try {
+    return decodeURIComponent(path)
+  } catch {
+    return null
+  }
 }
 
 function handleImageAsset(c: Context): Response {
@@ -177,6 +228,7 @@ function mountLocalTokenGuard(app: Hono, config: AppConfig): void {
 
 function isAssetRequest(path: string): boolean {
   if (path.startsWith('/api/bridge/')) return true
+  if (path.startsWith('/avatars/')) return true
   return !path.startsWith('/api/') && !path.startsWith('/preview/') && path !== '/health'
 }
 

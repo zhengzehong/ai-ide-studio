@@ -9,6 +9,7 @@ import { VirtualChatList } from '../chat/VirtualChatList'
 import { isNearBottom, nextPinnedToBottom } from '../chat/auto-scroll'
 import { shouldShowPlanBar } from '../chat/plan-visibility'
 import { agentAvatar, agentColor, statusLabel } from '../../pages/workspace/helpers'
+import { ICON_MAP } from '../agent-square/constants'
 import { BlockingInteraction, GlobalChatBubble, TimelineGroupBubble } from './GlobalAssistantBubble'
 import { CompactPlanBar } from './GlobalAssistantControls'
 import { GlobalAssistantInput } from './GlobalAssistantInput'
@@ -159,7 +160,7 @@ export function GlobalAssistantChat({ connected, payload }: { connected: boolean
     <>
       <header className="global-assistant-header">
         <div className="global-assistant-title">
-          <span className="global-assistant-title-avatar" style={{ background: agentColor(payload.agent) }}>{agentAvatar(payload.agent)}</span>
+          <span className="global-assistant-title-avatar" style={{ background: agentColor(payload.agent), overflow: 'hidden' }}><GlobalAssistantTitleAvatar agent={payload.agent} size={36} /></span>
           <span>
             <strong>{payload.agent.name}</strong>
             <small>{payload.agent.runtime} · {statusLabel(payload.agent.status)}</small>
@@ -195,4 +196,24 @@ export function GlobalAssistantChat({ connected, payload }: { connected: boolean
       />
     </>
   )
+}
+
+function GlobalAssistantTitleAvatar({ agent, size }: { agent: { name: string; avatar_url?: string | null; icon?: string }; size: number }) {
+  const result = agentAvatar(agent as never)
+  if (result.kind === 'image') {
+    return (
+      <img
+        src={result.src}
+        alt={agent.name}
+        style={{ width: size, height: size, objectFit: 'cover', borderRadius: 'inherit', display: 'block' }}
+      />
+    )
+  }
+  if (result.kind === 'icon') {
+    const IconComp = ICON_MAP[result.name]
+    if (IconComp) {
+      return <IconComp size={Math.floor(size * 0.6)} color="white" />
+    }
+  }
+  return <>{result.text}</>
 }

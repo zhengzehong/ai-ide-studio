@@ -116,6 +116,8 @@ import { TaskImageInput } from '../components/task/TaskImageInput'
 import { PreviewCard } from '../components/chat/PreviewCard'
 import { PreviewModal } from '../components/preview/PreviewModal'
 import { SessionBar } from './workspace/SessionBar'
+import { ICON_MAP } from '../components/agent-square/constants'
+import { AgentSettingsModal } from '../components/agent/AgentSettingsModal'
 
 const COPYING_STAGE = '正在复制会话...'
 
@@ -186,6 +188,7 @@ export default function Workspace() {
 
   const [ctxMenu, setCtxMenu] = useState<{ sessionId: string; agentId: string; x: number; y: number } | null>(null)
   const [agentCtxMenu, setAgentCtxMenu] = useState<{ agentId: string; x: number; y: number } | null>(null)
+  const [settingsAgentId, setSettingsAgentId] = useState<string | null>(null)
   const [modelProfileAgentId, setModelProfileAgentId] = useState<string | null>(null)
   const [importDialogAgentId, setImportDialogAgentId] = useState<string | null>(null)
   const [renameDialog, setRenameDialog] = useState<{ sessionId: string; currentTitle: string } | null>(null)
@@ -223,6 +226,10 @@ export default function Workspace() {
   const modelProfileAgent = useMemo(
     () => projectAgents.find((agent) => agent.id === modelProfileAgentId),
     [modelProfileAgentId, projectAgents],
+  )
+  const settingsAgent = useMemo(
+    () => projectAgents.find((agent) => agent.id === settingsAgentId),
+    [settingsAgentId, projectAgents],
   )
   const currentSessionCopying = !!currentSessionId && (
     !!copyingTargetSessionIds[currentSessionId] ||
@@ -799,9 +806,10 @@ export default function Workspace() {
                         flexShrink: 0,
                         transition: 'transform 0.18s',
                         transform: isSelected ? 'scale(1.05)' : 'scale(1)',
+                        overflow: 'hidden',
                       }}
                     >
-                      {agentAvatar(agent)}
+                      <AgentAvatarContent agent={agent} size={28} />
                     </span>
                     <span
                       style={{
@@ -1052,6 +1060,10 @@ export default function Workspace() {
         onClose={() => setAgentCtxMenu(null)}
         items={agentCtxMenu && agentContextAgent ? [
           {
+            label: '设置',
+            onClick: () => setSettingsAgentId(agentContextAgent.id),
+          },
+          {
             label: canImportLocalSession(agentContextAgent.runtime) ? '导入本地会话' : '导入本地会话（仅 Codex/Claude）',
             disabled: !canImportLocalSession(agentContextAgent.runtime),
             onClick: () => setImportDialogAgentId(agentContextAgent.id),
@@ -1084,6 +1096,20 @@ export default function Workspace() {
             setModelProfileAgentId(null)
           }}
           onClose={() => setModelProfileAgentId(null)}
+        />
+      )}
+
+      {settingsAgent && (
+        <AgentSettingsModal
+          key={settingsAgent.id}
+          agent={settingsAgent}
+          modelProfiles={modelProfiles}
+          onLoadProfiles={() => fetchModelProfiles()}
+          onSave={async (input) => {
+            await updateAgent(settingsAgent.id, input)
+            setSettingsAgentId(null)
+          }}
+          onClose={() => setSettingsAgentId(null)}
         />
       )}
 
@@ -1180,9 +1206,10 @@ export default function Workspace() {
                       fontWeight: 700,
                       color: 'white',
                       flexShrink: 0,
+                      overflow: 'hidden',
                     }}
                   >
-                    {agentAvatar(agent)}
+                    <AgentAvatarContent agent={agent} size={24} />
                   </span>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-1)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -1736,9 +1763,10 @@ function WorkspaceChatPane({
                   fontSize: 14,
                   fontWeight: 700,
                   color: 'white',
+                  overflow: 'hidden',
                 }}
               >
-                {agentAvatar(chatAgent)}
+                <AgentAvatarContent agent={chatAgent} size={30} />
               </div>
               <div style={{ minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, fontSize: 15 }}>
@@ -5075,6 +5103,26 @@ function DropdownPortal({
       </div>
     </>
   )
+}
+
+function AgentAvatarContent({ agent, size = 28 }: { agent: AgentData; size?: number }) {
+  const result = agentAvatar(agent)
+  if (result.kind === 'image') {
+    return (
+      <img
+        src={result.src}
+        alt={agent.name}
+        style={{ width: size, height: size, objectFit: 'cover', borderRadius: 'inherit', display: 'block' }}
+      />
+    )
+  }
+  if (result.kind === 'icon') {
+    const IconComp = ICON_MAP[result.name]
+    if (IconComp) {
+      return <IconComp size={Math.floor(size * 0.6)} color="white" />
+    }
+  }
+  return <>{result.text}</>
 }
 
 function readAgentModelProfileId(agent: AgentData): string {

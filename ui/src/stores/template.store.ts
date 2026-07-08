@@ -7,6 +7,7 @@ export interface TemplateData {
   type: string
   runtime: string
   icon: string
+  avatar_url: string | null
   system_prompt: string
   description: string | null
   skills_json: string | null
@@ -30,6 +31,7 @@ export interface CreateTemplateInput {
   agentType: string
   runtime?: string
   icon?: string
+  avatarUrl?: string | null
   systemPrompt?: string
   description?: string
   skills?: string[]
