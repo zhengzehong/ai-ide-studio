@@ -143,6 +143,7 @@ export default function Projects() {
       )}
 
       <ProjectFormModal
+        key={formOpen ? `${formMode}:${editingProject?.id ?? 'new'}` : 'closed'}
         open={formOpen}
         mode={formMode}
         initial={editingProject}

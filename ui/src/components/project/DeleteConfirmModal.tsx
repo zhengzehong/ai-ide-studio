@@ -12,10 +12,6 @@ export function DeleteConfirmModal({ open, project, onConfirm, onCancel }: Delet
   const [confirmName, setConfirmName] = useState('')
 
   useEffect(() => {
-    if (open) setConfirmName('')
-  }, [open, project?.id])
-
-  useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onCancel() }
     window.addEventListener('keydown', onKey)
@@ -52,6 +48,7 @@ export function DeleteConfirmModal({ open, project, onConfirm, onCancel }: Delet
             请输入项目名称 <strong style={{ color: 'var(--red)' }}>{project.name}</strong> 以确认:
           </div>
           <input
+            key={project.id}
             type="text"
             value={confirmName}
             onChange={(e) => setConfirmName(e.target.value)}

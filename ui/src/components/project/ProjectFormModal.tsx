@@ -2,12 +2,13 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import type { ProjectData } from '../../stores/project.store'
 import { useProjectStore } from '../../stores/project.store'
 import {
-  PROJECT_COLORS,
-  PROJECT_ICONS,
   autoColor,
   autoIcon,
 } from '../../utils/project-meta'
 import { RecentPathSuggestionsButton } from './RecentPathSuggestions'
+import { PathCheckHint } from './PathCheckHint'
+import { usePathCheck } from './pathCheck'
+import { ColorPicker, IconPicker } from './MetaPicker'
 
 export interface ProjectFormValue {
   name: string
@@ -25,65 +26,34 @@ interface ProjectFormModalProps {
   onSubmit: (value: ProjectFormValue) => Promise<void> | void
 }
 
-type PathCheckState = { state: 'idle' } | { state: 'checking' } | { state: 'ok' } | { state: 'missing' } | { state: 'error', message: string }
+function computeInitialFormState(mode: 'create' | 'edit', initial?: ProjectData | null) {
+  if (mode === 'edit' && initial) {
+    return {
+      name: initial.name,
+      workDir: initial.work_dir,
+      description: initial.description ?? '',
+      color: initial.color ?? '',
+      icon: initial.icon ?? '',
+    }
+  }
+  return { name: '', workDir: '', description: '', color: '', icon: '' }
+}
 
 export function ProjectFormModal({ open, mode, initial, onClose, onSubmit }: ProjectFormModalProps) {
-  const store = useProjectStore()
   const recentPaths = useProjectStore((s) => s.recentPaths)
-  const checkPath = useProjectStore((s) => s.checkPath)
+  const paths = useProjectStore(recentPaths)
 
-  const [name, setName] = useState('')
-  const [workDir, setWorkDir] = useState('')
-  const [description, setDescription] = useState('')
-  const [color, setColor] = useState('')
-  const [icon, setIcon] = useState('')
-  const [pathCheck, setPathCheck] = useState<PathCheckState>({ state: 'idle' })
-  const [submitting, setSubmitting] = useState(false)
+  const initialFormState = useMemo(() => computeInitialFormState(mode, initial), [mode, initial])
+
+  const [name, setName] = useState(initialFormState.name)
+  const [workDir, setWorkDir] = useState(initialFormState.workDir)
+  const [description, setDescription] = useState(initialFormState.description)
+  const [color, setColor] = useState(initialFormState.color)
+  const [icon, setIcon] = useState(initialFormState.icon)
   const [error, setError] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
 
-  useEffect(() => {
-    if (!open) return
-    if (mode === 'edit' && initial) {
-      setName(initial.name)
-      setWorkDir(initial.work_dir)
-      setDescription(initial.description ?? '')
-      setColor(initial.color ?? '')
-      setIcon(initial.icon ?? '')
-    } else {
-      setName('')
-      setWorkDir('')
-      setDescription('')
-      setColor('')
-      setIcon('')
-    }
-    setPathCheck({ state: 'idle' })
-    setError(null)
-  }, [open, mode, initial])
-
-  useEffect(() => {
-    if (!open) return
-    const trimmed = workDir.trim()
-    if (!trimmed) {
-      setPathCheck({ state: 'idle' })
-      return
-    }
-    setPathCheck({ state: 'checking' })
-    const handle = setTimeout(() => {
-      let cancelled = false
-      checkPath(trimmed)
-        .then((res) => {
-          if (cancelled) return
-          if (res.exists && res.isDir) setPathCheck({ state: 'ok' })
-          else if (res.exists && !res.isDir) setPathCheck({ state: 'error', message: '路径是文件,不是目录' })
-          else setPathCheck({ state: 'missing' })
-        })
-        .catch(() => {
-          if (!cancelled) setPathCheck({ state: 'missing' })
-        })
-      return () => { cancelled = true }
-    }, 500)
-    return () => clearTimeout(handle)
-  }, [workDir, open, checkPath])
+  const pathCheck = usePathCheck(workDir, open)
 
   useEffect(() => {
     if (!open) return
@@ -96,8 +66,6 @@ export function ProjectFormModal({ open, mode, initial, onClose, onSubmit }: Pro
   const effectiveIcon = useMemo(() => icon || autoIcon(name), [icon, name])
 
   if (!open) return null
-
-  const paths = recentPaths.call(store)
 
   const canSubmit = name.trim().length > 0 && workDir.trim().length > 0 && !submitting
 
@@ -175,68 +143,8 @@ export function ProjectFormModal({ open, mode, initial, onClose, onSubmit }: Pro
           </div>
 
           <div style={{ display: 'flex', gap: 16 }}>
-            <div style={{ flex: 1 }}>
-              <label style={styles.label}>颜色</label>
-              <div style={styles.colorGrid}>
-                {PROJECT_COLORS.map((c) => (
-                  <button
-                    key={c}
-                    type="button"
-                    onClick={() => setColor(color === c ? '' : c)}
-                    title={c}
-                    style={{
-                      width: 26,
-                      height: 26,
-                      borderRadius: 6,
-                      background: c,
-                      border: color === c ? '2px solid var(--text-1)' : '2px solid transparent',
-                      cursor: 'pointer',
-                      padding: 0,
-                    }}
-                  />
-                ))}
-              </div>
-            </div>
-            <div style={{ flex: 1 }}>
-              <label style={styles.label}>图标</label>
-              <div style={styles.iconGrid}>
-                <span
-                  style={{
-                    width: 30,
-                    height: 30,
-                    borderRadius: 5,
-                    background: effectiveColor,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: 14,
-                  }}
-                >
-                  {effectiveIcon}
-                </span>
-                {PROJECT_ICONS.map((ic) => (
-                  <button
-                    key={ic}
-                    type="button"
-                    onClick={() => setIcon(icon === ic ? '' : ic)}
-                    title={ic}
-                    style={{
-                      width: 30,
-                      height: 30,
-                      borderRadius: 5,
-                      background: icon === ic ? 'rgba(37, 99, 235, 0.1)' : 'var(--bg-1)',
-                      border: icon === ic ? '1px solid var(--blue)' : '1px solid transparent',
-                      cursor: 'pointer',
-                      padding: 0,
-                      fontSize: 14,
-                      lineHeight: 1,
-                    }}
-                  >
-                    {ic}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <ColorPicker color={color} onChange={setColor} />
+            <IconPicker icon={icon} onChange={setIcon} effectiveColor={effectiveColor} effectiveIcon={effectiveIcon} />
           </div>
 
           {error && (
@@ -257,22 +165,6 @@ export function ProjectFormModal({ open, mode, initial, onClose, onSubmit }: Pro
       </form>
     </div>
   )
-}
-
-function PathCheckHint({ state }: { state: PathCheckState }) {
-  if (state.state === 'idle') {
-    return <div style={{ ...styles.hint, color: 'var(--text-3)' }}>手动输入完整路径,或从最近使用的路径中选择</div>
-  }
-  if (state.state === 'checking') {
-    return <div style={{ ...styles.hint, color: 'var(--text-3)' }}>检查中...</div>
-  }
-  if (state.state === 'ok') {
-    return <div style={{ ...styles.hint, color: 'var(--green)' }}>✓ 路径存在</div>
-  }
-  if (state.state === 'missing') {
-    return <div style={{ ...styles.hint, color: 'var(--red)' }}>✗ 路径不存在(仍可强制保存)</div>
-  }
-  return <div style={{ ...styles.hint, color: 'var(--red)' }}>✗ {state.message}</div>
 }
 
 const styles: Record<string, CSSProperties> = {
@@ -342,9 +234,6 @@ const styles: Record<string, CSSProperties> = {
     gap: 6,
     alignItems: 'center',
   },
-  hint: { fontSize: 11, marginTop: 4 },
-  colorGrid: { display: 'flex', flexWrap: 'wrap', gap: 6 },
-  iconGrid: { display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' },
   footer: {
     padding: '12px 18px',
     borderTop: '1px solid var(--border)',

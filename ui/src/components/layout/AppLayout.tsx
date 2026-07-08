@@ -171,6 +171,7 @@ function ProjectSwitcher() {
         </>
       )}
       <ProjectFormModal
+        key={formOpen ? 'create:new' : 'closed'}
         open={formOpen}
         mode="create"
         initial={null}

@@ -4,7 +4,8 @@ import type { ProjectData } from '../../stores/project.store'
 import { useProjectStore } from '../../stores/project.store'
 import { usePinnedProjects } from '../../utils/project-meta'
 import { resolveProjectColor, resolveProjectIcon } from '../../utils/project-meta'
-import { ProjectContextMenu, buildProjectContextMenuItems } from './ProjectContextMenu'
+import { ProjectContextMenu } from './ProjectContextMenu'
+import { buildProjectContextMenuItems } from './projectContextMenuItems'
 
 interface ProjectCardProps {
   project: ProjectData
