@@ -65,34 +65,59 @@ export function SessionBar(props: SessionBarProps) {
         flexShrink: 0,
         display: 'flex',
         flexDirection: 'column',
-        borderRight: '1px solid var(--border)',
-        background: 'var(--bg-1)',
+        background: 'var(--bg-0)',
+        position: 'relative',
       }}
     >
+      <div
+        style={{
+          position: 'absolute',
+          top: 0,
+          right: 0,
+          width: 1,
+          height: '100%',
+          background:
+            'linear-gradient(to bottom, transparent, var(--border) 10%, var(--border) 90%, transparent)',
+          pointerEvents: 'none',
+          zIndex: 1,
+        }}
+      />
       <header
         style={{
-          padding: '10px 12px',
+          padding: '12px 14px 12px 17px',
           display: 'flex',
           alignItems: 'center',
           gap: 8,
           borderBottom: '1px solid var(--border)',
           flexShrink: 0,
           minWidth: 0,
+          position: 'relative',
+          background: 'var(--bg-1)',
         }}
       >
+        <div
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: 3,
+            background: 'var(--blue)',
+          }}
+        />
         {agent ? (
           <>
             <span
               style={{
-                width: 20,
-                height: 20,
-                borderRadius: '50%',
+                width: 18,
+                height: 18,
+                borderRadius: 4,
                 background: agentColor(agent),
                 display: 'inline-flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 fontSize: 10,
-                fontWeight: 700,
+                fontWeight: 600,
                 color: 'white',
                 flexShrink: 0,
               }}
@@ -183,6 +208,8 @@ export function SessionBar(props: SessionBarProps) {
                     borderRadius: 4,
                     opacity:
                       draggedOrderItem?.type === 'session' && draggedOrderItem.id === s.id ? 0.55 : 1,
+                    transition: 'background 0.15s',
+                    boxShadow: currentSessionId === s.id ? 'inset 2px 0 0 var(--blue)' : 'none',
                   }}
                 >
                   <button

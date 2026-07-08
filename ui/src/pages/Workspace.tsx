@@ -102,7 +102,6 @@ import {
   chatContentKey,
   selectChatAgent,
   sessionTitle,
-  statusDot,
   statusLabel,
   toolSummary,
   type MenuAnchor,
@@ -241,6 +240,20 @@ export default function Workspace() {
       })
     },
     [orderedProjectSessions],
+  )
+
+  const agentSessionStats = useCallback(
+    (agentId: string) => {
+      const list = agentSessions(agentId)
+      let running = 0
+      let unread = 0
+      for (const s of list) {
+        if (runningSessionIds[s.id]) running++
+        else if (unreadSessionIds[s.id]) unread++
+      }
+      return { running, unread, total: list.length }
+    },
+    [agentSessions, runningSessionIds, unreadSessionIds],
   )
 
   const handleAgentClick = (agentId: string) => {
@@ -501,10 +514,23 @@ export default function Workspace() {
           flexShrink: 0,
           display: 'flex',
           flexDirection: 'column',
-          borderRight: '1px solid var(--border)',
           background: 'var(--bg-0)',
+          position: 'relative',
         }}
       >
+        <div
+          style={{
+            position: 'absolute',
+            top: 0,
+            right: 0,
+            width: 1,
+            height: '100%',
+            background:
+              'linear-gradient(to bottom, transparent, var(--border) 10%, var(--border) 90%, transparent)',
+            pointerEvents: 'none',
+            zIndex: 1,
+          }}
+        />
         <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
           <button
             type="button"
@@ -689,7 +715,10 @@ export default function Workspace() {
                   </button>
                 </div>
               )}
-              {orderedProjectAgents.map((agent) => (
+              {orderedProjectAgents.map((agent) => {
+                const stats = agentSessionStats(agent.id)
+                const isSelected = (selectedAgentId ?? defaultAgentId) === agent.id
+                return (
                 <div
                   key={agent.id}
                   onDragOver={(e) => orderingMode && e.preventDefault()}
@@ -722,15 +751,20 @@ export default function Workspace() {
                     style={{
                       display: 'flex',
                       alignItems: 'center',
-                      gap: 8,
+                      gap: 10,
                       flex: 1,
                       minWidth: 0,
-                      padding: '7px 14px',
+                      padding: '9px 12px',
+                      margin: '0 6px',
                       border: 'none',
-                      background: (selectedAgentId ?? defaultAgentId) === agent.id ? 'var(--blue-light)' : 'transparent',
+                      borderRadius: 6,
+                      background: isSelected ? 'var(--blue-light)' : 'transparent',
                       color: 'var(--text-1)',
                       cursor: orderingMode ? 'default' : 'pointer',
                       textAlign: 'left',
+                      transition: 'background 0.18s, box-shadow 0.18s',
+                      position: 'relative',
+                      boxShadow: isSelected ? 'inset 3px 0 0 var(--blue)' : 'none',
                     }}
                   >
                     {orderingMode && (
@@ -752,17 +786,19 @@ export default function Workspace() {
                     )}
                     <span
                       style={{
-                        width: 24,
-                        height: 24,
-                        borderRadius: '50%',
+                        width: 28,
+                        height: 28,
+                        borderRadius: 7,
                         background: agentColor(agent),
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        fontSize: 12,
+                        fontSize: 13,
                         fontWeight: 700,
                         color: 'white',
                         flexShrink: 0,
+                        transition: 'transform 0.18s',
+                        transform: isSelected ? 'scale(1.05)' : 'scale(1)',
                       }}
                     >
                       {agentAvatar(agent)}
@@ -770,7 +806,7 @@ export default function Workspace() {
                     <span
                       style={{
                         flex: 1,
-                        fontSize: 15,
+                        fontSize: 14,
                         fontWeight: 500,
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
@@ -781,30 +817,60 @@ export default function Workspace() {
                     >
                       {agent.name}
                     </span>
-                    <span
-                      style={{
-                        fontSize: 12,
-                        padding: '1px 6px',
-                        borderRadius: 10,
-                        background: 'var(--bg-2)',
-                        color: 'var(--text-3)',
-                      }}
-                    >
-                      {agentSessions(agent.id).length}
-                    </span>
-                    <span
-                      style={{
-                        width: 7,
-                        height: 7,
-                        borderRadius: '50%',
-                        background: statusDot(agent.status),
-                        flexShrink: 0,
-                      }}
-                      title={statusLabel(agent.status)}
-                    />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+                      {stats.running > 0 && (
+                        <span
+                          title="运行中会话"
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 600,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 3,
+                            color: 'var(--green)',
+                          }}
+                        >
+                          <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--green)', flexShrink: 0 }} />
+                          {stats.running}
+                        </span>
+                      )}
+                      {stats.unread > 0 && (
+                        <span
+                          title="未读会话"
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 600,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 3,
+                            color: 'var(--yellow)',
+                          }}
+                        >
+                          <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--yellow)', flexShrink: 0 }} />
+                          {stats.unread}
+                        </span>
+                      )}
+                      {stats.running === 0 && stats.unread === 0 && stats.total > 0 && (
+                        <span
+                          title="会话总数"
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 500,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 3,
+                            color: 'var(--text-3)',
+                          }}
+                        >
+                          <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--text-3)', opacity: 0.5, flexShrink: 0 }} />
+                          {stats.total}
+                        </span>
+                      )}
+                    </div>
                   </button>
                 </div>
-              ))}
+                )
+              })}
             </div>
           </>
         ) : (
