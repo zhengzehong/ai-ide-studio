@@ -7,6 +7,7 @@ import type { TurnViewModel } from '@desktop/stores/turn-blocks'
 import { elapsedSecondsBetween } from '@desktop/utils/duration'
 import ProcessBlock from './ProcessBlock'
 import FileChangesCard, { extractFileChangesFromBlocks } from './FileChangesCard'
+import { CodeView } from '../file-viewer/CodeView'
 
 interface Props {
   message?: MessageData
@@ -102,8 +103,16 @@ export default memo(function TurnContent({ message, streaming, processLoading = 
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             components={{
-              pre: ({ children }) => <pre style={styles.codePre}>{children}</pre>,
-              code: ({ children }) => <code style={styles.codeInline}>{children}</code>,
+              code({ className, children, ...props }) {
+                const text = String(children ?? '')
+                const match = /language-(\w+)/.exec(className || '')
+                const lang = match?.[1] || 'text'
+                const isInline = !className && !text.includes('\n')
+                if (isInline) {
+                  return <code style={styles.codeInline} {...props}>{children}</code>
+                }
+                return <CodeView content={text.replace(/\n$/, '')} language={lang} embedded />
+              },
               ol: ({ children }) => <ol style={markdownListStyle}>{children}</ol>,
               ul: ({ children }) => <ul style={markdownListStyle}>{children}</ul>,
               li: ({ children }) => <li style={markdownListItemStyle}>{children}</li>,
@@ -190,18 +199,6 @@ const styles: Record<string, CSSProperties> = {
   },
   paragraph: {
     margin: '4px 0',
-  },
-  codePre: {
-    margin: '8px 0',
-    padding: '8px 10px',
-    borderRadius: 6,
-    background: '#1e1e2e',
-    color: '#cdd6f4',
-    fontSize: 12,
-    lineHeight: 1.5,
-    overflow: 'auto',
-    whiteSpace: 'pre-wrap',
-    wordBreak: 'break-all',
   },
   codeInline: {
     padding: '1px 5px',
