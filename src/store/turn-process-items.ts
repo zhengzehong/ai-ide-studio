@@ -109,7 +109,7 @@ export const turnProcessItemStore = {
         updated_at = excluded.updated_at
     `).run(row)
 
-    updateMessageProcessCount(input.messageId)
+    if (!existing || existing.kind !== row.kind) updateMessageProcessCount(input.messageId)
     log.debug({ sessionId: input.sessionId, messageId: input.messageId, itemId: row.id, kind: row.kind, sequence: row.sequence }, 'turn process item upserted')
     return row
   },

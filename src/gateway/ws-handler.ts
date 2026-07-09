@@ -2,6 +2,7 @@ import type { WebSocket, WebSocketServer } from 'ws'
 import type { IncomingMessage } from 'http'
 import type { ClientMessage, ServerMessage } from '../types/ws-protocol.js'
 import { events } from '../core/events.js'
+import { SessionUpdateBatcher, type SessionUpdateEnvelope } from '../core/session-update-batcher.js'
 import { createChildLogger } from '../core/logger.js'
 import { dispatchRpc } from './rpc/registry.js'
 import type { RpcClientState } from './rpc/types.js'
@@ -9,6 +10,7 @@ import type { RpcClientState } from './rpc/types.js'
 const log = createChildLogger('ws')
 
 const clients = new Map<WebSocket, RpcClientState>()
+const sessionUpdateBroadcastBatcher = new SessionUpdateBatcher()
 
 export function broadcastToSubscribers(sessionId: string, msg: ServerMessage): void {
   const subscribers: WebSocket[] = []
@@ -72,13 +74,17 @@ export function broadcastToAll(msg: ServerMessage): void {
 }
 
 events.on('session:update', (ev) => {
+  sessionUpdateBroadcastBatcher.handle(ev, broadcastSessionUpdate)
+})
+
+function broadcastSessionUpdate(ev: SessionUpdateEnvelope): void {
   broadcastToSubscribers(ev.sessionId, {
     type: 'session:update',
     sessionId: ev.sessionId,
     agentId: ev.agentId,
     data: ev.data,
   })
-})
+}
 
 events.on('session:process_item', (ev) => {
   broadcastToSubscribers(ev.sessionId, {
@@ -99,6 +105,7 @@ events.on('session:event', (ev) => {
 })
 
 events.on('session:done', (ev) => {
+  sessionUpdateBroadcastBatcher.flushSession(ev.sessionId, broadcastSessionUpdate)
   log.info({ sessionId: ev.sessionId, agentId: ev.agentId, turnId: ev.turnId, messageId: ev.messageId, stopReason: ev.stopReason, hasError: !!ev.error }, 'broadcasting session done')
   broadcastToSubscribers(ev.sessionId, {
     type: 'session:done',

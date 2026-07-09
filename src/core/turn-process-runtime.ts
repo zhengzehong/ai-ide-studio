@@ -17,10 +17,16 @@ interface ActiveTurnProcess {
   noteIndex: number
   snapshotTimer?: NodeJS.Timeout
   snapshotPending: boolean
+  pendingText?: {
+    kind: 'thinking' | 'note' | 'stage' | 'error'
+    text: string
+    timer?: NodeJS.Timeout
+  }
 }
 
 const activeTurns = new Map<string, ActiveTurnProcess>()
 const SNAPSHOT_FLUSH_INTERVAL_MS = 500
+const PROCESS_TEXT_FLUSH_INTERVAL_MS = 300
 
 export function createAgentMessageId(): string {
   return `msg-turn-${Date.now()}-${randomUUID().slice(0, 8)}`
@@ -44,12 +50,12 @@ export function recordTurnProcessUpdate(sessionId: string, agentId: string, data
 
   if (data.thinking) {
     demoteFinalAnswer(sessionId, active, agentId)
-    const item = appendText(sessionId, active, agentId, 'thinking', data.thinking)
-    emitProcessItem(sessionId, agentId, item)
+    scheduleProcessTextFlush(sessionId, active, agentId, 'thinking', data.thinking)
     return
   }
 
   if (data.toolCall) {
+    flushProcessText(sessionId, active, agentId)
     demoteFinalAnswer(sessionId, active, agentId)
     const item = upsertTool(sessionId, active.messageId, data.toolCall)
     emitProcessItem(sessionId, agentId, item)
@@ -60,6 +66,7 @@ export function recordTurnProcessUpdate(sessionId: string, agentId: string, data
   }
 
   if (data.toolCallUpdate) {
+    flushProcessText(sessionId, active, agentId)
     if (shouldCreateToolFromUpdate(data.toolCallUpdate)) demoteFinalAnswer(sessionId, active, agentId)
     const item = upsertTool(sessionId, active.messageId, data.toolCallUpdate)
     emitProcessItem(sessionId, agentId, item)
@@ -70,6 +77,7 @@ export function recordTurnProcessUpdate(sessionId: string, agentId: string, data
   }
 
   if (data.plan) {
+    flushProcessText(sessionId, active, agentId)
     demoteFinalAnswer(sessionId, active, agentId)
     const item = upsertPlan(sessionId, active.messageId, data.plan)
     emitProcessItem(sessionId, agentId, item)
@@ -79,6 +87,7 @@ export function recordTurnProcessUpdate(sessionId: string, agentId: string, data
   }
 
   if (data.permissionRequest) {
+    flushProcessText(sessionId, active, agentId)
     demoteFinalAnswer(sessionId, active, agentId)
     const item = upsertPermission(sessionId, active.messageId, data.permissionRequest)
     emitProcessItem(sessionId, agentId, item)
@@ -88,6 +97,7 @@ export function recordTurnProcessUpdate(sessionId: string, agentId: string, data
   }
 
   if (data.elicitationRequest) {
+    flushProcessText(sessionId, active, agentId)
     demoteFinalAnswer(sessionId, active, agentId)
     const item = upsertElicitation(sessionId, active.messageId, data.elicitationRequest)
     emitProcessItem(sessionId, agentId, item)
@@ -119,10 +129,12 @@ export function completeTurnProcess(
 ): { messageId?: string; finalAnswer?: string; fileChangesJson?: string | null } {
   const active = activeTurns.get(sessionId)
   if (!active) return {}
+  flushProcessText(sessionId, active, undefined)
   flushSnapshot(active)
   const fileChangesJson = turnProcessItemStore.aggregateFileChanges(active.messageId)
   turnProcessItemStore.completeOpen(active.messageId, status)
   if (active.snapshotTimer) clearTimeout(active.snapshotTimer)
+  if (active.pendingText?.timer) clearTimeout(active.pendingText.timer)
   activeTurns.delete(sessionId)
   log.debug({ sessionId, messageId: active.messageId, status }, 'active turn process completed')
   return { messageId: active.messageId, finalAnswer: active.finalAnswer, fileChangesJson }
@@ -130,6 +142,7 @@ export function completeTurnProcess(
 
 function demoteFinalAnswer(sessionId: string, active: ActiveTurnProcess, agentId: string): void {
   if (!active.finalAnswer) return
+  flushProcessText(sessionId, active, agentId)
   flushSnapshot(active)
   active.noteIndex += 1
   const item = turnProcessItemStore.upsert({
@@ -148,6 +161,39 @@ function demoteFinalAnswer(sessionId: string, active: ActiveTurnProcess, agentId
   flushSnapshot(active, true)
   active.lastTextItemId = undefined
   active.lastTextKind = undefined
+}
+
+function scheduleProcessTextFlush(
+  sessionId: string,
+  active: ActiveTurnProcess,
+  agentId: string,
+  kind: 'thinking' | 'note' | 'stage' | 'error',
+  text: string,
+): void {
+  if (active.pendingText && active.pendingText.kind !== kind) {
+    flushProcessText(sessionId, active, agentId)
+  }
+  active.pendingText = {
+    kind,
+    text: `${active.pendingText?.text ?? ''}${text}`,
+    timer: active.pendingText?.timer,
+  }
+  if (active.pendingText.timer) return
+  active.pendingText.timer = setTimeout(() => {
+    const current = activeTurns.get(sessionId)
+    if (!current || current !== active) return
+    flushProcessText(sessionId, current, agentId)
+  }, PROCESS_TEXT_FLUSH_INTERVAL_MS)
+}
+
+function flushProcessText(sessionId: string, active: ActiveTurnProcess, agentId: string | undefined): void {
+  const pending = active.pendingText
+  if (!pending) return
+  if (pending.timer) clearTimeout(pending.timer)
+  active.pendingText = undefined
+  if (!pending.text) return
+  const item = appendText(sessionId, active, agentId ?? '', pending.kind, pending.text)
+  emitProcessItem(sessionId, agentId ?? '', item)
 }
 
 function scheduleSnapshotFlush(sessionId: string, active: ActiveTurnProcess): void {

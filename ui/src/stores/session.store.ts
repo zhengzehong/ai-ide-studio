@@ -179,6 +179,7 @@ let lastStreamingSnapshot: StreamingMessage | null = null
 let sessionListRequestSeq = 0
 let activeSessionsProjectId: string | null = null
 const sessionCaches = new Map<string, SessionCache>()
+const cacheSaveTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const eventCursorBySession = new Map<string, number>()
 const streamingBuffer = new StreamingBuffer()
 let streamingFlushTimer: ReturnType<typeof setTimeout> | null = null
@@ -402,11 +403,24 @@ function clearCachedStreaming(sessionId: string): void {
 }
 
 function saveCache(sessionId: string, s: Pick<SessionStore, 'messages' | 'events' | 'usage' | 'turnUsage' | 'capabilities' | 'plan' | 'pendingPermissions' | 'pendingElicitations' | 'streamingMessage'>) {
+  const timer = cacheSaveTimers.get(sessionId)
+  if (timer) {
+    clearTimeout(timer)
+    cacheSaveTimers.delete(sessionId)
+  }
   sessionCaches.set(sessionId, {
     messages: [...s.messages],
     events: [...s.events], usage: s.usage, turnUsage: s.turnUsage, capabilities: { ...s.capabilities, models: [...s.capabilities.models], modes: [...s.capabilities.modes], configOptions: [...s.capabilities.configOptions], commands: [...s.capabilities.commands] },
     plan: [...s.plan], pendingPermissions: [...s.pendingPermissions], pendingElicitations: [...s.pendingElicitations], streamingMessage: s.streamingMessage,
   })
+}
+
+function scheduleCacheSave(sessionId: string, get: () => SessionStore): void {
+  if (cacheSaveTimers.has(sessionId)) return
+  cacheSaveTimers.set(sessionId, setTimeout(() => {
+    cacheSaveTimers.delete(sessionId)
+    saveCache(sessionId, get())
+  }, 250))
 }
 
 function reducedStateFromStore(state: SessionStore) {
@@ -461,19 +475,8 @@ function flushStreamingBuffer(set: (partial: Partial<SessionStore> | ((state: Se
     streamingFlushTimer = null
   }
   const snapshot = streamingBuffer.flush()
-  if (!snapshot) {
-    console.debug('[flushStreamingBuffer] empty snapshot, skip')
-    return
-  }
+  if (!snapshot) return
   const sid = get().currentSessionId
-  console.info('[flushStreamingBuffer] flush', {
-    sid,
-    hasContent: !!snapshot.contentDelta,
-    hasThinking: !!snapshot.thinking,
-    toolCallCount: snapshot.toolCalls.length,
-    toolCallUpdateCount: snapshot.toolCallUpdates.length,
-    toolCallIds: [...snapshot.toolCalls.map(t => t.id), ...snapshot.toolCallUpdates.map(t => t.id)],
-  })
   set((state) => {
     const cur = normalizeActiveTurn(state.streamingMessage)
     let up: StreamingMessage = cur ? { ...cur, processBlocks: cur.processBlocks.map(block => block.kind === 'tool' ? { ...block, toolCall: { ...block.toolCall } } : { ...block }), toolCalls: [...cur.toolCalls] } : createEmptyTurn(String(snapshot.messageId || `stream-${sid}-${Date.now()}`))
@@ -488,7 +491,7 @@ function flushStreamingBuffer(set: (partial: Partial<SessionStore> | ((state: Se
     return { streamingMessage: up }
   })
   const currentSessionId = get().currentSessionId
-  if (currentSessionId) saveCache(currentSessionId, get())
+  if (currentSessionId) scheduleCacheSave(currentSessionId, get)
 }
 
 function mergeProcessBlock(blocks: TurnProcessBlock[], block: TurnProcessBlock): TurnProcessBlock[] {
@@ -1198,37 +1201,15 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           }),
         }
       })
-      saveCache(sid, get())
+      scheduleCacheSave(sid, get)
     }))
 
     offs.push(wsClient.on('session:update', (msg) => {
       const sid = msg.sessionId as string
       const curSid = get().currentSessionId
       const data = msg.data as Record<string, unknown>
-      const hasToolCall = !!(data.toolCall || data.toolCallUpdate)
-      const hasContent = !!(data.contentDelta || data.content)
-      const hasThinking = !!data.thinking
       const isLifecycle = typeof data.eventType === 'string' && data.eventType.startsWith('lifecycle.')
-      if (sid !== curSid) {
-        console.info('[session:update] drop: sid !== currentSessionId', {
-          sid, currentSessionId: curSid, eventType: data.eventType,
-          hasToolCall, hasContent, hasThinking,
-        })
-        return
-      }
-
-      if (isLifecycle) {
-        console.info('[session:update] lifecycle', {
-          sid, eventType: data.eventType, visible: shouldShowLifecycleStage(data.eventType as string),
-          stage: data.content,
-        })
-      } else if (hasToolCall || hasContent || hasThinking) {
-        console.info('[session:update] receive', {
-          sid, eventType: data.eventType,
-          hasToolCall, toolCallId: (data.toolCall as { id?: string } | undefined)?.id || (data.toolCallUpdate as { id?: string } | undefined)?.id,
-          hasContent, hasThinking,
-        })
-      }
+      if (sid !== curSid) return
 
       if (isLifecycle) {
         if (!shouldShowLifecycleStage(data.eventType as string)) {
@@ -1237,7 +1218,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             if (!cur || cur.content || cur.thinking || cur.toolCalls.length > 0) return {}
             return { streamingMessage: null }
           })
-          saveCache(sid, get())
+          scheduleCacheSave(sid, get)
           return
         }
         const stage = String(data.content || '')
@@ -1246,7 +1227,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           const base: StreamingMessage = cur || createEmptyTurn(String(data.messageId || `stream-${sid}-${Date.now()}`))
           return { streamingMessage: applyTurnEntry(base, { kind: 'stage', text: stage }) }
         })
-        saveCache(sid, get())
+        scheduleCacheSave(sid, get)
         return
       }
       if (data.eventType === 'permission.result' || data.eventType === 'elicitation.result') return

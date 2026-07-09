@@ -14,6 +14,7 @@ import { createPendingTurn, finalizePendingTurn, updatePendingTurn, type Pending
 import { buildTeamLeaderPrompt } from './team-prompts.js'
 import { resolveVisiblePlatformTools } from '../tools/registry/visibility-resolver.js'
 import { eventPayloadFromUpdate } from './session-event-payload.js'
+import { SessionUpdateBatcher, type SessionUpdateEnvelope } from './session-update-batcher.js'
 import {
   createTurnId,
   finishPromptDiagnostics,
@@ -37,6 +38,7 @@ const pendingBySession = new Map<string, PendingTurn>()
 const activePrompts = new Set<string>()
 const queuedPrompts = new Map<string, Promise<void>>()
 const copyingSourceSessions = new Set<string>()
+const eventBatcher = new SessionUpdateBatcher()
 
 interface PromptOptions {
   clientMessageId?: string
@@ -63,6 +65,10 @@ events.on('session:update', (ev) => {
 })
 
 events.on('session:update', (ev) => {
+  eventBatcher.handle(ev, persistSessionUpdateEvent)
+})
+
+function persistSessionUpdateEvent(ev: SessionUpdateEnvelope): void {
   const turnId = getPromptTurnId(ev.sessionId)
   const payload = eventPayloadFromUpdate(ev.data)
   if (!payload) return
@@ -82,13 +88,14 @@ events.on('session:update', (ev) => {
     'session event persisted',
   )
   events.emit('session:event', { sessionId: ev.sessionId, agentId: ev.agentId, event: stored })
-})
+}
 
 function eventTurnId(ev: { sessionId: string; turnId?: string }): string | undefined {
   return ev.turnId ?? getPromptTurnId(ev.sessionId)
 }
 
 events.on('session:done', (ev) => {
+  eventBatcher.flushSession(ev.sessionId, persistSessionUpdateEvent)
   const turnId = eventTurnId(ev)
   recordPromptProgress(ev.sessionId, 'session.done')
   log.info({ sessionId: ev.sessionId, agentId: ev.agentId, turnId, messageId: ev.messageId, stopReason: ev.stopReason, hasError: !!ev.error, turnUsage: ev.turnUsage }, 'session done received')
