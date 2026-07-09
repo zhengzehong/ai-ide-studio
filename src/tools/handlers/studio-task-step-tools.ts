@@ -1,31 +1,11 @@
-import type { ToolHandler, ToolHandlerInput, ToolHandlerResult } from '../types.js'
+import type { ToolHandler } from '../types.js'
 import { taskStore } from '../../store/tasks.js'
 import { taskStepStore } from '../../store/task-steps.js'
 import { taskStepManager, type StepArtifact } from '../../core/task-steps.js'
 import { createChildLogger } from '../../core/logger.js'
+import { requireStr, optStr, errResult, assertProjectAccess } from './studio-task-crud-tools.js'
 
 const log = createChildLogger('studio-task-step-tools')
-
-function requireStr(input: ToolHandlerInput, key: string): string {
-  const v = input[key]
-  if (typeof v !== 'string' || !v.trim()) throw new Error(`参数 ${key} 不能为空`)
-  return v.trim()
-}
-
-function optStr(input: ToolHandlerInput, key: string): string | undefined {
-  const v = input[key]
-  return typeof v === 'string' && v.trim() ? v.trim() : undefined
-}
-
-function errResult(msg: string): ToolHandlerResult {
-  return { content: [{ type: 'text', text: JSON.stringify({ error: msg }) }], isError: true }
-}
-
-function assertProjectAccess(task: { project_id: string | null }, contextProjectId: string | undefined): void {
-  if (contextProjectId && task.project_id && task.project_id !== contextProjectId) {
-    throw new Error('权限不足：该任务不属于当前项目')
-  }
-}
 
 function parseStrArray(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) return undefined

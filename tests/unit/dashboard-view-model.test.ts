@@ -26,7 +26,7 @@ describe('dashboard-view-model', () => {
         session('session-b', 'agent-b', 'project-b', 'active'),
       ],
       tasks: [
-        task('task-a', 'project-a', 'executing'),
+        task('task-a', 'project-a', 'running'),
         task('task-b', 'project-b', 'completed'),
       ],
       projects: [project('project-a'), project('project-b')],
@@ -76,7 +76,7 @@ describe('buildAgentDynamicsViewModel', () => {
     const model = buildAgentDynamicsViewModel({
       agents: [agent('agent-a', 'project-a')],
       projects: [project('project-a')],
-      tasks: [task('task-a', 'project-a', 'executing', '实现登录')],
+      tasks: [task('task-a', 'project-a', 'running', '实现登录')],
       sessions: [
         session('session-task', 'agent-a', 'project-a', 'active', { task_id: 'task-a', activity_state: 'running', stage: '写代码', updated_at: '2026-06-24T11:00:00.000Z' }),
         session('session-chat', 'agent-a', 'project-a', 'active', { activity_state: 'idle', title: '方案讨论', stage: '等待输入', updated_at: '2026-06-24T11:00:00.000Z' }),
@@ -87,7 +87,7 @@ describe('buildAgentDynamicsViewModel', () => {
     })
 
     expect(model.activeRows.map((row) => ({ id: row.session.id, title: row.title, badge: row.badge }))).toEqual([
-      { id: 'session-task', title: '实现登录', badge: { kind: 'task', value: 'executing' } },
+      { id: 'session-task', title: '实现登录', badge: { kind: 'task', value: 'running' } },
       { id: 'session-chat', title: '方案讨论', badge: { kind: 'activity', value: 'idle' } },
     ])
   })
@@ -96,7 +96,7 @@ describe('buildAgentDynamicsViewModel', () => {
     const model = buildAgentDynamicsViewModel({
       agents: [agent('agent-a', 'project-a')],
       projects: [project('project-a')],
-      tasks: [task('task-a', 'project-a', 'executing')],
+      tasks: [task('task-a', 'project-a', 'running')],
       sessions: [
         session('session-a', 'agent-a', 'project-a', 'active', { task_id: 'task-a', activity_state: 'idle', updated_at: '2026-06-24T11:00:00.000Z' }),
       ],
@@ -114,7 +114,7 @@ describe('buildAgentDynamicsViewModel', () => {
     const model = buildAgentDynamicsViewModel({
       agents: [agent('agent-a', 'project-a')],
       projects: [project('project-a')],
-      tasks: [task('task-a', 'project-a', 'executing')],
+      tasks: [task('task-a', 'project-a', 'running')],
       sessions: [
         session('history', 'agent-a', 'project-a', 'active', {
           activity_state: 'idle',
@@ -161,7 +161,7 @@ describe('buildAgentDynamicsViewModel', () => {
 describe('dashboard tab selectors', () => {
   test('filters task rows by segmented status and project filter', () => {
     const tasks = [
-      task('task-a', 'project-a', 'executing'),
+      task('task-a', 'project-a', 'running'),
       task('task-b', 'project-a', 'completed'),
       task('task-c', 'project-b', 'blocked'),
     ]
@@ -184,8 +184,8 @@ describe('dashboard tab selectors', () => {
   test('chooses quick-dispatch project from scoped project or most recent task project', () => {
     const projects = [project('project-a'), project('project-b')]
     const tasks = [
-      task('older', 'project-a', 'backlog', 'older', '2026-06-23T09:00:00.000Z'),
-      task('newer', 'project-b', 'backlog', 'newer', '2026-06-24T09:00:00.000Z'),
+      task('older', 'project-a', 'draft', 'older', '2026-06-23T09:00:00.000Z'),
+      task('newer', 'project-b', 'draft', 'newer', '2026-06-24T09:00:00.000Z'),
     ]
 
     expect(chooseQuickDispatchProjectId({ scope: { type: 'project', projectId: 'project-a' }, tasks, projects })).toBe('project-a')
@@ -222,7 +222,7 @@ function session(id: string, agentId: string, projectId: string | null, status: 
   }
 }
 
-function task(id: string, projectId: string | null, status = 'backlog', title = id, createdAt = '2026-06-10T00:00:00.000Z'): TaskData {
+function task(id: string, projectId: string | null, status = 'draft', title = id, createdAt = '2026-06-10T00:00:00.000Z'): TaskData {
   return {
     id,
     title,
