@@ -70,15 +70,14 @@ export const agentSessionMessagesHandler: ToolHandler = {
   },
 }
 
-export const agentWatchCreateHandler: ToolHandler = {
-  name: 'agent.watch.create',
-  description: '监听另一个会话的下一次完成事件；once 默认 true。',
+export const agentSessionWatchHandler: ToolHandler = {
+  name: 'agent.session.watch',
+  description: '一次性监听另一个会话的完成事件。被监听会话执行完一轮后,系统自动唤醒你的会话。单次触发后自动失效,不支持取消。',
   inputSchema: {
     type: 'object',
     properties: {
-      sessionId: { type: 'string' },
-      once: { type: 'boolean' },
-      relatedInfo: { type: 'object' },
+      sessionId: { type: 'string', description: '被监听会话 ID' },
+      relatedInfo: { type: 'object', description: '动态关联信息 JSON' },
     },
     required: ['sessionId'],
   },
@@ -86,24 +85,48 @@ export const agentWatchCreateHandler: ToolHandler = {
     const watch = agentSessionCommunicationService.createWatch({
       context,
       sessionId: requireString(input, 'sessionId'),
-      once: input.once === false ? false : true,
+      once: true,
       relatedInfo: optionalRecord(input, 'relatedInfo'),
     })
-    return jsonResult({ watch })
+    return jsonResult({ watchId: watch.id, sessionId: watch.watched_session_id })
   },
 }
 
-export const agentWatchCancelHandler: ToolHandler = {
-  name: 'agent.watch.cancel',
-  description: '取消当前会话创建的 watch。',
+export const agentTaskWatchHandler: ToolHandler = {
+  name: 'agent.task.watch',
+  description: '持续性监听一个任务。触发时机:步骤 done / 步骤 blocked / 任务 completed / 任务回退到 draft。updateProgress/milestone/ready/pending 不触发。需要用 agent.task.watch.cancel 取消。',
   inputSchema: {
     type: 'object',
-    properties: { watchId: { type: 'string' } },
+    properties: {
+      taskId: { type: 'string', description: '被监听任务 ID' },
+      relatedInfo: { type: 'object', description: '动态关联信息 JSON' },
+    },
+    required: ['taskId'],
+  },
+  async execute(input, context) {
+    const watch = agentSessionCommunicationService.createTaskWatch({
+      context,
+      taskId: requireString(input, 'taskId'),
+      relatedInfo: optionalRecord(input, 'relatedInfo'),
+    })
+    return jsonResult({ watchId: watch.id, taskId: watch.task_id })
+  },
+}
+
+export const agentTaskWatchCancelHandler: ToolHandler = {
+  name: 'agent.task.watch.cancel',
+  description: '取消 agent.task.watch 创建的监听。',
+  inputSchema: {
+    type: 'object',
+    properties: { watchId: { type: 'string', description: 'Watch ID' } },
     required: ['watchId'],
   },
   async execute(input, context) {
-    const watch = agentSessionCommunicationService.cancelWatch(requireString(input, 'watchId'), context)
-    return jsonResult({ watch })
+    const watch = agentSessionCommunicationService.cancelWatch(
+      requireString(input, 'watchId'),
+      context,
+    )
+    return jsonResult({ ok: true, cancelled: watch.id })
   },
 }
 

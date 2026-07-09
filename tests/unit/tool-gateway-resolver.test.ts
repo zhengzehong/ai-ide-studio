@@ -112,7 +112,7 @@ describe('runtime tool schema context boundary', () => {
       projectId: project.id,
     })
     const session = sessionStore.create({ agentId: agent.id, projectId: project.id })
-    const names = ['agent.watch.create', 'agent.session.messages', 'core.session.get']
+    const names = ['agent.session.watch', 'agent.session.messages', 'core.session.get']
     for (const name of names) {
       const tool = toolStore.create({
         name,
