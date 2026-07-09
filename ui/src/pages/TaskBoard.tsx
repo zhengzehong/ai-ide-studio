@@ -16,8 +16,8 @@ const SOURCE_META: Record<string, { bg: string; color: string; label: string }> 
 };
 
 const STATUS_META: Record<string, { label: string; color: string; bg: string }> = {
-  backlog: { label: '待办', color: 'var(--text-3)', bg: 'var(--bg-2)' },
-  executing: { label: '行动中', color: 'var(--blue)', bg: 'var(--blue-light)' },
+  draft: { label: '待办', color: 'var(--text-3)', bg: 'var(--bg-2)' },
+  running: { label: '行动中', color: 'var(--blue)', bg: 'var(--blue-light)' },
   needs_input: { label: '需确认', color: '#d97706', bg: '#fef3c7' },
   completed: { label: '已完成', color: 'var(--green)', bg: 'var(--green-light)' },
   cancelled: { label: '已取消', color: 'var(--text-3)', bg: 'var(--bg-2)' },
@@ -32,15 +32,15 @@ const AGENT_REPORT_STATUS_META: Record<string, { label: string; color: string; b
 
 interface Column { id: string; title: string; color: string; match: (s: string) => boolean }
 const COLUMNS: Column[] = [
-  { id: 'backlog', title: '待办', color: 'var(--text-3)', match: s => s === 'backlog' },
-  { id: 'executing', title: '进行中', color: 'var(--blue)', match: s => s === 'executing' },
+  { id: 'draft', title: '待办', color: 'var(--text-3)', match: s => s === 'draft' },
+  { id: 'running', title: '进行中', color: 'var(--blue)', match: s => s === 'running' },
   { id: 'needs_input', title: '需确认', color: '#d97706', match: s => s === 'needs_input' },
   { id: 'done', title: '已完成', color: 'var(--green)', match: s => s === 'completed' || s === 'cancelled' },
 ];
 
 const STATUS_OPTIONS = [
-  { status: 'backlog', label: '待办' },
-  { status: 'executing', label: '行动中' },
+  { status: 'draft', label: '待办' },
+  { status: 'running', label: '行动中' },
   { status: 'needs_input', label: '需确认' },
   { status: 'completed', label: '已完成' },
   { status: 'cancelled', label: '已取消' },
@@ -170,7 +170,7 @@ function getCardBorder(status: string): string {
 
 function TaskCard({ task, agents, onOpen }: { task: TaskData; agents: AgentData[]; onOpen: () => void }) {
   const source = SOURCE_META[task.source] ?? SOURCE_META.human;
-  const statusMeta = STATUS_META[task.status] ?? STATUS_META.backlog;
+  const statusMeta = STATUS_META[task.status] ?? STATUS_META.draft;
   const agentReportMeta = task.agent_report_status ? AGENT_REPORT_STATUS_META[task.agent_report_status] : null;
   const agent = task.assigned_agent_id ? agents.find(a => a.id === task.assigned_agent_id) : null;
 
@@ -249,7 +249,7 @@ function TaskDetailDrawer({ task, agents, modes, onClose, onStatusChange, onDele
   if (!task) return null;
 
   const source = SOURCE_META[task.source] ?? SOURCE_META.human;
-  const statusMeta = STATUS_META[task.status] ?? STATUS_META.backlog;
+  const statusMeta = STATUS_META[task.status] ?? STATUS_META.draft;
   const agentReportMeta = task.agent_report_status ? AGENT_REPORT_STATUS_META[task.agent_report_status] : null;
   const agent = task.assigned_agent_id ? agents.find(a => a.id === task.assigned_agent_id) : null;
   const currentMode = task.execution_mode_id ? modes.find(m => m.id === task.execution_mode_id) : null;
@@ -424,7 +424,7 @@ function TaskDetailDrawer({ task, agents, modes, onClose, onStatusChange, onDele
             {/* 右栏: 操作面板 */}
             <div style={{ width: 220, flexShrink: 0, borderLeft: '1px solid var(--border)', overflowY: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {task.status === 'backlog' && (
+                {task.status === 'draft' && (
                   <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-3)' }}>指派 Agent 后任务开始执行</div>
                 )}
                 {task.status === 'needs_input' && (
@@ -453,7 +453,7 @@ function TaskDetailDrawer({ task, agents, modes, onClose, onStatusChange, onDele
                 )}
               </div>
 
-              {task.status === 'backlog' && (
+              {task.status === 'draft' && (
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>指派 Agent</div>
                   <select value={assignAgentId} onChange={e => { setAssignAgentId(e.target.value); setAssignSessionMode('new_fixed'); setAssignSessionId(''); }} style={st}>

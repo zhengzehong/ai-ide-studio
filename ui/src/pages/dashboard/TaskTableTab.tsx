@@ -18,16 +18,16 @@ interface Props {
 
 const statusTabs: Array<{ key: DashboardTaskStatusFilter; label: string; icon: React.ReactNode }> = [
   { key: 'all', label: '全部', icon: <ListChecks size={14} /> },
-  { key: 'backlog', label: '待办', icon: <CircleDashed size={14} /> },
+  { key: 'draft', label: '待办', icon: <CircleDashed size={14} /> },
   { key: 'active', label: '进行中', icon: <Clock3 size={14} /> },
   { key: 'needs_attention', label: '需处理', icon: <Search size={14} /> },
   { key: 'done', label: '已完成', icon: <CheckCircle2 size={14} /> },
 ]
 
 const statusMeta: Record<string, { label: string; color: string; bg: string }> = {
-  backlog: { label: '待办', color: 'var(--text-3)', bg: 'var(--bg-2)' },
+  draft: { label: '待办', color: 'var(--text-3)', bg: 'var(--bg-2)' },
   planning: { label: '规划中', color: 'var(--purple)', bg: 'var(--purple-light)' },
-  executing: { label: '执行中', color: 'var(--blue)', bg: 'var(--blue-light)' },
+  running: { label: '执行中', color: 'var(--blue)', bg: 'var(--blue-light)' },
   needs_input: { label: '待确认', color: '#d97706', bg: '#fef3c7' },
   blocked: { label: '已阻塞', color: 'var(--red)', bg: '#fee2e2' },
   reviewing: { label: '审查中', color: '#2563eb', bg: '#dbeafe' },
@@ -80,7 +80,7 @@ export function TaskTableTab({ agents, projects, tasks, selectedTaskId, onSelect
           </thead>
           <tbody>
             {visibleTasks.map((task) => {
-              const meta = statusMeta[task.status] ?? statusMeta.backlog
+              const meta = statusMeta[task.status] ?? statusMeta.draft
               const projectName = task.project_id ? projectsById.get(task.project_id)?.name ?? task.project_id : '未归属'
               const agentName = task.assigned_agent_id ? agentsById.get(task.assigned_agent_id)?.name ?? task.assigned_agent_id : '未指派'
               const active = task.id === selectedTaskId

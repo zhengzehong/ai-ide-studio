@@ -12,8 +12,8 @@ const SOURCE_META: Record<string, { bg: string; color: string; label: string }> 
 }
 
 const STATUS_META: Record<string, { label: string; color: string; bg: string }> = {
-  backlog: { label: '待办', color: 'var(--text-3)', bg: 'var(--bg-2)' },
-  executing: { label: '执行中', color: 'var(--blue)', bg: 'var(--blue-light)' },
+  draft: { label: '待办', color: 'var(--text-3)', bg: 'var(--bg-2)' },
+  running: { label: '执行中', color: 'var(--blue)', bg: 'var(--blue-light)' },
   needs_input: { label: '待确认', color: '#d97706', bg: '#fef3c7' },
   blocked: { label: '已阻塞', color: 'var(--red)', bg: '#fee2e2' },
   reviewing: { label: '审查中', color: '#2563eb', bg: '#dbeafe' },
@@ -22,8 +22,8 @@ const STATUS_META: Record<string, { label: string; color: string; bg: string }> 
 }
 
 const STATUS_ACTIONS = [
-  { status: 'backlog', label: '待办' },
-  { status: 'executing', label: '执行中' },
+  { status: 'draft', label: '待办' },
+  { status: 'running', label: '执行中' },
   { status: 'reviewing', label: '审查中' },
   { status: 'completed', label: '已完成' },
   { status: 'blocked', label: '已阻塞' },
@@ -57,7 +57,7 @@ export function TaskDetailDrawer({ task, agents, embedded = false, onClose, onOp
   if (!task) return <EmptyTask embedded={embedded} onClose={onClose} />
 
   const source = SOURCE_META[task.source] ?? SOURCE_META.human
-  const statusMeta = STATUS_META[task.status] ?? STATUS_META.backlog
+  const statusMeta = STATUS_META[task.status] ?? STATUS_META.draft
   const agent = task.assigned_agent_id ? agents.find((item) => item.id === task.assigned_agent_id) : null
   const assignAgentSessions = assignAgentId
     ? sessions.filter((session) => session.agent_id === assignAgentId && (!task.project_id || session.project_id === task.project_id))

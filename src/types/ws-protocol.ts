@@ -10,7 +10,7 @@ export type SessionActivityReason =
   | 'prompt-cancelled'
   | 'runtime-exit'
   | 'startup-recovery'
-export type TaskStatus = 'backlog' | 'executing' | 'needs_input' | 'completed' | 'cancelled'
+export type TaskStatus = 'draft' | 'running' | 'needs_input' | 'completed' | 'cancelled'
 export type AgentReportStatus = 'in_progress' | 'milestone' | 'blocked' | 'done'
 
 export interface ClientMessage {

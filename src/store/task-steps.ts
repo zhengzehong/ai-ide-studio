@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto'
 import { getDb } from './db.js'
 
 export interface TaskStepRow {
@@ -30,7 +31,152 @@ export interface StepReportRow {
   created_at: string
 }
 
+export interface CreateStepInput {
+  taskId: string
+  title: string
+  description?: string
+  assigneeAgentId?: string
+  sessionId?: string
+  dependsOn?: string[]
+}
+
+export interface UpdateStepInput {
+  title?: string
+  description?: string | null
+  assigneeAgentId?: string | null
+  sessionId?: string | null
+  dependsOn?: string[]
+}
+
+export interface StepReportRecord {
+  agentStatus: string
+  reportMd: string | null
+  artifacts?: Array<{ type: string; value: string }>
+  agentId: string
+  sessionId: string
+  time: string
+}
+
 export const taskStepStore = {
+  create(input: CreateStepInput): TaskStepRow {
+    const db = getDb()
+    const now = new Date().toISOString()
+    const id = `step-${randomUUID().slice(0, 8)}`
+    const maxOrder = db
+      .prepare<{ task_id: string }, { max_order: number | null }>(
+        'SELECT MAX(sort_order) AS max_order FROM task_steps WHERE task_id = @task_id',
+      )
+      .get({ task_id: input.taskId })
+    const sortOrder = (maxOrder?.max_order ?? -1) + 1
+    const step: TaskStepRow = {
+      id,
+      task_id: input.taskId,
+      title: input.title,
+      description: input.description ?? null,
+      status: 'pending',
+      assignee_agent_id: input.assigneeAgentId ?? null,
+      session_id: input.sessionId ?? null,
+      current_stage: null,
+      sort_order: sortOrder,
+      created_at: now,
+      updated_at: now,
+    }
+    const apply = db.transaction(() => {
+      db.prepare(
+        `INSERT INTO task_steps (
+           id, task_id, title, description, status, assignee_agent_id, session_id,
+           current_stage, sort_order, created_at, updated_at
+         ) VALUES (
+           @id, @task_id, @title, @description, @status, @assignee_agent_id, @session_id,
+           @current_stage, @sort_order, @created_at, @updated_at
+         )`,
+      ).run(step)
+      if (input.dependsOn && input.dependsOn.length > 0) {
+        this.replaceDependencies(input.taskId, id, input.dependsOn)
+      }
+    })
+    apply()
+    return step
+  },
+
+  setSessionId(stepId: string, sessionId: string): void {
+    const existing = this.get(stepId)
+    if (!existing) return
+    getDb()
+      .prepare('UPDATE task_steps SET session_id = ?, updated_at = ? WHERE id = ?')
+      .run(sessionId, new Date().toISOString(), stepId)
+  },
+
+  update(taskId: string, stepId: string, fields: UpdateStepInput): TaskStepRow | undefined {
+    const existing = this.get(stepId)
+    if (!existing || existing.task_id !== taskId) return undefined
+    const db = getDb()
+    const now = new Date().toISOString()
+    const next: TaskStepRow = {
+      ...existing,
+      title: fields.title ?? existing.title,
+      description: fields.description !== undefined ? fields.description : existing.description,
+      assignee_agent_id:
+        fields.assigneeAgentId !== undefined ? fields.assigneeAgentId : existing.assignee_agent_id,
+      session_id: fields.sessionId !== undefined ? fields.sessionId : existing.session_id,
+      updated_at: now,
+    }
+    const apply = db.transaction(() => {
+      db.prepare(
+        `UPDATE task_steps
+         SET title = @title,
+             description = @description,
+             assignee_agent_id = @assignee_agent_id,
+             session_id = @session_id,
+             updated_at = @updated_at
+         WHERE id = @id`,
+      ).run(next)
+      if (fields.dependsOn !== undefined) {
+        this.replaceDependencies(taskId, stepId, fields.dependsOn)
+      }
+    })
+    apply()
+    return this.get(stepId)
+  },
+
+  delete(taskId: string, stepId: string): void {
+    const existing = this.get(stepId)
+    if (!existing || existing.task_id !== taskId) return
+    getDb().prepare('DELETE FROM task_steps WHERE id = ?').run(stepId)
+  },
+
+  updateStatus(stepId: string, status: string, stage?: string): void {
+    const existing = this.get(stepId)
+    if (!existing) return
+    const nextStage = stage !== undefined ? stage : existing.current_stage
+    getDb()
+      .prepare('UPDATE task_steps SET status = ?, current_stage = ?, updated_at = ? WHERE id = ?')
+      .run(status, nextStage, new Date().toISOString(), stepId)
+  },
+
+  updateStage(stepId: string, stage: string): void {
+    const existing = this.get(stepId)
+    if (!existing) return
+    getDb()
+      .prepare('UPDATE task_steps SET current_stage = ?, updated_at = ? WHERE id = ?')
+      .run(stage, new Date().toISOString(), stepId)
+  },
+
+  replaceDependencies(taskId: string, stepId: string, dependsOn: string[]): void {
+    const db = getDb()
+    const now = new Date().toISOString()
+    const unique = Array.from(new Set(dependsOn))
+    const apply = db.transaction(() => {
+      db.prepare('DELETE FROM task_step_dependencies WHERE step_id = ?').run(stepId)
+      const stmt = db.prepare(
+        `INSERT INTO task_step_dependencies (step_id, depends_on_step_id, task_id, created_at)
+         VALUES (?, ?, ?, ?)`,
+      )
+      for (const dep of unique) stmt.run(stepId, dep, taskId, now)
+    })
+    apply()
+  },
+
   listByTask(taskId: string): TaskStepRow[] {
     return getDb()
       .prepare<[string], TaskStepRow>(
@@ -133,4 +279,31 @@ export function getTaskAssignedAgents(taskId: string): string[] {
 
 export function getReadySteps(taskId: string): TaskStepRow[] {
   return taskStepStore.listReadyCandidates(taskId)
+}
+
+export function detectCycle(taskId: string, stepId: string, newDependsOn: string[]): boolean {
+  const all = taskStepStore.listByTask(taskId)
+  const byId = new Map(all.map(s => [s.id, s]))
+  if (newDependsOn.includes(stepId)) return true
+  const adj = new Map<string, string[]>()
+  for (const s of all) {
+    adj.set(s.id, s.id === stepId ? newDependsOn.slice() : taskStepStore.listDependencies(s.id))
+  }
+  if (!byId.has(stepId)) adj.set(stepId, newDependsOn.slice())
+  const visited = new Set<string>()
+  const stack = new Set<string>()
+  function dfs(node: string): boolean {
+    if (stack.has(node)) return true
+    if (visited.has(node)) return false
+    visited.add(node)
+    stack.add(node)
+    const deps = adj.get(node) ?? []
+    for (const dep of deps) {
+      if (!byId.has(dep) && dep !== stepId) continue
+      if (dfs(dep)) return true
+    }
+    stack.delete(node)
+    return false
+  }
+  return dfs(stepId)
 }

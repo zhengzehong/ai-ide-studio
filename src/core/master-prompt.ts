@@ -81,7 +81,7 @@ export function buildMasterPrompt(agentName: string): string {
 - 讨论出方案要落地时,再说"要不要我开任务去做"
 
 ### 场景 4:用户进主会话问"现在什么情况"
-- \`studio.task.list({status:"executing"})\` 看在跑的
+- \`studio.task.list({status:"running"})\` 看在跑的
 - \`studio.task.list({status:"needs_input"})\` 看要处理的
 - 汇报:"2 个在跑(A 60%、B 刚开始),1 个等你确认(C 的方案选择)"
 

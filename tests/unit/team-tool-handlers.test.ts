@@ -57,7 +57,7 @@ describe('team MCP tool handlers', () => {
       expect(taskEvents).toHaveLength(1)
       expect(JSON.parse(taskEvents[0].payload_json)).toMatchObject({
         taskId: task.id,
-        taskStatus: 'backlog',
+        taskStatus: 'draft',
         changeType: 'created',
       })
     } finally {
@@ -87,7 +87,7 @@ describe('team MCP tool handlers', () => {
       expect(JSON.parse(taskEvents[0].payload_json)).toMatchObject({
         taskId: task.id,
         taskStatus: 'completed',
-        previousStatus: 'backlog',
+        previousStatus: 'draft',
       })
     } finally {
       events.off('task:update', handler)

@@ -150,7 +150,7 @@ describe('event center service', () => {
     expect(taskEvents).toHaveLength(1)
     expect(JSON.parse(taskEvents[0].payload_json)).toMatchObject({
       taskId: task.id,
-      taskStatus: 'backlog',
+      taskStatus: 'draft',
       changeType: 'created',
       source: 'event',
     })
@@ -390,7 +390,7 @@ describe('event center service', () => {
       name: 'Unassigned task dispatcher',
       categoryId: 'task.lifecycle',
       consumerAgentId: dispatcher.id,
-      filter: { payload: { taskStatus: 'backlog', assignedAgentId: null } },
+      filter: { payload: { taskStatus: 'draft', assignedAgentId: null } },
     }))
     eventCenterService.createSubscription(subscriptionInput({
       projectId: project.id,
@@ -411,7 +411,7 @@ describe('event center service', () => {
       projectId: project.id,
       categoryId: 'task.lifecycle',
       title: 'Backlog task',
-      payload: { taskId: 'task-a', taskStatus: 'backlog', assignedAgentId: null },
+      payload: { taskId: 'task-a', taskStatus: 'draft', assignedAgentId: null },
     })
     const reviewing = eventCenterService.createEvent({
       projectId: project.id,
@@ -440,22 +440,22 @@ describe('event center service', () => {
       name: 'Flat task backlog filter',
       categoryId: 'task.lifecycle',
       consumerAgentId: dispatcher.id,
-      filter: { taskStatus: 'backlog' },
+      filter: { taskStatus: 'draft' },
     }))
 
-    expect(JSON.parse(subscription.filter_json)).toEqual({ payload: { taskStatus: 'backlog' } })
+    expect(JSON.parse(subscription.filter_json)).toEqual({ payload: { taskStatus: 'draft' } })
 
     const backlog = eventCenterService.createEvent({
       projectId: project.id,
       categoryId: 'task.lifecycle',
       title: 'Backlog task',
-      payload: { taskId: 'task-a', taskStatus: 'backlog' },
+      payload: { taskId: 'task-a', taskStatus: 'draft' },
     })
     const executing = eventCenterService.createEvent({
       projectId: project.id,
       categoryId: 'task.lifecycle',
       title: 'Executing task',
-      payload: { taskId: 'task-b', taskStatus: 'executing' },
+      payload: { taskId: 'task-b', taskStatus: 'running' },
     })
 
     expect(eventConsumptionStore.listByEvent(backlog.id).map((item) => item.consumer_agent_id)).toEqual([dispatcher.id])
@@ -470,23 +470,23 @@ describe('event center service', () => {
       name: 'Legacy backlog filter',
       categoryId: 'task.lifecycle',
       consumerAgentId: dispatcher.id,
-      filter: { taskStatus: 'backlog' },
+      filter: { taskStatus: 'draft' },
     })
 
     const backlog = eventCenterService.createEvent({
       projectId: project.id,
       categoryId: 'task.lifecycle',
       title: 'Backlog task',
-      payload: { taskId: 'task-a', taskStatus: 'backlog' },
+      payload: { taskId: 'task-a', taskStatus: 'draft' },
     })
     const executing = eventCenterService.createEvent({
       projectId: project.id,
       categoryId: 'task.lifecycle',
       title: 'Executing task',
-      payload: { taskId: 'task-b', taskStatus: 'executing' },
+      payload: { taskId: 'task-b', taskStatus: 'running' },
     })
 
-    expect(JSON.parse(subscription.filter_json)).toEqual({ taskStatus: 'backlog' })
+    expect(JSON.parse(subscription.filter_json)).toEqual({ taskStatus: 'draft' })
     expect(eventConsumptionStore.listByEvent(backlog.id).map((item) => item.consumer_agent_id)).toEqual([dispatcher.id])
     expect(eventConsumptionStore.listByEvent(executing.id)).toEqual([])
   })
@@ -499,14 +499,14 @@ describe('event center service', () => {
       name: 'Legacy bad filter',
       categoryId: 'task.lifecycle',
       consumerAgentId: dispatcher.id,
-      filter: { typoStatus: 'backlog' },
+      filter: { typoStatus: 'draft' },
     })
 
     const event = eventCenterService.createEvent({
       projectId: project.id,
       categoryId: 'task.lifecycle',
       title: 'Backlog task',
-      payload: { taskId: 'task-a', taskStatus: 'backlog' },
+      payload: { taskId: 'task-a', taskStatus: 'draft' },
     })
 
     expect(eventConsumptionStore.listByEvent(event.id)).toEqual([])
@@ -521,10 +521,10 @@ describe('event center service', () => {
       name: 'Flat custom filter',
       categoryId: 'task.lifecycle',
       consumerAgentId: dispatcher.id,
-      filter: { typoStatus: 'backlog' },
+      filter: { typoStatus: 'draft' },
     }))
 
-    expect(JSON.parse(subscription.filter_json)).toEqual({ payload: { typoStatus: 'backlog' } })
+    expect(JSON.parse(subscription.filter_json)).toEqual({ payload: { typoStatus: 'draft' } })
   })
 
   test('rejects non-object payload subscription filters', () => {
@@ -536,7 +536,7 @@ describe('event center service', () => {
       name: 'Bad payload filter',
       categoryId: 'task.lifecycle',
       consumerAgentId: dispatcher.id,
-      filter: { payload: 'taskStatus=backlog' },
+      filter: { payload: 'taskStatus=draft' },
     }))).toThrow(/filter\.payload/)
   })
 

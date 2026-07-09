@@ -1,6 +1,6 @@
 export type WidgetTab = 'agents' | 'tasks'
 
-export type TaskFilter = 'backlog' | 'active' | 'all'
+export type TaskFilter = 'draft' | 'active' | 'all'
 
 export interface ElectronWidgetApi {
   togglePin: () => void
@@ -10,4 +10,4 @@ export interface ElectronWidgetApi {
 
 export const electronApi = (window as unknown as { electronWidget?: ElectronWidgetApi }).electronWidget
 
-export const ACTIVE_TASK_STATUSES = new Set(['executing', 'needs_input'])
+export const ACTIVE_TASK_STATUSES = new Set(['running', 'needs_input'])

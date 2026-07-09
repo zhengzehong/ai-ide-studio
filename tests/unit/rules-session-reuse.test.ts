@@ -45,7 +45,7 @@ describe('rule session reuse', () => {
     expect(task).toMatchObject({
       title: 'Scheduled reuse',
       assigned_agent_id: agent.id,
-      status: 'executing',
+      status: 'running',
     })
     expect(taskStore.listSessionIds(task.id)).toEqual([session.id])
   })

@@ -10,7 +10,7 @@ export const TASK_LIFECYCLE_SCHEMA = {
     taskStatus: {
       type: 'string',
       title: '任务状态',
-      enum: ['backlog', 'executing', 'needs_input', 'completed', 'cancelled'],
+      enum: ['draft', 'running', 'needs_input', 'completed', 'cancelled'],
       'x-list': true,
       'x-filter': true,
     },
@@ -19,6 +19,7 @@ export const TASK_LIFECYCLE_SCHEMA = {
     changeType: { type: 'string', title: '变更类型', 'x-list': true, 'x-filter': true },
     stage: { type: 'string', title: '阶段' },
     source: { type: 'string', title: '来源', 'x-filter': true },
+    stepId: { type: 'string', title: '步骤 ID', 'x-filter': true },
   },
 }
 

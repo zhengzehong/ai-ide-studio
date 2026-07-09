@@ -15,10 +15,10 @@ const STALE_DAYS = 7
 const DAY_MS = 86_400_000
 
 const STATUS_COLORS = {
-  executing: 'var(--info)',
+  running: 'var(--info)',
   completed: 'var(--success)',
   cancelled: 'var(--text-muted)',
-  backlog: 'var(--text-muted)',
+  draft: 'var(--text-muted)',
 }
 
 export interface TaskCardItem {
@@ -105,10 +105,10 @@ export default function TaskCard({ task, onLongPress, onClick }: Props) {
   if (task.status === 'needs_input') {
     return <NeedsCard task={task} handlers={handlers} onClick={handleClick} />
   }
-  if (task.status === 'executing') {
+  if (task.status === 'running') {
     return <ExecutingCard task={task} handlers={handlers} onClick={handleClick} />
   }
-  if (task.status === 'backlog') {
+  if (task.status === 'draft') {
     return <BacklogCard task={task} handlers={handlers} onClick={handleClick} />
   }
   return <HistoryCard task={task} handlers={handlers} onClick={handleClick} />
@@ -155,7 +155,7 @@ function ExecutingCard({ task, handlers, onClick }: { task: TaskCardItem; handle
   return (
     <div style={normalStyles.card} {...handlers} onClick={onClick}>
       <div style={normalStyles.titleRow}>
-        <span style={{ ...normalStyles.dot, background: STATUS_COLORS.executing }} />
+        <span style={{ ...normalStyles.dot, background: STATUS_COLORS.running }} />
         <span style={normalStyles.title}>{task.title}</span>
         <span style={normalStyles.time}>{formatRelativeTime(task.updated_at || task.created_at)}</span>
       </div>
@@ -284,5 +284,5 @@ const backlogStyles: Record<string, CSSProperties> = {
   dotSep: { color: 'var(--text-muted)' },
   status: { color: 'var(--text-muted)' },
   staleTag: { color: 'var(--warning)', fontSize: 11 },
-  dot: { width: 6, height: 6, borderRadius: '50%', background: STATUS_COLORS.backlog, flexShrink: 0 },
+  dot: { width: 6, height: 6, borderRadius: '50%', background: STATUS_COLORS.draft, flexShrink: 0 },
 }

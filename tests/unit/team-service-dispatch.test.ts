@@ -42,7 +42,7 @@ describe('team dispatch lifecycle', () => {
       })
 
       const updated = taskStore.get(fixture.task.id)
-      expect(updated).toMatchObject({ status: 'executing', assignee_member_id: fixture.member.id })
+      expect(updated).toMatchObject({ status: 'running', assignee_member_id: fixture.member.id })
       expect(updated?.stage).toContain(fixture.member.name)
       expect(taskUpdates).toContain(fixture.task.id)
     } finally {

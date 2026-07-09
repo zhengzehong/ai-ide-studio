@@ -9,7 +9,7 @@ export type DashboardScope = { type: 'all' } | { type: 'project'; projectId: str
 export type AgentDynamicsView = 'agent' | 'project' | 'timeline'
 export type AgentDynamicsFilter = 'all' | 'needs_attention' | 'running' | 'idle'
 export type SessionBucket = 'needs_attention' | 'running' | 'idle' | 'history'
-export type DashboardTaskStatusFilter = 'all' | 'backlog' | 'active' | 'needs_attention' | 'done'
+export type DashboardTaskStatusFilter = 'all' | 'draft' | 'active' | 'needs_attention' | 'done'
 export type DashboardEventStatusFilter = 'all' | 'open' | 'running' | 'failed' | 'done'
 
 export interface DashboardStats {
@@ -52,7 +52,7 @@ export function buildDashboardViewModel(input: DashboardViewModelInput): Dashboa
     stats: {
       activeSessions: sessions.filter((session) => session.status === 'active').length,
       runningAgents: agents.filter((agent) => agent.status === 'running').length,
-      inProgressTasks: tasks.filter((task) => task.status === 'executing' || task.status === 'planning').length,
+      inProgressTasks: tasks.filter((task) => task.status === 'running' || task.status === 'planning').length,
       completedTasks: tasks.filter((task) => task.status === 'completed').length,
     },
   }
@@ -133,7 +133,7 @@ function buildAgentDynamicsRow(
   const task = session.task_id ? tasksById.get(session.task_id) ?? null : null
   const activityState = session.activity_state ?? (session.status === 'active' ? 'running' : 'idle')
   const lastActivityAt = coalesceLastActivityAt(session)
-  const isAbnormal = activityState === 'idle' && task?.status === 'executing'
+  const isAbnormal = activityState === 'idle' && task?.status === 'running'
   const isHistory = activityState === 'idle'
     && !isAbnormal
     && nowMs - new Date(lastActivityAt).getTime() > DAY_MS
@@ -207,8 +207,8 @@ export function filterDashboardTasks(
     const projectMatches = filter.projectId === 'all' || task.project_id === filter.projectId
     if (!projectMatches) return false
     if (filter.status === 'all') return true
-    if (filter.status === 'backlog') return task.status === 'backlog'
-    if (filter.status === 'active') return task.status === 'executing' || task.status === 'planning'
+    if (filter.status === 'draft') return task.status === 'draft'
+    if (filter.status === 'active') return task.status === 'running' || task.status === 'planning'
     if (filter.status === 'needs_attention') return task.status === 'blocked' || task.status === 'reviewing'
     if (filter.status === 'done') return task.status === 'completed' || task.status === 'cancelled'
     return true

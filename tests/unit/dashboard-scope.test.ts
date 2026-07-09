@@ -17,9 +17,9 @@ describe('scopeDashboardData', () => {
       session('session-global', 'agent-global', null, 'active'),
     ]
     const tasks = [
-      task('task-a', 'project-a', 'executing'),
+      task('task-a', 'project-a', 'running'),
       task('task-b', 'project-b', 'completed'),
-      task('task-global', null, 'executing'),
+      task('task-global', null, 'running'),
     ]
 
     const scoped = scopeDashboardData({ agents, sessions, tasks, currentProjectId: 'project-a' })

@@ -10,7 +10,7 @@ import TaskCard, { type TaskCardItem } from '../components/task/TaskCard'
 import { showToast } from '../utils/toast'
 import { markTaskRead, isTaskUnread } from '../utils/task-unread'
 
-type TaskFilter = 'mine' | 'all' | 'executing' | 'backlog' | 'done'
+type TaskFilter = 'mine' | 'all' | 'running' | 'draft' | 'done'
 
 interface TaskItem {
   id: string
@@ -27,24 +27,24 @@ interface TaskItem {
 const FILTERS: { key: TaskFilter; label: string }[] = [
   { key: 'mine', label: '需要我处理' },
   { key: 'all', label: '全部' },
-  { key: 'executing', label: '进行中' },
-  { key: 'backlog', label: '待办' },
+  { key: 'running', label: '进行中' },
+  { key: 'draft', label: '待办' },
   { key: 'done', label: '已完成' },
 ]
 
 const EMPTY_TEXT: Record<TaskFilter, string> = {
   mine: '暂无需要处理的任务,挺好的',
   all: '暂无任务',
-  executing: '暂无进行中的任务',
-  backlog: '暂无待办任务',
+  running: '暂无进行中的任务',
+  draft: '暂无待办任务',
   done: '暂无已完成任务',
 }
 
 function matchesFilter(status: TaskStatus, filter: TaskFilter): boolean {
   switch (filter) {
     case 'mine': return status === 'needs_input'
-    case 'executing': return status === 'executing'
-    case 'backlog': return status === 'backlog'
+    case 'running': return status === 'running'
+    case 'draft': return status === 'draft'
     case 'done': return status === 'completed' || status === 'cancelled'
     case 'all': return true
   }

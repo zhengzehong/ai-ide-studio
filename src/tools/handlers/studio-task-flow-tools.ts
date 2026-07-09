@@ -1,113 +1,37 @@
-import type { ToolHandler, ToolHandlerInput, ToolHandlerResult } from '../types.js'
+import type { ToolHandler, ToolHandlerInput } from '../types.js'
+import type { StepArtifact } from '../../core/task-steps.js'
 import { taskStore } from '../../store/tasks.js'
-import { sessionStore } from '../../store/sessions.js'
 import { emitTaskLifecycleEvent, resolveSessionMode, taskManager } from '../../core/tasks.js'
+import { taskStepManager } from '../../core/task-steps.js'
 import { events } from '../../core/events.js'
 import { createChildLogger } from '../../core/logger.js'
+import { requireStr, optStr, errResult, assertProjectAccess } from './studio-task-crud-tools.js'
 
 const log = createChildLogger('studio-task-tools')
 
-function requireStr(input: ToolHandlerInput, key: string): string {
-  const v = input[key]
-  if (typeof v !== 'string' || !v.trim()) throw new Error(`参数 ${key} 不能为空`)
-  return v.trim()
-}
-
-function optStr(input: ToolHandlerInput, key: string): string | undefined {
-  const v = input[key]
-  return typeof v === 'string' && v.trim() ? v.trim() : undefined
-}
-
-function errResult(msg: string): ToolHandlerResult {
-  return { content: [{ type: 'text', text: JSON.stringify({ error: msg }) }], isError: true }
-}
-
-function assertProjectAccess(task: { project_id: string | null }, contextProjectId: string | undefined): void {
-  if (contextProjectId && task.project_id && task.project_id !== contextProjectId) {
-    throw new Error('权限不足：该任务不属于当前项目')
-  }
-}
-
-export const studioTaskCreateHandler: ToolHandler = {
-  name: 'studio.task.create',
-  description: `在 AI IDE Studio 项目中创建任务。两种模式:
-- selfExecute=true(对话任务化,常用):自己认领并立即在当前会话开始执行。用于用户在当前对话中布置的实质任务——写代码、修 bug、调研、重构等多步骤工作。不创建新会话,不发任务指派 prompt,创建后任务直接进入"执行中"。识别信号:用户说"帮我..."、"修复..."、"重构..."、"调研..."等,且工作需要多步完成。不要用于:简单问答、单次解释、闲聊、一句话能答完的问题。
-- selfExecute=false(默认):创建任务并可指派给其他 Agent,会发送任务指派 prompt 到目标会话。跨 Agent 分派用此模式。`,
-  inputSchema: {
-    type: 'object',
-    properties: {
-      title: { type: 'string', description: '任务标题' },
-      description: { type: 'string', description: '任务描述' },
-      selfExecute: { type: 'boolean', description: '自己认领并立即在当前会话开始执行。true 时强制使用当前 Agent + 当前会话,不创建新会话,不发送任务指派 prompt(用户消息本身就是任务上下文)。默认 false。' },
-      assignAgentId: { type: 'string', description: '指派 Agent(selfExecute=true 时忽略此参数;selfExecute=false 且不传时任务进入待办)' },
-      sessionMode: { type: 'string', enum: ['existing', 'new_each', 'new_fixed'], description: '会话策略:selfExecute=true 时忽略此参数' },
-      sessionId: { type: 'string', description: '复用的会话 ID:selfExecute=true 时忽略此参数' },
-      executionModeId: { type: 'string', description: '执行模式 ID,决定 prompt 模板和报告模板' },
-      projectId: { type: 'string', description: '项目 ID(不传用当前会话项目)' },
-    },
-    required: ['title'],
-  },
-  async execute(input, context) {
-    const title = requireStr(input, 'title')
-    const selfExecute = input.selfExecute === true
-
-    let assignAgentId = optStr(input, 'assignAgentId')
-    let sessionId = optStr(input, 'sessionId')
-    let sessionMode = resolveSessionMode(input.sessionMode, sessionId)
-
-    if (selfExecute) {
-      if (!context?.agentId) throw new Error('selfExecute=true 需要在 Agent 会话上下文中使用')
-      if (!context?.sessionId) throw new Error('selfExecute=true 需要在当前会话中使用')
-      assignAgentId = context.agentId
-      sessionId = context.sessionId
-      sessionMode = 'existing'
-    }
-
-    const task = await taskManager.createTask({
-      title,
-      description: optStr(input, 'description'),
-      source: 'agent',
-      assignAgentId,
-      sessionId,
-      sessionMode,
-      projectId: context?.projectId ?? optStr(input, 'projectId'),
-      executionModeId: optStr(input, 'executionModeId'),
-      selfExecute,
+function parseArtifacts(value: unknown): StepArtifact[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  return value
+    .map(item => {
+      if (!item || typeof item !== 'object') return null
+      const obj = item as Record<string, unknown>
+      const type = obj.type
+      const val = obj.value
+      if (typeof type !== 'string' || typeof val !== 'string') return null
+      if (type !== 'commit' && type !== 'file' && type !== 'doc' && type !== 'url') return null
+      return { type, value: val } as StepArtifact
     })
-    if (!task) throw new Error('任务创建失败')
-    log.info({ taskId: task.id, title, selfExecute }, 'Agent 创建任务')
-    return {
-      content: [{ type: 'text', text: JSON.stringify({ taskId: task.id, title: task.title, status: task.status, sessionId: (task as Record<string, unknown>).sessionId }, null, 2) }],
-    }
-  },
+    .filter((v): v is StepArtifact => v !== null)
 }
 
-export const studioTaskListHandler: ToolHandler = {
-  name: 'studio.task.list',
-  description: '查看当前 AI IDE Studio 项目中的任务列表。可按状态过滤。',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      projectId: { type: 'string', description: '项目 ID（不传用当前会话项目）' },
-      status: { type: 'string', description: '按状态过滤：backlog/executing/needs_input/completed/cancelled' },
-    },
-  },
-  async execute(input, context) {
-    const projectId = context?.projectId ?? optStr(input, 'projectId')
-    if (!projectId) return errResult('projectId 不能为空')
-    const status = optStr(input, 'status')
-    const tasks = taskStore.list(status, projectId)
-    const summary = tasks.map(t => ({
-      id: t.id, title: t.title, status: t.status, stage: t.stage,
-      source: t.source, assignedAgentId: t.assigned_agent_id, createdAt: t.created_at,
-    }))
-    return { content: [{ type: 'text', text: JSON.stringify(summary, null, 2) }] }
-  },
-}
-
-export const studioTaskGetHandler: ToolHandler = {
-  name: 'studio.task.get',
-  description: '获取 AI IDE Studio 项目中单个任务的完整详情。',
+export const studioTaskStartHandler: ToolHandler = {
+  name: 'studio.task.start',
+  description: `启动任务,系统开始派发 ready 的 step。
+- draft → running,开始派发
+- running → running,幂等,重新评估全图(不是错误)
+- completed → 报错(已完成不能重启)
+- 已 running 的 step 不重派(避免重复派)
+- 任务在 draft 状态时不会派发任何步骤。运行中如果编辑了步骤,任务会自动回退到 draft,需要再次调用此工具恢复执行。`,
   inputSchema: {
     type: 'object',
     properties: {
@@ -120,8 +44,21 @@ export const studioTaskGetHandler: ToolHandler = {
     const task = taskStore.get(taskId)
     if (!task) return errResult('任务不存在')
     try { assertProjectAccess(task, context?.projectId) } catch (e) { return errResult((e as Error).message) }
-    const sessions = sessionStore.listByTask(taskId).map(s => ({ id: s.id, agentId: s.agent_id, status: s.status, startedAt: s.started_at }))
-    return { content: [{ type: 'text', text: JSON.stringify({ ...task, sessions }, null, 2) }] }
+    try {
+      const result = await taskStepManager.startTask(taskId)
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            taskId,
+            status: result.task.status,
+            dispatched: result.dispatched,
+          }, null, 2),
+        }],
+      }
+    } catch (e) {
+      return errResult((e as Error).message)
+    }
   },
 }
 
@@ -190,7 +127,7 @@ export const studioTaskUpdateProgressHandler: ToolHandler = {
     try { assertProjectAccess(task, context?.projectId) } catch (e) { return errResult((e as Error).message) }
 
     const shouldRecover = task.status === 'needs_input'
-    const newStatus = shouldRecover ? 'executing' : task.status
+    const newStatus = shouldRecover ? 'running' : task.status
     taskStore.updateStatus(taskId, newStatus, stage)
     if (shouldRecover) taskStore.updateAgentReportStatus(taskId, 'in_progress')
     emitTaskLifecycleEvent(taskStore.get(taskId)!, shouldRecover ? 'status_changed' : 'progress_updated', task.status)
@@ -215,6 +152,18 @@ export const studioTaskReportHandler: ToolHandler = {
       agentStatus: { type: 'string', enum: ['milestone', 'blocked', 'done'], description: '自我评估状态：milestone=中间步骤完成（阶段性成果，任务保持行动中，继续执行）；blocked=遇到问题需要人工决策；done=本轮完成等待验收' },
       reportMd: { type: 'string', description: 'Markdown 报告，按当前执行模式要求填写，参考任务指派 prompt 中的模板' },
       stage: { type: 'string', description: '当前阶段描述（可选，一句话）' },
+      stepId: { type: 'string', description: '可选,协作任务的步骤 ID。不传走老逻辑(老任务)' },
+      artifacts: {
+        type: 'array',
+        description: '可选,产出列表',
+        items: {
+          type: 'object',
+          properties: {
+            type: { type: 'string', enum: ['commit', 'file', 'doc', 'url'] },
+            value: { type: 'string' },
+          },
+        },
+      },
     },
     required: ['taskId', 'agentStatus'],
   },
@@ -226,9 +175,40 @@ export const studioTaskReportHandler: ToolHandler = {
     }
     const reportMd = optStr(input, 'reportMd')
     const stage = optStr(input, 'stage')
+    const stepId = optStr(input, 'stepId')
+    const artifacts = parseArtifacts(input.artifacts)
     const task = taskStore.get(taskId)
     if (!task) return errResult('任务不存在')
     try { assertProjectAccess(task, context?.projectId) } catch (e) { return errResult((e as Error).message) }
+
+    if (stepId) {
+      try {
+        const result = taskStepManager.reportStep({
+          taskId,
+          stepId,
+          agentStatus,
+          reportMd: reportMd ?? '',
+          artifacts,
+          agentId: context?.agentId,
+          sessionId: context?.sessionId,
+        })
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              taskId,
+              stepId,
+              newStatus: result.newStatus,
+              unlockedSteps: result.unlockedSteps,
+              taskCompleted: result.taskCompleted,
+              taskStatus: taskStore.get(taskId)?.status,
+            }, null, 2),
+          }],
+        }
+      } catch (e) {
+        return errResult((e as Error).message)
+      }
+    }
 
     try {
       const updated = taskManager.reportTask({ taskId, agentStatus, reportMd, stage })
@@ -240,3 +220,11 @@ export const studioTaskReportHandler: ToolHandler = {
   },
 }
 
+// Keep parseStrArray export for backward compat with any external consumers
+export function parseStrArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  return value.map(v => String(v)).filter(v => v.length > 0)
+}
+
+// Silence unused import lints for re-exported helpers
+export type { ToolHandlerInput }

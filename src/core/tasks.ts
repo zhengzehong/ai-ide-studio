@@ -58,14 +58,14 @@ export const taskManager = {
         const sessionReuse = session.reuse
         log.info({ taskId: task.id, sessionId: session.id, agentId: input.assignAgentId, reuse: sessionReuse, selfExecute: input.selfExecute }, '任务已分派')
 
-        taskStore.updateStatus(task.id, 'executing', input.selfExecute ? '已自认领' : '已分派给 Agent')
+        taskStore.updateStatus(task.id, 'running', input.selfExecute ? '已自认领' : '已分派给 Agent')
         taskStore.linkSession(task.id, session.id)
         if (input.selfExecute) taskStore.updateAgentReportStatus(task.id, 'in_progress')
 
         events.emit('task:update', {
           taskId: task.id,
           data: {
-            status: 'executing',
+            status: 'running',
             stage: input.selfExecute ? '已自认领' : '已分派给 Agent',
             sessionId: session.id,
             assignedAgentId: input.assignAgentId,
@@ -94,7 +94,7 @@ export const taskManager = {
               data: { status: 'needs_input', stage: `执行失败: ${(err as Error).message}` },
             })
             const failedTask = taskStore.get(task.id)
-            if (failedTask) emitTaskLifecycleEvent(failedTask, 'prompt_failed', 'executing')
+            if (failedTask) emitTaskLifecycleEvent(failedTask, 'prompt_failed', 'running')
           })
         }
 
@@ -141,7 +141,7 @@ export const taskManager = {
       })
 
       taskStore.assignAgent(input.taskId, input.agentId)
-      taskStore.updateStatus(input.taskId, 'executing', '已分派给 Agent')
+      taskStore.updateStatus(input.taskId, 'running', '已分派给 Agent')
       taskStore.linkSession(input.taskId, session.id)
       const updated = taskStore.get(input.taskId)
       if (!updated) throw new Error('任务分派后无法找到任务')
@@ -168,7 +168,7 @@ export const taskManager = {
         taskStore.updateStatus(input.taskId, 'needs_input', `Execution failed: ${err.message}`)
         const failed = taskStore.get(input.taskId)
         events.emit('task:update', { taskId: input.taskId, data: failed ? { ...failed, event: 'prompt_failed' } : { event: 'prompt_failed' } })
-        if (failed) emitTaskLifecycleEvent(failed, 'prompt_failed', 'executing')
+        if (failed) emitTaskLifecycleEvent(failed, 'prompt_failed', 'running')
       })
 
       return { ...updated, sessionId: session.id }
@@ -216,7 +216,7 @@ export const taskManager = {
     const previousStatus = task.status
     let nextStatus = task.status
     if (input.agentStatus === 'milestone') {
-      if (task.status === 'needs_input') nextStatus = 'executing'
+      if (task.status === 'needs_input') nextStatus = 'running'
     } else if (input.agentStatus === 'blocked') {
       nextStatus = 'needs_input'
     } else if (input.agentStatus === 'done') {
@@ -272,14 +272,14 @@ export const taskManager = {
     }
 
     const previousStatus = task.status
-    taskStore.updateStatus(input.taskId, 'executing', '人工已回复，继续执行')
+    taskStore.updateStatus(input.taskId, 'running', '人工已回复，继续执行')
     taskStore.updateAgentReportStatus(input.taskId, 'in_progress')
     taskEventStore.append(input.taskId, {
       type: 'replied',
       payload: {
         message: input.message,
         from_status: previousStatus,
-        to_status: 'executing',
+        to_status: 'running',
       },
     })
 
