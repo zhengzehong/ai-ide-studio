@@ -7,6 +7,7 @@ import { agentStore } from '../../src/store/agents.js'
 import { sessionStore, messageStore, eventStore } from '../../src/store/sessions.js'
 import { taskStore, taskEventStore } from '../../src/store/tasks.js'
 import { ruleStore } from '../../src/store/rules.js'
+import { taskStepsMigration } from '../../src/store/migrations/037-task-steps.js'
 
 const tmp = mkdtempSync(resolve(tmpdir(), 'ai-ide-sqlite-'))
 afterAll(() => { closeDatabase(); rmSync(tmp, { recursive: true, force: true }) })
@@ -51,7 +52,9 @@ describe('SQLite 迁移', () => {
         'knowledge_pages',
         'knowledge_mounts',
         'knowledge_activities',
-        'task_attachments'
+        'task_attachments',
+        'task_steps',
+        'task_step_dependencies'
       )
       ORDER BY name
     `).all().map(row => row.name)
@@ -70,6 +73,8 @@ describe('SQLite 迁移', () => {
       'model_profiles',
       'schema_migrations',
       'task_attachments',
+      'task_step_dependencies',
+      'task_steps',
       'tool_call_audit',
       'tool_contexts',
     ])
@@ -86,7 +91,7 @@ describe('SQLite 迁移', () => {
       ORDER BY name
     `).all().map(row => row.name)
 
-    expect(migrations).toEqual(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011', '012', '013', '014', '015', '016', '017', '018', '019', '020', '021', '022', '023', '024', '025', '026', '027', '028', '029', '030', '031', '032', '033', '034', '035'])
+    expect(migrations).toEqual(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011', '012', '013', '014', '015', '016', '017', '018', '019', '020', '021', '022', '023', '024', '025', '026', '027', '028', '029', '030', '031', '032', '033', '034', '035', '036', '037'])
     expect(messageColumns).toContain('file_changes_json')
     expect(messageColumns).toContain('process_item_count')
     expect(getDb().prepare<[], { name: string }>('PRAGMA table_info(sessions)').all().map(row => row.name)).toContain('last_read_at')
@@ -162,5 +167,53 @@ describe('SQLite 迁移', () => {
     initDatabase(customLegacyPath)
     expect(existsSync(customSqlitePath)).toBe(true)
     expect(agentStore.get('agent-json-path')?.name).toBe('JSON Path Agent')
+  })
+
+  test('task-steps migration: status 值迁移 + task_steps / task_step_dependencies 结构', () => {
+    const stepsDbPath = resolve(tmp, 'task-steps.sqlite')
+    closeDatabase()
+    initDatabase(stepsDbPath)
+    const db = getDb()
+
+    const legacyStatuses = [
+      { id: 'task-backlog', status: 'backlog' },
+      { id: 'task-executing', status: 'executing' },
+      { id: 'task-needs', status: 'needs_input' },
+      { id: 'task-completed', status: 'completed' },
+      { id: 'task-cancelled', status: 'cancelled' },
+    ]
+    const insert = db.prepare('INSERT INTO tasks (id, title, source, status, stage, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+    for (const row of legacyStatuses) {
+      insert.run(row.id, row.id, 'human', row.status, '', '2026-01-01T00:00:00.000Z')
+    }
+
+    taskStepsMigration.up(db)
+
+    const statuses = db.prepare<[], { id: string; status: string }>('SELECT id, status FROM tasks ORDER BY id').all()
+    const map = Object.fromEntries(statuses.map(r => [r.id, r.status]))
+    expect(map['task-backlog']).toBe('draft')
+    expect(map['task-executing']).toBe('running')
+    expect(map['task-needs']).toBe('needs_input')
+    expect(map['task-completed']).toBe('completed')
+    expect(map['task-cancelled']).toBe('cancelled')
+
+    const stepColumns = db.prepare<[], { name: string }>('PRAGMA table_info(task_steps)').all().map(r => r.name)
+    expect(stepColumns).toEqual(expect.arrayContaining([
+      'id', 'task_id', 'title', 'description', 'status', 'assignee_agent_id',
+      'session_id', 'current_stage', 'sort_order', 'created_at', 'updated_at',
+    ]))
+    const stepIndexes = db.prepare<[], { name: string }>(`SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'task_steps'`).all().map(r => r.name)
+    expect(stepIndexes).toEqual(expect.arrayContaining([
+      'idx_task_steps_task_id', 'idx_task_steps_status', 'idx_task_steps_assignee',
+    ]))
+
+    const depColumns = db.prepare<[], { name: string }>('PRAGMA table_info(task_step_dependencies)').all().map(r => r.name)
+    expect(depColumns).toEqual(expect.arrayContaining([
+      'step_id', 'depends_on_step_id', 'task_id', 'created_at',
+    ]))
+    const depIndexes = db.prepare<[], { name: string }>(`SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'task_step_dependencies'`).all().map(r => r.name)
+    expect(depIndexes).toEqual(expect.arrayContaining([
+      'idx_step_deps_step', 'idx_step_deps_depends_on', 'idx_step_deps_task',
+    ]))
   })
 })

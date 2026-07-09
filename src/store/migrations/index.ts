@@ -1,4 +1,4 @@
-import { initialSchemaMigration } from './001-initial-schema.js'
+﻿import { initialSchemaMigration } from './001-initial-schema.js'
 import { projectScopeMigration } from './002-project-scope.js'
 import { toolPlatformMigration } from './003-tool-platform.js'
 import { modelAndSkillMigration } from './004-model-and-skill-settings.js'
@@ -33,6 +33,8 @@ import { agentAvatarMigration } from './032-agent-avatar.js'
 import { agentHubConnectionsMigration } from './033-agent-hub-connections.js'
 import { agentMemoryBuiltinDimsMigration } from './034-agent-memory-builtin-dims.js'
 import { agentMemoryInjectFullMigration } from './035-agent-memory-inject-full.js'
+import { ensureAgentAvatarColumnsMigration } from './036-ensure-agent-avatar-columns.js'
+import { taskStepsMigration } from './037-task-steps.js'
 import type { Migration } from '../migrator.js'
 
 export const migrations: Migration[] = [
@@ -71,4 +73,7 @@ export const migrations: Migration[] = [
   agentHubConnectionsMigration,
   agentMemoryBuiltinDimsMigration,
   agentMemoryInjectFullMigration,
+  ensureAgentAvatarColumnsMigration,
+  taskStepsMigration,
 ]
+
