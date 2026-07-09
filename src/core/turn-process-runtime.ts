@@ -15,16 +15,19 @@ interface ActiveTurnProcess {
   lastTextItemId?: string
   lastTextKind?: 'thinking' | 'note' | 'stage' | 'error'
   noteIndex: number
+  snapshotTimer?: NodeJS.Timeout
+  snapshotPending: boolean
 }
 
 const activeTurns = new Map<string, ActiveTurnProcess>()
+const SNAPSHOT_FLUSH_INTERVAL_MS = 500
 
 export function createAgentMessageId(): string {
   return `msg-turn-${Date.now()}-${randomUUID().slice(0, 8)}`
 }
 
 export function startTurnProcess(sessionId: string, messageId: string): void {
-  activeTurns.set(sessionId, { messageId, finalAnswer: '', noteIndex: 0 })
+  activeTurns.set(sessionId, { messageId, finalAnswer: '', noteIndex: 0, snapshotPending: false })
   log.debug({ sessionId, messageId }, 'active turn process started')
 }
 
@@ -35,7 +38,7 @@ export function recordTurnProcessUpdate(sessionId: string, agentId: string, data
 
   if (data.role === 'agent' && (data.contentDelta || data.content)) {
     active.finalAnswer += data.contentDelta || data.content || ''
-    messageStore.updateRunningSnapshot(active.messageId, active.finalAnswer)
+    scheduleSnapshotFlush(sessionId, active)
     return
   }
 
@@ -116,8 +119,10 @@ export function completeTurnProcess(
 ): { messageId?: string; finalAnswer?: string; fileChangesJson?: string | null } {
   const active = activeTurns.get(sessionId)
   if (!active) return {}
+  flushSnapshot(active)
   const fileChangesJson = turnProcessItemStore.aggregateFileChanges(active.messageId)
   turnProcessItemStore.completeOpen(active.messageId, status)
+  if (active.snapshotTimer) clearTimeout(active.snapshotTimer)
   activeTurns.delete(sessionId)
   log.debug({ sessionId, messageId: active.messageId, status }, 'active turn process completed')
   return { messageId: active.messageId, finalAnswer: active.finalAnswer, fileChangesJson }
@@ -125,6 +130,7 @@ export function completeTurnProcess(
 
 function demoteFinalAnswer(sessionId: string, active: ActiveTurnProcess, agentId: string): void {
   if (!active.finalAnswer) return
+  flushSnapshot(active)
   active.noteIndex += 1
   const item = turnProcessItemStore.upsert({
     id: stableProcessItemId(active.messageId, 'note', String(active.noteIndex)),
@@ -139,9 +145,30 @@ function demoteFinalAnswer(sessionId: string, active: ActiveTurnProcess, agentId
   })
   emitProcessItem(sessionId, agentId, item)
   active.finalAnswer = ''
-  messageStore.updateRunningSnapshot(active.messageId, '')
+  flushSnapshot(active, true)
   active.lastTextItemId = undefined
   active.lastTextKind = undefined
+}
+
+function scheduleSnapshotFlush(sessionId: string, active: ActiveTurnProcess): void {
+  active.snapshotPending = true
+  if (active.snapshotTimer) return
+  active.snapshotTimer = setTimeout(() => {
+    const current = activeTurns.get(sessionId)
+    if (!current || current !== active) return
+    current.snapshotTimer = undefined
+    flushSnapshot(current)
+  }, SNAPSHOT_FLUSH_INTERVAL_MS)
+}
+
+function flushSnapshot(active: ActiveTurnProcess, force = false): void {
+  if (active.snapshotTimer) {
+    clearTimeout(active.snapshotTimer)
+    active.snapshotTimer = undefined
+  }
+  if (!active.snapshotPending && !force) return
+  messageStore.updateRunningSnapshot(active.messageId, active.finalAnswer)
+  active.snapshotPending = false
 }
 
 function appendText(

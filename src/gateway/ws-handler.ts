@@ -11,16 +11,21 @@ const log = createChildLogger('ws')
 const clients = new Map<WebSocket, RpcClientState>()
 
 export function broadcastToSubscribers(sessionId: string, msg: ServerMessage): void {
+  const subscribers: WebSocket[] = []
+  for (const [ws, state] of clients) {
+    if (state.subscriptions.has(sessionId)) subscribers.push(ws)
+  }
+
+  if (subscribers.length === 0) return
+
   const payload = JSON.stringify(msg)
   let subscriberCount = 0
   let deliveredCount = 0
-  for (const [ws, state] of clients) {
-    if (state.subscriptions.has(sessionId)) {
-      subscriberCount++
-      if (ws.readyState === ws.OPEN) {
-        ws.send(payload)
-        deliveredCount++
-      }
+  for (const ws of subscribers) {
+    subscriberCount++
+    if (ws.readyState === ws.OPEN) {
+      ws.send(payload)
+      deliveredCount++
     }
   }
   if (msg.type === 'session:update') {
@@ -29,7 +34,7 @@ export function broadcastToSubscribers(sessionId: string, msg: ServerMessage): v
     const hasContent = !!(data.contentDelta || data.content)
     const isLifecycle = typeof data.eventType === 'string' && data.eventType.startsWith('lifecycle.')
     if (hasToolCall || hasContent || isLifecycle) {
-      log.info(
+      log.debug(
         {
           sessionId,
           msgType: msg.type,

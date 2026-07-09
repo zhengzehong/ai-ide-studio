@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, test } from 'vitest'
+import { afterAll, beforeEach, describe, expect, test, vi } from 'vitest'
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
@@ -6,7 +6,7 @@ import { initDatabase, closeDatabase } from '../../src/store/db.js'
 import { messageStore, sessionStore } from '../../src/store/sessions.js'
 import { stableProcessItemId, turnProcessItemStore } from '../../src/store/turn-process-items.js'
 import { sessionRpcHandlers } from '../../src/gateway/rpc/sessions.js'
-import { recordTurnProcessUpdate, startTurnProcess } from '../../src/core/turn-process-runtime.js'
+import { completeTurnProcess, recordTurnProcessUpdate, startTurnProcess } from '../../src/core/turn-process-runtime.js'
 import type { RpcContext } from '../../src/gateway/rpc/types.js'
 
 const tmp = mkdtempSync(resolve(tmpdir(), 'ai-ide-turn-process-items-'))
@@ -142,5 +142,74 @@ describe('turn process items', () => {
     expect(detail.title).toBe("Get-Content -Path 'README.md'")
     expect(detail.rawInput).toEqual({ command: "Get-Content -Path 'README.md'", cwd: 'D:\\code_space\\python_space\\ai-ide-studio' })
     expect(detail.rawOutput).toEqual({ formatted_output: 'README content', exit_code: 0 })
+  })
+
+  test('coalesces running message snapshot writes while streaming text', () => {
+    vi.useFakeTimers()
+    try {
+      const session = sessionStore.create({ agentId: 'agent-1' })
+      const message = messageStore.append(session.id, {
+        id: 'msg-agent-running',
+        role: 'agent',
+        content: '',
+        status: 'running',
+        startedAt: '2026-06-05T00:00:00.000Z',
+      })
+
+      startTurnProcess(session.id, message.id)
+      recordTurnProcessUpdate(session.id, 'agent-1', {
+        messageId: message.id,
+        role: 'agent',
+        contentDelta: 'A',
+      })
+      recordTurnProcessUpdate(session.id, 'agent-1', {
+        messageId: message.id,
+        role: 'agent',
+        contentDelta: 'B',
+      })
+
+      expect(messageStore.get(message.id)?.content).toBe('')
+
+      vi.advanceTimersByTime(500)
+      expect(messageStore.get(message.id)?.content).toBe('AB')
+
+      recordTurnProcessUpdate(session.id, 'agent-1', {
+        messageId: message.id,
+        role: 'agent',
+        contentDelta: 'C',
+      })
+      expect(messageStore.get(message.id)?.content).toBe('AB')
+
+      const completed = completeTurnProcess(session.id, 'completed')
+      expect(completed.finalAnswer).toBe('ABC')
+      expect(messageStore.get(message.id)?.content).toBe('ABC')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  test('clears running snapshot when streamed text is demoted to a process note', () => {
+    const session = sessionStore.create({ agentId: 'agent-1' })
+    const message = messageStore.append(session.id, {
+      id: 'msg-agent-running',
+      role: 'agent',
+      content: '',
+      status: 'running',
+      startedAt: '2026-06-05T00:00:00.000Z',
+    })
+
+    startTurnProcess(session.id, message.id)
+    recordTurnProcessUpdate(session.id, 'agent-1', {
+      messageId: message.id,
+      role: 'agent',
+      contentDelta: 'I will inspect first',
+    })
+    recordTurnProcessUpdate(session.id, 'agent-1', {
+      messageId: message.id,
+      role: 'agent',
+      toolCall: { id: 'tool-1', title: 'read file', status: 'completed' },
+    })
+
+    expect(messageStore.get(message.id)?.content).toBe('')
   })
 })
