@@ -247,7 +247,7 @@ describe('core MCP tool handlers', () => {
 
     expect(Object.keys(created).sort()).toEqual(['status', 'taskId', 'title'])
     expect(created.title).toBe('Legacy task')
-    expect(created.status).toBe('backlog')
+    expect(created.status).toBe('draft')
     expect(typeof created.taskId).toBe('string')
   })
 
@@ -315,7 +315,7 @@ describe('core MCP tool handlers', () => {
       { projectId: project.id },
     )
 
-    expect(asRecord(assigned.task)).toMatchObject({ id: task.id, assigned_agent_id: firstAgent.id, status: 'executing' })
+    expect(asRecord(assigned.task)).toMatchObject({ id: task.id, assigned_agent_id: firstAgent.id, status: 'running' })
 
     const handler = getHandler('studio.task.assign')
     if (!handler) throw new Error('handler missing: studio.task.assign')

@@ -15,8 +15,8 @@ import TaskReportItem, { type ReportFilterMode } from '../components/task/TaskRe
 import TaskActionBar from '../components/task/TaskActionBar'
 
 const STATUS_META: Record<TaskStatus, { color: string; label: string }> = {
-  backlog: { color: 'var(--text-muted)', label: '待办' },
-  executing: { color: 'var(--info)', label: '行动中' },
+  draft: { color: 'var(--text-muted)', label: '待办' },
+  running: { color: 'var(--info)', label: '行动中' },
   needs_input: { color: 'var(--warning)', label: '需要确认' },
   completed: { color: 'var(--success)', label: '已完成' },
   cancelled: { color: 'var(--text-muted)', label: '已取消' },
@@ -102,7 +102,7 @@ export default function TaskDetailPage() {
   const handleApprove = useCallback(async () => {
     setBusy(true)
     try {
-      await updateStatus('executing', '人工批准继续')
+      await updateStatus('running', '人工批准继续')
       showToast('已批准继续')
     } catch { showToast('操作失败') } finally { setBusy(false) }
   }, [updateStatus])
@@ -119,7 +119,7 @@ export default function TaskDetailPage() {
     setConfirm(null)
     setBusy(true)
     try {
-      await updateStatus('executing', '人工驳回,继续执行')
+      await updateStatus('running', '人工驳回,继续执行')
       showToast('已驳回')
     } catch { showToast('操作失败') } finally { setBusy(false) }
   }, [updateStatus])
@@ -136,7 +136,7 @@ export default function TaskDetailPage() {
   const handleStart = useCallback(async () => {
     setBusy(true)
     try {
-      await updateStatus('executing', '人工启动')
+      await updateStatus('running', '人工启动')
       showToast('已启动任务')
     } catch { showToast('操作失败') } finally { setBusy(false) }
   }, [updateStatus])
@@ -144,7 +144,7 @@ export default function TaskDetailPage() {
   const handleReopen = useCallback(async () => {
     setBusy(true)
     try {
-      await updateStatus('backlog', '人工重新打开')
+      await updateStatus('draft', '人工重新打开')
       showToast('已重新打开')
     } catch { showToast('操作失败') } finally { setBusy(false) }
   }, [updateStatus])

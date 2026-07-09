@@ -68,14 +68,14 @@ export default function TaskActionBar({
         </>
       )}
 
-      {status === 'executing' && (
+      {status === 'running' && (
         <button style={{ ...styles.btn, ...styles.dangerGhostBtn }} onClick={onCancel} disabled={busy}>
           <X size={15} />
           <span>取消</span>
         </button>
       )}
 
-      {status === 'backlog' && (
+      {status === 'draft' && (
         <>
           <button style={{ ...styles.btn, ...styles.primaryBtn }} onClick={onStart} disabled={busy}>
             {busy ? <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} /> : <Play size={15} />}

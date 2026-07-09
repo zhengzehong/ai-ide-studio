@@ -258,7 +258,7 @@ function importTasks(db: SqliteDatabase, tasks: Record<string, unknown>): void {
       stringOr(row.title, ''),
       nullableString(row.description),
       stringOr(row.source, 'human'),
-      stringOr(row.status, 'backlog'),
+      stringOr(row.status, 'draft'),
       stringOr(row.stage, ''),
       nullableString(row.assigned_agent_id),
       stringOr(row.created_at, new Date().toISOString()),

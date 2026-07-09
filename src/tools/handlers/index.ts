@@ -12,11 +12,20 @@ import {
 } from './schedule-tools.js'
 import {
   studioTaskCreateHandler,
+  studioTaskCreateSimpleHandler,
   studioTaskAssignHandler,
   studioTaskListHandler,
   studioTaskGetHandler,
+  studioTaskUpdateHandler,
+  studioTaskStartHandler,
   studioTaskUpdateProgressHandler,
   studioTaskReportHandler,
+  studioTaskStepGetHandler,
+  studioTaskStepAddHandler,
+  studioTaskStepUpdateHandler,
+  studioTaskStepRemoveHandler,
+  studioTaskStepUpdateProgressHandler,
+  studioTaskStepReportHandler,
 } from './studio-task-tools.js'
 import {
   createAgentHandler,
@@ -117,11 +126,20 @@ register(scheduleDeleteHandler)
 register(scheduleToggleHandler)
 register(scheduleExecutionsHandler)
 register(studioTaskCreateHandler)
+register(studioTaskCreateSimpleHandler)
 register(studioTaskAssignHandler)
 register(studioTaskListHandler)
 register(studioTaskGetHandler)
+register(studioTaskUpdateHandler)
+register(studioTaskStartHandler)
 register(studioTaskUpdateProgressHandler)
 register(studioTaskReportHandler)
+register(studioTaskStepGetHandler)
+register(studioTaskStepAddHandler)
+register(studioTaskStepUpdateHandler)
+register(studioTaskStepRemoveHandler)
+register(studioTaskStepUpdateProgressHandler)
+register(studioTaskStepReportHandler)
 register(defineMemoryDimensionHandler)
 register(listProjectsHandler)
 register(getProjectHandler)

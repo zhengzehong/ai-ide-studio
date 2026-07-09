@@ -81,7 +81,7 @@ export const taskStore = {
       title: input.title,
       description: input.description || null,
       source: input.source || 'human',
-      status: 'backlog',
+      status: 'draft',
       stage: '',
       assigned_agent_id: input.assignAgentId || null,
       created_at: new Date().toISOString(),

@@ -34,7 +34,7 @@ describe('task RPC handlers', () => {
       await callTaskRpc('tasks.update', {
         type: 'tasks.update',
         taskId: task.id,
-        status: 'executing',
+        status: 'running',
         stage: 'Running',
       })
     } finally {
@@ -44,7 +44,7 @@ describe('task RPC handlers', () => {
     expect(updates).toHaveLength(1)
     expect(updates[0]).toMatchObject({
       taskId: task.id,
-      data: { id: task.id, status: 'executing', stage: 'Running', event: 'updated' },
+      data: { id: task.id, status: 'running', stage: 'Running', event: 'updated' },
     })
   })
 
@@ -65,7 +65,7 @@ describe('task RPC handlers', () => {
     expect(createdEvents).toHaveLength(1)
     expect(JSON.parse(createdEvents[0].payload_json)).toMatchObject({
       taskId: created.id,
-      taskStatus: 'backlog',
+      taskStatus: 'draft',
       assignedAgentId: null,
       changeType: 'created',
     })
@@ -83,8 +83,8 @@ describe('task RPC handlers', () => {
     expect(events.map((event) => JSON.parse(event.payload_json).changeType)).toEqual(['assigned', 'created'])
     expect(JSON.parse(events[0].payload_json)).toMatchObject({
       taskId: created.id,
-      taskStatus: 'executing',
-      previousStatus: 'backlog',
+      taskStatus: 'running',
+      previousStatus: 'draft',
       assignedAgentId: agent.id,
     })
   })
@@ -105,7 +105,7 @@ describe('task RPC handlers', () => {
 
     const updated = taskStore.get(task.id)
     expect(updated?.assigned_agent_id).toBeNull()
-    expect(updated?.status).toBe('backlog')
+    expect(updated?.status).toBe('draft')
   })
 
   test('tasks.create rejects a reused session from another project without persisting a bad assignment', async () => {
@@ -240,7 +240,7 @@ describe('task RPC handlers', () => {
 
     const updated = taskStore.get(task.id)
     expect(updated?.assigned_agent_id).toBeNull()
-    expect(updated?.status).toBe('backlog')
+    expect(updated?.status).toBe('draft')
     expect(taskStore.listSessionIds(task.id)).toEqual([])
   })
 })
