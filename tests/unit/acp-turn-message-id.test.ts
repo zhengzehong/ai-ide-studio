@@ -1,7 +1,7 @@
 ﻿import { describe, expect, test, afterEach } from 'vitest'
 import { createClientHandler, endClientTurn, startClientTurn } from '../../src/acp/client-handler.ts'
 import { agentConnections } from '../../src/acp/host-state.ts'
-import { events, type AppEvents } from '../../src/core/events.ts'
+import { events, flushSessionUpdates, type AppEvents } from '../../src/core/events.ts'
 
 const agentId = 'agent-turn-message-id-test'
 const acpSessionId = 'acp-session-1'
@@ -57,6 +57,8 @@ describe('ACP client turn message ids', () => {
         },
       } as never)
       endClientTurn(agentId, acpSessionId)
+
+      flushSessionUpdates(ourSessionId)
     } finally {
       events.off('session:update', onUpdate)
       endClientTurn(agentId, acpSessionId)
@@ -98,6 +100,8 @@ describe('ACP client turn message ids', () => {
         },
       } as never)
       endClientTurn(agentId, acpSessionId)
+
+      flushSessionUpdates(ourSessionId)
     } finally {
       events.off('session:update', onUpdate)
       endClientTurn(agentId, acpSessionId)

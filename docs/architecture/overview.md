@@ -210,6 +210,12 @@ Team 运行时事件规则：`team.member.spawn` 会广播包含完整成员 Ses
 - 插件系统
 
 
+## Session Update Scheduling
+
+`src/core/events.ts` keeps the public `session:update` event contract, but raw emits enter `SessionUpdateActorScheduler` before downstream consumers run. The scheduler keeps one queue per `sessionId`, processes one active session per scheduled drain with a bounded event budget, then rotates to the next active session so a noisy stream cannot monopolize all update consumers.
+
+Scheduler output is emitted back through the internal mitt bus as the same `session:update` event, so `sessions.ts`, `turn-process-runtime.ts`, and `ws-handler.ts` continue to subscribe through the existing interface. Critical boundaries such as permission or elicitation prompts, lifecycle updates, usage/config/sessionInfo updates, terminal tool statuses, and `session:done` flush the matching session queue before persistence, finalization, or broadcast continues.
+
 ## MCP Tool Context Boundary
 
 Platform MCP tools use the session tool context as the source of truth for project, Team, member, current Agent, and session identity. Runtime schema sanitization hides system-owned fields from model-visible schemas, while handlers still validate business target IDs against the current project or Team before creating sessions, tasks, or Team records.

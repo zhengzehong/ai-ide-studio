@@ -8,6 +8,7 @@ import type {
   SessionEventData,
   TurnProcessItemData,
 } from '../types/ws-protocol.js'
+import { SessionUpdateActorScheduler } from './session-update-actors.js'
 
 export type AppEvents = {
   'session:update': { sessionId: string; agentId: string; data: SessionUpdateData }
@@ -31,4 +32,29 @@ export type AppEvents = {
 
 const mitt = mittModule as unknown as typeof import('mitt').default
 
-export const events = mitt<AppEvents>()
+const bus = mitt<AppEvents>()
+const sessionUpdateScheduler = new SessionUpdateActorScheduler({
+  handleUpdate: (ev) => bus.emit('session:update', ev),
+})
+
+export const events: typeof bus = {
+  all: bus.all,
+  on: bus.on.bind(bus),
+  off: bus.off.bind(bus),
+  emit: ((type: keyof AppEvents, event: AppEvents[keyof AppEvents]) => {
+    if (type === 'session:update') {
+      sessionUpdateScheduler.enqueue(event as AppEvents['session:update'])
+      return
+    }
+
+    if (type === 'session:done') {
+      flushSessionUpdates((event as AppEvents['session:done']).sessionId)
+    }
+
+    bus.emit(type, event)
+  }) as typeof bus.emit,
+}
+
+export function flushSessionUpdates(sessionId: string): void {
+  sessionUpdateScheduler.flushSession(sessionId)
+}
