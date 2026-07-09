@@ -3,6 +3,35 @@ import { wsClient } from '../services/ws-client'
 import { useProjectStore } from './project.store'
 import type { ImageAttachmentInfo } from './session-events'
 
+export interface TaskStepData {
+  id: string
+  title: string
+  status: string
+  assignee: string | null
+  sessionId: string | null
+  dependsOn: string[]
+  currentStage: string | null
+}
+
+export interface TaskStepProgress {
+  done: number
+  total: number
+}
+
+export interface TaskStepReport {
+  agentStatus: string
+  reportMd: string | null
+  artifacts?: Array<{ type: 'commit' | 'file' | 'doc' | 'url'; value: string }>
+  agentId: string
+  sessionId: string
+  time: string
+}
+
+export interface TaskStepDetailView extends TaskStepData {
+  description: string | null
+  reports: TaskStepReport[]
+}
+
 export interface TaskData {
   id: string
   title: string
@@ -19,6 +48,8 @@ export interface TaskData {
   agent_report_status?: string | null
   execution_mode_id?: string | null
   sessionId?: string
+  steps?: TaskStepData[]
+  stepProgress?: TaskStepProgress
 }
 
 export interface TaskExecutionModeData {
@@ -63,6 +94,12 @@ interface TaskStore {
   assignTask: (taskId: string, agentId: string, sessionId?: string, sessionMode?: SessionMode) => Promise<TaskData>
   replyTask: (taskId: string, message: string) => Promise<TaskData>
   fetchTaskEvents: (taskId: string, afterSequence?: number) => Promise<TaskEventData[]>
+  startTask: (taskId: string) => Promise<TaskData>
+  fetchTaskSteps: (taskId: string) => Promise<{ steps: TaskStepData[]; stepProgress: TaskStepProgress }>
+  addStep: (input: { taskId: string; title: string; description?: string; assignee?: string; sessionId?: string; dependsOn?: string[] }) => Promise<{ steps: TaskStepData[]; stepProgress: TaskStepProgress }>
+  updateStep: (input: { taskId: string; stepId: string; title?: string; description?: string | null; assignee?: string | null; sessionId?: string | null; dependsOn?: string[] }) => Promise<{ steps: TaskStepData[]; stepProgress: TaskStepProgress }>
+  removeStep: (taskId: string, stepId: string) => Promise<{ steps: TaskStepData[]; stepProgress: TaskStepProgress }>
+  fetchStepDetail: (taskId: string, stepId: string) => Promise<TaskStepDetailView>
   fetchModes: (projectId?: string) => Promise<TaskExecutionModeData[]>
   createMode: (input: { name: string; description?: string; promptTemplate?: string; reportTemplate?: string; projectId?: string }) => Promise<TaskExecutionModeData>
   updateMode: (id: string, fields: { name?: string; description?: string | null; promptTemplate?: string; reportTemplate?: string; sortOrder?: number }) => Promise<TaskExecutionModeData>
@@ -146,6 +183,114 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     return events
   },
 
+  startTask: async (taskId) => {
+    const result = (await wsClient.request({ type: 'tasks.start', taskId })) as {
+      taskId: string
+      status: string
+      steps: TaskStepData[]
+      stepProgress: TaskStepProgress
+    }
+    set({
+      tasks: get().tasks.map((t) =>
+        t.id === taskId
+          ? { ...t, status: result.status, steps: result.steps, stepProgress: result.stepProgress }
+          : t,
+      ),
+    })
+    return get().tasks.find((t) => t.id === taskId)!
+  },
+
+  fetchTaskSteps: async (taskId) => {
+    const result = (await wsClient.request({ type: 'tasks.step.list', taskId })) as {
+      steps: TaskStepData[]
+      stepProgress: TaskStepProgress
+    }
+    set({
+      tasks: get().tasks.map((t) =>
+        t.id === taskId ? { ...t, steps: result.steps, stepProgress: result.stepProgress } : t,
+      ),
+    })
+    return result
+  },
+
+  addStep: async (input) => {
+    const msg: Record<string, unknown> = { type: 'tasks.step.add', taskId: input.taskId, title: input.title }
+    if (input.description !== undefined) msg.description = input.description
+    if (input.assignee !== undefined) msg.assignee = input.assignee
+    if (input.sessionId !== undefined) msg.sessionId = input.sessionId
+    if (input.dependsOn !== undefined) msg.dependsOn = input.dependsOn
+    const result = (await wsClient.request(msg)) as {
+      steps: TaskStepData[]
+      stepProgress: TaskStepProgress
+      taskStatus?: string
+    }
+    set({
+      tasks: get().tasks.map((t) =>
+        t.id === input.taskId
+          ? {
+              ...t,
+              steps: result.steps,
+              stepProgress: result.stepProgress,
+              status: result.taskStatus ?? t.status,
+            }
+          : t,
+      ),
+    })
+    return { steps: result.steps, stepProgress: result.stepProgress }
+  },
+
+  updateStep: async (input) => {
+    const msg: Record<string, unknown> = { type: 'tasks.step.update', taskId: input.taskId, stepId: input.stepId }
+    if (input.title !== undefined) msg.title = input.title
+    if (input.description !== undefined) msg.description = input.description
+    if (input.assignee !== undefined) msg.assignee = input.assignee
+    if (input.sessionId !== undefined) msg.sessionId = input.sessionId
+    if (input.dependsOn !== undefined) msg.dependsOn = input.dependsOn
+    const result = (await wsClient.request(msg)) as {
+      steps: TaskStepData[]
+      stepProgress: TaskStepProgress
+      taskStatus?: string
+    }
+    set({
+      tasks: get().tasks.map((t) =>
+        t.id === input.taskId
+          ? {
+              ...t,
+              steps: result.steps,
+              stepProgress: result.stepProgress,
+              status: result.taskStatus ?? t.status,
+            }
+          : t,
+      ),
+    })
+    return { steps: result.steps, stepProgress: result.stepProgress }
+  },
+
+  removeStep: async (taskId, stepId) => {
+    const result = (await wsClient.request({ type: 'tasks.step.remove', taskId, stepId })) as {
+      steps: TaskStepData[]
+      stepProgress: TaskStepProgress
+      taskStatus?: string
+    }
+    set({
+      tasks: get().tasks.map((t) =>
+        t.id === taskId
+          ? {
+              ...t,
+              steps: result.steps,
+              stepProgress: result.stepProgress,
+              status: result.taskStatus ?? t.status,
+            }
+          : t,
+      ),
+    })
+    return { steps: result.steps, stepProgress: result.stepProgress }
+  },
+
+  fetchStepDetail: async (taskId, stepId) => {
+    return (await wsClient.request({ type: 'tasks.step.get', taskId, stepId })) as TaskStepDetailView
+  },
+
   fetchModes: async (projectId) => {
     const msg: Record<string, unknown> = { type: 'tasks.modes.list' }
     if (projectId) msg.projectId = projectId
@@ -192,7 +337,12 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       }
       const existing = get().tasks.find((t) => t.id === taskId)
       if (existing) {
-        set({ tasks: get().tasks.map((t) => (t.id === taskId ? { ...t, ...data } : t)) })
+        const patch: Partial<TaskData> = { ...data } as Partial<TaskData>
+        if (Array.isArray(data.steps)) patch.steps = data.steps as TaskStepData[]
+        if (data.stepProgress && typeof data.stepProgress === 'object') {
+          patch.stepProgress = data.stepProgress as TaskStepProgress
+        }
+        set({ tasks: get().tasks.map((t) => (t.id === taskId ? { ...t, ...patch } : t)) })
       } else if (data.id) {
         const currentProjectId = useProjectStore.getState().currentProjectId
         const taskProjectId = (data as { project_id?: string | null }).project_id
