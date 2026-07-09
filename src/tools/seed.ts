@@ -12,7 +12,7 @@ import { AGENT_HUB_BUILTIN_TOOLS } from './agent-hub-seed.js'
 const log = createChildLogger('tool-seed')
 
 const CORE_PERMISSIONS = { requiresApproval: false, maxExecutionTime: 10_000, networkAccess: false }
-const OBSOLETE_BUILTIN_TOOLS = ['search_files', 'get_project_info', 'list_agents', 'http_fetch']
+const OBSOLETE_BUILTIN_TOOLS = ['search_files', 'get_project_info', 'list_agents', 'http_fetch', 'agent.watch.create', 'agent.watch.cancel']
 
 const CORE_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
   {

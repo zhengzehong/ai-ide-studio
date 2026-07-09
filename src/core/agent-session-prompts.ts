@@ -13,6 +13,15 @@ interface WatchPromptInput {
   messageId?: string
 }
 
+interface TaskWatchPromptInput {
+  watch: AgentSessionWatchRow
+  taskId: string
+  trigger: 'step_done' | 'step_blocked' | 'task_completed' | 'task_reverted'
+  taskSnapshot: { title: string; status: string }
+  stepSnapshot?: { title: string; status: string }
+  stepId?: string
+}
+
 export function buildAgentSessionMessagePrompt(input: MessagePromptInput): string {
   const { message, sourceAgent, targetSessionId } = input
   const relatedInfo = prettyJson(message.related_info_json)
@@ -95,6 +104,39 @@ ${prettyJson(watch.related_info_json)}
 sessionId = "${watch.watched_session_id}"
 
 请根据该会话的最新结果决定是否继续处理。`
+}
+
+export function buildAgentTaskWatchPrompt(input: TaskWatchPromptInput): string {
+  const { watch, taskId, trigger, taskSnapshot, stepSnapshot, stepId } = input
+  const triggerText: Record<TaskWatchPromptInput['trigger'], string> = {
+    step_done: '步骤已完成',
+    step_blocked: '步骤已阻塞(需要人工决策)',
+    task_completed: '任务整体已完成',
+    task_reverted: '任务已回退到草稿(步骤图已变更)',
+  }
+  const lines = [
+    `[系统消息] 你监听的任务状态已发生变化。`,
+    '',
+    `任务 ID：${taskId}`,
+    `任务标题：${taskSnapshot.title}`,
+    `任务状态：${taskSnapshot.status}`,
+    `触发事件：${triggerText[trigger]}`,
+  ]
+  if (stepId) lines.push(`步骤 ID：${stepId}`)
+  if (stepSnapshot) {
+    lines.push(`步骤标题：${stepSnapshot.title}`)
+    lines.push(`步骤状态：${stepSnapshot.status}`)
+  }
+  lines.push(`Watch ID：${watch.id}`)
+  lines.push('')
+  lines.push('关联信息 JSON：')
+  lines.push(prettyJson(watch.related_info_json))
+  lines.push('')
+  lines.push('你可以调用 studio.task.get 查看任务详情：')
+  lines.push(`taskId = "${taskId}"`)
+  lines.push('')
+  lines.push('请根据任务最新状态决定是否继续处理。')
+  return lines.join('\n')
 }
 
 function prettyJson(value: string): string {

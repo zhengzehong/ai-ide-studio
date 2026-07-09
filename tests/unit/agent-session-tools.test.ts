@@ -78,47 +78,88 @@ describe('agent session MCP tools', () => {
     expect(asRecords(messages.messages).map((row) => row.content)).toEqual(['first'])
   })
 
-  test('agent watch create and cancel use current session context', async () => {
+  test('agent.session.watch creates one-shot watch from current session context', async () => {
     const { source, targetSession, sourceSession, project } = createTwoAgentProject()
 
     const created = await executeJson(
-      'agent.watch.create',
+      'agent.session.watch',
       { sessionId: targetSession.id },
       { projectId: project.id, agentId: source.id, sessionId: sourceSession.id },
     )
-    expect(asRecord(created.watch)).toMatchObject({
+    const watchId = created.watchId as string
+    expect(watchId).toBeTruthy()
+
+    const watch = getDb()
+      .prepare<[string], { watcher_session_id: string; watched_session_id: string; status: string; once: number; watch_kind: string }>(
+        'SELECT watcher_session_id, watched_session_id, status, once, watch_kind FROM agent_session_watches WHERE id = ?',
+      )
+      .get(watchId)
+    expect(watch).toMatchObject({
       watcher_session_id: sourceSession.id,
       watched_session_id: targetSession.id,
       status: 'active',
       once: 1,
+      watch_kind: 'session',
     })
-
-    const cancelled = await executeJson(
-      'agent.watch.cancel',
-      { watchId: asRecord(created.watch).id },
-      { projectId: project.id, agentId: source.id, sessionId: sourceSession.id },
-    )
-    expect(asRecord(cancelled.watch).status).toBe('cancelled')
   })
 
-  test('agent.watch.create accepts global assistant session with explicit project context', async () => {
+  test('agent.session.watch accepts global assistant session with explicit project context', async () => {
     const { targetSession, project } = createTwoAgentProject()
     const globalAgent = agentStore.create({ name: 'Global Assistant', type: 'pm', runtime: 'mock' })
     const globalSession = sessionStore.create({ agentId: globalAgent.id })
     globalAssistantStore.upsert({ agentId: globalAgent.id, sessionId: globalSession.id })
 
     const created = await executeJson(
-      'agent.watch.create',
+      'agent.session.watch',
       { sessionId: targetSession.id, relatedInfo: { source: 'global-assistant' } },
       { projectId: project.id, agentId: globalAgent.id, sessionId: globalSession.id },
     )
-
-    expect(asRecord(created.watch)).toMatchObject({
+    const watchId = created.watchId as string
+    const watch = getDb()
+      .prepare<[string], { project_id: string | null; watcher_session_id: string; watched_session_id: string; status: string }>(
+        'SELECT project_id, watcher_session_id, watched_session_id, status FROM agent_session_watches WHERE id = ?',
+      )
+      .get(watchId)
+    expect(watch).toMatchObject({
       project_id: project.id,
       watcher_session_id: globalSession.id,
       watched_session_id: targetSession.id,
       status: 'active',
     })
+  })
+
+  test('agent.task.watch creates persistent watch and can be cancelled', async () => {
+    const { source, sourceSession, project } = createTwoAgentProject()
+    const taskId = 'task-test-001'
+
+    const created = await executeJson(
+      'agent.task.watch',
+      { taskId, relatedInfo: { reason: 'wait-completion' } },
+      { projectId: project.id, agentId: source.id, sessionId: sourceSession.id },
+    )
+    const watchId = created.watchId as string
+    expect(watchId).toBeTruthy()
+
+    const watch = getDb()
+      .prepare<[string], { watcher_session_id: string; task_id: string; status: string; once: number; watch_kind: string }>(
+        'SELECT watcher_session_id, task_id, status, once, watch_kind FROM agent_session_watches WHERE id = ?',
+      )
+      .get(watchId)
+    expect(watch).toMatchObject({
+      watcher_session_id: sourceSession.id,
+      task_id: taskId,
+      status: 'active',
+      once: 0,
+      watch_kind: 'task',
+    })
+
+    const cancelled = await executeJson(
+      'agent.task.watch.cancel',
+      { watchId },
+      { projectId: project.id, agentId: source.id, sessionId: sourceSession.id },
+    )
+    expect(cancelled.ok).toBe(true)
+    expect(cancelled.cancelled).toBe(watchId)
   })
 
   test('seed registers agent communication tools globally', () => {
@@ -139,13 +180,15 @@ describe('agent session MCP tools', () => {
       'agent.message.send',
       'agent.session.list',
       'agent.session.messages',
+      'agent.session.watch',
+      'agent.task.watch',
+      'agent.task.watch.cancel',
       'agent.template.create',
       'agent.template.delete',
       'agent.template.get',
       'agent.template.list',
       'agent.template.update',
-      'agent.watch.cancel',
-      'agent.watch.create',
+      'agent.wake_me',
     ])
   })
 })

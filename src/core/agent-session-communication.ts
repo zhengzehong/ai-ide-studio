@@ -14,6 +14,7 @@ import {
   buildAgentSessionMessagePrompt,
   buildAgentSessionReplyReminderPrompt,
   buildAgentSessionWatchPrompt,
+  buildAgentTaskWatchPrompt,
 } from './agent-session-prompts.js'
 
 const log = createChildLogger('agent-session-communication')
@@ -42,6 +43,40 @@ export interface CreateAgentSessionWatchInput {
   sessionId: string
   once?: boolean
   relatedInfo?: Record<string, unknown>
+}
+
+export interface CreateAgentTaskWatchInput {
+  context: {
+    agentId?: string
+    sessionId?: string
+    projectId?: string
+  }
+  taskId: string
+  relatedInfo?: Record<string, unknown>
+}
+
+export interface TaskWatchTriggerInput {
+  taskId: string
+  stepId?: string
+  trigger: 'step_done' | 'step_blocked' | 'task_completed' | 'task_reverted'
+  taskSnapshot: {
+    title: string
+    status: string
+  }
+  stepSnapshot?: {
+    title: string
+    status: string
+  }
+}
+
+export interface TaskWatchTriggerContext {
+  taskId: string
+  trigger: TaskWatchTriggerInput['trigger']
+  taskTitle: string
+  taskStatus: string
+  stepId?: string
+  stepTitle?: string
+  stepStatus?: string
 }
 
 export const agentSessionCommunicationService = {
@@ -106,6 +141,55 @@ export const agentSessionCommunicationService = {
     const watch = agentSessionWatchStore.cancel(watchId, context.sessionId, context.agentId)
     if (!watch || watch.status !== 'cancelled') throw new Error(`Watch 不存在或不属于当前会话: ${watchId}`)
     return watch
+  },
+
+  createTaskWatch(input: CreateAgentTaskWatchInput): AgentSessionWatchRow {
+    const watcherSession = requireContextSession(input.context)
+    const watcherAgent = requireContextAgent(input.context, watcherSession)
+    const projectId = resolveContextProjectId(input.context.projectId, watcherSession.project_id)
+    return agentSessionWatchStore.createTaskWatch({
+      projectId,
+      watcherAgentId: watcherAgent.id,
+      watcherSessionId: watcherSession.id,
+      taskId: input.taskId,
+      relatedInfo: input.relatedInfo,
+    })
+  },
+
+  triggerTaskWatch(input: TaskWatchTriggerInput): void {
+    const watches = agentSessionWatchStore.listActiveByTask(input.taskId)
+    if (watches.length === 0) return
+    for (const watch of watches) {
+      const triggered = agentSessionWatchStore.markTriggered(watch.id, {
+        once: false,
+      })
+      if (!triggered) continue
+      const prompt = buildAgentTaskWatchPrompt({
+        watch: triggered,
+        taskId: input.taskId,
+        trigger: input.trigger,
+        taskSnapshot: input.taskSnapshot,
+        stepSnapshot: input.stepSnapshot,
+        stepId: input.stepId,
+      })
+      enqueueWatchPrompt(watch.id, watch.watcher_session_id, prompt, watch.project_id)
+    }
+  },
+
+  triggerTaskWatchFromTask(input: TaskWatchTriggerContext): void {
+    try {
+      agentSessionCommunicationService.triggerTaskWatch({
+        taskId: input.taskId,
+        stepId: input.stepId,
+        trigger: input.trigger,
+        taskSnapshot: { title: input.taskTitle, status: input.taskStatus },
+        stepSnapshot: input.stepTitle && input.stepStatus
+          ? { title: input.stepTitle, status: input.stepStatus }
+          : undefined,
+      })
+    } catch (err) {
+      log.warn({ err, taskId: input.taskId, trigger: input.trigger }, 'failed to trigger task watch')
+    }
   },
 
   handleSessionDone(ev: { sessionId: string; agentId?: string | null; messageId?: string; turnId?: string }): void {

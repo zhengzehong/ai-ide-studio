@@ -101,9 +101,11 @@ import {
   agentMessageSendHandler,
   agentSessionListHandler,
   agentSessionMessagesHandler,
-  agentWatchCancelHandler,
-  agentWatchCreateHandler,
+  agentSessionWatchHandler,
+  agentTaskWatchCancelHandler,
+  agentTaskWatchHandler,
 } from './agent-session-tools.js'
+import { agentWakeMeHandler } from './agent-wake-me-tools.js'
 import { previewPublishHandler } from './preview-publish.js'
 import {
   agentHubConnectHandler,
@@ -207,8 +209,10 @@ register(eventSubscriptionCreateHandler)
 register(agentMessageSendHandler)
 register(agentSessionListHandler)
 register(agentSessionMessagesHandler)
-register(agentWatchCreateHandler)
-register(agentWatchCancelHandler)
+register(agentSessionWatchHandler)
+register(agentTaskWatchHandler)
+register(agentTaskWatchCancelHandler)
+register(agentWakeMeHandler)
 register(previewPublishHandler)
 register(agentHubConnectHandler)
 register(agentHubDisconnectHandler)

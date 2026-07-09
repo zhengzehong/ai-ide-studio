@@ -39,6 +39,8 @@ export interface AgentSessionWatchRow {
   cancelled_at: string | null
   created_at: string
   updated_at: string
+  task_id: string | null
+  watch_kind: string
 }
 
 export interface CreateAgentSessionMessageInput {
@@ -60,6 +62,14 @@ export interface CreateAgentSessionWatchInput {
   watchedSessionId: string
   relatedInfo?: Record<string, unknown>
   once?: boolean
+}
+
+export interface CreateAgentTaskWatchInput {
+  projectId?: string | null
+  watcherAgentId: string
+  watcherSessionId: string
+  taskId: string
+  relatedInfo?: Record<string, unknown>
 }
 
 export const agentSessionMessageStore = {
@@ -205,17 +215,57 @@ export const agentSessionWatchStore = {
       cancelled_at: null,
       created_at: now,
       updated_at: now,
+      task_id: null,
+      watch_kind: 'session',
     }
     getDb().prepare(`
       INSERT INTO agent_session_watches (
         id, project_id, watcher_agent_id, watcher_session_id, watched_agent_id, watched_session_id,
         related_info_json, once, status, trigger_count, triggered_at, triggered_message_id,
-        triggered_turn_id, last_error, cancelled_at, created_at, updated_at
+        triggered_turn_id, last_error, cancelled_at, created_at, updated_at, task_id, watch_kind
       )
       VALUES (
         @id, @project_id, @watcher_agent_id, @watcher_session_id, @watched_agent_id, @watched_session_id,
         @related_info_json, @once, @status, @trigger_count, @triggered_at, @triggered_message_id,
-        @triggered_turn_id, @last_error, @cancelled_at, @created_at, @updated_at
+        @triggered_turn_id, @last_error, @cancelled_at, @created_at, @updated_at, @task_id, @watch_kind
+      )
+    `).run(row)
+    return row
+  },
+
+  createTaskWatch(input: CreateAgentTaskWatchInput): AgentSessionWatchRow {
+    const now = new Date().toISOString()
+    const row: AgentSessionWatchRow = {
+      id: `awch-${randomUUID().slice(0, 8)}`,
+      project_id: input.projectId ?? null,
+      watcher_agent_id: input.watcherAgentId,
+      watcher_session_id: input.watcherSessionId,
+      watched_agent_id: '',
+      watched_session_id: '',
+      related_info_json: stringifyRecord(input.relatedInfo),
+      once: 0,
+      status: 'active',
+      trigger_count: 0,
+      triggered_at: null,
+      triggered_message_id: null,
+      triggered_turn_id: null,
+      last_error: null,
+      cancelled_at: null,
+      created_at: now,
+      updated_at: now,
+      task_id: input.taskId,
+      watch_kind: 'task',
+    }
+    getDb().prepare(`
+      INSERT INTO agent_session_watches (
+        id, project_id, watcher_agent_id, watcher_session_id, watched_agent_id, watched_session_id,
+        related_info_json, once, status, trigger_count, triggered_at, triggered_message_id,
+        triggered_turn_id, last_error, cancelled_at, created_at, updated_at, task_id, watch_kind
+      )
+      VALUES (
+        @id, @project_id, @watcher_agent_id, @watcher_session_id, @watched_agent_id, @watched_session_id,
+        @related_info_json, @once, @status, @trigger_count, @triggered_at, @triggered_message_id,
+        @triggered_turn_id, @last_error, @cancelled_at, @created_at, @updated_at, @task_id, @watch_kind
       )
     `).run(row)
     return row
@@ -231,6 +281,14 @@ export const agentSessionWatchStore = {
       WHERE watched_session_id = ? AND status = 'active'
       ORDER BY created_at ASC
     `).all(sessionId)
+  },
+
+  listActiveByTask(taskId: string): AgentSessionWatchRow[] {
+    return getDb().prepare<[string], AgentSessionWatchRow>(`
+      SELECT * FROM agent_session_watches
+      WHERE task_id = ? AND status = 'active'
+      ORDER BY created_at ASC
+    `).all(taskId)
   },
 
   markTriggered(id: string, input: { messageId?: string; turnId?: string; once: boolean }): AgentSessionWatchRow | undefined {
