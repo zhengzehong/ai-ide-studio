@@ -13,7 +13,7 @@ export function WidgetTaskPanel() {
   const agents = useAgentStore((s) => s.agents)
   const { pinnedProjectId, pinnedAgentId } = useWidgetStore((s) => s.preferences)
   const setPinnedAgent = useWidgetStore((s) => s.setPinnedAgent)
-  const [taskFilter, setTaskFilter] = useState<TaskFilter>('backlog')
+  const [taskFilter, setTaskFilter] = useState<TaskFilter>('draft')
   const [newTitle, setNewTitle] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -27,7 +27,7 @@ export function WidgetTaskPanel() {
 
   const filteredTasks = tasks.filter((task) => {
     if (pinnedProjectId && task.project_id !== pinnedProjectId) return false
-    if (taskFilter === 'backlog') return task.status === 'backlog'
+    if (taskFilter === 'draft') return task.status === 'draft'
     if (taskFilter === 'active') return ACTIVE_TASK_STATUSES.has(task.status)
     return true
   })
@@ -48,13 +48,13 @@ export function WidgetTaskPanel() {
   return (
     <div style={styles.taskPanel}>
       <div style={styles.taskFilters}>
-        {(['backlog', 'active', 'all'] as const).map((filter) => (
+        {(['draft', 'active', 'all'] as const).map((filter) => (
           <button
             key={filter}
             style={{ ...styles.taskFilterBtn, ...(taskFilter === filter ? styles.taskFilterBtnActive : {}) }}
             onClick={() => setTaskFilter(filter)}
           >
-            {filter === 'backlog' ? '待办' : filter === 'active' ? '进行中' : '全部'}
+            {filter === 'draft' ? '待办' : filter === 'active' ? '进行中' : '全部'}
           </button>
         ))}
       </div>

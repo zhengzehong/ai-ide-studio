@@ -170,9 +170,9 @@ function Badge({ kind, value, abnormal }: { kind: 'task' | 'activity'; value: st
 
 function taskStatusLabel(status: string): string {
   const map: Record<string, string> = {
-    backlog: '待办',
+    draft: '待办',
     planning: '规划中',
-    executing: '执行中',
+    running: '执行中',
     blocked: '已阻塞',
     reviewing: '审查中',
     completed: '已完成',

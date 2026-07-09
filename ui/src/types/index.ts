@@ -1,7 +1,7 @@
 export type AgentType = 'dev' | 'test' | 'ops' | 'security' | 'architect' | 'pm';
 export type AgentStatus = 'busy' | 'idle' | 'standby';
 export type SessionStatus = 'active' | 'waiting' | 'suspended' | 'completed';
-export type TaskStatus = 'backlog' | 'executing' | 'needs_input' | 'completed' | 'cancelled';
+export type TaskStatus = 'draft' | 'running' | 'needs_input' | 'completed' | 'cancelled';
 export type AgentReportStatus = 'in_progress' | 'milestone' | 'blocked' | 'done';
 export type TaskSource = 'human' | 'agent' | 'event' | 'schedule';
 export type PermissionLevel = 0 | 1 | 2 | 3 | 4;

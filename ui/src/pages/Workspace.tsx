@@ -2432,12 +2432,12 @@ function PlanBar({
 /* ─── Task Panel with Tabs ─── */
 const TASK_TABS: { key: string; label: string; icon: typeof ListTodo; filter: (t: TaskData) => boolean }[] = [
   { key: 'all', label: '全部', icon: ListTodo, filter: () => true },
-  { key: 'backlog', label: '待办', icon: Circle, filter: (t) => t.status === 'backlog' },
+  { key: 'draft', label: '待办', icon: Circle, filter: (t) => t.status === 'draft' },
   {
     key: 'active',
     label: '进行中',
     icon: Loader2,
-    filter: (t) => ['executing', 'needs_input'].includes(t.status),
+    filter: (t) => ['running', 'needs_input'].includes(t.status),
   },
   { key: 'needs_attention', label: '需处理', icon: Zap, filter: (t) => t.status === 'needs_input' },
   { key: 'done', label: '已完成', icon: CheckCircle2, filter: (t) => ['completed', 'cancelled'].includes(t.status) },
@@ -2446,10 +2446,10 @@ const TASK_TABS: { key: string; label: string; icon: typeof ListTodo; filter: (t
 function taskStageLabel(s: string): string {
   return (
     {
-      executing: '执行中',
+      running: '执行中',
       needs_input: '待确认',
       completed: '已完成',
-      backlog: '待办',
+      draft: '待办',
       cancelled: '已取消',
     }[s] ?? s
   )
@@ -2457,10 +2457,10 @@ function taskStageLabel(s: string): string {
 function taskStageColor(s: string): string {
   return (
     {
-      executing: 'var(--blue)',
+      running: 'var(--blue)',
       needs_input: '#f59e0b',
       completed: 'var(--green)',
-      backlog: 'var(--text-3)',
+      draft: 'var(--text-3)',
     }[s] ?? 'var(--text-3)'
   )
 }
@@ -2906,7 +2906,7 @@ function TaskDetailInline({
   const sortedEvents = [...events].sort((a, b) => b.sequence - a.sequence)
   const reportEvents = sortedEvents.filter((ev) => TASK_REPORT_EVENT_TYPES.has(ev.type) && eventReportMd(ev))
   const isTerminal = task.status === 'completed' || task.status === 'cancelled'
-  const isBacklog = task.status === 'backlog' || !task.assigned_agent_id
+  const isBacklog = task.status === 'draft' || !task.assigned_agent_id
 
   const handleMarkComplete = async () => {
     setUpdating(true)
@@ -2920,7 +2920,7 @@ function TaskDetailInline({
   const handleReopen = async () => {
     setUpdating(true)
     try {
-      await updateTask(task.id, 'executing', undefined, '人工重新打开')
+      await updateTask(task.id, 'running', undefined, '人工重新打开')
       const refreshed = await fetchTaskEvents(task.id)
       setEvents(refreshed)
     } finally { setUpdating(false) }
@@ -3323,7 +3323,7 @@ function ReportModal({
     } catch { /* ignore */ }
   }
 
-  const canMarkComplete = !!onMarkCompleted && (task.status === 'executing' || task.status === 'needs_input')
+  const canMarkComplete = !!onMarkCompleted && (task.status === 'running' || task.status === 'needs_input')
 
   const handleMarkComplete = async () => {
     if (!onMarkCompleted || marking) return

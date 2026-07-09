@@ -306,7 +306,7 @@ function emitTaskUpdate(task: TaskRow, event: 'created' | 'updated'): void {
 }
 
 function markTaskDispatched(teamId: string, task: TaskRow, member: TeamMemberRow): void {
-  if (!['draft', 'backlog', 'planning'].includes(task.status)) return
+  if (!['draft', 'planning'].includes(task.status)) return
   const updated = taskStore.update(task.id, {
     status: 'running',
     stage: `已派发给 ${member.name}，等待成员汇报`,

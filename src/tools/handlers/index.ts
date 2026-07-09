@@ -20,13 +20,15 @@ import {
   studioTaskStartHandler,
   studioTaskUpdateProgressHandler,
   studioTaskReportHandler,
+} from './studio-task-tools.js'
+import {
   studioTaskStepGetHandler,
   studioTaskStepAddHandler,
   studioTaskStepUpdateHandler,
   studioTaskStepRemoveHandler,
   studioTaskStepUpdateProgressHandler,
   studioTaskStepReportHandler,
-} from './studio-task-tools.js'
+} from './studio-task-step-tools.js'
 import {
   createAgentHandler,
   createAgentTemplateHandler,

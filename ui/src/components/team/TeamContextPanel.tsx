@@ -16,8 +16,8 @@ interface TeamContextPanelProps {
 const statusLabels: Record<string, string> = {
   active: '活跃',
   removed: '已移除',
-  backlog: '待办',
-  executing: '执行中',
+  draft: '待办',
+  running: '执行中',
   needs_input: '待确认',
   completed: '已完成',
   cancelled: '已取消',
@@ -146,7 +146,7 @@ function TaskRow({ task, assignee }: { task: TaskData; assignee?: TeamMemberData
   ) : needsInput ? (
     <Zap size={12} />
   ) : (
-    <Loader2 size={12} style={task.status === 'executing' ? { animation: 'spin 1s linear infinite' } : undefined} />
+    <Loader2 size={12} style={task.status === 'running' ? { animation: 'spin 1s linear infinite' } : undefined} />
   )
   return (
     <div style={{ padding: '9px 10px', borderRadius: 9, border: '1px solid var(--border)', background: 'var(--bg-1)' }}>
@@ -235,14 +235,14 @@ function EmptyText({ text }: { text: string }) {
 function statusBg(status: string): string {
   if (status === 'completed') return '#ecfdf5'
   if (status === 'needs_input') return '#fffbeb'
-  if (status === 'executing') return 'var(--blue-light)'
+  if (status === 'running') return 'var(--blue-light)'
   return 'var(--bg-2)'
 }
 
 function statusColor(status: string): string {
   if (status === 'completed') return 'var(--green)'
   if (status === 'needs_input') return '#d97706'
-  if (status === 'executing') return 'var(--blue)'
+  if (status === 'running') return 'var(--blue)'
   return 'var(--text-3)'
 }
 
