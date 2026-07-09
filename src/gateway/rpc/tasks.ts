@@ -3,8 +3,10 @@ import { taskStore, taskEventStore, extractReportPreview } from '../../store/tas
 import { taskExecutionModeStore } from '../../store/task-execution-modes.js'
 import { sessionStore, type SessionRow } from '../../store/sessions.js'
 import { events } from '../../core/events.js'
+import { taskStepManager, type StepArtifact } from '../../core/task-steps.js'
 import type { RpcHandlerMap } from './types.js'
 import type { ImageAttachment } from '../../types/ws-protocol.js'
+import { buildStepProgress, buildStepSummary, buildStepViewRpc, buildTaskStepList } from './step-views.js'
 
 interface TaskLatestReportSummary {
   latestReportPreview: string | null
@@ -34,6 +36,8 @@ export const taskRpcHandlers: RpcHandlerMap = {
       return {
         ...t,
         sessionId: sessions.length > 0 ? sessions[sessions.length - 1].id : null,
+        steps: buildTaskStepList(t.id),
+        stepProgress: buildStepProgress(t.id),
         ...buildLatestReportSummary(t.id, latestByTask),
       }
     })
@@ -44,7 +48,12 @@ export const taskRpcHandlers: RpcHandlerMap = {
     const task = taskStore.get(msg.taskId as string)
     if (!task) return sendError('任务不存在')
     const sessions = listTaskSessions(task.id).map(s => ({ id: s.id, agentId: s.agent_id, status: s.status, startedAt: s.started_at }))
-    sendResult({ ...task, sessions })
+    sendResult({
+      ...task,
+      sessions,
+      steps: buildTaskStepList(task.id),
+      stepProgress: buildStepProgress(task.id),
+    })
   },
 
   async 'tasks.create'(msg, { sendResult }) {
@@ -137,6 +146,196 @@ export const taskRpcHandlers: RpcHandlerMap = {
     const afterSequence = typeof msg.afterSequence === 'number' ? msg.afterSequence : undefined
     const events = taskEventStore.list(taskId, afterSequence != null ? { afterSequence } : undefined)
     sendResult(events)
+  },
+
+  async 'tasks.start'(msg, { sendResult, sendError }) {
+    const taskId = msg.taskId as string
+    if (!taskId) return sendError('taskId 不能为空')
+    try {
+      const result = await taskStepManager.startTask(taskId)
+      sendResult({
+        taskId,
+        status: result.task.status,
+        dispatched: result.dispatched,
+        steps: buildTaskStepList(taskId),
+        stepProgress: buildStepProgress(taskId),
+      })
+    } catch (err) {
+      sendError((err as Error).message)
+    }
+  },
+
+  'tasks.step.list'(msg, { sendResult, sendError }) {
+    const taskId = msg.taskId as string
+    if (!taskId) return sendError('taskId 不能为空')
+    const task = taskStore.get(taskId)
+    if (!task) return sendError('任务不存在')
+    sendResult({
+      taskId,
+      steps: buildTaskStepList(taskId),
+      stepProgress: buildStepProgress(taskId),
+    })
+  },
+
+  'tasks.step.add'(msg, { sendResult, sendError }) {
+    const taskId = msg.taskId as string
+    if (!taskId) return sendError('taskId 不能为空')
+    const title = (msg.title as string | undefined)?.trim()
+    if (!title) return sendError('title 不能为空')
+    const task = taskStore.get(taskId)
+    if (!task) return sendError('任务不存在')
+    try {
+      const result = taskStepManager.addStep({
+        taskId,
+        title,
+        description: typeof msg.description === 'string' ? msg.description : undefined,
+        assignee: typeof msg.assignee === 'string' ? msg.assignee : undefined,
+        sessionId: typeof msg.sessionId === 'string' ? msg.sessionId : undefined,
+        dependsOn: Array.isArray(msg.dependsOn) ? (msg.dependsOn as string[]).filter(Boolean) : undefined,
+      })
+      sendResult({
+        taskId,
+        step: buildStepSummary(taskId, result.step.id),
+        reverted: result.reverted,
+        taskStatus: taskStore.get(taskId)?.status,
+        steps: buildTaskStepList(taskId),
+        stepProgress: buildStepProgress(taskId),
+      })
+    } catch (err) {
+      sendError((err as Error).message)
+    }
+  },
+
+  'tasks.step.update'(msg, { sendResult, sendError }) {
+    const taskId = msg.taskId as string
+    const stepId = msg.stepId as string
+    if (!taskId || !stepId) return sendError('taskId/stepId 不能为空')
+    const task = taskStore.get(taskId)
+    if (!task) return sendError('任务不存在')
+    try {
+      const result = taskStepManager.updateStep({
+        taskId,
+        stepId,
+        title: typeof msg.title === 'string' ? msg.title : undefined,
+        description: msg.description !== undefined ? (typeof msg.description === 'string' ? msg.description : null) : undefined,
+        assignee: msg.assignee !== undefined ? (typeof msg.assignee === 'string' ? msg.assignee : null) : undefined,
+        sessionId: msg.sessionId !== undefined ? (typeof msg.sessionId === 'string' ? msg.sessionId : null) : undefined,
+        dependsOn: Array.isArray(msg.dependsOn) ? (msg.dependsOn as string[]) : undefined,
+      })
+      sendResult({
+        taskId,
+        step: buildStepSummary(taskId, result.step.id),
+        reverted: result.reverted,
+        taskStatus: taskStore.get(taskId)?.status,
+        steps: buildTaskStepList(taskId),
+        stepProgress: buildStepProgress(taskId),
+      })
+    } catch (err) {
+      sendError((err as Error).message)
+    }
+  },
+
+  'tasks.step.remove'(msg, { sendResult, sendError }) {
+    const taskId = msg.taskId as string
+    const stepId = msg.stepId as string
+    if (!taskId || !stepId) return sendError('taskId/stepId 不能为空')
+    const task = taskStore.get(taskId)
+    if (!task) return sendError('任务不存在')
+    try {
+      const result = taskStepManager.removeStep({ taskId, stepId })
+      sendResult({
+        taskId,
+        stepId,
+        removed: true,
+        reverted: result.reverted,
+        cancelledSessionId: result.cancelledSessionId,
+        taskStatus: taskStore.get(taskId)?.status,
+        steps: buildTaskStepList(taskId),
+        stepProgress: buildStepProgress(taskId),
+      })
+    } catch (err) {
+      sendError((err as Error).message)
+    }
+  },
+
+  'tasks.step.get'(msg, { sendResult, sendError }) {
+    const taskId = msg.taskId as string
+    const stepId = msg.stepId as string
+    if (!taskId || !stepId) return sendError('taskId/stepId 不能为空')
+    try {
+      const view = buildStepViewRpc(taskId, stepId)
+      sendResult(view)
+    } catch (err) {
+      sendError((err as Error).message)
+    }
+  },
+
+  'tasks.step.updateProgress'(msg, { sendResult, sendError }) {
+    const taskId = msg.taskId as string
+    const stepId = msg.stepId as string
+    const stage = msg.stage as string | undefined
+    if (!taskId || !stepId) return sendError('taskId/stepId 不能为空')
+    if (!stage || !stage.trim()) return sendError('stage 不能为空')
+    try {
+      const updated = taskStepManager.updateProgress({ taskId, stepId, stage })
+      sendResult({
+        taskId,
+        stepId,
+        status: updated.status,
+        stage: updated.current_stage,
+        steps: buildTaskStepList(taskId),
+      })
+    } catch (err) {
+      sendError((err as Error).message)
+    }
+  },
+
+  async 'tasks.step.report'(msg, { sendResult, sendError }) {
+    const taskId = msg.taskId as string
+    const stepId = msg.stepId as string
+    const agentStatus = msg.agentStatus as string | undefined
+    const reportMd = msg.reportMd as string | undefined
+    if (!taskId || !stepId) return sendError('taskId/stepId 不能为空')
+    if (agentStatus !== 'milestone' && agentStatus !== 'blocked' && agentStatus !== 'done') {
+      return sendError('agentStatus 必须是 milestone / blocked / done 之一')
+    }
+    if (!reportMd) return sendError('reportMd 不能为空')
+    const task = taskStore.get(taskId)
+    if (!task) return sendError('任务不存在')
+    const artifacts: StepArtifact[] | undefined = Array.isArray(msg.artifacts)
+      ? (msg.artifacts as unknown[])
+          .map(item => {
+            if (!item || typeof item !== 'object') return null
+            const obj = item as Record<string, unknown>
+            const type = obj.type
+            const val = obj.value
+            if (typeof type !== 'string' || typeof val !== 'string') return null
+            if (type !== 'commit' && type !== 'file' && type !== 'doc' && type !== 'url') return null
+            return { type, value: val } as StepArtifact
+          })
+          .filter((v): v is StepArtifact => v !== null)
+      : undefined
+    try {
+      const result = taskStepManager.reportStep({
+        taskId,
+        stepId,
+        agentStatus,
+        reportMd,
+        artifacts,
+      })
+      sendResult({
+        taskId,
+        stepId,
+        newStatus: result.newStatus,
+        unlockedSteps: result.unlockedSteps,
+        taskCompleted: result.taskCompleted,
+        taskStatus: taskStore.get(taskId)?.status,
+        steps: buildTaskStepList(taskId),
+        stepProgress: buildStepProgress(taskId),
+      })
+    } catch (err) {
+      sendError((err as Error).message)
+    }
   },
 
   'tasks.events.get'(msg, { sendResult, sendError }) {

@@ -298,6 +298,52 @@ export interface TasksReplyMsg extends ClientMessage {
   taskId: string
   message: string
 }
+export interface TasksStartMsg extends ClientMessage {
+  type: 'tasks.start'
+  taskId: string
+}
+export interface TasksStepListMsg extends ClientMessage {
+  type: 'tasks.step.list'
+  taskId: string
+}
+export interface TasksStepAddMsg extends ClientMessage {
+  type: 'tasks.step.add'
+  taskId: string
+  title: string
+  description?: string
+  assignee?: string
+  sessionId?: string
+  dependsOn?: string[]
+}
+export interface TasksStepUpdateMsg extends ClientMessage {
+  type: 'tasks.step.update'
+  taskId: string
+  stepId: string
+  title?: string
+  description?: string | null
+  assignee?: string | null
+  sessionId?: string | null
+  dependsOn?: string[]
+}
+export interface TasksStepRemoveMsg extends ClientMessage {
+  type: 'tasks.step.remove'
+  taskId: string
+  stepId: string
+}
+export interface TasksStepReportMsg extends ClientMessage {
+  type: 'tasks.step.report'
+  taskId: string
+  stepId: string
+  agentStatus: 'milestone' | 'blocked' | 'done'
+  reportMd: string
+  artifacts?: Array<{ type: 'commit' | 'file' | 'doc' | 'url'; value: string }>
+}
+export interface TasksStepUpdateProgressMsg extends ClientMessage {
+  type: 'tasks.step.updateProgress'
+  taskId: string
+  stepId: string
+  stage: string
+}
 export interface TasksEventsListMsg extends ClientMessage {
   type: 'tasks.events.list'
   taskId: string
