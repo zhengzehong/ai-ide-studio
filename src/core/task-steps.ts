@@ -10,7 +10,7 @@ import { emitTaskLifecycleEvent } from './task-lifecycle-events.js'
 import { dispatchStep, resolveStepSession, type DispatchStepResult } from './step-dispatch.js'
 import { buildStepView, type StepView } from './step-view.js'
 import { buildStepPrompt } from './step-prompt.js'
-import { agentSessionCommunicationService } from './agent-session-communication.js'
+import { triggerTaskWatch } from './task-watch-trigger.js'
 import { createChildLogger } from './logger.js'
 
 const log = createChildLogger('task-steps')
@@ -53,32 +53,8 @@ function revertTaskToDraft(taskId: string, triggerStepId: string, action: 'step_
   if (t) {
     events.emit('task:update', { taskId, data: { ...t, event: 'reverted' } })
     emitTaskLifecycleEvent(t, 'status_changed', previousStatus)
-    triggerTaskWatch(taskId, {
-      trigger: 'task_reverted',
-      task: t,
-      stepId: triggerStepId,
-    })
+    triggerTaskWatch('task_reverted', taskId, t, triggerStepId)
   }
-}
-
-function triggerTaskWatch(
-  taskId: string,
-  input: {
-    trigger: 'step_done' | 'step_blocked' | 'task_completed' | 'task_reverted'
-    task: TaskRow
-    stepId?: string
-    step?: TaskStepRow
-  },
-): void {
-  agentSessionCommunicationService.triggerTaskWatchFromTask({
-    taskId,
-    trigger: input.trigger,
-    taskTitle: input.task.title,
-    taskStatus: input.task.status,
-    stepId: input.stepId,
-    stepTitle: input.step?.title,
-    stepStatus: input.step?.status,
-  })
 }
 
 export const taskStepManager = {
@@ -300,23 +276,13 @@ export const taskStepManager = {
           events.emit('task:update', { taskId: input.taskId, data: { ...t, event: 'completed' } })
           emitTaskLifecycleEvent(t, 'status_changed', 'running')
           const doneStep = taskStepStore.get(input.stepId)!
-          triggerTaskWatch(input.taskId, {
-            trigger: 'task_completed',
-            task: t,
-            stepId: input.stepId,
-            step: doneStep,
-          })
+          triggerTaskWatch('task_completed', input.taskId, t, input.stepId, doneStep)
         }
       } else {
         const t = taskStore.get(input.taskId)
         if (t) {
           const doneStep = taskStepStore.get(input.stepId)!
-          triggerTaskWatch(input.taskId, {
-            trigger: 'step_done',
-            task: t,
-            stepId: input.stepId,
-            step: doneStep,
-          })
+          triggerTaskWatch('step_done', input.taskId, t, input.stepId, doneStep)
         }
       }
     }
@@ -328,12 +294,7 @@ export const taskStepManager = {
         events.emit('task:update', { taskId: input.taskId, data: { ...t, event: 'step_blocked' } })
         emitTaskLifecycleEvent(t, 'status_changed', 'running')
         const blockedStep = taskStepStore.get(input.stepId)!
-        triggerTaskWatch(input.taskId, {
-          trigger: 'step_blocked',
-          task: t,
-          stepId: input.stepId,
-          step: blockedStep,
-        })
+        triggerTaskWatch('step_blocked', input.taskId, t, input.stepId, blockedStep)
       }
     } else if (input.agentStatus === 'milestone' && previousStatus === 'blocked' && task.status === 'needs_input') {
       taskStore.updateStatus(input.taskId, 'running', '步骤已恢复,任务继续')
