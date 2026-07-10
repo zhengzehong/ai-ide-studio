@@ -165,14 +165,14 @@ describe('builtin tool seed synchronization', () => {
 
     const createAgent = toolStore.getByName('core.agent.create')
     const createAgentSchema = createAgent?.input_schema_json
-      ? JSON.parse(createAgent.input_schema_json) as Record<string, unknown>
+      ? (JSON.parse(createAgent.input_schema_json) as Record<string, unknown>)
       : {}
     const createAgentProperties = asRecord(createAgentSchema.properties)
     expect(createAgentProperties.modelProfileId).toMatchObject({ type: 'string' })
 
     const createTemplate = toolStore.getByName('agent.template.create')
     const createTemplateSchema = createTemplate?.input_schema_json
-      ? JSON.parse(createTemplate.input_schema_json) as Record<string, unknown>
+      ? (JSON.parse(createTemplate.input_schema_json) as Record<string, unknown>)
       : {}
     const createTemplateProperties = asRecord(createTemplateSchema.properties)
     expect(createTemplateProperties.systemPrompt).toMatchObject({ type: 'string' })
@@ -180,31 +180,41 @@ describe('builtin tool seed synchronization', () => {
 
     const updateTemplate = toolStore.getByName('agent.template.update')
     const updateTemplateSchema = updateTemplate?.input_schema_json
-      ? JSON.parse(updateTemplate.input_schema_json) as Record<string, unknown>
+      ? (JSON.parse(updateTemplate.input_schema_json) as Record<string, unknown>)
       : {}
     const updateTemplateProperties = asRecord(updateTemplateSchema.properties)
     expect(updateTemplateProperties.templateId).toMatchObject({ type: 'string' })
 
     const eventSubscription = toolStore.getByName('event.subscription.create')
     const eventSubscriptionSchema = eventSubscription?.input_schema_json
-      ? JSON.parse(eventSubscription.input_schema_json) as Record<string, unknown>
+      ? (JSON.parse(eventSubscription.input_schema_json) as Record<string, unknown>)
       : {}
     const eventSubscriptionProperties = asRecord(eventSubscriptionSchema.properties)
     expect(eventSubscriptionProperties.autoStart).toMatchObject({ type: 'boolean' })
-    expect(eventSubscriptionProperties.consumerSessionMode).toMatchObject({ enum: ['existing', 'new_each', 'new_fixed'] })
+    expect(eventSubscriptionProperties.consumerSessionMode).toMatchObject({
+      enum: ['existing', 'new_each', 'new_fixed'],
+    })
     expect(eventSubscriptionProperties.consumerSessionId).toMatchObject({ type: 'string' })
 
     const studioTaskCreate = toolStore.getByName('studio.task.create')
     const studioTaskCreateSchema = studioTaskCreate?.input_schema_json
-      ? JSON.parse(studioTaskCreate.input_schema_json) as Record<string, unknown>
+      ? (JSON.parse(studioTaskCreate.input_schema_json) as Record<string, unknown>)
       : {}
     const studioTaskCreateProperties = asRecord(studioTaskCreateSchema.properties)
-    expect(studioTaskCreateProperties.sessionMode).toMatchObject({ enum: ['existing', 'new_each', 'new_fixed'] })
-    expect(studioTaskCreateProperties.sessionId).toMatchObject({ type: 'string' })
+    expect(Object.keys(studioTaskCreateProperties).sort()).toEqual(['description', 'projectId', 'selfExecute', 'title'])
+    expect(studioTaskCreateSchema.required).toEqual(['title', 'description'])
+    expect(studioTaskCreateProperties.description).toMatchObject({ type: 'string' })
+    expect(studioTaskCreateProperties.selfExecute).toMatchObject({ type: 'boolean' })
+
+    const studioTaskCreateSimple = toolStore.getByName('studio.task.createSimple')
+    const studioTaskCreateSimpleSchema = studioTaskCreateSimple?.input_schema_json
+      ? (JSON.parse(studioTaskCreateSimple.input_schema_json) as Record<string, unknown>)
+      : {}
+    expect(studioTaskCreateSimpleSchema.required).toEqual(['title', 'description', 'assignee'])
 
     const studioScheduleCreate = toolStore.getByName('studio.schedule.create')
     const studioScheduleCreateSchema = studioScheduleCreate?.input_schema_json
-      ? JSON.parse(studioScheduleCreate.input_schema_json) as Record<string, unknown>
+      ? (JSON.parse(studioScheduleCreate.input_schema_json) as Record<string, unknown>)
       : {}
     const studioScheduleCreateProperties = asRecord(studioScheduleCreateSchema.properties)
     expect(studioScheduleCreateProperties.sessionMode).toMatchObject({ enum: ['existing', 'new_each', 'new_fixed'] })

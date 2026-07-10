@@ -63,9 +63,7 @@ export interface SpawnMemberResult {
   session: SessionRow
 }
 
-export interface CreateTeamResult extends SpawnMemberResult {
-  team: TeamRow
-}
+export interface CreateTeamResult extends SpawnMemberResult { team: TeamRow }
 
 export interface DispatchTeamMessageResult {
   status: DispatchMemberPromptStatus
@@ -220,15 +218,18 @@ export const teamService = {
     const team = requireTeam(input.teamId)
     const assignee = input.assigneeMemberId ? requireMember(input.assigneeMemberId) : undefined
     if (assignee) ensureMemberInTeam(assignee, team)
-    const task = taskStore.create({
+    let task = taskStore.create({
       title: input.title,
-      description: input.description,
+      description: input.description ?? input.title,
       source: 'agent',
       projectId: team.project_id,
       teamId: team.id,
       assigneeMemberId: assignee?.id,
-      assignAgentId: assignee?.agent_id,
     })
+    if (assignee) {
+      taskStore.assignAgent(task.id, assignee.agent_id)
+      task = taskStore.get(task.id) ?? task
+    }
     emitTaskUpdate(task, 'created')
     emitTaskLifecycleEvent(task, 'created', null)
     emitTeamUpdate(team.id, 'task.created')
@@ -374,8 +375,7 @@ function ensureAgentInProject(agent: AgentRow, projectId: string): void {
 }
 
 function ensureMemberInTeam(member: TeamMemberRow, team: TeamRow): void {
-  if (member.team_id !== team.id || member.project_id !== team.project_id)
-    throw new Error('Team member 不属于该 Team')
+  if (member.team_id !== team.id || member.project_id !== team.project_id) throw new Error('Team member 不属于该 Team')
 }
 
 function ensureTaskInTeam(taskId: string, teamId: string): TaskRow {

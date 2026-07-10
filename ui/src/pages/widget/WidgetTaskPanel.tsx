@@ -10,6 +10,7 @@ import { ACTIVE_TASK_STATUSES, type TaskFilter } from './types'
 export function WidgetTaskPanel() {
   const tasks = useTaskStore((s) => s.tasks)
   const createTask = useTaskStore((s) => s.createTask)
+  const createSimpleTask = useTaskStore((s) => s.createSimpleTask)
   const agents = useAgentStore((s) => s.agents)
   const { pinnedProjectId, pinnedAgentId } = useWidgetStore((s) => s.preferences)
   const setPinnedAgent = useWidgetStore((s) => s.setPinnedAgent)
@@ -35,7 +36,16 @@ export function WidgetTaskPanel() {
   const handleCreate = async () => {
     const title = newTitle.trim()
     if (!title) return
-    await createTask(title, undefined, selectedAgent || undefined, pinnedProjectId || undefined)
+    if (selectedAgent) {
+      await createSimpleTask({
+        title,
+        description: title,
+        assignee: selectedAgent,
+        projectId: pinnedProjectId || undefined,
+      })
+    } else {
+      await createTask(title, title, pinnedProjectId || undefined)
+    }
     setNewTitle('')
     inputRef.current?.focus()
   }

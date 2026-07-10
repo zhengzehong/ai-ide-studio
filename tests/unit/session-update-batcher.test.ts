@@ -1,6 +1,10 @@
 import { describe, expect, test, vi } from 'vitest'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { resolve } from 'node:path'
 import type { SessionUpdateData } from '../../src/types/ws-protocol.js'
 import { SessionUpdateBatcher, type SessionUpdateEnvelope } from '../../src/core/session-update-batcher.js'
+import { closeDatabase, initDatabase } from '../../src/store/db.js'
 
 function envelope(data: SessionUpdateData): SessionUpdateEnvelope {
   return {
@@ -58,5 +62,27 @@ describe('SessionUpdateBatcher', () => {
 
     batcher.dispose()
     vi.useRealTimers()
+  })
+
+  test('clears pending updates when database closes', () => {
+    vi.useFakeTimers()
+    const tmp = mkdtempSync(resolve(tmpdir(), 'ai-ide-session-update-batcher-'))
+    let batcher: SessionUpdateBatcher | undefined
+    try {
+      initDatabase(resolve(tmp, 'test.sqlite'))
+      batcher = new SessionUpdateBatcher({ textFlushMs: 100, processFlushMs: 300 })
+      batcher.handle(envelope({ messageId: 'msg-1', role: 'agent', contentDelta: 'after close' }), () => {
+        throw new Error('timer fired after database close')
+      })
+
+      closeDatabase()
+
+      expect(() => vi.advanceTimersByTime(100)).not.toThrow()
+    } finally {
+      batcher?.dispose()
+      closeDatabase()
+      rmSync(tmp, { recursive: true, force: true })
+      vi.useRealTimers()
+    }
   })
 })

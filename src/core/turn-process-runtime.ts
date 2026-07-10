@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto'
 import type { ElicitationRequestData, PermissionRequestData, PlanEntry, SessionUpdateData, ToolCallData } from '../types/ws-protocol.js'
 import { buildFileChangesFromToolCalls } from '../store/file-changes.js'
+import { onBeforeDatabaseClose } from '../store/db.js'
 import { messageStore } from '../store/sessions.js'
 import { stableProcessItemId, turnProcessItemStore, type TurnProcessItemRow } from '../store/turn-process-items.js'
 import { events } from './events.js'
@@ -27,6 +28,8 @@ interface ActiveTurnProcess {
 const activeTurns = new Map<string, ActiveTurnProcess>()
 const SNAPSHOT_FLUSH_INTERVAL_MS = 500
 const PROCESS_TEXT_FLUSH_INTERVAL_MS = 300
+
+onBeforeDatabaseClose(() => resetTurnProcessRuntime())
 
 export function createAgentMessageId(): string {
   return `msg-turn-${Date.now()}-${randomUUID().slice(0, 8)}`
@@ -138,6 +141,16 @@ export function completeTurnProcess(
   activeTurns.delete(sessionId)
   log.debug({ sessionId, messageId: active.messageId, status }, 'active turn process completed')
   return { messageId: active.messageId, finalAnswer: active.finalAnswer, fileChangesJson }
+}
+
+export function resetTurnProcessRuntime(): void {
+  const turnCount = activeTurns.size
+  for (const active of activeTurns.values()) {
+    if (active.snapshotTimer) clearTimeout(active.snapshotTimer)
+    if (active.pendingText?.timer) clearTimeout(active.pendingText.timer)
+  }
+  activeTurns.clear()
+  if (turnCount > 0) log.debug({ turnCount }, 'active turn processes reset')
 }
 
 function demoteFinalAnswer(sessionId: string, active: ActiveTurnProcess, agentId: string): void {

@@ -188,6 +188,33 @@ describe('turn process items', () => {
     }
   })
 
+  test('clears pending running snapshot timers when database closes', () => {
+    vi.useFakeTimers()
+    try {
+      const session = sessionStore.create({ agentId: 'agent-1' })
+      const message = messageStore.append(session.id, {
+        id: 'msg-agent-running',
+        role: 'agent',
+        content: '',
+        status: 'running',
+        startedAt: '2026-06-05T00:00:00.000Z',
+      })
+
+      startTurnProcess(session.id, message.id)
+      recordTurnProcessUpdate(session.id, 'agent-1', {
+        messageId: message.id,
+        role: 'agent',
+        contentDelta: 'A',
+      })
+
+      closeDatabase()
+
+      expect(() => vi.advanceTimersByTime(500)).not.toThrow()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   test('coalesces thinking process item writes while streaming text', () => {
     vi.useFakeTimers()
     try {

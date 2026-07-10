@@ -52,11 +52,11 @@ describe('task RPC handlers', () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const agent = agentStore.create({ name: 'Target', type: 'dev', runtime: 'mock', projectId: project.id })
 
-    const created = await callTaskRpc('tasks.create', {
+    const created = (await callTaskRpc('tasks.create', {
       type: 'tasks.create',
       title: 'Dispatch me',
       projectId: project.id,
-    }) as Record<string, unknown>
+    })) as Record<string, unknown>
 
     const createdEvents = eventCenterService.listEvents({
       projectId: project.id,
@@ -89,6 +89,63 @@ describe('task RPC handlers', () => {
     })
   })
 
+  test('tasks.createSimple requires description and assignee before persisting', async () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const agent = agentStore.create({ name: 'Target', type: 'dev', runtime: 'mock', projectId: project.id })
+
+    await expect(
+      callTaskRpc('tasks.createSimple', {
+        type: 'tasks.createSimple',
+        title: 'Simple task',
+        projectId: project.id,
+        assignee: agent.id,
+      }),
+    ).rejects.toThrow('description 不能为空')
+
+    await expect(
+      callTaskRpc('tasks.createSimple', {
+        type: 'tasks.createSimple',
+        title: 'Simple task',
+        description: 'Do the thing',
+        projectId: project.id,
+      }),
+    ).rejects.toThrow('assignee 不能为空')
+
+    expect(taskStore.list(undefined, project.id)).toEqual([])
+  })
+
+  test('tasks.createSimple creates one dispatched step and returns defaultStepId', async () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const agent = agentStore.create({ name: 'Target', type: 'dev', runtime: 'mock', projectId: project.id })
+
+    const created = (await callTaskRpc('tasks.createSimple', {
+      type: 'tasks.createSimple',
+      title: 'Simple task',
+      description: 'Do the thing',
+      projectId: project.id,
+      assignee: agent.id,
+    })) as Record<string, unknown>
+
+    expect(created).toMatchObject({
+      title: 'Simple task',
+      description: 'Do the thing',
+      status: 'running',
+      assigned_agent_id: null,
+    })
+    expect(created.defaultStepId).toEqual(expect.any(String))
+    expect(created.stepProgress).toEqual({ done: 0, total: 1 })
+    expect(created.steps).toEqual([
+      expect.objectContaining({
+        id: created.defaultStepId,
+        title: 'Simple task',
+        status: 'running',
+        assignee: agent.id,
+      }),
+    ])
+    expect(created.sessionId).toEqual(expect.any(String))
+    expect(taskStore.listSessionIds(created.id as string)).toEqual([created.sessionId])
+  })
+
   test('tasks.assign rejects a reused session from another agent before assigning the task', async () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const targetAgent = agentStore.create({ name: 'Target', type: 'dev', runtime: 'mock', projectId: project.id })
@@ -96,12 +153,14 @@ describe('task RPC handlers', () => {
     const otherSession = sessionStore.create({ agentId: otherAgent.id, projectId: project.id })
     const task = taskStore.create({ title: 'Assign safely', projectId: project.id })
 
-    await expect(callTaskRpc('tasks.assign', {
-      type: 'tasks.assign',
-      taskId: task.id,
-      agentId: targetAgent.id,
-      sessionId: otherSession.id,
-    })).rejects.toThrow('会话不属于被指派 Agent')
+    await expect(
+      callTaskRpc('tasks.assign', {
+        type: 'tasks.assign',
+        taskId: task.id,
+        agentId: targetAgent.id,
+        sessionId: otherSession.id,
+      }),
+    ).rejects.toThrow('会话不属于被指派 Agent')
 
     const updated = taskStore.get(task.id)
     expect(updated?.assigned_agent_id).toBeNull()
@@ -114,13 +173,15 @@ describe('task RPC handlers', () => {
     const agent = agentStore.create({ name: 'Agent A', type: 'dev', runtime: 'mock', projectId: projectA.id })
     const otherSession = sessionStore.create({ agentId: agent.id, projectId: projectB.id })
 
-    await expect(callTaskRpc('tasks.create', {
-      type: 'tasks.create',
-      title: 'Create safely',
-      projectId: projectA.id,
-      assignAgentId: agent.id,
-      sessionId: otherSession.id,
-    })).rejects.toThrow('会话不属于当前项目')
+    await expect(
+      callTaskRpc('tasks.create', {
+        type: 'tasks.create',
+        title: 'Create safely',
+        projectId: projectA.id,
+        assignAgentId: agent.id,
+        sessionId: otherSession.id,
+      }),
+    ).rejects.toThrow('会话不属于当前项目')
 
     expect(taskStore.list(undefined, projectA.id)).toEqual([])
   })
@@ -129,13 +190,15 @@ describe('task RPC handlers', () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const agent = agentStore.create({ name: 'Target', type: 'dev', runtime: 'mock', projectId: project.id })
 
-    await expect(callTaskRpc('tasks.create', {
-      type: 'tasks.create',
-      title: 'Missing session',
-      projectId: project.id,
-      assignAgentId: agent.id,
-      sessionMode: 'existing',
-    })).rejects.toThrow('existing session mode requires sessionId')
+    await expect(
+      callTaskRpc('tasks.create', {
+        type: 'tasks.create',
+        title: 'Missing session',
+        projectId: project.id,
+        assignAgentId: agent.id,
+        sessionMode: 'existing',
+      }),
+    ).rejects.toThrow('existing session mode requires sessionId')
 
     expect(taskStore.list(undefined, project.id)).toEqual([])
   })
@@ -145,20 +208,20 @@ describe('task RPC handlers', () => {
     const agent = agentStore.create({ name: 'Target', type: 'dev', runtime: 'mock', projectId: project.id })
     const existingSession = sessionStore.create({ agentId: agent.id, projectId: project.id })
 
-    const created = await callTaskRpc('tasks.create', {
+    const created = (await callTaskRpc('tasks.create', {
       type: 'tasks.create',
       title: 'Reuse existing',
       projectId: project.id,
       assignAgentId: agent.id,
       sessionId: existingSession.id,
-    }) as Record<string, unknown>
+    })) as Record<string, unknown>
 
     expect(created.sessionId).toBe(existingSession.id)
 
-    const listed = await callTaskRpc('tasks.list', {
+    const listed = (await callTaskRpc('tasks.list', {
       type: 'tasks.list',
       projectId: project.id,
-    }) as Array<Record<string, unknown>>
+    })) as Array<Record<string, unknown>>
 
     expect(listed).toHaveLength(1)
     expect(listed[0]).toMatchObject({ id: created.id, sessionId: existingSession.id })
@@ -169,14 +232,14 @@ describe('task RPC handlers', () => {
     const agent = agentStore.create({ name: 'Target', type: 'dev', runtime: 'mock', projectId: project.id })
     const existingSession = sessionStore.create({ agentId: agent.id, projectId: project.id })
 
-    const created = await callTaskRpc('tasks.create', {
+    const created = (await callTaskRpc('tasks.create', {
       type: 'tasks.create',
       title: 'Fresh task',
       projectId: project.id,
       assignAgentId: agent.id,
       sessionMode: 'new_each',
       sessionId: existingSession.id,
-    }) as Record<string, unknown>
+    })) as Record<string, unknown>
 
     expect(created.sessionId).toBeTruthy()
     expect(created.sessionId).not.toBe(existingSession.id)
@@ -189,23 +252,21 @@ describe('task RPC handlers', () => {
     const existingSession = sessionStore.create({ agentId: agent.id, projectId: project.id })
     const task = taskStore.create({ title: 'Assign existing', projectId: project.id })
 
-    const assigned = await callTaskRpc('tasks.assign', {
+    const assigned = (await callTaskRpc('tasks.assign', {
       type: 'tasks.assign',
       taskId: task.id,
       agentId: agent.id,
       sessionId: existingSession.id,
-    }) as Record<string, unknown>
+    })) as Record<string, unknown>
 
     expect(assigned.sessionId).toBe(existingSession.id)
 
-    const detail = await callTaskRpc('tasks.get', {
+    const detail = (await callTaskRpc('tasks.get', {
       type: 'tasks.get',
       taskId: task.id,
-    }) as Record<string, unknown>
+    })) as Record<string, unknown>
 
-    expect(detail.sessions).toEqual([
-      expect.objectContaining({ id: existingSession.id, agentId: agent.id }),
-    ])
+    expect(detail.sessions).toEqual([expect.objectContaining({ id: existingSession.id, agentId: agent.id })])
   })
 
   test('tasks.assign accepts explicit existing session mode', async () => {
@@ -214,13 +275,13 @@ describe('task RPC handlers', () => {
     const existingSession = sessionStore.create({ agentId: agent.id, projectId: project.id })
     const task = taskStore.create({ title: 'Assign mode', projectId: project.id })
 
-    const assigned = await callTaskRpc('tasks.assign', {
+    const assigned = (await callTaskRpc('tasks.assign', {
       type: 'tasks.assign',
       taskId: task.id,
       agentId: agent.id,
       sessionMode: 'existing',
       sessionId: existingSession.id,
-    }) as Record<string, unknown>
+    })) as Record<string, unknown>
 
     expect(assigned.sessionId).toBe(existingSession.id)
     expect(taskStore.listSessionIds(task.id)).toEqual([existingSession.id])
@@ -231,12 +292,14 @@ describe('task RPC handlers', () => {
     const agent = agentStore.create({ name: 'Target', type: 'dev', runtime: 'mock', projectId: project.id })
     const task = taskStore.create({ title: 'Assign missing session', projectId: project.id })
 
-    await expect(callTaskRpc('tasks.assign', {
-      type: 'tasks.assign',
-      taskId: task.id,
-      agentId: agent.id,
-      sessionMode: 'existing',
-    })).rejects.toThrow('existing session mode requires sessionId')
+    await expect(
+      callTaskRpc('tasks.assign', {
+        type: 'tasks.assign',
+        taskId: task.id,
+        agentId: agent.id,
+        sessionMode: 'existing',
+      }),
+    ).rejects.toThrow('existing session mode requires sessionId')
 
     const updated = taskStore.get(task.id)
     expect(updated?.assigned_agent_id).toBeNull()
@@ -247,20 +310,17 @@ describe('task RPC handlers', () => {
 
 async function callTaskRpc(type: string, msg: Record<string, unknown>): Promise<unknown> {
   let result: unknown
-  await taskRpcHandlers[type](
-    msg as never,
-    {
-      state: { subscriptions: new Set() },
-      sendResult: (data) => {
-        result = data
-      },
-      sendError: (message) => {
-        throw new Error(message)
-      },
-      sendOutOfBandError: (message) => {
-        throw new Error(message)
-      },
+  await taskRpcHandlers[type](msg as never, {
+    state: { subscriptions: new Set() },
+    sendResult: (data) => {
+      result = data
     },
-  )
+    sendError: (message) => {
+      throw new Error(message)
+    },
+    sendOutOfBandError: (message) => {
+      throw new Error(message)
+    },
+  })
   return result
 }

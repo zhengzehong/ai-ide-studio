@@ -70,8 +70,13 @@ ws://localhost:18800
 | 方法 | 参数 | 返回 | 说明 |
 |------|------|------|------|
 | `tasks.list` | `{ status?, projectId? }` | `Task[]` | 列出任务，可按项目过滤 |
-| `tasks.create` | `{ title, description?, assignAgentId?, projectId?, sessionMode?, sessionId? }` | `Task` | 创建任务；`sessionMode` 支持 `existing` / `new_each` / `new_fixed`，旧版仅传 `sessionId` 时按 `existing` 兼容 |
+| `tasks.create` | `{ title, description, projectId? }` | `Task` | 创建协作任务空壳；任务为 `draft`，不建步骤、不分派 Agent。旧调用方的分派兼容逻辑仅保留在后端 RPC 入口，不作为新 UI 协议使用 |
+| `tasks.createSimple` | `{ title, description, assignee, projectId?, sessionId? }` | `Task & { defaultStepId, sessionId, steps, stepProgress }` | 创建简单任务：自动创建一个默认 step，分派给 `assignee` 并立即派发 |
 | `tasks.update` | `{ taskId, status?, stage? }` | `Task` | 更新任务状态 |
+| `tasks.start` | `{ taskId }` | `{ taskId, status, dispatched, steps, stepProgress }` | 启动协作任务，派发 ready step |
+| `tasks.step.add` | `{ taskId, title, description?, assignee?, sessionId?, dependsOn? }` | `{ taskId, step, reverted, taskStatus, steps, stepProgress }` | 添加步骤；运行中任务变更步骤会回退到 `draft` |
+| `tasks.step.update` | `{ taskId, stepId, title?, description?, assignee?, sessionId?, dependsOn? }` | `{ taskId, step, reverted, taskStatus, steps, stepProgress }` | 更新步骤；运行中任务变更步骤会回退到 `draft` |
+| `tasks.step.remove` | `{ taskId, stepId }` | `{ taskId, stepId, removed, reverted, taskStatus, steps, stepProgress }` | 删除步骤；运行中任务变更步骤会回退到 `draft` |
 
 ### 事件中心
 

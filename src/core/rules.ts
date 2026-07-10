@@ -22,21 +22,26 @@ const actionHandlers: Record<string, ActionHandler> = {
     const sessionId = await resolveScheduledSessionId(rule, config.assign_agent_id, sessionMode)
     const result = await taskManager.createTask({
       title: config.title ?? rule.name,
-      description: config.description,
+      description: config.description ?? config.title ?? rule.name,
       source: 'schedule',
-      assignAgentId: config.assign_agent_id,
       projectId: rule.project_id ?? undefined,
-      sessionId,
-      sessionMode,
       ruleId: rule.id,
-      ruleName: rule.name,
-      promptTemplate: config.prompt_template
-        ? replaceVariables(config.prompt_template, new Date())
-            .replace(/\{title\}/g, config.title ?? rule.name)
-            .replace(/\{description\}/g, config.description ?? '')
-        : undefined,
     })
     if (!result) throw new Error('定时任务创建失败')
+    if (config.assign_agent_id) {
+      await taskManager.assignTask({
+        taskId: result.id,
+        agentId: config.assign_agent_id,
+        sessionId,
+        sessionMode,
+        ruleName: rule.name,
+        promptTemplate: config.prompt_template
+          ? replaceVariables(config.prompt_template, new Date())
+              .replace(/\{title\}/g, config.title ?? rule.name)
+              .replace(/\{description\}/g, config.description ?? '')
+          : undefined,
+      })
+    }
     return { taskId: result.id }
   },
 
@@ -116,7 +121,10 @@ async function executeRule(rule: RuleRow, now: Date): Promise<void> {
     if (updated) {
       if (updated.max_runs && updated.run_count >= updated.max_runs) {
         ruleStore.toggle(rule.id, false)
-        log.info({ ruleId: rule.id, runCount: updated.run_count, maxRuns: updated.max_runs }, '规则达到最大执行次数，已自动禁用')
+        log.info(
+          { ruleId: rule.id, runCount: updated.run_count, maxRuns: updated.max_runs },
+          '规则达到最大执行次数，已自动禁用',
+        )
       }
       events.emit('rule:update', { ruleId: rule.id, data: { ...ruleStore.get(rule.id) } })
     }

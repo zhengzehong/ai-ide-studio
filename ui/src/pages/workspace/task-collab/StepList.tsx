@@ -1,6 +1,7 @@
-import { ChevronRight, Check, Loader2 } from 'lucide-react'
+import { useState } from 'react'
+import { ChevronRight, Check, Loader2, Trash2 } from 'lucide-react'
 import type { AgentData } from '../../../stores/agent.store'
-import type { TaskStepData, TaskStepReport } from '../../../stores/task.store'
+import { useTaskStore, type TaskStepData, type TaskStepReport } from '../../../stores/task.store'
 import {
   STEP_COLORS,
   agentBadgeStyle,
@@ -11,10 +12,12 @@ import {
 } from './step-helpers'
 
 interface StepListProps {
+  taskId: string
   steps: TaskStepData[]
   agents: AgentData[]
   reportsByStep: Record<string, TaskStepReport[] | undefined>
   onSelectStep?: (stepId: string) => void
+  onStepMutated?: () => void
 }
 
 interface StepRowProps {
@@ -23,9 +26,11 @@ interface StepRowProps {
   agent: AgentData | undefined
   reports: TaskStepReport[]
   onSelect?: () => void
+  onDelete?: () => void
+  deleting?: boolean
 }
 
-function StepRow({ step, index, agent, reports, onSelect }: StepRowProps) {
+function StepRow({ step, index, agent, reports, onSelect, onDelete, deleting }: StepRowProps) {
   const tag = stepTagStyle(step.status)
   const color = stepColor(step.status)
   const latestReport = reports[0]
@@ -60,7 +65,13 @@ function StepRow({ step, index, agent, reports, onSelect }: StepRowProps) {
           marginTop: 1,
         }}
       >
-        {step.status === 'done' ? <Check size={10} /> : step.status === 'running' ? <Loader2 size={10} style={{ animation: 'spin 1s linear infinite' }} /> : index + 1}
+        {step.status === 'done' ? (
+          <Check size={10} />
+        ) : step.status === 'running' ? (
+          <Loader2 size={10} style={{ animation: 'spin 1s linear infinite' }} />
+        ) : (
+          index + 1
+        )}
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 2 }}>
@@ -92,7 +103,16 @@ function StepRow({ step, index, agent, reports, onSelect }: StepRowProps) {
             {tag.label}
           </span>
         </div>
-        <div style={{ fontSize: 10, color: 'var(--text-3)', display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+        <div
+          style={{
+            fontSize: 10,
+            color: 'var(--text-3)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
+            flexWrap: 'wrap',
+          }}
+        >
           <span
             style={{
               width: 12,
@@ -135,21 +155,60 @@ function StepRow({ step, index, agent, reports, onSelect }: StepRowProps) {
               whiteSpace: 'nowrap',
             }}
           >
-            {isBlocked ? '' : '里程碑:'}{step.currentStage}
+            {isBlocked ? '' : '里程碑:'}
+            {step.currentStage}
           </div>
         )}
       </div>
-      {onSelect && (
-        <ChevronRight size={12} color="var(--text-3)" style={{ flexShrink: 0, marginTop: 4 }} />
-      )}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, marginTop: 2 }}>
+        {onDelete && (
+          <button
+            type="button"
+            title="删除步骤"
+            disabled={deleting}
+            onClick={(event) => {
+              event.stopPropagation()
+              onDelete()
+            }}
+            style={{
+              width: 24,
+              height: 24,
+              border: '1px solid transparent',
+              borderRadius: 5,
+              background: 'transparent',
+              color: 'var(--text-3)',
+              cursor: deleting ? 'not-allowed' : 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              opacity: deleting ? 0.5 : 1,
+            }}
+          >
+            <Trash2 size={12} />
+          </button>
+        )}
+        {onSelect && <ChevronRight size={12} color="var(--text-3)" />}
+      </div>
     </div>
   )
 }
 
-export function StepList({ steps, agents, reportsByStep, onSelectStep }: StepListProps) {
-  const agentMap = new Map(agents.map(a => [a.id, a]))
+export function StepList({ taskId, steps, agents, reportsByStep, onSelectStep, onStepMutated }: StepListProps) {
+  const removeStep = useTaskStore((s) => s.removeStep)
+  const [removingId, setRemovingId] = useState<string | null>(null)
+  const agentMap = new Map(agents.map((a) => [a.id, a]))
   const markers = computeParallelMarkers(steps)
-  const markerBeforeStep = new Map(markers.map(m => [m.beforeStepId, m]))
+  const markerBeforeStep = new Map(markers.map((m) => [m.beforeStepId, m]))
+  const handleDelete = async (stepId: string) => {
+    if (!window.confirm('确定删除此步骤？任务会回到 draft。')) return
+    setRemovingId(stepId)
+    try {
+      await removeStep(taskId, stepId)
+      onStepMutated?.()
+    } finally {
+      setRemovingId((current) => (current === stepId ? null : current))
+    }
+  }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
       {steps.map((step, idx) => {
@@ -177,6 +236,10 @@ export function StepList({ steps, agents, reportsByStep, onSelectStep }: StepLis
               agent={step.assignee ? agentMap.get(step.assignee) : undefined}
               reports={reportsByStep[step.id] ?? []}
               onSelect={onSelectStep ? () => onSelectStep(step.id) : undefined}
+              onDelete={() => {
+                void handleDelete(step.id)
+              }}
+              deleting={removingId === step.id}
             />
           </div>
         )

@@ -40,13 +40,28 @@ const EMPTY_TEXT: Record<TaskFilter, string> = {
   done: '暂无已完成任务',
 }
 
+type MobileTaskStatus = TaskStatus | 'backlog' | 'executing'
+
+export function mobileTaskStatusMeta(status: MobileTaskStatus): { color: string; label: string } {
+  if (status === 'running' || status === 'executing') return { color: 'var(--info)', label: '执行中' }
+  if (status === 'needs_input') return { color: 'var(--warning)', label: '需确认' }
+  if (status === 'completed') return { color: 'var(--success)', label: '已完成' }
+  if (status === 'cancelled') return { color: 'var(--text-muted)', label: '已取消' }
+  return { color: 'var(--text-muted)', label: '待办' }
+}
+
 function matchesFilter(status: TaskStatus, filter: TaskFilter): boolean {
   switch (filter) {
-    case 'mine': return status === 'needs_input'
-    case 'running': return status === 'running'
-    case 'draft': return status === 'draft'
-    case 'done': return status === 'completed' || status === 'cancelled'
-    case 'all': return true
+    case 'mine':
+      return status === 'needs_input'
+    case 'running':
+      return status === 'running'
+    case 'draft':
+      return status === 'draft'
+    case 'done':
+      return status === 'completed' || status === 'cancelled'
+    case 'all':
+      return true
   }
 }
 
@@ -114,28 +129,35 @@ export default function TaskListPage() {
   const fetchTasks = useCallback(async () => {
     setLoading(true)
     try {
-      const data = await wsClient.request(taskListRequest(currentProjectId)) as TaskItem[]
+      const data = (await wsClient.request(taskListRequest(currentProjectId))) as TaskItem[]
       setTasks(data)
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     setLoading(false)
   }, [currentProjectId])
 
-  useEffect(() => { void fetchTasks() }, [fetchTasks])
+  useEffect(() => {
+    void fetchTasks()
+  }, [fetchTasks])
 
   useEffect(() => {
     const off = wsClient.on('task:update', (msg) => {
       const taskId = typeof msg.taskId === 'string' ? msg.taskId : ''
-      const data = msg.data && typeof msg.data === 'object'
-        ? { ...(msg.data as Record<string, unknown>), id: (msg.data as Record<string, unknown>).id ?? taskId }
-        : { id: taskId }
+      const data =
+        msg.data && typeof msg.data === 'object'
+          ? { ...(msg.data as Record<string, unknown>), id: (msg.data as Record<string, unknown>).id ?? taskId }
+          : { id: taskId }
       setTasks((current) => mergeMobileTaskUpdate(current, data, currentProjectId))
     })
-    return () => { off() }
+    return () => {
+      off()
+    }
   }, [currentProjectId])
 
   const tasksWithAgent = useMemo<TaskCardItem[]>(() => {
-    const agentMap = new Map(agentsRef.current.map(a => [a.id, a.name]))
-    return tasks.map(t => ({
+    const agentMap = new Map(agentsRef.current.map((a) => [a.id, a.name]))
+    return tasks.map((t) => ({
       id: t.id,
       title: t.title,
       description: t.description ?? null,
@@ -144,24 +166,32 @@ export default function TaskListPage() {
       created_at: t.created_at,
       updated_at: t.updated_at ?? null,
       assigned_agent_id: t.assigned_agent_id ?? null,
-      agent_name: t.assigned_agent_id ? agentMap.get(t.assigned_agent_id) ?? null : null,
+      agent_name: t.assigned_agent_id ? (agentMap.get(t.assigned_agent_id) ?? null) : null,
       project_id: t.project_id ?? null,
     }))
   }, [tasks])
 
   const filteredTasks = useMemo(() => {
-    const filtered = tasksWithAgent.filter(t => matchesFilter(t.status, filter) && matchesSearch(t.title, t.description, keyword))
+    const filtered = tasksWithAgent.filter(
+      (t) => matchesFilter(t.status, filter) && matchesSearch(t.title, t.description, keyword),
+    )
     return sortTasks(filtered)
   }, [tasksWithAgent, filter, keyword])
 
-  const handleCardClick = useCallback((task: TaskCardItem) => {
-    markTaskRead(task.id)
-    navigate(`/task/${task.id}`)
-  }, [navigate])
+  const handleCardClick = useCallback(
+    (task: TaskCardItem) => {
+      markTaskRead(task.id)
+      navigate(`/task/${task.id}`)
+    },
+    [navigate],
+  )
 
-  const handleLongPress = useCallback((task: TaskCardItem) => {
-    setActionTask(tasks.find(t => t.id === task.id) ?? null)
-  }, [tasks])
+  const handleLongPress = useCallback(
+    (task: TaskCardItem) => {
+      setActionTask(tasks.find((t) => t.id === task.id) ?? null)
+    },
+    [tasks],
+  )
 
   const handleCopyTitle = useCallback(async () => {
     if (!actionTask) return
@@ -177,7 +207,7 @@ export default function TaskListPage() {
     if (!actionTask) return
     markTaskRead(actionTask.id)
     showToast('已标记为已读')
-    setTasks(prev => prev.map(t => t.id === actionTask.id ? { ...t } : t))
+    setTasks((prev) => prev.map((t) => (t.id === actionTask.id ? { ...t } : t)))
   }, [actionTask])
 
   const handleDeleteRequest = useCallback(() => {
@@ -192,7 +222,7 @@ export default function TaskListPage() {
     setActionTask(null)
     setDeleting(true)
     const snapshot = tasks
-    setTasks(prev => prev.filter(t => t.id !== taskToDelete.id))
+    setTasks((prev) => prev.filter((t) => t.id !== taskToDelete.id))
     try {
       await wsClient.request({ type: 'tasks.delete', taskId: taskToDelete.id })
       showToast('任务已删除')
@@ -204,17 +234,25 @@ export default function TaskListPage() {
     }
   }, [confirmTask, tasks])
 
-  const hasUnread = actionTask ? ((): boolean => {
-    const t = tasksWithAgent.find(x => x.id === actionTask.id)
-    if (!t) return false
-    return isTaskUnread(t.id, t.updated_at || undefined)
-  })() : false
+  const hasUnread = actionTask
+    ? ((): boolean => {
+        const t = tasksWithAgent.find((x) => x.id === actionTask.id)
+        if (!t) return false
+        return isTaskUnread(t.id, t.updated_at || undefined)
+      })()
+    : false
 
   const actionSheetItems = (() => {
     if (!actionTask) return []
     type Item = { key: string; label: string; danger?: boolean; onClick: () => void }
     const items: Item[] = [
-      { key: 'copy', label: '复制任务标题', onClick: () => { void handleCopyTitle() } },
+      {
+        key: 'copy',
+        label: '复制任务标题',
+        onClick: () => {
+          void handleCopyTitle()
+        },
+      },
     ]
     if (hasUnread) {
       items.push({ key: 'read', label: '标记已读', onClick: handleMarkRead })
@@ -237,7 +275,7 @@ export default function TaskListPage() {
 
       <div style={styles.filterBar}>
         <div style={styles.chips}>
-          {FILTERS.map(f => {
+          {FILTERS.map((f) => {
             const active = f.key === filter
             return (
               <button
@@ -255,7 +293,7 @@ export default function TaskListPage() {
           <input
             style={styles.searchInput}
             value={keyword}
-            onChange={e => setKeyword(e.target.value)}
+            onChange={(e) => setKeyword(e.target.value)}
             placeholder="搜索任务"
           />
           {keyword && (
@@ -274,14 +312,10 @@ export default function TaskListPage() {
             <span style={{ color: 'var(--text-muted)', fontSize: 14, marginTop: 12 }}>{EMPTY_TEXT[filter]}</span>
           </div>
         )}
-        {!loading && filteredTasks.map(task => (
-          <TaskCard
-            key={task.id}
-            task={task}
-            onClick={handleCardClick}
-            onLongPress={handleLongPress}
-          />
-        ))}
+        {!loading &&
+          filteredTasks.map((task) => (
+            <TaskCard key={task.id} task={task} onClick={handleCardClick} onLongPress={handleLongPress} />
+          ))}
       </div>
 
       <ActionSheet

@@ -12,7 +12,14 @@ import { AGENT_HUB_BUILTIN_TOOLS } from './agent-hub-seed.js'
 const log = createChildLogger('tool-seed')
 
 const CORE_PERMISSIONS = { requiresApproval: false, maxExecutionTime: 10_000, networkAccess: false }
-const OBSOLETE_BUILTIN_TOOLS = ['search_files', 'get_project_info', 'list_agents', 'http_fetch', 'agent.watch.create', 'agent.watch.cancel']
+const OBSOLETE_BUILTIN_TOOLS = [
+  'search_files',
+  'get_project_info',
+  'list_agents',
+  'http_fetch',
+  'agent.watch.create',
+  'agent.watch.cancel',
+]
 
 const CORE_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
   {
@@ -331,7 +338,11 @@ const CORE_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
         title: { type: 'string', description: '任务标题' },
         description: { type: 'string', description: '任务描述' },
         assignAgentId: { type: 'string', description: '指派的 Agent ID' },
-        sessionMode: { type: 'string', enum: ['existing', 'new_each', 'new_fixed'], description: '会话策略：existing=指定已有会话，new_each=新建会话，new_fixed=固定新会话' },
+        sessionMode: {
+          type: 'string',
+          enum: ['existing', 'new_each', 'new_fixed'],
+          description: '会话策略：existing=指定已有会话，new_each=新建会话，new_fixed=固定新会话',
+        },
         sessionId: { type: 'string', description: '会话 ID；sessionMode=existing 时必填，new_fixed 时可作为固定会话' },
         projectId: { type: 'string', description: '项目 ID；不传时使用当前会话项目' },
       },
@@ -354,7 +365,11 @@ const CORE_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
         title: { type: 'string', description: '任务标题' },
         description: { type: 'string', description: '任务描述' },
         assignAgentId: { type: 'string', description: '指派的 Agent ID' },
-        sessionMode: { type: 'string', enum: ['existing', 'new_each', 'new_fixed'], description: '会话策略：existing=指定已有会话，new_each=新建会话，new_fixed=固定新会话' },
+        sessionMode: {
+          type: 'string',
+          enum: ['existing', 'new_each', 'new_fixed'],
+          description: '会话策略：existing=指定已有会话，new_each=新建会话，new_fixed=固定新会话',
+        },
         sessionId: { type: 'string', description: '会话 ID；sessionMode=existing 时必填，new_fixed 时可作为固定会话' },
         projectId: { type: 'string', description: '项目 ID；不传时使用当前会话项目' },
       },
@@ -379,7 +394,11 @@ const CORE_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
         taskTitle: { type: 'string', description: '任务标题' },
         taskDescription: { type: 'string', description: '任务描述' },
         assignAgentId: { type: 'string', description: '指派的 Agent ID' },
-        sessionMode: { type: 'string', enum: ['existing', 'new_each', 'new_fixed'], description: '会话策略：existing=指定已有会话，new_each=每次新会话，new_fixed=固定新会话' },
+        sessionMode: {
+          type: 'string',
+          enum: ['existing', 'new_each', 'new_fixed'],
+          description: '会话策略：existing=指定已有会话，new_each=每次新会话，new_fixed=固定新会话',
+        },
         sessionId: { type: 'string', description: '会话 ID；sessionMode=existing 时必填，new_fixed 时可作为固定会话' },
       },
       required: ['name', 'cron', 'taskTitle'],
@@ -404,7 +423,11 @@ const CORE_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
         taskTitle: { type: 'string', description: '任务标题' },
         taskDescription: { type: 'string', description: '任务描述' },
         assignAgentId: { type: 'string', description: '指派 Agent' },
-        sessionMode: { type: 'string', enum: ['existing', 'new_each', 'new_fixed'], description: '会话策略：existing=指定已有会话，new_each=每次新会话，new_fixed=固定新会话' },
+        sessionMode: {
+          type: 'string',
+          enum: ['existing', 'new_each', 'new_fixed'],
+          description: '会话策略：existing=指定已有会话，new_each=每次新会话，new_fixed=固定新会话',
+        },
         sessionId: { type: 'string', description: '会话 ID；sessionMode=existing 时必填，new_fixed 时可作为固定会话' },
         prompt: { type: 'string', description: 'send_prompt 时的消息内容' },
         agentId: { type: 'string', description: 'send_prompt 时的目标 Agent' },
@@ -516,9 +539,10 @@ const CORE_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
   {
     name: 'studio.task.create',
     displayName: '创建项目任务',
-    description: `在 AI IDE Studio 项目中创建任务。两种模式:
-- selfExecute=true(对话任务化,常用):自己认领并立即在当前会话开始执行。用于用户在当前对话中布置的实质任务——写代码、修 bug、调研、重构等多步骤工作。不创建新会话,不发任务指派 prompt,创建后任务直接进入"执行中"。识别信号:用户说"帮我..."、"修复..."、"重构..."、"调研..."等,且工作需要多步完成。不要用于:简单问答、单次解释、闲聊、一句话能答完的问题。
-- selfExecute=false(默认):创建任务并可指派给其他 Agent,会发送任务指派 prompt 到目标会话。跨 Agent 分派用此模式。`,
+    description: `创建协作任务容器。两种模式:
+- selfExecute=true(对话任务化):用户在当前对话布置任务时用。建一个默认 step(assignee=自己),跳过 prompt 注入,任务直接 running。用户消息本身就是任务上下文。
+- selfExecute=false(默认):建空壳任务,无 step 无 assignee。后续用 task.step.add 编排步骤 + task.start 启动。用于多 Agent 协作编排。
+简单任务派给别人用 studio.task.createSimple,不要用这个。`,
     category: 'automation',
     type: 'builtin',
     config: { handler: 'studio.task.create' },
@@ -526,15 +550,14 @@ const CORE_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
       type: 'object',
       properties: {
         title: { type: 'string', description: '任务标题' },
-        description: { type: 'string', description: '任务描述' },
-        selfExecute: { type: 'boolean', description: '自己认领并立即在当前会话开始执行。true 时强制使用当前 Agent + 当前会话,不创建新会话,不发送任务指派 prompt(用户消息本身就是任务上下文)。默认 false。' },
-        assignAgentId: { type: 'string', description: '指派 Agent(selfExecute=true 时忽略此参数;selfExecute=false 且不传时任务进入待办)' },
-        sessionMode: { type: 'string', enum: ['existing', 'new_each', 'new_fixed'], description: '会话策略:selfExecute=true 时忽略此参数' },
-        sessionId: { type: 'string', description: '复用的会话 ID:selfExecute=true 时忽略此参数' },
-        executionModeId: { type: 'string', description: '执行模式 ID,决定 prompt 模板和报告模板' },
+        description: { type: 'string', description: '任务目标文档(背景/需求/验收标准)' },
+        selfExecute: {
+          type: 'boolean',
+          description: '对话任务化:true=建默认 step 并由当前 Agent 直接执行;false=只建协作空壳。默认 false。',
+        },
         projectId: { type: 'string', description: '项目 ID(不传用当前会话项目)' },
       },
-      required: ['title'],
+      required: ['title', 'description'],
     },
     permissions: CORE_PERMISSIONS,
     isBuiltin: true,
@@ -543,7 +566,8 @@ const CORE_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
   {
     name: 'studio.task.assign',
     displayName: 'Assign project task',
-    description: 'Assign an unassigned AI IDE Studio project task to a target Agent. Reassignment requires allowReassign=true.',
+    description:
+      'Assign an unassigned AI IDE Studio project task to a target Agent. Reassignment requires allowReassign=true.',
     category: 'automation',
     type: 'builtin',
     config: { handler: 'studio.task.assign' },
@@ -602,7 +626,8 @@ const CORE_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
   {
     name: 'studio.task.update_progress',
     displayName: '更新任务进度',
-    description: '轻量汇报当前阶段（一句话），更新看板卡片显示。每完成一个小步骤都调用。任务处于待确认状态时调用会自动恢复为行动中。',
+    description:
+      '轻量汇报当前阶段（一句话），更新看板卡片显示。每完成一个小步骤都调用。任务处于待确认状态时调用会自动恢复为行动中。',
     category: 'automation',
     type: 'builtin',
     config: { handler: 'studio.task.update_progress' },
@@ -621,7 +646,8 @@ const CORE_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
   {
     name: 'studio.task.report',
     displayName: '汇报任务状态',
-    description: '关键节点汇报：带 Markdown 报告向用户同步进展，并更新自我评估状态。agentStatus=milestone 保持/恢复行动中（Agent 继续工作）；blocked 和 done 让任务进入待确认等待人工处理。可传 stepId 汇报协作任务的步骤状态。',
+    description:
+      '关键节点汇报：带 Markdown 报告向用户同步进展，并更新自我评估状态。agentStatus=milestone 保持/恢复行动中（Agent 继续工作）；blocked 和 done 让任务进入待确认等待人工处理。可传 stepId 汇报协作任务的步骤状态。',
     category: 'automation',
     type: 'builtin',
     config: { handler: 'studio.task.report' },
@@ -629,8 +655,16 @@ const CORE_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
       type: 'object',
       properties: {
         taskId: { type: 'string', description: '任务 ID' },
-        agentStatus: { type: 'string', enum: ['milestone', 'blocked', 'done'], description: '自我评估状态：milestone=中间步骤完成（阶段性成果，任务保持行动中，继续执行）；blocked=遇到问题需要人工决策；done=本轮完成等待验收' },
-        reportMd: { type: 'string', description: 'Markdown 报告，按当前执行模式要求填写，参考任务指派 prompt 中的模板' },
+        agentStatus: {
+          type: 'string',
+          enum: ['milestone', 'blocked', 'done'],
+          description:
+            '自我评估状态：milestone=中间步骤完成（阶段性成果，任务保持行动中，继续执行）；blocked=遇到问题需要人工决策；done=本轮完成等待验收',
+        },
+        reportMd: {
+          type: 'string',
+          description: 'Markdown 报告，按当前执行模式要求填写，参考任务指派 prompt 中的模板',
+        },
         stage: { type: 'string', description: '当前阶段描述（可选）' },
         stepId: { type: 'string', description: '可选,协作任务的步骤 ID。不传走老逻辑(老任务)' },
         artifacts: {
@@ -667,7 +701,7 @@ const CORE_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
         sessionId: { type: 'string', description: '可选,指定会话(不传系统按 assignee 找 primary 会话)' },
         projectId: { type: 'string' },
       },
-      required: ['title', 'assignee'],
+      required: ['title', 'description', 'assignee'],
     },
     permissions: CORE_PERMISSIONS,
     isBuiltin: true,
@@ -696,7 +730,8 @@ const CORE_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
   {
     name: 'studio.task.start',
     displayName: '启动任务',
-    description: '启动任务,系统开始派发 ready 的 step。draft → running,开始派发;running → running,幂等,重新评估全图;completed → 报错。',
+    description:
+      '启动任务,系统开始派发 ready 的 step。draft → running,开始派发;running → running,幂等,重新评估全图;completed → 报错。',
     category: 'automation',
     type: 'builtin',
     config: { handler: 'studio.task.start' },
@@ -733,7 +768,8 @@ const CORE_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
   {
     name: 'studio.task.step.add',
     displayName: '添加步骤',
-    description: '给任务添加步骤。⚠️ 调用此工具会使任务回退到 draft 状态,系统暂停派发。完成所有步骤编辑后,必须调用 task.start 重新启动任务。',
+    description:
+      '给任务添加步骤。⚠️ 调用此工具会使任务回退到 draft 状态,系统暂停派发。完成所有步骤编辑后,必须调用 task.start 重新启动任务。',
     category: 'automation',
     type: 'builtin',
     config: { handler: 'studio.task.step.add' },
@@ -756,7 +792,8 @@ const CORE_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
   {
     name: 'studio.task.step.update',
     displayName: '修改步骤',
-    description: '修改步骤(标题/描述/依赖/分派)。⚠️ 调用此工具会使任务回退到 draft 状态,系统暂停派发。dependsOn 整体替换,不是追加。',
+    description:
+      '修改步骤(标题/描述/依赖/分派)。⚠️ 调用此工具会使任务回退到 draft 状态,系统暂停派发。dependsOn 整体替换,不是追加。',
     category: 'automation',
     type: 'builtin',
     config: { handler: 'studio.task.step.update' },
@@ -780,7 +817,8 @@ const CORE_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
   {
     name: 'studio.task.step.remove',
     displayName: '删除步骤',
-    description: '删除步骤。⚠️ 调用此工具会使任务回退到 draft 状态,系统暂停派发。删除时系统自动清理下游依赖。删 running 步骤向对应会话发"步骤已取消"通知。',
+    description:
+      '删除步骤。⚠️ 调用此工具会使任务回退到 draft 状态,系统暂停派发。删除时系统自动清理下游依赖。删 running 步骤向对应会话发"步骤已取消"通知。',
     category: 'automation',
     type: 'builtin',
     config: { handler: 'studio.task.step.remove' },
@@ -799,7 +837,8 @@ const CORE_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
   {
     name: 'studio.task.step.updateProgress',
     displayName: '更新步骤进度',
-    description: '更新步骤进度(一句话,展示用)。轻量进度更新,不带产出,不标记节点,纯展示。不改变 step 状态(step 还是 running)。',
+    description:
+      '更新步骤进度(一句话,展示用)。轻量进度更新,不带产出,不标记节点,纯展示。不改变 step 状态(step 还是 running)。',
     category: 'automation',
     type: 'builtin',
     config: { handler: 'studio.task.step.updateProgress' },
@@ -819,7 +858,8 @@ const CORE_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
   {
     name: 'studio.task.step.report',
     displayName: '汇报步骤状态',
-    description: '步骤汇报(关键节点/卡住/完成)。milestone:过程标记,继续做;blocked:卡住,等人工决策;done:完成,解锁下游。没有 rejected。任务在 draft 状态时 report 不解锁下游。',
+    description:
+      '步骤汇报(关键节点/卡住/完成)。milestone:过程标记,继续做;blocked:卡住,等人工决策;done:完成,解锁下游。没有 rejected。任务在 draft 状态时 report 不解锁下游。',
     category: 'automation',
     type: 'builtin',
     config: { handler: 'studio.task.step.report' },

@@ -272,12 +272,16 @@ export interface TasksListMsg extends ClientMessage {
 export interface TasksCreateMsg extends ClientMessage {
   type: 'tasks.create'
   title: string
-  description?: string
-  assignAgentId?: string
+  description: string
   projectId?: string
-  sessionMode?: 'existing' | 'new_each' | 'new_fixed'
+}
+export interface TasksCreateSimpleMsg extends ClientMessage {
+  type: 'tasks.createSimple'
+  title: string
+  description: string
+  assignee: string
+  projectId?: string
   sessionId?: string
-  executionModeId?: string
 }
 export interface TasksUpdateMsg extends ClientMessage {
   type: 'tasks.update'
@@ -472,7 +476,6 @@ export interface ToolCallData {
   progressDelta?: string
   error?: string
 }
-
 
 export interface ToolCallSummaryData {
   id: string

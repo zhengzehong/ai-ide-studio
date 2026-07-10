@@ -5,19 +5,31 @@ async function executeCreateTask(
   context: ToolContext,
   legacy = false,
 ): Promise<ToolHandlerResult> {
-  const { resolveSessionMode, taskManager } = await import('../../core/tasks.js')
+  const { resolveSessionMode, taskManager, validateSessionModeTarget, validateTaskAssignment } =
+    await import('../../core/tasks.js')
   const sessionId = optionalString(input, 'sessionId')
+  const assignAgentId = optionalString(input, 'assignAgentId')
+  const sessionMode = resolveSessionMode(input.sessionMode, sessionId)
+  const projectId = context.projectId ?? optionalString(input, 'projectId')
+  if (assignAgentId) {
+    validateSessionModeTarget(sessionMode, sessionId)
+    validateTaskAssignment(
+      assignAgentId,
+      projectId,
+      sessionMode === 'existing' || (sessionMode === 'new_fixed' && sessionId) ? sessionId : undefined,
+    )
+  }
   const task = await taskManager.createTask({
     title: requireString(input, 'title'),
-    description: optionalString(input, 'description'),
+    description: optionalString(input, 'description') ?? requireString(input, 'title'),
     source: 'agent',
-    assignAgentId: optionalString(input, 'assignAgentId'),
-    projectId: context.projectId ?? optionalString(input, 'projectId'),
-    sessionId,
-    sessionMode: resolveSessionMode(input.sessionMode, sessionId),
+    projectId,
   })
   if (!task) throw new Error('任务创建失败')
-  const output = legacy ? { taskId: task.id, title: task.title, status: task.status } : { task }
+  const result = assignAgentId
+    ? await taskManager.assignTask({ taskId: task.id, agentId: assignAgentId, sessionId, sessionMode })
+    : task
+  const output = legacy ? { taskId: result.id, title: result.title, status: result.status } : { task: result }
   return {
     content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],
   }
