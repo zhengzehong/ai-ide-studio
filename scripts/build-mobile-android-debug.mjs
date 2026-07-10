@@ -38,8 +38,12 @@ function javaMajorVersion(javaHome) {
 }
 
 function defaultJavaHome() {
-  const studioJbr = 'D:\\softs\\android_sto\\jbr'
-  const candidates = [process.env.JAVA_HOME, studioJbr].filter((value) => !!value)
+  const studioJbrCandidates = [
+    process.env.STUDIO_JBR,
+    'D:\\softs\\android_studio\\jbr',
+    'D:\\softs\\android_sto\\jbr',
+  ]
+  const candidates = [process.env.JAVA_HOME, ...studioJbrCandidates].filter((value) => !!value)
   return candidates.find((candidate) => javaMajorVersion(candidate) >= 21) ?? ''
 }
 
