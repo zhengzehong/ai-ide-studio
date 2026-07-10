@@ -10,6 +10,7 @@ import { emitTaskLifecycleEvent } from './task-lifecycle-events.js'
 import { dispatchStep, resolveStepSession, type DispatchStepResult } from './step-dispatch.js'
 import { buildStepView, type StepView } from './step-view.js'
 import { buildStepPrompt } from './step-prompt.js'
+import { dispatchReadySteps } from './step-ready-dispatch.js'
 import { triggerTaskWatch } from './task-watch-trigger.js'
 import { createChildLogger } from './logger.js'
 
@@ -349,16 +350,7 @@ export const taskStepManager = {
       }
     }
 
-    const dispatched: string[] = []
-    for (const step of readyCandidates) {
-      if (!step.assignee_agent_id) continue
-      try {
-        await dispatchStep(taskId, step.id)
-        dispatched.push(step.id)
-      } catch (err) {
-        log.warn({ err, taskId, stepId: step.id }, 'failed to dispatch step on start')
-      }
-    }
+    const dispatched = (await dispatchReadySteps(taskId, readyCandidates.map((step) => step.id))).dispatchedSteps
 
     const updated = taskStore.get(taskId)!
     if (previousStatus !== 'running') {

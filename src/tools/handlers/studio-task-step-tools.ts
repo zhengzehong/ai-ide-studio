@@ -1,11 +1,8 @@
 import type { ToolHandler } from '../types.js'
 import { taskStore } from '../../store/tasks.js'
-import { taskStepStore } from '../../store/task-steps.js'
 import { taskStepManager, type StepArtifact } from '../../core/task-steps.js'
-import { createChildLogger } from '../../core/logger.js'
+import { reportStepAndDispatch } from '../../core/task-step-report.js'
 import { requireStr, optStr, errResult, assertProjectAccess } from './studio-task-crud-tools.js'
-
-const log = createChildLogger('studio-task-step-tools')
 
 function parseStrArray(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) return undefined
@@ -284,7 +281,7 @@ export const studioTaskStepReportHandler: ToolHandler = {
     if (!task) return errResult('任务不存在')
     try { assertProjectAccess(task, context?.projectId) } catch (e) { return errResult((e as Error).message) }
     try {
-      const result = taskStepManager.reportStep({
+      const result = await reportStepAndDispatch({
         taskId,
         stepId,
         agentStatus,
@@ -293,18 +290,6 @@ export const studioTaskStepReportHandler: ToolHandler = {
         agentId: context?.agentId,
         sessionId: context?.sessionId,
       })
-      if (task.status === 'running' && result.unlockedSteps.length > 0) {
-        for (const unlockedId of result.unlockedSteps) {
-          const step = taskStepStore.get(unlockedId)
-          if (step && step.assignee_agent_id) {
-            try {
-              await taskStepManager.dispatchStep(taskId, unlockedId)
-            } catch (err) {
-              log.warn({ err, taskId, stepId: unlockedId }, 'failed to auto-dispatch unlocked step')
-            }
-          }
-        }
-      }
       return {
         content: [{
           type: 'text',
@@ -313,6 +298,8 @@ export const studioTaskStepReportHandler: ToolHandler = {
             stepId,
             newStatus: result.newStatus,
             unlockedSteps: result.unlockedSteps,
+            dispatchedSteps: result.dispatchedSteps,
+            dispatchFailure: result.dispatchFailure,
             taskCompleted: result.taskCompleted,
             taskStatus: taskStore.get(taskId)?.status,
           }, null, 2),

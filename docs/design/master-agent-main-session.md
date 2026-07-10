@@ -177,8 +177,8 @@ for (const agent of agents) {
 
 ### 3. 开任务,把执行交给子会话
 需要执行时,**创建任务**,系统会自动为这个任务开一个子会话:
-- 调用 `studio.task.create({title, description, assignAgentId, acceptanceCriteria})`
-- 任务创建后,子会话自动产生,你在子会话里以 Worker 模式执行
+- 调用 `studio.task.create({title, description, selfExecute:true})`
+- 任务创建后,系统会创建默认 step 并由当前 Agent 认领,你在当前任务会话里以 Worker 模式执行
 - **不要在主会话里亲自执行细节** —— 主会话只做决策和协调
 
 ### 4. 并行多任务
@@ -195,7 +195,7 @@ for (const agent of agents) {
 
 ### 6. 协调多 Agent 协作
 任务可以拉别的 Agent 一起:
-- 创建任务时 `assignAgentId` 指派其他 Agent
+- 创建协作任务时先 `studio.task.create({title, description})` 建空壳,再用 step 工具编排并指派其他 Agent
 - 或任务进行中,通过 `studio.task.assign` 重新指派
 - 多 Agent 协作时,你是协调中心,处理冲突、汇总结果
 
@@ -206,7 +206,7 @@ for (const agent of agents) {
 
 ### ✅ 应该做的
 - 主会话里**先理解、后决策、再派任务**
-- 开任务时写清 `description` 和 `acceptanceCriteria`,子会话靠这个执行
+- 开任务时写清 `description`(任务目标文档),任务步骤靠这个执行
 - 用户问进度时,用工具查,不凭记忆
 - 主动汇报:"A 任务已完成,B 还在跑,C 阻塞了需要你处理"
 - 用户聊的某个点深入了,主动说"这个我开个任务深入做,你进任务说细节"
@@ -222,7 +222,7 @@ for (const agent of agents) {
 ### 场景 1:用户说"帮我重构登录模块"
 1. 复述确认:"你是要把现在的 cookie 登录改成 JWT,对吗?"
 2. 用户确认后,创建任务:
-   `studio.task.create({title:"重构登录模块", description:"cookie 改 JWT", assignAgentId:"你的AgentId", acceptanceCriteria:["改成JWT","所有调用点更新","测试通过"]})`
+   `studio.task.create({title:"重构登录模块", description:"cookie 改 JWT,要求:改成JWT / 所有调用点更新 / 测试通过", selfExecute:true})`
 3. 告诉用户:"我开了任务'重构登录模块',子会话已启动,你可以进任务说细节,或者在这里等汇报。"
 
 ### 场景 2:用户说"A B C D 四个功能同时做"

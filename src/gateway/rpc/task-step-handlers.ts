@@ -1,4 +1,5 @@
 import { taskStepManager, type StepArtifact } from '../../core/task-steps.js'
+import { reportStepAndDispatch } from '../../core/task-step-report.js'
 import { taskStore } from '../../store/tasks.js'
 import type { RpcHandlerMap } from './types.js'
 import { buildStepProgress, buildStepSummary, buildStepViewRpc, buildTaskStepList } from './step-views.js'
@@ -145,7 +146,7 @@ export const taskStepRpcHandlers: RpcHandlerMap = {
     const task = taskStore.get(taskId)
     if (!task) return sendError('任务不存在')
     try {
-      const result = taskStepManager.reportStep({
+      const result = await reportStepAndDispatch({
         taskId,
         stepId,
         agentStatus,
@@ -157,6 +158,8 @@ export const taskStepRpcHandlers: RpcHandlerMap = {
         stepId,
         newStatus: result.newStatus,
         unlockedSteps: result.unlockedSteps,
+        dispatchedSteps: result.dispatchedSteps,
+        dispatchFailure: result.dispatchFailure,
         taskCompleted: result.taskCompleted,
         taskStatus: taskStore.get(taskId)?.status,
         steps: buildTaskStepList(taskId),

@@ -7,9 +7,11 @@ import { projectStore } from '../../src/store/projects.js'
 import { agentStore } from '../../src/store/agents.js'
 import { messageStore, sessionStore } from '../../src/store/sessions.js'
 import { taskStore, taskEventStore } from '../../src/store/tasks.js'
-import { taskStepStore, detectCycle } from '../../src/store/task-steps.js'
+import { taskStepStore, detectCycle, type TaskStepRow } from '../../src/store/task-steps.js'
 import { taskStepManager, buildStepPrompt } from '../../src/core/task-steps.js'
+import { reportStepAndDispatch } from '../../src/core/task-step-report.js'
 import { sessionManager } from '../../src/core/sessions.js'
+import { taskRpcHandlers } from '../../src/gateway/rpc/tasks.js'
 import { getHandler } from '../../src/tools/handlers/index.js'
 import type { ToolHandlerResult } from '../../src/tools/types.js'
 
@@ -39,6 +41,26 @@ async function executeJson(
   return JSON.parse(result.content[0]?.text ?? '{}') as Record<string, unknown>
 }
 
+async function callTaskRpc(type: string, msg: Record<string, unknown>): Promise<unknown> {
+  let result: unknown
+  await taskRpcHandlers[type](
+    msg as never,
+    {
+      state: { subscriptions: new Set() },
+      sendResult: (data) => {
+        result = data
+      },
+      sendError: (message) => {
+        throw new Error(message)
+      },
+      sendOutOfBandError: (message) => {
+        throw new Error(message)
+      },
+    },
+  )
+  return result
+}
+
 function expectError(result: ToolHandlerResult, messageFragment?: string): Record<string, unknown> {
   if (!result.isError) throw new Error('expected error result, got success')
   const parsed = JSON.parse(result.content[0]?.text ?? '{}') as Record<string, unknown>
@@ -62,6 +84,29 @@ function setupProject(): {
 
 function createTaskRow(title: string, projectId: string): ReturnType<typeof taskStore.create> {
   return taskStore.create({ title, source: 'agent', projectId })
+}
+
+async function setupRunningTwoStepChain(
+  projectId: string,
+  firstAssignee: string,
+  nextAssignee: string,
+): Promise<{ task: ReturnType<typeof taskStore.create>; firstStep: TaskStepRow; nextStep: TaskStepRow }> {
+  const task = createTaskRow('两个 step', projectId)
+  const first = taskStepManager.addStep({ taskId: task.id, title: 's1', assignee: firstAssignee })
+  const next = taskStepManager.addStep({
+    taskId: task.id,
+    title: 's2',
+    assignee: nextAssignee,
+    dependsOn: [first.step.id],
+  })
+  taskStore.updateStatus(task.id, 'running', '已启动')
+  taskStepStore.updateStatus(first.step.id, 'ready')
+  await taskStepManager.dispatchStep(task.id, first.step.id)
+  return {
+    task,
+    firstStep: taskStepStore.get(first.step.id)!,
+    nextStep: taskStepStore.get(next.step.id)!,
+  }
 }
 
 describe('studio.task.createSimple - 简单任务创建', () => {
@@ -211,7 +256,7 @@ describe('report(done) 解锁下游 - 并行派发', () => {
     taskStepStore.updateStatus(r1.step.id, 'ready')
     await taskStepManager.dispatchStep(task.id, r1.step.id)
 
-    const result = taskStepManager.reportStep({
+    const result = await reportStepAndDispatch({
       taskId: task.id,
       stepId: r1.step.id,
       agentStatus: 'done',
@@ -221,8 +266,88 @@ describe('report(done) 解锁下游 - 并行派发', () => {
 
     expect(result.newStatus).toBe('done')
     expect(result.unlockedSteps.sort()).toEqual([r2.step.id, r3.step.id].sort())
-    expect(taskStepStore.get(r2.step.id)?.status).toBe('ready')
-    expect(taskStepStore.get(r3.step.id)?.status).toBe('ready')
+    expect(result.dispatchedSteps.sort()).toEqual([r2.step.id, r3.step.id].sort())
+    expect(taskStepStore.get(r2.step.id)?.status).toBe('running')
+    expect(taskStepStore.get(r3.step.id)?.status).toBe('running')
+  })
+
+  test('studio.task.report with stepId done auto-dispatches unlocked downstream step', async () => {
+    const { project, agents } = setupProject()
+    const [pm, devA] = agents
+    const { task, firstStep, nextStep } = await setupRunningTwoStepChain(project.id, pm.id, devA.id)
+
+    const result = await executeJson(
+      'studio.task.report',
+      { taskId: task.id, stepId: firstStep.id, agentStatus: 'done', reportMd: 's1 done' },
+      { projectId: project.id, agentId: pm.id },
+    )
+
+    expect(result.unlockedSteps).toEqual([nextStep.id])
+    expect(result.dispatchedSteps).toEqual([nextStep.id])
+    expect(taskStepStore.get(nextStep.id)?.status).toBe('running')
+  })
+
+  test('studio.task.report with stepId requires reportMd', async () => {
+    const { project, agents } = setupProject()
+    const [pm, devA] = agents
+    const { task, firstStep } = await setupRunningTwoStepChain(project.id, pm.id, devA.id)
+    const handler = getHandler('studio.task.report')!
+
+    const result = await handler.execute(
+      { taskId: task.id, stepId: firstStep.id, agentStatus: 'done' },
+      { projectId: project.id, agentId: pm.id },
+    )
+
+    expectError(result, 'reportMd')
+  })
+
+  test('studio.task.step.report returns dispatched unlocked downstream step', async () => {
+    const { project, agents } = setupProject()
+    const [pm, devA] = agents
+    const { task, firstStep, nextStep } = await setupRunningTwoStepChain(project.id, pm.id, devA.id)
+
+    const result = await executeJson(
+      'studio.task.step.report',
+      { taskId: task.id, stepId: firstStep.id, agentStatus: 'done', reportMd: 's1 done' },
+      { projectId: project.id, agentId: pm.id },
+    )
+
+    expect(result.unlockedSteps).toEqual([nextStep.id])
+    expect(result.dispatchedSteps).toEqual([nextStep.id])
+    expect(taskStepStore.get(nextStep.id)?.status).toBe('running')
+  })
+
+  test('tasks.step.report RPC auto-dispatches unlocked downstream step', async () => {
+    const { project, agents } = setupProject()
+    const [pm, devA] = agents
+    const { task, firstStep, nextStep } = await setupRunningTwoStepChain(project.id, pm.id, devA.id)
+
+    const result = (await callTaskRpc('tasks.step.report', {
+      type: 'tasks.step.report',
+      taskId: task.id,
+      stepId: firstStep.id,
+      agentStatus: 'done',
+      reportMd: 's1 done',
+    })) as Record<string, unknown>
+
+    expect(result.unlockedSteps).toEqual([nextStep.id])
+    expect(result.dispatchedSteps).toEqual([nextStep.id])
+    expect(taskStepStore.get(nextStep.id)?.status).toBe('running')
+  })
+
+  test('task.start marks task needs_input and keeps step ready when dispatch validation fails', async () => {
+    const { project } = setupProject()
+    const otherProject = projectStore.create({ name: 'Other', workDir: resolve(tmp, 'other-project') })
+    const otherAgent = agentStore.create({ name: 'OtherAgent', type: 'dev', runtime: 'mock', projectId: otherProject.id })
+    const task = createTaskRow('派发失败', project.id)
+    const step = taskStepManager.addStep({ taskId: task.id, title: 's1', assignee: otherAgent.id })
+
+    const result = await taskStepManager.startTask(task.id)
+
+    expect(result.task.status).toBe('needs_input')
+    expect(result.dispatched).toEqual([])
+    expect(taskStore.get(task.id)?.status).toBe('needs_input')
+    expect(taskStepStore.get(step.step.id)?.status).toBe('ready')
   })
 
   test('s2+s3 全 done 后 s4(测试) ready', async () => {
