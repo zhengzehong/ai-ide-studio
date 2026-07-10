@@ -10,7 +10,7 @@ export const projectRpcHandlers: RpcHandlerMap = {
   'projects.create'(msg, { sendResult }) {
     sendResult(projectStore.create({
       name: msg.name as string,
-      workDir: msg.workDir as string,
+      workDir: typeof msg.workDir === 'string' ? msg.workDir : '',
       description: msg.description as string | undefined,
       color: msg.color as string | undefined,
       icon: msg.icon as string | undefined,

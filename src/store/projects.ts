@@ -19,7 +19,7 @@ export interface ProjectRow {
 
 export interface CreateProjectInput {
   name: string
-  workDir: string
+  workDir?: string
   description?: string
   color?: string
   icon?: string
@@ -31,7 +31,7 @@ export const projectStore = {
     const project: ProjectRow = {
       id: `proj-${randomUUID().slice(0, 8)}`,
       name: input.name,
-      work_dir: input.workDir,
+      work_dir: input.workDir ?? '',
       description: input.description ?? null,
       created_at: now,
       updated_at: now,

@@ -1,91 +1,169 @@
-import { useEffect, useMemo, useState, type CSSProperties } from 'react'
-import { Bot, Clock3, MessageSquarePlus, RefreshCw } from 'lucide-react'
-import { Archive, Edit3, Trash2, XCircle } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { Archive, Edit3, MessageSquarePlus, Plus, Search, Trash2, XCircle } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { useSessionStore } from '../stores/session.store'
 import { useAppStore } from '../stores/app.store'
 import type { MobileSessionItem } from '../stores/session.store'
-import SessionCard from '../components/SessionCard'
+import SessionGroup from '../components/SessionGroup'
 import ProjectSwitcher from '../components/ProjectSwitcher'
-import FilterSelectSheet from '../components/FilterSelectSheet'
+import ProjectDrawer from '../components/ProjectDrawer'
+import ProjectCreateSheet from '../components/ProjectCreateSheet'
 import ActionSheet from '../components/ActionSheet'
 import ConfirmDialog from '../components/ConfirmDialog'
 import RenameDialog from '../components/RenameDialog'
-import {
-  filterAndSortMobileSessions,
-  type MobileSessionSortMode,
-  type MobileSessionStatusFilter,
-} from '../utils/session-list-filters'
+import { useEdgeSwipe } from '../hooks/useEdgeSwipe'
 
-const STATUS_OPTIONS: Array<{ value: MobileSessionStatusFilter; label: string }> = [
-  { value: 'all', label: '全部' },
-  { value: 'running', label: '运行中' },
-  { value: 'unread', label: '未读' },
-  { value: 'closed', label: '已关闭' },
-]
+interface AgentGroup {
+  agentId: string
+  agentName: string
+  sessions: MobileSessionItem[]
+  unreadCount: number
+  runningCount: number
+}
 
-const SORT_OPTIONS: Array<{ value: MobileSessionSortMode; label: string }> = [
-  { value: 'recent', label: '最近活动' },
-  { value: 'started', label: '创建时间' },
-]
+function groupByAgent(sessions: MobileSessionItem[]): AgentGroup[] {
+  const map = new Map<string, AgentGroup>()
+  for (const session of sessions) {
+    if (session.status !== 'active') continue
+    const existing = map.get(session.agentId)
+    if (existing) {
+      existing.sessions.push(session)
+      if (session.unread) existing.unreadCount += 1
+      if (session.activityState === 'running') existing.runningCount += 1
+    } else {
+      map.set(session.agentId, {
+        agentId: session.agentId,
+        agentName: session.agentName,
+        sessions: [session],
+        unreadCount: session.unread ? 1 : 0,
+        runningCount: session.activityState === 'running' ? 1 : 0,
+      })
+    }
+  }
+  const groups = [...map.values()]
+  groups.sort((a, b) => {
+    const aActive = a.unreadCount > 0 || a.runningCount > 0
+    const bActive = b.unreadCount > 0 || b.runningCount > 0
+    if (aActive !== bActive) return aActive ? -1 : 1
+    return a.agentName.localeCompare(b.agentName, 'zh-CN')
+  })
+  return groups
+}
 
 export default function SessionListPage() {
   const {
     sessions,
     loading,
-    filterAgent,
-    setFilterAgent,
     fetchSessions,
     renameSession,
     archiveSession,
     closeSession,
     deleteSession,
   } = useSessionStore()
-  const { projects, currentProjectId, setCurrentProject } = useAppStore()
-  const [statusFilter, setStatusFilter] = useState<MobileSessionStatusFilter>('all')
-  const [sortMode, setSortMode] = useState<MobileSessionSortMode>('recent')
+  const {
+    projects,
+    currentProjectId,
+    setCurrentProject,
+    isDrawerPinned,
+    setDrawerPinned,
+  } = useAppStore()
+  const navigate = useNavigate()
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [createSheetOpen, setCreateSheetOpen] = useState(false)
   const [actionSession, setActionSession] = useState<MobileSessionItem | null>(null)
   const [renameTarget, setRenameTarget] = useState<MobileSessionItem | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<MobileSessionItem | null>(null)
+
+  const drawerRef = useRef<HTMLDivElement | null>(null)
+  const overlayRef = useRef<HTMLDivElement | null>(null)
+  const containerRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     fetchSessions(currentProjectId)
   }, [currentProjectId, fetchSessions])
 
-  const agentOptions = useMemo(() => {
-    const map = new Map<string, string>()
-    sessions.forEach((session) => map.set(session.agentId, session.agentName))
-    const nameCounts = new Map<string, number>()
-    map.forEach((name) => nameCounts.set(name, (nameCounts.get(name) ?? 0) + 1))
-    return [
-      { value: '', label: '全部 Agent' },
-      ...[...map.entries()]
-        .sort((a, b) => a[1].localeCompare(b[1], 'zh-CN'))
-        .map(([id, name]) => ({
-          value: id,
-          label: (nameCounts.get(name) ?? 0) > 1 ? `${name} · ${id.slice(-4)}` : name,
-        })),
-    ]
-  }, [sessions])
+  const activeSessions = useMemo(
+    () => sessions.filter((s) => s.status === 'active'),
+    [sessions],
+  )
 
-  useEffect(() => {
-    if (filterAgent && !agentOptions.some((option) => option.value === filterAgent)) {
-      setFilterAgent(null)
+  const agentGroups = useMemo(() => groupByAgent(activeSessions), [activeSessions])
+
+  const projectUnread = useMemo(() => {
+    const map: Record<string, number> = {}
+    for (const s of activeSessions) {
+      if (s.unread && s.projectId) {
+        map[s.projectId] = (map[s.projectId] ?? 0) + 1
+      }
     }
-  }, [agentOptions, filterAgent, setFilterAgent])
+    return map
+  }, [activeSessions])
 
-  const filtered = useMemo(() => filterAndSortMobileSessions(sessions, {
-    agentId: filterAgent,
-    status: statusFilter,
-    sort: sortMode,
-  }), [sessions, filterAgent, statusFilter, sortMode])
+  const totalSessions = useMemo(() => {
+    const map: Record<string, number> = {}
+    for (const s of activeSessions) {
+      if (s.projectId) {
+        map[s.projectId] = (map[s.projectId] ?? 0) + 1
+      }
+    }
+    return map
+  }, [activeSessions])
 
-  const handleProjectChange = (id: string | null) => {
-    setCurrentProject(id)
-    setFilterAgent(null)
-    fetchSessions(id)
+  const currentProject = useMemo(
+    () => projects.find((p) => p.id === currentProjectId),
+    [projects, currentProjectId],
+  )
+
+  const edgeSwipe = useEdgeSwipe({
+    drawerEl: drawerRef,
+    overlayEl: overlayRef,
+    containerEl: containerRef,
+    isOpen: drawerOpen,
+    isPinned: isDrawerPinned,
+    onOpen: () => setDrawerOpen(true),
+    onClose: () => setDrawerOpen(false),
+  })
+
+  const handleOpenDrawer = () => {
+    if (isDrawerPinned) return
+    setDrawerOpen(true)
   }
 
-  const handleRefresh = () => fetchSessions(currentProjectId)
+  const handleCloseDrawer = () => setDrawerOpen(false)
+
+  const handlePickProject = (id: string) => {
+    setCurrentProject(id)
+    fetchSessions(id)
+    if (!isDrawerPinned) setDrawerOpen(false)
+  }
+
+  const handleTogglePin = () => {
+    const next = !isDrawerPinned
+    setDrawerPinned(next)
+    if (next) setDrawerOpen(false)
+  }
+
+  const handleCreatedProject = (projectId: string) => {
+    setCurrentProject(projectId)
+    fetchSessions(projectId)
+  }
+
+  const handleNewSession = () => {
+    if (!currentProjectId) {
+      setCreateSheetOpen(true)
+      return
+    }
+    navigate(`/chat/new?projectId=${currentProjectId}`)
+  }
+
+  const handleSearch = () => {
+    // placeholder for search entry
+  }
+
+  const handleManageProjects = () => {
+    if (!isDrawerPinned) setDrawerOpen(false)
+    navigate('/settings')
+  }
 
   const handleLongPress = (session: MobileSessionItem) => {
     setActionSession(session)
@@ -110,86 +188,107 @@ export default function SessionListPage() {
         {
           key: 'rename',
           label: '重命名',
-          icon: <Edit3 size={18} color="var(--text-primary)" />,
+          icon: <Edit3 size={18} color="#191919" />,
           onClick: () => setRenameTarget(actionSession),
         },
         {
           key: 'archive',
           label: '归档',
-          icon: <Archive size={18} color="var(--text-primary)" />,
+          icon: <Archive size={18} color="#191919" />,
           onClick: () => void archiveSession(actionSession.id),
         },
         {
           key: 'close',
           label: '关闭会话',
-          icon: <XCircle size={18} color="var(--text-primary)" />,
+          icon: <XCircle size={18} color="#191919" />,
           onClick: () => void closeSession(actionSession.id),
         },
         {
           key: 'delete',
           label: '删除会话',
-          icon: <Trash2 size={18} color="var(--error)" />,
+          icon: <Trash2 size={18} color="#fa5151" />,
           danger: true,
           onClick: () => setDeleteTarget(actionSession),
         },
       ]
     : []
 
+  const showEmpty = agentGroups.length === 0 && !loading
+
   return (
-    <div style={styles.page}>
-      <div style={styles.header}>
-        <div style={styles.pickerRow}>
-          <ProjectSwitcher
-            projects={projects}
-            currentId={currentProjectId}
-            onChange={handleProjectChange}
-          />
-          <FilterSelectSheet
-            icon={<Bot size={16} color="var(--primary)" />}
-            title="筛选 Agent"
-            value={filterAgent ?? ''}
-            options={agentOptions}
-            onChange={(value) => setFilterAgent(value || null)}
-          />
-          <button style={styles.iconBtn} onClick={handleRefresh}>
-            <RefreshCw size={18} color="var(--text-secondary)" className={loading ? 'spin' : ''} />
+    <div
+      ref={containerRef}
+      style={{ ...styles.page, ...(isDrawerPinned ? styles.pagePinned : {}) }}
+      onPointerDown={edgeSwipe.onPointerDown}
+    >
+      <ProjectDrawer
+        projects={projects}
+        currentProjectId={currentProjectId}
+        isOpen={drawerOpen}
+        isPinned={isDrawerPinned}
+        onPickProject={handlePickProject}
+        onTogglePin={handleTogglePin}
+        onCreateProject={() => {
+          if (!isDrawerPinned) setDrawerOpen(false)
+          setCreateSheetOpen(true)
+        }}
+        onManageProjects={handleManageProjects}
+        drawerRef={drawerRef}
+        overlayRef={overlayRef}
+        projectUnread={projectUnread}
+        totalSessions={totalSessions}
+      />
+
+      <div
+        style={styles.overlay}
+        onClick={handleCloseDrawer}
+        data-visible={drawerOpen && !isDrawerPinned ? '1' : '0'}
+      />
+
+      <div style={styles.mainArea}>
+        <div style={styles.topbar}>
+          {!isDrawerPinned && (
+            <button style={styles.hamburger} onClick={handleOpenDrawer} aria-label="打开项目抽屉">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" width={20} height={20}>
+                <line x1="3" y1="6" x2="21" y2="6" />
+                <line x1="3" y1="12" x2="21" y2="12" />
+                <line x1="3" y1="18" x2="21" y2="18" />
+              </svg>
+            </button>
+          )}
+          <ProjectSwitcher project={currentProject} onOpenDrawer={handleOpenDrawer} />
+          <button style={styles.iconBtn} onClick={handleSearch} aria-label="搜索会话">
+            <Search size={18} color="#595959" />
+          </button>
+          <button style={styles.iconBtn} onClick={handleNewSession} aria-label="新建会话">
+            <Plus size={18} color="#595959" />
           </button>
         </div>
 
-        <div style={styles.filterRow}>
-          <div style={styles.segmented}>
-            {STATUS_OPTIONS.map((option) => (
-              <button
-                key={option.value}
-                style={{ ...styles.segmentBtn, ...(statusFilter === option.value ? styles.segmentBtnActive : {}) }}
-                onClick={() => setStatusFilter(option.value)}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-          <FilterSelectSheet
-            compact
-            icon={<Clock3 size={15} color="var(--primary)" />}
-            title="排序方式"
-            value={sortMode}
-            options={SORT_OPTIONS}
-            onChange={(value) => setSortMode(value as MobileSessionSortMode)}
-          />
+        <div style={styles.list}>
+          {showEmpty && (
+            <div style={styles.empty}>
+              <MessageSquarePlus size={40} color="#b2b2b2" strokeWidth={1.2} />
+              <span style={styles.emptyText}>暂无会话</span>
+            </div>
+          )}
+          {agentGroups.map((group) => (
+            <SessionGroup
+              key={group.agentId}
+              agentId={group.agentId}
+              agentName={group.agentName}
+              sessions={group.sessions}
+              onLongPress={handleLongPress}
+            />
+          ))}
         </div>
       </div>
 
-      <div style={styles.list}>
-        {filtered.length === 0 && !loading && (
-          <div style={styles.empty}>
-            <MessageSquarePlus size={40} color="var(--text-muted)" strokeWidth={1.2} />
-            <span style={styles.emptyText}>暂无会话</span>
-          </div>
-        )}
-        {filtered.map((session) => (
-          <SessionCard key={session.id} session={session} onLongPress={handleLongPress} />
-        ))}
-      </div>
+      <ProjectCreateSheet
+        open={createSheetOpen}
+        onClose={() => setCreateSheetOpen(false)}
+        onCreated={handleCreatedProject}
+      />
 
       <ActionSheet
         open={!!actionSession}
@@ -221,65 +320,77 @@ export default function SessionListPage() {
 const styles: Record<string, CSSProperties> = {
   page: {
     display: 'flex',
-    flexDirection: 'column',
+    flexDirection: 'row',
     height: '100%',
-    background: 'var(--bg)',
+    width: '100%',
+    background: '#ededed',
+    position: 'relative',
+    overflow: 'hidden',
   },
-  header: {
+  pagePinned: {},
+  overlay: {
+    position: 'absolute',
+    inset: 0,
+    background: 'rgba(0,0,0,0.4)',
+    opacity: 0,
+    pointerEvents: 'none',
+    transition: 'opacity .3s',
+    zIndex: 200,
+  },
+  mainArea: {
+    flex: 1,
     display: 'flex',
     flexDirection: 'column',
-    gap: 10,
-    padding: '12px 12px 10px',
-    paddingTop: 'calc(12px + var(--safe-top))',
-    background: 'var(--bg-card)',
-    borderBottom: '1px solid var(--border-light)',
+    overflow: 'hidden',
+    position: 'relative',
+    minWidth: 0,
+    background: '#ededed',
+    transition: 'margin-left .3s cubic-bezier(0.32, 0.72, 0, 1)',
+  },
+  topbar: {
+    padding: '8px 12px',
+    background: '#f7f7f7',
+    borderBottom: '0.5px solid #e0e0e0',
     flexShrink: 0,
-  },
-  pickerRow: {
-    display: 'grid',
-    gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) 36px',
-    alignItems: 'center',
-    gap: 8,
-  },
-  filterRow: {
     display: 'flex',
     alignItems: 'center',
     gap: 8,
+    height: 50,
+    paddingTop: 'calc(8px + var(--safe-top))',
   },
-  segmented: {
-    flex: 1,
-    minWidth: 0,
-    display: 'grid',
-    gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
-    padding: 2,
-    borderRadius: 'var(--radius-sm)',
-    background: 'var(--bg-input)',
-  },
-  segmentBtn: {
-    height: 30,
+  hamburger: {
+    width: 34,
+    height: 34,
     borderRadius: 6,
-    fontSize: 12,
-    fontWeight: 500,
-    color: 'var(--text-secondary)',
-    whiteSpace: 'nowrap',
-  },
-  segmentBtnActive: {
-    background: 'var(--bg-card)',
-    color: 'var(--primary)',
-    boxShadow: '0 1px 3px rgba(15, 23, 42, 0.08)',
-  },
-  iconBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 'var(--radius-sm)',
+    background: 'transparent',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    background: 'var(--bg-input)',
+    cursor: 'pointer',
+    border: 'none',
+    flexShrink: 0,
+    color: '#595959',
+    transition: 'background .15s',
+  },
+  iconBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 6,
+    background: 'transparent',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer',
+    color: '#595959',
+    border: 'none',
+    flexShrink: 0,
+    transition: 'background .15s',
   },
   list: {
     flex: 1,
     overflowY: 'auto',
+    background: '#ededed',
+    padding: 0,
   },
   empty: {
     display: 'flex',
@@ -289,7 +400,7 @@ const styles: Record<string, CSSProperties> = {
     height: '60%',
   },
   emptyText: {
-    color: 'var(--text-muted)',
+    color: '#b2b2b2',
     fontSize: 14,
     marginTop: 12,
   },
