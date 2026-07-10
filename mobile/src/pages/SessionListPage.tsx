@@ -218,7 +218,7 @@ export default function SessionListPage() {
   return (
     <div
       ref={containerRef}
-      style={{ ...styles.page, ...(isDrawerPinned ? styles.pagePinned : {}) }}
+      style={styles.page}
       onPointerDown={edgeSwipe.onPointerDown}
     >
       <ProjectDrawer
@@ -245,7 +245,12 @@ export default function SessionListPage() {
         data-visible={drawerOpen && !isDrawerPinned ? '1' : '0'}
       />
 
-      <div style={styles.mainArea}>
+      <div
+        style={{
+          ...styles.mainArea,
+          ...(isDrawerPinned ? styles.mainAreaPinned : {}),
+        }}
+      >
         <div style={styles.topbar}>
           {!isDrawerPinned && (
             <button style={styles.hamburger} onClick={handleOpenDrawer} aria-label="打开项目抽屉">
@@ -327,7 +332,6 @@ const styles: Record<string, CSSProperties> = {
     position: 'relative',
     overflow: 'hidden',
   },
-  pagePinned: {},
   overlay: {
     position: 'absolute',
     inset: 0,
@@ -346,6 +350,9 @@ const styles: Record<string, CSSProperties> = {
     minWidth: 0,
     background: '#ededed',
     transition: 'margin-left .3s cubic-bezier(0.32, 0.72, 0, 1)',
+  },
+  mainAreaPinned: {
+    marginLeft: 60,
   },
   topbar: {
     padding: '8px 12px',
