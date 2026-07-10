@@ -4,6 +4,8 @@ export { TaskDetailInline } from './TaskDetailInline'
 export { StepList } from './StepList'
 export { StepProgressBar } from './StepProgressBar'
 export { ReportModal, ReportHistoryModal } from './ReportModal'
+export { StepModal } from './StepModal'
+export { CreateTaskModal } from './CreateTaskModal'
 export {
   AGENT_REPORT_STATUS_BADGE,
   TASK_EVENT_TYPE_META,

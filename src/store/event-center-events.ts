@@ -112,7 +112,7 @@ export const eventCenterEventStore = {
       .prepare<Record<string, string>, EventCenterEventRow>(`
         SELECT * FROM event_center_events
         ${where}
-        ORDER BY created_at DESC
+        ORDER BY created_at DESC, rowid DESC
       `)
       .all(params)
   },
@@ -131,7 +131,7 @@ export const eventCenterEventStore = {
       .prepare<Record<string, string | number>, EventCenterEventRow>(`
         SELECT * FROM event_center_events
         ${where}
-        ORDER BY created_at DESC
+        ORDER BY created_at DESC, rowid DESC
         LIMIT @limit OFFSET @offset
       `)
       .all({ ...params, limit, offset })

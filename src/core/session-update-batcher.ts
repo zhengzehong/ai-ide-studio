@@ -1,4 +1,5 @@
 import type { SessionUpdateData } from '../types/ws-protocol.js'
+import { onBeforeDatabaseClose } from '../store/db.js'
 
 export interface SessionUpdateEnvelope {
   sessionId: string
@@ -20,6 +21,11 @@ interface PendingUpdate {
 
 const DEFAULT_TEXT_FLUSH_MS = 100
 const DEFAULT_PROCESS_FLUSH_MS = 300
+const activeBatchers = new Set<SessionUpdateBatcher>()
+
+onBeforeDatabaseClose(() => {
+  for (const batcher of activeBatchers) batcher.clearPending()
+})
 
 export class SessionUpdateBatcher {
   private readonly textFlushMs: number
@@ -29,6 +35,7 @@ export class SessionUpdateBatcher {
   constructor(options: SessionUpdateBatcherOptions = {}) {
     this.textFlushMs = options.textFlushMs ?? DEFAULT_TEXT_FLUSH_MS
     this.processFlushMs = options.processFlushMs ?? DEFAULT_PROCESS_FLUSH_MS
+    activeBatchers.add(this)
   }
 
   handle(ev: SessionUpdateEnvelope, apply: ApplySessionUpdate): void {
@@ -63,6 +70,11 @@ export class SessionUpdateBatcher {
   }
 
   dispose(): void {
+    activeBatchers.delete(this)
+    this.clearPending()
+  }
+
+  clearPending(): void {
     for (const pending of this.pending.values()) {
       if (pending.timer) clearTimeout(pending.timer)
     }

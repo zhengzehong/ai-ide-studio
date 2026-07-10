@@ -1,7 +1,6 @@
 import { create } from 'zustand'
 import { wsClient } from '../services/ws-client'
 import { useProjectStore } from './project.store'
-import type { ImageAttachmentInfo } from './session-events'
 
 export interface TaskStepData {
   id: string
@@ -87,7 +86,14 @@ interface TaskStore {
   modes: TaskExecutionModeData[]
   loading: boolean
   fetchTasks: (projectId?: string) => Promise<void>
-  createTask: (title: string, description?: string, assignAgentId?: string, projectId?: string, sessionId?: string, sessionMode?: SessionMode, images?: ImageAttachmentInfo[], executionModeId?: string) => Promise<TaskData>
+  createTask: (title: string, description: string, projectId?: string) => Promise<TaskData>
+  createSimpleTask: (input: {
+    title: string
+    description: string
+    assignee: string
+    projectId?: string
+    sessionId?: string
+  }) => Promise<TaskData>
   updateTask: (taskId: string, status: string, stage?: string, reason?: string) => Promise<TaskData>
   updateTaskInfo: (taskId: string, fields: { title?: string; description?: string }) => Promise<TaskData>
   deleteTask: (taskId: string) => Promise<void>
@@ -96,13 +102,43 @@ interface TaskStore {
   fetchTaskEvents: (taskId: string, afterSequence?: number) => Promise<TaskEventData[]>
   startTask: (taskId: string) => Promise<TaskData>
   fetchTaskSteps: (taskId: string) => Promise<{ steps: TaskStepData[]; stepProgress: TaskStepProgress }>
-  addStep: (input: { taskId: string; title: string; description?: string; assignee?: string; sessionId?: string; dependsOn?: string[] }) => Promise<{ steps: TaskStepData[]; stepProgress: TaskStepProgress }>
-  updateStep: (input: { taskId: string; stepId: string; title?: string; description?: string | null; assignee?: string | null; sessionId?: string | null; dependsOn?: string[] }) => Promise<{ steps: TaskStepData[]; stepProgress: TaskStepProgress }>
+  addStep: (input: {
+    taskId: string
+    title: string
+    description?: string
+    assignee?: string
+    sessionId?: string
+    dependsOn?: string[]
+  }) => Promise<{ steps: TaskStepData[]; stepProgress: TaskStepProgress }>
+  updateStep: (input: {
+    taskId: string
+    stepId: string
+    title?: string
+    description?: string | null
+    assignee?: string | null
+    sessionId?: string | null
+    dependsOn?: string[]
+  }) => Promise<{ steps: TaskStepData[]; stepProgress: TaskStepProgress }>
   removeStep: (taskId: string, stepId: string) => Promise<{ steps: TaskStepData[]; stepProgress: TaskStepProgress }>
   fetchStepDetail: (taskId: string, stepId: string) => Promise<TaskStepDetailView>
   fetchModes: (projectId?: string) => Promise<TaskExecutionModeData[]>
-  createMode: (input: { name: string; description?: string; promptTemplate?: string; reportTemplate?: string; projectId?: string }) => Promise<TaskExecutionModeData>
-  updateMode: (id: string, fields: { name?: string; description?: string | null; promptTemplate?: string; reportTemplate?: string; sortOrder?: number }) => Promise<TaskExecutionModeData>
+  createMode: (input: {
+    name: string
+    description?: string
+    promptTemplate?: string
+    reportTemplate?: string
+    projectId?: string
+  }) => Promise<TaskExecutionModeData>
+  updateMode: (
+    id: string,
+    fields: {
+      name?: string
+      description?: string | null
+      promptTemplate?: string
+      reportTemplate?: string
+      sortOrder?: number
+    },
+  ) => Promise<TaskExecutionModeData>
   deleteMode: (id: string) => Promise<void>
   setupListeners: () => () => void
 }
@@ -124,15 +160,23 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     }
   },
 
-  createTask: async (title, description, assignAgentId, projectId, sessionId, sessionMode, images, executionModeId) => {
-    const msg: Record<string, unknown> = { type: 'tasks.create', title }
-    if (description) msg.description = description
-    if (assignAgentId) msg.assignAgentId = assignAgentId
+  createTask: async (title, description, projectId) => {
+    const msg: Record<string, unknown> = { type: 'tasks.create', title, description }
     if (projectId) msg.projectId = projectId
-    if (sessionId) msg.sessionId = sessionId
-    if (sessionMode) msg.sessionMode = sessionMode
-    if (images?.length) msg.images = images
-    if (executionModeId) msg.executionModeId = executionModeId
+    const task = (await wsClient.request(msg)) as TaskData
+    set({ tasks: mergeTaskById(get().tasks, task) })
+    return task
+  },
+
+  createSimpleTask: async (input) => {
+    const msg: Record<string, unknown> = {
+      type: 'tasks.createSimple',
+      title: input.title,
+      description: input.description,
+      assignee: input.assignee,
+    }
+    if (input.projectId) msg.projectId = input.projectId
+    if (input.sessionId) msg.sessionId = input.sessionId
     const task = (await wsClient.request(msg)) as TaskData
     set({ tasks: mergeTaskById(get().tasks, task) })
     return task
@@ -192,9 +236,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     }
     set({
       tasks: get().tasks.map((t) =>
-        t.id === taskId
-          ? { ...t, status: result.status, steps: result.steps, stepProgress: result.stepProgress }
-          : t,
+        t.id === taskId ? { ...t, status: result.status, steps: result.steps, stepProgress: result.stepProgress } : t,
       ),
     })
     return get().tasks.find((t) => t.id === taskId)!

@@ -57,7 +57,7 @@ import {
   type ToolCallInfo,
 } from '../stores/session.store'
 import type { TurnProcessBlock } from '../stores/turn-blocks'
-import { useTaskStore, type SessionMode, type TaskData } from '../stores/task.store'
+import { useTaskStore, type TaskData } from '../stores/task.store'
 import { useConnectionStore } from '../stores/connection.store'
 import { useProjectStore } from '../stores/project.store'
 import { useModelStore, type ModelProfileData } from '../stores/model.store'
@@ -75,7 +75,6 @@ import { shouldShowPlanBar } from '../components/chat/plan-visibility'
 import { buildChatRenderItems, type ChatRenderItem } from '../components/chat/render-items'
 import { VirtualChatList } from '../components/chat/VirtualChatList'
 import { TeamContextPanel } from '../components/team/TeamContextPanel'
-import { buildWorkspaceTaskCreateTarget } from './workspace/task-session-target'
 import { TimelinePopover } from '../components/chat/TimelinePopover'
 import { processBlockNeedsDetail } from '../components/chat/process-detail'
 import { MarkdownRenderer } from '../components/MarkdownRenderer'
@@ -111,7 +110,6 @@ import { moveItemById, sortWorkspaceItems } from './workspace/ordering'
 import { elapsedSecondsBetween, formatCompactDuration } from '../utils/duration'
 import { ContextMenu, PromptDialog, ConfirmDialog, AlertDialog } from '../components/ModalDialog'
 import { LocalSessionImportModal } from './workspace/LocalSessionImportModal'
-import { TaskImageInput } from '../components/task/TaskImageInput'
 import { PreviewCard } from '../components/chat/PreviewCard'
 import { PreviewModal } from '../components/preview/PreviewModal'
 import { SessionBar } from './workspace/SessionBar'
@@ -121,6 +119,7 @@ import {
   TaskPanel as CollabTaskPanel,
   TaskDetailInline as CollabTaskDetailInline,
   ReportHistoryModal as CollabReportHistoryModal,
+  CreateTaskModal as CollabCreateTaskModal,
 } from './workspace/task-collab'
 
 const COPYING_STAGE = '正在复制会话...'
@@ -162,7 +161,6 @@ export default function Workspace() {
   const fetchModelProfiles = useModelStore((s) => s.fetchProfiles)
   const fetchTasks = useTaskStore((s) => s.fetchTasks)
   const tasks = useTaskStore((s) => s.tasks)
-  const createTask = useTaskStore((s) => s.createTask)
   const modes = useTaskStore((s) => s.modes)
   const fetchModes = useTaskStore((s) => s.fetchModes)
   const teamContext = useTeamStore((s) => s.current)
@@ -1040,10 +1038,10 @@ export default function Workspace() {
       </aside>
 
       {showNewTask && (
-        <NewTaskModal
+        <CollabCreateTaskModal
           agents={projectAgents}
           projectId={currentProjectId}
-          onCreate={(title, desc, agentId, sessionId, sessionMode, images) => createTask(title, desc, agentId, currentProjectId ?? undefined, sessionId, sessionMode, images)}
+          onCreated={() => setShowNewTask(false)}
           onClose={() => setShowNewTask(false)}
         />
       )}
@@ -1280,7 +1278,6 @@ export default function Workspace() {
     </div>
   )
 }
-
 function WorkspaceChatPane({
   connected,
   currentSessionId,
@@ -2135,7 +2132,6 @@ function WorkspaceChatPane({
     </>
   )
 }
-
 const toolbarButtonStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
@@ -2226,7 +2222,6 @@ function MenuOption({
     </button>
   )
 }
-
 function renderConfigMenu({
   configId,
   options,
@@ -2309,7 +2304,6 @@ function MiniContextCircle({ used, total }: { used: number; total: number }) {
     </div>
   )
 }
-
 /* ─── Plan Bar ─── */
 function PlanBar({
   plan,
@@ -4183,250 +4177,6 @@ function AgentModelProfileDialog({
           >
             {saving ? '保存中...' : '保存'}
           </button>
-        </div>
-      </div>
-    </>
-  )
-}
-
-/* ─── New Task Modal ─── */
-const WORKSPACE_TASK_SESSION_MODE_OPTIONS: Array<{ value: SessionMode; label: string }> = [
-  { value: 'new_fixed', label: '固定新会话' },
-  { value: 'new_each', label: '每次新会话' },
-  { value: 'existing', label: '指定已有会话' },
-]
-
-function workspaceTaskSessionModeHelp(mode: SessionMode, hasSession: boolean): string {
-  if (mode === 'existing') return hasSession ? '将在该会话中追加任务指派。' : '请选择一个已有会话。'
-  if (mode === 'new_fixed') return '将创建一个新的固定会话用于这次任务。'
-  return '将为这次任务创建新的会话。'
-}
-
-function NewTaskModal({
-  agents,
-  projectId,
-  onCreate,
-  onClose,
-}: {
-  agents: AgentData[]
-  projectId: string | null
-  onCreate: (title: string, desc?: string, agentId?: string, sessionId?: string, sessionMode?: SessionMode, images?: ImageAttachmentInfo[]) => Promise<TaskData>
-  onClose: () => void
-}) {
-  const [title, setTitle] = useState('')
-  const [desc, setDesc] = useState('')
-  const [agentId, setAgentId] = useState('')
-  const [sessionMode, setSessionMode] = useState<SessionMode>('new_fixed')
-  const [sessionId, setSessionId] = useState('')
-  const [images, setImages] = useState<ImageAttachmentInfo[]>([])
-  const [creating, setCreating] = useState(false)
-  const sessions = useSessionStore((s) => s.sessions)
-  const agentSessions = useMemo(() => {
-    if (!agentId) return []
-    return sessions.filter((session) =>
-      session.agent_id === agentId &&
-      (!projectId || session.project_id === projectId),
-    )
-  }, [agentId, projectId, sessions])
-  const canCreate = Boolean(title.trim()) && (!agentId || sessionMode !== 'existing' || Boolean(sessionId))
-  const handleCreate = async () => {
-    if (!canCreate) return
-    setCreating(true)
-    try {
-      const target = buildWorkspaceTaskCreateTarget({ agentId, sessionMode, sessionId })
-      await onCreate(title, desc || undefined, target.agentId, target.sessionId, target.sessionMode, images)
-      onClose()
-    } catch (e) {
-      console.error('创建任务失败:', e)
-    } finally {
-      setCreating(false)
-    }
-  }
-  return (
-    <>
-      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.3)', zIndex: 1000 }} />
-      <div
-        style={{
-          position: 'fixed',
-          top: '50%',
-          left: '50%',
-          transform: 'translate(-50%, -50%)',
-          width: 440,
-          background: 'var(--bg-0)',
-          borderRadius: 12,
-          border: '1px solid var(--border)',
-          boxShadow: 'var(--shadow-lg)',
-          zIndex: 1001,
-          padding: 24,
-        }}
-      >
-        <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>新建任务</h3>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div>
-            <label style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>
-              任务标题
-            </label>
-            <input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="例如: 实现用户登录功能"
-              style={{
-                width: '100%',
-                padding: '10px 12px',
-                borderRadius: 8,
-                border: '1px solid var(--border)',
-                fontSize: 15,
-                background: 'var(--bg-1)',
-                color: 'var(--text-1)',
-                outline: 'none',
-                boxSizing: 'border-box',
-              }}
-            />
-          </div>
-          <div>
-            <label style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>
-              描述
-            </label>
-            <textarea
-              value={desc}
-              onChange={(e) => setDesc(e.target.value)}
-              placeholder="详细描述需求..."
-              rows={3}
-              style={{
-                width: '100%',
-                padding: '10px 12px',
-                borderRadius: 8,
-                border: '1px solid var(--border)',
-                fontSize: 15,
-                background: 'var(--bg-1)',
-                color: 'var(--text-1)',
-                outline: 'none',
-                resize: 'vertical',
-                boxSizing: 'border-box',
-              }}
-            />
-          </div>
-          <TaskImageInput images={images} onChange={setImages} />
-          <div>
-            <label style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>
-              指派 Agent
-            </label>
-            <select
-              value={agentId}
-              onChange={(e) => {
-                setAgentId(e.target.value)
-                setSessionMode('new_fixed')
-                setSessionId('')
-              }}
-              style={{
-                width: '100%',
-                padding: '10px 12px',
-                borderRadius: 8,
-                border: '1px solid var(--border)',
-                fontSize: 15,
-                background: 'var(--bg-1)',
-                color: 'var(--text-1)',
-                outline: 'none',
-              }}
-            >
-              <option value="">不指派（放入待办）</option>
-              {agents.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name} ({a.runtime})
-                </option>
-              ))}
-            </select>
-          </div>
-          {agentId && (
-            <div>
-              <label style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>
-                会话目标
-              </label>
-              <select
-                value={sessionMode}
-                onChange={(e) => {
-                  setSessionMode(e.target.value as SessionMode)
-                  setSessionId('')
-                }}
-                style={{
-                  width: '100%',
-                  padding: '10px 12px',
-                  borderRadius: 8,
-                  border: '1px solid var(--border)',
-                  fontSize: 15,
-                  background: 'var(--bg-1)',
-                  color: 'var(--text-1)',
-                  outline: 'none',
-                }}
-              >
-                {WORKSPACE_TASK_SESSION_MODE_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-              {sessionMode === 'existing' && (
-                <select
-                  value={sessionId}
-                  onChange={(e) => setSessionId(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '10px 12px',
-                    borderRadius: 8,
-                    border: '1px solid var(--border)',
-                    fontSize: 15,
-                    background: 'var(--bg-1)',
-                    color: 'var(--text-1)',
-                    outline: 'none',
-                    marginTop: 8,
-                  }}
-                >
-                  <option value="">请选择已有会话</option>
-                  {agentSessions.map((session) => (
-                    <option key={session.id} value={session.id}>
-                      {sessionTitle(session)}
-                    </option>
-                  ))}
-                </select>
-              )}
-              <div style={{ fontSize: 13, color: 'var(--text-3)', marginTop: 4 }}>
-                {workspaceTaskSessionModeHelp(sessionMode, Boolean(sessionId))}
-              </div>
-            </div>
-          )}
-          <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-            <button
-              onClick={handleCreate}
-              disabled={!canCreate || creating}
-              style={{
-                padding: '10px 20px',
-                borderRadius: 8,
-                border: 'none',
-                background: 'var(--blue)',
-                color: 'white',
-                fontSize: 15,
-                fontWeight: 500,
-                cursor: canCreate && !creating ? 'pointer' : 'not-allowed',
-                opacity: canCreate ? 1 : 0.5,
-              }}
-            >
-              {creating ? '创建中...' : '创建任务'}
-            </button>
-            <button
-              onClick={onClose}
-              style={{
-                padding: '10px 20px',
-                borderRadius: 8,
-                border: '1px solid var(--border)',
-                background: 'var(--bg-0)',
-                color: 'var(--text-2)',
-                fontSize: 15,
-                cursor: 'pointer',
-              }}
-            >
-              取消
-            </button>
-          </div>
         </div>
       </div>
     </>

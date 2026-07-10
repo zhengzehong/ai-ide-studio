@@ -2,8 +2,8 @@ import type { ToolHandler, ToolHandlerInput, ToolHandlerResult } from '../types.
 import { taskStore } from '../../store/tasks.js'
 import { sessionStore } from '../../store/sessions.js'
 import { taskStepStore } from '../../store/task-steps.js'
-import { emitTaskLifecycleEvent, resolveSessionMode, taskManager } from '../../core/tasks.js'
-import { taskStepManager } from '../../core/task-steps.js'
+import { emitTaskLifecycleEvent, taskManager } from '../../core/tasks.js'
+import { createSimpleTask } from '../../core/task-simple.js'
 import { events } from '../../core/events.js'
 import { createChildLogger } from '../../core/logger.js'
 
@@ -32,56 +32,61 @@ export function assertProjectAccess(task: { project_id: string | null }, context
 
 export const studioTaskCreateHandler: ToolHandler = {
   name: 'studio.task.create',
-  description: `创建协作任务容器(仅建空壳,后续 step.add 编排 + task.start 启动)。
-- 协作任务用此工具,创建后 draft 状态,需 task.step.add 编排 + task.start 启动
-- 不含任何步骤,步骤一律通过 task.step.add 单独加
-- 简单任务(单 Agent 一步完成)用 studio.task.createSimple,不要用这个
-- selfExecute=true 时,自己认领并在当前会话开始执行(对话任务化),不会创建草稿容器`,
+  description: `创建协作任务容器。两种模式:
+- selfExecute=true(对话任务化):用户在当前对话布置任务时使用。建一个默认 step(assignee=自己),跳过 prompt 注入,任务直接 running。用户消息本身就是任务上下文。
+- selfExecute=false(默认):建空壳任务,无 step 无 assignee。后续用 task.step.add 编排步骤 + task.start 启动。用于多 Agent 协作编排。
+简单任务派给别人用 studio.task.createSimple,不要用这个。`,
   inputSchema: {
     type: 'object',
     properties: {
       title: { type: 'string', description: '任务标题' },
       description: { type: 'string', description: '任务目标文档(背景/需求/验收标准)' },
-      selfExecute: { type: 'boolean', description: '自己认领并立即在当前会话开始执行(对话任务化)' },
-      assignAgentId: { type: 'string', description: '指派 Agent(selfExecute=true 时忽略此参数)' },
-      sessionMode: { type: 'string', enum: ['existing', 'new_each', 'new_fixed'] },
-      sessionId: { type: 'string' },
-      executionModeId: { type: 'string' },
+      selfExecute: {
+        type: 'boolean',
+        description: '对话任务化:true=建默认 step 并由当前 Agent 直接执行;false=只建协作空壳',
+      },
       projectId: { type: 'string' },
     },
-    required: ['title'],
+    required: ['title', 'description'],
   },
   async execute(input, context) {
     const title = requireStr(input, 'title')
+    const description = requireStr(input, 'description')
     const selfExecute = input.selfExecute === true
-
-    let assignAgentId = optStr(input, 'assignAgentId')
-    let sessionId = optStr(input, 'sessionId')
-    let sessionMode = resolveSessionMode(input.sessionMode, sessionId)
 
     if (selfExecute) {
       if (!context?.agentId) throw new Error('selfExecute=true 需要在 Agent 会话上下文中使用')
       if (!context?.sessionId) throw new Error('selfExecute=true 需要在当前会话中使用')
-      assignAgentId = context.agentId
-      sessionId = context.sessionId
-      sessionMode = 'existing'
     }
 
     const task = await taskManager.createTask({
       title,
-      description: optStr(input, 'description'),
+      description,
       source: 'agent',
-      assignAgentId,
-      sessionId,
-      sessionMode,
       projectId: context?.projectId ?? optStr(input, 'projectId'),
-      executionModeId: optStr(input, 'executionModeId'),
       selfExecute,
+      selfExecuteAgentId: selfExecute ? context.agentId : undefined,
+      selfExecuteSessionId: selfExecute ? context.sessionId : undefined,
     })
     if (!task) throw new Error('任务创建失败')
     log.info({ taskId: task.id, title, selfExecute }, 'Agent 创建任务')
     return {
-      content: [{ type: 'text', text: JSON.stringify({ taskId: task.id, title: task.title, status: task.status, sessionId: (task as Record<string, unknown>).sessionId }, null, 2) }],
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(
+            {
+              taskId: task.id,
+              title: task.title,
+              status: task.status,
+              sessionId: (task as Record<string, unknown>).sessionId,
+              defaultStepId: (task as Record<string, unknown>).defaultStepId,
+            },
+            null,
+            2,
+          ),
+        },
+      ],
     }
   },
 }
@@ -103,52 +108,41 @@ export const studioTaskCreateSimpleHandler: ToolHandler = {
       sessionId: { type: 'string', description: '可选,指定会话(不传系统按 assignee 找 primary 会话)' },
       projectId: { type: 'string' },
     },
-    required: ['title', 'assignee'],
+    required: ['title', 'description', 'assignee'],
   },
   async execute(input, context) {
     const title = requireStr(input, 'title')
     const assignee = requireStr(input, 'assignee')
-    const description = optStr(input, 'description')
+    const description = requireStr(input, 'description')
     const sessionId = optStr(input, 'sessionId')
     const projectId = context?.projectId ?? optStr(input, 'projectId')
 
-    const task = taskStore.create({
+    const result = await createSimpleTask({
       title,
       description,
       source: 'agent',
       projectId,
-    })
-    events.emit('task:update', { taskId: task.id, data: { ...task, event: 'created' } })
-    emitTaskLifecycleEvent(task, 'created', null)
-
-    const { step } = taskStepManager.addStep({
-      taskId: task.id,
-      title,
-      description,
       assignee,
       sessionId,
     })
-    taskStore.updateStatus(task.id, 'running', '简单任务已启动')
-    taskStepStore.updateStatus(step.id, 'ready')
 
-    try {
-      await taskStepManager.dispatchStep(task.id, step.id)
-    } catch (err) {
-      log.warn({ err, taskId: task.id, stepId: step.id }, 'createSimple dispatch failed')
-      throw err
-    }
-
-    log.info({ taskId: task.id, stepId: step.id, assignee }, '简单任务已创建并派发')
+    log.info({ taskId: result.task.id, stepId: result.defaultStepId, assignee }, 'Agent 创建简单任务')
     return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify({
-          taskId: task.id,
-          defaultStepId: step.id,
-          status: 'running',
-          assignee,
-        }, null, 2),
-      }],
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(
+            {
+              taskId: result.task.id,
+              defaultStepId: result.defaultStepId,
+              status: 'running',
+              assignee,
+            },
+            null,
+            2,
+          ),
+        },
+      ],
     }
   },
 }
@@ -168,9 +162,14 @@ export const studioTaskListHandler: ToolHandler = {
     if (!projectId) return errResult('projectId 不能为空')
     const status = optStr(input, 'status')
     const tasks = taskStore.list(status, projectId)
-    const summary = tasks.map(t => ({
-      id: t.id, title: t.title, status: t.status, stage: t.stage,
-      source: t.source, assignedAgentId: t.assigned_agent_id, createdAt: t.created_at,
+    const summary = tasks.map((t) => ({
+      id: t.id,
+      title: t.title,
+      status: t.status,
+      stage: t.stage,
+      source: t.source,
+      assignedAgentId: t.assigned_agent_id,
+      createdAt: t.created_at,
     }))
     return { content: [{ type: 'text', text: JSON.stringify(summary, null, 2) }] }
   },
@@ -190,9 +189,15 @@ export const studioTaskGetHandler: ToolHandler = {
     const taskId = requireStr(input, 'taskId')
     const task = taskStore.get(taskId)
     if (!task) return errResult('任务不存在')
-    try { assertProjectAccess(task, context?.projectId) } catch (e) { return errResult((e as Error).message) }
-    const sessions = sessionStore.listByTask(taskId).map(s => ({ id: s.id, agentId: s.agent_id, status: s.status, startedAt: s.started_at }))
-    const steps = taskStepStore.listByTask(taskId).map(s => ({
+    try {
+      assertProjectAccess(task, context?.projectId)
+    } catch (e) {
+      return errResult((e as Error).message)
+    }
+    const sessions = sessionStore
+      .listByTask(taskId)
+      .map((s) => ({ id: s.id, agentId: s.agent_id, status: s.status, startedAt: s.started_at }))
+    const steps = taskStepStore.listByTask(taskId).map((s) => ({
       id: s.id,
       title: s.title,
       status: s.status,
@@ -201,15 +206,21 @@ export const studioTaskGetHandler: ToolHandler = {
     }))
     const assignedAgents = taskStepStore.listAssignedAgents(taskId)
     return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify({
-          ...task,
-          steps,
-          assignedAgents,
-          sessions,
-        }, null, 2),
-      }],
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(
+            {
+              ...task,
+              steps,
+              assignedAgents,
+              sessions,
+            },
+            null,
+            2,
+          ),
+        },
+      ],
     }
   },
 }
@@ -230,7 +241,11 @@ export const studioTaskUpdateHandler: ToolHandler = {
     const taskId = requireStr(input, 'taskId')
     const task = taskStore.get(taskId)
     if (!task) return errResult('任务不存在')
-    try { assertProjectAccess(task, context?.projectId) } catch (e) { return errResult((e as Error).message) }
+    try {
+      assertProjectAccess(task, context?.projectId)
+    } catch (e) {
+      return errResult((e as Error).message)
+    }
     const title = optStr(input, 'title')
     const description = optStr(input, 'description')
     const updated = taskStore.update(taskId, {
@@ -241,6 +256,10 @@ export const studioTaskUpdateHandler: ToolHandler = {
       events.emit('task:update', { taskId, data: { ...updated, event: 'updated' } })
       emitTaskLifecycleEvent(updated, 'progress_updated', task.status)
     }
-    return { content: [{ type: 'text', text: JSON.stringify({ taskId, title: updated?.title, status: updated?.status }, null, 2) }] }
+    return {
+      content: [
+        { type: 'text', text: JSON.stringify({ taskId, title: updated?.title, status: updated?.status }, null, 2) },
+      ],
+    }
   },
 }

@@ -42,7 +42,16 @@ import {
   type UsageInfo,
 } from './session-events'
 import { StreamingBuffer } from './streaming-buffer'
-import { applyTurnEntry, createEmptyTurn, processBlocksForCompletedTurn, turnFromEvents, turnFromProcessItems, turnHasFinalizableContent, turnHasVisibleContent, type TurnProcessBlock } from './turn-blocks'
+import {
+  applyTurnEntry,
+  createEmptyTurn,
+  processBlocksForCompletedTurn,
+  turnFromEvents,
+  turnFromProcessItems,
+  turnHasFinalizableContent,
+  turnHasVisibleContent,
+  type TurnProcessBlock,
+} from './turn-blocks'
 import {
   inferRunningSessions,
   isSessionUnreadByTimestamps,
@@ -82,10 +91,23 @@ export type {
 export { buildChatTimelineFromEvents, groupChatTimelineItems }
 
 export interface SessionData {
-  id: string; agent_id: string; task_id: string | null; acp_session_id: string | null
-  status: string; stage: string; started_at: string; closed_at: string | null
+  id: string
+  agent_id: string
+  task_id: string | null
+  acp_session_id: string | null
+  status: string
+  stage: string
+  started_at: string
+  closed_at: string | null
   activity_state?: 'running' | 'idle'
-  project_id?: string | null; title?: string | null; updated_at?: string | null; last_message_at?: string | null; last_read_at?: string | null; archived_at?: string | null; deleted_at?: string | null; sort_order?: number | null
+  project_id?: string | null
+  title?: string | null
+  updated_at?: string | null
+  last_message_at?: string | null
+  last_read_at?: string | null
+  archived_at?: string | null
+  deleted_at?: string | null
+  sort_order?: number | null
   is_primary?: number | boolean
 }
 
@@ -115,14 +137,30 @@ export interface LocalSessionImportResult {
 }
 
 interface SessionCache {
-  messages: MessageData[]; events: SessionEventData[]; usage: UsageInfo | null; turnUsage: TurnUsageInfo | null; capabilities: SessionCapabilities; plan: PlanEntry[]
-  pendingPermissions: PermissionRequestInfo[]; pendingElicitations: ElicitationRequestInfo[]; streamingMessage: StreamingMessage | null
+  messages: MessageData[]
+  events: SessionEventData[]
+  usage: UsageInfo | null
+  turnUsage: TurnUsageInfo | null
+  capabilities: SessionCapabilities
+  plan: PlanEntry[]
+  pendingPermissions: PermissionRequestInfo[]
+  pendingElicitations: ElicitationRequestInfo[]
+  streamingMessage: StreamingMessage | null
 }
 
 interface SessionStore {
-  sessions: SessionData[]; currentSessionId: string | null; messages: MessageData[]; events: SessionEventData[]
-  streamingMessage: StreamingMessage | null; usage: UsageInfo | null; turnUsage: TurnUsageInfo | null
-  capabilities: SessionCapabilities; plan: PlanEntry[]; pendingPermissions: PermissionRequestInfo[]; pendingElicitations: ElicitationRequestInfo[]; loading: boolean
+  sessions: SessionData[]
+  currentSessionId: string | null
+  messages: MessageData[]
+  events: SessionEventData[]
+  streamingMessage: StreamingMessage | null
+  usage: UsageInfo | null
+  turnUsage: TurnUsageInfo | null
+  capabilities: SessionCapabilities
+  plan: PlanEntry[]
+  pendingPermissions: PermissionRequestInfo[]
+  pendingElicitations: ElicitationRequestInfo[]
+  loading: boolean
   copyingTargetSessionIds: Record<string, string>
   copyingSourceSessionIds: Record<string, string>
   lastCopyError: { sourceSessionId: string; targetSessionId: string; message: string } | null
@@ -162,7 +200,11 @@ interface SessionStore {
   setConfig: (configId: string, value: string | boolean) => Promise<void>
   cancelTurn: () => Promise<void>
   respondPermission: (requestId: string, optionId?: string, cancelled?: boolean) => Promise<void>
-  respondElicitation: (requestId: string, action: 'accept' | 'decline' | 'cancel', content?: Record<string, string | number | boolean | string[]>) => Promise<void>
+  respondElicitation: (
+    requestId: string,
+    action: 'accept' | 'decline' | 'cancel',
+    content?: Record<string, string | number | boolean | string[]>,
+  ) => Promise<void>
   fetchModels: () => Promise<void>
   fetchMessageToolCalls: (sessionId: string, messageId: string) => Promise<void>
   fetchMessageToolCallDetail: (sessionId: string, messageId: string, toolCallId: string) => Promise<void>
@@ -183,7 +225,13 @@ const cacheSaveTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const eventCursorBySession = new Map<string, number>()
 const streamingBuffer = new StreamingBuffer()
 let streamingFlushTimer: ReturnType<typeof setTimeout> | null = null
-const mirroredRealtimeEventTypes = new Set(['message.chunk', 'thinking.chunk', 'tool.call', 'tool.update', 'message.done'])
+const mirroredRealtimeEventTypes = new Set([
+  'message.chunk',
+  'thinking.chunk',
+  'tool.call',
+  'tool.update',
+  'message.done',
+])
 
 const CURRENT_SESSION_STORAGE_KEY = 'ai-ide-current-session-id'
 const PROJECT_LAST_SESSION_STORAGE_KEY = 'ai-ide-project-last-session'
@@ -271,7 +319,6 @@ function normalizeActiveTurn(message: StreamingMessage | null | undefined): Stre
   return next
 }
 
-
 function hasVisibleStreamingState(message: StreamingMessage | null): boolean {
   return turnHasVisibleContent(message)
 }
@@ -303,8 +350,20 @@ function shouldClearStreamingAfterMessageLoad(
   staleSessionIds: SessionIndicatorStateMap,
 ): boolean {
   if (!streamingMessage) return false
-  if (messages.some((message) => message.session_id === sessionId && message.role === 'agent' && message.id === streamingMessage.id && message.status !== 'running')) return true
-  return !runningSessionIds[sessionId] && (!!staleSessionIds[sessionId] || hasAgentMessageAfterLatestHuman(messages, sessionId))
+  if (
+    messages.some(
+      (message) =>
+        message.session_id === sessionId &&
+        message.role === 'agent' &&
+        message.id === streamingMessage.id &&
+        message.status !== 'running',
+    )
+  )
+    return true
+  return (
+    !runningSessionIds[sessionId] &&
+    (!!staleSessionIds[sessionId] || hasAgentMessageAfterLatestHuman(messages, sessionId))
+  )
 }
 
 function selectRecoveredStreamingMessage(
@@ -320,7 +379,6 @@ function selectRecoveredStreamingMessage(
   return current
 }
 
-
 function reconcileRunningSessionIndicators(
   current: SessionIndicatorStateMap,
   sessions: SessionData[],
@@ -331,7 +389,9 @@ function reconcileRunningSessionIndicators(
 }
 
 function hasRunningAgentMessage(messages: MessageData[], sessionId: string): boolean {
-  return messages.some((message) => message.session_id === sessionId && message.role === 'agent' && message.status === 'running')
+  return messages.some(
+    (message) => message.session_id === sessionId && message.role === 'agent' && message.status === 'running',
+  )
 }
 
 function loadedProcessBlockCount(message: MessageData | undefined): number {
@@ -364,10 +424,7 @@ function streamingFromRunningMessage(message: MessageData): StreamingMessage {
   }
 }
 
-function removeSessionIndicators(
-  source: SessionIndicatorStateMap,
-  sessionIds: string[],
-): SessionIndicatorStateMap {
+function removeSessionIndicators(source: SessionIndicatorStateMap, sessionIds: string[]): SessionIndicatorStateMap {
   let next = source
   for (const sessionId of sessionIds) next = removeSessionIndicator(next, sessionId)
   return next
@@ -380,7 +437,11 @@ function applySessionActivity(
   sessionId: string,
   state: 'running' | 'idle',
   currentSessionId: string | null,
-): { runningSessionIds: SessionIndicatorStateMap; unreadSessionIds: SessionIndicatorStateMap; staleSessionIds: SessionIndicatorStateMap } {
+): {
+  runningSessionIds: SessionIndicatorStateMap
+  unreadSessionIds: SessionIndicatorStateMap
+  staleSessionIds: SessionIndicatorStateMap
+} {
   const running = { ...runningSessionIds }
   const unread = { ...unreadSessionIds }
   const stale = { ...staleSessionIds }
@@ -402,7 +463,21 @@ function clearCachedStreaming(sessionId: string): void {
   sessionCaches.set(sessionId, { ...cache, streamingMessage: null })
 }
 
-function saveCache(sessionId: string, s: Pick<SessionStore, 'messages' | 'events' | 'usage' | 'turnUsage' | 'capabilities' | 'plan' | 'pendingPermissions' | 'pendingElicitations' | 'streamingMessage'>) {
+function saveCache(
+  sessionId: string,
+  s: Pick<
+    SessionStore,
+    | 'messages'
+    | 'events'
+    | 'usage'
+    | 'turnUsage'
+    | 'capabilities'
+    | 'plan'
+    | 'pendingPermissions'
+    | 'pendingElicitations'
+    | 'streamingMessage'
+  >,
+) {
   const timer = cacheSaveTimers.get(sessionId)
   if (timer) {
     clearTimeout(timer)
@@ -410,17 +485,32 @@ function saveCache(sessionId: string, s: Pick<SessionStore, 'messages' | 'events
   }
   sessionCaches.set(sessionId, {
     messages: [...s.messages],
-    events: [...s.events], usage: s.usage, turnUsage: s.turnUsage, capabilities: { ...s.capabilities, models: [...s.capabilities.models], modes: [...s.capabilities.modes], configOptions: [...s.capabilities.configOptions], commands: [...s.capabilities.commands] },
-    plan: [...s.plan], pendingPermissions: [...s.pendingPermissions], pendingElicitations: [...s.pendingElicitations], streamingMessage: s.streamingMessage,
+    events: [...s.events],
+    usage: s.usage,
+    turnUsage: s.turnUsage,
+    capabilities: {
+      ...s.capabilities,
+      models: [...s.capabilities.models],
+      modes: [...s.capabilities.modes],
+      configOptions: [...s.capabilities.configOptions],
+      commands: [...s.capabilities.commands],
+    },
+    plan: [...s.plan],
+    pendingPermissions: [...s.pendingPermissions],
+    pendingElicitations: [...s.pendingElicitations],
+    streamingMessage: s.streamingMessage,
   })
 }
 
 function scheduleCacheSave(sessionId: string, get: () => SessionStore): void {
   if (cacheSaveTimers.has(sessionId)) return
-  cacheSaveTimers.set(sessionId, setTimeout(() => {
-    cacheSaveTimers.delete(sessionId)
-    saveCache(sessionId, get())
-  }, 250))
+  cacheSaveTimers.set(
+    sessionId,
+    setTimeout(() => {
+      cacheSaveTimers.delete(sessionId)
+      saveCache(sessionId, get())
+    }, 250),
+  )
 }
 
 function reducedStateFromStore(state: SessionStore) {
@@ -469,7 +559,10 @@ function withoutRecordKey<T>(record: Record<string, T>, key: string): Record<str
   return next
 }
 
-function flushStreamingBuffer(set: (partial: Partial<SessionStore> | ((state: SessionStore) => Partial<SessionStore>)) => void, get: () => SessionStore): void {
+function flushStreamingBuffer(
+  set: (partial: Partial<SessionStore> | ((state: SessionStore) => Partial<SessionStore>)) => void,
+  get: () => SessionStore,
+): void {
   if (streamingFlushTimer) {
     clearTimeout(streamingFlushTimer)
     streamingFlushTimer = null
@@ -479,12 +572,30 @@ function flushStreamingBuffer(set: (partial: Partial<SessionStore> | ((state: Se
   const sid = get().currentSessionId
   set((state) => {
     const cur = normalizeActiveTurn(state.streamingMessage)
-    let up: StreamingMessage = cur ? { ...cur, processBlocks: cur.processBlocks.map(block => block.kind === 'tool' ? { ...block, toolCall: { ...block.toolCall } } : { ...block }), toolCalls: [...cur.toolCalls] } : createEmptyTurn(String(snapshot.messageId || `stream-${sid}-${Date.now()}`))
-    if (snapshot.messageId && (up.id.startsWith('pending-') || !turnHasVisibleContent(up) || (!!up.stage && !up.finalAnswer && up.processBlocks.every(block => block.kind === 'stage')))) {
+    let up: StreamingMessage = cur
+      ? {
+          ...cur,
+          processBlocks: cur.processBlocks.map((block) =>
+            block.kind === 'tool' ? { ...block, toolCall: { ...block.toolCall } } : { ...block },
+          ),
+          toolCalls: [...cur.toolCalls],
+        }
+      : createEmptyTurn(String(snapshot.messageId || `stream-${sid}-${Date.now()}`))
+    if (
+      snapshot.messageId &&
+      (up.id.startsWith('pending-') ||
+        !turnHasVisibleContent(up) ||
+        (!!up.stage && !up.finalAnswer && up.processBlocks.every((block) => block.kind === 'stage')))
+    ) {
       up = { ...up, id: snapshot.messageId }
     }
     for (const entry of snapshot.entries) {
-      if (entry.kind === 'toolUpdate' && !up.processBlocks.some(block => block.kind === 'tool' && block.toolCall.id === entry.toolCall.id) && !shouldCreateToolFromUpdate(entry.toolCall)) continue
+      if (
+        entry.kind === 'toolUpdate' &&
+        !up.processBlocks.some((block) => block.kind === 'tool' && block.toolCall.id === entry.toolCall.id) &&
+        !shouldCreateToolFromUpdate(entry.toolCall)
+      )
+        continue
       up = applyTurnEntry(up, entry)
     }
     lastStreamingSnapshot = up
@@ -513,7 +624,10 @@ function mergeProcessBlockIntoStreaming(turn: StreamingMessage, block: TurnProce
     processBlocks: mergeProcessBlock(normalizedTurn.processBlocks, block),
   }
   next.thinking = next.processBlocks
-    .filter((processBlock): processBlock is Extract<TurnProcessBlock, { kind: 'thinking' }> => processBlock.kind === 'thinking')
+    .filter(
+      (processBlock): processBlock is Extract<TurnProcessBlock, { kind: 'thinking' }> =>
+        processBlock.kind === 'thinking',
+    )
     .map((processBlock) => processBlock.text)
     .join('')
   next.toolCalls = next.processBlocks
@@ -549,23 +663,37 @@ function streamingBaseForProcessItem(
   return { ...(normalized ?? createEmptyTurn(item.message_id)), id: item.message_id }
 }
 
-function hasCanonicalProcessBlock(turn: StreamingMessage | null, messageId: string | undefined, data: Record<string, unknown>): boolean {
+function hasCanonicalProcessBlock(
+  turn: StreamingMessage | null,
+  messageId: string | undefined,
+  data: Record<string, unknown>,
+): boolean {
   if (!turn || !messageId || turn.id !== messageId) return false
   if (typeof data.thinking === 'string') {
-    return turn.processBlocks.some((block) => block.kind === 'thinking' && block.id.startsWith('tpi-') && block.text.includes(data.thinking as string))
+    return turn.processBlocks.some(
+      (block) =>
+        block.kind === 'thinking' && block.id.startsWith('tpi-') && block.text.includes(data.thinking as string),
+    )
   }
   const toolCall = data.toolCall as ToolCallInfo | undefined
   if (toolCall?.id) {
-    return turn.processBlocks.some((block) => block.kind === 'tool' && block.id.startsWith('tpi-') && block.toolCall.id === toolCall.id)
+    return turn.processBlocks.some(
+      (block) => block.kind === 'tool' && block.id.startsWith('tpi-') && block.toolCall.id === toolCall.id,
+    )
   }
   const toolCallUpdate = data.toolCallUpdate as ToolCallInfo | undefined
   if (toolCallUpdate?.id) {
-    return turn.processBlocks.some((block) => block.kind === 'tool' && block.id.startsWith('tpi-') && block.toolCall.id === toolCallUpdate.id)
+    return turn.processBlocks.some(
+      (block) => block.kind === 'tool' && block.id.startsWith('tpi-') && block.toolCall.id === toolCallUpdate.id,
+    )
   }
   return false
 }
 
-function scheduleStreamingFlush(set: (partial: Partial<SessionStore> | ((state: SessionStore) => Partial<SessionStore>)) => void, get: () => SessionStore): void {
+function scheduleStreamingFlush(
+  set: (partial: Partial<SessionStore> | ((state: SessionStore) => Partial<SessionStore>)) => void,
+  get: () => SessionStore,
+): void {
   if (streamingFlushTimer) return
   streamingFlushTimer = setTimeout(() => {
     streamingFlushTimer = null
@@ -589,7 +717,9 @@ function reconcileCopyingSessions(
   currentTargets: Record<string, string>,
 ): { copyingTargetSessionIds: Record<string, string>; copyingSourceSessionIds: Record<string, string> } {
   const copyingTargetSessionIds = Object.fromEntries(
-    sessions.filter((session) => isCopyingSession(session)).map((session) => [session.id, currentTargets[session.id] ?? '']),
+    sessions
+      .filter((session) => isCopyingSession(session))
+      .map((session) => [session.id, currentTargets[session.id] ?? '']),
   )
   const copyingSourceSessionIds = Object.fromEntries(
     Object.entries(copyingTargetSessionIds)
@@ -600,13 +730,35 @@ function reconcileCopyingSessions(
 }
 
 export const useSessionStore = create<SessionStore>((set, get) => ({
-  sessions: [], currentSessionId: null, messages: [], events: [], streamingMessage: null,
-  usage: null, turnUsage: null, capabilities: { ...defaultCaps }, plan: [], pendingPermissions: [], pendingElicitations: [], loading: false,
-  copyingTargetSessionIds: {}, copyingSourceSessionIds: {}, lastCopyError: null,
-  hasMoreMessagesBySession: {}, loadingOlderMessagesBySession: {},
-  toolCallSummariesByMessageId: {}, toolCallDetailsByKey: {}, fileChangeDetailsByMessageId: {}, toolCallLoadingByKey: {}, toolCallErrorByKey: {},
-  turnProcessLoadingByMessageId: {}, turnProcessErrorByMessageId: {}, processItemLoadingByKey: {}, processItemErrorByKey: {},
-  runningSessionIds: {}, unreadSessionIds: {}, staleSessionIds: {},
+  sessions: [],
+  currentSessionId: null,
+  messages: [],
+  events: [],
+  streamingMessage: null,
+  usage: null,
+  turnUsage: null,
+  capabilities: { ...defaultCaps },
+  plan: [],
+  pendingPermissions: [],
+  pendingElicitations: [],
+  loading: false,
+  copyingTargetSessionIds: {},
+  copyingSourceSessionIds: {},
+  lastCopyError: null,
+  hasMoreMessagesBySession: {},
+  loadingOlderMessagesBySession: {},
+  toolCallSummariesByMessageId: {},
+  toolCallDetailsByKey: {},
+  fileChangeDetailsByMessageId: {},
+  toolCallLoadingByKey: {},
+  toolCallErrorByKey: {},
+  turnProcessLoadingByMessageId: {},
+  turnProcessErrorByMessageId: {},
+  processItemLoadingByKey: {},
+  processItemErrorByKey: {},
+  runningSessionIds: {},
+  unreadSessionIds: {},
+  staleSessionIds: {},
 
   fetchSessions: async (agentId, projectId) => {
     const requestSeq = ++sessionListRequestSeq
@@ -617,7 +769,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       const msg: Record<string, unknown> = { type: 'sessions.list' }
       if (agentId) msg.agentId = agentId
       if (projectId) msg.projectId = projectId
-      const data = await wsClient.request(msg) as SessionData[]
+      const data = (await wsClient.request(msg)) as SessionData[]
       if (requestSeq !== sessionListRequestSeq || activeSessionsProjectId !== scopedProjectId) return
       const sessions = scopedProjectId ? data.filter((session) => session.project_id === scopedProjectId) : data
       const runningSessions = Object.keys(inferRunningSessions(sessions))
@@ -645,9 +797,13 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   fetchMessages: async (sessionId) => {
     try {
-      const serverMessages = await wsClient.request({ type: 'sessions.messages', sessionId, limit: CHAT_MESSAGE_PAGE_SIZE }) as MessageData[]
+      const serverMessages = (await wsClient.request({
+        type: 'sessions.messages',
+        sessionId,
+        limit: CHAT_MESSAGE_PAGE_SIZE,
+      })) as MessageData[]
       if (sessionId !== get().currentSessionId) return
-      set(state => {
+      set((state) => {
         const messages = mergeMessagesForSession(serverMessages, state.messages, sessionId)
         const shouldClearStreaming = shouldClearStreamingAfterMessageLoad(
           sessionId,
@@ -658,11 +814,12 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         )
         const hasRunning = hasRunningAgentMessage(messages, sessionId)
         const running = messages
-          .filter((message) => message.session_id === sessionId && message.role === 'agent' && message.status === 'running')
+          .filter(
+            (message) => message.session_id === sessionId && message.role === 'agent' && message.status === 'running',
+          )
           .at(-1)
-        const shouldRestoreRunning = !!running && (
-          state.streamingMessage?.id !== running.id || !hasVisibleStreamingState(state.streamingMessage)
-        )
+        const shouldRestoreRunning =
+          !!running && (state.streamingMessage?.id !== running.id || !hasVisibleStreamingState(state.streamingMessage))
         const shouldConfirmDoneState = !!state.staleSessionIds[sessionId]
         return {
           messages,
@@ -676,7 +833,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             : shouldConfirmDoneState
               ? removeSessionIndicator(state.runningSessionIds, sessionId)
               : state.runningSessionIds,
-          unreadSessionIds: hasRunning ? removeSessionIndicator(state.unreadSessionIds, sessionId) : state.unreadSessionIds,
+          unreadSessionIds: hasRunning
+            ? removeSessionIndicator(state.unreadSessionIds, sessionId)
+            : state.unreadSessionIds,
           staleSessionIds: removeSessionIndicator(state.staleSessionIds, sessionId),
           hasMoreMessagesBySession: {
             ...state.hasMoreMessagesBySession,
@@ -685,8 +844,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         }
       })
       saveCache(sessionId, get())
-      const running = get().messages
-        .filter((message) => message.session_id === sessionId && message.role === 'agent' && message.status === 'running')
+      const running = get()
+        .messages.filter(
+          (message) => message.session_id === sessionId && message.role === 'agent' && message.status === 'running',
+        )
         .at(-1)
       if (running) {
         set((state) => ({
@@ -699,7 +860,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       if (get().messages.filter((message) => message.session_id === sessionId).length === 0) {
         void get().fetchEvents(sessionId)
       }
-    } catch { /* ignore message load errors */ }
+    } catch {
+      /* ignore message load errors */
+    }
   },
 
   loadOlderMessages: async (sessionId) => {
@@ -714,12 +877,12 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       loadingOlderMessagesBySession: { ...current.loadingOlderMessagesBySession, [sessionId]: true },
     }))
     try {
-      const olderMessages = await wsClient.request({
+      const olderMessages = (await wsClient.request({
         type: 'sessions.messages',
         sessionId,
         limit: CHAT_MESSAGE_PAGE_SIZE,
         before: oldest.timestamp,
-      }) as MessageData[]
+      })) as MessageData[]
       if (sessionId !== get().currentSessionId) return
       set((current) => ({
         messages: mergeMessagesForSession(olderMessages, current.messages, sessionId),
@@ -740,7 +903,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   fetchEvents: async (sessionId) => {
     try {
-      const events = await wsClient.request({ type: 'sessions.events', sessionId, limit: 1000 }) as SessionEventData[]
+      const events = (await wsClient.request({ type: 'sessions.events', sessionId, limit: 1000 })) as SessionEventData[]
       if (sessionId !== get().currentSessionId) return
       eventCursorBySession.set(sessionId, events.at(-1)?.sequence ?? 0)
       const stateBeforeRecovery = get()
@@ -749,7 +912,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         ? events.filter((event) => !mirroredRealtimeEventTypes.has(event.type))
         : events
       const reduced = reduceSessionEvents(recoveryEvents)
-      const activeTurnRecovery = shouldUseMessagePrimaryHistory ? reduceSessionEvents(events).streamingMessage : reduced.streamingMessage
+      const activeTurnRecovery = shouldUseMessagePrimaryHistory
+        ? reduceSessionEvents(events).streamingMessage
+        : reduced.streamingMessage
       set((state) => ({
         events,
         usage: reduced.usage,
@@ -779,7 +944,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     const msg: Record<string, unknown> = { type: 'sessions.create', agentId }
     if (taskId) msg.taskId = taskId
     if (projectId) msg.projectId = projectId
-    const session = await wsClient.request(msg) as SessionData
+    const session = (await wsClient.request(msg)) as SessionData
     if (!activeSessionsProjectId || session.project_id === activeSessionsProjectId) {
       set({ sessions: [...get().sessions.filter((s) => s.id !== session.id), session] })
     }
@@ -787,7 +952,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   },
 
   copySession: async (sessionId) => {
-    const session = await wsClient.request({ type: 'sessions.copy', sessionId }) as SessionData
+    const session = (await wsClient.request({ type: 'sessions.copy', sessionId })) as SessionData
     if (!activeSessionsProjectId || session.project_id === activeSessionsProjectId) {
       set((state) => ({
         sessions: [...state.sessions.filter((s) => s.id !== session.id), session],
@@ -806,11 +971,15 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   listLocalImportCandidates: async (agentId, projectId) => {
     const msg: Record<string, unknown> = { type: 'sessions.listLocalImportCandidates', agentId }
     if (projectId) msg.projectId = projectId
-    return await wsClient.request(msg) as LocalSessionCandidateInfo[]
+    return (await wsClient.request(msg)) as LocalSessionCandidateInfo[]
   },
 
   importLocalSession: async (agentId, input) => {
-    const session = await wsClient.request({ type: 'sessions.importLocal', agentId, ...input }) as LocalSessionImportResult
+    const session = (await wsClient.request({
+      type: 'sessions.importLocal',
+      agentId,
+      ...input,
+    })) as LocalSessionImportResult
     if (!activeSessionsProjectId || session.session.project_id === activeSessionsProjectId) {
       set((state) => ({ sessions: [...state.sessions.filter((s) => s.id !== session.session.id), session.session] }))
     }
@@ -818,8 +987,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   },
 
   renameSession: async (sessionId, title) => {
-    const session = await wsClient.request({ type: 'sessions.rename', sessionId, title }) as SessionData
-    set({ sessions: get().sessions.map(s => s.id === sessionId ? { ...s, ...session } : s) })
+    const session = (await wsClient.request({ type: 'sessions.rename', sessionId, title })) as SessionData
+    set({ sessions: get().sessions.map((s) => (s.id === sessionId ? { ...s, ...session } : s)) })
   },
 
   deleteSession: async (sessionId) => {
@@ -829,7 +998,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     // 删除当前会话时,清掉 per-project 映射里指向它的记录,避免下次恢复到已删除会话
     if (!currentSessionId && activeSessionsProjectId) clearProjectLastSession(activeSessionsProjectId)
     set({
-      sessions: get().sessions.filter(s => s.id !== sessionId),
+      sessions: get().sessions.filter((s) => s.id !== sessionId),
       currentSessionId,
       messages: currentSessionId ? get().messages : [],
       events: currentSessionId ? get().events : [],
@@ -850,21 +1019,28 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   },
 
   closeSession: async (sessionId) => {
-    const session = await wsClient.request({ type: 'sessions.close', sessionId }) as SessionData
-    set({ sessions: get().sessions.map(s => s.id === sessionId ? { ...s, ...session } : s) })
+    const session = (await wsClient.request({ type: 'sessions.close', sessionId })) as SessionData
+    set({ sessions: get().sessions.map((s) => (s.id === sessionId ? { ...s, ...session } : s)) })
   },
 
   archiveSession: async (sessionId) => {
-    const session = await wsClient.request({ type: 'sessions.archive', sessionId }) as SessionData
-    set({ sessions: get().sessions.map(s => s.id === sessionId ? { ...s, ...session } : s) })
+    const session = (await wsClient.request({ type: 'sessions.archive', sessionId })) as SessionData
+    set({ sessions: get().sessions.map((s) => (s.id === sessionId ? { ...s, ...session } : s)) })
   },
 
   reorderSessions: async (projectId, agentId, sessionIds) => {
-    const ordered = await wsClient.request({ type: 'sessions.reorder', projectId, agentId, sessionIds }) as SessionData[]
+    const ordered = (await wsClient.request({
+      type: 'sessions.reorder',
+      projectId,
+      agentId,
+      sessionIds,
+    })) as SessionData[]
     const orderedIds = new Set(ordered.map((session) => session.id))
     set((state) => ({
       sessions: [
-        ...state.sessions.filter((session) => session.agent_id !== agentId || session.project_id !== projectId || !orderedIds.has(session.id)),
+        ...state.sessions.filter(
+          (session) => session.agent_id !== agentId || session.project_id !== projectId || !orderedIds.has(session.id),
+        ),
         ...ordered,
       ],
     }))
@@ -878,11 +1054,23 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     // 幂等短路:同一 id 重复调用不再重发 fetchMessages / fetchModels / markRead,
     // 防止 markRead → session:changed → sessions 引用变 → effect 重触发 → 又调 selectSession 的死循环。
     // prev === id 时直接返回,避免切断订阅 / 重置缓存等副作用也重新执行一遍。
-    if (prev === id) return
-    if (prev) { saveCache(prev, get()); wsClient.unsubscribe([prev]) }
+    if (prev === id) {
+      if (
+        id &&
+        get().runningSessionIds[id] &&
+        get().messages.filter((message) => message.session_id === id).length === 0
+      ) {
+        void get().fetchMessages(id)
+      }
+      return
+    }
+    if (prev) {
+      saveCache(prev, get())
+      wsClient.unsubscribe([prev])
+    }
     lastStreamingSnapshot = null
     if (!id) {
-      // 不清全局 key:保留作为老用户 fallback;per-project 映射由 Workspace 切项目时按需清理
+      writeStoredSessionId(null)
       set({
         currentSessionId: null,
         messages: [],
@@ -913,13 +1101,30 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     const c = sessionCaches.get(id)
     const shouldRestoreStreaming = !!get().runningSessionIds[id] && !get().staleSessionIds[id]
     streamingBuffer.clear()
-    if (streamingFlushTimer) { clearTimeout(streamingFlushTimer); streamingFlushTimer = null }
+    if (streamingFlushTimer) {
+      clearTimeout(streamingFlushTimer)
+      streamingFlushTimer = null
+    }
     set({
-      currentSessionId: id, messages: c?.messages || [], events: c?.events || [], streamingMessage: shouldRestoreStreaming ? c?.streamingMessage || null : null,
-      usage: c?.usage || null, turnUsage: c?.turnUsage || null, capabilities: c?.capabilities || { ...defaultCaps }, plan: c?.plan || [],
-      pendingPermissions: c?.pendingPermissions || [], pendingElicitations: c?.pendingElicitations || [],
-      toolCallSummariesByMessageId: {}, toolCallDetailsByKey: {}, fileChangeDetailsByMessageId: {}, toolCallLoadingByKey: {}, toolCallErrorByKey: {},
-      turnProcessLoadingByMessageId: {}, turnProcessErrorByMessageId: {}, processItemLoadingByKey: {}, processItemErrorByKey: {},
+      currentSessionId: id,
+      messages: c?.messages || [],
+      events: c?.events || [],
+      streamingMessage: shouldRestoreStreaming ? c?.streamingMessage || null : null,
+      usage: c?.usage || null,
+      turnUsage: c?.turnUsage || null,
+      capabilities: c?.capabilities || { ...defaultCaps },
+      plan: c?.plan || [],
+      pendingPermissions: c?.pendingPermissions || [],
+      pendingElicitations: c?.pendingElicitations || [],
+      toolCallSummariesByMessageId: {},
+      toolCallDetailsByKey: {},
+      fileChangeDetailsByMessageId: {},
+      toolCallLoadingByKey: {},
+      toolCallErrorByKey: {},
+      turnProcessLoadingByMessageId: {},
+      turnProcessErrorByMessageId: {},
+      processItemLoadingByKey: {},
+      processItemErrorByKey: {},
       unreadSessionIds: removeSessionIndicator(get().unreadSessionIds, id),
     })
     void get().fetchMessages(id)
@@ -928,7 +1133,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   },
 
   sendPrompt: (content, images) => {
-    const sid = get().currentSessionId; if (!sid) return
+    const sid = get().currentSessionId
+    if (!sid) return
     const session = get().sessions.find((item) => item.id === sid)
     if (isCopyingSession(session) || get().copyingTargetSessionIds[sid]) return
     const clientMessageId = `msg-local-${Date.now()}`
@@ -937,8 +1143,25 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     wsClient.send(msg)
     promptStartTime = Date.now()
     set((state) => ({
-      messages: [...state.messages, normalizeMessage({ id: clientMessageId, session_id: sid, role: 'human', content, thinking: null, tool_calls_json: null, decision_json: null, attachments_json: images?.length ? JSON.stringify(images) : null, file_changes_json: null, timestamp: new Date().toISOString() })],
-      streamingMessage: applyTurnEntry(createEmptyTurn(`pending-${sid}-${Date.now()}`), { kind: 'stage', text: '\u6b63\u5728\u51c6\u5907 Agent...' }),
+      messages: [
+        ...state.messages,
+        normalizeMessage({
+          id: clientMessageId,
+          session_id: sid,
+          role: 'human',
+          content,
+          thinking: null,
+          tool_calls_json: null,
+          decision_json: null,
+          attachments_json: images?.length ? JSON.stringify(images) : null,
+          file_changes_json: null,
+          timestamp: new Date().toISOString(),
+        }),
+      ],
+      streamingMessage: applyTurnEntry(createEmptyTurn(`pending-${sid}-${Date.now()}`), {
+        kind: 'stage',
+        text: '\u6b63\u5728\u51c6\u5907 Agent...',
+      }),
       turnUsage: null,
       runningSessionIds: { ...state.runningSessionIds, [sid]: true },
       unreadSessionIds: removeSessionIndicator(state.unreadSessionIds, sid),
@@ -947,50 +1170,90 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   },
 
   setModel: async (modelId) => {
-    const sid = get().currentSessionId; if (!sid) return
-    try { await wsClient.request({ type: 'session.setModel', sessionId: sid, modelId }); set(s => ({ capabilities: { ...s.capabilities, currentModelId: modelId } })) } catch (e) { console.error('模型切换失败:', e) }
+    const sid = get().currentSessionId
+    if (!sid) return
+    try {
+      await wsClient.request({ type: 'session.setModel', sessionId: sid, modelId })
+      set((s) => ({ capabilities: { ...s.capabilities, currentModelId: modelId } }))
+    } catch (e) {
+      console.error('模型切换失败:', e)
+    }
   },
 
   setMode: async (modeId) => {
-    const sid = get().currentSessionId; if (!sid) return
-    try { await wsClient.request({ type: 'session.setMode', sessionId: sid, modeId }); set(s => ({ capabilities: { ...s.capabilities, currentModeId: modeId } })) } catch (e) { console.error('模式切换失败:', e) }
+    const sid = get().currentSessionId
+    if (!sid) return
+    try {
+      await wsClient.request({ type: 'session.setMode', sessionId: sid, modeId })
+      set((s) => ({ capabilities: { ...s.capabilities, currentModeId: modeId } }))
+    } catch (e) {
+      console.error('模式切换失败:', e)
+    }
   },
 
   setConfig: async (configId, value) => {
-    const sid = get().currentSessionId; if (!sid) return
-    try { await wsClient.request({ type: 'session.setConfig', sessionId: sid, configId, value }) } catch (e) { console.error('配置切换失败:', e) }
+    const sid = get().currentSessionId
+    if (!sid) return
+    try {
+      await wsClient.request({ type: 'session.setConfig', sessionId: sid, configId, value })
+    } catch (e) {
+      console.error('配置切换失败:', e)
+    }
   },
 
   cancelTurn: async () => {
-    const sid = get().currentSessionId; if (!sid) return
-    try { await wsClient.request({ type: 'session.cancel', sessionId: sid }) } catch (e) { console.error('取消失败:', e) }
+    const sid = get().currentSessionId
+    if (!sid) return
+    try {
+      await wsClient.request({ type: 'session.cancel', sessionId: sid })
+    } catch (e) {
+      console.error('取消失败:', e)
+    }
   },
 
   respondPermission: async (requestId, optionId, cancelled) => {
-    const sid = get().currentSessionId; if (!sid) return
-    await wsClient.request({ type: 'permission.respond', sessionId: sid, permissionRequestId: requestId, optionId, cancelled })
+    const sid = get().currentSessionId
+    if (!sid) return
+    await wsClient.request({
+      type: 'permission.respond',
+      sessionId: sid,
+      permissionRequestId: requestId,
+      optionId,
+      cancelled,
+    })
   },
 
   respondElicitation: async (requestId, action, content) => {
-    const sid = get().currentSessionId; if (!sid) return
-    await wsClient.request({ type: 'elicitation.respond', sessionId: sid, elicitationRequestId: requestId, action, content })
+    const sid = get().currentSessionId
+    if (!sid) return
+    await wsClient.request({
+      type: 'elicitation.respond',
+      sessionId: sid,
+      elicitationRequestId: requestId,
+      action,
+      content,
+    })
   },
 
   fetchModels: async () => {
-    const sid = get().currentSessionId; if (!sid) return
+    const sid = get().currentSessionId
+    if (!sid) return
     try {
-      const d = await wsClient.request({ type: 'session.getModels', sessionId: sid }) as Partial<SessionCapabilities>
+      const d = (await wsClient.request({ type: 'session.getModels', sessionId: sid })) as Partial<SessionCapabilities>
       const caps = {
         ...get().capabilities,
-        models: d.models || get().capabilities.models, currentModelId: d.currentModelId || get().capabilities.currentModelId,
-        modes: d.modes || get().capabilities.modes, currentModeId: d.currentModeId || get().capabilities.currentModeId,
+        models: d.models || get().capabilities.models,
+        currentModelId: d.currentModelId || get().capabilities.currentModelId,
+        modes: d.modes || get().capabilities.modes,
+        currentModeId: d.currentModeId || get().capabilities.currentModeId,
         supportsImages: d.supportsImages ?? get().capabilities.supportsImages,
         supportsAudio: d.supportsAudio ?? get().capabilities.supportsAudio,
         configOptions: d.configOptions || get().capabilities.configOptions,
         commands: d.commands || get().capabilities.commands,
         sessionInfo: d.sessionInfo || get().capabilities.sessionInfo,
       }
-      set({ capabilities: caps }); saveCache(sid, { ...get(), capabilities: caps })
+      set({ capabilities: caps })
+      saveCache(sid, { ...get(), capabilities: caps })
     } catch {
       /* ignore model load errors */
     }
@@ -1003,7 +1266,11 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       toolCallErrorByKey: { ...state.toolCallErrorByKey, [messageId]: '' },
     }))
     try {
-      const summaries = await wsClient.request({ type: 'sessions.messageToolCalls', sessionId, messageId }) as ToolCallSummaryInfo[]
+      const summaries = (await wsClient.request({
+        type: 'sessions.messageToolCalls',
+        sessionId,
+        messageId,
+      })) as ToolCallSummaryInfo[]
       if (sessionId !== get().currentSessionId) return
       set((state) => ({
         toolCallSummariesByMessageId: { ...state.toolCallSummariesByMessageId, [messageId]: summaries },
@@ -1026,7 +1293,12 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       toolCallErrorByKey: { ...state.toolCallErrorByKey, [key]: '' },
     }))
     try {
-      const detail = await wsClient.request({ type: 'sessions.messageToolCallDetail', sessionId, messageId, toolCallId }) as ToolCallDetailInfo
+      const detail = (await wsClient.request({
+        type: 'sessions.messageToolCallDetail',
+        sessionId,
+        messageId,
+        toolCallId,
+      })) as ToolCallDetailInfo
       if (sessionId !== get().currentSessionId) return
       set((state) => ({
         toolCallDetailsByKey: { ...state.toolCallDetailsByKey, [key]: detail },
@@ -1050,7 +1322,11 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       toolCallErrorByKey: { ...state.toolCallErrorByKey, [key]: '' },
     }))
     try {
-      const detail = await wsClient.request({ type: 'sessions.messageFileChanges', sessionId, messageId }) as FileChangeDetailInfo
+      const detail = (await wsClient.request({
+        type: 'sessions.messageFileChanges',
+        sessionId,
+        messageId,
+      })) as FileChangeDetailInfo
       if (sessionId !== get().currentSessionId) return
       set((state) => ({
         fileChangeDetailsByMessageId: { ...state.fileChangeDetailsByMessageId, [messageId]: detail },
@@ -1073,31 +1349,42 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       turnProcessErrorByMessageId: { ...state.turnProcessErrorByMessageId, [messageId]: '' },
     }))
     try {
-      const items = await wsClient.request({ type: 'sessions.messageProcess', sessionId, messageId }) as TurnProcessItemInfo[]
+      const items = (await wsClient.request({
+        type: 'sessions.messageProcess',
+        sessionId,
+        messageId,
+      })) as TurnProcessItemInfo[]
       if (sessionId !== get().currentSessionId) return
       let turn = turnFromProcessItems(messageId, items)
       if (items.length === 0 && existing?.has_tool_calls) {
-        const events = await wsClient.request({ type: 'sessions.messageEvents', sessionId, messageId }) as SessionEventData[]
+        const events = (await wsClient.request({
+          type: 'sessions.messageEvents',
+          sessionId,
+          messageId,
+        })) as SessionEventData[]
         if (sessionId !== get().currentSessionId) return
         turn = turnFromEvents(messageId, events)
       }
       set((state) => ({
-        messages: state.messages.map((message) => message.id === messageId && message.session_id === sessionId
-          ? {
-              ...message,
-              processBlocks: turn.processBlocks,
-              finalAnswer: turn.finalAnswer || message.content,
-              parsedToolCalls: turn.toolCalls.length > 0 ? turn.toolCalls : message.parsedToolCalls,
-            }
-          : message),
-        streamingMessage: existing?.status === 'running'
-          ? {
-              ...turn,
-              finalAnswer: existing.content,
-              content: existing.content,
-              done: false,
-            }
-          : state.streamingMessage,
+        messages: state.messages.map((message) =>
+          message.id === messageId && message.session_id === sessionId
+            ? {
+                ...message,
+                processBlocks: turn.processBlocks,
+                finalAnswer: turn.finalAnswer || message.content,
+                parsedToolCalls: turn.toolCalls.length > 0 ? turn.toolCalls : message.parsedToolCalls,
+              }
+            : message,
+        ),
+        streamingMessage:
+          existing?.status === 'running'
+            ? {
+                ...turn,
+                finalAnswer: existing.content,
+                content: existing.content,
+                done: false,
+              }
+            : state.streamingMessage,
         turnProcessLoadingByMessageId: { ...state.turnProcessLoadingByMessageId, [messageId]: false },
       }))
     } catch (err) {
@@ -1108,7 +1395,6 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       }))
     }
   },
-
 
   fetchProcessItemDetail: async (sessionId, messageId, itemId) => {
     const key = processItemCacheKey(messageId, itemId)
@@ -1121,7 +1407,12 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       processItemErrorByKey: { ...state.processItemErrorByKey, [key]: '' },
     }))
     try {
-      const item = await wsClient.request({ type: 'sessions.processItemDetail', sessionId, messageId, itemId }) as TurnProcessItemInfo
+      const item = (await wsClient.request({
+        type: 'sessions.processItemDetail',
+        sessionId,
+        messageId,
+        itemId,
+      })) as TurnProcessItemInfo
       if (sessionId !== get().currentSessionId) {
         set((state) => ({ processItemLoadingByKey: withoutRecordKey(state.processItemLoadingByKey, key) }))
         return
@@ -1132,13 +1423,16 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         return
       }
       set((state) => {
-        const streaming = state.streamingMessage?.id === messageId
-          ? mergeProcessBlockIntoStreaming(state.streamingMessage, detailBlock)
-          : state.streamingMessage
+        const streaming =
+          state.streamingMessage?.id === messageId
+            ? mergeProcessBlockIntoStreaming(state.streamingMessage, detailBlock)
+            : state.streamingMessage
         return {
-          messages: state.messages.map((current) => current.id === messageId && current.session_id === sessionId
-            ? { ...current, processBlocks: mergeProcessBlock(current.processBlocks || [], detailBlock) }
-            : current),
+          messages: state.messages.map((current) =>
+            current.id === messageId && current.session_id === sessionId
+              ? { ...current, processBlocks: mergeProcessBlock(current.processBlocks || [], detailBlock) }
+              : current,
+          ),
           streamingMessage: streaming,
           processItemLoadingByKey: withoutRecordKey(state.processItemLoadingByKey, key),
           processItemErrorByKey: withoutRecordKey(state.processItemErrorByKey, key),
@@ -1158,297 +1452,384 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     if (listenersSetup && cleanupFn) return cleanupFn
     const offs: (() => void)[] = []
 
-    offs.push(wsClient.on('session:event', (msg) => {
-      const sid = msg.sessionId as string; if (sid !== get().currentSessionId) return
-      const event = msg.event as SessionEventData
-      eventCursorBySession.set(sid, Math.max(eventCursorBySession.get(sid) ?? 0, event.sequence))
-      if (event.type.startsWith('lifecycle.') && !shouldShowLifecycleStage(event.type)) {
-        saveCache(sid, get())
-        return
-      }
-      const shouldApplyToVisibleState = !mirroredRealtimeEventTypes.has(event.type)
-      if (!shouldApplyToVisibleState) return
-      set((state) => {
-        const events = [...state.events.filter(e => e.id !== event.id), event]
-          .sort((a, b) => a.sequence - b.sequence)
-          .slice(-1000)
-        const reduced = applySessionEvent(reducedStateFromStore(state), event)
-        return { events, ...partialFromReduced(reduced) }
-      })
-      saveCache(sid, get())
-    }))
-
-    offs.push(wsClient.on('session:process_item', (msg) => {
-      const sid = msg.sessionId as string; if (sid !== get().currentSessionId) return
-      const item = msg.item as TurnProcessItemInfo
-      const block = turnFromProcessItems(item.message_id, [item]).processBlocks[0]
-      if (!block) return
-      set((state) => {
-        const streamingBase = streamingBaseForProcessItem(state.streamingMessage, item, !!state.runningSessionIds[sid])
-        const streaming = streamingBase?.id === item.message_id
-          ? mergeProcessBlockIntoStreaming(streamingBase, block)
-          : state.streamingMessage
-        return {
-          streamingMessage: streaming,
-          messages: state.messages.map((message) => {
-            if (message.id !== item.message_id || message.session_id !== sid) return message
-            const processBlocks = mergeProcessBlock(message.processBlocks || [], block)
-            return {
-              ...message,
-              processBlocks,
-              process_item_count: processBlocks.filter((processBlock) => processBlock.kind !== 'stage').length,
-            }
-          }),
+    offs.push(
+      wsClient.on('session:event', (msg) => {
+        const sid = msg.sessionId as string
+        if (sid !== get().currentSessionId) return
+        const event = msg.event as SessionEventData
+        eventCursorBySession.set(sid, Math.max(eventCursorBySession.get(sid) ?? 0, event.sequence))
+        if (event.type.startsWith('lifecycle.') && !shouldShowLifecycleStage(event.type)) {
+          saveCache(sid, get())
+          return
         }
-      })
-      scheduleCacheSave(sid, get)
-    }))
+        const shouldApplyToVisibleState = !mirroredRealtimeEventTypes.has(event.type)
+        if (!shouldApplyToVisibleState) return
+        set((state) => {
+          const events = [...state.events.filter((e) => e.id !== event.id), event]
+            .sort((a, b) => a.sequence - b.sequence)
+            .slice(-1000)
+          const reduced = applySessionEvent(reducedStateFromStore(state), event)
+          return { events, ...partialFromReduced(reduced) }
+        })
+        saveCache(sid, get())
+      }),
+    )
 
-    offs.push(wsClient.on('session:update', (msg) => {
-      const sid = msg.sessionId as string
-      const curSid = get().currentSessionId
-      const data = msg.data as Record<string, unknown>
-      const isLifecycle = typeof data.eventType === 'string' && data.eventType.startsWith('lifecycle.')
-      if (sid !== curSid) return
+    offs.push(
+      wsClient.on('session:process_item', (msg) => {
+        const sid = msg.sessionId as string
+        if (sid !== get().currentSessionId) return
+        const item = msg.item as TurnProcessItemInfo
+        const block = turnFromProcessItems(item.message_id, [item]).processBlocks[0]
+        if (!block) return
+        set((state) => {
+          const streamingBase = streamingBaseForProcessItem(
+            state.streamingMessage,
+            item,
+            !!state.runningSessionIds[sid],
+          )
+          const streaming =
+            streamingBase?.id === item.message_id
+              ? mergeProcessBlockIntoStreaming(streamingBase, block)
+              : state.streamingMessage
+          return {
+            streamingMessage: streaming,
+            messages: state.messages.map((message) => {
+              if (message.id !== item.message_id || message.session_id !== sid) return message
+              const processBlocks = mergeProcessBlock(message.processBlocks || [], block)
+              return {
+                ...message,
+                processBlocks,
+                process_item_count: processBlocks.filter((processBlock) => processBlock.kind !== 'stage').length,
+              }
+            }),
+          }
+        })
+        scheduleCacheSave(sid, get)
+      }),
+    )
 
-      if (isLifecycle) {
-        if (!shouldShowLifecycleStage(data.eventType as string)) {
+    offs.push(
+      wsClient.on('session:update', (msg) => {
+        const sid = msg.sessionId as string
+        const curSid = get().currentSessionId
+        const data = msg.data as Record<string, unknown>
+        const isLifecycle = typeof data.eventType === 'string' && data.eventType.startsWith('lifecycle.')
+        if (sid !== curSid) return
+
+        if (isLifecycle) {
+          if (!shouldShowLifecycleStage(data.eventType as string)) {
+            scheduleCacheSave(sid, get)
+            return
+          }
+          const stage = String(data.content || '')
           set((state) => {
             const cur = state.streamingMessage
-            if (!cur || cur.content || cur.thinking || cur.toolCalls.length > 0) return {}
-            return { streamingMessage: null }
+            const base: StreamingMessage =
+              cur || createEmptyTurn(String(data.messageId || `stream-${sid}-${Date.now()}`))
+            return { streamingMessage: applyTurnEntry(base, { kind: 'stage', text: stage }) }
           })
           scheduleCacheSave(sid, get)
           return
         }
-        const stage = String(data.content || '')
-        set((state) => {
-          const cur = state.streamingMessage
-          const base: StreamingMessage = cur || createEmptyTurn(String(data.messageId || `stream-${sid}-${Date.now()}`))
-          return { streamingMessage: applyTurnEntry(base, { kind: 'stage', text: stage }) }
-        })
-        scheduleCacheSave(sid, get)
-        return
-      }
-      if (data.eventType === 'permission.result' || data.eventType === 'elicitation.result') return
-      if (data.usage) { const u = data.usage as UsageInfo; set({ usage: u }); saveCache(sid, get()); return }
-      if (data.plan) { set({ plan: data.plan as PlanEntry[] }); saveCache(sid, get()); return }
-      if (data.configOptions) { set(s => ({ capabilities: capabilitiesFromConfig(s.capabilities, data.configOptions as ConfigOptionInfo[]) })); saveCache(sid, get()); return }
-      if (data.commands) { set(s => ({ capabilities: { ...s.capabilities, commands: data.commands as AvailableCommandInfo[] } })); saveCache(sid, get()); return }
-      if (data.permissionRequest) { const req = data.permissionRequest as PermissionRequestInfo; set(s => ({ pendingPermissions: [...s.pendingPermissions.filter(p => p.id !== req.id), req] })); saveCache(sid, get()); return }
-      if (data.elicitationRequest) { const req = data.elicitationRequest as ElicitationRequestInfo; set(s => ({ pendingElicitations: [...s.pendingElicitations.filter(p => p.id !== req.id), req] })); saveCache(sid, get()); return }
-
-      if (data.contentDelta || data.thinking || data.toolCall || data.toolCallUpdate) {
-        const messageId = typeof data.messageId === 'string' ? data.messageId : undefined
-        if (!data.contentDelta && hasCanonicalProcessBlock(get().streamingMessage, messageId, data)) return
-        streamingBuffer.push({
-          messageId,
-          contentDelta: typeof data.contentDelta === 'string' ? data.contentDelta : undefined,
-          thinking: typeof data.thinking === 'string' ? data.thinking : undefined,
-          toolCall: data.toolCall as ToolCallInfo | undefined,
-          toolCallUpdate: data.toolCallUpdate as ToolCallInfo | undefined,
-        })
-        scheduleStreamingFlush(set, get)
-      }
-    }))
-
-    offs.push(wsClient.on('session:done', (msg) => {
-      const sid = msg.sessionId as string
-      if (sid !== get().currentSessionId) {
-        clearCachedStreaming(sid)
-        set((st) => ({
-          runningSessionIds: removeSessionIndicator(st.runningSessionIds, sid),
-          unreadSessionIds: { ...st.unreadSessionIds, [sid]: true },
-          staleSessionIds: { ...st.staleSessionIds, [sid]: true },
-        }))
-        return
-      }
-      flushStreamingBuffer(set, get)
-      set((st) => ({ staleSessionIds: { ...st.staleSessionIds, [sid]: true } }))
-      const tu = msg.turnUsage as TurnUsageInfo | undefined
-      const cost = get().usage?.costAmount
-      const elapsed = promptStartTime > 0 ? Math.round((Date.now() - promptStartTime) / 1000) : undefined
-      promptStartTime = 0
-
-      const s = get().streamingMessage || lastStreamingSnapshot
-      lastStreamingSnapshot = null
-
-      const turnStats = tu ? JSON.stringify({ ...tu, costAmount: cost, elapsedSeconds: elapsed }) : null
-
-      if (turnHasFinalizableContent(s)) {
-        const finalizedToolCalls = s.toolCalls.map(tc =>
-          (tc.status === 'pending' || tc.status === 'in_progress') ? { ...tc, status: 'completed' } : tc
-        )
-        const finalizedProcessBlocks = processBlocksForCompletedTurn(s).map(block =>
-          block.kind === 'tool'
-            ? {
-                ...block,
-                toolCall: (block.toolCall.status === 'pending' || block.toolCall.status === 'in_progress')
-                  ? { ...block.toolCall, status: 'completed' }
-                  : block.toolCall,
-              }
-            : block,
-        )
-        const newMsg: MessageData = {
-          id: s.id, session_id: sid, role: 'agent', content: s.finalAnswer,
-          thinking: s.thinking || null,
-          tool_calls_json: finalizedToolCalls.length > 0 ? JSON.stringify(finalizedToolCalls) : null,
-          decision_json: turnStats, attachments_json: null,
-          file_changes_json: null,
-          timestamp: new Date().toISOString(),
-          processBlocks: finalizedProcessBlocks,
-          finalAnswer: s.finalAnswer,
-          processDefaultOpen: undefined,
+        if (data.eventType === 'permission.result' || data.eventType === 'elicitation.result') return
+        if (data.usage) {
+          const u = data.usage as UsageInfo
+          set({ usage: u })
+          saveCache(sid, get())
+          return
         }
-        set(st => ({
-          messages: appendFinalizedMessage(st.messages, newMsg),
-          streamingMessage: null, turnUsage: tu || st.turnUsage, plan: clearPlanOnTurnDone(),
-        }))
-      } else {
-        const error = typeof msg.error === 'string' ? msg.error : ''
-        const finalMessage = error
-          ? buildErrorAgentMessage(sid, String(msg.messageId || `error-${Date.now()}`), error)
-          : buildCompletedAgentMessage(sid, get().events, tu, cost, elapsed)
-        if (finalMessage) {
-          if (turnStats && !finalMessage.decision_json) finalMessage.decision_json = turnStats
-          set(st => ({
-            messages: appendFinalizedMessage(st.messages, finalMessage),
-            streamingMessage: null, turnUsage: tu || st.turnUsage, plan: clearPlanOnTurnDone(),
+        if (data.plan) {
+          set({ plan: data.plan as PlanEntry[] })
+          saveCache(sid, get())
+          return
+        }
+        if (data.configOptions) {
+          set((s) => ({
+            capabilities: capabilitiesFromConfig(s.capabilities, data.configOptions as ConfigOptionInfo[]),
           }))
-        } else {
-          set(st => ({
+          saveCache(sid, get())
+          return
+        }
+        if (data.commands) {
+          set((s) => ({ capabilities: { ...s.capabilities, commands: data.commands as AvailableCommandInfo[] } }))
+          saveCache(sid, get())
+          return
+        }
+        if (data.permissionRequest) {
+          const req = data.permissionRequest as PermissionRequestInfo
+          set((s) => ({ pendingPermissions: [...s.pendingPermissions.filter((p) => p.id !== req.id), req] }))
+          saveCache(sid, get())
+          return
+        }
+        if (data.elicitationRequest) {
+          const req = data.elicitationRequest as ElicitationRequestInfo
+          set((s) => ({ pendingElicitations: [...s.pendingElicitations.filter((p) => p.id !== req.id), req] }))
+          saveCache(sid, get())
+          return
+        }
+
+        if (data.contentDelta || data.thinking || data.toolCall || data.toolCallUpdate) {
+          const messageId = typeof data.messageId === 'string' ? data.messageId : undefined
+          if (!data.contentDelta && hasCanonicalProcessBlock(get().streamingMessage, messageId, data)) return
+          streamingBuffer.push({
+            messageId,
+            contentDelta: typeof data.contentDelta === 'string' ? data.contentDelta : undefined,
+            thinking: typeof data.thinking === 'string' ? data.thinking : undefined,
+            toolCall: data.toolCall as ToolCallInfo | undefined,
+            toolCallUpdate: data.toolCallUpdate as ToolCallInfo | undefined,
+          })
+          scheduleStreamingFlush(set, get)
+        }
+      }),
+    )
+
+    offs.push(
+      wsClient.on('session:done', (msg) => {
+        const sid = msg.sessionId as string
+        if (sid !== get().currentSessionId) {
+          clearCachedStreaming(sid)
+          set((st) => ({
+            runningSessionIds: removeSessionIndicator(st.runningSessionIds, sid),
+            unreadSessionIds: { ...st.unreadSessionIds, [sid]: true },
+            staleSessionIds: { ...st.staleSessionIds, [sid]: true },
+          }))
+          return
+        }
+        flushStreamingBuffer(set, get)
+        set((st) => ({ staleSessionIds: { ...st.staleSessionIds, [sid]: true } }))
+        const tu = msg.turnUsage as TurnUsageInfo | undefined
+        const cost = get().usage?.costAmount
+        const elapsed = promptStartTime > 0 ? Math.round((Date.now() - promptStartTime) / 1000) : undefined
+        promptStartTime = 0
+
+        const s = get().streamingMessage || lastStreamingSnapshot
+        lastStreamingSnapshot = null
+
+        const turnStats = tu ? JSON.stringify({ ...tu, costAmount: cost, elapsedSeconds: elapsed }) : null
+
+        if (turnHasFinalizableContent(s)) {
+          const finalizedToolCalls = s.toolCalls.map((tc) =>
+            tc.status === 'pending' || tc.status === 'in_progress' ? { ...tc, status: 'completed' } : tc,
+          )
+          const finalizedProcessBlocks = processBlocksForCompletedTurn(s).map((block) =>
+            block.kind === 'tool'
+              ? {
+                  ...block,
+                  toolCall:
+                    block.toolCall.status === 'pending' || block.toolCall.status === 'in_progress'
+                      ? { ...block.toolCall, status: 'completed' }
+                      : block.toolCall,
+                }
+              : block,
+          )
+          const newMsg: MessageData = {
+            id: s.id,
+            session_id: sid,
+            role: 'agent',
+            content: s.finalAnswer,
+            thinking: s.thinking || null,
+            tool_calls_json: finalizedToolCalls.length > 0 ? JSON.stringify(finalizedToolCalls) : null,
+            decision_json: turnStats,
+            attachments_json: null,
+            file_changes_json: null,
+            timestamp: new Date().toISOString(),
+            processBlocks: finalizedProcessBlocks,
+            finalAnswer: s.finalAnswer,
+            processDefaultOpen: undefined,
+          }
+          set((st) => ({
+            messages: appendFinalizedMessage(st.messages, newMsg),
             streamingMessage: null,
             turnUsage: tu || st.turnUsage,
             plan: clearPlanOnTurnDone(),
           }))
+        } else {
+          const error = typeof msg.error === 'string' ? msg.error : ''
+          const finalMessage = error
+            ? buildErrorAgentMessage(sid, String(msg.messageId || `error-${Date.now()}`), error)
+            : buildCompletedAgentMessage(sid, get().events, tu, cost, elapsed)
+          if (finalMessage) {
+            if (turnStats && !finalMessage.decision_json) finalMessage.decision_json = turnStats
+            set((st) => ({
+              messages: appendFinalizedMessage(st.messages, finalMessage),
+              streamingMessage: null,
+              turnUsage: tu || st.turnUsage,
+              plan: clearPlanOnTurnDone(),
+            }))
+          } else {
+            set((st) => ({
+              streamingMessage: null,
+              turnUsage: tu || st.turnUsage,
+              plan: clearPlanOnTurnDone(),
+            }))
+          }
         }
-      }
-      saveCache(sid, get())
-      void get().fetchMessages(sid)
-    }))
+        saveCache(sid, get())
+        void get().fetchMessages(sid)
+      }),
+    )
 
-    offs.push(wsClient.on('session:capabilities', (msg) => {
-      const sid = msg.sessionId as string; if (sid !== get().currentSessionId) return
-      const c = msg.capabilities as Partial<SessionCapabilities>
-      set(st => {
-        const merged = {
-          ...st.capabilities,
-          models: c.models || st.capabilities.models, currentModelId: c.currentModelId || st.capabilities.currentModelId,
-          modes: c.modes || st.capabilities.modes, currentModeId: c.currentModeId || st.capabilities.currentModeId,
-          supportsImages: c.supportsImages ?? st.capabilities.supportsImages, supportsAudio: c.supportsAudio ?? st.capabilities.supportsAudio,
-          configOptions: c.configOptions || st.capabilities.configOptions, commands: c.commands || st.capabilities.commands, sessionInfo: c.sessionInfo || st.capabilities.sessionInfo,
+    offs.push(
+      wsClient.on('session:capabilities', (msg) => {
+        const sid = msg.sessionId as string
+        if (sid !== get().currentSessionId) return
+        const c = msg.capabilities as Partial<SessionCapabilities>
+        set((st) => {
+          const merged = {
+            ...st.capabilities,
+            models: c.models || st.capabilities.models,
+            currentModelId: c.currentModelId || st.capabilities.currentModelId,
+            modes: c.modes || st.capabilities.modes,
+            currentModeId: c.currentModeId || st.capabilities.currentModeId,
+            supportsImages: c.supportsImages ?? st.capabilities.supportsImages,
+            supportsAudio: c.supportsAudio ?? st.capabilities.supportsAudio,
+            configOptions: c.configOptions || st.capabilities.configOptions,
+            commands: c.commands || st.capabilities.commands,
+            sessionInfo: c.sessionInfo || st.capabilities.sessionInfo,
+          }
+          saveCache(sid, { ...st, capabilities: merged })
+          return { capabilities: merged }
+        })
+      }),
+    )
+
+    offs.push(
+      wsClient.on('session:changed', (msg) => {
+        const sessionId = msg.sessionId as string
+        const data = msg.data as Partial<SessionData> & { event?: string; deleted?: boolean }
+        if (data.deleted || data.event === 'deleted') {
+          sessionCaches.delete(sessionId)
+          set((st) => ({
+            sessions: st.sessions.filter((s) => s.id !== sessionId),
+            currentSessionId: st.currentSessionId === sessionId ? null : st.currentSessionId,
+            messages: st.currentSessionId === sessionId ? [] : st.messages,
+            events: st.currentSessionId === sessionId ? [] : st.events,
+            streamingMessage: st.currentSessionId === sessionId ? null : st.streamingMessage,
+            turnProcessLoadingByMessageId: st.currentSessionId === sessionId ? {} : st.turnProcessLoadingByMessageId,
+            turnProcessErrorByMessageId: st.currentSessionId === sessionId ? {} : st.turnProcessErrorByMessageId,
+            processItemLoadingByKey: st.currentSessionId === sessionId ? {} : st.processItemLoadingByKey,
+            processItemErrorByKey: st.currentSessionId === sessionId ? {} : st.processItemErrorByKey,
+            runningSessionIds: removeSessionIndicator(st.runningSessionIds, sessionId),
+            unreadSessionIds: removeSessionIndicator(st.unreadSessionIds, sessionId),
+            staleSessionIds: removeSessionIndicator(st.staleSessionIds, sessionId),
+          }))
+          return
         }
-        saveCache(sid, { ...st, capabilities: merged })
-        return { capabilities: merged }
-      })
-    }))
-
-    offs.push(wsClient.on('session:changed', (msg) => {
-      const sessionId = msg.sessionId as string
-      const data = msg.data as Partial<SessionData> & { event?: string; deleted?: boolean }
-      if (data.deleted || data.event === 'deleted') {
-        sessionCaches.delete(sessionId)
-        set(st => ({
-          sessions: st.sessions.filter(s => s.id !== sessionId),
-          currentSessionId: st.currentSessionId === sessionId ? null : st.currentSessionId,
-          messages: st.currentSessionId === sessionId ? [] : st.messages,
-          events: st.currentSessionId === sessionId ? [] : st.events,
-          streamingMessage: st.currentSessionId === sessionId ? null : st.streamingMessage,
-          turnProcessLoadingByMessageId: st.currentSessionId === sessionId ? {} : st.turnProcessLoadingByMessageId,
-          turnProcessErrorByMessageId: st.currentSessionId === sessionId ? {} : st.turnProcessErrorByMessageId,
-          processItemLoadingByKey: st.currentSessionId === sessionId ? {} : st.processItemLoadingByKey,
-          processItemErrorByKey: st.currentSessionId === sessionId ? {} : st.processItemErrorByKey,
-          runningSessionIds: removeSessionIndicator(st.runningSessionIds, sessionId),
-          unreadSessionIds: removeSessionIndicator(st.unreadSessionIds, sessionId),
-          staleSessionIds: removeSessionIndicator(st.staleSessionIds, sessionId),
-        }))
-        return
-      }
-      set(st => {
-        const incomingProjectId = data.project_id as string | null | undefined
-        const inCurrentScope = !activeSessionsProjectId || incomingProjectId === undefined || incomingProjectId === activeSessionsProjectId
-        if (!inCurrentScope) return { sessions: st.sessions.filter(s => s.id !== sessionId) }
-        const sourceSessionId = st.copyingTargetSessionIds[sessionId]
-        const copyDone = !!sourceSessionId && !isCopyingSession(data)
-        const copyState = copyDone
-          ? {
-              copyingTargetSessionIds: withoutKey(st.copyingTargetSessionIds, sessionId),
-              copyingSourceSessionIds: withoutKey(st.copyingSourceSessionIds, sourceSessionId),
+        set((st) => {
+          const incomingProjectId = data.project_id as string | null | undefined
+          const inCurrentScope =
+            !activeSessionsProjectId || incomingProjectId === undefined || incomingProjectId === activeSessionsProjectId
+          if (!inCurrentScope) return { sessions: st.sessions.filter((s) => s.id !== sessionId) }
+          const sourceSessionId = st.copyingTargetSessionIds[sessionId]
+          const copyDone = !!sourceSessionId && !isCopyingSession(data)
+          const copyState = copyDone
+            ? {
+                copyingTargetSessionIds: withoutKey(st.copyingTargetSessionIds, sessionId),
+                copyingSourceSessionIds: withoutKey(st.copyingSourceSessionIds, sourceSessionId),
+              }
+            : {}
+          if (st.sessions.some((s) => s.id === sessionId)) {
+            const isCurrent = st.currentSessionId === sessionId
+            // 仅 last_read_at 变化且是当前会话:不替换 sessions 数组引用,
+            // 避免 ContextPanel 等 effect 因 sessions 引用变更而重触发 → 又调 selectSession → markRead 死循环。
+            // 服务端 markRead 后 broadcastToAll 的 session:changed 就走这条短路。
+            if (
+              isCurrent &&
+              data.last_read_at &&
+              Object.keys(data).every((k) => k === 'last_read_at' || k === 'event')
+            ) {
+              return {
+                ...copyState,
+              }
             }
-          : {}
-        if (st.sessions.some(s => s.id === sessionId)) {
-          const isCurrent = st.currentSessionId === sessionId
-          // 仅 last_read_at 变化且是当前会话:不替换 sessions 数组引用,
-          // 避免 ContextPanel 等 effect 因 sessions 引用变更而重触发 → 又调 selectSession → markRead 死循环。
-          // 服务端 markRead 后 broadcastToAll 的 session:changed 就走这条短路。
-          if (isCurrent && data.last_read_at && Object.keys(data).every(k => k === 'last_read_at' || k === 'event')) {
+            const mergedSession = { ...st.sessions.find((s) => s.id === sessionId)!, ...data } as SessionData
+            const nextUnread = data.last_read_at
+              ? isCurrent
+                ? false
+                : isSessionUnreadByTimestamps(mergedSession)
+              : st.unreadSessionIds[sessionId]
+                ? true
+                : false
+            const unreadSessionIds = nextUnread
+              ? { ...st.unreadSessionIds, [sessionId]: true as const }
+              : removeSessionIndicator(st.unreadSessionIds, sessionId)
             return {
+              sessions: st.sessions.map((s) => (s.id === sessionId ? mergedSession : s)),
+              unreadSessionIds,
               ...copyState,
             }
           }
-          const mergedSession = { ...st.sessions.find(s => s.id === sessionId)!, ...data } as SessionData
-          const nextUnread = data.last_read_at
-            ? (isCurrent ? false : isSessionUnreadByTimestamps(mergedSession))
-            : st.unreadSessionIds[sessionId] ? true : false
-          const unreadSessionIds = nextUnread
-            ? { ...st.unreadSessionIds, [sessionId]: true as const }
-            : removeSessionIndicator(st.unreadSessionIds, sessionId)
-          return {
-            sessions: st.sessions.map(s => s.id === sessionId ? mergedSession : s),
-            unreadSessionIds,
-            ...copyState,
+          if (
+            isCompleteSessionData(data, sessionId) &&
+            (!activeSessionsProjectId || data.project_id === activeSessionsProjectId)
+          ) {
+            return { sessions: [...st.sessions, data], ...copyState }
           }
-        }
-        if (isCompleteSessionData(data, sessionId) && (!activeSessionsProjectId || data.project_id === activeSessionsProjectId)) {
-          return { sessions: [...st.sessions, data], ...copyState }
-        }
-        return { sessions: st.sessions }
-      })
-    }))
+          return { sessions: st.sessions }
+        })
+      }),
+    )
 
-    offs.push(wsClient.on('session:copy_failed', (msg) => {
-      const sourceSessionId = String(msg.sourceSessionId || '')
-      const targetSessionId = String(msg.targetSessionId || '')
-      const message = String(msg.message || '复制会话失败')
-      if (!sourceSessionId || !targetSessionId) return
-      const shouldSelectSource = get().currentSessionId === targetSessionId
-      sessionCaches.delete(targetSessionId)
-      set(st => ({
-        sessions: st.sessions.filter((session) => session.id !== targetSessionId),
-        messages: st.currentSessionId === targetSessionId ? [] : st.messages,
-        events: st.currentSessionId === targetSessionId ? [] : st.events,
-        streamingMessage: st.currentSessionId === targetSessionId ? null : st.streamingMessage,
-        copyingTargetSessionIds: withoutKey(st.copyingTargetSessionIds, targetSessionId),
-        copyingSourceSessionIds: withoutKey(st.copyingSourceSessionIds, sourceSessionId),
-        lastCopyError: { sourceSessionId, targetSessionId, message },
-      }))
-      if (shouldSelectSource) get().selectSession(sourceSessionId)
-    }))
+    offs.push(
+      wsClient.on('session:copy_failed', (msg) => {
+        const sourceSessionId = String(msg.sourceSessionId || '')
+        const targetSessionId = String(msg.targetSessionId || '')
+        const message = String(msg.message || '复制会话失败')
+        if (!sourceSessionId || !targetSessionId) return
+        const shouldSelectSource = get().currentSessionId === targetSessionId
+        sessionCaches.delete(targetSessionId)
+        set((st) => ({
+          sessions: st.sessions.filter((session) => session.id !== targetSessionId),
+          messages: st.currentSessionId === targetSessionId ? [] : st.messages,
+          events: st.currentSessionId === targetSessionId ? [] : st.events,
+          streamingMessage: st.currentSessionId === targetSessionId ? null : st.streamingMessage,
+          copyingTargetSessionIds: withoutKey(st.copyingTargetSessionIds, targetSessionId),
+          copyingSourceSessionIds: withoutKey(st.copyingSourceSessionIds, sourceSessionId),
+          lastCopyError: { sourceSessionId, targetSessionId, message },
+        }))
+        if (shouldSelectSource) get().selectSession(sourceSessionId)
+      }),
+    )
 
-    offs.push(wsClient.on('session:activity', (msg) => {
-      const sessionId = typeof msg.sessionId === 'string' ? msg.sessionId : ''
-      if (!sessionId) return
-      const state = msg.state === 'running' ? 'running' : 'idle'
-      if (state === 'idle') clearCachedStreaming(sessionId)
-      const isCurrent = sessionId === get().currentSessionId
-      if (state === 'idle' && isCurrent) flushStreamingBuffer(set, get)
-      set((st) => ({
-        ...applySessionActivity(st.runningSessionIds, st.unreadSessionIds, st.staleSessionIds, sessionId, state, st.currentSessionId),
-        streamingMessage: state === 'idle' && st.currentSessionId === sessionId ? null : st.streamingMessage,
-      }))
-      if (state === 'idle' && isCurrent) {
-        void get().fetchMessages(sessionId)
-      }
-    }))
+    offs.push(
+      wsClient.on('session:activity', (msg) => {
+        const sessionId = typeof msg.sessionId === 'string' ? msg.sessionId : ''
+        if (!sessionId) return
+        const state = msg.state === 'running' ? 'running' : 'idle'
+        if (state === 'idle') clearCachedStreaming(sessionId)
+        const isCurrent = sessionId === get().currentSessionId
+        if (state === 'idle' && isCurrent) flushStreamingBuffer(set, get)
+        set((st) => ({
+          ...applySessionActivity(
+            st.runningSessionIds,
+            st.unreadSessionIds,
+            st.staleSessionIds,
+            sessionId,
+            state,
+            st.currentSessionId,
+          ),
+          streamingMessage: state === 'idle' && st.currentSessionId === sessionId ? null : st.streamingMessage,
+        }))
+        if (state === 'idle' && isCurrent) {
+          void get().fetchMessages(sessionId)
+        }
+      }),
+    )
 
     listenersSetup = true
-    cleanupFn = () => { offs.forEach(f => f()); listenersSetup = false; cleanupFn = null }
+    cleanupFn = () => {
+      offs.forEach((f) => f())
+      listenersSetup = false
+      cleanupFn = null
+    }
     return cleanupFn
   },
 }))
 
 function isCompleteSessionData(data: Partial<SessionData>, sessionId: string): data is SessionData {
-  return data.id === sessionId &&
+  return (
+    data.id === sessionId &&
     typeof data.agent_id === 'string' &&
     typeof data.status === 'string' &&
     typeof data.stage === 'string' &&
@@ -1457,4 +1838,5 @@ function isCompleteSessionData(data: Partial<SessionData>, sessionId: string): d
     (data.acp_session_id === null || typeof data.acp_session_id === 'string') &&
     (data.closed_at === null || typeof data.closed_at === 'string') &&
     (data.project_id === undefined || data.project_id === null || typeof data.project_id === 'string')
+  )
 }

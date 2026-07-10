@@ -3,6 +3,7 @@ import type { StepArtifact } from '../../core/task-steps.js'
 import { taskStore } from '../../store/tasks.js'
 import { emitTaskLifecycleEvent, resolveSessionMode, taskManager } from '../../core/tasks.js'
 import { taskStepManager } from '../../core/task-steps.js'
+import { reportStepAndDispatch } from '../../core/task-step-report.js'
 import { events } from '../../core/events.js'
 import { createChildLogger } from '../../core/logger.js'
 import { requireStr, optStr, errResult, assertProjectAccess } from './studio-task-crud-tools.js'
@@ -182,12 +183,13 @@ export const studioTaskReportHandler: ToolHandler = {
     try { assertProjectAccess(task, context?.projectId) } catch (e) { return errResult((e as Error).message) }
 
     if (stepId) {
+      if (!reportMd) return errResult('stepId 汇报必须传 reportMd')
       try {
-        const result = taskStepManager.reportStep({
+        const result = await reportStepAndDispatch({
           taskId,
           stepId,
           agentStatus,
-          reportMd: reportMd ?? '',
+          reportMd,
           artifacts,
           agentId: context?.agentId,
           sessionId: context?.sessionId,
@@ -200,6 +202,8 @@ export const studioTaskReportHandler: ToolHandler = {
               stepId,
               newStatus: result.newStatus,
               unlockedSteps: result.unlockedSteps,
+              dispatchedSteps: result.dispatchedSteps,
+              dispatchFailure: result.dispatchFailure,
               taskCompleted: result.taskCompleted,
               taskStatus: taskStore.get(taskId)?.status,
             }, null, 2),

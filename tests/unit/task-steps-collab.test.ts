@@ -5,11 +5,13 @@ import { resolve } from 'node:path'
 import { initDatabase, closeDatabase } from '../../src/store/db.js'
 import { projectStore } from '../../src/store/projects.js'
 import { agentStore } from '../../src/store/agents.js'
-import { sessionStore } from '../../src/store/sessions.js'
+import { messageStore, sessionStore } from '../../src/store/sessions.js'
 import { taskStore, taskEventStore } from '../../src/store/tasks.js'
-import { taskStepStore, detectCycle } from '../../src/store/task-steps.js'
+import { taskStepStore, detectCycle, type TaskStepRow } from '../../src/store/task-steps.js'
 import { taskStepManager, buildStepPrompt } from '../../src/core/task-steps.js'
+import { reportStepAndDispatch } from '../../src/core/task-step-report.js'
 import { sessionManager } from '../../src/core/sessions.js'
+import { taskRpcHandlers } from '../../src/gateway/rpc/tasks.js'
 import { getHandler } from '../../src/tools/handlers/index.js'
 import type { ToolHandlerResult } from '../../src/tools/types.js'
 
@@ -39,6 +41,26 @@ async function executeJson(
   return JSON.parse(result.content[0]?.text ?? '{}') as Record<string, unknown>
 }
 
+async function callTaskRpc(type: string, msg: Record<string, unknown>): Promise<unknown> {
+  let result: unknown
+  await taskRpcHandlers[type](
+    msg as never,
+    {
+      state: { subscriptions: new Set() },
+      sendResult: (data) => {
+        result = data
+      },
+      sendError: (message) => {
+        throw new Error(message)
+      },
+      sendOutOfBandError: (message) => {
+        throw new Error(message)
+      },
+    },
+  )
+  return result
+}
+
 function expectError(result: ToolHandlerResult, messageFragment?: string): Record<string, unknown> {
   if (!result.isError) throw new Error('expected error result, got success')
   const parsed = JSON.parse(result.content[0]?.text ?? '{}') as Record<string, unknown>
@@ -48,7 +70,10 @@ function expectError(result: ToolHandlerResult, messageFragment?: string): Recor
   return parsed
 }
 
-function setupProject(): { project: ReturnType<typeof projectStore.create>; agents: ReturnType<typeof agentStore.create>[] } {
+function setupProject(): {
+  project: ReturnType<typeof projectStore.create>
+  agents: ReturnType<typeof agentStore.create>[]
+} {
   const project = projectStore.create({ name: 'P', workDir: tmp })
   const pm = agentStore.create({ name: 'PM', type: 'leader', runtime: 'mock', projectId: project.id })
   const devA = agentStore.create({ name: 'DevA', type: 'dev', runtime: 'mock', projectId: project.id })
@@ -59,6 +84,29 @@ function setupProject(): { project: ReturnType<typeof projectStore.create>; agen
 
 function createTaskRow(title: string, projectId: string): ReturnType<typeof taskStore.create> {
   return taskStore.create({ title, source: 'agent', projectId })
+}
+
+async function setupRunningTwoStepChain(
+  projectId: string,
+  firstAssignee: string,
+  nextAssignee: string,
+): Promise<{ task: ReturnType<typeof taskStore.create>; firstStep: TaskStepRow; nextStep: TaskStepRow }> {
+  const task = createTaskRow('两个 step', projectId)
+  const first = taskStepManager.addStep({ taskId: task.id, title: 's1', assignee: firstAssignee })
+  const next = taskStepManager.addStep({
+    taskId: task.id,
+    title: 's2',
+    assignee: nextAssignee,
+    dependsOn: [first.step.id],
+  })
+  taskStore.updateStatus(task.id, 'running', '已启动')
+  taskStepStore.updateStatus(first.step.id, 'ready')
+  await taskStepManager.dispatchStep(task.id, first.step.id)
+  return {
+    task,
+    firstStep: taskStepStore.get(first.step.id)!,
+    nextStep: taskStepStore.get(next.step.id)!,
+  }
 }
 
 describe('studio.task.createSimple - 简单任务创建', () => {
@@ -84,7 +132,66 @@ describe('studio.task.createSimple - 简单任务创建', () => {
     expect(steps[0].assignee_agent_id).toBe(devA.id)
 
     const events = taskEventStore.list(task.id)
-    expect(events.some(e => e.type === 'step_added')).toBe(true)
+    expect(events.some((e) => e.type === 'step_added')).toBe(true)
+  })
+})
+
+describe('studio.task.create selfExecute - 对话任务化', () => {
+  test('selfExecute=true 创建默认 step 并复用当前会话且不注入 prompt', async () => {
+    const { project, agents } = setupProject()
+    const [pm] = agents
+    const session = sessionStore.create({ agentId: pm.id, projectId: project.id })
+
+    const created = await executeJson(
+      'studio.task.create',
+      { title: '修 README typo', description: 'README 中 ai-ide-studio 拼写错误', selfExecute: true },
+      { projectId: project.id, agentId: pm.id, sessionId: session.id },
+    )
+
+    expect(created.taskId).toBeTruthy()
+    expect(created.defaultStepId).toBeTruthy()
+    expect(created.status).toBe('running')
+    expect(created.sessionId).toBe(session.id)
+
+    const task = taskStore.get(created.taskId as string)!
+    expect(task.status).toBe('running')
+    expect(task.assigned_agent_id).toBe(pm.id)
+    expect(task.agent_report_status).toBe('in_progress')
+
+    const steps = taskStepStore.listByTask(task.id)
+    expect(steps).toHaveLength(1)
+    expect(steps[0]).toMatchObject({
+      id: created.defaultStepId,
+      title: '修 README typo',
+      description: 'README 中 ai-ide-studio 拼写错误',
+      status: 'running',
+      assignee_agent_id: pm.id,
+      session_id: session.id,
+    })
+    expect(taskStepStore.listDependencies(steps[0].id)).toEqual([])
+    expect(taskStore.listSessionIds(task.id)).toEqual([session.id])
+    expect(messageStore.list(session.id)).toEqual([])
+  })
+
+  test('selfExecute=false 创建 draft 空壳且不建 step', async () => {
+    const { project, agents } = setupProject()
+    const [pm] = agents
+
+    const created = await executeJson(
+      'studio.task.create',
+      { title: '编排协作任务', description: '先设计再开发', selfExecute: false },
+      { projectId: project.id, agentId: pm.id, sessionId: 'sess-pm' },
+    )
+
+    expect(created.taskId).toBeTruthy()
+    expect(created.defaultStepId).toBeUndefined()
+    expect(created.status).toBe('draft')
+
+    const task = taskStore.get(created.taskId as string)!
+    expect(task.status).toBe('draft')
+    expect(task.assigned_agent_id).toBeNull()
+    expect(taskStepStore.listByTask(task.id)).toEqual([])
+    expect(taskStore.listSessionIds(task.id)).toEqual([])
   })
 })
 
@@ -124,7 +231,7 @@ describe('studio.task.create + step.add + task.start - 协作编排', () => {
 
     const stepsBefore = taskStepStore.listByTask(taskId)
     expect(stepsBefore).toHaveLength(4)
-    expect(stepsBefore.every(s => s.status === 'pending')).toBe(true)
+    expect(stepsBefore.every((s) => s.status === 'pending')).toBe(true)
 
     const started = await executeJson('studio.task.start', { taskId }, { projectId: project.id })
     expect(started.status).toBe('running')
@@ -149,7 +256,7 @@ describe('report(done) 解锁下游 - 并行派发', () => {
     taskStepStore.updateStatus(r1.step.id, 'ready')
     await taskStepManager.dispatchStep(task.id, r1.step.id)
 
-    const result = taskStepManager.reportStep({
+    const result = await reportStepAndDispatch({
       taskId: task.id,
       stepId: r1.step.id,
       agentStatus: 'done',
@@ -159,8 +266,88 @@ describe('report(done) 解锁下游 - 并行派发', () => {
 
     expect(result.newStatus).toBe('done')
     expect(result.unlockedSteps.sort()).toEqual([r2.step.id, r3.step.id].sort())
-    expect(taskStepStore.get(r2.step.id)?.status).toBe('ready')
-    expect(taskStepStore.get(r3.step.id)?.status).toBe('ready')
+    expect(result.dispatchedSteps.sort()).toEqual([r2.step.id, r3.step.id].sort())
+    expect(taskStepStore.get(r2.step.id)?.status).toBe('running')
+    expect(taskStepStore.get(r3.step.id)?.status).toBe('running')
+  })
+
+  test('studio.task.report with stepId done auto-dispatches unlocked downstream step', async () => {
+    const { project, agents } = setupProject()
+    const [pm, devA] = agents
+    const { task, firstStep, nextStep } = await setupRunningTwoStepChain(project.id, pm.id, devA.id)
+
+    const result = await executeJson(
+      'studio.task.report',
+      { taskId: task.id, stepId: firstStep.id, agentStatus: 'done', reportMd: 's1 done' },
+      { projectId: project.id, agentId: pm.id },
+    )
+
+    expect(result.unlockedSteps).toEqual([nextStep.id])
+    expect(result.dispatchedSteps).toEqual([nextStep.id])
+    expect(taskStepStore.get(nextStep.id)?.status).toBe('running')
+  })
+
+  test('studio.task.report with stepId requires reportMd', async () => {
+    const { project, agents } = setupProject()
+    const [pm, devA] = agents
+    const { task, firstStep } = await setupRunningTwoStepChain(project.id, pm.id, devA.id)
+    const handler = getHandler('studio.task.report')!
+
+    const result = await handler.execute(
+      { taskId: task.id, stepId: firstStep.id, agentStatus: 'done' },
+      { projectId: project.id, agentId: pm.id },
+    )
+
+    expectError(result, 'reportMd')
+  })
+
+  test('studio.task.step.report returns dispatched unlocked downstream step', async () => {
+    const { project, agents } = setupProject()
+    const [pm, devA] = agents
+    const { task, firstStep, nextStep } = await setupRunningTwoStepChain(project.id, pm.id, devA.id)
+
+    const result = await executeJson(
+      'studio.task.step.report',
+      { taskId: task.id, stepId: firstStep.id, agentStatus: 'done', reportMd: 's1 done' },
+      { projectId: project.id, agentId: pm.id },
+    )
+
+    expect(result.unlockedSteps).toEqual([nextStep.id])
+    expect(result.dispatchedSteps).toEqual([nextStep.id])
+    expect(taskStepStore.get(nextStep.id)?.status).toBe('running')
+  })
+
+  test('tasks.step.report RPC auto-dispatches unlocked downstream step', async () => {
+    const { project, agents } = setupProject()
+    const [pm, devA] = agents
+    const { task, firstStep, nextStep } = await setupRunningTwoStepChain(project.id, pm.id, devA.id)
+
+    const result = (await callTaskRpc('tasks.step.report', {
+      type: 'tasks.step.report',
+      taskId: task.id,
+      stepId: firstStep.id,
+      agentStatus: 'done',
+      reportMd: 's1 done',
+    })) as Record<string, unknown>
+
+    expect(result.unlockedSteps).toEqual([nextStep.id])
+    expect(result.dispatchedSteps).toEqual([nextStep.id])
+    expect(taskStepStore.get(nextStep.id)?.status).toBe('running')
+  })
+
+  test('task.start marks task needs_input and keeps step ready when dispatch validation fails', async () => {
+    const { project } = setupProject()
+    const otherProject = projectStore.create({ name: 'Other', workDir: resolve(tmp, 'other-project') })
+    const otherAgent = agentStore.create({ name: 'OtherAgent', type: 'dev', runtime: 'mock', projectId: otherProject.id })
+    const task = createTaskRow('派发失败', project.id)
+    const step = taskStepManager.addStep({ taskId: task.id, title: 's1', assignee: otherAgent.id })
+
+    const result = await taskStepManager.startTask(task.id)
+
+    expect(result.task.status).toBe('needs_input')
+    expect(result.dispatched).toEqual([])
+    expect(taskStore.get(task.id)?.status).toBe('needs_input')
+    expect(taskStepStore.get(step.step.id)?.status).toBe('ready')
   })
 
   test('s2+s3 全 done 后 s4(测试) ready', async () => {
@@ -171,24 +358,47 @@ describe('report(done) 解锁下游 - 并行派发', () => {
     const r1 = taskStepManager.addStep({ taskId: task.id, title: 's1', assignee: pm.id })
     const r2 = taskStepManager.addStep({ taskId: task.id, title: 's2', assignee: devA.id, dependsOn: [r1.step.id] })
     const r3 = taskStepManager.addStep({ taskId: task.id, title: 's3', assignee: devB.id, dependsOn: [r1.step.id] })
-    const r4 = taskStepManager.addStep({ taskId: task.id, title: 's4', assignee: tester.id, dependsOn: [r2.step.id, r3.step.id] })
+    const r4 = taskStepManager.addStep({
+      taskId: task.id,
+      title: 's4',
+      assignee: tester.id,
+      dependsOn: [r2.step.id, r3.step.id],
+    })
     taskStore.updateStatus(task.id, 'running', '已启动')
 
     taskStepStore.updateStatus(r1.step.id, 'ready')
     await taskStepManager.dispatchStep(task.id, r1.step.id)
-    taskStepManager.reportStep({ taskId: task.id, stepId: r1.step.id, agentStatus: 'done', reportMd: 's1 done', agentId: pm.id })
+    taskStepManager.reportStep({
+      taskId: task.id,
+      stepId: r1.step.id,
+      agentStatus: 'done',
+      reportMd: 's1 done',
+      agentId: pm.id,
+    })
 
     expect(taskStepStore.get(r4.step.id)?.status).toBe('pending')
 
     taskStepStore.updateStatus(r2.step.id, 'ready')
     await taskStepManager.dispatchStep(task.id, r2.step.id)
-    taskStepManager.reportStep({ taskId: task.id, stepId: r2.step.id, agentStatus: 'done', reportMd: 's2 done', agentId: devA.id })
+    taskStepManager.reportStep({
+      taskId: task.id,
+      stepId: r2.step.id,
+      agentStatus: 'done',
+      reportMd: 's2 done',
+      agentId: devA.id,
+    })
 
     expect(taskStepStore.get(r4.step.id)?.status).toBe('pending')
 
     taskStepStore.updateStatus(r3.step.id, 'ready')
     await taskStepManager.dispatchStep(task.id, r3.step.id)
-    const r3Report = taskStepManager.reportStep({ taskId: task.id, stepId: r3.step.id, agentStatus: 'done', reportMd: 's3 done', agentId: devB.id })
+    const r3Report = taskStepManager.reportStep({
+      taskId: task.id,
+      stepId: r3.step.id,
+      agentStatus: 'done',
+      reportMd: 's3 done',
+      agentId: devB.id,
+    })
 
     expect(r3Report.unlockedSteps).toContain(r4.step.id)
     expect(taskStepStore.get(r4.step.id)?.status).toBe('ready')
@@ -214,7 +424,7 @@ describe('运行中编辑步骤触发回退 draft', () => {
     expect(taskStore.get(task.id)?.status).toBe('draft')
 
     const events = taskEventStore.list(task.id)
-    expect(events.some(e => e.type === 'task_reverted')).toBe(true)
+    expect(events.some((e) => e.type === 'task_reverted')).toBe(true)
   })
 
   test('draft 状态下 step.add 不触发回退(已经在 draft)', () => {
@@ -398,8 +608,19 @@ describe('buildStepPrompt - 防 Agent 失忆', () => {
 
     const task = createTaskRow('防失忆任务', project.id)
     taskStore.update(task.id, { description: '任务目标文档 ABC' })
-    const r1 = taskStepManager.addStep({ taskId: task.id, title: '上游 step', description: '上游描述', assignee: devA.id })
-    const r2 = taskStepManager.addStep({ taskId: task.id, title: '我的 step', description: '我的描述', assignee: devB.id, dependsOn: [r1.step.id] })
+    const r1 = taskStepManager.addStep({
+      taskId: task.id,
+      title: '上游 step',
+      description: '上游描述',
+      assignee: devA.id,
+    })
+    const r2 = taskStepManager.addStep({
+      taskId: task.id,
+      title: '我的 step',
+      description: '我的描述',
+      assignee: devB.id,
+      dependsOn: [r1.step.id],
+    })
     taskStore.updateStatus(task.id, 'running', '已启动')
 
     taskStepStore.updateStatus(r1.step.id, 'ready')
@@ -439,8 +660,20 @@ describe('studio.task.step.get 返回步骤历史汇报', () => {
     taskStepStore.updateStatus(r1.step.id, 'ready')
     await taskStepManager.dispatchStep(task.id, r1.step.id)
 
-    taskStepManager.reportStep({ taskId: task.id, stepId: r1.step.id, agentStatus: 'milestone', reportMd: '阶段 1', agentId: devA.id })
-    taskStepManager.reportStep({ taskId: task.id, stepId: r1.step.id, agentStatus: 'milestone', reportMd: '阶段 2', agentId: devA.id })
+    taskStepManager.reportStep({
+      taskId: task.id,
+      stepId: r1.step.id,
+      agentStatus: 'milestone',
+      reportMd: '阶段 1',
+      agentId: devA.id,
+    })
+    taskStepManager.reportStep({
+      taskId: task.id,
+      stepId: r1.step.id,
+      agentStatus: 'milestone',
+      reportMd: '阶段 2',
+      agentId: devA.id,
+    })
     taskStepManager.reportStep({
       taskId: task.id,
       stepId: r1.step.id,
@@ -524,10 +757,7 @@ describe('project access 隔离', () => {
     const r1 = taskStepManager.addStep({ taskId: task.id, title: 's1', assignee: pm.id })
 
     const handler = getHandler('studio.task.step.get')!
-    const result = await handler.execute(
-      { taskId: task.id, stepId: r1.step.id },
-      { projectId: otherProject.id },
-    )
+    const result = await handler.execute({ taskId: task.id, stepId: r1.step.id }, { projectId: otherProject.id })
     expectError(result, '权限不足')
   })
 })

@@ -2,7 +2,6 @@ import { eventCategoryStore, type EventCategoryRow, type UpsertEventCategoryInpu
 import {
   eventCenterEventStore,
   type EventCenterEventRow,
-  type EventEvidenceItem,
   type EventListFilter,
   type EventListPage,
 } from '../store/event-center-events.js'
@@ -32,56 +31,27 @@ import {
   matchesSubscription,
   resolveConsumerSession,
 } from './event-center-helpers.js'
+import type {
+  ClaimedEvent,
+  ClaimNextEventInput,
+  ConsumeEventInput,
+  CreateEventInput,
+  RunEventConsumerInput,
+  RunEventConsumerResult,
+} from './event-center-types.js'
 
 export { ensureBuiltinEventCategories } from './event-center-builtin.js'
+export type {
+  ClaimedEvent,
+  ClaimNextEventInput,
+  ConsumeEventInput,
+  CreateEventInput,
+  RunEventConsumerInput,
+  RunEventConsumerResult,
+} from './event-center-types.js'
 
 const log = createChildLogger('event-center')
 const autoConsumerQueues = new Map<string, Promise<void>>()
-
-export interface CreateEventInput {
-  projectId?: string | null
-  categoryId: string
-  title: string
-  summary?: string | null
-  sourceType?: string
-  sourceId?: string | null
-  sourceLabel?: string | null
-  priority?: string
-  confidence?: number
-  tags?: string[]
-  payload?: Record<string, unknown>
-  evidence?: EventEvidenceItem[]
-  dedupeKey?: string | null
-  createdByAgentId?: string | null
-}
-
-export interface ClaimNextEventInput {
-  projectId?: string
-  agentId: string
-}
-
-export interface ConsumeEventInput {
-  consumptionId: string
-  resultSummary?: string
-  result?: Record<string, unknown>
-  error?: string
-}
-
-export interface ClaimedEvent {
-  event: EventCenterEventRow
-  consumption: EventConsumptionRow
-}
-
-export interface RunEventConsumerResult {
-  event: EventCenterEventRow
-  consumption: EventConsumptionRow
-  sessionId: string
-}
-
-export interface RunEventConsumerInput {
-  consumptionId: string
-  sessionId?: string
-}
 
 export const eventCenterService = {
   listCategories(projectId?: string | null): EventCategoryRow[] {
@@ -101,7 +71,12 @@ export const eventCenterService = {
 
   toggleCategory(id: string, enabled: boolean, projectId?: string | null): EventCategoryRow | undefined {
     const category = eventCategoryStore.toggle(id, enabled, projectId)
-    emitUpdate({ categoryId: id, projectId: category?.project_id ?? projectId ?? null, event: 'category.toggled', enabled })
+    emitUpdate({
+      categoryId: id,
+      projectId: category?.project_id ?? projectId ?? null,
+      event: 'category.toggled',
+      enabled,
+    })
     return category
   },
 
@@ -255,14 +230,31 @@ export const eventCenterService = {
     const claimed = eventConsumptionStore.claim(existing.id)
     const consumption = eventConsumptionStore.setSession(claimed.id, session.id)
     const runningEvent = eventCenterEventStore.updateStatus(event.id, 'running') ?? event
-    void sessionManager.enqueuePrompt(session.id, buildConsumerPrompt(event, consumption), undefined, { contextProjectId: event.project_id ?? undefined }).catch((err: unknown) => {
-      const message = err instanceof Error ? err.message : String(err)
-      log.error({ err, eventId: event.id, consumptionId: consumption.id, sessionId: session.id }, '事件消费 Agent 启动失败')
-      eventConsumptionStore.complete(consumption.id, { error: message })
-      eventCenterEventStore.updateStatus(event.id, 'failed')
-      emitUpdate({ eventId: event.id, consumptionId: consumption.id, sessionId: session.id, event: 'consumption.consumer_failed' })
+    void sessionManager
+      .enqueuePrompt(session.id, buildConsumerPrompt(event, consumption), undefined, {
+        contextProjectId: event.project_id ?? undefined,
+      })
+      .catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err)
+        log.error(
+          { err, eventId: event.id, consumptionId: consumption.id, sessionId: session.id },
+          '事件消费 Agent 启动失败',
+        )
+        eventConsumptionStore.complete(consumption.id, { error: message })
+        eventCenterEventStore.updateStatus(event.id, 'failed')
+        emitUpdate({
+          eventId: event.id,
+          consumptionId: consumption.id,
+          sessionId: session.id,
+          event: 'consumption.consumer_failed',
+        })
+      })
+    emitUpdate({
+      eventId: event.id,
+      consumptionId: consumption.id,
+      sessionId: session.id,
+      event: 'consumption.consumer_started',
     })
-    emitUpdate({ eventId: event.id, consumptionId: consumption.id, sessionId: session.id, event: 'consumption.consumer_started' })
     return { event: runningEvent, consumption, sessionId: session.id }
   },
 
@@ -278,16 +270,26 @@ export const eventCenterService = {
     return consumption
   },
 
-  convertEventToTask(eventId: string, input: Omit<CreateTaskInput, 'source' | 'projectId'> & { projectId?: string }): TaskRow {
+  convertEventToTask(
+    eventId: string,
+    input: Omit<CreateTaskInput, 'source' | 'projectId' | 'description'> & {
+      assignAgentId?: string
+      description?: string
+      projectId?: string
+    },
+  ): TaskRow {
     const event = eventCenterEventStore.get(eventId)
     if (!event) throw new Error(`事件不存在: ${eventId}`)
-    const task = taskStore.create({
-      ...input,
+    let task = taskStore.create({
       title: input.title || event.title,
       description: input.description ?? buildTaskDescription(event),
       source: 'event',
       projectId: input.projectId ?? event.project_id ?? undefined,
     })
+    if (input.assignAgentId) {
+      taskStore.assignAgent(task.id, input.assignAgentId)
+      task = taskStore.get(task.id) ?? task
+    }
     emitConvertedTaskLifecycleEvent(task)
     eventTaskLinkStore.create(event.id, task.id)
     eventCenterEventStore.updateStatus(event.id, 'task')

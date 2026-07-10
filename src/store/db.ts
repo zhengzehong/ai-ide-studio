@@ -10,6 +10,7 @@ const log = createChildLogger('db')
 type SqliteDatabase = ReturnType<typeof Database>
 
 type StoreRecord = Record<string, unknown>
+type DatabaseCloseHandler = () => void
 
 interface StoreData {
   agents: Record<string, unknown>
@@ -22,14 +23,13 @@ interface StoreData {
 
 let _db: SqliteDatabase | null = null
 let _dbPath = ''
+const beforeCloseHandlers = new Set<DatabaseCloseHandler>()
 
 export function initDatabase(dbPath: string): void {
   const { sqlitePath, legacyJsonPath } = resolveDatabasePaths(dbPath)
 
   if (_db && _dbPath !== sqlitePath) {
-    _db.close()
-    _db = null
-    _dbPath = ''
+    closeDatabase()
   }
 
   if (_db && _dbPath === sqlitePath) return
@@ -82,8 +82,14 @@ export function persistSync(): void {
   // SQLite writes are synchronous through better-sqlite3; kept for old callers.
 }
 
+export function onBeforeDatabaseClose(handler: DatabaseCloseHandler): () => void {
+  beforeCloseHandlers.add(handler)
+  return () => beforeCloseHandlers.delete(handler)
+}
+
 export function closeDatabase(): void {
   if (_db) {
+    notifyBeforeClose()
     _db.close()
     _db = null
   }
@@ -92,6 +98,16 @@ export function closeDatabase(): void {
 
 export function getDbPath(): string {
   return _dbPath ? resolve(dirname(_dbPath)) : ''
+}
+
+function notifyBeforeClose(): void {
+  for (const handler of beforeCloseHandlers) {
+    try {
+      handler()
+    } catch (err) {
+      log.warn({ err }, 'database close handler failed')
+    }
+  }
 }
 
 function resolveDatabasePaths(inputPath: string): { sqlitePath: string; legacyJsonPath?: string } {

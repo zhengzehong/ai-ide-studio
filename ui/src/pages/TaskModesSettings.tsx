@@ -87,25 +87,16 @@ function ModeCard({ mode, isEditing, onEdit, onCancelEdit, onSave, onDelete }: {
   onSave: (fields: { name: string; description: string; promptTemplate: string; reportTemplate: string }) => Promise<void>;
   onDelete: () => Promise<void>;
 }) {
-  const [name, setName] = useState(mode.name);
-  const [description, setDescription] = useState(mode.description || '');
-  const [promptTemplate, setPromptTemplate] = useState(mode.prompt_template);
-  const [reportTemplate, setReportTemplate] = useState(mode.report_template);
-
-  useEffect(() => {
-    if (isEditing) {
-      setName(mode.name);
-      setDescription(mode.description || '');
-      setPromptTemplate(mode.prompt_template);
-      setReportTemplate(mode.report_template);
-    }
-  }, [isEditing, mode]);
-
   if (isEditing) {
     return (
       <ModeEditModal
         title={`编辑模式：${mode.name}`}
-        initialValues={{ name, description, promptTemplate, reportTemplate }}
+        initialValues={{
+          name: mode.name,
+          description: mode.description || '',
+          promptTemplate: mode.prompt_template,
+          reportTemplate: mode.report_template,
+        }}
         onClose={onCancelEdit}
         onSave={async (values) => {
           await onSave(values);
@@ -118,10 +109,10 @@ function ModeCard({ mode, isEditing, onEdit, onCancelEdit, onSave, onDelete }: {
     <div style={{ background: 'var(--bg-0)', border: '1px solid var(--border)', borderRadius: 10, padding: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
         <span style={{ fontSize: 16, fontWeight: 600, flex: 1 }}>{mode.name}</span>
-        {Boolean(mode.is_builtin) && (
+        {mode.is_builtin && (
           <span style={{ padding: '2px 8px', borderRadius: 4, background: '#ede9fe', color: '#7c3aed', fontSize: 12, fontWeight: 600 }}>{BUILTIN_BADGE}</span>
         )}
-        {!Boolean(mode.is_builtin) && (
+        {!mode.is_builtin && (
           <>
             <button type="button" onClick={onEdit} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-1)', color: 'var(--text-2)', fontSize: 13, cursor: 'pointer' }}>
               <Edit3 size={12} /> 编辑

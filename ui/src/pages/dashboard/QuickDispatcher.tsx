@@ -3,10 +3,7 @@ import { useMemo, useState } from 'react'
 import type { AgentData } from '../../stores/agent.store'
 import type { ProjectData } from '../../stores/project.store'
 import { useTaskStore, type TaskData } from '../../stores/task.store'
-import {
-  chooseQuickDispatchProjectId,
-  type DashboardScope,
-} from '../dashboard-view-model'
+import { chooseQuickDispatchProjectId, type DashboardScope } from '../dashboard-view-model'
 
 interface Props {
   agents: AgentData[]
@@ -18,6 +15,7 @@ interface Props {
 
 export function QuickDispatcher({ agents, projects, tasks, scope, onCreated }: Props) {
   const createTask = useTaskStore((state) => state.createTask)
+  const createSimpleTask = useTaskStore((state) => state.createSimpleTask)
   const [title, setTitle] = useState('')
   const [projectId, setProjectId] = useState<string>('')
   const [agentId, setAgentId] = useState('')
@@ -27,7 +25,7 @@ export function QuickDispatcher({ agents, projects, tasks, scope, onCreated }: P
     [projects, scope, tasks],
   )
   const projectLocked = scope.type === 'project'
-  const selectedProjectId = projectLocked ? defaultProjectId : (projectId || defaultProjectId)
+  const selectedProjectId = projectLocked ? defaultProjectId : projectId || defaultProjectId
   const availableAgents = useMemo(
     () => agents.filter((agent) => !selectedProjectId || !agent.project_id || agent.project_id === selectedProjectId),
     [agents, selectedProjectId],
@@ -40,7 +38,14 @@ export function QuickDispatcher({ agents, projects, tasks, scope, onCreated }: P
     if (!nextTitle || !selectedProjectId) return
     setCreating(true)
     try {
-      const task = await createTask(nextTitle, undefined, effectiveAgentId || undefined, selectedProjectId)
+      const task = effectiveAgentId
+        ? await createSimpleTask({
+            title: nextTitle,
+            description: nextTitle,
+            assignee: effectiveAgentId,
+            projectId: selectedProjectId,
+          })
+        : await createTask(nextTitle, nextTitle, selectedProjectId)
       setTitle('')
       onCreated?.(task.id)
     } finally {
@@ -49,7 +54,23 @@ export function QuickDispatcher({ agents, projects, tasks, scope, onCreated }: P
   }
 
   return (
-    <div style={{ position: 'sticky', bottom: 0, marginTop: 12, border: '1px solid var(--border)', background: 'var(--bg-0)', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-sm)', padding: 10, display: 'grid', gridTemplateColumns: 'auto minmax(160px, 1fr) minmax(130px, 160px) minmax(130px, 160px) auto', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+    <div
+      style={{
+        position: 'sticky',
+        bottom: 0,
+        marginTop: 12,
+        border: '1px solid var(--border)',
+        background: 'var(--bg-0)',
+        borderRadius: 'var(--radius-lg)',
+        boxShadow: 'var(--shadow-sm)',
+        padding: 10,
+        display: 'grid',
+        gridTemplateColumns: 'auto minmax(160px, 1fr) minmax(130px, 160px) minmax(130px, 160px) auto',
+        alignItems: 'center',
+        gap: 8,
+        flexShrink: 0,
+      }}
+    >
       <Sparkles size={16} color="var(--blue)" style={{ flexShrink: 0 }} />
       <input
         value={title}
@@ -67,14 +88,28 @@ export function QuickDispatcher({ agents, projects, tasks, scope, onCreated }: P
         style={inputStyle}
       >
         <option value="">选择项目</option>
-        {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+        {projects.map((project) => (
+          <option key={project.id} value={project.id}>
+            {project.name}
+          </option>
+        ))}
       </select>
       <select value={effectiveAgentId} onChange={(event) => setAgentId(event.target.value)} style={inputStyle}>
         <option value="">不指派 Agent</option>
-        {availableAgents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
+        {availableAgents.map((agent) => (
+          <option key={agent.id} value={agent.id}>
+            {agent.name}
+          </option>
+        ))}
       </select>
-      <button type="button" disabled={!canCreate} onClick={() => void submit()} style={{ ...buttonStyle, opacity: canCreate ? 1 : 0.55, flexShrink: 0 }}>
-        <SendHorizonal size={14} />{creating ? '创建中' : '派发'}
+      <button
+        type="button"
+        disabled={!canCreate}
+        onClick={() => void submit()}
+        style={{ ...buttonStyle, opacity: canCreate ? 1 : 0.55, flexShrink: 0 }}
+      >
+        <SendHorizonal size={14} />
+        {creating ? '创建中' : '派发'}
       </button>
     </div>
   )

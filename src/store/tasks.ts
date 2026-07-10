@@ -1,6 +1,9 @@
 import { randomUUID } from 'crypto'
 import { getDb } from './db.js'
-import type { ImageAttachment } from '../types/ws-protocol.js'
+import { parseTaskEventPayload, taskEventStore } from './task-events.js'
+
+export { taskAttachmentStore, type TaskAttachmentRow } from './task-attachments.js'
+export { extractReportPreview, taskEventStore, type AppendTaskEventInput, type TaskEventRow } from './task-events.js'
 
 export interface TaskRow {
   id: string
@@ -20,43 +23,14 @@ export interface TaskRow {
   execution_mode_id: string | null
 }
 
-export interface TaskEventRow {
-  id: string
-  task_id: string
-  type: string
-  payload_json: string
-  sequence: number
-  created_at: string
-}
-
-export interface TaskAttachmentRow {
-  id: string
-  task_id: string
-  name: string | null
-  mime_type: string
-  relative_path: string
-  absolute_path: string
-  url: string
-  size: number
-  sort_order: number
-  created_at: string
-}
-
 export interface CreateTaskInput {
   title: string
-  description?: string
+  description: string
   source?: string
-  assignAgentId?: string
   projectId?: string
   teamId?: string
   assigneeMemberId?: string
   ruleId?: string
-  ruleName?: string
-  promptTemplate?: string
-  sessionId?: string
-  sessionMode?: 'existing' | 'new_each' | 'new_fixed'
-  images?: ImageAttachment[]
-  executionModeId?: string
   selfExecute?: boolean
 }
 
@@ -69,21 +43,16 @@ export interface UpdateTaskInput {
   assigneeMemberId?: string | null
 }
 
-export interface AppendTaskEventInput {
-  type: string
-  payload: unknown
-}
-
 export const taskStore = {
   create(input: CreateTaskInput): TaskRow {
     const task: TaskRow = {
       id: `task-${randomUUID().slice(0, 8)}`,
       title: input.title,
-      description: input.description || null,
+      description: input.description,
       source: input.source || 'human',
       status: 'draft',
       stage: '',
-      assigned_agent_id: input.assignAgentId || null,
+      assigned_agent_id: null,
       created_at: new Date().toISOString(),
       completed_at: null,
       project_id: input.projectId ?? null,
@@ -91,7 +60,7 @@ export const taskStore = {
       assignee_member_id: input.assigneeMemberId ?? null,
       rule_id: input.ruleId ?? null,
       agent_report_status: null,
-      execution_mode_id: input.executionModeId ?? null,
+      execution_mode_id: null,
     }
     getDb()
       .prepare(
@@ -123,20 +92,20 @@ export const taskStore = {
         .prepare<
           [string, string],
           TaskRow
-        >('SELECT * FROM tasks WHERE status = ? AND project_id = ? ORDER BY created_at DESC')
+        >('SELECT * FROM tasks WHERE status = ? AND project_id = ? ORDER BY created_at ASC, rowid ASC')
         .all(status, projectId)
     }
     if (status) {
       return getDb()
-        .prepare<[string], TaskRow>('SELECT * FROM tasks WHERE status = ? ORDER BY created_at DESC')
+        .prepare<[string], TaskRow>('SELECT * FROM tasks WHERE status = ? ORDER BY created_at ASC, rowid ASC')
         .all(status)
     }
     if (projectId) {
       return getDb()
-        .prepare<[string], TaskRow>('SELECT * FROM tasks WHERE project_id = ? ORDER BY created_at DESC')
+        .prepare<[string], TaskRow>('SELECT * FROM tasks WHERE project_id = ? ORDER BY created_at ASC, rowid ASC')
         .all(projectId)
     }
-    return getDb().prepare<[], TaskRow>('SELECT * FROM tasks ORDER BY created_at DESC').all()
+    return getDb().prepare<[], TaskRow>('SELECT * FROM tasks ORDER BY created_at ASC, rowid ASC').all()
   },
 
   listByTeam(teamId: string, status?: string): TaskRow[] {
@@ -275,158 +244,4 @@ export const taskStore = {
 
 function isTerminalStatus(status: string): boolean {
   return status === 'completed' || status === 'cancelled'
-}
-
-export const taskEventStore = {
-  append(taskId: string, input: AppendTaskEventInput): TaskEventRow {
-    const db = getDb()
-    const last = db
-      .prepare<
-        [string],
-        { sequence: number }
-      >('SELECT sequence FROM task_events WHERE task_id = ? ORDER BY sequence DESC LIMIT 1')
-      .get(taskId)
-    const ev: TaskEventRow = {
-      id: `tevt-${randomUUID().slice(0, 8)}`,
-      task_id: taskId,
-      type: input.type,
-      payload_json: JSON.stringify(input.payload),
-      sequence: (last?.sequence ?? 0) + 1,
-      created_at: new Date().toISOString(),
-    }
-    db.prepare(
-      `
-      INSERT INTO task_events (id, task_id, type, payload_json, sequence, created_at)
-      VALUES (@id, @task_id, @type, @payload_json, @sequence, @created_at)
-    `,
-    ).run(ev)
-    return ev
-  },
-
-  list(taskId: string, opts?: { limit?: number; afterSequence?: number }): TaskEventRow[] {
-    const limit = opts?.limit || 500
-    if (opts?.afterSequence != null) {
-      return getDb()
-        .prepare<{ taskId: string; afterSequence: number; limit: number }, TaskEventRow>(
-          `
-        SELECT * FROM task_events
-        WHERE task_id = @taskId AND sequence > @afterSequence
-        ORDER BY sequence DESC
-        LIMIT @limit
-      `,
-        )
-        .all({ taskId, afterSequence: opts.afterSequence, limit })
-        .reverse()
-    }
-    return getDb()
-      .prepare<{ taskId: string; limit: number }, TaskEventRow>(
-        `
-      SELECT * FROM task_events
-      WHERE task_id = @taskId
-      ORDER BY sequence DESC
-      LIMIT @limit
-    `,
-      )
-      .all({ taskId, limit })
-      .reverse()
-  },
-
-  getById(eventId: string): TaskEventRow | null {
-    return (
-      getDb()
-        .prepare<[string], TaskEventRow>('SELECT * FROM task_events WHERE id = ?')
-        .get(eventId) ?? null
-    )
-  },
-
-  listLatestByTaskIds(taskIds: string[]): Record<string, TaskEventRow> {
-    if (taskIds.length === 0) return {}
-    const placeholders = taskIds.map(() => '?').join(',')
-    const rows = getDb()
-      .prepare<string[], TaskEventRow>(
-        `
-        SELECT id, task_id, type, payload_json, sequence, created_at FROM (
-          SELECT id, task_id, type, payload_json, sequence, created_at,
-            ROW_NUMBER() OVER (PARTITION BY task_id ORDER BY sequence DESC) AS rn
-          FROM task_events
-          WHERE type IN ('milestone', 'input_requested', 'marked_done')
-            AND task_id IN (${placeholders})
-        )
-        WHERE rn = 1
-      `,
-      )
-      .all(...taskIds)
-    const map: Record<string, TaskEventRow> = {}
-    for (const row of rows) map[row.task_id] = row
-    return map
-  },
-}
-
-export const taskAttachmentStore = {
-  replace(taskId: string, attachments: Array<{
-    name?: string
-    mimeType: string
-    relativePath: string
-    path: string
-    url: string
-    size: number
-    order: number
-  }>): TaskAttachmentRow[] {
-    const db = getDb()
-    const now = new Date().toISOString()
-    const rows: TaskAttachmentRow[] = attachments.map((attachment) => ({
-      id: `tatt-${randomUUID().slice(0, 8)}`,
-      task_id: taskId,
-      name: attachment.name ?? null,
-      mime_type: attachment.mimeType,
-      relative_path: attachment.relativePath,
-      absolute_path: attachment.path,
-      url: attachment.url,
-      size: attachment.size,
-      sort_order: attachment.order,
-      created_at: now,
-    }))
-    const apply = db.transaction(() => {
-      db.prepare('DELETE FROM task_attachments WHERE task_id = ?').run(taskId)
-      const insert = db.prepare(`
-        INSERT INTO task_attachments (
-          id, task_id, name, mime_type, relative_path, absolute_path, url,
-          size, sort_order, created_at
-        )
-        VALUES (
-          @id, @task_id, @name, @mime_type, @relative_path, @absolute_path, @url,
-          @size, @sort_order, @created_at
-        )
-      `)
-      for (const row of rows) insert.run(row)
-    })
-    apply()
-    return rows
-  },
-
-  list(taskId: string): TaskAttachmentRow[] {
-    return getDb()
-      .prepare<[string], TaskAttachmentRow>('SELECT * FROM task_attachments WHERE task_id = ? ORDER BY sort_order ASC')
-      .all(taskId)
-  },
-}
-
-function parseTaskEventPayload(raw: string): Record<string, unknown> {
-  try {
-    const parsed = JSON.parse(raw) as unknown
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {}
-  } catch {
-    return {}
-  }
-}
-
-const REPORT_PREVIEW_MAX_LENGTH = 50
-
-export function extractReportPreview(raw: string): string | null {
-  const payload = parseTaskEventPayload(raw)
-  const reportMd = payload.report_md
-  if (typeof reportMd !== 'string' || !reportMd) return null
-  const firstLine = reportMd.split('\n')[0]?.trim() ?? ''
-  if (!firstLine) return null
-  return firstLine.slice(0, REPORT_PREVIEW_MAX_LENGTH)
 }
