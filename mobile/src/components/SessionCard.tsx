@@ -1,5 +1,4 @@
 import { useNavigate } from 'react-router-dom'
-import { Bot } from 'lucide-react'
 import { useRef, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 import type { MobileSessionItem } from '../stores/session.store'
 import { mobileSessionIndicator } from '../utils/session-indicator'
@@ -72,6 +71,10 @@ export default function SessionCard({ session, onLongPress }: Props) {
     navigate(`/chat/${session.id}`)
   }
 
+  const isRunning = session.activityState === 'running'
+  const indicatorColor = isRunning ? '#07c160' : session.unread ? '#fa5151' : '#c8c8c8'
+  const indicatorLabel = isRunning ? '执行中' : session.unread ? '有新回复' : indicator.label
+
   return (
     <div
       style={{ ...styles.card, ...(session.unread ? styles.unread : {}) }}
@@ -82,84 +85,82 @@ export default function SessionCard({ session, onLongPress }: Props) {
       onPointerLeave={onLongPress ? handlePointerUpOrCancel : undefined}
       onClick={handleClick}
     >
+      {session.unread && <span style={styles.unreadDot} />}
       <div style={styles.row}>
-        <div style={styles.titleArea}>
-          <span style={styles.title}>{session.sessionTitle || session.agentName}</span>
-        </div>
+        <span style={{ ...styles.title, ...(session.unread ? styles.titleUnread : {}) }}>
+          {session.sessionTitle || session.agentName}
+        </span>
         <span style={styles.time}>{formatTime(session.lastMessageAt || session.startedAt)}</span>
       </div>
-
-      <div style={styles.row}>
-        <div style={styles.meta}>
-          <span
-            style={{
-              ...styles.statusDot,
-              background: indicator.color,
-              animation: indicator.pulse ? 'mobile-session-running-pulse 1s ease-in-out infinite' : undefined,
-              boxShadow: indicator.pulse ? '0 0 0 4px rgba(16, 185, 129, 0.12)' : undefined,
-            }}
-            title={indicator.title}
-          />
-          <span style={styles.statusText}>{indicator.label}</span>
-          <span style={styles.agentTag}>
-            <Bot size={11} style={{ marginRight: 3 }} />
-            {session.agentName}
-          </span>
-        </div>
+      <div style={styles.meta}>
+        <span
+          style={{
+            ...styles.statusDot,
+            background: indicatorColor,
+            ...(isRunning ? styles.statusDotRunning : {}),
+          }}
+        />
+        <span style={{ ...styles.statusText, color: isRunning ? '#07c160' : '#888' }}>
+          {indicatorLabel}
+        </span>
       </div>
-
-      {session.projectName && (
-        <span style={styles.project}>{session.projectName}</span>
-      )}
     </div>
   )
 }
 
 const styles: Record<string, CSSProperties> = {
   card: {
-    padding: '14px 16px',
-    background: 'var(--bg-card)',
-    borderBottom: '1px solid var(--border-light)',
+    padding: '11px 14px 11px 60px',
+    borderTop: '0.5px solid #f0f0f0',
     cursor: 'pointer',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 4,
+    position: 'relative',
     transition: 'background .15s',
     touchAction: 'pan-y',
   },
-  unread: {
-    background: '#fafaff',
+  unread: {},
+  unreadDot: {
+    position: 'absolute',
+    left: 40,
+    top: 17,
+    width: 8,
+    height: 8,
+    borderRadius: '50%',
+    background: '#fa5151',
+    boxShadow: '0 0 0 3px #fff',
   },
   row: {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 6,
-  },
-  titleArea: {
-    display: 'flex',
-    alignItems: 'center',
     gap: 8,
-    flex: 1,
-    minWidth: 0,
   },
   title: {
-    fontSize: 15,
-    fontWeight: 600,
-    color: 'var(--text-primary)',
+    fontSize: 14,
+    fontWeight: 400,
+    color: '#191919',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
+    flex: 1,
+  },
+  titleUnread: {
+    fontWeight: 500,
   },
   time: {
-    fontSize: 12,
-    color: 'var(--text-muted)',
+    fontSize: 11,
+    color: '#b2b2b2',
     flexShrink: 0,
-    marginLeft: 8,
+    fontWeight: 400,
   },
   meta: {
     display: 'flex',
     alignItems: 'center',
-    gap: 6,
-    flex: 1,
-    minWidth: 0,
+    gap: 5,
+    fontSize: 12,
+    color: '#888',
   },
   statusDot: {
     width: 6,
@@ -167,24 +168,10 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: '50%',
     flexShrink: 0,
   },
+  statusDotRunning: {
+    animation: 'mobile-status-running 1.5s infinite',
+  },
   statusText: {
     fontSize: 12,
-    color: 'var(--text-secondary)',
-  },
-  agentTag: {
-    fontSize: 11,
-    color: 'var(--primary)',
-    background: 'var(--primary-bg)',
-    padding: '1px 6px',
-    borderRadius: 4,
-    display: 'flex',
-    alignItems: 'center',
-    whiteSpace: 'nowrap',
-  },
-  project: {
-    fontSize: 11,
-    color: 'var(--text-muted)',
-    marginTop: 2,
-    display: 'block',
   },
 }

@@ -32,13 +32,12 @@ export const createProjectHandler: ToolHandler = {
       workDir: { type: 'string' },
       description: { type: 'string' },
     },
-    required: ['name', 'workDir'],
+    required: ['name'],
   },
   async execute(input: ToolHandlerInput): Promise<ToolHandlerResult> {
     const name = requireString(input, 'name').trim()
-    const workDir = requireString(input, 'workDir').trim()
     if (!name) return errorResult('项目名称不能为空')
-    if (!workDir) return errorResult('项目工作目录不能为空')
+    const workDir = typeof input.workDir === 'string' ? input.workDir.trim() : ''
     const project = projectStore.create({ name, workDir, description: optionalString(input, 'description') })
     return jsonResult({ project })
   },

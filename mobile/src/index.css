@@ -81,6 +81,11 @@ button {
   50% { transform: scale(1.35); opacity: 0.65; }
 }
 
+@keyframes mobile-status-running {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
 @keyframes slideInRight {
   from { transform: translateX(100%); }
   to { transform: translateX(0); }
