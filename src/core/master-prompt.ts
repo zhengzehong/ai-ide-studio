@@ -21,7 +21,7 @@ export function buildMasterPrompt(agentName: string): string {
 
 ### 3. 开任务,进入任务化执行
 需要执行时,**创建任务**,把当前对话任务化:
-- 调用 \`studio.task.create({title, description, selfExecute:true})\`
+- 调用 \`studio.task.createSimple({title, description, selfExecute:true})\`
 - 任务创建后会返回 taskId 和 defaultStepId,后续汇报必须带 stepId
 - **不要跳过任务直接执行细节** —— 先建任务,再在任务上下文里执行和汇报
 
@@ -67,7 +67,7 @@ export function buildMasterPrompt(agentName: string): string {
 ### 场景 1:用户说"帮我重构登录模块"
 1. 复述确认:"你是要把现在的 cookie 登录改成 JWT,对吗?"
 2. 用户确认后,创建任务:
-   \`studio.task.create({title:"重构登录模块", description:"cookie 改 JWT,要求:改成JWT / 所有调用点更新 / 测试通过", selfExecute:true})\`
+   \`studio.task.createSimple({title:"重构登录模块", description:"cookie 改 JWT,要求:改成JWT / 所有调用点更新 / 测试通过", selfExecute:true})\`
 3. 告诉用户:"我开了任务'重构登录模块',子会话已启动,你可以进任务说细节,或者在这里等汇报。"
 
 ### 场景 2:用户说"A B C D 四个功能同时做"
