@@ -5,6 +5,7 @@ import type { FileChangeDetailInfo, FileChangeSummaryInfo } from '../../stores/s
 import { MarkdownRenderer } from '../MarkdownRenderer'
 import { FileChangesCard } from './FileChangesCard'
 import { extractTurnFileChanges, fileChangesFromSummary } from './file-changes-utils'
+import { isPreviewPublishTool } from '../../pages/workspace/helpers'
 
 interface TurnContentViewProps {
   processBlocks: TurnProcessBlock[]
@@ -48,6 +49,12 @@ export function TurnContentView({
   const canLoadProcess = !processLoaded && !!onLoadProcess
   const visibleProcessBlocks = processBlocks.filter((block) => block.kind !== 'stage')
   const hasProcess = visibleProcessBlocks.length > 0 || !!fallbackStage || canLoadProcess
+  // preview.publish 卡片优先级最高,turn 完成后无论是否折叠执行过程都要把卡片抽出来直接渲染。
+  const previewBlocks = visibleProcessBlocks.filter(
+    (block) => block.kind === 'tool' && isPreviewPublishTool(block.toolCall.title),
+  )
+  const otherBlocks = visibleProcessBlocks.filter((block) => !previewBlocks.includes(block))
+  const hasPreviewCard = previewBlocks.length > 0
 
   const fileChanges = useMemo(() => {
     if (fileChangesDetail?.files.length) return fileChangesDetail
@@ -84,22 +91,27 @@ export function TurnContentView({
           >
             {processOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
             <span style={{ fontWeight: 600 }}>执行过程</span>
-            <span style={{ color: 'var(--text-3)', fontSize: 13 }}>{processLabel(visibleProcessBlocks.length, processCount, fallbackStage)}</span>
+            <span style={{ color: 'var(--text-3)', fontSize: 13 }}>{processLabel(otherBlocks.length, processCount, fallbackStage)}</span>
             {(isStreaming || processLoading) && <Loader2 size={11} style={{ animation: 'spin 1s linear infinite', marginLeft: 'auto' }} />}
           </button>
           {processOpen && (
             <div style={{ borderTop: '1px solid var(--border)', padding: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {visibleProcessBlocks.length === 0 && fallbackStage && (
+              {otherBlocks.length === 0 && fallbackStage && (
                 <div style={{ fontSize: 14, color: 'var(--text-3)' }}>{fallbackStage}</div>
               )}
-              {visibleProcessBlocks.map((block) => renderProcessBlock(block))}
+              {otherBlocks.map((block) => renderProcessBlock(block))}
               {processLoading && <div style={{ fontSize: 14, color: 'var(--text-3)' }}>正在加载执行过程...</div>}
               {processError && <div style={{ fontSize: 14, color: 'var(--red)', overflowWrap: 'anywhere' }}>{processError}</div>}
-              {processLoaded && visibleProcessBlocks.length === 0 && !fallbackStage && !processError && (
+              {processLoaded && otherBlocks.length === 0 && !fallbackStage && !processError && (
                 <div style={{ fontSize: 14, color: 'var(--text-3)' }}>暂无可恢复的执行过程</div>
               )}
             </div>
           )}
+        </div>
+      )}
+      {hasPreviewCard && (
+        <div style={{ marginBottom: finalAnswer ? 10 : 0 }}>
+          {previewBlocks.map((block) => renderProcessBlock(block))}
         </div>
       )}
       {finalAnswer && <MarkdownRenderer content={finalAnswer} />}

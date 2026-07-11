@@ -103,6 +103,7 @@ import {
   statusLabel,
   toolSummary,
   isPreviewPublishTool,
+  parsePreviewPublishOutput,
   type MenuAnchor,
   type MenuName,
 } from './workspace/helpers'
@@ -3681,7 +3682,7 @@ function ProcessBlockView({
   }, [detailError, detailLoading, onLoadDetail, shouldAutoLoadDetail])
 
   if (block.kind === 'tool') {
-    if (isPreviewPublishTool(block.toolCall.title) && !isStreaming && block.toolCall.rawOutput != null && onOpenPreview) {
+    if (isPreviewPublishTool(block.toolCall.title) && block.toolCall.rawOutput != null && onOpenPreview) {
       const parsed = parsePreviewPublishOutput(block.toolCall.rawOutput)
       if (parsed) {
         return (
@@ -3692,6 +3693,7 @@ function ProcessBlockView({
               target: parsed.target,
               taskId: parsed.taskId ?? null,
               createdAt: parsed.createdAt,
+              url: parsed.url,
             }}
             onOpen={onOpenPreview}
           />
@@ -3795,38 +3797,6 @@ function ProcessBlockView({
   return <ProcessNoteBlock text={block.text} />
 }
 
-interface PreviewPublishOutput {
-  previewId: string
-  url: string
-  title: string
-  target: 'pc' | 'app'
-  taskId?: string | null
-  createdAt: string
-}
-
-function parsePreviewPublishOutput(raw: unknown): PreviewPublishOutput | null {
-  try {
-    const obj = typeof raw === 'string' ? JSON.parse(raw) : raw
-    if (!obj || typeof obj !== 'object') return null
-    const previewId = obj.previewId
-    const url = obj.url
-    const title = obj.title
-    const target = obj.target
-    const createdAt = obj.createdAt
-    if (typeof previewId !== 'string' || typeof title !== 'string' || typeof createdAt !== 'string') return null
-    if (target !== 'pc' && target !== 'app') return null
-    return {
-      previewId,
-      url: typeof url === 'string' ? url : `/preview/${previewId}/`,
-      title,
-      target,
-      taskId: typeof obj.taskId === 'string' ? obj.taskId : null,
-      createdAt,
-    }
-  } catch {
-    return null
-  }
-}
 
 function ProcessDetailState({ loading, error }: { loading?: boolean; error?: string }) {
   if (!loading && !error) return null
