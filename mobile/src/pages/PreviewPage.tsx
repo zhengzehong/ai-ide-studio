@@ -1,5 +1,5 @@
 import { useEffect, useState, type CSSProperties } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import { ArrowLeft, RefreshCw, AlertCircle, Loader2 } from 'lucide-react'
 import { Capacitor } from '@capacitor/core'
 import { ScreenOrientation } from '@capacitor/screen-orientation'
@@ -16,11 +16,17 @@ interface PreviewData {
 
 export default function PreviewPage() {
   const { previewId = '' } = useParams<{ previewId: string }>()
+  const location = useLocation()
   const navigate = useNavigate()
   const [preview, setPreview] = useState<PreviewData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [iframeKey, setIframeKey] = useState(0)
+
+  const targetParam = new URLSearchParams(location.search).get('target')
+  const effectiveTarget: 'pc' | 'app' | null =
+    targetParam === 'pc' ? 'pc' : targetParam === 'app' ? 'app' : preview?.target ?? null
+  const isLandscape = effectiveTarget === 'pc'
 
   useEffect(() => {
     if (!previewId) return
@@ -42,8 +48,8 @@ export default function PreviewPage() {
   }, [previewId])
 
   useEffect(() => {
-    if (!preview || !Capacitor.isNativePlatform()) return
-    if (preview.target === 'pc') {
+    if (!Capacitor.isNativePlatform()) return
+    if (effectiveTarget === 'pc') {
       void ScreenOrientation.lock({ orientation: 'landscape' }).catch(() => {})
     }
     return () => {
@@ -51,7 +57,7 @@ export default function PreviewPage() {
         void ScreenOrientation.unlock().catch(() => {})
       }
     }
-  }, [preview?.target])
+  }, [effectiveTarget])
 
   const handleRefresh = () => setIframeKey(k => k + 1)
 
@@ -61,6 +67,7 @@ export default function PreviewPage() {
         title={loading ? '加载中...' : preview?.title || '预览'}
         onBack={() => navigate(-1)}
         onRefresh={preview ? handleRefresh : undefined}
+        isLandscape={isLandscape}
       />
       {loading && (
         <div style={styles.empty}>
@@ -86,9 +93,9 @@ export default function PreviewPage() {
   )
 }
 
-function Header({ title, onBack, onRefresh }: { title: string; onBack: () => void; onRefresh?: () => void }) {
+function Header({ title, onBack, onRefresh, isLandscape }: { title: string; onBack: () => void; onRefresh?: () => void; isLandscape: boolean }) {
   return (
-    <div style={styles.header}>
+    <div style={{ ...styles.header, ...(isLandscape ? styles.headerLandscape : styles.headerPortrait) }}>
       <button style={styles.iconBtn} onClick={onBack} aria-label="返回">
         <ArrowLeft size={20} />
       </button>
@@ -116,11 +123,18 @@ const styles: Record<string, CSSProperties> = {
     display: 'flex',
     alignItems: 'center',
     gap: 8,
-    padding: '10px 12px',
-    paddingTop: 'calc(10px + var(--safe-top))',
     background: 'var(--bg-card)',
     borderBottom: '1px solid var(--border-light)',
     flexShrink: 0,
+  },
+  headerPortrait: {
+    padding: '10px 12px',
+    paddingTop: 'calc(10px + var(--safe-top))',
+  },
+  headerLandscape: {
+    padding: '8px 12px',
+    paddingLeft: 'calc(12px + env(safe-area-inset-left))',
+    paddingRight: 'calc(12px + env(safe-area-inset-right))',
   },
   iconBtn: {
     width: 36,

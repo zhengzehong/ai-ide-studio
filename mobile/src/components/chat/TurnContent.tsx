@@ -8,6 +8,7 @@ import { elapsedSecondsBetween } from '@desktop/utils/duration'
 import ProcessBlock from './ProcessBlock'
 import FileChangesCard, { extractFileChangesFromBlocks } from './FileChangesCard'
 import { CodeView } from '../file-viewer/CodeView'
+import { isPreviewPublishTool } from '../../utils/preview-tool'
 
 interface Props {
   message?: MessageData
@@ -58,9 +59,14 @@ export default memo(function TurnContent({ message, streaming, processLoading = 
   const fileChanges = useMemo(() => extractFileChangesFromBlocks(processBlocks), [processBlocks])
   const processCount = message?.process_item_count ?? message?.tool_call_count ?? 0
   const canLoadProcess = !isStreaming && !!message?.session_id && processCount > 0 && !message.processBlocks
-  const hasProcess = visibleBlocks.length > 0 || canLoadProcess || (isStreaming && !!stage)
+  const previewBlocks = visibleBlocks.filter(
+    (block) => block.kind === 'tool' && isPreviewPublishTool(block.toolCall.title),
+  )
+  const otherBlocks = visibleBlocks.filter((block) => !previewBlocks.includes(block))
+  const hasPreviewCard = previewBlocks.length > 0
+  const hasProcess = otherBlocks.length > 0 || canLoadProcess || (isStreaming && !!stage)
   const processOpen = resolveProcessOpen(isStreaming, processOpenOverride)
-  const processLabelCount = visibleBlocks.length > 0 ? visibleBlocks.length : processCount
+  const processLabelCount = otherBlocks.length > 0 ? otherBlocks.length : processCount
   const elapsedSeconds = deriveTurnElapsedSeconds({ turnStats, message, isStreaming, liveElapsedSeconds })
   const showStats = !!turnStats || elapsedSeconds != null
 
@@ -82,11 +88,11 @@ export default memo(function TurnContent({ message, streaming, processLoading = 
           </button>
           {processOpen && (
             <div style={styles.processList}>
-              {visibleBlocks.map(block => <ProcessBlock key={block.id} block={block} />)}
-              {visibleBlocks.length === 0 && stage && <div style={styles.processState}>{stage}</div>}
+              {otherBlocks.map(block => <ProcessBlock key={block.id} block={block} />)}
+              {otherBlocks.length === 0 && stage && <div style={styles.processState}>{stage}</div>}
               {processLoading && <div style={styles.processState}>正在加载执行过程...</div>}
               {processError && <div style={{ ...styles.processState, color: 'var(--error)' }}>{processError}</div>}
-              {!processLoading && !processError && visibleBlocks.length === 0 && !stage && (
+              {!processLoading && !processError && otherBlocks.length === 0 && !stage && (
                 <div style={styles.processState}>暂无可恢复的执行过程</div>
               )}
             </div>
@@ -121,6 +127,12 @@ export default memo(function TurnContent({ message, streaming, processLoading = 
           >
             {finalAnswer}
           </ReactMarkdown>
+        </div>
+      )}
+
+      {hasPreviewCard && (
+        <div style={{ marginTop: finalAnswer ? 10 : 0 }}>
+          {previewBlocks.map(block => <ProcessBlock key={block.id} block={block} />)}
         </div>
       )}
 
