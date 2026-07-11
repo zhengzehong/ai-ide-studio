@@ -187,6 +187,11 @@ export function toolSummary(tc: ToolCallInfo): string {
   return `工具调用 #${tc.id.slice(-6)}`
 }
 
+export function isPreviewPublishTool(title: string | undefined | null): boolean {
+  if (!title) return false
+  return title === 'preview.publish' || title === 'mcp__ai-ide-tools__preview_publish'
+}
+
 function mcpToolSummary(tc: ToolCallInfo): string | null {
   const input = recordOrEmpty(tc.rawInput)
   const args = recordOrEmpty(input.arguments)

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Wrench, Brain, FileText, ChevronDown, ChevronRight, AlertCircle, Loader } from 'lucide-react'
 import type { TurnProcessBlock } from '@desktop/stores/turn-blocks'
 import PreviewCard, { type PreviewCardData } from './PreviewCard'
+import { isPreviewPublishTool } from '../../utils/preview-tool'
 
 function parsePreviewOutput(raw: unknown): PreviewCardData | null {
   if (raw == null) return null
@@ -50,7 +51,7 @@ export default function ProcessBlock({ block }: { block: TurnProcessBlock }) {
 
   if (block.kind === 'tool') {
     const tc = block.toolCall
-    if (tc.title === 'preview.publish') {
+    if (isPreviewPublishTool(tc.title)) {
       const preview = parsePreviewOutput(tc.rawOutput)
       if (preview) {
         return <PreviewCard preview={preview} onOpen={(id) => navigate(`/preview/${id}`)} />
