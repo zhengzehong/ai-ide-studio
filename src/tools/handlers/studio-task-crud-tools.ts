@@ -32,44 +32,27 @@ export function assertProjectAccess(task: { project_id: string | null }, context
 
 export const studioTaskCreateHandler: ToolHandler = {
   name: 'studio.task.create',
-  description: `创建协作任务容器。两种模式:
-- selfExecute=true(对话任务化):用户在当前对话布置任务时使用。建一个默认 step(assignee=自己),跳过 prompt 注入,任务直接 running。用户消息本身就是任务上下文。
-- selfExecute=false(默认):建空壳任务,无 step 无 assignee。后续用 task.step.add 编排步骤 + task.start 启动。用于多 Agent 协作编排。
-简单任务派给别人用 studio.task.createSimple,不要用这个。`,
+  description: '创建协作任务空壳。仅建空壳,后续 step.add 编排 + task.start 启动。用于多 Agent 协作编排。',
   inputSchema: {
     type: 'object',
     properties: {
       title: { type: 'string', description: '任务标题' },
       description: { type: 'string', description: '任务目标文档(背景/需求/验收标准)' },
-      selfExecute: {
-        type: 'boolean',
-        description: '对话任务化:true=建默认 step 并由当前 Agent 直接执行;false=只建协作空壳',
-      },
-      projectId: { type: 'string' },
     },
     required: ['title', 'description'],
   },
   async execute(input, context) {
     const title = requireStr(input, 'title')
     const description = requireStr(input, 'description')
-    const selfExecute = input.selfExecute === true
-
-    if (selfExecute) {
-      if (!context?.agentId) throw new Error('selfExecute=true 需要在 Agent 会话上下文中使用')
-      if (!context?.sessionId) throw new Error('selfExecute=true 需要在当前会话中使用')
-    }
 
     const task = await taskManager.createTask({
       title,
       description,
       source: 'agent',
-      projectId: context?.projectId ?? optStr(input, 'projectId'),
-      selfExecute,
-      selfExecuteAgentId: selfExecute ? context.agentId : undefined,
-      selfExecuteSessionId: selfExecute ? context.sessionId : undefined,
+      projectId: context.projectId,
     })
     if (!task) throw new Error('任务创建失败')
-    log.info({ taskId: task.id, title, selfExecute }, 'Agent 创建任务')
+    log.info({ taskId: task.id, title }, 'Agent 创建协作任务空壳')
     return {
       content: [
         {
@@ -79,8 +62,6 @@ export const studioTaskCreateHandler: ToolHandler = {
               taskId: task.id,
               title: task.title,
               status: task.status,
-              sessionId: (task as Record<string, unknown>).sessionId,
-              defaultStepId: (task as Record<string, unknown>).defaultStepId,
             },
             null,
             2,
@@ -93,40 +74,45 @@ export const studioTaskCreateHandler: ToolHandler = {
 
 export const studioTaskCreateSimpleHandler: ToolHandler = {
   name: 'studio.task.createSimple',
-  description: `创建简单任务(单 Agent 一步完成),自动建默认 step + 自动 start,立即派发。
-- 单 Agent 一步完成的任务用这个,create 即派发,不用手动 start
-- 内部等价于:task.create + task.step.add(assignee) + task.start,但一步原子完成
-- 创建后 status=running,默认 step 已派给 assignee
-- Agent 调 task.step.report(defaultStepId, done) 后任务 completed
-- ⚠️ 如果任务需要多步骤/多 Agent 协作,用 studio.task.create,不要用这个`,
+  description:
+    '创建一步任务。两种模式:selfExecute=true(对话任务化,自做) / selfExecute=false(派发给别人)。自动建默认 step + 自动 start。',
   inputSchema: {
     type: 'object',
     properties: {
       title: { type: 'string', description: '任务标题' },
       description: { type: 'string', description: '任务目标文档' },
-      assignee: { type: 'string', description: '分派给哪个 Agent' },
-      sessionId: { type: 'string', description: '可选,指定会话(不传系统按 assignee 找 primary 会话)' },
-      projectId: { type: 'string' },
+      selfExecute: { type: 'boolean', default: false, description: 'true=对话任务化(自做);false=派发给别人' },
+      assignee: { type: 'string', description: 'selfExecute=false 时必填;selfExecute=true 时忽略' },
+      sessionId: { type: 'string', description: 'selfExecute=false 时可指定会话;selfExecute=true 时忽略' },
     },
-    required: ['title', 'description', 'assignee'],
+    required: ['title', 'description'],
   },
   async execute(input, context) {
     const title = requireStr(input, 'title')
-    const assignee = requireStr(input, 'assignee')
     const description = requireStr(input, 'description')
-    const sessionId = optStr(input, 'sessionId')
-    const projectId = context?.projectId ?? optStr(input, 'projectId')
+    const selfExecute = input.selfExecute === true
+    if (selfExecute && !context.agentId) throw new Error('selfExecute=true 需要在 Agent 会话上下文中使用')
+    if (selfExecute && !context.sessionId) throw new Error('selfExecute=true 需要在当前会话中使用')
+    const assignee = selfExecute ? undefined : requireStr(input, 'assignee')
+    const sessionId = selfExecute ? undefined : optStr(input, 'sessionId')
 
     const result = await createSimpleTask({
       title,
       description,
       source: 'agent',
-      projectId,
+      projectId: context.projectId,
+      selfExecute,
       assignee,
       sessionId,
+      currentAgentId: selfExecute ? context.agentId : undefined,
+      currentSessionId: selfExecute ? context.sessionId : undefined,
     })
 
-    log.info({ taskId: result.task.id, stepId: result.defaultStepId, assignee }, 'Agent 创建简单任务')
+    const effectiveAssignee = selfExecute ? context.agentId : assignee
+    log.info(
+      { taskId: result.task.id, stepId: result.defaultStepId, assignee: effectiveAssignee, selfExecute },
+      'Agent 创建一步任务',
+    )
     return {
       content: [
         {
@@ -136,7 +122,8 @@ export const studioTaskCreateSimpleHandler: ToolHandler = {
               taskId: result.task.id,
               defaultStepId: result.defaultStepId,
               status: 'running',
-              assignee,
+              assignee: effectiveAssignee,
+              sessionId: result.sessionId,
             },
             null,
             2,

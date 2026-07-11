@@ -5,7 +5,6 @@ import {
   type CreateTaskInput,
   type TaskAttachmentRow,
 } from '../store/tasks.js'
-import { taskStepStore } from '../store/task-steps.js'
 import { agentStore } from '../store/agents.js'
 import { sessionStore } from '../store/sessions.js'
 import { sessionManager } from './sessions.js'
@@ -29,69 +28,21 @@ export interface AssignTaskInput {
 }
 
 interface CreateTaskManagerInput extends CreateTaskInput {
-  selfExecuteAgentId?: string
-  selfExecuteSessionId?: string
+  ruleId?: string
 }
 
 export const taskManager = {
   async createTask(input: CreateTaskManagerInput) {
     if (!input.title?.trim()) throw new Error('任务标题不能为空')
     if (!input.description?.trim()) throw new Error('任务描述不能为空')
-    if (input.selfExecute) {
-      if (!input.selfExecuteAgentId) throw new Error('selfExecute=true 需要当前 Agent')
-      if (!input.selfExecuteSessionId) throw new Error('selfExecute=true 需要当前会话')
-      validateTaskAssignment(input.selfExecuteAgentId, input.projectId, input.selfExecuteSessionId)
-    }
     const task = taskStore.create(input)
-    log.info({ taskId: task.id, title: task.title, selfExecute: input.selfExecute }, '任务已创建')
+    log.info({ taskId: task.id, title: task.title }, '任务已创建')
 
     events.emit('task:update', {
       taskId: task.id,
       data: { ...task, event: 'created' },
     })
     emitTaskLifecycleEvent(task, 'created', null)
-
-    if (input.selfExecute) {
-      const agentId = input.selfExecuteAgentId!
-      const sessionId = input.selfExecuteSessionId!
-      taskStore.assignAgent(task.id, agentId)
-      const step = taskStepStore.create({
-        taskId: task.id,
-        title: task.title,
-        description: task.description ?? undefined,
-        assigneeAgentId: agentId,
-        sessionId,
-      })
-      taskStepStore.updateStatus(step.id, 'running')
-      taskStore.updateStatus(task.id, 'running', '已自认领')
-      taskStore.linkSession(task.id, sessionId)
-      taskStore.updateAgentReportStatus(task.id, 'in_progress')
-      taskEventStore.append(task.id, {
-        type: 'step_added',
-        payload: {
-          stepId: step.id,
-          title: step.title,
-          assignee: agentId,
-          dependsOn: [],
-          selfExecute: true,
-        },
-      })
-      const updated = taskStore.get(task.id)
-      if (!updated) throw new Error('任务自认领后无法找到任务')
-      events.emit('task:update', {
-        taskId: task.id,
-        data: {
-          ...updated,
-          event: 'self_claimed',
-          defaultStepId: step.id,
-          sessionId,
-          assignedAgentId: agentId,
-        },
-      })
-      emitTaskLifecycleEvent(updated, 'self_claimed', task.status)
-      log.info({ taskId: task.id, stepId: step.id, sessionId }, '自认领任务已创建默认 step,跳过 prompt 注入')
-      return { ...updated, sessionId, defaultStepId: step.id }
-    }
 
     return task
   },
