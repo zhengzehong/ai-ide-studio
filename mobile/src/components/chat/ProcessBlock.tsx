@@ -36,7 +36,7 @@ export default function ProcessBlock({ block }: { block: TurnProcessBlock }) {
     if (isPreviewPublishTool(tc.title)) {
       const preview = parsePreviewPublishOutput(tc.rawOutput)
       if (preview) {
-        return <PreviewCard preview={preview} onOpen={(id) => navigate(`/preview/${id}`)} />
+        return <PreviewCard preview={preview} onOpen={(id) => navigate(`/preview/${id}?target=${preview.target}`)} />
       }
     }
     const isError = !!tc.error
