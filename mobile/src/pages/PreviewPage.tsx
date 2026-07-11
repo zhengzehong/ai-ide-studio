@@ -65,12 +65,28 @@ export default function PreviewPage() {
 
   return (
     <div style={styles.page}>
-      <Header
-        title={loading ? '加载中...' : preview?.title || '预览'}
-        onBack={() => navigate(-1)}
-        onRefresh={preview ? handleRefresh : undefined}
-        isLandscape={isLandscape}
-      />
+      {isLandscape ? (
+        <div style={styles.floatContainer}>
+          <button style={styles.floatBtn} onClick={() => navigate(-1)} aria-label="返回">
+            <ArrowLeft size={20} />
+          </button>
+          <button
+            style={{ ...styles.floatBtn, ...(!preview ? styles.disabledBtn : {}) }}
+            onClick={handleRefresh}
+            disabled={!preview}
+            aria-label="刷新"
+          >
+            <RefreshCw size={18} />
+          </button>
+        </div>
+      ) : (
+        <Header
+          title={loading ? '加载中...' : preview?.title || '预览'}
+          onBack={() => navigate(-1)}
+          onRefresh={preview ? handleRefresh : undefined}
+          isLandscape={false}
+        />
+      )}
       {loading && (
         <div style={styles.empty}>
           <Loader2 size={24} style={{ animation: 'spin 1s linear infinite', color: 'var(--text-muted)' }} />
@@ -171,6 +187,28 @@ const styles: Record<string, CSSProperties> = {
     height: '100%',
     border: 'none',
     background: '#fff',
+  },
+  floatContainer: {
+    position: 'fixed',
+    top: 'calc(8px + env(safe-area-inset-top))',
+    right: 'calc(8px + env(safe-area-inset-right))',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 8,
+    zIndex: 100,
+  },
+  floatBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    background: 'rgba(0, 0, 0, 0.4)',
+    color: '#fff',
+    border: 'none',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer',
+    padding: 0,
   },
   empty: {
     flex: 1,
