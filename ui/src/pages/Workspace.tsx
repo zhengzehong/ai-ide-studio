@@ -3682,23 +3682,26 @@ function ProcessBlockView({
   }, [detailError, detailLoading, onLoadDetail, shouldAutoLoadDetail])
 
   if (block.kind === 'tool') {
-    if (isPreviewPublishTool(block.toolCall.title) && block.toolCall.rawOutput != null && onOpenPreview) {
-      const parsed = parsePreviewPublishOutput(block.toolCall.rawOutput)
-      if (parsed) {
-        return (
-          <PreviewCard
-            preview={{
-              previewId: parsed.previewId,
-              title: parsed.title,
-              target: parsed.target,
-              taskId: parsed.taskId ?? null,
-              createdAt: parsed.createdAt,
-              url: parsed.url,
-            }}
-            onOpen={onOpenPreview}
-          />
-        )
+    if (isPreviewPublishTool(block.toolCall.title)) {
+      if (block.toolCall.rawOutput != null && onOpenPreview) {
+        const parsed = parsePreviewPublishOutput(block.toolCall.rawOutput)
+        if (parsed) {
+          return (
+            <PreviewCard
+              preview={{
+                previewId: parsed.previewId,
+                title: parsed.title,
+                target: parsed.target,
+                taskId: parsed.taskId ?? null,
+                createdAt: parsed.createdAt,
+                url: parsed.url,
+              }}
+              onOpen={onOpenPreview}
+            />
+          )
+        }
       }
+      return null
     }
     const diffEntries = toolBlockHasDiff(block.toolCall)
       ? extractFileChangesFromToolCall(block.toolCall)
