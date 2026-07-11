@@ -109,6 +109,7 @@ describe('builtin tool seed synchronization', () => {
       'event.subscription.create',
       'get_memory',
       'list_memory',
+      'preview.publish',
       'recall_memory',
       'record_memory',
       'studio.schedule.create',
@@ -242,6 +243,39 @@ describe('builtin tool seed synchronization', () => {
       )
       .get()
     expect(teamGlobalBindings?.count).toBe(0)
+  })
+
+  test('registers preview.publish as a global builtin tool', () => {
+    seedBuiltinTools()
+
+    const tool = toolStore.getByName('preview.publish')
+    expect(tool).toBeDefined()
+    expect(tool?.is_builtin).toBe(1)
+    expect(tool?.type).toBe('builtin')
+    expect(tool?.category).toBe('automation')
+
+    const config = tool?.config_json ? (JSON.parse(tool.config_json) as Record<string, unknown>) : {}
+    expect(config.handler).toBe('preview.publish')
+
+    const schema = tool?.input_schema_json ? (JSON.parse(tool.input_schema_json) as Record<string, unknown>) : {}
+    const properties = asRecord(schema.properties)
+    expect(properties.sourcePath).toMatchObject({ type: 'string' })
+    expect(properties.target).toMatchObject({ enum: ['pc', 'app'] })
+    expect(properties.entryFile).toMatchObject({ type: 'string' })
+    expect(schema.required).toEqual(['sourcePath'])
+
+    const bindings = getDb()
+      .prepare<{ name: string }, { name: string }>(
+        `
+      SELECT tools.name FROM tools
+      JOIN tool_bindings ON tool_bindings.tool_id = tools.id
+      WHERE tools.name = 'preview.publish'
+        AND tool_bindings.scope = 'global'
+        AND tool_bindings.enabled = 1
+    `,
+      )
+      .all()
+    expect(bindings).toHaveLength(1)
   })
 
   test('removes obsolete broken tools and revokes stale tool contexts', () => {
