@@ -38,6 +38,7 @@ export default function ProcessBlock({ block }: { block: TurnProcessBlock }) {
       if (preview) {
         return <PreviewCard preview={preview} onOpen={(id) => navigate(`/preview/${id}?target=${preview.target}`)} />
       }
+      return null
     }
     const isError = !!tc.error
     const isPending = tc.status === 'pending' || tc.status === 'in_progress'

@@ -4,6 +4,7 @@ import { ArrowLeft, RefreshCw, AlertCircle, Loader2 } from 'lucide-react'
 import { Capacitor } from '@capacitor/core'
 import { ScreenOrientation } from '@capacitor/screen-orientation'
 import { wsClient } from '@desktop/services/ws-client'
+import { useConnectionStore } from '../stores/connection.store'
 
 interface PreviewData {
   id: string
@@ -27,6 +28,7 @@ export default function PreviewPage() {
   const effectiveTarget: 'pc' | 'app' | null =
     targetParam === 'pc' ? 'pc' : targetParam === 'app' ? 'app' : preview?.target ?? null
   const isLandscape = effectiveTarget === 'pc'
+  const serverUrl = useConnectionStore(s => s.serverUrl)
 
   useEffect(() => {
     if (!previewId) return
@@ -84,7 +86,11 @@ export default function PreviewPage() {
       {!loading && preview && (
         <iframe
           key={iframeKey}
-          src={preview.url}
+          src={
+            preview.url.startsWith('http')
+              ? preview.url
+              : `${serverUrl.replace(/\/$/, '')}${preview.url.startsWith('/') ? '' : '/'}${preview.url}`
+          }
           style={styles.iframe}
           sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
         />
