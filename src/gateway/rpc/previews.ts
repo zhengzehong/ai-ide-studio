@@ -19,7 +19,7 @@ interface PreviewDto {
 function buildPreviewUrl(preview: PreviewRow): string {
   const config = loadConfig()
   const token = config.localToken ? `?token=${encodeURIComponent(config.localToken)}` : ''
-  return `http://${config.host}:${config.port}/preview/${preview.id}/${token}`
+  return `/preview/${preview.id}/${token}`
 }
 
 function toDto(preview: PreviewRow): PreviewDto {
