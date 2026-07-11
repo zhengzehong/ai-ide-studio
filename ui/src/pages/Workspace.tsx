@@ -102,6 +102,7 @@ import {
   sessionTitle,
   statusLabel,
   toolSummary,
+  isPreviewPublishTool,
   type MenuAnchor,
   type MenuName,
 } from './workspace/helpers'
@@ -3680,7 +3681,7 @@ function ProcessBlockView({
   }, [detailError, detailLoading, onLoadDetail, shouldAutoLoadDetail])
 
   if (block.kind === 'tool') {
-    if (block.toolCall.title === 'preview.publish' && !isStreaming && block.toolCall.rawOutput != null && onOpenPreview) {
+    if (isPreviewPublishTool(block.toolCall.title) && !isStreaming && block.toolCall.rawOutput != null && onOpenPreview) {
       const parsed = parsePreviewPublishOutput(block.toolCall.rawOutput)
       if (parsed) {
         return (
