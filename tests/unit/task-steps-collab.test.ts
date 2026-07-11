@@ -115,7 +115,7 @@ describe('studio.task.createSimple - 简单任务创建', () => {
     const [pm, devA] = agents
     const result = await executeJson(
       'studio.task.createSimple',
-      { title: '修个 typo', description: 'README 拼错', assignee: devA.id },
+      { title: '修个 typo', description: 'README 拼错', selfExecute: false, assignee: devA.id },
       { projectId: project.id, agentId: pm.id, sessionId: 'sess-test' },
     )
 
@@ -136,15 +136,23 @@ describe('studio.task.createSimple - 简单任务创建', () => {
   })
 })
 
-describe('studio.task.create selfExecute - 对话任务化', () => {
+describe('studio.task.createSimple selfExecute - 对话任务化', () => {
   test('selfExecute=true 创建默认 step 并复用当前会话且不注入 prompt', async () => {
     const { project, agents } = setupProject()
-    const [pm] = agents
+    const [pm, devA] = agents
     const session = sessionStore.create({ agentId: pm.id, projectId: project.id })
+    const ignoredSession = sessionStore.create({ agentId: devA.id, projectId: project.id })
 
     const created = await executeJson(
-      'studio.task.create',
-      { title: '修 README typo', description: 'README 中 ai-ide-studio 拼写错误', selfExecute: true },
+      'studio.task.createSimple',
+      {
+        title: '修 README typo',
+        description: 'README 中 ai-ide-studio 拼写错误',
+        selfExecute: true,
+        assignee: devA.id,
+        sessionId: ignoredSession.id,
+        projectId: 'proj-ignored',
+      },
       { projectId: project.id, agentId: pm.id, sessionId: session.id },
     )
 
@@ -155,6 +163,7 @@ describe('studio.task.create selfExecute - 对话任务化', () => {
 
     const task = taskStore.get(created.taskId as string)!
     expect(task.status).toBe('running')
+    expect(task.project_id).toBe(project.id)
     expect(task.assigned_agent_id).toBe(pm.id)
     expect(task.agent_report_status).toBe('in_progress')
 
@@ -171,15 +180,43 @@ describe('studio.task.create selfExecute - 对话任务化', () => {
     expect(taskStepStore.listDependencies(steps[0].id)).toEqual([])
     expect(taskStore.listSessionIds(task.id)).toEqual([session.id])
     expect(messageStore.list(session.id)).toEqual([])
+    expect(messageStore.list(ignoredSession.id)).toEqual([])
   })
 
-  test('selfExecute=false 创建 draft 空壳且不建 step', async () => {
+  test('selfExecute=true requires current Agent and session context', async () => {
+    const { project } = setupProject()
+
+    await expect(
+      executeJson(
+        'studio.task.createSimple',
+        { title: 'Self task', description: 'Missing context', selfExecute: true },
+        { projectId: project.id },
+      ),
+    ).rejects.toThrow('selfExecute=true')
+  })
+
+  test('selfExecute=false requires assignee', async () => {
+    const { project, agents } = setupProject()
+    const [pm] = agents
+
+    await expect(
+      executeJson(
+        'studio.task.createSimple',
+        { title: 'Delegated task', description: 'Missing assignee', selfExecute: false },
+        { projectId: project.id, agentId: pm.id, sessionId: 'sess-pm' },
+      ),
+    ).rejects.toThrow('assignee')
+  })
+})
+
+describe('studio.task.create - draft collaboration shell', () => {
+  test('creates a draft task without steps and ignores model-provided projectId', async () => {
     const { project, agents } = setupProject()
     const [pm] = agents
 
     const created = await executeJson(
       'studio.task.create',
-      { title: '编排协作任务', description: '先设计再开发', selfExecute: false },
+      { title: '编排协作任务', description: '先设计再开发', projectId: 'proj-ignored' },
       { projectId: project.id, agentId: pm.id, sessionId: 'sess-pm' },
     )
 
@@ -189,6 +226,7 @@ describe('studio.task.create selfExecute - 对话任务化', () => {
 
     const task = taskStore.get(created.taskId as string)!
     expect(task.status).toBe('draft')
+    expect(task.project_id).toBe(project.id)
     expect(task.assigned_agent_id).toBeNull()
     expect(taskStepStore.listByTask(task.id)).toEqual([])
     expect(taskStore.listSessionIds(task.id)).toEqual([])

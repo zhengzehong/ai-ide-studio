@@ -202,16 +202,24 @@ describe('builtin tool seed synchronization', () => {
       ? (JSON.parse(studioTaskCreate.input_schema_json) as Record<string, unknown>)
       : {}
     const studioTaskCreateProperties = asRecord(studioTaskCreateSchema.properties)
-    expect(Object.keys(studioTaskCreateProperties).sort()).toEqual(['description', 'projectId', 'selfExecute', 'title'])
+    expect(Object.keys(studioTaskCreateProperties).sort()).toEqual(['description', 'title'])
     expect(studioTaskCreateSchema.required).toEqual(['title', 'description'])
     expect(studioTaskCreateProperties.description).toMatchObject({ type: 'string' })
-    expect(studioTaskCreateProperties.selfExecute).toMatchObject({ type: 'boolean' })
 
     const studioTaskCreateSimple = toolStore.getByName('studio.task.createSimple')
     const studioTaskCreateSimpleSchema = studioTaskCreateSimple?.input_schema_json
       ? (JSON.parse(studioTaskCreateSimple.input_schema_json) as Record<string, unknown>)
       : {}
-    expect(studioTaskCreateSimpleSchema.required).toEqual(['title', 'description', 'assignee'])
+    const studioTaskCreateSimpleProperties = asRecord(studioTaskCreateSimpleSchema.properties)
+    expect(Object.keys(studioTaskCreateSimpleProperties).sort()).toEqual([
+      'assignee',
+      'description',
+      'selfExecute',
+      'sessionId',
+      'title',
+    ])
+    expect(studioTaskCreateSimpleSchema.required).toEqual(['title', 'description'])
+    expect(studioTaskCreateSimpleProperties.selfExecute).toMatchObject({ type: 'boolean', default: false })
 
     const studioScheduleCreate = toolStore.getByName('studio.schedule.create')
     const studioScheduleCreateSchema = studioScheduleCreate?.input_schema_json

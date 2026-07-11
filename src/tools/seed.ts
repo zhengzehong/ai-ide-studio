@@ -539,10 +539,7 @@ const CORE_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
   {
     name: 'studio.task.create',
     displayName: '创建项目任务',
-    description: `创建协作任务容器。两种模式:
-- selfExecute=true(对话任务化):用户在当前对话布置任务时用。建一个默认 step(assignee=自己),跳过 prompt 注入,任务直接 running。用户消息本身就是任务上下文。
-- selfExecute=false(默认):建空壳任务,无 step 无 assignee。后续用 task.step.add 编排步骤 + task.start 启动。用于多 Agent 协作编排。
-简单任务派给别人用 studio.task.createSimple,不要用这个。`,
+    description: '创建协作任务空壳。仅建空壳,后续 step.add 编排 + task.start 启动。用于多 Agent 协作编排。',
     category: 'automation',
     type: 'builtin',
     config: { handler: 'studio.task.create' },
@@ -551,11 +548,6 @@ const CORE_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
       properties: {
         title: { type: 'string', description: '任务标题' },
         description: { type: 'string', description: '任务目标文档(背景/需求/验收标准)' },
-        selfExecute: {
-          type: 'boolean',
-          description: '对话任务化:true=建默认 step 并由当前 Agent 直接执行;false=只建协作空壳。默认 false。',
-        },
-        projectId: { type: 'string', description: '项目 ID(不传用当前会话项目)' },
       },
       required: ['title', 'description'],
     },
@@ -688,7 +680,8 @@ const CORE_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
   {
     name: 'studio.task.createSimple',
     displayName: '创建简单任务',
-    description: `创建简单任务(单 Agent 一步完成),自动建默认 step + 自动 start,立即派发。单 Agent 一步完成的任务用这个,create 即派发,不用手动 start。`,
+    description:
+      '创建一步任务。两种模式:selfExecute=true(对话任务化,自做) / selfExecute=false(派发给别人)。自动建默认 step + 自动 start。',
     category: 'automation',
     type: 'builtin',
     config: { handler: 'studio.task.createSimple' },
@@ -697,11 +690,11 @@ const CORE_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
       properties: {
         title: { type: 'string', description: '任务标题' },
         description: { type: 'string', description: '任务目标文档' },
-        assignee: { type: 'string', description: '分派给哪个 Agent' },
-        sessionId: { type: 'string', description: '可选,指定会话(不传系统按 assignee 找 primary 会话)' },
-        projectId: { type: 'string' },
+        selfExecute: { type: 'boolean', default: false, description: 'true=对话任务化(自做);false=派发给别人' },
+        assignee: { type: 'string', description: 'selfExecute=false 时必填;selfExecute=true 时忽略' },
+        sessionId: { type: 'string', description: 'selfExecute=false 时可指定会话;selfExecute=true 时忽略' },
       },
-      required: ['title', 'description', 'assignee'],
+      required: ['title', 'description'],
     },
     permissions: CORE_PERMISSIONS,
     isBuiltin: true,

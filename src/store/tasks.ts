@@ -28,10 +28,12 @@ export interface CreateTaskInput {
   description: string
   source?: string
   projectId?: string
+}
+
+interface CreateStoredTaskInput extends CreateTaskInput {
   teamId?: string
   assigneeMemberId?: string
   ruleId?: string
-  selfExecute?: boolean
 }
 
 export interface UpdateTaskInput {
@@ -44,7 +46,7 @@ export interface UpdateTaskInput {
 }
 
 export const taskStore = {
-  create(input: CreateTaskInput): TaskRow {
+  create(input: CreateStoredTaskInput): TaskRow {
     const task: TaskRow = {
       id: `task-${randomUUID().slice(0, 8)}`,
       title: input.title,
