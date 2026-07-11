@@ -2,6 +2,7 @@ interface PreviewCardPreview {
   previewId: string
   title: string
   target: 'pc' | 'app'
+  url: string
   taskId?: string | null
   createdAt: string
 }
@@ -33,7 +34,7 @@ function formatRelativeTime(iso: string): string {
 }
 
 export function PreviewCard({ preview, onOpen }: PreviewCardProps) {
-  const { previewId, title, target, taskId, createdAt } = preview
+  const { previewId, title, target, url, taskId, createdAt } = preview
   const isApp = target === 'app'
   const timeText = formatRelativeTime(createdAt)
 
@@ -42,7 +43,7 @@ export function PreviewCard({ preview, onOpen }: PreviewCardProps) {
       previewId,
       title,
       target,
-      url: `/preview/${previewId}/`,
+      url,
       taskId,
     })
   }
