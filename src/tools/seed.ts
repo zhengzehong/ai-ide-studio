@@ -887,6 +887,30 @@ const CORE_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
     isBuiltin: true,
     defaultScope: 'global',
   },
+  {
+    name: 'preview.publish',
+    displayName: '发布原型预览',
+    description:
+      '发布原型预览。把指定目录或 HTML 文件发布为可访问的预览 URL。调用后前端对话流会自动渲染预览卡片,用户点击全屏查看。返回 {previewId, url, title, target, taskId, createdAt}。',
+    category: 'automation',
+    type: 'builtin',
+    config: { handler: 'preview.publish' },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sourcePath: { type: 'string', description: '原型根目录或 HTML 文件的绝对路径' },
+        title: { type: 'string', description: '预览标题,默认取目录名/文件名' },
+        target: { type: 'string', enum: ['pc', 'app'], description: '目标端:pc(宽屏)或 app(手机),默认 pc' },
+        entryFile: { type: 'string', description: 'sourcePath 为目录时的入口文件,默认 index.html' },
+        taskId: { type: 'string', description: '关联任务 ID(选填)' },
+        description: { type: 'string', description: '预览描述(选填)' },
+      },
+      required: ['sourcePath'],
+    },
+    permissions: CORE_PERMISSIONS,
+    isBuiltin: true,
+    defaultScope: 'global',
+  },
 ]
 
 const BUILTIN_TOOLS: (CreateToolInput & { defaultScope?: 'global' })[] = [

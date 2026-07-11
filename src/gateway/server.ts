@@ -3,7 +3,7 @@ import { serve } from '@hono/node-server'
 import type { Server } from 'http'
 import { WebSocketServer } from 'ws'
 import { Readable } from 'stream'
-import { basename, extname, join, normalize } from 'path'
+import { basename, extname, join, normalize, sep } from 'path'
 import { createReadStream, existsSync, statSync } from 'fs'
 import type { AppConfig } from '../core/config.js'
 import { handleWsConnection } from './ws-handler.js'
@@ -287,7 +287,7 @@ function handlePreviewAsset(c: Context, config: AppConfig): Response {
   const relativeFile = subPath || preview.entry_file
   const fullPath = normalize(join(preview.source_path, relativeFile))
   const baseDir = normalize(preview.source_path)
-  if (fullPath !== baseDir && !fullPath.startsWith(baseDir + '/')) {
+  if (fullPath !== baseDir && !fullPath.startsWith(baseDir + sep)) {
     return c.json({ error: '预览路径越界' }, 400)
   }
 
