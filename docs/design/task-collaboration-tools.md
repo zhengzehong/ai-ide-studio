@@ -77,36 +77,36 @@ blocked ──人工介入后──→ running(继续)或重新评估
 ### 4.1 任务容器
 
 #### `task.create`
-创建协作任务容器。默认仅建空壳,后续 step.add 编排 + task.start 启动；selfExecute=true 时用于对话任务化。
+创建协作任务空壳。仅建空壳,后续 step.add 编排 + task.start 启动。用于多 Agent 协作编排。
 ```
 参数:
   title         string    必填  任务标题
   description   string    必填  任务目标文档(背景/需求/验收标准,固定部分)
-  selfExecute?  boolean   可选  true=对话任务化(建默认 step,跳过 prompt 注入)
-                               false=建空壳,后续 step.add 编排
-                               默认 false
 
 返回:
   taskId        string
-  defaultStepId string    selfExecute=true 时返回
-  status        "draft"|"running"
+  status        "draft"
 
 说明:
-  - selfExecute=true:用户在当前对话布置任务时用。建一个默认 step(assignee=自己),
-    跳过 prompt 注入(用户消息本身就是任务上下文),任务直接 running。
-  - selfExecute=false(默认):建空壳任务,无 step 无 assignee。后续用 task.step.add
-    编排 + task.start 启动。用于多 Agent 协作。
-  - 简单任务(单 Agent 一步完成)用 task.createSimple,不要用这个
+  - 建空壳任务,无 step 无 assignee,status=draft
+  - assignee 在后续 task.step.add 时指定,不在此工具传
+  - 后续用 task.step.add 编排步骤 + task.start 启动派发
+  - 用于多 Agent 协作编排(方案→开发→测试→验收)
+  - 对话任务化(自己领任务做)用 task.createSimple(selfExecute=true),不要用这个
+  - 简单派发(单步派给别人)用 task.createSimple(selfExecute=false, assignee=目标 Agent),不要用这个
 ```
 
 #### `task.createSimple`
-创建简单任务(单 Agent 一步完成),自动建默认 step + 自动 start,立即派发。
+创建一步任务。两种模式:selfExecute=true(对话任务化,自做) / selfExecute=false(派发给别人)。自动建默认 step + 自动 start。
 ```
 参数:
   title         string    必填  任务标题
   description   string    必填  任务目标文档
-  assignee      string    必填  分派给哪个 Agent
-  sessionId?    string    可选  指定会话(不传系统按 assignee 找 primary 会话)
+  selfExecute   boolean   可选  true=对话任务化(自做);false=派发给别人。默认 false
+  assignee      string    selfExecute=false 时必填  分派给哪个 Agent
+                          selfExecute=true 时忽略(系统强制用当前 Agent)
+  sessionId?    string    可选  selfExecute=false 时指定会话(不传系统按 assignee 找 primary 会话)
+                          selfExecute=true 时忽略(系统强制用当前会话)
 
 返回:
   taskId        string
@@ -114,10 +114,18 @@ blocked ──人工介入后──→ running(继续)或重新评估
   status        "running"
 
 说明:
-  - 单 Agent 一步完成的任务用这个,create 即派发,不用手动 start
-  - 内部等价于:task.create + task.step.add(assignee) + task.start,但一步原子完成
-  - 创建后 status=running,默认 step 已派给 assignee
-  - Agent 调 task.step.report(defaultStepId, done) 后任务 completed
+  - selfExecute=true(对话任务化):用户在当前对话布置任务时用。
+    · 建默认 step(assignee=当前 Agent, sessionId=当前会话)
+    · 跳过 prompt 注入(用户消息本身就是任务上下文)
+    · 不 dispatch(当前会话就是执行会话)
+    · step 直接 running,task 直接 running
+    · assignee / sessionId 参数忽略(系统强制用当前 Agent + 当前会话)
+  - selfExecute=false(默认,派发给别人):
+    · 建默认 step(assignee=传入的 assignee)
+    · 注入 prompt 到目标会话,dispatch 派发
+    · step running,task running
+    · 内部等价于:task.create + task.step.add(assignee) + task.start,但一步原子完成
+  - 两种模式下,Agent 调 task.step.report(defaultStepId, done) 后任务 completed
   - ⚠️ 如果任务需要多步骤/多 Agent 协作,用 task.create,不要用这个
 ```
 
@@ -464,7 +472,7 @@ task.step.report(t, s5, done, "验收通过")
 # → 所有 step done → 任务 completed
 ```
 
-### 场景 2:简单任务(一步创建)
+### 场景 2:简单任务(派发给别人)
 
 ```
 t = task.createSimple("修个typo", "README 里 ai-ide-studio 拼错", assignee="coder-prd")
@@ -476,12 +484,12 @@ task.step.report(t, defaultStepId, done, "已修复", artifacts=[{type:"commit",
 # → 任务 completed
 ```
 
-### 场景 2.5:对话任务化(selfExecute)
+### 场景 2.5:对话任务化(selfExecute=true,自做)
 
 ```
 # 用户在当前对话说"帮我修 README 的 typo"
-t = task.create("修 README typo", "ai-ide-studio 拼错", selfExecute=true)
-# → 建默认 step(assignee=自己),跳过 prompt 注入,任务直接 running
+t = task.createSimple("修 README typo", "ai-ide-studio 拼错", selfExecute=true)
+# → 建默认 step(assignee=自己, sessionId=当前会话),跳过 prompt 注入,任务直接 running
 # → 返回 taskId + defaultStepId
 
 # Agent 直接修(用户消息就是上下文,不需要再注入 prompt)
@@ -526,8 +534,8 @@ Agent 被 step 派发唤醒时,系统注入的 prompt 应包含:
 
 | 现有 | 新模型 |
 |---|---|
-| `studio.task.create` | 保留;去掉 assignee/sessionMode/sessionId/executionModeId 参数;新增 selfExecute(对话任务化模式,设计补上);简单任务用 `studio.task.createSimple` |
-| `studio.task.createSimple` | 新增,简单任务一步创建 + 自动 start |
+| `studio.task.create` | 保留;去掉 assignee/sessionMode/sessionId/executionModeId/selfExecute 参数;只建空壳,职责单一(多 Agent 协作编排) |
+| `studio.task.createSimple` | 保留;新增 `selfExecute` 参数(从 task.create 搬过来):true=对话任务化(自做),false=派发给别人(默认)。一步创建 + 自动 start |
 | `studio.task.report` | 扩展,加可选 `stepId` 参数;不传走老逻辑(老任务) |
 | `studio.task.get` | 返回值加 `steps` 数组(老任务为空) |
 | `assigned_agent_id` | 保留,简单任务用;协作任务用 step.assignee |
