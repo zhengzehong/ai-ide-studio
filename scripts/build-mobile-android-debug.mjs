@@ -1,4 +1,4 @@
-import { existsSync, copyFileSync, mkdirSync } from 'node:fs'
+import { existsSync, copyFileSync, mkdirSync, rmSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 
@@ -57,6 +57,15 @@ const javaHome = defaultJavaHome()
 if (javaHome) {
   env.JAVA_HOME = javaHome
   env.Path = `${join(javaHome, 'bin')};${env.Path ?? ''}`
+}
+
+const distDir = join(mobileDir, 'dist')
+const androidAssetsDir = join(androidDir, 'app', 'src', 'main', 'assets', 'public')
+for (const dir of [distDir, androidAssetsDir]) {
+  if (existsSync(dir)) {
+    rmSync(dir, { recursive: true, force: true })
+    console.log(`cleaned: ${dir}`)
+  }
 }
 
 run('npm', ['run', 'build'], { cwd: mobileDir, env })
