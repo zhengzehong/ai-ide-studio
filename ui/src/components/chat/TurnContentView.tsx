@@ -109,12 +109,12 @@ export function TurnContentView({
           )}
         </div>
       )}
+      {finalAnswer && <MarkdownRenderer content={finalAnswer} />}
       {hasPreviewCard && (
-        <div style={{ marginBottom: finalAnswer ? 10 : 0 }}>
+        <div style={{ marginTop: finalAnswer ? 10 : 0 }}>
           {previewBlocks.map((block) => renderProcessBlock(block))}
         </div>
       )}
-      {finalAnswer && <MarkdownRenderer content={finalAnswer} />}
       {showBottomCard && (
         <FileChangesCard
           changes={fileChanges}

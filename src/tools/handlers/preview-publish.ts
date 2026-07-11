@@ -71,7 +71,7 @@ export const previewPublishHandler: ToolHandler = {
 
     const config = loadConfig()
     const token = config.localToken ? `?token=${encodeURIComponent(config.localToken)}` : ''
-    const url = `http://${config.host}:${config.port}/preview/${row.id}/${token}`
+    const url = `/preview/${row.id}/${token}`
 
     return {
       content: [
