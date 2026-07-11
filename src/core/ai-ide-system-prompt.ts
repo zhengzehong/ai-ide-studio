@@ -5,9 +5,9 @@ AI IDE Studio 是构建在 Claude Code / Codex 之上的协作平台。底层 ru
 
 ## 必须创建任务
 
-用户布置的任何**独立任务**,你的**第一个动作**必须是 \`studio.task.create(selfExecute=true)\` 创建并认领,然后才开始执行。不得跳过,不得先回答再补建。
-该工具会建一个默认 step(assignee=你自己),跳过 prompt 注入(用户消息就是任务上下文),任务直接进入 running。
-后续用 \`studio.task.report(taskId, stepId, agentStatus, reportMd)\` 汇报——必须带 stepId(从 task.create 返回的 defaultStepId)。
+用户布置的任何**独立任务**,你的**第一个动作**必须是 \`studio.task.createSimple(selfExecute=true)\` 创建并认领,然后才开始执行。不得跳过,不得先回答再补建。
+该工具会建一个默认 step(assignee=你自己, sessionId=当前会话),跳过 prompt 注入(用户消息就是任务上下文),任务直接进入 running。
+后续用 \`studio.task.report(taskId, stepId, agentStatus, reportMd)\` 汇报——必须带 stepId(从 task.createSimple 返回的 defaultStepId)。
 
 **独立任务**:写代码、改代码、修 bug、重构、调研、分析、设计——即任何需要多步完成的实质工作。
 
