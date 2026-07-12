@@ -13,6 +13,7 @@ import TaskListPage from './pages/TaskListPage'
 import TaskDetailPage from './pages/TaskDetailPage'
 import TaskReportPage from './pages/TaskReportPage'
 import SettingsPage from './pages/SettingsPage'
+import TemplateListPage from './pages/TemplateListPage'
 import PreviewPage from './pages/PreviewPage'
 
 const isAndroidBuild = import.meta.env.VITE_MOBILE_BUILD_TARGET === 'android'
@@ -73,6 +74,7 @@ export default function App() {
         <Route path="/task/:taskId" element={<TaskDetailPage />} />
         <Route path="/task/:taskId/report/:eventId" element={<TaskReportPage />} />
         <Route path="/preview/:previewId" element={<PreviewPage />} />
+        <Route path="/templates" element={<TemplateListPage />} />
         <Route element={<MobileShell />}>
           <Route path="/" element={<SessionListPage />} />
           <Route path="/tasks" element={<TaskListPage />} />

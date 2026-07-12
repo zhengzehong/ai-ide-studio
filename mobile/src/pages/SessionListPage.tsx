@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { Archive, Edit3, MessageSquarePlus, Plus, Search, Trash2, XCircle } from 'lucide-react'
+import { Archive, Edit3, MessageSquarePlus, Plus, Search, Trash2, XCircle, Sparkles } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useSessionStore } from '../stores/session.store'
 import { useAppStore } from '../stores/app.store'
@@ -11,6 +11,8 @@ import ProjectCreateSheet from '../components/ProjectCreateSheet'
 import ActionSheet from '../components/ActionSheet'
 import ConfirmDialog from '../components/ConfirmDialog'
 import RenameDialog from '../components/RenameDialog'
+import TemplatePickerSheet from '../components/templates/TemplatePickerSheet'
+import PublishTemplateSheet from '../components/templates/PublishTemplateSheet'
 import { useEdgeSwipe } from '../hooks/useEdgeSwipe'
 
 interface AgentGroup {
@@ -73,6 +75,9 @@ export default function SessionListPage() {
   const [actionSession, setActionSession] = useState<MobileSessionItem | null>(null)
   const [renameTarget, setRenameTarget] = useState<MobileSessionItem | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<MobileSessionItem | null>(null)
+  const [newMenuOpen, setNewMenuOpen] = useState(false)
+  const [pickerAgentId, setPickerAgentId] = useState<string | null>(null)
+  const [publishSession, setPublishSession] = useState<MobileSessionItem | null>(null)
 
   const drawerRef = useRef<HTMLDivElement | null>(null)
   const overlayRef = useRef<HTMLDivElement | null>(null)
@@ -153,7 +158,38 @@ export default function SessionListPage() {
       setCreateSheetOpen(true)
       return
     }
+    setNewMenuOpen(true)
+  }
+
+  const handleNewBlankSession = () => {
+    if (!currentProjectId) {
+      setCreateSheetOpen(true)
+      return
+    }
     navigate(`/chat/new?projectId=${currentProjectId}`)
+  }
+
+  const handleNewFromTemplate = () => {
+    if (!currentProjectId) {
+      setCreateSheetOpen(true)
+      return
+    }
+    // 需要选一个 agent 才能打开 picker,默认用第一个可见 agent
+    const firstAgentId = agentGroups[0]?.agentId
+    if (!firstAgentId) {
+      // 无 agent 时直接跳到空白会话
+      navigate(`/chat/new?projectId=${currentProjectId}`)
+      return
+    }
+    setPickerAgentId(firstAgentId)
+  }
+
+  const handlePickerSelect = (sessionId: string) => {
+    navigate(`/chat/${sessionId}`)
+  }
+
+  const handlePublishTemplate = (session: MobileSessionItem) => {
+    setPublishSession(session)
   }
 
   const handleSearch = () => {
@@ -190,6 +226,12 @@ export default function SessionListPage() {
           label: '重命名',
           icon: <Edit3 size={18} color="#191919" />,
           onClick: () => setRenameTarget(actionSession),
+        },
+        {
+          key: 'publishTemplate',
+          label: '发布为模板',
+          icon: <Sparkles size={18} color="#191919" />,
+          onClick: () => handlePublishTemplate(actionSession),
         },
         {
           key: 'archive',
@@ -318,6 +360,46 @@ export default function SessionListPage() {
         onConfirm={handleDeleteConfirm}
         onCancel={() => setDeleteTarget(null)}
       />
+
+      <ActionSheet
+        open={newMenuOpen}
+        title="新建会话"
+        items={[
+          {
+            key: 'blank',
+            label: '空白会话',
+            icon: <Plus size={18} color="#191919" />,
+            onClick: handleNewBlankSession,
+          },
+          {
+            key: 'fromTemplate',
+            label: '从模板新建',
+            icon: <Sparkles size={18} color="#191919" />,
+            onClick: handleNewFromTemplate,
+          },
+        ]}
+        onClose={() => setNewMenuOpen(false)}
+      />
+
+      {pickerAgentId && (
+        <TemplatePickerSheet
+          open
+          agentId={pickerAgentId}
+          onClose={() => setPickerAgentId(null)}
+          onSelect={handlePickerSelect}
+        />
+      )}
+
+      {publishSession && (
+        <PublishTemplateSheet
+          open
+          sessionId={publishSession.id}
+          onClose={() => setPublishSession(null)}
+          onPublished={() => {
+            // 不自动关闭,让 PublishTemplateSheet 内部关闭;这里可用于埋点
+          }}
+        />
+      )}
     </div>
   )
 }

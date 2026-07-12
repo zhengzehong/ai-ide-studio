@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { wsClient } from '@desktop/services/ws-client'
 import type { SessionData } from '@desktop/stores/session.store'
+import type { SessionTemplateData } from '@desktop/stores/session.store'
 import { useAppStore } from './app.store'
 import { showToast } from '../utils/toast'
 
@@ -43,6 +44,14 @@ interface SessionState {
   archiveSession: (sessionId: string) => Promise<void>
   closeSession: (sessionId: string) => Promise<void>
   deleteSession: (sessionId: string) => Promise<void>
+  listSessionTemplates: (agentId?: string) => Promise<SessionTemplateData[]>
+  publishSessionTemplate: (sessionId: string, name: string, description?: string) => Promise<SessionTemplateData>
+  instantiateSessionTemplate: (templateId: string) => Promise<SessionData>
+  deleteSessionTemplate: (templateId: string) => Promise<void>
+  updateSessionTemplate: (
+    templateId: string,
+    fields: { name?: string; description?: string | null },
+  ) => Promise<SessionTemplateData | undefined>
   setupListeners: () => () => void
 }
 
@@ -228,6 +237,42 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       showToast('操作失败')
       void get().fetchSessions(useAppStore.getState().currentProjectId)
     }
+  },
+
+  listSessionTemplates: async (agentId) => {
+    const msg: Record<string, unknown> = { type: 'session_templates.list' }
+    if (agentId) msg.agentId = agentId
+    return (await wsClient.request(msg)) as SessionTemplateData[]
+  },
+
+  publishSessionTemplate: async (sessionId, name, description) => {
+    const msg: Record<string, unknown> = {
+      type: 'session_templates.publish',
+      sourceSessionId: sessionId,
+      name,
+    }
+    if (description !== undefined) msg.description = description
+    return (await wsClient.request(msg)) as SessionTemplateData
+  },
+
+  instantiateSessionTemplate: async (templateId) => {
+    const session = (await wsClient.request({
+      type: 'session_templates.instantiate',
+      templateId,
+    })) as SessionData
+    void get().fetchSessions(useAppStore.getState().currentProjectId)
+    return session
+  },
+
+  deleteSessionTemplate: async (templateId) => {
+    await wsClient.request({ type: 'session_templates.delete', templateId })
+  },
+
+  updateSessionTemplate: async (templateId, fields) => {
+    const msg: Record<string, unknown> = { type: 'session_templates.update', templateId }
+    if (fields.name !== undefined) msg.name = fields.name
+    if (fields.description !== undefined) msg.description = fields.description
+    return (await wsClient.request(msg)) as SessionTemplateData | undefined
   },
 
   setupListeners: () => {
