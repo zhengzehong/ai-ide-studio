@@ -66,6 +66,10 @@ import {
   listModelProfilesHandler,
   listProjectsHandler,
   listSessionsHandler,
+  listSessionTemplatesHandler,
+  publishSessionTemplateHandler,
+  instantiateSessionTemplateHandler,
+  deleteSessionTemplateHandler,
   updateAgentTemplateHandler,
 } from './core/index.js'
 import {
@@ -167,6 +171,10 @@ register(listModelProfilesHandler)
 register(listSessionsHandler)
 register(getSessionHandler)
 register(createSessionHandler)
+register(listSessionTemplatesHandler)
+register(publishSessionTemplateHandler)
+register(instantiateSessionTemplateHandler)
+register(deleteSessionTemplateHandler)
 register(listTimelineHandler)
 register(listKnowledgeBasesHandler)
 register(readKnowledgeIndexHandler)
