@@ -13,6 +13,12 @@ export { listModelProfilesHandler } from './model-profile-tools.js'
 export { createProjectHandler, getProjectHandler, listProjectsHandler } from './project-tools.js'
 export { createSessionHandler, getSessionHandler, listSessionsHandler } from './session-tools.js'
 export {
+  deleteSessionTemplateHandler,
+  instantiateSessionTemplateHandler,
+  listSessionTemplatesHandler,
+  publishSessionTemplateHandler,
+} from './session-template-tools.js'
+export {
   createAgentTemplateHandler,
   deleteAgentTemplateHandler,
   getAgentTemplateHandler,
