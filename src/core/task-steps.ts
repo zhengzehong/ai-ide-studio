@@ -265,7 +265,7 @@ export const taskStepManager = {
       ? unlockDependents(input.taskId, input.stepId)
       : []
 
-    let taskCompleted = false
+    const taskCompleted = false
     if (input.agentStatus === 'done' && task.status === 'running') {
       const all = taskStepStore.listByTask(input.taskId)
       const allDone = all.length > 0 && all.every(s => s.status === 'done')

@@ -30,8 +30,8 @@ export interface CreateTaskInput {
   description: string
   source?: string
   projectId?: string
-  initiatorAgentId?: string
-  initiatorSessionId?: string
+  initiatorAgentId?: string | null
+  initiatorSessionId?: string | null
 }
 
 interface CreateStoredTaskInput extends CreateTaskInput {
