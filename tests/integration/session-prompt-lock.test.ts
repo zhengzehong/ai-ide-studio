@@ -59,4 +59,18 @@ describe('sessionManager prompt lifecycle', () => {
 
     await expect(sessionManager.sendPrompt(session.id, 'hello')).rejects.toThrow('当前会话已关闭')
   })
+
+  test('模板会话拒绝 sendPrompt', async () => {
+    const agent = agentStore.create({ name: 'Mock', type: 'dev', runtime: 'mock' })
+    const session = sessionStore.create({ agentId: agent.id, acpSessionId: 'acp-template', isTemplate: true })
+
+    await expect(sessionManager.sendPrompt(session.id, 'hello')).rejects.toThrow('模板会话不能直接发送消息')
+  })
+
+  test('模板会话拒绝 enqueuePrompt', async () => {
+    const agent = agentStore.create({ name: 'Mock', type: 'dev', runtime: 'mock' })
+    const session = sessionStore.create({ agentId: agent.id, acpSessionId: 'acp-template', isTemplate: true })
+
+    await expect(sessionManager.enqueuePrompt(session.id, 'hello')).rejects.toThrow('模板会话不能直接发送消息')
+  })
 })

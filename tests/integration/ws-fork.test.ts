@@ -56,4 +56,45 @@ describe('session.fork WS RPC', () => {
 
     acpHost.forkSession = original
   })
+
+  test('Agent 重启后(acpSessions Map 为空)forkSession 走 DB fallback', async () => {
+    const workDir = resolve(tmp, 'project-fork-restart')
+    const project = projectStore.create({ name: 'Fork 重启项目', workDir })
+    agentStore.upsert({ id: 'agent-fork-restart', type: 'dev', name: 'Fork 重启测试', runtime: 'mock', projectId: project.id })
+    const source = sessionStore.create({ agentId: 'agent-fork-restart', acpSessionId: 'acp-source-restart', projectId: project.id })
+
+    let forkCalled = false
+    const originalStart = acpHost.startAgent
+    acpHost.startAgent = (async () => {
+      acpHost.agents.set('agent-fork-restart', {
+        agentId: 'agent-fork-restart',
+        runtime: 'mock',
+        proc: { kill: () => undefined },
+        connection: {
+          signal: { aborted: false },
+          unstable_forkSession: async (params: { sessionId: string }) => {
+            forkCalled = true
+            return { sessionId: `acp-forked-${params.sessionId}`, models: null, modes: null }
+          },
+        },
+        acpSessions: new Map(),
+        runtimeSessions: new Map(),
+        sessionCapabilities: new Map(),
+        state: 'running',
+        lastUsedAt: Date.now(),
+        activeTurnCount: 0,
+        agentCapabilities: { sessionCapabilities: { fork: true } },
+        sessionMeta: {},
+      } as never)
+    }) as typeof acpHost.startAgent
+
+    const targetId = 'sess-target-restart'
+    const result = await acpHost.forkSession('agent-fork-restart', source.id, targetId, { projectId: project.id, cwd: workDir })
+
+    expect(forkCalled).toBe(true)
+    expect(result).toBe('acp-forked-acp-source-restart')
+
+    acpHost.startAgent = originalStart
+    acpHost.agents.delete('agent-fork-restart')
+  })
 })

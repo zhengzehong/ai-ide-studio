@@ -566,10 +566,16 @@ export const acpHost = {
     targetSessionId: string,
     context: AcpSessionContext = {},
   ): Promise<string> {
-    const conn = acpHost.agents.get(agentId)
-    if (!conn) throw new Error(`Agent ${agentId} 未运行`)
-    const sourceAcpSessionId = conn.acpSessions.get(sourceSessionId)
+    let conn = acpHost.agents.get(agentId)
+    const sourceAcpSessionId = conn?.acpSessions.get(sourceSessionId)
+      ?? sessionStore.get(sourceSessionId)?.acp_session_id
+      ?? undefined
     if (!sourceAcpSessionId) throw new Error(`Session ${sourceSessionId} 没有对应的 ACP session`)
+    if (!conn) {
+      await acpHost.startAgent(agentId)
+      conn = acpHost.agents.get(agentId)
+    }
+    if (!conn) throw new Error(`Agent ${agentId} 未运行`)
     return acpHost.forkSessionFromAcpSessionId(agentId, sourceAcpSessionId, targetSessionId, context)
   },
 
