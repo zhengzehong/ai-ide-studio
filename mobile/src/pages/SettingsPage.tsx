@@ -1,9 +1,11 @@
 import type { CSSProperties } from 'react'
-import { Settings, Server, Wifi, WifiOff, LogOut, Info } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { Settings, Server, Wifi, WifiOff, LogOut, Info, Sparkles, ChevronRight } from 'lucide-react'
 import { useConnectionStore } from '../stores/connection.store'
 
 export default function SettingsPage() {
   const { serverUrl, token, connected, status, disconnect } = useConnectionStore()
+  const navigate = useNavigate()
   const statusText = status === 'connecting' ? '连接中' : connected ? '已连接' : status === 'failed' ? '连接失败' : '未连接'
   const statusColor = connected ? 'var(--success)' : status === 'connecting' ? 'var(--warning)' : 'var(--error)'
 
@@ -15,6 +17,17 @@ export default function SettingsPage() {
       </div>
 
       <div style={styles.content}>
+        <div style={styles.section}>
+          <div style={styles.sectionTitle}>会话模板</div>
+          <div style={styles.card}>
+            <button style={styles.row} onClick={() => navigate('/templates')}>
+              <Sparkles size={16} color="var(--primary)" />
+              <span style={styles.label}>模板管理</span>
+              <ChevronRight size={16} color="var(--text-muted)" />
+            </button>
+          </div>
+        </div>
+
         <div style={styles.section}>
           <div style={styles.sectionTitle}>服务器连接</div>
           <div style={styles.card}>
@@ -111,6 +124,8 @@ const styles: Record<string, CSSProperties> = {
     alignItems: 'center',
     gap: 10,
     padding: '13px 14px',
+    width: '100%',
+    textAlign: 'left',
   },
   label: {
     fontSize: 14,
