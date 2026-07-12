@@ -1,13 +1,15 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   Server, Plus, Pencil, Trash2, ToggleLeft, ToggleRight, CheckCircle2,
-  Star, Loader2, Eye, EyeOff, AlertCircle, Cpu, Clock,
+  Star, Loader2, Eye, EyeOff, AlertCircle, Cpu, Clock, Share2,
 } from 'lucide-react'
 import { useModelStore, type CodexProfileConfig, type ClaudeProfileConfig, type ModelProfileConfig, type ModelProfileData, type ModelProviderData } from '../stores/model.store'
 import { useTimelineStore } from '../stores/timeline.store'
 import { useProjectStore } from '../stores/project.store'
 
 export default function Settings() {
+  const navigate = useNavigate()
   const {
     providers, profiles, fetchProviders, fetchProfiles, createProvider, updateProvider, toggleProvider, deleteProvider,
     setDefault, testProvider, createProfile, updateProfile, toggleProfile, setDefaultProfile, deleteProfile,
@@ -31,6 +33,29 @@ export default function Settings() {
       <div style={{ marginBottom: 28 }}>
         <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0, letterSpacing: -0.5 }}>设置</h1>
         <p style={{ color: 'var(--text-3)', fontSize: 15, margin: '6px 0 0' }}>管理模型供应商和全局配置</p>
+      </div>
+
+      {/* Section: My Shares */}
+      <div style={{ marginBottom: 32 }}>
+        <button
+          type="button"
+          onClick={() => navigate('/shares')}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 14, width: '100%',
+            padding: '18px 20px', borderRadius: 12, border: '1px solid var(--border)',
+            background: 'var(--bg-1)', cursor: 'pointer', textAlign: 'left', transition: 'box-shadow .2s',
+          }}
+          title="我的分享"
+        >
+          <Share2 size={20} style={{ color: 'var(--blue)' }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 600, fontSize: 15 }}>我的分享</div>
+            <div style={{ fontSize: 13, color: 'var(--text-3)', marginTop: 2 }}>
+              查看和管理已分享的会话,复制链接、续期、撤销或删除
+            </div>
+          </div>
+          <span style={{ fontSize: 13, color: 'var(--text-3)' }}>→</span>
+        </button>
       </div>
 
       {/* Section: Model Providers */}

@@ -17,6 +17,7 @@ import Projects from './pages/Projects'
 import WidgetPage from './pages/Widget'
 import AccessTokenPage from './pages/AccessTokenPage'
 import GuestChatPage from './pages/share/GuestChatPage'
+import ShareManagePage from './pages/share/ShareManagePage'
 import { useConnectionStore } from './stores/connection.store'
 import { useAgentStore } from './stores/agent.store'
 import { useSessionStore } from './stores/session.store'
@@ -97,6 +98,7 @@ export default function App() {
           <Route path="/knowledge" element={<KnowledgeBase />} />
           <Route path="/agent-memory" element={<AgentMemory />} />
           <Route path="/projects" element={<Projects />} />
+          <Route path="/shares" element={<ShareManagePage />} />
           <Route path="/settings" element={<Settings />} />
         </Route>
       </Routes>

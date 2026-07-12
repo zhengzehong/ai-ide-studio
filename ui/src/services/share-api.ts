@@ -111,3 +111,14 @@ export async function renewShare(id: string, days: number | null): Promise<Share
   })
   return parseJson<ShareRow>(res)
 }
+
+export async function deleteShare(id: string): Promise<void> {
+  const res = await fetch(`/api/shares/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: ownerHeaders(),
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => null)
+    throw new Error(body?.error ?? `删除失败 (${res.status})`)
+  }
+}

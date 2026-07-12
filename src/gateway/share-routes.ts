@@ -108,4 +108,10 @@ export function mountShareRoutes(app: Hono, _config: AppConfig): void {
     if (!share) return c.json({ error: '分享不存在' }, 404)
     return c.json(share)
   })
+
+  app.delete('/api/shares/:id', (c) => {
+    const id = c.req.param('id')
+    sessionShareStore.softDelete(id)
+    return c.json({ ok: true })
+  })
 }
