@@ -7,11 +7,14 @@ interface ConnectionClient {
   on: (event: string, handler: (msg: Record<string, unknown>) => void) => () => void
 }
 
+export type AuthMode = 'owner' | 'guest'
+
 interface ConnectionStore {
   connected: boolean
   authRequired: boolean
   authError: string | null
   token: string
+  authMode: AuthMode
   init: () => void
   saveToken: (token: string) => void
 }
@@ -20,11 +23,18 @@ let initialized = false
 let connectionClient: ConnectionClient = wsClient
 const ACCESS_TOKEN_STORAGE_KEY = 'ai-ide-access-token'
 
+function readGuestShareTokenFromLocation(): string | null {
+  if (typeof window === 'undefined' || !window.location) return null
+  const match = window.location.pathname.match(/^\/share\/([A-Za-z0-9]+)/)
+  return match ? match[1] : null
+}
+
 export const useConnectionStore = create<ConnectionStore>((set) => ({
   connected: false,
   authRequired: false,
   authError: null,
   token: getStoredAccessToken(),
+  authMode: readGuestShareTokenFromLocation() ? 'guest' : 'owner',
   init: () => {
     if (initialized) return
     initialized = true
@@ -49,7 +59,7 @@ export const useConnectionStore = create<ConnectionStore>((set) => ({
   saveToken: (token) => {
     const nextToken = token.trim()
     storeAccessToken(nextToken)
-    set({ token: nextToken, authRequired: false, authError: null, connected: false })
+    set({ token: nextToken, authRequired: false, authError: null, connected: false, authMode: 'owner' })
     connectionClient.connect(resolveWsUrl(window.location, nextToken))
   },
 }))
@@ -58,14 +68,24 @@ export function resolveWsUrl(location: Location = window.location, tokenOverride
   const explicitUrl = import.meta.env.VITE_WS_URL as string | undefined
   if (explicitUrl?.trim()) return explicitUrl.trim()
 
-  const token = tokenOverride ?? new URLSearchParams(location.search).get('token') ?? getStoredAccessToken()
   const explicitPort = import.meta.env.VITE_WS_PORT as string | undefined
   const devPort = import.meta.env.DEV ? (explicitPort?.trim() || '18800') : explicitPort?.trim()
   const protocol = location.protocol === 'https:' ? 'wss' : 'ws'
   const host = devPort ? `${location.hostname}:${devPort}` : location.host
-  const query = token ? `?token=${encodeURIComponent(token)}` : ''
 
+  const shareToken = readShareTokenFromPath(location)
+  if (shareToken) {
+    return `${protocol}://${host}?shareToken=${encodeURIComponent(shareToken)}`
+  }
+
+  const token = tokenOverride ?? new URLSearchParams(location.search).get('token') ?? getStoredAccessToken()
+  const query = token ? `?token=${encodeURIComponent(token)}` : ''
   return `${protocol}://${host}${query}`
+}
+
+function readShareTokenFromPath(loc: Location): string | null {
+  const match = loc.pathname.match(/^\/share\/([A-Za-z0-9]+)/)
+  return match ? match[1] : null
 }
 
 export function getStoredAccessToken(): string {

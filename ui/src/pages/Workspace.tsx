@@ -123,6 +123,8 @@ import {
   ReportHistoryModal as CollabReportHistoryModal,
   CreateTaskModal as CollabCreateTaskModal,
 } from './workspace/task-collab'
+import { ShareModal } from './share/ShareModal'
+import { Share2 } from 'lucide-react'
 
 const COPYING_STAGE = '正在复制会话...'
 
@@ -1328,6 +1330,7 @@ function WorkspaceChatPane({
   const [pendingImages, setPendingImages] = useState<WorkspacePendingImage[]>([])
   const [draggingImages, setDraggingImages] = useState(false)
   const [showTimeline, setShowTimeline] = useState(false)
+  const [showShareModal, setShowShareModal] = useState(false)
   const [showModelMenu, setShowModelMenu] = useState(false)
   const [showModeMenu, setShowModeMenu] = useState(false)
   const [showConfigMenu, setShowConfigMenu] = useState<string | null>(null)
@@ -1798,6 +1801,28 @@ function WorkspaceChatPane({
           )}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {currentSessionId && chatAgent && (
+            <button
+              type="button"
+              onClick={() => setShowShareModal(true)}
+              title="分享会话"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5,
+                padding: '5px 11px',
+                borderRadius: 7,
+                border: '1px solid var(--border)',
+                background: 'var(--bg-0)',
+                cursor: 'pointer',
+                fontSize: 13,
+                color: 'var(--text-2)',
+                transition: 'all .15s',
+              }}
+            >
+              <Share2 size={13} /> 分享
+            </button>
+          )}
           {currentSessionId && (
             <button
               onClick={() => setShowTimeline((v) => !v)}
@@ -2129,6 +2154,16 @@ function WorkspaceChatPane({
         <PreviewModal
           preview={previewModal}
           onClose={() => setPreviewModal(null)}
+        />
+      )}
+      {showShareModal && currentSessionId && chatAgent && (
+        <ShareModal
+          open={showShareModal}
+          onClose={() => setShowShareModal(false)}
+          sessionId={currentSessionId}
+          sessionTitle={currentSessionTitle ?? chatAgent.name}
+          ownerAgentId={chatAgent.id}
+          agentName={chatAgent.name}
         />
       )}
     </>
