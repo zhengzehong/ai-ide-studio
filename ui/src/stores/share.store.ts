@@ -6,6 +6,7 @@ import {
   listShares as apiListShares,
   revokeShare as apiRevokeShare,
   renewShare as apiRenewShare,
+  deleteShare as apiDeleteShare,
   type CreateShareInput,
   type ShareBootstrapResult,
   type ShareRow,
@@ -22,6 +23,7 @@ interface ShareStore {
   fetchShares: (ownerAgentId: string, sessionId?: string) => Promise<void>
   revokeShare: (id: string) => Promise<ShareRow | null>
   renewShare: (id: string, days: number | null) => Promise<ShareRow | null>
+  deleteShare: (id: string) => Promise<boolean>
   clearCurrent: () => void
   clearError: () => void
 }
@@ -97,6 +99,21 @@ export const useShareStore = create<ShareStore>((set) => ({
     } catch (err) {
       set({ loading: false, error: err instanceof Error ? err.message : '续期分享失败' })
       return null
+    }
+  },
+
+  deleteShare: async (id) => {
+    set({ loading: true, error: null })
+    try {
+      await apiDeleteShare(id)
+      set((s) => ({
+        shares: s.shares.filter((item) => item.id !== id),
+        loading: false,
+      }))
+      return true
+    } catch (err) {
+      set({ loading: false, error: err instanceof Error ? err.message : '删除分享失败' })
+      return false
     }
   },
 

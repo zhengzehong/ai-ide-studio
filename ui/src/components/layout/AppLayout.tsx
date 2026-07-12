@@ -14,6 +14,7 @@ import {
   Plus,
   Search,
   Settings,
+  Share2,
   Sparkles,
   Store,
   Wrench,
@@ -388,6 +389,9 @@ export default function AppLayout() {
         </nav>
 
         <div className="sidebar-bottom">
+          <NavLink to="/shares" className={({ isActive }) => `sidebar-link${isActive ? ' sidebar-link--active' : ''}`} title="我的分享">
+            <Share2 size={20} />
+          </NavLink>
           <NavLink to="/settings" className={({ isActive }) => `sidebar-link${isActive ? ' sidebar-link--active' : ''}`} title="设置">
             <Settings size={20} />
           </NavLink>

@@ -2,13 +2,15 @@ import { useState, type CSSProperties } from 'react'
 import { Copy, Check, X } from 'lucide-react'
 import { ModalOverlay } from '../../components/ModalDialog'
 import { useShareStore } from '../../stores/share.store'
+import { useSessionStore, type SessionData } from '../../stores/session.store'
+import { useAgentStore, type AgentData } from '../../stores/agent.store'
 import type { SharePermission, ShareToolCallVisibility } from '../../services/share-api'
 
 interface ShareModalProps {
   open: boolean
   onClose: () => void
-  sessionId: string
-  sessionTitle: string
+  sessionId?: string
+  sessionTitle?: string
   ownerAgentId: string
   agentName: string
 }
@@ -22,8 +24,9 @@ const DURATIONS: { key: DurationKey; label: string; ms: number | null }[] = [
   { key: 'never', label: '永久', ms: null },
 ]
 
-function createInitialState(sessionTitle: string) {
+function createInitialState(sessionTitle: string, sessionId?: string) {
   return {
+    pickedSessionId: sessionId ?? '',
     shareName: sessionTitle,
     agentIntro: '',
     duration: '1d' as DurationKey,
@@ -38,27 +41,41 @@ export function ShareModal({ open, onClose, sessionId, sessionTitle, ownerAgentI
   const createShare = useShareStore((s) => s.createShare)
   const loading = useShareStore((s) => s.loading)
   const error = useShareStore((s) => s.error)
-  const [state, setState] = useState(() => createInitialState(sessionTitle))
+  const sessions = useSessionStore((s) => s.sessions)
+  const agents = useAgentStore((s) => s.agents)
+  const [state, setState] = useState(() => createInitialState(sessionTitle ?? '', sessionId))
 
   if (!open) return null
 
   const update = (patch: Partial<ReturnType<typeof createInitialState>>) => setState((prev) => ({ ...prev, ...patch }))
-  const reset = () => setState(createInitialState(sessionTitle))
+  const reset = () => setState(createInitialState(sessionTitle ?? '', sessionId))
 
   const handleClose = () => {
     reset()
     onClose()
   }
 
-  const canSubmit = !!state.shareName.trim() && !!state.agentIntro.trim() && !loading
+  const noSessionMode = !sessionId
+  const sessionOptions = noSessionMode ? buildSessionOptions(sessions, agents) : []
+  const effectiveSessionId = noSessionMode ? state.pickedSessionId : sessionId
+  const effectiveAgentName = noSessionMode
+    ? agents.find((a) => a.id === sessions.find((s) => s.id === state.pickedSessionId)?.agent_id)?.name ?? 'Agent'
+    : agentName
+
+  const canSubmit =
+    !!state.shareName.trim() &&
+    !!state.agentIntro.trim() &&
+    !!effectiveSessionId &&
+    !loading
 
   const handleSubmit = async () => {
-    if (!canSubmit) return
+    if (!canSubmit || !effectiveSessionId) return
     const durationOpt = DURATIONS.find((d) => d.key === state.duration)!
     const expiresAt = durationOpt.ms == null ? null : new Date(Date.now() + durationOpt.ms).toISOString()
+    const ownerAgent = sessions.find((s) => s.id === effectiveSessionId)?.agent_id ?? ownerAgentId
     const share = await createShare({
-      sessionId,
-      ownerAgentId,
+      sessionId: effectiveSessionId,
+      ownerAgentId: ownerAgent,
       shareName: state.shareName.trim(),
       agentIntro: state.agentIntro.trim(),
       permission: state.permission,
@@ -84,6 +101,28 @@ export function ShareModal({ open, onClose, sessionId, sessionTitle, ownerAgentI
   return (
     <ModalOverlay open={open} onClose={handleClose} title="分享会话" width={480}>
       <div style={styles.body}>
+        {noSessionMode && (
+          <Field label="选择会话" required>
+            <select
+              value={state.pickedSessionId}
+              onChange={(e) => {
+                const picked = e.target.value
+                const pickedSession = sessions.find((s) => s.id === picked)
+                update({
+                  pickedSessionId: picked,
+                  shareName: pickedSession?.title || state.shareName,
+                })
+              }}
+              style={styles.select}
+            >
+              <option value="">请选择会话...</option>
+              {sessionOptions.map((opt) => (
+                <option key={opt.id} value={opt.id}>{opt.label}</option>
+              ))}
+            </select>
+          </Field>
+        )}
+
         <Field label="分享名字">
           <input
             value={state.shareName}
@@ -97,7 +136,7 @@ export function ShareModal({ open, onClose, sessionId, sessionTitle, ownerAgentI
           <textarea
             value={state.agentIntro}
             onChange={(e) => update({ agentIntro: e.target.value })}
-            placeholder={`我是 ${agentName},能帮你 ...`}
+            placeholder={`我是 ${effectiveAgentName},能帮你 ...`}
             rows={3}
             style={styles.textarea}
           />
@@ -193,6 +232,17 @@ export function ShareModal({ open, onClose, sessionId, sessionTitle, ownerAgentI
   )
 }
 
+function buildSessionOptions(sessions: SessionData[], agents: AgentData[]): { id: string; label: string }[] {
+  return sessions
+    .filter((s) => !s.archived_at && !s.deleted_at)
+    .map((s) => {
+      const agent = agents.find((a) => a.id === s.agent_id)
+      const title = s.title?.trim() || s.id
+      const agentName = agent?.name ?? '未知 Agent'
+      return { id: s.id, label: `${title} · ${agentName}` }
+    })
+}
+
 function Field({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
   return (
     <div style={styles.field}>
@@ -226,6 +276,7 @@ const styles: Record<string, CSSProperties> = {
   field: { display: 'flex', flexDirection: 'column', gap: 6 },
   label: { fontSize: 13, fontWeight: 500, color: 'var(--text-2)' },
   input: { padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 6, background: 'var(--bg-0)', color: 'var(--text-1)', fontSize: 14, outline: 'none' },
+  select: { padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 6, background: 'var(--bg-0)', color: 'var(--text-1)', fontSize: 14, outline: 'none' },
   textarea: { padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 6, background: 'var(--bg-0)', color: 'var(--text-1)', fontSize: 14, outline: 'none', resize: 'vertical', fontFamily: 'inherit' },
   chipRow: { display: 'flex', gap: 6, flexWrap: 'wrap' },
   chip: { padding: '5px 12px', borderRadius: 14, fontSize: 12, fontWeight: 500, cursor: 'pointer' },
