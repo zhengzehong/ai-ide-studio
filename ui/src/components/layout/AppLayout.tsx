@@ -392,6 +392,9 @@ export default function AppLayout() {
           <NavLink to="/shares" className={({ isActive }) => `sidebar-link${isActive ? ' sidebar-link--active' : ''}`} title="我的分享">
             <Share2 size={20} />
           </NavLink>
+          <NavLink to="/templates" className={({ isActive }) => `sidebar-link${isActive ? ' sidebar-link--active' : ''}`} title="会话模板">
+            <Sparkles size={20} />
+          </NavLink>
           <NavLink to="/settings" className={({ isActive }) => `sidebar-link${isActive ? ' sidebar-link--active' : ''}`} title="设置">
             <Settings size={20} />
           </NavLink>

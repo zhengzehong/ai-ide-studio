@@ -1,5 +1,5 @@
-import type { MouseEvent } from 'react'
-import { GripVertical, Plus, Zap } from 'lucide-react'
+import { useState, type MouseEvent } from 'react'
+import { GripVertical, Plus, Zap, ChevronDown } from 'lucide-react'
 import type { AgentData } from '../../stores/agent.store'
 import type { SessionData } from '../../stores/session.store'
 import type { SessionIndicatorStateMap } from '../../utils/session-indicators'
@@ -37,6 +37,7 @@ export interface SessionBarProps {
   draggedOrderItem: SessionBarDraggedItem | null
   onSelectSession: (agentId: string, sessionId: string) => void
   onNewSession: (agentId: string) => void
+  onNewFromTemplate: (agentId: string) => void
   onContextMenu: (e: MouseEvent, sessionId: string, agentId: string) => void
   onReorder: (agentId: string, sessionIds: string[]) => void
   onSetDraggedOrderItem: (item: SessionBarDraggedItem | null) => void
@@ -54,10 +55,13 @@ export function SessionBar(props: SessionBarProps) {
     draggedOrderItem,
     onSelectSession,
     onNewSession,
+    onNewFromTemplate,
     onContextMenu,
     onSetDraggedOrderItem,
     onDropSession,
   } = props
+
+  const [newMenuOpen, setNewMenuOpen] = useState(false)
 
   return (
     <aside
@@ -141,26 +145,98 @@ export function SessionBar(props: SessionBarProps) {
             >
               {agent.name}
             </span>
-            <button
-              type="button"
-              onClick={() => onNewSession(agent.id)}
-              title="新建会话"
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: 22,
-                height: 22,
-                border: 'none',
-                background: 'transparent',
-                color: 'var(--text-3)',
-                cursor: 'pointer',
-                borderRadius: 4,
-                flexShrink: 0,
-              }}
-            >
-              <Plus size={14} />
-            </button>
+            <div style={{ position: 'relative', flexShrink: 0 }}>
+              <button
+                type="button"
+                onClick={() => setNewMenuOpen((v) => !v)}
+                title="新建会话"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 2,
+                  height: 22,
+                  padding: '0 4px',
+                  border: 'none',
+                  background: newMenuOpen ? 'var(--blue-light)' : 'transparent',
+                  color: newMenuOpen ? 'var(--blue)' : 'var(--text-3)',
+                  cursor: 'pointer',
+                  borderRadius: 4,
+                }}
+              >
+                <Plus size={14} />
+                <ChevronDown size={10} />
+              </button>
+              {newMenuOpen && (
+                <>
+                  <div
+                    style={{ position: 'fixed', inset: 0, zIndex: 998 }}
+                    onClick={() => setNewMenuOpen(false)}
+                  />
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: 'calc(100% + 4px)',
+                      right: 0,
+                      minWidth: 140,
+                      background: 'var(--bg-0)',
+                      border: '1px solid var(--border)',
+                      borderRadius: 6,
+                      boxShadow: '0 8px 24px rgba(15,23,42,0.14)',
+                      padding: 4,
+                      zIndex: 999,
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNewMenuOpen(false)
+                        onNewSession(agent.id)
+                      }}
+                      style={{
+                        display: 'block',
+                        width: '100%',
+                        padding: '6px 10px',
+                        border: 'none',
+                        background: 'transparent',
+                        color: 'var(--text-1)',
+                        fontSize: 13,
+                        textAlign: 'left',
+                        cursor: 'pointer',
+                        borderRadius: 4,
+                      }}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--bg-2)' }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent' }}
+                    >
+                      空白会话
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNewMenuOpen(false)
+                        onNewFromTemplate(agent.id)
+                      }}
+                      style={{
+                        display: 'block',
+                        width: '100%',
+                        padding: '6px 10px',
+                        border: 'none',
+                        background: 'transparent',
+                        color: 'var(--text-1)',
+                        fontSize: 13,
+                        textAlign: 'left',
+                        cursor: 'pointer',
+                        borderRadius: 4,
+                      }}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--bg-2)' }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent' }}
+                    >
+                      从模板新建...
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           </>
         ) : (
           <span style={{ fontSize: 13, color: 'var(--text-3)' }}>选择智能体</span>

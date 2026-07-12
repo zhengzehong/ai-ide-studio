@@ -115,6 +115,8 @@ import { LocalSessionImportModal } from './workspace/LocalSessionImportModal'
 import { PreviewCard } from '../components/chat/PreviewCard'
 import { PreviewModal } from '../components/preview/PreviewModal'
 import { SessionBar } from './workspace/SessionBar'
+import { TemplatePickerModal } from './workspace/TemplatePickerModal'
+import { PublishTemplateModal } from './workspace/PublishTemplateModal'
 import { ICON_MAP } from '../components/agent-square/constants'
 import { AgentSettingsModal } from '../components/agent/AgentSettingsModal'
 import {
@@ -200,6 +202,8 @@ export default function Workspace() {
   const [renameDialog, setRenameDialog] = useState<{ sessionId: string; currentTitle: string } | null>(null)
   const [confirmDialog, setConfirmDialog] = useState<{ title: string; message: string; danger?: boolean; onConfirm: () => void } | null>(null)
   const [alertMsg, setAlertMsg] = useState<string | null>(null)
+  const [pickerAgentId, setPickerAgentId] = useState<string | null>(null)
+  const [publishSessionId, setPublishSessionId] = useState<string | null>(null)
 
   const projectAgents = useMemo(() => filterAgentsByProject(agents, currentProjectId), [agents, currentProjectId])
   const visibleProjectAgents = useMemo(() => projectAgents.filter((agent) => !agent.hidden_at), [projectAgents])
@@ -383,6 +387,20 @@ export default function Workspace() {
     setSelectedAgentId(agentId)
     selectSession(s.id)
     await fetchSessions(undefined, currentProjectId ?? undefined)
+  }
+  const handleNewFromTemplate = (agentId: string) => {
+    setSelectedAgentId(agentId)
+    setPickerAgentId(agentId)
+  }
+  const handlePickerSelect = async (sessionId: string) => {
+    setSelectedAgentId(pickerAgentId)
+    selectSession(sessionId)
+    await fetchSessions(undefined, currentProjectId ?? undefined)
+    await fetchMessages(sessionId)
+    await fetchEvents(sessionId)
+  }
+  const handlePublishTemplate = (sessionId: string) => {
+    setPublishSessionId(sessionId)
   }
   const handleRenameSession = (sessionId: string, currentTitle: string) => {
     setRenameDialog({ sessionId, currentTitle })
@@ -922,6 +940,7 @@ export default function Workspace() {
           draggedOrderItem={draggedOrderItem}
           onSelectSession={handleSelectSession}
           onNewSession={handleNewSession}
+          onNewFromTemplate={handleNewFromTemplate}
           onContextMenu={(e, sessionId, agentId) => {
             setAgentCtxMenu(null)
             setCtxMenu({ sessionId, agentId, x: e.clientX, y: e.clientY })
@@ -1135,6 +1154,7 @@ export default function Workspace() {
               disabled: copyingSessionId === ctxMenu.sessionId || !!copyingSourceSessionIds[ctxMenu.sessionId],
               onClick: () => handleCopySession(ctxMenu.agentId, ctxMenu.sessionId),
             },
+            { label: '发布为模板', onClick: () => handlePublishTemplate(ctxMenu.sessionId) },
             ...(isPrimary ? [] : [
               { label: '归档', onClick: () => handleArchiveSession(ctxMenu.sessionId) },
               { label: '删除', danger: true, onClick: () => handleDeleteSession(ctxMenu.sessionId) },
@@ -1278,6 +1298,27 @@ export default function Workspace() {
         message={alertMsg ?? ''}
         onClose={() => setAlertMsg(null)}
       />
+
+      {pickerAgentId && (
+        <TemplatePickerModal
+          open
+          onClose={() => setPickerAgentId(null)}
+          agentId={pickerAgentId}
+          agent={projectAgents.find((a) => a.id === pickerAgentId) ?? null}
+          onSelect={handlePickerSelect}
+        />
+      )}
+
+      {publishSessionId && (
+        <PublishTemplateModal
+          open
+          onClose={() => setPublishSessionId(null)}
+          sessionId={publishSessionId}
+          onPublished={() => {
+            setAlertMsg('已发布为模板,可在模板管理页查看')
+          }}
+        />
+      )}
 
     </div>
   )
