@@ -8,7 +8,7 @@ export interface StepReportDispatchResult extends ReturnType<typeof taskStepMana
 
 export async function reportStepAndDispatch(input: StepReportInput): Promise<StepReportDispatchResult> {
   const result = taskStepManager.reportStep(input)
-  const dispatch = result.taskCompleted ? { dispatchedSteps: [] } : await dispatchReadySteps(input.taskId, result.unlockedSteps)
+  const dispatch = await dispatchReadySteps(input.taskId, result.unlockedSteps)
   return {
     ...result,
     dispatchedSteps: dispatch.dispatchedSteps,

@@ -160,7 +160,6 @@ export const taskStepRpcHandlers: RpcHandlerMap = {
         unlockedSteps: result.unlockedSteps,
         dispatchedSteps: result.dispatchedSteps,
         dispatchFailure: result.dispatchFailure,
-        taskCompleted: result.taskCompleted,
         taskStatus: taskStore.get(taskId)?.status,
         steps: buildTaskStepList(taskId),
         stepProgress: buildStepProgress(taskId),
