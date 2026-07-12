@@ -120,6 +120,22 @@ export interface LocalSessionCandidateInfo {
   cwd?: string
 }
 
+export interface SessionTemplateData {
+  id: string
+  name: string
+  description: string | null
+  agent_id: string
+  project_id: string | null
+  runtime: string
+  source_session_id: string
+  template_session_id: string
+  icon: string | null
+  use_count: number
+  last_used_at: string | null
+  created_at: string
+  updated_at: string
+}
+
 export interface ImportLocalSessionInput {
   projectId?: string
   jsonlPath?: string
@@ -193,6 +209,11 @@ interface SessionStore {
   archiveSession: (sessionId: string) => Promise<void>
   reorderSessions: (projectId: string, agentId: string, sessionIds: string[]) => Promise<SessionData[]>
   clearCopyError: () => void
+  listSessionTemplates: (agentId?: string) => Promise<SessionTemplateData[]>
+  publishSessionTemplate: (sessionId: string, name: string, description?: string) => Promise<SessionTemplateData>
+  instantiateSessionTemplate: (templateId: string) => Promise<SessionData>
+  deleteSessionTemplate: (templateId: string) => Promise<void>
+  updateSessionTemplate: (templateId: string, fields: { name?: string; description?: string | null }) => Promise<SessionTemplateData | undefined>
   selectSession: (id: string | null) => void
   sendPrompt: (content: string, images?: ImageAttachmentInfo[]) => void
   setModel: (modelId: string) => Promise<void>
@@ -1048,6 +1069,44 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   },
 
   clearCopyError: () => set({ lastCopyError: null }),
+
+  listSessionTemplates: async (agentId) => {
+    const msg: Record<string, unknown> = { type: 'session_templates.list' }
+    if (agentId) msg.agentId = agentId
+    return (await wsClient.request(msg)) as SessionTemplateData[]
+  },
+
+  publishSessionTemplate: async (sessionId, name, description) => {
+    const msg: Record<string, unknown> = {
+      type: 'session_templates.publish',
+      sourceSessionId: sessionId,
+      name,
+    }
+    if (description !== undefined) msg.description = description
+    return (await wsClient.request(msg)) as SessionTemplateData
+  },
+
+  instantiateSessionTemplate: async (templateId) => {
+    const session = (await wsClient.request({
+      type: 'session_templates.instantiate',
+      templateId,
+    })) as SessionData
+    if (!activeSessionsProjectId || session.project_id === activeSessionsProjectId) {
+      set((state) => ({ sessions: [...state.sessions.filter((s) => s.id !== session.id), session] }))
+    }
+    return session
+  },
+
+  deleteSessionTemplate: async (templateId) => {
+    await wsClient.request({ type: 'session_templates.delete', templateId })
+  },
+
+  updateSessionTemplate: async (templateId, fields) => {
+    const msg: Record<string, unknown> = { type: 'session_templates.update', templateId }
+    if (fields.name !== undefined) msg.name = fields.name
+    if (fields.description !== undefined) msg.description = fields.description
+    return (await wsClient.request(msg)) as SessionTemplateData | undefined
+  },
 
   selectSession: (id) => {
     const prev = get().currentSessionId

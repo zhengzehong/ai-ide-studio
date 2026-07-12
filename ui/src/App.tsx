@@ -14,6 +14,7 @@ import SkillCenter from './pages/SkillCenter'
 import ToolManager from './pages/ToolManager'
 import Settings from './pages/Settings'
 import Projects from './pages/Projects'
+import TemplatesPage from './pages/TemplatesPage'
 import WidgetPage from './pages/Widget'
 import AccessTokenPage from './pages/AccessTokenPage'
 import GuestChatPage from './pages/share/GuestChatPage'
@@ -99,6 +100,7 @@ export default function App() {
           <Route path="/agent-memory" element={<AgentMemory />} />
           <Route path="/projects" element={<Projects />} />
           <Route path="/shares" element={<ShareManagePage />} />
+          <Route path="/templates" element={<TemplatesPage />} />
           <Route path="/settings" element={<Settings />} />
         </Route>
       </Routes>
