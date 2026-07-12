@@ -44,6 +44,8 @@ export async function createSimpleTask(input: CreateSimpleTaskInput): Promise<Cr
     description,
     source: input.source ?? 'human',
     projectId: input.projectId,
+    initiatorAgentId: input.currentAgentId?.trim() || null,
+    initiatorSessionId: input.currentSessionId?.trim() || null,
   })
   events.emit('task:update', { taskId: task.id, data: { ...task, event: 'created' } })
   emitTaskLifecycleEvent(task, 'created', null)

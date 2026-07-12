@@ -21,6 +21,8 @@ export interface TaskRow {
   rule_id: string | null
   agent_report_status: string | null
   execution_mode_id: string | null
+  initiator_agent_id: string | null
+  initiator_session_id: string | null
 }
 
 export interface CreateTaskInput {
@@ -28,6 +30,8 @@ export interface CreateTaskInput {
   description: string
   source?: string
   projectId?: string
+  initiatorAgentId?: string | null
+  initiatorSessionId?: string | null
 }
 
 interface CreateStoredTaskInput extends CreateTaskInput {
@@ -63,6 +67,8 @@ export const taskStore = {
       rule_id: input.ruleId ?? null,
       agent_report_status: null,
       execution_mode_id: null,
+      initiator_agent_id: input.initiatorAgentId ?? null,
+      initiator_session_id: input.initiatorSessionId ?? null,
     }
     getDb()
       .prepare(
@@ -70,12 +76,12 @@ export const taskStore = {
       INSERT INTO tasks (
         id, title, description, source, status, stage, assigned_agent_id,
         created_at, completed_at, project_id, team_id, assignee_member_id, rule_id,
-        agent_report_status, execution_mode_id
+        agent_report_status, execution_mode_id, initiator_agent_id, initiator_session_id
       )
       VALUES (
         @id, @title, @description, @source, @status, @stage, @assigned_agent_id,
         @created_at, @completed_at, @project_id, @team_id, @assignee_member_id, @rule_id,
-        @agent_report_status, @execution_mode_id
+        @agent_report_status, @execution_mode_id, @initiator_agent_id, @initiator_session_id
       )
     `,
       )

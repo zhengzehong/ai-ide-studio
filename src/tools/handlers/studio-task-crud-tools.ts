@@ -50,6 +50,8 @@ export const studioTaskCreateHandler: ToolHandler = {
       description,
       source: 'agent',
       projectId: context.projectId,
+      initiatorAgentId: context.agentId,
+      initiatorSessionId: context.sessionId,
     })
     if (!task) throw new Error('任务创建失败')
     log.info({ taskId: task.id, title }, 'Agent 创建协作任务空壳')
