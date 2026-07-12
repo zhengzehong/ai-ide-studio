@@ -51,6 +51,9 @@ export interface MessageRow {
   tool_call_count?: number
   has_file_changes?: boolean
   file_change_count?: number
+  sender_id?: string | null
+  sender_name?: string | null
+  sender_role?: string
 }
 
 export interface SessionEventRow {
@@ -109,6 +112,9 @@ export interface AppendMessageInput {
   completedAt?: string | null
   stats?: unknown
   fileChangesJson?: string | null
+  senderId?: string | null
+  senderName?: string | null
+  senderRole?: string
 }
 
 export interface AppendEventInput {
@@ -334,6 +340,18 @@ export const sessionStore = {
     return sessionStore.get(id)
   },
 
+  listMessagesBySession(sessionId: string, limit = 100): MessageRow[] {
+    return getDb()
+      .prepare<{ sessionId: string; limit: number }, MessageRow>(
+        `SELECT * FROM messages
+         WHERE session_id = @sessionId
+         ORDER BY timestamp DESC
+         LIMIT @limit`,
+      )
+      .all({ sessionId, limit })
+      .reverse()
+  },
+
   touch(id: string, timestamp = new Date().toISOString()): void {
     getDb().prepare('UPDATE sessions SET updated_at = ?, last_message_at = ? WHERE id = ?').run(timestamp, timestamp, id)
   },
@@ -499,17 +517,20 @@ export const messageStore = {
       stats_json: input.stats ? JSON.stringify(input.stats) : null,
       process_item_count: 0,
       timestamp: new Date().toISOString(),
+      sender_id: input.senderId ?? null,
+      sender_name: input.senderName ?? null,
+      sender_role: input.senderRole ?? (input.role === 'agent' ? 'assistant' : 'user'),
     }
     getDb().prepare(`
       INSERT INTO messages (
         id, session_id, role, content, thinking, tool_calls_json, decision_json,
         attachments_json, file_changes_json, status, started_at, completed_at,
-        stats_json, process_item_count, timestamp
+        stats_json, process_item_count, timestamp, sender_id, sender_name, sender_role
       )
       VALUES (
         @id, @session_id, @role, @content, @thinking, @tool_calls_json, @decision_json,
         @attachments_json, @file_changes_json, @status, @started_at, @completed_at,
-        @stats_json, @process_item_count, @timestamp
+        @stats_json, @process_item_count, @timestamp, @sender_id, @sender_name, @sender_role
       )
     `).run(msg)
     log.debug(

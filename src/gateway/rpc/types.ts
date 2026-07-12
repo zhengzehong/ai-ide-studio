@@ -1,7 +1,14 @@
 import type { ClientMessage } from '../../types/ws-protocol.js'
 
+export type RpcAuthMode = 'owner' | 'guest'
+
 export interface RpcClientState {
   subscriptions: Set<string>
+  authMode: RpcAuthMode
+  shareToken?: string
+  guestId?: string
+  guestName?: string
+  sessionId?: string
 }
 
 export interface RpcContext {

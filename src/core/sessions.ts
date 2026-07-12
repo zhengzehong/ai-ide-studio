@@ -31,6 +31,7 @@ import {
   startTurnProcess,
 } from './turn-process-runtime.js'
 import { appendHiddenAttachmentNote, loadStoredImagesForAcp, saveSessionImages } from './image-attachments.js'
+import { sessionShareManager } from './session-share-manager.js'
 
 const log = createChildLogger('session')
 
@@ -43,6 +44,9 @@ const eventBatcher = new SessionUpdateBatcher()
 interface PromptOptions {
   clientMessageId?: string
   contextProjectId?: string
+  senderRole?: string
+  senderId?: string | null
+  senderName?: string | null
 }
 const COPYING_STAGE = '正在复制会话...'
 
@@ -281,7 +285,8 @@ export const sessionManager = {
     return sendPromptNow(session, content, images, normalizePromptOptions(options))
   },
 
-  async enqueuePrompt(sessionId: string, content: string, images?: ImageAttachment[], options?: PromptOptions): Promise<void> {
+  async enqueuePrompt(sessionId: string, content: string, images?: ImageAttachment[], options?: string | PromptOptions): Promise<void> {
+    const normalizedOptions = normalizePromptOptions(options)
     const previous = queuedPrompts.get(sessionId) ?? Promise.resolve()
     const next = previous
       .catch(() => undefined)
@@ -290,7 +295,7 @@ export const sessionManager = {
         const session = sessionStore.get(sessionId)
         if (!session) throw new Error(`Session not found: ${sessionId}`)
         if (session.status !== 'active') throw new Error('当前会话已关闭，不能继续发送消息')
-        await sendPromptNow(session, content, images, options)
+        await sendPromptNow(session, content, images, normalizedOptions)
       })
     queuedPrompts.set(sessionId, next)
     next
@@ -342,6 +347,7 @@ export const sessionManager = {
     await agentHubService.disconnectBySession(sessionId)
     await acpHost.closeSession(session.agent_id, sessionId)
     sessionStore.delete(sessionId)
+    sessionShareManager.cascadeSoftDeleteBySession(sessionId)
     events.emit('session:changed', { sessionId, data: { event: 'deleted', deleted: true } })
     log.info({ sessionId, agentId: session.agent_id }, 'Session \u5df2\u5220\u9664')
   },
@@ -403,10 +409,18 @@ async function sendPromptNow(session: SessionRow, content: string, images?: Imag
       images,
     })
     const messageAttachments = storedImages.length > 0 ? storedImages : images
-    const humanMessage = messageStore.append(sessionId, { id: humanMessageId, role: 'human', content, attachments: messageAttachments })
+    const humanMessage = messageStore.append(sessionId, {
+      id: humanMessageId,
+      role: 'human',
+      content,
+      attachments: messageAttachments,
+      senderId: options.senderId ?? null,
+      senderName: options.senderName ?? null,
+      senderRole: options.senderRole ?? 'user',
+    })
     recordPromptProgress(sessionId, 'human.message.persisted')
     log.info(
-      { sessionId, agentId: session.agent_id, turnId, messageId: humanMessage.id, contentLength: humanMessage.content.length, imageCount, timestamp: humanMessage.timestamp },
+      { sessionId, agentId: session.agent_id, turnId, messageId: humanMessage.id, contentLength: humanMessage.content.length, imageCount, timestamp: humanMessage.timestamp, senderRole: humanMessage.sender_role },
       'human message persisted',
     )
     sessionStore.touch(sessionId, humanMessage.timestamp)
@@ -415,7 +429,14 @@ async function sendPromptNow(session: SessionRow, content: string, images?: Imag
       agentId: session.agent_id,
       messageId: humanMessage.id,
       role: 'human',
-      payload: { messageId: humanMessage.id, content, attachments: messageAttachments || [] },
+      payload: {
+        messageId: humanMessage.id,
+        content,
+        attachments: messageAttachments || [],
+        senderRole: humanMessage.sender_role,
+        senderId: humanMessage.sender_id,
+        senderName: humanMessage.sender_name,
+      },
     })
     log.info(
       { sessionId, agentId: session.agent_id, turnId, eventId: stored.id, sequence: stored.sequence, messageId: stored.message_id },

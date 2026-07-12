@@ -114,6 +114,11 @@ import {
   agentHubSendHandler,
   agentHubUploadFileHandler,
 } from './agent-hub.js'
+import {
+  studioShareCreateHandler,
+  studioShareRevokeHandler,
+  studioShareListHandler,
+} from './studio-share-tools.js'
 
 const handlers = new Map<string, ToolHandler>()
 
@@ -219,6 +224,9 @@ register(agentHubDisconnectHandler)
 register(agentHubListHandler)
 register(agentHubSendHandler)
 register(agentHubUploadFileHandler)
+register(studioShareCreateHandler)
+register(studioShareRevokeHandler)
+register(studioShareListHandler)
 
 export function getHandler(name: string): ToolHandler | undefined {
   return handlers.get(name)
