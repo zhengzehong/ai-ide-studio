@@ -20,7 +20,6 @@ interface GuestMessage {
 interface StreamingState {
   id: string
   content: string
-  done: boolean
 }
 
 export default function GuestChatPage() {
@@ -41,6 +40,11 @@ export default function GuestChatPage() {
   const scrollRef = useRef<HTMLDivElement>(null)
   const subscribedRef = useRef(false)
   const lastShareIdRef = useRef<string | null>(null)
+  const streamingRef = useRef<StreamingState | null>(null)
+
+  useEffect(() => {
+    streamingRef.current = streaming
+  }, [streaming])
 
   useEffect(() => {
     init()
@@ -87,20 +91,19 @@ export default function GuestChatPage() {
         setStreaming((prev) => {
           const id = msg.messageId ? String(msg.messageId) : prev?.id ?? `stream-${Date.now()}`
           const nextContent = content || (prev ? prev.content + contentDelta : contentDelta)
-          return { id, content: nextContent, done: false }
+          return { id, content: nextContent }
         })
       }
     })
     const offDone = wsClient.on('session:done', (msg) => {
       if (!currentShare) return
       if (msg.sessionId !== currentShare.session.id) return
-      setStreaming((prev) => (prev ? { ...prev, done: true } : null))
-      const finalContent = typeof msg.finalAnswer === 'string' ? msg.finalAnswer : ''
+      const finalContent = streamingRef.current?.content ?? ''
       if (finalContent) {
         setMessages((prev) => [
           ...prev,
           {
-            id: msg.messageId ? String(msg.messageId) : `agent-${Date.now()}`,
+            id: streamingRef.current?.id ?? (msg.messageId ? String(msg.messageId) : `agent-${Date.now()}`),
             role: 'agent',
             content: finalContent,
             sender_role: 'assistant',
@@ -110,7 +113,7 @@ export default function GuestChatPage() {
           },
         ])
       }
-      setTimeout(() => setStreaming(null), 200)
+      setStreaming(null)
     })
     return () => {
       offUpdate()
@@ -255,7 +258,7 @@ export default function GuestChatPage() {
         {messages.map((m) => (
           <GuestMessageBubble key={m.id} message={m} agentName={agentName} />
         ))}
-        {streaming && !streaming.done && (
+        {streaming && (
           <div style={styles.agentRow}>
             <div style={styles.agentAvatar}><Bot size={14} color="white" /></div>
             <div style={styles.agentBubble}>
@@ -287,7 +290,7 @@ export default function GuestChatPage() {
                 cursor: inputValue.trim() && connected && !expired ? 'pointer' : 'default',
               }}
             >
-              {streaming && !streaming.done ? <Send size={14} color="white" /> : <ArrowUp size={14} color="white" />}
+              {streaming ? <Send size={14} color="white" /> : <ArrowUp size={14} color="white" />}
             </button>
           </>
         ) : (
