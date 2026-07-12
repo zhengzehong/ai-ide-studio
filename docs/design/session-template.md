@@ -404,23 +404,24 @@ Agent 调 `core.session.template.instantiate(templateId)`,拿到的 session 已�
 ## 十、风险与未决
 
 1. **Codex fork 的稳定性**:codex-acp 的 fork 是通过 patch 补的,不是官方原生。需要在 PR2 阶段做端到端验证:发布模板 → Agent 重启 → instantiate → 新会话能继续对话
-2. **模板会话的 transcript 文件清理**:删模板时,只删数据库记录,Claude Code/Codex 自身的 jsonl 文件不主动清理。长期使用可能留下垃圾文件。**未决**:是否要在删模板时主动删 transcript 文件?需要调研 Claude Code SDK 是否提供 deleteSession API
+2. **模板会话的 transcript 文件清理**:**已决策(2026-07-13)**:删模板时调 `closeSession`(关 ACP 连接, best-effort)+ `sessionStore.delete`(软删 `deleted_at`),**不主动删 jsonl 文件**。理由:(a) Claude Code SDK 没有公开的 deleteSession API;(b) Codex 的 thread 文件在 `~/.codex/sessions/`,主动删风险高;(c) 软删已经让模板会话从列表消失,普通用户感知不到。长期留下的 jsonl 文件交给 Claude Code/Codex 自身的 session 清理机制处理。如未来 SDK 提供 deleteSession API,再迭代
 3. **模板数量上限**:用户发布大量模板后,模板选择器会很长。**未决**:是否要限制每 Agent 的模板数量?或加分页/搜索?
 4. **模板跨项目**:当前设计 `project_id` 字段支持跨项目模板,但前端选择器只显示当前项目的模板。**未决**:是否允许跨项目模板?如果允许,选择器要分"我的模板"和"项目模板"两栏
+5. **AI 工具的 DB seed 注册**:**已修复(2026-07-13)**:PR3 漏了在 `src/tools/seed.ts` 的 `CORE_BUILTIN_TOOLS` 数组里加 4 个 session-template 工具条目,导致 Agent 通过 MCP 拿不到这些工具。修复 commit `a072008` 补了 seed + 测试用例。教训:新增内置工具时,除了 handler + register,必须同步更新 `seed.ts`,否则工具运行时不可达(参考 907e07d preview.publish 的同类修复)
 
 ## 十一、验收标准
 
-- [ ] PC:右键会话 → 发布为模板 → 模板管理页可见
-- [ ] PC:SessionBar "+" → 从模板新建 → 新会话继承完整上下文
-- [ ] PC:模板管理页能编辑名称描述、删除模板
-- [ ] 移动端:长按会话 → 发布为模板
-- [ ] 移动端:新建按钮 ActionSheet → 从模板新建
-- [ ] 移动端:设置页 → 会话模板 → 列表/编辑/删除
-- [ ] **Agent 重启后,模板仍能 instantiate(核心验收点)**
-- [ ] AI 工具 `core.session.template.publish/list/instantiate/delete` 全部可用
-- [ ] 模板会话不出现在普通会话列表
-- [ ] 模板会话不能直接发消息(报错提示)
-- [ ] 同一模板多次 instantiate 互不影响
+- [x] PC:右键会话 → 发布为模板 → 模板管理页可见(PR4 `5c63e03`)
+- [x] PC:SessionBar "+" → 从模板新建 → 新会话继承完整上下文(PR4 `5c63e03`)
+- [x] PC:模板管理页能编辑名称描述、删除模板(PR4 `5c63e03`)
+- [x] 移动端:长按会话 → 发布为模板(PR5 `a70a1fb`)
+- [x] 移动端:新建按钮 ActionSheet → 从模板新建(PR5 `a70a1fb`)
+- [x] 移动端:设置页 → 会话模板 → 列表/编辑/删除(PR5 `a70a1fb`)
+- [x] **Agent 重启后,模板仍能 instantiate(核心验收点)**(PR1 `83f8f3d` 加 DB fallback,`session-templates-core.test.ts` 用 mock 验证)
+- [x] AI 工具 `core.session.template.publish/list/instantiate/delete` 全部可用(PR3 `05927bd` 实现 handler,`a072008` 补 DB seed 注册)
+- [x] 模板会话不出现在普通会话列表(PR1 `listSessions` 加 `WHERE is_template = 0`)
+- [x] 模板会话不能直接发消息(报错提示)(PR1 `sessionManager.sendPrompt` 加校验)
+- [x] 同一模板多次 instantiate 互不影响(`session-templates-core.test.ts` 验证 use_count +1 + 新会话 is_template=0)
 
 ## 附录 A:相关代码引用
 
