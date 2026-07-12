@@ -13,6 +13,8 @@ import { taskStore } from '../store/tasks.js'
 import { ruleStore } from '../store/rules.js'
 import { projectStore } from '../store/projects.js'
 import { previewStore } from '../store/previews.js'
+import { sessionShareStore } from '../store/session-shares.js'
+import { mountShareRoutes } from './share-routes.js'
 import { getAssetStream } from '../core/filesystem.js'
 import { getImageAsset } from '../core/image-attachments.js'
 import { mountHttpMcpServer } from '../tools/mcp/http-mcp-server.js'
@@ -47,6 +49,9 @@ export async function startGateway(config: AppConfig) {
   app.get('/preview/:previewId/*', (c) => handlePreviewAsset(c, config))
   app.get('/preview/:previewId', (c) => handlePreviewAsset(c, config))
   app.post('/api/bridge/callback', (c) => handleBridgeCallback(c, config))
+
+  mountShareRoutes(app, config)
+
   mountHttpMcpServer(app)
   mountStaticAssets(app, config)
   log.debug({ staticDir: staticDirForLog(config) }, '静态资源托载检查完成')
@@ -229,6 +234,8 @@ function mountLocalTokenGuard(app: Hono, config: AppConfig): void {
 function isAssetRequest(path: string): boolean {
   if (path.startsWith('/api/bridge/')) return true
   if (path.startsWith('/avatars/')) return true
+  if (path.startsWith('/api/share/')) return true
+  if (path.startsWith('/share/')) return true
   return !path.startsWith('/api/') && !path.startsWith('/preview/') && path !== '/health'
 }
 
@@ -236,8 +243,12 @@ function isWsAuthorized(req: { url?: string; headers: { [key: string]: string | 
   if (!config.localToken) return true
   const header = req.headers['x-ai-ide-token']
   if (header === config.localToken || (Array.isArray(header) && header.includes(config.localToken))) return true
-  const token = new URL(req.url ?? '/', `http://${config.host}:${config.port}`).searchParams.get('token')
-  return token === config.localToken
+  const url = new URL(req.url ?? '/', `http://${config.host}:${config.port}`)
+  const token = url.searchParams.get('token')
+  if (token === config.localToken) return true
+  const shareToken = url.searchParams.get('shareToken')
+  if (shareToken && sessionShareStore.isEffective(shareToken)) return true
+  return false
 }
 
 const PREVIEW_MIME_TYPES: Record<string, string> = {

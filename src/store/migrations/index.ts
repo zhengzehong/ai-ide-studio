@@ -37,6 +37,7 @@ import { ensureAgentAvatarColumnsMigration } from './036-ensure-agent-avatar-col
 import { taskStepsMigration } from './037-task-steps.js'
 import { agentWatchWakeMigration } from './038-agent-watch-wake.js'
 import { taskInitiatorMigration } from './039-task-initiator.js'
+import { sessionSharesMigration } from './040-session-shares.js'
 import type { Migration } from '../migrator.js'
 
 export const migrations: Migration[] = [
@@ -79,5 +80,6 @@ export const migrations: Migration[] = [
   taskStepsMigration,
   agentWatchWakeMigration,
   taskInitiatorMigration,
+  sessionSharesMigration,
 ]
 

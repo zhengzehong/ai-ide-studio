@@ -5,6 +5,7 @@ import { events } from '../core/events.js'
 import { SessionUpdateBatcher, type SessionUpdateEnvelope } from '../core/session-update-batcher.js'
 import { createChildLogger } from '../core/logger.js'
 import { dispatchRpc } from './rpc/registry.js'
+import { sessionShareStore } from '../store/session-shares.js'
 import type { RpcClientState } from './rpc/types.js'
 
 const log = createChildLogger('ws')
@@ -12,26 +13,47 @@ const log = createChildLogger('ws')
 const clients = new Map<WebSocket, RpcClientState>()
 const sessionUpdateBroadcastBatcher = new SessionUpdateBatcher()
 
-export function broadcastToSubscribers(sessionId: string, msg: ServerMessage): void {
-  const subscribers: WebSocket[] = []
+interface BroadcastOptions {
+  skipToolCallFilter?: boolean
+}
+
+function shouldHideToolCallForState(state: RpcClientState, sessionId: string): boolean {
+  if (state.authMode !== 'guest' || !state.shareToken) return false
+  const share = sessionShareStore.getByToken(state.shareToken)
+  if (!share || share.session_id !== sessionId) return false
+  return share.tool_call_visibility === 'hide'
+}
+
+function buildPayloadForState(msg: ServerMessage, state: RpcClientState, sessionId: string): string {
+  if (msg.type !== 'session:update' || !shouldHideToolCallForState(state, sessionId)) {
+    return JSON.stringify(msg)
+  }
+  const data = msg.data as unknown as Record<string, unknown>
+  const filtered: Record<string, unknown> = { ...data }
+  delete filtered.toolCall
+  delete filtered.toolCallUpdate
+  return JSON.stringify({ ...msg, data: filtered })
+}
+
+export function broadcastToSubscribers(sessionId: string, msg: ServerMessage, _opts?: BroadcastOptions): void {
+  const subscribers: Array<{ ws: WebSocket; state: RpcClientState }> = []
   for (const [ws, state] of clients) {
-    if (state.subscriptions.has(sessionId)) subscribers.push(ws)
+    if (state.subscriptions.has(sessionId)) subscribers.push({ ws, state })
   }
 
   if (subscribers.length === 0) return
 
-  const payload = JSON.stringify(msg)
   let subscriberCount = 0
   let deliveredCount = 0
-  for (const ws of subscribers) {
+  for (const { ws, state } of subscribers) {
     subscriberCount++
     if (ws.readyState === ws.OPEN) {
-      ws.send(payload)
+      ws.send(buildPayloadForState(msg, state, sessionId))
       deliveredCount++
     }
   }
   if (msg.type === 'session:update') {
-    const data = msg.data
+    const data = msg.data as unknown as Record<string, unknown>
     const hasToolCall = !!(data.toolCall || data.toolCallUpdate)
     const hasContent = !!(data.contentDelta || data.content)
     const isLifecycle = typeof data.eventType === 'string' && data.eventType.startsWith('lifecycle.')
@@ -44,7 +66,7 @@ export function broadcastToSubscribers(sessionId: string, msg: ServerMessage): v
           hasToolCall,
           hasContent,
           hasThinking: !!data.thinking,
-          toolCallId: data.toolCall?.id || data.toolCallUpdate?.id,
+          toolCallId: (data.toolCall as { id?: string } | undefined)?.id || (data.toolCallUpdate as { id?: string } | undefined)?.id,
           subscriberCount,
           deliveredCount,
         },
@@ -180,10 +202,10 @@ function sendError(ws: WebSocket, requestId: string | undefined, message: string
   send(ws, { type: 'error', requestId, message })
 }
 
-export function handleWsConnection(ws: WebSocket, _req: IncomingMessage, _wss: WebSocketServer): void {
-  const state: RpcClientState = { subscriptions: new Set() }
+export function handleWsConnection(ws: WebSocket, req: IncomingMessage, _wss: WebSocketServer): void {
+  const state: RpcClientState = resolveClientState(req)
   clients.set(ws, state)
-  log.debug({ totalClients: clients.size }, '客户端已连接')
+  log.debug({ totalClients: clients.size, authMode: state.authMode, hasShareToken: !!state.shareToken, sessionId: state.sessionId }, '客户端已连接')
 
   ws.on('message', async (raw) => {
     let msg: ClientMessage
@@ -213,4 +235,25 @@ export function handleWsConnection(ws: WebSocket, _req: IncomingMessage, _wss: W
     clients.delete(ws)
     log.debug({ totalClients: clients.size }, '客户端已断开')
   })
+}
+
+function resolveClientState(req: IncomingMessage): RpcClientState {
+  const url = new URL(req.url ?? '/', 'http://localhost')
+  const shareToken = url.searchParams.get('shareToken')
+  if (shareToken) {
+    const share = sessionShareStore.getByToken(shareToken)
+    if (share) {
+      const guestId = url.searchParams.get('guestId') ?? undefined
+      const guestName = url.searchParams.get('guestName') ?? undefined
+      return {
+        subscriptions: new Set(),
+        authMode: 'guest',
+        shareToken,
+        guestId,
+        guestName,
+        sessionId: share.session_id,
+      }
+    }
+  }
+  return { subscriptions: new Set(), authMode: 'owner' }
 }
