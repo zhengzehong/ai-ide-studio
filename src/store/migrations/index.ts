@@ -38,6 +38,7 @@ import { taskStepsMigration } from './037-task-steps.js'
 import { agentWatchWakeMigration } from './038-agent-watch-wake.js'
 import { taskInitiatorMigration } from './039-task-initiator.js'
 import { sessionSharesMigration } from './040-session-shares.js'
+import { sessionTemplatesMigration } from './041-session-templates.js'
 import type { Migration } from '../migrator.js'
 
 export const migrations: Migration[] = [
@@ -81,5 +82,6 @@ export const migrations: Migration[] = [
   agentWatchWakeMigration,
   taskInitiatorMigration,
   sessionSharesMigration,
+  sessionTemplatesMigration,
 ]
 

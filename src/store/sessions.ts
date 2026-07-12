@@ -25,6 +25,7 @@ export interface SessionRow {
   runtime_preferences_json: string | null
   sort_order: number | null
   is_primary: number
+  is_template: number
 }
 
 export interface SessionListRow extends SessionRow {
@@ -90,6 +91,7 @@ export interface CreateSessionInput {
   acpSessionId?: string
   projectId?: string
   isPrimary?: boolean
+  isTemplate?: boolean
   title?: string
 }
 
@@ -153,15 +155,16 @@ export const sessionStore = {
       runtime_preferences_json: null,
       sort_order: nextSessionSortOrder(input.projectId ?? null, input.agentId),
       is_primary: input.isPrimary ? 1 : 0,
+      is_template: input.isTemplate ? 1 : 0,
     }
     getDb().prepare(`
       INSERT INTO sessions (
         id, agent_id, task_id, acp_session_id, status, stage, started_at, closed_at,
-        project_id, title, updated_at, last_message_at, archived_at, deleted_at, runtime_preferences_json, sort_order, is_primary
+        project_id, title, updated_at, last_message_at, archived_at, deleted_at, runtime_preferences_json, sort_order, is_primary, is_template
       )
       VALUES (
         @id, @agent_id, @task_id, @acp_session_id, @status, @stage, @started_at, @closed_at,
-        @project_id, @title, @updated_at, @last_message_at, @archived_at, @deleted_at, @runtime_preferences_json, @sort_order, @is_primary
+        @project_id, @title, @updated_at, @last_message_at, @archived_at, @deleted_at, @runtime_preferences_json, @sort_order, @is_primary, @is_template
       )
     `).run(session)
     return session
@@ -388,15 +391,15 @@ function markRunningAgentMessagesInterrupted(): void {
 function listSessions(agentId?: string, projectId?: string): SessionRow[] {
   const orderBy = 'ORDER BY COALESCE(sort_order, 9223372036854775807) ASC, started_at ASC, id ASC'
   if (agentId && projectId) {
-    return getDb().prepare<[string, string], SessionRow>(`SELECT * FROM sessions WHERE agent_id = ? AND project_id = ? AND deleted_at IS NULL ${orderBy}`).all(agentId, projectId)
+    return getDb().prepare<[string, string], SessionRow>(`SELECT * FROM sessions WHERE agent_id = ? AND project_id = ? AND deleted_at IS NULL AND is_template = 0 ${orderBy}`).all(agentId, projectId)
   }
   if (agentId) {
-    return getDb().prepare<[string], SessionRow>(`SELECT * FROM sessions WHERE agent_id = ? AND deleted_at IS NULL ${orderBy}`).all(agentId)
+    return getDb().prepare<[string], SessionRow>(`SELECT * FROM sessions WHERE agent_id = ? AND deleted_at IS NULL AND is_template = 0 ${orderBy}`).all(agentId)
   }
   if (projectId) {
-    return getDb().prepare<[string], SessionRow>(`SELECT * FROM sessions WHERE project_id = ? AND deleted_at IS NULL ${orderBy}`).all(projectId)
+    return getDb().prepare<[string], SessionRow>(`SELECT * FROM sessions WHERE project_id = ? AND deleted_at IS NULL AND is_template = 0 ${orderBy}`).all(projectId)
   }
-  return getDb().prepare<[], SessionRow>('SELECT * FROM sessions WHERE deleted_at IS NULL ORDER BY started_at ASC').all()
+  return getDb().prepare<[], SessionRow>('SELECT * FROM sessions WHERE deleted_at IS NULL AND is_template = 0 ORDER BY started_at ASC').all()
 }
 
 function nextSessionSortOrder(projectId: string | null, agentId: string): number {

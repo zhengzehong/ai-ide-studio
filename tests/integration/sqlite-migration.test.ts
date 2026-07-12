@@ -91,7 +91,7 @@ describe('SQLite 迁移', () => {
       ORDER BY name
     `).all().map(row => row.name)
 
-    expect(migrations).toEqual(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011', '012', '013', '014', '015', '016', '017', '018', '019', '020', '021', '022', '023', '024', '025', '026', '027', '028', '029', '030', '031', '032', '033', '034', '035', '036', '037', '038', '039', '040'])
+    expect(migrations).toEqual(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011', '012', '013', '014', '015', '016', '017', '018', '019', '020', '021', '022', '023', '024', '025', '026', '027', '028', '029', '030', '031', '032', '033', '034', '035', '036', '037', '038', '039', '040', '041'])
     expect(messageColumns).toContain('file_changes_json')
     expect(messageColumns).toContain('process_item_count')
     expect(getDb().prepare<[], { name: string }>('PRAGMA table_info(sessions)').all().map(row => row.name)).toContain('last_read_at')
@@ -115,6 +115,17 @@ describe('SQLite 迁移', () => {
     expect(categoryColumns).toContain('scope_key')
     expect(getDb().prepare<[], { name: string }>('PRAGMA table_info(projects)').all().map(row => row.name)).toEqual(expect.arrayContaining(['color', 'icon', 'last_visited_at', 'visit_count']))
     expect(getDb().prepare<[], { name: string }>('PRAGMA table_info(sessions)').all().map(row => row.name)).toContain('is_primary')
+    expect(getDb().prepare<[], { name: string }>('PRAGMA table_info(sessions)').all().map(row => row.name)).toContain('is_template')
+    const templateTableColumns = getDb().prepare<[], { name: string }>('PRAGMA table_info(session_templates)').all().map(row => row.name)
+    expect(templateTableColumns).toEqual(expect.arrayContaining([
+      'id', 'name', 'description', 'agent_id', 'project_id', 'runtime',
+      'source_session_id', 'template_session_id', 'icon', 'use_count',
+      'last_used_at', 'created_at', 'updated_at',
+    ]))
+    const templateIndexes = getDb().prepare<[], { name: string }>(`SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'session_templates'`).all().map(r => r.name)
+    expect(templateIndexes).toEqual(expect.arrayContaining([
+      'idx_session_templates_agent', 'idx_session_templates_project',
+    ]))
   })
 
   test('从 JSON 迁移到 SQLite 并保留所有数据', () => {

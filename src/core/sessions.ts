@@ -276,6 +276,7 @@ export const sessionManager = {
   async sendPrompt(sessionId: string, content: string, images?: ImageAttachment[], options?: string | PromptOptions): Promise<void> {
     const session = sessionStore.get(sessionId)
     if (!session) throw new Error(`Session not found: ${sessionId}`)
+    if (session.is_template) throw new Error('模板会话不能直接发送消息,请先从模板新建会话')
     if (session.status !== 'active') throw new Error('当前会话已关闭，不能继续发送消息')
     if (activePrompts.has(sessionId))
       throw new Error(
@@ -294,6 +295,7 @@ export const sessionManager = {
         while (activePrompts.has(sessionId)) await waitForIdleTurn()
         const session = sessionStore.get(sessionId)
         if (!session) throw new Error(`Session not found: ${sessionId}`)
+        if (session.is_template) throw new Error('模板会话不能直接发送消息,请先从模板新建会话')
         if (session.status !== 'active') throw new Error('当前会话已关闭，不能继续发送消息')
         await sendPromptNow(session, content, images, normalizedOptions)
       })
