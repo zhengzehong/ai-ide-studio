@@ -645,7 +645,7 @@ describe('所有 step done → 通知发起人(v3)', () => {
       }
     }) as typeof sessionManager.enqueuePrompt
     try {
-      const r1DoneFinal = taskStepManager.reportStep({
+      taskStepManager.reportStep({
         taskId: task.id,
         stepId: r2.step.id,
         agentStatus: 'done',
@@ -653,7 +653,6 @@ describe('所有 step done → 通知发起人(v3)', () => {
         agentId: pm.id,
       })
       // 最后执行者 = pm = 发起人 → 不通知
-      expect(r1DoneFinal.taskCompleted).toBe(false)
       expect(taskStore.get(task.id)?.status).toBe('running')
       expect(notifiedSessionId).toBe(null)
     } finally {

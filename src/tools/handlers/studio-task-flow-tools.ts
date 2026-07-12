@@ -204,7 +204,6 @@ export const studioTaskReportHandler: ToolHandler = {
               unlockedSteps: result.unlockedSteps,
               dispatchedSteps: result.dispatchedSteps,
               dispatchFailure: result.dispatchFailure,
-              taskCompleted: result.taskCompleted,
               taskStatus: taskStore.get(taskId)?.status,
             }, null, 2),
           }],

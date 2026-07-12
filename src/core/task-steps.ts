@@ -228,7 +228,6 @@ export const taskStepManager = {
     step: TaskStepRow
     newStatus: string
     unlockedSteps: string[]
-    taskCompleted: boolean
   } {
     const task = taskStore.get(input.taskId)
     if (!task) throw new Error(`任务不存在: ${input.taskId}`)
@@ -265,7 +264,6 @@ export const taskStepManager = {
       ? unlockDependents(input.taskId, input.stepId)
       : []
 
-    const taskCompleted = false
     if (input.agentStatus === 'done' && task.status === 'running') {
       const all = taskStepStore.listByTask(input.taskId)
       const allDone = all.length > 0 && all.every(s => s.status === 'done')
@@ -303,11 +301,10 @@ export const taskStepManager = {
         from: previousStatus,
         to: nextStepStatus,
         unlocked: unlockedSteps,
-        taskCompleted,
       },
       'step reported',
     )
-    return { step: updatedStep, newStatus: nextStepStatus, unlockedSteps, taskCompleted }
+    return { step: updatedStep, newStatus: nextStepStatus, unlockedSteps }
   },
 
   async startTask(taskId: string): Promise<{ task: TaskRow; dispatched: string[] }> {

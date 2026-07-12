@@ -72,6 +72,9 @@ export const studioTaskStepAddHandler: ToolHandler = {
     const task = taskStore.get(taskId)
     if (!task) return errResult('任务不存在')
     try { assertProjectAccess(task, context?.projectId) } catch (e) { return errResult((e as Error).message) }
+    if (task.initiator_agent_id && context?.agentId && context.agentId !== task.initiator_agent_id) {
+      return errResult('只有发起人可以编排步骤')
+    }
     try {
       const result = taskStepManager.addStep({
         taskId,
@@ -127,6 +130,9 @@ export const studioTaskStepUpdateHandler: ToolHandler = {
     const task = taskStore.get(taskId)
     if (!task) return errResult('任务不存在')
     try { assertProjectAccess(task, context?.projectId) } catch (e) { return errResult((e as Error).message) }
+    if (task.initiator_agent_id && context?.agentId && context.agentId !== task.initiator_agent_id) {
+      return errResult('只有发起人可以编排步骤')
+    }
     try {
       const result = taskStepManager.updateStep({
         taskId,
@@ -178,6 +184,9 @@ export const studioTaskStepRemoveHandler: ToolHandler = {
     const task = taskStore.get(taskId)
     if (!task) return errResult('任务不存在')
     try { assertProjectAccess(task, context?.projectId) } catch (e) { return errResult((e as Error).message) }
+    if (task.initiator_agent_id && context?.agentId && context.agentId !== task.initiator_agent_id) {
+      return errResult('只有发起人可以编排步骤')
+    }
     try {
       const result = taskStepManager.removeStep({ taskId, stepId })
       return {
@@ -300,7 +309,6 @@ export const studioTaskStepReportHandler: ToolHandler = {
             unlockedSteps: result.unlockedSteps,
             dispatchedSteps: result.dispatchedSteps,
             dispatchFailure: result.dispatchFailure,
-            taskCompleted: result.taskCompleted,
             taskStatus: taskStore.get(taskId)?.status,
           }, null, 2),
         }],
