@@ -46,6 +46,8 @@ export interface TaskData {
   assignee_member_id?: string | null
   agent_report_status?: string | null
   execution_mode_id?: string | null
+  initiator_agent_id?: string | null
+  initiator_session_id?: string | null
   sessionId?: string
   steps?: TaskStepData[]
   stepProgress?: TaskStepProgress

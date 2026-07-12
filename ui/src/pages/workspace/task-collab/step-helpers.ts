@@ -28,8 +28,7 @@ export function stepTagStyle(status: string): { bg: string; color: string; label
 
 export function isCollabTask(steps: TaskStepData[] | undefined): boolean {
   if (!steps || steps.length === 0) return false
-  if (steps.length > 1) return true
-  return steps.some(s => s.dependsOn && s.dependsOn.length > 0)
+  return true
 }
 
 export interface ParallelMarker {
