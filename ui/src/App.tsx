@@ -16,6 +16,7 @@ import Settings from './pages/Settings'
 import Projects from './pages/Projects'
 import WidgetPage from './pages/Widget'
 import AccessTokenPage from './pages/AccessTokenPage'
+import GuestChatPage from './pages/share/GuestChatPage'
 import { useConnectionStore } from './stores/connection.store'
 import { useAgentStore } from './stores/agent.store'
 import { useSessionStore } from './stores/session.store'
@@ -81,6 +82,7 @@ export default function App() {
   ) : (
     <BrowserRouter>
       <Routes>
+        <Route path="/share/:token" element={<GuestChatPage />} />
         <Route path="/widget" element={<WidgetPage />} />
         <Route element={<AppLayout />}>
           <Route path="/" element={<Dashboard />} />
