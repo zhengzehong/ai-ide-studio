@@ -89,6 +89,10 @@ describe('builtin tool seed synchronization', () => {
       'core.session.create',
       'core.session.get',
       'core.session.list',
+      'core.session.template.delete',
+      'core.session.template.instantiate',
+      'core.session.template.list',
+      'core.session.template.publish',
       'core.task.create',
       'core.task.list',
       'core.timeline.list',
@@ -284,6 +288,55 @@ describe('builtin tool seed synchronization', () => {
       )
       .all()
     expect(bindings).toHaveLength(1)
+  })
+
+  test('registers core.session.template.* as global builtin tools', () => {
+    seedBuiltinTools()
+
+    const expected = [
+      'core.session.template.list',
+      'core.session.template.publish',
+      'core.session.template.instantiate',
+      'core.session.template.delete',
+    ]
+    for (const name of expected) {
+      const tool = toolStore.getByName(name)
+      expect(tool, `expected tool ${name} to be seeded`).toBeDefined()
+      expect(tool?.is_builtin).toBe(1)
+      expect(tool?.type).toBe('builtin')
+
+      const config = tool?.config_json ? (JSON.parse(tool.config_json) as Record<string, unknown>) : {}
+      expect(config.handler).toBe(name)
+
+      const bindings = getDb()
+        .prepare<{ name: string }, { name: string }>(
+          `
+        SELECT tools.name FROM tools
+        JOIN tool_bindings ON tool_bindings.tool_id = tools.id
+        WHERE tools.name = ?
+          AND tool_bindings.scope = 'global'
+          AND tool_bindings.enabled = 1
+      `,
+        )
+        .all(name)
+      expect(bindings, `expected global binding for ${name}`).toHaveLength(1)
+    }
+
+    const publishTool = toolStore.getByName('core.session.template.publish')
+    const publishSchema = publishTool?.input_schema_json
+      ? (JSON.parse(publishTool.input_schema_json) as Record<string, unknown>)
+      : {}
+    const publishProps = asRecord(publishSchema.properties)
+    expect(publishProps.sessionId).toMatchObject({ type: 'string' })
+    expect(publishProps.name).toMatchObject({ type: 'string' })
+    expect(publishProps.description).toMatchObject({ type: 'string' })
+    expect(publishSchema.required).toEqual(['sessionId', 'name'])
+
+    const instantiateTool = toolStore.getByName('core.session.template.instantiate')
+    const instantiateSchema = instantiateTool?.input_schema_json
+      ? (JSON.parse(instantiateTool.input_schema_json) as Record<string, unknown>)
+      : {}
+    expect(instantiateSchema.required).toEqual(['templateId'])
   })
 
   test('removes obsolete broken tools and revokes stale tool contexts', () => {

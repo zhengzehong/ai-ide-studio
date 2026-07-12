@@ -288,6 +288,82 @@ const CORE_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
     defaultScope: 'global',
   },
   {
+    name: 'core.session.template.list',
+    displayName: '列出会话模板',
+    description: '列出会话模板(可按 agentId 过滤)。',
+    category: 'data',
+    type: 'builtin',
+    config: { handler: 'core.session.template.list' },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        agentId: { type: 'string', description: '按 Agent 过滤,不传则返回全部' },
+      },
+    },
+    permissions: CORE_PERMISSIONS,
+    isBuiltin: true,
+    defaultScope: 'global',
+  },
+  {
+    name: 'core.session.template.publish',
+    displayName: '发布会话为模板',
+    description:
+      '把当前会话发布为会话模板。模板是完整对话镜像(ACP fork),不是 system prompt,新建时整个上下文都会被复制。',
+    category: 'automation',
+    type: 'builtin',
+    config: { handler: 'core.session.template.publish' },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sessionId: { type: 'string', description: '源会话 ID' },
+        name: { type: 'string', description: '模板名称' },
+        description: { type: 'string', description: '模板描述(可选)' },
+        icon: { type: 'string', description: '模板图标(可选)' },
+      },
+      required: ['sessionId', 'name'],
+    },
+    permissions: CORE_PERMISSIONS,
+    isBuiltin: true,
+    defaultScope: 'global',
+  },
+  {
+    name: 'core.session.template.instantiate',
+    displayName: '从模板新建会话',
+    description:
+      '从模板新建会话。新会话继承模板的完整对话上下文(ACP fork),不是只复制 system prompt。',
+    category: 'automation',
+    type: 'builtin',
+    config: { handler: 'core.session.template.instantiate' },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        templateId: { type: 'string', description: '会话模板 ID' },
+      },
+      required: ['templateId'],
+    },
+    permissions: CORE_PERMISSIONS,
+    isBuiltin: true,
+    defaultScope: 'global',
+  },
+  {
+    name: 'core.session.template.delete',
+    displayName: '删除会话模板',
+    description: '删除会话模板。模板不存在时静默成功。',
+    category: 'automation',
+    type: 'builtin',
+    config: { handler: 'core.session.template.delete' },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        templateId: { type: 'string', description: '会话模板 ID' },
+      },
+      required: ['templateId'],
+    },
+    permissions: CORE_PERMISSIONS,
+    isBuiltin: true,
+    defaultScope: 'global',
+  },
+  {
     name: 'core.timeline.list',
     displayName: 'List timeline',
     description: 'List timeline summaries for a session.',
