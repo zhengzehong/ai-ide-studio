@@ -36,6 +36,7 @@ import { agentMemoryInjectFullMigration } from './035-agent-memory-inject-full.j
 import { ensureAgentAvatarColumnsMigration } from './036-ensure-agent-avatar-columns.js'
 import { taskStepsMigration } from './037-task-steps.js'
 import { agentWatchWakeMigration } from './038-agent-watch-wake.js'
+import { taskInitiatorMigration } from './039-task-initiator.js'
 import type { Migration } from '../migrator.js'
 
 export const migrations: Migration[] = [
@@ -77,5 +78,6 @@ export const migrations: Migration[] = [
   ensureAgentAvatarColumnsMigration,
   taskStepsMigration,
   agentWatchWakeMigration,
+  taskInitiatorMigration,
 ]
 

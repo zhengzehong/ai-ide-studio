@@ -29,13 +29,19 @@ export interface AssignTaskInput {
 
 interface CreateTaskManagerInput extends CreateTaskInput {
   ruleId?: string
+  initiatorAgentId?: string
+  initiatorSessionId?: string
 }
 
 export const taskManager = {
   async createTask(input: CreateTaskManagerInput) {
     if (!input.title?.trim()) throw new Error('任务标题不能为空')
     if (!input.description?.trim()) throw new Error('任务描述不能为空')
-    const task = taskStore.create(input)
+    const task = taskStore.create({
+      ...input,
+      initiatorAgentId: input.initiatorAgentId ?? null,
+      initiatorSessionId: input.initiatorSessionId ?? null,
+    })
     log.info({ taskId: task.id, title: task.title }, '任务已创建')
 
     events.emit('task:update', {
@@ -158,9 +164,14 @@ export const taskManager = {
     agentStatus: 'milestone' | 'blocked' | 'done'
     reportMd?: string
     stage?: string
+    initiatorAgentId?: string
   }) {
     const task = taskStore.get(input.taskId)
     if (!task) throw new Error(`Task 不存在: ${input.taskId}`)
+
+    if (task.initiator_agent_id && input.initiatorAgentId && input.initiatorAgentId !== task.initiator_agent_id) {
+      throw new Error('只有发起人可以调用 task.report')
+    }
 
     const previousStatus = task.status
     let nextStatus = task.status

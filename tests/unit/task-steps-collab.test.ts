@@ -523,74 +523,196 @@ describe('运行中编辑步骤触发回退 draft', () => {
   })
 })
 
-describe('step.report(blocked) 触发任务 needs_input', () => {
-  test('step blocked → 任务 needs_input,后续 milestone 恢复 running', async () => {
+describe('step.report(blocked) 通知发起人(v3)', () => {
+  test('step blocked → 通知发起人(执行者≠发起人),任务保持 running', async () => {
     const { project, agents } = setupProject()
     const [pm, devA] = agents
 
-    const task = createTaskRow('blocked 场景', project.id)
+    const task = taskStore.create({
+      title: 'blocked 场景',
+      description: 'test',
+      source: 'agent',
+      projectId: project.id,
+      initiatorAgentId: pm.id,
+      initiatorSessionId: 'sess-pm',
+    })
     const r1 = taskStepManager.addStep({ taskId: task.id, title: 's1', assignee: devA.id })
     taskStore.updateStatus(task.id, 'running', '已启动')
     taskStepStore.updateStatus(r1.step.id, 'ready')
     await taskStepManager.dispatchStep(task.id, r1.step.id)
 
-    const blocked = taskStepManager.reportStep({
-      taskId: task.id,
-      stepId: r1.step.id,
-      agentStatus: 'blocked',
-      reportMd: '卡住需要决策',
-      agentId: devA.id,
+    const origEnqueue = sessionManager.enqueuePrompt
+    let notifiedSessionId: string | null = null
+    let notifiedText: string | null = null
+    sessionManager.enqueuePrompt = (async (sessionId: string, prompt: string) => {
+      if (sessionId === 'sess-pm') {
+        notifiedSessionId = sessionId
+        notifiedText = prompt
+      }
+    }) as typeof sessionManager.enqueuePrompt
+    try {
+      const blocked = taskStepManager.reportStep({
+        taskId: task.id,
+        stepId: r1.step.id,
+        agentStatus: 'blocked',
+        reportMd: '卡住需要决策',
+        agentId: devA.id,
+      })
+
+      expect(blocked.newStatus).toBe('blocked')
+      expect(taskStore.get(task.id)?.status).toBe('running')
+      expect(notifiedSessionId).toBe('sess-pm')
+      expect(notifiedText).toContain('步骤卡住')
+    } finally {
+      sessionManager.enqueuePrompt = origEnqueue
+    }
+  })
+
+  test('step blocked → 执行者=发起人,不通知', async () => {
+    const { project, agents } = setupProject()
+    const [pm] = agents
+
+    const task = taskStore.create({
+      title: 'self blocked',
+      description: 'test',
+      source: 'agent',
+      projectId: project.id,
+      initiatorAgentId: pm.id,
+      initiatorSessionId: 'sess-pm',
     })
+    const r1 = taskStepManager.addStep({ taskId: task.id, title: 's1', assignee: pm.id })
+    taskStore.updateStatus(task.id, 'running', '已启动')
+    taskStepStore.updateStatus(r1.step.id, 'ready')
+    await taskStepManager.dispatchStep(task.id, r1.step.id)
 
-    expect(blocked.newStatus).toBe('blocked')
-    expect(taskStore.get(task.id)?.status).toBe('needs_input')
-
-    const recovered = taskStepManager.reportStep({
-      taskId: task.id,
-      stepId: r1.step.id,
-      agentStatus: 'milestone',
-      reportMd: '已恢复',
-      agentId: devA.id,
-    })
-
-    expect(recovered.newStatus).toBe('running')
-    expect(taskStore.get(task.id)?.status).toBe('running')
+    const origEnqueue = sessionManager.enqueuePrompt
+    let notifyCalled = false
+    sessionManager.enqueuePrompt = (async (sessionId: string) => {
+      if (sessionId === 'sess-pm') notifyCalled = true
+    }) as typeof sessionManager.enqueuePrompt
+    try {
+      taskStepManager.reportStep({
+        taskId: task.id,
+        stepId: r1.step.id,
+        agentStatus: 'blocked',
+        reportMd: 'self 卡住',
+        agentId: pm.id,
+      })
+      expect(notifyCalled).toBe(false)
+    } finally {
+      sessionManager.enqueuePrompt = origEnqueue
+    }
   })
 })
 
-describe('所有 step done → 任务 completed', () => {
-  test('最后一个 step done 后任务自动 completed', async () => {
+describe('所有 step done → 通知发起人(v3)', () => {
+  test('最后执行者≠发起人 → 通知发起人拍板,任务不自动 completed', async () => {
     const { project, agents } = setupProject()
     const [pm, devA] = agents
 
-    const task = createTaskRow('完成场景', project.id)
+    const task = taskStore.create({
+      title: '完成场景',
+      description: 'test',
+      source: 'agent',
+      projectId: project.id,
+      initiatorAgentId: pm.id,
+      initiatorSessionId: 'sess-pm',
+    })
     const r1 = taskStepManager.addStep({ taskId: task.id, title: 's1', assignee: devA.id })
     const r2 = taskStepManager.addStep({ taskId: task.id, title: 's2', assignee: pm.id, dependsOn: [r1.step.id] })
     taskStore.updateStatus(task.id, 'running', '已启动')
 
     taskStepStore.updateStatus(r1.step.id, 'ready')
     await taskStepManager.dispatchStep(task.id, r1.step.id)
-    const r1Done = taskStepManager.reportStep({
+    taskStepManager.reportStep({
       taskId: task.id,
       stepId: r1.step.id,
       agentStatus: 'done',
       reportMd: 's1 done',
       agentId: devA.id,
     })
-    expect(r1Done.taskCompleted).toBe(false)
 
     taskStepStore.updateStatus(r2.step.id, 'ready')
     await taskStepManager.dispatchStep(task.id, r2.step.id)
-    const r2Done = taskStepManager.reportStep({
+
+    const origEnqueue = sessionManager.enqueuePrompt
+    let notifiedSessionId: string | null = null
+    let notifiedText: string | null = null
+    sessionManager.enqueuePrompt = (async (sessionId: string, prompt: string) => {
+      if (sessionId === 'sess-pm') {
+        notifiedSessionId = sessionId
+        notifiedText = prompt
+      }
+    }) as typeof sessionManager.enqueuePrompt
+    try {
+      const r1DoneFinal = taskStepManager.reportStep({
+        taskId: task.id,
+        stepId: r2.step.id,
+        agentStatus: 'done',
+        reportMd: 's2 done',
+        agentId: pm.id,
+      })
+      // 最后执行者 = pm = 发起人 → 不通知
+      expect(r1DoneFinal.taskCompleted).toBe(false)
+      expect(taskStore.get(task.id)?.status).toBe('running')
+      expect(notifiedSessionId).toBe(null)
+    } finally {
+      sessionManager.enqueuePrompt = origEnqueue
+    }
+  })
+
+  test('最后执行者≠发起人 → 通知发起人', async () => {
+    const { project, agents } = setupProject()
+    const [pm, devA, devB] = agents
+
+    const task = taskStore.create({
+      title: 'dev 做完通知 pm',
+      description: 'test',
+      source: 'agent',
+      projectId: project.id,
+      initiatorAgentId: pm.id,
+      initiatorSessionId: 'sess-pm',
+    })
+    const r1 = taskStepManager.addStep({ taskId: task.id, title: 's1', assignee: devA.id })
+    const r2 = taskStepManager.addStep({ taskId: task.id, title: 's2', assignee: devB.id, dependsOn: [r1.step.id] })
+    taskStore.updateStatus(task.id, 'running', '已启动')
+
+    taskStepStore.updateStatus(r1.step.id, 'ready')
+    await taskStepManager.dispatchStep(task.id, r1.step.id)
+    taskStepManager.reportStep({
       taskId: task.id,
-      stepId: r2.step.id,
+      stepId: r1.step.id,
       agentStatus: 'done',
-      reportMd: 's2 done',
-      agentId: pm.id,
+      reportMd: 's1 done',
+      agentId: devA.id,
     })
 
-    expect(r2Done.taskCompleted).toBe(true)
-    expect(taskStore.get(task.id)?.status).toBe('completed')
+    taskStepStore.updateStatus(r2.step.id, 'ready')
+    await taskStepManager.dispatchStep(task.id, r2.step.id)
+
+    const origEnqueue = sessionManager.enqueuePrompt
+    let notifiedSessionId: string | null = null
+    let notifiedText: string | null = null
+    sessionManager.enqueuePrompt = (async (sessionId: string, prompt: string) => {
+      if (sessionId === 'sess-pm') {
+        notifiedSessionId = sessionId
+        notifiedText = prompt
+      }
+    }) as typeof sessionManager.enqueuePrompt
+    try {
+      taskStepManager.reportStep({
+        taskId: task.id,
+        stepId: r2.step.id,
+        agentStatus: 'done',
+        reportMd: 's2 done',
+        agentId: devB.id,
+      })
+      expect(notifiedSessionId).toBe('sess-pm')
+      expect(notifiedText).toContain('所有步骤已完成')
+      expect(taskStore.get(task.id)?.status).toBe('running')
+    } finally {
+      sessionManager.enqueuePrompt = origEnqueue
+    }
   })
 })
 

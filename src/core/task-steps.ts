@@ -270,12 +270,9 @@ export const taskStepManager = {
       const all = taskStepStore.listByTask(input.taskId)
       const allDone = all.length > 0 && all.every(s => s.status === 'done')
       if (allDone) {
-        taskStore.updateStatus(input.taskId, 'completed', '所有步骤已完成')
-        taskCompleted = true
+        notifyInitiatorIfNotLastExecutor(input.taskId, step, 'all_done')
         const t = taskStore.get(input.taskId)
         if (t) {
-          events.emit('task:update', { taskId: input.taskId, data: { ...t, event: 'completed' } })
-          emitTaskLifecycleEvent(t, 'status_changed', 'running')
           const doneStep = taskStepStore.get(input.stepId)!
           triggerTaskWatch('task_completed', input.taskId, t, input.stepId, doneStep)
         }
@@ -289,20 +286,12 @@ export const taskStepManager = {
     }
 
     if (input.agentStatus === 'blocked' && task.status === 'running') {
-      taskStore.updateStatus(input.taskId, 'needs_input', `步骤 ${step.title} 卡住,等待人工决策`)
+      notifyInitiatorIfNotLastExecutor(input.taskId, step, 'blocked')
       const t = taskStore.get(input.taskId)
       if (t) {
         events.emit('task:update', { taskId: input.taskId, data: { ...t, event: 'step_blocked' } })
-        emitTaskLifecycleEvent(t, 'status_changed', 'running')
         const blockedStep = taskStepStore.get(input.stepId)!
         triggerTaskWatch('step_blocked', input.taskId, t, input.stepId, blockedStep)
-      }
-    } else if (input.agentStatus === 'milestone' && previousStatus === 'blocked' && task.status === 'needs_input') {
-      taskStore.updateStatus(input.taskId, 'running', '步骤已恢复,任务继续')
-      const t = taskStore.get(input.taskId)
-      if (t) {
-        events.emit('task:update', { taskId: input.taskId, data: { ...t, event: 'recovered' } })
-        emitTaskLifecycleEvent(t, 'status_changed', 'needs_input')
       }
     }
 
@@ -387,4 +376,27 @@ function unlockDependents(taskId: string, stepId: string): string[] {
     }
   }
   return unlocked
+}
+
+function notifyInitiatorIfNotLastExecutor(
+  taskId: string,
+  lastStep: TaskStepRow,
+  kind: 'all_done' | 'blocked',
+): void {
+  const task = taskStore.get(taskId)
+  if (!task) return
+  if (!task.initiator_agent_id || !task.initiator_session_id) return
+  if (lastStep.assignee_agent_id === task.initiator_agent_id) return
+
+  const notice =
+    kind === 'all_done'
+      ? `[任务完成] ${task.title} 所有步骤已完成,请用 task.report(agentStatus=done) 拍板`
+      : `[步骤卡住] ${task.title} 的步骤 ${lastStep.title} 卡住,请决策:加步骤或 task.report(blocked)`
+
+  sessionManager.enqueuePrompt(task.initiator_session_id, notice).catch((err: Error) => {
+    log.warn(
+      { err, taskId, initiatorSessionId: task.initiator_session_id, kind },
+      'failed to notify initiator',
+    )
+  })
 }

@@ -215,7 +215,13 @@ export const studioTaskReportHandler: ToolHandler = {
     }
 
     try {
-      const updated = taskManager.reportTask({ taskId, agentStatus, reportMd, stage })
+      const updated = taskManager.reportTask({
+        taskId,
+        agentStatus,
+        reportMd,
+        stage,
+        initiatorAgentId: context?.agentId,
+      })
       if (!updated) return errResult('任务不存在')
       return { content: [{ type: 'text', text: JSON.stringify({ taskId, status: updated.status, agentReportStatus: updated.agent_report_status }) }] }
     } catch (e) {
