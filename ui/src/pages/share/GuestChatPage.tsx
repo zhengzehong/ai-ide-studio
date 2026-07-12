@@ -50,7 +50,14 @@ export default function GuestChatPage() {
     init()
   }, [init])
 
+  // Bug-2 fix: token 变化时重置订阅/分享标识,清空消息,强制重新订阅新 session。
+  // token 是路由参数,变化时必须同步重置本地状态,否则旧 session 的消息会残留。
   useEffect(() => {
+    subscribedRef.current = false
+    lastShareIdRef.current = null
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setMessages([])
+    setStreaming(null)
     if (!token) return
     void bootstrapByToken(token)
     void recordVisit(token)
@@ -95,28 +102,74 @@ export default function GuestChatPage() {
         })
       }
     })
+
+    // Bug-1 fix: 监听 session:event,处理 message.user(包括 owner 自己发的新消息)
+    // 和 message.done(agent 回复最终化)。参考 session.store.ts:1456 的处理逻辑。
+    const offEvent = wsClient.on('session:event', (msg) => {
+      if (!currentShare) return
+      if (msg.sessionId !== currentShare.session.id) return
+      const event = (msg.event ?? {}) as Record<string, unknown>
+      const type = typeof event.type === 'string' ? event.type : ''
+      const payload = (event.payload ?? {}) as Record<string, unknown>
+      const messageId = typeof event.message_id === 'string'
+        ? event.message_id
+        : typeof payload.messageId === 'string'
+          ? payload.messageId
+          : `evt-${typeof event.id === 'string' ? event.id : Date.now()}`
+      if (type === 'message.user') {
+        const content = typeof payload.content === 'string' ? payload.content : ''
+        const senderRole = typeof payload.senderRole === 'string' ? payload.senderRole : 'user'
+        const senderId = typeof payload.senderId === 'string' ? payload.senderId : null
+        const senderName = typeof payload.senderName === 'string' ? payload.senderName : null
+        const ts = typeof event.created_at === 'string' ? event.created_at : new Date().toISOString()
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === messageId)) return prev
+          return [
+            ...prev,
+            {
+              id: messageId,
+              role: 'human',
+              content,
+              sender_role: senderRole,
+              sender_id: senderId,
+              sender_name: senderName,
+              timestamp: ts,
+            },
+          ]
+        })
+      }
+      // message.done 不在此处 push,agent 消息由 session:done 处理器从 streaming 兜底 push
+      // 并用 messageId 去重(见下方 session:done 处理器)。
+    })
+
     const offDone = wsClient.on('session:done', (msg) => {
       if (!currentShare) return
       if (msg.sessionId !== currentShare.session.id) return
       const finalContent = streamingRef.current?.content ?? ''
+      const finalId = streamingRef.current?.id ?? (msg.messageId ? String(msg.messageId) : `agent-${Date.now()}`)
       if (finalContent) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: streamingRef.current?.id ?? (msg.messageId ? String(msg.messageId) : `agent-${Date.now()}`),
-            role: 'agent',
-            content: finalContent,
-            sender_role: 'assistant',
-            sender_id: currentShare.agent?.id ?? null,
-            sender_name: currentShare.agent?.name ?? 'Agent',
-            timestamp: new Date().toISOString(),
-          },
-        ])
+        setMessages((prev) => {
+          // Bug-3 fix: messageId 去重,防止多轮对话重复 push
+          if (prev.some((m) => m.id === finalId)) return prev
+          return [
+            ...prev,
+            {
+              id: finalId,
+              role: 'agent',
+              content: finalContent,
+              sender_role: 'assistant',
+              sender_id: currentShare.agent?.id ?? null,
+              sender_name: currentShare.agent?.name ?? 'Agent',
+              timestamp: new Date().toISOString(),
+            },
+          ]
+        })
       }
       setStreaming(null)
     })
     return () => {
       offUpdate()
+      offEvent()
       offDone()
     }
   }, [currentShare])
