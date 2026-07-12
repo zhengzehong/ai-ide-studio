@@ -26,8 +26,13 @@
     })
   }
   ```
-- 底层调 `query({ resume: sourceSessionId, forkSession: true })`,生成新 UUID,把源 transcript 的消息复制到新文件,重新映射所有 message UUID 并保留 parentUuid 链
-- **不需要源 ACP 连接活着**。源 session 是 `~/.claude/projects/<project>/*.jsonl` 文件,只要文件在就能 fork
+- 底层调 `query({ resume: sourceSessionId, forkSession: true })`,把源 transcript 的消息复制到新文件
+- **Spike(task-dee3642e)实测修正 1**:SDK 注释说"remapping every message UUID",但实测 **message UUID 并未 remap**——B 的前 10 条 msg UUID 与 A 完全一致,只改了 `sessionId` 字段。对模板功能无影响,但若未来做"基于 messageId 回溯源会话"要小心
+- **Spike(task-dee3642e)实测修正 2**:文档原写"不需要源 ACP 连接活着",在当前 AI Studio 代码下不成立。`src/acp/host.ts:563 forkSession` 走 `conn.acpSessions.get(sourceSessionId)` 内存 Map,Agent 重启后 Map 清空,直接 fork 报错 "Session X 没有对应的 ACP session"。源 transcript jsonl 文件还在,但 AI Studio 这层找不到 acpSessionId 入口
+- **已有的解决路径**:
+  - 路径 A(已用):`forkSessionFromAcpSessionId`(`src/acp/host.ts:576`)直接传 DB 里的 `acp_session_id`,内部 `startAgent` 后调 `unstable_forkSession({ sessionId: sourceAcpSessionId })`。`copySession`(`src/core/sessions.ts:244`)走这条
+  - 路径 B(PR1 新增):`forkSession` 加 DB fallback——`conn.acpSessions.get(sourceSessionId) ?? sessionStore.get(sourceSessionId)?.acp_session_id`。模板 instantiate 路径走这条,Agent 重启后也能工作
+- Spike(task-dee3642e)验证:Agent 重启后必须先 `ensureSession` (resume) 再 fork,直接 fork 会失败(与 Codex 一致)
 - 支持 `upToMessageId` 从对话中间分叉(本次不启用,默认 full copy)
 
 ### 2.2 Codex 的 fork
