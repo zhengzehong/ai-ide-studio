@@ -94,6 +94,12 @@ export function mountShareRoutes(app: Hono, _config: AppConfig): void {
 
   app.post('/api/shares/:id/revoke', (c) => {
     const id = c.req.param('id')
+    const ownerAgentId = parseOwnerAgentIdFromHeader(c.req.header('x-ai-ide-owner-agent-id'))
+    const existing = sessionShareStore.getById(id)
+    if (!existing) return c.json({ error: '分享不存在' }, 404)
+    if (!ownerAgentId || ownerAgentId !== existing.owner_agent_id) {
+      return c.json({ error: '无权操作他人分享' }, 403)
+    }
     const share = sessionShareManager.revokeShare(id)
     if (!share) return c.json({ error: '分享不存在' }, 404)
     return c.json(share)
@@ -101,6 +107,12 @@ export function mountShareRoutes(app: Hono, _config: AppConfig): void {
 
   app.post('/api/shares/:id/renew', async (c) => {
     const id = c.req.param('id')
+    const ownerAgentId = parseOwnerAgentIdFromHeader(c.req.header('x-ai-ide-owner-agent-id'))
+    const existing = sessionShareStore.getById(id)
+    if (!existing) return c.json({ error: '分享不存在' }, 404)
+    if (!ownerAgentId || ownerAgentId !== existing.owner_agent_id) {
+      return c.json({ error: '无权操作他人分享' }, 403)
+    }
     const body = (await c.req.json<ShareRenewBody>().catch(() => ({}))) as ShareRenewBody
     const days = body.days === null || body.days === undefined ? null : Number(body.days)
     if (days != null && (Number.isNaN(days) || days < 0)) return c.json({ error: 'days 无效' }, 400)
@@ -111,6 +123,12 @@ export function mountShareRoutes(app: Hono, _config: AppConfig): void {
 
   app.delete('/api/shares/:id', (c) => {
     const id = c.req.param('id')
+    const ownerAgentId = parseOwnerAgentIdFromHeader(c.req.header('x-ai-ide-owner-agent-id'))
+    const existing = sessionShareStore.getById(id)
+    if (!existing) return c.json({ error: '分享不存在' }, 404)
+    if (!ownerAgentId || ownerAgentId !== existing.owner_agent_id) {
+      return c.json({ error: '无权操作他人分享' }, 403)
+    }
     sessionShareStore.softDelete(id)
     return c.json({ ok: true })
   })

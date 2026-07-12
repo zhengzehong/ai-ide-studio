@@ -24,7 +24,7 @@ function shouldHideToolCallForState(state: RpcClientState, sessionId: string): b
   return share.tool_call_visibility === 'hide'
 }
 
-function buildPayloadForState(msg: ServerMessage, state: RpcClientState, sessionId: string): string {
+export function buildPayloadForState(msg: ServerMessage, state: RpcClientState, sessionId: string): string {
   if (msg.type !== 'session:update' || !shouldHideToolCallForState(state, sessionId)) {
     return JSON.stringify(msg)
   }
@@ -33,6 +33,17 @@ function buildPayloadForState(msg: ServerMessage, state: RpcClientState, session
   delete filtered.toolCall
   delete filtered.toolCallUpdate
   return JSON.stringify({ ...msg, data: filtered })
+}
+
+/** 测试专用:注册一个 ws+state 到 clients,返回注销函数。 */
+export function __registerClientForTest(ws: WebSocket, state: RpcClientState): () => void {
+  clients.set(ws, state)
+  return () => { clients.delete(ws) }
+}
+
+/** 测试专用:判断 state 是否应隐藏 toolCall。 */
+export function __shouldHideToolCallForState(state: RpcClientState, sessionId: string): boolean {
+  return shouldHideToolCallForState(state, sessionId)
 }
 
 export function broadcastToSubscribers(sessionId: string, msg: ServerMessage, _opts?: BroadcastOptions): void {
