@@ -106,6 +106,14 @@ export function TaskDetailInline({
       setUpdating(false)
     }
   }
+  const handleCancel = async () => {
+    setUpdating(true)
+    try {
+      await updateTask(task.id, 'cancelled', undefined, '人工中断')
+    } finally {
+      setUpdating(false)
+    }
+  }
   const handleStart = async () => {
     setUpdating(true)
     try {
@@ -232,10 +240,12 @@ export function TaskDetailInline({
         isTerminal={isTerminal}
         isDraft={isDraft}
         isBacklog={isBacklog}
+        status={task.status}
         updating={updating}
         hasSessions={sessions.length > 0}
         onStart={handleStart}
         onMarkComplete={handleMarkComplete}
+        onCancel={handleCancel}
         onJumpToSession={handleJumpToSession}
         onAddStep={collab ? handleAddStep : undefined}
       />

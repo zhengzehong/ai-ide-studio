@@ -1,4 +1,4 @@
-import { Check, ChevronRight, FileText, MessageSquare as MessageSquareIcon, Plus, Pencil, Play } from 'lucide-react'
+import { Check, ChevronRight, FileText, MessageSquare as MessageSquareIcon, Plus, Pencil, Play, X } from 'lucide-react'
 import type { TaskEventData } from '../../../stores/task.store'
 import { TASK_EVENT_TYPE_META, eventReportMd, eventStage, formatRelativeTime } from './task-helpers'
 import { STEP_COLORS } from './step-helpers'
@@ -40,10 +40,12 @@ interface DetailActionsProps {
   isTerminal: boolean
   isDraft: boolean
   isBacklog: boolean
+  status: string
   updating: boolean
   hasSessions: boolean
   onStart: () => void
   onMarkComplete: () => void
+  onCancel: () => void
   onJumpToSession: () => void
   onAddStep?: () => void
   onEdit?: () => void
@@ -77,11 +79,17 @@ export function DetailActions(props: DetailActionsProps) {
           {props.updating ? '处理中...' : '启动任务'}
         </button>
       )}
-      {!props.isBacklog && !props.isCollab && (
-        <button type="button" onClick={props.onMarkComplete} disabled={props.updating} style={primaryBtnStyle(props.updating, '#00b42a')}>
-          <Check size={11} />
-          {props.updating ? '处理中...' : '标记完成'}
-        </button>
+      {props.status === 'needs_input' && (
+        <>
+          <button type="button" onClick={props.onMarkComplete} disabled={props.updating} style={primaryBtnStyle(props.updating, '#00b42a')}>
+            <Check size={11} />
+            {props.updating ? '处理中...' : '验收通过'}
+          </button>
+          <button type="button" onClick={props.onCancel} disabled={props.updating} style={primaryBtnStyle(props.updating, '#f53f3f')}>
+            <X size={11} />
+            {props.updating ? '处理中...' : '中断'}
+          </button>
+        </>
       )}
       {!props.isBacklog && props.hasSessions && (
         <button type="button" onClick={props.onJumpToSession} style={actionBtnStyle()} title="跳转到会话">
