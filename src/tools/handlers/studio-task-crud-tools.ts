@@ -106,8 +106,8 @@ export const studioTaskCreateSimpleHandler: ToolHandler = {
       selfExecute,
       assignee,
       sessionId,
-      currentAgentId: selfExecute ? context.agentId : undefined,
-      currentSessionId: selfExecute ? context.sessionId : undefined,
+      currentAgentId: context.agentId,
+      currentSessionId: context.sessionId,
     })
 
     const effectiveAssignee = selfExecute ? context.agentId : assignee

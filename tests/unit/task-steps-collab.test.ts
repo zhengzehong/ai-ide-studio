@@ -715,6 +715,73 @@ describe('所有 step done → 通知发起人(v3)', () => {
   })
 })
 
+describe('createSimple selfExecute=false 记录发起人 + 完成通知(v3 修复)', () => {
+  test('selfExecute=false 派发时记录调用者为发起人(agentId + sessionId)', async () => {
+    const { project, agents } = setupProject()
+    const [pm, devA] = agents
+    const pmSession = sessionStore.create({ agentId: pm.id, projectId: project.id })
+
+    const created = await executeJson(
+      'studio.task.createSimple',
+      {
+        title: '派发任务',
+        description: '测试发起人记录',
+        selfExecute: false,
+        assignee: devA.id,
+      },
+      { projectId: project.id, agentId: pm.id, sessionId: pmSession.id },
+    )
+
+    const task = taskStore.get(created.taskId as string)!
+    expect(task.initiator_agent_id).toBe(pm.id)
+    expect(task.initiator_session_id).toBe(pmSession.id)
+  })
+
+  test('selfExecute=false 执行者 step.report(done) 后通知发起人会话', async () => {
+    const { project, agents } = setupProject()
+    const [pm, devA] = agents
+    const pmSession = sessionStore.create({ agentId: pm.id, projectId: project.id })
+
+    const created = await executeJson(
+      'studio.task.createSimple',
+      {
+        title: '派发任务测通知',
+        description: '测试完成通知',
+        selfExecute: false,
+        assignee: devA.id,
+      },
+      { projectId: project.id, agentId: pm.id, sessionId: pmSession.id },
+    )
+
+    const taskId = created.taskId as string
+    const stepId = created.defaultStepId as string
+
+    const origEnqueue = sessionManager.enqueuePrompt
+    let notifiedSessionId: string | null = null
+    let notifiedText: string | null = null
+    sessionManager.enqueuePrompt = (async (sessionId: string, prompt: string) => {
+      if (sessionId === pmSession.id) {
+        notifiedSessionId = sessionId
+        notifiedText = prompt
+      }
+    }) as typeof sessionManager.enqueuePrompt
+    try {
+      await executeJson(
+        'studio.task.step.report',
+        { taskId, stepId, agentStatus: 'done', reportMd: '完成' },
+        { projectId: project.id, agentId: devA.id },
+      )
+
+      expect(notifiedSessionId).toBe(pmSession.id)
+      expect(notifiedText).toContain('所有步骤已完成')
+      expect(taskStore.get(taskId)?.status).toBe('running')
+      expect(taskStepStore.get(stepId)?.status).toBe('done')
+    } finally {
+      sessionManager.enqueuePrompt = origEnqueue
+    }
+  })
+})
+
 describe('循环依赖检测', () => {
   test('addStep 拒绝直接自循环(dependsOn 包含自己)', () => {
     const { project, agents } = setupProject()
