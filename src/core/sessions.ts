@@ -346,11 +346,19 @@ export const sessionManager = {
   async deleteSession(sessionId: string): Promise<void> {
     const session = sessionStore.get(sessionId)
     if (!session) return
-    await agentHubService.disconnectBySession(sessionId)
-    await acpHost.closeSession(session.agent_id, sessionId)
+    // \u5148\u5220\u672c\u5730 + \u7ea7\u8054\u6e05\u5206\u4eab\u94fe\u8def:\u8fd9\u4e24\u6b65\u662f\u5e73\u53f0\u81ea\u5df1\u7684\u72b6\u6001,\u4e0d\u4f9d\u8d56 ACP/Hub \u8fdc\u7a0b\u8c03\u7528,
+    // \u5fc5\u987b\u5148\u6267\u884c\u6389,\u5426\u5219\u4e0b\u9762 acpHost.closeSession \u629b\u9519\u4f1a\u5bfc\u81f4\u4f1a\u8bdd\u6c38\u4e0d\u5220\u9664 + \u5206\u4eab\u6b8b\u7559\u3002
     sessionStore.delete(sessionId)
     sessionShareManager.cascadeSoftDeleteBySession(sessionId)
     events.emit('session:changed', { sessionId, data: { event: 'deleted', deleted: true } })
+    // Hub \u65ad\u5f00 + ACP closeSession \u90fd\u662f"\u5c3d\u529b\u6e05\u7406\u8fdc\u7a0b\u8d44\u6e90",\u5931\u8d25\u53ea warn \u4e0d\u963b\u585e delete RPC\u3002
+    // \u5426\u5219\u8fdc\u7a0b\u6296\u52a8\u4f1a\u8ba9\u7528\u6237\u70b9\u5220\u9664\u540e RPC \u62a5\u9519\u3001\u4f1a\u8bdd\u5374\u5df2\u7ecf\u88ab\u672c\u5730\u5220\u6389,\u524d\u7aef\u5217\u8868\u9519\u4e71\u3002
+    void agentHubService.disconnectBySession(sessionId).catch((err) => {
+      log.warn({ sessionId, err: err instanceof Error ? err.message : String(err) }, 'Hub disconnect \u5931\u8d25,\u5ffd\u7565')
+    })
+    await acpHost.closeSession(session.agent_id, sessionId).catch((err) => {
+      log.warn({ sessionId, agentId: session.agent_id, err: err instanceof Error ? err.message : String(err) }, 'ACP closeSession \u5931\u8d25,\u5ffd\u7565')
+    })
     log.info({ sessionId, agentId: session.agent_id }, 'Session \u5df2\u5220\u9664')
   },
 }
