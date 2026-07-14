@@ -1,10 +1,16 @@
 import type { ReactNode } from 'react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Bot, Send } from 'lucide-react'
 import type { AgentData } from '../../stores/agent.store'
 import type { ProjectData } from '../../stores/project.store'
 import { useSessionStore, type MessageData, type SessionData } from '../../stores/session.store'
 import type { TaskData } from '../../stores/task.store'
+import { wsClient } from '../../services/ws-client'
+
+interface LocalStreamingState {
+  id: string
+  content: string
+}
 
 export function SessionContext({
   session,
@@ -17,28 +23,139 @@ export function SessionContext({
   tasks: TaskData[]
   projects: ProjectData[]
 }) {
-  const currentSessionId = useSessionStore((state) => state.currentSessionId)
-  const messages = useSessionStore((state) => state.messages)
-  const streamingMessage = useSessionStore((state) => state.streamingMessage)
-  const selectSession = useSessionStore((state) => state.selectSession)
-  const fetchMessages = useSessionStore((state) => state.fetchMessages)
-  const sendPrompt = useSessionStore((state) => state.sendPrompt)
+  // 不再使用 store 的 currentSessionId/streamingMessage/selectSession/sendPrompt
+  // 改用本地 state,避免污染 Workspace 的 currentSessionId
+  const [localMessages, setLocalMessages] = useState<MessageData[]>([])
+  const [localStreaming, setLocalStreaming] = useState<LocalStreamingState | null>(null)
   const [draft, setDraft] = useState('')
+  const subscribedRef = useRef(false)
+  const lastSessionIdRef = useRef<string | null>(null)
+  const streamingRef = useRef<LocalStreamingState | null>(null)
 
   useEffect(() => {
-    if (!session) return
-    if (currentSessionId !== session.id) selectSession(session.id)
-    else void fetchMessages(session.id)
-  }, [currentSessionId, fetchMessages, selectSession, session])
+    streamingRef.current = localStreaming
+  }, [localStreaming])
 
-  const sessionMessages = useMemo(
-    () => messages.filter((message) => message.session_id === session?.id),
-    [messages, session?.id],
-  )
+  const sessionId = session?.id ?? null
+
+  // session 变化时重置本地 state,拉取最新消息
+  useEffect(() => {
+    if (!sessionId) {
+      setLocalMessages([])
+      setLocalStreaming(null)
+      lastSessionIdRef.current = null
+      return
+    }
+    if (lastSessionIdRef.current === sessionId) return
+    lastSessionIdRef.current = sessionId
+    setLocalMessages([])
+    setLocalStreaming(null)
+    void (async () => {
+      try {
+        const serverMessages = (await wsClient.request({
+          type: 'sessions.messages',
+          sessionId,
+          limit: 20,
+        })) as MessageData[]
+        if (lastSessionIdRef.current !== sessionId) return
+        setLocalMessages(serverMessages)
+      } catch {
+        // ignore; user can retry by switching
+      }
+    })()
+  }, [sessionId])
+
+  // 订阅 session 的 WS 推送(本地处理,不影响 store)
+  useEffect(() => {
+    if (!sessionId) return
+    // 订阅当前 session 以接收推送(wsClient 维护订阅集合,不会与 store 的订阅冲突)
+    wsClient.subscribe([sessionId])
+    subscribedRef.current = true
+
+    const offUpdate = wsClient.on('session:update', (msg) => {
+      if (msg.sessionId !== sessionId) return
+      const data = (msg.data ?? {}) as Record<string, unknown>
+      const contentDelta = typeof data.contentDelta === 'string' ? data.contentDelta : ''
+      const content = typeof data.content === 'string' ? data.content : ''
+      const eventType = typeof data.eventType === 'string' ? data.eventType : ''
+      if (eventType === 'lifecycle.started' || contentDelta || content) {
+        setLocalStreaming((prev) => {
+          const id = msg.messageId ? String(msg.messageId) : prev?.id ?? `stream-${Date.now()}`
+          const nextContent = content || (prev ? prev.content + contentDelta : contentDelta)
+          return { id, content: nextContent }
+        })
+      }
+    })
+
+    const offEvent = wsClient.on('session:event', (msg) => {
+      if (msg.sessionId !== sessionId) return
+      const event = (msg.event ?? {}) as Record<string, unknown>
+      const type = typeof event.type === 'string' ? event.type : ''
+      const payload = (event.payload ?? {}) as Record<string, unknown>
+      const messageId = typeof event.message_id === 'string'
+        ? event.message_id
+        : typeof payload.messageId === 'string'
+          ? payload.messageId
+          : `evt-${typeof event.id === 'string' ? event.id : Date.now()}`
+      if (type === 'message.user') {
+        const content = typeof payload.content === 'string' ? payload.content : ''
+        const ts = typeof event.created_at === 'string' ? event.created_at : new Date().toISOString()
+        setLocalMessages((prev) => {
+          if (prev.some((m) => m.id === messageId)) return prev
+          return [
+            ...prev,
+            {
+              id: messageId,
+              session_id: sessionId,
+              role: 'human',
+              content,
+              thinking: null,
+              tool_calls_json: null,
+              decision_json: null,
+              timestamp: ts,
+            },
+          ]
+        })
+      }
+    })
+
+    const offDone = wsClient.on('session:done', (msg) => {
+      if (msg.sessionId !== sessionId) return
+      const finalContent = streamingRef.current?.content ?? ''
+      const finalId = streamingRef.current?.id ?? (msg.messageId ? String(msg.messageId) : `agent-${Date.now()}`)
+      if (finalContent) {
+        setLocalMessages((prev) => {
+          if (prev.some((m) => m.id === finalId)) return prev
+          return [
+            ...prev,
+            {
+              id: finalId,
+              session_id: sessionId,
+              role: 'agent',
+              content: finalContent,
+              thinking: null,
+              tool_calls_json: null,
+              decision_json: null,
+              timestamp: new Date().toISOString(),
+            },
+          ]
+        })
+      }
+      setLocalStreaming(null)
+    })
+
+    return () => {
+      offUpdate()
+      offEvent()
+      offDone()
+    }
+  }, [sessionId])
+
+  const sessionMessages = useMemo(() => localMessages, [localMessages])
   const agent = session ? agents.find((item) => item.id === session.agent_id) : null
   const task = session?.task_id ? tasks.find((item) => item.id === session.task_id) : null
   const project = session?.project_id ? projects.find((item) => item.id === session.project_id) : null
-  const canSend = Boolean(draft.trim() && session && currentSessionId === session.id)
+  const canSend = Boolean(draft.trim() && session)
 
   if (!session) {
     return <div style={{ padding: 18, color: 'var(--text-3)', fontSize: 14 }}>未找到会话</div>
@@ -46,8 +163,24 @@ export function SessionContext({
 
   const handleSend = () => {
     const content = draft.trim()
-    if (!content || currentSessionId !== session.id) return
-    sendPrompt(content)
+    if (!content || !session) return
+    // 直接通过 wsClient 发 prompt,带 sessionId,不依赖 store 的 currentSessionId
+    const clientMessageId = `msg-local-${Date.now()}`
+    wsClient.send({ type: 'prompt', sessionId: session.id, content, clientMessageId })
+    // 乐观插入用户消息
+    setLocalMessages((prev) => [
+      ...prev,
+      {
+        id: clientMessageId,
+        session_id: session.id,
+        role: 'human',
+        content,
+        thinking: null,
+        tool_calls_json: null,
+        decision_json: null,
+        timestamp: new Date().toISOString(),
+      },
+    ])
     setDraft('')
   }
 
@@ -89,7 +222,7 @@ export function SessionContext({
         {sessionMessages.map((message) => (
           <MessageBubble key={message.id} message={message} />
         ))}
-        {streamingMessage && currentSessionId === session.id && (
+        {localStreaming && (
           <div
             style={{
               alignSelf: 'stretch',
@@ -102,10 +235,10 @@ export function SessionContext({
               lineHeight: 1.6,
             }}
           >
-            {streamingMessage.content || streamingMessage.stage || 'Agent 正在处理...'}
+            {localStreaming.content || 'Agent 正在处理...'}
           </div>
         )}
-        {sessionMessages.length === 0 && !streamingMessage && (
+        {sessionMessages.length === 0 && !localStreaming && (
           <div style={{ margin: 'auto', color: 'var(--text-3)', fontSize: 14, textAlign: 'center' }}>暂无消息</div>
         )}
       </div>
