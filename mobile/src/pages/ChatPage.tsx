@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, Bot, FolderOpen } from 'lucide-react'
 import { buildChatRenderItems } from '@desktop/components/chat/render-items'
 import type { ChatTimelineGroup, MessageData, StreamingMessage } from '@desktop/stores/session-events'
 import { useChatStore } from '../stores/chat.store'
 import { useSessionStore } from '../stores/session.store'
 import { useConnectionStore } from '../stores/connection.store'
+import { useAppStore } from '../stores/app.store'
+import { showToast } from '../utils/toast'
 import ChatBubble from '../components/chat/ChatBubble'
 import ChatInput from '../components/chat/ChatInput'
 import TurnContent from '../components/chat/TurnContent'
@@ -20,9 +22,19 @@ type MobileChatMessage = MessageData | (StreamingMessage & { session_id?: string
 export default function ChatPage() {
   const { sessionId } = useParams<{ sessionId: string }>()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const listRef = useRef<HTMLDivElement>(null)
   const stickToBottomRef = useRef(true)
   const olderLoadAnchorRef = useRef<{ sessionId: string; scrollHeight: number; scrollTop: number } | null>(null)
+
+  // 新建会话占位路由 /chat/new?projectId=xxx[&agentId=yyy]:UI 上等同一个空白会话,
+  // 但底层 sessionId 还没生成。在用户首次发送前先调 sessions.create 拿到真 sessionId,
+  // 再 navigate 替换 URL,最后走正常 prompt 流程。直接用 'new' 当 sessionId 会触发
+  // enterSession('new') / markRead('new') / prompt('new'),后端报 Session not found。
+  const isNewSessionRoute = sessionId === 'new'
+  const pendingProjectId = searchParams.get('projectId')
+  const pendingAgentId = searchParams.get('agentId')
+  const creatingRef = useRef(false)
 
   // 拆 selector 订阅:每个字段独立订阅,避免一把抓导致任一变化都触发整个组件重渲染。
   // 流式期间 streamingMessage 每 16ms(RAF)变一次,如果订阅整个 store,整个 ChatPage
@@ -66,7 +78,10 @@ export default function ChatPage() {
   const loadingOlderMessages = sessionId ? !!loadingOlderMessagesBySession[sessionId] : false
 
   useEffect(() => {
-    if (!sessionId) return
+    // 跳过 'new' 占位路由:此时还没有真 sessionId,enterSession/markRead 都不应触发。
+    // 真正的 session 订阅在 handleSend 里调 createSession 后,navigate 到 /chat/${realId},
+    // 该 effect 因 sessionId 变化重跑,自然走到下方正常分支。
+    if (!sessionId || isNewSessionRoute) return
     stickToBottomRef.current = true
     olderLoadAnchorRef.current = null
     useSessionStore.getState().setCurrentSession(sessionId)
@@ -86,7 +101,7 @@ export default function ChatPage() {
       leaveSession()
       useSessionStore.getState().setCurrentSession(null)
     }
-  }, [sessionId])
+  }, [sessionId, isNewSessionRoute])
 
   // Reconnect recovery: when the websocket comes back online, refill the
   // current conversation with the latest persisted messages and events so we
@@ -94,9 +109,9 @@ export default function ChatPage() {
   // 单触发:refreshCurrentSession 内部用 refreshInFlight 去重,避免重连时
   // 4 路并发刷新(ChatPage effect + chat.store reconnected listener 已删除)。
   useEffect(() => {
-    if (!connected || !sessionId) return
+    if (!connected || !sessionId || isNewSessionRoute) return
     void refreshCurrentSession(sessionId)
-  }, [connected, sessionId, refreshCurrentSession])
+  }, [connected, sessionId, isNewSessionRoute, refreshCurrentSession])
 
   const hasBlockingInteraction = pendingPermissions.length > 0 || pendingElicitations.length > 0
   const inputDisabled = hasBlockingInteraction || !connected
@@ -106,10 +121,70 @@ export default function ChatPage() {
   const projectId = session?.projectId ?? null
   const canViewFiles = !!projectId
 
+  // 新建会话占位路由下,首次发送要先调 sessions.create 拿真 sessionId,再 navigate 替换 URL,
+  // 最后走正常 sendPrompt。createSession 期间禁用输入框防止重复触发。
+  const [creating, setCreating] = useState(false)
+  const agents = useAppStore(s => s.agents)
+
+  const handleSend = useCallback(async (text: string, images?: Parameters<typeof sendPrompt>[1]) => {
+    if (isNewSessionRoute) {
+      if (creatingRef.current) return
+      // URL query 必须带 projectId;agentId 没带就用当前 project 第一个可见 agent 兜底
+      // (与 SessionListPage.handleNewFromTemplate 的兜底策略一致)。
+      const targetProjectId = pendingProjectId
+      if (!targetProjectId) {
+        showToast('缺少项目信息,请返回重试')
+        return
+      }
+      let targetAgentId = pendingAgentId
+      if (!targetAgentId) {
+        // 从当前列表里按当前 project 过滤第一个 agent;找不到再回退到全局第一个 agent。
+        const inProject = sessions.find((s) => s.projectId === targetProjectId)
+        if (inProject) {
+          targetAgentId = inProject.agentId
+        } else {
+          targetAgentId = agents[0]?.id
+        }
+      }
+      if (!targetAgentId) {
+        showToast('未找到可用 Agent,请先在项目中添加 Agent')
+        return
+      }
+      creatingRef.current = true
+      setCreating(true)
+      try {
+        const real = await useSessionStore.getState().createSession(targetAgentId, targetProjectId)
+        // navigate 替换 URL,触发 ChatPage 重新挂载到真 sessionId 分支;随后 effect 会
+        // 自动 enterSession/markRead。发送时机:navigate 是异步生效,直接调 sendPrompt
+        // 时 chat.store 的 sessionId 还是 null,因此把发送动作延后到 URL 切换之后。
+        navigate(`/chat/${real.id}`, { replace: true })
+        // 等下一帧让 useParams 拿到新 sessionId 并完成 enterSession,再触发 sendPrompt。
+        // 两次 RAF 足以覆盖 React 18 的并发渲染 + effect 提交窗口。
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            useChatStore.getState().sendPrompt(text, images)
+          })
+        })
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : '创建会话失败')
+      } finally {
+        creatingRef.current = false
+        setCreating(false)
+      }
+      return
+    }
+    sendPrompt(text, images)
+  }, [isNewSessionRoute, pendingProjectId, pendingAgentId, sessions, agents, navigate, sendPrompt])
   const handleOpenFiles = () => {
     if (!canViewFiles) return
     navigate('/files', { state: { projectId, sessionId } })
   }
+
+  // 新建会话占位路由下,header 标题用项目名/默认文案,不显示"对话"。
+  const projects = useAppStore(s => s.projects)
+  const headerTitle = isNewSessionRoute
+    ? (projects.find((p) => p.id === pendingProjectId)?.name || '新对话')
+    : (session?.sessionTitle || session?.agentName || '对话')
   useEffect(() => {
     if (!isRunning) return undefined
     setLiveNowMs(Date.now())
@@ -184,7 +259,7 @@ export default function ChatPage() {
           <ArrowLeft size={20} />
         </button>
         <div style={styles.headerInfo}>
-          <span style={styles.headerTitle}>{session?.sessionTitle || session?.agentName || '对话'}</span>
+          <span style={styles.headerTitle}>{headerTitle}</span>
           {session && (
             <span style={styles.headerSub}>
               <Bot size={11} style={{ marginRight: 3 }} />
@@ -271,10 +346,10 @@ export default function ChatPage() {
         onSetConfig={setConfig}
       />
       <ChatInput
-        onSend={sendPrompt}
+        onSend={handleSend}
         onCancel={cancelTurn}
-        isRunning={isRunning}
-        disabled={inputDisabled}
+        isRunning={isRunning || creating}
+        disabled={inputDisabled || creating}
         disabledPlaceholder={disabledPlaceholder}
         supportsImages={capabilities.supportsImages}
       />
