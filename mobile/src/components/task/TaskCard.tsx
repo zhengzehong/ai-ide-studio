@@ -6,7 +6,7 @@ import {
 import { AlertCircle, MessageSquare } from 'lucide-react'
 import type { TaskStatus } from '../../../../src/types/ws-protocol'
 import { formatRelativeTime, formatDuration, diffMsFromNow } from '../../utils/task-time'
-import { isTaskUnread, getUnreadCount } from '../../utils/task-unread'
+import { isTaskUnread } from '../../utils/task-unread'
 import { triggerHaptic } from '../../utils/haptic'
 
 const LONG_PRESS_MS = 500
@@ -141,7 +141,7 @@ function NeedsCard({ task, handlers, onClick }: { task: TaskCardItem; handlers: 
         {unread && (
           <div style={needsStyles.unreadRow}>
             <span style={needsStyles.unreadDot} />
-            <span style={needsStyles.unreadText}>{getUnreadCount(task.id)} 条新汇报</span>
+            <span style={needsStyles.unreadText}>有新汇报</span>
           </div>
         )}
       </div>
