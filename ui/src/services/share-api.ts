@@ -65,9 +65,12 @@ async function parseJson<T>(res: Response): Promise<T> {
   return res.json() as Promise<T>
 }
 
-function ownerHeaders(): Record<string, string> {
+function ownerHeaders(ownerAgentId?: string): Record<string, string> {
   const token = getStoredAccessToken()
-  return token ? { 'x-ai-ide-token': token } : {}
+  const headers: Record<string, string> = {}
+  if (token) headers['x-ai-ide-token'] = token
+  if (ownerAgentId) headers['x-ai-ide-owner-agent-id'] = ownerAgentId
+  return headers
 }
 
 export async function bootstrapShare(token: string): Promise<ShareBootstrapResult> {
@@ -82,40 +85,40 @@ export async function recordShareVisit(token: string): Promise<void> {
 export async function listShares(ownerAgentId: string, sessionId?: string): Promise<ShareRow[]> {
   const params = new URLSearchParams({ ownerAgentId })
   if (sessionId) params.set('sessionId', sessionId)
-  const res = await fetch(`/api/shares?${params.toString()}`, { headers: ownerHeaders() })
+  const res = await fetch(`/api/shares?${params.toString()}`, { headers: ownerHeaders(ownerAgentId) })
   return parseJson<ShareRow[]>(res)
 }
 
 export async function createShare(input: CreateShareInput): Promise<ShareRow> {
   const res = await fetch('/api/shares', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...ownerHeaders() },
+    headers: { 'Content-Type': 'application/json', ...ownerHeaders(input.ownerAgentId) },
     body: JSON.stringify(input),
   })
   return parseJson<ShareRow>(res)
 }
 
-export async function revokeShare(id: string): Promise<ShareRow> {
+export async function revokeShare(id: string, ownerAgentId: string): Promise<ShareRow> {
   const res = await fetch(`/api/shares/${encodeURIComponent(id)}/revoke`, {
     method: 'POST',
-    headers: ownerHeaders(),
+    headers: ownerHeaders(ownerAgentId),
   })
   return parseJson<ShareRow>(res)
 }
 
-export async function renewShare(id: string, days: number | null): Promise<ShareRow> {
+export async function renewShare(id: string, days: number | null, ownerAgentId: string): Promise<ShareRow> {
   const res = await fetch(`/api/shares/${encodeURIComponent(id)}/renew`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...ownerHeaders() },
+    headers: { 'Content-Type': 'application/json', ...ownerHeaders(ownerAgentId) },
     body: JSON.stringify({ days }),
   })
   return parseJson<ShareRow>(res)
 }
 
-export async function deleteShare(id: string): Promise<void> {
+export async function deleteShare(id: string, ownerAgentId: string): Promise<void> {
   const res = await fetch(`/api/shares/${encodeURIComponent(id)}`, {
     method: 'DELETE',
-    headers: ownerHeaders(),
+    headers: ownerHeaders(ownerAgentId),
   })
   if (!res.ok) {
     const body = await res.json().catch(() => null)
