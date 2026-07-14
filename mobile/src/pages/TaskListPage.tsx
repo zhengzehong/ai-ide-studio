@@ -4,6 +4,7 @@ import { wsClient } from '@desktop/services/ws-client'
 import { ListTodo, RefreshCw, Search, X } from 'lucide-react'
 import type { TaskStatus } from '../../../src/types/ws-protocol'
 import { useAppStore } from '../stores/app.store'
+import { useSessionStore } from '../stores/session.store'
 import ActionSheet from '../components/ActionSheet'
 import ConfirmDialog from '../components/ConfirmDialog'
 import TaskCard, { type TaskCardItem } from '../components/task/TaskCard'
@@ -127,6 +128,12 @@ export default function TaskListPage() {
   const agents = useAppStore((state) => state.agents)
   const agentsRef = useRef(agents)
   agentsRef.current = agents
+  const currentSessionId = useSessionStore((state) => state.currentSessionId)
+  const sessions = useSessionStore((state) => state.sessions)
+  const currentAgentId = useMemo(() => {
+    if (!currentSessionId) return null
+    return sessions.find((s) => s.id === currentSessionId)?.agentId ?? null
+  }, [currentSessionId, sessions])
 
   const fetchTasks = useCallback(async () => {
     setLoading(true)
@@ -175,10 +182,10 @@ export default function TaskListPage() {
 
   const filteredTasks = useMemo(() => {
     const filtered = tasksWithAgent.filter(
-      (t) => matchesFilter(t.status, filter) && matchesSearch(t.title, t.description, keyword),
+      (t) => matchesFilter(t.status, filter, t.assigned_agent_id, currentAgentId) && matchesSearch(t.title, t.description, keyword),
     )
     return sortTasks(filtered)
-  }, [tasksWithAgent, filter, keyword])
+  }, [tasksWithAgent, filter, keyword, currentAgentId])
 
   const handleCardClick = useCallback(
     (task: TaskCardItem) => {
