@@ -51,7 +51,7 @@ export function validateCronFields(cron: string): void {
   if (parts.length !== 5) throw new Error('cron 表达式需要 5 个字段')
   parts.forEach((p, i) => {
     if (p === '*') return
-    const tokens = p.split(/[\/,-]/)
+    const tokens = p.split(/[/,-]/)
     for (const tok of tokens) {
       if (tok === '*' || tok === '') continue
       const n = parseInt(tok, 10)

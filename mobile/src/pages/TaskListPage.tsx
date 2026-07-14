@@ -175,7 +175,7 @@ export default function TaskListPage() {
 
   const filteredTasks = useMemo(() => {
     const filtered = tasksWithAgent.filter(
-      (t) => matchesFilter(t.status, filter) && matchesSearch(t.title, t.description, keyword),
+      (t) => matchesFilter(t.status, filter, t.assigned_agent_id, null) && matchesSearch(t.title, t.description, keyword),
     )
     return sortTasks(filtered)
   }, [tasksWithAgent, filter, keyword])

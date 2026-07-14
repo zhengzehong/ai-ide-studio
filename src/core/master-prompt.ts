@@ -107,5 +107,5 @@ export function buildMasterPrompt(agentName: string): string {
 
 - 你只管自己这个 Agent 的任务。别的 Agent 的任务不归你管,除非用户让你协调。
 - 用户要找别的 Agent → 告诉他去那个 Agent 的主会话。
-- 任务卡住超 3 轮 → 主动 \`studio.task.request_input\` 升级用户。`
+- 任务卡住超 3 轮 → 主动 \`studio.task.report(agentStatus=blocked)\` 升级用户。`
 }

@@ -35,7 +35,6 @@ export default function KnowledgeBase() {
   const pageLoading = useKnowledgeBaseStore((state) => state.pageLoading)
   const saving = useKnowledgeBaseStore((state) => state.saving)
   const error = useKnowledgeBaseStore((state) => state.error)
-  const isDirty = useKnowledgeBaseStore((state) => state.isDirty)
   const remoteUpdatePending = useKnowledgeBaseStore((state) => state.remoteUpdatePending)
   const setDirty = useKnowledgeBaseStore((state) => state.setDirty)
   const clearError = useKnowledgeBaseStore((state) => state.clearError)

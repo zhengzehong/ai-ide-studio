@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Bot, Send } from 'lucide-react'
 import type { AgentData } from '../../stores/agent.store'
 import type { ProjectData } from '../../stores/project.store'
-import { useSessionStore, type MessageData, type SessionData } from '../../stores/session.store'
+import { type MessageData, type SessionData } from '../../stores/session.store'
 import type { TaskData } from '../../stores/task.store'
 import { wsClient } from '../../services/ws-client'
 

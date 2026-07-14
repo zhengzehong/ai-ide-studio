@@ -4,6 +4,7 @@ import {
   taskEventStore,
   type CreateTaskInput,
   type TaskAttachmentRow,
+  type TaskRow,
 } from '../store/tasks.js'
 import { taskStepStore } from '../store/task-steps.js'
 import { agentStore } from '../store/agents.js'
