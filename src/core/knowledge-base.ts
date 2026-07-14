@@ -301,6 +301,9 @@ export const knowledgeBaseService = {
       if (!activity.page_id) throw new Error('REVERT_UNSUPPORTED')
       const page = assertPageVisible(input.projectId, activity.page_id)
       const deleted = knowledgePageStore.update(page.id, { deletedAt: new Date().toISOString() })
+      if (page.is_index) {
+        knowledgeBaseStore.setIndexPage(activity.kb_id, null)
+      }
       const revert = recordKnowledgeActivity({
         kbId: activity.kb_id,
         pageId: activity.page_id,
@@ -343,7 +346,8 @@ export const knowledgeBaseService = {
 }
 
 function ensureIndexPage(kb: KnowledgeBaseRow, actor: string, actorType: KnowledgeActorType): KnowledgeBaseRow {
-  if (kb.index_page_id && knowledgePageStore.get(kb.index_page_id)) return kb
+  const indexPage = kb.index_page_id ? knowledgePageStore.get(kb.index_page_id) : null
+  if (indexPage && !indexPage.deleted_at) return kb
   const page = createIndexPage(kb, actor, actorType)
   return knowledgeBaseStore.setIndexPage(kb.id, page.id) ?? kb
 }
