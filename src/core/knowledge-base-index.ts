@@ -1,8 +1,9 @@
+import { randomUUID } from 'crypto'
 import type { KnowledgeBaseRow } from '../store/knowledge-bases.js'
 import type { KnowledgePageRow } from '../store/knowledge-pages.js'
 
-const INDEX_START = '<!-- AI_IDE_KB_INDEX_START -->'
-const INDEX_END = '<!-- AI_IDE_KB_INDEX_END -->'
+const LEGACY_INDEX_START = '<!-- AI_IDE_KB_INDEX_START -->'
+const LEGACY_INDEX_END = '<!-- AI_IDE_KB_INDEX_END -->'
 
 export function withGeneratedIndexBody(
   kb: KnowledgeBaseRow,
@@ -23,7 +24,10 @@ export function bodyWithGeneratedIndex(
 
 function buildIndexBody(kb: KnowledgeBaseRow, indexPage: KnowledgePageRow, pages: KnowledgePageRow[]): string {
   const body = stripGeneratedIndex(indexPage.body).trimEnd()
-  const lines = [INDEX_START, '## 页面索引', '']
+  const indexId = randomUUID()
+  const startMarker = `<!-- AI_IDE_KB_INDEX_START:${indexId} -->`
+  const endMarker = `<!-- AI_IDE_KB_INDEX_END:${indexId} -->`
+  const lines = [startMarker, '## 页面索引', '']
   const visiblePages = pages.filter((page) => page.kb_id === kb.id && page.id !== indexPage.id)
   if (visiblePages.length === 0) {
     lines.push('暂无页面。')
@@ -41,13 +45,19 @@ function buildIndexBody(kb: KnowledgeBaseRow, indexPage: KnowledgePageRow, pages
       lines.push('')
     }
   }
-  lines.push(INDEX_END)
+  lines.push(endMarker)
   return `${body}\n\n${lines.join('\n')}`.trim()
 }
 
-function stripGeneratedIndex(body: string): string {
-  const start = body.indexOf(INDEX_START)
-  const end = body.indexOf(INDEX_END)
-  if (start === -1 || end === -1 || end < start) return body
-  return `${body.slice(0, start)}${body.slice(end + INDEX_END.length)}`
+export function stripGeneratedIndex(body: string): string {
+  let result = body
+  const pairedRegex =
+    /<!--\s*AI_IDE_KB_INDEX_START:([0-9a-fA-F-]{36})\s*-->[\s\S]*?<!--\s*AI_IDE_KB_INDEX_END:\1\s*-->/g
+  result = result.replace(pairedRegex, '')
+  const legacyStart = result.indexOf(LEGACY_INDEX_START)
+  const legacyEnd = result.indexOf(LEGACY_INDEX_END)
+  if (legacyStart !== -1 && legacyEnd !== -1 && legacyEnd > legacyStart) {
+    result = `${result.slice(0, legacyStart)}${result.slice(legacyEnd + LEGACY_INDEX_END.length)}`
+  }
+  return result
 }
