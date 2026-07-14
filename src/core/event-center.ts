@@ -359,7 +359,7 @@ function scheduleAutoConsumer(subscriptionId: string, consumptionId: string): vo
         const message = err instanceof Error ? err.message : String(err)
         log.error({ err, subscriptionId, consumptionId }, '事件自动消费失败')
         const consumption = eventConsumptionStore.get(consumptionId)
-        if (consumption?.status === 'pending') {
+        if (consumption?.status === 'pending' || consumption?.status === 'running') {
           eventConsumptionStore.complete(consumptionId, { error: message })
           eventCenterEventStore.updateStatus(consumption.event_id, 'failed')
           emitUpdate({ eventId: consumption.event_id, consumptionId, event: 'consumption.auto_failed' })
