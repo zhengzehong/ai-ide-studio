@@ -4,6 +4,7 @@ import { taskStepManager } from './task-steps.js'
 import { emitTaskLifecycleEvent, validateTaskAssignment } from './tasks.js'
 import { taskStore, type TaskRow } from '../store/tasks.js'
 import { taskStepStore } from '../store/task-steps.js'
+import { sessionManager } from './sessions.js'
 
 const log = createChildLogger('task-simple')
 
@@ -84,7 +85,30 @@ export async function createSimpleTask(input: CreateSimpleTaskInput): Promise<Cr
 
   taskStore.updateStatus(task.id, 'running', '简单任务已启动')
   taskStepStore.updateStatus(step.id, 'ready')
-  const dispatched = await taskStepManager.dispatchStep(task.id, step.id)
+  let dispatched: { stepId: string; sessionId: string; reused: boolean }
+  try {
+    dispatched = await taskStepManager.dispatchStep(task.id, step.id)
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err)
+    const failedTask = taskStore.get(task.id)
+    if (failedTask) {
+      taskStore.updateStatus(task.id, 'needs_input', `派发失败: ${errMsg}`)
+      notifyInitiatorOnDispatchFailure(task.id, failedTask, errMsg)
+    }
+    const failedUpdated = taskStore.get(task.id)
+    if (failedUpdated) {
+      events.emit('task:update', {
+        taskId: task.id,
+        data: {
+          ...failedUpdated,
+          event: 'step_dispatch_failed',
+          defaultStepId: step.id,
+        },
+      })
+    }
+    log.warn({ err, taskId: task.id, stepId: step.id }, '简单任务派发失败,task 已回退到 needs_input')
+    throw err
+  }
   const updated = taskStore.get(task.id)
   if (!updated) throw new Error('简单任务创建后无法找到任务')
 
@@ -100,4 +124,15 @@ export async function createSimpleTask(input: CreateSimpleTaskInput): Promise<Cr
   log.info({ taskId: task.id, stepId: step.id, assignee, sessionId: dispatched.sessionId }, '简单任务已创建并派发')
 
   return { task: updated, defaultStepId: step.id, sessionId: dispatched.sessionId }
+}
+
+function notifyInitiatorOnDispatchFailure(taskId: string, task: TaskRow, message: string): void {
+  if (!task.initiator_agent_id || !task.initiator_session_id) return
+  const notice = `[派发失败] 任务 ${task.title} 的步骤派发失败:${message}。请处理。`
+  sessionManager.enqueuePrompt(task.initiator_session_id, notice).catch((err: Error) => {
+    log.warn(
+      { err, taskId, initiatorSessionId: task.initiator_session_id },
+      'failed to notify initiator on createSimple dispatch failure',
+    )
+  })
 }
