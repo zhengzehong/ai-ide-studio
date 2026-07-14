@@ -13,6 +13,8 @@ import { emitTaskLifecycleEvent } from './task-lifecycle-events.js'
 import { createChildLogger } from './logger.js'
 import { appendHiddenAttachmentNote, loadStoredImagesForAcp, type StoredImageAttachment } from './image-attachments.js'
 import { buildTaskPrompt, getTaskMode } from './task-prompt.js'
+import { taskStepStore } from '../store/task-steps.js'
+import { dispatchReadySteps } from './step-ready-dispatch.js'
 
 const log = createChildLogger('task')
 
@@ -165,7 +167,7 @@ export const taskManager = {
     reportMd?: string
     stage?: string
     initiatorAgentId?: string
-  }) {
+  }): TaskRow | undefined {
     const task = taskStore.get(input.taskId)
     if (!task) throw new Error(`Task 不存在: ${input.taskId}`)
 
@@ -225,6 +227,10 @@ export const taskManager = {
       emitTaskLifecycleEvent(updated, lifecycleChange, previousStatus)
     }
 
+    if (input.agentStatus === 'milestone' && previousStatus === 'needs_input' && nextStatus === 'running') {
+      void reevaluateAndDispatchReadySteps(input.taskId)
+    }
+
     return updated
   },
 
@@ -266,6 +272,34 @@ export const taskManager = {
 
     return updated
   },
+}
+
+async function reevaluateAndDispatchReadySteps(taskId: string): Promise<void> {
+  try {
+    const readyCandidates = taskStepStore.listReadyCandidates(taskId)
+    const readyIds: string[] = []
+    for (const step of readyCandidates) {
+      if (step.status === 'pending') {
+        taskStepStore.updateStatus(step.id, 'ready')
+      }
+      readyIds.push(step.id)
+    }
+    const alreadyReady = taskStepStore
+      .listByTask(taskId)
+      .filter(s => s.status === 'ready')
+      .map(s => s.id)
+    const merged = Array.from(new Set([...readyIds, ...alreadyReady]))
+    if (merged.length === 0) return
+    const result = await dispatchReadySteps(taskId, merged)
+    if (result.dispatchedSteps.length > 0) {
+      log.info({ taskId, dispatched: result.dispatchedSteps }, 'reportTask milestone 恢复 running 后重新派发 ready step')
+    }
+    if (result.failedStepId) {
+      log.warn({ taskId, failedStepId: result.failedStepId, failureMessage: result.failureMessage }, 'reportTask milestone 恢复 running 后派发失败')
+    }
+  } catch (err) {
+    log.warn({ err, taskId }, 'reevaluateAndDispatchReadySteps 失败')
+  }
 }
 
 export { emitTaskLifecycleEvent } from './task-lifecycle-events.js'
