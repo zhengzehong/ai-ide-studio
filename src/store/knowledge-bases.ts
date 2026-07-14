@@ -98,7 +98,7 @@ export const knowledgeBaseStore = {
       .all(projectId, projectId)
   },
 
-  setIndexPage(kbId: string, pageId: string): KnowledgeBaseRow | undefined {
+  setIndexPage(kbId: string, pageId: string | null): KnowledgeBaseRow | undefined {
     getDb()
       .prepare('UPDATE knowledge_bases SET index_page_id = ?, updated_at = ? WHERE id = ?')
       .run(pageId, new Date().toISOString(), kbId)
