@@ -35,6 +35,9 @@ export default function KnowledgeBase() {
   const pageLoading = useKnowledgeBaseStore((state) => state.pageLoading)
   const saving = useKnowledgeBaseStore((state) => state.saving)
   const error = useKnowledgeBaseStore((state) => state.error)
+  const isDirty = useKnowledgeBaseStore((state) => state.isDirty)
+  const remoteUpdatePending = useKnowledgeBaseStore((state) => state.remoteUpdatePending)
+  const setDirty = useKnowledgeBaseStore((state) => state.setDirty)
   const clearError = useKnowledgeBaseStore((state) => state.clearError)
   const fetchKnowledgeBases = useKnowledgeBaseStore((state) => state.fetchKnowledgeBases)
   const fetchSharedKnowledgeBases = useKnowledgeBaseStore((state) => state.fetchSharedKnowledgeBases)
@@ -83,7 +86,6 @@ export default function KnowledgeBase() {
   const editingCurrentPage = editing && formPageId === activePageId
   const documentForm = editingCurrentPage ? form : formFromPage(currentRead?.page)
   const visibleError = operationError ?? error
-
   if (!currentProjectId) {
     return (
       <div className="kb-project-empty">
@@ -108,6 +110,7 @@ export default function KnowledgeBase() {
       })
       setEditing(false)
       setFormPageId(null)
+      setDirty(false)
     } catch (err) {
       setOperationError(`保存失败，草稿仍保留：${errorMessage(err)}`)
     }
@@ -187,13 +190,18 @@ export default function KnowledgeBase() {
           setForm(formFromPage(currentRead?.page))
           setFormPageId(activePageId)
           setEditing(true)
+          setDirty(false)
         }}
         onCancel={() => {
           setForm(formFromPage(currentRead?.page))
           setFormPageId(null)
           setEditing(false)
+          setDirty(false)
         }}
-        onFormChange={(patch) => setForm((prev) => ({ ...prev, ...patch }))}
+        onFormChange={(patch) => {
+          setForm((prev) => ({ ...prev, ...patch }))
+          setDirty(true)
+        }}
         onSave={() => void handleSave()}
         onWikiLink={(link) => {
           if (link.status === 'resolved' && link.pageId) {
@@ -231,6 +239,19 @@ export default function KnowledgeBase() {
               setOperationError(null)
               clearError()
             }}
+          >
+            ×
+          </button>
+        </div>
+      )}
+
+      {remoteUpdatePending && editingCurrentPage && (
+        <div className="kb-error" style={{ background: 'var(--warn-bg, #fff8e1)', borderColor: 'var(--warn, #f5a623)', color: 'var(--warn, #b86d00)' }}>
+          <span>此页面有新版本（他人已保存更新）。为避免覆盖，编辑内容已保留为草稿；如需拉取最新版本，请先取消编辑再重新进入。</span>
+          <button
+            type="button"
+            aria-label="关闭提示"
+            onClick={() => useKnowledgeBaseStore.setState({ remoteUpdatePending: false })}
           >
             ×
           </button>

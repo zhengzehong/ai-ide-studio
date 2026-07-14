@@ -93,6 +93,9 @@ interface KnowledgeBaseStore {
   pageLoading: boolean
   saving: boolean
   error: string | null
+  isDirty: boolean
+  remoteUpdatePending: boolean
+  setDirty: (dirty: boolean) => void
   clearError: () => void
   fetchKnowledgeBases: (projectId: string) => Promise<void>
   fetchSharedKnowledgeBases: () => Promise<void>
@@ -124,6 +127,9 @@ export const useKnowledgeBaseStore = create<KnowledgeBaseStore>((set, get) => ({
   pageLoading: false,
   saving: false,
   error: null,
+  isDirty: false,
+  remoteUpdatePending: false,
+  setDirty: (dirty) => set({ isDirty: dirty }),
   clearError: () => set({ error: null }),
 
   fetchKnowledgeBases: async (projectId) => {
@@ -160,6 +166,15 @@ export const useKnowledgeBaseStore = create<KnowledgeBaseStore>((set, get) => ({
     const currentPageId = state.currentPageId && data.pages.some((page) => page.id === state.currentPageId)
       ? state.currentPageId
       : data.pages[0]?.id ?? null
+    // 编辑中(isDirty=true)不覆盖 currentRead,仅标记有新版本,避免用户草稿被覆盖
+    if (state.isDirty && state.currentRead) {
+      const remotePage = data.pages.find((p) => p.id === state.currentRead!.page.id)
+      const localUpdatedAt = state.currentRead.page.updated_at
+      if (remotePage && remotePage.updated_at !== localUpdatedAt) {
+        set({ remoteUpdatePending: true })
+      }
+      return
+    }
     if (currentPageId) await get().readPage(projectId, { pageId: currentPageId })
   },
 
@@ -167,7 +182,7 @@ export const useKnowledgeBaseStore = create<KnowledgeBaseStore>((set, get) => ({
     set({ pageLoading: true, error: null })
     try {
       const data = await wsClient.request({ type: 'knowledgePages.read', projectId, ...input }) as KnowledgePageReadData
-      set({ currentRead: data, currentPageId: data.page.id, currentKbId: data.kb.id, pageLoading: false })
+      set({ currentRead: data, currentPageId: data.page.id, currentKbId: data.kb.id, pageLoading: false, remoteUpdatePending: false })
       return data
     } catch (err) {
       set({ pageLoading: false, error: errorMessage(err) })
@@ -234,7 +249,7 @@ export const useKnowledgeBaseStore = create<KnowledgeBaseStore>((set, get) => ({
       await get().fetchPages(projectId, data.page.kb_id)
       await get().fetchActivities(projectId, data.page.kb_id)
       await get().readPage(projectId, { pageId: data.page.id })
-      set({ saving: false })
+      set({ saving: false, isDirty: false, remoteUpdatePending: false })
       return data.page
     } catch (err) {
       set({ saving: false, error: errorMessage(err) })
