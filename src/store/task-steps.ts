@@ -191,6 +191,18 @@ export const taskStepStore = {
       .all(taskId)
   },
 
+  listByTaskAndStatuses(taskId: string, statuses: string[]): TaskStepRow[] {
+    if (statuses.length === 0) return []
+    const placeholders = statuses.map(() => '?').join(', ')
+    return getDb()
+      .prepare<[string, ...string[]], TaskStepRow>(
+        `SELECT * FROM task_steps
+         WHERE task_id = ? AND status IN (${placeholders})
+         ORDER BY sort_order ASC, created_at ASC`,
+      )
+      .all(taskId, ...statuses)
+  },
+
   get(stepId: string): TaskStepRow | undefined {
     return getDb().prepare<[string], TaskStepRow>('SELECT * FROM task_steps WHERE id = ?').get(stepId)
   },

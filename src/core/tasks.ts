@@ -5,6 +5,7 @@ import {
   type CreateTaskInput,
   type TaskAttachmentRow,
 } from '../store/tasks.js'
+import { taskStepStore } from '../store/task-steps.js'
 import { agentStore } from '../store/agents.js'
 import { sessionStore } from '../store/sessions.js'
 import { sessionManager } from './sessions.js'
@@ -240,9 +241,21 @@ export const taskManager = {
     if (task.status !== 'needs_input') throw new Error('当前任务不在待确认状态，无法回复')
     if (!input.message?.trim()) throw new Error('回复内容不能为空')
 
-    const sessionIds = taskStore.listSessionIds(input.taskId)
-    const sessionId = sessionIds.length > 0 ? sessionIds[sessionIds.length - 1] : null
-    if (!task.assigned_agent_id || !sessionId) {
+    if (!task.assigned_agent_id) {
+      throw new Error('任务未关联 Agent 会话，无法回复')
+    }
+
+    const activeSteps = taskStepStore.listByTaskAndStatuses(input.taskId, ['running', 'blocked'])
+    const activeSessionId = [...activeSteps]
+      .reverse()
+      .map(step => step.session_id)
+      .find((id): id is string => typeof id === 'string' && id.length > 0)
+
+    const linkedSessionIds = taskStore.listSessionIds(input.taskId)
+    const fallbackSessionId =
+      linkedSessionIds.length > 0 ? linkedSessionIds[linkedSessionIds.length - 1] : null
+    const sessionId = activeSessionId ?? fallbackSessionId
+    if (!sessionId) {
       throw new Error('任务未关联 Agent 会话，无法回复')
     }
 
