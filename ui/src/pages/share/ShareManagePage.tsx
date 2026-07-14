@@ -70,13 +70,13 @@ export default function ShareManagePage() {
     const action = confirmAction
     setConfirmAction(null)
     if (action.kind === 'revoke') {
-      const ok = await revokeShare(action.share.id)
+      const ok = await revokeShare(action.share.id, action.share.owner_agent_id)
       setToast(ok ? '已撤销' : '撤销失败')
     } else if (action.kind === 'renew') {
-      const ok = await renewShare(action.share.id, 7)
+      const ok = await renewShare(action.share.id, 7, action.share.owner_agent_id)
       setToast(ok ? '已续期 7 天' : '续期失败')
     } else if (action.kind === 'delete') {
-      const ok = await deleteShare(action.share.id)
+      const ok = await deleteShare(action.share.id, action.share.owner_agent_id)
       setToast(ok ? '已删除' : '删除失败')
     } else if (action.kind === 'regen') {
       const oldShare = action.share
@@ -95,7 +95,7 @@ export default function ShareManagePage() {
         expiresAt: oldShare.expires_at,
       })
       if (newShare) {
-        await deleteShare(oldShare.id)
+        await deleteShare(oldShare.id, oldShare.owner_agent_id)
         setToast('已重新生成,旧链接已失效')
       } else {
         setToast('重新生成失败')

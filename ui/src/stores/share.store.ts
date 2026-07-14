@@ -21,9 +21,9 @@ interface ShareStore {
   recordVisit: (token: string) => Promise<void>
   createShare: (input: CreateShareInput) => Promise<ShareRow | null>
   fetchShares: (ownerAgentId: string, sessionId?: string) => Promise<void>
-  revokeShare: (id: string) => Promise<ShareRow | null>
-  renewShare: (id: string, days: number | null) => Promise<ShareRow | null>
-  deleteShare: (id: string) => Promise<boolean>
+  revokeShare: (id: string, ownerAgentId: string) => Promise<ShareRow | null>
+  renewShare: (id: string, days: number | null, ownerAgentId: string) => Promise<ShareRow | null>
+  deleteShare: (id: string, ownerAgentId: string) => Promise<boolean>
   clearCurrent: () => void
   clearError: () => void
 }
@@ -72,10 +72,10 @@ export const useShareStore = create<ShareStore>((set) => ({
     }
   },
 
-  revokeShare: async (id) => {
+  revokeShare: async (id, ownerAgentId) => {
     set({ loading: true, error: null })
     try {
-      const share = await apiRevokeShare(id)
+      const share = await apiRevokeShare(id, ownerAgentId)
       set((s) => ({
         shares: s.shares.map((item) => (item.id === id ? share : item)),
         loading: false,
@@ -87,10 +87,10 @@ export const useShareStore = create<ShareStore>((set) => ({
     }
   },
 
-  renewShare: async (id, days) => {
+  renewShare: async (id, days, ownerAgentId) => {
     set({ loading: true, error: null })
     try {
-      const share = await apiRenewShare(id, days)
+      const share = await apiRenewShare(id, days, ownerAgentId)
       set((s) => ({
         shares: s.shares.map((item) => (item.id === id ? share : item)),
         loading: false,
@@ -102,10 +102,10 @@ export const useShareStore = create<ShareStore>((set) => ({
     }
   },
 
-  deleteShare: async (id) => {
+  deleteShare: async (id, ownerAgentId) => {
     set({ loading: true, error: null })
     try {
-      await apiDeleteShare(id)
+      await apiDeleteShare(id, ownerAgentId)
       set((s) => ({
         shares: s.shares.filter((item) => item.id !== id),
         loading: false,
