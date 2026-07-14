@@ -278,6 +278,7 @@ export const sessionManager = {
     if (!session) throw new Error(`Session not found: ${sessionId}`)
     if (session.is_template) throw new Error('模板会话不能直接发送消息,请先从模板新建会话')
     if (session.status !== 'active') throw new Error('当前会话已关闭，不能继续发送消息')
+    if (session.archived_at) throw new Error('会话已归档,不能发送消息')
     if (activePrompts.has(sessionId))
       throw new Error(
         '\u5f53\u524d\u4f1a\u8bdd\u6b63\u5728\u751f\u6210\u4e2d\uff0c\u8bf7\u7b49\u5f85\u672c\u8f6e\u5b8c\u6210\u6216\u5148\u505c\u6b62\u751f\u6210',
@@ -297,6 +298,7 @@ export const sessionManager = {
         if (!session) throw new Error(`Session not found: ${sessionId}`)
         if (session.is_template) throw new Error('模板会话不能直接发送消息,请先从模板新建会话')
         if (session.status !== 'active') throw new Error('当前会话已关闭，不能继续发送消息')
+        if (session.archived_at) throw new Error('会话已归档,不能发送消息')
         await sendPromptNow(session, content, images, normalizedOptions)
       })
     queuedPrompts.set(sessionId, next)
