@@ -365,7 +365,9 @@ function unlockDependents(taskId: string, stepId: string): string[] {
     const deps = taskStepStore.listDependencies(depId)
     const allDone = deps.every(d => {
       const s = taskStepStore.get(d)
-      return s?.status === 'done'
+      // 已删除的前驱 step 视为已满足,避免删 step 后下游死锁
+      if (!s) return true
+      return s.status === 'done'
     })
     if (allDone) {
       taskStepStore.updateStatus(depId, 'ready')

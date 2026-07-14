@@ -142,7 +142,13 @@ export const taskStepStore = {
   delete(taskId: string, stepId: string): void {
     const existing = this.get(stepId)
     if (!existing || existing.task_id !== taskId) return
-    getDb().prepare('DELETE FROM task_steps WHERE id = ?').run(stepId)
+    const db = getDb()
+    const apply = db.transaction(() => {
+      db.prepare('DELETE FROM task_step_dependencies WHERE depends_on_step_id = ?').run(stepId)
+      db.prepare('DELETE FROM task_step_dependencies WHERE step_id = ?').run(stepId)
+      db.prepare('DELETE FROM task_steps WHERE id = ?').run(stepId)
+    })
+    apply()
   },
 
   updateStatus(stepId: string, status: string, stage?: string): void {
