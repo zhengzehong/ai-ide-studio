@@ -14,7 +14,6 @@ import { emitTaskLifecycleEvent } from './task-lifecycle-events.js'
 import { createChildLogger } from './logger.js'
 import { appendHiddenAttachmentNote, loadStoredImagesForAcp, type StoredImageAttachment } from './image-attachments.js'
 import { buildTaskPrompt, getTaskMode } from './task-prompt.js'
-import { taskStepStore } from '../store/task-steps.js'
 import { dispatchReadySteps } from './step-ready-dispatch.js'
 
 const log = createChildLogger('task')

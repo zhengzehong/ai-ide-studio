@@ -1,5 +1,5 @@
 import { events } from '../../core/events.js'
-import { getNextRunTime } from '../../core/cron.js'
+import { getNextRunTime, validateCronFields } from '../../core/cron.js'
 import { ruleStore } from '../../store/rules.js'
 import { ruleExecutionStore } from '../../store/rule-executions.js'
 import { ruleEngine } from '../../core/rules.js'
@@ -7,7 +7,7 @@ import type { RpcHandlerMap } from './types.js'
 
 function validateCron(cron: string): string {
   const normalized = cron.trim()
-  if (normalized.split(/\s+/).length !== 5) throw new Error('cron 表达式需要 5 个字段')
+  validateCronFields(normalized)
   return normalized
 }
 
