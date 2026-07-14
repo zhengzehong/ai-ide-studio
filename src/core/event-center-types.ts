@@ -38,7 +38,8 @@ export interface ClaimedEvent {
 export interface RunEventConsumerResult {
   event: EventCenterEventRow
   consumption: EventConsumptionRow
-  sessionId: string
+  sessionId: string | null
+  claimFailed?: boolean
 }
 
 export interface RunEventConsumerInput {

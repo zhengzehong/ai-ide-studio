@@ -107,16 +107,15 @@ export const eventConsumptionStore = {
     return eventConsumptionStore.claim(row.id)
   },
 
-  claim(id: string): EventConsumptionRow {
+  claim(id: string): EventConsumptionRow | undefined {
     const now = new Date().toISOString()
-    getDb().prepare(`
+    const result = getDb().prepare(`
       UPDATE event_consumptions
       SET status = 'running', claimed_at = ?, updated_at = ?
       WHERE id = ? AND status = 'pending'
     `).run(now, now, id)
-    const updated = eventConsumptionStore.get(id)
-    if (!updated) throw new Error(`消费记录不存在: ${id}`)
-    return updated
+    if (result.changes === 0) return undefined
+    return eventConsumptionStore.get(id)
   },
 
   setSession(id: string, sessionId: string): EventConsumptionRow {

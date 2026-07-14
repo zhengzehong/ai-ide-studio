@@ -199,6 +199,7 @@ export const eventCenterService = {
     })
     if (!match) return null
     const consumption = eventConsumptionStore.claim(match.id)
+    if (!consumption || consumption.status !== 'running') return null
     const event = eventCenterEventStore.get(consumption.event_id)
     if (!event) throw new Error(`事件不存在: ${consumption.event_id}`)
     const runningEvent = eventCenterEventStore.updateStatus(event.id, 'running') ?? event
@@ -228,6 +229,9 @@ export const eventCenterService = {
     })
 
     const claimed = eventConsumptionStore.claim(existing.id)
+    if (!claimed || claimed.status !== 'running') {
+      return { event, consumption: existing, sessionId: null, claimFailed: true }
+    }
     const consumption = eventConsumptionStore.setSession(claimed.id, session.id)
     const runningEvent = eventCenterEventStore.updateStatus(event.id, 'running') ?? event
     void sessionManager
