@@ -44,6 +44,7 @@ interface SessionState {
   archiveSession: (sessionId: string) => Promise<void>
   closeSession: (sessionId: string) => Promise<void>
   deleteSession: (sessionId: string) => Promise<void>
+  createSession: (agentId: string, projectId?: string | null, taskId?: string) => Promise<SessionData>
   listSessionTemplates: (agentId?: string) => Promise<SessionTemplateData[]>
   publishSessionTemplate: (sessionId: string, name: string, description?: string) => Promise<SessionTemplateData>
   instantiateSessionTemplate: (templateId: string) => Promise<SessionData>
@@ -237,6 +238,21 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       showToast('操作失败')
       void get().fetchSessions(useAppStore.getState().currentProjectId)
     }
+  },
+
+  createSession: async (agentId, projectId, taskId) => {
+    const msg: Record<string, unknown> = { type: 'sessions.create', agentId }
+    if (projectId) msg.projectId = projectId
+    if (taskId) msg.taskId = taskId
+    const session = (await wsClient.request(msg)) as SessionData
+    const currentProjectId = useAppStore.getState().currentProjectId
+    // 只在当前 project scope 内追加列表项;跨项目创建不污染当前列表(与 PC 端 createSession 行为对齐)。
+    if (!currentProjectId || session.project_id === currentProjectId) {
+      set((state) => ({
+        sessions: [...state.sessions.filter((s) => s.id !== session.id), mapSession(session, state.currentSessionId)],
+      }))
+    }
+    return session
   },
 
   listSessionTemplates: async (agentId) => {
