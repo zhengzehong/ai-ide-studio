@@ -202,6 +202,8 @@ export default function AgentMemory() {
         open={entryModal !== null}
         mode={entryModal?.mode ?? 'create'}
         entry={entryModal?.target ?? null}
+        projectId={currentProjectId}
+        agentId={selectedAgentId}
         saving={saving}
         onSave={handleSaveEntry}
         onClose={() => setEntryModal(null)}

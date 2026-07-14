@@ -1,24 +1,55 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ModalOverlay } from '../../components/ModalDialog'
 import { MarkdownRenderer } from '../../components/MarkdownRenderer'
-import type { AgentMemoryEntrySummary } from '../../stores/agent-memory.store'
+import { useAgentMemoryStore, type AgentMemoryEntrySummary } from '../../stores/agent-memory.store'
 
 interface EntryModalProps {
   open: boolean
   mode: 'create' | 'edit'
   entry: AgentMemoryEntrySummary | null
+  projectId: string | null
+  agentId: string | null
   saving: boolean
   onSave: (input: { title: string; content: string; tags: string[] }) => Promise<void>
   onClose: () => void
 }
 
-export function EntryModal({ open, mode, entry, saving, onSave, onClose }: EntryModalProps) {
+export function EntryModal({ open, mode, entry, projectId, agentId, saving, onSave, onClose }: EntryModalProps) {
+  const getEntry = useAgentMemoryStore((s) => s.getEntry)
   const initialTitle = entry?.title ?? ''
   const initialTags = entry?.tags.join(', ') ?? ''
   const [title, setTitle] = useState(initialTitle)
   const [content, setContent] = useState('')
   const [tagsText, setTagsText] = useState(initialTags)
   const [showPreview, setShowPreview] = useState(false)
+  const [loadingContent, setLoadingContent] = useState(false)
+
+  useEffect(() => {
+    if (!open || mode !== 'edit' || !entry || !projectId || !agentId) return
+    let cancelled = false
+    setLoadingContent(true)
+    getEntry(projectId, agentId, entry.id)
+      .then((full) => {
+        if (!cancelled) setContent(full.content)
+      })
+      .catch(() => {
+        // ignore; user can retry by closing/reopening
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingContent(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [open, mode, entry, projectId, agentId, getEntry])
+
+  useEffect(() => {
+    if (!open) return
+    setTitle(entry?.title ?? '')
+    setTagsText(entry?.tags.join(', ') ?? '')
+    setContent('')
+    setShowPreview(false)
+  }, [open, entry])
 
   const handleSave = async () => {
     if (!title.trim() || !content.trim()) return
@@ -41,7 +72,11 @@ export function EntryModal({ open, mode, entry, saving, onSave, onClose }: Entry
             </a>
           </span>
         </label>
-        {showPreview ? (
+        {loadingContent ? (
+          <div style={{ minHeight: 180, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-3)', border: '1px solid var(--border)', borderRadius: 6 }}>
+            加载中...
+          </div>
+        ) : showPreview ? (
           <div className="am-entry-full" style={{ minHeight: 180, border: '1px solid var(--border)', borderRadius: 6, padding: 10 }}>
             <MarkdownRenderer content={content} />
           </div>
@@ -65,7 +100,7 @@ export function EntryModal({ open, mode, entry, saving, onSave, onClose }: Entry
           type="button"
           className="am-btn am-btn-primary"
           onClick={handleSave}
-          disabled={saving || !title.trim() || !content.trim()}
+          disabled={saving || loadingContent || !title.trim() || !content.trim()}
         >
           保存
         </button>
