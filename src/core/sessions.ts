@@ -624,14 +624,27 @@ async function completeCopiedSessionFork(
       'Session copied',
     )
   } catch (err) {
-    await acpHost.closeSession(source.agent_id, copiedSessionId)
-    sessionStore.delete(copiedSessionId)
-    copyingSourceSessions.delete(source.id)
+    // 清理失败的 copied 会话:ACP closeSession 和本地 delete 都包 .catch,
+    // 防止任一抛错跳过后续清理。copyingSourceSessions.delete 放 finally 统一管控,
+    // 保证源会话不会因清理失败而永久卡"复制中"。
+    await acpHost.closeSession(source.agent_id, copiedSessionId).catch((closeErr) => {
+      log.warn(
+        { copiedSessionId, agentId: source.agent_id, err: closeErr instanceof Error ? closeErr.message : String(closeErr) },
+        '清理失败 copied 会话时 ACP closeSession 抛错,忽略',
+      )
+    })
+    try {
+      sessionStore.delete(copiedSessionId)
+    } catch (deleteErr) {
+      log.warn(
+        { copiedSessionId, err: deleteErr instanceof Error ? deleteErr.message : String(deleteErr) },
+        '清理失败 copied 会话时 sessionStore.delete 抛错,忽略',
+      )
+    }
     const message = err instanceof Error ? err.message : String(err)
     events.emit('session:copy_failed', { sourceSessionId: source.id, targetSessionId: copiedSessionId, message })
     log.error({ err, sourceSessionId: source.id, copiedSessionId, agentId: source.agent_id }, 'Session copy failed')
-    return
+  } finally {
+    copyingSourceSessions.delete(source.id)
   }
-
-  copyingSourceSessions.delete(source.id)
 }
