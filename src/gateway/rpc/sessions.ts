@@ -255,6 +255,11 @@ export const sessionRpcHandlers: RpcHandlerMap = {
       const conn = acpHost.agents.get(session.agent_id)
       if (!conn) return
       if (forceCancelTimedOutTurn(conn, sessionId, cancelledTurnKey)) {
+        // ACP 10s 未响应 cancelPrompt:sendPromptNow 的 finally 块跑不到(activeTurnReject 已 reject,
+        // 但 await acpHost.cancelPrompt 卡住),activePrompts 残留会让会话永久卡"生成中"。
+        // 这里显式清,与 sendPromptNow finally 等价,必须在 emit session:done 之前清,
+        // 否则 session:done 的 handler 读了 activePrompts 还是非空(虽然当前 handler 不读,未来可能读)。
+        sessionManager.forceClearActivePrompt(sessionId)
         log.warn({ sessionId, agentId: session.agent_id, cancelledTurnKey }, 'cancel timeout: forcing done after 10s')
         events.emit('session:done', { sessionId, agentId: session.agent_id, messageId: `cancel-timeout-${Date.now()}`, stopReason: 'cancelled' })
       }

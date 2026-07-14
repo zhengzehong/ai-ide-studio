@@ -230,6 +230,16 @@ export const sessionManager = {
     return activePrompts.has(sessionId)
   },
 
+  // session.cancel 10s 兜底强制结束 turn 时,ACP 那侧的 activeTurnReject 已经 reject 了,
+  // 但 sendPromptNow 的 finally 块(清 activePrompts)只在 ACP 正常回调 cancel 时才会跑到。
+  // ACP 10s 不响应 → sendPromptNow 的 await acpHost.cancelPrompt 永远不返回 → finally 永不执行
+  // → activePrompts 残留 → 会话永久卡"生成中"(sendPrompt/enqueuePrompt/copySession 全拒绝)。
+  // 这里在 forceCancel 路径上显式清掉 activePrompts/pendingBySession,等价于替 sendPromptNow 跑 finally。
+  forceClearActivePrompt(sessionId: string): void {
+    activePrompts.delete(sessionId)
+    pendingBySession.delete(sessionId)
+  },
+
   async createSession(agentId: string, taskId?: string, projectId?: string): Promise<SessionRow> {
     const agent = agentStore.get(agentId)
     if (!agent) throw new Error(`Agent not found: ${agentId}`)
