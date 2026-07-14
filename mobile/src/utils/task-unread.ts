@@ -1,7 +1,7 @@
 // 简化版未读汇报判断:
 // 用 localStorage 存 { taskId: lastSeenAt }, 进入列表页时若 task.updated_at > lastSeenAt 则标记未读.
 // 详情页暂未实现, 列表页点击卡片时清掉对应 taskId 的未读.
-// 不追求精确数量, N 取 1-3 随机展示(核心是"有未读"的视觉提示).
+// 只展示"有未读"的红点, 不展示数量(数量本就无精确来源).
 
 const STORAGE_KEY = 'mobile-task-unread-v1'
 
@@ -60,12 +60,3 @@ export function markAllVisibleRead(taskIds: string[]): void {
   writeMap(map)
 }
 
-export function getUnreadCount(taskId: string): number {
-  // 简化: 1-3 随机, 视觉提示"有新汇报"
-  if (!taskId) return 0
-  // 用 taskId 的 hash 作为种子, 同一会话内稳定
-  let seed = 0
-  for (let i = 0; i < taskId.length; i++) seed = (seed * 31 + taskId.charCodeAt(i)) | 0
-  const rng = Math.abs(seed) % 3
-  return rng + 1
-}
