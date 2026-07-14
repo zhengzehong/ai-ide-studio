@@ -123,6 +123,12 @@ export const agentSessionCommunicationService = {
     const watcherAgent = requireContextAgent(input.context, watcherSession)
     const projectId = resolveContextProjectId(input.context.projectId, watcherSession.project_id)
     const watchedSession = requireVisibleSession(input.sessionId, projectId)
+    // 自监视守卫:Agent 在自己所在会话上调 watch 自己,回调唤起自己 → 再次 watch → 无限递归。
+    // 即便 once=true 也只是"触发一次",但那一触发仍会回到同会话发消息,可能继续触发别的副作用,
+    // 语义上"监视自己"本就无意义,统一拒绝。
+    if (watcherSession.id === watchedSession.id) {
+      throw new Error('不能监视当前会话')
+    }
     const watchedAgent = agentStore.get(watchedSession.agent_id)
     if (!watchedAgent) throw new Error(`Agent not found: ${watchedSession.agent_id}`)
     return agentSessionWatchStore.create({
