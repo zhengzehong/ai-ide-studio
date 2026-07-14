@@ -40,10 +40,13 @@ interface DetailActionsProps {
   isTerminal: boolean
   isDraft: boolean
   isBacklog: boolean
+  needsAssign?: boolean
+  assignError?: string | null
   status: string
   updating: boolean
   hasSessions: boolean
   onStart: () => void
+  onAssignAndStart?: () => void
   onMarkComplete: () => void
   onCancel: () => void
   onJumpToSession: () => void
@@ -73,10 +76,21 @@ export function DetailActions(props: DetailActionsProps) {
         </button>
       )}
       <div style={{ flex: 1 }} />
+      {props.assignError && (
+        <span style={{ fontSize: 11, color: '#f53f3f', alignSelf: 'center', marginRight: 4 }}>
+          {props.assignError}
+        </span>
+      )}
       {props.isCollab && props.isDraft && (
         <button type="button" onClick={props.onStart} disabled={props.updating} style={primaryBtnStyle(props.updating)}>
           <Play size={11} />
           {props.updating ? '处理中...' : '启动任务'}
+        </button>
+      )}
+      {props.needsAssign && props.onAssignAndStart && (
+        <button type="button" onClick={props.onAssignAndStart} disabled={props.updating} style={primaryBtnStyle(props.updating)}>
+          <Play size={11} />
+          {props.updating ? '处理中...' : '分派并启动'}
         </button>
       )}
       {props.status === 'needs_input' && (

@@ -43,11 +43,13 @@ export function TaskDetailInline({
   const fetchStepDetail = useTaskStore((s) => s.fetchStepDetail)
   const updateTask = useTaskStore((s) => s.updateTask)
   const startTask = useTaskStore((s) => s.startTask)
+  const assignTask = useTaskStore((s) => s.assignTask)
   const [events, setEvents] = useState<TaskEventData[]>([])
   const [stepDetails, setStepDetails] = useState<Record<string, TaskStepDetailView | undefined>>({})
   const [editingStep, setEditingStep] = useState<TaskStepDetailView | null | undefined>(undefined)
   const [draftNotice, setDraftNotice] = useState<string | null>(null)
   const [updating, setUpdating] = useState(false)
+  const [assignError, setAssignError] = useState<string | null>(null)
 
   const steps: TaskStepData[] = useMemo(() => task.steps ?? [], [task.steps])
   const collab = isCollabTask(steps) || (task.status === 'draft' && !task.assigned_agent_id)
@@ -92,8 +94,13 @@ export function TaskDetailInline({
   const sortedEvents = [...events].sort((a, b) => b.sequence - a.sequence)
   const reportEvents = sortedEvents.filter((ev) => TASK_REPORT_EVENT_TYPES.has(ev.type) && eventReportMd(ev))
   const isTerminal = task.status === 'completed' || task.status === 'cancelled'
-  const isBacklog = task.status === 'draft' || (!task.assigned_agent_id && !collab)
+  // 简单任务(draft 且未分派)走"启动任务"路径;非 draft 但 assigned_agent_id 为空是异常状态:
+  // createSimple selfExecute=false 派发失败、或 step 被删光后回 draft 但状态仍 running,会落到这里。
+  // 此时既不能 startTask(没有 step 也没有 assignee,启动无意义),也不能让用户卡死,
+  // 单独标 needsAssign 让 DetailActions 显示"分派并启动"按钮。
   const isDraft = task.status === 'draft'
+  const needsAssign = !task.assigned_agent_id && !isDraft && !isTerminal
+  const isBacklog = task.status === 'draft' || (!task.assigned_agent_id && !collab)
   const reportBadge = task.agent_report_status ? (AGENT_REPORT_STATUS_BADGE[task.agent_report_status] ?? null) : null
 
   const stepProgressText = collab ? `${steps.filter((s) => s.status === 'done').length}/${steps.length} 步骤` : null
@@ -119,6 +126,25 @@ export function TaskDetailInline({
     try {
       await startTask(task.id)
       setDraftNotice(null)
+    } finally {
+      setUpdating(false)
+    }
+  }
+  // 简单任务在非 draft 状态下丢了 assigned_agent_id(派发失败 / 步骤被删光回 draft 又被错改 running)。
+  // 重新分派给第一个可见 agent + 启动,一次操作完成。agentId 选不到时 toast 提示并返回。
+  const handleAssignAndStart = async () => {
+    const targetAgent = agents[0]
+    if (!targetAgent) {
+      setAssignError('未找到可用 Agent,请先在项目中添加 Agent')
+      return
+    }
+    setUpdating(true)
+    setAssignError(null)
+    try {
+      await assignTask(task.id, targetAgent.id)
+      await startTask(task.id)
+    } catch (err) {
+      setAssignError(err instanceof Error ? err.message : '分派失败')
     } finally {
       setUpdating(false)
     }
@@ -240,10 +266,13 @@ export function TaskDetailInline({
         isTerminal={isTerminal}
         isDraft={isDraft}
         isBacklog={isBacklog}
+        needsAssign={needsAssign}
+        assignError={assignError}
         status={task.status}
         updating={updating}
         hasSessions={sessions.length > 0}
         onStart={handleStart}
+        onAssignAndStart={handleAssignAndStart}
         onMarkComplete={handleMarkComplete}
         onCancel={handleCancel}
         onJumpToSession={handleJumpToSession}
