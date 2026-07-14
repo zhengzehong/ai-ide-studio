@@ -66,6 +66,7 @@ export async function dispatchStep(taskId: string, stepId: string): Promise<Disp
       events.emit('task:update', { taskId, data: { ...t, event: 'step_dispatch_failed' } })
       emitTaskLifecycleEvent(t, 'prompt_failed', 'running')
     }
+    throw err
   })
 
   log.info({ taskId, stepId, sessionId: session.id, reuse: session.reuse }, 'step dispatched')
