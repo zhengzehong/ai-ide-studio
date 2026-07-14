@@ -1,4 +1,4 @@
-import { useState, type CSSProperties, type FormEvent } from 'react'
+import { useState, type CSSProperties, type FormEvent, type KeyboardEvent } from 'react'
 import { MessageCircleQuestion, Send, X } from 'lucide-react'
 import type { ElicitationRequestInfo } from '@desktop/stores/session-events'
 
@@ -18,6 +18,12 @@ export default function ElicitationCard({ request, onRespond }: Props) {
     onRespond('accept', { response: text.trim() })
   }
 
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Enter' && e.nativeEvent.isComposing) {
+      e.preventDefault()
+    }
+  }
+
   return (
     <div style={styles.card}>
       <div style={styles.header}>
@@ -34,6 +40,7 @@ export default function ElicitationCard({ request, onRespond }: Props) {
           style={styles.input}
           value={text}
           onChange={(e) => setText(e.target.value)}
+          onKeyDown={handleKeyDown}
           placeholder="输入回答..."
           autoFocus
         />
