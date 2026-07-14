@@ -25,7 +25,7 @@ interface TaskItem {
 }
 
 const FILTERS: { key: TaskFilter; label: string }[] = [
-  { key: 'mine', label: '需要我处理' },
+  { key: 'mine', label: '待确认' },
   { key: 'all', label: '全部' },
   { key: 'running', label: '进行中' },
   { key: 'draft', label: '待办' },
@@ -33,7 +33,7 @@ const FILTERS: { key: TaskFilter; label: string }[] = [
 ]
 
 const EMPTY_TEXT: Record<TaskFilter, string> = {
-  mine: '暂无需要处理的任务,挺好的',
+  mine: '暂无待确认任务',
   all: '暂无任务',
   running: '暂无进行中的任务',
   draft: '暂无待办任务',
@@ -50,10 +50,12 @@ export function mobileTaskStatusMeta(status: MobileTaskStatus): { color: string;
   return { color: 'var(--text-muted)', label: '待办' }
 }
 
-function matchesFilter(status: TaskStatus, filter: TaskFilter): boolean {
+function matchesFilter(status: TaskStatus, filter: TaskFilter, assignedAgentId: string | null | undefined, currentAgentId: string | null): boolean {
   switch (filter) {
     case 'mine':
-      return status === 'needs_input'
+      if (status !== 'needs_input') return false
+      if (!currentAgentId) return true
+      return assignedAgentId === currentAgentId
     case 'running':
       return status === 'running'
     case 'draft':
