@@ -1,15 +1,13 @@
 import type { ToolHandler } from '../types.js'
 import { ruleStore } from '../../store/rules.js'
 import { ruleExecutionStore } from '../../store/rule-executions.js'
-import { getNextRunTime, matchCron } from '../../core/cron.js'
+import { getNextRunTime, validateCronFields } from '../../core/cron.js'
 import { events } from '../../core/events.js'
 import { resolveSessionMode } from '../../core/tasks.js'
 
 function validateCronFormat(cron: string): boolean {
-  const fields = cron.trim().split(/\s+/)
-  if (fields.length !== 5) return false
   try {
-    matchCron(cron, new Date())
+    validateCronFields(cron)
     return true
   } catch {
     return false

@@ -1,4 +1,4 @@
-function matchField(pattern: string, value: number): boolean {
+function matchField(pattern: string, value: number, fieldIndex: number): boolean {
   for (const part of pattern.split(',')) {
     const trimmed = part.trim()
     if (trimmed === '*') return true
@@ -29,9 +29,42 @@ function matchField(pattern: string, value: number): boolean {
     }
 
     if (isNaN(min) || isNaN(max)) continue
+    if (fieldIndex === 4) {
+      if (min === 7) min = 0
+      if (max === 7) max = 0
+    }
     if (value >= min && value <= max && (value - min) % step === 0) return true
   }
   return false
+}
+
+const CRON_FIELD_RANGES: Array<{ name: string; min: number; max: number }> = [
+  { name: '分', min: 0, max: 59 },
+  { name: '时', min: 0, max: 23 },
+  { name: '日', min: 1, max: 31 },
+  { name: '月', min: 1, max: 12 },
+  { name: '周', min: 0, max: 6 },
+]
+
+export function validateCronFields(cron: string): void {
+  const parts = cron.trim().split(/\s+/)
+  if (parts.length !== 5) throw new Error('cron 表达式需要 5 个字段')
+  parts.forEach((p, i) => {
+    if (p === '*') return
+    const tokens = p.split(/[\/,-]/)
+    for (const tok of tokens) {
+      if (tok === '*' || tok === '') continue
+      const n = parseInt(tok, 10)
+      if (isNaN(n)) {
+        throw new Error(`${CRON_FIELD_RANGES[i].name} 字段含非数字: ${tok}`)
+      }
+      const { min, max, name } = CRON_FIELD_RANGES[i]
+      const normalized = i === 4 && n === 7 ? 0 : n
+      if (normalized < min || normalized > max) {
+        throw new Error(`${name} 字段值 ${n} 越界(${min}-${max})`)
+      }
+    }
+  })
 }
 
 export function matchCron(cron: string, date: Date): boolean {
@@ -45,11 +78,11 @@ export function matchCron(cron: string, date: Date): boolean {
   const dow = date.getDay()
 
   return (
-    matchField(fields[0], minute) &&
-    matchField(fields[1], hour) &&
-    matchField(fields[2], dom) &&
-    matchField(fields[3], month) &&
-    matchField(fields[4], dow)
+    matchField(fields[0], minute, 0) &&
+    matchField(fields[1], hour, 1) &&
+    matchField(fields[2], dom, 2) &&
+    matchField(fields[3], month, 3) &&
+    matchField(fields[4], dow, 4)
   )
 }
 
