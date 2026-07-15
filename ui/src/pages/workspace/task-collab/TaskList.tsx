@@ -2,7 +2,7 @@ import { FileText, ChevronRight, MessageSquare } from 'lucide-react'
 import type { AgentData } from '../../../stores/agent.store'
 import type { TaskData, TaskStepData } from '../../../stores/task.store'
 import { agentColor, formatTime } from '../helpers'
-import { AGENT_REPORT_STATUS_BADGE, TASK_TABS, isCollabTask, taskStageColor, taskStageLabel } from './task-helpers'
+import { AGENT_REPORT_STATUS_BADGE, isCollabTask, taskStageColor, taskStageLabel } from './task-helpers'
 import { StepProgressBar } from './StepProgressBar'
 
 interface TaskRowProps {
@@ -162,5 +162,3 @@ export function TaskList({ tasks, agents, currentSessionTaskId, onOpenTask, onOp
     </div>
   )
 }
-
-export { TASK_TABS }

@@ -1,9 +1,15 @@
-import { useState } from 'react'
-import { Archive, ListTodo, Loader2, Circle, CheckCircle2, Zap } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { Archive } from 'lucide-react'
 import type { AgentData } from '../../../stores/agent.store'
 import type { TaskData } from '../../../stores/task.store'
 import { useSessionStore } from '../../../stores/session.store'
-import { TASK_TABS } from './task-helpers'
+import {
+  TASK_TABS,
+  filterOutCompleted,
+  filterTasksByTab,
+  sortTasksDesc,
+  type TaskTimeTab,
+} from './task-helpers'
 import { TaskList } from './TaskList'
 
 interface TaskPanelProps {
@@ -33,10 +39,17 @@ export function TaskPanel({
 }: TaskPanelProps) {
   void modes
   void projectId
-  const [tab, setTab] = useState('all')
+  const [tab, setTab] = useState<TaskTimeTab>('today')
+  const [hideCompleted, setHideCompleted] = useState(true)
   const [toast, setToast] = useState<string | null>(null)
-  const filtered = tasks.filter(TASK_TABS.find((t) => t.key === tab)!.filter)
-  const activeTab = TASK_TABS.find((t) => t.key === tab)!
+
+  const visibleTasks = useMemo(() => {
+    const byTab = filterTasksByTab(tasks, tab)
+    const afterHide = hideCompleted ? filterOutCompleted(byTab) : byTab
+    return sortTasksDesc(afterHide)
+  }, [tasks, tab, hideCompleted])
+
+  const activeTab = TASK_TABS.find((t) => t.key === tab) ?? TASK_TABS[0]
 
   const handleJumpToSession = async (task: TaskData) => {
     if (task.initiator_session_id && task.initiator_agent_id) {
@@ -60,54 +73,77 @@ export function TaskPanel({
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-      <div style={{ display: 'flex', gap: 4, padding: '10px 12px 6px', flexWrap: 'wrap' }}>
-        {TASK_TABS.map((t) => {
-          const count = tasks.filter(t.filter).length
-          const active = tab === t.key
-          const Icon = t.icon
-          return (
-            <button
-              key={t.key}
-              type="button"
-              onClick={() => setTab(t.key)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 4,
-                padding: '5px 10px',
-                borderRadius: 16,
-                border: active ? '1px solid #165dff' : '1px solid var(--border)',
-                background: active ? '#e8f3ff' : 'var(--bg-1)',
-                color: active ? '#165dff' : 'var(--text-3)',
-                fontSize: 13,
-                fontWeight: 500,
-                cursor: 'pointer',
-                transition: 'all 0.15s',
-              }}
-            >
-              <Icon size={11} />
-              {t.label}
-              {count > 0 && (
-                <span
-                  style={{
-                    background: active ? '#165dff' : 'var(--bg-3)',
-                    color: active ? 'white' : 'var(--text-2)',
-                    fontSize: 11,
-                    fontWeight: 700,
-                    padding: '1px 5px',
-                    borderRadius: 10,
-                    minWidth: 16,
-                    textAlign: 'center',
-                  }}
-                >
-                  {count}
-                </span>
-              )}
-            </button>
-          )
-        })}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px 6px' }}>
+        <div style={{ display: 'flex', gap: 4 }}>
+          {TASK_TABS.map((t) => {
+            const count = filterTasksByTab(tasks, t.key).length
+            const active = tab === t.key
+            const Icon = t.icon
+            return (
+              <button
+                key={t.key}
+                type="button"
+                onClick={() => setTab(t.key)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  padding: '5px 10px',
+                  borderRadius: 16,
+                  border: active ? '1px solid #165dff' : '1px solid var(--border)',
+                  background: active ? '#e8f3ff' : 'var(--bg-1)',
+                  color: active ? '#165dff' : 'var(--text-3)',
+                  fontSize: 13,
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s',
+                }}
+              >
+                <Icon size={11} />
+                {t.label}
+                {count > 0 && (
+                  <span
+                    style={{
+                      background: active ? '#165dff' : 'var(--bg-3)',
+                      color: active ? 'white' : 'var(--text-2)',
+                      fontSize: 11,
+                      fontWeight: 700,
+                      padding: '1px 5px',
+                      borderRadius: 10,
+                      minWidth: 16,
+                      textAlign: 'center',
+                    }}
+                  >
+                    {count}
+                  </span>
+                )}
+              </button>
+            )
+          })}
+        </div>
+        <label
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
+            marginLeft: 'auto',
+            fontSize: 12,
+            color: 'var(--text-2)',
+            cursor: 'pointer',
+            userSelect: 'none',
+          }}
+          title="勾选后隐藏已完成/已取消的任务,待确认任务不受影响"
+        >
+          <input
+            type="checkbox"
+            checked={hideCompleted}
+            onChange={(e) => setHideCompleted(e.target.checked)}
+            style={{ cursor: 'pointer' }}
+          />
+          隐藏已完成
+        </label>
       </div>
-      {filtered.length === 0 ? (
+      {visibleTasks.length === 0 ? (
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 12px', color: 'var(--text-3)' }}>
           <div style={{ textAlign: 'center' }}>
             <Archive size={28} style={{ opacity: 0.2, marginBottom: 8 }} />
@@ -116,7 +152,7 @@ export function TaskPanel({
         </div>
       ) : (
         <TaskList
-          tasks={filtered}
+          tasks={visibleTasks}
           agents={agents}
           currentSessionTaskId={currentSessionTaskId}
           onOpenTask={onOpenTask}
@@ -165,5 +201,3 @@ export function TaskPanel({
     </div>
   )
 }
-
-export { ListTodo, Circle, Loader2, CheckCircle2, Zap }

@@ -1,21 +1,70 @@
-import { CheckCircle2, Circle, ListTodo, Loader2, Zap } from 'lucide-react'
+import { CalendarClock, History, ListTodo } from 'lucide-react'
 import type { TaskData } from '../../../stores/task.store'
 
 export { isCollabTask } from './step-helpers'
 export type { ParallelMarker } from './step-helpers'
 
-export const TASK_TABS: { key: string; label: string; icon: typeof ListTodo; filter: (t: TaskData) => boolean }[] = [
-  { key: 'all', label: '全部', icon: ListTodo, filter: () => true },
-  { key: 'draft', label: '待办', icon: Circle, filter: (t) => t.status === 'draft' },
+export type TaskTimeTab = 'today' | 'history'
+
+export interface TaskTabDef {
+  key: TaskTimeTab
+  label: string
+  icon: typeof ListTodo
+  filter: (t: TaskData, now: Date) => boolean
+}
+
+export const TASK_TABS: TaskTabDef[] = [
   {
-    key: 'active',
-    label: '进行中',
-    icon: Loader2,
-    filter: (t) => ['running', 'needs_input'].includes(t.status),
+    key: 'today',
+    label: '今日',
+    icon: CalendarClock,
+    filter: (t, now) => isCreatedToday(t, now),
   },
-  { key: 'needs_attention', label: '需处理', icon: Zap, filter: (t) => t.status === 'needs_input' },
-  { key: 'done', label: '已完成', icon: CheckCircle2, filter: (t) => ['completed', 'cancelled'].includes(t.status) },
+  {
+    key: 'history',
+    label: '历史',
+    icon: History,
+    filter: (t, now) => !isCreatedToday(t, now),
+  },
 ]
+
+const DONE_TASK_STATUSES = new Set(['completed', 'cancelled'])
+
+export function isCompletedTask(t: TaskData): boolean {
+  return DONE_TASK_STATUSES.has(t.status)
+}
+
+export function isCreatedToday(t: TaskData, now: Date = new Date()): boolean {
+  const created = parseTaskCreatedAt(t)
+  if (created === null) return true
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0).getTime()
+  return created.getTime() >= startOfToday
+}
+
+export function parseTaskCreatedAt(t: TaskData): Date | null {
+  const raw = t.created_at
+  if (!raw) return null
+  const d = new Date(raw)
+  return Number.isNaN(d.getTime()) ? null : d
+}
+
+export function filterTasksByTab(tasks: TaskData[], tab: TaskTimeTab, now: Date = new Date()): TaskData[] {
+  const def = TASK_TABS.find((t) => t.key === tab)
+  if (!def) return tasks
+  return tasks.filter((t) => def.filter(t, now))
+}
+
+export function filterOutCompleted(tasks: TaskData[]): TaskData[] {
+  return tasks.filter((t) => !isCompletedTask(t))
+}
+
+export function sortTasksDesc(tasks: TaskData[]): TaskData[] {
+  return [...tasks].sort((a, b) => {
+    const ta = parseTaskCreatedAt(a)?.getTime() ?? 0
+    const tb = parseTaskCreatedAt(b)?.getTime() ?? 0
+    return tb - ta
+  })
+}
 
 export const TASK_STATUS_LABEL: Record<string, string> = {
   running: '执行中',
