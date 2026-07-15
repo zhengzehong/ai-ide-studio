@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Archive, ListTodo, Loader2, Circle, CheckCircle2, Zap } from 'lucide-react'
 import type { AgentData } from '../../../stores/agent.store'
 import type { TaskData } from '../../../stores/task.store'
+import { useSessionStore } from '../../../stores/session.store'
 import { TASK_TABS } from './task-helpers'
 import { TaskList } from './TaskList'
 
@@ -31,11 +32,31 @@ export function TaskPanel({
   markCompleteError,
 }: TaskPanelProps) {
   void modes
-  void onSelectSession
   void projectId
   const [tab, setTab] = useState('all')
+  const [toast, setToast] = useState<string | null>(null)
   const filtered = tasks.filter(TASK_TABS.find((t) => t.key === tab)!.filter)
   const activeTab = TASK_TABS.find((t) => t.key === tab)!
+
+  const handleJumpToSession = async (task: TaskData) => {
+    if (task.initiator_session_id && task.initiator_agent_id) {
+      onSelectSession(task.initiator_agent_id, task.initiator_session_id)
+      return
+    }
+    try {
+      const sessions = await useSessionStore.getState().listSessionsByTask(task.id)
+      if (sessions.length === 0) {
+        setToast('该任务暂无会话')
+        window.setTimeout(() => setToast(null), 2000)
+        return
+      }
+      const first = sessions[0]
+      onSelectSession(first.agent_id, first.id)
+    } catch {
+      setToast('该任务暂无会话')
+      window.setTimeout(() => setToast(null), 2000)
+    }
+  }
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
@@ -100,6 +121,7 @@ export function TaskPanel({
           currentSessionTaskId={currentSessionTaskId}
           onOpenTask={onOpenTask}
           onOpenReportModal={onOpenReportModal}
+          onJumpToSession={handleJumpToSession}
         />
       )}
       {renderReportModal()}
@@ -118,6 +140,26 @@ export function TaskPanel({
           boxShadow: 'var(--shadow-lg)',
         }}>
           {markCompleteError}
+        </div>
+      )}
+      {toast && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: 28,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            padding: '10px 20px',
+            borderRadius: 8,
+            background: 'var(--text-1)',
+            color: 'var(--bg-0)',
+            fontSize: 13,
+            fontWeight: 500,
+            zIndex: 2000,
+            boxShadow: '0 8px 24px rgba(0,0,0,0.2)',
+          }}
+        >
+          {toast}
         </div>
       )}
     </div>

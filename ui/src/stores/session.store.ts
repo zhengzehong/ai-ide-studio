@@ -200,6 +200,7 @@ interface SessionStore {
   loadOlderMessages: (sessionId: string) => Promise<void>
   fetchEvents: (sessionId: string) => Promise<void>
   createSession: (agentId: string, taskId?: string, projectId?: string) => Promise<SessionData>
+  listSessionsByTask: (taskId: string) => Promise<SessionData[]>
   copySession: (sessionId: string) => Promise<SessionData>
   listLocalImportCandidates: (agentId: string, projectId?: string) => Promise<LocalSessionCandidateInfo[]>
   importLocalSession: (agentId: string, input: ImportLocalSessionInput) => Promise<LocalSessionImportResult>
@@ -970,6 +971,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       set({ sessions: [...get().sessions.filter((s) => s.id !== session.id), session] })
     }
     return session
+  },
+
+  listSessionsByTask: async (taskId) => {
+    return (await wsClient.request({ type: 'sessions.listByTask', taskId })) as SessionData[]
   },
 
   copySession: async (sessionId) => {

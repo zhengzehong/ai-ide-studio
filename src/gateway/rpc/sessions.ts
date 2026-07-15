@@ -274,6 +274,12 @@ export const sessionRpcHandlers: RpcHandlerMap = {
     ))
   },
 
+  'sessions.listByTask'(msg, { sendResult }) {
+    const taskId = msg.taskId as string
+    if (!taskId) throw new Error('taskId 为必填')
+    sendResult(sessionStore.listByTask(taskId))
+  },
+
   'sessions.listLocalImportCandidates'(msg, { sendResult }) {
     const agentId = msg.agentId as string
     const projectId = msg.projectId as string | undefined

@@ -256,8 +256,7 @@ describe('task RPC handlers', () => {
       type: 'tasks.assign',
       taskId: task.id,
       agentId: agent.id,
-      sessionId: existingSession.id,
-    })) as Record<string, unknown>
+      sessionId: existingSession.id,    })) as Record<string, unknown>
 
     expect(assigned.sessionId).toBe(existingSession.id)
 
@@ -305,6 +304,16 @@ describe('task RPC handlers', () => {
     expect(updated?.assigned_agent_id).toBeNull()
     expect(updated?.status).toBe('draft')
     expect(taskStore.listSessionIds(task.id)).toEqual([])
+  })
+
+  test('taskStore.list returns tasks in DESC order by created_at (newest first)', () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const older = taskStore.create({ title: 'Older', projectId: project.id })
+    const newer = taskStore.create({ title: 'Newer', projectId: project.id })
+
+    const list = taskStore.list(undefined, project.id)
+    expect(list[0].id).toBe(newer.id)
+    expect(list[1].id).toBe(older.id)
   })
 })
 

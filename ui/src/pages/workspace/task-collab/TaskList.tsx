@@ -1,4 +1,4 @@
-import { FileText, ChevronRight } from 'lucide-react'
+import { FileText, ChevronRight, MessageSquare } from 'lucide-react'
 import type { AgentData } from '../../../stores/agent.store'
 import type { TaskData, TaskStepData } from '../../../stores/task.store'
 import { agentColor, formatTime } from '../helpers'
@@ -11,9 +11,10 @@ interface TaskRowProps {
   isCurrent: boolean
   onOpenTask: () => void
   onOpenReportModal: () => void
+  onJumpToSession: () => void
 }
 
-function TaskRow({ task, agent, isCurrent, onOpenTask, onOpenReportModal }: TaskRowProps) {
+function TaskRow({ task, agent, isCurrent, onOpenTask, onOpenReportModal, onJumpToSession }: TaskRowProps) {
   const reportBadge = task.agent_report_status ? AGENT_REPORT_STATUS_BADGE[task.agent_report_status] ?? null : null
   const steps: TaskStepData[] = task.steps ?? []
   const collab = isCollabTask(steps)
@@ -40,6 +41,30 @@ function TaskRow({ task, agent, isCurrent, onOpenTask, onOpenReportModal }: Task
     >
       <FileText size={11} />
       查看汇报
+    </button>
+  )
+  const jumpBtn = (extraStyle?: React.CSSProperties) => (
+    <button
+      type="button"
+      onClick={(e) => { e.stopPropagation(); onJumpToSession() }}
+      title="跳转会话"
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 3,
+        padding: '2px 7px',
+        borderRadius: 8,
+        border: '1px solid var(--border)',
+        background: 'var(--bg-1)',
+        color: 'var(--text-2)',
+        fontSize: 11,
+        fontWeight: 500,
+        cursor: 'pointer',
+        ...extraStyle,
+      }}
+    >
+      <MessageSquare size={11} />
+      跳转会话
     </button>
   )
   return (
@@ -87,7 +112,12 @@ function TaskRow({ task, agent, isCurrent, onOpenTask, onOpenReportModal }: Task
         <span style={{ fontSize: 11, color: 'var(--text-3)', marginLeft: 'auto' }}>
           {formatTime(task.created_at)}
         </span>
-        {!hasStage && reportBtn()}
+        {!hasStage && (
+          <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+            {jumpBtn()}
+            {reportBtn()}
+          </div>
+        )}
       </div>
       {hasStage && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
@@ -95,6 +125,7 @@ function TaskRow({ task, agent, isCurrent, onOpenTask, onOpenReportModal }: Task
             <ChevronRight size={11} style={{ transform: 'rotate(90deg)' }} />
             {task.stage}
           </span>
+          {jumpBtn({ flexShrink: 0 })}
           {reportBtn({ flexShrink: 0 })}
         </div>
       )}
@@ -108,9 +139,10 @@ interface TaskListProps {
   currentSessionTaskId: string | null
   onOpenTask: (taskId: string) => void
   onOpenReportModal: (taskId: string) => void
+  onJumpToSession: (task: TaskData) => void
 }
 
-export function TaskList({ tasks, agents, currentSessionTaskId, onOpenTask, onOpenReportModal }: TaskListProps) {
+export function TaskList({ tasks, agents, currentSessionTaskId, onOpenTask, onOpenReportModal, onJumpToSession }: TaskListProps) {
   const agentMap = new Map(agents.map(a => [a.id, a]))
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: '6px 12px 12px' }}>
@@ -123,6 +155,7 @@ export function TaskList({ tasks, agents, currentSessionTaskId, onOpenTask, onOp
             isCurrent={task.id === currentSessionTaskId}
             onOpenTask={() => onOpenTask(task.id)}
             onOpenReportModal={() => onOpenReportModal(task.id)}
+            onJumpToSession={() => onJumpToSession(task)}
           />
         ))
       )}
