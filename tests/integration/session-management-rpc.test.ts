@@ -6,6 +6,7 @@ import { initDatabase, closeDatabase } from '../../src/store/db.js'
 import { projectStore } from '../../src/store/projects.js'
 import { agentStore } from '../../src/store/agents.js'
 import { sessionStore } from '../../src/store/sessions.js'
+import { taskStore } from '../../src/store/tasks.js'
 import { templateStore } from '../../src/store/agent-templates.js'
 import { handleWsConnection } from '../../src/gateway/ws-handler.js'
 import { acpHost } from '../../src/acp/host.js'
@@ -106,6 +107,25 @@ describe('Session management RPC', () => {
     await ws.send({ type: 'sessions.list', requestId: 'req-list-after-delete' })
     const ids = (ws.last().data as Array<{ id: string }>).map(s => s.id)
     expect(ids).not.toContain(session.id)
+  })
+
+  test('sessions.listByTask returns sessions for a task ordered by started_at ASC', async () => {
+    const project = projectStore.create({ name: 'P', workDir: resolve(tmp, 'list-by-task') })
+    const agent = agentStore.create({ type: 'dev', name: 'Agent A', runtime: 'mock', projectId: project.id })
+    const task = taskStore.create({ title: 'Multi session', projectId: project.id })
+    const first = sessionStore.create({ agentId: agent.id, projectId: project.id, taskId: task.id })
+    // ensure second session has a later started_at (new Date 1s later)
+    await new Promise((r) => setTimeout(r, 10))
+    const second = sessionStore.create({ agentId: agent.id, projectId: project.id, taskId: task.id })
+
+    const ws = createWs()
+    await ws.send({ type: 'sessions.listByTask', requestId: 'req-list-by-task', taskId: task.id })
+    const response = ws.last()
+    expect(response.type).toBe('result')
+    const sessions = response.data as Array<{ id: string }>
+    expect(sessions).toHaveLength(2)
+    expect(sessions[0].id).toBe(first.id)
+    expect(sessions[1].id).toBe(second.id)
   })
 })
 
