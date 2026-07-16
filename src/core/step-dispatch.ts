@@ -55,6 +55,16 @@ export async function dispatchStep(taskId: string, stepId: string): Promise<Disp
   taskStepStore.setSessionId(stepId, session.id)
   taskStore.linkSession(taskId, session.id)
 
+  // self-dispatch:assignee 就是 initiator,跳过 prompt 注入(对标 createSimple selfExecute)
+  // initiator 自己加的 step,initiator 已经知道要做什么,不需要系统再 prompt 一次
+  if (task.initiator_agent_id && step.assignee_agent_id === task.initiator_agent_id) {
+    log.info(
+      { taskId, stepId, sessionId: session.id, reuse: session.reuse, initiatorAgentId: task.initiator_agent_id },
+      'self-dispatch: skip prompt injection',
+    )
+    return { stepId, sessionId: session.id, reused: session.reuse }
+  }
+
   const prompt = buildStepPrompt(taskId, stepId)
   const queued = sessionManager.enqueuePrompt(session.id, prompt)
   queued.catch((err: Error) => {
