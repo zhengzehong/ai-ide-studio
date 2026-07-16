@@ -987,3 +987,201 @@ describe('project access 隔离', () => {
     expectError(result, '权限不足')
   })
 })
+
+describe('step.dispatch self-dispatch 跳过 prompt 注入(方案 A)', () => {
+  test('initiator 自己 add step + task.start,不 enqueuePrompt 到 initiator session,step 状态为 running', async () => {
+    const { project, agents } = setupProject()
+    const [pm] = agents
+    const pmSession = sessionStore.create({ agentId: pm.id, projectId: project.id, isPrimary: true })
+
+    const task = taskStore.create({
+      title: 'self-dispatch 任务',
+      description: '测试 initiator 自己派发 step 不被重复 prompt',
+      source: 'agent',
+      projectId: project.id,
+      initiatorAgentId: pm.id,
+      initiatorSessionId: pmSession.id,
+    })
+
+    taskStepManager.addStep({
+      taskId: task.id,
+      title: 's1',
+      description: 'PM 自己做',
+      assignee: pm.id,
+      sessionId: pmSession.id,
+    })
+
+    const origEnqueue = sessionManager.enqueuePrompt
+    let enqueueCalled = false
+    sessionManager.enqueuePrompt = (async (sessionId: string) => {
+      if (sessionId === pmSession.id) enqueueCalled = true
+    }) as typeof sessionManager.enqueuePrompt
+    try {
+      await taskStepManager.startTask(task.id)
+    } finally {
+      sessionManager.enqueuePrompt = origEnqueue
+    }
+
+    const steps = taskStepStore.listByTask(task.id)
+    expect(steps).toHaveLength(1)
+    expect(steps[0].status).toBe('running')
+    expect(steps[0].assignee_agent_id).toBe(pm.id)
+    expect(steps[0].session_id).toBe(pmSession.id)
+
+    expect(enqueueCalled).toBe(false)
+
+    const messages = messageStore.list(pmSession.id)
+    expect(messages).toEqual([])
+  })
+
+  test('initiator 自己 add step + 别人 add step 混合,task.start 后 initiator step 跳过派发,别人 step 正常派发', async () => {
+    const { project, agents } = setupProject()
+    const [pm, devA] = agents
+    const pmSession = sessionStore.create({ agentId: pm.id, projectId: project.id, isPrimary: true })
+    const devASession = sessionStore.create({ agentId: devA.id, projectId: project.id, isPrimary: true })
+
+    const task = taskStore.create({
+      title: '混合派发任务',
+      description: 'PM 自己 + dev 各一个 step',
+      source: 'agent',
+      projectId: project.id,
+      initiatorAgentId: pm.id,
+      initiatorSessionId: pmSession.id,
+    })
+
+    taskStepManager.addStep({
+      taskId: task.id,
+      title: 'pm step',
+      description: 'PM 自己做',
+      assignee: pm.id,
+      sessionId: pmSession.id,
+    })
+    taskStepManager.addStep({
+      taskId: task.id,
+      title: 'dev step',
+      description: 'dev 做',
+      assignee: devA.id,
+    })
+
+    const origEnqueue = sessionManager.enqueuePrompt
+    const enqueuedSessions: string[] = []
+    sessionManager.enqueuePrompt = (async (sessionId: string) => {
+      enqueuedSessions.push(sessionId)
+    }) as typeof sessionManager.enqueuePrompt
+    try {
+      await taskStepManager.startTask(task.id)
+    } finally {
+      sessionManager.enqueuePrompt = origEnqueue
+    }
+
+    const steps = taskStepStore.listByTask(task.id)
+    expect(steps).toHaveLength(2)
+    for (const s of steps) {
+      expect(s.status).toBe('running')
+    }
+
+    expect(enqueuedSessions).toContain(devASession.id)
+    expect(enqueuedSessions).not.toContain(pmSession.id)
+
+    const pmMessages = messageStore.list(pmSession.id)
+    expect(pmMessages).toEqual([])
+  })
+
+  test('initiator step.report(done) 后正常流转,不触发重复通知(notifyInitiatorIfNotLastExecutor 已有 if assignee===initiator return)', async () => {
+    const { project, agents } = setupProject()
+    const [pm, devA] = agents
+    const pmSession = sessionStore.create({ agentId: pm.id, projectId: project.id, isPrimary: true })
+
+    const task = taskStore.create({
+      title: 'initiator 做完后不通知自己',
+      description: 'PM 自己做完一个 step,不该再被通知',
+      source: 'agent',
+      projectId: project.id,
+      initiatorAgentId: pm.id,
+      initiatorSessionId: pmSession.id,
+    })
+
+    const r1 = taskStepManager.addStep({
+      taskId: task.id,
+      title: 'pm s1',
+      assignee: pm.id,
+      sessionId: pmSession.id,
+    })
+    const r2 = taskStepManager.addStep({
+      taskId: task.id,
+      title: 'dev s2',
+      assignee: devA.id,
+      dependsOn: [r1.step.id],
+    })
+    taskStore.updateStatus(task.id, 'running', '已启动')
+    taskStepStore.updateStatus(r1.step.id, 'ready')
+    await taskStepManager.dispatchStep(task.id, r1.step.id)
+
+    const origEnqueue = sessionManager.enqueuePrompt
+    let pmNotifyCount = 0
+    sessionManager.enqueuePrompt = (async (sessionId: string, _prompt: string) => {
+      if (sessionId === pmSession.id) pmNotifyCount++
+    }) as typeof sessionManager.enqueuePrompt
+    try {
+      const report = taskStepManager.reportStep({
+        taskId: task.id,
+        stepId: r1.step.id,
+        agentStatus: 'done',
+        reportMd: 'pm done',
+        agentId: pm.id,
+      })
+
+      expect(report.newStatus).toBe('done')
+      expect(report.unlockedSteps).toEqual([r2.step.id])
+      expect(pmNotifyCount).toBe(0)
+    } finally {
+      sessionManager.enqueuePrompt = origEnqueue
+    }
+
+    expect(taskStepStore.get(r1.step.id)?.status).toBe('done')
+    expect(taskStepStore.get(r2.step.id)?.status).toBe('ready')
+  })
+
+  test('非 initiator 的 step 派发不受影响(回归测试)', async () => {
+    const { project, agents } = setupProject()
+    const [pm, devA] = agents
+    const pmSession = sessionStore.create({ agentId: pm.id, projectId: project.id, isPrimary: true })
+    const devASession = sessionStore.create({ agentId: devA.id, projectId: project.id, isPrimary: true })
+
+    const task = taskStore.create({
+      title: '纯 dev 任务',
+      description: 'PM 发起,dev 全做',
+      source: 'agent',
+      projectId: project.id,
+      initiatorAgentId: pm.id,
+      initiatorSessionId: pmSession.id,
+    })
+
+    taskStepManager.addStep({
+      taskId: task.id,
+      title: 'dev s1',
+      description: 'dev 做',
+      assignee: devA.id,
+    })
+
+    const origEnqueue = sessionManager.enqueuePrompt
+    const enqueuedSessions: string[] = []
+    sessionManager.enqueuePrompt = (async (sessionId: string) => {
+      enqueuedSessions.push(sessionId)
+    }) as typeof sessionManager.enqueuePrompt
+    try {
+      await taskStepManager.startTask(task.id)
+    } finally {
+      sessionManager.enqueuePrompt = origEnqueue
+    }
+
+    const steps = taskStepStore.listByTask(task.id)
+    expect(steps).toHaveLength(1)
+    expect(steps[0].status).toBe('running')
+    expect(steps[0].assignee_agent_id).toBe(devA.id)
+
+    expect(enqueuedSessions).toContain(devASession.id)
+
+    expect(enqueuedSessions).not.toContain(pmSession.id)
+  })
+})
