@@ -58,6 +58,26 @@ import {
   removeSessionIndicator,
   type SessionIndicatorStateMap,
 } from '../utils/session-indicators'
+import {
+  beginProjectRequest,
+  commitProjectResponse,
+  emptyProjectCache,
+  pruneProjectCache,
+  readProjectCache,
+  setProjectCacheError,
+  shouldRefreshProjectCache,
+  touchProjectCache,
+  type ProjectCacheState,
+} from './project-cache'
+import {
+  clearSessionProjectCache,
+  invalidateSessionProjectCache,
+  mergeSessionIntoListCache,
+  patchSessionInListCache,
+  removeSessionFromListCache,
+  reorderSessionsInListCache,
+  sessionListScope,
+} from './session-list-cache'
 
 const COPYING_STAGE = '正在复制会话...'
 
@@ -177,6 +197,9 @@ interface SessionStore {
   pendingPermissions: PermissionRequestInfo[]
   pendingElicitations: ElicitationRequestInfo[]
   loading: boolean
+  refreshing: boolean
+  activeSessionScope: string
+  sessionListCache: ProjectCacheState<SessionData[]>
   copyingTargetSessionIds: Record<string, string>
   copyingSourceSessionIds: Record<string, string>
   lastCopyError: { sourceSessionId: string; targetSessionId: string; message: string } | null
@@ -195,7 +218,14 @@ interface SessionStore {
   unreadSessionIds: SessionIndicatorStateMap
   staleSessionIds: SessionIndicatorStateMap
 
-  fetchSessions: (agentId?: string, projectId?: string) => Promise<void>
+  activateProject: (projectId?: string | null) => void
+  fetchSessions: (
+    agentId?: string,
+    projectId?: string,
+    options?: { force?: boolean },
+  ) => Promise<void>
+  invalidateProject: (projectId?: string | null) => void
+  clearProjectCache: (projectId: string) => void
   fetchMessages: (sessionId: string) => Promise<void>
   loadOlderMessages: (sessionId: string) => Promise<void>
   fetchEvents: (sessionId: string) => Promise<void>
@@ -240,8 +270,8 @@ let listenersSetup = false
 let cleanupFn: (() => void) | null = null
 let promptStartTime = 0
 let lastStreamingSnapshot: StreamingMessage | null = null
-let sessionListRequestSeq = 0
 let activeSessionsProjectId: string | null = null
+const sessionListFetches = new Map<string, Promise<void>>()
 const sessionCaches = new Map<string, SessionCache>()
 const cacheSaveTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const eventCursorBySession = new Map<string, number>()
@@ -764,6 +794,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   pendingPermissions: [],
   pendingElicitations: [],
   loading: false,
+  refreshing: false,
+  activeSessionScope: sessionListScope(),
+  sessionListCache: emptyProjectCache<SessionData[]>(),
   copyingTargetSessionIds: {},
   copyingSourceSessionIds: {},
   lastCopyError: null,
@@ -782,39 +815,122 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   unreadSessionIds: {},
   staleSessionIds: {},
 
-  fetchSessions: async (agentId, projectId) => {
-    const requestSeq = ++sessionListRequestSeq
+  activateProject: (projectId) => {
     const scopedProjectId = projectId ?? null
     activeSessionsProjectId = scopedProjectId
-    set({ loading: true })
-    try {
-      const msg: Record<string, unknown> = { type: 'sessions.list' }
-      if (agentId) msg.agentId = agentId
-      if (projectId) msg.projectId = projectId
-      const data = (await wsClient.request(msg)) as SessionData[]
-      if (requestSeq !== sessionListRequestSeq || activeSessionsProjectId !== scopedProjectId) return
-      const sessions = scopedProjectId ? data.filter((session) => session.project_id === scopedProjectId) : data
+    const scope = sessionListScope(scopedProjectId)
+    set((state) => {
+      const sessionListCache = pruneProjectCache(touchProjectCache(state.sessionListCache, scope), scope)
+      const sessions = readProjectCache(sessionListCache, scope)?.data ?? []
       const runningSessions = Object.keys(inferRunningSessions(sessions))
-      set((state) => {
+      return {
+        activeSessionScope: scope,
+        sessionListCache,
+        sessions,
+        ...reconcileCopyingSessions(sessions, state.copyingTargetSessionIds),
+        runningSessionIds: reconcileRunningSessionIndicators(state.runningSessionIds, sessions),
+        unreadSessionIds: removeSessionIndicators(state.unreadSessionIds, runningSessions),
+        staleSessionIds: removeSessionIndicators(state.staleSessionIds, runningSessions),
+        loading: false,
+        refreshing: false,
+      }
+    })
+  },
+
+  fetchSessions: async (agentId, projectId, options) => {
+    const scopedProjectId = projectId ?? null
+    const scope = sessionListScope(scopedProjectId, agentId)
+    if (get().activeSessionScope !== scope) {
+      activeSessionsProjectId = scopedProjectId
+      const cachedForScope = readProjectCache(get().sessionListCache, scope)?.data ?? []
+      set({ activeSessionScope: scope, sessions: cachedForScope, loading: false, refreshing: false })
+    }
+    const cached = readProjectCache(get().sessionListCache, scope)
+    if (!options?.force && cached && !shouldRefreshProjectCache(cached)) return
+    const inFlight = sessionListFetches.get(scope)
+    if (!options?.force && inFlight) return inFlight
+
+    let requestSeq = 0
+    set((state) => {
+      const request = beginProjectRequest(state.sessionListCache, scope)
+      requestSeq = request.requestSeq
+      const isActive = state.activeSessionScope === scope
+      return {
+        sessionListCache: request.state,
+        loading: isActive && !cached,
+        refreshing: isActive && !!cached,
+      }
+    })
+
+    const request = (async (): Promise<void> => {
+      try {
+        const msg: Record<string, unknown> = { type: 'sessions.list' }
+        if (agentId) msg.agentId = agentId
+        if (projectId) msg.projectId = projectId
+        const data = (await wsClient.request(msg)) as SessionData[]
+        const sessions = scopedProjectId
+          ? data.filter((session) => session.project_id === scopedProjectId)
+          : data
+        set((state) => {
+          const sessionListCache = pruneProjectCache(commitProjectResponse(state.sessionListCache, {
+            scope,
+            requestSeq,
+            data: sessions,
+          }), state.activeSessionScope)
+          if (state.activeSessionScope !== scope) return { sessionListCache }
+          const activeSessions = readProjectCache(sessionListCache, scope)?.data ?? []
+          const runningSessions = Object.keys(inferRunningSessions(activeSessions))
         const serverUnread: SessionIndicatorStateMap = {}
-        for (const session of sessions) {
+          for (const session of activeSessions) {
           if (state.currentSessionId === session.id) continue
           if (isSessionUnreadByTimestamps(session)) serverUnread[session.id] = true
         }
         const mergedUnread: SessionIndicatorStateMap = { ...state.unreadSessionIds, ...serverUnread }
         const unreadAfterRunning = removeSessionIndicators(mergedUnread, runningSessions)
         return {
-          sessions,
-          ...reconcileCopyingSessions(sessions, state.copyingTargetSessionIds),
-          runningSessionIds: reconcileRunningSessionIndicators(state.runningSessionIds, sessions),
+            sessionListCache,
+            sessions: activeSessions,
+            ...reconcileCopyingSessions(activeSessions, state.copyingTargetSessionIds),
+            runningSessionIds: reconcileRunningSessionIndicators(state.runningSessionIds, activeSessions),
           unreadSessionIds: unreadAfterRunning,
           staleSessionIds: removeSessionIndicators(state.staleSessionIds, runningSessions),
           loading: false,
+            refreshing: false,
         }
       })
-    } catch {
-      if (requestSeq === sessionListRequestSeq) set({ loading: false })
+      } catch (error) {
+        set((state) => {
+          const isActive = state.activeSessionScope === scope
+          return {
+            sessionListCache: setProjectCacheError(
+              state.sessionListCache,
+              scope,
+              error instanceof Error ? error.message : '会话加载失败',
+            ),
+            loading: isActive ? false : state.loading,
+            refreshing: isActive ? false : state.refreshing,
+          }
+        })
+      }
+    })()
+    sessionListFetches.set(scope, request)
+    try {
+      await request
+    } finally {
+      if (sessionListFetches.get(scope) === request) sessionListFetches.delete(scope)
     }
+  },
+
+  invalidateProject: (projectId) => {
+    set((state) => ({
+      sessionListCache: invalidateSessionProjectCache(state.sessionListCache, projectId),
+    }))
+  },
+
+  clearProjectCache: (projectId) => {
+    set((state) => ({
+      sessionListCache: clearSessionProjectCache(state.sessionListCache, projectId),
+    }))
   },
 
   fetchMessages: async (sessionId) => {
@@ -967,9 +1083,18 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     if (taskId) msg.taskId = taskId
     if (projectId) msg.projectId = projectId
     const session = (await wsClient.request(msg)) as SessionData
-    if (!activeSessionsProjectId || session.project_id === activeSessionsProjectId) {
-      set({ sessions: [...get().sessions.filter((s) => s.id !== session.id), session] })
-    }
+    set((state) => {
+      const sessionListCache = mergeSessionIntoListCache(state.sessionListCache, session)
+      const activeSessions = readProjectCache(sessionListCache, state.activeSessionScope)?.data
+      return {
+        sessionListCache,
+        sessions: activeSessions ?? (
+          !activeSessionsProjectId || session.project_id === activeSessionsProjectId
+            ? [...state.sessions.filter((item) => item.id !== session.id), session]
+            : state.sessions
+        ),
+      }
+    })
     return session
   },
 
@@ -979,9 +1104,16 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   copySession: async (sessionId) => {
     const session = (await wsClient.request({ type: 'sessions.copy', sessionId })) as SessionData
-    if (!activeSessionsProjectId || session.project_id === activeSessionsProjectId) {
-      set((state) => ({
-        sessions: [...state.sessions.filter((s) => s.id !== session.id), session],
+    set((state) => {
+      const sessionListCache = mergeSessionIntoListCache(state.sessionListCache, session)
+      const activeSessions = readProjectCache(sessionListCache, state.activeSessionScope)?.data
+      return {
+        sessionListCache,
+        sessions: activeSessions ?? (
+          !activeSessionsProjectId || session.project_id === activeSessionsProjectId
+            ? [...state.sessions.filter((item) => item.id !== session.id), session]
+            : state.sessions
+        ),
         copyingTargetSessionIds: isCopyingSession(session)
           ? { ...state.copyingTargetSessionIds, [session.id]: sessionId }
           : state.copyingTargetSessionIds,
@@ -989,8 +1121,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           ? { ...state.copyingSourceSessionIds, [sessionId]: session.id }
           : state.copyingSourceSessionIds,
         lastCopyError: null,
-      }))
-    }
+      }
+    })
     return session
   },
 
@@ -1006,15 +1138,30 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       agentId,
       ...input,
     })) as LocalSessionImportResult
-    if (!activeSessionsProjectId || session.session.project_id === activeSessionsProjectId) {
-      set((state) => ({ sessions: [...state.sessions.filter((s) => s.id !== session.session.id), session.session] }))
-    }
+    set((state) => {
+      const sessionListCache = mergeSessionIntoListCache(state.sessionListCache, session.session)
+      return {
+        sessionListCache,
+        sessions: readProjectCache(sessionListCache, state.activeSessionScope)?.data ?? (
+          !activeSessionsProjectId || session.session.project_id === activeSessionsProjectId
+            ? [...state.sessions.filter((item) => item.id !== session.session.id), session.session]
+            : state.sessions
+        ),
+      }
+    })
     return session
   },
 
   renameSession: async (sessionId, title) => {
     const session = (await wsClient.request({ type: 'sessions.rename', sessionId, title })) as SessionData
-    set({ sessions: get().sessions.map((s) => (s.id === sessionId ? { ...s, ...session } : s)) })
+    set((state) => {
+      const sessionListCache = mergeSessionIntoListCache(state.sessionListCache, session)
+      return {
+        sessionListCache,
+        sessions: readProjectCache(sessionListCache, state.activeSessionScope)?.data
+          ?? state.sessions.map((item) => item.id === sessionId ? { ...item, ...session } : item),
+      }
+    })
   },
 
   deleteSession: async (sessionId) => {
@@ -1023,35 +1170,54 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     const currentSessionId = get().currentSessionId === sessionId ? null : get().currentSessionId
     // 删除当前会话时,清掉 per-project 映射里指向它的记录,避免下次恢复到已删除会话
     if (!currentSessionId && activeSessionsProjectId) clearProjectLastSession(activeSessionsProjectId)
-    set({
-      sessions: get().sessions.filter((s) => s.id !== sessionId),
-      currentSessionId,
-      messages: currentSessionId ? get().messages : [],
-      events: currentSessionId ? get().events : [],
-      streamingMessage: currentSessionId ? get().streamingMessage : null,
-      toolCallSummariesByMessageId: currentSessionId ? get().toolCallSummariesByMessageId : {},
-      toolCallDetailsByKey: currentSessionId ? get().toolCallDetailsByKey : {},
-      fileChangeDetailsByMessageId: currentSessionId ? get().fileChangeDetailsByMessageId : {},
-      toolCallLoadingByKey: currentSessionId ? get().toolCallLoadingByKey : {},
-      toolCallErrorByKey: currentSessionId ? get().toolCallErrorByKey : {},
-      turnProcessLoadingByMessageId: currentSessionId ? get().turnProcessLoadingByMessageId : {},
-      turnProcessErrorByMessageId: currentSessionId ? get().turnProcessErrorByMessageId : {},
-      processItemLoadingByKey: currentSessionId ? get().processItemLoadingByKey : {},
-      processItemErrorByKey: currentSessionId ? get().processItemErrorByKey : {},
-      runningSessionIds: removeSessionIndicator(get().runningSessionIds, sessionId),
-      unreadSessionIds: removeSessionIndicator(get().unreadSessionIds, sessionId),
-      staleSessionIds: removeSessionIndicator(get().staleSessionIds, sessionId),
+    set((state) => {
+      const sessionListCache = removeSessionFromListCache(state.sessionListCache, sessionId)
+      return {
+        sessionListCache,
+        sessions: readProjectCache(sessionListCache, state.activeSessionScope)?.data
+          ?? state.sessions.filter((session) => session.id !== sessionId),
+        currentSessionId,
+        messages: currentSessionId ? state.messages : [],
+        events: currentSessionId ? state.events : [],
+        streamingMessage: currentSessionId ? state.streamingMessage : null,
+        toolCallSummariesByMessageId: currentSessionId ? state.toolCallSummariesByMessageId : {},
+        toolCallDetailsByKey: currentSessionId ? state.toolCallDetailsByKey : {},
+        fileChangeDetailsByMessageId: currentSessionId ? state.fileChangeDetailsByMessageId : {},
+        toolCallLoadingByKey: currentSessionId ? state.toolCallLoadingByKey : {},
+        toolCallErrorByKey: currentSessionId ? state.toolCallErrorByKey : {},
+        turnProcessLoadingByMessageId: currentSessionId ? state.turnProcessLoadingByMessageId : {},
+        turnProcessErrorByMessageId: currentSessionId ? state.turnProcessErrorByMessageId : {},
+        processItemLoadingByKey: currentSessionId ? state.processItemLoadingByKey : {},
+        processItemErrorByKey: currentSessionId ? state.processItemErrorByKey : {},
+        runningSessionIds: removeSessionIndicator(state.runningSessionIds, sessionId),
+        unreadSessionIds: removeSessionIndicator(state.unreadSessionIds, sessionId),
+        staleSessionIds: removeSessionIndicator(state.staleSessionIds, sessionId),
+      }
     })
   },
 
   closeSession: async (sessionId) => {
     const session = (await wsClient.request({ type: 'sessions.close', sessionId })) as SessionData
-    set({ sessions: get().sessions.map((s) => (s.id === sessionId ? { ...s, ...session } : s)) })
+    set((state) => {
+      const sessionListCache = mergeSessionIntoListCache(state.sessionListCache, session)
+      return {
+        sessionListCache,
+        sessions: readProjectCache(sessionListCache, state.activeSessionScope)?.data
+          ?? state.sessions.map((item) => item.id === sessionId ? { ...item, ...session } : item),
+      }
+    })
   },
 
   archiveSession: async (sessionId) => {
     const session = (await wsClient.request({ type: 'sessions.archive', sessionId })) as SessionData
-    set({ sessions: get().sessions.map((s) => (s.id === sessionId ? { ...s, ...session } : s)) })
+    set((state) => {
+      const sessionListCache = mergeSessionIntoListCache(state.sessionListCache, session)
+      return {
+        sessionListCache,
+        sessions: readProjectCache(sessionListCache, state.activeSessionScope)?.data
+          ?? state.sessions.map((item) => item.id === sessionId ? { ...item, ...session } : item),
+      }
+    })
   },
 
   reorderSessions: async (projectId, agentId, sessionIds) => {
@@ -1062,14 +1228,18 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       sessionIds,
     })) as SessionData[]
     const orderedIds = new Set(ordered.map((session) => session.id))
-    set((state) => ({
-      sessions: [
+    set((state) => {
+      const sessionListCache = reorderSessionsInListCache(state.sessionListCache, ordered)
+      return {
+        sessionListCache,
+        sessions: readProjectCache(sessionListCache, state.activeSessionScope)?.data ?? [
         ...state.sessions.filter(
           (session) => session.agent_id !== agentId || session.project_id !== projectId || !orderedIds.has(session.id),
         ),
         ...ordered,
       ],
-    }))
+      }
+    })
     return ordered
   },
 
@@ -1096,9 +1266,17 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       type: 'session_templates.instantiate',
       templateId,
     })) as SessionData
-    if (!activeSessionsProjectId || session.project_id === activeSessionsProjectId) {
-      set((state) => ({ sessions: [...state.sessions.filter((s) => s.id !== session.id), session] }))
-    }
+    set((state) => {
+      const sessionListCache = mergeSessionIntoListCache(state.sessionListCache, session)
+      return {
+        sessionListCache,
+        sessions: readProjectCache(sessionListCache, state.activeSessionScope)?.data ?? (
+          !activeSessionsProjectId || session.project_id === activeSessionsProjectId
+            ? [...state.sessions.filter((item) => item.id !== session.id), session]
+            : state.sessions
+        ),
+      }
+    })
     return session
   },
 
@@ -1764,27 +1942,32 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         const data = msg.data as Partial<SessionData> & { event?: string; deleted?: boolean }
         if (data.deleted || data.event === 'deleted') {
           sessionCaches.delete(sessionId)
-          set((st) => ({
-            sessions: st.sessions.filter((s) => s.id !== sessionId),
-            currentSessionId: st.currentSessionId === sessionId ? null : st.currentSessionId,
-            messages: st.currentSessionId === sessionId ? [] : st.messages,
-            events: st.currentSessionId === sessionId ? [] : st.events,
-            streamingMessage: st.currentSessionId === sessionId ? null : st.streamingMessage,
-            turnProcessLoadingByMessageId: st.currentSessionId === sessionId ? {} : st.turnProcessLoadingByMessageId,
-            turnProcessErrorByMessageId: st.currentSessionId === sessionId ? {} : st.turnProcessErrorByMessageId,
-            processItemLoadingByKey: st.currentSessionId === sessionId ? {} : st.processItemLoadingByKey,
-            processItemErrorByKey: st.currentSessionId === sessionId ? {} : st.processItemErrorByKey,
-            runningSessionIds: removeSessionIndicator(st.runningSessionIds, sessionId),
-            unreadSessionIds: removeSessionIndicator(st.unreadSessionIds, sessionId),
-            staleSessionIds: removeSessionIndicator(st.staleSessionIds, sessionId),
-          }))
+          set((st) => {
+            const sessionListCache = removeSessionFromListCache(st.sessionListCache, sessionId)
+            return {
+              sessionListCache,
+              sessions: readProjectCache(sessionListCache, st.activeSessionScope)?.data
+                ?? st.sessions.filter((session) => session.id !== sessionId),
+              currentSessionId: st.currentSessionId === sessionId ? null : st.currentSessionId,
+              messages: st.currentSessionId === sessionId ? [] : st.messages,
+              events: st.currentSessionId === sessionId ? [] : st.events,
+              streamingMessage: st.currentSessionId === sessionId ? null : st.streamingMessage,
+              turnProcessLoadingByMessageId: st.currentSessionId === sessionId ? {} : st.turnProcessLoadingByMessageId,
+              turnProcessErrorByMessageId: st.currentSessionId === sessionId ? {} : st.turnProcessErrorByMessageId,
+              processItemLoadingByKey: st.currentSessionId === sessionId ? {} : st.processItemLoadingByKey,
+              processItemErrorByKey: st.currentSessionId === sessionId ? {} : st.processItemErrorByKey,
+              runningSessionIds: removeSessionIndicator(st.runningSessionIds, sessionId),
+              unreadSessionIds: removeSessionIndicator(st.unreadSessionIds, sessionId),
+              staleSessionIds: removeSessionIndicator(st.staleSessionIds, sessionId),
+            }
+          })
           return
         }
         set((st) => {
-          const incomingProjectId = data.project_id as string | null | undefined
-          const inCurrentScope =
-            !activeSessionsProjectId || incomingProjectId === undefined || incomingProjectId === activeSessionsProjectId
-          if (!inCurrentScope) return { sessions: st.sessions.filter((s) => s.id !== sessionId) }
+          const complete = isCompleteSessionData(data, sessionId)
+          const sessionListCache = complete
+            ? mergeSessionIntoListCache(st.sessionListCache, data)
+            : patchSessionInListCache(st.sessionListCache, sessionId, data)
           const sourceSessionId = st.copyingTargetSessionIds[sessionId]
           const copyDone = !!sourceSessionId && !isCopyingSession(data)
           const copyState = copyDone
@@ -1804,10 +1987,11 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
               Object.keys(data).every((k) => k === 'last_read_at' || k === 'event')
             ) {
               return {
+                sessionListCache,
                 ...copyState,
               }
             }
-            const mergedSession = { ...st.sessions.find((s) => s.id === sessionId)!, ...data } as SessionData
+            const mergedSession = { ...st.sessions.find((session) => session.id === sessionId)!, ...data } as SessionData
             const nextUnread = data.last_read_at
               ? isCurrent
                 ? false
@@ -1819,18 +2003,21 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
               ? { ...st.unreadSessionIds, [sessionId]: true as const }
               : removeSessionIndicator(st.unreadSessionIds, sessionId)
             return {
-              sessions: st.sessions.map((s) => (s.id === sessionId ? mergedSession : s)),
+              sessionListCache,
+              sessions: readProjectCache(sessionListCache, st.activeSessionScope)?.data
+                ?? st.sessions.map((session) => session.id === sessionId ? mergedSession : session),
               unreadSessionIds,
               ...copyState,
             }
           }
-          if (
-            isCompleteSessionData(data, sessionId) &&
-            (!activeSessionsProjectId || data.project_id === activeSessionsProjectId)
-          ) {
-            return { sessions: [...st.sessions, data], ...copyState }
+          const activeSessions = readProjectCache(sessionListCache, st.activeSessionScope)?.data
+          if (activeSessions) {
+            return { sessionListCache, sessions: activeSessions, ...copyState }
           }
-          return { sessions: st.sessions }
+          if (complete && (!activeSessionsProjectId || data.project_id === activeSessionsProjectId)) {
+            return { sessionListCache, sessions: [...st.sessions, data], ...copyState }
+          }
+          return { sessionListCache }
         })
       }),
     )
@@ -1843,15 +2030,20 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         if (!sourceSessionId || !targetSessionId) return
         const shouldSelectSource = get().currentSessionId === targetSessionId
         sessionCaches.delete(targetSessionId)
-        set((st) => ({
-          sessions: st.sessions.filter((session) => session.id !== targetSessionId),
-          messages: st.currentSessionId === targetSessionId ? [] : st.messages,
-          events: st.currentSessionId === targetSessionId ? [] : st.events,
-          streamingMessage: st.currentSessionId === targetSessionId ? null : st.streamingMessage,
-          copyingTargetSessionIds: withoutKey(st.copyingTargetSessionIds, targetSessionId),
-          copyingSourceSessionIds: withoutKey(st.copyingSourceSessionIds, sourceSessionId),
-          lastCopyError: { sourceSessionId, targetSessionId, message },
-        }))
+        set((st) => {
+          const sessionListCache = removeSessionFromListCache(st.sessionListCache, targetSessionId)
+          return {
+            sessionListCache,
+            sessions: readProjectCache(sessionListCache, st.activeSessionScope)?.data
+              ?? st.sessions.filter((session) => session.id !== targetSessionId),
+            messages: st.currentSessionId === targetSessionId ? [] : st.messages,
+            events: st.currentSessionId === targetSessionId ? [] : st.events,
+            streamingMessage: st.currentSessionId === targetSessionId ? null : st.streamingMessage,
+            copyingTargetSessionIds: withoutKey(st.copyingTargetSessionIds, targetSessionId),
+            copyingSourceSessionIds: withoutKey(st.copyingSourceSessionIds, sourceSessionId),
+            lastCopyError: { sourceSessionId, targetSessionId, message },
+          }
+        })
         if (shouldSelectSource) get().selectSession(sourceSessionId)
       }),
     )

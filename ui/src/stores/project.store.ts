@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { wsClient } from '../services/ws-client'
+import { removeProjectLocation } from '../routing/project-routes'
 
 const CURRENT_PROJECT_STORAGE_KEY = 'ai-ide-current-project-id'
 
@@ -40,6 +41,7 @@ interface ProjectStore {
   currentProjectId: string | null
   previousProjectId: string | null
   loading: boolean
+  initialized: boolean
   fetchProjects: () => Promise<void>
   createProject: (input: {
     name: string
@@ -67,6 +69,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   currentProjectId: null,
   previousProjectId: null,
   loading: false,
+  initialized: false,
 
   fetchProjects: async () => {
     set({ loading: true })
@@ -79,10 +82,10 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         ?? (storedProjectId && data.some((project) => project.id === storedProjectId) ? storedProjectId : null)
         ?? data[0]?.id
         ?? null
-      set({ projects: data, currentProjectId: nextProjectId, loading: false })
+      set({ projects: data, currentProjectId: nextProjectId, loading: false, initialized: true })
       writeStoredProjectId(nextProjectId)
     } catch {
-      set({ loading: false })
+      set({ loading: false, initialized: true })
     }
   },
 
@@ -146,6 +149,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
       previousProjectId: get().previousProjectId === id ? null : get().previousProjectId,
     })
     writeStoredProjectId(nextProjectId)
+    removeProjectLocation(id)
   },
 
   currentProject: () => {

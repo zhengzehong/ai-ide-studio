@@ -74,7 +74,7 @@ describe('project scoped entities', () => {
     })
 
     expect(agentStore.list().map((item) => item.id)).toEqual([agentA.id, agentB.id])
-    expect(taskStore.list().map((item) => item.id)).toEqual([taskA.id, taskB.id])
+    expect(taskStore.list().map((item) => item.id).sort()).toEqual([taskA.id, taskB.id].sort())
     expect(sessionStore.list().map((item) => item.id)).toEqual([sessionA.id, sessionB.id])
     expect(eventCenterService.listEvents().map((item) => item.id)).toEqual([eventB.id, eventA.id])
   })

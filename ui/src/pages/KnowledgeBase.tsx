@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { Database } from 'lucide-react'
+import { useProjectNavigation } from '../hooks/use-project-navigation'
 import { useAgentStore } from '../stores/agent.store'
 import { useKnowledgeBaseStore } from '../stores/knowledge-base.store'
 import { useProjectStore } from '../stores/project.store'
@@ -16,7 +16,7 @@ import './knowledge-base/knowledge-base.css'
 const EMPTY_FORM: PageFormState = { title: '', section: '', summary: '', body: '', tags: '', srcFiles: '' }
 
 export default function KnowledgeBase() {
-  const navigate = useNavigate()
+  const { navigateInProject } = useProjectNavigation()
   const currentProjectId = useProjectStore((state) => state.currentProjectId)
   const agents = useAgentStore((state) => state.agents)
   const createSession = useSessionStore((state) => state.createSession)
@@ -144,7 +144,7 @@ export default function KnowledgeBase() {
       selectSession(session.id)
       sendPrompt(buildRefreshPrompt(currentRead.page.id, currentRead.page.title, currentRead.kb.id, sourceFiles))
       setShowRefreshAgent(false)
-      navigate('/workspace')
+      navigateInProject('/workspace')
     } catch (err) {
       setOperationError(`启动 AI 刷新失败：${errorMessage(err)}`)
     }

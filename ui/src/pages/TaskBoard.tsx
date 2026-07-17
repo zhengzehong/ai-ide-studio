@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Plus } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { useProjectNavigation } from '../hooks/use-project-navigation'
 import { useAgentStore, type AgentData } from '../stores/agent.store'
 import { useProjectStore } from '../stores/project.store'
 import { useSessionStore } from '../stores/session.store'
@@ -27,6 +29,8 @@ const COLUMNS: Column[] = [
 ]
 
 export function TaskBoard() {
+  const navigate = useNavigate()
+  const { toProjectPath } = useProjectNavigation()
   const tasks = useTaskStore((s) => s.tasks)
   const modes = useTaskStore((s) => s.modes)
   const updateTask = useTaskStore((s) => s.updateTask)
@@ -68,7 +72,8 @@ export function TaskBoard() {
   const handleJumpToSession = (sessionId: string, agentId: string) => {
     selectSession(sessionId)
     setSelectedTaskId(null)
-    window.location.hash = `#/workspace?sessionId=${sessionId}&agentId=${agentId}`
+    const query = new URLSearchParams({ sessionId, agentId })
+    navigate(`${toProjectPath('/workspace')}?${query.toString()}`)
   }
 
   return (
@@ -87,7 +92,7 @@ export function TaskBoard() {
           <button
             type="button"
             onClick={() => {
-              window.location.hash = '#/tasks/modes'
+              navigate(toProjectPath('/tasks/modes'))
             }}
             style={secondaryButtonStyle}
           >
