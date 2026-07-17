@@ -94,6 +94,13 @@ export function filterAgentsByProject<T extends { project_id?: string | null }>(
   return agents.filter((agent) => agent.project_id === projectId)
 }
 
+export function shouldClearProjectLastSessionForMissingCurrent(
+  currentSessionId: string,
+  projectLastSessionId: string | null,
+): boolean {
+  return currentSessionId === projectLastSessionId
+}
+
 export function selectChatAgent({
   agents,
   sessions,
