@@ -1,5 +1,17 @@
 import { create } from 'zustand'
 import { wsClient } from '../services/ws-client'
+import {
+  beginProjectRequest,
+  clearProjectCache,
+  commitProjectResponse,
+  emptyProjectCache,
+  invalidateProjectCache,
+  pruneProjectCache,
+  readProjectCache,
+  shouldRefreshProjectCache,
+  touchProjectCache,
+  type ProjectCacheState,
+} from './project-cache'
 
 export interface EventCategoryData {
   id: string
@@ -92,6 +104,21 @@ interface EventListPageData {
   offset: number
 }
 
+export interface EventCenterProjectSnapshot {
+  categories: EventCategoryData[]
+  events: EventCenterEventData[]
+  eventTotal: number
+  eventLimit: number
+  eventOffset: number
+  eventStatus: string
+  eventCategoryId: string
+  eventKeyword: string
+  subscriptions: EventSubscriptionData[]
+  details: Record<string, EventDetailData>
+  selectedEventId: string | null
+  eventsLoaded: boolean
+}
+
 interface EventCenterStore {
   categories: EventCategoryData[]
   events: EventCenterEventData[]
@@ -106,8 +133,16 @@ interface EventCenterStore {
   selectedEventId: string | null
   loading: boolean
   activeProjectId: string | null
+  projectCache: ProjectCacheState<EventCenterProjectSnapshot>
+  activateProject: (projectId: string) => void
+  invalidateProject: (projectId: string) => void
+  clearProjectCache: (projectId: string) => void
   fetchCategories: (projectId?: string) => Promise<void>
-  fetchEvents: (projectId?: string, filter?: EventListFilterInput) => Promise<void>
+  fetchEvents: (
+    projectId?: string,
+    filter?: EventListFilterInput,
+    options?: { force?: boolean },
+  ) => Promise<void>
   fetchEventDetail: (eventId: string) => Promise<EventDetailData | null>
   fetchSubscriptions: (projectId?: string) => Promise<void>
   selectEvent: (eventId: string | null) => void
@@ -127,6 +162,43 @@ interface EventCenterStore {
   setupListeners: () => () => void
 }
 
+const EMPTY_EVENT_SNAPSHOT: EventCenterProjectSnapshot = {
+  categories: [],
+  events: [],
+  eventTotal: 0,
+  eventLimit: 30,
+  eventOffset: 0,
+  eventStatus: 'all',
+  eventCategoryId: 'all',
+  eventKeyword: '',
+  subscriptions: [],
+  details: {},
+  selectedEventId: null,
+  eventsLoaded: false,
+}
+
+function updateEventSnapshot(
+  cache: ProjectCacheState<EventCenterProjectSnapshot>,
+  projectId: string,
+  patch: Partial<EventCenterProjectSnapshot>,
+): ProjectCacheState<EventCenterProjectSnapshot> {
+  const entry = cache.entries[projectId]
+  const now = Date.now()
+  return {
+    ...cache,
+    entries: {
+      ...cache.entries,
+      [projectId]: {
+        data: { ...(entry?.data ?? EMPTY_EVENT_SNAPSHOT), ...patch },
+        fetchedAt: entry?.fetchedAt ?? now,
+        lastAccessedAt: now,
+        invalidated: false,
+        error: null,
+      },
+    },
+  }
+}
+
 export const useEventCenterStore = create<EventCenterStore>((set, get) => ({
   categories: [],
   events: [],
@@ -141,23 +213,62 @@ export const useEventCenterStore = create<EventCenterStore>((set, get) => ({
   selectedEventId: null,
   loading: false,
   activeProjectId: null,
+  projectCache: emptyProjectCache<EventCenterProjectSnapshot>(),
+
+  activateProject: (projectId) => set((state) => {
+    const projectCache = pruneProjectCache(touchProjectCache(state.projectCache, projectId), projectId)
+    const snapshot = readProjectCache(projectCache, projectId)?.data ?? EMPTY_EVENT_SNAPSHOT
+    return { activeProjectId: projectId, projectCache, ...snapshot, loading: false }
+  }),
+
+  invalidateProject: (projectId) => set((state) => ({
+    projectCache: invalidateProjectCache(state.projectCache, projectId),
+  })),
+
+  clearProjectCache: (projectId) => set((state) => ({
+    projectCache: clearProjectCache(state.projectCache, projectId),
+  })),
 
   fetchCategories: async (projectId) => {
     const msg: Record<string, unknown> = { type: 'eventCategories.list' }
     if (projectId) msg.projectId = projectId
     const categories = await wsClient.request(msg) as EventCategoryData[]
-    set({ categories })
+    if (!projectId) {
+      set({ categories })
+      return
+    }
+    set((state) => ({
+      projectCache: updateEventSnapshot(state.projectCache, projectId, { categories }),
+      categories: state.activeProjectId === projectId ? categories : state.categories,
+    }))
   },
 
-  fetchEvents: async (projectId, filter = {}) => {
-    set({ loading: true, activeProjectId: projectId ?? null })
+  fetchEvents: async (projectId, filter = {}, options) => {
+    const scope = projectId ?? '__all__'
+    const cached = readProjectCache(get().projectCache, scope)
+    if (
+      !options?.force
+      && cached?.data.eventsLoaded
+      && !shouldRefreshProjectCache(cached)
+      && Object.keys(filter).length === 0
+    ) return
+    let requestSeq = 0
+    set((state) => {
+      const request = beginProjectRequest(state.projectCache, scope)
+      requestSeq = request.requestSeq
+      return {
+        projectCache: request.state,
+        loading: state.activeProjectId === projectId,
+        activeProjectId: state.activeProjectId ?? projectId ?? null,
+      }
+    })
     try {
-      const state = get()
-      const status = filter.status ?? state.eventStatus
-      const categoryId = filter.categoryId ?? state.eventCategoryId
-      const keyword = filter.keyword ?? state.eventKeyword
-      const limit = filter.limit ?? state.eventLimit
-      const offset = filter.offset ?? state.eventOffset
+      const snapshot = cached?.data ?? EMPTY_EVENT_SNAPSHOT
+      const status = filter.status ?? snapshot.eventStatus
+      const categoryId = filter.categoryId ?? snapshot.eventCategoryId
+      const keyword = filter.keyword ?? snapshot.eventKeyword
+      const limit = filter.limit ?? snapshot.eventLimit
+      const offset = filter.offset ?? snapshot.eventOffset
       const msg: Record<string, unknown> = { type: 'events.list' }
       if (projectId) msg.projectId = projectId
       if (status && status !== 'all') msg.status = status
@@ -169,27 +280,47 @@ export const useEventCenterStore = create<EventCenterStore>((set, get) => ({
       const page = Array.isArray(response)
         ? { items: response, total: response.length, limit, offset }
         : response
-      set((state) => ({
-        events: page.items,
-        eventTotal: page.total,
-        eventLimit: page.limit,
-        eventOffset: page.offset,
-        eventStatus: status,
-        eventCategoryId: categoryId,
-        eventKeyword: keyword,
-        loading: false,
-        selectedEventId: page.items.some((event) => event.id === state.selectedEventId)
-          ? state.selectedEventId
-          : page.items[0]?.id ?? null,
-      }))
+      set((state) => {
+        const current = readProjectCache(state.projectCache, scope)?.data ?? EMPTY_EVENT_SNAPSHOT
+        const selectedEventId = page.items.some((event) => event.id === current.selectedEventId)
+          ? current.selectedEventId
+          : page.items[0]?.id ?? null
+        const nextSnapshot: EventCenterProjectSnapshot = {
+          ...current,
+          events: page.items,
+          eventTotal: page.total,
+          eventLimit: page.limit,
+          eventOffset: page.offset,
+          eventStatus: status,
+          eventCategoryId: categoryId,
+          eventKeyword: keyword,
+          selectedEventId,
+          eventsLoaded: true,
+        }
+        const projectCache = pruneProjectCache(commitProjectResponse(state.projectCache, {
+          scope,
+          requestSeq,
+          data: nextSnapshot,
+        }), state.activeProjectId ?? scope)
+        if (state.activeProjectId !== projectId) return { projectCache }
+        return { projectCache, ...nextSnapshot, loading: false }
+      })
     } catch {
-      set({ loading: false })
+      if (get().activeProjectId === projectId) set({ loading: false })
     }
   },
 
   fetchEventDetail: async (eventId) => {
     const detail = await wsClient.request({ type: 'events.get', eventId }) as EventDetailData
-    set((state) => ({ details: { ...state.details, [eventId]: detail } }))
+    set((state) => {
+      const details = { ...state.details, [eventId]: detail }
+      return {
+        details,
+        projectCache: state.activeProjectId
+          ? updateEventSnapshot(state.projectCache, state.activeProjectId, { details })
+          : state.projectCache,
+      }
+    })
     return detail
   },
 
@@ -197,10 +328,22 @@ export const useEventCenterStore = create<EventCenterStore>((set, get) => ({
     const msg: Record<string, unknown> = { type: 'eventSubscriptions.list' }
     if (projectId) msg.projectId = projectId
     const subscriptions = await wsClient.request(msg) as EventSubscriptionData[]
-    set({ subscriptions })
+    if (!projectId) {
+      set({ subscriptions })
+      return
+    }
+    set((state) => ({
+      projectCache: updateEventSnapshot(state.projectCache, projectId, { subscriptions }),
+      subscriptions: state.activeProjectId === projectId ? subscriptions : state.subscriptions,
+    }))
   },
 
-  selectEvent: (eventId) => set({ selectedEventId: eventId }),
+  selectEvent: (eventId) => set((state) => ({
+    selectedEventId: eventId,
+    projectCache: state.activeProjectId
+      ? updateEventSnapshot(state.projectCache, state.activeProjectId, { selectedEventId: eventId })
+      : state.projectCache,
+  })),
 
   createEvent: async (input) => {
     const event = await wsClient.request({ type: 'events.create', ...input }) as EventCenterEventData
@@ -288,11 +431,14 @@ export const useEventCenterStore = create<EventCenterStore>((set, get) => ({
     await get().fetchEvents(get().activeProjectId ?? undefined)
   },
 
-  setupListeners: () => wsClient.on('event-center:update', () => {
-    const projectId = get().activeProjectId ?? undefined
+  setupListeners: () => wsClient.on('event-center:update', (msg) => {
+    const projectId = typeof msg.projectId === 'string' ? msg.projectId : get().activeProjectId
+    if (!projectId) return
+    get().invalidateProject(projectId)
+    if (projectId !== get().activeProjectId) return
     void get().fetchCategories(projectId)
     void get().fetchSubscriptions(projectId)
-    void get().fetchEvents(projectId)
+    void get().fetchEvents(projectId, {}, { force: true })
     const selectedEventId = get().selectedEventId
     if (selectedEventId) void get().fetchEventDetail(selectedEventId).catch(() => undefined)
   }),

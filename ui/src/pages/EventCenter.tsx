@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { Inbox } from 'lucide-react'
+import { useProjectScopeId } from '../hooks/use-project-scope'
 import { useConnectionStore } from '../stores/connection.store'
-import { useProjectStore } from '../stores/project.store'
 import { useEventCenterStore } from '../stores/event-center.store'
+import { useProjectViewStateStore } from '../stores/project-view-state.store'
 import { EventInboxPanel } from './event-center/EventInboxPanel'
 import { CategoryPanel } from './event-center/CategoryPanel'
 import { SubscriptionPanel } from './event-center/SubscriptionPanel'
@@ -18,17 +19,18 @@ const tabs: Array<{ key: Tab; label: string }> = [
 
 export default function EventCenter() {
   const connected = useConnectionStore((s) => s.connected)
-  const currentProjectId = useProjectStore((s) => s.currentProjectId)
+  const currentProjectId = useProjectScopeId()
   const fetchCategories = useEventCenterStore((s) => s.fetchCategories)
   const fetchEvents = useEventCenterStore((s) => s.fetchEvents)
   const fetchSubscriptions = useEventCenterStore((s) => s.fetchSubscriptions)
   const setupListeners = useEventCenterStore((s) => s.setupListeners)
-  const [tab, setTab] = useState<Tab>('events')
+  const tab = useProjectViewStateStore((state) => state.byProjectId[currentProjectId]?.events?.tab ?? 'events')
+  const patchEvents = useProjectViewStateStore((state) => state.patchEvents)
 
   useEffect(() => {
     if (!connected) return
     void fetchCategories(currentProjectId ?? undefined).catch(() => undefined)
-    void fetchEvents(currentProjectId ?? undefined, { offset: 0 })
+    void fetchEvents(currentProjectId)
     void fetchSubscriptions(currentProjectId ?? undefined).catch(() => undefined)
   }, [connected, currentProjectId, fetchCategories, fetchEvents, fetchSubscriptions])
 
@@ -46,7 +48,11 @@ export default function EventCenter() {
         </div>
         <nav className="ec-tabs">
           {tabs.map((item) => (
-            <button key={item.key} className={tab === item.key ? 'active' : ''} onClick={() => setTab(item.key)}>
+            <button
+              key={item.key}
+              className={tab === item.key ? 'active' : ''}
+              onClick={() => patchEvents(currentProjectId, { tab: item.key })}
+            >
               {item.label}
             </button>
           ))}

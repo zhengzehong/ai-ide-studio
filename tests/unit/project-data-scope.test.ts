@@ -20,6 +20,30 @@ const stores = vi.hoisted(() => ({
     invalidateProject: vi.fn(),
     clearProjectCache: vi.fn(),
   },
+  filesystem: {
+    activateProject: vi.fn(), fetchTree: vi.fn(async () => undefined),
+    invalidateProject: vi.fn(), clearProjectCache: vi.fn(),
+  },
+  knowledge: {
+    activateProject: vi.fn(), fetchKnowledgeBases: vi.fn(async () => undefined),
+    invalidateProject: vi.fn(), clearProjectCache: vi.fn(),
+  },
+  rules: {
+    activateProject: vi.fn(), fetchRules: vi.fn(async () => undefined),
+    invalidateProject: vi.fn(), clearProjectCache: vi.fn(),
+  },
+  events: {
+    activateProject: vi.fn(), fetchCategories: vi.fn(async () => undefined),
+    fetchEvents: vi.fn(async () => undefined), fetchSubscriptions: vi.fn(async () => undefined),
+    invalidateProject: vi.fn(), clearProjectCache: vi.fn(),
+  },
+  memory: {
+    activateScope: vi.fn(), invalidateProject: vi.fn(), clearProjectCache: vi.fn(),
+  },
+  view: {
+    clearProject: vi.fn(), reconcileProjects: vi.fn(),
+  },
+  clearLastSession: vi.fn(),
 }))
 
 vi.mock('../../ui/src/stores/task.store', () => ({
@@ -30,12 +54,32 @@ vi.mock('../../ui/src/stores/agent.store', () => ({
 }))
 vi.mock('../../ui/src/stores/session.store', () => ({
   useSessionStore: { getState: () => stores.session },
+  clearProjectLastSession: stores.clearLastSession,
+}))
+vi.mock('../../ui/src/stores/filesystem.store', () => ({
+  useFileSystemStore: { getState: () => stores.filesystem },
+}))
+vi.mock('../../ui/src/stores/knowledge-base.store', () => ({
+  useKnowledgeBaseStore: { getState: () => stores.knowledge },
+}))
+vi.mock('../../ui/src/stores/rule.store', () => ({
+  useRuleStore: { getState: () => stores.rules },
+}))
+vi.mock('../../ui/src/stores/event-center.store', () => ({
+  useEventCenterStore: { getState: () => stores.events },
+}))
+vi.mock('../../ui/src/stores/agent-memory.store', () => ({
+  useAgentMemoryStore: { getState: () => stores.memory },
+}))
+vi.mock('../../ui/src/stores/project-view-state.store', () => ({
+  useProjectViewStateStore: { getState: () => stores.view },
 }))
 
 const {
   activateProjectData,
   clearProjectData,
   invalidateProjectData,
+  reconcileProjectData,
 } = await import('../../ui/src/project-scope/project-data-scope.ts')
 
 describe('project data scope', () => {
@@ -55,6 +99,11 @@ describe('project data scope', () => {
     expect(stores.task.fetchModes).toHaveBeenCalledWith('project-a')
     expect(stores.agent.fetchAgents).toHaveBeenCalledWith('project-a')
     expect(stores.session.fetchSessions).toHaveBeenCalledWith(undefined, 'project-a')
+    expect(stores.filesystem.activateProject).toHaveBeenCalledWith('project-a')
+    expect(stores.knowledge.activateProject).toHaveBeenCalledWith('project-a')
+    expect(stores.rules.activateProject).toHaveBeenCalledWith('project-a')
+    expect(stores.events.activateProject).toHaveBeenCalledWith('project-a')
+    expect(stores.memory.activateScope).toHaveBeenCalledWith('project-a')
   })
 
   test('fans invalidation and cleanup out to all MVP stores', () => {
@@ -67,5 +116,17 @@ describe('project data scope', () => {
     expect(stores.task.clearProjectCache).toHaveBeenCalledWith('project-a')
     expect(stores.agent.clearProjectCache).toHaveBeenCalledWith('project-a')
     expect(stores.session.clearProjectCache).toHaveBeenCalledWith('project-a')
+    expect(stores.filesystem.clearProjectCache).toHaveBeenCalledWith('project-a')
+    expect(stores.knowledge.clearProjectCache).toHaveBeenCalledWith('project-a')
+    expect(stores.rules.clearProjectCache).toHaveBeenCalledWith('project-a')
+    expect(stores.events.clearProjectCache).toHaveBeenCalledWith('project-a')
+    expect(stores.memory.clearProjectCache).toHaveBeenCalledWith('project-a')
+    expect(stores.view.clearProject).toHaveBeenCalledWith('project-a')
+    expect(stores.clearLastSession).toHaveBeenCalledWith('project-a')
+  })
+
+  test('reconciles persisted view state against the valid project list', () => {
+    reconcileProjectData(['project-b'])
+    expect(stores.view.reconcileProjects).toHaveBeenCalledWith(['project-b'])
   })
 })

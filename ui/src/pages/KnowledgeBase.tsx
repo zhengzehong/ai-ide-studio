@@ -1,9 +1,13 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Database } from 'lucide-react'
 import { useProjectNavigation } from '../hooks/use-project-navigation'
+import { useProjectScopeId } from '../hooks/use-project-scope'
 import { useAgentStore } from '../stores/agent.store'
 import { useKnowledgeBaseStore } from '../stores/knowledge-base.store'
-import { useProjectStore } from '../stores/project.store'
+import {
+  useProjectViewStateStore,
+  type KnowledgeViewState,
+} from '../stores/project-view-state.store'
 import { useSessionStore } from '../stores/session.store'
 import { KnowledgeActivityPanel } from './knowledge-base/KnowledgeActivityPanel'
 import { KnowledgeDocument } from './knowledge-base/KnowledgeDocument'
@@ -17,7 +21,7 @@ const EMPTY_FORM: PageFormState = { title: '', section: '', summary: '', body: '
 
 export default function KnowledgeBase() {
   const { navigateInProject } = useProjectNavigation()
-  const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const currentProjectId = useProjectScopeId()
   const agents = useAgentStore((state) => state.agents)
   const createSession = useSessionStore((state) => state.createSession)
   const selectSession = useSessionStore((state) => state.selectSession)
@@ -50,14 +54,16 @@ export default function KnowledgeBase() {
   const updatePage = useKnowledgeBaseStore((state) => state.updatePage)
   const revertActivity = useKnowledgeBaseStore((state) => state.revertActivity)
 
-  const [editing, setEditing] = useState(false)
-  const [form, setForm] = useState<PageFormState>(EMPTY_FORM)
-  const [query, setQuery] = useState('')
+  const knowledgeView = useProjectViewStateStore((state) => state.byProjectId[currentProjectId]?.knowledge)
+  const patchKnowledge = useProjectViewStateStore((state) => state.patchKnowledge)
+  const query = knowledgeView?.query ?? ''
+  const setQuery = useCallback((nextQuery: string): void => {
+    patchKnowledge(currentProjectId, { query: nextQuery })
+  }, [currentProjectId, patchKnowledge])
   const [showCreateKb, setShowCreateKb] = useState(false)
   const [showCreatePage, setShowCreatePage] = useState(false)
   const [showRefreshAgent, setShowRefreshAgent] = useState(false)
   const [createPageInitial, setCreatePageInitial] = useState<PageFormState>(EMPTY_FORM)
-  const [formPageId, setFormPageId] = useState<string | null>(null)
   const [operationError, setOperationError] = useState<string | null>(null)
 
   const currentKb = useMemo(
@@ -82,8 +88,11 @@ export default function KnowledgeBase() {
   }, [currentProjectId, currentKbId, query, searchPages])
 
   const activePageId = currentRead?.page.id ?? null
-  const editingCurrentPage = editing && formPageId === activePageId
-  const documentForm = editingCurrentPage ? form : formFromPage(currentRead?.page)
+  const draftKey = activePageId ? `${currentProjectId}:${activePageId}` : null
+  const storedDraft = draftKey ? knowledgeView?.draftByPageKey?.[draftKey] : null
+  const draftForm = isPageFormState(storedDraft) ? storedDraft : null
+  const editingCurrentPage = knowledgeView?.editingPageId === activePageId && !!activePageId
+  const documentForm = editingCurrentPage && draftForm ? draftForm : formFromPage(currentRead?.page)
   const visibleError = operationError ?? error
   if (!currentProjectId) {
     return (
@@ -101,15 +110,14 @@ export default function KnowledgeBase() {
     try {
       await updatePage(currentProjectId, {
         pageId: currentRead.page.id,
-        title: form.title,
-        section: form.section || null,
-        summary: form.summary || null,
-        body: form.body,
-        tags: formTags(form),
+        title: documentForm.title,
+        section: documentForm.section || null,
+        summary: documentForm.summary || null,
+        body: documentForm.body,
+        tags: formTags(documentForm),
       })
-      setEditing(false)
-      setFormPageId(null)
       setDirty(false)
+      removeKnowledgeDraft(currentProjectId, draftKey, knowledgeView?.draftByPageKey, patchKnowledge)
     } catch (err) {
       setOperationError(`保存失败，草稿仍保留：${errorMessage(err)}`)
     }
@@ -186,19 +194,27 @@ export default function KnowledgeBase() {
         editing={editingCurrentPage}
         form={documentForm}
         onEdit={() => {
-          setForm(formFromPage(currentRead?.page))
-          setFormPageId(activePageId)
-          setEditing(true)
-          setDirty(false)
+          const nextForm = draftForm ?? formFromPage(currentRead?.page)
+          if (draftKey) {
+            patchKnowledge(currentProjectId, {
+              editingPageId: activePageId,
+              draftByPageKey: { ...(knowledgeView?.draftByPageKey ?? {}), [draftKey]: nextForm },
+            })
+          }
+          setDirty(!!draftForm)
         }}
         onCancel={() => {
-          setForm(formFromPage(currentRead?.page))
-          setFormPageId(null)
-          setEditing(false)
           setDirty(false)
+          removeKnowledgeDraft(currentProjectId, draftKey, knowledgeView?.draftByPageKey, patchKnowledge)
         }}
         onFormChange={(patch) => {
-          setForm((prev) => ({ ...prev, ...patch }))
+          if (!draftKey) return
+          patchKnowledge(currentProjectId, {
+            draftByPageKey: {
+              ...(knowledgeView?.draftByPageKey ?? {}),
+              [draftKey]: { ...documentForm, ...patch },
+            },
+          })
           setDirty(true)
         }}
         onSave={() => void handleSave()}
@@ -289,6 +305,24 @@ export default function KnowledgeBase() {
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
+}
+
+function isPageFormState(value: unknown): value is PageFormState {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const form = value as Record<string, unknown>
+  return ['title', 'section', 'summary', 'body', 'tags', 'srcFiles']
+    .every((key) => typeof form[key] === 'string')
+}
+
+function removeKnowledgeDraft(
+  projectId: string,
+  draftKey: string | null,
+  drafts: Record<string, unknown> | undefined,
+  patchKnowledge: (projectId: string, patch: Partial<KnowledgeViewState>) => void,
+): void {
+  const draftByPageKey = { ...(drafts ?? {}) }
+  if (draftKey) delete draftByPageKey[draftKey]
+  patchKnowledge(projectId, { editingPageId: null, draftByPageKey })
 }
 
 function buildRefreshPrompt(pageId: string, title: string, kbId: string, srcFiles: string[]): string {

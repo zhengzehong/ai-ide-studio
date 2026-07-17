@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { wsClient } from '../services/ws-client'
 import { removeProjectLocation } from '../routing/project-routes'
+import { clearProjectData, reconcileProjectData } from '../project-scope/project-data-scope'
 
 const CURRENT_PROJECT_STORAGE_KEY = 'ai-ide-current-project-id'
 
@@ -75,6 +76,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     set({ loading: true })
     try {
       const data = (await wsClient.request({ type: 'projects.list' })) as ProjectData[]
+      reconcileProjectData(data.map((project) => project.id))
       const currentProjectId = get().currentProjectId
       const storedProjectId = readStoredProjectId()
       const nextProjectId =
@@ -150,6 +152,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     })
     writeStoredProjectId(nextProjectId)
     removeProjectLocation(id)
+    clearProjectData(id)
   },
 
   currentProject: () => {

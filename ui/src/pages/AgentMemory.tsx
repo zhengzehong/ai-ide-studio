@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
-import { useProjectStore } from '../stores/project.store'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useProjectScopeId } from '../hooks/use-project-scope'
+import { useProjectViewStateStore } from '../stores/project-view-state.store'
 import {
   useAgentMemoryStore,
   type AgentMemoryDimensionData,
@@ -13,7 +14,7 @@ import { EntryModal } from './agent-memory/EntryModal'
 import './agent-memory/agent-memory.css'
 
 export default function AgentMemory() {
-  const currentProjectId = useProjectStore((s) => s.currentProjectId)
+  const currentProjectId = useProjectScopeId()
 
   const dimensions = useAgentMemoryStore((s) => s.dimensions)
   const entries = useAgentMemoryStore((s) => s.entries)
@@ -31,8 +32,13 @@ export default function AgentMemory() {
   const updateEntry = useAgentMemoryStore((s) => s.updateEntry)
   const deleteEntry = useAgentMemoryStore((s) => s.deleteEntry)
 
-  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
-  const [selectedDimensionId, setSelectedDimensionId] = useState<string | null>(null)
+  const memoryView = useProjectViewStateStore((state) => state.byProjectId[currentProjectId]?.agentMemory)
+  const patchAgentMemory = useProjectViewStateStore((state) => state.patchAgentMemory)
+  const selectedAgentId = memoryView?.selectedAgentId ?? null
+  const selectedDimensionId = memoryView?.selectedDimensionId ?? null
+  const setSelectedDimensionId = useCallback((dimensionId: string | null): void => {
+    patchAgentMemory(currentProjectId, { selectedDimensionId: dimensionId })
+  }, [currentProjectId, patchAgentMemory])
   const [expandedContent, setExpandedContent] = useState<Record<string, string>>({})
   const [dimModal, setDimModal] = useState<{ mode: 'create' | 'edit'; target: AgentMemoryDimensionData | null } | null>(null)
   const [entryModal, setEntryModal] = useState<{ mode: 'create' | 'edit'; target: AgentMemoryEntrySummary | null } | null>(null)
@@ -43,8 +49,7 @@ export default function AgentMemory() {
   }, [currentProjectId, selectedAgentId, fetchDimensions])
 
   const handleSelectAgent = (id: string) => {
-    setSelectedAgentId(id)
-    setSelectedDimensionId(null)
+    patchAgentMemory(currentProjectId, { selectedAgentId: id, selectedDimensionId: null })
   }
 
   const currentDimension = useMemo(
@@ -199,6 +204,7 @@ export default function AgentMemory() {
         onClose={() => setDimModal(null)}
       />
       <EntryModal
+        key={entryModal ? `${entryModal.mode}:${entryModal.target?.id ?? 'new'}` : 'closed'}
         open={entryModal !== null}
         mode={entryModal?.mode ?? 'create'}
         entry={entryModal?.target ?? null}

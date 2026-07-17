@@ -127,6 +127,7 @@ import {
 } from './workspace/task-collab'
 import { ShareModal } from './share/ShareModal'
 import { Share2 } from 'lucide-react'
+import { useWorkspaceProjectState } from './workspace/use-workspace-project-state'
 
 const COPYING_STAGE = '正在复制会话...'
 
@@ -182,8 +183,8 @@ export default function Workspace() {
   const openFileByPath = useFileSystemStore((s) => s.openFileByPath)
   const closeFile = useFileSystemStore((s) => s.closeFile)
 
-  const [sidebarTab, setSidebarTab] = useState<'sessions' | 'files'>('sessions')
-  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
+  const { sidebarTab, selectedAgentId, setSidebarTab, setSelectedAgentId } =
+    useWorkspaceProjectState(currentProjectId)
   const [orderingMode, setOrderingMode] = useState(false)
   const [agentVisibilityOpen, setAgentVisibilityOpen] = useState(false)
   const [draggedOrderItem, setDraggedOrderItem] = useState<{ type: 'agent' | 'session'; id: string; agentId?: string } | null>(null)
@@ -339,7 +340,7 @@ export default function Workspace() {
         selectSession(null)
       })
     }
-  }, [currentSessionId, projectAgents, projectSessions, selectSession])
+  }, [currentSessionId, projectAgents, projectSessions, selectSession, setSelectedAgentId])
 
   useEffect(() => {
     const targetProjectId = searchParams.get('projectId')
@@ -361,7 +362,15 @@ export default function Workspace() {
         return next
       }, { replace: true })
     })
-  }, [currentProjectId, projectSessions, searchParams, selectProject, selectSession, setSearchParams])
+  }, [
+    currentProjectId,
+    projectSessions,
+    searchParams,
+    selectProject,
+    selectSession,
+    setSearchParams,
+    setSelectedAgentId,
+  ])
 
   useEffect(() => {
     if (searchParams.get('sessionId')) return

@@ -34,12 +34,14 @@ import { useTimelineStore } from './stores/timeline.store'
 import { useKnowledgeBaseStore } from './stores/knowledge-base.store'
 import { ProjectScopeLayout } from './components/project/ProjectScopeLayout'
 import { LegacyProjectRedirect } from './components/project/LegacyProjectRedirect'
+import { invalidateProjectData, refreshProjectData } from './project-scope/project-data-scope'
 
 export default function App() {
   const init = useConnectionStore((s) => s.init)
   const connected = useConnectionStore((s) => s.connected)
   const authRequired = useConnectionStore((s) => s.authRequired)
   const listenersReady = useRef(false)
+  const connectedOnce = useRef(false)
 
   useEffect(() => {
     init()
@@ -47,6 +49,13 @@ export default function App() {
 
   useEffect(() => {
     if (!connected) return
+
+    const projectId = useProjectStore.getState().currentProjectId
+    if (connectedOnce.current && projectId) {
+      invalidateProjectData(projectId)
+      void refreshProjectData(projectId, { force: true })
+    }
+    connectedOnce.current = true
 
     useRuleStore.getState().fetchRules()
     useProjectStore.getState().fetchProjects()

@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Plus } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useProjectNavigation } from '../hooks/use-project-navigation'
+import { useProjectScopeId } from '../hooks/use-project-scope'
 import { useAgentStore, type AgentData } from '../stores/agent.store'
-import { useProjectStore } from '../stores/project.store'
+import { useProjectViewStateStore } from '../stores/project-view-state.store'
 import { useSessionStore } from '../stores/session.store'
 import { useTaskStore, type TaskData } from '../stores/task.store'
 import { TaskCard } from './task-board-card'
@@ -31,6 +32,7 @@ const COLUMNS: Column[] = [
 export function TaskBoard() {
   const navigate = useNavigate()
   const { toProjectPath } = useProjectNavigation()
+  const currentProjectId = useProjectScopeId()
   const tasks = useTaskStore((s) => s.tasks)
   const modes = useTaskStore((s) => s.modes)
   const updateTask = useTaskStore((s) => s.updateTask)
@@ -39,15 +41,28 @@ export function TaskBoard() {
   const agents = useAgentStore((s) => s.agents)
   const sessions = useSessionStore((s) => s.sessions)
   const selectSession = useSessionStore((s) => s.selectSession)
-  const currentProjectId = useProjectStore((s) => s.currentProjectId)
   const [showNew, setShowNew] = useState(false)
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
+  const selectedTaskId = useProjectViewStateStore((state) => (
+    state.byProjectId[currentProjectId]?.tasks?.selectedTaskId ?? null
+  ))
+  const savedScrollLeft = useProjectViewStateStore((state) => (
+    state.byProjectId[currentProjectId]?.tasks?.scrollLeft ?? 0
+  ))
+  const patchTasks = useProjectViewStateStore((state) => state.patchTasks)
+  const setSelectedTaskId = useCallback((taskId: string | null): void => {
+    patchTasks(currentProjectId, { selectedTaskId: taskId })
+  }, [currentProjectId, patchTasks])
+  const boardRef = useRef<HTMLDivElement | null>(null)
   const [reportModal, setReportModal] = useState<{ taskId: string; eventId: string | null } | null>(null)
 
   useEffect(() => {
     void fetchTasks(currentProjectId ?? undefined)
     void fetchModes(currentProjectId ?? undefined)
   }, [currentProjectId, fetchModes, fetchTasks])
+
+  useLayoutEffect(() => {
+    if (boardRef.current) boardRef.current.scrollLeft = savedScrollLeft
+  }, [currentProjectId, savedScrollLeft])
 
   const projectTasks = useMemo(
     () => (currentProjectId ? tasks.filter((task) => task.project_id === currentProjectId) : tasks),
@@ -103,7 +118,11 @@ export function TaskBoard() {
           </button>
         </div>
       </div>
-      <div style={{ display: 'flex', gap: 16, overflowX: 'auto', flex: 1, minHeight: 0 }}>
+      <div
+        ref={boardRef}
+        onScroll={(event) => patchTasks(currentProjectId, { scrollLeft: event.currentTarget.scrollLeft })}
+        style={{ display: 'flex', gap: 16, overflowX: 'auto', flex: 1, minHeight: 0 }}
+      >
         {COLUMNS.map((column) => {
           const items = grouped.get(column.id) ?? []
           return (
