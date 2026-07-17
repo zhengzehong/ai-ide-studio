@@ -68,6 +68,7 @@ export default function SessionListPage() {
     setCurrentProject,
     isDrawerPinned,
     setDrawerPinned,
+    fetchAgents,
   } = useAppStore()
   const navigate = useNavigate()
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -84,7 +85,8 @@ export default function SessionListPage() {
 
   useEffect(() => {
     fetchSessions(currentProjectId)
-  }, [currentProjectId, fetchSessions])
+    fetchAgents(currentProjectId ?? undefined)
+  }, [currentProjectId, fetchSessions, fetchAgents])
 
   const activeSessions = useMemo(
     () => sessions.filter((s) => s.status === 'active'),
@@ -138,6 +140,7 @@ export default function SessionListPage() {
   const handlePickProject = (id: string) => {
     setCurrentProject(id)
     fetchSessions(id)
+    fetchAgents(id)
     if (!isDrawerPinned) setDrawerOpen(false)
   }
 
@@ -150,6 +153,7 @@ export default function SessionListPage() {
   const handleCreatedProject = (projectId: string) => {
     setCurrentProject(projectId)
     fetchSessions(projectId)
+    fetchAgents(projectId)
   }
 
   const handleNewSession = () => {
