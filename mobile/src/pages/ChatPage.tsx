@@ -124,30 +124,20 @@ export default function ChatPage() {
   // 新建会话占位路由下,首次发送要先调 sessions.create 拿真 sessionId,再 navigate 替换 URL,
   // 最后走正常 sendPrompt。createSession 期间禁用输入框防止重复触发。
   const [creating, setCreating] = useState(false)
-  const agents = useAppStore(s => s.agents)
 
   const handleSend = useCallback(async (text: string, images?: Parameters<typeof sendPrompt>[1]) => {
     if (isNewSessionRoute) {
       if (creatingRef.current) return
-      // URL query 必须带 projectId;agentId 没带就用当前 project 第一个可见 agent 兜底
-      // (与 SessionListPage.handleNewFromTemplate 的兜底策略一致)。
+      // URL query 必须带 projectId + agentId(来自 NewSessionSheet);没带直接报错,
+      // 不再兜底选 agent,避免用户在不知情的情况下用错 agent 发送。
       const targetProjectId = pendingProjectId
       if (!targetProjectId) {
         showToast('缺少项目信息,请返回重试')
         return
       }
-      let targetAgentId = pendingAgentId
+      const targetAgentId = pendingAgentId
       if (!targetAgentId) {
-        // 从当前列表里按当前 project 过滤第一个 agent;找不到再回退到全局第一个 agent。
-        const inProject = sessions.find((s) => s.projectId === targetProjectId)
-        if (inProject) {
-          targetAgentId = inProject.agentId
-        } else {
-          targetAgentId = agents[0]?.id
-        }
-      }
-      if (!targetAgentId) {
-        showToast('未找到可用 Agent,请先在项目中添加 Agent')
+        showToast('未选择 Agent,请返回重新选择')
         return
       }
       creatingRef.current = true
@@ -174,16 +164,16 @@ export default function ChatPage() {
       return
     }
     sendPrompt(text, images)
-  }, [isNewSessionRoute, pendingProjectId, pendingAgentId, sessions, agents, navigate, sendPrompt])
+  }, [isNewSessionRoute, pendingProjectId, pendingAgentId, navigate, sendPrompt])
   const handleOpenFiles = () => {
     if (!canViewFiles) return
     navigate('/files', { state: { projectId, sessionId } })
   }
 
-  // 新建会话占位路由下,header 标题用项目名/默认文案,不显示"对话"。
-  const projects = useAppStore(s => s.projects)
+  // 新建会话占位路由下,header 显示选中 Agent 名称(来自 URL agentId),不再显示项目名。
+  const agents = useAppStore(s => s.agents)
   const headerTitle = isNewSessionRoute
-    ? (projects.find((p) => p.id === pendingProjectId)?.name || '新对话')
+    ? (agents.find((a) => a.id === pendingAgentId)?.name || '新对话')
     : (session?.sessionTitle || session?.agentName || '对话')
   useEffect(() => {
     if (!isRunning) return undefined
@@ -260,10 +250,16 @@ export default function ChatPage() {
         </button>
         <div style={styles.headerInfo}>
           <span style={styles.headerTitle}>{headerTitle}</span>
-          {session && (
+          {session && !isNewSessionRoute && (
             <span style={styles.headerSub}>
               <Bot size={11} style={{ marginRight: 3 }} />
               {session.agentName}
+            </span>
+          )}
+          {isNewSessionRoute && pendingAgentId && (
+            <span style={styles.headerSub}>
+              <Bot size={11} style={{ marginRight: 3 }} />
+              {agents.find((a) => a.id === pendingAgentId)?.name ?? pendingAgentId}
             </span>
           )}
         </div>

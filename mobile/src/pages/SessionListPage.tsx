@@ -11,7 +11,7 @@ import ProjectCreateSheet from '../components/ProjectCreateSheet'
 import ActionSheet from '../components/ActionSheet'
 import ConfirmDialog from '../components/ConfirmDialog'
 import RenameDialog from '../components/RenameDialog'
-import TemplatePickerSheet from '../components/templates/TemplatePickerSheet'
+import NewSessionSheet from '../components/chat/NewSessionSheet'
 import PublishTemplateSheet from '../components/templates/PublishTemplateSheet'
 import { useEdgeSwipe } from '../hooks/useEdgeSwipe'
 
@@ -75,8 +75,7 @@ export default function SessionListPage() {
   const [actionSession, setActionSession] = useState<MobileSessionItem | null>(null)
   const [renameTarget, setRenameTarget] = useState<MobileSessionItem | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<MobileSessionItem | null>(null)
-  const [newMenuOpen, setNewMenuOpen] = useState(false)
-  const [pickerAgentId, setPickerAgentId] = useState<string | null>(null)
+  const [newSessionOpen, setNewSessionOpen] = useState(false)
   const [publishSession, setPublishSession] = useState<MobileSessionItem | null>(null)
 
   const drawerRef = useRef<HTMLDivElement | null>(null)
@@ -158,33 +157,15 @@ export default function SessionListPage() {
       setCreateSheetOpen(true)
       return
     }
-    setNewMenuOpen(true)
+    setNewSessionOpen(true)
   }
 
-  const handleNewBlankSession = () => {
-    if (!currentProjectId) {
-      setCreateSheetOpen(true)
-      return
-    }
-    navigate(`/chat/new?projectId=${currentProjectId}`)
+  const handleNewBlankFromSheet = (agentId: string) => {
+    if (!currentProjectId) return
+    navigate(`/chat/new?projectId=${currentProjectId}&agentId=${agentId}`)
   }
 
-  const handleNewFromTemplate = () => {
-    if (!currentProjectId) {
-      setCreateSheetOpen(true)
-      return
-    }
-    // 需要选一个 agent 才能打开 picker,默认用第一个可见 agent
-    const firstAgentId = agentGroups[0]?.agentId
-    if (!firstAgentId) {
-      // 无 agent 时直接跳到空白会话
-      navigate(`/chat/new?projectId=${currentProjectId}`)
-      return
-    }
-    setPickerAgentId(firstAgentId)
-  }
-
-  const handlePickerSelect = (sessionId: string) => {
+  const handleNewFromTemplateSheet = (sessionId: string) => {
     navigate(`/chat/${sessionId}`)
   }
 
@@ -361,32 +342,13 @@ export default function SessionListPage() {
         onCancel={() => setDeleteTarget(null)}
       />
 
-      <ActionSheet
-        open={newMenuOpen}
-        title="新建会话"
-        items={[
-          {
-            key: 'blank',
-            label: '空白会话',
-            icon: <Plus size={18} color="#191919" />,
-            onClick: handleNewBlankSession,
-          },
-          {
-            key: 'fromTemplate',
-            label: '从模板新建',
-            icon: <Sparkles size={18} color="#191919" />,
-            onClick: handleNewFromTemplate,
-          },
-        ]}
-        onClose={() => setNewMenuOpen(false)}
-      />
-
-      {pickerAgentId && (
-        <TemplatePickerSheet
-          open
-          agentId={pickerAgentId}
-          onClose={() => setPickerAgentId(null)}
-          onSelect={handlePickerSelect}
+      {currentProjectId && (
+        <NewSessionSheet
+          open={newSessionOpen}
+          projectId={currentProjectId}
+          onClose={() => setNewSessionOpen(false)}
+          onNewBlank={handleNewBlankFromSheet}
+          onInstantiated={handleNewFromTemplateSheet}
         />
       )}
 
