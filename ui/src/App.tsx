@@ -25,6 +25,7 @@ import { useSessionStore } from './stores/session.store'
 import { useTaskStore } from './stores/task.store'
 import { useRuleStore } from './stores/rule.store'
 import { useProjectStore } from './stores/project.store'
+import { useProjectSessionStatsStore } from './stores/project-session-stats.store'
 import { useTemplateStore } from './stores/template.store'
 import { useToolStore } from './stores/tool.store'
 import { useModelStore } from './stores/model.store'
@@ -51,7 +52,8 @@ export default function App() {
     if (!connected) return
 
     const projectId = useProjectStore.getState().currentProjectId
-    if (connectedOnce.current && projectId) {
+    const isReconnect = connectedOnce.current
+    if (isReconnect && projectId) {
       invalidateProjectData(projectId)
       void refreshProjectData(projectId, { force: true })
     }
@@ -59,6 +61,7 @@ export default function App() {
 
     useRuleStore.getState().fetchRules()
     useProjectStore.getState().fetchProjects()
+    void useProjectSessionStatsStore.getState().fetchStats({ force: isReconnect })
     useTemplateStore.getState().fetchTemplates()
     useToolStore.getState().fetchTools()
     useToolStore.getState().fetchProfiles()
@@ -74,6 +77,7 @@ export default function App() {
       const off5 = useTeamStore.getState().setupListeners(() => useSessionStore.getState().currentSessionId)
       const off6 = useTimelineStore.getState().setupListeners()
       const off7 = useKnowledgeBaseStore.getState().setupListeners()
+      const off8 = useProjectSessionStatsStore.getState().setupListeners()
       return () => {
         off1()
         off2()
@@ -82,6 +86,7 @@ export default function App() {
         off5()
         off6()
         off7()
+        off8()
         listenersReady.current = false
       }
     }

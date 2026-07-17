@@ -330,6 +330,54 @@
   font-size: 11px;
 }
 
+.project-activity-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 14px;
+  flex-shrink: 0;
+}
+
+.project-activity-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.project-activity-stat.running {
+  color: var(--green);
+}
+
+.project-activity-stat.unread {
+  color: var(--yellow);
+}
+
+.project-activity-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: currentColor;
+}
+
+.project-activity-badges.compact {
+  gap: 4px;
+}
+
+.project-activity-badges.compact .project-activity-stat {
+  gap: 2px;
+  font-size: 10px;
+}
+
+.project-activity-badges.compact .project-activity-dot {
+  width: 5px;
+  height: 5px;
+}
+
 .project-tab-bar {
   display: flex;
   align-items: center;

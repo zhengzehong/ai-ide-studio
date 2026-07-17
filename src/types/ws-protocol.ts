@@ -152,6 +152,18 @@ export interface SessionsListMsg extends ClientMessage {
   agentId?: string
   projectId?: string
 }
+export interface SessionsProjectStatsMsg extends ClientMessage {
+  type: 'sessions.projectStats'
+}
+export interface ProjectSessionStatsData {
+  projectId: string
+  runningCount: number
+  unreadCount: number
+}
+export interface ProjectSessionStatsSnapshotData {
+  generatedAt: string
+  items: ProjectSessionStatsData[]
+}
 export interface SessionsCreateMsg extends ClientMessage {
   type: 'sessions.create'
   agentId: string

@@ -10,6 +10,7 @@ import { modelRpcHandlers } from './models.js'
 import { projectRpcHandlers } from './projects.js'
 import { ruleRpcHandlers } from './rules.js'
 import { sessionRpcHandlers } from './sessions.js'
+import { sessionStatsRpcHandlers } from './session-stats.js'
 import { sessionTemplateRpcHandlers } from './session-templates.js'
 import { skillRpcHandlers } from './skills.js'
 import { subscriptionRpcHandlers } from './subscriptions.js'
@@ -29,6 +30,7 @@ const rpcHandlers: RpcHandlerMap = {
   ...knowledgeBaseRpcHandlers,
   ...globalAssistantRpcHandlers,
   ...sessionRpcHandlers,
+  ...sessionStatsRpcHandlers,
   ...sessionTemplateRpcHandlers,
   ...agentRpcHandlers,
   ...assetRpcHandlers,
