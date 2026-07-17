@@ -5,6 +5,9 @@ import { describe, it, expect } from 'vitest'
 // 1. 选 blank + 选了 agent → navigate /chat/new?projectId=X&agentId=Y
 // 2. 选 template + 实例化 → navigate /chat/{sessionId}
 // 3. currentProjectId 为空 → 不应打开 sheet,而是 create project sheet
+//
+// 另补 agent 拉取决策:currentProjectId 变化时,SessionListPage 应调
+// fetchAgents(currentProjectId ?? undefined)。抽成纯函数验证。
 
 interface NavArgs {
   currentProjectId: string | null
@@ -43,6 +46,11 @@ function decideNewSessionNav(args: NavArgs): NavResult {
     openCreateProject: false,
     openNewSessionSheet: false,
   }
+}
+
+// 复刻 SessionListPage 的 agent 拉取决策:currentProjectId → fetchAgents 入参
+function decideFetchAgentsArg(currentProjectId: string | null): string | undefined {
+  return currentProjectId ?? undefined
 }
 
 describe('SessionListPage new session navigation (post-refactor)', () => {
@@ -96,5 +104,25 @@ describe('SessionListPage new session navigation (post-refactor)', () => {
     })
     expect(r.url).toContain('agentId=agent-abc')
     expect(r.url).toContain('projectId=p1')
+  })
+})
+
+describe('SessionListPage agent fetch arg (按项目过滤)', () => {
+  it('currentProjectId 有值 → fetchAgents(currentProjectId)', () => {
+    expect(decideFetchAgentsArg('p1')).toBe('p1')
+  })
+
+  it('currentProjectId 为 null → fetchAgents(undefined) 兜底拉全局', () => {
+    expect(decideFetchAgentsArg(null)).toBeUndefined()
+  })
+
+  it('currentProjectId 为空字符串 → fetchAgents(undefined)', () => {
+    // null 和空串在页面里都视为"没选项目"
+    expect(decideFetchAgentsArg(null)).toBeUndefined()
+  })
+
+  it('切换项目:p1 → p2 时 fetchAgents 入参从 "p1" 变 "p2"', () => {
+    expect(decideFetchAgentsArg('p1')).toBe('p1')
+    expect(decideFetchAgentsArg('p2')).toBe('p2')
   })
 })

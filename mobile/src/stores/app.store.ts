@@ -65,7 +65,7 @@ interface AppState {
   currentProjectId: string | null
   isDrawerPinned: boolean
   fetchProjects: () => Promise<void>
-  fetchAgents: () => Promise<void>
+  fetchAgents: (projectId?: string) => Promise<void>
   setCurrentProject: (id: string | null) => void
   setDrawerPinned: (value: boolean) => void
   createProject: (input: CreateProjectInput) => Promise<ProjectRow>
@@ -98,9 +98,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  fetchAgents: async () => {
+  fetchAgents: async (projectId?: string) => {
     try {
-      const data = (await wsClient.request({ type: 'agents.list' })) as AgentItem[]
+      const data = (await wsClient.request({ type: 'agents.list', projectId })) as AgentItem[]
       set({ agents: data })
     } catch {
       /* ignore */
