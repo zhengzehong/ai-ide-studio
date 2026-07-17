@@ -23,13 +23,34 @@ export function SessionContext({
   tasks: TaskData[]
   projects: ProjectData[]
 }) {
+  return (
+    <SessionContextContent
+      key={session?.id ?? 'no-session'}
+      session={session}
+      agents={agents}
+      tasks={tasks}
+      projects={projects}
+    />
+  )
+}
+
+function SessionContextContent({
+  session,
+  agents,
+  tasks,
+  projects,
+}: {
+  session: SessionData | undefined
+  agents: AgentData[]
+  tasks: TaskData[]
+  projects: ProjectData[]
+}) {
   // 不再使用 store 的 currentSessionId/streamingMessage/selectSession/sendPrompt
   // 改用本地 state,避免污染 Workspace 的 currentSessionId
   const [localMessages, setLocalMessages] = useState<MessageData[]>([])
   const [localStreaming, setLocalStreaming] = useState<LocalStreamingState | null>(null)
   const [draft, setDraft] = useState('')
   const subscribedRef = useRef(false)
-  const lastSessionIdRef = useRef<string | null>(null)
   const streamingRef = useRef<LocalStreamingState | null>(null)
 
   useEffect(() => {
@@ -38,18 +59,10 @@ export function SessionContext({
 
   const sessionId = session?.id ?? null
 
-  // session 变化时重置本地 state,拉取最新消息
+  // keyed child remounts on session change; this effect only loads the selected session.
   useEffect(() => {
-    if (!sessionId) {
-      setLocalMessages([])
-      setLocalStreaming(null)
-      lastSessionIdRef.current = null
-      return
-    }
-    if (lastSessionIdRef.current === sessionId) return
-    lastSessionIdRef.current = sessionId
-    setLocalMessages([])
-    setLocalStreaming(null)
+    if (!sessionId) return
+    let cancelled = false
     void (async () => {
       try {
         const serverMessages = (await wsClient.request({
@@ -57,12 +70,13 @@ export function SessionContext({
           sessionId,
           limit: 20,
         })) as MessageData[]
-        if (lastSessionIdRef.current !== sessionId) return
+        if (cancelled) return
         setLocalMessages(serverMessages)
       } catch {
         // ignore; user can retry by switching
       }
     })()
+    return () => { cancelled = true }
   }, [sessionId])
 
   // 订阅 session 的 WS 推送(本地处理,不影响 store)

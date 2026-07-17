@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { Bot, Loader2, Pencil, Plus, Rocket, Search as SearchIcon, Sparkles, Trash2, X } from 'lucide-react'
+import { useProjectNavigation } from '../hooks/use-project-navigation'
 import { useTemplateStore, type TemplateData } from '../stores/template.store'
 import { useAgentStore } from '../stores/agent.store'
 import { useGlobalAssistantStore } from '../stores/global-assistant.store'
@@ -27,7 +27,7 @@ import {
 } from '../components/agent-square/styles'
 
 export default function AgentSquare() {
-  const navigate = useNavigate()
+  const { navigateInProject } = useProjectNavigation()
   const templates = useTemplateStore((s) => s.templates)
   const createTemplate = useTemplateStore((s) => s.createTemplate)
   const updateTemplate = useTemplateStore((s) => s.updateTemplate)
@@ -136,7 +136,7 @@ export default function AgentSquare() {
             setDeploying(null)
             setSuccessText(`已将「${agent.name}」添加到项目，可以在工作台新建会话。`)
           }}
-          onOpenWorkspace={() => navigate('/workspace')}
+          onOpenWorkspace={() => navigateInProject('/workspace')}
         />
       )}
 

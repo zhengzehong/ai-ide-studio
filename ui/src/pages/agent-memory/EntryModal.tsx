@@ -22,12 +22,13 @@ export function EntryModal({ open, mode, entry, projectId, agentId, saving, onSa
   const [content, setContent] = useState('')
   const [tagsText, setTagsText] = useState(initialTags)
   const [showPreview, setShowPreview] = useState(false)
-  const [loadingContent, setLoadingContent] = useState(false)
+  const [loadingContent, setLoadingContent] = useState(
+    open && mode === 'edit' && !!entry && !!projectId && !!agentId,
+  )
 
   useEffect(() => {
     if (!open || mode !== 'edit' || !entry || !projectId || !agentId) return
     let cancelled = false
-    setLoadingContent(true)
     getEntry(projectId, agentId, entry.id)
       .then((full) => {
         if (!cancelled) setContent(full.content)
@@ -42,14 +43,6 @@ export function EntryModal({ open, mode, entry, projectId, agentId, saving, onSa
       cancelled = true
     }
   }, [open, mode, entry, projectId, agentId, getEntry])
-
-  useEffect(() => {
-    if (!open) return
-    setTitle(entry?.title ?? '')
-    setTagsText(entry?.tags.join(', ') ?? '')
-    setContent('')
-    setShowPreview(false)
-  }, [open, entry])
 
   const handleSave = async () => {
     if (!title.trim() || !content.trim()) return

@@ -1,6 +1,17 @@
 import { create } from 'zustand'
 import { wsClient } from '../services/ws-client'
-import { useProjectStore } from './project.store'
+import {
+  beginProjectRequest,
+  clearProjectCache,
+  commitProjectResponse,
+  emptyProjectCache,
+  invalidateProjectCache,
+  pruneProjectCache,
+  readProjectCache,
+  shouldRefreshProjectCache,
+  touchProjectCache,
+  type ProjectCacheState,
+} from './project-cache'
 
 export type KnowledgeBaseKind = 'project' | 'shared'
 export type KnowledgeBaseSource = 'manual' | 'code'
@@ -80,6 +91,18 @@ export interface KnowledgePageReadData {
   backlinks: KnowledgeBacklinkData[]
 }
 
+export interface KnowledgeProjectSnapshot {
+  knowledgeBases: KnowledgeBaseData[]
+  pagesByKbId: Record<string, KnowledgePageData[]>
+  currentKbId: string | null
+  currentPageId: string | null
+  currentRead: KnowledgePageReadData | null
+  activities: KnowledgeActivityData[]
+  searchResults: KnowledgePageData[]
+  isDirty: boolean
+  remoteUpdatePending: boolean
+}
+
 interface KnowledgeBaseStore {
   knowledgeBases: KnowledgeBaseData[]
   sharedKnowledgeBases: KnowledgeBaseData[]
@@ -95,9 +118,14 @@ interface KnowledgeBaseStore {
   error: string | null
   isDirty: boolean
   remoteUpdatePending: boolean
+  activeProjectId: string | null
+  projectCache: ProjectCacheState<KnowledgeProjectSnapshot>
+  activateProject: (projectId: string) => void
+  invalidateProject: (projectId: string) => void
+  clearProjectCache: (projectId: string) => void
   setDirty: (dirty: boolean) => void
   clearError: () => void
-  fetchKnowledgeBases: (projectId: string) => Promise<void>
+  fetchKnowledgeBases: (projectId: string, options?: { force?: boolean }) => Promise<void>
   fetchSharedKnowledgeBases: () => Promise<void>
   selectKnowledgeBase: (projectId: string, kbId: string) => Promise<void>
   fetchPages: (projectId: string, kbId: string) => Promise<void>
@@ -112,6 +140,43 @@ interface KnowledgeBaseStore {
   fetchActivities: (projectId: string, kbId?: string) => Promise<void>
   revertActivity: (projectId: string, activityId: string) => Promise<void>
   setupListeners: () => () => void
+}
+
+const knowledgeFetches = new Map<string, Promise<void>>()
+const knowledgeReadSeq = new Map<string, number>()
+
+const EMPTY_KNOWLEDGE_SNAPSHOT: KnowledgeProjectSnapshot = {
+  knowledgeBases: [],
+  pagesByKbId: {},
+  currentKbId: null,
+  currentPageId: null,
+  currentRead: null,
+  activities: [],
+  searchResults: [],
+  isDirty: false,
+  remoteUpdatePending: false,
+}
+
+function updateKnowledgeSnapshot(
+  cache: ProjectCacheState<KnowledgeProjectSnapshot>,
+  projectId: string,
+  patch: Partial<KnowledgeProjectSnapshot>,
+): ProjectCacheState<KnowledgeProjectSnapshot> {
+  const entry = cache.entries[projectId]
+  const now = Date.now()
+  return {
+    ...cache,
+    entries: {
+      ...cache.entries,
+      [projectId]: {
+        data: { ...(entry?.data ?? EMPTY_KNOWLEDGE_SNAPSHOT), ...patch },
+        fetchedAt: entry?.fetchedAt ?? now,
+        lastAccessedAt: now,
+        invalidated: false,
+        error: null,
+      },
+    },
+  }
 }
 
 export const useKnowledgeBaseStore = create<KnowledgeBaseStore>((set, get) => ({
@@ -129,22 +194,81 @@ export const useKnowledgeBaseStore = create<KnowledgeBaseStore>((set, get) => ({
   error: null,
   isDirty: false,
   remoteUpdatePending: false,
-  setDirty: (dirty) => set({ isDirty: dirty }),
+  activeProjectId: null,
+  projectCache: emptyProjectCache<KnowledgeProjectSnapshot>(),
+  activateProject: (projectId) => set((state) => {
+    const projectCache = pruneProjectCache(touchProjectCache(state.projectCache, projectId), projectId)
+    const snapshot = readProjectCache(projectCache, projectId)?.data ?? EMPTY_KNOWLEDGE_SNAPSHOT
+    return {
+      activeProjectId: projectId,
+      projectCache,
+      ...snapshot,
+      loading: false,
+      pageLoading: false,
+      error: null,
+    }
+  }),
+  invalidateProject: (projectId) => set((state) => ({
+    projectCache: invalidateProjectCache(state.projectCache, projectId),
+  })),
+  clearProjectCache: (projectId) => set((state) => ({
+    projectCache: clearProjectCache(state.projectCache, projectId),
+  })),
+  setDirty: (dirty) => set((state) => ({
+    isDirty: dirty,
+    projectCache: state.activeProjectId
+      ? updateKnowledgeSnapshot(state.projectCache, state.activeProjectId, { isDirty: dirty })
+      : state.projectCache,
+  })),
   clearError: () => set({ error: null }),
 
-  fetchKnowledgeBases: async (projectId) => {
-    set({ loading: true, error: null })
-    try {
+  fetchKnowledgeBases: async (projectId, options) => {
+    const cached = readProjectCache(get().projectCache, projectId)
+    if (!options?.force && cached && !shouldRefreshProjectCache(cached)) return
+    const inFlight = knowledgeFetches.get(projectId)
+    if (!options?.force && inFlight) return inFlight
+    let requestSeq = 0
+    set((state) => {
+      const request = beginProjectRequest(state.projectCache, projectId)
+      requestSeq = request.requestSeq
+      return {
+        projectCache: request.state,
+        loading: state.activeProjectId === projectId && !cached,
+        error: state.activeProjectId === projectId ? null : state.error,
+      }
+    })
+    const request = (async (): Promise<void> => {
+      try {
       const data = await wsClient.request({ type: 'knowledgeBases.list', projectId }) as { knowledgeBases: KnowledgeBaseData[] }
-      const currentKbId = get().currentKbId
+        const currentKbId = readProjectCache(get().projectCache, projectId)?.data.currentKbId
       const nextKbId = currentKbId && data.knowledgeBases.some((kb) => kb.id === currentKbId)
         ? currentKbId
         : data.knowledgeBases[0]?.id ?? null
-      set({ knowledgeBases: data.knowledgeBases, currentKbId: nextKbId, loading: false })
+        set((state) => {
+          const current = readProjectCache(state.projectCache, projectId)?.data ?? EMPTY_KNOWLEDGE_SNAPSHOT
+          const projectCache = pruneProjectCache(commitProjectResponse(state.projectCache, {
+            scope: projectId,
+            requestSeq,
+            data: { ...current, knowledgeBases: data.knowledgeBases, currentKbId: nextKbId },
+          }), state.activeProjectId ?? projectId)
+          return {
+            projectCache,
+            knowledgeBases: state.activeProjectId === projectId ? data.knowledgeBases : state.knowledgeBases,
+            currentKbId: state.activeProjectId === projectId ? nextKbId : state.currentKbId,
+            loading: state.activeProjectId === projectId ? false : state.loading,
+          }
+        })
       if (nextKbId) await get().fetchPages(projectId, nextKbId)
       await get().fetchActivities(projectId, nextKbId ?? undefined)
     } catch (err) {
-      set({ loading: false, error: errorMessage(err) })
+        if (get().activeProjectId === projectId) set({ loading: false, error: errorMessage(err) })
+      }
+    })()
+    knowledgeFetches.set(projectId, request)
+    try {
+      await request
+    } finally {
+      if (knowledgeFetches.get(projectId) === request) knowledgeFetches.delete(projectId)
     }
   },
 
@@ -154,18 +278,32 @@ export const useKnowledgeBaseStore = create<KnowledgeBaseStore>((set, get) => ({
   },
 
   selectKnowledgeBase: async (projectId, kbId) => {
-    set({ currentKbId: kbId, currentPageId: null, currentRead: null })
+    set((state) => ({
+      projectCache: updateKnowledgeSnapshot(state.projectCache, projectId, {
+        currentKbId: kbId,
+        currentPageId: null,
+        currentRead: null,
+      }),
+      ...(state.activeProjectId === projectId
+        ? { currentKbId: kbId, currentPageId: null, currentRead: null }
+        : {}),
+    }))
     await get().fetchPages(projectId, kbId)
     await get().fetchActivities(projectId, kbId)
   },
 
   fetchPages: async (projectId, kbId) => {
     const data = await wsClient.request({ type: 'knowledgePages.list', projectId, kbId }) as { pages: KnowledgePageData[] }
-    set((state) => ({ pagesByKbId: { ...state.pagesByKbId, [kbId]: data.pages } }))
-    const state = get()
-    const currentPageId = state.currentPageId && data.pages.some((page) => page.id === state.currentPageId)
-      ? state.currentPageId
+    const snapshot = readProjectCache(get().projectCache, projectId)?.data ?? EMPTY_KNOWLEDGE_SNAPSHOT
+    const pagesByKbId = { ...snapshot.pagesByKbId, [kbId]: data.pages }
+    const currentPageId = snapshot.currentPageId && data.pages.some((page) => page.id === snapshot.currentPageId)
+      ? snapshot.currentPageId
       : data.pages[0]?.id ?? null
+    set((state) => ({
+      projectCache: updateKnowledgeSnapshot(state.projectCache, projectId, { pagesByKbId, currentPageId }),
+      ...(state.activeProjectId === projectId ? { pagesByKbId, currentPageId } : {}),
+    }))
+    const state = get()
     // 编辑中(isDirty=true)不覆盖 currentRead,仅标记有新版本,避免用户草稿被覆盖
     if (state.isDirty && state.currentRead) {
       const remotePage = data.pages.find((p) => p.id === state.currentRead!.page.id)
@@ -179,24 +317,49 @@ export const useKnowledgeBaseStore = create<KnowledgeBaseStore>((set, get) => ({
   },
 
   readPage: async (projectId, input) => {
-    set({ pageLoading: true, error: null })
+    const seq = (knowledgeReadSeq.get(projectId) ?? 0) + 1
+    knowledgeReadSeq.set(projectId, seq)
+    if (get().activeProjectId === projectId) set({ pageLoading: true, error: null })
     try {
       const data = await wsClient.request({ type: 'knowledgePages.read', projectId, ...input }) as KnowledgePageReadData
-      set({ currentRead: data, currentPageId: data.page.id, currentKbId: data.kb.id, pageLoading: false, remoteUpdatePending: false })
+      if (knowledgeReadSeq.get(projectId) !== seq) return data
+      set((state) => ({
+        projectCache: updateKnowledgeSnapshot(state.projectCache, projectId, {
+          currentRead: data,
+          currentPageId: data.page.id,
+          currentKbId: data.kb.id,
+          remoteUpdatePending: false,
+        }),
+        ...(state.activeProjectId === projectId
+          ? {
+              currentRead: data,
+              currentPageId: data.page.id,
+              currentKbId: data.kb.id,
+              pageLoading: false,
+              remoteUpdatePending: false,
+            }
+          : {}),
+      }))
       return data
     } catch (err) {
-      set({ pageLoading: false, error: errorMessage(err) })
+      if (get().activeProjectId === projectId) set({ pageLoading: false, error: errorMessage(err) })
       throw err
     }
   },
 
   searchPages: async (projectId, query, kbIds) => {
     if (!query.trim()) {
-      set({ searchResults: [] })
+      set((state) => ({
+        projectCache: updateKnowledgeSnapshot(state.projectCache, projectId, { searchResults: [] }),
+        searchResults: state.activeProjectId === projectId ? [] : state.searchResults,
+      }))
       return
     }
     const data = await wsClient.request({ type: 'knowledgePages.search', projectId, query, kbIds }) as { pages: KnowledgePageData[] }
-    set({ searchResults: data.pages })
+    set((state) => ({
+      projectCache: updateKnowledgeSnapshot(state.projectCache, projectId, { searchResults: data.pages }),
+      searchResults: state.activeProjectId === projectId ? data.pages : state.searchResults,
+    }))
   },
 
   createKnowledgeBase: async (projectId, input) => {
@@ -249,7 +412,15 @@ export const useKnowledgeBaseStore = create<KnowledgeBaseStore>((set, get) => ({
       await get().fetchPages(projectId, data.page.kb_id)
       await get().fetchActivities(projectId, data.page.kb_id)
       await get().readPage(projectId, { pageId: data.page.id })
-      set({ saving: false, isDirty: false, remoteUpdatePending: false })
+      set((state) => ({
+        saving: false,
+        isDirty: false,
+        remoteUpdatePending: false,
+        projectCache: updateKnowledgeSnapshot(state.projectCache, projectId, {
+          isDirty: false,
+          remoteUpdatePending: false,
+        }),
+      }))
       return data.page
     } catch (err) {
       set({ saving: false, error: errorMessage(err) })
@@ -274,7 +445,10 @@ export const useKnowledgeBaseStore = create<KnowledgeBaseStore>((set, get) => ({
 
   fetchActivities: async (projectId, kbId) => {
     const data = await wsClient.request({ type: 'knowledgeActivities.list', projectId, kbId }) as { activities: KnowledgeActivityData[] }
-    set({ activities: data.activities })
+    set((state) => ({
+      projectCache: updateKnowledgeSnapshot(state.projectCache, projectId, { activities: data.activities }),
+      activities: state.activeProjectId === projectId ? data.activities : state.activities,
+    }))
   },
 
   revertActivity: async (projectId, activityId) => {
@@ -286,10 +460,13 @@ export const useKnowledgeBaseStore = create<KnowledgeBaseStore>((set, get) => ({
   },
 
   setupListeners: () => {
-    const off = wsClient.on('knowledge-base:update', () => {
-      const projectId = useProjectStore.getState().currentProjectId
+    const off = wsClient.on('knowledge-base:update', (msg) => {
+      const projectId = typeof msg.projectId === 'string' ? msg.projectId : get().activeProjectId
       void get().fetchSharedKnowledgeBases()
-      if (projectId) void get().fetchKnowledgeBases(projectId)
+      if (projectId) {
+        get().invalidateProject(projectId)
+        if (projectId === get().activeProjectId) void get().fetchKnowledgeBases(projectId, { force: true })
+      }
     })
     return off
   },

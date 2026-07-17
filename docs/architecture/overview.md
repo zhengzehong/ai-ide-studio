@@ -123,6 +123,16 @@ Session 删除采用软删除，仅隐藏列表项并保留 `messages` / `sessio
 | `ui/src/services/` | 通信层 | `ws-client.ts` |
 | `mobile/src/` | 移动端 Web App | `/app/` 下的手机端页面、组件和 Zustand store；复用 `ui/src/services/ws-client.ts` 与会话事件还原辅助逻辑 |
 
+## PC 项目路由与前端状态边界
+
+PC 端项目页面以 `/p/:projectId/*` 为 URL 真源。Workspace、任务、自动化、事件中心、知识库和 Agent 记忆均位于该路由边界内；Dashboard、Agent 广场、工具、设置、分享页和 Widget 保持全局路由。旧的无项目前缀链接会重定向到当前有效项目，移动端路由和状态管理不受该边界影响。
+
+`project-data-scope` 是项目切换的前端编排边界。路由项目变化时，它先同步激活各 Zustand store 的项目分区缓存，再发起后台刷新。Task、Agent、Session 列表、文件树、规则、知识库、事件中心和 Agent Memory 均按项目或更细的 Agent/维度 scope 缓存；缓存采用 30 秒 stale-while-revalidate、逐 scope 请求序号和 LRU 淘汰，迟到响应只能写回自身 scope，不能覆盖当前项目投影。
+
+WebSocket 实体更新按实体携带的 `project_id` 写入目标缓存。只包含实体 ID 的局部更新会修改所有命中的已访问 scope；无法安全合并的集合更新只标记目标 scope 失效，并仅刷新当前可见项目。Session 的消息、事件和流式执行状态继续按 `sessionId` 使用既有缓存，不复制到项目列表缓存。
+
+项目视图状态与业务数据缓存分离。每个项目独立保存 Workspace 侧栏与 Agent 选择、任务选中项和滚动位置、知识库搜索及未保存草稿、事件中心 Tab、Agent Memory 的 Agent/维度选择。低频选择状态持久化到浏览器存储，滚动位置只保存在内存；删除项目时路由记忆、视图状态、资源缓存和最后会话映射一并清理。
+
 ## 支持的 Agent 运行时
 
 | 运行时 | 包 | 状态 |

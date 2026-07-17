@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
-import AppLayout from './components/layout/AppLayout'
+import { BrowserRouter, Navigate, Routes, Route } from 'react-router-dom'
+import { AppLayout } from './components/layout/AppLayout'
 import Dashboard from './pages/Dashboard'
 import Workspace from './pages/Workspace'
 import { TaskBoard } from './pages/TaskBoard'
@@ -32,12 +32,16 @@ import { useSkillStore } from './stores/skill.store'
 import { useTeamStore } from './stores/team.store'
 import { useTimelineStore } from './stores/timeline.store'
 import { useKnowledgeBaseStore } from './stores/knowledge-base.store'
+import { ProjectScopeLayout } from './components/project/ProjectScopeLayout'
+import { LegacyProjectRedirect } from './components/project/LegacyProjectRedirect'
+import { invalidateProjectData, refreshProjectData } from './project-scope/project-data-scope'
 
 export default function App() {
   const init = useConnectionStore((s) => s.init)
   const connected = useConnectionStore((s) => s.connected)
   const authRequired = useConnectionStore((s) => s.authRequired)
   const listenersReady = useRef(false)
+  const connectedOnce = useRef(false)
 
   useEffect(() => {
     init()
@@ -47,8 +51,12 @@ export default function App() {
     if (!connected) return
 
     const projectId = useProjectStore.getState().currentProjectId
-    useAgentStore.getState().fetchAgents(projectId ?? undefined)
-    useTaskStore.getState().fetchTasks(projectId ?? undefined)
+    if (connectedOnce.current && projectId) {
+      invalidateProjectData(projectId)
+      void refreshProjectData(projectId, { force: true })
+    }
+    connectedOnce.current = true
+
     useRuleStore.getState().fetchRules()
     useProjectStore.getState().fetchProjects()
     useTemplateStore.getState().fetchTemplates()
@@ -91,13 +99,23 @@ export default function App() {
           <Route path="/agents" element={<AgentSquare />} />
           <Route path="/skills" element={<SkillCenter />} />
           <Route path="/tools" element={<ToolManager />} />
-          <Route path="/workspace" element={<Workspace />} />
-          <Route path="/tasks" element={<TaskBoard />} />
-          <Route path="/tasks/modes" element={<TaskModesSettings />} />
-          <Route path="/schedule" element={<Schedule />} />
-          <Route path="/events" element={<EventCenter />} />
-          <Route path="/knowledge" element={<KnowledgeBase />} />
-          <Route path="/agent-memory" element={<AgentMemory />} />
+          <Route path="/p/:projectId" element={<ProjectScopeLayout />}>
+            <Route index element={<Navigate to="workspace" replace />} />
+            <Route path="workspace" element={<Workspace />} />
+            <Route path="tasks" element={<TaskBoard />} />
+            <Route path="tasks/modes" element={<TaskModesSettings />} />
+            <Route path="schedule" element={<Schedule />} />
+            <Route path="events" element={<EventCenter />} />
+            <Route path="knowledge" element={<KnowledgeBase />} />
+            <Route path="agent-memory" element={<AgentMemory />} />
+          </Route>
+          <Route path="/workspace" element={<LegacyProjectRedirect subpath="/workspace" />} />
+          <Route path="/tasks" element={<LegacyProjectRedirect subpath="/tasks" />} />
+          <Route path="/tasks/modes" element={<LegacyProjectRedirect subpath="/tasks/modes" />} />
+          <Route path="/schedule" element={<LegacyProjectRedirect subpath="/schedule" />} />
+          <Route path="/events" element={<LegacyProjectRedirect subpath="/events" />} />
+          <Route path="/knowledge" element={<LegacyProjectRedirect subpath="/knowledge" />} />
+          <Route path="/agent-memory" element={<LegacyProjectRedirect subpath="/agent-memory" />} />
           <Route path="/projects" element={<Projects />} />
           <Route path="/shares" element={<ShareManagePage />} />
           <Route path="/templates" element={<TemplatesPage />} />

@@ -1,6 +1,23 @@
 import { create } from 'zustand'
 import { wsClient } from '../services/ws-client'
-import { useProjectStore } from './project.store'
+import {
+  ALL_PROJECTS_SCOPE,
+  beginProjectRequest,
+  clearProjectCache,
+  commitProjectResponse,
+  emptyProjectCache,
+  invalidateProjectCache,
+  patchCachedArrays,
+  projectScopeKey,
+  pruneProjectCache,
+  readProjectCache,
+  removeCachedArrayItem,
+  setProjectCacheError,
+  shouldRefreshProjectCache,
+  touchProjectCache,
+  upsertCachedArrayItem,
+  type ProjectCacheState,
+} from './project-cache'
 
 export interface TaskStepData {
   id: string
@@ -83,11 +100,41 @@ export function mergeTaskById(tasks: TaskData[], incoming: TaskData): TaskData[]
   return tasks.map((task, index) => (index === existingIndex ? { ...task, ...incoming } : task))
 }
 
+const taskFetches = new Map<string, Promise<void>>()
+const modeFetches = new Map<string, Promise<TaskExecutionModeData[]>>()
+
+function mergeTaskIntoCache(
+  cache: ProjectCacheState<TaskData[]>,
+  task: TaskData,
+): ProjectCacheState<TaskData[]> {
+  let next = patchCachedArrays(cache, task.id, task)
+  if (task.project_id) next = upsertCachedArrayItem(next, task.project_id, task)
+  next = upsertCachedArrayItem(next, ALL_PROJECTS_SCOPE, task)
+  return next
+}
+
+function mergeModeIntoCache(
+  cache: ProjectCacheState<TaskExecutionModeData[]>,
+  mode: TaskExecutionModeData,
+): ProjectCacheState<TaskExecutionModeData[]> {
+  let next = patchCachedArrays(cache, mode.id, mode)
+  if (mode.project_id) next = upsertCachedArrayItem(next, mode.project_id, mode)
+  next = upsertCachedArrayItem(next, ALL_PROJECTS_SCOPE, mode)
+  return next
+}
+
 interface TaskStore {
   tasks: TaskData[]
   modes: TaskExecutionModeData[]
   loading: boolean
-  fetchTasks: (projectId?: string) => Promise<void>
+  refreshing: boolean
+  activeScope: string
+  taskCache: ProjectCacheState<TaskData[]>
+  modeCache: ProjectCacheState<TaskExecutionModeData[]>
+  activateProject: (projectId?: string | null) => void
+  fetchTasks: (projectId?: string, options?: { force?: boolean }) => Promise<void>
+  invalidateProject: (projectId?: string | null) => void
+  clearProjectCache: (projectId: string) => void
   createTask: (title: string, description: string, projectId?: string) => Promise<TaskData>
   createSimpleTask: (input: {
     title: string
@@ -149,24 +196,116 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   tasks: [],
   modes: [],
   loading: false,
+  refreshing: false,
+  activeScope: ALL_PROJECTS_SCOPE,
+  taskCache: emptyProjectCache<TaskData[]>(),
+  modeCache: emptyProjectCache<TaskExecutionModeData[]>(),
 
-  fetchTasks: async (projectId) => {
-    set({ loading: true })
+  activateProject: (projectId) => {
+    const scope = projectScopeKey(projectId)
+    set((state) => {
+      const taskCache = pruneProjectCache(touchProjectCache(state.taskCache, scope), scope)
+      const modeCache = pruneProjectCache(touchProjectCache(state.modeCache, scope), scope)
+      return {
+        activeScope: scope,
+        taskCache,
+        modeCache,
+        tasks: readProjectCache(taskCache, scope)?.data ?? [],
+        modes: readProjectCache(modeCache, scope)?.data ?? [],
+        loading: false,
+        refreshing: false,
+      }
+    })
+  },
+
+  fetchTasks: async (projectId, options) => {
+    const scope = projectScopeKey(projectId)
+    const cached = readProjectCache(get().taskCache, scope)
+    if (!options?.force && cached && !shouldRefreshProjectCache(cached)) return
+    const inFlight = taskFetches.get(scope)
+    if (!options?.force && inFlight) return inFlight
+
+    let requestSeq = 0
+    set((state) => {
+      const request = beginProjectRequest(state.taskCache, scope)
+      requestSeq = request.requestSeq
+      const isActive = state.activeScope === scope
+      return {
+        taskCache: request.state,
+        loading: isActive && !cached,
+        refreshing: isActive && !!cached,
+      }
+    })
+
+    const request = (async (): Promise<void> => {
+      try {
+        const msg: Record<string, unknown> = { type: 'tasks.list' }
+        if (projectId) msg.projectId = projectId
+        const data = (await wsClient.request(msg)) as TaskData[]
+        set((state) => {
+          const taskCache = pruneProjectCache(commitProjectResponse(state.taskCache, {
+            scope,
+            requestSeq,
+            data,
+          }), state.activeScope)
+          const isActive = state.activeScope === scope
+          return {
+            taskCache,
+            tasks: isActive ? (readProjectCache(taskCache, scope)?.data ?? []) : state.tasks,
+            loading: isActive ? false : state.loading,
+            refreshing: isActive ? false : state.refreshing,
+          }
+        })
+      } catch (error) {
+        set((state) => {
+          const isActive = state.activeScope === scope
+          return {
+            taskCache: setProjectCacheError(
+              state.taskCache,
+              scope,
+              error instanceof Error ? error.message : '任务加载失败',
+            ),
+            loading: isActive ? false : state.loading,
+            refreshing: isActive ? false : state.refreshing,
+          }
+        })
+      }
+    })()
+    taskFetches.set(scope, request)
     try {
-      const msg: Record<string, unknown> = { type: 'tasks.list' }
-      if (projectId) msg.projectId = projectId
-      const data = (await wsClient.request(msg)) as TaskData[]
-      set({ tasks: data, loading: false })
-    } catch {
-      set({ loading: false })
+      await request
+    } finally {
+      if (taskFetches.get(scope) === request) taskFetches.delete(scope)
     }
+  },
+
+  invalidateProject: (projectId) => {
+    const scope = projectScopeKey(projectId)
+    set((state) => ({
+      taskCache: invalidateProjectCache(state.taskCache, scope),
+      modeCache: invalidateProjectCache(state.modeCache, scope),
+    }))
+  },
+
+  clearProjectCache: (projectId) => {
+    set((state) => ({
+      taskCache: clearProjectCache(state.taskCache, projectId),
+      modeCache: clearProjectCache(state.modeCache, projectId),
+    }))
   },
 
   createTask: async (title, description, projectId) => {
     const msg: Record<string, unknown> = { type: 'tasks.create', title, description }
     if (projectId) msg.projectId = projectId
     const task = (await wsClient.request(msg)) as TaskData
-    set({ tasks: mergeTaskById(get().tasks, task) })
+    set((state) => {
+      const taskCache = mergeTaskIntoCache(state.taskCache, task)
+      return {
+        taskCache,
+        tasks: readProjectCache(taskCache, state.activeScope)?.data
+          ?? mergeTaskById(state.tasks, task),
+      }
+    })
     return task
   },
 
@@ -180,7 +319,14 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     if (input.projectId) msg.projectId = input.projectId
     if (input.sessionId) msg.sessionId = input.sessionId
     const task = (await wsClient.request(msg)) as TaskData
-    set({ tasks: mergeTaskById(get().tasks, task) })
+    set((state) => {
+      const taskCache = mergeTaskIntoCache(state.taskCache, task)
+      return {
+        taskCache,
+        tasks: readProjectCache(taskCache, state.activeScope)?.data
+          ?? mergeTaskById(state.tasks, task),
+      }
+    })
     return task
   },
 
@@ -189,7 +335,14 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     if (stage !== undefined) msg.stage = stage
     if (reason !== undefined) msg.reason = reason
     const task = (await wsClient.request(msg)) as TaskData
-    set({ tasks: get().tasks.map((t) => (t.id === taskId ? { ...t, ...task } : t)) })
+    set((state) => {
+      const taskCache = mergeTaskIntoCache(state.taskCache, task)
+      return {
+        taskCache,
+        tasks: readProjectCache(taskCache, state.activeScope)?.data
+          ?? state.tasks.map((item) => item.id === taskId ? { ...item, ...task } : item),
+      }
+    })
     return task
   },
 
@@ -198,13 +351,27 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     if (fields.title !== undefined) msg.title = fields.title
     if (fields.description !== undefined) msg.description = fields.description
     const task = (await wsClient.request(msg)) as TaskData
-    set({ tasks: get().tasks.map((t) => (t.id === taskId ? { ...t, ...task } : t)) })
+    set((state) => {
+      const taskCache = mergeTaskIntoCache(state.taskCache, task)
+      return {
+        taskCache,
+        tasks: readProjectCache(taskCache, state.activeScope)?.data
+          ?? state.tasks.map((item) => item.id === taskId ? { ...item, ...task } : item),
+      }
+    })
     return task
   },
 
   deleteTask: async (taskId) => {
     await wsClient.request({ type: 'tasks.delete', taskId })
-    set({ tasks: get().tasks.filter((t) => t.id !== taskId) })
+    set((state) => {
+      const taskCache = removeCachedArrayItem(state.taskCache, taskId)
+      return {
+        taskCache,
+        tasks: readProjectCache(taskCache, state.activeScope)?.data
+          ?? state.tasks.filter((task) => task.id !== taskId),
+      }
+    })
   },
 
   assignTask: async (taskId, agentId, sessionId, sessionMode) => {
@@ -212,13 +379,27 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     if (sessionId) msg.sessionId = sessionId
     if (sessionMode) msg.sessionMode = sessionMode
     const task = (await wsClient.request(msg)) as TaskData
-    set({ tasks: get().tasks.map((t) => (t.id === taskId ? { ...t, ...task } : t)) })
+    set((state) => {
+      const taskCache = mergeTaskIntoCache(state.taskCache, task)
+      return {
+        taskCache,
+        tasks: readProjectCache(taskCache, state.activeScope)?.data
+          ?? state.tasks.map((item) => item.id === taskId ? { ...item, ...task } : item),
+      }
+    })
     return task
   },
 
   replyTask: async (taskId, message) => {
     const task = (await wsClient.request({ type: 'tasks.reply', taskId, message })) as TaskData
-    set({ tasks: get().tasks.map((t) => (t.id === taskId ? { ...t, ...task } : t)) })
+    set((state) => {
+      const taskCache = mergeTaskIntoCache(state.taskCache, task)
+      return {
+        taskCache,
+        tasks: readProjectCache(taskCache, state.activeScope)?.data
+          ?? state.tasks.map((item) => item.id === taskId ? { ...item, ...task } : item),
+      }
+    })
     return task
   },
 
@@ -236,10 +417,18 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       steps: TaskStepData[]
       stepProgress: TaskStepProgress
     }
-    set({
-      tasks: get().tasks.map((t) =>
-        t.id === taskId ? { ...t, status: result.status, steps: result.steps, stepProgress: result.stepProgress } : t,
-      ),
+    const patch: Partial<TaskData> = {
+      status: result.status,
+      steps: result.steps,
+      stepProgress: result.stepProgress,
+    }
+    set((state) => {
+      const taskCache = patchCachedArrays(state.taskCache, taskId, patch)
+      return {
+        taskCache,
+        tasks: readProjectCache(taskCache, state.activeScope)?.data
+          ?? state.tasks.map((task) => task.id === taskId ? { ...task, ...patch } : task),
+      }
     })
     return get().tasks.find((t) => t.id === taskId)!
   },
@@ -249,10 +438,14 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       steps: TaskStepData[]
       stepProgress: TaskStepProgress
     }
-    set({
-      tasks: get().tasks.map((t) =>
-        t.id === taskId ? { ...t, steps: result.steps, stepProgress: result.stepProgress } : t,
-      ),
+    const patch: Partial<TaskData> = { steps: result.steps, stepProgress: result.stepProgress }
+    set((state) => {
+      const taskCache = patchCachedArrays(state.taskCache, taskId, patch)
+      return {
+        taskCache,
+        tasks: readProjectCache(taskCache, state.activeScope)?.data
+          ?? state.tasks.map((task) => task.id === taskId ? { ...task, ...patch } : task),
+      }
     })
     return result
   },
@@ -268,17 +461,21 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       stepProgress: TaskStepProgress
       taskStatus?: string
     }
-    set({
-      tasks: get().tasks.map((t) =>
-        t.id === input.taskId
-          ? {
-              ...t,
-              steps: result.steps,
-              stepProgress: result.stepProgress,
-              status: result.taskStatus ?? t.status,
-            }
-          : t,
-      ),
+    set((state) => {
+      const existing = state.tasks.find((task) => task.id === input.taskId)
+      const patch: Partial<TaskData> = {
+        steps: result.steps,
+        stepProgress: result.stepProgress,
+        ...(result.taskStatus ? { status: result.taskStatus } : {}),
+      }
+      const taskCache = patchCachedArrays(state.taskCache, input.taskId, patch)
+      return {
+        taskCache,
+        tasks: readProjectCache(taskCache, state.activeScope)?.data
+          ?? state.tasks.map((task) => task.id === input.taskId
+            ? { ...task, ...patch, status: result.taskStatus ?? existing?.status ?? task.status }
+            : task),
+      }
     })
     return { steps: result.steps, stepProgress: result.stepProgress }
   },
@@ -295,17 +492,18 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       stepProgress: TaskStepProgress
       taskStatus?: string
     }
-    set({
-      tasks: get().tasks.map((t) =>
-        t.id === input.taskId
-          ? {
-              ...t,
-              steps: result.steps,
-              stepProgress: result.stepProgress,
-              status: result.taskStatus ?? t.status,
-            }
-          : t,
-      ),
+    set((state) => {
+      const patch: Partial<TaskData> = {
+        steps: result.steps,
+        stepProgress: result.stepProgress,
+        ...(result.taskStatus ? { status: result.taskStatus } : {}),
+      }
+      const taskCache = patchCachedArrays(state.taskCache, input.taskId, patch)
+      return {
+        taskCache,
+        tasks: readProjectCache(taskCache, state.activeScope)?.data
+          ?? state.tasks.map((task) => task.id === input.taskId ? { ...task, ...patch } : task),
+      }
     })
     return { steps: result.steps, stepProgress: result.stepProgress }
   },
@@ -316,17 +514,18 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       stepProgress: TaskStepProgress
       taskStatus?: string
     }
-    set({
-      tasks: get().tasks.map((t) =>
-        t.id === taskId
-          ? {
-              ...t,
-              steps: result.steps,
-              stepProgress: result.stepProgress,
-              status: result.taskStatus ?? t.status,
-            }
-          : t,
-      ),
+    set((state) => {
+      const patch: Partial<TaskData> = {
+        steps: result.steps,
+        stepProgress: result.stepProgress,
+        ...(result.taskStatus ? { status: result.taskStatus } : {}),
+      }
+      const taskCache = patchCachedArrays(state.taskCache, taskId, patch)
+      return {
+        taskCache,
+        tasks: readProjectCache(taskCache, state.activeScope)?.data
+          ?? state.tasks.map((task) => task.id === taskId ? { ...task, ...patch } : task),
+      }
     })
     return { steps: result.steps, stepProgress: result.stepProgress }
   },
@@ -336,11 +535,39 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   },
 
   fetchModes: async (projectId) => {
+    const scope = projectScopeKey(projectId)
+    const cached = readProjectCache(get().modeCache, scope)
+    if (cached && !shouldRefreshProjectCache(cached)) {
+      if (get().activeScope === scope) set({ modes: cached.data })
+      return cached.data
+    }
+    const inFlight = modeFetches.get(scope)
+    if (inFlight) return inFlight
+    let requestSeq = 0
+    set((state) => {
+      const request = beginProjectRequest(state.modeCache, scope)
+      requestSeq = request.requestSeq
+      return { modeCache: request.state }
+    })
     const msg: Record<string, unknown> = { type: 'tasks.modes.list' }
     if (projectId) msg.projectId = projectId
-    const modes = (await wsClient.request(msg)) as TaskExecutionModeData[]
-    set({ modes })
-    return modes
+    const request = (async (): Promise<TaskExecutionModeData[]> => {
+      const modes = (await wsClient.request(msg)) as TaskExecutionModeData[]
+      set((state) => {
+        const modeCache = commitProjectResponse(state.modeCache, { scope, requestSeq, data: modes })
+        return {
+          modeCache,
+          modes: state.activeScope === scope ? modes : state.modes,
+        }
+      })
+      return modes
+    })()
+    modeFetches.set(scope, request)
+    try {
+      return await request
+    } finally {
+      if (modeFetches.get(scope) === request) modeFetches.delete(scope)
+    }
   },
 
   createMode: async (input) => {
@@ -350,7 +577,14 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     if (input.reportTemplate !== undefined) msg.reportTemplate = input.reportTemplate
     if (input.projectId !== undefined) msg.projectId = input.projectId
     const mode = (await wsClient.request(msg)) as TaskExecutionModeData
-    set({ modes: [...get().modes.filter((m) => m.id !== mode.id), mode] })
+    set((state) => {
+      const modeCache = mergeModeIntoCache(state.modeCache, mode)
+      return {
+        modeCache,
+        modes: readProjectCache(modeCache, state.activeScope)?.data
+          ?? [...state.modes.filter((item) => item.id !== mode.id), mode],
+      }
+    })
     return mode
   },
 
@@ -362,13 +596,27 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     if (fields.reportTemplate !== undefined) msg.reportTemplate = fields.reportTemplate
     if (fields.sortOrder !== undefined) msg.sortOrder = fields.sortOrder
     const mode = (await wsClient.request(msg)) as TaskExecutionModeData
-    set({ modes: get().modes.map((m) => (m.id === id ? mode : m)) })
+    set((state) => {
+      const modeCache = mergeModeIntoCache(state.modeCache, mode)
+      return {
+        modeCache,
+        modes: readProjectCache(modeCache, state.activeScope)?.data
+          ?? state.modes.map((item) => item.id === id ? mode : item),
+      }
+    })
     return mode
   },
 
   deleteMode: async (id) => {
     await wsClient.request({ type: 'tasks.modes.delete', id })
-    set({ modes: get().modes.filter((m) => m.id !== id) })
+    set((state) => {
+      const modeCache = removeCachedArrayItem(state.modeCache, id)
+      return {
+        modeCache,
+        modes: readProjectCache(modeCache, state.activeScope)?.data
+          ?? state.modes.filter((mode) => mode.id !== id),
+      }
+    })
   },
 
   setupListeners: () => {
@@ -376,25 +624,37 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       const taskId = msg.taskId as string
       const data = msg.data as Record<string, unknown>
       if (data.event === 'deleted') {
-        set({ tasks: get().tasks.filter((t) => t.id !== taskId) })
+        set((state) => {
+          const taskCache = removeCachedArrayItem(state.taskCache, taskId)
+          return {
+            taskCache,
+            tasks: readProjectCache(taskCache, state.activeScope)?.data
+              ?? state.tasks.filter((task) => task.id !== taskId),
+          }
+        })
         return
       }
-      const existing = get().tasks.find((t) => t.id === taskId)
-      if (existing) {
-        const patch: Partial<TaskData> = { ...data } as Partial<TaskData>
-        if (Array.isArray(data.steps)) patch.steps = data.steps as TaskStepData[]
-        if (data.stepProgress && typeof data.stepProgress === 'object') {
-          patch.stepProgress = data.stepProgress as TaskStepProgress
-        }
-        set({ tasks: get().tasks.map((t) => (t.id === taskId ? { ...t, ...patch } : t)) })
-      } else if (data.id) {
-        const currentProjectId = useProjectStore.getState().currentProjectId
-        const taskProjectId = (data as { project_id?: string | null }).project_id
-        if (currentProjectId && taskProjectId && taskProjectId !== currentProjectId) {
-          return
-        }
-        set({ tasks: mergeTaskById(get().tasks, data as unknown as TaskData) })
+      const patch: Partial<TaskData> = { ...data } as Partial<TaskData>
+      if (Array.isArray(data.steps)) patch.steps = data.steps as TaskStepData[]
+      if (data.stepProgress && typeof data.stepProgress === 'object') {
+        patch.stepProgress = data.stepProgress as TaskStepProgress
       }
+      set((state) => {
+        const complete = typeof data.id === 'string' && typeof data.title === 'string'
+        const taskCache = complete
+          ? mergeTaskIntoCache(state.taskCache, data as unknown as TaskData)
+          : patchCachedArrays(state.taskCache, taskId, patch)
+        const activeCached = readProjectCache(taskCache, state.activeScope)?.data
+        const tasks = activeCached ?? (state.tasks.some((task) => task.id === taskId)
+          ? state.tasks.map((task) => task.id === taskId ? { ...task, ...patch } : task)
+          : complete && (
+            state.activeScope === ALL_PROJECTS_SCOPE
+            || (data as { project_id?: string }).project_id === state.activeScope
+          )
+            ? mergeTaskById(state.tasks, data as unknown as TaskData)
+            : state.tasks)
+        return { taskCache, tasks }
+      })
     })
     return off
   },
