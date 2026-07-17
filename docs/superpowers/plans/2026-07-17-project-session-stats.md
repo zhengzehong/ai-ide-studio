@@ -19,7 +19,7 @@
 - Test: `tests/unit/session-runtime-signals.test.ts`
 - Test: `tests/integration/project-session-stats.test.ts`
 
-- [ ] **Step 1: 写运行态纯函数失败测试**
+- [x] **Step 1: 写运行态纯函数失败测试**
 
 覆盖 active prompt、运行中 Agent message、运行中 process item、已知运行 stage，以及 idle 优先阻止 stage 回退误判：
 
@@ -33,13 +33,13 @@ expect(resolveSessionRuntimeState({
 })).toBe('running')
 ```
 
-- [ ] **Step 2: 运行纯函数测试并确认 RED**
+- [x] **Step 2: 运行纯函数测试并确认 RED**
 
 Run: `npx vitest run tests/unit/session-runtime-signals.test.ts`
 
 Expected: FAIL，提示 `session-runtime-state.ts` 不存在或导出缺失。
 
-- [ ] **Step 3: 实现共享运行态纯函数并替换原私有判断**
+- [x] **Step 3: 实现共享运行态纯函数并替换原私有判断**
 
 ```ts
 export interface SessionRuntimeSignals {
@@ -55,7 +55,7 @@ export function resolveSessionRuntimeState(signals: SessionRuntimeSignals): Sess
 
 `src/store/sessions.ts` 的 `listWithRuntimeState` 继续执行已有 DB 探测，但最终调用该纯函数，保证会话列表和项目统计口径一致。
 
-- [ ] **Step 4: 写项目聚合失败测试**
+- [x] **Step 4: 写项目聚合失败测试**
 
 建立两个项目，覆盖以下数据：运行中会话、运行且时间戳未读的会话、普通未读会话、已读会话、模板会话、软删除会话和无项目会话。断言：
 
@@ -66,17 +66,17 @@ expect(stats).toEqual([
 ])
 ```
 
-- [ ] **Step 5: 运行聚合测试并确认 RED**
+- [x] **Step 5: 运行聚合测试并确认 RED**
 
 Run: `npx vitest run tests/integration/project-session-stats.test.ts`
 
 Expected: FAIL，提示 `projectSessionStatsStore` 不存在。
 
-- [ ] **Step 6: 实现一次查询 + 内存折叠**
+- [x] **Step 6: 实现一次查询 + 内存折叠**
 
 `src/store/session-stats.ts` 用一条 SQL 读取非删除、非模板、有项目归属的 Session，并通过 `EXISTS` 计算 DB 运行信号；应用层调用 `isPromptActive(sessionId)` 合并内存信号后按 `project_id` 折叠。未读仅在 `runtimeState === 'idle'` 且两个时间戳有效并满足 `last_message_at > last_read_at` 时计数。
 
-- [ ] **Step 7: 运行后端定向测试并提交**
+- [x] **Step 7: 运行后端定向测试并提交**
 
 Run: `npx vitest run tests/unit/session-runtime-signals.test.ts tests/integration/project-session-stats.test.ts`
 
@@ -92,7 +92,7 @@ Commit: `feat(server): add project session stats aggregation`
 - Modify: `src/types/ws-protocol.ts`
 - Modify: `tests/integration/project-session-stats.test.ts`
 
-- [ ] **Step 1: 写 RPC 失败测试**
+- [x] **Step 1: 写 RPC 失败测试**
 
 通过真实 `handleWsConnection` 发送：
 
@@ -105,13 +105,13 @@ expect(ws.last()).toMatchObject({
 })
 ```
 
-- [ ] **Step 2: 运行测试并确认 RED**
+- [x] **Step 2: 运行测试并确认 RED**
 
 Run: `npx vitest run tests/integration/project-session-stats.test.ts`
 
 Expected: FAIL，返回 `未知消息类型: sessions.projectStats`。
 
-- [ ] **Step 3: 实现协议和独立 RPC handler**
+- [x] **Step 3: 实现协议和独立 RPC handler**
 
 ```ts
 export interface SessionsProjectStatsMsg extends ClientMessage {
@@ -127,7 +127,7 @@ export interface ProjectSessionStatsData {
 
 新 handler 调用 `projectSessionStatsStore.list((sessionId) => sessionManager.isPromptActive(sessionId))`，并返回 `{ generatedAt, items }`。不向已超过 400 行的 `src/gateway/rpc/sessions.ts` 继续追加代码。
 
-- [ ] **Step 4: 运行 RPC 测试并提交**
+- [x] **Step 4: 运行 RPC 测试并提交**
 
 Run: `npx vitest run tests/integration/project-session-stats.test.ts`
 
@@ -141,21 +141,21 @@ Commit: `feat(server): expose project session stats rpc`
 - Create: `ui/src/stores/project-session-stats.store.ts`
 - Test: `tests/unit/project-session-stats-store.test.ts`
 
-- [ ] **Step 1: 写快照、失败保留和乱序保护测试**
+- [x] **Step 1: 写快照、失败保留和乱序保护测试**
 
 测试 `fetchStats()` 把数组转为 `statsByProjectId`；失败时保留上次成功数据；较旧请求后返回时不能覆盖新快照。
 
-- [ ] **Step 2: 写事件去抖测试**
+- [x] **Step 2: 写事件去抖测试**
 
 使用 `vi.useFakeTimers()`，连续触发 `session:activity` 和 `session:changed`，推进 299ms 时无请求，推进到 300ms 后只请求一次 `sessions.projectStats`。
 
-- [ ] **Step 3: 运行 store 测试并确认 RED**
+- [x] **Step 3: 运行 store 测试并确认 RED**
 
 Run: `npx vitest run tests/unit/project-session-stats-store.test.ts`
 
 Expected: FAIL，提示 store 模块不存在。
 
-- [ ] **Step 4: 实现 store**
+- [x] **Step 4: 实现 store**
 
 ```ts
 interface ProjectSessionStatsStore {
@@ -174,7 +174,7 @@ interface ProjectSessionStatsStore {
 
 模块级 timer 只负责 300ms debounce；cleanup 必须清 timer 并注销两个 WS listener。首次加载和后台刷新分别驱动 `loading/refreshing`；失败不清空 `statsByProjectId`。
 
-- [ ] **Step 5: 运行 store 测试并提交**
+- [x] **Step 5: 运行 store 测试并提交**
 
 Run: `npx vitest run tests/unit/project-session-stats-store.test.ts`
 
@@ -191,7 +191,7 @@ Commit: `feat(ui): add project session stats store`
 - Modify: `ui/src/components/layout/AppLayout.css`
 - Test: `tests/unit/project-activity-badges.test.ts`
 
-- [ ] **Step 1: 写 badge 渲染失败测试**
+- [x] **Step 1: 写 badge 渲染失败测试**
 
 使用 `renderToStaticMarkup` 验证运行中和未读分别渲染、0 不渲染、100 显示 `99+`，并保留中文 title：
 
@@ -200,21 +200,21 @@ expect(renderProjectActivityBadges({ runningCount: 3, unreadCount: 2 }))
   .toContain('运行中会话：3')
 ```
 
-- [ ] **Step 2: 运行组件测试并确认 RED**
+- [x] **Step 2: 运行组件测试并确认 RED**
 
 Run: `npx vitest run tests/unit/project-activity-badges.test.ts`
 
 Expected: FAIL，提示组件不存在。
 
-- [ ] **Step 3: 实现共享 badge 组件**
+- [x] **Step 3: 实现共享 badge 组件**
 
 组件只接收 `stats` 和 `compact`，不读取 store；两种状态都使用稳定尺寸的点和数字，运行中使用 `var(--green)`，未读使用 `var(--yellow)`，数量为 0 或 stats 未知时不渲染。
 
-- [ ] **Step 4: 接入 ProjectSwitcher 和 ProjectTabBar**
+- [x] **Step 4: 接入 ProjectSwitcher 和 ProjectTabBar**
 
 `ProjectSwitcher` 打开时调用 `refreshIfStale()`，所有项目行展示 badge。`ProjectTabBar` 的可见 Tab、overflow 菜单和“上一个项目”入口使用同一组件；点击项目仍只导航，不新增批量已读行为。
 
-- [ ] **Step 5: 运行组件和 store 测试并提交**
+- [x] **Step 5: 运行组件和 store 测试并提交**
 
 Run: `npx vitest run tests/unit/project-activity-badges.test.ts tests/unit/project-session-stats-store.test.ts`
 
@@ -230,21 +230,21 @@ Commit: `feat(ui): show project activity counts in switcher`
 - Modify: `docs/architecture/ws-protocol.md`
 - Modify: `README.md`
 
-- [ ] **Step 1: 接入连接生命周期**
+- [x] **Step 1: 接入连接生命周期**
 
 每次 `connected === true` 调用 `fetchStats({ force: connectedOnce.current })`；在现有统一 listener setup/cleanup 中加入 stats store。重连保留旧快照，同时强制刷新。
 
-- [ ] **Step 2: 更新稳定架构与协议文档**
+- [x] **Step 2: 更新稳定架构与协议文档**
 
 `ws-protocol.md` 记录 `sessions.projectStats` 返回结构；`overview.md` 说明 stats store 与项目页面 LRU 的边界；README 的 PC 项目切换条目补充运行中/未读提示。
 
-- [ ] **Step 3: 运行全部定向测试**
+- [x] **Step 3: 运行全部定向测试**
 
 Run: `npx vitest run tests/unit/session-runtime-signals.test.ts tests/integration/project-session-stats.test.ts tests/unit/project-session-stats-store.test.ts tests/unit/project-activity-badges.test.ts`
 
 Expected: PASS。
 
-- [ ] **Step 4: 运行完整质量门禁**
+- [x] **Step 4: 运行完整质量门禁**
 
 Run: `npm test`
 
@@ -256,7 +256,7 @@ Run: `git diff --check`
 
 Expected: 全部退出码为 0；`mobile/` 无改动。
 
-- [ ] **Step 5: 浏览器验收**
+- [x] **Step 5: 浏览器验收**
 
 启动本 worktree 的 Gateway 和 Vite 到未占用端口，验证桌面宽屏和窄屏：未访问项目有统计、运行结束后绿数下降/未读数变化、打开具体会话后未读下降、ProjectSwitcher/Tab/overflow 无文字挤压或重叠。验收后停止本次启动的服务。
 
