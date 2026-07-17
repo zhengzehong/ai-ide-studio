@@ -1,5 +1,9 @@
 ﻿import { describe, expect, test } from 'vitest'
-import { chatContentKey, selectChatAgent } from '../../ui/src/pages/workspace/helpers.ts'
+import {
+  chatContentKey,
+  selectChatAgent,
+  shouldClearProjectLastSessionForMissingCurrent,
+} from '../../ui/src/pages/workspace/helpers.ts'
 import type { AgentData } from '../../ui/src/stores/agent.store.ts'
 import type { SessionData } from '../../ui/src/stores/session.store.ts'
 
@@ -68,5 +72,15 @@ describe('chatContentKey', () => {
 
   test('uses a no-session key before selecting a session', () => {
     expect(chatContentKey(null)).toBe('chat-content:none')
+  })
+})
+
+describe('project session recovery', () => {
+  test('preserves the target project selection while clearing another project current session', () => {
+    expect(shouldClearProjectLastSessionForMissingCurrent('session-c', 'session-a')).toBe(false)
+  })
+
+  test('clears the target project selection when its remembered session is missing', () => {
+    expect(shouldClearProjectLastSessionForMissingCurrent('session-a', 'session-a')).toBe(true)
   })
 })

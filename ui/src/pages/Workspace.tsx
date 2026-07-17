@@ -104,6 +104,7 @@ import {
   toolSummary,
   isPreviewPublishTool,
   parsePreviewPublishOutput,
+  shouldClearProjectLastSessionForMissingCurrent,
   type MenuAnchor,
   type MenuName,
 } from './workspace/helpers'
@@ -323,8 +324,16 @@ export default function Workspace() {
     if (!currentSessionId) return
     const current = projectSessions.find((session) => session.id === currentSessionId)
     if (!currentProjectId || !current) {
-      // 切换项目或会话在新项目里找不到:清掉 per-project 映射,避免下次还恢复到一个不存在的会话
-      if (currentProjectId) clearProjectLastSession(currentProjectId)
+      // 项目切换时 currentSessionId 暂时仍属于旧项目，不能清掉新项目的恢复映射。
+      if (
+        currentProjectId &&
+        shouldClearProjectLastSessionForMissingCurrent(
+          currentSessionId,
+          readProjectLastSession(currentProjectId),
+        )
+      ) {
+        clearProjectLastSession(currentProjectId)
+      }
       selectSession(null)
     }
   }, [currentProjectId, currentSessionId, projectSessions, selectSession])
