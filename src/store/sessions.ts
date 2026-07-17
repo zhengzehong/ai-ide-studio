@@ -2,9 +2,14 @@ import { randomUUID } from 'crypto'
 import { createChildLogger } from '../core/logger.js'
 import { getDb } from './db.js'
 import { fileChangesJsonFromToolCalls, parseFileChangesJson } from './file-changes.js'
+import {
+  RUNNING_SESSION_STAGES,
+  resolveSessionRuntimeState,
+  type SessionRuntimeState,
+} from './session-runtime-state.js'
 import { countToolCalls } from './tool-call-history.js'
 
-export type SessionRuntimeState = 'running' | 'idle'
+export type { SessionRuntimeState } from './session-runtime-state.js'
 
 export interface SessionRow {
   id: string
@@ -72,15 +77,6 @@ export interface SessionEventRow {
 
 const log = createChildLogger('store:sessions')
 
-const RUNNING_STAGES = [
-  '\u6b63\u5728\u51c6\u5907 Agent...',
-  '\u6b63\u5728\u542f\u52a8 Agent...',
-  'Agent \u5df2\u5c31\u7eea',
-  '\u6b63\u5728\u6062\u590d\u4f1a\u8bdd...',
-  '\u6b63\u5728\u8fde\u63a5\u4f1a\u8bdd...',
-  '\u4f1a\u8bdd\u5df2\u8fde\u63a5',
-  '\u6b63\u5728\u601d\u8003...',
-]
 const INTERRUPTED_STAGE = '\u751f\u6210\u5df2\u4e2d\u65ad\uff0c\u53ef\u91cd\u65b0\u53d1\u9001'
 const INTERRUPTED_ERROR = '\u670d\u52a1\u91cd\u542f\uff0c\u751f\u6210\u5df2\u4e2d\u65ad'
 
@@ -212,7 +208,13 @@ export const sessionStore = {
   ): SessionListRow[] {
     return listSessions(agentId, projectId).map((session) => ({
       ...session,
-      activity_state: resolveSessionRuntimeState(session, isPromptActive),
+      activity_state: resolveSessionRuntimeState({
+        promptActive: isPromptActive(session.id),
+        hasRunningAgentMessage: hasRunningAgentMessage(session.id),
+        hasRunningProcessItem: hasRunningProcessItem(session.id),
+        status: session.status,
+        stage: session.stage,
+      }),
     }))
   },
 
@@ -222,14 +224,14 @@ export const sessionStore = {
 
   reconcileInterruptedStages(): { interrupted: SessionRow[]; cleared: SessionRow[] } {
     markRunningAgentMessagesInterrupted()
-    const placeholders = RUNNING_STAGES.map(() => '?').join(', ')
+    const placeholders = RUNNING_SESSION_STAGES.map(() => '?').join(', ')
     const candidates = getDb()
       .prepare<string[], SessionRow>(`
         SELECT * FROM sessions
         WHERE stage IN (${placeholders}) AND deleted_at IS NULL
         ORDER BY updated_at ASC
       `)
-      .all(...RUNNING_STAGES)
+      .all(...RUNNING_SESSION_STAGES)
 
     const interrupted: SessionRow[] = []
     const cleared: SessionRow[] = []
@@ -304,7 +306,7 @@ export const sessionStore = {
 
   clearStageIfRunning(id: string): SessionRow | undefined {
     const session = sessionStore.get(id)
-    if (!session || !RUNNING_STAGES.includes(session.stage)) return undefined
+    if (!session || !RUNNING_SESSION_STAGES.includes(session.stage)) return undefined
     sessionStore.updateStage(id, '')
     return sessionStore.get(id)
   },
@@ -425,18 +427,6 @@ function uniqueOrderedIds(ids: string[]): string[] {
     result.push(id)
   }
   return result
-}
-
-function resolveSessionRuntimeState(
-  session: SessionRow,
-  isPromptActive: (sessionId: string) => boolean,
-): SessionRuntimeState {
-  if (isPromptActive(session.id)) return 'running'
-  if (hasRunningAgentMessage(session.id)) return 'running'
-  if (hasRunningProcessItem(session.id)) return 'running'
-  if (session.status !== 'active') return 'idle'
-  if (RUNNING_STAGES.includes(session.stage)) return 'running'
-  return 'idle'
 }
 
 function parseRuntimePreferences(raw: string | null | undefined): SessionRuntimePreferences {
