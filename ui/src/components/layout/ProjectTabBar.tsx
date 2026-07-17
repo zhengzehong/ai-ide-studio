@@ -2,17 +2,20 @@ import { useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, MoreHorizontal, X } from 'lucide-react'
 import { useProjectNavigation } from '../../hooks/use-project-navigation'
 import { useProjectStore, type ProjectData } from '../../stores/project.store'
+import { useProjectSessionStatsStore } from '../../stores/project-session-stats.store'
 import {
   MAX_PINNED,
   resolveProjectColor,
   resolveProjectIcon,
   usePinnedProjects,
 } from '../../utils/project-meta'
+import { ProjectActivityBadges } from './ProjectActivityBadges'
 
 export function ProjectTabBar() {
   const projects = useProjectStore((state) => state.projects)
   const currentProjectId = useProjectStore((state) => state.currentProjectId)
   const previousProjectId = useProjectStore((state) => state.previousProjectId)
+  const statsByProjectId = useProjectSessionStatsStore((state) => state.statsByProjectId)
   const { pinnedIds, togglePin, reorder } = usePinnedProjects()
   const { switchProject } = useProjectNavigation()
   const [dragIndex, setDragIndex] = useState<number | null>(null)
@@ -73,6 +76,7 @@ export function ProjectTabBar() {
             {resolveProjectIcon(project)}
           </span>
           <span className="project-tab-name">{project.name}</span>
+          <ProjectActivityBadges stats={statsByProjectId[project.id]} compact />
           <button
             type="button"
             className="project-tab-close"
@@ -117,6 +121,7 @@ export function ProjectTabBar() {
                       {resolveProjectIcon(project)}
                     </span>
                     <span style={{ flex: 1 }}>{project.name}</span>
+                    <ProjectActivityBadges stats={statsByProjectId[project.id]} />
                   </button>
                 ))}
               </div>
@@ -132,6 +137,7 @@ export function ProjectTabBar() {
           title="上一个项目"
         >
           <ArrowLeft size={13} /> 上一个：{previousProject.name}
+          <ProjectActivityBadges stats={statsByProjectId[previousProject.id]} compact />
         </button>
       )}
     </div>

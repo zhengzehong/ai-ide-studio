@@ -3,8 +3,10 @@ import { ArrowRight, Check, ChevronDown, Pin, Plus } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useProjectNavigation } from '../../hooks/use-project-navigation'
 import { useProjectStore, type ProjectData } from '../../stores/project.store'
+import { useProjectSessionStatsStore } from '../../stores/project-session-stats.store'
 import { resolveProjectColor, resolveProjectIcon, usePinnedProjects } from '../../utils/project-meta'
 import { ProjectFormModal, type ProjectFormValue } from '../project/ProjectFormModal'
+import { ProjectActivityBadges } from './ProjectActivityBadges'
 
 export function ProjectSwitcher() {
   const [open, setOpen] = useState(false)
@@ -12,11 +14,19 @@ export function ProjectSwitcher() {
   const projects = useProjectStore((state) => state.projects)
   const currentProjectId = useProjectStore((state) => state.currentProjectId)
   const createProject = useProjectStore((state) => state.createProject)
+  const statsByProjectId = useProjectSessionStatsStore((state) => state.statsByProjectId)
+  const refreshStatsIfStale = useProjectSessionStatsStore((state) => state.refreshIfStale)
   const togglePin = usePinnedProjects((state) => state.togglePin)
   const isPinned = usePinnedProjects((state) => state.isPinned)
   const { switchProject } = useProjectNavigation()
   const navigate = useNavigate()
   const current = projects.find((project) => project.id === currentProjectId)
+
+  const handleToggle = (): void => {
+    const nextOpen = !open
+    setOpen(nextOpen)
+    if (nextOpen) void refreshStatsIfStale()
+  }
 
   const handleSelect = (project: ProjectData): void => {
     switchProject(project.id)
@@ -38,7 +48,7 @@ export function ProjectSwitcher() {
 
   return (
     <div style={{ position: 'relative' }}>
-      <button onClick={() => setOpen(!open)} className="project-switcher-btn" type="button">
+      <button onClick={handleToggle} className="project-switcher-btn" type="button">
         <span className="project-switcher-badge" style={{ background: resolveProjectColor(current ?? {}) }}>
           <span className="project-switcher-badge-emoji">{resolveProjectIcon(current ?? {})}</span>
         </span>
@@ -83,6 +93,7 @@ export function ProjectSwitcher() {
                 <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {project.name}
                 </span>
+                <ProjectActivityBadges stats={statsByProjectId[project.id]} />
                 {isPinned(project.id) && (
                   <span className="project-switcher-item-pin" title="已固定"><Pin size={12} /></span>
                 )}
