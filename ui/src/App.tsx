@@ -1,48 +1,34 @@
-import { useEffect, useRef } from 'react'
+import { Suspense, useEffect, useRef } from 'react'
 import { BrowserRouter, Navigate, Routes, Route } from 'react-router-dom'
 import { AppLayout } from './components/layout/AppLayout'
-import Dashboard from './pages/Dashboard'
-import Workspace from './pages/Workspace'
-import { TaskBoard } from './pages/TaskBoard'
-import TaskModesSettings from './pages/TaskModesSettings'
-import Schedule from './pages/Schedule'
-import EventCenter from './pages/EventCenter'
-import KnowledgeBase from './pages/KnowledgeBase'
-import AgentMemory from './pages/AgentMemory'
-import AgentSquare from './pages/AgentSquare'
-import SkillCenter from './pages/SkillCenter'
-import ToolManager from './pages/ToolManager'
-import Settings from './pages/Settings'
-import Projects from './pages/Projects'
-import TemplatesPage from './pages/TemplatesPage'
-import WidgetPage from './pages/Widget'
-import AccessTokenPage from './pages/AccessTokenPage'
-import GuestChatPage from './pages/share/GuestChatPage'
-import ShareManagePage from './pages/share/ShareManagePage'
+import {
+  AccessTokenPage,
+  AgentMemory,
+  AgentSquare,
+  Dashboard,
+  EventCenter,
+  GuestChatPage,
+  KnowledgeBase,
+  Projects,
+  Schedule,
+  Settings,
+  ShareManagePage,
+  SkillCenter,
+  TaskBoard,
+  TaskModesSettings,
+  TemplatesPage,
+  ToolManager,
+  WidgetPage,
+  Workspace,
+} from './routes/lazy-pages'
 import { useConnectionStore } from './stores/connection.store'
-import { useAgentStore } from './stores/agent.store'
-import { useSessionStore } from './stores/session.store'
-import { useTaskStore } from './stores/task.store'
-import { useRuleStore } from './stores/rule.store'
-import { useProjectStore } from './stores/project.store'
-import { useProjectSessionStatsStore } from './stores/project-session-stats.store'
-import { useTemplateStore } from './stores/template.store'
-import { useToolStore } from './stores/tool.store'
-import { useModelStore } from './stores/model.store'
-import { useSkillStore } from './stores/skill.store'
-import { useTeamStore } from './stores/team.store'
-import { useTimelineStore } from './stores/timeline.store'
-import { useKnowledgeBaseStore } from './stores/knowledge-base.store'
 import { ProjectScopeLayout } from './components/project/ProjectScopeLayout'
 import { LegacyProjectRedirect } from './components/project/LegacyProjectRedirect'
-import { invalidateProjectData, refreshProjectData } from './project-scope/project-data-scope'
-import { wsClient } from './services/ws-client'
 
 export default function App() {
   const init = useConnectionStore((s) => s.init)
   const connected = useConnectionStore((s) => s.connected)
   const authRequired = useConnectionStore((s) => s.authRequired)
-  const listenersReady = useRef(false)
   const connectedOnce = useRef(false)
 
   useEffect(() => {
@@ -51,69 +37,25 @@ export default function App() {
 
   useEffect(() => {
     if (!connected) return
-
-    const projectId = useProjectStore.getState().currentProjectId
     const isReconnect = connectedOnce.current
-    if (isReconnect && projectId) {
-      invalidateProjectData(projectId)
-      void refreshProjectData(projectId, { force: true })
-    }
     connectedOnce.current = true
-
-    useRuleStore.getState().fetchRules()
-    useProjectStore.getState().fetchProjects()
-    void useProjectSessionStatsStore.getState().fetchStats({ force: isReconnect })
-    useTemplateStore.getState().fetchTemplates()
-    useToolStore.getState().fetchTools()
-    useToolStore.getState().fetchProfiles()
-    useModelStore.getState().fetchProviders()
-    useSkillStore.getState().fetchSkills()
-
-    if (!listenersReady.current) {
-      listenersReady.current = true
-      const off1 = useAgentStore.getState().setupListeners()
-      const off2 = useSessionStore.getState().setupListeners()
-      const off3 = useTaskStore.getState().setupListeners()
-      const off4 = useRuleStore.getState().setupListeners()
-      const off5 = useTeamStore.getState().setupListeners(() => useSessionStore.getState().currentSessionId)
-      const off6 = useTimelineStore.getState().setupListeners()
-      const off7 = useKnowledgeBaseStore.getState().setupListeners()
-      const off8 = useProjectSessionStatsStore.getState().setupListeners()
-      const off9 = wsClient.on('resync_required', (message) => {
-        const sessionStore = useSessionStore.getState()
-        const resyncSessionId = typeof message.sessionId === 'string' ? message.sessionId : undefined
-        const sessionId = resyncSessionId ?? sessionStore.currentSessionId ?? undefined
-        const recovery: Promise<unknown>[] = []
-        if (sessionId && sessionId === sessionStore.currentSessionId) {
-          recovery.push(sessionStore.fetchMessages(sessionId), sessionStore.fetchEvents(sessionId))
-        }
-        const activeProjectId = useProjectStore.getState().currentProjectId
-        if (activeProjectId) {
-          invalidateProjectData(activeProjectId)
-          recovery.push(refreshProjectData(activeProjectId, { force: true }))
-        }
-        void Promise.allSettled(recovery).then(() => wsClient.acknowledgeResync(resyncSessionId))
-      })
-      return () => {
-        off1()
-        off2()
-        off3()
-        off4()
-        off5()
-        off6()
-        off7()
-        off8()
-        off9()
-        listenersReady.current = false
-      }
+    let disposed = false
+    let stopRuntime: (() => void) | undefined
+    void import('./app-runtime-bootstrap').then((module) => {
+      if (disposed) return
+      stopRuntime = module.startConnectedAppRuntime(isReconnect)
+      if (disposed) stopRuntime()
+    })
+    return () => {
+      disposed = true
+      stopRuntime?.()
     }
   }, [connected])
 
-  return authRequired ? (
-    <AccessTokenPage />
-  ) : (
-    <BrowserRouter>
-      <Routes>
+  return (
+    <Suspense fallback={<RouteLoading />}>
+      {authRequired ? <AccessTokenPage /> : <BrowserRouter>
+        <Routes>
         <Route path="/share/:token" element={<GuestChatPage />} />
         <Route path="/widget" element={<WidgetPage />} />
         <Route element={<AppLayout />}>
@@ -143,7 +85,18 @@ export default function App() {
           <Route path="/templates" element={<TemplatesPage />} />
           <Route path="/settings" element={<Settings />} />
         </Route>
-      </Routes>
-    </BrowserRouter>
+        </Routes>
+      </BrowserRouter>}
+    </Suspense>
+  )
+}
+
+function RouteLoading() {
+  return (
+    <div
+      role="status"
+      aria-label="页面加载中"
+      style={{ minHeight: '100vh', background: 'var(--bg-1)' }}
+    />
   )
 }

@@ -1,9 +1,12 @@
-import { useEffect } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 import { Bot, Loader2 } from 'lucide-react'
 import { useGlobalAssistantStore } from '../../stores/global-assistant.store'
 import { agentAvatar, agentColor } from '../../pages/workspace/helpers'
 import { ICON_MAP } from '../agent-square/constants'
-import { GlobalAssistantDrawer } from './GlobalAssistantDrawer'
+
+const GlobalAssistantDrawer = lazy(() => import('./GlobalAssistantDrawer').then((module) => ({
+  default: module.GlobalAssistantDrawer,
+})))
 
 export function GlobalAssistantRail() {
   const assistant = useGlobalAssistantStore((state) => state.assistant)
@@ -24,7 +27,11 @@ export function GlobalAssistantRail() {
 
   return (
     <>
-      <GlobalAssistantDrawer />
+      {open && (
+        <Suspense fallback={null}>
+          <GlobalAssistantDrawer />
+        </Suspense>
+      )}
       <aside className="global-assistant-rail">
         <button
           type="button"
