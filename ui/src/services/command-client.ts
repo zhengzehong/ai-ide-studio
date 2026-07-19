@@ -4,6 +4,16 @@ import { wsClient } from './ws-client'
 export interface BrowserCommandImage {
   data: string
   mimeType: string
+  name?: string
+  url?: string
+  relativePath?: string
+  path?: string
+  size?: number
+  order?: number
+}
+
+export interface BrowserImageInput extends Omit<BrowserCommandImage, 'data'> {
+  data?: string
 }
 
 export type BrowserSessionCommand =
@@ -104,6 +114,13 @@ const selectedTransport = resolveCommandTransport(
 export const commandClient: CommandClient = selectedTransport === 'ws'
   ? createWsCommandClient()
   : createHttpCommandClient()
+
+export function toCommandImages(images?: BrowserImageInput[]): BrowserCommandImage[] | undefined {
+  const inline = images
+    ?.filter((image): image is BrowserCommandImage => typeof image.data === 'string' && image.data.length > 0)
+    .map((image) => ({ ...image }))
+  return inline && inline.length > 0 ? inline : undefined
+}
 
 function legacyFrame(command: BrowserSessionCommand): Record<string, unknown> {
   switch (command.type) {

@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { wsClient } from '../services/ws-client'
 import { queryClient } from '../services/query-client'
-import { commandClient } from '../services/command-client'
+import { commandClient, toCommandImages } from '../services/command-client'
 import type { AgentData } from './agent.store'
 import { useProjectStore } from './project.store'
 import type { SessionData } from './session.store'
@@ -373,6 +373,7 @@ export const useGlobalAssistantStore = create<GlobalAssistantStore>((set, get) =
     const trimmed = content.trim()
     if (!trimmed && !images?.length) return
     const clientMessageId = `msg-local-${Date.now()}`
+    const commandImages = toCommandImages(images)
     const currentProjectId = useProjectStore.getState().currentProjectId
     void commandClient.execute({
       commandId: `cmd-${clientMessageId}`,
@@ -381,7 +382,7 @@ export const useGlobalAssistantStore = create<GlobalAssistantStore>((set, get) =
       content: trimmed,
       clientMessageId,
       ...(currentProjectId ? { contextProjectId: currentProjectId } : {}),
-      ...(images?.length ? { images } : {}),
+      ...(commandImages ? { images: commandImages } : {}),
     })
     promptStartTime = Date.now()
     set((state) => ({

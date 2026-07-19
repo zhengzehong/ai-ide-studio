@@ -3,9 +3,19 @@ import {
   createHttpCommandClient,
   createWsCommandClient,
   resolveCommandTransport,
+  toCommandImages,
 } from '../../ui/src/services/command-client.ts'
 
 describe('HTTP command client', () => {
+  it('keeps inline images and excludes persisted path-only attachment records', () => {
+    expect(toCommandImages([
+      { data: 'YWJj', mimeType: 'image/png', name: 'a.png', order: 1 },
+      { mimeType: 'image/png', path: 'attachments/existing.png', name: 'existing.png' },
+    ])).toEqual([
+      { data: 'YWJj', mimeType: 'image/png', name: 'a.png', order: 1 },
+    ])
+  })
+
   it('subscribes before posting a Prompt with token and idempotency headers', async () => {
     const order: string[] = []
     const subscribe = vi.fn(() => { order.push('subscribe') })

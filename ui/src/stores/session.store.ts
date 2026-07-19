@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { wsClient } from '../services/ws-client'
 import { queryClient } from '../services/query-client'
-import { commandClient } from '../services/command-client'
+import { commandClient, toCommandImages } from '../services/command-client'
 import {
   applySessionEvent,
   buildErrorAgentMessage,
@@ -286,6 +286,48 @@ const mirroredRealtimeEventTypes = new Set([
   'tool.update',
   'message.done',
 ])
+
+export interface SessionMessagesBootstrapSnapshot {
+  sessionId: string
+  messages: MessageData[]
+}
+
+export function exportSessionMessagesBootstrapSnapshot(): SessionMessagesBootstrapSnapshot | null {
+  const state = useSessionStore.getState()
+  if (!state.currentSessionId) return null
+  return {
+    sessionId: state.currentSessionId,
+    messages: state.messages
+      .filter((message) => message.session_id === state.currentSessionId && message.status !== 'running')
+      .map((message) => ({ ...message })),
+  }
+}
+
+export function hydrateSessionMessagesBootstrapSnapshot(
+  snapshot: SessionMessagesBootstrapSnapshot | null,
+): void {
+  if (!snapshot?.sessionId) return
+  const messages = snapshot.messages
+    .filter((message) => message.session_id === snapshot.sessionId && message.status !== 'running')
+    .map((message) => ({ ...message }))
+  sessionCaches.set(snapshot.sessionId, {
+    messages,
+    events: [],
+    usage: null,
+    turnUsage: null,
+    capabilities: {
+      ...defaultCaps,
+      models: [...defaultCaps.models],
+      modes: [...defaultCaps.modes],
+      configOptions: [...defaultCaps.configOptions],
+      commands: [...defaultCaps.commands],
+    },
+    plan: [],
+    pendingPermissions: [],
+    pendingElicitations: [],
+    streamingMessage: null,
+  })
+}
 
 const CURRENT_SESSION_STORAGE_KEY = 'ai-ide-current-session-id'
 const PROJECT_LAST_SESSION_STORAGE_KEY = 'ai-ide-project-last-session'
@@ -1383,13 +1425,14 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     const session = get().sessions.find((item) => item.id === sid)
     if (isCopyingSession(session) || get().copyingTargetSessionIds[sid]) return
     const clientMessageId = `msg-local-${Date.now()}`
+    const commandImages = toCommandImages(images)
     void commandClient.execute({
       commandId: `cmd-${clientMessageId}`,
       type: 'prompt',
       sessionId: sid,
       content,
       clientMessageId,
-      ...(images?.length ? { images } : {}),
+      ...(commandImages ? { images: commandImages } : {}),
     })
     promptStartTime = Date.now()
     set((state) => ({
