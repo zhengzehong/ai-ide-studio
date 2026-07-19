@@ -240,7 +240,7 @@ git status --short
 
 Expected: all pass and worktree clean after commits.
 
-- [ ] **Step 5: Request code review and report Phase 3**
+- [x] **Step 5: Request code review and report Phase 3**
 
 Review range is `a287fb2..HEAD`. Do not merge `prd`; do not start Phase 4 until Phase 3 is approved.
 
