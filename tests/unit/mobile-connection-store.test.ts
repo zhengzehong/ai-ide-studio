@@ -59,7 +59,7 @@ describe('mobile connection store', () => {
     expect(shouldShowConnectPage({ serverUrl: 'http://127.0.0.1:18900', connected: false, status: 'connecting' })).toBe(false)
   })
 
-  test('initializes a saved server as connecting and starts websocket connection', () => {
+  test('initializes a saved server as connecting and starts websocket endpoint discovery', async () => {
     localStorage.setItem('ai-ide-mobile-server', JSON.stringify({
       serverUrl: 'http://127.0.0.1:18800',
       token: 'token-a',
@@ -74,7 +74,9 @@ describe('mobile connection store', () => {
       status: 'connecting',
       lastError: '',
     })
-    expect(wsMock.connect).toHaveBeenCalledWith('ws://127.0.0.1:18800?token=token-a')
+    const resolver = wsMock.connect.mock.calls[0]?.[0] as (() => Promise<string>) | undefined
+    expect(resolver).toBeTypeOf('function')
+    await expect(resolver?.()).resolves.toBe('ws://127.0.0.1:18800?token=token-a')
   })
 
   test('connection event marks the store as connected', () => {

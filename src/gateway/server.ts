@@ -6,7 +6,7 @@ import { Readable } from 'stream'
 import { basename, extname, join, normalize, sep } from 'path'
 import { createReadStream, existsSync, statSync } from 'fs'
 import type { AppConfig } from '../core/config.js'
-import { handleWsConnection } from './ws-handler.js'
+import { broadcastToAll, broadcastToSubscribers, handleWsConnection } from './ws-handler.js'
 import { agentStore } from '../store/agents.js'
 import { sessionStore } from '../store/sessions.js'
 import { taskStore } from '../store/tasks.js'
@@ -24,19 +24,33 @@ import { resolveAvatarPath } from './rpc/assets.js'
 import { createChildLogger } from '../core/logger.js'
 import { mountQueryRoutes } from './http/query-routes.js'
 import type { QueryPort } from '../ports/query-port.js'
+import { createRealtimeEventSource } from './realtime-event-source.js'
+import {
+  mountRealtimeConfigRoute,
+  type RealtimeEndpointState,
+} from './http/realtime-config-route.js'
 
 const log = createChildLogger('gateway')
 
 export interface StartGatewayOptions {
   queryPort?: QueryPort
+  webSocketMode?: 'embedded' | 'none'
+  realtimeState?: () => RealtimeEndpointState
 }
 
 export async function startGateway(config: AppConfig, options: StartGatewayOptions = {}) {
   const app = new Hono()
+  let embeddedPort = config.port
 
   mountLocalTokenGuard(app, config)
 
   app.get('/health', (c) => c.json({ status: 'ok', uptime: process.uptime() }))
+  mountRealtimeConfigRoute(app, options.realtimeState ?? (() => ({
+    mode: 'embedded',
+    host: config.host,
+    port: embeddedPort,
+    legacyRpcEnabled: true,
+  })))
 
   mountQueryRoutes(app, options.queryPort)
 
@@ -66,16 +80,26 @@ export async function startGateway(config: AppConfig, options: StartGatewayOptio
 
   const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port }) as Server
 
-  const wss = new WebSocketServer({ server })
-  wss.on('connection', (ws, req) => {
-    if (!isWsAuthorized(req, config)) {
-      ws.close(1008, '未授权')
-      return
-    }
-    handleWsConnection(ws, req, wss)
-  })
+  let wss: WebSocketServer | undefined
+  if ((options.webSocketMode ?? 'embedded') === 'embedded') {
+    wss = new WebSocketServer({ server })
+    const eventSource = createRealtimeEventSource((delivery) => {
+      if (delivery.scope === 'session') broadcastToSubscribers(delivery.sessionId, delivery.message)
+      else broadcastToAll(delivery.message)
+    })
+    wss.once('close', () => eventSource.stop())
+    wss.on('connection', (ws, req) => {
+      if (!isWsAuthorized(req, config)) {
+        ws.close(1008, '未授权')
+        return
+      }
+      handleWsConnection(ws, req, wss as WebSocketServer)
+    })
+  }
 
   await waitForServerListening(server)
+  const address = server.address()
+  if (address && typeof address !== 'string') embeddedPort = address.port
 
   return { app, server, wss }
 }
@@ -262,6 +286,7 @@ function mountLocalTokenGuard(app: Hono, config: AppConfig): void {
 }
 
 function isAssetRequest(path: string): boolean {
+  if (path === '/api/v1/realtime-config') return true
   if (path.startsWith('/api/bridge/')) return true
   if (path.startsWith('/avatars/')) return true
   if (path.startsWith('/api/share/')) return true

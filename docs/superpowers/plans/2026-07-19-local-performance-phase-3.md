@@ -185,23 +185,23 @@ Commit: `feat(realtime): run websocket ownership in child process`
 - Test: `tests/unit/mobile-connection-store.test.ts`
 - Test: `tests/unit/ws-client.test.ts`
 
-- [ ] **Step 1: Write failing app/discovery tests**
+- [x] **Step 1: Write failing app/discovery tests**
 
 Assert `startApp` starts process Realtime before returning, `/api/v1/realtime-config` reports the actual endpoint and compatibility flag, browser/mobile discovery carries access or share auth, discovery failure falls back to same-origin embedded WS, reconnect re-runs discovery, and stop closes API/Realtime/Workers in order.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `npx vitest run tests/integration/realtime-app-lifecycle.test.ts tests/unit/pc-connection-auth.test.ts tests/unit/mobile-connection-store.test.ts tests/unit/ws-client.test.ts`
 
-- [ ] **Step 3: Wire config and lifecycle**
+- [x] **Step 3: Wire config and lifecycle**
 
 Add `REALTIME_MODE`, `REALTIME_HOST`, `REALTIME_PORT`, `REALTIME_LEGACY_RPC`, `REALTIME_MAX_QUEUE_MESSAGES`, `REALTIME_MAX_QUEUE_BYTES`, `REALTIME_MAX_BUFFERED_BYTES`, and `REALTIME_IPC_MAX_FRAME_BYTES`. Default process port is API port + 1; API port 0 implies Realtime port 0. Embedded rollback retains the old shared-port behavior.
 
-- [ ] **Step 4: Implement endpoint discovery and reconnect**
+- [x] **Step 4: Implement endpoint discovery and reconnect**
 
 PC requests same-origin discovery; mobile requests the configured API base. The returned URL is authoritative. `wsClient` accepts an async URL resolver so reconnect never reuses an expired or changed endpoint blindly. Existing direct `connect(string)` remains supported for isolated tests and embedded callers.
 
-- [ ] **Step 5: Run GREEN and commit**
+- [x] **Step 5: Run GREEN and commit**
 
 Run: `npx vitest run tests/integration/realtime-app-lifecycle.test.ts tests/integration/data-worker-lifecycle.test.ts tests/unit/pc-connection-auth.test.ts tests/unit/mobile-connection-store.test.ts tests/unit/ws-client.test.ts`
 

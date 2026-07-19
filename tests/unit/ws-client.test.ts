@@ -74,4 +74,21 @@ describe('ws client', () => {
     expect(events).toEqual([{ connected: true }])
     expect(wsClient.connected).toBe(true)
   })
+
+  test('re-runs an async endpoint resolver before reconnecting', async () => {
+    const { wsClient } = await import('../../ui/src/services/ws-client.ts')
+    const resolver = vi.fn()
+      .mockResolvedValueOnce('ws://first')
+      .mockResolvedValueOnce('ws://second')
+
+    wsClient.connect(resolver)
+    await vi.runAllTicks()
+    const first = FakeWebSocket.instances[0]
+    first.onopen?.()
+    first.onclose?.({ code: 1006, reason: '' })
+    await vi.advanceTimersByTimeAsync(3000)
+
+    expect(resolver).toHaveBeenCalledTimes(2)
+    expect(FakeWebSocket.instances.map((socket) => socket.url)).toEqual(['ws://first', 'ws://second'])
+  })
 })

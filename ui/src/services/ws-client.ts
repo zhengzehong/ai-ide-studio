@@ -1,4 +1,5 @@
 type MessageHandler = (msg: Record<string, unknown>) => void
+type EndpointResolver = () => Promise<string>
 
 class WSClient {
   private ws: WebSocket | null = null
@@ -8,13 +9,34 @@ class WSClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private _connected = false
   private url = ''
+  private endpoint: string | EndpointResolver = ''
+  private connectGeneration = 0
   private intentionalClose = false
   private currentSubscriptions = new Set<string>()
   private hasConnectedBefore = false
+  private cursors = new Map<string, { streamGeneration: string; sequence: number }>()
 
   get connected() { return this._connected }
 
-  connect(url: string) {
+  connect(endpoint: string | EndpointResolver) {
+    this.endpoint = endpoint
+    const generation = ++this.connectGeneration
+    if (typeof endpoint === 'string') {
+      this.open(endpoint, generation)
+      return
+    }
+    void endpoint().then(
+      (url) => this.open(url, generation),
+      (error) => {
+        if (generation !== this.connectGeneration) return
+        this._connected = false
+        this.emit('connection', { connected: false, message: toErrorMessage(error) })
+      },
+    )
+  }
+
+  private open(url: string, generation: number) {
+    if (generation !== this.connectGeneration) return
     this.url = url
     this.intentionalClose = true
     if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null }
@@ -43,6 +65,9 @@ class WSClient {
       }
       this.hasConnectedBefore = true
       if (this.currentSubscriptions.size > 0) {
+        if (this.hasConnectedBefore && this.cursors.size > 0) {
+          this.send({ type: 'resume', cursors: Object.fromEntries(this.cursors) })
+        }
         this.send({ type: 'subscribe', sessionIds: [...this.currentSubscriptions] })
       }
     }
@@ -70,6 +95,7 @@ class WSClient {
       if (this.ws !== socket) return
       try {
         const msg = JSON.parse(event.data as string)
+        this.captureCursor(msg)
         if (msg.requestId && this.pendingRequests.has(msg.requestId)) {
           const pending = this.pendingRequests.get(msg.requestId)!
           this.pendingRequests.delete(msg.requestId)
@@ -85,14 +111,25 @@ class WSClient {
   }
 
   private reconnect() {
-    if (this.url) this.connect(this.url)
+    if (this.endpoint) this.connect(this.endpoint)
   }
 
   disconnect() {
+    this.connectGeneration += 1
     this.intentionalClose = true
     if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null }
     if (this.ws) { this.detachSocket(this.ws); this.ws.close(); this.ws = null }
     this._connected = false
+  }
+
+  private captureCursor(msg: Record<string, unknown>): void {
+    if (typeof msg.sessionId !== 'string'
+      || typeof msg.streamGeneration !== 'string'
+      || typeof msg.sequence !== 'number') return
+    this.cursors.set(msg.sessionId, {
+      streamGeneration: msg.streamGeneration,
+      sequence: msg.sequence,
+    })
   }
 
   private detachSocket(socket: WebSocket): void {

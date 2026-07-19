@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { wsClient } from '@desktop/services/ws-client'
+import { discoverRealtimeEndpoint } from '@desktop/services/realtime-endpoint'
 
 const STORAGE_KEY = 'ai-ide-mobile-server'
 const CONNECTION_TIMEOUT_MS = 5000
@@ -45,7 +46,7 @@ function resolveConnectionError(msg?: Record<string, unknown>, fallback = 'è¿žæŽ
 function connectToServer(url: string, token: string, set: (p: Partial<ConnectionState>) => void): void {
   startConnectionTimer(set)
   try {
-    wsClient.connect(buildWsUrl(url, token))
+    wsClient.connect(() => resolveMobileRealtimeUrl(url, token))
   } catch (error) {
     clearConnectionTimer()
     set({
@@ -110,4 +111,17 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
 function buildWsUrl(serverUrl: string, token?: string): string {
   const base = serverUrl.replace(/^http/, 'ws').replace(/\/$/, '')
   return token ? `${base}?token=${encodeURIComponent(token)}` : base
+}
+
+export function resolveMobileRealtimeUrl(
+  serverUrl: string,
+  token?: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
+  return discoverRealtimeEndpoint({
+    apiBase: serverUrl,
+    token,
+    fetchImpl,
+    fallbackUrl: buildWsUrl(serverUrl, token),
+  })
 }
