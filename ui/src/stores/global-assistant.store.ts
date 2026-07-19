@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { wsClient } from '../services/ws-client'
 import { queryClient } from '../services/query-client'
+import { commandClient } from '../services/command-client'
 import type { AgentData } from './agent.store'
 import { useProjectStore } from './project.store'
 import type { SessionData } from './session.store'
@@ -372,11 +373,16 @@ export const useGlobalAssistantStore = create<GlobalAssistantStore>((set, get) =
     const trimmed = content.trim()
     if (!trimmed && !images?.length) return
     const clientMessageId = `msg-local-${Date.now()}`
-    const msg: Record<string, unknown> = { type: 'prompt', sessionId: sid, content: trimmed, clientMessageId }
     const currentProjectId = useProjectStore.getState().currentProjectId
-    if (currentProjectId) msg.contextProjectId = currentProjectId
-    if (images?.length) msg.images = images
-    wsClient.send(msg)
+    void commandClient.execute({
+      commandId: `cmd-${clientMessageId}`,
+      type: 'prompt',
+      sessionId: sid,
+      content: trimmed,
+      clientMessageId,
+      ...(currentProjectId ? { contextProjectId: currentProjectId } : {}),
+      ...(images?.length ? { images } : {}),
+    })
     promptStartTime = Date.now()
     set((state) => ({
       messages: [
@@ -424,19 +430,37 @@ export const useGlobalAssistantStore = create<GlobalAssistantStore>((set, get) =
   cancelTurn: async () => {
     const sid = currentSessionId(get())
     if (!sid) return
-    await wsClient.request({ type: 'session.cancel', sessionId: sid })
+    await commandClient.execute({
+      commandId: `cmd-cancel-${sid}-${Date.now()}`,
+      type: 'session.cancel',
+      sessionId: sid,
+    })
   },
 
   respondPermission: async (requestId, optionId, cancelled) => {
     const sid = currentSessionId(get())
     if (!sid) return
-    await wsClient.request({ type: 'permission.respond', sessionId: sid, permissionRequestId: requestId, optionId, cancelled })
+    await commandClient.execute({
+      commandId: `cmd-permission-${requestId}`,
+      type: 'permission.respond',
+      sessionId: sid,
+      permissionRequestId: requestId,
+      optionId,
+      cancelled,
+    })
   },
 
   respondElicitation: async (requestId, action, content) => {
     const sid = currentSessionId(get())
     if (!sid) return
-    await wsClient.request({ type: 'elicitation.respond', sessionId: sid, elicitationRequestId: requestId, action, content })
+    await commandClient.execute({
+      commandId: `cmd-elicitation-${requestId}`,
+      type: 'elicitation.respond',
+      sessionId: sid,
+      elicitationRequestId: requestId,
+      action,
+      content,
+    })
   },
 
   fetchMessages: async () => {

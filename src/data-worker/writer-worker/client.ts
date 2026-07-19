@@ -1,6 +1,10 @@
 import { Worker } from 'node:worker_threads'
 import { createChildLogger } from '../../core/logger.js'
 import type {
+  RuntimeCommandEnqueueResult,
+  RuntimeCommandInput,
+  RuntimeCommandRecord,
+  RuntimeCommandUpdate,
   SessionWriteCursor,
   WriteBatch,
   WriteBatchResult,
@@ -75,6 +79,24 @@ export async function createWorkerWriteDataPort(
     },
     async sessionCursor(sessionId: string): Promise<SessionWriteCursor> {
       const response = await rpc.request<SessionWriteCursor>('writer.cursor', { sessionId }, {
+        priority: 'interactive',
+      })
+      return response.result
+    },
+    async enqueueRuntimeCommand(input: RuntimeCommandInput): Promise<RuntimeCommandEnqueueResult> {
+      const response = await rpc.request<RuntimeCommandEnqueueResult>('writer.command.enqueue', input, {
+        priority: 'interactive',
+      })
+      return response.result
+    },
+    async listRecoverableRuntimeCommands(limit: number): Promise<RuntimeCommandRecord[]> {
+      const response = await rpc.request<RuntimeCommandRecord[]>('writer.command.recover', { limit }, {
+        priority: 'interactive',
+      })
+      return response.result
+    },
+    async updateRuntimeCommand(input: RuntimeCommandUpdate): Promise<RuntimeCommandRecord> {
+      const response = await rpc.request<RuntimeCommandRecord>('writer.command.update', input, {
         priority: 'interactive',
       })
       return response.result

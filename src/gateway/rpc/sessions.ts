@@ -1,4 +1,3 @@
-import { events } from '../../core/events.js'
 import {
   listLocalSessionCandidates,
   localSessionCwdWarning,
@@ -22,7 +21,8 @@ import type { RpcHandlerMap } from './types.js'
 import { getQueryPort } from '../../queries/query-port-provider.js'
 import { getRuntimePort } from '../../runtime/runtime-port-provider.js'
 import { buildRuntimeStateSnapshot } from '../../runtime/api/runtime-snapshot.js'
-import { shouldForceRuntimeCancel } from '../../runtime/api/runtime-cancel-watchdog.js'
+import { randomUUID } from 'node:crypto'
+import { executeSessionCommand } from '../../commands/session-command-service.js'
 
 const log = createChildLogger('rpc-sessions')
 
@@ -196,56 +196,33 @@ export const sessionRpcHandlers: RpcHandlerMap = {
   },
 
   async 'permission.respond'(msg, { sendResult }) {
-    const sessionId = msg.sessionId as string
-    const ok = await getRuntimePort().resolvePermission(sessionId, msg.permissionRequestId as string, msg.optionId as string | undefined, msg.cancelled as boolean | undefined)
-    if (!ok) throw new Error('权限请求已失效')
-    const session = sessionStore.get(sessionId)
-    const stored = eventStore.append(sessionId, {
-      type: 'permission.result',
-      agentId: session?.agent_id,
-      messageId: msg.permissionRequestId as string,
-      role: 'system',
-      payload: { requestId: msg.permissionRequestId, optionId: msg.optionId, cancelled: msg.cancelled === true },
-    })
-    events.emit('session:event', { sessionId, agentId: session?.agent_id, event: stored })
-    sendResult({ ok: true })
+    sendResult(await executeSessionCommand({
+      commandId: legacyCommandId(msg.requestId),
+      type: 'permission.respond',
+      sessionId: msg.sessionId as string,
+      permissionRequestId: msg.permissionRequestId as string,
+      optionId: msg.optionId as string | undefined,
+      cancelled: msg.cancelled as boolean | undefined,
+    }))
   },
 
   async 'elicitation.respond'(msg, { sendResult }) {
-    const sessionId = msg.sessionId as string
-    const ok = await getRuntimePort().resolveElicitation(sessionId, msg.elicitationRequestId as string, msg.action as 'accept' | 'decline' | 'cancel', msg.content as Record<string, string | number | boolean | string[]> | undefined)
-    if (!ok) throw new Error('提问请求已失效')
-    const session = sessionStore.get(sessionId)
-    const stored = eventStore.append(sessionId, {
-      type: 'elicitation.result',
-      agentId: session?.agent_id,
-      messageId: msg.elicitationRequestId as string,
-      role: 'system',
-      payload: { requestId: msg.elicitationRequestId, action: msg.action, content: msg.content },
-    })
-    events.emit('session:event', { sessionId, agentId: session?.agent_id, event: stored })
-    sendResult({ ok: true })
+    sendResult(await executeSessionCommand({
+      commandId: legacyCommandId(msg.requestId),
+      type: 'elicitation.respond',
+      sessionId: msg.sessionId as string,
+      elicitationRequestId: msg.elicitationRequestId as string,
+      action: msg.action as 'accept' | 'decline' | 'cancel',
+      content: msg.content as Record<string, string | number | boolean | string[]> | undefined,
+    }))
   },
 
   async 'session.cancel'(msg, { sendResult }) {
-    const sessionId = msg.sessionId as string
-    const session = sessionStore.get(sessionId)
-    if (!session) throw new Error('会话不存在')
-    const completed = await Promise.race([
-      getRuntimePort().cancelPrompt(session.agent_id, sessionId).then(() => true),
-      new Promise<false>((resolve) => setTimeout(() => resolve(false), 10_000)),
-    ])
-    if (shouldForceRuntimeCancel(completed, sessionManager.isPromptActive(sessionId))) {
-      sessionManager.forceClearActivePrompt(sessionId)
-      log.warn({ sessionId, agentId: session.agent_id }, 'Runtime cancel timed out; forcing done')
-      events.emit('session:done', {
-        sessionId,
-        agentId: session.agent_id,
-        messageId: `cancel-timeout-${Date.now()}`,
-        stopReason: 'cancelled',
-      })
-    }
-    sendResult({ ok: true })
+    sendResult(await executeSessionCommand({
+      commandId: legacyCommandId(msg.requestId),
+      type: 'session.cancel',
+      sessionId: msg.sessionId as string,
+    }))
   },
 
   async 'sessions.list'(msg, { sendResult }) {
@@ -415,16 +392,15 @@ export const sessionRpcHandlers: RpcHandlerMap = {
     sendResult(page.items)
   },
 
-  'sessions.markRead'(msg, { sendResult }) {
-    const sessionId = msg.sessionId as string
-    const session = sessionStore.get(sessionId)
-    if (!session) throw new Error('会话不存在')
-    const lastReadAt = sessionStore.markRead(sessionId)
-    events.emit('session:changed', {
-      sessionId,
-      data: { lastReadAt },
-    })
-    log.info({ sessionId, lastReadAt }, 'session marked as read')
-    sendResult({ sessionId, lastReadAt })
+  async 'sessions.markRead'(msg, { sendResult }) {
+    sendResult(await executeSessionCommand({
+      commandId: legacyCommandId(msg.requestId),
+      type: 'sessions.markRead',
+      sessionId: msg.sessionId as string,
+    }))
   },
+}
+
+function legacyCommandId(requestId: string | undefined): string {
+  return requestId ? `legacy-${requestId}` : `legacy-${randomUUID()}`
 }

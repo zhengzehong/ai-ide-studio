@@ -1,6 +1,14 @@
 import Database from 'better-sqlite3'
 import { parentPort, workerData } from 'node:worker_threads'
-import type { SessionWriteCursor, WriteBatch, WriteBatchResult } from '../../ports/write-data-port.js'
+import type {
+  RuntimeCommandEnqueueResult,
+  RuntimeCommandInput,
+  RuntimeCommandRecord,
+  RuntimeCommandUpdate,
+  SessionWriteCursor,
+  WriteBatch,
+  WriteBatchResult,
+} from '../../ports/write-data-port.js'
 import type {
   WorkerErrorCode,
   WorkerMetrics,
@@ -9,7 +17,14 @@ import type {
   WritePriority,
 } from '../protocol.js'
 import { WriterScheduler, type WriterSchedulerItem } from './scheduler.js'
-import { executeWriteBatches, readSessionWriteCursor, WriterOperationError } from './operations.js'
+import {
+  enqueueRuntimeCommand,
+  executeWriteBatches,
+  listRecoverableRuntimeCommands,
+  readSessionWriteCursor,
+  updateRuntimeCommand,
+  WriterOperationError,
+} from './operations.js'
 
 interface WriterWorkerData {
   dbPath: string
@@ -38,22 +53,8 @@ port.postMessage({ kind: 'ready', worker: 'writer' })
 
 port.on('message', (message: unknown) => {
   if (!isWriteRequest(message)) return
-  if (message.operation === 'writer.cursor') {
-    const startedAt = performance.now()
-    try {
-      const sessionId = asSessionCursorRequest(message.payload)
-      port.postMessage(directResultResponse(
-        message,
-        readSessionWriteCursor(db, sessionId),
-        performance.now() - startedAt,
-      ))
-    } catch (error) {
-      port.postMessage(errorResponse(message, errorCode(error), errorMessage(error)))
-    }
-    return
-  }
   if (message.operation !== 'writer.commit') {
-    port.postMessage(errorResponse(message, 'BAD_REQUEST', `Unknown write operation: ${message.operation}`))
+    void executeControlRequest(message)
     return
   }
   const batch = asWriteBatch(message.payload)
@@ -78,6 +79,28 @@ port.on('message', (message: unknown) => {
     )),
   )
 })
+
+async function executeControlRequest(request: WorkerRequest): Promise<void> {
+  const startedAt = performance.now()
+  try {
+    await scheduler.drain()
+    let result: SessionWriteCursor | RuntimeCommandEnqueueResult | RuntimeCommandRecord[] | RuntimeCommandRecord
+    if (request.operation === 'writer.cursor') {
+      result = readSessionWriteCursor(db, asSessionCursorRequest(request.payload))
+    } else if (request.operation === 'writer.command.enqueue') {
+      result = enqueueRuntimeCommand(db, request.payload as RuntimeCommandInput)
+    } else if (request.operation === 'writer.command.recover') {
+      result = listRecoverableRuntimeCommands(db, asRecoveryLimit(request.payload))
+    } else if (request.operation === 'writer.command.update') {
+      result = updateRuntimeCommand(db, request.payload as RuntimeCommandUpdate)
+    } else {
+      throw new WriterOperationError('BAD_REQUEST', `Unknown write operation: ${request.operation}`)
+    }
+    port.postMessage(directResultResponse(request, result, performance.now() - startedAt))
+  } catch (error) {
+    port.postMessage(errorResponse(request, errorCode(error), errorMessage(error)))
+  }
+}
 
 process.once('exit', () => db.close())
 
@@ -104,9 +127,9 @@ function resultResponse(work: WriterWork, result: WriteBatchResult): WorkerRespo
   }
 }
 
-function directResultResponse(
+function directResultResponse<TResult>(
   request: WorkerRequest,
-  result: SessionWriteCursor,
+  result: TResult,
   executionMs: number,
 ): WorkerResponse {
   return {
@@ -121,6 +144,15 @@ function directResultResponse(
       payloadBytes: request.payloadBytes,
     },
   }
+}
+
+function asRecoveryLimit(value: unknown): number {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new WriterOperationError('BAD_REQUEST', 'Runtime command recovery payload must be an object')
+  }
+  const limit = (value as Record<string, unknown>).limit
+  if (!Number.isInteger(limit)) throw new WriterOperationError('BAD_REQUEST', 'Recovery limit must be an integer')
+  return limit as number
 }
 
 function errorResponse(

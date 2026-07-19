@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { wsClient } from '../services/ws-client'
 import { queryClient } from '../services/query-client'
+import { commandClient } from '../services/command-client'
 import {
   applySessionEvent,
   buildErrorAgentMessage,
@@ -592,7 +593,11 @@ function partialFromReduced(reduced: ReturnType<typeof reducedStateFromStore>): 
 
 async function markSessionReadOnServer(sessionId: string): Promise<void> {
   try {
-    await wsClient.request({ type: 'sessions.markRead', sessionId })
+    await commandClient.execute({
+      commandId: `cmd-read-${sessionId}-${Date.now()}`,
+      type: 'sessions.markRead',
+      sessionId,
+    })
   } catch {
     // Best-effort: server-side last_read_at will catch up on next fetchSessions
   }
@@ -1378,9 +1383,14 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     const session = get().sessions.find((item) => item.id === sid)
     if (isCopyingSession(session) || get().copyingTargetSessionIds[sid]) return
     const clientMessageId = `msg-local-${Date.now()}`
-    const msg: Record<string, unknown> = { type: 'prompt', sessionId: sid, content, clientMessageId }
-    if (images?.length) msg.images = images
-    wsClient.send(msg)
+    void commandClient.execute({
+      commandId: `cmd-${clientMessageId}`,
+      type: 'prompt',
+      sessionId: sid,
+      content,
+      clientMessageId,
+      ...(images?.length ? { images } : {}),
+    })
     promptStartTime = Date.now()
     set((state) => ({
       messages: [
@@ -1445,7 +1455,11 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     const sid = get().currentSessionId
     if (!sid) return
     try {
-      await wsClient.request({ type: 'session.cancel', sessionId: sid })
+      await commandClient.execute({
+        commandId: `cmd-cancel-${sid}-${Date.now()}`,
+        type: 'session.cancel',
+        sessionId: sid,
+      })
     } catch (e) {
       console.error('取消失败:', e)
     }
@@ -1454,7 +1468,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   respondPermission: async (requestId, optionId, cancelled) => {
     const sid = get().currentSessionId
     if (!sid) return
-    await wsClient.request({
+    await commandClient.execute({
+      commandId: `cmd-permission-${requestId}`,
       type: 'permission.respond',
       sessionId: sid,
       permissionRequestId: requestId,
@@ -1466,7 +1481,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   respondElicitation: async (requestId, action, content) => {
     const sid = get().currentSessionId
     if (!sid) return
-    await wsClient.request({
+    await commandClient.execute({
+      commandId: `cmd-elicitation-${requestId}`,
       type: 'elicitation.respond',
       sessionId: sid,
       elicitationRequestId: requestId,

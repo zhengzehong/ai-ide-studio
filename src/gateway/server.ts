@@ -29,6 +29,10 @@ import {
   mountRealtimeConfigRoute,
   type RealtimeEndpointState,
 } from './http/realtime-config-route.js'
+import {
+  mountSessionCommandRoutes,
+  type SessionCommandDispatcherPort,
+} from './http/session-command-routes.js'
 
 const log = createChildLogger('gateway')
 
@@ -36,6 +40,7 @@ export interface StartGatewayOptions {
   queryPort?: QueryPort
   webSocketMode?: 'embedded' | 'none'
   realtimeState?: () => RealtimeEndpointState
+  commandDispatcher?: SessionCommandDispatcherPort
 }
 
 export async function startGateway(config: AppConfig, options: StartGatewayOptions = {}) {
@@ -53,6 +58,7 @@ export async function startGateway(config: AppConfig, options: StartGatewayOptio
   })))
 
   mountQueryRoutes(app, options.queryPort)
+  if (options.commandDispatcher) mountSessionCommandRoutes(app, options.commandDispatcher)
 
   app.get('/api/agents', (c) => c.json(agentStore.list()))
   app.get('/api/sessions', (c) => {

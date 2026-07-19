@@ -41,6 +41,7 @@ import { sessionSharesMigration } from './040-session-shares.js'
 import { sessionTemplatesMigration } from './041-session-templates.js'
 import { queryReadModelIndexesMigration } from './042-query-read-model-indexes.js'
 import { writerOutboxMigration } from './043-writer-outbox.js'
+import { runtimeCommandLedgerMigration } from './044-runtime-command-ledger.js'
 import type { Migration } from '../migrator.js'
 
 export const migrations: Migration[] = [
@@ -87,5 +88,6 @@ export const migrations: Migration[] = [
   sessionTemplatesMigration,
   queryReadModelIndexesMigration,
   writerOutboxMigration,
+  runtimeCommandLedgerMigration,
 ]
 

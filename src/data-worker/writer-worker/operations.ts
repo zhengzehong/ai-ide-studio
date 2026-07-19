@@ -4,6 +4,11 @@ import type {
   SessionEventWriteInput,
   SessionEventWriteResult,
   SessionWriteCursor,
+  RuntimeCommandEnqueueResult,
+  RuntimeCommandInput,
+  RuntimeCommandRecord,
+  RuntimeCommandStatus,
+  RuntimeCommandUpdate,
   WriteBatch,
   WriteBatchResult,
   WriteMutation,
@@ -19,6 +24,20 @@ interface BatchCommitRow {
   first_sequence: number | null
   last_sequence: number | null
   committed_at: string
+}
+
+interface RuntimeCommandRow {
+  command_id: string
+  idempotency_key: string
+  type: RuntimeCommandInput['type']
+  session_id: string
+  project_id: string | null
+  payload_json: string
+  status: RuntimeCommandStatus
+  attempts: number
+  error: string | null
+  created_at: string
+  updated_at: string
 }
 
 export class WriterOperationError extends Error {
@@ -155,6 +174,132 @@ export function readSessionWriteCursor(db: SqliteDatabase, sessionId: string): S
     WHERE session_id = ? ORDER BY rowid DESC LIMIT 1
   `).get(sessionId)
   return { sequence: Math.max(event?.sequence ?? 0, batch?.last_sequence ?? 0) }
+}
+
+export function enqueueRuntimeCommand(
+  db: SqliteDatabase,
+  input: RuntimeCommandInput,
+): RuntimeCommandEnqueueResult {
+  validateRuntimeCommandInput(input)
+  const payloadJson = JSON.stringify(input.payload)
+  const existing = db.prepare<[string, string], RuntimeCommandRow>(`
+    SELECT * FROM runtime_commands WHERE type = ? AND idempotency_key = ?
+  `).get(input.type, input.idempotencyKey)
+  if (existing) {
+    return {
+      command: toRuntimeCommandRecord(db, existing),
+      duplicate: true,
+      conflict: existing.session_id !== input.sessionId || existing.payload_json !== payloadJson,
+    }
+  }
+
+  db.prepare(`
+    INSERT INTO runtime_commands (
+      command_id, idempotency_key, type, session_id, project_id, payload_json,
+      status, attempts, error, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, 'accepted', 0, NULL, ?, ?)
+  `).run(
+    input.commandId,
+    input.idempotencyKey,
+    input.type,
+    input.sessionId,
+    input.projectId ?? null,
+    payloadJson,
+    input.createdAt,
+    input.createdAt,
+  )
+  const inserted = requireRuntimeCommandRow(db, input.commandId)
+  return { command: toRuntimeCommandRecord(db, inserted), duplicate: false, conflict: false }
+}
+
+export function listRecoverableRuntimeCommands(
+  db: SqliteDatabase,
+  limit: number,
+): RuntimeCommandRecord[] {
+  if (!Number.isInteger(limit) || limit < 1 || limit > 1000) {
+    throw new WriterOperationError('BAD_REQUEST', 'Runtime command recovery limit must be 1-1000')
+  }
+  const rows = db.prepare<[number], RuntimeCommandRow>(`
+    SELECT * FROM runtime_commands
+    WHERE status IN ('accepted', 'running')
+    ORDER BY created_at ASC, command_id ASC
+    LIMIT ?
+  `).all(limit)
+  return rows.map((row) => toRuntimeCommandRecord(db, row))
+}
+
+export function updateRuntimeCommand(
+  db: SqliteDatabase,
+  input: RuntimeCommandUpdate,
+): RuntimeCommandRecord {
+  if (!input.commandId.trim()) throw new WriterOperationError('BAD_REQUEST', 'commandId is required')
+  const result = db.prepare(`
+    UPDATE runtime_commands
+    SET status = ?,
+        attempts = attempts + CASE WHEN ? = 'running' THEN 1 ELSE 0 END,
+        error = ?,
+        updated_at = ?
+    WHERE command_id = ?
+  `).run(input.status, input.status, input.error ?? null, input.updatedAt, input.commandId)
+  if (result.changes !== 1) {
+    throw new WriterOperationError('BAD_REQUEST', `Runtime command not found: ${input.commandId}`)
+  }
+  return toRuntimeCommandRecord(db, requireRuntimeCommandRow(db, input.commandId))
+}
+
+function requireRuntimeCommandRow(db: SqliteDatabase, commandId: string): RuntimeCommandRow {
+  const row = db.prepare<[string], RuntimeCommandRow>(
+    'SELECT * FROM runtime_commands WHERE command_id = ?',
+  ).get(commandId)
+  if (!row) throw new WriterOperationError('BAD_REQUEST', `Runtime command not found: ${commandId}`)
+  return row
+}
+
+function toRuntimeCommandRecord(
+  db: SqliteDatabase,
+  row: RuntimeCommandRow,
+): RuntimeCommandRecord {
+  const payload = parseJson(row.payload_json)
+  const clientMessageId = row.type === 'prompt' && isRecord(payload)
+    ? payload.clientMessageId
+    : undefined
+  const humanMessagePersisted = typeof clientMessageId === 'string'
+    && !!db.prepare<[string], { found: number }>(`
+      SELECT 1 AS found FROM messages WHERE id = ? AND role = 'human' LIMIT 1
+    `).get(clientMessageId)
+  return {
+    commandId: row.command_id,
+    idempotencyKey: row.idempotency_key,
+    type: row.type,
+    sessionId: row.session_id,
+    ...(row.project_id ? { projectId: row.project_id } : {}),
+    payload,
+    status: row.status,
+    attempts: row.attempts,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    ...(row.error ? { error: row.error } : {}),
+    humanMessagePersisted,
+  }
+}
+
+function validateRuntimeCommandInput(input: RuntimeCommandInput): void {
+  if (!input.commandId.trim()) throw new WriterOperationError('BAD_REQUEST', 'commandId is required')
+  if (!input.idempotencyKey.trim()) throw new WriterOperationError('BAD_REQUEST', 'idempotencyKey is required')
+  if (!input.sessionId.trim()) throw new WriterOperationError('BAD_REQUEST', 'sessionId is required')
+  if (!input.createdAt.trim()) throw new WriterOperationError('BAD_REQUEST', 'createdAt is required')
+}
+
+function parseJson(value: string): unknown {
+  try {
+    return JSON.parse(value) as unknown
+  } catch (error) {
+    throw new WriterOperationError('SQLITE_ERROR', `Invalid runtime command payload: ${String(error)}`)
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
 function appendSessionEvent(

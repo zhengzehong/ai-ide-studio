@@ -33,6 +33,8 @@ import { EmbeddedRuntimePort } from './runtime/api/embedded-runtime-port.js'
 import { createProcessRuntimePort, type ProcessRuntimePort } from './runtime/api/process-runtime-port.js'
 import { handleRuntimeDone, handleRuntimePersistenceUpdate } from './runtime/api/runtime-ingress.js'
 import { setRuntimePort } from './runtime/runtime-port-provider.js'
+import { RuntimeCommandDispatcher } from './commands/runtime-command-dispatcher.js'
+import { executeSessionCommand } from './commands/session-command-service.js'
 
 const log = createChildLogger('app')
 
@@ -146,6 +148,23 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
     throw err
   }
   const resetRuntimePort = setRuntimePort(runtimePort)
+  const commandDispatcher = new RuntimeCommandDispatcher({
+    ledger: writeDataPort,
+    execute: async (command) => { await executeSessionCommand(command) },
+  })
+  try {
+    await commandDispatcher.start()
+  } catch (err) {
+    await runtimePort.close().catch(() => undefined)
+    resetRuntimePort()
+    realtimeEvents?.stop()
+    await realtimeProcess?.close()
+    resetQueryPort()
+    resetWriteDataPort()
+    await dataPorts.close()
+    closeDatabase()
+    throw err
+  }
 
   void getOrCreateMachineId().then(
     (machineId) => log.info({ machineId }, 'machineId 已就绪'),
@@ -169,6 +188,7 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
         port: realtimeMode === 'process' ? (realtimeProcess?.port ?? 0) : embeddedRealtimePort,
         legacyRpcEnabled: config.realtimeLegacyRpc ?? true,
       }),
+      commandDispatcher,
     })
     embeddedRealtimePort = serverPort(gateway.server)
   } catch (err) {
@@ -211,7 +231,9 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
       clearInterval(hubCleanupTimer)
       const cleanupErrors: unknown[] = []
       realtimeEvents?.stop()
+      commandDispatcher.closeIntake()
       if (wss) await collectCleanupError(cleanupErrors, () => closeWebSocketServer(wss))
+      await collectCleanupError(cleanupErrors, () => commandDispatcher.drain())
       await collectCleanupError(cleanupErrors, () => runtimePort.drain())
       await collectCleanupError(cleanupErrors, () => runtimePort.close())
       resetRuntimePort()

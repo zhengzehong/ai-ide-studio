@@ -73,9 +73,57 @@ export interface SessionWriteCursor {
   sequence: number
 }
 
+export type RuntimeCommandType =
+  | 'prompt'
+  | 'session.cancel'
+  | 'sessions.markRead'
+  | 'permission.respond'
+  | 'elicitation.respond'
+
+export type RuntimeCommandStatus =
+  | 'accepted'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'interrupted'
+
+export interface RuntimeCommandInput {
+  commandId: string
+  idempotencyKey: string
+  type: RuntimeCommandType
+  sessionId: string
+  projectId?: string
+  payload: unknown
+  createdAt: string
+}
+
+export interface RuntimeCommandRecord extends RuntimeCommandInput {
+  status: RuntimeCommandStatus
+  attempts: number
+  updatedAt: string
+  error?: string
+  humanMessagePersisted: boolean
+}
+
+export interface RuntimeCommandEnqueueResult {
+  command: RuntimeCommandRecord
+  duplicate: boolean
+  conflict: boolean
+}
+
+export interface RuntimeCommandUpdate {
+  commandId: string
+  status: Exclude<RuntimeCommandStatus, 'accepted'>
+  updatedAt: string
+  error?: string
+}
+
 export interface WriteDataPort {
   commitBatch(batch: WriteBatch): Promise<WriteBatchResult>
   sessionCursor(sessionId: string): Promise<SessionWriteCursor>
+  enqueueRuntimeCommand(input: RuntimeCommandInput): Promise<RuntimeCommandEnqueueResult>
+  listRecoverableRuntimeCommands(limit: number): Promise<RuntimeCommandRecord[]>
+  updateRuntimeCommand(input: RuntimeCommandUpdate): Promise<RuntimeCommandRecord>
   drain(): Promise<void>
   close(): Promise<void>
 }
