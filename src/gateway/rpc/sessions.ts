@@ -71,7 +71,7 @@ async function ensureAcpSession(sessionId: string, emitLifecycle = true): Promis
   const session = sessionStore.get(sessionId)
   if (!session) throw new Error('\u4f1a\u8bdd\u4e0d\u5b58\u5728')
   const context = resolveSessionProjectContext(sessionId)
-  const snapshot = buildRuntimeStateSnapshot({ sessionId, cwd: context.cwd })
+  const snapshot = buildRuntimeStateSnapshot({ sessionId, projectId: context.projectId, cwd: context.cwd })
   const acpSessionId = await getRuntimePort().ensureSession(snapshot, { emitLifecycle })
   if (session.acp_session_id !== acpSessionId) sessionStore.updateAcpSessionId(sessionId, acpSessionId)
   return { agentId: session.agent_id }
@@ -178,7 +178,11 @@ export const sessionRpcHandlers: RpcHandlerMap = {
     const forked = sessionStore.create({ agentId: source.agent_id, taskId: source.task_id ?? undefined, projectId: source.project_id ?? undefined })
     try {
       const project = source.project_id ? projectStore.get(source.project_id) : undefined
-      const snapshot = buildRuntimeStateSnapshot({ sessionId: forked.id, cwd: project?.work_dir })
+      const snapshot = buildRuntimeStateSnapshot({
+        sessionId: forked.id,
+        projectId: source.project_id ?? undefined,
+        cwd: project?.work_dir,
+      })
       const sourceAcpSessionId = source.acp_session_id
       if (!sourceAcpSessionId) throw new Error('源会话没有可复制的运行时上下文')
       const acpSessionId = await getRuntimePort().forkSession(snapshot, sourceAcpSessionId)

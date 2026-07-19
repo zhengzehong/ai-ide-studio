@@ -518,7 +518,11 @@ async function sendPromptNow(session: SessionRow, content: string, images?: Imag
     )
     recordPromptProgress(sessionId, 'acp.session.ensure.started')
     log.info({ sessionId, agentId: session.agent_id, turnId, acpSessionId: session.acp_session_id, projectId: projectContext.projectId, cwd: projectContext.cwd }, 'ACP ensure session start')
-    const runtimeSnapshot = buildRuntimeStateSnapshot({ sessionId, cwd: projectContext.cwd })
+    const runtimeSnapshot = buildRuntimeStateSnapshot({
+      sessionId,
+      projectId: projectContext.projectId,
+      cwd: projectContext.cwd,
+    })
     const acpSessionId = await getRuntimePort().ensureSession(runtimeSnapshot)
     recordPromptProgress(sessionId, 'acp.session.ready')
     log.info({ sessionId, agentId: session.agent_id, turnId, acpSessionId }, 'ACP ensure session done')
@@ -657,7 +661,11 @@ async function completeCopiedSessionFork(
   projectContext: { projectId?: string; cwd?: string },
 ): Promise<void> {
   try {
-    const snapshot = buildRuntimeStateSnapshot({ sessionId: copiedSessionId, cwd: projectContext.cwd })
+    const snapshot = buildRuntimeStateSnapshot({
+      sessionId: copiedSessionId,
+      projectId: projectContext.projectId,
+      cwd: projectContext.cwd,
+    })
     const acpSessionId = await getRuntimePort().forkSession(snapshot, sourceAcpSessionId)
     sessionStore.updateAcpSessionId(copiedSessionId, acpSessionId)
     sessionStore.updateStage(copiedSessionId, '')

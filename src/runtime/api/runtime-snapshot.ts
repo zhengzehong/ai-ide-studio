@@ -12,6 +12,7 @@ const AUTO_APPROVED_TEAM_TOOLS = new Set(['team.mailbox.send', 'team.task.update
 
 export interface BuildRuntimeStateSnapshotInput {
   sessionId: string
+  projectId?: string
   cwd?: string
   emitHttpMcp?: boolean
   httpMcpBaseUrl?: string
@@ -27,7 +28,11 @@ export function buildRuntimeStateSnapshot(input: BuildRuntimeStateSnapshotInput)
     throw new Error(`Session and Agent project mismatch: ${session.id}`)
   }
 
-  const projectId = session.project_id ?? agent.project_id
+  const persistedProjectId = session.project_id ?? agent.project_id
+  if (input.projectId && persistedProjectId && input.projectId !== persistedProjectId) {
+    throw new Error(`Runtime context project mismatch: ${session.id}`)
+  }
+  const projectId = input.projectId ?? persistedProjectId
   const project = projectId ? projectStore.get(projectId) : undefined
   if (projectId && !project) throw new Error(`Project not found: ${projectId}`)
 

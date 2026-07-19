@@ -169,10 +169,10 @@ export function createAcpRuntimeClient(options: AcpRuntimeClientOptions): AcpRun
     },
     async unstable_completeElicitation() {},
     createTerminal: (params) => terminals.create(params),
-    terminalOutput: (params) => terminals.output(params),
+    terminalOutput: async (params) => terminals.output(params),
     waitForTerminalExit: (params) => terminals.wait(params),
-    killTerminal: (params) => terminals.kill(params),
-    releaseTerminal: (params) => terminals.release(params),
+    killTerminal: async (params) => terminals.kill(params),
+    releaseTerminal: async (params) => terminals.release(params),
     async readTextFile(params) {
       const lease = await resources.acquire('disk')
       try {

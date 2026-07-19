@@ -64,7 +64,11 @@ export const sessionTemplateManager = {
 
     let acpSessionId: string
     try {
-      const snapshot = buildRuntimeStateSnapshot({ sessionId: templateSession.id, cwd: projectContext.cwd })
+      const snapshot = buildRuntimeStateSnapshot({
+        sessionId: templateSession.id,
+        projectId: projectContext.projectId,
+        cwd: projectContext.cwd,
+      })
       acpSessionId = await getRuntimePort().forkSession(snapshot, source.acp_session_id)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -133,7 +137,11 @@ export const sessionTemplateManager = {
 
     let acpSessionId: string
     try {
-      const snapshot = buildRuntimeStateSnapshot({ sessionId: newSession.id, cwd: projectContext.cwd })
+      const snapshot = buildRuntimeStateSnapshot({
+        sessionId: newSession.id,
+        projectId: projectContext.projectId,
+        cwd: projectContext.cwd,
+      })
       acpSessionId = await getRuntimePort().forkSession(snapshot, templateSession.acp_session_id)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)

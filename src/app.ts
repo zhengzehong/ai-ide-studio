@@ -113,7 +113,6 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
     ?? (realtimeMode === 'embedded' ? 'embedded' : 'process')
   if (runtimeMode === 'process' && !realtimeProcess) {
     realtimeEvents?.stop()
-    await realtimeProcess?.close()
     resetQueryPort()
     resetWriteDataPort()
     await dataPorts.close()

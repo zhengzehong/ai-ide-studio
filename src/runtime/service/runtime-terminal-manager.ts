@@ -81,16 +81,20 @@ export class RuntimeTerminalManager {
   }
 
   release(params: acp.ReleaseTerminalRequest): acp.ReleaseTerminalResponse {
-    const terminal = this.terminals.get(params.terminalId)
-    if (!terminal) return {}
-    if (terminal.exitCode === undefined && terminal.signal === undefined) terminal.process.kill()
-    terminal.lease.release()
-    this.terminals.delete(params.terminalId)
+    this.releaseTerminal(params.terminalId)
     return {}
   }
 
   close(): void {
-    for (const [terminalId] of this.terminals) this.release({ terminalId })
+    for (const [terminalId] of this.terminals) this.releaseTerminal(terminalId)
+  }
+
+  private releaseTerminal(terminalId: string): void {
+    const terminal = this.terminals.get(terminalId)
+    if (!terminal) return
+    if (terminal.exitCode === undefined && terminal.signal === undefined) terminal.process.kill()
+    terminal.lease.release()
+    this.terminals.delete(terminalId)
   }
 
   private appendOutput(terminal: RuntimeTerminal, chunk: Buffer): void {
