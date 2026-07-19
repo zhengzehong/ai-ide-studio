@@ -137,7 +137,7 @@ events.on('session:event', (ev) => {
   })
 })
 
-events.on('session:done', (ev) => {
+events.on('session:committed_done', (ev) => {
   sessionUpdateBroadcastBatcher.flushSession(ev.sessionId, broadcastSessionUpdate)
   log.info({ sessionId: ev.sessionId, agentId: ev.agentId, turnId: ev.turnId, messageId: ev.messageId, stopReason: ev.stopReason, hasError: !!ev.error }, 'broadcasting session done')
   broadcastToSubscribers(ev.sessionId, {

@@ -68,10 +68,12 @@ function executeScheduledBatch(
   const startedAt = Date.now()
   const executionStarted = performance.now()
   for (const item of items) item.value.startedAt = startedAt
-  const results = executeWriteBatches(db, items.map((item) => item.value.batch))
-  const executionMs = performance.now() - executionStarted
-  for (const item of items) item.value.executionMs = executionMs
-  return results
+  try {
+    return executeWriteBatches(db, items.map((item) => item.value.batch))
+  } finally {
+    const executionMs = performance.now() - executionStarted
+    for (const item of items) item.value.executionMs = executionMs
+  }
 }
 
 function resultResponse(work: WriterWork, result: WriteBatchResult): WorkerResponse {

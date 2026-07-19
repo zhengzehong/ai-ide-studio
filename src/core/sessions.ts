@@ -6,7 +6,7 @@ import { globalAssistantStore } from '../store/global-assistant.js'
 import { projectStore } from '../store/projects.js'
 import { teamMemberStore } from '../store/teams.js'
 import { acpHost } from '../acp/host.js'
-import { events } from './events.js'
+import { events, type AppEvents } from './events.js'
 import { createChildLogger } from './logger.js'
 import { agentHubService } from './agent-hub/index.js'
 import type { ImageAttachment, SessionActivityReason, SessionActivityState, SessionUpdateData } from '../types/ws-protocol.js'
@@ -32,6 +32,7 @@ import {
 } from './turn-process-runtime.js'
 import { appendHiddenAttachmentNote, loadStoredImagesForAcp, saveSessionImages } from './image-attachments.js'
 import { sessionShareManager } from './session-share-manager.js'
+import { sessionPersistencePort } from './persistence/session-persistence-port.js'
 
 const log = createChildLogger('session')
 
@@ -40,6 +41,8 @@ const activePrompts = new Set<string>()
 const queuedPrompts = new Map<string, Promise<void>>()
 const copyingSourceSessions = new Set<string>()
 const eventBatcher = new SessionUpdateBatcher()
+const persistenceBySession = new Map<string, Promise<void>>()
+const persistenceErrors = new Map<string, unknown>()
 
 interface PromptOptions {
   clientMessageId?: string
@@ -72,7 +75,7 @@ events.on('session:update', (ev) => {
   eventBatcher.handle(ev, persistSessionUpdateEvent)
 })
 
-function persistSessionUpdateEvent(ev: SessionUpdateEnvelope): void {
+async function persistSessionUpdateEvent(ev: SessionUpdateEnvelope): Promise<void> {
   const turnId = getPromptTurnId(ev.sessionId)
   const payload = eventPayloadFromUpdate(ev.data)
   if (!payload) return
@@ -80,13 +83,13 @@ function persistSessionUpdateEvent(ev: SessionUpdateEnvelope): void {
     const updated = sessionStore.updateTitleIfEmpty(ev.sessionId, ev.data.sessionInfo.title)
     if (updated) events.emit('session:changed', { sessionId: ev.sessionId, data: { ...updated } })
   }
-  const stored = eventStore.append(ev.sessionId, {
+  const stored = await sessionPersistencePort.appendEvent(ev.sessionId, {
     type: payload.type,
     agentId: ev.agentId,
     messageId: ev.data.messageId,
     role: ev.data.role,
     payload: payload.payload,
-  })
+  }, 'background')
   log.debug(
     { sessionId: ev.sessionId, agentId: ev.agentId, turnId, eventId: stored.id, sequence: stored.sequence, eventType: stored.type, messageId: stored.message_id },
     'session event persisted',
@@ -99,23 +102,40 @@ function eventTurnId(ev: { sessionId: string; turnId?: string }): string | undef
 }
 
 events.on('session:done', (ev) => {
-  eventBatcher.flushSession(ev.sessionId, persistSessionUpdateEvent)
+  persistenceErrors.delete(ev.sessionId)
+  const pending = persistSessionDone(ev)
+  persistenceBySession.set(ev.sessionId, pending)
+  void pending.catch((err: unknown) => {
+    persistenceErrors.set(ev.sessionId, err)
+    log.error(
+      { err, sessionId: ev.sessionId, agentId: ev.agentId, turnId: eventTurnId(ev) },
+      'session done persistence failed',
+    )
+  }).finally(() => {
+    if (persistenceBySession.get(ev.sessionId) === pending) persistenceBySession.delete(ev.sessionId)
+  })
+})
+
+async function persistSessionDone(ev: AppEvents['session:done']): Promise<void> {
+  await eventBatcher.flushSession(ev.sessionId, persistSessionUpdateEvent)
   const turnId = eventTurnId(ev)
   recordPromptProgress(ev.sessionId, 'session.done')
   log.info({ sessionId: ev.sessionId, agentId: ev.agentId, turnId, messageId: ev.messageId, stopReason: ev.stopReason, hasError: !!ev.error, turnUsage: ev.turnUsage }, 'session done received')
-  const stored = eventStore.append(ev.sessionId, {
+  const stored = await sessionPersistencePort.appendEvent(ev.sessionId, {
     type: 'message.done',
     agentId: ev.agentId,
     messageId: ev.messageId,
     role: 'agent',
     payload: { messageId: ev.messageId, turnId, turnUsage: ev.turnUsage, stopReason: ev.stopReason, error: ev.error },
-  })
+  }, 'critical')
   log.info(
     { sessionId: ev.sessionId, agentId: ev.agentId, turnId, eventId: stored.id, sequence: stored.sequence, messageId: stored.message_id, stopReason: ev.stopReason },
     'session done event persisted',
   )
   events.emit('session:event', { sessionId: ev.sessionId, agentId: ev.agentId, event: stored })
-})
+  events.emit('session:committed_done', ev)
+  sessionPersistencePort.finishSession(ev.sessionId)
+}
 
 events.on('session:done', (ev) => {
   const updated = sessionStore.clearStageIfRunning(ev.sessionId)
@@ -232,6 +252,16 @@ export const sessionManager = {
 
   listActivePromptSessionIds(): string[] {
     return [...activePrompts]
+  },
+
+  async waitForPersistence(sessionId: string): Promise<void> {
+    const pending = persistenceBySession.get(sessionId)
+    if (pending) await pending
+    if (persistenceErrors.has(sessionId)) {
+      const error = persistenceErrors.get(sessionId)
+      persistenceErrors.delete(sessionId)
+      throw error
+    }
   },
 
   // session.cancel 10s 兜底强制结束 turn 时,ACP 那侧的 activeTurnReject 已经 reject 了,
@@ -533,6 +563,11 @@ async function sendPromptNow(session: SessionRow, content: string, images?: Imag
     })
     throw err
   } finally {
+    try {
+      await sessionManager.waitForPersistence(sessionId)
+    } catch (err) {
+      log.error({ err, sessionId, agentId: session.agent_id, turnId }, 'prompt persistence drain failed')
+    }
     activePrompts.delete(sessionId)
     finishPromptDiagnostics(sessionId, activityEndReason)
     log.info({ sessionId, agentId: session.agent_id, turnId, reason: activityEndReason, elapsedMs: Date.now() - startedAt, activePromptCount: activePrompts.size }, 'prompt cleanup complete')

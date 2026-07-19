@@ -49,7 +49,7 @@ This plan therefore preserves the approved final physical boundary while using a
 - Modify `src/store/migrations/index.ts`: register migration 043.
 - Create `src/core/persistence/session-persistence-port.ts`: caller-facing session mutation adapter.
 - Modify `src/core/session-update-batcher.ts`: async flush contract with per-session drain.
-- Modify `src/core/sessions.ts`: route the selected session event/snapshot/done writes through the persistence port and publish only after commit.
+- Modify `src/core/sessions.ts`: route stream event/snapshot/done writes through the persistence port and publish done only after commit; keep immediately-read stage/touch mutations on the measured compatibility path until Runtime extraction.
 - Modify `src/app.ts`: migrate/seed before workers, start both workers, inject ports, and drain/close in dependency order.
 - Modify `src/gateway/server.ts`: accept app-scoped ports rather than importing a concrete query adapter.
 - Create `tests/unit/data-worker-priority-queue.test.ts`: stable priority and expiry behavior.
@@ -280,25 +280,25 @@ Commit: `feat(data): add ordered writer batches and outbox`
 - Test: `tests/integration/session-done-error.test.ts`
 - Test: `tests/integration/acp-prompt-completion.test.ts`
 
-- [ ] **Step 1: Write failing async drain tests**
+- [x] **Step 1: Write failing async drain tests**
 
 The batcher callback returns a promise. Assert `flushSession(sessionId)` waits for queued and in-flight persistence, preserves merged event order, propagates failure to the critical caller, and allows unrelated sessions to continue.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `npx vitest run tests/unit/session-update-batcher.test.ts`
 
 Expected: FAIL because the current callback and flush methods are synchronous.
 
-- [ ] **Step 3: Add the session persistence adapter**
+- [x] **Step 3: Add the session persistence adapter**
 
 The adapter generates one `streamGeneration` per active turn and monotonic sequence values after coalescing. Mergeable update events use background batches. User message, permission result, cancel, and done use critical batches. Done calls `flushSession`, waits for the final message/event commit, then permits `session.done` publication.
 
-- [ ] **Step 4: Migrate only operations represented by the closed Writer union**
+- [x] **Step 4: Migrate only operations represented by the closed Writer union**
 
-Replace direct synchronous event append, running snapshot update, session touch/stage update, and final done event in the session hot path. Keep transformation and event payload construction in Core. Emit persisted `session:event`/`session:changed` notifications only after the Writer acknowledges commit. Do not duplicate-write to the old store.
+Replace direct synchronous stream event append, running snapshot update, and final done event in the session hot path. Keep transformation and event payload construction in Core. Emit persisted `session:event` and externally-visible `session:done` notifications only after the Writer acknowledges commit. Do not duplicate-write to the old store. Session stage/touch changes remain on the explicit compatibility path because current callers synchronously read the updated row before broadcasting; they move with the Runtime state-machine boundary rather than being fire-and-forget writes.
 
-- [ ] **Step 5: Verify behavior and ordering**
+- [x] **Step 5: Verify behavior and ordering**
 
 Run:
 

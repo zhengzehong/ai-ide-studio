@@ -17,6 +17,9 @@ import { resolve } from 'path'
 import { createWorkerQueryPort } from './queries/worker-query-port.js'
 import { setQueryPort } from './queries/query-port-provider.js'
 import { sessionManager } from './core/sessions.js'
+import { createWorkerWriteDataPort } from './data-worker/writer-worker/client.js'
+import { setWriteDataPort } from './core/persistence/write-data-port-provider.js'
+import { sessionPersistencePort } from './core/persistence/session-persistence-port.js'
 
 const log = createChildLogger('app')
 
@@ -45,10 +48,19 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
   seedBuiltinTaskExecutionModes()
   seedBuiltinTools()
 
-  const queryPort = await createWorkerQueryPort({
-    dbPath,
-    getActivePromptSessionIds: () => sessionManager.listActivePromptSessionIds(),
-  })
+  const writeDataPort = await createWorkerWriteDataPort({ dbPath })
+  const resetWriteDataPort = setWriteDataPort(writeDataPort)
+  let queryPort: Awaited<ReturnType<typeof createWorkerQueryPort>>
+  try {
+    queryPort = await createWorkerQueryPort({
+      dbPath,
+      getActivePromptSessionIds: () => sessionManager.listActivePromptSessionIds(),
+    })
+  } catch (err) {
+    resetWriteDataPort()
+    await writeDataPort.close()
+    throw err
+  }
   const resetQueryPort = setQueryPort(queryPort)
 
   void getOrCreateMachineId().then(
@@ -67,6 +79,8 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
   } catch (err) {
     resetQueryPort()
     await queryPort.close()
+    resetWriteDataPort()
+    await writeDataPort.close()
     throw err
   }
   const { app, server, wss } = gateway
@@ -91,8 +105,12 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
       clearInterval(hubCleanupTimer)
       await closeWebSocketServer(wss)
       await closeHttpServer(server)
+      await sessionPersistencePort.flush()
       resetQueryPort()
       await queryPort.close()
+      resetWriteDataPort()
+      await writeDataPort.close()
+      sessionPersistencePort.reset()
       log.info('服务已关闭')
     },
   }

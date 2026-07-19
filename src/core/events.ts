@@ -17,6 +17,7 @@ export type AppEvents = {
   'session:manual-prompt-started': { sessionId: string; agentId: string }
   'session:activity': SessionActivityData
   'session:done': SessionDoneData
+  'session:committed_done': SessionDoneData
   'session:capabilities': { sessionId: string; capabilities: SessionCapabilities }
   'session:changed': { sessionId: string; data: Record<string, unknown> }
   'session:copy_failed': { sourceSessionId: string; targetSessionId: string; message: string }
