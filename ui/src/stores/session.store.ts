@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { wsClient } from '../services/ws-client'
+import { queryClient } from '../services/query-client'
 import {
   applySessionEvent,
   buildErrorAgentMessage,
@@ -864,10 +865,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
     const request = (async (): Promise<void> => {
       try {
-        const msg: Record<string, unknown> = { type: 'sessions.list' }
-        if (agentId) msg.agentId = agentId
-        if (projectId) msg.projectId = projectId
-        const data = (await wsClient.request(msg)) as SessionData[]
+        const data = await queryClient.listSessions({ agentId, projectId })
         const sessions = scopedProjectId
           ? data.filter((session) => session.project_id === scopedProjectId)
           : data
@@ -935,11 +933,11 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   fetchMessages: async (sessionId) => {
     try {
-      const serverMessages = (await wsClient.request({
-        type: 'sessions.messages',
+      const page = await queryClient.listSessionMessages({
         sessionId,
         limit: CHAT_MESSAGE_PAGE_SIZE,
-      })) as MessageData[]
+      })
+      const serverMessages = page.items
       if (sessionId !== get().currentSessionId) return
       set((state) => {
         const messages = mergeMessagesForSession(serverMessages, state.messages, sessionId)
@@ -977,7 +975,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           staleSessionIds: removeSessionIndicator(state.staleSessionIds, sessionId),
           hasMoreMessagesBySession: {
             ...state.hasMoreMessagesBySession,
-            [sessionId]: serverMessages.length >= CHAT_MESSAGE_PAGE_SIZE,
+            [sessionId]: page.hasMore,
           },
         }
       })
@@ -1015,18 +1013,18 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       loadingOlderMessagesBySession: { ...current.loadingOlderMessagesBySession, [sessionId]: true },
     }))
     try {
-      const olderMessages = (await wsClient.request({
-        type: 'sessions.messages',
+      const page = await queryClient.listSessionMessages({
         sessionId,
         limit: CHAT_MESSAGE_PAGE_SIZE,
         before: oldest.timestamp,
-      })) as MessageData[]
+      })
+      const olderMessages = page.items
       if (sessionId !== get().currentSessionId) return
       set((current) => ({
         messages: mergeMessagesForSession(olderMessages, current.messages, sessionId),
         hasMoreMessagesBySession: {
           ...current.hasMoreMessagesBySession,
-          [sessionId]: olderMessages.length >= CHAT_MESSAGE_PAGE_SIZE,
+          [sessionId]: page.hasMore,
         },
       }))
       saveCache(sessionId, get())
@@ -1041,7 +1039,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   fetchEvents: async (sessionId) => {
     try {
-      const events = (await wsClient.request({ type: 'sessions.events', sessionId, limit: 1000 })) as SessionEventData[]
+      const events = (await queryClient.listSessionEvents({ sessionId, limit: 1000 })).items
       if (sessionId !== get().currentSessionId) return
       eventCursorBySession.set(sessionId, events.at(-1)?.sequence ?? 0)
       const stateBeforeRecovery = get()

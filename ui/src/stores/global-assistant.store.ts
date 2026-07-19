@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { wsClient } from '../services/ws-client'
+import { queryClient } from '../services/query-client'
 import type { AgentData } from './agent.store'
 import { useProjectStore } from './project.store'
 import type { SessionData } from './session.store'
@@ -441,8 +442,8 @@ export const useGlobalAssistantStore = create<GlobalAssistantStore>((set, get) =
   fetchMessages: async () => {
     const sid = currentSessionId(get())
     if (!sid) return
-    const rawMessages = await wsClient.request({ type: 'sessions.messages', sessionId: sid, limit: CHAT_MESSAGE_PAGE_SIZE })
-    const serverMessages = Array.isArray(rawMessages) ? rawMessages as MessageData[] : []
+    const page = await queryClient.listSessionMessages({ sessionId: sid, limit: CHAT_MESSAGE_PAGE_SIZE })
+    const serverMessages = page.items
     if (sid !== currentSessionId(get())) return
     set((state) => {
       const messages = mergeMessagesForSession(serverMessages, state.messages, sid)
@@ -454,7 +455,7 @@ export const useGlobalAssistantStore = create<GlobalAssistantStore>((set, get) =
           ? streamingFromRunningMessage(runningMessage)
           : state.streamingMessage,
         running: hasRunning || state.running,
-        hasMoreMessages: serverMessages.length >= CHAT_MESSAGE_PAGE_SIZE,
+        hasMoreMessages: page.hasMore,
       }
     })
     const runningMessage = get().messages.filter((message) => message.session_id === sid && message.role === 'agent' && message.status === 'running').at(-1)
@@ -469,12 +470,16 @@ export const useGlobalAssistantStore = create<GlobalAssistantStore>((set, get) =
     if (!oldest) return
     set({ loadingOlderMessages: true })
     try {
-      const rawMessages = await wsClient.request({ type: 'sessions.messages', sessionId: sid, limit: CHAT_MESSAGE_PAGE_SIZE, before: oldest.timestamp })
-      const olderMessages = Array.isArray(rawMessages) ? rawMessages as MessageData[] : []
+      const page = await queryClient.listSessionMessages({
+        sessionId: sid,
+        limit: CHAT_MESSAGE_PAGE_SIZE,
+        before: oldest.timestamp,
+      })
+      const olderMessages = page.items
       if (sid !== currentSessionId(get())) return
       set((state) => ({
         messages: mergeMessagesForSession(olderMessages, state.messages, sid),
-        hasMoreMessages: olderMessages.length >= CHAT_MESSAGE_PAGE_SIZE,
+        hasMoreMessages: page.hasMore,
       }))
     } finally {
       set({ loadingOlderMessages: false })
@@ -484,8 +489,7 @@ export const useGlobalAssistantStore = create<GlobalAssistantStore>((set, get) =
   fetchEvents: async () => {
     const sid = currentSessionId(get())
     if (!sid) return
-    const rawEvents = await wsClient.request({ type: 'sessions.events', sessionId: sid, limit: 1000 })
-    const events = Array.isArray(rawEvents) ? rawEvents as SessionEventData[] : []
+    const events = (await queryClient.listSessionEvents({ sessionId: sid, limit: 1000 })).items
     if (sid !== currentSessionId(get())) return
     const reduced = reduceVisibleEvents(events, get().messages.length > 0, get().running)
     set((state) => ({

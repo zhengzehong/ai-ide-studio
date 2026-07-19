@@ -823,9 +823,9 @@ describe('session store done handling', () => {
 
       await vi.waitFor(() => {
         expect(wsMock.request).toHaveBeenCalledWith({ type: 'sessions.messages', sessionId: 'sess-refresh', limit: 20 })
+        expect(useSessionStore.getState().runningSessionIds['sess-refresh']).toBe(true)
+        expect(useSessionStore.getState().staleSessionIds['sess-refresh']).toBeUndefined()
       })
-      expect(useSessionStore.getState().runningSessionIds['sess-refresh']).toBe(true)
-      expect(useSessionStore.getState().staleSessionIds['sess-refresh']).toBeUndefined()
     } finally {
       cleanup()
     }
@@ -868,9 +868,9 @@ describe('session store done handling', () => {
 
       await vi.waitFor(() => {
         expect(wsMock.request).toHaveBeenCalledWith({ type: 'sessions.messages', sessionId: 'sess-refresh', limit: 20 })
+        expect(useSessionStore.getState().runningSessionIds['sess-refresh']).toBeUndefined()
+        expect(useSessionStore.getState().staleSessionIds['sess-refresh']).toBeUndefined()
       })
-      expect(useSessionStore.getState().runningSessionIds['sess-refresh']).toBeUndefined()
-      expect(useSessionStore.getState().staleSessionIds['sess-refresh']).toBeUndefined()
     } finally {
       cleanup()
     }

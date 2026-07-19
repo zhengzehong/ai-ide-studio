@@ -6,6 +6,7 @@ import type { ProjectData } from '../../stores/project.store'
 import { type MessageData, type SessionData } from '../../stores/session.store'
 import type { TaskData } from '../../stores/task.store'
 import { wsClient } from '../../services/ws-client'
+import { queryClient } from '../../services/query-client'
 
 interface LocalStreamingState {
   id: string
@@ -65,11 +66,10 @@ function SessionContextContent({
     let cancelled = false
     void (async () => {
       try {
-        const serverMessages = (await wsClient.request({
-          type: 'sessions.messages',
+        const serverMessages = (await queryClient.listSessionMessages({
           sessionId,
           limit: 20,
-        })) as MessageData[]
+        })).items
         if (cancelled) return
         setLocalMessages(serverMessages)
       } catch {
