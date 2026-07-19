@@ -228,7 +228,7 @@ Document physical process ownership, framed IPC envelope, dynamic endpoint, back
 
 Measure 30 subscribed Session streams, one deliberately stalled client, API 150ms blocking diagnostic, Realtime restart, and HTTP query continuity. Acceptance: healthy clients p95 delivery below 50ms on the local test machine, stalled client bounded by configured bytes, HTTP timer gap independent of Realtime serialization, and no lost critical done frame.
 
-- [ ] **Step 4: Run full verification**
+- [x] **Step 4: Run full verification**
 
 ```bash
 npm test

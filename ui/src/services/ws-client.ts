@@ -8,7 +8,6 @@ class WSClient {
   private pendingRequests = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>()
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private _connected = false
-  private url = ''
   private endpoint: string | EndpointResolver = ''
   private connectGeneration = 0
   private intentionalClose = false
@@ -37,7 +36,6 @@ class WSClient {
 
   private open(url: string, generation: number) {
     if (generation !== this.connectGeneration) return
-    this.url = url
     this.intentionalClose = true
     if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null }
     if (this.ws) { this.detachSocket(this.ws); this.ws.close(); this.ws = null }
