@@ -51,6 +51,10 @@ export class RuntimeUpdateCoalescer {
     this.persistence = this.channel(options.persistenceFlushMs ?? 250, options.emitPersistence)
   }
 
+  get pendingCount(): number {
+    return this.ui.pending.size + this.persistence.pending.size
+  }
+
   enqueue(update: RuntimeCoalescibleUpdate): void {
     this.enqueueChannel(this.ui, update)
     this.enqueueChannel(this.persistence, update)
@@ -76,10 +80,7 @@ export class RuntimeUpdateCoalescer {
     this.clearTimer(this.persistence)
   }
 
-  private channel(
-    flushMs: number,
-    emit: (updates: RuntimeCoalescibleUpdate[]) => Promise<void>,
-  ): UpdateChannel {
+  private channel(flushMs: number, emit: (updates: RuntimeCoalescibleUpdate[]) => Promise<void>): UpdateChannel {
     return { pending: new Map(), flushMs, emit, writeChain: Promise.resolve() }
   }
 
@@ -138,18 +139,19 @@ function mergeUpdate(
   if (current.kind === 'session-update' && incoming.kind === 'session-update') {
     const currentData = recordField(current, 'data')
     const incomingData = recordField(incoming, 'data')
-    const mergedData = currentData || incomingData
-      ? {
-          ...currentData,
-          ...incomingData,
-          ...(typeof currentData?.contentDelta === 'string' || typeof incomingData?.contentDelta === 'string'
-            ? { contentDelta: `${stringValue(currentData?.contentDelta)}${stringValue(incomingData?.contentDelta)}` }
-            : {}),
-          ...(typeof currentData?.thinking === 'string' || typeof incomingData?.thinking === 'string'
-            ? { thinking: `${stringValue(currentData?.thinking)}${stringValue(incomingData?.thinking)}` }
-            : {}),
-        }
-      : undefined
+    const mergedData =
+      currentData || incomingData
+        ? {
+            ...currentData,
+            ...incomingData,
+            ...(typeof currentData?.contentDelta === 'string' || typeof incomingData?.contentDelta === 'string'
+              ? { contentDelta: `${stringValue(currentData?.contentDelta)}${stringValue(incomingData?.contentDelta)}` }
+              : {}),
+            ...(typeof currentData?.thinking === 'string' || typeof incomingData?.thinking === 'string'
+              ? { thinking: `${stringValue(currentData?.thinking)}${stringValue(incomingData?.thinking)}` }
+              : {}),
+          }
+        : undefined
     return {
       ...current,
       ...incoming,
@@ -163,9 +165,7 @@ function mergeUpdate(
 
 function recordField(update: RuntimeCoalescibleUpdate, key: string): Record<string, unknown> | undefined {
   const value = update[key]
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : undefined
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined
 }
 
 function stringValue(value: unknown): string {

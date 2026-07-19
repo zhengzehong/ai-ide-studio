@@ -50,6 +50,10 @@ export class SdkRuntimeHost {
     return this.sessions.has(sessionId)
   }
 
+  get sessionCount(): number {
+    return this.sessions.size
+  }
+
   async ensureSession(snapshot: RuntimeStateSnapshot): Promise<string> {
     const existing = this.sessions.get(snapshot.session.id)
     if (existing) {
@@ -98,37 +102,43 @@ export class SdkRuntimeHost {
     images?: ImageAttachment[]
     diagnostics?: { turnId?: string; messageId?: string }
   }): Promise<void> {
-    return this.actors.enqueue(input.sessionId, async () => {
-      const session = this.requireSession(input.sessionId, input.agentId)
-      const agent = this.requireAgent(input.agentId)
-      const messageId = input.diagnostics?.messageId ?? `message-${Date.now()}`
-      const blocks: acp.ContentBlock[] = [{ type: 'text', text: input.content }]
-      for (const image of input.images ?? []) {
-        blocks.push({ type: 'image', data: image.data, mimeType: image.mimeType })
-      }
-      session.active = true
-      agent.router.beginTurn(input.sessionId, messageId, input.diagnostics?.turnId)
-      try {
-        const result = await agent.connection.prompt({ sessionId: session.acpSessionId, prompt: blocks })
-        await this.options.publishDone({
-          sessionId: input.sessionId,
-          agentId: input.agentId,
-          messageId,
-          turnId: input.diagnostics?.turnId,
-          stopReason: result.stopReason,
-          turnUsage: result.usage ? {
-            inputTokens: result.usage.inputTokens,
-            outputTokens: result.usage.outputTokens,
-            totalTokens: result.usage.totalTokens,
-            cachedReadTokens: result.usage.cachedReadTokens ?? undefined,
-            thoughtTokens: result.usage.thoughtTokens ?? undefined,
-          } : undefined,
-        })
-      } finally {
-        session.active = false
-        agent.router.endTurn(input.sessionId)
-      }
-    }, { payloadBytes: Buffer.byteLength(input.content, 'utf8') })
+    return this.actors.enqueue(
+      input.sessionId,
+      async () => {
+        const session = this.requireSession(input.sessionId, input.agentId)
+        const agent = this.requireAgent(input.agentId)
+        const messageId = input.diagnostics?.messageId ?? `message-${Date.now()}`
+        const blocks: acp.ContentBlock[] = [{ type: 'text', text: input.content }]
+        for (const image of input.images ?? []) {
+          blocks.push({ type: 'image', data: image.data, mimeType: image.mimeType })
+        }
+        session.active = true
+        agent.router.beginTurn(input.sessionId, messageId, input.diagnostics?.turnId)
+        try {
+          const result = await agent.connection.prompt({ sessionId: session.acpSessionId, prompt: blocks })
+          await this.options.publishDone({
+            sessionId: input.sessionId,
+            agentId: input.agentId,
+            messageId,
+            turnId: input.diagnostics?.turnId,
+            stopReason: result.stopReason,
+            turnUsage: result.usage
+              ? {
+                  inputTokens: result.usage.inputTokens,
+                  outputTokens: result.usage.outputTokens,
+                  totalTokens: result.usage.totalTokens,
+                  cachedReadTokens: result.usage.cachedReadTokens ?? undefined,
+                  thoughtTokens: result.usage.thoughtTokens ?? undefined,
+                }
+              : undefined,
+          })
+        } finally {
+          session.active = false
+          agent.router.endTurn(input.sessionId)
+        }
+      },
+      { payloadBytes: Buffer.byteLength(input.content, 'utf8') },
+    )
   }
 
   async cancelPrompt(agentId: string, sessionId: string): Promise<void> {
@@ -147,7 +157,8 @@ export class SdkRuntimeHost {
 
   async forkSession(snapshot: RuntimeStateSnapshot, sourceAcpSessionId: string): Promise<string> {
     const agent = await this.ensureAgent(snapshot)
-    if (!agent.agentCapabilities?.sessionCapabilities?.fork) throw new Error(`Agent ${snapshot.agent.id} does not support fork`)
+    if (!agent.agentCapabilities?.sessionCapabilities?.fork)
+      throw new Error(`Agent ${snapshot.agent.id} does not support fork`)
     const result = await agent.connection.unstable_forkSession({
       sessionId: sourceAcpSessionId,
       cwd: snapshot.session.cwd,
@@ -273,8 +284,10 @@ export class SdkRuntimeHost {
 
   private async applyPreferences(connection: acp.ClientSideConnection, session: SdkSessionRuntime): Promise<void> {
     const preferences = session.snapshot.runtimePreferences
-    if (preferences.modelId) await this.setModel(session.snapshot.agent.id, session.snapshot.session.id, preferences.modelId)
-    if (preferences.modeId) await this.setMode(session.snapshot.agent.id, session.snapshot.session.id, preferences.modeId)
+    if (preferences.modelId)
+      await this.setModel(session.snapshot.agent.id, session.snapshot.session.id, preferences.modelId)
+    if (preferences.modeId)
+      await this.setMode(session.snapshot.agent.id, session.snapshot.session.id, preferences.modeId)
     for (const [configId, value] of Object.entries(preferences.config ?? {})) {
       await this.setConfig(session.snapshot.agent.id, session.snapshot.session.id, configId, value)
     }
@@ -304,16 +317,30 @@ export class SdkRuntimeHost {
 }
 
 function initialCapabilities(
-  initial: { models?: acp.SessionModelState | null; modes?: acp.SessionModeState | null; configOptions?: acp.SessionConfigOption[] | null },
+  initial: {
+    models?: acp.SessionModelState | null
+    modes?: acp.SessionModeState | null
+    configOptions?: acp.SessionConfigOption[] | null
+  },
   agentCapabilities?: acp.AgentCapabilities,
 ): SessionCapabilities {
   const capabilities: SessionCapabilities = {
-    models: initial.models?.availableModels.map((model) => ({ modelId: model.modelId, name: model.name, description: model.description ?? undefined })),
+    models: initial.models?.availableModels.map((model) => ({
+      modelId: model.modelId,
+      name: model.name,
+      description: model.description ?? undefined,
+    })),
     currentModelId: initial.models?.currentModelId,
-    modes: initial.modes?.availableModes.map((mode) => ({ modeId: mode.id, name: mode.name, description: mode.description ?? undefined })),
+    modes: initial.modes?.availableModes.map((mode) => ({
+      modeId: mode.id,
+      name: mode.name,
+      description: mode.description ?? undefined,
+    })),
     currentModeId: initial.modes?.currentModeId,
     supportsImages: agentCapabilities?.promptCapabilities?.image ?? false,
     supportsAudio: agentCapabilities?.promptCapabilities?.audio ?? false,
   }
-  return initial.configOptions ? mergeCapabilitiesFromConfig(capabilities, mapConfigOptions(initial.configOptions)) : capabilities
+  return initial.configOptions
+    ? mergeCapabilitiesFromConfig(capabilities, mapConfigOptions(initial.configOptions))
+    : capabilities
 }

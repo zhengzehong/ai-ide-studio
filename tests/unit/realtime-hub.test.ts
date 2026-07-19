@@ -111,6 +111,27 @@ describe('RealtimeHub', () => {
     ])
   })
 
+  it('does not report a gap while a contiguous cursor is still in flight', () => {
+    const hub = createHub()
+    const socket = new FakeSocket()
+    hub.addConnection('owner', socket, { authMode: 'owner' })
+    hub.handleClientMessage('owner', { type: 'subscribe', sessionIds: ['session-a'] })
+    socket.sent.length = 0
+    socket.autoComplete = false
+
+    hub.deliver(sessionDelivery(update('session-a', 1)))
+    hub.deliver(sessionDelivery(update('session-a', 2)))
+    socket.completeNext()
+    hub.deliver(sessionDelivery(update('session-a', 3)))
+    socket.completeAll()
+
+    expect(socket.messages().map((message) => message.type)).toEqual([
+      'session:update',
+      'session:update',
+      'session:update',
+    ])
+  })
+
   it('removes subscriptions and queued state on disconnect', () => {
     const hub = createHub()
     const socket = new FakeSocket()
@@ -132,10 +153,14 @@ class FakeSocket implements RealtimeSocket {
   bufferedAmount = 0
   sent: string[] = []
   closed?: { code: number; reason: string }
+  autoComplete = true
+  private readonly callbacks: Array<(error?: Error) => void> = []
 
   send(payload: string, callback?: (error?: Error) => void): void {
     this.sent.push(payload)
-    callback?.()
+    if (!callback) return
+    if (this.autoComplete) callback()
+    else this.callbacks.push(callback)
   }
 
   close(code: number, reason: string): void {
@@ -145,6 +170,14 @@ class FakeSocket implements RealtimeSocket {
 
   messages(): ServerMessage[] {
     return this.sent.map((payload) => JSON.parse(payload) as ServerMessage)
+  }
+
+  completeNext(): void {
+    this.callbacks.shift()?.()
+  }
+
+  completeAll(): void {
+    while (this.callbacks.length > 0) this.completeNext()
   }
 }
 

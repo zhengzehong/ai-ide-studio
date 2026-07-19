@@ -1,5 +1,5 @@
 import { Suspense, useEffect, useRef } from 'react'
-import { BrowserRouter, Navigate, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Navigate, Routes, Route, useLocation } from 'react-router-dom'
 import { AppLayout } from './components/layout/AppLayout'
 import {
   AccessTokenPage,
@@ -54,49 +54,66 @@ export default function App() {
 
   return (
     <Suspense fallback={<RouteLoading />}>
-      {authRequired ? <AccessTokenPage /> : <BrowserRouter>
-        <Routes>
-        <Route path="/share/:token" element={<GuestChatPage />} />
-        <Route path="/widget" element={<WidgetPage />} />
-        <Route element={<AppLayout />}>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/agents" element={<AgentSquare />} />
-          <Route path="/skills" element={<SkillCenter />} />
-          <Route path="/tools" element={<ToolManager />} />
-          <Route path="/p/:projectId" element={<ProjectScopeLayout />}>
-            <Route index element={<Navigate to="workspace" replace />} />
-            <Route path="workspace" element={<Workspace />} />
-            <Route path="tasks" element={<TaskBoard />} />
-            <Route path="tasks/modes" element={<TaskModesSettings />} />
-            <Route path="schedule" element={<Schedule />} />
-            <Route path="events" element={<EventCenter />} />
-            <Route path="knowledge" element={<KnowledgeBase />} />
-            <Route path="agent-memory" element={<AgentMemory />} />
-          </Route>
-          <Route path="/workspace" element={<LegacyProjectRedirect subpath="/workspace" />} />
-          <Route path="/tasks" element={<LegacyProjectRedirect subpath="/tasks" />} />
-          <Route path="/tasks/modes" element={<LegacyProjectRedirect subpath="/tasks/modes" />} />
-          <Route path="/schedule" element={<LegacyProjectRedirect subpath="/schedule" />} />
-          <Route path="/events" element={<LegacyProjectRedirect subpath="/events" />} />
-          <Route path="/knowledge" element={<LegacyProjectRedirect subpath="/knowledge" />} />
-          <Route path="/agent-memory" element={<LegacyProjectRedirect subpath="/agent-memory" />} />
-          <Route path="/projects" element={<Projects />} />
-          <Route path="/shares" element={<ShareManagePage />} />
-          <Route path="/templates" element={<TemplatesPage />} />
-          <Route path="/settings" element={<Settings />} />
-        </Route>
-        </Routes>
-      </BrowserRouter>}
+      {authRequired ? (
+        <AccessTokenPage />
+      ) : (
+        <BrowserRouter>
+          <RouteCommitMarker />
+          <Routes>
+            <Route path="/share/:token" element={<GuestChatPage />} />
+            <Route path="/widget" element={<WidgetPage />} />
+            <Route element={<AppLayout />}>
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/agents" element={<AgentSquare />} />
+              <Route path="/skills" element={<SkillCenter />} />
+              <Route path="/tools" element={<ToolManager />} />
+              <Route path="/p/:projectId" element={<ProjectScopeLayout />}>
+                <Route index element={<Navigate to="workspace" replace />} />
+                <Route path="workspace" element={<Workspace />} />
+                <Route path="tasks" element={<TaskBoard />} />
+                <Route path="tasks/modes" element={<TaskModesSettings />} />
+                <Route path="schedule" element={<Schedule />} />
+                <Route path="events" element={<EventCenter />} />
+                <Route path="knowledge" element={<KnowledgeBase />} />
+                <Route path="agent-memory" element={<AgentMemory />} />
+              </Route>
+              <Route path="/workspace" element={<LegacyProjectRedirect subpath="/workspace" />} />
+              <Route path="/tasks" element={<LegacyProjectRedirect subpath="/tasks" />} />
+              <Route path="/tasks/modes" element={<LegacyProjectRedirect subpath="/tasks/modes" />} />
+              <Route path="/schedule" element={<LegacyProjectRedirect subpath="/schedule" />} />
+              <Route path="/events" element={<LegacyProjectRedirect subpath="/events" />} />
+              <Route path="/knowledge" element={<LegacyProjectRedirect subpath="/knowledge" />} />
+              <Route path="/agent-memory" element={<LegacyProjectRedirect subpath="/agent-memory" />} />
+              <Route path="/projects" element={<Projects />} />
+              <Route path="/shares" element={<ShareManagePage />} />
+              <Route path="/templates" element={<TemplatesPage />} />
+              <Route path="/settings" element={<Settings />} />
+            </Route>
+          </Routes>
+        </BrowserRouter>
+      )}
     </Suspense>
   )
 }
 
 function RouteLoading() {
-  return (
-    <div
-      role="status"
-      aria-label="页面加载中"
-      style={{ minHeight: '100vh', background: 'var(--bg-1)' }}
-    />
-  )
+  return <div role="status" aria-label="页面加载中" style={{ minHeight: '100vh', background: 'var(--bg-1)' }} />
+}
+
+function RouteCommitMarker() {
+  const location = useLocation()
+
+  useEffect(() => {
+    performance.mark('ai-ide-route-commit', { detail: { path: location.pathname } })
+    if (performance.getEntriesByName('ai-ide-interactive').length === 0) {
+      performance.mark('ai-ide-interactive')
+    }
+    dispatchEvent(
+      new CustomEvent('ai-ide-route-commit', {
+        detail: { path: location.pathname },
+      }),
+    )
+  }, [location.pathname])
+
+  return null
 }

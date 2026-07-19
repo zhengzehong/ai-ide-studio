@@ -5,6 +5,7 @@ import { RealtimeHub } from './hub.js'
 import type { RealtimeConnectionClaims, RealtimeIpcPayload } from './protocol.js'
 import type { ClientMessage } from '../types/ws-protocol.js'
 import type { ServerMessage } from '../types/ws-protocol.js'
+import { createEventLoopMonitor, eventLoopMonitorOptions } from '../shared/event-loop-monitor.js'
 
 export interface RealtimeServiceOptions {
   host: string
@@ -29,9 +30,7 @@ export interface RealtimeServiceHandle {
   close(): Promise<void>
 }
 
-export async function startRealtimeService(
-  options: RealtimeServiceOptions,
-): Promise<RealtimeServiceHandle> {
+export async function startRealtimeService(options: RealtimeServiceOptions): Promise<RealtimeServiceHandle> {
   const pending = new Map<string, PendingConnection>()
   const hub = new RealtimeHub({
     maxQueueMessages: options.maxQueueMessages,
@@ -77,6 +76,15 @@ export async function startRealtimeService(
   await listen(server, options.host, options.port)
   const address = server.address()
   if (!address || typeof address === 'string') throw new Error('Realtime server did not expose a TCP port')
+  const eventLoopMonitor = createEventLoopMonitor(
+    eventLoopMonitorOptions('realtime', () => ({
+      connectionCount: hub.connectionCount,
+      pendingAuthenticationCount: pending.size,
+      subscribedSessionCount: hub.subscribedSessionCount,
+      queuedMessageCount: hub.queuedMessageCount,
+    })),
+  )
+  eventLoopMonitor.start()
 
   const handleIpc = async (payload: RealtimeIpcPayload): Promise<void> => {
     if (payload.type === 'auth.result') {
@@ -108,14 +116,11 @@ export async function startRealtimeService(
     port: address.port,
     handleIpc,
     handleRuntimeMessage(message) {
-      const sessionId = 'sessionId' in message && typeof message.sessionId === 'string'
-        ? message.sessionId
-        : undefined
-      hub.deliver(sessionId
-        ? { scope: 'session', sessionId, message }
-        : { scope: 'all', message })
+      const sessionId = 'sessionId' in message && typeof message.sessionId === 'string' ? message.sessionId : undefined
+      hub.deliver(sessionId ? { scope: 'session', sessionId, message } : { scope: 'all', message })
     },
     close: async () => {
+      eventLoopMonitor.stop()
       hub.close()
       for (const connection of pending.values()) connection.socket.close(1001, 'Realtime service stopping')
       pending.clear()
@@ -133,7 +138,7 @@ function parseClientMessage(raw: string): ClientMessage | undefined {
   try {
     const parsed = JSON.parse(raw) as unknown
     return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? parsed as ClientMessage
+      ? (parsed as ClientMessage)
       : undefined
   } catch {
     return undefined
@@ -142,8 +147,14 @@ function parseClientMessage(raw: string): ClientMessage | undefined {
 
 function listen(server: Server, host: string, port: number): Promise<void> {
   return new Promise((resolve, reject) => {
-    const onListening = (): void => { cleanup(); resolve() }
-    const onError = (error: Error): void => { cleanup(); reject(error) }
+    const onListening = (): void => {
+      cleanup()
+      resolve()
+    }
+    const onError = (error: Error): void => {
+      cleanup()
+      reject(error)
+    }
     const cleanup = (): void => {
       server.off('listening', onListening)
       server.off('error', onError)
@@ -156,15 +167,13 @@ function listen(server: Server, host: string, port: number): Promise<void> {
 
 function closeWebSocketServer(wss: WebSocketServer): Promise<void> {
   return new Promise((resolve, reject) => {
-    wss.close((error) => error && error.message !== 'The server is not running'
-      ? reject(error)
-      : resolve())
+    wss.close((error) => (error && error.message !== 'The server is not running' ? reject(error) : resolve()))
   })
 }
 
 function closeHttpServer(server: Server): Promise<void> {
   if (!server.listening) return Promise.resolve()
-  return new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
+  return new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())))
 }
 
 export function normalizeClaims(value: RealtimeConnectionClaims): RealtimeConnectionClaims {

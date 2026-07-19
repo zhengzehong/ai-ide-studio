@@ -43,6 +43,18 @@ export class AcpRuntimeHost {
     this.sdk = new SdkRuntimeHost(this.actors, options)
   }
 
+  get sessionCount(): number {
+    return this.sessions.size + this.sdk.sessionCount
+  }
+
+  get actorCount(): number {
+    return this.actors.actorCount
+  }
+
+  get pendingCommandCount(): number {
+    return this.actors.pendingCount()
+  }
+
   async ensureSession(snapshot: RuntimeStateSnapshot): Promise<string> {
     if (snapshot.agent.runtime !== 'mock') return this.sdk.ensureSession(snapshot)
     const existing = this.sessions.get(snapshot.session.id)
@@ -72,35 +84,39 @@ export class AcpRuntimeHost {
     diagnostics?: { turnId?: string; messageId?: string }
   }): Promise<void> {
     if (this.sdk.hasSession(input.sessionId)) return this.sdk.prompt(input)
-    return this.actors.enqueue(input.sessionId, async () => {
-      const session = this.requireSession(input.sessionId, input.agentId)
-      session.cancelled = false
-      const messageId = input.diagnostics?.messageId ?? `mock-message-${randomUUID().slice(0, 8)}`
-      const response = `Mock Runtime received: ${input.content}`
-      this.options.publishUpdate(input.agentId, {
-        kind: 'session-update',
-        sessionId: input.sessionId,
-        messageId,
-        data: { messageId, role: 'agent', thinking: `Thinking about: ${input.content}` },
-      })
-      for (const contentDelta of chunks(response, 5)) {
-        if (session.cancelled) break
+    return this.actors.enqueue(
+      input.sessionId,
+      async () => {
+        const session = this.requireSession(input.sessionId, input.agentId)
+        session.cancelled = false
+        const messageId = input.diagnostics?.messageId ?? `mock-message-${randomUUID().slice(0, 8)}`
+        const response = `Mock Runtime received: ${input.content}`
         this.options.publishUpdate(input.agentId, {
           kind: 'session-update',
           sessionId: input.sessionId,
           messageId,
-          contentDelta,
+          data: { messageId, role: 'agent', thinking: `Thinking about: ${input.content}` },
         })
-        await delay(5)
-      }
-      await this.options.publishDone({
-        sessionId: input.sessionId,
-        agentId: input.agentId,
-        messageId,
-        turnId: input.diagnostics?.turnId,
-        stopReason: session.cancelled ? 'cancelled' : 'end_turn',
-      })
-    }, { payloadBytes: Buffer.byteLength(input.content, 'utf8') })
+        for (const contentDelta of chunks(response, 5)) {
+          if (session.cancelled) break
+          this.options.publishUpdate(input.agentId, {
+            kind: 'session-update',
+            sessionId: input.sessionId,
+            messageId,
+            contentDelta,
+          })
+          await delay(5)
+        }
+        await this.options.publishDone({
+          sessionId: input.sessionId,
+          agentId: input.agentId,
+          messageId,
+          turnId: input.diagnostics?.turnId,
+          stopReason: session.cancelled ? 'cancelled' : 'end_turn',
+        })
+      },
+      { payloadBytes: Buffer.byteLength(input.content, 'utf8') },
+    )
   }
 
   async cancelPrompt(agentId: string, sessionId: string): Promise<void> {

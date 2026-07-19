@@ -36,6 +36,7 @@ import { setRuntimePort } from './runtime/runtime-port-provider.js'
 import { RuntimeCommandDispatcher } from './commands/runtime-command-dispatcher.js'
 import { executeSessionCommand } from './commands/session-command-service.js'
 import { startWriterMaintenanceLoop } from './data-worker/writer-maintenance-loop.js'
+import { createEventLoopMonitor, eventLoopMonitorOptions } from './shared/event-loop-monitor.js'
 
 const log = createChildLogger('app')
 
@@ -226,6 +227,12 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
   let stopped = false
   const hubCleanupTimer = agentHubService.startCleanupTimer()
   const maintenanceLoop = startWriterMaintenanceLoop(writeDataPort, config.dataMaintenanceIntervalMs)
+  const eventLoopMonitor = createEventLoopMonitor(
+    eventLoopMonitorOptions('api', () => ({
+      activePromptCount: sessionManager.listActivePromptSessionIds().length,
+    })),
+  )
+  eventLoopMonitor.start()
 
   return {
     app,
@@ -239,6 +246,7 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
       if (stopped) return
       stopped = true
       maintenanceLoop.stop()
+      eventLoopMonitor.stop()
       ruleEngine.stop()
       clearInterval(hubCleanupTimer)
       const cleanupErrors: unknown[] = []

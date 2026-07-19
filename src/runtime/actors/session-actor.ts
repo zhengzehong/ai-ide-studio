@@ -40,11 +40,7 @@ export class RuntimeSessionActorScheduler {
     this.generationFactory = options.generationFactory ?? randomUUID
   }
 
-  enqueue<T>(
-    sessionId: string,
-    work: () => Promise<T> | T,
-    options: { payloadBytes?: number } = {},
-  ): Promise<T> {
+  enqueue<T>(sessionId: string, work: () => Promise<T> | T, options: { payloadBytes?: number } = {}): Promise<T> {
     const actor = this.actor(sessionId)
     const payloadBytes = Math.max(0, options.payloadBytes ?? 0)
     if (actor.pendingItems >= this.maxMailboxItems || actor.pendingBytes + payloadBytes > this.maxMailboxBytes) {
@@ -54,13 +50,15 @@ export class RuntimeSessionActorScheduler {
     actor.pendingItems += 1
     actor.pendingBytes += payloadBytes
     const result = actor.tail.then(work)
-    actor.tail = result.then(
-      () => undefined,
-      () => undefined,
-    ).finally(() => {
-      actor.pendingItems -= 1
-      actor.pendingBytes -= payloadBytes
-    })
+    actor.tail = result
+      .then(
+        () => undefined,
+        () => undefined,
+      )
+      .finally(() => {
+        actor.pendingItems -= 1
+        actor.pendingBytes -= payloadBytes
+      })
     return result
   }
 
@@ -78,6 +76,10 @@ export class RuntimeSessionActorScheduler {
   pendingCount(sessionId?: string): number {
     if (sessionId) return this.actors.get(sessionId)?.pendingItems ?? 0
     return [...this.actors.values()].reduce((total, actor) => total + actor.pendingItems, 0)
+  }
+
+  get actorCount(): number {
+    return this.actors.size
   }
 
   resetSession(sessionId: string): void {

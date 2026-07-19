@@ -30,6 +30,7 @@ interface ConnectionRecord {
   claims: RealtimeConnectionClaims
   subscriptions: Set<string>
   cursors: Map<string, RealtimeCursor>
+  acceptedCursors: Map<string, RealtimeCursor>
   queue: RealtimeOutboundQueue
   sending: boolean
   flushTimer?: NodeJS.Timeout
@@ -46,6 +47,16 @@ export class RealtimeHub {
     return this.connections.size
   }
 
+  get subscribedSessionCount(): number {
+    return this.sessionSubscribers.size
+  }
+
+  get queuedMessageCount(): number {
+    let count = 0
+    for (const connection of this.connections.values()) count += connection.queue.size
+    return count
+  }
+
   addConnection(id: string, socket: RealtimeSocket, claims: RealtimeConnectionClaims): void {
     this.removeConnection(id)
     this.connections.set(id, {
@@ -54,6 +65,7 @@ export class RealtimeHub {
       claims,
       subscriptions: new Set(),
       cursors: new Map(),
+      acceptedCursors: new Map(),
       queue: new RealtimeOutboundQueue({
         maxMessages: this.options.maxQueueMessages,
         maxBytes: this.options.maxQueueBytes,
@@ -94,8 +106,11 @@ export class RealtimeHub {
     if (message.type === 'resume') {
       connection.queue.acknowledgeResync()
       connection.cursors.clear()
+      connection.acceptedCursors.clear()
       for (const [sessionId, cursor] of realtimeCursors(message.cursors)) {
-        if (connection.subscriptions.has(sessionId)) connection.cursors.set(sessionId, cursor)
+        if (!connection.subscriptions.has(sessionId)) continue
+        connection.cursors.set(sessionId, cursor)
+        connection.acceptedCursors.set(sessionId, cursor)
       }
       this.enqueue(connection, { type: 'resume:ack', cursors: Object.fromEntries(connection.cursors) })
       return
@@ -129,9 +144,10 @@ export class RealtimeHub {
   }
 
   deliver(delivery: RealtimeDelivery): void {
-    const targets = delivery.scope === 'session'
-      ? [...(this.sessionSubscribers.get(delivery.sessionId) ?? [])]
-      : [...this.connections.keys()]
+    const targets =
+      delivery.scope === 'session'
+        ? [...(this.sessionSubscribers.get(delivery.sessionId) ?? [])]
+        : [...this.connections.keys()]
     if (targets.length === 0) return
 
     for (const connectionId of targets) {
@@ -144,6 +160,7 @@ export class RealtimeHub {
         this.flush(connection)
         continue
       }
+      this.acceptCursor(connection, message)
       this.enqueue(connection, message)
     }
   }
@@ -162,7 +179,11 @@ export class RealtimeHub {
     if (connection.claims.authMode === 'guest') {
       const allowed = connection.claims.sessionId
       if (!allowed || sessionIds.some((sessionId) => sessionId !== allowed)) {
-        this.enqueue(connection, { type: 'error', requestId, message: 'Guest may only subscribe to the shared session' })
+        this.enqueue(connection, {
+          type: 'error',
+          requestId,
+          message: 'Guest may only subscribe to the shared session',
+        })
         return
       }
     }
@@ -234,10 +255,18 @@ export class RealtimeHub {
   private hasCursorGap(connection: ConnectionRecord, message: ServerMessage): boolean {
     if (!('sessionId' in message) || !('streamGeneration' in message) || !('sequence' in message)) return false
     if (typeof message.streamGeneration !== 'string' || typeof message.sequence !== 'number') return false
-    const previous = connection.cursors.get(message.sessionId)
+    const previous = connection.acceptedCursors.get(message.sessionId)
     if (!previous) return false
-    return previous.streamGeneration !== message.streamGeneration
-      || message.sequence !== previous.sequence + 1
+    return previous.streamGeneration !== message.streamGeneration || message.sequence !== previous.sequence + 1
+  }
+
+  private acceptCursor(connection: ConnectionRecord, message: ServerMessage): void {
+    if (!('sessionId' in message) || !('streamGeneration' in message) || !('sequence' in message)) return
+    if (typeof message.streamGeneration !== 'string' || typeof message.sequence !== 'number') return
+    connection.acceptedCursors.set(message.sessionId, {
+      streamGeneration: message.streamGeneration,
+      sequence: message.sequence,
+    })
   }
 
   private canReceive(connection: ConnectionRecord, delivery: RealtimeDelivery): boolean {
@@ -271,10 +300,13 @@ function realtimeCursors(value: unknown): Array<[string, RealtimeCursor]> {
     const cursor = candidate as Record<string, unknown>
     if (typeof cursor.streamGeneration !== 'string' || cursor.streamGeneration.length === 0) continue
     if (!Number.isSafeInteger(cursor.sequence) || (cursor.sequence as number) < 0) continue
-    result.push([sessionId, {
-      streamGeneration: cursor.streamGeneration,
-      sequence: cursor.sequence as number,
-    }])
+    result.push([
+      sessionId,
+      {
+        streamGeneration: cursor.streamGeneration,
+        sequence: cursor.sequence as number,
+      },
+    ])
   }
   return result
 }
