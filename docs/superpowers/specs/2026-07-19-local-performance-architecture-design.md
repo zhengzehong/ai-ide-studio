@@ -220,6 +220,7 @@ ACP/MCP Adapter 在 TypeScript SDK 仍更成熟时继续保留 Node。
 - 调用 Query/Writer DB Worker。
 - 在数据库提交后产生 Domain Event/Outbox。
 - 将 Runtime Command 发送到 Runtime Service。
+- 为 Runtime 冷启动、恢复和重连提供只读 `RuntimeStateSnapshot`。
 
 禁止：
 
@@ -270,6 +271,14 @@ api/
 
 领域校验中必须与写入保持原子性的读取，也在 Writer Worker 的事务中完成，不能先从 Query Worker 读取再无条件写入。
 
+Writer 的事务合并规则固定为：
+
+- `critical`：先 flush 同一 Session 之前的 Pending Mutation，再立即单独提交。
+- `interactive`：不跨请求等待，按一个 Command 一个事务提交。
+- `background`：最多等待 25ms，达到 100 个 Mutation 或 256KB 时提前提交。
+
+同一 Session 的 Mutation 必须按 Runtime `streamGeneration + sequence` 排序；重复 Batch 通过 `batchId` 幂等忽略。
+
 ### 4.5 Realtime Service
 
 负责：
@@ -277,7 +286,7 @@ api/
 - WebSocket 握手和短期 token 校验。
 - Project/Session 订阅。
 - 每个连接的有界发送队列。
-- 每个 Session 的 sequence。
+- 记录每个连接最后成功发送的 `streamGeneration + sequence` Cursor。
 - 心跳、重连、gap detection 和 `resync_required`。
 - Runtime Stream 和 API Domain Event 的推送。
 
@@ -297,6 +306,7 @@ api/
 - ACP/MCP Runtime 初始化和生命周期。
 - Claude/Codex 子进程。
 - 每 Session 串行 Actor。
+- 为每次 Runtime 所有权周期生成 `streamGeneration`，并为合并后的 Session Patch 分配单调递增 `sequence`。
 - Prompt、Cancel、Permission 和 Tool 流程。
 - 原始 ACP Event 规范化。
 - UI Stream Coalescing。
@@ -407,7 +417,10 @@ timestamp
 deadlineMs
 projectId
 sessionId
+streamGeneration
 sequence
+batchId
+idempotencyKey
 payload
 ```
 
@@ -420,7 +433,7 @@ protobuf envelope bytes
 
 通道：
 
-1. `api-runtime-command`：API -> Runtime。
+1. `api-runtime-control`：API 与 Runtime 双向控制；Command、Ack、Cancel、Permission 和 Runtime State Load。
 2. `runtime-api-persistence`：Runtime -> API。
 3. `runtime-realtime-stream`：Runtime -> Realtime。
 4. `api-realtime-domain`：API -> Realtime。
@@ -471,18 +484,32 @@ Browser
   -> HTTP POST /sessions/:id/prompts
   -> API validation
   -> Writer Worker persists user message and durable runtime command
-  -> API sends runtime command over IPC
   -> HTTP 202 { commandId }
+  -> API Runtime Command Dispatcher sends command over IPC
   -> Runtime starts or resumes ACP
 ```
 
 在用户消息和 Durable Runtime Command 提交成功前，不启动 ACP。API 的 Runtime Command Dispatcher 负责投递和确认，API 或 Runtime 重启后可从未确认命令继续投递。
+
+Runtime 收到 Command 后，如果内存中没有该 Session，必须先通过 `api-runtime-control` 请求 `RuntimeStateSnapshot`。Snapshot 至少包含：
+
+```text
+session descriptor
+project/workspace root
+agent/runtime configuration
+ACP resume identifier (if present)
+last committed message/process snapshot
+last committed stream generation/sequence
+```
+
+Runtime 不直接查询 SQLite。冷恢复需要更长历史时，由 API 分页读取并通过控制通道流式返回，禁止一次传输完整无限历史。
 
 ### 7.4 流式输出
 
 ```text
 ACP raw events
   -> Runtime Session Actor
+  -> assign streamGeneration + sequence after coalescing
   -> visible UI coalescer (16-33ms)
   -> Realtime IPC
   -> subscribed browser
@@ -498,9 +525,10 @@ Runtime Session Actor
 
 ```text
 Runtime receives done
+  -> assign terminal stream sequence
   -> flush persistence batch
   -> wait for DB commit ack
-  -> emit session.done to Realtime
+  -> emit session.done with the committed generation/sequence to Realtime
   -> release active turn and runtime resources
 ```
 
@@ -511,8 +539,8 @@ Runtime receives done
 ```text
 Browser loads cached shell
   -> HTTP bootstrap/current project snapshot
-  -> connect Realtime with lastSequence
-  -> Realtime resumes if sequence retained
+  -> connect Realtime with lastStreamGeneration + lastSequence
+  -> Realtime resumes if generation and sequence are retained
   -> otherwise resync_required
   -> Browser fetches HTTP snapshot
 ```
@@ -536,7 +564,7 @@ Runtime 在进程内合并：
 目标输出规模：
 
 - Runtime -> Realtime：当前可见会话完整流，后台会话低频摘要。
-- Runtime -> API：约 60-120 个逻辑 Batch/s，Writer Worker 再合并为少量事务。
+- Runtime -> API：约 60-120 个逻辑 Batch/s；Writer Worker 按 25ms/100 Mutation/256KB 上限合并事务。
 - Browser 不订阅的 Session 不接收正文 Patch。
 
 30 个 LLM 会话可以并行；30 个同时执行 build/test 的 CPU/磁盘重任务不能无限并行。Runtime 必须按资源类型维护 Semaphore：
@@ -570,8 +598,10 @@ Outbox Dispatcher 在提交后将事件推给 Realtime。推送成功后标记�
 
 - Command 使用 `commandId`/`Idempotency-Key` 去重。
 - Entity Domain Event 携带 `version`。
-- Session Stream 携带单调递增 `sequence`。
-- 客户端忽略旧 version，发现 sequence gap 时重新 Query。
+- Runtime Session Actor 是 `streamGeneration + sequence` 的唯一生成者。
+- Realtime 只跟踪连接 Cursor，不重新编号 Runtime Event。
+- Runtime 所有权重建时生成新的 `streamGeneration`；客户端发现 generation 变化或 sequence gap 时重新 Query。
+- Domain Event 使用 Outbox ID 和 Entity Version，不复用 Session Stream Sequence。
 
 ## 10. 故障和降级
 
@@ -587,14 +617,14 @@ Outbox Dispatcher 在提交后将事件推给 Realtime。推送成功后标记�
 
 - Runtime 继续执行并持久化。
 - 浏览器重连失败时显示离线状态。
-- Realtime 恢复后通过 sequence/resync 重新取得 Snapshot。
+- Realtime 恢复后通过 streamGeneration/sequence/resync 重新取得 Snapshot。
 
 ### 10.3 Runtime Service 失败
 
 - API 和历史查询保持可用。
 - Supervisor 将 Active Session 标记为 interrupted。
 - ACP 子进程被清理或重新接管。
-- Runtime 重启后根据持久化状态恢复或明确结束 Turn。
+- Runtime 重启后生成新的 `streamGeneration`，通过 API 加载 `RuntimeStateSnapshot`，再恢复或明确结束 Turn。
 
 ### 10.4 Query Worker 失败
 
@@ -619,7 +649,7 @@ projectId
 sessionId
 turnId
 commandId
-sequence/version
+streamGeneration/sequence/version
 ```
 
 必须采集：
