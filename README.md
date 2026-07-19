@@ -6,7 +6,7 @@ AI IDE Studio 是一个本地部署的全栈 AI 编程协作工具。通过 [ACP
 
 ## 功能
 
-- **API + Realtime 隔离** — API 提供 HTTP、领域命令与 DB Worker；独立 Realtime 子进程负责 WebSocket、订阅、序列化和有界背压，PC/移动端动态发现实际端点
+- **API + Runtime + Realtime 隔离** — API 提供 HTTP、领域命令与 DB Worker；Runtime 子进程拥有 ACP/终端/Session actor；Realtime 子进程负责 WebSocket、订阅、序列化和有界背压
 - **Workspace** — 主工作台，支持流式对话、执行过程持久化/恢复、工具调用懒加载/折叠、ACP diff 文件变更查看、思考过程展示、图片附件、Markdown 渲染和长会话虚拟滚动
 - **PC 项目切换** — 顶部支持固定项目 Tab，并显示所有项目的运行中/未读会话数；每个项目独立记忆上次页面、查询参数和关键视图状态，切回时先显示分区缓存并在后台同步最新数据
 - **全局助理** — 可从 Agent 广场设置唯一全局 Agent，并通过右侧竖条随时打开独立聊天抽屉
@@ -47,6 +47,8 @@ PC 默认通过 `/api/v1` HTTP 读取任务、会话、消息历史和恢复事�
 
 后端默认使用 `REALTIME_MODE=process` 启动独立 Realtime 子进程，API 同步阻塞不会占用实时连接事件循环。客户端通过 `/api/v1/realtime-config` 动态发现端点；排障时可显式设置 `REALTIME_MODE=embedded` 回退到 API 同端口 WebSocket。旧 WS 领域 RPC 默认通过本机 IPC 兼容桥执行，可在迁移完成后设置 `REALTIME_LEGACY_RPC=disabled` 关闭。
 
+后端默认使用 `RUNTIME_SERVICE_MODE=process` 启动独立 Runtime 子进程。Claude/Codex ACP、每 Session 串行 actor、流更新合并、权限交互和终端资源都在该进程中；可见流通过专用本机管道直达 Realtime，持久化流回到 API/Writer。排障时可同时设置 `RUNTIME_SERVICE_MODE=embedded` 与 `REALTIME_MODE=embedded` 回滚到旧同进程路径。
+
 详细配置见 [快速上手指南](docs/guides/getting-started.md)。
 
 ## 技术栈
@@ -63,7 +65,7 @@ PC 默认通过 `/api/v1` HTTP 读取任务、会话、消息历史和恢复事�
 
 ```
 ai-ide-studio/
-├── src/           # API、Realtime、IPC、Data Workers 与 ACP
+├── src/           # API、Runtime、Realtime、IPC、Data Workers 与 ACP
 ├── ui/            # 前端 React 应用
 ├── mobile/        # 移动端 React 应用（/app/）
 ├── tests/         # 测试（Vitest）
@@ -135,6 +137,9 @@ MIT
 | `REALTIME_MAX_QUEUE_BYTES` | `2097152` | 单连接待发送队列字节上限 |
 | `REALTIME_MAX_BUFFERED_BYTES` | `2097152` | 单 socket `bufferedAmount` 背压阈值 |
 | `REALTIME_IPC_MAX_FRAME_BYTES` | `16777216` | 本机 Protobuf IPC 单帧上限 |
+| `RUNTIME_SERVICE_MODE` | `process` | `process` 使用独立 Runtime 子进程；`embedded` 使用旧 `acpHost` 回滚适配器 |
+| `RUNTIME_IPC_MAX_FRAME_BYTES` | `16777216` | Runtime 控制/持久化 IPC 单帧上限 |
+| `RUNTIME_RESTART_DELAY_MS` | `250` | Runtime 异常退出后的监督重启延迟 |
 | `ACP_RUNTIME_IDLE_MS` | `3600000` | ACP runtime 进程空闲停止时间 |
 | `ACP_IDLE_SWEEP_MS` | `300000` | 空闲回收扫描间隔 |
 | `GLOBAL_ASSISTANT_WORKSPACE_ROOT` | 系统应用数据目录下的 `global-assistants` | 全局助理工作空间根目录；实际工作目录为 `<root>/<agentId>/workspace` |

@@ -35,6 +35,10 @@ Realtime 只向订阅目标发送 Session 事件，全局元数据事件按认�
 
 带游标的实时消息可包含 `streamGeneration` 与 `sequence`。generation 改变、sequence 跳号、单连接发送队列溢出或 socket 缓冲超过限制时，服务端发送 `{ type: "resync_required", sessionId?, reason }`；客户端应停止应用该流的增量并通过 HTTP Query 读取最新 snapshot。关键 `session:done`、权限请求、提问和错误不会静默丢弃。
 
+Runtime 可见 patch 不经过 API 事件总线，而是通过 Runtime→Realtime 认证本机管道直接进入同一个订阅分发器。该路径只接受服务内部 token 和长度前缀 Protobuf envelope；浏览器协议仍然是 JSON `session:update`。Runtime 分配 `streamGeneration + sequence`，Realtime 只验证和转发，不重新编号。
+
+`session:done` 不走 Runtime 直连流。Runtime 先 flush 可见与持久化更新，再向 API 发 done barrier；API 等 Writer 提交 `message.done` 与 Outbox 后，通过 `session:committed_done` 发布带终止游标的 `session:done`。因此客户端看到 done 时，同 Session 的前序 patch 已完成持久化，HTTP snapshot 可立即读取。
+
 `REALTIME_LEGACY_RPC=enabled` 时，下面尚未迁移的领域 RPC 通过本地 Protobuf IPC 转发到 API，`requestId` 和订阅变更保持兼容；设为 `disabled` 后，非控制消息返回明确错误。该兼容桥不改变 Realtime 无 DB/Core 依赖的边界。
 
 ## RPC 方法

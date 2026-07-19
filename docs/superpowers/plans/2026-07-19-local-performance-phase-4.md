@@ -53,7 +53,7 @@
 - Test: `tests/unit/runtime-snapshot.test.ts`
 - Test: `tests/unit/runtime-port-provider.test.ts`
 
-- [ ] **Step 1: Write failing contract/snapshot tests**
+- [x] **Step 1: Write failing contract/snapshot tests**
 
 Seed Agent, model profile/provider, Project, Session runtime preferences, Team membership, Agent Memory, and tool visibility. Assert the snapshot is clone-safe and contains no Store row methods or database handles:
 
@@ -68,13 +68,13 @@ expect(() => structuredClone(snapshot)).not.toThrow()
 
 Test provider install/reset and verify the embedded adapter delegates ensure/prompt/cancel/fork/config/capabilities/interaction/close/stop calls to `acpHost` without exposing `acpHost.agents`.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `npx vitest run tests/unit/runtime-snapshot.test.ts tests/unit/runtime-port-provider.test.ts`
 
 Expected: FAIL because the Runtime Port and snapshot modules do not exist.
 
-- [ ] **Step 3: Define the closed Runtime contract**
+- [x] **Step 3: Define the closed Runtime contract**
 
 Define clone-safe snapshots and the complete async surface:
 
@@ -98,11 +98,11 @@ export interface RuntimePort {
 
 Snapshots include plain Agent fields, runtime env, runtime command, session meta, ACP resume id, cwd/project, MCP server DTOs, saved preferences, and auto-approved internal Team tool names.
 
-- [ ] **Step 4: Implement API snapshot and embedded adapter**
+- [x] **Step 4: Implement API snapshot and embedded adapter**
 
 Keep every Store/model/tool import under `src/runtime/api/**`. Resolve secrets only into the child environment payload; structured logs continue to hash/redact credentials. `EmbeddedRuntimePort` wraps the current host and owns the old cancel watchdog internally so call sites no longer inspect `AgentConnection`.
 
-- [ ] **Step 5: Run GREEN and commit**
+- [x] **Step 5: Run GREEN and commit**
 
 Run: `npx vitest run tests/unit/runtime-snapshot.test.ts tests/unit/runtime-port-provider.test.ts tests/integration/mock-capabilities.test.ts tests/integration/acp-prompt-completion.test.ts`
 
@@ -123,27 +123,27 @@ Commit: `refactor(runtime): introduce runtime port and snapshots`
 - Test: `tests/unit/runtime-resource-governor.test.ts`
 - Test: `tests/integration/session-persistence-seed.test.ts`
 
-- [ ] **Step 1: Write failing actor/coalescer tests**
+- [x] **Step 1: Write failing actor/coalescer tests**
 
 Assert one Session is strictly serial, 30 active Sessions rotate fairly, generation is stable for one ownership, sequence increments only for emitted logical patches, text deltas concatenate, process progress is latest-wins, and permission/elicitation/terminal tool status/done flush pending patches first. A queue over its item/byte limit rejects a new turn with `RUNTIME_BACKPRESSURE` but retains already accepted critical work.
 
-- [ ] **Step 2: Write failing governor and persistence tests**
+- [x] **Step 2: Write failing governor and persistence tests**
 
 Use controllable promises to assert 32 network turns, `max(2, floor(cpus/2))` CPU-heavy terminals, and two disk-heavy terminals; releasing one permit wakes the oldest waiter. Seed a Session with existing events and assert the next embedded Writer batch starts above the persisted cursor and `outbox_events.version` equals the actual committed `message.done` event sequence.
 
-- [ ] **Step 3: Run RED**
+- [x] **Step 3: Run RED**
 
 Run: `npx vitest run tests/unit/runtime-session-actor.test.ts tests/unit/runtime-update-coalescer.test.ts tests/unit/runtime-resource-governor.test.ts tests/integration/session-persistence-seed.test.ts`
 
-- [ ] **Step 4: Implement actor/coalescer/governor**
+- [x] **Step 4: Implement actor/coalescer/governor**
 
 Use one round-robin scheduler with a bounded per-Session mailbox. The coalescer emits UI patches at 25ms and persistence patches at 250ms; it never merges across message/tool IDs. `flushSession()` awaits accepted persistence writes before returning the terminal cursor. Resource permits use FIFO waiters and support cancellation during Runtime shutdown.
 
-- [ ] **Step 5: Seed persistence ordering and outbox version**
+- [x] **Step 5: Seed persistence ordering and outbox version**
 
 Extend the Writer protocol with a read-only `sessionCursor(sessionId)` operation executed on the Writer connection before the first embedded batch. Cache one initialization promise per Session. For a batch containing `session.event.append` followed by `outbox.enqueue` with no explicit version, Writer uses the appended event result sequence; retries remain idempotent by `batchId`.
 
-- [ ] **Step 6: Run GREEN and commit**
+- [x] **Step 6: Run GREEN and commit**
 
 Run: `npx vitest run tests/unit/runtime-session-actor.test.ts tests/unit/runtime-update-coalescer.test.ts tests/unit/runtime-resource-governor.test.ts tests/integration/session-persistence-seed.test.ts tests/integration/writer-worker.test.ts tests/unit/writer-worker-scheduler.test.ts`
 
@@ -165,27 +165,27 @@ Commit: `feat(runtime): add actors coalescing and resource limits`
 - Test: `tests/integration/runtime-process.test.ts`
 - Test: `tests/integration/runtime-realtime-stream.test.ts`
 
-- [ ] **Step 1: Write failing Runtime process tests**
+- [x] **Step 1: Write failing Runtime process tests**
 
 Start real Realtime and Runtime children on ephemeral pipe/ports. With the mock adapter, verify ready handshake, ensure/new/resume, two concurrent Sessions, prompt stream, capability query, model/mode change, cancel, permission/elicitation response, fork, close, and clean drain. Block API for 150ms after a prompt starts and use a separate WebSocket probe to verify coalesced stream patches continue.
 
-- [ ] **Step 2: Write failing direct-stream and done-barrier tests**
+- [x] **Step 2: Write failing direct-stream and done-barrier tests**
 
 Assert Runtime stream envelopes reach only subscribed clients with Runtime-assigned generation/sequence; no API `session:update` broadcast is required. Hold the API done acknowledgement and verify `session:done` is absent; release it and verify done arrives after all patches with the terminal cursor.
 
-- [ ] **Step 3: Run RED**
+- [x] **Step 3: Run RED**
 
 Run: `npx vitest run tests/integration/runtime-process.test.ts tests/integration/runtime-realtime-stream.test.ts`
 
-- [ ] **Step 4: Implement authenticated dual IPC**
+- [x] **Step 4: Implement authenticated dual IPC**
 
 API control uses the existing framed envelope with request IDs/deadlines. Realtime owns a second named-pipe/Unix-socket server and validates a separate one-time Runtime token before accepting `stream.patch`. Both channels use bounded serialized writes and fail accepted requests explicitly on close; no Node object, callback, Error instance, or socket crosses IPC.
 
-- [ ] **Step 5: Implement the child ACP host**
+- [x] **Step 5: Implement the child ACP host**
 
 The child consumes only snapshots and pure ACP helpers. It spawns Claude/Codex/mock adapters, owns ACP session maps and interactions, applies saved preferences, uses snapshot MCP servers/auto-permission policy, and routes terminal creation through `ResourceGovernor`. It must not import existing store-bound `acp/host.ts`, `model-profile-env.ts`, or `session-capabilities.ts`.
 
-- [ ] **Step 6: Run GREEN and commit**
+- [x] **Step 6: Run GREEN and commit**
 
 Run: `npx vitest run tests/integration/runtime-process.test.ts tests/integration/runtime-realtime-stream.test.ts tests/integration/realtime-process.test.ts tests/integration/realtime-performance.test.ts`
 
@@ -206,31 +206,31 @@ Commit: `feat(runtime): run acp ownership in child process`
 - Test: `tests/integration/runtime-command-parity.test.ts`
 - Test: `tests/integration/runtime-crash-recovery.test.ts`
 
-- [ ] **Step 1: Write failing parity/lifecycle tests**
+- [x] **Step 1: Write failing parity/lifecycle tests**
 
 Run identical mock Session workflows through embedded and process adapters and compare persisted user/agent messages, events, process items, capabilities, model/mode/config, fork/template, cancel, permission/elicitation, status/activity, and final `session:done`. Assert startup order Writer -> Query -> Realtime -> Runtime -> Gateway and shutdown order command intake -> Runtime drain -> Realtime -> HTTP -> Writer drain.
 
-- [ ] **Step 2: Write failing crash tests**
+- [x] **Step 2: Write failing crash tests**
 
 Kill Runtime during two active prompts. Assert API HTTP Query remains 200, Realtime remains connected, each active Session gets one persisted interrupted/error completion, no active prompt leaks, child restarts with a higher generation, and a new prompt reloads snapshot/resumes ACP or starts a clean session.
 
-- [ ] **Step 3: Run RED**
+- [x] **Step 3: Run RED**
 
 Run: `npx vitest run tests/integration/runtime-app-lifecycle.test.ts tests/integration/runtime-command-parity.test.ts tests/integration/runtime-crash-recovery.test.ts`
 
-- [ ] **Step 4: Implement ordered API persistence ingress**
+- [x] **Step 4: Implement ordered API persistence ingress**
 
 Chain `runtime.persistence.patch` and `runtime.done` by Session in receive order. Persistence patches emit `session:update` with `source: 'runtime-persistence'`; `createRealtimeEventSource` ignores only those update frames. Done includes Runtime generation/sequence, flushes all prior API persistence, and receives its RPC ack only after `sessionManager.waitForPersistence()` resolves.
 
-- [ ] **Step 5: Migrate all external ACP callers to RuntimePort**
+- [x] **Step 5: Migrate all external ACP callers to RuntimePort**
 
 Replace imports in `sessions.ts`, `session-templates.ts`, and Gateway Session RPC. Permission/elicitation become awaited commands; cancel watchdog moves behind the port; no caller reads `AgentConnection`, runtime Session maps, or active turn keys. Existing tests that intentionally exercise embedded ACP may inject `embeddedRuntimePort`.
 
-- [ ] **Step 6: Wire config, supervision, and recovery**
+- [x] **Step 6: Wire config, supervision, and recovery**
 
 Add `RUNTIME_SERVICE_MODE`, queue/byte/deadline/coalesce/resource limits, and explicit embedded rollback. Runtime unexpected exit calls one API recovery callback with tracked active Session IDs; the callback clears prompt diagnostics/state and emits one error done. Restart never silently falls back to embedded.
 
-- [ ] **Step 7: Run GREEN and commit**
+- [x] **Step 7: Run GREEN and commit**
 
 Run: `npx vitest run tests/integration/runtime-app-lifecycle.test.ts tests/integration/runtime-command-parity.test.ts tests/integration/runtime-crash-recovery.test.ts tests/integration/acp-prompt-completion.test.ts tests/integration/mock-capabilities.test.ts tests/unit/acp-lifecycle-state.test.ts`
 
@@ -247,19 +247,19 @@ Commit: `feat(app): supervise runtime service lifecycle`
 - Modify: `README.md`
 - Modify: this plan
 
-- [ ] **Step 1: Add AST boundary gates**
+- [x] **Step 1: Add AST boundary gates**
 
 Fail if `src/runtime/service/**`, `src/runtime/actors/**`, `src/runtime/streams/**`, or `src/runtime/resources/**` imports Store, Core, Gateway, Hono, better-sqlite3, Query/Writer workers, or the store-bound embedded `acpHost`. Permit Store access only in `src/runtime/api/runtime-snapshot.ts` and embedded adapter; require Runtime process files to use `src/shared/logger.ts`.
 
-- [ ] **Step 2: Update stable architecture docs**
+- [x] **Step 2: Update stable architecture docs**
 
 Document the three event loops, Runtime ownership, snapshots, direct stream pipe, persistence/done barrier, resource limits, crash/interrupted behavior, lifecycle order, observability, and `RUNTIME_SERVICE_MODE=embedded` rollback. Architecture docs contain no phase checklist or implementation status.
 
-- [ ] **Step 3: Run 30-Session phase checks**
+- [x] **Step 3: Run 30-Session phase checks**
 
 Use 30 mock Sessions with simultaneous prompts. Acceptance: API `/health` and HTTP Query p95 below 100ms during streaming, healthy WebSocket patch p95 below 50ms, actor mailbox and both IPC queues remain under configured limits, Writer queue drains, all 30 done events persist exactly once, and Runtime kill/restart leaves zero active-turn/terminal/interaction leaks.
 
-- [ ] **Step 4: Run full verification**
+- [x] **Step 4: Run full verification**
 
 ```bash
 npm test
