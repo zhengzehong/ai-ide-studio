@@ -244,29 +244,29 @@ Commit: `perf(ui): split routes and cache hashed assets`
 
 ## Task 4: Writer-Owned SQLite Maintenance
 
-- [ ] **Step 1: Write EXPLAIN and maintenance RED tests**
+- [x] **Step 1: Write EXPLAIN and maintenance RED tests**
 
 Populate realistic Tasks/Sessions/Messages/Events, run the four Query Worker hot reads through `EXPLAIN QUERY PLAN`, and reject temp B-tree/full scans where an indexed lookup is required. Test that maintenance waits for Writer drain, skips checkpoint below threshold, checkpoints above threshold, force-checkpoints on shutdown, runs optimize, deletes only old `published_at IS NOT NULL` Outbox rows, and leaves Session history untouched.
 
-- [ ] **Step 2: Run maintenance RED**
+- [x] **Step 2: Run maintenance RED**
 
 Run: `npx vitest run tests/integration/query-plan-indexes.test.ts tests/integration/writer-maintenance.test.ts`
 
 Expected: FAIL because the maintenance Port and any missing covering index do not exist.
 
-- [ ] **Step 3: Add only proven indexes**
+- [x] **Step 3: Add only proven indexes**
 
 Create migration 045 only for query plans that fail Step 1. Prefer covering order matching existing Query Worker SQL; do not add duplicate prefix indexes.
 
-- [ ] **Step 4: Implement Writer maintenance Port**
+- [x] **Step 4: Implement Writer maintenance Port**
 
 Add typed `maintain({ force })` to `WriteDataPort`. Worker maintenance runs only after Scheduler drain and returns WAL bytes, checkpoint page counts, deleted published Outbox rows, and elapsed time. Default threshold is 64 MiB, interval 60 s, published Outbox retention 7 days; all are configurable.
 
-- [ ] **Step 5: Integrate lifecycle**
+- [x] **Step 5: Integrate lifecycle**
 
 API schedules background maintenance without blocking requests. Shutdown stops the timer, flushes Session persistence, force-maintains, then closes Writer. `DATA_WORKER_MODE=local` preserves the same contract.
 
-- [ ] **Step 6: Verify Task 4 and commit**
+- [x] **Step 6: Verify Task 4 and commit**
 
 Run:
 

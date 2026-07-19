@@ -14,6 +14,9 @@ export interface AppConfig {
   runtime: AppRuntime
   dataWorkerMode?: DataWorkerMode
   dataWorkerSlowMs?: number
+  dataMaintenanceIntervalMs?: number
+  dataWalCheckpointBytes?: number
+  dataPublishedOutboxRetentionMs?: number
   realtimeMode?: RealtimeMode
   realtimeHost?: string
   realtimePort?: number
@@ -47,6 +50,12 @@ export function loadConfig(): AppConfig {
     runtime,
     dataWorkerMode: parseDataWorkerMode(process.env.DATA_WORKER_MODE),
     dataWorkerSlowMs: parseDataWorkerSlowMs(process.env.DATA_WORKER_SLOW_MS),
+    dataMaintenanceIntervalMs: parsePositiveInteger(process.env.DATA_MAINTENANCE_INTERVAL_MS, 60_000),
+    dataWalCheckpointBytes: parsePositiveInteger(process.env.DATA_WAL_CHECKPOINT_BYTES, 64 * 1024 * 1024),
+    dataPublishedOutboxRetentionMs: parsePositiveInteger(
+      process.env.DATA_PUBLISHED_OUTBOX_RETENTION_MS,
+      7 * 24 * 60 * 60 * 1000,
+    ),
     realtimeMode: process.env.REALTIME_MODE === 'embedded' ? 'embedded' : 'process',
     realtimeHost: process.env.REALTIME_HOST || defaultHost(runtime),
     realtimePort: parseNonNegativeInteger(process.env.REALTIME_PORT, port === 0 ? 0 : port + 1),

@@ -23,7 +23,7 @@ import { sessionPersistencePort } from './core/persistence/session-persistence-p
 import type { QueryPort } from './ports/query-port.js'
 import type { WriteDataPort } from './ports/write-data-port.js'
 import { localQueryPort } from './queries/local-query-port.js'
-import { localWriteDataPort } from './core/persistence/local-write-data-port.js'
+import { createLocalWriteDataPort } from './core/persistence/local-write-data-port.js'
 import { createRealtimeProcess, type RealtimeProcessHandle } from './realtime/process-client.js'
 import { createRealtimeRpcBridge } from './gateway/realtime-rpc-bridge.js'
 import { createRealtimeEventSource, type RealtimeEventSource } from './gateway/realtime-event-source.js'
@@ -35,6 +35,7 @@ import { handleRuntimeDone, handleRuntimePersistenceUpdate } from './runtime/api
 import { setRuntimePort } from './runtime/runtime-port-provider.js'
 import { RuntimeCommandDispatcher } from './commands/runtime-command-dispatcher.js'
 import { executeSessionCommand } from './commands/session-command-service.js'
+import { startWriterMaintenanceLoop } from './data-worker/writer-maintenance-loop.js'
 
 const log = createChildLogger('app')
 
@@ -76,7 +77,7 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
   const dataWorkerMode = config.dataWorkerMode ?? 'worker'
   let dataPorts: AppDataPorts
   try {
-    dataPorts = await startDataPorts(dataWorkerMode, dbPath, config.dataWorkerSlowMs)
+    dataPorts = await startDataPorts(dataWorkerMode, dbPath, config)
   } catch (err) {
     closeDatabase()
     throw err
@@ -111,8 +112,7 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
     }
   }
 
-  const runtimeMode: RuntimeMode = config.runtimeMode
-    ?? (realtimeMode === 'embedded' ? 'embedded' : 'process')
+  const runtimeMode: RuntimeMode = config.runtimeMode ?? (realtimeMode === 'embedded' ? 'embedded' : 'process')
   if (runtimeMode === 'process' && !realtimeProcess) {
     realtimeEvents?.stop()
     resetQueryPort()
@@ -150,7 +150,9 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
   const resetRuntimePort = setRuntimePort(runtimePort)
   const commandDispatcher = new RuntimeCommandDispatcher({
     ledger: writeDataPort,
-    execute: async (command) => { await executeSessionCommand(command) },
+    execute: async (command) => {
+      await executeSessionCommand(command)
+    },
   })
   try {
     await commandDispatcher.start()
@@ -203,18 +205,27 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
     throw err
   }
   const { app, server, wss } = gateway
-  const realtimeEndpoint = realtimeMode === 'process'
-    ? (realtimeProcess as RealtimeProcessHandle).endpointUrl
-    : embeddedEndpoint(config.host, server)
+  const realtimeEndpoint =
+    realtimeMode === 'process'
+      ? (realtimeProcess as RealtimeProcessHandle).endpointUrl
+      : embeddedEndpoint(config.host, server)
   ruleEngine.start()
   initTimeline()
   log.info(
-    { host: config.host, port: config.port, http: `http://${config.host}:${config.port}`, realtimeMode, runtimeMode, realtimeEndpoint },
+    {
+      host: config.host,
+      port: config.port,
+      http: `http://${config.host}:${config.port}`,
+      realtimeMode,
+      runtimeMode,
+      realtimeEndpoint,
+    },
     '服务已启动',
   )
 
   let stopped = false
   const hubCleanupTimer = agentHubService.startCleanupTimer()
+  const maintenanceLoop = startWriterMaintenanceLoop(writeDataPort, config.dataMaintenanceIntervalMs)
 
   return {
     app,
@@ -227,6 +238,7 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
     stop: async () => {
       if (stopped) return
       stopped = true
+      maintenanceLoop.stop()
       ruleEngine.stop()
       clearInterval(hubCleanupTimer)
       const cleanupErrors: unknown[] = []
@@ -240,6 +252,9 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
       if (realtimeProcess) await collectCleanupError(cleanupErrors, () => realtimeProcess.close())
       await collectCleanupError(cleanupErrors, () => closeHttpServer(server))
       await collectCleanupError(cleanupErrors, () => sessionPersistencePort.flush())
+      await collectCleanupError(cleanupErrors, async () => {
+        await writeDataPort.maintain({ force: true })
+      })
       resetQueryPort()
       resetWriteDataPort()
       await collectCleanupError(cleanupErrors, () => dataPorts.close())
@@ -256,14 +271,17 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
 async function resolveRealtimeClaims(
   config: AppConfig,
   request: { token?: string; shareToken?: string; guestId?: string; guestName?: string },
-): Promise<{
-  authMode: 'owner' | 'guest'
-  shareToken?: string
-  guestId?: string
-  guestName?: string
-  sessionId?: string
-  toolCallVisibility?: 'show' | 'hide'
-} | undefined> {
+): Promise<
+  | {
+      authMode: 'owner' | 'guest'
+      shareToken?: string
+      guestId?: string
+      guestName?: string
+      sessionId?: string
+      toolCallVisibility?: 'show' | 'hide'
+    }
+  | undefined
+> {
   if (request.shareToken) {
     const share = sessionShareStore.getByToken(request.shareToken)
     if (!share) return undefined
@@ -290,10 +308,7 @@ function embeddedEndpoint(host: string, server: Server): string {
   return `ws://${publicHost}:${serverPort(server)}`
 }
 
-async function collectCleanupError(
-  errors: unknown[],
-  cleanup: () => Promise<void>,
-): Promise<void> {
+async function collectCleanupError(errors: unknown[], cleanup: () => Promise<void>): Promise<void> {
   try {
     await cleanup()
   } catch (error) {
@@ -301,25 +316,29 @@ async function collectCleanupError(
   }
 }
 
-async function startDataPorts(
-  mode: DataWorkerMode,
-  dbPath: string,
-  slowRequestMs?: number,
-): Promise<AppDataPorts> {
+async function startDataPorts(mode: DataWorkerMode, dbPath: string, config: AppConfig): Promise<AppDataPorts> {
+  const maintenanceConfig = {
+    walCheckpointBytes: config.dataWalCheckpointBytes,
+    publishedOutboxRetentionMs: config.dataPublishedOutboxRetentionMs,
+  }
   if (mode === 'local') {
     return {
       queryPort: localQueryPort,
-      writeDataPort: localWriteDataPort,
+      writeDataPort: createLocalWriteDataPort(maintenanceConfig),
       close: async () => undefined,
     }
   }
 
-  const writeDataPort = await createWorkerWriteDataPort({ dbPath, slowRequestMs })
+  const writeDataPort = await createWorkerWriteDataPort({
+    dbPath,
+    slowRequestMs: config.dataWorkerSlowMs,
+    ...maintenanceConfig,
+  })
   try {
     const queryPort = await createWorkerQueryPort({
       dbPath,
       getActivePromptSessionIds: () => sessionManager.listActivePromptSessionIds(),
-      slowRequestMs,
+      slowRequestMs: config.dataWorkerSlowMs,
     })
     return {
       queryPort,

@@ -42,6 +42,7 @@ import { sessionTemplatesMigration } from './041-session-templates.js'
 import { queryReadModelIndexesMigration } from './042-query-read-model-indexes.js'
 import { writerOutboxMigration } from './043-writer-outbox.js'
 import { runtimeCommandLedgerMigration } from './044-runtime-command-ledger.js'
+import { performanceCoveringIndexesMigration } from './045-performance-covering-indexes.js'
 import type { Migration } from '../migrator.js'
 
 export const migrations: Migration[] = [
@@ -89,5 +90,5 @@ export const migrations: Migration[] = [
   queryReadModelIndexesMigration,
   writerOutboxMigration,
   runtimeCommandLedgerMigration,
+  performanceCoveringIndexesMigration,
 ]
-

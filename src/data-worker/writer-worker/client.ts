@@ -1,6 +1,9 @@
 import { Worker } from 'node:worker_threads'
 import { createChildLogger } from '../../core/logger.js'
 import type {
+  DatabaseMaintenanceConfig,
+  DatabaseMaintenanceInput,
+  DatabaseMaintenanceResult,
   RuntimeCommandEnqueueResult,
   RuntimeCommandInput,
   RuntimeCommandRecord,
@@ -13,10 +16,7 @@ import type {
 import type { WorkerReadyMessage } from '../protocol.js'
 import { WorkerRequestError, WorkerRpcClient } from '../worker-rpc-client.js'
 import { resolveWorkerEntryUrl } from '../worker-entry-url.js'
-import {
-  DEFAULT_DATA_WORKER_SLOW_MS,
-  isSlowWorkerRequest,
-} from '../observability.js'
+import { DEFAULT_DATA_WORKER_SLOW_MS, isSlowWorkerRequest } from '../observability.js'
 
 const log = createChildLogger('writer-worker-client')
 
@@ -25,6 +25,8 @@ export interface CreateWorkerWriteDataPortOptions {
   defaultTimeoutMs?: number
   readyTimeoutMs?: number
   slowRequestMs?: number
+  walCheckpointBytes?: number
+  publishedOutboxRetentionMs?: number
 }
 
 export interface WorkerWriteDataPort extends WriteDataPort {
@@ -36,7 +38,11 @@ export async function createWorkerWriteDataPort(
 ): Promise<WorkerWriteDataPort> {
   const entryUrl = resolveWorkerEntryUrl('./entry', import.meta.url)
   const worker = new Worker(entryUrl, {
-    workerData: { dbPath: options.dbPath },
+    workerData: {
+      dbPath: options.dbPath,
+      walCheckpointBytes: options.walCheckpointBytes,
+      publishedOutboxRetentionMs: options.publishedOutboxRetentionMs,
+    } satisfies { dbPath: string } & DatabaseMaintenanceConfig,
     execArgv: entryUrl.pathname.endsWith('.ts') ? ['--import', 'tsx'] : undefined,
   })
   await waitUntilReady(worker, options.readyTimeoutMs ?? 5_000)
@@ -78,9 +84,13 @@ export async function createWorkerWriteDataPort(
       }
     },
     async sessionCursor(sessionId: string): Promise<SessionWriteCursor> {
-      const response = await rpc.request<SessionWriteCursor>('writer.cursor', { sessionId }, {
-        priority: 'interactive',
-      })
+      const response = await rpc.request<SessionWriteCursor>(
+        'writer.cursor',
+        { sessionId },
+        {
+          priority: 'interactive',
+        },
+      )
       return response.result
     },
     async enqueueRuntimeCommand(input: RuntimeCommandInput): Promise<RuntimeCommandEnqueueResult> {
@@ -90,15 +100,26 @@ export async function createWorkerWriteDataPort(
       return response.result
     },
     async listRecoverableRuntimeCommands(limit: number): Promise<RuntimeCommandRecord[]> {
-      const response = await rpc.request<RuntimeCommandRecord[]>('writer.command.recover', { limit }, {
-        priority: 'interactive',
-      })
+      const response = await rpc.request<RuntimeCommandRecord[]>(
+        'writer.command.recover',
+        { limit },
+        {
+          priority: 'interactive',
+        },
+      )
       return response.result
     },
     async updateRuntimeCommand(input: RuntimeCommandUpdate): Promise<RuntimeCommandRecord> {
       const response = await rpc.request<RuntimeCommandRecord>('writer.command.update', input, {
         priority: 'interactive',
       })
+      return response.result
+    },
+    async maintain(input: DatabaseMaintenanceInput): Promise<DatabaseMaintenanceResult> {
+      const response = await rpc.request<DatabaseMaintenanceResult>('writer.maintain', input, {
+        priority: 'background',
+      })
+      log.debug(response.result, 'Writer database maintenance completed')
       return response.result
     },
     drain(): Promise<void> {

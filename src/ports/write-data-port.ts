@@ -80,12 +80,7 @@ export type RuntimeCommandType =
   | 'permission.respond'
   | 'elicitation.respond'
 
-export type RuntimeCommandStatus =
-  | 'accepted'
-  | 'running'
-  | 'completed'
-  | 'failed'
-  | 'interrupted'
+export type RuntimeCommandStatus = 'accepted' | 'running' | 'completed' | 'failed' | 'interrupted'
 
 export interface RuntimeCommandInput {
   commandId: string
@@ -118,12 +113,37 @@ export interface RuntimeCommandUpdate {
   error?: string
 }
 
+export interface DatabaseMaintenanceInput {
+  force: boolean
+}
+
+export type DatabaseCheckpointMode = 'none' | 'passive' | 'truncate'
+
+export interface DatabaseMaintenanceResult {
+  walBytesBefore: number
+  walBytesAfter: number
+  checkpointAttempted: boolean
+  checkpointMode: DatabaseCheckpointMode
+  checkpointBusyPages: number
+  checkpointLogPages: number
+  checkpointedPages: number
+  optimized: boolean
+  deletedPublishedOutboxRows: number
+  elapsedMs: number
+}
+
+export interface DatabaseMaintenanceConfig {
+  walCheckpointBytes?: number
+  publishedOutboxRetentionMs?: number
+}
+
 export interface WriteDataPort {
   commitBatch(batch: WriteBatch): Promise<WriteBatchResult>
   sessionCursor(sessionId: string): Promise<SessionWriteCursor>
   enqueueRuntimeCommand(input: RuntimeCommandInput): Promise<RuntimeCommandEnqueueResult>
   listRecoverableRuntimeCommands(limit: number): Promise<RuntimeCommandRecord[]>
   updateRuntimeCommand(input: RuntimeCommandUpdate): Promise<RuntimeCommandRecord>
+  maintain(input: DatabaseMaintenanceInput): Promise<DatabaseMaintenanceResult>
   drain(): Promise<void>
   close(): Promise<void>
 }

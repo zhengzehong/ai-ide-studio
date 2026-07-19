@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3'
 import { parentPort, workerData } from 'node:worker_threads'
 import type {
+  DatabaseMaintenanceResult,
   RuntimeCommandEnqueueResult,
   RuntimeCommandInput,
   RuntimeCommandRecord,
@@ -9,13 +10,7 @@ import type {
   WriteBatch,
   WriteBatchResult,
 } from '../../ports/write-data-port.js'
-import type {
-  WorkerErrorCode,
-  WorkerMetrics,
-  WorkerRequest,
-  WorkerResponse,
-  WritePriority,
-} from '../protocol.js'
+import type { WorkerErrorCode, WorkerMetrics, WorkerRequest, WorkerResponse, WritePriority } from '../protocol.js'
 import { WriterScheduler, type WriterSchedulerItem } from './scheduler.js'
 import {
   enqueueRuntimeCommand,
@@ -25,9 +20,12 @@ import {
   updateRuntimeCommand,
   WriterOperationError,
 } from './operations.js'
+import { maintainWriterDatabase } from './maintenance.js'
 
 interface WriterWorkerData {
   dbPath: string
+  walCheckpointBytes?: number
+  publishedOutboxRetentionMs?: number
 }
 
 interface WriterWork {
@@ -63,28 +61,30 @@ port.on('message', (message: unknown) => {
     batch,
     queueDepth: scheduler.pendingCount + 1,
   }
-  void scheduler.enqueue({
-    value: work,
-    priority: batch.priority,
-    sessionId: batch.sessionId,
-    mutationCount: batch.mutations.length,
-    payloadBytes: message.payloadBytes,
-  }).then(
-    (result) => port.postMessage(resultResponse(work, result)),
-    (error) => port.postMessage(errorResponse(
-      message,
-      errorCode(error),
-      errorMessage(error),
-      work,
-    )),
-  )
+  void scheduler
+    .enqueue({
+      value: work,
+      priority: batch.priority,
+      sessionId: batch.sessionId,
+      mutationCount: batch.mutations.length,
+      payloadBytes: message.payloadBytes,
+    })
+    .then(
+      (result) => port.postMessage(resultResponse(work, result)),
+      (error) => port.postMessage(errorResponse(message, errorCode(error), errorMessage(error), work)),
+    )
 })
 
 async function executeControlRequest(request: WorkerRequest): Promise<void> {
   const startedAt = performance.now()
   try {
     await scheduler.drain()
-    let result: SessionWriteCursor | RuntimeCommandEnqueueResult | RuntimeCommandRecord[] | RuntimeCommandRecord
+    let result:
+      | SessionWriteCursor
+      | RuntimeCommandEnqueueResult
+      | RuntimeCommandRecord[]
+      | RuntimeCommandRecord
+      | DatabaseMaintenanceResult
     if (request.operation === 'writer.cursor') {
       result = readSessionWriteCursor(db, asSessionCursorRequest(request.payload))
     } else if (request.operation === 'writer.command.enqueue') {
@@ -93,6 +93,8 @@ async function executeControlRequest(request: WorkerRequest): Promise<void> {
       result = listRecoverableRuntimeCommands(db, asRecoveryLimit(request.payload))
     } else if (request.operation === 'writer.command.update') {
       result = updateRuntimeCommand(db, request.payload as RuntimeCommandUpdate)
+    } else if (request.operation === 'writer.maintain') {
+      result = maintainWriterDatabase(db, asMaintenanceInput(request.payload), config)
     } else {
       throw new WriterOperationError('BAD_REQUEST', `Unknown write operation: ${request.operation}`)
     }
@@ -104,14 +106,15 @@ async function executeControlRequest(request: WorkerRequest): Promise<void> {
 
 process.once('exit', () => db.close())
 
-function executeScheduledBatch(
-  items: WriterSchedulerItem<WriterWork>[],
-): WriteBatchResult[] {
+function executeScheduledBatch(items: WriterSchedulerItem<WriterWork>[]): WriteBatchResult[] {
   const startedAt = Date.now()
   const executionStarted = performance.now()
   for (const item of items) item.value.startedAt = startedAt
   try {
-    return executeWriteBatches(db, items.map((item) => item.value.batch))
+    return executeWriteBatches(
+      db,
+      items.map((item) => item.value.batch),
+    )
   } finally {
     const executionMs = performance.now() - executionStarted
     for (const item of items) item.value.executionMs = executionMs
@@ -127,11 +130,7 @@ function resultResponse(work: WriterWork, result: WriteBatchResult): WorkerRespo
   }
 }
 
-function directResultResponse<TResult>(
-  request: WorkerRequest,
-  result: TResult,
-  executionMs: number,
-): WorkerResponse {
+function directResultResponse<TResult>(request: WorkerRequest, result: TResult, executionMs: number): WorkerResponse {
   return {
     kind: 'result',
     requestId: request.requestId,
@@ -193,12 +192,12 @@ function emptyMetrics(request: WorkerRequest): WorkerMetrics {
 function isWriteRequest(value: unknown): value is WorkerRequest & { priority: WritePriority } {
   if (!value || typeof value !== 'object') return false
   const request = value as Partial<WorkerRequest>
-  return request.kind === 'request'
-    && typeof request.requestId === 'string'
-    && typeof request.operation === 'string'
-    && (request.priority === 'critical'
-      || request.priority === 'interactive'
-      || request.priority === 'background')
+  return (
+    request.kind === 'request' &&
+    typeof request.requestId === 'string' &&
+    typeof request.operation === 'string' &&
+    (request.priority === 'critical' || request.priority === 'interactive' || request.priority === 'background')
+  )
 }
 
 function asWriteBatch(value: unknown): WriteBatch {
@@ -223,6 +222,17 @@ function asSessionCursorRequest(value: unknown): string {
   return sessionId
 }
 
+function asMaintenanceInput(value: unknown): { force: boolean } {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new WriterOperationError('BAD_REQUEST', 'Writer maintenance payload must be an object')
+  }
+  const force = (value as Record<string, unknown>).force
+  if (typeof force !== 'boolean') {
+    throw new WriterOperationError('BAD_REQUEST', 'Writer maintenance requires force')
+  }
+  return { force }
+}
+
 function errorCode(error: unknown): WorkerErrorCode {
   return error instanceof WriterOperationError ? error.code : 'SQLITE_ERROR'
 }
@@ -237,7 +247,22 @@ function parseWorkerData(value: unknown): WriterWorkerData {
   if (typeof data.dbPath !== 'string' || data.dbPath.length === 0) {
     throw new Error('Writer Worker dbPath is required')
   }
-  return { dbPath: data.dbPath }
+  return {
+    dbPath: data.dbPath,
+    walCheckpointBytes: optionalNonNegativeNumber(data.walCheckpointBytes, 'walCheckpointBytes'),
+    publishedOutboxRetentionMs: optionalNonNegativeNumber(
+      data.publishedOutboxRetentionMs,
+      'publishedOutboxRetentionMs',
+    ),
+  }
+}
+
+function optionalNonNegativeNumber(value: unknown, name: string): number | undefined {
+  if (value === undefined) return undefined
+  if (!Number.isFinite(value) || (value as number) < 0) {
+    throw new Error(`Writer Worker ${name} must be a non-negative number`)
+  }
+  return value as number
 }
 
 function requireParentPort(value: typeof parentPort): NonNullable<typeof parentPort> {
