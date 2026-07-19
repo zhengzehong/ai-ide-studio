@@ -40,6 +40,7 @@ import { taskInitiatorMigration } from './039-task-initiator.js'
 import { sessionSharesMigration } from './040-session-shares.js'
 import { sessionTemplatesMigration } from './041-session-templates.js'
 import { queryReadModelIndexesMigration } from './042-query-read-model-indexes.js'
+import { writerOutboxMigration } from './043-writer-outbox.js'
 import type { Migration } from '../migrator.js'
 
 export const migrations: Migration[] = [
@@ -85,5 +86,6 @@ export const migrations: Migration[] = [
   sessionSharesMigration,
   sessionTemplatesMigration,
   queryReadModelIndexesMigration,
+  writerOutboxMigration,
 ]
 

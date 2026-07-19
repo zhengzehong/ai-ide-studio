@@ -199,7 +199,7 @@ Commit: `perf(data): move phase one reads to query worker`
 - Test: `tests/integration/writer-worker.test.ts`
 - Test: `tests/integration/sqlite-migration.test.ts`
 
-- [ ] **Step 1: Write failing scheduler tests**
+- [x] **Step 1: Write failing scheduler tests**
 
 Using fake clock only for queue timing, assert:
 
@@ -209,13 +209,13 @@ Using fake clock only for queue timing, assert:
 - critical work for session A does not force unrelated background work for session B;
 - FIFO is preserved within priority.
 
-- [ ] **Step 2: Run scheduler RED**
+- [x] **Step 2: Run scheduler RED**
 
 Run: `npx vitest run tests/unit/writer-worker-scheduler.test.ts`
 
 Expected: FAIL because the Writer scheduler does not exist.
 
-- [ ] **Step 3: Add outbox and batch-commit schema**
+- [x] **Step 3: Add outbox and batch-commit schema**
 
 Migration 043 creates:
 
@@ -246,15 +246,15 @@ CREATE TABLE outbox_events (
 
 Indexes cover unpublished ordering and aggregate version lookup. Migration tests verify schema and re-open idempotency.
 
-- [ ] **Step 4: Define a closed mutation union**
+- [x] **Step 4: Define a closed mutation union**
 
 Do not send arbitrary SQL. The initial registry accepts explicit mutations for session event append, running-message snapshot update, session touch/stage update, and outbox enqueue. Every batch has `batchId`, optional session/generation/sequence bounds, priority, and estimated bytes.
 
-- [ ] **Step 5: Implement ordering and deduplication in the transaction**
+- [x] **Step 5: Implement ordering and deduplication in the transaction**
 
 For a repeated `batchId`, return the recorded commit without reapplying mutations. For one session/generation, reject overlapping or decreasing sequences with `ORDER_CONFLICT`. A new generation may restart sequence only after previous pending work for that session drains. Business rows, batch commit, and outbox rows commit in one transaction; any mutation failure rolls back all three.
 
-- [ ] **Step 6: Write and run real-writer integration tests**
+- [x] **Step 6: Write and run real-writer integration tests**
 
 Test 30 sessions enqueueing background batches concurrently, duplicate `batchId`, out-of-order sequence, critical same-session flush, a deliberate constraint failure rollback, outbox atomicity, client timeout, worker termination, and clean restart against the same WAL database.
 
