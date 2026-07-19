@@ -269,7 +269,7 @@ git diff --check 02469f9..HEAD
 git status --short
 ```
 
-- [ ] **Step 5: Request code review and report Phase 4**
+- [x] **Step 5: Request code review and report Phase 4**
 
 Review range is `02469f9..HEAD`. Do not merge `prd`; Phase 5 starts only after approval.
 
