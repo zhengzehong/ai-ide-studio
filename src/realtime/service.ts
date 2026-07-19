@@ -4,6 +4,7 @@ import { WebSocketServer, type WebSocket } from 'ws'
 import { RealtimeHub } from './hub.js'
 import type { RealtimeConnectionClaims, RealtimeIpcPayload } from './protocol.js'
 import type { ClientMessage } from '../types/ws-protocol.js'
+import type { ServerMessage } from '../types/ws-protocol.js'
 
 export interface RealtimeServiceOptions {
   host: string
@@ -24,6 +25,7 @@ interface PendingConnection {
 export interface RealtimeServiceHandle {
   port: number
   handleIpc(payload: RealtimeIpcPayload): Promise<void>
+  handleRuntimeMessage(message: ServerMessage): void
   close(): Promise<void>
 }
 
@@ -105,6 +107,14 @@ export async function startRealtimeService(
   return {
     port: address.port,
     handleIpc,
+    handleRuntimeMessage(message) {
+      const sessionId = 'sessionId' in message && typeof message.sessionId === 'string'
+        ? message.sessionId
+        : undefined
+      hub.deliver(sessionId
+        ? { scope: 'session', sessionId, message }
+        : { scope: 'all', message })
+    },
     close: async () => {
       hub.close()
       for (const connection of pending.values()) connection.socket.close(1001, 'Realtime service stopping')

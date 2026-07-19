@@ -4,11 +4,13 @@ import type { IpcEnvelope } from '../ipc/protobuf-envelope.js'
 import { createChildLogger } from '../shared/logger.js'
 import { isRealtimeIpcPayload, type RealtimeIpcPayload } from './protocol.js'
 import { startRealtimeService, type RealtimeServiceHandle } from './service.js'
+import { startRuntimeStreamIngress, type RuntimeStreamIngress } from './runtime-stream-ingress.js'
 
 const log = createChildLogger('realtime-service')
 const config = readConfig()
 let transport: FramedSocket | undefined
 let service: RealtimeServiceHandle | undefined
+let runtimeIngress: RuntimeStreamIngress | undefined
 let stopping = false
 
 async function main(): Promise<void> {
@@ -36,6 +38,12 @@ async function handleEnvelope(envelope: IpcEnvelope): Promise<void> {
       flushIntervalMs: config.flushIntervalMs,
       sendIpc: send,
     })
+    runtimeIngress = await startRuntimeStreamIngress({
+      endpoint: config.runtimeStreamEndpoint,
+      token: config.runtimeStreamToken,
+      maxFrameBytes: config.maxFrameBytes,
+      onMessage: (message) => service?.handleRuntimeMessage(message),
+    })
     await send({ type: 'ready', port: service.port })
     log.info({ host: config.host, port: service.port }, 'Realtime service started')
     return
@@ -61,6 +69,7 @@ async function shutdown(exitCode: number): Promise<void> {
   if (stopping) return
   stopping = true
   await service?.close().catch((error) => log.warn({ err: error }, 'Realtime service close failed'))
+  await runtimeIngress?.close().catch((error) => log.warn({ err: error }, 'Runtime stream close failed'))
   await transport?.close().catch(() => undefined)
   process.exit(exitCode)
 }
@@ -99,6 +108,8 @@ function readConfig(): {
   maxBufferedBytes: number
   maxFrameBytes: number
   flushIntervalMs: number
+  runtimeStreamEndpoint: string
+  runtimeStreamToken: string
 } {
   return {
     ipcEndpoint: requiredEnv('AI_IDE_REALTIME_IPC_ENDPOINT'),
@@ -111,6 +122,8 @@ function readConfig(): {
     maxBufferedBytes: positiveInteger(process.env.AI_IDE_REALTIME_MAX_BUFFERED_BYTES, 2 * 1024 * 1024),
     maxFrameBytes: positiveInteger(process.env.AI_IDE_REALTIME_MAX_FRAME_BYTES, 16 * 1024 * 1024),
     flushIntervalMs: positiveInteger(process.env.AI_IDE_REALTIME_FLUSH_INTERVAL_MS, 10),
+    runtimeStreamEndpoint: requiredEnv('AI_IDE_RUNTIME_STREAM_ENDPOINT'),
+    runtimeStreamToken: requiredEnv('AI_IDE_RUNTIME_STREAM_TOKEN'),
   }
 }
 

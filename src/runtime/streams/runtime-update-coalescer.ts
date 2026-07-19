@@ -63,10 +63,8 @@ export class RuntimeUpdateCoalescer {
   }
 
   async flushSession(sessionId: string): Promise<void> {
-    await Promise.all([
-      this.flushChannel(this.ui, sessionId),
-      this.flushChannel(this.persistence, sessionId),
-    ])
+    await this.flushChannel(this.ui, sessionId)
+    await this.flushChannel(this.persistence, sessionId)
   }
 
   async drain(): Promise<void> {

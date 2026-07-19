@@ -52,6 +52,8 @@ export interface RealtimeProcessHandle {
   readonly port: number
   readonly endpointUrl: string
   readonly generation: number
+  readonly runtimeStreamEndpoint: string
+  readonly runtimeStreamToken: string
   sendDelivery(delivery: RealtimeDelivery): Promise<void>
   terminateForTest(): Promise<void>
   waitForRestart(previousGeneration: number, timeoutMs?: number): Promise<void>
@@ -69,6 +71,8 @@ export async function createRealtimeProcess(
 class RealtimeProcessController implements RealtimeProcessHandle {
   private readonly endpoint = createIpcEndpoint()
   private readonly internalToken = randomUUID()
+  readonly runtimeStreamEndpoint = createRuntimeStreamEndpoint()
+  readonly runtimeStreamToken = randomUUID()
   private readonly maxFrameBytes: number
   private server?: Server
   private child?: ChildProcess
@@ -142,6 +146,7 @@ class RealtimeProcessController implements RealtimeProcessHandle {
     if (this.server) await closeServer(this.server)
     this.server = undefined
     removeIpcEndpoint(this.endpoint)
+    removeIpcEndpoint(this.runtimeStreamEndpoint)
   }
 
   private acceptSocket(socket: Socket): void {
@@ -246,6 +251,8 @@ class RealtimeProcessController implements RealtimeProcessHandle {
         AI_IDE_REALTIME_MAX_BUFFERED_BYTES: String(this.options.maxBufferedBytes ?? 2 * 1024 * 1024),
         AI_IDE_REALTIME_MAX_FRAME_BYTES: String(this.maxFrameBytes),
         AI_IDE_REALTIME_FLUSH_INTERVAL_MS: String(this.options.flushIntervalMs ?? 10),
+        AI_IDE_RUNTIME_STREAM_ENDPOINT: this.runtimeStreamEndpoint,
+        AI_IDE_RUNTIME_STREAM_TOKEN: this.runtimeStreamToken,
       },
       execArgv: entry.endsWith('.ts') ? ['--import', 'tsx'] : undefined,
       stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
@@ -298,6 +305,13 @@ function createIpcEndpoint(): string {
   return process.platform === 'win32'
     ? `\\\\.\\pipe\\ai-ide-realtime-${suffix}`
     : join(tmpdir(), `ai-ide-realtime-${suffix}.sock`)
+}
+
+function createRuntimeStreamEndpoint(): string {
+  const suffix = `${process.pid}-${randomUUID()}`
+  return process.platform === 'win32'
+    ? `\\\\.\\pipe\\ai-ide-runtime-stream-${suffix}`
+    : join(tmpdir(), `ai-ide-runtime-stream-${suffix}.sock`)
 }
 
 function removeIpcEndpoint(endpoint: string): void {
