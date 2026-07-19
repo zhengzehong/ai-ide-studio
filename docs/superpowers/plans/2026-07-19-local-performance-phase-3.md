@@ -103,25 +103,25 @@ Commit: `feat(ipc): add framed protobuf service transport`
 - Test: `tests/unit/realtime-outbound-queue.test.ts`
 - Test: `tests/unit/realtime-hub.test.ts`
 
-- [ ] **Step 1: Write failing queue tests**
+- [x] **Step 1: Write failing queue tests**
 
 Assert bounded message/byte capacity, same-message text delta concatenation, same process-item progress latest-wins, FIFO for critical frames, and overflow producing exactly one `resync_required` while subsequent noncritical deltas are suppressed.
 
-- [ ] **Step 2: Write failing hub tests**
+- [x] **Step 2: Write failing hub tests**
 
 Assert project/session subscription isolation, guest session restriction, hidden guest tool calls, global delivery, unsubscribed sessions avoiding JSON serialization, `ping -> pong`, resume acknowledgement, generation change/gap resync, and disconnect cleanup.
 
-- [ ] **Step 3: Run RED**
+- [x] **Step 3: Run RED**
 
 Run: `npx vitest run tests/unit/realtime-outbound-queue.test.ts tests/unit/realtime-hub.test.ts`
 
 Expected: FAIL because the Realtime queue and hub do not exist.
 
-- [ ] **Step 4: Implement queue and hub**
+- [x] **Step 4: Implement queue and hub**
 
 The hub stores one connection record and reverse session index. Every connection owns one `OutboundQueue`. Serialization occurs only after a matching subscriber is found. Critical frames (`session:done`, permission/elicitation prompts, error, resync) are never silently dropped; if they cannot fit after evicting coalescible frames, close the connection with 1013 after queuing resync.
 
-- [ ] **Step 5: Run GREEN and commit**
+- [x] **Step 5: Run GREEN and commit**
 
 Run: `npx vitest run tests/unit/realtime-outbound-queue.test.ts tests/unit/realtime-hub.test.ts tests/unit/ws-handler-guest-filter.test.ts tests/unit/ws-broadcast.test.ts`
 
