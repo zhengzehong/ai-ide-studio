@@ -1,7 +1,8 @@
 import { sessionTemplateStore, type SessionTemplateRow } from '../store/session-templates.js'
 import { sessionStore, type SessionRow } from '../store/sessions.js'
 import { agentStore } from '../store/agents.js'
-import { acpHost } from '../acp/host.js'
+import { getRuntimePort } from '../runtime/runtime-port-provider.js'
+import { buildRuntimeStateSnapshot } from '../runtime/api/runtime-snapshot.js'
 import { events } from './events.js'
 import { createChildLogger } from './logger.js'
 
@@ -63,15 +64,15 @@ export const sessionTemplateManager = {
 
     let acpSessionId: string
     try {
-      acpSessionId = await acpHost.forkSessionFromAcpSessionId(
-        source.agent_id,
-        source.acp_session_id,
-        templateSession.id,
-        projectContext,
-      )
+      const snapshot = buildRuntimeStateSnapshot({
+        sessionId: templateSession.id,
+        projectId: projectContext.projectId,
+        cwd: projectContext.cwd,
+      })
+      acpSessionId = await getRuntimePort().forkSession(snapshot, source.acp_session_id)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      await acpHost.closeSession(source.agent_id, templateSession.id).catch(() => undefined)
+      await getRuntimePort().closeSession(source.agent_id, templateSession.id).catch(() => undefined)
       sessionStore.delete(templateSession.id)
       log.error(
         { err, sourceSessionId: source.id, templateSessionId: templateSession.id },
@@ -136,15 +137,15 @@ export const sessionTemplateManager = {
 
     let acpSessionId: string
     try {
-      acpSessionId = await acpHost.forkSessionFromAcpSessionId(
-        template.agent_id,
-        templateSession.acp_session_id,
-        newSession.id,
-        projectContext,
-      )
+      const snapshot = buildRuntimeStateSnapshot({
+        sessionId: newSession.id,
+        projectId: projectContext.projectId,
+        cwd: projectContext.cwd,
+      })
+      acpSessionId = await getRuntimePort().forkSession(snapshot, templateSession.acp_session_id)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      await acpHost.closeSession(template.agent_id, newSession.id).catch(() => undefined)
+      await getRuntimePort().closeSession(template.agent_id, newSession.id).catch(() => undefined)
       sessionStore.delete(newSession.id)
       log.error(
         { err, templateId, newSessionId: newSession.id },
@@ -178,7 +179,7 @@ export const sessionTemplateManager = {
     const templateSession = sessionStore.get(template.template_session_id)
     if (templateSession) {
       try {
-        await acpHost.closeSession(template.agent_id, template.template_session_id)
+        await getRuntimePort().closeSession(template.agent_id, template.template_session_id)
       } catch (err) {
         log.debug(
           { err, templateId, templateSessionId: template.template_session_id },

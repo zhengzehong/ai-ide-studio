@@ -1,0 +1,147 @@
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { resolve } from 'node:path'
+import { closeDatabase, initDatabase } from '../../src/store/db.js'
+import { localQueryPort } from '../../src/queries/local-query-port.js'
+import { taskRpcHandlers } from '../../src/gateway/rpc/tasks.js'
+import { sessionRpcHandlers } from '../../src/gateway/rpc/sessions.js'
+import type { RpcContext, RpcHandlerMap } from '../../src/gateway/rpc/types.js'
+import { taskStore } from '../../src/store/tasks.js'
+import { eventStore, messageStore, sessionStore } from '../../src/store/sessions.js'
+
+let tmp: string
+
+beforeEach(() => {
+  tmp = mkdtempSync(resolve(tmpdir(), 'ai-ide-query-parity-'))
+  initDatabase(resolve(tmp, 'ai-ide.sqlite'))
+})
+
+afterEach(() => {
+  vi.restoreAllMocks()
+  closeDatabase()
+  rmSync(tmp, { recursive: true, force: true })
+})
+
+describe('legacy WebSocket query adapters', () => {
+  test('tasks.list delegates filters to QueryPort', async () => {
+    const listTasks = vi.spyOn(localQueryPort, 'listTasks').mockResolvedValue([])
+
+    await callRpc(taskRpcHandlers, 'tasks.list', {
+      status: 'running',
+      projectId: 'project-a',
+    })
+
+    expect(listTasks).toHaveBeenCalledWith({ status: 'running', projectId: 'project-a' })
+  })
+
+  test('sessions.list delegates filters to QueryPort', async () => {
+    const listSessions = vi.spyOn(localQueryPort, 'listSessions').mockResolvedValue([])
+
+    await callRpc(sessionRpcHandlers, 'sessions.list', {
+      agentId: 'agent-a',
+      projectId: 'project-a',
+    })
+
+    expect(listSessions).toHaveBeenCalledWith({ agentId: 'agent-a', projectId: 'project-a' })
+  })
+
+  test('sessions.messages unwraps the QueryPort page for WS compatibility', async () => {
+    const item = { id: 'message-a' }
+    const listMessages = vi.spyOn(localQueryPort, 'listSessionMessages').mockResolvedValue({
+      items: [item as never],
+      hasMore: true,
+      nextCursor: 'cursor-a',
+    })
+
+    const result = await callRpc(sessionRpcHandlers, 'sessions.messages', {
+      sessionId: 'session-a',
+      limit: 20,
+      before: '2026-07-19T00:00:00.000Z',
+      includeToolCalls: false,
+      includeLatestToolCalls: true,
+    })
+
+    expect(listMessages).toHaveBeenCalledWith({
+      sessionId: 'session-a',
+      limit: 20,
+      before: '2026-07-19T00:00:00.000Z',
+      includeToolCalls: false,
+      includeLatestToolCalls: true,
+    })
+    expect(result).toEqual([item])
+  })
+
+  test('sessions.events unwraps the QueryPort page for WS compatibility', async () => {
+    const item = { id: 'event-a' }
+    const listEvents = vi.spyOn(localQueryPort, 'listSessionEvents').mockResolvedValue({
+      items: [item as never],
+      hasMore: true,
+      nextCursor: '12',
+    })
+
+    const result = await callRpc(sessionRpcHandlers, 'sessions.events', {
+      sessionId: 'session-a',
+      limit: 10,
+      afterSequence: 2,
+    })
+
+    expect(listEvents).toHaveBeenCalledWith({
+      sessionId: 'session-a',
+      limit: 10,
+      afterSequence: 2,
+    })
+    expect(result).toEqual([item])
+  })
+})
+
+describe('QueryPort and WS response parity', () => {
+  test('returns identical task, session, message, and event arrays', async () => {
+    const projectId = 'project-parity'
+    const task = taskStore.create({ title: 'Parity task', description: 'Parity task', projectId })
+    const session = sessionStore.create({ agentId: 'agent-parity', taskId: task.id, projectId })
+    messageStore.append(session.id, { role: 'user', content: 'hello' })
+    eventStore.append(session.id, {
+      type: 'message.user',
+      messageId: 'message-user',
+      payload: { content: 'hello' },
+    })
+
+    const queryTasks = await localQueryPort.listTasks({ projectId })
+    const querySessions = await localQueryPort.listSessions({ projectId, agentId: 'agent-parity' })
+    const queryMessages = await localQueryPort.listSessionMessages({ sessionId: session.id, limit: 20 })
+    const queryEvents = await localQueryPort.listSessionEvents({ sessionId: session.id, limit: 20 })
+
+    expect(await callRpc(taskRpcHandlers, 'tasks.list', { projectId })).toEqual(queryTasks)
+    expect(await callRpc(sessionRpcHandlers, 'sessions.list', {
+      projectId,
+      agentId: 'agent-parity',
+    })).toEqual(querySessions)
+    expect(await callRpc(sessionRpcHandlers, 'sessions.messages', {
+      sessionId: session.id,
+      limit: 20,
+    })).toEqual(queryMessages.items)
+    expect(await callRpc(sessionRpcHandlers, 'sessions.events', {
+      sessionId: session.id,
+      limit: 20,
+    })).toEqual(queryEvents.items)
+  })
+})
+
+async function callRpc(
+  handlers: RpcHandlerMap,
+  type: string,
+  input: Record<string, unknown>,
+): Promise<unknown> {
+  let result: unknown
+  let error: string | null = null
+  const context: RpcContext = {
+    state: { subscriptions: new Set(), authMode: 'owner' },
+    sendResult: (data) => { result = data },
+    sendError: (message) => { error = message },
+    sendOutOfBandError: (message) => { error = message },
+  }
+  await handlers[type]({ type, ...input } as never, context)
+  if (error) throw new Error(error)
+  return result
+}

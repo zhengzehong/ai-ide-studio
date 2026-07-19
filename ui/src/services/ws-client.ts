@@ -1,4 +1,5 @@
 type MessageHandler = (msg: Record<string, unknown>) => void
+type EndpointResolver = () => Promise<string>
 
 class WSClient {
   private ws: WebSocket | null = null
@@ -7,15 +8,34 @@ class WSClient {
   private pendingRequests = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>()
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private _connected = false
-  private url = ''
+  private endpoint: string | EndpointResolver = ''
+  private connectGeneration = 0
   private intentionalClose = false
   private currentSubscriptions = new Set<string>()
   private hasConnectedBefore = false
+  private cursors = new Map<string, { streamGeneration: string; sequence: number }>()
 
   get connected() { return this._connected }
 
-  connect(url: string) {
-    this.url = url
+  connect(endpoint: string | EndpointResolver) {
+    this.endpoint = endpoint
+    const generation = ++this.connectGeneration
+    if (typeof endpoint === 'string') {
+      this.open(endpoint, generation)
+      return
+    }
+    void endpoint().then(
+      (url) => this.open(url, generation),
+      (error) => {
+        if (generation !== this.connectGeneration) return
+        this._connected = false
+        this.emit('connection', { connected: false, message: toErrorMessage(error) })
+      },
+    )
+  }
+
+  private open(url: string, generation: number) {
+    if (generation !== this.connectGeneration) return
     this.intentionalClose = true
     if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null }
     if (this.ws) { this.detachSocket(this.ws); this.ws.close(); this.ws = null }
@@ -38,12 +58,16 @@ class WSClient {
       // can refresh state that may have gone stale during the disconnect.
       // The onclose/onerror race in some WebSocket impls can leave React's
       // `connected` state stuck at false; this event bypasses that.
-      if (this.hasConnectedBefore) {
+      const reconnecting = this.hasConnectedBefore
+      if (reconnecting) {
         this.emit('reconnected', {})
       }
       this.hasConnectedBefore = true
       if (this.currentSubscriptions.size > 0) {
         this.send({ type: 'subscribe', sessionIds: [...this.currentSubscriptions] })
+        if (reconnecting && this.cursors.size > 0) {
+          this.send({ type: 'resume', cursors: Object.fromEntries(this.cursors) })
+        }
       }
     }
 
@@ -70,6 +94,7 @@ class WSClient {
       if (this.ws !== socket) return
       try {
         const msg = JSON.parse(event.data as string)
+        this.captureCursor(msg)
         if (msg.requestId && this.pendingRequests.has(msg.requestId)) {
           const pending = this.pendingRequests.get(msg.requestId)!
           this.pendingRequests.delete(msg.requestId)
@@ -85,14 +110,25 @@ class WSClient {
   }
 
   private reconnect() {
-    if (this.url) this.connect(this.url)
+    if (this.endpoint) this.connect(this.endpoint)
   }
 
   disconnect() {
+    this.connectGeneration += 1
     this.intentionalClose = true
     if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null }
     if (this.ws) { this.detachSocket(this.ws); this.ws.close(); this.ws = null }
     this._connected = false
+  }
+
+  private captureCursor(msg: Record<string, unknown>): void {
+    if (typeof msg.sessionId !== 'string'
+      || typeof msg.streamGeneration !== 'string'
+      || typeof msg.sequence !== 'number') return
+    this.cursors.set(msg.sessionId, {
+      streamGeneration: msg.streamGeneration,
+      sequence: msg.sequence,
+    })
   }
 
   private detachSocket(socket: WebSocket): void {
@@ -138,6 +174,12 @@ class WSClient {
   unsubscribe(sessionIds: string[]) {
     sessionIds.forEach(id => this.currentSubscriptions.delete(id))
     this.send({ type: 'unsubscribe', sessionIds })
+  }
+
+  acknowledgeResync(sessionId?: string) {
+    if (sessionId) this.cursors.delete(sessionId)
+    else this.cursors.clear()
+    this.send({ type: 'resume', cursors: Object.fromEntries(this.cursors) })
   }
 
   sendPrompt(sessionId: string, content: string) {

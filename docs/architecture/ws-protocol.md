@@ -1,10 +1,36 @@
 # WebSocket RPC 协议
 
+## PC HTTP Query API
+
+PC 高频只读路径使用同源 HTTP，认证沿用 `x-ai-ide-token`。普通列表响应为 `{ data }`，分页响应为 `{ data, page: { hasMore, nextCursor } }`。
+
+| 方法 | 参数 | 返回 | 说明 |
+|------|------|------|------|
+| `GET /api/v1/tasks` | `projectId?`, `status?` | `{ data: Task[] }` | 任务列表；与 `tasks.list` 共用 Query Port |
+| `GET /api/v1/sessions` | `projectId?`, `agentId?` | `{ data: Session[] }` | 会话列表，包含 `activity_state`；与 `sessions.list` 共用 Query Port |
+| `GET /api/v1/sessions/:sessionId/messages` | `limit?`, `before?`, `includeToolCalls?`, `includeLatestToolCalls?` | `{ data: Message[], page }` | 消息历史；`limit` 为 1..200，`before` 使用消息时间游标 |
+| `GET /api/v1/sessions/:sessionId/events` | `limit?`, `afterSequence?` | `{ data: SessionEvent[], page }` | 恢复事件；`limit` 为 1..1000，增量页按 sequence 升序且不跳页 |
+| `GET /api/v1/realtime-config` | — | `{ wsUrl, protocolVersion, legacyRpcEnabled, mode }` | 返回当前 Realtime 端点；PC/移动端在首次连接和每次重连前调用 |
+
+成功响应带 `Cache-Control: no-store`、`Server-Timing` 和 `X-Response-Bytes`。PC 默认使用这些 HTTP 路由；`VITE_QUERY_TRANSPORT=ws`、移动端和 CLI 可继续使用下列 WS 兼容 RPC。兼容桥保持数组返回，不包含 HTTP 的 `page` 外壳。
+
+## PC HTTP Command API
+
+PC 高频 Session 命令使用 `POST /api/v1/commands`。认证沿用 `x-ai-ide-token`，请求必须包含 `Idempotency-Key`，JSON body 最大 2 MiB；body 的 `commandId` 用于结果关联，幂等键用于 Writer 账本去重。响应为 `{ data: { commandId, status, duplicate } }`。
+
+| `type` | 必填字段 | HTTP 结果 | 说明 |
+|--------|----------|-----------|------|
+| `prompt` | `commandId`, `sessionId`, `clientMessageId`, `content` | `202 accepted` | 可选 `contextProjectId`, `images`；客户端提交前先订阅 Session |
+| `session.cancel` | `commandId`, `sessionId` | `200 completed` | 取消当前 Runtime turn |
+| `sessions.markRead` | `commandId`, `sessionId` | `200 completed` | 标记具体 Session 已读，不批量清项目 |
+| `permission.respond` | `commandId`, `sessionId`, `permissionRequestId` | `200 completed` | 可选 `optionId`, `cancelled` |
+| `elicitation.respond` | `commandId`, `sessionId`, `elicitationRequestId`, `action` | `200 completed` | `action` 为 accept/decline/cancel，可选结构化 `content` |
+
+未知字段和未知 `type` 返回 400，超限返回 413，幂等键冲突返回 409，Command dispatcher 不可用返回 503。相同 Session 按接收顺序执行，不同 Session 可并行。PC 可用 `VITE_COMMAND_TRANSPORT=ws` 显式回滚；移动端和 Guest 保持兼容 WS 命令。
+
 ## 连接
 
-```
-ws://localhost:18800
-```
+客户端不得假定 WebSocket 与 API 同端口。默认由 `GET /api/v1/realtime-config` 返回独立 Realtime 地址；`REALTIME_MODE=embedded` 或发现失败时才使用 API 同端口地址。Owner token 通过 `token` query 传给 WebSocket，分享页使用 `shareToken`。
 
 ## 消息格式
 
@@ -12,7 +38,22 @@ ws://localhost:18800
 
 ## 订阅
 
-连接后自动接收所有事件广播。客户端可通过 `subscribe` 消息选择性订阅。
+Realtime 只向订阅目标发送 Session 事件，全局元数据事件按认证范围广播。
+
+| 控制消息 | 参数 | 返回 | 说明 |
+|----------|------|------|------|
+| `subscribe` | `{ requestId?, sessionIds }` | `result` | 增加 Session 订阅；guest 只能订阅分享会话 |
+| `unsubscribe` | `{ requestId?, sessionIds }` | `result` | 删除 Session 订阅 |
+| `ping` | `{ timestamp? }` | `pong` | Realtime 进程本地处理，不进入 API 事件循环 |
+| `resume` | `{ cursors }` | `resume:ack` | 重连后提交客户端游标并恢复订阅流 |
+
+带游标的实时消息可包含 `streamGeneration` 与 `sequence`。generation 改变、sequence 跳号、单连接发送队列溢出或 socket 缓冲超过限制时，服务端发送 `{ type: "resync_required", sessionId?, reason }`；客户端应停止应用该流的增量并通过 HTTP Query 读取最新 snapshot。关键 `session:done`、权限请求、提问和错误不会静默丢弃。
+
+Runtime 可见 patch 不经过 API 事件总线，而是通过 Runtime→Realtime 认证本机管道直接进入同一个订阅分发器。该路径只接受服务内部 token 和长度前缀 Protobuf envelope；浏览器协议仍然是 JSON `session:update`。Runtime 分配 `streamGeneration + sequence`，Realtime 只验证和转发，不重新编号。
+
+`session:done` 不走 Runtime 直连流。Runtime 先 flush 可见与持久化更新，再向 API 发 done barrier；API 等 Writer 提交 `message.done` 与 Outbox 后，通过 `session:committed_done` 发布带终止游标的 `session:done`。因此客户端看到 done 时，同 Session 的前序 patch 已完成持久化，HTTP snapshot 可立即读取。
+
+`REALTIME_LEGACY_RPC=enabled` 时，下面尚未迁移的领域 RPC 通过本地 Protobuf IPC 转发到 API，`requestId` 和订阅变更保持兼容；设为 `disabled` 后，非控制消息返回明确错误。该兼容桥不改变 Realtime 无 DB/Core 依赖的边界。
 
 ## RPC 方法
 
@@ -36,7 +77,7 @@ ws://localhost:18800
 
 | 方法 | 参数 | 返回 | 说明 |
 |------|------|------|------|
-| `sessions.list` | `{ agentId?, projectId? }` | `Session[]` | 列出 Session |
+| `sessions.list` | `{ agentId?, projectId? }` | `Session[]` | 列出 Session；PC 已迁移 HTTP，当前为移动端/CLI/回滚兼容桥 |
 | `sessions.projectStats` | `{}` | `{ generatedAt, items: ProjectSessionStats[] }` | 返回全部项目的运行中/未读会话统计快照；未读只统计非运行中且 `last_message_at > last_read_at` 的会话，空项目返回 0 |
 | `sessions.create` | `{ agentId, taskId?, projectId? }` | `Session` | 只创建本地 SQLite Session；不启动 ACP runtime，也不创建 ACP session |
 | `sessions.copy` | `{ sessionId }` | `Session` | 复制会话：先通过 ACP fork 复制 runtime 上下文，再复制 SQLite 中最近 10 条消息及相关 `session_events` |
@@ -53,14 +94,14 @@ ws://localhost:18800
 | `session.setConfig` | `{ sessionId, configId, value }` | `void` | 切换配置；成功后写入 `sessions.runtime_preferences_json.config[configId]` |
 | `session.cancel` | `{ sessionId }` | `{ ok: true }` | 通过 ACP `session/cancel` 停止当前轮次，不杀 runtime 进程 |
 | `session.fork` | `{ sessionId }` | `Session` | Fork 会话 |
-| `sessions.messages` | `{ sessionId, limit?, before?, includeToolCalls? }` | `Message[]` | 查询消息历史；默认不返回完整历史工具 JSON，只返回 `has_tool_calls` / `tool_call_count`，并返回 ACP diff 文件变更轻量摘要 `file_changes_json` / `has_file_changes` / `file_change_count` |
+| `sessions.messages` | `{ sessionId, limit?, before?, includeToolCalls? }` | `Message[]` | HTTP Query Port 的 WS 兼容桥；默认不返回完整历史工具 JSON，只返回 `has_tool_calls` / `tool_call_count`，并返回 ACP diff 文件变更轻量摘要 `file_changes_json` / `has_file_changes` / `file_change_count` |
 | `sessions.messageToolCalls` | `{ sessionId, messageId }` | `ToolCallSummary[]` | 懒加载单条消息的工具调用摘要 |
 | `sessions.messageToolCallDetail` | `{ sessionId, messageId, toolCallId }` | `ToolCallDetail` | 懒加载单个工具调用详情，长输出会截断 |
 | `sessions.messageFileChanges` | `{ sessionId, messageId }` | `FileChangeDetail` | 懒加载单条 Agent 消息的 ACP diff 文件变更详情 |
 | `sessions.messageProcess` | `{ sessionId, messageId }` | `TurnProcessItem[]` | 懒加载单条 Agent 消息的执行过程轻量列表；按 `sequence` 升序返回，默认不返回大 `detail_json` |
 | `sessions.processItemDetail` | `{ sessionId, messageId, itemId }` | `TurnProcessItem` | 懒加载单个执行过程块详情，例如工具 raw 输出、权限详情、计划详情或完整 diff |
 | `sessions.messageEvents` | `{ sessionId, messageId }` | `SessionEvent[]` | 兼容旧数据的执行过程事件兜底恢复；新数据优先使用 `sessions.messageProcess` |
-| `sessions.events` | `{ sessionId, limit?, afterSequence? }` | `SessionEvent[]` | 查询事件 |
+| `sessions.events` | `{ sessionId, limit?, afterSequence? }` | `SessionEvent[]` | HTTP Query Port 的恢复事件 WS 兼容桥 |
 | `prompt` | `{ sessionId, content, clientMessageId?, contextProjectId?, images? }` | `{ status }` | 发送消息；`clientMessageId` 用于让前端乐观用户消息与 SQLite 持久化消息合并；`contextProjectId` 用于全局助理等无项目 Session 的本轮项目工具上下文，不写入 Session；首次发送时懒启动 runtime，并按需 new/resume ACP session |
 | `permission.respond` | `{ sessionId, permissionRequestId, optionId?, cancelled? }` | `void` | 响应权限请求 |
 | `elicitation.respond` | `{ sessionId, elicitationRequestId, action, content? }` | `void` | 响应提问请求 |
@@ -70,7 +111,7 @@ ws://localhost:18800
 
 | 方法 | 参数 | 返回 | 说明 |
 |------|------|------|------|
-| `tasks.list` | `{ status?, projectId? }` | `Task[]` | 列出任务，可按项目过滤 |
+| `tasks.list` | `{ status?, projectId? }` | `Task[]` | 列出任务，可按项目过滤；PC 已迁移 HTTP，当前为移动端/CLI/回滚兼容桥 |
 | `tasks.create` | `{ title, description, projectId? }` | `Task` | 创建协作任务空壳；任务为 `draft`，不建步骤、不分派 Agent。旧调用方的分派兼容逻辑仅保留在后端 RPC 入口，不作为新 UI 协议使用 |
 | `tasks.createSimple` | `{ title, description, assignee, projectId?, sessionId? }` | `Task & { defaultStepId, sessionId, steps, stepProgress }` | 创建简单任务：自动创建一个默认 step，分派给 `assignee` 并立即派发 |
 | `tasks.update` | `{ taskId, status?, stage? }` | `Task` | 更新任务状态 |

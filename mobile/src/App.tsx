@@ -3,6 +3,8 @@ import { BrowserRouter, HashRouter, Routes, Route, Navigate } from 'react-router
 import { useConnectionStore, type ConnectionStatus } from './stores/connection.store'
 import { useAppStore } from './stores/app.store'
 import { useSessionStore } from './stores/session.store'
+import { useChatStore } from './stores/chat.store'
+import { wsClient } from '@desktop/services/ws-client'
 import MobileShell from './components/MobileShell'
 import AndroidBackHandler from './components/AndroidBackHandler'
 import ConnectPage from './pages/ConnectPage'
@@ -49,7 +51,16 @@ export default function App() {
     if (!listenersReady.current) {
       listenersReady.current = true
       const off1 = useSessionStore.getState().setupListeners()
-      return () => { off1(); listenersReady.current = false }
+      const off2 = wsClient.on('resync_required', (message) => {
+        const chatStore = useChatStore.getState()
+        const resyncSessionId = typeof message.sessionId === 'string' ? message.sessionId : undefined
+        const sessionId = resyncSessionId ?? chatStore.sessionId ?? undefined
+        const recovery = sessionId && sessionId === chatStore.sessionId
+          ? chatStore.refreshCurrentSession(sessionId)
+          : Promise.resolve()
+        void recovery.finally(() => wsClient.acknowledgeResync(resyncSessionId))
+      })
+      return () => { off1(); off2(); listenersReady.current = false }
     }
   }, [connected])
 

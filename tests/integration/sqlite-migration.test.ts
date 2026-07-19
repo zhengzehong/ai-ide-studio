@@ -54,7 +54,9 @@ describe('SQLite 迁移', () => {
         'knowledge_activities',
         'task_attachments',
         'task_steps',
-        'task_step_dependencies'
+        'task_step_dependencies',
+        'writer_batch_commits',
+        'outbox_events'
       )
       ORDER BY name
     `).all().map(row => row.name)
@@ -71,12 +73,14 @@ describe('SQLite 迁移', () => {
       'knowledge_mounts',
       'knowledge_pages',
       'model_profiles',
+      'outbox_events',
       'schema_migrations',
       'task_attachments',
       'task_step_dependencies',
       'task_steps',
       'tool_call_audit',
       'tool_contexts',
+      'writer_batch_commits',
     ])
     const messageColumns = getDb().prepare<[], { name: string }>('PRAGMA table_info(messages)').all().map(row => row.name)
     const eventCenterTables = getDb().prepare<[], { name: string }>(`
@@ -91,7 +95,7 @@ describe('SQLite 迁移', () => {
       ORDER BY name
     `).all().map(row => row.name)
 
-    expect(migrations).toEqual(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011', '012', '013', '014', '015', '016', '017', '018', '019', '020', '021', '022', '023', '024', '025', '026', '027', '028', '029', '030', '031', '032', '033', '034', '035', '036', '037', '038', '039', '040', '041'])
+    expect(migrations).toEqual(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011', '012', '013', '014', '015', '016', '017', '018', '019', '020', '021', '022', '023', '024', '025', '026', '027', '028', '029', '030', '031', '032', '033', '034', '035', '036', '037', '038', '039', '040', '041', '042', '043', '044', '045'])
     expect(messageColumns).toContain('file_changes_json')
     expect(messageColumns).toContain('process_item_count')
     expect(getDb().prepare<[], { name: string }>('PRAGMA table_info(sessions)').all().map(row => row.name)).toContain('last_read_at')
