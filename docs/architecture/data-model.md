@@ -216,6 +216,37 @@ ignored     failed      task
 
 `session_events` 保留 raw/diagnostic 事件和旧数据兜底恢复能力。新对话的 UI 历史恢复优先使用 `messages` + `turn_process_items`，不再依赖按 chunk 还原整轮执行过程。单个 Agent Turn 使用平台生成的 Agent `message_id` 作为主消息 ID；runtime 提供的 chunk message id 不作为平台消息主键，避免不同 runtime 的 ID 复用导致串消息。
 
+### writer_batch_commits
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| batch_id | TEXT PK | Writer 幂等键；同一批次重试不重复执行 mutation |
+| session_id | TEXT | 可选的 Session 排序作用域 |
+| stream_generation | TEXT | Runtime 所有权代次 |
+| first_sequence | INTEGER | 批次首个逻辑序号 |
+| last_sequence | INTEGER | 批次最后逻辑序号 |
+| committed_at | TEXT | 事务提交时间 |
+
+同一 `session_id + stream_generation` 的新批次必须严格晚于最近已提交 `last_sequence`。新的 generation 可以重新从较小 sequence 开始。该表和业务 mutation 在同一事务写入，因此只有业务数据提交成功的 `batch_id` 才会被记录。
+
+### outbox_events
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| id | TEXT PK | Outbox 事件 ID |
+| topic | TEXT | 领域主题，例如 `session.done` |
+| aggregate_type | TEXT | 聚合类型 |
+| aggregate_id | TEXT | 聚合 ID |
+| project_id | TEXT | 可选 Project 作用域 |
+| session_id | TEXT | 可选 Session 作用域 |
+| version | INTEGER | 聚合事件版本 |
+| payload_json | TEXT | 可序列化领域载荷 |
+| created_at | TEXT | 创建时间 |
+| published_at | TEXT | 成功发布到 Realtime 后的时间；未发布为 NULL |
+| attempts | INTEGER | 发布尝试次数 |
+
+关键领域状态与 Outbox 行由 Writer Worker 在同一事务提交。高频 token delta 不写 Outbox；当前首个接入事件为 `session.done`。后续 Realtime 独立进程按 `published_at IS NULL` 顺序投递和确认。
+
 ### agent_session_messages
 
 | 列 | 类型 | 说明 |

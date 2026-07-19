@@ -322,37 +322,37 @@ Commit: `perf(runtime): persist session hot path through writer worker`
 - Modify: `README.md`
 - Create: `tests/integration/data-worker-lifecycle.test.ts`
 
-- [ ] **Step 1: Write failing lifecycle tests**
+- [x] **Step 1: Write failing lifecycle tests**
 
 Start the app on an ephemeral port and temporary database. Assert both workers become ready before HTTP accepts traffic, Query failure produces 503 while Writer stays usable, Writer failure rejects new persistence while Query stays usable, restart restores service, and `stop()` drains Writer before closing database resources. Assert no worker or timer remains after stop.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `npx vitest run tests/integration/data-worker-lifecycle.test.ts`
 
 Expected: FAIL because app-scoped worker lifecycle is not wired.
 
-- [ ] **Step 3: Wire startup and shutdown order**
+- [x] **Step 3: Wire startup and shutdown order**
 
 Startup order is migration/legacy import, seed, close bootstrap connection where compatible, Writer ready, Query ready, Gateway listen. Shutdown order is stop new HTTP/WS work, flush session batchers, drain Writer, checkpoint WAL, close Query, close Writer, close remaining compatibility DB, then finish process shutdown.
 
-- [ ] **Step 4: Add structured worker metrics and explicit rollback**
+- [x] **Step 4: Add structured worker metrics and explicit rollback**
 
 Log operation, requestId, priority, queue depth, queue wait, SQL/transaction time, total time, and payload bytes. Slow thresholds are configurable. `DATA_WORKER_MODE=local` is the temporary explicit rollback switch; default production mode is `worker`. There is no automatic synchronous fallback after a worker crash.
 
-- [ ] **Step 5: Inventory compatibility debt and add a regression gate**
+- [x] **Step 5: Inventory compatibility debt and add a regression gate**
 
 Document remaining direct `getDb()` callers by domain. Add a test or lint script that fails if a new direct caller appears outside the recorded allowlist. The allowlist may shrink but cannot grow without updating the architecture decision. Confirm `src/gateway/http/query-routes.ts` and migrated persistence modules have zero direct synchronous store/database imports.
 
-- [ ] **Step 6: Update stable documentation**
+- [x] **Step 6: Update stable documentation**
 
 Architecture docs describe ownership and flow, not implementation phases. Data-model docs define batch commits and outbox retention. README documents worker mode, rollback, and troubleshooting. The implementation checklist remains only in this file.
 
-- [ ] **Step 7: Run focused performance and fault checks**
+- [x] **Step 7: Run focused performance and fault checks**
 
 Run the worker suites plus a 30-session synthetic write load. Record p50/p95 queue wait and main-thread interval gap. Acceptance for this phase is no lost/duplicate batch, no false done, Query isolation under a 150ms slow query, and clean worker termination.
 
-- [ ] **Step 8: Run full repository verification**
+- [x] **Step 8: Run full repository verification**
 
 Run in order:
 
@@ -367,7 +367,7 @@ git status --short
 
 Expected: all tests/build/lint pass, diff check has no output, `mobile/` has no changes, and the worktree is clean after the final Phase 2 commit.
 
-- [ ] **Step 9: Commit documentation and report Phase 2**
+- [x] **Step 9: Commit documentation and report Phase 2**
 
 Commit: `docs: document query and writer worker ownership`
 

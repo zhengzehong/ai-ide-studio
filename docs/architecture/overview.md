@@ -15,9 +15,11 @@ Gateway 层
   ws-handler.ts   WS 连接、订阅、广播、JSON 解析、RPC dispatch
   rpc/*           按领域拆分的 WS RPC handler 与兼容桥
       │
-      ├── Query Port
-      │     ports/query-port.ts       异步查询契约
-      │     queries/local-query-port.ts  单体内适配器
+      ├── Data Ports / Worker Threads
+      │     ports/query-port.ts          异步查询契约
+      │     ports/write-data-port.ts     封闭写入批次契约
+      │     data-worker/query-worker/*   单只读 SQLite 连接
+      │     data-worker/writer-worker/*  优先级队列、唯一新写路径与 Outbox
       │     queries/task-list-query.ts   任务列表读模型
       │ mitt 事件总线
       ▼
@@ -54,7 +56,8 @@ Web UI / Mobile Web App → WS "prompt" → ws-handler → gateway/rpc/subscript
   → sessionManager.sendPrompt() → acpHost.ensureSession() / acpHost.prompt()
   → Agent runtime 子进程 (stdio NDJSON)
   → ACP session/update → core events → ws-handler 广播 → Web UI 流式更新
-  → session:done → messages / turn_process_items / session_events 持久化到 SQLite
+  → session:update 合并 → Writer Worker 批量持久化 session_events / running snapshot
+  → session:done → flush 同会话 pending → critical commit + Outbox → WS 广播 done
 ```
 
 前端实时对话以 `session:update` 作为可见流式状态来源；`session:event` 主要用于持久化同步、断线恢复和状态补偿，避免每个流式 chunk 都全量还原事件。后端在用户发送后立即创建一条 `messages.status = running` 的 Agent 消息，流式文本写入 `messages.content` 快照；思考、工具、权限、提问、计划和文件修改等执行过程写入 `turn_process_items`，并通过 `session:process_item` 轻量广播。完成后同一条 Agent 消息更新为 completed/failed/cancelled。
@@ -63,11 +66,21 @@ PC 端历史消息默认通过轻量 HTTP `GET /api/v1/sessions/:sessionId/messa
 
 ### PC 查询传输边界
 
-PC 端的任务列表、会话列表、消息历史和恢复事件使用版本化 `/api/v1` HTTP Query API。四类路由与同名旧 WS RPC 都委托异步 `QueryPort`；当前 `local-query-port` 在 Gateway 进程内调用 SQLite 读模型，后续 Query Worker 可以替换该适配器而不改变 HTTP DTO 和调用方。移动端、CLI 和显式回滚仍可使用旧 WS RPC，返回数组结构保持兼容。
+PC 端的任务列表、会话列表、消息历史和恢复事件使用版本化 `/api/v1` HTTP Query API。四类路由与同名旧 WS RPC 都委托异步 `QueryPort`；默认适配器把请求发送到独立 Query Worker，由该 Worker 独占 `readonly + query_only` SQLite 连接。同步 SQL 只阻塞 Query Worker，不占用 Gateway 事件循环。移动端和旧 WS RPC 复用同一个 Query Port，返回数组结构保持兼容。
 
 HTTP 分页响应使用 `{ data, page: { hasMore, nextCursor } }`，普通列表使用 `{ data }`。消息单页最多 200 条，恢复事件单页最多 1000 条；每个成功响应包含 `Server-Timing` 和 `X-Response-Bytes`，超过 1 MiB 观测预算时记录结构化告警但不截断。PC 构建设置 `VITE_QUERY_TRANSPORT=ws` 可回滚四类读取，其余值和默认值均使用 HTTP。
 
 该边界是当前迁移状态，不代表所有领域操作已经 HTTP 化。Prompt、取消、已读、权限响应和其他 Command 仍走 WS RPC，WebSocket 也继续承载订阅与实时事件；后续阶段再按稳定契约迁移剩余 Command 和查询。
+
+### SQLite Worker 边界
+
+应用启动时先完成 schema migration、旧 JSON 导入和内置数据 seed，再启动一个 Query Worker 和一个 Writer Worker。Query Worker 只读；Writer Worker 的新写路径按 `critical / interactive / background` 排队。Background 最多等待 25ms，并在达到 100 个 mutation 或 256KiB 时提前提交；critical 先提交同一 Session 已排队的 background mutation，再单独提交。
+
+Session 流式事件、running message snapshot 和 `message.done` 已通过 `WriteDataPort` 进入 Writer Worker。每个活动 Session 使用 `streamGeneration + sequence` 排序，重试通过 `batchId` 去重。`message.done` 与 Outbox 在同一事务提交，Gateway 只在 commit ack 后广播线上的 `session:done`。因此浏览器收到完成事件时，HTTP Snapshot 已可读取最终持久化状态。
+
+迁移期间，尚未随 Runtime/Realtime 拆出的旧 Command、工具和部分同步状态修改仍使用兼容 Store 连接。`tests/unit/database-access-boundary.test.ts` 锁定主线程直接 `getDb()` 的兼容清单，清单只能缩小。`DATA_WORKER_MODE=local` 是显式故障回退开关，不会在 Worker 崩溃后自动降级到同步 SQL。
+
+Query/Writer Worker 的完成日志包含优先级、队列深度、排队时间、执行时间、总耗时和载荷字节数。`DATA_WORKER_SLOW_MS` 配置慢请求阈值，默认 100ms；达到阈值的成功请求提升为 `warn`，用于区分排队拥塞和 SQL/事务执行缓慢。
 
 `session:activity` 是独立的轻量全局事件，只表示会话本轮执行从 `running` 到 `idle` 的状态变化，用于左侧会话列表运行中/未读提示；它不承载聊天内容，也不参与历史消息还原。
 
@@ -189,6 +202,8 @@ session 关闭(close/archive/delete)自动 `disconnectBySession`:off 所有未�
 - 非 Team Agent 间通信使用 `agent.*` MCP 工具和普通 Session 投递；平台记录通信与 watch 状态，但不引入独立通信线程。
 - `ws-handler.ts` 只负责 WS 连接、广播、JSON 解析和 dispatch；新增 RPC 必须放到 `src/gateway/rpc/*` 对应领域模块。
 - SQLite schema 由 `src/store/migrator.ts` 与 `src/store/migrations/*` 管理；`db.ts` 不再承载大段建表/升级逻辑。
+- 默认 HTTP Query 和 Session 流式持久化不得在 Gateway 调用栈执行同步 SQLite；新增数据访问必须通过 QueryPort/WriteDataPort。
+- Query Worker 不得写库；Writer mutation 必须使用封闭 union，禁止通过 MessagePort 发送任意 SQL。
 - ACP Host 对外暴露 `acpHost` facade；新增 runtime/session/client callback/terminal/interaction 能力优先下沉到专用模块。
 - `tools` / `tool_bindings` / `skills` / `model_providers` / `model_profiles` 为全局可扩展能力表。
 - MCP 工具平台目标架构见 `docs/architecture/mcp-tool-platform.md`，第一版按方法级可见性控制推进。
