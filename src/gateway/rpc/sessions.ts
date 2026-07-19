@@ -21,7 +21,7 @@ import type { FileChangeDetailData } from '../../types/ws-protocol.js'
 import type { AgentConnection } from '../../acp/host-types.js'
 import type { AgentRow } from '../../store/agents.js'
 import type { RpcHandlerMap } from './types.js'
-import { localQueryPort } from '../../queries/local-query-port.js'
+import { getQueryPort } from '../../queries/query-port-provider.js'
 
 const log = createChildLogger('rpc-sessions')
 
@@ -268,7 +268,7 @@ export const sessionRpcHandlers: RpcHandlerMap = {
   },
 
   async 'sessions.list'(msg, { sendResult }) {
-    sendResult(await localQueryPort.listSessions({
+    sendResult(await getQueryPort().listSessions({
       agentId: msg.agentId as string | undefined,
       projectId: msg.projectId as string | undefined,
     }))
@@ -361,7 +361,7 @@ export const sessionRpcHandlers: RpcHandlerMap = {
   },
 
   async 'sessions.messages'(msg, { sendResult }) {
-    const page = await localQueryPort.listSessionMessages({
+    const page = await getQueryPort().listSessionMessages({
       sessionId: msg.sessionId as string,
       limit: msg.limit as number | undefined,
       before: msg.before as string | undefined,
@@ -426,7 +426,7 @@ export const sessionRpcHandlers: RpcHandlerMap = {
   },
 
   async 'sessions.events'(msg, { sendResult }) {
-    const page = await localQueryPort.listSessionEvents({
+    const page = await getQueryPort().listSessionEvents({
       sessionId: msg.sessionId as string,
       limit: msg.limit as number | undefined,
       afterSequence: msg.afterSequence as number | undefined,

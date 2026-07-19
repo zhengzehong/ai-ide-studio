@@ -9,6 +9,8 @@ import { closeDatabase, getDb, initDatabase } from '../../src/store/db.js'
 import { startGateway } from '../../src/gateway/server.js'
 import { taskStore } from '../../src/store/tasks.js'
 import { eventStore, messageStore, sessionStore } from '../../src/store/sessions.js'
+import type { QueryPort } from '../../src/ports/query-port.js'
+import { WorkerRequestError } from '../../src/data-worker/worker-rpc-client.js'
 
 const ACCESS_TOKEN = 'query-route-secret'
 
@@ -125,19 +127,47 @@ describe('versioned HTTP query routes', () => {
     expect(body.data.map((event) => event.sequence)).toEqual([2, 3])
     expect(body.page).toEqual({ hasMore: true, nextCursor: '3' })
   })
+
+  test('maps query worker availability and deadline failures without synchronous fallback', async () => {
+    const queryPort = failingQueryPort()
+    await startTestGateway(queryPort)
+
+    const unavailable = await queryFetch('/api/v1/tasks')
+    const deadline = await queryFetch('/api/v1/tasks?status=deadline')
+
+    expect(unavailable.status).toBe(503)
+    expect(await unavailable.json()).toEqual({ error: '查询服务暂不可用' })
+    expect(deadline.status).toBe(504)
+    expect(await deadline.json()).toEqual({ error: '查询超时' })
+  })
 })
 
-async function startTestGateway(): Promise<void> {
+async function startTestGateway(queryPort?: QueryPort): Promise<void> {
   const handle = await startGateway({
     host: '127.0.0.1',
     port: 0,
     dataDir: tmp,
     runtime: 'web',
     localToken: ACCESS_TOKEN,
-  })
+  }, { queryPort })
   server = handle.server
   wss = handle.wss
   if (!server.listening) await once(server, 'listening')
+}
+
+function failingQueryPort(): QueryPort {
+  const fail = (status?: string): never => {
+    if (status === 'deadline') {
+      throw new WorkerRequestError('DEADLINE_EXCEEDED', 'test deadline')
+    }
+    throw new WorkerRequestError('WORKER_UNAVAILABLE', 'test unavailable')
+  }
+  return {
+    async listTasks(input) { return fail(input.status) },
+    async listSessions() { return fail() },
+    async listSessionMessages() { return fail() },
+    async listSessionEvents() { return fail() },
+  }
 }
 
 function baseUrl(): string {

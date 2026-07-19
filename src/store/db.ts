@@ -8,6 +8,7 @@ import { migrations } from './migrations/index.js'
 const log = createChildLogger('db')
 
 type SqliteDatabase = ReturnType<typeof Database>
+export type DatabaseMode = 'readwrite' | 'readonly'
 
 type StoreRecord = Record<string, unknown>
 type DatabaseCloseHandler = () => void
@@ -23,24 +24,42 @@ interface StoreData {
 
 let _db: SqliteDatabase | null = null
 let _dbPath = ''
+let _dbMode: DatabaseMode | null = null
 const beforeCloseHandlers = new Set<DatabaseCloseHandler>()
 
 export function initDatabase(dbPath: string): void {
   const { sqlitePath, legacyJsonPath } = resolveDatabasePaths(dbPath)
 
-  if (_db && _dbPath !== sqlitePath) {
+  if (_db && (_dbPath !== sqlitePath || _dbMode !== 'readwrite')) {
     closeDatabase()
   }
 
-  if (_db && _dbPath === sqlitePath) return
+  if (_db && _dbPath === sqlitePath && _dbMode === 'readwrite') return
 
   mkdirSync(dirname(sqlitePath), { recursive: true })
   _db = new Database(sqlitePath)
   _dbPath = sqlitePath
+  _dbMode = 'readwrite'
   _db.pragma('journal_mode = WAL')
   _db.pragma('foreign_keys = ON')
   runMigrations(_db, migrations)
   migrateLegacyJsonIfNeeded(_db, legacyJsonPath)
+}
+
+export function initReadonlyDatabase(dbPath: string): void {
+  const { sqlitePath } = resolveDatabasePaths(dbPath)
+
+  if (_db && (_dbPath !== sqlitePath || _dbMode !== 'readonly')) {
+    closeDatabase()
+  }
+
+  if (_db && _dbPath === sqlitePath && _dbMode === 'readonly') return
+
+  _db = new Database(sqlitePath, { readonly: true, fileMustExist: true })
+  _dbPath = sqlitePath
+  _dbMode = 'readonly'
+  _db.pragma('query_only = ON')
+  _db.pragma('foreign_keys = ON')
 }
 
 export function getDb(): SqliteDatabase {
@@ -94,6 +113,11 @@ export function closeDatabase(): void {
     _db = null
   }
   _dbPath = ''
+  _dbMode = null
+}
+
+export function getDatabaseMode(): DatabaseMode | null {
+  return _dbMode
 }
 
 export function getDbPath(): string {

@@ -1,5 +1,11 @@
 import type { MessageRow, SessionEventRow, SessionListRow } from '../store/sessions.js'
 import type { TaskRow } from '../store/tasks.js'
+import type { QueryPriority } from '../data-worker/protocol.js'
+
+export interface QueryRequestOptions {
+  priority?: QueryPriority
+  deadlineMs?: number
+}
 
 export interface QueryPage<T> {
   items: T[]
@@ -31,17 +37,18 @@ export interface TaskListItem extends TaskRow {
   latestReportType: string | null
 }
 
-export interface TaskListQuery {
+export interface TaskListQuery extends QueryRequestOptions {
   projectId?: string
   status?: string
 }
 
-export interface SessionListQuery {
+export interface SessionListQuery extends QueryRequestOptions {
   projectId?: string
   agentId?: string
+  activePromptSessionIds?: string[]
 }
 
-export interface SessionMessageQuery {
+export interface SessionMessageQuery extends QueryRequestOptions {
   sessionId: string
   limit?: number
   before?: string
@@ -49,7 +56,7 @@ export interface SessionMessageQuery {
   includeLatestToolCalls?: boolean
 }
 
-export interface SessionEventQuery {
+export interface SessionEventQuery extends QueryRequestOptions {
   sessionId: string
   limit?: number
   afterSequence?: number

@@ -9,11 +9,11 @@ import type { ImageAttachment } from '../../types/ws-protocol.js'
 import { buildStepProgress, buildTaskStepList } from './step-views.js'
 import { saveTaskImages } from '../../core/image-attachments.js'
 import { taskStepRpcHandlers } from './task-step-handlers.js'
-import { localQueryPort } from '../../queries/local-query-port.js'
+import { getQueryPort } from '../../queries/query-port-provider.js'
 
 export const taskRpcHandlers: RpcHandlerMap = {
   async 'tasks.list'(msg, { sendResult }) {
-    sendResult(await localQueryPort.listTasks({
+    sendResult(await getQueryPort().listTasks({
       status: msg.status as string | undefined,
       projectId: msg.projectId as string | undefined,
     }))

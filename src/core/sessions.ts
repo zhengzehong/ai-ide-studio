@@ -230,6 +230,10 @@ export const sessionManager = {
     return activePrompts.has(sessionId)
   },
 
+  listActivePromptSessionIds(): string[] {
+    return [...activePrompts]
+  },
+
   // session.cancel 10s 兜底强制结束 turn 时,ACP 那侧的 activeTurnReject 已经 reject 了,
   // 但 sendPromptNow 的 finally 块(清 activePrompts)只在 ACP 正常回调 cancel 时才会跑到。
   // ACP 10s 不响应 → sendPromptNow 的 await acpHost.cancelPrompt 永远不返回 → finally 永不执行

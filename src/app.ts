@@ -14,6 +14,9 @@ import { startGateway } from './gateway/server.js'
 import { initTimeline } from './core/timeline.js'
 import { getOrCreateMachineId, agentHubService } from './core/agent-hub/index.js'
 import { resolve } from 'path'
+import { createWorkerQueryPort } from './queries/worker-query-port.js'
+import { setQueryPort } from './queries/query-port-provider.js'
+import { sessionManager } from './core/sessions.js'
 
 const log = createChildLogger('app')
 
@@ -42,6 +45,12 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
   seedBuiltinTaskExecutionModes()
   seedBuiltinTools()
 
+  const queryPort = await createWorkerQueryPort({
+    dbPath,
+    getActivePromptSessionIds: () => sessionManager.listActivePromptSessionIds(),
+  })
+  const resetQueryPort = setQueryPort(queryPort)
+
   void getOrCreateMachineId().then(
     (machineId) => log.info({ machineId }, 'machineId 已就绪'),
     (err) => log.warn({ err }, '预热 machineId 失败,首次 connect 时再生成'),
@@ -52,7 +61,15 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
     (err) => log.warn({ err }, 'Hub 连接恢复失败,不阻塞启动'),
   )
 
-  const { app, server, wss } = await startGateway(config)
+  let gateway: Awaited<ReturnType<typeof startGateway>>
+  try {
+    gateway = await startGateway(config, { queryPort })
+  } catch (err) {
+    resetQueryPort()
+    await queryPort.close()
+    throw err
+  }
+  const { app, server, wss } = gateway
   ruleEngine.start()
   initTimeline()
   log.info(
@@ -74,6 +91,8 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
       clearInterval(hubCleanupTimer)
       await closeWebSocketServer(wss)
       await closeHttpServer(server)
+      resetQueryPort()
+      await queryPort.close()
       log.info('服务已关闭')
     },
   }

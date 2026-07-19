@@ -23,17 +23,22 @@ import { handleBridgeCallback } from './bridge-callback.js'
 import { resolveAvatarPath } from './rpc/assets.js'
 import { createChildLogger } from '../core/logger.js'
 import { mountQueryRoutes } from './http/query-routes.js'
+import type { QueryPort } from '../ports/query-port.js'
 
 const log = createChildLogger('gateway')
 
-export async function startGateway(config: AppConfig) {
+export interface StartGatewayOptions {
+  queryPort?: QueryPort
+}
+
+export async function startGateway(config: AppConfig, options: StartGatewayOptions = {}) {
   const app = new Hono()
 
   mountLocalTokenGuard(app, config)
 
   app.get('/health', (c) => c.json({ status: 'ok', uptime: process.uptime() }))
 
-  mountQueryRoutes(app)
+  mountQueryRoutes(app, options.queryPort)
 
   app.get('/api/agents', (c) => c.json(agentStore.list()))
   app.get('/api/sessions', (c) => {

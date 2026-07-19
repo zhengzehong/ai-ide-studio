@@ -110,6 +110,19 @@ describe('WorkerRpcClient', () => {
     expect(client.pendingCount).toBe(0)
   })
 
+  it('preserves worker timing metrics on an operation error', async () => {
+    const client = createClient()
+
+    await expect(client.request('fail', {}, { priority: 'interactive' })).rejects.toMatchObject({
+      code: 'SQLITE_ERROR',
+      metrics: {
+        queueDepth: 0,
+        queueWaitMs: 0,
+        executionMs: 1,
+      },
+    })
+  })
+
   it('rejects new work after close and terminates without open handles', async () => {
     const client = createClient()
 
@@ -142,6 +155,21 @@ function workerFixtureSource(): string {
     const { parentPort } = require('node:worker_threads')
     parentPort.on('message', (request) => {
       if (request.operation === 'crash') throw new Error('fixture crash')
+      if (request.operation === 'fail') {
+        parentPort.postMessage({
+          kind: 'error',
+          requestId: request.requestId,
+          error: { code: 'SQLITE_ERROR', message: 'fixture failure' },
+          metrics: {
+            queueDepth: 0,
+            queueWaitMs: 0,
+            executionMs: 1,
+            totalMs: 1,
+            payloadBytes: request.payloadBytes,
+          },
+        })
+        return
+      }
       const reply = () => parentPort.postMessage({
         kind: 'result',
         requestId: request.requestId,

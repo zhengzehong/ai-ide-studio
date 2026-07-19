@@ -6,7 +6,6 @@ import {
   type WorkerMetrics,
   type WorkerPriority,
   type WorkerRequest,
-  type WorkerResponse,
 } from './protocol.js'
 
 export interface WorkerRpcClientOptions {
@@ -35,12 +34,19 @@ const DEFAULT_TIMEOUT_MS = 10_000
 export class WorkerRequestError extends Error {
   readonly code: WorkerErrorCode
   readonly details?: Record<string, unknown>
+  readonly metrics?: WorkerMetrics
 
-  constructor(code: WorkerErrorCode, message: string, details?: Record<string, unknown>) {
+  constructor(
+    code: WorkerErrorCode,
+    message: string,
+    details?: Record<string, unknown>,
+    metrics?: WorkerMetrics,
+  ) {
     super(message)
     this.name = 'WorkerRequestError'
     this.code = code
     this.details = details
+    this.metrics = metrics
   }
 }
 
@@ -138,7 +144,12 @@ export class WorkerRpcClient {
     if (message.kind === 'result') {
       pending.resolve({ result: message.result, metrics: message.metrics })
     } else {
-      pending.reject(new WorkerRequestError(message.error.code, message.error.message, message.error.details))
+      pending.reject(new WorkerRequestError(
+        message.error.code,
+        message.error.message,
+        message.error.details,
+        message.metrics,
+      ))
     }
     this.resolveDrainWaitersIfIdle()
   }

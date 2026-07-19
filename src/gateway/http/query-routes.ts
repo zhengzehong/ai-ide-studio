@@ -1,7 +1,8 @@
 import type { Context, Hono } from 'hono'
 import type { QueryPage, QueryPort } from '../../ports/query-port.js'
 import { createChildLogger } from '../../core/logger.js'
-import { localQueryPort } from '../../queries/local-query-port.js'
+import { getQueryPort } from '../../queries/query-port-provider.js'
+import { WorkerRequestError } from '../../data-worker/worker-rpc-client.js'
 
 const log = createChildLogger('gateway:http-query')
 const QUERY_RESPONSE_BUDGET_BYTES = 1024 * 1024
@@ -16,18 +17,20 @@ interface QueryEnvelope {
 
 type ParsedValue<T> = { value: T } | { error: string }
 
-export function mountQueryRoutes(app: Hono, queryPort: QueryPort = localQueryPort): void {
+export function mountQueryRoutes(app: Hono, queryPort?: QueryPort): void {
   app.get('/api/v1/tasks', async (c) => runQuery(c, 'tasks.list', async () => ({
-    data: await queryPort.listTasks({
+    data: await resolveQueryPort(queryPort).listTasks({
       projectId: optionalText(c.req.query('projectId')),
       status: optionalText(c.req.query('status')),
+      priority: 'interactive',
     }),
   })))
 
   app.get('/api/v1/sessions', async (c) => runQuery(c, 'sessions.list', async () => ({
-    data: await queryPort.listSessions({
+    data: await resolveQueryPort(queryPort).listSessions({
       projectId: optionalText(c.req.query('projectId')),
       agentId: optionalText(c.req.query('agentId')),
+      priority: 'interactive',
     }),
   })))
 
@@ -43,12 +46,13 @@ export function mountQueryRoutes(app: Hono, queryPort: QueryPort = localQueryPor
     if ('error' in includeLatestToolCalls) return c.json({ error: includeLatestToolCalls.error }, 400)
 
     return runQuery(c, 'sessions.messages', async () => pageEnvelope(
-      await queryPort.listSessionMessages({
+      await resolveQueryPort(queryPort).listSessionMessages({
         sessionId: c.req.param('sessionId'),
         limit: limit.value,
         before: optionalText(c.req.query('before')),
         includeToolCalls: includeToolCalls.value,
         includeLatestToolCalls: includeLatestToolCalls.value,
+        priority: 'interactive',
       }),
     ))
   })
@@ -60,10 +64,11 @@ export function mountQueryRoutes(app: Hono, queryPort: QueryPort = localQueryPor
     if ('error' in afterSequence) return c.json({ error: afterSequence.error }, 400)
 
     return runQuery(c, 'sessions.events', async () => pageEnvelope(
-      await queryPort.listSessionEvents({
+      await resolveQueryPort(queryPort).listSessionEvents({
         sessionId: c.req.param('sessionId'),
         limit: limit.value,
         afterSequence: afterSequence.value,
+        priority: 'interactive',
       }),
     ))
   })
@@ -106,8 +111,18 @@ async function runQuery(
   } catch (err) {
     const elapsedMs = performance.now() - startedAt
     log.error({ err, queryName, elapsedMs: Number(elapsedMs.toFixed(2)) }, 'HTTP query failed')
+    if (err instanceof WorkerRequestError && err.code === 'WORKER_UNAVAILABLE') {
+      return c.json({ error: '查询服务暂不可用' }, 503)
+    }
+    if (err instanceof WorkerRequestError && err.code === 'DEADLINE_EXCEEDED') {
+      return c.json({ error: '查询超时' }, 504)
+    }
     return c.json({ error: '查询失败' }, 500)
   }
+}
+
+function resolveQueryPort(queryPort: QueryPort | undefined): QueryPort {
+  return queryPort ?? getQueryPort()
 }
 
 function optionalText(value: string | undefined): string | undefined {

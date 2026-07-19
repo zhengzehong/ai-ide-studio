@@ -135,23 +135,23 @@ Commit: `feat(data): add typed worker queues and RPC lifecycle`
 - Test: `tests/integration/query-worker.test.ts`
 - Test: `tests/integration/http-query-routes.test.ts`
 
-- [ ] **Step 1: Write failing real-worker tests**
+- [x] **Step 1: Write failing real-worker tests**
 
 Initialize and seed a temporary SQLite database on the test thread, close it, then start a real Query Worker. Assert all four Phase 1 operations equal `localQueryPort` results. Assert a test-only attempted write fails with `SQLITE_ERROR`, `PRAGMA query_only` is `1`, an expired background request is rejected, a queued interactive request overtakes queued background work, and terminating the worker rejects pending requests without hanging Vitest.
 
 Add an event-loop isolation assertion: execute a worker fixture query that blocks its own thread for at least 150ms while a 10ms interval on the test thread records a maximum gap below 75ms.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `npx vitest run tests/integration/query-worker.test.ts`
 
 Expected: FAIL because `createWorkerQueryPort` and the Query Worker entry do not exist.
 
-- [ ] **Step 3: Add explicit read-only database initialization**
+- [x] **Step 3: Add explicit read-only database initialization**
 
 `initReadonlyDatabase(path)` opens `better-sqlite3` with `{ readonly: true, fileMustExist: true }`, sets `query_only=ON` and `foreign_keys=ON`, and never runs migrations or legacy JSON import. `initDatabase` remains the only migration/write initializer. Tests can inspect `getDatabaseMode()` without receiving the raw database.
 
-- [ ] **Step 4: Implement the closed operation registry**
+- [x] **Step 4: Implement the closed operation registry**
 
 Only these operation names are accepted:
 
@@ -165,15 +165,15 @@ worker.inspect
 
 The worker calls `createLocalQueryPort` only after read-only initialization. `sessions.list` receives `activePromptSessionIds` captured by the caller so the worker does not import Runtime ownership. Unknown operations return `BAD_REQUEST`.
 
-- [ ] **Step 5: Implement `WorkerQueryPort` and provider injection**
+- [x] **Step 5: Implement `WorkerQueryPort` and provider injection**
 
 The adapter adds the immutable active-prompt snapshot, defaults browser and WS compatibility reads to `interactive`, and exposes `close()`. The provider defaults to `localQueryPort` for isolated unit tests, but `startApp` must configure the worker adapter before mounting Gateway routes. HTTP and legacy WS compatibility handlers resolve the provider per request.
 
-- [ ] **Step 6: Map availability without hiding failures**
+- [x] **Step 6: Map availability without hiding failures**
 
 HTTP maps `DEADLINE_EXCEEDED` to 504 and `WORKER_UNAVAILABLE` to 503, logs request ID/queue metrics, and preserves old snapshots in the UI through existing store behavior. It must not silently fall back to synchronous SQL in production; rollback is an explicit app configuration switch.
 
-- [ ] **Step 7: Run parity/regression tests and commit**
+- [x] **Step 7: Run parity/regression tests and commit**
 
 Run:
 
