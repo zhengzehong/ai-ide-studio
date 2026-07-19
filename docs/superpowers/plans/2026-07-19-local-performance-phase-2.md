@@ -69,17 +69,17 @@ This plan therefore preserves the approved final physical boundary while using a
 - Create: `src/data-worker/worker-rpc-client.ts`
 - Test: `tests/unit/data-worker-priority-queue.test.ts`
 
-- [ ] **Step 1: Write failing queue and RPC lifecycle tests**
+- [x] **Step 1: Write failing queue and RPC lifecycle tests**
 
 Cover stable FIFO within a priority, `interactive` before `background`, `critical` before both, expired work rejected before execution, request timeout cleanup, worker error rejection, and close rejecting new work. Use a small fixture worker under `tests/fixtures/` only if a real Worker is required; do not test mocks alone.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `npx vitest run tests/unit/data-worker-priority-queue.test.ts`
 
 Expected: FAIL because the data-worker modules do not exist.
 
-- [ ] **Step 3: Define clone-safe contracts**
+- [x] **Step 3: Define clone-safe contracts**
 
 Use discriminated envelopes with no functions, class instances, `Error` objects, or SQLite objects:
 
@@ -105,11 +105,11 @@ export type WorkerResponse<TResult = unknown> =
 
 `WorkerMetrics` contains queue depth, queue wait, execution time, total time, and payload bytes. `WorkerErrorPayload.code` is one of `BAD_REQUEST`, `DEADLINE_EXCEEDED`, `WORKER_UNAVAILABLE`, `SQLITE_ERROR`, `ORDER_CONFLICT`, or `INTERNAL`.
 
-- [ ] **Step 4: Implement stable queues and RPC client**
+- [x] **Step 4: Implement stable queues and RPC client**
 
 The queue stores a monotonic insertion ordinal. `dequeue()` checks priority first and ordinal second. Deadlines are evaluated immediately before execution. The client maintains one pending map, removes entries on every terminal path, rejects all entries on crash, and has explicit `drain()` and `close()` methods.
 
-- [ ] **Step 5: Run GREEN and commit**
+- [x] **Step 5: Run GREEN and commit**
 
 Run: `npx vitest run tests/unit/data-worker-priority-queue.test.ts`
 
