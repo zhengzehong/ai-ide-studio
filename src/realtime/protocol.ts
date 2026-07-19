@@ -21,6 +21,7 @@ export interface RealtimeRpcState extends RealtimeConnectionClaims {
 
 export type RealtimeIpcPayload =
   | { type: 'hello'; token: string }
+  | { type: 'hello.ack' }
   | { type: 'ready'; port: number }
   | { type: 'auth.request'; connectionId: string; token?: string; shareToken?: string; guestId?: string; guestName?: string }
   | { type: 'auth.result'; connectionId: string; claims?: RealtimeConnectionClaims; error?: string }

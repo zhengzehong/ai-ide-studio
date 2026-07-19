@@ -5,8 +5,8 @@ export interface FramedDuplex {
   write(chunk: Uint8Array): boolean
   end(callback?: () => void): unknown
   destroy(error?: Error): unknown
-  on(event: string, listener: (...args: never[]) => void): unknown
-  off(event: string, listener: (...args: never[]) => void): unknown
+  on(event: string | symbol, listener: (...args: unknown[]) => void): unknown
+  off(event: string | symbol, listener: (...args: unknown[]) => void): unknown
 }
 
 export interface FramedSocketOptions {
@@ -58,9 +58,9 @@ export class FramedSocket {
     private readonly options: FramedSocketOptions,
   ) {
     this.decoder = new LengthPrefixedFrameDecoder(options.maxFrameBytes)
-    socket.on('data', this.handleData as (...args: never[]) => void)
-    socket.on('error', this.handleError as (...args: never[]) => void)
-    socket.on('close', this.handleClose as (...args: never[]) => void)
+    socket.on('data', this.handleData as (...args: unknown[]) => void)
+    socket.on('error', this.handleError as (...args: unknown[]) => void)
+    socket.on('close', this.handleClose as (...args: unknown[]) => void)
   }
 
   onMessage(listener: MessageListener): () => void {
@@ -117,13 +117,13 @@ export class FramedSocket {
         reject(error)
       }
       const cleanup = (): void => {
-        this.socket.off('drain', onDrain as (...args: never[]) => void)
-        this.socket.off('close', onClose as (...args: never[]) => void)
-        this.socket.off('error', onError as (...args: never[]) => void)
+        this.socket.off('drain', onDrain as (...args: unknown[]) => void)
+        this.socket.off('close', onClose as (...args: unknown[]) => void)
+        this.socket.off('error', onError as (...args: unknown[]) => void)
       }
-      this.socket.on('drain', onDrain as (...args: never[]) => void)
-      this.socket.on('close', onClose as (...args: never[]) => void)
-      this.socket.on('error', onError as (...args: never[]) => void)
+      this.socket.on('drain', onDrain as (...args: unknown[]) => void)
+      this.socket.on('close', onClose as (...args: unknown[]) => void)
+      this.socket.on('error', onError as (...args: unknown[]) => void)
     })
   }
 
@@ -162,8 +162,8 @@ export class FramedSocket {
   private markClosed(): void {
     if (this.state === 'closed') return
     this.state = 'closed'
-    this.socket.off('data', this.handleData as (...args: never[]) => void)
-    this.socket.off('error', this.handleError as (...args: never[]) => void)
-    this.socket.off('close', this.handleClose as (...args: never[]) => void)
+    this.socket.off('data', this.handleData as (...args: unknown[]) => void)
+    this.socket.off('error', this.handleError as (...args: unknown[]) => void)
+    this.socket.off('close', this.handleClose as (...args: unknown[]) => void)
   }
 }

@@ -141,29 +141,29 @@ Commit: `feat(realtime): add bounded subscription hub`
 - Test: `tests/integration/realtime-process.test.ts`
 - Test: `tests/integration/realtime-legacy-rpc.test.ts`
 
-- [ ] **Step 1: Write failing process tests**
+- [x] **Step 1: Write failing process tests**
 
 Start a real child on an ephemeral WebSocket port and named-pipe/Unix-socket IPC endpoint. Verify ready handshake, owner and guest auth callbacks, session/global event delivery, independent event-loop progress while API blocks for 150ms, process termination closing sockets, restart on the same configured port, and clean stop with no child handle.
 
-- [ ] **Step 2: Write failing legacy bridge tests**
+- [x] **Step 2: Write failing legacy bridge tests**
 
 Verify `subscribe/unsubscribe/resume/ping` stay local; `sessions.list` and one mutating RPC cross to API and preserve requestId/result/error; subscription mutations made by session create/fork are mirrored back; disabled compatibility returns an explicit error without invoking API.
 
-- [ ] **Step 3: Run RED**
+- [x] **Step 3: Run RED**
 
 Run: `npx vitest run tests/integration/realtime-process.test.ts tests/integration/realtime-legacy-rpc.test.ts`
 
 Expected: FAIL because the service/process bridge does not exist.
 
-- [ ] **Step 4: Implement event source and RPC bridge**
+- [x] **Step 4: Implement event source and RPC bridge**
 
 `createRealtimeEventSource(sink)` owns all mitt listeners and the session update broadcast batcher. API RPC dispatch receives a reconstructed `RpcClientState`, streams response frames back over IPC, and returns the final subscription set. No WebSocket object crosses IPC.
 
-- [ ] **Step 5: Implement process lifecycle**
+- [x] **Step 5: Implement process lifecycle**
 
 The API opens the framed IPC server, forks the child, validates the one-time internal handshake token, waits for child readiness, and exposes the actual WS port. Unexpected exit marks Realtime unavailable and schedules a bounded restart; explicit stop cancels restart, requests drain, then terminates after timeout.
 
-- [ ] **Step 6: Run GREEN and commit**
+- [x] **Step 6: Run GREEN and commit**
 
 Run: `npx vitest run tests/integration/realtime-process.test.ts tests/integration/realtime-legacy-rpc.test.ts tests/integration/ws-capabilities.test.ts tests/integration/ws-fork.test.ts tests/integration/ws-copy-session.test.ts`
 
