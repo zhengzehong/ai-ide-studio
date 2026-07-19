@@ -14,6 +14,20 @@ PC 高频只读路径使用同源 HTTP，认证沿用 `x-ai-ide-token`。普通�
 
 成功响应带 `Cache-Control: no-store`、`Server-Timing` 和 `X-Response-Bytes`。PC 默认使用这些 HTTP 路由；`VITE_QUERY_TRANSPORT=ws`、移动端和 CLI 可继续使用下列 WS 兼容 RPC。兼容桥保持数组返回，不包含 HTTP 的 `page` 外壳。
 
+## PC HTTP Command API
+
+PC 高频 Session 命令使用 `POST /api/v1/commands`。认证沿用 `x-ai-ide-token`，请求必须包含 `Idempotency-Key`，JSON body 最大 2 MiB；body 的 `commandId` 用于结果关联，幂等键用于 Writer 账本去重。响应为 `{ data: { commandId, status, duplicate } }`。
+
+| `type` | 必填字段 | HTTP 结果 | 说明 |
+|--------|----------|-----------|------|
+| `prompt` | `commandId`, `sessionId`, `clientMessageId`, `content` | `202 accepted` | 可选 `contextProjectId`, `images`；客户端提交前先订阅 Session |
+| `session.cancel` | `commandId`, `sessionId` | `200 completed` | 取消当前 Runtime turn |
+| `sessions.markRead` | `commandId`, `sessionId` | `200 completed` | 标记具体 Session 已读，不批量清项目 |
+| `permission.respond` | `commandId`, `sessionId`, `permissionRequestId` | `200 completed` | 可选 `optionId`, `cancelled` |
+| `elicitation.respond` | `commandId`, `sessionId`, `elicitationRequestId`, `action` | `200 completed` | `action` 为 accept/decline/cancel，可选结构化 `content` |
+
+未知字段和未知 `type` 返回 400，超限返回 413，幂等键冲突返回 409，Command dispatcher 不可用返回 503。相同 Session 按接收顺序执行，不同 Session 可并行。PC 可用 `VITE_COMMAND_TRANSPORT=ws` 显式回滚；移动端和 Guest 保持兼容 WS 命令。
+
 ## 连接
 
 客户端不得假定 WebSocket 与 API 同端口。默认由 `GET /api/v1/realtime-config` 返回独立 Realtime 地址；`REALTIME_MODE=embedded` 或发现失败时才使用 API 同端口地址。Owner token 通过 `token` query 传给 WebSocket，分享页使用 `shareToken`。

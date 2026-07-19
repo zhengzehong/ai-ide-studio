@@ -43,6 +43,8 @@ npm run dev:all    # 启动 Gateway + UI
 
 PC 默认通过 `/api/v1` HTTP 读取任务、会话、消息历史和恢复事件。需要临时回滚时，在启动或构建 PC UI 前设置 `VITE_QUERY_TRANSPORT=ws`；移动端当前继续使用 WS 兼容 RPC。
 
+PC 的 Prompt、取消、已读、权限和提问响应默认通过 `/api/v1/commands` HTTP 提交，并由 Writer 命令账本保证接收持久化和幂等；实时输出仍通过 WebSocket 订阅。需要临时回滚时设置 `VITE_COMMAND_TRANSPORT=ws`。
+
 后端默认使用 `DATA_WORKER_MODE=worker`，同步 SQLite 查询和新会话热写分别运行在 Query/Writer Worker Thread。排障时可以显式设置 `DATA_WORKER_MODE=local` 回退到进程内适配器；Worker 运行中崩溃不会自动同步降级。
 
 后端默认使用 `REALTIME_MODE=process` 启动独立 Realtime 子进程，API 同步阻塞不会占用实时连接事件循环。客户端通过 `/api/v1/realtime-config` 动态发现端点；排障时可显式设置 `REALTIME_MODE=embedded` 回退到 API 同端口 WebSocket。旧 WS 领域 RPC 默认通过本机 IPC 兼容桥执行，可在迁移完成后设置 `REALTIME_LEGACY_RPC=disabled` 关闭。
@@ -92,6 +94,9 @@ npm run build:mobile # 仅构建移动端
 npm test             # 运行所有测试
 npm run lint         # ESLint 检查
 npm run format       # Prettier 格式化
+npm run check:ui-bundle   # PC bundle 预算
+npm run perf:phase5:smoke # 30 Session 性能 smoke
+npm run perf:browser      # 生产构建浏览器性能门禁
 ```
 
 ## 尚未实现
@@ -129,6 +134,11 @@ MIT
 | `ACP_SESSION_IDLE_MS` | `1800000` | 单个 runtime 侧 ACP session 的空闲断开时间；保留 SQLite `acp_session_id` |
 | `DATA_WORKER_MODE` | `worker` | `worker` 使用 Query/Writer Worker；`local` 为显式同步回滚模式 |
 | `DATA_WORKER_SLOW_MS` | `100` | Query/Writer Worker 请求总耗时达到该毫秒数时记录慢请求告警 |
+| `DATA_MAINTENANCE_INTERVAL_MS` | `60000` | Writer SQLite 周期维护间隔 |
+| `DATA_WAL_CHECKPOINT_BYTES` | `67108864` | 普通维护触发 PASSIVE WAL checkpoint 的字节阈值 |
+| `DATA_PUBLISHED_OUTBOX_RETENTION_MS` | `604800000` | 已发布 Outbox 行保留时间；未发布行不会清理 |
+| `EVENT_LOOP_MONITOR_INTERVAL_MS` | `30000` | API、Realtime、Runtime event-loop 指标采样间隔 |
+| `EVENT_LOOP_WARN_THRESHOLD_MS` | `50` | event-loop p99 达到该毫秒数时记录告警 |
 | `REALTIME_MODE` | `process` | `process` 使用独立 Realtime 子进程；`embedded` 为显式同进程回滚模式 |
 | `REALTIME_HOST` | 与 `HOST` 一致 | Realtime 监听地址 |
 | `REALTIME_PORT` | API 端口 + 1 | Realtime 监听端口；API 端口为 `0` 时也使用动态端口 |

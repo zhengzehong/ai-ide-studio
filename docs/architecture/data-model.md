@@ -247,6 +247,24 @@ ignored     failed      task
 
 关键领域状态与 Outbox 行由 Writer Worker 在同一事务提交。高频 token delta 不写 Outbox；当前首个接入事件为 `session.done`。后续 Realtime 独立进程按 `published_at IS NULL` 顺序投递和确认。
 
+### runtime_commands
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| command_id | TEXT PK | 浏览器生成的命令 ID |
+| idempotency_key | TEXT | HTTP `Idempotency-Key`；与 `type` 组成唯一约束 |
+| type | TEXT | prompt / session.cancel / sessions.markRead / permission.respond / elicitation.respond |
+| session_id | TEXT | Session FIFO 作用域 |
+| project_id | TEXT | Prompt 的可选临时项目上下文 |
+| payload_json | TEXT | 通过封闭 DTO 校验后的命令载荷 |
+| status | TEXT | accepted / running / completed / failed / interrupted |
+| attempts | INTEGER | 进入 running 的执行次数 |
+| error | TEXT | failed/interrupted 原因 |
+| created_at | TEXT | 接收时间 |
+| updated_at | TEXT | 最近状态变更时间 |
+
+Command dispatcher 只执行已经由 Writer 提交为 accepted 的行。同一 `type + idempotency_key` 重试返回原命令；载荷或 Session 不一致视为冲突。API 启动扫描 accepted/running 行：未落用户消息的 Prompt 可恢复，已落用户消息的 running Prompt 标记 interrupted，避免重复对话。
+
 ### agent_session_messages
 
 | 列 | 类型 | 说明 |

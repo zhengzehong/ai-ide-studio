@@ -54,7 +54,8 @@ Core 业务层（API 进程）
 ### 用户发送消息
 
 ```text
-Web UI / Mobile Web App → Realtime WS "prompt" → Protobuf IPC 兼容桥 → gateway/rpc/subscriptions.prompt
+PC Web UI → HTTP POST /api/v1/commands → durable command ledger → Session command service
+Mobile / Guest / rollback → Realtime WS "prompt" → Protobuf IPC 兼容桥 → same Session command service
   → sessionManager 持久化用户消息 → RuntimePort.ensureSession() / prompt()
   → Runtime Session actor → Claude / Codex ACP runtime (stdio NDJSON)
   → ACP session/update → Runtime 25ms 合并 → Runtime→Realtime 专用 IPC → Web UI
@@ -66,13 +67,21 @@ Web UI / Mobile Web App → Realtime WS "prompt" → Protobuf IPC 兼容桥 → 
 
 PC 端历史消息默认通过轻量 HTTP `GET /api/v1/sessions/:sessionId/messages` 加载，`messages.content` 是最终回复快速来源；恢复事件通过 `GET /api/v1/sessions/:sessionId/events` 按游标读取。历史执行过程仍通过 `sessions.messageProcess` 按需加载 `turn_process_items` 的轻量列表，单个过程详情再通过 `sessions.processItemDetail` 懒加载。旧数据仍可通过 `sessions.messageEvents` 从 `session_events.sequence` 兜底恢复；工具摘要/详情继续支持 `sessions.messageToolCalls` / `sessions.messageToolCallDetail`，文件修改详情优先从 `turn_process_items` 读取并兼容旧的 `tool_calls_json`。
 
-### PC 查询传输边界
+### PC 查询与命令传输边界
 
 PC 端的任务列表、会话列表、消息历史和恢复事件使用版本化 `/api/v1` HTTP Query API。四类路由与同名旧 WS RPC 都委托异步 `QueryPort`；默认适配器把请求发送到独立 Query Worker，由该 Worker 独占 `readonly + query_only` SQLite 连接。同步 SQL 只阻塞 Query Worker，不占用 Gateway 事件循环。移动端和旧 WS RPC 复用同一个 Query Port，返回数组结构保持兼容。
 
 HTTP 分页响应使用 `{ data, page: { hasMore, nextCursor } }`，普通列表使用 `{ data }`。消息单页最多 200 条，恢复事件单页最多 1000 条；每个成功响应包含 `Server-Timing` 和 `X-Response-Bytes`，超过 1 MiB 观测预算时记录结构化告警但不截断。PC 构建设置 `VITE_QUERY_TRANSPORT=ws` 可回滚四类读取，其余值和默认值均使用 HTTP。
 
-该边界是当前迁移状态，不代表所有领域操作已经 HTTP 化。Prompt、取消、已读、权限响应和其他 Command 仍走 WS RPC，WebSocket 也继续承载订阅与实时事件；后续阶段再按稳定契约迁移剩余 Command 和查询。
+PC 的 Prompt、取消、已读、权限响应和提问响应使用封闭的 `POST /api/v1/commands` HTTP Command API。每个命令同时携带 `commandId` 与 `Idempotency-Key`，Writer 在执行前写入 `runtime_commands` 账本；同 Session 命令保持 FIFO，不同 Session 可并行。Prompt 返回 `202 accepted`，短命令等待完成后返回 `200`。API 重启只恢复安全命令；已落用户消息的 running Prompt 会标记 interrupted，禁止重复发送。`VITE_COMMAND_TRANSPORT=ws` 是 PC 显式回滚开关，移动端和访客链路仍使用 WS 兼容命令。
+
+WebSocket 的稳定职责是连接认证、Session 订阅、`ping/resume` 控制和服务端事件流，不作为 PC 高频 Query/Command 的默认传输。尚未迁移的低频领域 RPC继续通过 Realtime IPC 兼容桥进入 API。
+
+### 浏览器启动与项目缓存
+
+PC 生产构建按页面使用 `React.lazy` 拆分，应用 shell、认证和连接发现保留在主入口；hashed JS/CSS 使用一年 immutable 缓存，HTML、SPA fallback 和未 hash 文件使用 `no-cache`。构建 manifest 由 `npm run check:ui-bundle` 检查主入口预算和动态页面数量。
+
+浏览器在首次 React render 前最多等待 100ms 读取 IndexedDB `ai-ide-bootstrap`。快照只保存 Projects、最近五个项目的 Task/Agent/Session 列表以及最近会话的已完成消息，最大 4 MiB；running 流、权限、提问和执行中消息不持久化。hydrate 后所有条目立即标记 stale，正常 HTTP/WS 启动继续执行 SWR 重验，因此快照只加速显示，不成为事实源。
 
 ### Runtime 进程边界
 
@@ -90,7 +99,7 @@ Runtime 资源配额默认允许 32 个网络型 turn、`max(2, floor(cpuCount /
 
 浏览器先请求 `GET /api/v1/realtime-config` 获取实际 `wsUrl`、协议版本、运行模式和兼容桥状态。PC 与移动端每次重连都重新发现端点，发现失败时才回退到 API 同端口 WebSocket。`REALTIME_MODE=embedded` 是显式回滚模式；`REALTIME_LEGACY_RPC=enabled` 保留尚未迁移到 HTTP 的旧领域 RPC，关闭后 Realtime 只接受 `subscribe`、`unsubscribe`、`resume` 和 `ping`。
 
-每个连接有独立的消息数和字节数上限。文本 delta 按消息合并，process item 采用 latest-wins，`session:done`、权限/提问和错误保持关键 FIFO；客户端跟不上、序列跳号或 generation 变化时发送 `resync_required`，由客户端重新读取 HTTP snapshot。一个慢客户端只消耗自己的有界队列，不能拖住其他连接。API 进程监督 Realtime 异常退出并自动重启；HTTP、Query Worker 和 Writer Worker 在重启期间继续服务。
+每个连接有独立的消息数和字节数上限。文本 delta 按消息合并，process item 采用 latest-wins，`session:done`、权限/提问和错误保持关键 FIFO；客户端跟不上、序列跳号或 generation 变化时发送 `resync_required`，由客户端重新读取 HTTP snapshot。Realtime 分别跟踪“已接收入站 cursor”和“已发送 cursor”，在前一帧仍 in-flight 时不会把连续的新帧误判为 gap。一个慢客户端只消耗自己的有界队列，不能拖住其他连接。API 进程监督 Realtime 异常退出并自动重启；HTTP、Query Worker 和 Writer Worker 在重启期间继续服务。
 
 ### SQLite Worker 边界
 
@@ -101,6 +110,10 @@ Session 流式事件、running message snapshot 和 `message.done` 已通过 `Wr
 API 领域 Command、工具和部分同步状态修改仍使用兼容 Store 连接。`tests/unit/database-access-boundary.test.ts` 锁定主线程直接 `getDb()` 的兼容清单，清单只能缩小；`tests/unit/runtime-boundary.test.ts` 锁定 Runtime 子进程的反向依赖禁令。`DATA_WORKER_MODE=local` 是显式故障回退开关，不会在 Worker 崩溃后自动降级到同步 SQL。
 
 Query/Writer Worker 的完成日志包含优先级、队列深度、排队时间、执行时间、总耗时和载荷字节数。`DATA_WORKER_SLOW_MS` 配置慢请求阈值，默认 100ms；达到阈值的成功请求提升为 `warn`，用于区分排队拥塞和 SQL/事务执行缓慢。
+
+Writer 独占 SQLite 维护。周期任务先 drain 写调度器，只删除超过保留期且 `published_at IS NOT NULL` 的 Outbox，运行 `PRAGMA optimize`，并在 WAL 达到 64 MiB 时执行 PASSIVE checkpoint；正常停机在 Session persistence flush 后执行 TRUNCATE checkpoint。未发布 Outbox、messages 和 session_events 永不由维护任务删除。
+
+API、Realtime、Runtime 各自使用 `monitorEventLoopDelay` 和 event-loop utilization，每 30 秒记录 p50/p95/p99/max lag、RSS/heap，以及本进程的 active prompt、连接/订阅/发送队列或 Runtime actor/coalescer backlog。`EVENT_LOOP_MONITOR_INTERVAL_MS` 和 `EVENT_LOOP_WARN_THRESHOLD_MS` 控制采样周期与告警阈值。
 
 `session:activity` 是独立的轻量全局事件，只表示会话本轮执行从 `running` 到 `idle` 的状态变化，用于左侧会话列表运行中/未读提示；它不承载聊天内容，也不参与历史消息还原。
 
