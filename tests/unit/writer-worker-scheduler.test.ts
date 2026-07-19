@@ -106,6 +106,19 @@ describe('WriterScheduler', () => {
     ])
     expect(batches).toEqual([['critical'], ['interactive'], ['background']])
   })
+
+  it('reports the number of requests waiting in its queues', async () => {
+    vi.useFakeTimers({ now: 0 })
+    const { scheduler } = createScheduler()
+    const first = scheduler.enqueue(background('first', 'session-a'))
+    const second = scheduler.enqueue(background('second', 'session-b'))
+
+    expect(scheduler.pendingCount).toBe(2)
+
+    await scheduler.drain()
+    await expect(Promise.all([first, second])).resolves.toEqual(['done:first', 'done:second'])
+    expect(scheduler.pendingCount).toBe(0)
+  })
 })
 
 function createScheduler(): {

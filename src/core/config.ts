@@ -1,13 +1,17 @@
 import { config as loadDotenv } from 'dotenv'
 import { resolve } from 'path'
+import { parseDataWorkerSlowMs } from '../data-worker/observability.js'
 
 export type AppRuntime = 'web' | 'electron'
+export type DataWorkerMode = 'worker' | 'local'
 
 export interface AppConfig {
   host: string
   port: number
   dataDir: string
   runtime: AppRuntime
+  dataWorkerMode?: DataWorkerMode
+  dataWorkerSlowMs?: number
   staticDir?: string
   mobileStaticDir?: string
   localToken?: string
@@ -27,6 +31,8 @@ export function loadConfig(): AppConfig {
     port: parseInt(process.env.PORT || '18800', 10),
     dataDir: resolve(process.env.DATA_DIR || './data'),
     runtime,
+    dataWorkerMode: parseDataWorkerMode(process.env.DATA_WORKER_MODE),
+    dataWorkerSlowMs: parseDataWorkerSlowMs(process.env.DATA_WORKER_SLOW_MS),
     staticDir: process.env.STATIC_DIR ? resolve(process.env.STATIC_DIR) : resolve('./ui/dist'),
     mobileStaticDir: process.env.MOBILE_STATIC_DIR ? resolve(process.env.MOBILE_STATIC_DIR) : resolve('./mobile/dist'),
     localToken: process.env.AI_IDE_LOCAL_TOKEN || undefined,
@@ -36,6 +42,10 @@ export function loadConfig(): AppConfig {
     bridgeCallbackToken: process.env.BRIDGE_CALLBACK_TOKEN || undefined,
     bridgeServerUrl: process.env.BRIDGE_SERVER_URL || undefined,
   }
+}
+
+function parseDataWorkerMode(value: string | undefined): DataWorkerMode {
+  return value === 'local' ? 'local' : 'worker'
 }
 
 function parseRuntime(value: string | undefined): AppRuntime {

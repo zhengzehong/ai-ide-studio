@@ -46,6 +46,10 @@ export class WriterScheduler<TValue, TResult> {
     this.maxPayloadBytes = options.maxPayloadBytes ?? DEFAULT_MAX_PAYLOAD_BYTES
   }
 
+  get pendingCount(): number {
+    return this.critical.length + this.interactive.length + this.background.length
+  }
+
   enqueue(item: WriterSchedulerItem<TValue>): Promise<TResult> {
     validateItem(item)
     const result = new Promise<TResult>((resolve, reject) => {

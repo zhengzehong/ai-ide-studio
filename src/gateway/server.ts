@@ -75,7 +75,29 @@ export async function startGateway(config: AppConfig, options: StartGatewayOptio
     handleWsConnection(ws, req, wss)
   })
 
+  await waitForServerListening(server)
+
   return { app, server, wss }
+}
+
+function waitForServerListening(server: Server): Promise<void> {
+  if (server.listening) return Promise.resolve()
+  return new Promise((resolveListening, rejectListening) => {
+    const onListening = (): void => {
+      cleanup()
+      resolveListening()
+    }
+    const onError = (error: Error): void => {
+      cleanup()
+      rejectListening(error)
+    }
+    const cleanup = (): void => {
+      server.off('listening', onListening)
+      server.off('error', onError)
+    }
+    server.on('listening', onListening)
+    server.on('error', onError)
+  })
 }
 
 const AVATAR_MIME_TYPES: Record<string, string> = {

@@ -18,6 +18,7 @@ interface WriterWorkerData {
 interface WriterWork {
   request: WorkerRequest
   batch: WriteBatch
+  queueDepth: number
   startedAt?: number
   executionMs?: number
 }
@@ -42,7 +43,11 @@ port.on('message', (message: unknown) => {
     return
   }
   const batch = asWriteBatch(message.payload)
-  const work: WriterWork = { request: message, batch }
+  const work: WriterWork = {
+    request: message,
+    batch,
+    queueDepth: scheduler.pendingCount + 1,
+  }
   void scheduler.enqueue({
     value: work,
     priority: batch.priority,
@@ -102,7 +107,7 @@ function errorResponse(
 function metrics(work: WriterWork): WorkerMetrics {
   const startedAt = work.startedAt ?? Date.now()
   return {
-    queueDepth: 0,
+    queueDepth: work.queueDepth,
     queueWaitMs: Math.max(0, startedAt - work.request.enqueuedAt),
     executionMs: work.executionMs ?? 0,
     totalMs: Math.max(0, Date.now() - work.request.enqueuedAt),

@@ -19,6 +19,10 @@ import type { WorkerReadyMessage } from '../data-worker/protocol.js'
 import { WorkerRequestError, WorkerRpcClient } from '../data-worker/worker-rpc-client.js'
 import { resolveWorkerEntryUrl } from '../data-worker/worker-entry-url.js'
 import { createChildLogger } from '../core/logger.js'
+import {
+  DEFAULT_DATA_WORKER_SLOW_MS,
+  isSlowWorkerRequest,
+} from '../data-worker/observability.js'
 
 const log = createChildLogger('query-worker-client')
 
@@ -28,6 +32,7 @@ export interface CreateWorkerQueryPortOptions {
   allowDiagnostics?: boolean
   defaultTimeoutMs?: number
   readyTimeoutMs?: number
+  slowRequestMs?: number
 }
 
 export interface QueryDiagnosticOptions extends QueryRequestOptions {
@@ -59,6 +64,7 @@ export async function createWorkerQueryPort(
   await waitUntilReady(worker, options.readyTimeoutMs ?? 5_000)
   const rpc = new WorkerRpcClient(worker, { defaultTimeoutMs: options.defaultTimeoutMs })
   const getActivePromptSessionIds = options.getActivePromptSessionIds ?? (() => [])
+  const slowRequestMs = options.slowRequestMs ?? DEFAULT_DATA_WORKER_SLOW_MS
 
   const request = async <TResult>(
     operation: string,
@@ -70,10 +76,17 @@ export async function createWorkerQueryPort(
         priority: requestOptions.priority ?? 'interactive',
         deadlineMs: requestOptions.deadlineMs,
       })
-      log.debug(
-        { operation, priority: requestOptions.priority ?? 'interactive', ...response.metrics },
-        'query worker request completed',
-      )
+      const context = {
+        operation,
+        priority: requestOptions.priority ?? 'interactive',
+        slowRequestMs,
+        ...response.metrics,
+      }
+      if (isSlowWorkerRequest(response.metrics, slowRequestMs)) {
+        log.warn(context, 'slow query worker request completed')
+      } else {
+        log.debug(context, 'query worker request completed')
+      }
       return response.result
     } catch (err) {
       log.warn(

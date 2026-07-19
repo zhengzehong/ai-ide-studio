@@ -4,6 +4,10 @@ import type { WriteBatch, WriteBatchResult, WriteDataPort } from '../../ports/wr
 import type { WorkerReadyMessage } from '../protocol.js'
 import { WorkerRequestError, WorkerRpcClient } from '../worker-rpc-client.js'
 import { resolveWorkerEntryUrl } from '../worker-entry-url.js'
+import {
+  DEFAULT_DATA_WORKER_SLOW_MS,
+  isSlowWorkerRequest,
+} from '../observability.js'
 
 const log = createChildLogger('writer-worker-client')
 
@@ -11,6 +15,7 @@ export interface CreateWorkerWriteDataPortOptions {
   dbPath: string
   defaultTimeoutMs?: number
   readyTimeoutMs?: number
+  slowRequestMs?: number
 }
 
 export interface WorkerWriteDataPort extends WriteDataPort {
@@ -27,6 +32,7 @@ export async function createWorkerWriteDataPort(
   })
   await waitUntilReady(worker, options.readyTimeoutMs ?? 5_000)
   const rpc = new WorkerRpcClient(worker, { defaultTimeoutMs: options.defaultTimeoutMs })
+  const slowRequestMs = options.slowRequestMs ?? DEFAULT_DATA_WORKER_SLOW_MS
 
   return {
     async commitBatch(batch: WriteBatch): Promise<WriteBatchResult> {
@@ -35,10 +41,18 @@ export async function createWorkerWriteDataPort(
           priority: batch.priority,
           deadlineMs: batch.deadlineMs,
         })
-        log.debug(
-          { batchId: batch.batchId, sessionId: batch.sessionId, priority: batch.priority, ...response.metrics },
-          'writer batch committed',
-        )
+        const context = {
+          batchId: batch.batchId,
+          sessionId: batch.sessionId,
+          priority: batch.priority,
+          slowRequestMs,
+          ...response.metrics,
+        }
+        if (isSlowWorkerRequest(response.metrics, slowRequestMs)) {
+          log.warn(context, 'slow writer batch committed')
+        } else {
+          log.debug(context, 'writer batch committed')
+        }
         return response.result
       } catch (err) {
         log.warn(

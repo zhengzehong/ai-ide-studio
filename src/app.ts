@@ -1,10 +1,10 @@
 import type { Server } from 'http'
 import type { WebSocketServer } from 'ws'
 import type { Hono } from 'hono'
-import type { AppConfig } from './core/config.js'
+import type { AppConfig, DataWorkerMode } from './core/config.js'
 import { createChildLogger, getLogConfig } from './core/logger.js'
 import { ruleEngine } from './core/rules.js'
-import { initDatabase } from './store/db.js'
+import { closeDatabase, initDatabase } from './store/db.js'
 import { agentStore } from './store/agents.js'
 import { sessionStore } from './store/sessions.js'
 import { seedBuiltinTemplates } from './store/agent-templates.js'
@@ -20,6 +20,10 @@ import { sessionManager } from './core/sessions.js'
 import { createWorkerWriteDataPort } from './data-worker/writer-worker/client.js'
 import { setWriteDataPort } from './core/persistence/write-data-port-provider.js'
 import { sessionPersistencePort } from './core/persistence/session-persistence-port.js'
+import type { QueryPort } from './ports/query-port.js'
+import type { WriteDataPort } from './ports/write-data-port.js'
+import { localQueryPort } from './queries/local-query-port.js'
+import { localWriteDataPort } from './core/persistence/local-write-data-port.js'
 
 const log = createChildLogger('app')
 
@@ -27,7 +31,14 @@ export interface AppHandle {
   app: Hono
   server: Server
   wss: WebSocketServer
+  dataWorkerMode: DataWorkerMode
   stop: () => Promise<void>
+}
+
+interface AppDataPorts {
+  queryPort: QueryPort
+  writeDataPort: WriteDataPort
+  close: () => Promise<void>
 }
 
 export async function startApp(config: AppConfig): Promise<AppHandle> {
@@ -48,19 +59,16 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
   seedBuiltinTaskExecutionModes()
   seedBuiltinTools()
 
-  const writeDataPort = await createWorkerWriteDataPort({ dbPath })
-  const resetWriteDataPort = setWriteDataPort(writeDataPort)
-  let queryPort: Awaited<ReturnType<typeof createWorkerQueryPort>>
+  const dataWorkerMode = config.dataWorkerMode ?? 'worker'
+  let dataPorts: AppDataPorts
   try {
-    queryPort = await createWorkerQueryPort({
-      dbPath,
-      getActivePromptSessionIds: () => sessionManager.listActivePromptSessionIds(),
-    })
+    dataPorts = await startDataPorts(dataWorkerMode, dbPath, config.dataWorkerSlowMs)
   } catch (err) {
-    resetWriteDataPort()
-    await writeDataPort.close()
+    closeDatabase()
     throw err
   }
+  const { queryPort, writeDataPort } = dataPorts
+  const resetWriteDataPort = setWriteDataPort(writeDataPort)
   const resetQueryPort = setQueryPort(queryPort)
 
   void getOrCreateMachineId().then(
@@ -78,9 +86,9 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
     gateway = await startGateway(config, { queryPort })
   } catch (err) {
     resetQueryPort()
-    await queryPort.close()
     resetWriteDataPort()
-    await writeDataPort.close()
+    await dataPorts.close()
+    closeDatabase()
     throw err
   }
   const { app, server, wss } = gateway
@@ -98,21 +106,71 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
     app,
     server,
     wss,
+    dataWorkerMode,
     stop: async () => {
       if (stopped) return
       stopped = true
       ruleEngine.stop()
       clearInterval(hubCleanupTimer)
-      await closeWebSocketServer(wss)
-      await closeHttpServer(server)
-      await sessionPersistencePort.flush()
+      const cleanupErrors: unknown[] = []
+      await collectCleanupError(cleanupErrors, () => closeWebSocketServer(wss))
+      await collectCleanupError(cleanupErrors, () => closeHttpServer(server))
+      await collectCleanupError(cleanupErrors, () => sessionPersistencePort.flush())
       resetQueryPort()
-      await queryPort.close()
       resetWriteDataPort()
-      await writeDataPort.close()
+      await collectCleanupError(cleanupErrors, () => dataPorts.close())
       sessionPersistencePort.reset()
+      closeDatabase()
+      if (cleanupErrors.length > 0) {
+        throw new AggregateError(cleanupErrors, 'Application shutdown completed with errors')
+      }
       log.info('服务已关闭')
     },
+  }
+}
+
+async function collectCleanupError(
+  errors: unknown[],
+  cleanup: () => Promise<void>,
+): Promise<void> {
+  try {
+    await cleanup()
+  } catch (error) {
+    errors.push(error)
+  }
+}
+
+async function startDataPorts(
+  mode: DataWorkerMode,
+  dbPath: string,
+  slowRequestMs?: number,
+): Promise<AppDataPorts> {
+  if (mode === 'local') {
+    return {
+      queryPort: localQueryPort,
+      writeDataPort: localWriteDataPort,
+      close: async () => undefined,
+    }
+  }
+
+  const writeDataPort = await createWorkerWriteDataPort({ dbPath, slowRequestMs })
+  try {
+    const queryPort = await createWorkerQueryPort({
+      dbPath,
+      getActivePromptSessionIds: () => sessionManager.listActivePromptSessionIds(),
+      slowRequestMs,
+    })
+    return {
+      queryPort,
+      writeDataPort,
+      close: async () => {
+        await queryPort.close()
+        await writeDataPort.close()
+      },
+    }
+  } catch (err) {
+    await writeDataPort.close()
+    throw err
   }
 }
 
