@@ -52,17 +52,17 @@
 - Test: `tests/unit/ipc-protobuf-envelope.test.ts`
 - Test: `tests/integration/ipc-framed-socket.test.ts`
 
-- [ ] **Step 1: Write failing codec and framing tests**
+- [x] **Step 1: Write failing codec and framing tests**
 
 Cover all envelope metadata, unknown-field skipping, partial header/body reads, multiple frames in one chunk, a frame larger than the configured maximum, socket backpressure, and close rejecting new sends.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `npx vitest run tests/unit/ipc-protobuf-envelope.test.ts tests/integration/ipc-framed-socket.test.ts`
 
 Expected: FAIL because the IPC modules do not exist.
 
-- [ ] **Step 3: Implement the closed envelope codec**
+- [x] **Step 3: Implement the closed envelope codec**
 
 Use these fields and no arbitrary object transport:
 
@@ -83,11 +83,11 @@ Use these fields and no arbitrary object transport:
 
 Reject missing version/kind, unsafe integers, payloads above the configured limit, malformed varints, truncated length-delimited fields, and non-object JSON payloads.
 
-- [ ] **Step 4: Implement framed socket transport**
+- [x] **Step 4: Implement framed socket transport**
 
 Prefix encoded envelopes with a 4-byte big-endian length. Buffer partial reads, enforce `maxFrameBytes`, serialize writes, and await socket `drain` when `write()` returns false. `close()` stops intake, drains accepted writes, ends the socket, and is idempotent.
 
-- [ ] **Step 5: Run GREEN and commit**
+- [x] **Step 5: Run GREEN and commit**
 
 Run: `npx vitest run tests/unit/ipc-protobuf-envelope.test.ts tests/integration/ipc-framed-socket.test.ts`
 
