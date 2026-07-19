@@ -5,6 +5,7 @@ import { parseDataWorkerSlowMs } from '../data-worker/observability.js'
 export type AppRuntime = 'web' | 'electron'
 export type DataWorkerMode = 'worker' | 'local'
 export type RealtimeMode = 'process' | 'embedded'
+export type RuntimeMode = 'process' | 'embedded'
 
 export interface AppConfig {
   host: string
@@ -21,6 +22,9 @@ export interface AppConfig {
   realtimeMaxQueueBytes?: number
   realtimeMaxBufferedBytes?: number
   realtimeIpcMaxFrameBytes?: number
+  runtimeMode?: RuntimeMode
+  runtimeIpcMaxFrameBytes?: number
+  runtimeRestartDelayMs?: number
   staticDir?: string
   mobileStaticDir?: string
   localToken?: string
@@ -51,6 +55,9 @@ export function loadConfig(): AppConfig {
     realtimeMaxQueueBytes: parsePositiveInteger(process.env.REALTIME_MAX_QUEUE_BYTES, 2 * 1024 * 1024),
     realtimeMaxBufferedBytes: parsePositiveInteger(process.env.REALTIME_MAX_BUFFERED_BYTES, 2 * 1024 * 1024),
     realtimeIpcMaxFrameBytes: parsePositiveInteger(process.env.REALTIME_IPC_MAX_FRAME_BYTES, 16 * 1024 * 1024),
+    runtimeMode: process.env.RUNTIME_SERVICE_MODE === 'embedded' ? 'embedded' : 'process',
+    runtimeIpcMaxFrameBytes: parsePositiveInteger(process.env.RUNTIME_IPC_MAX_FRAME_BYTES, 16 * 1024 * 1024),
+    runtimeRestartDelayMs: parsePositiveInteger(process.env.RUNTIME_RESTART_DELAY_MS, 250),
     staticDir: process.env.STATIC_DIR ? resolve(process.env.STATIC_DIR) : resolve('./ui/dist'),
     mobileStaticDir: process.env.MOBILE_STATIC_DIR ? resolve(process.env.MOBILE_STATIC_DIR) : resolve('./mobile/dist'),
     localToken: process.env.AI_IDE_LOCAL_TOKEN || undefined,

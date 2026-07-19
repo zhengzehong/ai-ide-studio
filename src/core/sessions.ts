@@ -5,7 +5,8 @@ import { agentStore } from '../store/agents.js'
 import { globalAssistantStore } from '../store/global-assistant.js'
 import { projectStore } from '../store/projects.js'
 import { teamMemberStore } from '../store/teams.js'
-import { acpHost } from '../acp/host.js'
+import { getRuntimePort } from '../runtime/runtime-port-provider.js'
+import { buildRuntimeStateSnapshot } from '../runtime/api/runtime-snapshot.js'
 import { events, type AppEvents } from './events.js'
 import { createChildLogger } from './logger.js'
 import { agentHubService } from './agent-hub/index.js'
@@ -266,7 +267,7 @@ export const sessionManager = {
 
   // session.cancel 10s 兜底强制结束 turn 时,ACP 那侧的 activeTurnReject 已经 reject 了,
   // 但 sendPromptNow 的 finally 块(清 activePrompts)只在 ACP 正常回调 cancel 时才会跑到。
-  // ACP 10s 不响应 → sendPromptNow 的 await acpHost.cancelPrompt 永远不返回 → finally 永不执行
+  // Runtime cancel 超时路径会显式清理 activePrompts，避免 finally 无法执行时残留。
   // → activePrompts 残留 → 会话永久卡"生成中"(sendPrompt/enqueuePrompt/copySession 全拒绝)。
   // 这里在 forceCancel 路径上显式清掉 activePrompts/pendingBySession,等价于替 sendPromptNow 跑 finally。
   forceClearActivePrompt(sessionId: string): void {
@@ -365,7 +366,7 @@ export const sessionManager = {
     if (!session) return
 
     await agentHubService.disconnectBySession(sessionId)
-    await acpHost.closeSession(session.agent_id, sessionId)
+    await getRuntimePort().closeSession(session.agent_id, sessionId)
     sessionStore.updateStatus(sessionId, 'closed')
     const updated = sessionStore.get(sessionId)
     if (updated) events.emit('session:changed', { sessionId, data: { ...updated } })
@@ -393,7 +394,7 @@ export const sessionManager = {
     const session = sessionStore.get(sessionId)
     if (!session) return
     // \u5148\u5220\u672c\u5730 + \u7ea7\u8054\u6e05\u5206\u4eab\u94fe\u8def:\u8fd9\u4e24\u6b65\u662f\u5e73\u53f0\u81ea\u5df1\u7684\u72b6\u6001,\u4e0d\u4f9d\u8d56 ACP/Hub \u8fdc\u7a0b\u8c03\u7528,
-    // \u5fc5\u987b\u5148\u6267\u884c\u6389,\u5426\u5219\u4e0b\u9762 acpHost.closeSession \u629b\u9519\u4f1a\u5bfc\u81f4\u4f1a\u8bdd\u6c38\u4e0d\u5220\u9664 + \u5206\u4eab\u6b8b\u7559\u3002
+    // \u5fc5\u987b\u5148\u6267\u884c\u6389,\u5426\u5219\u4e0b\u9762 Runtime closeSession \u629b\u9519\u4f1a\u5bfc\u81f4\u4f1a\u8bdd\u6c38\u4e0d\u5220\u9664 + \u5206\u4eab\u6b8b\u7559\u3002
     sessionStore.delete(sessionId)
     sessionShareManager.cascadeSoftDeleteBySession(sessionId)
     events.emit('session:changed', { sessionId, data: { event: 'deleted', deleted: true } })
@@ -402,7 +403,7 @@ export const sessionManager = {
     void agentHubService.disconnectBySession(sessionId).catch((err) => {
       log.warn({ sessionId, err: err instanceof Error ? err.message : String(err) }, 'Hub disconnect \u5931\u8d25,\u5ffd\u7565')
     })
-    await acpHost.closeSession(session.agent_id, sessionId).catch((err) => {
+    await getRuntimePort().closeSession(session.agent_id, sessionId).catch((err) => {
       log.warn({ sessionId, agentId: session.agent_id, err: err instanceof Error ? err.message : String(err) }, 'ACP closeSession \u5931\u8d25,\u5ffd\u7565')
     })
     log.info({ sessionId, agentId: session.agent_id }, 'Session \u5df2\u5220\u9664')
@@ -517,12 +518,8 @@ async function sendPromptNow(session: SessionRow, content: string, images?: Imag
     )
     recordPromptProgress(sessionId, 'acp.session.ensure.started')
     log.info({ sessionId, agentId: session.agent_id, turnId, acpSessionId: session.acp_session_id, projectId: projectContext.projectId, cwd: projectContext.cwd }, 'ACP ensure session start')
-    const acpSessionId = await acpHost.ensureSession(
-      session.agent_id,
-      sessionId,
-      session.acp_session_id,
-      projectContext,
-    )
+    const runtimeSnapshot = buildRuntimeStateSnapshot({ sessionId, cwd: projectContext.cwd })
+    const acpSessionId = await getRuntimePort().ensureSession(runtimeSnapshot)
     recordPromptProgress(sessionId, 'acp.session.ready')
     log.info({ sessionId, agentId: session.agent_id, turnId, acpSessionId }, 'ACP ensure session done')
     if (session.acp_session_id !== acpSessionId) {
@@ -537,7 +534,13 @@ async function sendPromptNow(session: SessionRow, content: string, images?: Imag
     emitLifecycle(session.agent_id, sessionId, 'lifecycle.prompt_sent', '正在思考...', agentMessageId)
     recordPromptProgress(sessionId, 'acp.prompt.started')
     try {
-      await acpHost.prompt(session.agent_id, sessionId, acpContent, acpImages, { turnId, messageId: agentMessageId })
+      await getRuntimePort().prompt({
+        agentId: session.agent_id,
+        sessionId,
+        content: acpContent,
+        images: acpImages,
+        diagnostics: { turnId, messageId: agentMessageId },
+      })
     } catch (err) {
       const isForceCancel = err instanceof Error && err.message.startsWith('cancel timeout: forcing done')
       if (isForceCancel) {
@@ -654,12 +657,8 @@ async function completeCopiedSessionFork(
   projectContext: { projectId?: string; cwd?: string },
 ): Promise<void> {
   try {
-    const acpSessionId = await acpHost.forkSessionFromAcpSessionId(
-      source.agent_id,
-      sourceAcpSessionId,
-      copiedSessionId,
-      projectContext,
-    )
+    const snapshot = buildRuntimeStateSnapshot({ sessionId: copiedSessionId, cwd: projectContext.cwd })
+    const acpSessionId = await getRuntimePort().forkSession(snapshot, sourceAcpSessionId)
     sessionStore.updateAcpSessionId(copiedSessionId, acpSessionId)
     sessionStore.updateStage(copiedSessionId, '')
     const updated = sessionStore.get(copiedSessionId)
@@ -678,7 +677,7 @@ async function completeCopiedSessionFork(
     // 清理失败的 copied 会话:ACP closeSession 和本地 delete 都包 .catch,
     // 防止任一抛错跳过后续清理。copyingSourceSessions.delete 放 finally 统一管控,
     // 保证源会话不会因清理失败而永久卡"复制中"。
-    await acpHost.closeSession(source.agent_id, copiedSessionId).catch((closeErr) => {
+    await getRuntimePort().closeSession(source.agent_id, copiedSessionId).catch((closeErr) => {
       log.warn(
         { copiedSessionId, agentId: source.agent_id, err: closeErr instanceof Error ? closeErr.message : String(closeErr) },
         '清理失败 copied 会话时 ACP closeSession 抛错,忽略',

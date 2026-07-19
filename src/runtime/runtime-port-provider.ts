@@ -1,16 +1,21 @@
 import type { RuntimePort } from '../ports/runtime-port.js'
+import { EmbeddedRuntimePort } from './api/embedded-runtime-port.js'
 
-let activeRuntimePort: RuntimePort | undefined
+const defaultRuntimePort = new EmbeddedRuntimePort()
+let activeRuntimePort: RuntimePort = defaultRuntimePort
 
-export function setRuntimePort(port: RuntimePort): void {
+export function setRuntimePort(port: RuntimePort): () => void {
+  const previous = activeRuntimePort
   activeRuntimePort = port
+  return () => {
+    if (activeRuntimePort === port) activeRuntimePort = previous
+  }
 }
 
 export function getRuntimePort(): RuntimePort {
-  if (!activeRuntimePort) throw new Error('Runtime port is not initialized')
   return activeRuntimePort
 }
 
 export function resetRuntimePort(): void {
-  activeRuntimePort = undefined
+  activeRuntimePort = defaultRuntimePort
 }

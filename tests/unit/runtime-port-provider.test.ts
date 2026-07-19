@@ -61,7 +61,7 @@ describe('runtime port provider', () => {
     expect(getRuntimePort()).toBe(port)
 
     resetRuntimePort()
-    expect(() => getRuntimePort()).toThrow('Runtime port is not initialized')
+    expect(getRuntimePort()).not.toBe(port)
   })
 })
 

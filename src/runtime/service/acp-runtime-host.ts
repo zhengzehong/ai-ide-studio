@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { RuntimeStateSnapshot } from '../../ports/runtime-port.js'
 import type { SessionCapabilities } from '../../types/ws-protocol.js'
+import type { TurnUsageData } from '../../types/ws-protocol.js'
 import { RuntimeSessionActorScheduler } from '../actors/session-actor.js'
 import type { RuntimeCoalescibleUpdate } from '../streams/runtime-update-coalescer.js'
 import { SdkRuntimeHost } from './sdk-runtime-host.js'
@@ -19,6 +20,7 @@ export interface AcpRuntimeHostOptions {
     agentId: string
     messageId: string
     turnId?: string
+    turnUsage?: TurnUsageData
     stopReason: string
   }) => Promise<void>
 }
@@ -75,6 +77,12 @@ export class AcpRuntimeHost {
       session.cancelled = false
       const messageId = input.diagnostics?.messageId ?? `mock-message-${randomUUID().slice(0, 8)}`
       const response = `Mock Runtime received: ${input.content}`
+      this.options.publishUpdate(input.agentId, {
+        kind: 'session-update',
+        sessionId: input.sessionId,
+        messageId,
+        data: { messageId, role: 'agent', thinking: `Thinking about: ${input.content}` },
+      })
       for (const contentDelta of chunks(response, 5)) {
         if (session.cancelled) break
         this.options.publishUpdate(input.agentId, {

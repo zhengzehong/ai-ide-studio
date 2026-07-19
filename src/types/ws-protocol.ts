@@ -637,6 +637,8 @@ export interface SessionDoneData {
   turnUsage?: TurnUsageData
   stopReason?: SessionStopReason
   error?: string
+  streamGeneration?: string
+  sequence?: number
 }
 
 export interface ModelInfo {

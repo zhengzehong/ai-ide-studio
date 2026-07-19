@@ -1,7 +1,7 @@
 import type { Server } from 'http'
 import type { WebSocketServer } from 'ws'
 import type { Hono } from 'hono'
-import type { AppConfig, DataWorkerMode, RealtimeMode } from './core/config.js'
+import type { AppConfig, DataWorkerMode, RealtimeMode, RuntimeMode } from './core/config.js'
 import { createChildLogger, getLogConfig } from './core/logger.js'
 import { ruleEngine } from './core/rules.js'
 import { closeDatabase, initDatabase } from './store/db.js'
@@ -28,6 +28,11 @@ import { createRealtimeProcess, type RealtimeProcessHandle } from './realtime/pr
 import { createRealtimeRpcBridge } from './gateway/realtime-rpc-bridge.js'
 import { createRealtimeEventSource, type RealtimeEventSource } from './gateway/realtime-event-source.js'
 import { sessionShareStore } from './store/session-shares.js'
+import type { RuntimePort } from './ports/runtime-port.js'
+import { EmbeddedRuntimePort } from './runtime/api/embedded-runtime-port.js'
+import { createProcessRuntimePort, type ProcessRuntimePort } from './runtime/api/process-runtime-port.js'
+import { handleRuntimeDone, handleRuntimePersistenceUpdate } from './runtime/api/runtime-ingress.js'
+import { setRuntimePort } from './runtime/runtime-port-provider.js'
 
 const log = createChildLogger('app')
 
@@ -37,6 +42,7 @@ export interface AppHandle {
   wss?: WebSocketServer
   dataWorkerMode: DataWorkerMode
   realtimeMode: RealtimeMode
+  runtimeMode: RuntimeMode
   realtimeEndpoint: string
   stop: () => Promise<void>
 }
@@ -103,6 +109,45 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
     }
   }
 
+  const runtimeMode: RuntimeMode = config.runtimeMode
+    ?? (realtimeMode === 'embedded' ? 'embedded' : 'process')
+  if (runtimeMode === 'process' && !realtimeProcess) {
+    realtimeEvents?.stop()
+    await realtimeProcess?.close()
+    resetQueryPort()
+    resetWriteDataPort()
+    await dataPorts.close()
+    closeDatabase()
+    throw new Error('Process Runtime requires process Realtime')
+  }
+  let runtimePort: RuntimePort
+  let processRuntime: ProcessRuntimePort | undefined
+  try {
+    if (runtimeMode === 'process') {
+      const realtime = realtimeProcess as RealtimeProcessHandle
+      processRuntime = await createProcessRuntimePort({
+        realtimeStreamEndpoint: realtime.runtimeStreamEndpoint,
+        realtimeStreamToken: realtime.runtimeStreamToken,
+        maxFrameBytes: config.runtimeIpcMaxFrameBytes,
+        restartDelayMs: config.runtimeRestartDelayMs,
+        onPersistenceUpdate: handleRuntimePersistenceUpdate,
+        onDone: handleRuntimeDone,
+      })
+      runtimePort = processRuntime
+    } else {
+      runtimePort = new EmbeddedRuntimePort()
+    }
+  } catch (err) {
+    realtimeEvents?.stop()
+    await realtimeProcess?.close()
+    resetQueryPort()
+    resetWriteDataPort()
+    await dataPorts.close()
+    closeDatabase()
+    throw err
+  }
+  const resetRuntimePort = setRuntimePort(runtimePort)
+
   void getOrCreateMachineId().then(
     (machineId) => log.info({ machineId }, 'machineId 已就绪'),
     (err) => log.warn({ err }, '预热 machineId 失败,首次 connect 时再生成'),
@@ -128,6 +173,8 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
     })
     embeddedRealtimePort = serverPort(gateway.server)
   } catch (err) {
+    await runtimePort.close().catch(() => undefined)
+    resetRuntimePort()
     realtimeEvents?.stop()
     await realtimeProcess?.close()
     resetQueryPort()
@@ -143,7 +190,7 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
   ruleEngine.start()
   initTimeline()
   log.info(
-    { host: config.host, port: config.port, http: `http://${config.host}:${config.port}`, realtimeMode, realtimeEndpoint },
+    { host: config.host, port: config.port, http: `http://${config.host}:${config.port}`, realtimeMode, runtimeMode, realtimeEndpoint },
     '服务已启动',
   )
 
@@ -156,6 +203,7 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
     wss,
     dataWorkerMode,
     realtimeMode,
+    runtimeMode,
     realtimeEndpoint,
     stop: async () => {
       if (stopped) return
@@ -165,6 +213,9 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
       const cleanupErrors: unknown[] = []
       realtimeEvents?.stop()
       if (wss) await collectCleanupError(cleanupErrors, () => closeWebSocketServer(wss))
+      await collectCleanupError(cleanupErrors, () => runtimePort.drain())
+      await collectCleanupError(cleanupErrors, () => runtimePort.close())
+      resetRuntimePort()
       if (realtimeProcess) await collectCleanupError(cleanupErrors, () => realtimeProcess.close())
       await collectCleanupError(cleanupErrors, () => closeHttpServer(server))
       await collectCleanupError(cleanupErrors, () => sessionPersistencePort.flush())

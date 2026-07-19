@@ -1,4 +1,3 @@
-import { acpHost } from '../../acp/host.js'
 import { events } from '../../core/events.js'
 import {
   listLocalSessionCandidates,
@@ -18,10 +17,12 @@ import { parseToolCallsJson, selectToolCallDetail, summarizeToolCalls } from '..
 import { buildFileChangesFromToolCalls } from '../../store/file-changes.js'
 import { turnProcessItemStore } from '../../store/turn-process-items.js'
 import type { FileChangeDetailData } from '../../types/ws-protocol.js'
-import type { AgentConnection } from '../../acp/host-types.js'
 import type { AgentRow } from '../../store/agents.js'
 import type { RpcHandlerMap } from './types.js'
 import { getQueryPort } from '../../queries/query-port-provider.js'
+import { getRuntimePort } from '../../runtime/runtime-port-provider.js'
+import { buildRuntimeStateSnapshot } from '../../runtime/api/runtime-snapshot.js'
+import { shouldForceRuntimeCancel } from '../../runtime/api/runtime-cancel-watchdog.js'
 
 const log = createChildLogger('rpc-sessions')
 
@@ -70,10 +71,8 @@ async function ensureAcpSession(sessionId: string, emitLifecycle = true): Promis
   const session = sessionStore.get(sessionId)
   if (!session) throw new Error('\u4f1a\u8bdd\u4e0d\u5b58\u5728')
   const context = resolveSessionProjectContext(sessionId)
-  const acpSessionId = await acpHost.ensureSession(session.agent_id, sessionId, session.acp_session_id, {
-    ...context,
-    emitLifecycle,
-  })
+  const snapshot = buildRuntimeStateSnapshot({ sessionId, cwd: context.cwd })
+  const acpSessionId = await getRuntimePort().ensureSession(snapshot, { emitLifecycle })
   if (session.acp_session_id !== acpSessionId) sessionStore.updateAcpSessionId(sessionId, acpSessionId)
   return { agentId: session.agent_id }
 }
@@ -126,32 +125,12 @@ function parseFileChangeDetail(raw: string | null | undefined): FileChangeDetail
   }
 }
 
-export function forceCancelTimedOutTurn(
-  conn: AgentConnection,
-  sessionId: string,
-  cancelledTurnKey: number | undefined,
-): boolean {
-  if (cancelledTurnKey === undefined) return false
-  const runtimeSession = conn.runtimeSessions.get(sessionId)
-  if (!runtimeSession || runtimeSession.activeTurnCount <= 0) return false
-  if (runtimeSession.activeTurnKey !== cancelledTurnKey) return false
-  const reject = runtimeSession.activeTurnReject
-  runtimeSession.activeTurnCount = 0
-  runtimeSession.activeTurnKey = undefined
-  runtimeSession.activeTurnReject = undefined
-  conn.activeTurnCount = Math.max(0, conn.activeTurnCount - 1)
-  if (reject) {
-    try { reject(new Error('cancel timeout: forcing done after 10s')) } catch { /* noop */ }
-  }
-  return true
-}
-
 export const sessionRpcHandlers: RpcHandlerMap = {
   async 'session.setModel'(msg, { sendResult }) {
     const sessionId = msg.sessionId as string
     const modelId = msg.modelId as string
     const { agentId } = await ensureAcpSession(sessionId, false)
-    await acpHost.setModel(agentId, sessionId, modelId)
+    await getRuntimePort().setModel(agentId, sessionId, modelId)
     sessionStore.updateRuntimePreferences(sessionId, { modelId })
     sendResult({ modelId })
   },
@@ -159,7 +138,7 @@ export const sessionRpcHandlers: RpcHandlerMap = {
   async 'session.getModels'(msg, { sendResult }) {
     const sessionId = msg.sessionId as string
     const { agentId } = await ensureAcpSession(sessionId, false)
-    const caps = acpHost.getSessionCapabilities(agentId, sessionId)
+    const caps = await getRuntimePort().getSessionCapabilities(agentId, sessionId)
     sendResult({
       models: caps?.models || [],
       currentModelId: caps?.currentModelId || null,
@@ -177,7 +156,7 @@ export const sessionRpcHandlers: RpcHandlerMap = {
     const sessionId = msg.sessionId as string
     const modeId = msg.modeId as string
     const { agentId } = await ensureAcpSession(sessionId, false)
-    await acpHost.setMode(agentId, sessionId, modeId)
+    await getRuntimePort().setMode(agentId, sessionId, modeId)
     sessionStore.updateRuntimePreferences(sessionId, { modeId })
     sendResult({ modeId })
   },
@@ -187,7 +166,7 @@ export const sessionRpcHandlers: RpcHandlerMap = {
     const configId = msg.configId as string
     const value = msg.value as string | boolean
     const { agentId } = await ensureAcpSession(sessionId, false)
-    await acpHost.setConfig(agentId, sessionId, configId, value)
+    await getRuntimePort().setConfig(agentId, sessionId, configId, value)
     sessionStore.updateRuntimePreferences(sessionId, { config: { [configId]: value } })
     sendResult({ configId, value })
   },
@@ -199,10 +178,10 @@ export const sessionRpcHandlers: RpcHandlerMap = {
     const forked = sessionStore.create({ agentId: source.agent_id, taskId: source.task_id ?? undefined, projectId: source.project_id ?? undefined })
     try {
       const project = source.project_id ? projectStore.get(source.project_id) : undefined
-      const acpSessionId = await acpHost.forkSession(source.agent_id, sessionId, forked.id, {
-        projectId: source.project_id ?? undefined,
-        cwd: project?.work_dir,
-      })
+      const snapshot = buildRuntimeStateSnapshot({ sessionId: forked.id, cwd: project?.work_dir })
+      const sourceAcpSessionId = source.acp_session_id
+      if (!sourceAcpSessionId) throw new Error('源会话没有可复制的运行时上下文')
+      const acpSessionId = await getRuntimePort().forkSession(snapshot, sourceAcpSessionId)
       sessionStore.updateAcpSessionId(forked.id, acpSessionId)
       state.subscriptions.add(forked.id)
       sendResult(sessionStore.get(forked.id))
@@ -212,9 +191,9 @@ export const sessionRpcHandlers: RpcHandlerMap = {
     }
   },
 
-  'permission.respond'(msg, { sendResult }) {
+  async 'permission.respond'(msg, { sendResult }) {
     const sessionId = msg.sessionId as string
-    const ok = acpHost.resolvePermission(sessionId, msg.permissionRequestId as string, msg.optionId as string | undefined, msg.cancelled as boolean | undefined)
+    const ok = await getRuntimePort().resolvePermission(sessionId, msg.permissionRequestId as string, msg.optionId as string | undefined, msg.cancelled as boolean | undefined)
     if (!ok) throw new Error('权限请求已失效')
     const session = sessionStore.get(sessionId)
     const stored = eventStore.append(sessionId, {
@@ -228,9 +207,9 @@ export const sessionRpcHandlers: RpcHandlerMap = {
     sendResult({ ok: true })
   },
 
-  'elicitation.respond'(msg, { sendResult }) {
+  async 'elicitation.respond'(msg, { sendResult }) {
     const sessionId = msg.sessionId as string
-    const ok = acpHost.resolveElicitation(sessionId, msg.elicitationRequestId as string, msg.action as 'accept' | 'decline' | 'cancel', msg.content as Record<string, string | number | boolean | string[]> | undefined)
+    const ok = await getRuntimePort().resolveElicitation(sessionId, msg.elicitationRequestId as string, msg.action as 'accept' | 'decline' | 'cancel', msg.content as Record<string, string | number | boolean | string[]> | undefined)
     if (!ok) throw new Error('提问请求已失效')
     const session = sessionStore.get(sessionId)
     const stored = eventStore.append(sessionId, {
@@ -248,23 +227,21 @@ export const sessionRpcHandlers: RpcHandlerMap = {
     const sessionId = msg.sessionId as string
     const session = sessionStore.get(sessionId)
     if (!session) throw new Error('会话不存在')
-    const activeConn = acpHost.agents.get(session.agent_id)
-    const cancelledTurnKey = activeConn?.runtimeSessions.get(sessionId)?.activeTurnKey
-    await acpHost.cancelPrompt(session.agent_id, sessionId)
+    const completed = await Promise.race([
+      getRuntimePort().cancelPrompt(session.agent_id, sessionId).then(() => true),
+      new Promise<false>((resolve) => setTimeout(() => resolve(false), 10_000)),
+    ])
+    if (shouldForceRuntimeCancel(completed, sessionManager.isPromptActive(sessionId))) {
+      sessionManager.forceClearActivePrompt(sessionId)
+      log.warn({ sessionId, agentId: session.agent_id }, 'Runtime cancel timed out; forcing done')
+      events.emit('session:done', {
+        sessionId,
+        agentId: session.agent_id,
+        messageId: `cancel-timeout-${Date.now()}`,
+        stopReason: 'cancelled',
+      })
+    }
     sendResult({ ok: true })
-    setTimeout(() => {
-      const conn = acpHost.agents.get(session.agent_id)
-      if (!conn) return
-      if (forceCancelTimedOutTurn(conn, sessionId, cancelledTurnKey)) {
-        // ACP 10s 未响应 cancelPrompt:sendPromptNow 的 finally 块跑不到(activeTurnReject 已 reject,
-        // 但 await acpHost.cancelPrompt 卡住),activePrompts 残留会让会话永久卡"生成中"。
-        // 这里显式清,与 sendPromptNow finally 等价,必须在 emit session:done 之前清,
-        // 否则 session:done 的 handler 读了 activePrompts 还是非空(虽然当前 handler 不读,未来可能读)。
-        sessionManager.forceClearActivePrompt(sessionId)
-        log.warn({ sessionId, agentId: session.agent_id, cancelledTurnKey }, 'cancel timeout: forcing done after 10s')
-        events.emit('session:done', { sessionId, agentId: session.agent_id, messageId: `cancel-timeout-${Date.now()}`, stopReason: 'cancelled' })
-      }
-    }, 10_000)
   },
 
   async 'sessions.list'(msg, { sendResult }) {

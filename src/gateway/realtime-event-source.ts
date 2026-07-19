@@ -44,7 +44,10 @@ export function createRealtimeEventSource(
     unsubscribe.push(() => events.off(type, handler))
   }
 
-  on('session:update', (event) => batcher.handle(event, sendSessionUpdate))
+  on('session:update', (event) => {
+    if (event.source === 'runtime-persistence') return
+    batcher.handle(event, sendSessionUpdate)
+  })
   on('session:process_item', (event) => send({
     scope: 'session',
     sessionId: event.sessionId,

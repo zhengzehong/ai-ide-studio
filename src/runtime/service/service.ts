@@ -1,7 +1,7 @@
 import { createConnection, type Socket } from 'node:net'
 import { FramedSocket } from '../../ipc/framed-socket.js'
 import type { IpcEnvelope } from '../../ipc/protobuf-envelope.js'
-import type { ServerMessage, SessionUpdateData } from '../../types/ws-protocol.js'
+import type { ServerMessage, SessionUpdateData, TurnUsageData } from '../../types/ws-protocol.js'
 import { RuntimeUpdateCoalescer, type RuntimeCoalescibleUpdate } from '../streams/runtime-update-coalescer.js'
 import { AcpRuntimeHost } from './acp-runtime-host.js'
 import type {
@@ -89,6 +89,7 @@ export class RuntimeService {
     agentId: string
     messageId: string
     turnId?: string
+    turnUsage?: TurnUsageData
     stopReason: string
   }): Promise<void> {
     await this.coalescer.flushSession(input.sessionId)
@@ -126,11 +127,19 @@ function toServerMessage(
   update: RuntimeCoalescibleUpdate,
   cursor: { streamGeneration: string; sequence: number },
 ): ServerMessage {
-  const data: SessionUpdateData = {
-    messageId: update.messageId,
-    role: 'agent',
-    ...(typeof update.contentDelta === 'string' ? { contentDelta: update.contentDelta } : {}),
-  }
+  const nested = update.data
+  const data: SessionUpdateData = nested && typeof nested === 'object' && !Array.isArray(nested)
+    ? {
+        ...nested as SessionUpdateData,
+        ...(typeof update.contentDelta === 'string'
+          ? { contentDelta: `${stringValue((nested as Record<string, unknown>).contentDelta)}${update.contentDelta}` }
+          : {}),
+      }
+    : {
+        messageId: update.messageId,
+        role: 'agent',
+        ...(typeof update.contentDelta === 'string' ? { contentDelta: update.contentDelta } : {}),
+      }
   return {
     type: 'session:update',
     sessionId: update.sessionId,
@@ -140,10 +149,23 @@ function toServerMessage(
   }
 }
 
+function stringValue(value: unknown): string {
+  return typeof value === 'string' ? value : ''
+}
+
 function updateKey(update: RuntimeCoalescibleUpdate): string {
-  return update.kind === 'process-item'
-    ? `${update.sessionId}:process:${update.processItemId}`
-    : `${update.sessionId}:${update.kind}:${update.messageId}`
+  if (update.kind === 'process-item') return `${update.sessionId}:process:${update.processItemId}`
+  if (update.kind === 'session-update') {
+    const data = update.data
+    const nested = data && typeof data === 'object' && !Array.isArray(data)
+      ? data as Record<string, unknown>
+      : undefined
+    if (typeof update.contentDelta === 'string' || typeof nested?.contentDelta === 'string') {
+      return `${update.sessionId}:${update.kind}:${update.messageId}:text`
+    }
+    if (typeof nested?.thinking === 'string') return `${update.sessionId}:${update.kind}:${update.messageId}:thinking`
+  }
+  return `${update.sessionId}:${update.kind}:${update.messageId}`
 }
 
 function stringField(value: RuntimeCoalescibleUpdate, key: string): string {

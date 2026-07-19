@@ -120,6 +120,13 @@ export class RuntimeUpdateCoalescer {
 
 function updateKey(update: RuntimeCoalescibleUpdate): string {
   if (update.kind === 'process-item') return `${update.sessionId}:process:${update.processItemId}`
+  if (update.kind === 'session-update') {
+    const data = recordField(update, 'data')
+    if (typeof update.contentDelta === 'string' || typeof data?.contentDelta === 'string') {
+      return `${update.sessionId}:${update.kind}:${update.messageId}:text`
+    }
+    if (typeof data?.thinking === 'string') return `${update.sessionId}:${update.kind}:${update.messageId}:thinking`
+  }
   return `${update.sessionId}:${update.kind}:${update.messageId}`
 }
 
@@ -129,12 +136,38 @@ function mergeUpdate(
 ): RuntimeCoalescibleUpdate {
   if (!current) return { ...incoming }
   if (current.kind === 'session-update' && incoming.kind === 'session-update') {
+    const currentData = recordField(current, 'data')
+    const incomingData = recordField(incoming, 'data')
+    const mergedData = currentData || incomingData
+      ? {
+          ...currentData,
+          ...incomingData,
+          ...(typeof currentData?.contentDelta === 'string' || typeof incomingData?.contentDelta === 'string'
+            ? { contentDelta: `${stringValue(currentData?.contentDelta)}${stringValue(incomingData?.contentDelta)}` }
+            : {}),
+          ...(typeof currentData?.thinking === 'string' || typeof incomingData?.thinking === 'string'
+            ? { thinking: `${stringValue(currentData?.thinking)}${stringValue(incomingData?.thinking)}` }
+            : {}),
+        }
+      : undefined
     return {
       ...current,
       ...incoming,
       contentDelta: `${current.contentDelta ?? ''}${incoming.contentDelta ?? ''}`,
+      ...(mergedData ? { data: mergedData } : {}),
     }
   }
   if (incoming.kind === 'process-item') return { ...incoming }
   return { ...current, ...incoming }
+}
+
+function recordField(update: RuntimeCoalescibleUpdate, key: string): Record<string, unknown> | undefined {
+  const value = update[key]
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined
+}
+
+function stringValue(value: unknown): string {
+  return typeof value === 'string' ? value : ''
 }

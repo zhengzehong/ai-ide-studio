@@ -1,5 +1,6 @@
 import type { RuntimeStateSnapshot } from '../../ports/runtime-port.js'
 import type { SessionCapabilities, ServerMessage } from '../../types/ws-protocol.js'
+import type { TurnUsageData } from '../../types/ws-protocol.js'
 import type { RuntimeCoalescibleUpdate } from '../streams/runtime-update-coalescer.js'
 
 export interface RuntimePersistenceUpdate {
@@ -17,6 +18,7 @@ export interface RuntimeDoneEvent {
   stopReason?: string
   error?: string
   turnId?: string
+  turnUsage?: TurnUsageData
   streamGeneration: string
   sequence: number
 }

@@ -12,6 +12,7 @@ const AUTO_APPROVED_TEAM_TOOLS = new Set(['team.mailbox.send', 'team.task.update
 
 export interface BuildRuntimeStateSnapshotInput {
   sessionId: string
+  cwd?: string
   emitHttpMcp?: boolean
   httpMcpBaseUrl?: string
 }
@@ -57,7 +58,7 @@ export function buildRuntimeStateSnapshot(input: BuildRuntimeStateSnapshotInput)
       agentId: session.agent_id,
       taskId: session.task_id,
       projectId,
-      cwd: project?.work_dir || process.cwd(),
+      cwd: input.cwd ?? (project?.work_dir || process.cwd()),
       title: session.title,
       acpSessionId: session.acp_session_id,
       isPrimary: session.is_primary === 1,

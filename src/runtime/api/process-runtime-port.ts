@@ -36,11 +36,13 @@ export interface CreateProcessRuntimePortOptions {
   readyTimeoutMs?: number
   requestTimeoutMs?: number
   maxFrameBytes?: number
+  restartDelayMs?: number
 }
 
 export interface ProcessRuntimePort extends RuntimePort {
   readonly generation: number
   terminateForTest(): Promise<void>
+  waitForRestart(previousGeneration: number, timeoutMs?: number): Promise<void>
 }
 
 interface PendingRequest {
@@ -71,6 +73,7 @@ class ProcessRuntimePortController implements ProcessRuntimePort {
   private rejectReady?: (error: Error) => void
   private closing = false
   private currentGeneration = 0
+  private restartTimer?: NodeJS.Timeout
 
   constructor(private readonly options: CreateProcessRuntimePortOptions) {
     this.maxFrameBytes = options.maxFrameBytes ?? 16 * 1024 * 1024
@@ -160,9 +163,19 @@ class ProcessRuntimePortController implements ProcessRuntimePort {
     })
   }
 
+  async waitForRestart(previousGeneration: number, timeoutMs = 5_000): Promise<void> {
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+      if (this.currentGeneration > previousGeneration) return
+      await delay(10)
+    }
+    throw new Error('Runtime restart timed out')
+  }
+
   async close(): Promise<void> {
     if (this.closing) return
     this.closing = true
+    if (this.restartTimer) clearTimeout(this.restartTimer)
     await this.channel?.send(toEnvelope({ type: 'control', operation: 'stop' })).catch(() => undefined)
     await Promise.race([this.waitForExit(), delay(1_000)])
     if (this.child?.exitCode == null && this.child?.signalCode == null) this.child?.kill()
@@ -192,7 +205,16 @@ class ProcessRuntimePortController implements ProcessRuntimePort {
       if (this.child === child) this.child = undefined
       const error = new Error(`Runtime process exited (code=${code}, signal=${signal})`)
       this.failPending(error)
-      if (!this.closing) this.rejectReady?.(error)
+      if (!this.closing) {
+        this.restartTimer = setTimeout(() => {
+          this.restartTimer = undefined
+          this.ready = new Promise<void>((resolve, reject) => {
+            this.resolveReady = resolve
+            this.rejectReady = reject
+          })
+          this.spawnChild()
+        }, this.options.restartDelayMs ?? 250)
+      }
     })
   }
 
@@ -205,6 +227,9 @@ class ProcessRuntimePortController implements ProcessRuntimePort {
     this.channel = channel
     channel.onMessage((message) => { void this.handleMessage(message) })
     channel.onError((error) => log.warn({ err: error }, 'Runtime IPC error'))
+    socket.once('close', () => {
+      if (this.channel === channel) this.channel = undefined
+    })
   }
 
   private async handleMessage(envelope: IpcEnvelope): Promise<void> {
