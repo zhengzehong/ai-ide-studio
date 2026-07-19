@@ -11,8 +11,14 @@
       ▼
 Gateway 层
   server.ts       HTTP 服务与 WS 升级
+  http/query-routes.ts  PC 高频只读 HTTP API
   ws-handler.ts   WS 连接、订阅、广播、JSON 解析、RPC dispatch
-  rpc/*           按领域拆分的 WS RPC handler
+  rpc/*           按领域拆分的 WS RPC handler 与兼容桥
+      │
+      ├── Query Port
+      │     ports/query-port.ts       异步查询契约
+      │     queries/local-query-port.ts  单体内适配器
+      │     queries/task-list-query.ts   任务列表读模型
       │ mitt 事件总线
       ▼
 Core 业务层
@@ -53,7 +59,15 @@ Web UI / Mobile Web App → WS "prompt" → ws-handler → gateway/rpc/subscript
 
 前端实时对话以 `session:update` 作为可见流式状态来源；`session:event` 主要用于持久化同步、断线恢复和状态补偿，避免每个流式 chunk 都全量还原事件。后端在用户发送后立即创建一条 `messages.status = running` 的 Agent 消息，流式文本写入 `messages.content` 快照；思考、工具、权限、提问、计划和文件修改等执行过程写入 `turn_process_items`，并通过 `session:process_item` 轻量广播。完成后同一条 Agent 消息更新为 completed/failed/cancelled。
 
-历史消息默认通过轻量 `sessions.messages` 加载，`messages.content` 是最终回复快速来源；历史执行过程通过 `sessions.messageProcess` 按需加载 `turn_process_items` 的轻量列表，单个过程详情再通过 `sessions.processItemDetail` 懒加载。旧数据仍可通过 `sessions.messageEvents` 从 `session_events.sequence` 兜底恢复；工具摘要/详情继续支持 `sessions.messageToolCalls` / `sessions.messageToolCallDetail`，文件修改详情优先从 `turn_process_items` 读取并兼容旧的 `tool_calls_json`。
+PC 端历史消息默认通过轻量 HTTP `GET /api/v1/sessions/:sessionId/messages` 加载，`messages.content` 是最终回复快速来源；恢复事件通过 `GET /api/v1/sessions/:sessionId/events` 按游标读取。历史执行过程仍通过 `sessions.messageProcess` 按需加载 `turn_process_items` 的轻量列表，单个过程详情再通过 `sessions.processItemDetail` 懒加载。旧数据仍可通过 `sessions.messageEvents` 从 `session_events.sequence` 兜底恢复；工具摘要/详情继续支持 `sessions.messageToolCalls` / `sessions.messageToolCallDetail`，文件修改详情优先从 `turn_process_items` 读取并兼容旧的 `tool_calls_json`。
+
+### PC 查询传输边界
+
+PC 端的任务列表、会话列表、消息历史和恢复事件使用版本化 `/api/v1` HTTP Query API。四类路由与同名旧 WS RPC 都委托异步 `QueryPort`；当前 `local-query-port` 在 Gateway 进程内调用 SQLite 读模型，后续 Query Worker 可以替换该适配器而不改变 HTTP DTO 和调用方。移动端、CLI 和显式回滚仍可使用旧 WS RPC，返回数组结构保持兼容。
+
+HTTP 分页响应使用 `{ data, page: { hasMore, nextCursor } }`，普通列表使用 `{ data }`。消息单页最多 200 条，恢复事件单页最多 1000 条；每个成功响应包含 `Server-Timing` 和 `X-Response-Bytes`，超过 1 MiB 观测预算时记录结构化告警但不截断。PC 构建设置 `VITE_QUERY_TRANSPORT=ws` 可回滚四类读取，其余值和默认值均使用 HTTP。
+
+该边界是当前迁移状态，不代表所有领域操作已经 HTTP 化。Prompt、取消、已读、权限响应和其他 Command 仍走 WS RPC，WebSocket 也继续承载订阅与实时事件；后续阶段再按稳定契约迁移剩余 Command 和查询。
 
 `session:activity` 是独立的轻量全局事件，只表示会话本轮执行从 `running` 到 `idle` 的状态变化，用于左侧会话列表运行中/未读提示；它不承载聊天内容，也不参与历史消息还原。
 
@@ -113,21 +127,22 @@ Session 删除采用软删除，仅隐藏列表项并保留 `messages` / `sessio
 |------|------|----------|
 | `src/acp/` | ACP 协议集成 | `host.ts`、`client-handler.ts`、`host-state.ts`、`interaction-state.ts`、`terminal-bridge.ts`、`session-capabilities.ts`、`adapters.ts`、`capabilities.ts`、`update-mapper.ts` |
 | `src/core/` | 业务逻辑 | `sessions.ts`、`turn-process-runtime.ts`、`prompt-diagnostics.ts`、`session-event-payload.ts`、`tasks.ts`、`task-simple.ts`、`task-prompt.ts`、`task-steps.ts`、`projects.ts`、`agents.ts`、`teams.ts`、`event-center.ts`、`events.ts`、`knowledge-base.ts` |
-| `src/gateway/` | 对外接口 | `server.ts`、`ws-handler.ts`、`rpc/*` |
+| `src/ports/`、`src/queries/` | 异步查询边界与当前单体适配器 | `query-port.ts`、`local-query-port.ts`、`task-list-query.ts` |
+| `src/gateway/` | 对外接口 | `server.ts`、`http/query-routes.ts`、`ws-handler.ts`、`rpc/*` |
 | `src/store/` | 数据持久化 | `db.ts`、`migrator.ts`、`migrations/*`、`turn-process-items.ts`、各实体 store |
 | `src/tools/` | 工具平台与 MCP 发布 | `resolver.ts`、`tool-gateway.ts`、`registry/*`、`runtime/*`、`mcp/http-mcp-server.ts` |
 | `src/cli/` | 命令行工具 | `index.ts`、agents/sessions/tasks/rules 子命令 |
 | `src/types/` | 类型定义 | `ws-protocol.ts` |
 | `ui/src/pages/` | PC 端页面组件 | Workspace/Dashboard/TaskBoard/Schedule/EventCenter/AgentSquare/ToolManager/Settings |
 | `ui/src/stores/` | 前端状态 | Zustand store、`session-events.ts` 事件还原、项目/工具/模板/模型状态 |
-| `ui/src/services/` | 通信层 | `ws-client.ts` |
+| `ui/src/services/` | 通信层 | `query-client.ts`、`ws-client.ts` |
 | `mobile/src/` | 移动端 Web App | `/app/` 下的手机端页面、组件和 Zustand store；复用 `ui/src/services/ws-client.ts` 与会话事件还原辅助逻辑 |
 
 ## PC 项目路由与前端状态边界
 
 PC 端项目页面以 `/p/:projectId/*` 为 URL 真源。Workspace、任务、自动化、事件中心、知识库和 Agent 记忆均位于该路由边界内；Dashboard、Agent 广场、工具、设置、分享页和 Widget 保持全局路由。旧的无项目前缀链接会重定向到当前有效项目，移动端路由和状态管理不受该边界影响。
 
-`project-data-scope` 是项目切换的前端编排边界。路由项目变化时，它先同步激活各 Zustand store 的项目分区缓存，再发起后台刷新。Task、Agent、Session 列表、文件树、规则、知识库、事件中心和 Agent Memory 均按项目或更细的 Agent/维度 scope 缓存；缓存采用 30 秒 stale-while-revalidate、逐 scope 请求序号和 LRU 淘汰，迟到响应只能写回自身 scope，不能覆盖当前项目投影。
+`project-data-scope` 是项目切换的前端编排边界。路由项目变化时，它先同步激活各 Zustand store 的项目分区缓存，再发起后台刷新；同一项目的并发激活会合并为一个 Promise 和一轮请求。Task、Agent、Session 列表、文件树、规则、知识库、事件中心和 Agent Memory 均按项目或更细的 Agent/维度 scope 缓存；缓存采用 30 秒 stale-while-revalidate、逐 scope 请求序号和 LRU 淘汰，迟到响应只能写回自身 scope，不能覆盖当前项目投影。项目页面不再重复发起已经由该边界负责的初始任务、会话和 Agent 读取。
 
 WebSocket 实体更新按实体携带的 `project_id` 写入目标缓存。只包含实体 ID 的局部更新会修改所有命中的已访问 scope；无法安全合并的集合更新只标记目标 scope 失效，并仅刷新当前可见项目。Session 的消息、事件和流式执行状态继续按 `sessionId` 使用既有缓存，不复制到项目列表缓存。
 

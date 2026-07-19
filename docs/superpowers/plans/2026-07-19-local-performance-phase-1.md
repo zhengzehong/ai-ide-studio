@@ -1,6 +1,6 @@
 # Local Performance Architecture Phase 1 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Move the first PC read hot paths from WebSocket RPC to versioned HTTP through an asynchronous Query Port, while reducing synchronous SQLite query amplification and preserving WS compatibility for mobile and rollback.
 
@@ -51,7 +51,7 @@
 - Modify: `src/store/task-steps.ts:186-217`
 - Test: `tests/integration/query-read-model-performance.test.ts`
 
-- [ ] **Step 1: Write failing Query Port contract and performance tests**
+- [x] **Step 1: Write failing Query Port contract and performance tests**
 
 Create real-database tests that seed at least 30 tasks/sessions, call the desired async API, and assert:
 
@@ -71,13 +71,13 @@ expect(prepareSpy.mock.calls.length).toBe(1)
 
 Also assert message paging returns `items`, `hasMore`, and the oldest returned timestamp as `nextCursor`, while event paging after a sequence returns the earliest next page in ascending sequence order.
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [x] **Step 2: Run the focused test and verify RED**
 
 Run: `npx vitest run tests/integration/query-read-model-performance.test.ts`
 
 Expected: FAIL because `src/ports/query-port.ts` and `src/queries/local-query-port.ts` do not exist.
 
-- [ ] **Step 3: Define the async contract**
+- [x] **Step 3: Define the async contract**
 
 Define the transport-neutral surface:
 
@@ -98,13 +98,13 @@ export interface QueryPort {
 
 Bounds are explicit: message limit defaults to 100 and clamps to `1..200`; event limit defaults to 500 and clamps to `1..1000`.
 
-- [ ] **Step 4: Implement fixed-count task and session projections**
+- [x] **Step 4: Implement fixed-count task and session projections**
 
 Add bulk store methods using parameterized `IN (...)` queries. Build the task projection from a constant number of reads: task rows, latest report rows, steps, dependencies, direct sessions, linked-session events, and linked session existence. Preserve the current ordering and `sessionId` selection behavior.
 
 Replace per-session `hasRunningAgentMessage` and `hasRunningProcessItem` calls in `listWithRuntimeState` with one statement containing indexed `EXISTS` projections, then apply the existing `resolveSessionRuntimeState` function in JavaScript.
 
-- [ ] **Step 5: Add read-model indexes**
+- [x] **Step 5: Add read-model indexes**
 
 Migration 042 creates these idempotent indexes:
 
@@ -121,17 +121,17 @@ CREATE INDEX IF NOT EXISTS idx_tasks_project_status_created
   ON tasks(project_id, status, created_at DESC);
 ```
 
-- [ ] **Step 6: Implement the in-process adapter and page semantics**
+- [x] **Step 6: Implement the in-process adapter and page semantics**
 
 `localQueryPort` wraps synchronous read models in async methods. Message pages fetch `limit + 1`, discard only the extra oldest row, and expose a cursor. Event pages with `afterSequence` fetch the earliest following events so repeated requests cannot skip a gap; initial recovery still returns the latest bounded window in ascending sequence order.
 
-- [ ] **Step 7: Run focused tests and verify GREEN**
+- [x] **Step 7: Run focused tests and verify GREEN**
 
 Run: `npx vitest run tests/integration/query-read-model-performance.test.ts tests/integration/session-history-lightweight.test.ts tests/unit/task-events-rpc.test.ts`
 
 Expected: all tests PASS; task query preparation count remains constant as seeded task count grows.
 
-- [ ] **Step 8: Commit the read boundary**
+- [x] **Step 8: Commit the read boundary**
 
 ```bash
 git add src/ports src/queries src/store tests/integration/query-read-model-performance.test.ts
@@ -145,7 +145,7 @@ git commit -m "perf: add async query read models"
 - Modify: `src/gateway/server.ts:28-56`
 - Test: `tests/integration/http-query-routes.test.ts`
 
-- [ ] **Step 1: Write failing HTTP contract tests**
+- [x] **Step 1: Write failing HTTP contract tests**
 
 Start a real gateway on port 0 and verify:
 
@@ -161,13 +161,13 @@ expect(Number(response.headers.get('x-response-bytes'))).toBeGreaterThan(0)
 
 Cover all four endpoints, missing token `401`, invalid integer/boolean query values `400`, missing session parity, message cursor metadata, event `afterSequence`, and `Cache-Control: no-store`.
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [x] **Step 2: Run the focused test and verify RED**
 
 Run: `npx vitest run tests/integration/http-query-routes.test.ts`
 
 Expected: FAIL with HTTP 404 for `/api/v1/tasks`.
 
-- [ ] **Step 3: Implement and mount the routes**
+- [x] **Step 3: Implement and mount the routes**
 
 Mount:
 
@@ -180,13 +180,13 @@ GET /api/v1/sessions/:sessionId/events
 
 Every handler validates query parameters, awaits `QueryPort`, returns `{ data }` or `{ data, page: { hasMore, nextCursor } }`, and emits structured debug timing. Responses larger than the 1 MiB observation budget log a warning with route, item count, elapsed time, and byte count, but are not truncated in Phase 1.
 
-- [ ] **Step 4: Run focused HTTP tests and verify GREEN**
+- [x] **Step 4: Run focused HTTP tests and verify GREEN**
 
 Run: `npx vitest run tests/integration/http-query-routes.test.ts tests/integration/http-mcp-tool-platform.test.ts tests/integration/bridge-callback.test.ts`
 
 Expected: all tests PASS and existing HTTP/MCP auth behavior is unchanged.
 
-- [ ] **Step 5: Commit the HTTP slice**
+- [x] **Step 5: Commit the HTTP slice**
 
 ```bash
 git add src/gateway/http/query-routes.ts src/gateway/server.ts tests/integration/http-query-routes.test.ts
@@ -200,7 +200,7 @@ git commit -m "feat: expose versioned HTTP query routes"
 - Modify: `src/gateway/rpc/sessions.ts:269-275,363-370,426-428`
 - Test: `tests/integration/query-transport-parity.test.ts`
 
-- [ ] **Step 1: Write failing transport parity tests**
+- [x] **Step 1: Write failing transport parity tests**
 
 Seed tasks, sessions, messages, and events once. Compare HTTP response `data` to the matching WS handler result for:
 
@@ -213,23 +213,23 @@ expect(wsEvents).toEqual(httpEvents.data)
 
 The parity test must include project/agent filters, lightweight tool-call behavior, and event `afterSequence`.
 
-- [ ] **Step 2: Run parity tests and verify RED**
+- [x] **Step 2: Run parity tests and verify RED**
 
 Run: `npx vitest run tests/integration/query-transport-parity.test.ts`
 
 Expected: FAIL because legacy handlers still own independent synchronous implementations and event paging semantics differ.
 
-- [ ] **Step 3: Convert legacy handlers into async adapters**
+- [x] **Step 3: Convert legacy handlers into async adapters**
 
 Each migrated handler only translates its existing message fields to `QueryPort`, awaits the result, and calls `sendResult`. Page endpoints send `page.items` to preserve the historical WS array response. No mobile source file changes.
 
-- [ ] **Step 4: Run parity and existing RPC tests**
+- [x] **Step 4: Run parity and existing RPC tests**
 
 Run: `npx vitest run tests/integration/query-transport-parity.test.ts tests/integration/session-history-lightweight.test.ts tests/unit/task-events-rpc.test.ts tests/unit/task-rpc.test.ts`
 
 Expected: all tests PASS.
 
-- [ ] **Step 5: Commit the compatibility layer**
+- [x] **Step 5: Commit the compatibility layer**
 
 ```bash
 git add src/gateway/rpc tests/integration/query-transport-parity.test.ts
@@ -246,17 +246,17 @@ git commit -m "refactor: route legacy WS reads through query port"
 - Modify: `ui/src/pages/dashboard/dashboard-session-context.tsx:60-78`
 - Test: `tests/unit/query-client.test.ts`
 
-- [ ] **Step 1: Write failing HTTP client tests**
+- [x] **Step 1: Write failing HTTP client tests**
 
 Use an injected fake `fetch` to verify exact paths, URL encoding, `x-ai-ide-token`, `Accept: application/json`, response-envelope parsing, server error propagation, and abort timeout. Verify the WS adapter emits the existing RPC message shapes. The production selector must choose HTTP unless `VITE_QUERY_TRANSPORT=ws`; Vitest may explicitly use the WS adapter so existing store tests remain deterministic.
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [x] **Step 2: Run the focused test and verify RED**
 
 Run: `npx vitest run tests/unit/query-client.test.ts`
 
 Expected: FAIL because `ui/src/services/query-client.ts` does not exist.
 
-- [ ] **Step 3: Implement typed HTTP and rollback clients**
+- [x] **Step 3: Implement typed HTTP and rollback clients**
 
 The public interface is domain-specific:
 
@@ -271,17 +271,17 @@ export interface QueryClient {
 
 Use relative `/api/v1` URLs so Vite proxy, production Gateway, and Electron share configuration. Read the existing access token through `getStoredAccessToken()`; never place it in the URL.
 
-- [ ] **Step 4: Migrate every PC caller of the four reads**
+- [x] **Step 4: Migrate every PC caller of the four reads**
 
 Task/session stores consume domain methods. Message pagination uses server `page.hasMore` instead of guessing from `items.length`. Global Assistant and dashboard session context use the same client. WebSocket remains responsible for subscriptions, commands, and event push. Do not edit `mobile/`.
 
-- [ ] **Step 5: Run client and store regression tests**
+- [x] **Step 5: Run client and store regression tests**
 
 Run: `npx vitest run tests/unit/query-client.test.ts tests/unit/task-project-cache.test.ts tests/unit/session-project-cache.test.ts tests/unit/session-store-done-refresh.test.ts tests/unit/global-assistant-store.test.ts`
 
 Expected: all tests PASS for HTTP DTO parsing, WS rollback, project cache, message recovery, and stale-response guards.
 
-- [ ] **Step 6: Commit the PC migration**
+- [x] **Step 6: Commit the PC migration**
 
 ```bash
 git add ui/src tests/unit/query-client.test.ts
@@ -299,25 +299,25 @@ git commit -m "perf(ui): move hot reads to HTTP"
 - Modify: `docs/architecture/ws-protocol.md`
 - Modify: `README.md`
 
-- [ ] **Step 1: Write a failing duplicate-activation test**
+- [x] **Step 1: Write a failing duplicate-activation test**
 
 Call `activateProjectData('project-a')` twice before the first refresh settles. Assert every scoped fetch is invoked once and both promises settle from the same activation wave.
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [x] **Step 2: Run the focused test and verify RED**
 
 Run: `npx vitest run tests/unit/project-data-scope.test.ts`
 
 Expected: FAIL because each call currently starts a new ten-request project refresh wave.
 
-- [ ] **Step 3: Coalesce activation and remove page duplicates**
+- [x] **Step 3: Coalesce activation and remove page duplicates**
 
 Track an in-flight activation promise per project, synchronously activate caches once, and remove it in `finally`. Remove the Workspace initial agent/session/task effect and TaskBoard initial task/mode effect because `ProjectScopeLayout` owns project activation. Keep event-driven refreshes and non-project Dashboard loading unchanged.
 
-- [ ] **Step 4: Update stable documentation**
+- [x] **Step 4: Update stable documentation**
 
 Document that Phase 1 PC task/session/history queries use `/api/v1`, WS RPC remains a compatibility bridge, commands and the remaining reads migrate in later phases, and `VITE_QUERY_TRANSPORT=ws` is the rollback switch. Document `Server-Timing`, response-size headers, page bounds, and the rule that mobile remains on WS compatibility until its own migration.
 
-- [ ] **Step 5: Run focused and full verification**
+- [x] **Step 5: Run focused and full verification**
 
 Run in order:
 
@@ -331,7 +331,7 @@ git diff --check
 
 Expected: focused tests PASS; full suite reports at least the 184-file/990-test baseline plus new cases; build and lint exit 0; diff check has no output.
 
-- [ ] **Step 6: Verify scope and commit Phase 1**
+- [x] **Step 6: Verify scope and commit Phase 1**
 
 Run:
 

@@ -6,7 +6,7 @@ AI IDE Studio 是一个本地部署的全栈 AI 编程协作工具。通过 [ACP
 
 ## 功能
 
-- **Gateway** — HTTP + WebSocket 服务，提供 Agent / Session / Task / Rule 的 RPC 接口和实时事件推送
+- **Gateway** — HTTP + WebSocket 服务；PC 高频任务/会话/历史查询走版本化 HTTP，WebSocket 负责实时事件、命令和兼容 RPC
 - **Workspace** — 主工作台，支持流式对话、执行过程持久化/恢复、工具调用懒加载/折叠、ACP diff 文件变更查看、思考过程展示、图片附件、Markdown 渲染和长会话虚拟滚动
 - **PC 项目切换** — 顶部支持固定项目 Tab，并显示所有项目的运行中/未读会话数；每个项目独立记忆上次页面、查询参数和关键视图状态，切回时先显示分区缓存并在后台同步最新数据
 - **全局助理** — 可从 Agent 广场设置唯一全局 Agent，并通过右侧竖条随时打开独立聊天抽屉
@@ -40,6 +40,8 @@ npm run dev:all    # 启动 Gateway + UI
 - Web UI: http://localhost:5173
 - Mobile UI: http://localhost:5174/app/（开发）或 http://localhost:18800/app/（生产构建后）
 - Gateway: http://localhost:18800
+
+PC 默认通过 `/api/v1` HTTP 读取任务、会话、消息历史和恢复事件。需要临时回滚时，在启动或构建 PC UI 前设置 `VITE_QUERY_TRANSPORT=ws`；移动端当前继续使用 WS 兼容 RPC。
 
 详细配置见 [快速上手指南](docs/guides/getting-started.md)。
 
