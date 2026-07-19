@@ -22,6 +22,7 @@ import { mountStaticAssets, staticDirForLog } from './static-assets.js'
 import { handleBridgeCallback } from './bridge-callback.js'
 import { resolveAvatarPath } from './rpc/assets.js'
 import { createChildLogger } from '../core/logger.js'
+import { mountQueryRoutes } from './http/query-routes.js'
 
 const log = createChildLogger('gateway')
 
@@ -31,6 +32,8 @@ export async function startGateway(config: AppConfig) {
   mountLocalTokenGuard(app, config)
 
   app.get('/health', (c) => c.json({ status: 'ok', uptime: process.uptime() }))
+
+  mountQueryRoutes(app)
 
   app.get('/api/agents', (c) => c.json(agentStore.list()))
   app.get('/api/sessions', (c) => {
