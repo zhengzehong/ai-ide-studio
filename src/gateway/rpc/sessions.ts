@@ -21,6 +21,7 @@ import type { FileChangeDetailData } from '../../types/ws-protocol.js'
 import type { AgentConnection } from '../../acp/host-types.js'
 import type { AgentRow } from '../../store/agents.js'
 import type { RpcHandlerMap } from './types.js'
+import { localQueryPort } from '../../queries/local-query-port.js'
 
 const log = createChildLogger('rpc-sessions')
 
@@ -266,12 +267,11 @@ export const sessionRpcHandlers: RpcHandlerMap = {
     }, 10_000)
   },
 
-  'sessions.list'(msg, { sendResult }) {
-    sendResult(sessionStore.listWithRuntimeState(
-      msg.agentId as string | undefined,
-      msg.projectId as string | undefined,
-      (sessionId) => sessionManager.isPromptActive(sessionId),
-    ))
+  async 'sessions.list'(msg, { sendResult }) {
+    sendResult(await localQueryPort.listSessions({
+      agentId: msg.agentId as string | undefined,
+      projectId: msg.projectId as string | undefined,
+    }))
   },
 
   'sessions.listByTask'(msg, { sendResult }) {
@@ -360,13 +360,15 @@ export const sessionRpcHandlers: RpcHandlerMap = {
     sendResult({ deleted: true })
   },
 
-  'sessions.messages'(msg, { sendResult }) {
-    sendResult(messageStore.list(msg.sessionId as string, {
+  async 'sessions.messages'(msg, { sendResult }) {
+    const page = await localQueryPort.listSessionMessages({
+      sessionId: msg.sessionId as string,
       limit: msg.limit as number | undefined,
       before: msg.before as string | undefined,
       includeToolCalls: msg.includeToolCalls as boolean | undefined,
       includeLatestToolCalls: msg.includeLatestToolCalls as boolean | undefined,
-    }))
+    })
+    sendResult(page.items)
   },
 
   'sessions.messageToolCalls'(msg, { sendResult }) {
@@ -423,8 +425,13 @@ export const sessionRpcHandlers: RpcHandlerMap = {
     sendResult(eventStore.listByMessage(sessionId, message.id))
   },
 
-  'sessions.events'(msg, { sendResult }) {
-    sendResult(eventStore.list(msg.sessionId as string, { limit: msg.limit as number | undefined, afterSequence: msg.afterSequence as number | undefined }))
+  async 'sessions.events'(msg, { sendResult }) {
+    const page = await localQueryPort.listSessionEvents({
+      sessionId: msg.sessionId as string,
+      limit: msg.limit as number | undefined,
+      afterSequence: msg.afterSequence as number | undefined,
+    })
+    sendResult(page.items)
   },
 
   'sessions.markRead'(msg, { sendResult }) {
