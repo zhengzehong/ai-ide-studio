@@ -19,7 +19,7 @@ export interface OutboxEventInput {
   aggregateId: string
   projectId?: string
   sessionId?: string
-  version: number
+  version?: number
   payload: unknown
   createdAt: string
 }
@@ -69,8 +69,13 @@ export interface WriteBatchResult {
   results: WriteMutationResult[]
 }
 
+export interface SessionWriteCursor {
+  sequence: number
+}
+
 export interface WriteDataPort {
   commitBatch(batch: WriteBatch): Promise<WriteBatchResult>
+  sessionCursor(sessionId: string): Promise<SessionWriteCursor>
   drain(): Promise<void>
   close(): Promise<void>
 }

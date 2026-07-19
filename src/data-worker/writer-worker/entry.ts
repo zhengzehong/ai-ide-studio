@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3'
 import { parentPort, workerData } from 'node:worker_threads'
-import type { WriteBatch, WriteBatchResult } from '../../ports/write-data-port.js'
+import type { SessionWriteCursor, WriteBatch, WriteBatchResult } from '../../ports/write-data-port.js'
 import type {
   WorkerErrorCode,
   WorkerMetrics,
@@ -9,7 +9,7 @@ import type {
   WritePriority,
 } from '../protocol.js'
 import { WriterScheduler, type WriterSchedulerItem } from './scheduler.js'
-import { executeWriteBatches, WriterOperationError } from './operations.js'
+import { executeWriteBatches, readSessionWriteCursor, WriterOperationError } from './operations.js'
 
 interface WriterWorkerData {
   dbPath: string
@@ -38,6 +38,20 @@ port.postMessage({ kind: 'ready', worker: 'writer' })
 
 port.on('message', (message: unknown) => {
   if (!isWriteRequest(message)) return
+  if (message.operation === 'writer.cursor') {
+    const startedAt = performance.now()
+    try {
+      const sessionId = asSessionCursorRequest(message.payload)
+      port.postMessage(directResultResponse(
+        message,
+        readSessionWriteCursor(db, sessionId),
+        performance.now() - startedAt,
+      ))
+    } catch (error) {
+      port.postMessage(errorResponse(message, errorCode(error), errorMessage(error)))
+    }
+    return
+  }
   if (message.operation !== 'writer.commit') {
     port.postMessage(errorResponse(message, 'BAD_REQUEST', `Unknown write operation: ${message.operation}`))
     return
@@ -87,6 +101,25 @@ function resultResponse(work: WriterWork, result: WriteBatchResult): WorkerRespo
     requestId: work.request.requestId,
     result,
     metrics: metrics(work),
+  }
+}
+
+function directResultResponse(
+  request: WorkerRequest,
+  result: SessionWriteCursor,
+  executionMs: number,
+): WorkerResponse {
+  return {
+    kind: 'result',
+    requestId: request.requestId,
+    result,
+    metrics: {
+      queueDepth: 0,
+      queueWaitMs: 0,
+      executionMs,
+      totalMs: Math.max(0, Date.now() - request.enqueuedAt),
+      payloadBytes: request.payloadBytes,
+    },
   }
 }
 
@@ -145,6 +178,17 @@ function asWriteBatch(value: unknown): WriteBatch {
     throw new WriterOperationError('BAD_REQUEST', 'Write batch requires batchId and mutations')
   }
   return batch as WriteBatch
+}
+
+function asSessionCursorRequest(value: unknown): string {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new WriterOperationError('BAD_REQUEST', 'Writer cursor payload must be an object')
+  }
+  const sessionId = (value as Record<string, unknown>).sessionId
+  if (typeof sessionId !== 'string' || sessionId.length === 0) {
+    throw new WriterOperationError('BAD_REQUEST', 'Writer cursor requires sessionId')
+  }
+  return sessionId
 }
 
 function errorCode(error: unknown): WorkerErrorCode {

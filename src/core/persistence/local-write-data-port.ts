@@ -1,10 +1,13 @@
 import type { WriteBatch, WriteBatchResult, WriteDataPort } from '../../ports/write-data-port.js'
-import { executeWriteBatches } from '../../data-worker/writer-worker/operations.js'
+import { executeWriteBatches, readSessionWriteCursor } from '../../data-worker/writer-worker/operations.js'
 import { getDb } from '../../store/db.js'
 
 export const localWriteDataPort: WriteDataPort = {
   async commitBatch(batch: WriteBatch): Promise<WriteBatchResult> {
     return executeWriteBatches(getDb(), [batch])[0]
+  },
+  async sessionCursor(sessionId: string) {
+    return readSessionWriteCursor(getDb(), sessionId)
   },
   async drain(): Promise<void> {
     // Local better-sqlite3 mutations complete before commitBatch returns.

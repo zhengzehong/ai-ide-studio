@@ -1,6 +1,11 @@
 import { Worker } from 'node:worker_threads'
 import { createChildLogger } from '../../core/logger.js'
-import type { WriteBatch, WriteBatchResult, WriteDataPort } from '../../ports/write-data-port.js'
+import type {
+  SessionWriteCursor,
+  WriteBatch,
+  WriteBatchResult,
+  WriteDataPort,
+} from '../../ports/write-data-port.js'
 import type { WorkerReadyMessage } from '../protocol.js'
 import { WorkerRequestError, WorkerRpcClient } from '../worker-rpc-client.js'
 import { resolveWorkerEntryUrl } from '../worker-entry-url.js'
@@ -67,6 +72,12 @@ export async function createWorkerWriteDataPort(
         )
         throw err
       }
+    },
+    async sessionCursor(sessionId: string): Promise<SessionWriteCursor> {
+      const response = await rpc.request<SessionWriteCursor>('writer.cursor', { sessionId }, {
+        priority: 'interactive',
+      })
+      return response.result
     },
     drain(): Promise<void> {
       return rpc.drain()

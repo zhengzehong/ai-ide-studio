@@ -3,6 +3,7 @@ import type { WorkerErrorCode } from '../protocol.js'
 import type {
   SessionEventWriteInput,
   SessionEventWriteResult,
+  SessionWriteCursor,
   WriteBatch,
   WriteBatchResult,
   WriteMutation,
@@ -50,7 +51,13 @@ function commitBatch(db: SqliteDatabase, batch: WriteBatch): WriteBatchResult {
   }
 
   validateSessionOrder(db, batch)
-  const results = batch.mutations.map((mutation) => executeMutation(db, batch, mutation))
+  const results: WriteMutationResult[] = []
+  let appendedEventSequence: number | undefined
+  for (const mutation of batch.mutations) {
+    const result = executeMutation(db, batch, mutation, appendedEventSequence)
+    results.push(result)
+    if (result.type === 'session.event.append') appendedEventSequence = result.event.sequence
+  }
   const committedAt = new Date().toISOString()
   db.prepare(`
     INSERT INTO writer_batch_commits (
@@ -89,6 +96,7 @@ function executeMutation(
   db: SqliteDatabase,
   batch: WriteBatch,
   mutation: WriteMutation,
+  appendedEventSequence?: number,
 ): WriteMutationResult {
   assertMutationSession(batch, mutation)
   switch (mutation.type) {
@@ -115,6 +123,9 @@ function executeMutation(
       return { type: mutation.type, changes: result.changes }
     }
     case 'outbox.enqueue':
+      if (mutation.event.version === undefined && appendedEventSequence === undefined) {
+        throw new WriterOperationError('BAD_REQUEST', 'Outbox version requires an appended Session event')
+      }
       db.prepare(`
         INSERT INTO outbox_events (
           id, topic, aggregate_type, aggregate_id, project_id, session_id,
@@ -127,12 +138,23 @@ function executeMutation(
         mutation.event.aggregateId,
         mutation.event.projectId ?? null,
         mutation.event.sessionId ?? null,
-        mutation.event.version,
+        mutation.event.version ?? appendedEventSequence,
         JSON.stringify(mutation.event.payload),
         mutation.event.createdAt,
       )
       return { type: mutation.type, id: mutation.event.id }
   }
+}
+
+export function readSessionWriteCursor(db: SqliteDatabase, sessionId: string): SessionWriteCursor {
+  const event = db.prepare<[string], { sequence: number | null }>(
+    'SELECT MAX(sequence) AS sequence FROM session_events WHERE session_id = ?',
+  ).get(sessionId)
+  const batch = db.prepare<[string], { last_sequence: number | null }>(`
+    SELECT last_sequence FROM writer_batch_commits
+    WHERE session_id = ? ORDER BY rowid DESC LIMIT 1
+  `).get(sessionId)
+  return { sequence: Math.max(event?.sequence ?? 0, batch?.last_sequence ?? 0) }
 }
 
 function appendSessionEvent(

@@ -41,6 +41,7 @@ describe('session persistence through Writer Worker', () => {
         if (!writer) throw new Error('writer missing')
         return writer.commitBatch(batch)
       },
+      sessionCursor: (sessionId) => writer?.sessionCursor(sessionId) ?? Promise.resolve({ sequence: 0 }),
       drain: () => writer?.drain() ?? Promise.resolve(),
       close: () => Promise.resolve(),
     }
