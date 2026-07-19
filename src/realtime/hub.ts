@@ -93,6 +93,10 @@ export class RealtimeHub {
     }
     if (message.type === 'resume') {
       connection.queue.acknowledgeResync()
+      connection.cursors.clear()
+      for (const [sessionId, cursor] of realtimeCursors(message.cursors)) {
+        if (connection.subscriptions.has(sessionId)) connection.cursors.set(sessionId, cursor)
+      }
       this.enqueue(connection, { type: 'resume:ack', cursors: Object.fromEntries(connection.cursors) })
       return
     }
@@ -257,4 +261,20 @@ function filterForClaims(message: ServerMessage, claims: RealtimeConnectionClaim
 
 function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
+}
+
+function realtimeCursors(value: unknown): Array<[string, RealtimeCursor]> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return []
+  const result: Array<[string, RealtimeCursor]> = []
+  for (const [sessionId, candidate] of Object.entries(value)) {
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) continue
+    const cursor = candidate as Record<string, unknown>
+    if (typeof cursor.streamGeneration !== 'string' || cursor.streamGeneration.length === 0) continue
+    if (!Number.isSafeInteger(cursor.sequence) || (cursor.sequence as number) < 0) continue
+    result.push([sessionId, {
+      streamGeneration: cursor.streamGeneration,
+      sequence: cursor.sequence as number,
+    }])
+  }
+  return result
 }

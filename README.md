@@ -6,7 +6,7 @@ AI IDE Studio 是一个本地部署的全栈 AI 编程协作工具。通过 [ACP
 
 ## 功能
 
-- **Gateway** — HTTP + WebSocket 服务；PC 高频任务/会话/历史查询走版本化 HTTP，WebSocket 负责实时事件、命令和兼容 RPC
+- **API + Realtime 隔离** — API 提供 HTTP、领域命令与 DB Worker；独立 Realtime 子进程负责 WebSocket、订阅、序列化和有界背压，PC/移动端动态发现实际端点
 - **Workspace** — 主工作台，支持流式对话、执行过程持久化/恢复、工具调用懒加载/折叠、ACP diff 文件变更查看、思考过程展示、图片附件、Markdown 渲染和长会话虚拟滚动
 - **PC 项目切换** — 顶部支持固定项目 Tab，并显示所有项目的运行中/未读会话数；每个项目独立记忆上次页面、查询参数和关键视图状态，切回时先显示分区缓存并在后台同步最新数据
 - **全局助理** — 可从 Agent 广场设置唯一全局 Agent，并通过右侧竖条随时打开独立聊天抽屉
@@ -45,6 +45,8 @@ PC 默认通过 `/api/v1` HTTP 读取任务、会话、消息历史和恢复事�
 
 后端默认使用 `DATA_WORKER_MODE=worker`，同步 SQLite 查询和新会话热写分别运行在 Query/Writer Worker Thread。排障时可以显式设置 `DATA_WORKER_MODE=local` 回退到进程内适配器；Worker 运行中崩溃不会自动同步降级。
 
+后端默认使用 `REALTIME_MODE=process` 启动独立 Realtime 子进程，API 同步阻塞不会占用实时连接事件循环。客户端通过 `/api/v1/realtime-config` 动态发现端点；排障时可显式设置 `REALTIME_MODE=embedded` 回退到 API 同端口 WebSocket。旧 WS 领域 RPC 默认通过本机 IPC 兼容桥执行，可在迁移完成后设置 `REALTIME_LEGACY_RPC=disabled` 关闭。
+
 详细配置见 [快速上手指南](docs/guides/getting-started.md)。
 
 ## 技术栈
@@ -61,7 +63,7 @@ PC 默认通过 `/api/v1` HTTP 读取任务、会话、消息历史和恢复事�
 
 ```
 ai-ide-studio/
-├── src/           # 后端 Gateway、Data Ports、Query/Writer Workers、ACP 与 WS
+├── src/           # API、Realtime、IPC、Data Workers 与 ACP
 ├── ui/            # 前端 React 应用
 ├── mobile/        # 移动端 React 应用（/app/）
 ├── tests/         # 测试（Vitest）
@@ -125,6 +127,14 @@ MIT
 | `ACP_SESSION_IDLE_MS` | `1800000` | 单个 runtime 侧 ACP session 的空闲断开时间；保留 SQLite `acp_session_id` |
 | `DATA_WORKER_MODE` | `worker` | `worker` 使用 Query/Writer Worker；`local` 为显式同步回滚模式 |
 | `DATA_WORKER_SLOW_MS` | `100` | Query/Writer Worker 请求总耗时达到该毫秒数时记录慢请求告警 |
+| `REALTIME_MODE` | `process` | `process` 使用独立 Realtime 子进程；`embedded` 为显式同进程回滚模式 |
+| `REALTIME_HOST` | 与 `HOST` 一致 | Realtime 监听地址 |
+| `REALTIME_PORT` | API 端口 + 1 | Realtime 监听端口；API 端口为 `0` 时也使用动态端口 |
+| `REALTIME_LEGACY_RPC` | `enabled` | 是否允许旧 WS 领域 RPC 通过 IPC 转发到 API |
+| `REALTIME_MAX_QUEUE_MESSAGES` | `500` | 单连接待发送消息上限 |
+| `REALTIME_MAX_QUEUE_BYTES` | `2097152` | 单连接待发送队列字节上限 |
+| `REALTIME_MAX_BUFFERED_BYTES` | `2097152` | 单 socket `bufferedAmount` 背压阈值 |
+| `REALTIME_IPC_MAX_FRAME_BYTES` | `16777216` | 本机 Protobuf IPC 单帧上限 |
 | `ACP_RUNTIME_IDLE_MS` | `3600000` | ACP runtime 进程空闲停止时间 |
 | `ACP_IDLE_SWEEP_MS` | `300000` | 空闲回收扫描间隔 |
 | `GLOBAL_ASSISTANT_WORKSPACE_ROOT` | 系统应用数据目录下的 `global-assistants` | 全局助理工作空间根目录；实际工作目录为 `<root>/<agentId>/workspace` |

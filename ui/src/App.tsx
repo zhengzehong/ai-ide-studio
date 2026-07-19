@@ -36,6 +36,7 @@ import { useKnowledgeBaseStore } from './stores/knowledge-base.store'
 import { ProjectScopeLayout } from './components/project/ProjectScopeLayout'
 import { LegacyProjectRedirect } from './components/project/LegacyProjectRedirect'
 import { invalidateProjectData, refreshProjectData } from './project-scope/project-data-scope'
+import { wsClient } from './services/ws-client'
 
 export default function App() {
   const init = useConnectionStore((s) => s.init)
@@ -78,6 +79,21 @@ export default function App() {
       const off6 = useTimelineStore.getState().setupListeners()
       const off7 = useKnowledgeBaseStore.getState().setupListeners()
       const off8 = useProjectSessionStatsStore.getState().setupListeners()
+      const off9 = wsClient.on('resync_required', (message) => {
+        const sessionStore = useSessionStore.getState()
+        const resyncSessionId = typeof message.sessionId === 'string' ? message.sessionId : undefined
+        const sessionId = resyncSessionId ?? sessionStore.currentSessionId ?? undefined
+        const recovery: Promise<unknown>[] = []
+        if (sessionId && sessionId === sessionStore.currentSessionId) {
+          recovery.push(sessionStore.fetchMessages(sessionId), sessionStore.fetchEvents(sessionId))
+        }
+        const activeProjectId = useProjectStore.getState().currentProjectId
+        if (activeProjectId) {
+          invalidateProjectData(activeProjectId)
+          recovery.push(refreshProjectData(activeProjectId, { force: true }))
+        }
+        void Promise.allSettled(recovery).then(() => wsClient.acknowledgeResync(resyncSessionId))
+      })
       return () => {
         off1()
         off2()
@@ -87,6 +103,7 @@ export default function App() {
         off6()
         off7()
         off8()
+        off9()
         listenersReady.current = false
       }
     }

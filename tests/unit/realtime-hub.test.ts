@@ -86,6 +86,31 @@ describe('RealtimeHub', () => {
     ])
   })
 
+  it('loads subscribed client cursors on reconnect so missed frames require resync', () => {
+    const hub = createHub()
+    const socket = new FakeSocket()
+    hub.addConnection('owner', socket, { authMode: 'owner' })
+    hub.handleClientMessage('owner', { type: 'subscribe', sessionIds: ['session-a'] })
+    socket.sent.length = 0
+
+    hub.handleClientMessage('owner', {
+      type: 'resume',
+      cursors: {
+        'session-a': { streamGeneration: 'generation-a', sequence: 3 },
+        'session-unsubscribed': { streamGeneration: 'generation-a', sequence: 9 },
+      },
+    })
+    hub.deliver(sessionDelivery(update('session-a', 5)))
+
+    expect(socket.messages()).toEqual([
+      {
+        type: 'resume:ack',
+        cursors: { 'session-a': { streamGeneration: 'generation-a', sequence: 3 } },
+      },
+      { type: 'resync_required', sessionId: 'session-a', reason: 'stream-cursor-gap' },
+    ])
+  })
+
   it('removes subscriptions and queued state on disconnect', () => {
     const hub = createHub()
     const socket = new FakeSocket()

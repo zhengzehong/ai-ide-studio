@@ -7,15 +7,16 @@
 ```text
 客户端层
   Web UI / Mobile Web App / CLI / 外部调用方
-      │ WebSocket / HTTP / CLI
-      ▼
-Gateway 层
-  server.ts       HTTP 服务与 WS 升级
-  http/query-routes.ts  PC 高频只读 HTTP API
-  ws-handler.ts   WS 连接、订阅、广播、JSON 解析、RPC dispatch
-  rpc/*           按领域拆分的 WS RPC handler 与兼容桥
-      │
-      ├── Data Ports / Worker Threads
+      │ HTTP / CLI                    │ WebSocket
+      ▼                               ▼
+API 进程                         Realtime 进程
+  gateway/server.ts               realtime/service.ts
+  gateway/http/*                  连接、认证、订阅索引、序列化、背压
+  gateway/rpc/*                   每连接有界发送队列与游标恢复
+      │                               ▲
+      ├──── 长度前缀 Protobuf IPC ────┤
+      │                               │
+      ├── Data Ports / Worker Threads │
       │     ports/query-port.ts          异步查询契约
       │     ports/write-data-port.ts     封闭写入批次契约
       │     data-worker/query-worker/*   单只读 SQLite 连接
@@ -23,7 +24,7 @@ Gateway 层
       │     queries/task-list-query.ts   任务列表读模型
       │ mitt 事件总线
       ▼
-Core 业务层
+Core 业务层（API 进程）
   sessions.ts / tasks.ts / projects.ts / agents.ts / teams.ts / event-center.ts / events.ts / knowledge-base.ts
       │
       ├── Store 持久层
@@ -52,10 +53,10 @@ Core 业务层
 ### 用户发送消息
 
 ```text
-Web UI / Mobile Web App → WS "prompt" → ws-handler → gateway/rpc/subscriptions.prompt
+Web UI / Mobile Web App → Realtime WS "prompt" → Protobuf IPC 兼容桥 → gateway/rpc/subscriptions.prompt
   → sessionManager.sendPrompt() → acpHost.ensureSession() / acpHost.prompt()
   → Agent runtime 子进程 (stdio NDJSON)
-  → ACP session/update → core events → ws-handler 广播 → Web UI 流式更新
+  → ACP session/update → core events → Protobuf IPC → Realtime 订阅分发 → Web UI 流式更新
   → session:update 合并 → Writer Worker 批量持久化 session_events / running snapshot
   → session:done → flush 同会话 pending → critical commit + Outbox → WS 广播 done
 ```
@@ -71,6 +72,14 @@ PC 端的任务列表、会话列表、消息历史和恢复事件使用版本�
 HTTP 分页响应使用 `{ data, page: { hasMore, nextCursor } }`，普通列表使用 `{ data }`。消息单页最多 200 条，恢复事件单页最多 1000 条；每个成功响应包含 `Server-Timing` 和 `X-Response-Bytes`，超过 1 MiB 观测预算时记录结构化告警但不截断。PC 构建设置 `VITE_QUERY_TRANSPORT=ws` 可回滚四类读取，其余值和默认值均使用 HTTP。
 
 该边界是当前迁移状态，不代表所有领域操作已经 HTTP 化。Prompt、取消、已读、权限响应和其他 Command 仍走 WS RPC，WebSocket 也继续承载订阅与实时事件；后续阶段再按稳定契约迁移剩余 Command 和查询。
+
+### Realtime 进程边界
+
+默认 `REALTIME_MODE=process` 时，独立 Realtime 子进程独占浏览器 WebSocket、认证握手、Session 订阅索引、JSON 序列化和发送背压；API 进程不持有浏览器 socket。两者通过本机 named pipe（Windows）或 Unix domain socket 通信，消息使用 4 字节大端长度前缀和版本化 Protobuf envelope，业务 payload 为受类型约束的 UTF-8 JSON。Envelope 携带 `version`、`kind`、请求/会话/流游标和幂等元数据，单帧大小受 `REALTIME_IPC_MAX_FRAME_BYTES` 限制。
+
+浏览器先请求 `GET /api/v1/realtime-config` 获取实际 `wsUrl`、协议版本、运行模式和兼容桥状态。PC 与移动端每次重连都重新发现端点，发现失败时才回退到 API 同端口 WebSocket。`REALTIME_MODE=embedded` 是显式回滚模式；`REALTIME_LEGACY_RPC=enabled` 保留尚未迁移到 HTTP 的旧领域 RPC，关闭后 Realtime 只接受 `subscribe`、`unsubscribe`、`resume` 和 `ping`。
+
+每个连接有独立的消息数和字节数上限。文本 delta 按消息合并，process item 采用 latest-wins，`session:done`、权限/提问和错误保持关键 FIFO；客户端跟不上、序列跳号或 generation 变化时发送 `resync_required`，由客户端重新读取 HTTP snapshot。一个慢客户端只消耗自己的有界队列，不能拖住其他连接。API 进程监督 Realtime 异常退出并自动重启；HTTP、Query Worker 和 Writer Worker 在重启期间继续服务。
 
 ### SQLite Worker 边界
 
@@ -141,7 +150,10 @@ Session 删除采用软删除，仅隐藏列表项并保留 `messages` / `sessio
 | `src/acp/` | ACP 协议集成 | `host.ts`、`client-handler.ts`、`host-state.ts`、`interaction-state.ts`、`terminal-bridge.ts`、`session-capabilities.ts`、`adapters.ts`、`capabilities.ts`、`update-mapper.ts` |
 | `src/core/` | 业务逻辑 | `sessions.ts`、`turn-process-runtime.ts`、`prompt-diagnostics.ts`、`session-event-payload.ts`、`tasks.ts`、`task-simple.ts`、`task-prompt.ts`、`task-steps.ts`、`projects.ts`、`agents.ts`、`teams.ts`、`event-center.ts`、`events.ts`、`knowledge-base.ts` |
 | `src/ports/`、`src/queries/` | 异步查询边界与当前单体适配器 | `query-port.ts`、`local-query-port.ts`、`task-list-query.ts` |
-| `src/gateway/` | 对外接口 | `server.ts`、`http/query-routes.ts`、`ws-handler.ts`、`rpc/*` |
+| `src/gateway/` | API 对外接口与 Realtime 桥 | `server.ts`、`http/query-routes.ts`、`http/realtime-config-route.ts`、`realtime-event-source.ts`、`realtime-rpc-bridge.ts`、`ws-handler.ts` |
+| `src/realtime/` | 独立实时服务 | `service.ts`、`hub.ts`、`outbound-queue.ts`、`process-client.ts` |
+| `src/ipc/` | 跨进程传输 | `protobuf-envelope.ts`、`framed-socket.ts` |
+| `src/shared/` | 跨进程共享基础设施 | `logger.ts` |
 | `src/store/` | 数据持久化 | `db.ts`、`migrator.ts`、`migrations/*`、`turn-process-items.ts`、各实体 store |
 | `src/tools/` | 工具平台与 MCP 发布 | `resolver.ts`、`tool-gateway.ts`、`registry/*`、`runtime/*`、`mcp/http-mcp-server.ts` |
 | `src/cli/` | 命令行工具 | `index.ts`、agents/sessions/tasks/rules 子命令 |
@@ -200,7 +212,7 @@ session 关闭(close/archive/delete)自动 `disconnectBySession`:off 所有未�
 - Event Center 是项目级事件收件箱；事件可以被忽略、消费、归档或转为普通 Task，但不会替代 `tasks` 的交付状态机。
 - Knowledge Base 是项目可见知识层；项目库绑定单项目，shared 库通过挂载进入项目可见范围，AI 和人读写同一份 markdown 页面。
 - 非 Team Agent 间通信使用 `agent.*` MCP 工具和普通 Session 投递；平台记录通信与 watch 状态，但不引入独立通信线程。
-- `ws-handler.ts` 只负责 WS 连接、广播、JSON 解析和 dispatch；新增 RPC 必须放到 `src/gateway/rpc/*` 对应领域模块。
+- 默认模式下 `src/realtime/` 独占 WebSocket、订阅与背压，且禁止依赖 Core、Store、SQLite 或 Gateway RPC；`ws-handler.ts` 仅保留 embedded 回滚和 API 侧兼容 RPC 执行。
 - SQLite schema 由 `src/store/migrator.ts` 与 `src/store/migrations/*` 管理；`db.ts` 不再承载大段建表/升级逻辑。
 - 默认 HTTP Query 和 Session 流式持久化不得在 Gateway 调用栈执行同步 SQLite；新增数据访问必须通过 QueryPort/WriteDataPort。
 - Query Worker 不得写库；Writer mutation 必须使用封闭 union，禁止通过 MessagePort 发送任意 SQL。

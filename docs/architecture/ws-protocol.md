@@ -10,14 +10,13 @@ PC 高频只读路径使用同源 HTTP，认证沿用 `x-ai-ide-token`。普通�
 | `GET /api/v1/sessions` | `projectId?`, `agentId?` | `{ data: Session[] }` | 会话列表，包含 `activity_state`；与 `sessions.list` 共用 Query Port |
 | `GET /api/v1/sessions/:sessionId/messages` | `limit?`, `before?`, `includeToolCalls?`, `includeLatestToolCalls?` | `{ data: Message[], page }` | 消息历史；`limit` 为 1..200，`before` 使用消息时间游标 |
 | `GET /api/v1/sessions/:sessionId/events` | `limit?`, `afterSequence?` | `{ data: SessionEvent[], page }` | 恢复事件；`limit` 为 1..1000，增量页按 sequence 升序且不跳页 |
+| `GET /api/v1/realtime-config` | — | `{ wsUrl, protocolVersion, legacyRpcEnabled, mode }` | 返回当前 Realtime 端点；PC/移动端在首次连接和每次重连前调用 |
 
 成功响应带 `Cache-Control: no-store`、`Server-Timing` 和 `X-Response-Bytes`。PC 默认使用这些 HTTP 路由；`VITE_QUERY_TRANSPORT=ws`、移动端和 CLI 可继续使用下列 WS 兼容 RPC。兼容桥保持数组返回，不包含 HTTP 的 `page` 外壳。
 
 ## 连接
 
-```
-ws://localhost:18800
-```
+客户端不得假定 WebSocket 与 API 同端口。默认由 `GET /api/v1/realtime-config` 返回独立 Realtime 地址；`REALTIME_MODE=embedded` 或发现失败时才使用 API 同端口地址。Owner token 通过 `token` query 传给 WebSocket，分享页使用 `shareToken`。
 
 ## 消息格式
 
@@ -25,7 +24,18 @@ ws://localhost:18800
 
 ## 订阅
 
-连接后自动接收所有事件广播。客户端可通过 `subscribe` 消息选择性订阅。
+Realtime 只向订阅目标发送 Session 事件，全局元数据事件按认证范围广播。
+
+| 控制消息 | 参数 | 返回 | 说明 |
+|----------|------|------|------|
+| `subscribe` | `{ requestId?, sessionIds }` | `result` | 增加 Session 订阅；guest 只能订阅分享会话 |
+| `unsubscribe` | `{ requestId?, sessionIds }` | `result` | 删除 Session 订阅 |
+| `ping` | `{ timestamp? }` | `pong` | Realtime 进程本地处理，不进入 API 事件循环 |
+| `resume` | `{ cursors }` | `resume:ack` | 重连后提交客户端游标并恢复订阅流 |
+
+带游标的实时消息可包含 `streamGeneration` 与 `sequence`。generation 改变、sequence 跳号、单连接发送队列溢出或 socket 缓冲超过限制时，服务端发送 `{ type: "resync_required", sessionId?, reason }`；客户端应停止应用该流的增量并通过 HTTP Query 读取最新 snapshot。关键 `session:done`、权限请求、提问和错误不会静默丢弃。
+
+`REALTIME_LEGACY_RPC=enabled` 时，下面尚未迁移的领域 RPC 通过本地 Protobuf IPC 转发到 API，`requestId` 和订阅变更保持兼容；设为 `disabled` 后，非控制消息返回明确错误。该兼容桥不改变 Realtime 无 DB/Core 依赖的边界。
 
 ## RPC 方法
 

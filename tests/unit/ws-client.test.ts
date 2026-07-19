@@ -91,4 +91,60 @@ describe('ws client', () => {
     expect(resolver).toHaveBeenCalledTimes(2)
     expect(FakeWebSocket.instances.map((socket) => socket.url)).toEqual(['ws://first', 'ws://second'])
   })
+
+  test('restores subscriptions before sending saved cursors on reconnect', async () => {
+    const { wsClient } = await import('../../ui/src/services/ws-client.ts')
+    wsClient.connect('ws://realtime')
+    const first = FakeWebSocket.instances[0]
+    first.readyState = FakeWebSocket.OPEN
+    first.onopen?.()
+    wsClient.subscribe(['session-a'])
+    first.onmessage?.({
+      data: JSON.stringify({
+        type: 'session:update',
+        sessionId: 'session-a',
+        streamGeneration: 'generation-a',
+        sequence: 3,
+      }),
+    })
+
+    first.onclose?.({ code: 1006, reason: '' })
+    await vi.advanceTimersByTimeAsync(3000)
+    const second = FakeWebSocket.instances[1]
+    second.readyState = FakeWebSocket.OPEN
+    second.onopen?.()
+
+    expect(second.send.mock.calls.map(([payload]) => JSON.parse(String(payload)))).toEqual([
+      { type: 'subscribe', sessionIds: ['session-a'] },
+      {
+        type: 'resume',
+        cursors: { 'session-a': { streamGeneration: 'generation-a', sequence: 3 } },
+      },
+    ])
+  })
+
+  test('acknowledges snapshot resync without reusing the stale session cursor', async () => {
+    const { wsClient } = await import('../../ui/src/services/ws-client.ts')
+    wsClient.connect('ws://realtime')
+    const socket = FakeWebSocket.instances[0]
+    socket.readyState = FakeWebSocket.OPEN
+    socket.onopen?.()
+    wsClient.subscribe(['session-a'])
+    socket.onmessage?.({
+      data: JSON.stringify({
+        type: 'session:update',
+        sessionId: 'session-a',
+        streamGeneration: 'generation-a',
+        sequence: 3,
+      }),
+    })
+    socket.send.mockClear()
+
+    wsClient.acknowledgeResync('session-a')
+
+    expect(JSON.parse(String(socket.send.mock.calls[0]?.[0]))).toEqual({
+      type: 'resume',
+      cursors: {},
+    })
+  })
 })

@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { FramedSocket } from '../ipc/framed-socket.js'
 import type { IpcEnvelope } from '../ipc/protobuf-envelope.js'
-import { createChildLogger } from '../core/logger.js'
+import { createChildLogger } from '../shared/logger.js'
 import { resolveRealtimeEntryPath } from './entry-url.js'
 import {
   isRealtimeIpcPayload,

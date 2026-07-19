@@ -216,15 +216,15 @@ Commit: `feat(app): discover and supervise realtime service`
 - Modify: `README.md`
 - Modify: this plan
 
-- [ ] **Step 1: Add boundary test**
+- [x] **Step 1: Add boundary test**
 
 Use TypeScript AST imports to fail if `src/realtime/**` imports `src/store`, `src/core`, `better-sqlite3`, or Gateway RPC modules. Also fail if API event-source code imports `ws` or Realtime child imports Hono/domain stores.
 
-- [ ] **Step 2: Update stable docs**
+- [x] **Step 2: Update stable docs**
 
 Document physical process ownership, framed IPC envelope, dynamic endpoint, backpressure/resync, explicit compatibility switch, lifecycle, observability, and rollback. Architecture docs describe the stable structure; this file alone tracks implementation status.
 
-- [ ] **Step 3: Run fault/performance checks**
+- [x] **Step 3: Run fault/performance checks**
 
 Measure 30 subscribed Session streams, one deliberately stalled client, API 150ms blocking diagnostic, Realtime restart, and HTTP query continuity. Acceptance: healthy clients p95 delivery below 50ms on the local test machine, stalled client bounded by configured bytes, HTTP timer gap independent of Realtime serialization, and no lost critical done frame.
 

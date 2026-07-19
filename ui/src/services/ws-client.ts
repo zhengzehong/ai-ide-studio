@@ -60,15 +60,16 @@ class WSClient {
       // can refresh state that may have gone stale during the disconnect.
       // The onclose/onerror race in some WebSocket impls can leave React's
       // `connected` state stuck at false; this event bypasses that.
-      if (this.hasConnectedBefore) {
+      const reconnecting = this.hasConnectedBefore
+      if (reconnecting) {
         this.emit('reconnected', {})
       }
       this.hasConnectedBefore = true
       if (this.currentSubscriptions.size > 0) {
-        if (this.hasConnectedBefore && this.cursors.size > 0) {
+        this.send({ type: 'subscribe', sessionIds: [...this.currentSubscriptions] })
+        if (reconnecting && this.cursors.size > 0) {
           this.send({ type: 'resume', cursors: Object.fromEntries(this.cursors) })
         }
-        this.send({ type: 'subscribe', sessionIds: [...this.currentSubscriptions] })
       }
     }
 
@@ -175,6 +176,12 @@ class WSClient {
   unsubscribe(sessionIds: string[]) {
     sessionIds.forEach(id => this.currentSubscriptions.delete(id))
     this.send({ type: 'unsubscribe', sessionIds })
+  }
+
+  acknowledgeResync(sessionId?: string) {
+    if (sessionId) this.cursors.delete(sessionId)
+    else this.cursors.clear()
+    this.send({ type: 'resume', cursors: Object.fromEntries(this.cursors) })
   }
 
   sendPrompt(sessionId: string, content: string) {
