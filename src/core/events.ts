@@ -11,20 +11,12 @@ import type {
 import { SessionUpdateActorScheduler } from './session-update-actors.js'
 
 export type AppEvents = {
-  'session:update': {
-    sessionId: string
-    agentId: string
-    data: SessionUpdateData
-    source?: 'runtime-persistence'
-    streamGeneration?: string
-    sequence?: number
-  }
+  'session:update': { sessionId: string; agentId: string; data: SessionUpdateData }
   'session:process_item': { sessionId: string; agentId?: string | null; item: TurnProcessItemData }
   'session:event': { sessionId: string; agentId?: string | null; event: SessionEventData }
   'session:manual-prompt-started': { sessionId: string; agentId: string }
   'session:activity': SessionActivityData
   'session:done': SessionDoneData
-  'session:committed_done': SessionDoneData
   'session:capabilities': { sessionId: string; capabilities: SessionCapabilities }
   'session:changed': { sessionId: string; data: Record<string, unknown> }
   'session:copy_failed': { sourceSessionId: string; targetSessionId: string; message: string }

@@ -16,7 +16,7 @@ vi.mock('@desktop/services/ws-client', () => ({
   wsClient: wsMock,
 }))
 
-const { resolveMobileRealtimeUrl, useConnectionStore } = await import('../../mobile/src/stores/connection.store.ts')
+const { useConnectionStore } = await import('../../mobile/src/stores/connection.store.ts')
 const { shouldShowConnectPage } = await import('../../mobile/src/App.tsx')
 
 const storage = new Map<string, string>()
@@ -53,42 +53,13 @@ describe('mobile connection store', () => {
     resetStore()
   })
 
-  test('shows the connect page while a configured server is disconnected', () => {
+  test('shows connect page only when no server is configured', () => {
     expect(shouldShowConnectPage({ serverUrl: '', connected: false, status: 'idle' })).toBe(true)
-    expect(shouldShowConnectPage({ serverUrl: 'http://127.0.0.1:18900', connected: false, status: 'failed' })).toBe(true)
-    expect(shouldShowConnectPage({ serverUrl: 'http://127.0.0.1:18900', connected: false, status: 'connecting' })).toBe(true)
-    expect(shouldShowConnectPage({ serverUrl: 'http://127.0.0.1:18900', connected: true, status: 'connected' })).toBe(false)
+    expect(shouldShowConnectPage({ serverUrl: 'http://127.0.0.1:18900', connected: false, status: 'failed' })).toBe(false)
+    expect(shouldShowConnectPage({ serverUrl: 'http://127.0.0.1:18900', connected: false, status: 'connecting' })).toBe(false)
   })
 
-  test('discovers realtime from the configured server origin instead of its saved path', async () => {
-    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({
-      wsUrl: 'ws://192.168.1.20:18901',
-    }), { status: 200 })) as unknown as typeof fetch
-
-    const resolved = await resolveMobileRealtimeUrl(
-      'http://192.168.1.20:18900/app/',
-      'token-a',
-      fetchImpl,
-    )
-
-    expect(fetchImpl).toHaveBeenCalledWith(
-      'http://192.168.1.20:18900/api/v1/realtime-config',
-      expect.objectContaining({ headers: expect.objectContaining({ 'x-ai-ide-token': 'token-a' }) }),
-    )
-    expect(resolved).toBe('ws://192.168.1.20:18901?token=token-a')
-  })
-
-  test('builds the realtime fallback from the configured server origin', async () => {
-    const fetchImpl = vi.fn(async () => { throw new Error('offline') }) as unknown as typeof fetch
-
-    await expect(resolveMobileRealtimeUrl(
-      'http://192.168.1.20:18900/app/',
-      'token-a',
-      fetchImpl,
-    )).resolves.toBe('ws://192.168.1.20:18900?token=token-a')
-  })
-
-  test('initializes a saved server as connecting and starts websocket endpoint discovery', async () => {
+  test('initializes a saved server as connecting and starts websocket connection', () => {
     localStorage.setItem('ai-ide-mobile-server', JSON.stringify({
       serverUrl: 'http://127.0.0.1:18800',
       token: 'token-a',
@@ -103,9 +74,7 @@ describe('mobile connection store', () => {
       status: 'connecting',
       lastError: '',
     })
-    const resolver = wsMock.connect.mock.calls[0]?.[0] as (() => Promise<string>) | undefined
-    expect(resolver).toBeTypeOf('function')
-    await expect(resolver?.()).resolves.toBe('ws://127.0.0.1:18800?token=token-a')
+    expect(wsMock.connect).toHaveBeenCalledWith('ws://127.0.0.1:18800?token=token-a')
   })
 
   test('connection event marks the store as connected', () => {

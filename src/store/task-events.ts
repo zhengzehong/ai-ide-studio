@@ -15,11 +15,6 @@ export interface AppendTaskEventInput {
   payload: unknown
 }
 
-export interface LinkedTaskSession {
-  taskId: string
-  sessionId: string
-}
-
 export const taskEventStore = {
   append(taskId: string, input: AppendTaskEventInput): TaskEventRow {
     const db = getDb()
@@ -98,22 +93,6 @@ export const taskEventStore = {
     const map: Record<string, TaskEventRow> = {}
     for (const row of rows) map[row.task_id] = row
     return map
-  },
-
-  listLinkedSessionsByTaskIds(taskIds: string[]): LinkedTaskSession[] {
-    if (taskIds.length === 0) return []
-    const placeholders = taskIds.map(() => '?').join(', ')
-    const rows = getDb()
-      .prepare<string[], { task_id: string; session_id: string }>(
-        `SELECT task_id, json_extract(payload_json, '$.session_id') AS session_id
-         FROM task_events
-         WHERE type = 'session_linked'
-           AND task_id IN (${placeholders})
-           AND typeof(json_extract(payload_json, '$.session_id')) = 'text'
-         ORDER BY task_id ASC, sequence ASC`,
-      )
-      .all(...taskIds)
-    return rows.map((row) => ({ taskId: row.task_id, sessionId: row.session_id }))
   },
 }
 

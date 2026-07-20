@@ -1,9 +1,8 @@
 import { create } from 'zustand'
 import { wsClient } from '../services/ws-client'
-import { discoverRealtimeEndpoint } from '../services/realtime-endpoint'
 
 interface ConnectionClient {
-  connect: (url: string | (() => Promise<string>)) => void
+  connect: (url: string) => void
   disconnect: () => void
   on: (event: string, handler: (msg: Record<string, unknown>) => void) => () => void
 }
@@ -39,6 +38,7 @@ export const useConnectionStore = create<ConnectionStore>((set) => ({
   init: () => {
     if (initialized) return
     initialized = true
+    const url = resolveWsUrl()
     connectionClient.on('connection', (msg) => {
       const connected = msg.connected as boolean
       if (connected) {
@@ -54,13 +54,13 @@ export const useConnectionStore = create<ConnectionStore>((set) => ({
 
       set({ connected: false })
     })
-    connectionClient.connect(() => resolveRealtimeWsUrl())
+    connectionClient.connect(url)
   },
   saveToken: (token) => {
     const nextToken = token.trim()
     storeAccessToken(nextToken)
     set({ token: nextToken, authRequired: false, authError: null, connected: false, authMode: 'owner' })
-    connectionClient.connect(() => resolveRealtimeWsUrl(window.location, nextToken))
+    connectionClient.connect(resolveWsUrl(window.location, nextToken))
   },
 }))
 
@@ -81,21 +81,6 @@ export function resolveWsUrl(location: Location = window.location, tokenOverride
   const token = tokenOverride ?? new URLSearchParams(location.search).get('token') ?? getStoredAccessToken()
   const query = token ? `?token=${encodeURIComponent(token)}` : ''
   return `${protocol}://${host}${query}`
-}
-
-export function resolveRealtimeWsUrl(
-  location: Location = window.location,
-  tokenOverride?: string,
-  fetchImpl: typeof fetch = fetch,
-): Promise<string> {
-  const shareToken = readShareTokenFromPath(location)
-  const token = tokenOverride ?? new URLSearchParams(location.search).get('token') ?? getStoredAccessToken()
-  return discoverRealtimeEndpoint({
-    token: shareToken ? undefined : token,
-    shareToken: shareToken ?? undefined,
-    fetchImpl,
-    fallbackUrl: resolveWsUrl(location, tokenOverride),
-  })
 }
 
 function readShareTokenFromPath(loc: Location): string | null {

@@ -5,9 +5,8 @@ import { agentStore } from '../store/agents.js'
 import { globalAssistantStore } from '../store/global-assistant.js'
 import { projectStore } from '../store/projects.js'
 import { teamMemberStore } from '../store/teams.js'
-import { getRuntimePort } from '../runtime/runtime-port-provider.js'
-import { buildRuntimeStateSnapshot } from '../runtime/api/runtime-snapshot.js'
-import { events, type AppEvents } from './events.js'
+import { acpHost } from '../acp/host.js'
+import { events } from './events.js'
 import { createChildLogger } from './logger.js'
 import { agentHubService } from './agent-hub/index.js'
 import type { ImageAttachment, SessionActivityReason, SessionActivityState, SessionUpdateData } from '../types/ws-protocol.js'
@@ -33,7 +32,6 @@ import {
 } from './turn-process-runtime.js'
 import { appendHiddenAttachmentNote, loadStoredImagesForAcp, saveSessionImages } from './image-attachments.js'
 import { sessionShareManager } from './session-share-manager.js'
-import { sessionPersistencePort } from './persistence/session-persistence-port.js'
 
 const log = createChildLogger('session')
 
@@ -42,8 +40,6 @@ const activePrompts = new Set<string>()
 const queuedPrompts = new Map<string, Promise<void>>()
 const copyingSourceSessions = new Set<string>()
 const eventBatcher = new SessionUpdateBatcher()
-const persistenceBySession = new Map<string, Promise<void>>()
-const persistenceErrors = new Map<string, unknown>()
 
 interface PromptOptions {
   clientMessageId?: string
@@ -76,7 +72,7 @@ events.on('session:update', (ev) => {
   eventBatcher.handle(ev, persistSessionUpdateEvent)
 })
 
-async function persistSessionUpdateEvent(ev: SessionUpdateEnvelope): Promise<void> {
+function persistSessionUpdateEvent(ev: SessionUpdateEnvelope): void {
   const turnId = getPromptTurnId(ev.sessionId)
   const payload = eventPayloadFromUpdate(ev.data)
   if (!payload) return
@@ -84,13 +80,13 @@ async function persistSessionUpdateEvent(ev: SessionUpdateEnvelope): Promise<voi
     const updated = sessionStore.updateTitleIfEmpty(ev.sessionId, ev.data.sessionInfo.title)
     if (updated) events.emit('session:changed', { sessionId: ev.sessionId, data: { ...updated } })
   }
-  const stored = await sessionPersistencePort.appendEvent(ev.sessionId, {
+  const stored = eventStore.append(ev.sessionId, {
     type: payload.type,
     agentId: ev.agentId,
     messageId: ev.data.messageId,
     role: ev.data.role,
     payload: payload.payload,
-  }, 'background')
+  })
   log.debug(
     { sessionId: ev.sessionId, agentId: ev.agentId, turnId, eventId: stored.id, sequence: stored.sequence, eventType: stored.type, messageId: stored.message_id },
     'session event persisted',
@@ -103,40 +99,23 @@ function eventTurnId(ev: { sessionId: string; turnId?: string }): string | undef
 }
 
 events.on('session:done', (ev) => {
-  persistenceErrors.delete(ev.sessionId)
-  const pending = persistSessionDone(ev)
-  persistenceBySession.set(ev.sessionId, pending)
-  void pending.catch((err: unknown) => {
-    persistenceErrors.set(ev.sessionId, err)
-    log.error(
-      { err, sessionId: ev.sessionId, agentId: ev.agentId, turnId: eventTurnId(ev) },
-      'session done persistence failed',
-    )
-  }).finally(() => {
-    if (persistenceBySession.get(ev.sessionId) === pending) persistenceBySession.delete(ev.sessionId)
-  })
-})
-
-async function persistSessionDone(ev: AppEvents['session:done']): Promise<void> {
-  await eventBatcher.flushSession(ev.sessionId, persistSessionUpdateEvent)
+  eventBatcher.flushSession(ev.sessionId, persistSessionUpdateEvent)
   const turnId = eventTurnId(ev)
   recordPromptProgress(ev.sessionId, 'session.done')
   log.info({ sessionId: ev.sessionId, agentId: ev.agentId, turnId, messageId: ev.messageId, stopReason: ev.stopReason, hasError: !!ev.error, turnUsage: ev.turnUsage }, 'session done received')
-  const stored = await sessionPersistencePort.appendEvent(ev.sessionId, {
+  const stored = eventStore.append(ev.sessionId, {
     type: 'message.done',
     agentId: ev.agentId,
     messageId: ev.messageId,
     role: 'agent',
     payload: { messageId: ev.messageId, turnId, turnUsage: ev.turnUsage, stopReason: ev.stopReason, error: ev.error },
-  }, 'critical')
+  })
   log.info(
     { sessionId: ev.sessionId, agentId: ev.agentId, turnId, eventId: stored.id, sequence: stored.sequence, messageId: stored.message_id, stopReason: ev.stopReason },
     'session done event persisted',
   )
   events.emit('session:event', { sessionId: ev.sessionId, agentId: ev.agentId, event: stored })
-  events.emit('session:committed_done', ev)
-  sessionPersistencePort.finishSession(ev.sessionId)
-}
+})
 
 events.on('session:done', (ev) => {
   const updated = sessionStore.clearStageIfRunning(ev.sessionId)
@@ -251,23 +230,9 @@ export const sessionManager = {
     return activePrompts.has(sessionId)
   },
 
-  listActivePromptSessionIds(): string[] {
-    return [...activePrompts]
-  },
-
-  async waitForPersistence(sessionId: string): Promise<void> {
-    const pending = persistenceBySession.get(sessionId)
-    if (pending) await pending
-    if (persistenceErrors.has(sessionId)) {
-      const error = persistenceErrors.get(sessionId)
-      persistenceErrors.delete(sessionId)
-      throw error
-    }
-  },
-
   // session.cancel 10s 兜底强制结束 turn 时,ACP 那侧的 activeTurnReject 已经 reject 了,
   // 但 sendPromptNow 的 finally 块(清 activePrompts)只在 ACP 正常回调 cancel 时才会跑到。
-  // Runtime cancel 超时路径会显式清理 activePrompts，避免 finally 无法执行时残留。
+  // ACP 10s 不响应 → sendPromptNow 的 await acpHost.cancelPrompt 永远不返回 → finally 永不执行
   // → activePrompts 残留 → 会话永久卡"生成中"(sendPrompt/enqueuePrompt/copySession 全拒绝)。
   // 这里在 forceCancel 路径上显式清掉 activePrompts/pendingBySession,等价于替 sendPromptNow 跑 finally。
   forceClearActivePrompt(sessionId: string): void {
@@ -366,7 +331,7 @@ export const sessionManager = {
     if (!session) return
 
     await agentHubService.disconnectBySession(sessionId)
-    await getRuntimePort().closeSession(session.agent_id, sessionId)
+    await acpHost.closeSession(session.agent_id, sessionId)
     sessionStore.updateStatus(sessionId, 'closed')
     const updated = sessionStore.get(sessionId)
     if (updated) events.emit('session:changed', { sessionId, data: { ...updated } })
@@ -394,7 +359,7 @@ export const sessionManager = {
     const session = sessionStore.get(sessionId)
     if (!session) return
     // \u5148\u5220\u672c\u5730 + \u7ea7\u8054\u6e05\u5206\u4eab\u94fe\u8def:\u8fd9\u4e24\u6b65\u662f\u5e73\u53f0\u81ea\u5df1\u7684\u72b6\u6001,\u4e0d\u4f9d\u8d56 ACP/Hub \u8fdc\u7a0b\u8c03\u7528,
-    // \u5fc5\u987b\u5148\u6267\u884c\u6389,\u5426\u5219\u4e0b\u9762 Runtime closeSession \u629b\u9519\u4f1a\u5bfc\u81f4\u4f1a\u8bdd\u6c38\u4e0d\u5220\u9664 + \u5206\u4eab\u6b8b\u7559\u3002
+    // \u5fc5\u987b\u5148\u6267\u884c\u6389,\u5426\u5219\u4e0b\u9762 acpHost.closeSession \u629b\u9519\u4f1a\u5bfc\u81f4\u4f1a\u8bdd\u6c38\u4e0d\u5220\u9664 + \u5206\u4eab\u6b8b\u7559\u3002
     sessionStore.delete(sessionId)
     sessionShareManager.cascadeSoftDeleteBySession(sessionId)
     events.emit('session:changed', { sessionId, data: { event: 'deleted', deleted: true } })
@@ -403,7 +368,7 @@ export const sessionManager = {
     void agentHubService.disconnectBySession(sessionId).catch((err) => {
       log.warn({ sessionId, err: err instanceof Error ? err.message : String(err) }, 'Hub disconnect \u5931\u8d25,\u5ffd\u7565')
     })
-    await getRuntimePort().closeSession(session.agent_id, sessionId).catch((err) => {
+    await acpHost.closeSession(session.agent_id, sessionId).catch((err) => {
       log.warn({ sessionId, agentId: session.agent_id, err: err instanceof Error ? err.message : String(err) }, 'ACP closeSession \u5931\u8d25,\u5ffd\u7565')
     })
     log.info({ sessionId, agentId: session.agent_id }, 'Session \u5df2\u5220\u9664')
@@ -518,12 +483,12 @@ async function sendPromptNow(session: SessionRow, content: string, images?: Imag
     )
     recordPromptProgress(sessionId, 'acp.session.ensure.started')
     log.info({ sessionId, agentId: session.agent_id, turnId, acpSessionId: session.acp_session_id, projectId: projectContext.projectId, cwd: projectContext.cwd }, 'ACP ensure session start')
-    const runtimeSnapshot = buildRuntimeStateSnapshot({
+    const acpSessionId = await acpHost.ensureSession(
+      session.agent_id,
       sessionId,
-      projectId: projectContext.projectId,
-      cwd: projectContext.cwd,
-    })
-    const acpSessionId = await getRuntimePort().ensureSession(runtimeSnapshot)
+      session.acp_session_id,
+      projectContext,
+    )
     recordPromptProgress(sessionId, 'acp.session.ready')
     log.info({ sessionId, agentId: session.agent_id, turnId, acpSessionId }, 'ACP ensure session done')
     if (session.acp_session_id !== acpSessionId) {
@@ -538,13 +503,7 @@ async function sendPromptNow(session: SessionRow, content: string, images?: Imag
     emitLifecycle(session.agent_id, sessionId, 'lifecycle.prompt_sent', '正在思考...', agentMessageId)
     recordPromptProgress(sessionId, 'acp.prompt.started')
     try {
-      await getRuntimePort().prompt({
-        agentId: session.agent_id,
-        sessionId,
-        content: acpContent,
-        images: acpImages,
-        diagnostics: { turnId, messageId: agentMessageId },
-      })
+      await acpHost.prompt(session.agent_id, sessionId, acpContent, acpImages, { turnId, messageId: agentMessageId })
     } catch (err) {
       const isForceCancel = err instanceof Error && err.message.startsWith('cancel timeout: forcing done')
       if (isForceCancel) {
@@ -570,11 +529,6 @@ async function sendPromptNow(session: SessionRow, content: string, images?: Imag
     })
     throw err
   } finally {
-    try {
-      await sessionManager.waitForPersistence(sessionId)
-    } catch (err) {
-      log.error({ err, sessionId, agentId: session.agent_id, turnId }, 'prompt persistence drain failed')
-    }
     activePrompts.delete(sessionId)
     finishPromptDiagnostics(sessionId, activityEndReason)
     log.info({ sessionId, agentId: session.agent_id, turnId, reason: activityEndReason, elapsedMs: Date.now() - startedAt, activePromptCount: activePrompts.size }, 'prompt cleanup complete')
@@ -661,12 +615,12 @@ async function completeCopiedSessionFork(
   projectContext: { projectId?: string; cwd?: string },
 ): Promise<void> {
   try {
-    const snapshot = buildRuntimeStateSnapshot({
-      sessionId: copiedSessionId,
-      projectId: projectContext.projectId,
-      cwd: projectContext.cwd,
-    })
-    const acpSessionId = await getRuntimePort().forkSession(snapshot, sourceAcpSessionId)
+    const acpSessionId = await acpHost.forkSessionFromAcpSessionId(
+      source.agent_id,
+      sourceAcpSessionId,
+      copiedSessionId,
+      projectContext,
+    )
     sessionStore.updateAcpSessionId(copiedSessionId, acpSessionId)
     sessionStore.updateStage(copiedSessionId, '')
     const updated = sessionStore.get(copiedSessionId)
@@ -685,7 +639,7 @@ async function completeCopiedSessionFork(
     // 清理失败的 copied 会话:ACP closeSession 和本地 delete 都包 .catch,
     // 防止任一抛错跳过后续清理。copyingSourceSessions.delete 放 finally 统一管控,
     // 保证源会话不会因清理失败而永久卡"复制中"。
-    await getRuntimePort().closeSession(source.agent_id, copiedSessionId).catch((closeErr) => {
+    await acpHost.closeSession(source.agent_id, copiedSessionId).catch((closeErr) => {
       log.warn(
         { copiedSessionId, agentId: source.agent_id, err: closeErr instanceof Error ? closeErr.message : String(closeErr) },
         '清理失败 copied 会话时 ACP closeSession 抛错,忽略',

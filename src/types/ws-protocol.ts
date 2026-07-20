@@ -19,11 +19,6 @@ export interface ClientMessage {
   [key: string]: unknown
 }
 
-export interface RealtimeCursor {
-  streamGeneration: string
-  sequence: number
-}
-
 export interface SubscribeMsg extends ClientMessage {
   type: 'subscribe'
   sessionIds: string[]
@@ -637,8 +632,6 @@ export interface SessionDoneData {
   turnUsage?: TurnUsageData
   stopReason?: SessionStopReason
   error?: string
-  streamGeneration?: string
-  sequence?: number
 }
 
 export interface ModelInfo {
@@ -749,10 +742,10 @@ export interface SessionUpdateData {
 }
 
 export type ServerMessage =
-  | { type: 'session:update'; sessionId: string; agentId: string; data: SessionUpdateData; streamGeneration?: string; sequence?: number }
+  | { type: 'session:update'; sessionId: string; agentId: string; data: SessionUpdateData }
   | { type: 'session:process_item'; sessionId: string; agentId?: string | null; item: TurnProcessItemData }
   | { type: 'session:event'; sessionId: string; agentId?: string | null; event: SessionEventData }
-  | ({ type: 'session:done'; streamGeneration?: string; sequence?: number } & SessionDoneData)
+  | ({ type: 'session:done' } & SessionDoneData)
   | ({ type: 'session:activity' } & SessionActivityData)
   | { type: 'session:capabilities'; sessionId: string; capabilities: SessionCapabilities }
   | { type: 'session:changed'; sessionId: string; data: Record<string, unknown> }
@@ -764,8 +757,5 @@ export type ServerMessage =
   | { type: 'timeline:updated'; sessionId: string }
   | { type: 'event-center:update'; data: Record<string, unknown> }
   | { type: 'knowledge-base:update'; data: Record<string, unknown> }
-  | { type: 'pong'; timestamp: number }
-  | { type: 'resume:ack'; cursors: Record<string, RealtimeCursor> }
-  | { type: 'resync_required'; sessionId?: string; reason: string }
   | { type: 'result'; requestId?: string; data: unknown }
   | { type: 'error'; requestId?: string; message: string }

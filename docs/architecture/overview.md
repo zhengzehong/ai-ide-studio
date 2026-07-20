@@ -7,37 +7,15 @@
 ```text
 客户端层
   Web UI / Mobile Web App / CLI / 外部调用方
-      │ HTTP / CLI + WebSocket（同一公网 authority）
+      │ WebSocket / HTTP / CLI
       ▼
-Edge 主进程（唯一公网监听 HOST:PORT）
-  edge/gateway.ts
-      │ HTTP → 127.0.0.1:动态端口      │ Upgrade /realtime → 127.0.0.1:动态端口
-      ▼                               ▼
-API 子进程                       Realtime 子进程
-  gateway/server.ts               realtime/service.ts
-  gateway/http/*                  连接、认证、订阅索引、序列化、背压
-  gateway/rpc/*                   每连接有界发送队列与游标恢复
-      │                               ▲
-      ├──── 长度前缀 Protobuf IPC ────┤
-      │                               ▲
-      │                         Runtime 流专用 IPC
-      │                               │
-      │                         Runtime 进程
-      │                         ACP、Session actor、终端与交互
-      │                         25ms 可见流 / 250ms 持久化流
-      │                               │ stdio NDJSON
-      │                               ▼
-      │                         Claude / Codex ACP runtime
-      │
-      ├── Data Ports / Worker Threads │
-      │     ports/query-port.ts          异步查询契约
-      │     ports/write-data-port.ts     封闭写入批次契约
-      │     data-worker/query-worker/*   单只读 SQLite 连接
-      │     data-worker/writer-worker/*  优先级队列、唯一新写路径与 Outbox
-      │     queries/task-list-query.ts   任务列表读模型
+Gateway 层
+  server.ts       HTTP 服务与 WS 升级
+  ws-handler.ts   WS 连接、订阅、广播、JSON 解析、RPC dispatch
+  rpc/*           按领域拆分的 WS RPC handler
       │ mitt 事件总线
       ▼
-Core 业务层（API 进程）
+Core 业务层
   sessions.ts / tasks.ts / projects.ts / agents.ts / teams.ts / event-center.ts / events.ts / knowledge-base.ts
       │
       ├── Store 持久层
@@ -45,6 +23,14 @@ Core 业务层（API 进程）
       │     migrator.ts            schema_migrations 执行器
       │     migrations/*           SQLite schema 迁移
       │     agents/sessions/tasks/teams/rules/tools/skills 等实体 CRUD
+      │
+      ├── ACP Host 层
+      │     host.ts                 ACP facade 与生命周期编排
+      │     client-handler.ts       ACP client callbacks
+      │     host-state.ts           runtime/session 状态
+      │     interaction-state.ts    权限确认与 Agent 提问等待队列
+      │     terminal-bridge.ts      ACP terminal 桥接
+      │     session-capabilities.ts 模型、模式、配置、MCP 能力合并
       │
       └── Tools / MCP 层
             resolver.ts             将平台工具解析为 ACP MCP server
@@ -58,74 +44,16 @@ Core 业务层（API 进程）
 ### 用户发送消息
 
 ```text
-PC Web UI → HTTP POST /api/v1/commands → durable command ledger → Session command service
-Mobile / Guest / rollback → Realtime WS "prompt" → Protobuf IPC 兼容桥 → same Session command service
-  → sessionManager 持久化用户消息 → RuntimePort.ensureSession() / prompt()
-  → Runtime Session actor → Claude / Codex ACP runtime (stdio NDJSON)
-  → ACP session/update → Runtime 25ms 合并 → Runtime→Realtime 专用 IPC → Web UI
-  → Runtime 250ms 合并 → Runtime→API 控制 IPC → Core 投影 → Writer Worker
-  → Runtime done barrier → API critical commit + Outbox → committed done → Realtime → Web UI
+Web UI / Mobile Web App → WS "prompt" → ws-handler → gateway/rpc/subscriptions.prompt
+  → sessionManager.sendPrompt() → acpHost.ensureSession() / acpHost.prompt()
+  → Agent runtime 子进程 (stdio NDJSON)
+  → ACP session/update → core events → ws-handler 广播 → Web UI 流式更新
+  → session:done → messages / turn_process_items / session_events 持久化到 SQLite
 ```
 
 前端实时对话以 `session:update` 作为可见流式状态来源；`session:event` 主要用于持久化同步、断线恢复和状态补偿，避免每个流式 chunk 都全量还原事件。后端在用户发送后立即创建一条 `messages.status = running` 的 Agent 消息，流式文本写入 `messages.content` 快照；思考、工具、权限、提问、计划和文件修改等执行过程写入 `turn_process_items`，并通过 `session:process_item` 轻量广播。完成后同一条 Agent 消息更新为 completed/failed/cancelled。
 
-PC 端历史消息默认通过轻量 HTTP `GET /api/v1/sessions/:sessionId/messages` 加载，`messages.content` 是最终回复快速来源；恢复事件通过 `GET /api/v1/sessions/:sessionId/events` 按游标读取。历史执行过程仍通过 `sessions.messageProcess` 按需加载 `turn_process_items` 的轻量列表，单个过程详情再通过 `sessions.processItemDetail` 懒加载。旧数据仍可通过 `sessions.messageEvents` 从 `session_events.sequence` 兜底恢复；工具摘要/详情继续支持 `sessions.messageToolCalls` / `sessions.messageToolCallDetail`，文件修改详情优先从 `turn_process_items` 读取并兼容旧的 `tool_calls_json`。
-
-### PC 查询与命令传输边界
-
-PC 端的任务列表、会话列表、消息历史和恢复事件使用版本化 `/api/v1` HTTP Query API。四类路由与同名旧 WS RPC 都委托异步 `QueryPort`；默认适配器把请求发送到独立 Query Worker，由该 Worker 独占 `readonly + query_only` SQLite 连接。同步 SQL 只阻塞 Query Worker，不占用 Gateway 事件循环。移动端和旧 WS RPC 复用同一个 Query Port，返回数组结构保持兼容。
-
-HTTP 分页响应使用 `{ data, page: { hasMore, nextCursor } }`，普通列表使用 `{ data }`。消息单页最多 200 条，恢复事件单页最多 1000 条；每个成功响应包含 `Server-Timing` 和 `X-Response-Bytes`，超过 1 MiB 观测预算时记录结构化告警但不截断。PC 构建设置 `VITE_QUERY_TRANSPORT=ws` 可回滚四类读取，其余值和默认值均使用 HTTP。
-
-PC 的 Prompt、取消、已读、权限响应和提问响应使用封闭的 `POST /api/v1/commands` HTTP Command API。每个命令同时携带 `commandId` 与 `Idempotency-Key`，Writer 在执行前写入 `runtime_commands` 账本；同 Session 命令保持 FIFO，不同 Session 可并行。Prompt 返回 `202 accepted`，短命令等待完成后返回 `200`。API 重启只恢复安全命令；已落用户消息的 running Prompt 会标记 interrupted，禁止重复发送。`VITE_COMMAND_TRANSPORT=ws` 是 PC 显式回滚开关，移动端和访客链路仍使用 WS 兼容命令。
-
-WebSocket 的稳定职责是连接认证、Session 订阅、`ping/resume` 控制和服务端事件流，不作为 PC 高频 Query/Command 的默认传输。尚未迁移的低频领域 RPC继续通过 Realtime IPC 兼容桥进入 API。
-
-### 公网 Edge 进程边界
-
-默认 `EDGE_MODE=process` 时，Edge 主进程是唯一绑定公开 `HOST:PORT` 的组件。所有 HTTP 请求流式转发到仅绑定 `127.0.0.1` 动态端口的 API 子进程；所有 WebSocket Upgrade 请求转发到当前 Realtime loopback target。Edge 不导入 Store、Core 业务、Gateway RPC、ACP、Runtime、Realtime 实现或 SQLite，仅维护代理连接和当前内部 target。
-
-Edge 监督 API 子进程，API 再监督 Realtime 与 Runtime。API 异常退出时 Edge 立即清空内部 target，HTTP 返回 503，随后在 API 恢复后热更新 target；公网监听端口不变。Realtime 重启只替换内部 WS target，浏览器发现地址始终是同源 `/realtime`。停止拥有公网端口的 Edge 进程会断开父 IPC，API 子进程执行完整关闭，继续回收 Realtime、Runtime 和 Worker 资源。
-
-`EDGE_MODE=disabled` 保留原 API/Realtime 直连拓扑用于显式排障，不是正常部署模式。`REALTIME_MODE=embedded` 仍可在 Edge 后将 WebSocket 回滚到 API 事件循环，但不会增加第二个公网端口。
-
-### 浏览器启动与项目缓存
-
-PC 生产构建按页面使用 `React.lazy` 拆分，应用 shell、认证和连接发现保留在主入口；hashed JS/CSS 使用一年 immutable 缓存，HTML、SPA fallback 和未 hash 文件使用 `no-cache`。构建 manifest 由 `npm run check:ui-bundle` 检查主入口预算和动态页面数量。
-
-浏览器在首次 React render 前最多等待 100ms 读取 IndexedDB `ai-ide-bootstrap`。快照只保存 Projects、最近五个项目的 Task/Agent/Session 列表以及最近会话的已完成消息，最大 4 MiB；running 流、权限、提问和执行中消息不持久化。hydrate 后所有条目立即标记 stale，正常 HTTP/WS 启动继续执行 SWR 重验，因此快照只加速显示，不成为事实源。
-
-### Runtime 进程边界
-
-默认 `RUNTIME_SERVICE_MODE=process` 时，独立 Runtime 子进程拥有 ACP adapter、Claude/Codex 子进程、每 Session 串行 actor、权限与 elicitation 等待项、终端进程、资源配额和流游标。Runtime 子进程不导入 Core、Store、Gateway、Query/Writer Worker 或 `better-sqlite3`，也不打开数据库。API 通过 `RuntimeStateSnapshot` 投影 Agent 配置、运行环境、system prompt、MCP server、Session 偏好、项目工作目录和持久化 ACP id；快照是可 `structuredClone` 的普通 DTO。
-
-每个 Session actor 在一次所有权周期内使用固定 `streamGeneration`，只在实际输出逻辑 patch 时递增 `sequence`。文本 delta 按 message 合并，process item 采用 latest-wins；权限、elicitation 和 done 会先 flush 同 Session 的普通更新。Runtime 的可见流每 25ms 通过独立本机管道直达 Realtime，API 事件循环阻塞不会中断浏览器流式输出；持久化流以 250ms 节奏发送到 API，并带同一 Session 游标。
-
-Runtime done 是持久化屏障，不直接对浏览器发布。API 按 Session 顺序处理持久化 patch，触发 `session:done`，等待 Writer 完成 `message.done + Outbox` 原子事务后才向 Runtime 返回 ack；随后 `session:committed_done` 才进入 Realtime。Runtime 意外退出时 API、HTTP、Query/Writer Worker 和 Realtime 保持运行，当前命令明确失败并由 Session 主链路落一条 error completion；监督器重启 Runtime，下一轮从 SQLite 快照和 `acp_session_id` 恢复。`RUNTIME_SERVICE_MODE=embedded` 保留旧 `acpHost` 作为显式回滚适配器，不会在运行中静默降级。
-
-Runtime 资源配额默认允许 32 个网络型 turn、`max(2, floor(cpuCount / 2))` 个 CPU 型终端和 2 个磁盘型终端。等待队列按 FIFO 唤醒；Session mailbox 同时受条目数和字节数限制，超过上限返回 `RUNTIME_BACKPRESSURE`，不会丢弃已经接受的关键工作。
-
-### Realtime 进程边界
-
-默认 `REALTIME_MODE=process` 时，独立 Realtime 子进程独占浏览器 WebSocket、认证握手、Session 订阅索引、JSON 序列化和发送背压；API 进程不持有浏览器 socket。两者通过本机 named pipe（Windows）或 Unix domain socket 通信，消息使用 4 字节大端长度前缀和版本化 Protobuf envelope，业务 payload 为受类型约束的 UTF-8 JSON。Envelope 携带 `version`、`kind`、请求/会话/流游标和幂等元数据，单帧大小受 `REALTIME_IPC_MAX_FRAME_BYTES` 限制。
-
-浏览器先请求 `GET /api/v1/realtime-config` 获取实际 `wsUrl`、协议版本、运行模式和兼容桥状态。Edge 模式返回当前公网 authority 的同源 `/realtime`，不会泄露内部端口；PC 与移动端每次重连都重新发现端点。`EDGE_MODE=disabled` 时 discovery 返回直连 Realtime 地址。`REALTIME_MODE=embedded` 是显式回滚模式；`REALTIME_LEGACY_RPC=enabled` 保留尚未迁移到 HTTP 的旧领域 RPC，关闭后 Realtime 只接受 `subscribe`、`unsubscribe`、`resume` 和 `ping`。
-
-每个连接有独立的消息数和字节数上限。文本 delta 按消息合并，process item 采用 latest-wins，`session:done`、权限/提问和错误保持关键 FIFO；客户端跟不上、序列跳号或 generation 变化时发送 `resync_required`，由客户端重新读取 HTTP snapshot。Realtime 分别跟踪“已接收入站 cursor”和“已发送 cursor”，在前一帧仍 in-flight 时不会把连续的新帧误判为 gap。一个慢客户端只消耗自己的有界队列，不能拖住其他连接。API 进程监督 Realtime 异常退出并自动重启；HTTP、Query Worker 和 Writer Worker 在重启期间继续服务。
-
-### SQLite Worker 边界
-
-应用启动时先完成 schema migration、旧 JSON 导入和内置数据 seed，再启动一个 Query Worker 和一个 Writer Worker。Query Worker 只读；Writer Worker 的新写路径按 `critical / interactive / background` 排队。Background 最多等待 25ms，并在达到 100 个 mutation 或 256KiB 时提前提交；critical 先提交同一 Session 已排队的 background mutation，再单独提交。
-
-Session 流式事件、running message snapshot 和 `message.done` 已通过 `WriteDataPort` 进入 Writer Worker。每个活动 Session 使用 `streamGeneration + sequence` 排序，重试通过 `batchId` 去重。`message.done` 与 Outbox 在同一事务提交，Gateway 只在 commit ack 后广播线上的 `session:done`。因此浏览器收到完成事件时，HTTP Snapshot 已可读取最终持久化状态。
-
-API 领域 Command、工具和部分同步状态修改仍使用兼容 Store 连接。`tests/unit/database-access-boundary.test.ts` 锁定主线程直接 `getDb()` 的兼容清单，清单只能缩小；`tests/unit/runtime-boundary.test.ts` 锁定 Runtime 子进程的反向依赖禁令。`DATA_WORKER_MODE=local` 是显式故障回退开关，不会在 Worker 崩溃后自动降级到同步 SQL。
-
-Query/Writer Worker 的完成日志包含优先级、队列深度、排队时间、执行时间、总耗时和载荷字节数。`DATA_WORKER_SLOW_MS` 配置慢请求阈值，默认 100ms；达到阈值的成功请求提升为 `warn`，用于区分排队拥塞和 SQL/事务执行缓慢。
-
-Writer 独占 SQLite 维护。周期任务先 drain 写调度器，只删除超过保留期且 `published_at IS NOT NULL` 的 Outbox，运行 `PRAGMA optimize`，并在 WAL 达到 64 MiB 时执行 PASSIVE checkpoint；正常停机在 Session persistence flush 后执行 TRUNCATE checkpoint。未发布 Outbox、messages 和 session_events 永不由维护任务删除。
-
-Edge、API、Realtime、Runtime 各自使用 `monitorEventLoopDelay` 和 event-loop utilization，每 30 秒记录 p50/p95/p99/max lag、RSS/heap，以及本进程的代理连接、active prompt、连接/订阅/发送队列或 Runtime actor/coalescer backlog。`EVENT_LOOP_MONITOR_INTERVAL_MS` 和 `EVENT_LOOP_WARN_THRESHOLD_MS` 控制采样周期与告警阈值。
+历史消息默认通过轻量 `sessions.messages` 加载，`messages.content` 是最终回复快速来源；历史执行过程通过 `sessions.messageProcess` 按需加载 `turn_process_items` 的轻量列表，单个过程详情再通过 `sessions.processItemDetail` 懒加载。旧数据仍可通过 `sessions.messageEvents` 从 `session_events.sequence` 兜底恢复；工具摘要/详情继续支持 `sessions.messageToolCalls` / `sessions.messageToolCallDetail`，文件修改详情优先从 `turn_process_items` 读取并兼容旧的 `tool_calls_json`。
 
 `session:activity` 是独立的轻量全局事件，只表示会话本轮执行从 `running` 到 `idle` 的状态变化，用于左侧会话列表运行中/未读提示；它不承载聊天内容，也不参与历史消息还原。
 
@@ -183,28 +111,23 @@ Session 删除采用软删除，仅隐藏列表项并保留 `messages` / `sessio
 
 | 目录 | 职责 | 核心文件 |
 |------|------|----------|
-| `src/acp/` | ACP 公共映射与 embedded 回滚实现 | `host.ts`、`capabilities.ts`、`runtime-registry.ts`、`update-mapper.ts` |
-| `src/runtime/` | 独立 Runtime 服务、API 适配器、Session actor、流合并与资源配额 | `service/*`、`api/process-runtime-port.ts`、`actors/session-actor.ts`、`streams/runtime-update-coalescer.ts` |
+| `src/acp/` | ACP 协议集成 | `host.ts`、`client-handler.ts`、`host-state.ts`、`interaction-state.ts`、`terminal-bridge.ts`、`session-capabilities.ts`、`adapters.ts`、`capabilities.ts`、`update-mapper.ts` |
 | `src/core/` | 业务逻辑 | `sessions.ts`、`turn-process-runtime.ts`、`prompt-diagnostics.ts`、`session-event-payload.ts`、`tasks.ts`、`task-simple.ts`、`task-prompt.ts`、`task-steps.ts`、`projects.ts`、`agents.ts`、`teams.ts`、`event-center.ts`、`events.ts`、`knowledge-base.ts` |
-| `src/ports/`、`src/queries/` | 异步查询边界与当前单体适配器 | `query-port.ts`、`local-query-port.ts`、`task-list-query.ts` |
-| `src/gateway/` | API 对外接口与 Realtime 桥 | `server.ts`、`http/query-routes.ts`、`http/realtime-config-route.ts`、`realtime-event-source.ts`、`realtime-rpc-bridge.ts`、`ws-handler.ts` |
-| `src/realtime/` | 独立实时服务 | `service.ts`、`hub.ts`、`outbound-queue.ts`、`process-client.ts` |
-| `src/ipc/` | 跨进程传输 | `protobuf-envelope.ts`、`framed-socket.ts` |
-| `src/shared/` | 跨进程共享基础设施 | `logger.ts` |
+| `src/gateway/` | 对外接口 | `server.ts`、`ws-handler.ts`、`rpc/*` |
 | `src/store/` | 数据持久化 | `db.ts`、`migrator.ts`、`migrations/*`、`turn-process-items.ts`、各实体 store |
 | `src/tools/` | 工具平台与 MCP 发布 | `resolver.ts`、`tool-gateway.ts`、`registry/*`、`runtime/*`、`mcp/http-mcp-server.ts` |
 | `src/cli/` | 命令行工具 | `index.ts`、agents/sessions/tasks/rules 子命令 |
 | `src/types/` | 类型定义 | `ws-protocol.ts` |
 | `ui/src/pages/` | PC 端页面组件 | Workspace/Dashboard/TaskBoard/Schedule/EventCenter/AgentSquare/ToolManager/Settings |
 | `ui/src/stores/` | 前端状态 | Zustand store、`session-events.ts` 事件还原、项目/工具/模板/模型状态 |
-| `ui/src/services/` | 通信层 | `query-client.ts`、`ws-client.ts` |
+| `ui/src/services/` | 通信层 | `ws-client.ts` |
 | `mobile/src/` | 移动端 Web App | `/app/` 下的手机端页面、组件和 Zustand store；复用 `ui/src/services/ws-client.ts` 与会话事件还原辅助逻辑 |
 
 ## PC 项目路由与前端状态边界
 
 PC 端项目页面以 `/p/:projectId/*` 为 URL 真源。Workspace、任务、自动化、事件中心、知识库和 Agent 记忆均位于该路由边界内；Dashboard、Agent 广场、工具、设置、分享页和 Widget 保持全局路由。旧的无项目前缀链接会重定向到当前有效项目，移动端路由和状态管理不受该边界影响。
 
-`project-data-scope` 是项目切换的前端编排边界。路由项目变化时，它先同步激活各 Zustand store 的项目分区缓存，再发起后台刷新；同一项目的并发激活会合并为一个 Promise 和一轮请求。Task、Agent、Session 列表、文件树、规则、知识库、事件中心和 Agent Memory 均按项目或更细的 Agent/维度 scope 缓存；缓存采用 30 秒 stale-while-revalidate、逐 scope 请求序号和 LRU 淘汰，迟到响应只能写回自身 scope，不能覆盖当前项目投影。项目页面不再重复发起已经由该边界负责的初始任务、会话和 Agent 读取。
+`project-data-scope` 是项目切换的前端编排边界。路由项目变化时，它先同步激活各 Zustand store 的项目分区缓存，再发起后台刷新。Task、Agent、Session 列表、文件树、规则、知识库、事件中心和 Agent Memory 均按项目或更细的 Agent/维度 scope 缓存；缓存采用 30 秒 stale-while-revalidate、逐 scope 请求序号和 LRU 淘汰，迟到响应只能写回自身 scope，不能覆盖当前项目投影。
 
 WebSocket 实体更新按实体携带的 `project_id` 写入目标缓存。只包含实体 ID 的局部更新会修改所有命中的已访问 scope；无法安全合并的集合更新只标记目标 scope 失效，并仅刷新当前可见项目。Session 的消息、事件和流式执行状态继续按 `sessionId` 使用既有缓存，不复制到项目列表缓存。
 
@@ -249,11 +172,9 @@ session 关闭(close/archive/delete)自动 `disconnectBySession`:off 所有未�
 - Event Center 是项目级事件收件箱；事件可以被忽略、消费、归档或转为普通 Task，但不会替代 `tasks` 的交付状态机。
 - Knowledge Base 是项目可见知识层；项目库绑定单项目，shared 库通过挂载进入项目可见范围，AI 和人读写同一份 markdown 页面。
 - 非 Team Agent 间通信使用 `agent.*` MCP 工具和普通 Session 投递；平台记录通信与 watch 状态，但不引入独立通信线程。
-- 默认模式下 `src/realtime/` 独占 WebSocket、订阅与背压，且禁止依赖 Core、Store、SQLite 或 Gateway RPC；`ws-handler.ts` 仅保留 embedded 回滚和 API 侧兼容 RPC 执行。
+- `ws-handler.ts` 只负责 WS 连接、广播、JSON 解析和 dispatch；新增 RPC 必须放到 `src/gateway/rpc/*` 对应领域模块。
 - SQLite schema 由 `src/store/migrator.ts` 与 `src/store/migrations/*` 管理；`db.ts` 不再承载大段建表/升级逻辑。
-- 默认 HTTP Query 和 Session 流式持久化不得在 Gateway 调用栈执行同步 SQLite；新增数据访问必须通过 QueryPort/WriteDataPort。
-- Query Worker 不得写库；Writer mutation 必须使用封闭 union，禁止通过 MessagePort 发送任意 SQL。
-- API 只通过 `RuntimePort` 操作 ACP；process Runtime 不得导入 embedded `acpHost` 或读取其连接内部状态。
+- ACP Host 对外暴露 `acpHost` facade；新增 runtime/session/client callback/terminal/interaction 能力优先下沉到专用模块。
 - `tools` / `tool_bindings` / `skills` / `model_providers` / `model_profiles` 为全局可扩展能力表。
 - MCP 工具平台目标架构见 `docs/architecture/mcp-tool-platform.md`，第一版按方法级可见性控制推进。
 - ACP 对话生命周期、runtime/session/thread 对应关系与懒连接设计见 `docs/architecture/acp-session-lifecycle.md`。
@@ -289,10 +210,10 @@ Team 运行时事件规则：`team.member.spawn` 会广播包含完整成员 Ses
 ## ACP 懒生命周期
 
 - `sessions.create` 只创建本地 SQLite 行；在真正连接 session 前，`acp_session_id` 保持为空。
-- 首次 `prompt`，或显式切换 model/mode/config 时，调用 `RuntimePort.ensureSession()` 启动 Agent runtime，并创建或恢复 ACP session。
+- 首次 `prompt`，或显式切换 model/mode/config 时，调用 `acpHost.ensureSession()` 启动 Agent runtime，并创建或恢复 ACP session。
 - 同一个 Agent 可以同时保持多个 ACP session 连接；平台只拒绝同一个本地 Session 内的并发 turn。
-- Runtime 关闭 Session 或进程时释放 ACP、终端和交互资源；已持久化 messages/events 和 `sessions.acp_session_id` 都会保留。
-- Session 级 runtime preferences 保存在 `sessions.runtime_preferences_json`。API 把偏好放入快照，ACP session 创建、恢复、加载或 fork 后由 Runtime 恢复 model/mode/config。
+- 空闲回收分两层：先 close/disconnect 空闲 ACP session，再停止空闲 ACP runtime 进程。已持久化 messages/events 和 `sessions.acp_session_id` 都会保留。
+- Session 级 runtime preferences 保存在 `sessions.runtime_preferences_json`。ACP session 创建、恢复、加载或 fork 后，host 会在能力列表可用时恢复保存的 model/mode/config；没有保存 mode 时，Codex 默认请求 `agent-full-access`，Claude Code 默认请求 `bypassPermissions`，不可用时保留 runtime 实际返回值。
 
 ## 未实现的设计目标
 
@@ -305,7 +226,7 @@ Team 运行时事件规则：`team.member.spawn` 会广播包含完整成员 Ses
 
 ## Session Update Scheduling
 
-`src/core/events.ts` keeps the public `session:update` event contract. Embedded updates and process Runtime persistence patches enter `SessionUpdateActorScheduler` before API consumers run; process Runtime visible patches have already been ordered and coalesced by the Runtime Session actor and travel directly to Realtime.
+`src/core/events.ts` keeps the public `session:update` event contract, but raw emits enter `SessionUpdateActorScheduler` before downstream consumers run. The scheduler keeps one queue per `sessionId`, processes one active session per scheduled drain with a bounded event budget, then rotates to the next active session so a noisy stream cannot monopolize all update consumers.
 
 Scheduler output is emitted back through the internal mitt bus as the same `session:update` event, so `sessions.ts`, `turn-process-runtime.ts`, and `ws-handler.ts` continue to subscribe through the existing interface. Critical boundaries such as permission or elicitation prompts, lifecycle updates, usage/config/sessionInfo updates, terminal tool statuses, and `session:done` flush the matching session queue before persistence, finalization, or broadcast continues.
 

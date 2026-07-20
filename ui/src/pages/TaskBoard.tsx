@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Plus } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useProjectNavigation } from '../hooks/use-project-navigation'
@@ -36,6 +36,8 @@ export function TaskBoard() {
   const tasks = useTaskStore((s) => s.tasks)
   const modes = useTaskStore((s) => s.modes)
   const updateTask = useTaskStore((s) => s.updateTask)
+  const fetchTasks = useTaskStore((s) => s.fetchTasks)
+  const fetchModes = useTaskStore((s) => s.fetchModes)
   const agents = useAgentStore((s) => s.agents)
   const sessions = useSessionStore((s) => s.sessions)
   const selectSession = useSessionStore((s) => s.selectSession)
@@ -52,6 +54,11 @@ export function TaskBoard() {
   }, [currentProjectId, patchTasks])
   const boardRef = useRef<HTMLDivElement | null>(null)
   const [reportModal, setReportModal] = useState<{ taskId: string; eventId: string | null } | null>(null)
+
+  useEffect(() => {
+    void fetchTasks(currentProjectId ?? undefined)
+    void fetchModes(currentProjectId ?? undefined)
+  }, [currentProjectId, fetchModes, fetchTasks])
 
   useLayoutEffect(() => {
     if (boardRef.current) boardRef.current.scrollLeft = savedScrollLeft

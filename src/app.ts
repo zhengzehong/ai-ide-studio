@@ -1,10 +1,10 @@
 import type { Server } from 'http'
 import type { WebSocketServer } from 'ws'
-import type { AppConfig, DataWorkerMode, RuntimeMode } from './core/config.js'
-import type { AppHandle } from './app-handle.js'
+import type { Hono } from 'hono'
+import type { AppConfig } from './core/config.js'
 import { createChildLogger, getLogConfig } from './core/logger.js'
 import { ruleEngine } from './core/rules.js'
-import { closeDatabase, initDatabase } from './store/db.js'
+import { initDatabase } from './store/db.js'
 import { agentStore } from './store/agents.js'
 import { sessionStore } from './store/sessions.js'
 import { seedBuiltinTemplates } from './store/agent-templates.js'
@@ -14,45 +14,14 @@ import { startGateway } from './gateway/server.js'
 import { initTimeline } from './core/timeline.js'
 import { getOrCreateMachineId, agentHubService } from './core/agent-hub/index.js'
 import { resolve } from 'path'
-import { createWorkerQueryPort } from './queries/worker-query-port.js'
-import { setQueryPort } from './queries/query-port-provider.js'
-import { sessionManager } from './core/sessions.js'
-import { createWorkerWriteDataPort } from './data-worker/writer-worker/client.js'
-import { setWriteDataPort } from './core/persistence/write-data-port-provider.js'
-import { sessionPersistencePort } from './core/persistence/session-persistence-port.js'
-import type { QueryPort } from './ports/query-port.js'
-import type { WriteDataPort } from './ports/write-data-port.js'
-import { localQueryPort } from './queries/local-query-port.js'
-import { createLocalWriteDataPort } from './core/persistence/local-write-data-port.js'
-import { createRealtimeProcess, type RealtimeProcessHandle } from './realtime/process-client.js'
-import { createRealtimeRpcBridge } from './gateway/realtime-rpc-bridge.js'
-import { createRealtimeEventSource, type RealtimeEventSource } from './gateway/realtime-event-source.js'
-import { sessionShareStore } from './store/session-shares.js'
-import type { RuntimePort } from './ports/runtime-port.js'
-import { EmbeddedRuntimePort } from './runtime/api/embedded-runtime-port.js'
-import { createProcessRuntimePort, type ProcessRuntimePort } from './runtime/api/process-runtime-port.js'
-import { handleRuntimeDone, handleRuntimePersistenceUpdate } from './runtime/api/runtime-ingress.js'
-import { setRuntimePort } from './runtime/runtime-port-provider.js'
-import { RuntimeCommandDispatcher } from './commands/runtime-command-dispatcher.js'
-import { executeSessionCommand } from './commands/session-command-service.js'
-import { startWriterMaintenanceLoop } from './data-worker/writer-maintenance-loop.js'
-import { createEventLoopMonitor, eventLoopMonitorOptions } from './shared/event-loop-monitor.js'
-import {
-  createRealtimeEndpointSubscription,
-  embeddedRealtimeEndpoint,
-  httpServerEndpoint,
-  restartRealtimeForTest,
-  serverPort,
-} from './app-endpoints.js'
 
 const log = createChildLogger('app')
 
-export type { AppHandle } from './app-handle.js'
-
-interface AppDataPorts {
-  queryPort: QueryPort
-  writeDataPort: WriteDataPort
-  close: () => Promise<void>
+export interface AppHandle {
+  app: Hono
+  server: Server
+  wss: WebSocketServer
+  stop: () => Promise<void>
 }
 
 export async function startApp(config: AppConfig): Promise<AppHandle> {
@@ -73,100 +42,6 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
   seedBuiltinTaskExecutionModes()
   seedBuiltinTools()
 
-  const dataWorkerMode = config.dataWorkerMode ?? 'worker'
-  let dataPorts: AppDataPorts
-  try {
-    dataPorts = await startDataPorts(dataWorkerMode, dbPath, config)
-  } catch (err) {
-    closeDatabase()
-    throw err
-  }
-  const { queryPort, writeDataPort } = dataPorts
-  const resetWriteDataPort = setWriteDataPort(writeDataPort)
-  const resetQueryPort = setQueryPort(queryPort)
-
-  const realtimeMode = config.realtimeMode ?? 'process'
-  let realtimeProcess: RealtimeProcessHandle | undefined
-  let realtimeEvents: RealtimeEventSource | undefined
-  if (realtimeMode === 'process') {
-    try {
-      realtimeProcess = await createRealtimeProcess({
-        host: config.realtimeHost ?? config.host,
-        port: config.realtimePort ?? (config.port === 0 ? 0 : config.port + 1),
-        legacyRpcEnabled: config.realtimeLegacyRpc ?? true,
-        maxQueueMessages: config.realtimeMaxQueueMessages,
-        maxQueueBytes: config.realtimeMaxQueueBytes,
-        maxBufferedBytes: config.realtimeMaxBufferedBytes,
-        maxFrameBytes: config.realtimeIpcMaxFrameBytes,
-        authenticate: async (request) => resolveRealtimeClaims(config, request),
-        dispatchLegacyRpc: createRealtimeRpcBridge(),
-      })
-      realtimeEvents = createRealtimeEventSource((delivery) => realtimeProcess?.sendDelivery(delivery))
-    } catch (err) {
-      resetQueryPort()
-      resetWriteDataPort()
-      await dataPorts.close()
-      closeDatabase()
-      throw err
-    }
-  }
-
-  const runtimeMode: RuntimeMode = config.runtimeMode ?? (realtimeMode === 'embedded' ? 'embedded' : 'process')
-  if (runtimeMode === 'process' && !realtimeProcess) {
-    realtimeEvents?.stop()
-    resetQueryPort()
-    resetWriteDataPort()
-    await dataPorts.close()
-    closeDatabase()
-    throw new Error('Process Runtime requires process Realtime')
-  }
-  let runtimePort: RuntimePort
-  let processRuntime: ProcessRuntimePort | undefined
-  try {
-    if (runtimeMode === 'process') {
-      const realtime = realtimeProcess as RealtimeProcessHandle
-      processRuntime = await createProcessRuntimePort({
-        realtimeStreamEndpoint: realtime.runtimeStreamEndpoint,
-        realtimeStreamToken: realtime.runtimeStreamToken,
-        maxFrameBytes: config.runtimeIpcMaxFrameBytes,
-        restartDelayMs: config.runtimeRestartDelayMs,
-        onPersistenceUpdate: handleRuntimePersistenceUpdate,
-        onDone: handleRuntimeDone,
-      })
-      runtimePort = processRuntime
-    } else {
-      runtimePort = new EmbeddedRuntimePort()
-    }
-  } catch (err) {
-    realtimeEvents?.stop()
-    await realtimeProcess?.close()
-    resetQueryPort()
-    resetWriteDataPort()
-    await dataPorts.close()
-    closeDatabase()
-    throw err
-  }
-  const resetRuntimePort = setRuntimePort(runtimePort)
-  const commandDispatcher = new RuntimeCommandDispatcher({
-    ledger: writeDataPort,
-    execute: async (command) => {
-      await executeSessionCommand(command)
-    },
-  })
-  try {
-    await commandDispatcher.start()
-  } catch (err) {
-    await runtimePort.close().catch(() => undefined)
-    resetRuntimePort()
-    realtimeEvents?.stop()
-    await realtimeProcess?.close()
-    resetQueryPort()
-    resetWriteDataPort()
-    await dataPorts.close()
-    closeDatabase()
-    throw err
-  }
-
   void getOrCreateMachineId().then(
     (machineId) => log.info({ machineId }, 'machineId 已就绪'),
     (err) => log.warn({ err }, '预热 machineId 失败,首次 connect 时再生成'),
@@ -177,190 +52,30 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
     (err) => log.warn({ err }, 'Hub 连接恢复失败,不阻塞启动'),
   )
 
-  let gateway: Awaited<ReturnType<typeof startGateway>>
-  let embeddedRealtimePort = 0
-  try {
-    gateway = await startGateway(config, {
-      queryPort,
-      webSocketMode: realtimeMode === 'embedded' ? 'embedded' : 'none',
-      realtimeState: () => ({
-        mode: realtimeMode,
-        host: realtimeMode === 'process' ? (config.realtimeHost ?? config.host) : config.host,
-        port: realtimeMode === 'process' ? (realtimeProcess?.port ?? 0) : embeddedRealtimePort,
-        publicPath: config.edgeMode === 'internal' ? config.edgeRealtimePath : undefined,
-        legacyRpcEnabled: config.realtimeLegacyRpc ?? true,
-      }),
-      commandDispatcher,
-    })
-    embeddedRealtimePort = serverPort(gateway.server)
-  } catch (err) {
-    await runtimePort.close().catch(() => undefined)
-    resetRuntimePort()
-    realtimeEvents?.stop()
-    await realtimeProcess?.close()
-    resetQueryPort()
-    resetWriteDataPort()
-    await dataPorts.close()
-    closeDatabase()
-    throw err
-  }
-  const { app, server, wss } = gateway
-  const httpEndpoint = httpServerEndpoint(config.host, server)
-  const initialRealtimeEndpoint =
-    realtimeMode === 'process'
-      ? (realtimeProcess as RealtimeProcessHandle).endpointUrl
-      : embeddedRealtimeEndpoint(config.host, server)
-  const onRealtimeEndpointChange = createRealtimeEndpointSubscription(
-    realtimeMode,
-    realtimeProcess,
-    initialRealtimeEndpoint,
-  )
+  const { app, server, wss } = await startGateway(config)
   ruleEngine.start()
   initTimeline()
   log.info(
-    {
-      host: config.host,
-      port: config.port,
-      http: httpEndpoint,
-      realtimeMode,
-      runtimeMode,
-      realtimeEndpoint: initialRealtimeEndpoint,
-    },
+    { host: config.host, port: config.port, http: `http://${config.host}:${config.port}`, ws: `ws://${config.host}:${config.port}` },
     '服务已启动',
   )
 
   let stopped = false
   const hubCleanupTimer = agentHubService.startCleanupTimer()
-  const maintenanceLoop = startWriterMaintenanceLoop(writeDataPort, config.dataMaintenanceIntervalMs)
-  const eventLoopMonitor = createEventLoopMonitor(
-    eventLoopMonitorOptions('api', () => ({
-      activePromptCount: sessionManager.listActivePromptSessionIds().length,
-    })),
-  )
-  eventLoopMonitor.start()
 
   return {
     app,
     server,
     wss,
-    dataWorkerMode,
-    realtimeMode,
-    runtimeMode,
-    httpEndpoint,
-    get realtimeEndpoint(): string {
-      return realtimeMode === 'process'
-        ? (realtimeProcess as RealtimeProcessHandle).endpointUrl
-        : initialRealtimeEndpoint
-    },
-    onRealtimeEndpointChange,
-    restartRealtimeForTest: () => restartRealtimeForTest(realtimeMode, realtimeProcess),
     stop: async () => {
       if (stopped) return
       stopped = true
-      maintenanceLoop.stop()
-      eventLoopMonitor.stop()
       ruleEngine.stop()
       clearInterval(hubCleanupTimer)
-      const cleanupErrors: unknown[] = []
-      realtimeEvents?.stop()
-      commandDispatcher.closeIntake()
-      if (wss) await collectCleanupError(cleanupErrors, () => closeWebSocketServer(wss))
-      await collectCleanupError(cleanupErrors, () => commandDispatcher.drain())
-      await collectCleanupError(cleanupErrors, () => runtimePort.drain())
-      await collectCleanupError(cleanupErrors, () => runtimePort.close())
-      resetRuntimePort()
-      if (realtimeProcess) await collectCleanupError(cleanupErrors, () => realtimeProcess.close())
-      await collectCleanupError(cleanupErrors, () => closeHttpServer(server))
-      await collectCleanupError(cleanupErrors, () => sessionPersistencePort.flush())
-      await collectCleanupError(cleanupErrors, async () => {
-        await writeDataPort.maintain({ force: true })
-      })
-      resetQueryPort()
-      resetWriteDataPort()
-      await collectCleanupError(cleanupErrors, () => dataPorts.close())
-      sessionPersistencePort.reset()
-      closeDatabase()
-      if (cleanupErrors.length > 0) {
-        throw new AggregateError(cleanupErrors, 'Application shutdown completed with errors')
-      }
+      await closeWebSocketServer(wss)
+      await closeHttpServer(server)
       log.info('服务已关闭')
     },
-  }
-}
-
-async function resolveRealtimeClaims(
-  config: AppConfig,
-  request: { token?: string; shareToken?: string; guestId?: string; guestName?: string },
-): Promise<
-  | {
-      authMode: 'owner' | 'guest'
-      shareToken?: string
-      guestId?: string
-      guestName?: string
-      sessionId?: string
-      toolCallVisibility?: 'show' | 'hide'
-    }
-  | undefined
-> {
-  if (request.shareToken) {
-    const share = sessionShareStore.getByToken(request.shareToken)
-    if (!share) return undefined
-    return {
-      authMode: 'guest',
-      shareToken: request.shareToken,
-      guestId: request.guestId,
-      guestName: request.guestName,
-      sessionId: share.session_id,
-      toolCallVisibility: share.tool_call_visibility === 'hide' ? 'hide' : 'show',
-    }
-  }
-  if (config.localToken && request.token !== config.localToken) return undefined
-  return { authMode: 'owner' }
-}
-
-async function collectCleanupError(errors: unknown[], cleanup: () => Promise<void>): Promise<void> {
-  try {
-    await cleanup()
-  } catch (error) {
-    errors.push(error)
-  }
-}
-
-async function startDataPorts(mode: DataWorkerMode, dbPath: string, config: AppConfig): Promise<AppDataPorts> {
-  const maintenanceConfig = {
-    walCheckpointBytes: config.dataWalCheckpointBytes,
-    publishedOutboxRetentionMs: config.dataPublishedOutboxRetentionMs,
-  }
-  if (mode === 'local') {
-    return {
-      queryPort: localQueryPort,
-      writeDataPort: createLocalWriteDataPort(maintenanceConfig),
-      close: async () => undefined,
-    }
-  }
-
-  const writeDataPort = await createWorkerWriteDataPort({
-    dbPath,
-    slowRequestMs: config.dataWorkerSlowMs,
-    ...maintenanceConfig,
-  })
-  try {
-    const queryPort = await createWorkerQueryPort({
-      dbPath,
-      getActivePromptSessionIds: () => sessionManager.listActivePromptSessionIds(),
-      slowRequestMs: config.dataWorkerSlowMs,
-    })
-    return {
-      queryPort,
-      writeDataPort,
-      close: async () => {
-        await queryPort.close()
-        await writeDataPort.close()
-      },
-    }
-  } catch (err) {
-    await writeDataPort.close()
-    throw err
   }
 }
 

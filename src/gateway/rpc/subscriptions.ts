@@ -1,8 +1,6 @@
 import { sessionManager } from '../../core/sessions.js'
 import { sessionShareStore } from '../../store/session-shares.js'
 import type { RpcHandlerMap } from './types.js'
-import { randomUUID } from 'node:crypto'
-import { executeSessionCommand } from '../../commands/session-command-service.js'
 
 export const subscriptionRpcHandlers: RpcHandlerMap = {
   subscribe(msg, { state, sendResult, sendError }) {
@@ -32,22 +30,12 @@ export const subscriptionRpcHandlers: RpcHandlerMap = {
   prompt(msg, { state, sendResult, sendOutOfBandError }) {
     const sessionId = msg.sessionId as string
     const content = msg.content as string
-    const clientMessageId = typeof msg.clientMessageId === 'string'
-      ? msg.clientMessageId
-      : `msg-${randomUUID().slice(0, 8)}`
+    const clientMessageId = typeof msg.clientMessageId === 'string' ? msg.clientMessageId : undefined
     const contextProjectId = typeof msg.contextProjectId === 'string' ? msg.contextProjectId : undefined
     const images = msg.images as { data: string; mimeType: string }[] | undefined
     state.subscriptions.add(sessionId)
     sendResult({ status: 'streaming' })
-    executeSessionCommand({
-      commandId: `legacy-${randomUUID()}`,
-      type: 'prompt',
-      sessionId,
-      clientMessageId,
-      content,
-      ...(contextProjectId ? { contextProjectId } : {}),
-      ...(images ? { images } : {}),
-    }).catch((err) => {
+    sessionManager.sendPrompt(sessionId, content, images, { clientMessageId, contextProjectId }).catch((err) => {
       sendOutOfBandError(`Prompt 执行失败: ${err instanceof Error ? err.message : err}`)
     })
   },

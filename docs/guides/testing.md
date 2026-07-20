@@ -77,18 +77,3 @@ describe('功能描述', () => {
 3. **测试文件命名** — `xxx.test.ts`，和被测模块对应
 4. **测试描述用中文** — 保持和项目 UI 一致
 5. **集成测试用临时目录** — 避免污染开发数据
-
-## 性能与故障门禁
-
-```bash
-npm run check:ui-bundle       # PC 主入口预算和动态页面数量
-npm run perf:phase5:smoke     # 30 Session / 5 秒 Runtime-Realtime smoke
-npm run perf:browser          # Chrome 生产构建刷新与缓存路由切换
-
-# 默认 30 Session / 30 分钟；可覆盖 sessions、duration-ms、sample-ms
-npx tsx scripts/performance/phase-5-soak.ts --json
-```
-
-`phase-5-performance.test.ts` 验证 Session History p95 与 2 秒慢 Query 下的 Realtime p95/p99；`phase-5-process-failures.test.ts` 注入 Query Worker、Writer Worker、Realtime 和 Runtime 退出。soak runner 校验每轮每 Session 恰好一个 done、无超时、Runtime 首帧延迟和长时间 heap 趋势。浏览器 runner 使用系统 Chrome、生产静态资源和 IndexedDB stale snapshot，预算为 warm hard refresh p95 `<300ms`、缓存项目/页面切换 p95 `<50ms>`。
-
-浏览器 runner 默认使用 `C:\Program Files\Google\Chrome\Application\chrome.exe`；其他安装位置通过 `PLAYWRIGHT_CHROME_PATH` 指定。运行前先执行 `npm run build`。

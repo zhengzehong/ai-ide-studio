@@ -1,3 +1,5 @@
+import { acpHost } from '../../acp/host.js'
+import { events } from '../../core/events.js'
 import {
   listLocalSessionCandidates,
   localSessionCwdWarning,
@@ -16,13 +18,9 @@ import { parseToolCallsJson, selectToolCallDetail, summarizeToolCalls } from '..
 import { buildFileChangesFromToolCalls } from '../../store/file-changes.js'
 import { turnProcessItemStore } from '../../store/turn-process-items.js'
 import type { FileChangeDetailData } from '../../types/ws-protocol.js'
+import type { AgentConnection } from '../../acp/host-types.js'
 import type { AgentRow } from '../../store/agents.js'
 import type { RpcHandlerMap } from './types.js'
-import { getQueryPort } from '../../queries/query-port-provider.js'
-import { getRuntimePort } from '../../runtime/runtime-port-provider.js'
-import { buildRuntimeStateSnapshot } from '../../runtime/api/runtime-snapshot.js'
-import { randomUUID } from 'node:crypto'
-import { executeSessionCommand } from '../../commands/session-command-service.js'
 
 const log = createChildLogger('rpc-sessions')
 
@@ -71,8 +69,10 @@ async function ensureAcpSession(sessionId: string, emitLifecycle = true): Promis
   const session = sessionStore.get(sessionId)
   if (!session) throw new Error('\u4f1a\u8bdd\u4e0d\u5b58\u5728')
   const context = resolveSessionProjectContext(sessionId)
-  const snapshot = buildRuntimeStateSnapshot({ sessionId, projectId: context.projectId, cwd: context.cwd })
-  const acpSessionId = await getRuntimePort().ensureSession(snapshot, { emitLifecycle })
+  const acpSessionId = await acpHost.ensureSession(session.agent_id, sessionId, session.acp_session_id, {
+    ...context,
+    emitLifecycle,
+  })
   if (session.acp_session_id !== acpSessionId) sessionStore.updateAcpSessionId(sessionId, acpSessionId)
   return { agentId: session.agent_id }
 }
@@ -125,12 +125,32 @@ function parseFileChangeDetail(raw: string | null | undefined): FileChangeDetail
   }
 }
 
+export function forceCancelTimedOutTurn(
+  conn: AgentConnection,
+  sessionId: string,
+  cancelledTurnKey: number | undefined,
+): boolean {
+  if (cancelledTurnKey === undefined) return false
+  const runtimeSession = conn.runtimeSessions.get(sessionId)
+  if (!runtimeSession || runtimeSession.activeTurnCount <= 0) return false
+  if (runtimeSession.activeTurnKey !== cancelledTurnKey) return false
+  const reject = runtimeSession.activeTurnReject
+  runtimeSession.activeTurnCount = 0
+  runtimeSession.activeTurnKey = undefined
+  runtimeSession.activeTurnReject = undefined
+  conn.activeTurnCount = Math.max(0, conn.activeTurnCount - 1)
+  if (reject) {
+    try { reject(new Error('cancel timeout: forcing done after 10s')) } catch { /* noop */ }
+  }
+  return true
+}
+
 export const sessionRpcHandlers: RpcHandlerMap = {
   async 'session.setModel'(msg, { sendResult }) {
     const sessionId = msg.sessionId as string
     const modelId = msg.modelId as string
     const { agentId } = await ensureAcpSession(sessionId, false)
-    await getRuntimePort().setModel(agentId, sessionId, modelId)
+    await acpHost.setModel(agentId, sessionId, modelId)
     sessionStore.updateRuntimePreferences(sessionId, { modelId })
     sendResult({ modelId })
   },
@@ -138,7 +158,7 @@ export const sessionRpcHandlers: RpcHandlerMap = {
   async 'session.getModels'(msg, { sendResult }) {
     const sessionId = msg.sessionId as string
     const { agentId } = await ensureAcpSession(sessionId, false)
-    const caps = await getRuntimePort().getSessionCapabilities(agentId, sessionId)
+    const caps = acpHost.getSessionCapabilities(agentId, sessionId)
     sendResult({
       models: caps?.models || [],
       currentModelId: caps?.currentModelId || null,
@@ -156,7 +176,7 @@ export const sessionRpcHandlers: RpcHandlerMap = {
     const sessionId = msg.sessionId as string
     const modeId = msg.modeId as string
     const { agentId } = await ensureAcpSession(sessionId, false)
-    await getRuntimePort().setMode(agentId, sessionId, modeId)
+    await acpHost.setMode(agentId, sessionId, modeId)
     sessionStore.updateRuntimePreferences(sessionId, { modeId })
     sendResult({ modeId })
   },
@@ -166,7 +186,7 @@ export const sessionRpcHandlers: RpcHandlerMap = {
     const configId = msg.configId as string
     const value = msg.value as string | boolean
     const { agentId } = await ensureAcpSession(sessionId, false)
-    await getRuntimePort().setConfig(agentId, sessionId, configId, value)
+    await acpHost.setConfig(agentId, sessionId, configId, value)
     sessionStore.updateRuntimePreferences(sessionId, { config: { [configId]: value } })
     sendResult({ configId, value })
   },
@@ -178,14 +198,10 @@ export const sessionRpcHandlers: RpcHandlerMap = {
     const forked = sessionStore.create({ agentId: source.agent_id, taskId: source.task_id ?? undefined, projectId: source.project_id ?? undefined })
     try {
       const project = source.project_id ? projectStore.get(source.project_id) : undefined
-      const snapshot = buildRuntimeStateSnapshot({
-        sessionId: forked.id,
+      const acpSessionId = await acpHost.forkSession(source.agent_id, sessionId, forked.id, {
         projectId: source.project_id ?? undefined,
         cwd: project?.work_dir,
       })
-      const sourceAcpSessionId = source.acp_session_id
-      if (!sourceAcpSessionId) throw new Error('源会话没有可复制的运行时上下文')
-      const acpSessionId = await getRuntimePort().forkSession(snapshot, sourceAcpSessionId)
       sessionStore.updateAcpSessionId(forked.id, acpSessionId)
       state.subscriptions.add(forked.id)
       sendResult(sessionStore.get(forked.id))
@@ -195,41 +211,67 @@ export const sessionRpcHandlers: RpcHandlerMap = {
     }
   },
 
-  async 'permission.respond'(msg, { sendResult }) {
-    sendResult(await executeSessionCommand({
-      commandId: legacyCommandId(msg.requestId),
-      type: 'permission.respond',
-      sessionId: msg.sessionId as string,
-      permissionRequestId: msg.permissionRequestId as string,
-      optionId: msg.optionId as string | undefined,
-      cancelled: msg.cancelled as boolean | undefined,
-    }))
+  'permission.respond'(msg, { sendResult }) {
+    const sessionId = msg.sessionId as string
+    const ok = acpHost.resolvePermission(sessionId, msg.permissionRequestId as string, msg.optionId as string | undefined, msg.cancelled as boolean | undefined)
+    if (!ok) throw new Error('权限请求已失效')
+    const session = sessionStore.get(sessionId)
+    const stored = eventStore.append(sessionId, {
+      type: 'permission.result',
+      agentId: session?.agent_id,
+      messageId: msg.permissionRequestId as string,
+      role: 'system',
+      payload: { requestId: msg.permissionRequestId, optionId: msg.optionId, cancelled: msg.cancelled === true },
+    })
+    events.emit('session:event', { sessionId, agentId: session?.agent_id, event: stored })
+    sendResult({ ok: true })
   },
 
-  async 'elicitation.respond'(msg, { sendResult }) {
-    sendResult(await executeSessionCommand({
-      commandId: legacyCommandId(msg.requestId),
-      type: 'elicitation.respond',
-      sessionId: msg.sessionId as string,
-      elicitationRequestId: msg.elicitationRequestId as string,
-      action: msg.action as 'accept' | 'decline' | 'cancel',
-      content: msg.content as Record<string, string | number | boolean | string[]> | undefined,
-    }))
+  'elicitation.respond'(msg, { sendResult }) {
+    const sessionId = msg.sessionId as string
+    const ok = acpHost.resolveElicitation(sessionId, msg.elicitationRequestId as string, msg.action as 'accept' | 'decline' | 'cancel', msg.content as Record<string, string | number | boolean | string[]> | undefined)
+    if (!ok) throw new Error('提问请求已失效')
+    const session = sessionStore.get(sessionId)
+    const stored = eventStore.append(sessionId, {
+      type: 'elicitation.result',
+      agentId: session?.agent_id,
+      messageId: msg.elicitationRequestId as string,
+      role: 'system',
+      payload: { requestId: msg.elicitationRequestId, action: msg.action, content: msg.content },
+    })
+    events.emit('session:event', { sessionId, agentId: session?.agent_id, event: stored })
+    sendResult({ ok: true })
   },
 
   async 'session.cancel'(msg, { sendResult }) {
-    sendResult(await executeSessionCommand({
-      commandId: legacyCommandId(msg.requestId),
-      type: 'session.cancel',
-      sessionId: msg.sessionId as string,
-    }))
+    const sessionId = msg.sessionId as string
+    const session = sessionStore.get(sessionId)
+    if (!session) throw new Error('会话不存在')
+    const activeConn = acpHost.agents.get(session.agent_id)
+    const cancelledTurnKey = activeConn?.runtimeSessions.get(sessionId)?.activeTurnKey
+    await acpHost.cancelPrompt(session.agent_id, sessionId)
+    sendResult({ ok: true })
+    setTimeout(() => {
+      const conn = acpHost.agents.get(session.agent_id)
+      if (!conn) return
+      if (forceCancelTimedOutTurn(conn, sessionId, cancelledTurnKey)) {
+        // ACP 10s 未响应 cancelPrompt:sendPromptNow 的 finally 块跑不到(activeTurnReject 已 reject,
+        // 但 await acpHost.cancelPrompt 卡住),activePrompts 残留会让会话永久卡"生成中"。
+        // 这里显式清,与 sendPromptNow finally 等价,必须在 emit session:done 之前清,
+        // 否则 session:done 的 handler 读了 activePrompts 还是非空(虽然当前 handler 不读,未来可能读)。
+        sessionManager.forceClearActivePrompt(sessionId)
+        log.warn({ sessionId, agentId: session.agent_id, cancelledTurnKey }, 'cancel timeout: forcing done after 10s')
+        events.emit('session:done', { sessionId, agentId: session.agent_id, messageId: `cancel-timeout-${Date.now()}`, stopReason: 'cancelled' })
+      }
+    }, 10_000)
   },
 
-  async 'sessions.list'(msg, { sendResult }) {
-    sendResult(await getQueryPort().listSessions({
-      agentId: msg.agentId as string | undefined,
-      projectId: msg.projectId as string | undefined,
-    }))
+  'sessions.list'(msg, { sendResult }) {
+    sendResult(sessionStore.listWithRuntimeState(
+      msg.agentId as string | undefined,
+      msg.projectId as string | undefined,
+      (sessionId) => sessionManager.isPromptActive(sessionId),
+    ))
   },
 
   'sessions.listByTask'(msg, { sendResult }) {
@@ -318,15 +360,13 @@ export const sessionRpcHandlers: RpcHandlerMap = {
     sendResult({ deleted: true })
   },
 
-  async 'sessions.messages'(msg, { sendResult }) {
-    const page = await getQueryPort().listSessionMessages({
-      sessionId: msg.sessionId as string,
+  'sessions.messages'(msg, { sendResult }) {
+    sendResult(messageStore.list(msg.sessionId as string, {
       limit: msg.limit as number | undefined,
       before: msg.before as string | undefined,
       includeToolCalls: msg.includeToolCalls as boolean | undefined,
       includeLatestToolCalls: msg.includeLatestToolCalls as boolean | undefined,
-    })
-    sendResult(page.items)
+    }))
   },
 
   'sessions.messageToolCalls'(msg, { sendResult }) {
@@ -383,24 +423,20 @@ export const sessionRpcHandlers: RpcHandlerMap = {
     sendResult(eventStore.listByMessage(sessionId, message.id))
   },
 
-  async 'sessions.events'(msg, { sendResult }) {
-    const page = await getQueryPort().listSessionEvents({
-      sessionId: msg.sessionId as string,
-      limit: msg.limit as number | undefined,
-      afterSequence: msg.afterSequence as number | undefined,
+  'sessions.events'(msg, { sendResult }) {
+    sendResult(eventStore.list(msg.sessionId as string, { limit: msg.limit as number | undefined, afterSequence: msg.afterSequence as number | undefined }))
+  },
+
+  'sessions.markRead'(msg, { sendResult }) {
+    const sessionId = msg.sessionId as string
+    const session = sessionStore.get(sessionId)
+    if (!session) throw new Error('会话不存在')
+    const lastReadAt = sessionStore.markRead(sessionId)
+    events.emit('session:changed', {
+      sessionId,
+      data: { lastReadAt },
     })
-    sendResult(page.items)
+    log.info({ sessionId, lastReadAt }, 'session marked as read')
+    sendResult({ sessionId, lastReadAt })
   },
-
-  async 'sessions.markRead'(msg, { sendResult }) {
-    sendResult(await executeSessionCommand({
-      commandId: legacyCommandId(msg.requestId),
-      type: 'sessions.markRead',
-      sessionId: msg.sessionId as string,
-    }))
-  },
-}
-
-function legacyCommandId(requestId: string | undefined): string {
-  return requestId ? `legacy-${requestId}` : `legacy-${randomUUID()}`
 }

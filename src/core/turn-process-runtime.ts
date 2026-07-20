@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto'
 import type { ElicitationRequestData, PermissionRequestData, PlanEntry, SessionUpdateData, ToolCallData } from '../types/ws-protocol.js'
 import { buildFileChangesFromToolCalls } from '../store/file-changes.js'
 import { onBeforeDatabaseClose } from '../store/db.js'
-import { sessionPersistencePort } from './persistence/session-persistence-port.js'
+import { messageStore } from '../store/sessions.js'
 import { stableProcessItemId, turnProcessItemStore, type TurnProcessItemRow } from '../store/turn-process-items.js'
 import { events } from './events.js'
 import { createChildLogger } from './logger.js'
@@ -11,7 +11,6 @@ import { mergeToolCall, shouldCreateToolFromUpdate } from './tool-calls.js'
 const log = createChildLogger('turn-process-runtime')
 
 interface ActiveTurnProcess {
-  sessionId: string
   messageId: string
   finalAnswer: string
   lastTextItemId?: string
@@ -37,7 +36,7 @@ export function createAgentMessageId(): string {
 }
 
 export function startTurnProcess(sessionId: string, messageId: string): void {
-  activeTurns.set(sessionId, { sessionId, messageId, finalAnswer: '', noteIndex: 0, snapshotPending: false })
+  activeTurns.set(sessionId, { messageId, finalAnswer: '', noteIndex: 0, snapshotPending: false })
   log.debug({ sessionId, messageId }, 'active turn process started')
 }
 
@@ -227,11 +226,7 @@ function flushSnapshot(active: ActiveTurnProcess, force = false): void {
     active.snapshotTimer = undefined
   }
   if (!active.snapshotPending && !force) return
-  void sessionPersistencePort
-    .updateRunningSnapshot(active.sessionId, active.messageId, active.finalAnswer)
-    .catch((err: unknown) => {
-      log.error({ err, sessionId: active.sessionId, messageId: active.messageId }, 'running message snapshot persistence failed')
-    })
+  messageStore.updateRunningSnapshot(active.messageId, active.finalAnswer)
   active.snapshotPending = false
 }
 

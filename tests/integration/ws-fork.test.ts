@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeAll, afterAll, afterEach, vi } from 'vitest'
+import { describe, test, expect, beforeAll, afterAll } from 'vitest'
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
@@ -13,10 +13,6 @@ import type { WebSocket, WebSocketServer } from 'ws'
 const tmp = mkdtempSync(resolve(tmpdir(), 'ai-ide-ws-fork-'))
 beforeAll(() => { mkdirSync(tmp, { recursive: true }); initDatabase(resolve(tmp, 'test.sqlite')) })
 afterAll(() => { closeDatabase(); rmSync(tmp, { recursive: true, force: true }) })
-afterEach(() => {
-  vi.restoreAllMocks()
-  acpHost.agents.delete('agent-fork-restart')
-})
 
 function createWs() {
   const handlers = new Map<string, (raw?: unknown) => unknown>()
@@ -39,10 +35,11 @@ describe('session.fork WS RPC', () => {
     const source = sessionStore.create({ agentId: 'agent-fork', acpSessionId: 'acp-source', projectId: project.id })
     const calls: Array<{ projectId?: string; cwd?: string }> = []
 
-    vi.spyOn(acpHost, 'forkSessionFromAcpSessionId').mockImplementation(async (_agentId, _sourceAcpSessionId, targetSessionId, context) => {
+    const original = acpHost.forkSession
+    acpHost.forkSession = (async (_agentId, _sourceSessionId, targetSessionId, context) => {
       calls.push({ projectId: context?.projectId, cwd: context?.cwd })
       return `acp-${targetSessionId}`
-    })
+    }) as typeof acpHost.forkSession
 
     const ws = createWs()
     await ws.send({ type: 'session.fork', requestId: 'req-fork', sessionId: source.id })
@@ -57,6 +54,7 @@ describe('session.fork WS RPC', () => {
     expect(sessionStore.get(response.data.id)?.project_id).toBe(project.id)
     expect(calls).toEqual([{ projectId: project.id, cwd: workDir }])
 
+    acpHost.forkSession = original
   })
 
   test('Agent 重启后(acpSessions Map 为空)forkSession 走 DB fallback', async () => {
@@ -66,7 +64,8 @@ describe('session.fork WS RPC', () => {
     const source = sessionStore.create({ agentId: 'agent-fork-restart', acpSessionId: 'acp-source-restart', projectId: project.id })
 
     let forkCalled = false
-    vi.spyOn(acpHost, 'startAgent').mockImplementation(async () => {
+    const originalStart = acpHost.startAgent
+    acpHost.startAgent = (async () => {
       acpHost.agents.set('agent-fork-restart', {
         agentId: 'agent-fork-restart',
         runtime: 'mock',
@@ -87,7 +86,7 @@ describe('session.fork WS RPC', () => {
         agentCapabilities: { sessionCapabilities: { fork: true } },
         sessionMeta: {},
       } as never)
-    })
+    }) as typeof acpHost.startAgent
 
     const targetId = 'sess-target-restart'
     const result = await acpHost.forkSession('agent-fork-restart', source.id, targetId, { projectId: project.id, cwd: workDir })
@@ -95,5 +94,7 @@ describe('session.fork WS RPC', () => {
     expect(forkCalled).toBe(true)
     expect(result).toBe('acp-forked-acp-source-restart')
 
+    acpHost.startAgent = originalStart
+    acpHost.agents.delete('agent-fork-restart')
   })
 })

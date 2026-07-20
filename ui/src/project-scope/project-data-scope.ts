@@ -9,12 +9,8 @@ import { clearProjectLastSession, useSessionStore } from '../stores/session.stor
 import { useTaskStore } from '../stores/task.store'
 
 const knownProjectIds = new Set<string>()
-const projectActivations = new Map<string, Promise<void>>()
 
-export function activateProjectData(projectId: string): Promise<void> {
-  const currentActivation = projectActivations.get(projectId)
-  if (currentActivation) return currentActivation
-
+export async function activateProjectData(projectId: string): Promise<void> {
   knownProjectIds.add(projectId)
   const taskStore = useTaskStore.getState()
   const agentStore = useAgentStore.getState()
@@ -29,11 +25,7 @@ export function activateProjectData(projectId: string): Promise<void> {
   useEventCenterStore.getState().activateProject(projectId)
   useAgentMemoryStore.getState().activateScope(projectId)
 
-  const activation = refreshProjectData(projectId).finally(() => {
-    if (projectActivations.get(projectId) === activation) projectActivations.delete(projectId)
-  })
-  projectActivations.set(projectId, activation)
-  return activation
+  await refreshProjectData(projectId)
 }
 
 export async function refreshProjectData(
@@ -82,7 +74,6 @@ export function invalidateProjectData(projectId: string): void {
 
 export function clearProjectData(projectId: string): void {
   knownProjectIds.delete(projectId)
-  projectActivations.delete(projectId)
   useTaskStore.getState().clearProjectCache(projectId)
   useAgentStore.getState().clearProjectCache(projectId)
   useSessionStore.getState().clearProjectCache(projectId)

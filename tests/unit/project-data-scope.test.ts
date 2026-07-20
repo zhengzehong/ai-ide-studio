@@ -106,27 +106,6 @@ describe('project data scope', () => {
     expect(stores.memory.activateScope).toHaveBeenCalledWith('project-a')
   })
 
-  test('coalesces concurrent activation waves for the same project', async () => {
-    const first = activateProjectData('project-concurrent')
-    const second = activateProjectData('project-concurrent')
-
-    await Promise.all([first, second])
-
-    expect(stores.task.activateProject).toHaveBeenCalledTimes(1)
-    expect(stores.agent.activateProject).toHaveBeenCalledTimes(1)
-    expect(stores.session.activateProject).toHaveBeenCalledTimes(1)
-    expect(stores.task.fetchTasks).toHaveBeenCalledTimes(1)
-    expect(stores.task.fetchModes).toHaveBeenCalledTimes(1)
-    expect(stores.agent.fetchAgents).toHaveBeenCalledTimes(1)
-    expect(stores.session.fetchSessions).toHaveBeenCalledTimes(1)
-    expect(stores.filesystem.fetchTree).toHaveBeenCalledTimes(1)
-    expect(stores.knowledge.fetchKnowledgeBases).toHaveBeenCalledTimes(1)
-    expect(stores.rules.fetchRules).toHaveBeenCalledTimes(1)
-    expect(stores.events.fetchCategories).toHaveBeenCalledTimes(1)
-    expect(stores.events.fetchEvents).toHaveBeenCalledTimes(1)
-    expect(stores.events.fetchSubscriptions).toHaveBeenCalledTimes(1)
-  })
-
   test('fans invalidation and cleanup out to all MVP stores', () => {
     invalidateProjectData('project-a')
     clearProjectData('project-a')

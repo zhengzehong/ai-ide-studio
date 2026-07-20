@@ -6,7 +6,7 @@ import { Readable } from 'stream'
 import { basename, extname, join, normalize, sep } from 'path'
 import { createReadStream, existsSync, statSync } from 'fs'
 import type { AppConfig } from '../core/config.js'
-import { broadcastToAll, broadcastToSubscribers, handleWsConnection } from './ws-handler.js'
+import { handleWsConnection } from './ws-handler.js'
 import { agentStore } from '../store/agents.js'
 import { sessionStore } from '../store/sessions.js'
 import { taskStore } from '../store/tasks.js'
@@ -22,43 +22,15 @@ import { mountStaticAssets, staticDirForLog } from './static-assets.js'
 import { handleBridgeCallback } from './bridge-callback.js'
 import { resolveAvatarPath } from './rpc/assets.js'
 import { createChildLogger } from '../core/logger.js'
-import { mountQueryRoutes } from './http/query-routes.js'
-import type { QueryPort } from '../ports/query-port.js'
-import { createRealtimeEventSource } from './realtime-event-source.js'
-import {
-  mountRealtimeConfigRoute,
-  type RealtimeEndpointState,
-} from './http/realtime-config-route.js'
-import {
-  mountSessionCommandRoutes,
-  type SessionCommandDispatcherPort,
-} from './http/session-command-routes.js'
 
 const log = createChildLogger('gateway')
 
-export interface StartGatewayOptions {
-  queryPort?: QueryPort
-  webSocketMode?: 'embedded' | 'none'
-  realtimeState?: () => RealtimeEndpointState
-  commandDispatcher?: SessionCommandDispatcherPort
-}
-
-export async function startGateway(config: AppConfig, options: StartGatewayOptions = {}) {
+export async function startGateway(config: AppConfig) {
   const app = new Hono()
-  let embeddedPort = config.port
 
   mountLocalTokenGuard(app, config)
 
   app.get('/health', (c) => c.json({ status: 'ok', uptime: process.uptime() }))
-  mountRealtimeConfigRoute(app, options.realtimeState ?? (() => ({
-    mode: 'embedded',
-    host: config.host,
-    port: embeddedPort,
-    legacyRpcEnabled: true,
-  })))
-
-  mountQueryRoutes(app, options.queryPort)
-  if (options.commandDispatcher) mountSessionCommandRoutes(app, options.commandDispatcher)
 
   app.get('/api/agents', (c) => c.json(agentStore.list()))
   app.get('/api/sessions', (c) => {
@@ -86,48 +58,16 @@ export async function startGateway(config: AppConfig, options: StartGatewayOptio
 
   const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port }) as Server
 
-  let wss: WebSocketServer | undefined
-  if ((options.webSocketMode ?? 'embedded') === 'embedded') {
-    wss = new WebSocketServer({ server })
-    const eventSource = createRealtimeEventSource((delivery) => {
-      if (delivery.scope === 'session') broadcastToSubscribers(delivery.sessionId, delivery.message)
-      else broadcastToAll(delivery.message)
-    })
-    wss.once('close', () => eventSource.stop())
-    wss.on('connection', (ws, req) => {
-      if (!isWsAuthorized(req, config)) {
-        ws.close(1008, '未授权')
-        return
-      }
-      handleWsConnection(ws, req, wss as WebSocketServer)
-    })
-  }
-
-  await waitForServerListening(server)
-  const address = server.address()
-  if (address && typeof address !== 'string') embeddedPort = address.port
+  const wss = new WebSocketServer({ server })
+  wss.on('connection', (ws, req) => {
+    if (!isWsAuthorized(req, config)) {
+      ws.close(1008, '未授权')
+      return
+    }
+    handleWsConnection(ws, req, wss)
+  })
 
   return { app, server, wss }
-}
-
-function waitForServerListening(server: Server): Promise<void> {
-  if (server.listening) return Promise.resolve()
-  return new Promise((resolveListening, rejectListening) => {
-    const onListening = (): void => {
-      cleanup()
-      resolveListening()
-    }
-    const onError = (error: Error): void => {
-      cleanup()
-      rejectListening(error)
-    }
-    const cleanup = (): void => {
-      server.off('listening', onListening)
-      server.off('error', onError)
-    }
-    server.on('listening', onListening)
-    server.on('error', onError)
-  })
 }
 
 const AVATAR_MIME_TYPES: Record<string, string> = {
@@ -292,7 +232,6 @@ function mountLocalTokenGuard(app: Hono, config: AppConfig): void {
 }
 
 function isAssetRequest(path: string): boolean {
-  if (path === '/api/v1/realtime-config') return true
   if (path.startsWith('/api/bridge/')) return true
   if (path.startsWith('/avatars/')) return true
   if (path.startsWith('/api/share/')) return true

@@ -1,7 +1,5 @@
 import { create } from 'zustand'
 import { wsClient } from '../services/ws-client'
-import { queryClient } from '../services/query-client'
-import { commandClient, toCommandImages } from '../services/command-client'
 import type { AgentData } from './agent.store'
 import { useProjectStore } from './project.store'
 import type { SessionData } from './session.store'
@@ -373,17 +371,11 @@ export const useGlobalAssistantStore = create<GlobalAssistantStore>((set, get) =
     const trimmed = content.trim()
     if (!trimmed && !images?.length) return
     const clientMessageId = `msg-local-${Date.now()}`
-    const commandImages = toCommandImages(images)
+    const msg: Record<string, unknown> = { type: 'prompt', sessionId: sid, content: trimmed, clientMessageId }
     const currentProjectId = useProjectStore.getState().currentProjectId
-    void commandClient.execute({
-      commandId: `cmd-${clientMessageId}`,
-      type: 'prompt',
-      sessionId: sid,
-      content: trimmed,
-      clientMessageId,
-      ...(currentProjectId ? { contextProjectId: currentProjectId } : {}),
-      ...(commandImages ? { images: commandImages } : {}),
-    })
+    if (currentProjectId) msg.contextProjectId = currentProjectId
+    if (images?.length) msg.images = images
+    wsClient.send(msg)
     promptStartTime = Date.now()
     set((state) => ({
       messages: [
@@ -431,44 +423,26 @@ export const useGlobalAssistantStore = create<GlobalAssistantStore>((set, get) =
   cancelTurn: async () => {
     const sid = currentSessionId(get())
     if (!sid) return
-    await commandClient.execute({
-      commandId: `cmd-cancel-${sid}-${Date.now()}`,
-      type: 'session.cancel',
-      sessionId: sid,
-    })
+    await wsClient.request({ type: 'session.cancel', sessionId: sid })
   },
 
   respondPermission: async (requestId, optionId, cancelled) => {
     const sid = currentSessionId(get())
     if (!sid) return
-    await commandClient.execute({
-      commandId: `cmd-permission-${requestId}`,
-      type: 'permission.respond',
-      sessionId: sid,
-      permissionRequestId: requestId,
-      optionId,
-      cancelled,
-    })
+    await wsClient.request({ type: 'permission.respond', sessionId: sid, permissionRequestId: requestId, optionId, cancelled })
   },
 
   respondElicitation: async (requestId, action, content) => {
     const sid = currentSessionId(get())
     if (!sid) return
-    await commandClient.execute({
-      commandId: `cmd-elicitation-${requestId}`,
-      type: 'elicitation.respond',
-      sessionId: sid,
-      elicitationRequestId: requestId,
-      action,
-      content,
-    })
+    await wsClient.request({ type: 'elicitation.respond', sessionId: sid, elicitationRequestId: requestId, action, content })
   },
 
   fetchMessages: async () => {
     const sid = currentSessionId(get())
     if (!sid) return
-    const page = await queryClient.listSessionMessages({ sessionId: sid, limit: CHAT_MESSAGE_PAGE_SIZE })
-    const serverMessages = page.items
+    const rawMessages = await wsClient.request({ type: 'sessions.messages', sessionId: sid, limit: CHAT_MESSAGE_PAGE_SIZE })
+    const serverMessages = Array.isArray(rawMessages) ? rawMessages as MessageData[] : []
     if (sid !== currentSessionId(get())) return
     set((state) => {
       const messages = mergeMessagesForSession(serverMessages, state.messages, sid)
@@ -480,7 +454,7 @@ export const useGlobalAssistantStore = create<GlobalAssistantStore>((set, get) =
           ? streamingFromRunningMessage(runningMessage)
           : state.streamingMessage,
         running: hasRunning || state.running,
-        hasMoreMessages: page.hasMore,
+        hasMoreMessages: serverMessages.length >= CHAT_MESSAGE_PAGE_SIZE,
       }
     })
     const runningMessage = get().messages.filter((message) => message.session_id === sid && message.role === 'agent' && message.status === 'running').at(-1)
@@ -495,16 +469,12 @@ export const useGlobalAssistantStore = create<GlobalAssistantStore>((set, get) =
     if (!oldest) return
     set({ loadingOlderMessages: true })
     try {
-      const page = await queryClient.listSessionMessages({
-        sessionId: sid,
-        limit: CHAT_MESSAGE_PAGE_SIZE,
-        before: oldest.timestamp,
-      })
-      const olderMessages = page.items
+      const rawMessages = await wsClient.request({ type: 'sessions.messages', sessionId: sid, limit: CHAT_MESSAGE_PAGE_SIZE, before: oldest.timestamp })
+      const olderMessages = Array.isArray(rawMessages) ? rawMessages as MessageData[] : []
       if (sid !== currentSessionId(get())) return
       set((state) => ({
         messages: mergeMessagesForSession(olderMessages, state.messages, sid),
-        hasMoreMessages: page.hasMore,
+        hasMoreMessages: olderMessages.length >= CHAT_MESSAGE_PAGE_SIZE,
       }))
     } finally {
       set({ loadingOlderMessages: false })
@@ -514,7 +484,8 @@ export const useGlobalAssistantStore = create<GlobalAssistantStore>((set, get) =
   fetchEvents: async () => {
     const sid = currentSessionId(get())
     if (!sid) return
-    const events = (await queryClient.listSessionEvents({ sessionId: sid, limit: 1000 })).items
+    const rawEvents = await wsClient.request({ type: 'sessions.events', sessionId: sid, limit: 1000 })
+    const events = Array.isArray(rawEvents) ? rawEvents as SessionEventData[] : []
     if (sid !== currentSessionId(get())) return
     const reduced = reduceVisibleEvents(events, get().messages.length > 0, get().running)
     set((state) => ({

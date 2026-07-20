@@ -6,13 +6,11 @@
 
 - 分支：`prd`
 - 访问地址：`http://127.0.0.1:18900/workspace`
-- 唯一公网端口：`18900`（HTTP 与 `/realtime` WebSocket 共用）
+- 后端端口：`18900`
 - 数据库：`data-prd/ai-ide.sqlite`
 - 日志：`data-prd/logs`
 
 `data-prd/` 已加入 `.gitignore`，不会提交到仓库。
-
-默认 `EDGE_MODE=process`。API、Realtime 和 Runtime 的内部监听由进程监督器分配，只绑定本机 loopback，不需要发布 `18901`、`18902` 或其他端口。
 
 ## 首次启动
 
