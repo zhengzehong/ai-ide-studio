@@ -7,9 +7,13 @@
 ```text
 客户端层
   Web UI / Mobile Web App / CLI / 外部调用方
-      │ HTTP / CLI                    │ WebSocket
+      │ HTTP / CLI + WebSocket（同一公网 authority）
+      ▼
+Edge 主进程（唯一公网监听 HOST:PORT）
+  edge/gateway.ts
+      │ HTTP → 127.0.0.1:动态端口      │ Upgrade /realtime → 127.0.0.1:动态端口
       ▼                               ▼
-API 进程                         Realtime 进程
+API 子进程                       Realtime 子进程
   gateway/server.ts               realtime/service.ts
   gateway/http/*                  连接、认证、订阅索引、序列化、背压
   gateway/rpc/*                   每连接有界发送队列与游标恢复
@@ -77,6 +81,14 @@ PC 的 Prompt、取消、已读、权限响应和提问响应使用封闭的 `PO
 
 WebSocket 的稳定职责是连接认证、Session 订阅、`ping/resume` 控制和服务端事件流，不作为 PC 高频 Query/Command 的默认传输。尚未迁移的低频领域 RPC继续通过 Realtime IPC 兼容桥进入 API。
 
+### 公网 Edge 进程边界
+
+默认 `EDGE_MODE=process` 时，Edge 主进程是唯一绑定公开 `HOST:PORT` 的组件。所有 HTTP 请求流式转发到仅绑定 `127.0.0.1` 动态端口的 API 子进程；所有 WebSocket Upgrade 请求转发到当前 Realtime loopback target。Edge 不导入 Store、Core 业务、Gateway RPC、ACP、Runtime、Realtime 实现或 SQLite，仅维护代理连接和当前内部 target。
+
+Edge 监督 API 子进程，API 再监督 Realtime 与 Runtime。API 异常退出时 Edge 立即清空内部 target，HTTP 返回 503，随后在 API 恢复后热更新 target；公网监听端口不变。Realtime 重启只替换内部 WS target，浏览器发现地址始终是同源 `/realtime`。停止拥有公网端口的 Edge 进程会断开父 IPC，API 子进程执行完整关闭，继续回收 Realtime、Runtime 和 Worker 资源。
+
+`EDGE_MODE=disabled` 保留原 API/Realtime 直连拓扑用于显式排障，不是正常部署模式。`REALTIME_MODE=embedded` 仍可在 Edge 后将 WebSocket 回滚到 API 事件循环，但不会增加第二个公网端口。
+
 ### 浏览器启动与项目缓存
 
 PC 生产构建按页面使用 `React.lazy` 拆分，应用 shell、认证和连接发现保留在主入口；hashed JS/CSS 使用一年 immutable 缓存，HTML、SPA fallback 和未 hash 文件使用 `no-cache`。构建 manifest 由 `npm run check:ui-bundle` 检查主入口预算和动态页面数量。
@@ -97,7 +109,7 @@ Runtime 资源配额默认允许 32 个网络型 turn、`max(2, floor(cpuCount /
 
 默认 `REALTIME_MODE=process` 时，独立 Realtime 子进程独占浏览器 WebSocket、认证握手、Session 订阅索引、JSON 序列化和发送背压；API 进程不持有浏览器 socket。两者通过本机 named pipe（Windows）或 Unix domain socket 通信，消息使用 4 字节大端长度前缀和版本化 Protobuf envelope，业务 payload 为受类型约束的 UTF-8 JSON。Envelope 携带 `version`、`kind`、请求/会话/流游标和幂等元数据，单帧大小受 `REALTIME_IPC_MAX_FRAME_BYTES` 限制。
 
-浏览器先请求 `GET /api/v1/realtime-config` 获取实际 `wsUrl`、协议版本、运行模式和兼容桥状态。PC 与移动端每次重连都重新发现端点，发现失败时才回退到 API 同端口 WebSocket。`REALTIME_MODE=embedded` 是显式回滚模式；`REALTIME_LEGACY_RPC=enabled` 保留尚未迁移到 HTTP 的旧领域 RPC，关闭后 Realtime 只接受 `subscribe`、`unsubscribe`、`resume` 和 `ping`。
+浏览器先请求 `GET /api/v1/realtime-config` 获取实际 `wsUrl`、协议版本、运行模式和兼容桥状态。Edge 模式返回当前公网 authority 的同源 `/realtime`，不会泄露内部端口；PC 与移动端每次重连都重新发现端点。`EDGE_MODE=disabled` 时 discovery 返回直连 Realtime 地址。`REALTIME_MODE=embedded` 是显式回滚模式；`REALTIME_LEGACY_RPC=enabled` 保留尚未迁移到 HTTP 的旧领域 RPC，关闭后 Realtime 只接受 `subscribe`、`unsubscribe`、`resume` 和 `ping`。
 
 每个连接有独立的消息数和字节数上限。文本 delta 按消息合并，process item 采用 latest-wins，`session:done`、权限/提问和错误保持关键 FIFO；客户端跟不上、序列跳号或 generation 变化时发送 `resync_required`，由客户端重新读取 HTTP snapshot。Realtime 分别跟踪“已接收入站 cursor”和“已发送 cursor”，在前一帧仍 in-flight 时不会把连续的新帧误判为 gap。一个慢客户端只消耗自己的有界队列，不能拖住其他连接。API 进程监督 Realtime 异常退出并自动重启；HTTP、Query Worker 和 Writer Worker 在重启期间继续服务。
 
@@ -113,7 +125,7 @@ Query/Writer Worker 的完成日志包含优先级、队列深度、排队时间
 
 Writer 独占 SQLite 维护。周期任务先 drain 写调度器，只删除超过保留期且 `published_at IS NOT NULL` 的 Outbox，运行 `PRAGMA optimize`，并在 WAL 达到 64 MiB 时执行 PASSIVE checkpoint；正常停机在 Session persistence flush 后执行 TRUNCATE checkpoint。未发布 Outbox、messages 和 session_events 永不由维护任务删除。
 
-API、Realtime、Runtime 各自使用 `monitorEventLoopDelay` 和 event-loop utilization，每 30 秒记录 p50/p95/p99/max lag、RSS/heap，以及本进程的 active prompt、连接/订阅/发送队列或 Runtime actor/coalescer backlog。`EVENT_LOOP_MONITOR_INTERVAL_MS` 和 `EVENT_LOOP_WARN_THRESHOLD_MS` 控制采样周期与告警阈值。
+Edge、API、Realtime、Runtime 各自使用 `monitorEventLoopDelay` 和 event-loop utilization，每 30 秒记录 p50/p95/p99/max lag、RSS/heap，以及本进程的代理连接、active prompt、连接/订阅/发送队列或 Runtime actor/coalescer backlog。`EVENT_LOOP_MONITOR_INTERVAL_MS` 和 `EVENT_LOOP_WARN_THRESHOLD_MS` 控制采样周期与告警阈值。
 
 `session:activity` 是独立的轻量全局事件，只表示会话本轮执行从 `running` 到 `idle` 的状态变化，用于左侧会话列表运行中/未读提示；它不承载聊天内容，也不参与历史消息还原。
 

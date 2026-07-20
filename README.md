@@ -6,7 +6,7 @@ AI IDE Studio 是一个本地部署的全栈 AI 编程协作工具。通过 [ACP
 
 ## 功能
 
-- **API + Runtime + Realtime 隔离** — API 提供 HTTP、领域命令与 DB Worker；Runtime 子进程拥有 ACP/终端/Session actor；Realtime 子进程负责 WebSocket、订阅、序列化和有界背压
+- **单端口 Edge + 进程隔离** — Edge 是唯一公网监听入口；API 提供 HTTP、领域命令与 DB Worker；Runtime 子进程拥有 ACP/终端/Session actor；Realtime 子进程负责 WebSocket、订阅、序列化和有界背压
 - **Workspace** — 主工作台，支持流式对话、执行过程持久化/恢复、工具调用懒加载/折叠、ACP diff 文件变更查看、思考过程展示、图片附件、Markdown 渲染和长会话虚拟滚动
 - **PC 项目切换** — 顶部支持固定项目 Tab，并显示所有项目的运行中/未读会话数；每个项目独立记忆上次页面、查询参数和关键视图状态，切回时先显示分区缓存并在后台同步最新数据
 - **全局助理** — 可从 Agent 广场设置唯一全局 Agent，并通过右侧竖条随时打开独立聊天抽屉
@@ -44,6 +44,8 @@ npm run dev:all    # 启动 Gateway + UI
 PC 默认通过 `/api/v1` HTTP 读取任务、会话、消息历史和恢复事件。需要临时回滚时，在启动或构建 PC UI 前设置 `VITE_QUERY_TRANSPORT=ws`；移动端当前继续使用 WS 兼容 RPC。
 
 PC 的 Prompt、取消、已读、权限和提问响应默认通过 `/api/v1/commands` HTTP 提交，并由 Writer 命令账本保证接收持久化和幂等；实时输出仍通过 WebSocket 订阅。需要临时回滚时设置 `VITE_COMMAND_TRANSPORT=ws`。
+
+后端默认使用 `EDGE_MODE=process`，只有 Edge 监听公开的 `HOST:PORT`。HTTP 请求转发到 loopback 动态 API 端口，WebSocket Upgrade 通过同一公网 authority 的 `/realtime` 转发到 loopback 动态 Realtime 端口；PRD 因此只需发布 `18900`。`EDGE_MODE=disabled` 是保留的直连端口回滚模式。
 
 后端默认使用 `DATA_WORKER_MODE=worker`，同步 SQLite 查询和新会话热写分别运行在 Query/Writer Worker Thread。排障时可以显式设置 `DATA_WORKER_MODE=local` 回退到进程内适配器；Worker 运行中崩溃不会自动同步降级。
 
@@ -137,11 +139,13 @@ MIT
 | `DATA_MAINTENANCE_INTERVAL_MS` | `60000` | Writer SQLite 周期维护间隔 |
 | `DATA_WAL_CHECKPOINT_BYTES` | `67108864` | 普通维护触发 PASSIVE WAL checkpoint 的字节阈值 |
 | `DATA_PUBLISHED_OUTBOX_RETENTION_MS` | `604800000` | 已发布 Outbox 行保留时间；未发布行不会清理 |
-| `EVENT_LOOP_MONITOR_INTERVAL_MS` | `30000` | API、Realtime、Runtime event-loop 指标采样间隔 |
+| `EVENT_LOOP_MONITOR_INTERVAL_MS` | `30000` | Edge、API、Realtime、Runtime event-loop 指标采样间隔 |
 | `EVENT_LOOP_WARN_THRESHOLD_MS` | `50` | event-loop p99 达到该毫秒数时记录告警 |
+| `EDGE_MODE` | `process` | `process` 只公开 Edge 单端口；`disabled` 回滚到 API/Realtime 直连监听 |
+| `EDGE_REALTIME_PATH` | `/realtime` | Edge 模式下同源 WebSocket Upgrade 路径 |
 | `REALTIME_MODE` | `process` | `process` 使用独立 Realtime 子进程；`embedded` 为显式同进程回滚模式 |
-| `REALTIME_HOST` | 与 `HOST` 一致 | Realtime 监听地址 |
-| `REALTIME_PORT` | API 端口 + 1 | Realtime 监听端口；API 端口为 `0` 时也使用动态端口 |
+| `REALTIME_HOST` | 与 `HOST` 一致 | 仅直连回滚使用；Edge 模式强制内部 Realtime 绑定 `127.0.0.1` |
+| `REALTIME_PORT` | API 端口 + 1 | 仅直连回滚使用；Edge 模式强制内部 Realtime 使用动态端口 |
 | `REALTIME_LEGACY_RPC` | `enabled` | 是否允许旧 WS 领域 RPC 通过 IPC 转发到 API |
 | `REALTIME_MAX_QUEUE_MESSAGES` | `500` | 单连接待发送消息上限 |
 | `REALTIME_MAX_QUEUE_BYTES` | `2097152` | 单连接待发送队列字节上限 |

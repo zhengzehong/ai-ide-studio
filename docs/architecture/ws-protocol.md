@@ -30,7 +30,7 @@ PC 高频 Session 命令使用 `POST /api/v1/commands`。认证沿用 `x-ai-ide-
 
 ## 连接
 
-客户端不得假定 WebSocket 与 API 同端口。默认由 `GET /api/v1/realtime-config` 返回独立 Realtime 地址；`REALTIME_MODE=embedded` 或发现失败时才使用 API 同端口地址。Owner token 通过 `token` query 传给 WebSocket，分享页使用 `shareToken`。
+客户端不得硬编码 WebSocket 端口或路径，必须使用 `GET /api/v1/realtime-config`。默认 Edge 模式返回当前公网 authority 的 `ws(s)://<host>:<port>/realtime`，HTTP 与 WebSocket 只需发布同一个公网端口，内部 Realtime 端口不会暴露。`EDGE_MODE=disabled` 直连回滚时 discovery 可以返回独立 Realtime 地址。Owner token 通过 `token` query 传给 WebSocket，分享页使用 `shareToken`。
 
 ## 消息格式
 

@@ -180,7 +180,7 @@ npx vitest run tests/unit/realtime-config-route.test.ts tests/integration/realti
 
 Expected: PASS for direct, same-origin, forwarded TLS, process restart, and embedded rollback cases.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add src/core/config.ts src/gateway/http/realtime-config-route.ts src/app.ts src/realtime/process-client.ts tests/unit/realtime-config-route.test.ts tests/integration/realtime-process.test.ts tests/integration/realtime-app-lifecycle.test.ts
@@ -366,15 +366,15 @@ git commit -m "feat: expose one supervised public port"
 - Modify: `docs/architecture/ws-protocol.md`
 - Modify: `docs/superpowers/plans/2026-07-20-single-port-edge-gateway.md`
 
-- [ ] **Step 1: Update the deployment surface**
+- [x] **Step 1: Update the deployment surface**
 
 Keep PRD `PORT=18900`, document it as the only public port, and print `Realtime: same-origin /realtime`. Remove user-facing instructions that require `REALTIME_PORT=PORT+1`; document `EDGE_MODE=disabled` as the direct-port rollback.
 
-- [ ] **Step 2: Update stable architecture documentation**
+- [x] **Step 2: Update stable architecture documentation**
 
 Update the architecture topology and component table with Edge ownership. Update the WS protocol to require dynamic discovery and describe same-origin `/realtime` in Edge mode. Keep implementation phases and acceptance checklists out of architecture documents.
 
-- [ ] **Step 3: Run fresh complete verification**
+- [x] **Step 3: Run fresh complete verification**
 
 Run separately:
 
@@ -388,10 +388,10 @@ git diff --check
 
 Also run a production smoke instance on a free public port and inspect listeners. Only the public Edge listener may bind `0.0.0.0`; internal API and Realtime listeners must bind `127.0.0.1`. Connect HTTP and WebSocket through the public port before stopping the process and confirming all owned listeners disappear.
 
-- [ ] **Step 4: Commit documentation and close the plan**
+- [x] **Step 4: Commit documentation and close the plan**
 
 ```powershell
-git add scripts/start-prd-local.ps1 README.md docs/architecture/overview.md docs/architecture/ws-protocol.md docs/superpowers/plans/2026-07-20-single-port-edge-gateway.md
+git add scripts/start-prd-local.ps1 README.md docs/architecture/overview.md docs/architecture/ws-protocol.md docs/guides/prd-local-runtime.md docs/superpowers/plans/2026-07-20-single-port-edge-gateway.md src/edge/gateway.ts
 git commit -m "docs: document the single public port"
 ```
 

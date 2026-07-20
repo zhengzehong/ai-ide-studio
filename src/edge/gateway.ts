@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import type { Socket } from 'node:net'
+import type { Duplex } from 'node:stream'
 import { createProxyServer } from 'http-proxy-3'
 import { createEventLoopMonitor, eventLoopMonitorOptions } from '../shared/event-loop-monitor.js'
 import { createChildLogger } from '../shared/logger.js'
@@ -28,7 +29,7 @@ export async function startEdgeGateway(options: StartEdgeGatewayOptions): Promis
   let targets = normalizeTargets(options.targets)
   let activeHttpRequests = 0
   const sockets = new Set<Socket>()
-  const upgradedSockets = new Set<Socket>()
+  const upgradedSockets = new Set<Duplex>()
   const proxy = createProxyServer({
     changeOrigin: false,
     ignorePath: false,
@@ -180,7 +181,7 @@ function sendJson(response: ServerResponse, status: number, body: Record<string,
   response.end(payload)
 }
 
-function rejectUpgrade(socket: Socket, status: number, reason: string): void {
+function rejectUpgrade(socket: Duplex, status: number, reason: string): void {
   if (socket.destroyed) return
   const payload = JSON.stringify({ error: reason.toLowerCase().replaceAll(' ', '-') })
   socket.end(
