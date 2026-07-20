@@ -49,6 +49,27 @@ describe('Runtime process', () => {
     await runtime.closeSession('agent-a', 'session-a')
     await runtime.drain()
   }, 15_000)
+
+  test('allows a prompt to outlive the timeout reserved for short control requests', async () => {
+    realtime = await startRealtime()
+    const doneEvents: string[] = []
+    runtime = await createProcessRuntimePort({
+      realtimeStreamEndpoint: realtime.runtimeStreamEndpoint,
+      realtimeStreamToken: realtime.runtimeStreamToken,
+      onPersistenceUpdate: async () => undefined,
+      onDone: async (event) => { doneEvents.push(event.sessionId) },
+      requestTimeoutMs: 250,
+    })
+    await runtime.ensureSession(snapshot('session-long-prompt'))
+
+    await expect(runtime.prompt({
+      agentId: 'agent-a',
+      sessionId: 'session-long-prompt',
+      content: 'x'.repeat(600),
+    })).resolves.toBeUndefined()
+
+    expect(doneEvents).toEqual(['session-long-prompt'])
+  }, 15_000)
 })
 
 function startRealtime(): Promise<RealtimeProcessHandle> {

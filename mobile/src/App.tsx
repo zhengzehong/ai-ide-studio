@@ -35,7 +35,7 @@ export async function bootstrapMobileData(): Promise<void> {
 }
 
 export function shouldShowConnectPage(input: { serverUrl: string; connected: boolean; status: ConnectionStatus }): boolean {
-  return !input.serverUrl.trim()
+  return !input.serverUrl.trim() || !input.connected || input.status !== 'connected'
 }
 
 export default function App() {

@@ -108,8 +108,18 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
   },
 }))
 
-function buildWsUrl(serverUrl: string, token?: string): string {
-  const base = serverUrl.replace(/^http/, 'ws').replace(/\/$/, '')
+function normalizeServerOrigin(serverUrl: string): string {
+  const parsed = new URL(serverUrl.trim())
+  if (parsed.protocol === 'ws:') parsed.protocol = 'http:'
+  if (parsed.protocol === 'wss:') parsed.protocol = 'https:'
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error('服务器地址必须使用 HTTP 或 HTTPS')
+  }
+  return parsed.origin
+}
+
+function buildWsUrl(serverOrigin: string, token?: string): string {
+  const base = serverOrigin.replace(/^http/, 'ws')
   return token ? `${base}?token=${encodeURIComponent(token)}` : base
 }
 
@@ -118,10 +128,11 @@ export function resolveMobileRealtimeUrl(
   token?: string,
   fetchImpl: typeof fetch = fetch,
 ): Promise<string> {
+  const serverOrigin = normalizeServerOrigin(serverUrl)
   return discoverRealtimeEndpoint({
-    apiBase: serverUrl,
+    apiBase: serverOrigin,
     token,
     fetchImpl,
-    fallbackUrl: buildWsUrl(serverUrl, token),
+    fallbackUrl: buildWsUrl(serverOrigin, token),
   })
 }
