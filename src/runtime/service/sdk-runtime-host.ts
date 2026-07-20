@@ -2,12 +2,16 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { Readable, Writable } from 'node:stream'
 import * as acp from '@agentclientprotocol/sdk'
 import { mapConfigOptions, mergeCapabilitiesFromConfig } from '../../acp/capabilities.js'
+import { resolveDesiredRuntimeMode } from '../../acp/runtime-mode-preference.js'
 import type { RuntimeStateSnapshot } from '../../ports/runtime-port.js'
+import { createChildLogger } from '../../shared/logger.js'
 import type { ImageAttachment, SessionCapabilities, TurnUsageData } from '../../types/ws-protocol.js'
 import type { RuntimeSessionActorScheduler } from '../actors/session-actor.js'
 import { ResourceGovernor } from '../resources/resource-governor.js'
 import type { RuntimeCoalescibleUpdate } from '../streams/runtime-update-coalescer.js'
 import { createAcpRuntimeClient, type AcpRuntimeClientRouter } from './acp-runtime-client.js'
+
+const log = createChildLogger('sdk-runtime-host')
 
 interface SdkAgentRuntime {
   fingerprint: string
@@ -286,8 +290,29 @@ export class SdkRuntimeHost {
     const preferences = session.snapshot.runtimePreferences
     if (preferences.modelId)
       await this.setModel(session.snapshot.agent.id, session.snapshot.session.id, preferences.modelId)
-    if (preferences.modeId)
-      await this.setMode(session.snapshot.agent.id, session.snapshot.session.id, preferences.modeId)
+    const modeId = resolveDesiredRuntimeMode(session.snapshot.agent.runtime, preferences.modeId)
+    if (modeId && modeId !== session.capabilities.currentModeId) {
+      if (session.capabilities.modes?.some((mode) => mode.modeId === modeId)) {
+        try {
+          await this.setMode(session.snapshot.agent.id, session.snapshot.session.id, modeId)
+        } catch (err) {
+          log.warn(
+            { err, agentId: session.snapshot.agent.id, sessionId: session.snapshot.session.id, modeId },
+            'failed to restore Runtime session mode',
+          )
+        }
+      } else {
+        log.warn(
+          {
+            agentId: session.snapshot.agent.id,
+            sessionId: session.snapshot.session.id,
+            runtime: session.snapshot.agent.runtime,
+            modeId,
+          },
+          'desired Runtime session mode is unavailable',
+        )
+      }
+    }
     for (const [configId, value] of Object.entries(preferences.config ?? {})) {
       await this.setConfig(session.snapshot.agent.id, session.snapshot.session.id, configId, value)
     }
