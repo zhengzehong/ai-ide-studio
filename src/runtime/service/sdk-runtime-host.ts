@@ -1,5 +1,4 @@
-import { spawn, type ChildProcess } from 'node:child_process'
-import { Readable, Writable } from 'node:stream'
+import type { ChildProcess } from 'node:child_process'
 import * as acp from '@agentclientprotocol/sdk'
 import { mapConfigOptions, mergeCapabilitiesFromConfig } from '../../acp/capabilities.js'
 import { resolveDesiredRuntimeMode } from '../../acp/runtime-mode-preference.js'
@@ -10,6 +9,11 @@ import type { RuntimeSessionActorScheduler } from '../actors/session-actor.js'
 import { ResourceGovernor } from '../resources/resource-governor.js'
 import type { RuntimeCoalescibleUpdate } from '../streams/runtime-update-coalescer.js'
 import { createAcpRuntimeClient, type AcpRuntimeClientRouter } from './acp-runtime-client.js'
+import {
+  startManagedAcpAgent,
+  type ManagedAcpAgent,
+  type StartManagedAcpAgentInput,
+} from './managed-acp-agent.js'
 
 const log = createChildLogger('sdk-runtime-host')
 
@@ -19,6 +23,9 @@ interface SdkAgentRuntime {
   connection: acp.ClientSideConnection
   router: AcpRuntimeClientRouter
   agentCapabilities?: acp.AgentCapabilities
+  exitPromise: Promise<never>
+  rejectExit: (error: Error) => void
+  stopping: boolean
 }
 
 interface SdkSessionRuntime {
@@ -40,15 +47,23 @@ export interface SdkRuntimeHostOptions {
   }) => Promise<void>
 }
 
+export interface SdkRuntimeHostDependencies {
+  startAgent?: (input: StartManagedAcpAgentInput) => Promise<ManagedAcpAgent>
+}
+
 export class SdkRuntimeHost {
   private readonly agents = new Map<string, SdkAgentRuntime>()
   private readonly sessions = new Map<string, SdkSessionRuntime>()
   private readonly resources = new ResourceGovernor()
+  private readonly startAgent: (input: StartManagedAcpAgentInput) => Promise<ManagedAcpAgent>
 
   constructor(
     private readonly actors: RuntimeSessionActorScheduler,
     private readonly options: SdkRuntimeHostOptions,
-  ) {}
+    dependencies: SdkRuntimeHostDependencies = {},
+  ) {
+    this.startAgent = dependencies.startAgent ?? startManagedAcpAgent
+  }
 
   hasSession(sessionId: string): boolean {
     return this.sessions.has(sessionId)
@@ -119,7 +134,10 @@ export class SdkRuntimeHost {
         session.active = true
         agent.router.beginTurn(input.sessionId, messageId, input.diagnostics?.turnId)
         try {
-          const result = await agent.connection.prompt({ sessionId: session.acpSessionId, prompt: blocks })
+          const result = await Promise.race([
+            agent.connection.prompt({ sessionId: session.acpSessionId, prompt: blocks }),
+            agent.exitPromise,
+          ])
           await this.options.publishDone({
             sessionId: input.sessionId,
             agentId: input.agentId,
@@ -146,13 +164,23 @@ export class SdkRuntimeHost {
   }
 
   async cancelPrompt(agentId: string, sessionId: string): Promise<void> {
-    const session = this.requireSession(sessionId, agentId)
-    await this.requireAgent(agentId).connection.cancel({ sessionId: session.acpSessionId })
+    const session = this.sessions.get(sessionId)
+    if (!session || session.snapshot.agent.id !== agentId) return
+    const agent = this.agents.get(agentId)
+    if (!agent) return
+    agent.router.cancelSession(sessionId)
+    await agent.connection.cancel({ sessionId: session.acpSessionId })
   }
 
   async closeSession(agentId: string, sessionId: string): Promise<void> {
-    const session = this.requireSession(sessionId, agentId)
-    const agent = this.requireAgent(agentId)
+    const session = this.sessions.get(sessionId)
+    if (!session || session.snapshot.agent.id !== agentId) return
+    const agent = this.agents.get(agentId)
+    if (!agent) {
+      this.sessions.delete(sessionId)
+      return
+    }
+    agent.router.cancelSession(sessionId)
     await agent.connection.closeSession({ sessionId: session.acpSessionId }).catch(() => undefined)
     agent.router.unbindSession(sessionId)
     this.sessions.delete(sessionId)
@@ -242,13 +270,6 @@ export class SdkRuntimeHost {
     const existing = this.agents.get(snapshot.agent.id)
     if (existing?.fingerprint === fingerprint) return existing
     if (existing) await this.stopAgent(snapshot.agent.id)
-    const command = snapshot.runtime.command
-    if (!command) throw new Error(`Runtime command is missing for ${snapshot.agent.runtime}`)
-    const process = spawn(command.cmd, command.args, {
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env: snapshot.runtime.env,
-      shell: globalThis.process.platform === 'win32',
-    })
     const router = createAcpRuntimeClient({
       agentId: snapshot.agent.id,
       resources: this.resources,
@@ -258,31 +279,38 @@ export class SdkRuntimeHost {
         if (session) session.capabilities = update(session.capabilities)
       },
     })
-    const stream = acp.ndJsonStream(
-      Writable.toWeb(process.stdin!) as WritableStream<Uint8Array>,
-      Readable.toWeb(process.stdout!) as ReadableStream<Uint8Array>,
-    )
-    const connection = new acp.ClientSideConnection(() => router.client, stream)
-    const initialized = await connection.initialize({
-      protocolVersion: acp.PROTOCOL_VERSION,
-      clientCapabilities: {
-        fs: { readTextFile: true, writeTextFile: true },
-        terminal: true,
-        elicitation: { form: {}, url: {} },
-      },
-      clientInfo: { name: 'ai-ide-studio-runtime', version: '0.2.0' },
+    const command = snapshot.runtime.command
+    if (!command) {
+      router.close()
+      throw new Error(`Runtime command is missing for ${snapshot.agent.runtime}`)
+    }
+    const managed = await this.startAgent({
+      agentId: snapshot.agent.id,
+      runtime: snapshot.agent.runtime,
+      command,
+      env: snapshot.runtime.env,
+      router,
     })
+    let rejectExit: ((error: Error) => void) | undefined
+    const exitPromise = new Promise<never>((_resolve, reject) => { rejectExit = reject })
+    void exitPromise.catch(() => undefined)
     const runtime: SdkAgentRuntime = {
       fingerprint,
-      process,
-      connection,
+      process: managed.process,
+      connection: managed.connection,
       router,
-      agentCapabilities: initialized.agentCapabilities ?? undefined,
+      agentCapabilities: managed.agentCapabilities,
+      exitPromise,
+      rejectExit: rejectExit!,
+      stopping: false,
     }
     this.agents.set(snapshot.agent.id, runtime)
-    process.once('exit', () => {
-      if (this.agents.get(snapshot.agent.id) === runtime) this.agents.delete(snapshot.agent.id)
+    managed.process.once('exit', (code, signal) => {
+      this.handleAgentExit(snapshot.agent.id, runtime, code, signal)
     })
+    if (typeof managed.process.exitCode === 'number' || managed.process.signalCode) {
+      this.handleAgentExit(snapshot.agent.id, runtime, managed.process.exitCode, managed.process.signalCode)
+    }
     return runtime
   }
 
@@ -322,9 +350,36 @@ export class SdkRuntimeHost {
   private async stopAgent(agentId: string): Promise<void> {
     const agent = this.agents.get(agentId)
     if (!agent) return
+    agent.stopping = true
+    agent.rejectExit(new Error(`Agent runtime stopped: ${agentId}`))
+    this.removeAgentSessions(agentId, agent)
     agent.router.close()
-    agent.process.kill()
     this.agents.delete(agentId)
+    if (!agent.process.killed) agent.process.kill()
+  }
+
+  private handleAgentExit(
+    agentId: string,
+    runtime: SdkAgentRuntime,
+    code: number | null,
+    signal: NodeJS.Signals | null,
+  ): void {
+    if (this.agents.get(agentId) !== runtime) return
+    this.agents.delete(agentId)
+    this.removeAgentSessions(agentId, runtime)
+    runtime.router.close()
+    runtime.rejectExit(new Error(`Agent runtime exited: ${agentId} (code=${code ?? 'null'}, signal=${signal ?? 'null'})`))
+    if (!runtime.stopping) log.warn({ agentId, code, signal }, 'Agent runtime exited unexpectedly')
+  }
+
+  private removeAgentSessions(agentId: string, runtime: SdkAgentRuntime): void {
+    for (const [sessionId, session] of this.sessions) {
+      if (session.snapshot.agent.id !== agentId) continue
+      runtime.router.cancelSession(sessionId)
+      runtime.router.unbindSession(sessionId)
+      this.sessions.delete(sessionId)
+      if (this.actors.pendingCount(sessionId) === 0) this.actors.resetSession(sessionId)
+    }
   }
 
   private requireAgent(agentId: string): SdkAgentRuntime {

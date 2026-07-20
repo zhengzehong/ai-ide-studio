@@ -78,4 +78,48 @@ describe('database-free ACP Runtime client', () => {
       router.close()
     }
   })
+
+  test('cancels pending interactions when a Session is unbound', async () => {
+    const router = createAcpRuntimeClient({
+      agentId: 'agent-a',
+      publishUpdate: () => undefined,
+      updateCapabilities: () => undefined,
+    })
+    router.bindSession('session-a', 'acp-a', [])
+    const permission = router.client.requestPermission({
+      sessionId: 'acp-a',
+      toolCall: { toolCallId: 'tool-a', title: 'Terminal' },
+      options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }],
+    } as never)
+    const elicitation = router.client.unstable_createElicitation({
+      sessionId: 'acp-a',
+      mode: 'form',
+      message: 'Choose',
+      requestedSchema: { type: 'object', properties: {} },
+    } as never)
+
+    router.unbindSession('session-a')
+
+    await expect(permission).resolves.toEqual({ outcome: { outcome: 'cancelled' } })
+    await expect(elicitation).resolves.toEqual({ action: 'cancel' })
+  })
+
+  test('resolves all pending interactions when close is called repeatedly', async () => {
+    const router = createAcpRuntimeClient({
+      agentId: 'agent-a',
+      publishUpdate: () => undefined,
+      updateCapabilities: () => undefined,
+    })
+    router.bindSession('session-a', 'acp-a', [])
+    const permission = router.client.requestPermission({
+      sessionId: 'acp-a',
+      toolCall: { toolCallId: 'tool-a', title: 'Terminal' },
+      options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }],
+    } as never)
+
+    router.close()
+    router.close()
+
+    await expect(permission).resolves.toEqual({ outcome: { outcome: 'cancelled' } })
+  })
 })

@@ -22,14 +22,14 @@
 
 ## Batch 2: Runtime Child Failure and Interaction Cleanup
 
-- [ ] Add Runtime host tests proving child stderr is drained and contextualized without leaking full Prompt content.
-- [ ] Add a failed-initialize test proving router close, child termination, and no Agent registration.
-- [ ] Add child-exit tests proving all Agent Session bindings are removed and a later ensure resumes with a new child.
-- [ ] Add active-turn crash tests proving one error done is published and no false successful done is emitted.
-- [ ] Add interaction tests for cancel, Session close, Agent stop, child exit, and Runtime close; all pending permission/elicitation promises resolve cancelled.
-- [ ] Make close/stop cleanup idempotent and safe under simultaneous exit and explicit close.
-- [ ] Run focused Runtime process, crash recovery, command parity, and interaction tests.
-- [ ] Commit Batch 2 and report a task milestone.
+- [x] Add Runtime host tests proving child stderr is drained and contextualized without leaking full Prompt content.
+- [x] Add a failed-initialize test proving router close, child termination, and no Agent registration.
+- [x] Add child-exit tests proving all Agent Session bindings are removed and a later ensure resumes with a new child.
+- [x] Add active-turn crash tests proving child exit rejects the active Prompt so API publishes one error done and cannot publish a false successful done.
+- [x] Add interaction tests for cancel, Session close, Agent stop, child exit, and Runtime close; all pending permission/elicitation promises resolve cancelled.
+- [x] Make close/stop cleanup idempotent and safe under simultaneous exit and explicit close.
+- [x] Run focused Runtime process, crash recovery, command parity, and interaction tests.
+- [x] Commit Batch 2 and report a task milestone.
 
 ## Batch 3: Runtime Identity, Lifecycle IPC, and ACP Mapping
 

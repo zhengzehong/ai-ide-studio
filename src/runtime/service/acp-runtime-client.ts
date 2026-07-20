@@ -40,6 +40,7 @@ export interface AcpRuntimeClientRouter {
   unbindSession(sessionId: string): void
   beginTurn(sessionId: string, messageId: string, turnId?: string): void
   endTurn(sessionId: string): void
+  cancelSession(sessionId: string): void
   resolvePermission(sessionId: string, requestId: string, optionId?: string, cancelled?: boolean): boolean
   resolveElicitation(
     sessionId: string,
@@ -51,12 +52,14 @@ export interface AcpRuntimeClientRouter {
 }
 
 export function createAcpRuntimeClient(options: AcpRuntimeClientOptions): AcpRuntimeClientRouter {
+  const ownsResources = !options.resources
   const resources = options.resources ?? new ResourceGovernor()
   const terminals = new RuntimeTerminalManager(resources)
   const byAcpSession = new Map<string, BoundSession>()
   const acpByOurSession = new Map<string, string>()
   const permissions = new Map<string, PendingInteraction<acp.RequestPermissionResponse>>()
   const elicitations = new Map<string, PendingInteraction<acp.CreateElicitationResponse>>()
+  let closed = false
 
   const publish = (bound: BoundSession, data: SessionUpdateData): void => {
     options.publishUpdate({
@@ -214,6 +217,7 @@ export function createAcpRuntimeClient(options: AcpRuntimeClientOptions): AcpRun
       acpByOurSession.set(sessionId, acpSessionId)
     },
     unbindSession(sessionId) {
+      cancelSessionInteractions(sessionId, permissions, elicitations)
       const acpSessionId = acpByOurSession.get(sessionId)
       if (acpSessionId) byAcpSession.delete(acpSessionId)
       acpByOurSession.delete(sessionId)
@@ -231,6 +235,9 @@ export function createAcpRuntimeClient(options: AcpRuntimeClientOptions): AcpRun
         delete bound.turnId
       }
     },
+    cancelSession(sessionId) {
+      cancelSessionInteractions(sessionId, permissions, elicitations)
+    },
     resolvePermission(sessionId, requestId, optionId, cancelled) {
       const pending = takeInteraction(permissions, interactionKey(sessionId, requestId))
       if (!pending) return false
@@ -246,13 +253,50 @@ export function createAcpRuntimeClient(options: AcpRuntimeClientOptions): AcpRun
       return true
     },
     close() {
+      if (closed) return
+      closed = true
+      resolveAllInteractions(permissions, { outcome: { outcome: 'cancelled' } })
+      resolveAllInteractions(elicitations, { action: 'cancel' })
       terminals.close()
-      resources.close()
-      for (const pending of [...permissions.values(), ...elicitations.values()]) clearTimeout(pending.timer)
-      permissions.clear()
-      elicitations.clear()
+      if (ownsResources) resources.close()
+      byAcpSession.clear()
+      acpByOurSession.clear()
     },
   }
+}
+
+function cancelSessionInteractions(
+  sessionId: string,
+  permissions: Map<string, PendingInteraction<acp.RequestPermissionResponse>>,
+  elicitations: Map<string, PendingInteraction<acp.CreateElicitationResponse>>,
+): void {
+  const prefix = `${sessionId}:`
+  resolveMatchingInteractions(permissions, prefix, { outcome: { outcome: 'cancelled' } })
+  resolveMatchingInteractions(elicitations, prefix, { action: 'cancel' })
+}
+
+function resolveMatchingInteractions<T>(
+  interactions: Map<string, PendingInteraction<T>>,
+  prefix: string,
+  fallback: T,
+): void {
+  for (const [key, pending] of interactions) {
+    if (!key.startsWith(prefix)) continue
+    clearTimeout(pending.timer)
+    interactions.delete(key)
+    pending.resolve(fallback)
+  }
+}
+
+function resolveAllInteractions<T>(
+  interactions: Map<string, PendingInteraction<T>>,
+  fallback: T,
+): void {
+  for (const pending of interactions.values()) {
+    clearTimeout(pending.timer)
+    pending.resolve(fallback)
+  }
+  interactions.clear()
 }
 
 function mapToolCall(update: acp.ToolCall | acp.ToolCallUpdate): ToolCallData {
