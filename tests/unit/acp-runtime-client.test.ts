@@ -48,4 +48,34 @@ describe('database-free ACP Runtime client', () => {
 
     expect(approved).toEqual({ outcome: { outcome: 'selected', optionId: 'allow' } })
   })
+
+  test('registers a pending permission before publishing it to the client', async () => {
+    let resolvedDuringPublish = false
+    const router = createAcpRuntimeClient({
+      agentId: 'agent-a',
+      publishUpdate: (update) => {
+        if (update.kind !== 'session-update' || !update.data.permissionRequest) return
+        resolvedDuringPublish = router.resolvePermission(
+          update.sessionId,
+          update.data.permissionRequest.id,
+          'allow',
+        )
+      },
+      updateCapabilities: () => undefined,
+    })
+    router.bindSession('session-a', 'acp-a', [])
+
+    const response = router.client.requestPermission({
+      sessionId: 'acp-a',
+      toolCall: { toolCallId: 'tool-a', title: 'Terminal' },
+      options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }],
+    } as never)
+
+    try {
+      expect(resolvedDuringPublish).toBe(true)
+      await expect(response).resolves.toEqual({ outcome: { outcome: 'selected', optionId: 'allow' } })
+    } finally {
+      router.close()
+    }
+  })
 })

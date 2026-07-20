@@ -46,7 +46,7 @@ export class RuntimeCommandDispatcher {
   private readonly ledger: RuntimeCommandLedgerPort
   private readonly execute: RuntimeCommandDispatcherOptions['execute']
   private readonly now: () => string
-  private readonly sessionTails = new Map<string, Promise<void>>()
+  private readonly laneTails = new Map<string, Promise<void>>()
   private readonly completionByCommand = new Map<string, Promise<RuntimeCommandRecord>>()
   private accepting = false
   private started = false
@@ -79,8 +79,8 @@ export class RuntimeCommandDispatcher {
   }
 
   async drain(): Promise<void> {
-    while (this.sessionTails.size > 0) {
-      await Promise.allSettled([...this.sessionTails.values()])
+    while (this.laneTails.size > 0) {
+      await Promise.allSettled([...this.laneTails.values()])
     }
   }
 
@@ -99,7 +99,8 @@ export class RuntimeCommandDispatcher {
     const existing = this.completionByCommand.get(command.commandId)
     if (existing) return existing
 
-    const previous = this.sessionTails.get(command.sessionId) ?? Promise.resolve()
+    const lane = commandLane(command)
+    const previous = this.laneTails.get(lane) ?? Promise.resolve()
     const completion = previous
       .catch(() => undefined)
       .then(() => this.run(command))
@@ -107,10 +108,10 @@ export class RuntimeCommandDispatcher {
     this.completionByCommand.set(command.commandId, completion)
 
     const tail = completion.then(() => undefined, () => undefined)
-    this.sessionTails.set(command.sessionId, tail)
+    this.laneTails.set(lane, tail)
     void tail.finally(() => {
-      if (this.sessionTails.get(command.sessionId) === tail) {
-        this.sessionTails.delete(command.sessionId)
+      if (this.laneTails.get(lane) === tail) {
+        this.laneTails.delete(lane)
       }
       this.completionByCommand.delete(command.commandId)
     })
@@ -156,6 +157,26 @@ export class RuntimeCommandDispatcher {
   private update(input: Omit<RuntimeCommandUpdate, 'updatedAt'>): Promise<RuntimeCommandRecord> {
     return this.ledger.updateRuntimeCommand({ ...input, updatedAt: this.now() })
   }
+}
+
+function commandLane(command: RuntimeCommandRecord): string {
+  let lane: 'turn' | 'interaction' | 'cancel' | 'read-state'
+  switch (command.type) {
+    case 'prompt':
+      lane = 'turn'
+      break
+    case 'permission.respond':
+    case 'elicitation.respond':
+      lane = 'interaction'
+      break
+    case 'session.cancel':
+      lane = 'cancel'
+      break
+    case 'sessions.markRead':
+      lane = 'read-state'
+      break
+  }
+  return `${command.sessionId}:${lane}`
 }
 
 function shouldInterruptRecoveredPrompt(command: RuntimeCommandRecord): boolean {

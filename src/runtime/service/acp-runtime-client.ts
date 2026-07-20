@@ -148,10 +148,11 @@ export function createAcpRuntimeClient(options: AcpRuntimeClientOptions): AcpRun
         toolCall: mapToolCall(params.toolCall),
         options: params.options.map((option) => ({ optionId: option.optionId, name: option.name, kind: option.kind })),
       }
-      publish(bound, { messageId: requestId, role: 'system', permissionRequest })
-      return waitForInteraction(permissions, interactionKey(bound.ourSessionId, requestId), {
+      const response = waitForInteraction(permissions, interactionKey(bound.ourSessionId, requestId), {
         outcome: { outcome: 'cancelled' },
       })
+      publish(bound, { messageId: requestId, role: 'system', permissionRequest })
+      return response
     },
 
     async unstable_createElicitation(params) {
@@ -164,8 +165,13 @@ export function createAcpRuntimeClient(options: AcpRuntimeClientOptions): AcpRun
         message: params.message,
         requestedSchema: params.mode === 'form' ? params.requestedSchema : { url: scoped.url },
       }
+      const response = waitForInteraction(
+        elicitations,
+        interactionKey(bound.ourSessionId, requestId),
+        { action: 'cancel' },
+      )
       publish(bound, { messageId: requestId, role: 'system', elicitationRequest })
-      return waitForInteraction(elicitations, interactionKey(bound.ourSessionId, requestId), { action: 'cancel' })
+      return response
     },
     async unstable_completeElicitation() {},
     createTerminal: (params) => terminals.create(params),
