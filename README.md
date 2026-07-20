@@ -53,6 +53,8 @@ PC 的 Prompt、取消、已读、权限和提问响应默认通过 `/api/v1/com
 
 后端默认使用 `RUNTIME_SERVICE_MODE=process` 启动独立 Runtime 子进程。Claude/Codex ACP、每 Session 串行 actor、流更新合并、权限交互和终端资源都在该进程中；可见流通过专用本机管道直达 Realtime，持久化流回到 API/Writer。排障时可同时设置 `RUNTIME_SERVICE_MODE=embedded` 与 `REALTIME_MODE=embedded` 回滚到旧同进程路径。
 
+性能分支可用 `powershell -ExecutionPolicy Bypass -File scripts/start-performance-local.ps1` 启动隔离实例。默认只公开 `http://127.0.0.1:19000`，数据库和日志分别位于当前 worktree 的 `data-perf` 与 `data-perf/logs`；脚本拒绝使用 PRD 的 `18900` 端口，也不会自动终止占用端口的进程。
+
 详细配置见 [快速上手指南](docs/guides/getting-started.md)。
 
 ## 技术栈
