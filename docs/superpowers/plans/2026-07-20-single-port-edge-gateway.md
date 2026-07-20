@@ -197,7 +197,7 @@ git commit -m "feat: advertise same-origin realtime endpoints"
 - Test: `tests/unit/edge-protocol.test.ts`
 - Test: `tests/integration/edge-api-process.test.ts`
 
-- [ ] **Step 1: Write failing protocol and lifecycle tests**
+- [x] **Step 1: Write failing protocol and lifecycle tests**
 
 Define tests for strict message guards and a real API child configured with a temporary data directory. Require:
 
@@ -217,7 +217,7 @@ npx vitest run tests/unit/edge-protocol.test.ts tests/integration/edge-api-proce
 
 Expected: FAIL because the supervisor modules do not exist.
 
-- [ ] **Step 2: Implement a closed IPC protocol**
+- [x] **Step 2: Implement a closed IPC protocol**
 
 Use discriminated messages only:
 
@@ -238,11 +238,11 @@ type ApiToParentMessage =
 
 Guards must validate every required field and reject unknown message types. The Edge target never comes from a browser request.
 
-- [ ] **Step 3: Implement API child startup and shutdown**
+- [x] **Step 3: Implement API child startup and shutdown**
 
 `api-entry.ts` waits for `start`, calls `startApp(config)`, reports ready targets, subscribes to Realtime endpoint changes, and stops on `stop`, `SIGINT`, `SIGTERM`, or parent IPC disconnect. It uses the shared process-safe logger and never imports Edge proxy code.
 
-- [ ] **Step 4: Implement API supervision**
+- [x] **Step 4: Implement API supervision**
 
 `createApiProcess()` forks the TS/JS entry, performs the hello/start handshake, exposes immutable target snapshots, notifies listeners, and restarts unexpected exits after a bounded delay. Internalize the supplied config before sending it:
 
@@ -259,7 +259,7 @@ Guards must validate every required field and reject unknown message types. The 
 
 `close()` disables restart, sends stop, waits with a timeout, then kills only the owned child if necessary. Process exit clears targets before scheduling restart.
 
-- [ ] **Step 5: Verify supervision**
+- [x] **Step 5: Verify supervision**
 
 Run:
 
