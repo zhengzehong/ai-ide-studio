@@ -20,13 +20,13 @@ performance architecture work started.
 - [x] Confirm the main `prd` worktree has no tracked local changes.
 - [x] Confirm the preservation branch and worktree exist and contain the complete implementation.
 - [x] Commit this rollback record on the preservation branch.
-- [ ] Merge the preservation branch into `prd` to create an auditable complete snapshot.
-- [ ] Verify the preservation branch still points to the complete implementation after the merge.
-- [ ] Restore all tracked files on `prd` to the `7b84688` tree without rewriting history.
-- [ ] Commit the rollback on `prd`.
-- [ ] Verify the resulting `prd` tree matches `7b84688` for tracked files.
-- [ ] Run `npm test`, `npm run build`, `npm run lint`, and `git diff --check` on rolled-back `prd`.
-- [ ] Smoke-start the rolled-back PRD service and verify `/health` on the configured public port.
+- [x] Merge the preservation branch into `prd` to create an auditable complete snapshot.
+- [x] Verify the preservation branch still points to the complete implementation after the merge.
+- [x] Restore all tracked files on `prd` to the `7b84688` tree without rewriting history.
+- [x] Commit the rollback on `prd`.
+- [x] Verify the resulting `prd` tree matches `7b84688` for tracked files.
+- [x] Run `npm test`, `npm run build`, `npm run lint`, and `git diff --check` on rolled-back `prd`.
+- [x] Smoke-start the rolled-back PRD service and verify the configured public port.
 
 ## Recovery
 
