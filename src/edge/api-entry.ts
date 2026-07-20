@@ -1,6 +1,7 @@
 import type { AppHandle } from '../app.js'
 import { startApp } from '../app.js'
 import { createChildLogger } from '../shared/logger.js'
+import { shouldHandleInteractiveSignal } from '../shared/process-signal-ownership.js'
 import {
   isParentToApiMessage,
   type ApiToParentMessage,
@@ -15,7 +16,9 @@ let stopping = false
 async function main(): Promise<void> {
   process.on('message', (message: unknown) => { void handleMessage(message) })
   process.once('disconnect', () => { void shutdown(1, false) })
-  process.once('SIGINT', () => { void shutdown(0, false) })
+  process.on('SIGINT', () => {
+    if (shouldHandleInteractiveSignal(process.connected)) void shutdown(0, false)
+  })
   process.once('SIGTERM', () => { void shutdown(0, false) })
   await send({ type: 'hello' })
 }

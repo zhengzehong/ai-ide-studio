@@ -40,7 +40,11 @@ export class RuntimeService {
     this.host = new AcpRuntimeHost({
       publishUpdate: (agentId, update) => this.publishUpdate(agentId, update),
       publishDone: (input) => this.publishDone(input),
-      publishAgentStatus: (event) => { void this.options.sendAgentStatus(event) },
+      publishAgentStatus: (event) => {
+        void this.options.sendAgentStatus(event).catch((error) => {
+          log.warn({ err: error, agentId: event.agentId, status: event.status }, 'Runtime Agent status send failed')
+        })
+      },
       publishCapabilities: (sessionId, capabilities) => {
         void this.sendStream({
           type: 'runtime.stream',

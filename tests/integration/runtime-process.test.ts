@@ -77,6 +77,30 @@ describe('Runtime process', () => {
     expect(doneEvents).toEqual(['session-long-prompt'])
   }, 15_000)
 
+  test('exits cleanly when shutdown overlaps in-flight Runtime requests', async () => {
+    realtime = await startRealtime()
+    runtime = await createProcessRuntimePort({
+      realtimeStreamEndpoint: realtime.runtimeStreamEndpoint,
+      realtimeStreamToken: realtime.runtimeStreamToken,
+      onPersistenceUpdate: async () => undefined,
+      onDone: async () => undefined,
+    })
+    await runtime.ensureSession(snapshot('session-shutdown'))
+    const requestResults = Array.from({ length: 200 }, () => (
+      runtime?.getSessionCapabilities('agent-a', 'session-shutdown').then(
+        () => undefined,
+        (error: unknown) => error instanceof Error ? error.message : String(error),
+      )
+    ))
+
+    const closingRuntime = runtime
+    runtime = undefined
+    await closingRuntime.close()
+    const requestErrors = (await Promise.all(requestResults)).filter((value) => value !== undefined)
+
+    expect(requestErrors).not.toContainEqual(expect.stringContaining('code=1'))
+  }, 15_000)
+
   test('sweeps idle Sessions and Agents inside the Runtime process', async () => {
     realtime = await startRealtime()
     const statuses: string[] = []
