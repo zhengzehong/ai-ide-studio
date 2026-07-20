@@ -1,0 +1,52 @@
+import { describe, expect, it } from 'vitest'
+import {
+  isApiToParentMessage,
+  isParentToApiMessage,
+} from '../../src/edge/protocol.js'
+
+const config = {
+  host: '127.0.0.1',
+  port: 0,
+  dataDir: 'C:/tmp/ai-ide',
+  runtime: 'web',
+  edgeMode: 'internal',
+  edgeRealtimePath: '/realtime',
+} as const
+
+describe('Edge API process protocol', () => {
+  it('accepts every closed parent-to-child message shape', () => {
+    expect(isParentToApiMessage({ type: 'start', config })).toBe(true)
+    expect(isParentToApiMessage({ type: 'stop' })).toBe(true)
+    expect(isParentToApiMessage({ type: 'test.block', requestId: 'req-1', durationMs: 150 })).toBe(true)
+    expect(isParentToApiMessage({ type: 'test.realtime.restart', requestId: 'req-2' })).toBe(true)
+  })
+
+  it('rejects unknown, incomplete, and extra parent-to-child fields', () => {
+    expect(isParentToApiMessage({ type: 'unknown' })).toBe(false)
+    expect(isParentToApiMessage({ type: 'start', config: { ...config, port: -1 } })).toBe(false)
+    expect(isParentToApiMessage({ type: 'stop', extra: true })).toBe(false)
+    expect(isParentToApiMessage({ type: 'test.block', requestId: '', durationMs: 0 })).toBe(false)
+  })
+
+  it('accepts valid child-to-parent lifecycle messages', () => {
+    expect(isApiToParentMessage({ type: 'hello' })).toBe(true)
+    expect(isApiToParentMessage({
+      type: 'ready',
+      apiUrl: 'http://127.0.0.1:40100',
+      realtimeUrl: 'ws://127.0.0.1:40101',
+    })).toBe(true)
+    expect(isApiToParentMessage({ type: 'realtime.changed', realtimeUrl: 'ws://127.0.0.1:40102' })).toBe(true)
+    expect(isApiToParentMessage({ type: 'test.block.done', requestId: 'req-1' })).toBe(true)
+    expect(isApiToParentMessage({ type: 'test.realtime.restart.done', requestId: 'req-2' })).toBe(true)
+    expect(isApiToParentMessage({ type: 'stopped' })).toBe(true)
+    expect(isApiToParentMessage({ type: 'fatal', message: 'failed' })).toBe(true)
+  })
+
+  it('rejects malformed child messages and non-loopback targets', () => {
+    expect(isApiToParentMessage({ type: 'ready', apiUrl: 'http://0.0.0.0:18900', realtimeUrl: 'ws://127.0.0.1:1' }))
+      .toBe(false)
+    expect(isApiToParentMessage({ type: 'realtime.changed', realtimeUrl: 'ws://example.com:18901' })).toBe(false)
+    expect(isApiToParentMessage({ type: 'fatal', message: '' })).toBe(false)
+    expect(isApiToParentMessage({ type: 'hello', extra: true })).toBe(false)
+  })
+})

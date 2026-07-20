@@ -6,6 +6,7 @@ export interface RealtimeEndpointState {
   mode: RealtimeMode
   host: string
   port: number
+  publicPath?: string
   legacyRpcEnabled: boolean
 }
 
@@ -24,7 +25,9 @@ export function mountRealtimeConfigRoute(
     const publicHost = isWildcardHost(state.host) ? hostname : state.host
     const forwardedProtocol = context.req.header('x-forwarded-proto')?.split(',')[0]?.trim()
     const secure = forwardedProtocol === 'https' || requestUrl.protocol === 'https:'
-    const wsUrl = `${secure ? 'wss' : 'ws'}://${formatHost(publicHost)}:${state.port}`
+    const wsUrl = state.publicPath
+      ? `${secure ? 'wss' : 'ws'}://${requestHost}${state.publicPath}`
+      : `${secure ? 'wss' : 'ws'}://${formatHost(publicHost)}:${state.port}`
 
     return context.json({
       wsUrl,

@@ -4,6 +4,7 @@ import { parseDataWorkerSlowMs } from '../data-worker/observability.js'
 
 export type AppRuntime = 'web' | 'electron'
 export type DataWorkerMode = 'worker' | 'local'
+export type EdgeMode = 'process' | 'disabled' | 'internal'
 export type RealtimeMode = 'process' | 'embedded'
 export type RuntimeMode = 'process' | 'embedded'
 
@@ -17,6 +18,8 @@ export interface AppConfig {
   dataMaintenanceIntervalMs?: number
   dataWalCheckpointBytes?: number
   dataPublishedOutboxRetentionMs?: number
+  edgeMode?: EdgeMode
+  edgeRealtimePath?: string
   realtimeMode?: RealtimeMode
   realtimeHost?: string
   realtimePort?: number
@@ -56,6 +59,8 @@ export function loadConfig(): AppConfig {
       process.env.DATA_PUBLISHED_OUTBOX_RETENTION_MS,
       7 * 24 * 60 * 60 * 1000,
     ),
+    edgeMode: process.env.EDGE_MODE === 'disabled' ? 'disabled' : 'process',
+    edgeRealtimePath: normalizePublicPath(process.env.EDGE_REALTIME_PATH),
     realtimeMode: process.env.REALTIME_MODE === 'embedded' ? 'embedded' : 'process',
     realtimeHost: process.env.REALTIME_HOST || defaultHost(runtime),
     realtimePort: parseNonNegativeInteger(process.env.REALTIME_PORT, port === 0 ? 0 : port + 1),
@@ -76,6 +81,15 @@ export function loadConfig(): AppConfig {
     bridgeCallbackToken: process.env.BRIDGE_CALLBACK_TOKEN || undefined,
     bridgeServerUrl: process.env.BRIDGE_SERVER_URL || undefined,
   }
+}
+
+function normalizePublicPath(value: string | undefined): string {
+  const trimmed = value?.trim() || '/realtime'
+  const prefixed = trimmed.startsWith('/') ? trimmed : `/${trimmed}`
+  if (prefixed.includes('?') || prefixed.includes('#')) {
+    throw new Error('EDGE_REALTIME_PATH must not contain a query string or fragment')
+  }
+  return prefixed.length > 1 ? prefixed.replace(/\/+$/, '') : prefixed
 }
 
 function parseDataWorkerMode(value: string | undefined): DataWorkerMode {
