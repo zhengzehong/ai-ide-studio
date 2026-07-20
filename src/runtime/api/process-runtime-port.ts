@@ -48,7 +48,7 @@ export interface ProcessRuntimePort extends RuntimePort {
 interface PendingRequest {
   resolve: (value: unknown) => void
   reject: (error: Error) => void
-  timer: NodeJS.Timeout
+  timer?: NodeJS.Timeout
 }
 
 export async function createProcessRuntimePort(
@@ -252,7 +252,7 @@ class ProcessRuntimePortController implements ProcessRuntimePort {
       const pending = this.pending.get(payload.requestId)
       if (!pending) return
       this.pending.delete(payload.requestId)
-      clearTimeout(pending.timer)
+      if (pending.timer) clearTimeout(pending.timer)
       if (payload.error) pending.reject(new Error(payload.error))
       else pending.resolve(payload.result)
       return
@@ -273,15 +273,19 @@ class ProcessRuntimePortController implements ProcessRuntimePort {
   private request(command: RuntimeCommand): Promise<unknown> {
     if (this.closing || !this.channel) return Promise.reject(new Error('Runtime process is unavailable'))
     const requestId = randomUUID()
-    const timeoutMs = this.options.requestTimeoutMs ?? 30_000
+    const timeoutMs = command.operation === 'prompt'
+      ? undefined
+      : this.options.requestTimeoutMs ?? 30_000
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(requestId)
-        reject(new Error(`Runtime request timed out: ${command.operation}`))
-      }, timeoutMs)
+      const timer = timeoutMs === undefined
+        ? undefined
+        : setTimeout(() => {
+            this.pending.delete(requestId)
+            reject(new Error(`Runtime request timed out: ${command.operation}`))
+          }, timeoutMs)
       this.pending.set(requestId, { resolve, reject, timer })
       void this.send({ type: 'request', requestId, command }).catch((error) => {
-        clearTimeout(timer)
+        if (timer) clearTimeout(timer)
         this.pending.delete(requestId)
         reject(error)
       })
@@ -305,7 +309,7 @@ class ProcessRuntimePortController implements ProcessRuntimePort {
 
   private failPending(error: Error): void {
     for (const pending of this.pending.values()) {
-      clearTimeout(pending.timer)
+      if (pending.timer) clearTimeout(pending.timer)
       pending.reject(error)
     }
     this.pending.clear()
