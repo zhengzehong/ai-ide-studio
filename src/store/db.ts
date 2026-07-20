@@ -42,6 +42,7 @@ export function initDatabase(dbPath: string): void {
   _dbMode = 'readwrite'
   _db.pragma('journal_mode = WAL')
   _db.pragma('foreign_keys = ON')
+  _db.pragma('busy_timeout = 5000')
   runMigrations(_db, migrations)
   migrateLegacyJsonIfNeeded(_db, legacyJsonPath)
 }

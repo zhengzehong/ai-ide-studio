@@ -52,7 +52,7 @@ export class WriterOperationError extends Error {
 
 export function executeWriteBatches(db: SqliteDatabase, batches: WriteBatch[]): WriteBatchResult[] {
   const execute = db.transaction((items: WriteBatch[]) => items.map((batch) => commitBatch(db, batch)))
-  return execute(batches)
+  return execute.immediate(batches)
 }
 
 function commitBatch(db: SqliteDatabase, batch: WriteBatch): WriteBatchResult {

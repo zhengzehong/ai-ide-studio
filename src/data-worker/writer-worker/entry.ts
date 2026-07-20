@@ -234,7 +234,26 @@ function asMaintenanceInput(value: unknown): { force: boolean } {
 }
 
 function errorCode(error: unknown): WorkerErrorCode {
-  return error instanceof WriterOperationError ? error.code : 'SQLITE_ERROR'
+  if (error instanceof WriterOperationError) return error.code
+  const sqliteCode = errorCodeValue(error)
+  if (isSqliteLockCode(sqliteCode)) return sqliteCode
+  return 'SQLITE_ERROR'
+}
+
+function errorCodeValue(error: unknown): string | undefined {
+  if (!error || typeof error !== 'object') return undefined
+  const code = (error as { code?: unknown }).code
+  return typeof code === 'string' ? code : undefined
+}
+
+function isSqliteLockCode(code: string | undefined): code is Extract<
+  WorkerErrorCode,
+  'SQLITE_BUSY' | 'SQLITE_BUSY_SNAPSHOT' | 'SQLITE_LOCKED' | 'SQLITE_LOCKED_SHAREDCACHE'
+> {
+  return code === 'SQLITE_BUSY'
+    || code === 'SQLITE_BUSY_SNAPSHOT'
+    || code === 'SQLITE_LOCKED'
+    || code === 'SQLITE_LOCKED_SHAREDCACHE'
 }
 
 function errorMessage(error: unknown): string {
