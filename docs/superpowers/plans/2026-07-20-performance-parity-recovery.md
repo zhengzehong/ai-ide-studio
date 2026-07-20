@@ -66,13 +66,15 @@
 ## Final Verification and Review
 
 - [x] Run `npm test` with `LOG_DIR` under `data-perf`; require zero unhandled errors.
-- [ ] Run `npm run build`.
-- [ ] Run `npm run lint`.
-- [ ] Run `git diff --check`.
-- [ ] Run `npm run perf:phase5:smoke`.
-- [ ] Start `scripts/start-performance-local.ps1` on port `19000` with `data-perf` and smoke-test same-origin HTTP, WebSocket, Agent deployment/primary Session, text Prompt, image-only Prompt, cancel, and reconnect.
-- [ ] Confirm port `18900`, `data-prd`, and branch `prd` are unchanged.
+- [x] Run `npm run build`.
+- [x] Run `npm run lint`.
+- [x] Run `git diff --check`.
+- [x] Run `npm run perf:phase5:smoke`.
+- [x] Start `scripts/start-performance-local.ps1` on port `19000` with `data-perf` and smoke-test same-origin HTTP, WebSocket, Agent deployment/primary Session, text Prompt, image-only Prompt, cancel, and reconnect.
+- [x] Confirm port `18900`, `data-prd`, and branch `prd` are unchanged.
+- [x] Reproduce and contain abnormal WebSocket disconnect errors at the Edge proxy boundary.
+- [x] Verify supervised process shutdown drains cleanly when Windows propagates `SIGINT` to the process tree.
 - [x] Update architecture/protocol/data-model/README documentation only where stable contracts changed.
 - [ ] Commit the complete branch and request one review from `code-reviewer` session `sess-7a6061e9`.
 - [ ] Address review findings and rerun affected plus final verification.
-- [ ] Leave the branch unmerged pending explicit user approval.
+- [x] Leave the branch unmerged pending explicit user approval.
