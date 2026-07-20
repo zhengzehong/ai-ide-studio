@@ -54,6 +54,7 @@ export interface RealtimeProcessHandle {
   readonly generation: number
   readonly runtimeStreamEndpoint: string
   readonly runtimeStreamToken: string
+  onEndpointChange(listener: (endpointUrl: string) => void): () => void
   sendDelivery(delivery: RealtimeDelivery): Promise<void>
   terminateForTest(): Promise<void>
   waitForRestart(previousGeneration: number, timeoutMs?: number): Promise<void>
@@ -84,6 +85,7 @@ class RealtimeProcessController implements RealtimeProcessHandle {
   private closing = false
   private readyWaiters = new Set<() => void>()
   private exitWaiters = new Set<() => void>()
+  private endpointListeners = new Set<(endpointUrl: string) => void>()
 
   constructor(private readonly options: CreateRealtimeProcessOptions) {
     this.maxFrameBytes = options.maxFrameBytes ?? 16 * 1024 * 1024
@@ -99,6 +101,12 @@ class RealtimeProcessController implements RealtimeProcessHandle {
 
   get generation(): number {
     return this.currentGeneration
+  }
+
+  onEndpointChange(listener: (endpointUrl: string) => void): () => void {
+    this.endpointListeners.add(listener)
+    if (this.actualPort > 0) listener(this.endpointUrl)
+    return () => this.endpointListeners.delete(listener)
   }
 
   async start(): Promise<void> {
@@ -143,6 +151,7 @@ class RealtimeProcessController implements RealtimeProcessHandle {
     if (child?.exitCode == null && child?.signalCode == null) child?.kill()
     await this.channel?.close().catch(() => undefined)
     this.channel = undefined
+    this.endpointListeners.clear()
     if (this.server) await closeServer(this.server)
     this.server = undefined
     removeIpcEndpoint(this.endpoint)
@@ -182,6 +191,7 @@ class RealtimeProcessController implements RealtimeProcessHandle {
       this.currentGeneration += 1
       for (const resolve of this.readyWaiters) resolve()
       this.readyWaiters.clear()
+      this.notifyEndpointChange()
       log.info({ port: payload.port, generation: this.currentGeneration }, 'Realtime process ready')
       return
     }
@@ -278,6 +288,17 @@ class RealtimeProcessController implements RealtimeProcessHandle {
   private send(payload: RealtimeIpcPayload): Promise<void> {
     if (!this.channel) return Promise.reject(new Error('Realtime IPC is unavailable'))
     return this.channel.send(toEnvelope(payload))
+  }
+
+  private notifyEndpointChange(): void {
+    const endpointUrl = this.endpointUrl
+    for (const listener of this.endpointListeners) {
+      try {
+        listener(endpointUrl)
+      } catch (error) {
+        log.warn({ err: error }, 'Realtime endpoint listener failed')
+      }
+    }
   }
 
   private waitUntilReady(timeoutMs: number): Promise<void> {

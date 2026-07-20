@@ -1,7 +1,7 @@
 import type { Server } from 'http'
 import type { WebSocketServer } from 'ws'
-import type { Hono } from 'hono'
-import type { AppConfig, DataWorkerMode, RealtimeMode, RuntimeMode } from './core/config.js'
+import type { AppConfig, DataWorkerMode, RuntimeMode } from './core/config.js'
+import type { AppHandle } from './app-handle.js'
 import { createChildLogger, getLogConfig } from './core/logger.js'
 import { ruleEngine } from './core/rules.js'
 import { closeDatabase, initDatabase } from './store/db.js'
@@ -37,19 +37,16 @@ import { RuntimeCommandDispatcher } from './commands/runtime-command-dispatcher.
 import { executeSessionCommand } from './commands/session-command-service.js'
 import { startWriterMaintenanceLoop } from './data-worker/writer-maintenance-loop.js'
 import { createEventLoopMonitor, eventLoopMonitorOptions } from './shared/event-loop-monitor.js'
+import {
+  createRealtimeEndpointSubscription,
+  embeddedRealtimeEndpoint,
+  httpServerEndpoint,
+  serverPort,
+} from './app-endpoints.js'
 
 const log = createChildLogger('app')
 
-export interface AppHandle {
-  app: Hono
-  server: Server
-  wss?: WebSocketServer
-  dataWorkerMode: DataWorkerMode
-  realtimeMode: RealtimeMode
-  runtimeMode: RuntimeMode
-  realtimeEndpoint: string
-  stop: () => Promise<void>
-}
+export type { AppHandle } from './app-handle.js'
 
 interface AppDataPorts {
   queryPort: QueryPort
@@ -189,6 +186,7 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
         mode: realtimeMode,
         host: realtimeMode === 'process' ? (config.realtimeHost ?? config.host) : config.host,
         port: realtimeMode === 'process' ? (realtimeProcess?.port ?? 0) : embeddedRealtimePort,
+        publicPath: config.edgeMode === 'internal' ? config.edgeRealtimePath : undefined,
         legacyRpcEnabled: config.realtimeLegacyRpc ?? true,
       }),
       commandDispatcher,
@@ -206,20 +204,26 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
     throw err
   }
   const { app, server, wss } = gateway
-  const realtimeEndpoint =
+  const httpEndpoint = httpServerEndpoint(config.host, server)
+  const initialRealtimeEndpoint =
     realtimeMode === 'process'
       ? (realtimeProcess as RealtimeProcessHandle).endpointUrl
-      : embeddedEndpoint(config.host, server)
+      : embeddedRealtimeEndpoint(config.host, server)
+  const onRealtimeEndpointChange = createRealtimeEndpointSubscription(
+    realtimeMode,
+    realtimeProcess,
+    initialRealtimeEndpoint,
+  )
   ruleEngine.start()
   initTimeline()
   log.info(
     {
       host: config.host,
       port: config.port,
-      http: `http://${config.host}:${config.port}`,
+      http: httpEndpoint,
       realtimeMode,
       runtimeMode,
-      realtimeEndpoint,
+      realtimeEndpoint: initialRealtimeEndpoint,
     },
     '服务已启动',
   )
@@ -241,7 +245,13 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
     dataWorkerMode,
     realtimeMode,
     runtimeMode,
-    realtimeEndpoint,
+    httpEndpoint,
+    get realtimeEndpoint(): string {
+      return realtimeMode === 'process'
+        ? (realtimeProcess as RealtimeProcessHandle).endpointUrl
+        : initialRealtimeEndpoint
+    },
+    onRealtimeEndpointChange,
     stop: async () => {
       if (stopped) return
       stopped = true
@@ -304,16 +314,6 @@ async function resolveRealtimeClaims(
   }
   if (config.localToken && request.token !== config.localToken) return undefined
   return { authMode: 'owner' }
-}
-
-function serverPort(server: Server): number {
-  const address = server.address()
-  return address && typeof address !== 'string' ? address.port : 0
-}
-
-function embeddedEndpoint(host: string, server: Server): string {
-  const publicHost = host === '0.0.0.0' || host === '::' ? '127.0.0.1' : host
-  return `ws://${publicHost}:${serverPort(server)}`
 }
 
 async function collectCleanupError(errors: unknown[], cleanup: () => Promise<void>): Promise<void> {

@@ -66,6 +66,31 @@ describe('application Realtime lifecycle', () => {
     expect(app.realtimeMode).toBe('embedded')
     expect(new URL(String(config.wsUrl)).port).toBe(new URL(httpBase(app)).port)
   })
+
+  it('advertises a same-origin public path while keeping process Realtime internal', async () => {
+    tmp = mkdtempSync(resolve(tmpdir(), 'ai-ide-realtime-edge-'))
+    app = await startApp({
+      host: '127.0.0.1',
+      port: 0,
+      dataDir: tmp,
+      runtime: 'web',
+      dataWorkerMode: 'local',
+      realtimeMode: 'process',
+      realtimePort: 0,
+      edgeMode: 'internal',
+      edgeRealtimePath: '/realtime',
+    })
+
+    const response = await fetch(`${httpBase(app)}/api/v1/realtime-config`)
+    const config = await response.json() as Record<string, unknown>
+    const publicHttp = new URL(httpBase(app))
+    const advertisedWs = new URL(String(config.wsUrl))
+
+    expect(advertisedWs.port).toBe(publicHttp.port)
+    expect(advertisedWs.pathname).toBe('/realtime')
+    expect(String(config.wsUrl)).not.toBe(app.realtimeEndpoint)
+    expect(app.httpEndpoint).toBe(httpBase(app))
+  })
 })
 
 function httpBase(handle: AppHandle): string {

@@ -117,7 +117,7 @@ git commit -m "feat: add single-port edge gateway"
 - Test: `tests/integration/realtime-process.test.ts`
 - Test: `tests/unit/realtime-config-route.test.ts`
 
-- [ ] **Step 1: Write failing same-origin discovery tests**
+- [x] **Step 1: Write failing same-origin discovery tests**
 
 Mount the route with `publicPath: '/realtime'` and assert direct and forwarded authorities:
 
@@ -141,7 +141,7 @@ npx vitest run tests/unit/realtime-config-route.test.ts tests/integration/realti
 
 Expected: FAIL because public-path discovery and endpoint subscriptions do not exist.
 
-- [ ] **Step 2: Add explicit Edge configuration**
+- [x] **Step 2: Add explicit Edge configuration**
 
 Extend `AppConfig`:
 
@@ -154,11 +154,11 @@ edgeRealtimePath?: string
 
 `loadConfig()` defaults `EDGE_MODE` to `process` and `EDGE_REALTIME_PATH` to `/realtime`. Reject or normalize paths that do not begin with `/`. `EDGE_MODE=disabled` keeps the old direct listener topology.
 
-- [ ] **Step 3: Implement same-origin discovery**
+- [x] **Step 3: Implement same-origin discovery**
 
 Extend `RealtimeEndpointState` with `publicPath?: string`. When set, construct the authority from `X-Forwarded-Host` or the incoming Host header and append the normalized path. Do not append the internal Realtime port. When absent, retain the current direct endpoint behavior.
 
-- [ ] **Step 4: Publish Realtime endpoint changes**
+- [x] **Step 4: Publish Realtime endpoint changes**
 
 Extend `RealtimeProcessHandle`:
 
@@ -170,7 +170,7 @@ Invoke listeners after every authenticated `ready` message, including restarts. 
 
 Extend `AppHandle` with the actual internal HTTP endpoint and an endpoint subscription that delegates to process Realtime or emits the embedded API endpoint.
 
-- [ ] **Step 5: Verify discovery and restart behavior**
+- [x] **Step 5: Verify discovery and restart behavior**
 
 Run:
 

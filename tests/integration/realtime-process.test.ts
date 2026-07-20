@@ -67,15 +67,22 @@ describe('Realtime process', () => {
       dispatchLegacyRpc: async ({ state }) => state.subscriptions,
     })
     const generation = realtime.generation
+    const endpoints: string[] = []
+    const stopObserving = realtime.onEndpointChange((endpointUrl) => endpoints.push(endpointUrl))
+
+    expect(endpoints).toEqual([realtime.endpointUrl])
 
     await realtime.terminateForTest()
     await realtime.waitForRestart(generation, 5_000)
 
     expect(realtime.generation).toBeGreaterThan(generation)
+    expect(endpoints).toHaveLength(2)
+    expect(endpoints.at(-1)).toBe(realtime.endpointUrl)
     const owner = await connect(`${realtime.endpointUrl}?token=owner-token`)
     sockets.push(owner.socket)
     owner.send({ type: 'ping', timestamp: 123 })
     await expect(owner.next('pong')).resolves.toMatchObject({ timestamp: 123 })
+    stopObserving()
   })
 })
 
