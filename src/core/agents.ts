@@ -7,6 +7,7 @@ import { isSupportedAgentRuntime, SUPPORTED_AGENT_RUNTIMES } from '../acp/adapte
 import { applyToolProfileToAgent } from '../tools/team-profiles.js'
 import { modelProfileStore } from '../store/model-profiles.js'
 import { agentMemoryService } from './agent-memory.js'
+import { publishSessionCreated } from './session-change-events.js'
 
 const log = createChildLogger('agents')
 
@@ -190,12 +191,12 @@ function parseAgentConfig(raw: string | null): Record<string, unknown> {
 function ensurePrimarySession(agent: AgentRow): void {
   const existing = sessionStore.findPrimaryByAgent(agent.id)
   if (existing) return
-  sessionStore.create({
+  publishSessionCreated(sessionStore.create({
     agentId: agent.id,
     projectId: agent.project_id ?? undefined,
     isPrimary: true,
     title: '主会话',
-  })
+  }))
 }
 
 function seedBuiltinDimensionsForAgent(projectId: string, agentId: string): void {

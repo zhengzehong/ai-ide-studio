@@ -18,8 +18,11 @@ const ACCESS_TOKEN = 'command-route-secret'
 let tmp: string
 let server: Server | undefined
 let dispatcher: FakeDispatcher
+let previousCommandLimit: string | undefined
 
 beforeEach(() => {
+  previousCommandLimit = process.env.SESSION_COMMAND_MAX_BYTES
+  delete process.env.SESSION_COMMAND_MAX_BYTES
   tmp = mkdtempSync(resolve(tmpdir(), 'ai-ide-http-command-'))
   initDatabase(resolve(tmp, 'ai-ide.sqlite'))
   dispatcher = new FakeDispatcher()
@@ -30,6 +33,8 @@ afterEach(async () => {
   server = undefined
   closeDatabase()
   rmSync(tmp, { recursive: true, force: true })
+  if (previousCommandLimit === undefined) delete process.env.SESSION_COMMAND_MAX_BYTES
+  else process.env.SESSION_COMMAND_MAX_BYTES = previousCommandLimit
 })
 
 describe('HTTP Session commands', () => {
@@ -87,7 +92,18 @@ describe('HTTP Session commands', () => {
     expect(unavailable.status).toBe(503)
   })
 
-  it('rejects missing idempotency keys and oversized bodies', async () => {
+  it('accepts payloads above the old 2 MiB limit under the 16 MiB default', async () => {
+    await startTestGateway()
+    const accepted = await commandFetch({
+      ...promptBody(),
+      content: 'x'.repeat(2 * 1024 * 1024 + 1),
+    }, 'key-compatible-image-budget')
+
+    expect(accepted.status).toBe(202)
+  })
+
+  it('rejects missing idempotency keys and respects a configured body limit', async () => {
+    process.env.SESSION_COMMAND_MAX_BYTES = '512'
     await startTestGateway()
     const missingKey = await fetch(`${baseUrl()}/api/v1/commands`, {
       method: 'POST',
@@ -99,7 +115,7 @@ describe('HTTP Session commands', () => {
     })
     const oversized = await commandFetch({
       ...promptBody(),
-      content: 'x'.repeat(2 * 1024 * 1024),
+      content: 'x'.repeat(512),
     }, 'key-large')
 
     expect(missingKey.status).toBe(400)

@@ -38,6 +38,7 @@ export interface HttpCommandClientOptions {
   getAccessToken?: () => string
   subscribe?: (sessionIds: string[]) => void
   timeoutMs?: number
+  maxCommandBytes?: number
 }
 
 export interface WsCommandClientOptions {
@@ -48,14 +49,20 @@ export interface WsCommandClientOptions {
 
 type CommandTransport = 'http' | 'ws'
 const DEFAULT_TIMEOUT_MS = 15_000
+export const DEFAULT_SESSION_COMMAND_MAX_BYTES = 16 * 1024 * 1024
 
 export function createHttpCommandClient(options: HttpCommandClientOptions = {}): CommandClient {
   const fetchImpl = options.fetchImpl ?? fetch
   const getAccessToken = options.getAccessToken ?? getStoredAccessToken
   const subscribe = options.subscribe ?? ((sessionIds) => wsClient.subscribe(sessionIds))
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
+  const maxCommandBytes = options.maxCommandBytes ?? DEFAULT_SESSION_COMMAND_MAX_BYTES
   return {
     async execute(command) {
+      const serialized = JSON.stringify(command)
+      if (new TextEncoder().encode(serialized).byteLength > maxCommandBytes) {
+        throw new Error(`消息和图片总大小超过限制（最大 ${formatBytes(maxCommandBytes)}）`)
+      }
       if (command.type === 'prompt') subscribe([command.sessionId])
       const token = getAccessToken().trim()
       const headers: Record<string, string> = {
@@ -69,7 +76,7 @@ export function createHttpCommandClient(options: HttpCommandClientOptions = {}):
         response = await fetchImpl('/api/v1/commands', {
           method: 'POST',
           headers,
-          body: JSON.stringify(command),
+          body: serialized,
           signal: AbortSignal.timeout(timeoutMs),
         })
       } catch (error) {
@@ -81,6 +88,11 @@ export function createHttpCommandClient(options: HttpCommandClientOptions = {}):
       return parseReceipt(body)
     },
   }
+}
+
+function formatBytes(bytes: number): string {
+  const mib = bytes / (1024 * 1024)
+  return Number.isInteger(mib) ? `${mib} MiB` : `${bytes} bytes`
 }
 
 export function createWsCommandClient(options: WsCommandClientOptions = {}): CommandClient {

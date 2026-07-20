@@ -5,6 +5,10 @@ import {
 } from '../../src/commands/session-command-types.js'
 
 describe('session command contract', () => {
+  it('uses a 16 MiB compatibility budget by default', () => {
+    expect(MAX_SESSION_COMMAND_BYTES).toBe(16 * 1024 * 1024)
+  })
+
   it('parses every supported command into a closed discriminated union', () => {
     expect(parseSessionCommand({
       commandId: 'cmd-prompt',
@@ -76,14 +80,31 @@ describe('session command contract', () => {
     })).toThrow('未知字段')
   })
 
-  it('rejects empty prompts and invalid image payloads', () => {
+  it('accepts image-only prompts and rejects prompts without text or images', () => {
+    expect(parseSessionCommand({
+      commandId: 'cmd-image-only',
+      type: 'prompt',
+      sessionId: 'session-1',
+      clientMessageId: 'message-image-only',
+      content: '   ',
+      images: [{ data: 'YWJj', mimeType: 'image/png' }],
+    })).toMatchObject({
+      type: 'prompt',
+      content: '   ',
+      images: [{ data: 'YWJj', mimeType: 'image/png' }],
+    })
+
     expect(() => parseSessionCommand({
       commandId: 'cmd-1',
       type: 'prompt',
       sessionId: 'session-1',
       clientMessageId: 'message-1',
       content: '   ',
-    })).toThrow('消息内容不能为空')
+    })).toThrow('消息内容或图片不能为空')
+
+  })
+
+  it('rejects invalid image payloads', () => {
 
     expect(() => parseSessionCommand({
       commandId: 'cmd-1',

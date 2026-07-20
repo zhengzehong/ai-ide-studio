@@ -9,6 +9,7 @@ import { getRuntimePort } from '../runtime/runtime-port-provider.js'
 import { buildRuntimeStateSnapshot } from '../runtime/api/runtime-snapshot.js'
 import { events, type AppEvents } from './events.js'
 import { createChildLogger } from './logger.js'
+import { publishSessionCreated } from './session-change-events.js'
 import { agentHubService } from './agent-hub/index.js'
 import type { ImageAttachment, SessionActivityReason, SessionActivityState, SessionUpdateData } from '../types/ws-protocol.js'
 import { createPendingTurn, finalizePendingTurn, updatePendingTurn, type PendingTurn } from './turn-finalizer.js'
@@ -280,7 +281,9 @@ export const sessionManager = {
     if (!agent) throw new Error(`Agent not found: ${agentId}`)
     const projectContext = resolveSessionProjectContext(agentId, taskId, projectId)
 
-    const session = sessionStore.create({ agentId, taskId, projectId: projectContext.projectId })
+    const session = publishSessionCreated(
+      sessionStore.create({ agentId, taskId, projectId: projectContext.projectId }),
+    )
 
     log.info({ sessionId: session.id, agentId, taskId, projectId: projectContext.projectId }, 'Local Session created')
     return session
@@ -312,7 +315,7 @@ export const sessionManager = {
 
     const placeholder = sessionStore.get(copied.id)
     if (!placeholder) throw new Error(`Copied session missing: ${copied.id}`)
-    events.emit('session:changed', { sessionId: copied.id, data: { ...placeholder } })
+    publishSessionCreated(placeholder)
 
     void completeCopiedSessionFork(source, copied.id, source.acp_session_id, projectContext)
     return placeholder
