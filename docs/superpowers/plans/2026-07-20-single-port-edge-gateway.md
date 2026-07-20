@@ -18,7 +18,7 @@
 - Create: `src/edge/gateway.ts`
 - Test: `tests/integration/edge-gateway.test.ts`
 
-- [ ] **Step 1: Add the maintained proxy dependency**
+- [x] **Step 1: Add the maintained proxy dependency**
 
 Run:
 
@@ -28,7 +28,7 @@ npm install http-proxy-3@1.23.3
 
 Use the package's typed `createProxyServer` API. Do not hand-roll HTTP body streaming or WebSocket framing.
 
-- [ ] **Step 2: Write failing HTTP and WebSocket proxy tests**
+- [x] **Step 2: Write failing HTTP and WebSocket proxy tests**
 
 Create two loopback upstream servers and start Edge on `127.0.0.1:0`. The tests must assert:
 
@@ -56,7 +56,7 @@ npx vitest run tests/integration/edge-gateway.test.ts
 
 Expected: FAIL because `src/edge/gateway.ts` does not exist.
 
-- [ ] **Step 3: Implement the bounded Edge gateway**
+- [x] **Step 3: Implement the bounded Edge gateway**
 
 Expose this interface:
 
@@ -88,7 +88,7 @@ Requirements:
 - track sockets so `close()` stops intake and closes upgraded connections without waiting forever;
 - use `createChildLogger('edge-gateway')` and the Edge event-loop monitor; never log query strings or authorization headers.
 
-- [ ] **Step 4: Verify the Edge core**
+- [x] **Step 4: Verify the Edge core**
 
 Run:
 
@@ -99,7 +99,7 @@ npx tsc --noEmit
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add package.json package-lock.json src/edge/gateway.ts tests/integration/edge-gateway.test.ts
