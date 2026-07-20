@@ -87,6 +87,18 @@ describe('SDK Runtime child lifecycle', () => {
     await host.cancelPrompt('agent-a', 'session-a')
     await expect(permission).resolves.toEqual({ outcome: { outcome: 'cancelled' } })
   })
+
+  test('maps forked Session capabilities through the shared SDK mapper', async () => {
+    const harness = runtimeHarness()
+    const forked = snapshot('session-b')
+    forked.session.acpSessionId = 'acp-created'
+
+    await expect(harness.host.forkSession(forked, 'acp-created')).resolves.toBe('acp-forked')
+    expect(harness.host.getSessionCapabilities('agent-a', 'session-b')).toMatchObject({
+      currentModelId: 'model-a',
+      supportsImages: true,
+    })
+  })
 })
 
 function runtimeHarness(overrides: { prompt?: () => Promise<never> } = {}) {
@@ -107,6 +119,13 @@ function runtimeHarness(overrides: { prompt?: () => Promise<never> } = {}) {
         newSession,
         resumeSession,
         loadSession: vi.fn(async () => ({})),
+        unstable_forkSession: vi.fn(async () => ({
+          sessionId: 'acp-forked',
+          models: {
+            currentModelId: 'model-a',
+            availableModels: [{ modelId: 'model-a', name: 'Model A' }],
+          },
+        })),
         prompt: vi.fn(() => {
           markPromptStarted?.()
           return overrides.prompt?.() ?? Promise.resolve({ stopReason: 'end_turn' })
@@ -119,7 +138,10 @@ function runtimeHarness(overrides: { prompt?: () => Promise<never> } = {}) {
       return {
         process: process as unknown as ChildProcess,
         connection,
-        agentCapabilities: { sessionCapabilities: { resume: true } } as acp.AgentCapabilities,
+        agentCapabilities: {
+          sessionCapabilities: { resume: true, fork: true },
+          promptCapabilities: { image: true },
+        } as acp.AgentCapabilities,
       }
     },
   })

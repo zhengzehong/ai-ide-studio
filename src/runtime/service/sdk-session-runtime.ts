@@ -82,7 +82,7 @@ export async function applySdkSessionPreferences(input: {
   }
 }
 
-function initialCapabilities(
+export function initialCapabilities(
   initial: {
     models?: acp.SessionModelState | null
     modes?: acp.SessionModeState | null

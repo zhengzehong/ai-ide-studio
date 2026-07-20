@@ -14,7 +14,7 @@ import {
   runtimeAgentFingerprint,
   runtimeSessionContextFingerprint,
 } from './runtime-fingerprints.js'
-import { applySdkSessionPreferences, openSdkSession } from './sdk-session-runtime.js'
+import { applySdkSessionPreferences, initialCapabilities, openSdkSession } from './sdk-session-runtime.js'
 import { enqueueSdkPrompt } from './sdk-runtime-prompt.js'
 import { sweepSdkRuntimeIdle } from './sdk-runtime-idle.js'
 import type { RuntimeIdleThresholds } from './runtime-idle-sweep.js'
