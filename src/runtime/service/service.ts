@@ -4,6 +4,8 @@ import type { IpcEnvelope } from '../../ipc/protobuf-envelope.js'
 import type { ServerMessage, SessionUpdateData, TurnUsageData } from '../../types/ws-protocol.js'
 import { RuntimeUpdateCoalescer, type RuntimeCoalescibleUpdate } from '../streams/runtime-update-coalescer.js'
 import { AcpRuntimeHost } from './acp-runtime-host.js'
+import { RuntimeIdleSweep } from './runtime-idle-sweep.js'
+import { createChildLogger } from '../../shared/logger.js'
 import type { RuntimeAgentStatusEvent, RuntimeCommand, RuntimeDoneEvent, RuntimePersistenceUpdate, RuntimeStreamPayload } from './protocol.js'
 import { isRuntimeStreamPayload } from './protocol.js'
 import {
@@ -19,13 +21,19 @@ export interface RuntimeServiceOptions {
   sendPersistence: (event: RuntimePersistenceUpdate) => Promise<void>
   sendDone: (event: RuntimeDoneEvent) => Promise<void>
   sendAgentStatus: (event: RuntimeAgentStatusEvent) => Promise<void>
+  idleSweepIntervalMs: number
+  sessionIdleMs: number
+  agentIdleMs: number
 }
+
+const log = createChildLogger('runtime-service')
 
 export class RuntimeService {
   private readonly cursorByUpdate = new Map<string, { streamGeneration: string; sequence: number }>()
   private readonly coalescer: RuntimeUpdateCoalescer
   private readonly host: AcpRuntimeHost
   private readonly eventLoopMonitor: EventLoopMonitor
+  private readonly idleSweep: RuntimeIdleSweep
   private stream?: FramedSocket
 
   constructor(private readonly options: RuntimeServiceOptions) {
@@ -52,6 +60,14 @@ export class RuntimeService {
         pendingUpdateCount: this.coalescer.pendingCount,
       })),
     )
+    this.idleSweep = new RuntimeIdleSweep({
+      intervalMs: options.idleSweepIntervalMs,
+      sweep: () => this.host.sweepIdle(Date.now(), {
+        sessionIdleMs: options.sessionIdleMs,
+        agentIdleMs: options.agentIdleMs,
+      }),
+      onError: (error) => log.warn({ err: error }, 'Runtime idle sweep failed'),
+    })
   }
 
   async start(): Promise<void> {
@@ -67,6 +83,7 @@ export class RuntimeService {
     await this.sendStream({ type: 'runtime.hello', token: this.options.streamToken })
     await ready
     this.eventLoopMonitor.start()
+    this.idleSweep.start()
   }
 
   async execute(command: RuntimeCommand): Promise<unknown> {
@@ -102,6 +119,7 @@ export class RuntimeService {
   }
 
   async close(): Promise<void> {
+    await this.idleSweep.stop()
     this.eventLoopMonitor.stop()
     await this.host.close()
     await this.coalescer.drain()

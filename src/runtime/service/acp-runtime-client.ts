@@ -43,6 +43,7 @@ export interface AcpRuntimeClientRouter {
   beginTurn(sessionId: string, messageId: string, turnId?: string): void
   endTurn(sessionId: string): void
   cancelSession(sessionId: string): void
+  hasPendingInteractions(sessionId?: string): boolean
   resolvePermission(sessionId: string, requestId: string, optionId?: string, cancelled?: boolean): boolean
   resolveElicitation(
     sessionId: string,
@@ -259,6 +260,12 @@ export function createAcpRuntimeClient(options: AcpRuntimeClientOptions): AcpRun
     },
     cancelSession(sessionId) {
       cancelSessionInteractions(sessionId, permissions, elicitations)
+    },
+    hasPendingInteractions(sessionId) {
+      if (!sessionId) return permissions.size > 0 || elicitations.size > 0
+      const prefix = `${sessionId}:`
+      return [...permissions.keys()].some((key) => key.startsWith(prefix))
+        || [...elicitations.keys()].some((key) => key.startsWith(prefix))
     },
     resolvePermission(sessionId, requestId, optionId, cancelled) {
       const pending = takeInteraction(permissions, interactionKey(sessionId, requestId))

@@ -74,6 +74,19 @@ describe('SDK Runtime child lifecycle', () => {
     expect(harness.newSession).toHaveBeenCalledOnce()
     expect(harness.resumeSession).toHaveBeenCalledOnce()
   })
+
+  test('keeps an idle Session while an interaction is pending', async () => {
+    const harness = runtimeHarness()
+    const host = harness.host
+    await host.ensureSession(snapshot('session-a'))
+    const permission = harness.routers[0].client.requestPermission(permissionRequest())
+
+    await host.sweepIdle(Date.now() + 60_000, { sessionIdleMs: 1, agentIdleMs: 1 })
+
+    expect(host.hasSession('session-a')).toBe(true)
+    await host.cancelPrompt('agent-a', 'session-a')
+    await expect(permission).resolves.toEqual({ outcome: { outcome: 'cancelled' } })
+  })
 })
 
 function runtimeHarness(overrides: { prompt?: () => Promise<never> } = {}) {

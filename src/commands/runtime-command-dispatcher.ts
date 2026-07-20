@@ -9,7 +9,7 @@ import type {
 import { parseSessionCommand, type SessionCommand } from './session-command-types.js'
 
 const log = createChildLogger('runtime-command-dispatcher')
-const RECOVERY_LIMIT = 1000
+const RECOVERY_PAGE_SIZE = 1000
 
 export type RuntimeCommandLedgerPort = Pick<
   WriteDataPort,
@@ -59,7 +59,19 @@ export class RuntimeCommandDispatcher {
 
   async start(): Promise<void> {
     if (this.started) return
-    const recoverable = await this.ledger.listRecoverableRuntimeCommands(RECOVERY_LIMIT)
+    const recoverable: RuntimeCommandRecord[] = []
+    let after: { createdAt: string; commandId: string } | undefined
+    while (true) {
+      const page = await this.ledger.listRecoverableRuntimeCommands({
+        limit: RECOVERY_PAGE_SIZE,
+        ...(after ? { after } : {}),
+      })
+      recoverable.push(...page)
+      if (page.length < RECOVERY_PAGE_SIZE) break
+      const last = page.at(-1)
+      if (!last) break
+      after = { createdAt: last.createdAt, commandId: last.commandId }
+    }
     this.started = true
     this.accepting = true
     for (const command of recoverable) this.schedule(command)

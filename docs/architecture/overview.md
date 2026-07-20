@@ -77,7 +77,7 @@ PC 端的任务列表、会话列表、消息历史和恢复事件使用版本�
 
 HTTP 分页响应使用 `{ data, page: { hasMore, nextCursor } }`，普通列表使用 `{ data }`。消息单页最多 200 条，恢复事件单页最多 1000 条；每个成功响应包含 `Server-Timing` 和 `X-Response-Bytes`，超过 1 MiB 观测预算时记录结构化告警但不截断。PC 构建设置 `VITE_QUERY_TRANSPORT=ws` 可回滚四类读取，其余值和默认值均使用 HTTP。
 
-PC 的 Prompt、取消、已读、权限响应和提问响应使用封闭的 `POST /api/v1/commands` HTTP Command API。每个命令同时携带 `commandId` 与 `Idempotency-Key`，Writer 在执行前写入 `runtime_commands` 账本；同 Session 命令保持 FIFO，不同 Session 可并行。Prompt 返回 `202 accepted`，短命令等待完成后返回 `200`。API 重启只恢复安全命令；已落用户消息的 running Prompt 会标记 interrupted，禁止重复发送。`VITE_COMMAND_TRANSPORT=ws` 是 PC 显式回滚开关，移动端和访客链路仍使用 WS 兼容命令。
+PC 的 Prompt、取消、已读、权限响应和提问响应使用封闭的 `POST /api/v1/commands` HTTP Command API。每个命令同时携带 `commandId` 与 `Idempotency-Key`，Writer 在执行前写入 `runtime_commands` 账本；同 Session 命令保持 FIFO，不同 Session 可并行。Prompt 返回 `202 accepted`，短命令等待完成后返回 `200`。API 重启按 `(created_at, command_id)` 游标分页读取全部 accepted/running 命令，不受单页 1000 条上限影响；已落用户消息的 running Prompt 会标记 interrupted，禁止重复发送。`VITE_COMMAND_TRANSPORT=ws` 是 PC 显式回滚开关，移动端和访客链路仍使用 WS 兼容命令。
 
 WebSocket 的稳定职责是连接认证、Session 订阅、`ping/resume` 控制和服务端事件流，不作为 PC 高频 Query/Command 的默认传输。尚未迁移的低频领域 RPC继续通过 Realtime IPC 兼容桥进入 API。
 
@@ -104,6 +104,8 @@ PC 生产构建按页面使用 `React.lazy` 拆分，应用 shell、认证和连
 Runtime done 是持久化屏障，不直接对浏览器发布。API 按 Session 顺序处理持久化 patch，触发 `session:done`，等待 Writer 完成 `message.done + Outbox` 原子事务后才向 Runtime 返回 ack；随后 `session:committed_done` 才进入 Realtime。Runtime 意外退出时 API、HTTP、Query/Writer Worker 和 Realtime 保持运行，当前命令明确失败并由 Session 主链路落一条 error completion；监督器重启 Runtime，下一轮从 SQLite 快照和 `acp_session_id` 恢复。`RUNTIME_SERVICE_MODE=embedded` 保留旧 `acpHost` 作为显式回滚适配器，不会在运行中静默降级。
 
 Runtime 资源配额默认允许 32 个网络型 turn、`max(2, floor(cpuCount / 2))` 个 CPU 型终端和 2 个磁盘型终端。等待队列按 FIFO 唤醒；Session mailbox 同时受条目数和字节数限制，超过上限返回 `RUNTIME_BACKPRESSURE`，不会丢弃已经接受的关键工作。
+
+Runtime 子进程分别记录 Agent 与 Session 的最近活动时间。周期 sweep 只回收没有活动 actor、没有待处理 permission/elicitation 的空闲 Session；持久化的 `acp_session_id` 和历史记录保留，下一次发送自动 resume。Agent 没有已连接 Session 且继续空闲后才停止 ACP 子进程。`RUNTIME_SESSION_IDLE_MS`、`RUNTIME_AGENT_IDLE_MS` 和 `RUNTIME_IDLE_SWEEP_MS` 分别控制两级阈值与扫描周期；停机时会先停止定时器并等待正在执行的 sweep。
 
 ### Realtime 进程边界
 

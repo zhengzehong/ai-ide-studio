@@ -2,12 +2,11 @@ import { createChildLogger } from './logger.js'
 import { agentStore, type AgentRow, type UpdateAgentInput } from '../store/agents.js'
 import { templateStore } from '../store/agent-templates.js'
 import { projectStore } from '../store/projects.js'
-import { sessionStore } from '../store/sessions.js'
 import { isSupportedAgentRuntime, SUPPORTED_AGENT_RUNTIMES } from '../acp/adapters.js'
 import { applyToolProfileToAgent } from '../tools/team-profiles.js'
 import { modelProfileStore } from '../store/model-profiles.js'
 import { agentMemoryService } from './agent-memory.js'
-import { publishSessionCreated } from './session-change-events.js'
+import { ensureAgentPrimarySession } from './agent-primary-sessions.js'
 
 const log = createChildLogger('agents')
 
@@ -70,7 +69,7 @@ export function deployTemplateToProject(templateId: string, projectId: string, i
     applyToolProfileToAgent({ profileId: 'team-leader', agentId: agent.id })
   }
 
-  ensurePrimarySession(agent)
+  ensureAgentPrimarySession(agent)
   seedBuiltinDimensionsForAgent(projectId, agent.id)
 
   log.info({ agentId: agent.id, templateId, projectId }, 'Agent 模板已部署到项目')
@@ -104,7 +103,7 @@ export function createCustomProjectAgent(input: CreateCustomAgentInput): AgentRo
     avatarUrl: input.avatarUrl,
     config: input.modelProfileId ? { modelProfileId: input.modelProfileId } : undefined,
   })
-  ensurePrimarySession(agent)
+  ensureAgentPrimarySession(agent)
   log.info({ agentId: agent.id, projectId: input.projectId }, '项目自定义 Agent 已创建')
 
   seedBuiltinDimensionsForAgent(input.projectId, agent.id)
@@ -186,17 +185,6 @@ function parseAgentConfig(raw: string | null): Record<string, unknown> {
   } catch {
     return {}
   }
-}
-
-function ensurePrimarySession(agent: AgentRow): void {
-  const existing = sessionStore.findPrimaryByAgent(agent.id)
-  if (existing) return
-  publishSessionCreated(sessionStore.create({
-    agentId: agent.id,
-    projectId: agent.project_id ?? undefined,
-    isPrimary: true,
-    title: '主会话',
-  }))
 }
 
 function seedBuiltinDimensionsForAgent(projectId: string, agentId: string): void {

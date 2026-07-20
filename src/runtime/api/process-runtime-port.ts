@@ -39,6 +39,9 @@ export interface CreateProcessRuntimePortOptions {
   requestTimeoutMs?: number
   maxFrameBytes?: number
   restartDelayMs?: number
+  idleSweepIntervalMs?: number
+  sessionIdleMs?: number
+  agentIdleMs?: number
 }
 
 export interface ProcessRuntimePort extends RuntimePort {
@@ -197,6 +200,9 @@ class ProcessRuntimePortController implements ProcessRuntimePort {
         AI_IDE_RUNTIME_STREAM_ENDPOINT: this.options.realtimeStreamEndpoint,
         AI_IDE_RUNTIME_STREAM_TOKEN: this.options.realtimeStreamToken,
         AI_IDE_RUNTIME_MAX_FRAME_BYTES: String(this.maxFrameBytes),
+        AI_IDE_RUNTIME_IDLE_SWEEP_MS: String(this.options.idleSweepIntervalMs ?? 5 * 60 * 1000),
+        AI_IDE_RUNTIME_SESSION_IDLE_MS: String(this.options.sessionIdleMs ?? 30 * 60 * 1000),
+        AI_IDE_RUNTIME_AGENT_IDLE_MS: String(this.options.agentIdleMs ?? 60 * 60 * 1000),
       },
       execArgv: entry.endsWith('.ts') ? ['--import', 'tsx'] : undefined,
       stdio: ['ignore', 'inherit', 'inherit', 'ipc'],

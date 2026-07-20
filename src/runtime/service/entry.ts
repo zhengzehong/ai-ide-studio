@@ -33,6 +33,9 @@ async function handleEnvelope(envelope: IpcEnvelope): Promise<void> {
       sendPersistence: (event) => send({ type: 'persistence', event }),
       sendDone,
       sendAgentStatus: (event) => send({ type: 'agent-status', event }),
+      idleSweepIntervalMs: config.idleSweepIntervalMs,
+      sessionIdleMs: config.sessionIdleMs,
+      agentIdleMs: config.agentIdleMs,
     })
     await service.start()
     await send({ type: 'ready' })
@@ -97,6 +100,9 @@ function readConfig(): {
   streamEndpoint: string
   streamToken: string
   maxFrameBytes: number
+  idleSweepIntervalMs: number
+  sessionIdleMs: number
+  agentIdleMs: number
 } {
   return {
     ipcEndpoint: requiredEnv('AI_IDE_RUNTIME_IPC_ENDPOINT'),
@@ -104,6 +110,9 @@ function readConfig(): {
     streamEndpoint: requiredEnv('AI_IDE_RUNTIME_STREAM_ENDPOINT'),
     streamToken: requiredEnv('AI_IDE_RUNTIME_STREAM_TOKEN'),
     maxFrameBytes: positiveInteger(process.env.AI_IDE_RUNTIME_MAX_FRAME_BYTES, 16 * 1024 * 1024),
+    idleSweepIntervalMs: positiveInteger(process.env.AI_IDE_RUNTIME_IDLE_SWEEP_MS, 5 * 60 * 1000),
+    sessionIdleMs: positiveInteger(process.env.AI_IDE_RUNTIME_SESSION_IDLE_MS, 30 * 60 * 1000),
+    agentIdleMs: positiveInteger(process.env.AI_IDE_RUNTIME_AGENT_IDLE_MS, 60 * 60 * 1000),
   }
 }
 

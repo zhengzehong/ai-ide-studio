@@ -15,6 +15,7 @@ export interface SdkAgentRuntime {
   exitPromise: Promise<never>
   rejectExit: (error: Error) => void
   stopping: boolean
+  lastUsedAt: number
 }
 
 export interface SdkSessionRuntime {
@@ -23,6 +24,7 @@ export interface SdkSessionRuntime {
   capabilities: SessionCapabilities
   active: boolean
   contextFingerprint: string
+  lastUsedAt: number
 }
 
 export interface SdkRuntimeHostOptions {

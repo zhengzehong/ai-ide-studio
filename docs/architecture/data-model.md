@@ -138,6 +138,10 @@ ignored     failed      task
 | deleted_at | TEXT | 软删除时间；非空时默认列表隐藏 |
 | runtime_preferences_json | TEXT | Session runtime preferences JSON；保存 `modelId`、`modeId` 和 session config 选择 |
 | sort_order | INTEGER | 项目工作台内同一 Agent 下 Session 自定义排序；仅在项目/Agent 作用域列表中生效 |
+| is_primary | INTEGER | `1` 表示 Agent 的主会话；每个 Agent 最多一个未删除、非模板主会话 |
+| is_template | INTEGER | `1` 表示模板内部 Session，不进入普通会话列表或主会话对账 |
+
+启动时默认 Agent seed 完成后，系统会为所有缺少主会话的 Agent 创建一个 `is_primary = 1` 的 Session，并发布完整 `session:changed`。部分唯一索引 `idx_sessions_one_primary_per_agent` 保证同一 Agent 不会存在两个未删除、非模板主会话；迁移旧数据库时保留最早一条 primary 标记并清理重复标记。
 
 ### global_assistant
 
@@ -263,7 +267,7 @@ ignored     failed      task
 | created_at | TEXT | 接收时间 |
 | updated_at | TEXT | 最近状态变更时间 |
 
-Command dispatcher 只执行已经由 Writer 提交为 accepted 的行。同一 `type + idempotency_key` 重试返回原命令；载荷或 Session 不一致视为冲突。API 启动扫描 accepted/running 行：未落用户消息的 Prompt 可恢复，已落用户消息的 running Prompt 标记 interrupted，避免重复对话。
+Command dispatcher 只执行已经由 Writer 提交为 accepted 的行。同一 `type + idempotency_key` 重试返回原命令；载荷或 Session 不一致视为冲突。API 启动按 `(created_at, command_id)` 游标分页扫描全部 accepted/running 行：未落用户消息的 Prompt 可恢复，已落用户消息的 running Prompt 标记 interrupted，避免重复对话。
 
 ### agent_session_messages
 

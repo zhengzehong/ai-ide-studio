@@ -16,6 +16,9 @@ import {
 } from './runtime-fingerprints.js'
 import { applySdkSessionPreferences, openSdkSession } from './sdk-session-runtime.js'
 import { enqueueSdkPrompt } from './sdk-runtime-prompt.js'
+import { sweepSdkRuntimeIdle } from './sdk-runtime-idle.js'
+import type { RuntimeIdleThresholds } from './runtime-idle-sweep.js'
+import { publishSdkLifecycle, requireSdkAgent, requireSdkSession, touchSdkSession } from './sdk-runtime-state.js'
 import type {
   SdkAgentRuntime,
   SdkRuntimeHostDependencies,
@@ -51,6 +54,10 @@ export class SdkRuntimeHost {
     return this.sessions.size
   }
 
+  get agentCount(): number {
+    return this.agents.size
+  }
+
   async ensureSession(
     snapshot: RuntimeStateSnapshot,
     options: { emitLifecycle?: boolean } = {},
@@ -60,7 +67,7 @@ export class SdkRuntimeHost {
     const emitLifecycle = options.emitLifecycle !== false
     const ensuring = this.ensureSessionInternal(snapshot, emitLifecycle).catch((error: unknown) => {
       if (emitLifecycle) {
-        this.publishLifecycle(snapshot, 'lifecycle.failed', `连接失败：${errorMessage(error)}`)
+        publishSdkLifecycle(this.options.publishUpdate, snapshot, 'lifecycle.failed', `连接失败：${errorMessage(error)}`)
       }
       throw error
     }).finally(() => {
@@ -75,16 +82,17 @@ export class SdkRuntimeHost {
   private async ensureSessionInternal(snapshot: RuntimeStateSnapshot, emitLifecycle: boolean): Promise<string> {
     const agentWasRunning = this.agents.has(snapshot.agent.id)
     if (!agentWasRunning && emitLifecycle) {
-      this.publishLifecycle(snapshot, 'lifecycle.runtime_starting', '正在启动 Agent...')
+      publishSdkLifecycle(this.options.publishUpdate, snapshot, 'lifecycle.runtime_starting', '正在启动 Agent...')
     }
     const agent = await this.ensureAgent(snapshot)
     if (!agentWasRunning && emitLifecycle) {
-      this.publishLifecycle(snapshot, 'lifecycle.runtime_ready', 'Agent 已就绪')
+      publishSdkLifecycle(this.options.publishUpdate, snapshot, 'lifecycle.runtime_ready', 'Agent 已就绪')
     }
     const existing = this.sessions.get(snapshot.session.id)
     const contextFingerprint = runtimeSessionContextFingerprint(snapshot)
     if (existing?.contextFingerprint === contextFingerprint) {
       existing.snapshot = snapshot
+      touchSdkSession(this.agents, existing)
       return existing.acpSessionId
     }
     const acpSessionIdToResume = snapshot.session.acpSessionId ?? existing?.acpSessionId ?? null
@@ -98,7 +106,7 @@ export class SdkRuntimeHost {
       agentCapabilities: agent.agentCapabilities,
       acpSessionIdToResume,
       lifecycle: emitLifecycle
-        ? (eventType, content) => this.publishLifecycle(snapshot, eventType, content)
+        ? (eventType, content) => publishSdkLifecycle(this.options.publishUpdate, snapshot, eventType, content)
         : undefined,
     })
     const session: SdkSessionRuntime = {
@@ -107,6 +115,7 @@ export class SdkRuntimeHost {
       capabilities: opened.capabilities,
       active: false,
       contextFingerprint,
+      lastUsedAt: Date.now(),
     }
     this.sessions.set(snapshot.session.id, session)
     agent.router.bindSession(snapshot.session.id, opened.acpSessionId, snapshot.autoApprovedToolNames)
@@ -117,7 +126,7 @@ export class SdkRuntimeHost {
       setMode: (modeId) => this.setMode(snapshot.agent.id, snapshot.session.id, modeId),
       setConfig: (configId, value) => this.setConfig(snapshot.agent.id, snapshot.session.id, configId, value),
     })
-    if (emitLifecycle) this.publishLifecycle(snapshot, 'lifecycle.session_ready', '会话已连接')
+    if (emitLifecycle) publishSdkLifecycle(this.options.publishUpdate, snapshot, 'lifecycle.session_ready', '会话已连接')
     return opened.acpSessionId
   }
 
@@ -128,12 +137,16 @@ export class SdkRuntimeHost {
     images?: ImageAttachment[]
     diagnostics?: { turnId?: string; messageId?: string }
   }): Promise<void> {
+    touchSdkSession(this.agents, requireSdkSession(this.sessions, input.sessionId, input.agentId))
     return enqueueSdkPrompt({
       actors: this.actors,
       ...input,
-      getSession: () => this.requireSession(input.sessionId, input.agentId),
-      getAgent: () => this.requireAgent(input.agentId),
+      getSession: () => requireSdkSession(this.sessions, input.sessionId, input.agentId),
+      getAgent: () => requireSdkAgent(this.agents, input.agentId),
       publishDone: (event) => this.options.publishDone(event),
+    }).finally(() => {
+      const session = this.sessions.get(input.sessionId)
+      if (session) touchSdkSession(this.agents, session)
     })
   }
 
@@ -143,6 +156,7 @@ export class SdkRuntimeHost {
     const agent = this.agents.get(agentId)
     if (!agent) return
     agent.router.cancelSession(sessionId)
+    touchSdkSession(this.agents, session)
     await agent.connection.cancel({ sessionId: session.acpSessionId })
   }
 
@@ -177,6 +191,7 @@ export class SdkRuntimeHost {
       capabilities: initialCapabilities(result, agent.agentCapabilities),
       active: false,
       contextFingerprint: runtimeSessionContextFingerprint(snapshot),
+      lastUsedAt: Date.now(),
     }
     this.sessions.set(snapshot.session.id, session)
     agent.router.bindSession(snapshot.session.id, result.sessionId, snapshot.autoApprovedToolNames)
@@ -191,41 +206,44 @@ export class SdkRuntimeHost {
   }
 
   async setModel(agentId: string, sessionId: string, modelId: string): Promise<void> {
-    const session = this.requireSession(sessionId, agentId)
-    const connection = this.requireAgent(agentId).connection
+    const session = requireSdkSession(this.sessions, sessionId, agentId)
+    const connection = requireSdkAgent(this.agents, agentId).connection
     try {
       await connection.unstable_setSessionModel({ sessionId: session.acpSessionId, modelId })
     } catch {
       await connection.setSessionConfigOption({ sessionId: session.acpSessionId, configId: 'model', value: modelId })
     }
     session.capabilities.currentModelId = modelId
+    touchSdkSession(this.agents, session)
   }
 
   async setMode(agentId: string, sessionId: string, modeId: string): Promise<void> {
-    const session = this.requireSession(sessionId, agentId)
-    await this.requireAgent(agentId).connection.setSessionMode({ sessionId: session.acpSessionId, modeId })
+    const session = requireSdkSession(this.sessions, sessionId, agentId)
+    await requireSdkAgent(this.agents, agentId).connection.setSessionMode({ sessionId: session.acpSessionId, modeId })
     session.capabilities.currentModeId = modeId
+    touchSdkSession(this.agents, session)
   }
 
   async setConfig(agentId: string, sessionId: string, configId: string, value: string | boolean): Promise<void> {
-    const session = this.requireSession(sessionId, agentId)
-    const result = await this.requireAgent(agentId).connection.setSessionConfigOption({
+    const session = requireSdkSession(this.sessions, sessionId, agentId)
+    const result = await requireSdkAgent(this.agents, agentId).connection.setSessionConfigOption({
       sessionId: session.acpSessionId,
       configId,
       ...(typeof value === 'boolean' ? { type: 'boolean' as const, value } : { value }),
     })
     session.capabilities = mergeCapabilitiesFromConfig(session.capabilities, mapConfigOptions(result.configOptions))
+    touchSdkSession(this.agents, session)
   }
 
   getSessionCapabilities(agentId: string, sessionId: string): SessionCapabilities | undefined {
-    return this.requireSession(sessionId, agentId).capabilities
+    return requireSdkSession(this.sessions, sessionId, agentId).capabilities
   }
 
   resolvePermission(sessionId: string, requestId: string, optionId?: string, cancelled?: boolean): boolean {
     const session = this.sessions.get(sessionId)
-    return session
-      ? this.requireAgent(session.snapshot.agent.id).router.resolvePermission(sessionId, requestId, optionId, cancelled)
-      : false
+    if (!session) return false
+    touchSdkSession(this.agents, session)
+    return requireSdkAgent(this.agents, session.snapshot.agent.id).router.resolvePermission(sessionId, requestId, optionId, cancelled)
   }
 
   resolveElicitation(
@@ -235,9 +253,27 @@ export class SdkRuntimeHost {
     content?: Record<string, string | number | boolean | string[]>,
   ): boolean {
     const session = this.sessions.get(sessionId)
-    return session
-      ? this.requireAgent(session.snapshot.agent.id).router.resolveElicitation(sessionId, requestId, action, content)
-      : false
+    if (!session) return false
+    touchSdkSession(this.agents, session)
+    return requireSdkAgent(this.agents, session.snapshot.agent.id).router.resolveElicitation(sessionId, requestId, action, content)
+  }
+
+  sweepIdle(now: number, thresholds: RuntimeIdleThresholds): Promise<void> {
+    return sweepSdkRuntimeIdle({
+      now,
+      ...thresholds,
+      sessions: this.sessions,
+      agents: this.agents,
+      actors: this.actors,
+      closeSession: (agentId, sessionId) => this.closeSession(agentId, sessionId),
+      stopAgent: (agentId) => this.stopAgent(agentId),
+      onSessionDisconnected: (snapshot) => publishSdkLifecycle(
+        this.options.publishUpdate,
+        snapshot,
+        'lifecycle.session_disconnected',
+        '\u4f1a\u8bdd\u5df2\u56e0\u7a7a\u95f2\u65ad\u5f00\uff0c\u4e0b\u6b21\u53d1\u9001\u65f6\u4f1a\u81ea\u52a8\u6062\u590d',
+      ),
+    })
   }
 
   async close(): Promise<void> {
@@ -249,7 +285,10 @@ export class SdkRuntimeHost {
   private async ensureAgent(snapshot: RuntimeStateSnapshot): Promise<SdkAgentRuntime> {
     const fingerprint = runtimeAgentFingerprint(snapshot)
     const existing = this.agents.get(snapshot.agent.id)
-    if (existing?.fingerprint === fingerprint) return existing
+    if (existing?.fingerprint === fingerprint) {
+      existing.lastUsedAt = Date.now()
+      return existing
+    }
     const pending = this.startByAgent.get(snapshot.agent.id)
     if (pending) return pending
     const starting = this.startAgentInternal(snapshot, fingerprint).finally(() => {
@@ -300,6 +339,7 @@ export class SdkRuntimeHost {
       exitPromise,
       rejectExit: rejectExit!,
       stopping: false,
+      lastUsedAt: Date.now(),
     }
     this.agents.set(snapshot.agent.id, runtime)
     this.options.publishAgentStatus?.({ agentId: snapshot.agent.id, status: 'running' })
@@ -349,32 +389,6 @@ export class SdkRuntimeHost {
     }
   }
 
-  private publishLifecycle(
-    snapshot: RuntimeStateSnapshot,
-    eventType: string,
-    content: string,
-  ): void {
-    const messageId = `lifecycle-${snapshot.session.id}-${Date.now()}`
-    this.options.publishUpdate(snapshot.agent.id, {
-      kind: 'session-update',
-      sessionId: snapshot.session.id,
-      messageId,
-      data: { messageId, role: 'system', eventType, content },
-    })
-  }
-
-  private requireAgent(agentId: string): SdkAgentRuntime {
-    const agent = this.agents.get(agentId)
-    if (!agent) throw new Error(`Runtime Agent not found: ${agentId}`)
-    return agent
-  }
-
-  private requireSession(sessionId: string, agentId: string): SdkSessionRuntime {
-    const session = this.sessions.get(sessionId)
-    if (!session) throw new Error(`Runtime Session not found: ${sessionId}`)
-    if (session.snapshot.agent.id !== agentId) throw new Error(`Runtime Session Agent mismatch: ${sessionId}`)
-    return session
-  }
 }
 
 function errorMessage(error: unknown): string {

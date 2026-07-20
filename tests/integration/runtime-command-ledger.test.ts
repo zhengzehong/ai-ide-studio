@@ -130,7 +130,7 @@ describe('Runtime command ledger', () => {
     await writer.close()
 
     writer = await createWorkerWriteDataPort({ dbPath })
-    const recovered = await writer.listRecoverableRuntimeCommands(10)
+    const recovered = await writer.listRecoverableRuntimeCommands({ limit: 10 })
 
     expect(recovered.map((command) => [command.commandId, command.status])).toEqual([
       ['command-1', 'accepted'],
@@ -159,7 +159,7 @@ describe('Runtime command ledger', () => {
     closeDatabase()
 
     writer = await createWorkerWriteDataPort({ dbPath })
-    const [recovered] = await writer.listRecoverableRuntimeCommands(10)
+    const [recovered] = await writer.listRecoverableRuntimeCommands({ limit: 10 })
 
     expect(recovered).toMatchObject({
       commandId: 'command-1',
@@ -179,7 +179,26 @@ describe('Runtime command ledger', () => {
     })
 
     expect(completed).toMatchObject({ commandId: 'command-1', status: 'completed', attempts: 0 })
-    await expect(writer.listRecoverableRuntimeCommands(10)).resolves.toEqual([])
+    await expect(writer.listRecoverableRuntimeCommands({ limit: 10 })).resolves.toEqual([])
+  })
+
+  it('paginates equal timestamps by command ID without duplicates', async () => {
+    writer = await createWorkerWriteDataPort({ dbPath })
+    await writer.enqueueRuntimeCommand(promptCommand('command-3', 'key-3', 'message-3'))
+    await writer.enqueueRuntimeCommand(promptCommand('command-1', 'key-1', 'message-1'))
+    await writer.enqueueRuntimeCommand(promptCommand('command-2', 'key-2', 'message-2'))
+
+    const first = await writer.listRecoverableRuntimeCommands({ limit: 2 })
+    const second = await writer.listRecoverableRuntimeCommands({
+      limit: 2,
+      after: {
+        createdAt: first[1].createdAt,
+        commandId: first[1].commandId,
+      },
+    })
+
+    expect(first.map((command) => command.commandId)).toEqual(['command-1', 'command-2'])
+    expect(second.map((command) => command.commandId)).toEqual(['command-3'])
   })
 })
 

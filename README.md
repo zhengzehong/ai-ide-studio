@@ -156,6 +156,9 @@ MIT
 | `RUNTIME_SERVICE_MODE` | `process` | `process` 使用独立 Runtime 子进程；`embedded` 使用旧 `acpHost` 回滚适配器 |
 | `RUNTIME_IPC_MAX_FRAME_BYTES` | `16777216` | Runtime 控制/持久化 IPC 单帧上限 |
 | `RUNTIME_RESTART_DELAY_MS` | `250` | Runtime 异常退出后的监督重启延迟 |
+| `RUNTIME_SESSION_IDLE_MS` | `1800000` | process Runtime 中单个 ACP Session 的空闲断开时间；保留持久化历史与 `acp_session_id` |
+| `RUNTIME_AGENT_IDLE_MS` | `3600000` | process Runtime 中无连接 Session 的 Agent 子进程停止时间 |
+| `RUNTIME_IDLE_SWEEP_MS` | `300000` | process Runtime 空闲资源扫描间隔 |
 | `ACP_RUNTIME_IDLE_MS` | `3600000` | ACP runtime 进程空闲停止时间 |
 | `ACP_IDLE_SWEEP_MS` | `300000` | 空闲回收扫描间隔 |
 | `GLOBAL_ASSISTANT_WORKSPACE_ROOT` | 系统应用数据目录下的 `global-assistants` | 全局助理工作空间根目录；实际工作目录为 `<root>/<agentId>/workspace` |

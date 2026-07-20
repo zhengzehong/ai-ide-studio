@@ -55,7 +55,11 @@ describe('application data worker lifecycle', () => {
 
     expect(handle.dataWorkerMode).toBe('local')
     expect(sessions.status).toBe(200)
-    expect(await sessions.json()).toMatchObject({ data: [] })
+    const body = await sessions.json() as { data: Array<{ agent_id: string; is_primary: number }> }
+    expect(body.data).toHaveLength(3)
+    expect(body.data.every((session) => session.is_primary === 1)).toBe(true)
+    expect(body.data.map((session) => session.agent_id).sort())
+      .toEqual(['claude-dev', 'codex-dev', 'mock-dev'])
   })
 })
 

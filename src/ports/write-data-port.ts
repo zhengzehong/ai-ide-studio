@@ -113,6 +113,16 @@ export interface RuntimeCommandUpdate {
   error?: string
 }
 
+export interface RuntimeCommandRecoveryCursor {
+  createdAt: string
+  commandId: string
+}
+
+export interface RuntimeCommandRecoveryQuery {
+  limit: number
+  after?: RuntimeCommandRecoveryCursor
+}
+
 export interface DatabaseMaintenanceInput {
   force: boolean
 }
@@ -141,7 +151,7 @@ export interface WriteDataPort {
   commitBatch(batch: WriteBatch): Promise<WriteBatchResult>
   sessionCursor(sessionId: string): Promise<SessionWriteCursor>
   enqueueRuntimeCommand(input: RuntimeCommandInput): Promise<RuntimeCommandEnqueueResult>
-  listRecoverableRuntimeCommands(limit: number): Promise<RuntimeCommandRecord[]>
+  listRecoverableRuntimeCommands(input: RuntimeCommandRecoveryQuery): Promise<RuntimeCommandRecord[]>
   updateRuntimeCommand(input: RuntimeCommandUpdate): Promise<RuntimeCommandRecord>
   maintain(input: DatabaseMaintenanceInput): Promise<DatabaseMaintenanceResult>
   drain(): Promise<void>

@@ -54,25 +54,25 @@
 
 ## Batch 5: Idle Sweep, Recovery Pagination, and Primary Session Reconciliation
 
-- [ ] Add Runtime idle-sweep tests for idle Sessions, idle Agents, active turns, and pending interactions.
-- [ ] Add configuration and lifecycle wiring for a process Runtime sweep timer with clean shutdown.
-- [ ] Extend the Writer ledger port with deterministic cursor pagination and test recovery beyond 1,000 Commands.
-- [ ] Update RuntimeCommandDispatcher startup to exhaust pages without duplicates or starvation.
-- [ ] Add fresh/existing database tests proving every non-template Agent has exactly one primary Session and reconciled Sessions publish correctly where required.
-- [ ] Fix or deterministically await the full-suite `rules-session-reuse` background Prompt lifecycle if the unhandled rejection reproduces.
-- [ ] Run focused maintenance, recovery, seed, Runtime lifecycle, and full database tests.
-- [ ] Commit Batch 5 and report a task milestone.
+- [x] Add Runtime idle-sweep tests for idle Sessions, idle Agents, active turns, and pending interactions.
+- [x] Add configuration and lifecycle wiring for a process Runtime sweep timer with clean shutdown.
+- [x] Extend the Writer ledger port with deterministic cursor pagination and test recovery beyond 1,000 Commands.
+- [x] Update RuntimeCommandDispatcher startup to exhaust pages without duplicates or starvation.
+- [x] Add fresh/existing database tests proving every non-template Agent has exactly one primary Session and reconciled Sessions publish correctly where required.
+- [x] Fix or deterministically await the full-suite `rules-session-reuse` background Prompt lifecycle if the unhandled rejection reproduces.
+- [x] Run focused maintenance, recovery, seed, Runtime lifecycle, and full database tests.
+- [x] Commit Batch 5 and report a task milestone.
 
 ## Final Verification and Review
 
-- [ ] Run `npm test` with `LOG_DIR` under `data-perf`; require zero unhandled errors.
+- [x] Run `npm test` with `LOG_DIR` under `data-perf`; require zero unhandled errors.
 - [ ] Run `npm run build`.
 - [ ] Run `npm run lint`.
 - [ ] Run `git diff --check`.
 - [ ] Run `npm run perf:phase5:smoke`.
 - [ ] Start `scripts/start-performance-local.ps1` on port `19000` with `data-perf` and smoke-test same-origin HTTP, WebSocket, Agent deployment/primary Session, text Prompt, image-only Prompt, cancel, and reconnect.
 - [ ] Confirm port `18900`, `data-prd`, and branch `prd` are unchanged.
-- [ ] Update architecture/protocol/data-model/README documentation only where stable contracts changed.
+- [x] Update architecture/protocol/data-model/README documentation only where stable contracts changed.
 - [ ] Commit the complete branch and request one review from `code-reviewer` session `sess-7a6061e9`.
 - [ ] Address review findings and rerun affected plus final verification.
 - [ ] Leave the branch unmerged pending explicit user approval.

@@ -76,6 +76,30 @@ describe('Runtime process', () => {
 
     expect(doneEvents).toEqual(['session-long-prompt'])
   }, 15_000)
+
+  test('sweeps idle Sessions and Agents inside the Runtime process', async () => {
+    realtime = await startRealtime()
+    const statuses: string[] = []
+    runtime = await createProcessRuntimePort({
+      realtimeStreamEndpoint: realtime.runtimeStreamEndpoint,
+      realtimeStreamToken: realtime.runtimeStreamToken,
+      onPersistenceUpdate: async () => undefined,
+      onDone: async () => undefined,
+      onAgentStatus: async (event) => { statuses.push(`${event.agentId}:${event.status}`) },
+      idleSweepIntervalMs: 20,
+      sessionIdleMs: 40,
+      agentIdleMs: 80,
+    })
+    const state = snapshot('session-idle')
+    await runtime.ensureSession(state)
+
+    await waitUntil(() => statuses.includes('agent-a:standby'), 2_000)
+    await expect(runtime.getSessionCapabilities('agent-a', 'session-idle'))
+      .rejects.toThrow('Runtime Session not found')
+
+    await expect(runtime.ensureSession(state)).resolves.toMatch(/^mock-session-/)
+    expect(statuses.filter((status) => status === 'agent-a:running')).toHaveLength(2)
+  }, 15_000)
 })
 
 function startRealtime(): Promise<RealtimeProcessHandle> {
@@ -113,5 +137,13 @@ export function snapshot(sessionId: string): RuntimeStateSnapshot {
     runtimePreferences: {},
     mcpServers: [],
     autoApprovedToolNames: [],
+  }
+}
+
+async function waitUntil(predicate: () => boolean, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error('Timed out waiting for Runtime idle sweep')
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 10))
   }
 }

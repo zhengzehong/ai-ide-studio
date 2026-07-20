@@ -21,7 +21,8 @@ const APP_CONFIG_KEYS = new Set([
   'edgeMode', 'edgeRealtimePath', 'realtimeMode', 'realtimeHost', 'realtimePort',
   'realtimeLegacyRpc', 'realtimeMaxQueueMessages', 'realtimeMaxQueueBytes',
   'realtimeMaxBufferedBytes', 'realtimeIpcMaxFrameBytes', 'runtimeMode',
-  'runtimeIpcMaxFrameBytes', 'runtimeRestartDelayMs', 'staticDir', 'mobileStaticDir',
+  'runtimeIpcMaxFrameBytes', 'runtimeRestartDelayMs', 'runtimeIdleSweepMs',
+  'runtimeSessionIdleMs', 'runtimeAgentIdleMs', 'staticDir', 'mobileStaticDir',
   'localToken', 'anthropicApiKey', 'openaiApiKey', 'googleApiKey',
   'bridgeCallbackToken', 'bridgeServerUrl',
 ])
@@ -87,7 +88,8 @@ function isAppConfig(value: unknown): value is AppConfig {
       'dataWorkerSlowMs', 'dataMaintenanceIntervalMs', 'dataWalCheckpointBytes',
       'dataPublishedOutboxRetentionMs', 'realtimePort', 'realtimeMaxQueueMessages',
       'realtimeMaxQueueBytes', 'realtimeMaxBufferedBytes', 'realtimeIpcMaxFrameBytes',
-      'runtimeIpcMaxFrameBytes', 'runtimeRestartDelayMs',
+      'runtimeIpcMaxFrameBytes', 'runtimeRestartDelayMs', 'runtimeIdleSweepMs',
+      'runtimeSessionIdleMs', 'runtimeAgentIdleMs',
     ])
 }
 
