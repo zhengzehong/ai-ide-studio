@@ -37,6 +37,24 @@ export async function startEdgeGateway(options: StartEdgeGatewayOptions): Promis
     ws: true,
     xfwd: true,
   })
+  proxy.on('error', (error, request, response) => {
+    const target = isWebSocketRequest(request) ? 'realtime' : 'api'
+    logProxyError(target, request, error)
+    if (isServerResponse(response)) {
+      if (response.headersSent) response.destroy(error)
+      else sendJson(response, 502, { error: 'bad-gateway', target })
+      return
+    }
+    if (!response.destroyed) response.destroy(error)
+  })
+  proxy.on('econnreset', (error, request) => {
+    log.debug({
+      err: error,
+      target: isWebSocketRequest(request) ? 'realtime' : 'api',
+      method: request.method,
+      path: safePath(request.url),
+    }, 'Edge proxy client disconnected')
+  })
 
   const server = createServer((request, response) => {
     const target = targets.apiUrl
@@ -200,6 +218,14 @@ function logProxyError(target: 'api' | 'realtime', request: IncomingMessage, err
     method: request.method,
     path: safePath(request.url),
   }, 'Edge proxy request failed')
+}
+
+function isWebSocketRequest(request: IncomingMessage): boolean {
+  return request.headers.upgrade?.toLowerCase() === 'websocket'
+}
+
+function isServerResponse(value: ServerResponse | Socket): value is ServerResponse {
+  return 'writeHead' in value && typeof value.writeHead === 'function'
 }
 
 function safePath(value: string | undefined): string {
