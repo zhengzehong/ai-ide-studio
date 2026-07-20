@@ -53,10 +53,10 @@ describe('mobile connection store', () => {
     resetStore()
   })
 
-  test('shows the connect page while a configured server is disconnected', () => {
+  test('keeps the application shell mounted while a configured server reconnects', () => {
     expect(shouldShowConnectPage({ serverUrl: '', connected: false, status: 'idle' })).toBe(true)
-    expect(shouldShowConnectPage({ serverUrl: 'http://127.0.0.1:18900', connected: false, status: 'failed' })).toBe(true)
-    expect(shouldShowConnectPage({ serverUrl: 'http://127.0.0.1:18900', connected: false, status: 'connecting' })).toBe(true)
+    expect(shouldShowConnectPage({ serverUrl: 'http://127.0.0.1:18900', connected: false, status: 'failed' })).toBe(false)
+    expect(shouldShowConnectPage({ serverUrl: 'http://127.0.0.1:18900', connected: false, status: 'connecting' })).toBe(false)
     expect(shouldShowConnectPage({ serverUrl: 'http://127.0.0.1:18900', connected: true, status: 'connected' })).toBe(false)
   })
 

@@ -94,6 +94,7 @@ describe('ws client', () => {
 
   test('restores subscriptions before sending saved cursors on reconnect', async () => {
     const { wsClient } = await import('../../ui/src/services/ws-client.ts')
+    wsClient.setEventListenersReady(true)
     wsClient.connect('ws://realtime')
     const first = FakeWebSocket.instances[0]
     first.readyState = FakeWebSocket.OPEN
@@ -125,6 +126,7 @@ describe('ws client', () => {
 
   test('acknowledges snapshot resync without reusing the stale session cursor', async () => {
     const { wsClient } = await import('../../ui/src/services/ws-client.ts')
+    wsClient.setEventListenersReady(true)
     wsClient.connect('ws://realtime')
     const socket = FakeWebSocket.instances[0]
     socket.readyState = FakeWebSocket.OPEN
@@ -146,5 +148,71 @@ describe('ws client', () => {
       type: 'resume',
       cursors: {},
     })
+  })
+
+  test('waits for application listeners before restoring subscriptions and cursors', async () => {
+    const { wsClient } = await import('../../ui/src/services/ws-client.ts')
+    wsClient.setEventListenersReady(true)
+    wsClient.connect('ws://realtime')
+    const first = FakeWebSocket.instances[0]
+    first.readyState = FakeWebSocket.OPEN
+    first.onopen?.()
+    wsClient.subscribe(['session-a'])
+    first.onmessage?.({
+      data: JSON.stringify({
+        type: 'session:update',
+        sessionId: 'session-a',
+        streamGeneration: 'generation-a',
+        sequence: 3,
+      }),
+    })
+
+    wsClient.setEventListenersReady(false)
+    first.onclose?.({ code: 1006, reason: '' })
+    await vi.advanceTimersByTimeAsync(3000)
+    const second = FakeWebSocket.instances[1]
+    second.readyState = FakeWebSocket.OPEN
+    second.onopen?.()
+
+    expect(second.send).not.toHaveBeenCalled()
+
+    const updates: Record<string, unknown>[] = []
+    wsClient.on('session:update', (message) => updates.push(message))
+    wsClient.setEventListenersReady(true)
+
+    expect(second.send.mock.calls.map(([payload]) => JSON.parse(String(payload)))).toEqual([
+      { type: 'subscribe', sessionIds: ['session-a'] },
+      {
+        type: 'resume',
+        cursors: { 'session-a': { streamGeneration: 'generation-a', sequence: 3 } },
+      },
+    ])
+
+    second.onmessage?.({
+      data: JSON.stringify({
+        type: 'session:update',
+        sessionId: 'session-a',
+        streamGeneration: 'generation-a',
+        sequence: 4,
+      }),
+    })
+    expect(updates).toHaveLength(1)
+  })
+
+  test('restores subscriptions registered before listeners are ready on first connect', async () => {
+    const { wsClient } = await import('../../ui/src/services/ws-client.ts')
+    wsClient.subscribe(['session-a'])
+    wsClient.connect('ws://realtime')
+    const socket = FakeWebSocket.instances[0]
+    socket.readyState = FakeWebSocket.OPEN
+    socket.onopen?.()
+
+    expect(socket.send).not.toHaveBeenCalled()
+
+    wsClient.setEventListenersReady(true)
+
+    expect(socket.send.mock.calls.map(([payload]) => JSON.parse(String(payload)))).toEqual([
+      { type: 'subscribe', sessionIds: ['session-a'] },
+    ])
   })
 })

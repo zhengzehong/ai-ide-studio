@@ -8,6 +8,7 @@ import {
   storeAccessToken,
   useConnectionStore,
 } from '../../ui/src/stores/connection.store'
+import { shouldShowAccessTokenPage } from '../../ui/src/app-shell-state'
 
 describe('PC connection auth', () => {
   beforeEach(() => {
@@ -84,6 +85,12 @@ describe('PC connection auth', () => {
 
     expect(client.disconnect).toHaveBeenCalledTimes(1)
     expect(useConnectionStore.getState().authRequired).toBe(true)
+  })
+
+  test('keeps the application shell mounted during a temporary disconnect', () => {
+    expect(shouldShowAccessTokenPage({ connected: false, authRequired: false })).toBe(false)
+    expect(shouldShowAccessTokenPage({ connected: true, authRequired: false })).toBe(false)
+    expect(shouldShowAccessTokenPage({ connected: false, authRequired: true })).toBe(true)
   })
 })
 

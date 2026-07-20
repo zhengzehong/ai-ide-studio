@@ -24,6 +24,7 @@ import {
 import { useConnectionStore } from './stores/connection.store'
 import { ProjectScopeLayout } from './components/project/ProjectScopeLayout'
 import { LegacyProjectRedirect } from './components/project/LegacyProjectRedirect'
+import { shouldShowAccessTokenPage } from './app-shell-state'
 
 export default function App() {
   const init = useConnectionStore((s) => s.init)
@@ -32,29 +33,35 @@ export default function App() {
   const connectedOnce = useRef(false)
 
   useEffect(() => {
-    init()
+    let disposed = false
+    let stopListeners: (() => void) | undefined
+    void import('./app-runtime-bootstrap').then((module) => {
+      if (disposed) return
+      stopListeners = module.startAppRuntimeListeners()
+      if (disposed) {
+        stopListeners()
+        return
+      }
+      init()
+    })
+    return () => {
+      disposed = true
+      stopListeners?.()
+    }
   }, [init])
 
   useEffect(() => {
     if (!connected) return
     const isReconnect = connectedOnce.current
     connectedOnce.current = true
-    let disposed = false
-    let stopRuntime: (() => void) | undefined
     void import('./app-runtime-bootstrap').then((module) => {
-      if (disposed) return
-      stopRuntime = module.startConnectedAppRuntime(isReconnect)
-      if (disposed) stopRuntime()
+      module.refreshConnectedAppRuntime(isReconnect)
     })
-    return () => {
-      disposed = true
-      stopRuntime?.()
-    }
   }, [connected])
 
   return (
     <Suspense fallback={<RouteLoading />}>
-      {authRequired ? (
+      {shouldShowAccessTokenPage({ connected, authRequired }) ? (
         <AccessTokenPage />
       ) : (
         <BrowserRouter>
