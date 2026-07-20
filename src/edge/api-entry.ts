@@ -9,6 +9,7 @@ import {
 const log = createChildLogger('edge-api-entry')
 let app: AppHandle | undefined
 let unsubscribeRealtime: (() => void) | undefined
+let currentRealtimeUrl: string | undefined
 let stopping = false
 
 async function main(): Promise<void> {
@@ -30,13 +31,19 @@ async function handleMessage(message: unknown): Promise<void> {
         apiUrl: app.httpEndpoint,
         realtimeUrl: app.realtimeEndpoint,
       })
-      let currentRealtimeUrl = app.realtimeEndpoint
+      currentRealtimeUrl = app.realtimeEndpoint
       unsubscribeRealtime = app.onRealtimeEndpointChange((realtimeUrl) => {
         if (realtimeUrl === currentRealtimeUrl) return
         currentRealtimeUrl = realtimeUrl
         void send({ type: 'realtime.changed', realtimeUrl })
           .catch((error) => log.warn({ err: error }, 'Failed to publish Realtime target change'))
       })
+      return
+    }
+    if (message.type === 'test.realtime.restart') {
+      if (!app) throw new Error('API application is not started')
+      await app.restartRealtimeForTest()
+      await send({ type: 'test.realtime.restart.done', requestId: message.requestId })
       return
     }
     if (message.type === 'test.block') {
@@ -58,6 +65,7 @@ async function shutdown(exitCode: number, reportStopped: boolean): Promise<void>
   stopping = true
   unsubscribeRealtime?.()
   unsubscribeRealtime = undefined
+  currentRealtimeUrl = undefined
   await app?.stop().catch((error) => log.warn({ err: error }, 'API application close failed'))
   app = undefined
   if (reportStopped) await send({ type: 'stopped' }).catch(() => undefined)

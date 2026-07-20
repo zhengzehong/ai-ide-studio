@@ -26,6 +26,7 @@ export interface ApiProcessHandle {
   readonly generation: number
   onTargetsChange(listener: (targets: ApiTargets) => void): () => void
   blockForTest(durationMs: number): Promise<void>
+  restartRealtimeForTest(): Promise<void>
   terminateForTest(): Promise<void>
   waitForRestart(previousGeneration: number, timeoutMs?: number): Promise<void>
   close(): Promise<void>
@@ -48,6 +49,7 @@ class ApiProcessController implements ApiProcessHandle {
   private readonly stateWaiters = new Set<() => void>()
   private readonly exitWaiters = new Set<() => void>()
   private readonly blockRequests = new Map<string, { resolve: () => void; reject: (error: Error) => void }>()
+  private readonly realtimeRestartRequests = new Map<string, { resolve: () => void; reject: (error: Error) => void }>()
 
   constructor(private readonly options: CreateApiProcessOptions) {}
 
@@ -99,6 +101,19 @@ class ApiProcessController implements ApiProcessHandle {
     await exited
   }
 
+  async restartRealtimeForTest(): Promise<void> {
+    const requestId = randomUUID()
+    const completed = new Promise<void>((resolve, reject) => {
+      this.realtimeRestartRequests.set(requestId, { resolve, reject })
+    })
+    try {
+      await this.send({ type: 'test.realtime.restart', requestId })
+      await withTimeout(completed, 10_000, 'Realtime restart acknowledgement timed out')
+    } finally {
+      this.realtimeRestartRequests.delete(requestId)
+    }
+  }
+
   waitForRestart(previousGeneration: number, timeoutMs = 10_000): Promise<void> {
     return this.waitForGeneration(previousGeneration, timeoutMs)
   }
@@ -118,6 +133,7 @@ class ApiProcessController implements ApiProcessHandle {
     this.child = undefined
     this.clearTargets()
     this.rejectBlockRequests(new Error('API process closed'))
+    this.rejectRealtimeRestartRequests(new Error('API process closed'))
     this.targetListeners.clear()
     this.wakeStateWaiters()
   }
@@ -161,6 +177,10 @@ class ApiProcessController implements ApiProcessHandle {
       this.blockRequests.get(message.requestId)?.resolve()
       return
     }
+    if (message.type === 'test.realtime.restart.done') {
+      this.realtimeRestartRequests.get(message.requestId)?.resolve()
+      return
+    }
     if (message.type === 'fatal') {
       this.lastFatal = new Error(message.message)
       this.wakeStateWaiters()
@@ -175,6 +195,7 @@ class ApiProcessController implements ApiProcessHandle {
     this.exitWaiters.clear()
     this.clearTargets()
     this.rejectBlockRequests(new Error('API process exited'))
+    this.rejectRealtimeRestartRequests(new Error('API process exited'))
     if (this.closing) return
     log.warn({ code, signal }, 'API process exited; scheduling restart')
     this.restartTimer = setTimeout(() => {
@@ -234,6 +255,11 @@ class ApiProcessController implements ApiProcessHandle {
   private rejectBlockRequests(error: Error): void {
     for (const pending of this.blockRequests.values()) pending.reject(error)
     this.blockRequests.clear()
+  }
+
+  private rejectRealtimeRestartRequests(error: Error): void {
+    for (const pending of this.realtimeRestartRequests.values()) pending.reject(error)
+    this.realtimeRestartRequests.clear()
   }
 }
 

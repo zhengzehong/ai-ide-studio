@@ -13,5 +13,6 @@ export interface AppHandle {
   readonly httpEndpoint: string
   readonly realtimeEndpoint: string
   onRealtimeEndpointChange(listener: (endpointUrl: string) => void): () => void
+  restartRealtimeForTest(): Promise<void>
   stop: () => Promise<void>
 }

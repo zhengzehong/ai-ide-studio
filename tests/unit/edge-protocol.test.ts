@@ -18,6 +18,7 @@ describe('Edge API process protocol', () => {
     expect(isParentToApiMessage({ type: 'start', config })).toBe(true)
     expect(isParentToApiMessage({ type: 'stop' })).toBe(true)
     expect(isParentToApiMessage({ type: 'test.block', requestId: 'req-1', durationMs: 150 })).toBe(true)
+    expect(isParentToApiMessage({ type: 'test.realtime.restart', requestId: 'req-2' })).toBe(true)
   })
 
   it('rejects unknown, incomplete, and extra parent-to-child fields', () => {
@@ -36,6 +37,7 @@ describe('Edge API process protocol', () => {
     })).toBe(true)
     expect(isApiToParentMessage({ type: 'realtime.changed', realtimeUrl: 'ws://127.0.0.1:40102' })).toBe(true)
     expect(isApiToParentMessage({ type: 'test.block.done', requestId: 'req-1' })).toBe(true)
+    expect(isApiToParentMessage({ type: 'test.realtime.restart.done', requestId: 'req-2' })).toBe(true)
     expect(isApiToParentMessage({ type: 'stopped' })).toBe(true)
     expect(isApiToParentMessage({ type: 'fatal', message: 'failed' })).toBe(true)
   })

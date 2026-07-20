@@ -4,12 +4,14 @@ export type ParentToApiMessage =
   | { type: 'start'; config: AppConfig }
   | { type: 'stop' }
   | { type: 'test.block'; requestId: string; durationMs: number }
+  | { type: 'test.realtime.restart'; requestId: string }
 
 export type ApiToParentMessage =
   | { type: 'hello' }
   | { type: 'ready'; apiUrl: string; realtimeUrl: string }
   | { type: 'realtime.changed'; realtimeUrl: string }
   | { type: 'test.block.done'; requestId: string }
+  | { type: 'test.realtime.restart.done'; requestId: string }
   | { type: 'stopped' }
   | { type: 'fatal'; message: string }
 
@@ -37,6 +39,9 @@ export function isParentToApiMessage(value: unknown): value is ParentToApiMessag
       && Number(value.durationMs) > 0
       && Number(value.durationMs) <= 10_000
   }
+  if (value.type === 'test.realtime.restart') {
+    return hasOnlyKeys(value, ['type', 'requestId']) && isNonEmptyString(value.requestId)
+  }
   return false
 }
 
@@ -52,6 +57,9 @@ export function isApiToParentMessage(value: unknown): value is ApiToParentMessag
     return hasOnlyKeys(value, ['type', 'realtimeUrl']) && isLoopbackEndpoint(value.realtimeUrl, 'ws:')
   }
   if (value.type === 'test.block.done') {
+    return hasOnlyKeys(value, ['type', 'requestId']) && isNonEmptyString(value.requestId)
+  }
+  if (value.type === 'test.realtime.restart.done') {
     return hasOnlyKeys(value, ['type', 'requestId']) && isNonEmptyString(value.requestId)
   }
   if (value.type === 'fatal') {

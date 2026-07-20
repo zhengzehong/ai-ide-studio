@@ -285,7 +285,7 @@ git commit -m "feat: supervise the internal api process"
 - Create: `tests/unit/edge-boundary.test.ts`
 - Create: `tests/integration/single-port-service.test.ts`
 
-- [ ] **Step 1: Write failing public-service tests**
+- [x] **Step 1: Write failing public-service tests**
 
 Start the supervisor on `127.0.0.1:0` and assert all user traffic uses one authority:
 
@@ -312,7 +312,7 @@ npx vitest run tests/integration/single-port-service.test.ts tests/unit/edge-bou
 
 Expected: FAIL because unified supervision is not connected.
 
-- [ ] **Step 2: Implement unified supervision**
+- [x] **Step 2: Implement unified supervision**
 
 Expose:
 
@@ -331,15 +331,15 @@ export interface UnifiedServiceHandle {
 
 Startup order is API child ready, Edge listener, target subscription. Shutdown order is Edge intake, target subscription, API child. If Edge startup fails, close the already-started API child.
 
-- [ ] **Step 3: Switch the production entry point**
+- [x] **Step 3: Switch the production entry point**
 
 `src/entry.ts` uses the unified supervisor when `edgeMode !== 'disabled'`. The disabled branch dynamically imports `startApp()` and retains the previous signal handling. Do not statically load Store/Core business modules in Edge mode.
 
-- [ ] **Step 4: Enforce the Edge boundary**
+- [x] **Step 4: Enforce the Edge boundary**
 
 Use a TypeScript AST test over `src/edge/**`. Allow Node built-ins, `http-proxy-3`, `core/config` types, `shared/logger`, `shared/event-loop-monitor`, `app` only from `api-entry.ts`, and local Edge modules. Reject `better-sqlite3`, Store, Core business, Gateway RPC, ACP, Runtime, Realtime implementation, Data Worker, and Hono imports from the public Edge path.
 
-- [ ] **Step 5: Verify public behavior and isolation**
+- [x] **Step 5: Verify public behavior and isolation**
 
 Run:
 

@@ -29,6 +29,16 @@ export function createRealtimeEndpointSubscription(
   }
 }
 
+export async function restartRealtimeForTest(
+  mode: RealtimeMode,
+  realtimeProcess: RealtimeProcessHandle | undefined,
+): Promise<void> {
+  if (mode !== 'process' || !realtimeProcess) throw new Error('Process Realtime is not enabled')
+  const previousGeneration = realtimeProcess.generation
+  await realtimeProcess.terminateForTest()
+  await realtimeProcess.waitForRestart(previousGeneration)
+}
+
 function formatPublicHost(host: string): string {
   const publicHost = host === '0.0.0.0' || host === '::' ? '127.0.0.1' : host
   return publicHost.includes(':') && !publicHost.startsWith('[') ? `[${publicHost}]` : publicHost

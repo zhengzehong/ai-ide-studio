@@ -41,6 +41,7 @@ import {
   createRealtimeEndpointSubscription,
   embeddedRealtimeEndpoint,
   httpServerEndpoint,
+  restartRealtimeForTest,
   serverPort,
 } from './app-endpoints.js'
 
@@ -252,6 +253,7 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
         : initialRealtimeEndpoint
     },
     onRealtimeEndpointChange,
+    restartRealtimeForTest: () => restartRealtimeForTest(realtimeMode, realtimeProcess),
     stop: async () => {
       if (stopped) return
       stopped = true
