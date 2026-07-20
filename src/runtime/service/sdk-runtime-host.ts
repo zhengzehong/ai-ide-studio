@@ -1,61 +1,39 @@
-import type { ChildProcess } from 'node:child_process'
-import * as acp from '@agentclientprotocol/sdk'
 import { mapConfigOptions, mergeCapabilitiesFromConfig } from '../../acp/capabilities.js'
-import { resolveDesiredRuntimeMode } from '../../acp/runtime-mode-preference.js'
 import type { RuntimeStateSnapshot } from '../../ports/runtime-port.js'
 import { createChildLogger } from '../../shared/logger.js'
-import type { ImageAttachment, SessionCapabilities, TurnUsageData } from '../../types/ws-protocol.js'
+import type { ImageAttachment, SessionCapabilities } from '../../types/ws-protocol.js'
 import type { RuntimeSessionActorScheduler } from '../actors/session-actor.js'
 import { ResourceGovernor } from '../resources/resource-governor.js'
-import type { RuntimeCoalescibleUpdate } from '../streams/runtime-update-coalescer.js'
-import { createAcpRuntimeClient, type AcpRuntimeClientRouter } from './acp-runtime-client.js'
+import { createAcpRuntimeClient } from './acp-runtime-client.js'
 import {
   startManagedAcpAgent,
   type ManagedAcpAgent,
   type StartManagedAcpAgentInput,
 } from './managed-acp-agent.js'
+import {
+  runtimeAgentFingerprint,
+  runtimeSessionContextFingerprint,
+} from './runtime-fingerprints.js'
+import { applySdkSessionPreferences, openSdkSession } from './sdk-session-runtime.js'
+import { enqueueSdkPrompt } from './sdk-runtime-prompt.js'
+import type {
+  SdkAgentRuntime,
+  SdkRuntimeHostDependencies,
+  SdkRuntimeHostOptions,
+  SdkSessionRuntime,
+} from './sdk-runtime-types.js'
 
 const log = createChildLogger('sdk-runtime-host')
 
-interface SdkAgentRuntime {
-  fingerprint: string
-  process: ChildProcess
-  connection: acp.ClientSideConnection
-  router: AcpRuntimeClientRouter
-  agentCapabilities?: acp.AgentCapabilities
-  exitPromise: Promise<never>
-  rejectExit: (error: Error) => void
-  stopping: boolean
-}
-
-interface SdkSessionRuntime {
-  snapshot: RuntimeStateSnapshot
-  acpSessionId: string
-  capabilities: SessionCapabilities
-  active: boolean
-}
-
-export interface SdkRuntimeHostOptions {
-  publishUpdate: (agentId: string, update: RuntimeCoalescibleUpdate) => void
-  publishDone: (input: {
-    sessionId: string
-    agentId: string
-    messageId: string
-    turnId?: string
-    stopReason: string
-    turnUsage?: TurnUsageData
-  }) => Promise<void>
-}
-
-export interface SdkRuntimeHostDependencies {
-  startAgent?: (input: StartManagedAcpAgentInput) => Promise<ManagedAcpAgent>
-}
+export type { SdkRuntimeHostDependencies, SdkRuntimeHostOptions } from './sdk-runtime-types.js'
 
 export class SdkRuntimeHost {
   private readonly agents = new Map<string, SdkAgentRuntime>()
   private readonly sessions = new Map<string, SdkSessionRuntime>()
   private readonly resources = new ResourceGovernor()
   private readonly startAgent: (input: StartManagedAcpAgentInput) => Promise<ManagedAcpAgent>
+  private readonly ensureBySession = new Map<string, Promise<string>>()
+  private readonly startByAgent = new Map<string, Promise<SdkAgentRuntime>>()
 
   constructor(
     private readonly actors: RuntimeSessionActorScheduler,
@@ -73,45 +51,74 @@ export class SdkRuntimeHost {
     return this.sessions.size
   }
 
-  async ensureSession(snapshot: RuntimeStateSnapshot): Promise<string> {
+  async ensureSession(
+    snapshot: RuntimeStateSnapshot,
+    options: { emitLifecycle?: boolean } = {},
+  ): Promise<string> {
+    const pending = this.ensureBySession.get(snapshot.session.id)
+    if (pending) return pending
+    const emitLifecycle = options.emitLifecycle !== false
+    const ensuring = this.ensureSessionInternal(snapshot, emitLifecycle).catch((error: unknown) => {
+      if (emitLifecycle) {
+        this.publishLifecycle(snapshot, 'lifecycle.failed', `连接失败：${errorMessage(error)}`)
+      }
+      throw error
+    }).finally(() => {
+      if (this.ensureBySession.get(snapshot.session.id) === ensuring) {
+        this.ensureBySession.delete(snapshot.session.id)
+      }
+    })
+    this.ensureBySession.set(snapshot.session.id, ensuring)
+    return ensuring
+  }
+
+  private async ensureSessionInternal(snapshot: RuntimeStateSnapshot, emitLifecycle: boolean): Promise<string> {
+    const agentWasRunning = this.agents.has(snapshot.agent.id)
+    if (!agentWasRunning && emitLifecycle) {
+      this.publishLifecycle(snapshot, 'lifecycle.runtime_starting', '正在启动 Agent...')
+    }
+    const agent = await this.ensureAgent(snapshot)
+    if (!agentWasRunning && emitLifecycle) {
+      this.publishLifecycle(snapshot, 'lifecycle.runtime_ready', 'Agent 已就绪')
+    }
     const existing = this.sessions.get(snapshot.session.id)
-    if (existing) {
+    const contextFingerprint = runtimeSessionContextFingerprint(snapshot)
+    if (existing?.contextFingerprint === contextFingerprint) {
       existing.snapshot = snapshot
       return existing.acpSessionId
     }
-    const agent = await this.ensureAgent(snapshot)
-    const params = {
-      cwd: snapshot.session.cwd,
-      mcpServers: snapshot.mcpServers,
-      _meta: snapshot.runtime.sessionMeta,
+    const acpSessionIdToResume = snapshot.session.acpSessionId ?? existing?.acpSessionId ?? null
+    if (existing) {
+      agent.router.unbindSession(snapshot.session.id)
+      this.sessions.delete(snapshot.session.id)
     }
-    let acpSessionId: string
-    let initial: {
-      models?: acp.SessionModelState | null
-      modes?: acp.SessionModeState | null
-      configOptions?: acp.SessionConfigOption[] | null
-    }
-    if (snapshot.session.acpSessionId && agent.agentCapabilities?.sessionCapabilities?.resume) {
-      initial = await agent.connection.resumeSession({ sessionId: snapshot.session.acpSessionId, ...params })
-      acpSessionId = snapshot.session.acpSessionId
-    } else if (snapshot.session.acpSessionId && agent.agentCapabilities?.loadSession) {
-      initial = await agent.connection.loadSession({ sessionId: snapshot.session.acpSessionId, ...params })
-      acpSessionId = snapshot.session.acpSessionId
-    } else {
-      const created = await agent.connection.newSession(params)
-      initial = created
-      acpSessionId = created.sessionId
-    }
+    const opened = await openSdkSession({
+      connection: agent.connection,
+      snapshot,
+      agentCapabilities: agent.agentCapabilities,
+      acpSessionIdToResume,
+      lifecycle: emitLifecycle
+        ? (eventType, content) => this.publishLifecycle(snapshot, eventType, content)
+        : undefined,
+    })
     const session: SdkSessionRuntime = {
       snapshot,
-      acpSessionId,
-      capabilities: initialCapabilities(initial, agent.agentCapabilities),
+      acpSessionId: opened.acpSessionId,
+      capabilities: opened.capabilities,
       active: false,
+      contextFingerprint,
     }
     this.sessions.set(snapshot.session.id, session)
-    agent.router.bindSession(snapshot.session.id, acpSessionId, snapshot.autoApprovedToolNames)
-    await this.applyPreferences(agent.connection, session)
-    return acpSessionId
+    agent.router.bindSession(snapshot.session.id, opened.acpSessionId, snapshot.autoApprovedToolNames)
+    await applySdkSessionPreferences({
+      snapshot,
+      capabilities: session.capabilities,
+      setModel: (modelId) => this.setModel(snapshot.agent.id, snapshot.session.id, modelId),
+      setMode: (modeId) => this.setMode(snapshot.agent.id, snapshot.session.id, modeId),
+      setConfig: (configId, value) => this.setConfig(snapshot.agent.id, snapshot.session.id, configId, value),
+    })
+    if (emitLifecycle) this.publishLifecycle(snapshot, 'lifecycle.session_ready', '会话已连接')
+    return opened.acpSessionId
   }
 
   prompt(input: {
@@ -121,46 +128,13 @@ export class SdkRuntimeHost {
     images?: ImageAttachment[]
     diagnostics?: { turnId?: string; messageId?: string }
   }): Promise<void> {
-    return this.actors.enqueue(
-      input.sessionId,
-      async () => {
-        const session = this.requireSession(input.sessionId, input.agentId)
-        const agent = this.requireAgent(input.agentId)
-        const messageId = input.diagnostics?.messageId ?? `message-${Date.now()}`
-        const blocks: acp.ContentBlock[] = [{ type: 'text', text: input.content }]
-        for (const image of input.images ?? []) {
-          blocks.push({ type: 'image', data: image.data, mimeType: image.mimeType })
-        }
-        session.active = true
-        agent.router.beginTurn(input.sessionId, messageId, input.diagnostics?.turnId)
-        try {
-          const result = await Promise.race([
-            agent.connection.prompt({ sessionId: session.acpSessionId, prompt: blocks }),
-            agent.exitPromise,
-          ])
-          await this.options.publishDone({
-            sessionId: input.sessionId,
-            agentId: input.agentId,
-            messageId,
-            turnId: input.diagnostics?.turnId,
-            stopReason: result.stopReason,
-            turnUsage: result.usage
-              ? {
-                  inputTokens: result.usage.inputTokens,
-                  outputTokens: result.usage.outputTokens,
-                  totalTokens: result.usage.totalTokens,
-                  cachedReadTokens: result.usage.cachedReadTokens ?? undefined,
-                  thoughtTokens: result.usage.thoughtTokens ?? undefined,
-                }
-              : undefined,
-          })
-        } finally {
-          session.active = false
-          agent.router.endTurn(input.sessionId)
-        }
-      },
-      { payloadBytes: Buffer.byteLength(input.content, 'utf8') },
-    )
+    return enqueueSdkPrompt({
+      actors: this.actors,
+      ...input,
+      getSession: () => this.requireSession(input.sessionId, input.agentId),
+      getAgent: () => this.requireAgent(input.agentId),
+      publishDone: (event) => this.options.publishDone(event),
+    })
   }
 
   async cancelPrompt(agentId: string, sessionId: string): Promise<void> {
@@ -202,10 +176,17 @@ export class SdkRuntimeHost {
       acpSessionId: result.sessionId,
       capabilities: initialCapabilities(result, agent.agentCapabilities),
       active: false,
+      contextFingerprint: runtimeSessionContextFingerprint(snapshot),
     }
     this.sessions.set(snapshot.session.id, session)
     agent.router.bindSession(snapshot.session.id, result.sessionId, snapshot.autoApprovedToolNames)
-    await this.applyPreferences(agent.connection, session)
+    await applySdkSessionPreferences({
+      snapshot,
+      capabilities: session.capabilities,
+      setModel: (modelId) => this.setModel(snapshot.agent.id, snapshot.session.id, modelId),
+      setMode: (modeId) => this.setMode(snapshot.agent.id, snapshot.session.id, modeId),
+      setConfig: (configId, value) => this.setConfig(snapshot.agent.id, snapshot.session.id, configId, value),
+    })
     return result.sessionId
   }
 
@@ -266,7 +247,22 @@ export class SdkRuntimeHost {
   }
 
   private async ensureAgent(snapshot: RuntimeStateSnapshot): Promise<SdkAgentRuntime> {
-    const fingerprint = JSON.stringify([snapshot.agent.runtime, snapshot.runtime.command, snapshot.runtime.env])
+    const fingerprint = runtimeAgentFingerprint(snapshot)
+    const existing = this.agents.get(snapshot.agent.id)
+    if (existing?.fingerprint === fingerprint) return existing
+    const pending = this.startByAgent.get(snapshot.agent.id)
+    if (pending) return pending
+    const starting = this.startAgentInternal(snapshot, fingerprint).finally(() => {
+      if (this.startByAgent.get(snapshot.agent.id) === starting) this.startByAgent.delete(snapshot.agent.id)
+    })
+    this.startByAgent.set(snapshot.agent.id, starting)
+    return starting
+  }
+
+  private async startAgentInternal(
+    snapshot: RuntimeStateSnapshot,
+    fingerprint: string,
+  ): Promise<SdkAgentRuntime> {
     const existing = this.agents.get(snapshot.agent.id)
     if (existing?.fingerprint === fingerprint) return existing
     if (existing) await this.stopAgent(snapshot.agent.id)
@@ -278,6 +274,7 @@ export class SdkRuntimeHost {
         const session = this.sessions.get(sessionId)
         if (session) session.capabilities = update(session.capabilities)
       },
+      publishCapabilities: (sessionId, capabilities) => this.options.publishCapabilities?.(sessionId, capabilities),
     })
     const command = snapshot.runtime.command
     if (!command) {
@@ -305,6 +302,7 @@ export class SdkRuntimeHost {
       stopping: false,
     }
     this.agents.set(snapshot.agent.id, runtime)
+    this.options.publishAgentStatus?.({ agentId: snapshot.agent.id, status: 'running' })
     managed.process.once('exit', (code, signal) => {
       this.handleAgentExit(snapshot.agent.id, runtime, code, signal)
     })
@@ -312,39 +310,6 @@ export class SdkRuntimeHost {
       this.handleAgentExit(snapshot.agent.id, runtime, managed.process.exitCode, managed.process.signalCode)
     }
     return runtime
-  }
-
-  private async applyPreferences(connection: acp.ClientSideConnection, session: SdkSessionRuntime): Promise<void> {
-    const preferences = session.snapshot.runtimePreferences
-    if (preferences.modelId)
-      await this.setModel(session.snapshot.agent.id, session.snapshot.session.id, preferences.modelId)
-    const modeId = resolveDesiredRuntimeMode(session.snapshot.agent.runtime, preferences.modeId)
-    if (modeId && modeId !== session.capabilities.currentModeId) {
-      if (session.capabilities.modes?.some((mode) => mode.modeId === modeId)) {
-        try {
-          await this.setMode(session.snapshot.agent.id, session.snapshot.session.id, modeId)
-        } catch (err) {
-          log.warn(
-            { err, agentId: session.snapshot.agent.id, sessionId: session.snapshot.session.id, modeId },
-            'failed to restore Runtime session mode',
-          )
-        }
-      } else {
-        log.warn(
-          {
-            agentId: session.snapshot.agent.id,
-            sessionId: session.snapshot.session.id,
-            runtime: session.snapshot.agent.runtime,
-            modeId,
-          },
-          'desired Runtime session mode is unavailable',
-        )
-      }
-    }
-    for (const [configId, value] of Object.entries(preferences.config ?? {})) {
-      await this.setConfig(session.snapshot.agent.id, session.snapshot.session.id, configId, value)
-    }
-    void connection
   }
 
   private async stopAgent(agentId: string): Promise<void> {
@@ -355,6 +320,7 @@ export class SdkRuntimeHost {
     this.removeAgentSessions(agentId, agent)
     agent.router.close()
     this.agents.delete(agentId)
+    this.options.publishAgentStatus?.({ agentId, status: 'standby' })
     if (!agent.process.killed) agent.process.kill()
   }
 
@@ -369,6 +335,7 @@ export class SdkRuntimeHost {
     this.removeAgentSessions(agentId, runtime)
     runtime.router.close()
     runtime.rejectExit(new Error(`Agent runtime exited: ${agentId} (code=${code ?? 'null'}, signal=${signal ?? 'null'})`))
+    this.options.publishAgentStatus?.({ agentId, status: 'standby' })
     if (!runtime.stopping) log.warn({ agentId, code, signal }, 'Agent runtime exited unexpectedly')
   }
 
@@ -380,6 +347,20 @@ export class SdkRuntimeHost {
       this.sessions.delete(sessionId)
       if (this.actors.pendingCount(sessionId) === 0) this.actors.resetSession(sessionId)
     }
+  }
+
+  private publishLifecycle(
+    snapshot: RuntimeStateSnapshot,
+    eventType: string,
+    content: string,
+  ): void {
+    const messageId = `lifecycle-${snapshot.session.id}-${Date.now()}`
+    this.options.publishUpdate(snapshot.agent.id, {
+      kind: 'session-update',
+      sessionId: snapshot.session.id,
+      messageId,
+      data: { messageId, role: 'system', eventType, content },
+    })
   }
 
   private requireAgent(agentId: string): SdkAgentRuntime {
@@ -396,31 +377,6 @@ export class SdkRuntimeHost {
   }
 }
 
-function initialCapabilities(
-  initial: {
-    models?: acp.SessionModelState | null
-    modes?: acp.SessionModeState | null
-    configOptions?: acp.SessionConfigOption[] | null
-  },
-  agentCapabilities?: acp.AgentCapabilities,
-): SessionCapabilities {
-  const capabilities: SessionCapabilities = {
-    models: initial.models?.availableModels.map((model) => ({
-      modelId: model.modelId,
-      name: model.name,
-      description: model.description ?? undefined,
-    })),
-    currentModelId: initial.models?.currentModelId,
-    modes: initial.modes?.availableModes.map((mode) => ({
-      modeId: mode.id,
-      name: mode.name,
-      description: mode.description ?? undefined,
-    })),
-    currentModeId: initial.modes?.currentModeId,
-    supportsImages: agentCapabilities?.promptCapabilities?.image ?? false,
-    supportsAudio: agentCapabilities?.promptCapabilities?.audio ?? false,
-  }
-  return initial.configOptions
-    ? mergeCapabilitiesFromConfig(capabilities, mapConfigOptions(initial.configOptions))
-    : capabilities
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }

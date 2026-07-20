@@ -31,7 +31,7 @@ import { sessionShareStore } from './store/session-shares.js'
 import type { RuntimePort } from './ports/runtime-port.js'
 import { EmbeddedRuntimePort } from './runtime/api/embedded-runtime-port.js'
 import { createProcessRuntimePort, type ProcessRuntimePort } from './runtime/api/process-runtime-port.js'
-import { handleRuntimeDone, handleRuntimePersistenceUpdate } from './runtime/api/runtime-ingress.js'
+import { handleRuntimeAgentStatus, handleRuntimeDone, handleRuntimePersistenceUpdate } from './runtime/api/runtime-ingress.js'
 import { setRuntimePort } from './runtime/runtime-port-provider.js'
 import { RuntimeCommandDispatcher } from './commands/runtime-command-dispatcher.js'
 import { executeSessionCommand } from './commands/session-command-service.js'
@@ -132,6 +132,7 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
         restartDelayMs: config.runtimeRestartDelayMs,
         onPersistenceUpdate: handleRuntimePersistenceUpdate,
         onDone: handleRuntimeDone,
+        onAgentStatus: handleRuntimeAgentStatus,
       })
       runtimePort = processRuntime
     } else {

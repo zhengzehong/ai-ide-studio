@@ -21,15 +21,18 @@ describe('Runtime process', () => {
   test('owns mock runtime sessions and exposes the RuntimePort command surface', async () => {
     realtime = await startRealtime()
     const persistence: RuntimePersistenceUpdate[] = []
+    const statuses: string[] = []
     runtime = await createProcessRuntimePort({
       realtimeStreamEndpoint: realtime.runtimeStreamEndpoint,
       realtimeStreamToken: realtime.runtimeStreamToken,
       onPersistenceUpdate: async (update) => { persistence.push(update) },
       onDone: async () => undefined,
+      onAgentStatus: async (event) => { statuses.push(`${event.agentId}:${event.status}`) },
     })
     const state = snapshot('session-a')
 
-    const acpSessionId = await runtime.ensureSession(state)
+    const acpSessionId = await runtime.ensureSession(state, { emitLifecycle: true })
+    await runtime.drain()
     expect(acpSessionId).toMatch(/^mock-session-/)
     await expect(runtime.getSessionCapabilities('agent-a', 'session-a')).resolves.toMatchObject({
       currentModelId: 'mock-fast',
@@ -41,6 +44,9 @@ describe('Runtime process', () => {
 
     await runtime.prompt({ agentId: 'agent-a', sessionId: 'session-a', content: 'hello runtime' })
     expect(persistence.some((item) => item.update.kind === 'session-update')).toBe(true)
+    expect(persistence.some((item) => item.update.kind === 'session-update'
+      && item.update.data?.eventType === 'lifecycle.session_ready')).toBe(true)
+    expect(statuses).toContain('agent-a:running')
     await expect(runtime.resolvePermission('session-a', 'missing', 'allow_once')).resolves.toBe(false)
     await expect(runtime.resolveElicitation('session-a', 'missing', 'cancel')).resolves.toBe(false)
 

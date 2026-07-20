@@ -20,6 +20,7 @@ import {
   isRuntimeControlPayload,
   type RuntimeCommand,
   type RuntimeControlPayload,
+  type RuntimeAgentStatusEvent,
   type RuntimeDoneEvent,
   type RuntimePersistenceUpdate,
 } from '../service/protocol.js'
@@ -33,6 +34,7 @@ export interface CreateProcessRuntimePortOptions {
   realtimeStreamToken: string
   onPersistenceUpdate: (event: RuntimePersistenceUpdate) => Promise<void>
   onDone: (event: RuntimeDoneEvent) => Promise<void>
+  onAgentStatus?: (event: RuntimeAgentStatusEvent) => void | Promise<void>
   readyTimeoutMs?: number
   requestTimeoutMs?: number
   maxFrameBytes?: number
@@ -267,7 +269,9 @@ class ProcessRuntimePortController implements ProcessRuntimePort {
         () => this.send({ type: 'done.ack', requestId: payload.requestId }),
         (error) => this.send({ type: 'done.ack', requestId: payload.requestId, error: errorMessage(error) }),
       )
+      return
     }
+    if (payload.type === 'agent-status') await this.options.onAgentStatus?.(payload.event)
   }
 
   private request(command: RuntimeCommand): Promise<unknown> {

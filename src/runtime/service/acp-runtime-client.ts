@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import * as acp from '@agentclientprotocol/sdk'
 import { mapAvailableCommands, mapConfigOptions, mergeCapabilitiesFromConfig } from '../../acp/capabilities.js'
+import { contentBlockToText, mapToolCallContent, mapToolCallUpdate, toolCallTitle } from '../../acp/update-mapper.js'
 import type {
   ElicitationRequestData,
   PermissionRequestData,
@@ -31,6 +32,7 @@ export interface AcpRuntimeClientOptions {
   agentId: string
   publishUpdate: (update: RuntimeCoalescibleUpdate) => void
   updateCapabilities: (sessionId: string, update: (current: SessionCapabilities) => SessionCapabilities) => void
+  publishCapabilities?: (sessionId: string, capabilities: SessionCapabilities) => void
   resources?: ResourceGovernor
 }
 
@@ -70,6 +72,18 @@ export function createAcpRuntimeClient(options: AcpRuntimeClientOptions): AcpRun
     })
   }
 
+  const applyCapabilities = (
+    sessionId: string,
+    update: (current: SessionCapabilities) => SessionCapabilities,
+  ): void => {
+    let next: SessionCapabilities | undefined
+    options.updateCapabilities(sessionId, (current) => {
+      next = update(current)
+      return next
+    })
+    if (next) options.publishCapabilities?.(sessionId, next)
+  }
+
   const client: acp.Client = {
     async sessionUpdate(params) {
       const bound = byAcpSession.get(params.sessionId)
@@ -87,7 +101,7 @@ export function createAcpRuntimeClient(options: AcpRuntimeClientOptions): AcpRun
           publish(bound, { messageId, role: 'agent', toolCall: mapToolCall(update) })
           break
         case 'tool_call_update':
-          publish(bound, { messageId, role: 'agent', toolCallUpdate: mapToolCall(update) })
+          publish(bound, { messageId, role: 'agent', toolCallUpdate: mapToolCallUpdate(update) })
           break
         case 'usage_update':
           publish(bound, {
@@ -103,13 +117,13 @@ export function createAcpRuntimeClient(options: AcpRuntimeClientOptions): AcpRun
           break
         case 'config_option_update': {
           const configOptions = mapConfigOptions(update.configOptions)
-          options.updateCapabilities(bound.ourSessionId, (current) => mergeCapabilitiesFromConfig(current, configOptions))
+          applyCapabilities(bound.ourSessionId, (current) => mergeCapabilitiesFromConfig(current, configOptions))
           publish(bound, { messageId, role: 'system', configOptions })
           break
         }
         case 'session_info_update': {
           const sessionInfo: SessionInfoData = { title: update.title ?? undefined, updatedAt: update.updatedAt ?? undefined }
-          options.updateCapabilities(bound.ourSessionId, (current) => ({ ...current, sessionInfo }))
+          applyCapabilities(bound.ourSessionId, (current) => ({ ...current, sessionInfo }))
           publish(bound, { messageId, role: 'system', sessionInfo })
           break
         }
@@ -125,14 +139,22 @@ export function createAcpRuntimeClient(options: AcpRuntimeClientOptions): AcpRun
           })
           break
         case 'current_mode_update':
-          options.updateCapabilities(bound.ourSessionId, (current) => ({ ...current, currentModeId: update.currentModeId }))
+          applyCapabilities(bound.ourSessionId, (current) => ({ ...current, currentModeId: update.currentModeId }))
           break
         case 'available_commands_update': {
           const commands = mapAvailableCommands(update.availableCommands)
-          options.updateCapabilities(bound.ourSessionId, (current) => ({ ...current, commands }))
+          applyCapabilities(bound.ourSessionId, (current) => ({ ...current, commands }))
           publish(bound, { messageId, role: 'system', commands })
           break
         }
+        case 'user_message_chunk':
+          publish(bound, {
+            messageId,
+            role: 'system',
+            content: contentBlockToText(update.content),
+            eventType: 'user_message_chunk',
+          })
+          break
       }
     },
 
@@ -302,12 +324,13 @@ function resolveAllInteractions<T>(
 function mapToolCall(update: acp.ToolCall | acp.ToolCallUpdate): ToolCallData {
   return {
     id: update.toolCallId,
-    title: update.title ?? update.toolCallId,
+    title: toolCallTitle(update),
     kind: update.kind ?? undefined,
     status: update.status ?? undefined,
     locations: update.locations?.map((location) => ({ path: location.path, line: location.line ?? undefined })),
     rawInput: update.rawInput,
     rawOutput: update.rawOutput,
+    content: mapToolCallContent(update.content ?? undefined),
   }
 }
 

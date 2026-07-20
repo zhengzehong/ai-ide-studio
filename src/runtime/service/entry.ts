@@ -32,6 +32,7 @@ async function handleEnvelope(envelope: IpcEnvelope): Promise<void> {
       maxFrameBytes: config.maxFrameBytes,
       sendPersistence: (event) => send({ type: 'persistence', event }),
       sendDone,
+      sendAgentStatus: (event) => send({ type: 'agent-status', event }),
     })
     await service.start()
     await send({ type: 'ready' })

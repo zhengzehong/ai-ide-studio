@@ -33,14 +33,14 @@
 
 ## Batch 3: Runtime Identity, Lifecycle IPC, and ACP Mapping
 
-- [ ] Add unit tests for stable Agent environment and Session context fingerprints, including order-insensitive structured values.
-- [ ] Add concurrent ensure tests proving same-Session deduplication and cross-Session independence.
-- [ ] Add typed Runtime IPC protocol tests for Agent status and lifecycle messages.
-- [ ] Persist/publish Agent running/standby and lifecycle from API once; add duplicate-broadcast regression tests.
-- [ ] Port ACP update mapping tests for user chunks, complete tool content/diff/terminal/progress payloads, terminal output, and current-mode capability updates.
-- [ ] Implement missing mappings using small dedicated helpers and keep affected backend files under 400 lines.
-- [ ] Run Runtime snapshot, protocol, command parity, ACP mapping, and Realtime stream tests.
-- [ ] Commit Batch 3 and report a task milestone.
+- [x] Add unit tests for stable Agent environment and Session context fingerprints, including order-insensitive structured values.
+- [x] Add concurrent ensure tests proving same-Session deduplication and cross-Session independence through separate Agent start and Session ensure maps.
+- [x] Add typed Runtime IPC protocol coverage for Agent status and lifecycle messages.
+- [x] Persist/publish Agent running/standby and lifecycle from API once; add duplicate status regression coverage.
+- [x] Port ACP update mapping tests for user chunks, complete tool content/diff/terminal/progress payloads, terminal output, and current-mode capability updates.
+- [x] Implement missing mappings using small dedicated helpers and keep affected backend files under 400 lines.
+- [x] Run Runtime snapshot, protocol, command parity, ACP mapping, and Realtime stream tests.
+- [x] Commit Batch 3 and report a task milestone.
 
 ## Batch 4: Realtime and Mobile Recovery
 

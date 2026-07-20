@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { RuntimeStateSnapshot } from '../../ports/runtime-port.js'
-import type { SessionCapabilities } from '../../types/ws-protocol.js'
+import type { AgentStatus, SessionCapabilities } from '../../types/ws-protocol.js'
 import type { TurnUsageData } from '../../types/ws-protocol.js'
 import { RuntimeSessionActorScheduler } from '../actors/session-actor.js'
 import type { RuntimeCoalescibleUpdate } from '../streams/runtime-update-coalescer.js'
@@ -23,6 +23,8 @@ export interface AcpRuntimeHostOptions {
     turnUsage?: TurnUsageData
     stopReason: string
   }) => Promise<void>
+  publishAgentStatus?: (event: { agentId: string; status: AgentStatus }) => void
+  publishCapabilities?: (sessionId: string, capabilities: SessionCapabilities) => void
 }
 
 const MOCK_MODELS = [
@@ -38,6 +40,7 @@ export class AcpRuntimeHost {
   private readonly sessions = new Map<string, RuntimeSession>()
   private readonly actors = new RuntimeSessionActorScheduler()
   private readonly sdk: SdkRuntimeHost
+  private readonly mockAgents = new Set<string>()
 
   constructor(private readonly options: AcpRuntimeHostOptions) {
     this.sdk = new SdkRuntimeHost(this.actors, options)
@@ -55,14 +58,25 @@ export class AcpRuntimeHost {
     return this.actors.pendingCount()
   }
 
-  async ensureSession(snapshot: RuntimeStateSnapshot): Promise<string> {
-    if (snapshot.agent.runtime !== 'mock') return this.sdk.ensureSession(snapshot)
+  async ensureSession(
+    snapshot: RuntimeStateSnapshot,
+    options: { emitLifecycle?: boolean } = {},
+  ): Promise<string> {
+    if (snapshot.agent.runtime !== 'mock') return this.sdk.ensureSession(snapshot, options)
+    const emitLifecycle = options.emitLifecycle !== false
+    if (!this.mockAgents.has(snapshot.agent.id)) {
+      if (emitLifecycle) this.publishLifecycle(snapshot, 'lifecycle.runtime_starting', '正在启动 Agent...')
+      this.mockAgents.add(snapshot.agent.id)
+      this.options.publishAgentStatus?.({ agentId: snapshot.agent.id, status: 'running' })
+      if (emitLifecycle) this.publishLifecycle(snapshot, 'lifecycle.runtime_ready', 'Agent 已就绪')
+    }
     const existing = this.sessions.get(snapshot.session.id)
     if (existing) {
       existing.snapshot = snapshot
       return existing.acpSessionId
     }
     const acpSessionId = `mock-session-${randomUUID().slice(0, 8)}`
+    if (emitLifecycle) this.publishLifecycle(snapshot, 'lifecycle.session_creating', '正在连接会话...')
     this.sessions.set(snapshot.session.id, {
       snapshot,
       acpSessionId,
@@ -74,6 +88,7 @@ export class AcpRuntimeHost {
         currentModeId: snapshot.runtimePreferences.modeId ?? 'default',
       },
     })
+    if (emitLifecycle) this.publishLifecycle(snapshot, 'lifecycle.session_ready', '会话已连接')
     return acpSessionId
   }
 
@@ -189,6 +204,10 @@ export class AcpRuntimeHost {
     await this.drain()
     await this.sdk.close()
     this.sessions.clear()
+    for (const agentId of this.mockAgents) {
+      this.options.publishAgentStatus?.({ agentId, status: 'standby' })
+    }
+    this.mockAgents.clear()
   }
 
   currentCursor(sessionId: string) {
@@ -204,6 +223,16 @@ export class AcpRuntimeHost {
     if (!session) throw new Error(`Runtime Session not found: ${sessionId}`)
     if (session.snapshot.agent.id !== agentId) throw new Error(`Runtime Session Agent mismatch: ${sessionId}`)
     return session
+  }
+
+  private publishLifecycle(snapshot: RuntimeStateSnapshot, eventType: string, content: string): void {
+    const messageId = `lifecycle-${snapshot.session.id}-${Date.now()}`
+    this.options.publishUpdate(snapshot.agent.id, {
+      kind: 'session-update',
+      sessionId: snapshot.session.id,
+      messageId,
+      data: { messageId, role: 'system', eventType, content },
+    })
   }
 }
 

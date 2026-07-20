@@ -4,7 +4,7 @@ import type { IpcEnvelope } from '../../ipc/protobuf-envelope.js'
 import type { ServerMessage, SessionUpdateData, TurnUsageData } from '../../types/ws-protocol.js'
 import { RuntimeUpdateCoalescer, type RuntimeCoalescibleUpdate } from '../streams/runtime-update-coalescer.js'
 import { AcpRuntimeHost } from './acp-runtime-host.js'
-import type { RuntimeCommand, RuntimeDoneEvent, RuntimePersistenceUpdate, RuntimeStreamPayload } from './protocol.js'
+import type { RuntimeAgentStatusEvent, RuntimeCommand, RuntimeDoneEvent, RuntimePersistenceUpdate, RuntimeStreamPayload } from './protocol.js'
 import { isRuntimeStreamPayload } from './protocol.js'
 import {
   createEventLoopMonitor,
@@ -18,6 +18,7 @@ export interface RuntimeServiceOptions {
   maxFrameBytes: number
   sendPersistence: (event: RuntimePersistenceUpdate) => Promise<void>
   sendDone: (event: RuntimeDoneEvent) => Promise<void>
+  sendAgentStatus: (event: RuntimeAgentStatusEvent) => Promise<void>
 }
 
 export class RuntimeService {
@@ -31,6 +32,13 @@ export class RuntimeService {
     this.host = new AcpRuntimeHost({
       publishUpdate: (agentId, update) => this.publishUpdate(agentId, update),
       publishDone: (input) => this.publishDone(input),
+      publishAgentStatus: (event) => { void this.options.sendAgentStatus(event) },
+      publishCapabilities: (sessionId, capabilities) => {
+        void this.sendStream({
+          type: 'runtime.stream',
+          message: { type: 'session:capabilities', sessionId, capabilities },
+        })
+      },
     })
     this.coalescer = new RuntimeUpdateCoalescer({
       emitUi: (updates) => this.emitUi(updates),
@@ -64,7 +72,7 @@ export class RuntimeService {
   async execute(command: RuntimeCommand): Promise<unknown> {
     switch (command.operation) {
       case 'ensure':
-        return this.host.ensureSession(command.snapshot)
+        return this.host.ensureSession(command.snapshot, { emitLifecycle: command.emitLifecycle })
       case 'prompt':
         return this.host.prompt(command)
       case 'cancel':

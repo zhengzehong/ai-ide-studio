@@ -45,6 +45,35 @@ describe('SDK Runtime child lifecycle', () => {
     expect(resumed).toBe('acp-persisted')
     expect(harness.processes).toHaveLength(2)
   })
+
+  test('deduplicates concurrent ensure calls for one Session', async () => {
+    const harness = runtimeHarness()
+
+    const [first, second] = await Promise.all([
+      harness.host.ensureSession(snapshot('session-a')),
+      harness.host.ensureSession(snapshot('session-a')),
+    ])
+
+    expect(first).toBe('acp-created')
+    expect(second).toBe('acp-created')
+    expect(harness.processes).toHaveLength(1)
+    expect(harness.newSession).toHaveBeenCalledOnce()
+  })
+
+  test('reuses an unchanged Session context and reconnects when the context changes', async () => {
+    const harness = runtimeHarness()
+    const initial = snapshot('session-a')
+    await harness.host.ensureSession(initial)
+
+    await harness.host.ensureSession({ ...initial, session: { ...initial.session } })
+    await harness.host.ensureSession({
+      ...initial,
+      session: { ...initial.session, cwd: `${initial.session.cwd}/other`, acpSessionId: 'acp-created' },
+    })
+
+    expect(harness.newSession).toHaveBeenCalledOnce()
+    expect(harness.resumeSession).toHaveBeenCalledOnce()
+  })
 })
 
 function runtimeHarness(overrides: { prompt?: () => Promise<never> } = {}) {
@@ -53,6 +82,8 @@ function runtimeHarness(overrides: { prompt?: () => Promise<never> } = {}) {
   const actors = new RuntimeSessionActorScheduler()
   let markPromptStarted: (() => void) | undefined
   const promptStarted = new Promise<void>((resolve) => { markPromptStarted = resolve })
+  const newSession = vi.fn(async () => ({ sessionId: 'acp-created' }))
+  const resumeSession = vi.fn(async () => ({}))
   const host = new SdkRuntimeHost(actors, {
     publishUpdate: () => undefined,
     publishDone: async () => undefined,
@@ -60,8 +91,8 @@ function runtimeHarness(overrides: { prompt?: () => Promise<never> } = {}) {
     startAgent: async ({ router }) => {
       const process = Object.assign(new EventEmitter(), { kill: vi.fn(() => true) })
       const connection = {
-        newSession: vi.fn(async () => ({ sessionId: 'acp-created' })),
-        resumeSession: vi.fn(async () => ({})),
+        newSession,
+        resumeSession,
         loadSession: vi.fn(async () => ({})),
         prompt: vi.fn(() => {
           markPromptStarted?.()
@@ -79,7 +110,7 @@ function runtimeHarness(overrides: { prompt?: () => Promise<never> } = {}) {
       }
     },
   })
-  return { host, processes, routers, promptStarted }
+  return { host, processes, routers, promptStarted, newSession, resumeSession }
 }
 
 function snapshot(sessionId: string): RuntimeStateSnapshot {
