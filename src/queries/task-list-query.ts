@@ -38,10 +38,12 @@ export function listTaskReadModel(input: { status?: string; projectId?: string }
   }
 
   return tasks.map((task) => {
+    const { description, ...taskSummary } = task
     const taskSteps = stepsByTask.get(task.id) ?? []
     const sessionIds = sessionsByTask.get(task.id) ?? []
     return {
-      ...task,
+      ...taskSummary,
+      descriptionPreview: taskDescriptionPreview(description),
       sessionId: sessionIds.at(-1) ?? null,
       steps: taskSteps.map((step) => toStepSummary(step, dependenciesByStep)),
       stepProgress: {
@@ -51,6 +53,11 @@ export function listTaskReadModel(input: { status?: string; projectId?: string }
       ...latestReportSummary(latestReports[task.id]),
     }
   })
+}
+
+export function taskDescriptionPreview(value: string | null): string | null {
+  if (!value) return null
+  return value.length <= 240 ? value : `${value.slice(0, 237)}...`
 }
 
 function groupByTask(steps: TaskStepRow[]): Map<string, TaskStepRow[]> {

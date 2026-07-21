@@ -65,6 +65,22 @@ describe('local QueryPort read models', () => {
     prepareSpy.mockRestore()
   })
 
+  test('task summaries stay bounded when descriptions are large', async () => {
+    const projectId = 'project-task-response-budget'
+    const description = `Long task body: ${'x'.repeat(4096)}`
+    for (let index = 0; index < 262; index += 1) {
+      taskStore.create({ title: `Large task ${index}`, description, projectId })
+    }
+
+    const tasks = await createLocalQueryPort().listTasks({ projectId })
+    const responseBytes = Buffer.byteLength(JSON.stringify(tasks), 'utf8')
+
+    expect(tasks).toHaveLength(262)
+    expect(tasks.every((task) => !('description' in task))).toBe(true)
+    expect(tasks.every((task) => task.descriptionPreview.length <= 240)).toBe(true)
+    expect(responseBytes).toBeLessThan(512 * 1024)
+  })
+
   test('session list resolves all persisted running signals with one SQL statement', async () => {
     const projectId = 'project-session-performance'
     const sessions = Array.from({ length: 30 }, (_, index) => sessionStore.create({

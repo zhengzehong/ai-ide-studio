@@ -1,6 +1,7 @@
 export { TaskPanel } from './TaskPanel'
 export { TaskList } from './TaskList'
 export { TaskDetailInline } from './TaskDetailInline'
+export { TaskDetailContainer } from './TaskDetailContainer'
 export { StepList } from './StepList'
 export { StepProgressBar } from './StepProgressBar'
 export { ReportModal, ReportHistoryModal } from './ReportModal'

@@ -128,6 +128,26 @@ describe('versioned HTTP query routes', () => {
     expect(body.page).toEqual({ hasMore: true, nextCursor: '3' })
   })
 
+  test('returns a bounded task description preview instead of the full task body', async () => {
+    const projectId = 'project-task-summary'
+    const description = `Task goal: ${'detail '.repeat(1000)}`
+    const task = taskStore.create({ title: 'Summary task', description, projectId })
+    await startTestGateway()
+
+    const response = await queryFetch(`/api/v1/tasks?projectId=${projectId}`)
+    const body = await response.json() as {
+      data: Array<Record<string, unknown>>
+    }
+    const listed = body.data.find((item) => item.id === task.id)
+
+    expect(response.status).toBe(200)
+    expect(listed).toBeDefined()
+    expect(listed).not.toHaveProperty('description')
+    expect(listed?.descriptionPreview).toBeTypeOf('string')
+    expect(String(listed?.descriptionPreview).length).toBeLessThanOrEqual(240)
+    expect(JSON.stringify(body)).not.toContain(description)
+  })
+
   test('returns a lightweight recovery snapshot without mirrored tool payloads', async () => {
     const session = sessionStore.create({ agentId: 'agent-recovery-snapshot' })
     const largePayload = 'x'.repeat(1024 * 1024)

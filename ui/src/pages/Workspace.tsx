@@ -123,7 +123,7 @@ import { ICON_MAP } from '../components/agent-square/constants'
 import { AgentSettingsModal } from '../components/agent/AgentSettingsModal'
 import {
   TaskPanel as CollabTaskPanel,
-  TaskDetailInline as CollabTaskDetailInline,
+  TaskDetailContainer as CollabTaskDetailContainer,
   ReportHistoryModal as CollabReportHistoryModal,
   CreateTaskModal as CollabCreateTaskModal,
 } from './workspace/task-collab'
@@ -2697,7 +2697,7 @@ function TaskPanel({
 
   if (selectedTask) {
     return (
-      <CollabTaskDetailInline
+      <CollabTaskDetailContainer
         task={selectedTask}
         agents={agents}
         modes={modes}

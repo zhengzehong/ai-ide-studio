@@ -8,7 +8,7 @@ import { useProjectViewStateStore } from '../stores/project-view-state.store'
 import { useSessionStore } from '../stores/session.store'
 import { useTaskStore, type TaskData } from '../stores/task.store'
 import { TaskCard } from './task-board-card'
-import { CreateTaskModal, ReportHistoryModal, TaskDetailInline } from './workspace/task-collab'
+import { CreateTaskModal, ReportHistoryModal, TaskDetailContainer } from './workspace/task-collab'
 
 interface Column {
   id: string
@@ -151,7 +151,7 @@ export function TaskBoard() {
       {selectedTask && (
         <div onClick={() => setSelectedTaskId(null)} style={overlayStyle}>
           <aside onClick={(event) => event.stopPropagation()} style={detailPanelStyle}>
-            <TaskDetailInline
+            <TaskDetailContainer
               task={selectedTask}
               agents={agents}
               modes={modes}

@@ -28,7 +28,8 @@ export interface TaskStepProgress {
   total: number
 }
 
-export interface TaskListItem extends TaskRow {
+export type TaskListItem = Omit<TaskRow, 'description'> & {
+  descriptionPreview: string | null
   sessionId: string | null
   steps: TaskStepSummary[]
   stepProgress: TaskStepProgress
