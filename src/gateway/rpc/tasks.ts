@@ -1,5 +1,5 @@
 import { taskManager, resolveSessionMode, validateSessionModeTarget, validateTaskAssignment } from '../../core/tasks.js'
-import { taskAttachmentStore, taskStore, taskEventStore, extractReportPreview } from '../../store/tasks.js'
+import { taskAttachmentStore, taskStore, taskEventStore } from '../../store/tasks.js'
 import { taskExecutionModeStore } from '../../store/task-execution-modes.js'
 import { sessionStore, type SessionRow } from '../../store/sessions.js'
 import { events } from '../../core/events.js'
@@ -9,44 +9,14 @@ import type { ImageAttachment } from '../../types/ws-protocol.js'
 import { buildStepProgress, buildTaskStepList } from './step-views.js'
 import { saveTaskImages } from '../../core/image-attachments.js'
 import { taskStepRpcHandlers } from './task-step-handlers.js'
-
-interface TaskLatestReportSummary {
-  latestReportPreview: string | null
-  latestReportAt: string | null
-  latestReportType: string | null
-}
-
-function buildLatestReportSummary(
-  taskId: string,
-  latestByTask: Record<string, import('../../store/tasks.js').TaskEventRow>,
-): TaskLatestReportSummary {
-  const ev = latestByTask[taskId]
-  if (!ev) {
-    return { latestReportPreview: null, latestReportAt: null, latestReportType: null }
-  }
-  return {
-    latestReportPreview: extractReportPreview(ev.payload_json),
-    latestReportAt: ev.created_at,
-    latestReportType: ev.type,
-  }
-}
+import { getQueryPort } from '../../queries/query-port-provider.js'
 
 export const taskRpcHandlers: RpcHandlerMap = {
-  'tasks.list'(msg, { sendResult }) {
-    const tasks = taskStore.list(msg.status as string | undefined, msg.projectId as string | undefined)
-    const taskIds = tasks.map((t) => t.id)
-    const latestByTask = taskEventStore.listLatestByTaskIds(taskIds)
-    const tasksWithSession = tasks.map((t) => {
-      const sessions = listTaskSessions(t.id)
-      return {
-        ...t,
-        sessionId: sessions.length > 0 ? sessions[sessions.length - 1].id : null,
-        steps: buildTaskStepList(t.id),
-        stepProgress: buildStepProgress(t.id),
-        ...buildLatestReportSummary(t.id, latestByTask),
-      }
-    })
-    sendResult(tasksWithSession)
+  async 'tasks.list'(msg, { sendResult }) {
+    sendResult(await getQueryPort().listTasks({
+      status: msg.status as string | undefined,
+      projectId: msg.projectId as string | undefined,
+    }))
   },
 
   'tasks.get'(msg, { sendResult, sendError }) {

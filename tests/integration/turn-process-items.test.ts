@@ -144,7 +144,7 @@ describe('turn process items', () => {
     expect(detail.rawOutput).toEqual({ formatted_output: 'README content', exit_code: 0 })
   })
 
-  test('coalesces running message snapshot writes while streaming text', () => {
+  test('coalesces running message snapshot writes while streaming text', async () => {
     vi.useFakeTimers()
     try {
       const session = sessionStore.create({ agentId: 'agent-1' })
@@ -170,7 +170,7 @@ describe('turn process items', () => {
 
       expect(messageStore.get(message.id)?.content).toBe('')
 
-      vi.advanceTimersByTime(500)
+      await vi.advanceTimersByTimeAsync(500)
       expect(messageStore.get(message.id)?.content).toBe('AB')
 
       recordTurnProcessUpdate(session.id, 'agent-1', {
@@ -182,6 +182,7 @@ describe('turn process items', () => {
 
       const completed = completeTurnProcess(session.id, 'completed')
       expect(completed.finalAnswer).toBe('ABC')
+      await vi.runAllTimersAsync()
       expect(messageStore.get(message.id)?.content).toBe('ABC')
     } finally {
       vi.useRealTimers()

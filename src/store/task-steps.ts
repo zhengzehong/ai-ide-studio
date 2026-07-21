@@ -191,6 +191,18 @@ export const taskStepStore = {
       .all(taskId)
   },
 
+  listByTaskIds(taskIds: string[]): TaskStepRow[] {
+    if (taskIds.length === 0) return []
+    const placeholders = taskIds.map(() => '?').join(', ')
+    return getDb()
+      .prepare<string[], TaskStepRow>(
+        `SELECT * FROM task_steps
+         WHERE task_id IN (${placeholders})
+         ORDER BY task_id ASC, sort_order ASC, created_at ASC`,
+      )
+      .all(...taskIds)
+  },
+
   listByTaskAndStatuses(taskId: string, statuses: string[]): TaskStepRow[] {
     if (statuses.length === 0) return []
     const placeholders = statuses.map(() => '?').join(', ')
@@ -214,6 +226,18 @@ export const taskStepStore = {
       )
       .all(stepId)
       .map(row => row.depends_on_step_id)
+  },
+
+  listDependenciesByStepIds(stepIds: string[]): TaskStepDependencyRow[] {
+    if (stepIds.length === 0) return []
+    const placeholders = stepIds.map(() => '?').join(', ')
+    return getDb()
+      .prepare<string[], TaskStepDependencyRow>(
+        `SELECT * FROM task_step_dependencies
+         WHERE step_id IN (${placeholders})
+         ORDER BY rowid ASC`,
+      )
+      .all(...stepIds)
   },
 
   listDependents(stepId: string): string[] {

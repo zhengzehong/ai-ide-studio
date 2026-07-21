@@ -1,5 +1,7 @@
 import { create } from 'zustand'
 import { wsClient } from '../services/ws-client'
+import { queryClient } from '../services/query-client'
+import { commandClient, toCommandImages } from '../services/command-client'
 import {
   applySessionEvent,
   buildErrorAgentMessage,
@@ -284,6 +286,48 @@ const mirroredRealtimeEventTypes = new Set([
   'tool.update',
   'message.done',
 ])
+
+export interface SessionMessagesBootstrapSnapshot {
+  sessionId: string
+  messages: MessageData[]
+}
+
+export function exportSessionMessagesBootstrapSnapshot(): SessionMessagesBootstrapSnapshot | null {
+  const state = useSessionStore.getState()
+  if (!state.currentSessionId) return null
+  return {
+    sessionId: state.currentSessionId,
+    messages: state.messages
+      .filter((message) => message.session_id === state.currentSessionId && message.status !== 'running')
+      .map((message) => ({ ...message })),
+  }
+}
+
+export function hydrateSessionMessagesBootstrapSnapshot(
+  snapshot: SessionMessagesBootstrapSnapshot | null,
+): void {
+  if (!snapshot?.sessionId) return
+  const messages = snapshot.messages
+    .filter((message) => message.session_id === snapshot.sessionId && message.status !== 'running')
+    .map((message) => ({ ...message }))
+  sessionCaches.set(snapshot.sessionId, {
+    messages,
+    events: [],
+    usage: null,
+    turnUsage: null,
+    capabilities: {
+      ...defaultCaps,
+      models: [...defaultCaps.models],
+      modes: [...defaultCaps.modes],
+      configOptions: [...defaultCaps.configOptions],
+      commands: [...defaultCaps.commands],
+    },
+    plan: [],
+    pendingPermissions: [],
+    pendingElicitations: [],
+    streamingMessage: null,
+  })
+}
 
 const CURRENT_SESSION_STORAGE_KEY = 'ai-ide-current-session-id'
 const PROJECT_LAST_SESSION_STORAGE_KEY = 'ai-ide-project-last-session'
@@ -591,7 +635,11 @@ function partialFromReduced(reduced: ReturnType<typeof reducedStateFromStore>): 
 
 async function markSessionReadOnServer(sessionId: string): Promise<void> {
   try {
-    await wsClient.request({ type: 'sessions.markRead', sessionId })
+    await commandClient.execute({
+      commandId: `cmd-read-${sessionId}-${Date.now()}`,
+      type: 'sessions.markRead',
+      sessionId,
+    })
   } catch {
     // Best-effort: server-side last_read_at will catch up on next fetchSessions
   }
@@ -864,10 +912,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
     const request = (async (): Promise<void> => {
       try {
-        const msg: Record<string, unknown> = { type: 'sessions.list' }
-        if (agentId) msg.agentId = agentId
-        if (projectId) msg.projectId = projectId
-        const data = (await wsClient.request(msg)) as SessionData[]
+        const data = await queryClient.listSessions({ agentId, projectId })
         const sessions = scopedProjectId
           ? data.filter((session) => session.project_id === scopedProjectId)
           : data
@@ -935,11 +980,11 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   fetchMessages: async (sessionId) => {
     try {
-      const serverMessages = (await wsClient.request({
-        type: 'sessions.messages',
+      const page = await queryClient.listSessionMessages({
         sessionId,
         limit: CHAT_MESSAGE_PAGE_SIZE,
-      })) as MessageData[]
+      })
+      const serverMessages = page.items
       if (sessionId !== get().currentSessionId) return
       set((state) => {
         const messages = mergeMessagesForSession(serverMessages, state.messages, sessionId)
@@ -977,7 +1022,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           staleSessionIds: removeSessionIndicator(state.staleSessionIds, sessionId),
           hasMoreMessagesBySession: {
             ...state.hasMoreMessagesBySession,
-            [sessionId]: serverMessages.length >= CHAT_MESSAGE_PAGE_SIZE,
+            [sessionId]: page.hasMore,
           },
         }
       })
@@ -1015,18 +1060,18 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       loadingOlderMessagesBySession: { ...current.loadingOlderMessagesBySession, [sessionId]: true },
     }))
     try {
-      const olderMessages = (await wsClient.request({
-        type: 'sessions.messages',
+      const page = await queryClient.listSessionMessages({
         sessionId,
         limit: CHAT_MESSAGE_PAGE_SIZE,
         before: oldest.timestamp,
-      })) as MessageData[]
+      })
+      const olderMessages = page.items
       if (sessionId !== get().currentSessionId) return
       set((current) => ({
         messages: mergeMessagesForSession(olderMessages, current.messages, sessionId),
         hasMoreMessagesBySession: {
           ...current.hasMoreMessagesBySession,
-          [sessionId]: olderMessages.length >= CHAT_MESSAGE_PAGE_SIZE,
+          [sessionId]: page.hasMore,
         },
       }))
       saveCache(sessionId, get())
@@ -1041,7 +1086,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   fetchEvents: async (sessionId) => {
     try {
-      const events = (await wsClient.request({ type: 'sessions.events', sessionId, limit: 1000 })) as SessionEventData[]
+      const events = (await queryClient.listSessionEvents({ sessionId, limit: 1000 })).items
       if (sessionId !== get().currentSessionId) return
       eventCursorBySession.set(sessionId, events.at(-1)?.sequence ?? 0)
       const stateBeforeRecovery = get()
@@ -1380,9 +1425,15 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     const session = get().sessions.find((item) => item.id === sid)
     if (isCopyingSession(session) || get().copyingTargetSessionIds[sid]) return
     const clientMessageId = `msg-local-${Date.now()}`
-    const msg: Record<string, unknown> = { type: 'prompt', sessionId: sid, content, clientMessageId }
-    if (images?.length) msg.images = images
-    wsClient.send(msg)
+    const commandImages = toCommandImages(images)
+    void commandClient.execute({
+      commandId: `cmd-${clientMessageId}`,
+      type: 'prompt',
+      sessionId: sid,
+      content,
+      clientMessageId,
+      ...(commandImages ? { images: commandImages } : {}),
+    })
     promptStartTime = Date.now()
     set((state) => ({
       messages: [
@@ -1447,7 +1498,11 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     const sid = get().currentSessionId
     if (!sid) return
     try {
-      await wsClient.request({ type: 'session.cancel', sessionId: sid })
+      await commandClient.execute({
+        commandId: `cmd-cancel-${sid}-${Date.now()}`,
+        type: 'session.cancel',
+        sessionId: sid,
+      })
     } catch (e) {
       console.error('取消失败:', e)
     }
@@ -1456,7 +1511,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   respondPermission: async (requestId, optionId, cancelled) => {
     const sid = get().currentSessionId
     if (!sid) return
-    await wsClient.request({
+    await commandClient.execute({
+      commandId: `cmd-permission-${requestId}`,
       type: 'permission.respond',
       sessionId: sid,
       permissionRequestId: requestId,
@@ -1468,7 +1524,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   respondElicitation: async (requestId, action, content) => {
     const sid = get().currentSessionId
     if (!sid) return
-    await wsClient.request({
+    await commandClient.execute({
+      commandId: `cmd-elicitation-${requestId}`,
       type: 'elicitation.respond',
       sessionId: sid,
       elicitationRequestId: requestId,

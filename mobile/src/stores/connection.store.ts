@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { wsClient } from '@desktop/services/ws-client'
+import { discoverRealtimeEndpoint } from '@desktop/services/realtime-endpoint'
 
 const STORAGE_KEY = 'ai-ide-mobile-server'
 const CONNECTION_TIMEOUT_MS = 5000
@@ -45,7 +46,7 @@ function resolveConnectionError(msg?: Record<string, unknown>, fallback = '连�
 function connectToServer(url: string, token: string, set: (p: Partial<ConnectionState>) => void): void {
   startConnectionTimer(set)
   try {
-    wsClient.connect(buildWsUrl(url, token))
+    wsClient.connect(() => resolveMobileRealtimeUrl(url, token))
   } catch (error) {
     clearConnectionTimer()
     set({
@@ -107,7 +108,31 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
   },
 }))
 
-function buildWsUrl(serverUrl: string, token?: string): string {
-  const base = serverUrl.replace(/^http/, 'ws').replace(/\/$/, '')
+function normalizeServerOrigin(serverUrl: string): string {
+  const parsed = new URL(serverUrl.trim())
+  if (parsed.protocol === 'ws:') parsed.protocol = 'http:'
+  if (parsed.protocol === 'wss:') parsed.protocol = 'https:'
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error('服务器地址必须使用 HTTP 或 HTTPS')
+  }
+  return parsed.origin
+}
+
+function buildWsUrl(serverOrigin: string, token?: string): string {
+  const base = serverOrigin.replace(/^http/, 'ws')
   return token ? `${base}?token=${encodeURIComponent(token)}` : base
+}
+
+export function resolveMobileRealtimeUrl(
+  serverUrl: string,
+  token?: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
+  const serverOrigin = normalizeServerOrigin(serverUrl)
+  return discoverRealtimeEndpoint({
+    apiBase: serverOrigin,
+    token,
+    fetchImpl,
+    fallbackUrl: buildWsUrl(serverOrigin, token),
+  })
 }

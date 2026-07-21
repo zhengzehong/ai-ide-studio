@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { wsClient } from '../services/ws-client'
+import { queryClient } from '../services/query-client'
 import {
   ALL_PROJECTS_SCOPE,
   beginProjectRequest,
@@ -239,9 +240,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
 
     const request = (async (): Promise<void> => {
       try {
-        const msg: Record<string, unknown> = { type: 'tasks.list' }
-        if (projectId) msg.projectId = projectId
-        const data = (await wsClient.request(msg)) as TaskData[]
+        const data = await queryClient.listTasks({ projectId })
         set((state) => {
           const taskCache = pruneProjectCache(commitProjectResponse(state.taskCache, {
             scope,

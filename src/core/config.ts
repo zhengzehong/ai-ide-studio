@@ -1,13 +1,36 @@
 import { config as loadDotenv } from 'dotenv'
 import { resolve } from 'path'
+import { parseDataWorkerSlowMs } from '../data-worker/observability.js'
 
 export type AppRuntime = 'web' | 'electron'
+export type DataWorkerMode = 'worker' | 'local'
+export type EdgeMode = 'process' | 'disabled' | 'internal'
+export type RealtimeMode = 'process' | 'embedded'
+export type RuntimeMode = 'process' | 'embedded'
 
 export interface AppConfig {
   host: string
   port: number
   dataDir: string
   runtime: AppRuntime
+  dataWorkerMode?: DataWorkerMode
+  dataWorkerSlowMs?: number
+  dataMaintenanceIntervalMs?: number
+  dataWalCheckpointBytes?: number
+  dataPublishedOutboxRetentionMs?: number
+  edgeMode?: EdgeMode
+  edgeRealtimePath?: string
+  realtimeMode?: RealtimeMode
+  realtimeHost?: string
+  realtimePort?: number
+  realtimeLegacyRpc?: boolean
+  realtimeMaxQueueMessages?: number
+  realtimeMaxQueueBytes?: number
+  realtimeMaxBufferedBytes?: number
+  realtimeIpcMaxFrameBytes?: number
+  runtimeMode?: RuntimeMode
+  runtimeIpcMaxFrameBytes?: number
+  runtimeRestartDelayMs?: number
   staticDir?: string
   mobileStaticDir?: string
   localToken?: string
@@ -21,12 +44,34 @@ export interface AppConfig {
 export function loadConfig(): AppConfig {
   loadDotenv()
   const runtime = parseRuntime(process.env.AI_IDE_RUNTIME)
+  const port = parseInt(process.env.PORT || '18800', 10)
 
   return {
     host: process.env.HOST || defaultHost(runtime),
-    port: parseInt(process.env.PORT || '18800', 10),
+    port,
     dataDir: resolve(process.env.DATA_DIR || './data'),
     runtime,
+    dataWorkerMode: parseDataWorkerMode(process.env.DATA_WORKER_MODE),
+    dataWorkerSlowMs: parseDataWorkerSlowMs(process.env.DATA_WORKER_SLOW_MS),
+    dataMaintenanceIntervalMs: parsePositiveInteger(process.env.DATA_MAINTENANCE_INTERVAL_MS, 60_000),
+    dataWalCheckpointBytes: parsePositiveInteger(process.env.DATA_WAL_CHECKPOINT_BYTES, 64 * 1024 * 1024),
+    dataPublishedOutboxRetentionMs: parsePositiveInteger(
+      process.env.DATA_PUBLISHED_OUTBOX_RETENTION_MS,
+      7 * 24 * 60 * 60 * 1000,
+    ),
+    edgeMode: process.env.EDGE_MODE === 'disabled' ? 'disabled' : 'process',
+    edgeRealtimePath: normalizePublicPath(process.env.EDGE_REALTIME_PATH),
+    realtimeMode: process.env.REALTIME_MODE === 'embedded' ? 'embedded' : 'process',
+    realtimeHost: process.env.REALTIME_HOST || defaultHost(runtime),
+    realtimePort: parseNonNegativeInteger(process.env.REALTIME_PORT, port === 0 ? 0 : port + 1),
+    realtimeLegacyRpc: process.env.REALTIME_LEGACY_RPC !== 'disabled',
+    realtimeMaxQueueMessages: parsePositiveInteger(process.env.REALTIME_MAX_QUEUE_MESSAGES, 500),
+    realtimeMaxQueueBytes: parsePositiveInteger(process.env.REALTIME_MAX_QUEUE_BYTES, 2 * 1024 * 1024),
+    realtimeMaxBufferedBytes: parsePositiveInteger(process.env.REALTIME_MAX_BUFFERED_BYTES, 2 * 1024 * 1024),
+    realtimeIpcMaxFrameBytes: parsePositiveInteger(process.env.REALTIME_IPC_MAX_FRAME_BYTES, 16 * 1024 * 1024),
+    runtimeMode: process.env.RUNTIME_SERVICE_MODE === 'embedded' ? 'embedded' : 'process',
+    runtimeIpcMaxFrameBytes: parsePositiveInteger(process.env.RUNTIME_IPC_MAX_FRAME_BYTES, 16 * 1024 * 1024),
+    runtimeRestartDelayMs: parsePositiveInteger(process.env.RUNTIME_RESTART_DELAY_MS, 250),
     staticDir: process.env.STATIC_DIR ? resolve(process.env.STATIC_DIR) : resolve('./ui/dist'),
     mobileStaticDir: process.env.MOBILE_STATIC_DIR ? resolve(process.env.MOBILE_STATIC_DIR) : resolve('./mobile/dist'),
     localToken: process.env.AI_IDE_LOCAL_TOKEN || undefined,
@@ -36,6 +81,29 @@ export function loadConfig(): AppConfig {
     bridgeCallbackToken: process.env.BRIDGE_CALLBACK_TOKEN || undefined,
     bridgeServerUrl: process.env.BRIDGE_SERVER_URL || undefined,
   }
+}
+
+function normalizePublicPath(value: string | undefined): string {
+  const trimmed = value?.trim() || '/realtime'
+  const prefixed = trimmed.startsWith('/') ? trimmed : `/${trimmed}`
+  if (prefixed.includes('?') || prefixed.includes('#')) {
+    throw new Error('EDGE_REALTIME_PATH must not contain a query string or fragment')
+  }
+  return prefixed.length > 1 ? prefixed.replace(/\/+$/, '') : prefixed
+}
+
+function parseDataWorkerMode(value: string | undefined): DataWorkerMode {
+  return value === 'local' ? 'local' : 'worker'
+}
+
+function parsePositiveInteger(value: string | undefined, fallback: number): number {
+  const parsed = Number(value)
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback
+}
+
+function parseNonNegativeInteger(value: string | undefined, fallback: number): number {
+  const parsed = Number(value)
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : fallback
 }
 
 function parseRuntime(value: string | undefined): AppRuntime {

@@ -14,9 +14,10 @@ beforeAll(() => { mkdirSync(tmp, { recursive: true }); initDatabase(resolve(tmp,
 afterAll(() => { closeDatabase(); rmSync(tmp, { recursive: true, force: true }) })
 
 describe('session done metadata', () => {
-  test('message.done event persists stopReason and error', () => {
+  test('message.done event persists stopReason and error', async () => {
     const session = sessionStore.create({ agentId: 'agent-done' })
     events.emit('session:done', { sessionId: session.id, agentId: 'agent-done', messageId: 'msg-error', stopReason: 'error', error: 'boom' })
+    await sessionManager.waitForPersistence(session.id)
 
     const done = eventStore.list(session.id).find(ev => ev.type === 'message.done')
     expect(done).toBeTruthy()

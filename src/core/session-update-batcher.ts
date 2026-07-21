@@ -7,7 +7,7 @@ export interface SessionUpdateEnvelope {
   data: SessionUpdateData
 }
 
-export type ApplySessionUpdate = (ev: SessionUpdateEnvelope) => void
+export type ApplySessionUpdate = (ev: SessionUpdateEnvelope) => void | Promise<void>
 
 export interface SessionUpdateBatcherOptions {
   textFlushMs?: number
@@ -31,6 +31,8 @@ export class SessionUpdateBatcher {
   private readonly textFlushMs: number
   private readonly processFlushMs: number
   private readonly pending = new Map<string, PendingUpdate>()
+  private readonly applyChains = new Map<string, Promise<void>>()
+  private readonly applyErrors = new Map<string, unknown>()
 
   constructor(options: SessionUpdateBatcherOptions = {}) {
     this.textFlushMs = options.textFlushMs ?? DEFAULT_TEXT_FLUSH_MS
@@ -40,8 +42,8 @@ export class SessionUpdateBatcher {
 
   handle(ev: SessionUpdateEnvelope, apply: ApplySessionUpdate): void {
     if (!isMergeable(ev.data)) {
-      this.flushSession(ev.sessionId, apply)
-      apply(ev)
+      this.flushPendingForSession(ev.sessionId, apply)
+      this.enqueueApply(ev, apply)
       return
     }
 
@@ -55,18 +57,41 @@ export class SessionUpdateBatcher {
     const pending: PendingUpdate = { ev }
     pending.timer = setTimeout(() => {
       this.pending.delete(key)
-      apply(pending.ev)
+      this.enqueueApply(pending.ev, apply)
     }, flushDelay(ev.data, this.textFlushMs, this.processFlushMs))
     this.pending.set(key, pending)
   }
 
-  flushSession(sessionId: string, apply: ApplySessionUpdate): void {
+  async flushSession(sessionId: string, apply: ApplySessionUpdate): Promise<void> {
+    this.flushPendingForSession(sessionId, apply)
+    const chain = this.applyChains.get(sessionId)
+    if (chain) await chain
+    if (this.applyErrors.has(sessionId)) {
+      const error = this.applyErrors.get(sessionId)
+      this.applyErrors.delete(sessionId)
+      throw error
+    }
+  }
+
+  private flushPendingForSession(sessionId: string, apply: ApplySessionUpdate): void {
     for (const [key, pending] of [...this.pending]) {
       if (pending.ev.sessionId !== sessionId) continue
       if (pending.timer) clearTimeout(pending.timer)
       this.pending.delete(key)
-      apply(pending.ev)
+      this.enqueueApply(pending.ev, apply)
     }
+  }
+
+  private enqueueApply(ev: SessionUpdateEnvelope, apply: ApplySessionUpdate): void {
+    const previous = this.applyChains.get(ev.sessionId) ?? Promise.resolve()
+    const running = previous.then(() => apply(ev))
+    const guarded = running.catch((error: unknown) => {
+      if (!this.applyErrors.has(ev.sessionId)) this.applyErrors.set(ev.sessionId, error)
+    })
+    this.applyChains.set(ev.sessionId, guarded)
+    void guarded.finally(() => {
+      if (this.applyChains.get(ev.sessionId) === guarded) this.applyChains.delete(ev.sessionId)
+    })
   }
 
   dispose(): void {

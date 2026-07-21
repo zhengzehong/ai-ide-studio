@@ -140,7 +140,7 @@ export async function handleInboundTask(conn: HubConnection, data: TaskEventData
   const prompt = formatInboundPrompt(message, inboundTask)
 
   // doneHandler 必须在 enqueuePrompt 之前注册:
-  // enqueuePrompt 内部 await acpHost.prompt 会阻塞到 prompt 完成,
+  // enqueuePrompt 内部 await RuntimePort.prompt 会阻塞到 prompt 完成,
   // session:done 事件在 prompt 完成瞬间 emit,先 enqueue 再注册会错过事件
   const doneHandler = (data: SessionDoneData): void => {
     if (data.sessionId !== localSessionId) return

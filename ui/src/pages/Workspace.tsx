@@ -521,13 +521,6 @@ export default function Workspace() {
 
   useEffect(() => {
     if (!currentProjectId || !connected) return
-    void fetchAgents(currentProjectId)
-    void fetchSessions(undefined, currentProjectId)
-    void fetchTasks(currentProjectId)
-  }, [currentProjectId, connected, fetchAgents, fetchSessions, fetchTasks])
-
-  useEffect(() => {
-    if (!currentProjectId || !connected) return
     const off = wsClient.on('team:update', (msg) => {
       const sessionIds = Array.isArray(msg.sessionIds)
         ? msg.sessionIds.filter((id): id is string => typeof id === 'string')

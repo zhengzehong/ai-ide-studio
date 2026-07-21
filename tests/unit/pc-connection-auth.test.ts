@@ -3,6 +3,7 @@ import {
   getStoredAccessToken,
   isUnauthorizedClose,
   resolveWsUrl,
+  resolveRealtimeWsUrl,
   setConnectionClientForTest,
   storeAccessToken,
   useConnectionStore,
@@ -35,6 +36,28 @@ describe('PC connection auth', () => {
     const location = new URL('http://localhost:18900/workspace?token=old-token') as unknown as Location
 
     expect(resolveWsUrl(location, 'new-token')).toBe('ws://localhost:18800?token=new-token')
+  })
+
+  test('discovers the Realtime endpoint over HTTP and appends current auth', async () => {
+    const location = new URL('http://localhost:18900/workspace') as unknown as Location
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ wsUrl: 'ws://localhost:18801' }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    })) as unknown as typeof fetch
+
+    await expect(resolveRealtimeWsUrl(location, 'secret-token', fetchImpl))
+      .resolves.toBe('ws://localhost:18801?token=secret-token')
+    expect(fetchImpl).toHaveBeenCalledWith('/api/v1/realtime-config', expect.objectContaining({
+      headers: expect.objectContaining({ 'x-ai-ide-token': 'secret-token' }),
+    }))
+  })
+
+  test('falls back to the embedded websocket URL when discovery is unavailable', async () => {
+    const location = new URL('http://localhost:18900/workspace') as unknown as Location
+    const fetchImpl = vi.fn(async () => { throw new Error('offline') }) as unknown as typeof fetch
+
+    await expect(resolveRealtimeWsUrl(location, 'secret-token', fetchImpl))
+      .resolves.toBe('ws://localhost:18800?token=secret-token')
   })
 
   test('marks auth as required only for unauthorized websocket closes', () => {

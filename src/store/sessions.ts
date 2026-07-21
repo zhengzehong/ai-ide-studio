@@ -37,6 +37,11 @@ export interface SessionListRow extends SessionRow {
   activity_state: SessionRuntimeState
 }
 
+interface SessionRuntimeSignalsRow extends SessionRow {
+  has_running_agent_message: number
+  has_running_process_item: number
+}
+
 export interface MessageRow {
   id: string
   session_id: string
@@ -206,20 +211,43 @@ export const sessionStore = {
     projectId?: string,
     isPromptActive: (sessionId: string) => boolean = () => false,
   ): SessionListRow[] {
-    return listSessions(agentId, projectId).map((session) => ({
-      ...session,
-      activity_state: resolveSessionRuntimeState({
-        promptActive: isPromptActive(session.id),
-        hasRunningAgentMessage: hasRunningAgentMessage(session.id),
-        hasRunningProcessItem: hasRunningProcessItem(session.id),
-        status: session.status,
-        stage: session.stage,
-      }),
-    }))
+    return listSessionRuntimeSignals(agentId, projectId).map((row) => {
+      const { has_running_agent_message, has_running_process_item, ...session } = row
+      return {
+        ...session,
+        activity_state: resolveSessionRuntimeState({
+          promptActive: isPromptActive(session.id),
+          hasRunningAgentMessage: has_running_agent_message === 1,
+          hasRunningProcessItem: has_running_process_item === 1,
+          status: session.status,
+          stage: session.stage,
+        }),
+      }
+    })
   },
 
   listByTask(taskId: string): SessionRow[] {
     return getDb().prepare<[string], SessionRow>('SELECT * FROM sessions WHERE task_id = ? ORDER BY started_at ASC').all(taskId)
+  },
+
+  listByTaskIds(taskIds: string[]): SessionRow[] {
+    if (taskIds.length === 0) return []
+    const placeholders = taskIds.map(() => '?').join(', ')
+    return getDb()
+      .prepare<string[], SessionRow>(
+        `SELECT * FROM sessions
+         WHERE task_id IN (${placeholders})
+         ORDER BY task_id ASC, started_at ASC`,
+      )
+      .all(...taskIds)
+  },
+
+  listByIds(sessionIds: string[]): SessionRow[] {
+    if (sessionIds.length === 0) return []
+    const placeholders = sessionIds.map(() => '?').join(', ')
+    return getDb()
+      .prepare<string[], SessionRow>(`SELECT * FROM sessions WHERE id IN (${placeholders})`)
+      .all(...sessionIds)
   },
 
   reconcileInterruptedStages(): { interrupted: SessionRow[]; cleared: SessionRow[] } {
@@ -404,6 +432,38 @@ function listSessions(agentId?: string, projectId?: string): SessionRow[] {
   return getDb().prepare<[], SessionRow>('SELECT * FROM sessions WHERE deleted_at IS NULL AND is_template = 0 ORDER BY started_at ASC').all()
 }
 
+function listSessionRuntimeSignals(agentId?: string, projectId?: string): SessionRuntimeSignalsRow[] {
+  const conditions = ['s.deleted_at IS NULL', 's.is_template = 0']
+  const parameters: string[] = []
+  if (agentId) {
+    conditions.push('s.agent_id = ?')
+    parameters.push(agentId)
+  }
+  if (projectId) {
+    conditions.push('s.project_id = ?')
+    parameters.push(projectId)
+  }
+  const orderBy = agentId || projectId
+    ? 'ORDER BY COALESCE(s.sort_order, 9223372036854775807) ASC, s.started_at ASC, s.id ASC'
+    : 'ORDER BY s.started_at ASC'
+  return getDb()
+    .prepare<string[], SessionRuntimeSignalsRow>(`
+      SELECT s.*,
+        EXISTS (
+          SELECT 1 FROM messages m
+          WHERE m.session_id = s.id AND m.role = 'agent' AND m.status = 'running'
+        ) AS has_running_agent_message,
+        EXISTS (
+          SELECT 1 FROM turn_process_items p
+          WHERE p.session_id = s.id AND p.status IN ('running', 'pending', 'in_progress')
+        ) AS has_running_process_item
+      FROM sessions s
+      WHERE ${conditions.join(' AND ')}
+      ${orderBy}
+    `)
+    .all(...parameters)
+}
+
 function nextSessionSortOrder(projectId: string | null, agentId: string): number {
   const db = getDb()
   const row = projectId
@@ -449,28 +509,6 @@ function parseRuntimePreferences(raw: string | null | undefined): SessionRuntime
   } catch {
     return {}
   }
-}
-
-function hasRunningAgentMessage(sessionId: string): boolean {
-  const row = getDb()
-    .prepare<[string], { count: number }>(`
-      SELECT COUNT(*) AS count
-      FROM messages
-      WHERE session_id = ? AND role = 'agent' AND status = 'running'
-    `)
-    .get(sessionId)
-  return (row?.count ?? 0) > 0
-}
-
-function hasRunningProcessItem(sessionId: string): boolean {
-  const row = getDb()
-    .prepare<[string], { count: number }>(`
-      SELECT COUNT(*) AS count
-      FROM turn_process_items
-      WHERE session_id = ? AND status IN ('running', 'pending', 'in_progress')
-    `)
-    .get(sessionId)
-  return (row?.count ?? 0) > 0
 }
 
 function hasDoneAfterLastUser(sessionId: string): boolean {
@@ -834,9 +872,9 @@ export const eventStore = {
       return getDb().prepare<{ sessionId: string; afterSequence: number; limit: number }, SessionEventRow>(`
         SELECT * FROM session_events
         WHERE session_id = @sessionId AND sequence > @afterSequence
-        ORDER BY sequence DESC
+        ORDER BY sequence ASC
         LIMIT @limit
-      `).all({ sessionId, afterSequence: opts.afterSequence, limit }).reverse()
+      `).all({ sessionId, afterSequence: opts.afterSequence, limit })
     }
     return getDb().prepare<{ sessionId: string; limit: number }, SessionEventRow>(`
       SELECT * FROM session_events
