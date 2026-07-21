@@ -925,11 +925,13 @@ describe('session store done handling', () => {
       })
 
       expect(useSessionStore.getState().stoppingSessionIds['sess-refresh']).toBeUndefined()
+      expect(useSessionStore.getState().runningSessionIds['sess-refresh']).toBeUndefined()
       expect(useSessionStore.getState().stopErrorsBySession['sess-refresh']).toBeUndefined()
     } finally {
       cleanup()
     }
   })
+
   test('marks background session running, unread after idle, and read after selecting it', async () => {
     resetStore()
     const cleanup = useSessionStore.getState().setupListeners()

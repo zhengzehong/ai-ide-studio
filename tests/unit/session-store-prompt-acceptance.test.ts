@@ -110,6 +110,10 @@ describe('Session Prompt acceptance boundary', () => {
 
     complete?.()
     await first
+
+    expect(useSessionStore.getState().stoppingSessionIds['session-1']).toBeUndefined()
+    expect(useSessionStore.getState().runningSessionIds['session-1']).toBeUndefined()
+    expect(useSessionStore.getState().streamingMessage).toBeNull()
   })
 
   it('clears stopping, preserves running, and exposes an error when cancellation fails', async () => {

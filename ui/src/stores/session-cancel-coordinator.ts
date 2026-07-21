@@ -8,6 +8,7 @@ interface CancelInput {
   sessionId: string
   turnId?: string
   onStart: () => void
+  onSuccess: () => void
   onFailure: (error: unknown) => void
 }
 
@@ -53,7 +54,9 @@ export function createSessionCancelCoordinator(
 
       const entry: CancelEntry = { promise: Promise.resolve() }
       const promise = execution
-        .then(() => undefined)
+        .then(() => {
+          if (active.get(input.sessionId) === entry) input.onSuccess()
+        })
         .catch((error: unknown) => {
           if (active.get(input.sessionId) === entry) input.onFailure(error)
           throw error
