@@ -10,7 +10,8 @@
 - 支持 tool context token，数据库只保存 token hash。
 - `tools/list` 按 token 中的 `visibleTools` 过滤。
 - `tools/call` 再次检查方法是否可见，不可见则拒绝并写审计。
-- HTTP MCP 和 stdio 回退共用 `ToolRuntime`。
+- process Runtime 只通过 API 所有的 HTTP MCP 调用平台工具；embedded 回退可继续使用 stdio 网关，两者共用 `ToolRuntime`。
+- 相同 Session 身份、项目/团队上下文和可见工具集合复用同一 token；任一上下文变化会撤销旧 token。
 - 已新增 `tool_contexts`、`tool_call_audit` 两张 SQLite 表。
 - 已内置 `core.project.*`、`core.agent.*`、`agent.template.*`、`core.session.*`、`core.task.*`、`team.*`、`event.*` 平台方法。
 - 已内置 `core.kb.*` 知识库方法，用于 Agent 读写 LLM Wiki、挂载 shared 库、刷新 code 页面和撤销活动。
@@ -38,7 +39,7 @@ AI IDE Studio 要把平台能力稳定地提供给 Claude Code、Codex 以及未
      - 不可以用 `core.task.update`
 
 3. **Token 控制工具可见性和调用边界**
-   - 每个 Agent Session 创建一个工具上下文 token。
+   - 每个 Agent Session 维护一个与当前工具上下文绑定的 token。
    - `tools/list` 只返回这个 token 可见的工具。
    - `tools/call` 再次检查调用的工具是否在 token 可见工具里。
 
@@ -58,6 +59,8 @@ VisibilityResolver  负责这个 Agent 能看哪些工具
 ToolRuntime         负责真正执行工具
 平台 Service/Store   负责业务逻辑和数据读写
 ```
+
+process Runtime 只接收可克隆的 MCP server 配置，不拥有 ToolRegistry、ContextRegistry、审计服务或平台数据库。API 在创建 Runtime snapshot 时生成 `ai-ide-tools` HTTP MCP 配置，Claude/Codex 使用 bearer token 回到同一 API 实例执行工具。embedded 回滚适配器可以继续生成 stdio 配置，但两种传输不会同时拥有同一轮 Session 的平台工具执行权。
 
 ## 3. 核心概念
 
@@ -438,7 +441,7 @@ team-leader    编排者：协作 + team.create / team.update / team.member.spaw
 ```text
 1. 根据 agentId/projectId 查工具绑定。
 2. 解析出 visibleTools。
-3. 创建 tool context token。
+3. 复用上下文 fingerprint 未变化且仍有效的 tool context token；否则撤销旧 token 并创建新 token。
 4. 把 token 注入 ACP Session 的 mcpServers 配置。
 ```
 
@@ -497,7 +500,7 @@ MCP Gateway 校验 token
   ↓
 VisibilityResolver 解析这个 Agent 可见的工具方法
   ↓
-ContextRegistry 创建 token，并保存 token hash + visibleTools
+ContextRegistry 复用或创建 token，并保存 token hash + visibleTools
   ↓
 ACP Host 创建 Claude/Codex Session，并注入 ai-ide-tools HTTP MCP
   ↓

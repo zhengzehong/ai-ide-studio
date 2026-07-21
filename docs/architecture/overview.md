@@ -77,7 +77,7 @@ PC 端的任务列表、会话列表、消息历史和恢复事件使用版本�
 
 HTTP 分页响应使用 `{ data, page: { hasMore, nextCursor } }`，普通列表使用 `{ data }`。消息单页最多 200 条，恢复事件单页最多 1000 条；每个成功响应包含 `Server-Timing` 和 `X-Response-Bytes`，超过 1 MiB 观测预算时记录结构化告警但不截断。PC 构建设置 `VITE_QUERY_TRANSPORT=ws` 可回滚四类读取，其余值和默认值均使用 HTTP。
 
-PC 的 Prompt、取消、已读、权限响应和提问响应使用封闭的 `POST /api/v1/commands` HTTP Command API。每个命令同时携带 `commandId` 与 `Idempotency-Key`，Writer 在执行前写入 `runtime_commands` 账本；同 Session 命令保持 FIFO，不同 Session 可并行。Prompt 返回 `202 accepted`，短命令等待完成后返回 `200`。API 重启按 `(created_at, command_id)` 游标分页读取全部 accepted/running 命令，不受单页 1000 条上限影响；已落用户消息的 running Prompt 会标记 interrupted，禁止重复发送。`VITE_COMMAND_TRANSPORT=ws` 是 PC 显式回滚开关，移动端和访客链路仍使用 WS 兼容命令。
+PC 的 Prompt、取消、已读、权限响应和提问响应使用封闭的 `POST /api/v1/commands` HTTP Command API。每个命令同时携带 `commandId` 与 `Idempotency-Key`，Writer 在执行前写入 `runtime_commands` 账本；同 Session 的 turn、interaction、cancel 和 read-state 各自在独立 lane 内保持 FIFO，因此取消和交互响应不会排在未结束的 Prompt 后面。Prompt 返回 `202 accepted`，短命令等待完成后返回 `200`。API 重启按 `(created_at, command_id)` 游标分页读取全部 accepted/running 命令，不受单页 1000 条上限影响；已落用户消息的 running Prompt 会标记 interrupted，禁止重复发送。`VITE_COMMAND_TRANSPORT=ws` 是 PC 显式回滚开关，移动端和访客链路仍使用 WS 兼容命令。
 
 WebSocket 的稳定职责是连接认证、Session 订阅、`ping/resume` 控制和服务端事件流，不作为 PC 高频 Query/Command 的默认传输。尚未迁移的低频领域 RPC继续通过 Realtime IPC 兼容桥进入 API。
 
@@ -102,6 +102,10 @@ PC 生产构建按页面使用 `React.lazy` 拆分，应用 shell、认证和连
 每个 Session actor 在一次所有权周期内使用固定 `streamGeneration`，只在实际输出逻辑 patch 时递增 `sequence`。文本 delta 按 message 合并，process item 采用 latest-wins；权限、elicitation 和 done 会先 flush 同 Session 的普通更新。Runtime 的可见流每 25ms 通过独立本机管道直达 Realtime，API 事件循环阻塞不会中断浏览器流式输出；持久化流以 250ms 节奏发送到 API，并带同一 Session 游标。
 
 Runtime done 是持久化屏障，不直接对浏览器发布。API 按 Session 顺序处理持久化 patch，触发 `session:done`，等待 Writer 完成 `message.done + Outbox` 原子事务后才向 Runtime 返回 ack；随后 `session:committed_done` 才进入 Realtime。Runtime 意外退出时 API、HTTP、Query/Writer Worker 和 Realtime 保持运行，当前命令明确失败并由 Session 主链路落一条 error completion；监督器重启 Runtime，下一轮从 SQLite 快照和 `acp_session_id` 恢复。`RUNTIME_SERVICE_MODE=embedded` 保留旧 `acpHost` 作为显式回滚适配器，不会在运行中静默降级。
+
+process Runtime 使用 API 投影到快照中的 HTTP MCP 配置调用平台工具。ToolRegistry、工具上下文、审计和业务写入仍由 API 进程所有；Runtime 与 Claude/Codex 子进程不打开平台数据库。相同 Session 上下文与可见工具集合复用同一 bearer token，项目、团队、Agent 或工具可见性变化时撤销旧 token 并生成新 token。embedded 回滚模式仍可使用 stdio 工具网关，不改变 process 模式的所有权边界。
+
+Runtime 为每个活动 turn 保存原始 `messageId`、`turnId` 和 stream generation。取消先请求 ACP cancel；未在宽限时间内终止时只关闭目标 ACP Session，仍未终止才重启所属 Agent。每次升级都会 fence 旧 generation，迟到输出不能进入下一轮；终态只使用原 turn identity 发布一次 `cancelled` done。API 不再清理本地 active 状态或伪造 `cancel-timeout-*` done，`session.cancel` 的 HTTP 200 表示 Runtime 已返回 `requested`、`not-active` 或明确失败。
 
 Runtime 资源配额默认允许 32 个网络型 turn、`max(2, floor(cpuCount / 2))` 个 CPU 型终端和 2 个磁盘型终端。等待队列按 FIFO 唤醒；Session mailbox 同时受条目数和字节数限制，超过上限返回 `RUNTIME_BACKPRESSURE`，不会丢弃已经接受的关键工作。
 
@@ -209,6 +213,8 @@ PC 端项目页面以 `/p/:projectId/*` 为 URL 真源。Workspace、任务、�
 `project-data-scope` 是项目切换的前端编排边界。路由项目变化时，它先同步激活各 Zustand store 的项目分区缓存，再发起后台刷新；同一项目的并发激活会合并为一个 Promise 和一轮请求。Task、Agent、Session 列表、文件树、规则、知识库、事件中心和 Agent Memory 均按项目或更细的 Agent/维度 scope 缓存；缓存采用 30 秒 stale-while-revalidate、逐 scope 请求序号和 LRU 淘汰，迟到响应只能写回自身 scope，不能覆盖当前项目投影。项目页面不再重复发起已经由该边界负责的初始任务、会话和 Agent 读取。
 
 WebSocket 实体更新按实体携带的 `project_id` 写入目标缓存。只包含实体 ID 的局部更新会修改所有命中的已访问 scope；无法安全合并的集合更新只标记目标 scope 失效，并仅刷新当前可见项目。Session 的消息、事件和流式执行状态继续按 `sessionId` 使用既有缓存，不复制到项目列表缓存。
+
+PC Session store 对取消维护独立的 stopping 状态。首次点击立即显示“正在停止”，同一活动 turn 的重复点击复用同一 Command ID 和 in-flight Promise；取消失败保留 running 并暴露错误，`session:done` 或 idle activity 清理 stopping。用户可以在 stopping 期间编辑下一条消息，该 Prompt 等待取消 Promise 完成并只在 HTTP 202 accepted 后清空草稿和图片。Workspace 与全局助理遵循同一规则。
 
 项目视图状态与业务数据缓存分离。每个项目独立保存 Workspace 侧栏与 Agent 选择、任务选中项和滚动位置、知识库搜索及未保存草稿、事件中心 Tab、Agent Memory 的 Agent/维度选择。低频选择状态持久化到浏览器存储，滚动位置只保存在内存；删除项目时路由记忆、视图状态、资源缓存和最后会话映射一并清理。
 
