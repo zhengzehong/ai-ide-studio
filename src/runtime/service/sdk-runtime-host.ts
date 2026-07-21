@@ -215,6 +215,7 @@ export class SdkRuntimeHost {
     }
     session.capabilities.currentModelId = modelId
     touchSdkSession(this.agents, session)
+    this.options.publishCapabilities?.(session.snapshot.session.id, session.capabilities)
   }
 
   async setMode(agentId: string, sessionId: string, modeId: string): Promise<void> {
@@ -222,6 +223,7 @@ export class SdkRuntimeHost {
     await requireSdkAgent(this.agents, agentId).connection.setSessionMode({ sessionId: session.acpSessionId, modeId })
     session.capabilities.currentModeId = modeId
     touchSdkSession(this.agents, session)
+    this.options.publishCapabilities?.(session.snapshot.session.id, session.capabilities)
   }
 
   async setConfig(agentId: string, sessionId: string, configId: string, value: string | boolean): Promise<void> {
@@ -233,6 +235,7 @@ export class SdkRuntimeHost {
     })
     session.capabilities = mergeCapabilitiesFromConfig(session.capabilities, mapConfigOptions(result.configOptions))
     touchSdkSession(this.agents, session)
+    this.options.publishCapabilities?.(session.snapshot.session.id, session.capabilities)
   }
 
   getSessionCapabilities(agentId: string, sessionId: string): SessionCapabilities | undefined {
