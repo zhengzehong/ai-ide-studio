@@ -12,9 +12,6 @@ const knownProjectIds = new Set<string>()
 const projectActivations = new Map<string, Promise<void>>()
 
 export function activateProjectData(projectId: string): Promise<void> {
-  const currentActivation = projectActivations.get(projectId)
-  if (currentActivation) return currentActivation
-
   knownProjectIds.add(projectId)
   const taskStore = useTaskStore.getState()
   const agentStore = useAgentStore.getState()
@@ -28,6 +25,9 @@ export function activateProjectData(projectId: string): Promise<void> {
   useRuleStore.getState().activateProject(projectId)
   useEventCenterStore.getState().activateProject(projectId)
   useAgentMemoryStore.getState().activateScope(projectId)
+
+  const currentActivation = projectActivations.get(projectId)
+  if (currentActivation) return currentActivation
 
   const activation = refreshProjectData(projectId).finally(() => {
     if (projectActivations.get(projectId) === activation) projectActivations.delete(projectId)
