@@ -193,6 +193,7 @@ const MIRRORED_RECOVERY_EVENT_TYPES = new Set([
 function parseSessionRecoverySnapshot(value: unknown): SessionRecoverySnapshot {
   if (!isRecord(value)
     || typeof value.sessionId !== 'string'
+    || typeof value.latestSequence !== 'number'
     || !Number.isInteger(value.latestSequence)
     || value.latestSequence < 0
     || !Array.isArray(value.events)) {
