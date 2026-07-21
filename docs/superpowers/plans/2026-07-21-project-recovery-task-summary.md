@@ -270,4 +270,3 @@ git commit -m "docs: describe lightweight recovery read models"
 ```
 
 Send branch, worktree, base/head commits, acceptance criteria, test outputs, and response-size evidence to `code-reviewer`. Do not merge `prd` without user approval.
-
