@@ -1363,6 +1363,8 @@ function WorkspaceChatPane({
   const setMode = useSessionStore((s) => s.setMode)
   const setConfig = useSessionStore((s) => s.setConfig)
   const cancelTurn = useSessionStore((s) => s.cancelTurn)
+  const stoppingSessionIds = useSessionStore((s) => s.stoppingSessionIds)
+  const stopErrorsBySession = useSessionStore((s) => s.stopErrorsBySession)
   const pendingPermissions = useSessionStore((s) => s.pendingPermissions)
   const pendingElicitations = useSessionStore((s) => s.pendingElicitations)
   const respondPermission = useSessionStore((s) => s.respondPermission)
@@ -1424,11 +1426,19 @@ function WorkspaceChatPane({
   const sessionDraftsRef = useRef(createSessionDraftStore({ revokePreview: (preview) => URL.revokeObjectURL(preview) }))
 
   const blockingInteraction = pendingPermissions.length > 0 || pendingElicitations.length > 0
-  const canSendPrompt = !!currentSessionId && connected && !blockingInteraction && !currentSessionCopying && !sendingPrompt && (!!inputValue.trim() || pendingImages.length > 0)
+  const isStreaming = !!(streamingMessage && !streamingMessage.done)
+  const isStopping = !!(currentSessionId && stoppingSessionIds[currentSessionId])
+  const stopError = currentSessionId ? stopErrorsBySession[currentSessionId] : undefined
+  const canSendPrompt = !!currentSessionId
+    && connected
+    && !blockingInteraction
+    && !currentSessionCopying
+    && !sendingPrompt
+    && (!isStreaming || isStopping)
+    && (!!inputValue.trim() || pendingImages.length > 0)
   const hasMoreMessages = currentSessionId ? hasMoreMessagesBySession[currentSessionId] === true : false
   const loadingOlderMessages = currentSessionId ? !!loadingOlderMessagesBySession[currentSessionId] : false
   const pendingInteractionId = pendingPermissions[0]?.id || pendingElicitations[0]?.id || ''
-  const isStreaming = !!(streamingMessage && !streamingMessage.done)
   const currentModeName =
     capabilities.modes.find((m) => m.modeId === capabilities.currentModeId)?.name || capabilities.currentModeId
   const currentModelName =
@@ -1614,7 +1624,7 @@ function WorkspaceChatPane({
   const handleSend = async () => {
     const v = inputValue.trim()
     const hasImages = pendingImages.length > 0
-    if ((!v && !hasImages) || !currentSessionId || !connected || blockingInteraction || currentSessionCopying || sendingPrompt) return
+    if (!canSendPrompt || (!v && !hasImages) || !currentSessionId) return
     const targetSessionId = currentSessionId
     stickToBottomRef.current = true
     setSendingPrompt(true)
@@ -1955,9 +1965,9 @@ function WorkspaceChatPane({
         )}
       </div>
       <div style={{ padding: '0 20px 16px', flexShrink: 0 }}>
-        {sendError && (
+        {(stopError || sendError) && (
           <div role="alert" style={{ color: 'var(--red)', fontSize: 13, marginBottom: 8 }}>
-            {sendError}
+            {stopError || sendError}
           </div>
         )}
         {pendingImages.length > 0 && (
@@ -2103,17 +2113,21 @@ function WorkspaceChatPane({
             {blockingInteraction && (
               <span style={{ fontSize: 13, color: 'var(--red)', fontWeight: 600, marginRight: 6 }}>等待确认</span>
             )}
+            {isStopping && (
+              <span role="status" style={{ fontSize: 12, color: 'var(--text-3)', whiteSpace: 'nowrap' }}>正在停止</span>
+            )}
             {isStreaming ? (
               <button
                 type="button"
-                onClick={cancelTurn}
-                title="停止生成"
+                onClick={() => { void cancelTurn().catch(() => undefined) }}
+                disabled={isStopping}
+                title={isStopping ? '停止处理中' : '停止生成'}
                 style={{
                   width: 32,
                   height: 32,
                   borderRadius: '50%',
                   border: '2px solid var(--red)',
-                  cursor: 'pointer',
+                  cursor: isStopping ? 'wait' : 'pointer',
                   background: 'transparent',
                   color: 'var(--red)',
                   display: 'flex',
@@ -2125,7 +2139,8 @@ function WorkspaceChatPane({
               >
                 <Square size={14} fill="var(--red)" />
               </button>
-            ) : (
+            ) : null}
+            {(!isStreaming || isStopping) && (
               <button
                 type="button"
                 onClick={handleSend}

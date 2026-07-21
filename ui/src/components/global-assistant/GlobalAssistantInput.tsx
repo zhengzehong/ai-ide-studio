@@ -19,6 +19,8 @@ export function GlobalAssistantInput({
   connected,
   blocked,
   streaming,
+  stopping,
+  stopError,
   capabilities,
   usage,
   onSend,
@@ -30,10 +32,12 @@ export function GlobalAssistantInput({
   connected: boolean
   blocked: boolean
   streaming: boolean
+  stopping: boolean
+  stopError: string | null
   capabilities: SessionCapabilities
   usage: UsageInfo | null
-  onSend: (content: string, images: { data: string; mimeType: string }[]) => void
-  onCancel: () => void
+  onSend: (content: string, images: { data: string; mimeType: string }[]) => Promise<void>
+  onCancel: () => Promise<void>
   onSetModel: (modelId: string) => Promise<void>
   onSetMode: (modeId: string) => Promise<void>
   onSetConfig: (configId: string, value: string | boolean) => Promise<void>
@@ -41,12 +45,18 @@ export function GlobalAssistantInput({
   const [inputValue, setInputValue] = useState('')
   const [pendingImages, setPendingImages] = useState<PendingImage[]>([])
   const [draggingImages, setDraggingImages] = useState(false)
+  const [sending, setSending] = useState(false)
+  const [sendError, setSendError] = useState<string | null>(null)
   const [menuAnchor, setMenuAnchor] = useState<MenuAnchor | null>(null)
   const [showMenu, setShowMenu] = useState<MenuName | 'command' | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const imagePreviewsRef = useRef<string[]>([])
-  const canSend = connected && !blocked && !streaming && (!!inputValue.trim() || pendingImages.length > 0)
+  const canSend = connected
+    && !blocked
+    && !sending
+    && (!streaming || stopping)
+    && (!!inputValue.trim() || pendingImages.length > 0)
   const secondaryConfigs = capabilities.configOptions.filter((item) => item.category !== 'model' && item.category !== 'mode' && item.id !== 'model' && item.id !== 'mode')
   const currentModeName = capabilities.modes.find((item) => item.modeId === capabilities.currentModeId)?.name || capabilities.currentModeId
   const currentModelName = capabilities.models.find((item) => item.modelId === capabilities.currentModelId)?.name || capabilities.currentModelId
@@ -67,17 +77,25 @@ export function GlobalAssistantInput({
     })
   }
 
-  const send = () => {
+  const send = async () => {
     if (!canSend) return
-    onSend(inputValue, pendingImages.map(({ data, mimeType }) => ({ data, mimeType })))
-    setInputValue('')
-    setPendingImages((current) => {
-      current.forEach((image) => URL.revokeObjectURL(image.preview))
-      return []
-    })
-    requestAnimationFrame(() => {
-      if (textareaRef.current) textareaRef.current.style.height = 'auto'
-    })
+    setSending(true)
+    setSendError(null)
+    try {
+      await onSend(inputValue, pendingImages.map(({ data, mimeType }) => ({ data, mimeType })))
+      setInputValue('')
+      setPendingImages((current) => {
+        current.forEach((image) => URL.revokeObjectURL(image.preview))
+        return []
+      })
+      requestAnimationFrame(() => {
+        if (textareaRef.current) textareaRef.current.style.height = 'auto'
+      })
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : '消息发送失败，请重试')
+    } finally {
+      setSending(false)
+    }
   }
 
   const openMenu = (name: MenuName | 'command', event: MouseEvent<HTMLButtonElement>) => {
@@ -89,6 +107,14 @@ export function GlobalAssistantInput({
   return (
     <>
       <div className="global-assistant-input-wrap">
+        {(stopping || stopError || sendError) && (
+          <div
+            className={`global-assistant-input-status${stopError || sendError ? ' global-assistant-input-status--error' : ''}`}
+            role={stopError || sendError ? 'alert' : 'status'}
+          >
+            {stopError || sendError || '正在停止'}
+          </div>
+        )}
         {pendingImages.length > 0 && (
           <div className="global-assistant-image-list">
             {pendingImages.map((image, index) => (
@@ -122,13 +148,13 @@ export function GlobalAssistantInput({
             ref={textareaRef}
             value={inputValue}
             rows={2}
-            disabled={!connected || blocked || streaming}
-            placeholder={blocked ? '等待确认后继续...' : streaming ? '正在生成中...' : '输入消息，或直接粘贴图片'}
+            disabled={!connected || blocked || sending || (streaming && !stopping)}
+            placeholder={blocked ? '等待确认后继续...' : stopping ? '输入下一条消息...' : streaming ? '正在生成中...' : '输入消息，或直接粘贴图片'}
             onChange={(event) => resizeInput(event, setInputValue)}
             onKeyDown={(event: KeyboardEvent<HTMLTextAreaElement>) => {
               if (event.key === 'Enter' && !event.shiftKey) {
                 event.preventDefault()
-                send()
+                void send()
               }
             }}
             onPaste={(event: ClipboardEvent<HTMLTextAreaElement>) => {
@@ -153,11 +179,18 @@ export function GlobalAssistantInput({
             {usage && <span className="global-assistant-usage">{Math.round((usage.contextUsed / usage.contextSize) * 100)}%</span>}
             {capabilities.models.length > 0 && <button type="button" className="global-assistant-tool-btn" onClick={(event) => openMenu('model', event)}>{currentModelName || '模型'}</button>}
             {streaming ? (
-              <button type="button" className="global-assistant-send-btn global-assistant-send-btn--stop" onClick={onCancel} title="停止生成">
+              <button
+                type="button"
+                className="global-assistant-send-btn global-assistant-send-btn--stop"
+                disabled={stopping}
+                onClick={() => { void onCancel().catch(() => undefined) }}
+                title={stopping ? '停止处理中' : '停止生成'}
+              >
                 <Square size={13} fill="currentColor" />
               </button>
-            ) : (
-              <button type="button" className="global-assistant-send-btn" disabled={!canSend} onClick={send} title="发送">
+            ) : null}
+            {(!streaming || stopping) && (
+              <button type="button" className="global-assistant-send-btn" disabled={!canSend} onClick={() => { void send() }} title="发送">
                 <ArrowUp size={16} />
               </button>
             )}

@@ -55,6 +55,8 @@ function resetStore(): void {
     processItemLoadingByKey: {},
     processItemErrorByKey: {},
     runningSessionIds: {},
+    stoppingSessionIds: {},
+    stopErrorsBySession: {},
     unreadSessionIds: {},
     staleSessionIds: {},
   })
@@ -904,6 +906,30 @@ describe('session store done handling', () => {
       cleanup()
     }
   })
+
+  test('clears stopping state when the terminal event arrives', () => {
+    resetStore()
+    useSessionStore.setState({
+      runningSessionIds: { 'sess-refresh': true },
+      stoppingSessionIds: { 'sess-refresh': true },
+      stopErrorsBySession: { 'sess-refresh': 'old error' },
+    })
+    const cleanup = useSessionStore.getState().setupListeners()
+
+    try {
+      emit('session:done', {
+        sessionId: 'sess-refresh',
+        agentId: 'agent-1',
+        messageId: 'message-1',
+        stopReason: 'cancelled',
+      })
+
+      expect(useSessionStore.getState().stoppingSessionIds['sess-refresh']).toBeUndefined()
+      expect(useSessionStore.getState().stopErrorsBySession['sess-refresh']).toBeUndefined()
+    } finally {
+      cleanup()
+    }
+  })
   test('marks background session running, unread after idle, and read after selecting it', async () => {
     resetStore()
     const cleanup = useSessionStore.getState().setupListeners()
@@ -935,6 +961,29 @@ describe('session store done handling', () => {
       useSessionStore.getState().selectSession('sess-bg')
 
       expect(useSessionStore.getState().unreadSessionIds['sess-bg']).toBeUndefined()
+    } finally {
+      cleanup()
+    }
+  })
+
+  test('clears stopping state when session activity becomes idle', () => {
+    resetStore()
+    useSessionStore.setState({
+      runningSessionIds: { 'sess-refresh': true },
+      stoppingSessionIds: { 'sess-refresh': true },
+    })
+    const cleanup = useSessionStore.getState().setupListeners()
+
+    try {
+      emit('session:activity', {
+        sessionId: 'sess-refresh',
+        agentId: 'agent-1',
+        state: 'idle',
+        reason: 'prompt-done',
+        timestamp: '2026-06-03T00:00:01.000Z',
+      })
+
+      expect(useSessionStore.getState().stoppingSessionIds['sess-refresh']).toBeUndefined()
     } finally {
       cleanup()
     }

@@ -911,6 +911,18 @@
   background: var(--bg-1);
 }
 
+.global-assistant-input-status {
+  min-height: 20px;
+  margin-bottom: 6px;
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 20px;
+}
+
+.global-assistant-input-status--error {
+  color: var(--red);
+}
+
 .global-assistant-image-chip {
   position: relative;
   width: 48px;
