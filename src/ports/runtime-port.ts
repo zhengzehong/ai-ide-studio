@@ -62,6 +62,11 @@ export interface RuntimeStateSnapshot {
   autoApprovedToolNames: string[]
 }
 
+export interface RuntimePlatformToolTransport {
+  type: 'http'
+  baseUrl: string
+}
+
 export interface RuntimePromptInput {
   agentId: string
   sessionId: string
@@ -76,6 +81,7 @@ export interface RuntimePromptInput {
 export type RuntimeElicitationContent = Record<string, string | number | boolean | string[]>
 
 export interface RuntimePort {
+  readonly platformToolTransport?: RuntimePlatformToolTransport
   ensureSession(snapshot: RuntimeStateSnapshot, options?: { emitLifecycle?: boolean }): Promise<string>
   prompt(input: RuntimePromptInput): Promise<void>
   cancelPrompt(agentId: string, sessionId: string): Promise<void>

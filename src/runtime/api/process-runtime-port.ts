@@ -8,6 +8,7 @@ import { FramedSocket } from '../../ipc/framed-socket.js'
 import type { IpcEnvelope } from '../../ipc/protobuf-envelope.js'
 import type {
   RuntimeElicitationContent,
+  RuntimePlatformToolTransport,
   RuntimePort,
   RuntimePromptInput,
   RuntimeStateSnapshot,
@@ -65,6 +66,10 @@ export async function createProcessRuntimePort(
 }
 
 class ProcessRuntimePortController implements ProcessRuntimePort {
+  readonly platformToolTransport: RuntimePlatformToolTransport = {
+    type: 'http',
+    baseUrl: resolvePlatformToolBaseUrl(),
+  }
   private readonly endpoint = createIpcEndpoint()
   private readonly token = randomUUID()
   private readonly pending = new Map<string, PendingRequest>()
@@ -329,6 +334,11 @@ class ProcessRuntimePortController implements ProcessRuntimePort {
     if (!this.child) return Promise.resolve()
     return new Promise((resolve) => this.child?.once('exit', () => resolve()))
   }
+}
+
+function resolvePlatformToolBaseUrl(): string {
+  const configured = process.env.PUBLIC_BASE_URL?.trim()
+  return configured || `http://127.0.0.1:${process.env.PORT ?? '18800'}`
 }
 
 function toEnvelope(payload: RuntimeControlPayload): IpcEnvelope {

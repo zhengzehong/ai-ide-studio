@@ -8,8 +8,11 @@ import { closeDatabase, initDatabase } from '../../src/store/db.js'
 import { projectStore } from '../../src/store/projects.js'
 import { sessionStore } from '../../src/store/sessions.js'
 import { teamMemberStore, teamStore } from '../../src/store/teams.js'
+import { toolBindingStore, toolStore } from '../../src/store/tools.js'
+import { setRuntimePort } from '../../src/runtime/runtime-port-provider.js'
 
 let tmp: string
+let resetRuntimePort: (() => void) | undefined
 
 beforeEach(() => {
   tmp = mkdtempSync(resolve(tmpdir(), 'ai-ide-runtime-snapshot-'))
@@ -18,6 +21,8 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  resetRuntimePort?.()
+  resetRuntimePort = undefined
   closeDatabase()
   rmSync(tmp, { recursive: true, force: true })
 })
@@ -105,5 +110,53 @@ describe('runtime state snapshot', () => {
     const session = sessionStore.create({ agentId: agent.id, projectId: project.id })
 
     expect(() => buildRuntimeStateSnapshot({ sessionId: session.id })).toThrow('project mismatch')
+  })
+
+  test('uses the active process Runtime HTTP MCP transport without caller flags', () => {
+    const project = projectStore.create({ name: 'Process project', workDir: tmp })
+    const agent = agentStore.create({
+      name: 'Process agent',
+      type: 'developer',
+      runtime: 'codex',
+      projectId: project.id,
+    })
+    const session = sessionStore.create({ agentId: agent.id, projectId: project.id })
+    const tool = toolStore.create({
+      name: 'core.task.list',
+      displayName: 'List tasks',
+      description: 'List tasks',
+      category: 'automation',
+      type: 'builtin',
+      config: { handler: 'core.task.list' },
+      permissions: { requiresApproval: false, maxExecutionTime: 10_000, networkAccess: false },
+      isBuiltin: true,
+    })
+    toolBindingStore.set(tool.id, 'global', null)
+    resetRuntimePort = setRuntimePort({
+      platformToolTransport: { type: 'http', baseUrl: 'http://127.0.0.1:18900' },
+      ensureSession: async () => 'acp-process',
+      prompt: async () => undefined,
+      cancelPrompt: async () => undefined,
+      closeSession: async () => undefined,
+      forkSession: async () => 'acp-fork',
+      setModel: async () => undefined,
+      setMode: async () => undefined,
+      setConfig: async () => undefined,
+      getSessionCapabilities: async () => undefined,
+      resolvePermission: async () => true,
+      resolveElicitation: async () => true,
+      drain: async () => undefined,
+      close: async () => undefined,
+    })
+
+    const snapshot = buildRuntimeStateSnapshot({ sessionId: session.id })
+
+    expect(snapshot.mcpServers).toEqual([
+      expect.objectContaining({
+        type: 'http',
+        name: 'ai-ide-tools',
+        url: 'http://127.0.0.1:18900/mcp',
+      }),
+    ])
   })
 })
