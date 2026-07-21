@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { RuntimeStateSnapshot } from '../../ports/runtime-port.js'
+import type { RuntimeCancelResult, RuntimeStateSnapshot } from '../../ports/runtime-port.js'
 import type { AgentStatus, SessionCapabilities } from '../../types/ws-protocol.js'
 import type { TurnUsageData } from '../../types/ws-protocol.js'
 import { RuntimeSessionActorScheduler } from '../actors/session-actor.js'
@@ -12,6 +12,10 @@ interface RuntimeSession {
   acpSessionId: string
   capabilities: SessionCapabilities
   cancelled: boolean
+  active: boolean
+  activeMessageId?: string
+  activeTurnId?: string
+  completion?: Promise<void>
   lastUsedAt: number
 }
 
@@ -90,6 +94,7 @@ export class AcpRuntimeHost {
       snapshot,
       acpSessionId,
       cancelled: false,
+      active: false,
       capabilities: {
         models: MOCK_MODELS,
         currentModelId: snapshot.runtimePreferences.modelId ?? 'mock-fast',
@@ -109,13 +114,16 @@ export class AcpRuntimeHost {
     diagnostics?: { turnId?: string; messageId?: string }
   }): Promise<void> {
     if (this.sdk.hasSession(input.sessionId)) return this.sdk.prompt(input)
+    const session = this.requireSession(input.sessionId, input.agentId)
+    const messageId = input.diagnostics?.messageId ?? `mock-message-${randomUUID().slice(0, 8)}`
+    session.cancelled = false
+    session.active = true
+    session.activeMessageId = messageId
+    session.activeTurnId = input.diagnostics?.turnId
     const pending = this.actors.enqueue(
       input.sessionId,
       async () => {
-        const session = this.requireSession(input.sessionId, input.agentId)
         this.touchMockSession(session)
-        session.cancelled = false
-        const messageId = input.diagnostics?.messageId ?? `mock-message-${randomUUID().slice(0, 8)}`
         const response = `Mock Runtime received: ${input.content}`
         this.options.publishUpdate(input.agentId, {
           kind: 'session-update',
@@ -143,17 +151,34 @@ export class AcpRuntimeHost {
       },
       { payloadBytes: Buffer.byteLength(input.content, 'utf8') },
     )
-    return pending.finally(() => {
-      const session = this.sessions.get(input.sessionId)
-      if (session) this.touchMockSession(session)
+    const tracked = pending.finally(() => {
+      session.active = false
+      delete session.activeMessageId
+      delete session.activeTurnId
+      delete session.completion
+      const current = this.sessions.get(input.sessionId)
+      if (current) this.touchMockSession(current)
     })
+    session.completion = tracked
+    return tracked
   }
 
-  async cancelPrompt(agentId: string, sessionId: string): Promise<void> {
+  async cancelPrompt(agentId: string, sessionId: string): Promise<RuntimeCancelResult> {
     if (this.sdk.hasSession(sessionId)) return this.sdk.cancelPrompt(agentId, sessionId)
-    const session = this.requireSession(sessionId, agentId)
+    const session = this.sessions.get(sessionId)
+    if (!session || session.snapshot.agent.id !== agentId) return { status: 'not-found' }
     session.cancelled = true
     this.touchMockSession(session)
+    if (!session.active || !session.activeMessageId) return { status: 'not-active' }
+    const result: RuntimeCancelResult = {
+      status: 'requested',
+      escalation: 'cancel',
+      messageId: session.activeMessageId,
+      ...(session.activeTurnId ? { turnId: session.activeTurnId } : {}),
+    }
+    await session.completion
+    this.actors.fenceSession(sessionId)
+    return result
   }
 
   async closeSession(agentId: string, sessionId: string): Promise<void> {

@@ -16,17 +16,17 @@ PC 高频只读路径使用同源 HTTP，认证沿用 `x-ai-ide-token`。普通�
 
 ## PC HTTP Command API
 
-PC 高频 Session 命令使用 `POST /api/v1/commands`。认证沿用 `x-ai-ide-token`，请求必须包含 `Idempotency-Key`，JSON body 最大 2 MiB；body 的 `commandId` 用于结果关联，幂等键用于 Writer 账本去重。响应为 `{ data: { commandId, status, duplicate } }`。
+PC 高频 Session 命令使用 `POST /api/v1/commands`。认证沿用 `x-ai-ide-token`，请求必须包含 `Idempotency-Key`，JSON body 默认最大 16 MiB，并可通过 `SESSION_COMMAND_MAX_BYTES` 调整；body 的 `commandId` 用于结果关联，幂等键用于 Writer 账本去重。响应为 `{ data: { commandId, status, duplicate } }`。
 
 | `type` | 必填字段 | HTTP 结果 | 说明 |
 |--------|----------|-----------|------|
 | `prompt` | `commandId`, `sessionId`, `clientMessageId`, `content` | `202 accepted` | 可选 `contextProjectId`, `images`；客户端提交前先订阅 Session |
-| `session.cancel` | `commandId`, `sessionId` | `200 completed` | 取消当前 Runtime turn |
+| `session.cancel` | `commandId`, `sessionId` | `200 completed` | 等待 Runtime 把当前 turn 推进到终态；ACP cancel 超时后依次升级为关闭目标 Session、重启所属 Agent |
 | `sessions.markRead` | `commandId`, `sessionId` | `200 completed` | 标记具体 Session 已读，不批量清项目 |
 | `permission.respond` | `commandId`, `sessionId`, `permissionRequestId` | `200 completed` | 可选 `optionId`, `cancelled` |
 | `elicitation.respond` | `commandId`, `sessionId`, `elicitationRequestId`, `action` | `200 completed` | `action` 为 accept/decline/cancel，可选结构化 `content` |
 
-未知字段和未知 `type` 返回 400，超限返回 413，幂等键冲突返回 409，Command dispatcher 不可用返回 503。相同 Session 按接收顺序执行，不同 Session 可并行。PC 可用 `VITE_COMMAND_TRANSPORT=ws` 显式回滚；移动端和 Guest 保持兼容 WS 命令。
+未知字段和未知 `type` 返回 400，超限返回 413，幂等键冲突返回 409，Command dispatcher 不可用返回 503。相同 Session 按 turn、interaction、cancel、read-state lane 分别串行，不同 lane 和不同 Session 可并行。PC 可用 `VITE_COMMAND_TRANSPORT=ws` 显式回滚；移动端和 Guest 保持兼容 WS 命令。
 
 ## 连接
 
@@ -92,7 +92,7 @@ Runtime 可见 patch 不经过 API 事件总线，而是通过 Runtime→Realtim
 | `session.setModel` | `{ sessionId, modelId }` | `void` | 切换模型；成功后写入 `sessions.runtime_preferences_json.modelId` |
 | `session.setMode` | `{ sessionId, modeId }` | `void` | 切换模式；成功后写入 `sessions.runtime_preferences_json.modeId` |
 | `session.setConfig` | `{ sessionId, configId, value }` | `void` | 切换配置；成功后写入 `sessions.runtime_preferences_json.config[configId]` |
-| `session.cancel` | `{ sessionId }` | `{ ok: true }` | 通过 ACP `session/cancel` 停止当前轮次，不杀 runtime 进程 |
+| `session.cancel` | `{ sessionId }` | `{ ok: true }` | HTTP Command 的 WS 兼容入口；使用相同的 Runtime 终态取消和升级策略 |
 | `session.fork` | `{ sessionId }` | `Session` | Fork 会话 |
 | `sessions.messages` | `{ sessionId, limit?, before?, includeToolCalls? }` | `Message[]` | HTTP Query Port 的 WS 兼容桥；默认不返回完整历史工具 JSON，只返回 `has_tool_calls` / `tool_call_count`，并返回 ACP diff 文件变更轻量摘要 `file_changes_json` / `has_file_changes` / `file_change_count` |
 | `sessions.messageToolCalls` | `{ sessionId, messageId }` | `ToolCallSummary[]` | 懒加载单条消息的工具调用摘要 |
@@ -220,7 +220,7 @@ Runtime 可见 patch 不经过 API 事件总线，而是通过 Runtime→Realtim
 | `session:update` | `{ sessionId, agentId, data }` | 流式会话更新，包含消息、工具、权限、提问、计划和 `lifecycle.*` 阶段 |
 | `session:process_item` | `{ sessionId, agentId?, item }` | 当前轮执行过程块的轻量增量；用于实时展示思考、工具、权限、提问、计划、文件修改等过程 |
 | `session:event` | `{ sessionId, agentId?, event }` | 持久化事件 |
-| `session:done` | `{ sessionId, agentId, messageId, turnId?, turnUsage? }` | Agent 回复完成；`turnId` 仅用于诊断日志/前后端事件关联 |
+| `session:done` | `{ sessionId, agentId, messageId, turnId?, stopReason, turnUsage? }` | Agent 回复完成；取消沿用原 turn 的 `messageId`/`turnId` 且只发布一次，`stopReason` 可为 `cancelled` |
 | `session:activity` | `{ sessionId, agentId, turnId?, state, reason, timestamp }` | 全局轻量事件：`running` 表示会话开始执行，`idle` 表示会话执行结束；用于左侧会话列表活动/未读提示，不承载聊天内容；`turnId` 仅用于诊断 |
 | `session:capabilities` | `{ sessionId, capabilities }` | 会话能力信息 |
 | `session:changed` | `{ sessionId, data }` | Session 标题、状态、归档/删除等列表元数据变更 |

@@ -3,7 +3,7 @@ import { resolve } from 'node:path'
 import { toolStore, toolBindingStore } from '../store/tools.js'
 import { createChildLogger } from '../core/logger.js'
 import type { ToolConfig, ResolvedTool, ToolDefinition, ToolBinding, ToolPermissions } from './types.js'
-import { createToolContext } from './registry/context-registry.js'
+import { getOrCreateToolContext } from './registry/context-registry.js'
 import { resolveVisiblePlatformTools } from './registry/visibility-resolver.js'
 import { teamMemberStore } from '../store/teams.js'
 import { TEAM_LEADER_INITIAL_HIDDEN_TOOLS } from './team-profiles.js'
@@ -125,7 +125,7 @@ export function resolveToolsAsMcpServers(
     const visibleTools = resolveVisiblePlatformTools({ agentId, projectId, sessionId: options.sessionId }).map(
       (tool) => tool.definition.name,
     )
-    const { token } = createToolContext({
+    const { token } = getOrCreateToolContext({
       sessionId: options.sessionId,
       agentId: agentId ?? '',
       projectId,

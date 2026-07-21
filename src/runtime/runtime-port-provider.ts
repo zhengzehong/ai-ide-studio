@@ -1,4 +1,4 @@
-import type { RuntimePort } from '../ports/runtime-port.js'
+import type { RuntimePlatformToolTransport, RuntimePort } from '../ports/runtime-port.js'
 import { EmbeddedRuntimePort } from './api/embedded-runtime-port.js'
 
 const defaultRuntimePort = new EmbeddedRuntimePort()
@@ -14,6 +14,10 @@ export function setRuntimePort(port: RuntimePort): () => void {
 
 export function getRuntimePort(): RuntimePort {
   return activeRuntimePort
+}
+
+export function getRuntimePlatformToolTransport(): RuntimePlatformToolTransport | undefined {
+  return activeRuntimePort.platformToolTransport
 }
 
 export function resetRuntimePort(): void {

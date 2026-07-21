@@ -40,7 +40,7 @@ function runtimePort(): RuntimePort {
   return {
     ensureSession: vi.fn(async () => 'acp-1'),
     prompt: vi.fn(async () => undefined),
-    cancelPrompt: vi.fn(async () => undefined),
+    cancelPrompt: vi.fn(async () => ({ status: 'not-active' as const })),
     closeSession: vi.fn(async () => undefined),
     forkSession: vi.fn(async () => 'acp-fork'),
     setModel: vi.fn(async () => undefined),

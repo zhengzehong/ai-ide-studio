@@ -2,15 +2,21 @@ import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { defaultCaps } from '../../ui/src/stores/session-events.ts'
 
 const wsMock = vi.hoisted(() => ({
+  handlers: new Map<string, Set<(msg: Record<string, unknown>) => void>>(),
   request: vi.fn(async () => null),
   send: vi.fn(),
   subscribe: vi.fn(),
   unsubscribe: vi.fn(),
-  on: vi.fn(() => () => undefined),
+  on: vi.fn(),
 }))
+const commandMock = vi.hoisted(() => ({ execute: vi.fn() }))
 
 vi.mock('../../ui/src/services/ws-client', () => ({
   wsClient: wsMock,
+}))
+vi.mock('../../ui/src/services/command-client', () => ({
+  commandClient: commandMock,
+  toCommandImages: (images?: Array<{ data?: string; mimeType: string }>) => images,
 }))
 
 const { useGlobalAssistantStore } = await import('../../ui/src/stores/global-assistant.store.ts')
@@ -36,6 +42,8 @@ function resetStore(): void {
     hasMoreMessages: false,
     loadingOlderMessages: false,
     running: false,
+    stopping: false,
+    stopError: null,
     unread: false,
     error: null,
     fileChangeDetailsByMessageId: {},
@@ -61,7 +69,14 @@ describe('global assistant store', () => {
     wsMock.subscribe.mockReset()
     wsMock.unsubscribe.mockReset()
     wsMock.on.mockReset()
-    wsMock.on.mockReturnValue(() => undefined)
+    wsMock.handlers.clear()
+    wsMock.on.mockImplementation((event: string, handler: (msg: Record<string, unknown>) => void) => {
+      if (!wsMock.handlers.has(event)) wsMock.handlers.set(event, new Set())
+      wsMock.handlers.get(event)?.add(handler)
+      return () => wsMock.handlers.get(event)?.delete(handler)
+    })
+    commandMock.execute.mockReset()
+    commandMock.execute.mockResolvedValue({ commandId: 'command-1', status: 'accepted', duplicate: false })
   })
 
   test('binds a template and subscribes to its fixed session', async () => {
@@ -176,7 +191,7 @@ describe('global assistant store', () => {
     expect(wsMock.request).toHaveBeenCalledWith({ type: 'session.getModels', sessionId: 'sess-global' })
   })
 
-  test('sends current project context with global assistant prompts', () => {
+  test('sends current project context with global assistant prompts', async () => {
     useGlobalAssistantStore.setState({
       session: {
         id: 'sess-global',
@@ -193,13 +208,133 @@ describe('global assistant store', () => {
     })
     useProjectStore.setState({ currentProjectId: 'proj-current' })
 
-    useGlobalAssistantStore.getState().sendPrompt('创建当前项目的定时任务')
+    await useGlobalAssistantStore.getState().sendPrompt('创建当前项目的定时任务')
 
-    expect(wsMock.send).toHaveBeenCalledWith(expect.objectContaining({
+    expect(commandMock.execute).toHaveBeenCalledWith(expect.objectContaining({
       type: 'prompt',
       sessionId: 'sess-global',
       content: '创建当前项目的定时任务',
       contextProjectId: 'proj-current',
     }))
   })
+
+  test('deduplicates cancellation and enters stopping state immediately', async () => {
+    let complete: (() => void) | undefined
+    commandMock.execute.mockImplementation(() => new Promise((resolve) => {
+      complete = () => resolve({ commandId: 'cancel-1', status: 'completed', duplicate: false })
+    }))
+    useGlobalAssistantStore.setState({
+      session: sessionFixture('sess-global'),
+      running: true,
+      streamingMessage: streamingFixture('agent-message-global'),
+    })
+
+    const first = useGlobalAssistantStore.getState().cancelTurn()
+    const second = useGlobalAssistantStore.getState().cancelTurn()
+
+    expect(first).toBe(second)
+    expect(useGlobalAssistantStore.getState().stopping).toBe(true)
+    expect(commandMock.execute).toHaveBeenCalledTimes(1)
+    expect(commandMock.execute).toHaveBeenCalledWith(expect.objectContaining({
+      commandId: expect.stringContaining('agent-message-global'),
+      type: 'session.cancel',
+    }))
+
+    complete?.()
+    await first
+  })
+
+  test('keeps the assistant running and shows an error when cancellation fails', async () => {
+    commandMock.execute.mockRejectedValue(new Error('cancel failed'))
+    useGlobalAssistantStore.setState({
+      session: sessionFixture('sess-global-failed'),
+      running: true,
+      streamingMessage: streamingFixture('agent-message-global-failed'),
+    })
+
+    await expect(useGlobalAssistantStore.getState().cancelTurn()).rejects.toThrow('cancel failed')
+
+    expect(useGlobalAssistantStore.getState().stopping).toBe(false)
+    expect(useGlobalAssistantStore.getState().running).toBe(true)
+    expect(useGlobalAssistantStore.getState().stopError).toContain('cancel failed')
+  })
+
+  test('waits for cancellation before sending a replacement assistant prompt', async () => {
+    let completeCancel: (() => void) | undefined
+    commandMock.execute.mockImplementation((command: { type: string }) => {
+      if (command.type === 'session.cancel') {
+        return new Promise((resolve) => {
+          completeCancel = () => resolve({ commandId: 'cancel-queued', status: 'completed', duplicate: false })
+        })
+      }
+      return Promise.resolve({ commandId: 'prompt-after-cancel', status: 'accepted', duplicate: false })
+    })
+    useGlobalAssistantStore.setState({
+      session: sessionFixture('sess-global-queued'),
+      running: true,
+      streamingMessage: streamingFixture('agent-message-global-queued'),
+    })
+
+    const cancellation = useGlobalAssistantStore.getState().cancelTurn()
+    const replacement = useGlobalAssistantStore.getState().sendPrompt('replacement')
+
+    expect(commandMock.execute).toHaveBeenCalledTimes(1)
+    expect(useGlobalAssistantStore.getState().messages).toHaveLength(0)
+
+    completeCancel?.()
+    await cancellation
+    await replacement
+
+    expect(commandMock.execute).toHaveBeenCalledTimes(2)
+    expect(useGlobalAssistantStore.getState().messages[0]?.content).toBe('replacement')
+    expect(useGlobalAssistantStore.getState().stopping).toBe(false)
+  })
+
+  test('clears stopping when the assistant receives a terminal event', () => {
+    useGlobalAssistantStore.setState({
+      session: sessionFixture('sess-global-done'),
+      running: true,
+      stopping: true,
+      stopError: 'old error',
+    })
+    const cleanup = useGlobalAssistantStore.getState().setupListeners()
+
+    try {
+      for (const handler of wsMock.handlers.get('session:done') ?? []) {
+        handler({ sessionId: 'sess-global-done', messageId: 'message-1', stopReason: 'cancelled' })
+      }
+      expect(useGlobalAssistantStore.getState().stopping).toBe(false)
+      expect(useGlobalAssistantStore.getState().stopError).toBeNull()
+    } finally {
+      cleanup()
+    }
+  })
 })
+
+function sessionFixture(id: string) {
+  return {
+    id,
+    agent_id: 'agent-global',
+    task_id: null,
+    acp_session_id: null,
+    status: 'active',
+    stage: '',
+    started_at: '2026-06-10T00:00:00.000Z',
+    closed_at: null,
+    project_id: null,
+    title: 'Global assistant',
+  }
+}
+
+function streamingFixture(id: string) {
+  return {
+    id,
+    role: 'agent' as const,
+    content: '',
+    thinking: '',
+    toolCalls: [],
+    processBlocks: [],
+    finalAnswer: '',
+    done: false,
+  }
+}

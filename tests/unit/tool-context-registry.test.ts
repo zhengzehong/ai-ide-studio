@@ -3,7 +3,12 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { getDb, initDatabase, closeDatabase } from '../../src/store/db.js'
-import { createToolContext, validateToolToken, revokeToolContextBySession } from '../../src/tools/registry/context-registry.js'
+import {
+  createToolContext,
+  getOrCreateToolContext,
+  validateToolToken,
+  revokeToolContextBySession,
+} from '../../src/tools/registry/context-registry.js'
 
 let tmp: string
 
@@ -70,5 +75,23 @@ describe('tool context registry', () => {
       ttlMs: -1,
     })
     expect(validateToolToken(expired.token)).toBeNull()
+  })
+
+  test('revokes a pre-existing Session token before creating a reusable context', () => {
+    const previous = createToolContext({
+      sessionId: 'sess-restarted',
+      agentId: 'agent-restarted',
+      visibleTools: ['core.task.list'],
+    })
+
+    const current = getOrCreateToolContext({
+      sessionId: 'sess-restarted',
+      agentId: 'agent-restarted',
+      visibleTools: ['core.task.list'],
+    })
+
+    expect(current.token).not.toBe(previous.token)
+    expect(validateToolToken(previous.token)).toBeNull()
+    expect(validateToolToken(current.token)).toMatchObject({ sessionId: 'sess-restarted' })
   })
 })

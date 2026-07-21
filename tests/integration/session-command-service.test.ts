@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { executeSessionCommand } from '../../src/commands/session-command-service.js'
 import { closeDatabase, initDatabase } from '../../src/store/db.js'
 import { eventStore, sessionStore } from '../../src/store/sessions.js'
+import { agentStore } from '../../src/store/agents.js'
 import type { RuntimePort } from '../../src/ports/runtime-port.js'
 import { setRuntimePort } from '../../src/runtime/runtime-port-provider.js'
 
@@ -100,13 +101,69 @@ describe('Session command service', () => {
       sessionId: 'missing',
     })).rejects.toThrow('会话不存在')
   })
+  it('surfaces a Runtime ownership mismatch instead of reporting cancel success', async () => {
+    const session = sessionStore.create({ agentId: 'agent-1' })
+    vi.mocked(runtime.cancelPrompt).mockResolvedValueOnce({ status: 'not-found' })
+
+    await expect(executeSessionCommand({
+      commandId: 'command-owner-mismatch',
+      type: 'session.cancel',
+      sessionId: session.id,
+    })).rejects.toThrow('Runtime does not own Session')
+  })
+
+  it('waits for Runtime terminal cancellation without fabricating a timeout done event', async () => {
+    vi.useFakeTimers()
+    const agent = agentStore.create({ id: 'agent-terminal-cancel', name: 'Cancel Agent', type: 'developer', runtime: 'mock' })
+    const session = sessionStore.create({ agentId: agent.id })
+    let finishPrompt: (() => void) | undefined
+    runtime.prompt = vi.fn(() => new Promise<void>((resolve) => { finishPrompt = resolve }))
+    runtime.cancelPrompt = vi.fn(() => new Promise((resolve) => {
+      setTimeout(() => resolve({
+        status: 'requested',
+        escalation: 'cancel',
+        messageId: 'message-original',
+        turnId: 'turn-original',
+      }), 11_000)
+    }))
+    const { events } = await import('../../src/core/events.js')
+    const doneEvents: Array<{ messageId: string }> = []
+    const onDone = (event: { messageId: string }): void => { doneEvents.push(event) }
+    events.on('session:done', onDone)
+
+    const prompt = executeSessionCommand({
+      commandId: 'command-prompt-active',
+      type: 'prompt',
+      sessionId: session.id,
+      content: 'keep running',
+      clientMessageId: 'message-human',
+    })
+    for (let attempt = 0; attempt < 20 && !vi.mocked(runtime.prompt).mock.calls.length; attempt += 1) {
+      await Promise.resolve()
+    }
+    expect(runtime.prompt).toHaveBeenCalledOnce()
+
+    const cancel = executeSessionCommand({
+      commandId: 'command-cancel-terminal',
+      type: 'session.cancel',
+      sessionId: session.id,
+    })
+    await vi.advanceTimersByTimeAsync(11_000)
+    await expect(cancel).resolves.toEqual({ ok: true })
+    expect(doneEvents).toEqual([])
+
+    finishPrompt?.()
+    await prompt
+    events.off('session:done', onDone)
+    vi.useRealTimers()
+  })
 })
 
 function fakeRuntimePort(): RuntimePort {
   return {
     ensureSession: vi.fn(async () => 'acp-1'),
     prompt: vi.fn(async () => undefined),
-    cancelPrompt: vi.fn(async () => undefined),
+    cancelPrompt: vi.fn(async () => ({ status: 'not-active' as const })),
     closeSession: vi.fn(async () => undefined),
     forkSession: vi.fn(async () => 'acp-fork'),
     setModel: vi.fn(async () => undefined),

@@ -4,6 +4,7 @@ import { createChildLogger } from '../../core/logger.js'
 
 const log = createChildLogger('tool-context-registry')
 const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000
+const reusableContexts = new Map<string, { fingerprint: string; token: string }>()
 
 export interface ToolContextRecord {
   id: string
@@ -79,6 +80,20 @@ export function createToolContext(input: CreateToolContextInput): { token: strin
   return { token, context: rowToContext(row) }
 }
 
+export function getOrCreateToolContext(input: CreateToolContextInput): { token: string; context: ToolContextRecord } {
+  const fingerprint = contextFingerprint(input)
+  const cached = reusableContexts.get(input.sessionId)
+  if (cached?.fingerprint === fingerprint) {
+    const context = validateToolToken(cached.token)
+    if (context) return { token: cached.token, context }
+  }
+
+  revokeToolContextBySession(input.sessionId)
+  const created = createToolContext(input)
+  reusableContexts.set(input.sessionId, { fingerprint, token: created.token })
+  return created
+}
+
 export function validateToolToken(token: string): ToolContextRecord | null {
   const row = getDb().prepare<[string], ToolContextRow>('SELECT * FROM tool_contexts WHERE token_hash = ?').get(hashToken(token))
   if (!row) return null
@@ -88,9 +103,22 @@ export function validateToolToken(token: string): ToolContextRecord | null {
 }
 
 export function revokeToolContextBySession(sessionId: string): void {
+  reusableContexts.delete(sessionId)
   const revokedAt = new Date().toISOString()
   getDb().prepare('UPDATE tool_contexts SET revoked_at = ? WHERE session_id = ? AND revoked_at IS NULL').run(revokedAt, sessionId)
   log.info({ sessionId }, '工具上下文已撤销')
+}
+
+function contextFingerprint(input: CreateToolContextInput): string {
+  return JSON.stringify({
+    sessionId: input.sessionId,
+    acpSessionId: input.acpSessionId ?? null,
+    agentId: input.agentId,
+    projectId: input.projectId ?? null,
+    teamId: input.teamId ?? null,
+    teamMemberId: input.teamMemberId ?? null,
+    visibleTools: [...input.visibleTools].sort(),
+  })
 }
 
 function hashToken(token: string): string {

@@ -5,6 +5,7 @@ import { commandClient, toCommandImages } from '../services/command-client'
 import type { AgentData } from './agent.store'
 import { useProjectStore } from './project.store'
 import type { SessionData } from './session.store'
+import { createSessionCancelCoordinator } from './session-cancel-coordinator'
 import {
   appendFinalizedMessage,
   applySessionEvent,
@@ -83,6 +84,8 @@ interface GlobalAssistantStore {
   hasMoreMessages: boolean
   loadingOlderMessages: boolean
   running: boolean
+  stopping: boolean
+  stopError: string | null
   unread: boolean
   error: string | null
   fileChangeDetailsByMessageId: Record<string, FileChangeDetailInfo>
@@ -97,7 +100,7 @@ interface GlobalAssistantStore {
   setFromTemplate: (templateId: string, input?: { name?: string; runtime?: string; systemPrompt?: string; modelProfileId?: string | null }) => Promise<void>
   openDrawer: () => Promise<void>
   closeDrawer: () => void
-  sendPrompt: (content: string, images?: ImageAttachmentInfo[]) => void
+  sendPrompt: (content: string, images?: ImageAttachmentInfo[]) => Promise<void>
   setModel: (modelId: string) => Promise<void>
   setMode: (modeId: string) => Promise<void>
   setConfig: (configId: string, value: string | boolean) => Promise<void>
@@ -118,6 +121,7 @@ let activeSubscribedSessionId: string | null = null
 let listenersSetup = false
 let cleanupFn: (() => void) | null = null
 let promptStartTime = 0
+const globalAssistantCancelCoordinator = createSessionCancelCoordinator((command) => commandClient.execute(command))
 
 function currentSessionId(state: Pick<GlobalAssistantStore, 'session'>): string | null {
   return state.session?.id ?? null
@@ -277,6 +281,11 @@ function withoutKey<T>(record: Record<string, T>, key: string): Record<string, T
   return next
 }
 
+function cancelFailureMessage(error: unknown): string {
+  const detail = error instanceof Error ? error.message : String(error)
+  return `停止失败：${detail}`
+}
+
 async function activatePayload(
   payload: GlobalAssistantPayload | null,
   set: (partial: Partial<GlobalAssistantStore> | ((state: GlobalAssistantStore) => Partial<GlobalAssistantStore>)) => void,
@@ -284,9 +293,15 @@ async function activatePayload(
   loadCapabilities = false,
 ): Promise<void> {
   if (!payload) {
+    const previousSessionId = currentSessionId(get())
+    if (previousSessionId) globalAssistantCancelCoordinator.clear(previousSessionId)
     clearSubscription()
-    set({ assistant: null, agent: null, session: null, messages: [], events: [], streamingMessage: null, unread: false, running: false })
+    set({ assistant: null, agent: null, session: null, messages: [], events: [], streamingMessage: null, unread: false, running: false, stopping: false, stopError: null })
     return
+  }
+  const previousSessionId = currentSessionId(get())
+  if (previousSessionId && previousSessionId !== payload.session.id) {
+    globalAssistantCancelCoordinator.clear(previousSessionId)
   }
   ensureSubscription(payload.session.id)
   set({
@@ -295,6 +310,8 @@ async function activatePayload(
     session: payload.session,
     error: null,
     unread: false,
+    stopping: false,
+    stopError: null,
   })
   await Promise.all([
     get().fetchMessages(),
@@ -321,6 +338,8 @@ export const useGlobalAssistantStore = create<GlobalAssistantStore>((set, get) =
   hasMoreMessages: false,
   loadingOlderMessages: false,
   running: false,
+  stopping: false,
+  stopError: null,
   unread: false,
   error: null,
   fileChangeDetailsByMessageId: {},
@@ -367,23 +386,20 @@ export const useGlobalAssistantStore = create<GlobalAssistantStore>((set, get) =
 
   closeDrawer: () => set({ open: false }),
 
-  sendPrompt: (content, images) => {
+  sendPrompt: async (content, images) => {
     const sid = currentSessionId(get())
-    if (!sid || get().running) return
+    if (!sid) return
+    const pendingCancel = globalAssistantCancelCoordinator.pending(sid)
+    if (get().running && !get().stopping && !pendingCancel) return
     const trimmed = content.trim()
     if (!trimmed && !images?.length) return
+    if (pendingCancel) await pendingCancel
+    if (sid !== currentSessionId(get())) throw new Error('会话已切换，请重新发送')
+    globalAssistantCancelCoordinator.clear(sid)
     const clientMessageId = `msg-local-${Date.now()}`
+    const pendingStreamingId = `pending-${sid}-${Date.now()}`
     const commandImages = toCommandImages(images)
     const currentProjectId = useProjectStore.getState().currentProjectId
-    void commandClient.execute({
-      commandId: `cmd-${clientMessageId}`,
-      type: 'prompt',
-      sessionId: sid,
-      content: trimmed,
-      clientMessageId,
-      ...(currentProjectId ? { contextProjectId: currentProjectId } : {}),
-      ...(commandImages ? { images: commandImages } : {}),
-    })
     promptStartTime = Date.now()
     set((state) => ({
       messages: [
@@ -401,11 +417,34 @@ export const useGlobalAssistantStore = create<GlobalAssistantStore>((set, get) =
           timestamp: new Date().toISOString(),
         }),
       ],
-      streamingMessage: applyTurnEntry(createEmptyTurn(`pending-${sid}-${Date.now()}`), { kind: 'stage', text: '正在准备 Agent...' }),
+      streamingMessage: applyTurnEntry(createEmptyTurn(pendingStreamingId), { kind: 'stage', text: '正在准备 Agent...' }),
       turnUsage: null,
       running: true,
+      stopping: false,
+      stopError: null,
       unread: false,
     }))
+    try {
+      await commandClient.execute({
+        commandId: `cmd-${clientMessageId}`,
+        type: 'prompt',
+        sessionId: sid,
+        content: trimmed,
+        clientMessageId,
+        ...(currentProjectId ? { contextProjectId: currentProjectId } : {}),
+        ...(commandImages ? { images: commandImages } : {}),
+      })
+    } catch (error) {
+      set((state) => {
+        const ownsPendingTurn = state.streamingMessage?.id === pendingStreamingId
+        return {
+          messages: state.messages.filter((message) => message.id !== clientMessageId),
+          streamingMessage: ownsPendingTurn ? null : state.streamingMessage,
+          running: ownsPendingTurn ? false : state.running,
+        }
+      })
+      throw error
+    }
   },
 
   setModel: async (modelId) => {
@@ -428,13 +467,14 @@ export const useGlobalAssistantStore = create<GlobalAssistantStore>((set, get) =
     await wsClient.request({ type: 'session.setConfig', sessionId: sid, configId, value })
   },
 
-  cancelTurn: async () => {
+  cancelTurn: () => {
     const sid = currentSessionId(get())
-    if (!sid) return
-    await commandClient.execute({
-      commandId: `cmd-cancel-${sid}-${Date.now()}`,
-      type: 'session.cancel',
+    if (!sid) return Promise.resolve()
+    return globalAssistantCancelCoordinator.cancel({
       sessionId: sid,
+      turnId: get().streamingMessage?.id,
+      onStart: () => set({ stopping: true, stopError: null }),
+      onFailure: (error) => set({ stopping: false, stopError: cancelFailureMessage(error) }),
     })
   },
 
@@ -713,6 +753,7 @@ export const useGlobalAssistantStore = create<GlobalAssistantStore>((set, get) =
     offs.push(wsClient.on('session:done', (msg) => {
       const sid = String(msg.sessionId || '')
       if (sid !== currentSessionId(get())) return
+      globalAssistantCancelCoordinator.clear(sid)
       const turnUsage = msg.turnUsage as TurnUsageInfo | undefined
       const elapsed = promptStartTime > 0 ? Math.round((Date.now() - promptStartTime) / 1000) : undefined
       const cost = get().usage?.costAmount
@@ -743,6 +784,8 @@ export const useGlobalAssistantStore = create<GlobalAssistantStore>((set, get) =
           turnUsage: turnUsage || state.turnUsage,
           plan: clearPlanOnTurnDone(),
           running: false,
+          stopping: false,
+          stopError: null,
           unread: !state.open,
         }))
       } else {
@@ -756,6 +799,8 @@ export const useGlobalAssistantStore = create<GlobalAssistantStore>((set, get) =
           turnUsage: turnUsage || state.turnUsage,
           plan: clearPlanOnTurnDone(),
           running: false,
+          stopping: false,
+          stopError: null,
           unread: !state.open,
         }))
       }
@@ -773,8 +818,11 @@ export const useGlobalAssistantStore = create<GlobalAssistantStore>((set, get) =
       const sid = String(msg.sessionId || '')
       if (sid !== currentSessionId(get())) return
       const running = msg.state === 'running'
+      if (!running) globalAssistantCancelCoordinator.clear(sid)
       set((state) => ({
         running,
+        stopping: running ? state.stopping : false,
+        stopError: running ? state.stopError : null,
         unread: running ? false : !state.open,
         streamingMessage: running ? state.streamingMessage : null,
       }))

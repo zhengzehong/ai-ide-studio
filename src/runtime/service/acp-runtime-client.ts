@@ -21,6 +21,7 @@ interface BoundSession {
   autoApprovedToolNames: Set<string>
   messageId?: string
   turnId?: string
+  streamGeneration?: string
 }
 
 interface PendingInteraction<T> {
@@ -33,6 +34,7 @@ export interface AcpRuntimeClientOptions {
   publishUpdate: (update: RuntimeCoalescibleUpdate) => void
   updateCapabilities: (sessionId: string, update: (current: SessionCapabilities) => SessionCapabilities) => void
   publishCapabilities?: (sessionId: string, capabilities: SessionCapabilities) => void
+  acceptTurnUpdate?: (sessionId: string, streamGeneration: string) => boolean
   resources?: ResourceGovernor
 }
 
@@ -40,8 +42,8 @@ export interface AcpRuntimeClientRouter {
   client: acp.Client
   bindSession(sessionId: string, acpSessionId: string, autoApprovedToolNames: string[]): void
   unbindSession(sessionId: string): void
-  beginTurn(sessionId: string, messageId: string, turnId?: string): void
-  endTurn(sessionId: string): void
+  beginTurn(sessionId: string, messageId: string, turnId?: string, streamGeneration?: string): void
+  endTurn(sessionId: string, streamGeneration?: string): void
   cancelSession(sessionId: string): void
   hasPendingInteractions(sessionId?: string): boolean
   resolvePermission(sessionId: string, requestId: string, optionId?: string, cancelled?: boolean): boolean
@@ -65,6 +67,9 @@ export function createAcpRuntimeClient(options: AcpRuntimeClientOptions): AcpRun
   let closed = false
 
   const publish = (bound: BoundSession, data: SessionUpdateData): void => {
+    if (bound.streamGeneration
+      && options.acceptTurnUpdate
+      && !options.acceptTurnUpdate(bound.ourSessionId, bound.streamGeneration)) return
     options.publishUpdate({
       kind: 'session-update',
       sessionId: bound.ourSessionId,
@@ -245,17 +250,18 @@ export function createAcpRuntimeClient(options: AcpRuntimeClientOptions): AcpRun
       if (acpSessionId) byAcpSession.delete(acpSessionId)
       acpByOurSession.delete(sessionId)
     },
-    beginTurn(sessionId, messageId, turnId) {
+    beginTurn(sessionId, messageId, turnId, streamGeneration) {
       const acpSessionId = acpByOurSession.get(sessionId)
       const bound = acpSessionId ? byAcpSession.get(acpSessionId) : undefined
-      if (bound) Object.assign(bound, { messageId, turnId })
+      if (bound) Object.assign(bound, { messageId, turnId, streamGeneration })
     },
-    endTurn(sessionId) {
+    endTurn(sessionId, streamGeneration) {
       const acpSessionId = acpByOurSession.get(sessionId)
       const bound = acpSessionId ? byAcpSession.get(acpSessionId) : undefined
-      if (bound) {
+      if (bound && (!streamGeneration || bound.streamGeneration === streamGeneration)) {
         delete bound.messageId
         delete bound.turnId
+        delete bound.streamGeneration
       }
     },
     cancelSession(sessionId) {

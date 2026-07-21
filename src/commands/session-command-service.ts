@@ -2,7 +2,7 @@ import { events } from '../core/events.js'
 import { createChildLogger } from '../core/logger.js'
 import { sessionManager } from '../core/sessions.js'
 import { getRuntimePort } from '../runtime/runtime-port-provider.js'
-import { shouldForceRuntimeCancel } from '../runtime/api/runtime-cancel-watchdog.js'
+import type { RuntimeCancelResult } from '../ports/runtime-port.js'
 import { eventStore, sessionStore } from '../store/sessions.js'
 import type { SessionCommand } from './session-command-types.js'
 
@@ -40,19 +40,20 @@ export async function executeSessionCommand(
 async function cancelSessionPrompt(sessionId: string): Promise<void> {
   const session = sessionStore.get(sessionId)
   if (!session) throw new Error('会话不存在')
-  const completed = await Promise.race([
-    getRuntimePort().cancelPrompt(session.agent_id, sessionId).then(() => true),
-    new Promise<false>((resolve) => setTimeout(() => resolve(false), 10_000)),
-  ])
-  if (!shouldForceRuntimeCancel(completed, sessionManager.isPromptActive(sessionId))) return
-  sessionManager.forceClearActivePrompt(sessionId)
-  log.warn({ sessionId, agentId: session.agent_id }, 'Runtime cancel timed out; forcing done')
-  events.emit('session:done', {
-    sessionId,
-    agentId: session.agent_id,
-    messageId: `cancel-timeout-${Date.now()}`,
-    stopReason: 'cancelled',
-  })
+  const result = await getRuntimePort().cancelPrompt(session.agent_id, sessionId)
+  logCancelResult(sessionId, session.agent_id, result)
+}
+
+function logCancelResult(sessionId: string, agentId: string, result: RuntimeCancelResult): void {
+  const context = { sessionId, agentId, cancelStatus: result.status }
+  if (result.status === 'not-found') {
+    log.warn(context, 'Runtime did not own Session cancellation request')
+    throw new Error(`Runtime does not own Session: ${sessionId}`)
+  }
+  log.info(
+    result.status === 'requested' ? { ...context, escalation: result.escalation, turnId: result.turnId } : context,
+    'Runtime cancellation request completed',
+  )
 }
 
 function markSessionRead(sessionId: string): { sessionId: string; lastReadAt: string } {

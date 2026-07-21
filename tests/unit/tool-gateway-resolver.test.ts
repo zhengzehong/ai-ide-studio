@@ -243,6 +243,57 @@ describe('Tool Gateway resolver', () => {
     expect(authorization).toMatch(/^Bearer .+/)
   })
 
+  test('reuses one HTTP tool token until the visible Session context changes', () => {
+    const project = projectStore.create({ name: 'Stable token project', workDir: tmp })
+    const agent = agentStore.create({
+      id: 'agent-stable-token',
+      type: 'dev',
+      name: 'Stable token Agent',
+      runtime: 'claude',
+      projectId: project.id,
+    })
+    const session = sessionStore.create({ agentId: agent.id, projectId: project.id })
+    const listTool = toolStore.create({
+      name: 'core.task.list',
+      displayName: 'List tasks',
+      description: 'List tasks',
+      category: 'automation',
+      type: 'builtin',
+      config: { handler: 'core.task.list' },
+      permissions: { requiresApproval: false, maxExecutionTime: 10_000, networkAccess: false },
+      isBuiltin: true,
+    })
+    toolBindingStore.set(listTool.id, 'global', null)
+    const options = {
+      agentId: agent.id,
+      projectId: project.id,
+      sessionId: session.id,
+      preferHttp: true,
+      baseUrl: 'http://127.0.0.1:18900',
+    }
+
+    const first = bearerToken(resolveToolsAsMcpServers(options))
+    const second = bearerToken(resolveToolsAsMcpServers(options))
+    expect(second).toBe(first)
+
+    const createTool = toolStore.create({
+      name: 'core.task.create',
+      displayName: 'Create task',
+      description: 'Create task',
+      category: 'automation',
+      type: 'builtin',
+      config: { handler: 'core.task.create' },
+      permissions: { requiresApproval: false, maxExecutionTime: 10_000, networkAccess: false },
+      isBuiltin: true,
+    })
+    toolBindingStore.set(createTool.id, 'global', null)
+
+    const rotated = bearerToken(resolveToolsAsMcpServers(options))
+    expect(rotated).not.toBe(first)
+    expect(validateToolToken(first)).toBeNull()
+    expect(validateToolToken(rotated)?.visibleTools.sort()).toEqual(['core.task.create', 'core.task.list'])
+  })
+
   test('injects team context into HTTP tool tokens from member session', () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const agent = agentStore.create({
@@ -435,3 +486,8 @@ describe('Tool Gateway resolver', () => {
     ])
   })
 })
+
+function bearerToken(servers: ReturnType<typeof resolveToolsAsMcpServers>): string {
+  const authorization = servers[0]?.headers?.find((header) => header.name === 'Authorization')?.value
+  return authorization?.replace(/^Bearer\s+/i, '') ?? ''
+}

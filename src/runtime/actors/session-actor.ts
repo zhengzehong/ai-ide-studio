@@ -73,6 +73,12 @@ export class RuntimeSessionActorScheduler {
     return { streamGeneration: actor.streamGeneration, sequence: actor.sequence }
   }
 
+  fenceSession(sessionId: string): void {
+    const actor = this.actor(sessionId)
+    actor.streamGeneration = this.generationFactory()
+    actor.sequence = 0
+  }
+
   pendingCount(sessionId?: string): number {
     if (sessionId) return this.actors.get(sessionId)?.pendingItems ?? 0
     return [...this.actors.values()].reduce((total, actor) => total + actor.pendingItems, 0)

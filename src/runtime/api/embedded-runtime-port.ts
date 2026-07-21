@@ -1,6 +1,7 @@
 import { acpHost } from '../../acp/host.js'
 import type { AcpSessionContext } from '../../acp/host-types.js'
 import type {
+  RuntimeCancelResult,
   RuntimeElicitationContent,
   RuntimePort,
   RuntimePromptInput,
@@ -72,8 +73,9 @@ export class EmbeddedRuntimePort implements RuntimePort {
     )
   }
 
-  cancelPrompt(agentId: string, sessionId: string): Promise<void> {
-    return this.host.cancelPrompt(agentId, sessionId)
+  async cancelPrompt(agentId: string, sessionId: string): Promise<RuntimeCancelResult> {
+    await this.host.cancelPrompt(agentId, sessionId)
+    return { status: 'requested', escalation: 'cancel', messageId: `embedded-${sessionId}` }
   }
 
   closeSession(agentId: string, sessionId: string): Promise<void> {

@@ -204,4 +204,30 @@ describe('database-free ACP Runtime client', () => {
     expect(capabilities.currentModeId).toBe('plan')
     expect(published.at(-1)?.currentModeId).toBe('plan')
   })
+
+  test('drops turn updates after the Runtime generation is fenced', async () => {
+    const updates: RuntimeCoalescibleUpdate[] = []
+    let activeGeneration = 'generation-a'
+    const router = createAcpRuntimeClient({
+      agentId: 'agent-a',
+      publishUpdate: (update) => { updates.push(update) },
+      updateCapabilities: () => undefined,
+      acceptTurnUpdate: (_sessionId, generation) => generation === activeGeneration,
+    })
+    router.bindSession('session-a', 'acp-a', [])
+    router.beginTurn('session-a', 'message-a', 'turn-a', 'generation-a')
+
+    await router.client.sessionUpdate({
+      sessionId: 'acp-a',
+      update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'before' } },
+    } as never)
+    activeGeneration = 'generation-b'
+    await router.client.sessionUpdate({
+      sessionId: 'acp-a',
+      update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'late' } },
+    } as never)
+
+    expect(updates).toHaveLength(1)
+    expect(updates[0]).toMatchObject({ messageId: 'message-a', data: { contentDelta: 'before' } })
+  })
 })

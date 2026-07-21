@@ -7,6 +7,7 @@ import { sessionStore } from '../../store/sessions.js'
 import { teamMemberStore } from '../../store/teams.js'
 import { resolveToolsAsMcpServers } from '../../tools/resolver.js'
 import { resolveVisiblePlatformTools } from '../../tools/registry/visibility-resolver.js'
+import { getRuntimePlatformToolTransport } from '../runtime-port-provider.js'
 
 const AUTO_APPROVED_TEAM_TOOLS = new Set(['team.mailbox.send', 'team.task.update'])
 
@@ -19,6 +20,7 @@ export interface BuildRuntimeStateSnapshotInput {
 }
 
 export function buildRuntimeStateSnapshot(input: BuildRuntimeStateSnapshotInput): RuntimeStateSnapshot {
+  const platformToolTransport = getRuntimePlatformToolTransport()
   const session = sessionStore.get(input.sessionId)
   if (!session) throw new Error(`Session not found: ${input.sessionId}`)
 
@@ -81,8 +83,8 @@ export function buildRuntimeStateSnapshot(input: BuildRuntimeStateSnapshotInput)
       sessionId: session.id,
       teamId: teamMember?.team_id,
       teamMemberId: teamMember?.id,
-      preferHttp: input.emitHttpMcp,
-      baseUrl: input.httpMcpBaseUrl,
+      preferHttp: input.emitHttpMcp ?? platformToolTransport?.type === 'http',
+      baseUrl: input.httpMcpBaseUrl ?? platformToolTransport?.baseUrl,
     }),
     team: teamMember
       ? { teamId: teamMember.team_id, memberId: teamMember.id, role: teamMember.role }

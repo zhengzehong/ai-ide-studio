@@ -42,6 +42,8 @@ function resetStore(): void {
     pendingPermissions: [],
     pendingElicitations: [],
     runningSessionIds: {},
+    stoppingSessionIds: {},
+    stopErrorsBySession: {},
     unreadSessionIds: {},
     staleSessionIds: {},
   })
@@ -83,4 +85,91 @@ describe('Session Prompt acceptance boundary', () => {
     expect(useSessionStore.getState().streamingMessage).toBeNull()
     expect(useSessionStore.getState().runningSessionIds['session-1']).toBeUndefined()
   })
+
+  it('marks cancellation immediately and deduplicates repeated clicks for the active turn', async () => {
+    let complete: (() => void) | undefined
+    commandMock.execute.mockImplementation(() => new Promise((resolve) => {
+      complete = () => resolve({ commandId: 'cancel-1', status: 'completed', duplicate: false })
+    }))
+    useSessionStore.setState({
+      runningSessionIds: { 'session-1': true },
+      streamingMessage: streamingFixture('agent-message-1'),
+    })
+
+    const first = useSessionStore.getState().cancelTurn()
+    const second = useSessionStore.getState().cancelTurn()
+
+    expect(first).toBe(second)
+    expect(useSessionStore.getState().stoppingSessionIds['session-1']).toBe(true)
+    expect(commandMock.execute).toHaveBeenCalledTimes(1)
+    expect(commandMock.execute).toHaveBeenCalledWith(expect.objectContaining({
+      commandId: expect.stringContaining('agent-message-1'),
+      type: 'session.cancel',
+      sessionId: 'session-1',
+    }))
+
+    complete?.()
+    await first
+  })
+
+  it('clears stopping, preserves running, and exposes an error when cancellation fails', async () => {
+    commandMock.execute.mockRejectedValue(new Error('cancel failed'))
+    useSessionStore.setState({
+      runningSessionIds: { 'session-1': true },
+      streamingMessage: streamingFixture('agent-message-failed-cancel'),
+    })
+
+    await expect(useSessionStore.getState().cancelTurn()).rejects.toThrow('cancel failed')
+
+    expect(useSessionStore.getState().stoppingSessionIds['session-1']).toBeUndefined()
+    expect(useSessionStore.getState().runningSessionIds['session-1']).toBe(true)
+    expect(useSessionStore.getState().stopErrorsBySession['session-1']).toContain('cancel failed')
+  })
+
+  it('waits for an in-flight cancellation before accepting a replacement prompt', async () => {
+    let completeCancel: (() => void) | undefined
+    commandMock.execute.mockImplementation((command: { type: string }) => {
+      if (command.type === 'session.cancel') {
+        return new Promise((resolve) => {
+          completeCancel = () => resolve({ commandId: 'cancel-queued', status: 'completed', duplicate: false })
+        })
+      }
+      return Promise.resolve({ commandId: 'prompt-after-cancel', status: 'accepted', duplicate: false })
+    })
+    useSessionStore.setState({
+      runningSessionIds: { 'session-1': true },
+      streamingMessage: streamingFixture('agent-message-before-replacement'),
+    })
+
+    const cancellation = useSessionStore.getState().cancelTurn()
+    const replacement = useSessionStore.getState().sendPrompt('replacement')
+
+    expect(commandMock.execute).toHaveBeenCalledTimes(1)
+    expect(useSessionStore.getState().messages).toHaveLength(0)
+
+    completeCancel?.()
+    await cancellation
+    await replacement
+
+    expect(commandMock.execute).toHaveBeenCalledTimes(2)
+    expect(commandMock.execute.mock.calls[1]?.[0]).toEqual(expect.objectContaining({
+      type: 'prompt',
+      content: 'replacement',
+    }))
+    expect(useSessionStore.getState().messages[0]?.content).toBe('replacement')
+    expect(useSessionStore.getState().stoppingSessionIds['session-1']).toBeUndefined()
+  })
 })
+
+function streamingFixture(id: string) {
+  return {
+    id,
+    role: 'agent' as const,
+    content: '',
+    thinking: '',
+    toolCalls: [],
+    processBlocks: [],
+    finalAnswer: '',
+    done: false,
+  }
+}

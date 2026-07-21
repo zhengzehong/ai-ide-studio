@@ -44,6 +44,7 @@ import {
   type UsageInfo,
 } from './session-events'
 import { StreamingBuffer } from './streaming-buffer'
+import { createSessionCancelCoordinator } from './session-cancel-coordinator'
 import {
   applyTurnEntry,
   createEmptyTurn,
@@ -217,6 +218,8 @@ interface SessionStore {
   processItemLoadingByKey: Record<string, boolean>
   processItemErrorByKey: Record<string, string>
   runningSessionIds: SessionIndicatorStateMap
+  stoppingSessionIds: SessionIndicatorStateMap
+  stopErrorsBySession: Record<string, string>
   unreadSessionIds: SessionIndicatorStateMap
   staleSessionIds: SessionIndicatorStateMap
 
@@ -274,6 +277,7 @@ let promptStartTime = 0
 let lastStreamingSnapshot: StreamingMessage | null = null
 let activeSessionsProjectId: string | null = null
 const sessionListFetches = new Map<string, Promise<void>>()
+const sessionCancelCoordinator = createSessionCancelCoordinator((command) => commandClient.execute(command))
 const sessionCaches = new Map<string, SessionCache>()
 const cacheSaveTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const eventCursorBySession = new Map<string, number>()
@@ -812,6 +816,11 @@ function withoutKey<T>(record: Record<string, T>, key: string): Record<string, T
   return next
 }
 
+function cancelFailureMessage(error: unknown): string {
+  const detail = error instanceof Error ? error.message : String(error)
+  return `停止失败：${detail}`
+}
+
 function reconcileCopyingSessions(
   sessions: SessionData[],
   currentTargets: Record<string, string>,
@@ -860,6 +869,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   processItemLoadingByKey: {},
   processItemErrorByKey: {},
   runningSessionIds: {},
+  stoppingSessionIds: {},
+  stopErrorsBySession: {},
   unreadSessionIds: {},
   staleSessionIds: {},
 
@@ -1424,6 +1435,16 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     if (!sid) return
     const session = get().sessions.find((item) => item.id === sid)
     if (isCopyingSession(session) || get().copyingTargetSessionIds[sid]) return
+    const pendingCancel = sessionCancelCoordinator.pending(sid)
+    if (pendingCancel) {
+      await pendingCancel
+      if (get().currentSessionId !== sid) throw new Error('会话已切换，请重新发送')
+    }
+    sessionCancelCoordinator.clear(sid)
+    set((state) => ({
+      stoppingSessionIds: removeSessionIndicator(state.stoppingSessionIds, sid),
+      stopErrorsBySession: withoutKey(state.stopErrorsBySession, sid),
+    }))
     const clientMessageId = `msg-local-${Date.now()}`
     const pendingStreamingId = `pending-${sid}-${Date.now()}`
     const commandImages = toCommandImages(images)
@@ -1509,18 +1530,21 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     }
   },
 
-  cancelTurn: async () => {
+  cancelTurn: () => {
     const sid = get().currentSessionId
-    if (!sid) return
-    try {
-      await commandClient.execute({
-        commandId: `cmd-cancel-${sid}-${Date.now()}`,
-        type: 'session.cancel',
-        sessionId: sid,
-      })
-    } catch (e) {
-      console.error('取消失败:', e)
-    }
+    if (!sid) return Promise.resolve()
+    return sessionCancelCoordinator.cancel({
+      sessionId: sid,
+      turnId: get().streamingMessage?.id,
+      onStart: () => set((state) => ({
+        stoppingSessionIds: { ...state.stoppingSessionIds, [sid]: true },
+        stopErrorsBySession: withoutKey(state.stopErrorsBySession, sid),
+      })),
+      onFailure: (error) => set((state) => ({
+        stoppingSessionIds: removeSessionIndicator(state.stoppingSessionIds, sid),
+        stopErrorsBySession: { ...state.stopErrorsBySession, [sid]: cancelFailureMessage(error) },
+      })),
+    })
   },
 
   respondPermission: async (requestId, optionId, cancelled) => {
@@ -1901,6 +1925,11 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     offs.push(
       wsClient.on('session:done', (msg) => {
         const sid = msg.sessionId as string
+        sessionCancelCoordinator.clear(sid)
+        set((st) => ({
+          stoppingSessionIds: removeSessionIndicator(st.stoppingSessionIds, sid),
+          stopErrorsBySession: withoutKey(st.stopErrorsBySession, sid),
+        }))
         if (sid !== get().currentSessionId) {
           clearCachedStreaming(sid)
           set((st) => ({
@@ -2125,7 +2154,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         const sessionId = typeof msg.sessionId === 'string' ? msg.sessionId : ''
         if (!sessionId) return
         const state = msg.state === 'running' ? 'running' : 'idle'
-        if (state === 'idle') clearCachedStreaming(sessionId)
+        if (state === 'idle') {
+          clearCachedStreaming(sessionId)
+          sessionCancelCoordinator.clear(sessionId)
+        }
         const isCurrent = sessionId === get().currentSessionId
         if (state === 'idle' && isCurrent) flushStreamingBuffer(set, get)
         set((st) => ({
@@ -2137,6 +2169,12 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             state,
             st.currentSessionId,
           ),
+          stoppingSessionIds: state === 'idle'
+            ? removeSessionIndicator(st.stoppingSessionIds, sessionId)
+            : st.stoppingSessionIds,
+          stopErrorsBySession: state === 'idle'
+            ? withoutKey(st.stopErrorsBySession, sessionId)
+            : st.stopErrorsBySession,
           streamingMessage: state === 'idle' && st.currentSessionId === sessionId ? null : st.streamingMessage,
         }))
         if (state === 'idle' && isCurrent) {

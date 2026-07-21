@@ -92,3 +92,15 @@ npx tsx scripts/performance/phase-5-soak.ts --json
 `phase-5-performance.test.ts` 验证 Session History p95 与 2 秒慢 Query 下的 Realtime p95/p99；`phase-5-process-failures.test.ts` 注入 Query Worker、Writer Worker、Realtime 和 Runtime 退出。soak runner 校验每轮每 Session 恰好一个 done、无超时、Runtime 首帧延迟和长时间 heap 趋势。浏览器 runner 使用系统 Chrome、生产静态资源和 IndexedDB stale snapshot，预算为 warm hard refresh p95 `<300ms`、缓存项目/页面切换 p95 `<50ms>`。
 
 浏览器 runner 默认使用 `C:\Program Files\Google\Chrome\Application\chrome.exe`；其他安装位置通过 `PLAYWRIGHT_CHROME_PATH` 指定。运行前先执行 `npm run build`。
+
+## Runtime 取消回归
+
+取消相关改动至少覆盖以下测试边界：
+
+- `sdk-runtime-host-lifecycle.test.ts`：soft cancel、目标 Session close、Agent restart、迟到输出 fencing 和单一 terminal done。
+- `runtime-process.test.ts`：process IPC 的结构化取消结果与原 turn identity。
+- `session-command-service.test.ts`：API 不伪造 done、不提前清 active prompt，Runtime `not-found` 明确失败。
+- `session-store-prompt-acceptance.test.ts` / `global-assistant-store.test.ts`：重复点击去重、失败恢复和替代 Prompt 等待取消。
+- `global-assistant-input.test.ts`：stopping 期间输入框可编辑、停止按钮不可重复点击、错误可见。
+
+人工验证必须使用独立端口和独立 `DATA_DIR`，不得复用正在运行的 PRD 端口或数据库。验证 Claude/Codex 长工具调用时，检查点击停止后立即出现“正在停止”，随后能发送下一条消息，并确认日志中只有原 turn identity 的一个 `cancelled` done。
