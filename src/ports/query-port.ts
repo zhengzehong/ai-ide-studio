@@ -28,7 +28,8 @@ export interface TaskStepProgress {
   total: number
 }
 
-export interface TaskListItem extends TaskRow {
+export type TaskListItem = Omit<TaskRow, 'description'> & {
+  descriptionPreview: string | null
   sessionId: string | null
   steps: TaskStepSummary[]
   stepProgress: TaskStepProgress
@@ -62,9 +63,21 @@ export interface SessionEventQuery extends QueryRequestOptions {
   afterSequence?: number
 }
 
+export interface SessionRecoveryQuery extends QueryRequestOptions {
+  sessionId: string
+  limit?: number
+}
+
+export interface SessionRecoverySnapshot {
+  sessionId: string
+  latestSequence: number
+  events: SessionEventRow[]
+}
+
 export interface QueryPort {
   listTasks(input: TaskListQuery): Promise<TaskListItem[]>
   listSessions(input: SessionListQuery): Promise<SessionListRow[]>
   listSessionMessages(input: SessionMessageQuery): Promise<QueryPage<MessageRow>>
   listSessionEvents(input: SessionEventQuery): Promise<QueryPage<SessionEventRow>>
+  getSessionRecovery(input: SessionRecoveryQuery): Promise<SessionRecoverySnapshot>
 }

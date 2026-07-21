@@ -6,6 +6,8 @@ import type {
   SessionEventQuery,
   SessionListQuery,
   SessionMessageQuery,
+  SessionRecoveryQuery,
+  SessionRecoverySnapshot,
   TaskListItem,
   TaskListQuery,
 } from '../ports/query-port.js'
@@ -117,6 +119,9 @@ export async function createWorkerQueryPort(
     },
     listSessionEvents(input: SessionEventQuery): Promise<QueryPage<SessionEventRow>> {
       return request('sessions.events', input, input)
+    },
+    getSessionRecovery(input: SessionRecoveryQuery): Promise<SessionRecoverySnapshot> {
+      return request('sessions.recovery', input, input)
     },
     inspect(): Promise<QueryWorkerInspection> {
       return request('worker.inspect', {}, { priority: 'interactive' })

@@ -19,7 +19,7 @@ import { DetailActions, EmptyReports, LatestReportCard } from './DetailActions'
 import { StepModal } from './StepModal'
 import { DetailHeader, DetailSection } from './task-detail-parts'
 
-interface TaskDetailInlineProps {
+export interface TaskDetailInlineProps {
   task: TaskData
   agents: AgentData[]
   modes: Array<{ id: string; name: string }>

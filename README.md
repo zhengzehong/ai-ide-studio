@@ -7,7 +7,7 @@ AI IDE Studio 是一个本地部署的全栈 AI 编程协作工具。通过 [ACP
 ## 功能
 
 - **单端口 Edge + 进程隔离** — Edge 是唯一公网监听入口；API 提供 HTTP、领域命令与 DB Worker；Runtime 子进程拥有 ACP/终端/Session actor；Realtime 子进程负责 WebSocket、订阅、序列化和有界背压
-- **Workspace** — 主工作台，支持流式对话、执行过程持久化/恢复、工具调用懒加载/折叠、ACP diff 文件变更查看、思考过程展示、图片附件、Markdown 渲染和长会话虚拟滚动
+- **Workspace** — 主工作台，支持流式对话、轻量状态恢复、执行过程按需加载/折叠、ACP diff 文件变更查看、思考过程展示、图片附件、Markdown 渲染和长会话虚拟滚动
 - **PC 项目切换** — 顶部支持固定项目 Tab，并显示所有项目的运行中/未读会话数；每个项目独立记忆上次页面、查询参数和关键视图状态，切回时先显示分区缓存并在后台同步最新数据
 - **全局助理** — 可从 Agent 广场设置唯一全局 Agent，并通过右侧竖条随时打开独立聊天抽屉
 - **移动端 Web App** — `/app/` 下提供手机浏览器访问的轻量客户端，支持远程连接、会话列表、对话、任务列表和设置页
@@ -41,7 +41,7 @@ npm run dev:all    # 启动 Gateway + UI
 - Mobile UI: http://localhost:5174/app/（开发）或 http://localhost:18800/app/（生产构建后）
 - Gateway: http://localhost:18800
 
-PC 默认通过 `/api/v1` HTTP 读取任务、会话、消息历史和恢复事件。需要临时回滚时，在启动或构建 PC UI 前设置 `VITE_QUERY_TRANSPORT=ws`；移动端当前继续使用 WS 兼容 RPC。
+PC 默认通过 `/api/v1` HTTP 读取任务摘要、会话、消息历史和轻量 Recovery；完整工具过程和 Task 正文只在打开对应详情时按需读取。需要临时回滚时，在启动或构建 PC UI 前设置 `VITE_QUERY_TRANSPORT=ws`；移动端当前继续使用 WS 兼容 RPC。
 
 PC 的 Prompt、取消、已读、权限和提问响应默认通过 `/api/v1/commands` HTTP 提交，并由 Writer 命令账本保证接收持久化和幂等；实时输出仍通过 WebSocket 订阅。需要临时回滚时设置 `VITE_COMMAND_TRANSPORT=ws`。
 

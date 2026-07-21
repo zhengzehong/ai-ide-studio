@@ -304,7 +304,7 @@ describe('session store done handling', () => {
     }
   })
 
-  test('falls back to event recovery only when message history is empty', async () => {
+  test('does not download raw event history when persisted message history is empty', async () => {
     resetStore()
     wsMock.request.mockReset()
     wsMock.request.mockResolvedValue([])
@@ -320,7 +320,11 @@ describe('session store done handling', () => {
 
       await vi.waitFor(() => {
         expect(wsMock.request).toHaveBeenCalledWith({ type: 'sessions.messages', sessionId: 'sess-refresh', limit: 20 })
-        expect(wsMock.request).toHaveBeenCalledWith({ type: 'sessions.events', sessionId: 'sess-refresh', limit: 1000 })
+      })
+      expect(wsMock.request).not.toHaveBeenCalledWith({
+        type: 'sessions.events',
+        sessionId: 'sess-refresh',
+        limit: 1000,
       })
     } finally {
       cleanup()

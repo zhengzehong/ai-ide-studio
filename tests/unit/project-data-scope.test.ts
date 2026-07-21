@@ -106,15 +106,15 @@ describe('project data scope', () => {
     expect(stores.memory.activateScope).toHaveBeenCalledWith('project-a')
   })
 
-  test('coalesces concurrent activation waves for the same project', async () => {
+  test('reactivates project stores while coalescing concurrent refreshes', async () => {
     const first = activateProjectData('project-concurrent')
     const second = activateProjectData('project-concurrent')
 
     await Promise.all([first, second])
 
-    expect(stores.task.activateProject).toHaveBeenCalledTimes(1)
-    expect(stores.agent.activateProject).toHaveBeenCalledTimes(1)
-    expect(stores.session.activateProject).toHaveBeenCalledTimes(1)
+    expect(stores.task.activateProject).toHaveBeenCalledTimes(2)
+    expect(stores.agent.activateProject).toHaveBeenCalledTimes(2)
+    expect(stores.session.activateProject).toHaveBeenCalledTimes(2)
     expect(stores.task.fetchTasks).toHaveBeenCalledTimes(1)
     expect(stores.task.fetchModes).toHaveBeenCalledTimes(1)
     expect(stores.agent.fetchAgents).toHaveBeenCalledTimes(1)
@@ -125,6 +125,28 @@ describe('project data scope', () => {
     expect(stores.events.fetchCategories).toHaveBeenCalledTimes(1)
     expect(stores.events.fetchEvents).toHaveBeenCalledTimes(1)
     expect(stores.events.fetchSubscriptions).toHaveBeenCalledTimes(1)
+  })
+
+  test('reactivates a project when returning before its refresh completes', async () => {
+    let completeProjectA: (() => void) | undefined
+    stores.task.fetchTasks.mockImplementation((projectId: string) => {
+      if (projectId !== 'project-a') return Promise.resolve(undefined)
+      return new Promise<void>((resolve) => {
+        completeProjectA = resolve
+      })
+    })
+
+    const projectARefresh = activateProjectData('project-a')
+    await activateProjectData('project-b')
+    const returningToProjectA = activateProjectData('project-a')
+
+    expect(stores.task.activateProject).toHaveBeenLastCalledWith('project-a')
+    expect(stores.agent.activateProject).toHaveBeenLastCalledWith('project-a')
+    expect(stores.session.activateProject).toHaveBeenLastCalledWith('project-a')
+    expect(stores.task.fetchTasks).toHaveBeenCalledTimes(2)
+
+    completeProjectA?.()
+    await Promise.all([projectARefresh, returningToProjectA])
   })
 
   test('fans invalidation and cleanup out to all MVP stores', () => {

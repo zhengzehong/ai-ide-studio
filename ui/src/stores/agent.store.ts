@@ -11,6 +11,7 @@ import {
   projectScopeKey,
   pruneProjectCache,
   readProjectCache,
+  readProjectCacheError,
   removeCachedArrayItem,
   setProjectCacheError,
   shouldRefreshProjectCache,
@@ -51,6 +52,7 @@ interface AgentStore {
   agents: AgentData[]
   loading: boolean
   refreshing: boolean
+  error: string | null
   activeScope: string
   agentCache: ProjectCacheState<AgentData[]>
   activateProject: (projectId?: string | null) => void
@@ -83,6 +85,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
   agents: [],
   loading: false,
   refreshing: false,
+  error: null,
   activeScope: ALL_PROJECTS_SCOPE,
   agentCache: emptyProjectCache<AgentData[]>(),
 
@@ -94,6 +97,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         activeScope: scope,
         agentCache,
         agents: readProjectCache(agentCache, scope)?.data ?? [],
+        error: readProjectCacheError(agentCache, scope),
         loading: false,
         refreshing: false,
       }
@@ -114,6 +118,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       const isActive = state.activeScope === scope
       return {
         agentCache: request.state,
+        error: isActive ? null : state.error,
         loading: isActive && !cached,
         refreshing: isActive && !!cached,
       }
@@ -134,6 +139,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
           return {
             agentCache,
             agents: isActive ? (readProjectCache(agentCache, scope)?.data ?? []) : state.agents,
+            error: isActive ? null : state.error,
             loading: isActive ? false : state.loading,
             refreshing: isActive ? false : state.refreshing,
           }
@@ -141,12 +147,11 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       } catch (error) {
         set((state) => {
           const isActive = state.activeScope === scope
+          const message = error instanceof Error ? error.message : 'Agent 加载失败'
+          const agentCache = setProjectCacheError(state.agentCache, scope, message)
           return {
-            agentCache: setProjectCacheError(
-              state.agentCache,
-              scope,
-              error instanceof Error ? error.message : 'Agent 加载失败',
-            ),
+            agentCache,
+            error: isActive ? readProjectCacheError(agentCache, scope) : state.error,
             loading: isActive ? false : state.loading,
             refreshing: isActive ? false : state.refreshing,
           }

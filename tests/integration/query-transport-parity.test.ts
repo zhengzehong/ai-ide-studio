@@ -126,6 +126,24 @@ describe('QueryPort and WS response parity', () => {
       limit: 20,
     })).toEqual(queryEvents.items)
   })
+
+  test('recovery excludes mirrored history while retaining the full stream cursor', async () => {
+    const session = sessionStore.create({ agentId: 'agent-recovery-parity' })
+    eventStore.append(session.id, {
+      type: 'tool.update',
+      messageId: 'message-a',
+      payload: { rawOutput: 'large output' },
+    })
+    eventStore.append(session.id, {
+      type: 'session:capabilities',
+      payload: { currentModeId: 'plan' },
+    })
+
+    const recovery = await localQueryPort.getSessionRecovery({ sessionId: session.id, limit: 20 })
+
+    expect(recovery.latestSequence).toBe(2)
+    expect(recovery.events.map((event) => event.type)).toEqual(['session:capabilities'])
+  })
 })
 
 async function callRpc(

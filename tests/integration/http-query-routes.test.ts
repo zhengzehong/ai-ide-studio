@@ -128,6 +128,80 @@ describe('versioned HTTP query routes', () => {
     expect(body.page).toEqual({ hasMore: true, nextCursor: '3' })
   })
 
+  test('returns a bounded task description preview instead of the full task body', async () => {
+    const projectId = 'project-task-summary'
+    const description = `Task goal: ${'detail '.repeat(1000)}`
+    const task = taskStore.create({ title: 'Summary task', description, projectId })
+    await startTestGateway()
+
+    const response = await queryFetch(`/api/v1/tasks?projectId=${projectId}`)
+    const body = await response.json() as {
+      data: Array<Record<string, unknown>>
+    }
+    const listed = body.data.find((item) => item.id === task.id)
+
+    expect(response.status).toBe(200)
+    expect(listed).toBeDefined()
+    expect(listed).not.toHaveProperty('description')
+    expect(listed?.descriptionPreview).toBeTypeOf('string')
+    expect(String(listed?.descriptionPreview).length).toBeLessThanOrEqual(240)
+    expect(JSON.stringify(body)).not.toContain(description)
+  })
+
+  test('returns a lightweight recovery snapshot without mirrored tool payloads', async () => {
+    const session = sessionStore.create({ agentId: 'agent-recovery-snapshot' })
+    const largePayload = 'x'.repeat(1024 * 1024)
+    eventStore.append(session.id, {
+      type: 'message.chunk',
+      messageId: 'message-running',
+      payload: { content: largePayload },
+    })
+    eventStore.append(session.id, {
+      type: 'tool.call',
+      messageId: 'message-running',
+      payload: { rawInput: largePayload },
+    })
+    eventStore.append(session.id, {
+      type: 'session:capabilities',
+      payload: { currentModeId: 'plan' },
+    })
+    eventStore.append(session.id, {
+      type: 'tool.update',
+      messageId: 'message-running',
+      payload: { rawOutput: largePayload },
+    })
+    eventStore.append(session.id, {
+      type: 'permission.request',
+      payload: { requestId: 'permission-a', title: '允许读取文件' },
+    })
+    eventStore.append(session.id, {
+      type: 'message.done',
+      messageId: 'message-running',
+      payload: { stopReason: 'end_turn' },
+    })
+    await startTestGateway()
+
+    const response = await queryFetch(`/api/v1/sessions/${session.id}/recovery?limit=100`)
+    const body = await response.json() as {
+      data: {
+        sessionId: string
+        latestSequence: number
+        events: Array<{ type: string; sequence: number }>
+      }
+    }
+
+    expect(response.status).toBe(200)
+    expect(body.data).toMatchObject({
+      sessionId: session.id,
+      latestSequence: 6,
+    })
+    expect(body.data.events.map((event) => event.type)).toEqual([
+      'session:capabilities',
+      'permission.request',
+    ])
+    expect(Number(response.headers.get('x-response-bytes'))).toBeLessThan(256 * 1024)
+  })
+
   test('maps query worker availability and deadline failures without synchronous fallback', async () => {
     const queryPort = failingQueryPort()
     await startTestGateway(queryPort)
@@ -167,6 +241,7 @@ function failingQueryPort(): QueryPort {
     async listSessions() { return fail() },
     async listSessionMessages() { return fail() },
     async listSessionEvents() { return fail() },
+    async getSessionRecovery() { return fail() },
   }
 }
 

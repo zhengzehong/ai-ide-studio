@@ -51,6 +51,7 @@ describe('application realtime recovery', () => {
   test('refreshes the owning project for an inactive session gap', async () => {
     const fetchMessages = vi.spyOn(useSessionStore.getState(), 'fetchMessages')
     const fetchEvents = vi.spyOn(useSessionStore.getState(), 'fetchEvents')
+    const fetchRecovery = vi.spyOn(useSessionStore.getState(), 'fetchRecovery')
 
     await recoverRealtimeGap({ sessionId: 'session-b' })
 
@@ -59,5 +60,30 @@ describe('application realtime recovery', () => {
     expect(projectScopeMocks.refreshProjectData).toHaveBeenCalledWith('project-b', { force: true })
     expect(fetchMessages).not.toHaveBeenCalled()
     expect(fetchEvents).not.toHaveBeenCalled()
+    expect(fetchRecovery).not.toHaveBeenCalled()
+  })
+
+  test('restores active messages before starting the full project refresh', async () => {
+    let resolveMessages: (() => void) | undefined
+    let resolveRecovery: (() => void) | undefined
+    const fetchMessages = vi.spyOn(useSessionStore.getState(), 'fetchMessages').mockImplementation(
+      () => new Promise<void>((resolve) => { resolveMessages = resolve }),
+    )
+    const fetchRecovery = vi.spyOn(useSessionStore.getState(), 'fetchRecovery').mockImplementation(
+      () => new Promise<void>((resolve) => { resolveRecovery = resolve }),
+    )
+
+    const recovering = recoverRealtimeGap({ sessionId: 'session-a' })
+    await Promise.resolve()
+
+    expect(fetchMessages).toHaveBeenCalledWith('session-a')
+    expect(fetchRecovery).toHaveBeenCalledWith('session-a')
+    expect(projectScopeMocks.refreshProjectData).not.toHaveBeenCalled()
+
+    resolveMessages?.()
+    resolveRecovery?.()
+    await recovering
+
+    expect(projectScopeMocks.refreshProjectData).toHaveBeenCalledWith('project-a', { force: true })
   })
 })

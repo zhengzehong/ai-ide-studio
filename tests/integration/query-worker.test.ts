@@ -50,6 +50,7 @@ describe('Query Worker', () => {
       sessions: await local.listSessions({ projectId }),
       messages: await local.listSessionMessages({ sessionId: session.id, limit: 20 }),
       events: await local.listSessionEvents({ sessionId: session.id, limit: 20 }),
+      recovery: await local.getSessionRecovery({ sessionId: session.id, limit: 20 }),
     }
     closeDatabase()
 
@@ -65,6 +66,8 @@ describe('Query Worker', () => {
       .resolves.toEqual(expected.messages)
     await expect(workerPort.listSessionEvents({ sessionId: session.id, limit: 20 }))
       .resolves.toEqual(expected.events)
+    await expect(workerPort.getSessionRecovery({ sessionId: session.id, limit: 20 }))
+      .resolves.toEqual(expected.recovery)
     await expect(workerPort.inspect()).resolves.toMatchObject({
       mode: 'readonly',
       queryOnly: true,

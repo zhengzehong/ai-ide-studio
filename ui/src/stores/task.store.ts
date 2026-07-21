@@ -52,7 +52,8 @@ export interface TaskStepDetailView extends TaskStepData {
 export interface TaskData {
   id: string
   title: string
-  description: string | null
+  description?: string | null
+  descriptionPreview?: string | null
   source: string
   status: string
   stage: string
@@ -104,6 +105,13 @@ export function mergeTaskById(tasks: TaskData[], incoming: TaskData): TaskData[]
 const taskFetches = new Map<string, Promise<void>>()
 const modeFetches = new Map<string, Promise<TaskExecutionModeData[]>>()
 
+function withoutTaskKey<T>(record: Record<string, T>, key: string): Record<string, T> {
+  if (!(key in record)) return record
+  const next = { ...record }
+  delete next[key]
+  return next
+}
+
 function mergeTaskIntoCache(
   cache: ProjectCacheState<TaskData[]>,
   task: TaskData,
@@ -132,6 +140,9 @@ interface TaskStore {
   activeScope: string
   taskCache: ProjectCacheState<TaskData[]>
   modeCache: ProjectCacheState<TaskExecutionModeData[]>
+  taskDetailsById: Record<string, TaskData>
+  taskDetailLoadingById: Record<string, boolean>
+  taskDetailErrorById: Record<string, string>
   activateProject: (projectId?: string | null) => void
   fetchTasks: (projectId?: string, options?: { force?: boolean }) => Promise<void>
   invalidateProject: (projectId?: string | null) => void
@@ -150,6 +161,7 @@ interface TaskStore {
   assignTask: (taskId: string, agentId: string, sessionId?: string, sessionMode?: SessionMode) => Promise<TaskData>
   replyTask: (taskId: string, message: string) => Promise<TaskData>
   fetchTaskEvents: (taskId: string, afterSequence?: number) => Promise<TaskEventData[]>
+  fetchTaskDetail: (taskId: string, options?: { force?: boolean }) => Promise<TaskData>
   startTask: (taskId: string) => Promise<TaskData>
   fetchTaskSteps: (taskId: string) => Promise<{ steps: TaskStepData[]; stepProgress: TaskStepProgress }>
   addStep: (input: {
@@ -201,6 +213,9 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   activeScope: ALL_PROJECTS_SCOPE,
   taskCache: emptyProjectCache<TaskData[]>(),
   modeCache: emptyProjectCache<TaskExecutionModeData[]>(),
+  taskDetailsById: {},
+  taskDetailLoadingById: {},
+  taskDetailErrorById: {},
 
   activateProject: (projectId) => {
     const scope = projectScopeKey(projectId)
@@ -407,6 +422,31 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     if (afterSequence != null) msg.afterSequence = afterSequence
     const events = (await wsClient.request(msg)) as TaskEventData[]
     return events
+  },
+
+  fetchTaskDetail: async (taskId, options) => {
+    const cached = get().taskDetailsById[taskId]
+    if (cached && !options?.force) return cached
+    set((state) => ({
+      taskDetailLoadingById: { ...state.taskDetailLoadingById, [taskId]: true },
+      taskDetailErrorById: withoutTaskKey(state.taskDetailErrorById, taskId),
+    }))
+    try {
+      const detail = (await wsClient.request({ type: 'tasks.get', taskId })) as TaskData
+      set((state) => ({
+        taskDetailsById: { ...state.taskDetailsById, [taskId]: detail },
+        taskDetailLoadingById: withoutTaskKey(state.taskDetailLoadingById, taskId),
+        taskDetailErrorById: withoutTaskKey(state.taskDetailErrorById, taskId),
+      }))
+      return detail
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '任务详情加载失败'
+      set((state) => ({
+        taskDetailLoadingById: withoutTaskKey(state.taskDetailLoadingById, taskId),
+        taskDetailErrorById: { ...state.taskDetailErrorById, [taskId]: message },
+      }))
+      throw error
+    }
   },
 
   startTask: async (taskId) => {

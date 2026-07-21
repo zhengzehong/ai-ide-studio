@@ -37,6 +37,8 @@ export async function executeQueryOperation(
       return queryPort.listSessionMessages(requireSessionId(payload))
     case 'sessions.events':
       return queryPort.listSessionEvents(requireSessionId(payload))
+    case 'sessions.recovery':
+      return queryPort.getSessionRecovery(requireSessionId(payload))
     case 'worker.inspect':
       return inspectQueryWorker()
     case 'worker.diagnose':
