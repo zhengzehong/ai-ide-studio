@@ -474,6 +474,17 @@ export const useGlobalAssistantStore = create<GlobalAssistantStore>((set, get) =
       sessionId: sid,
       turnId: get().streamingMessage?.id,
       onStart: () => set({ stopping: true, stopError: null }),
+      onSuccess: () => {
+        promptStartTime = 0
+        set({
+          running: false,
+          stopping: false,
+          stopError: null,
+          streamingMessage: null,
+          plan: clearPlanOnTurnDone(),
+        })
+        void get().fetchMessages()
+      },
       onFailure: (error) => set({ stopping: false, stopError: cancelFailureMessage(error) }),
     })
   },

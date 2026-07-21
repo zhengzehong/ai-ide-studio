@@ -1540,6 +1540,21 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         stoppingSessionIds: { ...state.stoppingSessionIds, [sid]: true },
         stopErrorsBySession: withoutKey(state.stopErrorsBySession, sid),
       })),
+      onSuccess: () => {
+        promptStartTime = 0
+        lastStreamingSnapshot = null
+        streamingBuffer.clear()
+        clearCachedStreaming(sid)
+        set((state) => ({
+          runningSessionIds: removeSessionIndicator(state.runningSessionIds, sid),
+          stoppingSessionIds: removeSessionIndicator(state.stoppingSessionIds, sid),
+          stopErrorsBySession: withoutKey(state.stopErrorsBySession, sid),
+          staleSessionIds: { ...state.staleSessionIds, [sid]: true },
+          streamingMessage: state.currentSessionId === sid ? null : state.streamingMessage,
+          plan: state.currentSessionId === sid ? clearPlanOnTurnDone() : state.plan,
+        }))
+        if (sid === get().currentSessionId) void get().fetchMessages(sid)
+      },
       onFailure: (error) => set((state) => ({
         stoppingSessionIds: removeSessionIndicator(state.stoppingSessionIds, sid),
         stopErrorsBySession: { ...state.stopErrorsBySession, [sid]: cancelFailureMessage(error) },
@@ -1927,6 +1942,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         const sid = msg.sessionId as string
         sessionCancelCoordinator.clear(sid)
         set((st) => ({
+          runningSessionIds: removeSessionIndicator(st.runningSessionIds, sid),
           stoppingSessionIds: removeSessionIndicator(st.stoppingSessionIds, sid),
           stopErrorsBySession: withoutKey(st.stopErrorsBySession, sid),
         }))

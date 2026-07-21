@@ -242,6 +242,10 @@ describe('global assistant store', () => {
 
     complete?.()
     await first
+
+    expect(useGlobalAssistantStore.getState().stopping).toBe(false)
+    expect(useGlobalAssistantStore.getState().running).toBe(false)
+    expect(useGlobalAssistantStore.getState().streamingMessage).toBeNull()
   })
 
   test('keeps the assistant running and shows an error when cancellation fails', async () => {
