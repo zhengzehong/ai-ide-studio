@@ -75,6 +75,44 @@ describe('SDK Runtime child lifecycle', () => {
     expect(harness.resumeSession).toHaveBeenCalledOnce()
   })
 
+  test('publishes updated capabilities after changing the Session model', async () => {
+    const harness = runtimeHarness()
+    await harness.host.ensureSession(snapshot('session-a'))
+
+    await harness.host.setModel('agent-a', 'session-a', 'model-b')
+
+    expect(harness.publishCapabilities).toHaveBeenCalledWith(
+      'session-a',
+      expect.objectContaining({ currentModelId: 'model-b' }),
+    )
+  })
+
+  test('publishes updated capabilities after changing the Session mode', async () => {
+    const harness = runtimeHarness()
+    await harness.host.ensureSession(snapshot('session-a'))
+
+    await harness.host.setMode('agent-a', 'session-a', 'plan')
+
+    expect(harness.publishCapabilities).toHaveBeenCalledWith(
+      'session-a',
+      expect.objectContaining({ currentModeId: 'plan' }),
+    )
+  })
+
+  test('publishes updated capabilities after changing a Session config option', async () => {
+    const harness = runtimeHarness()
+    await harness.host.ensureSession(snapshot('session-a'))
+
+    await harness.host.setConfig('agent-a', 'session-a', 'effort', 'high')
+
+    expect(harness.publishCapabilities).toHaveBeenCalledWith(
+      'session-a',
+      expect.objectContaining({
+        configOptions: [expect.objectContaining({ id: 'effort', currentValue: 'high' })],
+      }),
+    )
+  })
+
   test('keeps an idle Session while an interaction is pending', async () => {
     const harness = runtimeHarness()
     const host = harness.host
@@ -109,9 +147,11 @@ function runtimeHarness(overrides: { prompt?: () => Promise<never> } = {}) {
   const promptStarted = new Promise<void>((resolve) => { markPromptStarted = resolve })
   const newSession = vi.fn(async () => ({ sessionId: 'acp-created' }))
   const resumeSession = vi.fn(async () => ({}))
+  const publishCapabilities = vi.fn()
   const host = new SdkRuntimeHost(actors, {
     publishUpdate: () => undefined,
     publishDone: async () => undefined,
+    publishCapabilities,
   }, {
     startAgent: async ({ router }) => {
       const process = Object.assign(new EventEmitter(), { kill: vi.fn(() => true) })
@@ -126,10 +166,22 @@ function runtimeHarness(overrides: { prompt?: () => Promise<never> } = {}) {
             availableModels: [{ modelId: 'model-a', name: 'Model A' }],
           },
         })),
+        unstable_setSessionModel: vi.fn(async () => undefined),
+        setSessionMode: vi.fn(async () => undefined),
         prompt: vi.fn(() => {
           markPromptStarted?.()
           return overrides.prompt?.() ?? Promise.resolve({ stopReason: 'end_turn' })
         }),
+        setSessionConfigOption: vi.fn(async () => ({
+          configOptions: [{
+            id: 'effort',
+            name: 'Reasoning effort',
+            category: 'thought_level',
+            type: 'select' as const,
+            currentValue: 'high',
+            options: [{ value: 'high', name: 'High' }],
+          }],
+        })),
         cancel: vi.fn(async () => undefined),
         closeSession: vi.fn(async () => undefined),
       } as unknown as acp.ClientSideConnection
@@ -145,7 +197,7 @@ function runtimeHarness(overrides: { prompt?: () => Promise<never> } = {}) {
       }
     },
   })
-  return { host, processes, routers, promptStarted, newSession, resumeSession }
+  return { host, processes, routers, promptStarted, newSession, resumeSession, publishCapabilities }
 }
 
 function snapshot(sessionId: string): RuntimeStateSnapshot {
