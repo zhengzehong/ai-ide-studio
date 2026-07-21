@@ -46,6 +46,101 @@ describe('SDK Runtime child lifecycle', () => {
     expect(harness.processes).toHaveLength(2)
   })
 
+  test('reports missing and idle Sessions without silently claiming cancellation', async () => {
+    const harness = runtimeHarness()
+
+    await expect(harness.host.cancelPrompt('agent-a', 'missing')).resolves.toEqual({ status: 'not-found' })
+    await harness.host.ensureSession(snapshot('session-a'))
+    await expect(harness.host.cancelPrompt('agent-a', 'session-a')).resolves.toEqual({ status: 'not-active' })
+  })
+
+  test('waits for soft ACP cancellation and publishes one cancelled terminal for the original turn', async () => {
+    let finishPrompt: ((value: { stopReason: string }) => void) | undefined
+    const promptResult = new Promise<{ stopReason: string }>((resolve) => { finishPrompt = resolve })
+    const harness = runtimeHarness({
+      prompt: () => promptResult,
+      cancel: () => { finishPrompt?.({ stopReason: 'cancelled' }) },
+    })
+    await harness.host.ensureSession(snapshot('session-a'))
+    const prompt = harness.host.prompt({
+      agentId: 'agent-a',
+      sessionId: 'session-a',
+      content: 'hello',
+      diagnostics: { turnId: 'turn-a', messageId: 'message-a' },
+    })
+    await harness.promptStarted
+
+    await expect(harness.host.cancelPrompt('agent-a', 'session-a')).resolves.toEqual({
+      status: 'requested',
+      escalation: 'cancel',
+      turnId: 'turn-a',
+      messageId: 'message-a',
+    })
+    await expect(prompt).resolves.toBeUndefined()
+    expect(harness.publishDone).toHaveBeenCalledTimes(1)
+    expect(harness.publishDone).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: 'session-a',
+      messageId: 'message-a',
+      turnId: 'turn-a',
+      stopReason: 'cancelled',
+    }))
+  })
+
+  test('escalates a stuck ACP cancellation to closing only the target Session', async () => {
+    let finishPrompt: ((value: { stopReason: string }) => void) | undefined
+    const promptResult = new Promise<{ stopReason: string }>((resolve) => { finishPrompt = resolve })
+    const harness = runtimeHarness({
+      prompt: () => promptResult,
+      closeSession: () => { finishPrompt?.({ stopReason: 'cancelled' }) },
+      cancelGraceMs: 1,
+      closeGraceMs: 50,
+    })
+    await harness.host.ensureSession(snapshot('session-a'))
+    const prompt = harness.host.prompt({ agentId: 'agent-a', sessionId: 'session-a', content: 'hello' })
+    await harness.promptStarted
+
+    await expect(harness.host.cancelPrompt('agent-a', 'session-a')).resolves.toMatchObject({
+      status: 'requested',
+      escalation: 'session-close',
+    })
+    await expect(prompt).resolves.toBeUndefined()
+    expect(harness.closeSession).toHaveBeenCalledOnce()
+    expect(harness.processes[0].kill).not.toHaveBeenCalled()
+    expect(harness.publishDone).toHaveBeenCalledTimes(1)
+    expect(harness.host.hasSession('session-a')).toBe(false)
+  })
+
+  test('restarts the owning Agent when cancel and close cannot terminate the turn', async () => {
+    const harness = runtimeHarness({
+      prompt: () => new Promise(() => undefined),
+      cancelGraceMs: 1,
+      closeGraceMs: 1,
+      restartGraceMs: 50,
+    })
+    await harness.host.ensureSession(snapshot('session-a'))
+    const prompt = harness.host.prompt({
+      agentId: 'agent-a',
+      sessionId: 'session-a',
+      content: 'hello',
+      diagnostics: { turnId: 'turn-hard', messageId: 'message-hard' },
+    })
+    await harness.promptStarted
+
+    await expect(harness.host.cancelPrompt('agent-a', 'session-a')).resolves.toMatchObject({
+      status: 'requested',
+      escalation: 'agent-restart',
+    })
+    await expect(prompt).resolves.toBeUndefined()
+    expect(harness.processes[0].kill).toHaveBeenCalledOnce()
+    expect(harness.host.hasSession('session-a')).toBe(false)
+    expect(harness.publishDone).toHaveBeenCalledTimes(1)
+    expect(harness.publishDone).toHaveBeenCalledWith(expect.objectContaining({
+      messageId: 'message-hard',
+      turnId: 'turn-hard',
+      stopReason: 'cancelled',
+    }))
+  })
+
   test('deduplicates concurrent ensure calls for one Session', async () => {
     const harness = runtimeHarness()
 
@@ -139,7 +234,14 @@ describe('SDK Runtime child lifecycle', () => {
   })
 })
 
-function runtimeHarness(overrides: { prompt?: () => Promise<never> } = {}) {
+function runtimeHarness(overrides: {
+  prompt?: () => Promise<{ stopReason: string }>
+  cancel?: () => void | Promise<void>
+  closeSession?: () => void | Promise<void>
+  cancelGraceMs?: number
+  closeGraceMs?: number
+  restartGraceMs?: number
+} = {}) {
   const processes: EventEmitter[] = []
   const routers: AcpRuntimeClientRouter[] = []
   const actors = new RuntimeSessionActorScheduler()
@@ -148,11 +250,16 @@ function runtimeHarness(overrides: { prompt?: () => Promise<never> } = {}) {
   const newSession = vi.fn(async () => ({ sessionId: 'acp-created' }))
   const resumeSession = vi.fn(async () => ({}))
   const publishCapabilities = vi.fn()
+  const publishDone = vi.fn(async () => undefined)
+  const closeSession = vi.fn(async () => { await overrides.closeSession?.() })
   const host = new SdkRuntimeHost(actors, {
     publishUpdate: () => undefined,
-    publishDone: async () => undefined,
+    publishDone,
     publishCapabilities,
   }, {
+    cancelGraceMs: overrides.cancelGraceMs,
+    closeGraceMs: overrides.closeGraceMs,
+    restartGraceMs: overrides.restartGraceMs,
     startAgent: async ({ router }) => {
       const process = Object.assign(new EventEmitter(), { kill: vi.fn(() => true) })
       const connection = {
@@ -182,8 +289,8 @@ function runtimeHarness(overrides: { prompt?: () => Promise<never> } = {}) {
             options: [{ value: 'high', name: 'High' }],
           }],
         })),
-        cancel: vi.fn(async () => undefined),
-        closeSession: vi.fn(async () => undefined),
+        cancel: vi.fn(async () => { await overrides.cancel?.() }),
+        closeSession,
       } as unknown as acp.ClientSideConnection
       processes.push(process)
       routers.push(router)
@@ -197,7 +304,17 @@ function runtimeHarness(overrides: { prompt?: () => Promise<never> } = {}) {
       }
     },
   })
-  return { host, processes, routers, promptStarted, newSession, resumeSession, publishCapabilities }
+  return {
+    host,
+    processes,
+    routers,
+    promptStarted,
+    newSession,
+    resumeSession,
+    publishCapabilities,
+    publishDone,
+    closeSession,
+  }
 }
 
 function snapshot(sessionId: string): RuntimeStateSnapshot {

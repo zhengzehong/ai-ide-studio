@@ -21,6 +21,8 @@ export function enqueueSdkPrompt(input: {
   content: string
   images?: ImageAttachment[]
   diagnostics?: { turnId?: string; messageId?: string }
+  streamGeneration: string
+  isCancelRequested: () => boolean
   getSession: () => PromptSession
   getAgent: () => PromptAgent
   publishDone: (event: {
@@ -43,18 +45,24 @@ export function enqueueSdkPrompt(input: {
         blocks.push({ type: 'image', data: image.data, mimeType: image.mimeType })
       }
       session.active = true
-      agent.router.beginTurn(input.sessionId, messageId, input.diagnostics?.turnId)
+      agent.router.beginTurn(input.sessionId, messageId, input.diagnostics?.turnId, input.streamGeneration)
       try {
-        const result = await Promise.race([
-          agent.connection.prompt({ sessionId: session.acpSessionId, prompt: blocks }),
-          agent.exitPromise,
-        ])
+        let result: acp.PromptResponse
+        try {
+          result = await Promise.race([
+            agent.connection.prompt({ sessionId: session.acpSessionId, prompt: blocks }),
+            agent.exitPromise,
+          ])
+        } catch (error) {
+          if (!input.isCancelRequested()) throw error
+          result = { stopReason: 'cancelled' }
+        }
         await input.publishDone({
           sessionId: input.sessionId,
           agentId: input.agentId,
           messageId,
           turnId: input.diagnostics?.turnId,
-          stopReason: result.stopReason,
+          stopReason: input.isCancelRequested() ? 'cancelled' : result.stopReason,
           turnUsage: result.usage
             ? {
                 inputTokens: result.usage.inputTokens,
@@ -67,7 +75,7 @@ export function enqueueSdkPrompt(input: {
         })
       } finally {
         session.active = false
-        agent.router.endTurn(input.sessionId)
+        agent.router.endTurn(input.sessionId, input.streamGeneration)
       }
     },
     { payloadBytes: Buffer.byteLength(input.content, 'utf8') },

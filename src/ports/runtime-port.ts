@@ -78,13 +78,24 @@ export interface RuntimePromptInput {
   }
 }
 
+export type RuntimeCancelEscalation = 'cancel' | 'session-close' | 'agent-restart'
+
+export type RuntimeCancelResult =
+  | { status: 'not-found' | 'not-active' }
+  | {
+      status: 'requested'
+      escalation: RuntimeCancelEscalation
+      messageId: string
+      turnId?: string
+    }
+
 export type RuntimeElicitationContent = Record<string, string | number | boolean | string[]>
 
 export interface RuntimePort {
   readonly platformToolTransport?: RuntimePlatformToolTransport
   ensureSession(snapshot: RuntimeStateSnapshot, options?: { emitLifecycle?: boolean }): Promise<string>
   prompt(input: RuntimePromptInput): Promise<void>
-  cancelPrompt(agentId: string, sessionId: string): Promise<void>
+  cancelPrompt(agentId: string, sessionId: string): Promise<RuntimeCancelResult>
   closeSession(agentId: string, sessionId: string): Promise<void>
   forkSession(snapshot: RuntimeStateSnapshot, sourceAcpSessionId: string): Promise<string>
   setModel(agentId: string, sessionId: string, modelId: string): Promise<void>

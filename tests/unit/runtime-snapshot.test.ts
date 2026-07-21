@@ -136,7 +136,7 @@ describe('runtime state snapshot', () => {
       platformToolTransport: { type: 'http', baseUrl: 'http://127.0.0.1:18900' },
       ensureSession: async () => 'acp-process',
       prompt: async () => undefined,
-      cancelPrompt: async () => undefined,
+      cancelPrompt: async () => ({ status: 'not-active' as const }),
       closeSession: async () => undefined,
       forkSession: async () => 'acp-fork',
       setModel: async () => undefined,

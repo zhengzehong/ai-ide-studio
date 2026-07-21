@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import { FramedSocket } from '../../ipc/framed-socket.js'
 import type { IpcEnvelope } from '../../ipc/protobuf-envelope.js'
 import type {
+  RuntimeCancelResult,
   RuntimeElicitationContent,
   RuntimePlatformToolTransport,
   RuntimePort,
@@ -113,8 +114,8 @@ class ProcessRuntimePortController implements ProcessRuntimePort {
     return this.request({ operation: 'prompt', ...input }) as Promise<void>
   }
 
-  cancelPrompt(agentId: string, sessionId: string): Promise<void> {
-    return this.request({ operation: 'cancel', agentId, sessionId }) as Promise<void>
+  async cancelPrompt(agentId: string, sessionId: string): Promise<RuntimeCancelResult> {
+    return asRuntimeCancelResult(await this.request({ operation: 'cancel', agentId, sessionId }))
   }
 
   closeSession(agentId: string, sessionId: string): Promise<void> {
@@ -339,6 +340,25 @@ class ProcessRuntimePortController implements ProcessRuntimePort {
 function resolvePlatformToolBaseUrl(): string {
   const configured = process.env.PUBLIC_BASE_URL?.trim()
   return configured || `http://127.0.0.1:${process.env.PORT ?? '18800'}`
+}
+
+function asRuntimeCancelResult(value: unknown): RuntimeCancelResult {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Runtime cancel response is invalid')
+  }
+  const record = value as Record<string, unknown>
+  if (record.status === 'not-found' || record.status === 'not-active') return { status: record.status }
+  if (record.status !== 'requested'
+    || (record.escalation !== 'cancel' && record.escalation !== 'session-close' && record.escalation !== 'agent-restart')
+    || typeof record.messageId !== 'string') {
+    throw new Error('Runtime cancel response is invalid')
+  }
+  return {
+    status: record.status,
+    escalation: record.escalation,
+    messageId: record.messageId,
+    ...(typeof record.turnId === 'string' ? { turnId: record.turnId } : {}),
+  }
 }
 
 function toEnvelope(payload: RuntimeControlPayload): IpcEnvelope {

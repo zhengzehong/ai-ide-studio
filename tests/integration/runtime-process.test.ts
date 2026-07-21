@@ -77,6 +77,39 @@ describe('Runtime process', () => {
     expect(doneEvents).toEqual(['session-long-prompt'])
   }, 15_000)
 
+  test('returns terminal cancellation over IPC with one done event for the original turn', async () => {
+    realtime = await startRealtime()
+    const persistence: RuntimePersistenceUpdate[] = []
+    const doneEvents: Array<{ messageId: string; turnId?: string; stopReason?: string }> = []
+    runtime = await createProcessRuntimePort({
+      realtimeStreamEndpoint: realtime.runtimeStreamEndpoint,
+      realtimeStreamToken: realtime.runtimeStreamToken,
+      onPersistenceUpdate: async (event) => { persistence.push(event) },
+      onDone: async (event) => { doneEvents.push(event) },
+    })
+    await runtime.ensureSession(snapshot('session-cancel'))
+    const prompt = runtime.prompt({
+      agentId: 'agent-a',
+      sessionId: 'session-cancel',
+      content: 'x'.repeat(3_000),
+      diagnostics: { messageId: 'message-cancel', turnId: 'turn-cancel' },
+    })
+    await waitUntil(() => persistence.some((event) => event.sessionId === 'session-cancel'), 2_000)
+
+    await expect(runtime.cancelPrompt('agent-a', 'session-cancel')).resolves.toEqual({
+      status: 'requested',
+      escalation: 'cancel',
+      messageId: 'message-cancel',
+      turnId: 'turn-cancel',
+    })
+    await expect(prompt).resolves.toBeUndefined()
+    expect(doneEvents).toEqual([expect.objectContaining({
+      messageId: 'message-cancel',
+      turnId: 'turn-cancel',
+      stopReason: 'cancelled',
+    })])
+  }, 15_000)
+
   test('exits cleanly when shutdown overlaps in-flight Runtime requests', async () => {
     realtime = await startRealtime()
     runtime = await createProcessRuntimePort({

@@ -39,6 +39,17 @@ describe('RuntimeSessionActorScheduler', () => {
     expect(scheduler.nextCursor('session-a')).toEqual({ streamGeneration: 'generation-2', sequence: 1 })
   })
 
+  test('starts a fresh stream generation after a terminal cancellation fence', () => {
+    let generation = 0
+    const scheduler = new RuntimeSessionActorScheduler({
+      generationFactory: () => `generation-${++generation}`,
+    })
+
+    expect(scheduler.nextCursor('session-a')).toEqual({ streamGeneration: 'generation-1', sequence: 1 })
+    scheduler.fenceSession('session-a')
+    expect(scheduler.currentCursor('session-a')).toEqual({ streamGeneration: 'generation-2', sequence: 0 })
+  })
+
   test('rejects overflow without dropping accepted work', async () => {
     const scheduler = new RuntimeSessionActorScheduler({ maxMailboxItems: 2, maxMailboxBytes: 16 })
     let release: (() => void) | undefined

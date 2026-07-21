@@ -1,5 +1,5 @@
 import { mapConfigOptions, mergeCapabilitiesFromConfig } from '../../acp/capabilities.js'
-import type { RuntimeStateSnapshot } from '../../ports/runtime-port.js'
+import type { RuntimeCancelResult, RuntimeStateSnapshot } from '../../ports/runtime-port.js'
 import { createChildLogger } from '../../shared/logger.js'
 import type { ImageAttachment, SessionCapabilities } from '../../types/ws-protocol.js'
 import type { RuntimeSessionActorScheduler } from '../actors/session-actor.js'
@@ -15,9 +15,11 @@ import {
   runtimeSessionContextFingerprint,
 } from './runtime-fingerprints.js'
 import { applySdkSessionPreferences, initialCapabilities, openSdkSession } from './sdk-session-runtime.js'
-import { enqueueSdkPrompt } from './sdk-runtime-prompt.js'
 import { sweepSdkRuntimeIdle } from './sdk-runtime-idle.js'
 import type { RuntimeIdleThresholds } from './runtime-idle-sweep.js'
+import {
+  SdkRuntimeTurns,
+} from './runtime-active-turns.js'
 import { publishSdkLifecycle, requireSdkAgent, requireSdkSession, touchSdkSession } from './sdk-runtime-state.js'
 import type {
   SdkAgentRuntime,
@@ -37,6 +39,7 @@ export class SdkRuntimeHost {
   private readonly startAgent: (input: StartManagedAcpAgentInput) => Promise<ManagedAcpAgent>
   private readonly ensureBySession = new Map<string, Promise<string>>()
   private readonly startByAgent = new Map<string, Promise<SdkAgentRuntime>>()
+  private readonly runtimeTurns: SdkRuntimeTurns
 
   constructor(
     private readonly actors: RuntimeSessionActorScheduler,
@@ -44,6 +47,18 @@ export class SdkRuntimeHost {
     dependencies: SdkRuntimeHostDependencies = {},
   ) {
     this.startAgent = dependencies.startAgent ?? startManagedAcpAgent
+    this.runtimeTurns = new SdkRuntimeTurns({
+      actors: this.actors,
+      agents: this.agents,
+      sessions: this.sessions,
+      host: this.options,
+      timings: {
+        cancelGraceMs: dependencies.cancelGraceMs ?? 800,
+        closeGraceMs: dependencies.closeGraceMs ?? 1_000,
+        restartGraceMs: dependencies.restartGraceMs ?? 1_000,
+      },
+      restartAgent: (agentId) => this.stopAgent(agentId),
+    })
   }
 
   hasSession(sessionId: string): boolean {
@@ -137,27 +152,11 @@ export class SdkRuntimeHost {
     images?: ImageAttachment[]
     diagnostics?: { turnId?: string; messageId?: string }
   }): Promise<void> {
-    touchSdkSession(this.agents, requireSdkSession(this.sessions, input.sessionId, input.agentId))
-    return enqueueSdkPrompt({
-      actors: this.actors,
-      ...input,
-      getSession: () => requireSdkSession(this.sessions, input.sessionId, input.agentId),
-      getAgent: () => requireSdkAgent(this.agents, input.agentId),
-      publishDone: (event) => this.options.publishDone(event),
-    }).finally(() => {
-      const session = this.sessions.get(input.sessionId)
-      if (session) touchSdkSession(this.agents, session)
-    })
+    return this.runtimeTurns.prompt(input)
   }
 
-  async cancelPrompt(agentId: string, sessionId: string): Promise<void> {
-    const session = this.sessions.get(sessionId)
-    if (!session || session.snapshot.agent.id !== agentId) return
-    const agent = this.agents.get(agentId)
-    if (!agent) return
-    agent.router.cancelSession(sessionId)
-    touchSdkSession(this.agents, session)
-    await agent.connection.cancel({ sessionId: session.acpSessionId })
+  cancelPrompt(agentId: string, sessionId: string): Promise<RuntimeCancelResult> {
+    return this.runtimeTurns.cancel(agentId, sessionId)
   }
 
   async closeSession(agentId: string, sessionId: string): Promise<void> {
@@ -317,6 +316,7 @@ export class SdkRuntimeHost {
         if (session) session.capabilities = update(session.capabilities)
       },
       publishCapabilities: (sessionId, capabilities) => this.options.publishCapabilities?.(sessionId, capabilities),
+      acceptTurnUpdate: (sessionId, streamGeneration) => this.runtimeTurns.acceptsUpdate(sessionId, streamGeneration),
     })
     const command = snapshot.runtime.command
     if (!command) {

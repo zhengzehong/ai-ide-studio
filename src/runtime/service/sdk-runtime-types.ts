@@ -43,4 +43,7 @@ export interface SdkRuntimeHostOptions {
 
 export interface SdkRuntimeHostDependencies {
   startAgent?: (input: StartManagedAcpAgentInput) => Promise<ManagedAcpAgent>
+  cancelGraceMs?: number
+  closeGraceMs?: number
+  restartGraceMs?: number
 }
