@@ -39,6 +39,7 @@ import {
   Eye,
   EyeOff,
   MessageSquare as MessageSquareIcon,
+  RefreshCw,
 } from 'lucide-react'
 import { useAgentStore, type AgentData } from '../stores/agent.store'
 import {
@@ -129,6 +130,7 @@ import {
 import { ShareModal } from './share/ShareModal'
 import { Share2 } from 'lucide-react'
 import { useWorkspaceProjectState } from './workspace/use-workspace-project-state'
+import { resolveWorkspaceLoadState } from './workspace/load-state'
 
 const COPYING_STAGE = '正在复制会话...'
 
@@ -141,7 +143,11 @@ export default function Workspace() {
   const [searchParams, setSearchParams] = useSearchParams()
   const connected = useConnectionStore((s) => s.connected)
   const agents = useAgentStore((s) => s.agents)
+  const agentsLoading = useAgentStore((s) => s.loading)
+  const agentsError = useAgentStore((s) => s.error)
   const sessions = useSessionStore((s) => s.sessions)
+  const sessionsLoading = useSessionStore((s) => s.loading)
+  const sessionsError = useSessionStore((s) => s.error)
   const runningSessionIds = useSessionStore((s) => s.runningSessionIds)
   const unreadSessionIds = useSessionStore((s) => s.unreadSessionIds)
   const copyingTargetSessionIds = useSessionStore((s) => s.copyingTargetSessionIds)
@@ -152,8 +158,6 @@ export default function Workspace() {
   const selectSession = useSessionStore((s) => s.selectSession)
   const createSession = useSessionStore((s) => s.createSession)
   const fetchSessions = useSessionStore((s) => s.fetchSessions)
-  const fetchMessages = useSessionStore((s) => s.fetchMessages)
-  const fetchEvents = useSessionStore((s) => s.fetchEvents)
   const renameSession = useSessionStore((s) => s.renameSession)
   const copySession = useSessionStore((s) => s.copySession)
   const deleteSession = useSessionStore((s) => s.deleteSession)
@@ -214,6 +218,16 @@ export default function Workspace() {
     () => filterSessionsByProject(sessions, currentProjectId),
     [sessions, currentProjectId],
   )
+  const agentLoadState = resolveWorkspaceLoadState({
+    loading: agentsLoading,
+    error: agentsError,
+    itemCount: projectAgents.length,
+  })
+  const sessionLoadState = resolveWorkspaceLoadState({
+    loading: sessionsLoading,
+    error: sessionsError,
+    itemCount: projectSessions.length,
+  })
   const orderedProjectAgents = useMemo(() => sortWorkspaceItems(visibleProjectAgents), [visibleProjectAgents])
   const orderedAllProjectAgents = useMemo(() => sortWorkspaceItems(projectAgents), [projectAgents])
   const orderedProjectSessions = useMemo(() => sortWorkspaceItems(projectSessions), [projectSessions])
@@ -414,8 +428,6 @@ export default function Workspace() {
     setSelectedAgentId(pickerAgentId)
     selectSession(sessionId)
     await fetchSessions(undefined, currentProjectId ?? undefined)
-    await fetchMessages(sessionId)
-    await fetchEvents(sessionId)
   }
   const handlePublishTemplate = (sessionId: string) => {
     setPublishSessionId(sessionId)
@@ -436,8 +448,6 @@ export default function Workspace() {
       setSelectedAgentId(agentId)
       selectSession(copied.id)
       await fetchSessions(undefined, currentProjectId ?? undefined)
-      await fetchMessages(copied.id)
-      await fetchEvents(copied.id)
     } catch (err) {
       setAlertMsg(err instanceof Error ? err.message : '复制会话失败')
     } finally {
@@ -448,8 +458,6 @@ export default function Workspace() {
     setSelectedAgentId(agentId)
     selectSession(session.id)
     await fetchSessions(undefined, currentProjectId ?? undefined)
-    await fetchMessages(session.id)
-    await fetchEvents(session.id)
   }
   const handleDeleteSession = (sessionId: string) => {
     setConfirmDialog({
@@ -685,7 +693,55 @@ export default function Workspace() {
               >
                 智能体
               </div>
-              {projectAgents.length === 0 && (
+              {agentLoadState === 'loading' && (
+                <div
+                  style={{
+                    margin: '18px 14px',
+                    padding: 18,
+                    color: 'var(--text-3)',
+                    textAlign: 'center',
+                    fontSize: 14,
+                  }}
+                >
+                  <Loader2 size={18} style={{ animation: 'spin 1s linear infinite', marginBottom: 8 }} />
+                  <div>正在加载智能体...</div>
+                </div>
+              )}
+              {agentLoadState === 'error' && (
+                <div
+                  role="alert"
+                  style={{
+                    margin: '18px 14px',
+                    padding: 14,
+                    border: '1px solid var(--border)',
+                    borderRadius: 8,
+                    background: 'var(--bg-1)',
+                    textAlign: 'center',
+                  }}
+                >
+                  <div style={{ color: 'var(--red)', fontSize: 13, marginBottom: 9 }}>
+                    {agentsError || '智能体加载失败'}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => currentProjectId && void fetchAgents(currentProjectId, { force: true })}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 5,
+                      border: '1px solid var(--border)',
+                      borderRadius: 6,
+                      background: 'var(--bg-0)',
+                      color: 'var(--text-2)',
+                      padding: '6px 10px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <RefreshCw size={13} /> 重试
+                  </button>
+                </div>
+              )}
+              {agentLoadState === 'empty' && (
                 <div
                   style={{
                     margin: '18px 14px',
@@ -949,6 +1005,8 @@ export default function Workspace() {
           unreadSessionIds={unreadSessionIds}
           orderingMode={orderingMode}
           draggedOrderItem={draggedOrderItem}
+          loadState={sessionLoadState}
+          loadError={sessionsError}
           onSelectSession={handleSelectSession}
           onNewSession={handleNewSession}
           onNewFromTemplate={handleNewFromTemplate}
@@ -959,6 +1017,9 @@ export default function Workspace() {
           onReorder={persistSessionOrder}
           onSetDraggedOrderItem={setDraggedOrderItem}
           onDropSession={dropSessionOn}
+          onRetry={() => {
+            if (currentProjectId) void fetchSessions(undefined, currentProjectId, { force: true })
+          }}
         />
       ) : (
         <aside
@@ -1350,6 +1411,9 @@ function WorkspaceChatPane({
   currentSessionCopying: boolean
 }) {
   const messages = useSessionStore((s) => s.messages)
+  const messagesLoadingSessionId = useSessionStore((s) => s.messagesLoadingSessionId)
+  const messagesErrorBySession = useSessionStore((s) => s.messagesErrorBySession)
+  const fetchMessages = useSessionStore((s) => s.fetchMessages)
   const events = useSessionStore((s) => s.events)
   const streamingMessage = useSessionStore((s) => s.streamingMessage)
   const usage = useSessionStore((s) => s.usage)
@@ -1777,6 +1841,12 @@ function WorkspaceChatPane({
     }),
     [blockingInteraction, currentSessionId, events, messages, showStreamingBubble, streamingBubble],
   )
+  const messageError = currentSessionId ? messagesErrorBySession[currentSessionId] ?? null : null
+  const messageLoadState = resolveWorkspaceLoadState({
+    loading: !!currentSessionId && messagesLoadingSessionId === currentSessionId,
+    error: messageError,
+    itemCount: chatItems.length + (showStreamingBubble ? 1 : 0),
+  })
 
   const renderChatItem = useCallback(
     (item: ChatRenderItem<ChatMsg>) => {
@@ -1937,7 +2007,37 @@ function WorkspaceChatPane({
             key={chatContentKey(currentSessionId)}
             style={{ padding: '20px 20px 20px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}
           >
-            {chatItems.length === 0 && !showStreamingBubble && !blockingInteraction && (
+            {messageLoadState === 'loading' && !blockingInteraction && (
+              <div style={{ textAlign: 'center', color: 'var(--text-3)', padding: '48px 0' }}>
+                <Loader2 size={18} style={{ animation: 'spin 1s linear infinite', marginBottom: 8 }} />
+                <div>正在加载消息...</div>
+              </div>
+            )}
+            {messageLoadState === 'error' && !blockingInteraction && (
+              <div role="alert" style={{ textAlign: 'center', color: 'var(--text-3)', padding: '48px 0' }}>
+                <div style={{ color: 'var(--red)', fontSize: 13, marginBottom: 10 }}>
+                  {messageError || '消息加载失败'}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => currentSessionId && void fetchMessages(currentSessionId)}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 5,
+                    border: '1px solid var(--border)',
+                    borderRadius: 6,
+                    background: 'var(--bg-0)',
+                    color: 'var(--text-2)',
+                    padding: '6px 10px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <RefreshCw size={13} /> 重试
+                </button>
+              </div>
+            )}
+            {messageLoadState === 'empty' && !showStreamingBubble && !blockingInteraction && (
               <div style={{ textAlign: 'center', color: 'var(--text-3)', padding: '48px 0' }}>
                 暂无消息，开始对话吧
               </div>

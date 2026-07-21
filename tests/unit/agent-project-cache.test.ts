@@ -32,6 +32,7 @@ describe('agent project cache', () => {
       agents: [],
       loading: false,
       refreshing: false,
+      error: null,
       activeScope: ALL_PROJECTS_SCOPE,
       agentCache: emptyProjectCache<AgentData[]>(),
     })
@@ -51,5 +52,24 @@ describe('agent project cache', () => {
 
     expect(useAgentStore.getState().agents.map((item) => item.id)).toEqual(['agent-a'])
     expect(useAgentStore.getState().agentCache.entries.b?.data.map((item) => item.id)).toEqual(['agent-b'])
+  })
+
+  test('exposes a cold load failure and clears it after retry', async () => {
+    wsMock.request.mockRejectedValueOnce(new Error('Agent service unavailable'))
+
+    useAgentStore.getState().activateProject('a')
+    await useAgentStore.getState().fetchAgents('a', { force: true })
+
+    expect(useAgentStore.getState()).toMatchObject({
+      agents: [],
+      loading: false,
+      error: 'Agent service unavailable',
+    })
+
+    wsMock.request.mockResolvedValueOnce([agent('agent-a', 'a')])
+    await useAgentStore.getState().fetchAgents('a', { force: true })
+
+    expect(useAgentStore.getState().agents.map((item) => item.id)).toEqual(['agent-a'])
+    expect(useAgentStore.getState().error).toBeNull()
   })
 })

@@ -4,6 +4,8 @@ import type {
   SessionEventQuery,
   SessionListQuery,
   SessionMessageQuery,
+  SessionRecoveryQuery,
+  SessionRecoverySnapshot,
   TaskListQuery,
 } from '../ports/query-port.js'
 import {
@@ -73,6 +75,15 @@ export function createDatabaseQueryPort(options: DatabaseQueryPortOptions = {}):
         items,
         hasMore,
         nextCursor: hasMore && cursorEvent ? String(cursorEvent.sequence) : null,
+      }
+    },
+
+    async getSessionRecovery(input: SessionRecoveryQuery): Promise<SessionRecoverySnapshot> {
+      const limit = boundedLimit(input.limit, DEFAULT_EVENT_LIMIT, MAX_EVENT_LIMIT)
+      return {
+        sessionId: input.sessionId,
+        latestSequence: eventStore.latestSequence(input.sessionId),
+        events: eventStore.listRecovery(input.sessionId, limit),
       }
     },
   }

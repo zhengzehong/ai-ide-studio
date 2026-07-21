@@ -34,11 +34,23 @@ export interface SessionEventQuery {
   afterSequence?: number
 }
 
+export interface SessionRecoveryQuery {
+  sessionId: string
+  limit?: number
+}
+
+export interface SessionRecoverySnapshot {
+  sessionId: string
+  latestSequence: number
+  events: SessionEventData[]
+}
+
 export interface QueryClient {
   listTasks(input: TaskListQuery): Promise<TaskData[]>
   listSessions(input: SessionListQuery): Promise<SessionData[]>
   listSessionMessages(input: SessionMessageQuery): Promise<QueryPage<MessageData>>
   listSessionEvents(input: SessionEventQuery): Promise<QueryPage<SessionEventData>>
+  getSessionRecovery(input: SessionRecoveryQuery): Promise<SessionRecoverySnapshot>
 }
 
 export interface HttpQueryClientOptions {
@@ -96,6 +108,17 @@ export function createHttpQueryClient(options: HttpQueryClientOptions = {}): Que
         { limit: input.limit, afterSequence: input.afterSequence },
       )
     },
+
+    async getSessionRecovery(input) {
+      const envelope = await requestEnvelope(
+        fetchImpl,
+        getAccessToken,
+        timeoutMs,
+        `/api/v1/sessions/${encodeURIComponent(input.sessionId)}/recovery`,
+        { limit: input.limit },
+      )
+      return parseSessionRecoverySnapshot(envelope.data)
+    },
   }
 }
 
@@ -144,6 +167,41 @@ export function createWsQueryClient(request: WsRequest = (message) => wsClient.r
         nextCursor: hasMore && items.length > 0 ? String(items.at(-1)?.sequence) : null,
       }
     },
+
+    async getSessionRecovery(input) {
+      const page = await this.listSessionEvents({
+        sessionId: input.sessionId,
+        limit: input.limit,
+      })
+      return {
+        sessionId: input.sessionId,
+        latestSequence: page.items.at(-1)?.sequence ?? 0,
+        events: page.items.filter((event) => !MIRRORED_RECOVERY_EVENT_TYPES.has(event.type)),
+      }
+    },
+  }
+}
+
+const MIRRORED_RECOVERY_EVENT_TYPES = new Set([
+  'message.chunk',
+  'thinking.chunk',
+  'tool.call',
+  'tool.update',
+  'message.done',
+])
+
+function parseSessionRecoverySnapshot(value: unknown): SessionRecoverySnapshot {
+  if (!isRecord(value)
+    || typeof value.sessionId !== 'string'
+    || !Number.isInteger(value.latestSequence)
+    || value.latestSequence < 0
+    || !Array.isArray(value.events)) {
+    throw new Error('会话恢复响应无效')
+  }
+  return {
+    sessionId: value.sessionId,
+    latestSequence: value.latestSequence,
+    events: value.events as SessionEventData[],
   }
 }
 
@@ -169,6 +227,7 @@ async function requestList<T>(
   query: Record<string, string | number | boolean | undefined>,
 ): Promise<T[]> {
   const envelope = await requestEnvelope(fetchImpl, getAccessToken, timeoutMs, path, query)
+  if (!Array.isArray(envelope.data)) throw new Error('查询响应无效')
   return toArray<T>(envelope.data)
 }
 
@@ -180,6 +239,7 @@ async function requestPage<T>(
   query: Record<string, string | number | boolean | undefined>,
 ): Promise<QueryPage<T>> {
   const envelope = await requestEnvelope(fetchImpl, getAccessToken, timeoutMs, path, query)
+  if (!Array.isArray(envelope.data)) throw new Error('查询响应无效')
   if (!isRecord(envelope.page) || typeof envelope.page.hasMore !== 'boolean') {
     throw new Error('查询分页响应无效')
   }
@@ -220,7 +280,7 @@ async function requestEnvelope(
       : `查询失败（HTTP ${response.status}）`
     throw new Error(message)
   }
-  if (!isRecord(body) || !Array.isArray(body.data)) throw new Error('查询响应无效')
+  if (!isRecord(body) || !('data' in body)) throw new Error('查询响应无效')
   return body
 }
 

@@ -13,6 +13,7 @@ export interface ProjectCacheEntry<T> {
 export interface ProjectCacheState<T> {
   entries: Record<string, ProjectCacheEntry<T>>
   requestSeqByScope: Record<string, number>
+  errorsByScope?: Record<string, string>
 }
 
 export interface BeginRequestResult<T> {
@@ -28,7 +29,7 @@ export interface CommitInput<T> {
 }
 
 export function emptyProjectCache<T>(): ProjectCacheState<T> {
-  return { entries: {}, requestSeqByScope: {} }
+  return { entries: {}, requestSeqByScope: {}, errorsByScope: {} }
 }
 
 export function projectScopeKey(projectId?: string | null): string {
@@ -54,10 +55,13 @@ export function beginProjectRequest<T>(
   scope: string,
 ): BeginRequestResult<T> {
   const requestSeq = (state.requestSeqByScope[scope] ?? 0) + 1
+  const errorsByScope = { ...state.errorsByScope }
+  delete errorsByScope[scope]
   return {
     state: {
       ...state,
       requestSeqByScope: { ...state.requestSeqByScope, [scope]: requestSeq },
+      errorsByScope,
     },
     requestSeq,
   }
@@ -77,8 +81,11 @@ export function commitProjectResponse<T>(
 ): ProjectCacheState<T> {
   if (!canCommitProjectResponse(state, input.scope, input.requestSeq)) return state
   const now = input.now ?? Date.now()
+  const errorsByScope = { ...state.errorsByScope }
+  delete errorsByScope[input.scope]
   return {
     ...state,
+    errorsByScope,
     entries: {
       ...state.entries,
       [input.scope]: {
@@ -126,11 +133,20 @@ export function setProjectCacheError<T>(
   error: string,
 ): ProjectCacheState<T> {
   const entry = state.entries[scope]
-  if (!entry) return state
   return {
     ...state,
-    entries: { ...state.entries, [scope]: { ...entry, error } },
+    entries: entry
+      ? { ...state.entries, [scope]: { ...entry, error } }
+      : state.entries,
+    errorsByScope: { ...state.errorsByScope, [scope]: error },
   }
+}
+
+export function readProjectCacheError<T>(
+  state: ProjectCacheState<T>,
+  scope: string,
+): string | null {
+  return state.errorsByScope?.[scope] ?? state.entries[scope]?.error ?? null
 }
 
 export function clearProjectCache<T>(
@@ -140,9 +156,11 @@ export function clearProjectCache<T>(
   if (!(scope in state.entries) && !(scope in state.requestSeqByScope)) return state
   const entries = { ...state.entries }
   const requestSeqByScope = { ...state.requestSeqByScope }
+  const errorsByScope = { ...state.errorsByScope }
   delete entries[scope]
   delete requestSeqByScope[scope]
-  return { entries, requestSeqByScope }
+  delete errorsByScope[scope]
+  return { entries, requestSeqByScope, errorsByScope }
 }
 
 export function patchCachedArrays<T extends { id: string }>(

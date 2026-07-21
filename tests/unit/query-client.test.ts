@@ -53,6 +53,28 @@ describe('HTTP query client', () => {
     )
   })
 
+  test('parses a lightweight session recovery snapshot', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
+      data: {
+        sessionId: 'session-a',
+        latestSequence: 42,
+        events: [{ id: 'event-a', type: 'session:capabilities', sequence: 40 }],
+      },
+    }))
+    const client = createHttpQueryClient({ fetchImpl, getAccessToken: () => '' })
+
+    const recovery = await client.getSessionRecovery({ sessionId: 'session / A', limit: 100 })
+
+    expect(fetchImpl.mock.calls[0][0]).toBe(
+      '/api/v1/sessions/session%20%2F%20A/recovery?limit=100',
+    )
+    expect(recovery).toMatchObject({
+      sessionId: 'session-a',
+      latestSequence: 42,
+      events: [{ id: 'event-a' }],
+    })
+  })
+
   test('surfaces the server error message without discarding the old store snapshot', async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(
       { error: 'Query Worker unavailable' },

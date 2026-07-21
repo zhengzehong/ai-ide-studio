@@ -66,6 +66,7 @@ import {
   emptyProjectCache,
   pruneProjectCache,
   readProjectCache,
+  readProjectCacheError,
   setProjectCacheError,
   shouldRefreshProjectCache,
   touchProjectCache,
@@ -200,6 +201,7 @@ interface SessionStore {
   pendingElicitations: ElicitationRequestInfo[]
   loading: boolean
   refreshing: boolean
+  error: string | null
   activeSessionScope: string
   sessionListCache: ProjectCacheState<SessionData[]>
   copyingTargetSessionIds: Record<string, string>
@@ -207,6 +209,8 @@ interface SessionStore {
   lastCopyError: { sourceSessionId: string; targetSessionId: string; message: string } | null
   hasMoreMessagesBySession: Record<string, boolean>
   loadingOlderMessagesBySession: Record<string, boolean>
+  messagesLoadingSessionId: string | null
+  messagesErrorBySession: Record<string, string>
   toolCallSummariesByMessageId: Record<string, ToolCallSummaryInfo[]>
   toolCallDetailsByKey: Record<string, ToolCallDetailInfo>
   fileChangeDetailsByMessageId: Record<string, FileChangeDetailInfo>
@@ -231,6 +235,7 @@ interface SessionStore {
   fetchMessages: (sessionId: string) => Promise<void>
   loadOlderMessages: (sessionId: string) => Promise<void>
   fetchEvents: (sessionId: string) => Promise<void>
+  fetchRecovery: (sessionId: string) => Promise<void>
   createSession: (agentId: string, taskId?: string, projectId?: string) => Promise<SessionData>
   listSessionsByTask: (taskId: string) => Promise<SessionData[]>
   copySession: (sessionId: string) => Promise<SessionData>
@@ -843,6 +848,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   pendingElicitations: [],
   loading: false,
   refreshing: false,
+  error: null,
   activeSessionScope: sessionListScope(),
   sessionListCache: emptyProjectCache<SessionData[]>(),
   copyingTargetSessionIds: {},
@@ -850,6 +856,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   lastCopyError: null,
   hasMoreMessagesBySession: {},
   loadingOlderMessagesBySession: {},
+  messagesLoadingSessionId: null,
+  messagesErrorBySession: {},
   toolCallSummariesByMessageId: {},
   toolCallDetailsByKey: {},
   fileChangeDetailsByMessageId: {},
@@ -875,6 +883,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         activeSessionScope: scope,
         sessionListCache,
         sessions,
+        error: readProjectCacheError(sessionListCache, scope),
         ...reconcileCopyingSessions(sessions, state.copyingTargetSessionIds),
         runningSessionIds: reconcileRunningSessionIndicators(state.runningSessionIds, sessions),
         unreadSessionIds: removeSessionIndicators(state.unreadSessionIds, runningSessions),
@@ -891,7 +900,13 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     if (get().activeSessionScope !== scope) {
       activeSessionsProjectId = scopedProjectId
       const cachedForScope = readProjectCache(get().sessionListCache, scope)?.data ?? []
-      set({ activeSessionScope: scope, sessions: cachedForScope, loading: false, refreshing: false })
+      set({
+        activeSessionScope: scope,
+        sessions: cachedForScope,
+        error: readProjectCacheError(get().sessionListCache, scope),
+        loading: false,
+        refreshing: false,
+      })
     }
     const cached = readProjectCache(get().sessionListCache, scope)
     if (!options?.force && cached && !shouldRefreshProjectCache(cached)) return
@@ -905,6 +920,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       const isActive = state.activeSessionScope === scope
       return {
         sessionListCache: request.state,
+        error: isActive ? null : state.error,
         loading: isActive && !cached,
         refreshing: isActive && !!cached,
       }
@@ -939,6 +955,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             runningSessionIds: reconcileRunningSessionIndicators(state.runningSessionIds, activeSessions),
           unreadSessionIds: unreadAfterRunning,
           staleSessionIds: removeSessionIndicators(state.staleSessionIds, runningSessions),
+          error: null,
           loading: false,
             refreshing: false,
         }
@@ -946,12 +963,11 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       } catch (error) {
         set((state) => {
           const isActive = state.activeSessionScope === scope
+          const message = error instanceof Error ? error.message : '会话加载失败'
+          const sessionListCache = setProjectCacheError(state.sessionListCache, scope, message)
           return {
-            sessionListCache: setProjectCacheError(
-              state.sessionListCache,
-              scope,
-              error instanceof Error ? error.message : '会话加载失败',
-            ),
+            sessionListCache,
+            error: isActive ? readProjectCacheError(sessionListCache, scope) : state.error,
             loading: isActive ? false : state.loading,
             refreshing: isActive ? false : state.refreshing,
           }
@@ -979,6 +995,12 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   },
 
   fetchMessages: async (sessionId) => {
+    if (sessionId === get().currentSessionId) {
+      set((state) => ({
+        messagesLoadingSessionId: sessionId,
+        messagesErrorBySession: withoutKey(state.messagesErrorBySession, sessionId),
+      }))
+    }
     try {
       const page = await queryClient.listSessionMessages({
         sessionId,
@@ -1024,6 +1046,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             ...state.hasMoreMessagesBySession,
             [sessionId]: page.hasMore,
           },
+          messagesLoadingSessionId: state.messagesLoadingSessionId === sessionId
+            ? null
+            : state.messagesLoadingSessionId,
+          messagesErrorBySession: withoutKey(state.messagesErrorBySession, sessionId),
         }
       })
       saveCache(sessionId, get())
@@ -1040,11 +1066,17 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         }))
         void get().fetchMessageProcess(sessionId, running.id)
       }
-      if (get().messages.filter((message) => message.session_id === sessionId).length === 0) {
-        void get().fetchEvents(sessionId)
-      }
-    } catch {
-      /* ignore message load errors */
+    } catch (error) {
+      if (sessionId !== get().currentSessionId) return
+      set((state) => ({
+        messagesLoadingSessionId: state.messagesLoadingSessionId === sessionId
+          ? null
+          : state.messagesLoadingSessionId,
+        messagesErrorBySession: {
+          ...state.messagesErrorBySession,
+          [sessionId]: error instanceof Error ? error.message : '消息加载失败',
+        },
+      }))
     }
   },
 
@@ -1121,6 +1153,23 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     } catch {
       /* ignore event load errors */
     }
+  },
+
+  fetchRecovery: async (sessionId) => {
+    const snapshot = await queryClient.getSessionRecovery({ sessionId, limit: 1000 })
+    if (sessionId !== get().currentSessionId) return
+    eventCursorBySession.set(sessionId, snapshot.latestSequence)
+    const reduced = reduceSessionEvents(snapshot.events)
+    set((state) => ({
+      events: snapshot.events,
+      usage: reduced.usage,
+      turnUsage: reduced.turnUsage,
+      capabilities: mergeCapabilities(state.capabilities, reduced.capabilities),
+      plan: reduced.plan,
+      pendingPermissions: reduced.pendingPermissions,
+      pendingElicitations: reduced.pendingElicitations,
+    }))
+    saveCache(sessionId, get())
   },
 
   createSession: async (agentId, taskId, projectId) => {
@@ -1348,6 +1397,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         get().messages.filter((message) => message.session_id === id).length === 0
       ) {
         void get().fetchMessages(id)
+        void get().fetchRecovery(id)
       }
       return
     }
@@ -1415,6 +1465,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       unreadSessionIds: removeSessionIndicator(get().unreadSessionIds, id),
     })
     void get().fetchMessages(id)
+    void get().fetchRecovery(id)
     void get().fetchModels()
     void markSessionReadOnServer(id)
   },

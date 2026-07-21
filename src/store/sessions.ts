@@ -884,6 +884,32 @@ export const eventStore = {
     `).all({ sessionId, limit }).reverse()
   },
 
+  listRecovery(sessionId: string, limit = 500): SessionEventRow[] {
+    return getDb().prepare<{ sessionId: string; limit: number }, SessionEventRow>(`
+      SELECT * FROM session_events
+      WHERE session_id = @sessionId
+        AND type NOT IN (
+          'message.chunk',
+          'thinking.chunk',
+          'tool.call',
+          'tool.update',
+          'message.done'
+        )
+      ORDER BY sequence DESC
+      LIMIT @limit
+    `).all({ sessionId, limit }).reverse()
+  },
+
+  latestSequence(sessionId: string): number {
+    const row = getDb().prepare<[string], { sequence: number }>(`
+      SELECT sequence FROM session_events
+      WHERE session_id = ?
+      ORDER BY sequence DESC
+      LIMIT 1
+    `).get(sessionId)
+    return row?.sequence ?? 0
+  },
+
   listByMessage(sessionId: string, messageId: string): SessionEventRow[] {
     return getDb().prepare<{ sessionId: string; messageId: string }, SessionEventRow>(`
       WITH turn_bounds AS (

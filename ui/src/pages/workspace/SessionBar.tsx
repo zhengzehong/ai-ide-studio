@@ -1,5 +1,5 @@
 import { useState, type MouseEvent } from 'react'
-import { GripVertical, Plus, Zap, ChevronDown } from 'lucide-react'
+import { GripVertical, Plus, Zap, ChevronDown, Loader2, RefreshCw } from 'lucide-react'
 import type { AgentData } from '../../stores/agent.store'
 import type { SessionData } from '../../stores/session.store'
 import type { SessionIndicatorStateMap } from '../../utils/session-indicators'
@@ -35,6 +35,8 @@ export interface SessionBarProps {
   unreadSessionIds: SessionIndicatorStateMap
   orderingMode: boolean
   draggedOrderItem: SessionBarDraggedItem | null
+  loadState: 'loading' | 'error' | 'empty' | 'ready'
+  loadError: string | null
   onSelectSession: (agentId: string, sessionId: string) => void
   onNewSession: (agentId: string) => void
   onNewFromTemplate: (agentId: string) => void
@@ -42,6 +44,7 @@ export interface SessionBarProps {
   onReorder: (agentId: string, sessionIds: string[]) => void
   onSetDraggedOrderItem: (item: SessionBarDraggedItem | null) => void
   onDropSession: (agentId: string, targetSessionId: string) => void
+  onRetry: () => void
 }
 
 export function SessionBar(props: SessionBarProps) {
@@ -53,12 +56,15 @@ export function SessionBar(props: SessionBarProps) {
     unreadSessionIds,
     orderingMode,
     draggedOrderItem,
+    loadState,
+    loadError,
     onSelectSession,
     onNewSession,
     onNewFromTemplate,
     onContextMenu,
     onSetDraggedOrderItem,
     onDropSession,
+    onRetry,
   } = props
 
   const [newMenuOpen, setNewMenuOpen] = useState(false)
@@ -245,7 +251,48 @@ export function SessionBar(props: SessionBarProps) {
 
       {agent ? (
         <div style={{ flex: 1, overflowY: 'auto', padding: '4px 0', minHeight: 0 }}>
-          {sessions.length === 0 ? (
+          {loadState === 'loading' ? (
+            <div
+              style={{
+                padding: '32px 16px',
+                textAlign: 'center',
+                color: 'var(--text-3)',
+                fontSize: 13,
+              }}
+            >
+              <Loader2 size={16} style={{ animation: 'spin 1s linear infinite', marginBottom: 8 }} />
+              <div>正在加载会话...</div>
+            </div>
+          ) : loadState === 'error' ? (
+            <div
+              role="alert"
+              style={{
+                padding: '28px 14px',
+                textAlign: 'center',
+                color: 'var(--text-3)',
+                fontSize: 13,
+              }}
+            >
+              <div style={{ color: 'var(--red)', marginBottom: 8 }}>{loadError || '会话加载失败'}</div>
+              <button
+                type="button"
+                onClick={onRetry}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  border: '1px solid var(--border)',
+                  borderRadius: 6,
+                  background: 'var(--bg-0)',
+                  color: 'var(--text-2)',
+                  padding: '5px 9px',
+                  cursor: 'pointer',
+                }}
+              >
+                <RefreshCw size={12} /> 重试
+              </button>
+            </div>
+          ) : sessions.length === 0 ? (
             <div
               style={{
                 padding: '32px 16px',

@@ -8,7 +8,7 @@ const log = createChildLogger('gateway:http-query')
 const QUERY_RESPONSE_BUDGET_BYTES = 1024 * 1024
 
 interface QueryEnvelope {
-  data: unknown[]
+  data: unknown
   page?: {
     hasMore: boolean
     nextCursor: string | null
@@ -72,6 +72,19 @@ export function mountQueryRoutes(app: Hono, queryPort?: QueryPort): void {
       }),
     ))
   })
+
+  app.get('/api/v1/sessions/:sessionId/recovery', async (c) => {
+    const limit = parsePositiveInteger(c.req.query('limit'), 'limit')
+    if ('error' in limit) return c.json({ error: limit.error }, 400)
+
+    return runQuery(c, 'sessions.recovery', async () => ({
+      data: await resolveQueryPort(queryPort).getSessionRecovery({
+        sessionId: c.req.param('sessionId'),
+        limit: limit.value,
+        priority: 'interactive',
+      }),
+    }))
+  })
 }
 
 function pageEnvelope<T>(page: QueryPage<T>): QueryEnvelope {
@@ -95,7 +108,7 @@ async function runQuery(
     const context = {
       queryName,
       elapsedMs: Number(elapsedMs.toFixed(2)),
-      itemCount: envelope.data.length,
+      itemCount: Array.isArray(envelope.data) ? envelope.data.length : 1,
       responseBytes,
     }
     if (responseBytes > QUERY_RESPONSE_BUDGET_BYTES) {

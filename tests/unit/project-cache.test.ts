@@ -10,7 +10,9 @@ import {
   projectScopeKey,
   pruneProjectCache,
   readProjectCache,
+  readProjectCacheError,
   removeCachedArrayItem,
+  setProjectCacheError,
   shouldRefreshProjectCache,
 } from '../../ui/src/stores/project-cache.ts'
 
@@ -102,5 +104,16 @@ describe('project cache state machine', () => {
     expect(projectScopeKey()).toBe(ALL_PROJECTS_SCOPE)
     expect(projectScopeKey(null)).toBe(ALL_PROJECTS_SCOPE)
     expect(projectScopeKey('project-a')).toBe('project-a')
+  })
+
+  test('retains a cold request error until that scope is retried', () => {
+    const request = beginProjectRequest(emptyProjectCache<string[]>(), 'project-a')
+    const failed = setProjectCacheError(request.state, 'project-a', '加载失败')
+
+    expect(readProjectCache(failed, 'project-a')).toBeNull()
+    expect(readProjectCacheError(failed, 'project-a')).toBe('加载失败')
+
+    const retry = beginProjectRequest(failed, 'project-a')
+    expect(readProjectCacheError(retry.state, 'project-a')).toBeNull()
   })
 })

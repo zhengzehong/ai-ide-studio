@@ -59,6 +59,7 @@ describe('session project cache', () => {
       pendingElicitations: [],
       loading: false,
       refreshing: false,
+      error: null,
       activeSessionScope: ALL_PROJECTS_SCOPE,
       sessionListCache: emptyProjectCache<SessionData[]>(),
     })
@@ -103,5 +104,24 @@ describe('session project cache', () => {
     expect(useSessionStore.getState().sessionListCache.entries.b?.data.map((item) => item.id))
       .toEqual(['session-b-new', 'session-b'])
     cleanup()
+  })
+
+  test('exposes a cold load failure and clears it after retry', async () => {
+    wsMock.request.mockRejectedValueOnce(new Error('Session service unavailable'))
+
+    useSessionStore.getState().activateProject('a')
+    await useSessionStore.getState().fetchSessions(undefined, 'a', { force: true })
+
+    expect(useSessionStore.getState()).toMatchObject({
+      sessions: [],
+      loading: false,
+      error: 'Session service unavailable',
+    })
+
+    wsMock.request.mockResolvedValueOnce([session('session-a', 'a')])
+    await useSessionStore.getState().fetchSessions(undefined, 'a', { force: true })
+
+    expect(useSessionStore.getState().sessions.map((item) => item.id)).toEqual(['session-a'])
+    expect(useSessionStore.getState().error).toBeNull()
   })
 })
