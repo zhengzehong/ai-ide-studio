@@ -1397,7 +1397,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         get().messages.filter((message) => message.session_id === id).length === 0
       ) {
         void get().fetchMessages(id)
-        void get().fetchRecovery(id)
+        void get().fetchRecovery(id).catch(() => undefined)
       }
       return
     }
@@ -1465,7 +1465,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       unreadSessionIds: removeSessionIndicator(get().unreadSessionIds, id),
     })
     void get().fetchMessages(id)
-    void get().fetchRecovery(id)
+    void get().fetchRecovery(id).catch(() => undefined)
     void get().fetchModels()
     void markSessionReadOnServer(id)
   },
