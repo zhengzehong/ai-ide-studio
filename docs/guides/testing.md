@@ -91,4 +91,6 @@ npx tsx scripts/performance/phase-5-soak.ts --json
 
 `phase-5-performance.test.ts` 验证 Session History p95 与 2 秒慢 Query 下的 Realtime p95/p99；`phase-5-process-failures.test.ts` 注入 Query Worker、Writer Worker、Realtime 和 Runtime 退出。soak runner 校验每轮每 Session 恰好一个 done、无超时、Runtime 首帧延迟和长时间 heap 趋势。浏览器 runner 使用系统 Chrome、生产静态资源和 IndexedDB stale snapshot，预算为 warm hard refresh p95 `<300ms`、缓存项目/页面切换 p95 `<50ms>`。
 
+`project-data-scope.test.ts` 覆盖 A → B → A 导航期间 Store 必须重新激活而网络刷新保持去重；`http-query-routes.test.ts` 和 `query-read-model-performance.test.ts` 锁定 Session Recovery 不返回完整工具 payload、Task summary 不返回完整正文，并检查 262 个长描述任务的列表响应小于 512 KiB。
+
 浏览器 runner 默认使用 `C:\Program Files\Google\Chrome\Application\chrome.exe`；其他安装位置通过 `PLAYWRIGHT_CHROME_PATH` 指定。运行前先执行 `npm run build`。

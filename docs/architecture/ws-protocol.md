@@ -6,10 +6,11 @@ PC 高频只读路径使用同源 HTTP，认证沿用 `x-ai-ide-token`。普通�
 
 | 方法 | 参数 | 返回 | 说明 |
 |------|------|------|------|
-| `GET /api/v1/tasks` | `projectId?`, `status?` | `{ data: Task[] }` | 任务列表；与 `tasks.list` 共用 Query Port |
+| `GET /api/v1/tasks` | `projectId?`, `status?` | `{ data: TaskSummary[] }` | 任务摘要列表；不返回完整 `description`，只返回最多 240 字的 `descriptionPreview` |
 | `GET /api/v1/sessions` | `projectId?`, `agentId?` | `{ data: Session[] }` | 会话列表，包含 `activity_state`；与 `sessions.list` 共用 Query Port |
 | `GET /api/v1/sessions/:sessionId/messages` | `limit?`, `before?`, `includeToolCalls?`, `includeLatestToolCalls?` | `{ data: Message[], page }` | 消息历史；`limit` 为 1..200，`before` 使用消息时间游标 |
-| `GET /api/v1/sessions/:sessionId/events` | `limit?`, `afterSequence?` | `{ data: SessionEvent[], page }` | 恢复事件；`limit` 为 1..1000，增量页按 sequence 升序且不跳页 |
+| `GET /api/v1/sessions/:sessionId/events` | `limit?`, `afterSequence?` | `{ data: SessionEvent[], page }` | 原始事件页；`limit` 为 1..1000，增量页按 sequence 升序且不跳页 |
+| `GET /api/v1/sessions/:sessionId/recovery` | `limit?` | `{ data: { sessionId, latestSequence, events } }` | PC 轻量状态恢复；排除完整消息/思考/工具镜像事件，`latestSequence` 仍指向完整流游标 |
 | `GET /api/v1/realtime-config` | — | `{ wsUrl, protocolVersion, legacyRpcEnabled, mode }` | 返回当前 Realtime 端点；PC/移动端在首次连接和每次重连前调用 |
 
 成功响应带 `Cache-Control: no-store`、`Server-Timing` 和 `X-Response-Bytes`。PC 默认使用这些 HTTP 路由；`VITE_QUERY_TRANSPORT=ws`、移动端和 CLI 可继续使用下列 WS 兼容 RPC。兼容桥保持数组返回，不包含 HTTP 的 `page` 外壳。
@@ -111,7 +112,8 @@ Runtime 可见 patch 不经过 API 事件总线，而是通过 Runtime→Realtim
 
 | 方法 | 参数 | 返回 | 说明 |
 |------|------|------|------|
-| `tasks.list` | `{ status?, projectId? }` | `Task[]` | 列出任务，可按项目过滤；PC 已迁移 HTTP，当前为移动端/CLI/回滚兼容桥 |
+| `tasks.list` | `{ status?, projectId? }` | `TaskSummary[]` | 列出任务摘要，可按项目过滤；完整正文通过 `tasks.get` 按需读取 |
+| `tasks.get` | `{ taskId }` | `Task & { sessions, steps, stepProgress }` | 读取单个任务完整详情，包括完整 `description` |
 | `tasks.create` | `{ title, description, projectId? }` | `Task` | 创建协作任务空壳；任务为 `draft`，不建步骤、不分派 Agent。旧调用方的分派兼容逻辑仅保留在后端 RPC 入口，不作为新 UI 协议使用 |
 | `tasks.createSimple` | `{ title, description, assignee, projectId?, sessionId? }` | `Task & { defaultStepId, sessionId, steps, stepProgress }` | 创建简单任务：自动创建一个默认 step，分派给 `assignee` 并立即派发 |
 | `tasks.update` | `{ taskId, status?, stage? }` | `Task` | 更新任务状态 |
