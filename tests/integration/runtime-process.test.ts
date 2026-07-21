@@ -21,15 +21,18 @@ describe('Runtime process', () => {
   test('owns mock runtime sessions and exposes the RuntimePort command surface', async () => {
     realtime = await startRealtime()
     const persistence: RuntimePersistenceUpdate[] = []
+    const statuses: string[] = []
     runtime = await createProcessRuntimePort({
       realtimeStreamEndpoint: realtime.runtimeStreamEndpoint,
       realtimeStreamToken: realtime.runtimeStreamToken,
       onPersistenceUpdate: async (update) => { persistence.push(update) },
       onDone: async () => undefined,
+      onAgentStatus: async (event) => { statuses.push(`${event.agentId}:${event.status}`) },
     })
     const state = snapshot('session-a')
 
-    const acpSessionId = await runtime.ensureSession(state)
+    const acpSessionId = await runtime.ensureSession(state, { emitLifecycle: true })
+    await runtime.drain()
     expect(acpSessionId).toMatch(/^mock-session-/)
     await expect(runtime.getSessionCapabilities('agent-a', 'session-a')).resolves.toMatchObject({
       currentModelId: 'mock-fast',
@@ -41,6 +44,9 @@ describe('Runtime process', () => {
 
     await runtime.prompt({ agentId: 'agent-a', sessionId: 'session-a', content: 'hello runtime' })
     expect(persistence.some((item) => item.update.kind === 'session-update')).toBe(true)
+    expect(persistence.some((item) => item.update.kind === 'session-update'
+      && item.update.data?.eventType === 'lifecycle.session_ready')).toBe(true)
+    expect(statuses).toContain('agent-a:running')
     await expect(runtime.resolvePermission('session-a', 'missing', 'allow_once')).resolves.toBe(false)
     await expect(runtime.resolveElicitation('session-a', 'missing', 'cancel')).resolves.toBe(false)
 
@@ -69,6 +75,54 @@ describe('Runtime process', () => {
     })).resolves.toBeUndefined()
 
     expect(doneEvents).toEqual(['session-long-prompt'])
+  }, 15_000)
+
+  test('exits cleanly when shutdown overlaps in-flight Runtime requests', async () => {
+    realtime = await startRealtime()
+    runtime = await createProcessRuntimePort({
+      realtimeStreamEndpoint: realtime.runtimeStreamEndpoint,
+      realtimeStreamToken: realtime.runtimeStreamToken,
+      onPersistenceUpdate: async () => undefined,
+      onDone: async () => undefined,
+    })
+    await runtime.ensureSession(snapshot('session-shutdown'))
+    const requestResults = Array.from({ length: 200 }, () => (
+      runtime?.getSessionCapabilities('agent-a', 'session-shutdown').then(
+        () => undefined,
+        (error: unknown) => error instanceof Error ? error.message : String(error),
+      )
+    ))
+
+    const closingRuntime = runtime
+    runtime = undefined
+    await closingRuntime.close()
+    const requestErrors = (await Promise.all(requestResults)).filter((value) => value !== undefined)
+
+    expect(requestErrors).not.toContainEqual(expect.stringContaining('code=1'))
+  }, 15_000)
+
+  test('sweeps idle Sessions and Agents inside the Runtime process', async () => {
+    realtime = await startRealtime()
+    const statuses: string[] = []
+    runtime = await createProcessRuntimePort({
+      realtimeStreamEndpoint: realtime.runtimeStreamEndpoint,
+      realtimeStreamToken: realtime.runtimeStreamToken,
+      onPersistenceUpdate: async () => undefined,
+      onDone: async () => undefined,
+      onAgentStatus: async (event) => { statuses.push(`${event.agentId}:${event.status}`) },
+      idleSweepIntervalMs: 20,
+      sessionIdleMs: 40,
+      agentIdleMs: 80,
+    })
+    const state = snapshot('session-idle')
+    await runtime.ensureSession(state)
+
+    await waitUntil(() => statuses.includes('agent-a:standby'), 2_000)
+    await expect(runtime.getSessionCapabilities('agent-a', 'session-idle'))
+      .rejects.toThrow('Runtime Session not found')
+
+    await expect(runtime.ensureSession(state)).resolves.toMatch(/^mock-session-/)
+    expect(statuses.filter((status) => status === 'agent-a:running')).toHaveLength(2)
   }, 15_000)
 })
 
@@ -107,5 +161,13 @@ export function snapshot(sessionId: string): RuntimeStateSnapshot {
     runtimePreferences: {},
     mcpServers: [],
     autoApprovedToolNames: [],
+  }
+}
+
+async function waitUntil(predicate: () => boolean, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error('Timed out waiting for Runtime idle sweep')
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 10))
   }
 }

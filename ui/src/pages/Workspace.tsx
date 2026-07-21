@@ -1380,6 +1380,8 @@ function WorkspaceChatPane({
 
   const [inputValue, setInputValue] = useState('')
   const [pendingImages, setPendingImages] = useState<WorkspacePendingImage[]>([])
+  const [sendingPrompt, setSendingPrompt] = useState(false)
+  const [sendError, setSendError] = useState<string | null>(null)
   const [draggingImages, setDraggingImages] = useState(false)
   const [showTimeline, setShowTimeline] = useState(false)
   const [showShareModal, setShowShareModal] = useState(false)
@@ -1422,7 +1424,7 @@ function WorkspaceChatPane({
   const sessionDraftsRef = useRef(createSessionDraftStore({ revokePreview: (preview) => URL.revokeObjectURL(preview) }))
 
   const blockingInteraction = pendingPermissions.length > 0 || pendingElicitations.length > 0
-  const canSendPrompt = !!currentSessionId && connected && !blockingInteraction && !currentSessionCopying && (!!inputValue.trim() || pendingImages.length > 0)
+  const canSendPrompt = !!currentSessionId && connected && !blockingInteraction && !currentSessionCopying && !sendingPrompt && (!!inputValue.trim() || pendingImages.length > 0)
   const hasMoreMessages = currentSessionId ? hasMoreMessagesBySession[currentSessionId] === true : false
   const loadingOlderMessages = currentSessionId ? !!loadingOlderMessagesBySession[currentSessionId] : false
   const pendingInteractionId = pendingPermissions[0]?.id || pendingElicitations[0]?.id || ''
@@ -1609,30 +1611,42 @@ function WorkspaceChatPane({
     })
   }
 
-  const handleSend = () => {
+  const handleSend = async () => {
     const v = inputValue.trim()
     const hasImages = pendingImages.length > 0
-    if ((!v && !hasImages) || !currentSessionId || !connected || blockingInteraction || currentSessionCopying) return
+    if ((!v && !hasImages) || !currentSessionId || !connected || blockingInteraction || currentSessionCopying || sendingPrompt) return
+    const targetSessionId = currentSessionId
     stickToBottomRef.current = true
-    sendPrompt(
-      v,
-      hasImages ? pendingImages.map((i) => ({ data: i.data, mimeType: i.mimeType })) : undefined,
-    )
-    sessionDraftsRef.current.clear(currentSessionId)
-    updateInputValue('')
-    clearPendingImages()
-    requestAnimationFrame(() => {
-      if (textareaRef.current) {
-        textareaRef.current.style.height = 'auto'
-        textareaRef.current.focus()
+    setSendingPrompt(true)
+    setSendError(null)
+    try {
+      await sendPrompt(
+        v,
+        hasImages ? pendingImages.map((i) => ({ data: i.data, mimeType: i.mimeType })) : undefined,
+      )
+      if (draftSessionIdRef.current === targetSessionId) {
+        updateInputValue('')
+        clearPendingImages()
+        requestAnimationFrame(() => {
+          if (textareaRef.current) {
+            textareaRef.current.style.height = 'auto'
+            textareaRef.current.focus()
+          }
+        })
+      } else {
+        sessionDraftsRef.current.clear(targetSessionId)
       }
-    })
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : '消息发送失败，请重试')
+    } finally {
+      setSendingPrompt(false)
+    }
   }
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      handleSend()
+      void handleSend()
     }
   }
 
@@ -1941,6 +1955,11 @@ function WorkspaceChatPane({
         )}
       </div>
       <div style={{ padding: '0 20px 16px', flexShrink: 0 }}>
+        {sendError && (
+          <div role="alert" style={{ color: 'var(--red)', fontSize: 13, marginBottom: 8 }}>
+            {sendError}
+          </div>
+        )}
         {pendingImages.length > 0 && (
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
             {pendingImages.map((img, i) => (
@@ -2007,7 +2026,7 @@ function WorkspaceChatPane({
             placeholder={
               currentSessionCopying ? '正在复制会话，完成后可继续输入...' : blockingInteraction ? '等待你确认后继续...' : currentSessionId ? '输入消息...' : '先选择一个 Session'
             }
-            disabled={!currentSessionId || !connected || blockingInteraction || currentSessionCopying}
+            disabled={!currentSessionId || !connected || blockingInteraction || currentSessionCopying || sendingPrompt}
             autoFocus
             rows={2}
             style={{

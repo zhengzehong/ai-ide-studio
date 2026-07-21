@@ -2,6 +2,7 @@ import { createConnection, type Socket } from 'node:net'
 import { FramedSocket } from '../ipc/framed-socket.js'
 import type { IpcEnvelope } from '../ipc/protobuf-envelope.js'
 import { createChildLogger } from '../shared/logger.js'
+import { shouldHandleInteractiveSignal } from '../shared/process-signal-ownership.js'
 import { isRealtimeIpcPayload, type RealtimeIpcPayload } from './protocol.js'
 import { startRealtimeService, type RealtimeServiceHandle } from './service.js'
 import { startRuntimeStreamIngress, type RuntimeStreamIngress } from './runtime-stream-ingress.js'
@@ -138,7 +139,9 @@ function positiveInteger(value: string | undefined, fallback: number, allowZero 
   return Number.isInteger(parsed) && (allowZero ? parsed >= 0 : parsed > 0) ? parsed : fallback
 }
 
-process.once('SIGINT', () => { void shutdown(0) })
+process.on('SIGINT', () => {
+  if (shouldHandleInteractiveSignal(process.connected)) void shutdown(0)
+})
 process.once('SIGTERM', () => { void shutdown(0) })
 
 main().catch((error) => {

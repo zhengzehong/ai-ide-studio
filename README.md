@@ -53,6 +53,8 @@ PC 的 Prompt、取消、已读、权限和提问响应默认通过 `/api/v1/com
 
 后端默认使用 `RUNTIME_SERVICE_MODE=process` 启动独立 Runtime 子进程。Claude/Codex ACP、每 Session 串行 actor、流更新合并、权限交互和终端资源都在该进程中；可见流通过专用本机管道直达 Realtime，持久化流回到 API/Writer。排障时可同时设置 `RUNTIME_SERVICE_MODE=embedded` 与 `REALTIME_MODE=embedded` 回滚到旧同进程路径。
 
+性能分支可用 `powershell -ExecutionPolicy Bypass -File scripts/start-performance-local.ps1` 启动隔离实例。默认只公开 `http://127.0.0.1:19000`，数据库和日志分别位于当前 worktree 的 `data-perf` 与 `data-perf/logs`；脚本拒绝使用 PRD 的 `18900` 端口，也不会自动终止占用端口的进程。
+
 详细配置见 [快速上手指南](docs/guides/getting-started.md)。
 
 ## 技术栈
@@ -154,6 +156,9 @@ MIT
 | `RUNTIME_SERVICE_MODE` | `process` | `process` 使用独立 Runtime 子进程；`embedded` 使用旧 `acpHost` 回滚适配器 |
 | `RUNTIME_IPC_MAX_FRAME_BYTES` | `16777216` | Runtime 控制/持久化 IPC 单帧上限 |
 | `RUNTIME_RESTART_DELAY_MS` | `250` | Runtime 异常退出后的监督重启延迟 |
+| `RUNTIME_SESSION_IDLE_MS` | `1800000` | process Runtime 中单个 ACP Session 的空闲断开时间；保留持久化历史与 `acp_session_id` |
+| `RUNTIME_AGENT_IDLE_MS` | `3600000` | process Runtime 中无连接 Session 的 Agent 子进程停止时间 |
+| `RUNTIME_IDLE_SWEEP_MS` | `300000` | process Runtime 空闲资源扫描间隔 |
 | `ACP_RUNTIME_IDLE_MS` | `3600000` | ACP runtime 进程空闲停止时间 |
 | `ACP_IDLE_SWEEP_MS` | `300000` | 空闲回收扫描间隔 |
 | `GLOBAL_ASSISTANT_WORKSPACE_ROOT` | 系统应用数据目录下的 `global-assistants` | 全局助理工作空间根目录；实际工作目录为 `<root>/<agentId>/workspace` |

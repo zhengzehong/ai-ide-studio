@@ -6,6 +6,7 @@ import type {
   SessionWriteCursor,
   RuntimeCommandEnqueueResult,
   RuntimeCommandInput,
+  RuntimeCommandRecoveryQuery,
   RuntimeCommandRecord,
   RuntimeCommandStatus,
   RuntimeCommandUpdate,
@@ -52,7 +53,7 @@ export class WriterOperationError extends Error {
 
 export function executeWriteBatches(db: SqliteDatabase, batches: WriteBatch[]): WriteBatchResult[] {
   const execute = db.transaction((items: WriteBatch[]) => items.map((batch) => commitBatch(db, batch)))
-  return execute(batches)
+  return execute.immediate(batches)
 }
 
 function commitBatch(db: SqliteDatabase, batch: WriteBatch): WriteBatchResult {
@@ -214,17 +215,26 @@ export function enqueueRuntimeCommand(
 
 export function listRecoverableRuntimeCommands(
   db: SqliteDatabase,
-  limit: number,
+  input: RuntimeCommandRecoveryQuery,
 ): RuntimeCommandRecord[] {
+  const { limit, after } = input
   if (!Number.isInteger(limit) || limit < 1 || limit > 1000) {
     throw new WriterOperationError('BAD_REQUEST', 'Runtime command recovery limit must be 1-1000')
   }
-  const rows = db.prepare<[number], RuntimeCommandRow>(`
-    SELECT * FROM runtime_commands
-    WHERE status IN ('accepted', 'running')
-    ORDER BY created_at ASC, command_id ASC
-    LIMIT ?
-  `).all(limit)
+  const rows = after
+    ? db.prepare<{ createdAt: string; commandId: string; limit: number }, RuntimeCommandRow>(`
+        SELECT * FROM runtime_commands
+        WHERE status IN ('accepted', 'running')
+          AND (created_at > @createdAt OR (created_at = @createdAt AND command_id > @commandId))
+        ORDER BY created_at ASC, command_id ASC
+        LIMIT @limit
+      `).all({ ...after, limit })
+    : db.prepare<[number], RuntimeCommandRow>(`
+        SELECT * FROM runtime_commands
+        WHERE status IN ('accepted', 'running')
+        ORDER BY created_at ASC, command_id ASC
+        LIMIT ?
+      `).all(limit)
   return rows.map((row) => toRuntimeCommandRecord(db, row))
 }
 

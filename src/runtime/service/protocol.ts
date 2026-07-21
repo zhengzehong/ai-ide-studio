@@ -1,5 +1,5 @@
 import type { RuntimeStateSnapshot } from '../../ports/runtime-port.js'
-import type { SessionCapabilities, ServerMessage } from '../../types/ws-protocol.js'
+import type { AgentStatus, SessionCapabilities, ServerMessage } from '../../types/ws-protocol.js'
 import type { TurnUsageData } from '../../types/ws-protocol.js'
 import type { RuntimeCoalescibleUpdate } from '../streams/runtime-update-coalescer.js'
 
@@ -21,6 +21,11 @@ export interface RuntimeDoneEvent {
   turnUsage?: TurnUsageData
   streamGeneration: string
   sequence: number
+}
+
+export interface RuntimeAgentStatusEvent {
+  agentId: string
+  status: AgentStatus
 }
 
 export type RuntimeCommand =
@@ -46,6 +51,7 @@ export type RuntimeControlPayload =
   | { type: 'persistence'; event: RuntimePersistenceUpdate }
   | { type: 'done'; requestId: string; event: RuntimeDoneEvent }
   | { type: 'done.ack'; requestId: string; error?: string }
+  | { type: 'agent-status'; event: RuntimeAgentStatusEvent }
   | { type: 'control'; operation: 'stop' }
 
 export type RuntimeStreamPayload =

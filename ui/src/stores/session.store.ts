@@ -248,7 +248,7 @@ interface SessionStore {
   deleteSessionTemplate: (templateId: string) => Promise<void>
   updateSessionTemplate: (templateId: string, fields: { name?: string; description?: string | null }) => Promise<SessionTemplateData | undefined>
   selectSession: (id: string | null) => void
-  sendPrompt: (content: string, images?: ImageAttachmentInfo[]) => void
+  sendPrompt: (content: string, images?: ImageAttachmentInfo[]) => Promise<void>
   setModel: (modelId: string) => Promise<void>
   setMode: (modeId: string) => Promise<void>
   setConfig: (configId: string, value: string | boolean) => Promise<void>
@@ -1419,21 +1419,14 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     void markSessionReadOnServer(id)
   },
 
-  sendPrompt: (content, images) => {
+  sendPrompt: async (content, images) => {
     const sid = get().currentSessionId
     if (!sid) return
     const session = get().sessions.find((item) => item.id === sid)
     if (isCopyingSession(session) || get().copyingTargetSessionIds[sid]) return
     const clientMessageId = `msg-local-${Date.now()}`
+    const pendingStreamingId = `pending-${sid}-${Date.now()}`
     const commandImages = toCommandImages(images)
-    void commandClient.execute({
-      commandId: `cmd-${clientMessageId}`,
-      type: 'prompt',
-      sessionId: sid,
-      content,
-      clientMessageId,
-      ...(commandImages ? { images: commandImages } : {}),
-    })
     promptStartTime = Date.now()
     set((state) => ({
       messages: [
@@ -1451,7 +1444,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           timestamp: new Date().toISOString(),
         }),
       ],
-      streamingMessage: applyTurnEntry(createEmptyTurn(`pending-${sid}-${Date.now()}`), {
+      streamingMessage: applyTurnEntry(createEmptyTurn(pendingStreamingId), {
         kind: 'stage',
         text: '\u6b63\u5728\u51c6\u5907 Agent...',
       }),
@@ -1460,6 +1453,28 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       unreadSessionIds: removeSessionIndicator(state.unreadSessionIds, sid),
       staleSessionIds: removeSessionIndicator(state.staleSessionIds, sid),
     }))
+    try {
+      await commandClient.execute({
+        commandId: `cmd-${clientMessageId}`,
+        type: 'prompt',
+        sessionId: sid,
+        content,
+        clientMessageId,
+        ...(commandImages ? { images: commandImages } : {}),
+      })
+    } catch (error) {
+      set((state) => {
+        const ownsPendingTurn = state.streamingMessage?.id === pendingStreamingId
+        return {
+          messages: state.messages.filter((message) => message.id !== clientMessageId),
+          streamingMessage: ownsPendingTurn ? null : state.streamingMessage,
+          runningSessionIds: ownsPendingTurn
+            ? removeSessionIndicator(state.runningSessionIds, sid)
+            : state.runningSessionIds,
+        }
+      })
+      throw error
+    }
   },
 
   setModel: async (modelId) => {

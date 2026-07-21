@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+  DEFAULT_SESSION_COMMAND_MAX_BYTES,
   createHttpCommandClient,
   createWsCommandClient,
   resolveCommandTransport,
@@ -7,6 +8,23 @@ import {
 } from '../../ui/src/services/command-client.ts'
 
 describe('HTTP command client', () => {
+  it('uses the same 16 MiB default and rejects oversized prompts before fetch', async () => {
+    expect(DEFAULT_SESSION_COMMAND_MAX_BYTES).toBe(16 * 1024 * 1024)
+    const fetchImpl = vi.fn<typeof fetch>()
+    const client = createHttpCommandClient({
+      fetchImpl,
+      getAccessToken: () => '',
+      subscribe: () => undefined,
+      maxCommandBytes: 128,
+    })
+
+    await expect(client.execute({
+      ...promptCommand(),
+      content: 'x'.repeat(256),
+    })).rejects.toThrow('消息和图片总大小超过限制')
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
   it('keeps inline images and excludes persisted path-only attachment records', () => {
     expect(toCommandImages([
       { data: 'YWJj', mimeType: 'image/png', name: 'a.png', order: 1 },

@@ -1,4 +1,4 @@
-export const MAX_SESSION_COMMAND_BYTES = 2 * 1024 * 1024
+export const MAX_SESSION_COMMAND_BYTES = 16 * 1024 * 1024
 
 export interface SessionCommandImage {
   data: string
@@ -47,9 +47,12 @@ export type SessionCommand =
 
 const BASE_FIELDS = ['commandId', 'type', 'sessionId'] as const
 
-export function parseSessionCommand(value: unknown): SessionCommand {
+export function parseSessionCommand(
+  value: unknown,
+  maxBytes = MAX_SESSION_COMMAND_BYTES,
+): SessionCommand {
   if (!isRecord(value)) throw new Error('命令请求必须是对象')
-  if (Buffer.byteLength(JSON.stringify(value), 'utf8') > MAX_SESSION_COMMAND_BYTES) {
+  if (Buffer.byteLength(JSON.stringify(value), 'utf8') > maxBytes) {
     throw new Error('命令请求体过大')
   }
 
@@ -97,10 +100,10 @@ function parsePrompt(
   commandId: string,
   sessionId: string,
 ): Extract<SessionCommand, { type: 'prompt' }> {
-  const content = requiredText(value.content, 'content')
-  if (!content.trim()) throw new Error('消息内容不能为空')
+  const content = typeof value.content === 'string' ? value.content : requiredText(value.content, 'content')
   const contextProjectId = optionalText(value.contextProjectId, 'contextProjectId')
   const images = parseImages(value.images)
+  if (!content.trim() && !images?.length) throw new Error('消息内容或图片不能为空')
   return {
     commandId,
     type: 'prompt',
@@ -110,6 +113,11 @@ function parsePrompt(
     ...(contextProjectId ? { contextProjectId } : {}),
     ...(images ? { images } : {}),
   }
+}
+
+export function resolveSessionCommandMaxBytes(value = process.env.SESSION_COMMAND_MAX_BYTES): number {
+  const parsed = Number(value)
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : MAX_SESSION_COMMAND_BYTES
 }
 
 function parsePermission(

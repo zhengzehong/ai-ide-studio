@@ -5,8 +5,8 @@ import {
   type RuntimeCommandSubmission,
 } from '../../commands/runtime-command-dispatcher.js'
 import {
-  MAX_SESSION_COMMAND_BYTES,
   parseSessionCommand,
+  resolveSessionCommandMaxBytes,
 } from '../../commands/session-command-types.js'
 import { createChildLogger } from '../../core/logger.js'
 import type { RuntimeCommandInput } from '../../ports/write-data-port.js'
@@ -21,12 +21,14 @@ export function mountSessionCommandRoutes(
   app: Hono,
   dispatcher: SessionCommandDispatcherPort,
 ): void {
-  app.post('/api/v1/commands', async (c) => handleSessionCommand(c, dispatcher))
+  const maxCommandBytes = resolveSessionCommandMaxBytes()
+  app.post('/api/v1/commands', async (c) => handleSessionCommand(c, dispatcher, maxCommandBytes))
 }
 
 async function handleSessionCommand(
   c: Context,
   dispatcher: SessionCommandDispatcherPort,
+  maxCommandBytes: number,
 ): Promise<Response> {
   const startedAt = performance.now()
   const idempotencyKey = c.req.header('idempotency-key')?.trim()
@@ -34,17 +36,17 @@ async function handleSessionCommand(
   if (idempotencyKey.length > 256) return c.json({ error: 'Idempotency-Key 过长' }, 400)
 
   const contentLength = Number(c.req.header('content-length') ?? 0)
-  if (Number.isFinite(contentLength) && contentLength > MAX_SESSION_COMMAND_BYTES) {
+  if (Number.isFinite(contentLength) && contentLength > maxCommandBytes) {
     return c.json({ error: '命令请求体过大' }, 413)
   }
 
   try {
     const text = await c.req.text()
-    if (Buffer.byteLength(text, 'utf8') > MAX_SESSION_COMMAND_BYTES) {
+    if (Buffer.byteLength(text, 'utf8') > maxCommandBytes) {
       return c.json({ error: '命令请求体过大' }, 413)
     }
     const parsedJson = JSON.parse(text) as unknown
-    const command = parseSessionCommand(parsedJson)
+    const command = parseSessionCommand(parsedJson, maxCommandBytes)
     const submission = await dispatcher.submit({
       commandId: command.commandId,
       idempotencyKey,

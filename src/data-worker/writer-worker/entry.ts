@@ -4,6 +4,7 @@ import type {
   DatabaseMaintenanceResult,
   RuntimeCommandEnqueueResult,
   RuntimeCommandInput,
+  RuntimeCommandRecoveryQuery,
   RuntimeCommandRecord,
   RuntimeCommandUpdate,
   SessionWriteCursor,
@@ -90,7 +91,7 @@ async function executeControlRequest(request: WorkerRequest): Promise<void> {
     } else if (request.operation === 'writer.command.enqueue') {
       result = enqueueRuntimeCommand(db, request.payload as RuntimeCommandInput)
     } else if (request.operation === 'writer.command.recover') {
-      result = listRecoverableRuntimeCommands(db, asRecoveryLimit(request.payload))
+      result = listRecoverableRuntimeCommands(db, asRecoveryQuery(request.payload))
     } else if (request.operation === 'writer.command.update') {
       result = updateRuntimeCommand(db, request.payload as RuntimeCommandUpdate)
     } else if (request.operation === 'writer.maintain') {
@@ -145,13 +146,25 @@ function directResultResponse<TResult>(request: WorkerRequest, result: TResult, 
   }
 }
 
-function asRecoveryLimit(value: unknown): number {
+function asRecoveryQuery(value: unknown): RuntimeCommandRecoveryQuery {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new WriterOperationError('BAD_REQUEST', 'Runtime command recovery payload must be an object')
   }
-  const limit = (value as Record<string, unknown>).limit
+  const record = value as Record<string, unknown>
+  const limit = record.limit
   if (!Number.isInteger(limit)) throw new WriterOperationError('BAD_REQUEST', 'Recovery limit must be an integer')
-  return limit as number
+  if (record.after === undefined) return { limit: limit as number }
+  if (!record.after || typeof record.after !== 'object' || Array.isArray(record.after)) {
+    throw new WriterOperationError('BAD_REQUEST', 'Recovery cursor must be an object')
+  }
+  const after = record.after as Record<string, unknown>
+  if (typeof after.createdAt !== 'string' || typeof after.commandId !== 'string') {
+    throw new WriterOperationError('BAD_REQUEST', 'Recovery cursor requires createdAt and commandId')
+  }
+  return {
+    limit: limit as number,
+    after: { createdAt: after.createdAt, commandId: after.commandId },
+  }
 }
 
 function errorResponse(
@@ -234,7 +247,26 @@ function asMaintenanceInput(value: unknown): { force: boolean } {
 }
 
 function errorCode(error: unknown): WorkerErrorCode {
-  return error instanceof WriterOperationError ? error.code : 'SQLITE_ERROR'
+  if (error instanceof WriterOperationError) return error.code
+  const sqliteCode = errorCodeValue(error)
+  if (isSqliteLockCode(sqliteCode)) return sqliteCode
+  return 'SQLITE_ERROR'
+}
+
+function errorCodeValue(error: unknown): string | undefined {
+  if (!error || typeof error !== 'object') return undefined
+  const code = (error as { code?: unknown }).code
+  return typeof code === 'string' ? code : undefined
+}
+
+function isSqliteLockCode(code: string | undefined): code is Extract<
+  WorkerErrorCode,
+  'SQLITE_BUSY' | 'SQLITE_BUSY_SNAPSHOT' | 'SQLITE_LOCKED' | 'SQLITE_LOCKED_SHAREDCACHE'
+> {
+  return code === 'SQLITE_BUSY'
+    || code === 'SQLITE_BUSY_SNAPSHOT'
+    || code === 'SQLITE_LOCKED'
+    || code === 'SQLITE_LOCKED_SHAREDCACHE'
 }
 
 function errorMessage(error: unknown): string {

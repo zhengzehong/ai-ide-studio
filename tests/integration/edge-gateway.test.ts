@@ -6,6 +6,7 @@ import { startEdgeGateway, type EdgeGatewayHandle } from '../../src/edge/gateway
 interface UpstreamHandle {
   httpUrl: string
   wsUrl: string
+  broadcast(payload: string): void
   close(): Promise<void>
 }
 
@@ -75,6 +76,28 @@ describe('Edge gateway', () => {
     expect(edge.endpointUrl).toBe(publicUrl)
   })
 
+  it('keeps serving HTTP after a WebSocket client disconnects without a close frame', async () => {
+    const upstream = await startUpstream('resilient')
+    upstreams.push(upstream)
+    edge = await startEdgeGateway({
+      host: '127.0.0.1',
+      port: 0,
+      targets: { apiUrl: upstream.httpUrl, realtimeUrl: upstream.wsUrl },
+    })
+    const socket = await connect(`${toWs(edge.endpointUrl)}/realtime`)
+
+    const transport = (socket as WebSocket & { _socket: { pause(): void } })._socket
+    transport.pause()
+    for (let index = 0; index < 16; index += 1) upstream.broadcast('x'.repeat(256 * 1024))
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    socket.terminate()
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    const response = await fetch(`${edge.endpointUrl}/health`)
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({ source: 'resilient' })
+  })
+
   it('returns explicit unavailability when supervised targets are absent', async () => {
     const upstream = await startUpstream('available')
     upstreams.push(upstream)
@@ -137,6 +160,9 @@ async function startUpstream(source: string): Promise<UpstreamHandle> {
   return {
     httpUrl: `http://127.0.0.1:${port}`,
     wsUrl: `ws://127.0.0.1:${port}`,
+    broadcast: (payload) => {
+      for (const client of wss.clients) client.send(payload)
+    },
     close: async () => {
       for (const client of wss.clients) client.close()
       await closeWebSocketServer(wss)

@@ -1,7 +1,12 @@
 import { events } from '../../core/events.js'
 import { sessionManager } from '../../core/sessions.js'
+import { applyRuntimeAgentStatus } from '../../core/agent-runtime-status.js'
 import type { SessionStopReason, SessionUpdateData } from '../../types/ws-protocol.js'
-import type { RuntimeDoneEvent, RuntimePersistenceUpdate } from '../service/protocol.js'
+import type { RuntimeAgentStatusEvent, RuntimeDoneEvent, RuntimePersistenceUpdate } from '../service/protocol.js'
+
+export function handleRuntimeAgentStatus(event: RuntimeAgentStatusEvent): void {
+  applyRuntimeAgentStatus(event)
+}
 
 export async function handleRuntimePersistenceUpdate(event: RuntimePersistenceUpdate): Promise<void> {
   events.emit('session:update', {

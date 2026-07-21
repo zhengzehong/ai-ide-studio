@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { closeDatabase, initDatabase } from '../../src/store/db.js'
+import { closeDatabase, getDb, initDatabase } from '../../src/store/db.js'
 import { sessionStore } from '../../src/store/sessions.js'
 import {
   createWorkerWriteDataPort,
@@ -33,6 +33,30 @@ afterEach(async () => {
 })
 
 describe('Writer Worker', () => {
+  it('waits for a concurrent API writer instead of failing a snapshot upgrade', async () => {
+    const session = sessionStore.create({ agentId: 'agent-contention' })
+    writer = await createWorkerWriteDataPort({ dbPath })
+    const apiDb = getDb()
+    apiDb.exec('BEGIN IMMEDIATE')
+    const releaseApiWriter = new Promise<void>((resolveRelease) => {
+      setTimeout(() => {
+        apiDb.exec('COMMIT')
+        resolveRelease()
+      }, 100)
+    })
+
+    try {
+      await expect(writer.commitBatch(writeBatch('batch-contention', session.id, 1, [
+        { type: 'session.touch', sessionId: session.id, timestamp: '2026-07-20T10:00:00.000Z' },
+      ]))).resolves.toMatchObject({ duplicate: false })
+    } finally {
+      await releaseApiWriter
+    }
+
+    expect(apiDb.prepare('SELECT updated_at FROM sessions WHERE id = ?').get(session.id))
+      .toEqual({ updated_at: '2026-07-20T10:00:00.000Z' })
+  })
+
   it('commits 30 concurrent session batches with atomic outbox rows', async () => {
     const sessions = Array.from({ length: 30 }, (_, index) => sessionStore.create({
       agentId: `agent-${index}`,

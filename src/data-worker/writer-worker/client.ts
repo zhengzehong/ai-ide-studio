@@ -6,6 +6,7 @@ import type {
   DatabaseMaintenanceResult,
   RuntimeCommandEnqueueResult,
   RuntimeCommandInput,
+  RuntimeCommandRecoveryQuery,
   RuntimeCommandRecord,
   RuntimeCommandUpdate,
   SessionWriteCursor,
@@ -99,10 +100,10 @@ export async function createWorkerWriteDataPort(
       })
       return response.result
     },
-    async listRecoverableRuntimeCommands(limit: number): Promise<RuntimeCommandRecord[]> {
+    async listRecoverableRuntimeCommands(input: RuntimeCommandRecoveryQuery): Promise<RuntimeCommandRecord[]> {
       const response = await rpc.request<RuntimeCommandRecord[]>(
         'writer.command.recover',
-        { limit },
+        input,
         {
           priority: 'interactive',
         },

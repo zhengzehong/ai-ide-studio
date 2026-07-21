@@ -4,13 +4,9 @@ import { sessionStore, type SessionRuntimePreferences } from '../store/sessions.
 import type { ConfigOptionInfo, SessionCapabilities } from '../types/ws-protocol.js'
 import { mapConfigOptions, mergeCapabilitiesFromConfig } from './capabilities.js'
 import type { AgentConnection } from './host-types.js'
+import { resolveDesiredRuntimeMode } from './runtime-mode-preference.js'
 
 const log = createChildLogger('acp-session-prefs')
-
-const DEFAULT_MODE_BY_RUNTIME: Record<string, string> = {
-  codex: 'agent-full-access',
-  claude: 'bypassPermissions',
-}
 
 export async function applySessionRuntimePreferences(
   conn: AgentConnection,
@@ -74,7 +70,7 @@ async function applyModePreference(
   caps: SessionCapabilities,
   prefs: SessionRuntimePreferences,
 ): Promise<void> {
-  const modeId = prefs.modeId ?? DEFAULT_MODE_BY_RUNTIME[conn.runtime]
+  const modeId = resolveDesiredRuntimeMode(conn.runtime, prefs.modeId)
   if (!modeId || modeId === caps.currentModeId) return
   if (!caps.modes?.some((mode) => mode.modeId === modeId)) {
     log.warn({ agentId: conn.agentId, ourSessionId, modeId, runtime: conn.runtime }, 'desired session mode is unavailable')

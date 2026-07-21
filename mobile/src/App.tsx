@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from 'react'
+import { useEffect, type ReactNode } from 'react'
 import { BrowserRouter, HashRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useConnectionStore, type ConnectionStatus } from './stores/connection.store'
 import { useAppStore } from './stores/app.store'
@@ -35,33 +35,34 @@ export async function bootstrapMobileData(): Promise<void> {
 }
 
 export function shouldShowConnectPage(input: { serverUrl: string; connected: boolean; status: ConnectionStatus }): boolean {
-  return !input.serverUrl.trim() || !input.connected || input.status !== 'connected'
+  return !input.serverUrl.trim()
 }
 
 export default function App() {
   const { serverUrl, connected, status, init } = useConnectionStore()
-  const listenersReady = useRef(false)
-
-  useEffect(() => { init() }, [init])
 
   useEffect(() => {
-    if (!connected) return
-    void bootstrapMobileData()
-
-    if (!listenersReady.current) {
-      listenersReady.current = true
-      const off1 = useSessionStore.getState().setupListeners()
-      const off2 = wsClient.on('resync_required', (message) => {
-        const chatStore = useChatStore.getState()
-        const resyncSessionId = typeof message.sessionId === 'string' ? message.sessionId : undefined
-        const sessionId = resyncSessionId ?? chatStore.sessionId ?? undefined
-        const recovery = sessionId && sessionId === chatStore.sessionId
-          ? chatStore.refreshCurrentSession(sessionId)
-          : Promise.resolve()
-        void recovery.finally(() => wsClient.acknowledgeResync(resyncSessionId))
-      })
-      return () => { off1(); off2(); listenersReady.current = false }
+    const off1 = useSessionStore.getState().setupListeners()
+    const off2 = wsClient.on('resync_required', (message) => {
+      const chatStore = useChatStore.getState()
+      const resyncSessionId = typeof message.sessionId === 'string' ? message.sessionId : undefined
+      const sessionId = resyncSessionId ?? chatStore.sessionId ?? undefined
+      const recovery = sessionId && sessionId === chatStore.sessionId
+        ? chatStore.refreshCurrentSession(sessionId)
+        : Promise.resolve()
+      void recovery.finally(() => wsClient.acknowledgeResync(resyncSessionId))
+    })
+    wsClient.setEventListenersReady(true)
+    init()
+    return () => {
+      wsClient.setEventListenersReady(false)
+      off1()
+      off2()
     }
+  }, [init])
+
+  useEffect(() => {
+    if (connected) void bootstrapMobileData()
   }, [connected])
 
   if (shouldShowConnectPage({ serverUrl, connected, status })) {

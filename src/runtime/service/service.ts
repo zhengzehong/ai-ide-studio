@@ -4,7 +4,9 @@ import type { IpcEnvelope } from '../../ipc/protobuf-envelope.js'
 import type { ServerMessage, SessionUpdateData, TurnUsageData } from '../../types/ws-protocol.js'
 import { RuntimeUpdateCoalescer, type RuntimeCoalescibleUpdate } from '../streams/runtime-update-coalescer.js'
 import { AcpRuntimeHost } from './acp-runtime-host.js'
-import type { RuntimeCommand, RuntimeDoneEvent, RuntimePersistenceUpdate, RuntimeStreamPayload } from './protocol.js'
+import { RuntimeIdleSweep } from './runtime-idle-sweep.js'
+import { createChildLogger } from '../../shared/logger.js'
+import type { RuntimeAgentStatusEvent, RuntimeCommand, RuntimeDoneEvent, RuntimePersistenceUpdate, RuntimeStreamPayload } from './protocol.js'
 import { isRuntimeStreamPayload } from './protocol.js'
 import {
   createEventLoopMonitor,
@@ -18,19 +20,37 @@ export interface RuntimeServiceOptions {
   maxFrameBytes: number
   sendPersistence: (event: RuntimePersistenceUpdate) => Promise<void>
   sendDone: (event: RuntimeDoneEvent) => Promise<void>
+  sendAgentStatus: (event: RuntimeAgentStatusEvent) => Promise<void>
+  idleSweepIntervalMs: number
+  sessionIdleMs: number
+  agentIdleMs: number
 }
+
+const log = createChildLogger('runtime-service')
 
 export class RuntimeService {
   private readonly cursorByUpdate = new Map<string, { streamGeneration: string; sequence: number }>()
   private readonly coalescer: RuntimeUpdateCoalescer
   private readonly host: AcpRuntimeHost
   private readonly eventLoopMonitor: EventLoopMonitor
+  private readonly idleSweep: RuntimeIdleSweep
   private stream?: FramedSocket
 
   constructor(private readonly options: RuntimeServiceOptions) {
     this.host = new AcpRuntimeHost({
       publishUpdate: (agentId, update) => this.publishUpdate(agentId, update),
       publishDone: (input) => this.publishDone(input),
+      publishAgentStatus: (event) => {
+        void this.options.sendAgentStatus(event).catch((error) => {
+          log.warn({ err: error, agentId: event.agentId, status: event.status }, 'Runtime Agent status send failed')
+        })
+      },
+      publishCapabilities: (sessionId, capabilities) => {
+        void this.sendStream({
+          type: 'runtime.stream',
+          message: { type: 'session:capabilities', sessionId, capabilities },
+        })
+      },
     })
     this.coalescer = new RuntimeUpdateCoalescer({
       emitUi: (updates) => this.emitUi(updates),
@@ -44,6 +64,14 @@ export class RuntimeService {
         pendingUpdateCount: this.coalescer.pendingCount,
       })),
     )
+    this.idleSweep = new RuntimeIdleSweep({
+      intervalMs: options.idleSweepIntervalMs,
+      sweep: () => this.host.sweepIdle(Date.now(), {
+        sessionIdleMs: options.sessionIdleMs,
+        agentIdleMs: options.agentIdleMs,
+      }),
+      onError: (error) => log.warn({ err: error }, 'Runtime idle sweep failed'),
+    })
   }
 
   async start(): Promise<void> {
@@ -59,12 +87,13 @@ export class RuntimeService {
     await this.sendStream({ type: 'runtime.hello', token: this.options.streamToken })
     await ready
     this.eventLoopMonitor.start()
+    this.idleSweep.start()
   }
 
   async execute(command: RuntimeCommand): Promise<unknown> {
     switch (command.operation) {
       case 'ensure':
-        return this.host.ensureSession(command.snapshot)
+        return this.host.ensureSession(command.snapshot, { emitLifecycle: command.emitLifecycle })
       case 'prompt':
         return this.host.prompt(command)
       case 'cancel':
@@ -94,6 +123,7 @@ export class RuntimeService {
   }
 
   async close(): Promise<void> {
+    await this.idleSweep.stop()
     this.eventLoopMonitor.stop()
     await this.host.close()
     await this.coalescer.drain()

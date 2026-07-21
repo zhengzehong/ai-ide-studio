@@ -27,8 +27,8 @@ export function createLocalWriteDataPort(maintenanceConfig: DatabaseMaintenanceC
     async enqueueRuntimeCommand(input: RuntimeCommandInput) {
       return enqueueRuntimeCommand(getDb(), input)
     },
-    async listRecoverableRuntimeCommands(limit: number) {
-      return listRecoverableRuntimeCommands(getDb(), limit)
+    async listRecoverableRuntimeCommands(input) {
+      return listRecoverableRuntimeCommands(getDb(), input)
     },
     async updateRuntimeCommand(input: RuntimeCommandUpdate) {
       return updateRuntimeCommand(getDb(), input)

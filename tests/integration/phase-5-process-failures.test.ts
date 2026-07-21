@@ -77,7 +77,7 @@ describe('Phase 5 process failure isolation', () => {
     await expect(writer.maintain({ force: false })).rejects.toMatchObject({ code: 'WORKER_UNAVAILABLE' })
 
     writer = await createWorkerWriteDataPort({ dbPath })
-    await expect(writer.listRecoverableRuntimeCommands(10)).resolves.toMatchObject([
+    await expect(writer.listRecoverableRuntimeCommands({ limit: 10 })).resolves.toMatchObject([
       {
         commandId: 'command-recoverable',
         status: 'accepted',

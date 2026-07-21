@@ -1,32 +1,35 @@
 # PRD Performance Architecture Rollback Plan
 
-> Date: 2026-07-20
-> Preservation branch: `feat/single-port-edge-gateway`
-> Pre-performance baseline: `7b84688`
-
 ## Goal
 
-Keep the complete local performance architecture and single-port Edge work on an isolated branch/worktree, while restoring `prd` to the tracked repository state immediately before the performance architecture design and implementation began.
+Keep the complete local performance architecture and single-port Edge implementation on
+`feat/single-port-edge-gateway`, while restoring `prd` to the last commit before the
+performance architecture work started.
 
-## Safety Rules
+## Anchors
 
-- Preserve all performance and Edge commits on `feat/single-port-edge-gateway` before changing `prd`.
-- Merge that branch into `prd` first so the complete snapshot remains reachable from the main history.
-- Restore tracked files with a new commit; do not rewrite `prd` history.
-- Leave unrelated untracked files in the main workspace untouched.
-- Verify both the preservation branch and the restored `prd` tree.
+- Pre-performance baseline: `7b84688` (`merge: add project session activity stats`)
+- Performance design starts: `c203bd7`
+- Performance implementation merge: `8848fdd`
+- Runtime timeout follow-up: `2285bb7`
+- Preserved implementation branch: `feat/single-port-edge-gateway`
+- Preserved worktree: `C:/Users/Administrator/.config/superpowers/worktrees/ai-ide-studio/single-port-edge-gateway`
 
 ## Checklist
 
-- [ ] Confirm `feat/single-port-edge-gateway` has a clean dedicated worktree and contains the complete architecture.
-- [ ] Merge `feat/single-port-edge-gateway` into `prd` with a merge commit.
-- [ ] Record the merged snapshot commit.
-- [ ] Restore all tracked files on `prd` from `7b84688` and commit the rollback.
-- [ ] Confirm `git diff --exit-code 7b84688 -- .` on restored `prd`.
-- [ ] Run `npm test`, `npm run build`, `npm run lint`, and `git diff --check` on restored `prd`.
-- [ ] Run a PRD startup smoke check and confirm port `18900` serves HTTP.
-- [ ] Confirm the preservation branch/worktree still points to the complete performance and Edge implementation.
+- [x] Confirm the main `prd` worktree has no tracked local changes.
+- [x] Confirm the preservation branch and worktree exist and contain the complete implementation.
+- [x] Commit this rollback record on the preservation branch.
+- [x] Merge the preservation branch into `prd` to create an auditable complete snapshot.
+- [x] Verify the preservation branch still points to the complete implementation after the merge.
+- [x] Restore all tracked files on `prd` to the `7b84688` tree without rewriting history.
+- [x] Commit the rollback on `prd`.
+- [x] Verify the resulting `prd` tree matches `7b84688` for tracked files.
+- [x] Run `npm test`, `npm run build`, `npm run lint`, and `git diff --check` on rolled-back `prd`.
+- [x] Smoke-start the rolled-back PRD service and verify the configured public port.
 
-## Reintroduction
+## Recovery
 
-After the isolated architecture is validated, reintroduce it from `feat/single-port-edge-gateway` through a fresh review. Do not develop the performance architecture directly on the restored `prd` branch.
+The rollback is a normal commit, not a reset. The full architecture remains reachable from
+`feat/single-port-edge-gateway` and from the merge commit immediately before the rollback.
+After validation, it can be reviewed and merged again without reconstructing any code.

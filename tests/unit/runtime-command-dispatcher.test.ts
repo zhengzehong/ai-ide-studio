@@ -122,10 +122,45 @@ describe('RuntimeCommandDispatcher', () => {
     await dispatcher.drain()
     await expect(submitted.completion).resolves.toMatchObject({ status: 'completed' })
   })
+
+  it('recovers every command across deterministic cursor pages', async () => {
+    const rows = Array.from({ length: 1005 }, (_, index) => record(
+      `command-${String(index).padStart(4, '0')}`,
+      `session-${index}`,
+      'accepted',
+      '2026-07-20T01:00:00.000Z',
+    ))
+    const ledger = new FakeLedger(rows)
+    const execute = vi.fn(async () => undefined)
+    const dispatcher = new RuntimeCommandDispatcher({
+      ledger,
+      execute,
+      now: () => '2026-07-20T01:01:00.000Z',
+    })
+
+    await dispatcher.start()
+    await dispatcher.drain()
+
+    expect(execute).toHaveBeenCalledTimes(1005)
+    expect(ledger.recoveryRequests).toEqual([
+      { limit: 1000 },
+      {
+        limit: 1000,
+        after: {
+          createdAt: '2026-07-20T01:00:00.000Z',
+          commandId: 'command-0999',
+        },
+      },
+    ])
+  })
 })
 
 class FakeLedger implements RuntimeCommandLedgerPort {
   rows: RuntimeCommandRecord[]
+  recoveryRequests: Array<{
+    limit: number
+    after?: { createdAt: string; commandId: string }
+  }> = []
 
   constructor(rows: RuntimeCommandRecord[] = []) {
     this.rows = rows
@@ -153,10 +188,19 @@ class FakeLedger implements RuntimeCommandLedgerPort {
     return { command: inserted, duplicate: false, conflict: false }
   }
 
-  async listRecoverableRuntimeCommands(limit: number): Promise<RuntimeCommandRecord[]> {
+  async listRecoverableRuntimeCommands(
+    input: number | { limit: number; after?: { createdAt: string; commandId: string } },
+  ): Promise<RuntimeCommandRecord[]> {
+    const request = typeof input === 'number' ? { limit: input } : input
+    this.recoveryRequests.push(request)
     return this.rows
       .filter((row) => row.status === 'accepted' || row.status === 'running')
-      .slice(0, limit)
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt)
+        || left.commandId.localeCompare(right.commandId))
+      .filter((row) => !request.after
+        || row.createdAt > request.after.createdAt
+        || (row.createdAt === request.after.createdAt && row.commandId > request.after.commandId))
+      .slice(0, request.limit)
   }
 
   async updateRuntimeCommand(input: RuntimeCommandUpdate): Promise<RuntimeCommandRecord> {

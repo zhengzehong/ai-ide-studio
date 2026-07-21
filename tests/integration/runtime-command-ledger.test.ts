@@ -6,6 +6,8 @@ import {
   createWorkerWriteDataPort,
   type WorkerWriteDataPort,
 } from '../../src/data-worker/writer-worker/client.js'
+import { RuntimeCommandDispatcher } from '../../src/commands/runtime-command-dispatcher.js'
+import type { RuntimeCommandInput } from '../../src/ports/write-data-port.js'
 import { closeDatabase, initDatabase } from '../../src/store/db.js'
 import { messageStore } from '../../src/store/sessions.js'
 
@@ -28,6 +30,66 @@ afterEach(async () => {
 })
 
 describe('Runtime command ledger', () => {
+  it('executes permission and cancel controls while a running prompt is unresolved', async () => {
+    writer = await createWorkerWriteDataPort({ dbPath })
+    const promptGate = deferred<void>()
+    const executed: string[] = []
+    const dispatcher = new RuntimeCommandDispatcher({
+      ledger: writer,
+      execute: async (command) => {
+        executed.push(command.type)
+        if (command.type === 'prompt') await promptGate.promise
+      },
+    })
+    await dispatcher.start()
+
+    const prompt = await dispatcher.submit(promptCommand('command-prompt', 'key-prompt', 'message-prompt'))
+    await waitUntil(() => executed.includes('prompt'))
+    const permission = await dispatcher.submit(permissionCommand())
+    const cancel = await dispatcher.submit(cancelCommand())
+
+    try {
+      await waitUntil(() => executed.includes('permission.respond') && executed.includes('session.cancel'))
+      await expect(Promise.all([permission.completion, cancel.completion])).resolves.toHaveLength(2)
+    } finally {
+      promptGate.resolve()
+      await Promise.allSettled([prompt.completion, permission.completion, cancel.completion])
+      dispatcher.closeIntake()
+      await dispatcher.drain()
+    }
+  })
+
+  it('keeps prompts ordered within the same session turn lane', async () => {
+    writer = await createWorkerWriteDataPort({ dbPath })
+    const firstPromptGate = deferred<void>()
+    const executed: string[] = []
+    const dispatcher = new RuntimeCommandDispatcher({
+      ledger: writer,
+      execute: async (command) => {
+        executed.push(command.commandId)
+        if (command.commandId === 'command-prompt-1') await firstPromptGate.promise
+      },
+    })
+    await dispatcher.start()
+
+    const first = await dispatcher.submit(promptCommand('command-prompt-1', 'key-prompt-1', 'message-prompt-1'))
+    await waitUntil(() => executed.includes('command-prompt-1'))
+    const second = await dispatcher.submit(promptCommand('command-prompt-2', 'key-prompt-2', 'message-prompt-2'))
+
+    try {
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 50))
+      expect(executed).toEqual(['command-prompt-1'])
+      firstPromptGate.resolve()
+      await expect(Promise.all([first.completion, second.completion])).resolves.toHaveLength(2)
+      expect(executed).toEqual(['command-prompt-1', 'command-prompt-2'])
+    } finally {
+      firstPromptGate.resolve()
+      await Promise.allSettled([first.completion, second.completion])
+      dispatcher.closeIntake()
+      await dispatcher.drain()
+    }
+  })
+
   it('persists accepted commands and returns the original row for an idempotent retry', async () => {
     writer = await createWorkerWriteDataPort({ dbPath })
     const command = promptCommand('command-1', 'idempotency-1', 'message-1')
@@ -68,7 +130,7 @@ describe('Runtime command ledger', () => {
     await writer.close()
 
     writer = await createWorkerWriteDataPort({ dbPath })
-    const recovered = await writer.listRecoverableRuntimeCommands(10)
+    const recovered = await writer.listRecoverableRuntimeCommands({ limit: 10 })
 
     expect(recovered.map((command) => [command.commandId, command.status])).toEqual([
       ['command-1', 'accepted'],
@@ -97,7 +159,7 @@ describe('Runtime command ledger', () => {
     closeDatabase()
 
     writer = await createWorkerWriteDataPort({ dbPath })
-    const [recovered] = await writer.listRecoverableRuntimeCommands(10)
+    const [recovered] = await writer.listRecoverableRuntimeCommands({ limit: 10 })
 
     expect(recovered).toMatchObject({
       commandId: 'command-1',
@@ -117,7 +179,26 @@ describe('Runtime command ledger', () => {
     })
 
     expect(completed).toMatchObject({ commandId: 'command-1', status: 'completed', attempts: 0 })
-    await expect(writer.listRecoverableRuntimeCommands(10)).resolves.toEqual([])
+    await expect(writer.listRecoverableRuntimeCommands({ limit: 10 })).resolves.toEqual([])
+  })
+
+  it('paginates equal timestamps by command ID without duplicates', async () => {
+    writer = await createWorkerWriteDataPort({ dbPath })
+    await writer.enqueueRuntimeCommand(promptCommand('command-3', 'key-3', 'message-3'))
+    await writer.enqueueRuntimeCommand(promptCommand('command-1', 'key-1', 'message-1'))
+    await writer.enqueueRuntimeCommand(promptCommand('command-2', 'key-2', 'message-2'))
+
+    const first = await writer.listRecoverableRuntimeCommands({ limit: 2 })
+    const second = await writer.listRecoverableRuntimeCommands({
+      limit: 2,
+      after: {
+        createdAt: first[1].createdAt,
+        commandId: first[1].commandId,
+      },
+    })
+
+    expect(first.map((command) => command.commandId)).toEqual(['command-1', 'command-2'])
+    expect(second.map((command) => command.commandId)).toEqual(['command-3'])
   })
 })
 
@@ -141,5 +222,53 @@ function promptCommand(
       content: 'hello',
     },
     createdAt,
+  }
+}
+
+function permissionCommand(): RuntimeCommandInput {
+  return {
+    commandId: 'command-permission',
+    idempotencyKey: 'key-permission',
+    type: 'permission.respond',
+    sessionId: 'session-1',
+    payload: {
+      commandId: 'command-permission',
+      type: 'permission.respond',
+      sessionId: 'session-1',
+      permissionRequestId: 'permission-1',
+      optionId: 'allow-once',
+    },
+    createdAt: '2026-07-20T01:00:01.000Z',
+  }
+}
+
+function cancelCommand(): RuntimeCommandInput {
+  return {
+    commandId: 'command-cancel',
+    idempotencyKey: 'key-cancel',
+    type: 'session.cancel',
+    sessionId: 'session-1',
+    payload: {
+      commandId: 'command-cancel',
+      type: 'session.cancel',
+      sessionId: 'session-1',
+    },
+    createdAt: '2026-07-20T01:00:02.000Z',
+  }
+}
+
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolvePromise!: (value: T) => void
+  const promise = new Promise<T>((resolve) => {
+    resolvePromise = resolve
+  })
+  return { promise, resolve: resolvePromise }
+}
+
+async function waitUntil(predicate: () => boolean, timeoutMs = 500): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error('Timed out waiting for command execution')
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 10))
   }
 }

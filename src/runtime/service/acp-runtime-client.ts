@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import * as acp from '@agentclientprotocol/sdk'
 import { mapAvailableCommands, mapConfigOptions, mergeCapabilitiesFromConfig } from '../../acp/capabilities.js'
+import { contentBlockToText, mapToolCallContent, mapToolCallUpdate, toolCallTitle } from '../../acp/update-mapper.js'
 import type {
   ElicitationRequestData,
   PermissionRequestData,
@@ -31,6 +32,7 @@ export interface AcpRuntimeClientOptions {
   agentId: string
   publishUpdate: (update: RuntimeCoalescibleUpdate) => void
   updateCapabilities: (sessionId: string, update: (current: SessionCapabilities) => SessionCapabilities) => void
+  publishCapabilities?: (sessionId: string, capabilities: SessionCapabilities) => void
   resources?: ResourceGovernor
 }
 
@@ -40,6 +42,8 @@ export interface AcpRuntimeClientRouter {
   unbindSession(sessionId: string): void
   beginTurn(sessionId: string, messageId: string, turnId?: string): void
   endTurn(sessionId: string): void
+  cancelSession(sessionId: string): void
+  hasPendingInteractions(sessionId?: string): boolean
   resolvePermission(sessionId: string, requestId: string, optionId?: string, cancelled?: boolean): boolean
   resolveElicitation(
     sessionId: string,
@@ -51,12 +55,14 @@ export interface AcpRuntimeClientRouter {
 }
 
 export function createAcpRuntimeClient(options: AcpRuntimeClientOptions): AcpRuntimeClientRouter {
+  const ownsResources = !options.resources
   const resources = options.resources ?? new ResourceGovernor()
   const terminals = new RuntimeTerminalManager(resources)
   const byAcpSession = new Map<string, BoundSession>()
   const acpByOurSession = new Map<string, string>()
   const permissions = new Map<string, PendingInteraction<acp.RequestPermissionResponse>>()
   const elicitations = new Map<string, PendingInteraction<acp.CreateElicitationResponse>>()
+  let closed = false
 
   const publish = (bound: BoundSession, data: SessionUpdateData): void => {
     options.publishUpdate({
@@ -65,6 +71,18 @@ export function createAcpRuntimeClient(options: AcpRuntimeClientOptions): AcpRun
       messageId: data.messageId,
       data,
     })
+  }
+
+  const applyCapabilities = (
+    sessionId: string,
+    update: (current: SessionCapabilities) => SessionCapabilities,
+  ): void => {
+    let next: SessionCapabilities | undefined
+    options.updateCapabilities(sessionId, (current) => {
+      next = update(current)
+      return next
+    })
+    if (next) options.publishCapabilities?.(sessionId, next)
   }
 
   const client: acp.Client = {
@@ -84,7 +102,7 @@ export function createAcpRuntimeClient(options: AcpRuntimeClientOptions): AcpRun
           publish(bound, { messageId, role: 'agent', toolCall: mapToolCall(update) })
           break
         case 'tool_call_update':
-          publish(bound, { messageId, role: 'agent', toolCallUpdate: mapToolCall(update) })
+          publish(bound, { messageId, role: 'agent', toolCallUpdate: mapToolCallUpdate(update) })
           break
         case 'usage_update':
           publish(bound, {
@@ -100,13 +118,13 @@ export function createAcpRuntimeClient(options: AcpRuntimeClientOptions): AcpRun
           break
         case 'config_option_update': {
           const configOptions = mapConfigOptions(update.configOptions)
-          options.updateCapabilities(bound.ourSessionId, (current) => mergeCapabilitiesFromConfig(current, configOptions))
+          applyCapabilities(bound.ourSessionId, (current) => mergeCapabilitiesFromConfig(current, configOptions))
           publish(bound, { messageId, role: 'system', configOptions })
           break
         }
         case 'session_info_update': {
           const sessionInfo: SessionInfoData = { title: update.title ?? undefined, updatedAt: update.updatedAt ?? undefined }
-          options.updateCapabilities(bound.ourSessionId, (current) => ({ ...current, sessionInfo }))
+          applyCapabilities(bound.ourSessionId, (current) => ({ ...current, sessionInfo }))
           publish(bound, { messageId, role: 'system', sessionInfo })
           break
         }
@@ -122,14 +140,22 @@ export function createAcpRuntimeClient(options: AcpRuntimeClientOptions): AcpRun
           })
           break
         case 'current_mode_update':
-          options.updateCapabilities(bound.ourSessionId, (current) => ({ ...current, currentModeId: update.currentModeId }))
+          applyCapabilities(bound.ourSessionId, (current) => ({ ...current, currentModeId: update.currentModeId }))
           break
         case 'available_commands_update': {
           const commands = mapAvailableCommands(update.availableCommands)
-          options.updateCapabilities(bound.ourSessionId, (current) => ({ ...current, commands }))
+          applyCapabilities(bound.ourSessionId, (current) => ({ ...current, commands }))
           publish(bound, { messageId, role: 'system', commands })
           break
         }
+        case 'user_message_chunk':
+          publish(bound, {
+            messageId,
+            role: 'system',
+            content: contentBlockToText(update.content),
+            eventType: 'user_message_chunk',
+          })
+          break
       }
     },
 
@@ -148,10 +174,11 @@ export function createAcpRuntimeClient(options: AcpRuntimeClientOptions): AcpRun
         toolCall: mapToolCall(params.toolCall),
         options: params.options.map((option) => ({ optionId: option.optionId, name: option.name, kind: option.kind })),
       }
-      publish(bound, { messageId: requestId, role: 'system', permissionRequest })
-      return waitForInteraction(permissions, interactionKey(bound.ourSessionId, requestId), {
+      const response = waitForInteraction(permissions, interactionKey(bound.ourSessionId, requestId), {
         outcome: { outcome: 'cancelled' },
       })
+      publish(bound, { messageId: requestId, role: 'system', permissionRequest })
+      return response
     },
 
     async unstable_createElicitation(params) {
@@ -164,8 +191,13 @@ export function createAcpRuntimeClient(options: AcpRuntimeClientOptions): AcpRun
         message: params.message,
         requestedSchema: params.mode === 'form' ? params.requestedSchema : { url: scoped.url },
       }
+      const response = waitForInteraction(
+        elicitations,
+        interactionKey(bound.ourSessionId, requestId),
+        { action: 'cancel' },
+      )
       publish(bound, { messageId: requestId, role: 'system', elicitationRequest })
-      return waitForInteraction(elicitations, interactionKey(bound.ourSessionId, requestId), { action: 'cancel' })
+      return response
     },
     async unstable_completeElicitation() {},
     createTerminal: (params) => terminals.create(params),
@@ -208,6 +240,7 @@ export function createAcpRuntimeClient(options: AcpRuntimeClientOptions): AcpRun
       acpByOurSession.set(sessionId, acpSessionId)
     },
     unbindSession(sessionId) {
+      cancelSessionInteractions(sessionId, permissions, elicitations)
       const acpSessionId = acpByOurSession.get(sessionId)
       if (acpSessionId) byAcpSession.delete(acpSessionId)
       acpByOurSession.delete(sessionId)
@@ -225,6 +258,15 @@ export function createAcpRuntimeClient(options: AcpRuntimeClientOptions): AcpRun
         delete bound.turnId
       }
     },
+    cancelSession(sessionId) {
+      cancelSessionInteractions(sessionId, permissions, elicitations)
+    },
+    hasPendingInteractions(sessionId) {
+      if (!sessionId) return permissions.size > 0 || elicitations.size > 0
+      const prefix = `${sessionId}:`
+      return [...permissions.keys()].some((key) => key.startsWith(prefix))
+        || [...elicitations.keys()].some((key) => key.startsWith(prefix))
+    },
     resolvePermission(sessionId, requestId, optionId, cancelled) {
       const pending = takeInteraction(permissions, interactionKey(sessionId, requestId))
       if (!pending) return false
@@ -240,24 +282,62 @@ export function createAcpRuntimeClient(options: AcpRuntimeClientOptions): AcpRun
       return true
     },
     close() {
+      if (closed) return
+      closed = true
+      resolveAllInteractions(permissions, { outcome: { outcome: 'cancelled' } })
+      resolveAllInteractions(elicitations, { action: 'cancel' })
       terminals.close()
-      resources.close()
-      for (const pending of [...permissions.values(), ...elicitations.values()]) clearTimeout(pending.timer)
-      permissions.clear()
-      elicitations.clear()
+      if (ownsResources) resources.close()
+      byAcpSession.clear()
+      acpByOurSession.clear()
     },
   }
+}
+
+function cancelSessionInteractions(
+  sessionId: string,
+  permissions: Map<string, PendingInteraction<acp.RequestPermissionResponse>>,
+  elicitations: Map<string, PendingInteraction<acp.CreateElicitationResponse>>,
+): void {
+  const prefix = `${sessionId}:`
+  resolveMatchingInteractions(permissions, prefix, { outcome: { outcome: 'cancelled' } })
+  resolveMatchingInteractions(elicitations, prefix, { action: 'cancel' })
+}
+
+function resolveMatchingInteractions<T>(
+  interactions: Map<string, PendingInteraction<T>>,
+  prefix: string,
+  fallback: T,
+): void {
+  for (const [key, pending] of interactions) {
+    if (!key.startsWith(prefix)) continue
+    clearTimeout(pending.timer)
+    interactions.delete(key)
+    pending.resolve(fallback)
+  }
+}
+
+function resolveAllInteractions<T>(
+  interactions: Map<string, PendingInteraction<T>>,
+  fallback: T,
+): void {
+  for (const pending of interactions.values()) {
+    clearTimeout(pending.timer)
+    pending.resolve(fallback)
+  }
+  interactions.clear()
 }
 
 function mapToolCall(update: acp.ToolCall | acp.ToolCallUpdate): ToolCallData {
   return {
     id: update.toolCallId,
-    title: update.title ?? update.toolCallId,
+    title: toolCallTitle(update),
     kind: update.kind ?? undefined,
     status: update.status ?? undefined,
     locations: update.locations?.map((location) => ({ path: location.path, line: location.line ?? undefined })),
     rawInput: update.rawInput,
     rawOutput: update.rawOutput,
+    content: mapToolCallContent(update.content ?? undefined),
   }
 }
 

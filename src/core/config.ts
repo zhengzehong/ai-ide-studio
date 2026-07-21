@@ -31,6 +31,9 @@ export interface AppConfig {
   runtimeMode?: RuntimeMode
   runtimeIpcMaxFrameBytes?: number
   runtimeRestartDelayMs?: number
+  runtimeIdleSweepMs?: number
+  runtimeSessionIdleMs?: number
+  runtimeAgentIdleMs?: number
   staticDir?: string
   mobileStaticDir?: string
   localToken?: string
@@ -72,6 +75,9 @@ export function loadConfig(): AppConfig {
     runtimeMode: process.env.RUNTIME_SERVICE_MODE === 'embedded' ? 'embedded' : 'process',
     runtimeIpcMaxFrameBytes: parsePositiveInteger(process.env.RUNTIME_IPC_MAX_FRAME_BYTES, 16 * 1024 * 1024),
     runtimeRestartDelayMs: parsePositiveInteger(process.env.RUNTIME_RESTART_DELAY_MS, 250),
+    runtimeIdleSweepMs: parsePositiveInteger(process.env.RUNTIME_IDLE_SWEEP_MS, 5 * 60 * 1000),
+    runtimeSessionIdleMs: parsePositiveInteger(process.env.RUNTIME_SESSION_IDLE_MS, 30 * 60 * 1000),
+    runtimeAgentIdleMs: parsePositiveInteger(process.env.RUNTIME_AGENT_IDLE_MS, 60 * 60 * 1000),
     staticDir: process.env.STATIC_DIR ? resolve(process.env.STATIC_DIR) : resolve('./ui/dist'),
     mobileStaticDir: process.env.MOBILE_STATIC_DIR ? resolve(process.env.MOBILE_STATIC_DIR) : resolve('./mobile/dist'),
     localToken: process.env.AI_IDE_LOCAL_TOKEN || undefined,

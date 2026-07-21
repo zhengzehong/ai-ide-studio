@@ -14,6 +14,9 @@ class WSClient {
   private currentSubscriptions = new Set<string>()
   private hasConnectedBefore = false
   private cursors = new Map<string, { streamGeneration: string; sequence: number }>()
+  private eventListenersReady = false
+  private pendingSubscriptionRestore = false
+  private pendingRestoreNeedsResume = false
 
   get connected() { return this._connected }
 
@@ -63,12 +66,7 @@ class WSClient {
         this.emit('reconnected', {})
       }
       this.hasConnectedBefore = true
-      if (this.currentSubscriptions.size > 0) {
-        this.send({ type: 'subscribe', sessionIds: [...this.currentSubscriptions] })
-        if (reconnecting && this.cursors.size > 0) {
-          this.send({ type: 'resume', cursors: Object.fromEntries(this.cursors) })
-        }
-      }
+      this.restoreSubscriptions(reconnecting)
     }
 
     this.ws.onclose = (event) => {
@@ -168,6 +166,10 @@ class WSClient {
 
   subscribe(sessionIds: string[]) {
     sessionIds.forEach(id => this.currentSubscriptions.add(id))
+    if (!this.eventListenersReady) {
+      this.pendingSubscriptionRestore = true
+      return
+    }
     this.send({ type: 'subscribe', sessionIds })
   }
 
@@ -180,6 +182,15 @@ class WSClient {
     if (sessionId) this.cursors.delete(sessionId)
     else this.cursors.clear()
     this.send({ type: 'resume', cursors: Object.fromEntries(this.cursors) })
+  }
+
+  setEventListenersReady(ready: boolean): void {
+    this.eventListenersReady = ready
+    if (!ready || !this.pendingSubscriptionRestore || !this._connected) return
+    const resume = this.pendingRestoreNeedsResume
+    this.pendingSubscriptionRestore = false
+    this.pendingRestoreNeedsResume = false
+    this.restoreSubscriptions(resume)
   }
 
   sendPrompt(sessionId: string, content: string) {
@@ -200,6 +211,19 @@ class WSClient {
   private emit(event: string, data: Record<string, unknown>) {
     this.handlers.get(event)?.forEach(h => h(data))
     this.handlers.get('*')?.forEach(h => h({ ...data, _event: event }))
+  }
+
+  private restoreSubscriptions(reconnecting: boolean): void {
+    if (this.currentSubscriptions.size === 0) return
+    if (!this.eventListenersReady) {
+      this.pendingSubscriptionRestore = true
+      this.pendingRestoreNeedsResume ||= reconnecting
+      return
+    }
+    this.send({ type: 'subscribe', sessionIds: [...this.currentSubscriptions] })
+    if (reconnecting && this.cursors.size > 0) {
+      this.send({ type: 'resume', cursors: Object.fromEntries(this.cursors) })
+    }
   }
 }
 

@@ -5,8 +5,8 @@ import type { AppHandle } from './app-handle.js'
 import { createChildLogger, getLogConfig } from './core/logger.js'
 import { ruleEngine } from './core/rules.js'
 import { closeDatabase, initDatabase } from './store/db.js'
-import { agentStore } from './store/agents.js'
 import { sessionStore } from './store/sessions.js'
+import { reconcileAgentPrimarySessions, seedDefaultAgents } from './core/agent-primary-sessions.js'
 import { seedBuiltinTemplates } from './store/agent-templates.js'
 import { seedBuiltinTaskExecutionModes } from './store/seed-task-execution-modes.js'
 import { seedBuiltinTools } from './tools/seed.js'
@@ -31,7 +31,7 @@ import { sessionShareStore } from './store/session-shares.js'
 import type { RuntimePort } from './ports/runtime-port.js'
 import { EmbeddedRuntimePort } from './runtime/api/embedded-runtime-port.js'
 import { createProcessRuntimePort, type ProcessRuntimePort } from './runtime/api/process-runtime-port.js'
-import { handleRuntimeDone, handleRuntimePersistenceUpdate } from './runtime/api/runtime-ingress.js'
+import { handleRuntimeAgentStatus, handleRuntimeDone, handleRuntimePersistenceUpdate } from './runtime/api/runtime-ingress.js'
 import { setRuntimePort } from './runtime/runtime-port-provider.js'
 import { RuntimeCommandDispatcher } from './commands/runtime-command-dispatcher.js'
 import { executeSessionCommand } from './commands/session-command-service.js'
@@ -69,6 +69,7 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
   }
 
   seedDefaultAgents()
+  reconcileAgentPrimarySessions()
   seedBuiltinTemplates()
   seedBuiltinTaskExecutionModes()
   seedBuiltinTools()
@@ -130,8 +131,12 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
         realtimeStreamToken: realtime.runtimeStreamToken,
         maxFrameBytes: config.runtimeIpcMaxFrameBytes,
         restartDelayMs: config.runtimeRestartDelayMs,
+        idleSweepIntervalMs: config.runtimeIdleSweepMs,
+        sessionIdleMs: config.runtimeSessionIdleMs,
+        agentIdleMs: config.runtimeAgentIdleMs,
         onPersistenceUpdate: handleRuntimePersistenceUpdate,
         onDone: handleRuntimeDone,
+        onAgentStatus: handleRuntimeAgentStatus,
       })
       runtimePort = processRuntime
     } else {
@@ -362,19 +367,6 @@ async function startDataPorts(mode: DataWorkerMode, dbPath: string, config: AppC
     await writeDataPort.close()
     throw err
   }
-}
-
-function seedDefaultAgents(): void {
-  const defaults = [
-    { id: 'claude-dev', type: 'dev', name: 'Claude (开发)', runtime: 'claude' },
-    { id: 'codex-dev', type: 'dev', name: 'Codex (开发)', runtime: 'codex' },
-    { id: 'mock-dev', type: 'dev', name: 'Mock (测试)', runtime: 'mock' },
-  ]
-
-  for (const def of defaults) {
-    agentStore.upsert(def)
-  }
-  log.info({ count: defaults.length }, '默认 Agent 已初始化')
 }
 
 function closeHttpServer(server: Server): Promise<void> {
