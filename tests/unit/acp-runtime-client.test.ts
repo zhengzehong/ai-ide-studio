@@ -115,6 +115,41 @@ describe('database-free ACP Runtime client', () => {
     await expect(response).resolves.toEqual({ outcome: { outcome: 'cancelled' } })
   })
 
+  test('uses an id-only mode config update when deciding whether to auto-approve', async () => {
+    const router = createAcpRuntimeClient({
+      agentId: 'agent-a',
+      publishUpdate: () => undefined,
+      updateCapabilities: () => undefined,
+    })
+    router.bindSession('session-a', 'acp-a', [], 'bypassPermissions')
+
+    await router.client.sessionUpdate({
+      sessionId: 'acp-a',
+      update: {
+        sessionUpdate: 'config_option_update',
+        configOptions: [{
+          id: 'mode',
+          name: 'Permission mode',
+          type: 'select',
+          currentValue: 'default',
+          options: [
+            { value: 'default', name: 'Default' },
+            { value: 'bypassPermissions', name: 'Bypass permissions' },
+          ],
+        }],
+      },
+    } as never)
+    const response = router.client.requestPermission({
+      sessionId: 'acp-a',
+      toolCall: { toolCallId: 'tool-a', title: 'Terminal' },
+      options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }],
+    } as never)
+
+    expect(router.hasPendingInteractions('session-a')).toBe(true)
+    router.cancelSession('session-a')
+    await expect(response).resolves.toEqual({ outcome: { outcome: 'cancelled' } })
+  })
+
   test('registers a pending permission before publishing it to the client', async () => {
     let resolvedDuringPublish = false
     const router = createAcpRuntimeClient({

@@ -131,7 +131,7 @@ export function createAcpRuntimeClient(options: AcpRuntimeClientOptions): AcpRun
           break
         case 'config_option_update': {
           const configOptions = mapConfigOptions(update.configOptions)
-          const mode = configOptions.find((option) => option.category === 'mode')?.currentValue
+          const mode = configOptions.find((option) => option.category === 'mode' || option.id === 'mode')?.currentValue
           if (typeof mode === 'string') bound.permissionMode = mode
           applyCapabilities(bound.ourSessionId, (current) => mergeCapabilitiesFromConfig(current, configOptions))
           publish(bound, { messageId, role: 'system', configOptions })
