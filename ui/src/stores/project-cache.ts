@@ -163,6 +163,18 @@ export function clearProjectCache<T>(
   return { entries, requestSeqByScope, errorsByScope }
 }
 
+function evictProjectCacheEntry<T>(
+  state: ProjectCacheState<T>,
+  scope: string,
+): ProjectCacheState<T> {
+  if (!(scope in state.entries) && !(scope in (state.errorsByScope ?? {}))) return state
+  const entries = { ...state.entries }
+  const errorsByScope = { ...state.errorsByScope }
+  delete entries[scope]
+  delete errorsByScope[scope]
+  return { ...state, entries, errorsByScope }
+}
+
 export function patchCachedArrays<T extends { id: string }>(
   state: ProjectCacheState<T[]>,
   id: string,
@@ -227,5 +239,5 @@ export function pruneProjectCache<T>(
   const removeCount = Math.max(0, projectCount - maxEntries)
   if (removeCount === 0) return state
   return projectEntries.slice(0, removeCount)
-    .reduce((next, [scope]) => clearProjectCache(next, scope), state)
+    .reduce((next, [scope]) => evictProjectCacheEntry(next, scope), state)
 }

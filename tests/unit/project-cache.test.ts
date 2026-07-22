@@ -100,6 +100,39 @@ describe('project cache state machine', () => {
     expect(Object.keys(state.entries)).toHaveLength(6)
   })
 
+  test('allows an in-flight response to refill a scope after LRU eviction', () => {
+    let state = emptyProjectCache<string[]>()
+    const initial = beginProjectRequest(state, 'a')
+    state = commitProjectResponse(initial.state, {
+      scope: 'a',
+      requestSeq: initial.requestSeq,
+      data: ['stale-a'],
+      now: 1,
+    })
+    const refresh = beginProjectRequest(state, 'a')
+    state = refresh.state
+
+    for (const [index, scope] of ['b', 'c', 'd', 'e', 'f'].entries()) {
+      const request = beginProjectRequest(state, scope)
+      state = commitProjectResponse(request.state, {
+        scope,
+        requestSeq: request.requestSeq,
+        data: [scope],
+        now: index + 2,
+      })
+      state = pruneProjectCache(state, scope, 5)
+    }
+
+    expect(readProjectCache(state, 'a')).toBeNull()
+    state = commitProjectResponse(state, {
+      scope: 'a',
+      requestSeq: refresh.requestSeq,
+      data: ['fresh-a'],
+      now: 10,
+    })
+    expect(readProjectCache(state, 'a')?.data).toEqual(['fresh-a'])
+  })
+
   test('uses a dedicated scope for unfiltered global lists', () => {
     expect(projectScopeKey()).toBe(ALL_PROJECTS_SCOPE)
     expect(projectScopeKey(null)).toBe(ALL_PROJECTS_SCOPE)

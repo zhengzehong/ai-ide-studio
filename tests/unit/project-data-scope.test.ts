@@ -118,13 +118,29 @@ describe('project data scope', () => {
     expect(stores.task.fetchTasks).toHaveBeenCalledTimes(1)
     expect(stores.task.fetchModes).toHaveBeenCalledTimes(1)
     expect(stores.agent.fetchAgents).toHaveBeenCalledTimes(1)
-    expect(stores.session.fetchSessions).toHaveBeenCalledTimes(1)
+    expect(stores.session.fetchSessions).toHaveBeenCalledTimes(2)
     expect(stores.filesystem.fetchTree).toHaveBeenCalledTimes(1)
     expect(stores.knowledge.fetchKnowledgeBases).toHaveBeenCalledTimes(1)
     expect(stores.rules.fetchRules).toHaveBeenCalledTimes(1)
     expect(stores.events.fetchCategories).toHaveBeenCalledTimes(1)
     expect(stores.events.fetchEvents).toHaveBeenCalledTimes(1)
     expect(stores.events.fetchSubscriptions).toHaveBeenCalledTimes(1)
+  })
+
+  test('rechecks sessions when a project is reactivated during a coalesced refresh', async () => {
+    let finishTasks: (() => void) | undefined
+    stores.task.fetchTasks.mockImplementation(() => new Promise<void>((resolve) => {
+      finishTasks = resolve
+    }))
+
+    const first = activateProjectData('project-a')
+    await vi.waitFor(() => expect(stores.session.fetchSessions).toHaveBeenCalledTimes(1))
+    const second = activateProjectData('project-a')
+
+    expect(stores.session.fetchSessions).toHaveBeenCalledTimes(2)
+
+    finishTasks?.()
+    await Promise.all([first, second])
   })
 
   test('reactivates a project when returning before its refresh completes', async () => {
