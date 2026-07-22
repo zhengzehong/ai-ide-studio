@@ -27,7 +27,10 @@ export function activateProjectData(projectId: string): Promise<void> {
   useAgentMemoryStore.getState().activateScope(projectId)
 
   const currentActivation = projectActivations.get(projectId)
-  if (currentActivation) return currentActivation
+  if (currentActivation) {
+    const sessionRefresh = sessionStore.fetchSessions(undefined, projectId)
+    return Promise.allSettled([currentActivation, sessionRefresh]).then(() => undefined)
+  }
 
   const activation = refreshProjectData(projectId).finally(() => {
     if (projectActivations.get(projectId) === activation) projectActivations.delete(projectId)

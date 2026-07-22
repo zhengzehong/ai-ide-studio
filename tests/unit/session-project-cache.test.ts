@@ -41,6 +41,17 @@ function emit(event: string, message: Record<string, unknown>): void {
   for (const handler of wsMock.handlers.get(event) ?? []) handler(message)
 }
 
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolvePromise: ((value: T) => void) | undefined
+  const promise = new Promise<T>((resolve) => {
+    resolvePromise = resolve
+  })
+  return {
+    promise,
+    resolve: (value) => resolvePromise?.(value),
+  }
+}
+
 describe('session project cache', () => {
   beforeEach(() => {
     wsMock.handlers.clear()
@@ -123,5 +134,41 @@ describe('session project cache', () => {
 
     expect(useSessionStore.getState().sessions.map((item) => item.id)).toEqual(['session-a'])
     expect(useSessionStore.getState().error).toBeNull()
+  })
+
+  test('restores an evicted project from its in-flight refresh instead of showing no sessions', async () => {
+    const refreshA = deferred<SessionData[]>()
+    let projectACalls = 0
+    wsMock.request.mockImplementation(async (msg: Record<string, unknown>) => {
+      if (msg.type !== 'sessions.list') return []
+      if (msg.projectId === 'a') {
+        projectACalls += 1
+        if (projectACalls === 1) return [session('session-a-stale', 'a')]
+        return refreshA.promise
+      }
+      return [session(`session-${String(msg.projectId)}`, String(msg.projectId))]
+    })
+
+    useSessionStore.getState().activateProject('a')
+    await useSessionStore.getState().fetchSessions(undefined, 'a', { force: true })
+    const backgroundRefresh = useSessionStore.getState().fetchSessions(undefined, 'a', { force: true })
+
+    for (const projectId of ['b', 'c', 'd', 'e', 'f']) {
+      useSessionStore.getState().activateProject(projectId)
+      await useSessionStore.getState().fetchSessions(undefined, projectId, { force: true })
+    }
+
+    useSessionStore.getState().activateProject('a')
+
+    expect(useSessionStore.getState()).toMatchObject({
+      sessions: [],
+      loading: true,
+    })
+
+    refreshA.resolve([session('session-a-fresh', 'a')])
+    await backgroundRefresh
+
+    expect(useSessionStore.getState().sessions.map((item) => item.id)).toEqual(['session-a-fresh'])
+    expect(useSessionStore.getState().loading).toBe(false)
   })
 })

@@ -926,7 +926,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     const scope = sessionListScope(scopedProjectId)
     set((state) => {
       const sessionListCache = pruneProjectCache(touchProjectCache(state.sessionListCache, scope), scope)
-      const sessions = readProjectCache(sessionListCache, scope)?.data ?? []
+      const cached = readProjectCache(sessionListCache, scope)
+      const sessions = cached?.data ?? []
+      const isFetching = sessionListFetches.has(scope)
       const runningSessions = Object.keys(inferRunningSessions(sessions))
       return {
         activeSessionScope: scope,
@@ -937,8 +939,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         runningSessionIds: reconcileRunningSessionIndicators(state.runningSessionIds, sessions),
         unreadSessionIds: removeSessionIndicators(state.unreadSessionIds, runningSessions),
         staleSessionIds: removeSessionIndicators(state.staleSessionIds, runningSessions),
-        loading: false,
-        refreshing: false,
+        loading: !cached && isFetching,
+        refreshing: !!cached && isFetching,
       }
     })
   },
@@ -960,7 +962,12 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     const cached = readProjectCache(get().sessionListCache, scope)
     if (!options?.force && cached && !shouldRefreshProjectCache(cached)) return
     const inFlight = sessionListFetches.get(scope)
-    if (!options?.force && inFlight) return inFlight
+    if (!options?.force && inFlight) {
+      if (!cached && get().activeSessionScope === scope) {
+        set({ loading: true, refreshing: false, error: null })
+      }
+      return inFlight
+    }
 
     let requestSeq = 0
     set((state) => {
