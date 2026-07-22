@@ -117,6 +117,51 @@ describe('session project cache', () => {
     cleanup()
   })
 
+  test('keeps the active project visible while another project refreshes in the background', async () => {
+    wsMock.request.mockImplementation(async (msg: Record<string, unknown>) => {
+      if (msg.type !== 'sessions.list') return []
+      return msg.projectId === 'a' ? [session('session-a', 'a')] : [session('session-b', 'b')]
+    })
+
+    useSessionStore.getState().activateProject('a')
+    await useSessionStore.getState().fetchSessions(undefined, 'a', { force: true })
+
+    await useSessionStore.getState().fetchSessions(undefined, 'b', { force: true })
+
+    expect(useSessionStore.getState()).toMatchObject({
+      activeSessionScope: 'a',
+      loading: false,
+      refreshing: false,
+      error: null,
+    })
+    expect(useSessionStore.getState().sessions.map((item) => item.id)).toEqual(['session-a'])
+    expect(useSessionStore.getState().sessionListCache.entries.b?.data.map((item) => item.id))
+      .toEqual(['session-b'])
+  })
+
+  test('keeps the active project error state isolated from a failed background refresh', async () => {
+    wsMock.request.mockImplementation(async (msg: Record<string, unknown>) => {
+      if (msg.type !== 'sessions.list') return []
+      if (msg.projectId === 'b') throw new Error('Project B session refresh failed')
+      return [session('session-a', 'a')]
+    })
+
+    useSessionStore.getState().activateProject('a')
+    await useSessionStore.getState().fetchSessions(undefined, 'a', { force: true })
+
+    await useSessionStore.getState().fetchSessions(undefined, 'b', { force: true })
+
+    expect(useSessionStore.getState()).toMatchObject({
+      activeSessionScope: 'a',
+      loading: false,
+      refreshing: false,
+      error: null,
+    })
+    expect(useSessionStore.getState().sessions.map((item) => item.id)).toEqual(['session-a'])
+    expect(useSessionStore.getState().sessionListCache.errorsByScope?.b)
+      .toBe('Project B session refresh failed')
+  })
+
   test('exposes a cold load failure and clears it after retry', async () => {
     wsMock.request.mockRejectedValueOnce(new Error('Session service unavailable'))
 

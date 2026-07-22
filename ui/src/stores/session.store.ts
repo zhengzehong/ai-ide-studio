@@ -948,17 +948,6 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   fetchSessions: async (agentId, projectId, options) => {
     const scopedProjectId = projectId ?? null
     const scope = sessionListScope(scopedProjectId, agentId)
-    if (get().activeSessionScope !== scope) {
-      activeSessionsProjectId = scopedProjectId
-      const cachedForScope = readProjectCache(get().sessionListCache, scope)?.data ?? []
-      set({
-        activeSessionScope: scope,
-        sessions: cachedForScope,
-        error: readProjectCacheError(get().sessionListCache, scope),
-        loading: false,
-        refreshing: false,
-      })
-    }
     const cached = readProjectCache(get().sessionListCache, scope)
     if (!options?.force && cached && !shouldRefreshProjectCache(cached)) return
     const inFlight = sessionListFetches.get(scope)

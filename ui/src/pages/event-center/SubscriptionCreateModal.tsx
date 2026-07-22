@@ -47,6 +47,7 @@ function SubscriptionForm({ projectId, subscription, onClose }: Omit<Props, 'ope
   const updateSubscription = useEventCenterStore((s) => s.updateSubscription)
   const agents = useAgentStore((s) => s.agents)
   const sessions = useSessionStore((s) => s.sessions)
+  const activateSessionProject = useSessionStore((s) => s.activateProject)
   const fetchSessions = useSessionStore((s) => s.fetchSessions)
   const initialFilter = parseJson<Record<string, unknown>>(subscription?.filter_json, {})
   const initialPayload = parsePayloadFilters(initialFilter.payload)
@@ -90,8 +91,9 @@ function SubscriptionForm({ projectId, subscription, onClose }: Omit<Props, 'ope
   )
 
   useEffect(() => {
+    activateSessionProject(projectId)
     void fetchSessions(undefined, projectId ?? undefined)
-  }, [fetchSessions, projectId])
+  }, [activateSessionProject, fetchSessions, projectId])
 
   const submit = async () => {
     setError('')

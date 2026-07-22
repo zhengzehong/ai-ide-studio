@@ -15,9 +15,9 @@
 **Files:**
 - Modify: `tests/unit/session-project-cache.test.ts`
 
-- [ ] Add a test that activates and loads project A, force-fetches project B without activating it, and asserts that A remains the active scope and visible Session list while B cache is populated.
-- [ ] Add a test that rejects project B's background fetch and asserts that A's visible loading/error state remains unchanged while B receives a scoped cache error.
-- [ ] Run `npx vitest run tests/unit/session-project-cache.test.ts` and verify both tests fail because the old implementation activates B.
+- [x] Add a test that activates and loads project A, force-fetches project B without activating it, and asserts that A remains the active scope and visible Session list while B cache is populated.
+- [x] Add a test that rejects project B's background fetch and asserts that A's visible loading/error state remains unchanged while B receives a scoped cache error.
+- [x] Run `npx vitest run tests/unit/session-project-cache.test.ts` and verify both tests fail because the old implementation activates B.
 
 ### Task 2: Separate activation from fetching
 
@@ -26,19 +26,19 @@
 - Modify: `ui/src/pages/Dashboard.tsx:69-77`
 - Modify: `ui/src/pages/event-center/SubscriptionCreateModal.tsx:88-95`
 
-- [ ] Remove the implicit `activeSessionScope` and visible `sessions` mutation from `fetchSessions`.
-- [ ] Explicitly call `activateProject(null)` before Dashboard fetches the all-project Session list.
-- [ ] Explicitly call `activateProject(projectId)` before the subscription form fetches its selectable Session list.
-- [ ] Run `npx vitest run tests/unit/session-project-cache.test.ts` and verify the new tests and the existing eviction/reactivation test pass.
+- [x] Remove the implicit `activeSessionScope` and visible `sessions` mutation from `fetchSessions`.
+- [x] Explicitly call `activateProject(null)` before Dashboard fetches the all-project Session list.
+- [x] Explicitly call `activateProject(projectId)` before the subscription form fetches its selectable Session list.
+- [x] Run `npx vitest run tests/unit/session-project-cache.test.ts` and verify the new tests and the existing eviction/reactivation test pass.
 
 ### Task 3: Verify and integrate
 
 **Files:**
 - Verify all modified files.
 
-- [ ] Run `npx tsc --noEmit`.
-- [ ] Run `npm run lint`.
-- [ ] Run `npm run build`.
-- [ ] Run `npm test`.
-- [ ] Run `git diff --check` and inspect the final diff.
+- [x] Run `npx tsc --noEmit`.
+- [x] Run `npm run lint`.
+- [x] Run `npm run build`.
+- [x] Run `npm test`.
+- [x] Run `git diff --check` and inspect the final diff.
 - [ ] Commit the fix, request independent code review, address blocking findings, and merge the reviewed branch into `prd` without restarting PRD.
