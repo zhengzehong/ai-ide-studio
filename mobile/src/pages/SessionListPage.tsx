@@ -3,7 +3,9 @@ import { Archive, Edit3, MessageSquarePlus, Plus, Search, Trash2, XCircle, Spark
 import { useNavigate } from 'react-router-dom'
 import { useSessionStore } from '../stores/session.store'
 import { useAppStore } from '../stores/app.store'
+import { useMobileProjectSessionStatsStore } from '../stores/project-session-stats.store'
 import type { MobileSessionItem } from '../stores/session.store'
+import { buildStableAgentGroups, sortProjectsByCreation } from './session-list-model'
 import SessionGroup from '../components/SessionGroup'
 import ProjectSwitcher from '../components/ProjectSwitcher'
 import ProjectDrawer from '../components/ProjectDrawer'
@@ -14,43 +16,6 @@ import RenameDialog from '../components/RenameDialog'
 import NewSessionSheet from '../components/chat/NewSessionSheet'
 import PublishTemplateSheet from '../components/templates/PublishTemplateSheet'
 import { useEdgeSwipe } from '../hooks/useEdgeSwipe'
-
-interface AgentGroup {
-  agentId: string
-  agentName: string
-  sessions: MobileSessionItem[]
-  unreadCount: number
-  runningCount: number
-}
-
-function groupByAgent(sessions: MobileSessionItem[]): AgentGroup[] {
-  const map = new Map<string, AgentGroup>()
-  for (const session of sessions) {
-    if (session.status !== 'active') continue
-    const existing = map.get(session.agentId)
-    if (existing) {
-      existing.sessions.push(session)
-      if (session.unread) existing.unreadCount += 1
-      if (session.activityState === 'running') existing.runningCount += 1
-    } else {
-      map.set(session.agentId, {
-        agentId: session.agentId,
-        agentName: session.agentName,
-        sessions: [session],
-        unreadCount: session.unread ? 1 : 0,
-        runningCount: session.activityState === 'running' ? 1 : 0,
-      })
-    }
-  }
-  const groups = [...map.values()]
-  groups.sort((a, b) => {
-    const aActive = a.unreadCount > 0 || a.runningCount > 0
-    const bActive = b.unreadCount > 0 || b.runningCount > 0
-    if (aActive !== bActive) return aActive ? -1 : 1
-    return a.agentName.localeCompare(b.agentName, 'zh-CN')
-  })
-  return groups
-}
 
 export default function SessionListPage() {
   const {
@@ -64,12 +29,14 @@ export default function SessionListPage() {
   } = useSessionStore()
   const {
     projects,
+    agents,
     currentProjectId,
     setCurrentProject,
     isDrawerPinned,
     setDrawerPinned,
     fetchAgents,
   } = useAppStore()
+  const statsByProjectId = useMobileProjectSessionStatsStore((state) => state.statsByProjectId)
   const navigate = useNavigate()
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [createSheetOpen, setCreateSheetOpen] = useState(false)
@@ -93,31 +60,32 @@ export default function SessionListPage() {
     [sessions],
   )
 
-  const agentGroups = useMemo(() => groupByAgent(activeSessions), [activeSessions])
+  const sortedProjects = useMemo(() => sortProjectsByCreation(projects), [projects])
+
+  const agentGroups = useMemo(
+    () => buildStableAgentGroups(agents, activeSessions),
+    [agents, activeSessions],
+  )
 
   const projectUnread = useMemo(() => {
     const map: Record<string, number> = {}
-    for (const s of activeSessions) {
-      if (s.unread && s.projectId) {
-        map[s.projectId] = (map[s.projectId] ?? 0) + 1
-      }
+    for (const stats of Object.values(statsByProjectId)) {
+      map[stats.projectId] = stats.unreadCount
     }
     return map
-  }, [activeSessions])
+  }, [statsByProjectId])
 
   const totalSessions = useMemo(() => {
     const map: Record<string, number> = {}
-    for (const s of activeSessions) {
-      if (s.projectId) {
-        map[s.projectId] = (map[s.projectId] ?? 0) + 1
-      }
+    for (const stats of Object.values(statsByProjectId)) {
+      map[stats.projectId] = stats.sessionCount
     }
     return map
-  }, [activeSessions])
+  }, [statsByProjectId])
 
   const currentProject = useMemo(
-    () => projects.find((p) => p.id === currentProjectId),
-    [projects, currentProjectId],
+    () => sortedProjects.find((p) => p.id === currentProjectId),
+    [sortedProjects, currentProjectId],
   )
 
   const edgeSwipe = useEdgeSwipe({
@@ -249,7 +217,7 @@ export default function SessionListPage() {
       onPointerDown={edgeSwipe.onPointerDown}
     >
       <ProjectDrawer
-        projects={projects}
+        projects={sortedProjects}
         currentProjectId={currentProjectId}
         isOpen={drawerOpen}
         isPinned={isDrawerPinned}

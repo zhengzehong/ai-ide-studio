@@ -162,6 +162,7 @@ export interface SessionsProjectStatsMsg extends ClientMessage {
 }
 export interface ProjectSessionStatsData {
   projectId: string
+  sessionCount: number
   runningCount: number
   unreadCount: number
 }

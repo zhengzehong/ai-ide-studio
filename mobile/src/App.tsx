@@ -4,6 +4,7 @@ import { useConnectionStore, type ConnectionStatus } from './stores/connection.s
 import { useAppStore } from './stores/app.store'
 import { useSessionStore } from './stores/session.store'
 import { useChatStore } from './stores/chat.store'
+import { useMobileProjectSessionStatsStore } from './stores/project-session-stats.store'
 import { wsClient } from '@desktop/services/ws-client'
 import MobileShell from './components/MobileShell'
 import AndroidBackHandler from './components/AndroidBackHandler'
@@ -30,7 +31,11 @@ function AppRouter({ children }: { children: ReactNode }) {
 
 export async function bootstrapMobileData(): Promise<void> {
   const appStore = useAppStore.getState()
-  await Promise.all([appStore.fetchProjects(), appStore.fetchAgents()])
+  await Promise.all([
+    appStore.fetchProjects(),
+    appStore.fetchAgents(),
+    useMobileProjectSessionStatsStore.getState().fetchStats(),
+  ])
   await useSessionStore.getState().fetchSessions(useAppStore.getState().currentProjectId)
 }
 
@@ -43,7 +48,8 @@ export default function App() {
 
   useEffect(() => {
     const off1 = useSessionStore.getState().setupListeners()
-    const off2 = wsClient.on('resync_required', (message) => {
+    const off2 = useMobileProjectSessionStatsStore.getState().setupListeners()
+    const off3 = wsClient.on('resync_required', (message) => {
       const chatStore = useChatStore.getState()
       const resyncSessionId = typeof message.sessionId === 'string' ? message.sessionId : undefined
       const sessionId = resyncSessionId ?? chatStore.sessionId ?? undefined
@@ -58,6 +64,7 @@ export default function App() {
       wsClient.setEventListenersReady(false)
       off1()
       off2()
+      off3()
     }
   }, [init])
 

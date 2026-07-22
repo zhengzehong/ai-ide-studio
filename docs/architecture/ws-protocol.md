@@ -79,7 +79,7 @@ Runtime 可见 patch 不经过 API 事件总线，而是通过 Runtime→Realtim
 | 方法 | 参数 | 返回 | 说明 |
 |------|------|------|------|
 | `sessions.list` | `{ agentId?, projectId? }` | `Session[]` | 列出 Session；PC 已迁移 HTTP，当前为移动端/CLI/回滚兼容桥 |
-| `sessions.projectStats` | `{}` | `{ generatedAt, items: ProjectSessionStats[] }` | 返回全部项目的运行中/未读会话统计快照；未读只统计非运行中且 `last_message_at > last_read_at` 的会话，空项目返回 0 |
+| `sessions.projectStats` | `{}` | `{ generatedAt, items: { projectId, sessionCount, runningCount, unreadCount }[] }` | 返回全部项目 active 会话的总数、运行中和未读统计快照；排除删除、归档和模板会话，未读只统计非运行中且 `last_message_at > last_read_at` 的会话，空项目返回 0 |
 | `sessions.create` | `{ agentId, taskId?, projectId? }` | `Session` | 只创建本地 SQLite Session；不启动 ACP runtime，也不创建 ACP session |
 | `sessions.copy` | `{ sessionId }` | `Session` | 复制会话：先通过 ACP fork 复制 runtime 上下文，再复制 SQLite 中最近 10 条消息及相关 `session_events` |
 | `sessions.listLocalImportCandidates` | `{ agentId, projectId? }` | `LocalSessionCandidate[]` | 扫描当前机器上的 Codex / Claude Code JSONL 本地会话候选，按 Agent runtime 和项目工作目录排序 |
