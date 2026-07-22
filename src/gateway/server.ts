@@ -33,6 +33,7 @@ import {
   mountSessionCommandRoutes,
   type SessionCommandDispatcherPort,
 } from './http/session-command-routes.js'
+import { responseCompression } from './http/response-compression.js'
 
 const log = createChildLogger('gateway')
 
@@ -47,6 +48,7 @@ export async function startGateway(config: AppConfig, options: StartGatewayOptio
   const app = new Hono()
   let embeddedPort = config.port
 
+  app.use('*', responseCompression())
   mountLocalTokenGuard(app, config)
 
   app.get('/health', (c) => c.json({ status: 'ok', uptime: process.uptime() }))
