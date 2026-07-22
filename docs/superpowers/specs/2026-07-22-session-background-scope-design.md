@@ -31,7 +31,8 @@ state and fetch methods are cache-aware background operations.
 
 ## Race Behavior
 
-1. If A is active and background B succeeds, A remains visible and B cache is refreshed.
+1. If A is active and background B succeeds, A remains visible with its current loading or
+   refreshing state and B cache is refreshed.
 2. If A is active and background B fails, A's loading/error state is unchanged and B retains its
    scoped cache error.
 3. If B is fetched in the background and the user then activates B before completion, the existing

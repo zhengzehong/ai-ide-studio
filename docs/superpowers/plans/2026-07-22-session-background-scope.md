@@ -17,6 +17,7 @@
 
 - [x] Add a test that activates and loads project A, force-fetches project B without activating it, and asserts that A remains the active scope and visible Session list while B cache is populated.
 - [x] Add a test that rejects project B's background fetch and asserts that A's visible loading/error state remains unchanged while B receives a scoped cache error.
+- [x] Add unresolved cold-load and cached-refresh tests proving that background B preserves A's `loading` and `refreshing` flags.
 - [x] Run `npx vitest run tests/unit/session-project-cache.test.ts` and verify both tests fail because the old implementation activates B.
 
 ### Task 2: Separate activation from fetching

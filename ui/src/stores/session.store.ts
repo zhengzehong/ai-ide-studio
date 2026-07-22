@@ -966,8 +966,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       return {
         sessionListCache: request.state,
         error: isActive ? null : state.error,
-        loading: isActive && !cached,
-        refreshing: isActive && !!cached,
+        loading: isActive ? !cached : state.loading,
+        refreshing: isActive ? !!cached : state.refreshing,
       }
     })
 
