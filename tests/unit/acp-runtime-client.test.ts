@@ -75,6 +75,26 @@ describe('database-free ACP Runtime client', () => {
     },
   )
 
+  test('prefers one-time approval in full-access mode when ACP offers both choices', async () => {
+    const router = createAcpRuntimeClient({
+      agentId: 'agent-a',
+      publishUpdate: () => undefined,
+      updateCapabilities: () => undefined,
+    })
+    router.bindSession('session-a', 'acp-a', [], 'bypassPermissions')
+
+    const approved = await router.client.requestPermission({
+      sessionId: 'acp-a',
+      toolCall: { toolCallId: 'tool-a', title: 'Terminal' },
+      options: [
+        { optionId: 'always', name: 'Always allow', kind: 'allow_always' },
+        { optionId: 'once', name: 'Allow once', kind: 'allow_once' },
+      ],
+    } as never)
+
+    expect(approved).toEqual({ outcome: { outcome: 'selected', optionId: 'once' } })
+  })
+
   test('uses the latest Session mode when deciding whether to auto-approve', async () => {
     const router = createAcpRuntimeClient({
       agentId: 'agent-a',

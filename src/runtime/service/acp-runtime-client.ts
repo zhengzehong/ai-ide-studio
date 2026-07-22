@@ -180,16 +180,19 @@ export function createAcpRuntimeClient(options: AcpRuntimeClientOptions): AcpRun
       if (!bound) return { outcome: { outcome: 'cancelled' } }
       const requestedTool = normalizeToolName(params.toolCall.title ?? '')
       const autoApproved = [...bound.autoApprovedToolNames].some((name) => normalizeToolName(name) === requestedTool)
-      const allow = params.options.find((option) => option.kind === 'allow_always')
-        ?? params.options.find((option) => option.kind === 'allow_once')
-      if (allow && bound.permissionMode && FULL_ACCESS_PERMISSION_MODES.has(bound.permissionMode)) {
+      const allowOnce = params.options.find((option) => option.kind === 'allow_once')
+      const allowAlways = params.options.find((option) => option.kind === 'allow_always')
+      const fullAccessAllow = allowOnce ?? allowAlways
+      if (fullAccessAllow && bound.permissionMode && FULL_ACCESS_PERMISSION_MODES.has(bound.permissionMode)) {
         log.debug(
           { agentId: options.agentId, sessionId: bound.ourSessionId, permissionMode: bound.permissionMode, toolTitle: params.toolCall.title },
           'auto-approved tool permission in full-access mode',
         )
-        return { outcome: { outcome: 'selected', optionId: allow.optionId } }
+        return { outcome: { outcome: 'selected', optionId: fullAccessAllow.optionId } }
       }
-      if (autoApproved && allow) return { outcome: { outcome: 'selected', optionId: allow.optionId } }
+      const internalToolAllow = allowAlways ?? allowOnce
+      if (autoApproved && internalToolAllow)
+        return { outcome: { outcome: 'selected', optionId: internalToolAllow.optionId } }
 
       const requestId = `${params.toolCall.toolCallId || 'permission'}-${Date.now()}`
       const permissionRequest: PermissionRequestData = {

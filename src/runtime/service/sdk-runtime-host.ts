@@ -1,5 +1,4 @@
 import { mapConfigOptions, mergeCapabilitiesFromConfig } from '../../acp/capabilities.js'
-import { resolveDesiredRuntimeMode } from '../../acp/runtime-mode-preference.js'
 import type { RuntimeCancelResult, RuntimeStateSnapshot } from '../../ports/runtime-port.js'
 import { createChildLogger } from '../../shared/logger.js'
 import type { ImageAttachment, SessionCapabilities } from '../../types/ws-protocol.js'
@@ -129,8 +128,12 @@ export class SdkRuntimeHost {
       lastUsedAt: Date.now(),
     }
     this.sessions.set(snapshot.session.id, session)
-    agent.router.bindSession(snapshot.session.id, opened.acpSessionId, snapshot.autoApprovedToolNames,
-      resolveDesiredRuntimeMode(snapshot.agent.runtime, snapshot.runtimePreferences.modeId))
+    agent.router.bindSession(
+      snapshot.session.id,
+      opened.acpSessionId,
+      snapshot.autoApprovedToolNames,
+      opened.capabilities.currentModeId,
+    )
     await applySdkSessionPreferences({
       snapshot,
       capabilities: session.capabilities,
@@ -190,8 +193,12 @@ export class SdkRuntimeHost {
       lastUsedAt: Date.now(),
     }
     this.sessions.set(snapshot.session.id, session)
-    agent.router.bindSession(snapshot.session.id, result.sessionId, snapshot.autoApprovedToolNames,
-      resolveDesiredRuntimeMode(snapshot.agent.runtime, snapshot.runtimePreferences.modeId))
+    agent.router.bindSession(
+      snapshot.session.id,
+      result.sessionId,
+      snapshot.autoApprovedToolNames,
+      session.capabilities.currentModeId,
+    )
     await applySdkSessionPreferences({
       snapshot,
       capabilities: session.capabilities,

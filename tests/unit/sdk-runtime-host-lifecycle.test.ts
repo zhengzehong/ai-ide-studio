@@ -194,6 +194,30 @@ describe('SDK Runtime child lifecycle', () => {
     )
   })
 
+  test('does not auto-approve from a desired mode that ACP did not confirm', async () => {
+    const harness = runtimeHarness()
+    const requested = snapshot('session-a')
+    requested.runtimePreferences.modeId = 'bypassPermissions'
+    await harness.host.ensureSession(requested)
+
+    const permission = harness.routers[0].client.requestPermission(permissionRequest())
+
+    expect(harness.routers[0].hasPendingInteractions('session-a')).toBe(true)
+    harness.routers[0].cancelSession('session-a')
+    await expect(permission).resolves.toEqual({ outcome: { outcome: 'cancelled' } })
+  })
+
+  test('auto-approves after ACP successfully changes to a full-access mode', async () => {
+    const harness = runtimeHarness()
+    await harness.host.ensureSession(snapshot('session-a'))
+    await harness.host.setMode('agent-a', 'session-a', 'bypassPermissions')
+
+    const permission = harness.routers[0].client.requestPermission(permissionRequest())
+
+    await expect(permission).resolves.toEqual({ outcome: { outcome: 'selected', optionId: 'allow' } })
+    expect(harness.routers[0].hasPendingInteractions('session-a')).toBe(false)
+  })
+
   test('publishes updated capabilities after changing a Session config option', async () => {
     const harness = runtimeHarness()
     await harness.host.ensureSession(snapshot('session-a'))

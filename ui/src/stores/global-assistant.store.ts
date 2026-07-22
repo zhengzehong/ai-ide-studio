@@ -302,6 +302,7 @@ async function activatePayload(
     return
   }
   const previousSessionId = currentSessionId(get())
+  const sessionChanged = previousSessionId !== payload.session.id
   if (previousSessionId && previousSessionId !== payload.session.id) {
     globalAssistantCancelCoordinator.clear(previousSessionId)
   }
@@ -315,11 +316,33 @@ async function activatePayload(
     stopping: false,
     stopError: null,
     interactionError: null,
+    ...(sessionChanged ? {
+      messages: [],
+      events: [],
+      streamingMessage: null,
+      usage: null,
+      turnUsage: null,
+      capabilities: { ...defaultCaps },
+      plan: [],
+      pendingPermissions: [],
+      pendingElicitations: [],
+      hasMoreMessages: false,
+      loadingOlderMessages: false,
+      running: false,
+      fileChangeDetailsByMessageId: {},
+      toolCallLoadingByKey: {},
+      toolCallErrorByKey: {},
+      turnProcessLoadingByMessageId: {},
+      turnProcessErrorByMessageId: {},
+      processItemLoadingByKey: {},
+      processItemErrorByKey: {},
+    } : {}),
   })
   await Promise.all([
     get().fetchMessages(),
     loadCapabilities ? get().fetchModels() : Promise.resolve(),
   ])
+  if (payload.session.id === currentSessionId(get())) await get().fetchEvents()
 }
 
 export const useGlobalAssistantStore = create<GlobalAssistantStore>((set, get) => ({
@@ -506,11 +529,13 @@ export const useGlobalAssistantStore = create<GlobalAssistantStore>((set, get) =
         optionId,
         cancelled,
       })
+      if (sid !== currentSessionId(get())) return
       set((state) => ({
         pendingPermissions: state.pendingPermissions.filter((request) => request.id !== requestId),
         interactionError: null,
       }))
     } catch (error) {
+      if (sid !== currentSessionId(get())) return
       const failure = interactionResponseFailure(error, 'permission')
       set((state) => ({
         pendingPermissions: failure.expired
@@ -533,11 +558,13 @@ export const useGlobalAssistantStore = create<GlobalAssistantStore>((set, get) =
         action,
         content,
       })
+      if (sid !== currentSessionId(get())) return
       set((state) => ({
         pendingElicitations: state.pendingElicitations.filter((request) => request.id !== requestId),
         interactionError: null,
       }))
     } catch (error) {
+      if (sid !== currentSessionId(get())) return
       const failure = interactionResponseFailure(error, 'elicitation')
       set((state) => ({
         pendingElicitations: failure.expired
@@ -569,7 +596,6 @@ export const useGlobalAssistantStore = create<GlobalAssistantStore>((set, get) =
     })
     const runningMessage = get().messages.filter((message) => message.session_id === sid && message.role === 'agent' && message.status === 'running').at(-1)
     if (runningMessage) void get().fetchMessageProcess(sid, runningMessage.id)
-    if (get().messages.filter((message) => message.session_id === sid).length === 0) void get().fetchEvents()
   },
 
   loadOlderMessages: async () => {

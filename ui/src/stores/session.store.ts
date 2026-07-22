@@ -570,6 +570,24 @@ function clearCachedStreaming(sessionId: string): void {
   sessionCaches.set(sessionId, { ...cache, streamingMessage: null })
 }
 
+function removeCachedPermission(sessionId: string, requestId: string): void {
+  const cache = sessionCaches.get(sessionId)
+  if (!cache) return
+  sessionCaches.set(sessionId, {
+    ...cache,
+    pendingPermissions: cache.pendingPermissions.filter((request) => request.id !== requestId),
+  })
+}
+
+function removeCachedElicitation(sessionId: string, requestId: string): void {
+  const cache = sessionCaches.get(sessionId)
+  if (!cache) return
+  sessionCaches.set(sessionId, {
+    ...cache,
+    pendingElicitations: cache.pendingElicitations.filter((request) => request.id !== requestId),
+  })
+}
+
 function saveCache(
   sessionId: string,
   s: Pick<
@@ -1300,6 +1318,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         runningSessionIds: removeSessionIndicator(state.runningSessionIds, sessionId),
         unreadSessionIds: removeSessionIndicator(state.unreadSessionIds, sessionId),
         staleSessionIds: removeSessionIndicator(state.staleSessionIds, sessionId),
+        interactionErrorsBySession: withoutKey(state.interactionErrorsBySession, sessionId),
       }
     })
   },
@@ -1629,14 +1648,18 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         optionId,
         cancelled,
       })
+      removeCachedPermission(sid, requestId)
       set((state) => ({
-        pendingPermissions: state.pendingPermissions.filter((request) => request.id !== requestId),
+        pendingPermissions: state.currentSessionId === sid
+          ? state.pendingPermissions.filter((request) => request.id !== requestId)
+          : state.pendingPermissions,
         interactionErrorsBySession: withoutKey(state.interactionErrorsBySession, sid),
       }))
     } catch (error) {
       const failure = interactionResponseFailure(error, 'permission')
+      if (failure.expired) removeCachedPermission(sid, requestId)
       set((state) => ({
-        pendingPermissions: failure.expired
+        pendingPermissions: state.currentSessionId === sid && failure.expired
           ? state.pendingPermissions.filter((request) => request.id !== requestId)
           : state.pendingPermissions,
         interactionErrorsBySession: { ...state.interactionErrorsBySession, [sid]: failure.message },
@@ -1656,14 +1679,18 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         action,
         content,
       })
+      removeCachedElicitation(sid, requestId)
       set((state) => ({
-        pendingElicitations: state.pendingElicitations.filter((request) => request.id !== requestId),
+        pendingElicitations: state.currentSessionId === sid
+          ? state.pendingElicitations.filter((request) => request.id !== requestId)
+          : state.pendingElicitations,
         interactionErrorsBySession: withoutKey(state.interactionErrorsBySession, sid),
       }))
     } catch (error) {
       const failure = interactionResponseFailure(error, 'elicitation')
+      if (failure.expired) removeCachedElicitation(sid, requestId)
       set((state) => ({
-        pendingElicitations: failure.expired
+        pendingElicitations: state.currentSessionId === sid && failure.expired
           ? state.pendingElicitations.filter((request) => request.id !== requestId)
           : state.pendingElicitations,
         interactionErrorsBySession: { ...state.interactionErrorsBySession, [sid]: failure.message },
@@ -2165,6 +2192,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
               runningSessionIds: removeSessionIndicator(st.runningSessionIds, sessionId),
               unreadSessionIds: removeSessionIndicator(st.unreadSessionIds, sessionId),
               staleSessionIds: removeSessionIndicator(st.staleSessionIds, sessionId),
+              interactionErrorsBySession: withoutKey(st.interactionErrorsBySession, sessionId),
             }
           })
           return
