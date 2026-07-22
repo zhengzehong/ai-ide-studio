@@ -60,5 +60,5 @@
 - [x] Run targeted tests and confirm the new tests pass after failing before implementation.
 - [x] Run `npx tsc --noEmit`, `npm run lint`, `npm run build`, `npm test`, and `git diff --check`.
 - [x] Commit the isolated branch with focused messages.
-- [ ] Request code review against the original `prd` base and address all P0/P1 findings.
-- [ ] Merge the reviewed branch into `prd` with `--no-ff`, without restarting PRD.
+- [x] Request code review against the original `prd` base and address all P0/P1 findings.
+- [x] Merge the reviewed branch into `prd` with `--no-ff`, without restarting PRD.
