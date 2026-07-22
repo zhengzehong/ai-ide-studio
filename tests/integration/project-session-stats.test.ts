@@ -91,6 +91,16 @@ describe('project session stats store', () => {
     sessionStore.touch(deleted.id, messageAt)
     sessionStore.delete(deleted.id)
 
+    const archived = sessionStore.create({ agentId: agentA.id, projectId: projectA.id })
+    sessionStore.markRead(archived.id, readAt)
+    sessionStore.touch(archived.id, messageAt)
+    sessionStore.archive(archived.id)
+
+    const closed = sessionStore.create({ agentId: agentA.id, projectId: projectA.id })
+    sessionStore.markRead(closed.id, readAt)
+    sessionStore.touch(closed.id, messageAt)
+    sessionStore.updateStatus(closed.id, 'closed')
+
     const unscoped = sessionStore.create({ agentId: globalAgent.id })
     sessionStore.markRead(unscoped.id, readAt)
     sessionStore.touch(unscoped.id, messageAt)
@@ -101,8 +111,8 @@ describe('project session stats store', () => {
     )
 
     expect(statsByProject).toEqual({
-      [projectA.id]: { projectId: projectA.id, runningCount: 3, unreadCount: 1 },
-      [projectB.id]: { projectId: projectB.id, runningCount: 0, unreadCount: 0 },
+      [projectA.id]: { projectId: projectA.id, sessionCount: 5, runningCount: 3, unreadCount: 1 },
+      [projectB.id]: { projectId: projectB.id, sessionCount: 0, runningCount: 0, unreadCount: 0 },
     })
   })
 
@@ -120,7 +130,7 @@ describe('project session stats store', () => {
       requestId: 'req-project-stats',
       data: {
         generatedAt: expect.any(String),
-        items: [{ projectId: project.id, runningCount: 1, unreadCount: 0 }],
+        items: [{ projectId: project.id, sessionCount: 1, runningCount: 1, unreadCount: 0 }],
       },
     })
   })

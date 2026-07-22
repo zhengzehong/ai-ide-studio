@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { useAppStore } from '../../mobile/src/stores/app.store'
+import { useMobileProjectSessionStatsStore } from '../../mobile/src/stores/project-session-stats.store'
 import { useSessionStore } from '../../mobile/src/stores/session.store'
 import { bootstrapMobileData } from '../../mobile/src/App'
 
@@ -22,6 +23,11 @@ describe('mobile app bootstrap', () => {
       await Promise.resolve()
       order.push('agents:done')
     })
+    vi.spyOn(useMobileProjectSessionStatsStore.getState(), 'fetchStats').mockImplementation(async () => {
+      order.push('stats:start')
+      await Promise.resolve()
+      order.push('stats:done')
+    })
     vi.spyOn(useSessionStore.getState(), 'fetchSessions').mockImplementation(async (projectId?: string | null) => {
       order.push(`sessions:${projectId ?? 'all'}`)
     })
@@ -31,8 +37,10 @@ describe('mobile app bootstrap', () => {
     expect(order).toEqual([
       'projects:start',
       'agents:start',
+      'stats:start',
       'projects:done',
       'agents:done',
+      'stats:done',
       'sessions:project-a',
     ])
   })

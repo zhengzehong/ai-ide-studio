@@ -3,6 +3,7 @@ import { resolveSessionRuntimeState } from './session-runtime-state.js'
 
 export interface ProjectSessionStats {
   projectId: string
+  sessionCount: number
   runningCount: number
   unreadCount: number
 }
@@ -42,7 +43,9 @@ export const projectSessionStatsStore = {
       LEFT JOIN sessions s
         ON s.project_id = p.id
         AND s.deleted_at IS NULL
+        AND s.archived_at IS NULL
         AND s.is_template = 0
+        AND s.status = 'active'
       ORDER BY p.created_at ASC, p.id ASC, s.started_at ASC, s.id ASC
     `).all()
 
@@ -50,11 +53,13 @@ export const projectSessionStatsStore = {
     for (const row of rows) {
       const stats = statsByProject.get(row.project_id) ?? {
         projectId: row.project_id,
+        sessionCount: 0,
         runningCount: 0,
         unreadCount: 0,
       }
       statsByProject.set(row.project_id, stats)
       if (!row.session_id) continue
+      stats.sessionCount += 1
 
       const runtimeState = resolveSessionRuntimeState({
         promptActive: isPromptActive(row.session_id),

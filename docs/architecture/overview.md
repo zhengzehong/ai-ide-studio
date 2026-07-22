@@ -220,7 +220,7 @@ PC Session store 对取消维护独立的 stopping 状态。首次点击立即�
 
 项目视图状态与业务数据缓存分离。每个项目独立保存 Workspace 侧栏与 Agent 选择、任务选中项和滚动位置、知识库搜索及未保存草稿、事件中心 Tab、Agent Memory 的 Agent/维度选择。低频选择状态持久化到浏览器存储，滚动位置只保存在内存；删除项目时路由记忆、视图状态、资源缓存和最后会话映射一并清理。
 
-顶部项目切换器的运行中/未读数字使用独立的全项目统计快照，不从项目页面 LRU 推导。`sessions.projectStats` 对所有项目聚合非删除、非模板会话，并把 SQLite 中的运行信号与进程内 active prompt 合并；PC 端 stats store 在连接、重连、切换器打开和全局会话状态事件后刷新。打开具体会话仍通过 `sessions.markRead` 持久化已读时间，点击项目本身不会批量清除未读。
+项目切换器的会话总数、运行中和未读数字使用独立的全项目统计快照，不从当前项目页面缓存推导。`sessions.projectStats` 对所有项目聚合 active、非删除、非归档、非模板会话，并把 SQLite 中的运行信号与进程内 active prompt 合并；PC 与移动端 stats store 在连接、重连和全局会话状态事件后刷新。移动端项目和 Agent 的展示顺序只使用创建顺序与后端 Agent 顺序，不会因未读或运行状态变化而重排。打开具体会话仍通过 `sessions.markRead` 持久化已读时间，点击项目本身不会批量清除未读。
 
 ## 支持的 Agent 运行时
 

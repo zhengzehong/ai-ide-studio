@@ -4,6 +4,7 @@ import { wsClient } from '@desktop/services/ws-client'
 export interface ProjectItem {
   id: string
   name: string
+  created_at?: string
   work_dir?: string
   path?: string
   description?: string | null
@@ -12,7 +13,7 @@ export interface ProjectItem {
   last_visited_at?: string | null
 }
 
-interface AgentItem {
+export interface AgentItem {
   id: string
   name: string
   type?: string
@@ -75,6 +76,7 @@ function mapProjectRow(row: ProjectRow): ProjectItem {
   return {
     id: row.id,
     name: row.name,
+    created_at: row.created_at,
     work_dir: row.work_dir,
     description: row.description,
     color: row.color,
