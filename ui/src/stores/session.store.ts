@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { wsClient } from '../services/ws-client'
 import { queryClient } from '../services/query-client'
 import { commandClient, toCommandImages } from '../services/command-client'
+import { interactionResponseFailure } from './interaction-response'
 import {
   applySessionEvent,
   buildErrorAgentMessage,
@@ -224,6 +225,7 @@ interface SessionStore {
   runningSessionIds: SessionIndicatorStateMap
   stoppingSessionIds: SessionIndicatorStateMap
   stopErrorsBySession: Record<string, string>
+  interactionErrorsBySession: Record<string, string>
   unreadSessionIds: SessionIndicatorStateMap
   staleSessionIds: SessionIndicatorStateMap
 
@@ -879,6 +881,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   runningSessionIds: {},
   stoppingSessionIds: {},
   stopErrorsBySession: {},
+  interactionErrorsBySession: {},
   unreadSessionIds: {},
   staleSessionIds: {},
 
@@ -1495,6 +1498,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     set((state) => ({
       stoppingSessionIds: removeSessionIndicator(state.stoppingSessionIds, sid),
       stopErrorsBySession: withoutKey(state.stopErrorsBySession, sid),
+      interactionErrorsBySession: withoutKey(state.interactionErrorsBySession, sid),
     }))
     const clientMessageId = `msg-local-${Date.now()}`
     const pendingStreamingId = `pending-${sid}-${Date.now()}`
@@ -1616,27 +1620,55 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   respondPermission: async (requestId, optionId, cancelled) => {
     const sid = get().currentSessionId
     if (!sid) return
-    await commandClient.execute({
-      commandId: `cmd-permission-${requestId}`,
-      type: 'permission.respond',
-      sessionId: sid,
-      permissionRequestId: requestId,
-      optionId,
-      cancelled,
-    })
+    try {
+      await commandClient.execute({
+        commandId: `cmd-permission-${requestId}`,
+        type: 'permission.respond',
+        sessionId: sid,
+        permissionRequestId: requestId,
+        optionId,
+        cancelled,
+      })
+      set((state) => ({
+        pendingPermissions: state.pendingPermissions.filter((request) => request.id !== requestId),
+        interactionErrorsBySession: withoutKey(state.interactionErrorsBySession, sid),
+      }))
+    } catch (error) {
+      const failure = interactionResponseFailure(error, 'permission')
+      set((state) => ({
+        pendingPermissions: failure.expired
+          ? state.pendingPermissions.filter((request) => request.id !== requestId)
+          : state.pendingPermissions,
+        interactionErrorsBySession: { ...state.interactionErrorsBySession, [sid]: failure.message },
+      }))
+    }
   },
 
   respondElicitation: async (requestId, action, content) => {
     const sid = get().currentSessionId
     if (!sid) return
-    await commandClient.execute({
-      commandId: `cmd-elicitation-${requestId}`,
-      type: 'elicitation.respond',
-      sessionId: sid,
-      elicitationRequestId: requestId,
-      action,
-      content,
-    })
+    try {
+      await commandClient.execute({
+        commandId: `cmd-elicitation-${requestId}`,
+        type: 'elicitation.respond',
+        sessionId: sid,
+        elicitationRequestId: requestId,
+        action,
+        content,
+      })
+      set((state) => ({
+        pendingElicitations: state.pendingElicitations.filter((request) => request.id !== requestId),
+        interactionErrorsBySession: withoutKey(state.interactionErrorsBySession, sid),
+      }))
+    } catch (error) {
+      const failure = interactionResponseFailure(error, 'elicitation')
+      set((state) => ({
+        pendingElicitations: failure.expired
+          ? state.pendingElicitations.filter((request) => request.id !== requestId)
+          : state.pendingElicitations,
+        interactionErrorsBySession: { ...state.interactionErrorsBySession, [sid]: failure.message },
+      }))
+    }
   },
 
   fetchModels: async () => {
@@ -1962,13 +1994,19 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         }
         if (data.permissionRequest) {
           const req = data.permissionRequest as PermissionRequestInfo
-          set((s) => ({ pendingPermissions: [...s.pendingPermissions.filter((p) => p.id !== req.id), req] }))
+          set((s) => ({
+            pendingPermissions: [...s.pendingPermissions.filter((p) => p.id !== req.id), req],
+            interactionErrorsBySession: withoutKey(s.interactionErrorsBySession, sid),
+          }))
           saveCache(sid, get())
           return
         }
         if (data.elicitationRequest) {
           const req = data.elicitationRequest as ElicitationRequestInfo
-          set((s) => ({ pendingElicitations: [...s.pendingElicitations.filter((p) => p.id !== req.id), req] }))
+          set((s) => ({
+            pendingElicitations: [...s.pendingElicitations.filter((p) => p.id !== req.id), req],
+            interactionErrorsBySession: withoutKey(s.interactionErrorsBySession, sid),
+          }))
           saveCache(sid, get())
           return
         }

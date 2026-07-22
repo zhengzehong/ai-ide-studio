@@ -179,6 +179,10 @@ describe('versioned HTTP query routes', () => {
       messageId: 'message-running',
       payload: { stopReason: 'end_turn' },
     })
+    eventStore.append(session.id, {
+      type: 'permission.request',
+      payload: { permissionRequest: { id: 'permission-active', title: '允许写入文件', options: [] } },
+    })
     await startTestGateway()
 
     const response = await queryFetch(`/api/v1/sessions/${session.id}/recovery?limit=100`)
@@ -193,12 +197,16 @@ describe('versioned HTTP query routes', () => {
     expect(response.status).toBe(200)
     expect(body.data).toMatchObject({
       sessionId: session.id,
-      latestSequence: 6,
+      latestSequence: 7,
     })
     expect(body.data.events.map((event) => event.type)).toEqual([
       'session:capabilities',
       'permission.request',
     ])
+    const recoveredPermissionIds = body.data.events
+      .filter((event) => event.type === 'permission.request')
+      .map((event) => JSON.parse(String((event as { payload_json?: string }).payload_json)).permissionRequest.id)
+    expect(recoveredPermissionIds).toEqual(['permission-active'])
     expect(Number(response.headers.get('x-response-bytes'))).toBeLessThan(256 * 1024)
   })
 

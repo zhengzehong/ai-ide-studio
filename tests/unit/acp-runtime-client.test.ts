@@ -50,6 +50,51 @@ describe('database-free ACP Runtime client', () => {
     expect(approved).toEqual({ outcome: { outcome: 'selected', optionId: 'allow' } })
   })
 
+  test.each(['bypassPermissions', 'agent-full-access'])(
+    'auto-approves arbitrary tools in full-access mode %s',
+    async (permissionMode) => {
+      const updates: RuntimeCoalescibleUpdate[] = []
+      const router = createAcpRuntimeClient({
+        agentId: 'agent-a',
+        publishUpdate: (update) => { updates.push(update) },
+        updateCapabilities: () => undefined,
+      })
+      router.bindSession('session-a', 'acp-a', [], permissionMode)
+
+      const approved = await router.client.requestPermission({
+        sessionId: 'acp-a',
+        toolCall: { toolCallId: 'tool-a', title: 'mcp__external__dangerous_tool' },
+        options: [
+          { optionId: 'deny', name: 'Deny', kind: 'reject_once' },
+          { optionId: 'allow', name: 'Allow', kind: 'allow_once' },
+        ],
+      } as never)
+
+      expect(approved).toEqual({ outcome: { outcome: 'selected', optionId: 'allow' } })
+      expect(updates).toEqual([])
+    },
+  )
+
+  test('uses the latest Session mode when deciding whether to auto-approve', async () => {
+    const router = createAcpRuntimeClient({
+      agentId: 'agent-a',
+      publishUpdate: () => undefined,
+      updateCapabilities: () => undefined,
+    })
+    router.bindSession('session-a', 'acp-a', [], 'bypassPermissions')
+    router.setPermissionMode('session-a', 'default')
+
+    const response = router.client.requestPermission({
+      sessionId: 'acp-a',
+      toolCall: { toolCallId: 'tool-a', title: 'Terminal' },
+      options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }],
+    } as never)
+
+    expect(router.hasPendingInteractions('session-a')).toBe(true)
+    router.cancelSession('session-a')
+    await expect(response).resolves.toEqual({ outcome: { outcome: 'cancelled' } })
+  })
+
   test('registers a pending permission before publishing it to the client', async () => {
     let resolvedDuringPublish = false
     const router = createAcpRuntimeClient({
@@ -81,9 +126,10 @@ describe('database-free ACP Runtime client', () => {
   })
 
   test('cancels pending interactions when a Session is unbound', async () => {
+    const updates: RuntimeCoalescibleUpdate[] = []
     const router = createAcpRuntimeClient({
       agentId: 'agent-a',
-      publishUpdate: () => undefined,
+      publishUpdate: (update) => { updates.push(update) },
       updateCapabilities: () => undefined,
     })
     router.bindSession('session-a', 'acp-a', [])
@@ -103,6 +149,16 @@ describe('database-free ACP Runtime client', () => {
 
     await expect(permission).resolves.toEqual({ outcome: { outcome: 'cancelled' } })
     await expect(elicitation).resolves.toEqual({ action: 'cancel' })
+    expect(updates).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        sessionId: 'session-a',
+        data: expect.objectContaining({ eventType: 'permission.result' }),
+      }),
+      expect.objectContaining({
+        sessionId: 'session-a',
+        data: expect.objectContaining({ eventType: 'elicitation.result' }),
+      }),
+    ]))
   })
 
   test('resolves all pending interactions when close is called repeatedly', async () => {

@@ -41,6 +41,7 @@ function resetStore(): void {
     plan: [],
     pendingPermissions: [],
     pendingElicitations: [],
+    interactionErrorsBySession: {},
     runningSessionIds: {},
     stoppingSessionIds: {},
     stopErrorsBySession: {},
@@ -84,6 +85,39 @@ describe('Session Prompt acceptance boundary', () => {
     expect(useSessionStore.getState().messages).toEqual([])
     expect(useSessionStore.getState().streamingMessage).toBeNull()
     expect(useSessionStore.getState().runningSessionIds['session-1']).toBeUndefined()
+  })
+
+  it('removes an expired permission card and exposes an actionable error', async () => {
+    useSessionStore.setState({
+      pendingPermissions: [{
+        id: 'permission-1',
+        toolCall: { id: 'tool-1', title: 'Terminal' },
+        options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }],
+      }],
+    })
+    commandMock.execute.mockRejectedValue(new Error('权限请求已失效'))
+
+    await useSessionStore.getState().respondPermission('permission-1', 'allow')
+
+    expect(useSessionStore.getState().pendingPermissions).toEqual([])
+    expect(useSessionStore.getState().interactionErrorsBySession['session-1'])
+      .toBe('权限请求已失效，请重新发送消息')
+  })
+
+  it('keeps a permission card when a retryable response fails', async () => {
+    const permission = {
+      id: 'permission-1',
+      toolCall: { id: 'tool-1', title: 'Terminal' },
+      options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }],
+    }
+    useSessionStore.setState({ pendingPermissions: [permission] })
+    commandMock.execute.mockRejectedValue(new Error('网络不可用'))
+
+    await useSessionStore.getState().respondPermission('permission-1', 'allow')
+
+    expect(useSessionStore.getState().pendingPermissions).toEqual([permission])
+    expect(useSessionStore.getState().interactionErrorsBySession['session-1'])
+      .toBe('权限响应失败：网络不可用')
   })
 
   it('marks cancellation immediately and deduplicates repeated clicks for the active turn', async () => {

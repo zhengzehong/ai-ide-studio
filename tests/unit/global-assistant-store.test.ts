@@ -44,6 +44,7 @@ function resetStore(): void {
     running: false,
     stopping: false,
     stopError: null,
+    interactionError: null,
     unread: false,
     error: null,
     fileChangeDetailsByMessageId: {},
@@ -77,6 +78,24 @@ describe('global assistant store', () => {
     })
     commandMock.execute.mockReset()
     commandMock.execute.mockResolvedValue({ commandId: 'command-1', status: 'accepted', duplicate: false })
+  })
+
+  test('removes an expired permission card and exposes an actionable error', async () => {
+    useGlobalAssistantStore.setState({
+      session: { id: 'sess-global' } as never,
+      pendingPermissions: [{
+        id: 'permission-1',
+        toolCall: { id: 'tool-1', title: 'Terminal' },
+        options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }],
+      }],
+    })
+    commandMock.execute.mockRejectedValue(new Error('权限请求已失效'))
+
+    await useGlobalAssistantStore.getState().respondPermission('permission-1', 'allow')
+
+    expect(useGlobalAssistantStore.getState().pendingPermissions).toEqual([])
+    expect(useGlobalAssistantStore.getState().interactionError)
+      .toBe('权限请求已失效，请重新发送消息')
   })
 
   test('binds a template and subscribes to its fixed session', async () => {

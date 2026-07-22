@@ -111,6 +111,8 @@ Runtime 资源配额默认允许 32 个网络型 turn、`max(2, floor(cpuCount /
 
 Runtime 子进程分别记录 Agent 与 Session 的最近活动时间。周期 sweep 只回收没有活动 actor、没有待处理 permission/elicitation 的空闲 Session；持久化的 `acp_session_id` 和历史记录保留，下一次发送自动 resume。Agent 没有已连接 Session 且继续空闲后才停止 ACP 子进程。`RUNTIME_SESSION_IDLE_MS`、`RUNTIME_AGENT_IDLE_MS` 和 `RUNTIME_IDLE_SWEEP_MS` 分别控制两级阈值与扫描周期；停机时会先停止定时器并等待正在执行的 sweep。
 
+Runtime 的 permission/elicitation 等待项由独立交互状态模块管理。超时、取消、Session unbind、Agent 退出或 Runtime 关闭都会先发布取消型 result，再解除 ACP Promise，保证 Realtime 和持久化状态同步清除卡片。Recovery 只恢复最新 `message.done` 之后的交互事件，已结束 turn 的历史请求不会重新阻塞输入；Claude `bypassPermissions` 与 Codex `agent-full-access` 还会在 ACP permission callback 边界强制自动放行，避免 adapter 再次请求审批。
+
 ### Realtime 进程边界
 
 默认 `REALTIME_MODE=process` 时，独立 Realtime 子进程独占浏览器 WebSocket、认证握手、Session 订阅索引、JSON 序列化和发送背压；API 进程不持有浏览器 socket。两者通过本机 named pipe（Windows）或 Unix domain socket 通信，消息使用 4 字节大端长度前缀和版本化 Protobuf envelope，业务 payload 为受类型约束的 UTF-8 JSON。Envelope 携带 `version`、`kind`、请求/会话/流游标和幂等元数据，单帧大小受 `REALTIME_IPC_MAX_FRAME_BYTES` 限制。

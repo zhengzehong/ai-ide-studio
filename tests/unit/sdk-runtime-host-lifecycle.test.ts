@@ -322,7 +322,7 @@ function snapshot(sessionId: string): RuntimeStateSnapshot {
     agent: { id: 'agent-a', name: 'Agent', type: 'dev', runtime: 'claude', permissionLevel: 3, config: {}, systemPrompt: '', projectId: 'project-a' },
     session: { id: sessionId, agentId: 'agent-a', taskId: null, projectId: 'project-a', cwd: process.cwd(), title: null, acpSessionId: null, isPrimary: false },
     runtime: { env: {}, command: { cmd: 'unused', args: [] } },
-    runtimePreferences: {},
+    runtimePreferences: { modeId: 'default' },
     mcpServers: [],
     autoApprovedToolNames: [],
   }
