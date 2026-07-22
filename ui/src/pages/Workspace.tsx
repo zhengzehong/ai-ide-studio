@@ -68,6 +68,7 @@ import { wsClient } from '../services/ws-client'
 import { FileTree } from '../components/file-viewer/FileTree'
 import { FilePreview } from '../components/file-viewer/FilePreview'
 import { LazyToolCallsBlock } from '../components/chat/LazyToolCallsBlock'
+import { AuthenticatedImage } from '../components/chat/AuthenticatedImage'
 import { TurnContentView } from '../components/chat/TurnContentView'
 import { FileChangesCard } from '../components/chat/FileChangesCard'
 import { extractFileChangesFromToolCall, extractTurnFileChanges, fileChangesFromSummary, toolBlockHasDiff } from '../components/chat/file-changes-utils'
@@ -4159,9 +4160,9 @@ function ChatBubbleBlockView({
       {attachments.length > 0 && (
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
           {attachments.map((img, i) => (
-            <img
+            <AuthenticatedImage
               key={i}
-              src={imageAttachmentSrc(img)}
+              image={img}
               alt={img.name || '附件'}
               style={{
                 maxWidth: 180,
@@ -4194,18 +4195,6 @@ function ChatBubbleBlockView({
 }
 
 /* ─── Dropdown Portal ─── */
-function imageAttachmentSrc(img: ImageAttachmentInfo): string {
-  return img.data ? `data:${img.mimeType};base64,${img.data}` : withCurrentToken(img.url || '')
-}
-
-function withCurrentToken(url: string): string {
-  if (!url || typeof window === 'undefined') return url
-  const token = new URLSearchParams(window.location.search).get('token')
-  if (!token) return url
-  const separator = url.includes('?') ? '&' : '?'
-  return `${url}${separator}token=${encodeURIComponent(token)}`
-}
-
 function DropdownPortal({
   children,
   onClose,

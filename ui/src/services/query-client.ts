@@ -26,6 +26,7 @@ export interface SessionMessageQuery {
   before?: string
   includeToolCalls?: boolean
   includeLatestToolCalls?: boolean
+  signal?: AbortSignal
 }
 
 export interface SessionEventQuery {
@@ -37,6 +38,7 @@ export interface SessionEventQuery {
 export interface SessionRecoveryQuery {
   sessionId: string
   limit?: number
+  signal?: AbortSignal
 }
 
 export interface SessionRecoverySnapshot {
@@ -96,6 +98,7 @@ export function createHttpQueryClient(options: HttpQueryClientOptions = {}): Que
           includeToolCalls: input.includeToolCalls,
           includeLatestToolCalls: input.includeLatestToolCalls,
         },
+        input.signal,
       )
     },
 
@@ -116,6 +119,7 @@ export function createHttpQueryClient(options: HttpQueryClientOptions = {}): Que
         timeoutMs,
         `/api/v1/sessions/${encodeURIComponent(input.sessionId)}/recovery`,
         { limit: input.limit },
+        input.signal,
       )
       return parseSessionRecoverySnapshot(envelope.data)
     },
@@ -254,8 +258,9 @@ async function requestPage<T>(
   timeoutMs: number,
   path: string,
   query: Record<string, string | number | boolean | undefined>,
+  signal?: AbortSignal,
 ): Promise<QueryPage<T>> {
-  const envelope = await requestEnvelope(fetchImpl, getAccessToken, timeoutMs, path, query)
+  const envelope = await requestEnvelope(fetchImpl, getAccessToken, timeoutMs, path, query, signal)
   if (!Array.isArray(envelope.data)) throw new Error('查询响应无效')
   if (!isRecord(envelope.page) || typeof envelope.page.hasMore !== 'boolean') {
     throw new Error('查询分页响应无效')
@@ -275,19 +280,23 @@ async function requestEnvelope(
   timeoutMs: number,
   path: string,
   query: Record<string, string | number | boolean | undefined>,
+  signal?: AbortSignal,
 ): Promise<Record<string, unknown>> {
   const token = getAccessToken().trim()
   const headers: Record<string, string> = { Accept: 'application/json' }
   if (token) headers['x-ai-ide-token'] = token
+  const deadlineSignal = AbortSignal.timeout(timeoutMs)
+  const requestSignal = signal ? AbortSignal.any([signal, deadlineSignal]) : deadlineSignal
   let response: Response
   try {
     response = await fetchImpl(withQuery(path, query), {
       method: 'GET',
       headers,
-      signal: AbortSignal.timeout(timeoutMs),
+      signal: requestSignal,
     })
   } catch (error) {
-    if (isAbortError(error)) throw new Error('查询超时', { cause: error })
+    if (signal?.aborted) throw signal.reason ?? error
+    if (deadlineSignal.aborted && isAbortError(error)) throw new Error('查询超时', { cause: error })
     throw error
   }
   const body = await response.json().catch(() => null) as unknown

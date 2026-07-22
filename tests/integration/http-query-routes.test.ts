@@ -104,6 +104,26 @@ describe('versioned HTTP query routes', () => {
     expect(body.page).toEqual({ hasMore: true, nextCursor: timestamps[2] })
   })
 
+  test('compresses large JSON query responses when the client accepts gzip', async () => {
+    const session = sessionStore.create({ agentId: 'agent-compressed-query' })
+    const content = 'compressible history '.repeat(2_000)
+    messageStore.append(session.id, { role: 'agent', content })
+    await startTestGateway()
+
+    const response = await fetch(`${baseUrl()}/api/v1/sessions/${session.id}/messages?limit=20`, {
+      headers: {
+        'Accept-Encoding': 'gzip',
+        'x-ai-ide-token': ACCESS_TOKEN,
+      },
+    })
+    const body = await response.json() as { data: Array<{ content: string }> }
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-encoding')).toBe('gzip')
+    expect(response.headers.get('vary')).toContain('Accept-Encoding')
+    expect(body.data[0]?.content).toBe(content)
+  })
+
   test('returns recovery events after a sequence without skipping an intermediate page', async () => {
     const session = sessionStore.create({ agentId: 'agent-event-page' })
     for (let index = 0; index < 5; index += 1) {

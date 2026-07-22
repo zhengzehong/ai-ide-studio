@@ -189,6 +189,11 @@ interface SessionCache {
   streamingMessage: StreamingMessage | null
 }
 
+interface SessionSelectionRequest {
+  signal: AbortSignal
+  generation: number
+}
+
 interface SessionStore {
   sessions: SessionData[]
   currentSessionId: string | null
@@ -237,10 +242,10 @@ interface SessionStore {
   ) => Promise<void>
   invalidateProject: (projectId?: string | null) => void
   clearProjectCache: (projectId: string) => void
-  fetchMessages: (sessionId: string) => Promise<void>
+  fetchMessages: (sessionId: string, selection?: SessionSelectionRequest) => Promise<void>
   loadOlderMessages: (sessionId: string) => Promise<void>
   fetchEvents: (sessionId: string) => Promise<void>
-  fetchRecovery: (sessionId: string) => Promise<void>
+  fetchRecovery: (sessionId: string, selection?: SessionSelectionRequest) => Promise<void>
   createSession: (agentId: string, taskId?: string, projectId?: string) => Promise<SessionData>
   listSessionsByTask: (taskId: string) => Promise<SessionData[]>
   copySession: (sessionId: string) => Promise<SessionData>
@@ -288,6 +293,8 @@ const sessionCancelCoordinator = createSessionCancelCoordinator((command) => com
 const sessionCaches = new Map<string, SessionCache>()
 const cacheSaveTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const eventCursorBySession = new Map<string, number>()
+let sessionSelectionController: AbortController | null = null
+let sessionSelectionGeneration = 0
 const streamingBuffer = new StreamingBuffer()
 let streamingFlushTimer: ReturnType<typeof setTimeout> | null = null
 const mirroredRealtimeEventTypes = new Set([
@@ -511,6 +518,16 @@ function shouldLoadMessageProcess(message: MessageData | undefined): boolean {
   if (message.status === 'running') return true
   if (!message.processBlocks) return expectedCount > 0 || !!message.has_tool_calls
   return expectedCount > loadedProcessBlockCount(message)
+}
+
+function isCurrentSessionSelection(
+  sessionId: string,
+  selection: SessionSelectionRequest | undefined,
+  currentSessionId: string | null,
+): boolean {
+  return sessionId === currentSessionId && (
+    selection === undefined || selection.generation === sessionSelectionGeneration
+  )
 }
 
 function streamingFromRunningMessage(message: MessageData): StreamingMessage {
@@ -1026,7 +1043,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     }))
   },
 
-  fetchMessages: async (sessionId) => {
+  fetchMessages: async (sessionId, selection) => {
     if (sessionId === get().currentSessionId) {
       set((state) => ({
         messagesLoadingSessionId: sessionId,
@@ -1037,9 +1054,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       const page = await queryClient.listSessionMessages({
         sessionId,
         limit: CHAT_MESSAGE_PAGE_SIZE,
+        signal: selection?.signal,
       })
       const serverMessages = page.items
-      if (sessionId !== get().currentSessionId) return
+      if (!isCurrentSessionSelection(sessionId, selection, get().currentSessionId)) return
       set((state) => {
         const messages = mergeMessagesForSession(serverMessages, state.messages, sessionId)
         const shouldClearStreaming = shouldClearStreamingAfterMessageLoad(
@@ -1099,7 +1117,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         void get().fetchMessageProcess(sessionId, running.id)
       }
     } catch (error) {
-      if (sessionId !== get().currentSessionId) return
+      if (!isCurrentSessionSelection(sessionId, selection, get().currentSessionId) || selection?.signal.aborted) return
       set((state) => ({
         messagesLoadingSessionId: state.messagesLoadingSessionId === sessionId
           ? null
@@ -1187,9 +1205,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     }
   },
 
-  fetchRecovery: async (sessionId) => {
-    const snapshot = await queryClient.getSessionRecovery({ sessionId, limit: 1000 })
-    if (sessionId !== get().currentSessionId) return
+  fetchRecovery: async (sessionId, selection) => {
+    const snapshot = await queryClient.getSessionRecovery({ sessionId, limit: 1000, signal: selection?.signal })
+    if (!isCurrentSessionSelection(sessionId, selection, get().currentSessionId)) return
     eventCursorBySession.set(sessionId, snapshot.latestSequence)
     const reduced = reduceSessionEvents(snapshot.events)
     set((state) => ({
@@ -1434,6 +1452,12 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       }
       return
     }
+    sessionSelectionController?.abort()
+    sessionSelectionController = id ? new AbortController() : null
+    sessionSelectionGeneration += 1
+    const selection = sessionSelectionController
+      ? { signal: sessionSelectionController.signal, generation: sessionSelectionGeneration }
+      : undefined
     if (prev) {
       saveCache(prev, get())
       wsClient.unsubscribe([prev])
@@ -1497,8 +1521,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       processItemErrorByKey: {},
       unreadSessionIds: removeSessionIndicator(get().unreadSessionIds, id),
     })
-    void get().fetchMessages(id)
-    void get().fetchRecovery(id).catch(() => undefined)
+    void get().fetchMessages(id, selection)
+    void get().fetchRecovery(id, selection).catch(() => undefined)
     void get().fetchModels()
     void markSessionReadOnServer(id)
   },

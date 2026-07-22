@@ -105,6 +105,19 @@ describe('HTTP query client', () => {
       expect((error as Error).cause).toBeInstanceOf(DOMException)
     }
   })
+
+  test('preserves caller cancellation instead of reporting a query timeout', async () => {
+    const fetchImpl = vi.fn<typeof fetch>((_input, init) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true })
+    }))
+    const client = createHttpQueryClient({ fetchImpl, getAccessToken: () => '' })
+    const controller = new AbortController()
+
+    const request = client.listSessionMessages({ sessionId: 'session-a', signal: controller.signal })
+    controller.abort()
+
+    await expect(request).rejects.toMatchObject({ name: 'AbortError' })
+  })
 })
 
 describe('WS rollback query client', () => {

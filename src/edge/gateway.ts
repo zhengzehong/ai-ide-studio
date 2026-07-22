@@ -1,4 +1,4 @@
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
+import { Agent, createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import type { Socket } from 'node:net'
 import type { Duplex } from 'node:stream'
 import { createProxyServer } from 'http-proxy-3'
@@ -30,6 +30,7 @@ export async function startEdgeGateway(options: StartEdgeGatewayOptions): Promis
   let activeHttpRequests = 0
   const sockets = new Set<Socket>()
   const upgradedSockets = new Set<Duplex>()
+  const apiAgent = new Agent({ keepAlive: true, maxSockets: 64, maxFreeSockets: 16 })
   const proxy = createProxyServer({
     changeOrigin: false,
     ignorePath: false,
@@ -71,7 +72,7 @@ export async function startEdgeGateway(options: StartEdgeGatewayOptions): Promis
     }
     response.once('finish', finish)
     response.once('close', finish)
-    proxy.web(request, response, { target }, (error) => {
+    proxy.web(request, response, { target, agent: apiAgent }, (error) => {
       logProxyError('api', request, error)
       if (response.headersSent) response.destroy(error)
       else sendJson(response, 502, { error: 'bad-gateway', target: 'api' })
@@ -125,6 +126,7 @@ export async function startEdgeGateway(options: StartEdgeGatewayOptions): Promis
       closed = true
       eventLoopMonitor.stop()
       await closeServer(server, sockets)
+      apiAgent.destroy()
       log.info({ port }, 'Edge gateway stopped')
     },
   }
