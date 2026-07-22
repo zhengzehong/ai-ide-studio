@@ -1,4 +1,4 @@
-import { createServer, type Server } from 'node:http'
+import { Agent, createServer, get, type Server } from 'node:http'
 import { afterEach, describe, expect, it } from 'vitest'
 import WebSocket, { WebSocketServer } from 'ws'
 import { startEdgeGateway, type EdgeGatewayHandle } from '../../src/edge/gateway.js'
@@ -6,6 +6,7 @@ import { startEdgeGateway, type EdgeGatewayHandle } from '../../src/edge/gateway
 interface UpstreamHandle {
   httpUrl: string
   wsUrl: string
+  connectionCount(): number
   broadcast(payload: string): void
   close(): Promise<void>
 }
@@ -76,6 +77,28 @@ describe('Edge gateway', () => {
     expect(edge.endpointUrl).toBe(publicUrl)
   })
 
+  it('preserves client keep-alive and reuses the upstream API connection', async () => {
+    const upstream = await startUpstream('keep-alive')
+    upstreams.push(upstream)
+    edge = await startEdgeGateway({
+      host: '127.0.0.1',
+      port: 0,
+      targets: { apiUrl: upstream.httpUrl, realtimeUrl: upstream.wsUrl },
+    })
+    const agent = new Agent({ keepAlive: true, maxSockets: 1 })
+
+    try {
+      const first = await getJsonWithAgent(`${edge.endpointUrl}/first`, agent)
+      const second = await getJsonWithAgent(`${edge.endpointUrl}/second`, agent)
+
+      expect(first.headers.connection).toBe('keep-alive')
+      expect(second.headers.connection).toBe('keep-alive')
+      expect(upstream.connectionCount()).toBe(1)
+    } finally {
+      agent.destroy()
+    }
+  })
+
   it('keeps serving HTTP after a WebSocket client disconnects without a close frame', async () => {
     const upstream = await startUpstream('resilient')
     upstreams.push(upstream)
@@ -136,6 +159,7 @@ describe('Edge gateway', () => {
 })
 
 async function startUpstream(source: string): Promise<UpstreamHandle> {
+  let connections = 0
   const server = createServer((request, response) => {
     let body = ''
     request.setEncoding('utf8')
@@ -151,6 +175,7 @@ async function startUpstream(source: string): Promise<UpstreamHandle> {
       }))
     })
   })
+  server.on('connection', () => { connections += 1 })
   const wss = new WebSocketServer({ server })
   wss.on('connection', (socket, request) => {
     socket.on('message', () => socket.send(JSON.stringify({ source, url: request.url })))
@@ -160,6 +185,7 @@ async function startUpstream(source: string): Promise<UpstreamHandle> {
   return {
     httpUrl: `http://127.0.0.1:${port}`,
     wsUrl: `ws://127.0.0.1:${port}`,
+    connectionCount: () => connections,
     broadcast: (payload) => {
       for (const client of wss.clients) client.send(payload)
     },
@@ -169,6 +195,21 @@ async function startUpstream(source: string): Promise<UpstreamHandle> {
       await closeServer(server)
     },
   }
+}
+
+function getJsonWithAgent(
+  url: string,
+  agent: Agent,
+): Promise<{ headers: Record<string, string | string[] | undefined>; body: Record<string, unknown> }> {
+  return new Promise((resolve, reject) => {
+    const request = get(url, { agent }, (response) => {
+      let body = ''
+      response.setEncoding('utf8')
+      response.on('data', (chunk: string) => { body += chunk })
+      response.on('end', () => resolve({ headers: response.headers, body: JSON.parse(body) as Record<string, unknown> }))
+    })
+    request.once('error', reject)
+  })
 }
 
 function listen(server: Server): Promise<void> {
