@@ -218,6 +218,33 @@ describe('SDK Runtime child lifecycle', () => {
     expect(harness.routers[0].hasPendingInteractions('session-a')).toBe(false)
   })
 
+  test('uses the mode confirmed by ACP after changing a config option', async () => {
+    const harness = runtimeHarness({
+      setConfigResult: async () => ({
+        configOptions: [{
+          id: 'mode',
+          name: 'Permission mode',
+          category: 'mode',
+          type: 'select' as const,
+          currentValue: 'default',
+          options: [
+            { value: 'default', name: 'Default' },
+            { value: 'bypassPermissions', name: 'Bypass permissions' },
+          ],
+        }],
+      }),
+    })
+    await harness.host.ensureSession(snapshot('session-a'))
+
+    await harness.host.setConfig('agent-a', 'session-a', 'mode', 'bypassPermissions')
+    const permission = harness.routers[0].client.requestPermission(permissionRequest())
+
+    expect(harness.host.getSessionCapabilities('agent-a', 'session-a')?.currentModeId).toBe('default')
+    expect(harness.routers[0].hasPendingInteractions('session-a')).toBe(true)
+    harness.routers[0].cancelSession('session-a')
+    await expect(permission).resolves.toEqual({ outcome: { outcome: 'cancelled' } })
+  })
+
   test('publishes updated capabilities after changing a Session config option', async () => {
     const harness = runtimeHarness()
     await harness.host.ensureSession(snapshot('session-a'))
@@ -265,6 +292,7 @@ function runtimeHarness(overrides: {
   cancelGraceMs?: number
   closeGraceMs?: number
   restartGraceMs?: number
+  setConfigResult?: () => Promise<{ configOptions: acp.SessionConfigOption[] }>
 } = {}) {
   const processes: EventEmitter[] = []
   const routers: AcpRuntimeClientRouter[] = []
@@ -303,7 +331,7 @@ function runtimeHarness(overrides: {
           markPromptStarted?.()
           return overrides.prompt?.() ?? Promise.resolve({ stopReason: 'end_turn' })
         }),
-        setSessionConfigOption: vi.fn(async () => ({
+        setSessionConfigOption: vi.fn(async () => overrides.setConfigResult?.() ?? ({
           configOptions: [{
             id: 'effort',
             name: 'Reasoning effort',

@@ -239,8 +239,8 @@ export class SdkRuntimeHost {
       ...(typeof value === 'boolean' ? { type: 'boolean' as const, value } : { value }),
     })
     session.capabilities = mergeCapabilitiesFromConfig(session.capabilities, mapConfigOptions(result.configOptions))
-    if (configId === 'mode' && typeof value === 'string')
-      requireSdkAgent(this.agents, agentId).router.setPermissionMode(sessionId, value)
+    if (session.capabilities.currentModeId)
+      requireSdkAgent(this.agents, agentId).router.setPermissionMode(sessionId, session.capabilities.currentModeId)
     touchSdkSession(this.agents, session)
     this.options.publishCapabilities?.(session.snapshot.session.id, session.capabilities)
   }
