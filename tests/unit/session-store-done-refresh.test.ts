@@ -827,6 +827,118 @@ describe('session store done handling', () => {
     expect(useSessionStore.getState().runningSessionIds).toEqual({ 'sess-refresh': true })
   })
 
+  test('keeps an idle session idle when its cached project is activated again', async () => {
+    resetStore()
+    wsMock.request.mockReset()
+    wsMock.request.mockImplementation(async (msg: Record<string, unknown>) => {
+      if (msg.type === 'sessions.list') {
+        return [
+          {
+            id: 'sess-cached-activity',
+            agent_id: 'agent-activity',
+            task_id: null,
+            acp_session_id: null,
+            status: 'active',
+            stage: '',
+            started_at: '2026-07-22T00:00:00.000Z',
+            closed_at: null,
+            project_id: 'proj-cached-activity',
+            activity_state: 'running',
+          },
+        ]
+      }
+      return []
+    })
+    useSessionStore.setState({ currentSessionId: null })
+    useSessionStore.getState().activateProject('proj-cached-activity')
+    await useSessionStore.getState().fetchSessions(undefined, 'proj-cached-activity', { force: true })
+    const cleanup = useSessionStore.getState().setupListeners()
+
+    try {
+      expect(useSessionStore.getState().runningSessionIds['sess-cached-activity']).toBe(true)
+
+      emit('session:activity', {
+        sessionId: 'sess-cached-activity',
+        agentId: 'agent-activity',
+        state: 'idle',
+        reason: 'prompt-done',
+        timestamp: '2026-07-22T00:00:01.000Z',
+      })
+      useSessionStore.getState().activateProject('proj-cached-activity')
+
+      expect(useSessionStore.getState().runningSessionIds['sess-cached-activity']).toBeUndefined()
+      expect(useSessionStore.getState().sessions[0]?.activity_state).toBe('idle')
+    } finally {
+      cleanup()
+    }
+  })
+
+  test('does not let a late running list response override a newer idle event', async () => {
+    resetStore()
+    wsMock.request.mockReset()
+    let resolveList!: (sessions: unknown[]) => void
+    const listResponse = new Promise<unknown[]>((resolve) => {
+      resolveList = resolve
+    })
+    wsMock.request.mockImplementation(async (msg: Record<string, unknown>) => {
+      if (msg.type === 'sessions.list') return listResponse
+      return []
+    })
+    useSessionStore.setState({
+      currentSessionId: null,
+      runningSessionIds: { 'sess-late-activity': true },
+    })
+    useSessionStore.getState().activateProject('proj-late-activity')
+    const cleanup = useSessionStore.getState().setupListeners()
+
+    try {
+      const pending = useSessionStore.getState().fetchSessions(undefined, 'proj-late-activity', { force: true })
+      await vi.waitFor(() => expect(wsMock.request).toHaveBeenCalledWith({
+        type: 'sessions.list',
+        projectId: 'proj-late-activity',
+      }))
+
+      emit('session:activity', {
+        sessionId: 'sess-late-activity',
+        agentId: 'agent-activity',
+        state: 'idle',
+        reason: 'prompt-done',
+        timestamp: '2026-07-22T00:00:01.000Z',
+      })
+      resolveList([
+        {
+          id: 'sess-late-activity',
+          agent_id: 'agent-activity',
+          task_id: null,
+          acp_session_id: null,
+          status: 'active',
+          stage: '',
+          started_at: '2026-07-22T00:00:00.000Z',
+          closed_at: null,
+          project_id: 'proj-late-activity',
+          activity_state: 'running',
+        },
+      ])
+      await pending
+
+      expect(useSessionStore.getState().runningSessionIds['sess-late-activity']).toBeUndefined()
+      expect(useSessionStore.getState().sessions[0]?.activity_state).toBe('idle')
+
+      emit('session:activity', {
+        sessionId: 'sess-late-activity',
+        agentId: 'agent-activity',
+        state: 'running',
+        reason: 'prompt-started',
+        timestamp: '2026-07-22T00:00:02.000Z',
+      })
+
+      expect(useSessionStore.getState().runningSessionIds['sess-late-activity']).toBe(true)
+      expect(useSessionStore.getState().sessions[0]?.activity_state).toBe('running')
+    } finally {
+      cleanup()
+    }
+  })
+
   test('does not clear running indicator on done when refreshed messages still show a running agent turn', async () => {
     resetStore()
     wsMock.request.mockReset()

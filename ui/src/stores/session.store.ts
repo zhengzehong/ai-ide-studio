@@ -83,6 +83,10 @@ import {
   reorderSessionsInListCache,
   sessionListScope,
 } from './session-list-cache'
+import {
+  createSessionActivityFence,
+  type SessionActivityState,
+} from './session-activity-fence'
 
 const COPYING_STAGE = '正在复制会话...'
 
@@ -293,6 +297,7 @@ const sessionCancelCoordinator = createSessionCancelCoordinator((command) => com
 const sessionCaches = new Map<string, SessionCache>()
 const cacheSaveTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const eventCursorBySession = new Map<string, number>()
+const sessionActivityFence = createSessionActivityFence()
 let sessionSelectionController: AbortController | null = null
 let sessionSelectionGeneration = 0
 const streamingBuffer = new StreamingBuffer()
@@ -500,6 +505,23 @@ function reconcileRunningSessionIndicators(
   const next = { ...current }
   for (const session of sessions) delete next[session.id]
   return { ...next, ...inferRunningSessions(sessions) }
+}
+
+function patchSessionActivity(
+  sessionListCache: ProjectCacheState<SessionData[]>,
+  activeSessionScope: string,
+  sessions: SessionData[],
+  sessionId: string,
+  activityState: SessionActivityState,
+): { sessionListCache: ProjectCacheState<SessionData[]>; sessions: SessionData[] } {
+  const nextCache = patchSessionInListCache(sessionListCache, sessionId, { activity_state: activityState })
+  return {
+    sessionListCache: nextCache,
+    sessions: readProjectCache(nextCache, activeSessionScope)?.data
+      ?? sessions.map((session) => (
+        session.id === sessionId ? { ...session, activity_state: activityState } : session
+      )),
+  }
 }
 
 function hasRunningAgentMessage(messages: MessageData[], sessionId: string): boolean {
@@ -958,6 +980,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       return inFlight
     }
 
+    const activityCheckpoint = sessionActivityFence.checkpoint()
+
     let requestSeq = 0
     set((state) => {
       const request = beginProjectRequest(state.sessionListCache, scope)
@@ -974,9 +998,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     const request = (async (): Promise<void> => {
       try {
         const data = await queryClient.listSessions({ agentId, projectId })
-        const sessions = scopedProjectId
+        const scopedSessions = scopedProjectId
           ? data.filter((session) => session.project_id === scopedProjectId)
           : data
+        const sessions = sessionActivityFence.applyNewer(scopedSessions, activityCheckpoint)
         set((state) => {
           const sessionListCache = pruneProjectCache(commitProjectResponse(state.sessionListCache, {
             scope,
@@ -1543,7 +1568,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     const pendingStreamingId = `pending-${sid}-${Date.now()}`
     const commandImages = toCommandImages(images)
     promptStartTime = Date.now()
+    sessionActivityFence.record(sid, 'running')
     set((state) => ({
+      ...patchSessionActivity(state.sessionListCache, state.activeSessionScope, state.sessions, sid, 'running'),
       messages: [
         ...state.messages,
         normalizeMessage({
@@ -1578,9 +1605,13 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         ...(commandImages ? { images: commandImages } : {}),
       })
     } catch (error) {
+      const ownsPendingTurn = get().streamingMessage?.id === pendingStreamingId
+      if (ownsPendingTurn) sessionActivityFence.record(sid, 'idle')
       set((state) => {
-        const ownsPendingTurn = state.streamingMessage?.id === pendingStreamingId
         return {
+          ...(ownsPendingTurn
+            ? patchSessionActivity(state.sessionListCache, state.activeSessionScope, state.sessions, sid, 'idle')
+            : {}),
           messages: state.messages.filter((message) => message.id !== clientMessageId),
           streamingMessage: ownsPendingTurn ? null : state.streamingMessage,
           runningSessionIds: ownsPendingTurn
@@ -1639,7 +1670,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         lastStreamingSnapshot = null
         streamingBuffer.clear()
         clearCachedStreaming(sid)
+        sessionActivityFence.record(sid, 'idle')
         set((state) => ({
+          ...patchSessionActivity(state.sessionListCache, state.activeSessionScope, state.sessions, sid, 'idle'),
           runningSessionIds: removeSessionIndicator(state.runningSessionIds, sid),
           stoppingSessionIds: removeSessionIndicator(state.stoppingSessionIds, sid),
           stopErrorsBySession: withoutKey(state.stopErrorsBySession, sid),
@@ -2077,7 +2110,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       wsClient.on('session:done', (msg) => {
         const sid = msg.sessionId as string
         sessionCancelCoordinator.clear(sid)
+        sessionActivityFence.record(sid, 'idle')
         set((st) => ({
+          ...patchSessionActivity(st.sessionListCache, st.activeSessionScope, st.sessions, sid, 'idle'),
           runningSessionIds: removeSessionIndicator(st.runningSessionIds, sid),
           stoppingSessionIds: removeSessionIndicator(st.stoppingSessionIds, sid),
           stopErrorsBySession: withoutKey(st.stopErrorsBySession, sid),
@@ -2195,6 +2230,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         const data = msg.data as Partial<SessionData> & { event?: string; deleted?: boolean }
         if (data.deleted || data.event === 'deleted') {
           sessionCaches.delete(sessionId)
+          sessionActivityFence.remove(sessionId)
           set((st) => {
             const sessionListCache = removeSessionFromListCache(st.sessionListCache, sessionId)
             return {
@@ -2307,6 +2343,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         const sessionId = typeof msg.sessionId === 'string' ? msg.sessionId : ''
         if (!sessionId) return
         const state = msg.state === 'running' ? 'running' : 'idle'
+        sessionActivityFence.record(sessionId, state)
         if (state === 'idle') {
           clearCachedStreaming(sessionId)
           sessionCancelCoordinator.clear(sessionId)
@@ -2314,6 +2351,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         const isCurrent = sessionId === get().currentSessionId
         if (state === 'idle' && isCurrent) flushStreamingBuffer(set, get)
         set((st) => ({
+          ...patchSessionActivity(st.sessionListCache, st.activeSessionScope, st.sessions, sessionId, state),
           ...applySessionActivity(
             st.runningSessionIds,
             st.unreadSessionIds,
