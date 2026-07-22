@@ -117,6 +117,107 @@ describe('session project cache', () => {
     cleanup()
   })
 
+  test('keeps the active project visible while another project refreshes in the background', async () => {
+    wsMock.request.mockImplementation(async (msg: Record<string, unknown>) => {
+      if (msg.type !== 'sessions.list') return []
+      return msg.projectId === 'a' ? [session('session-a', 'a')] : [session('session-b', 'b')]
+    })
+
+    useSessionStore.getState().activateProject('a')
+    await useSessionStore.getState().fetchSessions(undefined, 'a', { force: true })
+
+    await useSessionStore.getState().fetchSessions(undefined, 'b', { force: true })
+
+    expect(useSessionStore.getState()).toMatchObject({
+      activeSessionScope: 'a',
+      loading: false,
+      refreshing: false,
+      error: null,
+    })
+    expect(useSessionStore.getState().sessions.map((item) => item.id)).toEqual(['session-a'])
+    expect(useSessionStore.getState().sessionListCache.entries.b?.data.map((item) => item.id))
+      .toEqual(['session-b'])
+  })
+
+  test('keeps the active project loading while a background project fetch completes', async () => {
+    const projectALoad = deferred<SessionData[]>()
+    wsMock.request.mockImplementation(async (msg: Record<string, unknown>) => {
+      if (msg.type !== 'sessions.list') return []
+      if (msg.projectId === 'a') return projectALoad.promise
+      return [session('session-b', 'b')]
+    })
+
+    useSessionStore.getState().activateProject('a')
+    const activeLoad = useSessionStore.getState().fetchSessions(undefined, 'a', { force: true })
+    expect(useSessionStore.getState().loading).toBe(true)
+
+    await useSessionStore.getState().fetchSessions(undefined, 'b', { force: true })
+    const stateDuringActiveLoad = useSessionStore.getState()
+    projectALoad.resolve([session('session-a', 'a')])
+    await activeLoad
+
+    expect(stateDuringActiveLoad).toMatchObject({
+      activeSessionScope: 'a',
+      loading: true,
+      refreshing: false,
+      error: null,
+    })
+  })
+
+  test('keeps the active project refreshing while a background project fetch completes', async () => {
+    const projectARefresh = deferred<SessionData[]>()
+    let projectACalls = 0
+    wsMock.request.mockImplementation(async (msg: Record<string, unknown>) => {
+      if (msg.type !== 'sessions.list') return []
+      if (msg.projectId === 'a') {
+        projectACalls += 1
+        if (projectACalls === 1) return [session('session-a-stale', 'a')]
+        return projectARefresh.promise
+      }
+      return [session('session-b', 'b')]
+    })
+
+    useSessionStore.getState().activateProject('a')
+    await useSessionStore.getState().fetchSessions(undefined, 'a', { force: true })
+    const activeRefresh = useSessionStore.getState().fetchSessions(undefined, 'a', { force: true })
+    expect(useSessionStore.getState().refreshing).toBe(true)
+
+    await useSessionStore.getState().fetchSessions(undefined, 'b', { force: true })
+    const stateDuringActiveRefresh = useSessionStore.getState()
+    projectARefresh.resolve([session('session-a-fresh', 'a')])
+    await activeRefresh
+
+    expect(stateDuringActiveRefresh).toMatchObject({
+      activeSessionScope: 'a',
+      loading: false,
+      refreshing: true,
+      error: null,
+    })
+  })
+
+  test('keeps the active project error state isolated from a failed background refresh', async () => {
+    wsMock.request.mockImplementation(async (msg: Record<string, unknown>) => {
+      if (msg.type !== 'sessions.list') return []
+      if (msg.projectId === 'b') throw new Error('Project B session refresh failed')
+      return [session('session-a', 'a')]
+    })
+
+    useSessionStore.getState().activateProject('a')
+    await useSessionStore.getState().fetchSessions(undefined, 'a', { force: true })
+
+    await useSessionStore.getState().fetchSessions(undefined, 'b', { force: true })
+
+    expect(useSessionStore.getState()).toMatchObject({
+      activeSessionScope: 'a',
+      loading: false,
+      refreshing: false,
+      error: null,
+    })
+    expect(useSessionStore.getState().sessions.map((item) => item.id)).toEqual(['session-a'])
+    expect(useSessionStore.getState().sessionListCache.errorsByScope?.b)
+      .toBe('Project B session refresh failed')
+  })
+
   test('exposes a cold load failure and clears it after retry', async () => {
     wsMock.request.mockRejectedValueOnce(new Error('Session service unavailable'))
 

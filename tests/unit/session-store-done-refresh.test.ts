@@ -821,6 +821,7 @@ describe('session store done handling', () => {
     })
     useSessionStore.setState({ runningSessionIds: { 'sess-stale': true } })
 
+    useSessionStore.getState().activateProject('proj-1')
     await useSessionStore.getState().fetchSessions(undefined, 'proj-1')
 
     expect(useSessionStore.getState().runningSessionIds).toEqual({ 'sess-refresh': true })

@@ -33,6 +33,7 @@ export default function Dashboard() {
   const agents = useAgentStore((state) => state.agents)
   const fetchAgents = useAgentStore((state) => state.fetchAgents)
   const sessions = useSessionStore((state) => state.sessions)
+  const activateSessionProject = useSessionStore((state) => state.activateProject)
   const fetchSessions = useSessionStore((state) => state.fetchSessions)
   const tasks = useTaskStore((state) => state.tasks)
   const fetchTasks = useTaskStore((state) => state.fetchTasks)
@@ -69,12 +70,13 @@ export default function Dashboard() {
   useEffect(() => setupEventListeners(), [setupEventListeners])
 
   useEffect(() => {
+    activateSessionProject(null)
     void fetchAgents()
     void fetchTasks()
     void fetchSessions(undefined, undefined)
     void fetchEvents(undefined, { offset: 0 })
     void fetchCategories(undefined).catch(() => undefined)
-  }, [fetchAgents, fetchCategories, fetchEvents, fetchSessions, fetchTasks])
+  }, [activateSessionProject, fetchAgents, fetchCategories, fetchEvents, fetchSessions, fetchTasks])
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: '20px 28px 16px' }}>
