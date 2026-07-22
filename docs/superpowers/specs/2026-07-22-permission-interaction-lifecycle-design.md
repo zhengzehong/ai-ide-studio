@@ -30,7 +30,7 @@ Normal user responses continue through `permission.respond` and `elicitation.res
 
 ### Full-access enforcement
 
-The Runtime router stores the desired permission mode on each bound Studio Session. `requestPermission` first selects an allow option when the mode is `bypassPermissions` or `agent-full-access`. It then falls back to the existing internal-tool allowlist behavior. Mode changes update the router state, and ACP mode updates keep it synchronized.
+The Runtime router stores only the permission mode confirmed by ACP for each bound Studio Session. A saved or default preference does not enable automatic approval until ACP advertises and successfully applies it. `requestPermission` selects a one-time allow option first when the confirmed mode is `bypassPermissions` or `agent-full-access`, falling back to an always-allow option only when ACP offers no one-time choice. Explicit internal-tool allowlists retain their existing always-allow preference. Successful mode/config changes and ACP mode/config updates keep the router synchronized with the resulting capabilities.
 
 ### Frontend expired-response handling
 

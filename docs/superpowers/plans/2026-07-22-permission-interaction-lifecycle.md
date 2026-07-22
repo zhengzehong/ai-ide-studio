@@ -33,7 +33,7 @@
 - [x] Add failing tests that Session unbind publishes cancelled permission and elicitation result updates.
 - [x] Add failing tests that `bypassPermissions` and `agent-full-access` auto-select an allow option without publishing a permission request.
 - [x] Extend pending interactions with exactly-once cancellation callbacks used by timeout, cancel, unbind, and close.
-- [x] Track the desired permission mode in each Runtime binding and synchronize it on mode changes.
+- [x] Track only the ACP-confirmed permission mode in each Runtime binding and synchronize it on successful mode/config changes.
 - [x] Retain existing per-tool automatic approval for ordinary modes.
 
 ### Task 3: Remove expired cards and display actionable frontend errors
@@ -59,6 +59,6 @@
 
 - [x] Run targeted tests and confirm the new tests pass after failing before implementation.
 - [x] Run `npx tsc --noEmit`, `npm run lint`, `npm run build`, `npm test`, and `git diff --check`.
-- [ ] Commit the isolated branch with a focused message.
+- [x] Commit the isolated branch with focused messages.
 - [ ] Request code review against the original `prd` base and address all P0/P1 findings.
 - [ ] Merge the reviewed branch into `prd` with `--no-ff`, without restarting PRD.
