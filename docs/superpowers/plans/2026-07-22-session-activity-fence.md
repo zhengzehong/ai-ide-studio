@@ -15,34 +15,34 @@
 **Files:**
 - Modify: `tests/unit/session-store-done-refresh.test.ts`
 
-- [ ] Add a test that loads a running session, emits `session:activity idle`, reactivates the same project, and expects the running indicator to remain cleared.
-- [ ] Run `npx vitest run tests/unit/session-store-done-refresh.test.ts` and confirm the new test fails because cached `activity_state` remains `running`.
+- [x] Add a test that loads a running session, emits `session:activity idle`, reactivates the same project, and expects the running indicator to remain cleared.
+- [x] Run `npx vitest run tests/unit/session-store-done-refresh.test.ts` and confirm the new test fails because cached `activity_state` remains `running`.
 
 ### Task 2: Reproduce a late list response
 
 **Files:**
 - Modify: `tests/unit/session-store-done-refresh.test.ts`
 
-- [ ] Add a deferred `sessions.list` response that reports running, emit `idle` while the request is pending, then resolve the response.
-- [ ] Assert the response cannot restore `runningSessionIds` and a later `running` event can start a new indicator.
-- [ ] Run the targeted test and confirm failure before implementation.
+- [x] Add a deferred `sessions.list` response that reports running, emit `idle` while the request is pending, then resolve the response.
+- [x] Assert the response cannot restore `runningSessionIds` and a later `running` event can start a new indicator.
+- [x] Run the targeted test and confirm failure before implementation.
 
 ### Task 3: Implement ordered activity overlay
 
 **Files:**
 - Modify: `ui/src/stores/session.store.ts`
 
-- [ ] Record monotonic per-session activity revisions.
-- [ ] Patch visible sessions and all list-cache scopes on local/realtime activity transitions.
-- [ ] Capture the activity revision at list-request start and overlay newer transitions before committing the response.
-- [ ] Clear activity history on session deletion and store reset.
-- [ ] Run the targeted test until both regressions pass.
+- [x] Record monotonic per-session activity revisions.
+- [x] Patch visible sessions and all list-cache scopes on local/realtime activity transitions.
+- [x] Capture the activity revision at list-request start and overlay newer transitions before committing the response.
+- [x] Clear activity history on session deletion.
+- [x] Run the targeted test until both regressions pass.
 
 ### Task 4: Verify and integrate
 
 **Files:**
 - Verify only
 
-- [ ] Run the relevant session/project unit tests.
-- [ ] Run `npx tsc --noEmit`, `npm run lint`, `npm run build`, `npm test`, `node scripts/check-ui-bundle.mjs`, and `git diff --check`.
+- [x] Run the relevant session/project unit tests.
+- [x] Run `npx tsc --noEmit`, `npm run lint`, `npm run build`, `npm test`, `node scripts/check-ui-bundle.mjs`, and `git diff --check`.
 - [ ] Commit the implementation, merge `fix/session-activity-fence` into `prd` with `--no-ff`, and repeat critical verification on merged `prd`.

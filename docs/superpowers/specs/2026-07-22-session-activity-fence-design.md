@@ -12,7 +12,7 @@ The session store will treat activity transitions as ordered local facts:
 2. Apply each transition to `runningSessionIds`, visible sessions, and every scoped session-list cache entry.
 3. Capture the current revision when a session-list request starts.
 4. Before committing its response, overlay only activity transitions newer than that request. This prevents an older response from rolling back a terminal event while allowing a later fresh request to remain authoritative.
-5. Remove activity history when a session is deleted and reset it in test/store reset paths.
+5. Remove activity history when a session is deleted.
 
 ## Scope
 
