@@ -2,6 +2,7 @@ import type { CSSProperties, ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, Circle, Loader2 } from 'lucide-react'
 import type { ConfigOptionInfo, ImageAttachmentInfo } from '../../stores/session-events'
+import { AuthenticatedImage } from '../chat/AuthenticatedImage'
 import { configOptionLabel } from '../../pages/workspace/helpers'
 
 export function CompactPlanBar({ plan }: { plan: { content: string; status: string }[] }) {
@@ -66,7 +67,11 @@ export function AttachmentList({ attachments }: { attachments: ImageAttachmentIn
   return (
     <div className="global-assistant-attachments">
       {attachments.map((image, index) => (
-        <img key={`${image.name || image.mimeType}-${index}`} src={`data:${image.mimeType};base64,${image.data}`} alt={image.name || '附件'} />
+        <AuthenticatedImage
+          key={`${image.name || image.mimeType}-${index}`}
+          image={image}
+          alt={image.name || '附件'}
+        />
       ))}
     </div>
   )
