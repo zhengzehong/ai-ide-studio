@@ -9,12 +9,17 @@ const wsMock = vi.hoisted(() => ({
   subscribe: vi.fn(),
   unsubscribe: vi.fn(),
 }))
+const queryMock = vi.hoisted(() => ({
+  listSessionMessages: vi.fn(() => new Promise(() => undefined)),
+  getSessionRecovery: vi.fn(() => new Promise(() => undefined)),
+}))
 
 vi.mock('../../ui/src/services/command-client', () => ({
   commandClient: commandMock,
   toCommandImages: (images?: Array<{ data?: string; mimeType: string }>) => images,
 }))
 vi.mock('../../ui/src/services/ws-client', () => ({ wsClient: wsMock }))
+vi.mock('../../ui/src/services/query-client', () => ({ queryClient: queryMock }))
 
 const { useSessionStore } = await import('../../ui/src/stores/session.store.ts')
 
@@ -41,6 +46,7 @@ function resetStore(): void {
     plan: [],
     pendingPermissions: [],
     pendingElicitations: [],
+    interactionErrorsBySession: {},
     runningSessionIds: {},
     stoppingSessionIds: {},
     stopErrorsBySession: {},
@@ -84,6 +90,102 @@ describe('Session Prompt acceptance boundary', () => {
     expect(useSessionStore.getState().messages).toEqual([])
     expect(useSessionStore.getState().streamingMessage).toBeNull()
     expect(useSessionStore.getState().runningSessionIds['session-1']).toBeUndefined()
+  })
+
+  it('removes an expired permission card and exposes an actionable error', async () => {
+    useSessionStore.setState({
+      pendingPermissions: [{
+        id: 'permission-1',
+        toolCall: { id: 'tool-1', title: 'Terminal' },
+        options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }],
+      }],
+    })
+    commandMock.execute.mockRejectedValue(new Error('权限请求已失效'))
+
+    await useSessionStore.getState().respondPermission('permission-1', 'allow')
+
+    expect(useSessionStore.getState().pendingPermissions).toEqual([])
+    expect(useSessionStore.getState().interactionErrorsBySession['session-1'])
+      .toBe('权限请求已失效，请重新发送消息')
+  })
+
+  it('keeps a permission card when a retryable response fails', async () => {
+    const permission = {
+      id: 'permission-1',
+      toolCall: { id: 'tool-1', title: 'Terminal' },
+      options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }],
+    }
+    useSessionStore.setState({ pendingPermissions: [permission] })
+    commandMock.execute.mockRejectedValue(new Error('网络不可用'))
+
+    await useSessionStore.getState().respondPermission('permission-1', 'allow')
+
+    expect(useSessionStore.getState().pendingPermissions).toEqual([permission])
+    expect(useSessionStore.getState().interactionErrorsBySession['session-1'])
+      .toBe('权限响应失败：网络不可用')
+  })
+
+  it('keeps Session B intact and removes a completed permission from Session A cache', async () => {
+    let complete: (() => void) | undefined
+    commandMock.execute.mockImplementation((command: { type: string }) => {
+      if (command.type !== 'permission.respond')
+        return Promise.resolve({ commandId: 'other', status: 'completed', duplicate: false })
+      return new Promise((resolve) => {
+        complete = () => resolve({ commandId: 'permission-a', status: 'completed', duplicate: false })
+      })
+    })
+    const permissionA = {
+      id: 'permission-a',
+      toolCall: { id: 'tool-a', title: 'Terminal A' },
+      options: [{ optionId: 'allow-a', name: 'Allow', kind: 'allow_once' as const }],
+    }
+    const permissionB = {
+      id: 'permission-b',
+      toolCall: { id: 'tool-b', title: 'Terminal B' },
+      options: [{ optionId: 'allow-b', name: 'Allow', kind: 'allow_once' as const }],
+    }
+    useSessionStore.setState({ currentSessionId: 'session-switch-a', pendingPermissions: [permissionA] })
+
+    const response = useSessionStore.getState().respondPermission('permission-a', 'allow-a')
+    useSessionStore.getState().selectSession('session-switch-b')
+    useSessionStore.setState({ pendingPermissions: [permissionB] })
+    complete?.()
+    await response
+
+    expect(useSessionStore.getState().currentSessionId).toBe('session-switch-b')
+    expect(useSessionStore.getState().pendingPermissions).toEqual([permissionB])
+    expect(useSessionStore.getState().interactionErrorsBySession['session-switch-b']).toBeUndefined()
+
+    useSessionStore.getState().selectSession('session-switch-a')
+    expect(useSessionStore.getState().pendingPermissions).toEqual([])
+  })
+
+  it('keeps Session B intact when Session A permission response fails', async () => {
+    let rejectResponse: ((error: Error) => void) | undefined
+    commandMock.execute.mockImplementation(() => new Promise((_resolve, reject) => {
+      rejectResponse = reject
+    }))
+    const permissionA = {
+      id: 'permission-race-a',
+      toolCall: { id: 'tool-race-a', title: 'Terminal A' },
+      options: [{ optionId: 'allow-a', name: 'Allow', kind: 'allow_once' as const }],
+    }
+    const permissionB = {
+      id: 'permission-race-a',
+      toolCall: { id: 'tool-race-b', title: 'Terminal B' },
+      options: [{ optionId: 'allow-b', name: 'Allow', kind: 'allow_once' as const }],
+    }
+    useSessionStore.setState({ currentSessionId: 'session-race-a', pendingPermissions: [permissionA] })
+
+    const response = useSessionStore.getState().respondPermission('permission-race-a', 'allow-a')
+    useSessionStore.setState({ currentSessionId: 'session-race-b', pendingPermissions: [permissionB] })
+    rejectResponse?.(new Error('权限请求已失效'))
+    await response
+
+    expect(useSessionStore.getState().pendingPermissions).toEqual([permissionB])
+    expect(useSessionStore.getState().interactionErrorsBySession['session-race-b']).toBeUndefined()
+    expect(useSessionStore.getState().interactionErrorsBySession['session-race-a'])
+      .toBe('权限请求已失效，请重新发送消息')
   })
 
   it('marks cancellation immediately and deduplicates repeated clicks for the active turn', async () => {

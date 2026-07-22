@@ -44,6 +44,7 @@ function resetStore(): void {
     running: false,
     stopping: false,
     stopError: null,
+    interactionError: null,
     unread: false,
     error: null,
     fileChangeDetailsByMessageId: {},
@@ -77,6 +78,108 @@ describe('global assistant store', () => {
     })
     commandMock.execute.mockReset()
     commandMock.execute.mockResolvedValue({ commandId: 'command-1', status: 'accepted', duplicate: false })
+  })
+
+  test('removes an expired permission card and exposes an actionable error', async () => {
+    useGlobalAssistantStore.setState({
+      session: { id: 'sess-global' } as never,
+      pendingPermissions: [{
+        id: 'permission-1',
+        toolCall: { id: 'tool-1', title: 'Terminal' },
+        options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }],
+      }],
+    })
+    commandMock.execute.mockRejectedValue(new Error('权限请求已失效'))
+
+    await useGlobalAssistantStore.getState().respondPermission('permission-1', 'allow')
+
+    expect(useGlobalAssistantStore.getState().pendingPermissions).toEqual([])
+    expect(useGlobalAssistantStore.getState().interactionError)
+      .toBe('权限请求已失效，请重新发送消息')
+  })
+
+  test('does not apply a completed permission response after switching assistants', async () => {
+    let complete: (() => void) | undefined
+    commandMock.execute.mockImplementation(() => new Promise((resolve) => {
+      complete = () => resolve({ commandId: 'permission-a', status: 'completed', duplicate: false })
+    }))
+    useGlobalAssistantStore.setState({
+      session: sessionFixture('sess-assistant-a'),
+      pendingPermissions: [permissionFixture('permission-a')],
+    })
+
+    const response = useGlobalAssistantStore.getState().respondPermission('permission-a', 'allow')
+    useGlobalAssistantStore.setState({
+      session: sessionFixture('sess-assistant-b'),
+      pendingPermissions: [permissionFixture('permission-a')],
+      interactionError: 'Session B error',
+    })
+    complete?.()
+    await response
+
+    expect(useGlobalAssistantStore.getState().pendingPermissions).toEqual([permissionFixture('permission-a')])
+    expect(useGlobalAssistantStore.getState().interactionError).toBe('Session B error')
+  })
+
+  test('does not apply a failed permission response after switching assistants', async () => {
+    let rejectResponse: ((error: Error) => void) | undefined
+    commandMock.execute.mockImplementation(() => new Promise((_resolve, reject) => {
+      rejectResponse = reject
+    }))
+    useGlobalAssistantStore.setState({
+      session: sessionFixture('sess-assistant-a'),
+      pendingPermissions: [permissionFixture('permission-a')],
+    })
+
+    const response = useGlobalAssistantStore.getState().respondPermission('permission-a', 'allow')
+    useGlobalAssistantStore.setState({
+      session: sessionFixture('sess-assistant-b'),
+      pendingPermissions: [permissionFixture('permission-a')],
+      interactionError: null,
+    })
+    rejectResponse?.(new Error('权限请求已失效'))
+    await response
+
+    expect(useGlobalAssistantStore.getState().pendingPermissions).toEqual([permissionFixture('permission-a')])
+    expect(useGlobalAssistantStore.getState().interactionError).toBeNull()
+  })
+
+  test('clears old interactions and recovers the new assistant even when it has messages', async () => {
+    useGlobalAssistantStore.setState({
+      session: sessionFixture('sess-assistant-old'),
+      events: [{ id: 'event-old' } as never],
+      pendingPermissions: [permissionFixture('permission-old')],
+      pendingElicitations: [{ id: 'elicitation-old', message: 'Old question', requestedSchema: {} }],
+    })
+    wsMock.request.mockImplementation(async (msg: Record<string, unknown>) => {
+      if (msg.type === 'globalAssistant.get') return globalAssistantPayload('sess-assistant-new')
+      if (msg.type === 'sessions.messages') return [{
+        id: 'message-new',
+        session_id: 'sess-assistant-new',
+        role: 'agent',
+        content: 'Existing message',
+        thinking: null,
+        tool_calls_json: null,
+        decision_json: null,
+        attachments_json: null,
+        file_changes_json: null,
+        timestamp: '2026-07-22T00:00:00.000Z',
+      }]
+      if (msg.type === 'sessions.events') return []
+      return null
+    })
+
+    await useGlobalAssistantStore.getState().load()
+
+    expect(useGlobalAssistantStore.getState().session?.id).toBe('sess-assistant-new')
+    expect(useGlobalAssistantStore.getState().events).toEqual([])
+    expect(useGlobalAssistantStore.getState().pendingPermissions).toEqual([])
+    expect(useGlobalAssistantStore.getState().pendingElicitations).toEqual([])
+    expect(wsMock.request).toHaveBeenCalledWith({
+      type: 'sessions.events',
+      sessionId: 'sess-assistant-new',
+      limit: 1000,
+    })
   })
 
   test('binds a template and subscribes to its fixed session', async () => {
@@ -340,5 +443,43 @@ function streamingFixture(id: string) {
     processBlocks: [],
     finalAnswer: '',
     done: false,
+  }
+}
+
+function permissionFixture(id: string) {
+  return {
+    id,
+    toolCall: { id: `tool-${id}`, title: 'Terminal' },
+    options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' as const }],
+  }
+}
+
+function globalAssistantPayload(sessionId: string) {
+  return {
+    assistant: {
+      id: 'default',
+      agent_id: 'agent-global',
+      session_id: sessionId,
+      workspace_dir: 'D:/data/global-assistant/workspace',
+      enabled: 1,
+      created_at: '2026-07-22T00:00:00.000Z',
+      updated_at: '2026-07-22T00:00:00.000Z',
+      last_opened_at: null,
+    },
+    agent: {
+      id: 'agent-global',
+      type: 'pm',
+      name: '全局助理',
+      runtime: 'mock',
+      status: 'standby',
+      permission_level: 3,
+      config_json: null,
+      created_at: '2026-07-22T00:00:00.000Z',
+      project_id: null,
+      template_id: 'template-new',
+      system_prompt: '',
+      icon: 'bot',
+    },
+    session: sessionFixture(sessionId),
   }
 }

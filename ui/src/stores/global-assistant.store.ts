@@ -6,6 +6,7 @@ import type { AgentData } from './agent.store'
 import { useProjectStore } from './project.store'
 import type { SessionData } from './session.store'
 import { createSessionCancelCoordinator } from './session-cancel-coordinator'
+import { interactionResponseFailure } from './interaction-response'
 import {
   appendFinalizedMessage,
   applySessionEvent,
@@ -86,6 +87,7 @@ interface GlobalAssistantStore {
   running: boolean
   stopping: boolean
   stopError: string | null
+  interactionError: string | null
   unread: boolean
   error: string | null
   fileChangeDetailsByMessageId: Record<string, FileChangeDetailInfo>
@@ -296,10 +298,11 @@ async function activatePayload(
     const previousSessionId = currentSessionId(get())
     if (previousSessionId) globalAssistantCancelCoordinator.clear(previousSessionId)
     clearSubscription()
-    set({ assistant: null, agent: null, session: null, messages: [], events: [], streamingMessage: null, unread: false, running: false, stopping: false, stopError: null })
+    set({ assistant: null, agent: null, session: null, messages: [], events: [], streamingMessage: null, unread: false, running: false, stopping: false, stopError: null, interactionError: null })
     return
   }
   const previousSessionId = currentSessionId(get())
+  const sessionChanged = previousSessionId !== payload.session.id
   if (previousSessionId && previousSessionId !== payload.session.id) {
     globalAssistantCancelCoordinator.clear(previousSessionId)
   }
@@ -312,11 +315,34 @@ async function activatePayload(
     unread: false,
     stopping: false,
     stopError: null,
+    interactionError: null,
+    ...(sessionChanged ? {
+      messages: [],
+      events: [],
+      streamingMessage: null,
+      usage: null,
+      turnUsage: null,
+      capabilities: { ...defaultCaps },
+      plan: [],
+      pendingPermissions: [],
+      pendingElicitations: [],
+      hasMoreMessages: false,
+      loadingOlderMessages: false,
+      running: false,
+      fileChangeDetailsByMessageId: {},
+      toolCallLoadingByKey: {},
+      toolCallErrorByKey: {},
+      turnProcessLoadingByMessageId: {},
+      turnProcessErrorByMessageId: {},
+      processItemLoadingByKey: {},
+      processItemErrorByKey: {},
+    } : {}),
   })
   await Promise.all([
     get().fetchMessages(),
     loadCapabilities ? get().fetchModels() : Promise.resolve(),
   ])
+  if (payload.session.id === currentSessionId(get())) await get().fetchEvents()
 }
 
 export const useGlobalAssistantStore = create<GlobalAssistantStore>((set, get) => ({
@@ -340,6 +366,7 @@ export const useGlobalAssistantStore = create<GlobalAssistantStore>((set, get) =
   running: false,
   stopping: false,
   stopError: null,
+  interactionError: null,
   unread: false,
   error: null,
   fileChangeDetailsByMessageId: {},
@@ -422,6 +449,7 @@ export const useGlobalAssistantStore = create<GlobalAssistantStore>((set, get) =
       running: true,
       stopping: false,
       stopError: null,
+      interactionError: null,
       unread: false,
     }))
     try {
@@ -492,27 +520,59 @@ export const useGlobalAssistantStore = create<GlobalAssistantStore>((set, get) =
   respondPermission: async (requestId, optionId, cancelled) => {
     const sid = currentSessionId(get())
     if (!sid) return
-    await commandClient.execute({
-      commandId: `cmd-permission-${requestId}`,
-      type: 'permission.respond',
-      sessionId: sid,
-      permissionRequestId: requestId,
-      optionId,
-      cancelled,
-    })
+    try {
+      await commandClient.execute({
+        commandId: `cmd-permission-${requestId}`,
+        type: 'permission.respond',
+        sessionId: sid,
+        permissionRequestId: requestId,
+        optionId,
+        cancelled,
+      })
+      if (sid !== currentSessionId(get())) return
+      set((state) => ({
+        pendingPermissions: state.pendingPermissions.filter((request) => request.id !== requestId),
+        interactionError: null,
+      }))
+    } catch (error) {
+      if (sid !== currentSessionId(get())) return
+      const failure = interactionResponseFailure(error, 'permission')
+      set((state) => ({
+        pendingPermissions: failure.expired
+          ? state.pendingPermissions.filter((request) => request.id !== requestId)
+          : state.pendingPermissions,
+        interactionError: failure.message,
+      }))
+    }
   },
 
   respondElicitation: async (requestId, action, content) => {
     const sid = currentSessionId(get())
     if (!sid) return
-    await commandClient.execute({
-      commandId: `cmd-elicitation-${requestId}`,
-      type: 'elicitation.respond',
-      sessionId: sid,
-      elicitationRequestId: requestId,
-      action,
-      content,
-    })
+    try {
+      await commandClient.execute({
+        commandId: `cmd-elicitation-${requestId}`,
+        type: 'elicitation.respond',
+        sessionId: sid,
+        elicitationRequestId: requestId,
+        action,
+        content,
+      })
+      if (sid !== currentSessionId(get())) return
+      set((state) => ({
+        pendingElicitations: state.pendingElicitations.filter((request) => request.id !== requestId),
+        interactionError: null,
+      }))
+    } catch (error) {
+      if (sid !== currentSessionId(get())) return
+      const failure = interactionResponseFailure(error, 'elicitation')
+      set((state) => ({
+        pendingElicitations: failure.expired
+          ? state.pendingElicitations.filter((request) => request.id !== requestId)
+          : state.pendingElicitations,
+        interactionError: failure.message,
+      }))
+    }
   },
 
   fetchMessages: async () => {
@@ -536,7 +596,6 @@ export const useGlobalAssistantStore = create<GlobalAssistantStore>((set, get) =
     })
     const runningMessage = get().messages.filter((message) => message.session_id === sid && message.role === 'agent' && message.status === 'running').at(-1)
     if (runningMessage) void get().fetchMessageProcess(sid, runningMessage.id)
-    if (get().messages.filter((message) => message.session_id === sid).length === 0) void get().fetchEvents()
   },
 
   loadOlderMessages: async () => {
@@ -565,7 +624,7 @@ export const useGlobalAssistantStore = create<GlobalAssistantStore>((set, get) =
   fetchEvents: async () => {
     const sid = currentSessionId(get())
     if (!sid) return
-    const events = (await queryClient.listSessionEvents({ sessionId: sid, limit: 1000 })).items
+    const events = (await queryClient.getSessionRecovery({ sessionId: sid, limit: 1000 })).events
     if (sid !== currentSessionId(get())) return
     const reduced = reduceVisibleEvents(events, get().messages.length > 0, get().running)
     set((state) => ({
@@ -746,12 +805,18 @@ export const useGlobalAssistantStore = create<GlobalAssistantStore>((set, get) =
       if (data.commands) { set((state) => ({ capabilities: { ...state.capabilities, commands: data.commands as AvailableCommandInfo[] } })); return }
       if (data.permissionRequest) {
         const req = data.permissionRequest as PermissionRequestInfo
-        set((state) => ({ pendingPermissions: [...state.pendingPermissions.filter((item) => item.id !== req.id), req] }))
+        set((state) => ({
+          pendingPermissions: [...state.pendingPermissions.filter((item) => item.id !== req.id), req],
+          interactionError: null,
+        }))
         return
       }
       if (data.elicitationRequest) {
         const req = data.elicitationRequest as ElicitationRequestInfo
-        set((state) => ({ pendingElicitations: [...state.pendingElicitations.filter((item) => item.id !== req.id), req] }))
+        set((state) => ({
+          pendingElicitations: [...state.pendingElicitations.filter((item) => item.id !== req.id), req],
+          interactionError: null,
+        }))
         return
       }
       if (data.contentDelta || data.thinking || data.toolCall || data.toolCallUpdate) {

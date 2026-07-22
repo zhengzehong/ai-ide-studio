@@ -108,6 +108,20 @@ describe('HTTP query client', () => {
 })
 
 describe('WS rollback query client', () => {
+  test('drops interaction events from turns completed before the recovery boundary', async () => {
+    const request = vi.fn(async (): Promise<unknown> => [
+      { id: 'permission-old', type: 'permission.request', sequence: 1 },
+      { id: 'done', type: 'message.done', sequence: 2 },
+      { id: 'permission-active', type: 'permission.request', sequence: 3 },
+    ])
+    const client = createWsQueryClient(request)
+
+    const recovery = await client.getSessionRecovery({ sessionId: 'session-a', limit: 20 })
+
+    expect(recovery.latestSequence).toBe(3)
+    expect(recovery.events.map((event) => event.id)).toEqual(['permission-active'])
+  })
+
   test('keeps legacy RPC shapes and derives compatibility page metadata', async () => {
     const request = vi.fn(async (message: Record<string, unknown>): Promise<unknown> => {
       if (message.type === 'sessions.messages') {

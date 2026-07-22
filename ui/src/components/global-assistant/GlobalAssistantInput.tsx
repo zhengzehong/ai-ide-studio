@@ -21,6 +21,7 @@ export function GlobalAssistantInput({
   streaming,
   stopping,
   stopError,
+  interactionError,
   capabilities,
   usage,
   onSend,
@@ -34,6 +35,7 @@ export function GlobalAssistantInput({
   streaming: boolean
   stopping: boolean
   stopError: string | null
+  interactionError: string | null
   capabilities: SessionCapabilities
   usage: UsageInfo | null
   onSend: (content: string, images: { data: string; mimeType: string }[]) => Promise<void>
@@ -107,12 +109,12 @@ export function GlobalAssistantInput({
   return (
     <>
       <div className="global-assistant-input-wrap">
-        {(stopping || stopError || sendError) && (
+        {(stopping || stopError || sendError || interactionError) && (
           <div
-            className={`global-assistant-input-status${stopError || sendError ? ' global-assistant-input-status--error' : ''}`}
-            role={stopError || sendError ? 'alert' : 'status'}
+            className={`global-assistant-input-status${stopError || sendError || interactionError ? ' global-assistant-input-status--error' : ''}`}
+            role={stopError || sendError || interactionError ? 'alert' : 'status'}
           >
-            {stopError || sendError || '正在停止'}
+            {stopError || sendError || interactionError || '正在停止'}
           </div>
         )}
         {pendingImages.length > 0 && (

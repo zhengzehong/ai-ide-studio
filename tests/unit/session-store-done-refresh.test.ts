@@ -39,6 +39,7 @@ function resetStore(): void {
     plan: [],
     pendingPermissions: [],
     pendingElicitations: [],
+    interactionErrorsBySession: {},
     loading: false,
     copyingTargetSessionIds: {},
     copyingSourceSessionIds: {},
@@ -67,6 +68,38 @@ function emit(event: string, message: Record<string, unknown>): void {
 }
 
 describe('session store done handling', () => {
+  test('removes interaction errors when a Session is deleted directly', async () => {
+    resetStore()
+    wsMock.request.mockReset()
+    wsMock.request.mockResolvedValue(null)
+    useSessionStore.setState({
+      sessions: [{ id: 'sess-delete' } as never, { id: 'sess-keep' } as never],
+      currentSessionId: 'sess-keep',
+      interactionErrorsBySession: { 'sess-delete': 'expired', 'sess-keep': 'retry' },
+    })
+
+    await useSessionStore.getState().deleteSession('sess-delete')
+
+    expect(useSessionStore.getState().interactionErrorsBySession).toEqual({ 'sess-keep': 'retry' })
+  })
+
+  test('removes interaction errors when a Session deletion event arrives', () => {
+    resetStore()
+    useSessionStore.setState({
+      sessions: [{ id: 'sess-delete-event' } as never, { id: 'sess-keep' } as never],
+      currentSessionId: 'sess-keep',
+      interactionErrorsBySession: { 'sess-delete-event': 'expired', 'sess-keep': 'retry' },
+    })
+    const cleanup = useSessionStore.getState().setupListeners()
+
+    try {
+      emit('session:changed', { sessionId: 'sess-delete-event', data: { deleted: true } })
+      expect(useSessionStore.getState().interactionErrorsBySession).toEqual({ 'sess-keep': 'retry' })
+    } finally {
+      cleanup()
+    }
+  })
+
   test('fetches only the latest 20 messages on initial session load', async () => {
     resetStore()
     wsMock.request.mockReset()

@@ -10,16 +10,11 @@ import {
   type ManagedAcpAgent,
   type StartManagedAcpAgentInput,
 } from './managed-acp-agent.js'
-import {
-  runtimeAgentFingerprint,
-  runtimeSessionContextFingerprint,
-} from './runtime-fingerprints.js'
+import { runtimeAgentFingerprint, runtimeSessionContextFingerprint } from './runtime-fingerprints.js'
 import { applySdkSessionPreferences, initialCapabilities, openSdkSession } from './sdk-session-runtime.js'
 import { sweepSdkRuntimeIdle } from './sdk-runtime-idle.js'
 import type { RuntimeIdleThresholds } from './runtime-idle-sweep.js'
-import {
-  SdkRuntimeTurns,
-} from './runtime-active-turns.js'
+import { SdkRuntimeTurns } from './runtime-active-turns.js'
 import { publishSdkLifecycle, requireSdkAgent, requireSdkSession, touchSdkSession } from './sdk-runtime-state.js'
 import type {
   SdkAgentRuntime,
@@ -133,7 +128,8 @@ export class SdkRuntimeHost {
       lastUsedAt: Date.now(),
     }
     this.sessions.set(snapshot.session.id, session)
-    agent.router.bindSession(snapshot.session.id, opened.acpSessionId, snapshot.autoApprovedToolNames)
+    agent.router.bindSession(snapshot.session.id, opened.acpSessionId, snapshot.autoApprovedToolNames,
+      opened.capabilities.currentModeId)
     await applySdkSessionPreferences({
       snapshot,
       capabilities: session.capabilities,
@@ -193,7 +189,8 @@ export class SdkRuntimeHost {
       lastUsedAt: Date.now(),
     }
     this.sessions.set(snapshot.session.id, session)
-    agent.router.bindSession(snapshot.session.id, result.sessionId, snapshot.autoApprovedToolNames)
+    agent.router.bindSession(snapshot.session.id, result.sessionId, snapshot.autoApprovedToolNames,
+      session.capabilities.currentModeId)
     await applySdkSessionPreferences({
       snapshot,
       capabilities: session.capabilities,
@@ -221,6 +218,7 @@ export class SdkRuntimeHost {
     const session = requireSdkSession(this.sessions, sessionId, agentId)
     await requireSdkAgent(this.agents, agentId).connection.setSessionMode({ sessionId: session.acpSessionId, modeId })
     session.capabilities.currentModeId = modeId
+    requireSdkAgent(this.agents, agentId).router.setPermissionMode(sessionId, modeId)
     touchSdkSession(this.agents, session)
     this.options.publishCapabilities?.(session.snapshot.session.id, session.capabilities)
   }
@@ -233,6 +231,8 @@ export class SdkRuntimeHost {
       ...(typeof value === 'boolean' ? { type: 'boolean' as const, value } : { value }),
     })
     session.capabilities = mergeCapabilitiesFromConfig(session.capabilities, mapConfigOptions(result.configOptions))
+    if (session.capabilities.currentModeId)
+      requireSdkAgent(this.agents, agentId).router.setPermissionMode(sessionId, session.capabilities.currentModeId)
     touchSdkSession(this.agents, session)
     this.options.publishCapabilities?.(session.snapshot.session.id, session.capabilities)
   }

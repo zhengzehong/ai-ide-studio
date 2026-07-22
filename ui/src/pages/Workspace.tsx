@@ -1429,6 +1429,7 @@ function WorkspaceChatPane({
   const cancelTurn = useSessionStore((s) => s.cancelTurn)
   const stoppingSessionIds = useSessionStore((s) => s.stoppingSessionIds)
   const stopErrorsBySession = useSessionStore((s) => s.stopErrorsBySession)
+  const interactionErrorsBySession = useSessionStore((s) => s.interactionErrorsBySession)
   const pendingPermissions = useSessionStore((s) => s.pendingPermissions)
   const pendingElicitations = useSessionStore((s) => s.pendingElicitations)
   const respondPermission = useSessionStore((s) => s.respondPermission)
@@ -1493,6 +1494,7 @@ function WorkspaceChatPane({
   const isStreaming = !!(streamingMessage && !streamingMessage.done)
   const isStopping = !!(currentSessionId && stoppingSessionIds[currentSessionId])
   const stopError = currentSessionId ? stopErrorsBySession[currentSessionId] : undefined
+  const interactionError = currentSessionId ? interactionErrorsBySession[currentSessionId] : undefined
   const canSendPrompt = !!currentSessionId
     && connected
     && !blockingInteraction
@@ -2065,9 +2067,9 @@ function WorkspaceChatPane({
         )}
       </div>
       <div style={{ padding: '0 20px 16px', flexShrink: 0 }}>
-        {(stopError || sendError) && (
+        {(stopError || sendError || interactionError) && (
           <div role="alert" style={{ color: 'var(--red)', fontSize: 13, marginBottom: 8 }}>
-            {stopError || sendError}
+            {stopError || sendError || interactionError}
           </div>
         )}
         {pendingImages.length > 0 && (

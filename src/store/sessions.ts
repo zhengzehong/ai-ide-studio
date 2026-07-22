@@ -895,6 +895,20 @@ export const eventStore = {
           'tool.update',
           'message.done'
         )
+        AND (
+          type NOT IN (
+            'permission.request',
+            'permission.result',
+            'elicitation.request',
+            'elicitation.result'
+          )
+          OR sequence > COALESCE((
+            SELECT MAX(done.sequence)
+            FROM session_events AS done
+            WHERE done.session_id = @sessionId
+              AND done.type = 'message.done'
+          ), 0)
+        )
       ORDER BY sequence DESC
       LIMIT @limit
     `).all({ sessionId, limit }).reverse()

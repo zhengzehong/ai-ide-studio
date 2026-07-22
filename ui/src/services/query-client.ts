@@ -176,7 +176,7 @@ export function createWsQueryClient(request: WsRequest = (message) => wsClient.r
       return {
         sessionId: input.sessionId,
         latestSequence: page.items.at(-1)?.sequence ?? 0,
-        events: page.items.filter((event) => !MIRRORED_RECOVERY_EVENT_TYPES.has(event.type)),
+        events: filterRecoveryEvents(page.items),
       }
     },
   }
@@ -189,6 +189,22 @@ const MIRRORED_RECOVERY_EVENT_TYPES = new Set([
   'tool.update',
   'message.done',
 ])
+
+const INTERACTION_EVENT_TYPES = new Set([
+  'permission.request',
+  'permission.result',
+  'elicitation.request',
+  'elicitation.result',
+])
+
+function filterRecoveryEvents(events: SessionEventData[]): SessionEventData[] {
+  const latestDoneSequence = events.reduce(
+    (latest, event) => event.type === 'message.done' ? Math.max(latest, event.sequence) : latest,
+    0,
+  )
+  return events.filter((event) => !MIRRORED_RECOVERY_EVENT_TYPES.has(event.type)
+    && (!INTERACTION_EVENT_TYPES.has(event.type) || event.sequence > latestDoneSequence))
+}
 
 function parseSessionRecoverySnapshot(value: unknown): SessionRecoverySnapshot {
   if (!isRecord(value)

@@ -194,6 +194,57 @@ describe('SDK Runtime child lifecycle', () => {
     )
   })
 
+  test('does not auto-approve from a desired mode that ACP did not confirm', async () => {
+    const harness = runtimeHarness()
+    const requested = snapshot('session-a')
+    requested.runtimePreferences.modeId = 'bypassPermissions'
+    await harness.host.ensureSession(requested)
+
+    const permission = harness.routers[0].client.requestPermission(permissionRequest())
+
+    expect(harness.routers[0].hasPendingInteractions('session-a')).toBe(true)
+    harness.routers[0].cancelSession('session-a')
+    await expect(permission).resolves.toEqual({ outcome: { outcome: 'cancelled' } })
+  })
+
+  test('auto-approves after ACP successfully changes to a full-access mode', async () => {
+    const harness = runtimeHarness()
+    await harness.host.ensureSession(snapshot('session-a'))
+    await harness.host.setMode('agent-a', 'session-a', 'bypassPermissions')
+
+    const permission = harness.routers[0].client.requestPermission(permissionRequest())
+
+    await expect(permission).resolves.toEqual({ outcome: { outcome: 'selected', optionId: 'allow' } })
+    expect(harness.routers[0].hasPendingInteractions('session-a')).toBe(false)
+  })
+
+  test('uses the mode confirmed by ACP after changing a config option', async () => {
+    const harness = runtimeHarness({
+      setConfigResult: async () => ({
+        configOptions: [{
+          id: 'mode',
+          name: 'Permission mode',
+          category: 'mode',
+          type: 'select' as const,
+          currentValue: 'default',
+          options: [
+            { value: 'default', name: 'Default' },
+            { value: 'bypassPermissions', name: 'Bypass permissions' },
+          ],
+        }],
+      }),
+    })
+    await harness.host.ensureSession(snapshot('session-a'))
+
+    await harness.host.setConfig('agent-a', 'session-a', 'mode', 'bypassPermissions')
+    const permission = harness.routers[0].client.requestPermission(permissionRequest())
+
+    expect(harness.host.getSessionCapabilities('agent-a', 'session-a')?.currentModeId).toBe('default')
+    expect(harness.routers[0].hasPendingInteractions('session-a')).toBe(true)
+    harness.routers[0].cancelSession('session-a')
+    await expect(permission).resolves.toEqual({ outcome: { outcome: 'cancelled' } })
+  })
+
   test('publishes updated capabilities after changing a Session config option', async () => {
     const harness = runtimeHarness()
     await harness.host.ensureSession(snapshot('session-a'))
@@ -241,6 +292,7 @@ function runtimeHarness(overrides: {
   cancelGraceMs?: number
   closeGraceMs?: number
   restartGraceMs?: number
+  setConfigResult?: () => Promise<{ configOptions: acp.SessionConfigOption[] }>
 } = {}) {
   const processes: EventEmitter[] = []
   const routers: AcpRuntimeClientRouter[] = []
@@ -279,7 +331,7 @@ function runtimeHarness(overrides: {
           markPromptStarted?.()
           return overrides.prompt?.() ?? Promise.resolve({ stopReason: 'end_turn' })
         }),
-        setSessionConfigOption: vi.fn(async () => ({
+        setSessionConfigOption: vi.fn(async () => overrides.setConfigResult?.() ?? ({
           configOptions: [{
             id: 'effort',
             name: 'Reasoning effort',
@@ -322,7 +374,7 @@ function snapshot(sessionId: string): RuntimeStateSnapshot {
     agent: { id: 'agent-a', name: 'Agent', type: 'dev', runtime: 'claude', permissionLevel: 3, config: {}, systemPrompt: '', projectId: 'project-a' },
     session: { id: sessionId, agentId: 'agent-a', taskId: null, projectId: 'project-a', cwd: process.cwd(), title: null, acpSessionId: null, isPrimary: false },
     runtime: { env: {}, command: { cmd: 'unused', args: [] } },
-    runtimePreferences: {},
+    runtimePreferences: { modeId: 'default' },
     mcpServers: [],
     autoApprovedToolNames: [],
   }

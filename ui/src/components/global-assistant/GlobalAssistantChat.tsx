@@ -30,6 +30,7 @@ export function GlobalAssistantChat({ connected, payload }: { connected: boolean
   const running = useGlobalAssistantStore((state) => state.running)
   const stopping = useGlobalAssistantStore((state) => state.stopping)
   const stopError = useGlobalAssistantStore((state) => state.stopError)
+  const interactionError = useGlobalAssistantStore((state) => state.interactionError)
   const sendPrompt = useGlobalAssistantStore((state) => state.sendPrompt)
   const cancelTurn = useGlobalAssistantStore((state) => state.cancelTurn)
   const setModel = useGlobalAssistantStore((state) => state.setModel)
@@ -190,6 +191,7 @@ export function GlobalAssistantChat({ connected, payload }: { connected: boolean
         streaming={isStreaming}
         stopping={stopping}
         stopError={stopError}
+        interactionError={interactionError}
         capabilities={capabilities}
         usage={usage}
         onSend={sendPrompt}

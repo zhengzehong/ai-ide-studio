@@ -4,6 +4,7 @@ import { dirname } from 'node:path'
 import * as acp from '@agentclientprotocol/sdk'
 import { mapAvailableCommands, mapConfigOptions, mergeCapabilitiesFromConfig } from '../../acp/capabilities.js'
 import { contentBlockToText, mapToolCallContent, mapToolCallUpdate, toolCallTitle } from '../../acp/update-mapper.js'
+import { createChildLogger } from '../../shared/logger.js'
 import type {
   ElicitationRequestData,
   PermissionRequestData,
@@ -15,19 +16,25 @@ import type {
 import { ResourceGovernor } from '../resources/resource-governor.js'
 import type { RuntimeCoalescibleUpdate } from '../streams/runtime-update-coalescer.js'
 import { RuntimeTerminalManager } from './runtime-terminal-manager.js'
+import {
+  resolveAllInteractions,
+  resolveMatchingInteractions,
+  takeInteraction,
+  waitForInteraction,
+  type PendingInteraction,
+} from './runtime-interaction-state.js'
 
 interface BoundSession {
   ourSessionId: string
   autoApprovedToolNames: Set<string>
+  permissionMode?: string
   messageId?: string
   turnId?: string
   streamGeneration?: string
 }
 
-interface PendingInteraction<T> {
-  resolve: (value: T) => void
-  timer: NodeJS.Timeout
-}
+const FULL_ACCESS_PERMISSION_MODES = new Set(['bypassPermissions', 'agent-full-access'])
+const log = createChildLogger('acp-runtime-client')
 
 export interface AcpRuntimeClientOptions {
   agentId: string
@@ -40,8 +47,9 @@ export interface AcpRuntimeClientOptions {
 
 export interface AcpRuntimeClientRouter {
   client: acp.Client
-  bindSession(sessionId: string, acpSessionId: string, autoApprovedToolNames: string[]): void
+  bindSession(sessionId: string, acpSessionId: string, autoApprovedToolNames: string[], permissionMode?: string): void
   unbindSession(sessionId: string): void
+  setPermissionMode(sessionId: string, permissionMode?: string): void
   beginTurn(sessionId: string, messageId: string, turnId?: string, streamGeneration?: string): void
   endTurn(sessionId: string, streamGeneration?: string): void
   cancelSession(sessionId: string): void
@@ -123,6 +131,8 @@ export function createAcpRuntimeClient(options: AcpRuntimeClientOptions): AcpRun
           break
         case 'config_option_update': {
           const configOptions = mapConfigOptions(update.configOptions)
+          const mode = configOptions.find((option) => option.category === 'mode' || option.id === 'mode')?.currentValue
+          if (typeof mode === 'string') bound.permissionMode = mode
           applyCapabilities(bound.ourSessionId, (current) => mergeCapabilitiesFromConfig(current, configOptions))
           publish(bound, { messageId, role: 'system', configOptions })
           break
@@ -145,6 +155,7 @@ export function createAcpRuntimeClient(options: AcpRuntimeClientOptions): AcpRun
           })
           break
         case 'current_mode_update':
+          bound.permissionMode = update.currentModeId
           applyCapabilities(bound.ourSessionId, (current) => ({ ...current, currentModeId: update.currentModeId }))
           break
         case 'available_commands_update': {
@@ -169,9 +180,19 @@ export function createAcpRuntimeClient(options: AcpRuntimeClientOptions): AcpRun
       if (!bound) return { outcome: { outcome: 'cancelled' } }
       const requestedTool = normalizeToolName(params.toolCall.title ?? '')
       const autoApproved = [...bound.autoApprovedToolNames].some((name) => normalizeToolName(name) === requestedTool)
-      const allow = params.options.find((option) => option.kind === 'allow_always')
-        ?? params.options.find((option) => option.kind === 'allow_once')
-      if (autoApproved && allow) return { outcome: { outcome: 'selected', optionId: allow.optionId } }
+      const allowOnce = params.options.find((option) => option.kind === 'allow_once')
+      const allowAlways = params.options.find((option) => option.kind === 'allow_always')
+      const fullAccessAllow = allowOnce ?? allowAlways
+      if (fullAccessAllow && bound.permissionMode && FULL_ACCESS_PERMISSION_MODES.has(bound.permissionMode)) {
+        log.debug(
+          { agentId: options.agentId, sessionId: bound.ourSessionId, permissionMode: bound.permissionMode, toolTitle: params.toolCall.title },
+          'auto-approved tool permission in full-access mode',
+        )
+        return { outcome: { outcome: 'selected', optionId: fullAccessAllow.optionId } }
+      }
+      const internalToolAllow = allowAlways ?? allowOnce
+      if (autoApproved && internalToolAllow)
+        return { outcome: { outcome: 'selected', optionId: internalToolAllow.optionId } }
 
       const requestId = `${params.toolCall.toolCallId || 'permission'}-${Date.now()}`
       const permissionRequest: PermissionRequestData = {
@@ -181,7 +202,7 @@ export function createAcpRuntimeClient(options: AcpRuntimeClientOptions): AcpRun
       }
       const response = waitForInteraction(permissions, interactionKey(bound.ourSessionId, requestId), {
         outcome: { outcome: 'cancelled' },
-      })
+      }, () => publish(bound, { messageId: requestId, role: 'system', eventType: 'permission.result' }))
       publish(bound, { messageId: requestId, role: 'system', permissionRequest })
       return response
     },
@@ -200,6 +221,7 @@ export function createAcpRuntimeClient(options: AcpRuntimeClientOptions): AcpRun
         elicitations,
         interactionKey(bound.ourSessionId, requestId),
         { action: 'cancel' },
+        () => publish(bound, { messageId: requestId, role: 'system', eventType: 'elicitation.result' }),
       )
       publish(bound, { messageId: requestId, role: 'system', elicitationRequest })
       return response
@@ -239,8 +261,12 @@ export function createAcpRuntimeClient(options: AcpRuntimeClientOptions): AcpRun
 
   return {
     client,
-    bindSession(sessionId, acpSessionId, autoApprovedToolNames) {
-      const bound: BoundSession = { ourSessionId: sessionId, autoApprovedToolNames: new Set(autoApprovedToolNames) }
+    bindSession(sessionId, acpSessionId, autoApprovedToolNames, permissionMode) {
+      const bound: BoundSession = {
+        ourSessionId: sessionId,
+        autoApprovedToolNames: new Set(autoApprovedToolNames),
+        permissionMode,
+      }
       byAcpSession.set(acpSessionId, bound)
       acpByOurSession.set(sessionId, acpSessionId)
     },
@@ -249,6 +275,11 @@ export function createAcpRuntimeClient(options: AcpRuntimeClientOptions): AcpRun
       const acpSessionId = acpByOurSession.get(sessionId)
       if (acpSessionId) byAcpSession.delete(acpSessionId)
       acpByOurSession.delete(sessionId)
+    },
+    setPermissionMode(sessionId, permissionMode) {
+      const acpSessionId = acpByOurSession.get(sessionId)
+      const bound = acpSessionId ? byAcpSession.get(acpSessionId) : undefined
+      if (bound) bound.permissionMode = permissionMode
     },
     beginTurn(sessionId, messageId, turnId, streamGeneration) {
       const acpSessionId = acpByOurSession.get(sessionId)
@@ -310,30 +341,6 @@ function cancelSessionInteractions(
   resolveMatchingInteractions(elicitations, prefix, { action: 'cancel' })
 }
 
-function resolveMatchingInteractions<T>(
-  interactions: Map<string, PendingInteraction<T>>,
-  prefix: string,
-  fallback: T,
-): void {
-  for (const [key, pending] of interactions) {
-    if (!key.startsWith(prefix)) continue
-    clearTimeout(pending.timer)
-    interactions.delete(key)
-    pending.resolve(fallback)
-  }
-}
-
-function resolveAllInteractions<T>(
-  interactions: Map<string, PendingInteraction<T>>,
-  fallback: T,
-): void {
-  for (const pending of interactions.values()) {
-    clearTimeout(pending.timer)
-    pending.resolve(fallback)
-  }
-  interactions.clear()
-}
-
 function mapToolCall(update: acp.ToolCall | acp.ToolCallUpdate): ToolCallData {
   return {
     id: update.toolCallId,
@@ -354,22 +361,4 @@ function normalizeToolName(value: string): string {
 
 function interactionKey(sessionId: string, requestId: string): string {
   return `${sessionId}:${requestId}`
-}
-
-function waitForInteraction<T>(map: Map<string, PendingInteraction<T>>, key: string, fallback: T): Promise<T> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      map.delete(key)
-      resolve(fallback)
-    }, 10 * 60 * 1000)
-    map.set(key, { resolve, timer })
-  })
-}
-
-function takeInteraction<T>(map: Map<string, PendingInteraction<T>>, key: string): PendingInteraction<T> | undefined {
-  const pending = map.get(key)
-  if (!pending) return undefined
-  clearTimeout(pending.timer)
-  map.delete(key)
-  return pending
 }
