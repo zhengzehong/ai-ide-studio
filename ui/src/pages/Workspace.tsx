@@ -131,7 +131,10 @@ import {
 import { ShareModal } from './share/ShareModal'
 import { Share2 } from 'lucide-react'
 import { useWorkspaceProjectState } from './workspace/use-workspace-project-state'
-import { resolveWorkspaceLoadState } from './workspace/load-state'
+import {
+  resolveWorkspaceLoadState,
+  shouldShowWorkspaceMessageSync,
+} from './workspace/load-state'
 import { summarizeSessionIndicators } from '../utils/session-indicators'
 
 const COPYING_STAGE = '正在复制会话...'
@@ -1851,9 +1854,14 @@ function WorkspaceChatPane({
     [blockingInteraction, currentSessionId, events, messages, showStreamingBubble, streamingBubble],
   )
   const messageError = currentSessionId ? messagesErrorBySession[currentSessionId] ?? null : null
+  const messagesLoading = !!currentSessionId && messagesLoadingSessionId === currentSessionId
   const messageLoadState = resolveWorkspaceLoadState({
-    loading: !!currentSessionId && messagesLoadingSessionId === currentSessionId,
+    loading: messagesLoading,
     error: messageError,
+    itemCount: chatItems.length + (showStreamingBubble ? 1 : 0),
+  })
+  const showMessageSync = shouldShowWorkspaceMessageSync({
+    loading: messagesLoading,
     itemCount: chatItems.length + (showStreamingBubble ? 1 : 0),
   })
 
@@ -2059,6 +2067,24 @@ function WorkspaceChatPane({
               scrollRef={chatScrollRef}
               onContentResize={handleChatContentResize}
             />
+            {showMessageSync && (
+              <div
+                role="status"
+                aria-live="polite"
+                style={{
+                  height: 28,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 7,
+                  color: 'var(--text-3)',
+                  fontSize: 13,
+                }}
+              >
+                <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />
+                <span>正在同步消息...</span>
+              </div>
+            )}
             <div ref={chatEndRef} />
           </div>
         )}

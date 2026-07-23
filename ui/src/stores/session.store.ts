@@ -1520,8 +1520,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         get().runningSessionIds[id] &&
         get().messages.filter((message) => message.session_id === id).length === 0
       ) {
-        void get().fetchMessages(id)
-        void get().fetchRecovery(id).catch(() => undefined)
+        void get().fetchMessages(id).then(() => {
+          if (get().currentSessionId !== id) return
+          return get().fetchRecovery(id)
+        }).catch(() => undefined)
       }
       return
     }
@@ -1603,8 +1605,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       processItemErrorByKey: {},
       unreadSessionIds: removeSessionIndicator(state.unreadSessionIds, id),
     }))
-    void get().fetchMessages(id, selection)
-    void get().fetchRecovery(id, selection).catch(() => undefined)
+    void get().fetchMessages(id, selection).then(() => {
+      if (selection?.signal.aborted || get().currentSessionId !== id) return
+      return get().fetchRecovery(id, selection)
+    }).catch(() => undefined)
     void get().fetchModels()
     void markSessionReadOnServer(id)
   },
