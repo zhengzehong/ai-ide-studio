@@ -125,4 +125,26 @@ describe('message preview presentations', () => {
     expect(rows[1].presentations_json).toBeNull()
     db.close()
   })
+
+  test('persists a metadata-only multi-file presentation', () => {
+    const session = sessionStore.create({ agentId: 'agent-1' })
+    const output = {
+      kind: 'files',
+      presentationId: 'files-123',
+      projectId: 'project-1',
+      title: '本次交付',
+      files: [
+        { path: 'docs/report.md', title: '分析报告', name: 'report.md', extension: '.md', size: 100, kind: 'text', language: 'markdown' },
+        { path: 'docs/plan.md', title: '实施方案', name: 'plan.md', extension: '.md', size: 80, kind: 'text', language: 'markdown' },
+      ],
+      createdAt: '2026-07-23T00:00:00.000Z',
+    }
+    const row = messageStore.append(session.id, {
+      role: 'agent',
+      content: 'Done',
+      toolCalls: [{ id: 'tool-files', title: 'files.present', status: 'completed', rawOutput: JSON.stringify(output) }],
+    })
+
+    expect(JSON.parse(row.presentations_json || '[]')).toEqual([output])
+  })
 })

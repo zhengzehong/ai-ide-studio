@@ -111,6 +111,7 @@ describe('builtin tool seed synchronization', () => {
       'event.ignore',
       'event.list',
       'event.subscription.create',
+      'files.present',
       'get_memory',
       'list_memory',
       'preview.publish',
@@ -288,6 +289,22 @@ describe('builtin tool seed synchronization', () => {
       )
       .all()
     expect(bindings).toHaveLength(1)
+  })
+
+  test('registers files.present as a global builtin tool', () => {
+    seedBuiltinTools()
+    const tool = toolStore.getByName('files.present')
+    expect(tool).toBeDefined()
+    expect(tool?.is_builtin).toBe(1)
+    expect(tool?.type).toBe('builtin')
+    expect(tool?.category).toBe('filesystem')
+    const config = tool?.config_json ? (JSON.parse(tool.config_json) as Record<string, unknown>) : {}
+    expect(config.handler).toBe('files.present')
+    const schema = tool?.input_schema_json ? (JSON.parse(tool.input_schema_json) as Record<string, unknown>) : {}
+    const properties = asRecord(schema.properties)
+    expect(properties.title).toMatchObject({ type: 'string' })
+    expect(properties.files).toMatchObject({ type: 'array', minItems: 1, maxItems: 20 })
+    expect(schema.required).toEqual(['files'])
   })
 
   test('registers core.session.template.* as global builtin tools', () => {

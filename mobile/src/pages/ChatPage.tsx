@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, Bot, FolderOpen } from 'lucide-react'
 import { buildChatRenderItems } from '@desktop/components/chat/render-items'
-import type { ChatTimelineGroup, MessageData, StreamingMessage } from '@desktop/stores/session-events'
+import type { ChatTimelineGroup, FilesPresentationInfo, MessageData, StreamingMessage } from '@desktop/stores/session-events'
 import { useChatStore } from '../stores/chat.store'
 import { useSessionStore } from '../stores/session.store'
 import { useConnectionStore } from '../stores/connection.store'
@@ -16,6 +16,7 @@ import PermissionCard from '../components/chat/PermissionCard'
 import ElicitationCard from '../components/chat/ElicitationCard'
 import ConfigToolbar from '../components/chat/ConfigToolbar'
 import { deriveLiveElapsedSeconds } from '../utils/chat-elapsed'
+import { PresentedFilesOverlay } from '../components/file-viewer/PresentedFilesOverlay'
 
 type MobileChatMessage = MessageData | (StreamingMessage & { session_id?: string })
 
@@ -124,6 +125,7 @@ export default function ChatPage() {
   // 新建会话占位路由下,首次发送要先调 sessions.create 拿真 sessionId,再 navigate 替换 URL,
   // 最后走正常 sendPrompt。createSession 期间禁用输入框防止重复触发。
   const [creating, setCreating] = useState(false)
+  const [filesPresentation, setFilesPresentation] = useState<FilesPresentationInfo | null>(null)
 
   const handleSend = useCallback(async (text: string, images?: Parameters<typeof sendPrompt>[1]) => {
     if (isNewSessionRoute) {
@@ -295,6 +297,7 @@ export default function ChatPage() {
                     processError={turnProcessErrorByMessageId[msg.id]}
                     onLoadProcess={fetchMessageProcess}
                     onOpenPreview={(previewId, target) => navigate(`/preview/${previewId}?target=${target}`)}
+                    onOpenFiles={setFilesPresentation}
                   />
                 ) : (
                   <span>{msg.content}</span>
@@ -309,6 +312,7 @@ export default function ChatPage() {
                   streaming={item.message as StreamingMessage}
                   liveElapsedSeconds={liveElapsedSeconds}
                   onOpenPreview={(previewId, target) => navigate(`/preview/${previewId}?target=${target}`)}
+                  onOpenFiles={setFilesPresentation}
                 />
               </ChatBubble>
             )
@@ -354,6 +358,9 @@ export default function ChatPage() {
         disabledPlaceholder={disabledPlaceholder}
         supportsImages={capabilities.supportsImages}
       />
+      {filesPresentation && (
+        <PresentedFilesOverlay presentation={filesPresentation} onClose={() => setFilesPresentation(null)} />
+      )}
     </div>
   )
 }

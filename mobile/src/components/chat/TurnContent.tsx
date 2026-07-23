@@ -2,7 +2,12 @@ import { memo, useState, useMemo, type CSSProperties } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { ChevronDown, ChevronRight, Clock, DollarSign } from 'lucide-react'
-import type { MessageData } from '@desktop/stores/session-events'
+import {
+  parseFilesPresentationOutput,
+  type FilesPresentationInfo,
+  type MessageData,
+  type PreviewPresentationInfo,
+} from '@desktop/stores/session-events'
 import type { TurnViewModel } from '@desktop/stores/turn-blocks'
 import { elapsedSecondsBetween } from '@desktop/utils/duration'
 import ProcessBlock from './ProcessBlock'
@@ -10,6 +15,7 @@ import PreviewCard from './PreviewCard'
 import FileChangesCard, { extractFileChangesFromBlocks } from './FileChangesCard'
 import { CodeView } from '../file-viewer/CodeView'
 import { isPreviewPublishTool, parsePreviewPublishOutput } from '../../utils/preview-tool'
+import { FilesPresentationCard } from './FilesPresentationCard'
 
 interface Props {
   message?: MessageData
@@ -18,6 +24,7 @@ interface Props {
   processError?: string
   onLoadProcess?: (sessionId: string, messageId: string) => void
   onOpenPreview?: (previewId: string, target: 'pc' | 'app') => void
+  onOpenFiles?: (presentation: FilesPresentationInfo) => void
   liveElapsedSeconds?: number
 }
 
@@ -49,7 +56,7 @@ export function deriveTurnElapsedSeconds(input: {
       : elapsedSecondsBetween(input.message?.started_at, input.message?.completed_at))
 }
 
-export default memo(function TurnContent({ message, streaming, processLoading = false, processError, onLoadProcess, onOpenPreview, liveElapsedSeconds }: Props) {
+export default memo(function TurnContent({ message, streaming, processLoading = false, processError, onLoadProcess, onOpenPreview, onOpenFiles, liveElapsedSeconds }: Props) {
   const [processOpenOverride, setProcessOpenOverride] = useState<ProcessOpenOverride>(null)
 
   const processBlocks = streaming?.processBlocks ?? message?.processBlocks ?? []
@@ -70,9 +77,23 @@ export default memo(function TurnContent({ message, streaming, processLoading = 
     return parsed ? [parsed.previewId] : []
   }))
   const persistedPreviews = (message?.parsedPresentations ?? [])
+    .filter((item): item is PreviewPresentationInfo => item.kind === 'preview')
     .filter((preview) => !realtimePreviewIds.has(preview.previewId))
-  const otherBlocks = visibleBlocks.filter((block) => !previewBlocks.includes(block))
+  const filesBlocks = visibleBlocks.filter(
+    (block) => block.kind === 'tool' && isFilesPresentTool(block.toolCall.title),
+  )
+  const realtimeFilesIds = new Set(filesBlocks.flatMap((block) => {
+    if (block.kind !== 'tool') return []
+    const parsed = parseFilesPresentationOutput(block.toolCall.rawOutput)
+    return parsed ? [parsed.presentationId] : []
+  }))
+  const persistedFiles = (message?.parsedPresentations ?? [])
+    .filter((item): item is FilesPresentationInfo => item.kind === 'files')
+    .filter((presentation) => !realtimeFilesIds.has(presentation.presentationId))
+  const presentationBlocks = new Set([...previewBlocks, ...filesBlocks])
+  const otherBlocks = visibleBlocks.filter((block) => !presentationBlocks.has(block))
   const hasPreviewCard = previewBlocks.length > 0 || persistedPreviews.length > 0
+  const hasFilesCard = filesBlocks.length > 0 || persistedFiles.length > 0
   const hasProcess = otherBlocks.length > 0 || canLoadProcess || (isStreaming && !!stage)
   const processOpen = resolveProcessOpen(isStreaming, processOpenOverride)
   const processLabelCount = otherBlocks.length > 0 ? otherBlocks.length : processCount
@@ -152,6 +173,21 @@ export default memo(function TurnContent({ message, streaming, processLoading = 
         </div>
       )}
 
+      {hasFilesCard && (
+        <div style={{ marginTop: finalAnswer || hasPreviewCard ? 10 : 0 }}>
+          {filesBlocks.map((block) => {
+            if (block.kind !== 'tool') return null
+            const presentation = parseFilesPresentationOutput(block.toolCall.rawOutput)
+            return presentation
+              ? <FilesPresentationCard key={block.id} presentation={presentation} onOpen={(item) => onOpenFiles?.(item)} />
+              : null
+          })}
+          {persistedFiles.map((presentation) => (
+            <FilesPresentationCard key={presentation.presentationId} presentation={presentation} onOpen={(item) => onOpenFiles?.(item)} />
+          ))}
+        </div>
+      )}
+
       {!isStreaming && fileChanges.length > 0 && <FileChangesCard files={fileChanges} />}
 
       {showStats && (
@@ -176,6 +212,10 @@ export default memo(function TurnContent({ message, streaming, processLoading = 
     </div>
   )
 })
+
+function isFilesPresentTool(title: string): boolean {
+  return title === 'files.present' || title === 'mcp__ai-ide-tools__files_present'
+}
 
 function parseTurnStats(json: string | null | undefined): Record<string, number> | null {
   if (!json) return null

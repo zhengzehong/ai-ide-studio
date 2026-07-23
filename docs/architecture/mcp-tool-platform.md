@@ -245,6 +245,14 @@ revokedAt
 
 工具本身不调用 LLM，也不自动从源文件生成正文。code 页面刷新由调用方先读取当前源文件并形成 markdown，再调用 `core.kb.refresh_from_code` 写入；若页面有人工编辑记录，需要显式传确认参数。
 
+### 3.9 File Presentation Tool
+
+`files.present` 用于把 Agent 已完成的项目文件作为会话交付物展示给用户。调用参数包含展示标题和 1-20 个项目相对路径；工具上下文提供可信的 `projectId`，handler 只校验并读取文件元数据，不把文件正文写入工具结果。
+
+工具成功结果形成 `kind = files` 的轻量 presentation manifest，包含 `presentationId`、项目、标题、文件路径、显示名、扩展名、大小和类型。该摘要与 `preview.publish` 共用消息的 `presentations_json` 读模型，因此完成中的实时工具卡片和刷新后的历史卡片使用同一语义，并按 `presentationId` 去重。
+
+文件正文在用户点击卡片后通过现有 `fs.read` 边界按需读取，展示的是项目中的当前内容。PC 使用文件列表加内容弹窗，移动端使用全屏查看器和横向文件选择器；Markdown、代码、图片和二进制展示复用各端已有文件查看能力。项目路径校验仍由文件系统边界负责，manifest 不能绕过项目根目录。
+
 ## 4. 目录结构建议
 
 建议把 MCP 工具平台拆成几个小模块，避免继续堆大文件。

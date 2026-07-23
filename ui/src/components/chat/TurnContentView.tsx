@@ -1,7 +1,13 @@
 ﻿import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ChevronDown, ChevronRight, Loader2 } from 'lucide-react'
 import type { TurnProcessBlock } from '../../stores/turn-blocks'
-import type { FileChangeDetailInfo, FileChangeSummaryInfo, PreviewPresentationInfo } from '../../stores/session-events'
+import {
+  parseFilesPresentationOutput,
+  type FileChangeDetailInfo,
+  type FileChangeSummaryInfo,
+  type FilesPresentationInfo,
+  type PreviewPresentationInfo,
+} from '../../stores/session-events'
 import { MarkdownRenderer } from '../MarkdownRenderer'
 import { FileChangesCard } from './FileChangesCard'
 import { extractTurnFileChanges, fileChangesFromSummary } from './file-changes-utils'
@@ -22,10 +28,12 @@ interface TurnContentViewProps {
   fileChangesError?: string
   defaultProcessOpen?: boolean
   previewPresentations?: PreviewPresentationInfo[]
+  filesPresentations?: FilesPresentationInfo[]
   onLoadProcess?: () => void
   onLoadFileChanges?: () => void
   renderProcessBlock: (block: TurnProcessBlock) => ReactNode
   renderPreviewPresentation?: (preview: PreviewPresentationInfo) => ReactNode
+  renderFilesPresentation?: (presentation: FilesPresentationInfo) => ReactNode
 }
 
 export function TurnContentView({
@@ -43,16 +51,17 @@ export function TurnContentView({
   fileChangesError,
   defaultProcessOpen = isStreaming,
   previewPresentations = [],
+  filesPresentations = [],
   onLoadProcess,
   onLoadFileChanges,
   renderProcessBlock,
   renderPreviewPresentation,
+  renderFilesPresentation,
 }: TurnContentViewProps) {
   const [processOpenOverride, setProcessOpenOverride] = useState<'open' | 'closed' | null>(null)
   const processOpen = processOpenOverride === 'open' || (processOpenOverride !== 'closed' && defaultProcessOpen)
   const canLoadProcess = !processLoaded && !!onLoadProcess
   const visibleProcessBlocks = processBlocks.filter((block) => block.kind !== 'stage')
-  const hasProcess = visibleProcessBlocks.length > 0 || !!fallbackStage || canLoadProcess
   // preview.publish 卡片优先级最高,turn 完成后无论是否折叠执行过程都要把卡片抽出来直接渲染。
   const previewBlocks = visibleProcessBlocks.filter(
     (block) => block.kind === 'tool' && isPreviewPublishTool(block.toolCall.title),
@@ -63,8 +72,22 @@ export function TurnContentView({
     return parsed ? [parsed.previewId] : []
   }))
   const persistedPreviews = previewPresentations.filter((preview) => !realtimePreviewIds.has(preview.previewId))
-  const otherBlocks = visibleProcessBlocks.filter((block) => !previewBlocks.includes(block))
+  const filesBlocks = visibleProcessBlocks.filter(
+    (block) => block.kind === 'tool' && isFilesPresentTool(block.toolCall.title),
+  )
+  const realtimeFilesIds = new Set(filesBlocks.flatMap((block) => {
+    if (block.kind !== 'tool') return []
+    const parsed = parseFilesPresentationOutput(block.toolCall.rawOutput)
+    return parsed ? [parsed.presentationId] : []
+  }))
+  const persistedFiles = filesPresentations.filter(
+    (presentation) => !realtimeFilesIds.has(presentation.presentationId),
+  )
+  const presentationBlocks = new Set([...previewBlocks, ...filesBlocks])
+  const otherBlocks = visibleProcessBlocks.filter((block) => !presentationBlocks.has(block))
+  const hasProcess = otherBlocks.length > 0 || !!fallbackStage || canLoadProcess
   const hasPreviewCard = previewBlocks.length > 0 || persistedPreviews.length > 0
+  const hasFilesCard = filesBlocks.length > 0 || persistedFiles.length > 0
 
   const fileChanges = useMemo(() => {
     if (fileChangesDetail?.files.length) return fileChangesDetail
@@ -128,6 +151,14 @@ export function TurnContentView({
           ))}
         </div>
       )}
+      {hasFilesCard && (
+        <div style={{ marginTop: finalAnswer || hasPreviewCard ? 10 : 0 }}>
+          {filesBlocks.map((block) => renderProcessBlock(block))}
+          {renderFilesPresentation && persistedFiles.map((presentation) => (
+            <div key={presentation.presentationId}>{renderFilesPresentation(presentation)}</div>
+          ))}
+        </div>
+      )}
       {showBottomCard && (
         <FileChangesCard
           changes={fileChanges}
@@ -139,6 +170,10 @@ export function TurnContentView({
       )}
     </div>
   )
+}
+
+function isFilesPresentTool(title: string): boolean {
+  return title === 'files.present' || title === 'mcp__ai-ide-tools__files_present'
 }
 
 function processLabel(blockCount: number, processCount?: number, fallbackStage?: string): string {

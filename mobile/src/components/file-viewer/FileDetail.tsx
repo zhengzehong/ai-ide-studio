@@ -22,9 +22,10 @@ interface FileDetailProps {
   loading: boolean
   error: string | null
   onBack: () => void
+  embedded?: boolean
 }
 
-export function FileDetail({ file, loading, error, onBack }: FileDetailProps) {
+export function FileDetail({ file, loading, error, onBack, embedded = false }: FileDetailProps) {
   const [copied, setCopied] = useState(false)
 
   const handleCopy = async () => {
@@ -48,10 +49,12 @@ export function FileDetail({ file, loading, error, onBack }: FileDetailProps) {
 
   return (
     <div style={styles.container}>
-      <div style={styles.header}>
-        <button style={styles.iconBtn} onClick={onBack} aria-label="返回">
-          <ArrowLeft size={20} />
-        </button>
+      <div style={{ ...styles.header, ...(embedded ? styles.embeddedHeader : {}) }}>
+        {!embedded && (
+          <button style={styles.iconBtn} onClick={onBack} aria-label="返回">
+            <ArrowLeft size={20} />
+          </button>
+        )}
         <FileText size={14} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
         <div style={styles.titleWrap}>
           <span style={styles.title}>{file.path.split('/').pop() || file.path}</span>
@@ -123,6 +126,9 @@ const styles: Record<string, CSSProperties> = {
     background: 'var(--bg-card)',
     borderBottom: '1px solid var(--border-light)',
     flexShrink: 0,
+  },
+  embeddedHeader: {
+    paddingTop: 10,
   },
   iconBtn: {
     width: 36,

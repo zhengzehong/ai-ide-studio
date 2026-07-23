@@ -957,6 +957,37 @@ const CORE_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
     defaultScope: 'global',
   },
   {
+    name: 'files.present',
+    displayName: '展示交付文件',
+    description: '向用户展示一个或多个项目交付文件，支持在 PC 和 APP 会话中点击查看。',
+    category: 'filesystem',
+    type: 'builtin',
+    config: { handler: 'files.present' },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: '交付内容标题，默认“本次交付”' },
+        files: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 20,
+          items: {
+            type: 'object',
+            properties: {
+              path: { type: 'string', description: '项目工作目录内的相对文件路径' },
+              title: { type: 'string', description: '文件展示标题，默认使用文件名' },
+            },
+            required: ['path'],
+          },
+        },
+      },
+      required: ['files'],
+    },
+    permissions: CORE_PERMISSIONS,
+    isBuiltin: true,
+    defaultScope: 'global',
+  },
+  {
     name: 'preview.publish',
     displayName: '发布原型预览',
     description:

@@ -1,0 +1,65 @@
+import { createElement, type ComponentType } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { describe, expect, test } from 'vitest'
+import TurnContent from '../../mobile/src/components/chat/TurnContent.tsx'
+import { PresentedFilesOverlay } from '../../mobile/src/components/file-viewer/PresentedFilesOverlay.tsx'
+import type { MessageData } from '../../ui/src/stores/session-events.ts'
+
+const presentation = {
+  kind: 'files' as const,
+  presentationId: 'files-mobile',
+  projectId: 'project-1',
+  title: '本次交付',
+  files: [
+    { path: 'docs/report.md', title: '分析报告', name: 'report.md', extension: '.md', size: 100, kind: 'text' as const, language: 'markdown' },
+    { path: 'docs/plan.md', title: '实施方案', name: 'plan.md', extension: '.md', size: 80, kind: 'text' as const, language: 'markdown' },
+  ],
+  createdAt: '2026-07-23T00:00:00.000Z',
+}
+
+describe('mobile files presentation', () => {
+  test('renders a persisted multi-file presentation outside process history', () => {
+    const Component = TurnContent as unknown as ComponentType<Record<string, unknown>>
+    const message: MessageData = {
+      id: 'msg-files', session_id: 'sess-1', role: 'agent', content: 'Done',
+      thinking: null, tool_calls_json: null, decision_json: null,
+      presentations_json: JSON.stringify([presentation]), parsedPresentations: [presentation],
+      timestamp: '2026-07-23T00:00:01.000Z', status: 'completed', process_item_count: 1,
+    }
+    const html = renderToStaticMarkup(createElement(Component, { message }))
+
+    expect(html).toContain('本次交付')
+    expect(html).toContain('分析报告')
+    expect(html).toContain('实施方案')
+    expect(html).toContain('2 个文件')
+  })
+
+  test('deduplicates history when the realtime tool block has the same presentation id', () => {
+    const Component = TurnContent as unknown as ComponentType<Record<string, unknown>>
+    const message: MessageData = {
+      id: 'msg-files', session_id: 'sess-1', role: 'agent', content: '',
+      thinking: null, tool_calls_json: null, decision_json: null,
+      presentations_json: JSON.stringify([presentation]), parsedPresentations: [presentation],
+      timestamp: '2026-07-23T00:00:01.000Z', status: 'completed',
+      processBlocks: [{
+        id: 'tool-files', kind: 'tool',
+        toolCall: { id: 'tool-files', title: 'files.present', status: 'completed', rawOutput: JSON.stringify(presentation) },
+      }],
+    }
+    const html = renderToStaticMarkup(createElement(Component, { message }))
+
+    expect(html.match(/本次交付/g)).toHaveLength(1)
+  })
+
+  test('offers every presented file as a full-screen switch target', () => {
+    const html = renderToStaticMarkup(createElement(PresentedFilesOverlay, {
+      presentation,
+      onClose: () => undefined,
+    }))
+
+    expect(html).toContain('role="dialog"')
+    expect(html).toContain('aria-label="选择文件"')
+    expect(html).toContain('分析报告')
+    expect(html).toContain('实施方案')
+  })
+})

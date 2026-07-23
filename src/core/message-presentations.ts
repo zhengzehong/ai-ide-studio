@@ -8,9 +8,35 @@ export interface PreviewPresentation {
   createdAt: string
 }
 
+export interface FilePresentationEntry {
+  path: string
+  title: string
+  name: string
+  extension: string
+  size: number
+  kind: 'text' | 'image' | 'binary'
+  language: string
+}
+
+export interface FilesPresentation {
+  kind: 'files'
+  presentationId: string
+  projectId: string
+  title: string
+  files: FilePresentationEntry[]
+  createdAt: string
+}
+
+export type MessagePresentation = PreviewPresentation | FilesPresentation
+
 const PREVIEW_TOOL_TITLES = new Set([
   'preview.publish',
   'mcp__ai-ide-tools__preview_publish',
+])
+
+const FILES_TOOL_TITLES = new Set([
+  'files.present',
+  'mcp__ai-ide-tools__files_present',
 ])
 
 export function presentationsJsonFromToolCalls(toolCalls: unknown[] | undefined): string | null {
@@ -18,29 +44,66 @@ export function presentationsJsonFromToolCalls(toolCalls: unknown[] | undefined)
   return presentations.length > 0 ? JSON.stringify(presentations) : null
 }
 
-export function presentationsFromToolCalls(toolCalls: unknown[] | undefined): PreviewPresentation[] {
+export function presentationsFromToolCalls(toolCalls: unknown[] | undefined): MessagePresentation[] {
   if (!toolCalls?.length) return []
   return toolCalls
-    .map(previewPresentationFromToolCall)
-    .filter((item): item is PreviewPresentation => item !== null)
+    .map(presentationFromToolCall)
+    .filter((item): item is MessagePresentation => item !== null)
 }
 
-export function parsePresentationsJson(raw: string | null | undefined): PreviewPresentation[] {
+export function parsePresentationsJson(raw: string | null | undefined): MessagePresentation[] {
   if (!raw) return []
   try {
     const value = JSON.parse(raw) as unknown
     if (!Array.isArray(value)) return []
-    return value.map(parsePreviewPresentation).filter((item): item is PreviewPresentation => item !== null)
+    return value.map(parsePresentation).filter((item): item is MessagePresentation => item !== null)
   } catch {
     return []
   }
 }
 
-function previewPresentationFromToolCall(value: unknown): PreviewPresentation | null {
+function presentationFromToolCall(value: unknown): MessagePresentation | null {
   const toolCall = record(value)
-  if (!toolCall || !PREVIEW_TOOL_TITLES.has(text(toolCall.title) ?? '')) return null
-  if (toolCall.status !== 'completed') return null
-  return parsePreviewPresentation(unwrapToolOutput(toolCall.rawOutput))
+  if (!toolCall || toolCall.status !== 'completed') return null
+  const title = text(toolCall.title) ?? ''
+  const output = unwrapToolOutput(toolCall.rawOutput)
+  if (PREVIEW_TOOL_TITLES.has(title)) return parsePreviewPresentation(output)
+  if (FILES_TOOL_TITLES.has(title)) return parseFilesPresentation(output)
+  return null
+}
+
+function parsePresentation(value: unknown): MessagePresentation | null {
+  const item = record(value)
+  if (item?.kind === 'preview') return parsePreviewPresentation(value)
+  if (item?.kind === 'files') return parseFilesPresentation(value)
+  return null
+}
+
+function parseFilesPresentation(value: unknown): FilesPresentation | null {
+  const output = record(value)
+  if (!output || output.error !== undefined || output.kind !== 'files') return null
+  const presentationId = text(output.presentationId)
+  const projectId = text(output.projectId)
+  const title = text(output.title)
+  const createdAt = text(output.createdAt)
+  if (!presentationId || !projectId || !title || !createdAt || !Array.isArray(output.files)) return null
+  const files = output.files.map(parseFileEntry).filter((file): file is FilePresentationEntry => file !== null)
+  if (files.length < 1 || files.length > 20 || files.length !== output.files.length) return null
+  return { kind: 'files', presentationId, projectId, title, files, createdAt }
+}
+
+function parseFileEntry(value: unknown): FilePresentationEntry | null {
+  const file = record(value)
+  if (!file) return null
+  const path = text(file.path)
+  const title = text(file.title)
+  const name = text(file.name)
+  const extension = typeof file.extension === 'string' ? file.extension : null
+  const language = text(file.language)
+  const size = typeof file.size === 'number' && Number.isFinite(file.size) && file.size >= 0 ? file.size : null
+  const kind = file.kind === 'text' || file.kind === 'image' || file.kind === 'binary' ? file.kind : null
+  if (!path || !title || !name || extension === null || !language || size === null || !kind) return null
+  return { path, title, name, extension, size, kind, language }
 }
 
 function parsePreviewPresentation(value: unknown): PreviewPresentation | null {
