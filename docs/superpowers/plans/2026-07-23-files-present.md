@@ -65,4 +65,4 @@
 
 - [x] Document the tool contract and message presentation behavior.
 - [x] Run targeted tests, `npx tsc --noEmit`, `npm test`, `npm run build`, `npm run lint`, and `git diff --check`.
-- [ ] Request independent review and merge only after approval.
+- [x] Request independent review and merge only after approval.
