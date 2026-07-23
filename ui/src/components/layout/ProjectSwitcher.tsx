@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { useProjectNavigation } from '../../hooks/use-project-navigation'
 import { useProjectStore, type ProjectData } from '../../stores/project.store'
 import { useProjectSessionStatsStore } from '../../stores/project-session-stats.store'
+import { useUnifiedProjectSessionStats } from '../../hooks/use-unified-project-session-stats'
 import { resolveProjectColor, resolveProjectIcon, usePinnedProjects } from '../../utils/project-meta'
 import { ProjectFormModal, type ProjectFormValue } from '../project/ProjectFormModal'
 import { ProjectActivityBadges } from './ProjectActivityBadges'
@@ -14,7 +15,7 @@ export function ProjectSwitcher() {
   const projects = useProjectStore((state) => state.projects)
   const currentProjectId = useProjectStore((state) => state.currentProjectId)
   const createProject = useProjectStore((state) => state.createProject)
-  const statsByProjectId = useProjectSessionStatsStore((state) => state.statsByProjectId)
+  const statsByProjectId = useUnifiedProjectSessionStats()
   const refreshStatsIfStale = useProjectSessionStatsStore((state) => state.refreshIfStale)
   const togglePin = usePinnedProjects((state) => state.togglePin)
   const isPinned = usePinnedProjects((state) => state.isPinned)

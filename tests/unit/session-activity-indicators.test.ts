@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'vitest'
-import { inferRunningSessions, isRunningStage, sessionIndicator } from '../../ui/src/utils/session-indicators.ts'
+import {
+  inferRunningSessions,
+  isRunningStage,
+  sessionIndicator,
+  summarizeSessionIndicators,
+} from '../../ui/src/utils/session-indicators.ts'
 
 describe('session activity indicators', () => {
   test('prioritizes running over unread and lifecycle status', () => {
@@ -48,5 +53,19 @@ describe('session activity indicators', () => {
     expect(isRunningStage('正在恢复会话...')).toBe(true)
     expect(isRunningStage('生成已中断，可重新发送')).toBe(false)
     expect(isRunningStage('')).toBe(false)
+  })
+
+  test('summarizes running before unread for every session collection', () => {
+    const sessions = [
+      { id: 'sess-running', status: 'active' },
+      { id: 'sess-unread', status: 'active' },
+      { id: 'sess-idle', status: 'active' },
+    ]
+
+    expect(summarizeSessionIndicators(
+      sessions,
+      { 'sess-running': true },
+      { 'sess-running': true, 'sess-unread': true },
+    )).toEqual({ running: 1, unread: 1, total: 3 })
   })
 })
