@@ -27,7 +27,7 @@
 - [x] Run targeted tests and confirm they fail because presentation support is absent.
 - [x] Implement the typed parser, migration, message fields, append/update/copy persistence, and finalization extraction.
 - [x] Run targeted backend tests and confirm they pass.
-- [ ] Commit the backend persistence slice.
+- [x] Commit the backend persistence slice.
 
 ### Task 2: Restore PC Preview Cards
 
@@ -39,11 +39,11 @@
 - Test: `tests/unit/session-store-done-refresh.test.ts`
 - Test: `tests/unit/turn-content-view-preview.test.tsx`
 
-- [ ] Write failing tests proving a completed history message parses `presentations_json` and renders a card without process blocks.
-- [ ] Run targeted PC tests and confirm the card is absent before implementation.
-- [ ] Parse presentation summaries during message normalization and pass them into `TurnContentView`.
-- [ ] Render summary cards outside the process panel and deduplicate against realtime preview blocks by `previewId`.
-- [ ] Run targeted PC tests and confirm they pass.
+- [x] Write failing tests proving a completed history message parses `presentations_json` and renders a card without process blocks.
+- [x] Run targeted PC tests and confirm the card is absent before implementation.
+- [x] Parse presentation summaries during message normalization and pass them into `TurnContentView`.
+- [x] Render summary cards outside the process panel and deduplicate against realtime preview blocks by `previewId`.
+- [x] Run targeted PC tests and confirm they pass.
 - [ ] Commit the PC history restoration slice.
 
 ### Task 3: Restore Mobile Preview Cards

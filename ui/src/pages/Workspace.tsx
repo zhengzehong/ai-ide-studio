@@ -54,6 +54,7 @@ import {
   type ImageAttachmentInfo,
   type PermissionRequestInfo,
   type PlanEntry,
+  type PreviewPresentationInfo,
   type SessionData,
   type ToolCallInfo,
 } from '../stores/session.store'
@@ -3524,12 +3525,14 @@ type ChatMsg = {
   decision_json?: string | null
   attachments_json?: string | null
   file_changes_json?: string | null
+  presentations_json?: string | null
   has_tool_calls?: boolean
   tool_call_count?: number
   process_item_count?: number
   has_file_changes?: boolean
   file_change_count?: number
   parsedFileChanges?: FileChangeSummaryInfo
+  parsedPresentations?: PreviewPresentationInfo[]
   parsedToolCalls?: ToolCallInfo[]
   parsedAttachments?: ImageAttachmentInfo[]
   parsedDecision?: Record<string, unknown> | null
@@ -3663,7 +3666,8 @@ function ChatBubble({
   const processCount = !isTimelineGroup ? (normalizedMessage.process_item_count ?? normalizedMessage.tool_call_count ?? 0) : 0
   const canLoadTurnProcess = !isTimelineGroup && !streaming && role === 'agent' && !!normalizedMessage.session_id && processCount > 0 && !normalizedMessage.processBlocks
   const turnFinalAnswer = !isTimelineGroup ? (normalizedMessage.finalAnswer ?? (canLoadTurnProcess ? normalizedMessage.content : undefined)) : undefined
-  const hasTurnModel = !isTimelineGroup && (turnProcessBlocks.length > 0 || turnFinalAnswer != null || canLoadTurnProcess)
+  const previewPresentations = !isTimelineGroup ? normalizedMessage.parsedPresentations || [] : []
+  const hasTurnModel = !isTimelineGroup && (turnProcessBlocks.length > 0 || turnFinalAnswer != null || canLoadTurnProcess || previewPresentations.length > 0)
   const processLoading = !isTimelineGroup ? turnProcessLoadingByMessageId[normalizedMessage.id] : false
   const processError = !isTimelineGroup ? turnProcessErrorByMessageId[normalizedMessage.id] : undefined
   const fileChangesSummary = !isTimelineGroup
@@ -3744,6 +3748,7 @@ function ChatBubble({
                 fileChangesLoading={fileChangesLoading}
                 fileChangesError={fileChangesError}
                 defaultProcessOpen={streaming || !!normalizedMessage.processDefaultOpen}
+                previewPresentations={previewPresentations}
                 onLoadProcess={loadTurnProcess}
                 onLoadFileChanges={loadFileChanges}
                 renderProcessBlock={(block) => {
@@ -3763,6 +3768,9 @@ function ChatBubble({
                     />
                   )
                 }}
+                renderPreviewPresentation={(preview) => onOpenPreview ? (
+                  <PreviewCard preview={preview} onOpen={onOpenPreview} />
+                ) : null}
               />
             ) : visibleBlocks.map((block, index) => (
                 <ChatBubbleBlockView

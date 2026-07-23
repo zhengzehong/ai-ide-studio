@@ -1,11 +1,11 @@
 ﻿import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ChevronDown, ChevronRight, Loader2 } from 'lucide-react'
 import type { TurnProcessBlock } from '../../stores/turn-blocks'
-import type { FileChangeDetailInfo, FileChangeSummaryInfo } from '../../stores/session-events'
+import type { FileChangeDetailInfo, FileChangeSummaryInfo, PreviewPresentationInfo } from '../../stores/session-events'
 import { MarkdownRenderer } from '../MarkdownRenderer'
 import { FileChangesCard } from './FileChangesCard'
 import { extractTurnFileChanges, fileChangesFromSummary } from './file-changes-utils'
-import { isPreviewPublishTool } from '../../pages/workspace/helpers'
+import { isPreviewPublishTool, parsePreviewPublishOutput } from '../../pages/workspace/helpers'
 
 interface TurnContentViewProps {
   processBlocks: TurnProcessBlock[]
@@ -21,9 +21,11 @@ interface TurnContentViewProps {
   fileChangesLoading?: boolean
   fileChangesError?: string
   defaultProcessOpen?: boolean
+  previewPresentations?: PreviewPresentationInfo[]
   onLoadProcess?: () => void
   onLoadFileChanges?: () => void
   renderProcessBlock: (block: TurnProcessBlock) => ReactNode
+  renderPreviewPresentation?: (preview: PreviewPresentationInfo) => ReactNode
 }
 
 export function TurnContentView({
@@ -40,9 +42,11 @@ export function TurnContentView({
   fileChangesLoading = false,
   fileChangesError,
   defaultProcessOpen = isStreaming,
+  previewPresentations = [],
   onLoadProcess,
   onLoadFileChanges,
   renderProcessBlock,
+  renderPreviewPresentation,
 }: TurnContentViewProps) {
   const [processOpenOverride, setProcessOpenOverride] = useState<'open' | 'closed' | null>(null)
   const processOpen = processOpenOverride === 'open' || (processOpenOverride !== 'closed' && defaultProcessOpen)
@@ -53,8 +57,14 @@ export function TurnContentView({
   const previewBlocks = visibleProcessBlocks.filter(
     (block) => block.kind === 'tool' && isPreviewPublishTool(block.toolCall.title),
   )
+  const realtimePreviewIds = new Set(previewBlocks.flatMap((block) => {
+    if (block.kind !== 'tool') return []
+    const parsed = parsePreviewPublishOutput(block.toolCall.rawOutput)
+    return parsed ? [parsed.previewId] : []
+  }))
+  const persistedPreviews = previewPresentations.filter((preview) => !realtimePreviewIds.has(preview.previewId))
   const otherBlocks = visibleProcessBlocks.filter((block) => !previewBlocks.includes(block))
-  const hasPreviewCard = previewBlocks.length > 0
+  const hasPreviewCard = previewBlocks.length > 0 || persistedPreviews.length > 0
 
   const fileChanges = useMemo(() => {
     if (fileChangesDetail?.files.length) return fileChangesDetail
@@ -113,6 +123,9 @@ export function TurnContentView({
       {hasPreviewCard && (
         <div style={{ marginTop: finalAnswer ? 10 : 0 }}>
           {previewBlocks.map((block) => renderProcessBlock(block))}
+          {renderPreviewPresentation && persistedPreviews.map((preview) => (
+            <div key={preview.previewId}>{renderPreviewPresentation(preview)}</div>
+          ))}
         </div>
       )}
       {showBottomCard && (
