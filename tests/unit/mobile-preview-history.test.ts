@@ -37,4 +37,3 @@ describe('mobile preview presentation history', () => {
     expect(html).toContain('Mobile history preview')
   })
 })
-

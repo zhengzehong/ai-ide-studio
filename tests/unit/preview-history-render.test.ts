@@ -49,4 +49,3 @@ describe('preview presentation history rendering', () => {
     expect(html).toContain('History preview')
   })
 })
-
