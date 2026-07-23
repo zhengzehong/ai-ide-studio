@@ -14,11 +14,15 @@ const PREVIEW_TOOL_TITLES = new Set([
 ])
 
 export function presentationsJsonFromToolCalls(toolCalls: unknown[] | undefined): string | null {
-  if (!toolCalls?.length) return null
-  const presentations = toolCalls
+  const presentations = presentationsFromToolCalls(toolCalls)
+  return presentations.length > 0 ? JSON.stringify(presentations) : null
+}
+
+export function presentationsFromToolCalls(toolCalls: unknown[] | undefined): PreviewPresentation[] {
+  if (!toolCalls?.length) return []
+  return toolCalls
     .map(previewPresentationFromToolCall)
     .filter((item): item is PreviewPresentation => item !== null)
-  return presentations.length > 0 ? JSON.stringify(presentations) : null
 }
 
 export function parsePresentationsJson(raw: string | null | undefined): PreviewPresentation[] {
@@ -89,4 +93,3 @@ function record(value: unknown): Record<string, unknown> | null {
 function text(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null
 }
-

@@ -34,7 +34,7 @@ To avoid duplicate cards when a just-completed turn temporarily contains both re
 
 ## Existing Data
 
-Migration 047 adds the nullable column without rewriting existing rows. Old previews remain recoverable by expanding their process panel, but are not bulk backfilled because reliably parsing every historical `turn_process_items.detail_json` would make startup migration cost proportional to accumulated tool output. All previews completed after the migration persist summaries automatically.
+Migration 047 adds the nullable column and backfills old preview records by selecting only tool process rows whose `title` exactly matches one of the two supported `preview.publish` tool names. It does not parse unrelated tool details, so migration cost is bounded by the small preview subset rather than accumulated tool output. All previews completed after the migration persist summaries automatically.
 
 ## Scope
 
@@ -56,4 +56,3 @@ Excluded:
 ## Failure Handling
 
 Malformed, failed, or incomplete preview tool results produce no summary. History continues to render the final answer and process count normally. A missing preview entity still produces the existing preview-open error behavior and does not break the conversation.
-
