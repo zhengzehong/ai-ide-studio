@@ -5,6 +5,7 @@ import type { ConfigOptionInfo, SessionCapabilities } from '../types/ws-protocol
 import { mapConfigOptions, mergeCapabilitiesFromConfig } from './capabilities.js'
 import type { AgentConnection } from './host-types.js'
 import { resolveDesiredRuntimeMode } from './runtime-mode-preference.js'
+import { configPreferencesWithDefaults } from './runtime-config-defaults.js'
 
 const log = createChildLogger('acp-session-prefs')
 
@@ -94,7 +95,7 @@ async function applyConfigPreferences(
   caps: SessionCapabilities,
   prefs: SessionRuntimePreferences,
 ): Promise<void> {
-  const config = prefs.config
+  const config = configPreferencesWithDefaults(caps.configOptions, prefs.config)
   if (!config) return
 
   for (const [configId, value] of Object.entries(config)) {

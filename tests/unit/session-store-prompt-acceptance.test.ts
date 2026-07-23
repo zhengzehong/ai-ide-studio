@@ -59,6 +59,26 @@ function resetStore(): void {
 describe('Session Prompt acceptance boundary', () => {
   beforeEach(resetStore)
 
+  it('keeps a confirmed Claude config selection without waiting for a capability event', async () => {
+    wsMock.request.mockResolvedValueOnce({ configId: 'effort', value: 'max' })
+    useSessionStore.setState({
+      capabilities: {
+        ...defaultCaps,
+        configOptions: [{
+          id: 'effort',
+          name: 'Effort',
+          type: 'select',
+          currentValue: 'default',
+          options: [{ value: 'default', name: 'Default' }, { value: 'max', name: 'Max' }],
+        }],
+      },
+    })
+
+    await useSessionStore.getState().setConfig('effort', 'max')
+
+    expect(useSessionStore.getState().capabilities.configOptions[0]?.currentValue).toBe('max')
+  })
+
   it('returns a Promise and keeps optimistic state after the server accepts the command', async () => {
     let accept: (() => void) | undefined
     commandMock.execute.mockImplementation(() => new Promise((resolve) => {

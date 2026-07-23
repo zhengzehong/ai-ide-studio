@@ -15,7 +15,7 @@ import { applySdkSessionPreferences, initialCapabilities, openSdkSession } from 
 import { sweepSdkRuntimeIdle } from './sdk-runtime-idle.js'
 import type { RuntimeIdleThresholds } from './runtime-idle-sweep.js'
 import { SdkRuntimeTurns } from './runtime-active-turns.js'
-import { publishSdkLifecycle, requireSdkAgent, requireSdkSession, touchSdkSession } from './sdk-runtime-state.js'
+import { publishSdkLifecycle, requireSdkAgent, requireSdkSession, touchSdkSession, updateSdkSessionConfigPreference } from './sdk-runtime-state.js'
 import type {
   SdkAgentRuntime,
   SdkRuntimeHostDependencies,
@@ -231,6 +231,7 @@ export class SdkRuntimeHost {
       ...(typeof value === 'boolean' ? { type: 'boolean' as const, value } : { value }),
     })
     session.capabilities = mergeCapabilitiesFromConfig(session.capabilities, mapConfigOptions(result.configOptions))
+    updateSdkSessionConfigPreference(session, configId, value)
     if (session.capabilities.currentModeId)
       requireSdkAgent(this.agents, agentId).router.setPermissionMode(sessionId, session.capabilities.currentModeId)
     touchSdkSession(this.agents, session)

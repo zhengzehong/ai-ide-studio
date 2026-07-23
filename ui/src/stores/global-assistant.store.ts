@@ -493,6 +493,15 @@ export const useGlobalAssistantStore = create<GlobalAssistantStore>((set, get) =
     const sid = currentSessionId(get())
     if (!sid) return
     await wsClient.request({ type: 'session.setConfig', sessionId: sid, configId, value })
+    if (currentSessionId(get()) !== sid) return
+    set((state) => ({
+      capabilities: {
+        ...state.capabilities,
+        configOptions: state.capabilities.configOptions.map((option) =>
+          option.id === configId ? { ...option, currentValue: value } : option,
+        ),
+      },
+    }))
   },
 
   cancelTurn: () => {

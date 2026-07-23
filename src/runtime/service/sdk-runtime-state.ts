@@ -26,6 +26,14 @@ export function touchSdkSession(agents: Map<string, SdkAgentRuntime>, session: S
   if (agent) agent.lastUsedAt = now
 }
 
+export function updateSdkSessionConfigPreference(
+  session: SdkSessionRuntime,
+  configId: string,
+  value: string | boolean,
+): void {
+  session.snapshot.runtimePreferences.config = { ...session.snapshot.runtimePreferences.config, [configId]: value }
+}
+
 export function publishSdkLifecycle(
   publishUpdate: SdkRuntimeHostOptions['publishUpdate'],
   snapshot: RuntimeStateSnapshot,

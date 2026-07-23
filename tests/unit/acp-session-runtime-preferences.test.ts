@@ -87,6 +87,31 @@ describe('applySessionRuntimePreferences', () => {
     expect(conn.sessionCapabilities.get(session.id)?.currentModeId).toBe('bypassPermissions')
   })
 
+  test('defaults a first-time Claude Session to Max when ACP supports it', async () => {
+    const agent = agentStore.create({ id: 'agent-claude', name: 'Claude', type: 'dev', runtime: 'claude' })
+    const session = sessionStore.create({ agentId: agent.id })
+    const conn = makeConnection('claude', {
+      configOptions: [{
+        id: 'effort',
+        name: 'Effort',
+        type: 'select',
+        currentValue: 'default',
+        options: [{ value: 'default', name: 'Default' }, { value: 'max', name: 'Max' }],
+      }],
+    })
+    conn.acpSessions.set(session.id, 'acp-1')
+    conn.sessionCapabilities.set(session.id, conn.sessionCapabilities.get('sess-1')!)
+
+    await applySessionRuntimePreferences(conn, session.id)
+
+    expect(conn.connection.setSessionConfigOption).toHaveBeenCalledWith({
+      sessionId: 'acp-1',
+      configId: 'effort',
+      value: 'max',
+    })
+    expect(conn.sessionCapabilities.get(session.id)?.configOptions?.[0]?.currentValue).toBe('max')
+  })
+
   test('keeps ACP current mode when Claude bypass is unavailable', async () => {
     const agent = agentStore.create({ id: 'agent-claude', name: 'Claude', type: 'dev', runtime: 'claude' })
     const session = sessionStore.create({ agentId: agent.id })

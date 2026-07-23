@@ -247,7 +247,8 @@ describe('SDK Runtime child lifecycle', () => {
 
   test('publishes updated capabilities after changing a Session config option', async () => {
     const harness = runtimeHarness()
-    await harness.host.ensureSession(snapshot('session-a'))
+    const state = snapshot('session-a')
+    await harness.host.ensureSession(state)
 
     await harness.host.setConfig('agent-a', 'session-a', 'effort', 'high')
 
@@ -257,6 +258,7 @@ describe('SDK Runtime child lifecycle', () => {
         configOptions: [expect.objectContaining({ id: 'effort', currentValue: 'high' })],
       }),
     )
+    expect(state.runtimePreferences.config).toEqual({ effort: 'high' })
   })
 
   test('keeps an idle Session while an interaction is pending', async () => {
