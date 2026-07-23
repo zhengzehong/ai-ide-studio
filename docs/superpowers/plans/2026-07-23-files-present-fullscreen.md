@@ -16,7 +16,7 @@ Make the PC multi-file presentation viewer open as a full-viewport workspace by 
 - [x] Add a failing PC rendering test for the full-viewport shell and explicit copy action.
 - [x] Implement the full-viewport layout and copy feedback.
 - [x] Run targeted tests, UI build, full tests, lint, TypeScript, and diff check.
-- [ ] Request independent review and merge to `prd` only after approval.
+- [x] Request independent review and merge to `prd` only after approval.
 
 ## Acceptance
 
