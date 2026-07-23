@@ -23,10 +23,10 @@
 - Test: `tests/unit/session-finalize.test.ts`
 - Test: `tests/integration/sqlite-migration.test.ts`
 
-- [ ] Write failing tests for parsing valid MCP output, rejecting malformed/error output, and saving summaries on message finalization.
-- [ ] Run targeted tests and confirm they fail because presentation support is absent.
-- [ ] Implement the typed parser, migration, message fields, append/update/copy persistence, and finalization extraction.
-- [ ] Run targeted backend tests and confirm they pass.
+- [x] Write failing tests for parsing valid MCP output, rejecting malformed/error output, and saving summaries on message finalization.
+- [x] Run targeted tests and confirm they fail because presentation support is absent.
+- [x] Implement the typed parser, migration, message fields, append/update/copy persistence, and finalization extraction.
+- [x] Run targeted backend tests and confirm they pass.
 - [ ] Commit the backend persistence slice.
 
 ### Task 2: Restore PC Preview Cards
@@ -70,4 +70,3 @@
 - [ ] Run `npm run lint`.
 - [ ] Run `git diff --check` and inspect the complete diff.
 - [ ] Request independent code review and merge only after approval.
-

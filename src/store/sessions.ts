@@ -8,6 +8,7 @@ import {
   type SessionRuntimeState,
 } from './session-runtime-state.js'
 import { countToolCalls } from './tool-call-history.js'
+import { presentationsJsonFromToolCalls } from '../core/message-presentations.js'
 
 export type { SessionRuntimeState } from './session-runtime-state.js'
 
@@ -52,6 +53,7 @@ export interface MessageRow {
   decision_json: string | null
   attachments_json: string | null
   file_changes_json: string | null
+  presentations_json: string | null
   status?: string
   started_at?: string | null
   completed_at?: string | null
@@ -542,6 +544,7 @@ export const messageStore = {
       decision_json: input.decision ? JSON.stringify(input.decision) : null,
       attachments_json: input.attachments ? JSON.stringify(input.attachments) : null,
       file_changes_json: input.fileChangesJson ?? fileChangesJsonFromToolCalls(input.toolCalls),
+      presentations_json: presentationsJsonFromToolCalls(input.toolCalls),
       status: input.status ?? 'completed',
       started_at: input.startedAt ?? null,
       completed_at: input.completedAt ?? (input.status && input.status !== 'running' ? new Date().toISOString() : null),
@@ -555,12 +558,12 @@ export const messageStore = {
     getDb().prepare(`
       INSERT INTO messages (
         id, session_id, role, content, thinking, tool_calls_json, decision_json,
-        attachments_json, file_changes_json, status, started_at, completed_at,
+        attachments_json, file_changes_json, presentations_json, status, started_at, completed_at,
         stats_json, process_item_count, timestamp, sender_id, sender_name, sender_role
       )
       VALUES (
         @id, @session_id, @role, @content, @thinking, @tool_calls_json, @decision_json,
-        @attachments_json, @file_changes_json, @status, @started_at, @completed_at,
+        @attachments_json, @file_changes_json, @presentations_json, @status, @started_at, @completed_at,
         @stats_json, @process_item_count, @timestamp, @sender_id, @sender_name, @sender_role
       )
     `).run(msg)
@@ -632,6 +635,7 @@ export const messageStore = {
         decision_json = @decision_json,
         stats_json = @stats_json,
         file_changes_json = @file_changes_json,
+        presentations_json = @presentations_json,
         status = @status,
         completed_at = @completed_at,
         timestamp = @timestamp
@@ -644,6 +648,7 @@ export const messageStore = {
       decision_json: input.stats ? JSON.stringify(input.stats) : null,
       stats_json: input.stats ? JSON.stringify(input.stats) : null,
       file_changes_json: input.fileChangesJson ?? fileChangesJsonFromToolCalls(input.toolCalls),
+      presentations_json: presentationsJsonFromToolCalls(input.toolCalls),
       status: input.status,
       completed_at: now,
       timestamp: now,
@@ -664,12 +669,12 @@ export const messageStore = {
     const insertMessage = db.prepare(`
       INSERT INTO messages (
         id, session_id, role, content, thinking, tool_calls_json, decision_json,
-        attachments_json, file_changes_json, status, started_at, completed_at,
+        attachments_json, file_changes_json, presentations_json, status, started_at, completed_at,
         stats_json, process_item_count, timestamp
       )
       VALUES (
         @id, @session_id, @role, @content, @thinking, @tool_calls_json, @decision_json,
-        @attachments_json, @file_changes_json, @status, @started_at, @completed_at,
+        @attachments_json, @file_changes_json, @presentations_json, @status, @started_at, @completed_at,
         @stats_json, @process_item_count, @timestamp
       )
     `)
