@@ -6,9 +6,10 @@ import type { MessageData } from '@desktop/stores/session-events'
 import type { TurnViewModel } from '@desktop/stores/turn-blocks'
 import { elapsedSecondsBetween } from '@desktop/utils/duration'
 import ProcessBlock from './ProcessBlock'
+import PreviewCard from './PreviewCard'
 import FileChangesCard, { extractFileChangesFromBlocks } from './FileChangesCard'
 import { CodeView } from '../file-viewer/CodeView'
-import { isPreviewPublishTool } from '../../utils/preview-tool'
+import { isPreviewPublishTool, parsePreviewPublishOutput } from '../../utils/preview-tool'
 
 interface Props {
   message?: MessageData
@@ -16,6 +17,7 @@ interface Props {
   processLoading?: boolean
   processError?: string
   onLoadProcess?: (sessionId: string, messageId: string) => void
+  onOpenPreview?: (previewId: string, target: 'pc' | 'app') => void
   liveElapsedSeconds?: number
 }
 
@@ -47,7 +49,7 @@ export function deriveTurnElapsedSeconds(input: {
       : elapsedSecondsBetween(input.message?.started_at, input.message?.completed_at))
 }
 
-export default memo(function TurnContent({ message, streaming, processLoading = false, processError, onLoadProcess, liveElapsedSeconds }: Props) {
+export default memo(function TurnContent({ message, streaming, processLoading = false, processError, onLoadProcess, onOpenPreview, liveElapsedSeconds }: Props) {
   const [processOpenOverride, setProcessOpenOverride] = useState<ProcessOpenOverride>(null)
 
   const processBlocks = streaming?.processBlocks ?? message?.processBlocks ?? []
@@ -62,8 +64,15 @@ export default memo(function TurnContent({ message, streaming, processLoading = 
   const previewBlocks = visibleBlocks.filter(
     (block) => block.kind === 'tool' && isPreviewPublishTool(block.toolCall.title),
   )
+  const realtimePreviewIds = new Set(previewBlocks.flatMap((block) => {
+    if (block.kind !== 'tool') return []
+    const parsed = parsePreviewPublishOutput(block.toolCall.rawOutput)
+    return parsed ? [parsed.previewId] : []
+  }))
+  const persistedPreviews = (message?.parsedPresentations ?? [])
+    .filter((preview) => !realtimePreviewIds.has(preview.previewId))
   const otherBlocks = visibleBlocks.filter((block) => !previewBlocks.includes(block))
-  const hasPreviewCard = previewBlocks.length > 0
+  const hasPreviewCard = previewBlocks.length > 0 || persistedPreviews.length > 0
   const hasProcess = otherBlocks.length > 0 || canLoadProcess || (isStreaming && !!stage)
   const processOpen = resolveProcessOpen(isStreaming, processOpenOverride)
   const processLabelCount = otherBlocks.length > 0 ? otherBlocks.length : processCount
@@ -133,6 +142,13 @@ export default memo(function TurnContent({ message, streaming, processLoading = 
       {hasPreviewCard && (
         <div style={{ marginTop: finalAnswer ? 10 : 0 }}>
           {previewBlocks.map(block => <ProcessBlock key={block.id} block={block} />)}
+          {persistedPreviews.map((preview) => (
+            <PreviewCard
+              key={preview.previewId}
+              preview={preview}
+              onOpen={(previewId) => onOpenPreview?.(previewId, preview.target)}
+            />
+          ))}
         </div>
       )}
 

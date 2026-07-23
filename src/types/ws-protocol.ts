@@ -575,6 +575,7 @@ export interface MessageData {
   decision_json: string | null
   attachments_json: string | null
   file_changes_json: string | null
+  presentations_json: string | null
   status?: string
   started_at?: string | null
   completed_at?: string | null

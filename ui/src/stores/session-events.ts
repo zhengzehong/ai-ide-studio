@@ -21,13 +21,24 @@ export interface ImageAttachmentInfo {
 
 export interface MessageData {
   id: string; session_id: string; role: string; content: string
-  thinking: string | null; tool_calls_json: string | null; decision_json: string | null; attachments_json?: string | null; file_changes_json?: string | null; timestamp: string
+  thinking: string | null; tool_calls_json: string | null; decision_json: string | null; attachments_json?: string | null; file_changes_json?: string | null; presentations_json?: string | null; timestamp: string
   status?: string; started_at?: string | null; completed_at?: string | null; stats_json?: string | null; process_item_count?: number
   has_tool_calls?: boolean; tool_call_count?: number; has_file_changes?: boolean; file_change_count?: number
   parsedToolCalls?: ToolCallInfo[]; parsedAttachments?: ImageAttachmentInfo[]; parsedDecision?: Record<string, unknown> | null
   parsedFileChanges?: FileChangeSummaryInfo
+  parsedPresentations?: PreviewPresentationInfo[]
   processBlocks?: TurnProcessBlock[]; finalAnswer?: string
   processDefaultOpen?: boolean
+}
+
+export interface PreviewPresentationInfo {
+  kind: 'preview'
+  previewId: string
+  url: string
+  title: string
+  target: 'pc' | 'app'
+  taskId: string | null
+  createdAt: string
 }
 
 export interface ToolCallInfo {
@@ -240,6 +251,9 @@ export function normalizeMessage(message: MessageData): MessageData {
   const parsedAttachments = message.attachments_json ? parseJsonArray<ImageAttachmentInfo>(message.attachments_json) : message.parsedAttachments
   const parsedDecision = message.decision_json ? parseJsonObject<Record<string, unknown>>(message.decision_json) : message.parsedDecision
   const parsedFileChanges = message.file_changes_json ? parseJsonObject<FileChangeSummaryInfo>(message.file_changes_json) ?? undefined : message.parsedFileChanges
+  const parsedPresentations = message.presentations_json
+    ? parsePreviewPresentations(message.presentations_json)
+    : message.parsedPresentations
   const hasToolCalls = message.has_tool_calls ?? (!!message.tool_calls_json || !!parsedToolCalls?.length)
   const toolCallCount = message.tool_call_count ?? parsedToolCalls?.length
   const hasFileChanges = message.has_file_changes ?? !!parsedFileChanges?.files.length
@@ -254,6 +268,32 @@ export function normalizeMessage(message: MessageData): MessageData {
     parsedAttachments,
     parsedDecision,
     parsedFileChanges,
+    parsedPresentations,
+  }
+}
+
+export function parsePreviewPresentations(raw: string | null | undefined): PreviewPresentationInfo[] {
+  return parseJsonArray<unknown>(raw)
+    .map((value) => previewPresentation(value))
+    .filter((value): value is PreviewPresentationInfo => value !== null)
+}
+
+function previewPresentation(value: unknown): PreviewPresentationInfo | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const item = value as Record<string, unknown>
+  const previewId = typeof item.previewId === 'string' ? item.previewId : null
+  const title = typeof item.title === 'string' ? item.title : null
+  const createdAt = typeof item.createdAt === 'string' ? item.createdAt : null
+  const target = item.target === 'pc' || item.target === 'app' ? item.target : null
+  if (item.kind !== 'preview' || !previewId || !title || !createdAt || !target) return null
+  return {
+    kind: 'preview',
+    previewId,
+    url: typeof item.url === 'string' && item.url ? item.url : `/preview/${previewId}/`,
+    title,
+    target,
+    taskId: typeof item.taskId === 'string' ? item.taskId : null,
+    createdAt,
   }
 }
 

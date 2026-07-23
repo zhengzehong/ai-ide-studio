@@ -294,6 +294,7 @@ export default function ChatPage() {
                     processLoading={!!turnProcessLoadingByMessageId[msg.id]}
                     processError={turnProcessErrorByMessageId[msg.id]}
                     onLoadProcess={fetchMessageProcess}
+                    onOpenPreview={(previewId, target) => navigate(`/preview/${previewId}?target=${target}`)}
                   />
                 ) : (
                   <span>{msg.content}</span>
@@ -304,7 +305,11 @@ export default function ChatPage() {
           if (item.kind === 'streaming') {
             return (
               <ChatBubble key={item.id} role="agent">
-                <TurnContent streaming={item.message as StreamingMessage} liveElapsedSeconds={liveElapsedSeconds} />
+                <TurnContent
+                  streaming={item.message as StreamingMessage}
+                  liveElapsedSeconds={liveElapsedSeconds}
+                  onOpenPreview={(previewId, target) => navigate(`/preview/${previewId}?target=${target}`)}
+                />
               </ChatBubble>
             )
           }

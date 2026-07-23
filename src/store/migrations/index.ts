@@ -44,6 +44,7 @@ import { writerOutboxMigration } from './043-writer-outbox.js'
 import { runtimeCommandLedgerMigration } from './044-runtime-command-ledger.js'
 import { performanceCoveringIndexesMigration } from './045-performance-covering-indexes.js'
 import { primarySessionUniqueMigration } from './046-primary-session-unique.js'
+import { messagePresentationsMigration } from './047-message-presentations.js'
 import type { Migration } from '../migrator.js'
 
 export const migrations: Migration[] = [
@@ -93,4 +94,5 @@ export const migrations: Migration[] = [
   runtimeCommandLedgerMigration,
   performanceCoveringIndexesMigration,
   primarySessionUniqueMigration,
+  messagePresentationsMigration,
 ]
