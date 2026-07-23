@@ -44,7 +44,7 @@
 - [x] Parse presentation summaries during message normalization and pass them into `TurnContentView`.
 - [x] Render summary cards outside the process panel and deduplicate against realtime preview blocks by `previewId`.
 - [x] Run targeted PC tests and confirm they pass.
-- [ ] Commit the PC history restoration slice.
+- [x] Commit the PC history restoration slice.
 
 ### Task 3: Restore Mobile Preview Cards
 
@@ -54,11 +54,11 @@
 - Modify: `mobile/src/components/chat/PreviewCard.tsx`
 - Test: `tests/unit/mobile-preview-history.test.tsx`
 
-- [ ] Write a failing test proving a completed mobile history message renders a persisted preview summary without process blocks.
-- [ ] Run the targeted mobile test and confirm it fails for the missing summary path.
-- [ ] Parse and render mobile preview summaries using the existing preview card/navigation behavior.
-- [ ] Deduplicate persisted and realtime cards by `previewId`.
-- [ ] Run the targeted mobile test and confirm it passes.
+- [x] Write a failing test proving a completed mobile history message renders a persisted preview summary without process blocks.
+- [x] Run the targeted mobile test and confirm it fails for the missing summary path.
+- [x] Parse and render mobile preview summaries using the existing preview card/navigation behavior.
+- [x] Deduplicate persisted and realtime cards by `previewId`.
+- [x] Run the targeted mobile test and confirm it passes.
 - [ ] Commit the mobile history restoration slice.
 
 ### Task 4: Verify and Review
