@@ -80,6 +80,26 @@ describe('global assistant store', () => {
     commandMock.execute.mockResolvedValue({ commandId: 'command-1', status: 'accepted', duplicate: false })
   })
 
+  test('keeps a confirmed Claude config selection without waiting for a capability event', async () => {
+    useGlobalAssistantStore.setState({
+      session: sessionFixture('sess-global'),
+      capabilities: {
+        ...defaultCaps,
+        configOptions: [{
+          id: 'effort',
+          name: 'Effort',
+          type: 'select',
+          currentValue: 'default',
+          options: [{ value: 'default', name: 'Default' }, { value: 'max', name: 'Max' }],
+        }],
+      },
+    })
+
+    await useGlobalAssistantStore.getState().setConfig('effort', 'max')
+
+    expect(useGlobalAssistantStore.getState().capabilities.configOptions[0]?.currentValue).toBe('max')
+  })
+
   test('removes an expired permission card and exposes an actionable error', async () => {
     useGlobalAssistantStore.setState({
       session: { id: 'sess-global' } as never,

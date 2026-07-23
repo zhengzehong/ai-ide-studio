@@ -1721,6 +1721,15 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     if (!sid) return
     try {
       await wsClient.request({ type: 'session.setConfig', sessionId: sid, configId, value })
+      if (get().currentSessionId !== sid) return
+      set((state) => ({
+        capabilities: {
+          ...state.capabilities,
+          configOptions: state.capabilities.configOptions.map((option) =>
+            option.id === configId ? { ...option, currentValue: value } : option,
+          ),
+        },
+      }))
     } catch (e) {
       console.error('配置切换失败:', e)
     }

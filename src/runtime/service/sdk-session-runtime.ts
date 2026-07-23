@@ -1,5 +1,6 @@
 import type * as acp from '@agentclientprotocol/sdk'
 import { mapConfigOptions, mergeCapabilitiesFromConfig } from '../../acp/capabilities.js'
+import { configPreferencesWithDefaults } from '../../acp/runtime-config-defaults.js'
 import { resolveDesiredRuntimeMode } from '../../acp/runtime-mode-preference.js'
 import type { RuntimeStateSnapshot } from '../../ports/runtime-port.js'
 import { createChildLogger } from '../../shared/logger.js'
@@ -77,7 +78,8 @@ export async function applySdkSessionPreferences(input: {
       )
     }
   }
-  for (const [configId, value] of Object.entries(preferences.config ?? {})) {
+  const config = configPreferencesWithDefaults(input.capabilities.configOptions, preferences.config)
+  for (const [configId, value] of Object.entries(config ?? {})) {
     await input.setConfig(configId, value)
   }
 }
