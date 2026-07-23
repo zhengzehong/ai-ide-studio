@@ -93,6 +93,8 @@ npx tsx scripts/performance/phase-5-soak.ts --json
 
 `project-data-scope.test.ts` 覆盖 A → B → A 导航期间 Store 必须重新激活而网络刷新保持去重；`http-query-routes.test.ts` 和 `query-read-model-performance.test.ts` 锁定 Session Recovery 不返回完整工具 payload、Task summary 不返回完整正文，并检查 262 个长描述任务的列表响应小于 512 KiB。
 
+`session-read-fence.test.ts`、`session-store-done-refresh.test.ts` 和 `session-activity-indicators.test.ts` 锁定 Session/Agent/项目使用一致的运行中与未读语义，并覆盖列表响应竞态、后台完成后重新可见再确认已读。`ws-client.test.ts` 使用 fake timer 验证 15 秒 ping、30 秒静默超时、任意入站帧续期和断开清理；`project-session-stats-store.test.ts` 覆盖 30 秒 stale recovery 与页面重新可见恢复。
+
 浏览器 runner 默认使用 `C:\Program Files\Google\Chrome\Application\chrome.exe`；其他安装位置通过 `PLAYWRIGHT_CHROME_PATH` 指定。运行前先执行 `npm run build`。
 
 ## Runtime 取消回归

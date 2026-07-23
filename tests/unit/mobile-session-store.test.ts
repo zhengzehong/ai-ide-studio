@@ -242,7 +242,7 @@ test('session activity updates local running indicator within the current projec
   cleanup()
 })
 
-test('session:changed with lastReadAt updates local read state and clears unread', async () => {
+test('session:changed with last_read_at updates local read state and clears unread', async () => {
   const handlers = new Map<string, (msg: Record<string, unknown>) => void>()
   vi.spyOn(wsClient, 'on').mockImplementation((event, handler) => {
     handlers.set(event, handler)
@@ -274,7 +274,7 @@ test('session:changed with lastReadAt updates local read state and clears unread
   handlers.get('session:changed')?.({
     type: 'session:changed',
     sessionId: 'sess-a',
-    data: { lastReadAt: newLastReadAt },
+    data: { last_read_at: newLastReadAt },
   })
 
   expect(useSessionStore.getState().sessions[0]).toMatchObject({ unread: false, lastReadAt: newLastReadAt })

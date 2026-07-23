@@ -29,6 +29,7 @@ interface ProjectSessionStatsStore {
 }
 
 let refreshTimer: ReturnType<typeof setTimeout> | null = null
+let staleRefreshTimer: ReturnType<typeof setInterval> | null = null
 
 export const useProjectSessionStatsStore = create<ProjectSessionStatsStore>((set, get) => ({
   statsByProjectId: {},
@@ -95,12 +96,38 @@ export const useProjectSessionStatsStore = create<ProjectSessionStatsStore>((set
     }
     const offActivity = wsClient.on('session:activity', scheduleRefresh)
     const offChanged = wsClient.on('session:changed', scheduleRefresh)
+    const recoverVisibleStats = (): void => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+      void get().refreshIfStale(0)
+    }
+    const handleVisibilityChange = (): void => {
+      if (document.visibilityState === 'visible') recoverVisibleStats()
+    }
+    staleRefreshTimer = setInterval(() => {
+      void get().refreshIfStale()
+    }, PROJECT_SESSION_STATS_STALE_MS)
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityChange)
+    }
+    if (typeof window !== 'undefined') {
+      window.addEventListener('focus', recoverVisibleStats)
+    }
     return () => {
       offActivity()
       offChanged()
       if (refreshTimer) {
         clearTimeout(refreshTimer)
         refreshTimer = null
+      }
+      if (staleRefreshTimer) {
+        clearInterval(staleRefreshTimer)
+        staleRefreshTimer = null
+      }
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityChange)
+      }
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('focus', recoverVisibleStats)
       }
     }
   },

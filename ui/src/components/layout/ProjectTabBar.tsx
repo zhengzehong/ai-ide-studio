@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, MoreHorizontal, X } from 'lucide-react'
 import { useProjectNavigation } from '../../hooks/use-project-navigation'
 import { useProjectStore, type ProjectData } from '../../stores/project.store'
-import { useProjectSessionStatsStore } from '../../stores/project-session-stats.store'
+import { useUnifiedProjectSessionStats } from '../../hooks/use-unified-project-session-stats'
 import {
   MAX_PINNED,
   resolveProjectColor,
@@ -15,7 +15,7 @@ export function ProjectTabBar() {
   const projects = useProjectStore((state) => state.projects)
   const currentProjectId = useProjectStore((state) => state.currentProjectId)
   const previousProjectId = useProjectStore((state) => state.previousProjectId)
-  const statsByProjectId = useProjectSessionStatsStore((state) => state.statsByProjectId)
+  const statsByProjectId = useUnifiedProjectSessionStats()
   const { pinnedIds, togglePin, reorder } = usePinnedProjects()
   const { switchProject } = useProjectNavigation()
   const [dragIndex, setDragIndex] = useState<number | null>(null)

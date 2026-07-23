@@ -109,10 +109,21 @@ describe('widget session RPC', () => {
       unread: true,
     })
 
+    const changed: Array<{ sessionId: string; data: Record<string, unknown> }> = []
+    const onChanged = (event: { sessionId: string; data: Record<string, unknown> }): void => {
+      changed.push(event)
+    }
+    events.on('session:changed', onChanged)
     await callWidgetRpc('widget.sessions.markRead', { sessionId: session.id })
+    events.off('session:changed', onChanged)
     const afterRead = await callWidgetRpc('widget.sessions.list') as Array<Record<string, unknown>>
 
     expect(afterRead).toEqual([])
+    expect(changed.at(-1)).toMatchObject({
+      sessionId: session.id,
+      data: { last_read_at: expect.any(String) },
+    })
+    expect(changed.at(-1)?.data).not.toHaveProperty('lastReadAt')
   })
 
   test('uses message.done events as unread completion fallback', async () => {

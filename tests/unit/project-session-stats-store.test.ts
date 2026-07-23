@@ -17,6 +17,7 @@ vi.mock('../../ui/src/services/ws-client', () => ({ wsClient: wsMock }))
 
 const {
   PROJECT_SESSION_STATS_DEBOUNCE_MS,
+  PROJECT_SESSION_STATS_STALE_MS,
   useProjectSessionStatsStore,
 } = await import('../../ui/src/stores/project-session-stats.store.ts')
 
@@ -123,5 +124,45 @@ describe('project session stats store', () => {
     await vi.advanceTimersByTimeAsync(1)
     expect(wsMock.request).toHaveBeenCalledTimes(1)
     cleanup()
+  })
+
+  test('refreshes stale project summaries every 30 seconds', async () => {
+    vi.useFakeTimers()
+    wsMock.request.mockResolvedValue(snapshot('project-a', 1, 0))
+    useProjectSessionStatsStore.setState({
+      initialized: true,
+      fetchedAt: Date.now() - PROJECT_SESSION_STATS_STALE_MS,
+    })
+    const cleanup = useProjectSessionStatsStore.getState().setupListeners()
+
+    await vi.advanceTimersByTimeAsync(PROJECT_SESSION_STATS_STALE_MS)
+
+    expect(wsMock.request).toHaveBeenCalledTimes(1)
+    cleanup()
+  })
+
+  test('forces recovery when the document becomes visible', async () => {
+    vi.useFakeTimers()
+    const visibilityHandlers = new Set<() => void>()
+    vi.stubGlobal('document', {
+      visibilityState: 'visible',
+      addEventListener: (event: string, handler: () => void) => {
+        if (event === 'visibilitychange') visibilityHandlers.add(handler)
+      },
+      removeEventListener: (event: string, handler: () => void) => {
+        if (event === 'visibilitychange') visibilityHandlers.delete(handler)
+      },
+    })
+    wsMock.request.mockResolvedValue(snapshot('project-a', 0, 0))
+    useProjectSessionStatsStore.setState({ initialized: true, fetchedAt: Date.now() })
+    const cleanup = useProjectSessionStatsStore.getState().setupListeners()
+
+    for (const handler of visibilityHandlers) handler()
+    await vi.runAllTicks()
+
+    expect(wsMock.request).toHaveBeenCalledTimes(1)
+    cleanup()
+    expect(visibilityHandlers.size).toBe(0)
+    vi.unstubAllGlobals()
   })
 })

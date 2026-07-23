@@ -15,6 +15,12 @@ export interface SessionIndicatorView {
   title: string
 }
 
+export interface SessionIndicatorSummary {
+  running: number
+  unread: number
+  total: number
+}
+
 const RUNNING_STAGE_TEXTS = new Set([
   '正在准备 Agent...',
   '正在启动 Agent...',
@@ -64,6 +70,20 @@ export function inferRunningSessions(sessions: IndicatorSession[]): SessionIndic
 
 export function inferRunningSessionsFromStages(sessions: IndicatorSession[]): SessionIndicatorStateMap {
   return inferRunningSessions(sessions)
+}
+
+export function summarizeSessionIndicators(
+  sessions: IndicatorSession[],
+  runningSessionIds: SessionIndicatorStateMap,
+  unreadSessionIds: SessionIndicatorStateMap,
+): SessionIndicatorSummary {
+  let running = 0
+  let unread = 0
+  for (const session of sessions) {
+    if (runningSessionIds[session.id]) running++
+    else if (unreadSessionIds[session.id]) unread++
+  }
+  return { running, unread, total: sessions.length }
 }
 
 function isRunningSession(session: IndicatorSession): boolean {

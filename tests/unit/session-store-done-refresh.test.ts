@@ -939,6 +939,199 @@ describe('session store done handling', () => {
     }
   })
 
+  test('removes a stale local unread indicator when the server snapshot is read', async () => {
+    resetStore()
+    wsMock.request.mockReset()
+    wsMock.request.mockImplementation(async (msg: Record<string, unknown>) => {
+      if (msg.type !== 'sessions.list') return []
+      return [{
+        id: 'sess-server-read',
+        agent_id: 'agent-read',
+        task_id: null,
+        acp_session_id: null,
+        status: 'active',
+        stage: '',
+        started_at: '2026-07-23T00:00:00.000Z',
+        closed_at: null,
+        project_id: 'proj-server-read',
+        activity_state: 'idle',
+        last_message_at: '2026-07-23T00:01:00.000Z',
+        last_read_at: '2026-07-23T00:02:00.000Z',
+      }]
+    })
+    useSessionStore.setState({
+      currentSessionId: null,
+      unreadSessionIds: { 'sess-server-read': true },
+    })
+    useSessionStore.getState().activateProject('proj-server-read')
+
+    await useSessionStore.getState().fetchSessions(undefined, 'proj-server-read', { force: true })
+
+    expect(useSessionStore.getState().unreadSessionIds['sess-server-read']).toBeUndefined()
+  })
+
+  test('does not let a stale unread list response override a newer read acknowledgement', async () => {
+    resetStore()
+    wsMock.request.mockReset()
+    let resolveList!: (sessions: unknown[]) => void
+    const listResponse = new Promise<unknown[]>((resolve) => {
+      resolveList = resolve
+    })
+    wsMock.request.mockImplementation(async (msg: Record<string, unknown>) => {
+      if (msg.type === 'sessions.list') return listResponse
+      return []
+    })
+    useSessionStore.setState({ currentSessionId: null })
+    useSessionStore.getState().activateProject('proj-stale-read')
+
+    const pending = useSessionStore.getState().fetchSessions(undefined, 'proj-stale-read', { force: true })
+    await vi.waitFor(() => expect(wsMock.request).toHaveBeenCalledWith({
+      type: 'sessions.list',
+      projectId: 'proj-stale-read',
+    }))
+    useSessionStore.getState().selectSession('sess-stale-read')
+    useSessionStore.getState().selectSession(null)
+    resolveList([{
+      id: 'sess-stale-read',
+      agent_id: 'agent-read',
+      task_id: null,
+      acp_session_id: null,
+      status: 'active',
+      stage: '',
+      started_at: '2026-07-23T00:00:00.000Z',
+      closed_at: null,
+      project_id: 'proj-stale-read',
+      activity_state: 'idle',
+      last_message_at: '2026-07-23T00:02:00.000Z',
+      last_read_at: '2026-07-23T00:01:00.000Z',
+    }])
+    await pending
+
+    expect(useSessionStore.getState().unreadSessionIds['sess-stale-read']).toBeUndefined()
+  })
+
+  test('acknowledges a visible current Session after its final message is committed', async () => {
+    resetStore()
+    wsMock.request.mockReset()
+    wsMock.request.mockResolvedValue([])
+    const cleanup = useSessionStore.getState().setupListeners()
+
+    try {
+      emit('session:done', {
+        sessionId: 'sess-refresh',
+        agentId: 'agent-read',
+        messageId: 'message-final',
+        stopReason: 'end_turn',
+      })
+
+      await vi.waitFor(() => expect(wsMock.request).toHaveBeenCalledWith({
+        type: 'sessions.markRead',
+        sessionId: 'sess-refresh',
+      }))
+    } finally {
+      cleanup()
+    }
+  })
+
+  test('keeps a hidden current Session unread until the document becomes visible', async () => {
+    resetStore()
+    wsMock.request.mockReset()
+    wsMock.request.mockResolvedValue([])
+    let visibilityState = 'hidden'
+    const visibilityHandlers = new Set<() => void>()
+    vi.stubGlobal('document', {
+      get visibilityState() { return visibilityState },
+      addEventListener: (event: string, handler: () => void) => {
+        if (event === 'visibilitychange') visibilityHandlers.add(handler)
+      },
+      removeEventListener: (event: string, handler: () => void) => {
+        if (event === 'visibilitychange') visibilityHandlers.delete(handler)
+      },
+    })
+    useSessionStore.setState({
+      sessions: [{
+        id: 'sess-refresh',
+        agent_id: 'agent-read',
+        task_id: null,
+        acp_session_id: null,
+        status: 'active',
+        stage: '',
+        started_at: '2026-07-23T00:00:00.000Z',
+        closed_at: null,
+        last_message_at: '2026-07-23T00:02:00.000Z',
+        last_read_at: '2026-07-23T00:01:00.000Z',
+      }],
+    })
+    const cleanup = useSessionStore.getState().setupListeners()
+
+    try {
+      emit('session:done', {
+        sessionId: 'sess-refresh',
+        agentId: 'agent-read',
+        messageId: 'message-hidden',
+        stopReason: 'end_turn',
+      })
+
+      expect(useSessionStore.getState().unreadSessionIds['sess-refresh']).toBe(true)
+      expect(wsMock.request).not.toHaveBeenCalledWith({
+        type: 'sessions.markRead',
+        sessionId: 'sess-refresh',
+      })
+
+      visibilityState = 'visible'
+      for (const handler of visibilityHandlers) handler()
+
+      await vi.waitFor(() => expect(wsMock.request).toHaveBeenCalledWith({
+        type: 'sessions.markRead',
+        sessionId: 'sess-refresh',
+      }))
+      expect(useSessionStore.getState().unreadSessionIds['sess-refresh']).toBeUndefined()
+    } finally {
+      cleanup()
+      vi.unstubAllGlobals()
+    }
+  })
+
+  test('clears a stale unread indicator when the current Session is selected again', () => {
+    resetStore()
+    useSessionStore.setState({ unreadSessionIds: { 'sess-refresh': true } })
+
+    useSessionStore.getState().selectSession('sess-refresh')
+
+    expect(useSessionStore.getState().unreadSessionIds['sess-refresh']).toBeUndefined()
+  })
+
+  test('clears current unread state when the canonical read event arrives', () => {
+    resetStore()
+    useSessionStore.setState({
+      sessions: [{
+        id: 'sess-refresh',
+        agent_id: 'agent-read',
+        task_id: null,
+        acp_session_id: null,
+        status: 'active',
+        stage: '',
+        started_at: '2026-07-23T00:00:00.000Z',
+        closed_at: null,
+        last_message_at: '2026-07-23T00:01:00.000Z',
+        last_read_at: '2026-07-23T00:00:00.000Z',
+      }],
+      unreadSessionIds: { 'sess-refresh': true },
+    })
+    const cleanup = useSessionStore.getState().setupListeners()
+
+    try {
+      emit('session:changed', {
+        sessionId: 'sess-refresh',
+        data: { last_read_at: '2026-07-23T00:02:00.000Z' },
+      })
+
+      expect(useSessionStore.getState().unreadSessionIds['sess-refresh']).toBeUndefined()
+    } finally {
+      cleanup()
+    }
+  })
+
   test('does not clear running indicator on done when refreshed messages still show a running agent turn', async () => {
     resetStore()
     wsMock.request.mockReset()

@@ -60,7 +60,7 @@ function markSessionRead(sessionId: string): { sessionId: string; lastReadAt: st
   const session = sessionStore.get(sessionId)
   if (!session) throw new Error('会话不存在')
   const lastReadAt = sessionStore.markRead(sessionId)
-  events.emit('session:changed', { sessionId, data: { lastReadAt } })
+  events.emit('session:changed', { sessionId, data: { last_read_at: lastReadAt } })
   log.info({ sessionId, lastReadAt }, 'session marked as read')
   return { sessionId, lastReadAt }
 }

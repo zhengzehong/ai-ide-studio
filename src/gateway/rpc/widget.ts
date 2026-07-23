@@ -146,7 +146,7 @@ export const widgetRpcHandlers: RpcHandlerMap = {
     if (!sessionStore.get(sessionId)) return sendError('会话不存在')
     widgetStateStore.markRead(sessionId)
     sessionStore.markRead(sessionId)
-    events.emit('session:changed', { sessionId, data: { lastReadAt: new Date().toISOString() } })
+    events.emit('session:changed', { sessionId, data: { last_read_at: new Date().toISOString() } })
     sendResult({ ok: true })
   },
 

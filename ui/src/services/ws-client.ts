@@ -1,6 +1,10 @@
 type MessageHandler = (msg: Record<string, unknown>) => void
 type EndpointResolver = () => Promise<string>
 
+export const WS_HEARTBEAT_INTERVAL_MS = 15_000
+export const WS_HEARTBEAT_TIMEOUT_MS = 30_000
+const WS_RECONNECT_DELAY_MS = 3_000
+
 class WSClient {
   private ws: WebSocket | null = null
   private handlers = new Map<string, Set<MessageHandler>>()
@@ -17,6 +21,8 @@ class WSClient {
   private eventListenersReady = false
   private pendingSubscriptionRestore = false
   private pendingRestoreNeedsResume = false
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null
+  private lastInboundAt = 0
 
   get connected() { return this._connected }
 
@@ -40,6 +46,7 @@ class WSClient {
   private open(url: string, generation: number) {
     if (generation !== this.connectGeneration) return
     this.intentionalClose = true
+    this.stopHeartbeat()
     if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null }
     if (this.ws) { this.detachSocket(this.ws); this.ws.close(); this.ws = null }
 
@@ -56,6 +63,7 @@ class WSClient {
     this.ws.onopen = () => {
       if (this.ws !== socket) return
       this._connected = true
+      this.startHeartbeat(socket)
       this.emit('connection', { connected: true })
       // Emit 'reconnected' after the first successful connect so subscribers
       // can refresh state that may have gone stale during the disconnect.
@@ -71,10 +79,11 @@ class WSClient {
 
     this.ws.onclose = (event) => {
       if (this.ws !== socket) return
+      this.stopHeartbeat()
       this._connected = false
       this.emit('connection', { connected: false, code: event.code, reason: event.reason })
       if (!this.intentionalClose) {
-        this.reconnectTimer = setTimeout(() => this.reconnect(), 3000)
+        this.scheduleReconnect()
       }
     }
 
@@ -90,6 +99,7 @@ class WSClient {
 
     this.ws.onmessage = (event) => {
       if (this.ws !== socket) return
+      this.lastInboundAt = Date.now()
       try {
         const msg = JSON.parse(event.data as string)
         this.captureCursor(msg)
@@ -111,9 +121,42 @@ class WSClient {
     if (this.endpoint) this.connect(this.endpoint)
   }
 
+  private scheduleReconnect(): void {
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
+    this.reconnectTimer = setTimeout(() => this.reconnect(), WS_RECONNECT_DELAY_MS)
+  }
+
+  private startHeartbeat(socket: WebSocket): void {
+    this.stopHeartbeat()
+    this.lastInboundAt = Date.now()
+    this.heartbeatTimer = setInterval(() => {
+      if (this.ws !== socket || socket.readyState !== WebSocket.OPEN) return
+      if (Date.now() - this.lastInboundAt >= WS_HEARTBEAT_TIMEOUT_MS) {
+        this.stopHeartbeat()
+        this.detachSocket(socket)
+        this.ws = null
+        socket.close()
+        this._connected = false
+        this.emit('connection', { connected: false, reason: 'heartbeat-timeout' })
+        if (!this.intentionalClose) this.scheduleReconnect()
+        return
+      }
+      socket.send(JSON.stringify({ type: 'ping', timestamp: Date.now() }))
+    }, WS_HEARTBEAT_INTERVAL_MS)
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer)
+      this.heartbeatTimer = null
+    }
+    this.lastInboundAt = 0
+  }
+
   disconnect() {
     this.connectGeneration += 1
     this.intentionalClose = true
+    this.stopHeartbeat()
     if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null }
     if (this.ws) { this.detachSocket(this.ws); this.ws.close(); this.ws = null }
     this._connected = false

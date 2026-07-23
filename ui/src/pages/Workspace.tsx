@@ -132,6 +132,7 @@ import { ShareModal } from './share/ShareModal'
 import { Share2 } from 'lucide-react'
 import { useWorkspaceProjectState } from './workspace/use-workspace-project-state'
 import { resolveWorkspaceLoadState } from './workspace/load-state'
+import { summarizeSessionIndicators } from '../utils/session-indicators'
 
 const COPYING_STAGE = '正在复制会话...'
 
@@ -277,16 +278,11 @@ export default function Workspace() {
   )
 
   const agentSessionStats = useCallback(
-    (agentId: string) => {
-      const list = agentSessions(agentId)
-      let running = 0
-      let unread = 0
-      for (const s of list) {
-        if (runningSessionIds[s.id]) running++
-        else if (unreadSessionIds[s.id]) unread++
-      }
-      return { running, unread, total: list.length }
-    },
+    (agentId: string) => summarizeSessionIndicators(
+      agentSessions(agentId),
+      runningSessionIds,
+      unreadSessionIds,
+    ),
     [agentSessions, runningSessionIds, unreadSessionIds],
   )
 
