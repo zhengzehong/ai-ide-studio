@@ -29,7 +29,7 @@ afterEach(() => {
 })
 
 describe('Session command service', () => {
-  it('marks a Session read and emits the existing changed payload', async () => {
+  it('marks a Session read and emits the canonical changed payload', async () => {
     const session = sessionStore.create({ agentId: 'agent-1' })
     const changed: Array<{ sessionId: string; data: unknown }> = []
     const { events } = await import('../../src/core/events.js')
@@ -44,8 +44,16 @@ describe('Session command service', () => {
     expect(sessionStore.get(session.id)?.last_read_at).toBeTruthy()
     expect(changed.at(-1)).toMatchObject({
       sessionId: session.id,
-      data: { lastReadAt: expect.any(String) },
+      data: { last_read_at: expect.any(String) },
     })
+    expect(changed.at(-1)?.data).not.toHaveProperty('lastReadAt')
+  })
+
+  it('persists the initial read timestamp when a Session is created', () => {
+    const session = sessionStore.create({ agentId: 'agent-1' })
+
+    expect(session.last_read_at).toEqual(expect.any(String))
+    expect(sessionStore.get(session.id)?.last_read_at).toBe(session.last_read_at)
   })
 
   it('preserves permission and elicitation runtime resolution plus persisted events', async () => {

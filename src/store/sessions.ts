@@ -161,11 +161,11 @@ export const sessionStore = {
     getDb().prepare(`
       INSERT INTO sessions (
         id, agent_id, task_id, acp_session_id, status, stage, started_at, closed_at,
-        project_id, title, updated_at, last_message_at, archived_at, deleted_at, runtime_preferences_json, sort_order, is_primary, is_template
+        project_id, title, updated_at, last_message_at, last_read_at, archived_at, deleted_at, runtime_preferences_json, sort_order, is_primary, is_template
       )
       VALUES (
         @id, @agent_id, @task_id, @acp_session_id, @status, @stage, @started_at, @closed_at,
-        @project_id, @title, @updated_at, @last_message_at, @archived_at, @deleted_at, @runtime_preferences_json, @sort_order, @is_primary, @is_template
+        @project_id, @title, @updated_at, @last_message_at, @last_read_at, @archived_at, @deleted_at, @runtime_preferences_json, @sort_order, @is_primary, @is_template
       )
     `).run(session)
     return session
