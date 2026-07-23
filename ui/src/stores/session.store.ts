@@ -87,6 +87,10 @@ import {
   createSessionActivityFence,
   type SessionActivityState,
 } from './session-activity-fence'
+import {
+  createSessionReadFence,
+  reconcileUnreadSessionIndicators,
+} from './session-read-fence'
 
 const COPYING_STAGE = '正在复制会话...'
 
@@ -298,6 +302,7 @@ const sessionCaches = new Map<string, SessionCache>()
 const cacheSaveTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const eventCursorBySession = new Map<string, number>()
 const sessionActivityFence = createSessionActivityFence()
+const sessionReadFence = createSessionReadFence()
 let sessionSelectionController: AbortController | null = null
 let sessionSelectionGeneration = 0
 const streamingBuffer = new StreamingBuffer()
@@ -522,6 +527,27 @@ function patchSessionActivity(
         session.id === sessionId ? { ...session, activity_state: activityState } : session
       )),
   }
+}
+
+function patchSessionReadAt(
+  sessionListCache: ProjectCacheState<SessionData[]>,
+  activeSessionScope: string,
+  sessions: SessionData[],
+  sessionId: string,
+  lastReadAt: string,
+): { sessionListCache: ProjectCacheState<SessionData[]>; sessions: SessionData[] } {
+  const nextCache = patchSessionInListCache(sessionListCache, sessionId, { last_read_at: lastReadAt })
+  return {
+    sessionListCache: nextCache,
+    sessions: readProjectCache(nextCache, activeSessionScope)?.data
+      ?? sessions.map((session) => (
+        session.id === sessionId ? { ...session, last_read_at: lastReadAt } : session
+      )),
+  }
+}
+
+function isDocumentVisible(): boolean {
+  return typeof document === 'undefined' || document.visibilityState !== 'hidden'
 }
 
 function hasRunningAgentMessage(messages: MessageData[], sessionId: string): boolean {
@@ -981,6 +1007,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     }
 
     const activityCheckpoint = sessionActivityFence.checkpoint()
+    const readCheckpoint = sessionReadFence.checkpoint()
 
     let requestSeq = 0
     set((state) => {
@@ -1001,7 +1028,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         const scopedSessions = scopedProjectId
           ? data.filter((session) => session.project_id === scopedProjectId)
           : data
-        const sessions = sessionActivityFence.applyNewer(scopedSessions, activityCheckpoint)
+        const activitySessions = sessionActivityFence.applyNewer(scopedSessions, activityCheckpoint)
+        const readSnapshot = sessionReadFence.applySnapshot(activitySessions, readCheckpoint)
+        const sessions = readSnapshot.sessions
         set((state) => {
           const sessionListCache = pruneProjectCache(commitProjectResponse(state.sessionListCache, {
             scope,
@@ -1011,19 +1040,20 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           if (state.activeSessionScope !== scope) return { sessionListCache }
           const activeSessions = readProjectCache(sessionListCache, scope)?.data ?? []
           const runningSessions = Object.keys(inferRunningSessions(activeSessions))
-        const serverUnread: SessionIndicatorStateMap = {}
-          for (const session of activeSessions) {
-          if (state.currentSessionId === session.id) continue
-          if (isSessionUnreadByTimestamps(session)) serverUnread[session.id] = true
-        }
-        const mergedUnread: SessionIndicatorStateMap = { ...state.unreadSessionIds, ...serverUnread }
-        const unreadAfterRunning = removeSessionIndicators(mergedUnread, runningSessions)
+        const inferredRunningSessionIds = inferRunningSessions(activeSessions)
+        const unreadSessionIds = reconcileUnreadSessionIndicators(
+          state.unreadSessionIds,
+          activeSessions,
+          state.currentSessionId,
+          inferredRunningSessionIds,
+          readSnapshot.forcedUnreadSessionIds,
+        )
         return {
             sessionListCache,
             sessions: activeSessions,
             ...reconcileCopyingSessions(activeSessions, state.copyingTargetSessionIds),
             runningSessionIds: reconcileRunningSessionIndicators(state.runningSessionIds, activeSessions),
-          unreadSessionIds: unreadAfterRunning,
+          unreadSessionIds,
           staleSessionIds: removeSessionIndicators(state.staleSessionIds, runningSessions),
           error: null,
           loading: false,
@@ -1463,6 +1493,28 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     // 防止 markRead → session:changed → sessions 引用变 → effect 重触发 → 又调 selectSession 的死循环。
     // prev === id 时直接返回,避免切断订阅 / 重置缓存等副作用也重新执行一遍。
     if (prev === id) {
+      if (id) {
+        const state = get()
+        const session = state.sessions.find((item) => item.id === id)
+        const shouldAcknowledge = !!state.unreadSessionIds[id]
+          || (!!session && isSessionUnreadByTimestamps(session))
+        set({ unreadSessionIds: removeSessionIndicator(state.unreadSessionIds, id) })
+        if (shouldAcknowledge) {
+          const lastReadAt = new Date().toISOString()
+          sessionReadFence.recordRead(id, lastReadAt)
+          set((current) => ({
+            ...patchSessionReadAt(
+              current.sessionListCache,
+              current.activeSessionScope,
+              current.sessions,
+              id,
+              lastReadAt,
+            ),
+            unreadSessionIds: removeSessionIndicator(current.unreadSessionIds, id),
+          }))
+          void markSessionReadOnServer(id)
+        }
+      }
       if (
         id &&
         get().runningSessionIds[id] &&
@@ -1510,6 +1562,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       return
     }
     writeStoredSessionId(id)
+    const lastReadAt = new Date().toISOString()
+    sessionReadFence.recordRead(id, lastReadAt)
     // per-project 映射:用当前激活的项目 scope(由 fetchSessions 设置)作为 key
     if (activeSessionsProjectId) writeProjectLastSession(activeSessionsProjectId, id)
     wsClient.subscribe([id])
@@ -1520,7 +1574,14 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       clearTimeout(streamingFlushTimer)
       streamingFlushTimer = null
     }
-    set({
+    set((state) => ({
+      ...patchSessionReadAt(
+        state.sessionListCache,
+        state.activeSessionScope,
+        state.sessions,
+        id,
+        lastReadAt,
+      ),
       currentSessionId: id,
       messages: c?.messages || [],
       events: c?.events || [],
@@ -1540,8 +1601,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       turnProcessErrorByMessageId: {},
       processItemLoadingByKey: {},
       processItemErrorByKey: {},
-      unreadSessionIds: removeSessionIndicator(get().unreadSessionIds, id),
-    })
+      unreadSessionIds: removeSessionIndicator(state.unreadSessionIds, id),
+    }))
     void get().fetchMessages(id, selection)
     void get().fetchRecovery(id, selection).catch(() => undefined)
     void get().fetchModels()
@@ -2109,6 +2170,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     offs.push(
       wsClient.on('session:done', (msg) => {
         const sid = msg.sessionId as string
+        const isCurrent = sid === get().currentSessionId
+        if (!isCurrent) sessionReadFence.recordUnread(sid)
         sessionCancelCoordinator.clear(sid)
         sessionActivityFence.record(sid, 'idle')
         set((st) => ({
@@ -2117,7 +2180,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           stoppingSessionIds: removeSessionIndicator(st.stoppingSessionIds, sid),
           stopErrorsBySession: withoutKey(st.stopErrorsBySession, sid),
         }))
-        if (sid !== get().currentSessionId) {
+        if (!isCurrent) {
           clearCachedStreaming(sid)
           set((st) => ({
             runningSessionIds: removeSessionIndicator(st.runningSessionIds, sid),
@@ -2196,6 +2259,21 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           }
         }
         saveCache(sid, get())
+        if (isDocumentVisible()) {
+          const lastReadAt = new Date().toISOString()
+          sessionReadFence.recordRead(sid, lastReadAt)
+          set((st) => ({
+            ...patchSessionReadAt(
+              st.sessionListCache,
+              st.activeSessionScope,
+              st.sessions,
+              sid,
+              lastReadAt,
+            ),
+            unreadSessionIds: removeSessionIndicator(st.unreadSessionIds, sid),
+          }))
+          void markSessionReadOnServer(sid)
+        }
         void get().fetchMessages(sid)
       }),
     )
@@ -2231,6 +2309,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         if (data.deleted || data.event === 'deleted') {
           sessionCaches.delete(sessionId)
           sessionActivityFence.remove(sessionId)
+          sessionReadFence.remove(sessionId)
           set((st) => {
             const sessionListCache = removeSessionFromListCache(st.sessionListCache, sessionId)
             return {
@@ -2253,6 +2332,11 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           })
           return
         }
+        const canonicalReadAt = typeof data.last_read_at === 'string'
+          && Object.keys(data).every((key) => key === 'last_read_at' || key === 'event')
+          ? data.last_read_at
+          : undefined
+        if (canonicalReadAt) sessionReadFence.recordRead(sessionId, canonicalReadAt)
         set((st) => {
           const complete = isCompleteSessionData(data, sessionId)
           const sessionListCache = complete
@@ -2268,19 +2352,6 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             : {}
           if (st.sessions.some((s) => s.id === sessionId)) {
             const isCurrent = st.currentSessionId === sessionId
-            // 仅 last_read_at 变化且是当前会话:不替换 sessions 数组引用,
-            // 避免 ContextPanel 等 effect 因 sessions 引用变更而重触发 → 又调 selectSession → markRead 死循环。
-            // 服务端 markRead 后 broadcastToAll 的 session:changed 就走这条短路。
-            if (
-              isCurrent &&
-              data.last_read_at &&
-              Object.keys(data).every((k) => k === 'last_read_at' || k === 'event')
-            ) {
-              return {
-                sessionListCache,
-                ...copyState,
-              }
-            }
             const mergedSession = { ...st.sessions.find((session) => session.id === sessionId)!, ...data } as SessionData
             const nextUnread = data.last_read_at
               ? isCurrent
@@ -2349,6 +2420,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           sessionCancelCoordinator.clear(sessionId)
         }
         const isCurrent = sessionId === get().currentSessionId
+        if (state === 'idle' && !isCurrent) sessionReadFence.recordUnread(sessionId)
         if (state === 'idle' && isCurrent) flushStreamingBuffer(set, get)
         set((st) => ({
           ...patchSessionActivity(st.sessionListCache, st.activeSessionScope, st.sessions, sessionId, state),

@@ -346,9 +346,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     })
     const off3 = wsClient.on('session:changed', (msg) => {
       const data = msg.data as Record<string, unknown> | undefined
-      if (data && typeof data.lastReadAt === 'string') {
+      if (data && typeof data.last_read_at === 'string') {
         const sessionId = typeof msg.sessionId === 'string' ? msg.sessionId : ''
-        const lastReadAt = data.lastReadAt
+        const lastReadAt = data.last_read_at
         set((state) => ({
           sessions: state.sessions.map((session) =>
             session.id === sessionId
