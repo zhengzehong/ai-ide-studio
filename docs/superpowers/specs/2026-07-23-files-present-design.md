@@ -51,4 +51,3 @@ The shared AI IDE system prompt instructs Agents to call `files.present` after p
 Included: builtin tool, persistence union, realtime/history cards, PC modal, mobile overlay, prompt instruction, tests, and documentation.
 
 Excluded: immutable snapshots, file editing inside the modal, arbitrary files outside the project, and changes to ACP/Writer/Realtime protocols.
-
