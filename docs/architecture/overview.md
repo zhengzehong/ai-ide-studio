@@ -117,7 +117,7 @@ Runtime 的 permission/elicitation 等待项由独立交互状态模块管理。
 
 默认 `REALTIME_MODE=process` 时，独立 Realtime 子进程独占浏览器 WebSocket、认证握手、Session 订阅索引、JSON 序列化和发送背压；API 进程不持有浏览器 socket。两者通过本机 named pipe（Windows）或 Unix domain socket 通信，消息使用 4 字节大端长度前缀和版本化 Protobuf envelope，业务 payload 为受类型约束的 UTF-8 JSON。Envelope 携带 `version`、`kind`、请求/会话/流游标和幂等元数据，单帧大小受 `REALTIME_IPC_MAX_FRAME_BYTES` 限制。
 
-浏览器先请求 `GET /api/v1/realtime-config` 获取实际 `wsUrl`、协议版本、运行模式和兼容桥状态。Edge 模式返回当前公网 authority 的同源 `/realtime`，不会泄露内部端口；PC 与移动端每次重连都重新发现端点。`EDGE_MODE=disabled` 时 discovery 返回直连 Realtime 地址。`REALTIME_MODE=embedded` 是显式回滚模式；`REALTIME_LEGACY_RPC=enabled` 保留尚未迁移到 HTTP 的旧领域 RPC，关闭后 Realtime 只接受 `subscribe`、`unsubscribe`、`resume` 和 `ping`。
+浏览器先请求 `GET /api/v1/realtime-config` 获取实际 `wsUrl`、协议版本、运行模式和兼容桥状态。Edge 模式返回当前公网 authority 的同源 `/realtime`，不会泄露内部端口；PC 与移动端每次重连都重新发现端点。PC 每 15 秒发送一次 `ping`，连续 30 秒没有收到任何入站帧时主动关闭静默失效的 socket 并重新发现端点；重连后仍先恢复订阅，再发送 cursor `resume`，最后通过 HTTP recovery 补齐状态。`EDGE_MODE=disabled` 时 discovery 返回直连 Realtime 地址。`REALTIME_MODE=embedded` 是显式回滚模式；`REALTIME_LEGACY_RPC=enabled` 保留尚未迁移到 HTTP 的旧领域 RPC，关闭后 Realtime 只接受 `subscribe`、`unsubscribe`、`resume` 和 `ping`。
 
 每个连接有独立的消息数和字节数上限。文本 delta 按消息合并，process item 采用 latest-wins，`session:done`、权限/提问和错误保持关键 FIFO；客户端跟不上、序列跳号或 generation 变化时发送 `resync_required`，由客户端重新读取 HTTP snapshot。Realtime 分别跟踪“已接收入站 cursor”和“已发送 cursor”，在前一帧仍 in-flight 时不会把连续的新帧误判为 gap。一个慢客户端只消耗自己的有界队列，不能拖住其他连接。API 进程监督 Realtime 异常退出并自动重启；HTTP、Query Worker 和 Writer Worker 在重启期间继续服务。
 
@@ -222,7 +222,7 @@ PC Session store 对取消维护独立的 stopping 状态。首次点击立即�
 
 项目视图状态与业务数据缓存分离。每个项目独立保存 Workspace 侧栏与 Agent 选择、任务选中项和滚动位置、知识库搜索及未保存草稿、事件中心 Tab、Agent Memory 的 Agent/维度选择。低频选择状态持久化到浏览器存储，滚动位置只保存在内存；删除项目时路由记忆、视图状态、资源缓存和最后会话映射一并清理。
 
-项目切换器的会话总数、运行中和未读数字使用独立的全项目统计快照，不从当前项目页面缓存推导。`sessions.projectStats` 对所有项目聚合 active、非删除、非归档、非模板会话，并把 SQLite 中的运行信号与进程内 active prompt 合并；PC 与移动端 stats store 在连接、重连和全局会话状态事件后刷新。移动端项目和 Agent 的展示顺序只使用创建顺序与后端 Agent 顺序，不会因未读或运行状态变化而重排。打开具体会话仍通过 `sessions.markRead` 持久化已读时间，点击项目本身不会批量清除未读。
+Session、Agent 和当前项目的运行中/未读提示使用同一个 Session 指示器汇总函数，且运行中优先于未读，避免三层展示出现不同计数。当前项目直接覆盖为本地 Session store 的实时汇总；后台项目保留 `sessions.projectStats` 的轻量全项目快照。该查询聚合 active、非删除、非归档、非模板会话，并把 SQLite 中的运行信号与进程内 active prompt 合并；PC stats store 在全局会话事件后更新，并以 30 秒 stale interval、页面重新可见和窗口 focus 作为恢复边界。移动端项目和 Agent 的展示顺序只使用创建顺序与后端 Agent 顺序，不会因未读或运行状态变化而重排。打开具体会话通过 `sessions.markRead` 持久化 `last_read_at`；当前可见 Session 在最终消息完成后再次确认已读，后台完成则保留未读直到页面重新可见，点击项目本身不会批量清除未读。
 
 ## 支持的 Agent 运行时
 

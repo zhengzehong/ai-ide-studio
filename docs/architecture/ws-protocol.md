@@ -45,7 +45,7 @@ Realtime 只向订阅目标发送 Session 事件，全局元数据事件按认�
 |----------|------|------|------|
 | `subscribe` | `{ requestId?, sessionIds }` | `result` | 增加 Session 订阅；guest 只能订阅分享会话 |
 | `unsubscribe` | `{ requestId?, sessionIds }` | `result` | 删除 Session 订阅 |
-| `ping` | `{ timestamp? }` | `pong` | Realtime 进程本地处理，不进入 API 事件循环 |
+| `ping` | `{ timestamp? }` | `pong` | Realtime 进程本地处理，不进入 API 事件循环；PC 每 15 秒发送，30 秒无任何入站帧时主动重连 |
 | `resume` | `{ cursors }` | `resume:ack` | 重连后提交客户端游标并恢复订阅流 |
 
 带游标的实时消息可包含 `streamGeneration` 与 `sequence`。generation 改变、sequence 跳号、单连接发送队列溢出或 socket 缓冲超过限制时，服务端发送 `{ type: "resync_required", sessionId?, reason }`；客户端应停止应用该流的增量并通过 HTTP Query 读取最新 snapshot。关键 `session:done`、权限请求、提问和错误不会静默丢弃。
@@ -225,7 +225,7 @@ Runtime 可见 patch 不经过 API 事件总线，而是通过 Runtime→Realtim
 | `session:done` | `{ sessionId, agentId, messageId, turnId?, stopReason, turnUsage? }` | Agent 回复完成；取消沿用原 turn 的 `messageId`/`turnId` 且只发布一次，`stopReason` 可为 `cancelled` |
 | `session:activity` | `{ sessionId, agentId, turnId?, state, reason, timestamp }` | 全局轻量事件：`running` 表示会话开始执行，`idle` 表示会话执行结束；用于左侧会话列表活动/未读提示，不承载聊天内容；`turnId` 仅用于诊断 |
 | `session:capabilities` | `{ sessionId, capabilities }` | 会话能力信息 |
-| `session:changed` | `{ sessionId, data }` | Session 标题、状态、归档/删除等列表元数据变更 |
+| `session:changed` | `{ sessionId, data }` | Session 标题、状态、归档/删除等列表元数据变更；已读确认统一使用 `data.last_read_at`，不发送 camelCase 别名 |
 | `agent:status` | `{ agentId, status }` | Agent 在线状态 |
 | `task:update` | `{ taskId, data }` | Task 状态变更 |
 | `event-center:update` | `{ eventId?, categoryId?, subscriptionId?, consumptionId?, taskId?, sessionId?, event }` | 事件中心类别、事件、订阅或消费记录变化 |
