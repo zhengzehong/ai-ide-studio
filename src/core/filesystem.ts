@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync, statSync, existsSync, createReadStream } from 'fs'
-import { join, relative, extname, basename } from 'path'
+import { join, relative, extname, basename, isAbsolute } from 'path'
 import { createChildLogger } from './logger.js'
 
 const log = createChildLogger('fs')
@@ -43,6 +43,15 @@ export interface FileAssetInfo {
   extension: string
   kind: FileKind
   mimeType: string
+}
+
+export interface FileMetadata {
+  path: string
+  name: string
+  size: number
+  extension: string
+  language: string
+  kind: FileKind
 }
 
 const EXT_TO_LANG: Record<string, string> = {
@@ -136,6 +145,10 @@ export function isHiddenPathRel(filePath: string): boolean {
 }
 
 function resolveSafePath(workDir: string, filePath: string): string | null {
+  if (!filePath || isAbsolute(filePath)) {
+    log.warn({ workDir, filePath }, 'blocked absolute or empty file path')
+    return null
+  }
   const fullPath = join(workDir, filePath)
   const normalizedRel = relative(workDir, fullPath)
   if (normalizedRel.startsWith('..')) {
@@ -147,6 +160,27 @@ function resolveSafePath(workDir: string, filePath: string): string | null {
     return null
   }
   return fullPath
+}
+
+export function inspectFile(workDir: string, filePath: string): FileMetadata | null {
+  const fullPath = resolveSafePath(workDir, filePath)
+  if (!fullPath || !existsSync(fullPath)) return null
+  try {
+    const stat = statSync(fullPath)
+    if (!stat.isFile()) return null
+    const extension = extname(fullPath).toLowerCase()
+    return {
+      path: relative(workDir, fullPath).replace(/\\/g, '/'),
+      name: basename(fullPath),
+      size: stat.size,
+      extension,
+      language: EXT_TO_LANG[extension] || 'plaintext',
+      kind: classifyReadableFile(fullPath, extension),
+    }
+  } catch (err) {
+    log.error({ err, path: fullPath }, 'inspect file failed')
+    return null
+  }
 }
 
 export function listDirectory(workDir: string, subPath?: string): FileEntry[] {

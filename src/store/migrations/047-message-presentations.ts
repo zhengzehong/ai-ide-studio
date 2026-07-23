@@ -1,5 +1,5 @@
 import type { Migration } from '../migrator.js'
-import { presentationsFromToolCalls, type PreviewPresentation } from '../../core/message-presentations.js'
+import { presentationsFromToolCalls, type MessagePresentation } from '../../core/message-presentations.js'
 
 export const messagePresentationsMigration: Migration = {
   version: '047',
@@ -20,7 +20,7 @@ export const messagePresentationsMigration: Migration = {
         AND m.presentations_json IS NULL
       ORDER BY p.message_id ASC, p.id ASC
     `).all()
-    const byMessage = new Map<string, PreviewPresentation[]>()
+    const byMessage = new Map<string, MessagePresentation[]>()
     for (const row of rows) {
       let toolCall: unknown
       try {

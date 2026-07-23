@@ -23,10 +23,10 @@
 - Test: `tests/unit/message-presentations.test.ts`
 - Test: `tests/unit/tool-seed.test.ts`
 
-- [ ] Write failing tests for path validation, 1-20 unique files, manifest output, persistence extraction, and tool seed registration.
-- [ ] Run targeted tests and confirm the missing tool behavior fails.
-- [ ] Add safe file metadata inspection, handler registration/seed, presentation parsing, and system prompt instruction.
-- [ ] Run targeted backend tests and commit.
+- [x] Write failing tests for path validation, 1-20 unique files, manifest output, persistence extraction, and tool seed registration.
+- [x] Run targeted tests and confirm the missing tool behavior fails.
+- [x] Add safe file metadata inspection, handler registration/seed, presentation parsing, and system prompt instruction.
+- [x] Run targeted backend tests and commit.
 
 ### Task 2: PC Card And Multi-file Modal
 
@@ -66,4 +66,3 @@
 - [ ] Document the tool contract and message presentation behavior.
 - [ ] Run targeted tests, `npx tsc --noEmit`, `npm test`, `npm run build`, `npm run lint`, and `git diff --check`.
 - [ ] Request independent review and merge only after approval.
-

@@ -111,6 +111,7 @@ import {
 } from './agent-session-tools.js'
 import { agentWakeMeHandler } from './agent-wake-me-tools.js'
 import { previewPublishHandler } from './preview-publish.js'
+import { filesPresentHandler } from './files-present.js'
 import {
   agentHubConnectHandler,
   agentHubDisconnectHandler,
@@ -227,6 +228,7 @@ register(agentTaskWatchHandler)
 register(agentTaskWatchCancelHandler)
 register(agentWakeMeHandler)
 register(previewPublishHandler)
+register(filesPresentHandler)
 register(agentHubConnectHandler)
 register(agentHubDisconnectHandler)
 register(agentHubListHandler)
