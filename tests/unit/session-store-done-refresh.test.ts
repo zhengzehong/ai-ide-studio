@@ -1397,6 +1397,41 @@ describe('session store done handling', () => {
     expect(useSessionStore.getState().messages.map((message) => message.id)).toEqual(['msg-cached'])
   })
 
+  test('loads persisted messages before recovery when selecting a Session', async () => {
+    resetStore()
+    wsMock.request.mockReset()
+    let resolveMessages!: (value: unknown[]) => void
+    const pendingMessages = new Promise<unknown[]>((resolve) => {
+      resolveMessages = resolve
+    })
+    wsMock.request.mockImplementation(async (msg: Record<string, unknown>) => {
+      if (msg.type === 'sessions.messages') return pendingMessages
+      return []
+    })
+    useSessionStore.setState({ currentSessionId: null })
+
+    useSessionStore.getState().selectSession('sess-priority')
+
+    await vi.waitFor(() => expect(wsMock.request).toHaveBeenCalledWith({
+      type: 'sessions.messages',
+      sessionId: 'sess-priority',
+      limit: 20,
+    }))
+    expect(wsMock.request).not.toHaveBeenCalledWith({
+      type: 'sessions.events',
+      sessionId: 'sess-priority',
+      limit: 1000,
+    })
+
+    resolveMessages([])
+
+    await vi.waitFor(() => expect(wsMock.request).toHaveBeenCalledWith({
+      type: 'sessions.events',
+      sessionId: 'sess-priority',
+      limit: 1000,
+    }))
+  })
+
   test('restores a running message as streaming with complete process after switching back', async () => {
     resetStore()
     wsMock.request.mockReset()

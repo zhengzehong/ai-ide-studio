@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'vitest'
-import { resolveWorkspaceLoadState } from '../../ui/src/pages/workspace/load-state.ts'
+import {
+  resolveWorkspaceLoadState,
+  shouldShowWorkspaceMessageSync,
+} from '../../ui/src/pages/workspace/load-state.ts'
 
 describe('workspace load state', () => {
   test('does not present an initial request as empty', () => {
@@ -16,5 +19,11 @@ describe('workspace load state', () => {
 
   test('uses empty only after loading finishes without an error', () => {
     expect(resolveWorkspaceLoadState({ loading: false, error: null, itemCount: 0 })).toBe('empty')
+  })
+
+  test('shows message synchronization while cached chat content is refreshing', () => {
+    expect(shouldShowWorkspaceMessageSync({ loading: true, itemCount: 2 })).toBe(true)
+    expect(shouldShowWorkspaceMessageSync({ loading: true, itemCount: 0 })).toBe(false)
+    expect(shouldShowWorkspaceMessageSync({ loading: false, itemCount: 2 })).toBe(false)
   })
 })

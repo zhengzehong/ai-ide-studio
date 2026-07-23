@@ -81,16 +81,21 @@ describe('Session selection query cancellation', () => {
 
     useSessionStore.getState().selectSession('selection-a')
     const firstMessageSignal = (queryMock.listSessionMessages.mock.calls[0]?.[0] as MessageQueryInput).signal
-    const firstRecoverySignal = (queryMock.getSessionRecovery.mock.calls[0]?.[0] as RecoveryQueryInput).signal
     useSessionStore.getState().selectSession('selection-b')
 
     expect(firstMessageSignal?.aborted).toBe(true)
-    expect(firstRecoverySignal?.aborted).toBe(true)
+    expect(queryMock.getSessionRecovery).not.toHaveBeenCalled()
 
     messages.get('selection-b')?.resolve({
       items: [message('message-b', 'selection-b', 'current')],
       hasMore: false,
     })
+    await flushPromises()
+
+    expect(queryMock.getSessionRecovery).toHaveBeenCalledTimes(1)
+    expect(queryMock.getSessionRecovery).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: 'selection-b',
+    }))
     recoveries.get('selection-b')?.resolve({
       sessionId: 'selection-b',
       latestSequence: 2,
@@ -102,13 +107,9 @@ describe('Session selection query cancellation', () => {
       items: [message('message-a-late', 'selection-a', 'stale')],
       hasMore: false,
     })
-    recoveries.get('selection-a')?.resolve({
-      sessionId: 'selection-a',
-      latestSequence: 1,
-      events: [event('event-a-late', 'selection-a', 1)],
-    })
     await flushPromises()
 
+    expect(recoveries.has('selection-a')).toBe(false)
     expect(useSessionStore.getState().currentSessionId).toBe('selection-b')
     expect(useSessionStore.getState().messages.map((item) => item.id)).toEqual(['message-b'])
     expect(useSessionStore.getState().events.map((item) => item.id)).toEqual(['event-b'])

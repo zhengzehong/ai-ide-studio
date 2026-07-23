@@ -10,3 +10,10 @@ export function resolveWorkspaceLoadState(input: {
   if (input.error) return 'error'
   return 'empty'
 }
+
+export function shouldShowWorkspaceMessageSync(input: {
+  loading: boolean
+  itemCount: number
+}): boolean {
+  return input.loading && input.itemCount > 0
+}
