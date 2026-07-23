@@ -51,9 +51,11 @@ import {
   type ElicitationRequestInfo,
   type FileChangeDetailInfo,
   type FileChangeSummaryInfo,
+  type FilesPresentationInfo,
   type ImageAttachmentInfo,
   type PermissionRequestInfo,
   type PlanEntry,
+  type MessagePresentationInfo,
   type PreviewPresentationInfo,
   type SessionData,
   type ToolCallInfo,
@@ -118,6 +120,9 @@ import { ContextMenu, PromptDialog, ConfirmDialog, AlertDialog } from '../compon
 import { LocalSessionImportModal } from './workspace/LocalSessionImportModal'
 import { PreviewCard } from '../components/chat/PreviewCard'
 import { PreviewModal } from '../components/preview/PreviewModal'
+import { FilesPresentationCard } from '../components/chat/FilesPresentationCard'
+import { PresentedFilesModal } from '../components/file-viewer/PresentedFilesModal'
+import { parseFilesPresentationOutput } from '../stores/session-events'
 import { SessionBar } from './workspace/SessionBar'
 import { TemplatePickerModal } from './workspace/TemplatePickerModal'
 import { PublishTemplateModal } from './workspace/PublishTemplateModal'
@@ -1466,6 +1471,7 @@ function WorkspaceChatPane({
     url: string
     taskId?: string | null
   } | null>(null)
+  const [filesModal, setFilesModal] = useState<FilesPresentationInfo | null>(null)
 
   const openPreview = useCallback((p: {
     previewId: string
@@ -1475,6 +1481,9 @@ function WorkspaceChatPane({
     taskId?: string | null
   }) => {
     setPreviewModal(p)
+  }, [])
+  const openFiles = useCallback((presentation: FilesPresentationInfo) => {
+    setFilesModal(presentation)
   }, [])
 
   const chatEndRef = useRef<HTMLDivElement>(null)
@@ -1868,9 +1877,9 @@ function WorkspaceChatPane({
 
   const renderChatItem = useCallback(
     (item: ChatRenderItem<ChatMsg>) => {
-      if (item.kind === 'group') return <MemoChatBubble group={item.group} agent={chatAgent} isStreaming={false} onOpenPreview={openPreview} />
+      if (item.kind === 'group') return <MemoChatBubble group={item.group} agent={chatAgent} isStreaming={false} onOpenPreview={openPreview} onOpenFiles={openFiles} />
       if (item.kind === 'streaming') {
-        return <MemoChatBubble message={item.message} agent={chatAgent} isStreaming footer={interactionPanel} liveElapsedSeconds={liveElapsedSeconds} onOpenPreview={openPreview} />
+        return <MemoChatBubble message={item.message} agent={chatAgent} isStreaming footer={interactionPanel} liveElapsedSeconds={liveElapsedSeconds} onOpenPreview={openPreview} onOpenFiles={openFiles} />
       }
       if (item.kind === 'blocking') return <BlockingInteractionBar agent={chatAgent} panel={interactionPanel} />
       return (
@@ -1889,10 +1898,11 @@ function WorkspaceChatPane({
           turnProcessLoadingByMessageId={turnProcessLoadingByMessageId}
           turnProcessErrorByMessageId={turnProcessErrorByMessageId}
           onOpenPreview={openPreview}
+          onOpenFiles={openFiles}
         />
       )
     },
-    [chatAgent, fetchMessageFileChanges, fetchMessageProcess, fetchProcessItemDetail, fileChangeDetailsByMessageId, interactionPanel, liveElapsedSeconds, openPreview, processItemErrorByKey, processItemLoadingByKey, toolCallErrorByKey, toolCallLoadingByKey, turnProcessErrorByMessageId, turnProcessLoadingByMessageId],
+    [chatAgent, fetchMessageFileChanges, fetchMessageProcess, fetchProcessItemDetail, fileChangeDetailsByMessageId, interactionPanel, liveElapsedSeconds, openFiles, openPreview, processItemErrorByKey, processItemLoadingByKey, toolCallErrorByKey, toolCallLoadingByKey, turnProcessErrorByMessageId, turnProcessLoadingByMessageId],
   )
 
   return (
@@ -2367,6 +2377,9 @@ function WorkspaceChatPane({
           preview={previewModal}
           onClose={() => setPreviewModal(null)}
         />
+      )}
+      {filesModal && (
+        <PresentedFilesModal presentation={filesModal} onClose={() => setFilesModal(null)} />
       )}
       {showShareModal && currentSessionId && chatAgent && (
         <ShareModal
@@ -3532,7 +3545,7 @@ type ChatMsg = {
   has_file_changes?: boolean
   file_change_count?: number
   parsedFileChanges?: FileChangeSummaryInfo
-  parsedPresentations?: PreviewPresentationInfo[]
+  parsedPresentations?: MessagePresentationInfo[]
   parsedToolCalls?: ToolCallInfo[]
   parsedAttachments?: ImageAttachmentInfo[]
   parsedDecision?: Record<string, unknown> | null
@@ -3603,6 +3616,7 @@ function ChatBubble({
   turnProcessLoadingByMessageId = {},
   turnProcessErrorByMessageId = {},
   onOpenPreview,
+  onOpenFiles,
 }: {
   message?: ChatMsg
   group?: ChatTimelineGroup
@@ -3627,6 +3641,7 @@ function ChatBubble({
     url: string
     taskId?: string | null
   }) => void
+  onOpenFiles?: (presentation: FilesPresentationInfo) => void
 }) {
   const normalizedMessage: ChatBubbleInput = group || message || { id: 'empty', role: 'system', content: '' }
   const isTimelineGroup = 'blocks' in normalizedMessage
@@ -3666,8 +3681,10 @@ function ChatBubble({
   const processCount = !isTimelineGroup ? (normalizedMessage.process_item_count ?? normalizedMessage.tool_call_count ?? 0) : 0
   const canLoadTurnProcess = !isTimelineGroup && !streaming && role === 'agent' && !!normalizedMessage.session_id && processCount > 0 && !normalizedMessage.processBlocks
   const turnFinalAnswer = !isTimelineGroup ? (normalizedMessage.finalAnswer ?? (canLoadTurnProcess ? normalizedMessage.content : undefined)) : undefined
-  const previewPresentations = !isTimelineGroup ? normalizedMessage.parsedPresentations || [] : []
-  const hasTurnModel = !isTimelineGroup && (turnProcessBlocks.length > 0 || turnFinalAnswer != null || canLoadTurnProcess || previewPresentations.length > 0)
+  const presentations = !isTimelineGroup ? normalizedMessage.parsedPresentations || [] : []
+  const previewPresentations = presentations.filter((item): item is PreviewPresentationInfo => item.kind === 'preview')
+  const filesPresentations = presentations.filter((item): item is FilesPresentationInfo => item.kind === 'files')
+  const hasTurnModel = !isTimelineGroup && (turnProcessBlocks.length > 0 || turnFinalAnswer != null || canLoadTurnProcess || presentations.length > 0)
   const processLoading = !isTimelineGroup ? turnProcessLoadingByMessageId[normalizedMessage.id] : false
   const processError = !isTimelineGroup ? turnProcessErrorByMessageId[normalizedMessage.id] : undefined
   const fileChangesSummary = !isTimelineGroup
@@ -3749,6 +3766,7 @@ function ChatBubble({
                 fileChangesError={fileChangesError}
                 defaultProcessOpen={streaming || !!normalizedMessage.processDefaultOpen}
                 previewPresentations={previewPresentations}
+                filesPresentations={filesPresentations}
                 onLoadProcess={loadTurnProcess}
                 onLoadFileChanges={loadFileChanges}
                 renderProcessBlock={(block) => {
@@ -3765,11 +3783,15 @@ function ChatBubble({
                       detailError={processItemErrorByKey[processItemKey]}
                       onLoadDetail={loadDetail}
                       onOpenPreview={onOpenPreview}
+                      onOpenFiles={onOpenFiles}
                     />
                   )
                 }}
                 renderPreviewPresentation={(preview) => onOpenPreview ? (
                   <PreviewCard preview={preview} onOpen={onOpenPreview} />
+                ) : null}
+                renderFilesPresentation={(presentation) => onOpenFiles ? (
+                  <FilesPresentationCard presentation={presentation} onOpen={onOpenFiles} />
                 ) : null}
               />
             ) : visibleBlocks.map((block, index) => (
@@ -3908,6 +3930,10 @@ function chatBubbleBlockHasBody(block: ChatBubbleBlock): boolean {
   return !!block.content || !!block.thinking || attachments.length > 0 || toolCalls.length > 0 || !!block.has_tool_calls
 }
 
+function isFilesPresentTool(title: string): boolean {
+  return title === 'files.present' || title === 'mcp__ai-ide-tools__files_present'
+}
+
 function ProcessBlockView({
   block,
   isStreaming,
@@ -3915,6 +3941,7 @@ function ProcessBlockView({
   detailError,
   onLoadDetail,
   onOpenPreview,
+  onOpenFiles,
 }: {
   block: TurnProcessBlock
   isStreaming: boolean
@@ -3928,6 +3955,7 @@ function ProcessBlockView({
     url: string
     taskId?: string | null
   }) => void
+  onOpenFiles?: (presentation: FilesPresentationInfo) => void
 }) {
   const needsDetail = processBlockNeedsDetail(block)
   const shouldAutoLoadDetail = needsDetail && block.kind !== 'tool'
@@ -3956,6 +3984,12 @@ function ProcessBlockView({
         }
       }
       return null
+    }
+    if (isFilesPresentTool(block.toolCall.title)) {
+      const presentation = parseFilesPresentationOutput(block.toolCall.rawOutput)
+      return presentation && onOpenFiles
+        ? <FilesPresentationCard presentation={presentation} onOpen={onOpenFiles} />
+        : null
     }
     const diffEntries = toolBlockHasDiff(block.toolCall)
       ? extractFileChangesFromToolCall(block.toolCall)

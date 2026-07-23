@@ -26,7 +26,7 @@ export interface MessageData {
   has_tool_calls?: boolean; tool_call_count?: number; has_file_changes?: boolean; file_change_count?: number
   parsedToolCalls?: ToolCallInfo[]; parsedAttachments?: ImageAttachmentInfo[]; parsedDecision?: Record<string, unknown> | null
   parsedFileChanges?: FileChangeSummaryInfo
-  parsedPresentations?: PreviewPresentationInfo[]
+  parsedPresentations?: MessagePresentationInfo[]
   processBlocks?: TurnProcessBlock[]; finalAnswer?: string
   processDefaultOpen?: boolean
 }
@@ -40,6 +40,27 @@ export interface PreviewPresentationInfo {
   taskId: string | null
   createdAt: string
 }
+
+export interface FilePresentationEntryInfo {
+  path: string
+  title: string
+  name: string
+  extension: string
+  size: number
+  kind: 'text' | 'image' | 'binary'
+  language: string
+}
+
+export interface FilesPresentationInfo {
+  kind: 'files'
+  presentationId: string
+  projectId: string
+  title: string
+  files: FilePresentationEntryInfo[]
+  createdAt: string
+}
+
+export type MessagePresentationInfo = PreviewPresentationInfo | FilesPresentationInfo
 
 export interface ToolCallInfo {
   id: string; title: string; kind?: string; status?: string
@@ -252,7 +273,7 @@ export function normalizeMessage(message: MessageData): MessageData {
   const parsedDecision = message.decision_json ? parseJsonObject<Record<string, unknown>>(message.decision_json) : message.parsedDecision
   const parsedFileChanges = message.file_changes_json ? parseJsonObject<FileChangeSummaryInfo>(message.file_changes_json) ?? undefined : message.parsedFileChanges
   const parsedPresentations = message.presentations_json
-    ? parsePreviewPresentations(message.presentations_json)
+    ? parseMessagePresentations(message.presentations_json)
     : message.parsedPresentations
   const hasToolCalls = message.has_tool_calls ?? (!!message.tool_calls_json || !!parsedToolCalls?.length)
   const toolCallCount = message.tool_call_count ?? parsedToolCalls?.length
@@ -272,10 +293,22 @@ export function normalizeMessage(message: MessageData): MessageData {
   }
 }
 
-export function parsePreviewPresentations(raw: string | null | undefined): PreviewPresentationInfo[] {
+export function parseMessagePresentations(raw: string | null | undefined): MessagePresentationInfo[] {
   return parseJsonArray<unknown>(raw)
-    .map((value) => previewPresentation(value))
-    .filter((value): value is PreviewPresentationInfo => value !== null)
+    .map((value) => messagePresentation(value))
+    .filter((value): value is MessagePresentationInfo => value !== null)
+}
+
+export function parseFilesPresentationOutput(raw: unknown): FilesPresentationInfo | null {
+  return filesPresentation(unwrapToolOutput(raw))
+}
+
+function messagePresentation(value: unknown): MessagePresentationInfo | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const item = value as Record<string, unknown>
+  if (item.kind === 'preview') return previewPresentation(value)
+  if (item.kind === 'files') return filesPresentation(value)
+  return null
 }
 
 function previewPresentation(value: unknown): PreviewPresentationInfo | null {
@@ -295,6 +328,49 @@ function previewPresentation(value: unknown): PreviewPresentationInfo | null {
     taskId: typeof item.taskId === 'string' ? item.taskId : null,
     createdAt,
   }
+}
+
+function filesPresentation(value: unknown): FilesPresentationInfo | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const item = value as Record<string, unknown>
+  if (item.kind !== 'files' || !Array.isArray(item.files)) return null
+  const presentationId = typeof item.presentationId === 'string' ? item.presentationId : null
+  const projectId = typeof item.projectId === 'string' ? item.projectId : null
+  const title = typeof item.title === 'string' ? item.title : null
+  const createdAt = typeof item.createdAt === 'string' ? item.createdAt : null
+  const files = item.files.map(filePresentationEntry).filter((file): file is FilePresentationEntryInfo => file !== null)
+  if (!presentationId || !projectId || !title || !createdAt || files.length < 1 || files.length !== item.files.length) return null
+  return { kind: 'files', presentationId, projectId, title, files, createdAt }
+}
+
+function filePresentationEntry(value: unknown): FilePresentationEntryInfo | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const item = value as Record<string, unknown>
+  const path = typeof item.path === 'string' ? item.path : null
+  const title = typeof item.title === 'string' ? item.title : null
+  const name = typeof item.name === 'string' ? item.name : null
+  const extension = typeof item.extension === 'string' ? item.extension : null
+  const language = typeof item.language === 'string' ? item.language : null
+  const size = typeof item.size === 'number' && Number.isFinite(item.size) && item.size >= 0 ? item.size : null
+  const kind = item.kind === 'text' || item.kind === 'image' || item.kind === 'binary' ? item.kind : null
+  if (!path || !title || !name || extension === null || !language || size === null || !kind) return null
+  return { path, title, name, extension, language, size, kind }
+}
+
+function unwrapToolOutput(raw: unknown): unknown {
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) continue
+      const record = item as Record<string, unknown>
+      if (record.type !== 'text' || typeof record.text !== 'string') continue
+      try { return JSON.parse(record.text) as unknown } catch { continue }
+    }
+    return null
+  }
+  if (typeof raw === 'string') {
+    try { return JSON.parse(raw) as unknown } catch { return null }
+  }
+  return raw
 }
 
 export function normalizeMessages(messages: MessageData[]): MessageData[] {
