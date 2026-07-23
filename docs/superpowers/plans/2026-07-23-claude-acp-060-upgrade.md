@@ -16,13 +16,13 @@
 - Modify: `package.json`
 - Modify: `package-lock.json`
 
-- [ ] Set `@agentclientprotocol/claude-agent-acp` to exact version `0.60.0`.
-- [ ] Run `npm install` and confirm the resolved Claude Agent SDK is `0.3.215`.
+- [x] Set `@agentclientprotocol/claude-agent-acp` to exact version `0.60.0`.
+- [x] Run `npm install` and confirm the resolved Claude Agent SDK is `0.3.215`.
 
 ### Task 2: Verify Compatibility
 
-- [ ] Run `npx tsc --noEmit`.
-- [ ] Run `npm test`.
-- [ ] Run `npm run build`.
-- [ ] Run `npm run lint`.
-- [ ] Run `git diff --check` and inspect the dependency diff.
+- [x] Run `npx tsc --noEmit`.
+- [x] Run `npm test`.
+- [x] Run `npm run build`.
+- [x] Run `npm run lint`.
+- [x] Run `git diff --check` and inspect the dependency diff.
