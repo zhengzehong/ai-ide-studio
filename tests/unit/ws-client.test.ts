@@ -215,4 +215,75 @@ describe('ws client', () => {
       { type: 'subscribe', sessionIds: ['session-a'] },
     ])
   })
+
+  test('sends a heartbeat ping every 15 seconds while connected', async () => {
+    const { WS_HEARTBEAT_INTERVAL_MS, wsClient } = await import('../../ui/src/services/ws-client.ts')
+    wsClient.connect('ws://realtime')
+    const socket = FakeWebSocket.instances[0]
+    socket.readyState = FakeWebSocket.OPEN
+    socket.onopen?.()
+
+    await vi.advanceTimersByTimeAsync(WS_HEARTBEAT_INTERVAL_MS)
+
+    expect(JSON.parse(String(socket.send.mock.calls[0]?.[0]))).toMatchObject({
+      type: 'ping',
+      timestamp: expect.any(Number),
+    })
+  })
+
+  test('reconnects after 30 seconds without any inbound frame', async () => {
+    const {
+      WS_HEARTBEAT_TIMEOUT_MS,
+      wsClient,
+    } = await import('../../ui/src/services/ws-client.ts')
+    const events: Record<string, unknown>[] = []
+    wsClient.on('connection', (event) => events.push(event))
+    wsClient.connect('ws://realtime')
+    const socket = FakeWebSocket.instances[0]
+    socket.readyState = FakeWebSocket.OPEN
+    socket.onopen?.()
+
+    await vi.advanceTimersByTimeAsync(WS_HEARTBEAT_TIMEOUT_MS)
+
+    expect(socket.close).toHaveBeenCalledTimes(1)
+    expect(wsClient.connected).toBe(false)
+    expect(events.at(-1)).toMatchObject({ connected: false, reason: 'heartbeat-timeout' })
+
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(FakeWebSocket.instances).toHaveLength(2)
+  })
+
+  test('treats any inbound frame as heartbeat progress', async () => {
+    const {
+      WS_HEARTBEAT_INTERVAL_MS,
+      WS_HEARTBEAT_TIMEOUT_MS,
+      wsClient,
+    } = await import('../../ui/src/services/ws-client.ts')
+    wsClient.connect('ws://realtime')
+    const socket = FakeWebSocket.instances[0]
+    socket.readyState = FakeWebSocket.OPEN
+    socket.onopen?.()
+
+    await vi.advanceTimersByTimeAsync(WS_HEARTBEAT_TIMEOUT_MS - 1)
+    socket.onmessage?.({ data: JSON.stringify({ type: 'pong', timestamp: Date.now() }) })
+    await vi.advanceTimersByTimeAsync(WS_HEARTBEAT_INTERVAL_MS + 1)
+
+    expect(socket.close).not.toHaveBeenCalled()
+    expect(wsClient.connected).toBe(true)
+  })
+
+  test('cleans up heartbeat timers on an intentional disconnect', async () => {
+    const { WS_HEARTBEAT_INTERVAL_MS, wsClient } = await import('../../ui/src/services/ws-client.ts')
+    wsClient.connect('ws://realtime')
+    const socket = FakeWebSocket.instances[0]
+    socket.readyState = FakeWebSocket.OPEN
+    socket.onopen?.()
+    wsClient.disconnect()
+    socket.send.mockClear()
+
+    await vi.advanceTimersByTimeAsync(WS_HEARTBEAT_INTERVAL_MS * 4)
+
+    expect(socket.send).not.toHaveBeenCalled()
+    expect(FakeWebSocket.instances).toHaveLength(1)
+  })
 })

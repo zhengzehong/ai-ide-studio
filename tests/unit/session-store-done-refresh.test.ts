@@ -1033,6 +1033,65 @@ describe('session store done handling', () => {
     }
   })
 
+  test('keeps a hidden current Session unread until the document becomes visible', async () => {
+    resetStore()
+    wsMock.request.mockReset()
+    wsMock.request.mockResolvedValue([])
+    let visibilityState = 'hidden'
+    const visibilityHandlers = new Set<() => void>()
+    vi.stubGlobal('document', {
+      get visibilityState() { return visibilityState },
+      addEventListener: (event: string, handler: () => void) => {
+        if (event === 'visibilitychange') visibilityHandlers.add(handler)
+      },
+      removeEventListener: (event: string, handler: () => void) => {
+        if (event === 'visibilitychange') visibilityHandlers.delete(handler)
+      },
+    })
+    useSessionStore.setState({
+      sessions: [{
+        id: 'sess-refresh',
+        agent_id: 'agent-read',
+        task_id: null,
+        acp_session_id: null,
+        status: 'active',
+        stage: '',
+        started_at: '2026-07-23T00:00:00.000Z',
+        closed_at: null,
+        last_message_at: '2026-07-23T00:02:00.000Z',
+        last_read_at: '2026-07-23T00:01:00.000Z',
+      }],
+    })
+    const cleanup = useSessionStore.getState().setupListeners()
+
+    try {
+      emit('session:done', {
+        sessionId: 'sess-refresh',
+        agentId: 'agent-read',
+        messageId: 'message-hidden',
+        stopReason: 'end_turn',
+      })
+
+      expect(useSessionStore.getState().unreadSessionIds['sess-refresh']).toBe(true)
+      expect(wsMock.request).not.toHaveBeenCalledWith({
+        type: 'sessions.markRead',
+        sessionId: 'sess-refresh',
+      })
+
+      visibilityState = 'visible'
+      for (const handler of visibilityHandlers) handler()
+
+      await vi.waitFor(() => expect(wsMock.request).toHaveBeenCalledWith({
+        type: 'sessions.markRead',
+        sessionId: 'sess-refresh',
+      }))
+      expect(useSessionStore.getState().unreadSessionIds['sess-refresh']).toBeUndefined()
+    } finally {
+      cleanup()
+      vi.unstubAllGlobals()
+    }
+  })
+
   test('clears a stale unread indicator when the current Session is selected again', () => {
     resetStore()
     useSessionStore.setState({ unreadSessionIds: { 'sess-refresh': true } })

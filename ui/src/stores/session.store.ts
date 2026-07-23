@@ -2028,6 +2028,34 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   setupListeners: () => {
     if (listenersSetup && cleanupFn) return cleanupFn
     const offs: (() => void)[] = []
+    const acknowledgeVisibleCurrentSession = (): void => {
+      if (!isDocumentVisible()) return
+      const state = get()
+      const sessionId = state.currentSessionId
+      if (!sessionId) return
+      const session = state.sessions.find((item) => item.id === sessionId)
+      if (!state.unreadSessionIds[sessionId] && (!session || !isSessionUnreadByTimestamps(session))) return
+      const lastReadAt = new Date().toISOString()
+      sessionReadFence.recordRead(sessionId, lastReadAt)
+      set((current) => ({
+        ...patchSessionReadAt(
+          current.sessionListCache,
+          current.activeSessionScope,
+          current.sessions,
+          sessionId,
+          lastReadAt,
+        ),
+        unreadSessionIds: removeSessionIndicator(current.unreadSessionIds, sessionId),
+      }))
+      void markSessionReadOnServer(sessionId)
+    }
+    const handleVisibilityChange = (): void => {
+      if (document.visibilityState === 'visible') acknowledgeVisibleCurrentSession()
+    }
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityChange)
+      offs.push(() => document.removeEventListener('visibilitychange', handleVisibilityChange))
+    }
 
     offs.push(
       wsClient.on('session:event', (msg) => {
@@ -2171,7 +2199,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       wsClient.on('session:done', (msg) => {
         const sid = msg.sessionId as string
         const isCurrent = sid === get().currentSessionId
-        if (!isCurrent) sessionReadFence.recordUnread(sid)
+        const shouldAcknowledgeRead = isCurrent && isDocumentVisible()
+        if (!shouldAcknowledgeRead) sessionReadFence.recordUnread(sid)
         sessionCancelCoordinator.clear(sid)
         sessionActivityFence.record(sid, 'idle')
         set((st) => ({
@@ -2259,7 +2288,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           }
         }
         saveCache(sid, get())
-        if (isDocumentVisible()) {
+        if (shouldAcknowledgeRead) {
           const lastReadAt = new Date().toISOString()
           sessionReadFence.recordRead(sid, lastReadAt)
           set((st) => ({
@@ -2273,6 +2302,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             unreadSessionIds: removeSessionIndicator(st.unreadSessionIds, sid),
           }))
           void markSessionReadOnServer(sid)
+        } else {
+          set((st) => ({
+            unreadSessionIds: { ...st.unreadSessionIds, [sid]: true },
+          }))
         }
         void get().fetchMessages(sid)
       }),
