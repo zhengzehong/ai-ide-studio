@@ -13,30 +13,32 @@ export function PresentedFilesOverlay({
   onClose: () => void
 }) {
   const [selectedPath, setSelectedPath] = useState(presentation.files[0]?.path ?? '')
-  const [file, setFile] = useState<FileContent | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [loadResult, setLoadResult] = useState<{
+    path: string
+    file: FileContent | null
+    error: string | null
+  } | null>(null)
 
   const selected = presentation.files.find((item) => item.path === selectedPath) ?? presentation.files[0]
 
   useEffect(() => {
     if (!selected) return
     let active = true
-    setLoading(true)
-    setError(null)
-    setFile(null)
     void wsClient.request({ type: 'fs.read', projectId: presentation.projectId, filePath: selected.path })
       .then((value) => {
         if (!active) return
         const content = value as Omit<FileContent, 'kind'> & { kind?: FileContent['kind'] }
-        setFile({ ...content, kind: content.kind ?? selected.kind })
+        setLoadResult({ path: selected.path, file: { ...content, kind: content.kind ?? selected.kind }, error: null })
       })
       .catch((reason: unknown) => {
-        if (active) setError(reason instanceof Error ? reason.message : '文件读取失败')
+        if (active) setLoadResult({ path: selected.path, file: null, error: reason instanceof Error ? reason.message : '文件读取失败' })
       })
-      .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [presentation.projectId, selected])
+
+  const loading = loadResult?.path !== selectedPath
+  const file = loadResult?.path === selectedPath ? loadResult.file : null
+  const error = loadResult?.path === selectedPath ? loadResult.error : null
 
   const displayFile: FileContent = file ?? {
     path: selected?.path ?? '', content: '', size: selected?.size ?? 0,

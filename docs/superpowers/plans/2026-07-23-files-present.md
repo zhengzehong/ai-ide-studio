@@ -38,10 +38,10 @@
 - Modify: `ui/src/pages/Workspace.tsx`
 - Test: `tests/unit/files-presentation-pc.test.ts`
 
-- [ ] Write failing tests for history normalization, realtime/history deduplication, file switching, and rendered Markdown.
-- [ ] Run targeted PC tests and confirm failure.
-- [ ] Add the card, modal, lazy `fs.read`, Markdown rendering, and Workspace state wiring.
-- [ ] Run targeted PC tests and commit.
+- [x] Write failing tests for history normalization, realtime/history deduplication, file switching, and rendered Markdown.
+- [x] Run targeted PC tests and confirm failure.
+- [x] Add the card, modal, lazy `fs.read`, Markdown rendering, and Workspace state wiring.
+- [x] Run targeted PC tests and commit.
 
 ### Task 3: Mobile Card And Full-screen Viewer
 
@@ -52,10 +52,10 @@
 - Modify: `mobile/src/pages/ChatPage.tsx`
 - Test: `tests/unit/files-presentation-mobile.test.ts`
 
-- [ ] Write failing tests for history card rendering and switching among multiple files.
-- [ ] Run targeted mobile tests and confirm failure.
-- [ ] Add the card, full-screen viewer, horizontal selector, and existing FileDetail reuse.
-- [ ] Run targeted mobile tests and commit.
+- [x] Write failing tests for history card rendering and switching among multiple files.
+- [x] Run targeted mobile tests and confirm failure.
+- [x] Add the card, full-screen viewer, horizontal selector, and existing FileDetail reuse.
+- [x] Run targeted mobile tests and commit.
 
 ### Task 4: Documentation And Verification
 
@@ -63,6 +63,6 @@
 - Modify: `README.md`
 - Modify: `docs/architecture/mcp-tool-platform.md`
 
-- [ ] Document the tool contract and message presentation behavior.
-- [ ] Run targeted tests, `npx tsc --noEmit`, `npm test`, `npm run build`, `npm run lint`, and `git diff --check`.
+- [x] Document the tool contract and message presentation behavior.
+- [x] Run targeted tests, `npx tsc --noEmit`, `npm test`, `npm run build`, `npm run lint`, and `git diff --check`.
 - [ ] Request independent review and merge only after approval.

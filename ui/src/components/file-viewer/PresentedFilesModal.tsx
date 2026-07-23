@@ -7,9 +7,11 @@ import { MarkdownRenderer } from '../MarkdownRenderer'
 
 export function PresentedFilesModal({ presentation, onClose }: { presentation: FilesPresentationInfo; onClose: () => void }) {
   const [selectedPath, setSelectedPath] = useState(presentation.files[0]?.path ?? '')
-  const [file, setFile] = useState<FileContent | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [loadResult, setLoadResult] = useState<{
+    path: string
+    file: FileContent | null
+    error: string | null
+  } | null>(null)
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
@@ -20,17 +22,20 @@ export function PresentedFilesModal({ presentation, onClose }: { presentation: F
   useEffect(() => {
     if (!selectedPath) return
     let active = true
-    setLoading(true)
-    setError(null)
-    setFile(null)
     void wsClient.request({ type: 'fs.read', projectId: presentation.projectId, filePath: selectedPath })
-      .then((value) => { if (active) setFile(value as FileContent) })
-      .catch((reason: unknown) => { if (active) setError(reason instanceof Error ? reason.message : '文件读取失败') })
-      .finally(() => { if (active) setLoading(false) })
+      .then((value) => {
+        if (active) setLoadResult({ path: selectedPath, file: value as FileContent, error: null })
+      })
+      .catch((reason: unknown) => {
+        if (active) setLoadResult({ path: selectedPath, file: null, error: reason instanceof Error ? reason.message : '文件读取失败' })
+      })
     return () => { active = false }
   }, [presentation.projectId, selectedPath])
 
   const selected = presentation.files.find((item) => item.path === selectedPath) ?? presentation.files[0]
+  const loading = loadResult?.path !== selectedPath
+  const file = loadResult?.path === selectedPath ? loadResult.file : null
+  const error = loadResult?.path === selectedPath ? loadResult.error : null
   const isMarkdown = file?.extension === '.md' || file?.extension === '.mdx'
 
   return (
