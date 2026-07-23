@@ -59,14 +59,14 @@
 - [x] Parse and render mobile preview summaries using the existing preview card/navigation behavior.
 - [x] Deduplicate persisted and realtime cards by `previewId`.
 - [x] Run the targeted mobile test and confirm it passes.
-- [ ] Commit the mobile history restoration slice.
+- [x] Commit the mobile history restoration slice.
 
 ### Task 4: Verify and Review
 
-- [ ] Run all targeted preview, message, migration, PC, and mobile tests.
-- [ ] Run `npx tsc --noEmit`.
-- [ ] Run `npm test`.
-- [ ] Run `npm run build`.
-- [ ] Run `npm run lint`.
-- [ ] Run `git diff --check` and inspect the complete diff.
+- [x] Run all targeted preview, message, migration, PC, and mobile tests.
+- [x] Run `npx tsc --noEmit`.
+- [x] Run `npm test`.
+- [x] Run `npm run build`.
+- [x] Run `npm run lint`.
+- [x] Run `git diff --check` and inspect the complete diff.
 - [ ] Request independent code review and merge only after approval.
