@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, test } from 'vitest'
 import { TurnContentView } from '../../ui/src/components/chat/TurnContentView.tsx'
 import { FilesPresentationCard } from '../../ui/src/components/chat/FilesPresentationCard.tsx'
+import { PresentedFilesModal } from '../../ui/src/components/file-viewer/PresentedFilesModal.tsx'
 import { normalizeMessage, type MessageData } from '../../ui/src/stores/session-events.ts'
 
 const presentation = {
@@ -76,5 +77,18 @@ describe('PC files presentation', () => {
     expect(html).toContain('分析报告')
     expect(html).toContain('实施方案')
     expect(html).toContain('2 个文件')
+  })
+
+  test('opens the file viewer as a full viewport workspace', () => {
+    const html = renderToStaticMarkup(createElement(PresentedFilesModal, {
+      presentation,
+      onClose: () => undefined,
+    }))
+
+    expect(html).toContain('width:100vw')
+    expect(html).toContain('height:100dvh')
+    expect(html).toContain('aria-label="复制内容"')
+    expect(html).toContain('<span>复制</span>')
+    expect(html).not.toContain('width:min(1100px, 100%)')
   })
 })
