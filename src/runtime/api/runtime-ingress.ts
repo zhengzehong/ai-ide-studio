@@ -3,23 +3,37 @@ import { sessionManager } from '../../core/sessions.js'
 import { applyRuntimeAgentStatus } from '../../core/agent-runtime-status.js'
 import type { SessionStopReason, SessionUpdateData } from '../../types/ws-protocol.js'
 import type { RuntimeAgentStatusEvent, RuntimeDoneEvent, RuntimePersistenceUpdate } from '../service/protocol.js'
+import {
+  drainPlatformPresentationResults,
+  reconcilePlatformPresentationUpdate,
+} from '../../core/platform-presentation-results.js'
 
 export function handleRuntimeAgentStatus(event: RuntimeAgentStatusEvent): void {
   applyRuntimeAgentStatus(event)
 }
 
 export async function handleRuntimePersistenceUpdate(event: RuntimePersistenceUpdate): Promise<void> {
+  const reconciled = reconcilePlatformPresentationUpdate(event.sessionId, updateData(event))
   events.emit('session:update', {
     sessionId: event.sessionId,
     agentId: event.agentId,
-    data: updateData(event),
-    source: 'runtime-persistence',
+    data: reconciled.data,
+    ...(reconciled.matched ? {} : { source: 'runtime-persistence' as const }),
     streamGeneration: event.streamGeneration,
     sequence: event.sequence,
   })
 }
 
 export async function handleRuntimeDone(event: RuntimeDoneEvent): Promise<void> {
+  for (const data of drainPlatformPresentationResults(event.sessionId, event.messageId)) {
+    events.emit('session:update', {
+      sessionId: event.sessionId,
+      agentId: event.agentId,
+      data,
+      streamGeneration: event.streamGeneration,
+      sequence: event.sequence,
+    })
+  }
   events.emit('session:done', {
     sessionId: event.sessionId,
     agentId: event.agentId,

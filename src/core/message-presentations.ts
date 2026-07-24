@@ -32,11 +32,13 @@ export type MessagePresentation = PreviewPresentation | FilesPresentation
 const PREVIEW_TOOL_TITLES = new Set([
   'preview.publish',
   'mcp__ai-ide-tools__preview_publish',
+  'mcp.ai-ide-tools.preview.publish',
 ])
 
 const FILES_TOOL_TITLES = new Set([
   'files.present',
   'mcp__ai-ide-tools__files_present',
+  'mcp.ai-ide-tools.files.present',
 ])
 
 export function presentationsJsonFromToolCalls(toolCalls: unknown[] | undefined): string | null {

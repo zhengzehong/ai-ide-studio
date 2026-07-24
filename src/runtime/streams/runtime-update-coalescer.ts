@@ -85,7 +85,7 @@ export class RuntimeUpdateCoalescer {
   }
 
   private enqueueChannel(channel: UpdateChannel, update: RuntimeCoalescibleUpdate): void {
-    const key = updateKey(update)
+    const key = runtimeUpdateKey(update)
     channel.pending.set(key, mergeUpdate(channel.pending.get(key), update))
     if (channel.timer) return
     channel.timer = setTimeout(() => {
@@ -119,7 +119,7 @@ export class RuntimeUpdateCoalescer {
   }
 }
 
-function updateKey(update: RuntimeCoalescibleUpdate): string {
+export function runtimeUpdateKey(update: RuntimeCoalescibleUpdate): string {
   if (update.kind === 'process-item') return `${update.sessionId}:process:${update.processItemId}`
   if (update.kind === 'session-update') {
     const data = recordField(update, 'data')
@@ -127,6 +127,22 @@ function updateKey(update: RuntimeCoalescibleUpdate): string {
       return `${update.sessionId}:${update.kind}:${update.messageId}:text`
     }
     if (typeof data?.thinking === 'string') return `${update.sessionId}:${update.kind}:${update.messageId}:thinking`
+    const toolCall = record(data?.toolCall)
+    if (toolCall) return `${update.sessionId}:${update.kind}:${update.messageId}:tool-call:${stringValue(toolCall.id)}`
+    const toolCallUpdate = record(data?.toolCallUpdate)
+    if (toolCallUpdate) {
+      return `${update.sessionId}:${update.kind}:${update.messageId}:tool-update:${stringValue(toolCallUpdate.id)}`
+    }
+    if (data?.usage !== undefined) return `${update.sessionId}:${update.kind}:${update.messageId}:usage`
+    if (data?.configOptions !== undefined) return `${update.sessionId}:${update.kind}:${update.messageId}:config-options`
+    if (data?.commands !== undefined) return `${update.sessionId}:${update.kind}:${update.messageId}:commands`
+    if (data?.sessionInfo !== undefined) return `${update.sessionId}:${update.kind}:${update.messageId}:session-info`
+    if (data?.plan !== undefined) return `${update.sessionId}:${update.kind}:${update.messageId}:plan`
+    if (data?.permissionRequest !== undefined) return `${update.sessionId}:${update.kind}:${update.messageId}:permission`
+    if (data?.elicitationRequest !== undefined) return `${update.sessionId}:${update.kind}:${update.messageId}:elicitation`
+    if (typeof data?.eventType === 'string') {
+      return `${update.sessionId}:${update.kind}:${update.messageId}:event:${data.eventType}`
+    }
   }
   return `${update.sessionId}:${update.kind}:${update.messageId}`
 }
@@ -166,6 +182,12 @@ function mergeUpdate(
 function recordField(update: RuntimeCoalescibleUpdate, key: string): Record<string, unknown> | undefined {
   const value = update[key]
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined
+}
+
+function record(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined
 }
 
 function stringValue(value: unknown): string {
