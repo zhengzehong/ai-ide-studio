@@ -159,6 +159,7 @@ describe('model profile runtime env', () => {
       claudeCode: {
         options: {
           settings: {
+            autoCompactWindow: 200000,
             env: {
               ANTHROPIC_BASE_URL: 'https://api.deepseek.com/anthropic',
               ANTHROPIC_API_KEY: 'sk-test',
@@ -169,6 +170,21 @@ describe('model profile runtime env', () => {
               ANTHROPIC_DEFAULT_OPUS_MODEL: 'deepseek-v4-flash',
               ANTHROPIC_REASONING_MODEL: 'deepseek-v4-flash',
               CLAUDE_CODE_MAX_CONTEXT_TOKENS: '200000',
+            },
+          },
+        },
+      },
+    })
+  })
+
+  test('omits auto compact settings when no valid context window is configured', () => {
+    expect(buildClaudeSessionMeta({ ANTHROPIC_MODEL: 'glm5-prd' }, 'claude')).toEqual({
+      claudeCode: {
+        options: {
+          settings: {
+            env: {
+              ANTHROPIC_AUTH_TOKEN: '',
+              ANTHROPIC_MODEL: 'glm5-prd',
             },
           },
         },
