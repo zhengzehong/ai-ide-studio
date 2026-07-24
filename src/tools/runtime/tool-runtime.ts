@@ -5,6 +5,7 @@ import { assertToolAllowed, toolDeniedResult } from '../permission-guard.js'
 import { runScriptTool } from '../script-runner.js'
 import { failToolCall, finishToolCall, recordToolCallStart } from './audit-service.js'
 import { sanitizeRuntimeToolInputSchema } from './schema-sanitizer.js'
+import { recordPlatformPresentationResult } from '../../core/platform-presentation-results.js'
 import type {
   ToolConfig,
   ToolContext,
@@ -89,6 +90,18 @@ export async function executeRuntimeTool(
       failToolCall(audit.id, result.content.map((item) => item.text).join('\n'), 'failed')
     } else {
       finishToolCall(audit.id, result)
+      try {
+        recordPlatformPresentationResult({
+          auditId: audit.id,
+          sessionId: context.sessionId,
+          agentId: context.agentId,
+          toolName,
+          input,
+          rawOutput: result.content,
+        })
+      } catch (error) {
+        log.warn({ err: error, toolName, sessionId: context.sessionId, agentId: context.agentId }, '展示结果登记失败')
+      }
     }
     return result
   } catch (err) {

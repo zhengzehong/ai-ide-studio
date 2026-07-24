@@ -2,7 +2,11 @@ import { createConnection, type Socket } from 'node:net'
 import { FramedSocket } from '../../ipc/framed-socket.js'
 import type { IpcEnvelope } from '../../ipc/protobuf-envelope.js'
 import type { ServerMessage, SessionUpdateData, TurnUsageData } from '../../types/ws-protocol.js'
-import { RuntimeUpdateCoalescer, type RuntimeCoalescibleUpdate } from '../streams/runtime-update-coalescer.js'
+import {
+  RuntimeUpdateCoalescer,
+  runtimeUpdateKey,
+  type RuntimeCoalescibleUpdate,
+} from '../streams/runtime-update-coalescer.js'
 import { AcpRuntimeHost } from './acp-runtime-host.js'
 import { RuntimeIdleSweep } from './runtime-idle-sweep.js'
 import { createChildLogger } from '../../shared/logger.js'
@@ -151,20 +155,22 @@ export class RuntimeService {
   private async emitUi(updates: RuntimeCoalescibleUpdate[]): Promise<void> {
     for (const update of updates) {
       const cursor = this.host.nextCursor(update.sessionId)
-      this.cursorByUpdate.set(updateKey(update), cursor)
+      this.cursorByUpdate.set(runtimeUpdateKey(update), cursor)
       await this.sendStream({ type: 'runtime.stream', message: toServerMessage(update, cursor) })
     }
   }
 
   private async emitPersistence(updates: RuntimeCoalescibleUpdate[]): Promise<void> {
     for (const update of updates) {
-      const cursor = this.cursorByUpdate.get(updateKey(update)) ?? this.host.nextCursor(update.sessionId)
+      const key = runtimeUpdateKey(update)
+      const cursor = this.cursorByUpdate.get(key) ?? this.host.nextCursor(update.sessionId)
       await this.options.sendPersistence({
         sessionId: update.sessionId,
         agentId: stringField(update, 'agentId'),
         update,
         ...cursor,
       })
+      this.cursorByUpdate.delete(key)
     }
   }
 
@@ -203,20 +209,6 @@ function toServerMessage(
 
 function stringValue(value: unknown): string {
   return typeof value === 'string' ? value : ''
-}
-
-function updateKey(update: RuntimeCoalescibleUpdate): string {
-  if (update.kind === 'process-item') return `${update.sessionId}:process:${update.processItemId}`
-  if (update.kind === 'session-update') {
-    const data = update.data
-    const nested =
-      data && typeof data === 'object' && !Array.isArray(data) ? (data as Record<string, unknown>) : undefined
-    if (typeof update.contentDelta === 'string' || typeof nested?.contentDelta === 'string') {
-      return `${update.sessionId}:${update.kind}:${update.messageId}:text`
-    }
-    if (typeof nested?.thinking === 'string') return `${update.sessionId}:${update.kind}:${update.messageId}:thinking`
-  }
-  return `${update.sessionId}:${update.kind}:${update.messageId}`
 }
 
 function stringField(value: RuntimeCoalescibleUpdate, key: string): string {

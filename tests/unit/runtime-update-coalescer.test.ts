@@ -72,6 +72,33 @@ describe('RuntimeUpdateCoalescer', () => {
     }]])
     expect(persistence).toEqual(ui)
   })
+
+  test('does not merge tool lifecycle data with system usage updates', async () => {
+    vi.useFakeTimers()
+    const persistence: RuntimeCoalescibleUpdate[][] = []
+    const coalescer = new RuntimeUpdateCoalescer({
+      uiFlushMs: 25,
+      persistenceFlushMs: 250,
+      emitUi: async () => undefined,
+      emitPersistence: async (updates) => { persistence.push(updates) },
+    })
+    const toolCall = sessionUpdate({
+      messageId: 'message-1',
+      role: 'agent',
+      toolCall: { id: 'tool-1', title: 'files.present', status: 'in_progress' },
+    })
+    const usage = sessionUpdate({
+      messageId: 'message-1',
+      role: 'system',
+      usage: { contextSize: 200_000, contextUsed: 10_000 },
+    })
+
+    coalescer.enqueue(toolCall)
+    coalescer.enqueue(usage)
+    await vi.advanceTimersByTimeAsync(250)
+
+    expect(persistence).toEqual([[toolCall, usage]])
+  })
 })
 
 function textDelta(contentDelta: string): RuntimeCoalescibleUpdate {
@@ -91,5 +118,14 @@ function processUpdate(status: string, progress: string): RuntimeCoalescibleUpda
     processItemId: 'process-1',
     status,
     progress,
+  }
+}
+
+function sessionUpdate(data: Record<string, unknown>): RuntimeCoalescibleUpdate {
+  return {
+    kind: 'session-update',
+    sessionId: 'session-1',
+    messageId: 'message-1',
+    data,
   }
 }

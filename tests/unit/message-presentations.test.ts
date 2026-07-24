@@ -147,4 +147,30 @@ describe('message preview presentations', () => {
 
     expect(JSON.parse(row.presentations_json || '[]')).toEqual([output])
   })
+
+  test('recognizes the dotted Codex MCP title for files.present', () => {
+    const session = sessionStore.create({ agentId: 'agent-1' })
+    const output = {
+      kind: 'files',
+      presentationId: 'files-codex',
+      projectId: 'project-1',
+      title: 'Codex delivery',
+      files: [
+        { path: 'report.md', title: 'Report', name: 'report.md', extension: '.md', size: 10, kind: 'text', language: 'markdown' },
+      ],
+      createdAt: '2026-07-24T00:00:00.000Z',
+    }
+    const row = messageStore.append(session.id, {
+      role: 'agent',
+      content: 'Done',
+      toolCalls: [{
+        id: 'tool-files',
+        title: 'mcp.ai-ide-tools.files.present',
+        status: 'completed',
+        rawOutput: [{ type: 'text', text: JSON.stringify(output) }],
+      }],
+    })
+
+    expect(JSON.parse(row.presentations_json || '[]')).toEqual([output])
+  })
 })
