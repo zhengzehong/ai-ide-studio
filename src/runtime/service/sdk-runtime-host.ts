@@ -129,7 +129,7 @@ export class SdkRuntimeHost {
     }
     this.sessions.set(snapshot.session.id, session)
     agent.router.bindSession(snapshot.session.id, opened.acpSessionId, snapshot.autoApprovedToolNames,
-      opened.capabilities.currentModeId)
+      opened.capabilities.currentModeId, snapshot.runtime.appliedModelProfile?.contextWindow)
     await applySdkSessionPreferences({
       snapshot,
       capabilities: session.capabilities,
@@ -190,7 +190,7 @@ export class SdkRuntimeHost {
     }
     this.sessions.set(snapshot.session.id, session)
     agent.router.bindSession(snapshot.session.id, result.sessionId, snapshot.autoApprovedToolNames,
-      session.capabilities.currentModeId)
+      session.capabilities.currentModeId, snapshot.runtime.appliedModelProfile?.contextWindow)
     await applySdkSessionPreferences({
       snapshot,
       capabilities: session.capabilities,

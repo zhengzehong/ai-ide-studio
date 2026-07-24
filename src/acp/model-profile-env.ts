@@ -12,6 +12,7 @@ export interface AppliedModelProfile {
   name: string
   runtime: string
   providerId: string
+  contextWindow?: number
 }
 
 export interface AgentRuntimeEnvResult {
@@ -47,6 +48,7 @@ const CLAUDE_PROFILE_ENV_KEYS = [
   'ANTHROPIC_DEFAULT_SONNET_MODEL',
   'ANTHROPIC_DEFAULT_OPUS_MODEL',
   'ANTHROPIC_REASONING_MODEL',
+  'CLAUDE_CODE_MAX_CONTEXT_TOKENS',
 ] as const
 
 export function buildAgentRuntimeEnv(
@@ -63,6 +65,7 @@ export function buildAgentRuntimeEnv(
     env,
     resolvedProfile.provider,
     parseClaudeConfig(resolvedProfile.profile.config_json),
+    resolvedProfile.appliedProfile.contextWindow,
   )) return { env }
 
   return { env, appliedProfile: resolvedProfile.appliedProfile }
@@ -129,6 +132,7 @@ export function fingerprintRuntimeEnv(env: NodeJS.ProcessEnv, runtime: string): 
       'ANTHROPIC_DEFAULT_SONNET_MODEL',
       'ANTHROPIC_DEFAULT_OPUS_MODEL',
       'ANTHROPIC_REASONING_MODEL',
+      'CLAUDE_CODE_MAX_CONTEXT_TOKENS',
       'CLAUDE_MODEL_CONFIG',
     ]
     : ['CODEX_PATH', 'MODEL_PROVIDER', 'CODEX_CONFIG']
@@ -144,6 +148,7 @@ export function summarizeRuntimeEnv(env: NodeJS.ProcessEnv, runtime: string): Re
     anthropicDefaultSonnetModel: env.ANTHROPIC_DEFAULT_SONNET_MODEL ?? null,
     anthropicDefaultOpusModel: env.ANTHROPIC_DEFAULT_OPUS_MODEL ?? null,
     anthropicReasoningModel: env.ANTHROPIC_REASONING_MODEL ?? null,
+    claudeCodeMaxContextTokens: env.CLAUDE_CODE_MAX_CONTEXT_TOKENS ?? null,
     anthropicApiKeyHash: hashCredential(env.ANTHROPIC_API_KEY),
     anthropicAuthTokenHash: hashCredential(env.ANTHROPIC_AUTH_TOKEN),
     hasClaudeModelConfig: Boolean(env.CLAUDE_MODEL_CONFIG?.trim()),
@@ -154,6 +159,7 @@ function applyClaudeModelProfileEnv(
   env: NodeJS.ProcessEnv,
   provider: { protocol: string; base_url: string; api_key: string },
   config: ClaudeModelProfileConfig,
+  contextWindow?: number,
 ): boolean {
   const defaultModel = config.defaultModel.trim()
   if (!defaultModel) return false
@@ -164,6 +170,7 @@ function applyClaudeModelProfileEnv(
   env.ANTHROPIC_DEFAULT_SONNET_MODEL = config.sonnetModel?.trim() || defaultModel
   env.ANTHROPIC_DEFAULT_OPUS_MODEL = config.opusModel?.trim() || defaultModel
   env.ANTHROPIC_REASONING_MODEL = defaultModel
+  if (contextWindow) env.CLAUDE_CODE_MAX_CONTEXT_TOKENS = String(contextWindow)
   return true
 }
 
@@ -206,7 +213,12 @@ function toAppliedModelProfile(profile: ModelProfileRow): AppliedModelProfile {
     name: profile.name,
     runtime: profile.runtime,
     providerId: profile.provider_id,
+    contextWindow: normalizeContextWindow(profile.context_window),
   }
+}
+
+function normalizeContextWindow(value: number | null): number | undefined {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : undefined
 }
 
 function readModelProfileId(raw: string | null): string | undefined {

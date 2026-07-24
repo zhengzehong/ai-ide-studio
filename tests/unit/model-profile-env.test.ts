@@ -80,6 +80,7 @@ describe('model profile runtime env', () => {
     })
 
     expect(result.appliedProfile?.id).toBe(profile.id)
+    expect(result.appliedProfile?.contextWindow).toBe(128000)
     expect(result.env.OTHER_ENV).toBe('kept')
     expect(result.env.ANTHROPIC_BASE_URL).toBe('http://127.0.0.1:29000/anthropic')
     expect(result.env.ANTHROPIC_API_KEY).toBe('sk-test')
@@ -88,6 +89,7 @@ describe('model profile runtime env', () => {
     expect(result.env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBe('deepseek-v4-pro[1m]')
     expect(result.env.ANTHROPIC_DEFAULT_OPUS_MODEL).toBe('deepseek-v4-pro[1m]')
     expect(result.env.ANTHROPIC_REASONING_MODEL).toBe('deepseek-v4-flash')
+    expect(result.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS).toBe('128000')
   })
 
   test('includes Claude model profile env in fingerprints and safe summaries', () => {
@@ -99,11 +101,14 @@ describe('model profile runtime env', () => {
       ANTHROPIC_DEFAULT_SONNET_MODEL: 'deepseek-v4-flash',
       ANTHROPIC_DEFAULT_OPUS_MODEL: 'deepseek-v4-flash',
       ANTHROPIC_REASONING_MODEL: 'deepseek-v4-flash',
+      CLAUDE_CODE_MAX_CONTEXT_TOKENS: '128000',
     }
 
     const changed = { ...env, ANTHROPIC_DEFAULT_OPUS_MODEL: 'deepseek-v4-pro[1m]' }
+    const changedContextWindow = { ...env, CLAUDE_CODE_MAX_CONTEXT_TOKENS: '200000' }
 
     expect(fingerprintRuntimeEnv(env, 'claude')).not.toBe(fingerprintRuntimeEnv(changed, 'claude'))
+    expect(fingerprintRuntimeEnv(env, 'claude')).not.toBe(fingerprintRuntimeEnv(changedContextWindow, 'claude'))
     expect(summarizeRuntimeEnv(env, 'claude')).toMatchObject({
       anthropicBaseUrl: 'https://api.deepseek.com/anthropic',
       anthropicModel: 'deepseek-v4-flash',
@@ -111,6 +116,7 @@ describe('model profile runtime env', () => {
       anthropicDefaultSonnetModel: 'deepseek-v4-flash',
       anthropicDefaultOpusModel: 'deepseek-v4-flash',
       anthropicReasoningModel: 'deepseek-v4-flash',
+      claudeCodeMaxContextTokens: '128000',
       hasClaudeModelConfig: false,
     })
     expect(summarizeRuntimeEnv(env, 'claude').anthropicApiKeyHash).not.toBe('sk-test')
@@ -128,6 +134,7 @@ describe('model profile runtime env', () => {
       name: 'claude ds flash',
       runtime: 'claude',
       providerId: provider.id,
+      contextWindow: 200000,
       config: {
         defaultModel: 'deepseek-v4-flash',
         haikuModel: 'deepseek-v4-flash',
@@ -161,6 +168,7 @@ describe('model profile runtime env', () => {
               ANTHROPIC_DEFAULT_SONNET_MODEL: 'deepseek-v4-flash',
               ANTHROPIC_DEFAULT_OPUS_MODEL: 'deepseek-v4-flash',
               ANTHROPIC_REASONING_MODEL: 'deepseek-v4-flash',
+              CLAUDE_CODE_MAX_CONTEXT_TOKENS: '200000',
             },
           },
         },

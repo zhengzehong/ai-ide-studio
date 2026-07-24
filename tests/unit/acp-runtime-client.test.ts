@@ -30,6 +30,27 @@ describe('database-free ACP Runtime client', () => {
     })])
   })
 
+  test('reports the applied model profile context window instead of the ACP fallback', async () => {
+    const updates: RuntimeCoalescibleUpdate[] = []
+    const router = createAcpRuntimeClient({
+      agentId: 'agent-a',
+      publishUpdate: (update) => { updates.push(update) },
+      updateCapabilities: () => undefined,
+    })
+    router.bindSession('session-a', 'acp-a', [], undefined, 128000)
+    router.beginTurn('session-a', 'message-a')
+
+    await router.client.sessionUpdate({
+      sessionId: 'acp-a',
+      update: { sessionUpdate: 'usage_update', size: 200000, used: 64000 },
+    } as never)
+
+    expect(updates.at(-1)).toMatchObject({
+      sessionId: 'session-a',
+      data: { usage: { contextSize: 128000, contextUsed: 64000 } },
+    })
+  })
+
   test('auto-approves only snapshot-authorized internal Team tools', async () => {
     const router = createAcpRuntimeClient({
       agentId: 'agent-a',
