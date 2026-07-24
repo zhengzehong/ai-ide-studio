@@ -18,7 +18,7 @@ export const filesPresentHandler: ToolHandler = {
         items: {
           type: 'object',
           properties: {
-            path: { type: 'string', description: '项目工作目录内的相对文件路径' },
+            path: { type: 'string', description: '工作空间相对路径或服务端可读绝对路径' },
             title: { type: 'string', description: '文件展示标题，默认使用文件名' },
           },
           required: ['path'],
