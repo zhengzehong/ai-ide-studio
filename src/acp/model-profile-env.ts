@@ -24,6 +24,7 @@ export interface ClaudeSessionMeta extends Record<string, unknown> {
   claudeCode: {
     options: {
       settings: {
+        autoCompactWindow?: number
         env: Record<string, string>
       }
     }
@@ -78,16 +79,26 @@ export function buildClaudeSessionMeta(env: NodeJS.ProcessEnv, runtime: string):
     CLAUDE_PROFILE_ENV_KEYS.map(key => [key, env[key]?.trim() ?? '']).filter(([, value]) => value !== ''),
   )
   settingsEnv.ANTHROPIC_AUTH_TOKEN = ''
+  const autoCompactWindow = parseAutoCompactWindow(env.CLAUDE_CODE_MAX_CONTEXT_TOKENS)
 
   return {
     claudeCode: {
       options: {
         settings: {
+          ...(autoCompactWindow ? { autoCompactWindow } : {}),
           env: settingsEnv,
         },
       },
     },
   }
+}
+
+function parseAutoCompactWindow(value: string | undefined): number | undefined {
+  if (!value) return undefined
+  const parsed = Number(value)
+  return Number.isSafeInteger(parsed) && parsed >= 100_000 && parsed <= 1_000_000
+    ? parsed
+    : undefined
 }
 
 export function buildAgentSessionMeta(

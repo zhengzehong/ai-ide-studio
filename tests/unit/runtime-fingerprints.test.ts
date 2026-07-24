@@ -31,9 +31,17 @@ describe('Runtime fingerprints', () => {
       runtime: { ...base.runtime, sessionMeta: { z: true, nested: { a: 1, b: 2 } } },
     }
     const changedCwd = { ...base, session: { ...base.session, cwd: `${base.session.cwd}/other` } }
+    const changedAutoCompactWindow = {
+      ...base,
+      runtime: {
+        ...base.runtime,
+        sessionMeta: { ...base.runtime.sessionMeta, claudeCode: { options: { settings: { autoCompactWindow: 200000 } } } },
+      },
+    }
 
     expect(runtimeSessionContextFingerprint(reordered)).toBe(runtimeSessionContextFingerprint(originalOrder))
     expect(runtimeSessionContextFingerprint(changedCwd)).not.toBe(runtimeSessionContextFingerprint(base))
+    expect(runtimeSessionContextFingerprint(changedAutoCompactWindow)).not.toBe(runtimeSessionContextFingerprint(base))
   })
 })
 
