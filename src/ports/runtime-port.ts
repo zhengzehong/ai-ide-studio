@@ -43,6 +43,7 @@ export interface RuntimeProcessSnapshot {
     name: string
     runtime: string
     providerId: string
+    contextWindow?: number
   }
 }
 

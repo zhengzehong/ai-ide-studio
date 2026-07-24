@@ -54,6 +54,11 @@ export async function startManagedAcpAgent(input: StartManagedAcpAgentInput): Pr
       failedToSpawn,
     ])
     if (spawnError) process.off('error', spawnError)
+    log.info({
+      agentId: input.agentId,
+      runtime: input.runtime,
+      contextWindow: parsePositiveInteger(input.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS),
+    }, 'Agent runtime initialized')
     return {
       process,
       connection,
@@ -66,6 +71,12 @@ export async function startManagedAcpAgent(input: StartManagedAcpAgentInput): Pr
     log.error({ err: error, agentId: input.agentId, runtime: input.runtime }, 'Agent runtime initialization failed')
     throw error
   }
+}
+
+function parsePositiveInteger(value: string | undefined): number | null {
+  if (!value) return null
+  const parsed = Number(value)
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null
 }
 
 function createConnection(

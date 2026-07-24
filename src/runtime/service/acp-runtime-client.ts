@@ -31,6 +31,7 @@ interface BoundSession {
   messageId?: string
   turnId?: string
   streamGeneration?: string
+  contextWindow?: number
 }
 
 const FULL_ACCESS_PERMISSION_MODES = new Set(['bypassPermissions', 'agent-full-access'])
@@ -47,7 +48,13 @@ export interface AcpRuntimeClientOptions {
 
 export interface AcpRuntimeClientRouter {
   client: acp.Client
-  bindSession(sessionId: string, acpSessionId: string, autoApprovedToolNames: string[], permissionMode?: string): void
+  bindSession(
+    sessionId: string,
+    acpSessionId: string,
+    autoApprovedToolNames: string[],
+    permissionMode?: string,
+    contextWindow?: number,
+  ): void
   unbindSession(sessionId: string): void
   setPermissionMode(sessionId: string, permissionMode?: string): void
   beginTurn(sessionId: string, messageId: string, turnId?: string, streamGeneration?: string): void
@@ -122,7 +129,7 @@ export function createAcpRuntimeClient(options: AcpRuntimeClientOptions): AcpRun
             messageId,
             role: 'system',
             usage: {
-              contextSize: update.size,
+              contextSize: bound.contextWindow ?? update.size,
               contextUsed: update.used,
               costAmount: update.cost?.amount,
               costCurrency: update.cost?.currency,
@@ -261,11 +268,12 @@ export function createAcpRuntimeClient(options: AcpRuntimeClientOptions): AcpRun
 
   return {
     client,
-    bindSession(sessionId, acpSessionId, autoApprovedToolNames, permissionMode) {
+    bindSession(sessionId, acpSessionId, autoApprovedToolNames, permissionMode, contextWindow) {
       const bound: BoundSession = {
         ourSessionId: sessionId,
         autoApprovedToolNames: new Set(autoApprovedToolNames),
         permissionMode,
+        contextWindow,
       }
       byAcpSession.set(acpSessionId, bound)
       acpByOurSession.set(sessionId, acpSessionId)
