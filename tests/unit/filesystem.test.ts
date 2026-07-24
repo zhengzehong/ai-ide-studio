@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
-import { readFile } from '../../src/core/filesystem.js'
+import { inspectFile, readFile } from '../../src/core/filesystem.js'
 
 let tmp: string
 
@@ -34,5 +34,43 @@ describe('filesystem readFile', () => {
       content: 'SECRET=\n',
       language: 'plaintext',
     })
+  })
+
+  test('allows an explicit absolute path outside the workspace', () => {
+    const workspace = resolve(tmp, 'workspace')
+    const outsideFile = resolve(tmp, 'outside.md')
+    mkdirSync(workspace)
+    writeFileSync(outsideFile, '# Outside', 'utf-8')
+
+    expect(readFile(workspace, outsideFile)).toMatchObject({
+      path: outsideFile,
+      content: '# Outside',
+      kind: 'text',
+    })
+    expect(inspectFile(workspace, outsideFile)).toMatchObject({
+      path: outsideFile,
+      name: 'outside.md',
+      kind: 'text',
+    })
+  })
+
+  test('allows an explicit absolute hidden file path', () => {
+    const workspace = resolve(tmp, 'workspace')
+    const hiddenFile = resolve(tmp, '.env')
+    mkdirSync(workspace)
+    writeFileSync(hiddenFile, 'SECRET=allowed-by-absolute-path\n', 'utf-8')
+
+    expect(readFile(workspace, hiddenFile)).toMatchObject({
+      path: hiddenFile,
+      content: 'SECRET=allowed-by-absolute-path\n',
+    })
+  })
+
+  test('continues to reject traversal from a workspace-relative path', () => {
+    const workspace = resolve(tmp, 'workspace')
+    mkdirSync(workspace)
+    writeFileSync(resolve(tmp, 'outside.md'), '# Outside', 'utf-8')
+
+    expect(readFile(workspace, '../outside.md')).toBeNull()
   })
 })

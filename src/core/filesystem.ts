@@ -1,5 +1,5 @@
-import { readdirSync, readFileSync, statSync, existsSync, createReadStream } from 'fs'
-import { join, relative, extname, basename, isAbsolute } from 'path'
+import { closeSync, createReadStream, existsSync, openSync, readdirSync, readFileSync, readSync, statSync } from 'fs'
+import { join, relative, extname, basename, isAbsolute, resolve, sep } from 'path'
 import { createChildLogger } from './logger.js'
 
 const log = createChildLogger('fs')
@@ -131,7 +131,18 @@ function classifyReadableFile(filePath: string, ext: string): FileKind {
   const kind = classifyExtension(ext)
   if (kind !== 'binary') return kind
   if (basename(filePath).toLowerCase() === '.env.example') return 'text'
-  return kind
+  return looksLikeTextFile(filePath) ? 'text' : kind
+}
+
+function looksLikeTextFile(filePath: string): boolean {
+  const descriptor = openSync(filePath, 'r')
+  try {
+    const sample = Buffer.alloc(8192)
+    const bytesRead = readSync(descriptor, sample, 0, sample.length, 0)
+    return !sample.subarray(0, bytesRead).includes(0)
+  } finally {
+    closeSync(descriptor)
+  }
 }
 
 export function resolveMimeType(ext: string, kind: FileKind): string {
@@ -145,13 +156,15 @@ export function isHiddenPathRel(filePath: string): boolean {
 }
 
 function resolveSafePath(workDir: string, filePath: string): string | null {
-  if (!filePath || isAbsolute(filePath)) {
-    log.warn({ workDir, filePath }, 'blocked absolute or empty file path')
+  if (!filePath) {
+    log.warn({ workDir, filePath }, 'blocked empty file path')
     return null
   }
-  const fullPath = join(workDir, filePath)
+  if (isAbsolute(filePath)) return resolve(filePath)
+
+  const fullPath = resolve(workDir, filePath)
   const normalizedRel = relative(workDir, fullPath)
-  if (normalizedRel.startsWith('..')) {
+  if (normalizedRel === '..' || normalizedRel.startsWith(`..${sep}`) || isAbsolute(normalizedRel)) {
     log.warn({ workDir, filePath }, '路径逃逸尝试')
     return null
   }
@@ -162,6 +175,10 @@ function resolveSafePath(workDir: string, filePath: string): string | null {
   return fullPath
 }
 
+function resolvedFilePath(workDir: string, filePath: string, fullPath: string): string {
+  return isAbsolute(filePath) ? fullPath : relative(workDir, fullPath).replace(/\\/g, '/')
+}
+
 export function inspectFile(workDir: string, filePath: string): FileMetadata | null {
   const fullPath = resolveSafePath(workDir, filePath)
   if (!fullPath || !existsSync(fullPath)) return null
@@ -170,7 +187,7 @@ export function inspectFile(workDir: string, filePath: string): FileMetadata | n
     if (!stat.isFile()) return null
     const extension = extname(fullPath).toLowerCase()
     return {
-      path: relative(workDir, fullPath).replace(/\\/g, '/'),
+      path: resolvedFilePath(workDir, filePath, fullPath),
       name: basename(fullPath),
       size: stat.size,
       extension,
@@ -254,7 +271,7 @@ export function readFile(workDir: string, filePath: string): FileContent | null 
 
     if (kind !== 'text') {
       return {
-        path: filePath,
+        path: resolvedFilePath(workDir, filePath, fullPath),
         content: '',
         size: stat.size,
         extension: ext,
@@ -268,7 +285,7 @@ export function readFile(workDir: string, filePath: string): FileContent | null 
     const content = readFileSync(fullPath, 'utf-8').slice(0, MAX_FILE_SIZE)
 
     return {
-      path: filePath,
+      path: resolvedFilePath(workDir, filePath, fullPath),
       content,
       size: stat.size,
       extension: ext,
@@ -292,7 +309,7 @@ export function getAssetStream(workDir: string, filePath: string): FileAssetInfo
     const ext = extname(fullPath).toLowerCase()
     const kind = classifyExtension(ext)
     return {
-      path: filePath,
+      path: resolvedFilePath(workDir, filePath, fullPath),
       size: stat.size,
       extension: ext,
       kind,

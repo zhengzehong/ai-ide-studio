@@ -6,6 +6,7 @@ import { validateToolToken } from '../registry/context-registry.js'
 import { executeRuntimeTool, listRuntimeTools, type ToolRuntimeContext } from '../runtime/tool-runtime.js'
 import { jsonSchemaPropsToZodShape } from '../tool-gateway.js'
 import { createChildLogger } from '../../core/logger.js'
+import { projectStore } from '../../store/projects.js'
 
 const log = createChildLogger('http-mcp-server')
 
@@ -16,6 +17,7 @@ export function mountHttpMcpServer(app: Hono): void {
 
     const contextRecord = validateToolToken(token)
     if (!contextRecord) return c.text('Invalid tool token', 401)
+    const project = contextRecord.projectId ? projectStore.get(contextRecord.projectId) : undefined
 
     const transport = new WebStandardStreamableHTTPServerTransport()
     const server = createServer({
@@ -25,7 +27,7 @@ export function mountHttpMcpServer(app: Hono): void {
       teamId: contextRecord.teamId,
       teamMemberId: contextRecord.teamMemberId,
       visibleTools: contextRecord.visibleTools,
-      workDir: process.cwd(),
+      workDir: project?.work_dir || process.cwd(),
     })
     await server.connect(transport)
     return transport.handleRequest(c.req.raw)

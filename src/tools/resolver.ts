@@ -6,6 +6,7 @@ import type { ToolConfig, ResolvedTool, ToolDefinition, ToolBinding, ToolPermiss
 import { getOrCreateToolContext } from './registry/context-registry.js'
 import { resolveVisiblePlatformTools } from './registry/visibility-resolver.js'
 import { teamMemberStore } from '../store/teams.js'
+import { projectStore } from '../store/projects.js'
 import { TEAM_LEADER_INITIAL_HIDDEN_TOOLS } from './team-profiles.js'
 import type { McpServer } from '@agentclientprotocol/sdk'
 
@@ -158,6 +159,7 @@ export function resolveToolsAsMcpServers(
   const mcpServers: McpServer[] = [...externalServers]
 
   if (gatewayToolIds.length > 0) {
+    const workDir = projectId ? projectStore.get(projectId)?.work_dir : undefined
     mcpServers.push({
       name: TOOL_GATEWAY_NAME,
       command: process.execPath,
@@ -169,6 +171,7 @@ export function resolveToolsAsMcpServers(
         { name: 'AGENT_ID', value: agentId ?? '' },
         { name: 'TEAM_ID', value: teamContext.teamId ?? '' },
         { name: 'TEAM_MEMBER_ID', value: teamContext.teamMemberId ?? '' },
+        { name: 'WORK_DIR', value: workDir || process.cwd() },
         { name: 'DATA_DIR', value: process.env.DATA_DIR ?? './data' },
       ],
     })

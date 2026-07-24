@@ -18,7 +18,7 @@ The global builtin tool is named `files.present`:
 }
 ```
 
-`files` contains 1-20 unique project-relative paths. `title` and each file title are optional. The handler requires project and work-directory context, validates every path with the existing filesystem security policy, verifies that every entry is a file, and returns a small manifest containing project ID, relative paths, names, extensions, sizes, kinds, and creation time. File content is never embedded in the tool output or message history.
+`files` contains 1-20 unique paths. A path may be relative to the current project workspace or an explicit absolute path readable by the server account. `title` and each file title are optional. The handler requires project and work-directory context, verifies that every entry is a readable file, and returns a small manifest containing project ID, paths, names, extensions, sizes, kinds, and creation time. File content is never embedded in the tool output or message history.
 
 ## Conversation Flow
 
@@ -41,7 +41,10 @@ The shared AI IDE system prompt instructs Agents to call `files.present` after p
 ## Security And Limits
 
 - Project context and work directory are mandatory.
-- Absolute paths, hidden paths, path traversal, directories, missing files, and blocked sensitive files are rejected.
+- Relative paths remain scoped to the current project workspace; relative traversal and relative hidden paths are rejected.
+- Explicit absolute paths may reference any file readable by the server account, including hidden files outside the workspace.
+- App access tokens and MCP bearer tokens remain the authorization boundary. A token holder therefore has the same file-read reach as the server account through explicit absolute paths.
+- Directories, missing files, and unreadable files are rejected.
 - At most 20 unique files are accepted.
 - History stores metadata only; current file content is read on click.
 - Existing `fs.read` size truncation remains authoritative.
@@ -50,4 +53,4 @@ The shared AI IDE system prompt instructs Agents to call `files.present` after p
 
 Included: builtin tool, persistence union, realtime/history cards, PC modal, mobile overlay, prompt instruction, tests, and documentation.
 
-Excluded: immutable snapshots, file editing inside the modal, arbitrary files outside the project, and changes to ACP/Writer/Realtime protocols.
+Excluded: immutable snapshots, file editing inside the modal, and changes to ACP/Writer/Realtime protocols.

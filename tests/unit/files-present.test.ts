@@ -47,6 +47,29 @@ describe('files.present handler', () => {
     expect(JSON.stringify(output)).not.toContain('# Report')
   })
 
+  test('presents a server-readable absolute file outside the workspace', async () => {
+    const handler = getHandler('files.present')
+    expect(handler).toBeDefined()
+    if (!handler) return
+    const outsideFile = resolve(workDir, '..', `${Date.now()}-outside-report.md`)
+    writeFileSync(outsideFile, '# Outside report', 'utf-8')
+
+    try {
+      const result = await handler.execute({ files: [{ path: outsideFile }] }, {
+        projectId: 'project-1',
+        workDir,
+      })
+
+      expect(result.isError).not.toBe(true)
+      const output = JSON.parse(result.content[0].text) as { files: Array<{ path: string; name: string }> }
+      expect(output.files).toEqual([
+        expect.objectContaining({ path: outsideFile, name: outsideFile.split(/[\\/]/).at(-1) }),
+      ])
+    } finally {
+      rmSync(outsideFile, { force: true })
+    }
+  })
+
   test.each([
     { files: [] },
     { files: [{ path: 'docs/report.md' }, { path: 'docs/report.md' }] },
