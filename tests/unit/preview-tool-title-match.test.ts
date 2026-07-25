@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import { isPreviewPublishTool } from '../../ui/src/pages/workspace/helpers'
+import { isPreviewPublishTool as isMobilePreviewPublishTool } from '../../mobile/src/utils/preview-tool'
 
 describe('isPreviewPublishTool', () => {
   test('matches plain stdio gateway title', () => {
@@ -8,6 +9,11 @@ describe('isPreviewPublishTool', () => {
 
   test('matches ai-ide-tools HTTP MCP namespaced title', () => {
     expect(isPreviewPublishTool('mcp__ai-ide-tools__preview_publish')).toBe(true)
+  })
+
+  test('matches Codex dotted MCP title on PC and mobile', () => {
+    expect(isPreviewPublishTool('mcp.ai-ide-tools.preview.publish')).toBe(true)
+    expect(isMobilePreviewPublishTool('mcp.ai-ide-tools.preview.publish')).toBe(true)
   })
 
   test('rejects other tool names with preview.publish suffix', () => {

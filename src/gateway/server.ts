@@ -34,6 +34,7 @@ import {
   type SessionCommandDispatcherPort,
 } from './http/session-command-routes.js'
 import { responseCompression } from './http/response-compression.js'
+import { previewAuthCookie, readPreviewCookie } from './preview-auth.js'
 
 const log = createChildLogger('gateway')
 
@@ -282,7 +283,7 @@ function mountLocalTokenGuard(app: Hono, config: AppConfig): void {
   if (!config.localToken) return
 
   app.use('*', async (c, next) => {
-    if (isAssetRequest(c.req.path)) {
+    if (isAssetRequest(c.req.path) || c.req.path.startsWith('/preview/')) {
       await next()
       return
     }
@@ -348,7 +349,9 @@ function handlePreviewAsset(c: Context, config: AppConfig): Response {
 
   if (config.localToken) {
     const token = c.req.header('x-ai-ide-token') ?? c.req.query('token')
-    if (token !== config.localToken) return c.json({ error: '未授权' }, 401)
+    const cookieToken = readPreviewCookie(c.req.header('cookie'))
+    if (token !== config.localToken && cookieToken !== config.localToken) return c.json({ error: '未授权' }, 401)
+    if (token === config.localToken) c.header('Set-Cookie', previewAuthCookie(config.localToken, previewId))
   }
 
   const prefix = `/preview/${previewId}/`

@@ -48,9 +48,9 @@ export function presentationsJsonFromToolCalls(toolCalls: unknown[] | undefined)
 
 export function presentationsFromToolCalls(toolCalls: unknown[] | undefined): MessagePresentation[] {
   if (!toolCalls?.length) return []
-  return toolCalls
+  return deduplicatePresentations(toolCalls
     .map(presentationFromToolCall)
-    .filter((item): item is MessagePresentation => item !== null)
+    .filter((item): item is MessagePresentation => item !== null))
 }
 
 export function parsePresentationsJson(raw: string | null | undefined): MessagePresentation[] {
@@ -58,10 +58,21 @@ export function parsePresentationsJson(raw: string | null | undefined): MessageP
   try {
     const value = JSON.parse(raw) as unknown
     if (!Array.isArray(value)) return []
-    return value.map(parsePresentation).filter((item): item is MessagePresentation => item !== null)
+    return deduplicatePresentations(value.map(parsePresentation).filter((item): item is MessagePresentation => item !== null))
   } catch {
     return []
   }
+}
+
+function deduplicatePresentations(items: MessagePresentation[]): MessagePresentation[] {
+  const seen = new Set<string>()
+  return items.filter((item) => {
+    const id = item.kind === 'preview' ? item.previewId : item.presentationId
+    const key = `${item.kind}:${id}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 }
 
 function presentationFromToolCall(value: unknown): MessagePresentation | null {

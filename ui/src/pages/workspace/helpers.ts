@@ -196,7 +196,9 @@ export function toolSummary(tc: ToolCallInfo): string {
 
 export function isPreviewPublishTool(title: string | undefined | null): boolean {
   if (!title) return false
-  return title === 'preview.publish' || title === 'mcp__ai-ide-tools__preview_publish'
+  return title === 'preview.publish'
+    || title === 'mcp__ai-ide-tools__preview_publish'
+    || title === 'mcp.ai-ide-tools.preview.publish'
 }
 
 export interface PreviewPublishOutput {

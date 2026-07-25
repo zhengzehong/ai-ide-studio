@@ -1,4 +1,4 @@
-import { dirname, isAbsolute, join, basename, normalize } from 'path'
+import { dirname, isAbsolute, join, basename, normalize, sep } from 'path'
 import { existsSync, statSync } from 'fs'
 import { previewStore } from '../../store/previews.js'
 import { loadConfig } from '../../core/config.js'
@@ -44,7 +44,11 @@ export const previewPublishHandler: ToolHandler = {
     }
 
     const entryFullPath = join(resolvedSourcePath, entryFile)
-    if (!existsSync(entryFullPath) || !statSync(entryFullPath).isFile()) {
+    const normalizedEntryPath = normalize(entryFullPath)
+    if (normalizedEntryPath !== resolvedSourcePath && !normalizedEntryPath.startsWith(resolvedSourcePath + sep)) {
+      return errorResult('入口文件不能超出原型目录')
+    }
+    if (!existsSync(normalizedEntryPath) || !statSync(normalizedEntryPath).isFile()) {
       return errorResult(`入口文件不存在: ${entryFile}`)
     }
 
