@@ -51,6 +51,25 @@ describe('message preview presentations', () => {
     }])
   })
 
+  test('deduplicates repeated preview tool results by previewId', () => {
+    const session = sessionStore.create({ agentId: 'agent-1' })
+    const toolCall = {
+      id: 'tool-preview',
+      title: 'preview.publish',
+      status: 'completed',
+      rawOutput: JSON.stringify({
+        previewId: 'prev-duplicate',
+        url: '/preview/prev-duplicate/',
+        title: 'Duplicate preview',
+        target: 'pc',
+        taskId: null,
+        createdAt: '2026-07-23T00:00:00.000Z',
+      }),
+    }
+    const row = messageStore.append(session.id, { role: 'agent', content: 'Done', toolCalls: [toolCall, toolCall] })
+    expect(JSON.parse(row.presentations_json || '[]')).toHaveLength(1)
+  })
+
   test.each([
     {
       title: 'preview.publish',

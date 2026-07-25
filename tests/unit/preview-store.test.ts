@@ -169,6 +169,19 @@ describe('preview.publish handler', () => {
     expect(parsed.error).toContain('入口文件')
   })
 
+  test('rejects an entry file outside the published directory', async () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const previewDir = resolve(tmp, 'traversal')
+    mkdirSync(previewDir)
+    writeFileSync(resolve(tmp, 'outside.html'), '<h1>outside</h1>')
+    const result = await executeRaw('preview.publish', {
+      sourcePath: previewDir,
+      entryFile: '../outside.html',
+    }, { projectId: project.id, agentId: 'agent-test' })
+    expect(result.isError).toBe(true)
+    expect(JSON.parse(result.content[0].text).error).toContain('超出原型目录')
+  })
+
   test('respects explicit target=app', async () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const previewDir = resolve(tmp, 'preview-app')
