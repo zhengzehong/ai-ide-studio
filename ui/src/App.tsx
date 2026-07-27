@@ -52,10 +52,10 @@ export default function App() {
 
   useEffect(() => {
     if (!connected) return
-    const isReconnect = connectedOnce.current
+    if (connectedOnce.current) return
     connectedOnce.current = true
     void import('./app-runtime-bootstrap').then((module) => {
-      module.refreshConnectedAppRuntime(isReconnect)
+      module.refreshConnectedAppRuntime(false)
     })
   }, [connected])
 

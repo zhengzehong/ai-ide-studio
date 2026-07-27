@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import { wsClient } from '../../ui/src/services/ws-client'
 import { useProjectStore } from '../../ui/src/stores/project.store'
 import { useSessionStore, type SessionData } from '../../ui/src/stores/session.store'
 
@@ -9,7 +10,7 @@ const projectScopeMocks = vi.hoisted(() => ({
 
 vi.mock('../../ui/src/project-scope/project-data-scope', () => projectScopeMocks)
 
-const { recoverRealtimeGap } = await import('../../ui/src/app-runtime-bootstrap.ts')
+const { recoverRealtimeGap, recoverRealtimeReconnect, startAppRuntimeListeners } = await import('../../ui/src/app-runtime-bootstrap.ts')
 
 function session(id: string, projectId: string): SessionData {
   return {
@@ -27,8 +28,9 @@ function session(id: string, projectId: string): SessionData {
 
 describe('application realtime recovery', () => {
   beforeEach(() => {
-    projectScopeMocks.invalidateProjectData.mockClear()
-    projectScopeMocks.refreshProjectData.mockClear()
+    projectScopeMocks.invalidateProjectData.mockReset()
+    projectScopeMocks.refreshProjectData.mockReset()
+    projectScopeMocks.refreshProjectData.mockResolvedValue(undefined)
     useProjectStore.setState({ currentProjectId: 'project-a' })
     useSessionStore.setState({
       currentSessionId: 'session-a',
@@ -46,6 +48,63 @@ describe('application realtime recovery', () => {
         requestSeqByScope: {},
       },
     })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  test('registers reconnect recovery on the websocket lifecycle event', () => {
+    const on = vi.spyOn(wsClient, 'on')
+
+    const cleanup = startAppRuntimeListeners()
+
+    try {
+      expect(on.mock.calls.some(([event]) => event === 'reconnected')).toBe(true)
+    } finally {
+      cleanup()
+    }
+  })
+
+  test('refreshes canonical sessions before recovering the current Session after reconnect', async () => {
+    let resolveProjectRefresh: (() => void) | undefined
+    projectScopeMocks.refreshProjectData.mockImplementationOnce(
+      () => new Promise<void>((resolve) => { resolveProjectRefresh = resolve }),
+    )
+    const fetchMessages = vi.spyOn(useSessionStore.getState(), 'fetchMessages').mockResolvedValue()
+    const fetchRecovery = vi.spyOn(useSessionStore.getState(), 'fetchRecovery').mockResolvedValue()
+
+    const recovering = recoverRealtimeReconnect()
+    await Promise.resolve()
+
+    expect(projectScopeMocks.invalidateProjectData).toHaveBeenCalledWith('project-a')
+    expect(projectScopeMocks.refreshProjectData).toHaveBeenCalledWith('project-a', { force: true })
+    expect(fetchMessages).not.toHaveBeenCalled()
+    expect(fetchRecovery).not.toHaveBeenCalled()
+
+    resolveProjectRefresh?.()
+    await recovering
+
+    expect(fetchMessages).toHaveBeenCalledWith('session-a')
+    expect(fetchRecovery).toHaveBeenCalledWith('session-a')
+  })
+
+  test('does not recover a Session that changed during reconnect refresh', async () => {
+    let resolveProjectRefresh: (() => void) | undefined
+    projectScopeMocks.refreshProjectData.mockImplementationOnce(
+      () => new Promise<void>((resolve) => { resolveProjectRefresh = resolve }),
+    )
+    const fetchMessages = vi.spyOn(useSessionStore.getState(), 'fetchMessages').mockResolvedValue()
+    const fetchRecovery = vi.spyOn(useSessionStore.getState(), 'fetchRecovery').mockResolvedValue()
+
+    const recovering = recoverRealtimeReconnect()
+    await Promise.resolve()
+    useSessionStore.setState({ currentSessionId: 'session-b' })
+    resolveProjectRefresh?.()
+    await recovering
+
+    expect(fetchMessages).not.toHaveBeenCalled()
+    expect(fetchRecovery).not.toHaveBeenCalled()
   })
 
   test('refreshes the owning project for an inactive session gap', async () => {

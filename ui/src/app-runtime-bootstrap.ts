@@ -15,11 +15,7 @@ import { useTimelineStore } from './stores/timeline.store'
 import { useToolStore } from './stores/tool.store'
 
 export function refreshConnectedAppRuntime(isReconnect: boolean): void {
-  const projectId = useProjectStore.getState().currentProjectId
-  if (isReconnect && projectId) {
-    invalidateProjectData(projectId)
-    void refreshProjectData(projectId, { force: true })
-  }
+  if (isReconnect) void recoverRealtimeReconnect()
 
   useRuleStore.getState().fetchRules()
   useProjectStore.getState().fetchProjects()
@@ -29,6 +25,18 @@ export function refreshConnectedAppRuntime(isReconnect: boolean): void {
   useToolStore.getState().fetchProfiles()
   useModelStore.getState().fetchProviders()
   useSkillStore.getState().fetchSkills()
+}
+
+export async function recoverRealtimeReconnect(): Promise<void> {
+  const projectId = useProjectStore.getState().currentProjectId
+  const sessionId = useSessionStore.getState().currentSessionId
+  if (projectId) {
+    invalidateProjectData(projectId)
+    await refreshProjectData(projectId, { force: true })
+  }
+  if (useProjectStore.getState().currentProjectId !== projectId) return
+  if (!sessionId || useSessionStore.getState().currentSessionId !== sessionId) return
+  await recoverCurrentSession(sessionId)
 }
 
 export function startAppRuntimeListeners(): () => void {
@@ -41,6 +49,7 @@ export function startAppRuntimeListeners(): () => void {
     useTimelineStore.getState().setupListeners(),
     useKnowledgeBaseStore.getState().setupListeners(),
     useProjectSessionStatsStore.getState().setupListeners(),
+    wsClient.on('reconnected', () => { refreshConnectedAppRuntime(true) }),
     wsClient.on('resync_required', (message) => { void recoverRealtimeGap(message) }),
   ]
   wsClient.setEventListenersReady(true)
@@ -54,19 +63,25 @@ export async function recoverRealtimeGap(message: Record<string, unknown>): Prom
   const sessionStore = useSessionStore.getState()
   const resyncSessionId = typeof message.sessionId === 'string' ? message.sessionId : undefined
   const sessionId = resyncSessionId ?? sessionStore.currentSessionId ?? undefined
-  const activeSessionRecovery: Promise<unknown>[] = []
   if (sessionId && sessionId === sessionStore.currentSessionId) {
-    activeSessionRecovery.push(sessionStore.fetchMessages(sessionId), sessionStore.fetchRecovery(sessionId))
+    await recoverCurrentSession(sessionId)
   }
   const projectId = sessionId
     ? findSessionProjectId(sessionStore, sessionId)
     : useProjectStore.getState().currentProjectId
-  await Promise.allSettled(activeSessionRecovery)
   if (projectId) {
     invalidateProjectData(projectId)
     await Promise.allSettled([refreshProjectData(projectId, { force: true })])
   }
   wsClient.acknowledgeResync(resyncSessionId)
+}
+
+async function recoverCurrentSession(sessionId: string): Promise<void> {
+  const sessionStore = useSessionStore.getState()
+  await Promise.allSettled([
+    sessionStore.fetchMessages(sessionId),
+    sessionStore.fetchRecovery(sessionId),
+  ])
 }
 
 function findSessionProjectId(
