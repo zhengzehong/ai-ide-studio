@@ -249,6 +249,7 @@ describe('SDK Runtime child lifecycle', () => {
     const harness = runtimeHarness()
     const state = snapshot('session-a')
     await harness.host.ensureSession(state)
+    harness.publishUpdate.mockClear()
 
     await harness.host.setConfig('agent-a', 'session-a', 'effort', 'high')
 
@@ -258,7 +259,38 @@ describe('SDK Runtime child lifecycle', () => {
         configOptions: [expect.objectContaining({ id: 'effort', currentValue: 'high' })],
       }),
     )
+    expect(harness.publishUpdate).toHaveBeenCalledWith(
+      'agent-a',
+      expect.objectContaining({
+        kind: 'session-update',
+        sessionId: 'session-a',
+        data: expect.objectContaining({
+          configOptions: [expect.objectContaining({ id: 'effort', currentValue: 'high' })],
+        }),
+      }),
+    )
     expect(state.runtimePreferences.config).toEqual({ effort: 'high' })
+  })
+
+  test('publishes the final config snapshot after restoring Session preferences', async () => {
+    const harness = runtimeHarness({
+      initialConfigOptions: [effortOption('default')],
+      setConfigResult: async () => ({ configOptions: [effortOption('max')] }),
+    })
+    const state = snapshot('session-a')
+    state.runtimePreferences.config = { effort: 'max' }
+
+    await harness.host.ensureSession(state)
+
+    const configUpdates = harness.publishUpdate.mock.calls
+      .map(([, update]) => update)
+      .filter((update) => update.kind === 'session-update' && update.data?.configOptions)
+    expect(configUpdates.at(-1)).toMatchObject({
+      sessionId: 'session-a',
+      data: {
+        configOptions: [expect.objectContaining({ id: 'effort', currentValue: 'max' })],
+      },
+    })
   })
 
   test('keeps an idle Session while an interaction is pending', async () => {
@@ -295,19 +327,24 @@ function runtimeHarness(overrides: {
   closeGraceMs?: number
   restartGraceMs?: number
   setConfigResult?: () => Promise<{ configOptions: acp.SessionConfigOption[] }>
+  initialConfigOptions?: acp.SessionConfigOption[]
 } = {}) {
   const processes: EventEmitter[] = []
   const routers: AcpRuntimeClientRouter[] = []
   const actors = new RuntimeSessionActorScheduler()
   let markPromptStarted: (() => void) | undefined
   const promptStarted = new Promise<void>((resolve) => { markPromptStarted = resolve })
-  const newSession = vi.fn(async () => ({ sessionId: 'acp-created' }))
+  const newSession = vi.fn(async () => ({
+    sessionId: 'acp-created',
+    configOptions: overrides.initialConfigOptions,
+  }))
   const resumeSession = vi.fn(async () => ({}))
+  const publishUpdate = vi.fn()
   const publishCapabilities = vi.fn()
   const publishDone = vi.fn(async () => undefined)
   const closeSession = vi.fn(async () => { await overrides.closeSession?.() })
   const host = new SdkRuntimeHost(actors, {
-    publishUpdate: () => undefined,
+    publishUpdate,
     publishDone,
     publishCapabilities,
   }, {
@@ -365,9 +402,24 @@ function runtimeHarness(overrides: {
     promptStarted,
     newSession,
     resumeSession,
+    publishUpdate,
     publishCapabilities,
     publishDone,
     closeSession,
+  }
+}
+
+function effortOption(currentValue: string): acp.SessionConfigOption {
+  return {
+    id: 'effort',
+    name: 'Reasoning effort',
+    category: 'thought_level',
+    type: 'select',
+    currentValue,
+    options: [
+      { value: 'default', name: 'Default' },
+      { value: 'max', name: 'Max' },
+    ],
   }
 }
 

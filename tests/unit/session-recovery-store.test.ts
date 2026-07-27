@@ -79,4 +79,61 @@ describe('session recovery store', () => {
       .toEqual(['permission-a'])
     expect(useSessionStore.getState().streamingMessage).toBeNull()
   })
+
+  test('does not let historical config overwrite Runtime capabilities', async () => {
+    useSessionStore.setState({ currentSessionId: 'session-live' })
+    wsMock.request
+      .mockResolvedValueOnce({
+        configOptions: [{
+          id: 'effort',
+          name: 'Effort',
+          type: 'select',
+          category: 'thought_level',
+          currentValue: 'max',
+          options: [
+            { value: 'default', name: 'Default' },
+            { value: 'max', name: 'Max' },
+          ],
+        }],
+      })
+      .mockResolvedValueOnce([
+        event('event-config-default', 'config.update', 10, {
+          configOptions: [{
+            id: 'effort',
+            name: 'Effort',
+            type: 'select',
+            category: 'thought_level',
+            currentValue: 'default',
+            options: [
+              { value: 'default', name: 'Default' },
+              { value: 'max', name: 'Max' },
+            ],
+          }],
+        }),
+      ])
+
+    await useSessionStore.getState().fetchModels()
+    await useSessionStore.getState().fetchRecovery('session-live')
+
+    expect(useSessionStore.getState().capabilities.configOptions)
+      .toContainEqual(expect.objectContaining({ id: 'effort', currentValue: 'max' }))
+  })
+
+  test('ignores a Runtime capability response for a Session that is no longer selected', async () => {
+    let resolveModels: ((value: unknown) => void) | undefined
+    wsMock.request.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveModels = resolve
+    }))
+    useSessionStore.setState({ currentSessionId: 'session-old' })
+    const request = useSessionStore.getState().fetchModels()
+    useSessionStore.setState({
+      currentSessionId: 'session-new',
+      capabilities: { ...defaultCaps },
+    })
+
+    resolveModels?.({ currentModelId: 'model-from-old-session' })
+    await request
+
+    expect(useSessionStore.getState().capabilities.currentModelId).toBeNull()
+  })
 })

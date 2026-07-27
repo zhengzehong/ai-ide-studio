@@ -1,4 +1,5 @@
 import type { RuntimeStateSnapshot } from '../../ports/runtime-port.js'
+import type { SessionCapabilities } from '../../types/ws-protocol.js'
 import type { RuntimeCoalescibleUpdate } from '../streams/runtime-update-coalescer.js'
 import type { SdkAgentRuntime, SdkRuntimeHostOptions, SdkSessionRuntime } from './sdk-runtime-types.js'
 
@@ -48,4 +49,22 @@ export function publishSdkLifecycle(
     data: { messageId, role: 'system', eventType, content },
   }
   publishUpdate(snapshot.agent.id, update)
+}
+
+export function publishSdkConfigSnapshot(
+  publishUpdate: SdkRuntimeHostOptions['publishUpdate'],
+  snapshot: RuntimeStateSnapshot,
+  capabilities: SessionCapabilities,
+): void {
+  const messageId = `config-${snapshot.session.id}-${Date.now()}`
+  publishUpdate(snapshot.agent.id, {
+    kind: 'session-update',
+    sessionId: snapshot.session.id,
+    messageId,
+    data: {
+      messageId,
+      role: 'system',
+      configOptions: capabilities.configOptions,
+    },
+  })
 }
