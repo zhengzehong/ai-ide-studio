@@ -54,6 +54,7 @@ function resetStore(): void {
     staleSessionIds: {},
   })
   commandMock.execute.mockReset()
+  wsMock.request.mockReset()
 }
 
 describe('Session Prompt acceptance boundary', () => {
@@ -77,6 +78,41 @@ describe('Session Prompt acceptance boundary', () => {
     await useSessionStore.getState().setConfig('effort', 'max')
 
     expect(useSessionStore.getState().capabilities.configOptions[0]?.currentValue).toBe('max')
+  })
+
+  it('shows a config selection while the server request is still pending', async () => {
+    let accept: (() => void) | undefined
+    wsMock.request.mockImplementationOnce(() => new Promise((resolve) => {
+      accept = () => resolve({ configId: 'effort', value: 'max' })
+    }))
+    useSessionStore.setState({
+      capabilities: {
+        ...defaultCaps,
+        configOptions: [{ id: 'effort', name: 'Effort', type: 'select', currentValue: 'default' }],
+      },
+    })
+
+    const request = useSessionStore.getState().setConfig('effort', 'max')
+
+    expect(useSessionStore.getState().capabilities.configOptions[0]?.currentValue).toBe('max')
+    accept?.()
+    await request
+  })
+
+  it('restores the previous config when the server rejects the selection', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    wsMock.request.mockRejectedValueOnce(new Error('set config failed'))
+    useSessionStore.setState({
+      capabilities: {
+        ...defaultCaps,
+        configOptions: [{ id: 'effort', name: 'Effort', type: 'select', currentValue: 'default' }],
+      },
+    })
+
+    await useSessionStore.getState().setConfig('effort', 'max')
+
+    expect(useSessionStore.getState().capabilities.configOptions[0]?.currentValue).toBe('default')
+    errorSpy.mockRestore()
   })
 
   it('returns a Promise and keeps optimistic state after the server accepts the command', async () => {

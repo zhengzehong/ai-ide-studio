@@ -13,7 +13,6 @@ import {
   defaultCaps,
   groupChatTimelineItems,
   appendFinalizedMessage,
-  mergeCapabilities,
   mergeMessagesForSession,
   normalizeMessage,
   shouldCreateToolFromUpdate,
@@ -94,6 +93,7 @@ import {
   createSessionReadFence,
   reconcileUnreadSessionIndicators,
 } from './session-read-fence'
+import { mergeHistoricalCapabilities } from './session-capability-authority'
 
 const COPYING_STAGE = '正在复制会话...'
 
@@ -306,6 +306,8 @@ const sessionListFetches = new Map<string, Promise<void>>()
 const sessionCancelCoordinator = createSessionCancelCoordinator((command) => commandClient.execute(command))
 const sessionCaches = new Map<string, SessionCache>()
 const cacheSaveTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const authoritativeCapabilitySessions = new Set<string>()
+const capabilityConfirmationVersions = new Map<string, number>()
 const eventCursorBySession = new Map<string, number>()
 const sessionActivityFence = createSessionActivityFence()
 const sessionReadFence = createSessionReadFence()
@@ -320,6 +322,17 @@ const mirroredRealtimeEventTypes = new Set([
   'tool.update',
   'message.done',
 ])
+
+function markAuthoritativeCapabilities(sessionId: string, confirmed = false): void {
+  authoritativeCapabilitySessions.add(sessionId)
+  if (!confirmed) return
+  capabilityConfirmationVersions.set(sessionId, (capabilityConfirmationVersions.get(sessionId) ?? 0) + 1)
+}
+
+function clearCapabilityAuthority(sessionId: string): void {
+  authoritativeCapabilitySessions.delete(sessionId)
+  capabilityConfirmationVersions.delete(sessionId)
+}
 
 export interface SessionMessagesBootstrapSnapshot {
   sessionId: string
@@ -1241,7 +1254,11 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         events,
         usage: reduced.usage,
         turnUsage: reduced.turnUsage,
-        capabilities: mergeCapabilities(state.capabilities, reduced.capabilities),
+        capabilities: mergeHistoricalCapabilities(
+          state.capabilities,
+          reduced.capabilities,
+          authoritativeCapabilitySessions.has(sessionId),
+        ),
         plan: reduced.plan,
         pendingPermissions: reduced.pendingPermissions,
         pendingElicitations: reduced.pendingElicitations,
@@ -1271,7 +1288,11 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       events: snapshot.events,
       usage: reduced.usage,
       turnUsage: reduced.turnUsage,
-      capabilities: mergeCapabilities(state.capabilities, reduced.capabilities),
+      capabilities: mergeHistoricalCapabilities(
+        state.capabilities,
+        reduced.capabilities,
+        authoritativeCapabilitySessions.has(sessionId),
+      ),
       plan: reduced.plan,
       pendingPermissions: reduced.pendingPermissions,
       pendingElicitations: reduced.pendingElicitations,
@@ -1368,6 +1389,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   deleteSession: async (sessionId) => {
     await wsClient.request({ type: 'sessions.delete', sessionId })
     sessionCaches.delete(sessionId)
+    clearCapabilityAuthority(sessionId)
     const currentSessionId = get().currentSessionId === sessionId ? null : get().currentSessionId
     // 删除当前会话时,清掉 per-project 映射里指向它的记录,避免下次恢复到已删除会话
     if (!currentSessionId && activeSessionsProjectId) clearProjectLastSession(activeSessionsProjectId)
@@ -1699,7 +1721,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     if (!sid) return
     try {
       await wsClient.request({ type: 'session.setModel', sessionId: sid, modelId })
+      if (get().currentSessionId !== sid) return
+      markAuthoritativeCapabilities(sid, true)
       set((s) => ({ capabilities: { ...s.capabilities, currentModelId: modelId } }))
+      saveCache(sid, get())
     } catch (e) {
       console.error('模型切换失败:', e)
     }
@@ -1710,7 +1735,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     if (!sid) return
     try {
       await wsClient.request({ type: 'session.setMode', sessionId: sid, modeId })
+      if (get().currentSessionId !== sid) return
+      markAuthoritativeCapabilities(sid, true)
       set((s) => ({ capabilities: { ...s.capabilities, currentModeId: modeId } }))
+      saveCache(sid, get())
     } catch (e) {
       console.error('模式切换失败:', e)
     }
@@ -1719,18 +1747,38 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   setConfig: async (configId, value) => {
     const sid = get().currentSessionId
     if (!sid) return
+    const previousValue = get().capabilities.configOptions.find((option) => option.id === configId)?.currentValue
+    const confirmationVersion = capabilityConfirmationVersions.get(sid) ?? 0
+    markAuthoritativeCapabilities(sid)
+    set((state) => ({
+      capabilities: {
+        ...state.capabilities,
+        configOptions: state.capabilities.configOptions.map((option) =>
+          option.id === configId ? { ...option, currentValue: value } : option,
+        ),
+      },
+    }))
+    saveCache(sid, get())
     try {
       await wsClient.request({ type: 'session.setConfig', sessionId: sid, configId, value })
       if (get().currentSessionId !== sid) return
-      set((state) => ({
-        capabilities: {
-          ...state.capabilities,
-          configOptions: state.capabilities.configOptions.map((option) =>
-            option.id === configId ? { ...option, currentValue: value } : option,
-          ),
-        },
-      }))
     } catch (e) {
+      if (
+        get().currentSessionId === sid
+        && (capabilityConfirmationVersions.get(sid) ?? 0) === confirmationVersion
+      ) {
+        set((state) => ({
+          capabilities: {
+            ...state.capabilities,
+            configOptions: state.capabilities.configOptions.map((option) =>
+              option.id === configId && option.currentValue === value
+                ? { ...option, currentValue: previousValue }
+                : option,
+            ),
+          },
+        }))
+        saveCache(sid, get())
+      }
       console.error('配置切换失败:', e)
     }
   },
@@ -1836,6 +1884,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     if (!sid) return
     try {
       const d = (await wsClient.request({ type: 'session.getModels', sessionId: sid })) as Partial<SessionCapabilities>
+      if (get().currentSessionId !== sid) return
+      markAuthoritativeCapabilities(sid, true)
       const caps = {
         ...get().capabilities,
         models: d.models || get().capabilities.models,
@@ -2169,6 +2219,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           return
         }
         if (data.configOptions) {
+          markAuthoritativeCapabilities(sid, true)
           set((s) => ({
             capabilities: capabilitiesFromConfig(s.capabilities, data.configOptions as ConfigOptionInfo[]),
           }))
@@ -2335,6 +2386,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         const sid = msg.sessionId as string
         if (sid !== get().currentSessionId) return
         const c = msg.capabilities as Partial<SessionCapabilities>
+        markAuthoritativeCapabilities(sid, true)
         set((st) => {
           const merged = {
             ...st.capabilities,
@@ -2360,6 +2412,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         const data = msg.data as Partial<SessionData> & { event?: string; deleted?: boolean }
         if (data.deleted || data.event === 'deleted') {
           sessionCaches.delete(sessionId)
+          clearCapabilityAuthority(sessionId)
           sessionActivityFence.remove(sessionId)
           sessionReadFence.remove(sessionId)
           set((st) => {
@@ -2443,6 +2496,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         if (!sourceSessionId || !targetSessionId) return
         const shouldSelectSource = get().currentSessionId === targetSessionId
         sessionCaches.delete(targetSessionId)
+        clearCapabilityAuthority(targetSessionId)
         set((st) => {
           const sessionListCache = removeSessionFromListCache(st.sessionListCache, targetSessionId)
           return {
