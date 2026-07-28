@@ -50,6 +50,10 @@ export function getPromptTurnId(sessionId: string): string | undefined {
   return activePromptDiagnostics.get(sessionId)?.turnId
 }
 
+export function listActivePromptDiagnostics(): PromptDiagnosticState[] {
+  return [...activePromptDiagnostics.values()].map((state) => ({ ...state }))
+}
+
 export function summarizeSessionUpdate(data: SessionUpdateData): string {
   if (data.contentDelta || data.content) return data.eventType || 'message.chunk'
   if (data.thinking) return 'thinking.chunk'

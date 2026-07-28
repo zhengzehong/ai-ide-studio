@@ -87,6 +87,8 @@ WebSocket 的稳定职责是连接认证、Session 订阅、`ping/resume` 控制
 
 Edge 监督 API 子进程，API 再监督 Realtime 与 Runtime。API 异常退出时 Edge 立即清空内部 target，HTTP 返回 503，随后在 API 恢复后热更新 target；公网监听端口不变。Realtime 重启只替换内部 WS target，浏览器发现地址始终是同源 `/realtime`。停止拥有公网端口的 Edge 进程会断开父 IPC，API 子进程执行完整关闭，继续回收 Realtime、Runtime 和 Worker 资源。
 
+API 子进程通过 `uncaughtExceptionMonitor` 在致命退出前记录异常来源以及活动 Session、Agent、Project、turn 和最后进展。该监控只增强故障证据，不安装恢复型 `uncaughtException` / `unhandledRejection` handler，也不吞掉已经破坏进程可靠性的异常。API 退出仍会关闭其拥有的 Runtime 控制链并中断当前 active turns；Edge 自动重启恢复的是服务可用性，不代表旧 turn 可以续跑。
+
 `EDGE_MODE=disabled` 保留原 API/Realtime 直连拓扑用于显式排障，不是正常部署模式。`REALTIME_MODE=embedded` 仍可在 Edge 后将 WebSocket 回滚到 API 事件循环，但不会增加第二个公网端口。
 
 ### 浏览器启动与项目缓存

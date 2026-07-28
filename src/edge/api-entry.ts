@@ -6,9 +6,13 @@ import {
   isParentToApiMessage,
   type ApiToParentMessage,
 } from './protocol.js'
+import { installApiFatalDiagnostics } from './api-fatal-diagnostics.js'
 
 const log = createChildLogger('edge-api-entry')
 let app: AppHandle | undefined
+const uninstallFatalDiagnostics = installApiFatalDiagnostics({
+  listActiveTurns: () => app?.listActivePromptDiagnostics() ?? [],
+})
 let unsubscribeRealtime: (() => void) | undefined
 let currentRealtimeUrl: string | undefined
 let stopping = false
@@ -72,6 +76,7 @@ async function shutdown(exitCode: number, reportStopped: boolean): Promise<void>
   await app?.stop().catch((error) => log.warn({ err: error }, 'API application close failed'))
   app = undefined
   if (reportStopped) await send({ type: 'stopped' }).catch(() => undefined)
+  uninstallFatalDiagnostics()
   if (process.connected) process.disconnect()
   process.exit(exitCode)
 }

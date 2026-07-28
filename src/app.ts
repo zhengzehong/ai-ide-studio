@@ -37,6 +37,7 @@ import { RuntimeCommandDispatcher } from './commands/runtime-command-dispatcher.
 import { executeSessionCommand } from './commands/session-command-service.js'
 import { startWriterMaintenanceLoop } from './data-worker/writer-maintenance-loop.js'
 import { createEventLoopMonitor, eventLoopMonitorOptions } from './shared/event-loop-monitor.js'
+import { listActivePromptDiagnostics } from './core/prompt-diagnostics.js'
 import {
   createRealtimeEndpointSubscription,
   embeddedRealtimeEndpoint,
@@ -257,6 +258,7 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
         ? (realtimeProcess as RealtimeProcessHandle).endpointUrl
         : initialRealtimeEndpoint
     },
+    listActivePromptDiagnostics,
     onRealtimeEndpointChange,
     restartRealtimeForTest: () => restartRealtimeForTest(realtimeMode, realtimeProcess),
     stop: async () => {
