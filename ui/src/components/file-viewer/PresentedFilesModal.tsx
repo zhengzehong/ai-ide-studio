@@ -4,6 +4,7 @@ import type { FileContent } from '../../stores/filesystem.store'
 import type { FilesPresentationInfo } from '../../stores/session-events'
 import { wsClient } from '../../services/ws-client'
 import { MarkdownRenderer } from '../MarkdownRenderer'
+import { copyText } from '../../utils/copy-text'
 
 export function PresentedFilesModal({ presentation, onClose }: { presentation: FilesPresentationInfo; onClose: () => void }) {
   const [selectedPath, setSelectedPath] = useState(presentation.files[0]?.path ?? '')
@@ -47,12 +48,8 @@ export function PresentedFilesModal({ presentation, onClose }: { presentation: F
 
   const copyContent = async () => {
     if (!canCopy) return
-    try {
-      await navigator.clipboard.writeText(file.content)
-      setCopyState('copied')
-    } catch {
-      setCopyState('failed')
-    }
+    const ok = await copyText(file.content)
+    setCopyState(ok ? 'copied' : 'failed')
     if (copyTimerRef.current) clearTimeout(copyTimerRef.current)
     copyTimerRef.current = setTimeout(() => setCopyState('idle'), 1500)
   }

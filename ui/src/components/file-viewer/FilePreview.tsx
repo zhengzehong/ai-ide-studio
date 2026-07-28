@@ -1,12 +1,14 @@
 import { X, FileText, Copy, Check } from 'lucide-react';
 import type { FileContent } from '../../stores/filesystem.store';
 import { useState } from 'react';
+import { copyText } from '../../utils/copy-text';
 
 export function FilePreview({ file, onClose }: { file: FileContent; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(file.content);
+    const ok = await copyText(file.content);
+    if (!ok) return;
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };

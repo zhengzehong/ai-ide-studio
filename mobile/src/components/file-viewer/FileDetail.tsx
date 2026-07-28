@@ -6,6 +6,7 @@ import { CodeView } from './CodeView'
 import { PlainTextView } from './PlainTextView'
 import { ImageView } from './ImageView'
 import { BinaryFileView } from './BinaryFileView'
+import { copyText } from '../../utils/copy-text'
 
 const MARKDOWN_EXTS = ['.md', '.mdx']
 const CODE_EXTS = [
@@ -29,12 +30,10 @@ export function FileDetail({ file, loading, error, onBack, embedded = false }: F
   const [copied, setCopied] = useState(false)
 
   const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(file.content)
+    const ok = await copyText(file.content)
+    if (ok) {
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
-    } catch {
-      // ignore
     }
   }
 

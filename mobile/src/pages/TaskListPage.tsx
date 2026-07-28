@@ -9,6 +9,7 @@ import ConfirmDialog from '../components/ConfirmDialog'
 import TaskCard, { type TaskCardItem } from '../components/task/TaskCard'
 import { showToast } from '../utils/toast'
 import { markTaskRead, isTaskUnread } from '../utils/task-unread'
+import { copyText } from '../utils/copy-text'
 
 type TaskFilter = 'mine' | 'all' | 'running' | 'draft' | 'done'
 
@@ -197,12 +198,8 @@ export default function TaskListPage() {
 
   const handleCopyTitle = useCallback(async () => {
     if (!actionTask) return
-    try {
-      await navigator.clipboard.writeText(actionTask.title)
-      showToast('已复制任务标题')
-    } catch {
-      showToast('复制失败')
-    }
+    const ok = await copyText(actionTask.title)
+    showToast(ok ? '已复制任务标题' : '复制失败')
   }, [actionTask])
 
   const handleMarkRead = useCallback(() => {

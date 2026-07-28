@@ -8,6 +8,7 @@ import { useTaskDetailStore } from '../stores/task-detail.store'
 import { showToast } from '../utils/toast'
 import { markTaskRead, getTaskLastSeen } from '../utils/task-unread'
 import { formatRelativeTime, formatDuration, diffMsFromNow } from '../utils/task-time'
+import { copyText } from '../utils/copy-text'
 import ActionSheet from '../components/ActionSheet'
 import ConfirmDialog from '../components/ConfirmDialog'
 import MarkdownView from '../components/MarkdownView'
@@ -168,12 +169,14 @@ export default function TaskDetailPage() {
 
   const handleCopyTitle = useCallback(async () => {
     if (!task) return
-    try { await navigator.clipboard.writeText(task.title); showToast('已复制任务标题') } catch { showToast('复制失败') }
+    const ok = await copyText(task.title)
+    showToast(ok ? '已复制任务标题' : '复制失败')
   }, [task])
 
   const handleCopyId = useCallback(async () => {
     if (!task) return
-    try { await navigator.clipboard.writeText(task.id); showToast('已复制任务 ID') } catch { showToast('复制失败') }
+    const ok = await copyText(task.id)
+    showToast(ok ? '已复制任务 ID' : '复制失败')
   }, [task])
 
   if (loading && !task) {
