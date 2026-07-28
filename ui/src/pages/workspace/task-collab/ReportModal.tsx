@@ -7,6 +7,7 @@ import {
   eventStage,
   formatRelativeTime,
 } from './task-helpers'
+import { copyText } from '../../../utils/copy-text'
 
 interface ReportModalProps {
   task: TaskData
@@ -27,11 +28,11 @@ export function ReportModal({ task, events, initialEventId, onClose, onMarkCompl
   const canMarkComplete = !!onMarkCompleted && (task.status === 'running' || task.status === 'needs_input')
 
   const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(reportMd)
+    const ok = await copyText(reportMd)
+    if (ok) {
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
-    } catch { /* ignore */ }
+    }
   }
   const handleMarkComplete = async () => {
     if (!onMarkCompleted || marking) return

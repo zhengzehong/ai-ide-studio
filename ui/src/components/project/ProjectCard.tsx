@@ -4,6 +4,7 @@ import type { ProjectData } from '../../stores/project.store'
 import { useProjectStore } from '../../stores/project.store'
 import { usePinnedProjects } from '../../utils/project-meta'
 import { resolveProjectColor, resolveProjectIcon } from '../../utils/project-meta'
+import { copyText } from '../../utils/copy-text'
 import { ProjectContextMenu } from './ProjectContextMenu'
 import { buildProjectContextMenuItems } from './projectContextMenuItems'
 
@@ -28,7 +29,7 @@ export function ProjectCard({ project, isCurrent, onEdit, onDelete }: ProjectCar
 
   const handleCopyPath = async () => {
     try {
-      await navigator.clipboard.writeText(project.work_dir)
+      await copyText(project.work_dir)
     } catch {
       // ignore clipboard errors
     }

@@ -9,6 +9,7 @@ import { ShareTableRow } from './ShareTableRow'
 import { EmptyState, SkeletonRows } from './ShareTableEmpty'
 import { ConfirmDialog } from './ShareConfirmDialog'
 import type { ShareRow } from '../../services/share-api'
+import { copyText } from '../../utils/copy-text'
 
 type ConfirmKind = 'revoke' | 'renew' | 'delete' | 'regen'
 
@@ -55,14 +56,14 @@ export default function ShareManagePage() {
 
   const handleCopy = async (share: ShareRow) => {
     const url = `${window.location.origin}/share/${share.share_token}`
-    try {
-      await navigator.clipboard.writeText(url)
-      setCopiedId(share.id)
-      setToast('链接已复制')
-      window.setTimeout(() => setCopiedId(null), 1500)
-    } catch {
+    const ok = await copyText(url)
+    if (!ok) {
       setToast('复制失败,请手动复制')
+      return
     }
+    setCopiedId(share.id)
+    setToast('链接已复制')
+    window.setTimeout(() => setCopiedId(null), 1500)
   }
 
   const handleConfirm = async () => {

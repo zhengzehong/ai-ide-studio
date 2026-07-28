@@ -5,6 +5,7 @@ import { useShareStore } from '../../stores/share.store'
 import { useSessionStore, type SessionData } from '../../stores/session.store'
 import { useAgentStore, type AgentData } from '../../stores/agent.store'
 import type { SharePermission, ShareToolCallVisibility } from '../../services/share-api'
+import { copyText } from '../../utils/copy-text'
 
 interface ShareModalProps {
   open: boolean
@@ -89,12 +90,10 @@ export function ShareModal({ open, onClose, sessionId, sessionTitle, ownerAgentI
 
   const handleCopy = async () => {
     if (!state.generatedUrl) return
-    try {
-      await navigator.clipboard.writeText(state.generatedUrl)
+    const ok = await copyText(state.generatedUrl)
+    if (ok) {
       update({ copied: true })
       setTimeout(() => update({ copied: false }), 1500)
-    } catch {
-      // ignore
     }
   }
 

@@ -5,6 +5,7 @@ import { wsClient } from '@desktop/services/ws-client'
 import MarkdownView from '../components/MarkdownView'
 import { showToast } from '../utils/toast'
 import { formatRelativeTime } from '../utils/task-time'
+import { copyText } from '../utils/copy-text'
 import type { TaskReportDetail } from '../stores/task-detail.store'
 import { getEventMeta } from '../components/task/TaskReportItem'
 
@@ -50,12 +51,8 @@ export default function TaskReportPage() {
 
   const handleCopy = async () => {
     if (!report?.reportMd) return
-    try {
-      await navigator.clipboard.writeText(report.reportMd)
-      showToast('已复制 Markdown')
-    } catch {
-      showToast('复制失败')
-    }
+    const ok = await copyText(report.reportMd)
+    showToast(ok ? '已复制 Markdown' : '复制失败')
   }
 
   const headerLabel = report ? (EVENT_LABEL[report.type] || report.type) : ''
