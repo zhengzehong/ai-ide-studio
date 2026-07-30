@@ -56,7 +56,7 @@ export function createWidgetWindow(config: WidgetConfig): BrowserWindow {
     transparent: true,
     hasShadow: false,
     webPreferences: {
-      preload: join(config.electronDir, 'preload.js'),
+      preload: join(config.electronDir, 'widget-preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
     },

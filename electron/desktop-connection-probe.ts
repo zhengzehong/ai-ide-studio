@@ -18,6 +18,7 @@ export async function probeDesktopConnection(
   try {
     response = await fetchImpl(`${origin}/api/v1/desktop-info`, {
       headers: { Accept: 'application/json', 'x-ai-ide-token': token },
+      redirect: 'error',
       signal: AbortSignal.timeout(8_000),
     })
   } catch (error) {

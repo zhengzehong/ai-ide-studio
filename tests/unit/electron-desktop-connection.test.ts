@@ -76,7 +76,7 @@ describe('desktop runtime targets', () => {
   test('creates an owned local target and authenticated URLs', () => {
     const target = createManagedLocalTarget(18800, 'local-token', true)
     expect(target.ownsBackend).toBe(true)
-    expect(createDesktopUrl(target, '/widget')).toBe('http://127.0.0.1:18800/widget?token=local-token')
+    expect(createDesktopUrl(target, '/widget')).toBe('http://127.0.0.1:18800/widget')
   })
 
   test('creates a non-owned remote target', () => {
@@ -87,7 +87,7 @@ describe('desktop runtime targets', () => {
       widgetEnabled: false,
     })
     expect(target).toMatchObject({ ownsBackend: false, widgetEnabled: false })
-    expect(createDesktopUrl(target, '/workspace')).toBe('https://ide.example.com/workspace?token=remote-token')
+    expect(createDesktopUrl(target, '/workspace')).toBe('https://ide.example.com/workspace')
   })
 })
 
@@ -95,6 +95,7 @@ describe('desktop connection probe', () => {
   test('verifies server identity, protocol, and auth header', async () => {
     const fetchImpl = async (_url: string | URL | Request, init?: RequestInit) => {
       expect(init?.headers).toMatchObject({ 'x-ai-ide-token': 'remote-token' })
+      expect(init?.redirect).toBe('error')
       return new Response(JSON.stringify({ product: 'ai-ide-studio', protocolVersion: '1' }))
     }
 

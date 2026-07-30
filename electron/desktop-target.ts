@@ -36,14 +36,16 @@ export function createRemoteTarget(profile: DesktopConnectionProfile): DesktopRu
 }
 
 export function createDesktopUrl(target: DesktopRuntimeTarget, path = '/'): string {
-  const url = new URL(path, `${target.origin}/`)
-  url.searchParams.set('token', target.token)
-  return url.toString()
+  return new URL(path, `${target.origin}/`).toString()
 }
 
 export function isAllowedDesktopNavigation(url: string, allowedOrigin: string): boolean {
   try {
-    return new URL(url).origin === new URL(allowedOrigin).origin
+    const parsed = new URL(url)
+    if (parsed.origin !== new URL(allowedOrigin).origin) return false
+    return !parsed.pathname.startsWith('/api/')
+      && !parsed.pathname.startsWith('/preview/')
+      && !parsed.pathname.startsWith('/avatars/')
   } catch {
     return false
   }

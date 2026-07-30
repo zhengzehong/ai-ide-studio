@@ -6,6 +6,7 @@ import {
   Tray,
   Menu,
   nativeImage,
+  type IpcMainInvokeEvent,
   type MenuItemConstructorOptions,
 } from 'electron'
 import { spawn, type ChildProcess } from 'child_process'
@@ -19,6 +20,7 @@ import { DesktopConnectionStore, type DesktopConnectionProfile } from './desktop
 import { probeDesktopConnection } from './desktop-connection-probe.js'
 import { createDesktopCredentialProtector } from './desktop-credentials.js'
 import { registerDesktopIpc } from './desktop-ipc.js'
+import { isTrustedDesktopIpcSender, isWidgetPath } from './desktop-ipc-policy.js'
 import { restrictWindowNavigation } from './desktop-security.js'
 import {
   createDesktopUrl,
@@ -53,12 +55,14 @@ async function main(): Promise<void> {
   try {
     const profile = await resolveConnectionProfile(store)
     const target = await startRuntimeTarget(profile, store, resourcesDir)
-    registerDesktopIpc({ store, target })
-    setupWidgetIpc(target)
     mainWindow = createWindow(target)
+    registerDesktopIpc({ store, target, mainWindow, getWidgetWindow })
+    setupWidgetIpc(target)
     if (target.widgetEnabled) {
       createWidgetWindow({ target, electronDir, userDataDir })
     }
+    attachMainWindowLoadRecovery(mainWindow, target, store)
+    void mainWindow.loadURL(createDesktopUrl(target))
     createTray(target.widgetEnabled)
   } catch (error) {
     if (error instanceof Error && error.message === '首次启动设置已取消') {
@@ -114,7 +118,7 @@ async function startRuntimeTarget(
 
 function showSetupWindow() {
   return showDesktopSetupWindow({
-    preloadPath: join(electronDir, 'preload.js'),
+    preloadPath: join(electronDir, 'setup-preload.js'),
     validateRemote: async (origin, token) => { await probeDesktopConnection(origin, token) },
   })
 }
@@ -152,30 +156,83 @@ function createWindow(target: DesktopRuntimeTarget): BrowserWindow {
     minWidth: 1024,
     minHeight: 720,
     webPreferences: {
-      preload: join(electronDir, 'preload.js'),
+      preload: join(electronDir, 'desktop-preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
     },
   })
   restrictWindowNavigation(window, target.origin)
-  void window.loadURL(createDesktopUrl(target))
   window.on('closed', () => { mainWindow = null })
   return window
 }
 
 function setupWidgetIpc(target: DesktopRuntimeTarget): void {
-  ipcMain.handle('widget:toggle-pin', () => toggleWidgetPin())
-  ipcMain.handle('widget:minimize', () => hideWidget())
-  ipcMain.handle('widget:open-main', (_event, destination?: { projectId?: string | null; sessionId?: string | null }) => {
+  ipcMain.handle('widget:toggle-pin', (event) => {
+    assertTrustedWidgetSender(event, target)
+    return toggleWidgetPin()
+  })
+  ipcMain.handle('widget:minimize', (event) => {
+    assertTrustedWidgetSender(event, target)
+    return hideWidget()
+  })
+  ipcMain.handle('widget:open-main', (event, destination?: { projectId?: string | null; sessionId?: string | null }) => {
+    assertTrustedWidgetSender(event, target)
     if (destination?.sessionId) {
       const url = new URL('/workspace', `${target.origin}/`)
-      url.searchParams.set('token', target.token)
       url.searchParams.set('sessionId', destination.sessionId)
       if (destination.projectId) url.searchParams.set('projectId', destination.projectId)
       void mainWindow?.loadURL(url.toString())
     }
     mainWindow?.show()
     mainWindow?.focus()
+  })
+}
+
+function assertTrustedWidgetSender(
+  event: IpcMainInvokeEvent,
+  target: DesktopRuntimeTarget,
+): void {
+  const widget = getWidgetWindow()
+  const trusted = widget && isTrustedDesktopIpcSender({
+    senderId: event.sender.id,
+    allowedSenderIds: new Set([widget.webContents.id]),
+    isMainFrame: event.senderFrame === event.sender.mainFrame,
+    frameUrl: event.senderFrame?.url ?? '',
+    allowedOrigin: target.origin,
+    allowedPath: isWidgetPath,
+  })
+  if (!trusted) throw new Error('不允许从当前页面操作 Widget')
+}
+
+function attachMainWindowLoadRecovery(
+  window: BrowserWindow,
+  target: DesktopRuntimeTarget,
+  store: DesktopConnectionStore,
+): void {
+  let dialogOpen = false
+  window.webContents.on('did-fail-load', (_event, errorCode, errorDescription, _url, isMainFrame) => {
+    if (!isMainFrame || errorCode === -3 || dialogOpen) return
+    dialogOpen = true
+    void dialog.showMessageBox(window, {
+      type: 'warning',
+      title: '页面加载失败',
+      message: errorDescription,
+      buttons: ['重试', '修改连接', '退出'],
+      defaultId: 0,
+      cancelId: 2,
+    }).then(async (result) => {
+      if (result.response === 0) await window.loadURL(createDesktopUrl(target))
+      if (result.response === 1) {
+        store.save(await showSetupWindow())
+        app.relaunch()
+        app.quit()
+      }
+      if (result.response === 2) app.quit()
+    }).catch((error: unknown) => {
+      if (!(error instanceof Error && error.message === '首次启动设置已取消')) {
+        dialog.showErrorBox('连接设置失败', error instanceof Error ? error.message : String(error))
+      }
+    }).finally(() => { dialogOpen = false })
   })
 }
 

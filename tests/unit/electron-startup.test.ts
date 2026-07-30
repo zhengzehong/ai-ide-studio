@@ -78,10 +78,13 @@ describe('Electron builder config', () => {
       'backend-launch.js',
       'desktop-connection.js',
       'desktop-ipc.js',
+      'desktop-ipc-policy.js',
+      'desktop-preload.js',
       'desktop-target.js',
       'main.js',
-      'preload.js',
+      'setup-preload.js',
       'setup-window.js',
+      'widget-preload.js',
       'widget-window.js',
     ]))
   })

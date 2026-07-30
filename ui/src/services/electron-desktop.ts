@@ -26,20 +26,31 @@ export interface DesktopOperationResult {
   error?: string
 }
 
-export interface ElectronDesktopBridge {
+export interface ElectronDesktopBootstrapBridge {
   getBootstrap(): DesktopBootstrap
+}
+
+export interface ElectronDesktopBridge extends ElectronDesktopBootstrapBridge {
   getSettings(): Promise<DesktopConnectionSettings>
   testConnection(input: DesktopConnectionInput): Promise<DesktopOperationResult>
   saveSettings(input: DesktopConnectionInput): Promise<DesktopOperationResult>
 }
 
 export function getElectronDesktopBridge(): ElectronDesktopBridge | null {
-  const candidate = (window as unknown as { electronDesktop?: ElectronDesktopBridge }).electronDesktop
+  const candidate = getElectronDesktopBootstrapBridge()
+  if (!candidate || !('getSettings' in candidate) || !('testConnection' in candidate) || !('saveSettings' in candidate)) {
+    return null
+  }
+  return candidate as ElectronDesktopBridge
+}
+
+export function getElectronDesktopBootstrapBridge(): ElectronDesktopBootstrapBridge | null {
+  const candidate = (window as unknown as { electronDesktop?: ElectronDesktopBootstrapBridge }).electronDesktop
   return candidate ?? null
 }
 
 export function initializeDesktopRendererConnection(
-  bridge: ElectronDesktopBridge | null = getElectronDesktopBridge(),
+  bridge: ElectronDesktopBootstrapBridge | null = getElectronDesktopBootstrapBridge(),
   location: Location = window.location,
   storage: Storage = localStorage,
   browserHistory: History = history,

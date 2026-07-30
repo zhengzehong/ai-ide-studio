@@ -11,11 +11,14 @@ const files = [
   'desktop-connection.js',
   'desktop-credentials.js',
   'desktop-ipc.js',
+  'desktop-ipc-policy.js',
+  'desktop-preload.js',
   'desktop-security.js',
   'desktop-target.js',
   'main.js',
-  'preload.js',
+  'setup-preload.js',
   'setup-window.js',
+  'widget-preload.js',
   'widget-window.js',
 ]
 

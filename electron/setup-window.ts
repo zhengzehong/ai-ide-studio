@@ -22,8 +22,11 @@ export function showDesktopSetupWindow(options: SetupWindowOptions): Promise<Des
       },
     })
     let completed = false
-    ipcMain.handle('desktop:first-run-submit', async (_event, input: DesktopConnectionInput) => {
+    ipcMain.handle('desktop:first-run-submit', async (event, input: DesktopConnectionInput) => {
       try {
+        if (event.sender.id !== window.webContents.id || event.senderFrame !== event.sender.mainFrame) {
+          throw new Error('不允许从当前页面修改桌面连接')
+        }
         if (input.mode === 'remote') {
           await options.validateRemote(input.remoteOrigin ?? '', input.token ?? '')
         }
