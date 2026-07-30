@@ -12,6 +12,6 @@
     "forceConsistentCasingInFileNames": true,
     "types": ["node"]
   },
-  "include": ["electron/**/*.ts", "electron.d.ts"],
+  "include": ["electron/**/*.ts", "electron/**/*.cts", "electron.d.ts"],
   "exclude": ["node_modules", "electron/dist", "release"]
 }

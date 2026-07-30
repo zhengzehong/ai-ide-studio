@@ -12,14 +12,15 @@ const files = [
   'desktop-credentials.js',
   'desktop-ipc.js',
   'desktop-ipc-policy.js',
-  'desktop-preload.js',
+  'desktop-preload.cjs',
   'desktop-security.js',
   'desktop-target.js',
   'main.js',
   'load-recovery.js',
-  'setup-preload.js',
+  'setup-preload.cjs',
+  'setup-submission.js',
   'setup-window.js',
-  'widget-preload.js',
+  'widget-preload.cjs',
   'widget-window.js',
 ]
 
