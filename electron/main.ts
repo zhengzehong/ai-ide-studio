@@ -267,7 +267,9 @@ async function waitForHealth(port: number, token: string): Promise<void> {
   const deadline = Date.now() + 15_000
   while (Date.now() < deadline) {
     try {
-      const response = await fetch(`http://127.0.0.1:${port}/health?token=${token}`)
+      const response = await fetch(`http://127.0.0.1:${port}/health`, {
+        headers: { 'x-ai-ide-token': token },
+      })
       if (response.ok) return
     } catch {
       // The backend process may still be binding its port.
