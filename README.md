@@ -13,6 +13,7 @@ AI IDE Studio 是一个本地部署的全栈 AI 编程协作工具。通过 [ACP
 - **移动端 Web App** — `/app/` 下提供手机浏览器访问的轻量客户端，支持远程连接、会话列表、对话、任务列表、设置页和多文件交付全屏预览；项目未读/会话数实时刷新，项目与 Agent 位置保持稳定
 - **Session 管理** — 会话按项目/Agent 归属展示，支持 Agent 显示/隐藏/删除、标题、重命名、复制、本地会话导入、会话模板、关闭、归档和软删除；Claude 模板在发布时生成可跨 Runtime 重启恢复的本地上下文快照
 - **桌面悬浮部件** — Electron 常驻小窗口，按会话优先显示运行中/未读 Agent 会话进度，并支持快速查看和创建任务
+- **桌面双模式** — 同一 Electron 安装包可启动本机一体化服务，也可作为 Client 连接远程 AI IDE Studio；桌面设置支持切换连接与开关 Widget，保存后重启生效
 - **Agent 运行时** — 支持 `mock`（本地开发）、`claude`（Claude Code）、`codex`（Codex）三种运行时
 - **模型档案** — 在设置页维护 New API / OpenAI / Claude 供应商与 Claude Code、Codex 模型档案，并可为项目 Agent 绑定不同档案
 - **ACP 功能** — 模型切换、模式切换（计划模式等）、权限请求、会话 Fork、上下文用量展示

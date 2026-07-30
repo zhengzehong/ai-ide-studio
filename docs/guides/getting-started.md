@@ -49,6 +49,17 @@ npm run build      # 编译后端 + 构建前端
 npm start          # 运行编译后的 Gateway
 ```
 
+### 桌面端
+
+```bash
+npm run dev:electron          # 启动开发版 Electron
+npm run build:electron        # 构建桌面安装包
+```
+
+桌面端首次启动时选择“本机一体化”或“远程服务器”。本机一体化由 Electron 启动并管理内置后端；远程服务器模式只加载服务器提供的 PC UI，不会启动本机后端。远程地址填写 origin（例如 `https://ide.example.com`）和服务器的访问密钥。
+
+连接配置保存在 Electron `userData` 中，远程访问密钥通过系统凭据能力加密。桌面端的设置页可以修改连接模式、远程地址、访问密钥和 Widget 开关，修改通过“保存并重启”生效。普通浏览器不会显示这些桌面设置。
+
 ## 访问
 
 - **Web UI**: http://localhost:5173（开发模式）

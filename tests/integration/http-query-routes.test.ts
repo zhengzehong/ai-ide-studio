@@ -43,10 +43,15 @@ describe('versioned HTTP query routes', () => {
     const session = sessionStore.create({ agentId: 'agent-http', taskId: task.id, projectId })
     await startTestGateway()
 
+    const desktopInfoUnauthorized = await fetch(`${baseUrl()}/api/v1/desktop-info`)
+    const desktopInfo = await queryFetch('/api/v1/desktop-info')
     const unauthorized = await fetch(`${baseUrl()}/api/v1/tasks?projectId=${projectId}`)
     const taskResponse = await queryFetch(`/api/v1/tasks?projectId=${projectId}`)
     const sessionResponse = await queryFetch(`/api/v1/sessions?projectId=${projectId}&agentId=agent-http`)
 
+    expect(desktopInfoUnauthorized.status).toBe(401)
+    expect(desktopInfo.status).toBe(200)
+    expect(await desktopInfo.json()).toEqual({ product: 'ai-ide-studio', protocolVersion: '1' })
     expect(unauthorized.status).toBe(401)
     expect(taskResponse.status).toBe(200)
     expect(await taskResponse.json()).toMatchObject({
