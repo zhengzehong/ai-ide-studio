@@ -213,27 +213,51 @@ function attachMainWindowLoadRecovery(
   window.webContents.on('did-fail-load', (_event, errorCode, errorDescription, _url, isMainFrame) => {
     if (!isMainFrame || errorCode === -3 || dialogOpen) return
     dialogOpen = true
-    void dialog.showMessageBox(window, {
+    void runMainWindowLoadRecovery(window, target, store, errorDescription)
+      .finally(() => { dialogOpen = false })
+  })
+}
+
+async function runMainWindowLoadRecovery(
+  window: BrowserWindow,
+  target: DesktopRuntimeTarget,
+  store: DesktopConnectionStore,
+  initialError: string,
+): Promise<void> {
+  let errorMessage = initialError
+  while (!window.isDestroyed()) {
+    const result = await dialog.showMessageBox(window, {
       type: 'warning',
       title: '页面加载失败',
-      message: errorDescription,
+      message: errorMessage,
       buttons: ['重试', '修改连接', '退出'],
       defaultId: 0,
       cancelId: 2,
-    }).then(async (result) => {
-      if (result.response === 0) await window.loadURL(createDesktopUrl(target))
-      if (result.response === 1) {
-        store.save(await showSetupWindow())
-        app.relaunch()
-        app.quit()
+    })
+    if (result.response === 2) {
+      app.quit()
+      return
+    }
+    if (result.response === 0) {
+      try {
+        await window.loadURL(createDesktopUrl(target))
+        return
+      } catch (error) {
+        errorMessage = error instanceof Error ? error.message : String(error)
+        continue
       }
-      if (result.response === 2) app.quit()
-    }).catch((error: unknown) => {
+    }
+    try {
+      store.save(await showSetupWindow())
+      app.relaunch()
+      app.quit()
+      return
+    } catch (error) {
       if (!(error instanceof Error && error.message === '首次启动设置已取消')) {
-        dialog.showErrorBox('连接设置失败', error instanceof Error ? error.message : String(error))
+        errorMessage = error instanceof Error ? error.message : String(error)
       }
-    }).finally(() => { dialogOpen = false })
-  })
+    }
+  }
 }
 
 function createTray(widgetEnabled: boolean): void {
