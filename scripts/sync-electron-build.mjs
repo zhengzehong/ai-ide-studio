@@ -16,6 +16,7 @@ const files = [
   'desktop-security.js',
   'desktop-target.js',
   'main.js',
+  'load-recovery.js',
   'setup-preload.js',
   'setup-window.js',
   'widget-preload.js',

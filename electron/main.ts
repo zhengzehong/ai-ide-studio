@@ -29,6 +29,7 @@ import {
   type DesktopRuntimeTarget,
 } from './desktop-target.js'
 import { showDesktopSetupWindow } from './setup-window.js'
+import { runLoadRecovery, type LoadRecoveryChoice } from './load-recovery.js'
 import { createWidgetWindow, toggleWidgetPin, hideWidget, showWidget, getWidgetWindow } from './widget-window.js'
 
 const electronDir = dirname(fileURLToPath(import.meta.url))
@@ -224,40 +225,33 @@ async function runMainWindowLoadRecovery(
   store: DesktopConnectionStore,
   initialError: string,
 ): Promise<void> {
-  let errorMessage = initialError
-  while (!window.isDestroyed()) {
-    const result = await dialog.showMessageBox(window, {
-      type: 'warning',
-      title: '页面加载失败',
-      message: errorMessage,
-      buttons: ['重试', '修改连接', '退出'],
-      defaultId: 0,
-      cancelId: 2,
-    })
-    if (result.response === 2) {
-      app.quit()
-      return
-    }
-    if (result.response === 0) {
+  await runLoadRecovery(initialError, {
+    isClosed: () => window.isDestroyed(),
+    choose: async (errorMessage) => {
+      const result = await dialog.showMessageBox(window, {
+        type: 'warning',
+        title: '页面加载失败',
+        message: errorMessage,
+        buttons: ['重试', '修改连接', '退出'],
+        defaultId: 0,
+        cancelId: 2,
+      })
+      return (['retry', 'edit', 'quit'] as LoadRecoveryChoice[])[result.response] ?? 'quit'
+    },
+    reload: async () => { await window.loadURL(createDesktopUrl(target)) },
+    editConnection: async () => {
       try {
-        await window.loadURL(createDesktopUrl(target))
-        return
+        store.save(await showSetupWindow())
+        app.relaunch()
+        app.quit()
+        return 'saved'
       } catch (error) {
-        errorMessage = error instanceof Error ? error.message : String(error)
-        continue
+        if (error instanceof Error && error.message === '首次启动设置已取消') return 'cancelled'
+        throw error
       }
-    }
-    try {
-      store.save(await showSetupWindow())
-      app.relaunch()
-      app.quit()
-      return
-    } catch (error) {
-      if (!(error instanceof Error && error.message === '首次启动设置已取消')) {
-        errorMessage = error instanceof Error ? error.message : String(error)
-      }
-    }
-  }
+    },
+    quit: () => app.quit(),
+  })
 }
 
 function createTray(widgetEnabled: boolean): void {
