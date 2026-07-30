@@ -28,7 +28,7 @@ import {
   createRemoteTarget,
   type DesktopRuntimeTarget,
 } from './desktop-target.js'
-import { showDesktopSetupWindow } from './setup-window.js'
+import { closeDesktopSetupWindow, showDesktopSetupWindow } from './setup-window.js'
 import { runLoadRecovery, type LoadRecoveryChoice } from './load-recovery.js'
 import { createWidgetWindow, toggleWidgetPin, hideWidget, showWidget, getWidgetWindow } from './widget-window.js'
 
@@ -57,6 +57,7 @@ async function main(): Promise<void> {
     const profile = await resolveConnectionProfile(store)
     const target = await startRuntimeTarget(profile, store, resourcesDir)
     mainWindow = createWindow(target)
+    closeDesktopSetupWindow()
     registerDesktopIpc({ store, target, mainWindow, getWidgetWindow })
     setupWidgetIpc(target)
     if (target.widgetEnabled) {
@@ -119,7 +120,7 @@ async function startRuntimeTarget(
 
 function showSetupWindow() {
   return showDesktopSetupWindow({
-    preloadPath: join(electronDir, 'setup-preload.js'),
+    preloadPath: join(electronDir, 'setup-preload.cjs'),
     validateRemote: async (origin, token) => { await probeDesktopConnection(origin, token) },
   })
 }
@@ -157,7 +158,7 @@ function createWindow(target: DesktopRuntimeTarget): BrowserWindow {
     minWidth: 1024,
     minHeight: 720,
     webPreferences: {
-      preload: join(electronDir, 'desktop-preload.js'),
+      preload: join(electronDir, 'desktop-preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
     },

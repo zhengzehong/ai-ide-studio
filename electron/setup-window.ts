@@ -1,13 +1,23 @@
 import { BrowserWindow, ipcMain } from 'electron'
 import type { DesktopConnectionInput } from './desktop-connection.js'
+import { runDesktopSetupSubmission } from './setup-submission.js'
 
 interface SetupWindowOptions {
   preloadPath: string
   validateRemote: (origin: string, token: string) => Promise<void>
 }
 
+let activeSetupWindow: BrowserWindow | null = null
+
+export function closeDesktopSetupWindow(): void {
+  const window = activeSetupWindow
+  if (window && !window.isDestroyed()) window.close()
+  activeSetupWindow = null
+}
+
 export function showDesktopSetupWindow(options: SetupWindowOptions): Promise<DesktopConnectionInput> {
   return new Promise((resolve, reject) => {
+    closeDesktopSetupWindow()
     const window = new BrowserWindow({
       width: 620,
       height: 620,
@@ -21,6 +31,7 @@ export function showDesktopSetupWindow(options: SetupWindowOptions): Promise<Des
         nodeIntegration: false,
       },
     })
+    activeSetupWindow = window
     let completed = false
     ipcMain.handle('desktop:first-run-submit', async (event, input: DesktopConnectionInput) => {
       try {
@@ -32,13 +43,16 @@ export function showDesktopSetupWindow(options: SetupWindowOptions): Promise<Des
         }
         completed = true
         resolve(input)
-        window.close()
+        setImmediate(() => {
+          if (!window.isDestroyed()) window.hide()
+        })
         return { ok: true }
       } catch (error) {
         return { ok: false, error: error instanceof Error ? error.message : String(error) }
       }
     })
     window.on('closed', () => {
+      if (activeSetupWindow === window) activeSetupWindow = null
       ipcMain.removeHandler('desktop:first-run-submit')
       if (!completed) reject(new Error('首次启动设置已取消'))
     })
@@ -102,14 +116,24 @@ const SETUP_HTML = `<!doctype html>
     form.addEventListener('submit', async (event) => {
       event.preventDefault(); error.textContent = ''; submit.disabled = true; submit.textContent = '正在连接...';
       const mode = document.querySelector('input[name=mode]:checked').value;
-      const result = await window.electronSetup.submit({
-        mode,
-        remoteOrigin: document.getElementById('origin').value,
-        token: document.getElementById('token').value,
-        widgetEnabled: document.getElementById('widget').checked,
-      });
-      if (!result.ok) { error.textContent = result.error || '设置失败'; submit.disabled = false; submit.textContent = '继续'; }
+      try {
+        const result = await runDesktopSetupSubmission(window.electronSetup?.submit, {
+          mode,
+          remoteOrigin: document.getElementById('origin').value,
+          token: document.getElementById('token').value,
+          widgetEnabled: document.getElementById('widget').checked,
+        });
+        if (!result.ok) throw new Error(result.error || '设置失败');
+      } catch (submitError) {
+        error.textContent = submitError instanceof Error ? submitError.message : String(submitError);
+      } finally {
+        submit.disabled = false;
+        submit.textContent = '继续';
+      }
     });
   </script>
 </body>
-</html>`
+</html>`.replace(
+  '<script>',
+  `<script>\n    ${runDesktopSetupSubmission.toString()}`,
+)
