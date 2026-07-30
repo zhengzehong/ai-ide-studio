@@ -310,12 +310,46 @@ describe('SDK Runtime child lifecycle', () => {
     const harness = runtimeHarness()
     const forked = snapshot('session-b')
     forked.session.acpSessionId = 'acp-created'
+    forked.runtime.env.CLAUDE_CONFIG_DIR = 'C:\\custom-claude'
 
     await expect(harness.host.forkSession(forked, 'acp-created')).resolves.toBe('acp-forked')
     expect(harness.host.getSessionCapabilities('agent-a', 'session-b')).toMatchObject({
       currentModelId: 'model-a',
       supportsImages: true,
     })
+    expect(harness.cloneClaudeSessionFiles).toHaveBeenCalledWith({
+      sourceSessionId: 'acp-created',
+      targetSessionId: 'acp-forked',
+      sourceCwd: process.cwd(),
+      targetCwd: process.cwd(),
+      configDir: 'C:\\custom-claude',
+    })
+  })
+
+  test('closes an in-memory Claude fork when file materialization fails', async () => {
+    const harness = runtimeHarness({
+      cloneClaudeSessionFiles: async () => { throw new Error('snapshot write failed') },
+    })
+    const forked = snapshot('session-b')
+    forked.session.acpSessionId = 'acp-created'
+
+    await expect(harness.host.forkSession(forked, 'acp-created')).rejects.toThrow('snapshot write failed')
+
+    expect(harness.closeSession).toHaveBeenCalledWith({ sessionId: 'acp-forked' })
+    expect(harness.host.hasSession('session-b')).toBe(false)
+  })
+
+  test('rejects a Claude fork before ACP when the source JSONL is missing', async () => {
+    const harness = runtimeHarness({ hasClaudeSessionFiles: async () => false })
+    const forked = snapshot('session-b')
+    forked.session.acpSessionId = 'acp-created'
+
+    await expect(harness.host.forkSession(forked, 'acp-created')).rejects.toThrow(
+      'Claude Session snapshot is missing',
+    )
+
+    expect(harness.unstableForkSession).not.toHaveBeenCalled()
+    expect(harness.cloneClaudeSessionFiles).not.toHaveBeenCalled()
   })
 })
 
@@ -328,6 +362,8 @@ function runtimeHarness(overrides: {
   restartGraceMs?: number
   setConfigResult?: () => Promise<{ configOptions: acp.SessionConfigOption[] }>
   initialConfigOptions?: acp.SessionConfigOption[]
+  cloneClaudeSessionFiles?: () => Promise<unknown>
+  hasClaudeSessionFiles?: () => Promise<boolean>
 } = {}) {
   const processes: EventEmitter[] = []
   const routers: AcpRuntimeClientRouter[] = []
@@ -343,6 +379,18 @@ function runtimeHarness(overrides: {
   const publishCapabilities = vi.fn()
   const publishDone = vi.fn(async () => undefined)
   const closeSession = vi.fn(async () => { await overrides.closeSession?.() })
+  const unstableForkSession = vi.fn(async () => ({
+    sessionId: 'acp-forked',
+    models: {
+      currentModelId: 'model-a',
+      availableModels: [{ modelId: 'model-a', name: 'Model A' }],
+    },
+  }))
+  const cloneClaudeSessionFiles = vi.fn(overrides.cloneClaudeSessionFiles ?? (async () => ({
+    jsonlPath: 'snapshot.jsonl',
+    lineCount: 1,
+    resourceFilesCopied: 0,
+  })))
   const host = new SdkRuntimeHost(actors, {
     publishUpdate,
     publishDone,
@@ -351,19 +399,15 @@ function runtimeHarness(overrides: {
     cancelGraceMs: overrides.cancelGraceMs,
     closeGraceMs: overrides.closeGraceMs,
     restartGraceMs: overrides.restartGraceMs,
+    cloneClaudeSessionFiles,
+    hasClaudeSessionFiles: overrides.hasClaudeSessionFiles ?? (async () => true),
     startAgent: async ({ router }) => {
       const process = Object.assign(new EventEmitter(), { kill: vi.fn(() => true) })
       const connection = {
         newSession,
         resumeSession,
         loadSession: vi.fn(async () => ({})),
-        unstable_forkSession: vi.fn(async () => ({
-          sessionId: 'acp-forked',
-          models: {
-            currentModelId: 'model-a',
-            availableModels: [{ modelId: 'model-a', name: 'Model A' }],
-          },
-        })),
+        unstable_forkSession: unstableForkSession,
         unstable_setSessionModel: vi.fn(async () => undefined),
         setSessionMode: vi.fn(async () => undefined),
         prompt: vi.fn(() => {
@@ -406,6 +450,8 @@ function runtimeHarness(overrides: {
     publishCapabilities,
     publishDone,
     closeSession,
+    cloneClaudeSessionFiles,
+    unstableForkSession,
   }
 }
 

@@ -1,4 +1,5 @@
 import { mapConfigOptions, mergeCapabilitiesFromConfig } from '../../acp/capabilities.js'
+import { cloneClaudeSessionFiles, hasClaudeSessionFiles } from '../../acp/claude-session-files.js'
 import type { RuntimeCancelResult, RuntimeStateSnapshot } from '../../ports/runtime-port.js'
 import { createChildLogger } from '../../shared/logger.js'
 import type { ImageAttachment, SessionCapabilities } from '../../types/ws-protocol.js'
@@ -31,6 +32,8 @@ export class SdkRuntimeHost {
   private readonly sessions = new Map<string, SdkSessionRuntime>()
   private readonly resources = new ResourceGovernor()
   private readonly startAgent: (input: StartManagedAcpAgentInput) => Promise<ManagedAcpAgent>
+  private readonly materializeClaudeSession: typeof cloneClaudeSessionFiles
+  private readonly findClaudeSessionFiles: typeof hasClaudeSessionFiles
   private readonly ensureBySession = new Map<string, Promise<string>>()
   private readonly startByAgent = new Map<string, Promise<SdkAgentRuntime>>()
   private readonly runtimeTurns: SdkRuntimeTurns
@@ -41,6 +44,8 @@ export class SdkRuntimeHost {
     dependencies: SdkRuntimeHostDependencies = {},
   ) {
     this.startAgent = dependencies.startAgent ?? startManagedAcpAgent
+    this.materializeClaudeSession = dependencies.cloneClaudeSessionFiles ?? cloneClaudeSessionFiles
+    this.findClaudeSessionFiles = dependencies.hasClaudeSessionFiles ?? hasClaudeSessionFiles
     this.runtimeTurns = new SdkRuntimeTurns({
       actors: this.actors,
       agents: this.agents,
@@ -171,14 +176,36 @@ export class SdkRuntimeHost {
 
   async forkSession(snapshot: RuntimeStateSnapshot, sourceAcpSessionId: string): Promise<string> {
     const agent = await this.ensureAgent(snapshot)
-    if (!agent.agentCapabilities?.sessionCapabilities?.fork)
-      throw new Error(`Agent ${snapshot.agent.id} does not support fork`)
+    if (!agent.agentCapabilities?.sessionCapabilities?.fork) throw new Error(`Agent ${snapshot.agent.id} does not support fork`)
+    if (snapshot.agent.runtime === 'claude' && !await this.findClaudeSessionFiles({
+      sessionId: sourceAcpSessionId,
+      cwd: snapshot.session.cwd,
+      configDir: snapshot.runtime.env.CLAUDE_CONFIG_DIR,
+    })) {
+      throw new Error(`Claude Session snapshot is missing: ${sourceAcpSessionId}`)
+    }
     const result = await agent.connection.unstable_forkSession({
       sessionId: sourceAcpSessionId,
       cwd: snapshot.session.cwd,
       mcpServers: snapshot.mcpServers,
       _meta: snapshot.runtime.sessionMeta,
     })
+    if (snapshot.agent.runtime === 'claude') {
+      try {
+        await this.materializeClaudeSession({
+          sourceSessionId: sourceAcpSessionId,
+          targetSessionId: result.sessionId,
+          sourceCwd: snapshot.session.cwd,
+          targetCwd: snapshot.session.cwd,
+          configDir: snapshot.runtime.env.CLAUDE_CONFIG_DIR,
+        })
+      } catch (error) {
+        await agent.connection.closeSession({ sessionId: result.sessionId }).catch((closeError) => {
+          log.warn({ err: closeError, targetAcpSessionId: result.sessionId }, 'Failed to close unmaterialized Claude fork')
+        })
+        throw error
+      }
+    }
     const session: SdkSessionRuntime = {
       snapshot,
       acpSessionId: result.sessionId,

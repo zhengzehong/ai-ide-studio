@@ -7,6 +7,7 @@ import { agentStore } from '../store/agents.js'
 import { sessionStore } from '../store/sessions.js'
 import type { SessionUpdateData, TurnUsageData, SessionCapabilities, ImageAttachment } from '../types/ws-protocol.js'
 import { mapConfigOptions, mergeCapabilitiesFromConfig } from './capabilities.js'
+import { cloneClaudeSessionFiles, hasClaudeSessionFiles } from './claude-session-files.js'
 import { createClientHandler, endClientTurn, getClientTurnMessageId, startClientTurn } from './client-handler.js'
 import {
   acpSessionContextKey,
@@ -592,13 +593,34 @@ export const acpHost = {
     }
     if (!conn) throw new Error(`Agent ${agentId} 未运行`)
     if (!conn.agentCapabilities?.sessionCapabilities?.fork) throw new Error(`Agent ${agentId} 不支持 fork 会话`)
+    const cwd = context.cwd ?? process.cwd()
+    const configDir = conn.runtimeEnv?.CLAUDE_CONFIG_DIR
+    if (conn.runtime === 'claude' && !await hasClaudeSessionFiles({ sessionId: sourceAcpSessionId, cwd, configDir })) {
+      throw new Error(`Claude Session snapshot is missing: ${sourceAcpSessionId}`)
+    }
 
     const result = await conn.connection.unstable_forkSession({
       sessionId: sourceAcpSessionId,
-      cwd: context.cwd ?? process.cwd(),
+      cwd,
       mcpServers: resolveMcpServersForAcp(conn, targetSessionId, context),
       _meta: conn.sessionMeta,
     })
+    if (conn.runtime === 'claude') {
+      try {
+        await cloneClaudeSessionFiles({
+          sourceSessionId: sourceAcpSessionId,
+          targetSessionId: result.sessionId,
+          sourceCwd: cwd,
+          targetCwd: cwd,
+          configDir,
+        })
+      } catch (error) {
+        await conn.connection.closeSession({ sessionId: result.sessionId }).catch((closeError) => {
+          log.warn({ err: closeError, agentId, sourceAcpSessionId, targetAcpSessionId: result.sessionId }, 'Failed to close unmaterialized Claude fork')
+        })
+        throw error
+      }
+    }
     markSessionConnected(conn, targetSessionId, result.sessionId, context)
     updateInitialCapabilities(conn, targetSessionId, result)
     await applySessionRuntimePreferences(conn, targetSessionId)

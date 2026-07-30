@@ -26,7 +26,8 @@
     })
   }
   ```
-- 底层调 `query({ resume: sourceSessionId, forkSession: true })`,把源 transcript 的消息复制到新文件
+- 底层调 `query({ resume: sourceSessionId, forkSession: true })`。直接使用 SDK 时，Query 开始执行后会生成新 transcript；但当前 `claude-agent-acp` 的 `unstable_forkSession` 返回时只创建了进程内 Query 和新 Session ID，尚未发送 Prompt 时不会立即生成目标 JSONL。
+- **2026-07-29 最小验证修正**:ACP fork 返回后重启 Runtime，再用目标 ID resume 会得到 `Resource not found`。AI IDE Studio 因此在 fork 返回后同步物化目标 JSONL 和 `<sessionId>/` 伴随资源，物化成功后才把 fork 视为成功；这不是数据库消息快照，也不改变 ACP 的对话语义。
 - **Spike(task-dee3642e)实测修正 1**:SDK 注释说"remapping every message UUID",但实测 **message UUID 并未 remap**——B 的前 10 条 msg UUID 与 A 完全一致,只改了 `sessionId` 字段。对模板功能无影响,但若未来做"基于 messageId 回溯源会话"要小心
 - **Spike(task-dee3642e)实测修正 2**:文档原写"不需要源 ACP 连接活着",在当前 AI Studio 代码下不成立。`src/acp/host.ts:563 forkSession` 走 `conn.acpSessions.get(sourceSessionId)` 内存 Map,Agent 重启后 Map 清空,直接 fork 报错 "Session X 没有对应的 ACP session"。源 transcript jsonl 文件还在,但 AI Studio 这层找不到 acpSessionId 入口
 - **已有的解决路径**:
@@ -97,9 +98,10 @@ async forkSession(agentId, sourceSessionId, targetSessionId, context) {
 1. 会话右键菜单(PC)/ 长按菜单(移动端),点"发布为模板"
 2. 弹窗输入:模板名称(必填)、描述(选填)
 3. 后端调 `acpHost.forkSessionFromAcpSessionId(agentId, sourceAcpSessionId, templateSessionId, context)`
-4. fork 出的新会话标记为"模板会话":`sessions.is_template = 1`
-5. 在 `session_templates` 表建一条记录,关联模板会话
-6. 提示"已发布为模板"
+4. Runtime 把源 Claude JSONL 和伴随资源物化到 fork 返回的新 ACP Session ID；Codex 由自身 thread fork 持久化
+5. 物化成功后，新会话标记为"模板会话":`sessions.is_template = 1`
+6. 在 `session_templates` 表建一条记录,关联模板会话
+7. 提示"已发布为模板"
 
 ### 3.2 从模板新建
 
@@ -109,6 +111,7 @@ async forkSession(agentId, sourceSessionId, targetSessionId, context) {
    - 取模板记录,拿到 `template_session_id`
    - 从数据库取模板会话的 `acp_session_id`:`sessionStore.get(templateSessionId)?.acp_session_id`
    - 再 fork 一次:`forkSessionFromAcpSessionId(agentId, templateAcpSessionId, newSessionId, context)`
+   - Claude Runtime 在返回前物化新 Session 快照，确保尚未发送第一条 Prompt 时也可在重启后 resume
    - 新会话 `is_template = 0`
    - 模板 `use_count += 1`
 4. 前端切到新会话,可继续对话

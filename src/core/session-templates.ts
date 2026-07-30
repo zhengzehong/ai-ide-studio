@@ -1,8 +1,15 @@
 import { sessionTemplateStore, type SessionTemplateRow } from '../store/session-templates.js'
 import { sessionStore, type SessionRow } from '../store/sessions.js'
 import { agentStore } from '../store/agents.js'
+import { projectStore } from '../store/projects.js'
+import { buildAgentRuntimeEnv } from '../acp/model-profile-env.js'
 import { getRuntimePort } from '../runtime/runtime-port-provider.js'
 import { buildRuntimeStateSnapshot } from '../runtime/api/runtime-snapshot.js'
+import {
+  cloneClaudeSessionFiles,
+  hasClaudeSessionFiles,
+  removeClaudeSessionFiles,
+} from '../acp/claude-session-files.js'
 import { events } from './events.js'
 import { createChildLogger } from './logger.js'
 
@@ -28,7 +35,79 @@ function resolveProjectContext(
   if (!agent) throw new Error(`Agent not found: ${agentId}`)
   const projectId = existingProjectId ?? agent.project_id ?? undefined
   if (!projectId) return {}
-  return { projectId }
+  return {
+    projectId,
+    cwd: projectStore.get(projectId)?.work_dir ?? process.cwd(),
+  }
+}
+
+function resolveClaudeStorageContext(session: SessionRow): { cwd: string; configDir?: string } {
+  const agent = agentStore.get(session.agent_id)
+  const projectId = session.project_id ?? agent?.project_id
+  const cwd = projectId ? projectStore.get(projectId)?.work_dir ?? process.cwd() : process.cwd()
+  const configDir = agent
+    ? buildAgentRuntimeEnv(agent.runtime, agent).env.CLAUDE_CONFIG_DIR
+    : process.env.CLAUDE_CONFIG_DIR
+  return {
+    cwd,
+    configDir,
+  }
+}
+
+async function ensureClaudeTemplateSnapshot(
+  template: SessionTemplateRow,
+  templateSession: SessionRow,
+): Promise<void> {
+  if (template.runtime !== 'claude') return
+  if (!templateSession.acp_session_id) {
+    throw new Error('模板会话缺少 ACP 会话 ID，无法修复快照')
+  }
+
+  const templateStorage = resolveClaudeStorageContext(templateSession)
+  if (await hasClaudeSessionFiles({
+    sessionId: templateSession.acp_session_id,
+    ...templateStorage,
+  })) return
+
+  const sourceSession = sessionStore.get(template.source_session_id)
+  if (!sourceSession?.acp_session_id) {
+    throw new Error('模板快照缺失且源会话不可恢复，请重新发布模板')
+  }
+
+  const sourceStorage = resolveClaudeStorageContext(sourceSession)
+  if (!await hasClaudeSessionFiles({ sessionId: sourceSession.acp_session_id, ...sourceStorage })) {
+    throw new Error('模板快照缺失且源会话不可恢复，请重新发布模板')
+  }
+
+  await cloneClaudeSessionFiles({
+    sourceSessionId: sourceSession.acp_session_id,
+    targetSessionId: templateSession.acp_session_id,
+    sourceCwd: sourceStorage.cwd,
+    targetCwd: templateStorage.cwd,
+    configDir: templateStorage.configDir,
+  })
+  log.info(
+    {
+      templateId: template.id,
+      sourceSessionId: sourceSession.id,
+      templateSessionId: templateSession.id,
+      sourceCwd: sourceStorage.cwd,
+      targetCwd: templateStorage.cwd,
+    },
+    'legacy template snapshot repaired',
+  )
+}
+
+async function removeClaudeTemplateArtifacts(
+  template: SessionTemplateRow,
+  templateSession: SessionRow,
+): Promise<void> {
+  if (template.runtime !== 'claude' || !templateSession.acp_session_id) return
+  const storage = resolveClaudeStorageContext(templateSession)
+  await removeClaudeSessionFiles({
+    sessionId: templateSession.acp_session_id,
+    ...storage,
+  })
 }
 
 export const sessionTemplateManager = {
@@ -124,6 +203,7 @@ export const sessionTemplateManager = {
     if (!templateSession.acp_session_id) {
       throw new Error('模板会话暂无可复制的上下文(可能从未启动过 Agent)')
     }
+    await ensureClaudeTemplateSnapshot(template, templateSession)
 
     const projectContext = resolveProjectContext(template.agent_id, template.project_id)
 
@@ -186,6 +266,7 @@ export const sessionTemplateManager = {
           'deleteTemplate: closeSession best-effort failed',
         )
       }
+      await removeClaudeTemplateArtifacts(template, templateSession)
       sessionStore.delete(template.template_session_id)
       events.emit('session:changed', {
         sessionId: template.template_session_id,

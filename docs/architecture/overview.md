@@ -307,6 +307,8 @@ Team 运行时事件规则：`team.member.spawn` 会广播包含完整成员 Ses
 - 同一个 Agent 可以同时保持多个 ACP session 连接；平台只拒绝同一个本地 Session 内的并发 turn。
 - Runtime 关闭 Session 或进程时释放 ACP、终端和交互资源；已持久化 messages/events 和 `sessions.acp_session_id` 都会保留。
 - Session 级 runtime preferences 保存在 `sessions.runtime_preferences_json`。API 把偏好放入快照，ACP session 创建、恢复、加载或 fork 后由 Runtime 恢复 model/mode/config。
+- Claude 的 ACP fork 只保证当前进程内的新 Query 可用，不保证立即生成可跨进程恢复的目标 JSONL。Runtime 在 fork 返回后同步复制并校验源 JSONL 与同名伴随资源目录，原子发布目标快照后才注册 Session；物化失败会关闭新 Query 并向调用方返回失败。Codex 继续使用自身的 thread fork 持久化。
+- 会话模板以已物化的 fork 作为不可变上下文快照。历史模板缺少快照时，只在源 Claude JSONL 仍存在的情况下按需修复；源快照也缺失时要求重新发布模板。删除模板会同时清理模板副本，不删除源会话文件。
 
 ## 未实现的设计目标
 

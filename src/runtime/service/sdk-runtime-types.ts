@@ -1,5 +1,10 @@
 import type { ChildProcess } from 'node:child_process'
 import type * as acp from '@agentclientprotocol/sdk'
+import type {
+  CloneClaudeSessionFilesInput,
+  CloneClaudeSessionFilesResult,
+  ClaudeSessionFilesInput,
+} from '../../acp/claude-session-files.js'
 import type { RuntimeStateSnapshot } from '../../ports/runtime-port.js'
 import type { AgentStatus, SessionCapabilities, TurnUsageData } from '../../types/ws-protocol.js'
 import type { RuntimeCoalescibleUpdate } from '../streams/runtime-update-coalescer.js'
@@ -43,6 +48,10 @@ export interface SdkRuntimeHostOptions {
 
 export interface SdkRuntimeHostDependencies {
   startAgent?: (input: StartManagedAcpAgentInput) => Promise<ManagedAcpAgent>
+  cloneClaudeSessionFiles?: (
+    input: CloneClaudeSessionFilesInput,
+  ) => Promise<CloneClaudeSessionFilesResult>
+  hasClaudeSessionFiles?: (input: ClaudeSessionFilesInput) => Promise<boolean>
   cancelGraceMs?: number
   closeGraceMs?: number
   restartGraceMs?: number
