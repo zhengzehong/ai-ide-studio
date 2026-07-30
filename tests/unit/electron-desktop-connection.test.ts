@@ -8,6 +8,7 @@ import {
   toConnectionSettings,
   type CredentialProtector,
 } from '../../electron/desktop-connection.js'
+import { probeDesktopConnection } from '../../electron/desktop-connection-probe.js'
 import { createDesktopUrl, createManagedLocalTarget, createRemoteTarget } from '../../electron/desktop-target.js'
 
 const temporaryDirectories: string[] = []
@@ -87,5 +88,29 @@ describe('desktop runtime targets', () => {
     })
     expect(target).toMatchObject({ ownsBackend: false, widgetEnabled: false })
     expect(createDesktopUrl(target, '/workspace')).toBe('https://ide.example.com/workspace?token=remote-token')
+  })
+})
+
+describe('desktop connection probe', () => {
+  test('verifies server identity, protocol, and auth header', async () => {
+    const fetchImpl = async (_url: string | URL | Request, init?: RequestInit) => {
+      expect(init?.headers).toMatchObject({ 'x-ai-ide-token': 'remote-token' })
+      return new Response(JSON.stringify({ product: 'ai-ide-studio', protocolVersion: '1' }))
+    }
+
+    await expect(probeDesktopConnection(
+      'https://ide.example.com',
+      'remote-token',
+      fetchImpl as typeof fetch,
+    )).resolves.toEqual({ origin: 'https://ide.example.com', protocolVersion: '1' })
+  })
+
+  test('reports invalid credentials without accepting a public health response', async () => {
+    const fetchImpl = async () => new Response('{}', { status: 401 })
+    await expect(probeDesktopConnection(
+      'https://ide.example.com',
+      'bad-token',
+      fetchImpl as typeof fetch,
+    )).rejects.toThrow('访问密钥无效')
   })
 })

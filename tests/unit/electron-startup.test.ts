@@ -76,8 +76,12 @@ describe('Electron builder config', () => {
     if (typeof electronDistEntry === 'string') return
     expect(electronDistEntry.filter).toEqual(expect.arrayContaining([
       'backend-launch.js',
+      'desktop-connection.js',
+      'desktop-ipc.js',
+      'desktop-target.js',
       'main.js',
       'preload.js',
+      'setup-window.js',
       'widget-window.js',
     ]))
   })

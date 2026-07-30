@@ -40,3 +40,11 @@ export function createDesktopUrl(target: DesktopRuntimeTarget, path = '/'): stri
   url.searchParams.set('token', target.token)
   return url.toString()
 }
+
+export function isAllowedDesktopNavigation(url: string, allowedOrigin: string): boolean {
+  try {
+    return new URL(url).origin === new URL(allowedOrigin).origin
+  } catch {
+    return false
+  }
+}

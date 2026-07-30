@@ -53,6 +53,14 @@ Core 业务层（API 进程）
             mcp/http-mcp-server.ts   HTTP MCP 入口
 ```
 
+## Electron 桌面连接边界
+
+Electron 使用统一的 `DesktopRuntimeTarget` 驱动主窗口、Widget、托盘导航和退出清理。`managed-local` 模式由主进程生成临时访问密钥、启动打包内的 Node 后端并拥有该进程；`remote` 模式不创建本地后端，直接加载远程服务器提供的 PC UI，因此 HTTP、WebSocket 和静态资源继续保持同源，UI 与服务器版本也由同一次部署保证。
+
+桌面连接 profile 保存在 Electron `userData`，不进入服务器 SQLite。远程 token 由 `safeStorage` 保护，renderer 只在启动阶段通过受限 preload bridge 取得当前连接上下文，并在任何 HTTP/WS bootstrap 前写入认证状态。主窗口加载后会移除 URL 中的 token。连接模式和 Widget 开关采用保存后重启语义，避免旧服务器的 WebSocket、Recovery cursor、Zustand 缓存或本地子进程与新连接混用。
+
+普通浏览器没有 `electronDesktop` preload bridge，继续使用既有 Web bootstrap。远程模式中的项目目录、数据库、Runtime、终端和文件工具都属于服务器；桌面本地文件代理不在该连接边界内。
+
 ## 数据流
 
 ### 用户发送消息

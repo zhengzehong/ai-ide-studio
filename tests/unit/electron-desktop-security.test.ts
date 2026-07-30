@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { isAllowedDesktopNavigation } from '../../electron/desktop-security.js'
+import { isAllowedDesktopNavigation } from '../../electron/desktop-target.js'
 
 describe('Electron desktop navigation policy', () => {
   test('allows paths on the active server origin', () => {

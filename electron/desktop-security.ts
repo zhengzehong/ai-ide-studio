@@ -1,4 +1,5 @@
 import { shell, type BrowserWindow } from 'electron'
+import { isAllowedDesktopNavigation } from './desktop-target.js'
 
 export function restrictWindowNavigation(window: BrowserWindow, allowedOrigin: string): void {
   window.webContents.on('will-navigate', (event, url) => {
@@ -11,12 +12,4 @@ export function restrictWindowNavigation(window: BrowserWindow, allowedOrigin: s
     void shell.openExternal(url)
     return { action: 'deny' }
   })
-}
-
-export function isAllowedDesktopNavigation(url: string, allowedOrigin: string): boolean {
-  try {
-    return new URL(url).origin === new URL(allowedOrigin).origin
-  } catch {
-    return false
-  }
 }
