@@ -53,6 +53,10 @@ export async function startGateway(config: AppConfig, options: StartGatewayOptio
   mountLocalTokenGuard(app, config)
 
   app.get('/health', (c) => c.json({ status: 'ok', uptime: process.uptime() }))
+  app.get('/api/v1/desktop-info', (c) => c.json({
+    product: 'ai-ide-studio',
+    protocolVersion: '1',
+  }))
   mountRealtimeConfigRoute(app, options.realtimeState ?? (() => ({
     mode: 'embedded',
     host: config.host,
