@@ -1,12 +1,12 @@
 import { BrowserWindow, screen } from 'electron'
 import { join } from 'path'
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs'
+import { createDesktopUrl, type DesktopRuntimeTarget } from './desktop-target.js'
 
 let widgetWindow: BrowserWindow | null = null
 
 interface WidgetConfig {
-  port: number
-  token: string
+  target: DesktopRuntimeTarget
   electronDir: string
   userDataDir: string
 }
@@ -62,9 +62,7 @@ export function createWidgetWindow(config: WidgetConfig): BrowserWindow {
     },
   })
 
-  widgetWindow.loadURL(
-    `http://127.0.0.1:${config.port}/widget?token=${config.token}`,
-  )
+  widgetWindow.loadURL(createDesktopUrl(config.target, '/widget'))
 
   widgetWindow.on('moved', () => {
     if (widgetWindow) {

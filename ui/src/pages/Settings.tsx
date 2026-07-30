@@ -7,6 +7,7 @@ import {
 import { useModelStore, type CodexProfileConfig, type ClaudeProfileConfig, type ModelProfileConfig, type ModelProfileData, type ModelProviderData } from '../stores/model.store'
 import { useTimelineStore } from '../stores/timeline.store'
 import { useProjectStore } from '../stores/project.store'
+import { DesktopConnectionSection } from './settings/DesktopConnectionSection'
 
 export default function Settings() {
   const navigate = useNavigate()
@@ -34,6 +35,8 @@ export default function Settings() {
         <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0, letterSpacing: -0.5 }}>设置</h1>
         <p style={{ color: 'var(--text-3)', fontSize: 15, margin: '6px 0 0' }}>管理模型供应商和全局配置</p>
       </div>
+
+      <DesktopConnectionSection />
 
       {/* Section: My Shares */}
       <div style={{ marginBottom: 32 }}>
