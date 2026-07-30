@@ -47,7 +47,7 @@ export function registerDesktopIpc(options: DesktopIpcOptions): void {
       options.store.save(input)
       setTimeout(() => {
         app.relaunch()
-        app.exit(0)
+        app.quit()
       }, 100)
       return { ok: true }
     } catch (error) {
