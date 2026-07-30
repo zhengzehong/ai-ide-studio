@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { initDatabase, closeDatabase } from '../../src/store/db.js'
@@ -8,20 +8,40 @@ import { sessionStore } from '../../src/store/sessions.js'
 import { agentStore } from '../../src/store/agents.js'
 import { acpHost } from '../../src/acp/host.js'
 import { sessionTemplateManager } from '../../src/core/session-templates.js'
+import { encodeClaudeProjectPath } from '../../src/acp/claude-session-files.js'
 
 let tmp = ''
+const previousClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR
+const SOURCE_ACP_ID = '11111111-1111-4111-8111-111111111111'
+const TEMPLATE_ACP_ID = '22222222-2222-4222-8222-222222222222'
+const NEW_ACP_ID = '33333333-3333-4333-8333-333333333333'
 
 function setupDb(): void {
   tmp = mkdtempSync(resolve(tmpdir(), 'ai-ide-session-templates-core-'))
+  process.env.CLAUDE_CONFIG_DIR = resolve(tmp, 'claude-config')
   initDatabase(resolve(tmp, 'test.sqlite'))
 }
 
 function teardownDb(): void {
   closeDatabase()
+  if (previousClaudeConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR
+  else process.env.CLAUDE_CONFIG_DIR = previousClaudeConfigDir
   if (tmp) {
     rmSync(tmp, { recursive: true, force: true })
     tmp = ''
   }
+}
+
+function claudeProjectDir(): string {
+  return resolve(process.env.CLAUDE_CONFIG_DIR!, 'projects', encodeClaudeProjectPath(process.cwd()))
+}
+
+function writeClaudeSession(sessionId: string, content = 'snapshot'): string {
+  const projectDir = claudeProjectDir()
+  mkdirSync(projectDir, { recursive: true })
+  const path = resolve(projectDir, `${sessionId}.jsonl`)
+  writeFileSync(path, `${JSON.stringify({ type: 'user', sessionId, cwd: process.cwd(), content })}\n`, 'utf8')
+  return path
 }
 
 function makeAgent(runtime = 'claude'): string {
@@ -187,7 +207,7 @@ describe('sessionTemplateManager', () => {
       const template = sessionTemplateStore.create({
         name: 'TPL',
         agentId,
-        runtime: 'claude',
+        runtime: 'codex',
         sourceSessionId,
         templateSessionId,
       })
@@ -225,14 +245,14 @@ describe('sessionTemplateManager', () => {
     })
 
     it('模板会话无 acp_session_id:throw 明确错误', async () => {
-      const agentId = makeAgent('claude')
+      const agentId = makeAgent('codex')
       const sourceSessionId = makeSession(agentId, { acpSessionId: 'acp-src-1' })
       const templateSessionId = makeSession(agentId, { acpSessionId: null, isTemplate: true })
 
       const template = sessionTemplateStore.create({
         name: 'TPL',
         agentId,
-        runtime: 'claude',
+        runtime: 'codex',
         sourceSessionId,
         templateSessionId,
       })
@@ -251,14 +271,14 @@ describe('sessionTemplateManager', () => {
     })
 
     it('模板会话已删除:throw "模板会话不存在"', async () => {
-      const agentId = makeAgent('claude')
+      const agentId = makeAgent('codex')
       const sourceSessionId = makeSession(agentId, { acpSessionId: 'acp-src-1' })
       const templateSessionId = makeSession(agentId, { acpSessionId: 'acp-tpl-1', isTemplate: true })
 
       const template = sessionTemplateStore.create({
         name: 'TPL',
         agentId,
-        runtime: 'claude',
+        runtime: 'codex',
         sourceSessionId,
         templateSessionId,
       })
@@ -275,14 +295,14 @@ describe('sessionTemplateManager', () => {
     })
 
     it('fork 失败:throw + 清理 placeholder 新会话,use_count 不增', async () => {
-      const agentId = makeAgent('claude')
+      const agentId = makeAgent('codex')
       const sourceSessionId = makeSession(agentId, { acpSessionId: 'acp-src-1' })
       const templateSessionId = makeSession(agentId, { acpSessionId: 'acp-tpl-1', isTemplate: true })
 
       const template = sessionTemplateStore.create({
         name: 'TPL',
         agentId,
-        runtime: 'claude',
+        runtime: 'codex',
         sourceSessionId,
         templateSessionId,
       })
@@ -299,18 +319,43 @@ describe('sessionTemplateManager', () => {
       const updatedTemplate = sessionTemplateStore.get(template.id)
       expect(updatedTemplate?.use_count).toBe(0)
     })
+
+    it('repairs a legacy Claude template snapshot from its source before forking', async () => {
+      const agentId = makeAgent('codex')
+      const sourceSessionId = makeSession(agentId, { acpSessionId: SOURCE_ACP_ID })
+      const templateSessionId = makeSession(agentId, { acpSessionId: TEMPLATE_ACP_ID, isTemplate: true })
+      writeClaudeSession(SOURCE_ACP_ID, 'legacy source')
+      const template = sessionTemplateStore.create({
+        name: 'Legacy Claude template',
+        agentId,
+        runtime: 'claude',
+        sourceSessionId,
+        templateSessionId,
+      })
+      const forkSpy = mockForkSessionFromAcpSessionId(NEW_ACP_ID)
+
+      await sessionTemplateManager.instantiateSessionTemplate(template.id)
+
+      const repairedPath = resolve(claudeProjectDir(), `${TEMPLATE_ACP_ID}.jsonl`)
+      expect(forkSpy).toHaveBeenCalledTimes(1)
+      expect(existsSync(repairedPath)).toBe(true)
+      expect(JSON.parse(readFileSync(repairedPath, 'utf8').trim())).toMatchObject({
+        sessionId: TEMPLATE_ACP_ID,
+        content: 'legacy source',
+      })
+    })
   })
 
   describe('deleteTemplate', () => {
     it('模板记录删 + 模板会话关闭删除', async () => {
-      const agentId = makeAgent('claude')
+      const agentId = makeAgent('codex')
       const sourceSessionId = makeSession(agentId, { acpSessionId: 'acp-src-1' })
       const templateSessionId = makeSession(agentId, { acpSessionId: 'acp-tpl-1', isTemplate: true })
 
       const template = sessionTemplateStore.create({
         name: 'TPL',
         agentId,
-        runtime: 'claude',
+        runtime: 'codex',
         sourceSessionId,
         templateSessionId,
       })
@@ -334,14 +379,14 @@ describe('sessionTemplateManager', () => {
     })
 
     it('模板会话已删除:只删模板记录,不抛错', async () => {
-      const agentId = makeAgent('claude')
+      const agentId = makeAgent('codex')
       const sourceSessionId = makeSession(agentId, { acpSessionId: 'acp-src-1' })
       const templateSessionId = makeSession(agentId, { acpSessionId: 'acp-tpl-1', isTemplate: true })
 
       const template = sessionTemplateStore.create({
         name: 'TPL',
         agentId,
-        runtime: 'claude',
+        runtime: 'codex',
         sourceSessionId,
         templateSessionId,
       })
@@ -354,6 +399,27 @@ describe('sessionTemplateManager', () => {
 
       expect(sessionTemplateStore.get(template.id)).toBeUndefined()
       expect(closeSpy).toHaveBeenCalledWith(agentId, templateSessionId)
+    })
+
+    it('removes the Claude template snapshot without deleting its source snapshot', async () => {
+      const agentId = makeAgent('claude')
+      const sourceSessionId = makeSession(agentId, { acpSessionId: SOURCE_ACP_ID })
+      const templateSessionId = makeSession(agentId, { acpSessionId: TEMPLATE_ACP_ID, isTemplate: true })
+      const sourcePath = writeClaudeSession(SOURCE_ACP_ID, 'source')
+      const templatePath = writeClaudeSession(TEMPLATE_ACP_ID, 'template')
+      const template = sessionTemplateStore.create({
+        name: 'Claude template',
+        agentId,
+        runtime: 'claude',
+        sourceSessionId,
+        templateSessionId,
+      })
+      mockCloseSession()
+
+      await sessionTemplateManager.deleteTemplate(template.id)
+
+      expect(existsSync(sourcePath)).toBe(true)
+      expect(existsSync(templatePath)).toBe(false)
     })
   })
 })
