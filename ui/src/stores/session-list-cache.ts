@@ -13,6 +13,10 @@ export interface ProjectSessionListItem {
   id: string
   agent_id: string
   project_id?: string | null
+  // 模板会话(is_template=1)是 ACP fork 出来的上下文镜像,只供模板管理使用,
+  // 不应出现在普通会话列表。后端 listSessions 的 SQL 已带 is_template = 0 过滤,
+  // 但 session:changed 广播会把模板会话推给前端,这里兜底过滤保持口径一致。
+  is_template?: number | boolean
 }
 
 const AGENT_SCOPE_SEPARATOR = '::agent:'
@@ -26,6 +30,8 @@ export function mergeSessionIntoListCache<T extends ProjectSessionListItem>(
   cache: ProjectCacheState<T[]>,
   session: T,
 ): ProjectCacheState<T[]> {
+  // 模板会话不进列表缓存,与后端 listSessions 的 is_template = 0 过滤口径一致。
+  if (session.is_template) return cache
   let next = patchCachedArrays(cache, session.id, session)
   const projectScope = projectScopeKey(session.project_id)
   next = upsertCachedArrayItem(next, projectScope, session)
