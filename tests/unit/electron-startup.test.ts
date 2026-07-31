@@ -89,6 +89,7 @@ describe('Electron builder config', () => {
       'desktop-ipc-policy.js',
       'desktop-preload.cjs',
       'desktop-target.js',
+      'desktop-window-settings.js',
       'main.js',
       'main-window-exit.js',
       'main-window-navigation.js',
@@ -98,6 +99,7 @@ describe('Electron builder config', () => {
       'setup-window.js',
       'widget-preload.cjs',
       'widget-navigation.js',
+      'widget-window-layout.js',
       'widget-window.js',
     ]))
   })

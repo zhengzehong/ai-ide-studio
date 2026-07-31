@@ -2,6 +2,12 @@ import { BrowserWindow, screen } from 'electron'
 import { join } from 'path'
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { createDesktopUrl, type DesktopRuntimeTarget } from './desktop-target.js'
+import {
+  resolveWidgetPosition,
+  WIDGET_HEIGHT,
+  WIDGET_WIDTH,
+  type WidgetSavedBounds,
+} from './widget-window-layout.js'
 
 let widgetWindow: BrowserWindow | null = null
 
@@ -12,26 +18,30 @@ interface WidgetConfig {
   iconPath?: string
 }
 
-const WIDGET_WIDTH = 390
-const WIDGET_HEIGHT = 570
-
 function getBoundsPath(userDataDir: string): string {
   return join(userDataDir, 'widget-bounds.json')
 }
 
-function loadWidgetBounds(userDataDir: string): { x: number; y: number } | null {
+function loadWidgetBounds(userDataDir: string): WidgetSavedBounds | null {
   try {
     const filePath = getBoundsPath(userDataDir)
     if (!existsSync(filePath)) return null
     const data = JSON.parse(readFileSync(filePath, 'utf-8'))
-    if (typeof data.x === 'number' && typeof data.y === 'number') return data
+    if (typeof data.x === 'number' && typeof data.y === 'number') {
+      return {
+        x: data.x,
+        y: data.y,
+        width: typeof data.width === 'number' ? data.width : undefined,
+        height: typeof data.height === 'number' ? data.height : undefined,
+      }
+    }
     return null
   } catch {
     return null
   }
 }
 
-function saveWidgetBounds(userDataDir: string, bounds: { x: number; y: number }): void {
+function saveWidgetBounds(userDataDir: string, bounds: WidgetSavedBounds): void {
   try {
     const dir = userDataDir
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
@@ -44,12 +54,13 @@ function saveWidgetBounds(userDataDir: string, bounds: { x: number; y: number })
 export function createWidgetWindow(config: WidgetConfig): BrowserWindow {
   const { workAreaSize } = screen.getPrimaryDisplay()
   const savedBounds = loadWidgetBounds(config.userDataDir)
+  const position = resolveWidgetPosition(savedBounds, workAreaSize)
 
   widgetWindow = new BrowserWindow({
     width: WIDGET_WIDTH,
     height: WIDGET_HEIGHT,
-    x: savedBounds?.x ?? workAreaSize.width - WIDGET_WIDTH - 20,
-    y: savedBounds?.y ?? workAreaSize.height - WIDGET_HEIGHT - 20,
+    x: position.x,
+    y: position.y,
     frame: false,
     alwaysOnTop: true,
     skipTaskbar: true,
@@ -69,7 +80,7 @@ export function createWidgetWindow(config: WidgetConfig): BrowserWindow {
   widgetWindow.on('moved', () => {
     if (widgetWindow) {
       const bounds = widgetWindow.getBounds()
-      saveWidgetBounds(config.userDataDir, { x: bounds.x, y: bounds.y })
+      saveWidgetBounds(config.userDataDir, bounds)
     }
   })
 

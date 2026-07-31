@@ -62,7 +62,7 @@ DTO 包含以下信息域：
 
 ## Electron 集成
 
-Electron 创建 `390 × 570`、无边框、不可调整大小、透明且可置顶的 Widget 窗口。React 页面将 `html`、`body` 和 `#root` 背景设为透明，Widget 容器使用 backdrop blur 和半透明表面。
+Electron 创建 `300 × 360`、无边框、不可调整大小、透明且可置顶的 Widget 窗口。React 页面将 `html`、`body` 和 `#root` 背景设为透明，Widget 容器使用 backdrop blur 和半透明表面。单个主题按钮在亮色、黄色和深色之间循环，选择结果保存在当前桌面连接 origin 的 localStorage。
 
 点击 Agent 时：
 

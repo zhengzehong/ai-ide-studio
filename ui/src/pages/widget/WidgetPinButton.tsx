@@ -17,7 +17,7 @@ export function WidgetPinButton({ pinned, onToggle }: WidgetPinButtonProps) {
       aria-label={label}
       aria-pressed={pinned}
     >
-      <Pin size={16} fill={pinned ? 'currentColor' : 'none'} />
+      <Pin size={14} fill={pinned ? 'currentColor' : 'none'} />
     </button>
   )
 }

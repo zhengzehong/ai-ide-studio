@@ -16,6 +16,7 @@ const files = [
   'desktop-preload.cjs',
   'desktop-security.js',
   'desktop-target.js',
+  'desktop-window-settings.js',
   'main.js',
   'main-window-exit.js',
   'main-window-navigation.js',
@@ -25,6 +26,7 @@ const files = [
   'setup-window.js',
   'widget-preload.cjs',
   'widget-navigation.js',
+  'widget-window-layout.js',
   'widget-window.js',
 ]
 
