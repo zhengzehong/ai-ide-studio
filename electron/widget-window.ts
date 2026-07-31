@@ -82,10 +82,15 @@ export function getWidgetWindow(): BrowserWindow | null {
   return widgetWindow
 }
 
-export function toggleWidgetPin(): void {
-  if (!widgetWindow) return
-  const current = widgetWindow.isAlwaysOnTop()
-  widgetWindow.setAlwaysOnTop(!current)
+export function isWidgetPinned(): boolean {
+  return Boolean(widgetWindow && !widgetWindow.isDestroyed() && widgetWindow.isAlwaysOnTop())
+}
+
+export function toggleWidgetPin(): boolean {
+  if (!widgetWindow || widgetWindow.isDestroyed()) return false
+  const next = !widgetWindow.isAlwaysOnTop()
+  widgetWindow.setAlwaysOnTop(next)
+  return next
 }
 
 export function hideWidget(): void {

@@ -1,8 +1,10 @@
-import { Minus, Pin, Sparkles } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Minus, Sparkles } from 'lucide-react'
 import { useConnectionStore } from '../../stores/connection.store'
 import { useProjectStore } from '../../stores/project.store'
 import { useWidgetStore } from '../../stores/widget.store'
 import { electronApi } from './types'
+import { WidgetPinButton } from './WidgetPinButton'
 
 export function WidgetHeader() {
   const api = electronApi
@@ -11,6 +13,15 @@ export function WidgetHeader() {
   const setPinnedProject = useWidgetStore((state) => state.setPinnedProject)
   const connected = useConnectionStore((state) => state.connected)
   const authError = useConnectionStore((state) => state.authError)
+  const [pinned, setPinned] = useState(true)
+
+  useEffect(() => {
+    let active = true
+    void api?.getPinState()
+      .then((value) => { if (active) setPinned(value) })
+      .catch(() => undefined)
+    return () => { active = false }
+  }, [api])
 
   const handleProjectChange = (event: React.ChangeEvent<HTMLSelectElement>): void => {
     const projectId = event.target.value || null
@@ -19,6 +30,11 @@ export function WidgetHeader() {
   }
 
   const connectionLabel = connected ? '已连接' : authError ? '连接失败' : '连接中'
+
+  const handlePinToggle = async (): Promise<void> => {
+    if (!api) return
+    setPinned(await api.togglePin())
+  }
 
   return (
     <header className="widget-titlebar">
@@ -33,7 +49,7 @@ export function WidgetHeader() {
       </span>
       {api && (
         <>
-          <button className="widget-icon-button" onClick={() => void api.togglePin()} title="固定组件" aria-label="固定组件"><Pin size={16} /></button>
+          <WidgetPinButton pinned={pinned} onToggle={() => void handlePinToggle()} />
           <button className="widget-icon-button" onClick={() => void api.minimize()} title="隐藏组件" aria-label="隐藏组件"><Minus size={17} /></button>
         </>
       )}

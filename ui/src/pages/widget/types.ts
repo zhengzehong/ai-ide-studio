@@ -1,5 +1,6 @@
 export interface ElectronWidgetApi {
-  togglePin: () => Promise<unknown>
+  getPinState: () => Promise<boolean>
+  togglePin: () => Promise<boolean>
   minimize: () => Promise<unknown>
   openMain: (target?: { projectId?: string | null; sessionId?: string | null }) => Promise<WidgetNavigationResult>
 }
