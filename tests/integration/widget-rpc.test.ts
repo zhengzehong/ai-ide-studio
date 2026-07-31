@@ -270,3 +270,87 @@ describe('widget session RPC', () => {
     expect(rows).toHaveLength(20)
   })
 })
+
+describe('widget Agent activity RPC', () => {
+  test('returns one row per Agent and prioritizes a running Session as the navigation target', async () => {
+    const project = projectStore.create({ name: 'Activity Project', workDir: 'D:/work/activity' })
+    const agent = agentStore.create({ name: 'Activity Agent', type: 'dev', runtime: 'mock', projectId: project.id })
+    const runningTask = taskStore.create({ title: 'Active implementation', projectId: project.id, assignAgentId: agent.id })
+    const runningSession = sessionStore.create({ agentId: agent.id, taskId: runningTask.id, projectId: project.id })
+    messageStore.append(runningSession.id, { role: 'agent', content: 'working', status: 'running' })
+    const recentSession = sessionStore.create({ agentId: agent.id, projectId: project.id })
+    messageStore.append(recentSession.id, { role: 'agent', content: 'recent result', status: 'completed' })
+    sessionStore.touch(recentSession.id, '2026-07-31T10:00:00.000Z')
+
+    const rows = await callWidgetRpc('widget.agentActivity.list') as Array<Record<string, unknown>>
+
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({
+      agentId: agent.id,
+      projectId: project.id,
+      sessionId: runningSession.id,
+      taskId: runningTask.id,
+      taskTitle: 'Active implementation',
+      activityState: 'running',
+    })
+  })
+
+  test('prioritizes a needs-input Task over an unread completed Session', async () => {
+    const project = projectStore.create({ name: 'Attention Project', workDir: 'D:/work/attention' })
+    const agent = agentStore.create({ name: 'Attention Agent', type: 'dev', runtime: 'mock', projectId: project.id })
+    const attentionTask = taskStore.create({ title: 'Confirm rollout', projectId: project.id, assignAgentId: agent.id })
+    taskStore.update(attentionTask.id, { status: 'needs_input' })
+    const attentionSession = sessionStore.create({ agentId: agent.id, taskId: attentionTask.id, projectId: project.id })
+    messageStore.append(attentionSession.id, { role: 'agent', content: 'need approval', status: 'completed' })
+    const unreadSession = sessionStore.create({ agentId: agent.id, projectId: project.id })
+    messageStore.append(unreadSession.id, { role: 'agent', content: 'unread result', status: 'completed' })
+    getDb().prepare('UPDATE sessions SET last_read_at = ? WHERE id = ?')
+      .run('2000-01-01T00:00:00.000Z', unreadSession.id)
+    sessionStore.touch(unreadSession.id, '2026-07-31T11:00:00.000Z')
+
+    const rows = await callWidgetRpc('widget.agentActivity.list') as Array<Record<string, unknown>>
+
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({
+      sessionId: attentionSession.id,
+      taskId: attentionTask.id,
+      taskStatus: 'needs_input',
+      activityState: 'needs_input',
+      unreadCount: 1,
+    })
+  })
+
+  test('orders Agents by representative activity and filters by project', async () => {
+    const projectA = projectStore.create({ name: 'Project A', workDir: 'D:/work/project-a' })
+    const projectB = projectStore.create({ name: 'Project B', workDir: 'D:/work/project-b' })
+    const olderAgent = agentStore.create({ name: 'Older Agent', type: 'dev', runtime: 'mock', projectId: projectA.id })
+    const newerAgent = agentStore.create({ name: 'Newer Agent', type: 'dev', runtime: 'mock', projectId: projectA.id })
+    const otherAgent = agentStore.create({ name: 'Other Agent', type: 'dev', runtime: 'mock', projectId: projectB.id })
+    const older = sessionStore.create({ agentId: olderAgent.id, projectId: projectA.id })
+    const newer = sessionStore.create({ agentId: newerAgent.id, projectId: projectA.id })
+    const other = sessionStore.create({ agentId: otherAgent.id, projectId: projectB.id })
+    messageStore.append(older.id, { role: 'agent', content: 'older', status: 'completed' })
+    messageStore.append(newer.id, { role: 'agent', content: 'newer', status: 'completed' })
+    messageStore.append(other.id, { role: 'agent', content: 'other', status: 'completed' })
+    sessionStore.touch(older.id, '2026-07-31T09:00:00.000Z')
+    sessionStore.touch(newer.id, '2026-07-31T10:00:00.000Z')
+    sessionStore.touch(other.id, '2026-07-31T12:00:00.000Z')
+
+    const rows = await callWidgetRpc('widget.agentActivity.list', { projectId: projectA.id }) as Array<Record<string, unknown>>
+
+    expect(rows.map((row) => row.agentId)).toEqual([newerAgent.id, olderAgent.id])
+  })
+
+  test('limits the activity view to twenty Agents', async () => {
+    const project = projectStore.create({ name: 'Bounded Agents', workDir: 'D:/work/bounded-agents' })
+    for (let index = 0; index < 21; index += 1) {
+      const agent = agentStore.create({ name: `Agent ${index}`, type: 'dev', runtime: 'mock', projectId: project.id })
+      const session = sessionStore.create({ agentId: agent.id, projectId: project.id })
+      messageStore.append(session.id, { role: 'agent', content: `result ${index}`, status: 'completed' })
+    }
+
+    const rows = await callWidgetRpc('widget.agentActivity.list', { projectId: project.id }) as Array<Record<string, unknown>>
+
+    expect(rows).toHaveLength(20)
+  })
+})

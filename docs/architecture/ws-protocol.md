@@ -287,9 +287,12 @@ Team 运行时事件：`team.member.spawn` 会广播包含新成员 Session 行�
 
 | Method | Params | Returns | Notes |
 |------|------|------|------|
+| `widget.agentActivity.list` | `{ projectId? }` | `WidgetAgentActivityItem[]` | Agent-first bounded activity view. Returns at most one representative Session per Agent and at most 20 Agents. |
 | `widget.sessions.list` | `{ projectId?, filter?: "active" \| "all" }` | `WidgetSessionItem[]` | Session-first floating widget list. The default `active` filter returns running or unread sessions. |
 | `widget.sessions.markRead` | `{ sessionId }` | `{ ok: true }` | Marks a widget session as read after validating the Session exists. |
 | `widget.preferences.get` | `{ key? }` | `Record<string,string>` or `{ key, value }` | Reads widget preferences such as pinned project and pinned task Agent. |
 | `widget.preferences.set` | `{ key, value }` | `{ ok: true }` | Saves or deletes a widget preference. |
 
 `WidgetSessionItem.activityState` is derived from Session runtime-state evidence, not from `agents.status`. `agents.status = running` means the runtime process is online; it does not mean a specific Session is currently generating.
+
+`WidgetAgentActivityItem` selects one representative Session per Agent with the following priority: running Session, Task in `needs_input`/`blocked`, unread Session, then the most recently active Session. Direct `sessions.task_id` linkage supplies `taskId`, `taskTitle`, and `taskStatus`; the result is sorted by representative `activityAt` descending and limited to 20 Agents. Legacy Session-first Widget RPCs remain available for compatibility.

@@ -4,6 +4,7 @@ import { sessionStore } from '../../store/sessions.js'
 import { getDb } from '../../store/db.js'
 import { sessionManager } from '../../core/sessions.js'
 import { events } from '../../core/events.js'
+import { buildWidgetAgentActivity } from '../../queries/widget-agent-activity-query.js'
 import type { RpcHandlerMap } from './types.js'
 
 interface ProjectNameRow {
@@ -20,6 +21,7 @@ interface WidgetSessionRow {
   project_name: string | null
   task_id: string | null
   task_title: string | null
+  task_status: string | null
   session_title: string | null
   session_status: string
   stage: string
@@ -57,6 +59,7 @@ function listWidgetSessions(projectId?: string): WidgetSessionRow[] {
       p.name AS project_name,
       s.task_id,
       t.title AS task_title,
+      t.status AS task_status,
       s.title AS session_title,
       s.status AS session_status,
       s.stage,
@@ -114,12 +117,14 @@ function toWidgetSession(row: WidgetSessionRow) {
     projectName: row.project_name,
     taskId: row.task_id,
     taskTitle: row.task_title,
+    taskStatus: row.task_status,
     sessionTitle: row.session_title,
     status: row.session_status,
     activityState: row.activity_state,
     stage: row.stage,
     unread: isWidgetSessionUnread(row),
     startedAt: row.started_at,
+    updatedAt: row.updated_at,
     lastMessageAt,
     completedAt,
     closedAt: row.closed_at,
@@ -127,6 +132,12 @@ function toWidgetSession(row: WidgetSessionRow) {
 }
 
 export const widgetRpcHandlers: RpcHandlerMap = {
+  'widget.agentActivity.list'(msg, { sendResult }) {
+    const projectId = msg.projectId as string | undefined
+    const sessions = listWidgetSessions(projectId).map(toWidgetSession)
+    sendResult(buildWidgetAgentActivity(sessions))
+  },
+
   'widget.sessions.list'(msg, { sendResult }) {
     const projectId = msg.projectId as string | undefined
     const filter = (msg.filter as string) || 'active'
