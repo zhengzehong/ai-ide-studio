@@ -148,6 +148,9 @@ export interface SessionData {
   deleted_at?: string | null
   sort_order?: number | null
   is_primary?: number | boolean
+  // 模板会话标记:is_template=1 的是 ACP fork 出来的模板上下文镜像,
+  // 不应出现在普通会话列表。session:changed 广播可能携带此字段,前端据此过滤。
+  is_template?: number | boolean
 }
 
 export interface LocalSessionCandidateInfo {
@@ -2437,6 +2440,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           })
           return
         }
+        // 模板会话(is_template=1)是发布模板时 fork 出来的上下文镜像,不该出现在普通会话列表。
+        // 后端 listSessions SQL 带 is_template = 0 过滤,但 session:changed 会广播模板会话完整数据;
+        // 这里兜底跳过,避免"发布模板后列表短暂出现模板会话、刷新又消失"的不一致。
+        if (data.is_template) return
         const canonicalReadAt = typeof data.last_read_at === 'string'
           && Object.keys(data).every((key) => key === 'last_read_at' || key === 'event')
           ? data.last_read_at
