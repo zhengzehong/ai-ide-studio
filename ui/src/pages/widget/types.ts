@@ -1,7 +1,3 @@
-export type WidgetTab = 'agents' | 'tasks'
-
-export type TaskFilter = 'draft' | 'active' | 'all'
-
 export interface ElectronWidgetApi {
   togglePin: () => Promise<unknown>
   minimize: () => Promise<unknown>
@@ -14,5 +10,3 @@ export interface WidgetNavigationResult {
 }
 
 export const electronApi = (window as unknown as { electronWidget?: ElectronWidgetApi }).electronWidget
-
-export const ACTIVE_TASK_STATUSES = new Set(['running', 'needs_input'])

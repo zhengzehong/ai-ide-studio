@@ -147,7 +147,7 @@ Edge、API、Realtime、Runtime 各自使用 `monitorEventLoopDelay` 和 event-l
 
 `session:activity` 是独立的轻量全局事件，只表示会话本轮执行从 `running` 到 `idle` 的状态变化，用于左侧会话列表运行中/未读提示；它不承载聊天内容，也不参与历史消息还原。
 
-桌面悬浮 Widget 也使用 `session:activity`，但不订阅完整 `session:update` 聊天流。Widget 通过 `widget.sessions.list` 获取会话优先的轻量 DTO：后端聚合 Session、Agent、Project、Task、运行态和统一的 `sessions.last_read_at` 已读状态。小窗口使用有界的最近会话视图；点击会话时 Electron 直接加载 `/p/:projectId/workspace?sessionId=...`，导航成功后才确认已读，避免路由失败造成提醒丢失。
+桌面悬浮 Widget 也使用 `session:activity`，但不订阅完整 `session:update` 聊天流。Widget 通过 `widget.agentActivity.list` 获取 Agent 优先的轻量 DTO：后端按 Agent 聚合 Session、Project、直接关联 Task、真实运行态和统一的 `sessions.last_read_at` 已读状态，每个 Agent 只选择一个代表会话并按最近活跃时间排序。代表会话依次优先运行中、待确认、未读和普通最近会话；点击 Agent 时 Electron 直接加载 `/p/:projectId/workspace?sessionId=...`，导航成功后才确认已读，避免路由失败造成提醒丢失。旧的 Session 优先 RPC 继续保留用于兼容。
 
 
 ### 创建任务

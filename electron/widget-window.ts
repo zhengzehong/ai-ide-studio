@@ -11,8 +11,8 @@ interface WidgetConfig {
   userDataDir: string
 }
 
-const WIDGET_WIDTH = 300
-const WIDGET_HEIGHT = 380
+const WIDGET_WIDTH = 390
+const WIDGET_HEIGHT = 570
 
 function getBoundsPath(userDataDir: string): string {
   return join(userDataDir, 'widget-bounds.json')

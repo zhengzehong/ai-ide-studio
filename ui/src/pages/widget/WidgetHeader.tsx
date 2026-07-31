@@ -1,58 +1,42 @@
-import { ExternalLink, Minus, Pin } from 'lucide-react'
-import { useAgentStore } from '../../stores/agent.store'
+import { Minus, Pin, Sparkles } from 'lucide-react'
 import { useConnectionStore } from '../../stores/connection.store'
 import { useProjectStore } from '../../stores/project.store'
-import { useTaskStore } from '../../stores/task.store'
 import { useWidgetStore } from '../../stores/widget.store'
-import { styles } from './styles'
 import { electronApi } from './types'
 
 export function WidgetHeader() {
-  const projects = useProjectStore((s) => s.projects)
-  const { pinnedProjectId, pinnedAgentId } = useWidgetStore((s) => s.preferences)
-  const setPinnedProject = useWidgetStore((s) => s.setPinnedProject)
-  const setPinnedAgent = useWidgetStore((s) => s.setPinnedAgent)
-  const agents = useAgentStore((s) => s.agents)
   const api = electronApi
-  const connected = useConnectionStore((s) => s.connected)
-  const authError = useConnectionStore((s) => s.authError)
+  const projects = useProjectStore((state) => state.projects)
+  const pinnedProjectId = useWidgetStore((state) => state.preferences.pinnedProjectId)
+  const setPinnedProject = useWidgetStore((state) => state.setPinnedProject)
+  const connected = useConnectionStore((state) => state.connected)
+  const authError = useConnectionStore((state) => state.authError)
 
-  const handleProjectChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const projectId = e.target.value || null
-    const pinnedAgent = pinnedAgentId ? agents.find((agent) => agent.id === pinnedAgentId) : null
+  const handleProjectChange = (event: React.ChangeEvent<HTMLSelectElement>): void => {
+    const projectId = event.target.value || null
     void setPinnedProject(projectId)
-    if (pinnedAgent && projectId && pinnedAgent.project_id !== projectId) {
-      void setPinnedAgent(null)
-    }
-    useWidgetStore.getState().fetchSessions(projectId, 'recent')
-    useTaskStore.getState().fetchTasks(projectId || undefined)
+    void useWidgetStore.getState().fetchActivities(projectId)
   }
 
+  const connectionLabel = connected ? '已连接' : authError ? '连接失败' : '连接中'
+
   return (
-    <div style={styles.topBar}>
-      <div
-        style={{ ...styles.connDot, background: connected ? '#22c55e' : authError ? '#ef4444' : '#9ca3af' }}
-        title={connected ? '已连接' : authError || '正在连接'}
-      />
-      <select style={styles.projectSelect} value={pinnedProjectId || ''} onChange={handleProjectChange}>
+    <header className="widget-titlebar">
+      <span className="widget-brand-mark" aria-hidden="true"><Sparkles size={15} /></span>
+      <select className="widget-project-select" value={pinnedProjectId || ''} onChange={handleProjectChange} aria-label="选择项目">
         <option value="">全部项目</option>
-        {projects.map((project) => (
-          <option key={project.id} value={project.id}>{project.name}</option>
-        ))}
+        {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
       </select>
-      {pinnedProjectId && <Pin size={12} color="#2563eb" />}
-      <div style={styles.btns}>
-        {api && (
-          <>
-            <button style={styles.topBtn} onClick={() => void api.minimize()} title="收起">
-              <Minus size={13} />
-            </button>
-            <button style={styles.topBtn} onClick={() => void api.openMain()} title="主窗口">
-              <ExternalLink size={13} />
-            </button>
-          </>
-        )}
-      </div>
-    </div>
+      <span className={`widget-connection widget-connection--${connected ? 'online' : authError ? 'error' : 'pending'}`}>
+        <span className="widget-connection-dot" />
+        <span className="widget-connection-label">{connectionLabel}</span>
+      </span>
+      {api && (
+        <>
+          <button className="widget-icon-button" onClick={() => void api.togglePin()} title="固定组件" aria-label="固定组件"><Pin size={16} /></button>
+          <button className="widget-icon-button" onClick={() => void api.minimize()} title="隐藏组件" aria-label="隐藏组件"><Minus size={17} /></button>
+        </>
+      )}
+    </header>
   )
 }
