@@ -1,102 +1,72 @@
 # 桌面悬浮部件 — 实现说明
 
-桌面悬浮部件由 Electron 小窗口、Widget 前端页面、Widget RPC 和两张轻量状态表组成。它采用 Session-first 聚合：后端先找当前活跃或未读的 Session，再补齐 Agent、Project、Task 展示信息。
+桌面悬浮部件由 Electron 透明窗口、Widget React 页面和 Agent activity read model 组成。正式页面采用 Agent-first 聚合：后端从 Session 运行态、已读状态和直接 Task 关联中选出每个 Agent 的代表会话，前端只负责筛选与两行展示。
 
 ## 数据来源
 
 | 数据 | 来源 | 说明 |
 | --- | --- | --- |
-| 会话列表 | `sessions` + `agents` + `projects` + `tasks` | `widget.sessions.list` 聚合为 Widget DTO |
-| 会话运行态 | `sessionStore.listWithRuntimeState` | 结合 active prompt、running Agent message、running process item 和阶段兜底 |
-| 会话未读 | `messages` / `session_events` + `widget_read_state` | 最新 Agent 完成消息或 `message.done` 晚于 `read_at` 即未读 |
-| 任务列表 | `tasks.list` | 按项目过滤 |
-| 创建任务 | `tasks.create` | 传入标题、项目和可选 Agent |
-| 偏好 | `widget_preferences` | 保存固定项目和固定 Agent |
+| Agent 动态 | `sessions` + `agents` + `projects` + `tasks` | `widget.agentActivity.list` 聚合为一 Agent 一条的 DTO |
+| Session 运行态 | `sessionStore.listWithRuntimeState` | 结合 active prompt、running Agent message 和 running process item |
+| Session 未读 | `sessions.last_message_at` / `sessions.last_read_at` | 与 PC 和 mobile 使用同一已读时间戳 |
+| 关联任务 | `sessions.task_id` → `tasks` | 只显示明确的直接关联，不按 assigned Agent 猜测 |
+| 项目偏好 | `widget_preferences` | 保存固定项目 |
 
 ## RPC
 
 | 方法 | 参数 | 返回 | 说明 |
 | --- | --- | --- | --- |
-| `widget.sessions.list` | `{ projectId?, filter?: "active" \| "all" }` | `WidgetSessionItem[]` | 默认只返回运行中或未读的 Session |
-| `widget.sessions.markRead` | `{ sessionId }` | `{ ok: true }` | 校验 Session 存在后写入已读时间 |
-| `widget.preferences.get` | `{ key? }` | `Record<string,string>` 或 `{ key, value }` | 读取固定项目/Agent 等偏好 |
-| `widget.preferences.set` | `{ key, value }` | `{ ok: true }` | `value` 为空时删除偏好 |
+| `widget.agentActivity.list` | `{ projectId? }` | `WidgetAgentActivityItem[]` | 每个 Agent 一个代表会话，按 activityAt 倒序，最多 20 个 |
+| `widget.sessions.markRead` | `{ sessionId }` | `{ ok: true }` | 主窗口成功导航后更新共享 Session 已读时间 |
+| `widget.preferences.get` | `{ key? }` | 偏好对象 | 读取固定项目等偏好 |
+| `widget.preferences.set` | `{ key, value }` | `{ ok: true }` | 保存或删除偏好 |
 
-旧的 `widget.agents.list` / `widget.markRead` 保留用于兼容，新的 Widget 页面不再依赖它们。
+旧的 `widget.sessions.list`、`widget.agents.list` 和 `widget.markRead` 继续保留兼容，正式 Widget 页面不依赖它们。
 
-## WidgetSessionItem
+## 代表会话
 
-```ts
-interface WidgetSessionItem {
-  sessionId: string
-  agentId: string
-  agentName: string
-  agentIcon: string | null
-  projectId: string | null
-  projectName: string | null
-  taskId: string | null
-  taskTitle: string | null
-  sessionTitle: string | null
-  status: string
-  activityState: 'running' | 'idle'
-  stage: string
-  unread: boolean
-  startedAt: string
-  lastMessageAt: string | null
-  completedAt: string | null
-  closedAt: string | null
-}
-```
+同一 Agent 的候选 Session 按以下优先级选择：
 
-`activityState` 来自 Session runtime-state 聚合，不等同于 `agents.status`。`agents.status = running` 表示 runtime 在线，不能代表某个会话正在输出。
+1. `activityState = running`。
+2. 直接关联 Task 的状态为 `needs_input` 或 `blocked`。
+3. Session 有未读结果。
+4. 普通最近活跃 Session。
 
-## 未读语义
+同一优先级内按 `last_message_at`、完成时间、`updated_at`、`started_at` 的可用时间选择较新项。最终结果按代表会话 `activityAt` 倒序排列。
 
-`widget_read_state` 存储每个 Session 的最后已读时间：
+## WidgetAgentActivityItem
 
-```sql
-widget_read_state (
-  session_id TEXT PRIMARY KEY,
-  read_at TEXT NOT NULL
-)
-```
+DTO 包含以下信息域：
 
-后端用以下时间中的较新值作为完成时间：
+- Agent：ID、名称、图标。
+- Project：ID、名称。
+- 代表 Session：ID、标题、阶段、运行态、未读、活跃时间。
+- 直接 Task：ID、标题、状态。
+- 聚合信息：该 Agent 的未读 Session 数。
 
-1. 最新非 running Agent 消息的 `messages.timestamp`。
-2. 最新 `session_events.type = "message.done"` 的 `created_at`。
-
-当完成时间晚于 `read_at`，或没有 `read_at`，则该 Session 为未读。
+`activityState` 只允许 `running`、`needs_input` 和 `idle`。其中 `running` 来自 Session 运行证据，不能由 `agents.status` 推断。
 
 ## 前端状态
 
-`ui/src/stores/widget.store.ts` 维护：
+`ui/src/stores/widget.store.ts` 维护 Agent activity 列表、加载/错误状态、项目偏好和 Session 已读操作。
 
-- `sessions`: 当前 Widget 会话列表。
-- `preferences`: `pinnedProjectId` / `pinnedAgentId`。
-- `fetchSessions(projectId, filter)`。
-- `markSessionRead(sessionId)`。
-- `setupListeners()`。
+页面监听：
 
-监听 `session:activity`、`session:done`、`session:changed`、`agent:status` 后重新拉取 `widget.sessions.list`。这让 Widget 保持轻量，不直接订阅完整聊天流。
+- `agent:status`
+- `session:activity`
+- `session:done`
+- `session:changed`
+- `task:update`
 
-## 任务状态映射
-
-Widget 任务面板使用系统真实 Task 状态：
-
-- 待办：`backlog`
-- 进行中：`executing`、`needs_input`、`reviewing`、`blocked`
-- 完成态：`completed`、`cancelled`
-
-`pending` 和 `in_progress` 不是 Task 表状态，不能用于任务筛选。
+收到事件后重新拉取小型摘要，不下载完整 Session 事件或消息内容。
 
 ## Electron 集成
 
-Widget 窗口加载 `/widget?token=...`，主窗口加载普通应用路由。点击 Widget 会话时：
+Electron 创建 `390 × 570`、无边框、不可调整大小、透明且可置顶的 Widget 窗口。React 页面将 `html`、`body` 和 `#root` 背景设为透明，Widget 容器使用 backdrop blur 和半透明表面。
+
+点击 Agent 时：
 
 1. 前端调用 `window.electronWidget.openMain({ projectId, sessionId })`。
-2. 主进程加载 `/workspace?token=...&projectId=...&sessionId=...`。
-3. Workspace 根据 URL 参数选择项目和 Session。
-4. Widget 调用 `widget.sessions.markRead` 标记已读。
-
-Tray 对象保存在模块级变量中，避免被垃圾回收导致托盘图标消失。
+2. Electron 加载 `/p/:projectId/workspace?sessionId=...`。
+3. 只有导航成功后，前端才调用 `widget.sessions.markRead`。
+4. 导航失败时保留未读状态并显示错误。

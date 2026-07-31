@@ -6,6 +6,10 @@ import { initializeDesktopRendererConnection } from './services/electron-desktop
 
 performance.mark('ai-ide-bootstrap-start')
 
+if (window.location.pathname === '/widget') {
+  document.documentElement.classList.add('widget-document')
+}
+
 async function startUi(): Promise<void> {
   initializeDesktopRendererConnection()
   await bootstrapUiData()

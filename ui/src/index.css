@@ -58,6 +58,12 @@ body {
   color: var(--text-1);
 }
 
+html.widget-document,
+html.widget-document body,
+html.widget-document #root {
+  background: transparent;
+}
+
 button {
   font-family: inherit;
 }

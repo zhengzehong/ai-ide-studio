@@ -1,42 +1,36 @@
-import { useEffect, useState } from 'react'
-import { useAgentStore } from '../stores/agent.store'
+import { useEffect } from 'react'
 import { useConnectionStore } from '../stores/connection.store'
 import { useProjectStore } from '../stores/project.store'
-import { useTaskStore } from '../stores/task.store'
 import { useWidgetStore } from '../stores/widget.store'
+import { WidgetAgentActivityPanel } from './widget/WidgetAgentActivityPanel'
 import { WidgetHeader } from './widget/WidgetHeader'
-import { WidgetSessionPanel } from './widget/WidgetSessionPanel'
-import { WidgetTabs } from './widget/WidgetTabs'
-import { WidgetTaskPanel } from './widget/WidgetTaskPanel'
-import { styles } from './widget/styles'
-import type { WidgetTab } from './widget/types'
+import './widget/widget.css'
 
 export default function WidgetPage() {
-  const init = useConnectionStore((s) => s.init)
-  const connected = useConnectionStore((s) => s.connected)
-  const [activeTab, setActiveTab] = useState<WidgetTab>('agents')
+  const init = useConnectionStore((state) => state.init)
+  const connected = useConnectionStore((state) => state.connected)
+
+  useEffect(() => {
+    document.documentElement.classList.add('widget-document')
+    return () => document.documentElement.classList.remove('widget-document')
+  }, [])
 
   useEffect(() => { init() }, [init])
 
   useEffect(() => {
     if (!connected) return
-    useProjectStore.getState().fetchProjects()
-    useAgentStore.getState().fetchAgents()
-    useWidgetStore.getState().loadPreferences().then(() => {
+    void useProjectStore.getState().fetchProjects()
+    void useWidgetStore.getState().loadPreferences().then(() => {
       const { pinnedProjectId } = useWidgetStore.getState().preferences
-      useWidgetStore.getState().fetchSessions(pinnedProjectId, 'recent')
-      useTaskStore.getState().fetchTasks(pinnedProjectId || undefined)
+      void useWidgetStore.getState().fetchActivities(pinnedProjectId)
     })
-    const off1 = useWidgetStore.getState().setupListeners()
-    const off2 = useTaskStore.getState().setupListeners()
-    return () => { off1(); off2() }
+    return useWidgetStore.getState().setupListeners()
   }, [connected])
 
   return (
-    <div style={styles.widget}>
+    <main className="widget-shell" aria-label="AI IDE Studio Agent 动态">
       <WidgetHeader />
-      <WidgetTabs activeTab={activeTab} onTabChange={setActiveTab} />
-      {activeTab === 'agents' ? <WidgetSessionPanel /> : <WidgetTaskPanel />}
-    </div>
+      <WidgetAgentActivityPanel />
+    </main>
   )
 }
