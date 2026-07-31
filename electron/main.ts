@@ -31,6 +31,7 @@ import {
 import { closeDesktopSetupWindow, showDesktopSetupWindow } from './setup-window.js'
 import { runLoadRecovery, type LoadRecoveryChoice } from './load-recovery.js'
 import { createWidgetWindow, toggleWidgetPin, hideWidget, showWidget, getWidgetWindow } from './widget-window.js'
+import { createWidgetNavigationUrl, type WidgetNavigationTarget } from './widget-navigation.js'
 
 const electronDir = dirname(fileURLToPath(import.meta.url))
 
@@ -177,16 +178,19 @@ function setupWidgetIpc(target: DesktopRuntimeTarget): void {
     assertTrustedWidgetSender(event, target)
     return hideWidget()
   })
-  ipcMain.handle('widget:open-main', (event, destination?: { projectId?: string | null; sessionId?: string | null }) => {
+  ipcMain.handle('widget:open-main', async (event, destination?: WidgetNavigationTarget) => {
     assertTrustedWidgetSender(event, target)
-    if (destination?.sessionId) {
-      const url = new URL('/workspace', `${target.origin}/`)
-      url.searchParams.set('sessionId', destination.sessionId)
-      if (destination.projectId) url.searchParams.set('projectId', destination.projectId)
-      void mainWindow?.loadURL(url.toString())
+    const window = mainWindow
+    if (!window || window.isDestroyed()) return { ok: false, error: '主窗口尚未就绪' }
+    try {
+      const destinationUrl = createWidgetNavigationUrl(target.origin, destination)
+      if (destinationUrl) await window.loadURL(destinationUrl)
+      window.show()
+      window.focus()
+      return { ok: true }
+    } catch {
+      return { ok: false, error: '主窗口加载失败，请重试' }
     }
-    mainWindow?.show()
-    mainWindow?.focus()
   })
 }
 

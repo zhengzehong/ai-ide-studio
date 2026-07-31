@@ -17,13 +17,14 @@ beforeEach(() => {
   useWidgetStore.setState({
     sessions: [],
     sessionsLoading: false,
+    sessionsError: null,
     preferences: { pinnedProjectId: null, pinnedAgentId: null },
     preferencesLoaded: false,
   })
 })
 
 describe('widget store', () => {
-  test('removes an idle unread session from the active list after marking it read', async () => {
+  test('keeps an idle Session in the recent list after marking it read', async () => {
     useWidgetStore.setState({
       sessions: [
         {
@@ -51,7 +52,9 @@ describe('widget store', () => {
     await useWidgetStore.getState().markSessionRead('sess-unread')
 
     expect(wsMock.request).toHaveBeenCalledWith({ type: 'widget.sessions.markRead', sessionId: 'sess-unread' })
-    expect(useWidgetStore.getState().sessions).toEqual([])
+    expect(useWidgetStore.getState().sessions).toMatchObject([
+      { sessionId: 'sess-unread', activityState: 'idle', unread: false },
+    ])
   })
 
   test('keeps a running session visible after marking it read', async () => {
@@ -84,5 +87,16 @@ describe('widget store', () => {
     expect(useWidgetStore.getState().sessions).toMatchObject([
       { sessionId: 'sess-running', activityState: 'running', unread: false },
     ])
+  })
+
+  test('exposes a retryable error when Session synchronization fails', async () => {
+    wsMock.request.mockRejectedValueOnce(new Error('network unavailable'))
+
+    await useWidgetStore.getState().fetchSessions('project-1', 'recent')
+
+    expect(useWidgetStore.getState()).toMatchObject({
+      sessionsLoading: false,
+      sessionsError: 'network unavailable',
+    })
   })
 })

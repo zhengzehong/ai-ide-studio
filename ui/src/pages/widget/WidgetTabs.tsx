@@ -9,7 +9,9 @@ interface WidgetTabsProps {
 }
 
 export function WidgetTabs({ activeTab, onTabChange }: WidgetTabsProps) {
-  const sessionCount = useWidgetStore((s) => s.sessions.length)
+  const sessionCount = useWidgetStore((s) =>
+    s.sessions.filter((session) => session.activityState === 'running' || session.unread).length
+  )
   const tasks = useTaskStore((s) => s.tasks)
   const { pinnedProjectId } = useWidgetStore((s) => s.preferences)
   const taskCount = tasks.filter((task) =>

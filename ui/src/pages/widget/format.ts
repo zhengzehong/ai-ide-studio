@@ -1,10 +1,3 @@
-export function formatElapsed(startedAt: string): string {
-  const diff = Math.max(0, Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000))
-  const mins = Math.floor(diff / 60)
-  const secs = diff % 60
-  return `${mins}:${secs.toString().padStart(2, '0')}`
-}
-
 export function formatTimeAgo(time: string): string {
   const diff = Math.max(0, Math.floor((Date.now() - new Date(time).getTime()) / 1000))
   if (diff < 60) return `${diff}s前`

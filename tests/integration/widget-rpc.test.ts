@@ -91,6 +91,9 @@ describe('widget session RPC', () => {
     const session = sessionStore.create({ agentId: agent.id, taskId: task.id, projectId: project.id })
     messageStore.append(session.id, { role: 'agent', content: '已经修复', status: 'completed' })
     sessionStore.touch(session.id)
+    getDb()
+      .prepare('UPDATE sessions SET last_read_at = ? WHERE id = ?')
+      .run('2000-01-01T00:00:00.000Z', session.id)
     events.emit('session:done', {
       sessionId: session.id,
       agentId: agent.id,
@@ -126,7 +129,7 @@ describe('widget session RPC', () => {
     expect(changed.at(-1)?.data).not.toHaveProperty('lastReadAt')
   })
 
-  test('uses message.done events as unread completion fallback', async () => {
+  test('uses message.done events as a recent completion fallback without inventing unread state', async () => {
     const project = projectStore.create({ name: 'Event Project', workDir: 'D:/work/event' })
     const agent = agentStore.create({ name: 'Event Agent', type: 'dev', runtime: 'mock', projectId: project.id })
     const session = sessionStore.create({ agentId: agent.id, projectId: project.id })
@@ -139,17 +142,18 @@ describe('widget session RPC', () => {
       payload: { messageId: 'done-event', stopReason: 'end_turn' },
     })
 
-    const rows = await callWidgetRpc('widget.sessions.list') as Array<Record<string, unknown>>
+    const rows = await callWidgetRpc('widget.sessions.list', { filter: 'recent' }) as Array<Record<string, unknown>>
 
     expect(rows).toHaveLength(1)
     expect(rows[0]).toMatchObject({
       sessionId: session.id,
-      unread: true,
+      unread: false,
       activityState: 'idle',
+      completedAt: expect.any(String),
     })
   })
 
-  test('uses the newer message.done event when it is later than the latest agent message', async () => {
+  test('uses a newer message.done event for completion time but not message unread state', async () => {
     const project = projectStore.create({ name: 'Later Event Project', workDir: 'D:/work/later-event' })
     const agent = agentStore.create({ name: 'Later Event Agent', type: 'dev', runtime: 'mock', projectId: project.id })
     const session = sessionStore.create({ agentId: agent.id, projectId: project.id })
@@ -171,13 +175,13 @@ describe('widget session RPC', () => {
       .prepare('UPDATE session_events SET created_at = ? WHERE id = ?')
       .run('2026-01-01T00:00:02.000Z', doneEvent.id)
 
-    const rows = await callWidgetRpc('widget.sessions.list') as Array<Record<string, unknown>>
+    const rows = await callWidgetRpc('widget.sessions.list', { filter: 'recent' }) as Array<Record<string, unknown>>
 
     expect(rows).toHaveLength(1)
     expect(rows[0]).toMatchObject({
       sessionId: session.id,
       completedAt: '2026-01-01T00:00:02.000Z',
-      unread: true,
+      unread: false,
     })
   })
 
@@ -189,8 +193,8 @@ describe('widget session RPC', () => {
     const sessionA = sessionStore.create({ agentId: agentA.id, projectId: projectA.id })
     const sessionB = sessionStore.create({ agentId: agentB.id, projectId: projectB.id })
     getDb()
-      .prepare('INSERT INTO widget_read_state (session_id, read_at) VALUES (?, ?)')
-      .run(sessionA.id, '2000-01-01T00:00:00.000Z')
+      .prepare('UPDATE sessions SET last_read_at = ? WHERE id = ?')
+      .run('2000-01-01T00:00:00.000Z', sessionA.id)
     messageStore.append(sessionA.id, { role: 'agent', content: 'A done', status: 'completed' })
     sessionStore.touch(sessionA.id)
     messageStore.append(sessionB.id, { role: 'agent', content: 'B done', status: 'completed' })
@@ -214,5 +218,55 @@ describe('widget session RPC', () => {
 
     expect(activeRows).toEqual([])
     expect(allRows).toEqual([])
+  })
+
+  test('uses the shared Session read timestamp instead of Widget-only read state', async () => {
+    const project = projectStore.create({ name: 'Shared Read Project', workDir: 'D:/work/shared-read' })
+    const agent = agentStore.create({ name: 'Shared Read Agent', type: 'dev', runtime: 'mock', projectId: project.id })
+    const session = sessionStore.create({ agentId: agent.id, projectId: project.id })
+    const message = messageStore.append(session.id, { role: 'agent', content: 'already read on PC', status: 'completed' })
+    getDb()
+      .prepare('UPDATE messages SET timestamp = ?, completed_at = ? WHERE id = ?')
+      .run('2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', message.id)
+    getDb()
+      .prepare('UPDATE sessions SET last_read_at = ? WHERE id = ?')
+      .run('2026-01-01T00:00:01.000Z', session.id)
+
+    const rows = await callWidgetRpc('widget.sessions.list', { filter: 'recent' }) as Array<Record<string, unknown>>
+
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ sessionId: session.id, unread: false })
+  })
+
+  test('keeps a read completed Session in the bounded recent view', async () => {
+    const project = projectStore.create({ name: 'Recent Project', workDir: 'D:/work/recent' })
+    const agent = agentStore.create({ name: 'Recent Agent', type: 'dev', runtime: 'mock', projectId: project.id })
+    const session = sessionStore.create({ agentId: agent.id, projectId: project.id })
+    messageStore.append(session.id, { role: 'agent', content: 'recent result', status: 'completed' })
+    sessionStore.touch(session.id)
+
+    await callWidgetRpc('widget.sessions.markRead', { sessionId: session.id })
+    const activeRows = await callWidgetRpc('widget.sessions.list') as Array<Record<string, unknown>>
+    const recentRows = await callWidgetRpc('widget.sessions.list', { filter: 'recent' }) as Array<Record<string, unknown>>
+
+    expect(activeRows).toEqual([])
+    expect(recentRows).toHaveLength(1)
+    expect(recentRows[0]).toMatchObject({ sessionId: session.id, unread: false })
+  })
+
+  test('limits the recent view to twenty Sessions', async () => {
+    const project = projectStore.create({ name: 'Bounded Project', workDir: 'D:/work/bounded' })
+    const agent = agentStore.create({ name: 'Bounded Agent', type: 'dev', runtime: 'mock', projectId: project.id })
+    for (let index = 0; index < 21; index += 1) {
+      const session = sessionStore.create({ agentId: agent.id, projectId: project.id })
+      messageStore.append(session.id, { role: 'agent', content: `result ${index}`, status: 'completed' })
+    }
+
+    const rows = await callWidgetRpc('widget.sessions.list', {
+      projectId: project.id,
+      filter: 'recent',
+    }) as Array<Record<string, unknown>>
+
+    expect(rows).toHaveLength(20)
   })
 })
