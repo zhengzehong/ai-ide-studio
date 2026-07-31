@@ -31,6 +31,8 @@ export interface ElectronDesktopBootstrapBridge {
 }
 
 export interface ElectronDesktopBridge extends ElectronDesktopBootstrapBridge {
+  onNavigate?(listener: (request: DesktopNavigationRequest) => void): () => void
+  acknowledgeNavigation?(id: string): void
   getSettings(): Promise<DesktopConnectionSettings>
   testConnection(input: DesktopConnectionInput): Promise<DesktopOperationResult>
   saveSettings(input: DesktopConnectionInput): Promise<DesktopOperationResult>
@@ -42,6 +44,21 @@ export function getElectronDesktopBridge(): ElectronDesktopBridge | null {
     return null
   }
   return candidate as ElectronDesktopBridge
+}
+
+export interface DesktopNavigationRequest {
+  id: string
+  path: string
+}
+
+export function subscribeDesktopNavigation(
+  bridge: Pick<ElectronDesktopBridge, 'onNavigate' | 'acknowledgeNavigation'> | null,
+  navigate: (path: string) => void,
+): () => void {
+  return bridge?.onNavigate?.((request) => {
+    navigate(request.path)
+    bridge.acknowledgeNavigation?.(request.id)
+  }) ?? (() => undefined)
 }
 
 export function getElectronDesktopBootstrapBridge(): ElectronDesktopBootstrapBridge | null {

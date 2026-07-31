@@ -5,6 +5,12 @@ import { getDb } from '../../store/db.js'
 import { sessionManager } from '../../core/sessions.js'
 import { events } from '../../core/events.js'
 import { buildWidgetAgentActivity } from '../../queries/widget-agent-activity-query.js'
+import {
+  localDayStartIso,
+  selectLatestWidgetAgentTasks,
+  type WidgetAgentTaskCandidateRow,
+  type WidgetAgentTodayTask,
+} from '../../queries/widget-agent-today-task-query.js'
 import type { RpcHandlerMap } from './types.js'
 
 interface ProjectNameRow {
@@ -94,6 +100,95 @@ function listWidgetSessions(projectId?: string): WidgetSessionRow[] {
       .map((row) => ({ ...row, activity_state: runtimeStateBySessionId.get(row.session_id) ?? 'idle' }))
 }
 
+function listWidgetAgentTodayTasks(projectId?: string): WidgetAgentTodayTask[] {
+  const rows = getDb().prepare<
+    { day_start: string; project_id: string | null },
+    WidgetAgentTaskCandidateRow
+  >(`
+    SELECT *
+    FROM (
+      SELECT
+        t.assigned_agent_id AS agent_id,
+        t.id AS task_id,
+        t.title AS task_title,
+        t.status AS task_status,
+        t.project_id,
+        COALESCE(
+          (
+            SELECT MAX(te.created_at)
+            FROM task_events te
+            WHERE te.task_id = t.id
+              AND te.type = 'assigned_agent'
+              AND json_extract(te.payload_json, '$.to_agent_id') = t.assigned_agent_id
+          ),
+          t.created_at
+        ) AS assigned_at,
+        t.rowid AS relation_order,
+        COALESCE(
+          (
+            SELECT ts.session_id
+            FROM task_steps ts
+            JOIN sessions step_session ON step_session.id = ts.session_id
+            WHERE ts.task_id = t.id
+              AND ts.assignee_agent_id = t.assigned_agent_id
+              AND step_session.deleted_at IS NULL
+              AND step_session.archived_at IS NULL
+            ORDER BY ts.created_at DESC, ts.id DESC
+            LIMIT 1
+          ),
+          (
+            SELECT s.id
+            FROM sessions s
+            WHERE s.task_id = t.id
+              AND s.agent_id = t.assigned_agent_id
+              AND s.deleted_at IS NULL
+              AND s.archived_at IS NULL
+            ORDER BY s.started_at DESC, s.id DESC
+            LIMIT 1
+          )
+        ) AS session_id
+      FROM tasks t
+      WHERE t.assigned_agent_id IS NOT NULL
+
+      UNION ALL
+
+      SELECT
+        ts.assignee_agent_id AS agent_id,
+        t.id AS task_id,
+        t.title AS task_title,
+        t.status AS task_status,
+        t.project_id,
+        COALESCE(
+          (
+            SELECT MAX(te.created_at)
+            FROM task_events te
+            WHERE te.task_id = t.id
+              AND te.type = 'step_assigned'
+              AND json_extract(te.payload_json, '$.stepId') = ts.id
+              AND json_extract(te.payload_json, '$.toAssignee') = ts.assignee_agent_id
+          ),
+          ts.created_at
+        ) AS assigned_at,
+        ts.rowid AS relation_order,
+        step_session.id AS session_id
+      FROM task_steps ts
+      JOIN tasks t ON t.id = ts.task_id
+      LEFT JOIN sessions step_session
+        ON step_session.id = ts.session_id
+        AND step_session.deleted_at IS NULL
+        AND step_session.archived_at IS NULL
+      WHERE ts.assignee_agent_id IS NOT NULL
+    ) candidates
+    WHERE candidates.assigned_at >= @day_start
+      AND (@project_id IS NULL OR candidates.project_id = @project_id)
+    ORDER BY candidates.agent_id ASC, candidates.assigned_at DESC, candidates.relation_order DESC
+  `).all({
+    day_start: localDayStartIso(new Date()),
+    project_id: projectId ?? null,
+  })
+  return selectLatestWidgetAgentTasks(rows)
+}
+
 function latestTimestamp(left: string | null, right: string | null): string | null {
   if (!left) return right
   if (!right) return left
@@ -135,7 +230,7 @@ export const widgetRpcHandlers: RpcHandlerMap = {
   'widget.agentActivity.list'(msg, { sendResult }) {
     const projectId = msg.projectId as string | undefined
     const sessions = listWidgetSessions(projectId).map(toWidgetSession)
-    sendResult(buildWidgetAgentActivity(sessions))
+    sendResult(buildWidgetAgentActivity(sessions, listWidgetAgentTodayTasks(projectId)))
   },
 
   'widget.sessions.list'(msg, { sendResult }) {

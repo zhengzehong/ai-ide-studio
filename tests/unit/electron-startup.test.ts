@@ -83,6 +83,7 @@ describe('Electron builder config', () => {
       'desktop-target.js',
       'main.js',
       'main-window-exit.js',
+      'main-window-navigation.js',
       'load-recovery.js',
       'setup-preload.cjs',
       'setup-submission.js',

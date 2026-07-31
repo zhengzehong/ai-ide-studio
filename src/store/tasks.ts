@@ -214,6 +214,15 @@ export const taskStore = {
     `,
       )
       .run(updated)
+    if (updated.assigned_agent_id !== existing.assigned_agent_id) {
+      taskEventStore.append(id, {
+        type: 'assigned_agent',
+        payload: {
+          from_agent_id: existing.assigned_agent_id,
+          to_agent_id: updated.assigned_agent_id,
+        },
+      })
+    }
     taskEventStore.append(id, {
       type: 'updated',
       payload: {

@@ -152,6 +152,16 @@ export const taskStepManager = {
       revertTaskToDraft(input.taskId, input.stepId, 'step_updated', task.status)
     }
 
+    if (updated.assignee_agent_id !== existing.assignee_agent_id) {
+      taskEventStore.append(input.taskId, {
+        type: 'step_assigned',
+        payload: {
+          stepId: input.stepId,
+          fromAssignee: existing.assignee_agent_id,
+          toAssignee: updated.assignee_agent_id,
+        },
+      })
+    }
     taskEventStore.append(input.taskId, {
       type: 'step_updated',
       payload: {

@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from 'vitest'
 import {
   initializeDesktopRendererConnection,
+  subscribeDesktopNavigation,
   type ElectronDesktopBridge,
 } from '../../ui/src/services/electron-desktop'
 
@@ -34,5 +35,27 @@ describe('Electron desktop renderer bootstrap', () => {
     expect(initializeDesktopRendererConnection(null, location, storage, browserHistory)).toBeNull()
     expect(storage.setItem).not.toHaveBeenCalled()
     expect(browserHistory.replaceState).not.toHaveBeenCalled()
+  })
+
+  test('forwards desktop navigation requests to the SPA router', () => {
+    let listener: ((request: { id: string; path: string }) => void) | undefined
+    const unsubscribe = vi.fn()
+    const acknowledgeNavigation = vi.fn()
+    const bridge = {
+      onNavigate: vi.fn((next: (request: { id: string; path: string }) => void) => {
+        listener = next
+        return unsubscribe
+      }),
+      acknowledgeNavigation,
+    }
+    const navigate = vi.fn()
+
+    const stop = subscribeDesktopNavigation(bridge, navigate)
+    listener?.({ id: 'navigation-1', path: '/p/project/workspace?sessionId=session-1' })
+
+    expect(navigate).toHaveBeenCalledWith('/p/project/workspace?sessionId=session-1')
+    expect(acknowledgeNavigation).toHaveBeenCalledWith('navigation-1')
+    stop()
+    expect(unsubscribe).toHaveBeenCalledOnce()
   })
 })

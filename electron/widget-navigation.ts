@@ -7,6 +7,13 @@ export function createWidgetNavigationUrl(
   origin: string,
   target?: WidgetNavigationTarget,
 ): string | null {
+  const path = createWidgetNavigationPath(target)
+  return path ? new URL(path, `${origin}/`).toString() : null
+}
+
+export function createWidgetNavigationPath(
+  target?: WidgetNavigationTarget,
+): string | null {
   const sessionId = target?.sessionId?.trim()
   if (!sessionId) return null
 
@@ -14,7 +21,7 @@ export function createWidgetNavigationUrl(
   const pathname = projectId
     ? `/p/${encodeURIComponent(projectId)}/workspace`
     : '/workspace'
-  const url = new URL(pathname, `${origin}/`)
+  const url = new URL(pathname, 'https://desktop.invalid')
   url.searchParams.set('sessionId', sessionId)
-  return url.toString()
+  return `${url.pathname}${url.search}`
 }

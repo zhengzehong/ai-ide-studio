@@ -55,7 +55,7 @@ Core 业务层（API 进程）
 
 ## Electron 桌面连接边界
 
-Electron 使用统一的 `DesktopRuntimeTarget` 驱动主窗口、Widget、托盘导航和退出清理。`managed-local` 模式由主进程生成临时访问密钥、启动打包内的 Node 后端并拥有该进程；`remote` 模式不创建本地后端，直接加载远程服务器提供的 PC UI，因此 HTTP、WebSocket 和静态资源继续保持同源，UI 与服务器版本也由同一次部署保证。主窗口关闭表示退出整个桌面应用，Electron `before-quit` 统一清理 Widget、托盘和受管本地后端；Widget 自身的最小化操作只隐藏悬浮窗。
+Electron 使用统一的 `DesktopRuntimeTarget` 驱动主窗口、Widget、托盘导航和退出清理。`managed-local` 模式由主进程生成临时访问密钥、启动打包内的 Node 后端并拥有该进程；`remote` 模式不创建本地后端，直接加载远程服务器提供的 PC UI，因此 HTTP、WebSocket 和静态资源继续保持同源，UI 与服务器版本也由同一次部署保证。Widget 打开主窗口内容时优先通过受限 preload IPC 触发 BrowserRouter 内部导航，仅在 renderer 未就绪时回退到 `loadURL`；从最小化恢复时重新应用已记录的最大化/全屏状态。主窗口关闭表示退出整个桌面应用，Electron `before-quit` 统一清理 Widget、托盘和受管本地后端；Widget 自身的最小化操作只隐藏悬浮窗。
 
 桌面连接 profile 保存在 Electron `userData`，不进入服务器 SQLite。远程 token 由 `safeStorage` 保护，renderer 只在启动阶段通过受限 preload bridge 取得当前连接上下文，并在任何 HTTP/WS bootstrap 前写入认证状态。主窗口加载后会移除 URL 中的 token。连接模式和 Widget 开关采用保存后重启语义，避免旧服务器的 WebSocket、Recovery cursor、Zustand 缓存或本地子进程与新连接混用。
 
@@ -147,7 +147,7 @@ Edge、API、Realtime、Runtime 各自使用 `monitorEventLoopDelay` 和 event-l
 
 `session:activity` 是独立的轻量全局事件，只表示会话本轮执行从 `running` 到 `idle` 的状态变化，用于左侧会话列表运行中/未读提示；它不承载聊天内容，也不参与历史消息还原。
 
-桌面悬浮 Widget 也使用 `session:activity`，但不订阅完整 `session:update` 聊天流。Widget 通过 `widget.agentActivity.list` 获取 Agent 优先的轻量 DTO：后端按 Agent 聚合 Session、Project、直接关联 Task、真实运行态和统一的 `sessions.last_read_at` 已读状态，每个 Agent 只选择一个代表会话并按最近活跃时间排序。代表会话依次优先运行中、待确认、未读和普通最近会话；底部状态按钮在全部、运行中、待处理和已完成之间循环筛选。点击 Agent 时 Electron 直接加载 `/p/:projectId/workspace?sessionId=...`，导航成功后才确认已读，避免路由失败造成提醒丢失。旧的 Session 优先 RPC 继续保留用于兼容。
+桌面悬浮 Widget 也使用 `session:activity`，但不订阅完整 `session:update` 聊天流。Widget 通过 `widget.agentActivity.list` 获取 Agent 优先的轻量 DTO：后端按 Agent 聚合 Session、Project、真实运行态和统一的 `sessions.last_read_at` 已读状态，每个 Agent 只选择一个代表会话并按最近活跃时间排序。Task 关联同时覆盖 `tasks.assigned_agent_id` 和 `task_steps.assignee_agent_id`，仅返回当天最近分派给该 Agent 的 Task；当天无 Task 时不使用 Session 标题伪装关联。运行中 Session 优先显示运行态，否则今日 Task 为 `needs_input`/`blocked` 时显示待处理；底部状态按钮在全部、运行中、待处理和已完成之间循环筛选。点击 Agent 时通过桌面内部路由打开 `/p/:projectId/workspace?sessionId=...`，主进程接受导航请求后确认已读。旧的 Session 优先 RPC 继续保留用于兼容。
 
 
 ### 创建任务
