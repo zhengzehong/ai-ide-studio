@@ -4,8 +4,10 @@ const windows: FakeBrowserWindow[] = []
 
 class FakeBrowserWindow {
   private alwaysOnTop = true
+  readonly options: unknown
 
-  constructor(_options: unknown) {
+  constructor(options: unknown) {
+    this.options = options
     windows.push(this)
   }
 
@@ -43,6 +45,7 @@ describe('Electron Widget pin state', () => {
       },
       electronDir: 'C:/electron',
       userDataDir: 'C:/data',
+      iconPath: 'C:/resources/app-icon.png',
     })
 
     expect(isWidgetPinned()).toBe(true)
@@ -51,6 +54,7 @@ describe('Electron Widget pin state', () => {
     expect(toggleWidgetPin()).toBe(true)
     expect(windows[0]?.setAlwaysOnTop).toHaveBeenNthCalledWith(1, false)
     expect(windows[0]?.setAlwaysOnTop).toHaveBeenNthCalledWith(2, true)
+    expect(windows[0]?.options).toMatchObject({ icon: 'C:/resources/app-icon.png' })
   })
 })
 

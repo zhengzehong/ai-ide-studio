@@ -21,6 +21,7 @@ import { DesktopConnectionStore, type DesktopConnectionProfile } from './desktop
 import { probeDesktopConnection } from './desktop-connection-probe.js'
 import { createDesktopCredentialProtector } from './desktop-credentials.js'
 import { registerDesktopIpc } from './desktop-ipc.js'
+import { resolveDesktopIconPath } from './desktop-icon.js'
 import { isDesktopApplicationPath, isTrustedDesktopIpcSender, isWidgetPath } from './desktop-ipc-policy.js'
 import { restrictWindowNavigation } from './desktop-security.js'
 import {
@@ -72,7 +73,7 @@ async function main(): Promise<void> {
     registerDesktopIpc({ store, target, mainWindow, getWidgetWindow })
     setupWidgetIpc(target)
     if (target.widgetEnabled) {
-      createWidgetWindow({ target, electronDir, userDataDir })
+      createWidgetWindow({ target, electronDir, userDataDir, iconPath: getDesktopIconPath() })
     }
     attachMainWindowLoadRecovery(mainWindow, target, store)
     void mainWindow.loadURL(createDesktopUrl(target))
@@ -132,6 +133,7 @@ async function startRuntimeTarget(
 function showSetupWindow() {
   return showDesktopSetupWindow({
     preloadPath: join(electronDir, 'setup-preload.cjs'),
+    iconPath: getDesktopIconPath(),
     validateRemote: async (origin, token) => { await probeDesktopConnection(origin, token) },
   })
 }
@@ -168,6 +170,7 @@ function createWindow(target: DesktopRuntimeTarget): BrowserWindow {
     height: 820,
     minWidth: 1024,
     minHeight: 720,
+    icon: getDesktopIconPath(),
     webPreferences: {
       preload: join(electronDir, 'desktop-preload.cjs'),
       contextIsolation: true,
@@ -296,10 +299,8 @@ async function runMainWindowLoadRecovery(
 }
 
 function createTray(widgetEnabled: boolean): void {
-  const iconPath = join(electronDir, 'icon-16.png')
-  const icon = existsSync(iconPath)
-    ? nativeImage.createFromPath(iconPath)
-    : nativeImage.createEmpty()
+  const iconPath = getDesktopIconPath()
+  const icon = iconPath ? nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 }) : nativeImage.createEmpty()
   trayRef = new Tray(icon.isEmpty() ? nativeImage.createFromBuffer(Buffer.alloc(16 * 16 * 4, 128)) : icon)
   trayRef.setToolTip('AI IDE Studio')
   const items: MenuItemConstructorOptions[] = [
@@ -309,6 +310,10 @@ function createTray(widgetEnabled: boolean): void {
   items.push({ type: 'separator' }, { label: '退出', click: () => app.quit() })
   trayRef.setContextMenu(Menu.buildFromTemplate(items))
   trayRef.on('click', widgetEnabled ? toggleWidgetVisibility : showMainWindow)
+}
+
+function getDesktopIconPath(): string | undefined {
+  return resolveDesktopIconPath({ appPath: app.getAppPath(), resourcesPath: getResourcesPath() })
 }
 
 function showMainWindow(): void {

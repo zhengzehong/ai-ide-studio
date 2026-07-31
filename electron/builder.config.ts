@@ -8,7 +8,7 @@ interface BuilderConfiguration {
   asarUnpack: string[]
   extraFiles: Array<{ from: string; to: string }>
   npmRebuild: boolean
-  win: { target: string[] }
+  win: { icon: string; target: string[] }
 }
 
 const builderConfig: BuilderConfiguration = {
@@ -30,6 +30,7 @@ const builderConfig: BuilderConfiguration = {
         'desktop-connection-probe.js',
         'desktop-connection.js',
         'desktop-credentials.js',
+        'desktop-icon.js',
         'desktop-ipc.js',
         'desktop-ipc-policy.js',
         'desktop-preload.cjs',
@@ -58,6 +59,7 @@ const builderConfig: BuilderConfiguration = {
     { from: process.env.AI_IDE_ELECTRON_BUILD_DIR || 'electron/dist', to: 'app/electron', filter: ['backend-main.js'] },
     { from: 'ui/dist', to: 'app/ui/dist' },
     { from: 'mobile/dist', to: 'app/mobile/dist' },
+    { from: 'ui/public/app-icon.png', to: 'app-icon.png' },
   ],
   asar: false,
   asarUnpack: [
@@ -68,6 +70,7 @@ const builderConfig: BuilderConfiguration = {
     { from: process.execPath, to: 'resources/node/node.exe' },
   ],
   win: {
+    icon: 'ui/public/app-icon.png',
     target: ['nsis', 'portable'],
   },
 }

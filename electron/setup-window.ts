@@ -4,6 +4,7 @@ import { runDesktopSetupSubmission } from './setup-submission.js'
 
 interface SetupWindowOptions {
   preloadPath: string
+  iconPath?: string
   validateRemote: (origin: string, token: string) => Promise<void>
 }
 
@@ -25,6 +26,7 @@ export function showDesktopSetupWindow(options: SetupWindowOptions): Promise<Des
       minHeight: 560,
       resizable: true,
       title: 'AI IDE Studio',
+      icon: options.iconPath,
       webPreferences: {
         preload: options.preloadPath,
         contextIsolation: true,

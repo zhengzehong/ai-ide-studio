@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Minus, Sparkles } from 'lucide-react'
+import { Minus } from 'lucide-react'
 import { useConnectionStore } from '../../stores/connection.store'
 import { useProjectStore } from '../../stores/project.store'
 import { useWidgetStore } from '../../stores/widget.store'
@@ -38,7 +38,7 @@ export function WidgetHeader() {
 
   return (
     <header className="widget-titlebar">
-      <span className="widget-brand-mark" aria-hidden="true"><Sparkles size={15} /></span>
+      <span className="widget-brand-mark" aria-hidden="true"><img src="/app-icon.svg" alt="" /></span>
       <div className="widget-header-actions">
         <select className="widget-project-select" value={pinnedProjectId || ''} onChange={handleProjectChange} aria-label="选择项目">
           <option value="">全部项目</option>
