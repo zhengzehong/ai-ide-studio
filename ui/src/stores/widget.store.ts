@@ -29,6 +29,7 @@ interface WidgetPreferences {
 interface WidgetStore {
   sessions: WidgetSessionItem[]
   sessionsLoading: boolean
+  sessionsError: string | null
   preferences: WidgetPreferences
   preferencesLoaded: boolean
 
@@ -45,30 +46,32 @@ interface WidgetStore {
 export const useWidgetStore = create<WidgetStore>((set, get) => ({
   sessions: [],
   sessionsLoading: false,
+  sessionsError: null,
   preferences: { pinnedProjectId: null, pinnedAgentId: null },
   preferencesLoaded: false,
 
   fetchSessions: async (projectId, filter) => {
-    set({ sessionsLoading: true })
+    set({ sessionsLoading: true, sessionsError: null })
     try {
       const msg: Record<string, unknown> = { type: 'widget.sessions.list' }
       if (projectId) msg.projectId = projectId
       if (filter) msg.filter = filter
       const data = (await wsClient.request(msg)) as WidgetSessionItem[]
-      set({ sessions: data, sessionsLoading: false })
-    } catch {
-      set({ sessionsLoading: false })
+      set({ sessions: data, sessionsLoading: false, sessionsError: null })
+    } catch (error) {
+      set({
+        sessionsLoading: false,
+        sessionsError: error instanceof Error ? error.message : '会话同步失败',
+      })
     }
   },
 
   markSessionRead: async (sessionId) => {
     await wsClient.request({ type: 'widget.sessions.markRead', sessionId })
     set({
-      sessions: get().sessions.flatMap((session) => {
-        if (session.sessionId !== sessionId) return [session]
-        if (session.activityState !== 'running') return []
-        return [{ ...session, unread: false }]
-      }),
+      sessions: get().sessions.map((session) =>
+        session.sessionId === sessionId ? { ...session, unread: false } : session
+      ),
     })
   },
 
@@ -100,7 +103,7 @@ export const useWidgetStore = create<WidgetStore>((set, get) => ({
   setupListeners: () => {
     const refresh = () => {
       const { preferences } = get()
-      void get().fetchSessions(preferences.pinnedProjectId, 'active')
+      void get().fetchSessions(preferences.pinnedProjectId, 'recent')
     }
     const off1 = wsClient.on('agent:status', refresh)
     const off2 = wsClient.on('session:activity', refresh)

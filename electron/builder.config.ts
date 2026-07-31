@@ -41,6 +41,7 @@ const builderConfig: BuilderConfiguration = {
         'setup-submission.js',
         'setup-window.js',
         'widget-preload.cjs',
+        'widget-navigation.js',
         'widget-window.js',
       ],
     },

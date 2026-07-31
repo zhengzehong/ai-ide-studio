@@ -27,6 +27,7 @@ interface WidgetSessionRow {
   closed_at: string | null
   updated_at: string | null
   last_message_at: string | null
+  last_read_at: string | null
   latest_agent_message_at: string | null
   latest_done_event_at: string | null
   activity_state: 'running' | 'idle'
@@ -63,6 +64,7 @@ function listWidgetSessions(projectId?: string): WidgetSessionRow[] {
       s.closed_at,
       s.updated_at,
       s.last_message_at,
+      s.last_read_at,
       (
         SELECT MAX(m.timestamp)
         FROM messages m
@@ -96,10 +98,8 @@ function latestTimestamp(left: string | null, right: string | null): string | nu
 }
 
 function isWidgetSessionUnread(row: WidgetSessionRow): boolean {
-  const completedAt = latestTimestamp(row.latest_agent_message_at, row.latest_done_event_at)
-  if (!completedAt) return false
-  const readAt = widgetStateStore.getReadAt(row.session_id)
-  return !readAt || completedAt > readAt
+  if (!row.last_message_at || !row.last_read_at) return false
+  return Date.parse(row.last_message_at) > Date.parse(row.last_read_at)
 }
 
 function toWidgetSession(row: WidgetSessionRow) {
@@ -135,6 +135,10 @@ export const widgetRpcHandlers: RpcHandlerMap = {
 
     if (filter === 'active') {
       sendResult(sessions.filter((session) => session.activityState === 'running' || session.unread))
+    } else if (filter === 'recent') {
+      sendResult(sessions
+        .filter((session) => session.activityState === 'running' || session.completedAt)
+        .slice(0, 20))
     } else {
       sendResult(sessions)
     }

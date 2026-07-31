@@ -24,7 +24,7 @@ export default function WidgetPage() {
     useAgentStore.getState().fetchAgents()
     useWidgetStore.getState().loadPreferences().then(() => {
       const { pinnedProjectId } = useWidgetStore.getState().preferences
-      useWidgetStore.getState().fetchSessions(pinnedProjectId, 'active')
+      useWidgetStore.getState().fetchSessions(pinnedProjectId, 'recent')
       useTaskStore.getState().fetchTasks(pinnedProjectId || undefined)
     })
     const off1 = useWidgetStore.getState().setupListeners()
