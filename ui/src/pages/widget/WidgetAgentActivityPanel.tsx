@@ -3,10 +3,9 @@ import { Bot, GitBranch, PanelTopOpen, RefreshCw } from 'lucide-react'
 import { ICON_MAP, type IconName } from '../../components/agent-square/constants'
 import { useWidgetStore, type WidgetAgentActivityItem, type WidgetAgentActivityState } from '../../stores/widget.store'
 import { formatTimeAgo } from './format'
+import { getActivityFilterLabel, getNextActivityFilter, type ActivityFilter } from './activity-filter'
 import { electronApi } from './types'
 import { openWidgetSession } from './widget-session-action'
-
-type ActivityFilter = 'all' | WidgetAgentActivityState
 
 const STATE_LABELS: Record<WidgetAgentActivityState, string> = {
   running: '正在执行',
@@ -43,19 +42,6 @@ export function WidgetAgentActivityPanel() {
 
   return (
     <>
-      <section className="widget-toolbar" aria-labelledby="widget-activity-title">
-        <div className="widget-heading">
-          <h1 id="widget-activity-title">Agent 动态</h1>
-          <p>{loading ? '正在同步...' : `按最近活跃时间排列 · ${visibleActivities.length} 个结果`}</p>
-        </div>
-        <select className="widget-status-select" value={filter} onChange={(event) => setFilter(event.target.value as ActivityFilter)} aria-label="筛选 Agent 状态">
-          <option value="all">全部状态</option>
-          <option value="running">运行中</option>
-          <option value="needs_input">待处理</option>
-          <option value="idle">已完成</option>
-        </select>
-      </section>
-
       {(error || navigationError) && (
         <div className="widget-inline-error" role="alert">
           <span>{navigationError || error}</span>
@@ -87,6 +73,15 @@ export function WidgetAgentActivityPanel() {
           <span>·</span><strong>{runningCount}</strong> 个运行中
           <span>·</span><strong>{needsInputCount}</strong> 个待处理
         </div>
+        <button
+          className="widget-status-cycle"
+          type="button"
+          onClick={() => setFilter(getNextActivityFilter(filter))}
+          title="切换 Agent 状态"
+          aria-label={`Agent 状态筛选：${getActivityFilterLabel(filter)}，点击切换`}
+        >
+          {getActivityFilterLabel(filter)}
+        </button>
         {api && (
           <button className="widget-open-main" onClick={() => void api.openMain()} title="打开主窗口" aria-label="打开主窗口">
             <PanelTopOpen size={17} />

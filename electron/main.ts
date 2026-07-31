@@ -30,7 +30,8 @@ import {
 } from './desktop-target.js'
 import { closeDesktopSetupWindow, showDesktopSetupWindow } from './setup-window.js'
 import { runLoadRecovery, type LoadRecoveryChoice } from './load-recovery.js'
-import { createWidgetWindow, toggleWidgetPin, hideWidget, showWidget, getWidgetWindow } from './widget-window.js'
+import { attachMainWindowExit } from './main-window-exit.js'
+import { createWidgetWindow, isWidgetPinned, toggleWidgetPin, hideWidget, showWidget, getWidgetWindow } from './widget-window.js'
 import { createWidgetNavigationUrl, type WidgetNavigationTarget } from './widget-navigation.js'
 
 const electronDir = dirname(fileURLToPath(import.meta.url))
@@ -165,11 +166,19 @@ function createWindow(target: DesktopRuntimeTarget): BrowserWindow {
     },
   })
   restrictWindowNavigation(window, target.origin)
-  window.on('closed', () => { mainWindow = null })
+  attachMainWindowExit(window, {
+    clearMainWindow: () => { mainWindow = null },
+    isQuitting: () => isQuitting,
+    quitApp: () => app.quit(),
+  })
   return window
 }
 
 function setupWidgetIpc(target: DesktopRuntimeTarget): void {
+  ipcMain.handle('widget:get-pin-state', (event) => {
+    assertTrustedWidgetSender(event, target)
+    return isWidgetPinned()
+  })
   ipcMain.handle('widget:toggle-pin', (event) => {
     assertTrustedWidgetSender(event, target)
     return toggleWidgetPin()
