@@ -39,20 +39,22 @@ export function WidgetHeader() {
   return (
     <header className="widget-titlebar">
       <span className="widget-brand-mark" aria-hidden="true"><Sparkles size={15} /></span>
-      <select className="widget-project-select" value={pinnedProjectId || ''} onChange={handleProjectChange} aria-label="选择项目">
-        <option value="">全部项目</option>
-        {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
-      </select>
-      <span className={`widget-connection widget-connection--${connected ? 'online' : authError ? 'error' : 'pending'}`}>
-        <span className="widget-connection-dot" />
-        <span className="widget-connection-label">{connectionLabel}</span>
-      </span>
-      {api && (
-        <>
+      <div className="widget-header-actions">
+        <select className="widget-project-select" value={pinnedProjectId || ''} onChange={handleProjectChange} aria-label="选择项目">
+          <option value="">全部项目</option>
+          {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+        </select>
+        <span className={`widget-connection widget-connection--${connected ? 'online' : authError ? 'error' : 'pending'}`}>
+          <span className="widget-connection-dot" />
+          <span className="widget-connection-label">{connectionLabel}</span>
+        </span>
+        {api && (
+          <>
           <WidgetPinButton pinned={pinned} onToggle={() => void handlePinToggle()} />
           <button className="widget-icon-button" onClick={() => void api.minimize()} title="隐藏组件" aria-label="隐藏组件"><Minus size={17} /></button>
-        </>
-      )}
+          </>
+        )}
+      </div>
     </header>
   )
 }

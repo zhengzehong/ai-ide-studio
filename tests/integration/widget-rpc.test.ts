@@ -7,6 +7,8 @@ import { closeDatabase, getDb, initDatabase } from '../../src/store/db.js'
 import { projectStore } from '../../src/store/projects.js'
 import { eventStore, messageStore, sessionStore } from '../../src/store/sessions.js'
 import { taskStore } from '../../src/store/tasks.js'
+import { taskStepStore } from '../../src/store/task-steps.js'
+import { taskStepManager } from '../../src/core/task-steps.js'
 import { events } from '../../src/core/events.js'
 import { widgetRpcHandlers } from '../../src/gateway/rpc/widget.js'
 import type { RpcContext } from '../../src/gateway/rpc/types.js'
@@ -276,6 +278,7 @@ describe('widget Agent activity RPC', () => {
     const project = projectStore.create({ name: 'Activity Project', workDir: 'D:/work/activity' })
     const agent = agentStore.create({ name: 'Activity Agent', type: 'dev', runtime: 'mock', projectId: project.id })
     const runningTask = taskStore.create({ title: 'Active implementation', projectId: project.id, assignAgentId: agent.id })
+    taskStore.assignAgent(runningTask.id, agent.id)
     const runningSession = sessionStore.create({ agentId: agent.id, taskId: runningTask.id, projectId: project.id })
     messageStore.append(runningSession.id, { role: 'agent', content: 'working', status: 'running' })
     const recentSession = sessionStore.create({ agentId: agent.id, projectId: project.id })
@@ -299,6 +302,7 @@ describe('widget Agent activity RPC', () => {
     const project = projectStore.create({ name: 'Attention Project', workDir: 'D:/work/attention' })
     const agent = agentStore.create({ name: 'Attention Agent', type: 'dev', runtime: 'mock', projectId: project.id })
     const attentionTask = taskStore.create({ title: 'Confirm rollout', projectId: project.id, assignAgentId: agent.id })
+    taskStore.assignAgent(attentionTask.id, agent.id)
     taskStore.update(attentionTask.id, { status: 'needs_input' })
     const attentionSession = sessionStore.create({ agentId: agent.id, taskId: attentionTask.id, projectId: project.id })
     messageStore.append(attentionSession.id, { role: 'agent', content: 'need approval', status: 'completed' })
@@ -339,6 +343,141 @@ describe('widget Agent activity RPC', () => {
     const rows = await callWidgetRpc('widget.agentActivity.list', { projectId: projectA.id }) as Array<Record<string, unknown>>
 
     expect(rows.map((row) => row.agentId)).toEqual([newerAgent.id, olderAgent.id])
+  })
+
+  test('associates the latest Task assigned to an Agent today when its Session has no task_id', async () => {
+    const project = projectStore.create({ name: 'Today Project', workDir: 'D:/work/today' })
+    const agent = agentStore.create({ name: 'Today Agent', type: 'dev', runtime: 'mock', projectId: project.id })
+    const session = sessionStore.create({ agentId: agent.id, projectId: project.id })
+    messageStore.append(session.id, { role: 'agent', content: 'recent result', status: 'completed' })
+    const older = taskStore.create({ title: 'Earlier today', projectId: project.id })
+    taskStore.assignAgent(older.id, agent.id)
+    const latest = taskStore.create({ title: 'Latest today', projectId: project.id })
+    taskStore.assignAgent(latest.id, agent.id)
+
+    const rows = await callWidgetRpc('widget.agentActivity.list', { projectId: project.id }) as Array<Record<string, unknown>>
+
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({
+      sessionId: session.id,
+      taskId: latest.id,
+      taskTitle: 'Latest today',
+    })
+  })
+
+  test('associates a Task through an Agent-owned step', async () => {
+    const project = projectStore.create({ name: 'Step Project', workDir: 'D:/work/step' })
+    const agent = agentStore.create({ name: 'Step Agent', type: 'dev', runtime: 'mock', projectId: project.id })
+    const session = sessionStore.create({ agentId: agent.id, projectId: project.id })
+    messageStore.append(session.id, { role: 'agent', content: 'step result', status: 'completed' })
+    const task = taskStore.create({ title: 'Step-owned Task', projectId: project.id })
+    taskStepStore.create({
+      taskId: task.id,
+      title: 'Implement',
+      assigneeAgentId: agent.id,
+      sessionId: session.id,
+    })
+
+    const rows = await callWidgetRpc('widget.agentActivity.list', { projectId: project.id }) as Array<Record<string, unknown>>
+
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({
+      taskId: task.id,
+      taskTitle: 'Step-owned Task',
+    })
+  })
+
+  test('does not associate a Task that was assigned before today', async () => {
+    const project = projectStore.create({ name: 'Old Task Project', workDir: 'D:/work/old-task' })
+    const agent = agentStore.create({ name: 'Old Task Agent', type: 'dev', runtime: 'mock', projectId: project.id })
+    const session = sessionStore.create({ agentId: agent.id, projectId: project.id })
+    messageStore.append(session.id, { role: 'agent', content: 'recent result', status: 'completed' })
+    const task = taskStore.create({ title: 'Yesterday Task', projectId: project.id })
+    taskStore.assignAgent(task.id, agent.id)
+    getDb().prepare('UPDATE tasks SET created_at = ? WHERE id = ?')
+      .run('2000-01-01T00:00:00.000Z', task.id)
+    getDb().prepare('UPDATE task_events SET created_at = ? WHERE task_id = ?')
+      .run('2000-01-01T00:00:00.000Z', task.id)
+
+    const rows = await callWidgetRpc('widget.agentActivity.list', { projectId: project.id }) as Array<Record<string, unknown>>
+
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({
+      taskId: null,
+      taskTitle: null,
+      taskStatus: null,
+    })
+  })
+
+  test('associates an older Team Task reassigned to the Agent today', async () => {
+    const project = projectStore.create({ name: 'Reassigned Project', workDir: 'D:/work/reassigned' })
+    const agent = agentStore.create({ name: 'Reassigned Agent', type: 'dev', runtime: 'mock', projectId: project.id })
+    const session = sessionStore.create({ agentId: agent.id, projectId: project.id })
+    messageStore.append(session.id, { role: 'agent', content: 'reassigned result', status: 'completed' })
+    const task = taskStore.create({ title: 'Reassigned today', projectId: project.id })
+    getDb().prepare('UPDATE tasks SET created_at = ? WHERE id = ?')
+      .run('2000-01-01T00:00:00.000Z', task.id)
+
+    taskStore.update(task.id, { assignAgentId: agent.id })
+    const rows = await callWidgetRpc('widget.agentActivity.list', { projectId: project.id }) as Array<Record<string, unknown>>
+
+    expect(rows[0]).toMatchObject({
+      taskId: task.id,
+      taskTitle: 'Reassigned today',
+    })
+  })
+
+  test('associates an older step reassigned to the Agent today', async () => {
+    const project = projectStore.create({ name: 'Step Reassignment Project', workDir: 'D:/work/step-reassignment' })
+    const previousAgent = agentStore.create({ name: 'Previous Agent', type: 'dev', runtime: 'mock', projectId: project.id })
+    const agent = agentStore.create({ name: 'New Step Agent', type: 'dev', runtime: 'mock', projectId: project.id })
+    const session = sessionStore.create({ agentId: agent.id, projectId: project.id })
+    messageStore.append(session.id, { role: 'agent', content: 'step reassigned result', status: 'completed' })
+    const task = taskStore.create({ title: 'Step reassigned today', projectId: project.id })
+    const step = taskStepStore.create({
+      taskId: task.id,
+      title: 'Older step',
+      assigneeAgentId: previousAgent.id,
+    })
+    getDb().prepare('UPDATE task_steps SET created_at = ?, updated_at = ? WHERE id = ?')
+      .run('2000-01-01T00:00:00.000Z', '2000-01-01T00:00:00.000Z', step.id)
+
+    taskStepManager.updateStep({ taskId: task.id, stepId: step.id, assignee: agent.id })
+    const rows = await callWidgetRpc('widget.agentActivity.list', { projectId: project.id }) as Array<Record<string, unknown>>
+
+    expect(rows[0]).toMatchObject({
+      taskId: task.id,
+      taskTitle: 'Step reassigned today',
+    })
+  })
+
+  test('does not treat editing an older step as assigning it today', async () => {
+    const project = projectStore.create({ name: 'Step Edit Project', workDir: 'D:/work/step-edit' })
+    const agent = agentStore.create({ name: 'Step Edit Agent', type: 'dev', runtime: 'mock', projectId: project.id })
+    const session = sessionStore.create({ agentId: agent.id, projectId: project.id })
+    messageStore.append(session.id, { role: 'agent', content: 'older step result', status: 'completed' })
+    const task = taskStore.create({ title: 'Older assigned step', projectId: project.id })
+    const step = taskStepStore.create({
+      taskId: task.id,
+      title: 'Original title',
+      assigneeAgentId: agent.id,
+    })
+    getDb().prepare('UPDATE task_steps SET created_at = ?, updated_at = ? WHERE id = ?')
+      .run('2000-01-01T00:00:00.000Z', '2000-01-01T00:00:00.000Z', step.id)
+
+    taskStepManager.updateStep({
+      taskId: task.id,
+      stepId: step.id,
+      title: 'Edited today',
+      assignee: agent.id,
+    })
+    const rows = await callWidgetRpc('widget.agentActivity.list', { projectId: project.id }) as Array<Record<string, unknown>>
+
+    expect(rows[0]).toMatchObject({
+      taskId: null,
+      taskTitle: null,
+      taskStatus: null,
+    })
   })
 
   test('limits the activity view to twenty Agents', async () => {

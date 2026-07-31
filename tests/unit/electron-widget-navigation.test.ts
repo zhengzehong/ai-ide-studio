@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { createWidgetNavigationUrl } from '../../electron/widget-navigation.js'
+import { createWidgetNavigationPath, createWidgetNavigationUrl } from '../../electron/widget-navigation.js'
 
 describe('Electron Widget navigation', () => {
   test('builds a project-scoped Workspace URL for a Session', () => {
@@ -7,6 +7,13 @@ describe('Electron Widget navigation', () => {
       projectId: 'project/a',
       sessionId: 'session-1',
     })).toBe('https://studio.example/p/project%2Fa/workspace?sessionId=session-1')
+  })
+
+  test('builds a relative route for renderer-side navigation', () => {
+    expect(createWidgetNavigationPath({
+      projectId: 'project/a',
+      sessionId: 'session-1',
+    })).toBe('/p/project%2Fa/workspace?sessionId=session-1')
   })
 
   test('falls back to the legacy Workspace only when a Session has no project', () => {
@@ -18,5 +25,6 @@ describe('Electron Widget navigation', () => {
 
   test('does not create a navigation URL without a Session target', () => {
     expect(createWidgetNavigationUrl('http://127.0.0.1:18900')).toBeNull()
+    expect(createWidgetNavigationPath()).toBeNull()
   })
 })

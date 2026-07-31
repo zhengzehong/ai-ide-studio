@@ -1,5 +1,5 @@
 import { Suspense, useEffect, useRef } from 'react'
-import { BrowserRouter, Navigate, Routes, Route, useLocation } from 'react-router-dom'
+import { BrowserRouter, Navigate, Routes, Route, useLocation, useNavigate } from 'react-router-dom'
 import { AppLayout } from './components/layout/AppLayout'
 import {
   AccessTokenPage,
@@ -25,6 +25,7 @@ import { useConnectionStore } from './stores/connection.store'
 import { ProjectScopeLayout } from './components/project/ProjectScopeLayout'
 import { LegacyProjectRedirect } from './components/project/LegacyProjectRedirect'
 import { shouldShowAccessTokenPage } from './app-shell-state'
+import { getElectronDesktopBridge, subscribeDesktopNavigation } from './services/electron-desktop'
 
 export default function App() {
   const init = useConnectionStore((s) => s.init)
@@ -65,6 +66,7 @@ export default function App() {
         <AccessTokenPage />
       ) : (
         <BrowserRouter>
+          <DesktopNavigationListener />
           <RouteCommitMarker />
           <Routes>
             <Route path="/share/:token" element={<GuestChatPage />} />
@@ -101,6 +103,13 @@ export default function App() {
       )}
     </Suspense>
   )
+}
+
+function DesktopNavigationListener() {
+  const navigate = useNavigate()
+
+  useEffect(() => subscribeDesktopNavigation(getElectronDesktopBridge(), navigate), [navigate])
+  return null
 }
 
 function RouteLoading() {

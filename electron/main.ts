@@ -7,6 +7,7 @@ import {
   Menu,
   nativeImage,
   type IpcMainInvokeEvent,
+  type IpcMainEvent,
   type MenuItemConstructorOptions,
 } from 'electron'
 import { spawn, type ChildProcess } from 'child_process'
@@ -20,7 +21,7 @@ import { DesktopConnectionStore, type DesktopConnectionProfile } from './desktop
 import { probeDesktopConnection } from './desktop-connection-probe.js'
 import { createDesktopCredentialProtector } from './desktop-credentials.js'
 import { registerDesktopIpc } from './desktop-ipc.js'
-import { isTrustedDesktopIpcSender, isWidgetPath } from './desktop-ipc-policy.js'
+import { isDesktopApplicationPath, isTrustedDesktopIpcSender, isWidgetPath } from './desktop-ipc-policy.js'
 import { restrictWindowNavigation } from './desktop-security.js'
 import {
   createDesktopUrl,
@@ -31,8 +32,13 @@ import {
 import { closeDesktopSetupWindow, showDesktopSetupWindow } from './setup-window.js'
 import { runLoadRecovery, type LoadRecoveryChoice } from './load-recovery.js'
 import { attachMainWindowExit } from './main-window-exit.js'
+import {
+  createMainWindowPresentation,
+  navigateMainWindow,
+  type MainWindowPresentation,
+} from './main-window-navigation.js'
 import { createWidgetWindow, isWidgetPinned, toggleWidgetPin, hideWidget, showWidget, getWidgetWindow } from './widget-window.js'
-import { createWidgetNavigationUrl, type WidgetNavigationTarget } from './widget-navigation.js'
+import { createWidgetNavigationPath, type WidgetNavigationTarget } from './widget-navigation.js'
 
 const electronDir = dirname(fileURLToPath(import.meta.url))
 
@@ -42,9 +48,12 @@ app.commandLine.appendSwitch('disable-gpu-compositing')
 app.commandLine.appendSwitch('disable-gpu-sandbox')
 
 let mainWindow: BrowserWindow | null = null
+let mainWindowPresentation: MainWindowPresentation | null = null
 let backendProcess: ChildProcess | null = null
 let isQuitting = false
 let trayRef: Tray | null = null
+let desktopNavigationSequence = 0
+const pendingDesktopNavigations = new Map<string, { resolve(): void; reject(): void; timer: NodeJS.Timeout }>()
 
 async function main(): Promise<void> {
   await app.whenReady()
@@ -166,8 +175,12 @@ function createWindow(target: DesktopRuntimeTarget): BrowserWindow {
     },
   })
   restrictWindowNavigation(window, target.origin)
+  mainWindowPresentation = createMainWindowPresentation(window)
   attachMainWindowExit(window, {
-    clearMainWindow: () => { mainWindow = null },
+    clearMainWindow: () => {
+      mainWindow = null
+      mainWindowPresentation = null
+    },
     isQuitting: () => isQuitting,
     quitApp: () => app.quit(),
   })
@@ -175,6 +188,14 @@ function createWindow(target: DesktopRuntimeTarget): BrowserWindow {
 }
 
 function setupWidgetIpc(target: DesktopRuntimeTarget): void {
+  ipcMain.on('desktop:navigation-applied', (event, navigationId: string) => {
+    if (!isTrustedMainWindowSender(event, target)) return
+    const pending = pendingDesktopNavigations.get(navigationId)
+    if (!pending) return
+    clearTimeout(pending.timer)
+    pendingDesktopNavigations.delete(navigationId)
+    pending.resolve()
+  })
   ipcMain.handle('widget:get-pin-state', (event) => {
     assertTrustedWidgetSender(event, target)
     return isWidgetPinned()
@@ -192,10 +213,16 @@ function setupWidgetIpc(target: DesktopRuntimeTarget): void {
     const window = mainWindow
     if (!window || window.isDestroyed()) return { ok: false, error: '主窗口尚未就绪' }
     try {
-      const destinationUrl = createWidgetNavigationUrl(target.origin, destination)
-      if (destinationUrl) await window.loadURL(destinationUrl)
-      window.show()
-      window.focus()
+      const destinationPath = createWidgetNavigationPath(destination)
+      if (destinationPath) {
+        await navigateMainWindow(
+          window,
+          target.origin,
+          destinationPath,
+          (path) => requestDesktopNavigation(window, path),
+        )
+      }
+      mainWindowPresentation?.showAndFocus()
       return { ok: true }
     } catch {
       return { ok: false, error: '主窗口加载失败，请重试' }
@@ -285,8 +312,31 @@ function createTray(widgetEnabled: boolean): void {
 }
 
 function showMainWindow(): void {
-  mainWindow?.show()
-  mainWindow?.focus()
+  mainWindowPresentation?.showAndFocus()
+}
+
+function requestDesktopNavigation(window: BrowserWindow, path: string): Promise<void> {
+  const navigationId = `desktop-nav-${Date.now()}-${++desktopNavigationSequence}`
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      pendingDesktopNavigations.delete(navigationId)
+      reject()
+    }, 1_500)
+    pendingDesktopNavigations.set(navigationId, { resolve, reject, timer })
+    window.webContents.send('desktop:navigate', { id: navigationId, path })
+  })
+}
+
+function isTrustedMainWindowSender(event: IpcMainEvent, target: DesktopRuntimeTarget): boolean {
+  const window = mainWindow
+  return Boolean(window && isTrustedDesktopIpcSender({
+    senderId: event.sender.id,
+    allowedSenderIds: new Set([window.webContents.id]),
+    isMainFrame: event.senderFrame === event.sender.mainFrame,
+    frameUrl: event.senderFrame?.url ?? '',
+    allowedOrigin: target.origin,
+    allowedPath: isDesktopApplicationPath,
+  }))
 }
 
 function toggleWidgetVisibility(): void {
