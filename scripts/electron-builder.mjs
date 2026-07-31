@@ -19,6 +19,7 @@ const builderConfig = {
         'desktop-connection-probe.js',
         'desktop-connection.js',
         'desktop-credentials.js',
+        'desktop-icon.js',
         'desktop-ipc.js',
         'desktop-ipc-policy.js',
         'desktop-preload.cjs',
@@ -49,6 +50,7 @@ const builderConfig = {
     { from: electronBuildDir, to: 'app/electron', filter: ['backend-main.js'] },
     { from: 'ui/dist', to: 'app/ui/dist' },
     { from: 'mobile/dist', to: 'app/mobile/dist' },
+    { from: 'ui/public/app-icon.png', to: 'app-icon.png' },
   ],
   asar: false,
   asarUnpack: [
@@ -59,6 +61,7 @@ const builderConfig = {
     { from: process.execPath, to: 'resources/node/node.exe' },
   ],
   win: {
+    icon: 'ui/public/app-icon.png',
     target: ['nsis', 'portable'],
   },
 }

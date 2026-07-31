@@ -66,6 +66,13 @@ describe('Electron backend launch options', () => {
 })
 
 describe('Electron builder config', () => {
+  test('embeds the shared desktop icon in Windows packages', () => {
+    expect(builderConfig.win.icon).toBe('ui/public/app-icon.png')
+    expect(builderConfig.extraResources).toEqual(expect.arrayContaining([
+      { from: 'ui/public/app-icon.png', to: 'app-icon.png' },
+    ]))
+  })
+
   test('packages every Electron main-process module imported by main.js', () => {
     const electronDistEntry = builderConfig.files.find((entry) =>
       typeof entry !== 'string' && entry.to === 'electron/dist'
@@ -77,6 +84,7 @@ describe('Electron builder config', () => {
     expect(electronDistEntry.filter).toEqual(expect.arrayContaining([
       'backend-launch.js',
       'desktop-connection.js',
+      'desktop-icon.js',
       'desktop-ipc.js',
       'desktop-ipc-policy.js',
       'desktop-preload.cjs',

@@ -10,6 +10,7 @@ const files = [
   'desktop-connection-probe.js',
   'desktop-connection.js',
   'desktop-credentials.js',
+  'desktop-icon.js',
   'desktop-ipc.js',
   'desktop-ipc-policy.js',
   'desktop-preload.cjs',

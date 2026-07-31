@@ -9,6 +9,7 @@ interface WidgetConfig {
   target: DesktopRuntimeTarget
   electronDir: string
   userDataDir: string
+  iconPath?: string
 }
 
 const WIDGET_WIDTH = 390
@@ -55,6 +56,7 @@ export function createWidgetWindow(config: WidgetConfig): BrowserWindow {
     resizable: false,
     transparent: true,
     hasShadow: false,
+    icon: config.iconPath,
     webPreferences: {
       preload: join(config.electronDir, 'widget-preload.cjs'),
       contextIsolation: true,
