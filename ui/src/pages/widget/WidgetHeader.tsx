@@ -1,12 +1,18 @@
 import { useEffect, useState } from 'react'
-import { Minus } from 'lucide-react'
+import { Minus, Palette } from 'lucide-react'
 import { useConnectionStore } from '../../stores/connection.store'
 import { useProjectStore } from '../../stores/project.store'
 import { useWidgetStore } from '../../stores/widget.store'
 import { electronApi } from './types'
 import { WidgetPinButton } from './WidgetPinButton'
+import { getNextWidgetTheme, WIDGET_THEME_LABELS, type WidgetTheme } from './widget-theme'
 
-export function WidgetHeader() {
+interface WidgetHeaderProps {
+  theme: WidgetTheme
+  onCycleTheme(): void
+}
+
+export function WidgetHeader({ theme, onCycleTheme }: WidgetHeaderProps) {
   const api = electronApi
   const projects = useProjectStore((state) => state.projects)
   const pinnedProjectId = useWidgetStore((state) => state.preferences.pinnedProjectId)
@@ -35,6 +41,7 @@ export function WidgetHeader() {
     if (!api) return
     setPinned(await api.togglePin())
   }
+  const nextTheme = getNextWidgetTheme(theme)
 
   return (
     <header className="widget-titlebar">
@@ -48,10 +55,20 @@ export function WidgetHeader() {
           <span className="widget-connection-dot" />
           <span className="widget-connection-label">{connectionLabel}</span>
         </span>
+        <button
+          className="widget-icon-button widget-theme-cycle"
+          type="button"
+          onClick={onCycleTheme}
+          title={`当前${WIDGET_THEME_LABELS[theme]}，点击切换为${WIDGET_THEME_LABELS[nextTheme]}`}
+          aria-label={`Widget 主题：${WIDGET_THEME_LABELS[theme]}，点击切换`}
+        >
+          <Palette size={14} />
+          <span className="widget-theme-indicator" aria-hidden="true" />
+        </button>
         {api && (
           <>
           <WidgetPinButton pinned={pinned} onToggle={() => void handlePinToggle()} />
-          <button className="widget-icon-button" onClick={() => void api.minimize()} title="隐藏组件" aria-label="隐藏组件"><Minus size={17} /></button>
+          <button className="widget-icon-button" onClick={() => void api.minimize()} title="隐藏组件" aria-label="隐藏组件"><Minus size={15} /></button>
           </>
         )}
       </div>

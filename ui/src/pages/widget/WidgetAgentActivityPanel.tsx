@@ -77,7 +77,7 @@ export function WidgetAgentActivityPanel() {
         </button>
         {api && (
           <button className="widget-open-main" onClick={() => void api.openMain()} title="打开主窗口" aria-label="打开主窗口">
-            <PanelTopOpen size={17} />
+            <PanelTopOpen size={15} />
           </button>
         )}
       </footer>

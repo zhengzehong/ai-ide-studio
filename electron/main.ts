@@ -22,6 +22,7 @@ import { probeDesktopConnection } from './desktop-connection-probe.js'
 import { createDesktopCredentialProtector } from './desktop-credentials.js'
 import { registerDesktopIpc } from './desktop-ipc.js'
 import { resolveDesktopIconPath } from './desktop-icon.js'
+import { createMainWindowWebPreferences } from './desktop-window-settings.js'
 import { isDesktopApplicationPath, isTrustedDesktopIpcSender, isWidgetPath } from './desktop-ipc-policy.js'
 import { restrictWindowNavigation } from './desktop-security.js'
 import {
@@ -171,11 +172,7 @@ function createWindow(target: DesktopRuntimeTarget): BrowserWindow {
     minWidth: 1024,
     minHeight: 720,
     icon: getDesktopIconPath(),
-    webPreferences: {
-      preload: join(electronDir, 'desktop-preload.cjs'),
-      contextIsolation: true,
-      nodeIntegration: false,
-    },
+    webPreferences: createMainWindowWebPreferences(join(electronDir, 'desktop-preload.cjs')),
   })
   restrictWindowNavigation(window, target.origin)
   mainWindowPresentation = createMainWindowPresentation(window)

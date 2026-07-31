@@ -16,7 +16,7 @@ class FakeBrowserWindow {
   isDestroyed = vi.fn(() => false)
   isAlwaysOnTop = vi.fn(() => this.alwaysOnTop)
   setAlwaysOnTop = vi.fn((value: boolean) => { this.alwaysOnTop = value })
-  getBounds = vi.fn(() => ({ x: 0, y: 0 }))
+  getBounds = vi.fn(() => ({ x: 0, y: 0, width: 300, height: 360 }))
   hide = vi.fn()
   show = vi.fn()
   isVisible = vi.fn(() => true)
@@ -55,6 +55,7 @@ describe('Electron Widget pin state', () => {
     expect(windows[0]?.setAlwaysOnTop).toHaveBeenNthCalledWith(1, false)
     expect(windows[0]?.setAlwaysOnTop).toHaveBeenNthCalledWith(2, true)
     expect(windows[0]?.options).toMatchObject({ icon: 'C:/resources/app-icon.png' })
+    expect(windows[0]?.options).toMatchObject({ width: 300, height: 360, x: 1600, y: 700 })
   })
 })
 
