@@ -53,7 +53,7 @@ npm start          # 运行编译后的 Gateway
 
 ```bash
 npm run dev:electron          # 启动开发版 Electron
-npm run build:electron        # 构建桌面安装包
+npm run package:desktop       # 保留 release/*.apk，构建安装版、便携版和 win-unpacked
 ```
 
 桌面端首次启动时选择“本机一体化”或“远程服务器”。本机一体化由 Electron 启动并管理内置后端；远程服务器模式只加载服务器提供的 PC UI，不会启动本机后端。远程地址填写 origin（例如 `https://ide.example.com`）和服务器的访问密钥。
