@@ -15,7 +15,7 @@ const builderConfig: BuilderConfiguration = {
   appId: 'studio.ai-ide.desktop',
   productName: 'AI IDE Studio',
   directories: {
-    output: 'release',
+    output: process.env.AI_IDE_ELECTRON_OUTPUT_DIR || 'release',
   },
   files: [
     'dist/**',

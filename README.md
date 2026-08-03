@@ -97,6 +97,7 @@ npm run dev:mobile   # 移动端开发服务器
 npm run dev:all      # 全栈开发
 npm run build        # 生产构建（后端 + PC 端 + 移动端）
 npm run build:mobile # 仅构建移动端
+npm run package:desktop # 保留 release 中的 APK，重新生成桌面三种交付产物
 npm test             # 运行所有测试
 npm run lint         # ESLint 检查
 npm run format       # Prettier 格式化

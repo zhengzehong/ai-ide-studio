@@ -1,10 +1,11 @@
 const electronBuildDir = process.env.AI_IDE_ELECTRON_BUILD_DIR || 'electron/dist'
+const electronOutputDir = process.env.AI_IDE_ELECTRON_OUTPUT_DIR || 'release'
 
 const builderConfig = {
   appId: 'studio.ai-ide.desktop',
   productName: 'AI IDE Studio',
   directories: {
-    output: 'release',
+    output: electronOutputDir,
   },
   files: [
     'dist/**',
