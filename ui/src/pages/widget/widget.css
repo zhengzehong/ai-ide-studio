@@ -356,17 +356,17 @@
 }
 
 .widget-session-activity-list {
-  margin: 2px 0 0 35px;
+  margin: 2px 0 0 4px;
 }
 
 .widget-session-activity-row {
   width: 100%;
   height: 34px;
   display: grid;
-  grid-template-columns: 48px minmax(0, 1fr) auto;
+  grid-template-columns: 42px minmax(0, 1fr) 30px;
   align-items: center;
-  gap: 7px;
-  padding: 0 5px;
+  gap: 4px;
+  padding: 0 3px;
   border: 0;
   border-radius: 6px;
   background: transparent;
@@ -450,6 +450,7 @@
   color: var(--widget-ink-faint);
   font-size: 10px;
   font-variant-numeric: tabular-nums;
+  text-align: right;
   white-space: nowrap;
 }
 
@@ -678,8 +679,6 @@
   .widget-connection-label,
   .widget-agent-project { display: none; }
   .widget-content { padding-left: 8px; }
-  .widget-session-activity-row { grid-template-columns: 48px minmax(0, 1fr); }
-  .widget-session-time { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
