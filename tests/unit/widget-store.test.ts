@@ -11,28 +11,44 @@ vi.mock('../../ui/src/services/ws-client', () => ({
 
 const { useWidgetStore } = await import('../../ui/src/stores/widget.store.ts')
 
-const activity = {
-  sessionId: 'sess-unread',
+const activityGroup = {
+  groupId: 'agent-1:project-1',
   agentId: 'agent-1',
   agentName: 'Codex',
   agentIcon: null,
-  projectId: 'proj-1',
+  projectId: 'project-1',
   projectName: 'Project',
-  taskId: 'task-1',
-  taskTitle: 'Fix issue',
-  taskStatus: 'running',
-  sessionTitle: 'Session title',
-  status: 'active',
-  activityState: 'idle' as const,
-  stage: '',
-  unread: true,
-  unreadCount: 2,
-  startedAt: '2026-06-08T00:00:00.000Z',
-  updatedAt: '2026-06-08T00:00:01.000Z',
-  lastMessageAt: '2026-06-08T00:00:01.000Z',
-  completedAt: '2026-06-08T00:00:01.000Z',
-  closedAt: null,
-  activityAt: '2026-06-08T00:00:01.000Z',
+  activityAt: '2026-08-03T00:00:02.000Z',
+  sessions: [
+    {
+      sessionId: 'session-unread',
+      taskId: 'task-1',
+      taskTitle: 'Fix issue',
+      taskStatus: 'completed',
+      sessionTitle: 'Unread Session',
+      status: 'active',
+      stage: '',
+      running: false,
+      unread: true,
+      needsInput: false,
+      attentionState: 'unread' as const,
+      activityAt: '2026-08-03T00:00:02.000Z',
+    },
+    {
+      sessionId: 'session-running',
+      taskId: null,
+      taskTitle: null,
+      taskStatus: null,
+      sessionTitle: 'Running Session',
+      status: 'active',
+      stage: '',
+      running: true,
+      unread: false,
+      needsInput: false,
+      attentionState: 'running' as const,
+      activityAt: '2026-08-03T00:00:01.000Z',
+    },
+  ],
 }
 
 beforeEach(() => {
@@ -40,43 +56,60 @@ beforeEach(() => {
   wsMock.request.mockResolvedValue({ ok: true })
   wsMock.on.mockClear()
   useWidgetStore.setState({
-    activities: [],
+    activityGroups: [],
     activitiesLoading: false,
     activitiesError: null,
     preferences: { pinnedProjectId: null, pinnedAgentId: null },
     preferencesLoaded: false,
   })
 })
-
 describe('widget store', () => {
-  test('loads the Agent activity read model', async () => {
-    wsMock.request.mockResolvedValueOnce([activity])
+  test('loads the grouped Session activity read model', async () => {
+    wsMock.request.mockResolvedValueOnce([activityGroup])
 
-    await useWidgetStore.getState().fetchActivities('proj-1')
+    await useWidgetStore.getState().fetchActivities('project-1')
 
     expect(wsMock.request).toHaveBeenCalledWith({
-      type: 'widget.agentActivity.list',
-      projectId: 'proj-1',
+      type: 'widget.sessionActivity.list',
+      projectId: 'project-1',
     })
     expect(useWidgetStore.getState()).toMatchObject({
-      activities: [{ agentId: 'agent-1', taskTitle: 'Fix issue' }],
+      activityGroups: [{ agentId: 'agent-1', sessions: [{ sessionId: 'session-unread' }, { sessionId: 'session-running' }] }],
       activitiesLoading: false,
       activitiesError: null,
     })
   })
 
-  test('keeps the Agent row after marking its representative Session read', async () => {
-    useWidgetStore.setState({ activities: [activity] })
+  test('removes only the read-only Session after opening it', async () => {
+    useWidgetStore.setState({ activityGroups: [activityGroup] })
 
-    await useWidgetStore.getState().markSessionRead('sess-unread')
+    await useWidgetStore.getState().markSessionRead('session-unread')
 
-    expect(wsMock.request).toHaveBeenCalledWith({ type: 'widget.sessions.markRead', sessionId: 'sess-unread' })
-    expect(useWidgetStore.getState().activities).toMatchObject([
-      { agentId: 'agent-1', unread: false, unreadCount: 1 },
-    ])
+    expect(wsMock.request).toHaveBeenCalledWith({ type: 'widget.sessions.markRead', sessionId: 'session-unread' })
+    expect(useWidgetStore.getState().activityGroups).toMatchObject([{
+      agentId: 'agent-1',
+      sessions: [{ sessionId: 'session-running', running: true }],
+    }])
   })
 
-  test('exposes a retryable error when Agent activity synchronization fails', async () => {
+  test('keeps a running Session after clearing its unread flag', async () => {
+    useWidgetStore.setState({
+      activityGroups: [{
+        ...activityGroup,
+        sessions: [{ ...activityGroup.sessions[1]!, unread: true }],
+      }],
+    })
+
+    await useWidgetStore.getState().markSessionRead('session-running')
+
+    expect(useWidgetStore.getState().activityGroups[0]?.sessions[0]).toMatchObject({
+      sessionId: 'session-running',
+      running: true,
+      unread: false,
+    })
+  })
+
+  test('exposes a retryable error when activity synchronization fails', async () => {
     wsMock.request.mockRejectedValueOnce(new Error('network unavailable'))
 
     await useWidgetStore.getState().fetchActivities('project-1')

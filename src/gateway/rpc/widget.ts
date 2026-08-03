@@ -5,6 +5,7 @@ import { getDb } from '../../store/db.js'
 import { sessionManager } from '../../core/sessions.js'
 import { events } from '../../core/events.js'
 import { buildWidgetAgentActivity } from '../../queries/widget-agent-activity-query.js'
+import { buildWidgetSessionActivityGroups } from '../../queries/widget-session-activity-query.js'
 import {
   localDayStartIso,
   selectLatestWidgetAgentTasks,
@@ -56,6 +57,21 @@ function listWidgetSessions(projectId?: string): WidgetSessionRow[] {
       .map((session) => [session.id, session.activity_state]),
   )
   const sql = `
+    WITH session_links AS (
+      SELECT
+        s.*,
+        COALESCE(
+          s.task_id,
+          (
+            SELECT ts.task_id
+            FROM task_steps ts
+            WHERE ts.session_id = s.id
+            ORDER BY ts.updated_at DESC, ts.id DESC
+            LIMIT 1
+          )
+        ) AS linked_task_id
+      FROM sessions s
+    )
     SELECT
       s.id AS session_id,
       s.agent_id,
@@ -63,7 +79,7 @@ function listWidgetSessions(projectId?: string): WidgetSessionRow[] {
       a.icon AS agent_icon,
       s.project_id,
       p.name AS project_name,
-      s.task_id,
+      s.linked_task_id AS task_id,
       t.title AS task_title,
       t.status AS task_status,
       s.title AS session_title,
@@ -84,10 +100,10 @@ function listWidgetSessions(projectId?: string): WidgetSessionRow[] {
         FROM session_events e
         WHERE e.session_id = s.id AND e.type = 'message.done'
       ) AS latest_done_event_at
-    FROM sessions s
+    FROM session_links s
     JOIN agents a ON a.id = s.agent_id
     LEFT JOIN projects p ON p.id = s.project_id
-    LEFT JOIN tasks t ON t.id = s.task_id
+    LEFT JOIN tasks t ON t.id = s.linked_task_id
     WHERE s.deleted_at IS NULL
       AND s.archived_at IS NULL
       ${projectId ? 'AND s.project_id = ?' : ''}
@@ -227,6 +243,12 @@ function toWidgetSession(row: WidgetSessionRow) {
 }
 
 export const widgetRpcHandlers: RpcHandlerMap = {
+  'widget.sessionActivity.list'(msg, { sendResult }) {
+    const projectId = msg.projectId as string | undefined
+    const sessions = listWidgetSessions(projectId).map(toWidgetSession)
+    sendResult(buildWidgetSessionActivityGroups(sessions))
+  },
+
   'widget.agentActivity.list'(msg, { sendResult }) {
     const projectId = msg.projectId as string | undefined
     const sessions = listWidgetSessions(projectId).map(toWidgetSession)

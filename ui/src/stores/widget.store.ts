@@ -27,13 +27,41 @@ export interface WidgetAgentActivityItem {
   activityAt: string
 }
 
+export type WidgetSessionAttentionState = 'running' | 'needs_input' | 'unread'
+
+export interface WidgetSessionActivityItem {
+  sessionId: string
+  taskId: string | null
+  taskTitle: string | null
+  taskStatus: string | null
+  sessionTitle: string | null
+  status: string
+  stage: string
+  running: boolean
+  unread: boolean
+  needsInput: boolean
+  attentionState: WidgetSessionAttentionState
+  activityAt: string
+}
+
+export interface WidgetAgentProjectActivityGroup {
+  groupId: string
+  agentId: string
+  agentName: string
+  agentIcon: string | null
+  projectId: string | null
+  projectName: string | null
+  activityAt: string
+  sessions: WidgetSessionActivityItem[]
+}
+
 interface WidgetPreferences {
   pinnedProjectId: string | null
   pinnedAgentId: string | null
 }
 
 interface WidgetStore {
-  activities: WidgetAgentActivityItem[]
+  activityGroups: WidgetAgentProjectActivityGroup[]
   activitiesLoading: boolean
   activitiesError: string | null
   preferences: WidgetPreferences
@@ -50,7 +78,7 @@ interface WidgetStore {
 }
 
 export const useWidgetStore = create<WidgetStore>((set, get) => ({
-  activities: [],
+  activityGroups: [],
   activitiesLoading: false,
   activitiesError: null,
   preferences: { pinnedProjectId: null, pinnedAgentId: null },
@@ -59,10 +87,10 @@ export const useWidgetStore = create<WidgetStore>((set, get) => ({
   fetchActivities: async (projectId) => {
     set({ activitiesLoading: true, activitiesError: null })
     try {
-      const msg: Record<string, unknown> = { type: 'widget.agentActivity.list' }
+      const msg: Record<string, unknown> = { type: 'widget.sessionActivity.list' }
       if (projectId) msg.projectId = projectId
-      const data = (await wsClient.request(msg)) as WidgetAgentActivityItem[]
-      set({ activities: data, activitiesLoading: false, activitiesError: null })
+      const data = (await wsClient.request(msg)) as WidgetAgentProjectActivityGroup[]
+      set({ activityGroups: data, activitiesLoading: false, activitiesError: null })
     } catch (error) {
       set({
         activitiesLoading: false,
@@ -74,15 +102,16 @@ export const useWidgetStore = create<WidgetStore>((set, get) => ({
   markSessionRead: async (sessionId) => {
     await wsClient.request({ type: 'widget.sessions.markRead', sessionId })
     set({
-      activities: get().activities.map((activity) =>
-        activity.sessionId === sessionId
-          ? {
-              ...activity,
-              unread: false,
-              unreadCount: Math.max(0, activity.unreadCount - 1),
-            }
-          : activity
-      ),
+      activityGroups: get().activityGroups
+        .map((group) => ({
+          ...group,
+          sessions: group.sessions.flatMap((session) => {
+            if (session.sessionId !== sessionId) return [session]
+            if (!session.running && !session.needsInput) return []
+            return [{ ...session, unread: false }]
+          }),
+        }))
+        .filter((group) => group.sessions.length > 0),
     })
   },
 

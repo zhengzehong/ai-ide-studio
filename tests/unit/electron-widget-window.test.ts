@@ -55,7 +55,7 @@ describe('Electron Widget pin state', () => {
     expect(windows[0]?.setAlwaysOnTop).toHaveBeenNthCalledWith(1, false)
     expect(windows[0]?.setAlwaysOnTop).toHaveBeenNthCalledWith(2, true)
     expect(windows[0]?.options).toMatchObject({ icon: 'C:/resources/app-icon.png' })
-    expect(windows[0]?.options).toMatchObject({ width: 300, height: 360, x: 1600, y: 700 })
+    expect(windows[0]?.options).toMatchObject({ width: 360, height: 400, x: 1540, y: 660 })
   })
 })
 

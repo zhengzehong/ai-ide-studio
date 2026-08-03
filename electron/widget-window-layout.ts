@@ -1,5 +1,5 @@
-export const WIDGET_WIDTH = 300
-export const WIDGET_HEIGHT = 360
+export const WIDGET_WIDTH = 360
+export const WIDGET_HEIGHT = 400
 
 const LEGACY_WIDGET_WIDTH = 390
 const LEGACY_WIDGET_HEIGHT = 570
