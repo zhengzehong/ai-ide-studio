@@ -56,5 +56,5 @@
 
 - [x] Add an integration regression covering persistence/UI timing, cursor gap recovery, and final completion.
 - [x] Document cursor ownership and resync completion guarantees.
-- [ ] Run targeted tests, `npm test`, `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `git diff --check`.
-- [ ] Commit the isolated fix, request review, then merge into `prd` without restarting the running service.
+- [x] Run targeted tests, `npm test`, `npm run lint`, `npx tsc --noEmit`, `npm run build`, and `git diff --check`.
+- [x] Commit the isolated fix, request review, then merge into `prd` without restarting the running service.
