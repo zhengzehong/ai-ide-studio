@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import {
   RuntimeUpdateCoalescer,
+  runtimeUpdateKey,
   type RuntimeCoalescibleUpdate,
 } from '../../src/runtime/streams/runtime-update-coalescer.js'
 
@@ -88,6 +89,56 @@ describe('RuntimeUpdateCoalescer', () => {
       'ui:second',
       'persistence:second',
     ])
+  })
+
+  test('keeps repeated same-key persistence batches bound to their UI cursor', async () => {
+    vi.useFakeTimers()
+    const cursors = new Map<string, { sequence: number }>()
+    const persistedSequences: number[] = []
+    let sequence = 0
+    let releaseFirstPersistence: (() => void) | undefined
+    let markFirstPersistenceStarted: (() => void) | undefined
+    const firstPersistenceGate = new Promise<void>((resolve) => { releaseFirstPersistence = resolve })
+    const firstPersistenceStarted = new Promise<void>((resolve) => { markFirstPersistenceStarted = resolve })
+    let persistenceBatch = 0
+    const coalescer = new RuntimeUpdateCoalescer({
+      uiFlushMs: 25,
+      persistenceFlushMs: 250,
+      emitUi: async (updates) => {
+        for (const update of updates) cursors.set(runtimeUpdateKey(update), { sequence: ++sequence })
+      },
+      emitPersistence: async (updates) => {
+        persistenceBatch += 1
+        for (const update of updates) {
+          const key = runtimeUpdateKey(update)
+          const cursor = cursors.get(key)
+          if (!cursor) throw new Error(`missing UI cursor: ${key}`)
+          persistedSequences.push(cursor.sequence)
+          if (persistenceBatch === 1) {
+            markFirstPersistenceStarted?.()
+            await firstPersistenceGate
+          }
+          if (cursors.get(key) === cursor) cursors.delete(key)
+        }
+      },
+    })
+
+    coalescer.enqueue(thinkingDelta('first'))
+    await vi.advanceTimersByTimeAsync(25)
+    const firstFlush = coalescer.flushSession('session-1')
+    await firstPersistenceStarted
+
+    coalescer.enqueue(thinkingDelta('second'))
+    await vi.advanceTimersByTimeAsync(25)
+    const secondFlush = coalescer.flushSession('session-1')
+
+    coalescer.enqueue(thinkingDelta('third'))
+    await vi.advanceTimersByTimeAsync(25)
+    const thirdFlush = coalescer.flushSession('session-1')
+
+    releaseFirstPersistence?.()
+    await expect(Promise.all([firstFlush, secondFlush, thirdFlush])).resolves.toBeDefined()
+    expect(persistedSequences).toEqual([1, 3])
   })
 
   test('keeps only the latest process progress for each process item', async () => {
@@ -181,6 +232,10 @@ function processUpdate(status: string, progress: string): RuntimeCoalescibleUpda
     status,
     progress,
   }
+}
+
+function thinkingDelta(thinking: string): RuntimeCoalescibleUpdate {
+  return sessionUpdate({ messageId: 'message-1', role: 'agent', thinking })
 }
 
 function sessionUpdate(data: Record<string, unknown>): RuntimeCoalescibleUpdate {

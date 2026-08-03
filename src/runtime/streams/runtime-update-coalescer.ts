@@ -32,6 +32,7 @@ export interface RuntimeUpdateCoalescerOptions {
   persistenceFlushMs?: number
   emitUi: (updates: RuntimeCoalescibleUpdate[]) => Promise<void>
   emitPersistence: (updates: RuntimeCoalescibleUpdate[]) => Promise<void>
+  onError?: (error: unknown, channel: 'ui' | 'persistence') => void
 }
 
 interface UpdateChannel {
@@ -45,8 +46,9 @@ interface UpdateChannel {
 export class RuntimeUpdateCoalescer {
   private readonly ui: UpdateChannel
   private readonly persistence: UpdateChannel
+  private persistenceFlushChain: Promise<void> = Promise.resolve()
 
-  constructor(options: RuntimeUpdateCoalescerOptions) {
+  constructor(private readonly options: RuntimeUpdateCoalescerOptions) {
     this.ui = this.channel(options.uiFlushMs ?? 25, options.emitUi)
     this.persistence = this.channel(options.persistenceFlushMs ?? 250, options.emitPersistence)
   }
@@ -89,9 +91,13 @@ export class RuntimeUpdateCoalescer {
     if (channel.timer) return
     channel.timer = setTimeout(() => {
       channel.timer = undefined
-      void (channel === this.persistence
+      const flush = channel === this.persistence
         ? this.flushPersistence()
-        : this.flushChannel(channel))
+        : this.flushChannel(channel)
+      void flush.catch((error: unknown) => {
+        this.options.onError?.(error, channel === this.persistence ? 'persistence' : 'ui')
+        throw error
+      })
     }, channel.flushMs)
     channel.timer.unref?.()
   }
@@ -113,7 +119,13 @@ export class RuntimeUpdateCoalescer {
     return updates
   }
 
-  private async flushPersistence(sessionId?: string): Promise<void> {
+  private flushPersistence(sessionId?: string): Promise<void> {
+    const flush = this.persistenceFlushChain.then(() => this.flushPersistenceBatch(sessionId))
+    this.persistenceFlushChain = flush.catch(() => undefined)
+    return flush
+  }
+
+  private async flushPersistenceBatch(sessionId?: string): Promise<void> {
     const updates = this.takePending(this.persistence, sessionId)
     await this.flushChannel(this.ui, sessionId)
     if (updates.length > 0) await this.write(this.persistence, updates)
@@ -168,6 +180,7 @@ function mergeUpdate(
   if (current.kind === 'session-update' && incoming.kind === 'session-update') {
     const currentData = recordField(current, 'data')
     const incomingData = recordField(incoming, 'data')
+    const hasContentDelta = typeof current.contentDelta === 'string' || typeof incoming.contentDelta === 'string'
     const mergedData =
       currentData || incomingData
         ? {
@@ -184,7 +197,9 @@ function mergeUpdate(
     return {
       ...current,
       ...incoming,
-      contentDelta: `${current.contentDelta ?? ''}${incoming.contentDelta ?? ''}`,
+      ...(hasContentDelta
+        ? { contentDelta: `${current.contentDelta ?? ''}${incoming.contentDelta ?? ''}` }
+        : {}),
       ...(mergedData ? { data: mergedData } : {}),
     }
   }

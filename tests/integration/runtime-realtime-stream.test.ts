@@ -118,6 +118,59 @@ describe('Runtime direct Realtime stream', () => {
     })
     expect(cursors).toEqual([...cursors].sort((left, right) => left - right))
   }, 20_000)
+
+  test('keeps queued persistence batches bound to distinct UI cursors', async () => {
+    realtime = await createRealtimeProcess({
+      host: '127.0.0.1',
+      port: 0,
+      authenticate: async () => ({ authMode: 'owner' }),
+      dispatchLegacyRpc: async ({ state }) => state.subscriptions,
+    })
+    const client = await connect(realtime.endpointUrl)
+    sockets.push(client.socket)
+    client.send({ type: 'subscribe', requestId: 'subscribe-queued', sessionIds: ['session-queued'] })
+    await client.next('result')
+
+    let releaseFirstPersistence: (() => void) | undefined
+    const firstPersistenceGate = new Promise<void>((resolve) => { releaseFirstPersistence = resolve })
+    let persistenceCount = 0
+    runtime = await createProcessRuntimePort({
+      realtimeStreamEndpoint: realtime.runtimeStreamEndpoint,
+      realtimeStreamToken: realtime.runtimeStreamToken,
+      onPersistenceUpdate: async () => {
+        persistenceCount += 1
+        if (persistenceCount === 1) await firstPersistenceGate
+      },
+      onDone: async (done) => {
+        await realtime?.sendDelivery({
+          scope: 'session',
+          sessionId: done.sessionId,
+          message: {
+            type: 'session:done',
+            sessionId: done.sessionId,
+            agentId: done.agentId,
+            messageId: done.messageId,
+            streamGeneration: done.streamGeneration,
+            sequence: done.sequence,
+          },
+        })
+      },
+    })
+
+    await runtime.ensureSession(snapshot('session-queued'))
+    const prompt = runtime.prompt({
+      agentId: 'agent-a',
+      sessionId: 'session-queued',
+      content: 'x'.repeat(800),
+    })
+    await delay(1_000)
+    releaseFirstPersistence?.()
+    await prompt
+
+    expect(persistenceCount).toBeGreaterThanOrEqual(3)
+    const messages = await client.until('session:done')
+    expect(messages.some((message) => message.type === 'resync_required')).toBe(false)
+  }, 20_000)
 })
 
 class SocketProbe {
