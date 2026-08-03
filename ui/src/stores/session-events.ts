@@ -74,6 +74,22 @@ export interface ToolCallInfo {
   error?: string
 }
 
+const FILES_PRESENTATION_TITLES = new Set([
+  'files.present',
+  'mcp__ai-ide-tools__files_present',
+  'mcp.ai-ide-tools.files.present',
+  'ai-ide-tools.files.present',
+])
+
+export function isFilesPresentationToolCall(
+  toolCall: Pick<ToolCallInfo, 'title' | 'rawInput'>,
+): boolean {
+  if (FILES_PRESENTATION_TITLES.has(toolCall.title)) return true
+  if (!toolCall.rawInput || typeof toolCall.rawInput !== 'object' || Array.isArray(toolCall.rawInput)) return false
+  const input = toolCall.rawInput as Record<string, unknown>
+  return input.server === 'ai-ide-tools' && input.tool === 'files.present'
+}
+
 
 export interface ToolCallSummaryInfo {
   id: string
@@ -357,19 +373,26 @@ function filePresentationEntry(value: unknown): FilePresentationEntryInfo | null
   return { path, title, name, extension, language, size, kind }
 }
 
-function unwrapToolOutput(raw: unknown): unknown {
+function unwrapToolOutput(raw: unknown, depth = 0): unknown {
+  if (depth > 4) return null
   if (Array.isArray(raw)) {
     for (const item of raw) {
       if (!item || typeof item !== 'object' || Array.isArray(item)) continue
       const record = item as Record<string, unknown>
       if (record.type !== 'text' || typeof record.text !== 'string') continue
-      try { return JSON.parse(record.text) as unknown } catch { continue }
+      try { return unwrapToolOutput(JSON.parse(record.text) as unknown, depth + 1) } catch { continue }
     }
     return null
   }
   if (typeof raw === 'string') {
-    try { return JSON.parse(raw) as unknown } catch { return null }
+    try { return unwrapToolOutput(JSON.parse(raw) as unknown, depth + 1) } catch { return null }
   }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw
+  const output = raw as Record<string, unknown>
+  if ('error' in output && output.error != null) return null
+  if (output.kind === 'files' || output.previewId) return output
+  if ('result' in output) return unwrapToolOutput(output.result, depth + 1)
+  if ('content' in output) return unwrapToolOutput(output.content, depth + 1)
   return raw
 }
 

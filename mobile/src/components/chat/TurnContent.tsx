@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { ChevronDown, ChevronRight, Clock, DollarSign } from 'lucide-react'
 import {
+  isFilesPresentationToolCall,
   parseFilesPresentationOutput,
   type FilesPresentationInfo,
   type MessageData,
@@ -80,7 +81,7 @@ export default memo(function TurnContent({ message, streaming, processLoading = 
     .filter((item): item is PreviewPresentationInfo => item.kind === 'preview')
     .filter((preview) => !realtimePreviewIds.has(preview.previewId))
   const filesBlocks = visibleBlocks.filter(
-    (block) => block.kind === 'tool' && isFilesPresentTool(block.toolCall.title),
+    (block) => block.kind === 'tool' && isFilesPresentationToolCall(block.toolCall),
   )
   const realtimeFilesIds = new Set(filesBlocks.flatMap((block) => {
     if (block.kind !== 'tool') return []
@@ -212,10 +213,6 @@ export default memo(function TurnContent({ message, streaming, processLoading = 
     </div>
   )
 })
-
-function isFilesPresentTool(title: string): boolean {
-  return title === 'files.present' || title === 'mcp__ai-ide-tools__files_present'
-}
 
 function parseTurnStats(json: string | null | undefined): Record<string, number> | null {
   if (!json) return null

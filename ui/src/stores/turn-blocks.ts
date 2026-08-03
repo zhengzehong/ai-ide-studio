@@ -294,8 +294,12 @@ function processItemToBlock(item: TurnProcessItemInfo): TurnProcessBlock | null 
   if (item.kind === 'note') return { id: item.id, kind: 'note', text: item.content || item.summary || '', sequence: item.sequence }
   if (item.kind === 'stage') return { id: item.id, kind: 'stage', text: item.content || item.summary || '', sequence: item.sequence }
   if (item.kind === 'tool') {
+    const meta = parseDetail<{ toolCallId?: unknown }>(item.meta_json)
+    const fallbackToolCallId = typeof meta?.toolCallId === 'string' && meta.toolCallId
+      ? meta.toolCallId
+      : item.id
     const tool = parseDetail<ToolCallInfo>(item.detail_json) ?? {
-      id: item.id,
+      id: fallbackToolCallId,
       title: item.title || item.summary || '工具调用',
       status: item.status ?? undefined,
     }

@@ -221,4 +221,45 @@ describe('turn block reducer', () => {
     })
   })
 
+  test('uses the original tool call id from lightweight process item metadata', () => {
+    let turn = turnFromProcessItems('msg-agent-1', [{
+      id: 'tpi-tool-1',
+      session_id: 'sess-1',
+      message_id: 'msg-agent-1',
+      sequence: 1,
+      kind: 'tool',
+      status: 'completed',
+      title: 'files.present',
+      summary: 'files.present',
+      preview: '',
+      content: null,
+      detail_json: undefined,
+      meta_json: JSON.stringify({ toolCallId: 'runtime-tool-1' }),
+      created_at: '2026-08-03T00:00:00.000Z',
+      updated_at: '2026-08-03T00:00:00.000Z',
+      has_detail: true,
+    }])
+
+    expect(turn.processBlocks[0]).toMatchObject({
+      kind: 'tool',
+      toolCall: { id: 'runtime-tool-1', title: 'files.present' },
+    })
+
+    turn = applyTurnEntry(turn, entry(2, {
+      kind: 'toolUpdate',
+      toolCall: {
+        id: 'runtime-tool-1',
+        title: 'ai-ide-tools.files.present',
+        status: 'completed',
+        rawOutput: { result: { content: [] }, error: null },
+      },
+    }))
+
+    expect(turn.processBlocks.filter((block) => block.kind === 'tool')).toHaveLength(1)
+    expect(turn.processBlocks[0]).toMatchObject({
+      kind: 'tool',
+      toolCall: { id: 'runtime-tool-1', title: 'ai-ide-tools.files.present' },
+    })
+  })
+
 })

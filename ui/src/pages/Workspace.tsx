@@ -122,7 +122,7 @@ import { PreviewCard } from '../components/chat/PreviewCard'
 import { PreviewModal } from '../components/preview/PreviewModal'
 import { FilesPresentationCard } from '../components/chat/FilesPresentationCard'
 import { PresentedFilesModal } from '../components/file-viewer/PresentedFilesModal'
-import { parseFilesPresentationOutput } from '../stores/session-events'
+import { isFilesPresentationToolCall, parseFilesPresentationOutput } from '../stores/session-events'
 import { SessionBar } from './workspace/SessionBar'
 import { TemplatePickerModal } from './workspace/TemplatePickerModal'
 import { PublishTemplateModal } from './workspace/PublishTemplateModal'
@@ -3930,10 +3930,6 @@ function chatBubbleBlockHasBody(block: ChatBubbleBlock): boolean {
   return !!block.content || !!block.thinking || attachments.length > 0 || toolCalls.length > 0 || !!block.has_tool_calls
 }
 
-function isFilesPresentTool(title: string): boolean {
-  return title === 'files.present' || title === 'mcp__ai-ide-tools__files_present'
-}
-
 function ProcessBlockView({
   block,
   isStreaming,
@@ -3985,7 +3981,7 @@ function ProcessBlockView({
       }
       return null
     }
-    if (isFilesPresentTool(block.toolCall.title)) {
+    if (isFilesPresentationToolCall(block.toolCall)) {
       const presentation = parseFilesPresentationOutput(block.toolCall.rawOutput)
       return presentation && onOpenFiles
         ? <FilesPresentationCard presentation={presentation} onOpen={onOpenFiles} />

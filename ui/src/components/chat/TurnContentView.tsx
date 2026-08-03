@@ -2,6 +2,7 @@
 import { ChevronDown, ChevronRight, Loader2 } from 'lucide-react'
 import type { TurnProcessBlock } from '../../stores/turn-blocks'
 import {
+  isFilesPresentationToolCall,
   parseFilesPresentationOutput,
   type FileChangeDetailInfo,
   type FileChangeSummaryInfo,
@@ -73,7 +74,7 @@ export function TurnContentView({
   }))
   const persistedPreviews = previewPresentations.filter((preview) => !realtimePreviewIds.has(preview.previewId))
   const filesBlocks = visibleProcessBlocks.filter(
-    (block) => block.kind === 'tool' && isFilesPresentTool(block.toolCall.title),
+    (block) => block.kind === 'tool' && isFilesPresentationToolCall(block.toolCall),
   )
   const realtimeFilesIds = new Set(filesBlocks.flatMap((block) => {
     if (block.kind !== 'tool') return []
@@ -170,10 +171,6 @@ export function TurnContentView({
       )}
     </div>
   )
-}
-
-function isFilesPresentTool(title: string): boolean {
-  return title === 'files.present' || title === 'mcp__ai-ide-tools__files_present'
 }
 
 function processLabel(blockCount: number, processCount?: number, fallbackStage?: string): string {

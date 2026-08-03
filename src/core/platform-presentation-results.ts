@@ -2,6 +2,7 @@ import type { SessionUpdateData, ToolCallData } from '../types/ws-protocol.js'
 import { onBeforeDatabaseClose } from '../store/db.js'
 import { createChildLogger } from './logger.js'
 import { events } from './events.js'
+import { platformPresentationToolName } from './message-presentations.js'
 
 const PRESENTATION_TOOL_NAMES = new Set(['files.present', 'preview.publish'])
 const RESULT_TTL_MS = 5 * 60_000
@@ -92,8 +93,11 @@ export function reconcilePlatformPresentationUpdate(
     entry.toolName === toolName && (inputKey === undefined || entry.inputKey === inputKey)
   )) ?? -1
   if (index < 0) {
-    if (data.toolCall) rememberObservedCall(sessionId, data.messageId, toolName, inputKey, toolCall)
-    return { data, matched: false }
+    const canonicalData = canonicalPresentationUpdate(data, toolCall, toolName)
+    if (canonicalData.toolCall) {
+      rememberObservedCall(sessionId, canonicalData.messageId, toolName, inputKey, canonicalData.toolCall)
+    }
+    return { data: canonicalData, matched: false }
   }
   const entry = takeEntry(sessionId, index)
   if (!entry) return { data, matched: false }
@@ -156,16 +160,19 @@ export function resetPlatformPresentationResults(): void {
 }
 
 function platformToolName(toolCall: ToolCallData): string | null {
-  const input = record(toolCall.rawInput)
-  if (typeof input?.tool === 'string' && PRESENTATION_TOOL_NAMES.has(input.tool)) return input.tool
-  if (PRESENTATION_TOOL_NAMES.has(toolCall.title)) return toolCall.title
-  if (toolCall.title === 'mcp__ai-ide-tools__files_present' || toolCall.title === 'mcp.ai-ide-tools.files.present') {
-    return 'files.present'
+  return platformPresentationToolName(toolCall)
+}
+
+function canonicalPresentationUpdate(
+  data: SessionUpdateData,
+  toolCall: ToolCallData,
+  toolName: string,
+): SessionUpdateData {
+  const canonical = { ...toolCall, title: toolName }
+  return {
+    ...data,
+    ...(data.toolCall ? { toolCall: canonical } : { toolCallUpdate: canonical }),
   }
-  if (toolCall.title === 'mcp__ai-ide-tools__preview_publish' || toolCall.title === 'mcp.ai-ide-tools.preview.publish') {
-    return 'preview.publish'
-  }
-  return null
 }
 
 function toolCallInput(value: unknown): unknown {

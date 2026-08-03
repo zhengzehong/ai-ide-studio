@@ -45,6 +45,7 @@ import { runtimeCommandLedgerMigration } from './044-runtime-command-ledger.js'
 import { performanceCoveringIndexesMigration } from './045-performance-covering-indexes.js'
 import { primarySessionUniqueMigration } from './046-primary-session-unique.js'
 import { messagePresentationsMigration } from './047-message-presentations.js'
+import { messagePresentationRepairMigration } from './048-message-presentation-repair.js'
 import type { Migration } from '../migrator.js'
 
 export const migrations: Migration[] = [
@@ -95,4 +96,5 @@ export const migrations: Migration[] = [
   performanceCoveringIndexesMigration,
   primarySessionUniqueMigration,
   messagePresentationsMigration,
+  messagePresentationRepairMigration,
 ]
