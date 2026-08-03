@@ -13,4 +13,4 @@ Make `files.present` delivery deterministic for Claude Code and Codex across rea
 - [x] Deduplicate realtime and process-item tool blocks by the original tool-call ID.
 - [x] Repair recoverable historical presentations.
 - [x] Run focused, full, lint, typecheck, build, and diff checks.
-- [ ] Merge the reviewed fix into `prd` without restarting services.
+- [x] Merge the reviewed fix into `prd` without restarting services.
