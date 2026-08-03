@@ -1,6 +1,5 @@
-import { GitBranch } from 'lucide-react'
 import type { WidgetSessionActivityItem } from '../../stores/widget.store'
-import { formatTimeAgo } from './format'
+import { formatCompactTimeAgo } from './format'
 
 interface WidgetSessionActivityRowProps {
   session: WidgetSessionActivityItem
@@ -29,11 +28,11 @@ export function WidgetSessionActivityRow({ session, onClick }: WidgetSessionActi
           {session.taskTitle && (
             <>
               <span className="widget-session-separator">-</span>
-              <span className="widget-session-task"><GitBranch size={11} /><span>{session.taskTitle}</span></span>
+              <span className="widget-session-task"><span>{session.taskTitle}</span></span>
             </>
           )}
         </span>
-        <time className="widget-session-time" dateTime={session.activityAt}>{formatTimeAgo(session.activityAt)}</time>
+        <time className="widget-session-time" dateTime={session.activityAt}>{formatCompactTimeAgo(session.activityAt)}</time>
       </button>
     </li>
   )

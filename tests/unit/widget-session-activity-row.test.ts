@@ -2,6 +2,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, test, vi } from 'vitest'
 import { WidgetAgentProjectGroup } from '../../ui/src/pages/widget/WidgetAgentProjectGroup.js'
+import { formatCompactTimeAgo } from '../../ui/src/pages/widget/format.js'
 import type { WidgetAgentProjectActivityGroup } from '../../ui/src/stores/widget.store.js'
 
 const group: WidgetAgentProjectActivityGroup = {
@@ -60,6 +61,7 @@ describe('Widget Session activity row', () => {
     expect(html).toContain('桌面浮窗优化')
     expect(html.match(/widget-session-activity-row/g)).toHaveLength(2)
     expect(html).not.toContain('<br')
+    expect(html).not.toContain('lucide-git-branch')
   })
 
   test('shows an explicit fallback for missing project and Session titles', () => {
@@ -75,5 +77,18 @@ describe('Widget Session activity row', () => {
 
     expect(html).toContain('未归属项目')
     expect(html).toContain('未命名会话')
+  })
+
+  test('uses compact time labels that fit the 300px Widget', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-03T08:30:00.000Z'))
+    try {
+      expect(formatCompactTimeAgo('2026-08-03T08:29:45.000Z')).toBe('刚刚')
+      expect(formatCompactTimeAgo('2026-08-03T08:06:00.000Z')).toBe('24分')
+      expect(formatCompactTimeAgo('2026-08-03T05:30:00.000Z')).toBe('3时')
+      expect(formatCompactTimeAgo('2026-07-31T08:30:00.000Z')).toBe('3天')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
