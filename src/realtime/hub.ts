@@ -157,7 +157,12 @@ export class RealtimeHub {
       if (this.hasCursorGap(connection, message)) {
         const sessionId = 'sessionId' in message ? message.sessionId : undefined
         connection.queue.enqueueResync(sessionId, 'stream-cursor-gap')
-        this.flush(connection)
+        if (message.type === 'session:done') {
+          this.acceptCursor(connection, message)
+          this.enqueue(connection, message)
+        } else {
+          this.flush(connection)
+        }
         continue
       }
       this.acceptCursor(connection, message)

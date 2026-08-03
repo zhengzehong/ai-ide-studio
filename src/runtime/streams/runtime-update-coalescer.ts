@@ -67,12 +67,11 @@ export class RuntimeUpdateCoalescer {
   }
 
   async flushSession(sessionId: string): Promise<void> {
-    await this.flushChannel(this.ui, sessionId)
-    await this.flushChannel(this.persistence, sessionId)
+    await this.flushPersistence(sessionId)
   }
 
   async drain(): Promise<void> {
-    await Promise.all([this.flushChannel(this.ui), this.flushChannel(this.persistence)])
+    await this.flushPersistence()
   }
 
   close(): void {
@@ -90,12 +89,20 @@ export class RuntimeUpdateCoalescer {
     if (channel.timer) return
     channel.timer = setTimeout(() => {
       channel.timer = undefined
-      void this.flushChannel(channel)
+      void (channel === this.persistence
+        ? this.flushPersistence()
+        : this.flushChannel(channel))
     }, channel.flushMs)
     channel.timer.unref?.()
   }
 
   private async flushChannel(channel: UpdateChannel, sessionId?: string): Promise<void> {
+    const updates = this.takePending(channel, sessionId)
+    if (updates.length > 0) await this.write(channel, updates)
+    else await channel.writeChain
+  }
+
+  private takePending(channel: UpdateChannel, sessionId?: string): RuntimeCoalescibleUpdate[] {
     const updates: RuntimeCoalescibleUpdate[] = []
     for (const [key, update] of channel.pending) {
       if (sessionId && update.sessionId !== sessionId) continue
@@ -103,8 +110,14 @@ export class RuntimeUpdateCoalescer {
       updates.push(update)
     }
     if (channel.pending.size === 0) this.clearTimer(channel)
-    if (updates.length > 0) await this.write(channel, updates)
-    else await channel.writeChain
+    return updates
+  }
+
+  private async flushPersistence(sessionId?: string): Promise<void> {
+    const updates = this.takePending(this.persistence, sessionId)
+    await this.flushChannel(this.ui, sessionId)
+    if (updates.length > 0) await this.write(this.persistence, updates)
+    else await this.persistence.writeChain
   }
 
   private write(channel: UpdateChannel, updates: RuntimeCoalescibleUpdate[]): Promise<void> {

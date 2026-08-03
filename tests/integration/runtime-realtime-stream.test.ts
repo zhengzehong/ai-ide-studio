@@ -70,6 +70,54 @@ describe('Runtime direct Realtime stream', () => {
     expect(done.streamGeneration).toBe(first.streamGeneration)
     expect(done.sequence).toBeGreaterThanOrEqual(first.sequence ?? 0)
   }, 15_000)
+
+  test('keeps the stream contiguous when persistence overlaps later UI updates', async () => {
+    realtime = await createRealtimeProcess({
+      host: '127.0.0.1',
+      port: 0,
+      authenticate: async () => ({ authMode: 'owner' }),
+      dispatchLegacyRpc: async ({ state }) => state.subscriptions,
+    })
+    const client = await connect(realtime.endpointUrl)
+    sockets.push(client.socket)
+    client.send({ type: 'subscribe', requestId: 'subscribe-overlap', sessionIds: ['session-overlap'] })
+    await client.next('result')
+
+    runtime = await createProcessRuntimePort({
+      realtimeStreamEndpoint: realtime.runtimeStreamEndpoint,
+      realtimeStreamToken: realtime.runtimeStreamToken,
+      onPersistenceUpdate: async () => { await delay(400) },
+      onDone: async (done) => {
+        await realtime?.sendDelivery({
+          scope: 'session',
+          sessionId: done.sessionId,
+          message: {
+            type: 'session:done',
+            sessionId: done.sessionId,
+            agentId: done.agentId,
+            messageId: done.messageId,
+            streamGeneration: done.streamGeneration,
+            sequence: done.sequence,
+          },
+        })
+      },
+    })
+
+    await runtime.ensureSession(snapshot('session-overlap'))
+    await runtime.prompt({
+      agentId: 'agent-a',
+      sessionId: 'session-overlap',
+      content: 'x'.repeat(800),
+    })
+
+    const messages = await client.until('session:done')
+    expect(messages.some((message) => message.type === 'resync_required')).toBe(false)
+    const cursors = messages.flatMap((message) => {
+      if (!('sequence' in message) || typeof message.sequence !== 'number') return []
+      return [message.sequence]
+    })
+    expect(cursors).toEqual([...cursors].sort((left, right) => left - right))
+  }, 20_000)
 })
 
 class SocketProbe {
@@ -96,6 +144,16 @@ class SocketProbe {
   async none(type: ServerMessage['type'], waitMs: number): Promise<boolean> {
     await delay(waitMs)
     return !this.received.some((message) => message.type === type)
+  }
+
+  async until(type: ServerMessage['type']): Promise<ServerMessage[]> {
+    const deadline = Date.now() + 5_000
+    while (Date.now() < deadline) {
+      const index = this.received.findIndex((message) => message.type === type)
+      if (index >= 0) return this.received.splice(0, index + 1)
+      await delay(10)
+    }
+    throw new Error(`Timed out waiting for ${type}`)
   }
 }
 

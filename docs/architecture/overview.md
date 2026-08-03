@@ -109,7 +109,7 @@ PC 生产构建按页面使用 `React.lazy` 拆分，应用 shell、认证和连
 
 默认 `RUNTIME_SERVICE_MODE=process` 时，独立 Runtime 子进程拥有 ACP adapter、Claude/Codex 子进程、每 Session 串行 actor、权限与 elicitation 等待项、终端进程、资源配额和流游标。Runtime 子进程不导入 Core、Store、Gateway、Query/Writer Worker 或 `better-sqlite3`，也不打开数据库。API 通过 `RuntimeStateSnapshot` 投影 Agent 配置、运行环境、system prompt、MCP server、Session 偏好、项目工作目录和持久化 ACP id；快照是可 `structuredClone` 的普通 DTO。
 
-每个 Session actor 在一次所有权周期内使用固定 `streamGeneration`，只在实际输出逻辑 patch 时递增 `sequence`。文本 delta 按 message 合并，process item 采用 latest-wins；权限、elicitation 和 done 会先 flush 同 Session 的普通更新。Runtime 的可见流每 25ms 通过独立本机管道直达 Realtime，API 事件循环阻塞不会中断浏览器流式输出；持久化流以 250ms 节奏发送到 API，并带同一 Session 游标。
+每个 Session actor 在一次所有权周期内使用固定 `streamGeneration`，只在实际输出逻辑 patch 时递增 `sequence`。文本 delta 按 message 合并，process item 采用 latest-wins；权限、elicitation 和 done 会先 flush 同 Session 的普通更新。Runtime 的可见流每 25ms 通过独立本机管道直达 Realtime，API 事件循环阻塞不会中断浏览器流式输出；持久化流以 250ms 节奏发送到 API，并带同一 Session 游标。可见流是游标的唯一分配者：持久化 flush 必须先完成对应 UI flush，再复用该 patch 已发布的游标，不能为仅写数据库的更新生成浏览器不可见的 sequence。
 
 Runtime done 是持久化屏障，不直接对浏览器发布。API 按 Session 顺序处理持久化 patch，触发 `session:done`，等待 Writer 完成 `message.done + Outbox` 原子事务后才向 Runtime 返回 ack；随后 `session:committed_done` 才进入 Realtime。Runtime 意外退出时 API、HTTP、Query/Writer Worker 和 Realtime 保持运行，当前命令明确失败并由 Session 主链路落一条 error completion；监督器重启 Runtime，下一轮从 SQLite 快照和 `acp_session_id` 恢复。`RUNTIME_SERVICE_MODE=embedded` 保留旧 `acpHost` 作为显式回滚适配器，不会在运行中静默降级。
 
@@ -129,7 +129,7 @@ Runtime 的 permission/elicitation 等待项由独立交互状态模块管理。
 
 浏览器先请求 `GET /api/v1/realtime-config` 获取实际 `wsUrl`、协议版本、运行模式和兼容桥状态。Edge 模式返回当前公网 authority 的同源 `/realtime`，不会泄露内部端口；PC 与移动端每次重连都重新发现端点。PC 每 15 秒发送一次 `ping`，连续 30 秒没有收到任何入站帧时主动关闭静默失效的 socket 并重新发现端点；重连后仍先恢复订阅，再发送 cursor `resume`，最后通过 HTTP recovery 补齐状态。`EDGE_MODE=disabled` 时 discovery 返回直连 Realtime 地址。`REALTIME_MODE=embedded` 是显式回滚模式；`REALTIME_LEGACY_RPC=enabled` 保留尚未迁移到 HTTP 的旧领域 RPC，关闭后 Realtime 只接受 `subscribe`、`unsubscribe`、`resume` 和 `ping`。
 
-每个连接有独立的消息数和字节数上限。文本 delta 按消息合并，process item 采用 latest-wins，`session:done`、权限/提问和错误保持关键 FIFO；客户端跟不上、序列跳号或 generation 变化时发送 `resync_required`，由客户端重新读取 HTTP snapshot。Realtime 分别跟踪“已接收入站 cursor”和“已发送 cursor”，在前一帧仍 in-flight 时不会把连续的新帧误判为 gap。一个慢客户端只消耗自己的有界队列，不能拖住其他连接。API 进程监督 Realtime 异常退出并自动重启；HTTP、Query Worker 和 Writer Worker 在重启期间继续服务。
+每个连接有独立的消息数和字节数上限。文本 delta 按消息合并，process item 采用 latest-wins，`session:done`、权限/提问和错误保持关键 FIFO；客户端跟不上、序列跳号或 generation 变化时发送 `resync_required`，由客户端重新读取 HTTP snapshot。发生 gap 后，Realtime 先排入 `resync_required`，仍允许后续关键 `session:done` 按序送达；PC 收到 resync 后先解除增量屏障，再执行 Session recovery 和项目后台刷新，避免恢复请求期间继续丢弃终态。Realtime 分别跟踪“已接收入站 cursor”和“已发送 cursor”，在前一帧仍 in-flight 时不会把连续的新帧误判为 gap。一个慢客户端只消耗自己的有界队列，不能拖住其他连接。API 进程监督 Realtime 异常退出并自动重启；HTTP、Query Worker 和 Writer Worker 在重启期间继续服务。
 
 ### SQLite Worker 边界
 

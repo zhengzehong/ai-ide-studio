@@ -63,6 +63,7 @@ export async function recoverRealtimeGap(message: Record<string, unknown>): Prom
   const sessionStore = useSessionStore.getState()
   const resyncSessionId = typeof message.sessionId === 'string' ? message.sessionId : undefined
   const sessionId = resyncSessionId ?? sessionStore.currentSessionId ?? undefined
+  wsClient.acknowledgeResync(resyncSessionId)
   if (sessionId && sessionId === sessionStore.currentSessionId) {
     await recoverCurrentSession(sessionId)
   }
@@ -73,7 +74,6 @@ export async function recoverRealtimeGap(message: Record<string, unknown>): Prom
     invalidateProjectData(projectId)
     await Promise.allSettled([refreshProjectData(projectId, { force: true })])
   }
-  wsClient.acknowledgeResync(resyncSessionId)
 }
 
 async function recoverCurrentSession(sessionId: string): Promise<void> {
