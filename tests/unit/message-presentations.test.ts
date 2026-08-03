@@ -6,6 +6,7 @@ import { closeDatabase, initDatabase } from '../../src/store/db.js'
 import { messageStore, sessionStore } from '../../src/store/sessions.js'
 import Database from 'better-sqlite3'
 import { messagePresentationsMigration } from '../../src/store/migrations/047-message-presentations.js'
+import { messagePresentationRepairMigration } from '../../src/store/migrations/048-message-presentation-repair.js'
 
 const tmp = mkdtempSync(resolve(tmpdir(), 'ai-ide-message-presentations-'))
 let dbIndex = 0
@@ -191,5 +192,110 @@ describe('message preview presentations', () => {
     })
 
     expect(JSON.parse(row.presentations_json || '[]')).toEqual([output])
+  })
+
+  test('persists the final Codex gateway wrapper using the canonical raw input tool', () => {
+    const session = sessionStore.create({ agentId: 'agent-codex' })
+    const output = {
+      kind: 'files',
+      presentationId: 'files-codex-final',
+      projectId: 'project-1',
+      title: 'Codex final delivery',
+      files: [
+        { path: 'report.md', title: 'Report', name: 'report.md', extension: '.md', size: 10, kind: 'text', language: 'markdown' },
+      ],
+      createdAt: '2026-08-03T00:00:00.000Z',
+    }
+    const row = messageStore.append(session.id, {
+      role: 'agent',
+      content: 'Done',
+      toolCalls: [{
+        id: 'tool-files',
+        title: 'ai-ide-tools.files.present',
+        status: 'completed',
+        rawInput: {
+          server: 'ai-ide-tools',
+          tool: 'files.present',
+          arguments: { title: output.title, files: [{ path: 'report.md' }] },
+        },
+        rawOutput: {
+          result: { content: [{ type: 'text', text: JSON.stringify(output) }] },
+          error: null,
+        },
+      }],
+    })
+
+    expect(JSON.parse(row.presentations_json || '[]')).toEqual([output])
+  })
+
+  test('does not treat a third-party MCP tool as a platform presentation', () => {
+    const session = sessionStore.create({ agentId: 'agent-external' })
+    const row = messageStore.append(session.id, {
+      role: 'agent',
+      content: 'Done',
+      toolCalls: [{
+        id: 'tool-external',
+        title: 'external.files.present',
+        status: 'completed',
+        rawInput: { server: 'external', tool: 'files.present', arguments: {} },
+        rawOutput: {
+          kind: 'files',
+          presentationId: 'files-external',
+          projectId: 'project-1',
+          title: 'External delivery',
+          files: [],
+          createdAt: '2026-08-03T00:00:00.000Z',
+        },
+      }],
+    })
+
+    expect(row.presentations_json).toBeNull()
+  })
+
+  test('repair migration restores a completed Codex presentation from process detail', () => {
+    const db = new Database(':memory:')
+    db.exec(`
+      CREATE TABLE messages (id TEXT PRIMARY KEY, presentations_json TEXT);
+      CREATE TABLE turn_process_items (
+        id TEXT PRIMARY KEY,
+        message_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        title TEXT,
+        detail_json TEXT
+      );
+      INSERT INTO messages (id, presentations_json) VALUES ('msg-codex', NULL), ('msg-unrelated', NULL);
+    `)
+    const output = {
+      kind: 'files',
+      presentationId: 'files-repaired',
+      projectId: 'project-1',
+      title: 'Repaired Codex delivery',
+      files: [
+        { path: 'report.md', title: 'Report', name: 'report.md', extension: '.md', size: 10, kind: 'text', language: 'markdown' },
+      ],
+      createdAt: '2026-08-03T00:00:00.000Z',
+    }
+    db.prepare(`
+      INSERT INTO turn_process_items (id, message_id, kind, title, detail_json)
+      VALUES (?, ?, 'tool', ?, ?), (?, ?, 'tool', ?, ?)
+    `).run(
+      'tpi-codex', 'msg-codex', 'ai-ide-tools.files.present', JSON.stringify({
+        id: 'tool-codex',
+        title: 'ai-ide-tools.files.present',
+        status: 'completed',
+        rawInput: { server: 'ai-ide-tools', tool: 'files.present', arguments: {} },
+        rawOutput: { result: { content: [{ type: 'text', text: JSON.stringify(output) }] }, error: null },
+      }),
+      'tpi-unrelated', 'msg-unrelated', 'Terminal', '{not valid json',
+    )
+
+    messagePresentationRepairMigration.up(db)
+
+    const rows = db.prepare<[], { id: string; presentations_json: string | null }>(
+      'SELECT id, presentations_json FROM messages ORDER BY id',
+    ).all()
+    expect(JSON.parse(rows[0].presentations_json || '[]')).toEqual([output])
+    expect(rows[1].presentations_json).toBeNull()
+    db.close()
   })
 })

@@ -67,6 +67,29 @@ describe('PC files presentation', () => {
     expect(html).not.toContain('历史文件卡片')
   })
 
+  test('renders the final Codex gateway wrapper as a file card', () => {
+    const Component = TurnContentView as unknown as ComponentType<Record<string, unknown>>
+    const html = renderToStaticMarkup(createElement(Component, {
+      processBlocks: [{
+        id: 'tool-files-codex',
+        kind: 'tool',
+        toolCall: {
+          id: 'tool-files-codex',
+          title: 'ai-ide-tools.files.present',
+          status: 'completed',
+          rawInput: { server: 'ai-ide-tools', tool: 'files.present', arguments: {} },
+          rawOutput: { result: { content: [{ type: 'text', text: JSON.stringify(presentation) }] }, error: null },
+        },
+      }],
+      finalAnswer: 'Done',
+      isStreaming: false,
+      filesPresentations: [],
+      renderProcessBlock: () => createElement('span', null, 'Codex file card'),
+    }))
+
+    expect(html).toContain('Codex file card')
+  })
+
   test('renders a compact card for multiple files', () => {
     const html = renderToStaticMarkup(createElement(FilesPresentationCard, {
       presentation,

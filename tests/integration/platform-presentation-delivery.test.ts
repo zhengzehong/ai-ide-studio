@@ -186,4 +186,72 @@ describe('platform presentation delivery', () => {
         status: 'completed',
       })
   })
+
+  test('keeps a Codex presentation canonical after its final gateway update', async () => {
+    const session = sessionStore.create({ agentId: 'agent-codex', projectId: null })
+    const messageId = 'message-codex-final-update'
+    const toolInput = { title: 'Codex final', files: [{ path: 'final.md' }] }
+    const presentation = {
+      kind: 'files',
+      presentationId: 'files-codex-final-update',
+      projectId: 'project-1',
+      title: 'Codex final',
+      files: [
+        { path: 'final.md', title: 'Final', name: 'final.md', extension: '.md', size: 9, kind: 'text', language: 'markdown' },
+      ],
+      createdAt: '2026-08-03T00:00:00.000Z',
+    }
+    const rawInput = { server: 'ai-ide-tools', tool: 'files.present', arguments: toolInput }
+    startTurnProcess(session.id, messageId)
+    recordPlatformPresentationResult({
+      auditId: 'audit-codex-final',
+      sessionId: session.id,
+      agentId: 'agent-codex',
+      toolName: 'files.present',
+      input: toolInput,
+      rawOutput: [{ type: 'text', text: JSON.stringify(presentation) }],
+    })
+    await handleRuntimePersistenceUpdate({
+      sessionId: session.id,
+      agentId: 'agent-codex',
+      streamGeneration: 'generation-1',
+      sequence: 1,
+      update: {
+        kind: 'session-update', sessionId: session.id, messageId,
+        data: {
+          messageId, role: 'system',
+          toolCall: { id: 'codex-final-call', title: 'mcp.ai-ide-tools.files.present', status: 'in_progress', rawInput },
+        },
+      },
+    })
+    await handleRuntimePersistenceUpdate({
+      sessionId: session.id,
+      agentId: 'agent-codex',
+      streamGeneration: 'generation-1',
+      sequence: 2,
+      update: {
+        kind: 'session-update', sessionId: session.id, messageId,
+        data: {
+          messageId, role: 'system',
+          toolCallUpdate: {
+            id: 'codex-final-call', title: 'ai-ide-tools.files.present', status: 'completed', rawInput,
+            rawOutput: { result: { content: [{ type: 'text', text: JSON.stringify(presentation) }] }, error: null },
+          },
+        },
+      },
+    })
+    await handleRuntimeDone({
+      sessionId: session.id,
+      agentId: 'agent-codex',
+      messageId,
+      streamGeneration: 'generation-1',
+      sequence: 3,
+      stopReason: 'end_turn',
+    })
+
+    expect(JSON.parse(messageStore.get(messageId)?.presentations_json || '[]')).toEqual([presentation])
+    const toolDetail = turnProcessItemStore.list(messageId, { includeDetail: true })
+      .find((item) => item.kind === 'tool')?.detail_json
+    expect(JSON.parse(toolDetail || '{}')).toMatchObject({ title: 'files.present', status: 'completed' })
+  })
 })

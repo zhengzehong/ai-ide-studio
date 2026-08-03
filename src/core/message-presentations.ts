@@ -33,13 +33,17 @@ const PREVIEW_TOOL_TITLES = new Set([
   'preview.publish',
   'mcp__ai-ide-tools__preview_publish',
   'mcp.ai-ide-tools.preview.publish',
+  'ai-ide-tools.preview.publish',
 ])
 
 const FILES_TOOL_TITLES = new Set([
   'files.present',
   'mcp__ai-ide-tools__files_present',
   'mcp.ai-ide-tools.files.present',
+  'ai-ide-tools.files.present',
 ])
+
+export type PlatformPresentationToolName = 'files.present' | 'preview.publish'
 
 export function presentationsJsonFromToolCalls(toolCalls: unknown[] | undefined): string | null {
   const presentations = presentationsFromToolCalls(toolCalls)
@@ -78,10 +82,24 @@ function deduplicatePresentations(items: MessagePresentation[]): MessagePresenta
 function presentationFromToolCall(value: unknown): MessagePresentation | null {
   const toolCall = record(value)
   if (!toolCall || toolCall.status !== 'completed') return null
-  const title = text(toolCall.title) ?? ''
+  const toolName = platformPresentationToolName(toolCall)
   const output = unwrapToolOutput(toolCall.rawOutput)
-  if (PREVIEW_TOOL_TITLES.has(title)) return parsePreviewPresentation(output)
-  if (FILES_TOOL_TITLES.has(title)) return parseFilesPresentation(output)
+  if (toolName === 'preview.publish') return parsePreviewPresentation(output)
+  if (toolName === 'files.present') return parseFilesPresentation(output)
+  return null
+}
+
+export function platformPresentationToolName(value: unknown): PlatformPresentationToolName | null {
+  const toolCall = record(value)
+  if (!toolCall) return null
+  const rawInput = record(toolCall.rawInput)
+  if (rawInput?.server === 'ai-ide-tools') {
+    const rawTool = text(rawInput.tool)
+    if (rawTool === 'files.present' || rawTool === 'preview.publish') return rawTool
+  }
+  const title = text(toolCall.title) ?? ''
+  if (FILES_TOOL_TITLES.has(title)) return 'files.present'
+  if (PREVIEW_TOOL_TITLES.has(title)) return 'preview.publish'
   return null
 }
 
@@ -138,17 +156,27 @@ function parsePreviewPresentation(value: unknown): PreviewPresentation | null {
   }
 }
 
-function unwrapToolOutput(value: unknown): unknown {
+function unwrapToolOutput(value: unknown, depth = 0): unknown {
+  if (depth > 4) return null
   if (Array.isArray(value)) {
     for (const item of value) {
       const entry = record(item)
       if (entry?.type !== 'text' || typeof entry.text !== 'string') continue
       const parsed = parseJson(entry.text)
-      if (parsed !== null) return parsed
+      if (parsed !== null) return unwrapToolOutput(parsed, depth + 1)
     }
     return null
   }
-  if (typeof value === 'string') return parseJson(value)
+  if (typeof value === 'string') {
+    const parsed = parseJson(value)
+    return parsed === null ? null : unwrapToolOutput(parsed, depth + 1)
+  }
+  const output = record(value)
+  if (!output) return value
+  if ('error' in output && output.error != null) return null
+  if (output.kind === 'files' || output.previewId) return output
+  if ('result' in output) return unwrapToolOutput(output.result, depth + 1)
+  if ('content' in output) return unwrapToolOutput(output.content, depth + 1)
   return value
 }
 

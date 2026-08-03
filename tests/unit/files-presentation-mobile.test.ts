@@ -51,6 +51,30 @@ describe('mobile files presentation', () => {
     expect(html.match(/本次交付/g)).toHaveLength(1)
   })
 
+  test('renders the final Codex gateway wrapper', () => {
+    const Component = TurnContent as unknown as ComponentType<Record<string, unknown>>
+    const codexPresentation = { ...presentation, title: 'Codex wrapped files' }
+    const message: MessageData = {
+      id: 'msg-files-codex', session_id: 'sess-1', role: 'agent', content: 'Done',
+      thinking: null, tool_calls_json: null, decision_json: null,
+      presentations_json: null,
+      timestamp: '2026-08-03T00:00:01.000Z', status: 'completed',
+      processBlocks: [{
+        id: 'tool-files-codex', kind: 'tool',
+        toolCall: {
+          id: 'tool-files-codex',
+          title: 'ai-ide-tools.files.present',
+          status: 'completed',
+          rawInput: { server: 'ai-ide-tools', tool: 'files.present', arguments: {} },
+          rawOutput: { result: { content: [{ type: 'text', text: JSON.stringify(codexPresentation) }] }, error: null },
+        },
+      }],
+    }
+    const html = renderToStaticMarkup(createElement(Component, { message }))
+
+    expect(html).toContain('Codex wrapped files')
+  })
+
   test('offers every presented file as a full-screen switch target', () => {
     const html = renderToStaticMarkup(createElement(PresentedFilesOverlay, {
       presentation,
