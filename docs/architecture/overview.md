@@ -147,7 +147,7 @@ Edge、API、Realtime、Runtime 各自使用 `monitorEventLoopDelay` 和 event-l
 
 `session:activity` 是独立的轻量全局事件，只表示会话本轮执行从 `running` 到 `idle` 的状态变化，用于左侧会话列表运行中/未读提示；它不承载聊天内容，也不参与历史消息还原。
 
-桌面悬浮 Widget 也使用 `session:activity`，但不订阅完整 `session:update` 聊天流。Widget 是固定 300x360 的紧凑窗口，保存带尺寸版本的 bounds 并在升级时维持最近屏幕边缘的间距；亮色、黄色和深色主题由单一按钮循环并保存在 renderer localStorage。Widget 通过 `widget.agentActivity.list` 获取 Agent 优先的轻量 DTO：后端按 Agent 聚合 Session、Project、真实运行态和统一的 `sessions.last_read_at` 已读状态，每个 Agent 只选择一个代表会话并按最近活跃时间排序。Task 关联同时覆盖 `tasks.assigned_agent_id` 和 `task_steps.assignee_agent_id`，仅返回当天最近分派给该 Agent 的 Task；当天无 Task 时不使用 Session 标题伪装关联。运行中 Session 优先显示运行态，否则今日 Task 为 `needs_input`/`blocked` 时显示待处理；底部状态按钮在全部、运行中、待处理和已完成之间循环筛选。点击 Agent 时通过桌面内部路由打开 `/p/:projectId/workspace?sessionId=...`，主进程接受导航请求后确认已读。旧的 Session 优先 RPC 继续保留用于兼容。
+桌面悬浮 Widget 也使用 `session:activity`，但不订阅完整 `session:update` 聊天流。Widget 是固定 360x400 的紧凑窗口，保存带尺寸版本的 bounds 并在升级时维持最近屏幕边缘的间距；亮色、黄色和深色主题由单一按钮循环并保存在 renderer localStorage。Widget 通过 `widget.sessionActivity.list` 获取 Session 级轻量 DTO：后端按 Agent 与 Project 分组，保留每个正在执行、未读或直接关联 Task 处于 `needs_input`/`blocked` 的 Session。Task 只通过 `sessions.task_id` 或 `task_steps.session_id` 的直接关系关联，禁止把 Agent 的其他 Task 挂到当前 Session。每个 Session 固定单行显示状态、会话标题和任务标题，底部状态按钮在全部、运行中、待处理和未读之间循环筛选。点击 Session 时通过桌面内部路由打开 `/p/:projectId/workspace?sessionId=...`，主进程接受导航请求后仅确认该 Session 已读。旧的 Agent 代表会话和 Session 列表 RPC 继续保留用于兼容。
 
 
 ### 创建任务

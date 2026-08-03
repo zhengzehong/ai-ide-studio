@@ -1,14 +1,19 @@
 import { useMemo, useState } from 'react'
 import { PanelTopOpen, RefreshCw } from 'lucide-react'
-import { useWidgetStore, type WidgetAgentActivityItem } from '../../stores/widget.store'
-import { getActivityFilterLabel, getNextActivityFilter, type ActivityFilter } from './activity-filter'
+import { useWidgetStore, type WidgetSessionActivityItem } from '../../stores/widget.store'
+import {
+  getActivityFilterLabel,
+  getNextActivityFilter,
+  matchesActivityFilter,
+  type ActivityFilter,
+} from './activity-filter'
+import { WidgetAgentProjectGroup } from './WidgetAgentProjectGroup'
 import { electronApi } from './types'
 import { openWidgetSession } from './widget-session-action'
-import { WidgetAgentRow } from './WidgetAgentRow'
 
 export function WidgetAgentActivityPanel() {
   const api = electronApi
-  const activities = useWidgetStore((state) => state.activities)
+  const groups = useWidgetStore((state) => state.activityGroups)
   const loading = useWidgetStore((state) => state.activitiesLoading)
   const error = useWidgetStore((state) => state.activitiesError)
   const pinnedProjectId = useWidgetStore((state) => state.preferences.pinnedProjectId)
@@ -17,20 +22,31 @@ export function WidgetAgentActivityPanel() {
   const [filter, setFilter] = useState<ActivityFilter>('all')
   const [navigationError, setNavigationError] = useState<string | null>(null)
 
-  const visibleActivities = useMemo(
-    () => activities.filter((activity) => filter === 'all' || activity.activityState === filter),
-    [activities, filter],
-  )
-  const runningCount = activities.filter((activity) => activity.activityState === 'running').length
-  const needsInputCount = activities.filter((activity) => activity.activityState === 'needs_input').length
+  const visibleGroups = useMemo(() => groups
+    .map((group) => ({
+      ...group,
+      sessions: group.sessions.filter((session) => matchesActivityFilter(session, filter)),
+    }))
+    .filter((group) => group.sessions.length > 0), [filter, groups])
+  const sessions = groups.flatMap((group) => group.sessions)
+  const agentCount = new Set(groups.map((group) => group.agentId)).size
+  const runningCount = sessions.filter((session) => session.running).length
+  const unreadCount = sessions.filter((session) => session.unread).length
 
-  const handleActivityClick = async (activity: WidgetAgentActivityItem): Promise<void> => {
+  const handleSessionClick = async (
+    projectId: string | null,
+    session: WidgetSessionActivityItem,
+  ): Promise<void> => {
     setNavigationError(null)
     if (!api) {
-      setNavigationError('请在桌面客户端中打开 Agent 会话')
+      setNavigationError('请在桌面客户端中打开会话')
       return
     }
-    setNavigationError(await openWidgetSession(activity, api.openMain, markSessionRead))
+    setNavigationError(await openWidgetSession({
+      sessionId: session.sessionId,
+      projectId,
+      unread: session.unread,
+    }, api.openMain, markSessionRead))
   }
 
   return (
@@ -47,14 +63,18 @@ export function WidgetAgentActivityPanel() {
       )}
 
       <div className="widget-content">
-        {loading && activities.length === 0 ? (
-          <div className="widget-empty">正在同步 Agent 动态...</div>
-        ) : visibleActivities.length === 0 ? (
-          <div className="widget-empty">暂无符合条件的 Agent 动态</div>
+        {loading && groups.length === 0 ? (
+          <div className="widget-empty">正在同步活跃会话...</div>
+        ) : visibleGroups.length === 0 ? (
+          <div className="widget-empty">暂无符合条件的活跃或未读会话</div>
         ) : (
-          <ol className="widget-activity-list">
-            {visibleActivities.map((activity) => (
-              <WidgetAgentRow key={activity.agentId} activity={activity} onClick={() => void handleActivityClick(activity)} />
+          <ol className="widget-agent-project-list">
+            {visibleGroups.map((group) => (
+              <WidgetAgentProjectGroup
+                key={group.groupId}
+                group={group}
+                onSessionClick={(session) => void handleSessionClick(group.projectId, session)}
+              />
             ))}
           </ol>
         )}
@@ -62,16 +82,17 @@ export function WidgetAgentActivityPanel() {
 
       <footer className="widget-footer">
         <div className="widget-summary">
-          <strong>{activities.length}</strong> 个最近活跃
-          <span>·</span><strong>{runningCount}</strong> 个运行中
-          <span>·</span><strong>{needsInputCount}</strong> 个待处理
+          <strong>{agentCount}</strong> 个 Agent
+          <span>·</span><strong>{sessions.length}</strong> 个会话
+          <span>·</span><strong>{runningCount}</strong> 执行中
+          <span>·</span><strong>{unreadCount}</strong> 未读
         </div>
         <button
           className="widget-status-cycle"
           type="button"
           onClick={() => setFilter(getNextActivityFilter(filter))}
-          title="切换 Agent 状态"
-          aria-label={`Agent 状态筛选：${getActivityFilterLabel(filter)}，点击切换`}
+          title="切换会话状态"
+          aria-label={`会话状态筛选：${getActivityFilterLabel(filter)}，点击切换`}
         >
           {getActivityFilterLabel(filter)}
         </button>

@@ -287,6 +287,7 @@ Team 运行时事件：`team.member.spawn` 会广播包含新成员 Session 行�
 
 | Method | Params | Returns | Notes |
 |------|------|------|------|
+| `widget.sessionActivity.list` | `{ projectId? }` | `WidgetAgentProjectActivityGroup[]` | Groups relevant Sessions by Agent and project. Includes every running, unread, or directly linked needs-input/blocked Session, bounded to 30 Sessions. |
 | `widget.agentActivity.list` | `{ projectId? }` | `WidgetAgentActivityItem[]` | Agent-first bounded activity view. Returns at most one representative Session per Agent and at most 20 Agents. |
 | `widget.sessions.list` | `{ projectId?, filter?: "active" \| "all" }` | `WidgetSessionItem[]` | Session-first floating widget list. The default `active` filter returns running or unread sessions. |
 | `widget.sessions.markRead` | `{ sessionId }` | `{ ok: true }` | Marks a widget session as read after validating the Session exists. |
@@ -294,5 +295,7 @@ Team 运行时事件：`team.member.spawn` 会广播包含新成员 Session 行�
 | `widget.preferences.set` | `{ key, value }` | `{ ok: true }` | Saves or deletes a widget preference. |
 
 `WidgetSessionItem.activityState` is derived from Session runtime-state evidence, not from `agents.status`. `agents.status = running` means the runtime process is online; it does not mean a specific Session is currently generating.
+
+`WidgetAgentProjectActivityGroup` uses `agentId + projectId` as its grouping boundary. Each child Session retains independent `running`, `unread`, and `needsInput` flags plus a single display `attentionState`. Task fields only come from direct `sessions.task_id` or `task_steps.session_id` relationships. Results exclude completed read Sessions, are ordered by attention priority and activity time, and apply their limit to Sessions rather than groups.
 
 `WidgetAgentActivityItem` selects one representative Session per Agent, prioritizing a running Session and then unread/recent activity. `taskId`, `taskTitle`, and `taskStatus` come from the latest Task assigned today through either `tasks.assigned_agent_id` or `task_steps.assignee_agent_id`; no Task fields are returned when the Agent has no assignment today. A running Session remains `running`, otherwise a latest Task in `needs_input`/`blocked` produces `needs_input`. Results are sorted by representative `activityAt` descending and limited to 20 Agents. Legacy Session-first Widget RPCs remain available for compatibility.

@@ -1,11 +1,16 @@
-import type { WidgetAgentActivityItem } from '../../stores/widget.store'
 import type { WidgetNavigationResult } from './types'
 
 type OpenMain = (target: { projectId?: string | null; sessionId?: string | null }) => Promise<WidgetNavigationResult>
 type MarkRead = (sessionId: string) => Promise<void>
 
+interface WidgetSessionNavigationTarget {
+  sessionId: string
+  projectId: string | null
+  unread: boolean
+}
+
 export async function openWidgetSession(
-  session: Pick<WidgetAgentActivityItem, 'sessionId' | 'projectId' | 'unread'>,
+  session: WidgetSessionNavigationTarget,
   openMain: OpenMain,
   markRead: MarkRead,
 ): Promise<string | null> {

@@ -274,6 +274,68 @@ describe('widget session RPC', () => {
 })
 
 describe('widget Agent activity RPC', () => {
+  test('groups every relevant Session for one Agent and project', async () => {
+    const project = projectStore.create({ name: 'Grouped Project', workDir: 'D:/work/grouped' })
+    const agent = agentStore.create({ name: 'Grouped Agent', type: 'dev', runtime: 'mock', projectId: project.id })
+    const runningSession = sessionStore.create({
+      agentId: agent.id,
+      projectId: project.id,
+      title: 'Running Session',
+    })
+    messageStore.append(runningSession.id, { role: 'agent', content: 'working', status: 'running' })
+    const unreadSession = sessionStore.create({
+      agentId: agent.id,
+      projectId: project.id,
+      title: 'Unread Session',
+    })
+    getDb().prepare('UPDATE sessions SET last_read_at = ? WHERE id = ?')
+      .run('2000-01-01T00:00:00.000Z', unreadSession.id)
+    messageStore.append(unreadSession.id, { role: 'agent', content: 'finished', status: 'completed' })
+    sessionStore.touch(unreadSession.id)
+
+    const groups = await callWidgetRpc('widget.sessionActivity.list') as Array<Record<string, unknown>>
+
+    expect(groups).toHaveLength(1)
+    expect(groups[0]).toMatchObject({
+      agentId: agent.id,
+      projectId: project.id,
+      projectName: 'Grouped Project',
+      sessions: expect.arrayContaining([
+        expect.objectContaining({ sessionId: runningSession.id, attentionState: 'running' }),
+        expect.objectContaining({ sessionId: unreadSession.id, attentionState: 'unread' }),
+      ]),
+    })
+  })
+
+  test('uses a Task Step relation without attaching an unrelated Agent Task', async () => {
+    const project = projectStore.create({ name: 'Step Project', workDir: 'D:/work/step-project' })
+    const agent = agentStore.create({ name: 'Step Agent', type: 'dev', runtime: 'mock', projectId: project.id })
+    const linkedTask = taskStore.create({ title: 'Linked step Task', projectId: project.id })
+    const unrelatedTask = taskStore.create({ title: 'Unrelated Agent Task', projectId: project.id })
+    taskStore.assignAgent(unrelatedTask.id, agent.id)
+    const session = sessionStore.create({ agentId: agent.id, projectId: project.id, title: 'Step Session' })
+    taskStepManager.addStep({
+      taskId: linkedTask.id,
+      title: 'Implement',
+      assignee: agent.id,
+      sessionId: session.id,
+    })
+    taskStore.update(linkedTask.id, { status: 'needs_input' })
+
+    const groups = await callWidgetRpc('widget.sessionActivity.list') as Array<Record<string, unknown>>
+
+    expect(groups).toHaveLength(1)
+    expect(groups[0]).toMatchObject({
+      sessions: [expect.objectContaining({
+        sessionId: session.id,
+        taskId: linkedTask.id,
+        taskTitle: 'Linked step Task',
+        attentionState: 'needs_input',
+      })],
+    })
+    expect(JSON.stringify(groups)).not.toContain('Unrelated Agent Task')
+  })
+
   test('returns one row per Agent and prioritizes a running Session as the navigation target', async () => {
     const project = projectStore.create({ name: 'Activity Project', workDir: 'D:/work/activity' })
     const agent = agentStore.create({ name: 'Activity Agent', type: 'dev', runtime: 'mock', projectId: project.id })
