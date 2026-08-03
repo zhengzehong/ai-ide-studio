@@ -86,6 +86,8 @@ describe('builtin tool seed synchronization', () => {
       'core.project.create',
       'core.project.get',
       'core.project.list',
+      'core.session.capabilities',
+      'core.session.configure',
       'core.session.create',
       'core.session.get',
       'core.session.list',
@@ -175,6 +177,11 @@ describe('builtin tool seed synchronization', () => {
       : {}
     const createAgentProperties = asRecord(createAgentSchema.properties)
     expect(createAgentProperties.modelProfileId).toMatchObject({ type: 'string' })
+
+    const sessionCapabilities = toolStore.getByName('core.session.capabilities')
+    expect(sessionCapabilities).toMatchObject({ type: 'builtin', is_builtin: 1 })
+    const sessionConfigure = toolStore.getByName('core.session.configure')
+    expect(sessionConfigure).toMatchObject({ type: 'builtin', is_builtin: 1 })
 
     const createTemplate = toolStore.getByName('agent.template.create')
     const createTemplateSchema = createTemplate?.input_schema_json

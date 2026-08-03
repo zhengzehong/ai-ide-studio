@@ -7,9 +7,12 @@ import {
   type LocalSessionCandidate,
 } from '../../core/local-session-import.js'
 import { createChildLogger } from '../../core/logger.js'
+import {
+  configureSessionRuntime,
+  getSessionRuntimeCapabilities,
+} from '../../core/session-runtime-control.js'
 import { sessionManager } from '../../core/sessions.js'
 import { agentStore } from '../../store/agents.js'
-import { globalAssistantStore } from '../../store/global-assistant.js'
 import { projectStore } from '../../store/projects.js'
 import { eventStore, messageStore, sessionStore } from '../../store/sessions.js'
 import { parseToolCallsJson, selectToolCallDetail, summarizeToolCalls } from '../../store/tool-call-history.js'
@@ -25,15 +28,6 @@ import { randomUUID } from 'node:crypto'
 import { executeSessionCommand } from '../../commands/session-command-service.js'
 
 const log = createChildLogger('rpc-sessions')
-
-function resolveSessionProjectContext(sessionId: string): { projectId?: string; cwd?: string } {
-  const session = sessionStore.get(sessionId)
-  if (!session) return {}
-  const globalWorkspaceDir = globalAssistantStore.workspaceForSession(sessionId)
-  if (globalWorkspaceDir) return { projectId: session.project_id ?? undefined, cwd: globalWorkspaceDir }
-  const project = session.project_id ? projectStore.get(session.project_id) : undefined
-  return { projectId: session.project_id ?? undefined, cwd: project?.work_dir }
-}
 
 function resolveImportRuntime(runtime: string): ImportableLocalRuntime {
   if (runtime === 'codex' || runtime === 'claude') return runtime
@@ -65,16 +59,6 @@ function candidateFromRpcInput(msg: Record<string, unknown>, fallbackRuntime: Im
     updatedAt: new Date().toISOString(),
     cwd: typeof msg.cwd === 'string' && msg.cwd.trim() ? msg.cwd.trim() : undefined,
   }
-}
-
-async function ensureAcpSession(sessionId: string, emitLifecycle = true): Promise<{ agentId: string }> {
-  const session = sessionStore.get(sessionId)
-  if (!session) throw new Error('\u4f1a\u8bdd\u4e0d\u5b58\u5728')
-  const context = resolveSessionProjectContext(sessionId)
-  const snapshot = buildRuntimeStateSnapshot({ sessionId, projectId: context.projectId, cwd: context.cwd })
-  const acpSessionId = await getRuntimePort().ensureSession(snapshot, { emitLifecycle })
-  if (session.acp_session_id !== acpSessionId) sessionStore.updateAcpSessionId(sessionId, acpSessionId)
-  return { agentId: session.agent_id }
 }
 
 function getSessionMessage(sessionId: string, messageId: string) {
@@ -129,16 +113,13 @@ export const sessionRpcHandlers: RpcHandlerMap = {
   async 'session.setModel'(msg, { sendResult }) {
     const sessionId = msg.sessionId as string
     const modelId = msg.modelId as string
-    const { agentId } = await ensureAcpSession(sessionId, false)
-    await getRuntimePort().setModel(agentId, sessionId, modelId)
-    sessionStore.updateRuntimePreferences(sessionId, { modelId })
+    await configureSessionRuntime(sessionId, { modelId })
     sendResult({ modelId })
   },
 
   async 'session.getModels'(msg, { sendResult }) {
     const sessionId = msg.sessionId as string
-    const { agentId } = await ensureAcpSession(sessionId, false)
-    const caps = await getRuntimePort().getSessionCapabilities(agentId, sessionId)
+    const caps = await getSessionRuntimeCapabilities(sessionId, { emitLifecycle: false })
     sendResult({
       models: caps?.models || [],
       currentModelId: caps?.currentModelId || null,
@@ -155,9 +136,7 @@ export const sessionRpcHandlers: RpcHandlerMap = {
   async 'session.setMode'(msg, { sendResult }) {
     const sessionId = msg.sessionId as string
     const modeId = msg.modeId as string
-    const { agentId } = await ensureAcpSession(sessionId, false)
-    await getRuntimePort().setMode(agentId, sessionId, modeId)
-    sessionStore.updateRuntimePreferences(sessionId, { modeId })
+    await configureSessionRuntime(sessionId, { modeId })
     sendResult({ modeId })
   },
 
@@ -165,9 +144,7 @@ export const sessionRpcHandlers: RpcHandlerMap = {
     const sessionId = msg.sessionId as string
     const configId = msg.configId as string
     const value = msg.value as string | boolean
-    const { agentId } = await ensureAcpSession(sessionId, false)
-    await getRuntimePort().setConfig(agentId, sessionId, configId, value)
-    sessionStore.updateRuntimePreferences(sessionId, { config: { [configId]: value } })
+    await configureSessionRuntime(sessionId, { config: { [configId]: value } })
     sendResult({ configId, value })
   },
 

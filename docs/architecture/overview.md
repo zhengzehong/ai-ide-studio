@@ -205,7 +205,7 @@ Session 删除采用软删除，仅隐藏列表项并保留 `messages` / `sessio
 |------|------|----------|
 | `src/acp/` | ACP 公共映射与 embedded 回滚实现 | `host.ts`、`capabilities.ts`、`runtime-registry.ts`、`update-mapper.ts` |
 | `src/runtime/` | 独立 Runtime 服务、API 适配器、Session actor、流合并与资源配额 | `service/*`、`api/process-runtime-port.ts`、`actors/session-actor.ts`、`streams/runtime-update-coalescer.ts` |
-| `src/core/` | 业务逻辑 | `sessions.ts`、`turn-process-runtime.ts`、`platform-presentation-results.ts`、`prompt-diagnostics.ts`、`session-event-payload.ts`、`tasks.ts`、`task-simple.ts`、`task-prompt.ts`、`task-steps.ts`、`projects.ts`、`agents.ts`、`teams.ts`、`event-center.ts`、`events.ts`、`knowledge-base.ts` |
+| `src/core/` | 业务逻辑 | `sessions.ts`、`session-runtime-control.ts`、`turn-process-runtime.ts`、`platform-presentation-results.ts`、`prompt-diagnostics.ts`、`session-event-payload.ts`、`tasks.ts`、`task-simple.ts`、`task-prompt.ts`、`task-steps.ts`、`projects.ts`、`agents.ts`、`teams.ts`、`event-center.ts`、`events.ts`、`knowledge-base.ts` |
 | `src/ports/`、`src/queries/` | 异步查询边界与当前单体适配器 | `query-port.ts`、`local-query-port.ts`、`task-list-query.ts` |
 | `src/gateway/` | API 对外接口与 Realtime 桥 | `server.ts`、`http/query-routes.ts`、`http/realtime-config-route.ts`、`realtime-event-source.ts`、`realtime-rpc-bridge.ts`、`ws-handler.ts` |
 | `src/realtime/` | 独立实时服务 | `service.ts`、`hub.ts`、`outbound-queue.ts`、`process-client.ts` |
