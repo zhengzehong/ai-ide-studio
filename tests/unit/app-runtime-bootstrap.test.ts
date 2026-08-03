@@ -145,4 +145,22 @@ describe('application realtime recovery', () => {
 
     expect(projectScopeMocks.refreshProjectData).toHaveBeenCalledWith('project-a', { force: true })
   })
+
+  test('acknowledges a realtime gap before Session and project recovery can block', async () => {
+    let resolveMessages: (() => void) | undefined
+    const fetchMessages = vi.spyOn(useSessionStore.getState(), 'fetchMessages').mockImplementation(
+      () => new Promise<void>((resolve) => { resolveMessages = resolve }),
+    )
+    vi.spyOn(useSessionStore.getState(), 'fetchRecovery').mockResolvedValue()
+    const acknowledgeResync = vi.spyOn(wsClient, 'acknowledgeResync')
+
+    const recovering = recoverRealtimeGap({ sessionId: 'session-a' })
+    await Promise.resolve()
+
+    expect(acknowledgeResync).toHaveBeenCalledWith('session-a')
+    expect(fetchMessages).toHaveBeenCalledWith('session-a')
+
+    resolveMessages?.()
+    await recovering
+  })
 })

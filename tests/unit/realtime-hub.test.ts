@@ -111,6 +111,24 @@ describe('RealtimeHub', () => {
     ])
   })
 
+  it('delivers Session completion after a cursor gap requires resync', () => {
+    const hub = createHub()
+    const socket = new FakeSocket()
+    hub.addConnection('owner', socket, { authMode: 'owner' })
+    hub.handleClientMessage('owner', { type: 'subscribe', sessionIds: ['session-a'] })
+    socket.sent.length = 0
+
+    hub.deliver(sessionDelivery(update('session-a', 1)))
+    hub.deliver(sessionDelivery(update('session-a', 3)))
+    hub.deliver(sessionDelivery(done('session-a', 4)))
+
+    expect(socket.messages().map((message) => message.type)).toEqual([
+      'session:update',
+      'resync_required',
+      'session:done',
+    ])
+  })
+
   it('does not report a gap while a contiguous cursor is still in flight', () => {
     const hub = createHub()
     const socket = new FakeSocket()
@@ -202,5 +220,17 @@ function update(sessionId: string, sequence: number): Extract<ServerMessage, { t
     streamGeneration: 'generation-a',
     sequence,
     data: { messageId: 'msg-1', role: 'agent', contentDelta: `chunk-${sequence}` },
+  }
+}
+
+function done(sessionId: string, sequence: number): Extract<ServerMessage, { type: 'session:done' }> {
+  return {
+    type: 'session:done',
+    sessionId,
+    agentId: 'agent-a',
+    messageId: 'msg-1',
+    stopReason: 'end_turn',
+    streamGeneration: 'generation-a',
+    sequence,
   }
 }

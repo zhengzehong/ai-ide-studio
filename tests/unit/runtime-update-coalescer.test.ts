@@ -28,6 +28,29 @@ describe('RuntimeUpdateCoalescer', () => {
     expect(persistence).toEqual([[textDelta('hello world')]])
   })
 
+  test('flushes a matching UI update before an already-due persistence batch', async () => {
+    vi.useFakeTimers()
+    const order: string[] = []
+    const coalescer = new RuntimeUpdateCoalescer({
+      uiFlushMs: 25,
+      persistenceFlushMs: 250,
+      emitUi: async (updates) => { order.push(`ui:${updates[0].contentDelta ?? ''}`) },
+      emitPersistence: async (updates) => { order.push(`persistence:${updates[0].contentDelta ?? ''}`) },
+    })
+
+    coalescer.enqueue(textDelta('first'))
+    await vi.advanceTimersByTimeAsync(25)
+    await vi.advanceTimersByTimeAsync(220)
+    coalescer.enqueue(textDelta('second'))
+    await vi.advanceTimersByTimeAsync(5)
+
+    expect(order).toEqual([
+      'ui:first',
+      'ui:second',
+      'persistence:firstsecond',
+    ])
+  })
+
   test('keeps only the latest process progress for each process item', async () => {
     vi.useFakeTimers()
     const ui: RuntimeCoalescibleUpdate[][] = []

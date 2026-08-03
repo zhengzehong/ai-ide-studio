@@ -163,14 +163,17 @@ export class RuntimeService {
   private async emitPersistence(updates: RuntimeCoalescibleUpdate[]): Promise<void> {
     for (const update of updates) {
       const key = runtimeUpdateKey(update)
-      const cursor = this.cursorByUpdate.get(key) ?? this.host.nextCursor(update.sessionId)
+      const cursor = this.cursorByUpdate.get(key)
+      if (!cursor) {
+        throw new Error(`Runtime persistence update has no UI cursor: ${key}`)
+      }
       await this.options.sendPersistence({
         sessionId: update.sessionId,
         agentId: stringField(update, 'agentId'),
         update,
         ...cursor,
       })
-      this.cursorByUpdate.delete(key)
+      if (this.cursorByUpdate.get(key) === cursor) this.cursorByUpdate.delete(key)
     }
   }
 

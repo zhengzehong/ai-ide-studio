@@ -52,7 +52,7 @@ PC 的 Prompt、取消、已读、权限和提问响应默认通过 `/api/v1/com
 
 后端默认使用 `REALTIME_MODE=process` 启动独立 Realtime 子进程，API 同步阻塞不会占用实时连接事件循环。客户端通过 `/api/v1/realtime-config` 动态发现端点；排障时可显式设置 `REALTIME_MODE=embedded` 回退到 API 同端口 WebSocket。旧 WS 领域 RPC 默认通过本机 IPC 兼容桥执行，可在迁移完成后设置 `REALTIME_LEGACY_RPC=disabled` 关闭。
 
-后端默认使用 `RUNTIME_SERVICE_MODE=process` 启动独立 Runtime 子进程。Claude/Codex ACP、每 Session 串行 actor、流更新合并、权限交互和终端资源都在该进程中；可见流通过专用本机管道直达 Realtime，持久化流回到 API/Writer。排障时可同时设置 `RUNTIME_SERVICE_MODE=embedded` 与 `REALTIME_MODE=embedded` 回滚到旧同进程路径。
+后端默认使用 `RUNTIME_SERVICE_MODE=process` 启动独立 Runtime 子进程。Claude/Codex ACP、每 Session 串行 actor、流更新合并、权限交互和终端资源都在该进程中；可见流通过专用本机管道直达 Realtime，并作为流游标的唯一分配者，持久化流复用同一游标回到 API/Writer。发生游标恢复时，关键完成事件仍会送达，PC 会先解除增量屏障再执行 HTTP recovery。排障时可同时设置 `RUNTIME_SERVICE_MODE=embedded` 与 `REALTIME_MODE=embedded` 回滚到旧同进程路径。
 
 性能分支可用 `powershell -ExecutionPolicy Bypass -File scripts/start-performance-local.ps1` 启动隔离实例。默认只公开 `http://127.0.0.1:19000`，数据库和日志分别位于当前 worktree 的 `data-perf` 与 `data-perf/logs`；脚本拒绝使用 PRD 的 `18900` 端口，也不会自动终止占用端口的进程。
 
