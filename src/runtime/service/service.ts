@@ -59,6 +59,9 @@ export class RuntimeService {
     this.coalescer = new RuntimeUpdateCoalescer({
       emitUi: (updates) => this.emitUi(updates),
       emitPersistence: (updates) => this.emitPersistence(updates),
+      onError: (error, channel) => {
+        log.fatal({ err: error, channel }, 'Runtime update coalescer flush failed')
+      },
     })
     this.eventLoopMonitor = createEventLoopMonitor(
       eventLoopMonitorOptions('runtime', () => ({
