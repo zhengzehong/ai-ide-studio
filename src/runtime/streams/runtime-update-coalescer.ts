@@ -97,6 +97,12 @@ export class RuntimeUpdateCoalescer {
   }
 
   private async flushChannel(channel: UpdateChannel, sessionId?: string): Promise<void> {
+    const updates = this.takePending(channel, sessionId)
+    if (updates.length > 0) await this.write(channel, updates)
+    else await channel.writeChain
+  }
+
+  private takePending(channel: UpdateChannel, sessionId?: string): RuntimeCoalescibleUpdate[] {
     const updates: RuntimeCoalescibleUpdate[] = []
     for (const [key, update] of channel.pending) {
       if (sessionId && update.sessionId !== sessionId) continue
@@ -104,13 +110,14 @@ export class RuntimeUpdateCoalescer {
       updates.push(update)
     }
     if (channel.pending.size === 0) this.clearTimer(channel)
-    if (updates.length > 0) await this.write(channel, updates)
-    else await channel.writeChain
+    return updates
   }
 
   private async flushPersistence(sessionId?: string): Promise<void> {
+    const updates = this.takePending(this.persistence, sessionId)
     await this.flushChannel(this.ui, sessionId)
-    await this.flushChannel(this.persistence, sessionId)
+    if (updates.length > 0) await this.write(this.persistence, updates)
+    else await this.persistence.writeChain
   }
 
   private write(channel: UpdateChannel, updates: RuntimeCoalescibleUpdate[]): Promise<void> {

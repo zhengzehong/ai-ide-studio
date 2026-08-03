@@ -51,6 +51,45 @@ describe('RuntimeUpdateCoalescer', () => {
     ])
   })
 
+  test('leaves updates arriving during a UI flush for the next persistence batch', async () => {
+    vi.useFakeTimers()
+    const order: string[] = []
+    let releaseUi: (() => void) | undefined
+    let markFirstPersisted: (() => void) | undefined
+    const uiGate = new Promise<void>((resolve) => { releaseUi = resolve })
+    const firstPersisted = new Promise<void>((resolve) => { markFirstPersisted = resolve })
+    const coalescer = new RuntimeUpdateCoalescer({
+      uiFlushMs: 25,
+      persistenceFlushMs: 250,
+      emitUi: async (updates) => {
+        order.push(`ui:${updates[0].contentDelta ?? ''}`)
+        if (updates[0].contentDelta === 'first') await uiGate
+      },
+      emitPersistence: async (updates) => {
+        order.push(`persistence:${updates[0].contentDelta ?? ''}`)
+        if (updates[0].contentDelta === 'first') markFirstPersisted?.()
+      },
+    })
+
+    coalescer.enqueue(textDelta('first'))
+    const flushing = vi.advanceTimersByTimeAsync(250)
+    await vi.waitFor(() => expect(order).toEqual(['ui:first']))
+    coalescer.enqueue(textDelta('second'))
+    releaseUi?.()
+    await flushing
+    await firstPersisted
+
+    expect(order).toEqual(['ui:first', 'persistence:first'])
+
+    await vi.advanceTimersByTimeAsync(250)
+    expect(order).toEqual([
+      'ui:first',
+      'persistence:first',
+      'ui:second',
+      'persistence:second',
+    ])
+  })
+
   test('keeps only the latest process progress for each process item', async () => {
     vi.useFakeTimers()
     const ui: RuntimeCoalescibleUpdate[][] = []
