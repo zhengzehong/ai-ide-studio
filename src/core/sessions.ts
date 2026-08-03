@@ -252,6 +252,10 @@ export const sessionManager = {
     return activePrompts.has(sessionId)
   },
 
+  isPromptPending(sessionId: string): boolean {
+    return activePrompts.has(sessionId) || queuedPrompts.has(sessionId)
+  },
+
   listActivePromptSessionIds(): string[] {
     return [...activePrompts]
   },

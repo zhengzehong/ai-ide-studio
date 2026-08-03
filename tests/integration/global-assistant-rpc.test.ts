@@ -112,6 +112,14 @@ describe('Global assistant RPC', () => {
     const binding = ws.last().data as { assistant: { workspace_dir: string }; session: { id: string; agent_id: string } }
 
     const ensureSession = vi.spyOn(acpHost, 'ensureSession').mockResolvedValue('acp-global')
+    vi.spyOn(acpHost, 'getSessionCapabilities').mockReturnValue({
+      models: [],
+      modes: [],
+      configOptions: [],
+      commands: [],
+      supportsImages: false,
+      supportsAudio: false,
+    })
 
     await ws.send({ type: 'session.getModels', requestId: 'req-models', sessionId: binding.session.id })
 

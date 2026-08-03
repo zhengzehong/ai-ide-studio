@@ -36,11 +36,13 @@ import {
   createAgentTemplateHandler,
   createProjectHandler,
   createSessionHandler,
+  configureSessionHandler,
   defineMemoryDimensionHandler,
   deleteAgentTemplateHandler,
   getAgentHandler,
   getAgentTemplateHandler,
   getProjectHandler,
+  getSessionCapabilitiesHandler,
   getSessionHandler,
   listTimelineHandler,
   listAgentsHandler,
@@ -172,6 +174,8 @@ register(listModelProfilesHandler)
 register(listSessionsHandler)
 register(getSessionHandler)
 register(createSessionHandler)
+register(getSessionCapabilitiesHandler)
+register(configureSessionHandler)
 register(listSessionTemplatesHandler)
 register(publishSessionTemplateHandler)
 register(instantiateSessionTemplateHandler)
