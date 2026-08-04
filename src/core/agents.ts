@@ -7,6 +7,7 @@ import { applyToolProfileToAgent } from '../tools/team-profiles.js'
 import { modelProfileStore } from '../store/model-profiles.js'
 import { agentMemoryService } from './agent-memory.js'
 import { ensureAgentPrimarySession } from './agent-primary-sessions.js'
+import { ruleStore } from '../store/rules.js'
 
 const log = createChildLogger('agents')
 
@@ -135,6 +136,9 @@ export function updateProjectAgent(agentId: string, input: UpdateProjectAgentInp
   if (input.icon !== undefined) fields.icon = input.icon
   if (input.avatarUrl !== undefined) fields.avatarUrl = input.avatarUrl
   const config = parseAgentConfig(existing.config_json)
+  if (input.runtime !== undefined && input.runtime !== existing.runtime && autonomyEnabled(config)) {
+    throw new Error('请先停用自主模式，再切换 Agent Runtime')
+  }
   if (input.modelProfileId !== undefined) {
     if (input.modelProfileId) config.modelProfileId = input.modelProfileId
     else delete config.modelProfileId
@@ -154,8 +158,24 @@ export function deleteProjectAgent(agentId: string): void {
   const existing = agentStore.get(agentId)
   if (!existing) throw new Error(`Agent 不存在: ${agentId}`)
   if (!existing.project_id) throw new Error('只能操作项目级 Agent')
+  const config = parseAgentConfig(existing.config_json)
+  const heartbeatRuleId = autonomyHeartbeatRuleId(config)
+  if (heartbeatRuleId && ruleStore.get(heartbeatRuleId)) ruleStore.delete(heartbeatRuleId)
   agentStore.delete(agentId)
   log.info({ agentId, projectId: existing.project_id }, '项目 Agent 已删除')
+}
+
+function autonomyEnabled(config: Record<string, unknown>): boolean {
+  const autonomy = config.autonomy
+  return !!autonomy && typeof autonomy === 'object' && !Array.isArray(autonomy)
+    && (autonomy as Record<string, unknown>).enabled === true
+}
+
+function autonomyHeartbeatRuleId(config: Record<string, unknown>): string | undefined {
+  const autonomy = config.autonomy
+  if (!autonomy || typeof autonomy !== 'object' || Array.isArray(autonomy)) return undefined
+  const value = (autonomy as Record<string, unknown>).heartbeatRuleId
+  return typeof value === 'string' && value ? value : undefined
 }
 
 function ensureProject(projectId: string): void {

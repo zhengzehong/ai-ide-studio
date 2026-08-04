@@ -10,6 +10,8 @@ import { sessionStore } from '../../src/store/sessions.js'
 import { teamMemberStore, teamStore } from '../../src/store/teams.js'
 import { toolBindingStore, toolStore } from '../../src/store/tools.js'
 import { setRuntimePort } from '../../src/runtime/runtime-port-provider.js'
+import { ensureAutonomyMemory } from '../../src/core/agent-autonomy-memory.js'
+import { updateAgentAutonomyConfig } from '../../src/core/agent-autonomy-config.js'
 
 let tmp: string
 let resetRuntimePort: (() => void) | undefined
@@ -110,6 +112,36 @@ describe('runtime state snapshot', () => {
     const session = sessionStore.create({ agentId: agent.id, projectId: project.id })
 
     expect(() => buildRuntimeStateSnapshot({ sessionId: session.id })).toThrow('project mismatch')
+  })
+
+  test('injects the independent prompt only into an autonomy Session', () => {
+    const project = projectStore.create({ name: 'Autonomy project', workDir: tmp })
+    const agent = agentStore.create({
+      name: 'Autonomy agent',
+      type: 'pm',
+      runtime: 'mock',
+      projectId: project.id,
+      systemPrompt: 'Shared role prompt.',
+    })
+    const normal = sessionStore.create({ agentId: agent.id, projectId: project.id })
+    const autonomy = sessionStore.create({ agentId: agent.id, projectId: project.id, purpose: 'autonomy' })
+    const memory = ensureAutonomyMemory(project.id, agent.id)
+    updateAgentAutonomyConfig(agent.id, {
+      prompt: 'Only investigate product risks.',
+      memoryPath: memory.path,
+      autonomySessionId: autonomy.id,
+    })
+
+    const normalSnapshot = buildRuntimeStateSnapshot({ sessionId: normal.id })
+    const autonomySnapshot = buildRuntimeStateSnapshot({ sessionId: autonomy.id })
+
+    expect(normalSnapshot.session.purpose).toBe('conversation')
+    expect(JSON.stringify(normalSnapshot.runtime.sessionMeta)).not.toContain('Only investigate product risks.')
+    expect(autonomySnapshot.session.purpose).toBe('autonomy')
+    const systemPrompt = autonomySnapshot.runtime.sessionMeta?.systemPrompt
+    expect(systemPrompt).toEqual(expect.any(String))
+    expect(systemPrompt as string).toContain('Only investigate product risks.')
+    expect(systemPrompt as string).toContain(memory.path)
   })
 
   test('uses the active process Runtime HTTP MCP transport without caller flags', () => {

@@ -9,6 +9,7 @@ import {
   LayoutDashboard,
   MessageSquare,
   Search,
+  RadioTower,
   Settings,
   Share2,
   Sparkles,
@@ -33,6 +34,7 @@ const globalNav = [
 
 const projectNav = [
   { to: '/workspace', icon: MessageSquare, label: '工作台' },
+  { to: '/autonomy', icon: RadioTower, label: '自主工作' },
   { to: '/tasks', icon: FolderKanban, label: '任务' },
   { to: '/schedule', icon: Clock, label: '自动化' },
   { to: '/events', icon: Inbox, label: '事件' },

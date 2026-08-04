@@ -82,6 +82,10 @@ describe('project session stats store', () => {
     sessionStore.touch(read.id, readAt)
     sessionStore.markRead(read.id, messageAt)
 
+    const autonomy = sessionStore.create({ agentId: agentA.id, projectId: projectA.id, purpose: 'autonomy' })
+    sessionStore.markRead(autonomy.id, readAt)
+    sessionStore.touch(autonomy.id, messageAt)
+
     const template = sessionStore.create({ agentId: agentA.id, projectId: projectA.id, isTemplate: true })
     sessionStore.markRead(template.id, readAt)
     sessionStore.touch(template.id, messageAt)

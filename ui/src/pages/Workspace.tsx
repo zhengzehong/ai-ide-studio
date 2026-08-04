@@ -40,6 +40,7 @@ import {
   EyeOff,
   MessageSquare as MessageSquareIcon,
   RefreshCw,
+  Sparkles,
 } from 'lucide-react'
 import { useAgentStore, type AgentData } from '../stores/agent.store'
 import {
@@ -274,7 +275,7 @@ export default function Workspace() {
   )
   const agentSessions = useCallback(
     (id: string) => {
-      const list = orderedProjectSessions.filter((s) => s.agent_id === id)
+      const list = orderedProjectSessions.filter((s) => s.agent_id === id && s.purpose !== 'autonomy')
       return list.sort((a, b) => {
         const aPrimary = !!a.is_primary
         const bPrimary = !!b.is_primary
@@ -1940,6 +1941,11 @@ function WorkspaceChatPane({
               </div>
               <div style={{ minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, fontSize: 15 }}>
+                  {currentSession?.purpose === 'autonomy' && (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '2px 5px', borderRadius: 4, background: 'var(--blue-light)', color: 'var(--blue)', fontSize: 10, fontWeight: 600 }}>
+                      <Sparkles size={11} /> 自主
+                    </span>
+                  )}
                   {currentSession?.is_primary ? (
                     <>
                       <Zap size={14} fill="var(--blue)" />

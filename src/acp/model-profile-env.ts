@@ -130,13 +130,16 @@ export function buildAgentSessionMeta(
   runtime: string,
   env: NodeJS.ProcessEnv,
   agent: AgentRow,
-  options: { isPrimary?: boolean } = {},
+  options: { isPrimary?: boolean; additionalPrompt?: string } = {},
 ): AgentSessionMeta | undefined {
   const platformPrompt = buildAiIdeSystemPrompt()
   const userPrompt = agent.system_prompt.trim()
   let combined = userPrompt ? `${platformPrompt}\n\n---\n\n${userPrompt}` : platformPrompt
   if (options.isPrimary) {
     combined = `${combined}\n\n---\n\n${buildMasterPrompt(agent.name)}`
+  }
+  if (options.additionalPrompt?.trim()) {
+    combined = `${combined}\n\n---\n\n${options.additionalPrompt.trim()}`
   }
   const memoryPrompt = agentMemoryService.buildAgentMemoryPrompt(agent.id)
   if (memoryPrompt) {

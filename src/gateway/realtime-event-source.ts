@@ -80,6 +80,7 @@ export function createRealtimeEventSource(
   on('timeline:updated', (event) => send({ scope: 'all', message: { type: 'timeline:updated', ...event } }))
   on('event-center:update', (event) => send({ scope: 'all', message: { type: 'event-center:update', data: event } }))
   on('knowledge-base:update', (event) => send({ scope: 'all', message: { type: 'knowledge-base:update', data: event } }))
+  on('autonomy:update', (event) => send({ scope: 'all', message: { type: 'autonomy:update', ...event } }))
 
   return {
     stop(): void {

@@ -23,7 +23,9 @@ export function resolveUnifiedProjectSessionStats({
   unreadSessionIds,
 }: ResolveUnifiedProjectSessionStatsInput): Record<string, ProjectSessionStatsData> {
   if (!activeProjectId) return backendStats
-  const activeSessions = sessions.filter((session) => session.project_id === activeProjectId)
+  const activeSessions = sessions.filter((session) => (
+    session.project_id === activeProjectId && session.purpose !== 'autonomy'
+  ))
   const summary = summarizeSessionIndicators(activeSessions, runningSessionIds, unreadSessionIds)
   return {
     ...backendStats,

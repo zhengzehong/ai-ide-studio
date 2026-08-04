@@ -5,6 +5,7 @@ import { sessionManager } from './sessions.js'
 import { events } from './events.js'
 import { matchCron, getNextRunTime } from './cron.js'
 import { createChildLogger } from './logger.js'
+import { runAgentAutonomyTick } from './agent-autonomy-scheduler.js'
 
 const log = createChildLogger('rule-engine')
 
@@ -12,7 +13,7 @@ let _timer: ReturnType<typeof setInterval> | null = null
 let _lastMinute = -1
 const _firedThisMinute = new Set<string>()
 
-type ActionHandler = (rule: RuleRow, now: Date) => Promise<{ taskId?: string; sessionId?: string }>
+type ActionHandler = (rule: RuleRow, now: Date) => Promise<{ taskId?: string; sessionId?: string; skipped?: string }>
 
 const actionHandlers: Record<string, ActionHandler> = {
   async create_task(rule, _now) {
@@ -65,6 +66,13 @@ const actionHandlers: Record<string, ActionHandler> = {
     await sessionManager.enqueuePrompt(session.id, prompt)
 
     return { sessionId: session.id }
+  },
+
+  async autonomy_tick(rule, _now) {
+    const agentId = rule.action_config.agent_id
+    const sessionId = rule.action_config.session_id ?? undefined
+    if (!agentId || !sessionId) throw new Error('autonomy_tick action 缺少 agent_id 或 session_id')
+    return runAgentAutonomyTick(agentId, sessionId)
   },
 }
 

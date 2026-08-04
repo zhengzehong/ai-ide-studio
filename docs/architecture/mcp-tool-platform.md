@@ -259,6 +259,12 @@ revokedAt
 
 `files.present` 和 `preview.publish` 属于平台自有展示工具。HTTP MCP 执行成功后，API 会暂存结果，并按 Session、规范化工具名和输入参数与 ACP 的工具开始事件匹配，使用原 toolCallId 补齐完成态和输出；若适配器完全不回传工具事件，则在 `session:done` 前附着兜底结果。该机制不依赖 Claude/Codex 是否通过 ACP 回显 MCP 最终结果，也不接管普通工具生命周期。
 
+### 3.10 Autonomy Tools
+
+`studio.autonomy.plan.update` 和 `studio.autonomy.report` 只允许从 `sessions.purpose = autonomy` 的项目 Session 调用。ToolContext 的 `sessionId/agentId/projectId/workDir` 必须与该 Session 一致，普通对话即使能看到全局工具定义也不能写自主排班或汇报。
+
+排班工具只接受最多 20 个 `current/next/done` 项，且最多一个 `current`。汇报工具接受 P0-P3 标签、GFM Markdown 正文和最多 20 个附件；附件必须是项目工作目录内已存在的非隐藏相对文件，工具只持久化路径，不读取正文。工作记忆不提供专用工具，Agent 按自主系统提示词中的绝对路径使用 Runtime 既有文件能力维护。
+
 ## 4. 目录结构建议
 
 建议把 MCP 工具平台拆成几个小模块，避免继续堆大文件。

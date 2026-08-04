@@ -39,6 +39,7 @@ API 子进程                       Realtime 子进程
       ▼
 Core 业务层（API 进程）
   sessions.ts / tasks.ts / projects.ts / agents.ts / teams.ts / event-center.ts / events.ts / knowledge-base.ts
+  agent-autonomy.ts / agent-autonomy-scheduler.ts
       │
       ├── Store 持久层
       │     db.ts                  SQLite 初始化、旧 JSON 导入
@@ -74,6 +75,21 @@ Mobile / Guest / rollback → Realtime WS "prompt" → Protobuf IPC 兼容桥 �
   → Runtime 250ms 合并 → Runtime→API 控制 IPC → Core 投影 → Writer Worker
   → Runtime done barrier → API critical commit + Outbox → committed done → Realtime → Web UI
 ```
+
+### 自主 Agent 检查
+
+```text
+Rule Engine（每 10 分钟）
+  → agent-autonomy-scheduler 检查 enabled / due / Session busy
+  → 忙碌时跳过，不向 Session 队列追加 Prompt
+  → 固定 purpose=autonomy Session 进入同一 Session command/runtime 主链路
+  → Runtime snapshot 只为该 Session 追加独立自主提示词与 memory.md 绝对路径
+  → Agent 用 studio.autonomy.plan.update 维护当天排班
+  → Agent 用 studio.autonomy.report 写入 Markdown 汇报并发布 autonomy:update
+  → PC 自主工作页刷新报告、排班和工作记忆
+```
+
+每个项目 Agent 最多拥有一个未删除的自主 Session。自主 Session 与普通对话共享 ACP、消息持久化、取消和恢复能力，但不进入 Workspace 普通会话列表或项目会话统计；用户仍可从自主工作页按 `sessionId` 打开完整会话。启用时 Claude 必须由 Runtime 确认 `bypassPermissions`，Codex 必须确认 `agent-full-access`，未确认时不会启用心跳规则。
 
 前端实时对话以 `session:update` 作为可见流式状态来源；`session:event` 主要用于持久化同步、断线恢复和状态补偿，避免每个流式 chunk 都全量还原事件。后端在用户发送后立即创建一条 `messages.status = running` 的 Agent 消息，流式文本写入 `messages.content` 快照；思考、工具、权限、提问、计划和文件修改等执行过程写入 `turn_process_items`，并通过 `session:process_item` 轻量广播。完成后同一条 Agent 消息更新为 completed/failed/cancelled。
 

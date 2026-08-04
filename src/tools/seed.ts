@@ -330,6 +330,72 @@ const CORE_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
     defaultScope: 'global',
   },
   {
+    name: 'studio.autonomy.plan.update',
+    displayName: '更新自主排班',
+    description: '更新当前自主 Agent 的当天排班，只使用 current、next、done 三种状态。',
+    category: 'automation',
+    type: 'builtin',
+    config: { handler: 'studio.autonomy.plan.update' },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        date: { type: 'string', description: '排班日期，格式 YYYY-MM-DD' },
+        items: {
+          type: 'array',
+          maxItems: 20,
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              title: { type: 'string' },
+              status: { type: 'string', enum: ['current', 'next', 'done'] },
+              note: { type: 'string' },
+            },
+            required: ['id', 'title', 'status'],
+          },
+        },
+        nextCheckAt: { type: 'string', description: '可选的下次检查 ISO 时间' },
+      },
+      required: ['date', 'items'],
+    },
+    permissions: CORE_PERMISSIONS,
+    isBuiltin: true,
+    defaultScope: 'global',
+  },
+  {
+    name: 'studio.autonomy.report',
+    displayName: '提交自主汇报',
+    description: '提交一条 GFM Markdown 自主工作汇报，优先级只作为标签。',
+    category: 'automation',
+    type: 'builtin',
+    config: { handler: 'studio.autonomy.report' },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', maxLength: 160 },
+        summary: { type: 'string', maxLength: 500 },
+        priority: { type: 'string', enum: ['P0', 'P1', 'P2', 'P3'] },
+        markdown: { type: 'string', description: 'GFM Markdown 正文' },
+        attachments: {
+          type: 'array',
+          maxItems: 20,
+          items: {
+            type: 'object',
+            properties: {
+              path: { type: 'string', description: '项目内相对文件路径' },
+              title: { type: 'string', maxLength: 160 },
+            },
+            required: ['path'],
+          },
+        },
+      },
+      required: ['title', 'summary', 'priority', 'markdown'],
+    },
+    permissions: CORE_PERMISSIONS,
+    isBuiltin: true,
+    defaultScope: 'global',
+  },
+  {
     name: 'core.session.template.list',
     displayName: '列出会话模板',
     description: '列出会话模板(可按 agentId 过滤)。',

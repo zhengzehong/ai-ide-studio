@@ -5,6 +5,7 @@ import {
   AccessTokenPage,
   AgentMemory,
   AgentSquare,
+  Autonomy,
   Dashboard,
   EventCenter,
   GuestChatPage,
@@ -85,6 +86,7 @@ export default function App() {
                 <Route path="events" element={<EventCenter />} />
                 <Route path="knowledge" element={<KnowledgeBase />} />
                 <Route path="agent-memory" element={<AgentMemory />} />
+                <Route path="autonomy" element={<Autonomy />} />
               </Route>
               <Route path="/workspace" element={<LegacyProjectRedirect subpath="/workspace" />} />
               <Route path="/tasks" element={<LegacyProjectRedirect subpath="/tasks" />} />
@@ -93,6 +95,7 @@ export default function App() {
               <Route path="/events" element={<LegacyProjectRedirect subpath="/events" />} />
               <Route path="/knowledge" element={<LegacyProjectRedirect subpath="/knowledge" />} />
               <Route path="/agent-memory" element={<LegacyProjectRedirect subpath="/agent-memory" />} />
+              <Route path="/autonomy" element={<LegacyProjectRedirect subpath="/autonomy" />} />
               <Route path="/projects" element={<Projects />} />
               <Route path="/shares" element={<ShareManagePage />} />
               <Route path="/templates" element={<TemplatesPage />} />
