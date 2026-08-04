@@ -238,8 +238,9 @@ describe('builtin tool seed synchronization', () => {
       ? (JSON.parse(studioScheduleCreate.input_schema_json) as Record<string, unknown>)
       : {}
     const studioScheduleCreateProperties = asRecord(studioScheduleCreateSchema.properties)
-    expect(studioScheduleCreateProperties.sessionMode).toMatchObject({ enum: ['existing', 'new_each', 'new_fixed'] })
-    expect(studioScheduleCreateProperties.sessionId).toMatchObject({ type: 'string' })
+    expect(Object.keys(studioScheduleCreateProperties).sort()).toEqual(['cron', 'name', 'prompt'])
+    expect(studioScheduleCreateSchema.required).toEqual(['name', 'cron', 'prompt'])
+    expect(studioScheduleCreateProperties.prompt).toMatchObject({ type: 'string' })
   })
 
   test('removes stale global team tool bindings when reseeding', () => {

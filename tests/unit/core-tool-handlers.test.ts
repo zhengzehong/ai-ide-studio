@@ -357,75 +357,45 @@ describe('core MCP tool handlers', () => {
     }
   })
 
-  test('studio.schedule.create stores explicit session target for scheduled tasks and prompts', async () => {
+  test('studio.schedule.create binds a recurring prompt to the current Agent and Session', async () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const agent = agentStore.create({ name: 'Scheduler', type: 'dev', runtime: 'mock', projectId: project.id })
     const session = sessionStore.create({ agentId: agent.id, projectId: project.id })
 
-    const taskRule = await executeJson(
+    const result = await executeJson(
       'studio.schedule.create',
       {
-        name: 'Task reuse',
+        name: 'Daily check',
         cron: '0 9 * * *',
-        action: 'create_task',
-        taskTitle: 'Daily task',
-        assignAgentId: agent.id,
-        sessionId: session.id,
-      },
-      { projectId: project.id },
-    )
-    const storedTaskRule = ruleStore.get(taskRule.ruleId as string)
-    expect(storedTaskRule?.action_config).toMatchObject({ assign_agent_id: agent.id, session_id: session.id })
-
-    const promptRule = await executeJson(
-      'studio.schedule.create',
-      {
-        name: 'Prompt reuse',
-        cron: '0 10 * * *',
-        action: 'send_prompt',
         prompt: 'daily check',
-        agentId: agent.id,
-        sessionId: session.id,
+        action: 'create_task',
+        taskTitle: 'must be ignored',
+        agentId: 'must-be-ignored',
+        sessionId: 'must-be-ignored',
+        sessionMode: 'new_each',
+        maxRuns: 1,
       },
-      { projectId: project.id },
+      { projectId: project.id, agentId: agent.id, sessionId: session.id },
     )
-    const storedPromptRule = ruleStore.get(promptRule.ruleId as string)
-    expect(storedPromptRule?.action_config).toMatchObject({ agent_id: agent.id, session_id: session.id })
+
+    const rule = ruleStore.get(result.ruleId as string)
+    expect(rule).toMatchObject({ action: 'send_prompt', project_id: project.id, max_runs: null, created_by: `agent:${agent.id}` })
+    expect(rule?.action_config).toEqual({
+      prompt: 'daily check',
+      agent_id: agent.id,
+      session_mode: 'existing',
+      session_id: session.id,
+    })
   })
 
-  test('studio.schedule.create stores explicit session mode for scheduled tasks and prompts', async () => {
-    const project = projectStore.create({ name: 'P', workDir: tmp })
-    const agent = agentStore.create({ name: 'Scheduler', type: 'dev', runtime: 'mock', projectId: project.id })
-
-    const taskRule = await executeJson(
-      'studio.schedule.create',
-      {
-        name: 'Task fixed',
-        cron: '0 9 * * *',
-        action: 'create_task',
-        taskTitle: 'Daily task',
-        assignAgentId: agent.id,
-        sessionMode: 'new_fixed',
-      },
-      { projectId: project.id },
+  test('studio.schedule.create requires the current Agent and Session context', async () => {
+    const result = await getHandler('studio.schedule.create')?.execute(
+      { name: 'Daily check', cron: '0 9 * * *', prompt: 'daily check' },
+      { projectId: 'project', agentId: 'agent' },
     )
-    const storedTaskRule = ruleStore.get(taskRule.ruleId as string)
-    expect(storedTaskRule?.action_config).toMatchObject({ assign_agent_id: agent.id, session_mode: 'new_fixed' })
 
-    const promptRule = await executeJson(
-      'studio.schedule.create',
-      {
-        name: 'Prompt fixed',
-        cron: '0 10 * * *',
-        action: 'send_prompt',
-        prompt: 'daily check',
-        agentId: agent.id,
-        sessionMode: 'new_fixed',
-      },
-      { projectId: project.id },
-    )
-    const storedPromptRule = ruleStore.get(promptRule.ruleId as string)
-    expect(storedPromptRule?.action_config).toMatchObject({ agent_id: agent.id, session_mode: 'new_fixed' })
+    expect(result?.isError).toBe(true)
+    expect(result?.content[0]?.text).toContain('当前 Agent')
   })
 
   test('studio.schedule.update stores explicit session target', async () => {

@@ -3,7 +3,7 @@ import { ruleStore } from '../../store/rules.js'
 import { ruleExecutionStore } from '../../store/rule-executions.js'
 import { getNextRunTime, validateCronFields } from '../../core/cron.js'
 import { events } from '../../core/events.js'
-import { resolveSessionMode } from '../../core/tasks.js'
+import { resolveSessionMode, validateTaskAssignment } from '../../core/tasks.js'
 
 function validateCronFormat(cron: string): boolean {
   try {
@@ -33,69 +33,52 @@ function checkOwnership(ruleId: string, agentId: string): void {
 
 export const scheduleCreateHandler: ToolHandler = {
   name: 'studio.schedule.create',
-  description: '创建一个 cron 定时规则。支持创建任务或发送 Prompt 两种动作。',
+  description: '为当前 Agent 的当前会话创建定时 Prompt。不会创建任务或新会话。',
   inputSchema: {
     type: 'object',
     properties: {
-      name: { type: 'string', description: '规则名称' },
-      cron: { type: 'string', description: '5 字段 cron 表达式（分 时 日 月 周）' },
-      action: { type: 'string', description: '动作类型：create_task 或 send_prompt，默认 create_task' },
-      taskTitle: { type: 'string', description: 'action=create_task 时必填：任务标题' },
-      taskDescription: { type: 'string', description: '任务描述' },
-      assignAgentId: { type: 'string', description: '指派的 Agent ID' },
-      sessionMode: { type: 'string', enum: ['existing', 'new_each', 'new_fixed'], description: '会话策略：existing=指定已有会话，new_each=每次新会话，new_fixed=固定新会话' },
-      sessionId: { type: 'string', description: '复用的会话 ID，不传则每次新建会话' },
-      promptTemplate: { type: 'string', description: '自定义 prompt 模板' },
-      prompt: { type: 'string', description: 'action=send_prompt 时必填：发送的 prompt 内容' },
-      agentId: { type: 'string', description: 'action=send_prompt 时必填：目标 Agent' },
-      maxRuns: { type: 'number', description: '最大执行次数，不传则不限' },
-      projectId: { type: 'string', description: '所属项目 ID，不传用当前会话项目' },
+      name: { type: 'string', description: '定时规则名称' },
+      cron: { type: 'string', description: '5 段 Cron 表达式（分 时 日 月 周），按本地时间执行' },
+      prompt: { type: 'string', description: '到时间后注入当前会话的 Prompt' },
     },
-    required: ['name', 'cron'],
+    required: ['name', 'cron', 'prompt'],
   },
   async execute(input, context) {
-    const cron = (input.cron as string).trim()
+    const name = typeof input.name === 'string' ? input.name.trim() : ''
+    const cron = typeof input.cron === 'string' ? input.cron.trim() : ''
+    const prompt = typeof input.prompt === 'string' ? input.prompt.trim() : ''
+    const agentId = context?.agentId
+    const sessionId = context?.sessionId
+
+    if (!name || !cron || !prompt) {
+      return toolError('name、cron、prompt 均为必填项')
+    }
+    if (!agentId || !sessionId) {
+      return toolError('当前工具需要绑定当前 Agent 和当前会话')
+    }
     if (!validateCronFormat(cron)) {
-      return { content: [{ type: 'text', text: JSON.stringify({ error: 'cron 表达式格式无效，需要 5 个字段：分 时 日 月 周' }) }] }
+      return toolError('cron 表达式格式无效，需要 5 个字段：分 时 日 月 周')
     }
 
-    const action = (input.action as string) || 'create_task'
-    let actionConfig: Record<string, unknown> = {}
-
-    if (action === 'create_task') {
-      if (!input.taskTitle) {
-        return { content: [{ type: 'text', text: JSON.stringify({ error: 'action=create_task 时 taskTitle 为必填' }) }] }
-      }
-      actionConfig = {
-        title: input.taskTitle,
-        description: input.taskDescription,
-        assign_agent_id: input.assignAgentId,
-        session_mode: resolveSessionMode(input.sessionMode, input.sessionId as string | undefined),
-        session_id: input.sessionId,
-        prompt_template: input.promptTemplate,
-      }
-    } else if (action === 'send_prompt') {
-      if (!input.prompt || !input.agentId) {
-        return { content: [{ type: 'text', text: JSON.stringify({ error: 'action=send_prompt 时 prompt 和 agentId 为必填' }) }] }
-      }
-      actionConfig = {
-        prompt: input.prompt,
-        agent_id: input.agentId,
-        session_mode: resolveSessionMode(input.sessionMode, input.sessionId as string | undefined),
-        session_id: input.sessionId,
-      }
+    try {
+      validateTaskAssignment(agentId, context?.projectId, sessionId)
+    } catch (error) {
+      return toolError(error instanceof Error ? error.message : String(error))
     }
 
-    const projectId = (input.projectId as string) || context?.projectId
     const rule = ruleStore.create({
-      name: input.name as string,
+      name,
       cron,
-      action,
-      actionConfig,
+      action: 'send_prompt',
+      actionConfig: {
+        prompt,
+        agent_id: agentId,
+        session_mode: 'existing',
+        session_id: sessionId,
+      },
       enabled: true,
-      projectId,
-      maxRuns: input.maxRuns as number | undefined,
-      createdBy: context?.agentId ? `agent:${context.agentId}` : 'human',
+      projectId: context?.projectId,
+      createdBy: `agent:${agentId}`,
     })
 
     const nextRun = getNextRunTime(rule.cron, new Date())
@@ -117,6 +100,10 @@ export const scheduleCreateHandler: ToolHandler = {
       }, null, 2) }],
     }
   },
+}
+
+function toolError(error: string): { content: [{ type: 'text'; text: string }]; isError: true } {
+  return { content: [{ type: 'text', text: JSON.stringify({ error }) }], isError: true }
 }
 
 export const scheduleListHandler: ToolHandler = {
