@@ -42,6 +42,11 @@ describe('builtin tool seed synchronization', () => {
       })
       toolBindingStore.set(tool.id, 'global', null)
     }
+    createToolContext({
+      sessionId: 'sess-legacy-schedule',
+      agentId: 'agent-legacy-schedule',
+      visibleTools: ['create_schedule'],
+    })
 
     seedBuiltinTools()
 
@@ -98,7 +103,6 @@ describe('builtin tool seed synchronization', () => {
       'core.task.create',
       'core.task.list',
       'core.timeline.list',
-      'create_schedule',
       'create_task',
       'define_memory_dimension',
       'delete_memory',
@@ -170,6 +174,11 @@ describe('builtin tool seed synchronization', () => {
       .map((row) => row.name)
     expect(globalBindings).toEqual(names.filter((name) => !name.startsWith('team.')))
     expect(names.filter((name) => name.startsWith('team.')).length).toBeGreaterThan(0)
+    expect(
+      getDb()
+        .prepare<[], { revoked_at: string | null }>('SELECT revoked_at FROM tool_contexts WHERE session_id = ?')
+        .get('sess-legacy-schedule')?.revoked_at,
+    ).toBeTruthy()
 
     const createAgent = toolStore.getByName('core.agent.create')
     const createAgentSchema = createAgent?.input_schema_json
@@ -386,6 +395,7 @@ describe('builtin tool seed synchronization', () => {
     seedBuiltinTools()
 
     expect(toolStore.getByName('get_project_info')).toBeUndefined()
+    expect(toolStore.getByName('create_schedule')).toBeUndefined()
     expect(getDb().prepare('SELECT COUNT(*) AS count FROM tool_bindings WHERE tool_id = ?').get(staleTool.id)).toEqual({
       count: 0,
     })

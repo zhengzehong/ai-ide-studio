@@ -7,7 +7,7 @@
 - 主路径：`/mcp` HTTP MCP，服务名 `ai-ide-tools`。ACP Agent 支持 HTTP MCP 时，后端会为 Session 创建 tool context token，并通过 `Authorization: Bearer <token>` 注入。
 - 回退路径：`ai-ide-tool-gateway` stdio MCP。Agent 不支持 HTTP MCP 时继续使用，内部也走同一个 `ToolRuntime`。
 
-第一版权限模型只做方法级可见性：token 记录 `visibleTools`，`tools/list` 只返回可见方法，`tools/call` 再次检查方法是否可见。当前已实现的首批平台方法是 `core.task.list` 和 `core.task.create`；旧的 `create_task`、`create_schedule` 仍保留兼容。
+第一版权限模型只做方法级可见性：token 记录 `visibleTools`，`tools/list` 只返回可见方法，`tools/call` 再次检查方法是否可见。当前已实现的首批平台方法是 `core.task.list` 和 `core.task.create`；旧的 `create_task` 仍保留兼容，旧的 `create_schedule` 已从 AI 工具 seed 中移除。
 
 相关模块：
 
@@ -346,7 +346,6 @@ src/tools/
 | 名称 | category | 说明 | 默认绑定 |
 |------|----------|------|----------|
 | `create_task` | automation | 创建任务并分派 Agent | global |
-| `create_schedule` | automation | 创建 cron 定时规则 | global |
 | `browser` | browser | Playwright 浏览器自动化（MCP 外部服务） | 按需绑定 |
 
 ## 实施顺序

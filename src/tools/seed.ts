@@ -19,6 +19,7 @@ const OBSOLETE_BUILTIN_TOOLS = [
   'http_fetch',
   'agent.watch.create',
   'agent.watch.cancel',
+  'create_schedule',
 ]
 
 const CORE_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
@@ -491,34 +492,6 @@ const CORE_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
         projectId: { type: 'string', description: '项目 ID；不传时使用当前会话项目' },
       },
       required: ['title'],
-    },
-    permissions: CORE_PERMISSIONS,
-    isBuiltin: true,
-    defaultScope: 'global',
-  },
-  {
-    name: 'create_schedule',
-    displayName: '创建定时任务（旧）',
-    description: '兼容旧名：创建一个 cron 定时规则。推荐使用 core.schedule.create。',
-    category: 'automation',
-    type: 'builtin',
-    config: { handler: 'createSchedule' },
-    inputSchema: {
-      type: 'object',
-      properties: {
-        name: { type: 'string', description: '规则名称' },
-        cron: { type: 'string', description: 'Cron 表达式 (5 字段)' },
-        taskTitle: { type: 'string', description: '任务标题' },
-        taskDescription: { type: 'string', description: '任务描述' },
-        assignAgentId: { type: 'string', description: '指派的 Agent ID' },
-        sessionMode: {
-          type: 'string',
-          enum: ['existing', 'new_each', 'new_fixed'],
-          description: '会话策略：existing=指定已有会话，new_each=每次新会话，new_fixed=固定新会话',
-        },
-        sessionId: { type: 'string', description: '会话 ID；sessionMode=existing 时必填，new_fixed 时可作为固定会话' },
-      },
-      required: ['name', 'cron', 'taskTitle'],
     },
     permissions: CORE_PERMISSIONS,
     isBuiltin: true,
