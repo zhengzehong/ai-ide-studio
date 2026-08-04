@@ -141,6 +141,55 @@ describe('RuntimeUpdateCoalescer', () => {
     expect(persistedSequences).toEqual([1, 3])
   })
 
+  test('continues flushing after a timer-driven UI batch fails', async () => {
+    vi.useFakeTimers()
+    const onError = vi.fn()
+    const emitted: string[] = []
+    let attempt = 0
+    const coalescer = new RuntimeUpdateCoalescer({
+      uiFlushMs: 25,
+      persistenceFlushMs: 1_000,
+      emitUi: async (updates) => {
+        attempt += 1
+        if (attempt === 1) throw new Error('temporary UI failure')
+        emitted.push(updates[0]?.contentDelta ?? '')
+      },
+      emitPersistence: async () => undefined,
+      onError,
+    })
+
+    coalescer.enqueue(textDelta('first'))
+    await vi.advanceTimersByTimeAsync(25)
+    coalescer.enqueue(textDelta('second'))
+    await vi.advanceTimersByTimeAsync(25)
+
+    expect(onError).toHaveBeenCalledOnce()
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'temporary UI failure' }), 'ui')
+    expect(emitted).toEqual(['second'])
+    coalescer.close()
+  })
+
+  test('still rejects an explicitly awaited flush while keeping later writes usable', async () => {
+    let attempt = 0
+    const persistence: string[] = []
+    const coalescer = new RuntimeUpdateCoalescer({
+      emitUi: async () => undefined,
+      emitPersistence: async (updates) => {
+        attempt += 1
+        if (attempt === 1) throw new Error('temporary persistence failure')
+        persistence.push(updates[0]?.contentDelta ?? '')
+      },
+    })
+
+    coalescer.enqueue(textDelta('first'))
+    await expect(coalescer.flushSession('session-1')).rejects.toThrow('temporary persistence failure')
+
+    coalescer.enqueue(textDelta('second'))
+    await expect(coalescer.flushSession('session-1')).resolves.toBeUndefined()
+    expect(persistence).toEqual(['second'])
+    coalescer.close()
+  })
+
   test('keeps only the latest process progress for each process item', async () => {
     vi.useFakeTimers()
     const ui: RuntimeCoalescibleUpdate[][] = []

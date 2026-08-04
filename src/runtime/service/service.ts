@@ -4,9 +4,9 @@ import type { IpcEnvelope } from '../../ipc/protobuf-envelope.js'
 import type { ServerMessage, SessionUpdateData, TurnUsageData } from '../../types/ws-protocol.js'
 import {
   RuntimeUpdateCoalescer,
-  runtimeUpdateKey,
   type RuntimeCoalescibleUpdate,
 } from '../streams/runtime-update-coalescer.js'
+import { RuntimeUpdateCursorStore } from '../streams/runtime-update-cursor-store.js'
 import { AcpRuntimeHost } from './acp-runtime-host.js'
 import { RuntimeIdleSweep } from './runtime-idle-sweep.js'
 import { createChildLogger } from '../../shared/logger.js'
@@ -25,6 +25,7 @@ export interface RuntimeServiceOptions {
   sendPersistence: (event: RuntimePersistenceUpdate) => Promise<void>
   sendDone: (event: RuntimeDoneEvent) => Promise<void>
   sendAgentStatus: (event: RuntimeAgentStatusEvent) => Promise<void>
+  onBackgroundError?: (error: unknown, channel: 'ui' | 'persistence') => void
   idleSweepIntervalMs: number
   sessionIdleMs: number
   agentIdleMs: number
@@ -33,12 +34,13 @@ export interface RuntimeServiceOptions {
 const log = createChildLogger('runtime-service')
 
 export class RuntimeService {
-  private readonly cursorByUpdate = new Map<string, { streamGeneration: string; sequence: number }>()
+  private readonly cursorStore = new RuntimeUpdateCursorStore()
   private readonly coalescer: RuntimeUpdateCoalescer
   private readonly host: AcpRuntimeHost
   private readonly eventLoopMonitor: EventLoopMonitor
   private readonly idleSweep: RuntimeIdleSweep
   private stream?: FramedSocket
+  private backgroundFailureReported = false
 
   constructor(private readonly options: RuntimeServiceOptions) {
     this.host = new AcpRuntimeHost({
@@ -53,6 +55,8 @@ export class RuntimeService {
         void this.sendStream({
           type: 'runtime.stream',
           message: { type: 'session:capabilities', sessionId, capabilities },
+        }).catch((error) => {
+          log.warn({ err: error, sessionId }, 'Runtime capabilities stream send failed')
         })
       },
     })
@@ -60,7 +64,10 @@ export class RuntimeService {
       emitUi: (updates) => this.emitUi(updates),
       emitPersistence: (updates) => this.emitPersistence(updates),
       onError: (error, channel) => {
-        log.fatal({ err: error, channel }, 'Runtime update coalescer flush failed')
+        log.error({ err: error, channel }, 'Runtime update coalescer flush failed')
+        if (this.backgroundFailureReported) return
+        this.backgroundFailureReported = true
+        this.options.onBackgroundError?.(error, channel)
       },
     })
     this.eventLoopMonitor = createEventLoopMonitor(
@@ -158,25 +165,21 @@ export class RuntimeService {
   private async emitUi(updates: RuntimeCoalescibleUpdate[]): Promise<void> {
     for (const update of updates) {
       const cursor = this.host.nextCursor(update.sessionId)
-      this.cursorByUpdate.set(runtimeUpdateKey(update), cursor)
+      this.cursorStore.assign(update, cursor)
       await this.sendStream({ type: 'runtime.stream', message: toServerMessage(update, cursor) })
     }
   }
 
   private async emitPersistence(updates: RuntimeCoalescibleUpdate[]): Promise<void> {
-    for (const update of updates) {
-      const key = runtimeUpdateKey(update)
-      const cursor = this.cursorByUpdate.get(key)
-      if (!cursor) {
-        throw new Error(`Runtime persistence update has no UI cursor: ${key}`)
-      }
+    const batch = this.cursorStore.capturePersistenceBatch(updates)
+    for (const binding of batch) {
       await this.options.sendPersistence({
-        sessionId: update.sessionId,
-        agentId: stringField(update, 'agentId'),
-        update,
-        ...cursor,
+        sessionId: binding.update.sessionId,
+        agentId: stringField(binding.update, 'agentId'),
+        update: binding.update,
+        ...binding.cursor,
       })
-      if (this.cursorByUpdate.get(key) === cursor) this.cursorByUpdate.delete(key)
+      this.cursorStore.release(binding)
     }
   }
 

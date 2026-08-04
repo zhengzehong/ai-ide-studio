@@ -50,6 +50,93 @@ describe('Runtime crash recovery', () => {
       .resolves.toBeUndefined()
     expect(runtime.generation).toBeGreaterThan(previousGeneration)
   }, 15_000)
+
+  test('waits for Runtime restart before sending a request created during the restart window', async () => {
+    realtime = await createRealtimeProcess({
+      host: '127.0.0.1',
+      port: 0,
+      authenticate: async () => ({ authMode: 'owner' }),
+      dispatchLegacyRpc: async ({ state }) => state.subscriptions,
+    })
+    runtime = await createProcessRuntimePort({
+      realtimeStreamEndpoint: realtime.runtimeStreamEndpoint,
+      realtimeStreamToken: realtime.runtimeStreamToken,
+      onPersistenceUpdate: async () => undefined,
+      onDone: async () => undefined,
+      readyTimeoutMs: 2_000,
+      restartDelayMs: 100,
+    })
+    const previousGeneration = runtime.generation
+
+    await runtime.terminateForTest()
+    const requestDuringRestart = runtime.ensureSession(snapshot())
+
+    await expect(requestDuringRestart).resolves.toMatch(/^mock-session-/)
+    expect(runtime.generation).toBeGreaterThan(previousGeneration)
+  }, 15_000)
+
+  test('rejects a request waiting for restart when the Runtime controller closes', async () => {
+    realtime = await createRealtimeProcess({
+      host: '127.0.0.1',
+      port: 0,
+      authenticate: async () => ({ authMode: 'owner' }),
+      dispatchLegacyRpc: async ({ state }) => state.subscriptions,
+    })
+    runtime = await createProcessRuntimePort({
+      realtimeStreamEndpoint: realtime.runtimeStreamEndpoint,
+      realtimeStreamToken: realtime.runtimeStreamToken,
+      onPersistenceUpdate: async () => undefined,
+      onDone: async () => undefined,
+      readyTimeoutMs: 5_000,
+      restartDelayMs: 2_000,
+    })
+
+    await runtime.terminateForTest()
+    const requestDuringRestart = runtime.ensureSession(snapshot())
+    const requestResult = expect(requestDuringRestart).rejects.toThrow('Runtime process closed')
+    const closingRuntime = runtime
+    runtime = undefined
+    await closingRuntime.close()
+
+    await requestResult
+  }, 15_000)
+
+  test('restarts Runtime through the supervisor when persistence handling rejects', async () => {
+    realtime = await createRealtimeProcess({
+      host: '127.0.0.1',
+      port: 0,
+      authenticate: async () => ({ authMode: 'owner' }),
+      dispatchLegacyRpc: async ({ state }) => state.subscriptions,
+    })
+    let rejectPersistence = true
+    runtime = await createProcessRuntimePort({
+      realtimeStreamEndpoint: realtime.runtimeStreamEndpoint,
+      realtimeStreamToken: realtime.runtimeStreamToken,
+      onPersistenceUpdate: async () => {
+        if (!rejectPersistence) return
+        rejectPersistence = false
+        throw new Error('writer unavailable')
+      },
+      onDone: async () => undefined,
+      restartDelayMs: 10,
+    })
+    await runtime.ensureSession(snapshot())
+    const previousGeneration = runtime.generation
+    const interruptedPrompt = runtime.prompt({
+      agentId: 'agent-a',
+      sessionId: 'session-a',
+      content: 'x'.repeat(3_000),
+    })
+
+    await expect(interruptedPrompt).rejects.toThrow('Runtime process exited')
+    await runtime.waitForRestart(previousGeneration)
+    await runtime.ensureSession(snapshot())
+    await expect(runtime.prompt({
+      agentId: 'agent-a',
+      sessionId: 'session-a',
+      content: 'after persistence recovery',
+    })).resolves.toBeUndefined()
+  }, 15_000)
 })
 
 function snapshot(): RuntimeStateSnapshot {

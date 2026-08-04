@@ -39,6 +39,10 @@ async function handleEnvelope(envelope: IpcEnvelope): Promise<void> {
       sendPersistence: (event) => sendUnlessStopping({ type: 'persistence', event }),
       sendDone,
       sendAgentStatus: (event) => sendUnlessStopping({ type: 'agent-status', event }),
+      onBackgroundError: (error, channel) => {
+        log.fatal({ err: error, channel }, 'Runtime background pipeline failed; restarting process')
+        void shutdown(1)
+      },
       idleSweepIntervalMs: config.idleSweepIntervalMs,
       sessionIdleMs: config.sessionIdleMs,
       agentIdleMs: config.agentIdleMs,

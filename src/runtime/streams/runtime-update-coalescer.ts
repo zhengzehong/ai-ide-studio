@@ -95,8 +95,11 @@ export class RuntimeUpdateCoalescer {
         ? this.flushPersistence()
         : this.flushChannel(channel)
       void flush.catch((error: unknown) => {
-        this.options.onError?.(error, channel === this.persistence ? 'persistence' : 'ui')
-        throw error
+        try {
+          this.options.onError?.(error, channel === this.persistence ? 'persistence' : 'ui')
+        } catch {
+          // Error reporting must not turn a handled background failure into an unhandled rejection.
+        }
       })
     }, channel.flushMs)
     channel.timer.unref?.()
@@ -133,8 +136,9 @@ export class RuntimeUpdateCoalescer {
   }
 
   private write(channel: UpdateChannel, updates: RuntimeCoalescibleUpdate[]): Promise<void> {
-    channel.writeChain = channel.writeChain.then(() => channel.emit(updates))
-    return channel.writeChain
+    const write = channel.writeChain.then(() => channel.emit(updates))
+    channel.writeChain = write.catch(() => undefined)
+    return write
   }
 
   private clearTimer(channel: UpdateChannel): void {

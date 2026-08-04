@@ -17,7 +17,13 @@ let stopping = false
 async function main(): Promise<void> {
   const socket = await connect(config.ipcEndpoint)
   transport = new FramedSocket(socket, { maxFrameBytes: config.maxFrameBytes })
-  transport.onMessage((message) => { void handleEnvelope(message) })
+  transport.onMessage((message) => {
+    void handleEnvelope(message).catch((error) => {
+      if (stopping) return
+      log.error({ err: error }, 'Realtime IPC message handling failed')
+      void shutdown(1)
+    })
+  })
   transport.onError((error) => log.error({ err: error }, 'Realtime IPC failed'))
   socket.once('close', () => {
     if (!stopping) void shutdown(1)

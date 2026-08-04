@@ -6,6 +6,9 @@ import type { RealtimeConnectionClaims, RealtimeIpcPayload } from './protocol.js
 import type { ClientMessage } from '../types/ws-protocol.js'
 import type { ServerMessage } from '../types/ws-protocol.js'
 import { createEventLoopMonitor, eventLoopMonitorOptions } from '../shared/event-loop-monitor.js'
+import { createChildLogger } from '../shared/logger.js'
+
+const log = createChildLogger('realtime-service')
 
 export interface RealtimeServiceOptions {
   host: string
@@ -39,7 +42,18 @@ export async function startRealtimeService(options: RealtimeServiceOptions): Pro
     flushIntervalMs: options.flushIntervalMs,
     legacyRpcEnabled: options.legacyRpcEnabled,
     onLegacyRpc: (request) => {
-      void options.sendIpc({ type: 'rpc.request', ...request })
+      void options.sendIpc({ type: 'rpc.request', ...request }).catch((error) => {
+        log.warn({
+          err: error,
+          connectionId: request.connectionId,
+          bridgeRequestId: request.bridgeRequestId,
+        }, 'Realtime legacy RPC dispatch failed')
+        hub.applyLegacyFrame(request.connectionId, {
+          type: 'error',
+          requestId: request.message.requestId,
+          message: '服务暂时不可用，请重试',
+        })
+      })
     },
   })
   const server = createServer((_, response) => {
@@ -70,6 +84,10 @@ export async function startRealtimeService(options: RealtimeServiceOptions): Pro
       shareToken: url.searchParams.get('shareToken') ?? undefined,
       guestId: url.searchParams.get('guestId') ?? undefined,
       guestName: url.searchParams.get('guestName') ?? undefined,
+    }).catch((error) => {
+      pending.delete(connectionId)
+      log.warn({ err: error, connectionId }, 'Realtime authentication dispatch failed')
+      socket.close(1011, 'Authentication service unavailable')
     })
   })
 

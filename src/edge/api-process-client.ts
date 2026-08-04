@@ -148,7 +148,12 @@ class ApiProcessController implements ApiProcessHandle {
       stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
     })
     this.child = child
-    child.on('message', (message: unknown) => { void this.handleMessage(child, message) })
+    child.on('message', (message: unknown) => {
+      void this.handleMessage(child, message).catch((error) => {
+        log.error({ err: error, pid: child.pid, generation: this.currentGeneration }, 'API process message handling failed')
+        if (child.exitCode == null && child.signalCode == null) child.kill()
+      })
+    })
     child.once('error', (error) => log.error({ err: error }, 'API process error'))
     child.once('exit', (code, signal) => this.handleExit(child, code, signal))
   }

@@ -1,9 +1,6 @@
 import { fork, type ChildProcess } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { existsSync, rmSync } from 'node:fs'
 import { createServer, type Server, type Socket } from 'node:net'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { FramedSocket } from '../../ipc/framed-socket.js'
 import type { IpcEnvelope } from '../../ipc/protobuf-envelope.js'
 import type {
@@ -18,6 +15,19 @@ import type { SessionCapabilities } from '../../types/ws-protocol.js'
 import { createChildLogger } from '../../shared/logger.js'
 import { resolveRuntimeEntryPath } from '../service/entry-url.js'
 import {
+  asRuntimeCancelResult,
+  closeRuntimeServer,
+  createRuntimeIpcEndpoint,
+  delay,
+  listenOnRuntimeEndpoint,
+  removeRuntimeEndpoint,
+  resolvePlatformToolBaseUrl,
+  runtimeErrorMessage,
+  type RuntimePendingRequest,
+  toRuntimeEnvelope,
+  withRuntimeTimeout,
+} from './process-runtime-support.js'
+import {
   asSessionCapabilities,
   isRuntimeControlPayload,
   type RuntimeCommand,
@@ -30,7 +40,6 @@ import {
 export type { RuntimeDoneEvent, RuntimePersistenceUpdate } from '../service/protocol.js'
 
 const log = createChildLogger('runtime-process')
-
 export interface CreateProcessRuntimePortOptions {
   realtimeStreamEndpoint: string
   realtimeStreamToken: string
@@ -45,22 +54,12 @@ export interface CreateProcessRuntimePortOptions {
   sessionIdleMs?: number
   agentIdleMs?: number
 }
-
 export interface ProcessRuntimePort extends RuntimePort {
   readonly generation: number
   terminateForTest(): Promise<void>
   waitForRestart(previousGeneration: number, timeoutMs?: number): Promise<void>
 }
-
-interface PendingRequest {
-  resolve: (value: unknown) => void
-  reject: (error: Error) => void
-  timer?: NodeJS.Timeout
-}
-
-export async function createProcessRuntimePort(
-  options: CreateProcessRuntimePortOptions,
-): Promise<ProcessRuntimePort> {
+export async function createProcessRuntimePort(options: CreateProcessRuntimePortOptions): Promise<ProcessRuntimePort> {
   const controller = new ProcessRuntimePortController(options)
   await controller.start()
   return controller
@@ -71,20 +70,23 @@ class ProcessRuntimePortController implements ProcessRuntimePort {
     type: 'http',
     baseUrl: resolvePlatformToolBaseUrl(),
   }
-  private readonly endpoint = createIpcEndpoint()
+  private readonly endpoint = createRuntimeIpcEndpoint()
   private readonly token = randomUUID()
-  private readonly pending = new Map<string, PendingRequest>()
+  private readonly pending = new Map<string, RuntimePendingRequest>()
   private readonly sessionIngress = new Map<string, Promise<void>>()
   private readonly maxFrameBytes: number
   private server?: Server
   private child?: ChildProcess
   private channel?: FramedSocket
-  private ready?: Promise<void>
+  private ready: Promise<void> = Promise.resolve()
   private resolveReady?: () => void
   private rejectReady?: (error: Error) => void
+  private readyPending = false
   private closing = false
   private currentGeneration = 0
   private restartTimer?: NodeJS.Timeout
+  private spawnStartedAt = 0
+  private restartStartedAt?: number
 
   constructor(private readonly options: CreateProcessRuntimePortOptions) {
     this.maxFrameBytes = options.maxFrameBytes ?? 16 * 1024 * 1024
@@ -96,14 +98,11 @@ class ProcessRuntimePortController implements ProcessRuntimePort {
 
   async start(): Promise<void> {
     this.server = createServer((socket) => this.acceptSocket(socket))
-    removeEndpoint(this.endpoint)
-    await listen(this.server, this.endpoint)
-    this.ready = new Promise<void>((resolve, reject) => {
-      this.resolveReady = resolve
-      this.rejectReady = reject
-    })
+    removeRuntimeEndpoint(this.endpoint)
+    await listenOnRuntimeEndpoint(this.server, this.endpoint)
+    this.resetReady()
     this.spawnChild()
-    await withTimeout(this.ready, this.options.readyTimeoutMs ?? 5_000, 'Runtime readiness timed out')
+    await withRuntimeTimeout(this.ready, this.options.readyTimeoutMs ?? 5_000, 'Runtime readiness timed out')
   }
 
   ensureSession(snapshot: RuntimeStateSnapshot, options: { emitLifecycle?: boolean } = {}): Promise<string> {
@@ -186,18 +185,22 @@ class ProcessRuntimePortController implements ProcessRuntimePort {
   async close(): Promise<void> {
     if (this.closing) return
     this.closing = true
+    const closeError = new Error('Runtime process closed')
+    this.readyPending = false
+    this.rejectReady?.(closeError)
     if (this.restartTimer) clearTimeout(this.restartTimer)
-    await this.channel?.send(toEnvelope({ type: 'control', operation: 'stop' })).catch(() => undefined)
+    await this.channel?.send(toRuntimeEnvelope({ type: 'control', operation: 'stop' })).catch(() => undefined)
     await Promise.race([this.waitForExit(), delay(1_000)])
     if (this.child?.exitCode == null && this.child?.signalCode == null) this.child?.kill()
     await this.channel?.close().catch(() => undefined)
-    this.failPending(new Error('Runtime process closed'))
-    if (this.server) await closeServer(this.server)
-    removeEndpoint(this.endpoint)
+    this.failPending(closeError)
+    if (this.server) await closeRuntimeServer(this.server)
+    removeRuntimeEndpoint(this.endpoint)
   }
 
   private spawnChild(): void {
     const entry = resolveRuntimeEntryPath(import.meta.url)
+    this.spawnStartedAt = Date.now()
     const child = fork(entry, [], {
       env: {
         ...process.env,
@@ -214,20 +217,32 @@ class ProcessRuntimePortController implements ProcessRuntimePort {
       stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
     })
     this.child = child
-    child.once('error', (error) => this.rejectReady?.(error))
+    log.info({ pid: child.pid, nextGeneration: this.currentGeneration + 1 }, 'Runtime process spawned')
+    child.once('error', (error) => {
+      this.readyPending = false
+      this.rejectReady?.(error)
+    })
     child.once('exit', (code, signal) => {
       if (this.child === child) this.child = undefined
       const error = new Error(`Runtime process exited (code=${code}, signal=${signal})`)
+      const staleChannel = this.channel
+      this.channel = undefined
+      void staleChannel?.close().catch(() => undefined)
       this.failPending(error)
       if (!this.closing) {
+        this.beginRestartWait()
+        const restartDelayMs = this.options.restartDelayMs ?? 250
+        log.warn({
+          pid: child.pid,
+          code,
+          signal,
+          generation: this.currentGeneration,
+          restartDelayMs,
+        }, 'Runtime process exited; scheduling restart')
         this.restartTimer = setTimeout(() => {
           this.restartTimer = undefined
-          this.ready = new Promise<void>((resolve, reject) => {
-            this.resolveReady = resolve
-            this.rejectReady = reject
-          })
           this.spawnChild()
-        }, this.options.restartDelayMs ?? 250)
+        }, restartDelayMs)
       }
     })
   }
@@ -238,11 +253,21 @@ class ProcessRuntimePortController implements ProcessRuntimePort {
       return
     }
     const channel = new FramedSocket(socket, { maxFrameBytes: this.maxFrameBytes })
+    const channelChild = this.child
     this.channel = channel
-    channel.onMessage((message) => { void this.handleMessage(message) })
+    channel.onMessage((message) => {
+      void this.handleMessage(message).catch((error) => {
+        log.error({ err: error, pid: channelChild?.pid, generation: this.currentGeneration }, 'Runtime IPC message handling failed')
+        if (channelChild && this.child === channelChild && channelChild.exitCode == null && channelChild.signalCode == null) {
+          channelChild.kill()
+        }
+      })
+    })
     channel.onError((error) => log.warn({ err: error }, 'Runtime IPC error'))
     socket.once('close', () => {
-      if (this.channel === channel) this.channel = undefined
+      if (this.channel !== channel) return
+      this.channel = undefined
+      if (!this.closing && this.currentGeneration > 0) this.beginRestartWait()
     })
   }
 
@@ -259,7 +284,15 @@ class ProcessRuntimePortController implements ProcessRuntimePort {
     }
     if (payload.type === 'ready') {
       this.currentGeneration += 1
+      this.readyPending = false
       this.resolveReady?.()
+      log.info({
+        pid: this.child?.pid,
+        generation: this.currentGeneration,
+        startupMs: Date.now() - this.spawnStartedAt,
+        restartDurationMs: this.restartStartedAt === undefined ? undefined : Date.now() - this.restartStartedAt,
+      }, 'Runtime process ready')
+      this.restartStartedAt = undefined
       return
     }
     if (payload.type === 'result') {
@@ -272,22 +305,34 @@ class ProcessRuntimePortController implements ProcessRuntimePort {
       return
     }
     if (payload.type === 'persistence') {
-      this.chainIngress(payload.event.sessionId, () => this.options.onPersistenceUpdate(payload.event))
+      await this.chainIngress(payload.event.sessionId, () => this.options.onPersistenceUpdate(payload.event))
       return
     }
     if (payload.type === 'done') {
       const run = this.chainIngress(payload.event.sessionId, () => this.options.onDone(payload.event))
       await run.then(
         () => this.send({ type: 'done.ack', requestId: payload.requestId }),
-        (error) => this.send({ type: 'done.ack', requestId: payload.requestId, error: errorMessage(error) }),
+        (error) => this.send({ type: 'done.ack', requestId: payload.requestId, error: runtimeErrorMessage(error) }),
       )
       return
     }
     if (payload.type === 'agent-status') await this.options.onAgentStatus?.(payload.event)
   }
 
-  private request(command: RuntimeCommand): Promise<unknown> {
-    if (this.closing || !this.channel) return Promise.reject(new Error('Runtime process is unavailable'))
+  private async request(command: RuntimeCommand): Promise<unknown> {
+    if (this.closing) throw new Error('Runtime process is unavailable')
+    if (!this.channel) {
+      await withRuntimeTimeout(
+        this.ready,
+        this.options.readyTimeoutMs ?? 5_000,
+        `Runtime restart timed out before ${command.operation}`,
+      )
+    }
+    if (this.closing || !this.channel) throw new Error('Runtime process is unavailable')
+    return this.sendRequest(command)
+  }
+
+  private sendRequest(command: RuntimeCommand): Promise<unknown> {
     const requestId = randomUUID()
     const timeoutMs = command.operation === 'prompt'
       ? undefined
@@ -308,10 +353,25 @@ class ProcessRuntimePortController implements ProcessRuntimePort {
     })
   }
 
+  private resetReady(): void {
+    this.readyPending = true
+    const ready = new Promise<void>((resolve, reject) => {
+      this.resolveReady = resolve
+      this.rejectReady = reject
+    })
+    void ready.catch(() => undefined)
+    this.ready = ready
+  }
+
+  private beginRestartWait(): void {
+    if (this.restartStartedAt === undefined) this.restartStartedAt = Date.now()
+    if (!this.readyPending) this.resetReady()
+  }
+
   private chainIngress(sessionId: string, work: () => Promise<void>): Promise<void> {
     const previous = this.sessionIngress.get(sessionId) ?? Promise.resolve()
     const next = previous.then(work, work)
-    const tracked = next.finally(() => {
+    const tracked = next.catch(() => undefined).finally(() => {
       if (this.sessionIngress.get(sessionId) === tracked) this.sessionIngress.delete(sessionId)
     })
     this.sessionIngress.set(sessionId, tracked)
@@ -320,7 +380,7 @@ class ProcessRuntimePortController implements ProcessRuntimePort {
 
   private send(payload: RuntimeControlPayload): Promise<void> {
     if (!this.channel) return Promise.reject(new Error('Runtime IPC is unavailable'))
-    return this.channel.send(toEnvelope(payload))
+    return this.channel.send(toRuntimeEnvelope(payload))
   }
 
   private failPending(error: Error): void {
@@ -335,67 +395,4 @@ class ProcessRuntimePortController implements ProcessRuntimePort {
     if (!this.child) return Promise.resolve()
     return new Promise((resolve) => this.child?.once('exit', () => resolve()))
   }
-}
-
-function resolvePlatformToolBaseUrl(): string {
-  const configured = process.env.PUBLIC_BASE_URL?.trim()
-  return configured || `http://127.0.0.1:${process.env.PORT ?? '18800'}`
-}
-
-function asRuntimeCancelResult(value: unknown): RuntimeCancelResult {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error('Runtime cancel response is invalid')
-  }
-  const record = value as Record<string, unknown>
-  if (record.status === 'not-found' || record.status === 'not-active') return { status: record.status }
-  if (record.status !== 'requested'
-    || (record.escalation !== 'cancel' && record.escalation !== 'session-close' && record.escalation !== 'agent-restart')
-    || typeof record.messageId !== 'string') {
-    throw new Error('Runtime cancel response is invalid')
-  }
-  return {
-    status: record.status,
-    escalation: record.escalation,
-    messageId: record.messageId,
-    ...(typeof record.turnId === 'string' ? { turnId: record.turnId } : {}),
-  }
-}
-
-function toEnvelope(payload: RuntimeControlPayload): IpcEnvelope {
-  return { version: '1', kind: payload.type, timestamp: Date.now(), payload: payload as unknown as Record<string, unknown> }
-}
-
-function createIpcEndpoint(): string {
-  const suffix = `${process.pid}-${randomUUID()}`
-  return process.platform === 'win32'
-    ? `\\\\.\\pipe\\ai-ide-runtime-${suffix}`
-    : join(tmpdir(), `ai-ide-runtime-${suffix}.sock`)
-}
-
-function removeEndpoint(endpoint: string): void {
-  if (process.platform !== 'win32' && existsSync(endpoint)) rmSync(endpoint, { force: true })
-}
-
-function listen(server: Server, endpoint: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    server.once('error', reject)
-    server.listen(endpoint, resolve)
-  })
-}
-
-function closeServer(server: Server): Promise<void> {
-  if (!server.listening) return Promise.resolve()
-  return new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
-}
-
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
-  return Promise.race([promise, delay(timeoutMs).then(() => { throw new Error(message) })])
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }
