@@ -73,6 +73,8 @@ import {
   instantiateSessionTemplateHandler,
   deleteSessionTemplateHandler,
   updateAgentTemplateHandler,
+  createAutonomyReportHandler,
+  updateAutonomyPlanHandler,
 } from './core/index.js'
 import {
   createTeamHandler,
@@ -176,6 +178,8 @@ register(getSessionHandler)
 register(createSessionHandler)
 register(getSessionCapabilitiesHandler)
 register(configureSessionHandler)
+register(updateAutonomyPlanHandler)
+register(createAutonomyReportHandler)
 register(listSessionTemplatesHandler)
 register(publishSessionTemplateHandler)
 register(instantiateSessionTemplateHandler)

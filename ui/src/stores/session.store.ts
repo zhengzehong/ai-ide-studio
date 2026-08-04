@@ -151,6 +151,7 @@ export interface SessionData {
   // 模板会话标记:is_template=1 的是 ACP fork 出来的模板上下文镜像,
   // 不应出现在普通会话列表。session:changed 广播可能携带此字段,前端据此过滤。
   is_template?: number | boolean
+  purpose?: 'conversation' | 'autonomy'
 }
 
 export interface LocalSessionCandidateInfo {

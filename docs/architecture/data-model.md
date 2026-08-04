@@ -118,6 +118,8 @@ ignored     failed      task
 | sort_order | INTEGER | 项目工作台 Agent 自定义排序；仅在项目作用域列表中生效 |
 | hidden_at | TEXT | 项目工作台隐藏时间；为空表示在会话侧栏显示 |
 
+`agents.config_json.autonomy` 保存自主开关、独立提示词、关注方向、当天排班、固定 Session/Rule ID 和最近运行状态。更新自主配置时必须与现有 `modelProfileId` 等 Agent 配置合并，不能覆盖同级字段。
+
 ### sessions
 
 | 列 | 类型 | 说明 |
@@ -140,8 +142,28 @@ ignored     failed      task
 | sort_order | INTEGER | 项目工作台内同一 Agent 下 Session 自定义排序；仅在项目/Agent 作用域列表中生效 |
 | is_primary | INTEGER | `1` 表示 Agent 的主会话；每个 Agent 最多一个未删除、非模板主会话 |
 | is_template | INTEGER | `1` 表示模板内部 Session，不进入普通会话列表或主会话对账 |
+| purpose | TEXT | `conversation` / `autonomy`；自主 Session 不进入普通 Workspace 列表 |
 
 启动时默认 Agent seed 完成后，系统会为所有缺少主会话的 Agent 创建一个 `is_primary = 1` 的 Session，并发布完整 `session:changed`。部分唯一索引 `idx_sessions_one_primary_per_agent` 保证同一 Agent 不会存在两个未删除、非模板主会话；迁移旧数据库时保留最早一条 primary 标记并清理重复标记。
+
+部分唯一索引 `idx_sessions_one_autonomy_per_agent` 保证同一 Agent 最多一个未删除、非模板的 `purpose = autonomy` Session。自主 Session 使用相同的消息、事件、运行偏好和 ACP 恢复结构，仅在展示和统计层与普通对话隔离。
+
+### autonomy_reports
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| id | TEXT PK | 汇报 ID |
+| project_id | TEXT | 所属 Project |
+| agent_id | TEXT FK | 汇报 Agent |
+| session_id | TEXT FK | 产生汇报的固定自主 Session |
+| title | TEXT | 汇报标题 |
+| summary | TEXT | 一句话摘要 |
+| priority | TEXT | P0 / P1 / P2 / P3，仅作展示标签 |
+| body_markdown | TEXT | GFM Markdown 正文，工具入口限制为 100 KiB |
+| attachments_json | TEXT | 最多 20 个项目内相对文件路径和可选标题 |
+| created_at | TEXT | ISO 时间戳 |
+
+工作记忆不进入 SQLite，固定为 `DATA_DIR/autonomy/<projectId>/<agentId>/memory.md`。Runtime 只向对应自主 Session 的系统提示词注入绝对路径，Agent 使用既有文件读写能力维护；列表 RPC 只返回文件元数据，单 Agent 详情才读取最多 1 MiB 正文用于 PC 渲染。
 
 ### global_assistant
 

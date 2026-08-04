@@ -1,6 +1,7 @@
 import type { ClientMessage } from '../../types/ws-protocol.js'
 import { agentRpcHandlers } from './agents.js'
 import { assetRpcHandlers } from './assets.js'
+import { autonomyRpcHandlers } from './autonomy.js'
 import { filesystemRpcHandlers } from './filesystem.js'
 import { globalAssistantRpcHandlers } from './global-assistant.js'
 import { agentMemoryRpcHandlers } from './agent-memory.js'
@@ -25,6 +26,7 @@ import type { RpcContext, RpcHandlerMap } from './types.js'
 
 const rpcHandlers: RpcHandlerMap = {
   ...subscriptionRpcHandlers,
+  ...autonomyRpcHandlers,
   ...eventCenterRpcHandlers,
   ...agentMemoryRpcHandlers,
   ...knowledgeBaseRpcHandlers,

@@ -2,6 +2,7 @@
 import { Writable, Readable } from 'stream'
 import * as acp from '@agentclientprotocol/sdk'
 import { events } from '../core/events.js'
+import { buildAgentAutonomySystemPrompt } from '../core/agent-autonomy-prompt.js'
 import { createChildLogger } from '../core/logger.js'
 import { agentStore } from '../store/agents.js'
 import { sessionStore } from '../store/sessions.js'
@@ -20,7 +21,7 @@ import {
   setActiveTurnReject,
   touchRuntime,
 } from './host-state.js'
-import type { AcpSessionContext } from './host-types.js'
+import type { AcpSessionContext, AgentConnection } from './host-types.js'
 import {
   cancelPendingInteractions,
   hasPendingInteractionsForAgent,
@@ -33,6 +34,7 @@ import {
   buildAgentRuntimeEnv,
   fingerprintRuntimeEnv,
   summarizeRuntimeEnv,
+  type AgentSessionMeta,
 } from './model-profile-env.js'
 import { buildRuntimeEnv, getRuntimeCommand, listRuntimeNames } from './runtime-registry.js'
 import { resolveMcpServersForAcp, updateInitialCapabilities } from './session-capabilities.js'
@@ -85,6 +87,17 @@ function ensureIdleTimer(): void {
     acpHost.sweepIdle().catch((err) => log.warn({ err }, 'ACP 空闲回收失败'))
   }, ACP_IDLE_SWEEP_MS)
   idleTimer.unref?.()
+}
+
+function buildSessionMeta(conn: AgentConnection, ourSessionId: string): AgentSessionMeta | undefined {
+  const session = sessionStore.get(ourSessionId)
+  if (!session) return conn.sessionMeta
+  return buildAgentSessionMeta(conn.runtime, conn.runtimeEnv, conn.agent, {
+    isPrimary: session.is_primary === 1,
+    additionalPrompt: session.purpose === 'autonomy'
+      ? buildAgentAutonomySystemPrompt(conn.agentId)
+      : undefined,
+  })
 }
 
 export const acpHost = {
@@ -321,11 +334,7 @@ export const acpHost = {
     if (!conn) throw new Error(`Agent ${agentId} 未运行`)
 
     const mcpServers = resolveMcpServersForAcp(conn, ourSessionId, context)
-    const session = sessionStore.get(ourSessionId)
-    const isPrimary = !!session?.is_primary
-    const sessionMeta = isPrimary
-      ? buildAgentSessionMeta(conn.runtime, conn.runtimeEnv, conn.agent, { isPrimary: true })
-      : conn.sessionMeta
+    const sessionMeta = buildSessionMeta(conn, ourSessionId)
 
     const result = await conn.connection.newSession({
       cwd: context.cwd ?? process.cwd(),
@@ -364,11 +373,7 @@ export const acpHost = {
     const state = getRuntimeSession(conn, ourSessionId)
     if (conn.acpSessions.get(ourSessionId) === acpSessionId && state.contextKey === acpSessionContextKey(context)) return acpSessionId
 
-    const session = sessionStore.get(ourSessionId)
-    const isPrimary = !!session?.is_primary
-    const sessionMeta = isPrimary
-      ? buildAgentSessionMeta(conn.runtime, conn.runtimeEnv, conn.agent, { isPrimary: true })
-      : conn.sessionMeta
+    const sessionMeta = buildSessionMeta(conn, ourSessionId)
 
     if (conn.agentCapabilities?.sessionCapabilities?.resume) {
       const mcpServers = resolveMcpServersForAcp(conn, ourSessionId, context)

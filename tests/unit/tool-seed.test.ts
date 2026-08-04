@@ -123,6 +123,8 @@ describe('builtin tool seed synchronization', () => {
       'preview.publish',
       'recall_memory',
       'record_memory',
+      'studio.autonomy.plan.update',
+      'studio.autonomy.report',
       'studio.schedule.create',
       'studio.schedule.delete',
       'studio.schedule.executions',
@@ -191,6 +193,8 @@ describe('builtin tool seed synchronization', () => {
     expect(sessionCapabilities).toMatchObject({ type: 'builtin', is_builtin: 1 })
     const sessionConfigure = toolStore.getByName('core.session.configure')
     expect(sessionConfigure).toMatchObject({ type: 'builtin', is_builtin: 1 })
+    expect(toolStore.getByName('studio.autonomy.plan.update')).toMatchObject({ type: 'builtin', is_builtin: 1 })
+    expect(toolStore.getByName('studio.autonomy.report')).toMatchObject({ type: 'builtin', is_builtin: 1 })
 
     const createTemplate = toolStore.getByName('agent.template.create')
     const createTemplateSchema = createTemplate?.input_schema_json

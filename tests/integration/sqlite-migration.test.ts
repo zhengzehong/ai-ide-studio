@@ -56,7 +56,8 @@ describe('SQLite 迁移', () => {
         'task_steps',
         'task_step_dependencies',
         'writer_batch_commits',
-        'outbox_events'
+        'outbox_events',
+        'autonomy_reports'
       )
       ORDER BY name
     `).all().map(row => row.name)
@@ -67,6 +68,7 @@ describe('SQLite 迁移', () => {
     expect(tables).toEqual([
       'agent_session_messages',
       'agent_session_watches',
+      'autonomy_reports',
       'global_assistant',
       'knowledge_activities',
       'knowledge_bases',
@@ -95,7 +97,7 @@ describe('SQLite 迁移', () => {
       ORDER BY name
     `).all().map(row => row.name)
 
-    expect(migrations).toEqual(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011', '012', '013', '014', '015', '016', '017', '018', '019', '020', '021', '022', '023', '024', '025', '026', '027', '028', '029', '030', '031', '032', '033', '034', '035', '036', '037', '038', '039', '040', '041', '042', '043', '044', '045', '046', '047', '048'])
+    expect(migrations).toEqual(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011', '012', '013', '014', '015', '016', '017', '018', '019', '020', '021', '022', '023', '024', '025', '026', '027', '028', '029', '030', '031', '032', '033', '034', '035', '036', '037', '038', '039', '040', '041', '042', '043', '044', '045', '046', '047', '048', '049'])
     expect(messageColumns).toContain('file_changes_json')
     expect(messageColumns).toContain('process_item_count')
     expect(messageColumns).toContain('presentations_json')
@@ -121,10 +123,15 @@ describe('SQLite 迁移', () => {
     expect(getDb().prepare<[], { name: string }>('PRAGMA table_info(projects)').all().map(row => row.name)).toEqual(expect.arrayContaining(['color', 'icon', 'last_visited_at', 'visit_count']))
     expect(getDb().prepare<[], { name: string }>('PRAGMA table_info(sessions)').all().map(row => row.name)).toContain('is_primary')
     expect(getDb().prepare<[], { name: string }>('PRAGMA table_info(sessions)').all().map(row => row.name)).toContain('is_template')
+    expect(getDb().prepare<[], { name: string }>('PRAGMA table_info(sessions)').all().map(row => row.name)).toContain('purpose')
     expect(getDb().prepare<[], { name: string }>(`
       SELECT name FROM sqlite_master
       WHERE type = 'index' AND name = 'idx_sessions_one_primary_per_agent'
     `).get()?.name).toBe('idx_sessions_one_primary_per_agent')
+    expect(getDb().prepare<[], { name: string }>(`
+      SELECT name FROM sqlite_master
+      WHERE type = 'index' AND name = 'idx_sessions_one_autonomy_per_agent'
+    `).get()?.name).toBe('idx_sessions_one_autonomy_per_agent')
     const templateTableColumns = getDb().prepare<[], { name: string }>('PRAGMA table_info(session_templates)').all().map(row => row.name)
     expect(templateTableColumns).toEqual(expect.arrayContaining([
       'id', 'name', 'description', 'agent_id', 'project_id', 'runtime',

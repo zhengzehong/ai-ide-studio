@@ -1,0 +1,146 @@
+.autonomy-page {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-1);
+  color: var(--text-1);
+}
+
+.autonomy-page-header {
+  min-height: 64px;
+  padding: 10px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-0);
+  flex-shrink: 0;
+}
+
+.autonomy-page-header h1 { margin: 0; font-size: 17px; letter-spacing: 0; }
+.autonomy-page-header p { margin: 3px 0 0; color: var(--text-3); font-size: 12px; }
+.autonomy-header-actions { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; justify-content: flex-end; }
+.autonomy-header-actions button,
+.autonomy-prompt-editor button {
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-0);
+  color: var(--text-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.autonomy-header-actions button:disabled,
+.autonomy-prompt-editor button:disabled { opacity: .45; cursor: default; }
+.autonomy-header-actions .autonomy-icon-button { width: 30px; padding: 0; }
+.autonomy-header-actions .is-primary { border-color: var(--blue); background: var(--blue); color: white; }
+.autonomy-header-actions .is-danger { border-color: var(--red); color: var(--red); }
+
+.autonomy-error {
+  min-height: 36px;
+  padding: 7px 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--red-light);
+  color: var(--red);
+  font-size: 12px;
+}
+.autonomy-error button { border: 0; background: transparent; color: inherit; cursor: pointer; }
+
+.autonomy-workbench {
+  min-height: 0;
+  flex: 1;
+  display: grid;
+  grid-template-columns: 220px minmax(360px, 1fr) minmax(300px, 360px);
+}
+.autonomy-panel-title {
+  height: 42px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 650;
+  background: var(--bg-0);
+}
+
+.autonomy-agent-list { min-width: 0; border-right: 1px solid var(--border); background: var(--bg-0); display: flex; flex-direction: column; }
+.autonomy-agent-scroll { overflow-y: auto; padding: 7px; }
+.autonomy-agent-row {
+  width: 100%;
+  min-height: 48px;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  cursor: pointer;
+}
+.autonomy-agent-row:hover { background: var(--bg-2); }
+.autonomy-agent-row.is-selected { background: var(--blue-light); color: var(--blue); }
+.autonomy-agent-icon { width: 28px; height: 28px; border-radius: 6px; background: var(--bg-2); display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.autonomy-agent-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.autonomy-agent-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.autonomy-agent-copy small { color: var(--text-3); font-size: 11px; }
+
+.autonomy-report-column { min-width: 0; display: flex; flex-direction: column; background: var(--bg-1); }
+.autonomy-report-scroll { padding: 12px; overflow-y: auto; }
+.autonomy-report { margin-bottom: 9px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-0); overflow: hidden; }
+.autonomy-report-head { width: 100%; padding: 11px 12px 6px; border: 0; background: transparent; color: var(--text-1); display: flex; align-items: flex-start; gap: 8px; cursor: pointer; text-align: left; }
+.autonomy-report-heading { flex: 1; min-width: 0; display: flex; justify-content: space-between; gap: 10px; }
+.autonomy-report-heading strong { font-size: 13px; overflow-wrap: anywhere; }
+.autonomy-report-heading small { flex-shrink: 0; color: var(--text-3); font-size: 11px; }
+.autonomy-priority { padding: 2px 5px; border-radius: 4px; font-size: 10px; font-weight: 700; flex-shrink: 0; }
+.priority-p0 { color: var(--red); background: var(--red-light); }
+.priority-p1 { color: #b45309; background: #fffbeb; }
+.priority-p2 { color: var(--blue); background: var(--blue-light); }
+.priority-p3 { color: var(--text-3); background: var(--bg-2); }
+.autonomy-report-summary { margin: 0; padding: 0 14px 11px 52px; color: var(--text-3); font-size: 12px; line-height: 1.5; }
+.autonomy-report-body { border-top: 1px solid var(--border); padding: 14px 16px; font-size: 13px; }
+.autonomy-files-button { height: 30px; margin-top: 10px; padding: 0 9px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-1); color: var(--text-2); display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+
+.autonomy-control-panel { min-width: 0; overflow-y: auto; border-left: 1px solid var(--border); background: var(--bg-0); }
+.autonomy-control-section { padding: 13px 14px; border-bottom: 1px solid var(--border); }
+.autonomy-section-heading { margin-bottom: 9px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.autonomy-section-heading strong { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; }
+.autonomy-section-heading span { color: var(--text-3); font-size: 11px; }
+.autonomy-interest-input { display: grid; grid-template-columns: minmax(0, 1fr) 30px; gap: 6px; }
+.autonomy-interest-input input { min-width: 0; height: 30px; padding: 0 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-0); color: var(--text-1); outline: none; }
+.autonomy-interest-input button { width: 30px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-1); color: var(--text-2); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.autonomy-interest-list { margin-top: 9px; display: flex; flex-wrap: wrap; gap: 6px; }
+.autonomy-interest-chip { max-width: 100%; min-height: 25px; padding: 3px 4px 3px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-1); color: var(--text-2); display: inline-flex; align-items: center; gap: 4px; font-size: 11px; overflow-wrap: anywhere; }
+.autonomy-interest-chip button { width: 18px; height: 18px; padding: 0; border: 0; background: transparent; color: var(--text-3); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.autonomy-plan-list { display: flex; flex-direction: column; gap: 7px; }
+.autonomy-plan-item { display: grid; grid-template-columns: 46px minmax(0, 1fr); gap: 8px; align-items: start; }
+.autonomy-plan-item div { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.autonomy-plan-item strong { font-size: 12px; overflow-wrap: anywhere; }
+.autonomy-plan-item small { color: var(--text-3); font-size: 11px; line-height: 1.4; }
+.autonomy-plan-status { padding: 2px 5px; border-radius: 4px; font-size: 10px; text-align: center; }
+.status-current { color: var(--blue); background: var(--blue-light); }
+.status-next { color: #7c3aed; background: #f5f3ff; }
+.status-done { color: var(--green); background: var(--green-light); }
+.autonomy-section-button { width: 100%; height: 30px; padding: 0; border: 0; background: transparent; color: var(--text-2); display: flex; align-items: center; gap: 6px; cursor: pointer; font-weight: 600; font-size: 12px; }
+.autonomy-prompt-editor { margin-top: 8px; display: flex; flex-direction: column; align-items: flex-end; gap: 7px; }
+.autonomy-prompt-editor textarea { width: 100%; min-height: 120px; padding: 9px; resize: vertical; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-1); color: var(--text-1); font: inherit; line-height: 1.5; box-sizing: border-box; }
+.autonomy-memory-section { min-height: 260px; }
+.autonomy-memory-body { overflow-wrap: anywhere; font-size: 12px; }
+.autonomy-memory-body .markdown-body { font-size: 12px; }
+.autonomy-muted, .autonomy-empty-small { color: var(--text-3); font-size: 11px; }
+.autonomy-empty, .autonomy-loading { min-height: 240px; color: var(--text-3); display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 13px; }
+.autonomy-loading svg { animation: spin 1s linear infinite; }
+
+@media (max-width: 1100px) {
+  .autonomy-workbench { grid-template-columns: 190px minmax(340px, 1fr) 300px; }
+}

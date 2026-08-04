@@ -32,6 +32,7 @@ export {
   updateAgentTemplateHandler,
 } from './template-tools.js'
 export { listTimelineHandler } from './timeline-tools.js'
+export { createAutonomyReportHandler, updateAutonomyPlanHandler } from './autonomy-tools.js'
 export {
   createKnowledgeBaseHandler,
   createKnowledgePageHandler,

@@ -45,6 +45,7 @@ export const projectSessionStatsStore = {
         AND s.deleted_at IS NULL
         AND s.archived_at IS NULL
         AND s.is_template = 0
+        AND s.purpose = 'conversation'
         AND s.status = 'active'
       ORDER BY p.created_at ASC, p.id ASC, s.started_at ASC, s.id ASC
     `).all()

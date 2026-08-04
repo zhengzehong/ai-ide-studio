@@ -138,6 +138,36 @@ export interface AgentsReorderMsg extends ClientMessage {
   projectId: string
   agentIds: string[]
 }
+export interface AutonomyListMsg extends ClientMessage {
+  type: 'autonomy.list'
+  projectId: string
+}
+export interface AutonomyAgentMsg extends ClientMessage {
+  type: 'autonomy.get' | 'autonomy.enable' | 'autonomy.disable' | 'autonomy.runNow'
+  projectId: string
+  agentId: string
+}
+export interface AutonomyUpdateMsg extends ClientMessage {
+  type: 'autonomy.update'
+  projectId: string
+  agentId: string
+  prompt?: string
+  interests?: string[]
+}
+export interface AutonomyInterestMsg extends ClientMessage {
+  type: 'autonomy.interest.add' | 'autonomy.interest.remove'
+  projectId: string
+  agentId: string
+  text?: string
+  interestId?: string
+}
+export interface AutonomyReportsListMsg extends ClientMessage {
+  type: 'autonomy.reports.list'
+  projectId: string
+  agentId?: string
+  before?: string
+  limit?: number
+}
 export interface GlobalAssistantGetMsg extends ClientMessage {
   type: 'globalAssistant.get'
 }
@@ -766,6 +796,7 @@ export type ServerMessage =
   | { type: 'timeline:updated'; sessionId: string }
   | { type: 'event-center:update'; data: Record<string, unknown> }
   | { type: 'knowledge-base:update'; data: Record<string, unknown> }
+  | { type: 'autonomy:update'; agentId: string; projectId: string }
   | { type: 'pong'; timestamp: number }
   | { type: 'resume:ack'; cursors: Record<string, RealtimeCursor> }
   | { type: 'resync_required'; sessionId?: string; reason: string }

@@ -108,6 +108,22 @@ Runtime 可见 patch 不经过 API 事件总线，而是通过 Runtime→Realtim
 | `elicitation.respond` | `{ sessionId, elicitationRequestId, action, content? }` | `void` | 响应提问请求 |
 | `decision` | `{ sessionId, messageId, choice }` | `void` | 响应决定 |
 
+### 自主 Agent
+
+全部 autonomy RPC 仅允许 owner 连接调用，分享访客在读取状态前即被拒绝。
+
+| 方法 | 参数 | 返回 | 说明 |
+|------|------|------|------|
+| `autonomy.list` | `{ projectId }` | `AgentAutonomyState[]` | 列出项目 Agent 的轻量自主状态；不批量返回 memory.md 正文 |
+| `autonomy.get` | `{ projectId, agentId }` | `AgentAutonomyState` | 获取单个 Agent 的完整自主状态、固定 Session 和 memory.md 预览 |
+| `autonomy.enable` | `{ projectId, agentId }` | `AgentAutonomyState` | 创建或复用固定自主 Session，严格确认 Runtime 特权模式后启用 10 分钟心跳 |
+| `autonomy.disable` | `{ projectId, agentId }` | `AgentAutonomyState` | 停用心跳；正在运行的自主 Prompt 会请求取消 |
+| `autonomy.update` | `{ projectId, agentId, prompt?, interests? }` | `AgentAutonomyState` | 更新独立自主提示词或关注方向；提示词变化会重建该 Session 的 ACP 上下文 |
+| `autonomy.interest.add` | `{ projectId, agentId, text }` | `AgentAutonomyState` | 添加一条关注方向 |
+| `autonomy.interest.remove` | `{ projectId, agentId, interestId }` | `AgentAutonomyState` | 删除一条关注方向 |
+| `autonomy.runNow` | `{ projectId, agentId }` | `{ accepted, sessionId }` | 异步发起一次强制检查，RPC 不等待模型执行完成 |
+| `autonomy.reports.list` | `{ projectId, agentId?, before?, limit? }` | `AutonomyReport[]` | 按时间倒序读取 Markdown 汇报 |
+
 ### Task 管理
 
 | 方法 | 参数 | 返回 | 说明 |
@@ -214,6 +230,8 @@ Runtime 可见 patch 不经过 API 事件总线，而是通过 Runtime→Realtim
 | `tool-profiles.apply` | `{ profileId, agentId }` | `{ profile, agentId, boundToolNames, missingToolNames }` | 将权限模板写入指定 Agent 的工具绑定 |
 
 ## 事件广播
+
+`autonomy:update` 是全局元数据事件，载荷为 `{ agentId, projectId }`。启停、关注点、排班、汇报、tick 开始/跳过/失败时都会发布；客户端收到后按项目重新读取自主状态。Session 实时消息仍走原有订阅事件，不复制到 `autonomy:update`。
 
 服务端主动推送的事件类型：
 

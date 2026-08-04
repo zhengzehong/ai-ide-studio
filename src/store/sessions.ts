@@ -32,6 +32,7 @@ export interface SessionRow {
   sort_order: number | null
   is_primary: number
   is_template: number
+  purpose: 'conversation' | 'autonomy'
 }
 
 export interface SessionListRow extends SessionRow {
@@ -96,6 +97,7 @@ export interface CreateSessionInput {
   isPrimary?: boolean
   isTemplate?: boolean
   title?: string
+  purpose?: 'conversation' | 'autonomy'
 }
 
 export interface SessionRuntimePreferences {
@@ -159,15 +161,16 @@ export const sessionStore = {
       sort_order: nextSessionSortOrder(input.projectId ?? null, input.agentId),
       is_primary: input.isPrimary ? 1 : 0,
       is_template: input.isTemplate ? 1 : 0,
+      purpose: input.purpose ?? 'conversation',
     }
     getDb().prepare(`
       INSERT INTO sessions (
         id, agent_id, task_id, acp_session_id, status, stage, started_at, closed_at,
-        project_id, title, updated_at, last_message_at, last_read_at, archived_at, deleted_at, runtime_preferences_json, sort_order, is_primary, is_template
+        project_id, title, updated_at, last_message_at, last_read_at, archived_at, deleted_at, runtime_preferences_json, sort_order, is_primary, is_template, purpose
       )
       VALUES (
         @id, @agent_id, @task_id, @acp_session_id, @status, @stage, @started_at, @closed_at,
-        @project_id, @title, @updated_at, @last_message_at, @last_read_at, @archived_at, @deleted_at, @runtime_preferences_json, @sort_order, @is_primary, @is_template
+        @project_id, @title, @updated_at, @last_message_at, @last_read_at, @archived_at, @deleted_at, @runtime_preferences_json, @sort_order, @is_primary, @is_template, @purpose
       )
     `).run(session)
     return session
@@ -186,6 +189,17 @@ export const sessionStore = {
       .prepare<[string], SessionRow>(
         `SELECT * FROM sessions WHERE agent_id = ? AND is_primary = 1 AND deleted_at IS NULL LIMIT 1`,
       )
+      .get(agentId)
+  },
+
+  findAutonomyByAgent(agentId: string): SessionRow | undefined {
+    return getDb()
+      .prepare<[string], SessionRow>(`
+        SELECT * FROM sessions
+        WHERE agent_id = ? AND purpose = 'autonomy'
+          AND deleted_at IS NULL AND is_template = 0
+        LIMIT 1
+      `)
       .get(agentId)
   },
 
@@ -311,6 +325,11 @@ export const sessionStore = {
 
   updateAcpSessionId(id: string, acpSessionId: string): void {
     getDb().prepare('UPDATE sessions SET acp_session_id = ?, updated_at = ? WHERE id = ?').run(acpSessionId, new Date().toISOString(), id)
+  },
+
+  clearAcpSessionId(id: string): void {
+    getDb().prepare('UPDATE sessions SET acp_session_id = NULL, updated_at = ? WHERE id = ?')
+      .run(new Date().toISOString(), id)
   },
 
   updateStage(id: string, stage: string): void {
