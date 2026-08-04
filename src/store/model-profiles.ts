@@ -11,6 +11,7 @@ export interface ClaudeModelProfileConfig {
   haikuModel?: string
   sonnetModel?: string
   opusModel?: string
+  allowImageRead?: boolean
 }
 
 export interface CodexModelProfileConfig {

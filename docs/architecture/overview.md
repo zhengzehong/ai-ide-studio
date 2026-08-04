@@ -286,7 +286,7 @@ session 关闭(close/archive/delete)自动 `disconnectBySession`:off 所有未�
 
 创建或恢复 ACP Session 时，后端会从 Session 的 `project_id` 找到 Project，并把 `work_dir` 作为 ACP `cwd` 传给 runtime；同时按 `agentId/projectId/sessionId` 解析本轮可见的 MCP 工具。
 
-项目级 Agent 可以在 `config_json.modelProfileId` 上绑定一个模型档案。模型档案按 runtime 区分 Claude Code 与 Codex，并保存供应商、模型映射和上下文窗口；Agent runtime 改变、档案删除或档案 runtime 改变时，后端会清理不再匹配的绑定。
+项目级 Agent 可以在 `config_json.modelProfileId` 上绑定一个模型档案。模型档案按 runtime 区分 Claude Code 与 Codex，并保存供应商、模型映射和上下文窗口。Claude 档案还记录是否允许 Agent 主动读取图片；默认禁止时，Gateway 在 ACP Session 设置中注入图片 `Read` 权限规则，不影响用户随 Prompt 上传图片。Agent runtime 改变、档案删除或档案 runtime 改变时，后端会清理不再匹配的绑定。
 
 详细流程见 `docs/architecture/project-agent-workflow.md`。
 

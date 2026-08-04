@@ -20,6 +20,7 @@ export interface ClaudeProfileConfig {
   haikuModel?: string
   sonnetModel?: string
   opusModel?: string
+  allowImageRead?: boolean
 }
 
 export interface CodexProfileConfig {

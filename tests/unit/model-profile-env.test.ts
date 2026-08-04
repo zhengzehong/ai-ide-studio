@@ -18,6 +18,21 @@ import { buildAiIdeSystemPrompt } from '../../src/core/ai-ide-system-prompt.js'
 const tmp = mkdtempSync(resolve(tmpdir(), 'ai-ide-model-profile-env-'))
 let dbIndex = 0
 
+const IMAGE_READ_DENY_RULES = [
+  'Read(**/*.png)',
+  'Read(**/*.jpg)',
+  'Read(**/*.jpeg)',
+  'Read(**/*.webp)',
+  'Read(**/*.gif)',
+  'Read(**/*.bmp)',
+  'Read(**/*.ico)',
+  'Read(**/*.avif)',
+  'Read(**/*.tif)',
+  'Read(**/*.tiff)',
+  'Read(**/*.heic)',
+  'Read(**/*.pdf)',
+]
+
 beforeEach(() => {
   closeDatabase()
   const dbDir = resolve(tmp, `case-${++dbIndex}`)
@@ -45,6 +60,7 @@ describe('model profile runtime env', () => {
     expect(result.appliedProfile).toBeUndefined()
     expect(result.env.ANTHROPIC_MODEL).toBe('system-default-model')
     expect(result.env.ANTHROPIC_BASE_URL).toBeUndefined()
+    expect(result.env.AI_IDE_CLAUDE_ALLOW_IMAGE_READ).toBe('0')
   })
 
   test('injects Claude model profile settings into the runtime process env', () => {
@@ -90,6 +106,7 @@ describe('model profile runtime env', () => {
     expect(result.env.ANTHROPIC_DEFAULT_OPUS_MODEL).toBe('deepseek-v4-pro[1m]')
     expect(result.env.ANTHROPIC_REASONING_MODEL).toBe('deepseek-v4-flash')
     expect(result.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS).toBe('128000')
+    expect(result.env.AI_IDE_CLAUDE_ALLOW_IMAGE_READ).toBe('0')
   })
 
   test('includes Claude model profile env in fingerprints and safe summaries', () => {
@@ -102,13 +119,16 @@ describe('model profile runtime env', () => {
       ANTHROPIC_DEFAULT_OPUS_MODEL: 'deepseek-v4-flash',
       ANTHROPIC_REASONING_MODEL: 'deepseek-v4-flash',
       CLAUDE_CODE_MAX_CONTEXT_TOKENS: '128000',
+      AI_IDE_CLAUDE_ALLOW_IMAGE_READ: '0',
     }
 
     const changed = { ...env, ANTHROPIC_DEFAULT_OPUS_MODEL: 'deepseek-v4-pro[1m]' }
     const changedContextWindow = { ...env, CLAUDE_CODE_MAX_CONTEXT_TOKENS: '200000' }
+    const changedImageReadPolicy = { ...env, AI_IDE_CLAUDE_ALLOW_IMAGE_READ: '1' }
 
     expect(fingerprintRuntimeEnv(env, 'claude')).not.toBe(fingerprintRuntimeEnv(changed, 'claude'))
     expect(fingerprintRuntimeEnv(env, 'claude')).not.toBe(fingerprintRuntimeEnv(changedContextWindow, 'claude'))
+    expect(fingerprintRuntimeEnv(env, 'claude')).not.toBe(fingerprintRuntimeEnv(changedImageReadPolicy, 'claude'))
     expect(summarizeRuntimeEnv(env, 'claude')).toMatchObject({
       anthropicBaseUrl: 'https://api.deepseek.com/anthropic',
       anthropicModel: 'deepseek-v4-flash',
@@ -117,6 +137,7 @@ describe('model profile runtime env', () => {
       anthropicDefaultOpusModel: 'deepseek-v4-flash',
       anthropicReasoningModel: 'deepseek-v4-flash',
       claudeCodeMaxContextTokens: '128000',
+      allowImageRead: false,
       hasClaudeModelConfig: false,
     })
     expect(summarizeRuntimeEnv(env, 'claude').anthropicApiKeyHash).not.toBe('sk-test')
@@ -160,6 +181,9 @@ describe('model profile runtime env', () => {
         options: {
           settings: {
             autoCompactWindow: 200000,
+            permissions: {
+              deny: IMAGE_READ_DENY_RULES,
+            },
             env: {
               ANTHROPIC_BASE_URL: 'https://api.deepseek.com/anthropic',
               ANTHROPIC_API_KEY: 'sk-test',
@@ -182,6 +206,9 @@ describe('model profile runtime env', () => {
       claudeCode: {
         options: {
           settings: {
+            permissions: {
+              deny: IMAGE_READ_DENY_RULES,
+            },
             env: {
               ANTHROPIC_AUTH_TOKEN: '',
               ANTHROPIC_MODEL: 'glm5-prd',
@@ -190,6 +217,61 @@ describe('model profile runtime env', () => {
         },
       },
     })
+  })
+
+  test('injects only image permissions when no Claude model environment is configured', () => {
+    expect(buildClaudeSessionMeta({}, 'claude')).toEqual({
+      claudeCode: {
+        options: {
+          settings: {
+            permissions: {
+              deny: IMAGE_READ_DENY_RULES,
+            },
+          },
+        },
+      },
+    })
+  })
+
+  test('allows image Read only when the Claude model profile explicitly enables it', () => {
+    const provider = modelProviderStore.create({
+      name: 'vision-provider',
+      displayName: 'Vision Provider',
+      protocol: 'claude',
+      baseUrl: 'https://example.com/anthropic',
+      apiKey: 'sk-test',
+    })
+    const profile = modelProfileStore.create({
+      name: 'vision-profile',
+      runtime: 'claude',
+      providerId: provider.id,
+      config: {
+        defaultModel: 'vision-model',
+        allowImageRead: false,
+      },
+    })
+    const agent = agentStore.create({
+      name: 'Claude Vision',
+      type: 'dev',
+      runtime: 'claude',
+      config: { modelProfileId: profile.id },
+    })
+
+    const disabled = buildAgentRuntimeEnv('claude', agent, {})
+    expect(disabled.env.AI_IDE_CLAUDE_ALLOW_IMAGE_READ).toBe('0')
+    expect(buildClaudeSessionMeta(disabled.env, 'claude')?.claudeCode.options.settings.permissions).toEqual({
+      deny: IMAGE_READ_DENY_RULES,
+    })
+
+    modelProfileStore.update(profile.id, {
+      config: {
+        defaultModel: 'vision-model',
+        allowImageRead: true,
+      },
+    })
+    const enabled = buildAgentRuntimeEnv('claude', agent, {})
+    expect(enabled.env.AI_IDE_CLAUDE_ALLOW_IMAGE_READ).toBe('1')
+    expect(buildClaudeSessionMeta(enabled.env, 'claude')?.claudeCode.options.settings.permissions).toBeUndefined()
   })
 
   test('builds Claude session meta with appended agent system prompt', () => {

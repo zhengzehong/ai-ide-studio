@@ -505,6 +505,7 @@ function ProfileForm({ profile, providers, onClose, onCreate, onUpdate }: {
   const [haikuModel, setHaikuModel] = useState((initialConfig as ClaudeProfileConfig).haikuModel ?? '')
   const [sonnetModel, setSonnetModel] = useState((initialConfig as ClaudeProfileConfig).sonnetModel ?? '')
   const [opusModel, setOpusModel] = useState((initialConfig as ClaudeProfileConfig).opusModel ?? '')
+  const [allowImageRead, setAllowImageRead] = useState((initialConfig as ClaudeProfileConfig).allowImageRead === true)
   const [codexModel, setCodexModel] = useState((initialConfig as CodexProfileConfig).model ?? '')
   const [effort, setEffort] = useState((initialConfig as CodexProfileConfig).effort ?? 'medium')
 
@@ -515,6 +516,7 @@ function ProfileForm({ profile, providers, onClose, onCreate, onUpdate }: {
       setHaikuModel('')
       setSonnetModel('')
       setOpusModel('')
+      setAllowImageRead(false)
       setCodexModel('')
       setEffort('medium')
     }
@@ -529,6 +531,7 @@ function ProfileForm({ profile, providers, onClose, onCreate, onUpdate }: {
         haikuModel: haikuModel.trim() || undefined,
         sonnetModel: sonnetModel.trim() || undefined,
         opusModel: opusModel.trim() || undefined,
+        allowImageRead,
       }
       : { model: codexModel.trim(), effort }
     if (runtime === 'claude' && !(config as ClaudeProfileConfig).defaultModel) return
@@ -561,6 +564,10 @@ function ProfileForm({ profile, providers, onClose, onCreate, onUpdate }: {
               <label style={fLabel}>Sonnet 主力模型<input value={sonnetModel} onChange={e => setSonnetModel(e.target.value)} style={fInput} placeholder="deepseek-v4-pro[1m]" /></label>
             </div>
             <label style={{ ...fLabel, marginTop: 12 }}>Opus 强力模型<input value={opusModel} onChange={e => setOpusModel(e.target.value)} style={fInput} placeholder="deepseek-v4-pro[1m]" /></label>
+            <label style={{ ...fLabel, flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 14 }}>
+              <input type="checkbox" checked={allowImageRead} onChange={e => setAllowImageRead(e.target.checked)} />
+              允许 Agent 主动读取图片
+            </label>
           </>
         ) : (
           <div style={fGrid}>
@@ -595,6 +602,7 @@ function renderClaudeTags(config: ClaudeProfileConfig): React.ReactNode[] {
     <span key="haiku" style={modelTag}>Haiku {config.haikuModel || '-'}</span>,
     <span key="sonnet" style={modelTag}>Sonnet {config.sonnetModel || '-'}</span>,
     <span key="opus" style={modelTag}>Opus {config.opusModel || '-'}</span>,
+    <span key="image-read" style={modelTag}>{config.allowImageRead === true ? '允许主动读图' : '禁止主动读图'}</span>,
   ]
 }
 

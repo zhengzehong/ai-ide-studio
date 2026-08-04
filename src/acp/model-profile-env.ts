@@ -25,7 +25,10 @@ export interface ClaudeSessionMeta extends Record<string, unknown> {
     options: {
       settings: {
         autoCompactWindow?: number
-        env: Record<string, string>
+        permissions?: {
+          deny: string[]
+        }
+        env?: Record<string, string>
       }
     }
   }
@@ -52,12 +55,29 @@ const CLAUDE_PROFILE_ENV_KEYS = [
   'CLAUDE_CODE_MAX_CONTEXT_TOKENS',
 ] as const
 
+const CLAUDE_IMAGE_READ_POLICY_ENV_KEY = 'AI_IDE_CLAUDE_ALLOW_IMAGE_READ'
+const CLAUDE_IMAGE_READ_DENY_RULES = [
+  'Read(**/*.png)',
+  'Read(**/*.jpg)',
+  'Read(**/*.jpeg)',
+  'Read(**/*.webp)',
+  'Read(**/*.gif)',
+  'Read(**/*.bmp)',
+  'Read(**/*.ico)',
+  'Read(**/*.avif)',
+  'Read(**/*.tif)',
+  'Read(**/*.tiff)',
+  'Read(**/*.heic)',
+  'Read(**/*.pdf)',
+] as const
+
 export function buildAgentRuntimeEnv(
   runtime: string,
   agent: AgentRow,
   baseEnv: NodeJS.ProcessEnv = process.env,
 ): AgentRuntimeEnvResult {
   const env = buildRuntimeEnv(runtime, baseEnv)
+  if (runtime === 'claude') env[CLAUDE_IMAGE_READ_POLICY_ENV_KEY] = '0'
   const resolvedProfile = resolveAgentModelProfile(runtime, agent)
   if (!resolvedProfile) return { env }
 
@@ -73,20 +93,25 @@ export function buildAgentRuntimeEnv(
 }
 
 export function buildClaudeSessionMeta(env: NodeJS.ProcessEnv, runtime: string): ClaudeSessionMeta | undefined {
-  if (runtime !== 'claude' || !env.ANTHROPIC_MODEL?.trim()) return undefined
+  if (runtime !== 'claude') return undefined
 
-  const settingsEnv = Object.fromEntries(
-    CLAUDE_PROFILE_ENV_KEYS.map(key => [key, env[key]?.trim() ?? '']).filter(([, value]) => value !== ''),
-  )
-  settingsEnv.ANTHROPIC_AUTH_TOKEN = ''
+  const hasModelSettings = Boolean(env.ANTHROPIC_MODEL?.trim())
+  const settingsEnv = hasModelSettings
+    ? Object.fromEntries(
+      CLAUDE_PROFILE_ENV_KEYS.map(key => [key, env[key]?.trim() ?? '']).filter(([, value]) => value !== ''),
+    )
+    : undefined
+  if (settingsEnv) settingsEnv.ANTHROPIC_AUTH_TOKEN = ''
   const autoCompactWindow = parseAutoCompactWindow(env.CLAUDE_CODE_MAX_CONTEXT_TOKENS)
+  const allowImageRead = env[CLAUDE_IMAGE_READ_POLICY_ENV_KEY] === '1'
 
   return {
     claudeCode: {
       options: {
         settings: {
           ...(autoCompactWindow ? { autoCompactWindow } : {}),
-          env: settingsEnv,
+          ...(!allowImageRead ? { permissions: { deny: [...CLAUDE_IMAGE_READ_DENY_RULES] } } : {}),
+          ...(settingsEnv ? { env: settingsEnv } : {}),
         },
       },
     },
@@ -145,6 +170,7 @@ export function fingerprintRuntimeEnv(env: NodeJS.ProcessEnv, runtime: string): 
       'ANTHROPIC_REASONING_MODEL',
       'CLAUDE_CODE_MAX_CONTEXT_TOKENS',
       'CLAUDE_MODEL_CONFIG',
+      CLAUDE_IMAGE_READ_POLICY_ENV_KEY,
     ]
     : ['CODEX_PATH', 'MODEL_PROVIDER', 'CODEX_CONFIG']
   return JSON.stringify(keys.map(key => [key, fingerprintValue(key, env[key])]))
@@ -160,6 +186,7 @@ export function summarizeRuntimeEnv(env: NodeJS.ProcessEnv, runtime: string): Re
     anthropicDefaultOpusModel: env.ANTHROPIC_DEFAULT_OPUS_MODEL ?? null,
     anthropicReasoningModel: env.ANTHROPIC_REASONING_MODEL ?? null,
     claudeCodeMaxContextTokens: env.CLAUDE_CODE_MAX_CONTEXT_TOKENS ?? null,
+    allowImageRead: env[CLAUDE_IMAGE_READ_POLICY_ENV_KEY] === '1',
     anthropicApiKeyHash: hashCredential(env.ANTHROPIC_API_KEY),
     anthropicAuthTokenHash: hashCredential(env.ANTHROPIC_AUTH_TOKEN),
     hasClaudeModelConfig: Boolean(env.CLAUDE_MODEL_CONFIG?.trim()),
@@ -181,6 +208,7 @@ function applyClaudeModelProfileEnv(
   env.ANTHROPIC_DEFAULT_SONNET_MODEL = config.sonnetModel?.trim() || defaultModel
   env.ANTHROPIC_DEFAULT_OPUS_MODEL = config.opusModel?.trim() || defaultModel
   env.ANTHROPIC_REASONING_MODEL = defaultModel
+  env[CLAUDE_IMAGE_READ_POLICY_ENV_KEY] = config.allowImageRead === true ? '1' : '0'
   if (contextWindow) env.CLAUDE_CODE_MAX_CONTEXT_TOKENS = String(contextWindow)
   return true
 }
@@ -246,6 +274,7 @@ function parseClaudeConfig(raw: string): ClaudeModelProfileConfig {
     haikuModel: typeof config.haikuModel === 'string' ? config.haikuModel : undefined,
     sonnetModel: typeof config.sonnetModel === 'string' ? config.sonnetModel : undefined,
     opusModel: typeof config.opusModel === 'string' ? config.opusModel : undefined,
+    allowImageRead: config.allowImageRead === true,
   }
 }
 

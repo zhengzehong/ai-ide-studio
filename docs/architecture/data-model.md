@@ -677,7 +677,7 @@ watch 监听 `session:done`，触发后后台唤醒 `watcher_session_id`。如�
 | name | TEXT | 档案名称 |
 | runtime | TEXT | claude / codex |
 | provider_id | TEXT | 关联的模型供应商 ID |
-| config_json | TEXT | runtime 专属配置；Claude 保存 default/haiku/sonnet/opus 映射，Codex 保存 model/effort |
+| config_json | TEXT | runtime 专属配置；Claude 保存 default/haiku/sonnet/opus 映射和 `allowImageRead` 主动读图策略，Codex 保存 model/effort |
 | context_window | INTEGER | 模型上下文窗口；为空表示未指定 |
 | is_default | INTEGER | 是否为该 runtime 的默认档案；同一 runtime 仅一个启用档案应为默认 |
 | enabled | INTEGER | 是否启用 |
