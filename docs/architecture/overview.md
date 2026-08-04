@@ -127,6 +127,8 @@ PC 生产构建按页面使用 `React.lazy` 拆分，应用 shell、认证和连
 
 每个 Session actor 在一次所有权周期内使用固定 `streamGeneration`，只在实际输出逻辑 patch 时递增 `sequence`。文本 delta 按 message 合并，process item 采用 latest-wins；权限、elicitation 和 done 会先 flush 同 Session 的普通更新。Runtime 的可见流每 25ms 通过独立本机管道直达 Realtime，API 事件循环阻塞不会中断浏览器流式输出；持久化流以 250ms 节奏发送到 API，并带同一 Session 游标。可见流是游标的唯一分配者：持久化 flush 必须先完成对应 UI flush，再复用该 patch 已发布的游标，不能为仅写数据库的更新生成浏览器不可见的 sequence。
 
+持久化批次在开始异步发送前冻结该批全部可见流游标，慢速写入不能读取或删除后续同 key 更新的新游标。后台 flush 失败会进入受控 Runtime 重启边界，不以 detached Promise 的未处理 rejection 退出；失败写链不会阻止后续清理或恢复。Runtime 重启期间，尚未进入 IPC 的新请求有界等待下一 generation，已经发送的 Prompt 明确失败且不会自动重放。
+
 Runtime done 是持久化屏障，不直接对浏览器发布。API 按 Session 顺序处理持久化 patch，触发 `session:done`，等待 Writer 完成 `message.done + Outbox` 原子事务后才向 Runtime 返回 ack；随后 `session:committed_done` 才进入 Realtime。Runtime 意外退出时 API、HTTP、Query/Writer Worker 和 Realtime 保持运行，当前命令明确失败并由 Session 主链路落一条 error completion；监督器重启 Runtime，下一轮从 SQLite 快照和 `acp_session_id` 恢复。`RUNTIME_SERVICE_MODE=embedded` 保留旧 `acpHost` 作为显式回滚适配器，不会在运行中静默降级。
 
 process Runtime 使用 API 投影到快照中的 HTTP MCP 配置调用平台工具。ToolRegistry、工具上下文、审计和业务写入仍由 API 进程所有；Runtime 与 Claude/Codex 子进程不打开平台数据库。相同 Session 上下文与可见工具集合复用同一 bearer token，项目、团队、Agent 或工具可见性变化时撤销旧 token 并生成新 token。embedded 回滚模式仍可使用 stdio 工具网关，不改变 process 模式的所有权边界。
@@ -220,7 +222,7 @@ Session 删除采用软删除，仅隐藏列表项并保留 `messages` / `sessio
 | 目录 | 职责 | 核心文件 |
 |------|------|----------|
 | `src/acp/` | ACP 公共映射与 embedded 回滚实现 | `host.ts`、`capabilities.ts`、`runtime-registry.ts`、`update-mapper.ts` |
-| `src/runtime/` | 独立 Runtime 服务、API 适配器、Session actor、流合并与资源配额 | `service/*`、`api/process-runtime-port.ts`、`actors/session-actor.ts`、`streams/runtime-update-coalescer.ts` |
+| `src/runtime/` | 独立 Runtime 服务、API 适配器、Session actor、流合并与资源配额 | `service/*`、`api/process-runtime-port.ts`、`api/process-runtime-support.ts`、`actors/session-actor.ts`、`streams/runtime-update-coalescer.ts`、`streams/runtime-update-cursor-store.ts` |
 | `src/core/` | 业务逻辑 | `sessions.ts`、`session-runtime-control.ts`、`turn-process-runtime.ts`、`platform-presentation-results.ts`、`prompt-diagnostics.ts`、`session-event-payload.ts`、`tasks.ts`、`task-simple.ts`、`task-prompt.ts`、`task-steps.ts`、`projects.ts`、`agents.ts`、`teams.ts`、`event-center.ts`、`events.ts`、`knowledge-base.ts` |
 | `src/ports/`、`src/queries/` | 异步查询边界与当前单体适配器 | `query-port.ts`、`local-query-port.ts`、`task-list-query.ts` |
 | `src/gateway/` | API 对外接口与 Realtime 桥 | `server.ts`、`http/query-routes.ts`、`http/realtime-config-route.ts`、`realtime-event-source.ts`、`realtime-rpc-bridge.ts`、`ws-handler.ts` |

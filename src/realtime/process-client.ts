@@ -165,8 +165,16 @@ class RealtimeProcessController implements RealtimeProcessHandle {
     }
     this.handshaken = false
     const channel = new FramedSocket(socket, { maxFrameBytes: this.maxFrameBytes })
+    const channelChild = this.child
     this.channel = channel
-    channel.onMessage((message) => { void this.handleMessage(message) })
+    channel.onMessage((message) => {
+      void this.handleMessage(message).catch((error) => {
+        log.error({ err: error, pid: channelChild?.pid, generation: this.currentGeneration }, 'Realtime IPC message handling failed')
+        if (channelChild && this.child === channelChild && channelChild.exitCode == null && channelChild.signalCode == null) {
+          channelChild.kill()
+        }
+      })
+    })
     channel.onError((error) => log.warn({ err: error }, 'Realtime IPC channel error'))
     socket.once('close', () => {
       if (this.channel === channel) this.channel = undefined
