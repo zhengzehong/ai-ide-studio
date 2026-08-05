@@ -27,7 +27,7 @@ export interface WidgetAgentActivityItem {
   activityAt: string
 }
 
-export type WidgetSessionAttentionState = 'running' | 'needs_input' | 'unread'
+export type WidgetSessionAttentionState = 'running' | 'unread'
 
 export interface WidgetSessionActivityItem {
   sessionId: string
@@ -39,7 +39,6 @@ export interface WidgetSessionActivityItem {
   stage: string
   running: boolean
   unread: boolean
-  needsInput: boolean
   attentionState: WidgetSessionAttentionState
   activityAt: string
 }
@@ -107,7 +106,7 @@ export const useWidgetStore = create<WidgetStore>((set, get) => ({
           ...group,
           sessions: group.sessions.flatMap((session) => {
             if (session.sessionId !== sessionId) return [session]
-            if (!session.running && !session.needsInput) return []
+            if (!session.running) return []
             return [{ ...session, unread: false }]
           }),
         }))

@@ -8,8 +8,7 @@ interface WidgetSessionActivityRowProps {
 
 function stateLabel(session: WidgetSessionActivityItem): string {
   if (session.attentionState === 'running') return '执行中'
-  if (session.attentionState === 'unread') return '未读'
-  return session.taskStatus === 'blocked' ? '已阻塞' : '待确认'
+  return '未读'
 }
 
 export function WidgetSessionActivityRow({ session, onClick }: WidgetSessionActivityRowProps) {
