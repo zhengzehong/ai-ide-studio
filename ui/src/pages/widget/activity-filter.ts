@@ -5,7 +5,6 @@ export type ActivityFilter = 'all' | WidgetSessionAttentionState
 export const ACTIVITY_FILTERS: ReadonlyArray<{ value: ActivityFilter; label: string }> = [
   { value: 'all', label: '全部' },
   { value: 'running', label: '运行中' },
-  { value: 'needs_input', label: '待处理' },
   { value: 'unread', label: '未读' },
 ]
 
@@ -21,7 +20,6 @@ export function getActivityFilterLabel(current: ActivityFilter): string {
 export function matchesActivityFilter(session: WidgetSessionActivityItem, filter: ActivityFilter): boolean {
   if (filter === 'all') return true
   if (filter === 'running') return session.running
-  if (filter === 'needs_input') return session.needsInput
   return session.unread
 }
 

@@ -1,4 +1,4 @@
-export type WidgetSessionAttentionState = 'running' | 'needs_input' | 'unread'
+export type WidgetSessionAttentionState = 'running' | 'unread'
 
 export interface WidgetSessionActivitySource {
   sessionId: string
@@ -32,7 +32,6 @@ export interface WidgetSessionActivityItem {
   stage: string
   running: boolean
   unread: boolean
-  needsInput: boolean
   attentionState: WidgetSessionAttentionState
   activityAt: string
 }
@@ -48,8 +47,6 @@ export interface WidgetAgentProjectActivityGroup {
   sessions: WidgetSessionActivityItem[]
 }
 
-const NEEDS_INPUT_TASK_STATUSES = new Set(['needs_input', 'blocked'])
-
 function activityTimestamp(session: WidgetSessionActivitySource): string {
   return session.lastMessageAt
     ?? session.completedAt
@@ -58,16 +55,13 @@ function activityTimestamp(session: WidgetSessionActivitySource): string {
 }
 
 function attentionState(session: WidgetSessionActivitySource): WidgetSessionAttentionState | null {
-  if (session.taskStatus && NEEDS_INPUT_TASK_STATUSES.has(session.taskStatus)) return 'needs_input'
   if (session.activityState === 'running') return 'running'
   if (session.unread) return 'unread'
   return null
 }
 
 function attentionPriority(state: WidgetSessionAttentionState): number {
-  if (state === 'needs_input') return 3
-  if (state === 'running') return 2
-  return 1
+  return state === 'running' ? 2 : 1
 }
 
 function compareSessions(left: WidgetSessionActivityItem, right: WidgetSessionActivityItem): number {
@@ -99,7 +93,6 @@ export function buildWidgetSessionActivityGroups(
         stage: source.stage,
         running: source.activityState === 'running',
         unread: source.unread,
-        needsInput: state === 'needs_input',
         attentionState: state,
         activityAt: activityTimestamp(source),
       },

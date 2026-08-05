@@ -10,12 +10,10 @@ describe('Widget activity filter', () => {
     expect(ACTIVITY_FILTERS.map((item) => item.value)).toEqual([
       'all',
       'running',
-      'needs_input',
       'unread',
     ])
     expect(getNextActivityFilter('all')).toBe('running')
-    expect(getNextActivityFilter('running')).toBe('needs_input')
-    expect(getNextActivityFilter('needs_input')).toBe('unread')
+    expect(getNextActivityFilter('running')).toBe('unread')
     expect(getNextActivityFilter('unread')).toBe('all')
   })
 
@@ -23,7 +21,6 @@ describe('Widget activity filter', () => {
     expect(ACTIVITY_FILTERS.map((item) => item.label)).toEqual([
       '全部',
       '运行中',
-      '待处理',
       '未读',
     ])
   })
@@ -32,11 +29,10 @@ describe('Widget activity filter', () => {
     const session = {
       sessionId: 'session-1', taskId: 'task-1', taskTitle: 'Task', taskStatus: 'needs_input',
       sessionTitle: 'Session', status: 'active', stage: '', activityAt: '2026-08-03T00:00:00.000Z',
-      attentionState: 'needs_input' as const, running: true, unread: true, needsInput: true,
+      attentionState: 'running' as const, running: true, unread: true,
     }
 
     expect(matchesActivityFilter(session, 'running')).toBe(true)
     expect(matchesActivityFilter(session, 'unread')).toBe(true)
-    expect(matchesActivityFilter(session, 'needs_input')).toBe(true)
   })
 })

@@ -78,7 +78,7 @@ describe('Widget Session activity query', () => {
     ])
   })
 
-  test('prioritizes a directly linked needs-input Task while preserving state flags', () => {
+  test('keeps running and unread Session states independent of Task status', () => {
     const groups = buildWidgetSessionActivityGroups([
       session('running-session', { activityState: 'running' }),
       session('waiting-session', {
@@ -90,16 +90,43 @@ describe('Widget Session activity query', () => {
     ])
 
     expect(groups[0]?.sessions[0]).toMatchObject({
-      sessionId: 'waiting-session',
-      attentionState: 'needs_input',
-      needsInput: true,
-      unread: true,
-      taskTitle: 'Confirm deployment',
-    })
-    expect(groups[0]?.sessions[1]).toMatchObject({
       sessionId: 'running-session',
       attentionState: 'running',
       running: true,
+    })
+    expect(groups[0]?.sessions[1]).toMatchObject({
+      sessionId: 'waiting-session',
+      attentionState: 'unread',
+      unread: true,
+      taskTitle: 'Confirm deployment',
+    })
+  })
+
+  test('does not keep an idle read Session only because its Task needs input', () => {
+    const groups = buildWidgetSessionActivityGroups([
+      session('old-waiting-session', {
+        taskId: 'task-1',
+        taskTitle: 'Confirm deployment',
+        taskStatus: 'needs_input',
+      }),
+    ])
+
+    expect(groups).toEqual([])
+  })
+
+  test('keeps a running Session even when its Task is from another day', () => {
+    const groups = buildWidgetSessionActivityGroups([
+      session('running-old-task', {
+        activityState: 'running',
+        taskId: 'task-old',
+        taskTitle: null,
+        taskStatus: null,
+      }),
+    ])
+
+    expect(groups[0]?.sessions[0]).toMatchObject({
+      sessionId: 'running-old-task',
+      attentionState: 'running',
     })
   })
 

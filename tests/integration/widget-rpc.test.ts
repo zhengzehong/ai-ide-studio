@@ -321,6 +321,10 @@ describe('widget Agent activity RPC', () => {
       sessionId: session.id,
     })
     taskStore.update(linkedTask.id, { status: 'needs_input' })
+    messageStore.append(session.id, { role: 'agent', content: '需要确认', status: 'completed' })
+    sessionStore.touch(session.id)
+    getDb().prepare('UPDATE sessions SET last_read_at = ? WHERE id = ?')
+      .run('2000-01-01T00:00:00.000Z', session.id)
 
     const groups = await callWidgetRpc('widget.sessionActivity.list') as Array<Record<string, unknown>>
 
@@ -330,10 +334,45 @@ describe('widget Agent activity RPC', () => {
         sessionId: session.id,
         taskId: linkedTask.id,
         taskTitle: 'Linked step Task',
-        attentionState: 'needs_input',
+        attentionState: 'unread',
       })],
     })
     expect(JSON.stringify(groups)).not.toContain('Unrelated Agent Task')
+  })
+
+  test('does not show an idle read Session only because its linked Task needs input', async () => {
+    const project = projectStore.create({ name: 'Historical Task Project', workDir: 'D:/work/historical-task' })
+    const agent = agentStore.create({ name: 'Historical Task Agent', type: 'dev', runtime: 'mock', projectId: project.id })
+    const task = taskStore.create({ title: 'Old confirmation', projectId: project.id })
+    taskStore.update(task.id, { status: 'needs_input' })
+    getDb().prepare('UPDATE tasks SET created_at = ? WHERE id = ?')
+      .run('2000-01-01T00:00:00.000Z', task.id)
+    const session = sessionStore.create({ agentId: agent.id, taskId: task.id, projectId: project.id })
+    messageStore.append(session.id, { role: 'agent', content: 'old result', status: 'completed' })
+
+    const groups = await callWidgetRpc('widget.sessionActivity.list', { projectId: project.id }) as Array<Record<string, unknown>>
+
+    expect(groups).toEqual([])
+  })
+
+  test('does not expose a cross-day Task on a running Session', async () => {
+    const project = projectStore.create({ name: 'Running Old Task Project', workDir: 'D:/work/running-old-task' })
+    const agent = agentStore.create({ name: 'Running Old Task Agent', type: 'dev', runtime: 'mock', projectId: project.id })
+    const task = taskStore.create({ title: 'Old running task', projectId: project.id })
+    getDb().prepare('UPDATE tasks SET created_at = ? WHERE id = ?')
+      .run('2000-01-01T00:00:00.000Z', task.id)
+    const session = sessionStore.create({ agentId: agent.id, taskId: task.id, projectId: project.id })
+    messageStore.append(session.id, { role: 'agent', content: 'still working', status: 'running' })
+
+    const groups = await callWidgetRpc('widget.sessionActivity.list', { projectId: project.id }) as Array<Record<string, unknown>>
+
+    expect(groups[0]?.sessions).toMatchObject([{
+      sessionId: session.id,
+      attentionState: 'running',
+      taskId: null,
+      taskTitle: null,
+      taskStatus: null,
+    }])
   })
 
   test('returns one row per Agent and prioritizes a running Session as the navigation target', async () => {

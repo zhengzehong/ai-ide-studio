@@ -29,6 +29,7 @@ interface WidgetSessionRow {
   task_id: string | null
   task_title: string | null
   task_status: string | null
+  task_created_at: string | null
   session_title: string | null
   session_status: string
   stage: string
@@ -82,6 +83,7 @@ function listWidgetSessions(projectId?: string): WidgetSessionRow[] {
       s.linked_task_id AS task_id,
       t.title AS task_title,
       t.status AS task_status,
+      t.created_at AS task_created_at,
       s.title AS session_title,
       s.status AS session_status,
       s.stage,
@@ -219,6 +221,9 @@ function isWidgetSessionUnread(row: WidgetSessionRow): boolean {
 function toWidgetSession(row: WidgetSessionRow) {
   const completedAt = latestTimestamp(row.latest_agent_message_at, row.latest_done_event_at)
   const lastMessageAt = row.last_message_at ?? completedAt
+  const taskIsToday = row.task_created_at
+    ? Date.parse(row.task_created_at) >= Date.parse(localDayStartIso(new Date()))
+    : false
   return {
     sessionId: row.session_id,
     agentId: row.agent_id,
@@ -226,9 +231,9 @@ function toWidgetSession(row: WidgetSessionRow) {
     agentIcon: row.agent_icon,
     projectId: row.project_id,
     projectName: row.project_name,
-    taskId: row.task_id,
-    taskTitle: row.task_title,
-    taskStatus: row.task_status,
+    taskId: taskIsToday ? row.task_id : null,
+    taskTitle: taskIsToday ? row.task_title : null,
+    taskStatus: taskIsToday ? row.task_status : null,
     sessionTitle: row.session_title,
     status: row.session_status,
     activityState: row.activity_state,
