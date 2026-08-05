@@ -27,6 +27,7 @@ export type AppEvents = {
   'session:committed_done': SessionDoneData
   'session:capabilities': { sessionId: string; capabilities: SessionCapabilities }
   'session:changed': { sessionId: string; data: Record<string, unknown> }
+  'session-dock:update': { action: 'added' | 'removed' | 'reordered'; sessionId?: string }
   'session:copy_failed': { sourceSessionId: string; targetSessionId: string; message: string }
   'agent:status': { agentId: string; status: AgentStatus }
   'task:update': { taskId: string; data: Record<string, unknown> }

@@ -808,6 +808,19 @@ SQLite schema 由 `src/store/migrator.ts` 和 `src/store/migrations/*` 管理。
 - Runtime 空闲回收会在没有已连接 session 后停止 `codex-acp` / `claude-agent-acp` 进程，不修改已持久化的会话历史。
 - `session_events.type = lifecycle.*` 记录可见阶段，例如 runtime 启动、session 恢复/创建、prompt 已发送、空闲断开和失败。
 
+## Global Session Dock
+
+`global_session_dock` 保存 owner 的跨项目会话入口。它只引用既有 Session，不复制消息、运行状态或未读状态；列表查询按需关联 Session、Agent 和 Project 生成轻量 DTO。
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| session_id | TEXT PK/FK | 固定的 Session ID；Session 物理删除时级联清理 |
+| sort_order | INTEGER | 全局会话坞内的稳定顺序，不影响 Workspace 排序 |
+| added_at | TEXT | 加入时间 |
+| updated_at | TEXT | 最近排序更新时间 |
+
+只有 `purpose = conversation` 且属于项目、未删除、未归档、非模板的 Session 会进入读模型。运行态由 active prompt、running Agent 消息、未完成过程项和 Session 阶段共同计算；未读由最新完成消息/`message.done` 与 `sessions.last_read_at` 比较。自主 Session 不会进入会话坞。
+
 ## Desktop Widget State
 
 Desktop Widget 使用两张轻量表保存本地状态，不复制 Session、Agent 或 Task 数据。

@@ -1,13 +1,15 @@
 import { lazy, Suspense, useEffect } from 'react'
-import { Bot, Loader2 } from 'lucide-react'
+import { Bot, Loader2, MessagesSquare } from 'lucide-react'
 import { useGlobalAssistantStore } from '../../stores/global-assistant.store'
+import { useSessionDockStore } from '../../stores/session-dock.store'
 import { agentAvatar, agentColor } from '../../pages/workspace/helpers'
 import { ICON_MAP } from '../agent-square/constants'
+import { SessionDockDrawer } from '../session-dock/SessionDockDrawer'
+import '../session-dock/session-dock.css'
 
 const GlobalAssistantDrawer = lazy(() => import('./GlobalAssistantDrawer').then((module) => ({
   default: module.GlobalAssistantDrawer,
 })))
-
 export function GlobalAssistantRail() {
   const assistant = useGlobalAssistantStore((state) => state.assistant)
   const agent = useGlobalAssistantStore((state) => state.agent)
@@ -17,13 +19,28 @@ export function GlobalAssistantRail() {
   const unread = useGlobalAssistantStore((state) => state.unread)
   const load = useGlobalAssistantStore((state) => state.load)
   const openDrawer = useGlobalAssistantStore((state) => state.openDrawer)
+  const closeDrawer = useGlobalAssistantStore((state) => state.closeDrawer)
   const setupListeners = useGlobalAssistantStore((state) => state.setupListeners)
+  const dockOpen = useSessionDockStore((state) => state.open)
+  const dockItems = useSessionDockStore((state) => state.items)
+  const loadDock = useSessionDockStore((state) => state.load)
+  const openDock = useSessionDockStore((state) => state.openDrawer)
+  const closeDock = useSessionDockStore((state) => state.closeDrawer)
+  const setupDockListeners = useSessionDockStore((state) => state.setupListeners)
 
   useEffect(() => {
     const cleanup = setupListeners()
+    const cleanupDock = setupDockListeners()
     void load()
-    return cleanup
-  }, [load, setupListeners])
+    void loadDock()
+    return () => {
+      cleanup()
+      cleanupDock()
+    }
+  }, [load, loadDock, setupDockListeners, setupListeners])
+
+  const dockRunning = dockItems.some((item) => item.activityState === 'running')
+  const dockUnreadCount = dockItems.filter((item) => item.unread).length
 
   return (
     <>
@@ -32,12 +49,16 @@ export function GlobalAssistantRail() {
           <GlobalAssistantDrawer />
         </Suspense>
       )}
+      <SessionDockDrawer />
       <aside className="global-assistant-rail">
         <button
           type="button"
           className={`global-assistant-avatar${open ? ' global-assistant-avatar--active' : ''}`}
           title={agent ? `全局助理：${agent.name}` : '设置全局助理'}
-          onClick={() => { void openDrawer() }}
+          onClick={() => {
+            closeDock()
+            void openDrawer()
+          }}
         >
           {agent ? (
             <span
@@ -54,9 +75,47 @@ export function GlobalAssistantRail() {
           {running && <span className="global-assistant-state global-assistant-state--running" />}
           {!running && unread && <span className="global-assistant-state global-assistant-state--unread" />}
         </button>
-        {assistant && <div className="global-assistant-rail-line" />}
+        <SessionDockLauncher
+          open={dockOpen}
+          running={dockRunning}
+          unreadCount={dockUnreadCount}
+          onClick={() => {
+            closeDrawer()
+            if (dockOpen) closeDock()
+            else void openDock()
+          }}
+        />
+        {(assistant || dockItems.length > 0) && <div className="global-assistant-rail-line" />}
       </aside>
     </>
+  )
+}
+
+export function SessionDockLauncher({
+  open,
+  running,
+  unreadCount,
+  onClick,
+}: {
+  open: boolean
+  running: boolean
+  unreadCount: number
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      className={`global-assistant-avatar session-dock-rail-button${open ? ' global-assistant-avatar--active' : ''}`}
+      title="全局会话"
+      aria-label="全局会话"
+      onClick={onClick}
+    >
+      <MessagesSquare size={18} />
+      {running && <span className="global-assistant-state session-dock-state-dot" />}
+      {unreadCount > 0 && (
+        <span className="session-dock-unread-badge">{unreadCount > 9 ? '9+' : unreadCount}</span>
+      )}
+    </button>
   )
 }
 

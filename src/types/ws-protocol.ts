@@ -182,6 +182,40 @@ export interface GlobalAssistantSetTemplateMsg extends ClientMessage {
 export interface GlobalAssistantTouchMsg extends ClientMessage {
   type: 'globalAssistant.touch'
 }
+export interface SessionDockListMsg extends ClientMessage {
+  type: 'sessionDock.list'
+}
+export interface SessionDockSearchMsg extends ClientMessage {
+  type: 'sessionDock.search'
+  query?: string
+  limit?: number
+}
+export interface SessionDockMutationMsg extends ClientMessage {
+  type: 'sessionDock.add' | 'sessionDock.remove'
+  sessionId: string
+}
+export interface SessionDockReorderMsg extends ClientMessage {
+  type: 'sessionDock.reorder'
+  sessionIds: string[]
+}
+export interface SessionDockItemData {
+  sessionId: string
+  sessionTitle: string | null
+  stage: string
+  agentId: string
+  agentName: string
+  agentIcon: string
+  agentAvatarUrl: string | null
+  projectId: string
+  projectName: string
+  projectColor: string | null
+  projectIcon: string | null
+  activityState: SessionActivityState
+  unread: boolean
+  lastActivityAt: string
+  sortOrder: number | null
+  addedAt: string | null
+}
 export interface SessionsListMsg extends ClientMessage {
   type: 'sessions.list'
   agentId?: string
@@ -788,6 +822,7 @@ export type ServerMessage =
   | ({ type: 'session:activity' } & SessionActivityData)
   | { type: 'session:capabilities'; sessionId: string; capabilities: SessionCapabilities }
   | { type: 'session:changed'; sessionId: string; data: Record<string, unknown> }
+  | { type: 'session-dock:update'; action: 'added' | 'removed' | 'reordered'; sessionId?: string }
   | { type: 'session:copy_failed'; sourceSessionId: string; targetSessionId: string; message: string }
   | { type: 'agent:status'; agentId: string; status: AgentStatus }
   | { type: 'task:update'; taskId: string; data: Record<string, unknown> }
