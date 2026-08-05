@@ -47,6 +47,7 @@ import { primarySessionUniqueMigration } from './046-primary-session-unique.js'
 import { messagePresentationsMigration } from './047-message-presentations.js'
 import { messagePresentationRepairMigration } from './048-message-presentation-repair.js'
 import { agentAutonomyMigration } from './049-agent-autonomy.js'
+import { globalSessionDockMigration } from './050-global-session-dock.js'
 import type { Migration } from '../migrator.js'
 
 export const migrations: Migration[] = [
@@ -99,4 +100,5 @@ export const migrations: Migration[] = [
   messagePresentationsMigration,
   messagePresentationRepairMigration,
   agentAutonomyMigration,
+  globalSessionDockMigration,
 ]

@@ -72,6 +72,7 @@ export function createRealtimeEventSource(
     message: { type: 'session:capabilities', ...event },
   }))
   on('session:changed', (event) => send({ scope: 'all', message: { type: 'session:changed', ...event } }))
+  on('session-dock:update', (event) => send({ scope: 'all', message: { type: 'session-dock:update', ...event } }))
   on('session:copy_failed', (event) => send({ scope: 'all', message: { type: 'session:copy_failed', ...event } }))
   on('agent:status', (event) => send({ scope: 'all', message: { type: 'agent:status', ...event } }))
   on('task:update', (event) => send({ scope: 'all', message: { type: 'task:update', ...event } }))

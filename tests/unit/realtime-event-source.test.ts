@@ -19,6 +19,7 @@ describe('Realtime event source', () => {
       data: { messageId: 'message-a', role: 'agent', contentDelta: 'hello' },
     })
     events.emit('task:update', { taskId: 'task-a', data: { status: 'running' } })
+    events.emit('session-dock:update', { action: 'added', sessionId: 'session-a' })
     await vi.advanceTimersByTimeAsync(1)
 
     expect(deliveries).toEqual(expect.arrayContaining([
@@ -30,6 +31,14 @@ describe('Realtime event source', () => {
       expect.objectContaining({
         scope: 'all',
         message: expect.objectContaining({ type: 'task:update', taskId: 'task-a' }),
+      }),
+      expect.objectContaining({
+        scope: 'all',
+        message: expect.objectContaining({
+          type: 'session-dock:update',
+          action: 'added',
+          sessionId: 'session-a',
+        }),
       }),
     ]))
 

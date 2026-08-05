@@ -74,6 +74,18 @@ Runtime 可见 patch 不经过 API 事件总线，而是通过 Runtime→Realtim
 | `globalAssistant.setTemplate` | `{ templateId, name?, runtime?, systemPrompt?, modelProfileId? }` | `{ assistant, agent, session }` | 从 Agent 模板设置唯一全局助理，并创建或复用普通 Agent/Session；`modelProfileId` 为空值时清除绑定 |
 | `globalAssistant.touch` | `{}` | `{ assistant, agent, session } \| null` | 更新全局助理最近使用时间并返回当前绑定 |
 
+### 全局会话坞
+
+全部 Session Dock RPC 仅允许 owner 连接调用。会话坞只保存跨项目入口和顺序，不读取消息正文，也不改变 Workspace 内的 Agent/Session 排序。
+
+| 方法 | 参数 | 返回 | 说明 |
+|------|------|------|------|
+| `sessionDock.list` | `{}` | `SessionDockItem[]` | 按固定顺序返回普通项目会话的轻量状态；自动排除自主、模板、归档、删除和无项目会话 |
+| `sessionDock.search` | `{ query?, limit? }` | `SessionDockItem[]` | 跨项目搜索尚未固定的普通会话；匹配项目、Agent 或会话标题，`limit` 限制为 1..50 |
+| `sessionDock.add` | `{ sessionId }` | `SessionDockItem` | 将可固定会话加入全局会话坞；重复调用幂等 |
+| `sessionDock.remove` | `{ sessionId }` | `{ removed }` | 从全局会话坞移除会话，不删除 Session |
+| `sessionDock.reorder` | `{ sessionIds }` | `SessionDockItem[]` | 原子保存全部固定会话的顺序；ID 必须完整且不重复 |
+
 ### Session 管理
 
 | 方法 | 参数 | 返回 | 说明 |
@@ -244,6 +256,7 @@ Runtime 可见 patch 不经过 API 事件总线，而是通过 Runtime→Realtim
 | `session:activity` | `{ sessionId, agentId, turnId?, state, reason, timestamp }` | 全局轻量事件：`running` 表示会话开始执行，`idle` 表示会话执行结束；用于左侧会话列表活动/未读提示，不承载聊天内容；`turnId` 仅用于诊断 |
 | `session:capabilities` | `{ sessionId, capabilities }` | 会话能力信息 |
 | `session:changed` | `{ sessionId, data }` | Session 标题、状态、归档/删除等列表元数据变更；已读确认统一使用 `data.last_read_at`，不发送 camelCase 别名 |
+| `session-dock:update` | `{ action, sessionId? }` | 全局会话坞增加、移除或排序变化；客户端收到后重新读取轻量列表 |
 | `agent:status` | `{ agentId, status }` | Agent 在线状态 |
 | `task:update` | `{ taskId, data }` | Task 状态变更 |
 | `event-center:update` | `{ eventId?, categoryId?, subscriptionId?, consumptionId?, taskId?, sessionId?, event }` | 事件中心类别、事件、订阅或消费记录变化 |
