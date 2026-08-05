@@ -108,6 +108,7 @@ function listWidgetSessions(projectId?: string): WidgetSessionRow[] {
     LEFT JOIN tasks t ON t.id = s.linked_task_id
     WHERE s.deleted_at IS NULL
       AND s.archived_at IS NULL
+      AND s.purpose = 'conversation'
       ${projectId ? 'AND s.project_id = ?' : ''}
     ORDER BY COALESCE(s.last_message_at, s.updated_at, s.started_at) DESC
   `
@@ -294,14 +295,15 @@ export const widgetRpcHandlers: RpcHandlerMap = {
     const agents = agentStore.list(projectId || undefined)
     const sessionRowsById = new Map(listWidgetSessions(projectId).map((session) => [session.session_id, session]))
 
-    const result = agents.map((agent) => {
-      const sessions = sessionStore.list(agent.id)
-      const latestSession = sessions.length > 0 ? sessions[sessions.length - 1] : null
-      const isRunning = agent.status === 'running'
+    const result = agents.flatMap((agent) => {
+      const sessions = sessionStore.list(agent.id).filter((session) => session.purpose === 'conversation')
+      if (sessions.length === 0) return []
+      const latestSession = sessions[sessions.length - 1]
+      const isRunning = sessions.some((session) => sessionRowsById.get(session.id)?.activity_state === 'running')
       const unreadSession = latestSession ? sessionRowsById.get(latestSession.id) : undefined
       const isUnread = unreadSession ? isWidgetSessionUnread(unreadSession) : false
 
-      return {
+      return [{
         agentId: agent.id,
         agentName: agent.name,
         agentIcon: agent.icon,
@@ -315,7 +317,7 @@ export const widgetRpcHandlers: RpcHandlerMap = {
         isUnread,
         startedAt: latestSession?.started_at ?? null,
         closedAt: latestSession?.closed_at ?? null,
-      }
+      }]
     })
 
     if (filter === 'active') {

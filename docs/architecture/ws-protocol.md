@@ -305,9 +305,9 @@ Team 运行时事件：`team.member.spawn` 会广播包含新成员 Session 行�
 
 | Method | Params | Returns | Notes |
 |------|------|------|------|
-| `widget.sessionActivity.list` | `{ projectId? }` | `WidgetAgentProjectActivityGroup[]` | Groups relevant Sessions by Agent and project. Includes every running, unread, or directly linked needs-input/blocked Session, bounded to 30 Sessions. |
-| `widget.agentActivity.list` | `{ projectId? }` | `WidgetAgentActivityItem[]` | Agent-first bounded activity view. Returns at most one representative Session per Agent and at most 20 Agents. |
-| `widget.sessions.list` | `{ projectId?, filter?: "active" \| "all" }` | `WidgetSessionItem[]` | Session-first floating widget list. The default `active` filter returns running or unread sessions. |
+| `widget.sessionActivity.list` | `{ projectId? }` | `WidgetAgentProjectActivityGroup[]` | Groups relevant ordinary conversation Sessions by Agent and project. Autonomous `purpose=autonomy` Sessions are excluded. Includes every running, unread, or directly linked needs-input/blocked Session, bounded to 30 Sessions. |
+| `widget.agentActivity.list` | `{ projectId? }` | `WidgetAgentActivityItem[]` | Agent-first bounded activity view over ordinary conversation Sessions. Autonomous Sessions are excluded; returns at most one representative Session per Agent and at most 20 Agents. |
+| `widget.sessions.list` | `{ projectId?, filter?: "active" \| "all" }` | `WidgetSessionItem[]` | Session-first floating widget list over ordinary conversation Sessions. Autonomous Sessions are excluded; the default `active` filter returns running or unread sessions. |
 | `widget.sessions.markRead` | `{ sessionId }` | `{ ok: true }` | Marks a widget session as read after validating the Session exists. |
 | `widget.preferences.get` | `{ key? }` | `Record<string,string>` or `{ key, value }` | Reads widget preferences such as pinned project and pinned task Agent. |
 | `widget.preferences.set` | `{ key, value }` | `{ ok: true }` | Saves or deletes a widget preference. |
