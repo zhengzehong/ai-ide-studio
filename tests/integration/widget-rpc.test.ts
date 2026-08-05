@@ -271,6 +271,30 @@ describe('widget session RPC', () => {
 
     expect(rows).toHaveLength(20)
   })
+
+  test('hides autonomous Sessions from every Widget activity endpoint', async () => {
+    const project = projectStore.create({ name: 'Autonomy Widget Project', workDir: 'D:/work/autonomy-widget' })
+    const autonomousAgent = agentStore.create({ name: 'Autonomous Agent', type: 'dev', runtime: 'mock', projectId: project.id })
+    const autonomousSession = sessionStore.create({
+      agentId: autonomousAgent.id,
+      projectId: project.id,
+      purpose: 'autonomy',
+      title: '自主运行',
+    })
+    messageStore.append(autonomousSession.id, { role: 'agent', content: 'autonomy work', status: 'running' })
+    getDb().prepare('UPDATE sessions SET last_read_at = ? WHERE id = ?')
+      .run('2000-01-01T00:00:00.000Z', autonomousSession.id)
+
+    const sessionRows = await callWidgetRpc('widget.sessions.list', { filter: 'all' }) as Array<Record<string, unknown>>
+    const sessionGroups = await callWidgetRpc('widget.sessionActivity.list') as Array<Record<string, unknown>>
+    const agentRows = await callWidgetRpc('widget.agentActivity.list') as Array<Record<string, unknown>>
+    const legacyAgentRows = await callWidgetRpc('widget.agents.list', { filter: 'all' }) as Array<Record<string, unknown>>
+
+    expect(sessionRows).toEqual([])
+    expect(sessionGroups).toEqual([])
+    expect(agentRows).toEqual([])
+    expect(legacyAgentRows).toEqual([])
+  })
 })
 
 describe('widget Agent activity RPC', () => {
