@@ -72,6 +72,22 @@ describe('mobile pinned session store', () => {
     expect(usePinnedSessionStore.getState().items).toEqual([item])
   })
 
+  test('does not let an older list response restore an unread indicator', async () => {
+    usePinnedSessionStore.setState({ items: [item] })
+    let resolveList: ((items: Array<typeof item>) => void) | undefined
+    const pendingList = new Promise<Array<typeof item>>((resolve) => { resolveList = resolve })
+    vi.spyOn(wsClient, 'request')
+      .mockReturnValueOnce(pendingList)
+      .mockResolvedValueOnce({ ok: true })
+
+    const loading = usePinnedSessionStore.getState().load()
+    await usePinnedSessionStore.getState().markRead(item.sessionId)
+    resolveList?.([item])
+    await loading
+
+    expect(usePinnedSessionStore.getState().items[0]?.unread).toBe(false)
+  })
+
   test('optimistically marks a pinned session read and rolls back reorder on failure', async () => {
     usePinnedSessionStore.setState({ items: [item, { ...item, sessionId: 'session-2', sortOrder: 2 }] })
     const request = vi.spyOn(wsClient, 'request')

@@ -64,32 +64,39 @@ export const usePinnedSessionStore = create<PinnedSessionState>((set, get) => ({
       set((state) => ({
         items: sortItems([item, ...state.items.filter((current) => current.sessionId !== sessionId)]),
         loaded: true,
+        loading: false,
         error: null,
       }))
     } catch (error) {
-      set({ error: error instanceof Error ? error.message : '置顶会话失败' })
+      set({ loading: false, error: error instanceof Error ? error.message : '置顶会话失败' })
     }
   },
 
   remove: async (sessionId) => {
     requestSequence += 1
-    set((state) => ({ removing: { ...state.removing, [sessionId]: true }, error: null }))
+    set((state) => ({ removing: { ...state.removing, [sessionId]: true }, error: null, loading: false }))
     try {
       await wsClient.request({ type: 'sessionDock.remove', sessionId })
       set((state) => ({
         items: state.items.filter((item) => item.sessionId !== sessionId),
         removing: withoutKey(state.removing, sessionId),
+        loading: false,
       }))
     } catch (error) {
       set((state) => ({
         removing: withoutKey(state.removing, sessionId),
+        loading: false,
         error: error instanceof Error ? error.message : '取消置顶失败',
       }))
     }
   },
 
   markRead: async (sessionId) => {
-    set((state) => ({ items: state.items.map((item) => item.sessionId === sessionId ? { ...item, unread: false } : item) }))
+    requestSequence += 1
+    set((state) => ({
+      items: state.items.map((item) => item.sessionId === sessionId ? { ...item, unread: false } : item),
+      loading: false,
+    }))
     try {
       await wsClient.request({ type: 'sessions.markRead', sessionId })
     } catch {
@@ -106,12 +113,13 @@ export const usePinnedSessionStore = create<PinnedSessionState>((set, get) => ({
       return item ? [{ ...item, sortOrder: index + 1 }] : []
     })
     if (optimistic.length !== previous.length) return
-    set({ items: optimistic, reordering: true, error: null })
+    requestSequence += 1
+    set({ items: optimistic, reordering: true, error: null, loading: false })
     try {
       const items = await wsClient.request({ type: 'sessionDock.reorder', sessionIds }) as MobilePinnedSession[]
-      set({ items, reordering: false })
+      set({ items, reordering: false, loading: false })
     } catch (error) {
-      set({ items: previous, reordering: false, error: error instanceof Error ? error.message : '排序保存失败' })
+      set({ items: previous, reordering: false, loading: false, error: error instanceof Error ? error.message : '排序保存失败' })
     }
   },
 
