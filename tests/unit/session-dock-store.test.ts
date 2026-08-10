@@ -69,6 +69,20 @@ describe('global Session dock store', () => {
     expect(useSessionDockStore.getState()).toMatchObject({ items: [item], candidates: [], adding: {} })
   })
 
+  test('does not let an older list response erase a successful pin', async () => {
+    let resolveList: ((items: Array<typeof item>) => void) | undefined
+    const pendingList = new Promise<Array<typeof item>>((resolve) => { resolveList = resolve })
+    wsMock.request.mockReturnValueOnce(pendingList).mockResolvedValueOnce(item)
+
+    const loading = useSessionDockStore.getState().load()
+    await useSessionDockStore.getState().add(item.sessionId)
+    expect(useSessionDockStore.getState().loading).toBe(false)
+    resolveList?.([])
+    await loading
+
+    expect(useSessionDockStore.getState().items).toEqual([item])
+  })
+
   test('rolls back an optimistic reorder when persistence fails', async () => {
     const second = { ...item, sessionId: 'session-2', sortOrder: 2 }
     useSessionDockStore.setState({ items: [item, second] })

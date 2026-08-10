@@ -48,6 +48,7 @@ interface SessionDockStore {
 }
 
 let searchGeneration = 0
+let requestSequence = 0
 
 export const useSessionDockStore = create<SessionDockStore>((set, get) => ({
   items: [],
@@ -65,11 +66,14 @@ export const useSessionDockStore = create<SessionDockStore>((set, get) => ({
   reordering: false,
 
   load: async (options) => {
+    const sequence = ++requestSequence
     if (!options?.silent) set({ loading: true, error: null })
     try {
       const items = await wsClient.request({ type: 'sessionDock.list' }) as SessionDockItem[]
+      if (sequence !== requestSequence) return
       set({ items, loaded: true, loading: false, error: null })
     } catch (error) {
+      if (sequence !== requestSequence) return
       set({ loading: false, error: errorMessage(error, '全局会话同步失败') })
     }
   },
@@ -107,7 +111,8 @@ export const useSessionDockStore = create<SessionDockStore>((set, get) => ({
   },
 
   add: async (sessionId) => {
-    set((state) => ({ adding: { ...state.adding, [sessionId]: true }, searchError: null }))
+    requestSequence += 1
+    set((state) => ({ adding: { ...state.adding, [sessionId]: true }, searchError: null, loading: false }))
     try {
       const item = await wsClient.request({ type: 'sessionDock.add', sessionId }) as SessionDockItem
       set((state) => ({
@@ -115,27 +120,32 @@ export const useSessionDockStore = create<SessionDockStore>((set, get) => ({
         candidates: state.candidates.filter((candidate) => candidate.sessionId !== sessionId),
         adding: withoutKey(state.adding, sessionId),
         loaded: true,
+        loading: false,
       }))
     } catch (error) {
       set((state) => ({
         adding: withoutKey(state.adding, sessionId),
         searchError: errorMessage(error, '加入全局会话失败'),
+        loading: false,
       }))
     }
   },
 
   remove: async (sessionId) => {
-    set((state) => ({ removing: { ...state.removing, [sessionId]: true }, error: null }))
+    requestSequence += 1
+    set((state) => ({ removing: { ...state.removing, [sessionId]: true }, error: null, loading: false }))
     try {
       await wsClient.request({ type: 'sessionDock.remove', sessionId })
       set((state) => ({
         items: state.items.filter((item) => item.sessionId !== sessionId),
         removing: withoutKey(state.removing, sessionId),
+        loading: false,
       }))
     } catch (error) {
       set((state) => ({
         removing: withoutKey(state.removing, sessionId),
         error: errorMessage(error, '移除全局会话失败'),
+        loading: false,
       }))
     }
   },
@@ -148,12 +158,13 @@ export const useSessionDockStore = create<SessionDockStore>((set, get) => ({
       return item ? [{ ...item, sortOrder: index + 1 }] : []
     })
     if (optimistic.length !== previous.length) return
-    set({ items: optimistic, reordering: true, error: null })
+    requestSequence += 1
+    set({ items: optimistic, reordering: true, error: null, loading: false })
     try {
       const items = await wsClient.request({ type: 'sessionDock.reorder', sessionIds }) as SessionDockItem[]
-      set({ items, reordering: false })
+      set({ items, reordering: false, loading: false })
     } catch (error) {
-      set({ items: previous, reordering: false, error: errorMessage(error, '会话排序保存失败') })
+      set({ items: previous, reordering: false, loading: false, error: errorMessage(error, '会话排序保存失败') })
     }
   },
 

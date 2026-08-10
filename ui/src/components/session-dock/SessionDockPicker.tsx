@@ -24,7 +24,7 @@ export function SessionDockPicker() {
         <button type="button" className="session-dock-icon-button" onClick={closePicker} title="返回" aria-label="返回">
           <ArrowLeft size={17} />
         </button>
-        <div className="session-dock-heading"><strong>添加会话</strong><small>从所有项目中选择</small></div>
+        <div className="session-dock-heading"><strong>添加置顶会话</strong><small>从所有项目中选择</small></div>
       </header>
       <div className="session-dock-search">
         <Search size={15} />
@@ -60,8 +60,8 @@ export function SessionDockPicker() {
                   className="session-dock-add-button"
                   onClick={() => { void add(item.sessionId) }}
                   disabled={!!adding[item.sessionId]}
-                  title="加入全局会话"
-                  aria-label="加入全局会话"
+                  title="置顶会话"
+                  aria-label="置顶会话"
                 >
                   {adding[item.sessionId]
                     ? <Loader2 size={15} className="session-dock-spin" />

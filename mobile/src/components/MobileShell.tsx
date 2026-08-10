@@ -1,9 +1,11 @@
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { MessageSquare, ListTodo, Settings } from 'lucide-react'
+import { MessageSquare, ListTodo, Pin, Settings } from 'lucide-react'
 import type { CSSProperties } from 'react'
 import { useConnectionStore } from '../stores/connection.store'
+import { usePinnedSessionStore } from '../stores/pinned-session.store'
 
 const tabs = [
+  { path: '/pinned', label: '置顶', icon: Pin },
   { path: '/', label: '会话', icon: MessageSquare },
   { path: '/tasks', label: '任务', icon: ListTodo },
   { path: '/settings', label: '设置', icon: Settings },
@@ -13,6 +15,8 @@ export default function MobileShell() {
   const location = useLocation()
   const navigate = useNavigate()
   const connected = useConnectionStore((s) => s.connected)
+  const pinnedItems = usePinnedSessionStore((s) => s.items)
+  const pinnedAttention = pinnedItems.some((item) => item.unread || item.activityState === 'running')
 
   return (
     <div style={styles.container}>
@@ -31,7 +35,10 @@ export default function MobileShell() {
               onClick={() => navigate(tab.path)}
             >
               <Icon size={22} strokeWidth={active ? 2.2 : 1.8} />
-              <span style={{ fontSize: 11, marginTop: 2 }}>{tab.label}</span>
+              <span style={{ position: 'relative', fontSize: 11, marginTop: 2 }}>
+                {tab.label}
+                {tab.path === '/pinned' && pinnedAttention && <span style={styles.pinnedBadge} />}
+              </span>
             </button>
           )
         })}
@@ -76,9 +83,18 @@ const styles: Record<string, CSSProperties> = {
   dot: {
     position: 'absolute',
     top: 8,
-    right: '14%',
+    right: '3%',
     width: 6,
     height: 6,
     borderRadius: '50%',
+  },
+  pinnedBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -9,
+    width: 5,
+    height: 5,
+    borderRadius: '50%',
+    background: '#fa5151',
   },
 }

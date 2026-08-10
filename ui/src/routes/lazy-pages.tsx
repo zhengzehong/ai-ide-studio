@@ -21,3 +21,6 @@ export const WidgetPage = lazy(() => import('../pages/Widget'))
 export const AccessTokenPage = lazy(() => import('../pages/AccessTokenPage'))
 export const GuestChatPage = lazy(() => import('../pages/share/GuestChatPage'))
 export const ShareManagePage = lazy(() => import('../pages/share/ShareManagePage'))
+export const PinnedSessions = lazy(() => import('../pages/PinnedSessions').then((module) => ({
+  default: module.PinnedSessions,
+})))

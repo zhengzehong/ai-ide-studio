@@ -40,6 +40,54 @@
   box-shadow: -4px 0 18px rgba(15, 23, 42, 0.08);
 }
 
+.session-dock-page {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--bg-1);
+}
+
+.session-dock-page-header {
+  min-height: 64px;
+  padding: 0 22px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-0);
+}
+
+.session-dock-page-header .session-dock-heading strong {
+  font-size: 18px;
+}
+
+.session-dock-add-label {
+  height: 32px;
+  padding: 0 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-0);
+  color: var(--text-1);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.session-dock-add-label:hover {
+  border-color: var(--blue);
+  color: var(--blue);
+}
+
+.session-dock-page-body {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+}
+
 .session-dock-header {
   height: 56px;
   padding: 0 14px;

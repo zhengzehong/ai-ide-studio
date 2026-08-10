@@ -61,8 +61,8 @@ export function SessionDockRow({
         className="session-dock-remove"
         onClick={onRemove}
         disabled={removing}
-        title="移出全局会话"
-        aria-label="移出全局会话"
+        title="取消置顶"
+        aria-label="取消置顶"
       >
         {removing ? <Loader2 size={14} className="session-dock-spin" /> : <X size={14} />}
       </button>
