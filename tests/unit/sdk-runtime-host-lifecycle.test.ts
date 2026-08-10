@@ -170,6 +170,32 @@ describe('SDK Runtime child lifecycle', () => {
     expect(harness.resumeSession).toHaveBeenCalledOnce()
   })
 
+  test('waits for active Agent turns before replacing a changed model connection', async () => {
+    let finishPrompt: ((value: { stopReason: string }) => void) | undefined
+    const promptResult = new Promise<{ stopReason: string }>((resolve) => { finishPrompt = resolve })
+    const harness = runtimeHarness({ prompt: () => promptResult })
+    const initial = snapshot('session-a')
+    initial.runtime.gatewayAuth = gatewayAuth('fingerprint-a')
+    await harness.host.ensureSession(initial)
+    const prompt = harness.host.prompt({ agentId: 'agent-a', sessionId: 'session-a', content: 'hello' })
+    await harness.promptStarted
+
+    const changed = snapshot('session-b')
+    changed.runtime.gatewayAuth = gatewayAuth('fingerprint-b')
+    const ensureChanged = harness.host.ensureSession(changed)
+    await Promise.resolve()
+
+    expect(harness.processes).toHaveLength(1)
+    expect(harness.processes[0].kill).not.toHaveBeenCalled()
+
+    finishPrompt?.({ stopReason: 'end_turn' })
+    await prompt
+    await ensureChanged
+
+    expect(harness.processes[0].kill).toHaveBeenCalledOnce()
+    expect(harness.processes).toHaveLength(2)
+  })
+
   test('publishes updated capabilities after changing the Session model', async () => {
     const harness = runtimeHarness()
     await harness.host.ensureSession(snapshot('session-a'))
@@ -477,6 +503,16 @@ function snapshot(sessionId: string): RuntimeStateSnapshot {
     runtimePreferences: { modeId: 'default' },
     mcpServers: [],
     autoApprovedToolNames: [],
+  }
+}
+
+function gatewayAuth(fingerprint: string): NonNullable<RuntimeStateSnapshot['runtime']['gatewayAuth']> {
+  return {
+    methodId: 'gateway',
+    baseUrl: 'https://gateway.example.com/v1',
+    providerName: 'Gateway',
+    headers: { Authorization: 'Bearer secret' },
+    fingerprint,
   }
 }
 

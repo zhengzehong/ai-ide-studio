@@ -78,6 +78,14 @@ export class RuntimeActiveTurns {
     if (error) turn.rejectSettled(asError(error))
     else turn.resolveSettled()
   }
+
+  async waitForAgentIdle(agentId: string): Promise<void> {
+    while (true) {
+      const active = [...this.turns.values()].filter((turn) => turn.agentId === agentId)
+      if (active.length === 0) return
+      await Promise.allSettled(active.map((turn) => turn.settled))
+    }
+  }
 }
 
 export class SdkRuntimeTurns {
@@ -119,6 +127,10 @@ export class SdkRuntimeTurns {
 
   acceptsUpdate(sessionId: string, streamGeneration: string): boolean {
     return this.active.isCurrent(sessionId, streamGeneration)
+  }
+
+  waitForAgentIdle(agentId: string): Promise<void> {
+    return this.active.waitForAgentIdle(agentId)
   }
 }
 

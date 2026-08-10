@@ -6,6 +6,7 @@ export function runtimeAgentFingerprint(snapshot: RuntimeStateSnapshot): string 
     runtime: snapshot.agent.runtime,
     command: snapshot.runtime.command ?? null,
     env: fingerprintRuntimeEnv(snapshot.runtime.env, snapshot.agent.runtime),
+    gatewayAuth: snapshot.runtime.gatewayAuth?.fingerprint ?? null,
   })
 }
 

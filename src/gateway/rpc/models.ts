@@ -1,12 +1,13 @@
 import { modelProfileStore, type ModelProfileConfig, type ModelProfileRuntime } from '../../store/model-profiles.js'
 import { modelProviderStore } from '../../store/model-providers.js'
+import { buildProviderModelsUrl, isProviderProtocolCompatible } from '../../shared/model-provider-connection.js'
 import type { RpcHandlerMap } from './types.js'
 
 type ModelProtocol = 'openai' | 'claude' | 'new-api'
 type ModelItem = { id: string; name: string; isDefault?: boolean }
 
 async function fetchProviderModels(protocol: string, baseUrl: string, apiKey: string): Promise<string[]> {
-  const url = `${baseUrl.replace(/\/$/, '')}/v1/models`
+  const url = buildProviderModelsUrl(baseUrl)
   const headers: Record<string, string> = protocol === 'claude'
     ? { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' }
     : { Authorization: `Bearer ${apiKey}` }
@@ -33,8 +34,12 @@ function requireProfileConfig(value: unknown): ModelProfileConfig {
   return value as ModelProfileConfig
 }
 
-function ensureProvider(providerId: string): void {
-  if (!modelProviderStore.get(providerId)) throw new Error('模型供应商不存在')
+function ensureProvider(providerId: string, runtime?: ModelProfileRuntime): void {
+  const provider = modelProviderStore.get(providerId)
+  if (!provider) throw new Error('模型供应商不存在')
+  if (runtime && !isProviderProtocolCompatible(runtime, provider.protocol)) {
+    throw new Error(`供应商协议 ${provider.protocol} 与 ${runtime} 运行时不兼容`)
+  }
 }
 
 export const modelRpcHandlers: RpcHandlerMap = {
@@ -104,7 +109,7 @@ export const modelRpcHandlers: RpcHandlerMap = {
   'modelProfiles.create'(msg, { sendResult }) {
     const runtime = requireRuntime(msg.runtime)
     const providerId = msg.providerId as string
-    ensureProvider(providerId)
+    ensureProvider(providerId, runtime)
     sendResult(modelProfileStore.create({
       name: msg.name as string,
       runtime,
@@ -115,6 +120,8 @@ export const modelRpcHandlers: RpcHandlerMap = {
   },
 
   'modelProfiles.update'(msg, { sendResult }) {
+    const existing = modelProfileStore.get(msg.profileId as string)
+    if (!existing) throw new Error('模型档案不存在')
     const fields: Parameters<typeof modelProfileStore.update>[1] = {}
     if (msg.name !== undefined) fields.name = msg.name as string
     if (msg.runtime !== undefined) fields.runtime = requireRuntime(msg.runtime)
@@ -124,6 +131,10 @@ export const modelRpcHandlers: RpcHandlerMap = {
     }
     if (msg.contextWindow !== undefined) fields.contextWindow = normalizeContextWindow(msg.contextWindow)
     if (msg.config !== undefined) fields.config = requireProfileConfig(msg.config)
+    ensureProvider(
+      fields.providerId ?? existing.provider_id,
+      fields.runtime ?? existing.runtime as ModelProfileRuntime,
+    )
     const updated = modelProfileStore.update(msg.profileId as string, fields)
     if (!updated) throw new Error('模型档案不存在')
     sendResult(updated)

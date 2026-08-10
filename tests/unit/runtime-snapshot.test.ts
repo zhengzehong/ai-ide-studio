@@ -6,6 +6,8 @@ import { buildRuntimeStateSnapshot } from '../../src/runtime/api/runtime-snapsho
 import { agentStore } from '../../src/store/agents.js'
 import { closeDatabase, initDatabase } from '../../src/store/db.js'
 import { projectStore } from '../../src/store/projects.js'
+import { modelProfileStore } from '../../src/store/model-profiles.js'
+import { modelProviderStore } from '../../src/store/model-providers.js'
 import { sessionStore } from '../../src/store/sessions.js'
 import { teamMemberStore, teamStore } from '../../src/store/teams.js'
 import { toolBindingStore, toolStore } from '../../src/store/tools.js'
@@ -190,5 +192,40 @@ describe('runtime state snapshot', () => {
         url: 'http://127.0.0.1:18900/mcp',
       }),
     ])
+  })
+
+  test('projects a bound Codex model connection without changing system Runtime env', () => {
+    const project = projectStore.create({ name: 'Codex project', workDir: tmp })
+    const provider = modelProviderStore.create({
+      name: 'codex-gateway',
+      displayName: 'Codex gateway',
+      protocol: 'openai',
+      baseUrl: 'https://gateway.example.com/v1',
+      apiKey: 'sk-snapshot-secret',
+    })
+    const profile = modelProfileStore.create({
+      name: 'Codex model',
+      runtime: 'codex',
+      providerId: provider.id,
+      config: { model: 'gpt-5.6-sol' },
+    })
+    const agent = agentStore.create({
+      name: 'Codex agent',
+      type: 'developer',
+      runtime: 'codex',
+      projectId: project.id,
+      config: { modelProfileId: profile.id },
+    })
+    const session = sessionStore.create({ agentId: agent.id, projectId: project.id })
+
+    const snapshot = buildRuntimeStateSnapshot({ sessionId: session.id })
+
+    expect(snapshot.runtime.appliedModelProfile).toMatchObject({ modelId: 'gpt-5.6-sol' })
+    expect(snapshot.runtime.gatewayAuth).toMatchObject({
+      methodId: 'gateway',
+      headers: { Authorization: 'Bearer sk-snapshot-secret' },
+    })
+    expect(snapshot.runtime.gatewayAuth?.fingerprint).not.toContain('sk-snapshot-secret')
+    expect(() => structuredClone(snapshot)).not.toThrow()
   })
 })

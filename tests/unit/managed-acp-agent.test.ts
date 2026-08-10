@@ -30,6 +30,77 @@ test('drains stderr and tears down the child and router when initialization fail
   expect(child.kill).toHaveBeenCalledOnce()
 })
 
+test('authenticates a configured Codex gateway after initialization', async () => {
+  const child = fakeChild()
+  const order: string[] = []
+  const authenticate = vi.fn(async () => { order.push('authenticate') })
+  const connection = {
+    initialize: vi.fn(async () => {
+      order.push('initialize')
+      return { agentCapabilities: {} }
+    }),
+    authenticate,
+  } as unknown as acp.ClientSideConnection
+
+  await startManagedAcpAgent({
+    agentId: 'agent-a',
+    runtime: 'codex',
+    command: { cmd: 'codex-acp', args: [] },
+    env: {},
+    gatewayAuth: {
+      methodId: 'gateway',
+      baseUrl: 'https://gateway.example.com/v1',
+      providerName: 'Gateway',
+      headers: { Authorization: 'Bearer secret' },
+      fingerprint: 'safe-fingerprint',
+    },
+    router: { client: {} as acp.Client, close: vi.fn() } as never,
+    spawnProcess: () => child.process,
+    createConnection: () => connection,
+  })
+
+  expect(order).toEqual(['initialize', 'authenticate'])
+  expect(authenticate).toHaveBeenCalledWith({
+    methodId: 'gateway',
+    _meta: {
+      gateway: {
+        baseUrl: 'https://gateway.example.com/v1',
+        providerName: 'Gateway',
+        headers: { Authorization: 'Bearer secret' },
+      },
+    },
+  })
+})
+
+test('tears down the child and router when gateway authentication fails', async () => {
+  const child = fakeChild()
+  const close = vi.fn()
+  const connection = {
+    initialize: vi.fn(async () => ({ agentCapabilities: {} })),
+    authenticate: vi.fn(async () => { throw new Error('gateway rejected') }),
+  } as unknown as acp.ClientSideConnection
+
+  await expect(startManagedAcpAgent({
+    agentId: 'agent-a',
+    runtime: 'codex',
+    command: { cmd: 'codex-acp', args: [] },
+    env: {},
+    gatewayAuth: {
+      methodId: 'gateway',
+      baseUrl: 'https://gateway.example.com/v1',
+      providerName: 'Gateway',
+      headers: { Authorization: 'Bearer secret' },
+      fingerprint: 'safe-fingerprint',
+    },
+    router: { client: {} as acp.Client, close } as never,
+    spawnProcess: () => child.process,
+    createConnection: () => connection,
+  })).rejects.toThrow('gateway rejected')
+
+  expect(close).toHaveBeenCalledOnce()
+  expect(child.kill).toHaveBeenCalledOnce()
+})
+
 function fakeChild(): {
   process: ChildProcess
   stderr: PassThrough

@@ -20,6 +20,7 @@ import {
   markSessionConnected,
   setActiveTurnReject,
   touchRuntime,
+  waitForAgentIdle,
 } from './host-state.js'
 import type { AcpSessionContext, AgentConnection } from './host-types.js'
 import {
@@ -121,19 +122,24 @@ export const acpHost = {
 
     const effectiveRuntime = runtime || agent.runtime
     const runtimeEnv = effectiveRuntime === 'mock'
-      ? { env: buildRuntimeEnv(effectiveRuntime), appliedProfile: undefined }
+      ? { env: buildRuntimeEnv(effectiveRuntime), appliedProfile: undefined, gatewayAuth: undefined }
       : buildAgentRuntimeEnv(effectiveRuntime, agent)
     const sessionMeta = buildAgentSessionMeta(effectiveRuntime, runtimeEnv.env, agent)
-    const envFingerprint = fingerprintRuntimeEnv(runtimeEnv.env, effectiveRuntime)
+    const envFingerprint = JSON.stringify([
+      fingerprintRuntimeEnv(runtimeEnv.env, effectiveRuntime),
+      runtimeEnv.gatewayAuth?.fingerprint ?? null,
+    ])
     const existing = acpHost.agents.get(agentId)
     if (existing && !existing.connection.signal.aborted) {
       if (existing.runtime === effectiveRuntime && existing.envFingerprint === envFingerprint) {
         existing.sessionMeta = sessionMeta
+        existing.appliedModelProfile = runtimeEnv.appliedProfile
         touchRuntime(existing)
         return
       }
       log.info({ agentId, runtime: effectiveRuntime }, 'Agent runtime 配置已变化，正在重启')
-      await acpHost.stopAgent(agentId)
+      await waitForAgentIdle(existing)
+      if (acpHost.agents.get(agentId) === existing) await acpHost.stopAgent(agentId)
     } else if (existing) {
       acpHost.agents.delete(agentId)
     }
@@ -178,12 +184,32 @@ export const acpHost = {
     const initResult = await connection.initialize({
       protocolVersion: acp.PROTOCOL_VERSION,
       clientCapabilities: {
+        auth: { _meta: { gateway: true } },
         fs: { readTextFile: true, writeTextFile: true },
         terminal: true,
         elicitation: { form: {}, url: {} },
       },
       clientInfo: { name: 'ai-ide-studio', version: '0.2.0' },
     })
+
+    if (runtimeEnv.gatewayAuth) {
+      try {
+        await connection.authenticate({
+          methodId: runtimeEnv.gatewayAuth.methodId,
+          _meta: {
+            gateway: {
+              baseUrl: runtimeEnv.gatewayAuth.baseUrl,
+              providerName: runtimeEnv.gatewayAuth.providerName,
+              headers: runtimeEnv.gatewayAuth.headers,
+            },
+          },
+        })
+      } catch (error) {
+        if (!proc.killed) proc.kill()
+        log.error({ err: error, agentId, runtime: effectiveRuntime }, 'Agent gateway authentication failed')
+        throw error
+      }
+    }
 
     log.info(
       { agentId, runtime: effectiveRuntime, protocolVersion: initResult.protocolVersion },
@@ -212,6 +238,7 @@ export const acpHost = {
       sessionMeta,
       runtimeEnv.env,
       agent,
+      runtimeEnv.appliedProfile,
     )
     acpHost.agents.set(agentId, conn)
 
@@ -292,6 +319,8 @@ export const acpHost = {
     const nextContextKey = acpSessionContextKey(context)
     if (existingAcpSessionId && state.contextKey === nextContextKey) {
       markSessionConnected(conn, ourSessionId, existingAcpSessionId, context)
+      await applySessionRuntimePreferences(conn, ourSessionId)
+      emitRuntimePreferencesApplied(conn, ourSessionId)
       return existingAcpSessionId
     }
     if (state.connectPromise) return state.connectPromise

@@ -43,6 +43,34 @@ describe('Runtime fingerprints', () => {
     expect(runtimeSessionContextFingerprint(changedCwd)).not.toBe(runtimeSessionContextFingerprint(base))
     expect(runtimeSessionContextFingerprint(changedAutoCompactWindow)).not.toBe(runtimeSessionContextFingerprint(base))
   })
+
+  test('tracks a gateway fingerprint without embedding raw credentials', () => {
+    const base = snapshot()
+    const withGateway = {
+      ...base,
+      runtime: {
+        ...base.runtime,
+        gatewayAuth: {
+          methodId: 'gateway' as const,
+          baseUrl: 'https://gateway.example.com/v1',
+          providerName: 'Gateway',
+          headers: { Authorization: 'Bearer raw-secret' },
+          fingerprint: 'credential-hash-a',
+        },
+      },
+    }
+    const changed = {
+      ...withGateway,
+      runtime: {
+        ...withGateway.runtime,
+        gatewayAuth: { ...withGateway.runtime.gatewayAuth, fingerprint: 'credential-hash-b' },
+      },
+    }
+
+    const fingerprint = runtimeAgentFingerprint(withGateway)
+    expect(fingerprint).not.toContain('raw-secret')
+    expect(fingerprint).not.toBe(runtimeAgentFingerprint(changed))
+  })
 })
 
 function snapshot(): RuntimeStateSnapshot {
