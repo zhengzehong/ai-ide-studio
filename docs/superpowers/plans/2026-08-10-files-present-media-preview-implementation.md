@@ -16,7 +16,7 @@
 - [x] APP Markdown 使用同一资源解析规则展示内嵌图片。
 - [x] 补齐后端、PC、APP 单元与集成测试，覆盖绝对路径、签名过期/篡改、Range 和 Markdown 图片。
 - [x] 更新架构与使用文档，运行 `npm test`、`npm run lint`、`npm run build`、`git diff --check`。
-- [ ] 完成代码审查、提交并合并到 `prd`，不启动或重启任何服务。
+- [x] 完成代码审查、提交并合并到 `prd`，不启动或重启任何服务。
 
 ## 路径规则
 
