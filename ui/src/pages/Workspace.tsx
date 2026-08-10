@@ -1056,7 +1056,7 @@ export default function Workspace() {
       {/* ─── File Preview (optional) ─── */}
       {openFile && (
         <div style={{ width: 420, flexShrink: 0 }}>
-          <FilePreview file={openFile} onClose={closeFile} />
+          <FilePreview file={openFile} projectId={currentProjectId} onClose={closeFile} />
         </div>
       )}
 

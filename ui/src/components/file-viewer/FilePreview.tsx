@@ -2,8 +2,10 @@ import { X, FileText, Copy, Check } from 'lucide-react';
 import type { FileContent } from '../../stores/filesystem.store';
 import { useState } from 'react';
 import { copyText } from '../../utils/copy-text';
+import { MarkdownRenderer } from '../MarkdownRenderer';
+import { FileAssetView } from './FileAssetView';
 
-export function FilePreview({ file, onClose }: { file: FileContent; onClose: () => void }) {
+export function FilePreview({ file, projectId, onClose }: { file: FileContent; projectId?: string | null; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
@@ -13,7 +15,6 @@ export function FilePreview({ file, onClose }: { file: FileContent; onClose: () 
     setTimeout(() => setCopied(false), 1500);
   };
 
-  const isImage = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg'].includes(file.extension);
   const isMarkdown = ['.md', '.mdx'].includes(file.extension);
 
   return (
@@ -29,9 +30,9 @@ export function FilePreview({ file, onClose }: { file: FileContent; onClose: () 
         <span style={{ fontSize: 13, color: 'var(--text-3)', flexShrink: 0 }}>
           {formatSize(file.size)} · {file.language}
         </span>
-        <button onClick={handleCopy} title="复制内容" style={iconBtn}>
+        {file.kind === 'text' && <button onClick={handleCopy} title="复制内容" style={iconBtn}>
           {copied ? <Check size={14} color="var(--green)" /> : <Copy size={14} />}
-        </button>
+        </button>}
         <button onClick={onClose} title="关闭" style={iconBtn}>
           <X size={14} />
         </button>
@@ -44,16 +45,14 @@ export function FilePreview({ file, onClose }: { file: FileContent; onClose: () 
       )}
 
       <div style={{ flex: 1, overflow: 'auto' }}>
-        {isImage ? (
-          <div style={{ padding: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <span style={{ color: 'var(--text-3)', fontSize: 15 }}>
-              图片预览暂不支持（文件来自后端 API，非 URL）
-            </span>
-          </div>
+        {projectId && (file.kind === 'image' || file.kind === 'audio' || file.kind === 'video') ? (
+          <FileAssetView key={file.path} projectId={projectId} path={file.path} kind={file.kind} />
         ) : isMarkdown ? (
-          <div style={{ padding: 16, fontSize: 15, lineHeight: 1.7, color: 'var(--text-1)', whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>
-            {file.content}
+          <div style={{ padding: 16 }}>
+            <MarkdownRenderer content={file.content} projectId={projectId ?? undefined} documentPath={file.path} />
           </div>
+        ) : file.kind === 'binary' || !projectId && file.kind !== 'text' ? (
+          <div style={{ padding: 24, color: 'var(--text-3)' }}>该文件类型暂不支持预览。</div>
         ) : (
           <pre style={{
             margin: 0, padding: 16, fontSize: 15, lineHeight: 1.6,

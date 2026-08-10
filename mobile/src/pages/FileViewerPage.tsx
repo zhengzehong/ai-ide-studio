@@ -122,6 +122,7 @@ export default function FileViewerPage() {
             file={openFile || PLACEHOLDER_FILE}
             loading={loadingFile}
             error={error}
+            projectId={projectId}
             onBack={handleBackToList}
           />
         </div>

@@ -3,6 +3,8 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, test } from 'vitest'
 import TurnContent from '../../mobile/src/components/chat/TurnContent.tsx'
 import { PresentedFilesOverlay } from '../../mobile/src/components/file-viewer/PresentedFilesOverlay.tsx'
+import { FileDetail } from '../../mobile/src/components/file-viewer/FileDetail.tsx'
+import { MarkdownView } from '../../mobile/src/components/file-viewer/MarkdownView.tsx'
 import type { MessageData } from '../../ui/src/stores/session-events.ts'
 
 const presentation = {
@@ -85,5 +87,28 @@ describe('mobile files presentation', () => {
     expect(html).toContain('aria-label="选择文件"')
     expect(html).toContain('分析报告')
     expect(html).toContain('实施方案')
+  })
+
+  test('renders touch-friendly audio and markdown absolute images with explicit project scope', () => {
+    const audioHtml = renderToStaticMarkup(createElement(FileDetail, {
+      projectId: 'project-1',
+      file: {
+        path: 'D:/media/voice.mp3', content: '', size: 100, extension: '.mp3',
+        language: 'plaintext', truncated: false, kind: 'audio',
+      },
+      loading: false,
+      error: null,
+      onBack: () => undefined,
+      embedded: true,
+    }))
+    const markdownHtml = renderToStaticMarkup(createElement(MarkdownView, {
+      content: '![现场](file:///D:/images/site.png)',
+      projectId: 'project-1',
+      documentPath: 'D:/docs/report.md',
+    }))
+
+    expect(audioHtml).toContain('<audio')
+    expect(audioHtml).toContain('controls=""')
+    expect(markdownHtml).toContain('data-resource-path="file:///D:/images/site.png"')
   })
 })

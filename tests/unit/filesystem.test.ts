@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
+import { pathToFileURL } from 'node:url'
 import { resolve } from 'node:path'
-import { inspectFile, readFile } from '../../src/core/filesystem.js'
+import { inspectFile, readFile, resolveFileReference } from '../../src/core/filesystem.js'
+import { parseByteRange } from '../../src/core/file-byte-range.js'
 
 let tmp: string
 
@@ -72,5 +74,43 @@ describe('filesystem readFile', () => {
     writeFileSync(resolve(tmp, 'outside.md'), '# Outside', 'utf-8')
 
     expect(readFile(workspace, '../outside.md')).toBeNull()
+  })
+
+  test('classifies common audio and video files without probing them as text', () => {
+    writeFileSync(resolve(tmp, 'voice.mp3'), Buffer.from('ID3 text-like media payload'))
+    writeFileSync(resolve(tmp, 'clip.mp4'), Buffer.from('text-like mp4 payload'))
+
+    expect(inspectFile(tmp, 'voice.mp3')).toMatchObject({ kind: 'audio', extension: '.mp3' })
+    expect(readFile(tmp, 'clip.mp4')).toMatchObject({ kind: 'video', content: '' })
+  })
+
+  test('resolves markdown resources relative to project and absolute documents', () => {
+    const docs = resolve(tmp, 'docs')
+    const assets = resolve(tmp, 'assets')
+    const outside = resolve(tmp, '..', `${Date.now()}-outside.png`)
+    mkdirSync(docs)
+    mkdirSync(assets)
+    writeFileSync(resolve(docs, 'report.md'), '# Report')
+    writeFileSync(resolve(assets, 'chart.png'), 'image')
+    writeFileSync(outside, 'outside')
+
+    try {
+      expect(resolveFileReference(tmp, '../assets/chart.png', 'docs/report.md')).toBe('assets/chart.png')
+      expect(resolveFileReference(tmp, '/assets/chart.png', 'docs/report.md')).toBe('assets/chart.png')
+      expect(resolveFileReference(tmp, outside, 'docs/report.md')).toBe(outside)
+      expect(resolveFileReference(tmp, pathToFileURL(outside).toString(), 'docs/report.md')).toBe(outside)
+      expect(resolveFileReference(tmp, '../../outside.png', 'docs/report.md')).toBeNull()
+    } finally {
+      rmSync(outside, { force: true })
+    }
+  })
+
+  test('parses single HTTP byte ranges', () => {
+    expect(parseByteRange(undefined, 100)).toBeNull()
+    expect(parseByteRange('bytes=10-19', 100)).toEqual({ start: 10, end: 19 })
+    expect(parseByteRange('bytes=90-', 100)).toEqual({ start: 90, end: 99 })
+    expect(parseByteRange('bytes=-10', 100)).toEqual({ start: 90, end: 99 })
+    expect(parseByteRange('bytes=100-120', 100)).toBe('invalid')
+    expect(parseByteRange('bytes=0-1,4-5', 100)).toBe('invalid')
   })
 })

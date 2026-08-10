@@ -5,6 +5,7 @@ import type { FilesPresentationInfo } from '../../stores/session-events'
 import { wsClient } from '../../services/ws-client'
 import { MarkdownRenderer } from '../MarkdownRenderer'
 import { copyText } from '../../utils/copy-text'
+import { FileAssetView } from './FileAssetView'
 
 export function PresentedFilesModal({ presentation, onClose }: { presentation: FilesPresentationInfo; onClose: () => void }) {
   const [selectedPath, setSelectedPath] = useState(presentation.files[0]?.path ?? '')
@@ -44,7 +45,7 @@ export function PresentedFilesModal({ presentation, onClose }: { presentation: F
   const file = loadResult?.path === selectedPath ? loadResult.file : null
   const error = loadResult?.path === selectedPath ? loadResult.error : null
   const isMarkdown = file?.extension === '.md' || file?.extension === '.mdx'
-  const canCopy = !!file && selected?.kind === 'text'
+  const canCopy = !!file && file.kind === 'text'
 
   const copyContent = async () => {
     if (!canCopy) return
@@ -90,10 +91,13 @@ export function PresentedFilesModal({ presentation, onClose }: { presentation: F
             {loading && <div style={stateStyle}><Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /> 正在读取文件...</div>}
             {error && <div style={{ ...stateStyle, color: 'var(--red)' }}><AlertCircle size={20} /> {error}</div>}
             {!loading && !error && file?.truncated && <div style={{ marginBottom: 12, padding: 8, background: 'var(--yellow-light)', color: 'var(--yellow)', borderRadius: 6 }}>文件过大，仅显示前 1MB。</div>}
-            {!loading && !error && file && selected?.kind === 'text' && (isMarkdown
-              ? <MarkdownRenderer content={file.content} />
+            {!loading && !error && file && file.kind === 'text' && (isMarkdown
+              ? <MarkdownRenderer content={file.content} projectId={presentation.projectId} documentPath={file.path} />
               : <pre style={{ margin: 0, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontFamily: 'var(--font-mono)', fontSize: 13, lineHeight: 1.6 }}>{file.content}</pre>)}
-            {!loading && !error && file && selected?.kind !== 'text' && <div style={stateStyle}>该文件类型请在项目文件查看器中打开。</div>}
+            {!loading && !error && file && (file.kind === 'image' || file.kind === 'audio' || file.kind === 'video') && (
+              <FileAssetView key={file.path} projectId={presentation.projectId} path={file.path} kind={file.kind} name={selected?.name} />
+            )}
+            {!loading && !error && file?.kind === 'binary' && <div style={stateStyle}>该文件类型暂不支持预览。</div>}
           </main>
         </div>
       </div>

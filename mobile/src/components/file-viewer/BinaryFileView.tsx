@@ -1,15 +1,16 @@
 import { useState, type CSSProperties } from 'react'
 import { Download, FileQuestion, Loader2, Check, AlertCircle } from 'lucide-react'
 import type { FileContent } from '../../stores/filesystem.store'
-import { buildAssetUrl } from '../../stores/filesystem.store'
+import { requestMobileFileAssetUrl } from '../../services/file-assets'
 
 interface BinaryFileViewProps {
   file: FileContent
+  projectId: string
 }
 
 type DownloadState = 'idle' | 'downloading' | 'success' | 'error'
 
-export function BinaryFileView({ file }: BinaryFileViewProps) {
+export function BinaryFileView({ file, projectId }: BinaryFileViewProps) {
   const [state, setState] = useState<DownloadState>('idle')
   const [message, setMessage] = useState('')
 
@@ -18,7 +19,7 @@ export function BinaryFileView({ file }: BinaryFileViewProps) {
     setState('downloading')
     setMessage('正在唤起系统下载...')
     try {
-      await download(file)
+      await download(file, projectId)
       setState('success')
       setMessage('已交给系统浏览器下载')
     } catch (err) {
@@ -81,8 +82,8 @@ BinaryFileView.download = download
 // 统一走系统浏览器下载。Capacitor 原生平台用 @capacitor/browser 弹外部浏览器
 // (WebView 内 fetch+Filesystem.writeFile 对大文件会 OOM/fetch fail);
 // 浏览器平台用 <a download> 触发导出。
-async function download(file: FileContent): Promise<void> {
-  const url = buildAssetUrl(file.path, 'attachment')
+async function download(file: FileContent, projectId: string): Promise<void> {
+  const url = await requestMobileFileAssetUrl({ projectId, filePath: file.path, mode: 'attachment' })
 
   const isCapacitorNative = typeof window !== 'undefined'
     && (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.() === true

@@ -255,7 +255,9 @@ revokedAt
 
 工具成功结果形成 `kind = files` 的轻量 presentation manifest，包含 `presentationId`、项目、标题、文件路径、显示名、扩展名、大小和类型。该摘要与 `preview.publish` 共用消息的 `presentations_json` 读模型，因此完成中的实时工具卡片和刷新后的历史卡片使用同一语义，并按 `presentationId` 去重。
 
-文件正文在用户点击卡片后通过现有 `fs.read` 边界按需读取。PC 使用文件列表加内容弹窗，移动端使用全屏查看器和横向文件选择器；Markdown、代码、图片和二进制展示复用各端已有文件查看能力。相对路径仍禁止逃逸项目根目录，绝对路径则直接按服务端文件系统解析。现有应用访问 token 和 MCP bearer token 是授权边界，因此持有有效 token 的客户端可读取服务端账号有权限访问的绝对路径。
+文件正文在用户点击卡片后通过 `fs.read` 按需读取，图片、音频和视频正文不进入 WS，而是由 owner 连接调用 `fs.assetUrl` 获取一小时有效的短期签名地址。签名绑定项目、规范化路径、展示模式和到期时间，不暴露长期应用 token；`/api/fs/asset` 校验签名并支持 HTTP Range。PC 使用文件列表加全屏内容工作区，移动端使用全屏查看器和横向文件选择器；两端均支持 Markdown、代码、图片、音频、视频和二进制降级下载。
+
+相对路径仍禁止逃逸项目根目录，显式绝对路径继续按服务端文件系统解析，可读取服务端账号有权限访问的项目外文件。Markdown 资源由后端结合文档路径解析：`./` 和 `../` 相对文档目录，`/assets/...` 相对项目根目录，Windows 盘符、UNC 与 `file:///` 使用绝对路径；HTTPS 资源由客户端直接加载且不携带平台 token。移动端必须显式携带 presentation 的 `projectId`，不得从当前文件树 Store 猜测资源项目。
 
 `files.present` 和 `preview.publish` 属于平台自有展示工具。HTTP MCP 执行成功后，API 会暂存结果，并按 Session、规范化工具名和输入参数与 ACP 的工具开始事件匹配，使用原 toolCallId 补齐完成态和输出；若适配器完全不回传工具事件，则在 `session:done` 前附着兜底结果。该机制不依赖 Claude/Codex 是否通过 ACP 回显 MCP 最终结果，也不接管普通工具生命周期。
 
