@@ -11,6 +11,7 @@ import {
   GuestChatPage,
   KnowledgeBase,
   Projects,
+  PinnedSessions,
   Schedule,
   Settings,
   ShareManagePage,
@@ -74,6 +75,7 @@ export default function App() {
             <Route path="/widget" element={<WidgetPage />} />
             <Route element={<AppLayout />}>
               <Route path="/" element={<Dashboard />} />
+              <Route path="/pinned" element={<PinnedSessions />} />
               <Route path="/agents" element={<AgentSquare />} />
               <Route path="/skills" element={<SkillCenter />} />
               <Route path="/tools" element={<ToolManager />} />

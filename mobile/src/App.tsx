@@ -18,6 +18,8 @@ import TaskReportPage from './pages/TaskReportPage'
 import SettingsPage from './pages/SettingsPage'
 import TemplateListPage from './pages/TemplateListPage'
 import PreviewPage from './pages/PreviewPage'
+import { PinnedSessionsPage } from './pages/PinnedSessionsPage'
+import { usePinnedSessionStore } from './stores/pinned-session.store'
 
 const isAndroidBuild = import.meta.env.VITE_MOBILE_BUILD_TARGET === 'android'
 
@@ -35,6 +37,7 @@ export async function bootstrapMobileData(): Promise<void> {
     appStore.fetchProjects(),
     appStore.fetchAgents(),
     useMobileProjectSessionStatsStore.getState().fetchStats(),
+    usePinnedSessionStore.getState().load({ silent: true }),
   ])
   await useSessionStore.getState().fetchSessions(useAppStore.getState().currentProjectId)
 }
@@ -49,6 +52,7 @@ export default function App() {
   useEffect(() => {
     const off1 = useSessionStore.getState().setupListeners()
     const off2 = useMobileProjectSessionStatsStore.getState().setupListeners()
+    const offPinned = usePinnedSessionStore.getState().setupListeners()
     const off3 = wsClient.on('resync_required', (message) => {
       const chatStore = useChatStore.getState()
       const resyncSessionId = typeof message.sessionId === 'string' ? message.sessionId : undefined
@@ -64,6 +68,7 @@ export default function App() {
       wsClient.setEventListenersReady(false)
       off1()
       off2()
+      offPinned()
       off3()
     }
   }, [init])
@@ -95,6 +100,7 @@ export default function App() {
         <Route path="/preview/:previewId" element={<PreviewPage />} />
         <Route path="/templates" element={<TemplateListPage />} />
         <Route element={<MobileShell />}>
+          <Route path="/pinned" element={<PinnedSessionsPage />} />
           <Route path="/" element={<SessionListPage />} />
           <Route path="/tasks" element={<TaskListPage />} />
           <Route path="/settings" element={<SettingsPage />} />

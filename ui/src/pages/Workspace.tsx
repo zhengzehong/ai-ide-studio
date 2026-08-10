@@ -64,6 +64,7 @@ import {
 import type { TurnProcessBlock } from '../stores/turn-blocks'
 import { useTaskStore, type TaskData } from '../stores/task.store'
 import { useConnectionStore } from '../stores/connection.store'
+import { useSessionDockStore } from '../stores/session-dock.store'
 import { useProjectStore } from '../stores/project.store'
 import { useModelStore, type ModelProfileData } from '../stores/model.store'
 import { useFileSystemStore } from '../stores/filesystem.store'
@@ -175,6 +176,9 @@ export default function Workspace() {
   const deleteSession = useSessionStore((s) => s.deleteSession)
   const closeSession = useSessionStore((s) => s.closeSession)
   const archiveSession = useSessionStore((s) => s.archiveSession)
+  const dockItems = useSessionDockStore((s) => s.items)
+  const addToDock = useSessionDockStore((s) => s.add)
+  const removeFromDock = useSessionDockStore((s) => s.remove)
   const reorderSessions = useSessionStore((s) => s.reorderSessions)
   const fetchAgents = useAgentStore((s) => s.fetchAgents)
   const deleteAgent = useAgentStore((s) => s.deleteAgent)
@@ -482,6 +486,13 @@ export default function Workspace() {
   }
   const handleArchiveSession = async (sessionId: string) => {
     await archiveSession(sessionId)
+  }
+  const handleTogglePinned = async (sessionId: string) => {
+    if (dockItems.some((item) => item.sessionId === sessionId)) {
+      await removeFromDock(sessionId)
+    } else {
+      await addToDock(sessionId)
+    }
   }
   const handleHideAgent = async (agentId: string) => {
     try {
@@ -1225,8 +1236,11 @@ export default function Workspace() {
         items={ctxMenu ? (() => {
           const targetSession = projectSessions.find((ss) => ss.id === ctxMenu.sessionId)
           const isPrimary = !!targetSession?.is_primary
+          const isPinned = dockItems.some((item) => item.sessionId === ctxMenu.sessionId)
+          const canPin = !!targetSession && targetSession.purpose === 'conversation' && targetSession.is_template !== 1
           return [
             { label: '重命名', onClick: () => handleRenameSession(ctxMenu.sessionId, sessionTitle(targetSession ?? { id: ctxMenu.sessionId })) },
+            ...(canPin ? [{ label: isPinned ? '取消置顶' : '置顶会话', onClick: () => { void handleTogglePinned(ctxMenu.sessionId) } }] : []),
             { label: '关闭', onClick: () => handleCloseSession(ctxMenu.sessionId) },
             {
               label: copyingSessionId === ctxMenu.sessionId || copyingSourceSessionIds[ctxMenu.sessionId] ? '复制中...' : '复制',

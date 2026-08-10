@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
+import { useLocation, useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, Bot, FolderOpen } from 'lucide-react'
 import { buildChatRenderItems } from '@desktop/components/chat/render-items'
 import type { ChatTimelineGroup, FilesPresentationInfo, MessageData, StreamingMessage } from '@desktop/stores/session-events'
 import { useChatStore } from '../stores/chat.store'
 import { useSessionStore } from '../stores/session.store'
+import { usePinnedSessionStore } from '../stores/pinned-session.store'
 import { useConnectionStore } from '../stores/connection.store'
 import { useAppStore } from '../stores/app.store'
 import { showToast } from '../utils/toast'
@@ -23,6 +24,7 @@ type MobileChatMessage = MessageData | (StreamingMessage & { session_id?: string
 export default function ChatPage() {
   const { sessionId } = useParams<{ sessionId: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
   const [searchParams] = useSearchParams()
   const listRef = useRef<HTMLDivElement>(null)
   const stickToBottomRef = useRef(true)
@@ -33,6 +35,7 @@ export default function ChatPage() {
   // 再 navigate 替换 URL,最后走正常 prompt 流程。直接用 'new' 当 sessionId 会触发
   // enterSession('new') / markRead('new') / prompt('new'),后端报 Session not found。
   const isNewSessionRoute = sessionId === 'new'
+  const returnTo = isPinnedReturnLocation(location.state) ? '/pinned' : '/'
   const pendingProjectId = searchParams.get('projectId')
   const pendingAgentId = searchParams.get('agentId')
   const creatingRef = useRef(false)
@@ -69,6 +72,7 @@ export default function ChatPage() {
   const setConfig = useChatStore(s => s.setConfig)
 
   const sessions = useSessionStore(s => s.sessions)
+  const pinnedSession = usePinnedSessionStore((state) => state.items.find((item) => item.sessionId === sessionId))
   const connected = useConnectionStore(s => s.connected)
   const status = useConnectionStore(s => s.status)
   const session = sessions.find(s => s.id === sessionId)
@@ -119,7 +123,7 @@ export default function ChatPage() {
   const disabledPlaceholder = !connected
     ? (status === 'connecting' ? '正在重连服务器...' : '连接失败，请先恢复连接')
     : '等待确认...'
-  const projectId = session?.projectId ?? null
+  const projectId = session?.projectId ?? pinnedSession?.projectId ?? null
   const canViewFiles = !!projectId
 
   // 新建会话占位路由下,首次发送要先调 sessions.create 拿真 sessionId,再 navigate 替换 URL,
@@ -176,7 +180,7 @@ export default function ChatPage() {
   const agents = useAppStore(s => s.agents)
   const headerTitle = isNewSessionRoute
     ? (agents.find((a) => a.id === pendingAgentId)?.name || '新对话')
-    : (session?.sessionTitle || session?.agentName || '对话')
+    : (session?.sessionTitle || pinnedSession?.sessionTitle || session?.agentName || pinnedSession?.agentName || '对话')
   useEffect(() => {
     if (!isRunning) return undefined
     setLiveNowMs(Date.now())
@@ -247,15 +251,15 @@ export default function ChatPage() {
   return (
     <div style={styles.page}>
       <div style={styles.header}>
-        <button style={styles.backBtn} onClick={() => navigate('/')}>
+        <button style={styles.backBtn} onClick={() => navigate(returnTo)}>
           <ArrowLeft size={20} />
         </button>
         <div style={styles.headerInfo}>
           <span style={styles.headerTitle}>{headerTitle}</span>
-          {session && !isNewSessionRoute && (
+          {(session || pinnedSession) && !isNewSessionRoute && (
             <span style={styles.headerSub}>
               <Bot size={11} style={{ marginRight: 3 }} />
-              {session.agentName}
+              {session?.agentName ?? pinnedSession?.agentName}
             </span>
           )}
           {isNewSessionRoute && pendingAgentId && (
@@ -363,6 +367,10 @@ export default function ChatPage() {
       )}
     </div>
   )
+}
+
+function isPinnedReturnLocation(value: unknown): value is { returnTo: '/pinned' } {
+  return !!value && typeof value === 'object' && (value as { returnTo?: unknown }).returnTo === '/pinned'
 }
 
 function TimelineGroupContent({ group }: { group: ChatTimelineGroup }) {

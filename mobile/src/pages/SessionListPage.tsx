@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { Archive, Edit3, MessageSquarePlus, Plus, Search, Trash2, XCircle, Sparkles } from 'lucide-react'
+import { Archive, Edit3, MessageSquarePlus, Pin, PinOff, Plus, Search, Trash2, XCircle, Sparkles } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useSessionStore } from '../stores/session.store'
 import { useAppStore } from '../stores/app.store'
@@ -16,6 +16,7 @@ import RenameDialog from '../components/RenameDialog'
 import NewSessionSheet from '../components/chat/NewSessionSheet'
 import PublishTemplateSheet from '../components/templates/PublishTemplateSheet'
 import { useEdgeSwipe } from '../hooks/useEdgeSwipe'
+import { usePinnedSessionStore } from '../stores/pinned-session.store'
 
 export default function SessionListPage() {
   const {
@@ -37,6 +38,9 @@ export default function SessionListPage() {
     fetchAgents,
   } = useAppStore()
   const statsByProjectId = useMobileProjectSessionStatsStore((state) => state.statsByProjectId)
+  const pinnedItems = usePinnedSessionStore((state) => state.items)
+  const addPinned = usePinnedSessionStore((state) => state.add)
+  const removePinned = usePinnedSessionStore((state) => state.remove)
   const navigate = useNavigate()
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [createSheetOpen, setCreateSheetOpen] = useState(false)
@@ -158,6 +162,14 @@ export default function SessionListPage() {
     setActionSession(session)
   }
 
+  const togglePinned = (sessionId: string): void => {
+    if (pinnedItems.some((item) => item.sessionId === sessionId)) {
+      void removePinned(sessionId)
+    } else {
+      void addPinned(sessionId)
+    }
+  }
+
   const handleRenameConfirm = (title: string) => {
     if (!renameTarget) return
     const target = renameTarget
@@ -174,6 +186,14 @@ export default function SessionListPage() {
 
   const actionItems = actionSession
     ? [
+        {
+          key: 'pin',
+          label: pinnedItems.some((item) => item.sessionId === actionSession.id) ? '取消置顶' : '置顶会话',
+          icon: pinnedItems.some((item) => item.sessionId === actionSession.id)
+            ? <PinOff size={18} color="#191919" />
+            : <Pin size={18} color="#191919" />,
+          onClick: () => togglePinned(actionSession.id),
+        },
         {
           key: 'rename',
           label: '重命名',

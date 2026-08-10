@@ -86,7 +86,7 @@ Runtime 可见 patch 不经过 API 事件总线，而是通过 Runtime→Realtim
 
 ### 全局会话坞
 
-全部 Session Dock RPC 仅允许 owner 连接调用。会话坞只保存跨项目入口和顺序，不读取消息正文，也不改变 Workspace 内的 Agent/Session 排序。
+全部 Session Dock RPC 仅允许 owner 连接调用。会话坞是“置顶会话”的持久化后端，只保存跨项目入口和顺序，不读取消息正文，也不改变 Workspace 内的 Agent/Session 排序；PC 页签、PC 快捷抽屉和移动端第一个 Tab 共享这份清单。
 
 | 方法 | 参数 | 返回 | 说明 |
 |------|------|------|------|

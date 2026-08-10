@@ -8,6 +8,7 @@ import {
 } from '../../ui/src/components/global-assistant/GlobalAssistantRail.js'
 import { SessionDockDrawer } from '../../ui/src/components/session-dock/SessionDockDrawer.js'
 import { SessionDockRow } from '../../ui/src/components/session-dock/SessionDockRow.js'
+import { useSessionDockStore } from '../../ui/src/stores/session-dock.store.js'
 import {
   formatSessionDockTime,
   sessionDockWorkspacePath,
@@ -50,22 +51,30 @@ describe('global Session dock UI', () => {
     expect(html).toContain('AI IDE Studio')
     expect(html).toContain('编码智能体')
     expect(html).toContain('未读')
-    expect(html).toContain('aria-label="移出全局会话"')
+    expect(html).toContain('aria-label="取消置顶"')
   })
 
   test('renders the dock drawer as a separate global surface', () => {
     const html = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(SessionDockDrawer)))
 
-    expect(html).toContain('全局会话')
-    expect(html).toContain('0 个固定')
+    expect(html).toContain('置顶会话')
+    expect(html).toContain('0 个置顶')
     expect(html).toContain('aria-label="添加会话"')
     expect(html).toContain('aria-label="关闭"')
+  })
+
+  test('does not open the rail drawer when the standalone page opens its picker', () => {
+    useSessionDockStore.setState({ open: false, pickerOpen: true })
+    const html = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(SessionDockDrawer)))
+
+    expect(html).not.toContain('session-dock-drawer--open')
+    useSessionDockStore.setState({ pickerOpen: false })
   })
 
   test('adds a second launcher to the existing global rail', () => {
     const html = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(GlobalAssistantRail)))
 
-    expect(html).toContain('aria-label="全局会话"')
+    expect(html).toContain('aria-label="置顶会话"')
     expect(html).toContain('session-dock-rail-button')
   })
 

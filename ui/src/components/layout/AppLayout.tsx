@@ -8,6 +8,7 @@ import {
   Library,
   LayoutDashboard,
   MessageSquare,
+  Pin,
   Search,
   RadioTower,
   Settings,
@@ -27,6 +28,7 @@ import './AppLayout.css'
 
 const globalNav = [
   { to: '/', icon: LayoutDashboard, label: '概览', end: true },
+  { to: '/pinned', icon: Pin, label: '置顶会话' },
   { to: '/agents', icon: Store, label: 'Agent 广场' },
   { to: '/skills', icon: Sparkles, label: '技能中心' },
   { to: '/tools', icon: Wrench, label: '工具管理' },

@@ -106,8 +106,8 @@ export function SessionDockLauncher({
     <button
       type="button"
       className={`global-assistant-avatar session-dock-rail-button${open ? ' global-assistant-avatar--active' : ''}`}
-      title="全局会话"
-      aria-label="全局会话"
+          title="置顶会话"
+          aria-label="置顶会话"
       onClick={onClick}
     >
       <MessagesSquare size={18} />
