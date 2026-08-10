@@ -1,6 +1,5 @@
 import { create } from 'zustand'
 import { wsClient } from '@desktop/services/ws-client'
-import { useConnectionStore } from './connection.store'
 
 export interface FileEntry {
   name: string
@@ -11,7 +10,7 @@ export interface FileEntry {
   children?: FileEntry[]
 }
 
-export type FileKind = 'text' | 'image' | 'binary'
+export type FileKind = 'text' | 'image' | 'audio' | 'video' | 'binary'
 
 export interface FileContent {
   path: string
@@ -104,15 +103,3 @@ export const useFileSystemStore = create<FileSystemState>((set, get) => ({
 
   reset: () => set({ projectId: null, tree: [], openFile: null, loading: false, loadingFile: false, error: null }),
 }))
-
-export function buildAssetUrl(filePath: string, mode: 'inline' | 'attachment' = 'inline'): string {
-  const { serverUrl, token } = useConnectionStore.getState()
-  const base = serverUrl.replace(/\/$/, '')
-  const params = new URLSearchParams({
-    projectId: useFileSystemStore.getState().projectId ?? '',
-    path: filePath,
-    mode,
-  })
-  if (token) params.set('token', token)
-  return `${base}/api/fs/asset?${params.toString()}`
-}

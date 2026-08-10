@@ -29,6 +29,7 @@ export interface FileContent {
   extension: string
   language: string
   truncated: boolean
+  kind: 'text' | 'image' | 'audio' | 'video' | 'binary'
 }
 
 export interface FileSystemProjectSnapshot {

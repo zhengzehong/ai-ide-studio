@@ -84,6 +84,13 @@ export interface ForkSessionMsg extends ClientMessage {
   type: 'session.fork'
   sessionId: string
 }
+export interface FileAssetUrlMsg extends ClientMessage {
+  type: 'fs.assetUrl'
+  projectId: string
+  filePath: string
+  basePath?: string
+  mode?: 'inline' | 'attachment'
+}
 export interface AgentsListMsg extends ClientMessage {
   type: 'agents.list'
   projectId?: string

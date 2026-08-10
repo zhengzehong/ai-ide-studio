@@ -1,6 +1,8 @@
 import { closeSync, createReadStream, existsSync, openSync, readdirSync, readFileSync, readSync, statSync } from 'fs'
-import { join, relative, extname, basename, isAbsolute, resolve, sep } from 'path'
+import { join, relative, extname, basename, dirname, isAbsolute, resolve, sep } from 'path'
+import { fileURLToPath } from 'url'
 import { createChildLogger } from './logger.js'
+import type { FileByteRange } from './file-byte-range.js'
 
 const log = createChildLogger('fs')
 
@@ -25,7 +27,7 @@ export interface FileEntry {
   children?: FileEntry[]
 }
 
-export type FileKind = 'text' | 'image' | 'binary'
+export type FileKind = 'text' | 'image' | 'audio' | 'video' | 'binary'
 
 export interface FileContent {
   path: string
@@ -79,6 +81,9 @@ const IMAGE_EXTS = new Set([
   '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.ico', '.avif',
 ])
 
+const AUDIO_EXTS = new Set(['.mp3', '.m4a', '.aac', '.wav', '.ogg', '.oga', '.flac', '.opus'])
+const VIDEO_EXTS = new Set(['.mp4', '.m4v', '.webm', '.ogv', '.mov'])
+
 const IMAGE_MIME: Record<string, string> = {
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
@@ -106,9 +111,18 @@ const BINARY_MIME_FALLBACK: Record<string, string> = {
   '.ppt': 'application/vnd.ms-powerpoint',
   '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   '.mp3': 'audio/mpeg',
+  '.m4a': 'audio/mp4',
+  '.aac': 'audio/aac',
   '.mp4': 'video/mp4',
+  '.m4v': 'video/mp4',
   '.wav': 'audio/wav',
+  '.ogg': 'audio/ogg',
+  '.oga': 'audio/ogg',
+  '.flac': 'audio/flac',
+  '.opus': 'audio/ogg',
   '.webm': 'video/webm',
+  '.ogv': 'video/ogg',
+  '.mov': 'video/quicktime',
   '.exe': 'application/x-msdownload',
   '.dll': 'application/x-msdownload',
   '.so': 'application/x-sharedlib',
@@ -123,6 +137,8 @@ const BINARY_MIME_FALLBACK: Record<string, string> = {
 
 function classifyExtension(ext: string): FileKind {
   if (IMAGE_EXTS.has(ext) || ext === '.svg') return 'image'
+  if (AUDIO_EXTS.has(ext)) return 'audio'
+  if (VIDEO_EXTS.has(ext)) return 'video'
   if (EXT_TO_LANG[ext]) return 'text'
   return 'binary'
 }
@@ -148,6 +164,8 @@ function looksLikeTextFile(filePath: string): boolean {
 export function resolveMimeType(ext: string, kind: FileKind): string {
   const lower = ext.toLowerCase()
   if (kind === 'image') return IMAGE_MIME[lower] ?? 'image/*'
+  if (kind === 'audio') return BINARY_MIME_FALLBACK[lower] ?? 'audio/*'
+  if (kind === 'video') return BINARY_MIME_FALLBACK[lower] ?? 'video/*'
   return BINARY_MIME_FALLBACK[lower] ?? 'application/octet-stream'
 }
 
@@ -177,6 +195,45 @@ function resolveSafePath(workDir: string, filePath: string): string | null {
 
 function resolvedFilePath(workDir: string, filePath: string, fullPath: string): string {
   return isAbsolute(filePath) ? fullPath : relative(workDir, fullPath).replace(/\\/g, '/')
+}
+
+export function resolveFileReference(workDir: string, filePath: string, basePath?: string): string | null {
+  const decodedPath = decodeFileReference(filePath)
+  if (!decodedPath) return null
+  if (!basePath) {
+    const fullPath = resolveSafePath(workDir, decodedPath)
+    return fullPath ? resolvedFilePath(workDir, decodedPath, fullPath) : null
+  }
+
+  // Markdown `/assets/a.png` means project-root relative. Explicit OS paths use
+  // a drive, UNC path, or file:// URI and keep the existing privileged behavior.
+  if (/^\/(?!\/)/.test(decodedPath)) {
+    const projectPath = decodedPath.replace(/^\/+/, '')
+    const fullPath = resolveSafePath(workDir, projectPath)
+    return fullPath ? resolvedFilePath(workDir, projectPath, fullPath) : null
+  }
+  if (isAbsolute(decodedPath)) return resolve(decodedPath)
+
+  const decodedBase = decodeFileReference(basePath)
+  if (!decodedBase) return null
+  const baseFullPath = resolveSafePath(workDir, decodedBase)
+  if (!baseFullPath) return null
+  const fullPath = resolve(dirname(baseFullPath), decodedPath)
+  if (isAbsolute(decodedBase)) return fullPath
+
+  const projectRelative = relative(workDir, fullPath)
+  const validated = resolveSafePath(workDir, projectRelative)
+  return validated ? relative(workDir, validated).replace(/\\/g, '/') : null
+}
+
+function decodeFileReference(filePath: string): string | null {
+  const trimmed = filePath.trim()
+  if (!trimmed) return null
+  if (/^file:/i.test(trimmed)) {
+    try { return fileURLToPath(trimmed) } catch { return null }
+  }
+  const withoutSuffix = trimmed.split(/[?#]/, 1)[0]
+  try { return decodeURIComponent(withoutSuffix) } catch { return withoutSuffix }
 }
 
 export function inspectFile(workDir: string, filePath: string): FileMetadata | null {
@@ -299,7 +356,11 @@ export function readFile(workDir: string, filePath: string): FileContent | null 
   }
 }
 
-export function getAssetStream(workDir: string, filePath: string): FileAssetInfo & { stream: NodeJS.ReadableStream } | null {
+export function getAssetStream(
+  workDir: string,
+  filePath: string,
+  range?: FileByteRange,
+): FileAssetInfo & { stream: NodeJS.ReadableStream } | null {
   const fullPath = resolveSafePath(workDir, filePath)
   if (!fullPath || !existsSync(fullPath)) return null
 
@@ -314,7 +375,7 @@ export function getAssetStream(workDir: string, filePath: string): FileAssetInfo
       extension: ext,
       kind,
       mimeType: resolveMimeType(ext, kind),
-      stream: createReadStream(fullPath),
+      stream: createReadStream(fullPath, range ? { start: range.start, end: range.end } : undefined),
     }
   } catch (err) {
     log.error({ err, path: fullPath }, '获取文件流失败')

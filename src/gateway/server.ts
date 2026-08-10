@@ -15,7 +15,8 @@ import { projectStore } from '../store/projects.js'
 import { previewStore } from '../store/previews.js'
 import { sessionShareStore } from '../store/session-shares.js'
 import { mountShareRoutes } from './share-routes.js'
-import { getAssetStream } from '../core/filesystem.js'
+import { getAssetStream, inspectFile } from '../core/filesystem.js'
+import { parseByteRange } from '../core/file-byte-range.js'
 import { getImageAsset } from '../core/image-attachments.js'
 import { mountHttpMcpServer } from '../tools/mcp/http-mcp-server.js'
 import { mountStaticAssets, staticDirForLog } from './static-assets.js'
@@ -35,6 +36,7 @@ import {
 } from './http/session-command-routes.js'
 import { responseCompression } from './http/response-compression.js'
 import { previewAuthCookie, readPreviewCookie } from './preview-auth.js'
+import { configureFileAssetSigning, verifyFileAssetSignature } from './file-asset-signing.js'
 
 const log = createChildLogger('gateway')
 
@@ -46,6 +48,7 @@ export interface StartGatewayOptions {
 }
 
 export async function startGateway(config: AppConfig, options: StartGatewayOptions = {}) {
+  configureFileAssetSigning(config.localToken)
   const app = new Hono()
   let embeddedPort = config.port
 
@@ -78,7 +81,7 @@ export async function startGateway(config: AppConfig, options: StartGatewayOptio
   })
 
   app.get('/api/rules', (c) => c.json(ruleStore.list()))
-  app.get('/api/fs/asset', (c) => handleFsAsset(c))
+  app.get('/api/fs/asset', (c) => handleFsAsset(c, config))
   app.get('/api/images/*', (c) => handleImageAsset(c))
   app.get('/avatars/*', (c) => handleAvatarAsset(c))
   app.get('/preview/:previewId/*', (c) => handlePreviewAsset(c, config))
@@ -217,18 +220,27 @@ function decodePath(path: string): string | null {
   }
 }
 
-function handleFsAsset(c: Context): Response {
+function handleFsAsset(c: Context, config: AppConfig): Response {
   const projectId = c.req.query('projectId')
   const filePath = c.req.query('path')
   const mode = c.req.query('mode') === 'attachment' ? 'attachment' : 'inline'
   if (!projectId || !filePath) {
     return c.json({ error: '缺少 projectId 或 path' }, 400)
   }
-  const project = projectStore.get(projectId)
-  if (!project) {
-    return c.json({ error: '项目不存在' }, 404)
+  if (!isFileAssetAuthorized(c, config, { projectId, path: filePath, mode })) {
+    return c.json({ error: '资源地址无效或已过期' }, 401)
   }
-  const asset = getAssetStream(project.work_dir, filePath)
+  const project = projectStore.get(projectId)
+  if (!project) return c.json({ error: '项目不存在' }, 404)
+  const metadata = inspectFile(project.work_dir, filePath)
+  if (!metadata) return c.json({ error: '文件不存在或无法读取' }, 404)
+  const range = parseByteRange(c.req.header('range'), metadata.size)
+  if (range === 'invalid') {
+    c.header('Accept-Ranges', 'bytes')
+    c.header('Content-Range', `bytes */${metadata.size}`)
+    return c.body(null, 416)
+  }
+  const asset = getAssetStream(project.work_dir, filePath, range ?? undefined)
   if (!asset) {
     return c.json({ error: '文件不存在或无法读取' }, 404)
   }
@@ -237,17 +249,32 @@ function handleFsAsset(c: Context): Response {
   const dispositionFilename = encodeURIComponent(filename).replace(/['()]/g, '').replace(/%20/g, ' ')
   const disposition = `${mode}; filename="${dispositionFilename}"; filename*=UTF-8''${dispositionFilename}`
   c.header('Content-Type', asset.mimeType)
-  c.header('Content-Length', String(asset.size))
+  c.header('Content-Length', String(range ? range.end - range.start + 1 : asset.size))
   c.header('Content-Disposition', disposition)
   c.header('Cache-Control', 'no-store')
+  c.header('Accept-Ranges', 'bytes')
+  if (range) c.header('Content-Range', `bytes ${range.start}-${range.end}/${asset.size}`)
 
   const nodeStream = asset.stream as Readable
   const webStream = nodeStreamToWebStream(nodeStream)
 
   return new Response(webStream, {
-    status: 200,
+    status: range ? 206 : 200,
     headers: c.res.headers,
   })
+}
+
+function isFileAssetAuthorized(
+  c: Context,
+  config: AppConfig,
+  input: { projectId: string; path: string; mode: 'inline' | 'attachment' },
+): boolean {
+  if (!config.localToken) return true
+  const token = c.req.header('x-ai-ide-token') ?? c.req.query('token')
+  if (token === config.localToken) return true
+  const expiresAt = Number(c.req.query('expires'))
+  const signature = c.req.query('signature') ?? ''
+  return verifyFileAssetSignature({ ...input, expiresAt, signature }) === 'valid'
 }
 
 function nodeStreamToWebStream(nodeStream: Readable): ReadableStream<Uint8Array> {
@@ -299,6 +326,7 @@ function mountLocalTokenGuard(app: Hono, config: AppConfig): void {
 }
 
 function isAssetRequest(path: string): boolean {
+  if (path === '/api/fs/asset') return true
   if (path === '/api/v1/realtime-config') return true
   if (path.startsWith('/api/bridge/')) return true
   if (path.startsWith('/avatars/')) return true

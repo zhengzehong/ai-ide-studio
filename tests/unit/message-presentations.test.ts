@@ -156,6 +156,8 @@ describe('message preview presentations', () => {
       files: [
         { path: 'docs/report.md', title: '分析报告', name: 'report.md', extension: '.md', size: 100, kind: 'text', language: 'markdown' },
         { path: 'docs/plan.md', title: '实施方案', name: 'plan.md', extension: '.md', size: 80, kind: 'text', language: 'markdown' },
+        { path: 'D:/media/demo.mp4', title: '演示视频', name: 'demo.mp4', extension: '.mp4', size: 1024, kind: 'video', language: 'plaintext' },
+        { path: 'D:/media/voice.mp3', title: '语音说明', name: 'voice.mp3', extension: '.mp3', size: 512, kind: 'audio', language: 'plaintext' },
       ],
       createdAt: '2026-07-23T00:00:00.000Z',
     }

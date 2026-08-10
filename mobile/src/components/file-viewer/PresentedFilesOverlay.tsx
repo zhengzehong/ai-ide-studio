@@ -64,7 +64,14 @@ export function PresentedFilesOverlay({
         ))}
       </nav>
       <div style={styles.content}>
-        <FileDetail file={displayFile} loading={loading} error={error} onBack={onClose} embedded />
+        <FileDetail
+          file={displayFile}
+          loading={loading}
+          error={error}
+          projectId={presentation.projectId}
+          onBack={onClose}
+          embedded
+        />
       </div>
     </div>
   )

@@ -6,6 +6,7 @@ import { CodeView } from './CodeView'
 import { PlainTextView } from './PlainTextView'
 import { ImageView } from './ImageView'
 import { BinaryFileView } from './BinaryFileView'
+import { MediaView } from './MediaView'
 import { copyText } from '../../utils/copy-text'
 
 const MARKDOWN_EXTS = ['.md', '.mdx']
@@ -22,11 +23,12 @@ interface FileDetailProps {
   file: FileContent
   loading: boolean
   error: string | null
+  projectId: string
   onBack: () => void
   embedded?: boolean
 }
 
-export function FileDetail({ file, loading, error, onBack, embedded = false }: FileDetailProps) {
+export function FileDetail({ file, loading, error, projectId, onBack, embedded = false }: FileDetailProps) {
   const [copied, setCopied] = useState(false)
 
   const handleCopy = async () => {
@@ -67,7 +69,7 @@ export function FileDetail({ file, loading, error, onBack, embedded = false }: F
           </button>
         )}
         {kind !== 'text' && !loading && !error && (
-          <button style={styles.iconBtn} onClick={() => BinaryFileView.download(file)} aria-label="下载">
+          <button style={styles.iconBtn} onClick={() => void BinaryFileView.download(file, projectId)} aria-label="下载">
             <Download size={18} />
           </button>
         )}
@@ -88,11 +90,13 @@ export function FileDetail({ file, loading, error, onBack, embedded = false }: F
             <span style={styles.errorText}>{error}</span>
           </div>
         ) : kind === 'image' ? (
-          <ImageView file={file} />
+          <ImageView key={file.path} file={file} projectId={projectId} />
+        ) : kind === 'audio' || kind === 'video' ? (
+          <MediaView key={file.path} file={file} projectId={projectId} />
         ) : kind === 'binary' ? (
-          <BinaryFileView file={file} />
+          <BinaryFileView file={file} projectId={projectId} />
         ) : isMarkdown ? (
-          <MarkdownView content={file.content} />
+          <MarkdownView key={file.path} content={file.content} projectId={projectId} documentPath={file.path} />
         ) : isCode ? (
           <CodeView content={file.content} language={file.language} />
         ) : (

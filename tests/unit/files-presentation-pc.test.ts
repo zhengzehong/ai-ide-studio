@@ -4,6 +4,8 @@ import { describe, expect, test } from 'vitest'
 import { TurnContentView } from '../../ui/src/components/chat/TurnContentView.tsx'
 import { FilesPresentationCard } from '../../ui/src/components/chat/FilesPresentationCard.tsx'
 import { PresentedFilesModal } from '../../ui/src/components/file-viewer/PresentedFilesModal.tsx'
+import { MarkdownRenderer } from '../../ui/src/components/MarkdownRenderer.tsx'
+import { FileAssetView } from '../../ui/src/components/file-viewer/FileAssetView.tsx'
 import { normalizeMessage, type MessageData } from '../../ui/src/stores/session-events.ts'
 
 const presentation = {
@@ -113,5 +115,24 @@ describe('PC files presentation', () => {
     expect(html).toContain('aria-label="复制内容"')
     expect(html).toContain('<span>复制</span>')
     expect(html).not.toContain('width:min(1100px, 100%)')
+  })
+
+  test('renders video controls and preserves markdown absolute image references', () => {
+    const mediaHtml = renderToStaticMarkup(createElement(FileAssetView, {
+      projectId: 'project-1',
+      path: 'D:/media/demo.mp4',
+      kind: 'video',
+      name: 'demo.mp4',
+    }))
+    const markdownHtml = renderToStaticMarkup(createElement(MarkdownRenderer, {
+      content: '![架构图](D:/images/architecture.png)',
+      projectId: 'project-1',
+      documentPath: 'D:/docs/report.md',
+    }))
+
+    expect(mediaHtml).toContain('<video')
+    expect(mediaHtml).toContain('controls=""')
+    expect(mediaHtml).toContain('preload="metadata"')
+    expect(markdownHtml).toContain('data-resource-path="D:/images/architecture.png"')
   })
 })

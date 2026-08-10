@@ -95,6 +95,8 @@ Rule Engine（每 10 分钟）
 
 PC 端历史消息默认通过轻量 HTTP `GET /api/v1/sessions/:sessionId/messages` 加载，`messages.content` 是最终回复快速来源；会话状态通过 `GET /api/v1/sessions/:sessionId/recovery` 恢复。Recovery 在 SQLite 查询阶段排除 `message.chunk`、`thinking.chunk`、`tool.call`、`tool.update` 和 `message.done` 等已经由 messages/process read model 承载的镜像事件，只返回配置、用量、计划和交互请求等状态事件，同时用 `latestSequence` 返回完整事件流游标。历史执行过程仍通过 `sessions.messageProcess` 按需加载 `turn_process_items` 的轻量列表，单个过程详情再通过 `sessions.processItemDetail` 懒加载。旧数据仍可通过 `sessions.messageEvents` 从 `session_events.sequence` 读取完整工具过程；工具摘要/详情继续支持 `sessions.messageToolCalls` / `sessions.messageToolCallDetail`，文件修改详情优先从 `turn_process_items` 读取并兼容旧的 `tool_calls_json`。
 
+`files.present` 的消息摘要只持久化路径和文件元数据。文本通过 `fs.read` 按需读取；图片、音频、视频通过 owner-only 的 `fs.assetUrl` 获取一小时短期 HMAC 地址，再由 `/api/fs/asset` 以完整流或单段 HTTP Range 返回。签名地址不包含长期本地 token，过期后客户端根据持久化路径重新签发。项目相对路径禁止逃逸，显式服务器绝对路径保留既有特权语义；Markdown 内资源由服务端按文档目录、项目根路径、Windows/UNC/`file://` 绝对路径解析，HTTPS 外部资源直接加载。PC 和 APP 使用同一资源语义，APP 显式传递 presentation 的项目 ID。
+
 ### PC 查询与命令传输边界
 
 PC 端的任务列表、会话列表、消息历史、原始事件页和轻量 Recovery 使用版本化 `/api/v1` HTTP Query API。这些路由与旧 WS 兼容读取都委托异步 `QueryPort`；默认适配器把请求发送到独立 Query Worker，由该 Worker 独占 `readonly + query_only` SQLite 连接。同步 SQL 只阻塞 Query Worker，不占用 Gateway 事件循环。移动端行为保持不变。

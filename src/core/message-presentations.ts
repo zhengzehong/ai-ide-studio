@@ -14,7 +14,7 @@ export interface FilePresentationEntry {
   name: string
   extension: string
   size: number
-  kind: 'text' | 'image' | 'binary'
+  kind: 'text' | 'image' | 'audio' | 'video' | 'binary'
   language: string
 }
 
@@ -132,7 +132,8 @@ function parseFileEntry(value: unknown): FilePresentationEntry | null {
   const extension = typeof file.extension === 'string' ? file.extension : null
   const language = text(file.language)
   const size = typeof file.size === 'number' && Number.isFinite(file.size) && file.size >= 0 ? file.size : null
-  const kind = file.kind === 'text' || file.kind === 'image' || file.kind === 'binary' ? file.kind : null
+  const kind = file.kind === 'text' || file.kind === 'image' || file.kind === 'audio'
+    || file.kind === 'video' || file.kind === 'binary' ? file.kind : null
   if (!path || !title || !name || extension === null || !language || size === null || !kind) return null
   return { path, title, name, extension, size, kind, language }
 }

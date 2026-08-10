@@ -47,7 +47,7 @@ export interface FilePresentationEntryInfo {
   name: string
   extension: string
   size: number
-  kind: 'text' | 'image' | 'binary'
+  kind: 'text' | 'image' | 'audio' | 'video' | 'binary'
   language: string
 }
 
@@ -368,7 +368,8 @@ function filePresentationEntry(value: unknown): FilePresentationEntryInfo | null
   const extension = typeof item.extension === 'string' ? item.extension : null
   const language = typeof item.language === 'string' ? item.language : null
   const size = typeof item.size === 'number' && Number.isFinite(item.size) && item.size >= 0 ? item.size : null
-  const kind = item.kind === 'text' || item.kind === 'image' || item.kind === 'binary' ? item.kind : null
+  const kind = item.kind === 'text' || item.kind === 'image' || item.kind === 'audio'
+    || item.kind === 'video' || item.kind === 'binary' ? item.kind : null
   if (!path || !title || !name || extension === null || !language || size === null || !kind) return null
   return { path, title, name, extension, language, size, kind }
 }

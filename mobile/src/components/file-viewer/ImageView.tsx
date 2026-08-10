@@ -1,39 +1,46 @@
 import { useState, type CSSProperties } from 'react'
 import { Download } from 'lucide-react'
 import type { FileContent } from '../../stores/filesystem.store'
-import { buildAssetUrl } from '../../stores/filesystem.store'
 import { BinaryFileView } from './BinaryFileView'
+import { useMobileFileAssetUrl } from './use-mobile-file-asset-url'
 
 interface ImageViewProps {
   file: FileContent
+  projectId: string
 }
 
-export function ImageView({ file }: ImageViewProps) {
+export function ImageView({ file, projectId }: ImageViewProps) {
   const [loaded, setLoaded] = useState(false)
   const [failed, setFailed] = useState(false)
-  const src = buildAssetUrl(file.path, 'inline')
+  const [retried, setRetried] = useState(false)
+  const asset = useMobileFileAssetUrl(projectId, file.path)
 
   return (
     <div style={styles.container}>
-      {!loaded && !failed && (
+      {asset.loading || (!loaded && !failed) ? (
         <div style={styles.placeholder}>加载中...</div>
+      ) : null}
+      {(failed || asset.error) && <div style={styles.placeholder}>{asset.error || '图片加载失败'}</div>}
+      {asset.url && (
+        <img
+          src={asset.url}
+          alt={file.path}
+          referrerPolicy="no-referrer"
+          style={{ ...styles.img, opacity: loaded && !failed ? 1 : 0 }}
+          onLoad={() => { setLoaded(true); setFailed(false) }}
+          onError={() => {
+            if (!retried) {
+              setRetried(true)
+              asset.refresh()
+              return
+            }
+            setFailed(true)
+          }}
+        />
       )}
-      {failed && (
-        <div style={styles.placeholder}>图片加载失败</div>
-      )}
-      <img
-        src={src}
-        alt={file.path}
-        style={{
-          ...styles.img,
-          opacity: loaded && !failed ? 1 : 0,
-        }}
-        onLoad={() => setLoaded(true)}
-        onError={() => setFailed(true)}
-      />
       <button
         style={styles.downloadFab}
-        onClick={() => BinaryFileView.download(file)}
+        onClick={() => void BinaryFileView.download(file, projectId)}
         aria-label="下载"
       >
         <Download size={20} color="#fff" />
