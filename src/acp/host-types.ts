@@ -2,7 +2,7 @@
 import type * as acp from '@agentclientprotocol/sdk'
 import type { AgentRow } from '../store/agents.js'
 import type { SessionCapabilities } from '../types/ws-protocol.js'
-import type { AgentSessionMeta } from './model-profile-env.js'
+import type { AgentSessionMeta, AppliedModelProfile } from './model-profile-env.js'
 
 export type RuntimeState = 'starting' | 'running' | 'stopping' | 'stopped'
 export type AcpSessionState = 'connecting' | 'connected' | 'closing' | 'disconnected'
@@ -36,6 +36,8 @@ export interface AgentConnection {
   agentCapabilities?: acp.AgentCapabilities
   envFingerprint?: string
   sessionMeta?: AgentSessionMeta
+  appliedModelProfile?: AppliedModelProfile
+  idleWaiters?: Set<() => void>
 }
 
 export interface AcpSessionContext {

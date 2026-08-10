@@ -308,7 +308,9 @@ session 关闭(close/archive/delete)自动 `disconnectBySession`:off 所有未�
 
 创建或恢复 ACP Session 时，后端会从 Session 的 `project_id` 找到 Project，并把 `work_dir` 作为 ACP `cwd` 传给 runtime；同时按 `agentId/projectId/sessionId` 解析本轮可见的 MCP 工具。
 
-项目级 Agent 可以在 `config_json.modelProfileId` 上绑定一个模型档案。模型档案按 runtime 区分 Claude Code 与 Codex，并保存供应商、模型映射和上下文窗口。Claude 档案还记录是否允许 Agent 主动读取图片；默认禁止时，Gateway 在 ACP Session 设置中注入图片 `Read` 权限规则，不影响用户随 Prompt 上传图片。Agent runtime 改变、档案删除或档案 runtime 改变时，后端会清理不再匹配的绑定。
+项目级 Agent 可以在 `config_json.modelProfileId` 上绑定一个模型档案。模型连接拥有协议、Base URL、凭据和可选模型目录；模型档案按 runtime 区分 Claude Code 与 Codex，只保存默认模型、上下文窗口和显式填写的 runtime 模型项。有效配置按“Session 偏好 > Agent 模型档案 > Runtime 系统配置”解析；未绑定档案时不注入连接或模型覆盖，档案可选项留空时也保留本机 Claude Code / Codex 系统值。
+
+Claude 档案通过进程环境和 Session settings 应用兼容 Anthropic 的连接，只覆盖明确配置的 Haiku、Sonnet、Opus 映射。Codex 档案在 ACP initialize 后使用 `gateway` 认证方法传递 OpenAI-compatible 连接，再通过 Session model 选择应用模型和可选 effort，不写入或替换用户的全局 `~/.codex` 文件。连接指纹只包含凭据哈希；Base URL 或 Key 改变时，Runtime 阻止该 Agent 的新 Session ensure，等待其现有 turn 全部结束后只替换该 Agent 进程，其他 Agent 和平台进程不受影响。Claude 档案还记录是否允许 Agent 主动读取图片；默认禁止时，Gateway 在 ACP Session 设置中注入图片 `Read` 权限规则，不影响用户随 Prompt 上传图片。Agent runtime 改变、档案删除或档案 runtime 改变时，后端会清理不再匹配的绑定。
 
 详细流程见 `docs/architecture/project-agent-workflow.md`。
 

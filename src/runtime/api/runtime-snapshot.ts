@@ -79,6 +79,7 @@ export function buildRuntimeStateSnapshot(input: BuildRuntimeStateSnapshotInput)
       command: getRuntimeCommand(agent.runtime),
       env: cloneEnvironment(runtimeEnv.env),
       sessionMeta,
+      gatewayAuth: runtimeEnv.gatewayAuth,
       appliedModelProfile: runtimeEnv.appliedProfile,
     },
     runtimePreferences: sessionStore.getRuntimePreferences(session.id),

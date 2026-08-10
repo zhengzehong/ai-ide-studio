@@ -3,6 +3,7 @@ import { Readable, Writable } from 'node:stream'
 import * as acp from '@agentclientprotocol/sdk'
 import { createChildLogger } from '../../shared/logger.js'
 import type { AcpRuntimeClientRouter } from './acp-runtime-client.js'
+import type { RuntimeGatewayAuth } from '../../acp/model-profile-env.js'
 
 const log = createChildLogger('managed-acp-agent')
 
@@ -17,6 +18,7 @@ export interface StartManagedAcpAgentInput {
   runtime: string
   command: { cmd: string; args: string[] }
   env: NodeJS.ProcessEnv
+  gatewayAuth?: RuntimeGatewayAuth
   router: AcpRuntimeClientRouter
   spawnProcess?: (command: string, args: string[], options: Parameters<typeof spawn>[2]) => ChildProcess
   createConnection?: (process: ChildProcess, router: AcpRuntimeClientRouter) => acp.ClientSideConnection
@@ -45,6 +47,7 @@ export async function startManagedAcpAgent(input: StartManagedAcpAgentInput): Pr
       connection.initialize({
         protocolVersion: acp.PROTOCOL_VERSION,
         clientCapabilities: {
+          auth: { _meta: { gateway: true } },
           fs: { readTextFile: true, writeTextFile: true },
           terminal: true,
           elicitation: { form: {}, url: {} },
@@ -53,11 +56,24 @@ export async function startManagedAcpAgent(input: StartManagedAcpAgentInput): Pr
       }),
       failedToSpawn,
     ])
+    if (input.gatewayAuth) {
+      await connection.authenticate({
+        methodId: input.gatewayAuth.methodId,
+        _meta: {
+          gateway: {
+            baseUrl: input.gatewayAuth.baseUrl,
+            providerName: input.gatewayAuth.providerName,
+            headers: input.gatewayAuth.headers,
+          },
+        },
+      })
+    }
     if (spawnError) process.off('error', spawnError)
     log.info({
       agentId: input.agentId,
       runtime: input.runtime,
       contextWindow: parsePositiveInteger(input.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS),
+      gatewayFingerprint: input.gatewayAuth?.fingerprint,
     }, 'Agent runtime initialized')
     return {
       process,

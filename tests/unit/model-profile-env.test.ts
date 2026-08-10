@@ -92,6 +92,7 @@ describe('model profile runtime env', () => {
 
     const result = buildAgentRuntimeEnv('claude', agent, {
       ANTHROPIC_MODEL: 'system-default-model',
+      ANTHROPIC_AUTH_TOKEN: 'system-token',
       OTHER_ENV: 'kept',
     })
 
@@ -100,13 +101,122 @@ describe('model profile runtime env', () => {
     expect(result.env.OTHER_ENV).toBe('kept')
     expect(result.env.ANTHROPIC_BASE_URL).toBe('http://127.0.0.1:29000/anthropic')
     expect(result.env.ANTHROPIC_API_KEY).toBe('sk-test')
+    expect(result.env.ANTHROPIC_AUTH_TOKEN).toBe('')
     expect(result.env.ANTHROPIC_MODEL).toBe('deepseek-v4-flash')
     expect(result.env.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe('deepseek-v4-flash')
     expect(result.env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBe('deepseek-v4-pro[1m]')
     expect(result.env.ANTHROPIC_DEFAULT_OPUS_MODEL).toBe('deepseek-v4-pro[1m]')
-    expect(result.env.ANTHROPIC_REASONING_MODEL).toBe('deepseek-v4-flash')
+    expect(result.env.ANTHROPIC_REASONING_MODEL).toBeUndefined()
     expect(result.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS).toBe('128000')
     expect(result.env.AI_IDE_CLAUDE_ALLOW_IMAGE_READ).toBe('0')
+  })
+
+  test('preserves system Claude aliases when optional profile aliases are blank', () => {
+    const provider = modelProviderStore.create({
+      name: 'claude-compatible',
+      displayName: 'Claude compatible',
+      protocol: 'claude',
+      baseUrl: 'https://example.com/anthropic',
+      apiKey: 'sk-profile',
+    })
+    const profile = modelProfileStore.create({
+      name: 'partial Claude profile',
+      runtime: 'claude',
+      providerId: provider.id,
+      config: { defaultModel: 'profile-model' },
+    })
+    const agent = agentStore.create({
+      name: 'Claude',
+      type: 'dev',
+      runtime: 'claude',
+      config: { modelProfileId: profile.id },
+    })
+
+    const result = buildAgentRuntimeEnv('claude', agent, {
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: 'system-haiku',
+      ANTHROPIC_DEFAULT_SONNET_MODEL: 'system-sonnet',
+      ANTHROPIC_DEFAULT_OPUS_MODEL: 'system-opus',
+      ANTHROPIC_REASONING_MODEL: 'system-reasoning',
+    })
+
+    expect(result.env.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe('system-haiku')
+    expect(result.env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBe('system-sonnet')
+    expect(result.env.ANTHROPIC_DEFAULT_OPUS_MODEL).toBe('system-opus')
+    expect(result.env.ANTHROPIC_REASONING_MODEL).toBe('system-reasoning')
+  })
+
+  test('resolves a Codex profile into gateway authentication and a desired model', () => {
+    const provider = modelProviderStore.create({
+      name: 'codex-gateway',
+      displayName: 'Codex gateway',
+      protocol: 'openai',
+      baseUrl: 'https://gateway.example.com/v1/',
+      apiKey: 'sk-codex-profile',
+    })
+    const profile = modelProfileStore.create({
+      name: 'Codex profile',
+      runtime: 'codex',
+      providerId: provider.id,
+      contextWindow: 400000,
+      config: { model: 'gpt-5.6-sol', effort: 'xhigh' },
+    })
+    const agent = agentStore.create({
+      name: 'Codex',
+      type: 'dev',
+      runtime: 'codex',
+      config: { modelProfileId: profile.id },
+    })
+
+    const result = buildAgentRuntimeEnv('codex', agent, { MODEL_PROVIDER: 'system-provider' })
+
+    expect(result.env.MODEL_PROVIDER).toBe('system-provider')
+    expect(result.appliedProfile).toMatchObject({
+      id: profile.id,
+      modelId: 'gpt-5.6-sol',
+      effort: 'xhigh',
+      contextWindow: 400000,
+    })
+    expect(result.gatewayAuth).toMatchObject({
+      methodId: 'gateway',
+      baseUrl: 'https://gateway.example.com/v1',
+      providerName: 'Codex gateway',
+      headers: { Authorization: 'Bearer sk-codex-profile' },
+    })
+    expect(JSON.stringify(result.gatewayAuth?.fingerprint)).not.toContain('sk-codex-profile')
+  })
+
+  test('does not create Codex gateway authentication without a bound profile', () => {
+    const agent = agentStore.create({ name: 'System Codex', type: 'dev', runtime: 'codex' })
+
+    const result = buildAgentRuntimeEnv('codex', agent, { MODEL_PROVIDER: 'system-provider' })
+
+    expect(result.appliedProfile).toBeUndefined()
+    expect(result.gatewayAuth).toBeUndefined()
+    expect(result.env.MODEL_PROVIDER).toBe('system-provider')
+  })
+
+  test('normalizes a root Codex gateway URL to its OpenAI v1 endpoint', () => {
+    const provider = modelProviderStore.create({
+      name: 'root-gateway',
+      displayName: 'Root gateway',
+      protocol: 'openai',
+      baseUrl: 'https://gateway.example.com/',
+      apiKey: 'sk-test',
+    })
+    const profile = modelProfileStore.create({
+      name: 'Codex profile',
+      runtime: 'codex',
+      providerId: provider.id,
+      config: { model: 'gpt-5.6-sol' },
+    })
+    const agent = agentStore.create({
+      name: 'Codex',
+      type: 'dev',
+      runtime: 'codex',
+      config: { modelProfileId: profile.id },
+    })
+
+    expect(buildAgentRuntimeEnv('codex', agent, {}).gatewayAuth?.baseUrl).toBe('https://gateway.example.com/v1')
   })
 
   test('includes Claude model profile env in fingerprints and safe summaries', () => {
@@ -192,7 +302,6 @@ describe('model profile runtime env', () => {
               ANTHROPIC_DEFAULT_HAIKU_MODEL: 'deepseek-v4-flash',
               ANTHROPIC_DEFAULT_SONNET_MODEL: 'deepseek-v4-flash',
               ANTHROPIC_DEFAULT_OPUS_MODEL: 'deepseek-v4-flash',
-              ANTHROPIC_REASONING_MODEL: 'deepseek-v4-flash',
               CLAUDE_CODE_MAX_CONTEXT_TOKENS: '200000',
             },
           },

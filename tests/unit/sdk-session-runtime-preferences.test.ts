@@ -48,6 +48,98 @@ describe('SDK Session Runtime preferences', () => {
 
     expect(setConfig).not.toHaveBeenCalled()
   })
+
+  test('applies a Codex profile model while inheriting the current effort', async () => {
+    const state = snapshot()
+    state.agent.runtime = 'codex'
+    state.runtime.appliedModelProfile = {
+      id: 'profile-a',
+      name: 'Codex profile',
+      runtime: 'codex',
+      providerId: 'provider-a',
+      modelId: 'gpt-5.6-sol',
+    }
+    const setModel = vi.fn(async () => undefined)
+
+    await applySdkSessionPreferences({
+      snapshot: state,
+      capabilities: {
+        models: [
+          { modelId: 'system-model[high]', name: 'System' },
+          { modelId: 'gpt-5.6-sol[low]', name: 'GPT low' },
+          { modelId: 'gpt-5.6-sol[high]', name: 'GPT high' },
+          { modelId: 'gpt-5.6-sol[xhigh]', name: 'GPT xhigh' },
+        ],
+        currentModelId: 'system-model[high]',
+      },
+      setModel,
+      setMode: vi.fn(async () => undefined),
+      setConfig: vi.fn(async () => undefined),
+    })
+
+    expect(setModel).toHaveBeenCalledWith('gpt-5.6-sol[high]')
+  })
+
+  test('applies explicit Codex profile effort but keeps a Session model override authoritative', async () => {
+    const state = snapshot()
+    state.agent.runtime = 'codex'
+    state.runtime.appliedModelProfile = {
+      id: 'profile-a',
+      name: 'Codex profile',
+      runtime: 'codex',
+      providerId: 'provider-a',
+      modelId: 'gpt-5.6-sol',
+      effort: 'xhigh',
+    }
+    state.runtimePreferences.modelId = 'session-model[low]'
+    const setModel = vi.fn(async () => undefined)
+
+    await applySdkSessionPreferences({
+      snapshot: state,
+      capabilities: {
+        models: [
+          { modelId: 'gpt-5.6-sol[xhigh]', name: 'Profile' },
+          { modelId: 'session-model[low]', name: 'Session' },
+        ],
+        currentModelId: 'system-model[medium]',
+      },
+      setModel,
+      setMode: vi.fn(async () => undefined),
+      setConfig: vi.fn(async () => undefined),
+    })
+
+    expect(setModel).toHaveBeenCalledOnce()
+    expect(setModel).toHaveBeenCalledWith('session-model[low]')
+  })
+
+  test('applies explicit Codex profile effort without inventing an unsupported config option', async () => {
+    const state = snapshot()
+    state.agent.runtime = 'codex'
+    state.runtime.appliedModelProfile = {
+      id: 'profile-a',
+      name: 'Codex profile',
+      runtime: 'codex',
+      providerId: 'provider-a',
+      modelId: 'gpt-5.6-sol',
+      effort: 'xhigh',
+    }
+    const setModel = vi.fn(async () => undefined)
+    const setConfig = vi.fn(async () => undefined)
+
+    await applySdkSessionPreferences({
+      snapshot: state,
+      capabilities: {
+        models: [{ modelId: 'gpt-5.6-sol[xhigh]', name: 'Profile' }],
+        currentModelId: 'system-model[medium]',
+      },
+      setModel,
+      setMode: vi.fn(async () => undefined),
+      setConfig,
+    })
+
+    expect(setModel).toHaveBeenCalledWith('gpt-5.6-sol[xhigh]')
+    expect(setConfig).not.toHaveBeenCalled()
+  })
 })
 
 function snapshot(): RuntimeStateSnapshot {

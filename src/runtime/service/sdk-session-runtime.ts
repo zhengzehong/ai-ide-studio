@@ -2,6 +2,7 @@ import type * as acp from '@agentclientprotocol/sdk'
 import { mapConfigOptions, mergeCapabilitiesFromConfig } from '../../acp/capabilities.js'
 import { configPreferencesWithDefaults } from '../../acp/runtime-config-defaults.js'
 import { resolveDesiredRuntimeMode } from '../../acp/runtime-mode-preference.js'
+import { resolveRuntimeModelPreference } from '../../acp/runtime-model-preference.js'
 import type { RuntimeStateSnapshot } from '../../ports/runtime-port.js'
 import { createChildLogger } from '../../shared/logger.js'
 import type { SessionCapabilities } from '../../types/ws-protocol.js'
@@ -54,7 +55,13 @@ export async function applySdkSessionPreferences(input: {
   setConfig: (configId: string, value: string | boolean) => Promise<void>
 }): Promise<void> {
   const preferences = input.snapshot.runtimePreferences
-  if (preferences.modelId) await input.setModel(preferences.modelId)
+  const modelId = resolveRuntimeModelPreference({
+    runtime: input.snapshot.agent.runtime,
+    profile: input.snapshot.runtime.appliedModelProfile,
+    capabilities: input.capabilities,
+    sessionModelId: preferences.modelId,
+  })
+  if (modelId && modelId !== input.capabilities.currentModelId) await input.setModel(modelId)
   const modeId = resolveDesiredRuntimeMode(input.snapshot.agent.runtime, preferences.modeId)
   if (modeId && modeId !== input.capabilities.currentModeId) {
     if (input.capabilities.modes?.some((mode) => mode.modeId === modeId)) {
@@ -78,10 +85,27 @@ export async function applySdkSessionPreferences(input: {
       )
     }
   }
-  const config = configPreferencesWithDefaults(input.capabilities.configOptions, preferences.config)
+  const profileConfig = input.snapshot.runtime.appliedModelProfile?.effort
+    ? { effort: input.snapshot.runtime.appliedModelProfile.effort }
+    : undefined
+  const desiredConfig = { ...profileConfig, ...preferences.config }
+  const config = configPreferencesWithDefaults(
+    input.capabilities.configOptions,
+    Object.keys(desiredConfig).length > 0 ? desiredConfig : undefined,
+  )
   for (const [configId, value] of Object.entries(config ?? {})) {
+    const option = input.capabilities.configOptions?.find((item) => item.id === configId)
+    if (!option || option.currentValue === value || !isConfigValueAvailable(option, value)) continue
     await input.setConfig(configId, value)
   }
+}
+
+function isConfigValueAvailable(
+  option: NonNullable<SessionCapabilities['configOptions']>[number],
+  value: string | boolean,
+): boolean {
+  if (typeof value === 'boolean') return option.type === 'boolean'
+  return !option.options?.length || option.options.some((item) => item.value === value)
 }
 
 export function initialCapabilities(

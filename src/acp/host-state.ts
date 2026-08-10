@@ -1,7 +1,7 @@
 ﻿import type { ChildProcess } from 'child_process'
 import type * as acp from '@agentclientprotocol/sdk'
 import type { AcpSessionContext, AgentConnection, RuntimeSessionState } from './host-types.js'
-import type { AgentSessionMeta } from './model-profile-env.js'
+import type { AgentSessionMeta, AppliedModelProfile } from './model-profile-env.js'
 
 export const agentConnections = new Map<string, AgentConnection>()
 
@@ -15,6 +15,7 @@ export function createConnectionState(
   sessionMeta?: AgentSessionMeta,
   runtimeEnv?: NodeJS.ProcessEnv,
   agent?: import('../store/agents.js').AgentRow,
+  appliedModelProfile?: AppliedModelProfile,
 ): AgentConnection {
   const now = Date.now()
   return {
@@ -33,6 +34,8 @@ export function createConnectionState(
     agentCapabilities,
     envFingerprint,
     sessionMeta,
+    appliedModelProfile,
+    idleWaiters: new Set(),
   }
 }
 
@@ -98,7 +101,17 @@ export function endTurn(conn: AgentConnection, ourSessionId: string): void {
     session.activeTurnReject = undefined
   }
   conn.activeTurnCount = Math.max(0, conn.activeTurnCount - 1)
+  if (conn.activeTurnCount === 0) {
+    for (const resolve of conn.idleWaiters ?? []) resolve()
+    conn.idleWaiters?.clear()
+  }
   touchRuntime(conn, ourSessionId)
+}
+
+export function waitForAgentIdle(conn: AgentConnection): Promise<void> {
+  if (conn.activeTurnCount === 0) return Promise.resolve()
+  const waiters = conn.idleWaiters ??= new Set()
+  return new Promise<void>((resolve) => waiters.add(resolve))
 }
 
 export function setActiveTurnReject(conn: AgentConnection, ourSessionId: string, reject: ((err: Error) => void) | undefined): void {

@@ -6,6 +6,7 @@ import { mapConfigOptions, mergeCapabilitiesFromConfig } from './capabilities.js
 import type { AgentConnection } from './host-types.js'
 import { resolveDesiredRuntimeMode } from './runtime-mode-preference.js'
 import { configPreferencesWithDefaults } from './runtime-config-defaults.js'
+import { resolveRuntimeModelPreference } from './runtime-model-preference.js'
 
 const log = createChildLogger('acp-session-prefs')
 
@@ -31,7 +32,12 @@ async function applyModelPreference(
   caps: SessionCapabilities,
   prefs: SessionRuntimePreferences,
 ): Promise<void> {
-  const modelId = prefs.modelId
+  const modelId = resolveRuntimeModelPreference({
+    runtime: conn.runtime,
+    profile: conn.appliedModelProfile,
+    capabilities: caps,
+    sessionModelId: prefs.modelId,
+  })
   if (!modelId || modelId === caps.currentModelId) return
   if (!caps.models?.some((model) => model.modelId === modelId)) {
     log.warn({ agentId: conn.agentId, ourSessionId, modelId }, 'saved session model is unavailable')
@@ -95,7 +101,12 @@ async function applyConfigPreferences(
   caps: SessionCapabilities,
   prefs: SessionRuntimePreferences,
 ): Promise<void> {
-  const config = configPreferencesWithDefaults(caps.configOptions, prefs.config)
+  const profileConfig = conn.appliedModelProfile?.effort ? { effort: conn.appliedModelProfile.effort } : undefined
+  const desiredConfig = { ...profileConfig, ...prefs.config }
+  const config = configPreferencesWithDefaults(
+    caps.configOptions,
+    Object.keys(desiredConfig).length > 0 ? desiredConfig : undefined,
+  )
   if (!config) return
 
   for (const [configId, value] of Object.entries(config)) {

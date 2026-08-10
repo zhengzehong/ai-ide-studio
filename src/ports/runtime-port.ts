@@ -39,12 +39,21 @@ export interface RuntimeProcessSnapshot {
   command?: RuntimeCommandSnapshot
   env: Record<string, string>
   sessionMeta?: Record<string, unknown>
+  gatewayAuth?: {
+    methodId: 'gateway'
+    baseUrl: string
+    providerName: string
+    headers: Record<string, string>
+    fingerprint: string
+  }
   appliedModelProfile?: {
     id: string
     name: string
     runtime: string
     providerId: string
     contextWindow?: number
+    modelId?: string
+    effort?: string
   }
 }
 

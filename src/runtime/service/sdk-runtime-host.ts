@@ -1,11 +1,13 @@
 import { mapConfigOptions, mergeCapabilitiesFromConfig } from '../../acp/capabilities.js'
 import { cloneClaudeSessionFiles, hasClaudeSessionFiles } from '../../acp/claude-session-files.js'
+import { modelProfileChanged, resolveRuntimeModelPreference } from '../../acp/runtime-model-preference.js'
 import type { RuntimeCancelResult, RuntimeStateSnapshot } from '../../ports/runtime-port.js'
 import { createChildLogger } from '../../shared/logger.js'
 import type { ImageAttachment, SessionCapabilities } from '../../types/ws-protocol.js'
 import type { RuntimeSessionActorScheduler } from '../actors/session-actor.js'
 import { ResourceGovernor } from '../resources/resource-governor.js'
-import { createAcpRuntimeClient } from './acp-runtime-client.js'
+import { createSdkAgentRuntime } from './sdk-agent-start.js'
+import { handleSdkAgentExit, stopSdkAgentRuntime } from './sdk-agent-lifecycle.js'
 import {
   startManagedAcpAgent,
   type ManagedAcpAgent,
@@ -105,8 +107,30 @@ export class SdkRuntimeHost {
     const existing = this.sessions.get(snapshot.session.id)
     const contextFingerprint = runtimeSessionContextFingerprint(snapshot)
     if (existing?.contextFingerprint === contextFingerprint) {
+      const profileChanged = modelProfileChanged(
+        existing.snapshot.runtime.appliedModelProfile,
+        snapshot.runtime.appliedModelProfile,
+      )
       existing.snapshot = snapshot
       touchSdkSession(this.agents, existing)
+      if (profileChanged) {
+        agent.router.bindSession(
+          snapshot.session.id,
+          existing.acpSessionId,
+          snapshot.autoApprovedToolNames,
+          existing.capabilities.currentModeId,
+          snapshot.runtime.appliedModelProfile?.contextWindow,
+        )
+        const modelId = resolveRuntimeModelPreference({
+          runtime: snapshot.agent.runtime,
+          profile: snapshot.runtime.appliedModelProfile,
+          capabilities: existing.capabilities,
+          sessionModelId: snapshot.runtimePreferences.modelId,
+        })
+        if (modelId && modelId !== existing.capabilities.currentModelId) {
+          await this.setModel(snapshot.agent.id, snapshot.session.id, modelId)
+        }
+      }
       return existing.acpSessionId
     }
     const acpSessionIdToResume = snapshot.session.acpSessionId ?? existing?.acpSessionId ?? null
@@ -145,13 +169,15 @@ export class SdkRuntimeHost {
     return opened.acpSessionId
   }
 
-  prompt(input: {
+  async prompt(input: {
     agentId: string
     sessionId: string
     content: string
     images?: ImageAttachment[]
     diagnostics?: { turnId?: string; messageId?: string }
   }): Promise<void> {
+    const replacement = this.startByAgent.get(input.agentId)
+    if (replacement) await replacement
     return this.runtimeTurns.prompt(input)
   }
 
@@ -320,7 +346,10 @@ export class SdkRuntimeHost {
       return existing
     }
     const pending = this.startByAgent.get(snapshot.agent.id)
-    if (pending) return pending
+    if (pending) {
+      await pending
+      return this.ensureAgent(snapshot)
+    }
     const starting = this.startAgentInternal(snapshot, fingerprint).finally(() => {
       if (this.startByAgent.get(snapshot.agent.id) === starting) this.startByAgent.delete(snapshot.agent.id)
     })
@@ -334,90 +363,34 @@ export class SdkRuntimeHost {
   ): Promise<SdkAgentRuntime> {
     const existing = this.agents.get(snapshot.agent.id)
     if (existing?.fingerprint === fingerprint) return existing
-    if (existing) await this.stopAgent(snapshot.agent.id)
-    const router = createAcpRuntimeClient({
-      agentId: snapshot.agent.id,
+    if (existing) {
+      await this.runtimeTurns.waitForAgentIdle(snapshot.agent.id)
+      if (this.agents.get(snapshot.agent.id) === existing) await this.stopAgent(snapshot.agent.id)
+    }
+    const runtime = await createSdkAgentRuntime({
+      snapshot,
+      fingerprint,
       resources: this.resources,
-      publishUpdate: (update) => this.options.publishUpdate(snapshot.agent.id, update),
-      updateCapabilities: (sessionId, update) => {
-        const session = this.sessions.get(sessionId)
-        if (session) session.capabilities = update(session.capabilities)
-      },
-      publishCapabilities: (sessionId, capabilities) => this.options.publishCapabilities?.(sessionId, capabilities),
+      sessions: this.sessions,
+      options: this.options,
+      startAgent: this.startAgent,
       acceptTurnUpdate: (sessionId, streamGeneration) => this.runtimeTurns.acceptsUpdate(sessionId, streamGeneration),
     })
-    const command = snapshot.runtime.command
-    if (!command) {
-      router.close()
-      throw new Error(`Runtime command is missing for ${snapshot.agent.runtime}`)
-    }
-    const managed = await this.startAgent({
-      agentId: snapshot.agent.id,
-      runtime: snapshot.agent.runtime,
-      command,
-      env: snapshot.runtime.env,
-      router,
-    })
-    let rejectExit: ((error: Error) => void) | undefined
-    const exitPromise = new Promise<never>((_resolve, reject) => { rejectExit = reject })
-    void exitPromise.catch(() => undefined)
-    const runtime: SdkAgentRuntime = {
-      fingerprint,
-      process: managed.process,
-      connection: managed.connection,
-      router,
-      agentCapabilities: managed.agentCapabilities,
-      exitPromise,
-      rejectExit: rejectExit!,
-      stopping: false,
-      lastUsedAt: Date.now(),
-    }
     this.agents.set(snapshot.agent.id, runtime)
     this.options.publishAgentStatus?.({ agentId: snapshot.agent.id, status: 'running' })
-    managed.process.once('exit', (code, signal) => {
-      this.handleAgentExit(snapshot.agent.id, runtime, code, signal)
+    const handleExit = (code: number | null, signal: NodeJS.Signals | null) => handleSdkAgentExit({
+      agentId: snapshot.agent.id, runtime, agents: this.agents, sessions: this.sessions,
+      actors: this.actors, options: this.options, code, signal,
     })
-    if (typeof managed.process.exitCode === 'number' || managed.process.signalCode) {
-      this.handleAgentExit(snapshot.agent.id, runtime, managed.process.exitCode, managed.process.signalCode)
+    runtime.process.once('exit', handleExit)
+    if (typeof runtime.process.exitCode === 'number' || runtime.process.signalCode) {
+      handleExit(runtime.process.exitCode, runtime.process.signalCode)
     }
     return runtime
   }
 
   private async stopAgent(agentId: string): Promise<void> {
-    const agent = this.agents.get(agentId)
-    if (!agent) return
-    agent.stopping = true
-    agent.rejectExit(new Error(`Agent runtime stopped: ${agentId}`))
-    this.removeAgentSessions(agentId, agent)
-    agent.router.close()
-    this.agents.delete(agentId)
-    this.options.publishAgentStatus?.({ agentId, status: 'standby' })
-    if (!agent.process.killed) agent.process.kill()
-  }
-
-  private handleAgentExit(
-    agentId: string,
-    runtime: SdkAgentRuntime,
-    code: number | null,
-    signal: NodeJS.Signals | null,
-  ): void {
-    if (this.agents.get(agentId) !== runtime) return
-    this.agents.delete(agentId)
-    this.removeAgentSessions(agentId, runtime)
-    runtime.router.close()
-    runtime.rejectExit(new Error(`Agent runtime exited: ${agentId} (code=${code ?? 'null'}, signal=${signal ?? 'null'})`))
-    this.options.publishAgentStatus?.({ agentId, status: 'standby' })
-    if (!runtime.stopping) log.warn({ agentId, code, signal }, 'Agent runtime exited unexpectedly')
-  }
-
-  private removeAgentSessions(agentId: string, runtime: SdkAgentRuntime): void {
-    for (const [sessionId, session] of this.sessions) {
-      if (session.snapshot.agent.id !== agentId) continue
-      runtime.router.cancelSession(sessionId)
-      runtime.router.unbindSession(sessionId)
-      this.sessions.delete(sessionId)
-      if (this.actors.pendingCount(sessionId) === 0) this.actors.resetSession(sessionId)
-    }
+    stopSdkAgentRuntime({ agentId, agents: this.agents, sessions: this.sessions, actors: this.actors, options: this.options })
   }
 
 }

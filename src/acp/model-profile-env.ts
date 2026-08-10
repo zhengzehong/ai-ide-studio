@@ -1,7 +1,13 @@
 import { createHash } from 'crypto'
 import type { AgentRow } from '../store/agents.js'
-import { modelProfileStore, type ClaudeModelProfileConfig, type ModelProfileRow } from '../store/model-profiles.js'
+import {
+  modelProfileStore,
+  type ClaudeModelProfileConfig,
+  type CodexModelProfileConfig,
+  type ModelProfileRow,
+} from '../store/model-profiles.js'
 import { modelProviderStore, type ModelProviderRow } from '../store/model-providers.js'
+import { isProviderProtocolCompatible, normalizeOpenAiBaseUrl } from '../shared/model-provider-connection.js'
 import { buildRuntimeEnv } from './runtime-registry.js'
 import { buildAiIdeSystemPrompt } from '../core/ai-ide-system-prompt.js'
 import { buildMasterPrompt } from '../core/master-prompt.js'
@@ -13,11 +19,22 @@ export interface AppliedModelProfile {
   runtime: string
   providerId: string
   contextWindow?: number
+  modelId?: string
+  effort?: string
+}
+
+export interface RuntimeGatewayAuth {
+  methodId: 'gateway'
+  baseUrl: string
+  providerName: string
+  headers: Record<string, string>
+  fingerprint: string
 }
 
 export interface AgentRuntimeEnvResult {
   env: NodeJS.ProcessEnv
   appliedProfile?: AppliedModelProfile
+  gatewayAuth?: RuntimeGatewayAuth
 }
 
 export interface ClaudeSessionMeta extends Record<string, unknown> {
@@ -81,15 +98,33 @@ export function buildAgentRuntimeEnv(
   const resolvedProfile = resolveAgentModelProfile(runtime, agent)
   if (!resolvedProfile) return { env }
 
-  if (runtime !== 'claude') return { env }
+  if (runtime === 'codex') {
+    const config = parseCodexConfig(resolvedProfile.profile.config_json)
+    if (!config.model || !isProviderProtocolCompatible('codex', resolvedProfile.provider.protocol)) return { env }
+    return {
+      env,
+      appliedProfile: {
+        ...resolvedProfile.appliedProfile,
+        modelId: config.model,
+        ...(config.effort ? { effort: config.effort } : {}),
+      },
+      gatewayAuth: buildCodexGatewayAuth(resolvedProfile.provider),
+    }
+  }
+
+  const config = parseClaudeConfig(resolvedProfile.profile.config_json)
+  if (!isProviderProtocolCompatible('claude', resolvedProfile.provider.protocol)) return { env }
   if (!applyClaudeModelProfileEnv(
     env,
     resolvedProfile.provider,
-    parseClaudeConfig(resolvedProfile.profile.config_json),
+    config,
     resolvedProfile.appliedProfile.contextWindow,
   )) return { env }
 
-  return { env, appliedProfile: resolvedProfile.appliedProfile }
+  return {
+    env,
+    appliedProfile: { ...resolvedProfile.appliedProfile, modelId: config.defaultModel },
+  }
 }
 
 export function buildClaudeSessionMeta(env: NodeJS.ProcessEnv, runtime: string): ClaudeSessionMeta | undefined {
@@ -206,14 +241,36 @@ function applyClaudeModelProfileEnv(
   if (!defaultModel) return false
   env.ANTHROPIC_BASE_URL = normalizeClaudeBaseUrl(provider.base_url, provider.protocol)
   env.ANTHROPIC_API_KEY = provider.api_key
+  env.ANTHROPIC_AUTH_TOKEN = ''
   env.ANTHROPIC_MODEL = defaultModel
-  env.ANTHROPIC_DEFAULT_HAIKU_MODEL = config.haikuModel?.trim() || defaultModel
-  env.ANTHROPIC_DEFAULT_SONNET_MODEL = config.sonnetModel?.trim() || defaultModel
-  env.ANTHROPIC_DEFAULT_OPUS_MODEL = config.opusModel?.trim() || defaultModel
-  env.ANTHROPIC_REASONING_MODEL = defaultModel
+  applyOptionalEnv(env, 'ANTHROPIC_DEFAULT_HAIKU_MODEL', config.haikuModel)
+  applyOptionalEnv(env, 'ANTHROPIC_DEFAULT_SONNET_MODEL', config.sonnetModel)
+  applyOptionalEnv(env, 'ANTHROPIC_DEFAULT_OPUS_MODEL', config.opusModel)
   env[CLAUDE_IMAGE_READ_POLICY_ENV_KEY] = config.allowImageRead === true ? '1' : '0'
   if (contextWindow) env.CLAUDE_CODE_MAX_CONTEXT_TOKENS = String(contextWindow)
   return true
+}
+
+function applyOptionalEnv(env: NodeJS.ProcessEnv, key: string, value: string | undefined): void {
+  const normalized = value?.trim()
+  if (normalized) env[key] = normalized
+}
+
+function buildCodexGatewayAuth(provider: ModelProviderRow): RuntimeGatewayAuth {
+  const baseUrl = normalizeOpenAiBaseUrl(provider.base_url)
+  const apiKey = provider.api_key.trim()
+  const headers: Record<string, string> = apiKey ? { Authorization: `Bearer ${apiKey}` } : {}
+  return {
+    methodId: 'gateway',
+    baseUrl,
+    providerName: provider.display_name,
+    headers,
+    fingerprint: createHash('sha256').update(JSON.stringify({
+      protocol: provider.protocol,
+      baseUrl,
+      apiKey,
+    })).digest('hex'),
+  }
 }
 
 function fingerprintValue(key: string, value: string | undefined): string | null {
@@ -279,6 +336,13 @@ function parseClaudeConfig(raw: string): ClaudeModelProfileConfig {
     opusModel: typeof config.opusModel === 'string' ? config.opusModel : undefined,
     allowImageRead: config.allowImageRead === true,
   }
+}
+
+function parseCodexConfig(raw: string): CodexModelProfileConfig {
+  const config = parseRecord(raw)
+  const model = typeof config.model === 'string' ? config.model.trim() : ''
+  const effort = typeof config.effort === 'string' ? config.effort.trim() : ''
+  return { model, ...(effort ? { effort } : {}) }
 }
 
 function parseRecord(raw: string | null): Record<string, unknown> {
