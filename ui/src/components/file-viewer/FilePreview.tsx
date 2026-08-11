@@ -1,12 +1,14 @@
-import { X, FileText, Copy, Check } from 'lucide-react';
+import { X, FileText, Copy, Check, Download, AlertCircle } from 'lucide-react';
 import type { FileContent } from '../../stores/filesystem.store';
 import { useState } from 'react';
 import { copyText } from '../../utils/copy-text';
 import { MarkdownRenderer } from '../MarkdownRenderer';
 import { FileAssetView } from './FileAssetView';
+import { downloadFile } from '../../services/file-download';
 
 export function FilePreview({ file, projectId, onClose }: { file: FileContent; projectId?: string | null; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
+  const [downloadFailed, setDownloadFailed] = useState(false);
 
   const handleCopy = async () => {
     const ok = await copyText(file.content);
@@ -14,6 +16,12 @@ export function FilePreview({ file, projectId, onClose }: { file: FileContent; p
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
+
+  const handleDownload = async (): Promise<void> => {
+    setDownloadFailed(false)
+    const result = await downloadFile({ projectId: projectId ?? '', filePath: file.path, filename: file.path.split(/[\\/]/).pop() })
+    if (!result.ok && !result.canceled) setDownloadFailed(true)
+  }
 
   const isMarkdown = ['.md', '.mdx'].includes(file.extension);
 
@@ -32,6 +40,9 @@ export function FilePreview({ file, projectId, onClose }: { file: FileContent; p
         </span>
         {file.kind === 'text' && <button onClick={handleCopy} title="复制内容" style={iconBtn}>
           {copied ? <Check size={14} color="var(--green)" /> : <Copy size={14} />}
+        </button>}
+        {projectId && <button onClick={() => void handleDownload()} aria-label="下载文件" title={downloadFailed ? '下载失败' : '下载文件'} style={iconBtn}>
+          {downloadFailed ? <AlertCircle size={14} color="var(--red)" /> : <Download size={14} />}
         </button>}
         <button onClick={onClose} title="关闭" style={iconBtn}>
           <X size={14} />

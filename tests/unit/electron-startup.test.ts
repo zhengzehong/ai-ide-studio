@@ -84,6 +84,8 @@ describe('Electron builder config', () => {
     expect(electronDistEntry.filter).toEqual(expect.arrayContaining([
       'backend-launch.js',
       'desktop-connection.js',
+      'desktop-download-policy.js',
+      'desktop-download.js',
       'desktop-icon.js',
       'desktop-ipc.js',
       'desktop-ipc-policy.js',

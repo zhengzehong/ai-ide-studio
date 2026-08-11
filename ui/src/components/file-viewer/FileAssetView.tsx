@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { AlertCircle, Download, Headphones, Loader2 } from 'lucide-react'
 import { useFileAssetUrl } from './use-file-asset-url'
-import { requestFileAssetUrl } from '../../services/file-assets'
+import { downloadFile } from '../../services/file-download'
 
 interface FileAssetViewProps {
   projectId: string
@@ -31,13 +31,8 @@ export function FileAssetView({ projectId, path, kind, name, basePath }: FileAss
     asset.refresh()
   }
   const download = async (): Promise<void> => {
-    const result = await requestFileAssetUrl({ projectId, filePath: path, basePath, mode: 'attachment' })
-    const anchor = document.createElement('a')
-    anchor.href = result.url
-    anchor.download = name ?? path.split(/[\\/]/).pop() ?? 'download'
-    document.body.appendChild(anchor)
-    anchor.click()
-    anchor.remove()
+    const result = await downloadFile({ projectId, filePath: path, basePath, filename: name })
+    if (!result.ok && !result.canceled) throw new Error(result.error ?? '涓嬭浇澶辫触')
   }
   const restore = (media: HTMLMediaElement): void => {
     if (resumeAt.current > 0) media.currentTime = resumeAt.current

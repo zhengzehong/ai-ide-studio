@@ -7,6 +7,7 @@ import {
 } from './desktop-connection.js'
 import { probeDesktopConnection } from './desktop-connection-probe.js'
 import type { DesktopRuntimeTarget } from './desktop-target.js'
+import { runDesktopDownload, type DesktopDownloadInput } from './desktop-download.js'
 import {
   isDesktopApplicationPath,
   isTrustedDesktopIpcSender,
@@ -64,6 +65,11 @@ export function registerDesktopIpc(options: DesktopIpcOptions): void {
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) }
     }
+  })
+  ipcMain.handle('desktop:download-file', async (event, input: DesktopDownloadInput) => {
+    assertTrustedMainSender(event, options)
+    if (!input || typeof input.url !== 'string') return { ok: false, error: '下载参数无效' }
+    return await runDesktopDownload(options.mainWindow, options.target, input)
   })
 }
 

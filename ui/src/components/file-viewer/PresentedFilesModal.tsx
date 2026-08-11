@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { AlertCircle, Check, Copy, FileText, Loader2, X } from 'lucide-react'
+import { AlertCircle, Check, Copy, Download, FileText, Loader2, X } from 'lucide-react'
 import type { FileContent } from '../../stores/filesystem.store'
 import type { FilesPresentationInfo } from '../../stores/session-events'
 import { wsClient } from '../../services/ws-client'
 import { MarkdownRenderer } from '../MarkdownRenderer'
 import { copyText } from '../../utils/copy-text'
 import { FileAssetView } from './FileAssetView'
+import { downloadFile } from '../../services/file-download'
 
 export function PresentedFilesModal({ presentation, onClose }: { presentation: FilesPresentationInfo; onClose: () => void }) {
   const [selectedPath, setSelectedPath] = useState(presentation.files[0]?.path ?? '')
@@ -15,6 +16,7 @@ export function PresentedFilesModal({ presentation, onClose }: { presentation: F
     error: string | null
   } | null>(null)
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
+  const [downloadState, setDownloadState] = useState<'idle' | 'done' | 'failed'>('idle')
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -55,6 +57,19 @@ export function PresentedFilesModal({ presentation, onClose }: { presentation: F
     copyTimerRef.current = setTimeout(() => setCopyState('idle'), 1500)
   }
 
+  const downloadSelected = async (): Promise<void> => {
+    if (!selected) return
+    const result = await downloadFile({ projectId: presentation.projectId, filePath: selected.path, filename: selected.name })
+    if (!result.ok && !result.canceled) {
+      setDownloadState('failed')
+      return
+    }
+    if (!result.canceled) {
+      setDownloadState('done')
+      window.setTimeout(() => setDownloadState('idle'), 1500)
+    }
+  }
+
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 1600, width: '100vw', height: '100dvh', background: 'var(--bg-0)', display: 'flex' }}>
       <div style={{ width: '100%', height: '100%', background: 'var(--bg-0)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -74,6 +89,16 @@ export function PresentedFilesModal({ presentation, onClose }: { presentation: F
                 ? <AlertCircle size={15} color="var(--red)" />
                 : <Copy size={15} />}
             <span>{copyState === 'copied' ? '已复制' : copyState === 'failed' ? '复制失败' : '复制'}</span>
+          </button>
+          <button
+            type="button"
+            aria-label="下载文件"
+            title={downloadState === 'failed' ? '下载失败' : '下载文件'}
+            onClick={() => void downloadSelected()}
+            style={actionButton}
+          >
+            {downloadState === 'done' ? <Check size={15} color="var(--green)" /> : downloadState === 'failed' ? <AlertCircle size={15} color="var(--red)" /> : <Download size={15} />}
+            <span>{downloadState === 'done' ? '已下载' : '下载'}</span>
           </button>
           <button type="button" aria-label="关闭" title="关闭" onClick={onClose} style={iconButton}><X size={16} /></button>
         </header>
