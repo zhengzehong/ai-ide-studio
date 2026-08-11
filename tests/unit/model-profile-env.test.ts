@@ -170,6 +170,7 @@ describe('model profile runtime env', () => {
     const result = buildAgentRuntimeEnv('codex', agent, { MODEL_PROVIDER: 'system-provider' })
 
     expect(result.env.MODEL_PROVIDER).toBe('system-provider')
+    expect(result.env.AI_IDE_CODEX_GATEWAY_API_KEY).toBe('sk-codex-profile')
     expect(result.appliedProfile).toMatchObject({
       id: profile.id,
       modelId: 'gpt-5.6-sol',
@@ -188,11 +189,23 @@ describe('model profile runtime env', () => {
   test('does not create Codex gateway authentication without a bound profile', () => {
     const agent = agentStore.create({ name: 'System Codex', type: 'dev', runtime: 'codex' })
 
-    const result = buildAgentRuntimeEnv('codex', agent, { MODEL_PROVIDER: 'system-provider' })
+    const result = buildAgentRuntimeEnv('codex', agent, {
+      MODEL_PROVIDER: 'system-provider',
+      AI_IDE_CODEX_GATEWAY_API_KEY: 'stale-profile-key',
+    })
 
     expect(result.appliedProfile).toBeUndefined()
     expect(result.gatewayAuth).toBeUndefined()
     expect(result.env.MODEL_PROVIDER).toBe('system-provider')
+    expect(result.env.AI_IDE_CODEX_GATEWAY_API_KEY).toBeUndefined()
+  })
+
+  test('fingerprints a Codex profile key without exposing the credential', () => {
+    const first = fingerprintRuntimeEnv({ AI_IDE_CODEX_GATEWAY_API_KEY: 'profile-a' }, 'codex')
+    const second = fingerprintRuntimeEnv({ AI_IDE_CODEX_GATEWAY_API_KEY: 'profile-b' }, 'codex')
+
+    expect(first).not.toBe(second)
+    expect(first).not.toContain('profile-a')
   })
 
   test('normalizes a root Codex gateway URL to its OpenAI v1 endpoint', () => {

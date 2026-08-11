@@ -73,6 +73,7 @@ const CLAUDE_PROFILE_ENV_KEYS = [
 ] as const
 
 const CLAUDE_IMAGE_READ_POLICY_ENV_KEY = 'AI_IDE_CLAUDE_ALLOW_IMAGE_READ'
+export const CODEX_GATEWAY_API_KEY_ENV_KEY = 'AI_IDE_CODEX_GATEWAY_API_KEY'
 const CLAUDE_IMAGE_READ_DENY_RULES = [
   'Read(**/*.png)',
   'Read(**/*.jpg)',
@@ -95,12 +96,15 @@ export function buildAgentRuntimeEnv(
 ): AgentRuntimeEnvResult {
   const env = buildRuntimeEnv(runtime, baseEnv)
   if (runtime === 'claude') env[CLAUDE_IMAGE_READ_POLICY_ENV_KEY] = '0'
+  if (runtime === 'codex') delete env[CODEX_GATEWAY_API_KEY_ENV_KEY]
   const resolvedProfile = resolveAgentModelProfile(runtime, agent)
   if (!resolvedProfile) return { env }
 
   if (runtime === 'codex') {
     const config = parseCodexConfig(resolvedProfile.profile.config_json)
     if (!config.model || !isProviderProtocolCompatible('codex', resolvedProfile.provider.protocol)) return { env }
+    const apiKey = resolvedProfile.provider.api_key.trim()
+    if (apiKey) env[CODEX_GATEWAY_API_KEY_ENV_KEY] = apiKey
     return {
       env,
       appliedProfile: {
@@ -210,7 +214,7 @@ export function fingerprintRuntimeEnv(env: NodeJS.ProcessEnv, runtime: string): 
       'CLAUDE_MODEL_CONFIG',
       CLAUDE_IMAGE_READ_POLICY_ENV_KEY,
     ]
-    : ['CODEX_PATH', 'MODEL_PROVIDER', 'CODEX_CONFIG']
+    : ['CODEX_PATH', 'MODEL_PROVIDER', 'CODEX_CONFIG', CODEX_GATEWAY_API_KEY_ENV_KEY]
   return JSON.stringify(keys.map(key => [key, fingerprintValue(key, env[key])]))
 }
 
