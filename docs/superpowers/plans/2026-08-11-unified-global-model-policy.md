@@ -32,6 +32,6 @@
 
 ### Task 4: Integrate without disturbing PRD
 
-- [ ] Commit the reviewed feature branch.
-- [ ] Merge it into `prd` with `--no-ff`.
-- [ ] Do not restart, stop, or rebuild the currently running PRD service.
+- [x] Commit the reviewed feature branch.
+- [x] Merge it into `prd` with `--no-ff`.
+- [x] Do not restart, stop, or rebuild the currently running PRD service.
