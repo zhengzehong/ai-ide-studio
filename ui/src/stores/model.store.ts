@@ -43,12 +43,21 @@ export interface ModelProfileData {
   updated_at: string
 }
 
+export interface GlobalModelProfileData {
+  runtime: 'claude' | 'codex'
+  enabled: boolean
+  profileId: string | null
+  profile: ModelProfileData | null
+}
+
 interface ModelStore {
   providers: ModelProviderData[]
   profiles: ModelProfileData[]
+  globalProfiles: Record<'claude' | 'codex', GlobalModelProfileData>
   loading: boolean
-  fetchProviders: () => void
-  fetchProfiles: (runtime?: 'claude' | 'codex') => void
+  fetchProviders: () => Promise<void>
+  fetchProfiles: (runtime?: 'claude' | 'codex') => Promise<void>
+  fetchGlobalProfiles: () => Promise<void>
   createProvider: (p: { name: string; displayName: string; protocol: string; baseUrl: string; apiKey: string; models?: { id: string; name: string }[] }) => Promise<void>
   updateProvider: (id: string, fields: Record<string, unknown>) => Promise<void>
   toggleProvider: (id: string, enabled: boolean) => void
@@ -60,11 +69,22 @@ interface ModelStore {
   toggleProfile: (id: string, enabled: boolean) => void
   setDefaultProfile: (id: string) => void
   deleteProfile: (id: string) => void
+  setGlobalProfile: (runtime: 'claude' | 'codex', profileId: string) => Promise<void>
+  clearGlobalProfile: (runtime: 'claude' | 'codex') => Promise<void>
+  bulkSetAgentModelProfileMode: (runtime: 'claude' | 'codex', mode: 'global' | 'system') => Promise<number>
 }
+
+const emptyGlobalProfile = (runtime: 'claude' | 'codex'): GlobalModelProfileData => ({
+  runtime,
+  enabled: false,
+  profileId: null,
+  profile: null,
+})
 
 export const useModelStore = create<ModelStore>((set, get) => ({
   providers: [],
   profiles: [],
+  globalProfiles: { claude: emptyGlobalProfile('claude'), codex: emptyGlobalProfile('codex') },
   loading: false,
 
   fetchProviders: async () => {
@@ -84,6 +104,14 @@ export const useModelStore = create<ModelStore>((set, get) => ({
     set({ profiles: data })
   },
 
+  fetchGlobalProfiles: async () => {
+    const [claude, codex] = await Promise.all([
+      wsRpc('modelProfiles.global.get', { runtime: 'claude' }) as Promise<GlobalModelProfileData>,
+      wsRpc('modelProfiles.global.get', { runtime: 'codex' }) as Promise<GlobalModelProfileData>,
+    ])
+    set({ globalProfiles: { claude, codex } })
+  },
+
   createProvider: async (p) => {
     await wsRpc('models.create', p)
     get().fetchProviders()
@@ -91,17 +119,17 @@ export const useModelStore = create<ModelStore>((set, get) => ({
 
   updateProvider: async (id, fields) => {
     await wsRpc('models.update', { providerId: id, ...fields })
-    get().fetchProviders()
+    await Promise.all([get().fetchProviders(), get().fetchGlobalProfiles()])
   },
 
   toggleProvider: async (id, enabled) => {
     await wsRpc('models.toggle', { providerId: id, enabled })
-    get().fetchProviders()
+    await Promise.all([get().fetchProviders(), get().fetchGlobalProfiles()])
   },
 
   deleteProvider: async (id) => {
     await wsRpc('models.delete', { providerId: id })
-    get().fetchProviders()
+    await Promise.all([get().fetchProviders(), get().fetchGlobalProfiles()])
   },
 
   setDefault: async (id) => {
@@ -120,12 +148,12 @@ export const useModelStore = create<ModelStore>((set, get) => ({
 
   updateProfile: async (id, fields) => {
     await wsRpc('modelProfiles.update', { profileId: id, ...fields })
-    get().fetchProfiles()
+    await Promise.all([get().fetchProfiles(), get().fetchGlobalProfiles()])
   },
 
   toggleProfile: async (id, enabled) => {
     await wsRpc('modelProfiles.toggle', { profileId: id, enabled })
-    get().fetchProfiles()
+    await Promise.all([get().fetchProfiles(), get().fetchGlobalProfiles()])
   },
 
   setDefaultProfile: async (id) => {
@@ -135,6 +163,21 @@ export const useModelStore = create<ModelStore>((set, get) => ({
 
   deleteProfile: async (id) => {
     await wsRpc('modelProfiles.delete', { profileId: id })
-    get().fetchProfiles()
+    await Promise.all([get().fetchProfiles(), get().fetchGlobalProfiles()])
+  },
+
+  setGlobalProfile: async (runtime, profileId) => {
+    const data = await wsRpc('modelProfiles.global.set', { runtime, profileId }) as GlobalModelProfileData
+    set((state) => ({ globalProfiles: { ...state.globalProfiles, [runtime]: data } }))
+  },
+
+  clearGlobalProfile: async (runtime) => {
+    const data = await wsRpc('modelProfiles.global.clear', { runtime }) as GlobalModelProfileData
+    set((state) => ({ globalProfiles: { ...state.globalProfiles, [runtime]: data } }))
+  },
+
+  bulkSetAgentModelProfileMode: async (runtime, mode) => {
+    const result = await wsRpc('agents.bulkModelProfileMode', { runtime, mode }) as { count: number }
+    return result.count
   },
 }))

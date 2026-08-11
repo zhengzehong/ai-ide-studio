@@ -190,7 +190,7 @@ describe('model profiles', () => {
       name: 'Agent',
       type: 'dev',
       runtime: 'codex',
-      config: { templateId: 'tpl-dev', modelProfileId: profile.id },
+      config: { templateId: 'tpl-dev', modelProfileId: profile.id, modelProfileMode: 'fixed' },
     })
 
     modelProfileStore.delete(profile.id)

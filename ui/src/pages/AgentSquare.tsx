@@ -172,18 +172,15 @@ function GlobalAssistantTemplateModal({
   const fetchProfiles = useModelStore((s) => s.fetchProfiles)
   const [name, setName] = useState(template.name)
   const [runtime, setRuntime] = useState(template.runtime)
-  const [modelProfileId, setModelProfileId] = useState<string | null>(null)
+  const [modelProfileId, setModelProfileId] = useState('')
   const [systemPrompt, setSystemPrompt] = useState(template.system_prompt)
   const availableProfiles = useMemo(
     () => profiles.filter((profile) => profile.enabled && profile.runtime === runtime),
     [profiles, runtime],
   )
-  const defaultModelProfileId = availableProfiles.find((profile) => profile.is_default === 1)?.id ?? ''
-  const selectedModelProfileId = modelProfileId === null
-    ? defaultModelProfileId
-    : availableProfiles.some((profile) => profile.id === modelProfileId)
-      ? modelProfileId
-      : ''
+  const selectedModelProfileId = availableProfiles.some((profile) => profile.id === modelProfileId)
+    ? modelProfileId
+    : ''
 
   useEffect(() => { fetchProfiles() }, [fetchProfiles])
 
@@ -213,14 +210,14 @@ function GlobalAssistantTemplateModal({
             <input value={name} onChange={(e) => setName(e.target.value)} style={editorInput} />
           </Field>
           <Field label="运行时">
-            <select value={runtime} onChange={(e) => { setRuntime(e.target.value); setModelProfileId(null) }} style={editorInput}>
+            <select value={runtime} onChange={(e) => { setRuntime(e.target.value); setModelProfileId('') }} style={editorInput}>
               {RUNTIME_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
             </select>
           </Field>
           {(runtime === 'claude' || runtime === 'codex') && (
             <Field label="模型档案">
               <select value={selectedModelProfileId} onChange={(e) => setModelProfileId(e.target.value)} style={editorInput}>
-                <option value="">不绑定模型档案</option>
+                <option value="">跟随全局档案</option>
                 {availableProfiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}{profile.is_default ? '（默认）' : ''}</option>)}
               </select>
             </Field>

@@ -6,6 +6,8 @@ import { wsClient } from '../../services/ws-client'
 import { AvatarUploader } from './AvatarUploader'
 import { TYPE_FILTERS } from '../agent-square/constants'
 
+type AgentModelProfileMode = 'global' | 'fixed' | 'system'
+
 interface AgentSettingsModalProps {
   agent: AgentData
   modelProfiles: ModelProfileData[]
@@ -34,6 +36,16 @@ export function AgentSettingsModal({
       return ''
     }
   })
+  const [modelProfileMode, setModelProfileMode] = useState<AgentModelProfileMode>(() => {
+    if (!agent.config_json) return 'global'
+    try {
+      const config = JSON.parse(agent.config_json) as { modelProfileId?: unknown; modelProfileMode?: unknown }
+      if (config.modelProfileMode === 'global' || config.modelProfileMode === 'fixed' || config.modelProfileMode === 'system') return config.modelProfileMode
+      return typeof config.modelProfileId === 'string' && config.modelProfileId ? 'fixed' : 'global'
+    } catch {
+      return 'global'
+    }
+  })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -41,6 +53,10 @@ export function AgentSettingsModal({
     () => modelProfiles.filter((p) => p.enabled && p.runtime === agent.runtime),
     [agent.runtime, modelProfiles],
   )
+  const selectedModelProfileId = availableProfiles.some((profile) => profile.id === modelProfileId)
+    ? modelProfileId
+    : ''
+  const fixedProfileMissing = modelProfileMode === 'fixed' && !selectedModelProfileId
 
   useEffect(() => { onLoadProfiles() }, [onLoadProfiles])
 
@@ -65,7 +81,8 @@ export function AgentSettingsModal({
         name: name.trim(),
         icon,
         avatarUrl: finalAvatarUrl,
-        modelProfileId: modelProfileId || null,
+        modelProfileId: selectedModelProfileId || null,
+        modelProfileMode,
       })
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -124,21 +141,32 @@ export function AgentSettingsModal({
             />
           </Field>
           {(agent.runtime === 'claude' || agent.runtime === 'codex') && (
-            <Field label="模型档案">
-              <select
-                value={availableProfiles.some((p) => p.id === modelProfileId) ? modelProfileId : ''}
-                onChange={(e) => setModelProfileId(e.target.value)}
-                style={styles.input}
-              >
-                <option value="">不绑定模型档案</option>
-                {availableProfiles.map((profile) => (
-                  <option key={profile.id} value={profile.id}>
-                    {profile.name}{profile.is_default ? '（默认）' : ''}
-                  </option>
-                ))}
-              </select>
-            </Field>
+            <>
+              <Field label="模型策略">
+                <select value={modelProfileMode} onChange={(event) => setModelProfileMode(event.target.value as AgentModelProfileMode)} style={styles.input}>
+                  <option value="global">跟随全局档案</option>
+                  <option value="fixed">固定模型档案</option>
+                  <option value="system">使用系统配置</option>
+                </select>
+              </Field>
+              <Field label="模型档案">
+                <select
+                  value={selectedModelProfileId}
+                  onChange={(e) => setModelProfileId(e.target.value)}
+                  disabled={modelProfileMode !== 'fixed'}
+                  style={styles.input}
+                >
+                  <option value="">请选择模型档案</option>
+                  {availableProfiles.map((profile) => (
+                    <option key={profile.id} value={profile.id}>
+                      {profile.name}{profile.is_default ? '（默认）' : ''}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            </>
           )}
+          {fixedProfileMissing && <div style={styles.error}>固定模型档案策略需要选择一个可用档案</div>}
           {error && <div style={styles.error}>{error}</div>}
         </div>
 
@@ -146,8 +174,8 @@ export function AgentSettingsModal({
           <button onClick={onClose} style={styles.cancelBtn}>取消</button>
           <button
             onClick={handleSave}
-            disabled={saving || !name.trim()}
-            style={{ ...styles.confirmBtn, opacity: saving || !name.trim() ? 0.5 : 1 }}
+            disabled={saving || !name.trim() || fixedProfileMissing}
+            style={{ ...styles.confirmBtn, opacity: saving || !name.trim() || fixedProfileMissing ? 0.5 : 1 }}
           >
             {saving ? '保存中...' : '保存'}
           </button>

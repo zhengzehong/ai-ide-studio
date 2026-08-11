@@ -110,6 +110,7 @@ export interface AgentsDeployTemplateMsg extends ClientMessage {
   systemPrompt?: string
   icon?: string
   modelProfileId?: string
+  modelProfileMode?: 'global' | 'fixed' | 'system'
 }
 export interface AgentsCreateCustomMsg extends ClientMessage {
   type: 'agents.createCustom'
@@ -120,6 +121,7 @@ export interface AgentsCreateCustomMsg extends ClientMessage {
   systemPrompt?: string
   icon?: string
   modelProfileId?: string
+  modelProfileMode?: 'global' | 'fixed' | 'system'
 }
 export interface AgentsUpdateMsg extends ClientMessage {
   type: 'agents.update'
@@ -130,6 +132,13 @@ export interface AgentsUpdateMsg extends ClientMessage {
   systemPrompt?: string
   icon?: string
   modelProfileId?: string | null
+  modelProfileMode?: 'global' | 'fixed' | 'system'
+}
+export interface AgentsBulkModelProfileModeMsg extends ClientMessage {
+  type: 'agents.bulkModelProfileMode'
+  runtime: 'claude' | 'codex'
+  mode: 'global' | 'system'
+  projectId?: string
 }
 export interface AgentsDeleteMsg extends ClientMessage {
   type: 'agents.delete'

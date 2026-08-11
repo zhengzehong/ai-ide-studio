@@ -119,8 +119,13 @@ function buildAgentConfig(
     skills: parseSkills(skillsJson),
   }
   if (modelProfileId !== undefined) {
-    if (modelProfileId) config.modelProfileId = modelProfileId
-    else delete config.modelProfileId
+    if (modelProfileId) {
+      config.modelProfileId = modelProfileId
+      config.modelProfileMode = 'fixed'
+    } else {
+      delete config.modelProfileId
+      config.modelProfileMode = 'global'
+    }
   }
   return config
 }

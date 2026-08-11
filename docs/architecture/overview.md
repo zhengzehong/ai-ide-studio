@@ -342,6 +342,12 @@ Team 运行时事件规则：`team.member.spawn` 会广播包含完整成员 Ses
 - Claude 的 ACP fork 只保证当前进程内的新 Query 可用，不保证立即生成可跨进程恢复的目标 JSONL。Runtime 在 fork 返回后同步复制并校验源 JSONL 与同名伴随资源目录，原子发布目标快照后才注册 Session；物化失败会关闭新 Query 并向调用方返回失败。Codex 继续使用自身的 thread fork 持久化。
 - 会话模板以已物化的 fork 作为不可变上下文快照。历史模板缺少快照时，只在源 Claude JSONL 仍存在的情况下按需修复；源快照也缺失时要求重新发布模板。删除模板会同时清理模板副本，不删除源会话文件。
 
+## 全局模型档案策略
+
+Claude Code 与 Codex 各自在 `settings` 中保存一个可选的全局模型档案 ID。Agent 通过 `config_json.modelProfileMode` 选择 `global`（跟随全局）、`fixed`（使用自身 `modelProfileId`）或 `system`（绕过档案并继承 Runtime 系统配置）。兼容旧数据时，有显式 `modelProfileId` 的 Agent 视为固定档案，未绑定档案的 Agent 视为跟随全局。
+
+API 在每次发送 Prompt 前构建 Runtime Snapshot，因此全局切换不需要重启平台服务。已有 Session 级手动模型偏好比 Agent 档案更具体，会继续保持；没有 Session 覆盖时，Codex 仅模型或推理强度变化时复用进程并更新 Session 模型。Base URL、Key 等进程配置变化时沿用 Agent 指纹和空闲替换机制，只替换受影响的 Agent。Claude Code 的模型、上下文、图片权限或连接配置变化也在对应 Agent 空闲后替换其进程；其他 Agent 和正在执行的 turn 不受影响。
+
 ## 未实现的设计目标
 
 以下在设计文档中有描述，但当前代码未实现：

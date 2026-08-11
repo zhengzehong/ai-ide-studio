@@ -8,6 +8,7 @@ import { modelProfileStore } from '../store/model-profiles.js'
 import { agentMemoryService } from './agent-memory.js'
 import { ensureAgentPrimarySession } from './agent-primary-sessions.js'
 import { ruleStore } from '../store/rules.js'
+import { readAgentModelProfileMode, type AgentModelProfileMode } from '../acp/runtime-global-model-profile.js'
 
 const log = createChildLogger('agents')
 
@@ -18,6 +19,7 @@ export interface DeployTemplateInput {
   icon?: string
   avatarUrl?: string | null
   modelProfileId?: string
+  modelProfileMode?: AgentModelProfileMode
 }
 
 export interface CreateCustomAgentInput {
@@ -29,6 +31,7 @@ export interface CreateCustomAgentInput {
   icon?: string
   avatarUrl?: string | null
   modelProfileId?: string
+  modelProfileMode?: AgentModelProfileMode
 }
 
 export interface UpdateProjectAgentInput {
@@ -39,6 +42,7 @@ export interface UpdateProjectAgentInput {
   icon?: string
   avatarUrl?: string | null
   modelProfileId?: string | null
+  modelProfileMode?: AgentModelProfileMode
 }
 
 export function deployTemplateToProject(templateId: string, projectId: string, input: DeployTemplateInput = {}): AgentRow {
@@ -48,7 +52,9 @@ export function deployTemplateToProject(templateId: string, projectId: string, i
   const template = templateStore.get(templateId)
   if (!template) throw new Error(`Agent 模板不存在: ${templateId}`)
   const runtime = input.runtime || template.runtime
+  ensureModelProfileMode(input.modelProfileMode)
   ensureModelProfileMatches(input.modelProfileId, runtime)
+  ensureFixedProfileSelected(input.modelProfileMode, input.modelProfileId)
 
   const agent = agentStore.create({
     name: input.name?.trim() || template.name,
@@ -63,6 +69,7 @@ export function deployTemplateToProject(templateId: string, projectId: string, i
       templateId,
       skills: template.skills_json ? JSON.parse(template.skills_json) : [],
       ...(input.modelProfileId ? { modelProfileId: input.modelProfileId } : {}),
+      ...(input.modelProfileMode ? { modelProfileMode: input.modelProfileMode } : {}),
     },
   })
 
@@ -92,7 +99,9 @@ export function createCustomProjectAgent(input: CreateCustomAgentInput): AgentRo
   if (!isSupportedAgentRuntime(input.runtime)) {
     throw new Error(`不支持的 Agent runtime: ${input.runtime || '空'}。当前仅支持 ${SUPPORTED_AGENT_RUNTIMES.join('|')}`)
   }
+  ensureModelProfileMode(input.modelProfileMode)
   ensureModelProfileMatches(input.modelProfileId, input.runtime)
+  ensureFixedProfileSelected(input.modelProfileMode, input.modelProfileId)
 
   const agent = agentStore.create({
     name,
@@ -102,7 +111,12 @@ export function createCustomProjectAgent(input: CreateCustomAgentInput): AgentRo
     systemPrompt: input.systemPrompt,
     icon: input.icon,
     avatarUrl: input.avatarUrl,
-    config: input.modelProfileId ? { modelProfileId: input.modelProfileId } : undefined,
+    config: input.modelProfileId || input.modelProfileMode
+      ? {
+        ...(input.modelProfileId ? { modelProfileId: input.modelProfileId } : {}),
+        ...(input.modelProfileMode ? { modelProfileMode: input.modelProfileMode } : {}),
+      }
+      : undefined,
   })
   ensureAgentPrimarySession(agent)
   log.info({ agentId: agent.id, projectId: input.projectId }, '项目自定义 Agent 已创建')
@@ -120,6 +134,7 @@ export function updateProjectAgent(agentId: string, input: UpdateProjectAgentInp
     throw new Error(`不支持的 Agent runtime: ${input.runtime || '空'}。当前仅支持 ${SUPPORTED_AGENT_RUNTIMES.join('|')}`)
   }
   const nextRuntime = input.runtime ?? existing.runtime
+  ensureModelProfileMode(input.modelProfileMode)
   if (input.modelProfileId !== undefined && input.modelProfileId !== null) {
     ensureModelProfileMatches(input.modelProfileId, nextRuntime)
   }
@@ -145,13 +160,37 @@ export function updateProjectAgent(agentId: string, input: UpdateProjectAgentInp
     fields.config = config
   } else if (input.runtime !== undefined && hasMismatchedModelProfile(config.modelProfileId, nextRuntime)) {
     delete config.modelProfileId
+    if (config.modelProfileMode === 'fixed') delete config.modelProfileMode
     fields.config = config
   }
+  if (input.modelProfileMode !== undefined) {
+    config.modelProfileMode = input.modelProfileMode
+    fields.config = config
+  }
+  const nextMode = readAgentModelProfileMode(JSON.stringify(config))
+  const nextProfileId = typeof config.modelProfileId === 'string' ? config.modelProfileId : undefined
+  ensureFixedProfileSelected(nextMode, nextProfileId)
+  if (nextMode === 'fixed') ensureModelProfileMatches(nextProfileId, nextRuntime)
 
   const updated = agentStore.update(agentId, fields)
   if (!updated) throw new Error(`Agent 不存在: ${agentId}`)
   log.info({ agentId, projectId: existing.project_id }, '项目 Agent 已更新')
   return updated
+}
+
+export function setAgentsModelProfileMode(
+  runtime: string,
+  mode: Extract<AgentModelProfileMode, 'global' | 'system'>,
+  projectId?: string,
+): number {
+  const agents = agentStore.list(projectId).filter((agent) => agent.runtime === runtime)
+  for (const agent of agents) {
+    const config = parseAgentConfig(agent.config_json)
+    config.modelProfileMode = mode
+    agentStore.update(agent.id, { config })
+  }
+  log.info({ runtime, mode, projectId, count: agents.length }, 'Agent 全局模型档案策略已批量更新')
+  return agents.length
 }
 
 export function deleteProjectAgent(agentId: string): void {
@@ -189,6 +228,16 @@ function ensureModelProfileMatches(modelProfileId: string | undefined, runtime: 
   const profile = modelProfileStore.get(modelProfileId)
   if (!profile) throw new Error(`模型档案不存在: ${modelProfileId}`)
   if (profile.runtime !== runtime) throw new Error('模型档案运行时与 Agent 运行时不匹配')
+}
+
+function ensureModelProfileMode(mode: AgentModelProfileMode | undefined): void {
+  if (mode !== undefined && mode !== 'global' && mode !== 'fixed' && mode !== 'system') {
+    throw new Error('模型档案策略无效')
+  }
+}
+
+function ensureFixedProfileSelected(mode: AgentModelProfileMode | undefined, modelProfileId: string | undefined): void {
+  if (mode === 'fixed' && !modelProfileId) throw new Error('固定模型档案策略必须选择模型档案')
 }
 
 function hasMismatchedModelProfile(modelProfileId: unknown, runtime: string): boolean {
