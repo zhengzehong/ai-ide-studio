@@ -30,6 +30,8 @@ const builderConfig: BuilderConfiguration = {
         'desktop-connection-probe.js',
         'desktop-connection.js',
         'desktop-credentials.js',
+        'desktop-download-policy.js',
+        'desktop-download.js',
         'desktop-icon.js',
         'desktop-ipc.js',
         'desktop-ipc-policy.js',

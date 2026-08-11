@@ -114,6 +114,8 @@ describe('PC files presentation', () => {
     expect(html).toContain('height:100dvh')
     expect(html).toContain('aria-label="复制内容"')
     expect(html).toContain('<span>复制</span>')
+    expect(html).toContain('aria-label="下载文件"')
+    expect(html).toContain('<span>下载</span>')
     expect(html).not.toContain('width:min(1100px, 100%)')
   })
 

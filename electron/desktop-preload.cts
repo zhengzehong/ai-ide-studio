@@ -11,4 +11,5 @@ contextBridge.exposeInMainWorld('electronDesktop', {
   getSettings: () => ipcRenderer.invoke('desktop:get-settings'),
   testConnection: (input: unknown) => ipcRenderer.invoke('desktop:test-connection', input),
   saveSettings: (input: unknown) => ipcRenderer.invoke('desktop:save-settings', input),
+  downloadFile: (input: unknown) => ipcRenderer.invoke('desktop:download-file', input),
 })

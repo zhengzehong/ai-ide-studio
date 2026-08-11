@@ -26,6 +26,17 @@ export interface DesktopOperationResult {
   error?: string
 }
 
+export interface DesktopDownloadResult {
+  ok: boolean
+  canceled?: boolean
+  error?: string
+}
+
+export interface DesktopDownloadInput {
+  url: string
+  filename?: string
+}
+
 export interface ElectronDesktopBootstrapBridge {
   getBootstrap(): DesktopBootstrap
 }
@@ -36,6 +47,7 @@ export interface ElectronDesktopBridge extends ElectronDesktopBootstrapBridge {
   getSettings(): Promise<DesktopConnectionSettings>
   testConnection(input: DesktopConnectionInput): Promise<DesktopOperationResult>
   saveSettings(input: DesktopConnectionInput): Promise<DesktopOperationResult>
+  downloadFile?(input: DesktopDownloadInput): Promise<DesktopDownloadResult>
 }
 
 export function getElectronDesktopBridge(): ElectronDesktopBridge | null {
