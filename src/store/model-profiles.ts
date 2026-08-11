@@ -185,6 +185,7 @@ function unbindAgentsFromProfile(profileId: string, options: { allowedRuntime?: 
     const config = parseConfig(row.config_json)
     if (config.modelProfileId !== profileId) continue
     delete config.modelProfileId
+    if (config.modelProfileMode === 'fixed') delete config.modelProfileMode
     const nextConfig = Object.keys(config).length > 0 ? JSON.stringify(config) : null
     updateAgent.run(nextConfig, row.id)
     log.debug({ profileId, agentId: row.id }, '已清理 Agent 模型档案绑定')

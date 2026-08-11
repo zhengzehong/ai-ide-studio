@@ -12,6 +12,11 @@ import { buildRuntimeEnv } from './runtime-registry.js'
 import { buildAiIdeSystemPrompt } from '../core/ai-ide-system-prompt.js'
 import { buildMasterPrompt } from '../core/master-prompt.js'
 import { agentMemoryService } from '../core/agent-memory.js'
+import {
+  getGlobalModelProfile,
+  readAgentModelProfileMode,
+  readModelProfileId,
+} from './runtime-global-model-profile.js'
 
 export interface AppliedModelProfile {
   id: string
@@ -298,7 +303,19 @@ function resolveAgentModelProfile(
   runtime: string,
   agent: AgentRow,
 ): { profile: ModelProfileRow; provider: ModelProviderRow; appliedProfile: AppliedModelProfile } | undefined {
-  const profileId = readModelProfileId(agent.config_json)
+  const mode = runtime === 'claude' || runtime === 'codex'
+    ? readAgentModelProfileMode(agent.config_json)
+    : 'system'
+  const explicitProfileId = readModelProfileId(agent.config_json)
+  const globalState = runtime === 'claude' || runtime === 'codex'
+    ? getGlobalModelProfile(runtime)
+    : undefined
+  const globalProfileId = globalState?.enabled ? globalState.profileId : undefined
+  const profileId = mode === 'fixed'
+    ? explicitProfileId
+    : mode === 'global'
+      ? globalProfileId
+      : undefined
   if (!profileId) return undefined
 
   const profile = modelProfileStore.get(profileId)
@@ -322,12 +339,6 @@ function toAppliedModelProfile(profile: ModelProfileRow): AppliedModelProfile {
 
 function normalizeContextWindow(value: number | null): number | undefined {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : undefined
-}
-
-function readModelProfileId(raw: string | null): string | undefined {
-  const config = parseRecord(raw)
-  const value = config.modelProfileId
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined
 }
 
 function parseClaudeConfig(raw: string): ClaudeModelProfileConfig {

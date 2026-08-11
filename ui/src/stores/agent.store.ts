@@ -46,6 +46,7 @@ export interface ProjectAgentInput {
   icon?: string
   avatarUrl?: string | null
   modelProfileId?: string | null
+  modelProfileMode?: 'global' | 'fixed' | 'system'
 }
 
 interface AgentStore {

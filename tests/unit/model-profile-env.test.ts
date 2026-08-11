@@ -14,6 +14,7 @@ import { closeDatabase, initDatabase } from '../../src/store/db.js'
 import { modelProfileStore } from '../../src/store/model-profiles.js'
 import { modelProviderStore } from '../../src/store/model-providers.js'
 import { buildAiIdeSystemPrompt } from '../../src/core/ai-ide-system-prompt.js'
+import { setGlobalModelProfile } from '../../src/acp/runtime-global-model-profile.js'
 
 const tmp = mkdtempSync(resolve(tmpdir(), 'ai-ide-model-profile-env-'))
 let dbIndex = 0
@@ -184,6 +185,106 @@ describe('model profile runtime env', () => {
       headers: { Authorization: 'Bearer sk-codex-profile' },
     })
     expect(JSON.stringify(result.gatewayAuth?.fingerprint)).not.toContain('sk-codex-profile')
+  })
+
+  test('resolves the global Codex profile for an Agent without a fixed profile', () => {
+    const provider = modelProviderStore.create({
+      name: 'global-codex',
+      displayName: 'Global Codex',
+      protocol: 'openai',
+      baseUrl: 'https://global.example.com/v1',
+      apiKey: 'sk-global',
+    })
+    const profile = modelProfileStore.create({
+      name: 'Global Codex profile',
+      runtime: 'codex',
+      providerId: provider.id,
+      config: { model: 'gpt-global', effort: 'high' },
+    })
+    setGlobalModelProfile('codex', profile.id)
+    const agent = agentStore.create({ name: 'Unbound Codex', type: 'dev', runtime: 'codex' })
+
+    const result = buildAgentRuntimeEnv('codex', agent)
+
+    expect(result.appliedProfile?.id).toBe(profile.id)
+    expect(result.appliedProfile?.modelId).toBe('gpt-global')
+    expect(result.gatewayAuth?.baseUrl).toBe('https://global.example.com/v1')
+  })
+
+  test('resolves the global Claude profile for an Agent without a fixed profile', () => {
+    const provider = modelProviderStore.create({
+      name: 'global-claude',
+      displayName: 'Global Claude',
+      protocol: 'claude',
+      baseUrl: 'https://claude.example.com/anthropic',
+      apiKey: 'sk-global-claude',
+    })
+    const profile = modelProfileStore.create({
+      name: 'Global Claude profile',
+      runtime: 'claude',
+      providerId: provider.id,
+      contextWindow: 200000,
+      config: { defaultModel: 'claude-global', sonnetModel: 'claude-global-sonnet' },
+    })
+    setGlobalModelProfile('claude', profile.id)
+    const agent = agentStore.create({ name: 'Unbound Claude', type: 'dev', runtime: 'claude' })
+
+    const result = buildAgentRuntimeEnv('claude', agent, { OTHER_ENV: 'kept' })
+
+    expect(result.appliedProfile?.id).toBe(profile.id)
+    expect(result.appliedProfile?.contextWindow).toBe(200000)
+    expect(result.env.ANTHROPIC_BASE_URL).toBe('https://claude.example.com/anthropic')
+    expect(result.env.ANTHROPIC_API_KEY).toBe('sk-global-claude')
+    expect(result.env.ANTHROPIC_MODEL).toBe('claude-global')
+    expect(result.env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBe('claude-global-sonnet')
+    expect(result.env.OTHER_ENV).toBe('kept')
+  })
+
+  test('lets an Agent bypass the global profile with system mode', () => {
+    const provider = modelProviderStore.create({
+      name: 'global-system-bypass',
+      displayName: 'Global',
+      protocol: 'openai',
+      baseUrl: 'https://global.example.com',
+      apiKey: 'sk-global',
+    })
+    const profile = modelProfileStore.create({
+      name: 'Global Codex profile',
+      runtime: 'codex',
+      providerId: provider.id,
+      config: { model: 'global-model' },
+    })
+    setGlobalModelProfile('codex', profile.id)
+    const agent = agentStore.create({
+      name: 'System Codex',
+      type: 'dev',
+      runtime: 'codex',
+      config: { modelProfileMode: 'system' },
+    })
+
+    const result = buildAgentRuntimeEnv('codex', agent, { MODEL_PROVIDER: 'system-provider' })
+
+    expect(result.appliedProfile).toBeUndefined()
+    expect(result.gatewayAuth).toBeUndefined()
+    expect(result.env.MODEL_PROVIDER).toBe('system-provider')
+  })
+
+  test('keeps a legacy fixed Codex profile outside the global profile', () => {
+    const globalProvider = modelProviderStore.create({
+      name: 'global-provider', displayName: 'Global', protocol: 'openai', baseUrl: 'https://global.example.com', apiKey: 'sk-global',
+    })
+    const fixedProvider = modelProviderStore.create({
+      name: 'fixed-provider', displayName: 'Fixed', protocol: 'openai', baseUrl: 'https://fixed.example.com', apiKey: 'sk-fixed',
+    })
+    const globalProfile = modelProfileStore.create({ name: 'Global', runtime: 'codex', providerId: globalProvider.id, config: { model: 'global-model' } })
+    const fixedProfile = modelProfileStore.create({ name: 'Fixed', runtime: 'codex', providerId: fixedProvider.id, config: { model: 'fixed-model' } })
+    setGlobalModelProfile('codex', globalProfile.id)
+    const agent = agentStore.create({ name: 'Fixed Codex', type: 'dev', runtime: 'codex', config: { modelProfileId: fixedProfile.id } })
+
+    const result = buildAgentRuntimeEnv('codex', agent)
+
+    expect(result.appliedProfile?.id).toBe(fixedProfile.id)
+    expect(result.gatewayAuth?.baseUrl).toBe('https://fixed.example.com/v1')
   })
 
   test('does not create Codex gateway authentication without a bound profile', () => {

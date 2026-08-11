@@ -10,6 +10,7 @@ import { useProjectStore } from '../stores/project.store'
 import { DesktopConnectionSection } from './settings/DesktopConnectionSection'
 import { ModelProfileForm } from './settings/ModelProfileForm'
 import { parseProfileConfig } from './settings/model-profile-options'
+import { GlobalModelProfileSection } from './settings/GlobalModelProfileSection'
 
 export default function Settings() {
   const navigate = useNavigate()
@@ -39,6 +40,8 @@ export default function Settings() {
       </div>
 
       <DesktopConnectionSection />
+
+      <GlobalModelProfileSection />
 
       {/* Section: My Shares */}
       <div style={{ marginBottom: 32 }}>

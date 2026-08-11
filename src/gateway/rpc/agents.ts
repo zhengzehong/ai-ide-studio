@@ -1,5 +1,5 @@
 import { isSupportedAgentRuntime, SUPPORTED_AGENT_RUNTIMES } from '../../acp/adapters.js'
-import { createCustomProjectAgent, deleteProjectAgent, deployTemplateToProject, updateProjectAgent } from '../../core/agents.js'
+import { createCustomProjectAgent, deleteProjectAgent, deployTemplateToProject, setAgentsModelProfileMode, updateProjectAgent } from '../../core/agents.js'
 import { agentStore } from '../../store/agents.js'
 import type { RpcHandlerMap } from './types.js'
 
@@ -24,6 +24,7 @@ export const agentRpcHandlers: RpcHandlerMap = {
       icon: msg.icon as string | undefined,
       avatarUrl: msg.avatarUrl as string | null | undefined,
       modelProfileId: msg.modelProfileId as string | undefined,
+      modelProfileMode: msg.modelProfileMode as 'global' | 'fixed' | 'system' | undefined,
     })
     sendResult(agent)
   },
@@ -38,6 +39,7 @@ export const agentRpcHandlers: RpcHandlerMap = {
       icon: msg.icon as string | undefined,
       avatarUrl: msg.avatarUrl as string | null | undefined,
       modelProfileId: msg.modelProfileId as string | undefined,
+      modelProfileMode: msg.modelProfileMode as 'global' | 'fixed' | 'system' | undefined,
     })
     sendResult(agent)
   },
@@ -51,8 +53,17 @@ export const agentRpcHandlers: RpcHandlerMap = {
       icon: msg.icon as string | undefined,
       avatarUrl: msg.avatarUrl as string | null | undefined,
       modelProfileId: msg.modelProfileId as string | null | undefined,
+      modelProfileMode: msg.modelProfileMode as 'global' | 'fixed' | 'system' | undefined,
     })
     sendResult(agent)
+  },
+
+  'agents.bulkModelProfileMode'(msg, { sendResult }) {
+    const runtime = msg.runtime as string
+    if (runtime !== 'claude' && runtime !== 'codex') throw new Error('仅支持 Claude Code 或 Codex')
+    const mode = msg.mode as 'global' | 'system'
+    if (mode !== 'global' && mode !== 'system') throw new Error('批量策略仅支持 global 或 system')
+    sendResult({ count: setAgentsModelProfileMode(runtime, mode, msg.projectId as string | undefined) })
   },
 
   'agents.delete'(msg, { sendResult }) {

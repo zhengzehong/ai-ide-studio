@@ -747,7 +747,7 @@ SQLite schema 由 `src/store/migrator.ts` 和 `src/store/migrations/*` 管理。
 
 | 列 | 类型 | 说明 |
 |----|------|------|
-| key | TEXT PK | 设置键,如 `machineId` |
+| key | TEXT PK | 设置键，如 `machineId`、`runtime.globalModelProfile.claude`、`runtime.globalModelProfile.codex` |
 | value | TEXT NOT NULL | 设置值 |
 | updated_at | TEXT NOT NULL | 更新时间 |
 
@@ -791,7 +791,7 @@ SQLite schema 由 `src/store/migrator.ts` 和 `src/store/migrations/*` 管理。
 | template_id | TEXT | 来源模板 ID；自定义 Agent 可为空 |
 | system_prompt | TEXT | 项目级 Agent 的系统提示词 |
 | icon | TEXT | UI 图标标识 |
-| config_json | TEXT | Agent 运行时配置；模板部署会记录 `templateId` 和 `skills`，模型档案绑定记录为 `modelProfileId` |
+| config_json | TEXT | Agent 运行时配置；模板部署会记录 `templateId` 和 `skills`，模型档案绑定记录为 `modelProfileId`，模型策略记录为 `modelProfileMode=global|fixed|system`。旧数据有 `modelProfileId` 时按 `fixed` 解释，无绑定时按 `global` 解释 |
 
 项目工作台默认只展示 `project_id = 当前项目` 的 Agent。`project_id IS NULL` 的 Agent 只用于全局兼容场景，不应混入项目会话。
 

@@ -230,6 +230,9 @@ Runtime 可见 patch 不经过 API 事件总线，而是通过 Runtime→Realtim
 | `models.setDefault` | `{ providerId }` | `{ ok: true }` | 设置默认供应商 |
 | `models.test` | `{ providerId }` | `{ ok, models?, error? }` | 测试供应商并拉取 `/v1/models` 列表 |
 | `modelProfiles.list` | `{ runtime?, enabledOnly? }` | `ModelProfile[]` | 列出模型档案，可按 runtime 过滤 |
+| `modelProfiles.global.get` | `{ runtime }` | `{ runtime, enabled, profileId?, profile? }` | 读取 Claude Code 或 Codex 全局模型档案 |
+| `modelProfiles.global.set` | `{ runtime, profileId }` | `{ runtime, enabled, profileId, profile }` | 设置 Runtime 全局模型档案；下一轮请求惰性生效 |
+| `modelProfiles.global.clear` | `{ runtime }` | `{ runtime, enabled:false }` | 清除 Runtime 全局模型档案，恢复 Agent/系统配置 |
 | `modelProfiles.create` | `{ name, runtime, providerId, contextWindow?, config }` | `ModelProfile` | 创建 Claude Code 或 Codex 模型档案 |
 | `modelProfiles.update` | `{ profileId, ...fields }` | `ModelProfile` | 更新模型档案 |
 | `modelProfiles.toggle` | `{ profileId, enabled }` | `{ ok: true }` | 启用或停用模型档案 |
@@ -315,9 +318,10 @@ Team 运行时事件：`team.member.spawn` 会广播包含新成员 Session 行�
 
 | 方法 | 参数 | 返回 | 说明 |
 |------|------|------|------|
-| `agents.deployTemplate` | `{ projectId, templateId, name?, runtime?, systemPrompt?, icon?, modelProfileId? }` | `Agent` | 将全局模板部署为项目级 Agent |
-| `agents.createCustom` | `{ projectId, name, agentType, runtime, systemPrompt?, icon?, modelProfileId? }` | `Agent` | 创建项目级自定义 Agent |
-| `agents.update` | `{ agentId, name?, agentType?, runtime?, systemPrompt?, icon?, modelProfileId? }` | `Agent` | 更新项目级 Agent 配置；`modelProfileId` 为空值时清除绑定 |
+| `agents.deployTemplate` | `{ projectId, templateId, name?, runtime?, systemPrompt?, icon?, modelProfileId?, modelProfileMode? }` | `Agent` | 将全局模板部署为项目级 Agent；未指定档案时默认跟随全局 |
+| `agents.createCustom` | `{ projectId, name, agentType, runtime, systemPrompt?, icon?, modelProfileId?, modelProfileMode? }` | `Agent` | 创建项目级自定义 Agent；未指定档案时默认跟随全局 |
+| `agents.update` | `{ agentId, name?, agentType?, runtime?, systemPrompt?, icon?, modelProfileId?, modelProfileMode? }` | `Agent` | 更新项目级 Agent；`modelProfileMode` 支持 `global|fixed|system`，固定模式必须选择档案 |
+| `agents.bulkModelProfileMode` | `{ runtime, mode, projectId? }` | `{ count }` | 批量让 Runtime Agent 跟随全局档案或恢复系统配置 |
 | `agents.delete` | `{ agentId }` | `{ deleted: true }` | 删除项目级 Agent |
 | `agents.setHidden` | `{ agentId, hidden }` | `Agent` | 设置项目级 Agent 是否在工作台会话侧栏隐藏 |
 | `agents.reorder` | `{ projectId, agentIds }` | `Agent[]` | 调整当前项目工作台左侧 Agent 顺序 |

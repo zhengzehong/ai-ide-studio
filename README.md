@@ -17,7 +17,7 @@ AI IDE Studio 是一个本地部署的全栈 AI 编程协作工具。通过 [ACP
 - **桌面悬浮部件** — Electron 300x400 紧凑常驻窗口，按 Agent 与项目分组逐条显示执行中、未读或待确认会话，每个会话固定单行呈现状态、标题、直接关联任务与紧凑时间，支持项目筛选、精确跳转和独立已读
 - **桌面双模式** — 同一 Electron 安装包可启动本机一体化服务，也可作为 Client 连接远程 AI IDE Studio；主界面采用 90% 内容缩放，桌面窗口、Widget、托盘和安装包使用统一品牌图标，设置支持切换连接与开关 Widget，保存后重启生效
 - **Agent 运行时** — 支持 `mock`（本地开发）、`claude`（Claude Code）、`codex`（Codex）三种运行时
-- **模型档案** — Claude Code 与 Codex 共用“模型连接 + 模型档案 + Agent 绑定”流程；连接保存协议、Base URL、Key 和模型列表，档案只覆盖显式填写的模型项，未绑定档案或留空的可选项继续继承本机 Runtime 系统配置
+- **模型档案** — Claude Code 与 Codex 共用“模型连接 + 模型档案”流程；可分别设置 Runtime 全局档案并批量让 Agent 跟随，也可让单个 Agent 固定档案或使用系统配置。切换在下一轮请求惰性生效，不重启平台服务，连接保存协议、Base URL、Key 和模型列表，档案只覆盖显式填写的模型项
 - **Session Runtime 配置** — Agent 可查询真实 ACP 模型与配置能力，并在发送 Prompt 前设置和核对实际生效状态
 - **ACP 功能** — 模型切换、模式切换（计划模式等）、权限请求、会话 Fork、上下文用量展示
 - **会话运行偏好** — 每个 Session 会保留已切换的模型、模式和配置；重启服务或重连 ACP 后会自动恢复，Codex 默认 full access，Claude Code 默认 bypass permissions（可用时）

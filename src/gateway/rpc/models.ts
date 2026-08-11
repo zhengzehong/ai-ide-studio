@@ -1,6 +1,7 @@
 import { modelProfileStore, type ModelProfileConfig, type ModelProfileRuntime } from '../../store/model-profiles.js'
 import { modelProviderStore } from '../../store/model-providers.js'
 import { buildProviderModelsUrl, isProviderProtocolCompatible } from '../../shared/model-provider-connection.js'
+import { clearGlobalModelProfile, getGlobalModelProfile, setGlobalModelProfile } from '../../acp/runtime-global-model-profile.js'
 import type { RpcHandlerMap } from './types.js'
 
 type ModelProtocol = 'openai' | 'claude' | 'new-api'
@@ -106,6 +107,33 @@ export const modelRpcHandlers: RpcHandlerMap = {
     sendResult(modelProfileStore.list({ runtime, enabledOnly: msg.enabledOnly as boolean | undefined }))
   },
 
+  'modelProfiles.global.get'(msg, { sendResult }) {
+    const runtime = requireRuntime(msg.runtime)
+    sendResult(readActiveGlobalProfile(runtime))
+  },
+
+  'modelProfiles.global.set'(msg, { sendResult }) {
+    const runtime = requireRuntime(msg.runtime)
+    const profileId = typeof msg.profileId === 'string' ? msg.profileId.trim() : ''
+    if (!profileId) throw new Error('全局模型档案不能为空')
+    const profile = modelProfileStore.get(profileId)
+    if (!profile || profile.enabled !== 1) throw new Error('模型档案不存在或已禁用')
+    if (profile.runtime !== runtime) throw new Error('模型档案 Runtime 不匹配')
+    const provider = modelProviderStore.get(profile.provider_id)
+    if (!provider || provider.enabled !== 1) throw new Error('模型档案对应的供应商不存在或已禁用')
+    if (!isProviderProtocolCompatible(runtime, provider.protocol)) {
+      throw new Error(`供应商协议 ${provider.protocol} 与 ${runtime} 运行时不兼容`)
+    }
+    setGlobalModelProfile(runtime, profileId)
+    sendResult({ runtime, enabled: true, profileId, profile })
+  },
+
+  'modelProfiles.global.clear'(msg, { sendResult }) {
+    const runtime = requireRuntime(msg.runtime)
+    clearGlobalModelProfile(runtime)
+    sendResult({ runtime, enabled: false, profileId: null, profile: null })
+  },
+
   'modelProfiles.create'(msg, { sendResult }) {
     const runtime = requireRuntime(msg.runtime)
     const providerId = msg.providerId as string
@@ -153,4 +181,25 @@ export const modelRpcHandlers: RpcHandlerMap = {
     modelProfileStore.delete(msg.profileId as string)
     sendResult({ ok: true })
   },
+}
+
+function readActiveGlobalProfile(runtime: ModelProfileRuntime): {
+  runtime: ModelProfileRuntime
+  enabled: boolean
+  profileId: string | null
+  profile: ReturnType<typeof modelProfileStore.get> | null
+} {
+  const state = getGlobalModelProfile(runtime)
+  const profile = state.profileId ? modelProfileStore.get(state.profileId) : undefined
+  const provider = profile ? modelProviderStore.get(profile.provider_id) : undefined
+  const valid = state.enabled
+    && profile?.enabled === 1
+    && profile.runtime === runtime
+    && provider?.enabled === 1
+    && isProviderProtocolCompatible(runtime, provider.protocol)
+  if (!valid) {
+    if (state.enabled || state.profileId) clearGlobalModelProfile(runtime)
+    return { runtime, enabled: false, profileId: null, profile: null }
+  }
+  return { runtime, enabled: true, profileId: profile.id, profile }
 }
