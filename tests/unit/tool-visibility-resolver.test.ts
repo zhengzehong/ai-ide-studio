@@ -67,7 +67,7 @@ describe('tool visibility resolver', () => {
     expect(resolveVisiblePlatformTools({}).map((t) => t.definition.name)).toEqual([])
   })
 
-  test('seeded team tools are hidden until bound to an agent', () => {
+  test('hides team tools even when explicitly bound to an agent', () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const agent = agentStore.create({ type: 'dev', name: 'A', runtime: 'mock', projectId: project.id })
     seedBuiltinTools()
@@ -80,9 +80,8 @@ describe('tool visibility resolver', () => {
     if (!teamCreate) throw new Error('team.create missing')
     toolBindingStore.set(teamCreate.id, 'agent', agent.id)
 
-    expect(
-      resolveVisiblePlatformTools({ agentId: agent.id, projectId: project.id }).map((t) => t.definition.name),
-    ).toContain('team.create')
+    expect(resolveVisiblePlatformTools({ agentId: agent.id, projectId: project.id }).map((t) => t.definition.name))
+      .not.toContain('team.create')
   })
 })
 

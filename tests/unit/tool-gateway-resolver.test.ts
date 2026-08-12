@@ -294,7 +294,7 @@ describe('Tool Gateway resolver', () => {
     expect(validateToolToken(rotated)?.visibleTools.sort()).toEqual(['core.task.create', 'core.task.list'])
   })
 
-  test('injects team context into HTTP tool tokens from member session', () => {
+  test('does not create an HTTP gateway when a member only has hidden Team tools', () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const agent = agentStore.create({
       id: 'agent-team',
@@ -305,7 +305,7 @@ describe('Tool Gateway resolver', () => {
     })
     const session = sessionStore.create({ agentId: agent.id, projectId: project.id })
     const team = teamStore.create({ projectId: project.id, name: 'Alpha' })
-    const member = teamMemberStore.create({
+    teamMemberStore.create({
       teamId: team.id,
       projectId: project.id,
       agentId: agent.id,
@@ -331,16 +331,10 @@ describe('Tool Gateway resolver', () => {
       sessionId: session.id,
       preferHttp: true,
     })
-    const authorization = servers[0]?.headers?.find((header) => header.name === 'Authorization')?.value
-    const token = authorization?.replace(/^Bearer\s+/i, '') ?? ''
-
-    expect(validateToolToken(token)).toMatchObject({
-      teamId: team.id,
-      teamMemberId: member.id,
-    })
+    expect(servers.find((server) => server.name === 'ai-ide-tool-gateway')).toBeUndefined()
   })
 
-  test('injects team context into stdio gateway env from member session', () => {
+  test('does not create a stdio gateway when a member only has hidden Team tools', () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const agent = agentStore.create({
       id: 'agent-team-stdio',
@@ -351,7 +345,7 @@ describe('Tool Gateway resolver', () => {
     })
     const session = sessionStore.create({ agentId: agent.id, projectId: project.id })
     const team = teamStore.create({ projectId: project.id, name: 'Alpha' })
-    const member = teamMemberStore.create({
+    teamMemberStore.create({
       teamId: team.id,
       projectId: project.id,
       agentId: agent.id,
@@ -377,12 +371,7 @@ describe('Tool Gateway resolver', () => {
       sessionId: session.id,
       preferHttp: false,
     })
-    const gateway = servers.find((s) => s.name === 'ai-ide-tool-gateway')
-
-    expect(gateway?.env).toContainEqual({ name: 'TEAM_ID', value: team.id })
-    expect(gateway?.env).toContainEqual({ name: 'TEAM_MEMBER_ID', value: member.id })
-    expect(gateway?.env).toContainEqual({ name: 'SESSION_ID', value: session.id })
-    expect(gateway?.env).toContainEqual({ name: 'WORK_DIR', value: tmp })
+    expect(servers.find((server) => server.name === 'ai-ide-tool-gateway')).toBeUndefined()
   })
 
   test('disabled agent binding hides inherited platform tool in stdio gateway config', () => {

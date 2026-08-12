@@ -198,7 +198,7 @@ describe('team MCP tool handlers', () => {
     expect(messageStore.list(leaderSessionId).filter((message) => message.role === 'human').at(-1)?.content).toBe('请创建团队并派活')
   })
 
-  test('Team Leader profile prompts include no-wait contract before a Team exists', async () => {
+  test('Team Leader profile alone does not inject a Team contract before a Team exists', async () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const leader = agentStore.create({ name: 'Leader', type: 'architect', runtime: 'mock', projectId: project.id })
     seedBuiltinTools()
@@ -220,8 +220,7 @@ describe('team MCP tool handlers', () => {
       acpHost.prompt = originalPrompt
     }
 
-    expect(sentContent).toContain('Team Leader 协作规则')
-    expect(sentContent).toContain('用户请求：\n创建一个 Team 并派活')
+    expect(sentContent).toBe('创建一个 Team 并派活')
     expect(messageStore.list(session.id).filter((message) => message.role === 'human').at(-1)?.content).toBe('创建一个 Team 并派活')
   })
 
@@ -248,7 +247,7 @@ describe('team MCP tool handlers', () => {
     expect(sentContent).toBe('普通对话')
   })
 
-  test('Team Leader initial runtime hides wait/poll helper tools from ACP MCP gateway', async () => {
+  test('Team Leader bindings do not expose Team tools through either MCP gateway', async () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const leader = agentStore.create({ name: 'Leader', type: 'architect', runtime: 'mock', projectId: project.id })
     seedBuiltinTools()
@@ -267,16 +266,15 @@ describe('team MCP tool handlers', () => {
       visibleTools: visibleNames,
     }).map((tool) => tool.name)
 
-    expect(visibleNames).toContain('team.member.message')
-    expect(visibleNames).toContain('team.member.spawn')
     for (const names of [visibleNames, resolvedNames, runtimeNames]) {
+      expect(names.some((name) => name.startsWith('team.'))).toBe(false)
       expect(names).not.toContain('team.mailbox.list')
       expect(names).not.toContain('team.task.list')
       expect(names).not.toContain('core.session.get')
     }
   })
 
-  test('Team Leader wake runtime can inspect Team detail after system wake', async () => {
+  test('Team Leader wake runtime does not expose Team tools', async () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const leader = agentStore.create({ name: 'Leader', type: 'architect', runtime: 'mock', projectId: project.id })
     seedBuiltinTools()
@@ -290,12 +288,12 @@ describe('team MCP tool handlers', () => {
       sessionId: leaderMember.session_id,
     }).map((tool) => tool.definition.name)
 
-    expect(visibleNames).toContain('team.get')
+    expect(visibleNames.some((name) => name.startsWith('team.'))).toBe(false)
     expect(visibleNames).not.toContain('team.mailbox.list')
     expect(visibleNames).not.toContain('team.task.list')
   })
 
-  test('team.member.spawn grants team-member tools to the spawned agent', async () => {
+  test('team.member.spawn keeps bindings without exposing Team tools to the spawned agent', async () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const leader = agentStore.create({ name: 'Leader', type: 'architect', runtime: 'mock', projectId: project.id })
     seedBuiltinTools()
@@ -314,7 +312,7 @@ describe('team MCP tool handlers', () => {
       agentId: asRecord(spawned.agent).id as string,
       projectId: project.id,
     }).map((tool) => tool.definition.name)
-    expect(visibleNames).toEqual(expect.arrayContaining(['team.get', 'team.mailbox.send', 'team.task.update']))
+    expect(visibleNames.some((name) => name.startsWith('team.'))).toBe(false)
     expect(visibleNames).not.toContain('team.create')
     expect(visibleNames).not.toContain('team.member.spawn')
   })

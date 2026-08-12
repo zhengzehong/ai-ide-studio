@@ -16,7 +16,7 @@
 - 已内置 `core.project.*`、`core.agent.*`、`agent.template.*`、`core.session.*`、`core.task.*`、`team.*`、`event.*` 平台方法。
 - 已内置 `core.kb.list/read/upsert/delete` 四个最小知识库方法；知识库管理、shared 库挂载和活动历史继续由 PC Web RPC 负责。
 - 已内置 `agent_hub.*` A2A Hub 方法(`agent_hub.connect` / `agent_hub.disconnect` / `agent_hub.list` / `agent_hub.send`),让 Agent 跨机器互相调用,详见 `docs/architecture/overview.md` A2A Hub 章节。
-- `team.*` 只作为内置方法注册，不做全局默认绑定；需要按 Agent 显式绑定或套用 Team Profile。
+- `team.*` 仍作为内置方法注册并保留绑定/Profile 数据，但当前 Agent 暴露策略会统一过滤这些方法，Claude Code 与 Codex 均不可见。
 - ToolContext 支持 `projectId`、`agentId`、`sessionId`，以及团队协作场景的 `teamId` / `teamMemberId`。
 - 第三方 MCP 仍保持直接注入，不在第一版做方法级代理。
 
@@ -114,13 +114,6 @@ core.kb.list
 core.kb.read
 core.kb.upsert
 core.kb.delete
-team.list
-team.create
-team.member.list
-team.member.spawn
-team.member.message
-team.mailbox.send
-team.task.update
 admin.model.list
 admin.model.update
 agent_hub.connect
@@ -129,7 +122,7 @@ agent_hub.list
 agent_hub.send
 ```
 
-这里的粒度就是“方法”。如果只想允许 Agent 看团队，不允许创建团队，就只绑定：
+这里的粒度就是“方法”。Team 方法当前由静态 Agent 暴露策略整体隐藏；未来恢复该能力后，如果只想允许 Agent 看团队，不允许创建团队，可以只绑定：
 
 ```text
 team.list
@@ -431,7 +424,7 @@ agent > project > global
 
 ### 6.1 Team Profile
 
-Team Profile 是一组预设的 `team.*` 方法绑定，不是角色权限系统。
+Team Profile 是一组预设的 `team.*` 方法绑定，不是角色权限系统。Profile 和已有绑定当前保留，但不会越过 Agent 暴露策略，因此不会让模型看到 Team 方法。
 
 ```text
 team-readonly  只读观察：team.list / team.get / team.member.list / team.task.list / team.mailbox.list
@@ -445,7 +438,7 @@ team-leader    编排者：协作 + team.create / team.update / team.member.spaw
 - Profile 外 `team.*` 方法禁用，用来隐藏上层 project/global 绑定。
 - 非 Team 方法不变。
 
-前端“工具管理”页提供 Agent 选择、Profile 套用和单个 `team.*` 方法开关。
+前端“工具管理”页仍可查看和维护历史 Team Profile/绑定；这些配置在当前静态隐藏策略下不进入 Agent 工具列表。
 
 ## 7. Token 如何控制工具可见性
 

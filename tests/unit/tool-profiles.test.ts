@@ -23,7 +23,7 @@ afterEach(() => {
 })
 
 describe('team tool profiles', () => {
-  test('leader profile binds orchestration team tools to one agent', () => {
+  test('leader profile keeps bindings but does not expose team tools to Agents', () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const leader = agentStore.create({ name: 'Leader', type: 'architect', runtime: 'mock', projectId: project.id })
     const other = agentStore.create({ name: 'Other', type: 'dev', runtime: 'mock', projectId: project.id })
@@ -34,8 +34,10 @@ describe('team tool profiles', () => {
     expect(applied.profile.id).toBe('team-leader')
     expect(applied.boundToolNames).toEqual(getToolProfile('team-leader')?.toolNames)
     expect(
-      resolveVisiblePlatformTools({ agentId: leader.id, projectId: project.id }).map((t) => t.definition.name),
-    ).toEqual(expect.arrayContaining(['team.create', 'team.member.spawn', 'team.member.message', 'team.mailbox.send']))
+      resolveVisiblePlatformTools({ agentId: leader.id, projectId: project.id })
+        .map((tool) => tool.definition.name)
+        .some((name) => name.startsWith('team.')),
+    ).toBe(false)
     expect(
       resolveVisiblePlatformTools({ agentId: other.id, projectId: project.id }).map((t) => t.definition.name),
     ).not.toContain('team.create')
@@ -63,7 +65,7 @@ describe('team tool profiles', () => {
       .map((t) => t.definition.name)
       .sort()
     const teamVisibleNames = visibleNames.filter((name) => name.startsWith('team.'))
-    expect(teamVisibleNames).toEqual([...getToolProfile('team-readonly')!.toolNames].sort())
+    expect(teamVisibleNames).toEqual([])
     expect(visibleNames).toContain('custom.visible')
   })
 })

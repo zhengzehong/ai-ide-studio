@@ -324,7 +324,7 @@ Claude 档案通过进程环境和 Session settings 应用兼容 Anthropic 的�
 
 ## Team MCP 协作边界
 
-Team 能力通过 `team.*` MCP tools 暴露给 Agent。`team.*` 方法只注册为内置工具，不做全局默认绑定；工具 handler 不判断 leader/member 权限，只校验 Team、Member、Task 与 Project 的一致性。谁能看到 `team.member.spawn`、`team.member.message` 等方法，由 Agent 级工具绑定或 Team Profile 写入的 `tool_bindings` 控制，并最终固化到 MCP token 的 `visibleTools`。
+Team 领域保留 `team.*` MCP handlers、工具记录、绑定和 Profile，但当前 Agent 暴露策略在 HTTP 与 stdio 两条 Runtime 路径统一过滤全部 `team.*`，Claude Code 与 Codex 均不可见。工具 handler 仍只校验 Team、Member、Task 与 Project 的一致性；未来恢复 Agent Team 能力时，可移除静态过滤并继续使用现有 Agent 级绑定或 Team Profile。
 
 TeamMember 的 `session_id` 指向普通 `sessions` 行，成员执行输出继续落到 `messages` 和 `session_events`，所以刷新或切换会话后仍能按现有会话事件恢复。团队上下文通过 ToolContext 的 `teamId` / `teamMemberId` 传递，成员调用 `team.mailbox.send`、`team.task.update` 时不需要在 prompt 中手写 Team ID。`team.member.spawn` 创建或加入成员后，会自动给成员 Agent 套用 `team-member` Profile，让成员后续会话具备汇报和更新团队任务的基础工具。
 
