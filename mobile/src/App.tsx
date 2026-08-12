@@ -20,6 +20,7 @@ import TemplateListPage from './pages/TemplateListPage'
 import PreviewPage from './pages/PreviewPage'
 import { PinnedSessionsPage } from './pages/PinnedSessionsPage'
 import { usePinnedSessionStore } from './stores/pinned-session.store'
+import { useVoiceStore } from './stores/voice.store'
 
 const isAndroidBuild = import.meta.env.VITE_MOBILE_BUILD_TARGET === 'android'
 
@@ -53,6 +54,7 @@ export default function App() {
     const off1 = useSessionStore.getState().setupListeners()
     const off2 = useMobileProjectSessionStatsStore.getState().setupListeners()
     const offPinned = usePinnedSessionStore.getState().setupListeners()
+    const offVoice = useVoiceStore.getState().setupListeners()
     const off3 = wsClient.on('resync_required', (message) => {
       const chatStore = useChatStore.getState()
       const resyncSessionId = typeof message.sessionId === 'string' ? message.sessionId : undefined
@@ -64,11 +66,13 @@ export default function App() {
     })
     wsClient.setEventListenersReady(true)
     init()
+    void useVoiceStore.getState().hydrate()
     return () => {
       wsClient.setEventListenersReady(false)
       off1()
       off2()
       offPinned()
+      offVoice()
       off3()
     }
   }, [init])

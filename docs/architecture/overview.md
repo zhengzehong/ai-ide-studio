@@ -149,6 +149,8 @@ Runtime 的 permission/elicitation 等待项由独立交互状态模块管理。
 
 浏览器先请求 `GET /api/v1/realtime-config` 获取实际 `wsUrl`、协议版本、运行模式和兼容桥状态。Edge 模式返回当前公网 authority 的同源 `/realtime`，不会泄露内部端口；PC 与移动端每次重连都重新发现端点。PC 每 15 秒发送一次 `ping`，连续 30 秒没有收到任何入站帧时主动关闭静默失效的 socket 并重新发现端点；重连后仍先恢复订阅，再发送 cursor `resume`，最后通过 HTTP recovery 补齐状态。`EDGE_MODE=disabled` 时 discovery 返回直连 Realtime 地址。`REALTIME_MODE=embedded` 是显式回滚模式；`REALTIME_LEGACY_RPC=enabled` 保留尚未迁移到 HTTP 的旧领域 RPC，关闭后 Realtime 只接受 `subscribe`、`unsubscribe`、`resume` 和 `ping`。
 
+Android App 的“后台实时语音”只在客户端启用：设置页保存项目/Agent/Session，原生 Foreground Service 使用系统 SpeechRecognizer、TextToSpeech 和蓝牙通信音频路由；它复用上述 Realtime 订阅、Prompt、心跳、游标恢复和重同步协议，不改变 API、数据库或 Runtime 边界。
+
 每个连接有独立的消息数和字节数上限。文本 delta 按消息合并，process item 采用 latest-wins，`session:done`、权限/提问和错误保持关键 FIFO；客户端跟不上、序列跳号或 generation 变化时发送 `resync_required`，由客户端重新读取 HTTP snapshot。发生 gap 后，Realtime 先排入 `resync_required`，仍允许后续关键 `session:done` 按序送达；PC 收到 resync 后先解除增量屏障，再执行 Session recovery 和项目后台刷新，避免恢复请求期间继续丢弃终态。Realtime 分别跟踪“已接收入站 cursor”和“已发送 cursor”，在前一帧仍 in-flight 时不会把连续的新帧误判为 gap。一个慢客户端只消耗自己的有界队列，不能拖住其他连接。API 进程监督 Realtime 异常退出并自动重启；HTTP、Query Worker 和 Writer Worker 在重启期间继续服务。
 
 ### SQLite Worker 边界
