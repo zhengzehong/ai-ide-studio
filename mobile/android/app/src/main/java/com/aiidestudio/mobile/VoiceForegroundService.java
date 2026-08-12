@@ -65,6 +65,7 @@ public class VoiceForegroundService extends Service implements RecognitionListen
     private String agentId;
     private String state = "starting";
     private String responseText = "";
+    private String responseMessageId;
 
     public static JSONObject status(Context context) {
         JSONObject result = new JSONObject();
@@ -178,6 +179,7 @@ public class VoiceForegroundService extends Service implements RecognitionListen
                     realtimeSocket.sendResume();
                 }
                 responseText = "";
+                responseMessageId = null;
                 publish("reconnecting", "会话流已重新同步");
                 return;
             }
@@ -192,8 +194,13 @@ public class VoiceForegroundService extends Service implements RecognitionListen
                 JSONObject data = message.optJSONObject("data");
                 if (data == null) return;
                 if (!"agent".equals(data.optString("role")) || isLifecycleUpdate(data)) return;
+                String messageId = data.optString("messageId", "");
+                if (!messageId.isEmpty() && !messageId.equals(responseMessageId)) {
+                    responseMessageId = messageId;
+                    responseText = "";
+                }
                 if (data.has("contentDelta")) responseText += data.optString("contentDelta", "");
-                if (data.has("content")) responseText = data.optString("content", responseText);
+                else if (data.has("content")) responseText = data.optString("content", responseText);
                 return;
             }
             if (!"sending".equals(state)) return;
@@ -222,6 +229,7 @@ public class VoiceForegroundService extends Service implements RecognitionListen
         if ("sending".equals(state) || "speaking".equals(state)) return;
         if (recognizer != null) { recognizer.cancel(); recognizer.destroy(); recognizer = null; }
         responseText = "";
+        responseMessageId = null;
         publish("sending", content.trim());
         if (!realtimeSocket.sendPrompt(content.trim())) fail("发送语音 Prompt 失败");
     }
