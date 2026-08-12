@@ -10,6 +10,7 @@ interface KnowledgeActivityPanelProps {
 const ACT_LABELS: Record<string, string> = {
   create: '新建页面',
   edit: '编辑页面',
+  delete: '删除页面',
   refresh: '刷新代码页',
   revert: '撤销',
   mount: '挂载',

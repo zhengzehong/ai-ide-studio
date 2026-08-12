@@ -1,5 +1,7 @@
 import { knowledgeActivityStore, type KnowledgeActivityRow, type KnowledgeActorType } from '../store/knowledge-activities.js'
+import { knowledgeBaseStore } from '../store/knowledge-bases.js'
 import { knowledgePageStore, type KnowledgePageRow } from '../store/knowledge-pages.js'
+import { events } from './events.js'
 import { parseFingerprint, parseJsonArray } from './knowledge-base-utils.js'
 
 export function recordKnowledgeActivity(input: {
@@ -46,6 +48,35 @@ export function snapshotPage(page: KnowledgePageRow): Record<string, unknown> {
     stale: page.stale,
     last_human_edit_at: page.last_human_edit_at,
   }
+}
+
+export function deleteKnowledgePage(input: {
+  projectId: string
+  page: KnowledgePageRow
+  actor: string
+  actorType: KnowledgeActorType
+  tool: string
+}): { deleted: true; pageId: string; activity: KnowledgeActivityRow } {
+  if (input.page.is_index) throw new Error('INDEX_PAGE_DELETE_FORBIDDEN')
+  knowledgePageStore.update(input.page.id, { deletedAt: new Date().toISOString() })
+  const activity = recordKnowledgeActivity({
+    kbId: input.page.kb_id,
+    pageId: input.page.id,
+    act: 'delete',
+    actor: input.actor,
+    actorType: input.actorType,
+    tool: input.tool,
+    prevBody: input.page.body,
+    prevSnapshot: snapshotPage(input.page),
+  })
+  knowledgeBaseStore.touch(input.page.kb_id)
+  events.emit('knowledge-base:update', {
+    projectId: input.projectId,
+    kbId: input.page.kb_id,
+    pageId: input.page.id,
+    event: 'page.deleted',
+  })
+  return { deleted: true, pageId: input.page.id, activity }
 }
 
 export function restorePageSnapshot(pageId: string, snapshot: Record<string, unknown>): KnowledgePageRow | undefined {

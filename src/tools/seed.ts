@@ -20,6 +20,16 @@ const OBSOLETE_BUILTIN_TOOLS = [
   'agent.watch.create',
   'agent.watch.cancel',
   'create_schedule',
+  'core.kb.read_index',
+  'core.kb.read_page',
+  'core.kb.search',
+  'core.kb.create_page',
+  'core.kb.update_page',
+  'core.kb.refresh_from_code',
+  'core.kb.create_kb',
+  'core.kb.mount',
+  'core.kb.unmount',
+  'core.kb.revert',
 ]
 
 const CORE_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [

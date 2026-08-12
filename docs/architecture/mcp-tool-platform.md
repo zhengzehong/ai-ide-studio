@@ -14,7 +14,7 @@
 - 相同 Session 身份、项目/团队上下文和可见工具集合复用同一 token；任一上下文变化会撤销旧 token。
 - 已新增 `tool_contexts`、`tool_call_audit` 两张 SQLite 表。
 - 已内置 `core.project.*`、`core.agent.*`、`agent.template.*`、`core.session.*`、`core.task.*`、`team.*`、`event.*` 平台方法。
-- 已内置 `core.kb.*` 知识库方法，用于 Agent 读写 LLM Wiki、挂载 shared 库、刷新 code 页面和撤销活动。
+- 已内置 `core.kb.list/read/upsert/delete` 四个最小知识库方法；知识库管理、shared 库挂载和活动历史继续由 PC Web RPC 负责。
 - 已内置 `agent_hub.*` A2A Hub 方法(`agent_hub.connect` / `agent_hub.disconnect` / `agent_hub.list` / `agent_hub.send`),让 Agent 跨机器互相调用,详见 `docs/architecture/overview.md` A2A Hub 章节。
 - `team.*` 只作为内置方法注册，不做全局默认绑定；需要按 Agent 显式绑定或套用 Team Profile。
 - ToolContext 支持 `projectId`、`agentId`、`sessionId`，以及团队协作场景的 `teamId` / `teamMemberId`。
@@ -111,12 +111,9 @@ core.session.configure
 core.task.list
 core.task.create
 core.kb.list
-core.kb.read_index
-core.kb.read_page
-core.kb.search
-core.kb.create_page
-core.kb.update_page
-core.kb.refresh_from_code
+core.kb.read
+core.kb.upsert
+core.kb.delete
 team.list
 team.create
 team.member.list
@@ -232,22 +229,16 @@ revokedAt
 
 ### 3.8 Knowledge Base Tools
 
-知识库通过 `core.kb.*` 方法暴露给 Agent，读写边界来自当前 tool context 的 `projectId`。Agent 的标准检索路径是 index-first：先 `core.kb.list` 看当前项目可见库，再 `core.kb.read_index` 读索引页，必要时用 `core.kb.read_page` 或 `core.kb.search` 深入页面。
+知识库只通过四个最小 `core.kb.*` 方法暴露给 Agent。`projectId`、`agentId` 和操作者身份来自可信的 tool context，不出现在工具参数中，也不能由模型覆盖。Agent 先调用 `core.kb.list` 取得当前项目可见库及轻量页面目录，再按 `pageId` 读取或维护页面。
 
 | 方法 | 用途 |
 |------|------|
-| `core.kb.list` | 列出当前项目可见知识库：项目库 + 已挂载 shared 库 |
-| `core.kb.read_index` | 读取某个可见库的索引页 |
-| `core.kb.read_page` | 按 pageId 或 kbId + title 读取页面正文、出链和反向链接 |
-| `core.kb.search` | 在可见知识库内用 SQL LIKE 搜索标题、摘要和正文 |
-| `core.kb.create_page` | 创建 Markdown 页面并记录 activity；孤儿页会返回 warning |
-| `core.kb.update_page` | 更新页面正文/元数据，并保存旧快照 |
-| `core.kb.refresh_from_code` | 对 src=code 页面写入刷新后的正文、更新指纹并清 stale |
-| `core.kb.create_kb` | 创建 project 或 shared 知识库；project 库受每项目唯一约束 |
-| `core.kb.mount` / `core.kb.unmount` | 将 shared 库挂载到当前项目或卸载 |
-| `core.kb.revert` | 按 activity 快照撤销某次 create/edit/refresh |
+| `core.kb.list` | 无参数；列出当前项目可见知识库及页面目录，不返回正文 |
+| `core.kb.read` | 只接收 `pageId`，读取页面正文和链接信息 |
+| `core.kb.upsert` | 无 `pageId` 时用 `kbId/title/body` 新增页面；有 `pageId` 时只更新传入字段 |
+| `core.kb.delete` | 只接收 `pageId`，软删除普通页面；索引页禁止删除 |
 
-工具本身不调用 LLM，也不自动从源文件生成正文。code 页面刷新由调用方先读取当前源文件并形成 markdown，再调用 `core.kb.refresh_from_code` 写入；若页面有人工编辑记录，需要显式传确认参数。
+工具本身不调用 LLM，也不自动生成正文。知识库创建、名称/描述/图标维护、shared 库挂载、code 页面刷新和活动撤销仍由现有 PC Web 知识库界面及其 `knowledgeBases.*` / `knowledgePages.*` RPC 提供，不作为 Agent 工具暴露。
 
 ### 3.9 File Presentation Tool
 

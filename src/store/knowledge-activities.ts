@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto'
 import { getDb } from './db.js'
 
-export type KnowledgeActivityAct = 'create' | 'edit' | 'refresh' | 'revert' | 'mount' | 'unmount' | 'create_kb'
+export type KnowledgeActivityAct = 'create' | 'edit' | 'delete' | 'refresh' | 'revert' | 'mount' | 'unmount' | 'create_kb'
 export type KnowledgeActorType = 'human' | 'ai' | 'system'
 
 export interface KnowledgeActivityRow {

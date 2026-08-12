@@ -403,7 +403,7 @@ watch 监听 `session:done`，触发后后台唤醒 `watcher_session_id`。如�
 | id | TEXT PK | 活动 ID |
 | kb_id | TEXT | 知识库 ID |
 | page_id | TEXT | 页面 ID；库级活动可为空 |
-| act | TEXT | create / edit / refresh / revert / mount / unmount / create_kb |
+| act | TEXT | create / edit / delete / refresh / revert / mount / unmount / create_kb |
 | actor | TEXT | human 或 Agent ID |
 | actor_type | TEXT | human / ai / system |
 | tool | TEXT | 写入来源；AI 写入为 `core.kb.*`，人工写入为 manual |
@@ -416,7 +416,7 @@ watch 监听 `session:done`，触发后后台唤醒 `watcher_session_id`。如�
 | revert_activity_id | TEXT | 对应撤销活动 ID |
 | created_at | TEXT | 创建时间 |
 
-撤销按 activity 顺序还原快照，不做多版本合并。`create` 撤销会软删除页面，`edit` / `refresh` 撤销会恢复 `prev_snapshot_json`。
+撤销按 activity 顺序还原快照，不做多版本合并。`create` 撤销会软删除页面，`edit` / `refresh` 撤销会恢复 `prev_snapshot_json`。`delete` 记录软删除前快照，但当前不开放撤销入口。
 
 ### tasks
 

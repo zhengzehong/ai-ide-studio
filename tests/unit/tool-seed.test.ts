@@ -76,17 +76,10 @@ describe('builtin tool seed synchronization', () => {
       'core.agent.create',
       'core.agent.get',
       'core.agent.list',
-      'core.kb.create_kb',
-      'core.kb.create_page',
+      'core.kb.delete',
       'core.kb.list',
-      'core.kb.mount',
-      'core.kb.read_index',
-      'core.kb.read_page',
-      'core.kb.refresh_from_code',
-      'core.kb.revert',
-      'core.kb.search',
-      'core.kb.unmount',
-      'core.kb.update_page',
+      'core.kb.read',
+      'core.kb.upsert',
       'core.model_profile.list',
       'core.project.create',
       'core.project.get',
@@ -195,6 +188,29 @@ describe('builtin tool seed synchronization', () => {
     expect(sessionConfigure).toMatchObject({ type: 'builtin', is_builtin: 1 })
     expect(toolStore.getByName('studio.autonomy.plan.update')).toMatchObject({ type: 'builtin', is_builtin: 1 })
     expect(toolStore.getByName('studio.autonomy.report')).toMatchObject({ type: 'builtin', is_builtin: 1 })
+
+    for (const name of ['core.kb.list', 'core.kb.read', 'core.kb.upsert', 'core.kb.delete']) {
+      const tool = toolStore.getByName(name)
+      const schema = tool?.input_schema_json
+        ? (JSON.parse(tool.input_schema_json) as Record<string, unknown>)
+        : {}
+      expect(asRecord(schema.properties).projectId).toBeUndefined()
+      expect(schema.additionalProperties).toBe(false)
+    }
+    for (const name of [
+      'core.kb.read_index',
+      'core.kb.read_page',
+      'core.kb.search',
+      'core.kb.create_page',
+      'core.kb.update_page',
+      'core.kb.refresh_from_code',
+      'core.kb.create_kb',
+      'core.kb.mount',
+      'core.kb.unmount',
+      'core.kb.revert',
+    ]) {
+      expect(toolStore.getByName(name)).toBeUndefined()
+    }
 
     const createTemplate = toolStore.getByName('agent.template.create')
     const createTemplateSchema = createTemplate?.input_schema_json
@@ -390,17 +406,33 @@ describe('builtin tool seed synchronization', () => {
       isBuiltin: true,
     })
     toolBindingStore.set(staleTool.id, 'global', null)
+    const staleKbTool = toolStore.create({
+      name: 'core.kb.search',
+      displayName: 'core.kb.search',
+      description: 'stale knowledge search',
+      category: 'data',
+      type: 'builtin',
+      config: { handler: 'core.kb.search' },
+      inputSchema: { type: 'object', properties: { query: { type: 'string' } } },
+      permissions: { requiresApproval: false, maxExecutionTime: 10_000, networkAccess: false },
+      isBuiltin: true,
+    })
+    toolBindingStore.set(staleKbTool.id, 'global', null)
     createToolContext({
       sessionId: 'sess-stale',
       agentId: 'agent-stale',
-      visibleTools: ['create_task', 'get_project_info'],
+      visibleTools: ['create_task', 'get_project_info', 'core.kb.search'],
     })
 
     seedBuiltinTools()
 
     expect(toolStore.getByName('get_project_info')).toBeUndefined()
     expect(toolStore.getByName('create_schedule')).toBeUndefined()
+    expect(toolStore.getByName('core.kb.search')).toBeUndefined()
     expect(getDb().prepare('SELECT COUNT(*) AS count FROM tool_bindings WHERE tool_id = ?').get(staleTool.id)).toEqual({
+      count: 0,
+    })
+    expect(getDb().prepare('SELECT COUNT(*) AS count FROM tool_bindings WHERE tool_id = ?').get(staleKbTool.id)).toEqual({
       count: 0,
     })
     expect(

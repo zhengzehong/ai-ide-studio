@@ -47,17 +47,10 @@ import {
   listTimelineHandler,
   listAgentsHandler,
   listAgentTemplatesHandler,
+  deleteKnowledgePageHandler,
   listKnowledgeBasesHandler,
-  readKnowledgeIndexHandler,
   readKnowledgePageHandler,
-  searchKnowledgePagesHandler,
-  createKnowledgePageHandler,
-  updateKnowledgePageHandler,
-  refreshKnowledgeFromCodeHandler,
-  createKnowledgeBaseHandler,
-  mountKnowledgeBaseHandler,
-  unmountKnowledgeBaseHandler,
-  revertKnowledgeActivityHandler,
+  upsertKnowledgePageHandler,
   recallMemoryHandler,
   listMemoryHandler,
   getMemoryHandler,
@@ -186,16 +179,9 @@ register(instantiateSessionTemplateHandler)
 register(deleteSessionTemplateHandler)
 register(listTimelineHandler)
 register(listKnowledgeBasesHandler)
-register(readKnowledgeIndexHandler)
 register(readKnowledgePageHandler)
-register(searchKnowledgePagesHandler)
-register(createKnowledgePageHandler)
-register(updateKnowledgePageHandler)
-register(refreshKnowledgeFromCodeHandler)
-register(createKnowledgeBaseHandler)
-register(mountKnowledgeBaseHandler)
-register(unmountKnowledgeBaseHandler)
-register(revertKnowledgeActivityHandler)
+register(upsertKnowledgePageHandler)
+register(deleteKnowledgePageHandler)
 register(recallMemoryHandler)
 register(listMemoryHandler)
 register(getMemoryHandler)

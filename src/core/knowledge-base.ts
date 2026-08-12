@@ -7,7 +7,7 @@ import {
   parseSnapshot,
 } from './knowledge-base-utils.js'
 import { maybeMarkStale, resolveReadLinks } from './knowledge-base-links.js'
-import { recordKnowledgeActivity, restorePageSnapshot, snapshotPage } from './knowledge-base-activity.js'
+import { deleteKnowledgePage, recordKnowledgeActivity, restorePageSnapshot, snapshotPage } from './knowledge-base-activity.js'
 import { withGeneratedIndexBody } from './knowledge-base-index.js'
 import { projectStore } from '../store/projects.js'
 import { knowledgeActivityStore, type KnowledgeActivityRow, type KnowledgeActorType } from '../store/knowledge-activities.js'
@@ -17,6 +17,7 @@ import { knowledgePageStore, type KnowledgePageRow } from '../store/knowledge-pa
 import type {
   CreateKnowledgeBaseServiceInput,
   CreateKnowledgePageServiceInput,
+  DeleteKnowledgePageServiceInput,
   KnowledgeReadResult,
   RefreshKnowledgePageInput,
   UpdateKnowledgePageServiceInput,
@@ -212,6 +213,11 @@ export const knowledgeBaseService = {
     knowledgeBaseStore.touch(page.kb_id)
     emitUpdate({ projectId: input.projectId, kbId: page.kb_id, pageId: page.id, event: 'page.updated' })
     return { page, activity }
+  },
+
+  deletePage(input: DeleteKnowledgePageServiceInput): { deleted: true; pageId: string; activity: KnowledgeActivityRow } {
+    const page = assertPageVisible(input.projectId, input.pageId)
+    return deleteKnowledgePage({ page, projectId: input.projectId, actor: input.actor, tool: input.tool, actorType: input.actorType ?? 'ai' })
   },
 
   refreshFromCode(input: RefreshKnowledgePageInput): { page: KnowledgePageRow; activity: KnowledgeActivityRow } {

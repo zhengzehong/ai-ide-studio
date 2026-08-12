@@ -34,15 +34,8 @@ export {
 export { listTimelineHandler } from './timeline-tools.js'
 export { createAutonomyReportHandler, updateAutonomyPlanHandler } from './autonomy-tools.js'
 export {
-  createKnowledgeBaseHandler,
-  createKnowledgePageHandler,
+  deleteKnowledgePageHandler,
   listKnowledgeBasesHandler,
-  mountKnowledgeBaseHandler,
-  readKnowledgeIndexHandler,
   readKnowledgePageHandler,
-  refreshKnowledgeFromCodeHandler,
-  revertKnowledgeActivityHandler,
-  searchKnowledgePagesHandler,
-  unmountKnowledgeBaseHandler,
-  updateKnowledgePageHandler,
+  upsertKnowledgePageHandler,
 } from './kb-tools.js'

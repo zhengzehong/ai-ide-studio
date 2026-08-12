@@ -61,6 +61,11 @@ export interface UpdateKnowledgePageServiceInput extends KnowledgeWriteActor {
   tags?: string[]
 }
 
+export interface DeleteKnowledgePageServiceInput extends KnowledgeWriteActor {
+  projectId: string
+  pageId: string
+}
+
 export interface RefreshKnowledgePageInput extends KnowledgeWriteActor {
   projectId: string
   pageId: string
