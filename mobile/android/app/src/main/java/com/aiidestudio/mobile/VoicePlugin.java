@@ -35,6 +35,8 @@ public class VoicePlugin extends Plugin {
                 JSObject data = new JSObject();
                 data.put("state", intent.getStringExtra(VoiceForegroundService.EXTRA_STATE));
                 data.put("message", intent.getStringExtra(VoiceForegroundService.EXTRA_MESSAGE));
+                data.put("audioRoute", intent.getStringExtra(VoiceForegroundService.EXTRA_AUDIO_ROUTE));
+                data.put("audioDevice", intent.getStringExtra(VoiceForegroundService.EXTRA_AUDIO_DEVICE));
                 if (intent.hasExtra("enabled")) data.put("enabled", intent.getBooleanExtra("enabled", false));
                 notifyListeners("status", data);
             }
@@ -51,6 +53,8 @@ public class VoicePlugin extends Plugin {
         result.put("projectId", status.optString("projectId", null));
         result.put("agentId", status.optString("agentId", null));
         result.put("sessionId", status.optString("sessionId", null));
+        result.put("audioRoute", status.optString("audioRoute", VoiceAudioRouter.ROUTE_UNKNOWN));
+        result.put("audioDevice", status.optString("audioDevice", ""));
         call.resolve(result);
     }
 

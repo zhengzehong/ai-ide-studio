@@ -9,6 +9,8 @@ export interface VoiceStatus {
   agentId?: string | null
   sessionId?: string | null
   message?: string | null
+  audioRoute?: 'bluetooth' | 'wired' | 'speaker' | 'unknown'
+  audioDevice?: string | null
 }
 
 export interface VoiceStartOptions {

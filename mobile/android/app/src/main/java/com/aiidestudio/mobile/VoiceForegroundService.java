@@ -8,7 +8,6 @@ import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ServiceInfo;
-import android.media.AudioDeviceInfo;
 import android.media.AudioManager;
 import android.os.Build;
 import android.os.Handler;
@@ -39,6 +38,8 @@ public class VoiceForegroundService extends Service implements RecognitionListen
     public static final String EXTRA_AGENT_ID = "agentId";
     public static final String EXTRA_STATE = "state";
     public static final String EXTRA_MESSAGE = "message";
+    public static final String EXTRA_AUDIO_ROUTE = "audioRoute";
+    public static final String EXTRA_AUDIO_DEVICE = "audioDevice";
     public static final String PREFS = "ai_ide_voice";
     public static final String PREF_ENABLED = "enabled";
     public static final String PREF_WS_URL = "wsUrl";
@@ -66,6 +67,8 @@ public class VoiceForegroundService extends Service implements RecognitionListen
     private String state = "starting";
     private String responseText = "";
     private String responseMessageId;
+    private String audioRoute = VoiceAudioRouter.ROUTE_UNKNOWN;
+    private String audioDeviceName = "";
 
     public static JSONObject status(Context context) {
         JSONObject result = new JSONObject();
@@ -76,6 +79,8 @@ public class VoiceForegroundService extends Service implements RecognitionListen
             result.put("sessionId", prefs.getString(PREF_SESSION_ID, null));
             result.put("projectId", prefs.getString(PREF_PROJECT_ID, null));
             result.put("agentId", prefs.getString(PREF_AGENT_ID, null));
+            result.put("audioRoute", prefs.getString(EXTRA_AUDIO_ROUTE, VoiceAudioRouter.ROUTE_UNKNOWN));
+            result.put("audioDevice", prefs.getString(EXTRA_AUDIO_DEVICE, ""));
         } catch (JSONException ignored) {
             // JSONObject writes above are primitive and cannot fail in practice.
         }
@@ -142,9 +147,12 @@ public class VoiceForegroundService extends Service implements RecognitionListen
             return;
         }
         audioManager = (AudioManager) getSystemService(AUDIO_SERVICE);
-        routeAudio();
+        VoiceAudioRouter.Result route = VoiceAudioRouter.apply(audioManager);
+        audioRoute = route.route;
+        audioDeviceName = route.deviceName;
+        saveAudioRoute();
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-            fail("当前设备没有可用的语音识别服务");
+            fail("系统语音识别服务不可用，请启用系统语音输入或安装语音服务");
             return;
         }
         if (textToSpeech == null) textToSpeech = new TextToSpeech(this, this);
@@ -249,42 +257,11 @@ public class VoiceForegroundService extends Service implements RecognitionListen
         publish("speaking", content);
     }
 
-    private void routeAudio() {
-        if (audioManager == null) return;
-        audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            AudioDeviceInfo phoneSpeaker = null;
-            try {
-                for (AudioDeviceInfo device : audioManager.getAvailableCommunicationDevices()) {
-                    if (device.getType() == AudioDeviceInfo.TYPE_BLUETOOTH_SCO || device.getType() == AudioDeviceInfo.TYPE_BLE_HEADSET) {
-                        audioManager.setCommunicationDevice(device);
-                        return;
-                    }
-                    if (device.getType() == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER) phoneSpeaker = device;
-                }
-            } catch (SecurityException ignored) {
-                // Bluetooth permission is optional; use the phone route below.
-                audioManager.setSpeakerphoneOn(true);
-                return;
-            }
-            if (phoneSpeaker != null) audioManager.setCommunicationDevice(phoneSpeaker);
-            else audioManager.clearCommunicationDevice();
-        } else {
-            boolean bluetoothConnected = false;
-            for (AudioDeviceInfo device : audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)) {
-                int type = device.getType();
-                if (type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO || type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP) {
-                    bluetoothConnected = true;
-                    break;
-                }
-            }
-            if (bluetoothConnected && audioManager.isBluetoothScoAvailableOffCall()) {
-                audioManager.startBluetoothSco();
-                audioManager.setBluetoothScoOn(true);
-            } else {
-                audioManager.setSpeakerphoneOn(true);
-            }
-        }
+    private void saveAudioRoute() {
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+            .putString(EXTRA_AUDIO_ROUTE, audioRoute)
+            .putString(EXTRA_AUDIO_DEVICE, audioDeviceName)
+            .apply();
     }
 
     private void startForegroundNotification() {
@@ -316,6 +293,8 @@ public class VoiceForegroundService extends Service implements RecognitionListen
         intent.putExtra(EXTRA_STATE, nextState);
         if (message != null) intent.putExtra(EXTRA_MESSAGE, message);
         intent.putExtra("enabled", getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(PREF_ENABLED, false));
+        intent.putExtra(EXTRA_AUDIO_ROUTE, audioRoute);
+        intent.putExtra(EXTRA_AUDIO_DEVICE, audioDeviceName);
         sendBroadcast(intent);
     }
 

@@ -4,7 +4,7 @@ import { Bluetooth, ChevronRight, Info, LogOut, Mic, Server, Settings, Sparkles,
 import { useConnectionStore } from '../stores/connection.store'
 import { useAppStore } from '../stores/app.store'
 import { useSessionStore } from '../stores/session.store'
-import { useVoiceStore, voiceStateLabel } from '../stores/voice.store'
+import { useVoiceStore, voiceAudioRouteLabel, voiceStateLabel } from '../stores/voice.store'
 import { showToast } from '../utils/toast'
 
 export default function SettingsPage() {
@@ -15,6 +15,8 @@ export default function SettingsPage() {
     enabled,
     state: voiceState,
     message: voiceMessage,
+    audioRoute,
+    audioDevice,
     projectId,
     agentId,
     sessionId,
@@ -134,11 +136,11 @@ export default function SettingsPage() {
               <span>{selectedSessionName}</span>
             </div>
             <div style={styles.voiceStatus}>
-              <span style={{ ...styles.statusDot, background: enabled ? 'var(--success)' : voiceState === 'error' ? 'var(--error)' : 'var(--text-muted)' }} />
+              <span style={{ ...styles.statusDot, background: voiceState === 'error' ? 'var(--error)' : enabled ? 'var(--success)' : 'var(--text-muted)' }} />
               <span>{voiceStateLabel(voiceState)}</span>
-              <span style={styles.statusHint}>{voiceMessage || '有耳机使用蓝牙，无耳机回退手机音频'}</span>
+              <span style={styles.statusHint}>{voiceMessage || voiceAudioRouteLabel(audioRoute, audioDevice)}</span>
             </div>
-            <div style={styles.audioHint}><Bluetooth size={14} /><Volume2 size={14} /><span>系统自动选择蓝牙耳机或手机扬声器</span></div>
+            <div style={styles.audioHint}><Bluetooth size={14} /><Volume2 size={14} /><span>{voiceAudioRouteLabel(audioRoute, audioDevice)} · 系统自动选择</span></div>
           </div>
         </div>
 

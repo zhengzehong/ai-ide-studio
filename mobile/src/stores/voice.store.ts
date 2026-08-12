@@ -15,6 +15,8 @@ interface VoiceStore {
   enabled: boolean
   state: VoiceState
   message: string
+  audioRoute: VoiceStatus['audioRoute']
+  audioDevice: string
   projectId: string | null
   agentId: string | null
   sessionId: string | null
@@ -50,6 +52,8 @@ function applyStatus(status: VoiceStatus): Partial<VoiceStore> {
     ...(typeof status.enabled === 'boolean' ? { enabled: status.enabled } : {}),
     state: status.state,
     message: status.message ?? '',
+    ...(status.audioRoute !== undefined ? { audioRoute: status.audioRoute } : {}),
+    ...(status.audioDevice !== undefined ? { audioDevice: status.audioDevice ?? '' } : {}),
     ...(status.projectId !== undefined ? { projectId: status.projectId ?? null } : {}),
     ...(status.agentId !== undefined ? { agentId: status.agentId ?? null } : {}),
     ...(status.sessionId !== undefined ? { sessionId: status.sessionId ?? null } : {}),
@@ -60,6 +64,8 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
   enabled: false,
   state: 'disabled',
   message: '',
+  audioRoute: 'unknown',
+  audioDevice: '',
   projectId: null,
   agentId: null,
   sessionId: null,
@@ -143,4 +149,11 @@ export function voiceStateLabel(state: VoiceState): string {
     error: '异常',
   }
   return labels[state]
+}
+
+export function voiceAudioRouteLabel(route: VoiceStatus['audioRoute'], deviceName?: string): string {
+  if (route === 'bluetooth') return deviceName ? `蓝牙耳机 · ${deviceName}` : '蓝牙耳机'
+  if (route === 'wired') return deviceName ? `有线耳机 · ${deviceName}` : '有线耳机'
+  if (route === 'speaker') return '手机扬声器'
+  return '音频设备未识别'
 }

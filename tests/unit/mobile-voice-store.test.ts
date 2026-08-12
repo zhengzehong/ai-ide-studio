@@ -18,7 +18,7 @@ vi.mock('../../mobile/src/stores/connection.store.ts', () => ({
   useConnectionStore: { getState: () => ({ connected: true, serverUrl: 'http://localhost:18800', token: 'token' }) },
 }))
 
-const { useVoiceStore, voiceStateLabel } = await import('../../mobile/src/stores/voice.store.ts')
+const { useVoiceStore, voiceAudioRouteLabel, voiceStateLabel } = await import('../../mobile/src/stores/voice.store.ts')
 
 const storage = new Map<string, string>()
 vi.stubGlobal('localStorage', {
@@ -35,6 +35,8 @@ describe('mobile realtime voice store', () => {
       enabled: false,
       state: 'disabled',
       message: '',
+      audioRoute: 'unknown',
+      audioDevice: '',
       projectId: null,
       agentId: null,
       sessionId: null,
@@ -47,6 +49,8 @@ describe('mobile realtime voice store', () => {
     useVoiceStore.setState({ enabled: true })
     const cleanup = useVoiceStore.getState().setupListeners()
     expect(voiceStateLabel('listening')).toBe('监听中')
+    expect(voiceAudioRouteLabel('speaker')).toBe('手机扬声器')
+    expect(voiceAudioRouteLabel('bluetooth', '耳机')).toBe('蓝牙耳机 · 耳机')
     cleanup()
     expect(useVoiceStore.getState().enabled).toBe(true)
   })
