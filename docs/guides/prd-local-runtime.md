@@ -12,6 +12,8 @@
 
 `data-prd/` 已加入 `.gitignore`，不会提交到仓库。
 
+Android 实时语音的 FunASR 兜底由 `FUNASR_WS_URL` 配置。正式本地启动脚本默认使用 `ws://10.201.80.79:10096/`；该地址只需 PRD 后端可达，手机仍然只连接公开的 `18900`。
+
 默认 `EDGE_MODE=process`。API、Realtime 和 Runtime 的内部监听由进程监督器分配，只绑定本机 loopback，不需要发布 `18901`、`18902` 或其他端口。
 
 ## 首次启动

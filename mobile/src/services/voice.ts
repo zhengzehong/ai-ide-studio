@@ -15,6 +15,7 @@ export interface VoiceStatus {
 
 export interface VoiceStartOptions {
   wsUrl: string
+  asrWsUrl: string
   token: string
   projectId: string
   agentId: string

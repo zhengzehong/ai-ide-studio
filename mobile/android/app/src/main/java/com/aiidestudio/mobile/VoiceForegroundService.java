@@ -32,6 +32,7 @@ public class VoiceForegroundService extends Service implements RecognitionListen
     public static final String ACTION_STOP = "com.aiidestudio.mobile.voice.STOP";
     public static final String ACTION_STATUS = "com.aiidestudio.mobile.voice.STATUS";
     public static final String EXTRA_WS_URL = "wsUrl";
+    public static final String EXTRA_ASR_WS_URL = "asrWsUrl";
     public static final String EXTRA_TOKEN = "token";
     public static final String EXTRA_SESSION_ID = "sessionId";
     public static final String EXTRA_PROJECT_ID = "projectId";
@@ -43,6 +44,7 @@ public class VoiceForegroundService extends Service implements RecognitionListen
     public static final String PREFS = "ai_ide_voice";
     public static final String PREF_ENABLED = "enabled";
     public static final String PREF_WS_URL = "wsUrl";
+    public static final String PREF_ASR_WS_URL = "asrWsUrl";
     public static final String PREF_TOKEN = "token";
     public static final String PREF_SESSION_ID = "sessionId";
     public static final String PREF_PROJECT_ID = "projectId";
@@ -54,12 +56,14 @@ public class VoiceForegroundService extends Service implements RecognitionListen
     private static final long LISTEN_AFTER_SPEAK_MS = 450L;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private VoiceRealtimeSocket realtimeSocket;
+    private VoiceFunAsrCoordinator funAsrCoordinator;
     private SpeechRecognizer recognizer;
     private TextToSpeech textToSpeech;
     private AudioManager audioManager;
     private boolean ttsReady;
     private boolean stopping;
     private String wsUrl;
+    private String asrWsUrl;
     private String token;
     private String sessionId;
     private String projectId;
@@ -117,6 +121,7 @@ public class VoiceForegroundService extends Service implements RecognitionListen
     private void saveConfiguration(Intent intent) {
         String previousSessionId = sessionId;
         wsUrl = intent.getStringExtra(EXTRA_WS_URL);
+        asrWsUrl = intent.getStringExtra(EXTRA_ASR_WS_URL);
         token = intent.getStringExtra(EXTRA_TOKEN);
         sessionId = intent.getStringExtra(EXTRA_SESSION_ID);
         projectId = intent.getStringExtra(EXTRA_PROJECT_ID);
@@ -125,6 +130,7 @@ public class VoiceForegroundService extends Service implements RecognitionListen
         getSharedPreferences(PREFS, MODE_PRIVATE).edit()
             .putBoolean(PREF_ENABLED, true)
             .putString(PREF_WS_URL, wsUrl)
+            .putString(PREF_ASR_WS_URL, asrWsUrl)
             .putString(PREF_TOKEN, token)
             .putString(PREF_SESSION_ID, sessionId)
             .putString(PREF_PROJECT_ID, projectId)
@@ -135,6 +141,7 @@ public class VoiceForegroundService extends Service implements RecognitionListen
     private void loadConfiguration() {
         android.content.SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         wsUrl = prefs.getString(PREF_WS_URL, null);
+        asrWsUrl = prefs.getString(PREF_ASR_WS_URL, null);
         token = prefs.getString(PREF_TOKEN, null);
         sessionId = prefs.getString(PREF_SESSION_ID, null);
         projectId = prefs.getString(PREF_PROJECT_ID, null);
@@ -151,10 +158,6 @@ public class VoiceForegroundService extends Service implements RecognitionListen
         audioRoute = route.route;
         audioDeviceName = route.deviceName;
         saveAudioRoute();
-        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-            fail("系统语音识别服务不可用，请启用系统语音输入或安装语音服务");
-            return;
-        }
         if (textToSpeech == null) textToSpeech = new TextToSpeech(this, this);
         if (realtimeSocket == null) {
             realtimeSocket = new VoiceRealtimeSocket(this, handler, new VoiceRealtimeSocket.Listener() {
@@ -221,6 +224,11 @@ public class VoiceForegroundService extends Service implements RecognitionListen
 
     private void startListening() {
         if (stopping || realtimeSocket == null || !realtimeSocket.isOpen() || !ttsReady || "sending".equals(state) || "speaking".equals(state)) return;
+        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
+            startFunAsrListening();
+            return;
+        }
+        stopFunAsrCapture();
         if (recognizer != null) recognizer.destroy();
         recognizer = SpeechRecognizer.createSpeechRecognizer(this);
         recognizer.setRecognitionListener(this);
@@ -232,10 +240,45 @@ public class VoiceForegroundService extends Service implements RecognitionListen
         recognizer.startListening(intent);
     }
 
+    private void startFunAsrListening() {
+        if (asrWsUrl == null || asrWsUrl.isEmpty()) {
+            fail("服务器未配置 FunASR 语音识别");
+            return;
+        }
+        stopFunAsrCapture();
+        funAsrCoordinator = new VoiceFunAsrCoordinator(handler, new VoiceFunAsrCoordinator.Listener() {
+            @Override public void onStatus(String message) { publish("listening", message); }
+            @Override public void onFinalText(String text) {
+                if (text.isEmpty()) {
+                    publish("listening", "未识别到语音");
+                    handler.postDelayed(VoiceForegroundService.this::startListening, LISTEN_RETRY_MS);
+                } else {
+                    sendPrompt(text);
+                }
+            }
+            @Override public void onRetry(String message) { retryFunAsr(message); }
+        });
+        funAsrCoordinator.start(asrWsUrl, token);
+    }
+
+    private void retryFunAsr(String message) {
+        stopFunAsrCapture();
+        if (stopping || "sending".equals(state) || "speaking".equals(state)) return;
+        publish("reconnecting", message);
+        handler.postDelayed(this::startListening, LISTEN_RETRY_MS);
+    }
+
+    private void stopFunAsrCapture() {
+        VoiceFunAsrCoordinator coordinator = funAsrCoordinator;
+        funAsrCoordinator = null;
+        if (coordinator != null) coordinator.stop();
+    }
+
     private void sendPrompt(String content) {
         if (realtimeSocket == null || content.trim().isEmpty() || stopping) return;
         if ("sending".equals(state) || "speaking".equals(state)) return;
         if (recognizer != null) { recognizer.cancel(); recognizer.destroy(); recognizer = null; }
+        stopFunAsrCapture();
         responseText = "";
         responseMessageId = null;
         publish("sending", content.trim());
@@ -311,6 +354,7 @@ public class VoiceForegroundService extends Service implements RecognitionListen
         getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean(PREF_ENABLED, false).apply();
         stopping = true;
         if (recognizer != null) { recognizer.cancel(); recognizer.destroy(); recognizer = null; }
+        stopFunAsrCapture();
         if (textToSpeech != null) { textToSpeech.stop(); textToSpeech.shutdown(); textToSpeech = null; }
         if (realtimeSocket != null) realtimeSocket.stop();
         if (audioManager != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) audioManager.clearCommunicationDevice();
@@ -328,6 +372,7 @@ public class VoiceForegroundService extends Service implements RecognitionListen
         stopping = true;
         handler.removeCallbacksAndMessages(null);
         if (realtimeSocket != null) realtimeSocket.stop();
+        stopFunAsrCapture();
         if (recognizer != null) recognizer.destroy();
         if (textToSpeech != null) textToSpeech.shutdown();
         if (audioManager != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) audioManager.clearCommunicationDevice();

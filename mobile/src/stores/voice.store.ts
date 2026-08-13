@@ -47,6 +47,18 @@ function saveTarget(target: Partial<VoiceTarget>): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(target))
 }
 
+export function resolveMobileVoiceAsrUrl(serverUrl: string): string {
+  const origin = new URL(serverUrl.trim())
+  if (origin.protocol === 'ws:') origin.protocol = 'http:'
+  if (origin.protocol === 'wss:') origin.protocol = 'https:'
+  if (origin.protocol !== 'http:' && origin.protocol !== 'https:') {
+    throw new Error('服务器地址必须使用 HTTP 或 HTTPS')
+  }
+  const endpoint = new URL('/api/v1/voice/asr', origin.origin)
+  endpoint.protocol = endpoint.protocol === 'https:' ? 'wss:' : 'ws:'
+  return endpoint.toString()
+}
+
 function applyStatus(status: VoiceStatus): Partial<VoiceStore> {
   return {
     ...(typeof status.enabled === 'boolean' ? { enabled: status.enabled } : {}),
@@ -106,7 +118,8 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
     set({ enabled: true, state: 'starting', message: '' })
     try {
       const wsUrl = await resolveMobileRealtimeUrl(connection.serverUrl, connection.token)
-      await voicePlugin.start({ wsUrl, token: connection.token, projectId, agentId, sessionId })
+      const asrWsUrl = resolveMobileVoiceAsrUrl(connection.serverUrl)
+      await voicePlugin.start({ wsUrl, asrWsUrl, token: connection.token, projectId, agentId, sessionId })
       saveTarget({ projectId, agentId, sessionId })
       set({ enabled: true, state: 'connecting' })
     } catch (error) {

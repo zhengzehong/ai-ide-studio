@@ -16,6 +16,10 @@ const config = {
 describe('Edge API process protocol', () => {
   it('accepts every closed parent-to-child message shape', () => {
     expect(isParentToApiMessage({ type: 'start', config })).toBe(true)
+    expect(isParentToApiMessage({
+      type: 'start',
+      config: { ...config, funAsrWsUrl: 'ws://10.201.80.79:10096/' },
+    })).toBe(true)
     expect(isParentToApiMessage({ type: 'stop' })).toBe(true)
     expect(isParentToApiMessage({ type: 'test.block', requestId: 'req-1', durationMs: 150 })).toBe(true)
     expect(isParentToApiMessage({ type: 'test.realtime.restart', requestId: 'req-2' })).toBe(true)

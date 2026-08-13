@@ -42,6 +42,7 @@ export interface AppConfig {
   googleApiKey?: string
   bridgeCallbackToken?: string
   bridgeServerUrl?: string
+  funAsrWsUrl?: string
 }
 
 export function loadConfig(): AppConfig {
@@ -86,7 +87,21 @@ export function loadConfig(): AppConfig {
     googleApiKey: process.env.GOOGLE_API_KEY || undefined,
     bridgeCallbackToken: process.env.BRIDGE_CALLBACK_TOKEN || undefined,
     bridgeServerUrl: process.env.BRIDGE_SERVER_URL || undefined,
+    funAsrWsUrl: normalizeOptionalWebSocketUrl(process.env.FUNASR_WS_URL),
   }
+}
+
+function normalizeOptionalWebSocketUrl(value: string | undefined): string | undefined {
+  const trimmed = value?.trim()
+  if (!trimmed) return undefined
+  const parsed = new URL(trimmed)
+  if (parsed.protocol !== 'ws:' && parsed.protocol !== 'wss:') {
+    throw new Error('FUNASR_WS_URL must use ws:// or wss://')
+  }
+  parsed.username = ''
+  parsed.password = ''
+  parsed.hash = ''
+  return parsed.toString()
 }
 
 function normalizePublicPath(value: string | undefined): string {

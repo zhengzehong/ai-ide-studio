@@ -39,7 +39,7 @@ export async function startEdgeGateway(options: StartEdgeGatewayOptions): Promis
     xfwd: true,
   })
   proxy.on('error', (error, request, response) => {
-    const target = isWebSocketRequest(request) ? 'realtime' : 'api'
+    const target = proxyTarget(request)
     logProxyError(target, request, error)
     if (isServerResponse(response)) {
       if (response.headersSent) response.destroy(error)
@@ -51,7 +51,7 @@ export async function startEdgeGateway(options: StartEdgeGatewayOptions): Promis
   proxy.on('econnreset', (error, request) => {
     log.debug({
       err: error,
-      target: isWebSocketRequest(request) ? 'realtime' : 'api',
+      target: proxyTarget(request),
       method: request.method,
       path: safePath(request.url),
     }, 'Edge proxy client disconnected')
@@ -87,14 +87,15 @@ export async function startEdgeGateway(options: StartEdgeGatewayOptions): Promis
     })
   })
   server.on('upgrade', (request, socket, head) => {
-    const target = targets.realtimeUrl
+    const targetKind = safePath(request.url) === '/api/v1/voice/asr' ? 'api' : 'realtime'
+    const target = targetKind === 'api' ? targets.apiUrl : targets.realtimeUrl
     if (!target) {
       rejectUpgrade(socket, 503, 'Service Unavailable')
       return
     }
     upgradedSockets.add(socket)
     proxy.ws(request, socket, head, { target }, (error) => {
-      logProxyError('realtime', request, error)
+      logProxyError(targetKind, request, error)
       if (!socket.destroyed) rejectUpgrade(socket, 502, 'Bad Gateway')
     })
   })
@@ -224,6 +225,12 @@ function logProxyError(target: 'api' | 'realtime', request: IncomingMessage, err
 
 function isWebSocketRequest(request: IncomingMessage): boolean {
   return request.headers.upgrade?.toLowerCase() === 'websocket'
+}
+
+function proxyTarget(request: IncomingMessage): 'api' | 'realtime' {
+  return isWebSocketRequest(request) && safePath(request.url) !== '/api/v1/voice/asr'
+    ? 'realtime'
+    : 'api'
 }
 
 function isServerResponse(value: ServerResponse | Socket): value is ServerResponse {

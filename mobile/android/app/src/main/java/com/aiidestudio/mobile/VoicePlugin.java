@@ -90,17 +90,19 @@ public class VoicePlugin extends Plugin {
 
     private void startService(PluginCall call) {
         String wsUrl = call.getString("wsUrl");
+        String asrWsUrl = call.getString("asrWsUrl");
         String token = call.getString("token", "");
         String sessionId = call.getString("sessionId");
         String projectId = call.getString("projectId");
         String agentId = call.getString("agentId");
-        if (wsUrl == null || sessionId == null || projectId == null || agentId == null) {
+        if (wsUrl == null || asrWsUrl == null || sessionId == null || projectId == null || agentId == null) {
             call.reject("实时对话缺少目标配置");
             return;
         }
         Intent intent = new Intent(getContext(), VoiceForegroundService.class)
             .setAction(VoiceForegroundService.ACTION_START)
             .putExtra(VoiceForegroundService.EXTRA_WS_URL, wsUrl)
+            .putExtra(VoiceForegroundService.EXTRA_ASR_WS_URL, asrWsUrl)
             .putExtra(VoiceForegroundService.EXTRA_TOKEN, token)
             .putExtra(VoiceForegroundService.EXTRA_SESSION_ID, sessionId)
             .putExtra(VoiceForegroundService.EXTRA_PROJECT_ID, projectId)

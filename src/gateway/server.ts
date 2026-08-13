@@ -37,6 +37,7 @@ import {
 import { responseCompression } from './http/response-compression.js'
 import { previewAuthCookie, readPreviewCookie } from './preview-auth.js'
 import { configureFileAssetSigning, verifyFileAssetSignature } from './file-asset-signing.js'
+import { createFunAsrProxy } from './funasr-proxy.js'
 
 const log = createChildLogger('gateway')
 
@@ -95,10 +96,11 @@ export async function startGateway(config: AppConfig, options: StartGatewayOptio
   log.debug({ staticDir: staticDirForLog(config) }, '静态资源托载检查完成')
 
   const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port }) as Server
+  const funAsrProxy = createFunAsrProxy(config)
 
   let wss: WebSocketServer | undefined
   if ((options.webSocketMode ?? 'embedded') === 'embedded') {
-    wss = new WebSocketServer({ server })
+    wss = new WebSocketServer({ noServer: true })
     const eventSource = createRealtimeEventSource((delivery) => {
       if (delivery.scope === 'session') broadcastToSubscribers(delivery.sessionId, delivery.message)
       else broadcastToAll(delivery.message)
@@ -112,12 +114,25 @@ export async function startGateway(config: AppConfig, options: StartGatewayOptio
       handleWsConnection(ws, req, wss as WebSocketServer)
     })
   }
+  server.on('upgrade', (request, socket, head) => {
+    if (funAsrProxy.isUpgrade(request)) {
+      funAsrProxy.handleUpgrade(request, socket, head)
+      return
+    }
+    if (!wss) {
+      socket.destroy()
+      return
+    }
+    wss.handleUpgrade(request, socket, head, (client) => {
+      wss?.emit('connection', client, request)
+    })
+  })
 
   await waitForServerListening(server)
   const address = server.address()
   if (address && typeof address !== 'string') embeddedPort = address.port
 
-  return { app, server, wss }
+  return { app, server, wss, funAsrProxy }
 }
 
 function waitForServerListening(server: Server): Promise<void> {

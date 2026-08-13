@@ -18,7 +18,12 @@ vi.mock('../../mobile/src/stores/connection.store.ts', () => ({
   useConnectionStore: { getState: () => ({ connected: true, serverUrl: 'http://localhost:18800', token: 'token' }) },
 }))
 
-const { useVoiceStore, voiceAudioRouteLabel, voiceStateLabel } = await import('../../mobile/src/stores/voice.store.ts')
+const {
+  resolveMobileVoiceAsrUrl,
+  useVoiceStore,
+  voiceAudioRouteLabel,
+  voiceStateLabel,
+} = await import('../../mobile/src/stores/voice.store.ts')
 
 const storage = new Map<string, string>()
 vi.stubGlobal('localStorage', {
@@ -64,5 +69,12 @@ describe('mobile realtime voice store', () => {
     resolveListener?.({ remove })
     await Promise.resolve()
     expect(remove).toHaveBeenCalledTimes(1)
+  })
+
+  test('derives the authenticated ASR proxy from the configured API server', () => {
+    expect(resolveMobileVoiceAsrUrl('http://192.168.15.191:18900/path'))
+      .toBe('ws://192.168.15.191:18900/api/v1/voice/asr')
+    expect(resolveMobileVoiceAsrUrl('https://studio.example.com'))
+      .toBe('wss://studio.example.com/api/v1/voice/asr')
   })
 })

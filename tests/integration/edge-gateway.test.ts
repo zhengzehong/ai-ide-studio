@@ -40,7 +40,9 @@ describe('Edge gateway', () => {
     })
     const body = await response.json() as Record<string, unknown>
     const socket = await connect(`${toWs(edge.endpointUrl)}/realtime?token=owner`)
+    const voiceSocket = await connect(`${toWs(edge.endpointUrl)}/api/v1/voice/asr`)
     sockets.push(socket)
+    sockets.push(voiceSocket)
 
     expect(response.status).toBe(200)
     expect(body).toMatchObject({
@@ -53,6 +55,10 @@ describe('Edge gateway', () => {
     await expect(probe(socket)).resolves.toEqual({
       source: 'realtime-a',
       url: '/realtime?token=owner',
+    })
+    await expect(probe(voiceSocket)).resolves.toEqual({
+      source: 'api-a',
+      url: '/api/v1/voice/asr',
     })
   })
 

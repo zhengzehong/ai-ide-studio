@@ -272,6 +272,7 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
       realtimeEvents?.stop()
       commandDispatcher.closeIntake()
       if (wss) await collectCleanupError(cleanupErrors, () => closeWebSocketServer(wss))
+      await collectCleanupError(cleanupErrors, () => gateway.funAsrProxy.close())
       await collectCleanupError(cleanupErrors, () => commandDispatcher.drain())
       await collectCleanupError(cleanupErrors, () => runtimePort.drain())
       await collectCleanupError(cleanupErrors, () => runtimePort.close())

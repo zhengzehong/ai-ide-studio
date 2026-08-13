@@ -53,6 +53,8 @@ PC 的 Prompt、取消、已读、权限和提问响应默认通过 `/api/v1/com
 
 后端默认使用 `EDGE_MODE=process`，只有 Edge 监听公开的 `HOST:PORT`。HTTP 请求转发到 loopback 动态 API 端口，WebSocket Upgrade 通过同一公网 authority 的 `/realtime` 转发到 loopback 动态 Realtime 端口；PRD 因此只需发布 `18900`。`EDGE_MODE=disabled` 是保留的直连端口回滚模式。
 
+Android 后台实时语音优先使用系统语音识别；设备没有可用 `RecognitionService` 时，App 通过受现有 Token 保护的 `/api/v1/voice/asr` WebSocket 将 16 kHz PCM 发送给 Gateway，Gateway 再代理到 `FUNASR_WS_URL`。FunASR 地址只需对后端可达，不需要向手机或公网开放。
+
 后端默认使用 `DATA_WORKER_MODE=worker`，同步 SQLite 查询和新会话热写分别运行在 Query/Writer Worker Thread。排障时可以显式设置 `DATA_WORKER_MODE=local` 回退到进程内适配器；Worker 运行中崩溃不会自动同步降级。
 
 后端默认使用 `REALTIME_MODE=process` 启动独立 Realtime 子进程，API 同步阻塞不会占用实时连接事件循环。客户端通过 `/api/v1/realtime-config` 动态发现端点；排障时可显式设置 `REALTIME_MODE=embedded` 回退到 API 同端口 WebSocket。旧 WS 领域 RPC 默认通过本机 IPC 兼容桥执行，可在迁移完成后设置 `REALTIME_LEGACY_RPC=disabled` 关闭。

@@ -24,7 +24,7 @@ const APP_CONFIG_KEYS = new Set([
   'runtimeIpcMaxFrameBytes', 'runtimeRestartDelayMs', 'runtimeIdleSweepMs',
   'runtimeSessionIdleMs', 'runtimeAgentIdleMs', 'staticDir', 'mobileStaticDir',
   'localToken', 'anthropicApiKey', 'openaiApiKey', 'googleApiKey',
-  'bridgeCallbackToken', 'bridgeServerUrl',
+  'bridgeCallbackToken', 'bridgeServerUrl', 'funAsrWsUrl',
 ])
 
 export function isParentToApiMessage(value: unknown): value is ParentToApiMessage {
@@ -82,6 +82,7 @@ function isAppConfig(value: unknown): value is AppConfig {
     && optionalStrings(value, [
       'edgeRealtimePath', 'realtimeHost', 'staticDir', 'mobileStaticDir', 'localToken',
       'anthropicApiKey', 'openaiApiKey', 'googleApiKey', 'bridgeCallbackToken', 'bridgeServerUrl',
+      'funAsrWsUrl',
     ])
     && optionalBooleans(value, ['realtimeLegacyRpc'])
     && optionalNumbers(value, [
