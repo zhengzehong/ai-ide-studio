@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, test, vi } from 'vit
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { tmpdir } from 'node:os'
-import { createProjectSecretary } from '../../src/core/project-secretary.js'
+import { createProjectSecretary, updateProjectSecretary } from '../../src/core/project-secretary.js'
 import { events } from '../../src/core/events.js'
 import { sessionManager } from '../../src/core/sessions.js'
 import { agentStore } from '../../src/store/agents.js'
@@ -167,6 +167,27 @@ describe('project secretary MVP', () => {
     expect(claimed?.status).toBe('running')
     expect(secretaryRunStore.requeueRunning()).toBe(1)
     expect(secretaryRunStore.list(secretary.id)[0]?.status).toBe('pending')
+  })
+
+  test('drains pending runs when a secretary is re-enabled', async () => {
+    const fixture = createFixture()
+    const secretary = await createProjectSecretary({
+      projectId: fixture.project.id,
+      name: '重新启用秘书',
+      definitionPrompt: '',
+      reportPrompt: '',
+      executionAgentId: fixture.execution.id,
+      observedAgentIds: [],
+      observeAll: true,
+      watchSessionDone: false,
+    })
+    await updateProjectSecretary(secretary.id, fixture.project.id, { enabled: false })
+    secretaryRunStore.enqueue({ secretaryId: secretary.id, eventType: 'manual', dedupeKey: 'reenable-run' })
+    const enqueue = vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue(undefined)
+    await updateProjectSecretary(secretary.id, fixture.project.id, { enabled: true })
+    await new Promise((resolveWait) => setImmediate(resolveWait))
+    expect(enqueue).toHaveBeenCalledWith(expect.any(String), expect.stringContaining('项目秘书'), undefined, expect.any(Object))
+    expect(secretaryRunStore.list(secretary.id)[0]?.status).toBe('succeeded')
   })
 })
 
