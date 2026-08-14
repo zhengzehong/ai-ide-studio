@@ -258,6 +258,8 @@ Runtime 可见 patch 不经过 API 事件总线，而是通过 Runtime→Realtim
 
 `autonomy:update` 是全局元数据事件，载荷为 `{ agentId, projectId }`。启停、关注点、排班、汇报、tick 开始/跳过/失败时都会发布；客户端收到后按项目重新读取自主状态。Session 实时消息仍走原有订阅事件，不复制到 `autonomy:update`。
 
+项目秘书 RPC 使用当前项目 `projectId` 做边界校验：`secretary.list/get/create/update/delete` 管理秘书，`secretary.runNow` 创建一次持久化运行请求，`secretary.threads.list/thread.get/thread.markRead/thread.archive` 管理邮箱 Thread，`secretary.chat.send` 向隐藏的秘书对话 Session 入队消息。`secretary:update` 载荷为 `{ projectId }`，表示配置、运行或邮箱发生变化，客户端按项目重新读取秘书和 Thread。
+
 服务端主动推送的事件类型：
 
 | 事件 | 数据 | 说明 |
@@ -344,3 +346,21 @@ Team 运行时事件：`team.member.spawn` 会广播包含新成员 Session 行�
 `WidgetAgentProjectActivityGroup` uses `agentId + projectId` as its grouping boundary. Each child Session retains independent `running`, `unread`, and `needsInput` flags plus a single display `attentionState`. Task fields only come from direct `sessions.task_id` or `task_steps.session_id` relationships. Results exclude completed read Sessions, are ordered by attention priority and activity time, and apply their limit to Sessions rather than groups.
 
 `WidgetAgentActivityItem` selects one representative Session per Agent, prioritizing a running Session and then unread/recent activity. `taskId`, `taskTitle`, and `taskStatus` come from the latest Task assigned today through either `tasks.assigned_agent_id` or `task_steps.assignee_agent_id`; no Task fields are returned when the Agent has no assignment today. A running Session remains `running`, otherwise a latest Task in `needs_input`/`blocked` produces `needs_input`. Results are sorted by representative `activityAt` descending and limited to 20 Agents. Legacy Session-first Widget RPCs remain available for compatibility.
+
+## 项目秘书 RPC
+
+| 方法 | 参数 | 返回 |
+|---|---|---|
+| `secretary.list` | `{ projectId }` | 当前项目秘书列表（含未读数） |
+| `secretary.get` | `{ projectId, secretaryId }` | 秘书配置与触发器 |
+| `secretary.create` | `{ projectId, name, executionAgentId, definitionPrompt?, reportPrompt?, observedAgentIds?, observeAll?, cron?, watchSessionDone?, watchTaskNeedsInput? }` | 新建秘书 |
+| `secretary.update` | `{ projectId, secretaryId, name?, executionAgentId?, definitionPrompt?, reportPrompt?, observedAgentIds?, observeAll?, enabled?, cron? }` | 更新后的秘书 |
+| `secretary.delete` | `{ projectId, secretaryId }` | `{ deleted: true }` |
+| `secretary.runNow` | `{ projectId, secretaryId }` | `{ accepted: true, runId }` |
+| `secretary.threads.list` | `{ projectId, secretaryId, unreadOnly? }` | 邮箱 Thread 列表 |
+| `secretary.thread.get` | `{ projectId, secretaryId, threadId }` | Thread 详情 |
+| `secretary.thread.markRead` | `{ projectId, secretaryId, threadId }` | 更新后的 Thread |
+| `secretary.thread.archive` | `{ projectId, secretaryId, threadId }` | 更新后的 Thread |
+| `secretary.chat.send` | `{ projectId, secretaryId, content }` | `{ sessionId }` |
+
+所有秘书 RPC 仅限 owner，并且服务端再次校验秘书与 `projectId` 的归属。实时 `secretary:update` 事件携带 `projectId`，PC/APP 仅刷新当前项目。

@@ -1,6 +1,7 @@
 import { buildAgentRuntimeEnv, buildAgentSessionMeta } from '../../acp/model-profile-env.js'
 import { buildRuntimeEnv, getRuntimeCommand } from '../../acp/runtime-registry.js'
 import { buildAgentAutonomySystemPrompt } from '../../core/agent-autonomy-prompt.js'
+import { buildProjectSecretarySystemPrompt } from '../../core/project-secretary-prompt.js'
 import type { RuntimeStateSnapshot } from '../../ports/runtime-port.js'
 import { agentStore } from '../../store/agents.js'
 import { projectStore } from '../../store/projects.js'
@@ -46,7 +47,9 @@ export function buildRuntimeStateSnapshot(input: BuildRuntimeStateSnapshotInput)
     isPrimary: session.is_primary === 1,
     additionalPrompt: session.purpose === 'autonomy'
       ? buildAgentAutonomySystemPrompt(agent.id)
-      : undefined,
+      : session.purpose === 'secretary_runtime' || session.purpose === 'secretary_chat'
+        ? buildProjectSecretarySystemPrompt(session.id)
+        : undefined,
   })
   const teamMember = teamMemberStore.getBySession(session.id)
   const visibleTools = teamMember

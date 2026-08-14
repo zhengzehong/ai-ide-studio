@@ -23,6 +23,7 @@ import { toolRpcHandlers } from './tools.js'
 import { timelineRpcHandlers } from './timeline.js'
 import { widgetRpcHandlers } from './widget.js'
 import { previewRpcHandlers } from './previews.js'
+import { secretaryRpcHandlers } from './secretary.js'
 import type { RpcContext, RpcHandlerMap } from './types.js'
 
 const rpcHandlers: RpcHandlerMap = {
@@ -50,6 +51,7 @@ const rpcHandlers: RpcHandlerMap = {
   ...timelineRpcHandlers,
   ...widgetRpcHandlers,
   ...previewRpcHandlers,
+  ...secretaryRpcHandlers,
 }
 
 export async function dispatchRpc(msg: ClientMessage, context: RpcContext): Promise<void> {

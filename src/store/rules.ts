@@ -14,6 +14,8 @@ export interface RuleRow {
     prompt_template?: string
     prompt?: string
     agent_id?: string
+    secretary_id?: string
+    trigger_id?: string
     session_id?: string | null
     session_mode?: 'existing' | 'new_each' | 'new_fixed'
   }

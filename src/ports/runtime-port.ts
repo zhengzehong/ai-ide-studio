@@ -21,7 +21,7 @@ export interface RuntimeSessionSnapshot {
   title: string | null
   acpSessionId: string | null
   isPrimary: boolean
-  purpose: 'conversation' | 'autonomy'
+  purpose: 'conversation' | 'autonomy' | 'secretary_runtime' | 'secretary_chat'
 }
 
 export interface RuntimePreferencesSnapshot {

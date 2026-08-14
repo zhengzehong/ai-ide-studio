@@ -1,10 +1,11 @@
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { MessageSquare, ListTodo, Pin, Settings } from 'lucide-react'
+import { Mail, MessageSquare, ListTodo, Pin, Settings } from 'lucide-react'
 import type { CSSProperties } from 'react'
 import { useConnectionStore } from '../stores/connection.store'
 import { usePinnedSessionStore } from '../stores/pinned-session.store'
 
 const tabs = [
+  { path: '/secretary', label: '秘书', icon: Mail },
   { path: '/pinned', label: '置顶', icon: Pin },
   { path: '/', label: '会话', icon: MessageSquare },
   { path: '/tasks', label: '任务', icon: ListTodo },

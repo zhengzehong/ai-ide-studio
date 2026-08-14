@@ -38,6 +38,7 @@ import { executeSessionCommand } from './commands/session-command-service.js'
 import { startWriterMaintenanceLoop } from './data-worker/writer-maintenance-loop.js'
 import { createEventLoopMonitor, eventLoopMonitorOptions } from './shared/event-loop-monitor.js'
 import { listActivePromptDiagnostics } from './core/prompt-diagnostics.js'
+import { resumeProjectSecretaryRuns } from './core/project-secretary.js'
 import {
   createRealtimeEndpointSubscription,
   embeddedRealtimeEndpoint,
@@ -222,6 +223,7 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
     initialRealtimeEndpoint,
   )
   ruleEngine.start()
+  void resumeProjectSecretaryRuns().catch((err: unknown) => log.warn({ err }, '秘书待处理运行恢复失败'))
   initTimeline()
   log.info(
     {

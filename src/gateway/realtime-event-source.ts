@@ -82,6 +82,7 @@ export function createRealtimeEventSource(
   on('event-center:update', (event) => send({ scope: 'all', message: { type: 'event-center:update', data: event } }))
   on('knowledge-base:update', (event) => send({ scope: 'all', message: { type: 'knowledge-base:update', data: event } }))
   on('autonomy:update', (event) => send({ scope: 'all', message: { type: 'autonomy:update', ...event } }))
+  on('secretary:update', (event) => send({ scope: 'all', message: { type: 'secretary:update', ...event } }))
 
   return {
     stop(): void {
