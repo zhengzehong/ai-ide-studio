@@ -96,6 +96,7 @@ export async function updateProjectSecretary(
     projectSecretaryStore.update(id, input)
   }
   if (input.cron !== undefined) reconfigureCron(id, projectId, input.cron)
+  if (projectSecretaryStore.get(id)?.enabled) void drainSecretaryRuns(id)
   emitUpdate(projectId)
   return projectSecretaryStore.getData(id)!
 }
