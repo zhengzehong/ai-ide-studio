@@ -6,6 +6,7 @@ import { events } from './events.js'
 import { matchCron, getNextRunTime } from './cron.js'
 import { createChildLogger } from './logger.js'
 import { runAgentAutonomyTick } from './agent-autonomy-scheduler.js'
+import { runProjectSecretaryTick } from './project-secretary.js'
 
 const log = createChildLogger('rule-engine')
 
@@ -73,6 +74,13 @@ const actionHandlers: Record<string, ActionHandler> = {
     const sessionId = rule.action_config.session_id ?? undefined
     if (!agentId || !sessionId) throw new Error('autonomy_tick action 缺少 agent_id 或 session_id')
     return runAgentAutonomyTick(agentId, sessionId)
+  },
+
+  async secretary_tick(rule) {
+    const secretaryId = rule.action_config.secretary_id
+    if (!secretaryId || !rule.project_id) throw new Error('secretary_tick action 缺少 secretary_id 或 project_id')
+    runProjectSecretaryTick(secretaryId, rule.project_id, rule.action_config.trigger_id)
+    return { sessionId: undefined }
   },
 }
 

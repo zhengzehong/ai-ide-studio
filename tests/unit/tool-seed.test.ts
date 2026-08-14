@@ -116,6 +116,7 @@ describe('builtin tool seed synchronization', () => {
       'preview.publish',
       'recall_memory',
       'record_memory',
+      'secretary.report',
       'studio.autonomy.plan.update',
       'studio.autonomy.report',
       'studio.schedule.create',

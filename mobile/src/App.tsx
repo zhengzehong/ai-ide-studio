@@ -19,6 +19,7 @@ import SettingsPage from './pages/SettingsPage'
 import TemplateListPage from './pages/TemplateListPage'
 import PreviewPage from './pages/PreviewPage'
 import { PinnedSessionsPage } from './pages/PinnedSessionsPage'
+import SecretaryPage from './pages/SecretaryPage'
 import { usePinnedSessionStore } from './stores/pinned-session.store'
 import { useVoiceStore } from './stores/voice.store'
 
@@ -104,6 +105,7 @@ export default function App() {
         <Route path="/preview/:previewId" element={<PreviewPage />} />
         <Route path="/templates" element={<TemplateListPage />} />
         <Route element={<MobileShell />}>
+          <Route path="/secretary" element={<SecretaryPage />} />
           <Route path="/pinned" element={<PinnedSessionsPage />} />
           <Route path="/" element={<SessionListPage />} />
           <Route path="/tasks" element={<TaskListPage />} />

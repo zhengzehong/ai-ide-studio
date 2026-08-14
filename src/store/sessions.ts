@@ -32,7 +32,7 @@ export interface SessionRow {
   sort_order: number | null
   is_primary: number
   is_template: number
-  purpose: 'conversation' | 'autonomy'
+  purpose: 'conversation' | 'autonomy' | 'secretary_runtime' | 'secretary_chat'
 }
 
 export interface SessionListRow extends SessionRow {
@@ -97,7 +97,7 @@ export interface CreateSessionInput {
   isPrimary?: boolean
   isTemplate?: boolean
   title?: string
-  purpose?: 'conversation' | 'autonomy'
+  purpose?: 'conversation' | 'autonomy' | 'secretary_runtime' | 'secretary_chat'
 }
 
 export interface SessionRuntimePreferences {
@@ -442,19 +442,19 @@ function markRunningAgentMessagesInterrupted(): void {
 function listSessions(agentId?: string, projectId?: string): SessionRow[] {
   const orderBy = 'ORDER BY COALESCE(sort_order, 9223372036854775807) ASC, started_at ASC, id ASC'
   if (agentId && projectId) {
-    return getDb().prepare<[string, string], SessionRow>(`SELECT * FROM sessions WHERE agent_id = ? AND project_id = ? AND deleted_at IS NULL AND is_template = 0 ${orderBy}`).all(agentId, projectId)
+    return getDb().prepare<[string, string], SessionRow>(`SELECT * FROM sessions WHERE agent_id = ? AND project_id = ? AND deleted_at IS NULL AND is_template = 0 AND purpose NOT IN ('secretary_runtime', 'secretary_chat') ${orderBy}`).all(agentId, projectId)
   }
   if (agentId) {
-    return getDb().prepare<[string], SessionRow>(`SELECT * FROM sessions WHERE agent_id = ? AND deleted_at IS NULL AND is_template = 0 ${orderBy}`).all(agentId)
+    return getDb().prepare<[string], SessionRow>(`SELECT * FROM sessions WHERE agent_id = ? AND deleted_at IS NULL AND is_template = 0 AND purpose NOT IN ('secretary_runtime', 'secretary_chat') ${orderBy}`).all(agentId)
   }
   if (projectId) {
-    return getDb().prepare<[string], SessionRow>(`SELECT * FROM sessions WHERE project_id = ? AND deleted_at IS NULL AND is_template = 0 ${orderBy}`).all(projectId)
+    return getDb().prepare<[string], SessionRow>(`SELECT * FROM sessions WHERE project_id = ? AND deleted_at IS NULL AND is_template = 0 AND purpose NOT IN ('secretary_runtime', 'secretary_chat') ${orderBy}`).all(projectId)
   }
-  return getDb().prepare<[], SessionRow>('SELECT * FROM sessions WHERE deleted_at IS NULL AND is_template = 0 ORDER BY started_at ASC').all()
+  return getDb().prepare<[], SessionRow>("SELECT * FROM sessions WHERE deleted_at IS NULL AND is_template = 0 AND purpose NOT IN ('secretary_runtime', 'secretary_chat') ORDER BY started_at ASC").all()
 }
 
 function listSessionRuntimeSignals(agentId?: string, projectId?: string): SessionRuntimeSignalsRow[] {
-  const conditions = ['s.deleted_at IS NULL', 's.is_template = 0']
+  const conditions = ["s.deleted_at IS NULL", 's.is_template = 0', "s.purpose NOT IN ('secretary_runtime', 'secretary_chat')"]
   const parameters: string[] = []
   if (agentId) {
     conditions.push('s.agent_id = ?')

@@ -7,6 +7,7 @@ import {
   Inbox,
   Library,
   LayoutDashboard,
+  Mail,
   MessageSquare,
   Pin,
   Search,
@@ -37,6 +38,7 @@ const globalNav = [
 const projectNav = [
   { to: '/workspace', icon: MessageSquare, label: '工作台' },
   { to: '/autonomy', icon: RadioTower, label: '自主工作' },
+  { to: '/secretary', icon: Mail, label: '项目秘书' },
   { to: '/tasks', icon: FolderKanban, label: '任务' },
   { to: '/schedule', icon: Clock, label: '自动化' },
   { to: '/events', icon: Inbox, label: '事件' },

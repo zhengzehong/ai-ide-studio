@@ -270,13 +270,18 @@ export const sessionManager = {
     }
   },
 
-  async createSession(agentId: string, taskId?: string, projectId?: string): Promise<SessionRow> {
+  async createSession(
+    agentId: string,
+    taskId?: string,
+    projectId?: string,
+    purpose: SessionRow['purpose'] = 'conversation',
+  ): Promise<SessionRow> {
     const agent = agentStore.get(agentId)
     if (!agent) throw new Error(`Agent not found: ${agentId}`)
     const projectContext = resolveSessionProjectContext(agentId, taskId, projectId)
 
     const session = publishSessionCreated(
-      sessionStore.create({ agentId, taskId, projectId: projectContext.projectId }),
+      sessionStore.create({ agentId, taskId, projectId: projectContext.projectId, purpose }),
     )
 
     log.info({ sessionId: session.id, agentId, taskId, projectId: projectContext.projectId }, 'Local Session created')

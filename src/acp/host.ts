@@ -3,6 +3,7 @@ import { Writable, Readable } from 'stream'
 import * as acp from '@agentclientprotocol/sdk'
 import { events } from '../core/events.js'
 import { buildAgentAutonomySystemPrompt } from '../core/agent-autonomy-prompt.js'
+import { buildProjectSecretarySystemPrompt } from '../core/project-secretary-prompt.js'
 import { createChildLogger } from '../core/logger.js'
 import { agentStore } from '../store/agents.js'
 import { sessionStore } from '../store/sessions.js'
@@ -97,7 +98,9 @@ function buildSessionMeta(conn: AgentConnection, ourSessionId: string): AgentSes
     isPrimary: session.is_primary === 1,
     additionalPrompt: session.purpose === 'autonomy'
       ? buildAgentAutonomySystemPrompt(conn.agentId)
-      : undefined,
+      : session.purpose === 'secretary_runtime' || session.purpose === 'secretary_chat'
+        ? buildProjectSecretarySystemPrompt(ourSessionId)
+        : undefined,
   })
 }
 

@@ -39,7 +39,7 @@ API 子进程                       Realtime 子进程
       ▼
 Core 业务层（API 进程）
   sessions.ts / tasks.ts / projects.ts / agents.ts / teams.ts / event-center.ts / events.ts / knowledge-base.ts
-  agent-autonomy.ts / agent-autonomy-scheduler.ts
+  agent-autonomy.ts / agent-autonomy-scheduler.ts / project-secretary.ts
       │
       ├── Store 持久层
       │     db.ts                  SQLite 初始化、旧 JSON 导入
@@ -90,6 +90,8 @@ Rule Engine（每 10 分钟）
 ```
 
 每个项目 Agent 最多拥有一个未删除的自主 Session。自主 Session 与普通对话共享 ACP、消息持久化、取消和恢复能力，但不进入 Workspace 普通会话列表或项目会话统计；用户仍可从自主工作页按 `sessionId` 打开完整会话。启用时 Claude 必须由 Runtime 确认 `bypassPermissions`，Codex 必须确认 `agent-full-access`，未确认时不会启用心跳规则。
+
+项目秘书是独立于自主 Agent 的项目级实体。秘书使用隐藏的 `secretary_runtime` Session 执行定时/事件触发，并使用独立的 `secretary_chat` Session 处理用户对话；两个 Session 共享秘书定义、工作项目和邮箱 Thread，但都从普通 Session 列表排除。秘书触发先写入持久化运行队列，再串行入队 Prompt；`session:committed_done` 只在项目和观察 Agent 匹配时创建运行请求，避免跨项目读取和忙碌跳过造成漏报。秘书通过 `secretary.report` 写入固定邮件 envelope，附件只保存项目相对路径，正文和文件查看继续复用现有 Markdown/文件读取链路。
 
 前端实时对话以 `session:update` 作为可见流式状态来源；`session:event` 主要用于持久化同步、断线恢复和状态补偿，避免每个流式 chunk 都全量还原事件。后端在用户发送后立即创建一条 `messages.status = running` 的 Agent 消息，流式文本写入 `messages.content` 快照；思考、工具、权限、提问、计划和文件修改等执行过程写入 `turn_process_items`，并通过 `session:process_item` 轻量广播。完成后同一条 Agent 消息更新为 completed/failed/cancelled。
 

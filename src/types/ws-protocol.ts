@@ -184,6 +184,47 @@ export interface AutonomyReportsListMsg extends ClientMessage {
   before?: string
   limit?: number
 }
+export interface SecretaryListMsg extends ClientMessage {
+  type: 'secretary.list'
+  projectId: string
+}
+export interface SecretaryGetMsg extends ClientMessage {
+  type: 'secretary.get'
+  projectId: string
+  secretaryId: string
+}
+export interface SecretaryCreateMsg extends ClientMessage {
+  type: 'secretary.create'
+  projectId: string
+  name: string
+  definitionPrompt?: string
+  reportPrompt?: string
+  executionAgentId: string
+  observedAgentIds?: string[]
+  observeAll?: boolean
+  cron?: string
+  watchSessionDone?: boolean
+  watchTaskNeedsInput?: boolean
+}
+export interface SecretaryUpdateMsg extends ClientMessage {
+  type: 'secretary.update'
+  projectId: string
+  secretaryId: string
+  name?: string
+  definitionPrompt?: string
+  reportPrompt?: string
+  executionAgentId?: string
+  enabled?: boolean
+  observeAll?: boolean
+  observedAgentIds?: string[]
+  cron?: string
+}
+export interface SecretaryThreadsMsg extends ClientMessage {
+  type: 'secretary.threads.list'
+  projectId: string
+  secretaryId: string
+  unreadOnly?: boolean
+}
 export interface GlobalAssistantGetMsg extends ClientMessage {
   type: 'globalAssistant.get'
 }
@@ -848,6 +889,7 @@ export type ServerMessage =
   | { type: 'event-center:update'; data: Record<string, unknown> }
   | { type: 'knowledge-base:update'; data: Record<string, unknown> }
   | { type: 'autonomy:update'; agentId: string; projectId: string }
+  | { type: 'secretary:update'; projectId: string }
   | { type: 'pong'; timestamp: number }
   | { type: 'resume:ack'; cursors: Record<string, RealtimeCursor> }
   | { type: 'resync_required'; sessionId?: string; reason: string }

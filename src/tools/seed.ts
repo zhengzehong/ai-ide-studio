@@ -423,6 +423,32 @@ const CORE_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
     defaultScope: 'global',
   },
   {
+    name: 'secretary.report',
+    displayName: '提交秘书汇报',
+    description: '向当前项目秘书邮箱提交或更新一封主题邮件，可附带项目内文件。',
+    category: 'automation',
+    type: 'builtin',
+    config: { handler: 'secretary.report' },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        threadKey: { type: 'string', description: '同一主题后续更新时复用的键' },
+        subject: { type: 'string', description: '邮件主题' },
+        summary: { type: 'string', description: '邮件摘要' },
+        kind: { type: 'string', enum: ['decision', 'result', 'progress', 'alert', 'digest'] },
+        priority: { type: 'string', enum: ['low', 'normal', 'high'] },
+        needsAction: { type: 'boolean', description: '是否需要用户处理' },
+        markdown: { type: 'string', description: 'Markdown 正文' },
+        sourceRefs: { type: 'array', items: { type: 'string' } },
+        attachments: { type: 'array', items: { type: 'object' } },
+      },
+      required: ['subject', 'markdown'],
+    },
+    permissions: CORE_PERMISSIONS,
+    isBuiltin: true,
+    defaultScope: 'global',
+  },
+  {
     name: 'core.session.template.publish',
     displayName: '发布会话为模板',
     description:

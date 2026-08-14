@@ -13,6 +13,7 @@ import {
   Projects,
   PinnedSessions,
   Schedule,
+  Secretary,
   Settings,
   ShareManagePage,
   SkillCenter,
@@ -89,6 +90,7 @@ export default function App() {
                 <Route path="knowledge" element={<KnowledgeBase />} />
                 <Route path="agent-memory" element={<AgentMemory />} />
                 <Route path="autonomy" element={<Autonomy />} />
+                <Route path="secretary" element={<Secretary />} />
               </Route>
               <Route path="/workspace" element={<LegacyProjectRedirect subpath="/workspace" />} />
               <Route path="/tasks" element={<LegacyProjectRedirect subpath="/tasks" />} />
