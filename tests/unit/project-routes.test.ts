@@ -59,6 +59,13 @@ describe('project route memory', () => {
       .toBe('/p/project%2Fa/knowledge')
   })
 
+  test('keeps the project secretary route instead of falling back to workspace', () => {
+    expect(normalizeProjectLocation({ pathname: '/secretary', search: '', hash: '' }))
+      .toEqual({ pathname: '/secretary', search: '', hash: '' })
+    expect(buildProjectPath('project-a', { pathname: '/secretary', search: '', hash: '' }))
+      .toBe('/p/project-a/secretary')
+  })
+
   test('removes only the target project memory', () => {
     rememberProjectLocation('project-a', { pathname: '/tasks', search: '', hash: '' }, storage)
     rememberProjectLocation('project-b', { pathname: '/events', search: '', hash: '' }, storage)

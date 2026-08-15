@@ -9,6 +9,7 @@ export const PROJECT_ROUTE_PATHS = [
   '/events',
   '/knowledge',
   '/agent-memory',
+  '/secretary',
 ] as const
 
 export interface ProjectLocation {
