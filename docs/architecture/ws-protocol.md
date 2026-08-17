@@ -354,7 +354,7 @@ Team 运行时事件：`team.member.spawn` 会广播包含新成员 Session 行�
 | `secretary.list` | `{ projectId }` | 当前项目秘书列表（含未读数） |
 | `secretary.get` | `{ projectId, secretaryId }` | 秘书配置与触发器 |
 | `secretary.create` | `{ projectId, name, executionAgentId, definitionPrompt?, reportPrompt?, observedAgentIds?, observeAll?, cron?, watchSessionDone?, watchTaskNeedsInput? }` | 新建秘书 |
-| `secretary.update` | `{ projectId, secretaryId, name?, executionAgentId?, definitionPrompt?, reportPrompt?, observedAgentIds?, observeAll?, enabled?, cron? }` | 更新后的秘书 |
+| `secretary.update` | `{ projectId, secretaryId, name?, executionAgentId?, definitionPrompt?, reportPrompt?, observedAgentIds?, observeAll?, enabled?, cron?, watchSessionDone?, watchTaskNeedsInput? }` | 更新后的秘书；启停会同步定时规则 |
 | `secretary.delete` | `{ projectId, secretaryId }` | `{ deleted: true }` |
 | `secretary.runNow` | `{ projectId, secretaryId }` | `{ accepted: true, runId }` |
 | `secretary.threads.list` | `{ projectId, secretaryId, unreadOnly? }` | 邮箱 Thread 列表 |

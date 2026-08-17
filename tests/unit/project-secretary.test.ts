@@ -11,6 +11,7 @@ import { projectStore } from '../../src/store/projects.js'
 import { projectSecretaryStore } from '../../src/store/project-secretaries.js'
 import { secretaryMailStore } from '../../src/store/secretary-mail.js'
 import { secretaryRunStore } from '../../src/store/secretary-runs.js'
+import { ruleStore } from '../../src/store/rules.js'
 import { sessionStore } from '../../src/store/sessions.js'
 import { getHandler } from '../../src/tools/handlers/index.js'
 
@@ -90,6 +91,16 @@ describe('project secretary MVP', () => {
     expect(projectSecretaryStore.getData(secretary.id)?.unreadCount).toBe(1)
     secretaryMailStore.markRead(output.threadId)
     expect(projectSecretaryStore.getData(secretary.id)?.unreadCount).toBe(0)
+    secretaryMailStore.archive(output.threadId)
+    expect(secretaryMailStore.list(secretary.id)).toEqual([])
+    const reopened = secretaryMailStore.upsert({
+      secretaryId: secretary.id,
+      threadKey: 'build',
+      subject: '构建结果更新',
+      bodyMarkdown: '## 新结果\n\n仍然通过',
+    })
+    expect(reopened).toMatchObject({ id: output.threadId, status: 'open', unread: true })
+    expect(secretaryMailStore.list(secretary.id)).toHaveLength(1)
     await expect(handler.execute({ subject: '危险', markdown: 'x', attachments: [{ path: '../outside.md' }] }, {
       projectId: fixture.project.id,
       agentId: fixture.execution.id,
@@ -188,6 +199,48 @@ describe('project secretary MVP', () => {
     await new Promise((resolveWait) => setImmediate(resolveWait))
     expect(enqueue).toHaveBeenCalledWith(expect.any(String), expect.stringContaining('项目秘书'), undefined, expect.any(Object))
     expect(secretaryRunStore.list(secretary.id)[0]?.status).toBe('succeeded')
+  })
+
+  test('synchronizes enabled state to the secretary Cron rule', async () => {
+    const fixture = createFixture()
+    const secretary = await createProjectSecretary({
+      projectId: fixture.project.id,
+      name: '定时秘书',
+      definitionPrompt: '',
+      reportPrompt: '',
+      executionAgentId: fixture.execution.id,
+      observedAgentIds: [],
+      observeAll: true,
+      cron: '0 9 * * *',
+      watchSessionDone: false,
+    })
+    const rule = ruleStore.list(fixture.project.id).find((item) => item.action_config.secretary_id === secretary.id)
+    expect(rule?.enabled).toBe(true)
+
+    await updateProjectSecretary(secretary.id, fixture.project.id, { enabled: false })
+    expect(ruleStore.get(rule!.id)?.enabled).toBe(false)
+    await updateProjectSecretary(secretary.id, fixture.project.id, { enabled: true })
+    expect(ruleStore.get(rule!.id)?.enabled).toBe(true)
+  })
+
+  test('reconfigures event triggers without recreating the secretary', async () => {
+    const fixture = createFixture()
+    const secretary = await createProjectSecretary({
+      projectId: fixture.project.id,
+      name: '触发秘书',
+      definitionPrompt: '',
+      reportPrompt: '',
+      executionAgentId: fixture.execution.id,
+      observedAgentIds: [],
+      observeAll: true,
+    })
+
+    const updated = await updateProjectSecretary(secretary.id, fixture.project.id, {
+      watchSessionDone: false,
+      watchTaskNeedsInput: true,
+    })
+    expect(updated.triggers.some((item) => item.type === 'session_done')).toBe(false)
+    expect(updated.triggers.some((item) => item.type === 'task_needs_input' && item.enabled)).toBe(true)
   })
 })
 

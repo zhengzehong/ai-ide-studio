@@ -106,6 +106,7 @@ export default function App() {
         <Route path="/templates" element={<TemplateListPage />} />
         <Route element={<MobileShell />}>
           <Route path="/secretary" element={<SecretaryPage />} />
+          <Route path="/secretary/:secretaryId/:threadId" element={<SecretaryPage />} />
           <Route path="/pinned" element={<PinnedSessionsPage />} />
           <Route path="/" element={<SessionListPage />} />
           <Route path="/tasks" element={<TaskListPage />} />

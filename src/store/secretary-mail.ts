@@ -72,7 +72,7 @@ export const secretaryMailStore = {
       priority: input.priority ?? current?.priority ?? 'normal',
       needs_action: input.needsAction === undefined ? current?.needs_action ?? 0 : input.needsAction ? 1 : 0,
       unread: 1,
-      status: current?.status ?? 'open',
+      status: current?.status === 'archived' ? 'open' : current?.status ?? 'open',
       body_markdown: input.bodyMarkdown,
       source_refs_json: JSON.stringify(input.sourceRefs ?? parseStringArray(current?.source_refs_json)),
       attachments_json: JSON.stringify(input.attachments ?? parseAttachments(current?.attachments_json)),
@@ -90,6 +90,7 @@ export const secretaryMailStore = {
       ON CONFLICT(secretary_id, thread_key) DO UPDATE SET
         subject = excluded.subject, summary = excluded.summary, kind = excluded.kind,
         priority = excluded.priority, needs_action = excluded.needs_action, unread = 1,
+        status = excluded.status,
         body_markdown = excluded.body_markdown, source_refs_json = excluded.source_refs_json,
         attachments_json = excluded.attachments_json, updated_at = excluded.updated_at
     `).run(row)

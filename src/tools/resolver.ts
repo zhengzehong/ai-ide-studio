@@ -9,6 +9,7 @@ import { teamMemberStore } from '../store/teams.js'
 import { projectStore } from '../store/projects.js'
 import { TEAM_LEADER_INITIAL_HIDDEN_TOOLS } from './team-profiles.js'
 import { isAgentVisiblePlatformTool } from './agent-tool-exposure.js'
+import { isToolVisibleForSession } from './session-tool-visibility.js'
 import type { McpServer } from '@agentclientprotocol/sdk'
 
 const log = createChildLogger('tool-resolver')
@@ -48,7 +49,11 @@ function rowToBinding(row: ReturnType<typeof toolBindingStore.list>[0]): ToolBin
 
 export function resolveToolsForSession(agentId?: string, projectId?: string, sessionId?: string): ResolvedTool[] {
   const allBindings = toolBindingStore.list()
-  const allTools = toolStore.list().filter((tool) => tool.enabled && isAgentVisiblePlatformTool(tool.name))
+  const allTools = toolStore.list().filter(
+    (tool) => tool.enabled
+      && isAgentVisiblePlatformTool(tool.name)
+      && isToolVisibleForSession(tool.name, sessionId),
+  )
   const hiddenToolNames = resolveHiddenToolNames({ agentId, projectId, sessionId }, allTools, allBindings)
   const toolMap = new Map<string, ResolvedTool>()
 

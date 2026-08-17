@@ -3,6 +3,7 @@ import { createChildLogger } from '../../core/logger.js'
 import { teamMemberStore } from '../../store/teams.js'
 import { TEAM_LEADER_INITIAL_HIDDEN_TOOLS } from '../team-profiles.js'
 import { isAgentVisiblePlatformTool } from '../agent-tool-exposure.js'
+import { isToolVisibleForSession } from '../session-tool-visibility.js'
 import type { ResolvedTool, ToolBinding, ToolConfig, ToolDefinition, ToolPermissions } from '../types.js'
 
 const log = createChildLogger('tool-visibility-resolver')
@@ -19,7 +20,10 @@ export interface ResolveVisiblePlatformToolsInput {
 export function resolveVisiblePlatformTools(input: ResolveVisiblePlatformToolsInput): ResolvedTool[] {
   const allBindings = toolBindingStore.list()
   const allTools = toolStore.list().filter(
-    (row) => row.enabled === 1 && row.type !== 'mcp' && isAgentVisiblePlatformTool(row.name),
+    (row) => row.enabled === 1
+      && row.type !== 'mcp'
+      && isAgentVisiblePlatformTool(row.name)
+      && isToolVisibleForSession(row.name, input.sessionId),
   )
   const hiddenToolNames = resolveHiddenToolNames(input, allTools, allBindings)
   const resolved: ResolvedTool[] = []

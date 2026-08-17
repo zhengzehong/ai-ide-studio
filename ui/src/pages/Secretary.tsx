@@ -33,6 +33,7 @@ export function Secretary() {
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null)
   const [files, setFiles] = useState<FilesPresentationInfo | null>(null)
   const [chatOpen, setChatOpen] = useState(false)
+  const [notice, setNotice] = useState<string | null>(null)
 
   useEffect(() => {
     if (!projectId) return
@@ -47,13 +48,14 @@ export function Secretary() {
 
   const chooseSecretary = (id: string): void => {
     if (!projectId) return
+    setNotice(null)
     setSelectedThreadId(null)
     void select(projectId, id)
   }
 
   const chooseThread = (thread: SecretaryThread): void => {
     setSelectedThreadId(thread.id)
-    if (thread.unread && selectedSecretary) void markRead(selectedSecretary.id, thread.id)
+    if (thread.unread && selectedSecretary) void markRead(selectedSecretary.id, thread.id).catch(() => undefined)
   }
 
   const openChat = (): void => {
@@ -65,14 +67,48 @@ export function Secretary() {
     setFiles(toPresentation(projectId, thread))
   }
 
+  const runSelected = async (): Promise<void> => {
+    if (!selectedSecretary) return
+    setNotice(null)
+    try {
+      await runNow(selectedSecretary.id)
+      setNotice('已加入运行队列')
+    } catch {
+      setNotice(null)
+    }
+  }
+
+  const deleteSelected = async (): Promise<void> => {
+    if (!selectedSecretary || !window.confirm(`确定删除秘书“${selectedSecretary.name}”？`)) return
+    try {
+      await remove(selectedSecretary.id)
+      setEditing(null)
+    } catch {
+      setNotice('删除失败')
+    }
+  }
+
+  const archiveSelectedThread = async (): Promise<void> => {
+    if (!selectedSecretary || !selectedThread) return
+    try {
+      await archive(selectedSecretary.id, selectedThread.id)
+    } catch {
+      setNotice('归档失败')
+    }
+  }
+
   return (
     <div style={styles.page}>
       <header style={styles.header}>
         <div><h1 style={styles.title}>项目秘书</h1><p style={styles.subtitle}>按项目观察 Agent，把结果整理成邮箱主题。</p></div>
         <div style={styles.actions}>
+          {selectedSecretary && <span style={{ ...styles.statusPill, ...(selectedSecretary.enabled ? styles.statusOn : {}) }}>{selectedSecretary.enabled ? '运行中' : '已停用'}</span>}
+          {notice && <span style={styles.notice}>{notice}</span>}
           <button type="button" title="刷新" aria-label="刷新" onClick={() => projectId && void load(projectId)} style={styles.iconButton}><RefreshCw size={15} /></button>
-          {selectedSecretary && <button type="button" onClick={() => void runNow(selectedSecretary.id)} style={styles.actionButton}><Play size={14} /> 立即运行</button>}
+          {selectedSecretary && <button type="button" disabled={!selectedSecretary.enabled} title={selectedSecretary.enabled ? '立即运行' : '请先启用秘书'} onClick={() => void runSelected()} style={{ ...styles.actionButton, ...(!selectedSecretary.enabled ? styles.disabledButton : {}) }}><Play size={14} /> 立即运行</button>}
           {selectedSecretary && <button type="button" onClick={openChat} style={styles.actionButton}><MessageSquare size={14} /> 秘书对话</button>}
+          {selectedSecretary && <button type="button" onClick={() => { setEditing(selectedSecretary); setConfigOpen(true) }} style={styles.actionButton}><Settings2 size={14} /> 设置</button>}
+          {selectedSecretary && <button type="button" title="删除秘书" aria-label="删除秘书" onClick={() => void deleteSelected()} style={styles.iconButton}><Trash2 size={15} /></button>}
           <button type="button" onClick={() => { setEditing(null); setConfigOpen(true) }} style={styles.primary}><Plus size={14} /> 新建秘书</button>
         </div>
       </header>
@@ -93,7 +129,7 @@ export function Secretary() {
           </section>
           <section style={styles.detail}>
             {selectedThread ? <>
-              <header style={styles.detailHeader}><div><h2>{selectedThread.subject}</h2><small>{formatTime(selectedThread.updatedAt)} · {selectedThread.needsAction ? '需要处理' : '仅供查看'}</small></div><div style={styles.actions}><button type="button" title="编辑秘书" aria-label="编辑秘书" onClick={() => { setEditing(selectedSecretary); setConfigOpen(true) }} style={styles.iconButton}><Settings2 size={15} /></button><button type="button" title="归档" aria-label="归档" onClick={() => selectedSecretary && void archive(selectedSecretary.id, selectedThread.id)} style={styles.iconButton}><Archive size={15} /></button><button type="button" title="删除秘书" aria-label="删除秘书" onClick={() => { if (selectedSecretary && window.confirm(`确定删除秘书“${selectedSecretary.name}”？`)) void remove(selectedSecretary.id) }} style={styles.iconButton}><Trash2 size={15} /></button></div></header>
+              <header style={styles.detailHeader}><div><h2>{selectedThread.subject}</h2><small>{formatTime(selectedThread.updatedAt)} · {selectedThread.needsAction ? '需要处理' : '仅供查看'}</small></div><button type="button" title="归档" aria-label="归档" onClick={() => void archiveSelectedThread()} style={styles.iconButton}><Archive size={15} /></button></header>
               <div style={styles.detailBody}><div style={styles.summary}><span>摘要</span><strong>{selectedThread.summary || '秘书未提供摘要'}</strong></div><MarkdownRenderer content={selectedThread.bodyMarkdown} projectId={projectId ?? undefined} />{selectedThread.attachments.length > 0 && <button type="button" onClick={() => openFiles(selectedThread)} style={styles.attachmentButton}><FileText size={14} /> 查看附件（{selectedThread.attachments.length}）</button>}</div>
             </> : <div style={styles.empty}>从邮件列表选择一封邮件</div>}
           </section>
@@ -127,6 +163,10 @@ const styles: Record<string, React.CSSProperties> = {
   actions: { display: 'flex', alignItems: 'center', gap: 7 },
   iconButton: { width: 30, height: 30, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', border: '1px solid var(--border)', borderRadius: 6, background: 'var(--bg-0)', color: 'var(--text-2)', cursor: 'pointer' },
   actionButton: { height: 30, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '0 9px', border: '1px solid var(--border)', borderRadius: 6, background: 'var(--bg-0)', color: 'var(--text-2)', cursor: 'pointer', fontSize: 12 },
+  disabledButton: { cursor: 'not-allowed', opacity: 0.45 },
+  statusPill: { height: 23, display: 'inline-flex', alignItems: 'center', padding: '0 7px', borderRadius: 4, background: 'var(--bg-2)', color: 'var(--text-3)', fontSize: 11 },
+  statusOn: { background: 'color-mix(in srgb, var(--green) 9%, var(--bg-0))', color: 'var(--green)' },
+  notice: { color: 'var(--green)', fontSize: 11 },
   primary: { height: 30, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '0 10px', border: 0, borderRadius: 6, background: 'var(--blue)', color: '#fff', cursor: 'pointer', fontSize: 12 },
   error: { padding: 9, marginBottom: 10, borderRadius: 6, background: 'var(--red-light)', color: 'var(--red)', fontSize: 12 },
   workbench: { display: 'grid', gridTemplateColumns: '220px 310px minmax(0, 1fr)', minHeight: 0, flex: 1, border: '1px solid var(--border)', background: 'var(--bg-0)', borderRadius: 7, overflow: 'hidden' },

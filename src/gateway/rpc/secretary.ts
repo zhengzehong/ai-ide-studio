@@ -53,6 +53,8 @@ export const secretaryRpcHandlers: RpcHandlerMap = {
       observeAll: typeof msg.observeAll === 'boolean' ? msg.observeAll : undefined,
       observedAgentIds: msg.observedAgentIds === undefined ? undefined : optionalStringArray(msg.observedAgentIds, 'observedAgentIds', 100, 120),
       cron: Object.prototype.hasOwnProperty.call(msg, 'cron') ? optionalText(msg.cron, 80) : undefined,
+      watchSessionDone: typeof msg.watchSessionDone === 'boolean' ? msg.watchSessionDone : undefined,
+      watchTaskNeedsInput: typeof msg.watchTaskNeedsInput === 'boolean' ? msg.watchTaskNeedsInput : undefined,
     })
     sendResult(result)
   },

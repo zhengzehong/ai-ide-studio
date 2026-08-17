@@ -8,12 +8,18 @@ import {
 } from '../store/project-secretaries.js'
 import { secretaryRunStore, type SecretaryRunRow } from '../store/secretary-runs.js'
 import { secretaryMailStore } from '../store/secretary-mail.js'
-import { ruleStore } from '../store/rules.js'
 import { sessionStore } from '../store/sessions.js'
 import { sessionManager } from './sessions.js'
 import { events } from './events.js'
 import { createChildLogger } from './logger.js'
 import type { SessionDoneData } from '../types/ws-protocol.js'
+import {
+  configureSecretaryTriggers,
+  deleteSecretaryRules,
+  reconfigureSecretaryCron,
+  reconfigureSecretaryEventTrigger,
+  setSecretaryRulesEnabled,
+} from './project-secretary-triggers.js'
 
 const log = createChildLogger('project-secretary')
 const activeRuns = new Set<string>()
@@ -31,6 +37,8 @@ export interface UpdateProjectSecretaryInput {
   observeAll?: boolean
   observedAgentIds?: string[]
   cron?: string
+  watchSessionDone?: boolean
+  watchTaskNeedsInput?: boolean
 }
 export async function createProjectSecretary(input: CreateProjectSecretaryInput): Promise<ProjectSecretaryData> {
   validateSecretaryInput(input.projectId, input.executionAgentId, input.observedAgentIds ?? [])
@@ -45,7 +53,7 @@ export async function createProjectSecretary(input: CreateProjectSecretaryInput)
     sessionStore.updateTitle(runtime.id, `${row.name} 后台运行`)
     sessionStore.updateTitle(chat.id, `${row.name} 对话`)
     projectSecretaryStore.setSessions(row.id, runtime.id, chat.id)
-    configureTriggers(row.id, input)
+    configureSecretaryTriggers(row.id, row.project_id, input)
     emitUpdate(row.project_id)
     log.info({ secretaryId: row.id, projectId: row.project_id, runtimeSessionId: runtime.id, chatSessionId: chat.id }, '项目秘书已创建')
     return projectSecretaryStore.getData(row.id)!
@@ -95,8 +103,16 @@ export async function updateProjectSecretary(
     if (input.observedAgentIds) validateSecretaryInput(projectId, current.execution_agent_id, input.observedAgentIds)
     projectSecretaryStore.update(id, input)
   }
-  if (input.cron !== undefined) reconfigureCron(id, projectId, input.cron)
-  if (projectSecretaryStore.get(id)?.enabled) void drainSecretaryRuns(id)
+  if (input.cron !== undefined) reconfigureSecretaryCron(id, projectId, input.cron)
+  if (input.watchSessionDone !== undefined) {
+    reconfigureSecretaryEventTrigger(id, 'session_done', 'session:committed_done', input.watchSessionDone)
+  }
+  if (input.watchTaskNeedsInput !== undefined) {
+    reconfigureSecretaryEventTrigger(id, 'task_needs_input', 'task:update', input.watchTaskNeedsInput)
+  }
+  const updated = projectSecretaryStore.get(id)
+  if (updated) setSecretaryRulesEnabled(id, projectId, updated.enabled === 1)
+  if (updated?.enabled) void drainSecretaryRuns(id)
   emitUpdate(projectId)
   return projectSecretaryStore.getData(id)!
 }
@@ -198,47 +214,6 @@ export function secretaryForSession(sessionId: string) {
   return projectSecretaryStore.findBySession(sessionId)
 }
 
-function configureTriggers(id: string, input: CreateProjectSecretaryInput): void {
-  const projectId = projectSecretaryStore.get(id)?.project_id
-  if (!projectId) return
-  if (input.cron?.trim()) {
-    const trigger = projectSecretaryStore.createTrigger({ secretaryId: id, type: 'cron', cron: input.cron.trim() })
-    ruleStore.create({
-      name: `${projectSecretaryStore.get(id)?.name ?? '秘书'} 定时汇报`,
-      description: '项目秘书定时检查',
-      cron: input.cron.trim(),
-      action: 'secretary_tick',
-      actionConfig: { secretary_id: id, trigger_id: trigger.id },
-      enabled: true,
-      projectId,
-      createdBy: `secretary:${id}`,
-    })
-  }
-  if (input.watchSessionDone !== false) {
-    projectSecretaryStore.createTrigger({ secretaryId: id, type: 'session_done', eventType: 'session:committed_done' })
-  }
-  if (input.watchTaskNeedsInput) {
-    projectSecretaryStore.createTrigger({ secretaryId: id, type: 'task_needs_input', eventType: 'task:update' })
-  }
-}
-
-function reconfigureCron(secretaryId: string, projectId: string, cron: string): void {
-  deleteSecretaryRules(secretaryId, projectId)
-  projectSecretaryStore.deleteTriggersByType(secretaryId, 'cron')
-  if (!cron.trim()) return
-  const trigger = projectSecretaryStore.createTrigger({ secretaryId, type: 'cron', cron: cron.trim() })
-  ruleStore.create({
-    name: `${projectSecretaryStore.get(secretaryId)?.name ?? '秘书'} 定时汇报`,
-    description: '项目秘书定时检查',
-    cron: cron.trim(),
-    action: 'secretary_tick',
-    actionConfig: { secretary_id: secretaryId, trigger_id: trigger.id },
-    enabled: true,
-    projectId,
-    createdBy: `secretary:${secretaryId}`,
-  })
-}
-
 function validateSecretaryInput(projectId: string, executionAgentId: string, observedAgentIds: string[]): void {
   requireProject(projectId)
   const executionAgent = agentStore.get(executionAgentId)
@@ -257,12 +232,6 @@ function requireSecretary(id: string, projectId: string) {
   const secretary = projectSecretaryStore.get(id)
   if (!secretary || secretary.project_id !== projectId) throw new Error('秘书不存在或不属于当前项目')
   return secretary
-}
-
-function deleteSecretaryRules(secretaryId: string, projectId: string): void {
-  for (const rule of ruleStore.list(projectId)) {
-    if (rule.action === 'secretary_tick' && rule.action_config.secretary_id === secretaryId) ruleStore.delete(rule.id)
-  }
 }
 
 async function drainSecretaryRuns(secretaryId: string): Promise<void> {

@@ -1,62 +1,138 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
-import { Archive, Bot, FileText, Mail, MessageSquare, Play, Plus, RefreshCw } from 'lucide-react'
+import { useNavigate, useParams } from 'react-router-dom'
+import { Archive, ArrowLeft, Bot, FileText, Mail, MessageSquare, Play, Plus, RefreshCw, Settings2, Trash2 } from 'lucide-react'
 import { useAppStore } from '../stores/app.store'
-import { useMobileSecretaryStore, type MobileSecretaryThread } from '../stores/secretary.store'
+import { useMobileSecretaryStore, type MobileSecretary, type MobileSecretaryThread } from '../stores/secretary.store'
 import { MarkdownView } from '../components/file-viewer/MarkdownView'
 import { PresentedFilesOverlay } from '../components/file-viewer/PresentedFilesOverlay'
 import type { FilesPresentationInfo } from '@desktop/stores/session-events'
-import SecretaryConfigSheet from '../components/SecretaryConfigSheet'
+import { SecretaryConfigSheet } from '../components/SecretaryConfigSheet'
 import SecretaryChatOverlay from '../components/SecretaryChatOverlay'
 
 export default function SecretaryPage() {
+  const navigate = useNavigate()
+  const { secretaryId: routeSecretaryId, threadId } = useParams<{ secretaryId?: string; threadId?: string }>()
   const projectId = useAppStore((state) => state.currentProjectId)
   const agents = useAppStore((state) => state.agents)
-  const secretaries = useMobileSecretaryStore((state) => state.secretaries)
-  const selectedId = useMobileSecretaryStore((state) => state.selectedId)
-  const threads = useMobileSecretaryStore((state) => state.threads)
-  const loading = useMobileSecretaryStore((state) => state.loading)
-  const error = useMobileSecretaryStore((state) => state.error)
-  const load = useMobileSecretaryStore((state) => state.load)
-  const create = useMobileSecretaryStore((state) => state.create)
-  const select = useMobileSecretaryStore((state) => state.select)
-  const markRead = useMobileSecretaryStore((state) => state.markRead)
-  const archive = useMobileSecretaryStore((state) => state.archive)
-  const runNow = useMobileSecretaryStore((state) => state.runNow)
-  const setupListeners = useMobileSecretaryStore((state) => state.setupListeners)
-  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null)
+  const fetchAgents = useAppStore((state) => state.fetchAgents)
+  const store = useMobileSecretaryStore()
   const [files, setFiles] = useState<FilesPresentationInfo | null>(null)
+  const [editing, setEditing] = useState<MobileSecretary | null>(null)
   const [configOpen, setConfigOpen] = useState(false)
-  const [saving, setSaving] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
+  const [notice, setNotice] = useState('')
 
-  useEffect(() => { if (projectId) void load(projectId) }, [load, projectId])
-  useEffect(() => setupListeners(), [setupListeners])
-  const selected = useMemo(() => secretaries.find((item) => item.id === selectedId) ?? null, [secretaries, selectedId])
-  const thread = useMemo(() => threads.find((item) => item.id === selectedThreadId) ?? threads[0] ?? null, [selectedThreadId, threads])
+  useEffect(() => {
+    if (!projectId) return
+    void fetchAgents(projectId)
+    void store.load(projectId)
+  }, [fetchAgents, projectId, store.load])
+  useEffect(() => store.setupListeners(), [store.setupListeners])
+  useEffect(() => {
+    if (!projectId || !routeSecretaryId || routeSecretaryId === store.selectedId) return
+    if (store.secretaries.some((item) => item.id === routeSecretaryId)) void store.select(projectId, routeSecretaryId)
+  }, [projectId, routeSecretaryId, store.secretaries, store.select, store.selectedId])
 
-  const chooseThread = (item: MobileSecretaryThread): void => {
-    setSelectedThreadId(item.id)
-    if (projectId && selected && item.unread) void markRead(projectId, selected.id, item.id)
+  const selected = useMemo(
+    () => store.secretaries.find((item) => item.id === (routeSecretaryId ?? store.selectedId)) ?? null,
+    [routeSecretaryId, store.secretaries, store.selectedId],
+  )
+  const thread = useMemo(
+    () => threadId ? store.threads.find((item) => item.id === threadId) ?? null : null,
+    [store.threads, threadId],
+  )
+
+  useEffect(() => {
+    if (projectId && selected && thread?.unread) {
+      void store.markRead(projectId, selected.id, thread.id).catch(() => undefined)
+    }
+  }, [projectId, selected, store.markRead, thread])
+
+  const chooseSecretary = (id: string): void => {
+    if (!projectId) return
+    setNotice('')
+    navigate('/secretary', { replace: Boolean(threadId) })
+    void store.select(projectId, id)
   }
 
-  const openChat = (): void => { if (selected?.chatSessionId) setChatOpen(true) }
+  const openThread = (item: MobileSecretaryThread): void => {
+    if (selected) navigate(`/secretary/${selected.id}/${item.id}`)
+  }
+
+  const runSelected = async (): Promise<void> => {
+    if (!projectId || !selected) return
+    setNotice('')
+    try {
+      await store.runNow(projectId, selected.id)
+      setNotice('已加入运行队列')
+    } catch {
+      setNotice('运行失败')
+    }
+  }
+
+  const deleteSelected = async (): Promise<void> => {
+    if (!projectId || !selected || !window.confirm(`确定删除秘书“${selected.name}”？`)) return
+    try {
+      await store.remove(projectId, selected.id)
+      navigate('/secretary', { replace: true })
+    } catch {
+      setNotice('删除失败')
+    }
+  }
+
+  const archiveThread = async (): Promise<void> => {
+    if (!projectId || !selected || !thread) return
+    try {
+      await store.archive(projectId, selected.id, thread.id)
+      navigate('/secretary', { replace: true })
+    } catch {
+      setNotice('归档失败')
+    }
+  }
 
   if (!projectId) return <div style={styles.empty}>请先选择项目</div>
+  if (threadId) {
+    return (
+      <div style={styles.page}>
+        <header style={styles.detailHeader}>
+          <button type="button" onClick={() => navigate('/secretary', { replace: true })} aria-label="返回秘书邮箱" style={styles.iconButton}><ArrowLeft size={20} /></button>
+          <div style={styles.detailHeading}><strong>{thread?.subject ?? '邮件详情'}</strong><small>{thread ? formatTime(thread.updatedAt) : '正在加载...'}</small></div>
+          <button type="button" disabled={!thread} aria-label="归档" title="归档" onClick={() => void archiveThread()} style={styles.iconButton}><Archive size={18} /></button>
+        </header>
+        {thread ? <div style={styles.detailBody}><div style={styles.summaryBox}>{thread.summary || '秘书未提供摘要'}</div><MarkdownView content={thread.bodyMarkdown} projectId={projectId} documentPath={thread.attachments[0]?.path ?? ''} />{thread.attachments.length > 0 && <button type="button" style={styles.attachment} onClick={() => setFiles(toPresentation(projectId, thread))}><FileText size={15} /> 查看附件（{thread.attachments.length}）</button>}</div> : <div style={styles.empty}>正在加载邮件...</div>}
+        {files && <PresentedFilesOverlay presentation={files} onClose={() => setFiles(null)} />}
+      </div>
+    )
+  }
+
   return (
     <div style={styles.page}>
-      <header style={styles.header}><div><h1 style={styles.title}>秘书</h1><span style={styles.subtitle}>当前项目的汇报邮箱</span></div><div style={{ display: 'flex', gap: 4 }}><button type="button" onClick={() => setConfigOpen(true)} aria-label="新建秘书" style={styles.iconButton}><Plus size={18} /></button><button type="button" onClick={() => void load(projectId)} aria-label="刷新" style={styles.iconButton}><RefreshCw size={18} /></button></div></header>
-      {error && <div style={styles.error}>{error}</div>}
-      <div style={styles.secretaryStrip}>{secretaries.map((item) => <button type="button" key={item.id} onClick={() => { setSelectedThreadId(null); void select(projectId, item.id) }} style={{ ...styles.secretaryButton, ...(item.id === selectedId ? styles.secretaryActive : {}) }}><Bot size={15} /><span>{item.name}</span><small>{item.enabled ? '运行中' : '停用'}{item.unreadCount > 0 ? ` · ${item.unreadCount}` : ''}</small></button>)}</div>
-      {loading ? <div style={styles.empty}>正在加载...</div> : !selected ? <div style={styles.empty}><Mail size={28} /><strong>当前项目没有秘书</strong><span>创建一个项目秘书，自动整理 Agent 进展。</span><button type="button" onClick={() => setConfigOpen(true)} style={styles.action}><Plus size={14} /> 新建秘书</button></div> : <>
-        <div style={styles.toolbar}><strong>{selected.name}</strong><span style={{ flex: 1 }} /><button type="button" onClick={() => void runNow(projectId, selected.id)} style={styles.action}><Play size={14} /> 运行</button><button type="button" onClick={openChat} style={styles.action}><MessageSquare size={14} /> 对话</button></div>
-        <div style={styles.mailList}>{threads.map((item) => <button type="button" key={item.id} onClick={() => chooseThread(item)} style={{ ...styles.mailRow, ...(item.id === thread?.id ? styles.mailActive : {}) }}><span style={styles.mailTitle}><strong>{item.subject}</strong>{item.unread && <i style={styles.dot} />}</span><span style={styles.summary}>{item.summary || item.bodyMarkdown.slice(0, 90)}</span><small>{item.needsAction ? '需要处理' : item.kind} · {formatTime(item.updatedAt)}</small></button>)}{threads.length === 0 && <div style={styles.empty}>暂无邮件</div>}</div>
-        {thread && <section style={styles.detail}><header style={styles.detailHeader}><div><h2>{thread.subject}</h2><small>{formatTime(thread.updatedAt)}</small></div><button type="button" aria-label="归档" onClick={() => selected && void archive(projectId, selected.id, thread.id)} style={styles.iconButton}><Archive size={17} /></button></header><div style={styles.detailBody}><div style={styles.summaryBox}>{thread.summary || '秘书未提供摘要'}</div><MarkdownView content={thread.bodyMarkdown} projectId={projectId} documentPath={thread.attachments[0]?.path ?? ''} />{thread.attachments.length > 0 && <button type="button" style={styles.attachment} onClick={() => setFiles(toPresentation(projectId, thread))}><FileText size={15} /> 查看附件（{thread.attachments.length}）</button>}</div></section>}
+      <header style={styles.header}>
+        <div style={styles.headerCopy}><h1 style={styles.title}>秘书</h1><span style={styles.subtitle}>当前项目的汇报邮箱</span></div>
+        <button type="button" onClick={() => { setEditing(null); setConfigOpen(true) }} aria-label="新建秘书" title="新建秘书" style={styles.iconButton}><Plus size={18} /></button>
+        <button type="button" onClick={() => void store.load(projectId)} aria-label="刷新" title="刷新" style={styles.iconButton}><RefreshCw size={18} /></button>
+      </header>
+      {store.error && <div style={styles.error}>{store.error}</div>}
+      <div style={styles.secretaryStrip}>{store.secretaries.map((item) => <button type="button" key={item.id} onClick={() => chooseSecretary(item.id)} style={{ ...styles.secretaryButton, ...(item.id === store.selectedId ? styles.secretaryActive : {}) }}><Bot size={15} /><span>{item.name}</span>{item.unreadCount > 0 && <b>{item.unreadCount}</b>}</button>)}</div>
+      {store.loading ? <div style={styles.empty}>正在加载...</div> : !selected ? <EmptySecretary onCreate={() => { setEditing(null); setConfigOpen(true) }} /> : <>
+        <div style={styles.toolbar}>
+          <div style={styles.secretaryMeta}><strong>{selected.name}</strong><small>{selected.enabled ? '运行中' : '已停用'} · {selected.observeAll ? '全部 Agent' : `${selected.observedAgentIds.length} 个 Agent`}</small></div>
+          <button type="button" disabled={!selected.enabled} onClick={() => void runSelected()} aria-label="立即运行" title={selected.enabled ? '立即运行' : '请先启用秘书'} style={styles.iconButton}><Play size={17} /></button>
+          <button type="button" disabled={!selected.chatSessionId} onClick={() => setChatOpen(true)} aria-label="秘书对话" title="秘书对话" style={styles.iconButton}><MessageSquare size={17} /></button>
+          <button type="button" onClick={() => { setEditing(selected); setConfigOpen(true) }} aria-label="设置秘书" title="设置秘书" style={styles.iconButton}><Settings2 size={17} /></button>
+          <button type="button" onClick={() => void deleteSelected()} aria-label="删除秘书" title="删除秘书" style={styles.iconButton}><Trash2 size={17} /></button>
+        </div>
+        {notice && <div style={styles.notice}>{notice}</div>}
+        <div style={styles.mailList}>{store.threads.map((item) => <button type="button" key={item.id} onClick={() => openThread(item)} style={styles.mailRow}><span style={styles.mailTitle}><strong>{item.subject}</strong>{item.unread && <i style={styles.dot} />}</span><span style={styles.summary}>{item.summary || item.bodyMarkdown.slice(0, 90)}</span><small>{item.needsAction ? '需要处理' : item.kind} · {formatTime(item.updatedAt)}</small></button>)}{store.threads.length === 0 && <div style={styles.empty}>暂无邮件</div>}</div>
       </>}
-      {files && <PresentedFilesOverlay presentation={files} onClose={() => setFiles(null)} />}
       {chatOpen && selected?.chatSessionId && <SecretaryChatOverlay projectId={projectId} secretaryId={selected.id} sessionId={selected.chatSessionId} onClose={() => setChatOpen(false)} />}
-      {configOpen && <SecretaryConfigSheet agents={agents} saving={saving} onClose={() => setConfigOpen(false)} onSave={async (input) => { setSaving(true); try { await create(projectId, input); setConfigOpen(false) } finally { setSaving(false) } }} />}
+      {configOpen && <SecretaryConfigSheet secretary={editing} agents={agents} saving={store.saving} onClose={() => setConfigOpen(false)} onSave={async (input) => { if (editing) await store.update(projectId, editing.id, input); else await store.create(projectId, input); setConfigOpen(false) }} />}
     </div>
   )
+}
+
+function EmptySecretary({ onCreate }: { onCreate: () => void }) {
+  return <div style={styles.empty}><Mail size={28} /><strong>当前项目没有秘书</strong><span>创建秘书，自动整理 Agent 进展。</span><button type="button" onClick={onCreate} style={styles.action}><Plus size={14} /> 新建秘书</button></div>
 }
 
 function toPresentation(projectId: string, thread: MobileSecretaryThread): FilesPresentationInfo {
@@ -67,26 +143,28 @@ function formatTime(value: string): string { return new Date(value).toLocaleStri
 
 const styles: Record<string, CSSProperties> = {
   page: { height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--bg)', overflow: 'hidden' },
-  header: { minHeight: 54, padding: '8px 14px', paddingTop: 'calc(8px + var(--safe-top))', display: 'flex', alignItems: 'center', gap: 10, background: 'var(--bg-card)', borderBottom: '1px solid var(--border-light)' },
+  header: { minHeight: 54, padding: '8px 10px 8px 14px', paddingTop: 'calc(8px + var(--safe-top))', display: 'flex', alignItems: 'center', gap: 4, background: 'var(--bg-card)', borderBottom: '1px solid var(--border-light)' },
+  headerCopy: { minWidth: 0, flex: 1 },
   title: { margin: 0, fontSize: 18, color: 'var(--text-primary)' },
   subtitle: { color: 'var(--text-muted)', fontSize: 11 },
-  iconButton: { width: 34, height: 34, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', border: 0, borderRadius: 6, background: 'transparent', color: 'var(--text-primary)' },
+  iconButton: { width: 34, height: 34, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', border: 0, borderRadius: 6, background: 'transparent', color: 'var(--text-primary)' },
   secretaryStrip: { display: 'flex', gap: 7, overflowX: 'auto', padding: '9px 12px', background: 'var(--bg-card)', borderBottom: '1px solid var(--border-light)' },
-  secretaryButton: { flex: '0 0 auto', display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px', border: '1px solid var(--border-light)', borderRadius: 7, background: 'var(--bg)', color: 'var(--text-secondary)', fontSize: 12 },
+  secretaryButton: { flex: '0 0 auto', display: 'flex', alignItems: 'center', gap: 6, height: 34, padding: '0 10px', border: '1px solid var(--border-light)', borderRadius: 7, background: 'var(--bg)', color: 'var(--text-secondary)', fontSize: 12 },
   secretaryActive: { borderColor: 'var(--primary)', color: 'var(--primary)', background: 'var(--primary-light)' },
-  toolbar: { display: 'flex', alignItems: 'center', gap: 6, padding: '11px 13px', background: 'var(--bg-card)', borderBottom: '1px solid var(--border-light)', color: 'var(--text-primary)' },
-  action: { display: 'inline-flex', alignItems: 'center', gap: 4, height: 30, padding: '0 8px', border: '1px solid var(--border-light)', borderRadius: 6, background: 'var(--bg)', color: 'var(--text-secondary)', fontSize: 11 },
+  toolbar: { display: 'flex', alignItems: 'center', gap: 3, padding: '8px 9px 8px 13px', background: 'var(--bg-card)', borderBottom: '1px solid var(--border-light)', color: 'var(--text-primary)' },
+  secretaryMeta: { minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column', gap: 2, overflow: 'hidden' },
+  action: { display: 'inline-flex', alignItems: 'center', gap: 4, height: 32, padding: '0 9px', border: '1px solid var(--border-light)', borderRadius: 6, background: 'var(--bg-card)', color: 'var(--text-secondary)', fontSize: 12 },
   mailList: { flex: 1, minHeight: 0, overflowY: 'auto', background: 'var(--bg)' },
   mailRow: { width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 5, padding: '12px 14px', border: 0, borderBottom: '1px solid var(--border-light)', background: 'transparent', textAlign: 'left', color: 'var(--text-secondary)' },
-  mailActive: { background: 'var(--primary-light)' },
   mailTitle: { display: 'flex', alignItems: 'center', gap: 5, color: 'var(--text-primary)', fontSize: 13 },
   dot: { width: 6, height: 6, borderRadius: '50%', background: 'var(--primary)' },
   summary: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, color: 'var(--text-muted)' },
-  detail: { position: 'absolute', inset: 0, zIndex: 10, display: 'flex', flexDirection: 'column', background: 'var(--bg)' },
-  detailHeader: { minHeight: 54, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 13px', paddingTop: 'calc(8px + var(--safe-top))', background: 'var(--bg-card)', borderBottom: '1px solid var(--border-light)' },
+  detailHeader: { minHeight: 54, display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', paddingTop: 'calc(8px + var(--safe-top))', background: 'var(--bg-card)', borderBottom: '1px solid var(--border-light)' },
+  detailHeading: { minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column', gap: 2, overflow: 'hidden' },
   detailBody: { minHeight: 0, flex: 1, overflowY: 'auto', padding: 14, color: 'var(--text-secondary)', fontSize: 13 },
-  summaryBox: { padding: 10, marginBottom: 14, borderRadius: 6, background: 'var(--bg-card)', color: 'var(--text-secondary)', fontSize: 12 },
+  summaryBox: { padding: 10, marginBottom: 14, borderLeft: '3px solid var(--primary)', background: 'var(--bg-card)', color: 'var(--text-secondary)', fontSize: 12 },
   attachment: { display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 15, padding: '8px 10px', border: '1px solid var(--border-light)', borderRadius: 6, background: 'var(--bg-card)', color: 'var(--text-secondary)' },
+  notice: { padding: '6px 13px', color: 'var(--success)', background: 'var(--bg-card)', fontSize: 11 },
   error: { margin: 10, padding: 9, borderRadius: 6, background: '#fff1f2', color: 'var(--error)', fontSize: 12 },
   empty: { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 24, color: 'var(--text-muted)', fontSize: 13 },
 }

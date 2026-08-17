@@ -27,7 +27,9 @@ export default function MobileShell() {
 
       <div style={styles.tabBar}>
         {tabs.map((tab) => {
-          const active = location.pathname === tab.path
+          const active = tab.path === '/secretary'
+            ? location.pathname.startsWith('/secretary')
+            : location.pathname === tab.path
           const Icon = tab.icon
           return (
             <button

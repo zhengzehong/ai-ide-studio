@@ -218,6 +218,8 @@ export interface SecretaryUpdateMsg extends ClientMessage {
   observeAll?: boolean
   observedAgentIds?: string[]
   cron?: string
+  watchSessionDone?: boolean
+  watchTaskNeedsInput?: boolean
 }
 export interface SecretaryThreadsMsg extends ClientMessage {
   type: 'secretary.threads.list'

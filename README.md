@@ -9,7 +9,7 @@ AI IDE Studio 是一个本地部署的全栈 AI 编程协作工具。通过 [ACP
 - **单端口 Edge + 进程隔离** — Edge 是唯一公网监听入口；API 提供 HTTP、领域命令与 DB Worker；Runtime 子进程拥有 ACP/终端/Session actor；Realtime 子进程负责 WebSocket、订阅、序列化和有界背压
 - **Workspace** — 主工作台，支持流式对话、轻量状态恢复、执行过程按需加载/折叠、ACP diff 文件变更查看、思考过程展示、图片附件、Markdown 渲染、AI 多文件交付卡片和长会话虚拟滚动；交付文件可在 PC/APP 预览 Markdown、图片、音频和视频
 - **自主 Agent** — 项目 Agent 可启用独立自主 Session，每 10 分钟在空闲时检查关注方向，自主维护当天排班和 `memory.md`，并向 PC 自主工作页提交带优先级标签的 GFM Markdown 汇报
-- **项目秘书** — 每个项目可配置多个秘书，选择执行/观察 Agent 和自由 Prompt，按 Cron、Agent 完成或 Task 需处理事件运行；后台结果按邮箱 Thread 汇总，PC/APP 支持独立对话、Markdown 正文和多文件查看
+- **项目秘书** — 每个项目可配置多个秘书，选择执行/观察 Agent 和自由 Prompt，按 Cron、Agent 完成或 Task 需处理事件运行；PC/APP 均可编辑、启停和删除，后台结果按邮箱 Thread 汇总并支持独立对话、Markdown 正文和多文件查看
 - **PC 项目切换** — 顶部支持固定项目 Tab，并以统一 Session 状态显示项目/Agent/会话的运行中与未读数；每个项目独立记忆上次页面、查询参数和关键视图状态，切回时先显示分区缓存并在后台同步最新数据
 - **全局助理** — 可从 Agent 广场设置唯一全局 Agent，并通过右侧竖条随时打开独立聊天抽屉
 - **置顶会话** — PC 提供独立置顶页签和右侧快捷抽屉，移动端把置顶会话放在第一个 Tab；跨项目集中查看运行中、未读和最近活动状态，并一键跳转到对应项目 Workspace；置顶关系和顺序由服务端保存

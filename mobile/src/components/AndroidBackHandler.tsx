@@ -23,6 +23,12 @@ interface AndroidBackListenerDeps {
 }
 
 export function resolveAndroidBackAction(pathname: string, serverUrl: string): AndroidBackAction {
+  if (/^\/secretary\/[^/]+\/[^/]+$/.test(pathname)) {
+    return { type: 'navigate', to: '/secretary' }
+  }
+  if (pathname === '/secretary') {
+    return { type: 'navigate', to: '/' }
+  }
   if (pathname.startsWith('/task/') && pathname.includes('/report/')) {
     return { type: 'navigateBack' }
   }

@@ -7,7 +7,9 @@ import { agentStore } from '../../src/store/agents.js'
 import { projectStore } from '../../src/store/projects.js'
 import { toolStore, toolBindingStore } from '../../src/store/tools.js'
 import { resolveVisiblePlatformTools } from '../../src/tools/registry/visibility-resolver.js'
+import { resolveToolsForSession } from '../../src/tools/resolver.js'
 import { seedBuiltinTools } from '../../src/tools/seed.js'
+import { sessionStore } from '../../src/store/sessions.js'
 
 let tmp: string
 
@@ -82,6 +84,23 @@ describe('tool visibility resolver', () => {
 
     expect(resolveVisiblePlatformTools({ agentId: agent.id, projectId: project.id }).map((t) => t.definition.name))
       .not.toContain('team.create')
+  })
+
+  test('exposes secretary.report only inside secretary Sessions', () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const agent = agentStore.create({ type: 'pm', name: 'A', runtime: 'mock', projectId: project.id })
+    seedBuiltinTools()
+    const conversation = sessionStore.create({ agentId: agent.id, projectId: project.id })
+    const runtime = sessionStore.create({ agentId: agent.id, projectId: project.id, purpose: 'secretary_runtime' })
+
+    expect(resolveVisiblePlatformTools({ agentId: agent.id, projectId: project.id, sessionId: conversation.id })
+      .map((tool) => tool.definition.name)).not.toContain('secretary.report')
+    expect(resolveVisiblePlatformTools({ agentId: agent.id, projectId: project.id, sessionId: runtime.id })
+      .map((tool) => tool.definition.name)).toContain('secretary.report')
+    expect(resolveToolsForSession(agent.id, project.id, conversation.id)
+      .map((tool) => tool.definition.name)).not.toContain('secretary.report')
+    expect(resolveToolsForSession(agent.id, project.id, runtime.id)
+      .map((tool) => tool.definition.name)).toContain('secretary.report')
   })
 })
 

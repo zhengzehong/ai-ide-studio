@@ -25,6 +25,9 @@ export interface MobileSecretary {
   enabled: boolean
   observeAll: boolean
   observedAgentIds: string[]
+  triggers: Array<{ id: string; type: string; cron: string | null; enabled: boolean }>
+  lastRunAt: string | null
+  lastError: string | null
   unreadCount: number
 }
 
@@ -34,9 +37,12 @@ interface MobileSecretaryState {
   selectedId: string | null
   threads: MobileSecretaryThread[]
   loading: boolean
+  saving: boolean
   error: string
   load: (projectId: string) => Promise<void>
   create: (projectId: string, input: Record<string, unknown>) => Promise<void>
+  update: (projectId: string, secretaryId: string, input: Record<string, unknown>) => Promise<void>
+  remove: (projectId: string, secretaryId: string) => Promise<void>
   select: (projectId: string, secretaryId: string) => Promise<void>
   markRead: (projectId: string, secretaryId: string, threadId: string) => Promise<void>
   archive: (projectId: string, secretaryId: string, threadId: string) => Promise<void>
@@ -45,7 +51,7 @@ interface MobileSecretaryState {
 }
 
 export const useMobileSecretaryStore = create<MobileSecretaryState>((set, get) => ({
-  projectId: null, secretaries: [], selectedId: null, threads: [], loading: false, error: '',
+  projectId: null, secretaries: [], selectedId: null, threads: [], loading: false, saving: false, error: '',
   load: async (projectId) => {
     const previousProjectId = get().projectId
     set({ projectId, loading: true, error: '' })
@@ -62,8 +68,40 @@ export const useMobileSecretaryStore = create<MobileSecretaryState>((set, get) =
     }
   },
   create: async (projectId, input) => {
-    await wsClient.request({ type: 'secretary.create', projectId, ...input })
-    await get().load(projectId)
+    set({ saving: true, error: '' })
+    try {
+      const secretary = await wsClient.request({ type: 'secretary.create', projectId, ...input }) as MobileSecretary
+      set({ secretaries: [secretary, ...get().secretaries], selectedId: secretary.id, saving: false })
+      await get().select(projectId, secretary.id)
+    } catch (error) {
+      set({ saving: false, error: error instanceof Error ? error.message : '秘书创建失败' })
+      throw error
+    }
+  },
+  update: async (projectId, secretaryId, input) => {
+    set({ saving: true, error: '' })
+    try {
+      const secretary = await wsClient.request({ type: 'secretary.update', projectId, secretaryId, ...input }) as MobileSecretary
+      set({
+        secretaries: get().secretaries.map((item) => item.id === secretary.id ? secretary : item),
+        saving: false,
+      })
+    } catch (error) {
+      set({ saving: false, error: error instanceof Error ? error.message : '秘书保存失败' })
+      throw error
+    }
+  },
+  remove: async (projectId, secretaryId) => {
+    try {
+      await wsClient.request({ type: 'secretary.delete', projectId, secretaryId })
+      const secretaries = get().secretaries.filter((item) => item.id !== secretaryId)
+      const selectedId = get().selectedId === secretaryId ? secretaries[0]?.id ?? null : get().selectedId
+      set({ secretaries, selectedId, threads: [], error: '' })
+      if (selectedId) await get().select(projectId, selectedId)
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : '秘书删除失败' })
+      throw error
+    }
   },
   select: async (projectId, secretaryId) => {
     set({ selectedId: secretaryId })
@@ -75,15 +113,31 @@ export const useMobileSecretaryStore = create<MobileSecretaryState>((set, get) =
     }
   },
   markRead: async (projectId, secretaryId, threadId) => {
-    await wsClient.request({ type: 'secretary.thread.markRead', projectId, secretaryId, threadId })
-    set({ threads: get().threads.map((item) => item.id === threadId ? { ...item, unread: false } : item) })
+    try {
+      await wsClient.request({ type: 'secretary.thread.markRead', projectId, secretaryId, threadId })
+      set({ threads: get().threads.map((item) => item.id === threadId ? { ...item, unread: false } : item) })
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : '邮件状态更新失败' })
+      throw error
+    }
   },
   archive: async (projectId, secretaryId, threadId) => {
-    await wsClient.request({ type: 'secretary.thread.archive', projectId, secretaryId, threadId })
-    set({ threads: get().threads.filter((item) => item.id !== threadId) })
+    try {
+      await wsClient.request({ type: 'secretary.thread.archive', projectId, secretaryId, threadId })
+      set({ threads: get().threads.filter((item) => item.id !== threadId) })
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : '邮件归档失败' })
+      throw error
+    }
   },
   runNow: async (projectId, secretaryId) => {
-    await wsClient.request({ type: 'secretary.runNow', projectId, secretaryId })
+    try {
+      await wsClient.request({ type: 'secretary.runNow', projectId, secretaryId })
+      set({ error: '' })
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : '秘书运行失败' })
+      throw error
+    }
   },
   setupListeners: () => {
     const refreshCurrent = (): void => {

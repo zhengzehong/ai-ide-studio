@@ -854,7 +854,7 @@ Widget 偏好只影响悬浮窗过滤和任务快速创建，不改变 Project�
 | `project_secretary_observers` | 秘书与项目内观察 Agent 的多对多关系；`observe_all` 表示观察项目全部 Agent |
 | `project_secretary_triggers` | Cron、Session 完成、Task needs-input/blocked 等触发配置 |
 | `project_secretary_runs` | 持久化运行队列；状态为 `pending`、`running`、`succeeded` 或 `failed`，使用 `dedupe_key` 去重。服务重启时遗留的 `running` 记录会重新排队 |
-| `secretary_threads` | 邮箱主题、摘要、优先级、未读状态、Markdown 正文和附件引用 |
+| `secretary_threads` | 邮箱主题、摘要、优先级、未读状态、Markdown 正文和附件引用；归档主题收到同 `thread_key` 的新汇报时恢复为 open |
 | `secretary_entries` | 主题的秘书正文历史 |
 
 秘书运行只消费当前项目事件，Task 触发还会按观察 Agent 过滤；附件只保存当前项目内相对路径，正文按需通过现有文件读取接口访问。

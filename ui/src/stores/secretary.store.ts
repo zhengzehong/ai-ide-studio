@@ -133,32 +133,54 @@ export const useSecretaryStore = create<SecretaryState>((set, get) => ({
   remove: async (secretaryId) => {
     const projectId = get().projectId
     if (!projectId) return
-    await wsClient.request({ type: 'secretary.delete', projectId, secretaryId })
-    const secretaries = get().secretaries.filter((item) => item.id !== secretaryId)
-    const selectedId = get().selectedId === secretaryId ? secretaries[0]?.id ?? null : get().selectedId
-    set({ secretaries, selectedId })
-    if (selectedId) await get().select(projectId, selectedId)
-    else set({ threads: [], selectedThreadId: null })
+    try {
+      await wsClient.request({ type: 'secretary.delete', projectId, secretaryId })
+      const secretaries = get().secretaries.filter((item) => item.id !== secretaryId)
+      const selectedId = get().selectedId === secretaryId ? secretaries[0]?.id ?? null : get().selectedId
+      set({ secretaries, selectedId, error: null })
+      if (selectedId) await get().select(projectId, selectedId)
+      else set({ threads: [], selectedThreadId: null })
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : '秘书删除失败' })
+      throw error
+    }
   },
 
   runNow: async (secretaryId) => {
     const projectId = get().projectId
     if (!projectId) return
-    await wsClient.request({ type: 'secretary.runNow', projectId, secretaryId })
+    try {
+      await wsClient.request({ type: 'secretary.runNow', projectId, secretaryId })
+      set({ error: null })
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : '秘书运行失败' })
+      throw error
+    }
   },
 
   markRead: async (secretaryId, threadId) => {
     const projectId = get().projectId
     if (!projectId) return
-    await wsClient.request({ type: 'secretary.thread.markRead', projectId, secretaryId, threadId })
-    set({ threads: get().threads.map((thread) => thread.id === threadId ? { ...thread, unread: false } : thread) })
+    try {
+      await wsClient.request({ type: 'secretary.thread.markRead', projectId, secretaryId, threadId })
+      set({ threads: get().threads.map((thread) => thread.id === threadId ? { ...thread, unread: false } : thread) })
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : '邮件状态更新失败' })
+      throw error
+    }
   },
 
   archive: async (secretaryId, threadId) => {
     const projectId = get().projectId
     if (!projectId) return
-    await wsClient.request({ type: 'secretary.thread.archive', projectId, secretaryId, threadId })
-    set({ threads: get().threads.filter((thread) => thread.id !== threadId), selectedThreadId: get().threads[0]?.id ?? null })
+    try {
+      await wsClient.request({ type: 'secretary.thread.archive', projectId, secretaryId, threadId })
+      const threads = get().threads.filter((thread) => thread.id !== threadId)
+      set({ threads, selectedThreadId: threads[0]?.id ?? null })
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : '邮件归档失败' })
+      throw error
+    }
   },
 
   sendChat: async (secretaryId, content) => {
