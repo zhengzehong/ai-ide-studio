@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, test } from 'vitest'
 import { resolveAndroidBackAction } from '../../mobile/src/components/AndroidBackHandler'
+import { resolveChatReturnTo } from '../../mobile/src/pages/ChatPage'
 
 describe('mobile secretary navigation', () => {
   test('returns from mail detail to the secretary inbox before leaving the tab', () => {
@@ -19,5 +20,11 @@ describe('mobile secretary navigation', () => {
     expect(shell).toContain("location.pathname.startsWith('/secretary')")
     expect(page).toContain('threadId ? store.threads.find')
     expect(page).not.toContain('?? store.threads[0]')
+  })
+
+  test('returns from a linked secretary conversation to the secretary inbox', () => {
+    expect(resolveChatReturnTo({ returnTo: '/secretary' })).toBe('/secretary')
+    expect(resolveChatReturnTo({ returnTo: '/pinned' })).toBe('/pinned')
+    expect(resolveChatReturnTo({ returnTo: '/settings' })).toBe('/')
   })
 })

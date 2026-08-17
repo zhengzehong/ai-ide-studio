@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Archive, Bot, FileText, Mail, MessageSquare, Play, Plus, RefreshCw, Settings2, Trash2 } from 'lucide-react'
+import { Archive, Bot, FileText, Mail, MessageSquare, MonitorUp, Play, Plus, RefreshCw, Settings2, Trash2 } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { useProjectScopeId } from '../hooks/use-project-scope'
 import { useAgentStore } from '../stores/agent.store'
 import { useSecretaryStore, type SecretaryData, type SecretaryThread } from '../stores/secretary.store'
@@ -7,15 +8,19 @@ import { MarkdownRenderer } from '../components/MarkdownRenderer'
 import { PresentedFilesModal } from '../components/file-viewer/PresentedFilesModal'
 import type { FilesPresentationInfo } from '../stores/session-events'
 import { SecretaryConfigModal } from './secretary/SecretaryConfigModal'
-import { SecretaryChatPanel } from './secretary/SecretaryChatPanel'
+import { SecretaryOverview } from './secretary/SecretaryOverview'
+import { secretaryWorkspacePath } from './secretary/secretary-session-link'
 
 export function Secretary() {
+  const navigate = useNavigate()
   const projectId = useProjectScopeId()
   const agents = useAgentStore((state) => state.agents)
   const fetchAgents = useAgentStore((state) => state.fetchAgents)
   const secretaries = useSecretaryStore((state) => state.secretaries)
   const selectedId = useSecretaryStore((state) => state.selectedId)
   const threads = useSecretaryStore((state) => state.threads)
+  const runs = useSecretaryStore((state) => state.runs)
+  const runsLoading = useSecretaryStore((state) => state.runsLoading)
   const loading = useSecretaryStore((state) => state.loading)
   const saving = useSecretaryStore((state) => state.saving)
   const error = useSecretaryStore((state) => state.error)
@@ -32,7 +37,6 @@ export function Secretary() {
   const [editing, setEditing] = useState<SecretaryData | null>(null)
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null)
   const [files, setFiles] = useState<FilesPresentationInfo | null>(null)
-  const [chatOpen, setChatOpen] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
 
   useEffect(() => {
@@ -44,7 +48,7 @@ export function Secretary() {
   useEffect(() => setupListeners(), [setupListeners])
 
   const selectedSecretary = useMemo(() => secretaries.find((item) => item.id === selectedId) ?? null, [secretaries, selectedId])
-  const selectedThread = useMemo(() => threads.find((thread) => thread.id === selectedThreadId) ?? threads[0] ?? null, [selectedThreadId, threads])
+  const selectedThread = useMemo(() => threads.find((thread) => thread.id === selectedThreadId) ?? null, [selectedThreadId, threads])
 
   const chooseSecretary = (id: string): void => {
     if (!projectId) return
@@ -58,8 +62,9 @@ export function Secretary() {
     if (thread.unread && selectedSecretary) void markRead(selectedSecretary.id, thread.id).catch(() => undefined)
   }
 
-  const openChat = (): void => {
-    if (selectedSecretary?.chatSessionId) setChatOpen(true)
+  const openSession = (sessionId: string | null): void => {
+    if (!projectId || !selectedSecretary || !sessionId) return
+    navigate(secretaryWorkspacePath(projectId, selectedSecretary.id, sessionId))
   }
 
   const openFiles = (thread: SecretaryThread): void => {
@@ -106,7 +111,8 @@ export function Secretary() {
           {notice && <span style={styles.notice}>{notice}</span>}
           <button type="button" title="刷新" aria-label="刷新" onClick={() => projectId && void load(projectId)} style={styles.iconButton}><RefreshCw size={15} /></button>
           {selectedSecretary && <button type="button" disabled={!selectedSecretary.enabled} title={selectedSecretary.enabled ? '立即运行' : '请先启用秘书'} onClick={() => void runSelected()} style={{ ...styles.actionButton, ...(!selectedSecretary.enabled ? styles.disabledButton : {}) }}><Play size={14} /> 立即运行</button>}
-          {selectedSecretary && <button type="button" onClick={openChat} style={styles.actionButton}><MessageSquare size={14} /> 秘书对话</button>}
+          {selectedSecretary && <button type="button" disabled={!selectedSecretary.runtimeSessionId} onClick={() => openSession(selectedSecretary.runtimeSessionId)} style={styles.actionButton}><MonitorUp size={14} /> 后台会话</button>}
+          {selectedSecretary && <button type="button" disabled={!selectedSecretary.chatSessionId} onClick={() => openSession(selectedSecretary.chatSessionId)} style={styles.actionButton}><MessageSquare size={14} /> 秘书对话</button>}
           {selectedSecretary && <button type="button" onClick={() => { setEditing(selectedSecretary); setConfigOpen(true) }} style={styles.actionButton}><Settings2 size={14} /> 设置</button>}
           {selectedSecretary && <button type="button" title="删除秘书" aria-label="删除秘书" onClick={() => void deleteSelected()} style={styles.iconButton}><Trash2 size={15} /></button>}
           <button type="button" onClick={() => { setEditing(null); setConfigOpen(true) }} style={styles.primary}><Plus size={14} /> 新建秘书</button>
@@ -131,13 +137,19 @@ export function Secretary() {
             {selectedThread ? <>
               <header style={styles.detailHeader}><div><h2>{selectedThread.subject}</h2><small>{formatTime(selectedThread.updatedAt)} · {selectedThread.needsAction ? '需要处理' : '仅供查看'}</small></div><button type="button" title="归档" aria-label="归档" onClick={() => void archiveSelectedThread()} style={styles.iconButton}><Archive size={15} /></button></header>
               <div style={styles.detailBody}><div style={styles.summary}><span>摘要</span><strong>{selectedThread.summary || '秘书未提供摘要'}</strong></div><MarkdownRenderer content={selectedThread.bodyMarkdown} projectId={projectId ?? undefined} />{selectedThread.attachments.length > 0 && <button type="button" onClick={() => openFiles(selectedThread)} style={styles.attachmentButton}><FileText size={14} /> 查看附件（{selectedThread.attachments.length}）</button>}</div>
-            </> : <div style={styles.empty}>从邮件列表选择一封邮件</div>}
+            </> : selectedSecretary ? <SecretaryOverview
+              secretary={selectedSecretary}
+              executionAgentName={agents.find((agent) => agent.id === selectedSecretary.executionAgentId)?.name ?? selectedSecretary.executionAgentId}
+              runs={runs}
+              runsLoading={runsLoading}
+              onOpenRuntime={() => openSession(selectedSecretary.runtimeSessionId)}
+              onOpenChat={() => openSession(selectedSecretary.chatSessionId)}
+            /> : <div style={styles.empty}>请选择秘书</div>}
           </section>
         </main>
       )}
       {configOpen && <SecretaryConfigModal secretary={editing} agents={agents.filter((agent) => agent.project_id === projectId)} saving={saving} onClose={() => setConfigOpen(false)} onSave={async (input) => { if (editing) await update(editing.id, input); else await create(input); setConfigOpen(false) }} />}
       {files && <PresentedFilesModal presentation={files} onClose={() => setFiles(null)} />}
-      {chatOpen && selectedSecretary?.chatSessionId && projectId && <SecretaryChatPanel projectId={projectId} secretaryId={selectedSecretary.id} sessionId={selectedSecretary.chatSessionId} onClose={() => setChatOpen(false)} />}
     </div>
   )
 }

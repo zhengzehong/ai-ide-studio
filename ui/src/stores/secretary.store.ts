@@ -25,6 +25,19 @@ export interface SecretaryThread {
   updatedAt: string
 }
 
+export type SecretaryRunStatus = 'pending' | 'running' | 'succeeded' | 'failed'
+export interface SecretaryRunData {
+  id: string
+  eventType: string
+  sourceId: string | null
+  status: SecretaryRunStatus
+  error: string | null
+  createdAt: string
+  startedAt: string | null
+  finishedAt: string | null
+  elapsedMs: number | null
+}
+
 export interface SecretaryData {
   id: string
   projectId: string
@@ -50,8 +63,10 @@ interface SecretaryState {
   secretaries: SecretaryData[]
   selectedId: string | null
   threads: SecretaryThread[]
+  runs: SecretaryRunData[]
   selectedThreadId: string | null
   loading: boolean
+  runsLoading: boolean
   saving: boolean
   error: string | null
   load: (projectId: string) => Promise<void>
@@ -66,39 +81,53 @@ interface SecretaryState {
   setupListeners: () => () => void
 }
 
+let secretaryLoadRequestSeq = 0
+let secretaryDetailRequestSeq = 0
+
 export const useSecretaryStore = create<SecretaryState>((set, get) => ({
   projectId: null,
   secretaries: [],
   selectedId: null,
   threads: [],
+  runs: [],
   selectedThreadId: null,
   loading: false,
+  runsLoading: false,
   saving: false,
   error: null,
 
   load: async (projectId) => {
+    const requestSeq = ++secretaryLoadRequestSeq
     const previousProjectId = get().projectId
     set({ projectId, loading: true, error: null })
     try {
       const secretaries = await wsClient.request({ type: 'secretary.list', projectId }) as SecretaryData[]
+      if (requestSeq !== secretaryLoadRequestSeq) return
       const selectedId = previousProjectId === projectId && get().selectedId && secretaries.some((item) => item.id === get().selectedId)
         ? get().selectedId
         : secretaries[0]?.id ?? null
       set({ secretaries, selectedId, loading: false })
       if (selectedId) await get().select(projectId, selectedId)
-      else set({ threads: [], selectedThreadId: null })
+      else set({ threads: [], runs: [], selectedThreadId: null })
     } catch (error) {
+      if (requestSeq !== secretaryLoadRequestSeq) return
       set({ loading: false, error: error instanceof Error ? error.message : '秘书加载失败' })
     }
   },
 
   select: async (projectId, secretaryId) => {
-    set({ selectedId: secretaryId, selectedThreadId: null })
+    const requestSeq = ++secretaryDetailRequestSeq
+    set({ selectedId: secretaryId, selectedThreadId: null, runsLoading: true })
     try {
-      const threads = await wsClient.request({ type: 'secretary.threads.list', projectId, secretaryId }) as SecretaryThread[]
-      set({ threads, selectedThreadId: threads[0]?.id ?? null })
+      const [threads, runs] = await Promise.all([
+        wsClient.request({ type: 'secretary.threads.list', projectId, secretaryId }) as Promise<SecretaryThread[]>,
+        wsClient.request({ type: 'secretary.runs.list', projectId, secretaryId, limit: 20 }) as Promise<SecretaryRunData[]>,
+      ])
+      if (requestSeq !== secretaryDetailRequestSeq || get().selectedId !== secretaryId) return
+      set({ threads, runs, selectedThreadId: null, runsLoading: false })
     } catch (error) {
-      set({ error: error instanceof Error ? error.message : '秘书邮件加载失败' })
+      if (requestSeq !== secretaryDetailRequestSeq || get().selectedId !== secretaryId) return
+      set({ runsLoading: false, error: error instanceof Error ? error.message : '秘书详情加载失败' })
     }
   },
 
@@ -139,7 +168,7 @@ export const useSecretaryStore = create<SecretaryState>((set, get) => ({
       const selectedId = get().selectedId === secretaryId ? secretaries[0]?.id ?? null : get().selectedId
       set({ secretaries, selectedId, error: null })
       if (selectedId) await get().select(projectId, selectedId)
-      else set({ threads: [], selectedThreadId: null })
+      else set({ threads: [], runs: [], selectedThreadId: null })
     } catch (error) {
       set({ error: error instanceof Error ? error.message : '秘书删除失败' })
       throw error

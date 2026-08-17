@@ -144,6 +144,7 @@ import {
   shouldShowWorkspaceMessageSync,
 } from './workspace/load-state'
 import { summarizeSessionIndicators } from '../utils/session-indicators'
+import { isSecretarySessionPurpose } from '../stores/secretary-session'
 
 const COPYING_STAGE = '正在复制会话...'
 
@@ -171,6 +172,7 @@ export default function Workspace() {
   const selectSession = useSessionStore((s) => s.selectSession)
   const createSession = useSessionStore((s) => s.createSession)
   const fetchSessions = useSessionStore((s) => s.fetchSessions)
+  const loadSecretarySession = useSessionStore((s) => s.loadSecretarySession)
   const renameSession = useSessionStore((s) => s.renameSession)
   const copySession = useSessionStore((s) => s.copySession)
   const deleteSession = useSessionStore((s) => s.deleteSession)
@@ -225,6 +227,7 @@ export default function Workspace() {
   const [alertMsg, setAlertMsg] = useState<string | null>(null)
   const [pickerAgentId, setPickerAgentId] = useState<string | null>(null)
   const [publishSessionId, setPublishSessionId] = useState<string | null>(null)
+  const secretarySessionLoadRef = useRef<string | null>(null)
 
   const projectAgents = useMemo(() => filterAgentsByProject(agents, currentProjectId), [agents, currentProjectId])
   const visibleProjectAgents = useMemo(() => projectAgents.filter((agent) => !agent.hidden_at), [projectAgents])
@@ -274,7 +277,11 @@ export default function Workspace() {
   )
   const agentSessions = useCallback(
     (id: string) => {
-      const list = orderedProjectSessions.filter((s) => s.agent_id === id && s.purpose !== 'autonomy')
+      const list = orderedProjectSessions.filter((s) => (
+        s.agent_id === id
+        && s.purpose !== 'autonomy'
+        && !isSecretarySessionPurpose(s.purpose)
+      ))
       return list.sort((a, b) => {
         const aPrimary = !!a.is_primary
         const bPrimary = !!b.is_primary
@@ -372,6 +379,36 @@ export default function Workspace() {
   }, [currentSessionId, projectAgents, projectSessions, selectSession, setSelectedAgentId])
 
   useEffect(() => {
+    const targetSessionId = searchParams.get('sessionId')
+    const secretaryId = searchParams.get('secretaryId')
+    if (!targetSessionId || !secretaryId || !currentProjectId || sessionsLoading) return
+    if (projectSessions.some((session) => session.id === targetSessionId)) return
+    const loadKey = `${currentProjectId}:${secretaryId}:${targetSessionId}`
+    if (secretarySessionLoadRef.current === loadKey) return
+    secretarySessionLoadRef.current = loadKey
+    void loadSecretarySession(currentProjectId, secretaryId, targetSessionId)
+      .catch((error: unknown) => {
+        setAlertMsg(error instanceof Error ? error.message : '秘书会话加载失败')
+        setSearchParams((previous) => {
+          const next = new URLSearchParams(previous)
+          next.delete('sessionId')
+          next.delete('secretaryId')
+          return next
+        }, { replace: true })
+      })
+      .finally(() => {
+        if (secretarySessionLoadRef.current === loadKey) secretarySessionLoadRef.current = null
+      })
+  }, [
+    currentProjectId,
+    loadSecretarySession,
+    projectSessions,
+    searchParams,
+    sessionsLoading,
+    setSearchParams,
+  ])
+
+  useEffect(() => {
     const targetProjectId = searchParams.get('projectId')
     if (targetProjectId && currentProjectId !== targetProjectId) {
       selectProject(targetProjectId)
@@ -388,6 +425,7 @@ export default function Workspace() {
         const next = new URLSearchParams(prev)
         next.delete('sessionId')
         next.delete('projectId')
+        next.delete('secretaryId')
         return next
       }, { replace: true })
     })
@@ -415,6 +453,14 @@ export default function Workspace() {
     }
     selectSession(storedSession.id)
   }, [currentProjectId, currentSessionId, projectSessions, searchParams, selectSession])
+
+  useEffect(() => () => {
+    const state = useSessionStore.getState()
+    const session = state.sessions.find((item) => item.id === state.currentSessionId)
+    if (!session || !isSecretarySessionPurpose(session.purpose)) return
+    state.selectSession(null)
+    state.releaseSecretarySession(session.id)
+  }, [])
 
   const handleSelectSession = (agentId: string, sessionId: string) => {
     setSelectedAgentId(agentId)

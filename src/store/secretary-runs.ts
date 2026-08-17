@@ -92,6 +92,15 @@ export const secretaryRunStore = {
     ).all(secretaryId)
   },
 
+  listRecent(secretaryId: string, limit: number): SecretaryRunRow[] {
+    return getDb().prepare<[string, number], SecretaryRunRow>(`
+      SELECT * FROM project_secretary_runs
+      WHERE secretary_id = ?
+      ORDER BY created_at DESC, id DESC
+      LIMIT ?
+    `).all(secretaryId, limit)
+  },
+
   finish(id: string, status: Exclude<SecretaryRunStatus, 'pending' | 'running'>, error?: string): void {
     getDb().prepare(`
       UPDATE project_secretary_runs

@@ -2,7 +2,12 @@ import { afterAll, afterEach, beforeEach, describe, expect, test, vi } from 'vit
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { tmpdir } from 'node:os'
-import { createProjectSecretary, updateProjectSecretary } from '../../src/core/project-secretary.js'
+import {
+  createProjectSecretary,
+  runProjectSecretaryNow,
+  updateProjectSecretary,
+} from '../../src/core/project-secretary.js'
+import { getSecretarySession, listSecretaryRuns } from '../../src/core/project-secretary-history.js'
 import { events } from '../../src/core/events.js'
 import { sessionManager } from '../../src/core/sessions.js'
 import { agentStore } from '../../src/store/agents.js'
@@ -178,6 +183,111 @@ describe('project secretary MVP', () => {
     expect(claimed?.status).toBe('running')
     expect(secretaryRunStore.requeueRunning()).toBe(1)
     expect(secretaryRunStore.list(secretary.id)[0]?.status).toBe('pending')
+  })
+
+  test('returns bounded newest-first run summaries without payload data', async () => {
+    const fixture = createFixture()
+    const secretary = await createProjectSecretary({
+      projectId: fixture.project.id,
+      name: '历史秘书',
+      definitionPrompt: '',
+      reportPrompt: '',
+      executionAgentId: fixture.execution.id,
+      observedAgentIds: [],
+      observeAll: true,
+      watchSessionDone: false,
+    })
+    let latestId = ''
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(new Date('2026-08-17T08:00:00.000Z'))
+      secretaryRunStore.enqueue({
+        secretaryId: secretary.id,
+        eventType: 'manual',
+        payload: { privateContext: 'must-not-leak' },
+        dedupeKey: 'history-first',
+      })
+      vi.setSystemTime(new Date('2026-08-17T09:00:00.000Z'))
+      const latest = secretaryRunStore.enqueue({
+        secretaryId: secretary.id,
+        eventType: 'cron',
+        payload: { privateContext: 'must-not-leak' },
+        dedupeKey: 'history-latest',
+      })
+      latestId = latest.id
+      secretaryRunStore.finish(latest.id, 'failed', '构建失败')
+    } finally {
+      vi.useRealTimers()
+    }
+
+    const runs = listSecretaryRuns(secretary.id, fixture.project.id, 1)
+
+    expect(runs).toEqual([
+      expect.objectContaining({
+        id: latestId,
+        eventType: 'cron',
+        status: 'failed',
+        error: '构建失败',
+      }),
+    ])
+    expect(JSON.stringify(runs)).not.toContain('privateContext')
+    expect(JSON.stringify(runs)).not.toContain('payload_json')
+  })
+
+  test('only exposes runtime and chat Sessions owned by the selected secretary', async () => {
+    const fixture = createFixture()
+    const secretary = await createProjectSecretary({
+      projectId: fixture.project.id,
+      name: '会话秘书',
+      definitionPrompt: '',
+      reportPrompt: '',
+      executionAgentId: fixture.execution.id,
+      observedAgentIds: [],
+      observeAll: true,
+      watchSessionDone: false,
+    })
+
+    expect(getSecretarySession(secretary.id, fixture.project.id, secretary.runtimeSessionId!)).toMatchObject({
+      id: secretary.runtimeSessionId,
+      purpose: 'secretary_runtime',
+    })
+    expect(getSecretarySession(secretary.id, fixture.project.id, secretary.chatSessionId!)).toMatchObject({
+      id: secretary.chatSessionId,
+      purpose: 'secretary_chat',
+    })
+    expect(() => getSecretarySession(secretary.id, fixture.project.id, fixture.observedSession.id))
+      .toThrow('不属于当前秘书')
+  })
+
+  test('broadcasts running and terminal run states without requiring a manual refresh', async () => {
+    const fixture = createFixture()
+    const secretary = await createProjectSecretary({
+      projectId: fixture.project.id,
+      name: '实时秘书',
+      definitionPrompt: '',
+      reportPrompt: '',
+      executionAgentId: fixture.execution.id,
+      observedAgentIds: [],
+      observeAll: true,
+      watchSessionDone: false,
+    })
+    let completePrompt: (() => void) | undefined
+    vi.spyOn(sessionManager, 'enqueuePrompt').mockImplementation(() => new Promise<void>((resolvePrompt) => {
+      completePrompt = resolvePrompt
+    }))
+    const updates: string[] = []
+    const onUpdate = ({ projectId }: { projectId: string }) => updates.push(projectId)
+    events.on('secretary:update', onUpdate)
+    try {
+      const run = runProjectSecretaryNow(secretary.id, fixture.project.id)
+      await vi.waitFor(() => expect(secretaryRunStore.list(secretary.id).find((item) => item.id === run.id)?.status).toBe('running'))
+      expect(updates).toHaveLength(2)
+      completePrompt?.()
+      await vi.waitFor(() => expect(secretaryRunStore.list(secretary.id).find((item) => item.id === run.id)?.status).toBe('succeeded'))
+      expect(updates).toHaveLength(3)
+    } finally {
+      events.off('secretary:update', onUpdate)
+    }
   })
 
   test('drains pending runs when a secretary is re-enabled', async () => {

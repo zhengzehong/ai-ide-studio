@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { Archive, Edit3, MessageSquarePlus, Pin, PinOff, Plus, Search, Trash2, XCircle, Sparkles } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useSessionStore } from '../stores/session.store'
+import { isSecretarySessionPurpose } from '@desktop/stores/secretary-session'
 import { useAppStore } from '../stores/app.store'
 import { useMobileProjectSessionStatsStore } from '../stores/project-session-stats.store'
 import type { MobileSessionItem } from '../stores/session.store'
@@ -60,7 +61,7 @@ export default function SessionListPage() {
   }, [currentProjectId, fetchSessions, fetchAgents])
 
   const activeSessions = useMemo(
-    () => sessions.filter((s) => s.status === 'active'),
+    () => sessions.filter((s) => s.status === 'active' && !isSecretarySessionPurpose(s.purpose)),
     [sessions],
   )
 

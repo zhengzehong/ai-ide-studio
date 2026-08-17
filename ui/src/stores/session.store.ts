@@ -94,6 +94,7 @@ import {
   reconcileUnreadSessionIndicators,
 } from './session-read-fence'
 import { mergeHistoricalCapabilities } from './session-capability-authority'
+import { isSecretarySessionPurpose } from './secretary-session'
 
 const COPYING_STAGE = '正在复制会话...'
 
@@ -151,7 +152,7 @@ export interface SessionData {
   // 模板会话标记:is_template=1 的是 ACP fork 出来的模板上下文镜像,
   // 不应出现在普通会话列表。session:changed 广播可能携带此字段,前端据此过滤。
   is_template?: number | boolean
-  purpose?: 'conversation' | 'autonomy'
+  purpose?: 'conversation' | 'autonomy' | 'secretary_runtime' | 'secretary_chat'
 }
 
 export interface LocalSessionCandidateInfo {
@@ -266,6 +267,8 @@ interface SessionStore {
   fetchRecovery: (sessionId: string, selection?: SessionSelectionRequest) => Promise<void>
   createSession: (agentId: string, taskId?: string, projectId?: string) => Promise<SessionData>
   listSessionsByTask: (taskId: string) => Promise<SessionData[]>
+  loadSecretarySession: (projectId: string, secretaryId: string, sessionId: string) => Promise<SessionData>
+  releaseSecretarySession: (sessionId: string) => void
   copySession: (sessionId: string) => Promise<SessionData>
   listLocalImportCandidates: (agentId: string, projectId?: string) => Promise<LocalSessionCandidateInfo[]>
   importLocalSession: (agentId: string, input: ImportLocalSessionInput) => Promise<LocalSessionImportResult>
@@ -1048,9 +1051,15 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     const request = (async (): Promise<void> => {
       try {
         const data = await queryClient.listSessions({ agentId, projectId })
-        const scopedSessions = scopedProjectId
+        const listedSessions = scopedProjectId
           ? data.filter((session) => session.project_id === scopedProjectId)
           : data
+        const linkedSessions = get().sessions.filter((session) => (
+          isSecretarySessionPurpose(session.purpose)
+          && !listedSessions.some((listed) => listed.id === session.id)
+          && (!scopedProjectId || session.project_id === scopedProjectId)
+        ))
+        const scopedSessions = [...listedSessions, ...linkedSessions]
         const activitySessions = sessionActivityFence.applyNewer(scopedSessions, activityCheckpoint)
         const readSnapshot = sessionReadFence.applySnapshot(activitySessions, readCheckpoint)
         const sessions = readSnapshot.sessions
@@ -1328,6 +1337,35 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     return (await wsClient.request({ type: 'sessions.listByTask', taskId })) as SessionData[]
   },
 
+  loadSecretarySession: async (projectId, secretaryId, sessionId) => {
+    const session = (await wsClient.request({
+      type: 'secretary.session.get',
+      projectId,
+      secretaryId,
+      sessionId,
+    })) as SessionData
+    if (session.project_id !== projectId || !isSecretarySessionPurpose(session.purpose)) {
+      throw new Error('秘书会话校验失败')
+    }
+    set((state) => {
+      const sessionListCache = mergeSessionIntoListCache(state.sessionListCache, session)
+      return {
+        sessionListCache,
+        sessions: [...state.sessions.filter((item) => item.id !== session.id), session],
+      }
+    })
+    return session
+  },
+
+  releaseSecretarySession: (sessionId) => {
+    const session = get().sessions.find((item) => item.id === sessionId)
+    if (!isSecretarySessionPurpose(session?.purpose)) return
+    set((state) => ({
+      sessionListCache: removeSessionFromListCache(state.sessionListCache, sessionId),
+      sessions: state.sessions.filter((item) => item.id !== sessionId),
+    }))
+  },
+
   copySession: async (sessionId) => {
     const session = (await wsClient.request({ type: 'sessions.copy', sessionId })) as SessionData
     set((state) => {
@@ -1599,7 +1637,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     const lastReadAt = new Date().toISOString()
     sessionReadFence.recordRead(id, lastReadAt)
     // per-project 映射:用当前激活的项目 scope(由 fetchSessions 设置)作为 key
-    if (activeSessionsProjectId) writeProjectLastSession(activeSessionsProjectId, id)
+    const selectedSession = get().sessions.find((session) => session.id === id)
+    if (activeSessionsProjectId && !isSecretarySessionPurpose(selectedSession?.purpose)) {
+      writeProjectLastSession(activeSessionsProjectId, id)
+    }
     wsClient.subscribe([id])
     const c = sessionCaches.get(id)
     const shouldRestoreStreaming = !!get().runningSessionIds[id] && !get().staleSessionIds[id]

@@ -4,6 +4,7 @@ import type { SessionData } from '@desktop/stores/session.store'
 import type { SessionTemplateData } from '@desktop/stores/session.store'
 import { useAppStore } from './app.store'
 import { showToast } from '../utils/toast'
+import { isSecretarySessionPurpose } from '@desktop/stores/secretary-session'
 
 export type MobileSessionActivityState = 'running' | 'idle'
 type SessionIndicatorMap = Record<string, true>
@@ -25,6 +26,7 @@ export interface MobileSessionItem {
   lastMessageAt: string | null
   lastReadAt: string | null
   closedAt: string | null
+  purpose?: SessionData['purpose']
 }
 
 interface SessionState {
@@ -36,6 +38,8 @@ interface SessionState {
   currentSessionId: string | null
 
   fetchSessions: (projectId?: string | null) => Promise<void>
+  loadSecretarySession: (projectId: string, secretaryId: string, sessionId: string) => Promise<MobileSessionItem>
+  releaseSecretarySession: (sessionId: string) => void
   setFilterAgent: (agentId: string | null) => void
   setFilterStatus: (status: string | null) => void
   setCurrentSession: (sessionId: string | null) => void
@@ -113,6 +117,7 @@ function mapSession(session: SessionData, currentSessionId: string | null): Mobi
     lastMessageAt: session.last_message_at ?? null,
     lastReadAt: session.last_read_at ?? null,
     closedAt: session.closed_at,
+    purpose: session.purpose,
   }
 }
 
@@ -147,8 +152,14 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       if (requestSeq !== sessionListRequestSeq) return
       set((state) => {
         const preserveMissingIndicators = !!projectId
+        const listed = data.map((session) => mapSession(session, state.currentSessionId))
+        const linked = state.sessions.filter((session) => (
+          isSecretarySessionPurpose(session.purpose)
+          && !listed.some((item) => item.id === session.id)
+          && (!projectId || session.projectId === projectId)
+        ))
         return {
-          sessions: data.map((session) => mapSession(session, state.currentSessionId)),
+          sessions: [...listed, ...linked],
           runningSessionIds: reconcileRunning(state.runningSessionIds, data, preserveMissingIndicators),
           loading: false,
         }
@@ -156,6 +167,27 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     } catch {
       if (requestSeq === sessionListRequestSeq) set({ loading: false })
     }
+  },
+
+  loadSecretarySession: async (projectId, secretaryId, sessionId) => {
+    const session = (await wsClient.request({
+      type: 'secretary.session.get',
+      projectId,
+      secretaryId,
+      sessionId,
+    })) as SessionData
+    if (session.project_id !== projectId || !isSecretarySessionPurpose(session.purpose)) {
+      throw new Error('秘书会话校验失败')
+    }
+    const item = mapSession(session, get().currentSessionId)
+    set((state) => ({ sessions: [...state.sessions.filter((existing) => existing.id !== item.id), item] }))
+    return item
+  },
+
+  releaseSecretarySession: (sessionId) => {
+    set((state) => ({
+      sessions: state.sessions.filter((item) => item.id !== sessionId || !isSecretarySessionPurpose(item.purpose)),
+    }))
   },
 
   setFilterAgent: (agentId) => set({ filterAgent: agentId }),
