@@ -35,9 +35,11 @@ export default function ChatPage() {
   // 再 navigate 替换 URL,最后走正常 prompt 流程。直接用 'new' 当 sessionId 会触发
   // enterSession('new') / markRead('new') / prompt('new'),后端报 Session not found。
   const isNewSessionRoute = sessionId === 'new'
-  const returnTo = isPinnedReturnLocation(location.state) ? '/pinned' : '/'
+  const returnTo = resolveChatReturnTo(location.state)
   const pendingProjectId = searchParams.get('projectId')
   const pendingAgentId = searchParams.get('agentId')
+  const linkedSecretaryId = searchParams.get('secretaryId')
+  const linkedProjectId = searchParams.get('projectId')
   const creatingRef = useRef(false)
 
   // 拆 selector 订阅:每个字段独立订阅,避免一把抓导致任一变化都触发整个组件重渲染。
@@ -76,11 +78,19 @@ export default function ChatPage() {
   const connected = useConnectionStore(s => s.connected)
   const status = useConnectionStore(s => s.status)
   const session = sessions.find(s => s.id === sessionId)
+  const loadSecretarySession = useSessionStore(s => s.loadSecretarySession)
 
   const listenersRef = useRef(false)
   const [liveNowMs, setLiveNowMs] = useState(() => Date.now())
   const hasMoreMessages = sessionId ? hasMoreMessagesBySession[sessionId] === true : false
   const loadingOlderMessages = sessionId ? !!loadingOlderMessagesBySession[sessionId] : false
+
+  useEffect(() => {
+    if (!sessionId || session || !linkedSecretaryId || !linkedProjectId) return
+    void loadSecretarySession(linkedProjectId, linkedSecretaryId, sessionId).catch((error: unknown) => {
+      showToast(error instanceof Error ? error.message : '秘书会话加载失败')
+    })
+  }, [linkedProjectId, linkedSecretaryId, loadSecretarySession, session, sessionId])
 
   useEffect(() => {
     // 跳过 'new' 占位路由:此时还没有真 sessionId,enterSession/markRead 都不应触发。
@@ -100,11 +110,13 @@ export default function ChatPage() {
         listenersRef.current = false
         leaveSession()
         useSessionStore.getState().setCurrentSession(null)
+        useSessionStore.getState().releaseSecretarySession(sessionId)
       }
     }
     return () => {
       leaveSession()
       useSessionStore.getState().setCurrentSession(null)
+      useSessionStore.getState().releaseSecretarySession(sessionId)
     }
   }, [sessionId, isNewSessionRoute])
 
@@ -369,8 +381,10 @@ export default function ChatPage() {
   )
 }
 
-function isPinnedReturnLocation(value: unknown): value is { returnTo: '/pinned' } {
-  return !!value && typeof value === 'object' && (value as { returnTo?: unknown }).returnTo === '/pinned'
+export function resolveChatReturnTo(value: unknown): '/pinned' | '/secretary' | '/' {
+  if (!value || typeof value !== 'object') return '/'
+  const returnTo = (value as { returnTo?: unknown }).returnTo
+  return returnTo === '/pinned' || returnTo === '/secretary' ? returnTo : '/'
 }
 
 function TimelineGroupContent({ group }: { group: ChatTimelineGroup }) {

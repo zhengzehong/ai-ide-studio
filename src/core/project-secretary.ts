@@ -243,6 +243,8 @@ async function drainSecretaryRuns(secretaryId: string): Promise<void> {
       if (!secretary?.enabled || !secretary.runtime_session_id) return
       const run = secretaryRunStore.claimNext(secretaryId)
       if (!run) return
+      emitUpdate(secretary.project_id)
+      log.debug({ secretaryId, projectId: secretary.project_id, runId: run.id, eventType: run.event_type }, '秘书运行开始')
       try {
         const payload = secretaryRunStore.parsePayload(run)
         const prompt = buildRunPrompt(secretary.name, run, payload)
@@ -253,10 +255,13 @@ async function drainSecretaryRuns(secretaryId: string): Promise<void> {
         })
         secretaryRunStore.finish(run.id, 'succeeded')
         projectSecretaryStore.markRun(secretary.id, null)
+        emitUpdate(secretary.project_id)
+        log.info({ secretaryId, projectId: secretary.project_id, runId: run.id }, '秘书运行完成')
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         secretaryRunStore.finish(run.id, 'failed', message)
         projectSecretaryStore.markRun(secretary.id, message)
+        emitUpdate(secretary.project_id)
         log.error({ err, secretaryId, runId: run.id }, '秘书运行失败')
       }
     }

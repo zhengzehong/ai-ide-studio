@@ -63,6 +63,25 @@ test('fetchSessions uses the main session list and maps project and agent labels
   })
 })
 
+test('temporarily loads and releases a guarded secretary Session', async () => {
+  const linked = sessionRow({ id: 'secretary-chat', purpose: 'secretary_chat' })
+  const request = vi.spyOn(wsClient, 'request').mockResolvedValue(linked)
+
+  await useSessionStore.getState().loadSecretarySession('project-a', 'secretary-1', 'secretary-chat')
+
+  expect(request).toHaveBeenCalledWith({
+    type: 'secretary.session.get',
+    projectId: 'project-a',
+    secretaryId: 'secretary-1',
+    sessionId: 'secretary-chat',
+  })
+  expect(useSessionStore.getState().sessions).toEqual([
+    expect.objectContaining({ id: 'secretary-chat', purpose: 'secretary_chat' }),
+  ])
+  useSessionStore.getState().releaseSecretarySession('secretary-chat')
+  expect(useSessionStore.getState().sessions).toEqual([])
+})
+
 test('fetchSessions computes unread from last_message_at > last_read_at', async () => {
   vi.spyOn(wsClient, 'request').mockResolvedValue([
     sessionRow({ id: 'sess-a', last_message_at: '2026-06-10T00:03:00.000Z', last_read_at: '2026-06-10T00:02:00.000Z' }),

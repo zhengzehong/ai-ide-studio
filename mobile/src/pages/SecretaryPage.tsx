@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Archive, ArrowLeft, Bot, FileText, Mail, MessageSquare, Play, Plus, RefreshCw, Settings2, Trash2 } from 'lucide-react'
+import { Archive, ArrowLeft, Bot, FileText, Mail, MessageSquare, MonitorUp, Play, Plus, RefreshCw, Settings2, Trash2 } from 'lucide-react'
 import { useAppStore } from '../stores/app.store'
 import { useMobileSecretaryStore, type MobileSecretary, type MobileSecretaryThread } from '../stores/secretary.store'
 import { MarkdownView } from '../components/file-viewer/MarkdownView'
 import { PresentedFilesOverlay } from '../components/file-viewer/PresentedFilesOverlay'
 import type { FilesPresentationInfo } from '@desktop/stores/session-events'
 import { SecretaryConfigSheet } from '../components/SecretaryConfigSheet'
-import SecretaryChatOverlay from '../components/SecretaryChatOverlay'
+import { SecretaryOverview } from '../components/SecretaryOverview'
 
 export default function SecretaryPage() {
   const navigate = useNavigate()
@@ -19,7 +19,6 @@ export default function SecretaryPage() {
   const [files, setFiles] = useState<FilesPresentationInfo | null>(null)
   const [editing, setEditing] = useState<MobileSecretary | null>(null)
   const [configOpen, setConfigOpen] = useState(false)
-  const [chatOpen, setChatOpen] = useState(false)
   const [notice, setNotice] = useState('')
 
   useEffect(() => {
@@ -90,6 +89,12 @@ export default function SecretaryPage() {
     }
   }
 
+  const openSession = (sessionId: string | null): void => {
+    if (!sessionId || !selected || !projectId) return
+    const search = new URLSearchParams({ projectId, secretaryId: selected.id })
+    navigate(`/chat/${encodeURIComponent(sessionId)}?${search.toString()}`, { state: { returnTo: '/secretary' } })
+  }
+
   if (!projectId) return <div style={styles.empty}>请先选择项目</div>
   if (threadId) {
     return (
@@ -118,14 +123,16 @@ export default function SecretaryPage() {
         <div style={styles.toolbar}>
           <div style={styles.secretaryMeta}><strong>{selected.name}</strong><small>{selected.enabled ? '运行中' : '已停用'} · {selected.observeAll ? '全部 Agent' : `${selected.observedAgentIds.length} 个 Agent`}</small></div>
           <button type="button" disabled={!selected.enabled} onClick={() => void runSelected()} aria-label="立即运行" title={selected.enabled ? '立即运行' : '请先启用秘书'} style={styles.iconButton}><Play size={17} /></button>
-          <button type="button" disabled={!selected.chatSessionId} onClick={() => setChatOpen(true)} aria-label="秘书对话" title="秘书对话" style={styles.iconButton}><MessageSquare size={17} /></button>
+          <button type="button" disabled={!selected.runtimeSessionId} onClick={() => openSession(selected.runtimeSessionId)} aria-label="后台执行会话" title="后台执行会话" style={styles.iconButton}><MonitorUp size={17} /></button>
+          <button type="button" disabled={!selected.chatSessionId} onClick={() => openSession(selected.chatSessionId)} aria-label="秘书对话" title="秘书对话" style={styles.iconButton}><MessageSquare size={17} /></button>
           <button type="button" onClick={() => { setEditing(selected); setConfigOpen(true) }} aria-label="设置秘书" title="设置秘书" style={styles.iconButton}><Settings2 size={17} /></button>
           <button type="button" onClick={() => void deleteSelected()} aria-label="删除秘书" title="删除秘书" style={styles.iconButton}><Trash2 size={17} /></button>
         </div>
         {notice && <div style={styles.notice}>{notice}</div>}
+        <SecretaryOverview secretary={selected} runs={store.runs} loading={store.runsLoading} onOpenRuntime={() => openSession(selected.runtimeSessionId)} onOpenChat={() => openSession(selected.chatSessionId)} />
+        <div style={styles.mailHeading}>秘书汇报 <span>{store.threads.length}</span></div>
         <div style={styles.mailList}>{store.threads.map((item) => <button type="button" key={item.id} onClick={() => openThread(item)} style={styles.mailRow}><span style={styles.mailTitle}><strong>{item.subject}</strong>{item.unread && <i style={styles.dot} />}</span><span style={styles.summary}>{item.summary || item.bodyMarkdown.slice(0, 90)}</span><small>{item.needsAction ? '需要处理' : item.kind} · {formatTime(item.updatedAt)}</small></button>)}{store.threads.length === 0 && <div style={styles.empty}>暂无邮件</div>}</div>
       </>}
-      {chatOpen && selected?.chatSessionId && <SecretaryChatOverlay projectId={projectId} secretaryId={selected.id} sessionId={selected.chatSessionId} onClose={() => setChatOpen(false)} />}
       {configOpen && <SecretaryConfigSheet secretary={editing} agents={agents} saving={store.saving} onClose={() => setConfigOpen(false)} onSave={async (input) => { if (editing) await store.update(projectId, editing.id, input); else await store.create(projectId, input); setConfigOpen(false) }} />}
     </div>
   )
@@ -165,6 +172,7 @@ const styles: Record<string, CSSProperties> = {
   summaryBox: { padding: 10, marginBottom: 14, borderLeft: '3px solid var(--primary)', background: 'var(--bg-card)', color: 'var(--text-secondary)', fontSize: 12 },
   attachment: { display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 15, padding: '8px 10px', border: '1px solid var(--border-light)', borderRadius: 6, background: 'var(--bg-card)', color: 'var(--text-secondary)' },
   notice: { padding: '6px 13px', color: 'var(--success)', background: 'var(--bg-card)', fontSize: 11 },
+  mailHeading: { height: 34, display: 'flex', alignItems: 'center', gap: 6, padding: '0 14px', background: 'var(--bg)', color: 'var(--text-secondary)', fontSize: 12, fontWeight: 700 },
   error: { margin: 10, padding: 9, borderRadius: 6, background: '#fff1f2', color: 'var(--error)', fontSize: 12 },
   empty: { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 24, color: 'var(--text-muted)', fontSize: 13 },
 }

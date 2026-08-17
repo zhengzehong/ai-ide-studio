@@ -11,6 +11,7 @@ import {
   sendSecretaryChat,
   updateProjectSecretary,
 } from '../../core/project-secretary.js'
+import { getSecretarySession, listSecretaryRuns } from '../../core/project-secretary-history.js'
 import type { RpcHandlerMap } from './types.js'
 
 export const secretaryRpcHandlers: RpcHandlerMap = {
@@ -75,6 +76,24 @@ export const secretaryRpcHandlers: RpcHandlerMap = {
     sendResult({ accepted: true, runId: run.id })
   },
 
+  'secretary.runs.list'(msg, { sendResult, state }) {
+    requireOwner(state.authMode)
+    sendResult(listSecretaryRuns(
+      requiredText(msg.secretaryId, 'secretaryId'),
+      requiredText(msg.projectId, 'projectId'),
+      optionalLimit(msg.limit),
+    ))
+  },
+
+  'secretary.session.get'(msg, { sendResult, state }) {
+    requireOwner(state.authMode)
+    sendResult(getSecretarySession(
+      requiredText(msg.secretaryId, 'secretaryId'),
+      requiredText(msg.projectId, 'projectId'),
+      requiredText(msg.sessionId, 'sessionId'),
+    ))
+  },
+
   'secretary.threads.list'(msg, { sendResult, state }) {
     requireOwner(state.authMode)
     sendResult(listSecretaryThreads(requiredText(msg.secretaryId, 'secretaryId'), requiredText(msg.projectId, 'projectId'), msg.unreadOnly === true))
@@ -125,4 +144,12 @@ function optionalStringArray(value: unknown, field: string, maxItems: number, ma
   if (value === undefined) return []
   if (!Array.isArray(value) || value.length > maxItems) throw new Error(`${field} 格式错误`)
   return value.map((item, index) => requiredText(item, `${field}[${index}]`, maxLength))
+}
+
+function optionalLimit(value: unknown): number {
+  if (value === undefined) return 20
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > 50) {
+    throw new Error('limit 必须是 1 到 50 的整数')
+  }
+  return value
 }

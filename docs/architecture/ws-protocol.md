@@ -258,7 +258,7 @@ Runtime 可见 patch 不经过 API 事件总线，而是通过 Runtime→Realtim
 
 `autonomy:update` 是全局元数据事件，载荷为 `{ agentId, projectId }`。启停、关注点、排班、汇报、tick 开始/跳过/失败时都会发布；客户端收到后按项目重新读取自主状态。Session 实时消息仍走原有订阅事件，不复制到 `autonomy:update`。
 
-项目秘书 RPC 使用当前项目 `projectId` 做边界校验：`secretary.list/get/create/update/delete` 管理秘书，`secretary.runNow` 创建一次持久化运行请求，`secretary.threads.list/thread.get/thread.markRead/thread.archive` 管理邮箱 Thread，`secretary.chat.send` 向隐藏的秘书对话 Session 入队消息。`secretary:update` 载荷为 `{ projectId }`，表示配置、运行或邮箱发生变化，客户端按项目重新读取秘书和 Thread。
+项目秘书 RPC 使用当前项目 `projectId` 做边界校验：`secretary.list/get/create/update/delete` 管理秘书，`secretary.runNow` 创建一次持久化运行请求，`secretary.runs.list` 读取不含内部 payload 的轻量执行历史，`secretary.threads.list/thread.get/thread.markRead/thread.archive` 管理邮箱 Thread。`secretary.session.get` 只允许定向读取该秘书自己的隐藏运行/对话 Session，供 PC/APP 深链到现有会话工作区；普通 `sessions.list` 继续排除这两类 Session。`secretary:update` 载荷为 `{ projectId }`，表示配置、运行状态或邮箱发生变化，客户端按项目重新读取秘书、运行历史和 Thread。
 
 服务端主动推送的事件类型：
 
@@ -357,10 +357,12 @@ Team 运行时事件：`team.member.spawn` 会广播包含新成员 Session 行�
 | `secretary.update` | `{ projectId, secretaryId, name?, executionAgentId?, definitionPrompt?, reportPrompt?, observedAgentIds?, observeAll?, enabled?, cron?, watchSessionDone?, watchTaskNeedsInput? }` | 更新后的秘书；启停会同步定时规则 |
 | `secretary.delete` | `{ projectId, secretaryId }` | `{ deleted: true }` |
 | `secretary.runNow` | `{ projectId, secretaryId }` | `{ accepted: true, runId }` |
+| `secretary.runs.list` | `{ projectId, secretaryId, limit? }` | 最近执行摘要；`limit` 为 1-50，默认 20，不返回 `payload_json` |
+| `secretary.session.get` | `{ projectId, secretaryId, sessionId }` | 该秘书对应的 `secretary_runtime` 或 `secretary_chat` Session |
 | `secretary.threads.list` | `{ projectId, secretaryId, unreadOnly? }` | 邮箱 Thread 列表 |
 | `secretary.thread.get` | `{ projectId, secretaryId, threadId }` | Thread 详情 |
 | `secretary.thread.markRead` | `{ projectId, secretaryId, threadId }` | 更新后的 Thread |
 | `secretary.thread.archive` | `{ projectId, secretaryId, threadId }` | 更新后的 Thread |
-| `secretary.chat.send` | `{ projectId, secretaryId, content }` | `{ sessionId }` |
+| `secretary.chat.send` | `{ projectId, secretaryId, content }` | `{ sessionId }`（兼容入口；新 UI 直接打开秘书对话 Session） |
 
-所有秘书 RPC 仅限 owner，并且服务端再次校验秘书与 `projectId` 的归属。实时 `secretary:update` 事件携带 `projectId`，PC/APP 仅刷新当前项目。
+所有秘书 RPC 仅限 owner，并且服务端再次校验秘书与 `projectId` 的归属。实时 `secretary:update` 事件携带 `projectId`，运行入队、开始和结束都会广播，PC/APP 仅刷新当前项目。

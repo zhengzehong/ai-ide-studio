@@ -227,6 +227,18 @@ export interface SecretaryThreadsMsg extends ClientMessage {
   secretaryId: string
   unreadOnly?: boolean
 }
+export interface SecretaryRunsMsg extends ClientMessage {
+  type: 'secretary.runs.list'
+  projectId: string
+  secretaryId: string
+  limit?: number
+}
+export interface SecretarySessionGetMsg extends ClientMessage {
+  type: 'secretary.session.get'
+  projectId: string
+  secretaryId: string
+  sessionId: string
+}
 export interface GlobalAssistantGetMsg extends ClientMessage {
   type: 'globalAssistant.get'
 }
