@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import {
   Bot,
@@ -25,6 +26,8 @@ import { useProjectStore } from '../../stores/project.store'
 import { GlobalAssistantRail } from '../global-assistant/GlobalAssistantRail'
 import { ProjectSwitcher } from './ProjectSwitcher'
 import { ProjectTabBar } from './ProjectTabBar'
+import { useSecretaryStore } from '../../stores/secretary.store'
+import { totalSecretaryAttention } from '../../stores/secretary-attention'
 import './AppLayout.css'
 
 const globalNav = [
@@ -67,8 +70,20 @@ function AgentStatusBar() {
 
 export function AppLayout() {
   const currentProjectId = useProjectStore((state) => state.currentProjectId)
+  const secretaryProjectId = useSecretaryStore((state) => state.projectId)
+  const secretaries = useSecretaryStore((state) => state.secretaries)
+  const loadSecretaries = useSecretaryStore((state) => state.load)
+  const setupSecretaryListeners = useSecretaryStore((state) => state.setupListeners)
   const { toProjectPath } = useProjectNavigation()
   const navigate = useNavigate()
+  const secretaryAttention = currentProjectId && secretaryProjectId === currentProjectId
+    ? totalSecretaryAttention(secretaries)
+    : 0
+
+  useEffect(() => {
+    if (currentProjectId) void loadSecretaries(currentProjectId)
+  }, [currentProjectId, loadSecretaries])
+  useEffect(() => setupSecretaryListeners(), [setupSecretaryListeners])
 
   const handleProjectNavClick = (event: React.MouseEvent): void => {
     if (currentProjectId) return
@@ -104,6 +119,11 @@ export function AppLayout() {
               onClick={handleProjectNavClick}
             >
               <Icon size={20} />
+              {to === '/secretary' && secretaryAttention > 0 && (
+                <span className="sidebar-secretary-badge" aria-label={`${secretaryAttention} 条秘书提醒`}>
+                  {secretaryAttention > 9 ? '9+' : secretaryAttention}
+                </span>
+              )}
             </NavLink>
           ))}
         </nav>

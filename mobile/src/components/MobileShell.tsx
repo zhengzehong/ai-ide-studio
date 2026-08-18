@@ -1,8 +1,12 @@
+import { useEffect } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Mail, MessageSquare, ListTodo, Pin, Settings } from 'lucide-react'
 import type { CSSProperties } from 'react'
 import { useConnectionStore } from '../stores/connection.store'
 import { usePinnedSessionStore } from '../stores/pinned-session.store'
+import { useAppStore } from '../stores/app.store'
+import { useMobileSecretaryStore } from '../stores/secretary.store'
+import { totalSecretaryAttention } from '@desktop/stores/secretary-attention'
 
 const tabs = [
   { path: '/secretary', label: '秘书', icon: Mail },
@@ -16,8 +20,21 @@ export default function MobileShell() {
   const location = useLocation()
   const navigate = useNavigate()
   const connected = useConnectionStore((s) => s.connected)
+  const currentProjectId = useAppStore((s) => s.currentProjectId)
   const pinnedItems = usePinnedSessionStore((s) => s.items)
+  const secretaryProjectId = useMobileSecretaryStore((s) => s.projectId)
+  const secretaries = useMobileSecretaryStore((s) => s.secretaries)
+  const loadSecretaries = useMobileSecretaryStore((s) => s.load)
+  const setupSecretaryListeners = useMobileSecretaryStore((s) => s.setupListeners)
   const pinnedAttention = pinnedItems.some((item) => item.unread || item.activityState === 'running')
+  const secretaryAttention = currentProjectId && secretaryProjectId === currentProjectId
+    ? totalSecretaryAttention(secretaries)
+    : 0
+
+  useEffect(() => {
+    if (currentProjectId) void loadSecretaries(currentProjectId)
+  }, [currentProjectId, loadSecretaries])
+  useEffect(() => setupSecretaryListeners(), [setupSecretaryListeners])
 
   return (
     <div style={styles.container}>
@@ -40,6 +57,9 @@ export default function MobileShell() {
               <Icon size={22} strokeWidth={active ? 2.2 : 1.8} />
               <span style={{ position: 'relative', fontSize: 11, marginTop: 2 }}>
                 {tab.label}
+                {tab.path === '/secretary' && secretaryAttention > 0 && (
+                  <span style={styles.secretaryBadge} aria-label={`${secretaryAttention} 条秘书提醒`}>{secretaryAttention > 9 ? '9+' : secretaryAttention}</span>
+                )}
                 {tab.path === '/pinned' && pinnedAttention && <span style={styles.pinnedBadge} />}
               </span>
             </button>
@@ -99,5 +119,21 @@ const styles: Record<string, CSSProperties> = {
     height: 5,
     borderRadius: '50%',
     background: '#fa5151',
+  },
+  secretaryBadge: {
+    position: 'absolute',
+    top: -8,
+    right: -15,
+    minWidth: 15,
+    height: 15,
+    padding: '0 3px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 8,
+    background: '#fa5151',
+    color: '#fff',
+    fontSize: 9,
+    fontWeight: 700,
   },
 }

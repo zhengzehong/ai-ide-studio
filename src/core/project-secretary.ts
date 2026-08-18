@@ -311,7 +311,12 @@ function emitUpdate(projectId: string): void {
 
 events.on('session:committed_done', (event: SessionDoneData) => {
   const session = sessionStore.get(event.sessionId)
-  if (!session || session.purpose === 'secretary_runtime' || session.purpose === 'secretary_chat' || !session.project_id) return
+  if (!session || !session.project_id) return
+  if (session.purpose === 'secretary_runtime' || session.purpose === 'secretary_chat') {
+    const secretary = projectSecretaryStore.findBySession(event.sessionId)
+    if (secretary) emitUpdate(secretary.project_id)
+    return
+  }
   for (const secretary of listSecretariesSafe(session.project_id)) {
     if (!secretary.enabled) continue
     const data = getSecretaryDataSafe(secretary.id)

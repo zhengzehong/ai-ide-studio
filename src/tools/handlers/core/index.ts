@@ -35,6 +35,13 @@ export { listTimelineHandler } from './timeline-tools.js'
 export { createAutonomyReportHandler, updateAutonomyPlanHandler } from './autonomy-tools.js'
 export { secretaryReportHandler } from './secretary-tools.js'
 export {
+  secretaryCreateHandler,
+  secretaryDeleteHandler,
+  secretaryGetHandler,
+  secretaryListHandler,
+  secretaryUpdateHandler,
+} from './secretary-management-tools.js'
+export {
   deleteKnowledgePageHandler,
   listKnowledgeBasesHandler,
   readKnowledgePageHandler,

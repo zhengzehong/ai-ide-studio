@@ -1363,6 +1363,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     set((state) => ({
       sessionListCache: removeSessionFromListCache(state.sessionListCache, sessionId),
       sessions: state.sessions.filter((item) => item.id !== sessionId),
+      runningSessionIds: removeSessionIndicator(state.runningSessionIds, sessionId),
+      unreadSessionIds: removeSessionIndicator(state.unreadSessionIds, sessionId),
+      staleSessionIds: removeSessionIndicator(state.staleSessionIds, sessionId),
+      stoppingSessionIds: removeSessionIndicator(state.stoppingSessionIds, sessionId),
     }))
   },
 
@@ -2486,6 +2490,12 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         // 后端 listSessions SQL 带 is_template = 0 过滤,但 session:changed 会广播模板会话完整数据;
         // 这里兜底跳过,避免"发布模板后列表短暂出现模板会话、刷新又消失"的不一致。
         if (data.is_template) return
+        if (
+          isCompleteSessionData(data, sessionId)
+          && isSecretarySessionPurpose(data.purpose)
+          && get().currentSessionId !== sessionId
+          && !get().sessions.some((session) => session.id === sessionId)
+        ) return
         const canonicalReadAt = typeof data.last_read_at === 'string'
           && Object.keys(data).every((key) => key === 'last_read_at' || key === 'event')
           ? data.last_read_at

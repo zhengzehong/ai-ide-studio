@@ -9,7 +9,7 @@ const secretary: SecretaryData = {
   id: 'secretary-1', projectId: 'project-1', name: '研发秘书', definitionPrompt: '汇总研发进展', reportPrompt: '',
   executionAgentId: 'agent-1', runtimeSessionId: 'runtime-1', chatSessionId: 'chat-1', enabled: true,
   observeAll: true, observedAgentIds: [], triggers: [{ id: 'trigger-1', type: 'cron', cron: '30 18 * * *', enabled: true }],
-  lastRunAt: '2026-08-17T10:30:00.000Z', lastError: null, unreadCount: 2,
+  lastRunAt: '2026-08-17T10:30:00.000Z', lastError: null, unreadCount: 2, chatUnread: true,
   createdAt: '2026-08-17T00:00:00.000Z', updatedAt: '2026-08-17T10:30:00.000Z',
 }
 
@@ -30,6 +30,8 @@ describe('secretary execution history UI', () => {
     expect(html).toContain('最近执行')
     expect(html).toContain('构建失败')
     expect(html).toContain('30 18 * * *')
+    expect(html).toContain('data-chat-unread="true"')
+    expect(html).toContain('新回复')
   })
 
   test('mobile overview keeps the same history and Session entry semantics', () => {
@@ -40,5 +42,6 @@ describe('secretary execution history UI', () => {
     expect(html).toContain('秘书对话')
     expect(html).toContain('失败 · 定时')
     expect(html).toContain('构建失败')
+    expect(html).toContain('data-chat-unread="true"')
   })
 })

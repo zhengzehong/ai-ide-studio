@@ -31,6 +31,7 @@ export interface MobileSecretary {
   lastRunAt: string | null
   lastError: string | null
   unreadCount: number
+  chatUnread: boolean
 }
 
 interface MobileSecretaryState {

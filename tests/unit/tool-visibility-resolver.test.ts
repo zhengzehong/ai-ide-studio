@@ -102,6 +102,31 @@ describe('tool visibility resolver', () => {
     expect(resolveToolsForSession(agent.id, project.id, runtime.id)
       .map((tool) => tool.definition.name)).toContain('secretary.report')
   })
+
+  test('exposes secretary management only to normal project conversations', () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const agent = agentStore.create({ type: 'pm', name: 'A', runtime: 'mock', projectId: project.id })
+    seedBuiltinTools()
+    const conversation = sessionStore.create({ agentId: agent.id, projectId: project.id })
+    const runtime = sessionStore.create({ agentId: agent.id, projectId: project.id, purpose: 'secretary_runtime' })
+    const autonomy = sessionStore.create({ agentId: agent.id, projectId: project.id, purpose: 'autonomy' })
+    const names = (sessionId: string) => resolveVisiblePlatformTools({ agentId: agent.id, projectId: project.id, sessionId })
+      .map((tool) => tool.definition.name)
+
+    expect(names(conversation.id)).toEqual(expect.arrayContaining([
+      'studio.secretary.list',
+      'studio.secretary.get',
+      'studio.secretary.create',
+      'studio.secretary.update',
+      'studio.secretary.delete',
+    ]))
+    expect(names(runtime.id)).not.toContain('studio.secretary.create')
+    expect(names(autonomy.id)).not.toContain('studio.secretary.create')
+    expect(resolveToolsForSession(agent.id, project.id, conversation.id).map((tool) => tool.definition.name))
+      .toContain('studio.secretary.create')
+    expect(resolveToolsForSession(agent.id, project.id, runtime.id).map((tool) => tool.definition.name))
+      .not.toContain('studio.secretary.create')
+  })
 })
 
 function createBuiltin(name: string) {

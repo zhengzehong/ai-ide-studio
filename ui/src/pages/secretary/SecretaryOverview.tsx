@@ -63,8 +63,8 @@ export function SecretaryOverview({
           <button type="button" disabled={!secretary.runtimeSessionId} onClick={onOpenRuntime} style={styles.sessionRow}>
             <MonitorUp size={17} /><span style={styles.sessionCopy}><strong>后台执行会话</strong><small>查看定时和事件触发的完整执行过程</small></span><b>打开</b>
           </button>
-          <button type="button" disabled={!secretary.chatSessionId} onClick={onOpenChat} style={styles.sessionRow}>
-            <MessageSquare size={17} /><span style={styles.sessionCopy}><strong>秘书对话</strong><small>向秘书追问、确认或安排后续事项</small></span><b>打开</b>
+          <button type="button" data-chat-unread={secretary.chatUnread || undefined} disabled={!secretary.chatSessionId} onClick={onOpenChat} style={styles.sessionRow}>
+            <MessageSquare size={17} /><span style={styles.sessionCopy}><strong>秘书对话</strong><small>{secretary.chatUnread ? '有新回复，点击查看' : '向秘书追问、确认或安排后续事项'}</small></span><b style={secretary.chatUnread ? styles.unreadAction : undefined}>{secretary.chatUnread ? '新回复' : '打开'}</b>
           </button>
         </div>
       </section>
@@ -141,6 +141,7 @@ const styles: Record<string, CSSProperties> = {
   sessionRows: { borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)' },
   sessionRow: { width: '100%', minHeight: 52, display: 'grid', gridTemplateColumns: '22px minmax(0, 1fr) auto', alignItems: 'center', gap: 8, padding: '8px 9px', border: 0, borderBottom: '1px solid var(--border-light)', background: 'transparent', color: 'var(--text-2)', textAlign: 'left', cursor: 'pointer' },
   sessionCopy: { minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 },
+  unreadAction: { color: 'var(--red)', fontSize: 11 },
   runs: { borderTop: '1px solid var(--border)' }, run: { minHeight: 48, display: 'grid', gridTemplateColumns: '20px minmax(0, 1fr) auto', alignItems: 'center', gap: 7, borderBottom: '1px solid var(--border-light)' },
   runIcon: { display: 'inline-flex' }, runCopy: { minWidth: 0 }, runTitle: { display: 'flex', alignItems: 'center', gap: 7, fontSize: 11 },
   openRun: { border: 0, background: 'transparent', color: 'var(--blue)', cursor: 'pointer', fontSize: 11 },

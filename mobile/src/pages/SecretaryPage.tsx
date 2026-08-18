@@ -8,6 +8,7 @@ import { PresentedFilesOverlay } from '../components/file-viewer/PresentedFilesO
 import type { FilesPresentationInfo } from '@desktop/stores/session-events'
 import { SecretaryConfigSheet } from '../components/SecretaryConfigSheet'
 import { SecretaryOverview } from '../components/SecretaryOverview'
+import { secretaryAttentionCount } from '@desktop/stores/secretary-attention'
 
 export default function SecretaryPage() {
   const navigate = useNavigate()
@@ -24,9 +25,7 @@ export default function SecretaryPage() {
   useEffect(() => {
     if (!projectId) return
     void fetchAgents(projectId)
-    void store.load(projectId)
-  }, [fetchAgents, projectId, store.load])
-  useEffect(() => store.setupListeners(), [store.setupListeners])
+  }, [fetchAgents, projectId])
   useEffect(() => {
     if (!projectId || !routeSecretaryId || routeSecretaryId === store.selectedId) return
     if (store.secretaries.some((item) => item.id === routeSecretaryId)) void store.select(projectId, routeSecretaryId)
@@ -118,13 +117,13 @@ export default function SecretaryPage() {
         <button type="button" onClick={() => void store.load(projectId)} aria-label="刷新" title="刷新" style={styles.iconButton}><RefreshCw size={18} /></button>
       </header>
       {store.error && <div style={styles.error}>{store.error}</div>}
-      <div style={styles.secretaryStrip}>{store.secretaries.map((item) => <button type="button" key={item.id} onClick={() => chooseSecretary(item.id)} style={{ ...styles.secretaryButton, ...(item.id === store.selectedId ? styles.secretaryActive : {}) }}><Bot size={15} /><span>{item.name}</span>{item.unreadCount > 0 && <b>{item.unreadCount}</b>}</button>)}</div>
+      <div style={styles.secretaryStrip}>{store.secretaries.map((item) => { const count = secretaryAttentionCount(item); return <button type="button" key={item.id} data-chat-unread={item.chatUnread || undefined} onClick={() => chooseSecretary(item.id)} style={{ ...styles.secretaryButton, ...(item.id === store.selectedId ? styles.secretaryActive : {}) }}><Bot size={15} /><span>{item.name}</span>{count > 0 && <b>{count}</b>}</button> })}</div>
       {store.loading ? <div style={styles.empty}>正在加载...</div> : !selected ? <EmptySecretary onCreate={() => { setEditing(null); setConfigOpen(true) }} /> : <>
         <div style={styles.toolbar}>
           <div style={styles.secretaryMeta}><strong>{selected.name}</strong><small>{selected.enabled ? '运行中' : '已停用'} · {selected.observeAll ? '全部 Agent' : `${selected.observedAgentIds.length} 个 Agent`}</small></div>
           <button type="button" disabled={!selected.enabled} onClick={() => void runSelected()} aria-label="立即运行" title={selected.enabled ? '立即运行' : '请先启用秘书'} style={styles.iconButton}><Play size={17} /></button>
           <button type="button" disabled={!selected.runtimeSessionId} onClick={() => openSession(selected.runtimeSessionId)} aria-label="后台执行会话" title="后台执行会话" style={styles.iconButton}><MonitorUp size={17} /></button>
-          <button type="button" disabled={!selected.chatSessionId} onClick={() => openSession(selected.chatSessionId)} aria-label="秘书对话" title="秘书对话" style={styles.iconButton}><MessageSquare size={17} /></button>
+          <button type="button" data-chat-unread={selected.chatUnread || undefined} disabled={!selected.chatSessionId} onClick={() => openSession(selected.chatSessionId)} aria-label="秘书对话" title="秘书对话" style={{ ...styles.iconButton, position: 'relative' }}><MessageSquare size={17} />{selected.chatUnread && <span style={styles.chatDot} />}</button>
           <button type="button" onClick={() => { setEditing(selected); setConfigOpen(true) }} aria-label="设置秘书" title="设置秘书" style={styles.iconButton}><Settings2 size={17} /></button>
           <button type="button" onClick={() => void deleteSelected()} aria-label="删除秘书" title="删除秘书" style={styles.iconButton}><Trash2 size={17} /></button>
         </div>
@@ -165,6 +164,7 @@ const styles: Record<string, CSSProperties> = {
   mailRow: { width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 5, padding: '12px 14px', border: 0, borderBottom: '1px solid var(--border-light)', background: 'transparent', textAlign: 'left', color: 'var(--text-secondary)' },
   mailTitle: { display: 'flex', alignItems: 'center', gap: 5, color: 'var(--text-primary)', fontSize: 13 },
   dot: { width: 6, height: 6, borderRadius: '50%', background: 'var(--primary)' },
+  chatDot: { position: 'absolute', top: 5, right: 5, width: 6, height: 6, borderRadius: '50%', background: 'var(--error)' },
   summary: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, color: 'var(--text-muted)' },
   detailHeader: { minHeight: 54, display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', paddingTop: 'calc(8px + var(--safe-top))', background: 'var(--bg-card)', borderBottom: '1px solid var(--border-light)' },
   detailHeading: { minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column', gap: 2, overflow: 'hidden' },

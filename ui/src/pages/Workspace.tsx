@@ -228,6 +228,7 @@ export default function Workspace() {
   const [pickerAgentId, setPickerAgentId] = useState<string | null>(null)
   const [publishSessionId, setPublishSessionId] = useState<string | null>(null)
   const secretarySessionLoadRef = useRef<string | null>(null)
+  const previousSessionRef = useRef<string | null>(null)
 
   const projectAgents = useMemo(() => filterAgentsByProject(agents, currentProjectId), [agents, currentProjectId])
   const visibleProjectAgents = useMemo(() => projectAgents.filter((agent) => !agent.hidden_at), [projectAgents])
@@ -461,6 +462,16 @@ export default function Workspace() {
     state.selectSession(null)
     state.releaseSecretarySession(session.id)
   }, [])
+
+  useEffect(() => {
+    const previousSessionId = previousSessionRef.current
+    previousSessionRef.current = currentSessionId
+    if (!previousSessionId || previousSessionId === currentSessionId) return
+    const previous = useSessionStore.getState().sessions.find((session) => session.id === previousSessionId)
+    if (isSecretarySessionPurpose(previous?.purpose)) {
+      useSessionStore.getState().releaseSecretarySession(previousSessionId)
+    }
+  }, [currentSessionId])
 
   const handleSelectSession = (agentId: string, sessionId: string) => {
     setSelectedAgentId(agentId)

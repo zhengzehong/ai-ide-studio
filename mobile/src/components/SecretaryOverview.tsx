@@ -18,8 +18,8 @@ export function SecretaryOverview({ secretary, runs, loading, onOpenRuntime, onO
         <button type="button" disabled={!secretary.runtimeSessionId} onClick={onOpenRuntime} style={styles.sessionLink}>
           <MonitorUp size={17} /><span style={styles.sessionCopy}><strong>后台执行会话</strong><small>查看完整执行过程</small></span>
         </button>
-        <button type="button" disabled={!secretary.chatSessionId} onClick={onOpenChat} style={styles.sessionLink}>
-          <MessageSquare size={17} /><span style={styles.sessionCopy}><strong>秘书对话</strong><small>追问或安排事项</small></span>
+        <button type="button" data-chat-unread={secretary.chatUnread || undefined} disabled={!secretary.chatSessionId} onClick={onOpenChat} style={styles.sessionLink}>
+          <MessageSquare size={17} /><span style={styles.sessionCopy}><strong>秘书对话{secretary.chatUnread && <i style={styles.chatDot} />}</strong><small>{secretary.chatUnread ? '有新回复，点击查看' : '追问或安排事项'}</small></span>
         </button>
       </div>
       <div style={styles.heading}><strong>最近执行</strong><span>{runs.length > 0 ? `${runs.length} 条` : ''}</span></div>
@@ -70,6 +70,7 @@ const styles: Record<string, CSSProperties> = {
   sessionLinks: { display: 'grid', gridTemplateColumns: '1fr 1fr', borderBottom: '1px solid var(--border-light)' },
   sessionLink: { minWidth: 0, minHeight: 54, display: 'grid', gridTemplateColumns: '20px minmax(0, 1fr)', alignItems: 'center', gap: 7, padding: '8px 12px', border: 0, borderRight: '1px solid var(--border-light)', background: 'transparent', color: 'var(--text-primary)', textAlign: 'left' },
   sessionCopy: { minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 },
+  chatDot: { display: 'inline-block', width: 6, height: 6, marginLeft: 5, borderRadius: '50%', background: 'var(--error)' },
   heading: { height: 34, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 13px', color: 'var(--text-secondary)', fontSize: 12 },
   run: { width: '100%', minHeight: 45, display: 'grid', gridTemplateColumns: '18px minmax(0, 1fr) auto', alignItems: 'center', gap: 6, padding: '7px 13px', border: 0, borderTop: '1px solid var(--border-light)', background: 'transparent', color: 'var(--text-secondary)', textAlign: 'left' },
   runCopy: { minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2, overflow: 'hidden' },
