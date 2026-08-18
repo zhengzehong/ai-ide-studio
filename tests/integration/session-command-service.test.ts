@@ -6,6 +6,8 @@ import { executeSessionCommand } from '../../src/commands/session-command-servic
 import { closeDatabase, initDatabase } from '../../src/store/db.js'
 import { eventStore, sessionStore } from '../../src/store/sessions.js'
 import { agentStore } from '../../src/store/agents.js'
+import { projectStore } from '../../src/store/projects.js'
+import { projectSecretaryStore } from '../../src/store/project-secretaries.js'
 import type { RuntimePort } from '../../src/ports/runtime-port.js'
 import { setRuntimePort } from '../../src/runtime/runtime-port-provider.js'
 
@@ -54,6 +56,35 @@ describe('Session command service', () => {
 
     expect(session.last_read_at).toEqual(expect.any(String))
     expect(sessionStore.get(session.id)?.last_read_at).toBe(session.last_read_at)
+  })
+
+  it('refreshes secretary attention when a secretary chat Session is marked read', async () => {
+    const project = projectStore.create({ name: 'Secretary Project', workDir: tmp })
+    const agent = agentStore.create({ name: 'Secretary Agent', type: 'developer', runtime: 'mock', projectId: project.id })
+    const runtimeSession = sessionStore.create({ agentId: agent.id, projectId: project.id, purpose: 'secretary_runtime' })
+    const chatSession = sessionStore.create({ agentId: agent.id, projectId: project.id, purpose: 'secretary_chat' })
+    const secretary = projectSecretaryStore.create({
+      projectId: project.id,
+      name: 'Status Secretary',
+      definitionPrompt: '',
+      reportPrompt: '',
+      executionAgentId: agent.id,
+      observeAll: true,
+    })
+    projectSecretaryStore.setSessions(secretary.id, runtimeSession.id, chatSession.id)
+    const updates: Array<{ projectId: string }> = []
+    const { events } = await import('../../src/core/events.js')
+    const onUpdate = (event: { projectId: string }): void => { updates.push(event) }
+    events.on('secretary:update', onUpdate)
+
+    await executeSessionCommand({
+      commandId: 'command-secretary-read',
+      type: 'sessions.markRead',
+      sessionId: chatSession.id,
+    })
+
+    events.off('secretary:update', onUpdate)
+    expect(updates).toContainEqual({ projectId: project.id })
   })
 
   it('preserves permission and elicitation runtime resolution plus persisted events', async () => {

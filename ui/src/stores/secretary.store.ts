@@ -54,6 +54,7 @@ export interface SecretaryData {
   lastRunAt: string | null
   lastError: string | null
   unreadCount: number
+  chatUnread: boolean
   createdAt: string
   updatedAt: string
 }

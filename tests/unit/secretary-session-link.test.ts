@@ -22,7 +22,14 @@ const linkedSession = {
 
 beforeEach(() => {
   vi.restoreAllMocks()
-  useSessionStore.setState({ sessions: [], currentSessionId: null })
+  useSessionStore.setState({
+    sessions: [],
+    currentSessionId: null,
+    runningSessionIds: {},
+    unreadSessionIds: {},
+    staleSessionIds: {},
+    stoppingSessionIds: {},
+  })
 })
 
 describe('secretary Session links', () => {
@@ -56,7 +63,19 @@ describe('secretary Session links', () => {
     })
     expect(result).toEqual(linkedSession)
     expect(useSessionStore.getState().sessions).toContainEqual(linkedSession)
+    useSessionStore.setState({
+      runningSessionIds: { [linkedSession.id]: true },
+      unreadSessionIds: { [linkedSession.id]: true },
+      staleSessionIds: { [linkedSession.id]: true },
+      stoppingSessionIds: { [linkedSession.id]: true },
+    })
     useSessionStore.getState().releaseSecretarySession(linkedSession.id)
-    expect(useSessionStore.getState().sessions).toEqual([])
+    expect(useSessionStore.getState()).toMatchObject({
+      sessions: [],
+      runningSessionIds: {},
+      unreadSessionIds: {},
+      staleSessionIds: {},
+      stoppingSessionIds: {},
+    })
   })
 })

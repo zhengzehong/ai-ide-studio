@@ -18,6 +18,7 @@ const secretary: MobileSecretary = {
   lastRunAt: null,
   lastError: null,
   unreadCount: 0,
+  chatUnread: false,
 }
 
 beforeEach(() => {

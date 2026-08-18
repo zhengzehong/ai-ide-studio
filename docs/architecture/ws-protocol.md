@@ -351,8 +351,8 @@ Team 运行时事件：`team.member.spawn` 会广播包含新成员 Session 行�
 
 | 方法 | 参数 | 返回 |
 |---|---|---|
-| `secretary.list` | `{ projectId }` | 当前项目秘书列表（含未读数） |
-| `secretary.get` | `{ projectId, secretaryId }` | 秘书配置与触发器 |
+| `secretary.list` | `{ projectId }` | 当前项目秘书列表（含邮件 `unreadCount` 与对话 `chatUnread`） |
+| `secretary.get` | `{ projectId, secretaryId }` | 秘书配置、触发器与两类未读状态 |
 | `secretary.create` | `{ projectId, name, executionAgentId, definitionPrompt?, reportPrompt?, observedAgentIds?, observeAll?, cron?, watchSessionDone?, watchTaskNeedsInput? }` | 新建秘书 |
 | `secretary.update` | `{ projectId, secretaryId, name?, executionAgentId?, definitionPrompt?, reportPrompt?, observedAgentIds?, observeAll?, enabled?, cron?, watchSessionDone?, watchTaskNeedsInput? }` | 更新后的秘书；启停会同步定时规则 |
 | `secretary.delete` | `{ projectId, secretaryId }` | `{ deleted: true }` |
@@ -365,4 +365,4 @@ Team 运行时事件：`team.member.spawn` 会广播包含新成员 Session 行�
 | `secretary.thread.archive` | `{ projectId, secretaryId, threadId }` | 更新后的 Thread |
 | `secretary.chat.send` | `{ projectId, secretaryId, content }` | `{ sessionId }`（兼容入口；新 UI 直接打开秘书对话 Session） |
 
-所有秘书 RPC 仅限 owner，并且服务端再次校验秘书与 `projectId` 的归属。实时 `secretary:update` 事件携带 `projectId`，运行入队、开始和结束都会广播，PC/APP 仅刷新当前项目。
+所有秘书 RPC 仅限 owner，并且服务端再次校验秘书与 `projectId` 的归属。实时 `secretary:update` 事件携带 `projectId`，配置变化、运行入队/开始/结束、邮箱变化、秘书对话完成及对话标记已读都会广播；PC/APP 仅刷新当前项目。`chatUnread` 由对话 Session 的 `last_message_at > last_read_at` 派生，不改变邮箱 `unreadCount` 的语义。

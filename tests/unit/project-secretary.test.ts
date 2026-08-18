@@ -60,6 +60,30 @@ describe('project secretary MVP', () => {
     expect(secretary.triggers.some((trigger) => trigger.type === 'session_done')).toBe(true)
   })
 
+  test('reports chat unread separately from secretary mail unread', async () => {
+    const fixture = createFixture()
+    const secretary = await createProjectSecretary({
+      projectId: fixture.project.id,
+      name: 'Chat secretary',
+      definitionPrompt: '',
+      reportPrompt: '',
+      executionAgentId: fixture.execution.id,
+      observedAgentIds: [],
+      observeAll: true,
+      watchSessionDone: false,
+    })
+    sessionStore.markRead(secretary.chatSessionId!, '2026-08-18T01:00:00.000Z')
+    sessionStore.touch(secretary.chatSessionId!, '2026-08-18T01:01:00.000Z')
+
+    expect(projectSecretaryStore.getData(secretary.id)).toMatchObject({
+      unreadCount: 0,
+      chatUnread: true,
+    })
+
+    sessionStore.markRead(secretary.chatSessionId!, '2026-08-18T01:02:00.000Z')
+    expect(projectSecretaryStore.getData(secretary.id)?.chatUnread).toBe(false)
+  })
+
   test('stores a report thread and validates project-relative attachments', async () => {
     const fixture = createFixture()
     const secretary = await createProjectSecretary({

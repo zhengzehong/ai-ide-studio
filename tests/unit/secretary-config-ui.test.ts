@@ -12,7 +12,7 @@ const secretary: SecretaryData = {
   executionAgentId: 'agent-1', runtimeSessionId: 'runtime-1', chatSessionId: 'chat-1', enabled: true,
   observeAll: false, observedAgentIds: ['agent-1'],
   triggers: [{ id: 'trigger-1', type: 'session_done', cron: null, enabled: true }],
-  lastRunAt: null, lastError: null, unreadCount: 0, createdAt: '2026-08-17T00:00:00.000Z', updatedAt: '2026-08-17T00:00:00.000Z',
+  lastRunAt: null, lastError: null, unreadCount: 0, chatUnread: false, createdAt: '2026-08-17T00:00:00.000Z', updatedAt: '2026-08-17T00:00:00.000Z',
 }
 const agent: AgentData = {
   id: 'agent-1', name: '产品经理', type: 'pm', runtime: 'mock', status: 'idle', permission_level: 1,
@@ -23,7 +23,7 @@ const mobileSecretary: MobileSecretary = {
   definitionPrompt: secretary.definitionPrompt, reportPrompt: secretary.reportPrompt,
   executionAgentId: secretary.executionAgentId, chatSessionId: secretary.chatSessionId,
   enabled: secretary.enabled, observeAll: secretary.observeAll, observedAgentIds: secretary.observedAgentIds,
-  triggers: secretary.triggers, lastRunAt: secretary.lastRunAt, lastError: secretary.lastError, unreadCount: secretary.unreadCount,
+  triggers: secretary.triggers, lastRunAt: secretary.lastRunAt, lastError: secretary.lastError, unreadCount: secretary.unreadCount, chatUnread: secretary.chatUnread,
 }
 
 describe('secretary configuration UI', () => {

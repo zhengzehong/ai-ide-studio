@@ -846,7 +846,7 @@ Widget 偏好只影响悬浮窗过滤和任务快速创建，不改变 Project�
 
 ## 项目秘书
 
-项目秘书数据按 `project_id` 隔离。每个秘书拥有一个后台运行 Session 和一个独立对话 Session；两类 Session 的 `purpose` 分别为 `secretary_runtime` 与 `secretary_chat`，不进入普通会话列表。
+项目秘书数据按 `project_id` 隔离。每个秘书拥有一个后台运行 Session 和一个独立对话 Session；两类 Session 的 `purpose` 分别为 `secretary_runtime` 与 `secretary_chat`，不进入普通会话列表或普通项目会话统计。
 
 | 表 | 作用 |
 |---|---|
@@ -858,3 +858,5 @@ Widget 偏好只影响悬浮窗过滤和任务快速创建，不改变 Project�
 | `secretary_entries` | 主题的秘书正文历史 |
 
 秘书运行只消费当前项目事件，Task 触发还会按观察 Agent 过滤；附件只保存当前项目内相对路径，正文按需通过现有文件读取接口访问。
+
+秘书摘要的 `unreadCount` 是未归档且未读的 `secretary_threads` 数量；`chatUnread` 不落新字段，而是从 `secretary_chat` Session 的 `last_message_at` 和 `last_read_at` 派生。两者独立计算，前端可合并成提醒总数，但标记对话已读不会清除邮箱未读。

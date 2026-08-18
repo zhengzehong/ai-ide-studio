@@ -14,6 +14,7 @@
 - 相同 Session 身份、项目/团队上下文和可见工具集合复用同一 token；任一上下文变化会撤销旧 token。
 - 已新增 `tool_contexts`、`tool_call_audit` 两张 SQLite 表。
 - 已内置 `core.project.*`、`core.agent.*`、`agent.template.*`、`core.session.*`、`core.task.*`、`team.*`、`event.*` 平台方法。
+- 已内置 `studio.secretary.list/get/create/update/delete`，供普通项目会话管理当前项目秘书。
 - 已内置 `core.kb.list/read/upsert/delete` 四个最小知识库方法；知识库管理、shared 库挂载和活动历史继续由 PC Web RPC 负责。
 - 已内置 `agent_hub.*` A2A Hub 方法(`agent_hub.connect` / `agent_hub.disconnect` / `agent_hub.list` / `agent_hub.send`),让 Agent 跨机器互相调用,详见 `docs/architecture/overview.md` A2A Hub 章节。
 - `team.*` 仍作为内置方法注册并保留绑定/Profile 数据，但当前 Agent 暴露策略会统一过滤这些方法，Claude Code 与 Codex 均不可见。
@@ -219,6 +220,8 @@ revokedAt
 `studio.task.assign` 是面向动态分派场景的显式任务分派工具，默认只接受未分派任务；如果需要改派，必须显式传 `allowReassign=true`。`core.timeline.list` 则把会话时间线摘要暴露给 Agent，便于订阅者基于历史过程做调度判断。
 
 `core.session.create` 只创建平台 Session，不发送 Prompt，也不承诺 ACP Session 已经建立。Agent 在发消息或派任务之前调用 `core.session.capabilities`，由它创建或恢复真实 ACP Session，并返回 Runtime 实际暴露的模型、模式和配置项。随后可在尚无消息且没有待执行 Prompt 的 Session 上调用 `core.session.configure`。所有值必须来自 capabilities，Runtime 确认成功后才写入 Session runtime preferences；requested/applied 状态不一致时配置失败，禁止继续发送 Prompt。
+
+秘书管理工具采用当前会话项目作为唯一边界：`projectId` 来自 ToolContext，不出现在工具参数中，模型不能覆盖。`studio.secretary.list/get/create/update/delete` 只对 `purpose=conversation` 的普通 Session 可见；`secretary_runtime`、`secretary_chat` 与 `autonomy` Session 均不可见。创建和修改复用项目秘书业务层的 Agent 归属校验与触发器同步；删除还要求 `secretaryId` 与当前秘书名称同时匹配，降低误删风险。
 
 ### 3.8 Knowledge Base Tools
 

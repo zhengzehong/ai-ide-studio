@@ -12,10 +12,11 @@ describe('unified project session stats', () => {
       sessions: [
         { id: 'sess-running', project_id: 'project-a', status: 'active' },
         { id: 'sess-unread', project_id: 'project-a', status: 'active' },
+        { id: 'sess-secretary', project_id: 'project-a', status: 'active', purpose: 'secretary_chat' },
         { id: 'sess-other', project_id: 'project-b', status: 'active' },
       ],
-      runningSessionIds: { 'sess-running': true },
-      unreadSessionIds: { 'sess-running': true, 'sess-unread': true, 'sess-other': true },
+      runningSessionIds: { 'sess-running': true, 'sess-secretary': true },
+      unreadSessionIds: { 'sess-running': true, 'sess-unread': true, 'sess-secretary': true, 'sess-other': true },
     })
 
     expect(result).toEqual({

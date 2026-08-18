@@ -36,6 +36,7 @@ export interface ProjectSecretaryData {
   lastRunAt: string | null
   lastError: string | null
   unreadCount: number
+  chatUnread: boolean
   createdAt: string
   updatedAt: string
 }
@@ -263,7 +264,19 @@ function toData(row: ProjectSecretaryRow): ProjectSecretaryData {
     lastRunAt: row.last_run_at,
     lastError: row.last_error,
     unreadCount: unreadRow?.count ?? 0,
+    chatUnread: isSessionUnread(row.chat_session_id),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
+}
+
+function isSessionUnread(sessionId: string | null): boolean {
+  if (!sessionId) return false
+  const session = getDb().prepare<[string], { last_message_at: string | null; last_read_at: string | null }>(
+    'SELECT last_message_at, last_read_at FROM sessions WHERE id = ? AND deleted_at IS NULL',
+  ).get(sessionId)
+  if (!session?.last_message_at || !session.last_read_at) return false
+  const messageAt = Date.parse(session.last_message_at)
+  const readAt = Date.parse(session.last_read_at)
+  return Number.isFinite(messageAt) && Number.isFinite(readAt) && messageAt > readAt
 }

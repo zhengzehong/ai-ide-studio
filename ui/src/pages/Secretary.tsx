@@ -10,6 +10,7 @@ import type { FilesPresentationInfo } from '../stores/session-events'
 import { SecretaryConfigModal } from './secretary/SecretaryConfigModal'
 import { SecretaryOverview } from './secretary/SecretaryOverview'
 import { secretaryWorkspacePath } from './secretary/secretary-session-link'
+import { secretaryAttentionCount } from '../stores/secretary-attention'
 
 export function Secretary() {
   const navigate = useNavigate()
@@ -32,7 +33,6 @@ export function Secretary() {
   const runNow = useSecretaryStore((state) => state.runNow)
   const markRead = useSecretaryStore((state) => state.markRead)
   const archive = useSecretaryStore((state) => state.archive)
-  const setupListeners = useSecretaryStore((state) => state.setupListeners)
   const [configOpen, setConfigOpen] = useState(false)
   const [editing, setEditing] = useState<SecretaryData | null>(null)
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null)
@@ -42,10 +42,7 @@ export function Secretary() {
   useEffect(() => {
     if (!projectId) return
     void fetchAgents(projectId)
-    void load(projectId)
-  }, [fetchAgents, load, projectId])
-
-  useEffect(() => setupListeners(), [setupListeners])
+  }, [fetchAgents, projectId])
 
   const selectedSecretary = useMemo(() => secretaries.find((item) => item.id === selectedId) ?? null, [secretaries, selectedId])
   const selectedThread = useMemo(() => threads.find((thread) => thread.id === selectedThreadId) ?? null, [selectedThreadId, threads])
@@ -112,7 +109,7 @@ export function Secretary() {
           <button type="button" title="刷新" aria-label="刷新" onClick={() => projectId && void load(projectId)} style={styles.iconButton}><RefreshCw size={15} /></button>
           {selectedSecretary && <button type="button" disabled={!selectedSecretary.enabled} title={selectedSecretary.enabled ? '立即运行' : '请先启用秘书'} onClick={() => void runSelected()} style={{ ...styles.actionButton, ...(!selectedSecretary.enabled ? styles.disabledButton : {}) }}><Play size={14} /> 立即运行</button>}
           {selectedSecretary && <button type="button" disabled={!selectedSecretary.runtimeSessionId} onClick={() => openSession(selectedSecretary.runtimeSessionId)} style={styles.actionButton}><MonitorUp size={14} /> 后台会话</button>}
-          {selectedSecretary && <button type="button" disabled={!selectedSecretary.chatSessionId} onClick={() => openSession(selectedSecretary.chatSessionId)} style={styles.actionButton}><MessageSquare size={14} /> 秘书对话</button>}
+          {selectedSecretary && <button type="button" data-chat-unread={selectedSecretary.chatUnread || undefined} disabled={!selectedSecretary.chatSessionId} onClick={() => openSession(selectedSecretary.chatSessionId)} style={{ ...styles.actionButton, position: 'relative' }}><MessageSquare size={14} /> 秘书对话{selectedSecretary.chatUnread && <span style={styles.chatDot} />}</button>}
           {selectedSecretary && <button type="button" onClick={() => { setEditing(selectedSecretary); setConfigOpen(true) }} style={styles.actionButton}><Settings2 size={14} /> 设置</button>}
           {selectedSecretary && <button type="button" title="删除秘书" aria-label="删除秘书" onClick={() => void deleteSelected()} style={styles.iconButton}><Trash2 size={15} /></button>}
           <button type="button" onClick={() => { setEditing(null); setConfigOpen(true) }} style={styles.primary}><Plus size={14} /> 新建秘书</button>
@@ -124,8 +121,8 @@ export function Secretary() {
           <aside style={styles.secretaryList}>
             <div style={styles.sectionTitle}>秘书 <span>{secretaries.length}</span></div>
             {secretaries.map((secretary) => {
-              const count = secretary.unreadCount
-              return <button type="button" key={secretary.id} onClick={() => chooseSecretary(secretary.id)} style={{ ...styles.secretaryRow, ...(secretary.id === selectedId ? styles.secretaryActive : {}) }}><span style={styles.avatar}><Bot size={15} /></span><span style={styles.secretaryCopy}><strong>{secretary.name}</strong><small>{secretary.enabled ? '运行中' : '已停用'} · {secretary.observeAll ? '观察全部 Agent' : `${secretary.observedAgentIds.length} 个观察 Agent`}</small></span>{count > 0 && <span style={styles.badge}>{count}</span>}</button>
+              const count = secretaryAttentionCount(secretary)
+              return <button type="button" key={secretary.id} data-chat-unread={secretary.chatUnread || undefined} onClick={() => chooseSecretary(secretary.id)} style={{ ...styles.secretaryRow, ...(secretary.id === selectedId ? styles.secretaryActive : {}) }}><span style={styles.avatar}><Bot size={15} /></span><span style={styles.secretaryCopy}><strong>{secretary.name}</strong><small>{secretary.enabled ? '运行中' : '已停用'} · {secretary.chatUnread ? '对话有新回复' : secretary.observeAll ? '观察全部 Agent' : `${secretary.observedAgentIds.length} 个观察 Agent`}</small></span>{count > 0 && <span style={styles.badge}>{count}</span>}</button>
             })}
           </aside>
           <section style={styles.mailList}>
@@ -190,6 +187,7 @@ const styles: Record<string, React.CSSProperties> = {
   avatar: { width: 28, height: 28, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: 6, background: 'var(--bg-2)', flexShrink: 0 },
   secretaryCopy: { minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3, flex: 1 },
   badge: { minWidth: 17, height: 17, padding: '0 4px', borderRadius: 9, background: 'var(--blue)', color: '#fff', fontSize: 10, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' },
+  chatDot: { position: 'absolute', top: 4, right: 4, width: 6, height: 6, borderRadius: '50%', background: 'var(--red)' },
   mailRow: { width: '100%', display: 'flex', flexDirection: 'column', gap: 5, padding: '11px 12px', border: 0, borderBottom: '1px solid var(--border-light)', background: 'transparent', color: 'var(--text-2)', textAlign: 'left', cursor: 'pointer' },
   mailActive: { background: 'var(--blue-light)' },
   mailUnread: { borderLeft: '3px solid var(--blue)', paddingLeft: 9 },

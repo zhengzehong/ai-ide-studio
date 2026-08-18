@@ -187,6 +187,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   releaseSecretarySession: (sessionId) => {
     set((state) => ({
       sessions: state.sessions.filter((item) => item.id !== sessionId || !isSecretarySessionPurpose(item.purpose)),
+      runningSessionIds: removeIndicator(state.runningSessionIds, sessionId),
     }))
   },
 

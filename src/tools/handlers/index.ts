@@ -69,6 +69,11 @@ import {
   createAutonomyReportHandler,
   updateAutonomyPlanHandler,
   secretaryReportHandler,
+  secretaryCreateHandler,
+  secretaryDeleteHandler,
+  secretaryGetHandler,
+  secretaryListHandler,
+  secretaryUpdateHandler,
 } from './core/index.js'
 import {
   createTeamHandler,
@@ -175,6 +180,11 @@ register(configureSessionHandler)
 register(updateAutonomyPlanHandler)
 register(createAutonomyReportHandler)
 register(secretaryReportHandler)
+register(secretaryListHandler)
+register(secretaryGetHandler)
+register(secretaryCreateHandler)
+register(secretaryUpdateHandler)
+register(secretaryDeleteHandler)
 register(listSessionTemplatesHandler)
 register(publishSessionTemplateHandler)
 register(instantiateSessionTemplateHandler)

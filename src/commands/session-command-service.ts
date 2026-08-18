@@ -4,6 +4,7 @@ import { sessionManager } from '../core/sessions.js'
 import { getRuntimePort } from '../runtime/runtime-port-provider.js'
 import type { RuntimeCancelResult } from '../ports/runtime-port.js'
 import { eventStore, sessionStore } from '../store/sessions.js'
+import { projectSecretaryStore } from '../store/project-secretaries.js'
 import type { SessionCommand } from './session-command-types.js'
 
 const log = createChildLogger('session-command-service')
@@ -61,6 +62,8 @@ function markSessionRead(sessionId: string): { sessionId: string; lastReadAt: st
   if (!session) throw new Error('会话不存在')
   const lastReadAt = sessionStore.markRead(sessionId)
   events.emit('session:changed', { sessionId, data: { last_read_at: lastReadAt } })
+  const secretary = projectSecretaryStore.findBySession(sessionId)
+  if (secretary) events.emit('secretary:update', { projectId: secretary.project_id })
   log.info({ sessionId, lastReadAt }, 'session marked as read')
   return { sessionId, lastReadAt }
 }
