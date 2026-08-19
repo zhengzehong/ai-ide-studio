@@ -7,7 +7,7 @@ AI IDE Studio 是一个本地部署的全栈 AI 编程协作工具。通过 [ACP
 ## 功能
 
 - **单端口 Edge + 进程隔离** — Edge 是唯一公网监听入口；API 提供 HTTP、领域命令与 DB Worker；Runtime 子进程拥有 ACP/终端/Session actor；Realtime 子进程负责 WebSocket、订阅、序列化和有界背压
-- **Workspace** — 主工作台，支持流式对话、轻量状态恢复、执行过程按需加载/折叠、ACP diff 文件变更查看、思考过程展示、图片附件、Markdown 渲染、AI 多文件交付卡片和长会话虚拟滚动；交付文件可在 PC/APP 预览 Markdown、图片、音频和视频
+- **Workspace** — 主工作台，支持流式对话、轻量状态恢复、执行过程按需加载/折叠、ACP diff 文件变更查看、思考过程展示、图片附件、PC 普通文件选择/拖拽上传、Markdown 渲染、AI 多文件交付卡片和长会话虚拟滚动；交付文件可在 PC/APP 预览 Markdown、图片、音频和视频
 - **自主 Agent** — 项目 Agent 可启用独立自主 Session，每 10 分钟在空闲时检查关注方向，自主维护当天排班和 `memory.md`，并向 PC 自主工作页提交带优先级标签的 GFM Markdown 汇报
 - **项目秘书** — 每个项目可配置多个秘书，选择执行/观察 Agent 和自由 Prompt，按 Cron、Agent 完成或 Task 需处理事件运行；普通项目会话中的 AI 可通过 `studio.secretary.*` 管理当前项目秘书，PC/APP 会统一提示未读邮件与秘书对话新回复，运行/对话 Session 可直接进入现有工作空间
 - **PC 项目切换** — 顶部支持固定项目 Tab，并以统一 Session 状态显示项目/Agent/会话的运行中与未读数；每个项目独立记忆上次页面、查询参数和关键视图状态，切回时先显示分区缓存并在后台同步最新数据

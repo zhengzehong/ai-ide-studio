@@ -116,6 +116,14 @@ import {
   type MenuName,
 } from './workspace/helpers'
 import { createSessionDraftStore, type WorkspacePendingImage } from './workspace/session-drafts'
+import { WorkspaceFileAttachmentList } from './workspace/WorkspaceFileAttachmentList'
+import {
+  appendWorkspaceFilePaths,
+  MAX_WORKSPACE_FILES,
+  partitionWorkspaceFiles,
+  type WorkspacePendingFile,
+} from './workspace/workspace-file-attachments'
+import { uploadSessionFile } from '../services/session-file-upload'
 import { moveItemById, sortWorkspaceItems } from './workspace/ordering'
 import { elapsedSecondsBetween, formatCompactDuration } from '../utils/duration'
 import { ContextMenu, PromptDialog, ConfirmDialog, AlertDialog } from '../components/ModalDialog'
@@ -1127,6 +1135,7 @@ export default function Workspace() {
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
         <WorkspaceChatPane
           connected={connected}
+          projectId={currentProjectId}
           currentSessionId={currentSessionId}
           chatAgent={chatAgent}
           currentSession={currentSession}
@@ -1451,6 +1460,7 @@ export default function Workspace() {
 }
 function WorkspaceChatPane({
   connected,
+  projectId,
   currentSessionId,
   chatAgent,
   currentSession,
@@ -1458,6 +1468,7 @@ function WorkspaceChatPane({
   currentSessionCopying,
 }: {
   connected: boolean
+  projectId: string | null
   currentSessionId: string | null
   chatAgent: AgentData | undefined
   currentSession?: SessionData | null
@@ -1501,9 +1512,10 @@ function WorkspaceChatPane({
 
   const [inputValue, setInputValue] = useState('')
   const [pendingImages, setPendingImages] = useState<WorkspacePendingImage[]>([])
+  const [pendingFiles, setPendingFiles] = useState<WorkspacePendingFile[]>([])
   const [sendingPrompt, setSendingPrompt] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
-  const [draggingImages, setDraggingImages] = useState(false)
+  const [draggingFiles, setDraggingFiles] = useState(false)
   const [showTimeline, setShowTimeline] = useState(false)
   const [showShareModal, setShowShareModal] = useState(false)
   const [showModelMenu, setShowModelMenu] = useState(false)
@@ -1545,6 +1557,7 @@ function WorkspaceChatPane({
   const olderLoadAnchorRef = useRef<{ sessionId: string; scrollHeight: number; scrollTop: number } | null>(null)
   const inputValueRef = useRef('')
   const pendingImagesRef = useRef<WorkspacePendingImage[]>([])
+  const pendingFilesRef = useRef<WorkspacePendingFile[]>([])
   const draftSessionIdRef = useRef<string | null>(currentSessionId)
   const sessionDraftsRef = useRef(createSessionDraftStore({ revokePreview: (preview) => URL.revokeObjectURL(preview) }))
 
@@ -1558,8 +1571,13 @@ function WorkspaceChatPane({
     && !blockingInteraction
     && !currentSessionCopying
     && !sendingPrompt
+    && !pendingFiles.some((file) => file.status === 'uploading')
     && (!isStreaming || isStopping)
-    && (!!inputValue.trim() || pendingImages.length > 0)
+    && (
+      !!inputValue.trim()
+      || pendingImages.length > 0
+      || pendingFiles.some((file) => file.status === 'uploaded')
+    )
   const hasMoreMessages = currentSessionId ? hasMoreMessagesBySession[currentSessionId] === true : false
   const loadingOlderMessages = currentSessionId ? !!loadingOlderMessagesBySession[currentSessionId] : false
   const pendingInteractionId = pendingPermissions[0]?.id || pendingElicitations[0]?.id || ''
@@ -1582,6 +1600,12 @@ function WorkspaceChatPane({
     setPendingImages(next)
   }, [])
 
+  const updatePendingFiles = useCallback((updater: (current: WorkspacePendingFile[]) => WorkspacePendingFile[]) => {
+    const next = updater(pendingFilesRef.current)
+    pendingFilesRef.current = next
+    setPendingFiles(next)
+  }, [])
+
   const resetTextareaHeight = useCallback(() => {
     const el = textareaRef.current
     if (!el) return
@@ -1593,6 +1617,7 @@ function WorkspaceChatPane({
     sessionDraftsRef.current.save(draftSessionIdRef.current, {
       text: inputValueRef.current,
       images: pendingImagesRef.current,
+      files: pendingFilesRef.current,
     })
   }, [])
 
@@ -1601,8 +1626,10 @@ function WorkspaceChatPane({
     draftSessionIdRef.current = sessionId
     inputValueRef.current = draft.text
     pendingImagesRef.current = draft.images
+    pendingFilesRef.current = draft.files
     setInputValue(draft.text)
     setPendingImages(draft.images)
+    setPendingFiles(draft.files)
     requestAnimationFrame(resetTextareaHeight)
   }, [resetTextareaHeight])
 
@@ -1745,22 +1772,30 @@ function WorkspaceChatPane({
     })
   }
 
+  const clearPendingFiles = () => {
+    updatePendingFiles(() => [])
+  }
+
   const handleSend = async () => {
     const v = inputValue.trim()
     const hasImages = pendingImages.length > 0
-    if (!canSendPrompt || (!v && !hasImages) || !currentSessionId) return
+    const uploadedFiles = pendingFiles
+      .filter((file) => file.status === 'uploaded')
+      .map((file) => file.uploaded)
+    if (!canSendPrompt || (!v && !hasImages && uploadedFiles.length === 0) || !currentSessionId) return
     const targetSessionId = currentSessionId
     stickToBottomRef.current = true
     setSendingPrompt(true)
     setSendError(null)
     try {
       await sendPrompt(
-        v,
+        appendWorkspaceFilePaths(v, uploadedFiles),
         hasImages ? pendingImages.map((i) => ({ data: i.data, mimeType: i.mimeType })) : undefined,
       )
       if (draftSessionIdRef.current === targetSessionId) {
         updateInputValue('')
         clearPendingImages()
+        clearPendingFiles()
         requestAnimationFrame(() => {
           if (textareaRef.current) {
             textareaRef.current.style.height = 'auto'
@@ -1802,9 +1837,65 @@ function WorkspaceChatPane({
     })
   }
 
+  const updateFilesForSession = (
+    sessionId: string,
+    updater: (current: WorkspacePendingFile[]) => WorkspacePendingFile[],
+  ) => {
+    if (draftSessionIdRef.current === sessionId) {
+      updatePendingFiles(updater)
+      return
+    }
+    const draft = sessionDraftsRef.current.take(sessionId)
+    sessionDraftsRef.current.save(sessionId, { ...draft, files: updater(draft.files) })
+  }
+
+  const addRegularFiles = (files: File[]) => {
+    const targetSessionId = currentSessionId
+    const targetProjectId = projectId
+    if (!targetSessionId || !targetProjectId || files.length === 0) return
+    const currentFiles = draftSessionIdRef.current === targetSessionId
+      ? pendingFilesRef.current
+      : sessionDraftsRef.current.get(targetSessionId).files
+    const available = Math.max(0, MAX_WORKSPACE_FILES - currentFiles.length)
+    const accepted = files.slice(0, available)
+    if (accepted.length < files.length) {
+      setSendError(`每条消息最多上传 ${MAX_WORKSPACE_FILES} 个普通文件`)
+    }
+    for (const file of accepted) {
+      const localId = crypto.randomUUID()
+      updateFilesForSession(targetSessionId, (current) => [
+        ...current,
+        { localId, name: file.name, size: file.size, status: 'uploading' },
+      ])
+      void uploadSessionFile({ projectId: targetProjectId, sessionId: targetSessionId, file })
+        .then((uploaded) => {
+          updateFilesForSession(targetSessionId, (current) => current.map((item) => (
+            item.localId === localId
+              ? { localId, name: file.name, size: uploaded.size, status: 'uploaded', uploaded }
+              : item
+          )))
+        })
+        .catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : '文件上传失败'
+          updateFilesForSession(targetSessionId, (current) => current.map((item) => (
+            item.localId === localId
+              ? { localId, name: file.name, size: file.size, status: 'error', error: message }
+              : item
+          )))
+          if (draftSessionIdRef.current === targetSessionId) setSendError(message)
+        })
+    }
+  }
+
+  const addSelectedFiles = (files: File[]) => {
+    const selected = partitionWorkspaceFiles(files)
+    addImageFiles(selected.images)
+    addRegularFiles(selected.files)
+  }
+
   const handleImageUpload = (e: ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
-    if (files) addImageFiles(Array.from(files))
+    if (files) addSelectedFiles(Array.from(files))
     e.target.value = ''
   }
 
@@ -1816,6 +1907,10 @@ function WorkspaceChatPane({
     })
   }
 
+  const removePendingFile = (localId: string) => {
+    updatePendingFiles((current) => current.filter((file) => file.localId !== localId))
+  }
+
   const handlePaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
     const files = Array.from(e.clipboardData.files).filter((file) => file.type.startsWith('image/'))
     if (files.length === 0) return
@@ -1824,22 +1919,22 @@ function WorkspaceChatPane({
   }
 
   const handleDrop = (e: DragEvent<HTMLDivElement>) => {
-    const files = Array.from(e.dataTransfer.files).filter((file) => file.type.startsWith('image/'))
-    setDraggingImages(false)
+    const files = Array.from(e.dataTransfer.files)
+    setDraggingFiles(false)
     if (files.length === 0) return
     e.preventDefault()
-    addImageFiles(files)
+    addSelectedFiles(files)
   }
 
   const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
-    if (Array.from(e.dataTransfer.items).some((item) => item.type.startsWith('image/'))) {
+    if (Array.from(e.dataTransfer.items).some((item) => item.kind === 'file')) {
       e.preventDefault()
-      setDraggingImages(true)
+      setDraggingFiles(true)
     }
   }
 
   const handleDragLeave = (e: DragEvent<HTMLDivElement>) => {
-    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDraggingImages(false)
+    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDraggingFiles(false)
   }
 
   const openMenu = (name: MenuName, e: MouseEvent<HTMLButtonElement>) => {
@@ -2200,15 +2295,16 @@ function WorkspaceChatPane({
             ))}
           </div>
         )}
+        <WorkspaceFileAttachmentList files={pendingFiles} onRemove={removePendingFile} />
         <div
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
           style={{
-            border: draggingImages ? '1px solid var(--blue)' : '1px solid var(--border)',
+            border: draggingFiles ? '1px solid var(--blue)' : '1px solid var(--border)',
             borderRadius: 12,
-            background: draggingImages ? 'var(--blue-light)' : 'var(--bg-0)',
-            boxShadow: draggingImages ? '0 0 0 3px rgba(37,99,235,0.12)' : '0 1px 4px rgba(0,0,0,0.06)',
+            background: draggingFiles ? 'var(--blue-light)' : 'var(--bg-0)',
+            boxShadow: draggingFiles ? '0 0 0 3px rgba(37,99,235,0.12)' : '0 1px 4px rgba(0,0,0,0.06)',
             overflow: 'hidden',
             opacity: currentSessionId ? 1 : 0.5,
           }}
@@ -2248,7 +2344,6 @@ function WorkspaceChatPane({
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/*"
               multiple
               onChange={handleImageUpload}
               style={{ display: 'none' }}
@@ -2257,7 +2352,7 @@ function WorkspaceChatPane({
               type="button"
               onClick={() => fileInputRef.current?.click()}
               disabled={!currentSessionId || currentSessionCopying}
-              title="添加附件"
+              title="添加图片或文件"
               style={{
                 width: 30,
                 height: 30,

@@ -1,3 +1,5 @@
+import type { WorkspacePendingFile } from './workspace-file-attachments'
+
 export interface WorkspacePendingImage {
   data: string
   mimeType: string
@@ -7,20 +9,21 @@ export interface WorkspacePendingImage {
 export interface WorkspaceSessionDraft {
   text: string
   images: WorkspacePendingImage[]
+  files: WorkspacePendingFile[]
 }
 
 interface SessionDraftStoreOptions {
   revokePreview?: (preview: string) => void
 }
 
-const emptyDraft: WorkspaceSessionDraft = { text: '', images: [] }
+const emptyDraft: WorkspaceSessionDraft = { text: '', images: [], files: [] }
 
 function hasDraft(draft: WorkspaceSessionDraft): boolean {
-  return draft.text.length > 0 || draft.images.length > 0
+  return draft.text.length > 0 || draft.images.length > 0 || draft.files.length > 0
 }
 
 function cloneDraft(draft: WorkspaceSessionDraft): WorkspaceSessionDraft {
-  return { text: draft.text, images: [...draft.images] }
+  return { text: draft.text, images: [...draft.images], files: [...draft.files] }
 }
 
 export function createSessionDraftStore(options: SessionDraftStoreOptions = {}) {

@@ -38,6 +38,7 @@ import { responseCompression } from './http/response-compression.js'
 import { previewAuthCookie, readPreviewCookie } from './preview-auth.js'
 import { configureFileAssetSigning, verifyFileAssetSignature } from './file-asset-signing.js'
 import { createFunAsrProxy } from './funasr-proxy.js'
+import { mountSessionFileUploadRoutes } from './http/session-file-upload-routes.js'
 
 const log = createChildLogger('gateway')
 
@@ -70,6 +71,7 @@ export async function startGateway(config: AppConfig, options: StartGatewayOptio
 
   mountQueryRoutes(app, options.queryPort)
   if (options.commandDispatcher) mountSessionCommandRoutes(app, options.commandDispatcher)
+  mountSessionFileUploadRoutes(app)
 
   app.get('/api/agents', (c) => c.json(agentStore.list()))
   app.get('/api/sessions', (c) => {

@@ -6,25 +6,35 @@ function image(preview: string): WorkspacePendingImage {
 }
 
 describe('workspace session drafts', () => {
+  test('keeps uploaded files isolated by Session', () => {
+    const drafts = createSessionDraftStore()
+    const file = { localId: 'file-1', name: 'spec.pdf', size: 12, status: 'uploading' as const }
+
+    drafts.save('sess-a', { text: '', images: [], files: [file] })
+
+    expect(drafts.get('sess-a').files).toEqual([file])
+    expect(drafts.get('sess-b').files).toEqual([])
+  })
+
   test('restores drafts by session and leaves empty sessions empty', () => {
     const drafts = createSessionDraftStore()
     const aImages = [image('blob:a')]
 
-    drafts.save('sess-a', { text: 'A draft', images: aImages })
+    drafts.save('sess-a', { text: 'A draft', images: aImages, files: [] })
 
-    expect(drafts.get('sess-b')).toEqual({ text: '', images: [] })
-    expect(drafts.get('sess-a')).toEqual({ text: 'A draft', images: aImages })
+    expect(drafts.get('sess-b')).toEqual({ text: '', images: [], files: [] })
+    expect(drafts.get('sess-a')).toEqual({ text: 'A draft', images: aImages, files: [] })
   })
 
   test('clears only the sent session draft', () => {
     const drafts = createSessionDraftStore()
 
-    drafts.save('sess-a', { text: 'A draft', images: [image('blob:a')] })
-    drafts.save('sess-b', { text: 'B draft', images: [image('blob:b')] })
+    drafts.save('sess-a', { text: 'A draft', images: [image('blob:a')], files: [] })
+    drafts.save('sess-b', { text: 'B draft', images: [image('blob:b')], files: [] })
     drafts.clear('sess-a')
 
-    expect(drafts.get('sess-a')).toEqual({ text: '', images: [] })
-    expect(drafts.get('sess-b')).toEqual({ text: 'B draft', images: [image('blob:b')] })
+    expect(drafts.get('sess-a')).toEqual({ text: '', images: [], files: [] })
+    expect(drafts.get('sess-b')).toEqual({ text: 'B draft', images: [image('blob:b')], files: [] })
   })
 
   test('takes a draft without revoking transferred image previews', () => {
@@ -32,10 +42,10 @@ describe('workspace session drafts', () => {
     const drafts = createSessionDraftStore({ revokePreview })
     const aImages = [image('blob:a')]
 
-    drafts.save('sess-a', { text: 'A draft', images: aImages })
+    drafts.save('sess-a', { text: 'A draft', images: aImages, files: [] })
 
-    expect(drafts.take('sess-a')).toEqual({ text: 'A draft', images: aImages })
-    expect(drafts.get('sess-a')).toEqual({ text: '', images: [] })
+    expect(drafts.take('sess-a')).toEqual({ text: 'A draft', images: aImages, files: [] })
+    expect(drafts.get('sess-a')).toEqual({ text: '', images: [], files: [] })
     expect(revokePreview).not.toHaveBeenCalled()
   })
 
@@ -43,8 +53,8 @@ describe('workspace session drafts', () => {
     const revokePreview = vi.fn()
     const drafts = createSessionDraftStore({ revokePreview })
 
-    drafts.save('sess-a', { text: 'A draft', images: [image('blob:a1'), image('blob:a2')] })
-    drafts.save('sess-b', { text: 'B draft', images: [image('blob:b')] })
+    drafts.save('sess-a', { text: 'A draft', images: [image('blob:a1'), image('blob:a2')], files: [] })
+    drafts.save('sess-b', { text: 'B draft', images: [image('blob:b')], files: [] })
     drafts.clear('sess-a')
     drafts.dispose()
 
