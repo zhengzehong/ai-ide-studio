@@ -101,6 +101,8 @@ PC 端历史消息默认通过轻量 HTTP `GET /api/v1/sessions/:sessionId/messa
 
 ### PC 查询与命令传输边界
 
+PC Workspace 的普通文件通过受 owner token 保护的 `POST /api/v1/session-files` 单文件二进制流上传。API 校验 Project 与 Session 归属后，将文件原子写入 `DATA_DIR/attachments/sessions/<project>/<session>/<uploadId>/`，限制文件名和接收字节数，并把服务器绝对路径返回给 Workspace；发送 Prompt 时该路径作为可见附件说明进入现有消息链路。图片继续使用既有 image block，不经过普通文件通道。远程桌面 Client 上传到远程 Gateway，因此 Runtime 收到的始终是服务器可读路径；该能力不修改项目源码目录、移动端或全局助手。
+
 PC 端的任务列表、会话列表、消息历史、原始事件页和轻量 Recovery 使用版本化 `/api/v1` HTTP Query API。这些路由与旧 WS 兼容读取都委托异步 `QueryPort`；默认适配器把请求发送到独立 Query Worker，由该 Worker 独占 `readonly + query_only` SQLite 连接。同步 SQL 只阻塞 Query Worker，不占用 Gateway 事件循环。移动端行为保持不变。
 
 HTTP 分页响应使用 `{ data, page: { hasMore, nextCursor } }`，普通列表和 snapshot 使用 `{ data }`。消息单页最多 200 条，事件与 Recovery 状态事件最多 1000 条；每个成功响应包含 `Server-Timing` 和 `X-Response-Bytes`，超过 1 MiB 观测预算时记录结构化告警但不截断。Task 列表不含完整 `description`，只返回最多 240 字的 `descriptionPreview`；打开详情时通过现有 `tasks.get` RPC 按需读取完整正文。PC 构建设置 `VITE_QUERY_TRANSPORT=ws` 可回滚这些读取，其余值和默认值均使用 HTTP。
