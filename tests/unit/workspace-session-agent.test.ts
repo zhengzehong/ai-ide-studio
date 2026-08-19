@@ -1,6 +1,7 @@
 ﻿import { describe, expect, test } from 'vitest'
 import {
   chatContentKey,
+  canRestoreProjectSession,
   selectChatAgent,
   shouldClearProjectLastSessionForMissingCurrent,
 } from '../../ui/src/pages/workspace/helpers.ts'
@@ -82,5 +83,14 @@ describe('project session recovery', () => {
 
   test('clears the target project selection when its remembered session is missing', () => {
     expect(shouldClearProjectLastSessionForMissingCurrent('session-a', 'session-a')).toBe(true)
+  })
+
+  test('does not restore a session whose Agent is hidden', () => {
+    const hiddenAgent = { ...agent('agent-dev', '代码工程师'), hidden_at: '2026-08-19T12:18:52.680Z' }
+    expect(canRestoreProjectSession(session('sess-hidden', hiddenAgent.id), hiddenAgent)).toBe(false)
+  })
+
+  test('restores a visible, retained session', () => {
+    expect(canRestoreProjectSession(session('sess-visible', 'agent-dev'), agent('agent-dev', '代码工程师'))).toBe(true)
   })
 })

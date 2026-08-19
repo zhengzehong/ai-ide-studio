@@ -398,6 +398,10 @@ export function readStoredSessionId(): string | null {
   return localStorageRef()?.getItem(CURRENT_SESSION_STORAGE_KEY) ?? null
 }
 
+export function clearStoredSessionId(): void {
+  writeStoredSessionId(null)
+}
+
 function writeStoredSessionId(sessionId: string | null): void {
   const storage = localStorageRef()
   if (!storage) return

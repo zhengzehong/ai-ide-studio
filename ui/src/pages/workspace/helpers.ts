@@ -101,6 +101,13 @@ export function shouldClearProjectLastSessionForMissingCurrent(
   return currentSessionId === projectLastSessionId
 }
 
+export function canRestoreProjectSession(
+  session: SessionData,
+  agent: AgentData | undefined,
+): boolean {
+  return !!agent && !agent.hidden_at && !session.deleted_at && !session.archived_at
+}
+
 export function selectChatAgent({
   agents,
   sessions,

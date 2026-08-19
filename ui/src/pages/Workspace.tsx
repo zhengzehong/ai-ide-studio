@@ -44,7 +44,9 @@ import {
 } from 'lucide-react'
 import { useAgentStore, type AgentData } from '../stores/agent.store'
 import {
+  clearStoredSessionId,
   clearProjectLastSession,
+  readStoredSessionId,
   readProjectLastSession,
   useSessionStore,
   type ChatTimelineGroup,
@@ -96,6 +98,7 @@ import {
 import {
   agentAvatar,
   agentColor,
+  canRestoreProjectSession,
   configLabel,
   configOptionLabel,
   formatTime,
@@ -376,16 +379,20 @@ export default function Workspace() {
 
   useEffect(() => {
     if (!currentSessionId) return
+    if (agentsLoading) return
     const current = projectSessions.find((session) => session.id === currentSessionId)
     if (!current) return
     const currentAgent = projectAgents.find((agent) => agent.id === current.agent_id)
     if (currentAgent?.hidden_at) {
+      const rememberedSessionId = readProjectLastSession(currentProjectId)
+      if (rememberedSessionId === currentSessionId) clearProjectLastSession(currentProjectId)
+      if (readStoredSessionId() === currentSessionId) clearStoredSessionId()
       queueMicrotask(() => {
         setSelectedAgentId(null)
         selectSession(null)
       })
     }
-  }, [currentSessionId, projectAgents, projectSessions, selectSession, setSelectedAgentId])
+  }, [agentsLoading, currentProjectId, currentSessionId, projectAgents, projectSessions, selectSession, setSelectedAgentId])
 
   useEffect(() => {
     const targetSessionId = searchParams.get('sessionId')
@@ -451,6 +458,7 @@ export default function Workspace() {
   useEffect(() => {
     if (searchParams.get('sessionId')) return
     if (currentSessionId || projectSessions.length === 0) return
+    if (agentsLoading) return
     // 优先 per-project 映射;映射没有时 readProjectLastSession 内部 fallback 到全局 key(老用户兼容)
     const storedSessionId = readProjectLastSession(currentProjectId)
     if (!storedSessionId) return
@@ -460,8 +468,14 @@ export default function Workspace() {
       clearProjectLastSession(currentProjectId)
       return
     }
+    const storedAgent = projectAgents.find((agent) => agent.id === storedSession.agent_id)
+    if (!canRestoreProjectSession(storedSession, storedAgent)) {
+      clearProjectLastSession(currentProjectId)
+      if (readStoredSessionId() === storedSession.id) clearStoredSessionId()
+      return
+    }
     selectSession(storedSession.id)
-  }, [currentProjectId, currentSessionId, projectSessions, searchParams, selectSession])
+  }, [agentsLoading, currentProjectId, currentSessionId, projectAgents, projectSessions, searchParams, selectSession])
 
   useEffect(() => () => {
     const state = useSessionStore.getState()
