@@ -66,7 +66,7 @@ function commitBatch(db: SqliteDatabase, batch: WriteBatch): WriteBatchResult {
       batchId: existing.batch_id,
       duplicate: true,
       committedAt: existing.committed_at,
-      results: [],
+      results: reconstructMutationResults(db, batch),
     }
   }
 
@@ -92,6 +92,22 @@ function commitBatch(db: SqliteDatabase, batch: WriteBatch): WriteBatchResult {
     committedAt,
   )
   return { batchId: batch.batchId, duplicate: false, committedAt, results }
+}
+
+function reconstructMutationResults(db: SqliteDatabase, batch: WriteBatch): WriteMutationResult[] {
+  return batch.mutations.map((mutation): WriteMutationResult => {
+    if (mutation.type === 'session.event.append') {
+      const event = db.prepare<[string], SessionEventWriteResult>(
+        'SELECT * FROM session_events WHERE id = ?',
+      ).get(mutation.event.id)
+      if (!event) throw new WriterOperationError(
+        'SQLITE_ERROR', `Committed batch ${batch.batchId} is missing event ${mutation.event.id}`,
+      )
+      return { type: mutation.type, event }
+    }
+    if (mutation.type === 'outbox.enqueue') return { type: mutation.type, id: mutation.event.id }
+    return { type: mutation.type, changes: 0 }
+  })
 }
 
 function validateSessionOrder(db: SqliteDatabase, batch: WriteBatch): void {
