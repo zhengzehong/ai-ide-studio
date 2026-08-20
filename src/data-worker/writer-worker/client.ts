@@ -20,6 +20,7 @@ import { resolveWorkerEntryUrl } from '../worker-entry-url.js'
 import { DEFAULT_DATA_WORKER_SLOW_MS, isSlowWorkerRequest } from '../observability.js'
 
 const log = createChildLogger('writer-worker-client')
+const MAX_COMMIT_ATTEMPTS = 3
 
 export interface CreateWorkerWriteDataPortOptions {
   dbPath: string
@@ -52,37 +53,59 @@ export async function createWorkerWriteDataPort(
 
   return {
     async commitBatch(batch: WriteBatch): Promise<WriteBatchResult> {
-      try {
-        const response = await rpc.request<WriteBatchResult>('writer.commit', batch, {
-          priority: batch.priority,
-          deadlineMs: batch.deadlineMs,
-        })
-        const context = {
-          batchId: batch.batchId,
-          sessionId: batch.sessionId,
-          priority: batch.priority,
-          slowRequestMs,
-          ...response.metrics,
-        }
-        if (isSlowWorkerRequest(response.metrics, slowRequestMs)) {
-          log.warn(context, 'slow writer batch committed')
-        } else {
-          log.debug(context, 'writer batch committed')
-        }
-        return response.result
-      } catch (err) {
-        log.warn(
-          {
-            err,
+      for (let attempt = 1; attempt <= MAX_COMMIT_ATTEMPTS; attempt += 1) {
+        try {
+          const response = await rpc.request<WriteBatchResult>('writer.commit', batch, {
+            priority: batch.priority,
+            deadlineMs: batch.deadlineMs,
+          })
+          const context = {
             batchId: batch.batchId,
             sessionId: batch.sessionId,
             priority: batch.priority,
-            ...(err instanceof WorkerRequestError ? err.metrics : undefined),
-          },
-          'writer batch failed',
-        )
-        throw err
+            attempt,
+            slowRequestMs,
+            ...response.metrics,
+          }
+          if (isSlowWorkerRequest(response.metrics, slowRequestMs)) {
+            log.warn(context, 'slow writer batch committed')
+          } else {
+            log.debug(context, 'writer batch committed')
+          }
+          return response.result
+        } catch (err) {
+          const canReconcile = err instanceof WorkerRequestError
+            && err.code === 'DEADLINE_EXCEEDED'
+            && attempt < MAX_COMMIT_ATTEMPTS
+          if (canReconcile) {
+            log.warn(
+              {
+                err,
+                batchId: batch.batchId,
+                sessionId: batch.sessionId,
+                priority: batch.priority,
+                attempt,
+                maxAttempts: MAX_COMMIT_ATTEMPTS,
+              },
+              'writer batch acknowledgement timed out; retrying same batch',
+            )
+            continue
+          }
+          log.warn(
+            {
+              err,
+              batchId: batch.batchId,
+              sessionId: batch.sessionId,
+              priority: batch.priority,
+              attempt,
+              ...(err instanceof WorkerRequestError ? err.metrics : undefined),
+            },
+            'writer batch failed',
+          )
+          throw err
+        }
       }
+      throw new Error(`Writer batch reconciliation exhausted: ${batch.batchId}`)
     },
     async sessionCursor(sessionId: string): Promise<SessionWriteCursor> {
       const response = await rpc.request<SessionWriteCursor>(

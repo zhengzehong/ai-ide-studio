@@ -63,6 +63,75 @@ describe('session done metadata', () => {
     expect(agentMessage?.id).toBe('msg-live-turn-1')
     expect(agentMessage?.content).toBe('hello')
   })
+
+  test('does not overwrite a completed message with a later error terminal', async () => {
+    const session = sessionStore.create({ agentId: 'agent-terminal-cas' })
+    events.emit('session:update', {
+      sessionId: session.id,
+      agentId: session.agent_id,
+      data: { messageId: 'msg-terminal-cas', role: 'agent', contentDelta: 'completed answer' },
+    })
+    events.emit('session:done', {
+      sessionId: session.id,
+      agentId: session.agent_id,
+      messageId: 'msg-terminal-cas',
+      stopReason: 'end_turn',
+    })
+    await sessionManager.waitForPersistence(session.id)
+
+    events.emit('session:done', {
+      sessionId: session.id,
+      agentId: session.agent_id,
+      messageId: 'msg-terminal-cas',
+      stopReason: 'error',
+      error: 'late persistence failure',
+    })
+    await sessionManager.waitForPersistence(session.id)
+
+    expect(messageStore.get('msg-terminal-cas')).toMatchObject({
+      content: 'completed answer',
+      status: 'completed',
+    })
+  })
+
+  test('treats a prompt as successful when it throws after completing its message', async () => {
+    agentStore.upsert({ id: 'agent-late-prompt-error', type: 'dev', name: 'Late Prompt Error', runtime: 'mock' })
+    const session = sessionStore.create({ agentId: 'agent-late-prompt-error', acpSessionId: 'acp-late-prompt-error' })
+
+    const originalEnsureSession = acpHost.ensureSession
+    const originalPrompt = acpHost.prompt
+    acpHost.ensureSession = (async () => 'acp-late-prompt-error') as typeof acpHost.ensureSession
+    acpHost.prompt = (async (agentId, ourSessionId, _content, _images, diagnostics) => {
+      const messageId = diagnostics.messageId ?? 'missing-message-id'
+      events.emit('session:update', {
+        sessionId: ourSessionId,
+        agentId,
+        data: { messageId, role: 'agent', contentDelta: 'answer survived' },
+      })
+      events.emit('session:done', {
+        sessionId: ourSessionId,
+        agentId,
+        messageId,
+        turnId: diagnostics.turnId,
+        stopReason: 'end_turn',
+      })
+      throw new Error('late persistence-like failure')
+    }) as typeof acpHost.prompt
+
+    try {
+      await expect(sessionManager.sendPrompt(session.id, 'hello')).resolves.toBeUndefined()
+      const agentMessage = messageStore.list(session.id, { includeToolCalls: true })
+        .find((message) => message.role === 'agent')
+      expect(agentMessage).toMatchObject({ content: 'answer survived', status: 'completed' })
+      const doneEvents = eventStore.list(session.id).filter((event) => event.type === 'message.done')
+      expect(doneEvents).toHaveLength(1)
+      expect(JSON.parse(doneEvents[0].payload_json)).toMatchObject({ stopReason: 'end_turn' })
+    } finally {
+      acpHost.ensureSession = originalEnsureSession
+      acpHost.prompt = originalPrompt
+    }
+  })
+
   test('sendPrompt appends a visible agent error message when ACP fails before output', async () => {
     agentStore.upsert({ id: 'agent-prompt-visible-fail', type: 'dev', name: 'Visible Prompt Fail', runtime: 'mock' })
     const session = sessionStore.create({ agentId: 'agent-prompt-visible-fail', acpSessionId: 'acp-visible-fail' })

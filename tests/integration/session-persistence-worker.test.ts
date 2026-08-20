@@ -77,6 +77,61 @@ describe('session persistence through Writer Worker', () => {
       events.off('session:committed_done', onCommitted)
     }
   })
+
+  it('continues terminal persistence after a committed background batch reports failure', async () => {
+    const session = sessionStore.create({ agentId: 'agent-stale-background-error' })
+    let failedBackground = false
+    const staleFailurePort: WriteDataPort = {
+      async commitBatch(batch: WriteBatch) {
+        if (!writer) throw new Error('writer missing')
+        const result = await writer.commitBatch(batch)
+        if (batch.priority === 'background' && !failedBackground) {
+          failedBackground = true
+          throw new Error('simulated lost writer acknowledgement')
+        }
+        return result
+      },
+      sessionCursor: (sessionId) => writer?.sessionCursor(sessionId) ?? Promise.resolve({ sequence: 0 }),
+      enqueueRuntimeCommand: (input) => {
+        if (!writer) throw new Error('writer missing')
+        return writer.enqueueRuntimeCommand(input)
+      },
+      listRecoverableRuntimeCommands: (input) => {
+        if (!writer) throw new Error('writer missing')
+        return writer.listRecoverableRuntimeCommands(input)
+      },
+      updateRuntimeCommand: (input) => {
+        if (!writer) throw new Error('writer missing')
+        return writer.updateRuntimeCommand(input)
+      },
+      maintain: (input) => {
+        if (!writer) throw new Error('writer missing')
+        return writer.maintain(input)
+      },
+      drain: () => writer?.drain() ?? Promise.resolve(),
+      close: () => Promise.resolve(),
+    }
+    resetWritePort = setWriteDataPort(staleFailurePort)
+
+    events.emit('session:update', {
+      sessionId: session.id,
+      agentId: session.agent_id,
+      data: { messageId: 'message-stale-background-error', role: 'agent', contentDelta: 'persisted' },
+    })
+    await delay(20)
+    events.emit('session:done', {
+      sessionId: session.id,
+      agentId: session.agent_id,
+      messageId: 'message-stale-background-error',
+      stopReason: 'end_turn',
+    })
+
+    await expect(sessionManager.waitForPersistence(session.id)).resolves.toBeUndefined()
+    expect(eventStore.list(session.id).map((event) => event.type)).toEqual([
+      'message.chunk',
+      'message.done',
+    ])
+  })
 })
 
 function delay(ms: number): Promise<void> {

@@ -658,7 +658,7 @@ export const messageStore = {
         status = @status,
         completed_at = @completed_at,
         timestamp = @timestamp
-      WHERE id = @id AND role = 'agent'
+      WHERE id = @id AND role = 'agent' AND status = 'running'
     `).run({
       id,
       content: input.content,

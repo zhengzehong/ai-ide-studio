@@ -100,9 +100,42 @@ describe('Writer Worker', () => {
 
     expect(first.duplicate).toBe(false)
     expect(second).toMatchObject({ batchId: batch.batchId, duplicate: true })
+    expect(second.results).toEqual(first.results)
     usingDatabase((db) => {
       expect(db.prepare('SELECT COUNT(*) AS count FROM session_events WHERE id = ?').get('event-dedup'))
         .toEqual({ count: 1 })
+    })
+  })
+
+  it('reconciles a timed out commit by retrying the same batchId', async () => {
+    const session = sessionStore.create({ agentId: 'agent-timeout-reconcile' })
+    writer = await createWorkerWriteDataPort({ dbPath, defaultTimeoutMs: 100 })
+    const apiDb = getDb()
+    apiDb.exec('BEGIN IMMEDIATE')
+    const releaseApiWriter = new Promise<void>((resolveRelease) => {
+      setTimeout(() => {
+        apiDb.exec('COMMIT')
+        resolveRelease()
+      }, 120)
+    })
+    const batch = writeBatch('batch-timeout-reconcile', session.id, 1, [
+      sessionEvent('event-timeout-reconcile', session.id, 'committed once'),
+    ])
+
+    try {
+      await expect(writer.commitBatch(batch)).resolves.toMatchObject({
+        batchId: batch.batchId,
+        duplicate: true,
+      })
+    } finally {
+      await releaseApiWriter
+    }
+
+    usingDatabase((db) => {
+      expect(db.prepare('SELECT COUNT(*) AS count FROM session_events WHERE id = ?')
+        .get('event-timeout-reconcile')).toEqual({ count: 1 })
+      expect(db.prepare('SELECT COUNT(*) AS count FROM writer_batch_commits WHERE batch_id = ?')
+        .get(batch.batchId)).toEqual({ count: 1 })
     })
   })
 

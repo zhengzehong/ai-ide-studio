@@ -119,8 +119,15 @@ events.on('session:done', (ev) => {
 })
 
 async function persistSessionDone(ev: AppEvents['session:done']): Promise<void> {
-  await eventBatcher.flushSession(ev.sessionId, persistSessionUpdateEvent)
   const turnId = eventTurnId(ev)
+  try {
+    await eventBatcher.flushSession(ev.sessionId, persistSessionUpdateEvent)
+  } catch (err) {
+    log.warn(
+      { err, sessionId: ev.sessionId, agentId: ev.agentId, turnId },
+      'background session persistence failed before terminal; continuing terminal commit',
+    )
+  }
   recordPromptProgress(ev.sessionId, 'session.done')
   log.info({ sessionId: ev.sessionId, agentId: ev.agentId, turnId, messageId: ev.messageId, stopReason: ev.stopReason, hasError: !!ev.error, turnUsage: ev.turnUsage }, 'session done received')
   const stored = await sessionPersistencePort.appendEvent(ev.sessionId, {
@@ -551,6 +558,27 @@ async function sendPromptNow(session: SessionRow, content: string, images?: Imag
   } catch (err) {
     activityEndReason = 'prompt-error'
     const message = err instanceof Error ? err.message : String(err)
+    const terminalMessage = messageStore.get(agentMessageId)
+    if (terminalMessage?.status && terminalMessage.status !== 'running') {
+      log.warn(
+        {
+          err,
+          sessionId,
+          agentId: session.agent_id,
+          turnId,
+          messageId: agentMessageId,
+          messageStatus: terminalMessage.status,
+          elapsedMs: Date.now() - startedAt,
+        },
+        'prompt rejected after agent message reached terminal state; skipping duplicate terminal',
+      )
+      if (terminalMessage.status === 'completed') {
+        activityEndReason = 'prompt-done'
+        recordPromptProgress(sessionId, 'prompt.late_error_ignored')
+        return
+      }
+      throw err
+    }
     emitLifecycle(session.agent_id, sessionId, 'lifecycle.failed', `执行失败：${message}`, agentMessageId)
     log.error({ err, sessionId, agentId: session.agent_id, turnId, elapsedMs: Date.now() - startedAt }, 'prompt failed')
     events.emit('session:done', {
