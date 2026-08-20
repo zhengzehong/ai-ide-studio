@@ -13,7 +13,7 @@ import type {
 } from '../../src/ports/write-data-port.js'
 
 describe('RuntimeCommandDispatcher', () => {
-  it('runs commands FIFO per Session while allowing different Sessions concurrently', async () => {
+  it('admits same-Session prompt commands for Session-level batching', async () => {
     const ledger = new FakeLedger([
       record('command-a1', 'session-a', 'accepted', '2026-07-20T01:00:00.000Z'),
       record('command-a2', 'session-a', 'accepted', '2026-07-20T01:00:01.000Z'),
@@ -31,12 +31,12 @@ describe('RuntimeCommandDispatcher', () => {
     })
 
     await dispatcher.start()
-    await vi.waitFor(() => expect(started).toContain('command-b1'))
-    expect(started).toEqual(['command-a1', 'command-b1'])
+    await vi.waitFor(() => expect(started).toHaveLength(3))
+    expect(started).toEqual(expect.arrayContaining(['command-a1', 'command-a2', 'command-b1']))
     releaseA.resolve()
     await dispatcher.drain()
 
-    expect(started).toEqual(['command-a1', 'command-b1', 'command-a2'])
+    expect(started).toHaveLength(3)
     expect(ledger.rows.every((command) => command.status === 'completed')).toBe(true)
   })
 

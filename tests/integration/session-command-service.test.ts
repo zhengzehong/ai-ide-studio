@@ -4,7 +4,7 @@ import { resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { executeSessionCommand } from '../../src/commands/session-command-service.js'
 import { closeDatabase, initDatabase } from '../../src/store/db.js'
-import { eventStore, sessionStore } from '../../src/store/sessions.js'
+import { eventStore, messageStore, sessionStore } from '../../src/store/sessions.js'
 import { agentStore } from '../../src/store/agents.js'
 import { projectStore } from '../../src/store/projects.js'
 import { projectSecretaryStore } from '../../src/store/project-secretaries.js'
@@ -196,6 +196,50 @@ describe('Session command service', () => {
     events.off('session:done', onDone)
     vi.useRealTimers()
   })
+
+  it('coalesces commands accepted while a Session turn is active into one next turn', async () => {
+    const agent = agentStore.create({ id: 'agent-batch', name: 'Batch Agent', type: 'developer', runtime: 'mock' })
+    const session = sessionStore.create({ agentId: agent.id })
+    const gates = [deferred<void>(), deferred<void>()]
+    const contents: string[] = []
+    runtime.prompt = vi.fn(async (input) => {
+      contents.push(input.content)
+      await gates[contents.length - 1]?.promise
+    })
+
+    const first = executeSessionCommand({
+      commandId: 'command-first',
+      type: 'prompt',
+      sessionId: session.id,
+      clientMessageId: 'human-first',
+      content: 'first command',
+    })
+    await waitUntil(() => contents.length === 1)
+    const second = executeSessionCommand({
+      commandId: 'command-second',
+      type: 'prompt',
+      sessionId: session.id,
+      clientMessageId: 'human-second',
+      content: 'second command',
+    })
+    const third = executeSessionCommand({
+      commandId: 'command-third',
+      type: 'prompt',
+      sessionId: session.id,
+      clientMessageId: 'human-third',
+      content: 'third command',
+    })
+
+    gates[0].resolve()
+    await waitUntil(() => contents.length === 2)
+    expect(contents[1]).toContain('second command')
+    expect(contents[1]).toContain('third command')
+    expect(messageStore.list(session.id).filter((message) => message.role === 'human').map((message) => message.id))
+      .toEqual(['human-first', 'human-second', 'human-third'])
+
+    gates[1].resolve()
+    await Promise.all([first, second, third])
+  })
 })
 
 function fakeRuntimePort(): RuntimePort {
@@ -213,5 +257,19 @@ function fakeRuntimePort(): RuntimePort {
     resolveElicitation: vi.fn(async () => true),
     drain: vi.fn(async () => undefined),
     close: vi.fn(async () => undefined),
+  }
+}
+
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolvePromise!: (value: T) => void
+  const promise = new Promise<T>((resolve) => { resolvePromise = resolve })
+  return { promise, resolve: resolvePromise }
+}
+
+async function waitUntil(predicate: () => boolean, timeoutMs = 500): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error('Timed out waiting for runtime prompt')
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 5))
   }
 }

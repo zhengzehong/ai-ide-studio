@@ -91,8 +91,11 @@ export class RuntimeCommandDispatcher {
   }
 
   async drain(): Promise<void> {
-    while (this.laneTails.size > 0) {
-      await Promise.allSettled([...this.laneTails.values()])
+    while (this.laneTails.size > 0 || this.completionByCommand.size > 0) {
+      await Promise.allSettled([
+        ...this.laneTails.values(),
+        ...this.completionByCommand.values(),
+      ])
     }
   }
 
@@ -112,17 +115,18 @@ export class RuntimeCommandDispatcher {
     if (existing) return existing
 
     const lane = commandLane(command)
-    const previous = this.laneTails.get(lane) ?? Promise.resolve()
-    const completion = previous
-      .catch(() => undefined)
-      .then(() => this.run(command))
+    const completion = command.type === 'prompt'
+      ? this.run(command)
+      : (this.laneTails.get(lane) ?? Promise.resolve())
+        .catch(() => undefined)
+        .then(() => this.run(command))
     void completion.catch(() => undefined)
     this.completionByCommand.set(command.commandId, completion)
 
     const tail = completion.then(() => undefined, () => undefined)
-    this.laneTails.set(lane, tail)
+    if (command.type !== 'prompt') this.laneTails.set(lane, tail)
     void tail.finally(() => {
-      if (this.laneTails.get(lane) === tail) {
+      if (command.type !== 'prompt' && this.laneTails.get(lane) === tail) {
         this.laneTails.delete(lane)
       }
       this.completionByCommand.delete(command.commandId)

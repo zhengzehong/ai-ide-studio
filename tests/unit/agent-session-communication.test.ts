@@ -51,13 +51,13 @@ describe('agent session communication service', () => {
       targetSession.id,
       expect.stringContaining(`targetSessionId 必须使用 "${sourceSession.id}"`),
       undefined,
-      { contextProjectId: project.id },
+      expect.objectContaining({ contextProjectId: project.id }),
     )
     expect(enqueuePrompt).toHaveBeenCalledWith(
       targetSession.id,
       expect.stringContaining('调用 agent.message.send 后即可结束当前轮，不要等待来源 Agent；系统会自动唤醒来源会话。'),
       undefined,
-      { contextProjectId: project.id },
+      expect.objectContaining({ contextProjectId: project.id }),
     )
   })
 
@@ -110,7 +110,7 @@ describe('agent session communication service', () => {
       globalSession.id,
       expect.stringContaining('处理完成，结果已同步'),
       undefined,
-      { contextProjectId: project.id },
+      expect.objectContaining({ contextProjectId: project.id }),
     )
     expect(agentSessionMessageStore.get(originalMessage.id)?.reply_satisfied_at).toBeTruthy()
   })
@@ -135,7 +135,7 @@ describe('agent session communication service', () => {
       globalSession.id,
       expect.stringContaining('请全局助理继续汇总'),
       undefined,
-      { contextProjectId: project.id },
+      expect.objectContaining({ contextProjectId: project.id }),
     )
   })
 
@@ -196,6 +196,7 @@ describe('agent session communication service', () => {
       relatedInfo: { issue_id: 'ISSUE-1' },
       needReply: true,
     })
+    agentSessionMessageStore.updatePromptCompleted(message.id)
 
     events.emit('session:done', { sessionId: targetSession.id, agentId: target.id, messageId: 'done-1' })
     await Promise.resolve()
@@ -205,19 +206,51 @@ describe('agent session communication service', () => {
       targetSession.id,
       expect.stringContaining('系统还没有检测到你调用 agent.message.send 回传结果'),
       undefined,
-      { contextProjectId: project.id },
+      expect.objectContaining({ contextProjectId: project.id }),
     )
     expect(enqueuePrompt).toHaveBeenCalledWith(
       targetSession.id,
       expect.stringContaining('发送回复后即可结束当前轮，不要等待来源 Agent；系统会自动唤醒来源会话。'),
       undefined,
-      { contextProjectId: project.id },
+      expect.objectContaining({ contextProjectId: project.id }),
     )
 
     events.emit('session:done', { sessionId: targetSession.id, agentId: target.id, messageId: 'done-2' })
     await Promise.resolve()
 
     expect(enqueuePrompt).toHaveBeenCalledTimes(1)
+  })
+
+  test('evaluates a needReply reminder when the queued message finishes after session done', async () => {
+    const gate = deferred<void>()
+    const enqueuePrompt = vi.spyOn(sessionManager, 'enqueuePrompt').mockImplementation(() => gate.promise)
+    const { source, target, sourceSession, targetSession, project } = createTwoAgentProject()
+
+    const result = await agentSessionCommunicationService.sendMessage({
+      context: { agentId: source.id, sessionId: sourceSession.id, projectId: project.id },
+      targetSessionId: targetSession.id,
+      content: '请在完成后回复',
+      needReply: true,
+    })
+
+    events.emit('session:done', { sessionId: targetSession.id, agentId: target.id, messageId: 'previous-turn' })
+    await Promise.resolve()
+    expect(agentSessionMessageStore.get(result.message.id)?.reply_reminder_count).toBe(0)
+    expect(enqueuePrompt).toHaveBeenCalledTimes(1)
+
+    gate.resolve()
+    await waitUntil(() => enqueuePrompt.mock.calls.length === 2)
+
+    expect(agentSessionMessageStore.get(result.message.id)).toMatchObject({
+      prompt_status: 'completed',
+      reply_reminder_count: 1,
+    })
+    expect(enqueuePrompt).toHaveBeenLastCalledWith(
+      targetSession.id,
+      expect.stringContaining('系统还没有检测到你调用 agent.message.send 回传结果'),
+      undefined,
+      expect.objectContaining({ dedupeKey: `agent-reminder:${result.message.id}` }),
+    )
   })
 
   test('session done triggers once watch and suppresses it when a response message already exists', async () => {
@@ -241,7 +274,7 @@ describe('agent session communication service', () => {
       sourceSession.id,
       expect.stringContaining(`Watch ID：${watch.id}`),
       undefined,
-      { contextProjectId: project.id },
+      expect.objectContaining({ contextProjectId: project.id }),
     )
 
     const secondWatch = agentSessionWatchStore.create({
@@ -312,7 +345,7 @@ describe('agent session communication service', () => {
       globalSession.id,
       expect.stringContaining('done-global-watch'),
       undefined,
-      { contextProjectId: project.id },
+      expect.objectContaining({ contextProjectId: project.id }),
     )
   })
 })
@@ -324,4 +357,18 @@ function createTwoAgentProject() {
   const sourceSession = sessionStore.create({ agentId: source.id, projectId: project.id })
   const targetSession = sessionStore.create({ agentId: target.id, projectId: project.id })
   return { project, source, target, sourceSession, targetSession }
+}
+
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolvePromise!: (value: T) => void
+  const promise = new Promise<T>((resolve) => { resolvePromise = resolve })
+  return { promise, resolve: resolvePromise }
+}
+
+async function waitUntil(predicate: () => boolean, timeoutMs = 500): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error('Timed out waiting for Agent message prompt')
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  }
 }

@@ -59,7 +59,7 @@ describe('Runtime command ledger', () => {
     }
   })
 
-  it('keeps prompts ordered within the same session turn lane', async () => {
+  it('admits same-session prompts without blocking behind the active turn', async () => {
     writer = await createWorkerWriteDataPort({ dbPath })
     const firstPromptGate = deferred<void>()
     const executed: string[] = []
@@ -77,11 +77,10 @@ describe('Runtime command ledger', () => {
     const second = await dispatcher.submit(promptCommand('command-prompt-2', 'key-prompt-2', 'message-prompt-2'))
 
     try {
-      await new Promise((resolveDelay) => setTimeout(resolveDelay, 50))
-      expect(executed).toEqual(['command-prompt-1'])
+      await waitUntil(() => executed.includes('command-prompt-2'))
+      expect(executed).toEqual(['command-prompt-1', 'command-prompt-2'])
       firstPromptGate.resolve()
       await expect(Promise.all([first.completion, second.completion])).resolves.toHaveLength(2)
-      expect(executed).toEqual(['command-prompt-1', 'command-prompt-2'])
     } finally {
       firstPromptGate.resolve()
       await Promise.allSettled([first.completion, second.completion])

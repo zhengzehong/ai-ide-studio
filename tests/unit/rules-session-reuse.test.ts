@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
@@ -9,6 +9,7 @@ import { ruleStore } from '../../src/store/rules.js'
 import { sessionStore } from '../../src/store/sessions.js'
 import { taskStore } from '../../src/store/tasks.js'
 import { ruleEngine } from '../../src/core/rules.js'
+import { sessionManager } from '../../src/core/sessions.js'
 
 let tmp: string
 
@@ -18,6 +19,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.restoreAllMocks()
   closeDatabase()
   rmSync(tmp, { recursive: true, force: true })
 })
@@ -122,4 +124,84 @@ describe('rule session reuse', () => {
     expect(fixedSessionId).toBeTruthy()
     expect(sessionStore.get(fixedSessionId!)).toMatchObject({ agent_id: targetAgent.id, project_id: project.id })
   })
+
+  test('creates one scheduled task across thirty repeated triggers until its prompt settles', async () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const agent = agentStore.create({ name: 'Agent', type: 'dev', runtime: 'mock', projectId: project.id })
+    const session = sessionStore.create({ agentId: agent.id, projectId: project.id })
+    const gate = deferred<void>()
+    const enqueuePrompt = vi.spyOn(sessionManager, 'enqueuePrompt').mockImplementation(() => gate.promise)
+    const rule = ruleStore.create({
+      name: 'No duplicate task',
+      cron: '* * * * *',
+      action: 'create_task',
+      projectId: project.id,
+      actionConfig: {
+        title: 'Only one task',
+        assign_agent_id: agent.id,
+        session_id: session.id,
+      },
+    })
+
+    const triggers = Array.from({ length: 30 }, () => ruleEngine.runNow(rule.id))
+    await waitUntil(() => enqueuePrompt.mock.calls.length === 1)
+
+    expect(taskStore.list(undefined, project.id)).toHaveLength(1)
+    expect(enqueuePrompt).toHaveBeenCalledTimes(1)
+
+    gate.resolve()
+    await Promise.all(triggers)
+    expect(taskStore.list(undefined, project.id)).toHaveLength(1)
+
+    await ruleEngine.runNow(rule.id)
+    expect(taskStore.list(undefined, project.id)).toHaveLength(2)
+  })
+
+  test('keeps thirty repeated send_prompt triggers to one pending rule prompt', async () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const agent = agentStore.create({ name: 'Agent', type: 'dev', runtime: 'mock', projectId: project.id })
+    const session = sessionStore.create({ agentId: agent.id, projectId: project.id })
+    const gate = deferred<void>()
+    const enqueuePrompt = vi.spyOn(sessionManager, 'enqueuePrompt').mockImplementation(() => gate.promise)
+    const rule = ruleStore.create({
+      name: 'No duplicate prompt',
+      cron: '* * * * *',
+      action: 'send_prompt',
+      projectId: project.id,
+      actionConfig: {
+        prompt: '检查当前状态',
+        agent_id: agent.id,
+        session_id: session.id,
+      },
+    })
+
+    const triggers = Array.from({ length: 30 }, () => ruleEngine.runNow(rule.id))
+    await waitUntil(() => enqueuePrompt.mock.calls.length === 1)
+
+    expect(enqueuePrompt).toHaveBeenCalledWith(
+      session.id,
+      '检查当前状态',
+      undefined,
+      expect.objectContaining({ dedupeKey: `rule:${rule.id}` }),
+    )
+
+    gate.resolve()
+    await Promise.all(triggers)
+    await ruleEngine.runNow(rule.id)
+    expect(enqueuePrompt).toHaveBeenCalledTimes(2)
+  })
 })
+
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolvePromise!: (value: T) => void
+  const promise = new Promise<T>((resolve) => { resolvePromise = resolve })
+  return { promise, resolve: resolvePromise }
+}
+
+async function waitUntil(predicate: () => boolean, timeoutMs = 500): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error('Timed out waiting for queued prompt')
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 5))
+  }
+}

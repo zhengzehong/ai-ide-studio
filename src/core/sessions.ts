@@ -33,14 +33,16 @@ import {
   startTurnProcess,
 } from './turn-process-runtime.js'
 import { appendHiddenAttachmentNote, loadStoredImagesForAcp, saveSessionImages } from './image-attachments.js'
+import type { StoredImageAttachment } from './image-attachments.js'
 import { sessionShareManager } from './session-share-manager.js'
 import { sessionPersistencePort } from './persistence/session-persistence-port.js'
+import { SessionPromptBatcher } from './session-prompt-batcher.js'
 
 const log = createChildLogger('session')
 
 const pendingBySession = new Map<string, PendingTurn>()
 const activePrompts = new Set<string>()
-const queuedPrompts = new Map<string, Promise<void>>()
+const promptBatcher = new SessionPromptBatcher<QueuedPrompt>()
 const copyingSourceSessions = new Set<string>()
 const eventBatcher = new SessionUpdateBatcher()
 const persistenceBySession = new Map<string, Promise<void>>()
@@ -52,6 +54,15 @@ interface PromptOptions {
   senderRole?: string
   senderId?: string | null
   senderName?: string | null
+  dedupeKey?: string
+}
+
+interface QueuedPrompt {
+  content: string
+  images?: ImageAttachment[]
+  options: PromptOptions
+  projectId?: string
+  source: 'user' | 'platform'
 }
 const COPYING_STAGE = '正在复制会话...'
 
@@ -260,7 +271,7 @@ export const sessionManager = {
   },
 
   isPromptPending(sessionId: string): boolean {
-    return activePrompts.has(sessionId) || queuedPrompts.has(sessionId)
+    return activePrompts.has(sessionId) || promptBatcher.hasPending(sessionId)
   },
 
   listActivePromptSessionIds(): string[] {
@@ -328,40 +339,14 @@ export const sessionManager = {
   },
 
   async sendPrompt(sessionId: string, content: string, images?: ImageAttachment[], options?: string | PromptOptions): Promise<void> {
-    const session = sessionStore.get(sessionId)
-    if (!session) throw new Error(`Session not found: ${sessionId}`)
-    if (session.is_template) throw new Error('模板会话不能直接发送消息,请先从模板新建会话')
-    if (session.status !== 'active') throw new Error('当前会话已关闭，不能继续发送消息')
-    if (session.archived_at) throw new Error('会话已归档,不能发送消息')
-    if (activePrompts.has(sessionId))
-      throw new Error(
-        '\u5f53\u524d\u4f1a\u8bdd\u6b63\u5728\u751f\u6210\u4e2d\uff0c\u8bf7\u7b49\u5f85\u672c\u8f6e\u5b8c\u6210\u6216\u5148\u505c\u6b62\u751f\u6210',
-      )
+    const session = requirePromptSession(sessionId)
     events.emit('session:manual-prompt-started', { sessionId, agentId: session.agent_id })
-    return sendPromptNow(session, content, images, normalizePromptOptions(options))
+    return enqueueSessionPrompt(session, content, images, normalizePromptOptions(options), 'user')
   },
 
   async enqueuePrompt(sessionId: string, content: string, images?: ImageAttachment[], options?: string | PromptOptions): Promise<void> {
-    const normalizedOptions = normalizePromptOptions(options)
-    const previous = queuedPrompts.get(sessionId) ?? Promise.resolve()
-    const next = previous
-      .catch(() => undefined)
-      .then(async () => {
-        while (activePrompts.has(sessionId)) await waitForIdleTurn()
-        const session = sessionStore.get(sessionId)
-        if (!session) throw new Error(`Session not found: ${sessionId}`)
-        if (session.is_template) throw new Error('模板会话不能直接发送消息,请先从模板新建会话')
-        if (session.status !== 'active') throw new Error('当前会话已关闭，不能继续发送消息')
-        if (session.archived_at) throw new Error('会话已归档,不能发送消息')
-        await sendPromptNow(session, content, images, normalizedOptions)
-      })
-    queuedPrompts.set(sessionId, next)
-    next
-      .finally(() => {
-        if (queuedPrompts.get(sessionId) === next) queuedPrompts.delete(sessionId)
-      })
-      .catch(() => undefined)
-    return next
+    const session = requirePromptSession(sessionId)
+    return enqueueSessionPrompt(session, content, images, normalizePromptOptions(options))
   },
 
   async sendDecision(sessionId: string, _messageId: string, _choice: string): Promise<void> {
@@ -423,6 +408,45 @@ function normalizePromptOptions(options?: string | PromptOptions): PromptOptions
   return typeof options === 'string' ? { clientMessageId: options } : options ?? {}
 }
 
+function requirePromptSession(sessionId: string): SessionRow {
+  const session = sessionStore.get(sessionId)
+  if (!session) throw new Error(`Session not found: ${sessionId}`)
+  if (session.is_template) throw new Error('模板会话不能直接发送消息,请先从模板新建会话')
+  if (session.status !== 'active') throw new Error('当前会话已关闭，不能继续发送消息')
+  if (session.archived_at) throw new Error('会话已归档,不能发送消息')
+  return session
+}
+
+function enqueueSessionPrompt(
+  session: SessionRow,
+  content: string,
+  images: ImageAttachment[] | undefined,
+  options: PromptOptions,
+  source: QueuedPrompt['source'] = 'platform',
+): Promise<void> {
+  const projectId = resolvePromptProjectId(session, options)
+  const completion = promptBatcher.enqueue(session.id, {
+    batchKey: projectId ?? '__default__',
+    dedupeKey: options.dedupeKey ?? (options.clientMessageId ? `message:${options.clientMessageId}` : undefined),
+    value: { content, images, options, projectId, source },
+  })
+  schedulePromptBatchDrain(session.id)
+  return completion
+}
+
+function schedulePromptBatchDrain(sessionId: string): void {
+  if (activePrompts.has(sessionId)) return
+  queueMicrotask(() => {
+    if (activePrompts.has(sessionId)) return
+    void promptBatcher.flush(sessionId, async (inputs) => {
+      const session = requirePromptSession(sessionId)
+      await sendPromptBatchNow(session, inputs)
+    }).catch((err: unknown) => {
+      log.error({ err, sessionId }, 'session prompt batch drain failed')
+    })
+  })
+}
+
 function resolvePromptProjectId(session: SessionRow, options: PromptOptions): string | undefined {
   const sessionProjectId = session.project_id ?? undefined
   if (!options.contextProjectId || options.contextProjectId === sessionProjectId) return sessionProjectId
@@ -430,23 +454,26 @@ function resolvePromptProjectId(session: SessionRow, options: PromptOptions): st
   throw new Error(`Project mismatch between session and prompt context: ${sessionProjectId}, ${options.contextProjectId}`)
 }
 
-async function sendPromptNow(session: SessionRow, content: string, images?: ImageAttachment[], options: PromptOptions = {}): Promise<void> {
+async function sendPromptBatchNow(session: SessionRow, inputs: QueuedPrompt[]): Promise<void> {
+  if (inputs.length === 0) return
   const sessionId = session.id
   const turnId = createTurnId()
   const startedAt = Date.now()
+  const content = mergePromptContents(inputs)
+  const projectId = inputs[0]?.projectId
   const promptLen = content.length
-  const imageCount = images?.length ?? 0
-  const effectiveProjectId = resolvePromptProjectId(session, options)
+  const imageCount = inputs.reduce((total, input) => total + (input.images?.length ?? 0), 0)
   log.info(
     {
       sessionId,
       agentId: session.agent_id,
-      projectId: effectiveProjectId,
+      projectId,
       taskId: session.task_id,
       turnId,
       promptLen,
       imageCount,
-      clientMessageId: options.clientMessageId,
+      inputCount: inputs.length,
+      clientMessageIds: inputs.map((input) => input.options.clientMessageId).filter((id): id is string => !!id),
     },
     'prompt received',
   )
@@ -456,7 +483,7 @@ async function sendPromptNow(session: SessionRow, content: string, images?: Imag
     turnId,
     sessionId,
     agentId: session.agent_id,
-    projectId: effectiveProjectId,
+    projectId,
     startedAt,
     lastProgressAt: startedAt,
     lastProgress: 'prompt.received',
@@ -466,49 +493,59 @@ async function sendPromptNow(session: SessionRow, content: string, images?: Imag
   emitSessionActivity(sessionId, session.agent_id, 'running', 'prompt-started', turnId)
   const agentMessageId = createAgentMessageId()
   try {
-    const generatedHumanMessageId = imageCount > 0 ? `msg-${randomUUID().slice(0, 8)}` : undefined
-    const humanMessageId = options.clientMessageId ?? generatedHumanMessageId
-    const storedImages = await saveSessionImages({
-      projectId: effectiveProjectId,
-      sessionId,
-      messageId: humanMessageId ?? `msg-${randomUUID().slice(0, 8)}`,
-      images,
-    })
-    const messageAttachments = storedImages.length > 0 ? storedImages : images
-    const humanMessage = messageStore.append(sessionId, {
-      id: humanMessageId,
-      role: 'human',
-      content,
-      attachments: messageAttachments,
-      senderId: options.senderId ?? null,
-      senderName: options.senderName ?? null,
-      senderRole: options.senderRole ?? 'user',
-    })
-    recordPromptProgress(sessionId, 'human.message.persisted')
-    log.info(
-      { sessionId, agentId: session.agent_id, turnId, messageId: humanMessage.id, contentLength: humanMessage.content.length, imageCount, timestamp: humanMessage.timestamp, senderRole: humanMessage.sender_role },
-      'human message persisted',
-    )
-    sessionStore.touch(sessionId, humanMessage.timestamp)
-    const stored = eventStore.append(sessionId, {
-      type: 'message.user',
-      agentId: session.agent_id,
-      messageId: humanMessage.id,
-      role: 'human',
-      payload: {
+    const promptImages: ImageAttachment[] = []
+    const storedImages: StoredImageAttachment[] = []
+    for (const input of inputs) {
+      const humanMessageId = input.options.clientMessageId ?? `msg-${randomUUID().slice(0, 8)}`
+      const inputStoredImages = await saveSessionImages({
+        projectId,
+        sessionId,
+        messageId: humanMessageId,
+        images: input.images,
+      })
+      const messageAttachments = inputStoredImages.length > 0 ? inputStoredImages : input.images
+      const humanMessage = messageStore.append(sessionId, {
+        id: humanMessageId,
+        role: 'human',
+        content: input.content,
+        attachments: messageAttachments,
+        senderId: input.options.senderId ?? null,
+        senderName: input.options.senderName ?? null,
+        senderRole: input.options.senderRole ?? 'user',
+      })
+      recordPromptProgress(sessionId, 'human.message.persisted')
+      log.info(
+        { sessionId, agentId: session.agent_id, turnId, messageId: humanMessage.id, contentLength: humanMessage.content.length, imageCount: input.images?.length ?? 0, timestamp: humanMessage.timestamp, senderRole: humanMessage.sender_role },
+        'human message persisted',
+      )
+      sessionStore.touch(sessionId, humanMessage.timestamp)
+      const stored = eventStore.append(sessionId, {
+        type: 'message.user',
+        agentId: session.agent_id,
         messageId: humanMessage.id,
-        content,
-        attachments: messageAttachments || [],
-        senderRole: humanMessage.sender_role,
-        senderId: humanMessage.sender_id,
-        senderName: humanMessage.sender_name,
-      },
-    })
-    log.info(
-      { sessionId, agentId: session.agent_id, turnId, eventId: stored.id, sequence: stored.sequence, messageId: stored.message_id },
-      'human message event persisted',
-    )
-    events.emit('session:event', { sessionId, agentId: session.agent_id, event: stored })
+        role: 'human',
+        payload: {
+          messageId: humanMessage.id,
+          content: input.content,
+          attachments: messageAttachments || [],
+          senderRole: humanMessage.sender_role,
+          senderId: humanMessage.sender_id,
+          senderName: humanMessage.sender_name,
+        },
+      })
+      log.info(
+        { sessionId, agentId: session.agent_id, turnId, eventId: stored.id, sequence: stored.sequence, messageId: stored.message_id },
+        'human message event persisted',
+      )
+      events.emit('session:event', { sessionId, agentId: session.agent_id, event: stored })
+
+      const inputImages = inputStoredImages.length > 0
+        ? await loadStoredImagesForAcp(inputStoredImages)
+        : input.images ?? []
+      promptImages.push(...inputImages)
+      const startOrder = storedImages.length
+      storedImages.push(...inputStoredImages.map((image, index) => ({ ...image, order: startOrder + index + 1 })))
+    }
     const agentMessage = messageStore.append(sessionId, {
       id: agentMessageId,
       role: 'agent',
@@ -522,7 +559,7 @@ async function sendPromptNow(session: SessionRow, content: string, images?: Imag
     const projectContext = resolveSessionProjectContext(
       session.agent_id,
       session.task_id ?? undefined,
-      effectiveProjectId,
+      projectId,
       session.id,
     )
     recordPromptProgress(sessionId, 'acp.session.ensure.started')
@@ -540,10 +577,10 @@ async function sendPromptNow(session: SessionRow, content: string, images?: Imag
       log.info({ sessionId, agentId: session.agent_id, turnId, acpSessionId }, 'ACP Session mapped')
     }
     const acpContent = appendHiddenAttachmentNote(
-      maybeWrapTeamLeaderPrompt(sessionId, content, effectiveProjectId),
+      maybeWrapTeamLeaderPrompt(sessionId, content, projectId),
       storedImages,
     )
-    const acpImages = storedImages.length > 0 ? await loadStoredImagesForAcp(storedImages) : images
+    const acpImages = promptImages.length > 0 ? promptImages : undefined
     emitLifecycle(session.agent_id, sessionId, 'lifecycle.prompt_sent', '正在思考...', agentMessageId)
     recordPromptProgress(sessionId, 'acp.prompt.started')
     await getRuntimePort().prompt({
@@ -600,12 +637,26 @@ async function sendPromptNow(session: SessionRow, content: string, images?: Imag
     finishPromptDiagnostics(sessionId, activityEndReason)
     log.info({ sessionId, agentId: session.agent_id, turnId, reason: activityEndReason, elapsedMs: Date.now() - startedAt, activePromptCount: activePrompts.size }, 'prompt cleanup complete')
     emitSessionActivity(sessionId, session.agent_id, 'idle', activityEndReason, turnId)
+    schedulePromptBatchDrain(sessionId)
   }
 }
 
+function mergePromptContents(inputs: QueuedPrompt[]): string {
+  if (inputs.length === 1) return inputs[0]?.content ?? ''
+  const sections = inputs.map((input, index) => [
+    `### ${promptInputLabel(input)} ${index + 1}`,
+    input.content,
+  ].join('\n'))
+  return [
+    `[系统合并通知] 当前会话在上一轮执行期间收到 ${inputs.length} 条新输入。请结合全部内容统一处理；不要遗漏用户消息，也不要将同一平台通知重复执行。`,
+    ...sections,
+  ].join('\n\n')
+}
 
-async function waitForIdleTurn(): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, 100))
+function promptInputLabel(input: QueuedPrompt): string {
+  if (input.options.senderRole === 'agent') return `Agent 消息${input.options.senderName ? `（${input.options.senderName}）` : ''}`
+  if (input.source === 'user') return '用户消息'
+  return input.options.senderName ? `平台消息（${input.options.senderName}）` : '平台消息'
 }
 
 function maybeWrapTeamLeaderPrompt(sessionId: string, content: string, contextProjectId?: string): string {

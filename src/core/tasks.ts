@@ -28,6 +28,7 @@ export interface AssignTaskInput {
   sessionMode?: AgentSessionMode
   promptTemplate?: string
   ruleName?: string
+  awaitPrompt?: boolean
 }
 
 interface CreateTaskManagerInput extends CreateTaskInput {
@@ -128,6 +129,7 @@ export const taskManager = {
         })
         if (failed) emitTaskLifecycleEvent(failed, 'prompt_failed', 'running')
       })
+      if (input.awaitPrompt) await queued
 
       return {
         ...updated,

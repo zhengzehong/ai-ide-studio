@@ -13,6 +13,7 @@ const log = createChildLogger('rule-engine')
 let _timer: ReturnType<typeof setInterval> | null = null
 let _lastMinute = -1
 const _firedThisMinute = new Set<string>()
+const activeRuleExecutions = new Set<string>()
 
 type ActionHandler = (rule: RuleRow, now: Date) => Promise<{ taskId?: string; sessionId?: string; skipped?: string }>
 
@@ -30,21 +31,24 @@ const actionHandlers: Record<string, ActionHandler> = {
       ruleId: rule.id,
     })
     if (!result) throw new Error('定时任务创建失败')
+    let assignedSessionId: string | undefined
     if (config.assign_agent_id) {
-      await taskManager.assignTask({
+      const assignment = await taskManager.assignTask({
         taskId: result.id,
         agentId: config.assign_agent_id,
         sessionId,
         sessionMode,
         ruleName: rule.name,
+        awaitPrompt: true,
         promptTemplate: config.prompt_template
           ? replaceVariables(config.prompt_template, new Date())
               .replace(/\{title\}/g, config.title ?? rule.name)
               .replace(/\{description\}/g, config.description ?? '')
           : undefined,
       })
+      assignedSessionId = assignment.sessionId
     }
-    return { taskId: result.id }
+    return { taskId: result.id, sessionId: assignedSessionId }
   },
 
   async send_prompt(rule, _now) {
@@ -64,7 +68,11 @@ const actionHandlers: Record<string, ActionHandler> = {
     if (sessionMode === 'new_fixed' && !configuredSessionId) {
       ruleStore.update(rule.id, { action_config: { session_id: session.id } })
     }
-    await sessionManager.enqueuePrompt(session.id, prompt)
+    await sessionManager.enqueuePrompt(session.id, prompt, undefined, {
+      dedupeKey: `rule:${rule.id}`,
+      senderRole: 'system',
+      senderName: rule.name,
+    })
 
     return { sessionId: session.id }
   },
@@ -118,10 +126,15 @@ async function executeRule(rule: RuleRow, now: Date): Promise<void> {
     log.warn({ ruleId: rule.id, action: rule.action }, '未知的 action 类型，跳过')
     return
   }
+  if (activeRuleExecutions.has(rule.id)) {
+    log.debug({ ruleId: rule.id, action: rule.action }, '规则仍在执行或等待 Session 批次，跳过重复触发')
+    return
+  }
 
-  const nextRun = getNextRunTime(rule.cron, now)
-
+  activeRuleExecutions.add(rule.id)
+  let nextRun: ReturnType<typeof getNextRunTime> | undefined
   try {
+    nextRun = getNextRunTime(rule.cron, now)
     const result = await handler(rule, now)
 
     ruleStore.recordRun(rule.id, now.toISOString(), nextRun?.toISOString() ?? null)
@@ -160,6 +173,8 @@ async function executeRule(rule: RuleRow, now: Date): Promise<void> {
     if (updated) {
       events.emit('rule:update', { ruleId: rule.id, data: { ...updated } })
     }
+  } finally {
+    activeRuleExecutions.delete(rule.id)
   }
 }
 
