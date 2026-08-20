@@ -65,7 +65,7 @@ export const studioTaskStartHandler: ToolHandler = {
 
 export const studioTaskAssignHandler: ToolHandler = {
   name: 'studio.task.assign',
-  description: '将一个未分派的 AI IDE Studio 项目任务分派给指定 Agent。默认不允许改派，除非显式传入 allowReassign=true。',
+  description: '设置任务级 Agent 和默认执行 Session。无步骤的旧式任务会直接发送任务 Prompt；已有步骤图时不会发送整任务 Prompt，也不会修改已有步骤的 assignee/sessionId，必须再调用 task.start 派发 ready step。步骤显式 Session 始终优先，未指定 Session 的同 Agent 步骤才继承任务默认 Session。默认不允许改派，除非显式传 allowReassign=true。',
   inputSchema: {
     type: 'object',
     properties: {
@@ -103,7 +103,13 @@ export const studioTaskAssignHandler: ToolHandler = {
     return {
       content: [{
         type: 'text',
-        text: JSON.stringify({ task: assigned, sessionId: assigned.sessionId, reason: optStr(input, 'reason') }, null, 2),
+        text: JSON.stringify({
+          task: assigned,
+          sessionId: assigned.sessionId,
+          promptQueued: assigned.promptQueued,
+          requiresTaskStart: assigned.requiresTaskStart,
+          reason: optStr(input, 'reason'),
+        }, null, 2),
       }],
     }
   },

@@ -64,6 +64,7 @@ export async function createSimpleTask(input: CreateSimpleTaskInput): Promise<Cr
     taskStepStore.updateStatus(step.id, 'running')
     taskStore.updateStatus(task.id, 'running', '已自认领')
     taskStore.linkSession(task.id, sessionId!)
+    taskStore.setExecutionSession(task.id, assignee, sessionId!)
     taskStore.updateAgentReportStatus(task.id, 'in_progress')
     const updated = taskStore.get(task.id)
     if (!updated) throw new Error('任务自认领后无法找到任务')

@@ -179,6 +179,7 @@ describe('studio.task.createSimple selfExecute - 对话任务化', () => {
     })
     expect(taskStepStore.listDependencies(steps[0].id)).toEqual([])
     expect(taskStore.listSessionIds(task.id)).toEqual([session.id])
+    expect(taskStore.getExecutionSessionId(task.id, pm.id)).toBe(session.id)
     expect(messageStore.list(session.id)).toEqual([])
     expect(messageStore.list(ignoredSession.id)).toEqual([])
   })
@@ -988,15 +989,15 @@ describe('project access 隔离', () => {
   })
 })
 
-describe('step.dispatch self-dispatch 跳过 prompt 注入(方案 A)', () => {
-  test('initiator 自己 add step + task.start,不 enqueuePrompt 到 initiator session,step 状态为 running', async () => {
+describe('step.dispatch 的 Prompt 注入语义', () => {
+  test('initiator 自己 add step + task.start 仍会向新执行步骤注入 Prompt', async () => {
     const { project, agents } = setupProject()
     const [pm] = agents
     const pmSession = sessionStore.create({ agentId: pm.id, projectId: project.id, isPrimary: true })
 
     const task = taskStore.create({
       title: 'self-dispatch 任务',
-      description: '测试 initiator 自己派发 step 不被重复 prompt',
+      description: '测试 initiator 新增的执行步骤仍会收到 Prompt',
       source: 'agent',
       projectId: project.id,
       initiatorAgentId: pm.id,
@@ -1028,13 +1029,13 @@ describe('step.dispatch self-dispatch 跳过 prompt 注入(方案 A)', () => {
     expect(steps[0].assignee_agent_id).toBe(pm.id)
     expect(steps[0].session_id).toBe(pmSession.id)
 
-    expect(enqueueCalled).toBe(false)
+    expect(enqueueCalled).toBe(true)
 
     const messages = messageStore.list(pmSession.id)
     expect(messages).toEqual([])
   })
 
-  test('initiator 自己 add step + 别人 add step 混合,task.start 后 initiator step 跳过派发,别人 step 正常派发', async () => {
+  test('initiator 和其他 Agent 的 ready step 都会正常派发', async () => {
     const { project, agents } = setupProject()
     const [pm, devA] = agents
     const pmSession = sessionStore.create({ agentId: pm.id, projectId: project.id, isPrimary: true })
@@ -1081,10 +1082,149 @@ describe('step.dispatch self-dispatch 跳过 prompt 注入(方案 A)', () => {
     }
 
     expect(enqueuedSessions).toContain(devASession.id)
-    expect(enqueuedSessions).not.toContain(pmSession.id)
+    expect(enqueuedSessions).toContain(pmSession.id)
 
     const pmMessages = messageStore.list(pmSession.id)
     expect(pmMessages).toEqual([])
+  })
+
+  test('同一 Agent 的下游步骤继承 task.assign 默认执行会话并收到新 Prompt', async () => {
+    const { project, agents } = setupProject()
+    const [pm] = agents
+    const originalSession = sessionStore.create({ agentId: pm.id, projectId: project.id, isPrimary: true })
+    const executionSession = sessionStore.create({ agentId: pm.id, projectId: project.id })
+    const task = taskStore.create({
+      title: '同 Agent 串行任务',
+      description: '每个下游步骤都必须重新唤醒',
+      source: 'agent',
+      projectId: project.id,
+      initiatorAgentId: pm.id,
+      initiatorSessionId: originalSession.id,
+    })
+    taskStore.assignAgent(task.id, pm.id)
+    taskStore.setExecutionSession(task.id, pm.id, executionSession.id)
+    taskStore.updateStatus(task.id, 'running', '已启动')
+    const first = taskStepManager.addStep({
+      taskId: task.id,
+      title: '第一步',
+      assignee: pm.id,
+      sessionId: executionSession.id,
+    })
+    const next = taskStepManager.addStep({
+      taskId: task.id,
+      title: '第二步',
+      assignee: pm.id,
+      dependsOn: [first.step.id],
+    })
+    taskStore.updateStatus(task.id, 'running', '已启动')
+    taskStepStore.updateStatus(first.step.id, 'running')
+
+    const originalEnqueue = sessionManager.enqueuePrompt
+    const prompts: Array<{ sessionId: string; content: string }> = []
+    sessionManager.enqueuePrompt = (async (sessionId: string, content: string) => {
+      prompts.push({ sessionId, content })
+    }) as typeof sessionManager.enqueuePrompt
+    try {
+      const result = await reportStepAndDispatch({
+        taskId: task.id,
+        stepId: first.step.id,
+        agentStatus: 'done',
+        reportMd: '第一步完成',
+        agentId: pm.id,
+        sessionId: executionSession.id,
+      })
+
+      expect(result.dispatchedSteps).toEqual([next.step.id])
+    } finally {
+      sessionManager.enqueuePrompt = originalEnqueue
+    }
+
+    expect(prompts).toHaveLength(1)
+    expect(prompts[0]).toMatchObject({ sessionId: executionSession.id })
+    expect(prompts[0].content).toContain(next.step.id)
+    expect(taskStepStore.get(next.step.id)).toMatchObject({
+      status: 'running',
+      session_id: executionSession.id,
+    })
+  })
+
+  test('步骤显式 Session 优先于任务默认执行 Session', async () => {
+    const { project, agents } = setupProject()
+    const [pm] = agents
+    const defaultSession = sessionStore.create({ agentId: pm.id, projectId: project.id })
+    const explicitSession = sessionStore.create({ agentId: pm.id, projectId: project.id })
+    const task = createTaskRow('显式会话优先', project.id)
+    taskStore.setExecutionSession(task.id, pm.id, defaultSession.id)
+    const added = taskStepManager.addStep({
+      taskId: task.id,
+      title: '指定会话步骤',
+      assignee: pm.id,
+      sessionId: explicitSession.id,
+    })
+    taskStore.updateStatus(task.id, 'running', '已启动')
+    taskStepStore.updateStatus(added.step.id, 'ready')
+
+    const originalEnqueue = sessionManager.enqueuePrompt
+    const sessions: string[] = []
+    sessionManager.enqueuePrompt = (async (sessionId: string) => {
+      sessions.push(sessionId)
+    }) as typeof sessionManager.enqueuePrompt
+    try {
+      await taskStepManager.dispatchStep(task.id, added.step.id)
+    } finally {
+      sessionManager.enqueuePrompt = originalEnqueue
+    }
+
+    expect(sessions).toEqual([explicitSession.id])
+  })
+
+  test('任务默认执行 Session 不属于步骤 Agent 时回退到该 Agent 主会话', async () => {
+    const { project, agents } = setupProject()
+    const [pm, devA] = agents
+    const pmSession = sessionStore.create({ agentId: pm.id, projectId: project.id })
+    const devSession = sessionStore.create({ agentId: devA.id, projectId: project.id, isPrimary: true })
+    const task = createTaskRow('跨 Agent 默认会话隔离', project.id)
+    taskStore.setExecutionSession(task.id, pm.id, pmSession.id)
+    const added = taskStepManager.addStep({ taskId: task.id, title: '开发步骤', assignee: devA.id })
+    taskStore.updateStatus(task.id, 'running', '已启动')
+    taskStepStore.updateStatus(added.step.id, 'ready')
+
+    const originalEnqueue = sessionManager.enqueuePrompt
+    const sessions: string[] = []
+    sessionManager.enqueuePrompt = (async (sessionId: string) => {
+      sessions.push(sessionId)
+    }) as typeof sessionManager.enqueuePrompt
+    try {
+      await taskStepManager.dispatchStep(task.id, added.step.id)
+    } finally {
+      sessionManager.enqueuePrompt = originalEnqueue
+    }
+
+    expect(sessions).toEqual([devSession.id])
+  })
+
+  test('任务默认执行 Session 已失效时回退到该 Agent 主会话', async () => {
+    const { project, agents } = setupProject()
+    const [pm] = agents
+    const primarySession = sessionStore.create({ agentId: pm.id, projectId: project.id, isPrimary: true })
+    const task = createTaskRow('失效默认会话回退', project.id)
+    taskStore.setExecutionSession(task.id, pm.id, 'sess-deleted-default')
+    const added = taskStepManager.addStep({ taskId: task.id, title: '可恢复步骤', assignee: pm.id })
+    taskStore.updateStatus(task.id, 'running', '已启动')
+    taskStepStore.updateStatus(added.step.id, 'ready')
+
+    const originalEnqueue = sessionManager.enqueuePrompt
+    const sessions: string[] = []
+    sessionManager.enqueuePrompt = (async (sessionId: string) => {
+      sessions.push(sessionId)
+    }) as typeof sessionManager.enqueuePrompt
+    try {
+      await taskStepManager.dispatchStep(task.id, added.step.id)
+    } finally {
+      sessionManager.enqueuePrompt = originalEnqueue
+    }
+
+    expect(sessions).toEqual([primarySession.id])
   })
 
   test('initiator step.report(done) 后正常流转,不触发重复通知(notifyInitiatorIfNotLastExecutor 已有 if assignee===initiator return)', async () => {

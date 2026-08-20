@@ -185,7 +185,7 @@ Web UI → WS "tasks.create" → ws-handler → gateway/rpc/tasks
   → mitt "task:update" → ws-handler 广播 → Web UI / 其他订阅方
 ```
 
-协作任务由 `tasks.create` 创建 draft 空壳，再通过 `tasks.step.*` 编排步骤并由 `tasks.start` 派发。简单任务走 `tasks.createSimple`，后端复用 `core/task-simple.ts` 创建默认 step 并立即派发。Agent 对话任务化的 MCP 入口使用 `studio.task.create(selfExecute=true)`，由 `taskManager.createTask()` 创建默认 step 并跳过 prompt 注入。任务 prompt 文本构造集中在 `core/task-prompt.ts`，避免任务生命周期逻辑与长模板耦合。
+协作任务由 `tasks.create` 创建 draft 空壳，再通过 `tasks.step.*` 编排步骤并由 `tasks.start` 派发。简单任务走 `tasks.createSimple`，后端复用 `core/task-simple.ts` 创建默认 step 并立即派发。Agent 对话任务化的 MCP 入口使用 `studio.task.create(selfExecute=true)`，由 `taskManager.createTask()` 创建默认 step 并仅跳过该默认 step 的初始 prompt 注入；后续新增的 ready step 仍由 `step-dispatch` 注入步骤 prompt。任务有步骤图时，`studio.task.assign` 只记录 Agent 与默认执行会话，必须继续调用 `studio.task.start`，避免重复发送整任务 prompt。任务 prompt 文本构造集中在 `core/task-prompt.ts`，避免任务生命周期逻辑与长模板耦合。
 
 任务看板和 Workspace 右侧列表使用 Task summary read model，只携带状态、步骤摘要、最新汇报预览和 `descriptionPreview`。打开任务详情后，前端详情缓存通过 `tasks.get` 读取完整正文；详情请求有独立的 loading/error/retry 状态，不会把摘要误当成完整任务目标。
 

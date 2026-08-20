@@ -153,7 +153,7 @@ Runtime 可见 patch 不经过 API 事件总线，而是通过 Runtime→Realtim
 | `tasks.list` | `{ status?, projectId? }` | `TaskSummary[]` | 列出任务摘要，可按项目过滤；完整正文通过 `tasks.get` 按需读取 |
 | `tasks.get` | `{ taskId }` | `Task & { sessions, steps, stepProgress }` | 读取单个任务完整详情，包括完整 `description` |
 | `tasks.create` | `{ title, description, projectId? }` | `Task` | 创建协作任务空壳；任务为 `draft`，不建步骤、不分派 Agent。旧调用方的分派兼容逻辑仅保留在后端 RPC 入口，不作为新 UI 协议使用 |
-| `tasks.createSimple` | `{ title, description, assignee, projectId?, sessionId? }` | `Task & { defaultStepId, sessionId, steps, stepProgress }` | 创建简单任务：自动创建一个默认 step，分派给 `assignee` 并立即派发 |
+| `tasks.createSimple` | `{ title, description, assignee, projectId?, sessionId? }` | `Task & { defaultStepId, sessionId, steps, stepProgress }` | 创建简单任务：自动创建一个默认 step，分派给 `assignee` 并立即派发；`selfExecute=true` 的 Agent 入口只跳过默认 step 的初始 prompt |
 | `tasks.update` | `{ taskId, status?, stage? }` | `Task` | 更新任务状态 |
 | `tasks.start` | `{ taskId }` | `{ taskId, status, dispatched, steps, stepProgress }` | 启动协作任务，派发 ready step |
 | `tasks.step.add` | `{ taskId, title, description?, assignee?, sessionId?, dependsOn? }` | `{ taskId, step, reverted, taskStatus, steps, stepProgress }` | 添加步骤；运行中任务变更步骤会回退到 `draft` |

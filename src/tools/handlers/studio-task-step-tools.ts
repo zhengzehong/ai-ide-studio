@@ -54,7 +54,7 @@ export const studioTaskStepAddHandler: ToolHandler = {
 - 完成所有步骤编辑后,必须调用 task.start 重新启动任务。
 - dependsOn 里的 stepId 必须存在,不存在报错。
 - 系统检测循环依赖,有循环拒绝创建。
-- 会话选择:不传 sessionId 时,系统按 assignee 找主会话;找不到则新建。
+- 会话选择:显式 sessionId 优先；不传时先继承 task.assign 为同一 assignee 设置的默认执行会话，再找 assignee 主会话，最后新建。
 - 接续上下文:想让新 step 派到某个已有 step 的同一会话(例如测试报 bug 后加补救步骤,要让原开发接着改),先调 studio.task.step.get 拿到那个 step 的 sessionId,再传到本工具 sessionId 参数。这样新 step 继承原会话的工作上下文,不污染 assignee 的主会话。`,
   inputSchema: {
     type: 'object',
@@ -113,7 +113,7 @@ export const studioTaskStepUpdateHandler: ToolHandler = {
 - dependsOn 整体替换,不是追加。要加依赖先 get 当前依赖再合并。
 - 已 running 的 step 改了 assignee,不强行收回,下次轮次按新 assignee。
 - 系统检测循环依赖,有循环拒绝修改。
-- 会话切换:传 sessionId 可改派到指定会话(必须属于当前 assignee)。想接续另一个 step 的会话,先 step.get 拿 sessionId 再传进来。`,
+- 会话切换:传 sessionId 可改派到指定会话(必须属于当前 assignee)。不传时使用任务默认执行会话/Agent 主会话回退。想强制接续另一个 step 的会话,先 step.get 拿 sessionId 再传进来。`,
   inputSchema: {
     type: 'object',
     properties: {

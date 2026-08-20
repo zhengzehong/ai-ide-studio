@@ -246,6 +246,25 @@ export const taskStore = {
     taskEventStore.append(taskId, { type: 'session_linked', payload: { session_id: sessionId } })
   },
 
+  setExecutionSession(taskId: string, agentId: string, sessionId: string): void {
+    taskEventStore.append(taskId, {
+      type: 'execution_session_assigned',
+      payload: { agent_id: agentId, session_id: sessionId },
+    })
+  },
+
+  getExecutionSessionId(taskId: string, agentId: string): string | undefined {
+    const rows = taskEventStore.list(taskId)
+    for (let index = rows.length - 1; index >= 0; index -= 1) {
+      const row = rows[index]
+      if (row.type !== 'execution_session_assigned') continue
+      const parsed = parseTaskEventPayload(row.payload_json)
+      if (parsed.agent_id !== agentId) return undefined
+      return typeof parsed.session_id === 'string' ? parsed.session_id : undefined
+    }
+    return undefined
+  },
+
   listSessionIds(taskId: string): string[] {
     const rows = taskEventStore.list(taskId)
     const ids: string[] = []

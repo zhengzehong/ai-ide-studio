@@ -77,7 +77,7 @@ export const studioTaskCreateHandler: ToolHandler = {
 export const studioTaskCreateSimpleHandler: ToolHandler = {
   name: 'studio.task.createSimple',
   description:
-    '创建一步任务。两种模式:selfExecute=true(对话任务化,自做) / selfExecute=false(派发给别人)。自动建默认 step + 自动 start。',
+    '创建且仅创建一个默认步骤。selfExecute=true 表示当前对话已经在执行该默认步骤，因此只跳过这一次初始 Prompt；它不代表后续新增步骤会免 Prompt 或持续后台执行。多步骤任务请使用 studio.task.create + step.add + task.start。',
   inputSchema: {
     type: 'object',
     properties: {
@@ -191,6 +191,8 @@ export const studioTaskGetHandler: ToolHandler = {
       title: s.title,
       status: s.status,
       assignee: s.assignee_agent_id,
+      sessionId: s.session_id,
+      currentStage: s.current_stage,
       dependsOn: taskStepStore.listDependencies(s.id),
     }))
     const assignedAgents = taskStepStore.listAssignedAgents(taskId)
@@ -201,6 +203,9 @@ export const studioTaskGetHandler: ToolHandler = {
           text: JSON.stringify(
             {
               ...task,
+              defaultExecutionSessionId: task.assigned_agent_id
+                ? taskStore.getExecutionSessionId(taskId, task.assigned_agent_id) ?? null
+                : null,
               steps,
               assignedAgents,
               sessions,

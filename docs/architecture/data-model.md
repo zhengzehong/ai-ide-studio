@@ -435,7 +435,7 @@ watch 监听 `session:done`，触发后后台唤醒 `watcher_session_id`。如�
 | created_at | TEXT | 创建时间 |
 | completed_at | TEXT | 完成时间 |
 
-任务自身不持久化会话策略；创建或指派任务时的 `sessionMode/sessionId` 只用于本次投递，实际会话关联仍通过 `task_events` 的 `session_linked` 事件记录。
+任务表不新增会话字段。`task.assign` 将任务默认执行会话按 Agent 写入 `task_events` 的 `execution_session_assigned` 事件；Step 显式 `sessionId` 优先，其次仅在 Agent 匹配时继承任务默认执行会话，再回退到该 Agent 主会话或新建会话。`session_linked` 仍用于记录每次实际派发关联的会话。
 
 ### event_categories
 

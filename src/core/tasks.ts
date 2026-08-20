@@ -78,9 +78,11 @@ export const taskManager = {
         sessionId: input.sessionId,
         sessionMode,
       })
+      const hasSteps = taskStepStore.listByTask(input.taskId).length > 0
 
       taskStore.assignAgent(input.taskId, input.agentId)
-      taskStore.updateStatus(input.taskId, 'running', '已分派给 Agent')
+      if (!hasSteps) taskStore.updateStatus(input.taskId, 'running', '已分派给 Agent')
+      taskStore.setExecutionSession(input.taskId, input.agentId, session.id)
       taskStore.linkSession(input.taskId, session.id)
       const updated = taskStore.get(input.taskId)
       if (!updated) throw new Error('任务分派后无法找到任务')
@@ -94,6 +96,15 @@ export const taskManager = {
         data: { ...updated, sessionId: session.id, assignedAgentId: input.agentId, event: 'assigned' },
       })
       emitTaskLifecycleEvent(updated, 'assigned', previousStatus)
+
+      if (hasSteps) {
+        return {
+          ...updated,
+          sessionId: session.id,
+          promptQueued: false,
+          requiresTaskStart: true,
+        }
+      }
 
       const prompt =
         input.promptTemplate ||
@@ -118,7 +129,12 @@ export const taskManager = {
         if (failed) emitTaskLifecycleEvent(failed, 'prompt_failed', 'running')
       })
 
-      return { ...updated, sessionId: session.id }
+      return {
+        ...updated,
+        sessionId: session.id,
+        promptQueued: true,
+        requiresTaskStart: false,
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       taskStore.updateStatus(input.taskId, 'needs_input', `分派失败: ${message}`)

@@ -9,11 +9,13 @@ import { sessionStore } from '../../src/store/sessions.js'
 import { timelineStore } from '../../src/store/timeline.js'
 import { templateStore } from '../../src/store/agent-templates.js'
 import { taskStore } from '../../src/store/tasks.js'
+import { taskStepStore } from '../../src/store/task-steps.js'
 import { ruleStore } from '../../src/store/rules.js'
 import { modelProviderStore } from '../../src/store/model-providers.js'
 import { modelProfileStore } from '../../src/store/model-profiles.js'
 import { acpHost } from '../../src/acp/host.js'
 import { sessionManager } from '../../src/core/sessions.js'
+import { taskStepManager } from '../../src/core/task-steps.js'
 import { getHandler } from '../../src/tools/handlers/index.js'
 import type { ToolContext, ToolHandlerResult } from '../../src/tools/types.js'
 
@@ -386,6 +388,43 @@ describe('core MCP tool handlers', () => {
       session_mode: 'existing',
       session_id: session.id,
     })
+  })
+
+  test('studio.task.assign binds a multi-step task without duplicating the step Prompt', async () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const agent = agentStore.create({ name: 'Target', type: 'dev', runtime: 'mock', projectId: project.id })
+    const session = sessionStore.create({ agentId: agent.id, projectId: project.id })
+    const task = taskStore.create({ title: 'Multi-step', description: 'Run steps', projectId: project.id })
+    const step = taskStepManager.addStep({ taskId: task.id, title: 'Step 1', assignee: agent.id })
+
+    const originalEnqueue = sessionManager.enqueuePrompt
+    const prompts: string[] = []
+    sessionManager.enqueuePrompt = (async (sessionId: string) => {
+      prompts.push(sessionId)
+    }) as typeof sessionManager.enqueuePrompt
+    try {
+      const assigned = await executeJson(
+        'studio.task.assign',
+        { taskId: task.id, agentId: agent.id, sessionMode: 'existing', sessionId: session.id },
+        { projectId: project.id },
+      )
+
+      expect(assigned).toMatchObject({
+        sessionId: session.id,
+        promptQueued: false,
+        requiresTaskStart: true,
+      })
+      expect(prompts).toEqual([])
+      expect(taskStore.get(task.id)?.status).toBe('draft')
+      expect(taskStore.getExecutionSessionId(task.id, agent.id)).toBe(session.id)
+
+      await executeJson('studio.task.start', { taskId: task.id }, { projectId: project.id })
+    } finally {
+      sessionManager.enqueuePrompt = originalEnqueue
+    }
+
+    expect(prompts).toEqual([session.id])
+    expect(taskStepStore.get(step.step.id)).toMatchObject({ status: 'running', session_id: session.id })
   })
 
   test('studio.schedule.create requires the current Agent and Session context', async () => {
