@@ -119,6 +119,7 @@ export const agentSessionMessageStore = {
       WHERE target_session_id = ?
         AND need_reply = 1
         AND reply_satisfied_at IS NULL
+        AND prompt_status = 'completed'
         AND reply_reminder_count = 0
       ORDER BY created_at ASC
     `).all(targetSessionId)

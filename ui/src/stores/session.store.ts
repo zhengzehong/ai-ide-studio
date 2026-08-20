@@ -1705,6 +1705,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       if (get().currentSessionId !== sid) throw new Error('会话已切换，请重新发送')
     }
     sessionCancelCoordinator.clear(sid)
+    const queueBehindActiveTurn = !!get().runningSessionIds[sid]
     set((state) => ({
       stoppingSessionIds: removeSessionIndicator(state.stoppingSessionIds, sid),
       stopErrorsBySession: withoutKey(state.stopErrorsBySession, sid),
@@ -1713,10 +1714,14 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     const clientMessageId = `msg-local-${Date.now()}`
     const pendingStreamingId = `pending-${sid}-${Date.now()}`
     const commandImages = toCommandImages(images)
-    promptStartTime = Date.now()
-    sessionActivityFence.record(sid, 'running')
+    if (!queueBehindActiveTurn) {
+      promptStartTime = Date.now()
+      sessionActivityFence.record(sid, 'running')
+    }
     set((state) => ({
-      ...patchSessionActivity(state.sessionListCache, state.activeSessionScope, state.sessions, sid, 'running'),
+      ...(!queueBehindActiveTurn
+        ? patchSessionActivity(state.sessionListCache, state.activeSessionScope, state.sessions, sid, 'running')
+        : {}),
       messages: [
         ...state.messages,
         normalizeMessage({
@@ -1732,12 +1737,16 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           timestamp: new Date().toISOString(),
         }),
       ],
-      streamingMessage: applyTurnEntry(createEmptyTurn(pendingStreamingId), {
-        kind: 'stage',
-        text: '\u6b63\u5728\u51c6\u5907 Agent...',
-      }),
-      turnUsage: null,
-      runningSessionIds: { ...state.runningSessionIds, [sid]: true },
+      ...(!queueBehindActiveTurn
+        ? {
+            streamingMessage: applyTurnEntry(createEmptyTurn(pendingStreamingId), {
+              kind: 'stage',
+              text: '\u6b63\u5728\u51c6\u5907 Agent...',
+            }),
+            turnUsage: null,
+            runningSessionIds: { ...state.runningSessionIds, [sid]: true },
+          }
+        : {}),
       unreadSessionIds: removeSessionIndicator(state.unreadSessionIds, sid),
       staleSessionIds: removeSessionIndicator(state.staleSessionIds, sid),
     }))
@@ -1751,7 +1760,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         ...(commandImages ? { images: commandImages } : {}),
       })
     } catch (error) {
-      const ownsPendingTurn = get().streamingMessage?.id === pendingStreamingId
+      const ownsPendingTurn = !queueBehindActiveTurn && get().streamingMessage?.id === pendingStreamingId
       if (ownsPendingTurn) sessionActivityFence.record(sid, 'idle')
       set((state) => {
         return {

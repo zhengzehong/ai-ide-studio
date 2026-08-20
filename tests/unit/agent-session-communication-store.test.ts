@@ -47,7 +47,7 @@ describe('agent session communication stores', () => {
     expect(agentSessionMessageStore.get(request.id)?.reply_satisfied_at).toEqual(expect.any(String))
   })
 
-  test('lists unresolved needReply messages and marks reminder sent once', () => {
+  test('lists delivered unresolved needReply messages and marks reminder sent once', () => {
     const message = agentSessionMessageStore.create({
       projectId: 'project-a',
       sourceAgentId: 'agent-a',
@@ -59,6 +59,8 @@ describe('agent session communication stores', () => {
       needReply: true,
     })
 
+    expect(agentSessionMessageStore.listPendingRepliesForTargetSession('sess-b')).toHaveLength(0)
+    agentSessionMessageStore.updatePromptCompleted(message.id)
     expect(agentSessionMessageStore.listPendingRepliesForTargetSession('sess-b').map((row) => row.id)).toEqual([message.id])
 
     const reminded = agentSessionMessageStore.markReminderSent(message.id)

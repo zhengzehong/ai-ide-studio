@@ -103,7 +103,11 @@ export const agentSessionCommunicationService = {
       needReply: input.needReply,
     })
     const prompt = buildAgentSessionMessagePrompt({ message, sourceAgent, targetSessionId: targetSession.id })
-    enqueueMessagePrompt(message.id, targetSession.id, prompt, message.project_id)
+    enqueueMessagePrompt(message.id, targetSession.id, prompt, message.project_id, {
+      dedupeKey: `agent-message:${message.id}`,
+      senderRole: 'agent',
+      senderName: sourceAgent.name,
+    })
     agentSessionMessageStore.markLatestReplySatisfiedByResponse(message)
     return { message, targetSession }
   },
@@ -208,15 +212,32 @@ events.on('session:done', (ev) => {
   agentSessionCommunicationService.handleSessionDone(ev)
 })
 
-function enqueueMessagePrompt(messageId: string, sessionId: string, prompt: string, projectId?: string | null): void {
+function enqueueMessagePrompt(
+  messageId: string,
+  sessionId: string,
+  prompt: string,
+  projectId: string | null | undefined,
+  options: { dedupeKey: string; senderRole: string; senderName: string },
+): void {
   void sessionManager.enqueuePrompt(
     sessionId,
     prompt,
     undefined,
-    projectId ? { contextProjectId: projectId } : undefined,
+    {
+      ...(projectId ? { contextProjectId: projectId } : {}),
+      ...options,
+    },
   )
     .then(() => {
       agentSessionMessageStore.updatePromptCompleted(messageId)
+      // session:done is emitted before this queued input's completion settles. Re-check here so a
+      // genuinely unanswered message is reminded immediately, while a reply made during the turn
+      // remains suppressed by reply_satisfied_at.
+      try {
+        handleNeedReplyReminders(sessionId)
+      } catch (err) {
+        log.warn({ err, messageId, sessionId }, 'Failed to evaluate Agent message reply reminder')
+      }
     })
     .catch((err: unknown) => {
       const message = err instanceof Error ? err.message : String(err)
@@ -230,7 +251,12 @@ function enqueueWatchPrompt(watchId: string, sessionId: string, prompt: string, 
     sessionId,
     prompt,
     undefined,
-    projectId ? { contextProjectId: projectId } : undefined,
+    {
+      ...(projectId ? { contextProjectId: projectId } : {}),
+      dedupeKey: `watch:${watchId}`,
+      senderRole: 'system',
+      senderName: '会话监听',
+    },
   )
     .catch((err: unknown) => {
       const message = err instanceof Error ? err.message : String(err)
@@ -247,7 +273,11 @@ function handleNeedReplyReminders(targetSessionId: string): void {
     const reminded = agentSessionMessageStore.markReminderSent(message.id)
     if (!reminded) continue
     const prompt = buildAgentSessionReplyReminderPrompt({ message: reminded, sourceAgent, targetSessionId })
-    enqueueMessagePrompt(reminded.id, targetSessionId, prompt, reminded.project_id)
+    enqueueMessagePrompt(reminded.id, targetSessionId, prompt, reminded.project_id, {
+      dedupeKey: `agent-reminder:${reminded.id}`,
+      senderRole: 'system',
+      senderName: '回复提醒',
+    })
   }
 }
 

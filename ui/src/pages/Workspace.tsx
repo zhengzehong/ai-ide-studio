@@ -1529,6 +1529,7 @@ function WorkspaceChatPane({
   const [pendingFiles, setPendingFiles] = useState<WorkspacePendingFile[]>([])
   const [sendingPrompt, setSendingPrompt] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
+  const [queuedPromptNotice, setQueuedPromptNotice] = useState(false)
   const [draggingFiles, setDraggingFiles] = useState(false)
   const [showTimeline, setShowTimeline] = useState(false)
   const [showShareModal, setShowShareModal] = useState(false)
@@ -1586,7 +1587,6 @@ function WorkspaceChatPane({
     && !currentSessionCopying
     && !sendingPrompt
     && !pendingFiles.some((file) => file.status === 'uploading')
-    && (!isStreaming || isStopping)
     && (
       !!inputValue.trim()
       || pendingImages.length > 0
@@ -1768,6 +1768,12 @@ function WorkspaceChatPane({
   }, [isStreaming])
 
   useEffect(() => {
+    if (!queuedPromptNotice) return undefined
+    const timer = window.setTimeout(() => setQueuedPromptNotice(false), 2_000)
+    return () => window.clearTimeout(timer)
+  }, [queuedPromptNotice])
+
+  useEffect(() => {
     if (blockingInteraction) requestAnimationFrame(() => scrollToBottom('smooth'))
   }, [blockingInteraction, pendingInteractionId, scrollToBottom])
 
@@ -1798,6 +1804,7 @@ function WorkspaceChatPane({
       .map((file) => file.uploaded)
     if (!canSendPrompt || (!v && !hasImages && uploadedFiles.length === 0) || !currentSessionId) return
     const targetSessionId = currentSessionId
+    const queuesBehindActiveTurn = isStreaming && !isStopping
     stickToBottomRef.current = true
     setSendingPrompt(true)
     setSendError(null)
@@ -1806,6 +1813,7 @@ function WorkspaceChatPane({
         appendWorkspaceFilePaths(v, uploadedFiles),
         hasImages ? pendingImages.map((i) => ({ data: i.data, mimeType: i.mimeType })) : undefined,
       )
+      if (queuesBehindActiveTurn && draftSessionIdRef.current === targetSessionId) setQueuedPromptNotice(true)
       if (draftSessionIdRef.current === targetSessionId) {
         updateInputValue('')
         clearPendingImages()
@@ -2268,6 +2276,11 @@ function WorkspaceChatPane({
             {stopError || sendError || interactionError}
           </div>
         )}
+        {queuedPromptNotice && (
+          <div role="status" aria-live="polite" style={{ color: 'var(--text-3)', fontSize: 13, marginBottom: 8 }}>
+            已排入下一轮
+          </div>
+        )}
         {pendingImages.length > 0 && (
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
             {pendingImages.map((img, i) => (
@@ -2438,8 +2451,7 @@ function WorkspaceChatPane({
                 <Square size={14} fill="var(--red)" />
               </button>
             ) : null}
-            {(!isStreaming || isStopping) && (
-              <button
+            <button
                 type="button"
                 onClick={handleSend}
                 disabled={!canSendPrompt}
@@ -2459,8 +2471,7 @@ function WorkspaceChatPane({
                 }}
               >
                 <ArrowUp size={16} />
-              </button>
-            )}
+            </button>
           </div>
         </div>
       </div>

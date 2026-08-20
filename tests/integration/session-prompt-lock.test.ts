@@ -21,32 +21,91 @@ afterEach(() => {
 })
 
 describe('sessionManager prompt lifecycle', () => {
-  test('同一 Local Session 的并发 prompt 只允许一条进入 ACP', async () => {
+  test('同一 Local Session 的忙碌期间输入合并为一次下一轮 prompt', async () => {
     const agent = agentStore.create({ name: 'Mock', type: 'dev', runtime: 'mock' })
     const session = sessionStore.create({ agentId: agent.id, acpSessionId: 'acp-existing' })
-    let promptResolve!: () => void
-    const promptStarted = new Promise<void>((resolve) => { promptResolve = resolve })
-    let promptCount = 0
+    const gates = [deferred<void>(), deferred<void>()]
+    const prompts: string[] = []
 
     const originalEnsureSession = acpHost.ensureSession
     const originalPrompt = acpHost.prompt
     acpHost.ensureSession = (async () => 'acp-existing') as typeof acpHost.ensureSession
-    acpHost.prompt = (async () => {
-      promptCount += 1
-      await promptStarted
+    acpHost.prompt = (async (_agentId, _sessionId, content) => {
+      prompts.push(content)
+      const index = prompts.length - 1
+      await gates[index]?.promise
     }) as typeof acpHost.prompt
 
     try {
       const first = sessionManager.sendPrompt(session.id, 'first')
-      await expect(sessionManager.sendPrompt(session.id, 'second')).rejects.toThrow('当前会话正在生成中')
-      promptResolve()
-      await first
+      await waitUntil(() => prompts.length === 1)
 
-      expect(promptCount).toBe(1)
+      const user = sessionManager.sendPrompt(session.id, 'user follow-up')
+      const agentMessage = sessionManager.enqueuePrompt(session.id, 'agent follow-up')
+      const firstRule = sessionManager.enqueuePrompt(session.id, 'scheduled first', undefined, { dedupeKey: 'rule:daily' })
+      const latestRule = sessionManager.enqueuePrompt(session.id, 'scheduled latest', undefined, { dedupeKey: 'rule:daily' })
+
+      gates[0].resolve()
+      await waitUntil(() => prompts.length === 2)
+
+      expect(prompts).toEqual([
+        'first',
+        expect.stringContaining('user follow-up'),
+      ])
+      expect(prompts[1]).toContain('agent follow-up')
+      expect(prompts[1]).toContain('scheduled latest')
+      expect(prompts[1]).not.toContain('scheduled first')
+
+      gates[1].resolve()
+      await Promise.all([first, user, agentMessage, firstRule, latestRule])
+
       const userEvents = eventStore.list(session.id).filter(event => event.type === 'message.user')
-      expect(userEvents).toHaveLength(1)
-      expect(JSON.parse(userEvents[0].payload_json).content).toBe('first')
+      expect(userEvents).toHaveLength(4)
+      expect(userEvents.map((event) => JSON.parse(event.payload_json).content)).toEqual([
+        'first',
+        'user follow-up',
+        'agent follow-up',
+        'scheduled latest',
+      ])
     } finally {
+      gates.forEach((gate) => gate.resolve())
+      acpHost.ensureSession = originalEnsureSession
+      acpHost.prompt = originalPrompt
+    }
+  })
+
+  test('批次开始后到达的新输入进入下一次 prompt', async () => {
+    const agent = agentStore.create({ name: 'Mock', type: 'dev', runtime: 'mock' })
+    const session = sessionStore.create({ agentId: agent.id, acpSessionId: 'acp-existing' })
+    const gates = [deferred<void>(), deferred<void>(), deferred<void>()]
+    const prompts: string[] = []
+    const originalEnsureSession = acpHost.ensureSession
+    const originalPrompt = acpHost.prompt
+    acpHost.ensureSession = (async () => 'acp-existing') as typeof acpHost.ensureSession
+    acpHost.prompt = (async (_agentId, _sessionId, content) => {
+      prompts.push(content)
+      await gates[prompts.length - 1]?.promise
+    }) as typeof acpHost.prompt
+
+    try {
+      const first = sessionManager.sendPrompt(session.id, 'first')
+      await waitUntil(() => prompts.length === 1)
+      const second = sessionManager.enqueuePrompt(session.id, 'second')
+
+      gates[0].resolve()
+      await waitUntil(() => prompts.length === 2)
+      const third = sessionManager.enqueuePrompt(session.id, 'third')
+
+      gates[1].resolve()
+      await waitUntil(() => prompts.length === 3)
+      expect(prompts[1]).toContain('second')
+      expect(prompts[1]).not.toContain('third')
+      expect(prompts[2]).toBe('third')
+
+      gates[2].resolve()
+      await Promise.all([first, second, third])
+    } finally {
+      gates.forEach((gate) => gate.resolve())
       acpHost.ensureSession = originalEnsureSession
       acpHost.prompt = originalPrompt
     }
@@ -74,3 +133,17 @@ describe('sessionManager prompt lifecycle', () => {
     await expect(sessionManager.enqueuePrompt(session.id, 'hello')).rejects.toThrow('模板会话不能直接发送消息')
   })
 })
+
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolvePromise!: (value: T) => void
+  const promise = new Promise<T>((resolve) => { resolvePromise = resolve })
+  return { promise, resolve: resolvePromise }
+}
+
+async function waitUntil(predicate: () => boolean, timeoutMs = 500): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error('Timed out waiting for prompt')
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 5))
+  }
+}
