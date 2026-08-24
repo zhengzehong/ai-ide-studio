@@ -66,6 +66,13 @@ describe('project route memory', () => {
       .toBe('/p/project-a/secretary')
   })
 
+  test('keeps the project inspiration route instead of falling back to workspace', () => {
+    expect(normalizeProjectLocation({ pathname: '/inspiration', search: '', hash: '' }))
+      .toEqual({ pathname: '/inspiration', search: '', hash: '' })
+    expect(buildProjectPath('project-a', { pathname: '/inspiration', search: '', hash: '' }))
+      .toBe('/p/project-a/inspiration')
+  })
+
   test('removes only the target project memory', () => {
     rememberProjectLocation('project-a', { pathname: '/tasks', search: '', hash: '' }, storage)
     rememberProjectLocation('project-b', { pathname: '/events', search: '', hash: '' }, storage)
