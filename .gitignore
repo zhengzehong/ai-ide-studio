@@ -23,7 +23,26 @@ electron/dist/
 .playwright-mcp/
 code-reviews/
 .tmp/
+.tmp-*
 references/
+.agent-loop/
+.claude/
+
+# Local databases and runtime copies
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db
+*.db-shm
+*.db-wal
+*.tmp
+*.b64
+*.traineddata
+
+# Root-level screenshots and browser artifacts
+/*.png
+/*.jpg
+/*.jpeg
 team-ui-smoke.png
 *.tsbuildinfo
 
