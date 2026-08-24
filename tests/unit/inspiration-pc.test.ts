@@ -62,9 +62,12 @@ describe('PC inspiration workbench', () => {
   test('registers the project route and navigation entry without touching mobile', () => {
     const app = readFileSync(resolve('ui/src/App.tsx'), 'utf8')
     const layout = readFileSync(resolve('ui/src/components/layout/AppLayout.tsx'), 'utf8')
+    const page = readFileSync(resolve('ui/src/pages/Inspiration.tsx'), 'utf8')
 
     expect(app).toContain('<Route path="inspiration" element={<Inspiration />} />')
     expect(layout).toContain("{ to: '/inspiration', icon: Lightbulb, label: '灵感' }")
+    expect(page).toContain('const allAgents = useAgentStore((state) => state.agents)')
+    expect(page).toContain('() => allAgents.filter((agent) => agent.project_id === projectId && !agent.hidden_at)')
   })
 })
 

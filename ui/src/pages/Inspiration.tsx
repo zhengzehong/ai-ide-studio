@@ -19,7 +19,11 @@ export function Inspiration() {
   const projectId = useProjectScopeId()
   const navigate = useNavigate()
   const { toProjectPath } = useProjectNavigation()
-  const agents = useAgentStore((state) => state.agents.filter((agent) => agent.project_id === projectId && !agent.hidden_at))
+  const allAgents = useAgentStore((state) => state.agents)
+  const agents = useMemo(
+    () => allAgents.filter((agent) => agent.project_id === projectId && !agent.hidden_at),
+    [allAgents, projectId],
+  )
   const fetchAgents = useAgentStore((state) => state.fetchAgents)
   const inspirationProjectId = useInspirationStore((state) => state.projectId)
   const config = useInspirationStore((state) => state.config)
