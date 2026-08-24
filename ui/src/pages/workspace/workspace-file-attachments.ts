@@ -1,5 +1,16 @@
 export const MAX_WORKSPACE_FILES = 10
 
+interface WorkspaceCryptoSource {
+  randomUUID?: () => string
+}
+
+export function createWorkspaceFileLocalId(
+  cryptoSource: WorkspaceCryptoSource | undefined = typeof crypto === 'undefined' ? undefined : crypto,
+): string {
+  if (typeof cryptoSource?.randomUUID === 'function') return `file-${cryptoSource.randomUUID()}`
+  return `file-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+}
+
 export interface WorkspaceUploadedFile {
   id: string
   name: string

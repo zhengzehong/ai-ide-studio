@@ -122,6 +122,7 @@ import { createSessionDraftStore, type WorkspacePendingImage } from './workspace
 import { WorkspaceFileAttachmentList } from './workspace/WorkspaceFileAttachmentList'
 import {
   appendWorkspaceFilePaths,
+  createWorkspaceFileLocalId,
   MAX_WORKSPACE_FILES,
   partitionWorkspaceFiles,
   type WorkspacePendingFile,
@@ -1884,7 +1885,7 @@ function WorkspaceChatPane({
       setSendError(`每条消息最多上传 ${MAX_WORKSPACE_FILES} 个普通文件`)
     }
     for (const file of accepted) {
-      const localId = crypto.randomUUID()
+      const localId = createWorkspaceFileLocalId()
       updateFilesForSession(targetSessionId, (current) => [
         ...current,
         { localId, name: file.name, size: file.size, status: 'uploading' },

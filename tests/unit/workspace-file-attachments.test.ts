@@ -1,11 +1,20 @@
 import { describe, expect, test } from 'vitest'
 import {
   appendWorkspaceFilePaths,
+  createWorkspaceFileLocalId,
   partitionWorkspaceFiles,
   type WorkspaceUploadedFile,
 } from '../../ui/src/pages/workspace/workspace-file-attachments.ts'
 
 describe('Workspace file attachments', () => {
+  test('creates local ids with randomUUID when the browser supports it', () => {
+    expect(createWorkspaceFileLocalId({ randomUUID: () => 'uuid-1' })).toBe('file-uuid-1')
+  })
+
+  test('creates local ids in non-secure HTTP contexts without randomUUID', () => {
+    expect(createWorkspaceFileLocalId({})).toMatch(/^file-[a-z0-9]+-[a-z0-9]+$/)
+  })
+
   test('keeps images on the existing image path and separates regular files', () => {
     const image = { type: 'image/png', name: 'screen.png' } as File
     const document = { type: 'application/pdf', name: 'spec.pdf' } as File
