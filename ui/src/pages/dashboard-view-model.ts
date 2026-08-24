@@ -209,7 +209,7 @@ export function filterDashboardTasks(
     if (filter.status === 'all') return true
     if (filter.status === 'draft') return task.status === 'draft'
     if (filter.status === 'active') return task.status === 'running' || task.status === 'planning'
-    if (filter.status === 'needs_attention') return task.status === 'blocked' || task.status === 'reviewing'
+    if (filter.status === 'needs_attention') return task.status === 'needs_input' || task.status === 'blocked' || task.status === 'reviewing'
     if (filter.status === 'done') return task.status === 'completed' || task.status === 'cancelled'
     return true
   })

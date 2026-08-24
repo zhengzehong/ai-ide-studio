@@ -164,10 +164,11 @@ describe('dashboard tab selectors', () => {
       task('task-a', 'project-a', 'running'),
       task('task-b', 'project-a', 'completed'),
       task('task-c', 'project-b', 'blocked'),
+      task('task-d', 'project-a', 'needs_input'),
     ]
 
     expect(filterDashboardTasks(tasks, { status: 'active', projectId: 'project-a' }).map((item) => item.id)).toEqual(['task-a'])
-    expect(filterDashboardTasks(tasks, { status: 'needs_attention', projectId: 'all' }).map((item) => item.id)).toEqual(['task-c'])
+    expect(filterDashboardTasks(tasks, { status: 'needs_attention', projectId: 'all' }).map((item) => item.id)).toEqual(['task-c', 'task-d'])
   })
 
   test('filters event rows by status and project filter', () => {
