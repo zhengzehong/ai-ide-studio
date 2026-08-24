@@ -11,7 +11,9 @@ export const taskStepIntentValidator = {
 
     const task = taskStore.get(intent.taskId)
     if (!task) return { valid: false, reason: 'task-not-found' }
-    if (task.status !== 'running') return { valid: false, reason: `task-${task.status}` }
+    if (task.status === 'completed' || task.status === 'cancelled') {
+      return { valid: false, reason: `task-${task.status}` }
+    }
 
     const step = taskStepStore.get(intent.stepId)
     if (!step || step.task_id !== task.id) return { valid: false, reason: 'step-not-found' }
