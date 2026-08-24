@@ -37,12 +37,14 @@ import type { StoredImageAttachment } from './image-attachments.js'
 import { sessionShareManager } from './session-share-manager.js'
 import { sessionPersistencePort } from './persistence/session-persistence-port.js'
 import { SessionPromptBatcher } from './session-prompt-batcher.js'
+import type { PromptIntent } from './prompt-intent.js'
+import { validatePromptIntent } from './task-step-intent-validator.js'
 
 const log = createChildLogger('session')
 
 const pendingBySession = new Map<string, PendingTurn>()
 const activePrompts = new Set<string>()
-const promptBatcher = new SessionPromptBatcher<QueuedPrompt>()
+const promptBatcher = new SessionPromptBatcher<QueuedPrompt>(filterPromptIntents)
 const copyingSourceSessions = new Set<string>()
 const eventBatcher = new SessionUpdateBatcher()
 const persistenceBySession = new Map<string, Promise<void>>()
@@ -55,6 +57,7 @@ interface PromptOptions {
   senderId?: string | null
   senderName?: string | null
   dedupeKey?: string
+  intent?: PromptIntent
 }
 
 interface QueuedPrompt {
@@ -63,6 +66,7 @@ interface QueuedPrompt {
   options: PromptOptions
   projectId?: string
   source: 'user' | 'platform'
+  intent?: PromptIntent
 }
 const COPYING_STAGE = '正在复制会话...'
 
@@ -428,10 +432,26 @@ function enqueueSessionPrompt(
   const completion = promptBatcher.enqueue(session.id, {
     batchKey: projectId ?? '__default__',
     dedupeKey: options.dedupeKey ?? (options.clientMessageId ? `message:${options.clientMessageId}` : undefined),
-    value: { content, images, options, projectId, source },
+    value: { content, images, options, projectId, source, intent: options.intent },
   })
   schedulePromptBatchDrain(session.id)
   return completion
+}
+
+async function filterPromptIntents(_sessionId: string, entries: QueuedPrompt[]): Promise<QueuedPrompt[]> {
+  const valid: QueuedPrompt[] = []
+  for (const entry of entries) {
+    const validation = await validatePromptIntent(entry.intent)
+    if (validation.valid) {
+      valid.push(entry)
+      continue
+    }
+    log.info(
+      { intent: entry.intent, reason: validation.reason },
+      'stale prompt intent skipped before ACP send',
+    )
+  }
+  return valid
 }
 
 function schedulePromptBatchDrain(sessionId: string): void {

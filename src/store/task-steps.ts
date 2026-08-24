@@ -160,6 +160,21 @@ export const taskStepStore = {
       .run(status, nextStage, new Date().toISOString(), stepId)
   },
 
+  claimReady(stepId: string, sessionId: string): boolean {
+    const result = getDb()
+      .prepare(
+        `UPDATE task_steps
+         SET status = 'running',
+             session_id = CASE WHEN session_id IS NULL THEN ? ELSE session_id END,
+             updated_at = ?
+         WHERE id = ?
+           AND status = 'ready'
+           AND (session_id IS NULL OR session_id = ?)`
+      )
+      .run(sessionId, new Date().toISOString(), stepId, sessionId)
+    return result.changes === 1
+  },
+
   updateStage(stepId: string, stage: string): void {
     const existing = this.get(stepId)
     if (!existing) return

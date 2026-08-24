@@ -66,4 +66,23 @@ describe('step dispatch prompt rejection', () => {
       process.off('unhandledRejection', onUnhandled)
     }
   })
+
+  test('claims a ready step only once when dispatch is repeated', async () => {
+    const project = projectStore.create({ name: 'Project', workDir: root })
+    const assignee = agentStore.create({
+      name: 'Developer', type: 'developer', runtime: 'mock', projectId: project.id,
+    })
+    const task = taskStore.create({ title: 'Task', description: 'Run work', projectId: project.id })
+    const added = taskStepManager.addStep({ taskId: task.id, title: 'Implement', assignee: assignee.id })
+    taskStore.updateStatus(task.id, 'running', 'Started')
+    taskStepStore.updateStatus(added.step.id, 'ready')
+    vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue(undefined)
+
+    const first = await dispatchStep(task.id, added.step.id)
+    const second = await dispatchStep(task.id, added.step.id)
+
+    expect(first.dispatched).toBe(true)
+    expect(second.dispatched).toBe(false)
+    expect(taskStepStore.get(added.step.id)?.status).toBe('running')
+  })
 })
