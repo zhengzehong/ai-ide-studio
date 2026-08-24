@@ -39,6 +39,12 @@ export const useConnectionStore = create<ConnectionStore>((set) => ({
   init: () => {
     if (initialized) return
     initialized = true
+    const isGuest = Boolean(readGuestShareTokenFromLocation())
+    const storedToken = getStoredAccessToken()
+    const token = isGuest ? storedToken.trim() : resolveInitialAccessToken(window.location, storedToken)
+    if (!isGuest) storeAccessToken(token)
+    set({ token, authMode: isGuest ? 'guest' : 'owner' })
+
     connectionClient.on('connection', (msg) => {
       const connected = msg.connected as boolean
       if (connected) {
@@ -54,7 +60,7 @@ export const useConnectionStore = create<ConnectionStore>((set) => ({
 
       set({ connected: false })
     })
-    connectionClient.connect(() => resolveRealtimeWsUrl())
+    connectionClient.connect(() => resolveRealtimeWsUrl(window.location, isGuest ? undefined : token))
   },
   saveToken: (token) => {
     const nextToken = token.trim()
@@ -106,6 +112,11 @@ function readShareTokenFromPath(loc: Location): string | null {
 export function getStoredAccessToken(): string {
   if (typeof localStorage === 'undefined') return ''
   return localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY) ?? ''
+}
+
+export function resolveInitialAccessToken(location: Location, storedToken: string): string {
+  const urlToken = new URLSearchParams(location.search).get('token')?.trim()
+  return urlToken || storedToken.trim()
 }
 
 export function storeAccessToken(token: string): void {
