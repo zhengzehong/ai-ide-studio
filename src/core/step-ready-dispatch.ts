@@ -22,8 +22,8 @@ export async function dispatchReadySteps(taskId: string, stepIds: string[]): Pro
     const step = taskStepStore.get(stepId)
     if (!step || step.task_id !== taskId || step.status !== 'ready' || !step.assignee_agent_id) continue
     try {
-      await dispatchStep(taskId, stepId)
-      dispatchedSteps.push(stepId)
+      const result = await dispatchStep(taskId, stepId)
+      if (result.dispatched) dispatchedSteps.push(stepId)
     } catch (err) {
       const failureMessage = err instanceof Error ? err.message : String(err)
       markStepDispatchFailed(taskId, stepId, err, failureMessage)

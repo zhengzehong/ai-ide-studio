@@ -64,7 +64,9 @@ export class SessionPromptBatcher<T> {
           if (entry.dedupeKey) state.activeByDedupeKey.set(entry.dedupeKey, activeCompletion)
         }
         try {
-          await runBatch(batch.map((entry) => entry.value))
+          const values = batch.map((entry) => entry.value)
+          const validValues = this.filterBatch ? await this.filterBatch(sessionId, values) : values
+          if (validValues.length > 0) await runBatch(validValues)
           for (const entry of batch) entry.completion.resolve()
         } catch (error) {
           for (const entry of batch) entry.completion.reject(error)
@@ -81,6 +83,8 @@ export class SessionPromptBatcher<T> {
       if (state.pending.length === 0 && state.activeByDedupeKey.size === 0) this.states.delete(sessionId)
     }
   }
+
+  constructor(private readonly filterBatch?: (sessionId: string, values: T[]) => Promise<T[]>) {}
 
   private getState(sessionId: string): PromptBatchState<T> {
     const existing = this.states.get(sessionId)

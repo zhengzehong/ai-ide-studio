@@ -7,6 +7,7 @@ import { events } from './events.js'
 import { emitTaskLifecycleEvent } from './task-lifecycle-events.js'
 import { buildStepPrompt } from './step-prompt.js'
 import { createChildLogger } from './logger.js'
+import type { PromptIntent } from './prompt-intent.js'
 
 const log = createChildLogger('step-dispatch')
 
@@ -14,6 +15,7 @@ export interface DispatchStepResult {
   stepId: string
   sessionId: string
   reused: boolean
+  dispatched: boolean
 }
 
 export async function resolveStepSession(
@@ -48,7 +50,18 @@ export async function dispatchStep(taskId: string, stepId: string): Promise<Disp
   if (task.status !== 'running') throw new Error(`任务非 running 状态,不能派发步骤: ${task.status}`)
   const step = taskStepStore.get(stepId)
   if (!step || step.task_id !== taskId) throw new Error(`步骤不存在: ${stepId}`)
-  if (step.status !== 'ready') throw new Error(`步骤非 ready 状态,不能派发: ${step.status}`)
+  if (step.status !== 'ready') {
+    if (step.status === 'running' || step.status === 'done') {
+      log.info({ taskId, stepId, sessionId: step.session_id, status: step.status }, 'step dispatch skipped because it is no longer ready')
+      return {
+        stepId,
+        sessionId: step.session_id ?? '',
+        reused: true,
+        dispatched: false,
+      }
+    }
+    throw new Error(`步骤非 ready 状态,不能派发: ${step.status}`)
+  }
   if (!step.assignee_agent_id) throw new Error('步骤未指派 Agent,不能派发')
 
   const agent = agentStore.get(step.assignee_agent_id)
@@ -58,14 +71,28 @@ export async function dispatchStep(taskId: string, stepId: string): Promise<Disp
   }
 
   const session = await resolveStepSession(task, step)
-  taskStepStore.updateStatus(stepId, 'running')
-  taskStepStore.setSessionId(stepId, session.id)
+  const claimed = taskStepStore.claimReady(stepId, session.id)
+  if (!claimed) {
+    log.info({ taskId, stepId, sessionId: session.id }, 'step dispatch skipped because claim was lost')
+    return { stepId, sessionId: session.id, reused: session.reuse, dispatched: false }
+  }
   taskStore.linkSession(taskId, session.id)
 
   // A ready step is a new execution unit. Only createSimple's initial self-claimed
   // step skips injection, and that path never calls dispatchStep.
   const prompt = buildStepPrompt(taskId, stepId)
-  const queued = sessionManager.enqueuePrompt(session.id, prompt)
+  const intent: PromptIntent = {
+    source: 'task-step',
+    dedupeKey: `task-step:${taskId}:${stepId}:${session.id}`,
+    taskId,
+    stepId,
+    sessionId: session.id,
+  }
+  const queued = sessionManager.enqueuePrompt(session.id, prompt, undefined, {
+    contextProjectId: task.project_id ?? undefined,
+    dedupeKey: intent.dedupeKey,
+    intent,
+  })
   void queued.catch((err: Error) => {
     log.error({ err, taskId, stepId, sessionId: session.id }, 'step dispatch prompt failed')
     taskStepStore.updateStatus(stepId, 'ready')
@@ -78,5 +105,5 @@ export async function dispatchStep(taskId: string, stepId: string): Promise<Disp
   })
 
   log.info({ taskId, stepId, sessionId: session.id, reuse: session.reuse }, 'step dispatched')
-  return { stepId, sessionId: session.id, reused: session.reuse }
+  return { stepId, sessionId: session.id, reused: session.reuse, dispatched: true }
 }

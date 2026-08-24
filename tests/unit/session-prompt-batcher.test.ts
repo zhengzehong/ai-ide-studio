@@ -74,6 +74,21 @@ describe('SessionPromptBatcher', () => {
     await expect(second).resolves.toBeUndefined()
     expect(seen).toEqual([['failed'], ['next']])
   })
+
+  test('filters stale entries before running a batch', async () => {
+    const seen: string[][] = []
+    const batcher = new SessionPromptBatcher<string>(async (_sessionId, entries) =>
+      entries.filter((entry) => entry !== 'stale'))
+    const stale = batcher.enqueue('session-1', { batchKey: 'project-a', value: 'stale' })
+    const current = batcher.enqueue('session-1', { batchKey: 'project-a', value: 'current' })
+
+    await batcher.flush('session-1', async (entries) => {
+      seen.push(entries)
+    })
+
+    await Promise.all([stale, current])
+    expect(seen).toEqual([['current']])
+  })
 })
 
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
