@@ -2,6 +2,7 @@ export const PROJECT_LOCATION_STORAGE_KEY = 'ai-ide-project-last-locations-v1'
 
 export const PROJECT_ROUTE_PATHS = [
   '/workspace',
+  '/inspiration',
   '/autonomy',
   '/tasks',
   '/tasks/modes',
