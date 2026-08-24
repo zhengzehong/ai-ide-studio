@@ -50,6 +50,7 @@ function resetStore(): void {
 describe('mobile connection store', () => {
   beforeEach(() => {
     vi.useFakeTimers()
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('offline') }))
     resetStore()
   })
 
