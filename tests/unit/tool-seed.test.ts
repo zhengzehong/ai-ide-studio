@@ -112,6 +112,7 @@ describe('builtin tool seed synchronization', () => {
       'event.subscription.create',
       'files.present',
       'get_memory',
+      'inspiration.analysis.publish',
       'list_memory',
       'preview.publish',
       'recall_memory',
@@ -348,6 +349,19 @@ describe('builtin tool seed synchronization', () => {
     expect(properties.title).toMatchObject({ type: 'string' })
     expect(properties.files).toMatchObject({ type: 'array', minItems: 1, maxItems: 20 })
     expect(schema.required).toEqual(['files'])
+  })
+
+  test('registers inspiration.analysis.publish as a global builtin tool', () => {
+    seedBuiltinTools()
+    const tool = toolStore.getByName('inspiration.analysis.publish')
+    expect(tool).toBeDefined()
+    expect(tool?.is_builtin).toBe(1)
+    expect(tool?.type).toBe('builtin')
+    expect(tool?.category).toBe('data')
+    const config = tool?.config_json ? (JSON.parse(tool.config_json) as Record<string, unknown>) : {}
+    expect(config.handler).toBe('inspiration.analysis.publish')
+    const schema = tool?.input_schema_json ? (JSON.parse(tool.input_schema_json) as Record<string, unknown>) : {}
+    expect(schema.required).toEqual(['noteId', 'expectedRevision', 'summary', 'bodyMarkdown', 'questions', 'candidates'])
   })
 
   test('registers core.session.template.* as global builtin tools', () => {

@@ -39,6 +39,7 @@ export type AppEvents = {
   'knowledge-base:update': Record<string, unknown>
   'autonomy:update': { agentId: string; projectId: string }
   'secretary:update': { projectId: string }
+  'inspiration:update': { projectId: string; noteId?: string }
 }
 
 const mitt = mittModule as unknown as typeof import('mitt').default

@@ -115,6 +115,7 @@ import {
 import { agentWakeMeHandler } from './agent-wake-me-tools.js'
 import { previewPublishHandler } from './preview-publish.js'
 import { filesPresentHandler } from './files-present.js'
+import { inspirationAnalysisPublishHandler } from './inspiration-analysis-publish.js'
 import {
   agentHubConnectHandler,
   agentHubDisconnectHandler,
@@ -235,6 +236,7 @@ register(agentTaskWatchCancelHandler)
 register(agentWakeMeHandler)
 register(previewPublishHandler)
 register(filesPresentHandler)
+register(inspirationAnalysisPublishHandler)
 register(agentHubConnectHandler)
 register(agentHubDisconnectHandler)
 register(agentHubListHandler)

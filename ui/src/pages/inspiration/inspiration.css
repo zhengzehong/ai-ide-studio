@@ -1,0 +1,722 @@
+:root {
+  --inspiration-brand: #0f8f83;
+  --inspiration-brand-dark: #0a6d65;
+  --inspiration-soft: #e6f5f2;
+  --inspiration-line: #dce6e3;
+  --inspiration-muted: #657a74;
+  --inspiration-blue: #3169a8;
+  --inspiration-blue-soft: #ebf3fb;
+  --inspiration-amber: #94620b;
+  --inspiration-red: #b33b36;
+}
+.inspiration-page {
+  height: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-0);
+  color: var(--text-1);
+  overflow: hidden;
+}
+.inspiration-page button,
+.inspiration-page input,
+.inspiration-page textarea,
+.inspiration-page select {
+  font: inherit;
+}
+.inspiration-page-header {
+  min-height: 66px;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-shrink: 0;
+}
+.inspiration-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.inspiration-heading > span {
+  width: 34px;
+  height: 34px;
+  border-radius: 7px;
+  background: var(--inspiration-soft);
+  color: var(--inspiration-brand-dark);
+  display: grid;
+  place-items: center;
+}
+.inspiration-heading h1 {
+  font-size: 17px;
+  margin: 0;
+}
+.inspiration-heading p {
+  font-size: 11px;
+  color: var(--text-3);
+  margin: 1px 0 0;
+}
+.inspiration-header-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.inspiration-notice {
+  font-size: 11px;
+  color: var(--inspiration-brand-dark);
+  max-width: 240px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.inspiration-primary,
+.inspiration-secondary,
+.inspiration-icon-button {
+  min-height: 33px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+  transition:
+    background 0.16s,
+    border-color 0.16s,
+    color 0.16s;
+}
+.inspiration-primary {
+  padding: 0 11px;
+  border: 1px solid var(--inspiration-brand);
+  background: var(--inspiration-brand);
+  color: #fff;
+}
+.inspiration-primary:hover {
+  background: var(--inspiration-brand-dark);
+  border-color: var(--inspiration-brand-dark);
+}
+.inspiration-secondary {
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-0);
+  color: var(--text-1);
+}
+.inspiration-secondary:hover,
+.inspiration-icon-button:hover {
+  background: var(--bg-2);
+  border-color: var(--border-strong);
+}
+.inspiration-primary:disabled,
+.inspiration-secondary:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+.inspiration-icon-button {
+  width: 33px;
+  padding: 0;
+  border: 1px solid var(--border);
+  background: var(--bg-0);
+  color: var(--text-3);
+}
+.inspiration-icon-button.danger:hover {
+  color: var(--inspiration-red);
+  border-color: #e5aaa6;
+  background: #fff5f4;
+}
+.inspiration-error {
+  padding: 8px 18px;
+  background: #fff0ef;
+  color: var(--inspiration-red);
+  font-size: 12px;
+  border-bottom: 1px solid #f1c3bf;
+}
+.inspiration-workbench {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(390px, 46%) minmax(0, 1fr);
+}
+.inspiration-list-pane {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  background: var(--bg-0);
+}
+.inspiration-list-tools {
+  padding: 10px 12px;
+  display: flex;
+  gap: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.inspiration-search {
+  height: 34px;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-1);
+  color: var(--text-3);
+}
+.inspiration-search:focus-within {
+  border-color: #71bdb5;
+}
+.inspiration-search input {
+  width: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text-1);
+}
+.inspiration-list-scroll {
+  flex: 1;
+  overflow: auto;
+  padding: 6px 9px 18px;
+}
+.inspiration-day-label {
+  padding: 8px 7px 5px;
+  color: var(--text-3);
+  font-size: 11px;
+  font-weight: 650;
+}
+.inspiration-row {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) 29px;
+  gap: 8px;
+  padding: 10px 8px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+}
+.inspiration-row:hover {
+  background: var(--bg-1);
+}
+.inspiration-row.is-active {
+  background: var(--inspiration-soft);
+  border-color: #a9dcd4;
+}
+.inspiration-row > time {
+  font-size: 11px;
+  color: var(--text-3);
+  padding-top: 2px;
+}
+.inspiration-row-body {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.inspiration-row-body > strong,
+.inspiration-raw {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.inspiration-row-body > strong {
+  font-size: 13px;
+}
+.inspiration-raw {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-3);
+}
+.inspiration-summary {
+  width: 100%;
+  margin-top: 6px;
+  padding: 6px 7px;
+  border: 0;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--inspiration-soft) 55%, var(--bg-0));
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  text-align: left;
+  color: #46625d;
+  cursor: pointer;
+}
+.inspiration-summary:hover {
+  background: var(--inspiration-soft);
+  color: var(--inspiration-brand-dark);
+}
+.inspiration-summary b {
+  font-size: 10px;
+  color: var(--inspiration-brand);
+  padding-top: 1px;
+}
+.inspiration-summary span {
+  font-size: 11px;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.inspiration-state {
+  margin-top: 5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  color: var(--text-3);
+}
+.inspiration-state i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #8b9996;
+}
+.inspiration-state.is-ready i {
+  background: #1c7b49;
+}
+.inspiration-state.is-processing i,
+.inspiration-state.is-queued i {
+  background: var(--inspiration-brand);
+  animation: inspiration-pulse 1.1s infinite;
+}
+.inspiration-state.is-needs_input i {
+  background: var(--inspiration-amber);
+}
+.inspiration-state.is-failed i {
+  background: var(--inspiration-red);
+}
+.inspiration-row .inspiration-icon-button {
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+  border-color: transparent;
+  background: transparent;
+}
+.inspiration-empty-list {
+  padding: 44px 14px;
+  text-align: center;
+  color: var(--text-3);
+  font-size: 12px;
+}
+.inspiration-detail-pane {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  background: var(--bg-0);
+}
+.inspiration-editor {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.inspiration-editor-fields {
+  flex: 1;
+  padding: 24px clamp(24px, 5vw, 72px);
+}
+.inspiration-title-input {
+  width: 100%;
+  padding: 0 0 12px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  outline: 0;
+  background: transparent;
+  color: var(--text-1);
+  font-size: 22px;
+  font-weight: 700;
+}
+.inspiration-editor-fields > textarea {
+  width: 100%;
+  min-height: 360px;
+  margin-top: 18px;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  resize: none;
+  background: transparent;
+  color: var(--text-1);
+  font-size: 14px;
+  line-height: 1.8;
+}
+.inspiration-editor-footer {
+  position: sticky;
+  bottom: 0;
+  min-height: 53px;
+  padding: 9px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-0);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.inspiration-editor-footer > span {
+  font-size: 11px;
+  color: var(--text-3);
+}
+.inspiration-editor-footer .inspiration-primary {
+  margin-left: auto;
+}
+.inspiration-attachments {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+}
+.inspiration-attachments figure {
+  position: relative;
+  height: 100px;
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--bg-2);
+}
+.inspiration-attachments img,
+.inspiration-attachments figure > span {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover;
+}
+.inspiration-attachments figure button {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 25px;
+  height: 25px;
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  border-radius: 5px;
+  background: rgba(20, 35, 32, 0.72);
+  color: #fff;
+  display: grid;
+  place-items: center;
+}
+.inspiration-result {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 30px clamp(24px, 5vw, 72px) 65px;
+}
+.inspiration-result-kicker {
+  font-size: 11px;
+  font-weight: 750;
+  color: var(--inspiration-brand-dark);
+}
+.inspiration-result h1 {
+  font-size: 25px;
+  line-height: 1.3;
+  margin: 5px 0;
+}
+.inspiration-result-meta {
+  font-size: 11px;
+  color: var(--text-3);
+}
+.inspiration-result blockquote {
+  margin: 17px 0 24px;
+  padding: 11px 13px;
+  border-left: 3px solid var(--inspiration-brand);
+  background: var(--inspiration-soft);
+  color: #315f57;
+}
+.inspiration-questions {
+  margin-top: 24px;
+}
+.inspiration-questions h2,
+.inspiration-section-heading h2 {
+  font-size: 16px;
+  margin: 0 0 8px;
+}
+.inspiration-candidate-section {
+  margin-top: 28px;
+  padding-top: 22px;
+  border-top: 1px solid var(--border);
+}
+.inspiration-section-heading {
+  display: flex;
+  align-items: end;
+  gap: 9px;
+}
+.inspiration-section-heading span {
+  font-size: 11px;
+  color: var(--text-3);
+}
+.inspiration-candidate-list {
+  display: grid;
+  gap: 9px;
+  margin-top: 11px;
+}
+.inspiration-candidate {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-0);
+  overflow: hidden;
+}
+.inspiration-candidate-main {
+  padding: 13px 14px 11px;
+}
+.inspiration-candidate-main > small {
+  color: var(--inspiration-brand);
+  font-weight: 750;
+}
+.inspiration-candidate-main h3 {
+  font-size: 14px;
+  margin: 2px 0 5px;
+}
+.inspiration-candidate-main p {
+  font-size: 12px;
+  color: var(--text-2);
+  margin: 0;
+}
+.inspiration-agent {
+  margin-top: 9px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--inspiration-blue);
+}
+.inspiration-agent strong {
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: var(--inspiration-blue-soft);
+}
+.inspiration-agent span {
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.inspiration-candidate-actions {
+  min-height: 43px;
+  padding: 6px 9px 6px 13px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-1);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.inspiration-candidate-actions > span {
+  margin-right: auto;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-3);
+}
+.inspiration-candidate-actions > span.is-created {
+  color: #1c7b49;
+}
+.compact {
+  min-height: 29px;
+  padding: 0 8px;
+  font-size: 11px;
+}
+.inspiration-no-candidates {
+  padding: 18px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  color: var(--text-3);
+  font-size: 12px;
+}
+.inspiration-result-state {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 35px;
+  color: var(--text-3);
+  text-align: center;
+}
+.inspiration-result-state strong {
+  color: var(--text-1);
+  font-size: 14px;
+}
+.inspiration-result-state span {
+  max-width: 430px;
+  font-size: 12px;
+}
+.inspiration-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(19, 35, 32, 0.3);
+  display: flex;
+  justify-content: flex-end;
+}
+.inspiration-task-dialog,
+.inspiration-settings-dialog {
+  width: min(520px, 100%);
+  height: 100%;
+  background: var(--bg-0);
+  box-shadow: 0 12px 32px rgba(24, 50, 45, 0.15);
+  display: flex;
+  flex-direction: column;
+}
+.inspiration-settings-dialog {
+  width: min(600px, calc(100% - 30px));
+  height: auto;
+  max-height: calc(100vh - 50px);
+  margin: 25px auto;
+  border-radius: 8px;
+  align-self: flex-start;
+}
+.inspiration-task-dialog > header,
+.inspiration-settings-dialog > header {
+  min-height: 59px;
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.inspiration-task-dialog > header > div,
+.inspiration-settings-dialog > header > div {
+  min-width: 0;
+}
+.inspiration-task-dialog h2,
+.inspiration-settings-dialog h2 {
+  font-size: 15px;
+  margin: 0;
+}
+.inspiration-task-dialog header span,
+.inspiration-settings-dialog header span {
+  font-size: 11px;
+  color: var(--text-3);
+}
+.inspiration-task-dialog header button,
+.inspiration-settings-dialog header button {
+  margin-left: auto;
+}
+.inspiration-dialog-body {
+  flex: 1;
+  overflow: auto;
+  padding: 18px 20px;
+}
+.inspiration-dialog-body > label {
+  display: block;
+  margin-bottom: 15px;
+}
+.inspiration-dialog-body > label > span {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.inspiration-dialog-body input,
+.inspiration-dialog-body textarea,
+.inspiration-dialog-body select {
+  width: 100%;
+  padding: 8px 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-0);
+  color: var(--text-1);
+  outline: 0;
+}
+.inspiration-dialog-body input:focus,
+.inspiration-dialog-body textarea:focus,
+.inspiration-dialog-body select:focus {
+  border-color: #70bdb4;
+}
+.inspiration-dialog-body textarea {
+  min-height: 185px;
+  resize: vertical;
+  line-height: 1.6;
+}
+.inspiration-dialog-body label small {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-3);
+  font-size: 10px;
+}
+.inspiration-agent-reason,
+.inspiration-session-choice {
+  padding: 9px 10px;
+  border-radius: 6px;
+  background: var(--inspiration-blue-soft);
+  color: #315b7f;
+  font-size: 11px;
+}
+.inspiration-agent-reason strong,
+.inspiration-session-choice strong {
+  display: block;
+  margin-bottom: 2px;
+}
+.inspiration-session-choice {
+  margin-top: 14px;
+  background: var(--inspiration-soft);
+  color: #315f57;
+}
+.inspiration-task-dialog > footer,
+.inspiration-settings-dialog > footer {
+  padding: 10px 15px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: flex-end;
+  gap: 7px;
+}
+.inspiration-toggle {
+  display: flex !important;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.inspiration-toggle input {
+  width: auto;
+  margin-top: 3px;
+}
+.inspiration-toggle span {
+  margin: 0 !important;
+}
+.inspiration-toggle strong,
+.inspiration-toggle small {
+  display: block;
+}
+.inspiration-spin {
+  animation: inspiration-spin 0.9s linear infinite;
+}
+@keyframes inspiration-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes inspiration-pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .inspiration-page * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+@media (max-width: 1050px) {
+  .inspiration-workbench {
+    grid-template-columns: minmax(330px, 43%) minmax(0, 1fr);
+  }
+  .inspiration-heading p {
+    display: none;
+  }
+  .inspiration-notice {
+    display: none;
+  }
+  .inspiration-header-actions .inspiration-secondary {
+    font-size: 0;
+    padding: 0;
+    width: 33px;
+  }
+  .inspiration-header-actions .inspiration-secondary svg {
+    width: 15px;
+    height: 15px;
+  }
+  .inspiration-candidate-actions {
+    flex-wrap: wrap;
+  }
+  .inspiration-candidate-actions > span {
+    width: 100%;
+  }
+}

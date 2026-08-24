@@ -904,6 +904,7 @@ export type ServerMessage =
   | { type: 'knowledge-base:update'; data: Record<string, unknown> }
   | { type: 'autonomy:update'; agentId: string; projectId: string }
   | { type: 'secretary:update'; projectId: string }
+  | { type: 'inspiration:update'; projectId: string; noteId?: string }
   | { type: 'pong'; timestamp: number }
   | { type: 'resume:ack'; cursors: Record<string, RealtimeCursor> }
   | { type: 'resync_required'; sessionId?: string; reason: string }
