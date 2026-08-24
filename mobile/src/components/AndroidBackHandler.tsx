@@ -12,6 +12,7 @@ export type AndroidBackAction =
 export interface AndroidBackSnapshot {
   pathname: string
   serverUrl: string
+  returnTo?: string
   navigate: (to: string, options: { replace: boolean }) => void
   navigateBack: () => void
 }
@@ -22,7 +23,7 @@ interface AndroidBackListenerDeps {
   getSnapshot: () => AndroidBackSnapshot
 }
 
-export function resolveAndroidBackAction(pathname: string, serverUrl: string): AndroidBackAction {
+export function resolveAndroidBackAction(pathname: string, serverUrl: string, returnTo?: string): AndroidBackAction {
   if (/^\/secretary\/[^/]+\/[^/]+$/.test(pathname)) {
     return { type: 'navigate', to: '/secretary' }
   }
@@ -35,7 +36,10 @@ export function resolveAndroidBackAction(pathname: string, serverUrl: string): A
   if (pathname.startsWith('/task/')) {
     return { type: 'navigate', to: '/tasks' }
   }
-  if (pathname.startsWith('/chat/') || pathname.startsWith('/task/') || pathname.startsWith('/preview/') || pathname === '/tasks' || pathname === '/settings') {
+  if (pathname.startsWith('/chat/')) {
+    return { type: 'navigate', to: returnTo === '/pinned' ? '/pinned' : '/' }
+  }
+  if (pathname.startsWith('/task/') || pathname.startsWith('/preview/') || pathname === '/tasks' || pathname === '/settings') {
     return { type: 'navigate', to: '/' }
   }
   if (pathname === '/connect' && serverUrl.trim()) {
@@ -50,7 +54,7 @@ export function registerAndroidBackListener({ addListener, exitApp, getSnapshot 
 
   void addListener('backButton', () => {
     const snapshot = getSnapshot()
-    const action = resolveAndroidBackAction(snapshot.pathname, snapshot.serverUrl)
+    const action = resolveAndroidBackAction(snapshot.pathname, snapshot.serverUrl, snapshot.returnTo)
     if (action.type === 'navigate') {
       snapshot.navigate(action.to, { replace: true })
       return
@@ -78,6 +82,7 @@ export default function AndroidBackHandler() {
   const latestRef = useRef<AndroidBackSnapshot>({
     pathname: location.pathname,
     serverUrl,
+    returnTo: readReturnTo(location.state),
     navigate,
     navigateBack: () => navigate(-1),
   })
@@ -86,10 +91,11 @@ export default function AndroidBackHandler() {
     latestRef.current = {
       pathname: location.pathname,
       serverUrl,
+      returnTo: readReturnTo(location.state),
       navigate,
       navigateBack: () => navigate(-1),
     }
-  }, [location.pathname, navigate, serverUrl])
+  }, [location.pathname, location.state, navigate, serverUrl])
 
   useEffect(() => {
     if (Capacitor.getPlatform() !== 'android') return
@@ -101,4 +107,10 @@ export default function AndroidBackHandler() {
   }, [])
 
   return null
+}
+
+function readReturnTo(state: unknown): string | undefined {
+  if (!state || typeof state !== 'object') return undefined
+  const returnTo = (state as { returnTo?: unknown }).returnTo
+  return returnTo === '/pinned' ? returnTo : undefined
 }
