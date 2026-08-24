@@ -58,6 +58,23 @@ Runtime 可见 patch 不经过 API 事件总线，而是通过 Runtime→Realtim
 
 ## RPC 方法
 
+### 项目灵感
+
+项目灵感 RPC 仅允许 owner 连接调用，所有读写都要求 `projectId`，并校验 Note、Candidate、Agent 和 Session 的项目归属。PC 使用这些方法；移动端首期不提供入口。
+
+| 方法 | 参数 | 返回 | 说明 |
+|------|------|------|------|
+| `inspiration.get` | `{ projectId }` | `{ config, notes }` | 读取项目配置、灵感及当前版本候选任务 |
+| `inspiration.configure` | `{ projectId, organizerAgentId, organizationPrompt?, autoOrganize? }` | `InspirationConfig` | 保存整理设置；缺少有效长期 Session 时创建一个 |
+| `inspiration.session.rebuild` | `{ projectId, organizerAgentId }` | `InspirationConfig` | 更换整理 Agent 时创建新的长期灵感 Session，旧 Session 保留 |
+| `inspiration.note.create` | `{ projectId, title, sourceMarkdown, images? }` | `InspirationNote` | 先保存原文；启用自动整理且已配置时进入队列 |
+| `inspiration.note.update` | `{ projectId, noteId, title, sourceMarkdown, keepAttachmentPaths?, images? }` | `InspirationNote` | 更新原文并推进 revision，旧 AI 结果不能覆盖 |
+| `inspiration.note.get` | `{ projectId, noteId }` | `InspirationNote` | 读取单条灵感及当前候选任务 |
+| `inspiration.note.organize` | `{ projectId, noteId }` | `InspirationNote` | 手动推进 revision 并重新排队 |
+| `inspiration.note.delete` | `{ projectId, noteId }` | `{ deleted, noteId }` | 删除非 processing 灵感及级联候选任务 |
+| `inspiration.candidate.update` | `{ projectId, candidateId, title, descriptionMarkdown, suggestedAgentId? }` | `InspirationNote` | 修改尚未创建或占用的候选任务 |
+| `inspiration.candidate.createTask` | `{ projectId, candidateId, agentId, execute }` | `InspirationNote` | 幂等地只创建 Task 或创建并立即派发 |
+
 ### 文件资源
 
 | 方法 | 参数 | 返回 | 说明 |
@@ -277,6 +294,7 @@ Runtime 可见 patch 不经过 API 事件总线，而是通过 Runtime→Realtim
 | `event-center:update` | `{ eventId?, categoryId?, subscriptionId?, consumptionId?, taskId?, sessionId?, event }` | 事件中心类别、事件、订阅或消费记录变化 |
 | `team:update` | `{ teamId, sessionIds, data }` | Team 成员、任务或 mailbox 变化；前端仅在当前 `sessionId` 属于 `sessionIds` 时刷新 `teams.current`。 |
 | `knowledge-base:update` | `{ projectId?, kbId?, pageId?, event }` | 知识库、页面、挂载或 activity 变化；前端据此刷新当前项目知识库视图 |
+| `inspiration:update` | `{ projectId, noteId? }` | 项目灵感配置、状态、整理结果或候选任务变化；PC 按项目重新读取工作台 |
 | `rule:update` | `{ ruleId, data }` | Rule 状态变更 |
 
 Team 运行时事件：`team.member.spawn` 会广播包含新成员 Session 行的 `session:changed`。`team.member.message` 携带 `taskId` 时，会把 `backlog/planning` 的 Team Task 更新为 `executing`，再广播 `task:update` 与 `team:update`。工作台在当前 Team 匹配 `team:update` 时应刷新项目 agents/sessions/tasks。

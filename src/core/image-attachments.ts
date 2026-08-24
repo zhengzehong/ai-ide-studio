@@ -37,8 +37,14 @@ interface SaveTaskImagesInput {
   images?: ImageAttachment[]
 }
 
+interface SaveInspirationImagesInput {
+  projectId: string
+  noteId: string
+  images?: ImageAttachment[]
+}
+
 interface SaveImagesInput {
-  scope: 'sessions' | 'tasks'
+  scope: 'sessions' | 'tasks' | 'inspirations'
   projectId?: string | null
   ownerParts: string[]
   images?: ImageAttachment[]
@@ -58,6 +64,15 @@ export async function saveTaskImages(input: SaveTaskImagesInput): Promise<Stored
     scope: 'tasks',
     projectId: input.projectId,
     ownerParts: [input.taskId],
+    images: input.images,
+  })
+}
+
+export async function saveInspirationImages(input: SaveInspirationImagesInput): Promise<StoredImageAttachment[]> {
+  return saveImages({
+    scope: 'inspirations',
+    projectId: input.projectId,
+    ownerParts: [input.noteId],
     images: input.images,
   })
 }

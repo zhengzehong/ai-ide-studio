@@ -10,6 +10,7 @@ import {
   EventCenter,
   GuestChatPage,
   KnowledgeBase,
+  Inspiration,
   Projects,
   PinnedSessions,
   Schedule,
@@ -91,6 +92,7 @@ export default function App() {
                 <Route path="agent-memory" element={<AgentMemory />} />
                 <Route path="autonomy" element={<Autonomy />} />
                 <Route path="secretary" element={<Secretary />} />
+                <Route path="inspiration" element={<Inspiration />} />
               </Route>
               <Route path="/workspace" element={<LegacyProjectRedirect subpath="/workspace" />} />
               <Route path="/tasks" element={<LegacyProjectRedirect subpath="/tasks" />} />

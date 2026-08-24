@@ -10,6 +10,7 @@ import { resolveVisiblePlatformTools } from '../../src/tools/registry/visibility
 import { resolveToolsForSession } from '../../src/tools/resolver.js'
 import { seedBuiltinTools } from '../../src/tools/seed.js'
 import { sessionStore } from '../../src/store/sessions.js'
+import { projectInspirationStore } from '../../src/store/project-inspirations.js'
 
 let tmp: string
 
@@ -126,6 +127,28 @@ describe('tool visibility resolver', () => {
       .toContain('studio.secretary.create')
     expect(resolveToolsForSession(agent.id, project.id, runtime.id).map((tool) => tool.definition.name))
       .not.toContain('studio.secretary.create')
+  })
+
+  test('exposes only the publish tool and blocks task mutation inside the inspiration Session', () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const agent = agentStore.create({ type: 'pm', name: 'A', runtime: 'mock', projectId: project.id })
+    seedBuiltinTools()
+    const inspiration = sessionStore.create({ agentId: agent.id, projectId: project.id })
+    const conversation = sessionStore.create({ agentId: agent.id, projectId: project.id })
+    projectInspirationStore.ensure(project.id)
+    projectInspirationStore.update(project.id, { organizerAgentId: agent.id, sessionId: inspiration.id })
+    const names = (sessionId: string) => resolveVisiblePlatformTools({
+      agentId: agent.id,
+      projectId: project.id,
+      sessionId,
+    }).map((tool) => tool.definition.name)
+
+    expect(names(inspiration.id)).toContain('inspiration.analysis.publish')
+    expect(names(inspiration.id)).not.toContain('studio.task.createSimple')
+    expect(names(inspiration.id)).not.toContain('studio.task.create')
+    expect(names(conversation.id)).not.toContain('inspiration.analysis.publish')
+    expect(resolveToolsForSession(agent.id, project.id, inspiration.id).map((tool) => tool.definition.name))
+      .toContain('inspiration.analysis.publish')
   })
 })
 

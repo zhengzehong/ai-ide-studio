@@ -1155,6 +1155,42 @@ const CORE_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
     defaultScope: 'global',
   },
   {
+    name: 'inspiration.analysis.publish',
+    displayName: '发布灵感整理结果',
+    description: '发布当前项目灵感的结构化整理结果。仅项目灵感会话可用，不会创建或派发任务。',
+    category: 'data',
+    type: 'builtin',
+    config: { handler: 'inspiration.analysis.publish' },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        noteId: { type: 'string' },
+        expectedRevision: { type: 'integer', minimum: 1 },
+        summary: { type: 'string' },
+        bodyMarkdown: { type: 'string' },
+        questions: { type: 'array', maxItems: 20, items: { type: 'string' } },
+        candidates: {
+          type: 'array',
+          maxItems: 10,
+          items: {
+            type: 'object',
+            properties: {
+              title: { type: 'string' },
+              descriptionMarkdown: { type: 'string' },
+              suggestedAgentId: { type: 'string' },
+              agentReason: { type: 'string' },
+            },
+            required: ['title', 'descriptionMarkdown'],
+          },
+        },
+      },
+      required: ['noteId', 'expectedRevision', 'summary', 'bodyMarkdown', 'questions', 'candidates'],
+    },
+    permissions: CORE_PERMISSIONS,
+    isBuiltin: true,
+    defaultScope: 'global',
+  },
+  {
     name: 'files.present',
     displayName: '展示交付文件',
     description: '向用户展示一个或多个项目交付文件，支持在 PC 和 APP 会话中点击查看。',

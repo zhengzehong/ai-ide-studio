@@ -62,6 +62,9 @@ describe('SQLite 迁移', () => {
         'project_secretary_observers',
         'project_secretary_runs',
         'project_secretary_triggers',
+        'project_inspirations',
+        'inspiration_notes',
+        'inspiration_candidates',
         'secretary_entries',
         'secretary_threads'
       )
@@ -76,12 +79,15 @@ describe('SQLite 迁移', () => {
       'agent_session_watches',
       'autonomy_reports',
       'global_assistant',
+      'inspiration_candidates',
+      'inspiration_notes',
       'knowledge_activities',
       'knowledge_bases',
       'knowledge_mounts',
       'knowledge_pages',
       'model_profiles',
       'outbox_events',
+      'project_inspirations',
       'project_secretaries',
       'project_secretary_observers',
       'project_secretary_runs',
@@ -109,7 +115,7 @@ describe('SQLite 迁移', () => {
       ORDER BY name
     `).all().map(row => row.name)
 
-    expect(migrations).toEqual(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011', '012', '013', '014', '015', '016', '017', '018', '019', '020', '021', '022', '023', '024', '025', '026', '027', '028', '029', '030', '031', '032', '033', '034', '035', '036', '037', '038', '039', '040', '041', '042', '043', '044', '045', '046', '047', '048', '049', '050', '051'])
+    expect(migrations).toEqual(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011', '012', '013', '014', '015', '016', '017', '018', '019', '020', '021', '022', '023', '024', '025', '026', '027', '028', '029', '030', '031', '032', '033', '034', '035', '036', '037', '038', '039', '040', '041', '042', '043', '044', '045', '046', '047', '048', '049', '050', '051', '052'])
     expect(messageColumns).toContain('file_changes_json')
     expect(messageColumns).toContain('process_item_count')
     expect(messageColumns).toContain('presentations_json')
