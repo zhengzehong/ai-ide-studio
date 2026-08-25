@@ -32,6 +32,7 @@ export interface InspirationNote {
   id: string
   projectId: string
   title: string
+  titleMode: 'auto' | 'manual'
   sourceMarkdown: string
   attachments: ImageAttachmentInfo[]
   status: 'draft' | 'queued' | 'processing' | 'ready' | 'needs_input' | 'failed'
@@ -65,6 +66,7 @@ interface InspirationState {
   saveNote: (input: {
     noteId?: string
     title: string
+    titleMode: 'auto' | 'manual'
     sourceMarkdown: string
     keepAttachmentPaths?: string[]
     images?: PendingInspirationImage[]

@@ -361,7 +361,9 @@ describe('builtin tool seed synchronization', () => {
     const config = tool?.config_json ? (JSON.parse(tool.config_json) as Record<string, unknown>) : {}
     expect(config.handler).toBe('inspiration.analysis.publish')
     const schema = tool?.input_schema_json ? (JSON.parse(tool.input_schema_json) as Record<string, unknown>) : {}
-    expect(schema.required).toEqual(['noteId', 'expectedRevision', 'summary', 'bodyMarkdown', 'questions', 'candidates'])
+    expect(schema.required).toEqual([
+      'noteId', 'expectedRevision', 'analysisAttemptId', 'summary', 'bodyMarkdown', 'questions', 'candidates',
+    ])
   })
 
   test('registers core.session.template.* as global builtin tools', () => {

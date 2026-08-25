@@ -50,6 +50,7 @@ import { agentAutonomyMigration } from './049-agent-autonomy.js'
 import { globalSessionDockMigration } from './050-global-session-dock.js'
 import { projectSecretaryMigration } from './051-project-secretary.js'
 import { projectInspirationMigration } from './052-project-inspiration.js'
+import { inspirationAnalysisFinalizeMigration } from './053-inspiration-analysis-finalize.js'
 import type { Migration } from '../migrator.js'
 
 export const migrations: Migration[] = [
@@ -105,4 +106,5 @@ export const migrations: Migration[] = [
   globalSessionDockMigration,
   projectSecretaryMigration,
   projectInspirationMigration,
+  inspirationAnalysisFinalizeMigration,
 ]

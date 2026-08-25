@@ -76,6 +76,7 @@ function noteFixture(): InspirationNote {
     id: 'note-1',
     projectId: 'project-1',
     title: 'Agent 默认选择与偏好恢复',
+    titleMode: 'manual',
     sourceMarkdown: '默认选中轻量级研发智能体。',
     attachments: [],
     status: 'ready',

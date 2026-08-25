@@ -1,5 +1,6 @@
 import { ImagePlus, Save, X } from 'lucide-react'
 import { useMemo, useRef, useState } from 'react'
+import { deriveInspirationTitle } from '../../../../src/shared/inspiration-title'
 import { AuthenticatedImage } from '../../components/chat/AuthenticatedImage'
 import type { InspirationNote, PendingInspirationImage } from '../../stores/inspiration.store'
 
@@ -8,6 +9,7 @@ interface InspirationEditorProps {
   saving: boolean
   onSave: (input: {
     title: string
+    titleMode: 'auto' | 'manual'
     sourceMarkdown: string
     keepAttachmentPaths: string[]
     images: PendingInspirationImage[]
@@ -15,7 +17,8 @@ interface InspirationEditorProps {
 }
 
 export function InspirationEditor({ note, saving, onSave }: InspirationEditorProps) {
-  const [title, setTitle] = useState(note?.title ?? defaultTitle())
+  const [title, setTitle] = useState(note?.title ?? '')
+  const [titleMode, setTitleMode] = useState<'auto' | 'manual'>(note?.titleMode ?? 'auto')
   const [sourceMarkdown, setSourceMarkdown] = useState(note?.sourceMarkdown ?? '')
   const [keptPaths, setKeptPaths] = useState<string[]>(
     note?.attachments.flatMap((item) => item.relativePath ? [item.relativePath] : []) ?? [],
@@ -27,7 +30,22 @@ export function InspirationEditor({ note, saving, onSave }: InspirationEditorPro
     () => note?.attachments.filter((item) => item.relativePath && keptPaths.includes(item.relativePath)) ?? [],
     [keptPaths, note?.attachments],
   )
-  const canSave = title.trim().length > 0 && sourceMarkdown.trim().length > 0 && !saving
+  const canSave = sourceMarkdown.trim().length > 0 && !saving
+
+  const changeSourceMarkdown = (value: string): void => {
+    setSourceMarkdown(value)
+    if (titleMode === 'auto') setTitle(deriveInspirationTitle(value))
+  }
+
+  const changeTitle = (value: string): void => {
+    if (!value.trim()) {
+      setTitleMode('auto')
+      setTitle(deriveInspirationTitle(sourceMarkdown))
+      return
+    }
+    setTitleMode('manual')
+    setTitle(value)
+  }
 
   const chooseImages = async (files: FileList | null): Promise<void> => {
     if (!files) return
@@ -39,10 +57,17 @@ export function InspirationEditor({ note, saving, onSave }: InspirationEditorPro
   return (
     <section className="inspiration-editor">
       <div className="inspiration-editor-fields">
-        <input className="inspiration-title-input" value={title} onChange={(event) => setTitle(event.target.value)} maxLength={160} aria-label="灵感标题" />
+        <input
+          className="inspiration-title-input"
+          value={title}
+          onChange={(event) => changeTitle(event.target.value)}
+          maxLength={160}
+          placeholder="自动使用正文前 60 个字符"
+          aria-label="灵感标题"
+        />
         <textarea
           value={sourceMarkdown}
-          onChange={(event) => setSourceMarkdown(event.target.value)}
+          onChange={(event) => changeSourceMarkdown(event.target.value)}
           placeholder="直接记录想到的内容，支持 Markdown；图片可粘贴后通过附件按钮加入。"
           maxLength={50_000}
           aria-label="灵感内容"
@@ -68,7 +93,7 @@ export function InspirationEditor({ note, saving, onSave }: InspirationEditorPro
         <input ref={fileInput} type="file" accept="image/*" multiple hidden onChange={(event) => void chooseImages(event.target.files)} />
         <button type="button" className="inspiration-secondary" onClick={() => fileInput.current?.click()}><ImagePlus size={15} />添加图片</button>
         <span>原文先保存，AI 整理失败不会丢失记录</span>
-        <button type="button" className="inspiration-primary" disabled={!canSave} onClick={() => void onSave({ title: title.trim(), sourceMarkdown: sourceMarkdown.trim(), keepAttachmentPaths: keptPaths, images })}><Save size={15} />{saving ? '保存中…' : '保存并整理'}</button>
+        <button type="button" className="inspiration-primary" disabled={!canSave} onClick={() => void onSave({ title: title.trim(), titleMode, sourceMarkdown: sourceMarkdown.trim(), keepAttachmentPaths: keptPaths, images })}><Save size={15} />{saving ? '保存中…' : '保存并整理'}</button>
       </footer>
     </section>
   )
@@ -84,8 +109,4 @@ async function readImage(file: File): Promise<PendingInspirationImage> {
     reader.readAsDataURL(file)
   })
   return { data: dataUrl.slice(dataUrl.indexOf(',') + 1), mimeType: file.type, name: file.name }
-}
-
-function defaultTitle(): string {
-  return new Date().toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' }) + ' 灵感'
 }
