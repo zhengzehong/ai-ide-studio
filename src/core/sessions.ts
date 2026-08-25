@@ -39,6 +39,8 @@ import { sessionPersistencePort } from './persistence/session-persistence-port.j
 import { SessionPromptBatcher } from './session-prompt-batcher.js'
 import type { PromptIntent } from './prompt-intent.js'
 import { validatePromptIntent } from './task-step-intent-validator.js'
+import { fileChangesJsonFromToolCalls } from '../store/file-changes.js'
+import { presentationsJsonFromToolCalls } from './message-presentations.js'
 
 const log = createChildLogger('session')
 
@@ -97,7 +99,13 @@ async function persistSessionUpdateEvent(ev: SessionUpdateEnvelope): Promise<voi
   const payload = eventPayloadFromUpdate(ev.data)
   if (!payload) return
   if (ev.data.sessionInfo?.title) {
-    const updated = sessionStore.updateTitleIfEmpty(ev.sessionId, ev.data.sessionInfo.title)
+    await sessionPersistencePort.commitMutations(ev.sessionId, 'background', [{
+      type: 'session.title.update-if-empty',
+      sessionId: ev.sessionId,
+      title: ev.data.sessionInfo.title,
+      timestamp: new Date().toISOString(),
+    }])
+    const updated = sessionStore.get(ev.sessionId)
     if (updated) events.emit('session:changed', { sessionId: ev.sessionId, data: { ...updated } })
   }
   const stored = await sessionPersistencePort.appendEvent(ev.sessionId, {
@@ -143,6 +151,7 @@ async function persistSessionDone(ev: AppEvents['session:done']): Promise<void> 
       'background session persistence failed before terminal; continuing terminal commit',
     )
   }
+  await finalizeSessionMessage(ev)
   recordPromptProgress(ev.sessionId, 'session.done')
   log.info({ sessionId: ev.sessionId, agentId: ev.agentId, turnId, messageId: ev.messageId, stopReason: ev.stopReason, hasError: !!ev.error, turnUsage: ev.turnUsage }, 'session done received')
   const stored = await sessionPersistencePort.appendEvent(ev.sessionId, {
@@ -161,12 +170,7 @@ async function persistSessionDone(ev: AppEvents['session:done']): Promise<void> 
   sessionPersistencePort.finishSession(ev.sessionId)
 }
 
-events.on('session:done', (ev) => {
-  const updated = sessionStore.clearStageIfRunning(ev.sessionId)
-  if (updated) events.emit('session:changed', { sessionId: ev.sessionId, data: { ...updated } })
-})
-
-events.on('session:done', (ev) => {
+async function finalizeSessionMessage(ev: AppEvents['session:done']): Promise<void> {
   const turnId = eventTurnId(ev)
   const pending = pendingBySession.get(ev.sessionId)
   const finalized = pending ? finalizePendingTurn(pending) : null
@@ -175,97 +179,90 @@ events.on('session:done', (ev) => {
     : ev.stopReason === 'cancelled'
       ? 'cancelled'
       : 'completed'
-  const processResult = completeTurnProcess(ev.sessionId, processStatus)
+  const processResult = await completeTurnProcess(ev.sessionId, processStatus)
   const finalMessageId = processResult.messageId ?? finalized?.messageId ?? ev.messageId
 
   if (finalized) {
     const finalContent = processResult.finalAnswer || finalized.content
-    const message = messageStore.completeAgentMessage(finalMessageId, {
+    await commitFinalMessage(ev, {
+      messageId: finalMessageId,
       content: finalContent,
-      thinking: finalized.thinking || undefined,
+      processStatus,
       toolCalls: finalized.toolCalls,
-      status: processStatus,
-      stats: ev.turnUsage,
-      fileChangesJson: processResult.fileChangesJson,
-    }) ?? messageStore.append(ev.sessionId, {
-      id: finalMessageId,
-      role: 'agent',
-      content: finalContent,
-      thinking: finalized.thinking || undefined,
-      toolCalls: finalized.toolCalls,
-      status: processStatus,
-      stats: ev.turnUsage,
-      fileChangesJson: processResult.fileChangesJson,
+      thinkingLength: finalized.thinking?.length ?? 0,
+      progress: 'message.finalized',
+      logMessage: 'agent message finalized',
     })
-    sessionStore.touch(ev.sessionId, message.timestamp)
-    log.info(
-      {
-        sessionId: ev.sessionId,
-        agentId: ev.agentId,
-        turnId,
-        messageId: message.id,
-        contentLength: message.content.length,
-        thinkingLength: message.thinking?.length ?? 0,
-        toolCallCount: finalized.toolCalls?.length ?? 0,
-        stopReason: ev.stopReason,
-      },
-      'agent message finalized',
-    )
-    recordPromptProgress(ev.sessionId, 'message.finalized')
   } else if (processResult.messageId && !(ev.stopReason === 'error' && ev.error)) {
-    const message = messageStore.completeAgentMessage(finalMessageId, {
+    await commitFinalMessage(ev, {
+      messageId: finalMessageId,
       content: processResult.finalAnswer ?? '',
-      status: processStatus,
-      stats: ev.turnUsage,
-      fileChangesJson: processResult.fileChangesJson,
-    }) ?? messageStore.append(ev.sessionId, {
-      id: finalMessageId,
-      role: 'agent',
-      content: processResult.finalAnswer ?? '',
-      status: processStatus,
-      stats: ev.turnUsage,
-      fileChangesJson: processResult.fileChangesJson,
+      processStatus,
+      progress: 'message.completed_snapshot',
+      logMessage: 'agent message completed from running snapshot',
     })
-    sessionStore.touch(ev.sessionId, message.timestamp)
-    log.info(
-      {
-        sessionId: ev.sessionId,
-        agentId: ev.agentId,
-        turnId,
-        messageId: message.id,
-        contentLength: message.content.length,
-        stopReason: ev.stopReason,
-      },
-      'agent message completed from running snapshot',
-    )
-    recordPromptProgress(ev.sessionId, 'message.completed_snapshot')
   } else if (ev.stopReason === 'error' && ev.error) {
     const content = `执行失败：${ev.error}`
-    const message = messageStore.completeAgentMessage(finalMessageId, {
+    await commitFinalMessage(ev, {
+      messageId: finalMessageId,
       content,
-      status: 'failed',
-      stats: ev.turnUsage,
-      fileChangesJson: processResult.fileChangesJson,
-    }) ?? messageStore.append(ev.sessionId, {
-      id: finalMessageId,
-      role: 'agent',
-      content,
-      status: 'failed',
-      stats: ev.turnUsage,
-      fileChangesJson: processResult.fileChangesJson,
+      processStatus: 'failed',
+      progress: 'message.error.finalized',
+      logMessage: 'agent error message finalized',
     })
-    sessionStore.touch(ev.sessionId, message.timestamp)
-    log.info(
-      { sessionId: ev.sessionId, agentId: ev.agentId, turnId, messageId: message.id, contentLength: message.content.length, stopReason: ev.stopReason },
-      'agent error message finalized',
-    )
-    recordPromptProgress(ev.sessionId, 'message.error.finalized')
   } else {
+    await sessionPersistencePort.commitMutations(ev.sessionId, 'critical', [{
+      type: 'session.stage.clear-running',
+      sessionId: ev.sessionId,
+      timestamp: new Date().toISOString(),
+    }])
     log.debug({ sessionId: ev.sessionId, agentId: ev.agentId, turnId, messageId: ev.messageId, stopReason: ev.stopReason }, 'session done without finalizable message')
     recordPromptProgress(ev.sessionId, 'message.finalize.skipped')
   }
+  const updated = sessionStore.get(ev.sessionId)
+  if (updated) events.emit('session:changed', { sessionId: ev.sessionId, data: { ...updated } })
   pendingBySession.delete(ev.sessionId)
-})
+}
+
+interface FinalMessageCommitInput {
+  messageId: string
+  content: string
+  processStatus: string
+  toolCalls?: unknown[]
+  thinkingLength?: number
+  progress: string
+  logMessage: string
+}
+
+async function commitFinalMessage(ev: AppEvents['session:done'], input: FinalMessageCommitInput): Promise<void> {
+  const statsJson = ev.turnUsage ? JSON.stringify(ev.turnUsage) : null
+  const result = await sessionPersistencePort.finalizeTurn({
+    sessionId: ev.sessionId,
+    messageId: input.messageId,
+    processStatus: input.processStatus,
+    content: input.content,
+    status: input.processStatus,
+    timestamp: new Date().toISOString(),
+    decisionJson: statsJson,
+    statsJson,
+    fileChangesJson: fileChangesJsonFromToolCalls(input.toolCalls),
+    presentationsJson: presentationsJsonFromToolCalls(input.toolCalls),
+  })
+  const message = messageStore.get(result.messageId)
+  log.info({
+    sessionId: ev.sessionId,
+    agentId: ev.agentId,
+    turnId: eventTurnId(ev),
+    messageId: result.messageId,
+    contentLength: input.content.length,
+    thinkingLength: input.thinkingLength ?? 0,
+    toolCallCount: input.toolCalls?.length ?? 0,
+    processItemCount: result.processItemCount,
+    stopReason: ev.stopReason,
+    persisted: !!message,
+  }, input.logMessage)
+  recordPromptProgress(ev.sessionId, input.progress)
+}
 
 // BR-03: 系统不因 session:done 自动改变任务状态，由 Agent 通过 studio.task.* 工具主动管理
 
@@ -538,7 +535,11 @@ async function sendPromptBatchNow(session: SessionRow, inputs: QueuedPrompt[]): 
         { sessionId, agentId: session.agent_id, turnId, messageId: humanMessage.id, contentLength: humanMessage.content.length, imageCount: input.images?.length ?? 0, timestamp: humanMessage.timestamp, senderRole: humanMessage.sender_role },
         'human message persisted',
       )
-      sessionStore.touch(sessionId, humanMessage.timestamp)
+      await sessionPersistencePort.commitMutations(sessionId, 'interactive', [{
+        type: 'session.touch',
+        sessionId,
+        timestamp: humanMessage.timestamp,
+      }])
       const stored = eventStore.append(sessionId, {
         type: 'message.user',
         agentId: session.agent_id,
@@ -574,7 +575,11 @@ async function sendPromptBatchNow(session: SessionRow, inputs: QueuedPrompt[]): 
       startedAt: new Date(startedAt).toISOString(),
     })
     startTurnProcess(sessionId, agentMessage.id)
-    sessionStore.touch(sessionId, agentMessage.timestamp)
+    await sessionPersistencePort.commitMutations(sessionId, 'interactive', [{
+      type: 'session.touch',
+      sessionId,
+      timestamp: agentMessage.timestamp,
+    }])
     emitLifecycle(session.agent_id, sessionId, 'lifecycle.prompt_received', '正在准备 Agent...', agentMessage.id)
     const projectContext = resolveSessionProjectContext(
       session.agent_id,
@@ -615,6 +620,16 @@ async function sendPromptBatchNow(session: SessionRow, inputs: QueuedPrompt[]): 
   } catch (err) {
     activityEndReason = 'prompt-error'
     const message = err instanceof Error ? err.message : String(err)
+    try {
+      await sessionManager.waitForPersistence(sessionId)
+    } catch (persistenceError) {
+      log.warn({
+        err: persistenceError,
+        sessionId,
+        agentId: session.agent_id,
+        turnId,
+      }, 'prompt rejection raced terminal persistence; checking durable message state after failed drain')
+    }
     const terminalMessage = messageStore.get(agentMessageId)
     if (terminalMessage?.status && terminalMessage.status !== 'running') {
       log.warn(
@@ -693,9 +708,17 @@ function maybeWrapTeamLeaderPrompt(sessionId: string, content: string, contextPr
 }
 
 function emitLifecycle(agentId: string, sessionId: string, eventType: string, content: string, messageId?: string): void {
-  sessionStore.updateStage(sessionId, content)
-  const updated = sessionStore.get(sessionId)
-  if (updated) events.emit('session:changed', { sessionId, data: { ...updated } })
+  void sessionPersistencePort.commitMutations(sessionId, 'background', [{
+    type: 'session.stage.update',
+    sessionId,
+    stage: content,
+    timestamp: new Date().toISOString(),
+  }]).then(() => {
+    const updated = sessionStore.get(sessionId)
+    if (updated) events.emit('session:changed', { sessionId, data: { ...updated } })
+  }).catch((err: unknown) => {
+    log.error({ err, sessionId, agentId, eventType }, 'Session lifecycle stage persistence failed')
+  })
   events.emit('session:update', {
     sessionId,
     agentId,

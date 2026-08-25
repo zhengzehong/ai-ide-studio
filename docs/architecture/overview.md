@@ -135,7 +135,7 @@ PC 生产构建按页面使用 `React.lazy` 拆分，应用 shell、认证和连
 
 每个 Session actor 在一次所有权周期内使用固定 `streamGeneration`，只在实际输出逻辑 patch 时递增 `sequence`。文本 delta 按 message 合并，process item 采用 latest-wins；权限、elicitation 和 done 会先 flush 同 Session 的普通更新。Runtime 的可见流每 25ms 通过独立本机管道直达 Realtime，API 事件循环阻塞不会中断浏览器流式输出；持久化流以 250ms 节奏发送到 API，并带同一 Session 游标。可见流是游标的唯一分配者：持久化 flush 必须先完成对应 UI flush，再复用该 patch 已发布的游标，不能为仅写数据库的更新生成浏览器不可见的 sequence。
 
-持久化批次在开始异步发送前冻结该批全部可见流游标，慢速写入不能读取或删除后续同 key 更新的新游标。后台 flush 失败会进入受控 Runtime 重启边界，不以 detached Promise 的未处理 rejection 退出；失败写链不会阻止后续清理或恢复。Runtime 重启期间，尚未进入 IPC 的新请求有界等待下一 generation，已经发送的 Prompt 明确失败且不会自动重放。
+持久化批次在开始异步发送前冻结该批全部可见流游标，慢速写入不能读取或删除后续同 key 更新的新游标。单个 Session 的持久化回调失败会在 API 侧记录并隔离，失败写链不会阻止该 Session 后续清理或恢复，也不会重启共享 Runtime；只有 Runtime 进程自身异常退出才进入监督重启边界。Runtime 重启期间，尚未进入 IPC 的新请求有界等待下一 generation，已经发送的 Prompt 明确失败且不会自动重放。
 
 Runtime done 是持久化屏障，不直接对浏览器发布。API 按 Session 顺序处理持久化 patch，触发 `session:done`，等待 Writer 完成 `message.done + Outbox` 原子事务后才向 Runtime 返回 ack；随后 `session:committed_done` 才进入 Realtime。Runtime 意外退出时 API、HTTP、Query/Writer Worker 和 Realtime 保持运行，当前命令明确失败并由 Session 主链路落一条 error completion；监督器重启 Runtime，下一轮从 SQLite 快照和 `acp_session_id` 恢复。`RUNTIME_SERVICE_MODE=embedded` 保留旧 `acpHost` 作为显式回滚适配器，不会在运行中静默降级。
 
@@ -164,7 +164,9 @@ Android App 的“后台实时语音”只在客户端启用：设置页保存�
 
 应用启动时先完成 schema migration、旧 JSON 导入和内置数据 seed，再启动一个 Query Worker 和一个 Writer Worker。Query Worker 只读；Writer Worker 的新写路径按 `critical / interactive / background` 排队。Background 最多等待 25ms，并在达到 100 个 mutation 或 256KiB 时提前提交；critical 先提交同一 Session 已排队的 background mutation，再单独提交。
 
-Session 流式事件、running message snapshot 和 `message.done` 已通过 `WriteDataPort` 进入 Writer Worker。每个活动 Session 使用 `streamGeneration + sequence` 排序，重试通过 `batchId` 去重。`message.done` 与 Outbox 在同一事务提交，Gateway 只在 commit ack 后广播线上的 `session:done`。因此浏览器收到完成事件时，HTTP Snapshot 已可读取最终持久化状态。
+Session 流式事件、running message snapshot、Turn Process 高频更新和 Session 终态已通过 `WriteDataPort` 进入 Writer Worker。API 为每个 Session 串行提交 Turn Process 写入；终态提交前先 drain 已接受的过程更新，再用 critical mutation 原子完成过程项、Agent 消息、文件变更汇总、Session stage 和时间戳。每个活动 Session 使用 `streamGeneration + sequence` 排序，重试通过 `batchId` 去重。`message.done` 与 Outbox 在同一事务提交，Gateway 只在 commit ack 后广播线上的 `session:done`。因此浏览器收到完成事件时，HTTP Snapshot 已可读取最终持久化状态。
+
+`WriteDataPort` 是后续迁移其他写接口的复用边界：业务模块只新增封闭、类型化 mutation，Writer 侧实现对应事务操作，即可复用现有优先级调度、同 Session 顺序、`batchId` 幂等、超时对账、慢请求日志和 Worker 生命周期。禁止通过该端口传任意 SQL；仍留在兼容 Store 的低频写接口按风险和收益逐步迁移。
 
 API 领域 Command、工具和部分同步状态修改仍使用兼容 Store 连接。`tests/unit/database-access-boundary.test.ts` 锁定主线程直接 `getDb()` 的兼容清单，清单只能缩小；`tests/unit/runtime-boundary.test.ts` 锁定 Runtime 子进程的反向依赖禁令。`DATA_WORKER_MODE=local` 是显式故障回退开关，不会在 Worker 崩溃后自动降级到同步 SQL。
 

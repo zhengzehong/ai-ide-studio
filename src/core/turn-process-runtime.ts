@@ -2,11 +2,12 @@ import { randomUUID } from 'crypto'
 import type { ElicitationRequestData, PermissionRequestData, PlanEntry, SessionUpdateData, ToolCallData } from '../types/ws-protocol.js'
 import { buildFileChangesFromToolCalls } from '../store/file-changes.js'
 import { onBeforeDatabaseClose } from '../store/db.js'
-import { sessionPersistencePort } from './persistence/session-persistence-port.js'
-import { stableProcessItemId, turnProcessItemStore, type TurnProcessItemRow } from '../store/turn-process-items.js'
+import { stableProcessItemId } from '../store/turn-process-items.js'
+import type { TurnProcessItemWriteInput, TurnProcessItemWriteResult } from '../ports/write-data-port.js'
 import { events } from './events.js'
 import { createChildLogger } from './logger.js'
 import { mergeToolCall, shouldCreateToolFromUpdate } from './tool-calls.js'
+import { turnProcessWriteQueue } from './persistence/turn-process-write-queue.js'
 const log = createChildLogger('turn-process-runtime')
 
 interface ActiveTurnProcess {
@@ -18,7 +19,7 @@ interface ActiveTurnProcess {
   noteIndex: number
   snapshotTimer?: NodeJS.Timeout
   snapshotPending: boolean
-  toolIds: Set<string>
+  toolCalls: Map<string, ToolCallData>
   pendingText?: {
     kind: 'thinking' | 'note' | 'stage' | 'error'
     text: string
@@ -37,7 +38,7 @@ export function createAgentMessageId(): string {
 }
 
 export function startTurnProcess(sessionId: string, messageId: string): void {
-  activeTurns.set(sessionId, { sessionId, messageId, finalAnswer: '', noteIndex: 0, snapshotPending: false, toolIds: new Set() })
+  activeTurns.set(sessionId, { sessionId, messageId, finalAnswer: '', noteIndex: 0, snapshotPending: false, toolCalls: new Map() })
   log.debug({ sessionId, messageId }, 'active turn process started')
 }
 
@@ -60,10 +61,8 @@ export function recordTurnProcessUpdate(sessionId: string, agentId: string, data
 
   if (data.toolCall) {
     flushProcessText(sessionId, active, agentId)
-    if (!active.toolIds.has(data.toolCall.id)) demoteFinalAnswer(sessionId, active, agentId)
-    active.toolIds.add(data.toolCall.id)
-    const item = upsertTool(sessionId, active.messageId, data.toolCall)
-    emitProcessItem(sessionId, agentId, item)
+    if (!active.toolCalls.has(data.toolCall.id)) demoteFinalAnswer(sessionId, active, agentId)
+    queueProcessItem(sessionId, agentId, upsertTool(sessionId, active, data.toolCall))
     emitFileChangeIfPresent(sessionId, agentId, active.messageId, data.toolCall)
     active.lastTextItemId = undefined
     active.lastTextKind = undefined
@@ -72,12 +71,10 @@ export function recordTurnProcessUpdate(sessionId: string, agentId: string, data
 
   if (data.toolCallUpdate) {
     flushProcessText(sessionId, active, agentId)
-    const isNewTool = !active.toolIds.has(data.toolCallUpdate.id)
+    const isNewTool = !active.toolCalls.has(data.toolCallUpdate.id)
       && shouldCreateToolFromUpdate(data.toolCallUpdate)
     if (isNewTool) demoteFinalAnswer(sessionId, active, agentId)
-    active.toolIds.add(data.toolCallUpdate.id)
-    const item = upsertTool(sessionId, active.messageId, data.toolCallUpdate)
-    emitProcessItem(sessionId, agentId, item)
+    queueProcessItem(sessionId, agentId, upsertTool(sessionId, active, data.toolCallUpdate))
     emitFileChangeIfPresent(sessionId, agentId, active.messageId, data.toolCallUpdate)
     active.lastTextItemId = undefined
     active.lastTextKind = undefined
@@ -87,8 +84,7 @@ export function recordTurnProcessUpdate(sessionId: string, agentId: string, data
   if (data.plan) {
     flushProcessText(sessionId, active, agentId)
     demoteFinalAnswer(sessionId, active, agentId)
-    const item = upsertPlan(sessionId, active.messageId, data.plan)
-    emitProcessItem(sessionId, agentId, item)
+    queueProcessItem(sessionId, agentId, upsertPlan(sessionId, active.messageId, data.plan))
     active.lastTextItemId = undefined
     active.lastTextKind = undefined
     return
@@ -97,8 +93,7 @@ export function recordTurnProcessUpdate(sessionId: string, agentId: string, data
   if (data.permissionRequest) {
     flushProcessText(sessionId, active, agentId)
     demoteFinalAnswer(sessionId, active, agentId)
-    const item = upsertPermission(sessionId, active.messageId, data.permissionRequest)
-    emitProcessItem(sessionId, agentId, item)
+    queueProcessItem(sessionId, agentId, upsertPermission(sessionId, active.messageId, data.permissionRequest))
     active.lastTextItemId = undefined
     active.lastTextKind = undefined
     return
@@ -107,15 +102,14 @@ export function recordTurnProcessUpdate(sessionId: string, agentId: string, data
   if (data.elicitationRequest) {
     flushProcessText(sessionId, active, agentId)
     demoteFinalAnswer(sessionId, active, agentId)
-    const item = upsertElicitation(sessionId, active.messageId, data.elicitationRequest)
-    emitProcessItem(sessionId, agentId, item)
+    queueProcessItem(sessionId, agentId, upsertElicitation(sessionId, active.messageId, data.elicitationRequest))
     active.lastTextItemId = undefined
     active.lastTextKind = undefined
     return
   }
 
   if (data.eventType?.startsWith('lifecycle.') && data.content) {
-    const item = turnProcessItemStore.upsert({
+    queueProcessItem(sessionId, agentId, {
       id: stableProcessItemId(active.messageId, 'stage', 'current'),
       sessionId,
       messageId: active.messageId,
@@ -127,25 +121,28 @@ export function recordTurnProcessUpdate(sessionId: string, agentId: string, data
       content: data.content,
       meta: { eventType: data.eventType },
     })
-    emitProcessItem(sessionId, agentId, item)
   }
 }
 
-export function completeTurnProcess(
+export async function completeTurnProcess(
   sessionId: string,
   status: string,
-): { messageId?: string; finalAnswer?: string; fileChangesJson?: string | null } {
+): Promise<{ messageId?: string; finalAnswer?: string }> {
   const active = activeTurns.get(sessionId)
   if (!active) return {}
   flushProcessText(sessionId, active, undefined)
   flushSnapshot(active)
-  const fileChangesJson = turnProcessItemStore.aggregateFileChanges(active.messageId)
-  turnProcessItemStore.completeOpen(active.messageId, status)
+  await turnProcessWriteQueue.drain(sessionId)
   if (active.snapshotTimer) clearTimeout(active.snapshotTimer)
   if (active.pendingText?.timer) clearTimeout(active.pendingText.timer)
   activeTurns.delete(sessionId)
+  turnProcessWriteQueue.finish(sessionId)
   log.debug({ sessionId, messageId: active.messageId, status }, 'active turn process completed')
-  return { messageId: active.messageId, finalAnswer: active.finalAnswer, fileChangesJson }
+  return { messageId: active.messageId, finalAnswer: active.finalAnswer }
+}
+
+export function waitForTurnProcessPersistence(sessionId: string): Promise<void> {
+  return turnProcessWriteQueue.drain(sessionId)
 }
 
 export function resetTurnProcessRuntime(): void {
@@ -155,6 +152,7 @@ export function resetTurnProcessRuntime(): void {
     if (active.pendingText?.timer) clearTimeout(active.pendingText.timer)
   }
   activeTurns.clear()
+  turnProcessWriteQueue.reset()
   if (turnCount > 0) log.debug({ turnCount }, 'active turn processes reset')
 }
 
@@ -163,7 +161,7 @@ function demoteFinalAnswer(sessionId: string, active: ActiveTurnProcess, agentId
   flushProcessText(sessionId, active, agentId)
   flushSnapshot(active)
   active.noteIndex += 1
-  const item = turnProcessItemStore.upsert({
+  queueProcessItem(sessionId, agentId, {
     id: stableProcessItemId(active.messageId, 'note', String(active.noteIndex)),
     sessionId,
     messageId: active.messageId,
@@ -174,7 +172,6 @@ function demoteFinalAnswer(sessionId: string, active: ActiveTurnProcess, agentId
     preview: summarizeText(active.finalAnswer),
     content: active.finalAnswer,
   })
-  emitProcessItem(sessionId, agentId, item)
   active.finalAnswer = ''
   flushSnapshot(active, true)
   active.lastTextItemId = undefined
@@ -210,8 +207,7 @@ function flushProcessText(sessionId: string, active: ActiveTurnProcess, agentId:
   if (pending.timer) clearTimeout(pending.timer)
   active.pendingText = undefined
   if (!pending.text) return
-  const item = appendText(sessionId, active, agentId ?? '', pending.kind, pending.text)
-  emitProcessItem(sessionId, agentId ?? '', item)
+  appendText(sessionId, active, agentId ?? '', pending.kind, pending.text)
 }
 
 function scheduleSnapshotFlush(sessionId: string, active: ActiveTurnProcess): void {
@@ -231,11 +227,7 @@ function flushSnapshot(active: ActiveTurnProcess, force = false): void {
     active.snapshotTimer = undefined
   }
   if (!active.snapshotPending && !force) return
-  void sessionPersistencePort
-    .updateRunningSnapshot(active.sessionId, active.messageId, active.finalAnswer)
-    .catch((err: unknown) => {
-      log.error({ err, sessionId: active.sessionId, messageId: active.messageId }, 'running message snapshot persistence failed')
-    })
+  turnProcessWriteQueue.snapshot(active.sessionId, active.messageId, active.finalAnswer)
   active.snapshotPending = false
 }
 
@@ -245,29 +237,31 @@ function appendText(
   agentId: string,
   kind: 'thinking' | 'note' | 'stage' | 'error',
   text: string,
-): TurnProcessItemRow {
+): void {
   const reuse = active.lastTextKind === kind ? active.lastTextItemId : undefined
-  const item = turnProcessItemStore.appendText({
-    id: reuse ?? stableProcessItemId(active.messageId, kind, `${kind}-${Date.now()}-${randomUUID().slice(0, 4)}`),
+  const itemId = reuse ?? stableProcessItemId(active.messageId, kind, `${kind}-${Date.now()}-${randomUUID().slice(0, 4)}`)
+  turnProcessWriteQueue.appendText({
+    id: itemId,
     sessionId,
     messageId: active.messageId,
     kind,
     text,
     status: 'running',
-  })
-  active.lastTextItemId = item.id
+  }, (item) => emitProcessItem(sessionId, agentId, item))
+  active.lastTextItemId = itemId
   active.lastTextKind = kind
-  log.debug({ sessionId, agentId, messageId: active.messageId, itemId: item.id, kind }, 'text process item appended')
-  return item
+  log.debug({ sessionId, agentId, messageId: active.messageId, itemId, kind }, 'text process item queued')
 }
 
-function upsertTool(sessionId: string, messageId: string, toolCall: ToolCallData): TurnProcessItemRow {
-  const id = stableProcessItemId(messageId, 'tool', toolCall.id)
-  const merged = mergeStoredToolCall(id, toolCall)
-  return turnProcessItemStore.upsert({
+function upsertTool(sessionId: string, active: ActiveTurnProcess, toolCall: ToolCallData): TurnProcessItemWriteInput {
+  const id = stableProcessItemId(active.messageId, 'tool', toolCall.id)
+  const previous = active.toolCalls.get(toolCall.id)
+  const merged = previous ? mergeToolCall(previous, toolCall) : toolCall
+  active.toolCalls.set(toolCall.id, merged)
+  return {
     id,
     sessionId,
-    messageId,
+    messageId: active.messageId,
     kind: 'tool',
     status: merged.status ?? 'running',
     title: merged.title,
@@ -275,19 +269,13 @@ function upsertTool(sessionId: string, messageId: string, toolCall: ToolCallData
     preview: toolPreview(toolCall),
     detail: toolCallWithoutDiff(merged),
     meta: { toolCallId: merged.id },
-  })
-}
-
-function mergeStoredToolCall(itemId: string, update: ToolCallData): ToolCallData {
-  const existing = turnProcessItemStore.get(itemId)
-  const previous = parseToolCallDetail(existing?.detail_json)
-  return previous ? mergeToolCall(previous, update) : update
+  }
 }
 
 function emitFileChangeIfPresent(sessionId: string, agentId: string, messageId: string, toolCall: ToolCallData): void {
   const changes = buildFileChangesFromToolCalls([toolCall])
   if (changes.files.length === 0) return
-  const item = turnProcessItemStore.upsert({
+  queueProcessItem(sessionId, agentId, {
     id: stableProcessItemId(messageId, 'file_change', toolCall.id),
     sessionId,
     messageId,
@@ -299,15 +287,14 @@ function emitFileChangeIfPresent(sessionId: string, agentId: string, messageId: 
     detail: changes,
     meta: { toolCallId: toolCall.id },
   })
-  emitProcessItem(sessionId, agentId, item)
 }
 
-function upsertPlan(sessionId: string, messageId: string, plan: PlanEntry[]): TurnProcessItemRow {
+function upsertPlan(sessionId: string, messageId: string, plan: PlanEntry[]): TurnProcessItemWriteInput {
   const counts = plan.reduce<Record<string, number>>((acc, item) => {
     acc[item.status] = (acc[item.status] ?? 0) + 1
     return acc
   }, {})
-  return turnProcessItemStore.upsert({
+  return {
     id: stableProcessItemId(messageId, 'plan', 'current'),
     sessionId,
     messageId,
@@ -318,11 +305,11 @@ function upsertPlan(sessionId: string, messageId: string, plan: PlanEntry[]): Tu
     preview: Object.entries(counts).map(([status, count]) => `${status} ${count}`).join(' · '),
     content: JSON.stringify({ plan }),
     detail: { plan },
-  })
+  }
 }
 
-function upsertPermission(sessionId: string, messageId: string, permission: PermissionRequestData): TurnProcessItemRow {
-  return turnProcessItemStore.upsert({
+function upsertPermission(sessionId: string, messageId: string, permission: PermissionRequestData): TurnProcessItemWriteInput {
+  return {
     id: stableProcessItemId(messageId, 'permission', permission.id),
     sessionId,
     messageId,
@@ -333,11 +320,11 @@ function upsertPermission(sessionId: string, messageId: string, permission: Perm
     preview: permission.options.map((option) => option.name).join(' / '),
     detail: { permissionRequest: permission },
     meta: { requestId: permission.id, toolCallId: permission.toolCall.id },
-  })
+  }
 }
 
-function upsertElicitation(sessionId: string, messageId: string, elicitation: ElicitationRequestData): TurnProcessItemRow {
-  return turnProcessItemStore.upsert({
+function upsertElicitation(sessionId: string, messageId: string, elicitation: ElicitationRequestData): TurnProcessItemWriteInput {
+  return {
     id: stableProcessItemId(messageId, 'elicitation', elicitation.id),
     sessionId,
     messageId,
@@ -348,10 +335,14 @@ function upsertElicitation(sessionId: string, messageId: string, elicitation: El
     preview: elicitation.message ?? '',
     detail: { elicitationRequest: elicitation },
     meta: { requestId: elicitation.id, toolCallId: elicitation.toolCallId },
-  })
+  }
 }
 
-function emitProcessItem(sessionId: string, agentId: string, item: TurnProcessItemRow): void {
+function queueProcessItem(sessionId: string, agentId: string, input: TurnProcessItemWriteInput): void {
+  turnProcessWriteQueue.upsert(input, (item) => emitProcessItem(sessionId, agentId, item))
+}
+
+function emitProcessItem(sessionId: string, agentId: string, item: TurnProcessItemWriteResult): void {
   events.emit('session:process_item', {
     sessionId,
     agentId,
@@ -380,17 +371,6 @@ function toolCallWithoutDiff(toolCall: ToolCallData): ToolCallData {
   return {
     ...toolCall,
     content: toolCall.content?.filter((item) => item.type !== 'diff'),
-  }
-}
-
-function parseToolCallDetail(raw?: string | null): ToolCallData | null {
-  if (!raw) return null
-  try {
-    const parsed = JSON.parse(raw) as Partial<ToolCallData>
-    if (!parsed.id || !parsed.title) return null
-    return parsed as ToolCallData
-  } catch {
-    return null
   }
 }
 

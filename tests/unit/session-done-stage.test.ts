@@ -6,7 +6,7 @@ import { initDatabase, closeDatabase } from '../../src/store/db.js'
 import { agentStore } from '../../src/store/agents.js'
 import { sessionStore } from '../../src/store/sessions.js'
 import { events } from '../../src/core/events.js'
-import '../../src/core/sessions.js'
+import { sessionManager } from '../../src/core/sessions.js'
 
 let tmp: string
 
@@ -22,12 +22,13 @@ afterEach(() => {
 })
 
 describe('session done stage cleanup', () => {
-  test('clears running stage when a turn is done', () => {
+  test('clears running stage when a turn is done', async () => {
     const agent = agentStore.create({ name: 'Mock', type: 'dev', runtime: 'mock' })
     const session = sessionStore.create({ agentId: agent.id })
     sessionStore.updateStage(session.id, '正在思考...')
 
     events.emit('session:done', { sessionId: session.id, agentId: agent.id, messageId: 'done-1', stopReason: 'end_turn' })
+    await sessionManager.waitForPersistence(session.id)
 
     expect(sessionStore.get(session.id)?.stage).toBe('')
   })

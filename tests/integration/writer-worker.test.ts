@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { closeDatabase, getDb, initDatabase } from '../../src/store/db.js'
-import { sessionStore } from '../../src/store/sessions.js'
+import { messageStore, sessionStore } from '../../src/store/sessions.js'
 import {
   createWorkerWriteDataPort,
   type WorkerWriteDataPort,
@@ -205,6 +205,111 @@ describe('Writer Worker', () => {
         .toEqual({ count: 0 })
       expect(db.prepare('SELECT COUNT(*) AS count FROM writer_batch_commits WHERE batch_id = ?').get('batch-rollback'))
         .toEqual({ count: 0 })
+    })
+  })
+
+  it('persists turn process items and appends text inside Writer transactions', async () => {
+    const session = sessionStore.create({ agentId: 'agent-turn-process' })
+    const message = messageStore.append(session.id, {
+      id: 'message-turn-process',
+      role: 'agent',
+      content: '',
+      status: 'running',
+    })
+    closeDatabase()
+    writer = await createWorkerWriteDataPort({ dbPath })
+
+    const created = await writer.commitBatch(writeBatch('batch-process-create', session.id, 1, [{
+      type: 'turn-process.item.upsert',
+      item: {
+        id: 'process-thinking',
+        sessionId: session.id,
+        messageId: message.id,
+        kind: 'thinking',
+        status: 'running',
+        title: 'Thinking',
+        content: 'A',
+      },
+    }]))
+    const appended = await writer.commitBatch(writeBatch('batch-process-append', session.id, 2, [{
+      type: 'turn-process.text.append',
+      item: {
+        id: 'process-thinking',
+        sessionId: session.id,
+        messageId: message.id,
+        kind: 'thinking',
+        status: 'running',
+        title: 'Thinking',
+        text: 'B',
+      },
+    }]))
+
+    expect(created.results[0]).toMatchObject({
+      type: 'turn-process.item.upsert',
+      item: { id: 'process-thinking', content: 'A', sequence: 1 },
+    })
+    expect(appended.results[0]).toMatchObject({
+      type: 'turn-process.text.append',
+      item: { id: 'process-thinking', content: 'AB', sequence: 1 },
+    })
+    usingDatabase((db) => {
+      expect(db.prepare('SELECT content, sequence FROM turn_process_items WHERE id = ?').get('process-thinking'))
+        .toEqual({ content: 'AB', sequence: 1 })
+      expect(db.prepare('SELECT process_item_count FROM messages WHERE id = ?').get(message.id))
+        .toEqual({ process_item_count: 1 })
+    })
+  })
+
+  it('orders terminal Session state after process writes and commits it atomically', async () => {
+    const session = sessionStore.create({ agentId: 'agent-terminal' })
+    sessionStore.updateStage(session.id, '\u6b63\u5728\u601d\u8003...')
+    const message = messageStore.append(session.id, {
+      id: 'message-terminal',
+      role: 'agent',
+      content: '',
+      status: 'running',
+    })
+    closeDatabase()
+    writer = await createWorkerWriteDataPort({ dbPath })
+
+    const background = writer.commitBatch(writeBatch('batch-terminal-process', session.id, 1, [{
+      type: 'turn-process.item.upsert',
+      item: {
+        id: 'process-terminal-tool',
+        sessionId: session.id,
+        messageId: message.id,
+        kind: 'tool',
+        status: 'running',
+        title: 'Run command',
+      },
+    }]))
+    const critical = writer.commitBatch({
+      ...writeBatch('batch-terminal-finalize', session.id, 2, [{
+        type: 'session.turn.finalize',
+        input: {
+          sessionId: session.id,
+          messageId: message.id,
+          processStatus: 'completed',
+          content: 'Finished',
+          status: 'completed',
+          timestamp: '2026-08-25T12:00:00.000Z',
+        },
+      }]),
+      priority: 'critical',
+    })
+    await Promise.all([background, critical])
+
+    usingDatabase((db) => {
+      expect(db.prepare('SELECT status FROM turn_process_items WHERE id = ?').get('process-terminal-tool'))
+        .toEqual({ status: 'completed' })
+      expect(db.prepare('SELECT content, status, completed_at FROM messages WHERE id = ?').get(message.id))
+        .toEqual({ content: 'Finished', status: 'completed', completed_at: '2026-08-25T12:00:00.000Z' })
+      expect(db.prepare('SELECT stage, updated_at, last_message_at FROM sessions WHERE id = ?').get(session.id))
+        .toEqual({
+          stage: '',
+          updated_at: '2026-08-25T12:00:00.000Z',
+          last_message_at: '2026-08-25T12:00:00.000Z',
+        })
     })
   })
 

@@ -33,7 +33,7 @@ AI IDE Studio 是一个本地部署的全栈 AI 编程协作工具。通过 [ACP
 - **知识库 LLM Wiki** — 每个项目自动拥有项目库，可挂载多个共享库；PC 端保留完整管理能力，Agent 通过 `list/read/upsert/delete` 四个上下文隔离的最小工具维护 Markdown 页面
 - **规则引擎** — Cron 定时任务管理和事件触发规则，支持指定已有会话、每次新会话或固定新会话执行
 - **MCP 工具平台** — 提供 `/mcp` HTTP MCP 入口，按 Session token 控制 Agent 可见的 `core.*` / `agent.*` 工具方法；Agent 可通过 `agent.template.*` 管理 Agent 广场模板，通过 `core.timeline.list` 读取会话时间线，通过 `studio.task.assign` 动态分派任务；`team.*` 当前在 Agent 暴露层统一隐藏
-- **SQLite Worker 持久化** — 默认使用独立只读 Query Worker 和排队 Writer Worker；流式事件按会话有序批量提交，关键完成事件与 Outbox 原子写入，并支持从旧 JSON 格式自动迁移
+- **SQLite Worker 持久化** — 默认使用独立只读 Query Worker 和排队 Writer Worker；流式事件、Turn Process 高频更新和 Session 终态按会话有序提交，关键完成事件与 Outbox 原子写入，并支持从旧 JSON 格式自动迁移
 - **CLI** — 命令行管理工具（agents / sessions / tasks / rules / status）
 
 ## 快速开始

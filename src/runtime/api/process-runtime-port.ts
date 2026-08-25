@@ -305,7 +305,16 @@ class ProcessRuntimePortController implements ProcessRuntimePort {
       return
     }
     if (payload.type === 'persistence') {
-      await this.chainIngress(payload.event.sessionId, () => this.options.onPersistenceUpdate(payload.event))
+      try {
+        await this.chainIngress(payload.event.sessionId, () => this.options.onPersistenceUpdate(payload.event))
+      } catch (error) {
+        log.error({
+          err: error,
+          sessionId: payload.event.sessionId,
+          agentId: payload.event.agentId,
+          generation: this.currentGeneration,
+        }, 'Runtime persistence update handling failed; keeping shared Runtime alive')
+      }
       return
     }
     if (payload.type === 'done') {

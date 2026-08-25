@@ -101,7 +101,7 @@ describe('Runtime crash recovery', () => {
     await requestResult
   }, 15_000)
 
-  test('restarts Runtime through the supervisor when persistence handling rejects', async () => {
+  test('keeps the shared Runtime alive when one persistence update rejects', async () => {
     realtime = await createRealtimeProcess({
       host: '127.0.0.1',
       port: 0,
@@ -122,14 +122,12 @@ describe('Runtime crash recovery', () => {
     })
     await runtime.ensureSession(snapshot())
     const previousGeneration = runtime.generation
-    const interruptedPrompt = runtime.prompt({
+    await expect(runtime.prompt({
       agentId: 'agent-a',
       sessionId: 'session-a',
       content: 'x'.repeat(3_000),
-    })
-
-    await expect(interruptedPrompt).rejects.toThrow('Runtime process exited')
-    await runtime.waitForRestart(previousGeneration)
+    })).resolves.toBeUndefined()
+    expect(runtime.generation).toBe(previousGeneration)
     await runtime.ensureSession(snapshot())
     await expect(runtime.prompt({
       agentId: 'agent-a',
