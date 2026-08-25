@@ -7,7 +7,6 @@ import { stableProcessItemId, turnProcessItemStore, type TurnProcessItemRow } fr
 import { events } from './events.js'
 import { createChildLogger } from './logger.js'
 import { mergeToolCall, shouldCreateToolFromUpdate } from './tool-calls.js'
-
 const log = createChildLogger('turn-process-runtime')
 
 interface ActiveTurnProcess {
@@ -19,6 +18,7 @@ interface ActiveTurnProcess {
   noteIndex: number
   snapshotTimer?: NodeJS.Timeout
   snapshotPending: boolean
+  toolIds: Set<string>
   pendingText?: {
     kind: 'thinking' | 'note' | 'stage' | 'error'
     text: string
@@ -37,7 +37,7 @@ export function createAgentMessageId(): string {
 }
 
 export function startTurnProcess(sessionId: string, messageId: string): void {
-  activeTurns.set(sessionId, { sessionId, messageId, finalAnswer: '', noteIndex: 0, snapshotPending: false })
+  activeTurns.set(sessionId, { sessionId, messageId, finalAnswer: '', noteIndex: 0, snapshotPending: false, toolIds: new Set() })
   log.debug({ sessionId, messageId }, 'active turn process started')
 }
 
@@ -60,7 +60,8 @@ export function recordTurnProcessUpdate(sessionId: string, agentId: string, data
 
   if (data.toolCall) {
     flushProcessText(sessionId, active, agentId)
-    demoteFinalAnswer(sessionId, active, agentId)
+    if (!active.toolIds.has(data.toolCall.id)) demoteFinalAnswer(sessionId, active, agentId)
+    active.toolIds.add(data.toolCall.id)
     const item = upsertTool(sessionId, active.messageId, data.toolCall)
     emitProcessItem(sessionId, agentId, item)
     emitFileChangeIfPresent(sessionId, agentId, active.messageId, data.toolCall)
@@ -71,7 +72,10 @@ export function recordTurnProcessUpdate(sessionId: string, agentId: string, data
 
   if (data.toolCallUpdate) {
     flushProcessText(sessionId, active, agentId)
-    if (shouldCreateToolFromUpdate(data.toolCallUpdate)) demoteFinalAnswer(sessionId, active, agentId)
+    const isNewTool = !active.toolIds.has(data.toolCallUpdate.id)
+      && shouldCreateToolFromUpdate(data.toolCallUpdate)
+    if (isNewTool) demoteFinalAnswer(sessionId, active, agentId)
+    active.toolIds.add(data.toolCallUpdate.id)
     const item = upsertTool(sessionId, active.messageId, data.toolCallUpdate)
     emitProcessItem(sessionId, agentId, item)
     emitFileChangeIfPresent(sessionId, agentId, active.messageId, data.toolCallUpdate)

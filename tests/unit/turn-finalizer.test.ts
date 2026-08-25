@@ -37,4 +37,36 @@ describe('turn finalizer', () => {
 
     expect(finalized?.content).toBe('最终结论。')
   })
+
+  test('keeps final text when an existing tool reports a late completion update', () => {
+    let turn = createPendingTurn()
+    turn = updatePendingTurn(turn, {
+      messageId: 'msg-1',
+      toolCall: { id: 'tool-1', title: '运行测试', status: 'in_progress' },
+    })
+    turn = updatePendingTurn(turn, { messageId: 'msg-1', contentDelta: '最终结论。' })
+    turn = updatePendingTurn(turn, {
+      messageId: 'msg-1',
+      toolCallUpdate: { id: 'tool-1', status: 'completed', rawOutput: { exitCode: 0 } },
+    })
+
+    expect(finalizePendingTurn(turn)?.content).toBe('最终结论。')
+  })
+
+  test('still treats a first-seen tool update as a new process boundary', () => {
+    let turn = createPendingTurn()
+    turn = updatePendingTurn(turn, { messageId: 'msg-1', contentDelta: '我继续检查。' })
+    turn = updatePendingTurn(turn, {
+      messageId: 'msg-1',
+      toolCallUpdate: {
+        id: 'tool-1',
+        title: '运行测试',
+        status: 'in_progress',
+        rawInput: { command: 'npm test' },
+      },
+    })
+    turn = updatePendingTurn(turn, { messageId: 'msg-1', contentDelta: '最终结论。' })
+
+    expect(finalizePendingTurn(turn)?.content).toBe('最终结论。')
+  })
 })

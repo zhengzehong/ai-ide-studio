@@ -30,6 +30,45 @@ describe('database-free ACP Runtime client', () => {
     })])
   })
 
+  test('preserves the active turn when the same ACP Session is rebound', async () => {
+    const updates: RuntimeCoalescibleUpdate[] = []
+    const router = createAcpRuntimeClient({
+      agentId: 'agent-a',
+      publishUpdate: (update) => { updates.push(update) },
+      updateCapabilities: () => undefined,
+    })
+    router.bindSession('session-a', 'acp-a', [])
+    router.beginTurn('session-a', 'message-a', 'turn-a', 'generation-a')
+
+    router.bindSession('session-a', 'acp-a', ['team.mailbox.send'], 'bypassPermissions', 128000)
+    await router.client.sessionUpdate({
+      sessionId: 'acp-a',
+      update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'after rebind' } },
+    } as never)
+
+    expect(updates).toEqual([expect.objectContaining({
+      messageId: 'message-a',
+      data: expect.objectContaining({ messageId: 'message-a', contentDelta: 'after rebind' }),
+    })])
+  })
+
+  test('drops turn-scoped updates that arrive without an active turn binding', async () => {
+    const updates: RuntimeCoalescibleUpdate[] = []
+    const router = createAcpRuntimeClient({
+      agentId: 'agent-a',
+      publishUpdate: (update) => { updates.push(update) },
+      updateCapabilities: () => undefined,
+    })
+    router.bindSession('session-a', 'acp-a', [])
+
+    await router.client.sessionUpdate({
+      sessionId: 'acp-a',
+      update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'orphaned' } },
+    } as never)
+
+    expect(updates).toEqual([])
+  })
+
   test('reports the applied model profile context window instead of the ACP fallback', async () => {
     const updates: RuntimeCoalescibleUpdate[] = []
     const router = createAcpRuntimeClient({

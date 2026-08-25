@@ -1,6 +1,6 @@
 import { mapConfigOptions, mergeCapabilitiesFromConfig } from '../../acp/capabilities.js'
 import { cloneClaudeSessionFiles, hasClaudeSessionFiles } from '../../acp/claude-session-files.js'
-import { modelProfileChanged, resolveRuntimeModelPreference } from '../../acp/runtime-model-preference.js'
+import { resolveRuntimeModelPreference } from '../../acp/runtime-model-preference.js'
 import type { RuntimeCancelResult, RuntimeStateSnapshot } from '../../ports/runtime-port.js'
 import { createChildLogger } from '../../shared/logger.js'
 import type { ImageAttachment, SessionCapabilities } from '../../types/ws-protocol.js'
@@ -15,6 +15,7 @@ import {
 } from './managed-acp-agent.js'
 import { runtimeAgentFingerprint, runtimeSessionContextFingerprint } from './runtime-fingerprints.js'
 import { applySdkSessionPreferences, initialCapabilities, openSdkSession } from './sdk-session-runtime.js'
+import { inspectSdkSessionRefresh } from './sdk-session-refresh.js'
 import { sweepSdkRuntimeIdle } from './sdk-runtime-idle.js'
 import type { RuntimeIdleThresholds } from './runtime-idle-sweep.js'
 import { SdkRuntimeTurns } from './runtime-active-turns.js'
@@ -96,6 +97,11 @@ export class SdkRuntimeHost {
   }
 
   private async ensureSessionInternal(snapshot: RuntimeStateSnapshot, emitLifecycle: boolean): Promise<string> {
+    const existing = this.sessions.get(snapshot.session.id)
+    const contextFingerprint = runtimeSessionContextFingerprint(snapshot)
+    const refresh = inspectSdkSessionRefresh({ agents: this.agents, contextFingerprint, existing, snapshot })
+    if (refresh.deferredAcpSessionId) return refresh.deferredAcpSessionId
+    const { profileChanged } = refresh
     const agentWasRunning = this.agents.has(snapshot.agent.id)
     if (!agentWasRunning && emitLifecycle) {
       publishSdkLifecycle(this.options.publishUpdate, snapshot, 'lifecycle.runtime_starting', '正在启动 Agent...')
@@ -104,13 +110,7 @@ export class SdkRuntimeHost {
     if (!agentWasRunning && emitLifecycle) {
       publishSdkLifecycle(this.options.publishUpdate, snapshot, 'lifecycle.runtime_ready', 'Agent 已就绪')
     }
-    const existing = this.sessions.get(snapshot.session.id)
-    const contextFingerprint = runtimeSessionContextFingerprint(snapshot)
     if (existing?.contextFingerprint === contextFingerprint) {
-      const profileChanged = modelProfileChanged(
-        existing.snapshot.runtime.appliedModelProfile,
-        snapshot.runtime.appliedModelProfile,
-      )
       existing.snapshot = snapshot
       touchSdkSession(this.agents, existing)
       if (profileChanged) {

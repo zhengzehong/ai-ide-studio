@@ -286,4 +286,40 @@ describe('turn process items', () => {
 
     expect(messageStore.get(message.id)?.content).toBe('')
   })
+
+  test('keeps final text when an existing tool sends a late update', () => {
+    const session = sessionStore.create({ agentId: 'agent-1' })
+    const message = messageStore.append(session.id, {
+      id: 'msg-agent-running',
+      role: 'agent',
+      content: '',
+      status: 'running',
+      startedAt: '2026-06-05T00:00:00.000Z',
+    })
+
+    startTurnProcess(session.id, message.id)
+    recordTurnProcessUpdate(session.id, 'agent-1', {
+      messageId: message.id,
+      role: 'agent',
+      toolCall: { id: 'tool-1', title: 'run tests', status: 'in_progress' },
+    })
+    recordTurnProcessUpdate(session.id, 'agent-1', {
+      messageId: message.id,
+      role: 'agent',
+      contentDelta: 'Final answer',
+    })
+    recordTurnProcessUpdate(session.id, 'agent-1', {
+      messageId: message.id,
+      role: 'agent',
+      toolCallUpdate: {
+        id: 'tool-1',
+        status: 'completed',
+        terminalOutputDelta: 'done',
+        rawOutput: { exitCode: 0 },
+      },
+    })
+
+    expect(completeTurnProcess(session.id, 'completed').finalAnswer).toBe('Final answer')
+    expect(turnProcessItemStore.list(message.id).filter((item) => item.kind === 'note')).toEqual([])
+  })
 })
