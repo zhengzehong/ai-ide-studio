@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import * as acp from '@agentclientprotocol/sdk'
@@ -35,6 +34,9 @@ interface BoundSession {
 }
 
 const FULL_ACCESS_PERMISSION_MODES = new Set(['bypassPermissions', 'agent-full-access'])
+const TURN_SCOPED_SESSION_UPDATES = new Set<string>([
+  'agent_message_chunk', 'agent_thought_chunk', 'tool_call', 'tool_call_update', 'usage_update', 'plan', 'user_message_chunk',
+])
 const log = createChildLogger('acp-runtime-client')
 
 export interface AcpRuntimeClientOptions {
@@ -109,8 +111,20 @@ export function createAcpRuntimeClient(options: AcpRuntimeClientOptions): AcpRun
     async sessionUpdate(params) {
       const bound = byAcpSession.get(params.sessionId)
       if (!bound) return
-      const messageId = bound.messageId ?? `message-${randomUUID().slice(0, 8)}`
       const update = params.update
+      if (!bound.messageId && TURN_SCOPED_SESSION_UPDATES.has(update.sessionUpdate)) {
+        log.warn(
+          {
+            agentId: options.agentId,
+            sessionId: bound.ourSessionId,
+            acpSessionId: params.sessionId,
+            updateType: update.sessionUpdate,
+          },
+          'dropped ACP turn update without an active turn binding',
+        )
+        return
+      }
+      const messageId = bound.messageId ?? `session-state-${bound.ourSessionId}`
       switch (update.sessionUpdate) {
         case 'agent_message_chunk':
           if (update.content.type === 'text') publish(bound, { messageId, role: 'agent', contentDelta: update.content.text })
@@ -269,6 +283,17 @@ export function createAcpRuntimeClient(options: AcpRuntimeClientOptions): AcpRun
   return {
     client,
     bindSession(sessionId, acpSessionId, autoApprovedToolNames, permissionMode, contextWindow) {
+      const previousAcpSessionId = acpByOurSession.get(sessionId)
+      const existing = previousAcpSessionId ? byAcpSession.get(previousAcpSessionId) : undefined
+      if (existing && previousAcpSessionId === acpSessionId) {
+        existing.autoApprovedToolNames = new Set(autoApprovedToolNames)
+        existing.permissionMode = permissionMode
+        existing.contextWindow = contextWindow
+        return
+      }
+      if (previousAcpSessionId && previousAcpSessionId !== acpSessionId) {
+        byAcpSession.delete(previousAcpSessionId)
+      }
       const bound: BoundSession = {
         ourSessionId: sessionId,
         autoApprovedToolNames: new Set(autoApprovedToolNames),

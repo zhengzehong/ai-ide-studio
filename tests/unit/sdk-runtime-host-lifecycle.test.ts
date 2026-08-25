@@ -170,6 +170,34 @@ describe('SDK Runtime child lifecycle', () => {
     expect(harness.resumeSession).toHaveBeenCalledOnce()
   })
 
+  test('defers a changed Session context while its prompt is active', async () => {
+    let finishPrompt: ((value: { stopReason: string }) => void) | undefined
+    const promptResult = new Promise<{ stopReason: string }>((resolve) => { finishPrompt = resolve })
+    const harness = runtimeHarness({ prompt: () => promptResult })
+    const initial = snapshot('session-a')
+    await harness.host.ensureSession(initial)
+    const prompt = harness.host.prompt({
+      agentId: 'agent-a',
+      sessionId: 'session-a',
+      content: 'hello',
+      diagnostics: { messageId: 'message-a', turnId: 'turn-a' },
+    })
+    await harness.promptStarted
+
+    const changed = {
+      ...initial,
+      session: { ...initial.session, cwd: `${initial.session.cwd}/other`, acpSessionId: 'acp-created' },
+    }
+    await expect(harness.host.ensureSession(changed)).resolves.toBe('acp-created')
+    expect(harness.resumeSession).not.toHaveBeenCalled()
+
+    finishPrompt?.({ stopReason: 'end_turn' })
+    await prompt
+    await harness.host.ensureSession(changed)
+
+    expect(harness.resumeSession).toHaveBeenCalledOnce()
+  })
+
   test('waits for active Agent turns before replacing a changed model connection', async () => {
     let finishPrompt: ((value: { stopReason: string }) => void) | undefined
     const promptResult = new Promise<{ stopReason: string }>((resolve) => { finishPrompt = resolve })

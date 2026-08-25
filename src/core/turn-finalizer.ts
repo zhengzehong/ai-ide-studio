@@ -36,13 +36,14 @@ export function updatePendingTurn(turn: PendingTurn, data: SessionUpdateData): P
     next.thinking += data.thinking
   }
   if (data.toolCall) {
-    demoteFinalAnswer(next)
-    next.toolCalls.push(data.toolCall)
+    const isNewTool = !next.toolCalls.some((tool) => tool.id === data.toolCall?.id)
+    if (isNewTool) demoteFinalAnswer(next)
+    next.toolCalls = upsertToolCall(next.toolCalls, data.toolCall)
   }
   if (data.toolCallUpdate) {
-    if (next.toolCalls.some((tool) => tool.id === data.toolCallUpdate?.id) || shouldCreateToolFromUpdate(data.toolCallUpdate)) {
-      demoteFinalAnswer(next)
-    }
+    const isNewTool = !next.toolCalls.some((tool) => tool.id === data.toolCallUpdate?.id)
+      && shouldCreateToolFromUpdate(data.toolCallUpdate)
+    if (isNewTool) demoteFinalAnswer(next)
     next.toolCalls = upsertToolCall(next.toolCalls, data.toolCallUpdate)
   }
   if (data.plan || data.permissionRequest || data.elicitationRequest) {

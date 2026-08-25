@@ -179,7 +179,7 @@ events.on('session:done', (ev) => {
   const finalMessageId = processResult.messageId ?? finalized?.messageId ?? ev.messageId
 
   if (finalized) {
-    const finalContent = processResult.finalAnswer !== undefined ? processResult.finalAnswer : finalized.content
+    const finalContent = processResult.finalAnswer || finalized.content
     const message = messageStore.completeAgentMessage(finalMessageId, {
       content: finalContent,
       thinking: finalized.thinking || undefined,
