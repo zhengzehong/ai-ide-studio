@@ -5,10 +5,10 @@
 项目灵感工作台使用三个持久化实体，均受 `project_id` 边界约束：
 
 - `project_inspirations`：每个项目唯一的整理配置，保存当前长期灵感 Session、整理 Agent、提示词、自动整理开关和最近错误。
-- `inspiration_notes`：保存不可依赖 AI 成功的原始 Markdown、图片附件清单、整理状态和当前结构化结果。`analysis_revision` 是内容版本；AI 只能发布与当前版本一致的结果。
+- `inspiration_notes`：保存不可依赖 AI 成功的原始 Markdown、图片附件清单、整理状态和当前结构化结果。`title_mode` 区分正文截断生成的自动标题与人工标题；`analysis_revision` 是内容版本，`analysis_attempt_id` 是当前后台整理轮次，AI 只能暂存与当前版本和轮次同时匹配的结果。
 - `inspiration_candidates`：保存某次整理版本生成的候选任务、推荐 Agent 和已创建 Task/执行 Session 的关联。`dispatch_token` 用于互斥创建，`task_id` 唯一约束保证一个候选最多转成一个 Task。
 
-灵感原文先提交到 `inspiration_notes`，后台再通过项目长期 Session 整理。候选任务在用户确认前不进入 `tasks`；“只创建”生成 draft Task 和 pending Step，“立即执行”复用普通简单任务派发链路并创建独立执行 Session。历史候选按 revision 保留，但读模型只返回当前 revision。
+灵感原文先提交到 `inspiration_notes`，未填写人工标题时按正文连续原文生成最多 60 个字符的自动标题。后台再通过项目长期 Session 整理；同一 attempt 的工具调用只覆盖暂存结果，Session 本轮正常结束后才把最后一份有效结果提交为 `ready`，processing 暂存不会进入读模型。候选任务在用户确认前不进入 `tasks`；“只创建”生成 draft Task 和 pending Step，“立即执行”复用普通简单任务派发链路并创建独立执行 Session。历史候选按 revision 保留，但读模型只返回当前 revision。
 
 ## 实体关系
 

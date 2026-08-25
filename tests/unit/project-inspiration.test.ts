@@ -90,11 +90,13 @@ describe('project inspiration service', () => {
     expect(inspirationNoteStore.get(note.id)?.status).toBe('processing')
 
     const handler = getHandler('inspiration.analysis.publish')
+    const attemptId = inspirationNoteStore.get(note.id)?.analysis_attempt_id
     const result = await handler.execute({
       noteId: note.id,
       expectedRevision: 1,
+      analysisAttemptId: attemptId,
       summary: '统一入口，保留权限边界',
-      bodyMarkdown: '# 建议方案\n统一交互入口。',
+      bodyMarkdown: '# 建议方案\n' + '统一交互入口并保留现有权限边界。'.repeat(10),
       questions: ['是否允许原型访问 API？'],
       candidates: [{
         title: '设计统一预览协议',
@@ -103,8 +105,13 @@ describe('project inspiration service', () => {
         agentReason: '适合架构设计',
       }],
     }, { projectId: fixture.project.id, sessionId: config.sessionId! })
+    expect(inspirationNoteStore.get(note.id)?.status).toBe('processing')
+    expect(getInspirationNote(fixture.project.id, note.id)).toMatchObject({
+      status: 'processing', summary: '', bodyMarkdown: '', candidates: [],
+    })
     gate.resolve()
     await gate.promise
+    await waitUntil(() => inspirationNoteStore.get(note.id)?.status === 'ready')
 
     expect(result.isError).not.toBe(true)
     expect(getInspirationNote(fixture.project.id, note.id)).toMatchObject({
@@ -112,6 +119,50 @@ describe('project inspiration service', () => {
       summary: '统一入口，保留权限边界',
       candidates: [expect.objectContaining({ title: '设计统一预览协议' })],
     })
+  })
+
+  test('rejects placeholder output and an old analysis attempt', async () => {
+    const fixture = createFixture()
+    const gate = deferred<void>()
+    vi.spyOn(sessionManager, 'enqueuePrompt').mockReturnValue(gate.promise)
+    const config = await configureProjectInspiration(fixture.project.id, { organizerAgentId: fixture.organizer.id })
+    const note = await createInspirationNote(fixture.project.id, {
+      title: '',
+      titleMode: 'auto',
+      sourceMarkdown: '4、AI发展到最后是什么，假设token不要钱的话，最后的形式',
+    })
+    expect(note).toMatchObject({
+      title: '4、AI发展到最后是什么，假设token不要钱的话，最后的形式',
+      titleMode: 'auto',
+    })
+    await waitUntil(() => inspirationNoteStore.get(note.id)?.status === 'processing')
+    const attemptId = inspirationNoteStore.get(note.id)?.analysis_attempt_id
+    const handler = getHandler('inspiration.analysis.publish')
+
+    const placeholder = await handler.execute({
+      noteId: note.id,
+      expectedRevision: 1,
+      analysisAttemptId: attemptId,
+      summary: 'test',
+      bodyMarkdown: 'test',
+      questions: ['question one'],
+      candidates: [],
+    }, { projectId: fixture.project.id, sessionId: config.sessionId! })
+    expect(placeholder.isError).toBe(true)
+
+    const stale = await handler.execute({
+      noteId: note.id,
+      expectedRevision: 1,
+      analysisAttemptId: 'attempt-old',
+      summary: '这是一份足够长的摘要',
+      bodyMarkdown: '# 完整分析\n' + '这是一份足够长的完整分析内容。'.repeat(10),
+      questions: [],
+      candidates: [],
+    }, { projectId: fixture.project.id, sessionId: config.sessionId! })
+    expect(stale.isError).toBe(true)
+
+    gate.reject(new Error('stop test turn'))
+    await expect(gate.promise).rejects.toThrow('stop test turn')
   })
 
   test('creates a draft Task once when the user chooses only create', async () => {
@@ -178,9 +229,11 @@ function readyCandidate(projectId: string, agentId: string): { noteId: string; c
 }
 
 function publishInspirationAnalysisForTest(projectId: string, noteId: string, agentId: string) {
-  const result = inspirationNoteStore.publishAnalysis(noteId, 1, {
-    summary: '摘要',
-    bodyMarkdown: '# 方案',
+  const attemptId = inspirationNoteStore.get(noteId)?.analysis_attempt_id
+  if (!attemptId) throw new Error(`missing analysis attempt for ${projectId}`)
+  const result = inspirationNoteStore.stageAnalysis(noteId, 1, attemptId, {
+    summary: '这是一份完整摘要',
+    bodyMarkdown: '# 方案\n' + '这是一份完整方案内容。'.repeat(20),
     questions: [],
     candidates: [{
       title: '实现候选任务',
@@ -189,6 +242,7 @@ function publishInspirationAnalysisForTest(projectId: string, noteId: string, ag
       agentReason: '适合执行',
     }],
   })
+  inspirationNoteStore.finalizeAnalysis(noteId, 1, attemptId)
   if (!result.note) throw new Error(`failed to publish note for ${projectId}`)
   return getInspirationNote(projectId, result.note.id)
 }

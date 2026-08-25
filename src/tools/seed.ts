@@ -1157,7 +1157,7 @@ const CORE_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
   {
     name: 'inspiration.analysis.publish',
     displayName: '发布灵感整理结果',
-    description: '发布当前项目灵感的结构化整理结果。仅项目灵感会话可用，不会创建或派发任务。',
+    description: '暂存当前项目灵感的结构化整理结果。同一分析轮次可重复调用并以最后一次为准；禁止使用测试或占位内容。',
     category: 'data',
     type: 'builtin',
     config: { handler: 'inspiration.analysis.publish' },
@@ -1166,9 +1166,10 @@ const CORE_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
       properties: {
         noteId: { type: 'string' },
         expectedRevision: { type: 'integer', minimum: 1 },
-        summary: { type: 'string' },
-        bodyMarkdown: { type: 'string' },
-        questions: { type: 'array', maxItems: 20, items: { type: 'string' } },
+        analysisAttemptId: { type: 'string' },
+        summary: { type: 'string', minLength: 8 },
+        bodyMarkdown: { type: 'string', minLength: 80 },
+        questions: { type: 'array', maxItems: 20, items: { type: 'string', description: '直接传字符串，不要传对象' } },
         candidates: {
           type: 'array',
           maxItems: 10,
@@ -1184,7 +1185,7 @@ const CORE_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
           },
         },
       },
-      required: ['noteId', 'expectedRevision', 'summary', 'bodyMarkdown', 'questions', 'candidates'],
+      required: ['noteId', 'expectedRevision', 'analysisAttemptId', 'summary', 'bodyMarkdown', 'questions', 'candidates'],
     },
     permissions: CORE_PERMISSIONS,
     isBuiltin: true,

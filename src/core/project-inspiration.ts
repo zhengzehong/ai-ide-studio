@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { resolveInspirationTitle, type InspirationTitleMode } from '../shared/inspiration-title.js'
 import { agentStore } from '../store/agents.js'
 import { inspirationCandidateStore, inspirationNoteStore, type CreateCandidateInput } from '../store/inspiration-notes.js'
 import { projectInspirationStore, type ProjectInspirationData } from '../store/project-inspirations.js'
@@ -11,7 +12,8 @@ import { sessionManager } from './sessions.js'
 import { createSimpleTask } from './task-simple.js'
 import { taskStepManager } from './task-steps.js'
 import { taskManager } from './tasks.js'
-import { appendHiddenAttachmentNote, loadStoredImagesForAcp, saveInspirationImages, type StoredImageAttachment } from './image-attachments.js'
+import { loadStoredImagesForAcp, saveInspirationImages, type StoredImageAttachment } from './image-attachments.js'
+import { buildInspirationAnalysisPrompt } from './project-inspiration-prompt.js'
 import type { ImageAttachment } from '../types/ws-protocol.js'
 
 const log = createChildLogger('project-inspiration')
@@ -32,6 +34,7 @@ export interface ProjectInspirationWorkspace {
 export interface PublishInspirationAnalysisInput {
   noteId: string
   expectedRevision: number
+  analysisAttemptId: string
   summary: string
   bodyMarkdown: string
   questions: string[]
@@ -99,7 +102,7 @@ export async function rebuildProjectInspirationSession(projectId: string, organi
 
 export async function createInspirationNote(
   projectId: string,
-  input: { title: string; sourceMarkdown: string; images?: ImageAttachment[] },
+  input: { title?: string; titleMode?: InspirationTitleMode; sourceMarkdown: string; images?: ImageAttachment[] },
 ): Promise<InspirationNoteData> {
   requireProject(projectId)
   const config = projectInspirationStore.ensure(projectId)
@@ -107,10 +110,12 @@ export async function createInspirationNote(
   const queued = config.auto_organize === 1 && !!config.session_id && !!config.organizer_agent_id
   const noteId = `inspiration-${randomUUID().slice(0, 8)}`
   const attachments = await saveInspirationImages({ projectId, noteId, images: input.images })
+  const resolvedTitle = resolveInspirationTitle(input)
   const note = inspirationNoteStore.create({
     id: noteId,
     projectId,
-    title: input.title,
+    title: resolvedTitle.title,
+    titleMode: resolvedTitle.titleMode,
     sourceMarkdown: input.sourceMarkdown,
     attachments,
     queued,
@@ -124,7 +129,7 @@ export async function createInspirationNote(
 export async function updateInspirationNote(
   projectId: string,
   noteId: string,
-  input: { title: string; sourceMarkdown: string; keepAttachmentPaths?: string[]; images?: ImageAttachment[] },
+  input: { title?: string; titleMode?: InspirationTitleMode; sourceMarkdown: string; keepAttachmentPaths?: string[]; images?: ImageAttachment[] },
 ): Promise<InspirationNoteData> {
   const note = requireNote(projectId, noteId)
   const config = projectInspirationStore.ensure(projectId)
@@ -134,8 +139,13 @@ export async function updateInspirationNote(
   const keptAttachments = existingAttachments.filter((item) => keepPaths.has(item.relativePath))
   requireImageLimit(keptAttachments.length + (input.images?.length ?? 0))
   const newAttachments = await saveInspirationImages({ projectId, noteId, images: input.images })
+  const resolvedTitle = resolveInspirationTitle({
+    ...input,
+    current: { title: note.title, titleMode: note.title_mode },
+  })
   const updated = inspirationNoteStore.updateSource(note.id, {
-    title: input.title,
+    title: resolvedTitle.title,
+    titleMode: resolvedTitle.titleMode,
     sourceMarkdown: input.sourceMarkdown,
     attachments: [...keptAttachments, ...newAttachments],
     queue,
@@ -181,15 +191,23 @@ export function publishInspirationAnalysis(
     const agent = agentStore.get(candidate.suggestedAgentId)
     if (!agent || agent.project_id !== context.projectId) throw new Error(`推荐 Agent 不属于当前项目: ${candidate.suggestedAgentId}`)
   }
-  const result = inspirationNoteStore.publishAnalysis(note.id, input.expectedRevision, input)
+  const result = inspirationNoteStore.stageAnalysis(
+    note.id,
+    input.expectedRevision,
+    input.analysisAttemptId,
+    input,
+  )
   const current = result.note ?? inspirationNoteStore.get(note.id)
   if (!current) throw new Error('灵感不存在')
-  if (result.applied) {
+  if (!result.staged) throw new Error(result.reason ?? 'ANALYSIS_STAGE_FAILED')
+  if (result.staged) {
     projectInspirationStore.update(context.projectId, { lastError: null })
-    emitUpdate(context.projectId, note.id)
-    log.info({ projectId: context.projectId, noteId: note.id, revision: input.expectedRevision }, '灵感整理结果已发布')
+    log.debug(
+      { projectId: context.projectId, noteId: note.id, revision: input.expectedRevision, attemptId: input.analysisAttemptId },
+      '灵感整理结果已暂存',
+    )
   }
-  return { applied: result.applied, note: buildInspirationNoteData(current) }
+  return { applied: result.staged, note: buildInspirationNoteData(current) }
 }
 
 export function updateInspirationCandidate(
@@ -265,47 +283,45 @@ async function drainProject(projectId: string): Promise<void> {
       if (!config?.auto_organize || !config.session_id || !config.organizer_agent_id) return
       const note = inspirationNoteStore.claimNext(projectId)
       if (!note) return
+      const attemptId = note.analysis_attempt_id
+      if (!attemptId) {
+        inspirationNoteStore.markFailed(note.id, note.analysis_revision, '灵感整理 attempt 创建失败')
+        continue
+      }
       emitUpdate(projectId, note.id)
       try {
         const attachments = parseStoredAttachments(note.attachments_json)
         const images = await loadStoredImagesForAcp(attachments)
-        await sessionManager.enqueuePrompt(config.session_id, buildAnalysisPrompt(config.organization_prompt || DEFAULT_PROMPT, note, attachments), images, {
+        await sessionManager.enqueuePrompt(config.session_id, buildInspirationAnalysisPrompt(config.organization_prompt || DEFAULT_PROMPT, note, attachments), images, {
           senderRole: 'inspiration',
           senderId: note.id,
           senderName: '灵感整理',
           dedupeKey: `inspiration:${note.id}:${note.analysis_revision}`,
         })
-        const current = inspirationNoteStore.get(note.id)
-        if (current?.status === 'processing') {
-          inspirationNoteStore.markFailed(note.id, note.analysis_revision, 'AI 未发布结构化整理结果')
+        if (inspirationNoteStore.finalizeAnalysis(note.id, note.analysis_revision, attemptId)) {
+          projectInspirationStore.update(projectId, { lastError: null })
+          log.info({ projectId, noteId: note.id, revision: note.analysis_revision, attemptId }, '灵感整理结果已提交')
+        } else {
+          inspirationNoteStore.markFailed(note.id, note.analysis_revision, 'AI 未发布有效的结构化整理结果', attemptId)
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
-        inspirationNoteStore.markFailed(note.id, note.analysis_revision, message)
-        projectInspirationStore.update(projectId, { lastError: message })
-        log.error({ err, projectId, noteId: note.id, revision: note.analysis_revision }, '灵感整理失败')
+        const failed = inspirationNoteStore.markFailed(note.id, note.analysis_revision, message, attemptId)
+        if (failed) {
+          projectInspirationStore.update(projectId, { lastError: message })
+          log.error({ err, projectId, noteId: note.id, revision: note.analysis_revision, attemptId }, '灵感整理失败')
+        } else {
+          log.info(
+            { projectId, noteId: note.id, revision: note.analysis_revision, attemptId },
+            '旧灵感整理轮次失败已忽略',
+          )
+        }
       }
       emitUpdate(projectId, note.id)
     }
   } finally {
     activeProjects.delete(projectId)
   }
-}
-
-function buildAnalysisPrompt(
-  prompt: string,
-  note: { id: string; title: string; source_markdown: string; analysis_revision: number },
-  attachments: StoredImageAttachment[],
-): string {
-  const source = appendHiddenAttachmentNote(note.source_markdown, attachments)
-  return [
-    prompt,
-    `灵感 ID: ${note.id}`,
-    `分析版本: ${note.analysis_revision}`,
-    `标题: ${note.title}`,
-    `原始记录:\n${source}`,
-    '完成分析后必须调用 inspiration.analysis.publish。noteId 和 expectedRevision 必须与上面完全一致。',
-  ].join('\n\n')
 }
 
 function parseStoredAttachments(value: string): StoredImageAttachment[] {

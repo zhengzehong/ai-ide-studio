@@ -21,6 +21,7 @@ export interface InspirationNoteData {
   id: string
   projectId: string
   title: string
+  titleMode: InspirationNoteRow['title_mode']
   sourceMarkdown: string
   attachments: unknown[]
   status: string
@@ -36,18 +37,24 @@ export interface InspirationNoteData {
 }
 
 export function buildInspirationNoteData(row: InspirationNoteRow): InspirationNoteData {
-  const candidates = inspirationCandidateStore.listCurrent(row.id, row.analysis_revision).map(buildCandidateData)
+  const hasCommittedAnalysis = row.status === 'ready' || row.status === 'needs_input'
+  const candidates = hasCommittedAnalysis
+    ? inspirationCandidateStore.listCurrent(row.id, row.analysis_revision).map(buildCandidateData)
+    : []
   return {
     id: row.id,
     projectId: row.project_id,
     title: row.title,
+    titleMode: row.title_mode,
     sourceMarkdown: row.source_markdown,
     attachments: parseArray(row.attachments_json),
     status: row.status,
     analysisRevision: row.analysis_revision,
-    summary: row.summary,
-    bodyMarkdown: row.body_markdown,
-    questions: parseArray(row.questions_json).filter((item): item is string => typeof item === 'string'),
+    summary: hasCommittedAnalysis ? row.summary : '',
+    bodyMarkdown: hasCommittedAnalysis ? row.body_markdown : '',
+    questions: hasCommittedAnalysis
+      ? parseArray(row.questions_json).filter((item): item is string => typeof item === 'string')
+      : [],
     lastError: row.last_error,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

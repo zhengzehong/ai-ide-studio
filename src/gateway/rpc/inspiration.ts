@@ -39,7 +39,8 @@ export const inspirationRpcHandlers: RpcHandlerMap = {
   async 'inspiration.note.create'(msg, { sendResult, state }) {
     requireOwner(state.authMode)
     sendResult(await createInspirationNote(requiredText(msg.projectId, 'projectId'), {
-      title: requiredText(msg.title, 'title', 160),
+      title: optionalText(msg.title, 160),
+      titleMode: optionalTitleMode(msg.titleMode),
       sourceMarkdown: requiredText(msg.sourceMarkdown, 'sourceMarkdown', 50_000),
       images: optionalImages(msg.images),
     }))
@@ -51,7 +52,8 @@ export const inspirationRpcHandlers: RpcHandlerMap = {
       requiredText(msg.projectId, 'projectId'),
       requiredText(msg.noteId, 'noteId'),
       {
-        title: requiredText(msg.title, 'title', 160),
+        title: optionalText(msg.title, 160),
+        titleMode: optionalTitleMode(msg.titleMode),
         sourceMarkdown: requiredText(msg.sourceMarkdown, 'sourceMarkdown', 50_000),
         keepAttachmentPaths: optionalStringArray(msg.keepAttachmentPaths, 'keepAttachmentPaths', 20, 500),
         images: optionalImages(msg.images),
@@ -127,6 +129,12 @@ function requiredBoolean(value: unknown, field: string): boolean {
 
 function optionalBoolean(value: unknown, field: string): boolean | undefined {
   return value === undefined ? undefined : requiredBoolean(value, field)
+}
+
+function optionalTitleMode(value: unknown): 'auto' | 'manual' | undefined {
+  if (value === undefined) return undefined
+  if (value === 'auto' || value === 'manual') return value
+  throw new Error('titleMode 必须是 auto 或 manual')
 }
 
 function optionalStringArray(

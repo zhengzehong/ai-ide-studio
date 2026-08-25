@@ -43,14 +43,15 @@ describe('project inspiration stores', () => {
       sourceMarkdown: '内容',
       queued: true,
     })
-    expect(inspirationNoteStore.claimNext(project.id)?.analysis_revision).toBe(1)
+    const attemptId = inspirationNoteStore.claimNext(project.id)?.analysis_attempt_id
+    expect(attemptId).toBeTruthy()
 
     const edited = inspirationNoteStore.updateSource(note.id, {
       title: '新稿',
       sourceMarkdown: '新内容',
       queue: true,
     })
-    const result = inspirationNoteStore.publishAnalysis(note.id, 1, {
+    const result = inspirationNoteStore.stageAnalysis(note.id, 1, attemptId!, {
       summary: '旧摘要',
       bodyMarkdown: '# 旧结果',
       questions: [],
@@ -58,7 +59,7 @@ describe('project inspiration stores', () => {
     })
 
     expect(edited?.analysis_revision).toBe(2)
-    expect(result.applied).toBe(false)
+    expect(result.staged).toBe(false)
     expect(inspirationNoteStore.get(note.id)).toMatchObject({
       status: 'queued',
       summary: '',
@@ -66,7 +67,7 @@ describe('project inspiration stores', () => {
     })
   })
 
-  test('publishes current candidates and keeps task dispatch idempotent', () => {
+  test('keeps the latest staged analysis and finalizes it once the prompt completes', () => {
     const project = projectStore.create({ name: 'P', workDir: root })
     const note = inspirationNoteStore.create({
       projectId: project.id,
@@ -74,16 +75,30 @@ describe('project inspiration stores', () => {
       sourceMarkdown: '做一个功能',
       queued: true,
     })
-    inspirationNoteStore.claimNext(project.id)
-    const published = inspirationNoteStore.publishAnalysis(note.id, 1, {
-      summary: '摘要',
-      bodyMarkdown: '# 方案',
+    const processing = inspirationNoteStore.claimNext(project.id)!
+    const attemptId = processing.analysis_attempt_id!
+    inspirationNoteStore.stageAnalysis(note.id, 1, attemptId, {
+      summary: '第一版完整分析摘要',
+      bodyMarkdown: '# 第一版完整方案\n' + '第一版内容'.repeat(20),
+      questions: [],
+      candidates: [],
+    })
+    const staged = inspirationNoteStore.stageAnalysis(note.id, 1, attemptId, {
+      summary: '第二版最终分析摘要',
+      bodyMarkdown: '# 第二版最终方案\n' + '第二版内容'.repeat(20),
       questions: ['范围？'],
       candidates: [{ title: '实现功能', descriptionMarkdown: '## 目标\n完成实现' }],
     })
-    const candidate = published.candidates[0]
+    const candidate = staged.candidates[0]
 
-    expect(published.applied).toBe(true)
+    expect(staged.staged).toBe(true)
+    expect(inspirationNoteStore.get(note.id)).toMatchObject({ status: 'processing', summary: '第二版最终分析摘要' })
+    expect(inspirationNoteStore.finalizeAnalysis(note.id, 1, attemptId)).toBe(true)
+    expect(inspirationNoteStore.get(note.id)).toMatchObject({
+      status: 'ready',
+      summary: '第二版最终分析摘要',
+      analysis_attempt_id: null,
+    })
     expect(candidate.title).toBe('实现功能')
     expect(inspirationCandidateStore.claimDispatch(candidate.id, 'token-1')?.dispatch_token).toBe('token-1')
     expect(inspirationCandidateStore.claimDispatch(candidate.id, 'token-2')).toBeUndefined()
@@ -104,9 +119,19 @@ describe('project inspiration stores', () => {
       sourceMarkdown: '内容',
       queued: true,
     })
-    inspirationNoteStore.claimNext(project.id)
+    const processing = inspirationNoteStore.claimNext(project.id)!
+    inspirationNoteStore.stageAnalysis(note.id, 1, processing.analysis_attempt_id!, {
+      summary: '重启前暂存摘要',
+      bodyMarkdown: '# 重启前暂存方案\n' + '尚未正式提交'.repeat(20),
+      questions: [],
+      candidates: [],
+    })
 
     expect(inspirationNoteStore.requeueProcessing()).toBe(1)
-    expect(inspirationNoteStore.get(note.id)?.status).toBe('queued')
+    expect(inspirationNoteStore.get(note.id)).toMatchObject({
+      status: 'queued',
+      summary: '',
+      analysis_attempt_id: null,
+    })
   })
 })

@@ -60,7 +60,7 @@ export function Inspiration() {
   const editNote = (noteId: string): void => { select(noteId); setMode('edit'); setEditorVersion((value) => value + 1); setNotice(null) }
   const createNote = (): void => { select(null); setMode('edit'); setEditorVersion((value) => value + 1); setNotice(null) }
 
-  const saveNote = async (input: { title: string; sourceMarkdown: string; keepAttachmentPaths: string[]; images: Array<{ data: string; mimeType: string; name?: string }> }): Promise<void> => {
+  const saveNote = async (input: { title: string; titleMode: 'auto' | 'manual'; sourceMarkdown: string; keepAttachmentPaths: string[]; images: Array<{ data: string; mimeType: string; name?: string }> }): Promise<void> => {
     try {
       const note = await saveInspirationNote({ noteId: selected?.id, ...input })
       setMode('result')
