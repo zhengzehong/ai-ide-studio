@@ -73,7 +73,6 @@ import { useFileSystemStore } from '../stores/filesystem.store'
 import { useTeamStore } from '../stores/team.store'
 import { wsClient } from '../services/ws-client'
 import { FileTree } from '../components/file-viewer/FileTree'
-import { FilePreview } from '../components/file-viewer/FilePreview'
 import { LazyToolCallsBlock } from '../components/chat/LazyToolCallsBlock'
 import { AuthenticatedImage } from '../components/chat/AuthenticatedImage'
 import { TurnContentView } from '../components/chat/TurnContentView'
@@ -138,6 +137,7 @@ import { FilesPresentationCard } from '../components/chat/FilesPresentationCard'
 import { PresentedFilesModal } from '../components/file-viewer/PresentedFilesModal'
 import { isFilesPresentationToolCall, parseFilesPresentationOutput } from '../stores/session-events'
 import { SessionBar } from './workspace/SessionBar'
+import { WorkspaceCenterStage } from './workspace/WorkspaceCenterStage'
 import { TemplatePickerModal } from './workspace/TemplatePickerModal'
 import { PublishTemplateModal } from './workspace/PublishTemplateModal'
 import { ICON_MAP } from '../components/agent-square/constants'
@@ -1089,7 +1089,7 @@ export default function Workspace() {
         )}
       </aside>
 
-      {sidebarTab === 'sessions' ? (
+      {sidebarTab === 'sessions' && (
         <SessionBar
           agent={orderedProjectAgents.find((a) => a.id === effectiveSelectedAgentId) ?? null}
           sessions={effectiveSelectedAgentId ? agentSessions(effectiveSelectedAgentId) : []}
@@ -1114,50 +1114,25 @@ export default function Workspace() {
             if (currentProjectId) void fetchSessions(undefined, currentProjectId, { force: true })
           }}
         />
-      ) : (
-        <aside
-          style={{
-            width: 200,
-            flexShrink: 0,
-            display: 'flex',
-            flexDirection: 'column',
-            borderRight: '1px solid var(--border)',
-            background: 'var(--bg-0)',
-            pointerEvents: 'none',
-            opacity: 0.4,
-          }}
-        >
-          <header
-            style={{
-              padding: '10px 12px',
-              borderBottom: '1px solid var(--border)',
-              flexShrink: 0,
-            }}
-          >
-            <span style={{ fontSize: 13, color: 'var(--text-3)' }}>文件浏览中</span>
-          </header>
-        </aside>
       )}
 
-      {/* ─── File Preview (optional) ─── */}
-      {openFile && (
-        <div style={{ width: 420, flexShrink: 0 }}>
-          <FilePreview file={openFile} projectId={currentProjectId} onClose={closeFile} />
-        </div>
-      )}
-
-      {/* ─── Center Chat ─── */}
-      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-        <WorkspaceChatPane
-          connected={connected}
-          projectId={currentProjectId}
-          currentSessionId={currentSessionId}
-          chatAgent={chatAgent}
-          currentSession={currentSession}
-          currentSessionTitle={currentSessionId ? sessionTitle(currentSession ?? { id: currentSessionId }) : undefined}
-          currentSessionCopying={currentSessionCopying}
-        />
-      </main>
+      <WorkspaceCenterStage
+        fileMode={sidebarTab === 'files'}
+        file={openFile}
+        projectId={currentProjectId}
+        onCloseFile={closeFile}
+        chat={(
+          <WorkspaceChatPane
+            connected={connected}
+            projectId={currentProjectId}
+            currentSessionId={currentSessionId}
+            chatAgent={chatAgent}
+            currentSession={currentSession}
+            currentSessionTitle={currentSessionId ? sessionTitle(currentSession ?? { id: currentSessionId }) : undefined}
+            currentSessionCopying={currentSessionCopying}
+          />
+        )}
+      />
 
       {/* Right Sidebar: session context */}
       <aside
