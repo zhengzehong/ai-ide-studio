@@ -44,7 +44,7 @@ describe('session done metadata', () => {
     }
   })
 
-  test('persists the streamed assistant message id when the turn is done', () => {
+  test('persists the streamed assistant message id when the turn is done', async () => {
     const session = sessionStore.create({ agentId: 'agent-done-id' })
 
     events.emit('session:update', {
@@ -58,6 +58,7 @@ describe('session done metadata', () => {
       messageId: `done-${session.id}`,
       stopReason: 'end_turn',
     })
+    await sessionManager.waitForPersistence(session.id)
 
     const agentMessage = messageStore.list(session.id, { includeToolCalls: true }).find((message) => message.role === 'agent')
     expect(agentMessage?.id).toBe('msg-live-turn-1')

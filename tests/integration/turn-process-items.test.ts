@@ -6,7 +6,12 @@ import { initDatabase, closeDatabase } from '../../src/store/db.js'
 import { messageStore, sessionStore } from '../../src/store/sessions.js'
 import { stableProcessItemId, turnProcessItemStore } from '../../src/store/turn-process-items.js'
 import { sessionRpcHandlers } from '../../src/gateway/rpc/sessions.js'
-import { completeTurnProcess, recordTurnProcessUpdate, startTurnProcess } from '../../src/core/turn-process-runtime.js'
+import {
+  completeTurnProcess,
+  recordTurnProcessUpdate,
+  startTurnProcess,
+  waitForTurnProcessPersistence,
+} from '../../src/core/turn-process-runtime.js'
 import type { RpcContext } from '../../src/gateway/rpc/types.js'
 
 const tmp = mkdtempSync(resolve(tmpdir(), 'ai-ide-turn-process-items-'))
@@ -133,6 +138,7 @@ describe('turn process items', () => {
         rawOutput: { formatted_output: 'README content', exit_code: 0 },
       },
     })
+    await waitForTurnProcessPersistence(session.id)
 
     const stored = turnProcessItemStore.detail(message.id, itemId)
     const detail = JSON.parse(stored?.detail_json as string) as Record<string, unknown>
@@ -171,6 +177,7 @@ describe('turn process items', () => {
       expect(messageStore.get(message.id)?.content).toBe('')
 
       await vi.advanceTimersByTimeAsync(500)
+      await waitForTurnProcessPersistence(session.id)
       expect(messageStore.get(message.id)?.content).toBe('AB')
 
       recordTurnProcessUpdate(session.id, 'agent-1', {
@@ -180,7 +187,7 @@ describe('turn process items', () => {
       })
       expect(messageStore.get(message.id)?.content).toBe('AB')
 
-      const completed = completeTurnProcess(session.id, 'completed')
+      const completed = await completeTurnProcess(session.id, 'completed')
       expect(completed.finalAnswer).toBe('ABC')
       await vi.runAllTimersAsync()
       expect(messageStore.get(message.id)?.content).toBe('ABC')
@@ -216,7 +223,7 @@ describe('turn process items', () => {
     }
   })
 
-  test('coalesces thinking process item writes while streaming text', () => {
+  test('coalesces thinking process item writes while streaming text', async () => {
     vi.useFakeTimers()
     try {
       const session = sessionStore.create({ agentId: 'agent-1' })
@@ -242,7 +249,8 @@ describe('turn process items', () => {
 
       expect(turnProcessItemStore.list(message.id)).toEqual([])
 
-      vi.advanceTimersByTime(300)
+      await vi.advanceTimersByTimeAsync(300)
+      await waitForTurnProcessPersistence(session.id)
       const items = turnProcessItemStore.list(message.id)
       expect(items).toHaveLength(1)
       expect(items[0].kind).toBe('thinking')
@@ -254,7 +262,7 @@ describe('turn process items', () => {
         thinking: 'C',
       })
 
-      const completed = completeTurnProcess(session.id, 'completed')
+      const completed = await completeTurnProcess(session.id, 'completed')
       expect(completed.messageId).toBe(message.id)
       expect(turnProcessItemStore.list(message.id)[0].content).toBe('ABC')
     } finally {
@@ -262,7 +270,7 @@ describe('turn process items', () => {
     }
   })
 
-  test('clears running snapshot when streamed text is demoted to a process note', () => {
+  test('clears running snapshot when streamed text is demoted to a process note', async () => {
     const session = sessionStore.create({ agentId: 'agent-1' })
     const message = messageStore.append(session.id, {
       id: 'msg-agent-running',
@@ -283,11 +291,12 @@ describe('turn process items', () => {
       role: 'agent',
       toolCall: { id: 'tool-1', title: 'read file', status: 'completed' },
     })
+    await waitForTurnProcessPersistence(session.id)
 
     expect(messageStore.get(message.id)?.content).toBe('')
   })
 
-  test('keeps final text when an existing tool sends a late update', () => {
+  test('keeps final text when an existing tool sends a late update', async () => {
     const session = sessionStore.create({ agentId: 'agent-1' })
     const message = messageStore.append(session.id, {
       id: 'msg-agent-running',
@@ -319,7 +328,7 @@ describe('turn process items', () => {
       },
     })
 
-    expect(completeTurnProcess(session.id, 'completed').finalAnswer).toBe('Final answer')
+    expect((await completeTurnProcess(session.id, 'completed')).finalAnswer).toBe('Final answer')
     expect(turnProcessItemStore.list(message.id).filter((item) => item.kind === 'note')).toEqual([])
   })
 })

@@ -24,12 +24,78 @@ export interface OutboxEventInput {
   createdAt: string
 }
 
+export interface TurnProcessItemWriteInput {
+  id: string
+  sessionId: string
+  messageId: string
+  kind: string
+  status?: string | null
+  title?: string | null
+  summary?: string | null
+  preview?: string | null
+  content?: string | null
+  detail?: unknown
+  meta?: unknown
+}
+
+export interface TurnProcessTextAppendInput {
+  id: string
+  sessionId: string
+  messageId: string
+  kind: 'thinking' | 'note' | 'stage' | 'error'
+  text: string
+  status?: string | null
+  title?: string | null
+  meta?: unknown
+}
+
+export interface TurnProcessItemWriteResult {
+  id: string
+  session_id: string
+  message_id: string
+  sequence: number
+  kind: string
+  status: string | null
+  title: string | null
+  summary: string | null
+  preview: string | null
+  content: string | null
+  detail_json: string | null
+  meta_json: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface SessionTurnFinalizeInput {
+  sessionId: string
+  messageId: string
+  processStatus: string
+  content: string
+  status: string
+  timestamp: string
+  decisionJson?: string | null
+  statsJson?: string | null
+  fileChangesJson?: string | null
+  presentationsJson?: string | null
+}
+
+export interface SessionTurnFinalizeResult {
+  messageId: string
+  fileChangesJson: string | null
+  processItemCount: number
+}
+
 export type WriteMutation =
   | { type: 'session.event.append'; event: SessionEventWriteInput }
   | { type: 'message.snapshot.update'; messageId: string; content: string; timestamp: string }
   | { type: 'session.touch'; sessionId: string; timestamp: string }
   | { type: 'session.stage.update'; sessionId: string; stage: string; timestamp: string }
+  | { type: 'session.stage.clear-running'; sessionId: string; timestamp: string }
+  | { type: 'session.title.update-if-empty'; sessionId: string; title: string; timestamp: string }
   | { type: 'outbox.enqueue'; event: OutboxEventInput }
+  | { type: 'turn-process.item.upsert'; item: TurnProcessItemWriteInput }
+  | { type: 'turn-process.text.append'; item: TurnProcessTextAppendInput }
+  | { type: 'session.turn.finalize'; input: SessionTurnFinalizeInput }
 
 export interface WriteBatch {
   batchId: string
@@ -60,7 +126,12 @@ export type WriteMutationResult =
   | { type: 'message.snapshot.update'; changes: number }
   | { type: 'session.touch'; changes: number }
   | { type: 'session.stage.update'; changes: number }
+  | { type: 'session.stage.clear-running'; changes: number }
+  | { type: 'session.title.update-if-empty'; changes: number }
   | { type: 'outbox.enqueue'; id: string }
+  | { type: 'turn-process.item.upsert'; item: TurnProcessItemWriteResult }
+  | { type: 'turn-process.text.append'; item: TurnProcessItemWriteResult }
+  | { type: 'session.turn.finalize'; result: SessionTurnFinalizeResult }
 
 export interface WriteBatchResult {
   batchId: string

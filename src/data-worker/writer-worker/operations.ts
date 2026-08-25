@@ -1,7 +1,5 @@
 import type Database from 'better-sqlite3'
-import type { WorkerErrorCode } from '../protocol.js'
 import type {
-  SessionEventWriteInput,
   SessionEventWriteResult,
   SessionWriteCursor,
   RuntimeCommandEnqueueResult,
@@ -15,6 +13,20 @@ import type {
   WriteMutation,
   WriteMutationResult,
 } from '../../ports/write-data-port.js'
+import {
+  appendTurnProcessText,
+  clearRunningSessionStage,
+  finalizeSessionTurn,
+  readTurnProcessItem,
+  reconstructSessionTurnResult,
+  upsertTurnProcessItem,
+} from './turn-process-operations.js'
+import {
+  appendSessionEvent,
+  assertMutationSession,
+  validateWriteBatch,
+} from './write-mutation-helpers.js'
+import { WriterOperationError } from './writer-operation-error.js'
 
 type SqliteDatabase = ReturnType<typeof Database>
 
@@ -41,23 +53,13 @@ interface RuntimeCommandRow {
   updated_at: string
 }
 
-export class WriterOperationError extends Error {
-  readonly code: WorkerErrorCode
-
-  constructor(code: WorkerErrorCode, message: string) {
-    super(message)
-    this.name = 'WriterOperationError'
-    this.code = code
-  }
-}
-
 export function executeWriteBatches(db: SqliteDatabase, batches: WriteBatch[]): WriteBatchResult[] {
   const execute = db.transaction((items: WriteBatch[]) => items.map((batch) => commitBatch(db, batch)))
   return execute.immediate(batches)
 }
 
 function commitBatch(db: SqliteDatabase, batch: WriteBatch): WriteBatchResult {
-  validateBatch(batch)
+  validateWriteBatch(batch)
   const existing = db.prepare<[string], BatchCommitRow>(
     'SELECT * FROM writer_batch_commits WHERE batch_id = ?',
   ).get(batch.batchId)
@@ -106,6 +108,16 @@ function reconstructMutationResults(db: SqliteDatabase, batch: WriteBatch): Writ
       return { type: mutation.type, event }
     }
     if (mutation.type === 'outbox.enqueue') return { type: mutation.type, id: mutation.event.id }
+    if (mutation.type === 'turn-process.item.upsert' || mutation.type === 'turn-process.text.append') {
+      const item = readTurnProcessItem(db, mutation.item.id)
+      if (!item) throw new WriterOperationError(
+        'SQLITE_ERROR', `Committed batch ${batch.batchId} is missing process item ${mutation.item.id}`,
+      )
+      return { type: mutation.type, item }
+    }
+    if (mutation.type === 'session.turn.finalize') {
+      return { type: mutation.type, result: reconstructSessionTurnResult(db, mutation.input) }
+    }
     return { type: mutation.type, changes: 0 }
   })
 }
@@ -158,6 +170,19 @@ function executeMutation(
       ).run(mutation.stage, mutation.timestamp, mutation.sessionId)
       return { type: mutation.type, changes: result.changes }
     }
+    case 'session.stage.clear-running':
+      return {
+        type: mutation.type,
+        changes: clearRunningSessionStage(db, mutation.sessionId, mutation.timestamp),
+      }
+    case 'session.title.update-if-empty': {
+      const result = db.prepare(`
+        UPDATE sessions
+        SET title = ?, updated_at = ?
+        WHERE id = ? AND (title IS NULL OR TRIM(title) = '')
+      `).run(mutation.title.trim(), mutation.timestamp, mutation.sessionId)
+      return { type: mutation.type, changes: result.changes }
+    }
     case 'outbox.enqueue':
       if (mutation.event.version === undefined && appendedEventSequence === undefined) {
         throw new WriterOperationError('BAD_REQUEST', 'Outbox version requires an appended Session event')
@@ -179,6 +204,12 @@ function executeMutation(
         mutation.event.createdAt,
       )
       return { type: mutation.type, id: mutation.event.id }
+    case 'turn-process.item.upsert':
+      return { type: mutation.type, item: upsertTurnProcessItem(db, mutation.item) }
+    case 'turn-process.text.append':
+      return { type: mutation.type, item: appendTurnProcessText(db, mutation.item) }
+    case 'session.turn.finalize':
+      return { type: mutation.type, result: finalizeSessionTurn(db, mutation.input) }
   }
 }
 
@@ -326,75 +357,4 @@ function parseJson(value: string): unknown {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
-}
-
-function appendSessionEvent(
-  db: SqliteDatabase,
-  input: SessionEventWriteInput,
-): SessionEventWriteResult {
-  const previous = db.prepare<[string], { sequence: number | null }>(
-    'SELECT MAX(sequence) AS sequence FROM session_events WHERE session_id = ?',
-  ).get(input.sessionId)
-  const event: SessionEventWriteResult = {
-    id: input.id,
-    session_id: input.sessionId,
-    agent_id: input.agentId ?? null,
-    acp_session_id: input.acpSessionId ?? null,
-    message_id: input.messageId ?? null,
-    type: input.eventType,
-    role: input.role ?? null,
-    payload_json: JSON.stringify(input.payload),
-    sequence: (previous?.sequence ?? 0) + 1,
-    created_at: input.createdAt,
-  }
-  db.prepare(`
-    INSERT INTO session_events (
-      id, session_id, agent_id, acp_session_id, message_id,
-      type, role, payload_json, sequence, created_at
-    ) VALUES (
-      @id, @session_id, @agent_id, @acp_session_id, @message_id,
-      @type, @role, @payload_json, @sequence, @created_at
-    )
-  `).run(event)
-  return event
-}
-
-function validateBatch(batch: WriteBatch): void {
-  if (!batch.batchId.trim()) throw new WriterOperationError('BAD_REQUEST', 'batchId is required')
-  if (batch.mutations.length === 0) {
-    throw new WriterOperationError('BAD_REQUEST', 'Write batch requires at least one mutation')
-  }
-  const orderingFields = [
-    batch.sessionId,
-    batch.streamGeneration,
-    batch.firstSequence,
-    batch.lastSequence,
-  ]
-  const definedCount = orderingFields.filter((value) => value != null).length
-  if (definedCount !== 0 && definedCount !== orderingFields.length) {
-    throw new WriterOperationError('BAD_REQUEST', 'Session ordering metadata must be complete')
-  }
-  if (definedCount === orderingFields.length) {
-    if (!Number.isInteger(batch.firstSequence) || !Number.isInteger(batch.lastSequence)) {
-      throw new WriterOperationError('BAD_REQUEST', 'Batch sequences must be integers')
-    }
-    if ((batch.firstSequence ?? -1) < 0 || (batch.lastSequence ?? -1) < (batch.firstSequence ?? 0)) {
-      throw new WriterOperationError('BAD_REQUEST', 'Batch sequence range is invalid')
-    }
-  }
-}
-
-function assertMutationSession(batch: WriteBatch, mutation: WriteMutation): void {
-  if (!batch.sessionId) return
-  let mutationSessionId: string | undefined
-  if (mutation.type === 'session.event.append') mutationSessionId = mutation.event.sessionId
-  else if (mutation.type === 'session.touch' || mutation.type === 'session.stage.update') {
-    mutationSessionId = mutation.sessionId
-  } else if (mutation.type === 'outbox.enqueue') mutationSessionId = mutation.event.sessionId
-  if (mutationSessionId && mutationSessionId !== batch.sessionId) {
-    throw new WriterOperationError(
-      'BAD_REQUEST',
-      `Mutation session ${mutationSessionId} does not match batch session ${batch.sessionId}`,
-    )
-  }
 }

@@ -19,9 +19,9 @@ import {
   listRecoverableRuntimeCommands,
   readSessionWriteCursor,
   updateRuntimeCommand,
-  WriterOperationError,
 } from './operations.js'
 import { maintainWriterDatabase } from './maintenance.js'
+import { WriterOperationError } from './writer-operation-error.js'
 
 interface WriterWorkerData {
   dbPath: string

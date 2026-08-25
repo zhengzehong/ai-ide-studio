@@ -1,5 +1,11 @@
 import { randomUUID } from 'node:crypto'
-import type { SessionEventWriteResult, WriteBatchResult, WriteMutation } from '../../ports/write-data-port.js'
+import type {
+  SessionEventWriteResult,
+  SessionTurnFinalizeInput,
+  SessionTurnFinalizeResult,
+  WriteBatchResult,
+  WriteMutation,
+} from '../../ports/write-data-port.js'
 import type { WritePriority } from '../../data-worker/protocol.js'
 import { getWriteDataPort } from './write-data-port-provider.js'
 import { onBeforeDatabaseClose } from '../../store/db.js'
@@ -69,6 +75,27 @@ class SessionPersistencePort {
       content,
       timestamp: new Date().toISOString(),
     }])
+  }
+
+  commitMutations(
+    sessionId: string,
+    priority: WritePriority,
+    mutations: WriteMutation[],
+  ): Promise<WriteBatchResult> {
+    return this.commit(sessionId, priority, mutations)
+  }
+
+  finalizeTurn(input: SessionTurnFinalizeInput): Promise<SessionTurnFinalizeResult> {
+    return this.commit(input.sessionId, 'critical', [{
+      type: 'session.turn.finalize',
+      input,
+    }]).then((batch) => {
+      const mutation = batch.results.find((item) => item.type === 'session.turn.finalize')
+      if (!mutation || mutation.type !== 'session.turn.finalize') {
+        throw new Error(`Writer batch ${batch.batchId} did not return a terminal Session result`)
+      }
+      return mutation.result
+    })
   }
 
   async flush(): Promise<void> {
