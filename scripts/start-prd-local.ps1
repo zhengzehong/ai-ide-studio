@@ -28,6 +28,7 @@ $env:PORT = if ($env:AI_IDE_PRD_PORT) { $env:AI_IDE_PRD_PORT } else { "18900" }
 $env:HOST = if ($env:AI_IDE_PRD_HOST) { $env:AI_IDE_PRD_HOST } else { "0.0.0.0" }
 $env:EDGE_MODE = if ($env:EDGE_MODE) { $env:EDGE_MODE } else { "process" }
 $env:EDGE_REALTIME_PATH = if ($env:EDGE_REALTIME_PATH) { $env:EDGE_REALTIME_PATH } else { "/realtime" }
+$env:DATA_RETENTION_MODE = if ($env:DATA_RETENTION_MODE) { $env:DATA_RETENTION_MODE } else { "delete" }
 $env:FUNASR_WS_URL = if ($env:FUNASR_WS_URL) { $env:FUNASR_WS_URL } else { "ws://10.201.80.79:10096/" }
 $lanIp = if ($env:AI_IDE_PRD_LAN_IP) { $env:AI_IDE_PRD_LAN_IP } else { Get-LanIPv4Address }
 $env:DATA_DIR = Join-Path $Root "data-prd"
@@ -58,6 +59,7 @@ Write-Host "Bind:      $($env:HOST):$($env:PORT)"
 Write-Host "Public:    $($env:PUBLIC_BASE_URL)"
 Write-Host "Realtime:  same-origin $($env:EDGE_REALTIME_PATH)"
 Write-Host "Edge mode: $($env:EDGE_MODE)"
+Write-Host "Retention: $($env:DATA_RETENTION_MODE)"
 Write-Host "FunASR:   $($env:FUNASR_WS_URL)"
 Write-Host "DATA_DIR:  $env:DATA_DIR"
 Write-Host "LOG_DIR:   $env:LOG_DIR"
