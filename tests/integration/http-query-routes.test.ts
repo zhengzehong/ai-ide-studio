@@ -58,7 +58,9 @@ describe('versioned HTTP query routes', () => {
       data: [{ id: task.id, sessionId: session.id }],
     })
     expect(taskResponse.headers.get('cache-control')).toBe('no-store')
-    expect(taskResponse.headers.get('server-timing')).toMatch(/^query;dur=\d+(?:\.\d+)?$/)
+    expect(taskResponse.headers.get('server-timing')).toMatch(
+      /^query;dur=\d+(?:\.\d+)?, serialize;dur=\d+(?:\.\d+)?, total;dur=\d+(?:\.\d+)?$/,
+    )
     expect(Number(taskResponse.headers.get('x-response-bytes'))).toBeGreaterThan(0)
     expect(await sessionResponse.json()).toMatchObject({
       data: [{ id: session.id, activity_state: 'idle' }],

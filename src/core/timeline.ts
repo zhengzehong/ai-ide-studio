@@ -4,6 +4,7 @@ import { timelineStore, timelineConfigStore } from '../store/timeline.js'
 import { sessionStore, messageStore } from '../store/sessions.js'
 import { modelProviderStore } from '../store/model-providers.js'
 import { getDb } from '../store/db.js'
+import { observeSyncDbOperation } from '../store/db-operation-observer.js'
 import type { TimelineSummaryRow, TimelineConfigRow } from '../store/timeline.js'
 
 const log = createChildLogger('timeline')
@@ -207,21 +208,25 @@ function applyModelOutput(
   const newItems = output.filter((o) => !o.id)
   const rawTurns = rawItems.map((r) => r.turns)
 
-  db.transaction(() => {
-    for (const id of deleteIds) {
-      timelineStore.delete(id)
-    }
-    for (const item of keepOrUpdate) {
-      if (inputIdSet.has(item.id!)) {
-        timelineStore.updateRefined(item.id!, item.text, item.turns, modelUsed)
+  observeSyncDbOperation(
+    'timeline.apply',
+    { sessionId, inputCount: inputIds.length, outputCount: output.length },
+    () => db.transaction(() => {
+      for (const id of deleteIds) {
+        timelineStore.delete(id)
       }
-    }
-    for (const item of newItems) {
-      const realTime = resolveRealTimestamp(sessionId, rawItems, item)
-      timelineStore.insertRefined(sessionId, item.text, item.turns, realTime, modelUsed)
-    }
-    timelineStore.deleteRawByTurns(sessionId, rawTurns)
-  })()
+      for (const item of keepOrUpdate) {
+        if (inputIdSet.has(item.id!)) {
+          timelineStore.updateRefined(item.id!, item.text, item.turns, modelUsed)
+        }
+      }
+      for (const item of newItems) {
+        const realTime = resolveRealTimestamp(sessionId, rawItems, item)
+        timelineStore.insertRefined(sessionId, item.text, item.turns, realTime, modelUsed)
+      }
+      timelineStore.deleteRawByTurns(sessionId, rawTurns)
+    })(),
+  )
 }
 
 function collectNewTurns(sessionId: string, rawItems: TimelineSummaryRow[]): TimelineTurnInput[] {

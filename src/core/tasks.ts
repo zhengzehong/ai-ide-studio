@@ -13,6 +13,7 @@ import { sessionManager } from './sessions.js'
 import { events } from './events.js'
 import { emitTaskLifecycleEvent } from './task-lifecycle-events.js'
 import { createChildLogger } from './logger.js'
+import { observeSyncDbOperation } from '../store/db-operation-observer.js'
 import { appendHiddenAttachmentNote, loadStoredImagesForAcp, type StoredImageAttachment } from './image-attachments.js'
 import { buildTaskPrompt, getTaskMode } from './task-prompt.js'
 import { dispatchReadySteps } from './step-ready-dispatch.js'
@@ -205,32 +206,36 @@ export const taskManager = {
     }
 
     const stage = input.stage ?? task.stage
-    if (nextStatus !== task.status) {
-      taskStore.updateStatus(input.taskId, nextStatus, stage)
-    } else if (input.stage !== undefined && input.stage !== task.stage) {
-      taskStore.updateStatus(input.taskId, task.status, stage)
-    }
-    taskStore.updateAgentReportStatus(input.taskId, input.agentStatus)
-
     const eventType =
       input.agentStatus === 'milestone'
         ? 'milestone'
         : input.agentStatus === 'blocked'
           ? 'input_requested'
           : 'marked_done'
-    taskEventStore.append(input.taskId, {
-      type: eventType,
-      payload: {
-        report_md: input.reportMd ?? null,
-        agent_status: input.agentStatus,
-        stage,
-        from_status: previousStatus,
-        to_status: nextStatus,
-        recovered: nextStatus !== previousStatus,
+    const updated = observeSyncDbOperation(
+      'task.report.persist',
+      { taskId: input.taskId, agentStatus: input.agentStatus },
+      () => {
+        if (nextStatus !== task.status) {
+          taskStore.updateStatus(input.taskId, nextStatus, stage)
+        } else if (input.stage !== undefined && input.stage !== task.stage) {
+          taskStore.updateStatus(input.taskId, task.status, stage)
+        }
+        taskStore.updateAgentReportStatus(input.taskId, input.agentStatus)
+        taskEventStore.append(input.taskId, {
+          type: eventType,
+          payload: {
+            report_md: input.reportMd ?? null,
+            agent_status: input.agentStatus,
+            stage,
+            from_status: previousStatus,
+            to_status: nextStatus,
+            recovered: nextStatus !== previousStatus,
+          },
+        })
+        return taskStore.get(input.taskId)
       },
-    })
-
-    const updated = taskStore.get(input.taskId)
+    )
     const lifecycleChange =
       input.agentStatus === 'milestone'
         ? 'milestone'
@@ -243,7 +248,11 @@ export const taskManager = {
     )
     if (updated) {
       events.emit('task:update', { taskId: input.taskId, data: { ...updated, event: 'reported' } })
-      emitTaskLifecycleEvent(updated, lifecycleChange, previousStatus)
+      observeSyncDbOperation(
+        'task.report.lifecycle',
+        { taskId: input.taskId, agentStatus: input.agentStatus },
+        () => emitTaskLifecycleEvent(updated, lifecycleChange, previousStatus),
+      )
     }
 
     if (input.agentStatus === 'milestone' && previousStatus === 'needs_input' && nextStatus === 'running') {

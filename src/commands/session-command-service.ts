@@ -4,6 +4,7 @@ import { sessionManager } from '../core/sessions.js'
 import { getRuntimePort } from '../runtime/runtime-port-provider.js'
 import type { RuntimeCancelResult } from '../ports/runtime-port.js'
 import { eventStore, sessionStore } from '../store/sessions.js'
+import { observeSyncDbOperation } from '../store/db-operation-observer.js'
 import { projectSecretaryStore } from '../store/project-secretaries.js'
 import { sendInspirationDiscussion } from '../core/project-inspiration-discussion.js'
 import type { SessionCommand } from './session-command-types.js'
@@ -72,7 +73,11 @@ function logCancelResult(sessionId: string, agentId: string, result: RuntimeCanc
 function markSessionRead(sessionId: string): { sessionId: string; lastReadAt: string } {
   const session = sessionStore.get(sessionId)
   if (!session) throw new Error('会话不存在')
-  const lastReadAt = sessionStore.markRead(sessionId)
+  const lastReadAt = observeSyncDbOperation(
+    'session.markRead',
+    { sessionId },
+    () => sessionStore.markRead(sessionId),
+  )
   events.emit('session:changed', { sessionId, data: { last_read_at: lastReadAt } })
   const secretary = projectSecretaryStore.findBySession(sessionId)
   if (secretary) events.emit('secretary:update', { projectId: secretary.project_id })

@@ -7,6 +7,7 @@ import { InvalidTaskCursorError } from '../../store/task-page.js'
 
 const log = createChildLogger('gateway:http-query')
 const QUERY_RESPONSE_BUDGET_BYTES = 1024 * 1024
+const QUERY_RESPONSE_SLOW_MS = 100
 
 interface QueryEnvelope {
   data: unknown
@@ -132,22 +133,31 @@ async function runQuery(
   const startedAt = performance.now()
   try {
     const envelope = await execute()
-    const elapsedMs = performance.now() - startedAt
+    const queriedAt = performance.now()
     const body = JSON.stringify(envelope)
     const responseBytes = Buffer.byteLength(body, 'utf8')
+    const serializedAt = performance.now()
+    const queryMs = queriedAt - startedAt
+    const serializeMs = serializedAt - queriedAt
+    const totalMs = serializedAt - startedAt
     const context = {
       queryName,
-      elapsedMs: Number(elapsedMs.toFixed(2)),
+      queryMs: Number(queryMs.toFixed(2)),
+      serializeMs: Number(serializeMs.toFixed(2)),
+      totalMs: Number(totalMs.toFixed(2)),
       itemCount: Array.isArray(envelope.data) ? envelope.data.length : 1,
       responseBytes,
     }
-    if (responseBytes > QUERY_RESPONSE_BUDGET_BYTES) {
+    if (responseBytes > QUERY_RESPONSE_BUDGET_BYTES || totalMs >= QUERY_RESPONSE_SLOW_MS) {
       log.warn(context, 'HTTP query response exceeded observation budget')
     } else {
       log.debug(context, 'HTTP query completed')
     }
     c.header('Cache-Control', 'no-store')
-    c.header('Server-Timing', `query;dur=${elapsedMs.toFixed(1)}`)
+    c.header(
+      'Server-Timing',
+      `query;dur=${queryMs.toFixed(1)}, serialize;dur=${serializeMs.toFixed(1)}, total;dur=${totalMs.toFixed(1)}`,
+    )
     c.header('X-Response-Bytes', String(responseBytes))
     c.header('Content-Type', 'application/json; charset=UTF-8')
     return c.body(body)

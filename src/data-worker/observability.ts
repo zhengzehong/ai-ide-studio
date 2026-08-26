@@ -10,8 +10,8 @@ export function parseDataWorkerSlowMs(value: string | undefined): number {
 }
 
 export function isSlowWorkerRequest(
-  metrics: Pick<WorkerMetrics, 'totalMs'>,
+  metrics: Pick<WorkerMetrics, 'totalMs'> & { clientObservedMs?: number },
   slowRequestMs: number,
 ): boolean {
-  return metrics.totalMs >= slowRequestMs
+  return Math.max(metrics.totalMs, metrics.clientObservedMs ?? 0) >= slowRequestMs
 }

@@ -6,10 +6,15 @@ import {
   type WorkerMetrics,
   type WorkerPriority,
   type WorkerRequest,
+  type WorkerResponse,
 } from './protocol.js'
+import { createChildLogger } from '../core/logger.js'
+
+const log = createChildLogger('data-worker-rpc')
 
 export interface WorkerRpcClientOptions {
   defaultTimeoutMs?: number
+  onLateResponse?: (response: LateWorkerResponse) => void
 }
 
 export interface WorkerRpcRequestOptions {
@@ -20,40 +25,76 @@ export interface WorkerRpcRequestOptions {
 
 export interface WorkerCallResult<TResult> {
   result: TResult
-  metrics: WorkerMetrics
+  metrics: WorkerClientMetrics
 }
 
 interface PendingRequest {
   resolve: (value: WorkerCallResult<unknown>) => void
   reject: (reason: WorkerRequestError) => void
   timer: NodeJS.Timeout
+  operation: string
+  enqueuedAt: number
+}
+
+interface TimedOutRequest {
+  operation: string
+  enqueuedAt: number
+  timedOutAt: number
+}
+
+export interface WorkerClientMetrics extends WorkerMetrics {
+  workerTotalMs: number
+  clientObservedMs: number
+  deliveryLagMs: number
+}
+
+export interface LateWorkerResponse extends WorkerClientMetrics {
+  requestId: string
+  operation: string
+  responseKind: 'result' | 'error'
+  pendingCountAtResponse: number
+  timedOutAfterMs: number
+  workerErrorCode?: WorkerErrorCode
 }
 
 const DEFAULT_TIMEOUT_MS = 10_000
+const LATE_RESPONSE_TTL_MS = 60_000
+const MAX_LATE_RESPONSE_TOMBSTONES = 1_000
 
 export class WorkerRequestError extends Error {
   readonly code: WorkerErrorCode
   readonly details?: Record<string, unknown>
-  readonly metrics?: WorkerMetrics
+  readonly metrics?: WorkerClientMetrics
+  readonly clientObservedMs?: number
+  readonly requestId?: string
+  readonly operation?: string
 
   constructor(
     code: WorkerErrorCode,
     message: string,
     details?: Record<string, unknown>,
-    metrics?: WorkerMetrics,
+    metrics?: WorkerClientMetrics,
+    clientObservedMs?: number,
+    requestId?: string,
+    operation?: string,
   ) {
     super(message)
     this.name = 'WorkerRequestError'
     this.code = code
     this.details = details
     this.metrics = metrics
+    this.clientObservedMs = clientObservedMs
+    this.requestId = requestId
+    this.operation = operation
   }
 }
 
 export class WorkerRpcClient {
   private readonly worker: Worker
   private readonly defaultTimeoutMs: number
+  private readonly onLateResponse?: (response: LateWorkerResponse) => void
   private readonly pending = new Map<string, PendingRequest>()
+  private readonly timedOut = new Map<string, TimedOutRequest>()
   private readonly drainWaiters = new Set<() => void>()
   private state: 'open' | 'unavailable' | 'closed' = 'open'
   private closePromise?: Promise<void>
@@ -61,6 +102,7 @@ export class WorkerRpcClient {
   constructor(worker: Worker, options: WorkerRpcClientOptions = {}) {
     this.worker = worker
     this.defaultTimeoutMs = options.defaultTimeoutMs ?? DEFAULT_TIMEOUT_MS
+    this.onLateResponse = options.onLateResponse
     this.worker.on('message', this.handleMessage)
     this.worker.on('error', this.handleWorkerError)
     this.worker.on('exit', this.handleWorkerExit)
@@ -100,15 +142,14 @@ export class WorkerRpcClient {
 
     return new Promise<WorkerCallResult<TResult>>((resolve, reject) => {
       const timer = setTimeout(() => {
-        this.rejectPending(
-          requestId,
-          new WorkerRequestError('DEADLINE_EXCEEDED', `Worker request timed out: ${operation}`),
-        )
+        this.timeoutPending(requestId)
       }, timeoutMs)
       this.pending.set(requestId, {
         resolve: (value) => resolve(value as WorkerCallResult<TResult>),
         reject,
         timer,
+        operation,
+        enqueuedAt,
       })
       try {
         this.worker.postMessage(request)
@@ -130,6 +171,7 @@ export class WorkerRpcClient {
     if (this.closePromise) return this.closePromise
     this.state = 'closed'
     this.failAll(new WorkerRequestError('WORKER_UNAVAILABLE', 'Data worker client closed'))
+    this.timedOut.clear()
     this.removeListeners()
     this.closePromise = this.worker.terminate().then(() => undefined, () => undefined)
     return this.closePromise
@@ -138,17 +180,24 @@ export class WorkerRpcClient {
   private readonly handleMessage = (message: unknown): void => {
     if (!isWorkerResponse(message)) return
     const pending = this.pending.get(message.requestId)
-    if (!pending) return
+    if (!pending) {
+      this.reportLateResponse(message)
+      return
+    }
     this.pending.delete(message.requestId)
     clearTimeout(pending.timer)
+    const metrics = clientMetrics(message.metrics, pending.enqueuedAt)
     if (message.kind === 'result') {
-      pending.resolve({ result: message.result, metrics: message.metrics })
+      pending.resolve({ result: message.result, metrics })
     } else {
       pending.reject(new WorkerRequestError(
         message.error.code,
         message.error.message,
         message.error.details,
-        message.metrics,
+        metrics,
+        metrics.clientObservedMs,
+        message.requestId,
+        pending.operation,
       ))
     }
     this.resolveDrainWaitersIfIdle()
@@ -175,6 +224,61 @@ export class WorkerRpcClient {
     this.resolveDrainWaitersIfIdle()
   }
 
+  private timeoutPending(requestId: string): void {
+    const pending = this.pending.get(requestId)
+    if (!pending) return
+    const timedOutAt = Date.now()
+    this.pruneTimedOut(timedOutAt)
+    this.timedOut.set(requestId, {
+      operation: pending.operation,
+      enqueuedAt: pending.enqueuedAt,
+      timedOutAt,
+    })
+    this.pruneTimedOut(timedOutAt)
+    this.rejectPending(
+      requestId,
+      new WorkerRequestError(
+        'DEADLINE_EXCEEDED',
+        `Worker request timed out: ${pending.operation}`,
+        undefined,
+        undefined,
+        Math.max(0, timedOutAt - pending.enqueuedAt),
+        requestId,
+        pending.operation,
+      ),
+    )
+  }
+
+  private reportLateResponse(message: WorkerResponse): void {
+    const timedOut = this.timedOut.get(message.requestId)
+    if (!timedOut) return
+    this.timedOut.delete(message.requestId)
+    const metrics = clientMetrics(message.metrics, timedOut.enqueuedAt)
+    const response: LateWorkerResponse = {
+      ...metrics,
+      requestId: message.requestId,
+      operation: timedOut.operation,
+      responseKind: message.kind,
+      pendingCountAtResponse: this.pending.size,
+      timedOutAfterMs: Math.max(0, timedOut.timedOutAt - timedOut.enqueuedAt),
+      ...(message.kind === 'error' ? { workerErrorCode: message.error.code } : {}),
+    }
+    log.warn(response, 'late data worker response received after client timeout')
+    this.onLateResponse?.(response)
+  }
+
+  private pruneTimedOut(now: number): void {
+    for (const [requestId, request] of this.timedOut) {
+      if (now - request.timedOutAt <= LATE_RESPONSE_TTL_MS) break
+      this.timedOut.delete(requestId)
+    }
+    while (this.timedOut.size >= MAX_LATE_RESPONSE_TOMBSTONES) {
+      const oldest = this.timedOut.keys().next().value as string | undefined
+      if (!oldest) break
+      this.timedOut.delete(oldest)
+    }
+  }
+
   private failAll(error: WorkerRequestError): void {
     for (const requestId of [...this.pending.keys()]) {
       this.rejectPending(requestId, error)
@@ -191,6 +295,16 @@ export class WorkerRpcClient {
     this.worker.off('message', this.handleMessage)
     this.worker.off('error', this.handleWorkerError)
     this.worker.off('exit', this.handleWorkerExit)
+  }
+}
+
+function clientMetrics(metrics: WorkerMetrics, enqueuedAt: number): WorkerClientMetrics {
+  const clientObservedMs = Math.max(0, Date.now() - enqueuedAt)
+  return {
+    ...metrics,
+    workerTotalMs: metrics.totalMs,
+    clientObservedMs,
+    deliveryLagMs: Math.max(0, clientObservedMs - metrics.totalMs),
   }
 }
 

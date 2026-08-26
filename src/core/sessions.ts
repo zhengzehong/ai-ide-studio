@@ -6,6 +6,7 @@ import { globalAssistantStore } from '../store/global-assistant.js'
 import { projectStore } from '../store/projects.js'
 import { teamMemberStore } from '../store/teams.js'
 import { getRuntimePort } from '../runtime/runtime-port-provider.js'
+import { observeSyncDbOperation } from '../store/db-operation-observer.js'
 import { buildRuntimeStateSnapshot } from '../runtime/api/runtime-snapshot.js'
 import { events, type AppEvents } from './events.js'
 import { createChildLogger } from './logger.js'
@@ -524,15 +525,19 @@ async function sendPromptBatchNow(session: SessionRow, inputs: QueuedPrompt[]): 
         images: input.images,
       })
       const messageAttachments = inputStoredImages.length > 0 ? inputStoredImages : input.images
-      const humanMessage = messageStore.append(sessionId, {
-        id: humanMessageId,
-        role: 'human',
-        content: input.content,
-        attachments: messageAttachments,
-        senderId: input.options.senderId ?? null,
-        senderName: input.options.senderName ?? null,
-        senderRole: input.options.senderRole ?? 'user',
-      })
+      const humanMessage = observeSyncDbOperation(
+        'message.human.append',
+        { sessionId, turnId, messageId: humanMessageId },
+        () => messageStore.append(sessionId, {
+          id: humanMessageId,
+          role: 'human',
+          content: input.content,
+          attachments: messageAttachments,
+          senderId: input.options.senderId ?? null,
+          senderName: input.options.senderName ?? null,
+          senderRole: input.options.senderRole ?? 'user',
+        }),
+      )
       recordPromptProgress(sessionId, 'human.message.persisted')
       log.info(
         { sessionId, agentId: session.agent_id, turnId, messageId: humanMessage.id, contentLength: humanMessage.content.length, imageCount: input.images?.length ?? 0, timestamp: humanMessage.timestamp, senderRole: humanMessage.sender_role },
@@ -543,20 +548,24 @@ async function sendPromptBatchNow(session: SessionRow, inputs: QueuedPrompt[]): 
         sessionId,
         timestamp: humanMessage.timestamp,
       }])
-      const stored = eventStore.append(sessionId, {
-        type: 'message.user',
-        agentId: session.agent_id,
-        messageId: humanMessage.id,
-        role: 'human',
-        payload: {
+      const stored = observeSyncDbOperation(
+        'session.user-event.append',
+        { sessionId, turnId, messageId: humanMessage.id },
+        () => eventStore.append(sessionId, {
+          type: 'message.user',
+          agentId: session.agent_id,
           messageId: humanMessage.id,
-          content: input.content,
-          attachments: messageAttachments || [],
-          senderRole: humanMessage.sender_role,
-          senderId: humanMessage.sender_id,
-          senderName: humanMessage.sender_name,
-        },
-      })
+          role: 'human',
+          payload: {
+            messageId: humanMessage.id,
+            content: input.content,
+            attachments: messageAttachments || [],
+            senderRole: humanMessage.sender_role,
+            senderId: humanMessage.sender_id,
+            senderName: humanMessage.sender_name,
+          },
+        }),
+      )
       log.info(
         { sessionId, agentId: session.agent_id, turnId, eventId: stored.id, sequence: stored.sequence, messageId: stored.message_id },
         'human message event persisted',
@@ -570,13 +579,17 @@ async function sendPromptBatchNow(session: SessionRow, inputs: QueuedPrompt[]): 
       const startOrder = storedImages.length
       storedImages.push(...inputStoredImages.map((image, index) => ({ ...image, order: startOrder + index + 1 })))
     }
-    const agentMessage = messageStore.append(sessionId, {
-      id: agentMessageId,
-      role: 'agent',
-      content: '',
-      status: 'running',
-      startedAt: new Date(startedAt).toISOString(),
-    })
+    const agentMessage = observeSyncDbOperation(
+      'message.agent-start.append',
+      { sessionId, turnId, messageId: agentMessageId },
+      () => messageStore.append(sessionId, {
+        id: agentMessageId,
+        role: 'agent',
+        content: '',
+        status: 'running',
+        startedAt: new Date(startedAt).toISOString(),
+      }),
+    )
     startTurnProcess(sessionId, agentMessage.id)
     await sessionPersistencePort.commitMutations(sessionId, 'interactive', [{
       type: 'session.touch',
@@ -601,7 +614,11 @@ async function sendPromptBatchNow(session: SessionRow, inputs: QueuedPrompt[]): 
     recordPromptProgress(sessionId, 'acp.session.ready')
     log.info({ sessionId, agentId: session.agent_id, turnId, acpSessionId }, 'ACP ensure session done')
     if (session.acp_session_id !== acpSessionId) {
-      sessionStore.updateAcpSessionId(sessionId, acpSessionId)
+      observeSyncDbOperation(
+        'session.acp-mapping.update',
+        { sessionId, turnId, acpSessionId },
+        () => sessionStore.updateAcpSessionId(sessionId, acpSessionId),
+      )
       log.info({ sessionId, agentId: session.agent_id, turnId, acpSessionId }, 'ACP Session mapped')
     }
     const acpContent = appendHiddenAttachmentNote(

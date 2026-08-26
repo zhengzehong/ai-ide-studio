@@ -90,6 +90,7 @@ export async function createWorkerWriteDataPort(
                 priority: batch.priority,
                 attempt,
                 maxAttempts: MAX_COMMIT_ATTEMPTS,
+                ...(err instanceof WorkerRequestError ? workerErrorDiagnostics(err) : {}),
               },
               'writer batch acknowledgement timed out; retrying same batch',
             )
@@ -102,7 +103,7 @@ export async function createWorkerWriteDataPort(
               sessionId: batch.sessionId,
               priority: batch.priority,
               attempt,
-              ...(err instanceof WorkerRequestError ? err.metrics : undefined),
+              ...(err instanceof WorkerRequestError ? workerErrorDiagnostics(err) : {}),
             },
             'writer batch failed',
           )
@@ -176,6 +177,16 @@ export async function createWorkerWriteDataPort(
     terminate(): Promise<void> {
       return rpc.close()
     },
+  }
+}
+
+function workerErrorDiagnostics(error: WorkerRequestError): Record<string, unknown> {
+  return {
+    ...error.metrics,
+    requestId: error.requestId,
+    workerOperation: error.operation,
+    workerErrorCode: error.code,
+    clientObservedMs: error.clientObservedMs,
   }
 }
 

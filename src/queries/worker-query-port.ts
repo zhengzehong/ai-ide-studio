@@ -98,7 +98,13 @@ export async function createWorkerQueryPort(
           err,
           operation,
           priority: requestOptions.priority ?? 'interactive',
-          ...(err instanceof WorkerRequestError ? err.metrics : undefined),
+          ...(err instanceof WorkerRequestError ? {
+            ...err.metrics,
+            requestId: err.requestId,
+            workerOperation: err.operation,
+            workerErrorCode: err.code,
+            clientObservedMs: err.clientObservedMs,
+          } : {}),
         },
         'query worker request failed',
       )
