@@ -18,6 +18,7 @@ import ElicitationCard from '../components/chat/ElicitationCard'
 import ConfigToolbar from '../components/chat/ConfigToolbar'
 import { deriveLiveElapsedSeconds } from '../utils/chat-elapsed'
 import { PresentedFilesOverlay } from '../components/file-viewer/PresentedFilesOverlay'
+import { resolveChatResource, type OpenChatResource } from '@desktop/services/chat-resource-links'
 
 type MobileChatMessage = MessageData | (StreamingMessage & { session_id?: string })
 
@@ -187,6 +188,20 @@ export default function ChatPage() {
     if (!canViewFiles) return
     navigate('/files', { state: { projectId, sessionId } })
   }
+  const handleOpenResource = useCallback<OpenChatResource>(async (reference) => {
+    if (!projectId) throw new Error('当前会话未绑定项目')
+    const resource = await resolveChatResource(projectId, reference)
+    navigate('/files', {
+      state: {
+        projectId,
+        sessionId,
+        ...(resource.kind === 'directory'
+          ? { rootPath: resource.path }
+          : { filePath: resource.path }),
+      },
+    })
+    return resource
+  }, [navigate, projectId, sessionId])
 
   // 新建会话占位路由下,header 显示选中 Agent 名称(来自 URL agentId),不再显示项目名。
   const agents = useAppStore(s => s.agents)
@@ -314,6 +329,7 @@ export default function ChatPage() {
                     onLoadProcess={fetchMessageProcess}
                     onOpenPreview={(previewId, target) => navigate(`/preview/${previewId}?target=${target}`)}
                     onOpenFiles={setFilesPresentation}
+                    onOpenResource={handleOpenResource}
                   />
                 ) : (
                   <span>{msg.content}</span>
@@ -329,6 +345,7 @@ export default function ChatPage() {
                   liveElapsedSeconds={liveElapsedSeconds}
                   onOpenPreview={(previewId, target) => navigate(`/preview/${previewId}?target=${target}`)}
                   onOpenFiles={setFilesPresentation}
+                  onOpenResource={handleOpenResource}
                 />
               </ChatBubble>
             )

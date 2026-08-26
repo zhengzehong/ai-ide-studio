@@ -82,6 +82,7 @@ Runtime 可见 patch 不经过 API 事件总线，而是通过 Runtime→Realtim
 |------|------|------|------|
 | `fs.list` | `{ projectId, dirPath? }` | `FileEntry[]` | 读取项目文件树；相对路径受项目根目录限制 |
 | `fs.read` | `{ projectId, filePath }` | `FileContent` | 按需读取文本或返回媒体元数据；显式绝对路径沿用服务端特权读取能力 |
+| `fs.resolveReference` | `{ projectId, reference }` | `{ path, name, kind, absolute }` | 仅 owner；解析会话 Markdown 中的项目相对、Windows 绝对、UNC 或 `file://` 文件/目录引用，不读取正文 |
 | `fs.assetUrl` | `{ projectId, filePath, basePath?, mode? }` | `{ url, expiresAt, path, kind }` | 仅 owner；解析 Markdown 相对/绝对资源并签发一小时资源地址，`mode` 为 `inline` 或 `attachment` |
 
 `GET /api/fs/asset` 接受签名地址中的 `projectId/path/mode/expires/signature`，也兼容旧客户端的长期 token。媒体响应声明 `Accept-Ranges: bytes`，单段 Range 返回 `206 + Content-Range`，非法或多段 Range 返回 `416`。签名过期只使当前 URL 失效，文件卡片保留原路径，重新打开或播放器重试时会再次调用 `fs.assetUrl`。

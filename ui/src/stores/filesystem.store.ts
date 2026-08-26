@@ -35,11 +35,13 @@ export interface FileContent {
 export interface FileSystemProjectSnapshot {
   tree: FileEntry[]
   openFile: FileContent | null
+  rootPath: string | null
 }
 
 interface FileSystemStore {
   tree: FileEntry[]
   openFile: FileContent | null
+  rootPath: string | null
   loading: boolean
   loadingFile: boolean
   activeProjectId: string | null
@@ -48,7 +50,8 @@ interface FileSystemStore {
   activateProject: (projectId: string) => void
   fetchTree: (projectId: string, options?: { force?: boolean }) => Promise<void>
   expandDir: (projectId: string, dirPath: string) => Promise<void>
-  openFileByPath: (projectId: string, filePath: string) => Promise<void>
+  openDirectoryByPath: (projectId: string, dirPath: string) => Promise<void>
+  openFileByPath: (projectId: string, filePath: string, options?: { throwOnError?: boolean }) => Promise<void>
   closeFile: () => void
   invalidateProject: (projectId: string) => void
   clearProjectCache: (projectId: string) => void
@@ -56,6 +59,7 @@ interface FileSystemStore {
 }
 
 const treeFetches = new Map<string, Promise<void>>()
+const treeRequestSeq = new Map<string, number>()
 const fileRequestSeq = new Map<string, number>()
 
 function updateSnapshot(
@@ -70,7 +74,7 @@ function updateSnapshot(
     entries: {
       ...cache.entries,
       [projectId]: {
-        data: { ...(current?.data ?? { tree: [], openFile: null }), ...patch },
+        data: { ...(current?.data ?? { tree: [], openFile: null, rootPath: null }), ...patch },
         fetchedAt: current?.fetchedAt ?? now,
         lastAccessedAt: now,
         invalidated: false,
@@ -83,6 +87,7 @@ function updateSnapshot(
 export const useFileSystemStore = create<FileSystemStore>((set, get) => ({
   tree: [],
   openFile: null,
+  rootPath: null,
   loading: false,
   loadingFile: false,
   activeProjectId: null,
@@ -97,6 +102,7 @@ export const useFileSystemStore = create<FileSystemStore>((set, get) => ({
         projectCache,
         tree: snapshot?.tree ?? [],
         openFile: snapshot?.openFile ?? null,
+        rootPath: snapshot?.rootPath ?? null,
         loading: false,
         loadingFile: false,
       }
@@ -108,6 +114,8 @@ export const useFileSystemStore = create<FileSystemStore>((set, get) => ({
     if (!options?.force && cached && !shouldRefreshProjectCache(cached)) return
     const inFlight = treeFetches.get(projectId)
     if (!options?.force && inFlight) return inFlight
+    const viewRequestSeq = (treeRequestSeq.get(projectId) ?? 0) + 1
+    treeRequestSeq.set(projectId, viewRequestSeq)
     let requestSeq = 0
     set((state) => {
       const request = beginProjectRequest(state.projectCache, projectId)
@@ -120,12 +128,13 @@ export const useFileSystemStore = create<FileSystemStore>((set, get) => ({
     const request = (async (): Promise<void> => {
     try {
       const data = (await wsClient.request({ type: 'fs.list', projectId })) as FileEntry[]
+        if (treeRequestSeq.get(projectId) !== viewRequestSeq) return
         set((state) => {
           const current = readProjectCache(state.projectCache, projectId)?.data
           const projectCache = pruneProjectCache(commitProjectResponse(state.projectCache, {
             scope: projectId,
             requestSeq,
-            data: { tree: data, openFile: current?.openFile ?? null },
+            data: { tree: data, openFile: current?.openFile ?? null, rootPath: null },
           }), state.activeProjectId ?? projectId)
           return {
             projectCache,
@@ -134,7 +143,7 @@ export const useFileSystemStore = create<FileSystemStore>((set, get) => ({
           }
         })
     } catch {
-        if (get().activeProjectId === projectId) set({ loading: false })
+        if (treeRequestSeq.get(projectId) === viewRequestSeq && get().activeProjectId === projectId) set({ loading: false })
     }
     })()
     treeFetches.set(projectId, request)
@@ -178,7 +187,27 @@ export const useFileSystemStore = create<FileSystemStore>((set, get) => ({
     }
   },
 
-  openFileByPath: async (projectId, filePath) => {
+  openDirectoryByPath: async (projectId, dirPath) => {
+    const requestSeq = (treeRequestSeq.get(projectId) ?? 0) + 1
+    treeRequestSeq.set(projectId, requestSeq)
+    set({ loading: true, loadingFile: false })
+    try {
+      const tree = (await wsClient.request({ type: 'fs.list', projectId, dirPath })) as FileEntry[]
+      if (treeRequestSeq.get(projectId) !== requestSeq) return
+      set((state) => ({
+        projectCache: updateSnapshot(state.projectCache, projectId, { tree, openFile: null, rootPath: dirPath }),
+        tree: state.activeProjectId === projectId ? tree : state.tree,
+        openFile: state.activeProjectId === projectId ? null : state.openFile,
+        rootPath: state.activeProjectId === projectId ? dirPath : state.rootPath,
+        loading: state.activeProjectId === projectId ? false : state.loading,
+      }))
+    } catch (error) {
+      if (treeRequestSeq.get(projectId) === requestSeq && get().activeProjectId === projectId) set({ loading: false })
+      throw error
+    }
+  },
+
+  openFileByPath: async (projectId, filePath, options) => {
     const requestSeq = (fileRequestSeq.get(projectId) ?? 0) + 1
     fileRequestSeq.set(projectId, requestSeq)
     if (get().activeProjectId === projectId) set({ loadingFile: true })
@@ -194,8 +223,9 @@ export const useFileSystemStore = create<FileSystemStore>((set, get) => ({
         openFile: state.activeProjectId === projectId ? data : state.openFile,
         loadingFile: state.activeProjectId === projectId ? false : state.loadingFile,
       }))
-    } catch {
+    } catch (error) {
       if (get().activeProjectId === projectId) set({ loadingFile: false })
+      if (options?.throwOnError) throw error
     }
   },
 
@@ -214,6 +244,7 @@ export const useFileSystemStore = create<FileSystemStore>((set, get) => ({
   reset: () => set({
     tree: [],
     openFile: null,
+    rootPath: null,
     activeProjectId: null,
     projectCache: emptyProjectCache<FileSystemProjectSnapshot>(),
   }),

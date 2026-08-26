@@ -24,13 +24,14 @@ export interface FileContent {
 
 interface FileSystemState {
   projectId: string | null
+  rootPath: string | null
   tree: FileEntry[]
   openFile: FileContent | null
   loading: boolean
   loadingFile: boolean
   error: string | null
 
-  initTree: (projectId: string) => Promise<void>
+  initTree: (projectId: string, rootPath?: string) => Promise<void>
   expandDir: (dirPath: string) => Promise<void>
   openFileByPath: (filePath: string) => Promise<void>
   closeFile: () => void
@@ -49,22 +50,35 @@ function mergeChildren(tree: FileEntry[], dirPath: string, children: FileEntry[]
   })
 }
 
+let treeRequestSeq = 0
+let fileRequestSeq = 0
+
 export const useFileSystemStore = create<FileSystemState>((set, get) => ({
   projectId: null,
+  rootPath: null,
   tree: [],
   openFile: null,
   loading: false,
   loadingFile: false,
   error: null,
 
-  initTree: async (projectId) => {
-    if (get().projectId === projectId && get().tree.length > 0) return
-    set({ projectId, loading: true, error: null, tree: [], openFile: null })
+  initTree: async (projectId, rootPath) => {
+    const requestSeq = ++treeRequestSeq
+    const normalizedRoot = rootPath || null
+    if (get().projectId === projectId && get().rootPath === normalizedRoot && get().tree.length > 0) return
+    set({ projectId, rootPath: normalizedRoot, loading: true, error: null, tree: [], openFile: null })
     try {
-      const data = (await wsClient.request({ type: 'fs.list', projectId })) as FileEntry[]
+      const data = (await wsClient.request({
+        type: 'fs.list',
+        projectId,
+        ...(rootPath ? { dirPath: rootPath } : {}),
+      })) as FileEntry[]
+      if (treeRequestSeq !== requestSeq) return
       set({ tree: data, loading: false })
     } catch (err) {
-      set({ loading: false, error: err instanceof Error ? err.message : '加载目录失败' })
+      if (treeRequestSeq === requestSeq) {
+        set({ loading: false, error: err instanceof Error ? err.message : '加载目录失败' })
+      }
     }
   },
 
@@ -84,6 +98,7 @@ export const useFileSystemStore = create<FileSystemState>((set, get) => ({
   },
 
   openFileByPath: async (filePath) => {
+    const requestSeq = ++fileRequestSeq
     const pid = get().projectId
     if (!pid) return
     set({ loadingFile: true, openFile: null, error: null })
@@ -93,13 +108,20 @@ export const useFileSystemStore = create<FileSystemState>((set, get) => ({
         projectId: pid,
         filePath,
       })) as FileContent
+      if (fileRequestSeq !== requestSeq) return
       set({ openFile: data, loadingFile: false })
     } catch (err) {
-      set({ loadingFile: false, error: err instanceof Error ? err.message : '读取文件失败' })
+      if (fileRequestSeq === requestSeq) {
+        set({ loadingFile: false, error: err instanceof Error ? err.message : '读取文件失败' })
+      }
     }
   },
 
   closeFile: () => set({ openFile: null, error: null }),
 
-  reset: () => set({ projectId: null, tree: [], openFile: null, loading: false, loadingFile: false, error: null }),
+  reset: () => {
+    treeRequestSeq += 1
+    fileRequestSeq += 1
+    set({ projectId: null, rootPath: null, tree: [], openFile: null, loading: false, loadingFile: false, error: null })
+  },
 }))

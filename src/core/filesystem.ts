@@ -56,6 +56,13 @@ export interface FileMetadata {
   kind: FileKind
 }
 
+export interface FileReferenceInfo {
+  path: string
+  name: string
+  kind: 'file' | 'directory'
+  absolute: boolean
+}
+
 const EXT_TO_LANG: Record<string, string> = {
   '.ts': 'typescript', '.tsx': 'typescript', '.js': 'javascript', '.jsx': 'javascript',
   '.py': 'python', '.rs': 'rust', '.go': 'go', '.java': 'java',
@@ -257,17 +264,40 @@ export function inspectFile(workDir: string, filePath: string): FileMetadata | n
   }
 }
 
+export function inspectFileReference(workDir: string, filePath: string, basePath = 'chat.md'): FileReferenceInfo | null {
+  const resolvedPath = resolveFileReference(workDir, filePath, basePath)
+  if (!resolvedPath) return null
+  const fullPath = resolveSafePath(workDir, resolvedPath)
+  if (!fullPath || !existsSync(fullPath)) return null
+  try {
+    const stat = statSync(fullPath)
+    if (!stat.isFile() && !stat.isDirectory()) return null
+    return {
+      path: resolvedFilePath(workDir, resolvedPath, fullPath),
+      name: basename(fullPath),
+      kind: stat.isDirectory() ? 'directory' : 'file',
+      absolute: isAbsolute(resolvedPath),
+    }
+  } catch (err) {
+    log.error({ err, path: fullPath }, 'inspect file reference failed')
+    return null
+  }
+}
+
 export function listDirectory(workDir: string, subPath?: string): FileEntry[] {
-  const fullPath = subPath ? join(workDir, subPath) : workDir
+  const resolvedPath = subPath ? resolveFileReference(workDir, subPath, 'chat.md') : ''
+  if (subPath && !resolvedPath) return []
+  const fullPath = resolvedPath ? resolveSafePath(workDir, resolvedPath) : workDir
+  if (!fullPath) return []
   if (!existsSync(fullPath)) {
     log.warn({ workDir, subPath }, '目录不存在')
     return []
   }
 
-  return readTree(fullPath, workDir, 0)
+  return readTree(fullPath, workDir, 0, !!resolvedPath && isAbsolute(resolvedPath))
 }
 
-function readTree(dirPath: string, rootPath: string, depth: number): FileEntry[] {
+function readTree(dirPath: string, rootPath: string, depth: number, absolutePaths = false): FileEntry[] {
   if (depth > MAX_TREE_DEPTH) return []
 
   let entries: string[]
@@ -285,12 +315,12 @@ function readTree(dirPath: string, rootPath: string, depth: number): FileEntry[]
     if (isHiddenFileTreeEntry(name)) continue
 
     const fullPath = join(dirPath, name)
-    const relPath = relative(rootPath, fullPath).replace(/\\/g, '/')
+    const relPath = absolutePaths ? fullPath : relative(rootPath, fullPath).replace(/\\/g, '/')
 
     try {
       const stat = statSync(fullPath)
       if (stat.isDirectory()) {
-        const children = depth < 2 ? readTree(fullPath, rootPath, depth + 1) : undefined
+        const children = depth < 2 ? readTree(fullPath, rootPath, depth + 1, absolutePaths) : undefined
         result.push({ name, path: relPath, type: 'directory', children })
       } else if (stat.isFile()) {
         result.push({
@@ -388,11 +418,7 @@ function isHiddenFileTreeEntry(name: string): boolean {
 }
 
 export function expandDirectory(workDir: string, dirPath: string): FileEntry[] {
-  const fullPath = join(workDir, dirPath)
-  const normalizedRel = relative(workDir, fullPath)
-  if (normalizedRel.startsWith('..')) return []
-
-  return readTree(fullPath, workDir, 0)
+  return listDirectory(workDir, dirPath)
 }
 
 export function getFileBaseName(filePath: string): string {

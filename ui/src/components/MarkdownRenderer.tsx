@@ -3,11 +3,20 @@ import ReactMarkdown, { defaultUrlTransform } from 'react-markdown'
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize'
 import remarkGfm from 'remark-gfm'
 import { useFileAssetUrl } from './file-viewer/use-file-asset-url'
+import { ChatResourceLink } from './ChatResourceLink'
+import {
+  decodeChatResourceHref,
+  encodeChatResourceHref,
+  isExternalChatReference,
+  isChatResourceReference,
+  type OpenChatResource,
+} from '../services/chat-resource-links'
 
 interface MarkdownRendererProps {
   content: string
   projectId?: string
   documentPath?: string
+  onOpenResource?: OpenChatResource
 }
 
 const driveProtocols = Array.from({ length: 26 }, (_, index) => [
@@ -19,22 +28,29 @@ const markdownSanitizeSchema = {
   protocols: {
     ...defaultSchema.protocols,
     src: [...(defaultSchema.protocols?.src ?? []), 'file', ...driveProtocols],
+    href: [...(defaultSchema.protocols?.href ?? []), 'tel', 'file', ...driveProtocols, 'ai-ide-resource'],
   },
 }
 
-export const MarkdownRenderer = memo(function MarkdownRenderer({ content, projectId, documentPath }: MarkdownRendererProps) {
+export const MarkdownRenderer = memo(function MarkdownRenderer({ content, projectId, documentPath, onOpenResource }: MarkdownRendererProps) {
   return (
     <div className="markdown-body">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[[rehypeSanitize, markdownSanitizeSchema]]}
-        urlTransform={(url, key) => key === 'src' ? url : defaultUrlTransform(url)}
+        urlTransform={(url, key) => {
+          if (key === 'src') return url
+          if (key === 'href' && onOpenResource && isChatResourceReference(url)) return encodeChatResourceHref(url)
+          if (key === 'href' && isExternalChatReference(url)) return url
+          return defaultUrlTransform(url)
+        }}
         components={{
-          a: ({ href, children }) => (
-            <a href={href || '#'} target="_blank" rel="noreferrer">
-              {children}
-            </a>
-          ),
+          a: ({ href, children }) => {
+            const reference = decodeChatResourceHref(href)
+            return reference && onOpenResource
+              ? <ChatResourceLink reference={reference} onOpen={onOpenResource}>{children}</ChatResourceLink>
+              : <a href={href || '#'} target="_blank" rel="noreferrer">{children}</a>
+          },
           img: ({ src, alt }) => projectId && documentPath && src
             ? <MarkdownAssetImage key={src} projectId={projectId} documentPath={documentPath} src={src} alt={alt ?? ''} />
             : <img src={src} alt={alt ?? ''} referrerPolicy="no-referrer" />,

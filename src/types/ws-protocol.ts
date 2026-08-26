@@ -92,6 +92,11 @@ export interface FileAssetUrlMsg extends ClientMessage {
   basePath?: string
   mode?: 'inline' | 'attachment'
 }
+export interface ResolveFileReferenceMsg extends ClientMessage {
+  type: 'fs.resolveReference'
+  projectId: string
+  reference: string
+}
 export interface AgentsListMsg extends ClientMessage {
   type: 'agents.list'
   projectId?: string

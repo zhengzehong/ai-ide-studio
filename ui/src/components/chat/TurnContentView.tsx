@@ -13,6 +13,7 @@ import { MarkdownRenderer } from '../MarkdownRenderer'
 import { FileChangesCard } from './FileChangesCard'
 import { extractTurnFileChanges, fileChangesFromSummary } from './file-changes-utils'
 import { isPreviewPublishTool, parsePreviewPublishOutput } from '../../pages/workspace/helpers'
+import type { OpenChatResource } from '../../services/chat-resource-links'
 
 interface TurnContentViewProps {
   processBlocks: TurnProcessBlock[]
@@ -32,6 +33,7 @@ interface TurnContentViewProps {
   filesPresentations?: FilesPresentationInfo[]
   onLoadProcess?: () => void
   onLoadFileChanges?: () => void
+  onOpenResource?: OpenChatResource
   renderProcessBlock: (block: TurnProcessBlock) => ReactNode
   renderPreviewPresentation?: (preview: PreviewPresentationInfo) => ReactNode
   renderFilesPresentation?: (presentation: FilesPresentationInfo) => ReactNode
@@ -55,6 +57,7 @@ export function TurnContentView({
   filesPresentations = [],
   onLoadProcess,
   onLoadFileChanges,
+  onOpenResource,
   renderProcessBlock,
   renderPreviewPresentation,
   renderFilesPresentation,
@@ -143,7 +146,7 @@ export function TurnContentView({
           )}
         </div>
       )}
-      {finalAnswer && <MarkdownRenderer content={finalAnswer} />}
+      {finalAnswer && <MarkdownRenderer content={finalAnswer} onOpenResource={onOpenResource} />}
       {hasPreviewCard && (
         <div style={{ marginTop: finalAnswer ? 10 : 0 }}>
           {previewBlocks.map((block) => renderProcessBlock(block))}

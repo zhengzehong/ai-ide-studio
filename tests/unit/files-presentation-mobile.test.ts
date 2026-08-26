@@ -20,6 +20,26 @@ const presentation = {
 }
 
 describe('mobile files presentation', () => {
+  test('renders a Windows file link as an internal resource action', () => {
+    const Component = TurnContent as unknown as ComponentType<Record<string, unknown>>
+    const message: MessageData = {
+      id: 'msg-resource', session_id: 'sess-1', role: 'agent',
+      content: '[打开报告](D:/reports/result.md) [电话](tel:+123456)',
+      thinking: null, tool_calls_json: null, decision_json: null,
+      presentations_json: null, timestamp: '2026-08-26T00:00:00.000Z', status: 'completed',
+    }
+    const html = renderToStaticMarkup(createElement(Component, {
+      message,
+      onOpenResource: async () => ({
+        path: 'D:/reports/result.md', name: 'result.md', kind: 'file', absolute: true,
+      }),
+    }))
+
+    expect(html).toContain('aria-label="打开项目资源：D:/reports/result.md"')
+    expect(html).toContain('打开报告')
+    expect(html).toContain('href="tel:+123456"')
+  })
+
   test('renders a persisted multi-file presentation outside process history', () => {
     const Component = TurnContent as unknown as ComponentType<Record<string, unknown>>
     const message: MessageData = {
