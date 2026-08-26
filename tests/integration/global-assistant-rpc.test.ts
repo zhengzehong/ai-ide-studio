@@ -133,7 +133,7 @@ describe('Global assistant RPC', () => {
         emitLifecycle: false,
       }),
     )
-    expect(sessionStore.get(binding.session.id)?.acp_session_id).toBe('acp-global')
+    expect(sessionStore.get(binding.session.id)?.acp_session_id).toBeNull()
     expect(agentStore.get(binding.session.agent_id)?.project_id).toBeNull()
   })
 

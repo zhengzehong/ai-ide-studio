@@ -117,7 +117,13 @@ export async function ensureSessionRuntime(
   const context = resolveRuntimeContext(sessionId, session.project_id)
   const snapshot = buildRuntimeStateSnapshot({ sessionId, projectId: context.projectId, cwd: context.cwd })
   const acpSessionId = await getRuntimePort().ensureSession(snapshot, { emitLifecycle })
-  if (session.acp_session_id !== acpSessionId) sessionStore.updateAcpSessionId(sessionId, acpSessionId)
+  if (session.acp_session_id && session.acp_session_id !== acpSessionId) {
+    sessionStore.clearAcpSessionId(sessionId)
+    log.warn(
+      { sessionId, agentId: session.agent_id, staleAcpSessionId: session.acp_session_id, replacementAcpSessionId: acpSessionId },
+      'Cleared stale ACP Session mapping after provisional Runtime recovery',
+    )
+  }
   return { agentId: session.agent_id, acpSessionId }
 }
 

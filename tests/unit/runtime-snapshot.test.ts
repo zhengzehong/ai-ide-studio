@@ -8,7 +8,7 @@ import { closeDatabase, initDatabase } from '../../src/store/db.js'
 import { projectStore } from '../../src/store/projects.js'
 import { modelProfileStore } from '../../src/store/model-profiles.js'
 import { modelProviderStore } from '../../src/store/model-providers.js'
-import { sessionStore } from '../../src/store/sessions.js'
+import { messageStore, sessionStore } from '../../src/store/sessions.js'
 import { teamMemberStore, teamStore } from '../../src/store/teams.js'
 import { toolBindingStore, toolStore } from '../../src/store/tools.js'
 import { setRuntimePort } from '../../src/runtime/runtime-port-provider.js'
@@ -114,6 +114,44 @@ describe('runtime state snapshot', () => {
     const session = sessionStore.create({ agentId: agent.id, projectId: project.id })
 
     expect(() => buildRuntimeStateSnapshot({ sessionId: session.id })).toThrow('project mismatch')
+  })
+
+  test('allows missing native Session recovery only before materialized Agent history exists', () => {
+    const project = projectStore.create({ name: 'Recovery project', workDir: tmp })
+    const agent = agentStore.create({
+      name: 'Recovery agent',
+      type: 'developer',
+      runtime: 'claude',
+      projectId: project.id,
+    })
+    const session = sessionStore.create({
+      agentId: agent.id,
+      projectId: project.id,
+      acpSessionId: 'acp-stale',
+    })
+
+    expect(buildRuntimeStateSnapshot({ sessionId: session.id }).session.canRecreateMissingSession).toBe(true)
+
+    messageStore.append(session.id, {
+      role: 'agent',
+      content: '执行失败：Resource not found: acp-stale',
+      status: 'failed',
+    })
+    expect(buildRuntimeStateSnapshot({ sessionId: session.id }).session.canRecreateMissingSession).toBe(true)
+
+    messageStore.append(session.id, {
+      role: 'agent',
+      content: '执行失败：authentication failed',
+      status: 'failed',
+    })
+    expect(buildRuntimeStateSnapshot({ sessionId: session.id }).session.canRecreateMissingSession).toBe(false)
+
+    messageStore.append(session.id, {
+      role: 'agent',
+      content: 'A durable answer',
+      status: 'completed',
+    })
+    expect(buildRuntimeStateSnapshot({ sessionId: session.id }).session.canRecreateMissingSession).toBe(false)
   })
 
   test('injects the independent prompt only into an autonomy Session', () => {

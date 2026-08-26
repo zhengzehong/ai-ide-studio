@@ -27,6 +27,7 @@ function snapshot(): RuntimeStateSnapshot {
       title: null,
       taskId: null,
       acpSessionId: 'acp-1',
+      canRecreateMissingSession: true,
       isPrimary: false,
     },
     runtime: { env: {}, sessionMeta: undefined, command: undefined },
@@ -108,6 +109,7 @@ describe('embedded runtime port', () => {
       projectId: 'project-1',
       cwd: 'C:/workspace',
       emitLifecycle: false,
+      canRecreateMissingSession: true,
     })
     expect(host.prompt).toHaveBeenCalledWith('agent-1', 'session-1', 'hello', undefined, {
       turnId: 'turn-1',
@@ -117,7 +119,7 @@ describe('embedded runtime port', () => {
       'agent-1',
       'acp-source',
       'session-1',
-      { projectId: 'project-1', cwd: 'C:/workspace' },
+      { projectId: 'project-1', cwd: 'C:/workspace', canRecreateMissingSession: true },
     )
     expect(host.stopAgent).toHaveBeenCalledWith('agent-1')
     expect('agents' in port).toBe(false)

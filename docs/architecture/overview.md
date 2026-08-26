@@ -145,7 +145,7 @@ Runtime 为每个活动 turn 保存原始 `messageId`、`turnId` 和 stream gene
 
 Runtime 资源配额默认允许 32 个网络型 turn、`max(2, floor(cpuCount / 2))` 个 CPU 型终端和 2 个磁盘型终端。等待队列按 FIFO 唤醒；Session mailbox 同时受条目数和字节数限制，超过上限返回 `RUNTIME_BACKPRESSURE`，不会丢弃已经接受的关键工作。
 
-Runtime 子进程分别记录 Agent 与 Session 的最近活动时间。周期 sweep 只回收没有活动 actor、没有待处理 permission/elicitation 的空闲 Session；持久化的 `acp_session_id` 和历史记录保留，下一次发送自动 resume。Agent 没有已连接 Session 且继续空闲后才停止 ACP 子进程。`RUNTIME_SESSION_IDLE_MS`、`RUNTIME_AGENT_IDLE_MS` 和 `RUNTIME_IDLE_SWEEP_MS` 分别控制两级阈值与扫描周期；停机时会先停止定时器并等待正在执行的 sweep。
+Runtime 子进程分别记录 Agent 与 Session 的最近活动时间。周期 sweep 只回收没有活动 actor、没有待处理 permission/elicitation 的空闲 Session。能力查询和配置产生的空 Session 只保留在 Runtime 内存，模型与模式偏好单独持久化；第一次真实 Prompt 才保存 `acp_session_id`。已有原生历史的 Session 保留该 ID 并在下次发送时 resume。空 Session 的原生 ID 缺失时可在 Prompt 前重建一次；已有历史的 Session 禁止静默重建，避免模型上下文与平台历史不一致。Agent 没有已连接 Session 且继续空闲后才停止 ACP 子进程。`RUNTIME_SESSION_IDLE_MS`、`RUNTIME_AGENT_IDLE_MS` 和 `RUNTIME_IDLE_SWEEP_MS` 分别控制两级阈值与扫描周期；停机时会先停止定时器并等待正在执行的 sweep。
 
 Runtime 的 permission/elicitation 等待项由独立交互状态模块管理。超时、取消、Session unbind、Agent 退出或 Runtime 关闭都会先发布取消型 result，再解除 ACP Promise，保证 Realtime 和持久化状态同步清除卡片。Recovery 只恢复最新 `message.done` 之后的交互事件，已结束 turn 的历史请求不会重新阻塞输入；ACP 确认 Claude `bypassPermissions` 或 Codex `agent-full-access` 已生效后，Runtime 还会在 permission callback 边界优先用单次授权自动放行，避免 adapter 再次请求审批，同时不会把尚未生效的偏好误当作 full-access。
 

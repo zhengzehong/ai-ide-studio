@@ -20,6 +20,7 @@ export interface RuntimeSessionSnapshot {
   cwd: string
   title: string | null
   acpSessionId: string | null
+  canRecreateMissingSession?: boolean
   isPrimary: boolean
   purpose: 'conversation' | 'autonomy' | 'secretary_runtime' | 'secretary_chat'
 }

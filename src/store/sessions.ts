@@ -9,6 +9,7 @@ import {
 } from './session-runtime-state.js'
 import { countToolCalls } from './tool-call-history.js'
 import { presentationsJsonFromToolCalls } from '../core/message-presentations.js'
+import { isMissingNativeSessionError } from '../shared/native-session-errors.js'
 
 export type { SessionRuntimeState } from './session-runtime-state.js'
 
@@ -606,6 +607,41 @@ export const messageStore = {
 
   get(id: string): MessageRow | undefined {
     return getDb().prepare<[string], MessageRow>('SELECT * FROM messages WHERE id = ?').get(id)
+  },
+
+  hasMaterializedAgentHistory(
+    sessionId: string,
+    nativeSession: { runtime: string; sessionId: string | null },
+  ): boolean {
+    const materialized = getDb().prepare<[string], { found: number }>(`
+      SELECT 1 AS found
+      FROM messages
+      WHERE session_id = ?
+        AND role = 'agent'
+        AND status != 'running'
+        AND (
+          status != 'failed'
+          OR process_item_count > 0
+          OR tool_calls_json IS NOT NULL
+          OR file_changes_json IS NOT NULL
+          OR presentations_json IS NOT NULL
+        )
+      LIMIT 1
+    `).get(sessionId)
+    if (materialized?.found === 1) return true
+
+    const failedMessages = getDb().prepare<[string], { content: string }>(`
+      SELECT content
+      FROM messages
+      WHERE session_id = ?
+        AND role = 'agent'
+        AND status = 'failed'
+    `).all(sessionId)
+    if (!nativeSession.sessionId) return failedMessages.length > 0
+    const nativeSessionId = nativeSession.sessionId
+    return failedMessages.some((row) => (
+      !isMissingNativeSessionError(row.content, nativeSession.runtime, nativeSessionId)
+    ))
   },
 
   list(sessionId: string, opts?: { limit?: number; before?: string; includeToolCalls?: boolean; includeLatestToolCalls?: boolean }): MessageRow[] {
