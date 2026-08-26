@@ -12,12 +12,12 @@ describe('mobile secretary navigation', () => {
       .toEqual({ type: 'navigate', to: '/' })
   })
 
-  test('registers a route-backed mail detail and keeps the secretary tab active', () => {
+  test('keeps route-backed secretary mail available outside the four primary tabs', () => {
     const app = readFileSync(resolve('mobile/src/App.tsx'), 'utf8')
     const shell = readFileSync(resolve('mobile/src/components/MobileShell.tsx'), 'utf8')
     const page = readFileSync(resolve('mobile/src/pages/SecretaryPage.tsx'), 'utf8')
     expect(app).toContain('/secretary/:secretaryId/:threadId')
-    expect(shell).toContain("location.pathname.startsWith('/secretary')")
+    expect(shell).not.toContain("label: '秘书'")
     expect(page).toContain('threadId ? store.threads.find')
     expect(page).not.toContain('?? store.threads[0]')
   })

@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { Archive, Edit3, MessageSquarePlus, Pin, PinOff, Plus, Search, Trash2, XCircle, Sparkles } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { MessageSquarePlus } from 'lucide-react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useSessionStore } from '../stores/session.store'
 import { isSecretarySessionPurpose } from '@desktop/stores/secretary-session'
 import { useAppStore } from '../stores/app.store'
@@ -8,16 +8,15 @@ import { useMobileProjectSessionStatsStore } from '../stores/project-session-sta
 import type { MobileSessionItem } from '../stores/session.store'
 import { buildStableAgentGroups, sortProjectsByCreation } from './session-list-model'
 import SessionGroup from '../components/SessionGroup'
-import ProjectSwitcher from '../components/ProjectSwitcher'
 import ProjectDrawer from '../components/ProjectDrawer'
-import ProjectCreateSheet from '../components/ProjectCreateSheet'
-import ActionSheet from '../components/ActionSheet'
-import ConfirmDialog from '../components/ConfirmDialog'
-import RenameDialog from '../components/RenameDialog'
-import NewSessionSheet from '../components/chat/NewSessionSheet'
-import PublishTemplateSheet from '../components/templates/PublishTemplateSheet'
 import { useEdgeSwipe } from '../hooks/useEdgeSwipe'
 import { usePinnedSessionStore } from '../stores/pinned-session.store'
+import { PinnedSessionList } from './PinnedSessionsPage'
+import { resolveSessionViewMode, sessionViewPath } from './session-view-mode'
+import { SessionListTopbar } from '../components/session-list/SessionListTopbar'
+import { SessionListOverlays } from '../components/session-list/SessionListOverlays'
+import { buildSessionActionItems } from '../components/session-list/session-list-actions'
+import { sessionListStyles as styles } from './session-list-styles'
 
 export default function SessionListPage() {
   const {
@@ -42,7 +41,10 @@ export default function SessionListPage() {
   const pinnedItems = usePinnedSessionStore((state) => state.items)
   const addPinned = usePinnedSessionStore((state) => state.add)
   const removePinned = usePinnedSessionStore((state) => state.remove)
+  const loadPinned = usePinnedSessionStore((state) => state.load)
   const navigate = useNavigate()
+  const location = useLocation()
+  const viewMode = resolveSessionViewMode(location.search)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [createSheetOpen, setCreateSheetOpen] = useState(false)
   const [actionSession, setActionSession] = useState<MobileSessionItem | null>(null)
@@ -56,9 +58,10 @@ export default function SessionListPage() {
   const containerRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
+    if (viewMode !== 'all') return
     fetchSessions(currentProjectId)
     fetchAgents(currentProjectId ?? undefined)
-  }, [currentProjectId, fetchSessions, fetchAgents])
+  }, [currentProjectId, fetchSessions, fetchAgents, viewMode])
 
   const activeSessions = useMemo(
     () => sessions.filter((s) => s.status === 'active' && !isSecretarySessionPurpose(s.purpose)),
@@ -150,10 +153,6 @@ export default function SessionListPage() {
     setPublishSession(session)
   }
 
-  const handleSearch = () => {
-    // placeholder for search entry
-  }
-
   const handleManageProjects = () => {
     if (!isDrawerPinned) setDrawerOpen(false)
     navigate('/settings')
@@ -161,6 +160,10 @@ export default function SessionListPage() {
 
   const handleLongPress = (session: MobileSessionItem) => {
     setActionSession(session)
+  }
+
+  const handleToggleMode = (): void => {
+    navigate(sessionViewPath(viewMode === 'all' ? 'pinned' : 'all'), { replace: true })
   }
 
   const togglePinned = (sessionId: string): void => {
@@ -185,49 +188,16 @@ export default function SessionListPage() {
     void deleteSession(target.id)
   }
 
-  const actionItems = actionSession
-    ? [
-        {
-          key: 'pin',
-          label: pinnedItems.some((item) => item.sessionId === actionSession.id) ? '取消置顶' : '置顶会话',
-          icon: pinnedItems.some((item) => item.sessionId === actionSession.id)
-            ? <PinOff size={18} color="#191919" />
-            : <Pin size={18} color="#191919" />,
-          onClick: () => togglePinned(actionSession.id),
-        },
-        {
-          key: 'rename',
-          label: '重命名',
-          icon: <Edit3 size={18} color="#191919" />,
-          onClick: () => setRenameTarget(actionSession),
-        },
-        {
-          key: 'publishTemplate',
-          label: '发布为模板',
-          icon: <Sparkles size={18} color="#191919" />,
-          onClick: () => handlePublishTemplate(actionSession),
-        },
-        {
-          key: 'archive',
-          label: '归档',
-          icon: <Archive size={18} color="#191919" />,
-          onClick: () => void archiveSession(actionSession.id),
-        },
-        {
-          key: 'close',
-          label: '关闭会话',
-          icon: <XCircle size={18} color="#191919" />,
-          onClick: () => void closeSession(actionSession.id),
-        },
-        {
-          key: 'delete',
-          label: '删除会话',
-          icon: <Trash2 size={18} color="#fa5151" />,
-          danger: true,
-          onClick: () => setDeleteTarget(actionSession),
-        },
-      ]
-    : []
+  const actionItems = buildSessionActionItems({
+    session: actionSession,
+    pinned: !!actionSession && pinnedItems.some((item) => item.sessionId === actionSession.id),
+    onTogglePinned: () => { if (actionSession) togglePinned(actionSession.id) },
+    onRename: () => setRenameTarget(actionSession),
+    onPublishTemplate: () => { if (actionSession) handlePublishTemplate(actionSession) },
+    onArchive: () => { if (actionSession) void archiveSession(actionSession.id) },
+    onClose: () => { if (actionSession) void closeSession(actionSession.id) },
+    onDelete: () => setDeleteTarget(actionSession),
+  })
 
   const showEmpty = agentGroups.length === 0 && !loading
 
@@ -235,217 +205,84 @@ export default function SessionListPage() {
     <div
       ref={containerRef}
       style={styles.page}
-      onPointerDown={edgeSwipe.onPointerDown}
+      onPointerDown={viewMode === 'all' ? edgeSwipe.onPointerDown : undefined}
     >
-      <ProjectDrawer
-        projects={sortedProjects}
-        currentProjectId={currentProjectId}
-        isOpen={drawerOpen}
-        isPinned={isDrawerPinned}
-        onPickProject={handlePickProject}
-        onTogglePin={handleTogglePin}
-        onCreateProject={() => {
-          if (!isDrawerPinned) setDrawerOpen(false)
-          setCreateSheetOpen(true)
-        }}
-        onManageProjects={handleManageProjects}
-        drawerRef={drawerRef}
-        overlayRef={overlayRef}
-        projectUnread={projectUnread}
-        totalSessions={totalSessions}
-      />
-
-      <div
-        style={styles.overlay}
-        onClick={handleCloseDrawer}
-        data-visible={drawerOpen && !isDrawerPinned ? '1' : '0'}
-      />
+      {viewMode === 'all' && (
+        <>
+          <ProjectDrawer
+            projects={sortedProjects}
+            currentProjectId={currentProjectId}
+            isOpen={drawerOpen}
+            isPinned={isDrawerPinned}
+            onPickProject={handlePickProject}
+            onTogglePin={handleTogglePin}
+            onCreateProject={() => {
+              if (!isDrawerPinned) setDrawerOpen(false)
+              setCreateSheetOpen(true)
+            }}
+            onManageProjects={handleManageProjects}
+            drawerRef={drawerRef}
+            overlayRef={overlayRef}
+            projectUnread={projectUnread}
+            totalSessions={totalSessions}
+          />
+          <div style={styles.overlay} onClick={handleCloseDrawer} data-visible={drawerOpen && !isDrawerPinned ? '1' : '0'} />
+        </>
+      )}
 
       <div
         style={{
           ...styles.mainArea,
-          ...(isDrawerPinned ? styles.mainAreaPinned : {}),
+          ...(viewMode === 'all' && isDrawerPinned ? styles.mainAreaPinned : {}),
         }}
       >
-        <div style={styles.topbar}>
-          {!isDrawerPinned && (
-            <button style={styles.hamburger} onClick={handleOpenDrawer} aria-label="打开项目抽屉">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" width={20} height={20}>
-                <line x1="3" y1="6" x2="21" y2="6" />
-                <line x1="3" y1="12" x2="21" y2="12" />
-                <line x1="3" y1="18" x2="21" y2="18" />
-              </svg>
-            </button>
-          )}
-          <ProjectSwitcher project={currentProject} onOpenDrawer={handleOpenDrawer} />
-          <button style={styles.iconBtn} onClick={handleSearch} aria-label="搜索会话">
-            <Search size={18} color="#595959" />
-          </button>
-          <button style={styles.iconBtn} onClick={handleNewSession} aria-label="新建会话">
-            <Plus size={18} color="#595959" />
-          </button>
-        </div>
+        <SessionListTopbar
+          mode={viewMode}
+          project={currentProject}
+          pinnedCount={pinnedItems.length}
+          isDrawerPinned={isDrawerPinned}
+          onOpenDrawer={handleOpenDrawer}
+          onNewSession={handleNewSession}
+          onRefreshPinned={() => { void loadPinned() }}
+          onToggleMode={handleToggleMode}
+        />
 
-        <div style={styles.list}>
-          {showEmpty && (
-            <div style={styles.empty}>
-              <MessageSquarePlus size={40} color="#b2b2b2" strokeWidth={1.2} />
-              <span style={styles.emptyText}>暂无会话</span>
-            </div>
-          )}
-          {agentGroups.map((group) => (
-            <SessionGroup
-              key={group.agentId}
-              agentId={group.agentId}
-              agentName={group.agentName}
-              sessions={group.sessions}
-              onLongPress={handleLongPress}
-            />
-          ))}
-        </div>
+        {viewMode === 'pinned' ? <PinnedSessionList /> : (
+          <div style={styles.list}>
+            {showEmpty && (
+              <div style={styles.empty}>
+                <MessageSquarePlus size={40} color="#b2b2b2" strokeWidth={1.2} />
+                <span style={styles.emptyText}>暂无会话</span>
+              </div>
+            )}
+            {agentGroups.map((group) => (
+              <SessionGroup key={group.agentId} agentId={group.agentId} agentName={group.agentName} sessions={group.sessions} onLongPress={handleLongPress} />
+            ))}
+          </div>
+        )}
       </div>
 
-      <ProjectCreateSheet
-        open={createSheetOpen}
-        onClose={() => setCreateSheetOpen(false)}
-        onCreated={handleCreatedProject}
+      <SessionListOverlays
+        currentProjectId={currentProjectId}
+        createSheetOpen={createSheetOpen}
+        actionSession={actionSession}
+        actionItems={actionItems}
+        renameTarget={renameTarget}
+        deleteTarget={deleteTarget}
+        newSessionOpen={newSessionOpen}
+        publishSession={publishSession}
+        onCloseCreate={() => setCreateSheetOpen(false)}
+        onCreatedProject={handleCreatedProject}
+        onCloseAction={() => setActionSession(null)}
+        onRenameConfirm={handleRenameConfirm}
+        onCloseRename={() => setRenameTarget(null)}
+        onDeleteConfirm={handleDeleteConfirm}
+        onCloseDelete={() => setDeleteTarget(null)}
+        onCloseNewSession={() => setNewSessionOpen(false)}
+        onNewBlank={handleNewBlankFromSheet}
+        onInstantiated={handleNewFromTemplateSheet}
+        onClosePublish={() => setPublishSession(null)}
       />
-
-      <ActionSheet
-        open={!!actionSession}
-        title={actionSession?.sessionTitle || actionSession?.agentName || '会话操作'}
-        items={actionItems}
-        onClose={() => setActionSession(null)}
-      />
-
-      <RenameDialog
-        open={!!renameTarget}
-        initialTitle={renameTarget?.sessionTitle || renameTarget?.agentName || ''}
-        onConfirm={handleRenameConfirm}
-        onCancel={() => setRenameTarget(null)}
-      />
-
-      <ConfirmDialog
-        open={!!deleteTarget}
-        title="删除会话"
-        message="删除后不可恢复,确定要删除该会话吗?"
-        confirmText="删除"
-        danger
-        onConfirm={handleDeleteConfirm}
-        onCancel={() => setDeleteTarget(null)}
-      />
-
-      {currentProjectId && (
-        <NewSessionSheet
-          open={newSessionOpen}
-          projectId={currentProjectId}
-          onClose={() => setNewSessionOpen(false)}
-          onNewBlank={handleNewBlankFromSheet}
-          onInstantiated={handleNewFromTemplateSheet}
-        />
-      )}
-
-      {publishSession && (
-        <PublishTemplateSheet
-          open
-          sessionId={publishSession.id}
-          onClose={() => setPublishSession(null)}
-          onPublished={() => {
-            // 不自动关闭,让 PublishTemplateSheet 内部关闭;这里可用于埋点
-          }}
-        />
-      )}
     </div>
   )
-}
-
-const styles: Record<string, CSSProperties> = {
-  page: {
-    display: 'flex',
-    flexDirection: 'row',
-    height: '100%',
-    width: '100%',
-    background: '#ededed',
-    position: 'relative',
-    overflow: 'hidden',
-  },
-  overlay: {
-    position: 'absolute',
-    inset: 0,
-    background: 'rgba(0,0,0,0.4)',
-    opacity: 0,
-    pointerEvents: 'none',
-    transition: 'opacity .3s',
-    zIndex: 200,
-  },
-  mainArea: {
-    flex: 1,
-    display: 'flex',
-    flexDirection: 'column',
-    overflow: 'hidden',
-    position: 'relative',
-    minWidth: 0,
-    background: '#ededed',
-    transition: 'margin-left .3s cubic-bezier(0.32, 0.72, 0, 1)',
-  },
-  mainAreaPinned: {
-    marginLeft: 60,
-  },
-  topbar: {
-    padding: '8px 12px',
-    background: '#f7f7f7',
-    borderBottom: '0.5px solid #e0e0e0',
-    flexShrink: 0,
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    height: 50,
-    paddingTop: 'calc(8px + var(--safe-top))',
-  },
-  hamburger: {
-    width: 34,
-    height: 34,
-    borderRadius: 6,
-    background: 'transparent',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    cursor: 'pointer',
-    border: 'none',
-    flexShrink: 0,
-    color: '#595959',
-    transition: 'background .15s',
-  },
-  iconBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 6,
-    background: 'transparent',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    cursor: 'pointer',
-    color: '#595959',
-    border: 'none',
-    flexShrink: 0,
-    transition: 'background .15s',
-  },
-  list: {
-    flex: 1,
-    overflowY: 'auto',
-    background: '#ededed',
-    padding: 0,
-  },
-  empty: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: '60%',
-  },
-  emptyText: {
-    color: '#b2b2b2',
-    fontSize: 14,
-    marginTop: 12,
-  },
 }
