@@ -40,6 +40,8 @@ import { createEventLoopMonitor, eventLoopMonitorOptions } from './shared/event-
 import { listActivePromptDiagnostics } from './core/prompt-diagnostics.js'
 import { resumeProjectSecretaryRuns } from './core/project-secretary.js'
 import { resumeProjectInspirations } from './core/project-inspiration.js'
+import { DataRetentionService } from './data-retention/retention-service.js'
+import { getOrCreateRetentionControlToken } from './data-retention/control-token.js'
 import {
   createRealtimeEndpointSubscription,
   embeddedRealtimeEndpoint,
@@ -187,6 +189,11 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
 
   let gateway: Awaited<ReturnType<typeof startGateway>>
   let embeddedRealtimePort = 0
+  const retention = new DataRetentionService({
+    writeDataPort,
+    mode: config.dataRetentionMode ?? 'off',
+  })
+  const retentionControlToken = getOrCreateRetentionControlToken(config.dataDir)
   try {
     gateway = await startGateway(config, {
       queryPort,
@@ -199,6 +206,8 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
         legacyRpcEnabled: config.realtimeLegacyRpc ?? true,
       }),
       commandDispatcher,
+      retention,
+      retentionControlToken,
     })
     embeddedRealtimePort = serverPort(gateway.server)
   } catch (err) {
@@ -242,6 +251,7 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
   let stopped = false
   const hubCleanupTimer = agentHubService.startCleanupTimer()
   const maintenanceLoop = startWriterMaintenanceLoop(writeDataPort, config.dataMaintenanceIntervalMs)
+  retention.start()
   const eventLoopMonitor = createEventLoopMonitor(
     eventLoopMonitorOptions('api', () => ({
       activePromptCount: sessionManager.listActivePromptSessionIds().length,
@@ -273,6 +283,7 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
       ruleEngine.stop()
       clearInterval(hubCleanupTimer)
       const cleanupErrors: unknown[] = []
+      await collectCleanupError(cleanupErrors, () => retention.close())
       realtimeEvents?.stop()
       commandDispatcher.closeIntake()
       if (wss) await collectCleanupError(cleanupErrors, () => closeWebSocketServer(wss))

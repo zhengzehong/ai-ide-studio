@@ -9,6 +9,10 @@ import type {
   RuntimeCommandRecoveryQuery,
   RuntimeCommandRecord,
   RuntimeCommandUpdate,
+  RetentionBatchInput,
+  RetentionBatchResult,
+  RetentionInspectInput,
+  RetentionInspectResult,
   SessionWriteCursor,
   WriteBatch,
   WriteBatchResult,
@@ -144,6 +148,22 @@ export async function createWorkerWriteDataPort(
         priority: 'background',
       })
       log.debug(response.result, 'Writer database maintenance completed')
+      return response.result
+    },
+    async inspectRetention(input: RetentionInspectInput): Promise<RetentionInspectResult> {
+      const response = await rpc.request<RetentionInspectResult>('writer.retention.inspect', input, {
+        priority: 'background',
+        timeoutMs: 120_000,
+      })
+      log.info({ ...response.result, ...response.metrics }, 'retention dry-run completed')
+      return response.result
+    },
+    async runRetentionBatch(input: RetentionBatchInput): Promise<RetentionBatchResult> {
+      const response = await rpc.request<RetentionBatchResult>('writer.retention.batch', input, {
+        priority: 'background',
+        timeoutMs: 30_000,
+      })
+      log.debug({ ...response.result, ...response.metrics }, 'retention batch completed')
       return response.result
     },
     drain(): Promise<void> {

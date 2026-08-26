@@ -112,6 +112,10 @@ npm run format       # Prettier 格式化
 npm run check:ui-bundle   # PC bundle 预算
 npm run perf:phase5:smoke # 30 Session 性能 smoke
 npm run perf:browser      # 生产构建浏览器性能门禁
+npm run retention -- dry-run          # 统计可清理历史明细，不写数据库
+npm run retention -- delete --confirm # 后台启动真实清理
+npm run retention -- status           # 查看清理进度
+npm run retention -- stop             # 停止申请新的清理批次
 ```
 
 ## 尚未实现
@@ -152,6 +156,7 @@ MIT
 | `DATA_MAINTENANCE_INTERVAL_MS` | `60000` | Writer SQLite 周期维护间隔 |
 | `DATA_WAL_CHECKPOINT_BYTES` | `67108864` | 普通维护触发 PASSIVE WAL checkpoint 的字节阈值 |
 | `DATA_PUBLISHED_OUTBOX_RETENTION_MS` | `604800000` | 已发布 Outbox 行保留时间；未发布行不会清理 |
+| `DATA_RETENTION_MODE` | `off` | `off` 禁用定时清理；`dry-run` 每晚只统计；`delete` 在北京时间 02:00-06:00 分批清理历史执行明细 |
 | `EVENT_LOOP_MONITOR_INTERVAL_MS` | `30000` | Edge、API、Realtime、Runtime event-loop 指标采样间隔 |
 | `EVENT_LOOP_WARN_THRESHOLD_MS` | `50` | event-loop p99 达到该毫秒数时记录告警 |
 | `EDGE_MODE` | `process` | `process` 只公开 Edge 单端口；`disabled` 回滚到 API/Realtime 直连监听 |

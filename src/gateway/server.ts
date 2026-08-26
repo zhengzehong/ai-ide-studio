@@ -39,6 +39,8 @@ import { previewAuthCookie, readPreviewCookie } from './preview-auth.js'
 import { configureFileAssetSigning, verifyFileAssetSignature } from './file-asset-signing.js'
 import { createFunAsrProxy } from './funasr-proxy.js'
 import { mountSessionFileUploadRoutes } from './http/session-file-upload-routes.js'
+import { mountRetentionRoutes } from './http/retention-routes.js'
+import type { DataRetentionService } from '../data-retention/retention-service.js'
 
 const log = createChildLogger('gateway')
 
@@ -47,6 +49,8 @@ export interface StartGatewayOptions {
   webSocketMode?: 'embedded' | 'none'
   realtimeState?: () => RealtimeEndpointState
   commandDispatcher?: SessionCommandDispatcherPort
+  retention?: DataRetentionService
+  retentionControlToken?: string
 }
 
 export async function startGateway(config: AppConfig, options: StartGatewayOptions = {}) {
@@ -72,6 +76,9 @@ export async function startGateway(config: AppConfig, options: StartGatewayOptio
   mountQueryRoutes(app, options.queryPort)
   if (options.commandDispatcher) mountSessionCommandRoutes(app, options.commandDispatcher)
   mountSessionFileUploadRoutes(app)
+  if (options.retention && options.retentionControlToken) {
+    mountRetentionRoutes(app, options.retention, options.retentionControlToken)
+  }
 
   app.get('/api/agents', (c) => c.json(agentStore.list()))
   app.get('/api/sessions', (c) => {

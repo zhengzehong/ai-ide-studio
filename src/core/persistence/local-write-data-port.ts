@@ -14,6 +14,7 @@ import {
   updateRuntimeCommand,
 } from '../../data-worker/writer-worker/operations.js'
 import { maintainWriterDatabase } from '../../data-worker/writer-worker/maintenance.js'
+import { inspectRetention, runRetentionBatch } from '../../data-worker/writer-worker/retention.js'
 import { getDb } from '../../store/db.js'
 
 export function createLocalWriteDataPort(maintenanceConfig: DatabaseMaintenanceConfig = {}): WriteDataPort {
@@ -35,6 +36,12 @@ export function createLocalWriteDataPort(maintenanceConfig: DatabaseMaintenanceC
     },
     async maintain(input) {
       return maintainWriterDatabase(getDb(), input, maintenanceConfig)
+    },
+    async inspectRetention(input) {
+      return inspectRetention(getDb(), input)
+    },
+    async runRetentionBatch(input) {
+      return runRetentionBatch(getDb(), input)
     },
     async drain(): Promise<void> {
       // Local better-sqlite3 mutations complete before commitBatch returns.

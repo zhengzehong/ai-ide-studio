@@ -7,6 +7,10 @@ import type {
   RuntimeCommandRecoveryQuery,
   RuntimeCommandRecord,
   RuntimeCommandUpdate,
+  RetentionBatchInput,
+  RetentionBatchResult,
+  RetentionInspectInput,
+  RetentionInspectResult,
   SessionWriteCursor,
   WriteBatch,
   WriteBatchResult,
@@ -22,6 +26,7 @@ import {
 } from './operations.js'
 import { maintainWriterDatabase } from './maintenance.js'
 import { WriterOperationError } from './writer-operation-error.js'
+import { inspectRetention, runRetentionBatch } from './retention.js'
 
 interface WriterWorkerData {
   dbPath: string
@@ -31,7 +36,8 @@ interface WriterWorkerData {
 
 interface WriterWork {
   request: WorkerRequest
-  batch: WriteBatch
+  batch?: WriteBatch
+  retention?: { operation: 'writer.retention.inspect' | 'writer.retention.batch'; input: unknown }
   queueDepth: number
   startedAt?: number
   executionMs?: number
@@ -44,7 +50,7 @@ db.pragma('journal_mode = WAL')
 db.pragma('foreign_keys = ON')
 db.pragma('busy_timeout = 5000')
 
-const scheduler = new WriterScheduler<WriterWork, WriteBatchResult>({
+const scheduler = new WriterScheduler<WriterWork, WriteBatchResult | RetentionInspectResult | RetentionBatchResult>({
   executeBatch: async (items) => executeScheduledBatch(items),
 })
 
@@ -52,6 +58,23 @@ port.postMessage({ kind: 'ready', worker: 'writer' })
 
 port.on('message', (message: unknown) => {
   if (!isWriteRequest(message)) return
+  if (message.operation === 'writer.retention.inspect' || message.operation === 'writer.retention.batch') {
+    const work: WriterWork = {
+      request: message,
+      retention: { operation: message.operation, input: message.payload },
+      queueDepth: scheduler.pendingCount + 1,
+    }
+    void scheduler.enqueue({
+      value: work,
+      priority: 'background',
+      mutationCount: Number.MAX_SAFE_INTEGER,
+      payloadBytes: message.payloadBytes,
+    }).then(
+      (result) => port.postMessage(resultResponse(work, result)),
+      (error) => port.postMessage(errorResponse(message, errorCode(error), errorMessage(error), work)),
+    )
+    return
+  }
   if (message.operation !== 'writer.commit') {
     void executeControlRequest(message)
     return
@@ -107,14 +130,26 @@ async function executeControlRequest(request: WorkerRequest): Promise<void> {
 
 process.once('exit', () => db.close())
 
-function executeScheduledBatch(items: WriterSchedulerItem<WriterWork>[]): WriteBatchResult[] {
+function executeScheduledBatch(
+  items: WriterSchedulerItem<WriterWork>[],
+): Array<WriteBatchResult | RetentionInspectResult | RetentionBatchResult> {
   const startedAt = Date.now()
   const executionStarted = performance.now()
   for (const item of items) item.value.startedAt = startedAt
   try {
+    const retention = items[0]?.value.retention
+    if (retention) {
+      if (items.length !== 1) throw new Error('Retention work must execute alone')
+      return [retention.operation === 'writer.retention.inspect'
+        ? inspectRetention(db, retention.input as RetentionInspectInput)
+        : runRetentionBatch(db, retention.input as RetentionBatchInput)]
+    }
     return executeWriteBatches(
       db,
-      items.map((item) => item.value.batch),
+      items.map((item) => {
+        if (!item.value.batch) throw new Error('Writer commit work is missing its batch')
+        return item.value.batch
+      }),
     )
   } finally {
     const executionMs = performance.now() - executionStarted
@@ -122,7 +157,7 @@ function executeScheduledBatch(items: WriterSchedulerItem<WriterWork>[]): WriteB
   }
 }
 
-function resultResponse(work: WriterWork, result: WriteBatchResult): WorkerResponse {
+function resultResponse(work: WriterWork, result: unknown): WorkerResponse {
   return {
     kind: 'result',
     requestId: work.request.requestId,
