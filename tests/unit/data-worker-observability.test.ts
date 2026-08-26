@@ -17,5 +17,6 @@ describe('data worker observability', () => {
   it('classifies requests at or above the configured threshold as slow', () => {
     expect(isSlowWorkerRequest({ totalMs: 99 }, 100)).toBe(false)
     expect(isSlowWorkerRequest({ totalMs: 100 }, 100)).toBe(true)
+    expect(isSlowWorkerRequest({ totalMs: 10, clientObservedMs: 500 }, 100)).toBe(true)
   })
 })

@@ -171,7 +171,9 @@ Session 流式事件、running message snapshot、Turn Process 高频更新和 S
 
 API 领域 Command、工具和部分同步状态修改仍使用兼容 Store 连接。`tests/unit/database-access-boundary.test.ts` 锁定主线程直接 `getDb()` 的兼容清单，清单只能缩小；`tests/unit/runtime-boundary.test.ts` 锁定 Runtime 子进程的反向依赖禁令。`DATA_WORKER_MODE=local` 是显式故障回退开关，不会在 Worker 崩溃后自动降级到同步 SQL。
 
-Query/Writer Worker 的完成日志包含优先级、队列深度、排队时间、执行时间、总耗时和载荷字节数。`DATA_WORKER_SLOW_MS` 配置慢请求阈值，默认 100ms；达到阈值的成功请求提升为 `warn`，用于区分排队拥塞和 SQL/事务执行缓慢。
+Query/Writer Worker 的完成日志包含优先级、队列深度、排队时间、执行时间、Worker 总耗时、API 客户端观察耗时、响应投递延迟和载荷字节数。`DATA_WORKER_SLOW_MS` 配置慢请求阈值，默认 100ms；达到阈值的成功请求提升为 `warn`，用于区分排队拥塞、SQL/事务执行缓慢与 API 主线程未及时处理 Worker 响应。客户端超时后会短期保留有界的请求诊断信息；若 Worker 响应随后到达，会记录迟到响应及对应 operation，不会重新完成已经超时的调用。
+
+HTTP Query 路由分别记录 Worker 查询、JSON 序列化与完整请求耗时，并通过 `Server-Timing` 返回阶段指标。仍留在兼容 Store 的 API 同步写操作通过 `src/store/db-operation-observer.ts` 记录具名操作、连接角色、耗时和 SQLite 错误码。所有诊断日志只包含安全业务标识和规模指标，不记录 SQL 参数、消息正文、附件、Token 或密钥。
 
 历史明细保留由 `src/data-retention/` 统一调度，并且只通过 Writer Port 执行。每个 Session 永久保留 `messages` 事实和最新 15 个成功 Agent 回合的完整过程；超过 7 天且位于第 16 个及更早的成功回合，只分批删除对应 `turn_process_items` 与 `session_events`。清理工作以 Writer `background` 优先级单独成批，每批最多处理 500 行，事务内重新校验候选消息，进程中断后从永久保留的 `messages` 重新计算，不依赖清理游标或任务表。
 
