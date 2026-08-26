@@ -101,6 +101,8 @@ export function Inspiration() {
     navigate(`${toProjectPath('/workspace')}?${new URLSearchParams({ sessionId, ...(inspirationNoteId ? { inspirationNoteId } : {}) }).toString()}`)
   }
 
+  const activeDiscussionNoteId = selected && mode === 'result' ? selected.id : undefined
+
   const deleteSelected = async (): Promise<void> => {
     if (!selected || !window.confirm(`确定删除灵感“${selected.title}”？`)) return
     try {
@@ -118,7 +120,7 @@ export function Inspiration() {
         <div className="inspiration-header-actions">
           {notice && <span className="inspiration-notice">{notice}</span>}
           <button type="button" className="inspiration-icon-button" onClick={() => void load(projectId)} title="刷新" aria-label="刷新"><RefreshCw size={15} /></button>
-          <button type="button" className="inspiration-secondary" disabled={!config?.sessionId} onClick={() => config?.sessionId && openSession(config.sessionId)}><MessageSquare size={14} />灵感会话</button>
+          <button type="button" className="inspiration-secondary" disabled={!config?.sessionId} onClick={() => config?.sessionId && openSession(config.sessionId, activeDiscussionNoteId)}><MessageSquare size={14} />{activeDiscussionNoteId ? '讨论当前灵感' : '灵感会话'}</button>
           <button type="button" className="inspiration-secondary" onClick={() => setSettingsOpen(true)}><Settings2 size={14} />设置</button>
           {selected && mode === 'result' && <button type="button" className="inspiration-secondary" onClick={() => editNote(selected.id)}><Pencil size={14} />编辑原文</button>}
           {selected && <button type="button" className="inspiration-icon-button danger" onClick={() => void deleteSelected()} title="删除灵感" aria-label="删除灵感"><Trash2 size={15} /></button>}
