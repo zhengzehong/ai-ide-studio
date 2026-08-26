@@ -7,6 +7,7 @@ import { ChatResourceLink } from './ChatResourceLink'
 import {
   decodeChatResourceHref,
   encodeChatResourceHref,
+  isExternalChatReference,
   isChatResourceReference,
   type OpenChatResource,
 } from '../services/chat-resource-links'
@@ -27,7 +28,7 @@ const markdownSanitizeSchema = {
   protocols: {
     ...defaultSchema.protocols,
     src: [...(defaultSchema.protocols?.src ?? []), 'file', ...driveProtocols],
-    href: [...(defaultSchema.protocols?.href ?? []), 'file', ...driveProtocols, 'ai-ide-resource'],
+    href: [...(defaultSchema.protocols?.href ?? []), 'tel', 'file', ...driveProtocols, 'ai-ide-resource'],
   },
 }
 
@@ -40,6 +41,7 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({ content, projec
         urlTransform={(url, key) => {
           if (key === 'src') return url
           if (key === 'href' && onOpenResource && isChatResourceReference(url)) return encodeChatResourceHref(url)
+          if (key === 'href' && isExternalChatReference(url)) return url
           return defaultUrlTransform(url)
         }}
         components={{

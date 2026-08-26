@@ -13,9 +13,13 @@ export interface ChatResourceReference {
 
 export type OpenChatResource = (reference: string) => Promise<ChatResourceReference>
 
+export function isExternalChatReference(value: string): boolean {
+  return EXTERNAL_SCHEMES.test(value.trim())
+}
+
 export function isChatResourceReference(value: string): boolean {
   const reference = value.trim()
-  if (!reference || reference.startsWith('#') || EXTERNAL_SCHEMES.test(reference) || UNSAFE_SCHEMES.test(reference)) {
+  if (!reference || reference.startsWith('#') || isExternalChatReference(reference) || UNSAFE_SCHEMES.test(reference)) {
     return false
   }
   return !/^[a-z][a-z0-9+.-]*:/i.test(reference)

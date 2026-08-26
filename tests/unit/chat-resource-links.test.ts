@@ -53,7 +53,7 @@ describe('chat resource links', () => {
 
   test('preserves external links and renders Windows paths as internal actions on PC', () => {
     const html = renderToStaticMarkup(createElement(MarkdownRenderer, {
-      content: '[本地报告](D:/reports/result.md) [官网](https://example.com)',
+      content: '[本地报告](D:/reports/result.md) [官网](https://example.com) [电话](tel:+123456)',
       onOpenResource: async () => ({
         path: 'D:/reports/result.md', name: 'result.md', kind: 'file', absolute: true,
       }),
@@ -61,6 +61,7 @@ describe('chat resource links', () => {
 
     expect(html).toContain('aria-label="打开项目资源：D:/reports/result.md"')
     expect(html).toContain('href="https://example.com"')
+    expect(html).toContain('href="tel:+123456"')
   })
 
   test('does not let a pending project-root request replace a directory link result', async () => {

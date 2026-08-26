@@ -21,6 +21,7 @@ import { ChatResourceLink } from '@desktop/components/ChatResourceLink'
 import {
   decodeChatResourceHref,
   encodeChatResourceHref,
+  isExternalChatReference,
   isChatResourceReference,
   type OpenChatResource,
 } from '@desktop/services/chat-resource-links'
@@ -149,6 +150,8 @@ export default memo(function TurnContent({ message, streaming, processLoading = 
             remarkPlugins={[remarkGfm]}
             urlTransform={(url, key) => key === 'href' && onOpenResource && isChatResourceReference(url)
               ? encodeChatResourceHref(url)
+              : key === 'href' && isExternalChatReference(url)
+                ? url
               : defaultUrlTransform(url)}
             components={{
               a: ({ href, children }) => {
