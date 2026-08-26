@@ -8,6 +8,7 @@ import { createChildLogger } from '../../shared/logger.js'
 import {
   createMissingNativeSessionHistoryError,
   isMissingNativeSessionError,
+  isNativeSessionRuntime,
 } from '../../shared/native-session-errors.js'
 import type { SessionCapabilities } from '../../types/ws-protocol.js'
 
@@ -54,6 +55,33 @@ export async function openSdkSession(input: {
       acpSessionId = recovered.acpSessionId
     }
   } else {
+    if (
+      input.acpSessionIdToResume
+      && isNativeSessionRuntime(input.snapshot.agent.runtime)
+      && input.snapshot.session.canRecreateMissingSession !== true
+    ) {
+      log.error(
+        {
+          runtime: input.snapshot.agent.runtime,
+          agentId: input.snapshot.agent.id,
+          sessionId: input.snapshot.session.id,
+          staleAcpSessionId: input.acpSessionIdToResume,
+        },
+        'Native Session cannot be resumed; automatic recreation blocked',
+      )
+      throw createMissingNativeSessionHistoryError(input.acpSessionIdToResume)
+    }
+    if (input.acpSessionIdToResume && isNativeSessionRuntime(input.snapshot.agent.runtime)) {
+      log.warn(
+        {
+          runtime: input.snapshot.agent.runtime,
+          agentId: input.snapshot.agent.id,
+          sessionId: input.snapshot.session.id,
+          staleAcpSessionId: input.acpSessionIdToResume,
+        },
+        'Recreating provisional native Session without resume capability',
+      )
+    }
     input.lifecycle?.('lifecycle.session_creating', '正在连接会话...')
     const created = await input.connection.newSession(params)
     initial = created

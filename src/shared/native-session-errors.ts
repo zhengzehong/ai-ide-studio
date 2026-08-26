@@ -12,6 +12,10 @@ function errorMessage(error: unknown): string {
   return String(error)
 }
 
+export function isNativeSessionRuntime(runtime: string): boolean {
+  return runtime === 'claude' || runtime === 'codex'
+}
+
 export function isMissingNativeSessionError(error: unknown, runtime: string, sessionId: string): boolean {
   if (!sessionId) return false
   const escapedSessionId = escapeRegExp(sessionId)

@@ -93,6 +93,33 @@ describe('SDK Session recovery', () => {
     expect(connection.resumeSession).toHaveBeenCalledOnce()
     expect(connection.newSession).toHaveBeenCalledOnce()
   })
+
+  test('blocks a historical native Session when resume and load are unavailable', async () => {
+    const connection = connectionHarness({})
+
+    await expect(openSdkSession({
+      connection: connection.value,
+      snapshot: snapshot('claude', false),
+      agentCapabilities: {},
+      acpSessionIdToResume: 'native-stale',
+    })).rejects.toThrow('底层 Agent 会话历史已丢失')
+
+    expect(connection.newSession).not.toHaveBeenCalled()
+  })
+
+  test('recreates an empty native Session when resume and load are unavailable', async () => {
+    const connection = connectionHarness({})
+
+    const opened = await openSdkSession({
+      connection: connection.value,
+      snapshot: snapshot('codex', true),
+      agentCapabilities: {},
+      acpSessionIdToResume: 'native-stale',
+    })
+
+    expect(opened.acpSessionId).toBe('native-new')
+    expect(connection.newSession).toHaveBeenCalledOnce()
+  })
 })
 
 function connectionHarness(options: { resumeError?: Error; loadError?: Error; newError?: Error }): {

@@ -10,6 +10,7 @@ import { sessionStore } from '../store/sessions.js'
 import {
   createMissingNativeSessionHistoryError,
   isMissingNativeSessionError,
+  isNativeSessionRuntime,
 } from '../shared/native-session-errors.js'
 import type { SessionUpdateData, TurnUsageData, SessionCapabilities, ImageAttachment } from '../types/ws-protocol.js'
 import { mapConfigOptions, mergeCapabilitiesFromConfig } from './capabilities.js'
@@ -457,7 +458,7 @@ export const acpHost = {
       return acpSessionId
     }
 
-    if ((conn.runtime === 'claude' || conn.runtime === 'codex') && context.canRecreateMissingSession !== true) {
+    if (isNativeSessionRuntime(conn.runtime) && context.canRecreateMissingSession !== true) {
       log.error(
         { agentId, ourSessionId, staleAcpSessionId: acpSessionId, runtime: conn.runtime },
         'Native Session cannot be resumed; embedded automatic recreation blocked',
