@@ -64,7 +64,7 @@ class ApiProcessController implements ApiProcessHandle {
   async start(): Promise<void> {
     this.spawnChild()
     try {
-      await this.waitForGeneration(0, this.options.readyTimeoutMs ?? 10_000)
+      await this.waitForGeneration(0, this.options.readyTimeoutMs ?? 60_000)
     } catch (error) {
       await this.close()
       throw error

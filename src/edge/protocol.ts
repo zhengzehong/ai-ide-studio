@@ -18,6 +18,7 @@ export type ApiToParentMessage =
 const APP_CONFIG_KEYS = new Set([
   'host', 'port', 'dataDir', 'runtime', 'dataWorkerMode', 'dataWorkerSlowMs',
   'dataMaintenanceIntervalMs', 'dataWalCheckpointBytes', 'dataPublishedOutboxRetentionMs',
+  'dataRetentionMode',
   'edgeMode', 'edgeRealtimePath', 'realtimeMode', 'realtimeHost', 'realtimePort',
   'realtimeLegacyRpc', 'realtimeMaxQueueMessages', 'realtimeMaxQueueBytes',
   'realtimeMaxBufferedBytes', 'realtimeIpcMaxFrameBytes', 'runtimeMode',
@@ -76,6 +77,7 @@ function isAppConfig(value: unknown): value is AppConfig {
   if (value.runtime !== 'web' && value.runtime !== 'electron') return false
 
   return optionalEnum(value.dataWorkerMode, ['worker', 'local'])
+    && optionalEnum(value.dataRetentionMode, ['off', 'dry-run', 'delete'])
     && optionalEnum(value.edgeMode, ['process', 'disabled', 'internal'])
     && optionalEnum(value.realtimeMode, ['process', 'embedded'])
     && optionalEnum(value.runtimeMode, ['process', 'embedded'])

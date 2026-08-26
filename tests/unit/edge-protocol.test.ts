@@ -20,6 +20,18 @@ describe('Edge API process protocol', () => {
       type: 'start',
       config: { ...config, funAsrWsUrl: 'ws://10.201.80.79:10096/' },
     })).toBe(true)
+    expect(isParentToApiMessage({
+      type: 'start',
+      config: { ...config, dataRetentionMode: 'off' },
+    })).toBe(true)
+    expect(isParentToApiMessage({
+      type: 'start',
+      config: { ...config, dataRetentionMode: 'dry-run' },
+    })).toBe(true)
+    expect(isParentToApiMessage({
+      type: 'start',
+      config: { ...config, dataRetentionMode: 'delete' },
+    })).toBe(true)
     expect(isParentToApiMessage({ type: 'stop' })).toBe(true)
     expect(isParentToApiMessage({ type: 'test.block', requestId: 'req-1', durationMs: 150 })).toBe(true)
     expect(isParentToApiMessage({ type: 'test.realtime.restart', requestId: 'req-2' })).toBe(true)
@@ -28,6 +40,10 @@ describe('Edge API process protocol', () => {
   it('rejects unknown, incomplete, and extra parent-to-child fields', () => {
     expect(isParentToApiMessage({ type: 'unknown' })).toBe(false)
     expect(isParentToApiMessage({ type: 'start', config: { ...config, port: -1 } })).toBe(false)
+    expect(isParentToApiMessage({
+      type: 'start',
+      config: { ...config, dataRetentionMode: 'invalid' },
+    })).toBe(false)
     expect(isParentToApiMessage({ type: 'stop', extra: true })).toBe(false)
     expect(isParentToApiMessage({ type: 'test.block', requestId: '', durationMs: 0 })).toBe(false)
   })
