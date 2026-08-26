@@ -18,9 +18,11 @@ describe('PC inspiration workbench', () => {
       onCandidateAction: () => undefined,
       onOpenTask: () => undefined,
       onOpenSession: () => undefined,
+      onDiscuss: () => undefined,
     }))
 
     expect(html).toContain('AI 整理结果')
+    expect(html).toContain('继续讨论')
     expect(html).toContain('候选任务')
     expect(html).toContain('编辑任务')
     expect(html).toContain('只创建')
@@ -68,6 +70,8 @@ describe('PC inspiration workbench', () => {
     expect(layout).toContain("{ to: '/inspiration', icon: Lightbulb, label: '灵感' }")
     expect(page).toContain('const allAgents = useAgentStore((state) => state.agents)')
     expect(page).toContain('() => allAgents.filter((agent) => agent.project_id === projectId && !agent.hidden_at)')
+    expect(page).toContain('openSession(config.sessionId, selected.id)')
+    expect(page).toContain('inspirationNoteId')
   })
 })
 

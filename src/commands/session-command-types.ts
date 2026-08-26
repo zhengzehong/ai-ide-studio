@@ -16,6 +16,7 @@ export type SessionCommand =
       clientMessageId: string
       content: string
       contextProjectId?: string
+      inspirationNoteId?: string
       images?: SessionCommandImage[]
     }
   | {
@@ -67,6 +68,7 @@ export function parseSessionCommand(
         'clientMessageId',
         'content',
         'contextProjectId',
+        'inspirationNoteId',
         'images',
       ])
       return parsePrompt(value, commandId, sessionId)
@@ -102,6 +104,7 @@ function parsePrompt(
 ): Extract<SessionCommand, { type: 'prompt' }> {
   const content = typeof value.content === 'string' ? value.content : requiredText(value.content, 'content')
   const contextProjectId = optionalText(value.contextProjectId, 'contextProjectId')
+  const inspirationNoteId = optionalText(value.inspirationNoteId, 'inspirationNoteId')
   const images = parseImages(value.images)
   if (!content.trim() && !images?.length) throw new Error('消息内容或图片不能为空')
   return {
@@ -111,6 +114,7 @@ function parsePrompt(
     clientMessageId: requiredText(value.clientMessageId, 'clientMessageId'),
     content,
     ...(contextProjectId ? { contextProjectId } : {}),
+    ...(inspirationNoteId ? { inspirationNoteId } : {}),
     ...(images ? { images } : {}),
   }
 }

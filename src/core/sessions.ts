@@ -59,6 +59,8 @@ interface PromptOptions {
   senderId?: string | null
   senderName?: string | null
   dedupeKey?: string
+  batchKey?: string
+  modelContent?: string
   intent?: PromptIntent
 }
 
@@ -427,7 +429,7 @@ function enqueueSessionPrompt(
 ): Promise<void> {
   const projectId = resolvePromptProjectId(session, options)
   const completion = promptBatcher.enqueue(session.id, {
-    batchKey: projectId ?? '__default__',
+    batchKey: options.batchKey ?? projectId ?? '__default__',
     dedupeKey: options.dedupeKey ?? (options.clientMessageId ? `message:${options.clientMessageId}` : undefined),
     value: { content, images, options, projectId, source, intent: options.intent },
   })
@@ -477,6 +479,7 @@ async function sendPromptBatchNow(session: SessionRow, inputs: QueuedPrompt[]): 
   const turnId = createTurnId()
   const startedAt = Date.now()
   const content = mergePromptContents(inputs)
+  const modelContent = mergePromptContents(inputs, true)
   const projectId = inputs[0]?.projectId
   const promptLen = content.length
   const imageCount = inputs.reduce((total, input) => total + (input.images?.length ?? 0), 0)
@@ -602,7 +605,7 @@ async function sendPromptBatchNow(session: SessionRow, inputs: QueuedPrompt[]): 
       log.info({ sessionId, agentId: session.agent_id, turnId, acpSessionId }, 'ACP Session mapped')
     }
     const acpContent = appendHiddenAttachmentNote(
-      maybeWrapTeamLeaderPrompt(sessionId, content, projectId),
+      maybeWrapTeamLeaderPrompt(sessionId, modelContent, projectId),
       storedImages,
     )
     const acpImages = promptImages.length > 0 ? promptImages : undefined
@@ -676,11 +679,14 @@ async function sendPromptBatchNow(session: SessionRow, inputs: QueuedPrompt[]): 
   }
 }
 
-function mergePromptContents(inputs: QueuedPrompt[]): string {
-  if (inputs.length === 1) return inputs[0]?.content ?? ''
+function mergePromptContents(inputs: QueuedPrompt[], forModel = false): string {
+  const inputContent = (input: QueuedPrompt): string => forModel
+    ? input.options.modelContent ?? input.content
+    : input.content
+  if (inputs.length === 1) return inputs[0] ? inputContent(inputs[0]) : ''
   const sections = inputs.map((input, index) => [
     `### ${promptInputLabel(input)} ${index + 1}`,
-    input.content,
+    inputContent(input),
   ].join('\n'))
   return [
     `[系统合并通知] 当前会话在上一轮执行期间收到 ${inputs.length} 条新输入。请结合全部内容统一处理；不要遗漏用户消息，也不要将同一平台通知重复执行。`,

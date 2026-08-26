@@ -36,6 +36,7 @@ export const subscriptionRpcHandlers: RpcHandlerMap = {
       ? msg.clientMessageId
       : `msg-${randomUUID().slice(0, 8)}`
     const contextProjectId = typeof msg.contextProjectId === 'string' ? msg.contextProjectId : undefined
+    const inspirationNoteId = typeof msg.inspirationNoteId === 'string' ? msg.inspirationNoteId : undefined
     const images = msg.images as { data: string; mimeType: string }[] | undefined
     state.subscriptions.add(sessionId)
     sendResult({ status: 'streaming' })
@@ -46,6 +47,7 @@ export const subscriptionRpcHandlers: RpcHandlerMap = {
       clientMessageId,
       content,
       ...(contextProjectId ? { contextProjectId } : {}),
+      ...(inspirationNoteId ? { inspirationNoteId } : {}),
       ...(images ? { images } : {}),
     }).catch((err) => {
       sendOutOfBandError(`Prompt 执行失败: ${err instanceof Error ? err.message : err}`)

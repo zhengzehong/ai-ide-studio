@@ -284,7 +284,7 @@ interface SessionStore {
   deleteSessionTemplate: (templateId: string) => Promise<void>
   updateSessionTemplate: (templateId: string, fields: { name?: string; description?: string | null }) => Promise<SessionTemplateData | undefined>
   selectSession: (id: string | null) => void
-  sendPrompt: (content: string, images?: ImageAttachmentInfo[]) => Promise<void>
+  sendPrompt: (content: string, images?: ImageAttachmentInfo[], context?: { inspirationNoteId?: string }) => Promise<void>
   setModel: (modelId: string) => Promise<void>
   setMode: (modeId: string) => Promise<void>
   setConfig: (configId: string, value: string | boolean) => Promise<void>
@@ -1694,7 +1694,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     void markSessionReadOnServer(id)
   },
 
-  sendPrompt: async (content, images) => {
+  sendPrompt: async (content, images, context) => {
     const sid = get().currentSessionId
     if (!sid) return
     const session = get().sessions.find((item) => item.id === sid)
@@ -1757,6 +1757,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         sessionId: sid,
         content,
         clientMessageId,
+        ...(context?.inspirationNoteId ? { inspirationNoteId: context.inspirationNoteId } : {}),
         ...(commandImages ? { images: commandImages } : {}),
       })
     } catch (error) {

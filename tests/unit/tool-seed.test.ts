@@ -113,6 +113,7 @@ describe('builtin tool seed synchronization', () => {
       'files.present',
       'get_memory',
       'inspiration.analysis.publish',
+      'inspiration.note.get',
       'list_memory',
       'preview.publish',
       'recall_memory',
@@ -362,7 +363,7 @@ describe('builtin tool seed synchronization', () => {
     expect(config.handler).toBe('inspiration.analysis.publish')
     const schema = tool?.input_schema_json ? (JSON.parse(tool.input_schema_json) as Record<string, unknown>) : {}
     expect(schema.required).toEqual([
-      'noteId', 'expectedRevision', 'analysisAttemptId', 'summary', 'bodyMarkdown', 'questions', 'candidates',
+      'noteId', 'expectedRevision', 'summary', 'bodyMarkdown', 'questions', 'candidates',
     ])
   })
 
