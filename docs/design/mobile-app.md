@@ -100,7 +100,7 @@ ai-ide-studio/
 │   或 Detail 页面（覆盖） │
 │                         │
 ├─────────────────────────┤
-│  会话  |  任务  |  设置   │  ← 底部 Tab
+│ 动态 | 会话 | 任务 | 设置 │  ← 底部 Tab
 └─────────────────────────┘
 ```
 
@@ -108,7 +108,8 @@ ai-ide-studio/
 
 | Tab | 页面 | 功能 |
 |-----|------|------|
-| 会话 | `SessionListPage` | 所有会话列表（微信风格），按最后消息时间排序 |
+| 动态 | `ActivityPage` | 跨项目显示运行中和未读会话；打开未读后自动从动态中移除，运行中继续保留 |
+| 会话 | `SessionListPage` | 默认按项目和 Agent 展示会话；右上角切换跨项目置顶列表 |
 | 任务 | `TaskListPage` | 任务列表，按状态分组 |
 | 设置 | `SettingsPage` | 服务器地址、认证、主题 |
 
@@ -118,6 +119,8 @@ ai-ide-studio/
 | `TaskDetailPage` | 点击任务 | 任务详情 |
 
 ### 3.3 会话列表页（核心页面）
+
+默认模式保持项目抽屉和 Agent 分组结构。右上角的置顶按钮进入 `/?view=pinned`，此时隐藏项目抽屉并复用跨项目置顶列表；列表按钮切回 `/` 后仍保留此前选择的项目。旧 `/pinned` 路由重定向到置顶模式。
 
 微信对话列表风格：
 
@@ -221,7 +224,7 @@ ai-ide-studio/
 App 启动
   → 读取服务器地址（Settings / localStorage）
   → 建立 WS 连接（ws://server:18800?token=xxx）
-  → 加载项目列表 → 加载 Agent 列表 → 加载会话列表
+  → 加载项目列表 → 加载 Agent 列表 → 加载会话、动态和置顶摘要
   → 监听全局广播：session:activity, session:changed, agent:status, task:update
 
 进入会话
@@ -241,6 +244,7 @@ App 启动
 subscribe / unsubscribe / prompt / session.cancel
 sessions.list / sessions.create / sessions.close / sessions.rename / sessions.delete
 sessions.messages / sessions.messageProcess
+widget.sessionActivity.list / sessionDock.list / sessionDock.add / sessionDock.remove / sessionDock.reorder
 agents.list
 projects.list
 permission.respond / elicitation.respond
@@ -333,7 +337,9 @@ mobile/
 ├── src/
 │   ├── App.tsx                 ← 路由 + 主题 + WS 初始化
 │   ├── pages/
+│   │   ├── ActivityPage.tsx    ← 跨项目运行中/未读动态
 │   │   ├── SessionListPage.tsx ← 会话列表（主页）
+│   │   ├── PinnedSessionsPage.tsx ← 可嵌入的置顶会话列表
 │   │   ├── ChatPage.tsx        ← 对话详情
 │   │   ├── TaskListPage.tsx    ← 任务列表
 │   │   ├── SettingsPage.tsx    ← 设置

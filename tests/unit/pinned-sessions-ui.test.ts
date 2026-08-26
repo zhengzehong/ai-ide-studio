@@ -4,7 +4,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, test } from 'vitest'
 import { PinnedSessions } from '../../ui/src/pages/PinnedSessions'
 import { useSessionDockStore } from '../../ui/src/stores/session-dock.store'
-import { PinnedSessionRow, PinnedSessionsPage } from '../../mobile/src/pages/PinnedSessionsPage'
+import { PinnedSessionList, PinnedSessionRow } from '../../mobile/src/pages/PinnedSessionsPage'
 import { usePinnedSessionStore } from '../../mobile/src/stores/pinned-session.store'
 import MobileShell from '../../mobile/src/components/MobileShell'
 
@@ -58,18 +58,20 @@ describe('pinned session surfaces', () => {
     expect(html).toContain('aria-label="取消置顶"')
   })
 
-  test('renders the mobile pinned page empty state with a path back to sessions', () => {
-    const html = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(PinnedSessionsPage)))
+  test('renders the embedded mobile pinned list without its own page header', () => {
+    const html = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(PinnedSessionList)))
 
-    expect(html).toContain('置顶会话')
-    expect(html).toContain('去会话页')
+    expect(html).toContain('还没有置顶会话')
+    expect(html).not.toContain('跨项目持续关注')
   })
 
-  test('puts pinned before normal sessions in the mobile tab bar', () => {
+  test('uses activity, sessions, tasks, and settings as the mobile tab bar', () => {
     const html = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(MobileShell)))
 
-    expect(html.indexOf('>置顶<')).toBeLessThan(html.indexOf('>会话<'))
+    expect(html.indexOf('>动态<')).toBeLessThan(html.indexOf('>会话<'))
     expect(html.indexOf('>会话<')).toBeLessThan(html.indexOf('>任务<'))
     expect(html.indexOf('>任务<')).toBeLessThan(html.indexOf('>设置<'))
+    expect(html).not.toContain('>置顶<')
+    expect(html).not.toContain('>秘书<')
   })
 })
