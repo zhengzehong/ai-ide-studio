@@ -173,6 +173,39 @@ describe('versioned HTTP query routes', () => {
     expect(JSON.stringify(body)).not.toContain(description)
   })
 
+  test('returns an explicit task page envelope with totals', async () => {
+    const projectId = 'project-task-page'
+    const older = taskStore.create({ title: 'Older task', projectId })
+    const newer = taskStore.create({ title: 'Newer task', projectId })
+    getDb().prepare('UPDATE tasks SET created_at = ? WHERE id = ?').run('2026-08-24T00:00:00.000Z', older.id)
+    getDb().prepare('UPDATE tasks SET created_at = ? WHERE id = ?').run('2026-08-25T00:00:00.000Z', newer.id)
+    await startTestGateway()
+
+    const response = await queryFetch(`/api/v1/tasks/page?projectId=${projectId}&limit=1`)
+    const body = await response.json() as {
+      data: Array<{ id: string }>
+      page: { hasMore: boolean; nextCursor: string | null; total: number }
+    }
+
+    expect(response.status).toBe(200)
+    expect(body.data.map((task) => task.id)).toEqual([newer.id])
+    expect(body.page).toEqual({ hasMore: true, nextCursor: newer.id, total: 2 })
+  })
+
+  test('returns 400 for a task cursor outside the page filters', async () => {
+    const projectId = 'project-task-page-cursor'
+    const completed = taskStore.create({ title: 'Completed cursor', projectId })
+    getDb().prepare("UPDATE tasks SET status = 'completed' WHERE id = ?").run(completed.id)
+    await startTestGateway()
+
+    const response = await queryFetch(
+      `/api/v1/tasks/page?projectId=${projectId}&excludeTerminal=true&cursor=${completed.id}`,
+    )
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ error: 'Invalid task cursor' })
+  })
+
   test('returns a lightweight recovery snapshot without mirrored tool payloads', async () => {
     const session = sessionStore.create({ agentId: 'agent-recovery-snapshot' })
     const largePayload = 'x'.repeat(1024 * 1024)
@@ -271,6 +304,7 @@ function failingQueryPort(): QueryPort {
   }
   return {
     async listTasks(input) { return fail(input.status) },
+    async listTaskPage(input) { return fail(input.status) },
     async listSessions() { return fail() },
     async listSessionMessages() { return fail() },
     async listSessionEvents() { return fail() },

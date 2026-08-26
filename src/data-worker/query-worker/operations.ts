@@ -1,6 +1,7 @@
 import { threadId } from 'node:worker_threads'
 import { createDatabaseQueryPort } from '../../queries/database-query-port.js'
 import { getDatabaseMode, getDb } from '../../store/db.js'
+import { InvalidTaskCursorError } from '../../store/task-page.js'
 
 export interface QueryWorkerInspection {
   mode: 'readonly' | 'readwrite' | null
@@ -31,6 +32,15 @@ export async function executeQueryOperation(
   switch (operation) {
     case 'tasks.list':
       return queryPort.listTasks(asObject(payload))
+    case 'tasks.page':
+      try {
+        return await queryPort.listTaskPage(asObject(payload))
+      } catch (error) {
+        if (error instanceof InvalidTaskCursorError) {
+          throw new QueryOperationError('BAD_REQUEST', error.message)
+        }
+        throw error
+      }
     case 'sessions.list':
       return queryPort.listSessions(asObject(payload))
     case 'sessions.messages':

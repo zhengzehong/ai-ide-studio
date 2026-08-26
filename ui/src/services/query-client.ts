@@ -15,6 +15,20 @@ export interface TaskListQuery {
   status?: string
 }
 
+export interface TaskPageQuery extends TaskListQuery {
+  query?: string
+  createdFrom?: string
+  createdBefore?: string
+  excludeTerminal?: boolean
+  limit?: number
+  cursor?: string
+  signal?: AbortSignal
+}
+
+export interface TaskPage extends QueryPage<TaskData> {
+  total: number
+}
+
 export interface SessionListQuery {
   projectId?: string
   agentId?: string
@@ -49,6 +63,7 @@ export interface SessionRecoverySnapshot {
 
 export interface QueryClient {
   listTasks(input: TaskListQuery): Promise<TaskData[]>
+  listTaskPage(input: TaskPageQuery): Promise<TaskPage>
   listSessions(input: SessionListQuery): Promise<SessionData[]>
   listSessionMessages(input: SessionMessageQuery): Promise<QueryPage<MessageData>>
   listSessionEvents(input: SessionEventQuery): Promise<QueryPage<SessionEventData>>
@@ -77,6 +92,27 @@ export function createHttpQueryClient(options: HttpQueryClientOptions = {}): Que
         projectId: input.projectId,
         status: input.status,
       })
+    },
+
+    async listTaskPage(input) {
+      const envelope = await requestEnvelope(
+        fetchImpl,
+        getAccessToken,
+        timeoutMs,
+        '/api/v1/tasks/page',
+        {
+          projectId: input.projectId,
+          status: input.status,
+          query: input.query,
+          createdFrom: input.createdFrom,
+          createdBefore: input.createdBefore,
+          excludeTerminal: input.excludeTerminal,
+          limit: input.limit,
+          cursor: input.cursor,
+        },
+        input.signal,
+      )
+      return parseTaskPage(envelope)
     },
 
     listSessions(input) {
@@ -133,6 +169,19 @@ export function createWsQueryClient(request: WsRequest = (message) => wsClient.r
       addDefined(message, 'projectId', input.projectId)
       addDefined(message, 'status', input.status)
       return toArray<TaskData>(await request(message))
+    },
+
+    async listTaskPage(input) {
+      const message: Record<string, unknown> = { type: 'tasks.page' }
+      addDefined(message, 'projectId', input.projectId)
+      addDefined(message, 'status', input.status)
+      addDefined(message, 'query', input.query)
+      addDefined(message, 'createdFrom', input.createdFrom)
+      addDefined(message, 'createdBefore', input.createdBefore)
+      addDefined(message, 'excludeTerminal', input.excludeTerminal)
+      addDefined(message, 'limit', input.limit)
+      addDefined(message, 'cursor', input.cursor)
+      return parseTaskPage(await request(message))
     },
 
     async listSessions(input) {
@@ -223,6 +272,28 @@ function parseSessionRecoverySnapshot(value: unknown): SessionRecoverySnapshot {
     sessionId: value.sessionId,
     latestSequence: value.latestSequence,
     events: value.events as SessionEventData[],
+  }
+}
+
+function parseTaskPage(value: unknown): TaskPage {
+  const envelope = isRecord(value) && 'data' in value ? value : null
+  const direct = isRecord(value) && 'items' in value ? value : null
+  const items = envelope?.data ?? direct?.items
+  const page = envelope?.page ?? direct
+  if (!Array.isArray(items) || !isRecord(page)
+    || typeof page.hasMore !== 'boolean'
+    || typeof page.total !== 'number'
+    || !Number.isInteger(page.total)
+    || page.total < 0) {
+    throw new Error('任务分页响应无效')
+  }
+  const nextCursor = page.nextCursor
+  if (nextCursor !== null && typeof nextCursor !== 'string') throw new Error('任务分页游标无效')
+  return {
+    items: toArray<TaskData>(items),
+    hasMore: page.hasMore,
+    nextCursor,
+    total: page.total,
   }
 }
 

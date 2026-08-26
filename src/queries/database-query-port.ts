@@ -7,6 +7,7 @@ import type {
   SessionRecoveryQuery,
   SessionRecoverySnapshot,
   TaskListQuery,
+  TaskPageQuery,
 } from '../ports/query-port.js'
 import {
   eventStore,
@@ -15,7 +16,7 @@ import {
   type MessageRow,
   type SessionEventRow,
 } from '../store/sessions.js'
-import { listTaskReadModel } from './task-list-query.js'
+import { listTaskPageReadModel, listTaskReadModel } from './task-list-query.js'
 
 const DEFAULT_MESSAGE_LIMIT = 100
 const MAX_MESSAGE_LIMIT = 200
@@ -31,6 +32,10 @@ export function createDatabaseQueryPort(options: DatabaseQueryPortOptions = {}):
   return {
     async listTasks(input: TaskListQuery) {
       return listTaskReadModel(input)
+    },
+
+    async listTaskPage(input: TaskPageQuery) {
+      return listTaskPageReadModel(input)
     },
 
     async listSessions(input: SessionListQuery) {

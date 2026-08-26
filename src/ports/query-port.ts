@@ -43,6 +43,19 @@ export interface TaskListQuery extends QueryRequestOptions {
   status?: string
 }
 
+export interface TaskPageQuery extends TaskListQuery {
+  query?: string
+  createdFrom?: string
+  createdBefore?: string
+  excludeTerminal?: boolean
+  limit?: number
+  cursor?: string
+}
+
+export interface TaskPage extends QueryPage<TaskListItem> {
+  total: number
+}
+
 export interface SessionListQuery extends QueryRequestOptions {
   projectId?: string
   agentId?: string
@@ -76,6 +89,7 @@ export interface SessionRecoverySnapshot {
 
 export interface QueryPort {
   listTasks(input: TaskListQuery): Promise<TaskListItem[]>
+  listTaskPage(input: TaskPageQuery): Promise<TaskPage>
   listSessions(input: SessionListQuery): Promise<SessionListRow[]>
   listSessionMessages(input: SessionMessageQuery): Promise<QueryPage<MessageRow>>
   listSessionEvents(input: SessionEventQuery): Promise<QueryPage<SessionEventRow>>

@@ -270,6 +270,16 @@ describe('builtin tool seed synchronization', () => {
     expect(studioTaskCreateSimpleSchema.required).toEqual(['title', 'description'])
     expect(studioTaskCreateSimpleProperties.selfExecute).toMatchObject({ type: 'boolean', default: false })
 
+    const studioTaskList = toolStore.getByName('studio.task.list')
+    const studioTaskListSchema = studioTaskList?.input_schema_json
+      ? (JSON.parse(studioTaskList.input_schema_json) as Record<string, unknown>)
+      : {}
+    const studioTaskListProperties = asRecord(studioTaskListSchema.properties)
+    expect(Object.keys(studioTaskListProperties).sort()).toEqual(['cursor', 'limit', 'query', 'status'])
+    expect(studioTaskListProperties.limit).toMatchObject({ type: 'number', default: 200, maximum: 200 })
+    expect(studioTaskListProperties.query).toMatchObject({ type: 'string' })
+    expect(studioTaskListProperties.cursor).toMatchObject({ type: 'string' })
+
     const studioScheduleCreate = toolStore.getByName('studio.schedule.create')
     const studioScheduleCreateSchema = studioScheduleCreate?.input_schema_json
       ? (JSON.parse(studioScheduleCreate.input_schema_json) as Record<string, unknown>)

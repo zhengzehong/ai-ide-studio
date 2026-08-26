@@ -35,6 +35,31 @@ describe('legacy WebSocket query adapters', () => {
     expect(listTasks).toHaveBeenCalledWith({ status: 'running', projectId: 'project-a' })
   })
 
+  test('tasks.page preserves page filters and metadata', async () => {
+    const page = { items: [], total: 0, hasMore: false, nextCursor: null }
+    const listTaskPage = vi.spyOn(localQueryPort, 'listTaskPage').mockResolvedValue(page)
+
+    const result = await callRpc(taskRpcHandlers, 'tasks.page', {
+      projectId: 'project-a',
+      createdBefore: '2026-08-26T00:00:00.000Z',
+      excludeTerminal: true,
+      limit: 50,
+      cursor: 'task-before',
+    })
+
+    expect(listTaskPage).toHaveBeenCalledWith({
+      projectId: 'project-a',
+      status: undefined,
+      query: undefined,
+      createdFrom: undefined,
+      createdBefore: '2026-08-26T00:00:00.000Z',
+      excludeTerminal: true,
+      limit: 50,
+      cursor: 'task-before',
+    })
+    expect(result).toEqual(page)
+  })
+
   test('sessions.list delegates filters to QueryPort', async () => {
     const listSessions = vi.spyOn(localQueryPort, 'listSessions').mockResolvedValue([])
 

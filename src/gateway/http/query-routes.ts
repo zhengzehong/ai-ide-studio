@@ -1,8 +1,9 @@
 import type { Context, Hono } from 'hono'
-import type { QueryPage, QueryPort } from '../../ports/query-port.js'
+import type { QueryPage, QueryPort, TaskPage } from '../../ports/query-port.js'
 import { createChildLogger } from '../../core/logger.js'
 import { getQueryPort } from '../../queries/query-port-provider.js'
 import { WorkerRequestError } from '../../data-worker/worker-rpc-client.js'
+import { InvalidTaskCursorError } from '../../store/task-page.js'
 
 const log = createChildLogger('gateway:http-query')
 const QUERY_RESPONSE_BUDGET_BYTES = 1024 * 1024
@@ -12,6 +13,7 @@ interface QueryEnvelope {
   page?: {
     hasMore: boolean
     nextCursor: string | null
+    total?: number
   }
 }
 
@@ -25,6 +27,27 @@ export function mountQueryRoutes(app: Hono, queryPort?: QueryPort): void {
       priority: 'interactive',
     }),
   })))
+
+  app.get('/api/v1/tasks/page', async (c) => {
+    const limit = parsePositiveInteger(c.req.query('limit'), 'limit')
+    if ('error' in limit) return c.json({ error: limit.error }, 400)
+    const excludeTerminal = parseBoolean(c.req.query('excludeTerminal'), 'excludeTerminal')
+    if ('error' in excludeTerminal) return c.json({ error: excludeTerminal.error }, 400)
+
+    return runQuery(c, 'tasks.page', async () => taskPageEnvelope(
+      await resolveQueryPort(queryPort).listTaskPage({
+        projectId: optionalText(c.req.query('projectId')),
+        status: optionalText(c.req.query('status')),
+        query: optionalText(c.req.query('query')),
+        createdFrom: optionalText(c.req.query('createdFrom')),
+        createdBefore: optionalText(c.req.query('createdBefore')),
+        excludeTerminal: excludeTerminal.value,
+        limit: limit.value,
+        cursor: optionalText(c.req.query('cursor')),
+        priority: 'interactive',
+      }),
+    ))
+  })
 
   app.get('/api/v1/sessions', async (c) => runQuery(c, 'sessions.list', async () => ({
     data: await resolveQueryPort(queryPort).listSessions({
@@ -94,6 +117,13 @@ function pageEnvelope<T>(page: QueryPage<T>): QueryEnvelope {
   }
 }
 
+function taskPageEnvelope(page: TaskPage): QueryEnvelope {
+  return {
+    data: page.items,
+    page: { hasMore: page.hasMore, nextCursor: page.nextCursor, total: page.total },
+  }
+}
+
 async function runQuery(
   c: Context,
   queryName: string,
@@ -123,12 +153,19 @@ async function runQuery(
     return c.body(body)
   } catch (err) {
     const elapsedMs = performance.now() - startedAt
-    log.error({ err, queryName, elapsedMs: Number(elapsedMs.toFixed(2)) }, 'HTTP query failed')
+    const context = { err, queryName, elapsedMs: Number(elapsedMs.toFixed(2)) }
+    const badRequest = (err instanceof WorkerRequestError && err.code === 'BAD_REQUEST')
+      || err instanceof InvalidTaskCursorError
+    if (badRequest) log.warn(context, 'HTTP query rejected')
+    else log.error(context, 'HTTP query failed')
     if (err instanceof WorkerRequestError && err.code === 'WORKER_UNAVAILABLE') {
       return c.json({ error: '查询服务暂不可用' }, 503)
     }
     if (err instanceof WorkerRequestError && err.code === 'DEADLINE_EXCEEDED') {
       return c.json({ error: '查询超时' }, 504)
+    }
+    if (badRequest) {
+      return c.json({ error: err.message }, 400)
     }
     return c.json({ error: '查询失败' }, 500)
   }

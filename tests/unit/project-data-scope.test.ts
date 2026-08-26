@@ -95,7 +95,7 @@ describe('project data scope', () => {
 
     expect(activationOrder).toEqual(['task', 'agent', 'session'])
     await refresh
-    expect(stores.task.fetchTasks).toHaveBeenCalledWith('project-a')
+    expect(stores.task.fetchTasks).not.toHaveBeenCalled()
     expect(stores.task.fetchModes).toHaveBeenCalledWith('project-a')
     expect(stores.agent.fetchAgents).toHaveBeenCalledWith('project-a')
     expect(stores.session.fetchSessions).toHaveBeenCalledWith(undefined, 'project-a')
@@ -115,7 +115,7 @@ describe('project data scope', () => {
     expect(stores.task.activateProject).toHaveBeenCalledTimes(2)
     expect(stores.agent.activateProject).toHaveBeenCalledTimes(2)
     expect(stores.session.activateProject).toHaveBeenCalledTimes(2)
-    expect(stores.task.fetchTasks).toHaveBeenCalledTimes(1)
+    expect(stores.task.fetchTasks).not.toHaveBeenCalled()
     expect(stores.task.fetchModes).toHaveBeenCalledTimes(1)
     expect(stores.agent.fetchAgents).toHaveBeenCalledTimes(1)
     expect(stores.session.fetchSessions).toHaveBeenCalledTimes(2)
@@ -128,9 +128,9 @@ describe('project data scope', () => {
   })
 
   test('rechecks sessions when a project is reactivated during a coalesced refresh', async () => {
-    let finishTasks: (() => void) | undefined
-    stores.task.fetchTasks.mockImplementation(() => new Promise<void>((resolve) => {
-      finishTasks = resolve
+    let finishAgents: (() => void) | undefined
+    stores.agent.fetchAgents.mockImplementation(() => new Promise<void>((resolve) => {
+      finishAgents = resolve
     }))
 
     const first = activateProjectData('project-a')
@@ -139,13 +139,13 @@ describe('project data scope', () => {
 
     expect(stores.session.fetchSessions).toHaveBeenCalledTimes(2)
 
-    finishTasks?.()
+    finishAgents?.()
     await Promise.all([first, second])
   })
 
   test('reactivates a project when returning before its refresh completes', async () => {
     let completeProjectA: (() => void) | undefined
-    stores.task.fetchTasks.mockImplementation((projectId: string) => {
+    stores.agent.fetchAgents.mockImplementation((projectId: string) => {
       if (projectId !== 'project-a') return Promise.resolve(undefined)
       return new Promise<void>((resolve) => {
         completeProjectA = resolve
@@ -159,7 +159,8 @@ describe('project data scope', () => {
     expect(stores.task.activateProject).toHaveBeenLastCalledWith('project-a')
     expect(stores.agent.activateProject).toHaveBeenLastCalledWith('project-a')
     expect(stores.session.activateProject).toHaveBeenLastCalledWith('project-a')
-    expect(stores.task.fetchTasks).toHaveBeenCalledTimes(2)
+    expect(stores.task.fetchTasks).not.toHaveBeenCalled()
+    expect(stores.agent.fetchAgents).toHaveBeenCalledTimes(2)
 
     completeProjectA?.()
     await Promise.all([projectARefresh, returningToProjectA])

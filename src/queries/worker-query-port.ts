@@ -10,6 +10,8 @@ import type {
   SessionRecoverySnapshot,
   TaskListItem,
   TaskListQuery,
+  TaskPage,
+  TaskPageQuery,
 } from '../ports/query-port.js'
 import type { MessageRow, SessionEventRow, SessionListRow } from '../store/sessions.js'
 import type {
@@ -107,6 +109,9 @@ export async function createWorkerQueryPort(
   return {
     listTasks(input: TaskListQuery): Promise<TaskListItem[]> {
       return request('tasks.list', input, input)
+    },
+    listTaskPage(input: TaskPageQuery): Promise<TaskPage> {
+      return request('tasks.page', input, input)
     },
     listSessions(input: SessionListQuery): Promise<SessionListRow[]> {
       return request('sessions.list', {

@@ -6,6 +6,32 @@ import {
 } from '../../ui/src/services/query-client.ts'
 
 describe('HTTP query client', () => {
+  test('encodes and parses a task page with totals', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
+      data: [{ id: 'task-a', title: 'Task A' }],
+      page: { hasMore: true, nextCursor: 'task-a', total: 51 },
+    }))
+    const client = createHttpQueryClient({ fetchImpl, getAccessToken: () => '' })
+
+    const page = await client.listTaskPage({
+      projectId: 'project-a',
+      createdBefore: '2026-08-26T00:00:00.000Z',
+      excludeTerminal: true,
+      limit: 50,
+      cursor: 'task-before',
+    })
+
+    expect(page).toEqual({
+      items: [{ id: 'task-a', title: 'Task A' }],
+      hasMore: true,
+      nextCursor: 'task-a',
+      total: 51,
+    })
+    expect(fetchImpl.mock.calls[0][0]).toBe(
+      '/api/v1/tasks/page?projectId=project-a&createdBefore=2026-08-26T00%3A00%3A00.000Z&excludeTerminal=true&limit=50&cursor=task-before',
+    )
+  })
+
   test('encodes task filters and sends the local access token in a header', async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
       data: [{ id: 'task-a', title: 'Task A' }],
@@ -121,6 +147,26 @@ describe('HTTP query client', () => {
 })
 
 describe('WS rollback query client', () => {
+  test('passes task page filters through the WS transport', async () => {
+    const request = vi.fn(async (): Promise<unknown> => ({
+      items: [{ id: 'task-a' }],
+      hasMore: false,
+      nextCursor: null,
+      total: 1,
+    }))
+    const client = createWsQueryClient(request)
+
+    const page = await client.listTaskPage({ projectId: 'project-a', createdFrom: 'today', limit: 50 })
+
+    expect(request).toHaveBeenCalledWith({
+      type: 'tasks.page',
+      projectId: 'project-a',
+      createdFrom: 'today',
+      limit: 50,
+    })
+    expect(page).toMatchObject({ total: 1, items: [{ id: 'task-a' }] })
+  })
+
   test('drops interaction events from turns completed before the recovery boundary', async () => {
     const request = vi.fn(async (): Promise<unknown> => [
       { id: 'permission-old', type: 'permission.request', sequence: 1 },
