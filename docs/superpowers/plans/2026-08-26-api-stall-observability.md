@@ -60,4 +60,4 @@
 - [x] Run `npm run lint`.
 - [x] Run `npm run build`.
 - [x] Run `git diff --check` and inspect the complete diff for secrets, noisy payload logs, and unrelated changes.
-- [ ] Commit the feature branch and merge it into `prd` without restarting the running PRD service.
+- [x] Commit the feature branch and merge it into `prd` without restarting the running PRD service.
