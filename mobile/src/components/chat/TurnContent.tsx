@@ -1,5 +1,5 @@
 import { memo, useState, useMemo, type CSSProperties } from 'react'
-import ReactMarkdown from 'react-markdown'
+import ReactMarkdown, { defaultUrlTransform } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { ChevronDown, ChevronRight, Clock, DollarSign } from 'lucide-react'
 import {
@@ -17,6 +17,13 @@ import FileChangesCard, { extractFileChangesFromBlocks } from './FileChangesCard
 import { CodeView } from '../file-viewer/CodeView'
 import { isPreviewPublishTool, parsePreviewPublishOutput } from '../../utils/preview-tool'
 import { FilesPresentationCard } from './FilesPresentationCard'
+import { ChatResourceLink } from '@desktop/components/ChatResourceLink'
+import {
+  decodeChatResourceHref,
+  encodeChatResourceHref,
+  isChatResourceReference,
+  type OpenChatResource,
+} from '@desktop/services/chat-resource-links'
 
 interface Props {
   message?: MessageData
@@ -26,6 +33,7 @@ interface Props {
   onLoadProcess?: (sessionId: string, messageId: string) => void
   onOpenPreview?: (previewId: string, target: 'pc' | 'app') => void
   onOpenFiles?: (presentation: FilesPresentationInfo) => void
+  onOpenResource?: OpenChatResource
   liveElapsedSeconds?: number
 }
 
@@ -57,7 +65,7 @@ export function deriveTurnElapsedSeconds(input: {
       : elapsedSecondsBetween(input.message?.started_at, input.message?.completed_at))
 }
 
-export default memo(function TurnContent({ message, streaming, processLoading = false, processError, onLoadProcess, onOpenPreview, onOpenFiles, liveElapsedSeconds }: Props) {
+export default memo(function TurnContent({ message, streaming, processLoading = false, processError, onLoadProcess, onOpenPreview, onOpenFiles, onOpenResource, liveElapsedSeconds }: Props) {
   const [processOpenOverride, setProcessOpenOverride] = useState<ProcessOpenOverride>(null)
 
   const processBlocks = streaming?.processBlocks ?? message?.processBlocks ?? []
@@ -139,7 +147,16 @@ export default memo(function TurnContent({ message, streaming, processLoading = 
         <div style={styles.markdownWrap}>
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
+            urlTransform={(url, key) => key === 'href' && onOpenResource && isChatResourceReference(url)
+              ? encodeChatResourceHref(url)
+              : defaultUrlTransform(url)}
             components={{
+              a: ({ href, children }) => {
+                const reference = decodeChatResourceHref(href)
+                return reference && onOpenResource
+                  ? <ChatResourceLink reference={reference} onOpen={onOpenResource}>{children}</ChatResourceLink>
+                  : <a href={href || '#'} target="_blank" rel="noreferrer">{children}</a>
+              },
               code({ className, children, ...props }) {
                 const text = String(children ?? '')
                 const match = /language-(\w+)/.exec(className || '')

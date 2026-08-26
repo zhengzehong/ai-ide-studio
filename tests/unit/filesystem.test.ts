@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { pathToFileURL } from 'node:url'
 import { resolve } from 'node:path'
-import { inspectFile, readFile, resolveFileReference } from '../../src/core/filesystem.js'
+import { inspectFile, inspectFileReference, listDirectory, readFile, resolveFileReference } from '../../src/core/filesystem.js'
 import { parseByteRange } from '../../src/core/file-byte-range.js'
 
 let tmp: string
@@ -103,6 +103,37 @@ describe('filesystem readFile', () => {
     } finally {
       rmSync(outside, { force: true })
     }
+  })
+
+  test('inspects files and directories from chat references', () => {
+    const workspace = resolve(tmp, 'workspace')
+    const external = resolve(tmp, 'external')
+    mkdirSync(resolve(workspace, 'docs'), { recursive: true })
+    mkdirSync(external, { recursive: true })
+    writeFileSync(resolve(workspace, 'docs', 'guide.md'), '# Guide')
+    writeFileSync(resolve(external, 'outside.txt'), 'outside')
+
+    expect(inspectFileReference(workspace, 'docs/guide.md')).toMatchObject({
+      path: 'docs/guide.md', name: 'guide.md', kind: 'file', absolute: false,
+    })
+    expect(inspectFileReference(workspace, external)).toMatchObject({
+      path: external, name: 'external', kind: 'directory', absolute: true,
+    })
+    expect(inspectFileReference(workspace, 'missing.md')).toBeNull()
+  })
+
+  test('lists an absolute directory with absolute child paths', () => {
+    const workspace = resolve(tmp, 'workspace')
+    const external = resolve(tmp, 'external')
+    mkdirSync(workspace)
+    mkdirSync(resolve(external, 'nested'), { recursive: true })
+    writeFileSync(resolve(external, 'readme.md'), '# External')
+
+    const entries = listDirectory(workspace, external)
+    expect(entries).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'nested', path: resolve(external, 'nested'), type: 'directory' }),
+      expect.objectContaining({ name: 'readme.md', path: resolve(external, 'readme.md'), type: 'file' }),
+    ]))
   })
 
   test('parses single HTTP byte ranges', () => {

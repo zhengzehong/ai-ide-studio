@@ -72,6 +72,7 @@ import { useModelStore } from '../stores/model.store'
 import { useFileSystemStore } from '../stores/filesystem.store'
 import { useTeamStore } from '../stores/team.store'
 import { wsClient } from '../services/ws-client'
+import { resolveChatResource, type OpenChatResource } from '../services/chat-resource-links'
 import { FileTree } from '../components/file-viewer/FileTree'
 import { LazyToolCallsBlock } from '../components/chat/LazyToolCallsBlock'
 import { AuthenticatedImage } from '../components/chat/AuthenticatedImage'
@@ -214,9 +215,11 @@ export default function Workspace() {
   const selectProject = useProjectStore((s) => s.selectProject)
   const fileTree = useFileSystemStore((s) => s.tree)
   const openFile = useFileSystemStore((s) => s.openFile)
+  const fileRootPath = useFileSystemStore((s) => s.rootPath)
   const fetchTree = useFileSystemStore((s) => s.fetchTree)
   const expandDir = useFileSystemStore((s) => s.expandDir)
   const openFileByPath = useFileSystemStore((s) => s.openFileByPath)
+  const openDirectoryByPath = useFileSystemStore((s) => s.openDirectoryByPath)
   const closeFile = useFileSystemStore((s) => s.closeFile)
 
   const { sidebarTab, selectedAgentId, setSidebarTab, setSelectedAgentId } =
@@ -226,8 +229,8 @@ export default function Workspace() {
   const [draggedOrderItem, setDraggedOrderItem] = useState<{ type: 'agent' | 'session'; id: string; agentId?: string } | null>(null)
 
   useEffect(() => {
-    if (currentProjectId && sidebarTab === 'files') fetchTree(currentProjectId)
-  }, [currentProjectId, sidebarTab, fetchTree])
+    if (currentProjectId && sidebarTab === 'files' && !fileRootPath) fetchTree(currentProjectId)
+  }, [currentProjectId, fileRootPath, sidebarTab, fetchTree])
   const [showNewTask, setShowNewTask] = useState(false)
   const [copyingSessionId, setCopyingSessionId] = useState<string | null>(null)
 
@@ -237,6 +240,15 @@ export default function Workspace() {
   const [importDialogAgentId, setImportDialogAgentId] = useState<string | null>(null)
   const [renameDialog, setRenameDialog] = useState<{ sessionId: string; currentTitle: string } | null>(null)
   const [confirmDialog, setConfirmDialog] = useState<{ title: string; message: string; danger?: boolean; onConfirm: () => void } | null>(null)
+
+  const openChatResource = useCallback<OpenChatResource>(async (reference) => {
+    if (!currentProjectId) throw new Error('当前会话未绑定项目')
+    const resource = await resolveChatResource(currentProjectId, reference)
+    if (resource.kind === 'directory') await openDirectoryByPath(currentProjectId, resource.path)
+    else await openFileByPath(currentProjectId, resource.path)
+    setSidebarTab('files')
+    return resource
+  }, [currentProjectId, openDirectoryByPath, openFileByPath, setSidebarTab])
   const [alertMsg, setAlertMsg] = useState<string | null>(null)
   const [pickerAgentId, setPickerAgentId] = useState<string | null>(null)
   const [publishSessionId, setPublishSessionId] = useState<string | null>(null)
@@ -1081,6 +1093,23 @@ export default function Workspace() {
           </>
         ) : (
           <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0', minHeight: 0 }}>
+            {currentProjectId && fileRootPath && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '6px 8px 10px', marginBottom: 4, borderBottom: '1px solid var(--border)' }}>
+                <FolderOpen size={15} style={{ color: 'var(--blue)', flexShrink: 0 }} />
+                <span title={fileRootPath} style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, color: 'var(--text-2)' }}>
+                  {fileRootPath}
+                </span>
+                <button
+                  type="button"
+                  title="返回项目根目录"
+                  aria-label="返回项目根目录"
+                  onClick={() => void fetchTree(currentProjectId, { force: true })}
+                  style={{ width: 26, height: 26, display: 'grid', placeItems: 'center', border: 'none', background: 'transparent', color: 'var(--text-3)', cursor: 'pointer' }}
+                >
+                  <X size={15} />
+                </button>
+              </div>
+            )}
             {!currentProjectId ? (
               <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-3)', fontSize: 15 }}>
                 <FolderOpen size={32} style={{ marginBottom: 8, opacity: 0.3 }} />
@@ -1145,6 +1174,7 @@ export default function Workspace() {
             currentSessionTitle={currentSessionId ? sessionTitle(currentSession ?? { id: currentSessionId }) : undefined}
             currentSessionCopying={currentSessionCopying}
             inspirationNoteId={inspirationNoteId}
+            onOpenResource={openChatResource}
           />
         )}
       />
@@ -1472,6 +1502,7 @@ function WorkspaceChatPane({
   currentSessionTitle,
   currentSessionCopying,
   inspirationNoteId,
+  onOpenResource,
 }: {
   connected: boolean
   projectId: string | null
@@ -1481,6 +1512,7 @@ function WorkspaceChatPane({
   currentSessionTitle?: string
   currentSessionCopying: boolean
   inspirationNoteId?: string
+  onOpenResource: OpenChatResource
 }) {
   const messages = useSessionStore((s) => s.messages)
   const messagesLoadingSessionId = useSessionStore((s) => s.messagesLoadingSessionId)
@@ -2036,9 +2068,9 @@ function WorkspaceChatPane({
 
   const renderChatItem = useCallback(
     (item: ChatRenderItem<ChatMsg>) => {
-      if (item.kind === 'group') return <MemoChatBubble group={item.group} agent={chatAgent} isStreaming={false} onOpenPreview={openPreview} onOpenFiles={openFiles} />
+      if (item.kind === 'group') return <MemoChatBubble group={item.group} agent={chatAgent} isStreaming={false} onOpenPreview={openPreview} onOpenFiles={openFiles} onOpenResource={onOpenResource} />
       if (item.kind === 'streaming') {
-        return <MemoChatBubble message={item.message} agent={chatAgent} isStreaming footer={interactionPanel} liveElapsedSeconds={liveElapsedSeconds} onOpenPreview={openPreview} onOpenFiles={openFiles} />
+        return <MemoChatBubble message={item.message} agent={chatAgent} isStreaming footer={interactionPanel} liveElapsedSeconds={liveElapsedSeconds} onOpenPreview={openPreview} onOpenFiles={openFiles} onOpenResource={onOpenResource} />
       }
       if (item.kind === 'blocking') return <BlockingInteractionBar agent={chatAgent} panel={interactionPanel} />
       return (
@@ -2058,10 +2090,11 @@ function WorkspaceChatPane({
           turnProcessErrorByMessageId={turnProcessErrorByMessageId}
           onOpenPreview={openPreview}
           onOpenFiles={openFiles}
+          onOpenResource={onOpenResource}
         />
       )
     },
-    [chatAgent, fetchMessageFileChanges, fetchMessageProcess, fetchProcessItemDetail, fileChangeDetailsByMessageId, interactionPanel, liveElapsedSeconds, openFiles, openPreview, processItemErrorByKey, processItemLoadingByKey, toolCallErrorByKey, toolCallLoadingByKey, turnProcessErrorByMessageId, turnProcessLoadingByMessageId],
+    [chatAgent, fetchMessageFileChanges, fetchMessageProcess, fetchProcessItemDetail, fileChangeDetailsByMessageId, interactionPanel, liveElapsedSeconds, onOpenResource, openFiles, openPreview, processItemErrorByKey, processItemLoadingByKey, toolCallErrorByKey, toolCallLoadingByKey, turnProcessErrorByMessageId, turnProcessLoadingByMessageId],
   )
 
   return (
@@ -3784,6 +3817,7 @@ function ChatBubble({
   turnProcessErrorByMessageId = {},
   onOpenPreview,
   onOpenFiles,
+  onOpenResource,
 }: {
   message?: ChatMsg
   group?: ChatTimelineGroup
@@ -3809,6 +3843,7 @@ function ChatBubble({
     taskId?: string | null
   }) => void
   onOpenFiles?: (presentation: FilesPresentationInfo) => void
+  onOpenResource?: OpenChatResource
 }) {
   const normalizedMessage: ChatBubbleInput = group || message || { id: 'empty', role: 'system', content: '' }
   const isTimelineGroup = 'blocks' in normalizedMessage
@@ -3936,6 +3971,7 @@ function ChatBubble({
                 filesPresentations={filesPresentations}
                 onLoadProcess={loadTurnProcess}
                 onLoadFileChanges={loadFileChanges}
+                onOpenResource={onOpenResource}
                 renderProcessBlock={(block) => {
                   const processItemKey = !isTimelineGroup ? `${normalizedMessage.id}:${block.id}` : ''
                   const loadDetail = !isTimelineGroup && normalizedMessage.session_id
@@ -3967,6 +4003,7 @@ function ChatBubble({
                   block={block}
                   isLast={index === visibleBlocks.length - 1}
                   isStreaming={isStreaming}
+                  onOpenResource={onOpenResource}
                 />
               ))}
             {footer && <div style={{ marginTop: 10 }}>{footer}</div>}
@@ -4307,10 +4344,12 @@ function ChatBubbleBlockView({
   block,
   isLast,
   isStreaming,
+  onOpenResource,
 }: {
   block: ChatBubbleBlock
   isLast: boolean
   isStreaming: boolean
+  onOpenResource?: OpenChatResource
 }) {
   let content = ''
   let thinking: string | null | undefined = null
@@ -4416,7 +4455,7 @@ function ChatBubbleBlockView({
           count={block.tool_call_count}
         />
       )}
-      {content && <MarkdownRenderer content={content || ''} />}
+      {content && <MarkdownRenderer content={content || ''} onOpenResource={onOpenResource} />}
     </div>
   )
 }

@@ -52,3 +52,39 @@ describe('fs.assetUrl RPC', () => {
       })).rejects.toThrow('无权访问项目文件')
   })
 })
+
+describe('fs.resolveReference RPC', () => {
+  test('resolves owner file and directory references and rejects guests', async () => {
+    const workspace = resolve(tmp, 'workspace')
+    const external = resolve(tmp, 'external')
+    mkdirSync(workspace, { recursive: true })
+    mkdirSync(external, { recursive: true })
+    writeFileSync(resolve(workspace, 'report.md'), '# Report')
+    const project = projectStore.create({ name: 'References', workDir: workspace })
+    const handler = filesystemRpcHandlers['fs.resolveReference']
+    let result: unknown
+
+    await handler({ type: 'fs.resolveReference', projectId: project.id, reference: 'report.md' }, {
+      state: { authMode: 'owner', subscriptions: new Set() },
+      sendResult: (value) => { result = value },
+      sendError: () => undefined,
+      sendOutOfBandError: () => undefined,
+    })
+    expect(result).toMatchObject({ path: 'report.md', kind: 'file', absolute: false })
+
+    await handler({ type: 'fs.resolveReference', projectId: project.id, reference: external }, {
+      state: { authMode: 'owner', subscriptions: new Set() },
+      sendResult: (value) => { result = value },
+      sendError: () => undefined,
+      sendOutOfBandError: () => undefined,
+    })
+    expect(result).toMatchObject({ path: external, kind: 'directory', absolute: true })
+
+    await expect(async () => handler({ type: 'fs.resolveReference', projectId: project.id, reference: 'report.md' }, {
+      state: { authMode: 'guest', subscriptions: new Set() },
+      sendResult: () => undefined,
+      sendError: () => undefined,
+      sendOutOfBandError: () => undefined,
+    })).rejects.toThrow('无权访问项目文件')
+  })
+})

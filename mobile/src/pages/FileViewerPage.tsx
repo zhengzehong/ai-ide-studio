@@ -8,6 +8,8 @@ import { FileDetail } from '../components/file-viewer/FileDetail'
 interface LocationState {
   projectId?: string | null
   sessionId?: string
+  rootPath?: string
+  filePath?: string
 }
 
 export default function FileViewerPage() {
@@ -28,8 +30,14 @@ export default function FileViewerPage() {
 
   useEffect(() => {
     if (!projectId) return
-    initTree(projectId)
-  }, [projectId, initTree])
+    let active = true
+    void initTree(projectId, state.rootPath).then(async () => {
+      if (!active || !state.filePath) return
+      setSelectedPath(state.filePath)
+      await openFileByPath(state.filePath)
+    })
+    return () => { active = false }
+  }, [projectId, state.filePath, state.rootPath, initTree, openFileByPath])
 
   useEffect(() => {
     return () => {
@@ -88,7 +96,7 @@ export default function FileViewerPage() {
             <ArrowLeft size={20} />
           </button>
           <Folder size={16} style={{ color: 'var(--primary)', flexShrink: 0 }} />
-          <span style={styles.headerTitle}>文件</span>
+          <span style={styles.headerTitle} title={state.rootPath || undefined}>{state.rootPath || '文件'}</span>
         </div>
 
         <div ref={listScrollRef} style={styles.listBody}>
@@ -192,9 +200,14 @@ const styles: Record<string, CSSProperties> = {
     flexShrink: 0,
   },
   headerTitle: {
+    flex: 1,
+    minWidth: 0,
     fontSize: 16,
     fontWeight: 600,
     color: 'var(--text-primary)',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
   },
   listBody: {
     flex: 1,

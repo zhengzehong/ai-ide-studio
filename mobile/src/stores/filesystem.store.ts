@@ -24,13 +24,14 @@ export interface FileContent {
 
 interface FileSystemState {
   projectId: string | null
+  rootPath: string | null
   tree: FileEntry[]
   openFile: FileContent | null
   loading: boolean
   loadingFile: boolean
   error: string | null
 
-  initTree: (projectId: string) => Promise<void>
+  initTree: (projectId: string, rootPath?: string) => Promise<void>
   expandDir: (dirPath: string) => Promise<void>
   openFileByPath: (filePath: string) => Promise<void>
   closeFile: () => void
@@ -51,17 +52,23 @@ function mergeChildren(tree: FileEntry[], dirPath: string, children: FileEntry[]
 
 export const useFileSystemStore = create<FileSystemState>((set, get) => ({
   projectId: null,
+  rootPath: null,
   tree: [],
   openFile: null,
   loading: false,
   loadingFile: false,
   error: null,
 
-  initTree: async (projectId) => {
-    if (get().projectId === projectId && get().tree.length > 0) return
-    set({ projectId, loading: true, error: null, tree: [], openFile: null })
+  initTree: async (projectId, rootPath) => {
+    const normalizedRoot = rootPath || null
+    if (get().projectId === projectId && get().rootPath === normalizedRoot && get().tree.length > 0) return
+    set({ projectId, rootPath: normalizedRoot, loading: true, error: null, tree: [], openFile: null })
     try {
-      const data = (await wsClient.request({ type: 'fs.list', projectId })) as FileEntry[]
+      const data = (await wsClient.request({
+        type: 'fs.list',
+        projectId,
+        ...(rootPath ? { dirPath: rootPath } : {}),
+      })) as FileEntry[]
       set({ tree: data, loading: false })
     } catch (err) {
       set({ loading: false, error: err instanceof Error ? err.message : '加载目录失败' })
@@ -101,5 +108,5 @@ export const useFileSystemStore = create<FileSystemState>((set, get) => ({
 
   closeFile: () => set({ openFile: null, error: null }),
 
-  reset: () => set({ projectId: null, tree: [], openFile: null, loading: false, loadingFile: false, error: null }),
+  reset: () => set({ projectId: null, rootPath: null, tree: [], openFile: null, loading: false, loadingFile: false, error: null }),
 }))
