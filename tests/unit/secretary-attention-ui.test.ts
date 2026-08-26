@@ -17,12 +17,11 @@ describe('secretary attention UI', () => {
     expect(totalSecretaryAttention([secretary, { unreadCount: 0, chatUnread: false }])).toBe(3)
   })
 
-  test('shows reachable secretary attention on PC and APP navigation', () => {
+  test('keeps secretary attention on PC while APP uses four primary tabs', () => {
     const pc = readFileSync(resolve('ui/src/components/layout/AppLayout.tsx'), 'utf8')
     const app = readFileSync(resolve('mobile/src/components/MobileShell.tsx'), 'utf8')
     expect(pc).toContain('totalSecretaryAttention(secretaries)')
     expect(pc).toContain('条秘书提醒')
-    expect(app).toContain('totalSecretaryAttention(secretaries)')
-    expect(app).toContain('条秘书提醒')
+    expect(app).not.toContain("label: '秘书'")
   })
 })

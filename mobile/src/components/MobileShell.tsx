@@ -1,16 +1,11 @@
-import { useEffect } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { Mail, MessageSquare, ListTodo, Pin, Settings } from 'lucide-react'
+import { Activity, MessageSquare, ListTodo, Settings } from 'lucide-react'
 import type { CSSProperties } from 'react'
 import { useConnectionStore } from '../stores/connection.store'
-import { usePinnedSessionStore } from '../stores/pinned-session.store'
-import { useAppStore } from '../stores/app.store'
-import { useMobileSecretaryStore } from '../stores/secretary.store'
-import { totalSecretaryAttention } from '@desktop/stores/secretary-attention'
+import { useMobileActivityStore } from '../stores/activity.store'
 
 const tabs = [
-  { path: '/secretary', label: '秘书', icon: Mail },
-  { path: '/pinned', label: '置顶', icon: Pin },
+  { path: '/activity', label: '动态', icon: Activity },
   { path: '/', label: '会话', icon: MessageSquare },
   { path: '/tasks', label: '任务', icon: ListTodo },
   { path: '/settings', label: '设置', icon: Settings },
@@ -20,21 +15,9 @@ export default function MobileShell() {
   const location = useLocation()
   const navigate = useNavigate()
   const connected = useConnectionStore((s) => s.connected)
-  const currentProjectId = useAppStore((s) => s.currentProjectId)
-  const pinnedItems = usePinnedSessionStore((s) => s.items)
-  const secretaryProjectId = useMobileSecretaryStore((s) => s.projectId)
-  const secretaries = useMobileSecretaryStore((s) => s.secretaries)
-  const loadSecretaries = useMobileSecretaryStore((s) => s.load)
-  const setupSecretaryListeners = useMobileSecretaryStore((s) => s.setupListeners)
-  const pinnedAttention = pinnedItems.some((item) => item.unread || item.activityState === 'running')
-  const secretaryAttention = currentProjectId && secretaryProjectId === currentProjectId
-    ? totalSecretaryAttention(secretaries)
-    : 0
-
-  useEffect(() => {
-    if (currentProjectId) void loadSecretaries(currentProjectId)
-  }, [currentProjectId, loadSecretaries])
-  useEffect(() => setupSecretaryListeners(), [setupSecretaryListeners])
+  const activityCount = useMobileActivityStore((state) => (
+    state.groups.reduce((total, group) => total + group.sessions.length, 0)
+  ))
 
   return (
     <div style={styles.container}>
@@ -44,9 +27,7 @@ export default function MobileShell() {
 
       <div style={styles.tabBar}>
         {tabs.map((tab) => {
-          const active = tab.path === '/secretary'
-            ? location.pathname.startsWith('/secretary')
-            : location.pathname === tab.path
+          const active = location.pathname === tab.path
           const Icon = tab.icon
           return (
             <button
@@ -57,10 +38,9 @@ export default function MobileShell() {
               <Icon size={22} strokeWidth={active ? 2.2 : 1.8} />
               <span style={{ position: 'relative', fontSize: 11, marginTop: 2 }}>
                 {tab.label}
-                {tab.path === '/secretary' && secretaryAttention > 0 && (
-                  <span style={styles.secretaryBadge} aria-label={`${secretaryAttention} 条秘书提醒`}>{secretaryAttention > 9 ? '9+' : secretaryAttention}</span>
+                {tab.path === '/activity' && activityCount > 0 && (
+                  <span style={styles.activityBadge} aria-label={`${activityCount} 个会话动态`}>{activityCount > 9 ? '9+' : activityCount}</span>
                 )}
-                {tab.path === '/pinned' && pinnedAttention && <span style={styles.pinnedBadge} />}
               </span>
             </button>
           )
@@ -111,16 +91,7 @@ const styles: Record<string, CSSProperties> = {
     height: 6,
     borderRadius: '50%',
   },
-  pinnedBadge: {
-    position: 'absolute',
-    top: -2,
-    right: -9,
-    width: 5,
-    height: 5,
-    borderRadius: '50%',
-    background: '#fa5151',
-  },
-  secretaryBadge: {
+  activityBadge: {
     position: 'absolute',
     top: -8,
     right: -15,

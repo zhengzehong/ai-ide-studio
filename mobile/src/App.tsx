@@ -18,10 +18,11 @@ import TaskReportPage from './pages/TaskReportPage'
 import SettingsPage from './pages/SettingsPage'
 import TemplateListPage from './pages/TemplateListPage'
 import PreviewPage from './pages/PreviewPage'
-import { PinnedSessionsPage } from './pages/PinnedSessionsPage'
 import SecretaryPage from './pages/SecretaryPage'
 import { usePinnedSessionStore } from './stores/pinned-session.store'
 import { useVoiceStore } from './stores/voice.store'
+import { ActivityPage } from './pages/ActivityPage'
+import { useMobileActivityStore } from './stores/activity.store'
 
 const isAndroidBuild = import.meta.env.VITE_MOBILE_BUILD_TARGET === 'android'
 
@@ -40,6 +41,7 @@ export async function bootstrapMobileData(): Promise<void> {
     appStore.fetchAgents(),
     useMobileProjectSessionStatsStore.getState().fetchStats(),
     usePinnedSessionStore.getState().load({ silent: true }),
+    useMobileActivityStore.getState().load({ silent: true }),
   ])
   await useSessionStore.getState().fetchSessions(useAppStore.getState().currentProjectId)
 }
@@ -55,6 +57,7 @@ export default function App() {
     const off1 = useSessionStore.getState().setupListeners()
     const off2 = useMobileProjectSessionStatsStore.getState().setupListeners()
     const offPinned = usePinnedSessionStore.getState().setupListeners()
+    const offActivity = useMobileActivityStore.getState().setupListeners()
     const offVoice = useVoiceStore.getState().setupListeners()
     const off3 = wsClient.on('resync_required', (message) => {
       const chatStore = useChatStore.getState()
@@ -73,6 +76,7 @@ export default function App() {
       off1()
       off2()
       offPinned()
+      offActivity()
       offVoice()
       off3()
     }
@@ -107,7 +111,8 @@ export default function App() {
         <Route element={<MobileShell />}>
           <Route path="/secretary" element={<SecretaryPage />} />
           <Route path="/secretary/:secretaryId/:threadId" element={<SecretaryPage />} />
-          <Route path="/pinned" element={<PinnedSessionsPage />} />
+          <Route path="/activity" element={<ActivityPage />} />
+          <Route path="/pinned" element={<Navigate to="/?view=pinned" replace />} />
           <Route path="/" element={<SessionListPage />} />
           <Route path="/tasks" element={<TaskListPage />} />
           <Route path="/settings" element={<SettingsPage />} />

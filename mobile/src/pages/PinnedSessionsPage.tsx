@@ -1,7 +1,8 @@
-import { ArrowDown, ArrowUp, Loader2, Pin, PinOff, RefreshCw } from 'lucide-react'
+import { ArrowDown, ArrowUp, Loader2, Pin, PinOff } from 'lucide-react'
 import { useEffect, type CSSProperties } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { usePinnedSessionStore, type MobilePinnedSession } from '../stores/pinned-session.store'
+import { pinnedSessionsPath } from './session-view-mode'
 
 function formatTime(value: string): string {
   const timestamp = Date.parse(value)
@@ -18,6 +19,23 @@ function titleOf(item: MobilePinnedSession): string {
 }
 
 export function PinnedSessionsPage() {
+  return (
+    <div style={styles.page}>
+      <header style={styles.header}>
+        <div style={styles.heading}>
+          <Pin size={19} color="var(--primary)" />
+          <div>
+            <div style={styles.title}>置顶会话</div>
+            <div style={styles.subtitle}>跨项目持续关注</div>
+          </div>
+        </div>
+      </header>
+      <PinnedSessionList />
+    </div>
+  )
+}
+
+export function PinnedSessionList() {
   const navigate = useNavigate()
   const items = usePinnedSessionStore((state) => state.items)
   const loading = usePinnedSessionStore((state) => state.loading)
@@ -36,7 +54,7 @@ export function PinnedSessionsPage() {
 
   const openSession = (item: MobilePinnedSession): void => {
     if (item.unread) void markRead(item.sessionId)
-    navigate(`/chat/${item.sessionId}`, { state: { returnTo: '/pinned' } })
+    navigate(`/chat/${item.sessionId}`, { state: { returnTo: pinnedSessionsPath } })
   }
 
   const move = (index: number, direction: -1 | 1): void => {
@@ -50,19 +68,7 @@ export function PinnedSessionsPage() {
   }
 
   return (
-    <div style={styles.page}>
-      <header style={styles.header}>
-        <div style={styles.heading}>
-          <Pin size={19} color="var(--primary)" />
-          <div>
-            <div style={styles.title}>置顶会话</div>
-            <div style={styles.subtitle}>{items.length} 个会话，跨项目持续关注</div>
-          </div>
-        </div>
-        <button type="button" style={styles.iconButton} onClick={() => { void load() }} aria-label="刷新置顶会话">
-          <RefreshCw size={18} />
-        </button>
-      </header>
+    <div style={styles.embedded}>
       {error && <div style={styles.error}>{error}</div>}
       <div style={styles.list}>
         {loading && items.length === 0 ? (
@@ -72,7 +78,6 @@ export function PinnedSessionsPage() {
             <Pin size={38} color="#b2b2b2" strokeWidth={1.3} />
             <strong style={styles.emptyTitle}>还没有置顶会话</strong>
             <span>在“会话”页长按任意会话即可置顶</span>
-            <button type="button" style={styles.gotoButton} onClick={() => navigate('/')}>去会话页</button>
           </div>
         ) : (
           items.map((item, index) => (
@@ -135,16 +140,15 @@ export function PinnedSessionRow({
 
 const styles: Record<string, CSSProperties> = {
   page: { height: '100%', display: 'flex', flexDirection: 'column', background: '#ededed' },
+  embedded: { minHeight: 0, flex: 1, display: 'flex', flexDirection: 'column', background: '#ededed' },
   header: { height: 58, padding: 'calc(8px + var(--safe-top)) 14px 8px', boxSizing: 'content-box', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#f7f7f7', borderBottom: '0.5px solid #e0e0e0' },
   heading: { display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 },
   title: { fontSize: 17, fontWeight: 600, color: '#191919' },
   subtitle: { marginTop: 2, fontSize: 11, color: '#999' },
-  iconButton: { width: 34, height: 34, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', border: 'none', borderRadius: 6, background: 'transparent', color: '#595959' },
   error: { margin: 8, padding: '8px 10px', borderRadius: 6, background: '#fff1f0', color: '#d4380d', fontSize: 12 },
   list: { flex: 1, overflowY: 'auto', background: '#ededed' },
   empty: { height: '60%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 9, color: '#999', fontSize: 13 },
   emptyTitle: { color: '#555', fontSize: 15 },
-  gotoButton: { marginTop: 4, padding: '7px 12px', border: 'none', borderRadius: 6, background: '#07c160', color: '#fff', fontSize: 13 },
   row: { minHeight: 82, padding: '11px 12px', display: 'flex', alignItems: 'center', gap: 9, background: '#fff', borderBottom: '0.5px solid #f0f0f0', cursor: 'pointer' },
   projectMark: { width: 32, height: 32, borderRadius: 7, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: '#fff', fontSize: 14 },
   rowMain: { minWidth: 0, flex: 1 },

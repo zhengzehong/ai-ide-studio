@@ -37,7 +37,7 @@ export function resolveAndroidBackAction(pathname: string, serverUrl: string, re
     return { type: 'navigate', to: '/tasks' }
   }
   if (pathname.startsWith('/chat/')) {
-    return { type: 'navigate', to: returnTo === '/pinned' ? '/pinned' : '/' }
+    return { type: 'navigate', to: isChatReturnPath(returnTo) ? returnTo : '/' }
   }
   if (pathname.startsWith('/task/') || pathname.startsWith('/preview/') || pathname === '/tasks' || pathname === '/settings') {
     return { type: 'navigate', to: '/' }
@@ -112,5 +112,9 @@ export default function AndroidBackHandler() {
 function readReturnTo(state: unknown): string | undefined {
   if (!state || typeof state !== 'object') return undefined
   const returnTo = (state as { returnTo?: unknown }).returnTo
-  return returnTo === '/pinned' ? returnTo : undefined
+  return typeof returnTo === 'string' && isChatReturnPath(returnTo) ? returnTo : undefined
+}
+
+function isChatReturnPath(value: string | undefined): value is '/activity' | '/?view=pinned' | '/pinned' | '/secretary' {
+  return value === '/activity' || value === '/?view=pinned' || value === '/pinned' || value === '/secretary'
 }
