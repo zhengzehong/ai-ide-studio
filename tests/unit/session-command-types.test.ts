@@ -17,6 +17,7 @@ describe('session command contract', () => {
       clientMessageId: 'message-1',
       content: 'hello',
       contextProjectId: 'project-1',
+      inspirationNoteId: 'inspiration-1',
       images: [{ data: 'YWJj', mimeType: 'image/png' }],
     })).toEqual({
       commandId: 'cmd-prompt',
@@ -25,6 +26,7 @@ describe('session command contract', () => {
       clientMessageId: 'message-1',
       content: 'hello',
       contextProjectId: 'project-1',
+      inspirationNoteId: 'inspiration-1',
       images: [{ data: 'YWJj', mimeType: 'image/png' }],
     })
 

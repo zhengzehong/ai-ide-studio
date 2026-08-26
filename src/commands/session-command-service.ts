@@ -5,6 +5,7 @@ import { getRuntimePort } from '../runtime/runtime-port-provider.js'
 import type { RuntimeCancelResult } from '../ports/runtime-port.js'
 import { eventStore, sessionStore } from '../store/sessions.js'
 import { projectSecretaryStore } from '../store/project-secretaries.js'
+import { sendInspirationDiscussion } from '../core/project-inspiration-discussion.js'
 import type { SessionCommand } from './session-command-types.js'
 
 const log = createChildLogger('session-command-service')
@@ -19,6 +20,17 @@ export async function executeSessionCommand(
 ): Promise<SessionCommandExecutionResult> {
   switch (command.type) {
     case 'prompt':
+      if (command.inspirationNoteId) {
+        await sendInspirationDiscussion({
+          sessionId: command.sessionId,
+          noteId: command.inspirationNoteId,
+          content: command.content,
+          images: command.images,
+          clientMessageId: command.clientMessageId,
+          contextProjectId: command.contextProjectId,
+        })
+        return { status: 'completed' }
+      }
       await sessionManager.sendPrompt(command.sessionId, command.content, command.images, {
         clientMessageId: command.clientMessageId,
         contextProjectId: command.contextProjectId,

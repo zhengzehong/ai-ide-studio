@@ -15,6 +15,7 @@
 - 已新增 `tool_contexts`、`tool_call_audit` 两张 SQLite 表。
 - 已内置 `core.project.*`、`core.agent.*`、`agent.template.*`、`core.session.*`、`core.task.*`、`team.*`、`event.*` 平台方法。
 - 已内置 `studio.secretary.list/get/create/update/delete`，供普通项目会话管理当前项目秘书。
+- 已内置 `inspiration.note.get` 与 `inspiration.analysis.publish`，但仅项目当前长期灵感 Session 可见；前者按项目读取指定 Note，后者只暂存当前内部整理/修订轮次的结构化结果，普通 Agent Session 不会收到这两个方法。
 - 已内置 `core.kb.list/read/upsert/delete` 四个最小知识库方法；知识库管理、shared 库挂载和活动历史继续由 PC Web RPC 负责。
 - 已内置 `agent_hub.*` A2A Hub 方法(`agent_hub.connect` / `agent_hub.disconnect` / `agent_hub.list` / `agent_hub.send`),让 Agent 跨机器互相调用,详见 `docs/architecture/overview.md` A2A Hub 章节。
 - `team.*` 仍作为内置方法注册并保留绑定/Profile 数据，但当前 Agent 暴露策略会统一过滤这些方法，Claude Code 与 Codex 均不可见。

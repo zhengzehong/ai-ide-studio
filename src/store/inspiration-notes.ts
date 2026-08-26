@@ -1,6 +1,14 @@
 import { randomUUID } from 'node:crypto'
 import type { InspirationTitleMode } from '../shared/inspiration-title.js'
 import { getDb } from './db.js'
+import {
+  inspirationCandidateStore,
+  type CreateCandidateInput,
+  type InspirationCandidateRow,
+} from './inspiration-candidates.js'
+
+export { inspirationCandidateStore } from './inspiration-candidates.js'
+export type { CreateCandidateInput, InspirationCandidateRow } from './inspiration-candidates.js'
 
 export type InspirationNoteStatus = 'draft' | 'queued' | 'processing' | 'ready' | 'needs_input' | 'failed'
 export type { InspirationTitleMode } from '../shared/inspiration-title.js'
@@ -22,29 +30,16 @@ export interface InspirationNoteRow {
   updated_at: string
   organized_at: string | null
   analysis_attempt_id: string | null
+  analysis_attempt_kind: 'organize' | 'discussion' | null
+  analysis_draft_json: string | null
 }
 
-export interface InspirationCandidateRow {
-  id: string
-  note_id: string
-  analysis_revision: number
-  sort_order: number
-  title: string
-  description_markdown: string
-  suggested_agent_id: string | null
-  agent_reason: string
-  dispatch_token: string | null
-  task_id: string | null
-  execution_session_id: string | null
-  created_at: string
-  updated_at: string
-}
-
-export interface CreateCandidateInput {
-  title: string
-  descriptionMarkdown: string
-  suggestedAgentId?: string | null
-  agentReason?: string
+interface InspirationAnalysisDraft {
+  expectedRevision: number
+  summary?: string
+  bodyMarkdown?: string
+  questions?: string[]
+  candidates?: CreateCandidateInput[]
 }
 
 export const inspirationNoteStore = {
@@ -75,16 +70,20 @@ export const inspirationNoteStore = {
       updated_at: now,
       organized_at: null,
       analysis_attempt_id: null,
+      analysis_attempt_kind: null,
+      analysis_draft_json: null,
     }
     getDb().prepare(`
       INSERT INTO inspiration_notes (
         id, project_id, title, title_mode, source_markdown, attachments_json, status,
         analysis_revision, summary, body_markdown, questions_json, last_error,
-        created_at, updated_at, organized_at, analysis_attempt_id
+        created_at, updated_at, organized_at, analysis_attempt_id,
+        analysis_attempt_kind, analysis_draft_json
       ) VALUES (
         @id, @project_id, @title, @title_mode, @source_markdown, @attachments_json, @status,
         @analysis_revision, @summary, @body_markdown, @questions_json, @last_error,
-        @created_at, @updated_at, @organized_at, @analysis_attempt_id
+        @created_at, @updated_at, @organized_at, @analysis_attempt_id,
+        @analysis_attempt_kind, @analysis_draft_json
       )
     `).run(row)
     return row
@@ -119,7 +118,8 @@ export const inspirationNoteStore = {
       UPDATE inspiration_notes
       SET title = ?, title_mode = ?, source_markdown = ?, attachments_json = ?, status = ?,
           analysis_revision = ?, summary = '', body_markdown = '', questions_json = '[]',
-          last_error = NULL, organized_at = NULL, analysis_attempt_id = NULL, updated_at = ?
+          last_error = NULL, organized_at = NULL, analysis_attempt_id = NULL,
+          analysis_attempt_kind = NULL, analysis_draft_json = NULL, updated_at = ?
       WHERE id = ?
     `).run(
       input.title,
@@ -141,7 +141,8 @@ export const inspirationNoteStore = {
       UPDATE inspiration_notes
       SET status = 'queued', analysis_revision = analysis_revision + 1,
           summary = '', body_markdown = '', questions_json = '[]', last_error = NULL,
-          organized_at = NULL, analysis_attempt_id = NULL, updated_at = ?
+          organized_at = NULL, analysis_attempt_id = NULL,
+          analysis_attempt_kind = NULL, analysis_draft_json = NULL, updated_at = ?
       WHERE id = ?
     `).run(new Date().toISOString(), id)
     return this.get(id)
@@ -160,11 +161,30 @@ export const inspirationNoteStore = {
       const attemptId = `attempt-${randomUUID().slice(0, 12)}`
       const result = db.prepare(`
         UPDATE inspiration_notes
-        SET status = 'processing', analysis_attempt_id = ?, updated_at = ?
+        SET status = 'processing', analysis_attempt_id = ?, analysis_attempt_kind = 'organize',
+            analysis_draft_json = ?, updated_at = ?
         WHERE id = ? AND status = 'queued'
-      `).run(attemptId, new Date().toISOString(), row.id)
+      `).run(attemptId, JSON.stringify({ expectedRevision: row.analysis_revision }), new Date().toISOString(), row.id)
       return result.changes === 1 ? this.get(row.id) : undefined
     })()
+  },
+
+  beginDiscussion(id: string, expectedRevision: number): InspirationNoteRow | undefined {
+    const attemptId = `attempt-${randomUUID().slice(0, 12)}`
+    const result = getDb().prepare(`
+      UPDATE inspiration_notes
+      SET analysis_attempt_id = ?, analysis_attempt_kind = 'discussion',
+          analysis_draft_json = ?, last_error = NULL, updated_at = ?
+      WHERE id = ? AND analysis_revision = ? AND status IN ('ready', 'needs_input')
+        AND analysis_attempt_id IS NULL
+    `).run(
+      attemptId,
+      JSON.stringify({ expectedRevision }),
+      new Date().toISOString(),
+      id,
+      expectedRevision,
+    )
+    return result.changes === 1 ? this.get(id) : undefined
   },
 
   requeueProcessing(projectId?: string): number {
@@ -181,12 +201,21 @@ export const inspirationNoteStore = {
       `)
       for (const row of rows) removeCandidates.run(row.id, row.analysis_revision)
       const params = projectId ? [new Date().toISOString(), projectId] : [new Date().toISOString()]
-      return db.prepare(`
+      const requeued = db.prepare(`
         UPDATE inspiration_notes
         SET status = 'queued', summary = '', body_markdown = '', questions_json = '[]',
-            analysis_attempt_id = NULL, last_error = NULL, organized_at = NULL, updated_at = ?
+            analysis_attempt_id = NULL, analysis_attempt_kind = NULL, analysis_draft_json = NULL,
+            last_error = NULL, organized_at = NULL, updated_at = ?
         WHERE status = 'processing'${projectFilter}
       `).run(...params).changes
+      const discussionParams = projectId ? [new Date().toISOString(), projectId] : [new Date().toISOString()]
+      db.prepare(`
+        UPDATE inspiration_notes
+        SET analysis_attempt_id = NULL, analysis_attempt_kind = NULL,
+            analysis_draft_json = NULL, updated_at = ?
+        WHERE status IN ('ready', 'needs_input') AND analysis_attempt_id IS NOT NULL${projectFilter}
+      `).run(...discussionParams)
+      return requeued
     })()
   },
 
@@ -197,10 +226,20 @@ export const inspirationNoteStore = {
       if (!current || current.analysis_revision !== revision) return false
       if (current.status !== 'queued' && current.status !== 'processing') return false
       if (attemptId && current.analysis_attempt_id !== attemptId) return false
+      if (current.analysis_attempt_kind === 'discussion') {
+        const updated = db.prepare(`
+          UPDATE inspiration_notes
+          SET analysis_attempt_id = NULL, analysis_attempt_kind = NULL,
+              analysis_draft_json = NULL, updated_at = ?
+          WHERE id = ? AND analysis_revision = ? AND analysis_attempt_id = ?
+        `).run(new Date().toISOString(), id, revision, current.analysis_attempt_id)
+        return updated.changes === 1
+      }
       const updated = db.prepare(`
         UPDATE inspiration_notes
         SET status = 'failed', summary = '', body_markdown = '', questions_json = '[]',
-            analysis_attempt_id = NULL, last_error = ?, updated_at = ?
+            analysis_attempt_id = NULL, analysis_attempt_kind = NULL,
+            analysis_draft_json = NULL, last_error = ?, updated_at = ?
         WHERE id = ? AND analysis_revision = ? AND status IN ('queued', 'processing')
       `).run(error, new Date().toISOString(), id, revision)
       if (updated.changes !== 1) return false
@@ -215,7 +254,6 @@ export const inspirationNoteStore = {
   stageAnalysis(
     id: string,
     expectedRevision: number,
-    expectedAttemptId: string,
     input: { summary: string; bodyMarkdown: string; questions: string[]; candidates: CreateCandidateInput[] },
   ): { staged: boolean; reason?: string; note?: InspirationNoteRow; candidates: InspirationCandidateRow[] } {
     const db = getDb()
@@ -225,136 +263,133 @@ export const inspirationNoteStore = {
       if (current.analysis_revision !== expectedRevision) {
         return { staged: false, reason: 'ANALYSIS_REVISION_CONFLICT', note: current, candidates: [] }
       }
-      if (current.status !== 'processing' || current.analysis_attempt_id !== expectedAttemptId) {
+      const activeOrganize = current.status === 'processing' && current.analysis_attempt_kind === 'organize'
+      const activeDiscussion = (current.status === 'ready' || current.status === 'needs_input')
+        && current.analysis_attempt_kind === 'discussion'
+      if (!current.analysis_attempt_id || (!activeOrganize && !activeDiscussion)) {
         return { staged: false, reason: 'ANALYSIS_ATTEMPT_CONFLICT', note: current, candidates: [] }
       }
-      const now = new Date().toISOString()
+      const draft = readDraft(current.analysis_draft_json, expectedRevision)
+      if (!draft) return { staged: false, reason: 'ANALYSIS_ATTEMPT_CONFLICT', note: current, candidates: [] }
+      const next: InspirationAnalysisDraft = {
+        expectedRevision,
+        summary: input.summary,
+        bodyMarkdown: input.bodyMarkdown,
+        questions: input.questions,
+        candidates: input.candidates,
+      }
       const updated = db.prepare(`
-        UPDATE inspiration_notes
-        SET summary = ?, body_markdown = ?, questions_json = ?, last_error = NULL, updated_at = ?
-        WHERE id = ? AND analysis_revision = ? AND status = 'processing' AND analysis_attempt_id = ?
-      `).run(input.summary, input.bodyMarkdown, JSON.stringify(input.questions), now, id, expectedRevision, expectedAttemptId)
-      if (updated.changes !== 1) {
-        return { staged: false, reason: 'ANALYSIS_ATTEMPT_CONFLICT', note: this.get(id), candidates: [] }
-      }
-      db.prepare('DELETE FROM inspiration_candidates WHERE note_id = ? AND analysis_revision = ? AND task_id IS NULL')
-        .run(id, expectedRevision)
-      input.candidates.forEach((candidate, index) => {
-        inspirationCandidateStore.create(id, expectedRevision, index, candidate, now)
-      })
-      return {
-        staged: true,
-        note: this.get(id),
-        candidates: inspirationCandidateStore.listCurrent(id, expectedRevision),
-      }
+        UPDATE inspiration_notes SET analysis_draft_json = ?, updated_at = ?
+        WHERE id = ? AND analysis_revision = ? AND analysis_attempt_id = ?
+      `).run(JSON.stringify(next), new Date().toISOString(), id, expectedRevision, current.analysis_attempt_id)
+      return updated.changes === 1
+        ? { staged: true, note: this.get(id), candidates: [] }
+        : { staged: false, reason: 'ANALYSIS_ATTEMPT_CONFLICT', note: this.get(id), candidates: [] }
     })()
   },
 
   finalizeAnalysis(id: string, expectedRevision: number, expectedAttemptId: string): boolean {
-    const current = this.get(id)
-    if (!current || current.analysis_revision !== expectedRevision) return false
-    if (current.status !== 'processing' || current.analysis_attempt_id !== expectedAttemptId) return false
-    if (current.summary.trim().length < 8 || current.body_markdown.trim().length < 80) return false
-    const now = new Date().toISOString()
+    const db = getDb()
+    return db.transaction(() => {
+      const current = this.get(id)
+      if (!current || current.analysis_revision !== expectedRevision || current.analysis_attempt_id !== expectedAttemptId) return false
+      const activeOrganize = current.status === 'processing' && current.analysis_attempt_kind === 'organize'
+      const activeDiscussion = (current.status === 'ready' || current.status === 'needs_input')
+        && current.analysis_attempt_kind === 'discussion'
+      if (!activeOrganize && !activeDiscussion) return false
+      const draft = parseCompleteDraft(current.analysis_draft_json, expectedRevision)
+      if (!draft) return false
+      const targetRevision = current.analysis_attempt_kind === 'discussion'
+        ? expectedRevision + 1
+        : expectedRevision
+      const now = new Date().toISOString()
+      const updated = db.prepare(`
+        UPDATE inspiration_notes
+        SET status = 'ready', analysis_revision = ?, summary = ?, body_markdown = ?,
+            questions_json = ?, analysis_attempt_id = NULL, analysis_attempt_kind = NULL,
+            analysis_draft_json = NULL, last_error = NULL, organized_at = ?, updated_at = ?
+        WHERE id = ? AND analysis_attempt_id = ?
+      `).run(
+        targetRevision,
+        draft.summary,
+        draft.bodyMarkdown,
+        JSON.stringify(draft.questions),
+        now,
+        now,
+        id,
+        expectedAttemptId,
+      )
+      if (updated.changes !== 1) return false
+      db.prepare('DELETE FROM inspiration_candidates WHERE note_id = ? AND analysis_revision = ? AND task_id IS NULL')
+        .run(id, targetRevision)
+      draft.candidates.forEach((candidate, index) => {
+        inspirationCandidateStore.create(id, targetRevision, index, candidate, now)
+      })
+      return true
+    })()
+  },
+
+  discardDiscussion(id: string, attemptId: string): boolean {
     return getDb().prepare(`
       UPDATE inspiration_notes
-      SET status = 'ready', analysis_attempt_id = NULL, organized_at = ?, updated_at = ?
-      WHERE id = ? AND analysis_revision = ? AND status = 'processing' AND analysis_attempt_id = ?
-    `).run(now, now, id, expectedRevision, expectedAttemptId).changes === 1
+      SET analysis_attempt_id = NULL, analysis_attempt_kind = NULL,
+          analysis_draft_json = NULL, updated_at = ?
+      WHERE id = ? AND analysis_attempt_id = ? AND analysis_attempt_kind = 'discussion'
+    `).run(new Date().toISOString(), id, attemptId).changes === 1
   },
 }
 
-export const inspirationCandidateStore = {
-  create(
-    noteId: string,
-    revision: number,
-    sortOrder: number,
-    input: CreateCandidateInput,
-    now = new Date().toISOString(),
-  ): InspirationCandidateRow {
-    const row: InspirationCandidateRow = {
-      id: `candidate-${randomUUID().slice(0, 8)}`,
-      note_id: noteId,
-      analysis_revision: revision,
-      sort_order: sortOrder,
-      title: input.title,
-      description_markdown: input.descriptionMarkdown,
-      suggested_agent_id: input.suggestedAgentId ?? null,
-      agent_reason: input.agentReason ?? '',
-      dispatch_token: null,
-      task_id: null,
-      execution_session_id: null,
-      created_at: now,
-      updated_at: now,
+function readDraft(value: string | null, expectedRevision: number): InspirationAnalysisDraft | null {
+  if (!value) return null
+  try {
+    const draft = JSON.parse(value) as unknown
+    if (!draft || typeof draft !== 'object' || Array.isArray(draft)) return null
+    const row = draft as Record<string, unknown>
+    return row.expectedRevision === expectedRevision ? { expectedRevision } : null
+  } catch {
+    return null
+  }
+}
+
+function parseCompleteDraft(value: string | null, expectedRevision: number): Required<Pick<InspirationAnalysisDraft, 'summary' | 'bodyMarkdown' | 'questions' | 'candidates'>> | null {
+  if (!value) return null
+  try {
+    const row = JSON.parse(value) as Record<string, unknown>
+    if (row.expectedRevision !== expectedRevision
+      || typeof row.summary !== 'string' || row.summary.trim().length < 8
+      || typeof row.bodyMarkdown !== 'string' || row.bodyMarkdown.trim().length < 80
+      || !Array.isArray(row.questions) || !Array.isArray(row.candidates)) return null
+    return {
+      summary: row.summary,
+      bodyMarkdown: row.bodyMarkdown,
+      questions: parseQuestions(row.questions),
+      candidates: parseCandidates(row.candidates),
     }
-    getDb().prepare(`
-      INSERT INTO inspiration_candidates (
-        id, note_id, analysis_revision, sort_order, title, description_markdown,
-        suggested_agent_id, agent_reason, dispatch_token, task_id,
-        execution_session_id, created_at, updated_at
-      ) VALUES (
-        @id, @note_id, @analysis_revision, @sort_order, @title, @description_markdown,
-        @suggested_agent_id, @agent_reason, @dispatch_token, @task_id,
-        @execution_session_id, @created_at, @updated_at
-      )
-    `).run(row)
-    return row
-  },
+  } catch {
+    return null
+  }
+}
 
-  get(id: string): InspirationCandidateRow | undefined {
-    return getDb().prepare<[string], InspirationCandidateRow>(
-      'SELECT * FROM inspiration_candidates WHERE id = ?',
-    ).get(id)
-  },
+function parseQuestions(value: unknown[]): string[] {
+  if (!value.every((item) => typeof item === 'string')) throw new Error('Invalid inspiration questions draft')
+  return value
+}
 
-  listCurrent(noteId: string, revision: number): InspirationCandidateRow[] {
-    return getDb().prepare<[string, number], InspirationCandidateRow>(`
-      SELECT * FROM inspiration_candidates
-      WHERE note_id = ? AND analysis_revision = ?
-      ORDER BY sort_order ASC, id ASC
-    `).all(noteId, revision)
-  },
-
-  update(id: string, input: { title: string; descriptionMarkdown: string; suggestedAgentId?: string | null }): InspirationCandidateRow | undefined {
-    const result = getDb().prepare(`
-      UPDATE inspiration_candidates
-      SET title = ?, description_markdown = ?, suggested_agent_id = ?, updated_at = ?
-      WHERE id = ? AND task_id IS NULL AND dispatch_token IS NULL
-    `).run(input.title, input.descriptionMarkdown, input.suggestedAgentId ?? null, new Date().toISOString(), id)
-    return result.changes === 1 ? this.get(id) : undefined
-  },
-
-  claimDispatch(id: string, token: string): InspirationCandidateRow | undefined {
-    const result = getDb().prepare(`
-      UPDATE inspiration_candidates
-      SET dispatch_token = ?, updated_at = ?
-      WHERE id = ? AND task_id IS NULL AND dispatch_token IS NULL
-    `).run(token, new Date().toISOString(), id)
-    return result.changes === 1 ? this.get(id) : undefined
-  },
-
-  completeDispatch(id: string, token: string, taskId: string, executionSessionId?: string): InspirationCandidateRow | undefined {
-    getDb().prepare(`
-      UPDATE inspiration_candidates
-      SET task_id = ?, execution_session_id = ?, dispatch_token = NULL, updated_at = ?
-      WHERE id = ? AND dispatch_token = ?
-    `).run(taskId, executionSessionId ?? null, new Date().toISOString(), id, token)
-    return this.get(id)
-  },
-
-  releaseDispatch(id: string, token: string): void {
-    getDb().prepare(`
-      UPDATE inspiration_candidates
-      SET dispatch_token = NULL, updated_at = ?
-      WHERE id = ? AND dispatch_token = ? AND task_id IS NULL
-    `).run(new Date().toISOString(), id, token)
-  },
-
-  releaseStaleDispatches(): number {
-    return getDb().prepare(`
-      UPDATE inspiration_candidates
-      SET dispatch_token = NULL, updated_at = ?
-      WHERE dispatch_token IS NOT NULL AND task_id IS NULL
-    `).run(new Date().toISOString()).changes
-  },
+function parseCandidates(value: unknown[]): CreateCandidateInput[] {
+  return value.map((item) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) throw new Error('Invalid inspiration candidate draft')
+    const row = item as Record<string, unknown>
+    if (typeof row.title !== 'string' || !row.title.trim()
+      || typeof row.descriptionMarkdown !== 'string' || !row.descriptionMarkdown.trim()
+      || (row.suggestedAgentId != null && typeof row.suggestedAgentId !== 'string')
+      || (row.agentReason != null && typeof row.agentReason !== 'string')) {
+      throw new Error('Invalid inspiration candidate draft')
+    }
+    return {
+      title: row.title,
+      descriptionMarkdown: row.descriptionMarkdown,
+      suggestedAgentId: row.suggestedAgentId as string | null | undefined,
+      agentReason: row.agentReason as string | undefined,
+    }
+  })
 }

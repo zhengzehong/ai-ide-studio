@@ -97,8 +97,8 @@ export function Inspiration() {
     navigate(toProjectPath('/tasks'))
   }
 
-  const openSession = (sessionId: string): void => {
-    navigate(`${toProjectPath('/workspace')}?${new URLSearchParams({ sessionId }).toString()}`)
+  const openSession = (sessionId: string, inspirationNoteId?: string): void => {
+    navigate(`${toProjectPath('/workspace')}?${new URLSearchParams({ sessionId, ...(inspirationNoteId ? { inspirationNoteId } : {}) }).toString()}`)
   }
 
   const deleteSelected = async (): Promise<void> => {
@@ -131,7 +131,7 @@ export function Inspiration() {
           {loading ? <div className="inspiration-result-state"><RefreshCw size={20} className="inspiration-spin" /><strong>正在加载灵感</strong></div> : showEditor ? (
             <InspirationEditor key={`${selected?.id ?? 'new'}-${editorVersion}`} note={selected} saving={saving} onSave={saveNote} />
           ) : selected ? (
-            <InspirationResult note={selected} onEdit={() => editNote(selected.id)} onRetry={() => { void organize(selected.id).catch((error) => setNotice(errorMessage(error, '重新整理失败'))) }} onCandidateAction={(candidate, action) => setCandidateDialog({ candidate, action })} onOpenTask={openTask} onOpenSession={openSession} />
+            <InspirationResult note={selected} onEdit={() => editNote(selected.id)} onRetry={() => { void organize(selected.id).catch((error) => setNotice(errorMessage(error, '重新整理失败'))) }} onCandidateAction={(candidate, action) => setCandidateDialog({ candidate, action })} onOpenTask={openTask} onOpenSession={openSession} onDiscuss={() => config?.sessionId && openSession(config.sessionId, selected.id)} />
           ) : <div className="inspiration-result-state"><Lightbulb size={22} /><strong>记录第一条灵感</strong><span>原文会立即保存，AI 整理在后台完成。</span><button type="button" className="inspiration-primary" onClick={createNote}>开始记录</button></div>}
         </section>
       </main>

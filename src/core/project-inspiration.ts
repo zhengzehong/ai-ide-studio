@@ -14,10 +14,12 @@ import { taskStepManager } from './task-steps.js'
 import { taskManager } from './tasks.js'
 import { loadStoredImagesForAcp, saveInspirationImages, type StoredImageAttachment } from './image-attachments.js'
 import { buildInspirationAnalysisPrompt } from './project-inspiration-prompt.js'
+import { enqueueProjectInspirationTurn } from './project-inspiration-turn-queue.js'
 import type { ImageAttachment } from '../types/ws-protocol.js'
 
+export { getInspirationNoteForSession, sendInspirationDiscussion } from './project-inspiration-discussion.js'
+
 const log = createChildLogger('project-inspiration')
-const activeProjects = new Set<string>()
 const MAX_NOTE_IMAGES = 10
 const DEFAULT_PROMPT = [
   '你是当前项目的灵感整理助手。',
@@ -34,7 +36,6 @@ export interface ProjectInspirationWorkspace {
 export interface PublishInspirationAnalysisInput {
   noteId: string
   expectedRevision: number
-  analysisAttemptId: string
   summary: string
   bodyMarkdown: string
   questions: string[]
@@ -77,7 +78,7 @@ export async function configureProjectInspiration(
   })
   if (sessionId !== current.session_id) inspirationNoteStore.requeueProcessing(projectId)
   emitUpdate(projectId)
-  if (updated.auto_organize) void drainProject(projectId)
+  if (updated.auto_organize) scheduleDrain(projectId)
   log.info({ projectId, agentId: agent.id, sessionId }, '项目灵感整理器已配置')
   return projectInspirationStore.toData(updated)
 }
@@ -95,7 +96,7 @@ export async function rebuildProjectInspirationSession(projectId: string, organi
   })
   inspirationNoteStore.requeueProcessing(projectId)
   emitUpdate(projectId)
-  if (updated.auto_organize) void drainProject(projectId)
+  if (updated.auto_organize) scheduleDrain(projectId)
   log.info({ projectId, agentId: agent.id, previousSessionId: current.session_id, sessionId: session.id }, '项目灵感会话已重建')
   return projectInspirationStore.toData(updated)
 }
@@ -121,7 +122,7 @@ export async function createInspirationNote(
     queued,
   })
   emitUpdate(projectId, note.id)
-  if (queued) void drainProject(projectId)
+  if (queued) scheduleDrain(projectId)
   log.info({ projectId, noteId: note.id, queued }, '项目灵感已创建')
   return buildInspirationNoteData(note)
 }
@@ -152,7 +153,7 @@ export async function updateInspirationNote(
   })
   if (!updated) throw new Error('灵感不存在')
   emitUpdate(projectId, note.id)
-  if (queue) void drainProject(projectId)
+  if (queue) scheduleDrain(projectId)
   return buildInspirationNoteData(updated)
 }
 
@@ -162,7 +163,7 @@ export function organizeInspirationNote(projectId: string, noteId: string): Insp
   const queued = inspirationNoteStore.queue(note.id)
   if (!queued) throw new Error('灵感不存在')
   emitUpdate(projectId, note.id)
-  void drainProject(projectId)
+  scheduleDrain(projectId)
   return buildInspirationNoteData(queued)
 }
 
@@ -194,7 +195,6 @@ export function publishInspirationAnalysis(
   const result = inspirationNoteStore.stageAnalysis(
     note.id,
     input.expectedRevision,
-    input.analysisAttemptId,
     input,
   )
   const current = result.note ?? inspirationNoteStore.get(note.id)
@@ -203,7 +203,7 @@ export function publishInspirationAnalysis(
   if (result.staged) {
     projectInspirationStore.update(context.projectId, { lastError: null })
     log.debug(
-      { projectId: context.projectId, noteId: note.id, revision: input.expectedRevision, attemptId: input.analysisAttemptId },
+      { projectId: context.projectId, noteId: note.id, revision: input.expectedRevision },
       '灵感整理结果已暂存',
     )
   }
@@ -264,7 +264,7 @@ export async function resumeProjectInspirations(): Promise<void> {
   if (requeued > 0) log.info({ requeued }, '服务重启后灵感整理重新排队')
   if (releasedDispatches > 0) log.info({ releasedDispatches }, '服务重启后灵感候选任务派发占用已释放')
   for (const config of projectInspirationStore.list()) {
-    if (config.auto_organize && config.session_id && config.organizer_agent_id) void drainProject(config.project_id)
+    if (config.auto_organize && config.session_id && config.organizer_agent_id) scheduleDrain(config.project_id)
   }
 }
 
@@ -274,53 +274,54 @@ async function taskStoreCreateDraft(title: string, description: string, projectI
   return task
 }
 
-async function drainProject(projectId: string): Promise<void> {
-  if (activeProjects.has(projectId)) return
-  activeProjects.add(projectId)
-  try {
-    while (true) {
-      const config = projectInspirationStore.get(projectId)
-      if (!config?.auto_organize || !config.session_id || !config.organizer_agent_id) return
-      const note = inspirationNoteStore.claimNext(projectId)
-      if (!note) return
-      const attemptId = note.analysis_attempt_id
-      if (!attemptId) {
-        inspirationNoteStore.markFailed(note.id, note.analysis_revision, '灵感整理 attempt 创建失败')
-        continue
-      }
-      emitUpdate(projectId, note.id)
-      try {
-        const attachments = parseStoredAttachments(note.attachments_json)
-        const images = await loadStoredImagesForAcp(attachments)
-        await sessionManager.enqueuePrompt(config.session_id, buildInspirationAnalysisPrompt(config.organization_prompt || DEFAULT_PROMPT, note, attachments), images, {
-          senderRole: 'inspiration',
-          senderId: note.id,
-          senderName: '灵感整理',
-          dedupeKey: `inspiration:${note.id}:${note.analysis_revision}`,
-        })
-        if (inspirationNoteStore.finalizeAnalysis(note.id, note.analysis_revision, attemptId)) {
-          projectInspirationStore.update(projectId, { lastError: null })
-          log.info({ projectId, noteId: note.id, revision: note.analysis_revision, attemptId }, '灵感整理结果已提交')
-        } else {
-          inspirationNoteStore.markFailed(note.id, note.analysis_revision, 'AI 未发布有效的结构化整理结果', attemptId)
-        }
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        const failed = inspirationNoteStore.markFailed(note.id, note.analysis_revision, message, attemptId)
-        if (failed) {
-          projectInspirationStore.update(projectId, { lastError: message })
-          log.error({ err, projectId, noteId: note.id, revision: note.analysis_revision, attemptId }, '灵感整理失败')
-        } else {
-          log.info(
-            { projectId, noteId: note.id, revision: note.analysis_revision, attemptId },
-            '旧灵感整理轮次失败已忽略',
-          )
-        }
-      }
-      emitUpdate(projectId, note.id)
+function scheduleDrain(projectId: string): void {
+  void enqueueProjectInspirationTurn(projectId, () => drainProjectNow(projectId)).catch((err: unknown) => {
+    log.error({ err, projectId }, '灵感整理队列执行失败')
+  })
+}
+
+async function drainProjectNow(projectId: string): Promise<void> {
+  while (true) {
+    const config = projectInspirationStore.get(projectId)
+    if (!config?.auto_organize || !config.session_id || !config.organizer_agent_id) return
+    const note = inspirationNoteStore.claimNext(projectId)
+    if (!note) return
+    const attemptId = note.analysis_attempt_id
+    if (!attemptId) {
+      inspirationNoteStore.markFailed(note.id, note.analysis_revision, '灵感整理 attempt 创建失败')
+      continue
     }
-  } finally {
-    activeProjects.delete(projectId)
+    emitUpdate(projectId, note.id)
+    try {
+      const attachments = parseStoredAttachments(note.attachments_json)
+      const images = await loadStoredImagesForAcp(attachments)
+      await sessionManager.enqueuePrompt(config.session_id, buildInspirationAnalysisPrompt(config.organization_prompt || DEFAULT_PROMPT, note, attachments), images, {
+        senderRole: 'inspiration',
+        senderId: note.id,
+        senderName: '灵感整理',
+        batchKey: `inspiration-organize:${note.id}:${note.analysis_revision}`,
+        dedupeKey: `inspiration:${note.id}:${note.analysis_revision}`,
+      })
+      if (inspirationNoteStore.finalizeAnalysis(note.id, note.analysis_revision, attemptId)) {
+        projectInspirationStore.update(projectId, { lastError: null })
+        log.info({ projectId, noteId: note.id, revision: note.analysis_revision, attemptId }, '灵感整理结果已提交')
+      } else {
+        inspirationNoteStore.markFailed(note.id, note.analysis_revision, 'AI 未发布有效的结构化整理结果', attemptId)
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      const failed = inspirationNoteStore.markFailed(note.id, note.analysis_revision, message, attemptId)
+      if (failed) {
+        projectInspirationStore.update(projectId, { lastError: message })
+        log.error({ err, projectId, noteId: note.id, revision: note.analysis_revision, attemptId }, '灵感整理失败')
+      } else {
+        log.info(
+          { projectId, noteId: note.id, revision: note.analysis_revision, attemptId },
+          '旧灵感整理轮次失败已忽略',
+        )
+      }
+    }
+    emitUpdate(projectId, note.id)
   }
 }
 

@@ -9,6 +9,7 @@ import {
   getInspirationNote,
   publishInspirationAnalysis,
   rebuildProjectInspirationSession,
+  sendInspirationDiscussion,
 } from '../../src/core/project-inspiration.js'
 import { sessionManager } from '../../src/core/sessions.js'
 import { agentStore } from '../../src/store/agents.js'
@@ -88,13 +89,15 @@ describe('project inspiration service', () => {
     })
     await waitUntil(() => enqueue.mock.calls.length === 1)
     expect(inspirationNoteStore.get(note.id)?.status).toBe('processing')
+    expect(enqueue.mock.calls[0]?.[3]).toMatchObject({
+      batchKey: `inspiration-organize:${note.id}:1`,
+      dedupeKey: `inspiration:${note.id}:1`,
+    })
 
     const handler = getHandler('inspiration.analysis.publish')
-    const attemptId = inspirationNoteStore.get(note.id)?.analysis_attempt_id
     const result = await handler.execute({
       noteId: note.id,
       expectedRevision: 1,
-      analysisAttemptId: attemptId,
       summary: '统一入口，保留权限边界',
       bodyMarkdown: '# 建议方案\n' + '统一交互入口并保留现有权限边界。'.repeat(10),
       questions: ['是否允许原型访问 API？'],
@@ -121,7 +124,7 @@ describe('project inspiration service', () => {
     })
   })
 
-  test('rejects placeholder output and an old analysis attempt', async () => {
+  test('rejects placeholder output and an old analysis revision', async () => {
     const fixture = createFixture()
     const gate = deferred<void>()
     vi.spyOn(sessionManager, 'enqueuePrompt').mockReturnValue(gate.promise)
@@ -136,13 +139,11 @@ describe('project inspiration service', () => {
       titleMode: 'auto',
     })
     await waitUntil(() => inspirationNoteStore.get(note.id)?.status === 'processing')
-    const attemptId = inspirationNoteStore.get(note.id)?.analysis_attempt_id
     const handler = getHandler('inspiration.analysis.publish')
 
     const placeholder = await handler.execute({
       noteId: note.id,
       expectedRevision: 1,
-      analysisAttemptId: attemptId,
       summary: 'test',
       bodyMarkdown: 'test',
       questions: ['question one'],
@@ -152,8 +153,7 @@ describe('project inspiration service', () => {
 
     const stale = await handler.execute({
       noteId: note.id,
-      expectedRevision: 1,
-      analysisAttemptId: 'attempt-old',
+      expectedRevision: 2,
       summary: '这是一份足够长的摘要',
       bodyMarkdown: '# 完整分析\n' + '这是一份足够长的完整分析内容。'.repeat(10),
       questions: [],
@@ -185,6 +185,70 @@ describe('project inspiration service', () => {
       expect.objectContaining({ assignee_agent_id: fixture.executor.id, status: 'pending' }),
     ])
     expect(getInspirationNote(fixture.project.id, noteId).candidates[0].taskId).toBe(taskId)
+  })
+
+  test('binds a discussion to one note and commits a publish revision without exposing attemptId', async () => {
+    const fixture = createFixture()
+    const config = await configureProjectInspiration(fixture.project.id, { organizerAgentId: fixture.organizer.id })
+    const note = inspirationNoteStore.create({ projectId: fixture.project.id, title: '第一篇', sourceMarkdown: '第一篇原文', queued: false })
+    inspirationNoteStore.queue(note.id)
+    const initial = inspirationNoteStore.claimNext(fixture.project.id)!
+    inspirationNoteStore.stageAnalysis(note.id, 1, {
+      summary: '原始方案摘要内容', bodyMarkdown: '# 原始方案\n' + '原始内容'.repeat(20), questions: [], candidates: [],
+    })
+    inspirationNoteStore.finalizeAnalysis(note.id, 1, initial.analysis_attempt_id!)
+    const send = vi.spyOn(sessionManager, 'sendPrompt').mockImplementation(async (_sessionId, content, _images, options) => {
+      expect(content).toBe('拆成两个候选任务')
+      expect((options as Record<string, unknown>).modelContent).toContain(note.id)
+      const published = await getHandler('inspiration.analysis.publish')!.execute({
+        noteId: note.id,
+        expectedRevision: 1,
+        summary: '修订后的方案摘要内容',
+        bodyMarkdown: '# 修订方案\n' + '修订后的完整内容'.repeat(20),
+        questions: [], candidates: [],
+      }, { projectId: fixture.project.id, sessionId: config.sessionId! })
+      expect(published.isError).not.toBe(true)
+    })
+
+    await sendInspirationDiscussion({
+      sessionId: config.sessionId!, noteId: note.id, content: '拆成两个候选任务', clientMessageId: 'msg-discuss-1',
+    })
+    send.mockRestore()
+    expect(getInspirationNote(fixture.project.id, note.id)).toMatchObject({ analysisRevision: 2, summary: '修订后的方案摘要内容' })
+  })
+
+  test('keeps the published result when a discussion answers without publishing', async () => {
+    const fixture = createFixture()
+    const config = await configureProjectInspiration(fixture.project.id, { organizerAgentId: fixture.organizer.id })
+    const { noteId } = readyCandidate(fixture.project.id, fixture.executor.id)
+    const before = getInspirationNote(fixture.project.id, noteId)
+    vi.spyOn(sessionManager, 'sendPrompt').mockResolvedValue(undefined)
+
+    await sendInspirationDiscussion({
+      sessionId: config.sessionId!, noteId, content: '解释一下风险，不修改方案', clientMessageId: 'msg-discuss-answer',
+    })
+
+    expect(getInspirationNote(fixture.project.id, noteId)).toMatchObject({
+      analysisRevision: before.analysisRevision,
+      summary: before.summary,
+      bodyMarkdown: before.bodyMarkdown,
+    })
+    expect(inspirationNoteStore.get(noteId)).toMatchObject({ analysis_attempt_id: null, analysis_draft_json: null })
+  })
+
+  test('reads a note only from its configured inspiration Session', async () => {
+    const fixture = createFixture()
+    const config = await configureProjectInspiration(fixture.project.id, { organizerAgentId: fixture.organizer.id })
+    const note = inspirationNoteStore.create({ projectId: fixture.project.id, title: '指定灵感', sourceMarkdown: '原始内容', queued: false })
+    const handler = getHandler('inspiration.note.get')!
+
+    const result = await handler.execute({ noteId: note.id }, { projectId: fixture.project.id, sessionId: config.sessionId! })
+    expect(result.isError).not.toBe(true)
+    expect(result.content[0]?.text).toContain('指定灵感')
+
+    const ordinarySession = sessionStore.create({ agentId: fixture.organizer.id, projectId: fixture.project.id })
+    const rejected = await handler.execute({ noteId: note.id }, { projectId: fixture.project.id, sessionId: ordinarySession.id })
+    expect(rejected.isError).toBe(true)
   })
 
   test('immediately dispatches a candidate to a new dedicated Session', async () => {
@@ -231,7 +295,7 @@ function readyCandidate(projectId: string, agentId: string): { noteId: string; c
 function publishInspirationAnalysisForTest(projectId: string, noteId: string, agentId: string) {
   const attemptId = inspirationNoteStore.get(noteId)?.analysis_attempt_id
   if (!attemptId) throw new Error(`missing analysis attempt for ${projectId}`)
-  const result = inspirationNoteStore.stageAnalysis(noteId, 1, attemptId, {
+  const result = inspirationNoteStore.stageAnalysis(noteId, 1, {
     summary: '这是一份完整摘要',
     bodyMarkdown: '# 方案\n' + '这是一份完整方案内容。'.repeat(20),
     questions: [],

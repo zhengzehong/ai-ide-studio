@@ -167,6 +167,7 @@ function canImportLocalSession(runtime: string): runtime is 'codex' | 'claude' {
 export default function Workspace() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
+  const inspirationNoteId = searchParams.get('inspirationNoteId') ?? undefined
   const connected = useConnectionStore((s) => s.connected)
   const agents = useAgentStore((s) => s.agents)
   const agentsLoading = useAgentStore((s) => s.loading)
@@ -497,23 +498,36 @@ export default function Workspace() {
   }, [currentSessionId])
 
   const handleSelectSession = (agentId: string, sessionId: string) => {
+    clearInspirationContext()
     setSelectedAgentId(agentId)
     selectSession(sessionId)
   }
   const handleNewSession = async (agentId: string) => {
+    clearInspirationContext()
     const s = await createSession(agentId, undefined, currentProjectId ?? undefined)
     setSelectedAgentId(agentId)
     selectSession(s.id)
     await fetchSessions(undefined, currentProjectId ?? undefined)
   }
   const handleNewFromTemplate = (agentId: string) => {
+    clearInspirationContext()
     setSelectedAgentId(agentId)
     setPickerAgentId(agentId)
   }
   const handlePickerSelect = async (sessionId: string) => {
+    clearInspirationContext()
     setSelectedAgentId(pickerAgentId)
     selectSession(sessionId)
     await fetchSessions(undefined, currentProjectId ?? undefined)
+  }
+
+  const clearInspirationContext = () => {
+    if (!searchParams.has('inspirationNoteId')) return
+    setSearchParams((previous) => {
+      const next = new URLSearchParams(previous)
+      next.delete('inspirationNoteId')
+      return next
+    }, { replace: true })
   }
   const handlePublishTemplate = (sessionId: string) => {
     setPublishSessionId(sessionId)
@@ -1130,6 +1144,7 @@ export default function Workspace() {
             currentSession={currentSession}
             currentSessionTitle={currentSessionId ? sessionTitle(currentSession ?? { id: currentSessionId }) : undefined}
             currentSessionCopying={currentSessionCopying}
+            inspirationNoteId={inspirationNoteId}
           />
         )}
       />
@@ -1456,6 +1471,7 @@ function WorkspaceChatPane({
   currentSession,
   currentSessionTitle,
   currentSessionCopying,
+  inspirationNoteId,
 }: {
   connected: boolean
   projectId: string | null
@@ -1464,6 +1480,7 @@ function WorkspaceChatPane({
   currentSession?: SessionData | null
   currentSessionTitle?: string
   currentSessionCopying: boolean
+  inspirationNoteId?: string
 }) {
   const messages = useSessionStore((s) => s.messages)
   const messagesLoadingSessionId = useSessionStore((s) => s.messagesLoadingSessionId)
@@ -1788,6 +1805,7 @@ function WorkspaceChatPane({
       await sendPrompt(
         appendWorkspaceFilePaths(v, uploadedFiles),
         hasImages ? pendingImages.map((i) => ({ data: i.data, mimeType: i.mimeType })) : undefined,
+        inspirationNoteId ? { inspirationNoteId } : undefined,
       )
       if (queuesBehindActiveTurn && draftSessionIdRef.current === targetSessionId) setQueuedPromptNotice(true)
       if (draftSessionIdRef.current === targetSessionId) {

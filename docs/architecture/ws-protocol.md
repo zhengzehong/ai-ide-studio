@@ -21,7 +21,7 @@ PC 高频 Session 命令使用 `POST /api/v1/commands`。认证沿用 `x-ai-ide-
 
 | `type` | 必填字段 | HTTP 结果 | 说明 |
 |--------|----------|-----------|------|
-| `prompt` | `commandId`, `sessionId`, `clientMessageId`, `content` | `202 accepted` | 可选 `contextProjectId`, `images`；客户端提交前先订阅 Session |
+| `prompt` | `commandId`, `sessionId`, `clientMessageId`, `content` | `202 accepted` | 可选 `contextProjectId`, `inspirationNoteId`, `images`；`inspirationNoteId` 仅供项目灵感结果进入长期灵感 Session 后绑定本轮讨论，客户端提交前先订阅 Session |
 | `session.cancel` | `commandId`, `sessionId` | `200 completed` | 等待 Runtime 把当前 turn 推进到终态；ACP cancel 超时后依次升级为关闭目标 Session、重启所属 Agent |
 | `sessions.markRead` | `commandId`, `sessionId` | `200 completed` | 标记具体 Session 已读，不批量清项目 |
 | `permission.respond` | `commandId`, `sessionId`, `permissionRequestId` | `200 completed` | 可选 `optionId`, `cancelled` |
@@ -142,7 +142,7 @@ Runtime 可见 patch 不经过 API 事件总线，而是通过 Runtime→Realtim
 | `sessions.processItemDetail` | `{ sessionId, messageId, itemId }` | `TurnProcessItem` | 懒加载单个执行过程块详情，例如工具 raw 输出、权限详情、计划详情或完整 diff |
 | `sessions.messageEvents` | `{ sessionId, messageId }` | `SessionEvent[]` | 兼容旧数据的执行过程事件兜底恢复；新数据优先使用 `sessions.messageProcess` |
 | `sessions.events` | `{ sessionId, limit?, afterSequence? }` | `SessionEvent[]` | HTTP Query Port 的恢复事件 WS 兼容桥 |
-| `prompt` | `{ sessionId, content, clientMessageId?, contextProjectId?, images? }` | `{ status }` | 发送消息；`clientMessageId` 用于让前端乐观用户消息与 SQLite 持久化消息合并；`contextProjectId` 用于全局助理等无项目 Session 的本轮项目工具上下文，不写入 Session；首次发送时懒启动 runtime，并按需 new/resume ACP session |
+| `prompt` | `{ sessionId, content, clientMessageId?, contextProjectId?, inspirationNoteId?, images? }` | `{ status }` | 发送消息；`clientMessageId` 用于让前端乐观用户消息与 SQLite 持久化消息合并；`contextProjectId` 用于全局助理等无项目 Session 的本轮项目工具上下文，不写入 Session；`inspirationNoteId` 仅在目标为项目长期灵感 Session 时建立 Note 讨论上下文；首次发送时懒启动 runtime，并按需 new/resume ACP session |
 | `permission.respond` | `{ sessionId, permissionRequestId, optionId?, cancelled? }` | `void` | 响应权限请求 |
 | `elicitation.respond` | `{ sessionId, elicitationRequestId, action, content? }` | `void` | 响应提问请求 |
 | `decision` | `{ sessionId, messageId, choice }` | `void` | 响应决定 |
