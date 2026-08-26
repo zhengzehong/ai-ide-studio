@@ -157,6 +157,38 @@ describe('project inspiration stores', () => {
     }).staged).toBe(true)
     expect(inspirationNoteStore.get(note.id)).toMatchObject({ status: 'ready', analysis_revision: 1, summary: '第一版已发布摘要' })
     expect(inspirationNoteStore.finalizeAnalysis(note.id, 1, started.analysis_attempt_id!)).toBe(true)
-    expect(inspirationNoteStore.get(note.id)).toMatchObject({ analysis_revision: 2, summary: '修订后的摘要内容' })
+    expect(inspirationNoteStore.get(note.id)).toMatchObject({ analysis_revision: 2, summary: '修订后的摘要内容', completed_at: null })
+  })
+
+  test('tracks manual completion separately and reopens on source or analysis changes', () => {
+    const project = projectStore.create({ name: 'P', workDir: root })
+    const note = inspirationNoteStore.create({ projectId: project.id, title: '灵感', sourceMarkdown: '原文', queued: false })
+
+    expect(inspirationNoteStore.setCompleted(note.id, true)?.completed_at).toEqual(expect.any(String))
+    expect(inspirationNoteStore.setCompleted(note.id, false)?.completed_at).toBeNull()
+    inspirationNoteStore.setCompleted(note.id, true)
+    expect(inspirationNoteStore.updateSource(note.id, {
+      title: '新原文', sourceMarkdown: '修改后的原文', queue: true,
+    })?.completed_at).toBeNull()
+
+    const processing = inspirationNoteStore.claimNext(project.id)!
+    expect(() => inspirationNoteStore.setCompleted(note.id, true)).toThrow('灵感正在整理')
+    inspirationNoteStore.stageAnalysis(note.id, 1, {
+      summary: '更新后的完整摘要',
+      bodyMarkdown: '# 更新方案\n' + '更新后的方案内容'.repeat(20),
+      questions: [],
+      candidates: [],
+    })
+    expect(inspirationNoteStore.finalizeAnalysis(note.id, 1, processing.analysis_attempt_id!)).toBe(true)
+    inspirationNoteStore.setCompleted(note.id, true)
+    const discussion = inspirationNoteStore.beginDiscussion(note.id, 1)!
+    inspirationNoteStore.stageAnalysis(note.id, 1, {
+      summary: '讨论后的完整摘要',
+      bodyMarkdown: '# 修订方案\n' + '讨论后的方案内容'.repeat(20),
+      questions: [],
+      candidates: [],
+    })
+    inspirationNoteStore.finalizeAnalysis(note.id, 1, discussion.analysis_attempt_id!)
+    expect(inspirationNoteStore.get(note.id)?.completed_at).toBeNull()
   })
 })

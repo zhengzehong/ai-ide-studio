@@ -5,10 +5,10 @@
 项目灵感工作台使用三个持久化实体，均受 `project_id` 边界约束：
 
 - `project_inspirations`：每个项目唯一的整理配置，保存当前长期灵感 Session、整理 Agent、提示词、自动整理开关和最近错误。
-- `inspiration_notes`：保存不可依赖 AI 成功的原始 Markdown、图片附件清单、整理状态和当前结构化结果。`title_mode` 区分正文截断生成的自动标题与人工标题；`analysis_revision` 是已发布内容版本，`analysis_attempt_id` 与 `analysis_attempt_kind` 标识当前后台整理或交互修订轮次，`analysis_draft_json` 保存本轮尚未发布的完整草稿。
+- `inspiration_notes`：保存不可依赖 AI 成功的原始 Markdown、图片附件清单、整理状态和当前结构化结果。`title_mode` 区分正文截断生成的自动标题与人工标题；`analysis_revision` 是已发布内容版本，`analysis_attempt_id` 与 `analysis_attempt_kind` 标识当前后台整理或交互修订轮次，`analysis_draft_json` 保存本轮尚未发布的完整草稿；`completed_at` 是独立于 AI 整理状态的人工完成标记。
 - `inspiration_candidates`：保存某次整理版本生成的候选任务、推荐 Agent 和已创建 Task/执行 Session 的关联。`dispatch_token` 用于互斥创建，`task_id` 唯一约束保证一个候选最多转成一个 Task。
 
-灵感原文先提交到 `inspiration_notes`，未填写人工标题时按正文连续原文生成最多 60 个字符的自动标题。后台整理和用户针对某条灵感的继续讨论共用项目长期 Session，并按项目串行执行。AI 先通过 `inspiration.note.get` 读取指定 Note；只有调用 `inspiration.analysis.publish` 才覆盖本轮草稿。Session 正常结束后，最后一份有效草稿原子提升为正式结果；没有发布、失败或服务重启只清理草稿，不覆盖已发布方案。候选任务在用户确认前不进入 `tasks`；“只创建”生成 draft Task 和 pending Step，“立即执行”复用普通简单任务派发链路并创建独立执行 Session。历史候选按 revision 保留，但读模型只返回当前 revision。
+灵感原文先提交到 `inspiration_notes`，未填写人工标题时按正文连续原文生成最多 60 个字符的自动标题。后台整理和用户针对某条灵感的继续讨论共用项目长期 Session，并按项目串行执行。AI 先通过 `inspiration.note.get` 读取指定 Note；只有调用 `inspiration.analysis.publish` 才覆盖本轮草稿。Session 正常结束后，最后一份有效草稿原子提升为正式结果；没有发布、失败或服务重启只清理草稿，不覆盖已发布方案。人工可以单独标记完成或重新打开；编辑原文、重新整理或发布新方案会自动清除完成标记，普通讨论不发布方案时保持原标记。候选任务在用户确认前不进入 `tasks`；“只创建”生成 draft Task 和 pending Step，“立即执行”复用普通简单任务派发链路并创建独立执行 Session。历史候选按 revision 保留，但读模型只返回当前 revision。
 
 ## 实体关系
 

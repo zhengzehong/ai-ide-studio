@@ -60,6 +60,24 @@ describe('inspiration RPC', () => {
     await expect(call('inspiration.note.get', { projectId: second.id, noteId: note.id }))
       .rejects.toThrow('灵感不存在或不属于当前项目')
   })
+
+  test('marks a note complete within its project', async () => {
+    const project = projectStore.create({ name: 'P', workDir: root })
+    const note = await call('inspiration.note.create', {
+      projectId: project.id,
+      title: '待处理',
+      sourceMarkdown: '稍后处理',
+    }) as { id: string }
+
+    const completed = await call('inspiration.note.setCompleted', {
+      projectId: project.id, noteId: note.id, completed: true,
+    }) as { completedAt: string | null }
+    expect(completed.completedAt).toEqual(expect.any(String))
+    const reopened = await call('inspiration.note.setCompleted', {
+      projectId: project.id, noteId: note.id, completed: false,
+    }) as { completedAt: string | null }
+    expect(reopened.completedAt).toBeNull()
+  })
 })
 
 async function call(type: string, message: Record<string, unknown>, authMode: RpcAuthMode = 'owner'): Promise<unknown> {

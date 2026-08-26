@@ -71,6 +71,7 @@ Runtime 可见 patch 不经过 API 事件总线，而是通过 Runtime→Realtim
 | `inspiration.note.update` | `{ projectId, noteId, title?, titleMode?, sourceMarkdown, keepAttachmentPaths?, images? }` | `InspirationNote` | 更新原文并推进 revision；manual 标题保留，auto 标题随正文重算 |
 | `inspiration.note.get` | `{ projectId, noteId }` | `InspirationNote` | 读取单条灵感及当前候选任务 |
 | `inspiration.note.organize` | `{ projectId, noteId }` | `InspirationNote` | 手动推进 revision 并重新排队 |
+| `inspiration.note.setCompleted` | `{ projectId, noteId, completed }` | `InspirationNote` | 设置独立人工完成标记；queued/processing 时禁止标记完成，重新打开始终允许 |
 | `inspiration.note.delete` | `{ projectId, noteId }` | `{ deleted, noteId }` | 删除非 processing 灵感及级联候选任务 |
 | `inspiration.candidate.update` | `{ projectId, candidateId, title, descriptionMarkdown, suggestedAgentId? }` | `InspirationNote` | 修改尚未创建或占用的候选任务 |
 | `inspiration.candidate.createTask` | `{ projectId, candidateId, agentId, execute }` | `InspirationNote` | 幂等地只创建 Task 或创建并立即派发 |
