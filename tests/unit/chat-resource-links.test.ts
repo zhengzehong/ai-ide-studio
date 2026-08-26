@@ -83,4 +83,35 @@ describe('chat resource links', () => {
     expect(useDesktopFileSystemStore.getState().rootPath).toBe('D:/reports')
     expect(useDesktopFileSystemStore.getState().tree.map((entry) => entry.name)).toEqual(['inside.md'])
   })
+
+  test('propagates PC file-read failures for chat resource feedback', async () => {
+    wsMock.request.mockRejectedValueOnce(new Error('读取失败'))
+    useDesktopFileSystemStore.getState().activateProject('project-1')
+
+    await expect((useDesktopFileSystemStore.getState().openFileByPath as (
+      projectId: string,
+      filePath: string,
+      options?: { throwOnError?: boolean },
+    ) => Promise<void>)('project-1', 'D:/reports/result.md', { throwOnError: true })).rejects.toThrow('读取失败')
+  })
+
+  test('does not let an old APP directory request replace the latest root', async () => {
+    let resolveFirst: (value: unknown) => void = () => undefined
+    let resolveSecond: (value: unknown) => void = () => undefined
+    const firstRequest = new Promise((resolve) => { resolveFirst = resolve })
+    const secondRequest = new Promise((resolve) => { resolveSecond = resolve })
+    wsMock.request
+      .mockImplementationOnce(() => firstRequest)
+      .mockImplementationOnce(() => secondRequest)
+
+    const first = useFileSystemStore.getState().initTree('project-1', 'D:/first')
+    const second = useFileSystemStore.getState().initTree('project-1', 'D:/second')
+    resolveSecond([{ name: 'second.md', path: 'D:/second/second.md', type: 'file' }])
+    await second
+    resolveFirst([{ name: 'first.md', path: 'D:/first/first.md', type: 'file' }])
+    await first
+
+    expect(useFileSystemStore.getState().rootPath).toBe('D:/second')
+    expect(useFileSystemStore.getState().tree.map((entry) => entry.name)).toEqual(['second.md'])
+  })
 })

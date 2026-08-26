@@ -27,10 +27,13 @@ export const filesystemRpcHandlers: RpcHandlerMap = {
     sendResult(resource)
   },
 
-  'fs.read'(msg, { sendResult }) {
+  'fs.read'(msg, { state, sendResult }) {
     const project = projectStore.get(msg.projectId as string)
     if (!project) throw new Error('项目不存在')
-    const fileContent = readFile(project.work_dir, msg.filePath as string)
+    const filePath = typeof msg.filePath === 'string' ? msg.filePath : ''
+    const resolvedPath = resolveFileReference(project.work_dir, filePath)
+    if (resolvedPath && isAbsolute(resolvedPath) && state.authMode !== 'owner') throw new Error('无权访问绝对文件')
+    const fileContent = resolvedPath ? readFile(project.work_dir, resolvedPath) : null
     if (!fileContent) throw new Error('文件不存在或无法读取')
     sendResult(fileContent)
   },

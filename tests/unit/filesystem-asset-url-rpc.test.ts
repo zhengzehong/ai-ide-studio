@@ -87,4 +87,22 @@ describe('fs.resolveReference RPC', () => {
       sendOutOfBandError: () => undefined,
     })).rejects.toThrow('无权访问项目文件')
   })
+
+  test('rejects guest reads of absolute files', async () => {
+    const workspace = resolve(tmp, 'workspace')
+    const outside = resolve(tmp, 'outside.md')
+    mkdirSync(workspace, { recursive: true })
+    writeFileSync(outside, '# Outside')
+    const project = projectStore.create({ name: 'Read boundary', workDir: workspace })
+    const handler = filesystemRpcHandlers['fs.read']
+
+    await expect(async () => handler({
+      type: 'fs.read', projectId: project.id, filePath: outside,
+    }, {
+      state: { authMode: 'guest', subscriptions: new Set() },
+      sendResult: () => undefined,
+      sendError: () => undefined,
+      sendOutOfBandError: () => undefined,
+    })).rejects.toThrow('无权访问绝对文件')
+  })
 })

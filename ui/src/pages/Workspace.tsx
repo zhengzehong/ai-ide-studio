@@ -245,7 +245,7 @@ export default function Workspace() {
     if (!currentProjectId) throw new Error('当前会话未绑定项目')
     const resource = await resolveChatResource(currentProjectId, reference)
     if (resource.kind === 'directory') await openDirectoryByPath(currentProjectId, resource.path)
-    else await openFileByPath(currentProjectId, resource.path)
+    else await openFileByPath(currentProjectId, resource.path, { throwOnError: true })
     setSidebarTab('files')
     return resource
   }, [currentProjectId, openDirectoryByPath, openFileByPath, setSidebarTab])

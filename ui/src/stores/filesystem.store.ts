@@ -51,7 +51,7 @@ interface FileSystemStore {
   fetchTree: (projectId: string, options?: { force?: boolean }) => Promise<void>
   expandDir: (projectId: string, dirPath: string) => Promise<void>
   openDirectoryByPath: (projectId: string, dirPath: string) => Promise<void>
-  openFileByPath: (projectId: string, filePath: string) => Promise<void>
+  openFileByPath: (projectId: string, filePath: string, options?: { throwOnError?: boolean }) => Promise<void>
   closeFile: () => void
   invalidateProject: (projectId: string) => void
   clearProjectCache: (projectId: string) => void
@@ -207,7 +207,7 @@ export const useFileSystemStore = create<FileSystemStore>((set, get) => ({
     }
   },
 
-  openFileByPath: async (projectId, filePath) => {
+  openFileByPath: async (projectId, filePath, options) => {
     const requestSeq = (fileRequestSeq.get(projectId) ?? 0) + 1
     fileRequestSeq.set(projectId, requestSeq)
     if (get().activeProjectId === projectId) set({ loadingFile: true })
@@ -223,8 +223,9 @@ export const useFileSystemStore = create<FileSystemStore>((set, get) => ({
         openFile: state.activeProjectId === projectId ? data : state.openFile,
         loadingFile: state.activeProjectId === projectId ? false : state.loadingFile,
       }))
-    } catch {
+    } catch (error) {
       if (get().activeProjectId === projectId) set({ loadingFile: false })
+      if (options?.throwOnError) throw error
     }
   },
 
