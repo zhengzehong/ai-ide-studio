@@ -218,6 +218,31 @@ export interface DatabaseMaintenanceConfig {
   publishedOutboxRetentionMs?: number
 }
 
+export interface RetentionInspectInput {
+  cutoff: string
+  keepTurns: number
+}
+
+export interface RetentionBatchInput extends RetentionInspectInput {
+  batchRows: number
+}
+
+export interface RetentionInspectResult {
+  eligibleMessages: number
+  processRows: number
+  eventRows: number
+  estimatedBytes: number
+}
+
+export interface RetentionBatchResult {
+  messageId: string | null
+  resetProcessItemCount: boolean
+  deletedProcessRows: number
+  deletedEventRows: number
+  hasMore: boolean
+  elapsedMs: number
+}
+
 export interface WriteDataPort {
   commitBatch(batch: WriteBatch): Promise<WriteBatchResult>
   sessionCursor(sessionId: string): Promise<SessionWriteCursor>
@@ -225,6 +250,8 @@ export interface WriteDataPort {
   listRecoverableRuntimeCommands(input: RuntimeCommandRecoveryQuery): Promise<RuntimeCommandRecord[]>
   updateRuntimeCommand(input: RuntimeCommandUpdate): Promise<RuntimeCommandRecord>
   maintain(input: DatabaseMaintenanceInput): Promise<DatabaseMaintenanceResult>
+  inspectRetention(input: RetentionInspectInput): Promise<RetentionInspectResult>
+  runRetentionBatch(input: RetentionBatchInput): Promise<RetentionBatchResult>
   drain(): Promise<void>
   close(): Promise<void>
 }

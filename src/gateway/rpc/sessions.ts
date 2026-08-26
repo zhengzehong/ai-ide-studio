@@ -16,7 +16,7 @@ import { agentStore } from '../../store/agents.js'
 import { projectStore } from '../../store/projects.js'
 import { eventStore, messageStore, sessionStore } from '../../store/sessions.js'
 import { parseToolCallsJson, selectToolCallDetail, summarizeToolCalls } from '../../store/tool-call-history.js'
-import { buildFileChangesFromToolCalls } from '../../store/file-changes.js'
+import { buildFileChangesFromToolCalls, parseFileChangesJson } from '../../store/file-changes.js'
 import { turnProcessItemStore } from '../../store/turn-process-items.js'
 import type { FileChangeDetailData } from '../../types/ws-protocol.js'
 import type { AgentRow } from '../../store/agents.js'
@@ -106,6 +106,16 @@ function parseFileChangeDetail(raw: string | null | undefined): FileChangeDetail
       : undefined
   } catch {
     return undefined
+  }
+}
+
+function buildStoredFileChanges(raw: string | null): FileChangeDetailData | undefined {
+  const summary = parseFileChangesJson(raw)
+  if (!summary) return undefined
+  return {
+    files: summary.files.map((file) => ({ ...file, segments: [] })),
+    totalAdded: summary.totalAdded,
+    totalDeleted: summary.totalDeleted,
   }
 }
 
@@ -328,7 +338,10 @@ export const sessionRpcHandlers: RpcHandlerMap = {
       sendResult(processChanges)
       return
     }
-    sendResult(buildFileChangesFromToolCalls(parseToolCallsJson(message.tool_calls_json)))
+    sendResult(
+      buildStoredFileChanges(message.file_changes_json)
+      ?? buildFileChangesFromToolCalls(parseToolCallsJson(message.tool_calls_json)),
+    )
   },
 
   'sessions.messageProcess'(msg, { sendResult }) {

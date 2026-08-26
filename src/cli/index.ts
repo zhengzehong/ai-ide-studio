@@ -3,6 +3,7 @@ import { registerAgentCommands } from './agents.js'
 import { registerSessionCommands } from './sessions.js'
 import { registerTaskCommands } from './tasks.js'
 import { registerRuleCommands } from './rules.js'
+import { registerRetentionCommands } from './retention.js'
 
 const program = new Command()
 
@@ -15,6 +16,7 @@ registerAgentCommands(program)
 registerSessionCommands(program)
 registerTaskCommands(program)
 registerRuleCommands(program)
+registerRetentionCommands(program)
 
 program
   .command('status')

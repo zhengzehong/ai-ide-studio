@@ -1,6 +1,7 @@
 import { config as loadDotenv } from 'dotenv'
 import { resolve } from 'path'
 import { parseDataWorkerSlowMs } from '../data-worker/observability.js'
+import type { DataRetentionMode } from '../data-retention/retention-service.js'
 
 export type AppRuntime = 'web' | 'electron'
 export type DataWorkerMode = 'worker' | 'local'
@@ -18,6 +19,7 @@ export interface AppConfig {
   dataMaintenanceIntervalMs?: number
   dataWalCheckpointBytes?: number
   dataPublishedOutboxRetentionMs?: number
+  dataRetentionMode?: DataRetentionMode
   edgeMode?: EdgeMode
   edgeRealtimePath?: string
   realtimeMode?: RealtimeMode
@@ -63,6 +65,7 @@ export function loadConfig(): AppConfig {
       process.env.DATA_PUBLISHED_OUTBOX_RETENTION_MS,
       7 * 24 * 60 * 60 * 1000,
     ),
+    dataRetentionMode: parseDataRetentionMode(process.env.DATA_RETENTION_MODE),
     edgeMode: process.env.EDGE_MODE === 'disabled' ? 'disabled' : 'process',
     edgeRealtimePath: normalizePublicPath(process.env.EDGE_REALTIME_PATH),
     realtimeMode: process.env.REALTIME_MODE === 'embedded' ? 'embedded' : 'process',
@@ -115,6 +118,11 @@ function normalizePublicPath(value: string | undefined): string {
 
 function parseDataWorkerMode(value: string | undefined): DataWorkerMode {
   return value === 'local' ? 'local' : 'worker'
+}
+
+function parseDataRetentionMode(value: string | undefined): DataRetentionMode {
+  if (value === 'dry-run' || value === 'delete') return value
+  return 'off'
 }
 
 function parsePositiveInteger(value: string | undefined, fallback: number): number {

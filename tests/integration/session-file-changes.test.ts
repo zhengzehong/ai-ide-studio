@@ -88,4 +88,24 @@ describe('session file changes', () => {
     expect(JSON.stringify(changes)).toContain('src/app.ts')
     expect(JSON.stringify(changes)).not.toContain('src/read-only.ts')
   })
+
+  test('messageFileChanges falls back to the retained file summary after process cleanup', async () => {
+    const session = sessionStore.create({ agentId: 'agent-retained-summary' })
+    const message = messageStore.append(session.id, {
+      role: 'agent',
+      content: '历史最终回答',
+      fileChangesJson: JSON.stringify({
+        files: [{ path: 'src/retained.ts', changeType: 'M', addedLines: 3, deletedLines: 1 }],
+        totalAdded: 3,
+        totalDeleted: 1,
+      }),
+    })
+
+    const changes = await callRpc('sessions.messageFileChanges', {
+      sessionId: session.id,
+      messageId: message.id,
+    }) as { files: Array<{ path: string; segments: unknown[] }> }
+
+    expect(changes.files).toEqual([expect.objectContaining({ path: 'src/retained.ts', segments: [] })])
+  })
 })

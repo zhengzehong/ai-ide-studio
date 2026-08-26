@@ -52,6 +52,7 @@ import { projectSecretaryMigration } from './051-project-secretary.js'
 import { projectInspirationMigration } from './052-project-inspiration.js'
 import { inspirationAnalysisFinalizeMigration } from './053-inspiration-analysis-finalize.js'
 import { inspirationContextChatMigration } from './054-inspiration-context-chat.js'
+import { dataRetentionIndexesMigration } from './055-data-retention-indexes.js'
 import type { Migration } from '../migrator.js'
 
 export const migrations: Migration[] = [
@@ -109,4 +110,5 @@ export const migrations: Migration[] = [
   projectInspirationMigration,
   inspirationAnalysisFinalizeMigration,
   inspirationContextChatMigration,
+  dataRetentionIndexesMigration,
 ]

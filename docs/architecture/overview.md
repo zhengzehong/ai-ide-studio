@@ -172,6 +172,10 @@ API 领域 Command、工具和部分同步状态修改仍使用兼容 Store 连�
 
 Query/Writer Worker 的完成日志包含优先级、队列深度、排队时间、执行时间、总耗时和载荷字节数。`DATA_WORKER_SLOW_MS` 配置慢请求阈值，默认 100ms；达到阈值的成功请求提升为 `warn`，用于区分排队拥塞和 SQL/事务执行缓慢。
 
+历史明细保留由 `src/data-retention/` 统一调度，并且只通过 Writer Port 执行。每个 Session 永久保留 `messages` 事实和最新 15 个成功 Agent 回合的完整过程；超过 7 天且位于第 16 个及更早的成功回合，只分批删除对应 `turn_process_items` 与 `session_events`。清理工作以 Writer `background` 优先级单独成批，每批最多处理 500 行，事务内重新校验候选消息，进程中断后从永久保留的 `messages` 重新计算，不依赖清理游标或任务表。
+
+定时窗口为北京时间 02:00-06:00，服务在窗口内启动时延迟一分钟开始，持续运行的服务会在 02:00 自动触发。`DATA_RETENTION_MODE=off|dry-run|delete` 控制定时行为；本机 CLI 通过数据目录内自动生成的清理控制令牌访问管理 API，提供 dry-run、启动删除、状态查询和停止控制，令牌不会进入数据库或普通前端。清理后的历史消息仍从 `file_changes_json` 返回文件级变更摘要，但不再提供逐段 Diff、思考过程或工具详情。
+
 Writer 独占 SQLite 维护。周期任务先 drain 写调度器，只删除超过保留期且 `published_at IS NOT NULL` 的 Outbox，运行 `PRAGMA optimize`，并在 WAL 达到 64 MiB 时执行 PASSIVE checkpoint；正常停机在 Session persistence flush 后执行 TRUNCATE checkpoint。未发布 Outbox、messages 和 session_events 永不由维护任务删除。
 
 Edge、API、Realtime、Runtime 各自使用 `monitorEventLoopDelay` 和 event-loop utilization，每 30 秒记录 p50/p95/p99/max lag、RSS/heap，以及本进程的代理连接、active prompt、连接/订阅/发送队列或 Runtime actor/coalescer backlog。`EVENT_LOOP_MONITOR_INTERVAL_MS` 和 `EVENT_LOOP_WARN_THRESHOLD_MS` 控制采样周期与告警阈值。

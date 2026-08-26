@@ -6,13 +6,24 @@ const logLevel = process.env.LOG_LEVEL ?? 'debug'
 const logDir = process.env.LOG_DIR
   ? resolve(process.env.LOG_DIR)
   : resolve(process.env.DATA_DIR ?? './data', 'logs')
-mkdirSync(logDir, { recursive: true })
+const isTest = process.env.NODE_ENV === 'test'
+if (!isTest) mkdirSync(logDir, { recursive: true })
 
 const logFile = resolve(logDir, 'app.log')
 
 const isDev = process.env.NODE_ENV !== 'production'
 
-const transport = isDev
+const transport = isTest
+  ? {
+      targets: [
+        {
+          target: 'pino-pretty',
+          options: { colorize: false, translateTime: 'SYS:HH:MM:ss.l', ignore: 'pid,hostname' },
+          level: logLevel as pino.Level,
+        },
+      ],
+    }
+  : isDev
   ? {
       targets: [
         {
@@ -22,7 +33,13 @@ const transport = isDev
         },
         {
           target: 'pino-roll',
-          options: { file: logFile, frequency: 'daily', limit: { count: 14 }, mkdir: true },
+          options: {
+            file: logFile,
+            frequency: 'daily',
+            size: '100m',
+            limit: { count: 14, removeOtherLogFiles: true },
+            mkdir: true,
+          },
           level: logLevel as pino.Level,
         },
       ],
@@ -32,7 +49,13 @@ const transport = isDev
         { target: 'pino/file', options: { destination: 1 }, level: logLevel as pino.Level },
         {
           target: 'pino-roll',
-          options: { file: logFile, frequency: 'daily', limit: { count: 30 }, mkdir: true },
+          options: {
+            file: logFile,
+            frequency: 'daily',
+            size: '100m',
+            limit: { count: 14, removeOtherLogFiles: true },
+            mkdir: true,
+          },
           level: logLevel as pino.Level,
         },
       ],
