@@ -7,6 +7,10 @@ import { buildProjectSecretarySystemPrompt } from '../core/project-secretary-pro
 import { createChildLogger } from '../core/logger.js'
 import { agentStore } from '../store/agents.js'
 import { sessionStore } from '../store/sessions.js'
+import {
+  createMissingNativeSessionHistoryError,
+  isMissingNativeSessionError,
+} from '../shared/native-session-errors.js'
 import type { SessionUpdateData, TurnUsageData, SessionCapabilities, ImageAttachment } from '../types/ws-protocol.js'
 import { mapConfigOptions, mergeCapabilitiesFromConfig } from './capabilities.js'
 import { cloneClaudeSessionFiles, hasClaudeSessionFiles } from './claude-session-files.js'
@@ -335,8 +339,25 @@ export const acpHost = {
         const acpSessionIdToResume = persistedAcpSessionId ?? existingAcpSessionId
         if (acpSessionIdToResume) {
           if (showLifecycle) emitLifecycle(agentId, ourSessionId, 'lifecycle.session_resuming', '\u6b63\u5728\u6062\u590d\u4f1a\u8bdd...')
-          await acpHost.resumeSession(agentId, ourSessionId, acpSessionIdToResume, context)
-          acpSessionId = conn.acpSessions.get(ourSessionId) ?? acpSessionIdToResume
+          try {
+            await acpHost.resumeSession(agentId, ourSessionId, acpSessionIdToResume, context)
+            acpSessionId = conn.acpSessions.get(ourSessionId) ?? acpSessionIdToResume
+          } catch (err) {
+            if (!isMissingNativeSessionError(err, conn.runtime, acpSessionIdToResume)) throw err
+            if (context.canRecreateMissingSession !== true) {
+              log.error(
+                { err, agentId, ourSessionId, staleAcpSessionId: acpSessionIdToResume },
+                'Native Session history is missing; embedded automatic recreation blocked',
+              )
+              throw createMissingNativeSessionHistoryError(acpSessionIdToResume)
+            }
+            log.warn(
+              { err, runtime: conn.runtime, agentId, ourSessionId, staleAcpSessionId: acpSessionIdToResume },
+              'Recreating missing provisional native Session in embedded Runtime',
+            )
+            if (showLifecycle) emitLifecycle(agentId, ourSessionId, 'lifecycle.session_creating', '底层空会话已失效，正在重新连接...')
+            acpSessionId = await acpHost.newSession(agentId, ourSessionId, context)
+          }
         } else {
           if (showLifecycle) emitLifecycle(agentId, ourSessionId, 'lifecycle.session_creating', '\u6b63\u5728\u8fde\u63a5\u4f1a\u8bdd...')
           acpSessionId = await acpHost.newSession(agentId, ourSessionId, context)
@@ -434,6 +455,14 @@ export const acpHost = {
       await applySessionRuntimePreferences(conn, ourSessionId)
       emitRuntimePreferencesApplied(conn, ourSessionId)
       return acpSessionId
+    }
+
+    if ((conn.runtime === 'claude' || conn.runtime === 'codex') && context.canRecreateMissingSession !== true) {
+      log.error(
+        { agentId, ourSessionId, staleAcpSessionId: acpSessionId, runtime: conn.runtime },
+        'Native Session cannot be resumed; embedded automatic recreation blocked',
+      )
+      throw createMissingNativeSessionHistoryError(acpSessionId)
     }
 
     const newAcpSessionId = await acpHost.newSession(agentId, ourSessionId, context)

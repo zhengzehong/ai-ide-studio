@@ -44,6 +44,7 @@ export interface AcpSessionContext {
   projectId?: string
   cwd?: string
   emitLifecycle?: boolean
+  canRecreateMissingSession?: boolean
 }
 
 export interface PendingPermission {

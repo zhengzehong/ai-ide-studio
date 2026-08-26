@@ -5,7 +5,10 @@ import { resolveDesiredRuntimeMode } from '../../acp/runtime-mode-preference.js'
 import { resolveRuntimeModelPreference } from '../../acp/runtime-model-preference.js'
 import type { RuntimeStateSnapshot } from '../../ports/runtime-port.js'
 import { createChildLogger } from '../../shared/logger.js'
-import { isMissingNativeSessionError } from '../../shared/native-session-errors.js'
+import {
+  createMissingNativeSessionHistoryError,
+  isMissingNativeSessionError,
+} from '../../shared/native-session-errors.js'
 import type { SessionCapabilities } from '../../types/ws-protocol.js'
 
 const log = createChildLogger('sdk-session-runtime')
@@ -79,7 +82,7 @@ async function recoverMissingSession(
       { err: error, agentId: input.snapshot.agent.id, sessionId: input.snapshot.session.id, staleAcpSessionId: staleSessionId },
       'Native Session history is missing; automatic recreation blocked',
     )
-    throw new Error(`底层 Agent 会话历史已丢失，已阻止自动重建以避免丢失上下文。请新建会话继续。Session ID: ${staleSessionId}`)
+    throw createMissingNativeSessionHistoryError(staleSessionId)
   }
 
   log.warn(

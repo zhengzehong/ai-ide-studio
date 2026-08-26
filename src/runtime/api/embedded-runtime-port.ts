@@ -136,6 +136,9 @@ export class EmbeddedRuntimePort implements RuntimePort {
       projectId: snapshot.session.projectId ?? undefined,
       cwd: snapshot.session.cwd,
       ...(emitLifecycle === undefined ? {} : { emitLifecycle }),
+      ...(snapshot.session.canRecreateMissingSession === undefined
+        ? {}
+        : { canRecreateMissingSession: snapshot.session.canRecreateMissingSession }),
     }
   }
 }

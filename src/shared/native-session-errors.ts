@@ -30,3 +30,7 @@ export function isMissingNativeSessionError(error: unknown, runtime: string, ses
   const message = errorMessage(error)
   return patterns.some((pattern) => new RegExp(pattern, 'i').test(message))
 }
+
+export function createMissingNativeSessionHistoryError(sessionId: string): Error {
+  return new Error(`底层 Agent 会话历史已丢失，已阻止自动重建以避免丢失上下文。请新建会话继续。Session ID: ${sessionId}`)
+}
