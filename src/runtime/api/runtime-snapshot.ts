@@ -5,7 +5,7 @@ import { buildProjectSecretarySystemPrompt } from '../../core/project-secretary-
 import type { RuntimeStateSnapshot } from '../../ports/runtime-port.js'
 import { agentStore } from '../../store/agents.js'
 import { projectStore } from '../../store/projects.js'
-import { sessionStore } from '../../store/sessions.js'
+import { messageStore, sessionStore } from '../../store/sessions.js'
 import { teamMemberStore } from '../../store/teams.js'
 import { resolveToolsAsMcpServers } from '../../tools/resolver.js'
 import { resolveVisiblePlatformTools } from '../../tools/registry/visibility-resolver.js'
@@ -75,6 +75,10 @@ export function buildRuntimeStateSnapshot(input: BuildRuntimeStateSnapshotInput)
       cwd: input.cwd ?? (project?.work_dir || process.cwd()),
       title: session.title,
       acpSessionId: session.acp_session_id,
+      canRecreateMissingSession: !messageStore.hasMaterializedAgentHistory(session.id, {
+        runtime: agent.runtime,
+        sessionId: session.acp_session_id,
+      }),
       isPrimary: session.is_primary === 1,
       purpose: session.purpose,
     },

@@ -155,6 +155,23 @@ describe('SDK Runtime child lifecycle', () => {
     expect(harness.newSession).toHaveBeenCalledOnce()
   })
 
+  test('deduplicates concurrent recovery of one missing provisional Session', async () => {
+    const harness = runtimeHarness({ resumeError: new Error('Resource not found: acp-stale') })
+    const recovering = snapshot('session-a')
+    recovering.session.acpSessionId = 'acp-stale'
+    recovering.session.canRecreateMissingSession = true
+
+    const [first, second] = await Promise.all([
+      harness.host.ensureSession(recovering),
+      harness.host.ensureSession(recovering),
+    ])
+
+    expect(first).toBe('acp-created')
+    expect(second).toBe('acp-created')
+    expect(harness.resumeSession).toHaveBeenCalledOnce()
+    expect(harness.newSession).toHaveBeenCalledOnce()
+  })
+
   test('reuses an unchanged Session context and reconnects when the context changes', async () => {
     const harness = runtimeHarness()
     const initial = snapshot('session-a')
@@ -418,6 +435,7 @@ function runtimeHarness(overrides: {
   initialConfigOptions?: acp.SessionConfigOption[]
   cloneClaudeSessionFiles?: () => Promise<unknown>
   hasClaudeSessionFiles?: () => Promise<boolean>
+  resumeError?: Error
 } = {}) {
   const processes: EventEmitter[] = []
   const routers: AcpRuntimeClientRouter[] = []
@@ -428,7 +446,10 @@ function runtimeHarness(overrides: {
     sessionId: 'acp-created',
     configOptions: overrides.initialConfigOptions,
   }))
-  const resumeSession = vi.fn(async () => ({}))
+  const resumeSession = vi.fn(async () => {
+    if (overrides.resumeError) throw overrides.resumeError
+    return {}
+  })
   const publishUpdate = vi.fn()
   const publishCapabilities = vi.fn()
   const publishDone = vi.fn(async () => undefined)

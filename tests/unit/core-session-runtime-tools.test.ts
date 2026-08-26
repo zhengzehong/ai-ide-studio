@@ -56,7 +56,7 @@ describe('core Session Runtime tools', () => {
 
     expect(runtime.port.ensureSession).toHaveBeenCalledOnce()
     expect(runtime.port.prompt).not.toHaveBeenCalled()
-    expect(sessionStore.get(fixture.session.id)?.acp_session_id).toBe(`acp-${fixture.session.id}`)
+    expect(sessionStore.get(fixture.session.id)?.acp_session_id).toBeNull()
     expect(result).toMatchObject({
       sessionId: fixture.session.id,
       runtimeReady: true,
@@ -66,6 +66,21 @@ describe('core Session Runtime tools', () => {
         { modelId: 'model-b', name: 'Model B' },
       ],
     })
+  })
+
+  test('clears a stale persisted ACP mapping when capabilities recreates an empty Session', async () => {
+    const fixture = createFixture()
+    sessionStore.updateAcpSessionId(fixture.session.id, 'acp-stale')
+    const runtime = createRuntimeHarness()
+    restoreRuntimePort = setRuntimePort(runtime.port)
+
+    await getSessionCapabilitiesHandler.execute(
+      { sessionId: fixture.session.id },
+      { projectId: fixture.project.id },
+    )
+
+    expect(sessionStore.get(fixture.session.id)?.acp_session_id).toBeNull()
+    expect(runtime.port.ensureSession).toHaveBeenCalledOnce()
   })
 
   test('configure persists only values confirmed by the Runtime', async () => {
@@ -89,6 +104,7 @@ describe('core Session Runtime tools', () => {
       modeId: 'plan',
       config: { effort: 'max', notifications: true },
     })
+    expect(sessionStore.get(fixture.session.id)?.acp_session_id).toBeNull()
     expect(result).toMatchObject({
       requested: {
         modelId: 'model-b',
