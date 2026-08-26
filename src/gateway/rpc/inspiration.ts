@@ -7,6 +7,7 @@ import {
   getProjectInspiration,
   organizeInspirationNote,
   rebuildProjectInspirationSession,
+  setInspirationNoteCompleted,
   updateInspirationCandidate,
   updateInspirationNote,
 } from '../../core/project-inspiration.js'
@@ -69,6 +70,15 @@ export const inspirationRpcHandlers: RpcHandlerMap = {
   'inspiration.note.organize'(msg, { sendResult, state }) {
     requireOwner(state.authMode)
     sendResult(organizeInspirationNote(requiredText(msg.projectId, 'projectId'), requiredText(msg.noteId, 'noteId')))
+  },
+
+  'inspiration.note.setCompleted'(msg, { sendResult, state }) {
+    requireOwner(state.authMode)
+    sendResult(setInspirationNoteCompleted(
+      requiredText(msg.projectId, 'projectId'),
+      requiredText(msg.noteId, 'noteId'),
+      requiredBoolean(msg.completed, 'completed'),
+    ))
   },
 
   'inspiration.note.delete'(msg, { sendResult, state }) {

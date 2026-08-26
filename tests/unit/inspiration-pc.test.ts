@@ -6,6 +6,7 @@ import { createElement } from 'react'
 import { InspirationResult } from '../../ui/src/pages/inspiration/InspirationResult.js'
 import { CandidateTaskDialog } from '../../ui/src/pages/inspiration/CandidateTaskDialog.js'
 import { InspirationSettingsDialog } from '../../ui/src/pages/inspiration/InspirationSettingsDialog.js'
+import { InspirationList } from '../../ui/src/pages/inspiration/InspirationList.js'
 import type { InspirationCandidate, InspirationConfig, InspirationNote } from '../../ui/src/stores/inspiration.store.js'
 import type { AgentData } from '../../ui/src/stores/agent.store.js'
 
@@ -75,6 +76,36 @@ describe('PC inspiration workbench', () => {
     expect(page).toContain('openSession(config.sessionId, activeDiscussionNoteId)')
     expect(page).toContain("activeDiscussionNoteId ? '讨论当前灵感' : '灵感会话'")
     expect(page).toContain('inspirationNoteId')
+    expect(page).toContain("useState<InspirationFilter>('active')")
+    expect(page).toContain("selected.completedAt ? '重新打开' : '标记完成'")
+  })
+
+  test('filters active and completed notes with a visible row completion action', () => {
+    const active = noteFixture()
+    const completed = { ...noteFixture(), id: 'note-2', title: '已经完成的灵感', completedAt: '2026-08-25T00:00:00.000Z' }
+    const common = {
+      notes: [active, completed], selectedId: active.id, query: '', completionBusyId: null,
+      onQueryChange: () => undefined, onFilterChange: () => undefined, onSelect: () => undefined,
+      onEdit: () => undefined, onSetCompleted: () => undefined, onCreate: () => undefined,
+    }
+    const activeHtml = renderToStaticMarkup(createElement(InspirationList, { ...common, filter: 'active' }))
+    const completedHtml = renderToStaticMarkup(createElement(InspirationList, { ...common, filter: 'completed' }))
+
+    expect(activeHtml).toContain('进行中 · 1')
+    expect(activeHtml).toContain('aria-label="标记灵感完成"')
+    expect(activeHtml).not.toContain('已经完成的灵感')
+    expect(completedHtml).toContain('已经完成的灵感')
+    expect(completedHtml).toContain('aria-label="重新打开灵感"')
+    expect(completedHtml).toContain('已完成')
+  })
+
+  test('keeps newly reopened work visible in the active filter', () => {
+    const page = readFileSync(resolve('ui/src/pages/Inspiration.tsx'), 'utf8')
+
+    expect(page).toMatch(/const createNote = \(\): void => \{\s+setFilter\('active'\)/)
+    expect(page).toContain("if (notes.find((note) => note.id === noteId)?.completedAt) setFilter('active')")
+    expect(page).toMatch(/const retrySelected = \(\): void => \{[\s\S]+setFilter\('active'\)[\s\S]+organize\(selected\.id\)/)
+    expect(page).toContain('onRetry={retrySelected}')
   })
 })
 
@@ -95,6 +126,7 @@ function noteFixture(): InspirationNote {
     createdAt: '2026-08-24T00:00:00.000Z',
     updatedAt: '2026-08-24T00:01:00.000Z',
     organizedAt: '2026-08-24T00:01:00.000Z',
+    completedAt: null,
     candidates: [candidateFixture()],
   }
 }

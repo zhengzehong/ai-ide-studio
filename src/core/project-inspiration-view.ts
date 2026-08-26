@@ -33,6 +33,7 @@ export interface InspirationNoteData {
   createdAt: string
   updatedAt: string
   organizedAt: string | null
+  completedAt: string | null
   candidates: InspirationCandidateData[]
 }
 
@@ -59,6 +60,7 @@ export function buildInspirationNoteData(row: InspirationNoteRow): InspirationNo
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     organizedAt: row.organized_at,
+    completedAt: row.completed_at,
     candidates,
   }
 }

@@ -171,6 +171,19 @@ export function getInspirationNote(projectId: string, noteId: string): Inspirati
   return buildInspirationNoteData(requireNote(projectId, noteId))
 }
 
+export function setInspirationNoteCompleted(
+  projectId: string,
+  noteId: string,
+  completed: boolean,
+): InspirationNoteData {
+  const note = requireNote(projectId, noteId)
+  const updated = inspirationNoteStore.setCompleted(note.id, completed)
+  if (!updated) throw new Error('灵感不存在')
+  emitUpdate(projectId, note.id)
+  log.info({ projectId, noteId, completed }, completed ? '项目灵感已标记完成' : '项目灵感已重新打开')
+  return buildInspirationNoteData(updated)
+}
+
 export function deleteInspirationNote(projectId: string, noteId: string): void {
   const note = requireNote(projectId, noteId)
   if (note.status === 'processing') throw new Error('灵感正在整理，暂时不能删除')

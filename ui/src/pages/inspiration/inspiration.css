@@ -107,6 +107,11 @@
   background: var(--bg-2);
   border-color: var(--border-strong);
 }
+.inspiration-secondary.is-completed {
+  color: #137047;
+  border-color: #8bcbae;
+  background: #effaf4;
+}
 .inspiration-primary:disabled,
 .inspiration-secondary:disabled {
   cursor: not-allowed;
@@ -147,8 +152,38 @@
 .inspiration-list-tools {
   padding: 10px 12px;
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   border-bottom: 1px solid var(--border);
+}
+.inspiration-filter {
+  width: 100%;
+  height: 30px;
+  padding: 3px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 3px;
+  border-radius: 6px;
+  background: var(--bg-2);
+}
+.inspiration-filter button {
+  min-width: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 11px;
+  cursor: pointer;
+}
+.inspiration-filter button span {
+  margin-left: 3px;
+  font-variant-numeric: tabular-nums;
+}
+.inspiration-filter button.is-active {
+  background: var(--bg-0);
+  color: var(--text-1);
+  font-weight: 700;
+  box-shadow: 0 1px 3px rgba(20, 45, 40, 0.09);
 }
 .inspiration-search {
   height: 34px;
@@ -185,11 +220,17 @@
 }
 .inspiration-row {
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr) 29px;
+  grid-template-columns: 42px minmax(0, 1fr) 62px;
   gap: 8px;
   padding: 10px 8px;
   border: 1px solid transparent;
   border-radius: 7px;
+}
+.inspiration-row.is-completed:not(.is-active) {
+  background: color-mix(in srgb, #effaf4 65%, var(--bg-0));
+}
+.inspiration-row.is-completed .inspiration-row-body > strong {
+  color: var(--text-2);
 }
 .inspiration-row:hover {
   background: var(--bg-1);
@@ -286,12 +327,46 @@
 .inspiration-state.is-failed i {
   background: var(--inspiration-red);
 }
+.inspiration-row-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+}
+.inspiration-completion-toggle {
+  min-height: 28px;
+  padding: 0 4px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-3);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  font-size: 10px;
+  cursor: pointer;
+}
+.inspiration-completion-toggle:hover {
+  color: #137047;
+  border-color: #a9d8c1;
+  background: #effaf4;
+}
+.inspiration-completion-toggle.is-completed {
+  color: #137047;
+  font-weight: 700;
+}
+.inspiration-completion-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
 .inspiration-row .inspiration-icon-button {
   width: 28px;
   height: 28px;
   min-height: 28px;
   border-color: transparent;
   background: transparent;
+  align-self: center;
 }
 .inspiration-empty-list {
   padding: 44px 14px;

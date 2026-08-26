@@ -2,6 +2,11 @@ import { randomUUID } from 'node:crypto'
 import type { InspirationTitleMode } from '../shared/inspiration-title.js'
 import { getDb } from './db.js'
 import {
+  parseCompleteInspirationDraft,
+  readInspirationDraft,
+  type InspirationAnalysisDraft,
+} from './inspiration-analysis-draft.js'
+import {
   inspirationCandidateStore,
   type CreateCandidateInput,
   type InspirationCandidateRow,
@@ -32,14 +37,7 @@ export interface InspirationNoteRow {
   analysis_attempt_id: string | null
   analysis_attempt_kind: 'organize' | 'discussion' | null
   analysis_draft_json: string | null
-}
-
-interface InspirationAnalysisDraft {
-  expectedRevision: number
-  summary?: string
-  bodyMarkdown?: string
-  questions?: string[]
-  candidates?: CreateCandidateInput[]
+  completed_at: string | null
 }
 
 export const inspirationNoteStore = {
@@ -72,18 +70,19 @@ export const inspirationNoteStore = {
       analysis_attempt_id: null,
       analysis_attempt_kind: null,
       analysis_draft_json: null,
+      completed_at: null,
     }
     getDb().prepare(`
       INSERT INTO inspiration_notes (
         id, project_id, title, title_mode, source_markdown, attachments_json, status,
         analysis_revision, summary, body_markdown, questions_json, last_error,
         created_at, updated_at, organized_at, analysis_attempt_id,
-        analysis_attempt_kind, analysis_draft_json
+        analysis_attempt_kind, analysis_draft_json, completed_at
       ) VALUES (
         @id, @project_id, @title, @title_mode, @source_markdown, @attachments_json, @status,
         @analysis_revision, @summary, @body_markdown, @questions_json, @last_error,
         @created_at, @updated_at, @organized_at, @analysis_attempt_id,
-        @analysis_attempt_kind, @analysis_draft_json
+        @analysis_attempt_kind, @analysis_draft_json, @completed_at
       )
     `).run(row)
     return row
@@ -119,7 +118,8 @@ export const inspirationNoteStore = {
       SET title = ?, title_mode = ?, source_markdown = ?, attachments_json = ?, status = ?,
           analysis_revision = ?, summary = '', body_markdown = '', questions_json = '[]',
           last_error = NULL, organized_at = NULL, analysis_attempt_id = NULL,
-          analysis_attempt_kind = NULL, analysis_draft_json = NULL, updated_at = ?
+          analysis_attempt_kind = NULL, analysis_draft_json = NULL,
+          completed_at = NULL, updated_at = ?
       WHERE id = ?
     `).run(
       input.title,
@@ -142,7 +142,8 @@ export const inspirationNoteStore = {
       SET status = 'queued', analysis_revision = analysis_revision + 1,
           summary = '', body_markdown = '', questions_json = '[]', last_error = NULL,
           organized_at = NULL, analysis_attempt_id = NULL,
-          analysis_attempt_kind = NULL, analysis_draft_json = NULL, updated_at = ?
+          analysis_attempt_kind = NULL, analysis_draft_json = NULL,
+          completed_at = NULL, updated_at = ?
       WHERE id = ?
     `).run(new Date().toISOString(), id)
     return this.get(id)
@@ -167,6 +168,21 @@ export const inspirationNoteStore = {
       `).run(attemptId, JSON.stringify({ expectedRevision: row.analysis_revision }), new Date().toISOString(), row.id)
       return result.changes === 1 ? this.get(row.id) : undefined
     })()
+  },
+
+  setCompleted(id: string, completed: boolean): InspirationNoteRow | undefined {
+    const current = this.get(id)
+    if (!current) return undefined
+    if (completed && (current.status === 'queued' || current.status === 'processing')) {
+      throw new Error('灵感正在整理，完成后才能标记')
+    }
+    const now = new Date().toISOString()
+    const result = getDb().prepare(`
+      UPDATE inspiration_notes
+      SET completed_at = ?, updated_at = ?
+      WHERE id = ?
+    `).run(completed ? now : null, now, id)
+    return result.changes === 1 ? this.get(id) : undefined
   },
 
   beginDiscussion(id: string, expectedRevision: number): InspirationNoteRow | undefined {
@@ -269,7 +285,7 @@ export const inspirationNoteStore = {
       if (!current.analysis_attempt_id || (!activeOrganize && !activeDiscussion)) {
         return { staged: false, reason: 'ANALYSIS_ATTEMPT_CONFLICT', note: current, candidates: [] }
       }
-      const draft = readDraft(current.analysis_draft_json, expectedRevision)
+      const draft = readInspirationDraft(current.analysis_draft_json, expectedRevision)
       if (!draft) return { staged: false, reason: 'ANALYSIS_ATTEMPT_CONFLICT', note: current, candidates: [] }
       const next: InspirationAnalysisDraft = {
         expectedRevision,
@@ -297,7 +313,7 @@ export const inspirationNoteStore = {
       const activeDiscussion = (current.status === 'ready' || current.status === 'needs_input')
         && current.analysis_attempt_kind === 'discussion'
       if (!activeOrganize && !activeDiscussion) return false
-      const draft = parseCompleteDraft(current.analysis_draft_json, expectedRevision)
+      const draft = parseCompleteInspirationDraft(current.analysis_draft_json, expectedRevision)
       if (!draft) return false
       const targetRevision = current.analysis_attempt_kind === 'discussion'
         ? expectedRevision + 1
@@ -307,7 +323,8 @@ export const inspirationNoteStore = {
         UPDATE inspiration_notes
         SET status = 'ready', analysis_revision = ?, summary = ?, body_markdown = ?,
             questions_json = ?, analysis_attempt_id = NULL, analysis_attempt_kind = NULL,
-            analysis_draft_json = NULL, last_error = NULL, organized_at = ?, updated_at = ?
+            analysis_draft_json = NULL, completed_at = NULL,
+            last_error = NULL, organized_at = ?, updated_at = ?
         WHERE id = ? AND analysis_attempt_id = ?
       `).run(
         targetRevision,
@@ -337,59 +354,4 @@ export const inspirationNoteStore = {
       WHERE id = ? AND analysis_attempt_id = ? AND analysis_attempt_kind = 'discussion'
     `).run(new Date().toISOString(), id, attemptId).changes === 1
   },
-}
-
-function readDraft(value: string | null, expectedRevision: number): InspirationAnalysisDraft | null {
-  if (!value) return null
-  try {
-    const draft = JSON.parse(value) as unknown
-    if (!draft || typeof draft !== 'object' || Array.isArray(draft)) return null
-    const row = draft as Record<string, unknown>
-    return row.expectedRevision === expectedRevision ? { expectedRevision } : null
-  } catch {
-    return null
-  }
-}
-
-function parseCompleteDraft(value: string | null, expectedRevision: number): Required<Pick<InspirationAnalysisDraft, 'summary' | 'bodyMarkdown' | 'questions' | 'candidates'>> | null {
-  if (!value) return null
-  try {
-    const row = JSON.parse(value) as Record<string, unknown>
-    if (row.expectedRevision !== expectedRevision
-      || typeof row.summary !== 'string' || row.summary.trim().length < 8
-      || typeof row.bodyMarkdown !== 'string' || row.bodyMarkdown.trim().length < 80
-      || !Array.isArray(row.questions) || !Array.isArray(row.candidates)) return null
-    return {
-      summary: row.summary,
-      bodyMarkdown: row.bodyMarkdown,
-      questions: parseQuestions(row.questions),
-      candidates: parseCandidates(row.candidates),
-    }
-  } catch {
-    return null
-  }
-}
-
-function parseQuestions(value: unknown[]): string[] {
-  if (!value.every((item) => typeof item === 'string')) throw new Error('Invalid inspiration questions draft')
-  return value
-}
-
-function parseCandidates(value: unknown[]): CreateCandidateInput[] {
-  return value.map((item) => {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) throw new Error('Invalid inspiration candidate draft')
-    const row = item as Record<string, unknown>
-    if (typeof row.title !== 'string' || !row.title.trim()
-      || typeof row.descriptionMarkdown !== 'string' || !row.descriptionMarkdown.trim()
-      || (row.suggestedAgentId != null && typeof row.suggestedAgentId !== 'string')
-      || (row.agentReason != null && typeof row.agentReason !== 'string')) {
-      throw new Error('Invalid inspiration candidate draft')
-    }
-    return {
-      title: row.title,
-      descriptionMarkdown: row.descriptionMarkdown,
-      suggestedAgentId: row.suggestedAgentId as string | null | undefined,
-      agentReason: row.agentReason as string | undefined,
-    }
-  })
 }

@@ -44,6 +44,7 @@ export interface InspirationNote {
   createdAt: string
   updatedAt: string
   organizedAt: string | null
+  completedAt: string | null
   candidates: InspirationCandidate[]
 }
 
@@ -73,6 +74,7 @@ interface InspirationState {
   }) => Promise<InspirationNote>
   removeNote: (noteId: string) => Promise<void>
   organize: (noteId: string) => Promise<void>
+  setCompleted: (noteId: string, completed: boolean) => Promise<InspirationNote>
   configure: (input: { organizerAgentId: string; organizationPrompt: string; autoOrganize: boolean }) => Promise<void>
   rebuildSession: (organizerAgentId: string) => Promise<void>
   updateCandidate: (candidateId: string, input: { title: string; descriptionMarkdown: string; suggestedAgentId: string | null }) => Promise<void>
@@ -146,6 +148,15 @@ export const useInspirationStore = create<InspirationState>((set, get) => ({
     const projectId = requireProject(get().projectId)
     const note = await wsClient.request({ type: 'inspiration.note.organize', projectId, noteId }) as InspirationNote
     patchNote(set, note)
+  },
+
+  setCompleted: async (noteId, completed) => {
+    const projectId = requireProject(get().projectId)
+    const note = await wsClient.request({
+      type: 'inspiration.note.setCompleted', projectId, noteId, completed,
+    }) as InspirationNote
+    patchNote(set, note)
+    return note
   },
 
   configure: async (input) => {
