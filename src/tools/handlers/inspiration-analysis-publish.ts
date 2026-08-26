@@ -13,7 +13,6 @@ export const inspirationAnalysisPublishHandler: ToolHandler = {
     properties: {
       noteId: { type: 'string', description: '提示中提供的灵感 ID' },
       expectedRevision: { type: 'integer', minimum: 1, description: '提示中提供的分析版本' },
-      analysisAttemptId: { type: 'string', description: '提示中提供的本轮分析 ID，必须原样传入' },
       summary: { type: 'string', minLength: 8, description: '左侧列表显示的真实结论，至少 8 个字符，禁止占位内容' },
       bodyMarkdown: { type: 'string', minLength: 80, description: '完整 Markdown 整理结果，至少 80 个字符，禁止占位内容' },
       questions: {
@@ -36,13 +35,12 @@ export const inspirationAnalysisPublishHandler: ToolHandler = {
         },
       },
     },
-    required: ['noteId', 'expectedRevision', 'analysisAttemptId', 'summary', 'bodyMarkdown', 'questions', 'candidates'],
+    required: ['noteId', 'expectedRevision', 'summary', 'bodyMarkdown', 'questions', 'candidates'],
   },
   async execute(input: ToolHandlerInput, context: ToolContext): Promise<ToolHandlerResult> {
     try {
       const noteId = requiredText(input.noteId, 'noteId', 120)
       const expectedRevision = integer(input.expectedRevision, 'expectedRevision', 1, Number.MAX_SAFE_INTEGER)
-      const analysisAttemptId = requiredText(input.analysisAttemptId, 'analysisAttemptId', 120)
       const summary = requiredText(input.summary, 'summary', 1_000, 8)
       const bodyMarkdown = requiredText(input.bodyMarkdown, 'bodyMarkdown', 50_000, 80)
       const questions = textArray(input.questions, 'questions', MAX_QUESTIONS, 500)
@@ -50,7 +48,6 @@ export const inspirationAnalysisPublishHandler: ToolHandler = {
       const result = publishInspirationAnalysis(context, {
         noteId,
         expectedRevision,
-        analysisAttemptId,
         summary,
         bodyMarkdown,
         questions,

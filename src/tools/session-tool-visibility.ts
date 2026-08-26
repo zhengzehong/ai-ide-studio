@@ -9,7 +9,7 @@ const SECRETARY_MANAGEMENT_TOOLS = new Set([
   'studio.secretary.update',
   'studio.secretary.delete',
 ])
-const INSPIRATION_SESSION_TOOL = 'inspiration.analysis.publish'
+const INSPIRATION_SESSION_TOOLS = new Set(['inspiration.analysis.publish', 'inspiration.note.get'])
 const INSPIRATION_BLOCKED_TOOLS = new Set([
   'create_task',
   'create_schedule',
@@ -27,7 +27,7 @@ const INSPIRATION_BLOCKED_TOOLS = new Set([
 ])
 
 export function isToolVisibleForSession(toolName: string, sessionId?: string): boolean {
-  if (toolName === INSPIRATION_SESSION_TOOL) {
+  if (INSPIRATION_SESSION_TOOLS.has(toolName)) {
     return !!sessionId && !!projectInspirationStore.findBySession(sessionId)
   }
   if (sessionId && projectInspirationStore.findBySession(sessionId) && INSPIRATION_BLOCKED_TOOLS.has(toolName)) {

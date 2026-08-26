@@ -1,4 +1,4 @@
-import { Bot, CircleAlert, CircleCheck, CircleDashed, ExternalLink, Pencil, Play, RefreshCw } from 'lucide-react'
+import { Bot, CircleAlert, CircleCheck, CircleDashed, ExternalLink, MessageSquare, Pencil, Play, RefreshCw } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { MarkdownRenderer } from '../../components/MarkdownRenderer'
 import type { InspirationCandidate, InspirationNote } from '../../stores/inspiration.store'
@@ -11,9 +11,10 @@ interface InspirationResultProps {
   onCandidateAction: (candidate: InspirationCandidate, action: CandidateAction) => void
   onOpenTask: (taskId: string) => void
   onOpenSession: (sessionId: string) => void
+  onDiscuss: () => void
 }
 
-export function InspirationResult({ note, onEdit, onRetry, onCandidateAction, onOpenTask, onOpenSession }: InspirationResultProps) {
+export function InspirationResult({ note, onEdit, onRetry, onCandidateAction, onOpenTask, onOpenSession, onDiscuss }: InspirationResultProps) {
   if (note.status === 'queued' || note.status === 'processing') {
     return <ResultState icon={<RefreshCw size={20} className="inspiration-spin" />} title={note.status === 'queued' ? '等待整理' : 'AI 正在整理'} detail="原始记录已经保存。完成后会自动更新摘要、Markdown 方案和候选任务。" />
   }
@@ -28,7 +29,7 @@ export function InspirationResult({ note, onEdit, onRetry, onCandidateAction, on
     <article className="inspiration-result">
       <div className="inspiration-result-kicker">AI 整理结果</div>
       <h1>{note.title}</h1>
-      <div className="inspiration-result-meta">版本 {note.analysisRevision} · {formatTime(note.organizedAt || note.updatedAt)}</div>
+      <div className="inspiration-result-meta">版本 {note.analysisRevision} · {formatTime(note.organizedAt || note.updatedAt)} <button type="button" className="inspiration-secondary compact" onClick={onDiscuss}><MessageSquare size={13} />继续讨论</button></div>
       <blockquote>{note.summary}</blockquote>
       <MarkdownRenderer content={note.bodyMarkdown} />
       {note.questions.length > 0 && <section className="inspiration-questions"><h2>执行前需要确认</h2><ul>{note.questions.map((question) => <li key={question}>{question}</li>)}</ul></section>}

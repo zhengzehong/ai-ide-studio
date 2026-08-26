@@ -129,7 +129,7 @@ describe('tool visibility resolver', () => {
       .not.toContain('studio.secretary.create')
   })
 
-  test('exposes only the publish tool and blocks task mutation inside the inspiration Session', () => {
+  test('exposes only inspiration tools and blocks task mutation inside the inspiration Session', () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const agent = agentStore.create({ type: 'pm', name: 'A', runtime: 'mock', projectId: project.id })
     seedBuiltinTools()
@@ -144,9 +144,11 @@ describe('tool visibility resolver', () => {
     }).map((tool) => tool.definition.name)
 
     expect(names(inspiration.id)).toContain('inspiration.analysis.publish')
+    expect(names(inspiration.id)).toContain('inspiration.note.get')
     expect(names(inspiration.id)).not.toContain('studio.task.createSimple')
     expect(names(inspiration.id)).not.toContain('studio.task.create')
     expect(names(conversation.id)).not.toContain('inspiration.analysis.publish')
+    expect(names(conversation.id)).not.toContain('inspiration.note.get')
     expect(resolveToolsForSession(agent.id, project.id, inspiration.id).map((tool) => tool.definition.name))
       .toContain('inspiration.analysis.publish')
   })

@@ -17,7 +17,7 @@ export interface BrowserImageInput extends Omit<BrowserCommandImage, 'data'> {
 }
 
 export type BrowserSessionCommand =
-  | { commandId: string; type: 'prompt'; sessionId: string; clientMessageId: string; content: string; contextProjectId?: string; images?: BrowserCommandImage[] }
+  | { commandId: string; type: 'prompt'; sessionId: string; clientMessageId: string; content: string; contextProjectId?: string; inspirationNoteId?: string; images?: BrowserCommandImage[] }
   | { commandId: string; type: 'session.cancel'; sessionId: string }
   | { commandId: string; type: 'sessions.markRead'; sessionId: string }
   | { commandId: string; type: 'permission.respond'; sessionId: string; permissionRequestId: string; optionId?: string; cancelled?: boolean }
@@ -143,6 +143,7 @@ function legacyFrame(command: BrowserSessionCommand): Record<string, unknown> {
         clientMessageId: command.clientMessageId,
         content: command.content,
         contextProjectId: command.contextProjectId,
+        inspirationNoteId: command.inspirationNoteId,
         images: command.images,
       })
     case 'session.cancel':
