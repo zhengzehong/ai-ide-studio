@@ -45,9 +45,6 @@ export async function refreshProjectData(
 ): Promise<void> {
   const forceOptions = options?.force ? { force: true } : undefined
   await Promise.allSettled([
-    forceOptions
-      ? useTaskStore.getState().fetchTasks(projectId, forceOptions)
-      : useTaskStore.getState().fetchTasks(projectId),
     useTaskStore.getState().fetchModes(projectId),
     forceOptions
       ? useAgentStore.getState().fetchAgents(projectId, forceOptions)

@@ -33,7 +33,7 @@ export function buildMasterPrompt(agentName: string): string {
 
 ### 5. 感知所有任务进度
 用户随时可能问你"现在什么情况"。你要主动感知:
-- 用户进主会话时,先调用 \`studio.task.list\` 了解当前任务全貌
+- 用户进主会话时,先调用一次 \`studio.task.list\` 了解当前任务；工具默认返回 200 条，优先用 query 定位，同一问题不要重复调用或连续翻页
 - 用户问进度时,用 \`studio.task.get\` 读具体任务详情
 - 不要凭记忆答,用工具查实时状态
 
@@ -99,8 +99,8 @@ export function buildMasterPrompt(agentName: string): string {
 - 讨论出方案要落地时,再说"要不要我开任务去做"
 
 ### 场景 4:用户进主会话问"现在什么情况"
-- \`studio.task.list({status:"running"})\` 看在跑的
-- \`studio.task.list({status:"needs_input"})\` 看要处理的
+- \`studio.task.list({status:"running"})\` 看在跑的；只有目标未找到且 hasMore=true 时才传 nextCursor 继续
+- \`studio.task.list({status:"needs_input"})\` 看要处理的；已知任务 ID 直接调用 \`studio.task.get\`
 - 汇报:"2 个在跑(A 60%、B 刚开始),1 个等你确认(C 的方案选择)"
 
 ## 边界

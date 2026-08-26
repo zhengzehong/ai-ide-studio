@@ -137,15 +137,40 @@ interface TaskListProps {
   tasks: TaskData[]
   agents: AgentData[]
   currentSessionTaskId: string | null
-  onOpenTask: (taskId: string) => void
-  onOpenReportModal: (taskId: string) => void
+  hasMore: boolean
+  loading: boolean
+  error: string | null
+  onOpenTask: (task: TaskData) => void
+  onOpenReportModal: (task: TaskData) => void
   onJumpToSession: (task: TaskData) => void
+  onLoadMore: () => void
+  onRetry: () => void
 }
 
-export function TaskList({ tasks, agents, currentSessionTaskId, onOpenTask, onOpenReportModal, onJumpToSession }: TaskListProps) {
+export function TaskList({
+  tasks,
+  agents,
+  currentSessionTaskId,
+  hasMore,
+  loading,
+  error,
+  onOpenTask,
+  onOpenReportModal,
+  onJumpToSession,
+  onLoadMore,
+  onRetry,
+}: TaskListProps) {
   const agentMap = new Map(agents.map(a => [a.id, a]))
   return (
-    <div style={{ flex: 1, overflowY: 'auto', padding: '6px 12px 12px' }}>
+    <div
+      style={{ flex: 1, overflowY: 'auto', padding: '6px 12px 12px' }}
+      onScroll={(event) => {
+        const element = event.currentTarget
+        if (hasMore && !loading && element.scrollTop + element.clientHeight >= element.scrollHeight - 80) {
+          onLoadMore()
+        }
+      }}
+    >
       {tasks.length === 0 ? null : (
         tasks.map(task => (
           <TaskRow
@@ -153,11 +178,21 @@ export function TaskList({ tasks, agents, currentSessionTaskId, onOpenTask, onOp
             task={task}
             agent={task.assigned_agent_id ? agentMap.get(task.assigned_agent_id) : undefined}
             isCurrent={task.id === currentSessionTaskId}
-            onOpenTask={() => onOpenTask(task.id)}
-            onOpenReportModal={() => onOpenReportModal(task.id)}
+            onOpenTask={() => onOpenTask(task)}
+            onOpenReportModal={() => onOpenReportModal(task)}
             onJumpToSession={() => onJumpToSession(task)}
           />
         ))
+      )}
+      {loading && <div aria-label="正在加载任务" style={{ height: 32, textAlign: 'center', color: 'var(--text-3)', fontSize: 12, paddingTop: 8 }}>加载中...</div>}
+      {error && (
+        <button
+          type="button"
+          onClick={onRetry}
+          style={{ width: '100%', border: 'none', background: 'transparent', color: 'var(--red)', padding: 8, cursor: 'pointer' }}
+        >
+          {error}，点击重试
+        </button>
       )}
     </div>
   )

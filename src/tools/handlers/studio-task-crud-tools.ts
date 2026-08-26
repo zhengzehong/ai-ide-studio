@@ -6,6 +6,7 @@ import { emitTaskLifecycleEvent, taskManager } from '../../core/tasks.js'
 import { createSimpleTask } from '../../core/task-simple.js'
 import { events } from '../../core/events.js'
 import { createChildLogger } from '../../core/logger.js'
+import { InvalidTaskCursorError, listTaskPageRows } from '../../store/task-page.js'
 
 const log = createChildLogger('studio-task-tools')
 
@@ -138,30 +139,60 @@ export const studioTaskCreateSimpleHandler: ToolHandler = {
 
 export const studioTaskListHandler: ToolHandler = {
   name: 'studio.task.list',
-  description: '查看当前 AI IDE Studio 项目中的任务列表。可按状态过滤。',
+  description: '分页查看当前项目任务。默认返回 200 条精简摘要；同一问题通常只调用一次，优先用 query 查标题或任务 ID，仅在目标未找到且 hasMore=true 时传 nextCursor 继续。',
   inputSchema: {
     type: 'object',
     properties: {
-      projectId: { type: 'string', description: '项目 ID（不传用当前会话项目）' },
       status: { type: 'string', description: '按状态过滤:draft/running/needs_input/completed/cancelled' },
+      query: { type: 'string', description: '按任务标题或任务 ID 关键词查找' },
+      limit: { type: 'number', default: 200, maximum: 200, description: '返回条数，默认和最大均为 200' },
+      cursor: { type: 'string', description: '上一页返回的 nextCursor；没有时不要传' },
     },
   },
   async execute(input, context) {
-    const projectId = context?.projectId ?? optStr(input, 'projectId')
+    const projectId = context?.projectId
     if (!projectId) return errResult('projectId 不能为空')
-    const status = optStr(input, 'status')
-    const tasks = taskStore.list(status, projectId)
-    const summary = tasks.map((t) => ({
-      id: t.id,
-      title: t.title,
-      status: t.status,
-      stage: t.stage,
-      source: t.source,
-      assignedAgentId: t.assigned_agent_id,
-      createdAt: t.created_at,
-    }))
-    return { content: [{ type: 'text', text: JSON.stringify(summary, null, 2) }] }
+    const limit = boundedToolLimit(input.limit)
+    try {
+      const page = listTaskPageRows({
+        projectId,
+        status: optStr(input, 'status'),
+        query: optStr(input, 'query'),
+        cursor: optStr(input, 'cursor'),
+        limit,
+      })
+      const hasMore = page.items.length > limit
+      const rows = hasMore ? page.items.slice(0, limit) : page.items
+      const tasks = rows.map((task) => ({
+        id: task.id,
+        title: task.title,
+        status: task.status,
+        stage: task.stage,
+        source: task.source,
+        assignedAgentId: task.assigned_agent_id,
+        createdAt: task.created_at,
+      }))
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            tasks,
+            total: page.total,
+            hasMore,
+            nextCursor: hasMore ? (rows.at(-1)?.id ?? null) : null,
+          }, null, 2),
+        }],
+      }
+    } catch (error) {
+      if (error instanceof InvalidTaskCursorError) return errResult('cursor 已失效，请不传 cursor 重新查询')
+      throw error
+    }
   },
+}
+
+function boundedToolLimit(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 200
+  return Math.min(200, Math.max(1, Math.floor(value)))
 }
 
 export const studioTaskGetHandler: ToolHandler = {

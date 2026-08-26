@@ -1,32 +1,28 @@
-import { useMemo, useState } from 'react'
-import { Archive } from 'lucide-react'
+import { useState } from 'react'
+import { Archive, Loader2 } from 'lucide-react'
 import type { AgentData } from '../../../stores/agent.store'
 import type { TaskData } from '../../../stores/task.store'
 import { useSessionStore } from '../../../stores/session.store'
 import {
   TASK_TABS,
-  filterOutCompleted,
-  filterTasksByTab,
-  sortTasksDesc,
   type TaskTimeTab,
 } from './task-helpers'
 import { TaskList } from './TaskList'
+import { useWorkspaceTaskPages } from './use-workspace-task-pages'
 
 interface TaskPanelProps {
-  tasks: TaskData[]
   agents: AgentData[]
   modes: Array<{ id: string; name: string }>
   currentSessionTaskId: string | null
   onSelectSession: (agentId: string, sessionId: string) => void
   projectId?: string
-  onOpenTask: (taskId: string) => void
-  onOpenReportModal: (taskId: string) => void
+  onOpenTask: (task: TaskData) => void
+  onOpenReportModal: (task: TaskData) => void
   renderReportModal: () => React.ReactNode
   markCompleteError: string | null
 }
 
 export function TaskPanel({
-  tasks,
   agents,
   modes,
   currentSessionTaskId,
@@ -38,16 +34,12 @@ export function TaskPanel({
   markCompleteError,
 }: TaskPanelProps) {
   void modes
-  void projectId
   const [tab, setTab] = useState<TaskTimeTab>('today')
   const [hideCompleted, setHideCompleted] = useState(true)
   const [toast, setToast] = useState<string | null>(null)
-
-  const visibleTasks = useMemo(() => {
-    const byTab = filterTasksByTab(tasks, tab)
-    const afterHide = hideCompleted ? filterOutCompleted(byTab) : byTab
-    return sortTasksDesc(afterHide)
-  }, [tasks, tab, hideCompleted])
+  const { pages, loadMore, reload } = useWorkspaceTaskPages(projectId, hideCompleted)
+  const page = pages[tab]
+  const visibleTasks = page.items
 
   const activeTab = TASK_TABS.find((t) => t.key === tab) ?? TASK_TABS[0]
 
@@ -76,7 +68,7 @@ export function TaskPanel({
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px 6px' }}>
         <div style={{ display: 'flex', gap: 4 }}>
           {TASK_TABS.map((t) => {
-            const count = filterTasksByTab(tasks, t.key).length
+            const count = pages[t.key].total
             const active = tab === t.key
             const Icon = t.icon
             return (
@@ -143,11 +135,20 @@ export function TaskPanel({
           隐藏已完成
         </label>
       </div>
-      {visibleTasks.length === 0 ? (
+      {page.loading && visibleTasks.length === 0 ? (
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-3)' }}>
+          <Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} />
+        </div>
+      ) : visibleTasks.length === 0 ? (
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 12px', color: 'var(--text-3)' }}>
           <div style={{ textAlign: 'center' }}>
             <Archive size={28} style={{ opacity: 0.2, marginBottom: 8 }} />
             <div style={{ fontSize: 14 }}>暂无{activeTab.label}任务</div>
+            {page.error && (
+              <button type="button" onClick={() => reload(tab)} style={{ marginTop: 8, border: 'none', background: 'transparent', color: 'var(--red)', cursor: 'pointer' }}>
+                {page.error}，点击重试
+              </button>
+            )}
           </div>
         </div>
       ) : (
@@ -155,9 +156,14 @@ export function TaskPanel({
           tasks={visibleTasks}
           agents={agents}
           currentSessionTaskId={currentSessionTaskId}
+          hasMore={page.hasMore}
+          loading={page.loading}
+          error={page.error}
           onOpenTask={onOpenTask}
           onOpenReportModal={onOpenReportModal}
           onJumpToSession={handleJumpToSession}
+          onLoadMore={() => loadMore(tab)}
+          onRetry={() => reload(tab)}
         />
       )}
       {renderReportModal()}

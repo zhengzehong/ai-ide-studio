@@ -1,9 +1,10 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Plus } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useProjectNavigation } from '../hooks/use-project-navigation'
 import { useProjectScopeId } from '../hooks/use-project-scope'
 import { useAgentStore, type AgentData } from '../stores/agent.store'
+import { useConnectionStore } from '../stores/connection.store'
 import { useProjectViewStateStore } from '../stores/project-view-state.store'
 import { useSessionStore } from '../stores/session.store'
 import { useTaskStore, type TaskData } from '../stores/task.store'
@@ -34,9 +35,11 @@ export function TaskBoard() {
   const { toProjectPath } = useProjectNavigation()
   const currentProjectId = useProjectScopeId()
   const tasks = useTaskStore((s) => s.tasks)
+  const fetchTasks = useTaskStore((s) => s.fetchTasks)
   const modes = useTaskStore((s) => s.modes)
   const updateTask = useTaskStore((s) => s.updateTask)
   const agents = useAgentStore((s) => s.agents)
+  const connected = useConnectionStore((s) => s.connected)
   const sessions = useSessionStore((s) => s.sessions)
   const selectSession = useSessionStore((s) => s.selectSession)
   const [showNew, setShowNew] = useState(false)
@@ -56,6 +59,11 @@ export function TaskBoard() {
   useLayoutEffect(() => {
     if (boardRef.current) boardRef.current.scrollLeft = savedScrollLeft
   }, [currentProjectId, savedScrollLeft])
+
+  useEffect(() => {
+    if (!connected) return
+    void fetchTasks(currentProjectId, { force: true })
+  }, [connected, currentProjectId, fetchTasks])
 
   const projectTasks = useMemo(
     () => (currentProjectId ? tasks.filter((task) => task.project_id === currentProjectId) : tasks),

@@ -19,6 +19,23 @@ export const taskRpcHandlers: RpcHandlerMap = {
     }))
   },
 
+  async 'tasks.page'(msg, { sendResult, sendError }) {
+    try {
+      sendResult(await getQueryPort().listTaskPage({
+        projectId: msg.projectId as string | undefined,
+        status: msg.status as string | undefined,
+        query: msg.query as string | undefined,
+        createdFrom: msg.createdFrom as string | undefined,
+        createdBefore: msg.createdBefore as string | undefined,
+        excludeTerminal: msg.excludeTerminal as boolean | undefined,
+        limit: msg.limit as number | undefined,
+        cursor: msg.cursor as string | undefined,
+      }))
+    } catch (error) {
+      sendError(error instanceof Error ? error.message : '任务分页查询失败')
+    }
+  },
+
   'tasks.get'(msg, { sendResult, sendError }) {
     const task = taskStore.get(msg.taskId as string)
     if (!task) return sendError('任务不存在')

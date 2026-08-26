@@ -203,8 +203,6 @@ export default function Workspace() {
   const updateAgent = useAgentStore((s) => s.updateAgent)
   const modelProfiles = useModelStore((s) => s.profiles)
   const fetchModelProfiles = useModelStore((s) => s.fetchProfiles)
-  const fetchTasks = useTaskStore((s) => s.fetchTasks)
-  const tasks = useTaskStore((s) => s.tasks)
   const modes = useTaskStore((s) => s.modes)
   const fetchModes = useTaskStore((s) => s.fetchModes)
   const teamContext = useTeamStore((s) => s.current)
@@ -661,11 +659,10 @@ export default function Workspace() {
 
       void fetchAgents(currentProjectId)
       void fetchSessions(undefined, currentProjectId)
-      void fetchTasks(currentProjectId)
       void fetchModes(currentProjectId ?? undefined)
     })
     return () => { off() }
-  }, [connected, currentProjectId, currentSessionId, teamContext.team?.id, fetchAgents, fetchSessions, fetchTasks, fetchModes])
+  }, [connected, currentProjectId, currentSessionId, teamContext.team?.id, fetchAgents, fetchSessions, fetchModes])
 
   useEffect(() => {
     if (!currentSessionId || !connected) {
@@ -1235,7 +1232,6 @@ export default function Workspace() {
               </button>
             </div>
             <TaskPanel
-              tasks={currentProjectId ? tasks.filter((t) => t.project_id === currentProjectId) : tasks}
               agents={projectAgents}
               modes={modes}
               currentSessionTaskId={currentSession?.task_id ?? null}
@@ -2898,35 +2894,28 @@ void CheckCircle2
 void Zap
 
 function TaskPanel({
-  tasks,
   agents,
   modes,
   currentSessionTaskId,
   onSelectSession,
   projectId,
 }: {
-  tasks: TaskData[]
   agents: AgentData[]
   modes: Array<{ id: string; name: string }>
   currentSessionTaskId: string | null
   onSelectSession: (agentId: string, sessionId: string) => void
   projectId?: string
 }) {
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
-  const [reportModalTaskId, setReportModalTaskId] = useState<string | null>(null)
+  const [selectedTask, setSelectedTask] = useState<TaskData | null>(null)
+  const [reportModalTask, setReportModalTask] = useState<TaskData | null>(null)
   const [markCompleteError, setMarkCompleteError] = useState<string | null>(null)
   const updateTask = useTaskStore((s) => s.updateTask)
-  const fetchTasks = useTaskStore((s) => s.fetchTasks)
-
-  const selectedTask = selectedTaskId ? tasks.find((t) => t.id === selectedTaskId) ?? null : null
-  const reportModalTask = reportModalTaskId ? tasks.find((t) => t.id === reportModalTaskId) ?? null : null
 
   const handleReportMarkComplete = async (taskId: string) => {
     setMarkCompleteError(null)
     try {
       await updateTask(taskId, 'completed', undefined, '人工验收通过')
-      setReportModalTaskId(null)
-      await fetchTasks(projectId)
+      setReportModalTask(null)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       setMarkCompleteError(msg || '标记完成失败')
@@ -2946,7 +2935,7 @@ function TaskPanel({
   const handleJumpToSession = (sessionId: string, agentId: string) => {
     selectSession(sessionId)
     onSelectSession(agentId, sessionId)
-    setSelectedTaskId(null)
+    setSelectedTask(null)
   }
 
   if (selectedTask) {
@@ -2956,10 +2945,10 @@ function TaskPanel({
         agents={agents}
         modes={modes}
         sessions={sessionsForTask}
-        onBack={() => setSelectedTaskId(null)}
+        onBack={() => setSelectedTask(null)}
         onJumpToSession={handleJumpToSession}
         onOpenReportModal={(taskId, initialEventId) => {
-          setReportModalTaskId(taskId)
+          if (selectedTask.id === taskId) setReportModalTask(selectedTask)
           if (initialEventId) {
             sessionStorage.setItem(`task-report-initial:${taskId}`, initialEventId)
           }
@@ -2970,20 +2959,19 @@ function TaskPanel({
 
   return (
     <CollabTaskPanel
-      tasks={tasks}
       agents={agents}
       modes={modes}
       currentSessionTaskId={currentSessionTaskId}
       onSelectSession={onSelectSession}
       projectId={projectId}
-      onOpenTask={(taskId) => setSelectedTaskId(taskId)}
-      onOpenReportModal={(taskId) => setReportModalTaskId(taskId)}
+      onOpenTask={setSelectedTask}
+      onOpenReportModal={setReportModalTask}
       renderReportModal={() =>
         reportModalTask ? (
           <CollabReportHistoryModal
             task={reportModalTask}
             onClose={() => {
-              setReportModalTaskId(null)
+              setReportModalTask(null)
               setMarkCompleteError(null)
             }}
             onMarkCompleted={() => handleReportMarkComplete(reportModalTask.id)}

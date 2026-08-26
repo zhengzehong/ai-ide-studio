@@ -428,6 +428,17 @@ export interface TasksListMsg extends ClientMessage {
   status?: TaskStatus
   projectId?: string
 }
+export interface TasksPageMsg extends ClientMessage {
+  type: 'tasks.page'
+  projectId?: string
+  status?: TaskStatus
+  query?: string
+  createdFrom?: string
+  createdBefore?: string
+  excludeTerminal?: boolean
+  limit?: number
+  cursor?: string
+}
 export interface TasksCreateMsg extends ClientMessage {
   type: 'tasks.create'
   title: string

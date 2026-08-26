@@ -305,6 +305,7 @@ function lineStream(child: ChildProcessWithoutNullStreams): { next(prefix: strin
 function emptyQueryPort(): QueryPort {
   return {
     async listTasks() { return [] },
+    async listTaskPage() { return { items: [], total: 0, hasMore: false, nextCursor: null } },
     async listSessions() { return [] },
     async listSessionMessages() { return { items: [], hasMore: false, nextCursor: null } },
     async listSessionEvents() { return { items: [], hasMore: false, nextCursor: null } },

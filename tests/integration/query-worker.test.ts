@@ -47,6 +47,7 @@ describe('Query Worker', () => {
     const local = createLocalQueryPort({ isPromptActive: (id) => id === session.id })
     const expected = {
       tasks: await local.listTasks({ projectId }),
+      taskPage: await local.listTaskPage({ projectId, limit: 20 }),
       sessions: await local.listSessions({ projectId }),
       messages: await local.listSessionMessages({ sessionId: session.id, limit: 20 }),
       events: await local.listSessionEvents({ sessionId: session.id, limit: 20 }),
@@ -61,6 +62,7 @@ describe('Query Worker', () => {
     })
 
     await expect(workerPort.listTasks({ projectId })).resolves.toEqual(expected.tasks)
+    await expect(workerPort.listTaskPage({ projectId, limit: 20 })).resolves.toEqual(expected.taskPage)
     await expect(workerPort.listSessions({ projectId })).resolves.toEqual(expected.sessions)
     await expect(workerPort.listSessionMessages({ sessionId: session.id, limit: 20 }))
       .resolves.toEqual(expected.messages)
@@ -81,6 +83,15 @@ describe('Query Worker', () => {
     await expect(workerPort.diagnose({ attemptWrite: true })).rejects.toMatchObject({
       code: 'SQLITE_ERROR',
     })
+  })
+
+  it('reports a foreign task cursor as a bad request', async () => {
+    const firstProjectTask = taskStore.create({ title: 'First project', projectId: 'project-a' })
+    closeDatabase()
+    workerPort = await createWorkerQueryPort({ dbPath, allowDiagnostics: true })
+
+    await expect(workerPort.listTaskPage({ projectId: 'project-b', cursor: firstProjectTask.id }))
+      .rejects.toMatchObject({ code: 'BAD_REQUEST' })
   })
 
   it('keeps the caller event loop responsive while prioritizing queued interactive work', async () => {

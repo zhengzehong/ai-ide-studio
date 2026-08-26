@@ -1,4 +1,4 @@
-import type { TaskListItem, TaskStepSummary } from '../ports/query-port.js'
+import type { TaskListItem, TaskPage, TaskPageQuery, TaskStepSummary } from '../ports/query-port.js'
 import { sessionStore, type SessionRow } from '../store/sessions.js'
 import { taskStepStore, type TaskStepRow } from '../store/task-steps.js'
 import {
@@ -6,10 +6,32 @@ import {
   taskEventStore,
   taskStore,
   type TaskEventRow,
+  type TaskRow,
 } from '../store/tasks.js'
+import { listTaskPageRows } from '../store/task-page.js'
+
+const DEFAULT_TASK_PAGE_LIMIT = 50
+const MAX_TASK_PAGE_LIMIT = 200
 
 export function listTaskReadModel(input: { status?: string; projectId?: string }): TaskListItem[] {
   const tasks = taskStore.list(input.status, input.projectId)
+  return enrichTaskRows(tasks)
+}
+
+export function listTaskPageReadModel(input: TaskPageQuery): TaskPage {
+  const limit = boundedLimit(input.limit, DEFAULT_TASK_PAGE_LIMIT, MAX_TASK_PAGE_LIMIT)
+  const page = listTaskPageRows({ ...input, limit })
+  const hasMore = page.items.length > limit
+  const rows = hasMore ? page.items.slice(0, limit) : page.items
+  return {
+    items: enrichTaskRows(rows),
+    total: page.total,
+    hasMore,
+    nextCursor: hasMore ? (rows.at(-1)?.id ?? null) : null,
+  }
+}
+
+function enrichTaskRows(tasks: TaskRow[]): TaskListItem[] {
   if (tasks.length === 0) return []
 
   const taskIds = tasks.map((task) => task.id)
@@ -53,6 +75,11 @@ export function listTaskReadModel(input: { status?: string; projectId?: string }
       ...latestReportSummary(latestReports[task.id]),
     }
   })
+}
+
+function boundedLimit(value: number | undefined, fallback: number, maximum: number): number {
+  if (value == null || !Number.isFinite(value)) return fallback
+  return Math.min(maximum, Math.max(1, Math.floor(value)))
 }
 
 export function taskDescriptionPreview(value: string | null): string | null {

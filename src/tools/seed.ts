@@ -856,15 +856,17 @@ const CORE_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
   {
     name: 'studio.task.list',
     displayName: '查看项目任务列表',
-    description: '查看当前 AI IDE Studio 项目中的任务列表。可按状态过滤。',
+    description: '分页查看当前项目任务。默认返回 200 条精简摘要；同一问题通常只调用一次，优先用 query 查标题或任务 ID，仅在目标未找到且 hasMore=true 时传 nextCursor 继续。',
     category: 'automation',
     type: 'builtin',
     config: { handler: 'studio.task.list' },
     inputSchema: {
       type: 'object',
       properties: {
-        projectId: { type: 'string', description: '项目 ID（不传用当前会话项目）' },
         status: { type: 'string', description: '按状态过滤：draft/running/needs_input/completed/cancelled' },
+        query: { type: 'string', description: '按任务标题或任务 ID 关键词查找' },
+        limit: { type: 'number', default: 200, maximum: 200, description: '返回条数，默认和最大均为 200' },
+        cursor: { type: 'string', description: '上一页返回的 nextCursor；没有时不要传' },
       },
     },
     permissions: CORE_PERMISSIONS,
