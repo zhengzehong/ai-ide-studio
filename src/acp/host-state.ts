@@ -59,6 +59,7 @@ export function acpSessionContextKey(context: AcpSessionContext = {}): string {
   return JSON.stringify({
     projectId: context.projectId ?? null,
     cwd: context.cwd ?? null,
+    ...(context.runtimeContextKey ? { runtimeContextKey: context.runtimeContextKey } : {}),
   })
 }
 

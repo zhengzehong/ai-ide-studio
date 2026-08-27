@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { acpHost } from '../../acp/host.js'
 import type { AcpSessionContext } from '../../acp/host-types.js'
 import type {
@@ -8,6 +9,7 @@ import type {
   RuntimeStateSnapshot,
 } from '../../ports/runtime-port.js'
 import type { ImageAttachment, SessionCapabilities } from '../../types/ws-protocol.js'
+import { runtimeSessionContextFingerprint } from '../service/runtime-fingerprints.js'
 
 interface PromptDiagnostics {
   turnId?: string
@@ -135,6 +137,9 @@ export class EmbeddedRuntimePort implements RuntimePort {
     return {
       projectId: snapshot.session.projectId ?? undefined,
       cwd: snapshot.session.cwd,
+      runtimeContextKey: createHash('sha256')
+        .update(runtimeSessionContextFingerprint(snapshot))
+        .digest('hex'),
       ...(emitLifecycle === undefined ? {} : { emitLifecycle }),
       ...(snapshot.session.canRecreateMissingSession === undefined
         ? {}

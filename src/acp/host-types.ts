@@ -43,6 +43,7 @@ export interface AgentConnection {
 export interface AcpSessionContext {
   projectId?: string
   cwd?: string
+  runtimeContextKey?: string
   emitLifecycle?: boolean
   canRecreateMissingSession?: boolean
 }

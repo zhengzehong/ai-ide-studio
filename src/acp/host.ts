@@ -99,7 +99,8 @@ function ensureIdleTimer(): void {
 function buildSessionMeta(conn: AgentConnection, ourSessionId: string): AgentSessionMeta | undefined {
   const session = sessionStore.get(ourSessionId)
   if (!session) return conn.sessionMeta
-  return buildAgentSessionMeta(conn.runtime, conn.runtimeEnv, conn.agent, {
+  const agent = agentStore.get(conn.agentId) ?? conn.agent
+  return buildAgentSessionMeta(conn.runtime, conn.runtimeEnv, agent, {
     isPrimary: session.is_primary === 1,
     additionalPrompt: session.purpose === 'autonomy'
       ? buildAgentAutonomySystemPrompt(conn.agentId)
