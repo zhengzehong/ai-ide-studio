@@ -423,6 +423,10 @@ export interface SessionsMarkReadMsg extends ClientMessage {
   type: 'sessions.markRead'
   sessionId: string
 }
+export interface SessionsMarkUnreadMsg extends ClientMessage {
+  type: 'sessions.markUnread'
+  sessionId: string
+}
 export interface TasksListMsg extends ClientMessage {
   type: 'tasks.list'
   status?: TaskStatus

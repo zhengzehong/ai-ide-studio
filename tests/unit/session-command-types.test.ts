@@ -43,6 +43,12 @@ describe('session command contract', () => {
     }).type).toBe('sessions.markRead')
 
     expect(parseSessionCommand({
+      commandId: 'cmd-unread',
+      type: 'sessions.markUnread',
+      sessionId: 'session-1',
+    }).type).toBe('sessions.markUnread')
+
+    expect(parseSessionCommand({
       commandId: 'cmd-permission',
       type: 'permission.respond',
       sessionId: 'session-1',

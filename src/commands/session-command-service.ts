@@ -42,6 +42,8 @@ export async function executeSessionCommand(
       return { ok: true }
     case 'sessions.markRead':
       return markSessionRead(command.sessionId)
+    case 'sessions.markUnread':
+      return markSessionUnread(command.sessionId)
     case 'permission.respond':
       await resolvePermission(command)
       return { ok: true }
@@ -82,6 +84,24 @@ function markSessionRead(sessionId: string): { sessionId: string; lastReadAt: st
   const secretary = projectSecretaryStore.findBySession(sessionId)
   if (secretary) events.emit('secretary:update', { projectId: secretary.project_id })
   log.info({ sessionId, lastReadAt }, 'session marked as read')
+  return { sessionId, lastReadAt }
+}
+
+function markSessionUnread(sessionId: string): { sessionId: string; lastReadAt: string } {
+  const session = sessionStore.get(sessionId)
+  if (!session) throw new Error('会话不存在')
+  const lastReadAt = observeSyncDbOperation(
+    'session.markUnread',
+    { sessionId },
+    () => sessionStore.markUnread(sessionId),
+  )
+  events.emit('session:changed', {
+    sessionId,
+    data: { event: 'marked_unread', last_read_at: lastReadAt },
+  })
+  const secretary = projectSecretaryStore.findBySession(sessionId)
+  if (secretary) events.emit('secretary:update', { projectId: secretary.project_id })
+  log.info({ sessionId, lastReadAt }, 'session marked as unread')
   return { sessionId, lastReadAt }
 }
 

@@ -145,6 +145,7 @@ ignored     failed      task
 | started_at | TEXT | 开始时间 |
 | updated_at | TEXT | 会话元数据更新时间 |
 | last_message_at | TEXT | 最近消息时间 |
+| last_read_at | TEXT | 最近确认已读时间；早于 `last_message_at` 时表示未读 |
 | closed_at | TEXT | 关闭时间 |
 | archived_at | TEXT | 归档时间 |
 | deleted_at | TEXT | 软删除时间；非空时默认列表隐藏 |
@@ -157,6 +158,8 @@ ignored     failed      task
 启动时默认 Agent seed 完成后，系统会为所有缺少主会话的 Agent 创建一个 `is_primary = 1` 的 Session，并发布完整 `session:changed`。部分唯一索引 `idx_sessions_one_primary_per_agent` 保证同一 Agent 不会存在两个未删除、非模板主会话；迁移旧数据库时保留最早一条 primary 标记并清理重复标记。
 
 部分唯一索引 `idx_sessions_one_autonomy_per_agent` 保证同一 Agent 最多一个未删除、非模板的 `purpose = autonomy` Session。自主 Session 使用相同的消息、事件、运行偏好和 ACP 恢复结构，仅在展示和统计层与普通对话隔离。
+
+进入会话通过 `sessions.markRead` 将 `last_read_at` 更新为当前时间。显式标记未读通过 `sessions.markUnread` 将其设置为最近消息时间前 1 毫秒，并发布 `session:changed(event=marked_unread)`；该状态继续由现有时间戳比较读取，不增加独立布尔列。
 
 ### autonomy_reports
 
@@ -289,7 +292,7 @@ ignored     failed      task
 |----|------|------|
 | command_id | TEXT PK | 浏览器生成的命令 ID |
 | idempotency_key | TEXT | HTTP `Idempotency-Key`；与 `type` 组成唯一约束 |
-| type | TEXT | prompt / session.cancel / sessions.markRead / permission.respond / elicitation.respond |
+| type | TEXT | prompt / session.cancel / sessions.markRead / sessions.markUnread / permission.respond / elicitation.respond |
 | session_id | TEXT | Session FIFO 作用域 |
 | project_id | TEXT | Prompt 的可选临时项目上下文 |
 | payload_json | TEXT | 通过封闭 DTO 校验后的命令载荷 |

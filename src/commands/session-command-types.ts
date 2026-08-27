@@ -31,6 +31,11 @@ export type SessionCommand =
     }
   | {
       commandId: string
+      type: 'sessions.markUnread'
+      sessionId: string
+    }
+  | {
+      commandId: string
       type: 'permission.respond'
       sessionId: string
       permissionRequestId: string
@@ -74,6 +79,7 @@ export function parseSessionCommand(
       return parsePrompt(value, commandId, sessionId)
     case 'session.cancel':
     case 'sessions.markRead':
+    case 'sessions.markUnread':
       assertAllowedFields(value, BASE_FIELDS)
       return { commandId, type, sessionId }
     case 'permission.respond':

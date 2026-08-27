@@ -284,6 +284,7 @@ interface SessionStore {
   deleteSessionTemplate: (templateId: string) => Promise<void>
   updateSessionTemplate: (templateId: string, fields: { name?: string; description?: string | null }) => Promise<SessionTemplateData | undefined>
   selectSession: (id: string | null) => void
+  markUnread: (sessionId: string) => Promise<void>
   sendPrompt: (content: string, images?: ImageAttachmentInfo[], context?: { inspirationNoteId?: string }) => Promise<void>
   setModel: (modelId: string) => Promise<void>
   setMode: (modeId: string) => Promise<void>
@@ -318,8 +319,15 @@ const capabilityConfirmationVersions = new Map<string, number>()
 const eventCursorBySession = new Map<string, number>()
 const sessionActivityFence = createSessionActivityFence()
 const sessionReadFence = createSessionReadFence()
+// Keep explicit unread intent authoritative until the user leaves or re-enters the Session.
+const explicitUnreadSessionIds = new Set<string>()
+const suppressedAutomaticReadSessionIds = new Set<string>()
 let sessionSelectionController: AbortController | null = null
 let sessionSelectionGeneration = 0
+
+export function readSessionSelectionGeneration(): number {
+  return sessionSelectionGeneration
+}
 const streamingBuffer = new StreamingBuffer()
 let streamingFlushTimer: ReturnType<typeof setTimeout> | null = null
 const mirroredRealtimeEventTypes = new Set([
@@ -1567,11 +1575,21 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   selectSession: (id) => {
     const prev = get().currentSessionId
+    if (prev !== id) {
+      if (prev) {
+        explicitUnreadSessionIds.delete(prev)
+        suppressedAutomaticReadSessionIds.delete(prev)
+      }
+      if (id) {
+        explicitUnreadSessionIds.delete(id)
+        suppressedAutomaticReadSessionIds.delete(id)
+      }
+    }
     // 幂等短路:同一 id 重复调用不再重发 fetchMessages / fetchModels / markRead,
     // 防止 markRead → session:changed → sessions 引用变 → effect 重触发 → 又调 selectSession 的死循环。
     // prev === id 时直接返回,避免切断订阅 / 重置缓存等副作用也重新执行一遍。
     if (prev === id) {
-      if (id) {
+      if (id && !explicitUnreadSessionIds.has(id)) {
         const state = get()
         const session = state.sessions.find((item) => item.id === id)
         const shouldAcknowledge = !!state.unreadSessionIds[id]
@@ -1692,6 +1710,47 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     }).catch(() => undefined)
     void get().fetchModels()
     void markSessionReadOnServer(id)
+  },
+
+  markUnread: async (sessionId) => {
+    const session = get().sessions.find((item) => item.id === sessionId)
+    if (!session?.last_message_at) throw new Error('当前会话还没有消息')
+    suppressedAutomaticReadSessionIds.delete(sessionId)
+    explicitUnreadSessionIds.add(sessionId)
+    try {
+      await commandClient.execute({
+        commandId: `cmd-unread-${sessionId}-${Date.now()}`,
+        type: 'sessions.markUnread',
+        sessionId,
+      })
+    } catch (error) {
+      explicitUnreadSessionIds.delete(sessionId)
+      const shouldCompensateRead = suppressedAutomaticReadSessionIds.delete(sessionId)
+        && get().currentSessionId === sessionId
+        && isDocumentVisible()
+      if (shouldCompensateRead) {
+        const lastReadAt = new Date().toISOString()
+        sessionReadFence.recordRead(sessionId, lastReadAt)
+        set((state) => ({
+          ...patchSessionReadAt(
+            state.sessionListCache,
+            state.activeSessionScope,
+            state.sessions,
+            sessionId,
+            lastReadAt,
+          ),
+          unreadSessionIds: removeSessionIndicator(state.unreadSessionIds, sessionId),
+        }))
+        void markSessionReadOnServer(sessionId)
+      }
+      throw error
+    }
+    suppressedAutomaticReadSessionIds.delete(sessionId)
+    if (activeSessionsProjectId) clearProjectLastSession(activeSessionsProjectId)
+    sessionReadFence.recordUnread(sessionId)
+    set((state) => ({
+      unreadSessionIds: { ...state.unreadSessionIds, [sessionId]: true },
+    }))
   },
 
   sendPrompt: async (content, images, context) => {
@@ -2165,6 +2224,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       const state = get()
       const sessionId = state.currentSessionId
       if (!sessionId) return
+      if (explicitUnreadSessionIds.has(sessionId)) {
+        suppressedAutomaticReadSessionIds.add(sessionId)
+        return
+      }
       const session = state.sessions.find((item) => item.id === sessionId)
       if (!state.unreadSessionIds[sessionId] && (!session || !isSessionUnreadByTimestamps(session))) return
       const lastReadAt = new Date().toISOString()
@@ -2332,7 +2395,13 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       wsClient.on('session:done', (msg) => {
         const sid = msg.sessionId as string
         const isCurrent = sid === get().currentSessionId
-        const shouldAcknowledgeRead = isCurrent && isDocumentVisible()
+        const explicitUnread = explicitUnreadSessionIds.has(sid)
+        if (isCurrent && isDocumentVisible() && explicitUnread) {
+          suppressedAutomaticReadSessionIds.add(sid)
+        }
+        const shouldAcknowledgeRead = isCurrent
+          && isDocumentVisible()
+          && !explicitUnread
         if (!shouldAcknowledgeRead) sessionReadFence.recordUnread(sid)
         sessionCancelCoordinator.clear(sid)
         sessionActivityFence.record(sid, 'idle')
@@ -2478,6 +2547,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           clearCapabilityAuthority(sessionId)
           sessionActivityFence.remove(sessionId)
           sessionReadFence.remove(sessionId)
+          explicitUnreadSessionIds.delete(sessionId)
+          suppressedAutomaticReadSessionIds.delete(sessionId)
           set((st) => {
             const sessionListCache = removeSessionFromListCache(st.sessionListCache, sessionId)
             return {
@@ -2510,11 +2581,13 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           && get().currentSessionId !== sessionId
           && !get().sessions.some((session) => session.id === sessionId)
         ) return
+        const markedUnread = 'event' in data && data.event === 'marked_unread'
         const canonicalReadAt = typeof data.last_read_at === 'string'
           && Object.keys(data).every((key) => key === 'last_read_at' || key === 'event')
           ? data.last_read_at
           : undefined
-        if (canonicalReadAt) sessionReadFence.recordRead(sessionId, canonicalReadAt)
+        if (markedUnread) sessionReadFence.recordUnread(sessionId)
+        else if (canonicalReadAt) sessionReadFence.recordRead(sessionId, canonicalReadAt)
         set((st) => {
           const complete = isCompleteSessionData(data, sessionId)
           const sessionListCache = complete
@@ -2531,13 +2604,15 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           if (st.sessions.some((s) => s.id === sessionId)) {
             const isCurrent = st.currentSessionId === sessionId
             const mergedSession = { ...st.sessions.find((session) => session.id === sessionId)!, ...data } as SessionData
-            const nextUnread = data.last_read_at
-              ? isCurrent
+            const nextUnread = markedUnread
+              ? true
+              : data.last_read_at
+                ? isCurrent
                 ? false
                 : isSessionUnreadByTimestamps(mergedSession)
-              : st.unreadSessionIds[sessionId]
-                ? true
-                : false
+                : st.unreadSessionIds[sessionId]
+                  ? true
+                  : false
             const unreadSessionIds = nextUnread
               ? { ...st.unreadSessionIds, [sessionId]: true as const }
               : removeSessionIndicator(st.unreadSessionIds, sessionId)

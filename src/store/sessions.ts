@@ -415,6 +415,16 @@ export const sessionStore = {
     getDb().prepare('UPDATE sessions SET last_read_at = ? WHERE id = ?').run(timestamp, id)
     return timestamp
   },
+
+  markUnread(id: string): string {
+    const session = sessionStore.get(id)
+    if (!session?.last_message_at) throw new Error('会话没有消息，无法标记未读')
+    const lastMessageMs = Date.parse(session.last_message_at)
+    if (!Number.isFinite(lastMessageMs)) throw new Error('会话最后消息时间无效')
+    const lastReadAt = new Date(lastMessageMs - 1).toISOString()
+    getDb().prepare('UPDATE sessions SET last_read_at = ? WHERE id = ?').run(lastReadAt, id)
+    return lastReadAt
+  },
 }
 
 

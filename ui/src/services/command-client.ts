@@ -20,6 +20,7 @@ export type BrowserSessionCommand =
   | { commandId: string; type: 'prompt'; sessionId: string; clientMessageId: string; content: string; contextProjectId?: string; inspirationNoteId?: string; images?: BrowserCommandImage[] }
   | { commandId: string; type: 'session.cancel'; sessionId: string }
   | { commandId: string; type: 'sessions.markRead'; sessionId: string }
+  | { commandId: string; type: 'sessions.markUnread'; sessionId: string }
   | { commandId: string; type: 'permission.respond'; sessionId: string; permissionRequestId: string; optionId?: string; cancelled?: boolean }
   | { commandId: string; type: 'elicitation.respond'; sessionId: string; elicitationRequestId: string; action: 'accept' | 'decline' | 'cancel'; content?: Record<string, string | number | boolean | string[]> }
 
@@ -148,6 +149,7 @@ function legacyFrame(command: BrowserSessionCommand): Record<string, unknown> {
       })
     case 'session.cancel':
     case 'sessions.markRead':
+    case 'sessions.markUnread':
       return { type: command.type, sessionId: command.sessionId }
     case 'permission.respond':
       return compact({

@@ -24,6 +24,7 @@ PC 高频 Session 命令使用 `POST /api/v1/commands`。认证沿用 `x-ai-ide-
 | `prompt` | `commandId`, `sessionId`, `clientMessageId`, `content` | `202 accepted` | 可选 `contextProjectId`, `inspirationNoteId`, `images`；`inspirationNoteId` 仅供项目灵感结果进入长期灵感 Session 后绑定本轮讨论，客户端提交前先订阅 Session |
 | `session.cancel` | `commandId`, `sessionId` | `200 completed` | 等待 Runtime 把当前 turn 推进到终态；ACP cancel 超时后依次升级为关闭目标 Session、重启所属 Agent |
 | `sessions.markRead` | `commandId`, `sessionId` | `200 completed` | 标记具体 Session 已读，不批量清项目 |
+| `sessions.markUnread` | `commandId`, `sessionId` | `200 completed` | 将具体 Session 的 `last_read_at` 调整到最近消息之前并发布 `marked_unread`；无消息时拒绝 |
 | `permission.respond` | `commandId`, `sessionId`, `permissionRequestId` | `200 completed` | 可选 `optionId`, `cancelled` |
 | `elicitation.respond` | `commandId`, `sessionId`, `elicitationRequestId`, `action` | `200 completed` | `action` 为 accept/decline/cancel，可选结构化 `content` |
 

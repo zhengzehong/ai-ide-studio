@@ -46,6 +46,7 @@ import { useAgentStore, type AgentData } from '../stores/agent.store'
 import {
   clearStoredSessionId,
   clearProjectLastSession,
+  readSessionSelectionGeneration,
   readStoredSessionId,
   readProjectLastSession,
   useSessionStore,
@@ -77,6 +78,7 @@ import { FileTree } from '../components/file-viewer/FileTree'
 import { LazyToolCallsBlock } from '../components/chat/LazyToolCallsBlock'
 import { AuthenticatedImage } from '../components/chat/AuthenticatedImage'
 import { TurnContentView } from '../components/chat/TurnContentView'
+import { WorkspaceSessionActions } from '../components/chat/WorkspaceSessionActions'
 import { FileChangesCard } from '../components/chat/FileChangesCard'
 import { extractFileChangesFromToolCall, extractTurnFileChanges, fileChangesFromSummary, toolBlockHasDiff } from '../components/chat/file-changes-utils'
 import { isNearBottom, nextPinnedToBottom } from '../components/chat/auto-scroll'
@@ -151,7 +153,6 @@ import {
   CreateTaskModal as CollabCreateTaskModal,
 } from './workspace/task-collab'
 import { ShareModal } from './share/ShareModal'
-import { Share2 } from 'lucide-react'
 import { useWorkspaceProjectState } from './workspace/use-workspace-project-state'
 import {
   resolveWorkspaceLoadState,
@@ -1559,6 +1560,8 @@ function WorkspaceChatPane({
   const fetchMessageProcess = useSessionStore((s) => s.fetchMessageProcess)
   const fetchMessageFileChanges = useSessionStore((s) => s.fetchMessageFileChanges)
   const fetchProcessItemDetail = useSessionStore((s) => s.fetchProcessItemDetail)
+  const markUnread = useSessionStore((s) => s.markUnread)
+  const selectSession = useSessionStore((s) => s.selectSession)
   const fileChangeDetailsByMessageId = useSessionStore((s) => s.fileChangeDetailsByMessageId)
   const turnProcessLoadingByMessageId = useSessionStore((s) => s.turnProcessLoadingByMessageId)
   const turnProcessErrorByMessageId = useSessionStore((s) => s.turnProcessErrorByMessageId)
@@ -1566,6 +1569,11 @@ function WorkspaceChatPane({
   const toolCallErrorByKey = useSessionStore((s) => s.toolCallErrorByKey)
   const processItemLoadingByKey = useSessionStore((s) => s.processItemLoadingByKey)
   const processItemErrorByKey = useSessionStore((s) => s.processItemErrorByKey)
+  const dockItems = useSessionDockStore((s) => s.items)
+  const dockLoaded = useSessionDockStore((s) => s.loaded)
+  const loadDock = useSessionDockStore((s) => s.load)
+  const addToDock = useSessionDockStore((s) => s.add)
+  const removeFromDock = useSessionDockStore((s) => s.remove)
 
   const [inputValue, setInputValue] = useState('')
   const [pendingImages, setPendingImages] = useState<WorkspacePendingImage[]>([])
@@ -1576,6 +1584,7 @@ function WorkspaceChatPane({
   const [draggingFiles, setDraggingFiles] = useState(false)
   const [showTimeline, setShowTimeline] = useState(false)
   const [showShareModal, setShowShareModal] = useState(false)
+  const [pendingSessionAction, setPendingSessionAction] = useState<'pin' | 'unread' | null>(null)
   const [showModelMenu, setShowModelMenu] = useState(false)
   const [showModeMenu, setShowModeMenu] = useState(false)
   const [showConfigMenu, setShowConfigMenu] = useState<string | null>(null)
@@ -1603,6 +1612,53 @@ function WorkspaceChatPane({
   const openFiles = useCallback((presentation: FilesPresentationInfo) => {
     setFilesModal(presentation)
   }, [])
+
+  useEffect(() => {
+    if (currentSessionId && !dockLoaded) void loadDock({ silent: true })
+  }, [currentSessionId, dockLoaded, loadDock])
+
+  const currentSessionPinned = !!currentSessionId
+    && dockItems.some((item) => item.sessionId === currentSessionId)
+
+  const toggleCurrentSessionPin = useCallback(async () => {
+    if (!currentSessionId || pendingSessionAction) return
+    setPendingSessionAction('pin')
+    setSendError(null)
+    try {
+      if (currentSessionPinned) await removeFromDock(currentSessionId)
+      else await addToDock(currentSessionId)
+      const nowPinned = useSessionDockStore.getState().items.some((item) => item.sessionId === currentSessionId)
+      if (nowPinned === currentSessionPinned) {
+        const dockState = useSessionDockStore.getState()
+        throw new Error(dockState.error || dockState.searchError || '置顶状态保存失败')
+      }
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : '置顶状态保存失败')
+    } finally {
+      setPendingSessionAction(null)
+    }
+  }, [addToDock, currentSessionId, currentSessionPinned, pendingSessionAction, removeFromDock])
+
+  const markCurrentSessionUnread = useCallback(async () => {
+    if (!currentSessionId || pendingSessionAction) return
+    const targetSessionId = currentSessionId
+    const targetSelectionGeneration = readSessionSelectionGeneration()
+    setPendingSessionAction('unread')
+    setSendError(null)
+    try {
+      await markUnread(targetSessionId)
+      if (
+        useSessionStore.getState().currentSessionId === targetSessionId
+        && readSessionSelectionGeneration() === targetSelectionGeneration
+      ) {
+        selectSession(null)
+      }
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : '标记未读失败')
+    } finally {
+      setPendingSessionAction(null)
+    }
+  }, [currentSessionId, markUnread, pendingSessionAction, selectSession])
 
   const chatEndRef = useRef<HTMLDivElement>(null)
   const chatScrollRef = useRef<HTMLDivElement>(null)
@@ -2179,50 +2235,18 @@ function WorkspaceChatPane({
             </>
           )}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {currentSessionId && chatAgent && (
-            <button
-              type="button"
-              onClick={() => setShowShareModal(true)}
-              title="分享会话"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 5,
-                padding: '5px 11px',
-                borderRadius: 7,
-                border: '1px solid var(--border)',
-                background: 'var(--bg-0)',
-                cursor: 'pointer',
-                fontSize: 13,
-                color: 'var(--text-2)',
-                transition: 'all .15s',
-              }}
-            >
-              <Share2 size={13} /> 分享
-            </button>
-          )}
-          {currentSessionId && (
-            <button
-              onClick={() => setShowTimeline((v) => !v)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 5,
-                padding: '5px 11px',
-                borderRadius: 7,
-                border: `1px solid ${showTimeline ? '#93b4f5' : 'var(--border)'}`,
-                background: showTimeline ? '#eff6ff' : 'var(--bg-0)',
-                cursor: 'pointer',
-                fontSize: 13,
-                color: showTimeline ? '#2563eb' : 'var(--text-2)',
-                transition: 'all .15s',
-              }}
-            >
-              📋 时间线
-            </button>
-          )}
-        </div>
+        {currentSessionId && chatAgent && (
+          <WorkspaceSessionActions
+            pinned={currentSessionPinned}
+            canMarkUnread={!!currentSession?.last_message_at}
+            timelineOpen={showTimeline}
+            pendingAction={pendingSessionAction}
+            onShare={() => setShowShareModal(true)}
+            onTogglePin={() => { void toggleCurrentSessionPin() }}
+            onMarkUnread={() => { void markCurrentSessionUnread() }}
+            onToggleTimeline={() => setShowTimeline((value) => !value)}
+          />
+        )}
       </header>
       {showTimeline && currentSessionId && (
         <div style={{ position: 'relative' }}>
