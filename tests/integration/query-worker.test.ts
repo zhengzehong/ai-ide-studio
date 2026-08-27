@@ -6,6 +6,8 @@ import { closeDatabase, initDatabase } from '../../src/store/db.js'
 import { eventStore, messageStore, sessionStore } from '../../src/store/sessions.js'
 import { taskStore } from '../../src/store/tasks.js'
 import { taskStepStore } from '../../src/store/task-steps.js'
+import { agentStore } from '../../src/store/agents.js'
+import { projectStore } from '../../src/store/projects.js'
 import { createLocalQueryPort } from '../../src/queries/local-query-port.js'
 import {
   createWorkerQueryPort,
@@ -31,11 +33,18 @@ afterEach(async () => {
 
 describe('Query Worker', () => {
   it('matches all Phase 1 read models using a read-only connection', async () => {
-    const projectId = 'project-query-worker'
+    const project = projectStore.create({ name: 'Query Worker Project', workDir: 'D:/query-worker' })
+    const projectId = project.id
+    const agent = agentStore.create({
+      name: 'Query Worker Agent',
+      type: 'dev',
+      runtime: 'mock',
+      projectId,
+    })
     const task = taskStore.create({ title: 'Worker task', projectId })
     const step = taskStepStore.create({ taskId: task.id, title: 'Worker step' })
     taskStepStore.updateStatus(step.id, 'done')
-    const session = sessionStore.create({ agentId: 'agent-worker', projectId, taskId: task.id })
+    const session = sessionStore.create({ agentId: agent.id, projectId, taskId: task.id })
     const firstMessage = messageStore.append(session.id, { role: 'user', content: 'first' })
     messageStore.append(session.id, { role: 'agent', content: 'second' })
     eventStore.append(session.id, {
@@ -52,6 +61,10 @@ describe('Query Worker', () => {
       messages: await local.listSessionMessages({ sessionId: session.id, limit: 20 }),
       events: await local.listSessionEvents({ sessionId: session.id, limit: 20 }),
       recovery: await local.getSessionRecovery({ sessionId: session.id, limit: 20 }),
+      widgetSessions: await local.listWidgetSessions({
+        projectId,
+        activePromptSessionIds: [session.id],
+      }),
     }
     closeDatabase()
 
@@ -70,6 +83,7 @@ describe('Query Worker', () => {
       .resolves.toEqual(expected.events)
     await expect(workerPort.getSessionRecovery({ sessionId: session.id, limit: 20 }))
       .resolves.toEqual(expected.recovery)
+    await expect(workerPort.listWidgetSessions({ projectId })).resolves.toEqual(expected.widgetSessions)
     await expect(workerPort.inspect()).resolves.toMatchObject({
       mode: 'readonly',
       queryOnly: true,

@@ -131,7 +131,7 @@ describe('widget session RPC', () => {
     expect(changed.at(-1)?.data).not.toHaveProperty('lastReadAt')
   })
 
-  test('uses message.done events as a recent completion fallback without inventing unread state', async () => {
+  test('does not treat an event-only message.done as a completed Agent response', async () => {
     const project = projectStore.create({ name: 'Event Project', workDir: 'D:/work/event' })
     const agent = agentStore.create({ name: 'Event Agent', type: 'dev', runtime: 'mock', projectId: project.id })
     const session = sessionStore.create({ agentId: agent.id, projectId: project.id })
@@ -146,16 +146,10 @@ describe('widget session RPC', () => {
 
     const rows = await callWidgetRpc('widget.sessions.list', { filter: 'recent' }) as Array<Record<string, unknown>>
 
-    expect(rows).toHaveLength(1)
-    expect(rows[0]).toMatchObject({
-      sessionId: session.id,
-      unread: false,
-      activityState: 'idle',
-      completedAt: expect.any(String),
-    })
+    expect(rows).toEqual([])
   })
 
-  test('uses a newer message.done event for completion time but not message unread state', async () => {
+  test('keeps the finalized Agent message as the canonical completion time', async () => {
     const project = projectStore.create({ name: 'Later Event Project', workDir: 'D:/work/later-event' })
     const agent = agentStore.create({ name: 'Later Event Agent', type: 'dev', runtime: 'mock', projectId: project.id })
     const session = sessionStore.create({ agentId: agent.id, projectId: project.id })
@@ -182,7 +176,7 @@ describe('widget session RPC', () => {
     expect(rows).toHaveLength(1)
     expect(rows[0]).toMatchObject({
       sessionId: session.id,
-      completedAt: '2026-01-01T00:00:02.000Z',
+      completedAt: '2026-01-01T00:00:00.000Z',
       unread: false,
     })
   })

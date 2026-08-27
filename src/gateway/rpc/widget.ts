@@ -2,8 +2,8 @@ import { widgetStateStore } from '../../store/widget-state.js'
 import { agentStore } from '../../store/agents.js'
 import { sessionStore } from '../../store/sessions.js'
 import { getDb } from '../../store/db.js'
-import { sessionManager } from '../../core/sessions.js'
 import { events } from '../../core/events.js'
+import { getQueryPort } from '../../queries/query-port-provider.js'
 import { buildWidgetAgentActivity } from '../../queries/widget-agent-activity-query.js'
 import { buildWidgetSessionActivityGroups } from '../../queries/widget-session-activity-query.js'
 import {
@@ -19,104 +19,12 @@ interface ProjectNameRow {
   name: string
 }
 
-interface WidgetSessionRow {
-  session_id: string
-  agent_id: string
-  agent_name: string
-  agent_icon: string | null
-  project_id: string | null
-  project_name: string | null
-  task_id: string | null
-  task_title: string | null
-  task_status: string | null
-  task_created_at: string | null
-  session_title: string | null
-  session_status: string
-  stage: string
-  started_at: string
-  closed_at: string | null
-  updated_at: string | null
-  last_message_at: string | null
-  last_read_at: string | null
-  latest_agent_message_at: string | null
-  latest_done_event_at: string | null
-  activity_state: 'running' | 'idle'
-}
-
 function getProjectName(projectId: string | null): string | null {
   if (!projectId) return null
   const row = getDb()
     .prepare<[string], ProjectNameRow>('SELECT name FROM projects WHERE id = ?')
     .get(projectId)
   return row?.name ?? null
-}
-
-function listWidgetSessions(projectId?: string): WidgetSessionRow[] {
-  const runtimeStateBySessionId = new Map(
-    sessionStore
-      .listWithRuntimeState(undefined, projectId, (sessionId) => sessionManager.isPromptActive(sessionId))
-      .map((session) => [session.id, session.activity_state]),
-  )
-  const sql = `
-    WITH session_links AS (
-      SELECT
-        s.*,
-        COALESCE(
-          s.task_id,
-          (
-            SELECT ts.task_id
-            FROM task_steps ts
-            WHERE ts.session_id = s.id
-            ORDER BY ts.updated_at DESC, ts.id DESC
-            LIMIT 1
-          )
-        ) AS linked_task_id
-      FROM sessions s
-    )
-    SELECT
-      s.id AS session_id,
-      s.agent_id,
-      a.name AS agent_name,
-      a.icon AS agent_icon,
-      s.project_id,
-      p.name AS project_name,
-      s.linked_task_id AS task_id,
-      t.title AS task_title,
-      t.status AS task_status,
-      t.created_at AS task_created_at,
-      s.title AS session_title,
-      s.status AS session_status,
-      s.stage,
-      s.started_at,
-      s.closed_at,
-      s.updated_at,
-      s.last_message_at,
-      s.last_read_at,
-      (
-        SELECT MAX(m.timestamp)
-        FROM messages m
-        WHERE m.session_id = s.id AND m.role = 'agent' AND m.status != 'running'
-      ) AS latest_agent_message_at,
-      (
-        SELECT MAX(e.created_at)
-        FROM session_events e
-        WHERE e.session_id = s.id AND e.type = 'message.done'
-      ) AS latest_done_event_at
-    FROM session_links s
-    JOIN agents a ON a.id = s.agent_id
-    LEFT JOIN projects p ON p.id = s.project_id
-    LEFT JOIN tasks t ON t.id = s.linked_task_id
-    WHERE s.deleted_at IS NULL
-      AND s.archived_at IS NULL
-      AND s.purpose = 'conversation'
-      ${projectId ? 'AND s.project_id = ?' : ''}
-    ORDER BY COALESCE(s.last_message_at, s.updated_at, s.started_at) DESC
-  `
-  return projectId
-    ? getDb().prepare<[string], Omit<WidgetSessionRow, 'activity_state'>>(sql).all(projectId)
-      .map((row) => ({ ...row, activity_state: runtimeStateBySessionId.get(row.session_id) ?? 'idle' }))
-    : getDb().prepare<[], Omit<WidgetSessionRow, 'activity_state'>>(sql).all()
-      .map((row) => ({ ...row, activity_state: runtimeStateBySessionId.get(row.session_id) ?? 'idle' }))
 }
 
 function listWidgetAgentTodayTasks(projectId?: string): WidgetAgentTodayTask[] {
@@ -208,64 +116,23 @@ function listWidgetAgentTodayTasks(projectId?: string): WidgetAgentTodayTask[] {
   return selectLatestWidgetAgentTasks(rows)
 }
 
-function latestTimestamp(left: string | null, right: string | null): string | null {
-  if (!left) return right
-  if (!right) return left
-  return Date.parse(left) >= Date.parse(right) ? left : right
-}
-
-function isWidgetSessionUnread(row: WidgetSessionRow): boolean {
-  if (!row.last_message_at || !row.last_read_at) return false
-  return Date.parse(row.last_message_at) > Date.parse(row.last_read_at)
-}
-
-function toWidgetSession(row: WidgetSessionRow) {
-  const completedAt = latestTimestamp(row.latest_agent_message_at, row.latest_done_event_at)
-  const lastMessageAt = row.last_message_at ?? completedAt
-  const taskIsToday = row.task_created_at
-    ? Date.parse(row.task_created_at) >= Date.parse(localDayStartIso(new Date()))
-    : false
-  return {
-    sessionId: row.session_id,
-    agentId: row.agent_id,
-    agentName: row.agent_name,
-    agentIcon: row.agent_icon,
-    projectId: row.project_id,
-    projectName: row.project_name,
-    taskId: taskIsToday ? row.task_id : null,
-    taskTitle: taskIsToday ? row.task_title : null,
-    taskStatus: taskIsToday ? row.task_status : null,
-    sessionTitle: row.session_title,
-    status: row.session_status,
-    activityState: row.activity_state,
-    stage: row.stage,
-    unread: isWidgetSessionUnread(row),
-    startedAt: row.started_at,
-    updatedAt: row.updated_at,
-    lastMessageAt,
-    completedAt,
-    closedAt: row.closed_at,
-  }
-}
-
 export const widgetRpcHandlers: RpcHandlerMap = {
-  'widget.sessionActivity.list'(msg, { sendResult }) {
+  async 'widget.sessionActivity.list'(msg, { sendResult }) {
     const projectId = msg.projectId as string | undefined
-    const sessions = listWidgetSessions(projectId).map(toWidgetSession)
+    const sessions = await getQueryPort().listWidgetSessions({ projectId })
     sendResult(buildWidgetSessionActivityGroups(sessions))
   },
 
-  'widget.agentActivity.list'(msg, { sendResult }) {
+  async 'widget.agentActivity.list'(msg, { sendResult }) {
     const projectId = msg.projectId as string | undefined
-    const sessions = listWidgetSessions(projectId).map(toWidgetSession)
+    const sessions = await getQueryPort().listWidgetSessions({ projectId })
     sendResult(buildWidgetAgentActivity(sessions, listWidgetAgentTodayTasks(projectId)))
   },
 
-  'widget.sessions.list'(msg, { sendResult }) {
+  async 'widget.sessions.list'(msg, { sendResult }) {
     const projectId = msg.projectId as string | undefined
     const filter = (msg.filter as string) || 'active'
-    const sessions = listWidgetSessions(projectId)
-      .map(toWidgetSession)
+    const sessions = await getQueryPort().listWidgetSessions({ projectId })
 
     if (filter === 'active') {
       sendResult(sessions.filter((session) => session.activityState === 'running' || session.unread))
@@ -288,20 +155,22 @@ export const widgetRpcHandlers: RpcHandlerMap = {
     sendResult({ ok: true })
   },
 
-  'widget.agents.list'(msg, { sendResult }) {
+  async 'widget.agents.list'(msg, { sendResult }) {
     const projectId = msg.projectId as string | undefined
     const filter = (msg.filter as string) || 'active'
 
     const agents = agentStore.list(projectId || undefined)
-    const sessionRowsById = new Map(listWidgetSessions(projectId).map((session) => [session.session_id, session]))
+    const sessionRowsById = new Map(
+      (await getQueryPort().listWidgetSessions({ projectId })).map((session) => [session.sessionId, session]),
+    )
 
     const result = agents.flatMap((agent) => {
       const sessions = sessionStore.list(agent.id).filter((session) => session.purpose === 'conversation')
       if (sessions.length === 0) return []
       const latestSession = sessions[sessions.length - 1]
-      const isRunning = sessions.some((session) => sessionRowsById.get(session.id)?.activity_state === 'running')
+      const isRunning = sessions.some((session) => sessionRowsById.get(session.id)?.activityState === 'running')
       const unreadSession = latestSession ? sessionRowsById.get(latestSession.id) : undefined
-      const isUnread = unreadSession ? isWidgetSessionUnread(unreadSession) : false
+      const isUnread = unreadSession?.unread ?? false
 
       return [{
         agentId: agent.id,

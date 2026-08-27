@@ -76,6 +76,12 @@ interface WidgetStore {
   setupListeners: () => () => void
 }
 
+const ACTIVITY_REFRESH_DEBOUNCE_MS = 150
+let activityFetch: Promise<void> | null = null
+let followUpRequested = false
+let followUpProjectId: string | null | undefined
+let refreshTimer: ReturnType<typeof setTimeout> | null = null
+
 export const useWidgetStore = create<WidgetStore>((set, get) => ({
   activityGroups: [],
   activitiesLoading: false,
@@ -84,17 +90,38 @@ export const useWidgetStore = create<WidgetStore>((set, get) => ({
   preferencesLoaded: false,
 
   fetchActivities: async (projectId) => {
-    set({ activitiesLoading: true, activitiesError: null })
+    if (activityFetch) {
+      followUpRequested = true
+      followUpProjectId = projectId
+      return activityFetch
+    }
+    const request = (async (): Promise<void> => {
+      set({ activitiesLoading: true, activitiesError: null })
+      try {
+        const msg: Record<string, unknown> = { type: 'widget.sessionActivity.list' }
+        if (projectId) msg.projectId = projectId
+        const data = (await wsClient.request(msg)) as WidgetAgentProjectActivityGroup[]
+        set({ activityGroups: data, activitiesLoading: false, activitiesError: null })
+      } catch (error) {
+        set({
+          activitiesLoading: false,
+          activitiesError: error instanceof Error ? error.message : 'Agent 动态同步失败',
+        })
+      }
+    })()
+    activityFetch = request
     try {
-      const msg: Record<string, unknown> = { type: 'widget.sessionActivity.list' }
-      if (projectId) msg.projectId = projectId
-      const data = (await wsClient.request(msg)) as WidgetAgentProjectActivityGroup[]
-      set({ activityGroups: data, activitiesLoading: false, activitiesError: null })
-    } catch (error) {
-      set({
-        activitiesLoading: false,
-        activitiesError: error instanceof Error ? error.message : 'Agent 动态同步失败',
-      })
+      await request
+    } finally {
+      if (activityFetch === request) {
+        activityFetch = null
+        if (followUpRequested) {
+          const nextProjectId = followUpProjectId
+          followUpRequested = false
+          followUpProjectId = undefined
+          void get().fetchActivities(nextProjectId)
+        }
+      }
     }
   },
 
@@ -140,8 +167,12 @@ export const useWidgetStore = create<WidgetStore>((set, get) => ({
   },
 
   setupListeners: () => {
-    const refresh = () => {
-      void get().fetchActivities(get().preferences.pinnedProjectId)
+    const refresh = (): void => {
+      if (refreshTimer) clearTimeout(refreshTimer)
+      refreshTimer = setTimeout(() => {
+        refreshTimer = null
+        void get().fetchActivities(get().preferences.pinnedProjectId)
+      }, ACTIVITY_REFRESH_DEBOUNCE_MS)
     }
     const unsubscribers = [
       wsClient.on('agent:status', refresh),
@@ -150,6 +181,12 @@ export const useWidgetStore = create<WidgetStore>((set, get) => ({
       wsClient.on('session:changed', refresh),
       wsClient.on('task:update', refresh),
     ]
-    return () => unsubscribers.forEach((unsubscribe) => unsubscribe())
+    return () => {
+      if (refreshTimer) {
+        clearTimeout(refreshTimer)
+        refreshTimer = null
+      }
+      unsubscribers.forEach((unsubscribe) => unsubscribe())
+    }
   },
 }))

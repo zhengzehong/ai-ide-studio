@@ -311,6 +311,7 @@ function failingQueryPort(): QueryPort {
     async listSessionMessages() { return fail() },
     async listSessionEvents() { return fail() },
     async getSessionRecovery() { return fail() },
+    async listWidgetSessions() { return fail() },
   }
 }
 

@@ -8,6 +8,7 @@ import type {
   SessionRecoverySnapshot,
   TaskListQuery,
   TaskPageQuery,
+  WidgetSessionListQuery,
 } from '../ports/query-port.js'
 import {
   eventStore,
@@ -17,6 +18,7 @@ import {
   type SessionEventRow,
 } from '../store/sessions.js'
 import { listTaskPageReadModel, listTaskReadModel } from './task-list-query.js'
+import { listWidgetSessionReadModel } from './widget-session-list-query.js'
 
 const DEFAULT_MESSAGE_LIMIT = 100
 const MAX_MESSAGE_LIMIT = 200
@@ -90,6 +92,10 @@ export function createDatabaseQueryPort(options: DatabaseQueryPortOptions = {}):
         latestSequence: eventStore.latestSequence(input.sessionId),
         events: eventStore.listRecovery(input.sessionId, limit),
       }
+    },
+
+    async listWidgetSessions(input: WidgetSessionListQuery) {
+      return listWidgetSessionReadModel(input)
     },
   }
 }
