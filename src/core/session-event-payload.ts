@@ -1,4 +1,5 @@
 import type { SessionUpdateData } from '../types/ws-protocol.js'
+import { lightweightToolCallPayload } from '../shared/tool-call-payload.js'
 
 export function eventPayloadFromUpdate(data: SessionUpdateData): { type: string; payload: unknown } | null {
   if (data.eventType === 'permission.result')
@@ -11,9 +12,15 @@ export function eventPayloadFromUpdate(data: SessionUpdateData): { type: string;
       payload: { messageId: data.messageId, role: data.role, contentDelta: data.contentDelta, content: data.content },
     }
   if (data.thinking) return { type: 'thinking.chunk', payload: { messageId: data.messageId, thinking: data.thinking } }
-  if (data.toolCall) return { type: 'tool.call', payload: { messageId: data.messageId, toolCall: data.toolCall } }
+  if (data.toolCall) return {
+    type: 'tool.call',
+    payload: { messageId: data.messageId, toolCall: lightweightToolCallPayload(data.toolCall) },
+  }
   if (data.toolCallUpdate)
-    return { type: 'tool.update', payload: { messageId: data.messageId, toolCall: data.toolCallUpdate } }
+    return {
+      type: 'tool.update',
+      payload: { messageId: data.messageId, toolCall: lightweightToolCallPayload(data.toolCallUpdate) },
+    }
   if (data.usage) return { type: 'usage.update', payload: { usage: data.usage } }
   if (data.plan) return { type: 'plan.update', payload: { plan: data.plan } }
   if (data.configOptions) return { type: 'config.update', payload: { configOptions: data.configOptions } }

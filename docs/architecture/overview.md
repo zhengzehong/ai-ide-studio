@@ -134,7 +134,7 @@ PC 生产构建按页面使用 `React.lazy` 拆分，应用 shell、认证和连
 
 默认 `RUNTIME_SERVICE_MODE=process` 时，独立 Runtime 子进程拥有 ACP adapter、Claude/Codex 子进程、每 Session 串行 actor、权限与 elicitation 等待项、终端进程、资源配额和流游标。Runtime 子进程不导入 Core、Store、Gateway、Query/Writer Worker 或 `better-sqlite3`，也不打开数据库。API 通过 `RuntimeStateSnapshot` 投影 Agent 配置、运行环境、system prompt、MCP server、Session 偏好、项目工作目录和持久化 ACP id；快照是可 `structuredClone` 的普通 DTO。
 
-每个 Session actor 在一次所有权周期内使用固定 `streamGeneration`，只在实际输出逻辑 patch 时递增 `sequence`。文本 delta 按 message 合并，process item 采用 latest-wins；权限、elicitation 和 done 会先 flush 同 Session 的普通更新。Runtime 的可见流每 25ms 通过独立本机管道直达 Realtime，API 事件循环阻塞不会中断浏览器流式输出；持久化流以 250ms 节奏发送到 API，并带同一 Session 游标。可见流是游标的唯一分配者：持久化 flush 必须先完成对应 UI flush，再复用该 patch 已发布的游标，不能为仅写数据库的更新生成浏览器不可见的 sequence。
+每个 Session actor 在一次所有权周期内使用固定 `streamGeneration`，只在实际输出逻辑 patch 时递增 `sequence`。文本 delta 按 message 合并，process item 采用 latest-wins；权限、elicitation 和 done 会先 flush 同 Session 的普通更新。Runtime 的可见流每 25ms 通过独立本机管道直达 Realtime，API 事件循环阻塞不会中断浏览器流式输出；持久化流以 250ms 节奏发送到 API，并带同一 Session 游标。文件工具的可见更新只携带路径，不向浏览器复制 `oldText` / `newText` 完整 diff；原始 diff 只进入持久化通道。可见流是游标的唯一分配者：持久化 flush 必须先完成对应 UI flush，再复用该 patch 已发布的游标，不能为仅写数据库的更新生成浏览器不可见的 sequence。
 
 持久化批次在开始异步发送前冻结该批全部可见流游标，慢速写入不能读取或删除后续同 key 更新的新游标。单个 Session 的持久化回调失败会在 API 侧记录并隔离，失败写链不会阻止该 Session 后续清理或恢复，也不会重启共享 Runtime；只有 Runtime 进程自身异常退出才进入监督重启边界。Runtime 重启期间，尚未进入 IPC 的新请求有界等待下一 generation，已经发送的 Prompt 明确失败且不会自动重放。
 
@@ -163,7 +163,7 @@ Android App 的“后台实时语音”只在客户端启用：设置页保存�
 
 ### SQLite Worker 边界
 
-应用启动时先完成 schema migration、旧 JSON 导入和内置数据 seed，再启动一个 Query Worker 和一个 Writer Worker。Query Worker 只读；Writer Worker 的新写路径按 `critical / interactive / background` 排队。Background 最多等待 25ms，并在达到 100 个 mutation 或 256KiB 时提前提交；critical 先提交同一 Session 已排队的 background mutation，再单独提交。
+应用启动时先完成 schema migration、旧 JSON 导入和内置数据 seed，再启动一个 Query Worker 和一个 Writer Worker。Query Worker 只读；Writer Worker 的新写路径按 `critical / interactive / background` 排队。Background 最多等待 25ms，并在达到 100 个 mutation 或 256KiB 时提前提交；critical 先提交同一 Session 已排队的 background mutation，再单独提交。文件工具产生的行级 diff 由惰性启动的 File-change Worker 使用 Myers 算法计算；同一工具的 running 更新只保留最新版本，终态先 drain 已接受的 diff，再由 Writer 聚合消息级摘要，因此 API 主线程不执行行级 diff，也不会在终态重复计算。
 
 Session 流式事件、running message snapshot、Turn Process 高频更新和 Session 终态已通过 `WriteDataPort` 进入 Writer Worker。API 为每个 Session 串行提交 Turn Process 写入；终态提交前先 drain 已接受的过程更新，再用 critical mutation 原子完成过程项、Agent 消息、文件变更汇总、Session stage 和时间戳。每个活动 Session 使用 `streamGeneration + sequence` 排序，重试通过 `batchId` 去重。`message.done` 与 Outbox 在同一事务提交，Gateway 只在 commit ack 后广播线上的 `session:done`。因此浏览器收到完成事件时，HTTP Snapshot 已可读取最终持久化状态。
 

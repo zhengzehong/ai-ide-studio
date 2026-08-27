@@ -40,7 +40,6 @@ import { sessionPersistencePort } from './persistence/session-persistence-port.j
 import { SessionPromptBatcher } from './session-prompt-batcher.js'
 import type { PromptIntent } from './prompt-intent.js'
 import { validatePromptIntent } from './task-step-intent-validator.js'
-import { fileChangesJsonFromToolCalls } from '../store/file-changes.js'
 import { presentationsJsonFromToolCalls } from './message-presentations.js'
 
 const log = createChildLogger('session')
@@ -248,7 +247,6 @@ async function commitFinalMessage(ev: AppEvents['session:done'], input: FinalMes
     timestamp: new Date().toISOString(),
     decisionJson: statsJson,
     statsJson,
-    fileChangesJson: fileChangesJsonFromToolCalls(input.toolCalls),
     presentationsJson: presentationsJsonFromToolCalls(input.toolCalls),
   })
   const message = messageStore.get(result.messageId)

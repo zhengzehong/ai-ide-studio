@@ -1,4 +1,5 @@
 import type { FileChangeDetailData, FileChangeLineData, FileChangeSummaryData, ToolCallData } from '../types/ws-protocol.js'
+import { diffLines } from 'diff'
 
 interface DiffSegment {
   toolCallId: string
@@ -86,6 +87,21 @@ export function parseFileChangesJson(raw: string | null): FileChangeSummaryData 
   }
 }
 
+export function lightweightFileChangesJson(raw: string | null): string | null {
+  const parsed = parseFileChangesJson(raw)
+  if (!parsed || parsed.files.length === 0) return null
+  return JSON.stringify({
+    files: parsed.files.map((file) => ({
+      path: file.path,
+      changeType: file.changeType,
+      addedLines: file.addedLines,
+      deletedLines: file.deletedLines,
+    })),
+    totalAdded: parsed.totalAdded,
+    totalDeleted: parsed.totalDeleted,
+  } satisfies FileChangeSummaryData)
+}
+
 function diffSegments(toolCalls: ToolCallData[]): DiffSegment[] {
   const segments: DiffSegment[] = []
   for (const tool of toolCalls) {
@@ -121,30 +137,22 @@ function buildDiffLines(oldText: string | undefined, newText: string): FileChang
     return splitLines(newText).map((text, index) => ({ type: 'add', text, newLine: index + 1 }))
   }
 
-  const oldLines = splitLines(oldText)
-  const newLines = splitLines(newText)
-  const table = buildLcsTable(oldLines, newLines)
   const lines: FileChangeLineData[] = []
-  let oldIndex = 0
-  let newIndex = 0
-
-  while (oldIndex < oldLines.length || newIndex < newLines.length) {
-    if (oldIndex < oldLines.length && newIndex < newLines.length && oldLines[oldIndex] === newLines[newIndex]) {
-      lines.push({ type: 'ctx', text: oldLines[oldIndex], oldLine: oldIndex + 1, newLine: newIndex + 1 })
-      oldIndex += 1
-      newIndex += 1
-      continue
-    }
-
-    if (newIndex < newLines.length && (oldIndex === oldLines.length || table[oldIndex][newIndex + 1] >= table[oldIndex + 1][newIndex])) {
-      lines.push({ type: 'add', text: newLines[newIndex], newLine: newIndex + 1 })
-      newIndex += 1
-      continue
-    }
-
-    if (oldIndex < oldLines.length) {
-      lines.push({ type: 'del', text: oldLines[oldIndex], oldLine: oldIndex + 1 })
-      oldIndex += 1
+  let oldLine = 1
+  let newLine = 1
+  for (const change of diffLines(oldText, newText, { ignoreNewlineAtEof: true })) {
+    for (const text of splitLines(change.value)) {
+      if (change.added) {
+        lines.push({ type: 'add', text, newLine })
+        newLine += 1
+      } else if (change.removed) {
+        lines.push({ type: 'del', text, oldLine })
+        oldLine += 1
+      } else {
+        lines.push({ type: 'ctx', text, oldLine, newLine })
+        oldLine += 1
+        newLine += 1
+      }
     }
   }
 
@@ -155,18 +163,6 @@ function splitLines(text: string): string[] {
   if (!text) return []
   const normalized = text.endsWith('\n') ? text.slice(0, -1) : text
   return normalized ? normalized.split('\n') : []
-}
-
-function buildLcsTable(a: string[], b: string[]): number[][] {
-  const table = Array.from({ length: a.length + 1 }, () => Array<number>(b.length + 1).fill(0))
-  for (let i = a.length - 1; i >= 0; i -= 1) {
-    for (let j = b.length - 1; j >= 0; j -= 1) {
-      table[i][j] = a[i] === b[j]
-        ? table[i + 1][j + 1] + 1
-        : Math.max(table[i + 1][j], table[i][j + 1])
-    }
-  }
-  return table
 }
 
 function isToolCallData(value: unknown): value is ToolCallData {

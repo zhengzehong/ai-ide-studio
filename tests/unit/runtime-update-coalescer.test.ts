@@ -261,6 +261,41 @@ describe('RuntimeUpdateCoalescer', () => {
 
     expect(persistence).toEqual([[toolCall, usage]])
   })
+
+  test('removes complete diff text from UI updates while retaining it for persistence', async () => {
+    vi.useFakeTimers()
+    const ui: RuntimeCoalescibleUpdate[][] = []
+    const persistence: RuntimeCoalescibleUpdate[][] = []
+    const coalescer = new RuntimeUpdateCoalescer({
+      uiFlushMs: 25,
+      persistenceFlushMs: 250,
+      emitUi: async (updates) => { ui.push(updates) },
+      emitPersistence: async (updates) => { persistence.push(updates) },
+    })
+    const update = sessionUpdate({
+      messageId: 'message-diff',
+      role: 'agent',
+      toolCallUpdate: {
+        id: 'tool-diff',
+        title: 'Edit file',
+        status: 'completed',
+        content: [{
+          type: 'diff',
+          path: 'src/large.ts',
+          oldText: 'old content'.repeat(1_000),
+          newText: 'new content'.repeat(1_000),
+        }],
+      },
+    })
+
+    coalescer.enqueue(update)
+    await vi.advanceTimersByTimeAsync(250)
+
+    expect(JSON.stringify(ui)).not.toContain('old content')
+    expect(JSON.stringify(ui)).not.toContain('new content')
+    expect(JSON.stringify(ui)).toContain('src/large.ts')
+    expect(persistence).toEqual([[update]])
+  })
 })
 
 function textDelta(contentDelta: string): RuntimeCoalescibleUpdate {

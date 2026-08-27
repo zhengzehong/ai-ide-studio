@@ -136,7 +136,7 @@ Runtime 可见 patch 不经过 API 事件总线，而是通过 Runtime→Realtim
 | `session.setConfig` | `{ sessionId, configId, value }` | `void` | 切换配置；成功后写入 `sessions.runtime_preferences_json.config[configId]` |
 | `session.cancel` | `{ sessionId }` | `{ ok: true }` | HTTP Command 的 WS 兼容入口；使用相同的 Runtime 终态取消和升级策略 |
 | `session.fork` | `{ sessionId }` | `Session` | Fork 会话 |
-| `sessions.messages` | `{ sessionId, limit?, before?, includeToolCalls? }` | `Message[]` | HTTP Query Port 的 WS 兼容桥；默认不返回完整历史工具 JSON，只返回 `has_tool_calls` / `tool_call_count`，并返回 ACP diff 文件变更轻量摘要 `file_changes_json` / `has_file_changes` / `file_change_count` |
+| `sessions.messages` | `{ sessionId, limit?, before?, includeToolCalls? }` | `Message[]` | HTTP Query Port 的 WS 兼容桥；默认不返回完整历史工具 JSON，只返回 `has_tool_calls` / `tool_call_count`；`file_changes_json` 在响应边界强制投影为文件级摘要，旧数据中的 `segments` / `oldText` / `newText` / `lines` 不随首屏返回 |
 | `sessions.messageToolCalls` | `{ sessionId, messageId }` | `ToolCallSummary[]` | 懒加载单条消息的工具调用摘要 |
 | `sessions.messageToolCallDetail` | `{ sessionId, messageId, toolCallId }` | `ToolCallDetail` | 懒加载单个工具调用详情，长输出会截断 |
 | `sessions.messageFileChanges` | `{ sessionId, messageId }` | `FileChangeDetail` | 懒加载单条 Agent 消息的 ACP diff 文件变更详情 |

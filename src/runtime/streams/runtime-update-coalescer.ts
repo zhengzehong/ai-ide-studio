@@ -1,3 +1,6 @@
+import { lightweightToolCallPayload } from '../../shared/tool-call-payload.js'
+import type { ToolCallData } from '../../types/ws-protocol.js'
+
 export type RuntimeCoalescibleUpdate =
   | {
       kind: 'session-update'
@@ -64,7 +67,7 @@ export class RuntimeUpdateCoalescer {
 
   async enqueueCritical(update: RuntimeCoalescibleUpdate): Promise<void> {
     await this.flushSession(update.sessionId)
-    await this.write(this.ui, [update])
+    await this.write(this.ui, [lightweightUiUpdate(update)])
     await this.write(this.persistence, [update])
   }
 
@@ -107,8 +110,10 @@ export class RuntimeUpdateCoalescer {
 
   private async flushChannel(channel: UpdateChannel, sessionId?: string): Promise<void> {
     const updates = this.takePending(channel, sessionId)
-    if (updates.length > 0) await this.write(channel, updates)
-    else await channel.writeChain
+    if (updates.length > 0) {
+      const outgoing = channel === this.ui ? updates.map(lightweightUiUpdate) : updates
+      await this.write(channel, outgoing)
+    } else await channel.writeChain
   }
 
   private takePending(channel: UpdateChannel, sessionId?: string): RuntimeCoalescibleUpdate[] {
@@ -220,6 +225,23 @@ function record(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
     : undefined
+}
+
+function lightweightUiUpdate(update: RuntimeCoalescibleUpdate): RuntimeCoalescibleUpdate {
+  if (update.kind !== 'session-update') return update
+  const data = recordField(update, 'data')
+  if (!data) return update
+  const toolCall = lightweightToolCallPayload(data.toolCall as ToolCallData | undefined)
+  const toolCallUpdate = lightweightToolCallPayload(data.toolCallUpdate as ToolCallData | undefined)
+  if (toolCall === data.toolCall && toolCallUpdate === data.toolCallUpdate) return update
+  return {
+    ...update,
+    data: {
+      ...data,
+      ...(toolCall ? { toolCall } : {}),
+      ...(toolCallUpdate ? { toolCallUpdate } : {}),
+    },
+  }
 }
 
 function stringValue(value: unknown): string {

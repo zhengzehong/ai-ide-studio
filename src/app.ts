@@ -41,6 +41,7 @@ import { listActivePromptDiagnostics } from './core/prompt-diagnostics.js'
 import { resumeProjectSecretaryRuns } from './core/project-secretary.js'
 import { resumeProjectInspirations } from './core/project-inspiration.js'
 import { DataRetentionService } from './data-retention/retention-service.js'
+import { closeSharedFileChangeWorker } from './core/file-change-worker-client.js'
 import { getOrCreateRetentionControlToken } from './data-retention/control-token.js'
 import {
   createRealtimeEndpointSubscription,
@@ -291,6 +292,7 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
       await collectCleanupError(cleanupErrors, () => commandDispatcher.drain())
       await collectCleanupError(cleanupErrors, () => runtimePort.drain())
       await collectCleanupError(cleanupErrors, () => runtimePort.close())
+      await collectCleanupError(cleanupErrors, () => closeSharedFileChangeWorker())
       resetRuntimePort()
       if (realtimeProcess) await collectCleanupError(cleanupErrors, () => realtimeProcess.close())
       await collectCleanupError(cleanupErrors, () => closeHttpServer(server))

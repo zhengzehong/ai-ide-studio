@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto'
 import { createChildLogger } from '../core/logger.js'
 import { getDb } from './db.js'
-import { fileChangesJsonFromToolCalls, parseFileChangesJson } from './file-changes.js'
+import { fileChangesJsonFromToolCalls, lightweightFileChangesJson, parseFileChangesJson } from './file-changes.js'
 import {
   RUNNING_SESSION_STAGES,
   resolveSessionRuntimeState,
@@ -854,6 +854,7 @@ function findLatestToolMessageId(rows: MessageRow[]): string | null {
 function lightweightMessage(row: MessageRow, includeToolCalls: boolean): MessageRow {
   const hasToolCalls = !!row.tool_calls_json
   const fileChanges = parseFileChangesJson(row.file_changes_json)
+  const fileChangesJson = lightweightFileChangesJson(row.file_changes_json)
   const fileChangeFields = {
     has_file_changes: !!fileChanges?.files.length,
     file_change_count: fileChanges?.files.length,
@@ -861,6 +862,7 @@ function lightweightMessage(row: MessageRow, includeToolCalls: boolean): Message
   if (includeToolCalls || !hasToolCalls) {
     return {
       ...row,
+      file_changes_json: fileChangesJson,
       has_tool_calls: hasToolCalls,
       tool_call_count: countToolCalls(row.tool_calls_json),
       ...fileChangeFields,
@@ -869,6 +871,7 @@ function lightweightMessage(row: MessageRow, includeToolCalls: boolean): Message
   return {
     ...row,
     tool_calls_json: null,
+    file_changes_json: fileChangesJson,
     has_tool_calls: true,
     tool_call_count: countToolCalls(row.tool_calls_json),
     ...fileChangeFields,
