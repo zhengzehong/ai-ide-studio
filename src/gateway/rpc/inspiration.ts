@@ -26,6 +26,9 @@ export const inspirationRpcHandlers: RpcHandlerMap = {
       organizerAgentId: requiredText(msg.organizerAgentId, 'organizerAgentId'),
       organizationPrompt: optionalText(msg.organizationPrompt, 20_000),
       autoOrganize: optionalBoolean(msg.autoOrganize, 'autoOrganize'),
+      taskDefaultAgentId: optionalNullableText(msg.taskDefaultAgentId, 120),
+      taskDefaultSessionId: optionalNullableText(msg.taskDefaultSessionId, 120),
+      taskTargetPriority: optionalTaskTargetPriority(msg.taskTargetPriority),
     }))
   },
 
@@ -108,7 +111,9 @@ export const inspirationRpcHandlers: RpcHandlerMap = {
       requiredText(msg.projectId, 'projectId'),
       requiredText(msg.candidateId, 'candidateId'),
       {
-        agentId: requiredText(msg.agentId, 'agentId'),
+        agentId: optionalText(msg.agentId, 120),
+        sessionId: optionalText(msg.sessionId, 120),
+        sessionMode: optionalSessionMode(msg.sessionMode),
         execute: requiredBoolean(msg.execute, 'execute'),
       },
     ))
@@ -145,6 +150,25 @@ function optionalTitleMode(value: unknown): 'auto' | 'manual' | undefined {
   if (value === undefined) return undefined
   if (value === 'auto' || value === 'manual') return value
   throw new Error('titleMode 必须是 auto 或 manual')
+}
+
+function optionalNullableText(value: unknown, maxLength: number): string | null | undefined {
+  if (value === undefined) return undefined
+  if (value === null || value === '') return null
+  if (typeof value !== 'string' || value.trim().length > maxLength) throw new Error(`文本最大 ${maxLength} 个字符`)
+  return value.trim()
+}
+
+function optionalTaskTargetPriority(value: unknown): 'default' | 'recommended' | undefined {
+  if (value === undefined) return undefined
+  if (value === 'default' || value === 'recommended') return value
+  throw new Error('taskTargetPriority 必须是 default 或 recommended')
+}
+
+function optionalSessionMode(value: unknown): 'existing' | 'new_each' | undefined {
+  if (value === undefined) return undefined
+  if (value === 'existing' || value === 'new_each') return value
+  throw new Error('sessionMode 必须是 existing 或 new_each')
 }
 
 function optionalStringArray(

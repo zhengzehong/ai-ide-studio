@@ -2,6 +2,8 @@
 
 ## PC HTTP Query API
 
+灵感配置请求支持 `taskDefaultAgentId`、`taskDefaultSessionId`、`taskTargetPriority`；候选任务创建支持 `agentId`、`sessionId`、`sessionMode`。服务端按优先级解析目标并校验归属。
+
 PC 高频只读路径使用同源 HTTP，认证沿用 `x-ai-ide-token`。普通列表响应为 `{ data }`，分页响应为 `{ data, page: { hasMore, nextCursor } }`。
 
 | 方法 | 参数 | 返回 | 说明 |

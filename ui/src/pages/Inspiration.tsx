@@ -5,6 +5,7 @@ import { useProjectNavigation } from '../hooks/use-project-navigation'
 import { useProjectScopeId } from '../hooks/use-project-scope'
 import { useAgentStore } from '../stores/agent.store'
 import { useInspirationStore, type InspirationCandidate, type InspirationNote } from '../stores/inspiration.store'
+import { useSessionStore } from '../stores/session.store'
 import { useProjectViewStateStore } from '../stores/project-view-state.store'
 import { CandidateTaskDialog, type CandidateAction } from './inspiration/CandidateTaskDialog'
 import { InspirationEditor } from './inspiration/InspirationEditor'
@@ -25,6 +26,8 @@ export function Inspiration() {
     [allAgents, projectId],
   )
   const fetchAgents = useAgentStore((state) => state.fetchAgents)
+  const sessions = useSessionStore((state) => state.sessions)
+  const fetchSessions = useSessionStore((state) => state.fetchSessions)
   const inspirationProjectId = useInspirationStore((state) => state.projectId)
   const config = useInspirationStore((state) => state.config)
   const notes = useInspirationStore((state) => state.notes)
@@ -56,7 +59,7 @@ export function Inspiration() {
   const selected = useMemo(() => notes.find((note) => note.id === selectedId) ?? null, [notes, selectedId])
   const showEditor = mode === 'edit' || (!loading && inspirationProjectId === projectId && notes.length === 0)
 
-  useEffect(() => { void load(projectId); void fetchAgents(projectId) }, [fetchAgents, load, projectId])
+  useEffect(() => { void load(projectId); void fetchAgents(projectId); void fetchSessions(undefined, projectId) }, [fetchAgents, fetchSessions, load, projectId])
   useEffect(() => setupListeners(), [setupListeners])
   useEffect(() => {
     if (loading || inspirationProjectId !== projectId || mode === 'edit') return
@@ -92,17 +95,19 @@ export function Inspiration() {
     }
   }
 
-  const confirmCandidate = async (input: { title: string; descriptionMarkdown: string; agentId: string; action: CandidateAction }): Promise<void> => {
+  const confirmCandidate = async (input: { title: string; descriptionMarkdown: string; agentId: string; sessionId: string; action: CandidateAction }): Promise<void> => {
     if (!candidateDialog) return
     setActionBusy(true)
     try {
       await updateCandidate(candidateDialog.candidate.id, {
         title: input.title,
         descriptionMarkdown: input.descriptionMarkdown,
-        suggestedAgentId: input.agentId || null,
+        suggestedAgentId: input.action === 'edit'
+          ? candidateDialog.candidate.suggestedAgentId
+          : input.agentId || null,
       })
       if (input.action !== 'edit') {
-        await createCandidateTask(candidateDialog.candidate.id, input.agentId, input.action === 'execute')
+        await createCandidateTask(candidateDialog.candidate.id, input.agentId, input.action === 'execute', input.sessionId || undefined)
       }
       setNotice(input.action === 'execute' ? '任务已创建并派发' : input.action === 'create' ? '任务已创建，尚未执行' : '候选任务已更新')
       setCandidateDialog(null)
@@ -177,8 +182,8 @@ export function Inspiration() {
           ) : notes.length > 0 ? <div className="inspiration-result-state"><CheckCircle2 size={22} /><strong>{filter === 'completed' ? '还没有已完成灵感' : '当前没有进行中的灵感'}</strong><span>{filter === 'completed' ? '处理完成的灵感会集中显示在这里。' : '可以查看已完成记录，或继续记录新的想法。'}</span><button type="button" className="inspiration-secondary" onClick={() => setFilter(filter === 'completed' ? 'all' : 'completed')}>{filter === 'completed' ? '查看全部' : '查看已完成'}</button></div> : <div className="inspiration-result-state"><Lightbulb size={22} /><strong>记录第一条灵感</strong><span>原文会立即保存，AI 整理在后台完成。</span><button type="button" className="inspiration-primary" onClick={createNote}>开始记录</button></div>}
         </section>
       </main>
-      {settingsOpen && config && <InspirationSettingsDialog config={config} agents={agents} saving={saving} onClose={() => setSettingsOpen(false)} onRebuild={rebuildSession} onSave={async (input) => { await configure(input); setSettingsOpen(false); if (selected?.status === 'draft') await organize(selected.id); setNotice('项目灵感设置已保存') }} />}
-      {candidateDialog && <CandidateTaskDialog candidate={candidateDialog.candidate} action={candidateDialog.action} agents={agents} busy={actionBusy} onClose={() => setCandidateDialog(null)} onConfirm={confirmCandidate} />}
+      {settingsOpen && config && <InspirationSettingsDialog config={config} agents={agents} sessions={sessions} saving={saving} onClose={() => setSettingsOpen(false)} onRebuild={rebuildSession} onSave={async (input) => { await configure(input); setSettingsOpen(false); if (selected?.status === 'draft') await organize(selected.id); setNotice('项目灵感设置已保存') }} />}
+      {candidateDialog && <CandidateTaskDialog candidate={candidateDialog.candidate} action={candidateDialog.action} agents={agents} sessions={sessions} config={config} busy={actionBusy} onClose={() => setCandidateDialog(null)} onConfirm={confirmCandidate} />}
     </div>
   )
 }

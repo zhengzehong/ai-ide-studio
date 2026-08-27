@@ -4,6 +4,9 @@ export interface ProjectInspirationRow {
   project_id: string
   session_id: string | null
   organizer_agent_id: string | null
+  task_default_agent_id: string | null
+  task_default_session_id: string | null
+  task_target_priority: 'default' | 'recommended'
   organization_prompt: string
   auto_organize: number
   last_error: string | null
@@ -15,6 +18,9 @@ export interface ProjectInspirationData {
   projectId: string
   sessionId: string | null
   organizerAgentId: string | null
+  taskDefaultAgentId: string | null
+  taskDefaultSessionId: string | null
+  taskTargetPriority: 'default' | 'recommended'
   organizationPrompt: string
   autoOrganize: boolean
   lastError: string | null
@@ -31,6 +37,9 @@ export const projectInspirationStore = {
       project_id: projectId,
       session_id: null,
       organizer_agent_id: null,
+      task_default_agent_id: null,
+      task_default_session_id: null,
+      task_target_priority: 'default',
       organization_prompt: '',
       auto_organize: 1,
       last_error: null,
@@ -72,6 +81,9 @@ export const projectInspirationStore = {
     input: {
       sessionId?: string | null
       organizerAgentId?: string | null
+      taskDefaultAgentId?: string | null
+      taskDefaultSessionId?: string | null
+      taskTargetPriority?: 'default' | 'recommended'
       organizationPrompt?: string
       autoOrganize?: boolean
       lastError?: string | null
@@ -82,6 +94,9 @@ export const projectInspirationStore = {
       ...current,
       session_id: input.sessionId !== undefined ? input.sessionId : current.session_id,
       organizer_agent_id: input.organizerAgentId !== undefined ? input.organizerAgentId : current.organizer_agent_id,
+      task_default_agent_id: input.taskDefaultAgentId !== undefined ? input.taskDefaultAgentId : current.task_default_agent_id,
+      task_default_session_id: input.taskDefaultSessionId !== undefined ? input.taskDefaultSessionId : current.task_default_session_id,
+      task_target_priority: input.taskTargetPriority ?? current.task_target_priority,
       organization_prompt: input.organizationPrompt ?? current.organization_prompt,
       auto_organize: input.autoOrganize === undefined ? current.auto_organize : input.autoOrganize ? 1 : 0,
       last_error: input.lastError !== undefined ? input.lastError : current.last_error,
@@ -90,6 +105,9 @@ export const projectInspirationStore = {
     getDb().prepare(`
       UPDATE project_inspirations
       SET session_id = @session_id,
+          task_default_agent_id = @task_default_agent_id,
+          task_default_session_id = @task_default_session_id,
+          task_target_priority = @task_target_priority,
           organizer_agent_id = @organizer_agent_id,
           organization_prompt = @organization_prompt,
           auto_organize = @auto_organize,
@@ -105,6 +123,9 @@ export const projectInspirationStore = {
       projectId: row.project_id,
       sessionId: row.session_id,
       organizerAgentId: row.organizer_agent_id,
+      taskDefaultAgentId: row.task_default_agent_id,
+      taskDefaultSessionId: row.task_default_session_id,
+      taskTargetPriority: row.task_target_priority === 'recommended' ? 'recommended' : 'default',
       organizationPrompt: row.organization_prompt,
       autoOrganize: row.auto_organize === 1,
       lastError: row.last_error,

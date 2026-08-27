@@ -37,6 +37,8 @@ describe('PC inspiration workbench', () => {
       candidate,
       action: 'execute',
       agents: [agentFixture()],
+      sessions: [],
+      config: configFixture(),
       busy: false,
       onClose: () => undefined,
       onConfirm: async () => undefined,
@@ -47,10 +49,31 @@ describe('PC inspiration workbench', () => {
     expect(html).toContain('创建并执行')
   })
 
+  test('keeps the AI recommended Agent unchanged when editing candidate copy', () => {
+    const recommended = { ...agentFixture(), id: 'agent-2', name: 'AI 推荐 Agent' }
+    const candidate = { ...candidateFixture(), suggestedAgentId: recommended.id }
+    const html = renderToStaticMarkup(createElement(CandidateTaskDialog, {
+      candidate,
+      action: 'edit',
+      agents: [agentFixture(), recommended],
+      sessions: [],
+      config: configFixture(),
+      busy: false,
+      onClose: () => undefined,
+      onConfirm: async () => undefined,
+    }))
+    const page = readFileSync(resolve('ui/src/pages/Inspiration.tsx'), 'utf8')
+
+    expect(html).not.toContain('执行 Agent')
+    expect(page).toContain("suggestedAgentId: input.action === 'edit'")
+    expect(page).toContain('candidateDialog.candidate.suggestedAgentId')
+  })
+
   test('configures one organizer Agent and automatic organization', () => {
     const html = renderToStaticMarkup(createElement(InspirationSettingsDialog, {
       config: configFixture(),
       agents: [agentFixture()],
+      sessions: [],
       saving: false,
       onClose: () => undefined,
       onSave: async () => undefined,
@@ -155,6 +178,9 @@ function configFixture(): InspirationConfig {
     organizerAgentId: 'agent-1',
     organizationPrompt: '整理灵感',
     autoOrganize: true,
+    taskDefaultAgentId: 'agent-1',
+    taskDefaultSessionId: 'session-1',
+    taskTargetPriority: 'default',
     lastError: null,
     createdAt: '2026-08-24T00:00:00.000Z',
     updatedAt: '2026-08-24T00:00:00.000Z',

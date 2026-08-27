@@ -187,6 +187,111 @@ describe('project inspiration service', () => {
     expect(getInspirationNote(fixture.project.id, noteId).candidates[0].taskId).toBe(taskId)
   })
 
+  test('persists project task defaults and reuses an explicitly selected Session', async () => {
+    const fixture = createFixture()
+    const targetSession = sessionStore.create({ agentId: fixture.executor.id, projectId: fixture.project.id })
+    const configured = await configureProjectInspiration(fixture.project.id, {
+      organizerAgentId: fixture.organizer.id,
+      taskDefaultAgentId: fixture.executor.id,
+      taskDefaultSessionId: targetSession.id,
+      taskTargetPriority: 'default',
+    })
+    expect(configured).toMatchObject({
+      taskDefaultAgentId: fixture.executor.id,
+      taskDefaultSessionId: targetSession.id,
+      taskTargetPriority: 'default',
+    })
+
+    vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue(undefined)
+    const { candidateId } = readyCandidate(fixture.project.id, fixture.executor.id)
+    const note = await createTaskFromInspirationCandidate(fixture.project.id, candidateId, {
+      execute: true,
+      agentId: fixture.executor.id,
+      sessionId: targetSession.id,
+      sessionMode: 'existing',
+    })
+
+    expect(note.candidates[0]?.executionSessionId).toBe(targetSession.id)
+    expect(taskStepStore.listByTask(note.candidates[0]!.taskId!)[0]?.session_id).toBe(targetSession.id)
+  })
+
+  test('uses the recommended Agent only when recommended priority is enabled', async () => {
+    const fixture = createFixture()
+    await configureProjectInspiration(fixture.project.id, {
+      organizerAgentId: fixture.organizer.id,
+      taskDefaultAgentId: fixture.organizer.id,
+      taskTargetPriority: 'recommended',
+    })
+    vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue(undefined)
+    const { candidateId } = readyCandidate(fixture.project.id, fixture.executor.id)
+    const note = await createTaskFromInspirationCandidate(fixture.project.id, candidateId, { execute: true })
+
+    expect(sessionStore.get(note.candidates[0]!.executionSessionId!)?.agent_id).toBe(fixture.executor.id)
+  })
+
+  test('rejects a default Session without a matching project Agent', async () => {
+    const fixture = createFixture()
+    const targetSession = sessionStore.create({ agentId: fixture.executor.id, projectId: fixture.project.id })
+
+    await expect(configureProjectInspiration(fixture.project.id, {
+      organizerAgentId: fixture.organizer.id,
+      taskDefaultSessionId: targetSession.id,
+    })).rejects.toThrow('必须绑定默认任务 Agent')
+  })
+
+  test('validates the final default target when only the Agent changes', async () => {
+    const fixture = createFixture()
+    const targetSession = sessionStore.create({ agentId: fixture.executor.id, projectId: fixture.project.id })
+    await configureProjectInspiration(fixture.project.id, {
+      organizerAgentId: fixture.organizer.id,
+      taskDefaultAgentId: fixture.executor.id,
+      taskDefaultSessionId: targetSession.id,
+    })
+
+    await expect(configureProjectInspiration(fixture.project.id, {
+      organizerAgentId: fixture.organizer.id,
+      taskDefaultAgentId: fixture.organizer.id,
+    })).rejects.toThrow('不属于默认任务 Agent')
+  })
+
+  test('does not clear the default Agent while retaining its Session', async () => {
+    const fixture = createFixture()
+    const targetSession = sessionStore.create({ agentId: fixture.executor.id, projectId: fixture.project.id })
+    await configureProjectInspiration(fixture.project.id, {
+      organizerAgentId: fixture.organizer.id,
+      taskDefaultAgentId: fixture.executor.id,
+      taskDefaultSessionId: targetSession.id,
+    })
+
+    await expect(configureProjectInspiration(fixture.project.id, {
+      organizerAgentId: fixture.organizer.id,
+      taskDefaultAgentId: null,
+    })).rejects.toThrow('必须绑定默认任务 Agent')
+  })
+
+  test('falls back to the recommended Agent when default priority has no configured Agent', async () => {
+    const fixture = createFixture()
+    await configureProjectInspiration(fixture.project.id, {
+      organizerAgentId: fixture.organizer.id,
+      taskTargetPriority: 'default',
+    })
+    const { candidateId } = readyCandidate(fixture.project.id, fixture.executor.id)
+    const note = await createTaskFromInspirationCandidate(fixture.project.id, candidateId, { execute: false })
+
+    expect(taskStepStore.listByTask(note.candidates[0]!.taskId!)[0]?.assignee_agent_id).toBe(fixture.executor.id)
+  })
+
+  test('requires a Session when existing Session mode is selected', async () => {
+    const fixture = createFixture()
+    const { candidateId } = readyCandidate(fixture.project.id, fixture.executor.id)
+
+    await expect(createTaskFromInspirationCandidate(fixture.project.id, candidateId, {
+      agentId: fixture.executor.id,
+      sessionMode: 'existing',
+      execute: false,
+    })).rejects.toThrow('必须选择执行会话')
+  })
+
   test('binds a discussion to one note and commits a publish revision without exposing attemptId', async () => {
     const fixture = createFixture()
     const config = await configureProjectInspiration(fixture.project.id, { organizerAgentId: fixture.organizer.id })

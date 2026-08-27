@@ -10,8 +10,7 @@ import { createChildLogger } from './logger.js'
 import { buildInspirationNoteData, type InspirationNoteData } from './project-inspiration-view.js'
 import { sessionManager } from './sessions.js'
 import { createSimpleTask } from './task-simple.js'
-import { taskStepManager } from './task-steps.js'
-import { taskManager } from './tasks.js'
+import { createInspirationDraftTask, requireInspirationProjectAgent, resolveInspirationTaskTarget, validateInspirationTaskTarget } from './project-inspiration-task-target.js'
 import { loadStoredImagesForAcp, saveInspirationImages, type StoredImageAttachment } from './image-attachments.js'
 import { buildInspirationAnalysisPrompt } from './project-inspiration-prompt.js'
 import { enqueueProjectInspirationTurn } from './project-inspiration-turn-queue.js'
@@ -53,12 +52,26 @@ export function getProjectInspiration(projectId: string): ProjectInspirationWork
 
 export async function configureProjectInspiration(
   projectId: string,
-  input: { organizerAgentId: string; organizationPrompt?: string; autoOrganize?: boolean },
+  input: {
+    organizerAgentId: string
+    organizationPrompt?: string
+    autoOrganize?: boolean
+    taskDefaultAgentId?: string | null
+    taskDefaultSessionId?: string | null
+    taskTargetPriority?: 'default' | 'recommended'
+  },
 ): Promise<ProjectInspirationData> {
   requireProject(projectId)
   const agent = agentStore.get(input.organizerAgentId)
   if (!agent || agent.project_id !== projectId) throw new Error('整理 Agent 不属于当前项目')
   const current = projectInspirationStore.ensure(projectId)
+  const effectiveTaskAgentId = input.taskDefaultAgentId !== undefined
+    ? input.taskDefaultAgentId
+    : current.task_default_agent_id
+  const effectiveTaskSessionId = input.taskDefaultSessionId !== undefined
+    ? input.taskDefaultSessionId
+    : current.task_default_session_id
+  validateInspirationTaskTarget(projectId, effectiveTaskAgentId, effectiveTaskSessionId)
   if (current.session_id && current.organizer_agent_id && current.organizer_agent_id !== agent.id) {
     throw new Error('更换整理 Agent 需要先重建灵感会话')
   }
@@ -74,6 +87,9 @@ export async function configureProjectInspiration(
     sessionId,
     organizationPrompt: input.organizationPrompt ?? (current.organization_prompt || DEFAULT_PROMPT),
     autoOrganize: input.autoOrganize,
+    taskDefaultAgentId: input.taskDefaultAgentId,
+    taskDefaultSessionId: input.taskDefaultSessionId,
+    taskTargetPriority: input.taskTargetPriority,
     lastError: null,
   })
   if (sessionId !== current.session_id) inspirationNoteStore.requeueProcessing(projectId)
@@ -229,7 +245,7 @@ export function updateInspirationCandidate(
   input: { title: string; descriptionMarkdown: string; suggestedAgentId?: string | null },
 ): InspirationNoteData {
   const candidate = requireCandidate(projectId, candidateId)
-  if (input.suggestedAgentId) requireProjectAgent(projectId, input.suggestedAgentId)
+  if (input.suggestedAgentId) requireInspirationProjectAgent(projectId, input.suggestedAgentId)
   const updated = inspirationCandidateStore.update(candidate.id, input)
   if (!updated) throw new Error('候选任务已创建或正在派发，不能再编辑')
   const note = requireNote(projectId, candidate.note_id)
@@ -240,13 +256,13 @@ export function updateInspirationCandidate(
 export async function createTaskFromInspirationCandidate(
   projectId: string,
   candidateId: string,
-  input: { agentId: string; execute: boolean },
+  input: { agentId?: string; sessionId?: string; sessionMode?: 'existing' | 'new_each'; execute: boolean },
 ): Promise<InspirationNoteData> {
   const candidate = requireCandidate(projectId, candidateId)
   if (candidate.task_id) return buildInspirationNoteData(requireNote(projectId, candidate.note_id))
   const note = requireNote(projectId, candidate.note_id)
   if (candidate.analysis_revision !== note.analysis_revision) throw new Error('候选任务已过期，请使用最新整理结果')
-  requireProjectAgent(projectId, input.agentId)
+  const target = resolveInspirationTaskTarget(projectId, candidate, input)
   const token = `dispatch-${randomUUID()}`
   if (!inspirationCandidateStore.claimDispatch(candidate.id, token)) throw new Error('候选任务正在创建，请稍候')
   try {
@@ -254,13 +270,14 @@ export async function createTaskFromInspirationCandidate(
       const result = await createSimpleTask({
         title: candidate.title,
         description: candidate.description_markdown,
-        assignee: input.agentId,
+        assignee: target.agentId,
         projectId,
         source: 'inspiration',
+        sessionId: target.sessionId,
       })
       inspirationCandidateStore.completeDispatch(candidate.id, token, result.task.id, result.sessionId)
     } else {
-      const task = await taskStoreCreateDraft(candidate.title, candidate.description_markdown, projectId, input.agentId)
+      const task = await createInspirationDraftTask(candidate.title, candidate.description_markdown, projectId, target.agentId, target.sessionId)
       inspirationCandidateStore.completeDispatch(candidate.id, token, task.id)
     }
     emitUpdate(projectId, note.id)
@@ -279,12 +296,6 @@ export async function resumeProjectInspirations(): Promise<void> {
   for (const config of projectInspirationStore.list()) {
     if (config.auto_organize && config.session_id && config.organizer_agent_id) scheduleDrain(config.project_id)
   }
-}
-
-async function taskStoreCreateDraft(title: string, description: string, projectId: string, agentId: string) {
-  const task = await taskManager.createTask({ title, description, projectId, source: 'inspiration' })
-  taskStepManager.addStep({ taskId: task.id, title, description, assignee: agentId })
-  return task
 }
 
 function scheduleDrain(projectId: string): void {
@@ -378,11 +389,6 @@ function requireCandidate(projectId: string, candidateId: string) {
   if (!candidate) throw new Error('候选任务不存在')
   requireNote(projectId, candidate.note_id)
   return candidate
-}
-
-function requireProjectAgent(projectId: string, agentId: string): void {
-  const agent = agentStore.get(agentId)
-  if (!agent || agent.project_id !== projectId) throw new Error('执行 Agent 不属于当前项目')
 }
 
 function emitUpdate(projectId: string, noteId?: string): void {

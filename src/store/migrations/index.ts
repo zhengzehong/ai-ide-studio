@@ -55,6 +55,7 @@ import { inspirationContextChatMigration } from './054-inspiration-context-chat.
 import { dataRetentionIndexesMigration } from './055-data-retention-indexes.js'
 import { inspirationCompletionMigration } from './056-inspiration-completion.js'
 import { taskPageIndexesMigration } from './057-task-page-indexes.js'
+import { inspirationTaskTargetMigration } from './058-inspiration-task-target.js'
 import type { Migration } from '../migrator.js'
 
 export const migrations: Migration[] = [
@@ -115,4 +116,5 @@ export const migrations: Migration[] = [
   dataRetentionIndexesMigration,
   inspirationCompletionMigration,
   taskPageIndexesMigration,
+  inspirationTaskTargetMigration,
 ]
