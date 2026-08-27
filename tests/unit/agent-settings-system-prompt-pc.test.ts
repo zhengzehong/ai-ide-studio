@@ -2,7 +2,8 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, test } from 'vitest'
 import { AgentSettingsModal } from '../../ui/src/components/agent/AgentSettingsModal.tsx'
-import { buildAgentSettingsUpdate } from '../../ui/src/components/agent/agent-settings-update.ts'
+import { AgentSystemPromptEditorModal } from '../../ui/src/components/agent/AgentSystemPromptEditorModal.tsx'
+import * as settingsUpdate from '../../ui/src/components/agent/agent-settings-update.ts'
 import type { AgentData } from '../../ui/src/stores/agent.store.ts'
 
 const agent: AgentData = {
@@ -21,31 +22,54 @@ const agent: AgentData = {
 }
 
 describe('PC existing Agent system prompt settings', () => {
-  test('shows the deployed Agent prompt and explains next-turn activation', () => {
+  test('shows a compact prompt summary instead of the long editor', () => {
     const html = renderToStaticMarkup(createElement(AgentSettingsModal, {
       agent,
       modelProfiles: [],
       onLoadProfiles: () => undefined,
       onSave: async () => undefined,
+      onEditSystemPrompt: () => undefined,
       onClose: () => undefined,
     }))
 
     expect(html).toContain('系统提示词')
-    expect(html).toContain('只修改当前需求范围内的代码。')
-    expect(html).toContain('下一轮消息生效')
+    expect(html).toContain('已配置')
+    expect(html).toContain('14 字')
+    expect(html).toContain('编辑')
+    expect(html).not.toContain('<textarea')
   })
 
-  test('keeps an empty prompt in the update payload so users can clear it', () => {
-    expect(buildAgentSettingsUpdate({
+  test('keeps system prompt out of the basic Agent settings payload', () => {
+    expect(settingsUpdate.buildAgentSettingsUpdate({
       name: '代码工程师',
       icon: 'bot',
       avatarUrl: null,
       modelProfileId: null,
       modelProfileMode: 'global',
-      systemPrompt: '',
     })).toMatchObject({
       name: '代码工程师',
-      systemPrompt: '',
     })
+    expect(settingsUpdate.buildAgentSettingsUpdate({
+      name: '代码工程师',
+      icon: 'bot',
+      avatarUrl: null,
+      modelProfileId: null,
+      modelProfileMode: 'global',
+    })).not.toHaveProperty('systemPrompt')
+  })
+
+  test('provides a dedicated prompt editor with independent save semantics', () => {
+    const html = renderToStaticMarkup(createElement(AgentSystemPromptEditorModal, {
+      agent,
+      onSave: async () => undefined,
+      onClose: () => undefined,
+    }))
+
+    expect(html).toContain('编辑系统提示词')
+    expect(html).toContain('下一轮消息生效')
+    expect(html).toContain('height:70vh')
+    expect(html).toContain('<textarea')
+    expect(html).toContain('只修改当前需求范围内的代码。')
+    expect(settingsUpdate.buildAgentSystemPromptUpdate('')).toEqual({ systemPrompt: '' })
   })
 })
