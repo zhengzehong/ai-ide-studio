@@ -2,6 +2,8 @@
 
 ## Project Inspiration
 
+项目灵感配置还保存候选任务的默认执行 Agent、默认执行 Session 和目标优先级（`default`/`recommended`）。默认 Session 必须属于同一项目、同一 Agent 且保持 active。
+
 项目灵感工作台使用三个持久化实体，均受 `project_id` 边界约束：
 
 - `project_inspirations`：每个项目唯一的整理配置，保存当前长期灵感 Session、整理 Agent、提示词、自动整理开关和最近错误。

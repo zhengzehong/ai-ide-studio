@@ -6,6 +6,9 @@ export interface InspirationConfig {
   projectId: string
   sessionId: string | null
   organizerAgentId: string | null
+  taskDefaultAgentId: string | null
+  taskDefaultSessionId: string | null
+  taskTargetPriority: 'default' | 'recommended'
   organizationPrompt: string
   autoOrganize: boolean
   lastError: string | null
@@ -75,10 +78,17 @@ interface InspirationState {
   removeNote: (noteId: string) => Promise<void>
   organize: (noteId: string) => Promise<void>
   setCompleted: (noteId: string, completed: boolean) => Promise<InspirationNote>
-  configure: (input: { organizerAgentId: string; organizationPrompt: string; autoOrganize: boolean }) => Promise<void>
+  configure: (input: {
+    organizerAgentId: string
+    organizationPrompt: string
+    autoOrganize: boolean
+    taskDefaultAgentId: string | null
+    taskDefaultSessionId: string | null
+    taskTargetPriority: 'default' | 'recommended'
+  }) => Promise<void>
   rebuildSession: (organizerAgentId: string) => Promise<void>
   updateCandidate: (candidateId: string, input: { title: string; descriptionMarkdown: string; suggestedAgentId: string | null }) => Promise<void>
-  createCandidateTask: (candidateId: string, agentId: string, execute: boolean) => Promise<InspirationNote>
+  createCandidateTask: (candidateId: string, agentId: string, execute: boolean, sessionId?: string) => Promise<InspirationNote>
   setupListeners: () => () => void
 }
 
@@ -187,10 +197,11 @@ export const useInspirationStore = create<InspirationState>((set, get) => ({
     patchNote(set, note)
   },
 
-  createCandidateTask: async (candidateId, agentId, execute) => {
+  createCandidateTask: async (candidateId, agentId, execute, sessionId) => {
     const projectId = requireProject(get().projectId)
     const note = await wsClient.request({
       type: 'inspiration.candidate.createTask', projectId, candidateId, agentId, execute,
+      ...(sessionId ? { sessionId, sessionMode: 'existing' } : { sessionMode: 'new_each' }),
     }) as InspirationNote
     patchNote(set, note)
     return note

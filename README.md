@@ -1,5 +1,7 @@
 # AI IDE Studio
 
+灵感候选任务支持项目级默认执行 Agent/会话，并可选择“默认优先”或“AI 推荐优先”。候选任务弹窗允许手动覆盖执行 Agent 和会话；会话必须属于同一项目和 Agent。
+
 > 以任务为中心、Agent 为主体的 AI 编程协作平台
 
 AI IDE Studio 是一个本地部署的全栈 AI 编程协作工具。通过 [ACP（Agent Client Protocol）](https://github.com/anthropics/agentclientprotocol) 接入 Claude Code、Codex 等 AI Agent，实现任务管理、会话编排和人机协作。

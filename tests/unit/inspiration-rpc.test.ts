@@ -7,6 +7,7 @@ import type { RpcAuthMode, RpcContext } from '../../src/gateway/rpc/types.js'
 import { agentStore } from '../../src/store/agents.js'
 import { closeDatabase, initDatabase } from '../../src/store/db.js'
 import { projectStore } from '../../src/store/projects.js'
+import { sessionStore } from '../../src/store/sessions.js'
 
 const root = mkdtempSync(resolve(tmpdir(), 'ai-ide-inspiration-rpc-'))
 let index = 0
@@ -46,6 +47,28 @@ describe('inspiration RPC', () => {
 
     expect(config.sessionId).toBeTruthy()
     expect(note.status).toBe('draft')
+  })
+
+  test('clears project task defaults when the client sends null', async () => {
+    const project = projectStore.create({ name: 'P', workDir: root })
+    const agent = agentStore.create({ type: 'pm', name: 'A', runtime: 'mock', projectId: project.id })
+    const targetSession = sessionStore.create({ agentId: agent.id, projectId: project.id })
+    await call('inspiration.configure', {
+      projectId: project.id,
+      organizerAgentId: agent.id,
+      taskDefaultAgentId: agent.id,
+      taskDefaultSessionId: targetSession.id,
+    })
+
+    const cleared = await call('inspiration.configure', {
+      projectId: project.id,
+      organizerAgentId: agent.id,
+      taskDefaultAgentId: null,
+      taskDefaultSessionId: null,
+    }) as { taskDefaultAgentId: string | null; taskDefaultSessionId: string | null }
+
+    expect(cleared.taskDefaultAgentId).toBeNull()
+    expect(cleared.taskDefaultSessionId).toBeNull()
   })
 
   test('does not allow a note to be read through another project', async () => {

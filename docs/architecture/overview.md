@@ -96,6 +96,8 @@ Rule Engine（每 10 分钟）
 
 项目灵感工作台是 PC 端的项目级记录与任务候选入口。未设置人工标题时，系统直接使用正文连续原文生成定长自动标题。每个项目维护一个当前长期灵感 Session，用户保存 Markdown 和图片原文后，后台把整理请求串行投递到这个 Session，使持续讨论和自动整理共享上下文。从具体结果进入会话时，平台为每条用户消息附加可信 `noteId` 模型上下文，AI 先调用仅在该 Session 可见的 `inspiration.note.get` 读取最新原文和方案；普通聊天历史不作为灵感身份来源。Agent 只有调用 `inspiration.analysis.publish` 才会暂存新方案，同一轮可反复修正，Session 正常结束后才提交最后一份有效结果。人工完成标记独立于 AI 整理状态，PC 默认显示进行中灵感并可切换已完成或全部；编辑、重新整理或发布新方案会自动重新打开。该 Session 隐藏平台任务创建、步骤编排和 Schedule 变更工具，不能绕过人工确认直接派发。revision 与内部 attempt 双重 CAS 阻止旧回复或旧轮次覆盖新编辑；候选确认后才复用标准 Task/Step/Session 链路执行。
 
+灵感任务的执行目标独立于整理 Agent 和整理 Session。项目可保存默认任务 Agent、默认任务 Session 及默认优先或 AI 推荐优先策略；确认候选时，目标解析模块按人工选择、项目策略和候选推荐顺序确定 Agent，并在创建草稿或立即派发前统一校验 Session 的项目归属、Agent 归属及可用状态。
+
 前端实时对话以 `session:update` 作为可见流式状态来源；`session:event` 主要用于持久化同步、断线恢复和状态补偿，避免每个流式 chunk 都全量还原事件。后端在用户发送后立即创建一条 `messages.status = running` 的 Agent 消息，流式文本写入 `messages.content` 快照；思考、工具、权限、提问、计划和文件修改等执行过程写入 `turn_process_items`，并通过 `session:process_item` 轻量广播。完成后同一条 Agent 消息更新为 completed/failed/cancelled。
 
 PC 端历史消息默认通过轻量 HTTP `GET /api/v1/sessions/:sessionId/messages` 加载，`messages.content` 是最终回复快速来源；会话状态通过 `GET /api/v1/sessions/:sessionId/recovery` 恢复。Recovery 在 SQLite 查询阶段排除 `message.chunk`、`thinking.chunk`、`tool.call`、`tool.update` 和 `message.done` 等已经由 messages/process read model 承载的镜像事件，只返回配置、用量、计划和交互请求等状态事件，同时用 `latestSequence` 返回完整事件流游标。历史执行过程仍通过 `sessions.messageProcess` 按需加载 `turn_process_items` 的轻量列表，单个过程详情再通过 `sessions.processItemDetail` 懒加载。旧数据仍可通过 `sessions.messageEvents` 从 `session_events.sequence` 读取完整工具过程；工具摘要/详情继续支持 `sessions.messageToolCalls` / `sessions.messageToolCallDetail`，文件修改详情优先从 `turn_process_items` 读取并兼容旧的 `tool_calls_json`。
