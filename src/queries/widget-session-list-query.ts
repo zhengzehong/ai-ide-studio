@@ -6,12 +6,20 @@ import {
 } from '../store/widget-session-list.js'
 import { localDayStartIso } from './widget-agent-today-task-query.js'
 
-export function listWidgetSessionReadModel(input: WidgetSessionListQuery): WidgetSessionListItem[] {
+export function listWidgetSessionReadModel(
+  input: WidgetSessionListQuery,
+  fallbackPromptActive: (sessionId: string) => boolean = () => false,
+): WidgetSessionListItem[] {
   const rows = listWidgetSessionProjectionRows(input.projectId)
-  const activePromptIds = new Set(input.activePromptSessionIds ?? [])
+  const activePromptIds = input.activePromptSessionIds
+    ? new Set(input.activePromptSessionIds)
+    : undefined
+  const isPromptActive = activePromptIds
+    ? (sessionId: string): boolean => activePromptIds.has(sessionId)
+    : fallbackPromptActive
   const dayStart = Date.parse(localDayStartIso(new Date()))
 
-  return rows.map((row) => toWidgetSession(row, activePromptIds.has(row.session_id), dayStart))
+  return rows.map((row) => toWidgetSession(row, isPromptActive(row.session_id), dayStart))
 }
 
 function toWidgetSession(

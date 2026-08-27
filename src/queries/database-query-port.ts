@@ -95,7 +95,7 @@ export function createDatabaseQueryPort(options: DatabaseQueryPortOptions = {}):
     },
 
     async listWidgetSessions(input: WidgetSessionListQuery) {
-      return listWidgetSessionReadModel(input)
+      return listWidgetSessionReadModel(input, fallbackPromptActive)
     },
   }
 }

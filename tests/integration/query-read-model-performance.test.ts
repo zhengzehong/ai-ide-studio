@@ -192,6 +192,22 @@ describe('local QueryPort read models', () => {
     prepareSpy.mockRestore()
   })
 
+  test('Widget session projection preserves active prompts in local QueryPort mode', async () => {
+    const project = projectStore.create({ name: 'Local Widget', workDir: 'D:/local-widget' })
+    const agent = agentStore.create({
+      name: 'Local Widget Agent',
+      type: 'dev',
+      runtime: 'mock',
+      projectId: project.id,
+    })
+    const session = sessionStore.create({ agentId: agent.id, projectId: project.id })
+    const queryPort = createLocalQueryPort({ isPromptActive: (sessionId) => sessionId === session.id })
+
+    const rows = await queryPort.listWidgetSessions({ projectId: project.id })
+
+    expect(rows).toMatchObject([{ sessionId: session.id, activityState: 'running' }])
+  })
+
   test('message and recovery event pages expose non-skipping cursors', async () => {
     const session = sessionStore.create({ agentId: 'agent-history' })
     const timestamps = [
