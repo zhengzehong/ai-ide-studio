@@ -4,7 +4,7 @@ import type { AgentData, ProjectAgentInput } from '../../stores/agent.store'
 import type { ModelProfileData } from '../../stores/model.store'
 import { wsClient } from '../../services/ws-client'
 import { AvatarUploader } from './AvatarUploader'
-import { AgentSystemPromptField } from './AgentSystemPromptField'
+import { AgentSystemPromptSummary } from './AgentSystemPromptSummary'
 import { buildAgentSettingsUpdate } from './agent-settings-update'
 import { TYPE_FILTERS } from '../agent-square/constants'
 
@@ -15,6 +15,7 @@ interface AgentSettingsModalProps {
   modelProfiles: ModelProfileData[]
   onLoadProfiles: () => void
   onSave: (input: Partial<ProjectAgentInput>) => Promise<void>
+  onEditSystemPrompt: () => void
   onClose: () => void
 }
 
@@ -23,12 +24,12 @@ export function AgentSettingsModal({
   modelProfiles,
   onLoadProfiles,
   onSave,
+  onEditSystemPrompt,
   onClose,
 }: AgentSettingsModalProps) {
   const [name, setName] = useState(agent.name)
   const [icon, setIcon] = useState(agent.icon ?? 'bot')
   const [avatarUrl, setAvatarUrl] = useState<string | null>(agent.avatar_url ?? null)
-  const [systemPrompt, setSystemPrompt] = useState(agent.system_prompt ?? '')
   const [pendingDataUrl, setPendingDataUrl] = useState<string | null>(null)
   const [modelProfileId, setModelProfileId] = useState<string>(() => {
     if (!agent.config_json) return ''
@@ -86,7 +87,6 @@ export function AgentSettingsModal({
         avatarUrl: finalAvatarUrl,
         modelProfileId: selectedModelProfileId || null,
         modelProfileMode,
-        systemPrompt,
       }))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -171,7 +171,10 @@ export function AgentSettingsModal({
             </>
           )}
           {fixedProfileMissing && <div style={styles.error}>固定模型档案策略需要选择一个可用档案</div>}
-          <AgentSystemPromptField value={systemPrompt} onChange={setSystemPrompt} />
+          <AgentSystemPromptSummary
+            value={agent.system_prompt ?? ''}
+            onEdit={onEditSystemPrompt}
+          />
           {error && <div style={styles.error}>{error}</div>}
         </div>
 

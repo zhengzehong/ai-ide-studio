@@ -143,6 +143,7 @@ import { TemplatePickerModal } from './workspace/TemplatePickerModal'
 import { PublishTemplateModal } from './workspace/PublishTemplateModal'
 import { ICON_MAP } from '../components/agent-square/constants'
 import { AgentSettingsModal } from '../components/agent/AgentSettingsModal'
+import { AgentSystemPromptEditorModal } from '../components/agent/AgentSystemPromptEditorModal'
 import {
   TaskPanel as CollabTaskPanel,
   TaskDetailContainer as CollabTaskDetailContainer,
@@ -235,6 +236,7 @@ export default function Workspace() {
   const [ctxMenu, setCtxMenu] = useState<{ sessionId: string; agentId: string; x: number; y: number } | null>(null)
   const [agentCtxMenu, setAgentCtxMenu] = useState<{ agentId: string; x: number; y: number } | null>(null)
   const [settingsAgentId, setSettingsAgentId] = useState<string | null>(null)
+  const [systemPromptAgentId, setSystemPromptAgentId] = useState<string | null>(null)
   const [importDialogAgentId, setImportDialogAgentId] = useState<string | null>(null)
   const [renameDialog, setRenameDialog] = useState<{ sessionId: string; currentTitle: string } | null>(null)
   const [confirmDialog, setConfirmDialog] = useState<{ title: string; message: string; danger?: boolean; onConfirm: () => void } | null>(null)
@@ -294,6 +296,10 @@ export default function Workspace() {
   const settingsAgent = useMemo(
     () => projectAgents.find((agent) => agent.id === settingsAgentId),
     [settingsAgentId, projectAgents],
+  )
+  const systemPromptAgent = useMemo(
+    () => projectAgents.find((agent) => agent.id === systemPromptAgentId),
+    [systemPromptAgentId, projectAgents],
   )
   const currentSessionCopying = !!currentSessionId && (
     !!copyingTargetSessionIds[currentSessionId] ||
@@ -1297,7 +1303,23 @@ export default function Workspace() {
             await updateAgent(settingsAgent.id, input)
             setSettingsAgentId(null)
           }}
+          onEditSystemPrompt={() => {
+            setSystemPromptAgentId(settingsAgent.id)
+            setSettingsAgentId(null)
+          }}
           onClose={() => setSettingsAgentId(null)}
+        />
+      )}
+
+      {systemPromptAgent && (
+        <AgentSystemPromptEditorModal
+          key={systemPromptAgent.id}
+          agent={systemPromptAgent}
+          onSave={async (input) => {
+            await updateAgent(systemPromptAgent.id, input)
+            setSystemPromptAgentId(null)
+          }}
+          onClose={() => setSystemPromptAgentId(null)}
         />
       )}
 

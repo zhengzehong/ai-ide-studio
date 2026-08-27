@@ -6,7 +6,6 @@ export interface AgentSettingsUpdateValues {
   avatarUrl: string | null | undefined
   modelProfileId: string | null
   modelProfileMode: 'global' | 'fixed' | 'system'
-  systemPrompt: string
 }
 
 export function buildAgentSettingsUpdate(
@@ -18,6 +17,11 @@ export function buildAgentSettingsUpdate(
     avatarUrl: values.avatarUrl,
     modelProfileId: values.modelProfileId,
     modelProfileMode: values.modelProfileMode,
-    systemPrompt: values.systemPrompt,
   }
+}
+
+export function buildAgentSystemPromptUpdate(
+  systemPrompt: string,
+): Pick<ProjectAgentInput, 'systemPrompt'> {
+  return { systemPrompt }
 }
