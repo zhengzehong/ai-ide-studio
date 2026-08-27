@@ -16,7 +16,8 @@ import { agentStore } from '../../store/agents.js'
 import { projectStore } from '../../store/projects.js'
 import { eventStore, messageStore, sessionStore } from '../../store/sessions.js'
 import { parseToolCallsJson, selectToolCallDetail, summarizeToolCalls } from '../../store/tool-call-history.js'
-import { buildFileChangesFromToolCalls, parseFileChangesJson } from '../../store/file-changes.js'
+import { parseFileChangesJson } from '../../store/file-changes.js'
+import { calculateFileChangesForToolsInWorker } from '../../core/file-change-worker-client.js'
 import { turnProcessItemStore } from '../../store/turn-process-items.js'
 import type { FileChangeDetailData } from '../../types/ws-protocol.js'
 import type { AgentRow } from '../../store/agents.js'
@@ -330,7 +331,7 @@ export const sessionRpcHandlers: RpcHandlerMap = {
     sendResult(detail)
   },
 
-  'sessions.messageFileChanges'(msg, { sendResult }) {
+  async 'sessions.messageFileChanges'(msg, { sendResult }) {
     const sessionId = msg.sessionId as string
     const message = getSessionMessage(sessionId, msg.messageId as string)
     const processChanges = buildProcessFileChanges(message.id)
@@ -338,10 +339,12 @@ export const sessionRpcHandlers: RpcHandlerMap = {
       sendResult(processChanges)
       return
     }
-    sendResult(
-      buildStoredFileChanges(message.file_changes_json)
-      ?? buildFileChangesFromToolCalls(parseToolCallsJson(message.tool_calls_json)),
-    )
+    const stored = buildStoredFileChanges(message.file_changes_json)
+    if (stored) {
+      sendResult(stored)
+      return
+    }
+    sendResult(await calculateFileChangesForToolsInWorker(parseToolCallsJson(message.tool_calls_json)))
   },
 
   'sessions.messageProcess'(msg, { sendResult }) {

@@ -1,6 +1,5 @@
 import { randomUUID } from 'crypto'
 import type { ElicitationRequestData, PermissionRequestData, PlanEntry, SessionUpdateData, ToolCallData } from '../types/ws-protocol.js'
-import { buildFileChangesFromToolCalls } from '../store/file-changes.js'
 import { onBeforeDatabaseClose } from '../store/db.js'
 import { stableProcessItemId } from '../store/turn-process-items.js'
 import type { TurnProcessItemWriteInput, TurnProcessItemWriteResult } from '../ports/write-data-port.js'
@@ -8,6 +7,12 @@ import { events } from './events.js'
 import { createChildLogger } from './logger.js'
 import { mergeToolCall, shouldCreateToolFromUpdate } from './tool-calls.js'
 import { turnProcessWriteQueue } from './persistence/turn-process-write-queue.js'
+import {
+  drainTurnFileChanges,
+  finishTurnFileChanges,
+  resetTurnFileChanges,
+  updateTurnFileChange,
+} from './turn-file-change-runtime.js'
 const log = createChildLogger('turn-process-runtime')
 
 interface ActiveTurnProcess {
@@ -63,7 +68,7 @@ export function recordTurnProcessUpdate(sessionId: string, agentId: string, data
     flushProcessText(sessionId, active, agentId)
     if (!active.toolCalls.has(data.toolCall.id)) demoteFinalAnswer(sessionId, active, agentId)
     queueProcessItem(sessionId, agentId, upsertTool(sessionId, active, data.toolCall))
-    emitFileChangeIfPresent(sessionId, agentId, active.messageId, data.toolCall)
+    updateTurnFileChange(sessionId, agentId, active.messageId, active.toolCalls.get(data.toolCall.id))
     active.lastTextItemId = undefined
     active.lastTextKind = undefined
     return
@@ -75,7 +80,7 @@ export function recordTurnProcessUpdate(sessionId: string, agentId: string, data
       && shouldCreateToolFromUpdate(data.toolCallUpdate)
     if (isNewTool) demoteFinalAnswer(sessionId, active, agentId)
     queueProcessItem(sessionId, agentId, upsertTool(sessionId, active, data.toolCallUpdate))
-    emitFileChangeIfPresent(sessionId, agentId, active.messageId, data.toolCallUpdate)
+    updateTurnFileChange(sessionId, agentId, active.messageId, active.toolCalls.get(data.toolCallUpdate.id))
     active.lastTextItemId = undefined
     active.lastTextKind = undefined
     return
@@ -132,10 +137,12 @@ export async function completeTurnProcess(
   if (!active) return {}
   flushProcessText(sessionId, active, undefined)
   flushSnapshot(active)
+  await drainTurnFileChanges(sessionId)
   await turnProcessWriteQueue.drain(sessionId)
   if (active.snapshotTimer) clearTimeout(active.snapshotTimer)
   if (active.pendingText?.timer) clearTimeout(active.pendingText.timer)
   activeTurns.delete(sessionId)
+  finishTurnFileChanges(sessionId)
   turnProcessWriteQueue.finish(sessionId)
   log.debug({ sessionId, messageId: active.messageId, status }, 'active turn process completed')
   return { messageId: active.messageId, finalAnswer: active.finalAnswer }
@@ -152,6 +159,7 @@ export function resetTurnProcessRuntime(): void {
     if (active.pendingText?.timer) clearTimeout(active.pendingText.timer)
   }
   activeTurns.clear()
+  resetTurnFileChanges()
   turnProcessWriteQueue.reset()
   if (turnCount > 0) log.debug({ turnCount }, 'active turn processes reset')
 }
@@ -270,23 +278,6 @@ function upsertTool(sessionId: string, active: ActiveTurnProcess, toolCall: Tool
     detail: toolCallWithoutDiff(merged),
     meta: { toolCallId: merged.id },
   }
-}
-
-function emitFileChangeIfPresent(sessionId: string, agentId: string, messageId: string, toolCall: ToolCallData): void {
-  const changes = buildFileChangesFromToolCalls([toolCall])
-  if (changes.files.length === 0) return
-  queueProcessItem(sessionId, agentId, {
-    id: stableProcessItemId(messageId, 'file_change', toolCall.id),
-    sessionId,
-    messageId,
-    kind: 'file_change',
-    status: toolCall.status ?? 'completed',
-    title: '文件修改',
-    summary: `修改 ${changes.files.length} 个文件，+${changes.totalAdded} -${changes.totalDeleted}`,
-    preview: changes.files.map((file) => file.path).join(', '),
-    detail: changes,
-    meta: { toolCallId: toolCall.id },
-  })
 }
 
 function upsertPlan(sessionId: string, messageId: string, plan: PlanEntry[]): TurnProcessItemWriteInput {

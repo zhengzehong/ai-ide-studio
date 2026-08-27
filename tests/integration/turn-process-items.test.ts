@@ -6,6 +6,7 @@ import { initDatabase, closeDatabase } from '../../src/store/db.js'
 import { messageStore, sessionStore } from '../../src/store/sessions.js'
 import { stableProcessItemId, turnProcessItemStore } from '../../src/store/turn-process-items.js'
 import { sessionRpcHandlers } from '../../src/gateway/rpc/sessions.js'
+import { events } from '../../src/core/events.js'
 import {
   completeTurnProcess,
   recordTurnProcessUpdate,
@@ -148,6 +149,51 @@ describe('turn process items', () => {
     expect(detail.title).toBe("Get-Content -Path 'README.md'")
     expect(detail.rawInput).toEqual({ command: "Get-Content -Path 'README.md'", cwd: 'D:\\code_space\\python_space\\ai-ide-studio' })
     expect(detail.rawOutput).toEqual({ formatted_output: 'README content', exit_code: 0 })
+  })
+
+  test('drains pending file-change work before completing the turn', async () => {
+    const session = sessionStore.create({ agentId: 'agent-file-change' })
+    const message = messageStore.append(session.id, {
+      id: 'msg-file-change-running',
+      role: 'agent',
+      content: '',
+      status: 'running',
+      startedAt: '2026-08-27T00:00:00.000Z',
+    })
+
+    const processAgents: Array<string | null | undefined> = []
+    const onProcessItem = (event: { sessionId: string; agentId?: string | null; item: { kind: string } }): void => {
+      if (event.sessionId === session.id && event.item.kind === 'file_change') processAgents.push(event.agentId)
+    }
+    events.on('session:process_item', onProcessItem)
+    startTurnProcess(session.id, message.id)
+    recordTurnProcessUpdate(session.id, 'agent-file-change', {
+      messageId: message.id,
+      role: 'agent',
+      toolCall: {
+        id: 'tool-file-change',
+        title: 'Edit file',
+        status: 'in_progress',
+        content: [{
+          type: 'diff',
+          path: 'src/worker.ts',
+          oldText: 'before\nvalue',
+          newText: 'after\nvalue',
+        }],
+      },
+    })
+
+    try {
+      await completeTurnProcess(session.id, 'completed')
+    } finally {
+      events.off('session:process_item', onProcessItem)
+    }
+
+    const item = turnProcessItemStore.list(message.id, { includeDetail: true })
+      .find((candidate) => candidate.kind === 'file_change')
+    expect(item).toMatchObject({ status: 'in_progress', summary: '修改 1 个文件，+1 -1' })
+    expect(String(item?.detail_json)).toContain('src/worker.ts')
+    expect(processAgents).toContain('agent-file-change')
   })
 
   test('coalesces running message snapshot writes while streaming text', async () => {

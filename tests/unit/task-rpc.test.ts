@@ -9,16 +9,20 @@ import { projectStore } from '../../src/store/projects.js'
 import { sessionStore } from '../../src/store/sessions.js'
 import { taskStore } from '../../src/store/tasks.js'
 import { eventCenterService } from '../../src/core/event-center.js'
+import { sessionManager } from '../../src/core/sessions.js'
 import { taskRpcHandlers } from '../../src/gateway/rpc/tasks.js'
 
 let tmp: string
+const originalEnqueuePrompt = sessionManager.enqueuePrompt
 
 beforeEach(() => {
   tmp = mkdtempSync(resolve(tmpdir(), 'ai-ide-task-rpc-'))
   initDatabase(resolve(tmp, 'ai-ide.sqlite'))
+  sessionManager.enqueuePrompt = async () => undefined
 })
 
 afterEach(() => {
+  sessionManager.enqueuePrompt = originalEnqueuePrompt
   closeDatabase()
   rmSync(tmp, { recursive: true, force: true })
 })

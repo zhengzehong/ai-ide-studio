@@ -16,13 +16,16 @@ import { getHandler } from '../../src/tools/handlers/index.js'
 import type { ToolHandlerResult } from '../../src/tools/types.js'
 
 let tmp: string
+const originalEnqueuePrompt = sessionManager.enqueuePrompt
 
 beforeEach(() => {
   tmp = mkdtempSync(resolve(tmpdir(), 'ai-ide-task-steps-'))
   initDatabase(resolve(tmp, 'ai-ide.sqlite'))
+  sessionManager.enqueuePrompt = async () => undefined
 })
 
 afterEach(() => {
+  sessionManager.enqueuePrompt = originalEnqueuePrompt
   closeDatabase()
   rmSync(tmp, { recursive: true, force: true })
 })

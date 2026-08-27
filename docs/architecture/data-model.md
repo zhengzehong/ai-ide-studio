@@ -231,7 +231,7 @@ ignored     failed      task
 | created_at | TEXT | 创建时间 |
 | updated_at | TEXT | 更新时间 |
 
-`turn_process_items.sequence` 是历史执行过程展示顺序的事实来源。列表查询默认不返回大 `detail_json`；用户点击某个过程块时再通过 `sessions.processItemDetail` 获取详情。ACP plan 更新保存为 `kind = plan`，权限和 AI 提问分别保存为 `permission` / `elicitation`，文件修改完整 diff 保存为 `file_change.detail_json`。
+`turn_process_items.sequence` 是历史执行过程展示顺序的事实来源。列表查询默认不返回大 `detail_json`；用户点击某个过程块时再通过 `sessions.processItemDetail` 获取详情。ACP plan 更新保存为 `kind = plan`，权限和 AI 提问分别保存为 `permission` / `elicitation`，文件修改完整 diff 保存为 `file_change.detail_json`。消息表只保留文件级摘要，工具事件也只保留 diff 路径，避免在多个历史字段中重复保存完整旧文件和新文件。
 
 ### session_events
 

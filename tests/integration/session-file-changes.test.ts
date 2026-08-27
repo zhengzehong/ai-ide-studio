@@ -2,7 +2,7 @@ import { afterAll, beforeEach, describe, expect, test } from 'vitest'
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
-import { initDatabase, closeDatabase } from '../../src/store/db.js'
+import { initDatabase, closeDatabase, getDb } from '../../src/store/db.js'
 import { messageStore, sessionStore } from '../../src/store/sessions.js'
 import { sessionRpcHandlers } from '../../src/gateway/rpc/sessions.js'
 import type { RpcContext } from '../../src/gateway/rpc/types.js'
@@ -62,6 +62,47 @@ describe('session file changes', () => {
     expect(String(olderRow?.file_changes_json)).not.toContain('x'.repeat(100))
   })
 
+  test('messages project legacy full diff payloads to file-level summaries', async () => {
+    const session = sessionStore.create({ agentId: 'agent-legacy-diff' })
+    const message = messageStore.append(session.id, {
+      role: 'agent',
+      content: 'legacy diff',
+    })
+    const oldText = 'old line\n'.repeat(2_000)
+    const newText = 'new line\n'.repeat(2_000)
+    getDb().prepare('UPDATE messages SET file_changes_json = ? WHERE id = ?').run(JSON.stringify({
+      files: [{
+        path: 'src/legacy.ts',
+        changeType: 'M',
+        addedLines: 2_000,
+        deletedLines: 2_000,
+        segments: [{
+          toolCallId: 'legacy-tool',
+          oldText,
+          newText,
+          addedLines: 2_000,
+          deletedLines: 2_000,
+          lines: [{ type: 'del', text: oldText }, { type: 'add', text: newText }],
+        }],
+      }],
+      totalAdded: 2_000,
+      totalDeleted: 2_000,
+    }), message.id)
+
+    const messages = await callRpc('sessions.messages', { sessionId: session.id }) as Array<Record<string, unknown>>
+    const returned = messages.find((item) => item.id === message.id)
+    const raw = String(returned?.file_changes_json)
+
+    expect(JSON.parse(raw)).toEqual({
+      files: [{ path: 'src/legacy.ts', changeType: 'M', addedLines: 2_000, deletedLines: 2_000 }],
+      totalAdded: 2_000,
+      totalDeleted: 2_000,
+    })
+    expect(raw).not.toContain('segments')
+    expect(raw).not.toContain('oldText')
+    expect(raw.length).toBeLessThan(256)
+  })
+
   test('messageFileChanges returns full detail for one message', async () => {
     const session = sessionStore.create({ agentId: 'agent-1' })
     const message = messageStore.append(session.id, {
@@ -107,5 +148,31 @@ describe('session file changes', () => {
     }) as { files: Array<{ path: string; segments: unknown[] }> }
 
     expect(changes.files).toEqual([expect.objectContaining({ path: 'src/retained.ts', segments: [] })])
+  })
+
+  test('messageFileChanges calculates legacy tool-only details outside the API thread', async () => {
+    const session = sessionStore.create({ agentId: 'agent-legacy-tool-detail' })
+    const message = messageStore.append(session.id, {
+      role: 'agent',
+      content: 'legacy tool detail',
+    })
+    getDb().prepare(`
+      UPDATE messages SET tool_calls_json = ?, file_changes_json = NULL WHERE id = ?
+    `).run(JSON.stringify([{
+      id: 'legacy-edit',
+      title: 'Edit file',
+      status: 'completed',
+      content: [{ type: 'diff', path: 'src/legacy-detail.ts', oldText: 'before', newText: 'after' }],
+    }]), message.id)
+
+    const changes = await callRpc('sessions.messageFileChanges', {
+      sessionId: session.id,
+      messageId: message.id,
+    }) as { files: Array<{ path: string; segments: unknown[] }> }
+
+    expect(changes.files).toEqual([
+      expect.objectContaining({ path: 'src/legacy-detail.ts', segments: expect.any(Array) }),
+    ])
+    expect(changes.files[0]?.segments).toHaveLength(1)
   })
 })
