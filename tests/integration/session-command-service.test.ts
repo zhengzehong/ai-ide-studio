@@ -51,6 +51,45 @@ describe('Session command service', () => {
     expect(changed.at(-1)?.data).not.toHaveProperty('lastReadAt')
   })
 
+  it('marks a Session unread using a timestamp before its last message', async () => {
+    const session = sessionStore.create({ agentId: 'agent-1' })
+    sessionStore.touch(session.id, '2026-08-27T08:00:00.000Z')
+    const changed: Array<{ sessionId: string; data: unknown }> = []
+    const { events } = await import('../../src/core/events.js')
+    const onChanged = (event: { sessionId: string; data: unknown }): void => { changed.push(event) }
+    events.on('session:changed', onChanged)
+
+    const result = await executeSessionCommand({
+      commandId: 'command-unread',
+      type: 'sessions.markUnread',
+      sessionId: session.id,
+    })
+
+    events.off('session:changed', onChanged)
+    expect(result).toEqual({
+      sessionId: session.id,
+      lastReadAt: '2026-08-27T07:59:59.999Z',
+    })
+    expect(sessionStore.get(session.id)?.last_read_at).toBe('2026-08-27T07:59:59.999Z')
+    expect(changed.at(-1)).toEqual({
+      sessionId: session.id,
+      data: {
+        event: 'marked_unread',
+        last_read_at: '2026-08-27T07:59:59.999Z',
+      },
+    })
+  })
+
+  it('rejects marking an empty Session unread', async () => {
+    const session = sessionStore.create({ agentId: 'agent-1' })
+
+    await expect(executeSessionCommand({
+      commandId: 'command-empty-unread',
+      type: 'sessions.markUnread',
+      sessionId: session.id,
+    })).rejects.toThrow('会话没有消息')
+  })
+
   it('persists the initial read timestamp when a Session is created', () => {
     const session = sessionStore.create({ agentId: 'agent-1' })
 

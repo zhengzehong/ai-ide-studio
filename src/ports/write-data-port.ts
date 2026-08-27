@@ -148,6 +148,7 @@ export type RuntimeCommandType =
   | 'prompt'
   | 'session.cancel'
   | 'sessions.markRead'
+  | 'sessions.markUnread'
   | 'permission.respond'
   | 'elicitation.respond'
 

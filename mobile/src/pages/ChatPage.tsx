@@ -16,6 +16,7 @@ import PlanBar from '../components/chat/PlanBar'
 import PermissionCard from '../components/chat/PermissionCard'
 import ElicitationCard from '../components/chat/ElicitationCard'
 import ConfigToolbar from '../components/chat/ConfigToolbar'
+import { SessionAttentionPanel } from '../components/chat/SessionAttentionPanel'
 import { deriveLiveElapsedSeconds } from '../utils/chat-elapsed'
 import { PresentedFilesOverlay } from '../components/file-viewer/PresentedFilesOverlay'
 import { resolveChatResource, type OpenChatResource } from '@desktop/services/chat-resource-links'
@@ -30,6 +31,7 @@ export default function ChatPage() {
   const listRef = useRef<HTMLDivElement>(null)
   const stickToBottomRef = useRef(true)
   const olderLoadAnchorRef = useRef<{ sessionId: string; scrollHeight: number; scrollTop: number } | null>(null)
+  const chatVisitGenerationRef = useRef(0)
 
   // 新建会话占位路由 /chat/new?projectId=xxx[&agentId=yyy]:UI 上等同一个空白会话,
   // 但底层 sessionId 还没生成。在用户首次发送前先调 sessions.create 拿到真 sessionId,
@@ -76,6 +78,10 @@ export default function ChatPage() {
 
   const sessions = useSessionStore(s => s.sessions)
   const pinnedSession = usePinnedSessionStore((state) => state.items.find((item) => item.sessionId === sessionId))
+  const pinnedLoaded = usePinnedSessionStore((state) => state.loaded)
+  const loadPinnedSessions = usePinnedSessionStore((state) => state.load)
+  const addPinnedSession = usePinnedSessionStore((state) => state.add)
+  const removePinnedSession = usePinnedSessionStore((state) => state.remove)
   const connected = useConnectionStore(s => s.connected)
   const status = useConnectionStore(s => s.status)
   const session = sessions.find(s => s.id === sessionId)
@@ -143,6 +149,27 @@ export default function ChatPage() {
   // 最后走正常 sendPrompt。createSession 期间禁用输入框防止重复触发。
   const [creating, setCreating] = useState(false)
   const [filesPresentation, setFilesPresentation] = useState<FilesPresentationInfo | null>(null)
+  const [attentionOpen, setAttentionOpen] = useState(false)
+  const [attentionPending, setAttentionPending] = useState<'pin' | 'unread' | null>(null)
+
+  useEffect(() => {
+    const generation = chatVisitGenerationRef.current + 1
+    chatVisitGenerationRef.current = generation
+    return () => {
+      if (chatVisitGenerationRef.current === generation) {
+        chatVisitGenerationRef.current = generation + 1
+      }
+    }
+  }, [sessionId])
+
+  useEffect(() => {
+    if (sessionId && !isNewSessionRoute && !pinnedLoaded) void loadPinnedSessions({ silent: true })
+  }, [isNewSessionRoute, loadPinnedSessions, pinnedLoaded, sessionId])
+
+  useEffect(() => {
+    setAttentionOpen(false)
+    setAttentionPending(null)
+  }, [sessionId])
 
   const handleSend = useCallback(async (text: string, images?: Parameters<typeof sendPrompt>[1]) => {
     if (isNewSessionRoute) {
@@ -188,6 +215,44 @@ export default function ChatPage() {
     if (!canViewFiles) return
     navigate('/files', { state: { projectId, sessionId } })
   }
+  const handleTogglePinned = useCallback(async () => {
+    if (!sessionId || attentionPending) return
+    const wasPinned = usePinnedSessionStore.getState().isPinned(sessionId)
+    setAttentionPending('pin')
+    try {
+      if (wasPinned) await removePinnedSession(sessionId)
+      else await addPinnedSession(sessionId)
+      const nowPinned = usePinnedSessionStore.getState().isPinned(sessionId)
+      if (nowPinned === wasPinned) {
+        throw new Error(usePinnedSessionStore.getState().error || '置顶状态保存失败')
+      }
+      setAttentionOpen(false)
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '置顶状态保存失败')
+    } finally {
+      setAttentionPending(null)
+    }
+  }, [addPinnedSession, attentionPending, removePinnedSession, sessionId])
+
+  const handleMarkUnread = useCallback(async () => {
+    if (!sessionId || attentionPending) return
+    const visitGeneration = chatVisitGenerationRef.current
+    setAttentionPending('unread')
+    try {
+      await useSessionStore.getState().markUnread(sessionId)
+      if (
+        chatVisitGenerationRef.current === visitGeneration
+        && useSessionStore.getState().currentSessionId === sessionId
+      ) {
+        setAttentionOpen(false)
+        navigate(returnTo)
+      }
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '标记未读失败')
+    } finally {
+      setAttentionPending(null)
+    }
+  }, [attentionPending, navigate, returnTo, sessionId])
   const handleOpenResource = useCallback<OpenChatResource>(async (reference) => {
     if (!projectId) throw new Error('当前会话未绑定项目')
     const resource = await resolveChatResource(projectId, reference)
@@ -310,7 +375,12 @@ export default function ChatPage() {
 
       {plan.length > 0 && <PlanBar plan={plan} />}
 
-      <div ref={listRef} style={styles.messages} onScroll={handleScroll}>
+      <div
+        ref={listRef}
+        style={styles.messages}
+        onScroll={handleScroll}
+        onClick={() => { if (attentionOpen) setAttentionOpen(false) }}
+      >
         {loading && (
           <div style={styles.loadingWrap}>
             <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>加载中...</span>
@@ -390,6 +460,17 @@ export default function ChatPage() {
         disabled={inputDisabled || creating}
         disabledPlaceholder={disabledPlaceholder}
         supportsImages={capabilities.supportsImages}
+        actionsOpen={attentionOpen}
+        onToggleActions={!isNewSessionRoute ? () => setAttentionOpen((open) => !open) : undefined}
+        actionsPanel={!isNewSessionRoute ? (
+          <SessionAttentionPanel
+            pinned={!!pinnedSession}
+            canMarkUnread={messages.some((message) => message.session_id === sessionId)}
+            pendingAction={attentionPending}
+            onTogglePin={() => { void handleTogglePinned() }}
+            onMarkUnread={() => { void handleMarkUnread() }}
+          />
+        ) : undefined}
       />
       {filesPresentation && (
         <PresentedFilesOverlay presentation={filesPresentation} onClose={() => setFilesPresentation(null)} />

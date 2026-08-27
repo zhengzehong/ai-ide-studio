@@ -44,6 +44,7 @@ interface SessionState {
   setFilterStatus: (status: string | null) => void
   setCurrentSession: (sessionId: string | null) => void
   markRead: (sessionId: string) => Promise<void>
+  markUnread: (sessionId: string) => Promise<void>
   renameSession: (sessionId: string, title: string) => Promise<void>
   archiveSession: (sessionId: string) => Promise<void>
   closeSession: (sessionId: string) => Promise<void>
@@ -221,6 +222,23 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }
   },
 
+  markUnread: async (sessionId) => {
+    const session = get().sessions.find((item) => item.id === sessionId)
+    const result = await wsClient.request({ type: 'sessions.markUnread', sessionId }) as { lastReadAt?: unknown }
+    const lastMessageMs = session?.lastMessageAt ? Date.parse(session.lastMessageAt) : undefined
+    const lastReadAt = typeof result.lastReadAt === 'string'
+      ? result.lastReadAt
+      : lastMessageMs !== undefined && Number.isFinite(lastMessageMs)
+        ? new Date(lastMessageMs - 1).toISOString()
+        : undefined
+    if (!lastReadAt) return
+    set((state) => ({
+      sessions: state.sessions.map((item) => item.id === sessionId
+        ? { ...item, unread: true, lastReadAt }
+        : item),
+    }))
+  },
+
   renameSession: async (sessionId, title) => {
     const trimmed = title.trim()
     if (!trimmed) return
@@ -382,13 +400,14 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       if (data && typeof data.last_read_at === 'string') {
         const sessionId = typeof msg.sessionId === 'string' ? msg.sessionId : ''
         const lastReadAt = data.last_read_at
+        const markedUnread = data.event === 'marked_unread'
         set((state) => ({
           sessions: state.sessions.map((session) =>
             session.id === sessionId
               ? {
                   ...session,
                   lastReadAt,
-                  unread: isSessionUnread(
+                  unread: markedUnread || isSessionUnread(
                     { last_message_at: session.lastMessageAt, last_read_at: lastReadAt },
                     state.currentSessionId,
                     sessionId,

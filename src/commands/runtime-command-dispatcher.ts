@@ -189,6 +189,7 @@ function commandLane(command: RuntimeCommandRecord): string {
       lane = 'cancel'
       break
     case 'sessions.markRead':
+    case 'sessions.markUnread':
       lane = 'read-state'
       break
   }

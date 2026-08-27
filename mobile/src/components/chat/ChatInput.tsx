@@ -1,5 +1,5 @@
-import { useState, useRef, type CSSProperties, type FormEvent, type KeyboardEvent, type ChangeEvent } from 'react'
-import { Send, Square, ImagePlus, X } from 'lucide-react'
+import { useState, useRef, type CSSProperties, type FormEvent, type KeyboardEvent, type ChangeEvent, type ReactNode } from 'react'
+import { Send, Square, ImagePlus, Plus, X } from 'lucide-react'
 import type { ImageAttachmentInfo } from '@desktop/stores/session-events'
 
 interface Props {
@@ -9,9 +9,22 @@ interface Props {
   disabled?: boolean
   disabledPlaceholder?: string
   supportsImages?: boolean
+  actionsOpen?: boolean
+  actionsPanel?: ReactNode
+  onToggleActions?: () => void
 }
 
-export default function ChatInput({ onSend, onCancel, isRunning, disabled, disabledPlaceholder, supportsImages }: Props) {
+export default function ChatInput({
+  onSend,
+  onCancel,
+  isRunning,
+  disabled,
+  disabledPlaceholder,
+  supportsImages,
+  actionsOpen = false,
+  actionsPanel,
+  onToggleActions,
+}: Props) {
   const [text, setText] = useState('')
   const [images, setImages] = useState<ImageAttachmentInfo[]>([])
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -83,7 +96,7 @@ export default function ChatInput({ onSend, onCancel, isRunning, disabled, disab
           rows={1}
         />
         {isRunning ? (
-          <button type="button" style={styles.cancelBtn} onClick={onCancel} title="取消">
+          <button type="button" style={styles.cancelBtn} onClick={onCancel} title="取消" aria-label="停止">
             <Square size={16} fill="var(--error)" color="var(--error)" />
           </button>
         ) : (
@@ -91,11 +104,30 @@ export default function ChatInput({ onSend, onCancel, isRunning, disabled, disab
             type="submit"
             style={{ ...styles.sendBtn, opacity: (text.trim() || images.length > 0) && !disabled ? 1 : 0.4 }}
             disabled={(!text.trim() && images.length === 0) || disabled}
+            aria-label="发送"
           >
             <Send size={16} color="#fff" />
           </button>
         )}
+        {onToggleActions && (
+          <button
+            type="button"
+            style={{ ...styles.moreBtn, background: actionsOpen ? 'var(--bg-input)' : 'transparent' }}
+            onClick={() => {
+              inputRef.current?.blur()
+              onToggleActions()
+            }}
+            aria-label="会话操作"
+            aria-expanded={actionsOpen}
+          >
+            <Plus
+              size={24}
+              style={{ transform: actionsOpen ? 'rotate(45deg)' : 'none', transition: 'transform .18s ease' }}
+            />
+          </button>
+        )}
       </form>
+      {actionsOpen && actionsPanel}
     </div>
   )
 }
@@ -188,5 +220,15 @@ const styles: Record<string, CSSProperties> = {
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
+  },
+  moreBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: '50%',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+    color: 'var(--text-secondary)',
   },
 }

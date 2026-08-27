@@ -392,6 +392,14 @@ export const sessionRpcHandlers: RpcHandlerMap = {
       sessionId: msg.sessionId as string,
     }))
   },
+
+  async 'sessions.markUnread'(msg, { sendResult }) {
+    sendResult(await executeSessionCommand({
+      commandId: legacyCommandId(msg.requestId),
+      type: 'sessions.markUnread',
+      sessionId: msg.sessionId as string,
+    }))
+  },
 }
 
 function legacyCommandId(requestId: string | undefined): string {
