@@ -4,6 +4,8 @@ import type { AgentData, ProjectAgentInput } from '../../stores/agent.store'
 import type { ModelProfileData } from '../../stores/model.store'
 import { wsClient } from '../../services/ws-client'
 import { AvatarUploader } from './AvatarUploader'
+import { AgentSystemPromptField } from './AgentSystemPromptField'
+import { buildAgentSettingsUpdate } from './agent-settings-update'
 import { TYPE_FILTERS } from '../agent-square/constants'
 
 type AgentModelProfileMode = 'global' | 'fixed' | 'system'
@@ -26,6 +28,7 @@ export function AgentSettingsModal({
   const [name, setName] = useState(agent.name)
   const [icon, setIcon] = useState(agent.icon ?? 'bot')
   const [avatarUrl, setAvatarUrl] = useState<string | null>(agent.avatar_url ?? null)
+  const [systemPrompt, setSystemPrompt] = useState(agent.system_prompt ?? '')
   const [pendingDataUrl, setPendingDataUrl] = useState<string | null>(null)
   const [modelProfileId, setModelProfileId] = useState<string>(() => {
     if (!agent.config_json) return ''
@@ -77,13 +80,14 @@ export function AgentSettingsModal({
       } else if (pendingDataUrl === null && avatarUrl === null && agent.avatar_url) {
         finalAvatarUrl = null
       }
-      await onSave({
+      await onSave(buildAgentSettingsUpdate({
         name: name.trim(),
         icon,
         avatarUrl: finalAvatarUrl,
         modelProfileId: selectedModelProfileId || null,
         modelProfileMode,
-      })
+        systemPrompt,
+      }))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -99,7 +103,7 @@ export function AgentSettingsModal({
           <div>
             <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--text-1)' }}>Agent 设置</h3>
             <p style={{ margin: '5px 0 0', fontSize: 14, color: 'var(--text-3)' }}>
-              修改「{agent.name}」的头像、名称和模型档案。
+              修改「{agent.name}」的身份、模型和系统提示词。
             </p>
           </div>
           <button onClick={onClose} style={styles.closeBtn}><X size={14} /></button>
@@ -167,6 +171,7 @@ export function AgentSettingsModal({
             </>
           )}
           {fixedProfileMissing && <div style={styles.error}>固定模型档案策略需要选择一个可用档案</div>}
+          <AgentSystemPromptField value={systemPrompt} onChange={setSystemPrompt} />
           {error && <div style={styles.error}>{error}</div>}
         </div>
 

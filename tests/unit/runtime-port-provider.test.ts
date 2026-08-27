@@ -108,6 +108,7 @@ describe('embedded runtime port', () => {
     expect(host.ensureSession).toHaveBeenCalledWith('agent-1', 'session-1', 'acp-1', {
       projectId: 'project-1',
       cwd: 'C:/workspace',
+      runtimeContextKey: expect.any(String),
       emitLifecycle: false,
       canRecreateMissingSession: true,
     })
@@ -119,7 +120,12 @@ describe('embedded runtime port', () => {
       'agent-1',
       'acp-source',
       'session-1',
-      { projectId: 'project-1', cwd: 'C:/workspace', canRecreateMissingSession: true },
+      {
+        projectId: 'project-1',
+        cwd: 'C:/workspace',
+        runtimeContextKey: expect.any(String),
+        canRecreateMissingSession: true,
+      },
     )
     expect(host.stopAgent).toHaveBeenCalledWith('agent-1')
     expect('agents' in port).toBe(false)

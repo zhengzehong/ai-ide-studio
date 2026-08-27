@@ -22,6 +22,7 @@ AI IDE Studio 是一个本地部署的全栈 AI 编程协作工具。通过 [ACP
 - **文件预览下载** — `files.present` 在 PC 端支持 Markdown、文本、图片、音频、视频和二进制文件下载；Electron 使用安全的系统保存对话框，浏览器使用原生下载降级路径
 - **Agent 运行时** — 支持 `mock`（本地开发）、`claude`（Claude Code）、`codex`（Codex）三种运行时
 - **模型档案** — Claude Code 与 Codex 共用“模型连接 + 模型档案”流程；可分别设置 Runtime 全局档案并批量让 Agent 跟随，也可让单个 Agent 固定档案或使用系统配置。切换在下一轮请求惰性生效，不重启平台服务，连接保存协议、Base URL、Key 和模型列表，档案只覆盖显式填写的模型项
+- **Agent 系统提示词** — 已部署的项目 Agent 可在 PC 工作台设置中独立编辑系统提示词；保存不修改来源模板、不打断当前生成，并从下一轮消息开始生效
 - **Session Runtime 配置** — Agent 可查询真实 ACP 模型与配置能力，并在发送 Prompt 前设置和核对实际生效状态
 - **ACP 功能** — 模型切换、模式切换（计划模式等）、权限请求、会话 Fork、上下文用量展示
 - **会话运行偏好** — 每个 Session 会保留已切换的模型、模式和配置；重启服务或重连 ACP 后会自动恢复，Codex 默认 full access，Claude Code 默认 bypass permissions（可用时）

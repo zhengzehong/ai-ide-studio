@@ -4,8 +4,11 @@ import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { acpHost } from '../../src/acp/host.ts'
 import { closeDatabase, initDatabase } from '../../src/store/db.ts'
+import { agentStore } from '../../src/store/agents.ts'
+import { sessionStore } from '../../src/store/sessions.ts'
 
 let tmp = ''
+let dynamicAgentId = ''
 
 describe('acpHost session context refresh', () => {
   afterEach(() => {
@@ -13,6 +16,8 @@ describe('acpHost session context refresh', () => {
     if (tmp) rmSync(tmp, { recursive: true, force: true })
     tmp = ''
     acpHost.agents.delete('agent-context-refresh')
+    if (dynamicAgentId) acpHost.agents.delete(dynamicAgentId)
+    dynamicAgentId = ''
     vi.restoreAllMocks()
   })
 
@@ -106,6 +111,69 @@ describe('acpHost session context refresh', () => {
 
     expect(acpSessionId).toBe('acp-global')
     expect(resumeSession).not.toHaveBeenCalled()
+  })
+
+  test('refreshes an existing Session with the latest Agent system prompt', async () => {
+    tmp = mkdtempSync(resolve(tmpdir(), 'ai-ide-acp-prompt-refresh-'))
+    initDatabase(resolve(tmp, 'test.sqlite'))
+    const agent = agentStore.create({
+      name: 'Prompt Agent',
+      type: 'developer',
+      runtime: 'claude',
+      systemPrompt: 'old prompt',
+    })
+    dynamicAgentId = agent.id
+    const session = sessionStore.create({ agentId: agent.id })
+    const resumeSession = vi.fn(async () => ({ models: null, modes: null }))
+    vi.spyOn(acpHost, 'startAgent').mockResolvedValue(undefined)
+    acpHost.agents.set(agent.id, {
+      agentId: agent.id,
+      runtime: 'claude',
+      runtimeEnv: {},
+      agent,
+      sessionMeta: { systemPrompt: 'old prompt' },
+      proc: { kill: () => undefined },
+      connection: {
+        signal: { aborted: false },
+        resumeSession,
+      },
+      acpSessions: new Map([[session.id, 'acp-existing']]),
+      runtimeSessions: new Map([
+        [
+          session.id,
+          {
+            ourSessionId: session.id,
+            acpSessionId: 'acp-existing',
+            state: 'connected',
+            contextKey: JSON.stringify({
+              projectId: null,
+              cwd: 'D:/workspace',
+              runtimeContextKey: 'prompt-old',
+            }),
+            lastUsedAt: Date.now(),
+            activeTurnCount: 0,
+            nextTurnKey: 0,
+          },
+        ],
+      ]),
+      sessionCapabilities: new Map(),
+      state: 'running',
+      lastUsedAt: Date.now(),
+      activeTurnCount: 0,
+      agentCapabilities: { sessionCapabilities: { resume: true } },
+    } as never)
+    agentStore.update(agent.id, { systemPrompt: 'new prompt for the next turn' })
+
+    await acpHost.ensureSession(agent.id, session.id, 'acp-existing', {
+      cwd: 'D:/workspace',
+      runtimeContextKey: 'prompt-new',
+    })
+
+    expect(resumeSession).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: 'acp-existing',
+      _meta: expect.objectContaining({ systemPrompt: expect.anything() }),
+    }))
+    expect(JSON.stringify(resumeSession.mock.calls[0]?.[0]?._meta)).toContain('new prompt for the next turn')
   })
 
   test('recreates one missing provisional Session in embedded Runtime', async () => {
