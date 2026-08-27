@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
+import type { WidgetAgentProjectActivityGroup } from '../../ui/src/stores/widget.store.ts'
 
 const wsMock = vi.hoisted(() => ({
   request: vi.fn(async () => ({ ok: true })),
@@ -119,7 +120,7 @@ describe('widget store', () => {
   })
 
   test('refreshes activity for Session, Agent, and Task changes', () => {
-    useWidgetStore.getState().setupListeners()
+    const cleanup = useWidgetStore.getState().setupListeners()
 
     expect(wsMock.on.mock.calls.map(([event]) => event)).toEqual([
       'agent:status',
@@ -128,5 +129,60 @@ describe('widget store', () => {
       'session:changed',
       'task:update',
     ])
+    cleanup()
+  })
+
+  test('coalesces a burst of realtime events into one activity request', async () => {
+    vi.useFakeTimers()
+    wsMock.request.mockResolvedValueOnce([activityGroup])
+    const cleanup = useWidgetStore.getState().setupListeners()
+    const listeners = wsMock.on.mock.calls.map(([, listener]) => listener as () => void)
+
+    listeners.forEach((listener) => listener())
+    await vi.advanceTimersByTimeAsync(149)
+    expect(wsMock.request).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1)
+
+    expect(wsMock.request).toHaveBeenCalledTimes(1)
+    cleanup()
+    vi.useRealTimers()
+  })
+
+  test('runs one follow-up when events arrive during an activity request', async () => {
+    vi.useFakeTimers()
+    let resolveFirst: ((value: WidgetAgentProjectActivityGroup[]) => void) | undefined
+    wsMock.request
+      .mockImplementationOnce(() => new Promise((resolveRequest) => {
+        resolveFirst = resolveRequest
+      }))
+      .mockResolvedValueOnce([activityGroup])
+    const cleanup = useWidgetStore.getState().setupListeners()
+    const listener = wsMock.on.mock.calls[0]?.[1] as () => void
+
+    listener()
+    await vi.advanceTimersByTimeAsync(150)
+    listener()
+    listener()
+    await vi.advanceTimersByTimeAsync(150)
+    expect(wsMock.request).toHaveBeenCalledTimes(1)
+
+    resolveFirst?.([activityGroup])
+    await vi.waitFor(() => expect(wsMock.request).toHaveBeenCalledTimes(2))
+
+    cleanup()
+    vi.useRealTimers()
+  })
+
+  test('cancels a scheduled activity refresh when listeners are removed', async () => {
+    vi.useFakeTimers()
+    const cleanup = useWidgetStore.getState().setupListeners()
+    const listener = wsMock.on.mock.calls[0]?.[1] as () => void
+
+    listener()
+    cleanup()
+    await vi.advanceTimersByTimeAsync(150)
+
+    expect(wsMock.request).not.toHaveBeenCalled()
+    vi.useRealTimers()
   })
 })

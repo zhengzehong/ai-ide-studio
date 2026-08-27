@@ -12,6 +12,8 @@ import type {
   TaskListQuery,
   TaskPage,
   TaskPageQuery,
+  WidgetSessionListItem,
+  WidgetSessionListQuery,
 } from '../ports/query-port.js'
 import type { MessageRow, SessionEventRow, SessionListRow } from '../store/sessions.js'
 import type {
@@ -133,6 +135,12 @@ export async function createWorkerQueryPort(
     },
     getSessionRecovery(input: SessionRecoveryQuery): Promise<SessionRecoverySnapshot> {
       return request('sessions.recovery', input, input)
+    },
+    listWidgetSessions(input: WidgetSessionListQuery): Promise<WidgetSessionListItem[]> {
+      return request('widget.sessions.list', {
+        ...input,
+        activePromptSessionIds: [...getActivePromptSessionIds()],
+      }, input)
     },
     inspect(): Promise<QueryWorkerInspection> {
       return request('worker.inspect', {}, { priority: 'interactive' })

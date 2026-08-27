@@ -87,6 +87,33 @@ export interface SessionRecoverySnapshot {
   events: SessionEventRow[]
 }
 
+export interface WidgetSessionListQuery extends QueryRequestOptions {
+  projectId?: string
+  activePromptSessionIds?: string[]
+}
+
+export interface WidgetSessionListItem {
+  sessionId: string
+  agentId: string
+  agentName: string
+  agentIcon: string | null
+  projectId: string | null
+  projectName: string | null
+  taskId: string | null
+  taskTitle: string | null
+  taskStatus: string | null
+  sessionTitle: string | null
+  status: string
+  activityState: 'running' | 'idle'
+  stage: string
+  unread: boolean
+  startedAt: string
+  updatedAt: string | null
+  lastMessageAt: string | null
+  completedAt: string | null
+  closedAt: string | null
+}
+
 export interface QueryPort {
   listTasks(input: TaskListQuery): Promise<TaskListItem[]>
   listTaskPage(input: TaskPageQuery): Promise<TaskPage>
@@ -94,4 +121,5 @@ export interface QueryPort {
   listSessionMessages(input: SessionMessageQuery): Promise<QueryPage<MessageRow>>
   listSessionEvents(input: SessionEventQuery): Promise<QueryPage<SessionEventRow>>
   getSessionRecovery(input: SessionRecoveryQuery): Promise<SessionRecoverySnapshot>
+  listWidgetSessions(input: WidgetSessionListQuery): Promise<WidgetSessionListItem[]>
 }

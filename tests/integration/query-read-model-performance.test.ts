@@ -8,6 +8,8 @@ import { taskStepStore } from '../../src/store/task-steps.js'
 import { eventStore, messageStore, sessionStore } from '../../src/store/sessions.js'
 import { turnProcessItemStore } from '../../src/store/turn-process-items.js'
 import { createLocalQueryPort } from '../../src/queries/local-query-port.js'
+import { agentStore } from '../../src/store/agents.js'
+import { projectStore } from '../../src/store/projects.js'
 
 let tmp: string
 
@@ -122,6 +124,88 @@ describe('local QueryPort read models', () => {
       .toEqual([messageSession.id, processSession.id, promptSession.id].sort())
     expect(prepareSpy.mock.calls.length).toBe(1)
     prepareSpy.mockRestore()
+  })
+
+  test('Widget completion uses finalized Agent messages instead of message.done events', async () => {
+    const project = projectStore.create({ name: 'Widget Project', workDir: 'D:/widget' })
+    const agent = agentStore.create({
+      name: 'Widget Agent',
+      type: 'dev',
+      runtime: 'mock',
+      projectId: project.id,
+    })
+    const eventOnlySession = sessionStore.create({ agentId: agent.id, projectId: project.id })
+    eventStore.append(eventOnlySession.id, {
+      type: 'message.done',
+      agentId: agent.id,
+      messageId: 'event-only',
+      role: 'agent',
+      payload: { stopReason: 'end_turn' },
+    })
+    const completedSession = sessionStore.create({ agentId: agent.id, projectId: project.id })
+    const completedMessage = messageStore.append(completedSession.id, {
+      role: 'agent',
+      content: 'finished',
+      status: 'completed',
+    })
+    getDb().prepare('UPDATE messages SET timestamp = ? WHERE id = ?')
+      .run('2026-08-27T08:00:00.000Z', completedMessage.id)
+
+    const rows = await createLocalQueryPort().listWidgetSessions({ projectId: project.id })
+    const byId = new Map(rows.map((row) => [row.sessionId, row]))
+
+    expect(byId.get(eventOnlySession.id)?.completedAt).toBeNull()
+    expect(byId.get(completedSession.id)?.completedAt).toBe('2026-08-27T08:00:00.000Z')
+  })
+
+  test('Widget session projection resolves links and running state with one SQL statement', async () => {
+    const project = projectStore.create({ name: 'Widget Projection', workDir: 'D:/widget-projection' })
+    const agent = agentStore.create({
+      name: 'Projection Agent',
+      type: 'dev',
+      runtime: 'mock',
+      projectId: project.id,
+    })
+    const task = taskStore.create({ title: 'Projection Task', projectId: project.id })
+    const session = sessionStore.create({ agentId: agent.id, projectId: project.id })
+    taskStepStore.create({ taskId: task.id, title: 'Projection Step', sessionId: session.id })
+    messageStore.append(session.id, { role: 'agent', content: 'working', status: 'running' })
+    const db = getDb()
+    const prepareSpy = vi.spyOn(db, 'prepare')
+
+    const rows = await createLocalQueryPort().listWidgetSessions({
+      projectId: project.id,
+      activePromptSessionIds: [session.id],
+    })
+
+    expect(rows).toMatchObject([{
+      sessionId: session.id,
+      agentId: agent.id,
+      agentName: 'Projection Agent',
+      projectId: project.id,
+      projectName: 'Widget Projection',
+      taskId: task.id,
+      taskTitle: 'Projection Task',
+      activityState: 'running',
+    }])
+    expect(prepareSpy).toHaveBeenCalledTimes(1)
+    prepareSpy.mockRestore()
+  })
+
+  test('Widget session projection preserves active prompts in local QueryPort mode', async () => {
+    const project = projectStore.create({ name: 'Local Widget', workDir: 'D:/local-widget' })
+    const agent = agentStore.create({
+      name: 'Local Widget Agent',
+      type: 'dev',
+      runtime: 'mock',
+      projectId: project.id,
+    })
+    const session = sessionStore.create({ agentId: agent.id, projectId: project.id })
+    const queryPort = createLocalQueryPort({ isPromptActive: (sessionId) => sessionId === session.id })
+
+    const rows = await queryPort.listWidgetSessions({ projectId: project.id })
+
+    expect(rows).toMatchObject([{ sessionId: session.id, activityState: 'running' }])
   })
 
   test('message and recovery event pages expose non-skipping cursors', async () => {

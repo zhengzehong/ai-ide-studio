@@ -309,6 +309,8 @@ function emptyQueryPort(): QueryPort {
     async listSessions() { return [] },
     async listSessionMessages() { return { items: [], hasMore: false, nextCursor: null } },
     async listSessionEvents() { return { items: [], hasMore: false, nextCursor: null } },
+    async getSessionRecovery(input) { return { sessionId: input.sessionId, latestSequence: 0, events: [] } },
+    async listWidgetSessions() { return [] },
   }
 }
 
