@@ -35,6 +35,7 @@ interface MobileActivityState {
   error: string | null
   load: (options?: { silent?: boolean }) => Promise<void>
   markRead: (sessionId: string) => Promise<void>
+  clearUnreadLocally: (sessionId: string) => void
   setupListeners: () => () => void
 }
 
@@ -70,6 +71,12 @@ export const useMobileActivityStore = create<MobileActivityState>((set, get) => 
     } catch {
       await get().load({ silent: true })
     }
+  },
+
+  // 本地乐观清除,不发请求:给"正看着的会话跑完"场景用,已读 RPC 由 session.store 统一发,
+  // 避免同一个 done 事件触发两次 sessions.markRead
+  clearUnreadLocally: (sessionId) => {
+    set((state) => ({ groups: clearUnreadSession(state.groups, sessionId) }))
   },
 
   setupListeners: () => {

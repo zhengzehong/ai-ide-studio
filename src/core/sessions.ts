@@ -545,6 +545,7 @@ async function sendPromptBatchNow(session: SessionRow, inputs: QueuedPrompt[]): 
         type: 'session.touch',
         sessionId,
         timestamp: humanMessage.timestamp,
+        advanceRead: true,
       }])
       const stored = observeSyncDbOperation(
         'session.user-event.append',
@@ -593,6 +594,7 @@ async function sendPromptBatchNow(session: SessionRow, inputs: QueuedPrompt[]): 
       type: 'session.touch',
       sessionId,
       timestamp: agentMessage.timestamp,
+      advanceRead: true,
     }])
     emitLifecycle(session.agent_id, sessionId, 'lifecycle.prompt_received', '正在准备 Agent...', agentMessage.id)
     const projectContext = resolveSessionProjectContext(

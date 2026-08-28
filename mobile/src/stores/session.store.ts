@@ -3,6 +3,7 @@ import { wsClient } from '@desktop/services/ws-client'
 import type { SessionData } from '@desktop/stores/session.store'
 import type { SessionTemplateData } from '@desktop/stores/session.store'
 import { useAppStore } from './app.store'
+import { useMobileActivityStore } from './activity.store'
 import { showToast } from '../utils/toast'
 import { isSecretarySessionPurpose } from '@desktop/stores/secretary-session'
 
@@ -36,6 +37,8 @@ interface SessionState {
   filterStatus: string | null
   runningSessionIds: SessionIndicatorMap
   currentSessionId: string | null
+  // 用户手动"标未读"的会话:跑完时不自动清已读(对齐 PC explicitUnread 语义)
+  explicitUnreadIds: SessionIndicatorMap
 
   fetchSessions: (projectId?: string | null) => Promise<void>
   loadSecretarySession: (projectId: string, secretaryId: string, sessionId: string) => Promise<MobileSessionItem>
@@ -84,6 +87,19 @@ export function isSessionUnread(
   // as read to avoid painting every session unread on version mismatch.
   if (!lastReadMs) return false
   return lastMessageMs > lastReadMs
+}
+
+/**
+ * 会话跑完时是否自动跟随标已读(对齐 PC session:done 的 shouldAcknowledgeRead):
+ * 只认"当前正在看的会话",且用户手动标过未读的不自动清
+ */
+export function shouldAcknowledgeDoneRead(
+  sessionId: string,
+  currentSessionId: string | null,
+  explicitUnreadIds: SessionIndicatorMap,
+): boolean {
+  if (sessionId !== currentSessionId) return false
+  return !explicitUnreadIds[sessionId]
 }
 
 function removeIndicator(source: SessionIndicatorMap, sessionId: string): SessionIndicatorMap {
@@ -142,6 +158,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   filterStatus: null,
   runningSessionIds: {},
   currentSessionId: null,
+  explicitUnreadIds: {},
 
   fetchSessions: async (projectId) => {
     const requestSeq = ++sessionListRequestSeq
@@ -208,6 +225,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   markRead: async (sessionId) => {
     const lastReadAt = new Date().toISOString()
     set((state) => ({
+      explicitUnreadIds: removeIndicator(state.explicitUnreadIds, sessionId),
       sessions: state.sessions.map((session) =>
         session.id === sessionId
           ? { ...session, unread: false, lastReadAt }
@@ -233,6 +251,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         : undefined
     if (!lastReadAt) return
     set((state) => ({
+      explicitUnreadIds: addIndicator(state.explicitUnreadIds, sessionId),
       sessions: state.sessions.map((item) => item.id === sessionId
         ? { ...item, unread: true, lastReadAt }
         : item),
@@ -393,6 +412,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       const sessionId = typeof msg.sessionId === 'string' ? msg.sessionId : ''
       if (!sessionId) return
       markIdle(sessionId)
+      // 正看着的会话跑完:跟随标已读(对齐 PC session:done 的 shouldAcknowledgeRead),
+      // 并乐观清掉动态角标,防止"跑完瞬间 +1 又消失"的闪动
+      if (shouldAcknowledgeDoneRead(sessionId, get().currentSessionId, get().explicitUnreadIds)) {
+        void get().markRead(sessionId)
+        useMobileActivityStore.getState().clearUnreadLocally(sessionId)
+      }
       refresh()
     })
     const off3 = wsClient.on('session:changed', (msg) => {

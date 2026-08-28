@@ -88,7 +88,7 @@ export interface SessionTurnFinalizeResult {
 export type WriteMutation =
   | { type: 'session.event.append'; event: SessionEventWriteInput }
   | { type: 'message.snapshot.update'; messageId: string; content: string; timestamp: string }
-  | { type: 'session.touch'; sessionId: string; timestamp: string }
+  | { type: 'session.touch'; sessionId: string; timestamp: string; advanceRead?: boolean }
   | { type: 'session.stage.update'; sessionId: string; stage: string; timestamp: string }
   | { type: 'session.stage.clear-running'; sessionId: string; timestamp: string }
   | { type: 'session.title.update-if-empty'; sessionId: string; title: string; timestamp: string }
