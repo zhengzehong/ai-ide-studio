@@ -83,4 +83,13 @@ describe('app.store fetchAgents — 按 projectId 过滤', () => {
     await useAppStore.getState().fetchAgents('p1')
     expect(useAppStore.getState().agents).toEqual([])
   })
+
+  it('过滤 hidden_at 非空的隐藏 Agent(与 PC 端 Workspace 可见性一致)', async () => {
+    vi.mocked(wsClient.request).mockResolvedValueOnce([
+      { id: 'agent-a', name: '可见', type: 'coder', model: 'gpt', hidden_at: null },
+      { id: 'agent-h', name: '已隐藏', type: 'coder', model: 'gpt', hidden_at: '2026-08-28T00:00:00.000Z' },
+    ])
+    await useAppStore.getState().fetchAgents('p1')
+    expect(useAppStore.getState().agents.map((a) => a.id)).toEqual(['agent-a'])
+  })
 })

@@ -1,13 +1,17 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import type { MobileSessionItem } from '../stores/session.store'
 import SessionCard from './SessionCard'
 import { AgentAvatar, badgeStyles, groupStyles } from './session-list/list-kit'
+
+const HEADER_LONG_PRESS_MS = 500
+const HEADER_MOVE_CANCEL_PX = 10
 
 interface Props {
   agentId: string
   agentName: string
   sessions: MobileSessionItem[]
   onLongPress: (session: MobileSessionItem) => void
+  onHeaderLongPress?: () => void
 }
 
 function sortByUnreadAndTime(sessions: MobileSessionItem[]): MobileSessionItem[] {
@@ -21,7 +25,7 @@ function sortByUnreadAndTime(sessions: MobileSessionItem[]): MobileSessionItem[]
   })
 }
 
-export default function SessionGroup({ agentId, agentName, sessions, onLongPress }: Props) {
+export default function SessionGroup({ agentId, agentName, sessions, onLongPress, onHeaderLongPress }: Props) {
   const runningCount = sessions.filter((s) => s.activityState === 'running').length
   const unreadCount = sessions.filter((s) => s.unread).length
   const activeCount = sessions.length
@@ -29,12 +33,64 @@ export default function SessionGroup({ agentId, agentName, sessions, onLongPress
 
   const [collapsed, setCollapsed] = useState(!hasActive)
   const bodyRef = useRef<HTMLDivElement | null>(null)
+  // 分组头长按:触发后吞掉随后的 click,避免松手时顺带折叠/展开
+  const suppressHeadClickRef = useRef(false)
+  const headPressRef = useRef<{ x: number; y: number; timer: number } | null>(null)
 
   useEffect(() => {
     setCollapsed(!hasActive)
   }, [hasActive])
 
-  const toggle = () => setCollapsed((v) => !v)
+  useEffect(() => () => {
+    if (headPressRef.current) window.clearTimeout(headPressRef.current.timer)
+  }, [])
+
+  const toggle = () => {
+    if (suppressHeadClickRef.current) {
+      suppressHeadClickRef.current = false
+      return
+    }
+    setCollapsed((v) => !v)
+  }
+
+  const clearHeadPress = () => {
+    const press = headPressRef.current
+    if (press) {
+      window.clearTimeout(press.timer)
+      headPressRef.current = null
+    }
+  }
+
+  const fireHeaderLongPress = () => {
+    headPressRef.current = null
+    if (!onHeaderLongPress) return
+    suppressHeadClickRef.current = true
+    try {
+      navigator.vibrate?.(12)
+    } catch {
+      /* ignore */
+    }
+    onHeaderLongPress()
+  }
+
+  const handleHeadPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!onHeaderLongPress) return
+    if (event.pointerType === 'mouse' && event.button !== 0) return
+    clearHeadPress()
+    headPressRef.current = {
+      x: event.clientX,
+      y: event.clientY,
+      timer: window.setTimeout(fireHeaderLongPress, HEADER_LONG_PRESS_MS),
+    }
+  }
+
+  const handleHeadPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const press = headPressRef.current
+    if (!press) return
+    if (Math.abs(event.clientX - press.x) > HEADER_MOVE_CANCEL_PX || Math.abs(event.clientY - press.y) > HEADER_MOVE_CANCEL_PX) {
+      clearHeadPress()
+    }
+  }
 
   const sortedSessions = sortByUnreadAndTime(sessions)
 
@@ -44,7 +100,19 @@ export default function SessionGroup({ agentId, agentName, sessions, onLongPress
       style={groupStyles.group}
       data-agent-id={agentId}
     >
-      <div className="pressable" style={groupStyles.head} onClick={toggle}>
+      <div
+        className="pressable"
+        style={groupStyles.head}
+        onClick={toggle}
+        onPointerDown={handleHeadPointerDown}
+        onPointerMove={handleHeadPointerMove}
+        onPointerUp={clearHeadPress}
+        onPointerLeave={clearHeadPress}
+        onPointerCancel={clearHeadPress}
+        onContextMenu={(event) => {
+          if (onHeaderLongPress) event.preventDefault()
+        }}
+      >
         <AgentAvatar agentId={agentId} name={agentName} />
         <div style={groupStyles.info}>
           <div style={groupStyles.name}>{agentName}</div>

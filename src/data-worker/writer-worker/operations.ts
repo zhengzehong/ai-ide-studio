@@ -159,9 +159,15 @@ function executeMutation(
       return { type: mutation.type, changes: result.changes }
     }
     case 'session.touch': {
-      const result = db.prepare(
-        'UPDATE sessions SET updated_at = ?, last_message_at = ? WHERE id = ?',
-      ).run(mutation.timestamp, mutation.timestamp, mutation.sessionId)
+      // advanceRead: 发送者自己的消息视为"已读到此刻"。单调守卫(MAX)保证不会把用户手动
+      // 标未读的时间戳往回拽;同一执行流内推进,不存在客户端补 markRead 的插队竞态
+      const result = mutation.advanceRead
+        ? db.prepare(
+          'UPDATE sessions SET updated_at = ?, last_message_at = ?, last_read_at = MAX(last_read_at, ?) WHERE id = ?',
+        ).run(mutation.timestamp, mutation.timestamp, mutation.timestamp, mutation.sessionId)
+        : db.prepare(
+          'UPDATE sessions SET updated_at = ?, last_message_at = ? WHERE id = ?',
+        ).run(mutation.timestamp, mutation.timestamp, mutation.sessionId)
       return { type: mutation.type, changes: result.changes }
     }
     case 'session.stage.update': {

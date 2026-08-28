@@ -18,6 +18,9 @@ export interface AgentItem {
   name: string
   type?: string
   model?: string
+  runtime?: string
+  config_json?: string | null
+  hidden_at?: string | null
 }
 
 interface ProjectRow {
@@ -125,8 +128,9 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   fetchAgents: async (projectId?: string) => {
     try {
+      // 后端 agents.list 不过滤隐藏 Agent(PC 端在 Workspace 过滤);APP 没有恢复入口,直接在数据层排除
       const data = (await wsClient.request({ type: 'agents.list', projectId })) as AgentItem[]
-      set({ agents: data })
+      set({ agents: data.filter((agent) => !agent.hidden_at) })
     } catch {
       /* ignore */
     }

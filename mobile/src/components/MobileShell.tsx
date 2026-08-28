@@ -15,8 +15,9 @@ export default function MobileShell() {
   const location = useLocation()
   const navigate = useNavigate()
   const connected = useConnectionStore((s) => s.connected)
-  const activityCount = useMobileActivityStore((state) => (
-    state.groups.reduce((total, group) => total + group.sessions.length, 0)
+  // 动态角标只数未读:运行中的不算,和会话页/动态列表的未读口径一致
+  const unreadCount = useMobileActivityStore((state) => (
+    state.groups.reduce((total, group) => total + group.sessions.filter((session) => session.unread).length, 0)
   ))
 
   return (
@@ -39,8 +40,8 @@ export default function MobileShell() {
               <Icon size={22} strokeWidth={active ? 2.2 : 1.8} />
               <span style={{ position: 'relative', fontSize: 11, marginTop: 2 }}>
                 {tab.label}
-                {tab.path === '/activity' && activityCount > 0 && (
-                  <span style={styles.activityBadge} aria-label={`${activityCount} 个会话动态`}>{activityCount > 9 ? '9+' : activityCount}</span>
+                {tab.path === '/activity' && unreadCount > 0 && (
+                  <span style={styles.activityBadge} aria-label={`${unreadCount} 条未读`}>{unreadCount > 9 ? '9+' : unreadCount}</span>
                 )}
               </span>
             </button>

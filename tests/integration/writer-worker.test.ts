@@ -57,6 +57,41 @@ describe('Writer Worker', () => {
       .toEqual({ updated_at: '2026-07-20T10:00:00.000Z' })
   })
 
+  it('advances last_read_at to the touch timestamp when advanceRead is set', async () => {
+    const session = sessionStore.create({ agentId: 'agent-advance-read' })
+    sessionStore.markRead(session.id, '2026-07-20T09:00:00.000Z')
+    closeDatabase()
+    writer = await createWorkerWriteDataPort({ dbPath })
+
+    await expect(writer.commitBatch(writeBatch('batch-advance-read', session.id, 1, [
+      { type: 'session.touch', sessionId: session.id, timestamp: '2026-07-20T10:00:00.000Z', advanceRead: true },
+    ]))).resolves.toMatchObject({ duplicate: false })
+
+    usingDatabase((db) => {
+      expect(db.prepare('SELECT last_message_at, last_read_at FROM sessions WHERE id = ?').get(session.id))
+        .toEqual({ last_message_at: '2026-07-20T10:00:00.000Z', last_read_at: '2026-07-20T10:00:00.000Z' })
+    })
+  })
+
+  it('keeps last_read_at untouched without advanceRead and never moves it backwards', async () => {
+    const session = sessionStore.create({ agentId: 'agent-read-guard' })
+    sessionStore.markRead(session.id, '2026-07-20T12:00:00.000Z')
+    closeDatabase()
+    writer = await createWorkerWriteDataPort({ dbPath })
+
+    await expect(writer.commitBatch(writeBatch('batch-read-guard', session.id, 1, [
+      // 无 advanceRead:只推 last_message_at,不碰已读
+      { type: 'session.touch', sessionId: session.id, timestamp: '2026-07-20T13:00:00.000Z' },
+      // 有 advanceRead 但时间戳更早:单调守卫,不许往回拽
+      { type: 'session.touch', sessionId: session.id, timestamp: '2026-07-20T11:00:00.000Z', advanceRead: true },
+    ]))).resolves.toMatchObject({ duplicate: false })
+
+    usingDatabase((db) => {
+      expect(db.prepare('SELECT last_message_at, last_read_at FROM sessions WHERE id = ?').get(session.id))
+        .toEqual({ last_message_at: '2026-07-20T11:00:00.000Z', last_read_at: '2026-07-20T12:00:00.000Z' })
+    })
+  })
+
   it('commits 30 concurrent session batches with atomic outbox rows', async () => {
     const sessions = Array.from({ length: 30 }, (_, index) => sessionStore.create({
       agentId: `agent-${index}`,
