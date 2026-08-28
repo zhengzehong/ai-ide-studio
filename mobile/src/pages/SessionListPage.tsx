@@ -12,7 +12,7 @@ import ProjectDrawer from '../components/ProjectDrawer'
 import { useEdgeSwipe } from '../hooks/useEdgeSwipe'
 import { usePinnedSessionStore } from '../stores/pinned-session.store'
 import { PinnedSessionList } from './PinnedSessionsPage'
-import { resolveSessionViewMode, sessionViewPath } from './session-view-mode'
+import { resolveInitialViewMode, sessionViewPath } from './session-view-mode'
 import { SessionListTopbar } from '../components/session-list/SessionListTopbar'
 import { SessionListOverlays } from '../components/session-list/SessionListOverlays'
 import { buildSessionActionItems } from '../components/session-list/session-list-actions'
@@ -36,6 +36,8 @@ export default function SessionListPage() {
     isDrawerPinned,
     setDrawerPinned,
     fetchAgents,
+    sessionViewMode,
+    setSessionViewMode,
   } = useAppStore()
   const statsByProjectId = useMobileProjectSessionStatsStore((state) => state.statsByProjectId)
   const pinnedItems = usePinnedSessionStore((state) => state.items)
@@ -44,7 +46,17 @@ export default function SessionListPage() {
   const loadPinned = usePinnedSessionStore((state) => state.load)
   const navigate = useNavigate()
   const location = useLocation()
-  const viewMode = resolveSessionViewMode(location.search)
+  const viewMode = resolveInitialViewMode(location.search, sessionViewMode)
+
+  // URL 缺 view 参数时(如从其他 tab 返回)回写地址栏并沿用上次视图;带参数时同步到本地
+  useEffect(() => {
+    const param = new URLSearchParams(location.search).get('view')
+    if (param === 'pinned' || param === 'all') {
+      setSessionViewMode(param)
+    } else if (viewMode === 'pinned') {
+      navigate(sessionViewPath('pinned'), { replace: true })
+    }
+  }, [location.search, viewMode, navigate, setSessionViewMode])
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [createSheetOpen, setCreateSheetOpen] = useState(false)
   const [actionSession, setActionSession] = useState<MobileSessionItem | null>(null)
@@ -216,6 +228,7 @@ export default function SessionListPage() {
             isPinned={isDrawerPinned}
             onPickProject={handlePickProject}
             onTogglePin={handleTogglePin}
+            onClose={handleCloseDrawer}
             onCreateProject={() => {
               if (!isDrawerPinned) setDrawerOpen(false)
               setCreateSheetOpen(true)
@@ -226,7 +239,6 @@ export default function SessionListPage() {
             projectUnread={projectUnread}
             totalSessions={totalSessions}
           />
-          <div style={styles.overlay} onClick={handleCloseDrawer} data-visible={drawerOpen && !isDrawerPinned ? '1' : '0'} />
         </>
       )}
 
@@ -251,7 +263,7 @@ export default function SessionListPage() {
           <div style={styles.list}>
             {showEmpty && (
               <div style={styles.empty}>
-                <MessageSquarePlus size={40} color="#b2b2b2" strokeWidth={1.2} />
+                <MessageSquarePlus size={40} color="var(--text-muted)" strokeWidth={1.2} />
                 <span style={styles.emptyText}>暂无会话</span>
               </div>
             )}

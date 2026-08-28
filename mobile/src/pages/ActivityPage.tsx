@@ -8,6 +8,7 @@ import {
 } from '../stores/activity.store'
 import { useAppStore } from '../stores/app.store'
 import { useSessionStore } from '../stores/session.store'
+import { AgentAvatar, ListRow, ProjectChip, formatRelativeTime, groupStyles } from '../components/session-list/list-kit'
 
 interface ActivityProjectSyncDeps {
   setCurrentProject: (projectId: string) => void
@@ -48,11 +49,11 @@ export function ActivityPage() {
   return (
     <div style={styles.page}>
       <header style={styles.header}>
-        <div>
+        <div style={styles.heading}>
           <h1 style={styles.title}>动态</h1>
           <div style={styles.subtitle}>{sessionCount > 0 ? `${sessionCount} 个会话需要关注` : '运行中和未读会话'}</div>
         </div>
-        <button type="button" style={styles.iconButton} onClick={() => { void load() }} aria-label="刷新动态">
+        <button type="button" className="pressable" style={styles.iconButton} onClick={() => { void load() }} aria-label="刷新动态">
           <RefreshCw size={18} />
         </button>
       </header>
@@ -70,7 +71,7 @@ export function ActivityPage() {
           <div style={styles.empty}><Loader2 size={22} className="spin" />正在同步...</div>
         ) : groups.length === 0 ? (
           <div style={styles.empty}>
-            <Activity size={42} color="#b2b2b2" strokeWidth={1.3} />
+            <Activity size={42} color="var(--text-muted)" strokeWidth={1.3} />
             <strong style={styles.emptyTitle}>暂无动态</strong>
             <span>运行中或有新回复的会话会显示在这里</span>
           </div>
@@ -83,53 +84,87 @@ export function ActivityPage() {
 }
 
 export function ActivityGroup({ group, onOpen }: { group: MobileActivityGroup; onOpen: (group: MobileActivityGroup, session: MobileActivitySession) => void }) {
+  const project = useAppStore((state) => state.projects.find((p) => p.id === group.projectId))
+
   return (
-    <section style={styles.group}>
-      <div style={styles.groupHeader}>
-        <span style={styles.avatar}>{group.agentName.trim().slice(0, 2) || '?'}</span>
-        <div style={styles.groupHeading}>
-          <strong style={styles.agentName}>{group.agentName}</strong>
-          <span style={styles.projectName}>{group.projectName || '未归属项目'}</span>
+    <section className="group-block" style={groupStyles.group} data-agent-id={group.agentId}>
+      <div style={{ ...groupStyles.head, ...groupStyles.headPlain }}>
+        <AgentAvatar agentId={group.agentId} name={group.agentName} />
+        <div style={groupStyles.info}>
+          <div style={groupStyles.name}>{group.agentName}</div>
+          <div style={groupStyles.sub}>{group.sessions.length} 个会话</div>
         </div>
-        <span style={styles.count}>{group.sessions.length}</span>
+        <ProjectChip
+          name={project?.name ?? group.projectName ?? '未归属项目'}
+          icon={project?.icon}
+          color={project?.color}
+        />
       </div>
-      {group.sessions.map((session) => (
-        <button key={session.sessionId} type="button" style={styles.session} onClick={() => onOpen(group, session)}>
-          <span style={{ ...styles.stateBar, background: session.running ? '#07c160' : '#fa5151' }} />
-          <span style={styles.sessionMain}>
-            <span style={styles.sessionTitle}>{session.sessionTitle || '未命名会话'}</span>
-            <span style={styles.sessionMeta}>{session.taskTitle || session.stage || '会话有新动态'}</span>
-          </span>
-          <span style={{ ...styles.state, color: session.running ? '#07c160' : '#fa5151' }}>
-            {session.running ? '运行中' : '未读'}
-          </span>
-        </button>
-      ))}
+      {group.sessions.map((session) => {
+        const isRunning = !!session.running
+        return (
+          <ListRow
+            key={session.sessionId}
+            title={session.sessionTitle || '未命名会话'}
+            strong={session.unread}
+            time={formatRelativeTime(session.activityAt)}
+            label={isRunning ? '执行中' : '有新回复'}
+            labelColor={isRunning ? 'var(--success)' : 'var(--primary)'}
+            pulse={isRunning}
+            detail={session.taskTitle || session.stage || '会话有新动态'}
+            onClick={() => onOpen(group, session)}
+          />
+        )
+      })}
     </section>
   )
 }
 
 const styles: Record<string, CSSProperties> = {
-  page: { height: '100%', display: 'flex', flexDirection: 'column', background: '#ededed' },
-  header: { padding: 'calc(12px + var(--safe-top)) 16px 11px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#f7f7f7', borderBottom: '0.5px solid #e0e0e0' },
-  title: { margin: 0, color: '#191919', fontSize: 20, lineHeight: 1.25, fontWeight: 650 },
-  subtitle: { marginTop: 3, color: '#999', fontSize: 11 },
-  iconButton: { width: 36, height: 36, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: 6, color: '#595959' },
-  error: { margin: 10, padding: '9px 10px', display: 'flex', alignItems: 'center', gap: 7, borderRadius: 6, background: '#fff1f0', color: '#d4380d', fontSize: 12, textAlign: 'left' },
-  list: { flex: 1, overflowY: 'auto', padding: '8px 0 20px' },
-  empty: { height: '62%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 9, color: '#999', fontSize: 13 },
-  emptyTitle: { color: '#555', fontSize: 15 },
-  group: { marginBottom: 8, background: '#fff' },
-  groupHeader: { minHeight: 54, padding: '9px 14px', display: 'flex', alignItems: 'center', gap: 9, borderBottom: '0.5px solid #f0f0f0' },
-  avatar: { width: 34, height: 34, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, borderRadius: 6, background: '#576b95', color: '#fff', fontSize: 12 },
-  groupHeading: { minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column' },
-  agentName: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#191919', fontSize: 14, fontWeight: 550 },
-  projectName: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 1, color: '#999', fontSize: 11 },
-  count: { minWidth: 20, height: 20, padding: '0 6px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: 10, background: '#f2f2f2', color: '#888', fontSize: 11 },
-  session: { position: 'relative', width: '100%', minHeight: 64, padding: '10px 14px 10px 20px', display: 'flex', alignItems: 'center', gap: 10, textAlign: 'left', borderBottom: '0.5px solid #f4f4f4', background: '#fff' },
-  stateBar: { position: 'absolute', left: 8, top: 13, bottom: 13, width: 3, borderRadius: 2 },
-  sessionMain: { minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column' },
-  sessionTitle: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#191919', fontSize: 14, fontWeight: 500 },
-  sessionMeta: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 4, color: '#888', fontSize: 11 },
-  state: { flexShrink: 0, fontSize: 11, fontWeight: 500 },
+  page: { height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--bg)' },
+  header: {
+    padding: 'calc(14px + var(--safe-top)) 16px 8px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  heading: { minWidth: 0 },
+  title: { margin: 0, color: 'var(--text-primary)', fontSize: 21, lineHeight: 1.25, fontWeight: 700 },
+  subtitle: { marginTop: 2, color: 'var(--text-muted)', fontSize: 12 },
+  iconButton: {
+    width: 34,
+    height: 34,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 10,
+    background: 'var(--bg-card)',
+    color: 'var(--text-secondary)',
+    flexShrink: 0,
+  },
+  error: {
+    margin: '0 10px 4px',
+    padding: '9px 10px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 7,
+    borderRadius: 'var(--radius-sm)',
+    background: 'var(--error-bg)',
+    color: 'var(--error)',
+    fontSize: 12,
+    textAlign: 'left',
+  },
+  list: { flex: 1, overflowY: 'auto', padding: '4px 0 20px' },
+  empty: {
+    height: '62%',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 9,
+    color: 'var(--text-muted)',
+    fontSize: 13,
+  },
+  emptyTitle: { color: 'var(--text-secondary)', fontSize: 15 },
 }

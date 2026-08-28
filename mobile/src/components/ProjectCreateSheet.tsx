@@ -4,11 +4,11 @@ import { useAppStore } from '../stores/app.store'
 import { showToast } from '../utils/toast'
 
 const PRESET_COLORS = [
-  '#07c160', // wechat green
-  '#576b95', // blue-purple
-  '#10aeff', // blue
-  '#ffa340', // orange
-  '#fa5151', // red
+  '#6c5ce7', // primary purple
+  '#3b82f6', // blue
+  '#10b981', // green
+  '#f59e0b', // orange
+  '#ef4444', // red
   '#6a7480', // gray
 ]
 
@@ -64,8 +64,8 @@ export default function ProjectCreateSheet({ open, onClose, onCreated }: Props) 
       <div style={styles.sheet} onClick={(e) => e.stopPropagation()}>
         <div style={styles.header}>
           <span style={styles.title}>新建项目</span>
-          <button style={styles.closeBtn} onClick={onClose}>
-            <X size={20} color="#888" />
+          <button className="pressable" style={styles.closeBtn} onClick={onClose}>
+            <X size={20} color="var(--text-secondary)" />
           </button>
         </div>
         <div style={styles.body}>
@@ -77,7 +77,7 @@ export default function ProjectCreateSheet({ open, onClose, onCreated }: Props) 
           </div>
 
           <label style={styles.label}>
-            项目名称 <span style={{ color: '#fa5151' }}>*</span>
+            项目名称 <span style={{ color: 'var(--error)' }}>*</span>
           </label>
           <input
             style={styles.input}
@@ -102,6 +102,7 @@ export default function ProjectCreateSheet({ open, onClose, onCreated }: Props) 
             {PRESET_COLORS.map((c) => (
               <button
                 key={c}
+                className="pressable"
                 style={{
                   ...styles.colorDot,
                   background: c,
@@ -118,6 +119,7 @@ export default function ProjectCreateSheet({ open, onClose, onCreated }: Props) 
             {PRESET_ICONS.map((emoji) => (
               <button
                 key={emoji}
+                className="pressable"
                 style={{
                   ...styles.iconDot,
                   ...(icon === emoji ? styles.iconDotActive : {}),
@@ -131,8 +133,9 @@ export default function ProjectCreateSheet({ open, onClose, onCreated }: Props) 
           </div>
         </div>
         <div style={styles.footer}>
-          <button style={styles.btnSecondary} onClick={onClose}>取消</button>
+          <button className="pressable" style={styles.btnSecondary} onClick={onClose}>取消</button>
           <button
+            className="pressable"
             style={{ ...styles.btnPrimary, opacity: canSubmit ? 1 : 0.5 }}
             disabled={!canSubmit}
             onClick={handleSubmit}
@@ -159,20 +162,20 @@ const styles: Record<string, CSSProperties> = {
     maxHeight: '88vh',
     display: 'flex',
     flexDirection: 'column',
-    background: '#fff',
-    borderRadius: '12px 12px 0 0',
+    background: 'var(--bg-card)',
+    borderRadius: 'var(--radius-lg) var(--radius-lg) 0 0',
   },
   header: {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: '16px 20px 12px',
-    borderBottom: '0.5px solid #e0e0e0',
+    borderBottom: '0.5px solid var(--border-light)',
   },
   title: {
     fontSize: 16,
     fontWeight: 600,
-    color: '#191919',
+    color: 'var(--text-primary)',
   },
   closeBtn: {
     width: 32,
@@ -192,13 +195,13 @@ const styles: Record<string, CSSProperties> = {
     gap: 10,
     marginBottom: 16,
     padding: '12px',
-    background: '#f7f7f7',
-    borderRadius: 8,
+    background: 'var(--bg-input)',
+    borderRadius: 10,
   },
   previewIcon: {
     width: 36,
     height: 36,
-    borderRadius: 8,
+    borderRadius: 10,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -209,7 +212,7 @@ const styles: Record<string, CSSProperties> = {
   previewName: {
     fontSize: 15,
     fontWeight: 500,
-    color: '#191919',
+    color: 'var(--text-primary)',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
@@ -220,17 +223,17 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 500,
     marginBottom: 6,
     marginTop: 14,
-    color: '#595959',
+    color: 'var(--text-secondary)',
   },
   input: {
     width: '100%',
     padding: '10px 12px',
-    border: '0.5px solid #e0e0e0',
-    borderRadius: 6,
+    border: '0.5px solid var(--border)',
+    borderRadius: 10,
     fontSize: 14,
     outline: 'none',
-    color: '#191919',
-    background: '#fff',
+    color: 'var(--text-primary)',
+    background: 'var(--bg-card)',
     boxSizing: 'border-box',
   },
   colorRow: {
@@ -247,7 +250,7 @@ const styles: Record<string, CSSProperties> = {
     padding: 0,
   },
   colorDotActive: {
-    border: '2px solid #191919',
+    border: '2px solid var(--primary)',
     boxShadow: '0 0 0 2px #fff inset',
   },
   iconRow: {
@@ -258,9 +261,9 @@ const styles: Record<string, CSSProperties> = {
   iconDot: {
     width: 36,
     height: 36,
-    borderRadius: 6,
-    border: '0.5px solid #e0e0e0',
-    background: '#fff',
+    borderRadius: 10,
+    border: '0.5px solid var(--border)',
+    background: 'var(--bg-card)',
     fontSize: 18,
     display: 'flex',
     alignItems: 'center',
@@ -269,21 +272,21 @@ const styles: Record<string, CSSProperties> = {
     padding: 0,
   },
   iconDotActive: {
-    border: '1.5px solid #07c160',
-    background: '#e6f7ee',
+    border: '1.5px solid var(--primary)',
+    background: 'var(--primary-bg)',
   },
   footer: {
     padding: '12px 20px calc(12px + var(--safe-bottom))',
-    borderTop: '0.5px solid #e0e0e0',
+    borderTop: '0.5px solid var(--border-light)',
     display: 'flex',
     justifyContent: 'flex-end',
     gap: 8,
   },
   btnPrimary: {
     padding: '8px 20px',
-    borderRadius: 6,
+    borderRadius: 10,
     border: 'none',
-    background: '#07c160',
+    background: 'var(--primary)',
     color: '#fff',
     fontSize: 14,
     fontWeight: 500,
@@ -291,10 +294,10 @@ const styles: Record<string, CSSProperties> = {
   },
   btnSecondary: {
     padding: '8px 20px',
-    borderRadius: 6,
-    border: '0.5px solid #e0e0e0',
-    background: '#fff',
-    color: '#595959',
+    borderRadius: 10,
+    border: '0.5px solid var(--border)',
+    background: 'var(--bg-card)',
+    color: 'var(--text-secondary)',
     fontSize: 14,
     cursor: 'pointer',
   },

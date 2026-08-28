@@ -390,7 +390,7 @@ export default function ChatPage() {
           if (item.kind === 'message') {
             const msg = item.message as MessageData
             return (
-              <ChatBubble key={item.id} role={msg.role === 'human' ? 'human' : 'agent'}>
+              <ChatBubble key={item.id} role={msg.role === 'human' ? 'human' : 'agent'} agentId={session?.agentId ?? pendingAgentId}>
                 {msg.role === 'agent' ? (
                   <TurnContent
                     message={msg}
@@ -409,7 +409,7 @@ export default function ChatPage() {
           }
           if (item.kind === 'streaming') {
             return (
-              <ChatBubble key={item.id} role="agent">
+              <ChatBubble key={item.id} role="agent" agentId={session?.agentId ?? pendingAgentId}>
                 <TurnContent
                   streaming={item.message as StreamingMessage}
                   liveElapsedSeconds={liveElapsedSeconds}
@@ -422,7 +422,7 @@ export default function ChatPage() {
           }
           if (item.kind === 'group') {
             return (
-              <ChatBubble key={item.id} role={item.group.role === 'human' ? 'human' : 'agent'}>
+              <ChatBubble key={item.id} role={item.group.role === 'human' ? 'human' : 'agent'} agentId={session?.agentId ?? pendingAgentId}>
                 <TimelineGroupContent group={item.group} />
               </ChatBubble>
             )

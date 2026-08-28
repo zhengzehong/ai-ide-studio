@@ -41,21 +41,25 @@ describe('pinned session surfaces', () => {
     expect(html).toContain('添加会话')
   })
 
-  test('renders the mobile pinned tab with cross-project metadata', () => {
+  test('renders the mobile pinned row with swipe-to-unpin instead of button column', () => {
     const html = renderToStaticMarkup(createElement(PinnedSessionRow, {
       item,
-      index: 0,
-      total: 1,
       removing: false,
-      reordering: false,
+      dragY: 0,
+      dragActive: false,
+      liftX: 0,
+      liftAnimating: false,
       onOpen: () => undefined,
       onRemove: () => undefined,
-      onMove: () => undefined,
     }))
 
     expect(html).toContain('AI IDE Studio · 编码智能体')
     expect(html).toContain('运行中')
+    expect(html).toContain('data-pin-id="session-1"')
     expect(html).toContain('aria-label="取消置顶"')
+    // 上下箭头/置顶按钮列已移除,排序改长按拖拽、取消置顶改左滑
+    expect(html).not.toContain('aria-label="上移"')
+    expect(html).not.toContain('aria-label="下移"')
   })
 
   test('renders the embedded mobile pinned list without its own page header', () => {

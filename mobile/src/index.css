@@ -11,9 +11,13 @@
   --border: #e5e7eb;
   --border-light: #f0f0f5;
   --success: #10b981;
+  --success-bg: #e7f8f1;
   --warning: #f59e0b;
+  --warning-bg: #fdf3e0;
   --error: #ef4444;
+  --error-bg: #fdecec;
   --info: #3b82f6;
+  --info-bg: #eaf2fe;
   --radius: 12px;
   --radius-sm: 8px;
   --radius-lg: 16px;
@@ -21,6 +25,8 @@
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --tab-height: 56px;
   --header-height: 52px;
+  --font-mono: 'Fira Code', 'JetBrains Mono', Consolas, 'Courier New', monospace;
+  --shadow-card: 0 1px 3px rgba(26, 26, 46, 0.05), 0 4px 14px rgba(26, 26, 46, 0.04);
 }
 
 * {
@@ -99,4 +105,38 @@ button {
 
 .shiki, .shiki span {
   background-color: transparent !important;
+}
+
+/* ---- 设计系统全局类(v5 改版) ---- */
+
+/* 按压反馈:所有可点元素加 .pressable,补齐 inline style 无法表达的 :active */
+.pressable {
+  transition: transform 0.12s ease, opacity 0.12s ease, background-color 0.12s ease;
+}
+.pressable:active {
+  transform: scale(0.97);
+  opacity: 0.92;
+}
+
+/* 统一卡片:白底 + 大圆角 + 轻阴影 */
+.card {
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+
+/* 分组容器:白块 + 14px 圆角,无阴影(轻分组列表) */
+.group-block {
+  background: var(--bg-card);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+/* 状态呼吸点 */
+@keyframes dot-breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+.breathe {
+  animation: dot-breathe 1.2s ease-in-out infinite;
 }

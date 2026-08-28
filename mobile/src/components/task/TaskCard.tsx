@@ -119,7 +119,7 @@ function NeedsCard({ task, handlers, onClick }: { task: TaskCardItem; handlers: 
   const preview = task.description || task.stage || ''
   const unread = isTaskUnread(task.id, task.updated_at || undefined)
   return (
-    <div style={needsStyles.card} {...handlers} onClick={onClick}>
+    <div className="pressable" style={needsStyles.card} {...handlers} onClick={onClick}>
       <span style={needsStyles.bar} />
       <div style={needsStyles.body}>
         <div style={needsStyles.titleRow}>
@@ -153,7 +153,7 @@ function ExecutingCard({ task, handlers, onClick }: { task: TaskCardItem; handle
   const elapsedMs = diffMsFromNow(task.updated_at || task.created_at)
   const showElapsed = elapsedMs && elapsedMs >= 60_000
   return (
-    <div style={normalStyles.card} {...handlers} onClick={onClick}>
+    <div className="pressable" style={normalStyles.card} {...handlers} onClick={onClick}>
       <div style={normalStyles.titleRow}>
         <span style={{ ...normalStyles.dot, background: STATUS_COLORS.running }} />
         <span style={normalStyles.title}>{task.title}</span>
@@ -178,7 +178,7 @@ function BacklogCard({ task, handlers, onClick }: { task: TaskCardItem; handlers
   const staleDays = Math.floor(diffMsFromNow(task.created_at) / DAY_MS)
   const isStale = staleDays >= STALE_DAYS
   return (
-    <div style={{ ...backlogStyles.card, ...(isStale ? backlogStyles.stale : {}) }} {...handlers} onClick={onClick}>
+    <div className="pressable" style={{ ...backlogStyles.card, ...(isStale ? backlogStyles.stale : {}) }} {...handlers} onClick={onClick}>
       <div style={backlogStyles.titleRow}>
         <span style={backlogStyles.dot} />
         <span style={backlogStyles.title}>{task.title}</span>
@@ -202,7 +202,7 @@ function BacklogCard({ task, handlers, onClick }: { task: TaskCardItem; handlers
 function HistoryCard({ task, handlers, onClick }: { task: TaskCardItem; handlers: Handlers; onClick: () => void }) {
   const isCompleted = task.status === 'completed'
   return (
-    <div style={{ ...backlogStyles.card, opacity: 0.7 }} {...handlers} onClick={onClick}>
+    <div className="pressable" style={{ ...backlogStyles.card, opacity: 0.7 }} {...handlers} onClick={onClick}>
       <div style={backlogStyles.titleRow}>
         <span style={{ ...backlogStyles.dot, background: isCompleted ? STATUS_COLORS.completed : STATUS_COLORS.cancelled }} />
         <span style={backlogStyles.title}>{task.title}</span>
@@ -220,9 +220,9 @@ function HistoryCard({ task, handlers, onClick }: { task: TaskCardItem; handlers
 const cardBase: CSSProperties = {
   padding: '12px 14px',
   background: 'var(--bg-card)',
-  borderRadius: 'var(--radius)',
+  borderRadius: 'var(--radius-lg)',
   marginBottom: 8,
-  border: '1px solid var(--border-light)',
+  boxShadow: 'var(--shadow-card)',
   cursor: 'pointer',
   touchAction: 'pan-y',
 }
@@ -237,7 +237,7 @@ const needsStyles: Record<string, CSSProperties> = {
     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
   },
   waitTag: {
-    fontSize: 11, color: 'var(--warning)', background: 'rgba(245, 158, 11, .12)',
+    fontSize: 11, color: 'var(--warning)', background: 'var(--warning-bg)',
     padding: '2px 8px', borderRadius: 10, fontWeight: 600, flexShrink: 0,
   },
   metaRow: { display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: 'var(--text-secondary)' },
