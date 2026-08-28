@@ -1,4 +1,4 @@
-import type { CSSProperties, HTMLAttributes } from 'react'
+import type { CSSProperties, HTMLAttributes, KeyboardEvent } from 'react'
 import { agentGradient } from '../../theme'
 
 /**
@@ -194,7 +194,7 @@ export const rowStyles: Record<string, CSSProperties> = {
     padding: '11px 14px 11px 12px',
     borderTop: '0.5px solid var(--border-light)',
     cursor: 'pointer',
-    transition: 'background .15s',
+    transition: 'transform .12s ease, opacity .12s ease, background .15s',
     textAlign: 'left',
     touchAction: 'pan-y',
   },
@@ -272,7 +272,6 @@ export type RowPointerHandlers = Pick<
   HTMLAttributes<HTMLDivElement>,
   'onPointerDown' | 'onPointerMove' | 'onPointerUp' | 'onPointerCancel' | 'onPointerLeave'
 >
-
 interface ListRowProps extends RowPointerHandlers {
   title: string
   /** 未读等需要强调的标题加粗 */
@@ -291,10 +290,20 @@ interface ListRowProps extends RowPointerHandlers {
 
 /** 会话行:左侧状态点列 + 标题/时间 + 状态词/补充说明,两页共用 */
 export function ListRow(props: ListRowProps) {
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      props.onClick?.()
+    }
+  }
+
   return (
     <div
       className="pressable"
       style={rowStyles.row}
+      role={props.onClick ? 'button' : undefined}
+      tabIndex={props.onClick ? 0 : undefined}
+      onKeyDown={props.onClick ? handleKeyDown : undefined}
       onClick={props.onClick}
       onPointerDown={props.onPointerDown}
       onPointerMove={props.onPointerMove}

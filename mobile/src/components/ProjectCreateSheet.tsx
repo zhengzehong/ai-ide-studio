@@ -64,7 +64,7 @@ export default function ProjectCreateSheet({ open, onClose, onCreated }: Props) 
       <div style={styles.sheet} onClick={(e) => e.stopPropagation()}>
         <div style={styles.header}>
           <span style={styles.title}>新建项目</span>
-          <button style={styles.closeBtn} onClick={onClose}>
+          <button className="pressable" style={styles.closeBtn} onClick={onClose}>
             <X size={20} color="var(--text-secondary)" />
           </button>
         </div>
@@ -102,6 +102,7 @@ export default function ProjectCreateSheet({ open, onClose, onCreated }: Props) 
             {PRESET_COLORS.map((c) => (
               <button
                 key={c}
+                className="pressable"
                 style={{
                   ...styles.colorDot,
                   background: c,
@@ -118,6 +119,7 @@ export default function ProjectCreateSheet({ open, onClose, onCreated }: Props) 
             {PRESET_ICONS.map((emoji) => (
               <button
                 key={emoji}
+                className="pressable"
                 style={{
                   ...styles.iconDot,
                   ...(icon === emoji ? styles.iconDotActive : {}),
@@ -131,8 +133,9 @@ export default function ProjectCreateSheet({ open, onClose, onCreated }: Props) 
           </div>
         </div>
         <div style={styles.footer}>
-          <button style={styles.btnSecondary} onClick={onClose}>取消</button>
+          <button className="pressable" style={styles.btnSecondary} onClick={onClose}>取消</button>
           <button
+            className="pressable"
             style={{ ...styles.btnPrimary, opacity: canSubmit ? 1 : 0.5 }}
             disabled={!canSubmit}
             onClick={handleSubmit}

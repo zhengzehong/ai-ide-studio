@@ -82,7 +82,7 @@ const styles: Record<string, CSSProperties> = {
     justifyContent: 'center',
     flex: 1,
     height: '100%',
-    transition: 'color .2s',
+    transition: 'color .2s, transform .12s ease, opacity .12s ease',
   },
   dot: {
     position: 'absolute',

@@ -263,7 +263,7 @@ const styles: Record<string, CSSProperties> = {
     gap: 10,
     padding: '12px 14px',
     cursor: 'pointer',
-    transition: 'background .15s',
+    transition: 'transform .12s ease, opacity .12s ease, background .15s',
     position: 'relative',
     borderBottom: '0.5px solid var(--border-light)',
   },
@@ -366,6 +366,7 @@ const styles: Record<string, CSSProperties> = {
     color: 'var(--text-secondary)',
     fontSize: 14,
     fontWeight: 400,
+    transition: 'transform .12s ease, opacity .12s ease, background .15s',
     borderBottom: '0.5px solid var(--border-light)',
   },
   footerItemPinned: {

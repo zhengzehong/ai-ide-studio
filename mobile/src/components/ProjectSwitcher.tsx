@@ -44,7 +44,7 @@ const styles: Record<string, CSSProperties> = {
     cursor: 'pointer',
     border: 'none',
     minWidth: 0,
-    transition: 'background .15s',
+    transition: 'transform .12s ease, opacity .12s ease, background .15s',
   },
   emoji: {
     width: 26,
