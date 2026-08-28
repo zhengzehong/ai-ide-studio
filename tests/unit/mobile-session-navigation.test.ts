@@ -15,7 +15,8 @@ describe('mobile session navigation', () => {
   test('keeps the normal project-organized session view as the default', () => {
     expect(resolveSessionViewMode('')).toBe('all')
     expect(resolveSessionViewMode('?view=all')).toBe('all')
-    expect(sessionViewPath('all')).toBe('/')
+    // 切换用显式参数;裸路径交给"恢复上次视图"逻辑
+    expect(sessionViewPath('all')).toBe('/?view=all')
   })
 
   test('addresses the embedded pinned view through the session route', () => {

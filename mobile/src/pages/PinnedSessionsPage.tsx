@@ -141,8 +141,9 @@ export function PinnedSessionList() {
     if (adx <= MOVE_CANCEL_PX && ady <= MOVE_CANCEL_PX) return
     window.clearTimeout(pending.timer)
     pendingRef.current = null
-    // 水平左滑 → 进入取消置顶revealed手势;垂直移动仅视为滚动
-    if (dx < -SWIPE_ENGAGE_PX && adx > ady) {
+    // 水平滑动进入手势:关闭态只认左滑(展开),展开态左右都认(右滑收起);垂直移动仅视为滚动
+    const rowOpen = swipeRef.current?.id === pending.id && swipeRef.current.x < 0
+    if (adx > SWIPE_ENGAGE_PX && adx > ady && (dx < 0 || rowOpen)) {
       swipeGestureRef.current = {
         id: pending.id,
         startX: event.clientX,
@@ -187,6 +188,12 @@ export function PinnedSessionList() {
     if (pending) {
       window.clearTimeout(pending.timer)
       pendingRef.current = null
+      const openSwipe = swipeRef.current
+      if (openSwipe && openSwipe.id === pending.id && openSwipe.x < 0) {
+        // 干净点按已展开的行 → 直接收起;不依赖真机上易被长按/pointercancel 吃掉的 click
+        suppressClickRef.current = true
+        setSwipe({ id: pending.id, x: 0, animating: true })
+      }
     }
   }, [handleGestureMove, reorder])
 
@@ -195,7 +202,14 @@ export function PinnedSessionList() {
     pendingRef.current = null
     if (!pending) return
     if (reorderingRef.current) return
-    if (swipeRef.current) setSwipe(null)
+    const openSwipe = swipeRef.current
+    if (openSwipe && openSwipe.id === pending.id && openSwipe.x < 0) {
+      // 已展开的行:长按视为收起,不进入拖拽,避免"想点按却变成拖拽"
+      suppressClickRef.current = true
+      setSwipe({ id: pending.id, x: 0, animating: true })
+      return
+    }
+    if (openSwipe) setSwipe(null)
     const nodes = Array.from(listRef.current?.querySelectorAll<HTMLElement>('[data-pin-id]') ?? [])
     metricsRef.current = nodes.map((node) => {
       const rect = node.getBoundingClientRect()
@@ -219,6 +233,8 @@ export function PinnedSessionList() {
     }
     const id = rowEl.dataset.pinId
     if (!id) return
+    // 取消置顶按钮自行处理点击,不进入长按/滑动流程
+    if ((event.target as HTMLElement).closest('button')) return
     const index = itemsRef.current.findIndex((item) => item.sessionId === id)
     if (index < 0) return
     if (swipeRef.current && swipeRef.current.id !== id) closeSwipeAnimated()
@@ -389,7 +405,7 @@ const styles: Record<string, CSSProperties> = {
   title: { fontSize: 17, fontWeight: 600, color: 'var(--text-primary)' },
   subtitle: { marginTop: 2, fontSize: 11, color: 'var(--text-muted)' },
   error: { margin: 8, padding: '8px 10px', borderRadius: 'var(--radius-sm)', background: 'var(--error-bg)', color: 'var(--error)', fontSize: 12 },
-  list: { flex: 1, overflowY: 'auto', background: 'var(--bg)' },
+  list: { flex: 1, overflowY: 'auto', overflowX: 'hidden', background: 'var(--bg)' },
   empty: { height: '60%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 9, color: 'var(--text-muted)', fontSize: 13 },
   emptyTitle: { color: 'var(--text-secondary)', fontSize: 15 },
   rowWrap: { position: 'relative', margin: '8px 10px', borderRadius: 14 },
