@@ -56,20 +56,30 @@ describe('mobile session list model', () => {
     expect(active.map((group) => group.agentId)).toEqual(['agent-b', 'agent-a'])
   })
 
-  test('keeps idle Agents visible and appends unknown Agents deterministically', () => {
-    const groups = buildStableAgentGroups([
-      { id: 'agent-b', name: 'Agent B' },
-      { id: 'agent-a', name: 'Agent A' },
-    ], [
+  test('keeps idle Agents visible and appends unknown Agents when the list is unavailable', () => {
+    // agents 列表为空(未加载/拉取失败)时不过滤孤儿会话,避免整页空白
+    const groups = buildStableAgentGroups([], [
       session({ id: 'session-z', agentId: 'agent-z', agentName: 'Agent Z' }),
       session({ id: 'session-c', agentId: 'agent-c', agentName: 'Agent C' }),
     ])
 
     expect(groups.map((group) => [group.agentId, group.sessions.length])).toEqual([
-      ['agent-b', 0],
-      ['agent-a', 0],
       ['agent-c', 1],
       ['agent-z', 1],
     ])
+  })
+
+  test('drops sessions of deleted Agents once the Agent list is available', () => {
+    const groups = buildStableAgentGroups([
+      { id: 'agent-b', name: 'Agent B' },
+      { id: 'agent-a', name: 'Agent A' },
+    ], [
+      session({ id: 'session-a', agentId: 'agent-a', agentName: 'Agent A' }),
+      // 后端删除 Agent 不清理会话:该会话的 agentId 已不在列表里
+      session({ id: 'session-dead', agentId: 'agent-dead', agentName: '已删除 Agent' }),
+    ])
+
+    expect(groups.map((group) => group.agentId)).toEqual(['agent-b', 'agent-a'])
+    expect(groups.flatMap((group) => group.sessions.map((s) => s.id))).toEqual(['session-a'])
   })
 })

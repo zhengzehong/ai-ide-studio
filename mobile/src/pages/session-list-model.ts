@@ -30,9 +30,14 @@ export function buildStableAgentGroups(
     stableGroups.push(group)
   }
 
+  // agents 列表可用时,跳过归属 Agent 已删除的孤儿会话(后端删 Agent 不清理会话);
+  // 列表为空(未加载/失败)时不过滤,避免整页空白
+  const filterOrphans = agents.length > 0
+
   const unknownGroups: AgentGroup[] = []
   for (const session of sessions) {
     if (session.status !== 'active') continue
+    if (filterOrphans && !groupsByAgent.has(session.agentId)) continue
     let group = groupsByAgent.get(session.agentId)
     if (!group) {
       group = createAgentGroup(session.agentId, session.agentName)
