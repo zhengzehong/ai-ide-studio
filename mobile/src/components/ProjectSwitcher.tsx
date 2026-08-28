@@ -13,15 +13,15 @@ function resolveIcon(project: ProjectItem | undefined): string {
 }
 
 function resolveColor(project: ProjectItem | undefined): string {
-  if (!project) return '#07c160'
+  if (!project) return 'var(--primary)'
   if (project.color) return project.color
-  return '#07c160'
+  return 'var(--primary)'
 }
 
 export default function ProjectSwitcher({ project, onOpenDrawer }: Props) {
   const name = project?.name ?? '全部项目'
   return (
-    <button style={styles.pill} onClick={onOpenDrawer}>
+    <button className="pressable" style={styles.pill} onClick={onOpenDrawer}>
       <span style={{ ...styles.emoji, background: resolveColor(project) }}>
         {resolveIcon(project)}
       </span>
@@ -61,13 +61,13 @@ const styles: Record<string, CSSProperties> = {
     flex: 1,
     fontSize: 16,
     fontWeight: 600,
-    color: '#191919',
+    color: 'var(--text-primary)',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
   },
   arrow: {
-    color: '#b2b2b2',
+    color: 'var(--text-muted)',
     fontSize: 12,
     flexShrink: 0,
   },

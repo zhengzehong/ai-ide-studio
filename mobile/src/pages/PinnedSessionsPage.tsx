@@ -75,7 +75,7 @@ export function PinnedSessionList() {
           <div style={styles.empty}><Loader2 size={22} className="mobile-spin" /> 正在同步...</div>
         ) : items.length === 0 ? (
           <div style={styles.empty}>
-            <Pin size={38} color="#b2b2b2" strokeWidth={1.3} />
+            <Pin size={38} color="var(--text-muted)" strokeWidth={1.3} />
             <strong style={styles.emptyTitle}>还没有置顶会话</strong>
             <span>在“会话”页长按任意会话即可置顶</span>
           </div>
@@ -119,10 +119,10 @@ export function PinnedSessionRow({
   onMove: (direction: -1 | 1) => void
 }) {
   const stateLabel = item.activityState === 'running' ? '运行中' : item.unread ? '未读' : '空闲'
-  const stateColor = item.activityState === 'running' ? '#07c160' : item.unread ? '#fa5151' : '#999'
+  const stateColor = item.activityState === 'running' ? 'var(--success)' : item.unread ? 'var(--primary)' : 'var(--text-muted)'
   return (
-    <div style={styles.row} onClick={onOpen} role="button" tabIndex={0} onKeyDown={(event) => { if (event.key === 'Enter') onOpen() }}>
-      <span style={{ ...styles.projectMark, background: item.projectColor || '#576b95' }}>{item.projectIcon || item.projectName.slice(0, 1)}</span>
+    <div className="pressable" style={styles.row} onClick={onOpen} role="button" tabIndex={0} onKeyDown={(event) => { if (event.key === 'Enter') onOpen() }}>
+      <span style={{ ...styles.projectMark, background: item.projectColor || 'var(--primary)' }}>{item.projectIcon || item.projectName.slice(0, 1)}</span>
       <div style={styles.rowMain}>
         <div style={styles.rowTitle}>{titleOf(item)}</div>
         <div style={styles.meta}>{item.projectName} · {item.agentName}</div>
@@ -139,24 +139,24 @@ export function PinnedSessionRow({
 }
 
 const styles: Record<string, CSSProperties> = {
-  page: { height: '100%', display: 'flex', flexDirection: 'column', background: '#ededed' },
-  embedded: { minHeight: 0, flex: 1, display: 'flex', flexDirection: 'column', background: '#ededed' },
-  header: { height: 58, padding: 'calc(8px + var(--safe-top)) 14px 8px', boxSizing: 'content-box', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#f7f7f7', borderBottom: '0.5px solid #e0e0e0' },
+  page: { height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--bg)' },
+  embedded: { minHeight: 0, flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--bg)' },
+  header: { height: 58, padding: 'calc(8px + var(--safe-top)) 14px 8px', boxSizing: 'content-box', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--bg-card)', borderBottom: '0.5px solid var(--border-light)' },
   heading: { display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 },
-  title: { fontSize: 17, fontWeight: 600, color: '#191919' },
-  subtitle: { marginTop: 2, fontSize: 11, color: '#999' },
-  error: { margin: 8, padding: '8px 10px', borderRadius: 6, background: '#fff1f0', color: '#d4380d', fontSize: 12 },
-  list: { flex: 1, overflowY: 'auto', background: '#ededed' },
-  empty: { height: '60%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 9, color: '#999', fontSize: 13 },
-  emptyTitle: { color: '#555', fontSize: 15 },
-  row: { minHeight: 82, padding: '11px 12px', display: 'flex', alignItems: 'center', gap: 9, background: '#fff', borderBottom: '0.5px solid #f0f0f0', cursor: 'pointer' },
-  projectMark: { width: 32, height: 32, borderRadius: 7, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: '#fff', fontSize: 14 },
+  title: { fontSize: 17, fontWeight: 600, color: 'var(--text-primary)' },
+  subtitle: { marginTop: 2, fontSize: 11, color: 'var(--text-muted)' },
+  error: { margin: 8, padding: '8px 10px', borderRadius: 'var(--radius-sm)', background: 'var(--error-bg)', color: 'var(--error)', fontSize: 12 },
+  list: { flex: 1, overflowY: 'auto', background: 'var(--bg)' },
+  empty: { height: '60%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 9, color: 'var(--text-muted)', fontSize: 13 },
+  emptyTitle: { color: 'var(--text-secondary)', fontSize: 15 },
+  row: { minHeight: 82, margin: '8px 10px', borderRadius: 14, background: 'var(--bg-card)', padding: '11px 12px', display: 'flex', alignItems: 'center', gap: 9, cursor: 'pointer' },
+  projectMark: { width: 32, height: 32, borderRadius: 9, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: '#fff', fontSize: 14 },
   rowMain: { minWidth: 0, flex: 1 },
-  rowTitle: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#191919', fontSize: 14, fontWeight: 500 },
-  meta: { marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#888', fontSize: 11 },
-  status: { marginTop: 4, display: 'flex', alignItems: 'center', gap: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 11 },
+  rowTitle: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-primary)', fontSize: 14, fontWeight: 500 },
+  meta: { marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-muted)', fontSize: 11 },
+  status: { marginTop: 4, display: 'flex', alignItems: 'center', gap: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 11, fontWeight: 500 },
   dot: { width: 6, height: 6, borderRadius: '50%', flexShrink: 0 },
-  time: { alignSelf: 'flex-start', marginTop: 2, flexShrink: 0, color: '#aaa', fontSize: 10 },
+  time: { alignSelf: 'flex-start', marginTop: 2, flexShrink: 0, color: 'var(--text-muted)', fontSize: 10 },
   actions: { display: 'flex', flexDirection: 'column', gap: 1, flexShrink: 0 },
-  smallButton: { width: 26, height: 24, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', border: 'none', borderRadius: 4, background: 'transparent', color: '#999' },
+  smallButton: { width: 26, height: 24, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', border: 'none', borderRadius: 6, background: 'transparent', color: 'var(--text-secondary)' },
 }

@@ -32,6 +32,7 @@ export default function MobileShell() {
           return (
             <button
               key={tab.path}
+              className="pressable"
               style={{ ...styles.tab, color: active ? 'var(--primary)' : 'var(--text-muted)' }}
               onClick={() => navigate(tab.path)}
             >
@@ -102,7 +103,7 @@ const styles: Record<string, CSSProperties> = {
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 8,
-    background: '#fa5151',
+    background: 'var(--primary)',
     color: '#fff',
     fontSize: 9,
     fontWeight: 700,

@@ -251,7 +251,7 @@ export default function SessionListPage() {
           <div style={styles.list}>
             {showEmpty && (
               <div style={styles.empty}>
-                <MessageSquarePlus size={40} color="#b2b2b2" strokeWidth={1.2} />
+                <MessageSquarePlus size={40} color="var(--text-muted)" strokeWidth={1.2} />
                 <span style={styles.emptyText}>暂无会话</span>
               </div>
             )}

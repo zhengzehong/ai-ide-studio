@@ -62,9 +62,9 @@ function MenuIcon() {
 }
 
 const styles: Record<string, CSSProperties> = {
-  topbar: { padding: '8px 12px', paddingTop: 'calc(8px + var(--safe-top))', height: 50, display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, background: '#f7f7f7', borderBottom: '0.5px solid #e0e0e0' },
+  topbar: { padding: '8px 12px', paddingTop: 'calc(8px + var(--safe-top))', height: 50, display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, background: 'var(--bg-card)', borderBottom: '0.5px solid var(--border-light)' },
   heading: { minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column' },
-  title: { color: '#191919', fontSize: 16, fontWeight: 600 },
-  subtitle: { marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#999', fontSize: 10 },
-  iconButton: { width: 34, height: 34, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, borderRadius: 6, color: '#595959' },
+  title: { color: 'var(--text-primary)', fontSize: 16, fontWeight: 600 },
+  subtitle: { marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-muted)', fontSize: 10 },
+  iconButton: { width: 34, height: 34, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, borderRadius: 8, color: 'var(--text-secondary)' },
 }

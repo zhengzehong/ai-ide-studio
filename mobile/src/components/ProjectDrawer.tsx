@@ -18,7 +18,7 @@ interface ProjectDrawerProps {
 
 function resolveColor(project: ProjectItem): string {
   if (project.color) return project.color
-  return '#07c160'
+  return 'var(--primary)'
 }
 
 function resolveIcon(project: ProjectItem): string {
@@ -107,6 +107,7 @@ export default function ProjectDrawer({
             return (
               <div
                 key={project.id}
+                className="pressable"
                 style={{
                   ...styles.item,
                   ...(isActive ? styles.itemActive : {}),
@@ -139,6 +140,7 @@ export default function ProjectDrawer({
 
         <div style={{ ...styles.footer, ...(isPinned ? styles.footerPinned : {}) }}>
           <div
+            className="pressable"
             style={{ ...styles.footerItem, ...styles.footerItemNew, ...(isPinned ? styles.footerItemPinned : {}) }}
             onClick={onCreateProject}
           >
@@ -146,6 +148,7 @@ export default function ProjectDrawer({
             {!isPinned && <span style={styles.footerTextNew}>新建项目</span>}
           </div>
           <div
+            className="pressable"
             style={{ ...styles.footerItem, ...(isPinned ? styles.footerItemPinned : {}) }}
             onClick={onManageProjects}
           >
@@ -178,13 +181,13 @@ const styles: Record<string, CSSProperties> = {
     left: 0,
     bottom: 0,
     width: '80%',
-    background: '#fff',
+    background: 'var(--bg-card)',
     transform: 'translateX(-100%)',
     transition: 'transform .3s cubic-bezier(0.32, 0.72, 0, 1), width .3s cubic-bezier(0.32, 0.72, 0, 1)',
     zIndex: 201,
     display: 'flex',
     flexDirection: 'column',
-    boxShadow: '4px 0 12px rgba(0,0,0,0.08)',
+    boxShadow: '4px 0 12px rgba(26, 26, 46, 0.08)',
     overflow: 'hidden',
   },
   drawerShow: {
@@ -193,13 +196,13 @@ const styles: Record<string, CSSProperties> = {
   drawerPinned: {
     width: 60,
     boxShadow: 'none',
-    borderRight: '0.5px solid #e0e0e0',
+    borderRight: '0.5px solid var(--border-light)',
     zIndex: 5,
   },
   header: {
     padding: '50px 16px 12px',
-    background: '#f7f7f7',
-    borderBottom: '0.5px solid #e0e0e0',
+    background: 'var(--bg)',
+    borderBottom: '0.5px solid var(--border-light)',
     flexShrink: 0,
     display: 'flex',
     alignItems: 'center',
@@ -210,7 +213,7 @@ const styles: Record<string, CSSProperties> = {
   headerPinned: {
     padding: '50px 0 8px',
     justifyContent: 'center',
-    borderBottom: '0.5px solid #f0f0f0',
+    borderBottom: '0.5px solid var(--border-light)',
   },
   headerLeft: {
     minWidth: 0,
@@ -219,19 +222,19 @@ const styles: Record<string, CSSProperties> = {
   headerTitle: {
     fontSize: 17,
     fontWeight: 600,
-    color: '#191919',
+    color: 'var(--text-primary)',
     marginBottom: 2,
   },
   headerSub: {
     fontSize: 12,
-    color: '#888',
+    color: 'var(--text-muted)',
   },
   pinBtn: {
     width: 30,
     height: 30,
-    borderRadius: 6,
+    borderRadius: 8,
     background: 'transparent',
-    color: '#595959',
+    color: 'var(--text-secondary)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -243,8 +246,8 @@ const styles: Record<string, CSSProperties> = {
   pinBtnPinned: {
     width: 40,
     height: 40,
-    borderRadius: 8,
-    background: '#07c160',
+    borderRadius: 10,
+    background: 'var(--primary)',
     color: '#fff',
     margin: '0 auto',
   },
@@ -252,7 +255,7 @@ const styles: Record<string, CSSProperties> = {
     flex: 1,
     overflowY: 'auto',
     padding: 0,
-    background: '#fff',
+    background: 'var(--bg-card)',
   },
   item: {
     display: 'flex',
@@ -262,15 +265,15 @@ const styles: Record<string, CSSProperties> = {
     cursor: 'pointer',
     transition: 'background .15s',
     position: 'relative',
-    borderBottom: '0.5px solid #f5f5f5',
+    borderBottom: '0.5px solid var(--border-light)',
   },
   itemActive: {
-    background: '#f5f5f5',
+    background: 'var(--bg-input)',
   },
   itemPinned: {
     justifyContent: 'center',
     padding: '10px 0',
-    borderBottom: '0.5px solid #f5f5f5',
+    borderBottom: '0.5px solid var(--border-light)',
   },
   itemIcon: {
     width: 36,
@@ -290,14 +293,14 @@ const styles: Record<string, CSSProperties> = {
   itemName: {
     fontSize: 15,
     fontWeight: 500,
-    color: '#191919',
+    color: 'var(--text-primary)',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
   },
   itemMeta: {
     fontSize: 12,
-    color: '#b2b2b2',
+    color: 'var(--text-muted)',
     marginTop: 1,
   },
   itemBadges: {
@@ -313,11 +316,11 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: 10,
     minWidth: 18,
     textAlign: 'center',
-    color: '#fa5151',
-    background: '#ffe8e8',
+    color: 'var(--primary)',
+    background: 'var(--primary-bg)',
   },
   itemCheck: {
-    color: '#07c160',
+    color: 'var(--primary)',
     fontSize: 16,
     fontWeight: 700,
   },
@@ -329,7 +332,7 @@ const styles: Record<string, CSSProperties> = {
     height: 16,
     padding: '0 4px',
     borderRadius: 8,
-    background: '#fa5151',
+    background: 'var(--primary)',
     color: '#fff',
     fontSize: 10,
     fontWeight: 500,
@@ -342,14 +345,14 @@ const styles: Record<string, CSSProperties> = {
   emptyHint: {
     padding: '40px 20px',
     textAlign: 'center',
-    color: '#b2b2b2',
+    color: 'var(--text-muted)',
     fontSize: 13,
   },
   footer: {
     padding: 0,
-    borderTop: '0.5px solid #e0e0e0',
+    borderTop: '0.5px solid var(--border-light)',
     flexShrink: 0,
-    background: '#fff',
+    background: 'var(--bg-card)',
   },
   footerPinned: {
     padding: 0,
@@ -360,10 +363,10 @@ const styles: Record<string, CSSProperties> = {
     gap: 10,
     padding: '12px 14px',
     cursor: 'pointer',
-    color: '#595959',
+    color: 'var(--text-secondary)',
     fontSize: 14,
     fontWeight: 400,
-    borderBottom: '0.5px solid #f5f5f5',
+    borderBottom: '0.5px solid var(--border-light)',
   },
   footerItemPinned: {
     justifyContent: 'center',
@@ -374,8 +377,8 @@ const styles: Record<string, CSSProperties> = {
   footerIcon: {
     width: 36,
     height: 36,
-    borderRadius: 8,
-    background: '#f5f5f5',
+    borderRadius: 10,
+    background: 'var(--bg-input)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -383,11 +386,11 @@ const styles: Record<string, CSSProperties> = {
     flexShrink: 0,
   },
   footerIconNew: {
-    background: '#e6f7ee',
-    color: '#07c160',
+    background: 'var(--primary-bg)',
+    color: 'var(--primary)',
   },
   footerTextNew: {
-    color: '#07c160',
+    color: 'var(--primary)',
     fontWeight: 500,
   },
 }
