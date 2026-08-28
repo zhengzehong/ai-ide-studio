@@ -6,10 +6,12 @@ import { initDatabase, closeDatabase, getDb } from '../../src/store/db.js'
 import { toolStore, toolBindingStore } from '../../src/store/tools.js'
 import { executeRuntimeTool, listRuntimeTools } from '../../src/tools/runtime/tool-runtime.js'
 import type { ToolRuntimeContext } from '../../src/tools/runtime/tool-runtime.js'
+import { operationDiagnostics } from '../../src/shared/operation-diagnostics.js'
 
 let tmp: string
 
 beforeEach(() => {
+  operationDiagnostics.clear()
   tmp = mkdtempSync(resolve(tmpdir(), 'ai-ide-tool-runtime-'))
   initDatabase(resolve(tmp, 'ai-ide.sqlite'))
 })
@@ -60,6 +62,18 @@ describe('tool runtime', () => {
     expect(result).toMatchObject({ content: [{ type: 'text', text: 'hello Ada' }] })
     const audit = getDb().prepare<[], { status: string; tool_name: string }>('SELECT status, tool_name FROM tool_call_audit').all()
     expect(audit).toEqual([{ status: 'succeeded', tool_name: 'custom.hello' }])
+    expect(operationDiagnostics.snapshot().recentSyncOperations).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        operationModule: 'store:tool-call-audit',
+        operation: 'record.start',
+        context: expect.objectContaining({ toolName: 'custom.hello', sessionId: 'sess-runtime' }),
+      }),
+      expect.objectContaining({
+        operationModule: 'store:tool-call-audit',
+        operation: 'record.finish',
+        context: expect.objectContaining({ toolName: 'custom.hello', sessionId: 'sess-runtime' }),
+      }),
+    ]))
   })
 })
 

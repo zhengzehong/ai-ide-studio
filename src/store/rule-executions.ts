@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto'
 import { getDb } from './db.js'
+import { trackSyncOperation } from '../shared/operation-diagnostics.js'
 
 export interface RuleExecutionRow {
   id: string
@@ -21,21 +22,14 @@ export const ruleExecutionStore = {
     error?: string
     triggeredAt: string
   }): RuleExecutionRow {
-    const row: RuleExecutionRow = {
-      id: `rexec-${randomUUID().slice(0, 8)}`,
-      rule_id: input.ruleId,
-      status: input.status,
-      task_id: input.taskId ?? null,
-      session_id: input.sessionId ?? null,
-      error: input.error ?? null,
-      triggered_at: input.triggeredAt,
-      completed_at: new Date().toISOString(),
-    }
-    getDb().prepare(`
-      INSERT INTO rule_executions (id, rule_id, status, task_id, session_id, error, triggered_at, completed_at)
-      VALUES (@id, @rule_id, @status, @task_id, @session_id, @error, @triggered_at, @completed_at)
-    `).run(row)
-    return row
+    return trackSyncOperation(
+      {
+        operationModule: 'store:rule-executions',
+        operation: 'create',
+        context: { ruleId: input.ruleId, status: input.status },
+      },
+      () => createRuleExecution(input),
+    )
   },
 
   listByRule(ruleId: string, limit = 20): RuleExecutionRow[] {
@@ -57,4 +51,29 @@ export const ruleExecutionStore = {
       .get(ruleId)
     return { success: row?.s ?? 0, failed: row?.f ?? 0 }
   },
+}
+
+function createRuleExecution(input: {
+  ruleId: string
+  status: RuleExecutionRow['status']
+  taskId?: string
+  sessionId?: string
+  error?: string
+  triggeredAt: string
+}): RuleExecutionRow {
+  const row: RuleExecutionRow = {
+    id: `rexec-${randomUUID().slice(0, 8)}`,
+    rule_id: input.ruleId,
+    status: input.status,
+    task_id: input.taskId ?? null,
+    session_id: input.sessionId ?? null,
+    error: input.error ?? null,
+    triggered_at: input.triggeredAt,
+    completed_at: new Date().toISOString(),
+  }
+  getDb().prepare(`
+    INSERT INTO rule_executions (id, rule_id, status, task_id, session_id, error, triggered_at, completed_at)
+    VALUES (@id, @rule_id, @status, @task_id, @session_id, @error, @triggered_at, @completed_at)
+  `).run(row)
+  return row
 }

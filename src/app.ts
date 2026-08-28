@@ -37,6 +37,7 @@ import { RuntimeCommandDispatcher } from './commands/runtime-command-dispatcher.
 import { executeSessionCommand } from './commands/session-command-service.js'
 import { startWriterMaintenanceLoop } from './data-worker/writer-maintenance-loop.js'
 import { createEventLoopMonitor, eventLoopMonitorOptions } from './shared/event-loop-monitor.js'
+import { operationDiagnosticsContext } from './shared/operation-diagnostics.js'
 import { listActivePromptDiagnostics } from './core/prompt-diagnostics.js'
 import { resumeProjectSecretaryRuns } from './core/project-secretary.js'
 import { resumeProjectInspirations } from './core/project-inspiration.js'
@@ -256,6 +257,7 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
   const eventLoopMonitor = createEventLoopMonitor(
     eventLoopMonitorOptions('api', () => ({
       activePromptCount: sessionManager.listActivePromptSessionIds().length,
+      ...operationDiagnosticsContext(),
     })),
   )
   eventLoopMonitor.start()

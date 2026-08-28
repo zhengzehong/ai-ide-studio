@@ -6,6 +6,11 @@ import { runScriptTool } from '../script-runner.js'
 import { failToolCall, finishToolCall, recordToolCallStart } from './audit-service.js'
 import { sanitizeRuntimeToolInputSchema } from './schema-sanitizer.js'
 import { recordPlatformPresentationResult } from '../../core/platform-presentation-results.js'
+import {
+  trackAsyncOperation,
+  trackSyncInvocation,
+  trackSyncOperation,
+} from '../../shared/operation-diagnostics.js'
 import type {
   ToolConfig,
   ToolContext,
@@ -55,9 +60,24 @@ export async function executeRuntimeTool(
   input: ToolHandlerInput,
   context: ToolRuntimeContext,
 ): Promise<ToolHandlerResult> {
+  return trackAsyncOperation(
+    {
+      operationModule: 'tool-runtime',
+      operation: 'execute',
+      context: operationContext(context, toolName),
+    },
+    async () => executeRuntimeToolInternal(toolName, input, context),
+  )
+}
+
+async function executeRuntimeToolInternal(
+  toolName: string,
+  input: ToolHandlerInput,
+  context: ToolRuntimeContext,
+): Promise<ToolHandlerResult> {
   if (!context.visibleTools.includes(toolName)) {
-    const audit = recordToolCallStart({ ...auditContext(context, toolName), input, status: 'denied' })
-    failToolCall(audit.id, `工具不可见: ${toolName}`, 'denied')
+    const audit = recordAuditStart(context, toolName, input, 'denied')
+    recordAuditFailure(audit.id, context, toolName, `工具不可见: ${toolName}`, 'denied')
     return {
       content: [{ type: 'text', text: `工具不可见或未绑定: ${toolName}` }],
       isError: true,
@@ -66,8 +86,8 @@ export async function executeRuntimeTool(
 
   const row = toolStore.getByName(toolName)
   if (!row || row.enabled !== 1 || row.type === 'mcp') {
-    const audit = recordToolCallStart({ ...auditContext(context, toolName), input, status: 'denied' })
-    failToolCall(audit.id, `工具不存在或不可执行: ${toolName}`, 'denied')
+    const audit = recordAuditStart(context, toolName, input, 'denied')
+    recordAuditFailure(audit.id, context, toolName, `工具不存在或不可执行: ${toolName}`, 'denied')
     return {
       content: [{ type: 'text', text: `工具不存在或不可执行: ${toolName}` }],
       isError: true,
@@ -75,21 +95,41 @@ export async function executeRuntimeTool(
   }
 
   const definition = rowToDefinition(row)
-  const audit = recordToolCallStart({ ...auditContext(context, toolName), input })
+  const audit = recordAuditStart(context, toolName, input)
 
   try {
     const decision = assertToolAllowed(definition)
     if (!decision.allowed) {
       const result = toolDeniedResult(decision)
-      failToolCall(audit.id, decision.reason ?? 'Tool execution denied', 'denied')
+      recordAuditFailure(audit.id, context, toolName, decision.reason ?? 'Tool execution denied', 'denied')
       return result
     }
 
-    const result = await executeDefinition(definition, input, context)
+    const result = await trackSyncInvocation(
+      {
+        operationModule: 'tool-runtime',
+        operation: 'handler.invoke',
+        context: operationContext(context, toolName),
+      },
+      () => executeDefinition(definition, input, context),
+    )
     if (result.isError) {
-      failToolCall(audit.id, result.content.map((item) => item.text).join('\n'), 'failed')
+      recordAuditFailure(
+        audit.id,
+        context,
+        toolName,
+        result.content.map((item) => item.text).join('\n'),
+        'failed',
+      )
     } else {
-      finishToolCall(audit.id, result)
+      trackSyncOperation(
+        {
+          operationModule: 'store:tool-call-audit',
+          operation: 'record.finish',
+          context: operationContext(context, toolName),
+        },
+        () => finishToolCall(audit.id, result),
+      )
       try {
         recordPlatformPresentationResult({
           auditId: audit.id,
@@ -106,9 +146,54 @@ export async function executeRuntimeTool(
     return result
   } catch (err) {
     const message = (err as Error).message
-    failToolCall(audit.id, message, 'failed')
+    recordAuditFailure(audit.id, context, toolName, message, 'failed')
     log.error({ err, toolName, sessionId: context.sessionId, agentId: context.agentId }, '工具执行失败')
     return { content: [{ type: 'text', text: message }], isError: true }
+  }
+}
+
+function recordAuditStart(
+  context: ToolRuntimeContext,
+  toolName: string,
+  input: ToolHandlerInput,
+  status?: 'denied',
+): ReturnType<typeof recordToolCallStart> {
+  return trackSyncOperation(
+    {
+      operationModule: 'store:tool-call-audit',
+      operation: 'record.start',
+      context: operationContext(context, toolName),
+    },
+    () => recordToolCallStart({ ...auditContext(context, toolName), input, status }),
+  )
+}
+
+function recordAuditFailure(
+  auditId: string,
+  context: ToolRuntimeContext,
+  toolName: string,
+  error: string,
+  status: 'failed' | 'denied' | 'timeout',
+): void {
+  trackSyncOperation(
+    {
+      operationModule: 'store:tool-call-audit',
+      operation: 'record.fail',
+      context: operationContext(context, toolName),
+    },
+    () => failToolCall(auditId, error, status),
+  )
+}
+
+function operationContext(
+  context: ToolRuntimeContext,
+  toolName: string,
+): { sessionId: string; agentId: string; projectId?: string; toolName: string } {
+  return {
+    sessionId: context.sessionId,
+    agentId: context.agentId,
+    projectId: context.projectId,
+    toolName,
   }
 }
 

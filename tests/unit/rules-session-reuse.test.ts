@@ -10,10 +10,12 @@ import { sessionStore } from '../../src/store/sessions.js'
 import { taskStore } from '../../src/store/tasks.js'
 import { ruleEngine } from '../../src/core/rules.js'
 import { sessionManager } from '../../src/core/sessions.js'
+import { operationDiagnostics } from '../../src/shared/operation-diagnostics.js'
 
 let tmp: string
 
 beforeEach(() => {
+  operationDiagnostics.clear()
   tmp = mkdtempSync(resolve(tmpdir(), 'ai-ide-rule-session-'))
   initDatabase(resolve(tmp, 'ai-ide.sqlite'))
 })
@@ -50,6 +52,13 @@ describe('rule session reuse', () => {
       status: 'running',
     })
     expect(taskStore.listSessionIds(task.id)).toEqual([session.id])
+    expect(operationDiagnostics.snapshot().recentSyncOperations).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        operationModule: 'rule-engine',
+        operation: 'execution.record.success',
+        context: expect.objectContaining({ ruleId: rule.id }),
+      }),
+    ]))
   })
 
   test('scheduled create_task new_fixed stores and reuses the first created session', async () => {

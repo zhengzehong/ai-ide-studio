@@ -41,7 +41,8 @@ export interface EventLoopMonitorOptions {
   service: string
   intervalMs?: number
   warnThresholdMs?: number
-  getContext?: () => Record<string, number>
+  maxWarnThresholdMs?: number
+  getContext?: () => Record<string, unknown>
 }
 
 export interface EventLoopSample extends Record<string, unknown> {
@@ -66,15 +67,20 @@ export interface EventLoopMonitor {
 
 export const DEFAULT_EVENT_LOOP_MONITOR_INTERVAL_MS = 30_000
 export const DEFAULT_EVENT_LOOP_WARN_THRESHOLD_MS = 50
+export const DEFAULT_EVENT_LOOP_MAX_WARN_THRESHOLD_MS = 200
 
 export function eventLoopMonitorOptions(
   service: string,
-  getContext?: () => Record<string, number>,
+  getContext?: () => Record<string, unknown>,
 ): EventLoopMonitorOptions {
   return {
     service,
     intervalMs: positiveNumber(process.env.EVENT_LOOP_MONITOR_INTERVAL_MS, DEFAULT_EVENT_LOOP_MONITOR_INTERVAL_MS),
     warnThresholdMs: positiveNumber(process.env.EVENT_LOOP_WARN_THRESHOLD_MS, DEFAULT_EVENT_LOOP_WARN_THRESHOLD_MS),
+    maxWarnThresholdMs: positiveNumber(
+      process.env.EVENT_LOOP_MAX_WARN_THRESHOLD_MS,
+      DEFAULT_EVENT_LOOP_MAX_WARN_THRESHOLD_MS,
+    ),
     getContext,
   }
 }
@@ -107,7 +113,11 @@ export function createEventLoopMonitor(
       ...(options.getContext?.() ?? {}),
     }
     histogram.reset()
-    if (result.eventLoopP99Ms >= (options.warnThresholdMs ?? DEFAULT_EVENT_LOOP_WARN_THRESHOLD_MS)) {
+    const slowP99 = result.eventLoopP99Ms >= (options.warnThresholdMs ?? DEFAULT_EVENT_LOOP_WARN_THRESHOLD_MS)
+    const slowMax = result.eventLoopMaxMs >= (
+      options.maxWarnThresholdMs ?? DEFAULT_EVENT_LOOP_MAX_WARN_THRESHOLD_MS
+    )
+    if (slowP99 || slowMax) {
       dependencies.logger.warn(result, 'Slow event loop detected')
     } else {
       dependencies.logger.debug(result, 'Event loop metrics sampled')

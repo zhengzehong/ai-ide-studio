@@ -162,6 +162,7 @@ MIT
 | `DATA_RETENTION_MODE` | `off` | `off` 禁用定时清理；`dry-run` 每晚只统计；`delete` 在北京时间 02:00-06:00 分批清理历史执行明细 |
 | `EVENT_LOOP_MONITOR_INTERVAL_MS` | `30000` | Edge、API、Realtime、Runtime event-loop 指标采样间隔 |
 | `EVENT_LOOP_WARN_THRESHOLD_MS` | `50` | event-loop p99 达到该毫秒数时记录告警 |
+| `EVENT_LOOP_MAX_WARN_THRESHOLD_MS` | `200` | event-loop 单次最大延迟达到该毫秒数时记录告警 |
 | `EDGE_MODE` | `process` | `process` 只公开 Edge 单端口；`disabled` 回滚到 API/Realtime 直连监听 |
 | `EDGE_REALTIME_PATH` | `/realtime` | Edge 模式下同源 WebSocket Upgrade 路径 |
 | `REALTIME_MODE` | `process` | `process` 使用独立 Realtime 子进程；`embedded` 为显式同进程回滚模式 |

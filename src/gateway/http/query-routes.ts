@@ -4,6 +4,11 @@ import { createChildLogger } from '../../core/logger.js'
 import { getQueryPort } from '../../queries/query-port-provider.js'
 import { WorkerRequestError } from '../../data-worker/worker-rpc-client.js'
 import { InvalidTaskCursorError } from '../../store/task-page.js'
+import {
+  trackAsyncOperation,
+  trackSyncInvocation,
+  trackSyncOperation,
+} from '../../shared/operation-diagnostics.js'
 
 const log = createChildLogger('gateway:http-query')
 const QUERY_RESPONSE_BUDGET_BYTES = 1024 * 1024
@@ -130,11 +135,28 @@ async function runQuery(
   queryName: string,
   execute: () => Promise<QueryEnvelope>,
 ): Promise<Response> {
+  return trackAsyncOperation(
+    { operationModule: 'gateway:http-query', operation: 'request.handle', context: { queryName } },
+    async () => runQueryInternal(c, queryName, execute),
+  )
+}
+
+async function runQueryInternal(
+  c: Context,
+  queryName: string,
+  execute: () => Promise<QueryEnvelope>,
+): Promise<Response> {
   const startedAt = performance.now()
   try {
-    const envelope = await execute()
+    const envelope = await trackSyncInvocation(
+      { operationModule: 'gateway:http-query', operation: 'query.invoke', context: { queryName } },
+      execute,
+    )
     const queriedAt = performance.now()
-    const body = JSON.stringify(envelope)
+    const body = trackSyncOperation(
+      { operationModule: 'gateway:http-query', operation: 'response.serialize', context: { queryName } },
+      () => JSON.stringify(envelope),
+    )
     const responseBytes = Buffer.byteLength(body, 'utf8')
     const serializedAt = performance.now()
     const queryMs = queriedAt - startedAt

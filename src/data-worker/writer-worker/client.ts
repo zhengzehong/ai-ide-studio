@@ -21,7 +21,7 @@ import type {
 import type { WorkerReadyMessage } from '../protocol.js'
 import { WorkerRequestError, WorkerRpcClient } from '../worker-rpc-client.js'
 import { resolveWorkerEntryUrl } from '../worker-entry-url.js'
-import { DEFAULT_DATA_WORKER_SLOW_MS, isSlowWorkerRequest } from '../observability.js'
+import { classifyDataWorkerLatency, DEFAULT_DATA_WORKER_SLOW_MS } from '../observability.js'
 
 const log = createChildLogger('writer-worker-client')
 const MAX_COMMIT_ATTEMPTS = 3
@@ -71,10 +71,19 @@ export async function createWorkerWriteDataPort(
             slowRequestMs,
             ...response.metrics,
           }
-          if (isSlowWorkerRequest(response.metrics, slowRequestMs)) {
-            log.warn(context, 'slow writer batch committed')
-          } else {
-            log.debug(context, 'writer batch committed')
+          const latencyCause = classifyDataWorkerLatency(response.metrics, slowRequestMs)
+          switch (latencyCause) {
+            case 'api_delivery':
+              log.warn({ ...context, latencyCause }, 'writer callback delayed by API event loop')
+              break
+            case 'worker_execution':
+              log.warn({ ...context, latencyCause }, 'slow writer batch execution completed')
+              break
+            case 'worker_queue':
+              log.warn({ ...context, latencyCause }, 'writer batch waited in queue')
+              break
+            default:
+              log.debug({ ...context, latencyCause }, 'writer batch committed')
           }
           return response.result
         } catch (err) {

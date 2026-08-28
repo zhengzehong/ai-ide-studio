@@ -19,11 +19,15 @@ import {
 } from '../store/sessions.js'
 import { listTaskPageReadModel, listTaskReadModel } from './task-list-query.js'
 import { listWidgetSessionReadModel } from './widget-session-list-query.js'
+import { readSessionRecovery } from './session-recovery-query.js'
+import { createChildLogger } from '../core/logger.js'
 
 const DEFAULT_MESSAGE_LIMIT = 100
 const MAX_MESSAGE_LIMIT = 200
 const DEFAULT_EVENT_LIMIT = 500
 const MAX_EVENT_LIMIT = 1000
+const SLOW_RECOVERY_QUERY_MS = 100
+const log = createChildLogger('query:session-recovery')
 
 export interface DatabaseQueryPortOptions {
   isPromptActive?: (sessionId: string) => boolean
@@ -87,11 +91,13 @@ export function createDatabaseQueryPort(options: DatabaseQueryPortOptions = {}):
 
     async getSessionRecovery(input: SessionRecoveryQuery): Promise<SessionRecoverySnapshot> {
       const limit = boundedLimit(input.limit, DEFAULT_EVENT_LIMIT, MAX_EVENT_LIMIT)
-      return {
-        sessionId: input.sessionId,
-        latestSequence: eventStore.latestSequence(input.sessionId),
-        events: eventStore.listRecovery(input.sessionId, limit),
+      const result = readSessionRecovery({ ...input, limit })
+      if (result.diagnostics.totalMs >= SLOW_RECOVERY_QUERY_MS) {
+        log.warn(result.diagnostics, 'slow session recovery query completed')
+      } else {
+        log.debug(result.diagnostics, 'session recovery query completed')
       }
+      return result.snapshot
     },
 
     async listWidgetSessions(input: WidgetSessionListQuery) {

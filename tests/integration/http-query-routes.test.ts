@@ -11,6 +11,7 @@ import { taskStore } from '../../src/store/tasks.js'
 import { eventStore, messageStore, sessionStore } from '../../src/store/sessions.js'
 import type { QueryPort } from '../../src/ports/query-port.js'
 import { WorkerRequestError } from '../../src/data-worker/worker-rpc-client.js'
+import { operationDiagnostics } from '../../src/shared/operation-diagnostics.js'
 
 const ACCESS_TOKEN = 'query-route-secret'
 
@@ -19,6 +20,7 @@ let server: Server | undefined
 let wss: WebSocketServer | undefined
 
 beforeEach(() => {
+  operationDiagnostics.clear()
   tmp = mkdtempSync(resolve(tmpdir(), 'ai-ide-http-query-'))
   initDatabase(resolve(tmp, 'ai-ide.sqlite'))
 })
@@ -65,6 +67,13 @@ describe('versioned HTTP query routes', () => {
     expect(await sessionResponse.json()).toMatchObject({
       data: [{ id: session.id, activity_state: 'idle' }],
     })
+    expect(operationDiagnostics.snapshot().recentSyncOperations).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        operationModule: 'gateway:http-query',
+        operation: 'response.serialize',
+        context: expect.objectContaining({ queryName: 'sessions.list' }),
+      }),
+    ]))
   })
 
   test('validates numeric and boolean history query parameters', async () => {
