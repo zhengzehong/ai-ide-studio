@@ -342,6 +342,7 @@ describe('model profile runtime env', () => {
       ANTHROPIC_DEFAULT_SONNET_MODEL: 'deepseek-v4-flash',
       ANTHROPIC_DEFAULT_OPUS_MODEL: 'deepseek-v4-flash',
       ANTHROPIC_REASONING_MODEL: 'deepseek-v4-flash',
+      CLAUDE_CODE_SUBAGENT_MODEL: 'deepseek-v4-flash',
       CLAUDE_CODE_MAX_CONTEXT_TOKENS: '128000',
       AI_IDE_CLAUDE_ALLOW_IMAGE_READ: '0',
     }
@@ -349,10 +350,12 @@ describe('model profile runtime env', () => {
     const changed = { ...env, ANTHROPIC_DEFAULT_OPUS_MODEL: 'deepseek-v4-pro[1m]' }
     const changedContextWindow = { ...env, CLAUDE_CODE_MAX_CONTEXT_TOKENS: '200000' }
     const changedImageReadPolicy = { ...env, AI_IDE_CLAUDE_ALLOW_IMAGE_READ: '1' }
+    const changedSubagentModel = { ...env, CLAUDE_CODE_SUBAGENT_MODEL: 'deepseek-v4-pro' }
 
     expect(fingerprintRuntimeEnv(env, 'claude')).not.toBe(fingerprintRuntimeEnv(changed, 'claude'))
     expect(fingerprintRuntimeEnv(env, 'claude')).not.toBe(fingerprintRuntimeEnv(changedContextWindow, 'claude'))
     expect(fingerprintRuntimeEnv(env, 'claude')).not.toBe(fingerprintRuntimeEnv(changedImageReadPolicy, 'claude'))
+    expect(fingerprintRuntimeEnv(env, 'claude')).not.toBe(fingerprintRuntimeEnv(changedSubagentModel, 'claude'))
     expect(summarizeRuntimeEnv(env, 'claude')).toMatchObject({
       anthropicBaseUrl: 'https://api.deepseek.com/anthropic',
       anthropicModel: 'deepseek-v4-flash',
@@ -360,6 +363,7 @@ describe('model profile runtime env', () => {
       anthropicDefaultSonnetModel: 'deepseek-v4-flash',
       anthropicDefaultOpusModel: 'deepseek-v4-flash',
       anthropicReasoningModel: 'deepseek-v4-flash',
+      claudeCodeSubagentModel: 'deepseek-v4-flash',
       claudeCodeMaxContextTokens: '128000',
       allowImageRead: false,
       hasClaudeModelConfig: false,
@@ -382,9 +386,9 @@ describe('model profile runtime env', () => {
       contextWindow: 200000,
       config: {
         defaultModel: 'deepseek-v4-flash',
-        haikuModel: 'deepseek-v4-flash',
-        sonnetModel: 'deepseek-v4-flash',
-        opusModel: 'deepseek-v4-flash',
+        haikuModel: 'deepseek-v4-haiku',
+        sonnetModel: 'deepseek-v4-sonnet',
+        opusModel: 'deepseek-v4-opus',
       },
     })
     const agent = agentStore.create({
@@ -396,6 +400,7 @@ describe('model profile runtime env', () => {
     const { env } = buildAgentRuntimeEnv('claude', agent, {
       ANTHROPIC_MODEL: 'system-default-model',
       ANTHROPIC_DEFAULT_OPUS_MODEL: 'system-opus-model',
+      CLAUDE_CODE_SUBAGENT_MODEL: 'user-deepseek-model',
     })
 
     const meta = buildClaudeSessionMeta(env, 'claude')
@@ -413,9 +418,10 @@ describe('model profile runtime env', () => {
               ANTHROPIC_API_KEY: 'sk-test',
               ANTHROPIC_AUTH_TOKEN: '',
               ANTHROPIC_MODEL: 'deepseek-v4-flash',
-              ANTHROPIC_DEFAULT_HAIKU_MODEL: 'deepseek-v4-flash',
-              ANTHROPIC_DEFAULT_SONNET_MODEL: 'deepseek-v4-flash',
-              ANTHROPIC_DEFAULT_OPUS_MODEL: 'deepseek-v4-flash',
+              ANTHROPIC_DEFAULT_HAIKU_MODEL: 'deepseek-v4-haiku',
+              ANTHROPIC_DEFAULT_SONNET_MODEL: 'deepseek-v4-sonnet',
+              ANTHROPIC_DEFAULT_OPUS_MODEL: 'deepseek-v4-opus',
+              CLAUDE_CODE_SUBAGENT_MODEL: 'inherit',
               CLAUDE_CODE_MAX_CONTEXT_TOKENS: '200000',
             },
           },

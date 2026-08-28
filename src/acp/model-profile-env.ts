@@ -70,6 +70,7 @@ const CLAUDE_PROFILE_ENV_KEYS = [
   'ANTHROPIC_API_KEY',
   'ANTHROPIC_AUTH_TOKEN',
   'ANTHROPIC_MODEL',
+  'CLAUDE_CODE_SUBAGENT_MODEL',
   'ANTHROPIC_DEFAULT_HAIKU_MODEL',
   'ANTHROPIC_DEFAULT_SONNET_MODEL',
   'ANTHROPIC_DEFAULT_OPUS_MODEL',
@@ -211,6 +212,7 @@ export function fingerprintRuntimeEnv(env: NodeJS.ProcessEnv, runtime: string): 
       'ANTHROPIC_API_KEY',
       'ANTHROPIC_AUTH_TOKEN',
       'ANTHROPIC_MODEL',
+      'CLAUDE_CODE_SUBAGENT_MODEL',
       'ANTHROPIC_DEFAULT_HAIKU_MODEL',
       'ANTHROPIC_DEFAULT_SONNET_MODEL',
       'ANTHROPIC_DEFAULT_OPUS_MODEL',
@@ -228,6 +230,7 @@ export function summarizeRuntimeEnv(env: NodeJS.ProcessEnv, runtime: string): Re
   return {
     anthropicBaseUrl: env.ANTHROPIC_BASE_URL ?? null,
     anthropicModel: env.ANTHROPIC_MODEL ?? null,
+    claudeCodeSubagentModel: env.CLAUDE_CODE_SUBAGENT_MODEL ?? null,
     anthropicDefaultHaikuModel: env.ANTHROPIC_DEFAULT_HAIKU_MODEL ?? null,
     anthropicDefaultSonnetModel: env.ANTHROPIC_DEFAULT_SONNET_MODEL ?? null,
     anthropicDefaultOpusModel: env.ANTHROPIC_DEFAULT_OPUS_MODEL ?? null,
@@ -252,6 +255,7 @@ function applyClaudeModelProfileEnv(
   env.ANTHROPIC_API_KEY = provider.api_key
   env.ANTHROPIC_AUTH_TOKEN = ''
   env.ANTHROPIC_MODEL = defaultModel
+  env.CLAUDE_CODE_SUBAGENT_MODEL = 'inherit'
   applyOptionalEnv(env, 'ANTHROPIC_DEFAULT_HAIKU_MODEL', config.haikuModel)
   applyOptionalEnv(env, 'ANTHROPIC_DEFAULT_SONNET_MODEL', config.sonnetModel)
   applyOptionalEnv(env, 'ANTHROPIC_DEFAULT_OPUS_MODEL', config.opusModel)
