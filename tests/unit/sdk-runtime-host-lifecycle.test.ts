@@ -241,6 +241,36 @@ describe('SDK Runtime child lifecycle', () => {
     expect(harness.processes).toHaveLength(2)
   })
 
+  test('rebinds an idle Session after replacing its Agent runtime', async () => {
+    let finishPrompt: ((value: { stopReason: string }) => void) | undefined
+    const promptResult = new Promise<{ stopReason: string }>((resolve) => { finishPrompt = resolve })
+    const harness = runtimeHarness({
+      prompt: () => promptResult,
+      newSessionIds: ['acp-created-1', 'acp-created-2', 'acp-created-3'],
+    })
+    const active = snapshot('session-a')
+    const idle = snapshot('session-c')
+    await harness.host.ensureSession(active)
+    await harness.host.ensureSession(idle)
+
+    const prompt = harness.host.prompt({ agentId: 'agent-a', sessionId: 'session-a', content: 'running' })
+    await harness.promptStarted
+
+    const changedIdle = {
+      ...idle,
+      runtime: { ...idle.runtime, gatewayAuth: gatewayAuth('fingerprint-new') },
+    }
+    const ensureIdle = harness.host.ensureSession(changedIdle)
+    await Promise.resolve()
+    expect(harness.processes).toHaveLength(1)
+
+    finishPrompt?.({ stopReason: 'end_turn' })
+    await prompt
+
+    await expect(ensureIdle).resolves.toBe('acp-created-3')
+    expect(harness.processes).toHaveLength(2)
+  })
+
   test('publishes updated capabilities after changing the Session model', async () => {
     const harness = runtimeHarness()
     await harness.host.ensureSession(snapshot('session-a'))
@@ -436,14 +466,16 @@ function runtimeHarness(overrides: {
   cloneClaudeSessionFiles?: () => Promise<unknown>
   hasClaudeSessionFiles?: () => Promise<boolean>
   resumeError?: Error
+  newSessionIds?: string[]
 } = {}) {
   const processes: EventEmitter[] = []
   const routers: AcpRuntimeClientRouter[] = []
   const actors = new RuntimeSessionActorScheduler()
   let markPromptStarted: (() => void) | undefined
   const promptStarted = new Promise<void>((resolve) => { markPromptStarted = resolve })
+  let newSessionIndex = 0
   const newSession = vi.fn(async () => ({
-    sessionId: 'acp-created',
+    sessionId: overrides.newSessionIds?.[newSessionIndex++] ?? 'acp-created',
     configOptions: overrides.initialConfigOptions,
   }))
   const resumeSession = vi.fn(async () => {

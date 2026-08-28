@@ -110,31 +110,34 @@ export class SdkRuntimeHost {
     if (!agentWasRunning && emitLifecycle) {
       publishSdkLifecycle(this.options.publishUpdate, snapshot, 'lifecycle.runtime_ready', 'Agent 已就绪')
     }
-    if (existing?.contextFingerprint === contextFingerprint) {
-      existing.snapshot = snapshot
-      touchSdkSession(this.agents, existing)
+    // ensureAgent may replace the ACP process and remove all old Session bindings.
+    // Re-read the map so a pre-restart `existing` object can never be reused.
+    const current = this.sessions.get(snapshot.session.id)
+    if (current?.contextFingerprint === contextFingerprint) {
+      current.snapshot = snapshot
+      touchSdkSession(this.agents, current)
       if (profileChanged) {
         agent.router.bindSession(
           snapshot.session.id,
-          existing.acpSessionId,
+          current.acpSessionId,
           snapshot.autoApprovedToolNames,
-          existing.capabilities.currentModeId,
+          current.capabilities.currentModeId,
           snapshot.runtime.appliedModelProfile?.contextWindow,
         )
         const modelId = resolveRuntimeModelPreference({
           runtime: snapshot.agent.runtime,
           profile: snapshot.runtime.appliedModelProfile,
-          capabilities: existing.capabilities,
+          capabilities: current.capabilities,
           sessionModelId: snapshot.runtimePreferences.modelId,
         })
-        if (modelId && modelId !== existing.capabilities.currentModelId) {
+        if (modelId && modelId !== current.capabilities.currentModelId) {
           await this.setModel(snapshot.agent.id, snapshot.session.id, modelId)
         }
       }
-      return existing.acpSessionId
+      return current.acpSessionId
     }
-    const acpSessionIdToResume = snapshot.session.acpSessionId ?? existing?.acpSessionId ?? null
-    if (existing) {
+    const acpSessionIdToResume = snapshot.session.acpSessionId ?? current?.acpSessionId ?? null
+    if (current) {
       agent.router.unbindSession(snapshot.session.id)
       this.sessions.delete(snapshot.session.id)
     }
