@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>方案 A · 全微信风统一</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    background: #dcdcdc;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 28px 16px 48px;
+    color: #191919;
+  }
+  .page-header { text-align: center; margin-bottom: 10px; }
+  .page-header h1 { font-size: 20px; font-weight: 700; }
+  .page-header .tag {
+    display: inline-block; margin-top: 8px; padding: 4px 14px; border-radius: 20px;
+    background: #07c160; color: #fff; font-size: 12px; font-weight: 600; letter-spacing: 1px;
+  }
+  .page-header p { font-size: 13px; color: #666; margin-top: 10px; max-width: 720px; line-height: 1.7; }
+  .cross-link { margin: 14px 0 26px; font-size: 13px; }
+  .cross-link a { color: #07c160; text-decoration: none; font-weight: 600; }
+  .row { display: flex; gap: 28px; flex-wrap: wrap; justify-content: center; }
+  .col { display: flex; flex-direction: column; align-items: center; }
+
+  /* ---- 手机框 ---- */
+  .phone {
+    width: 375px; height: 780px; background: #000; border-radius: 44px; padding: 10px;
+    box-shadow: 0 0 0 2px #2a2a2a, 0 20px 50px rgba(0,0,0,0.25);
+    position: relative;
+  }
+  .screen {
+    width: 100%; height: 100%; border-radius: 36px; overflow: hidden;
+    background: #ededed; display: flex; flex-direction: column; position: relative;
+  }
+  .statusbar {
+    height: 44px; display: flex; align-items: center; justify-content: space-between;
+    padding: 0 22px 0 28px; font-size: 14px; font-weight: 600; flex-shrink: 0;
+  }
+  .statusbar .sig { display: flex; gap: 5px; align-items: center; font-size: 12px; }
+  .notch {
+    position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+    width: 110px; height: 26px; background: #000; border-radius: 14px; z-index: 50;
+  }
+
+  /* ---- 通用组件(微信风) ---- */
+  :root {
+    --green: #07c160; --red: #fa5151; --orange: #ffa340; --blue: #10aeff;
+    --bg: #ededed; --cell: #fff; --line: rgba(0,0,0,0.09);
+    --t1: #191919; --t2: #888888; --t3: #b2b2b2;
+    --press: #e5e5e5;
+  }
+  .topbar {
+    background: #fff; padding: 8px 16px 10px; display: flex; align-items: center; gap: 12px;
+    border-bottom: 0.5px solid var(--line); flex-shrink: 0;
+  }
+  .topbar .title { font-size: 17px; font-weight: 600; flex: 1; }
+  .topbar .icon {
+    width: 32px; height: 32px; border-radius: 6px; display: flex; align-items: center; justify-content: center;
+    color: #191919; cursor: pointer; transition: background .15s;
+  }
+  .topbar .icon:active { background: var(--press); }
+  .big-title { background: #fff; padding: 2px 20px 12px; border-bottom: 0.5px solid var(--line); flex-shrink: 0; }
+  .big-title h2 { font-size: 24px; font-weight: 700; }
+  .big-title .sub { display: flex; align-items: center; gap: 5px; margin-top: 3px; font-size: 12px; color: var(--t2); }
+
+  .list { flex: 1; overflow-y: auto; }
+  .section-h {
+    padding: 14px 20px 6px; font-size: 12px; color: var(--t2); font-weight: 500;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .section-h .run { color: var(--green); }
+  .cell {
+    background: var(--cell); display: flex; align-items: center; gap: 12px;
+    padding: 12px 16px; position: relative; cursor: pointer; transition: background .12s;
+  }
+  .cell:active { background: var(--press); }
+  .cell + .cell::before {
+    content: ''; position: absolute; left: 76px; right: 0; top: 0; height: 0.5px; background: var(--line);
+  }
+  .avatar {
+    width: 48px; height: 48px; border-radius: 8px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 16px; font-weight: 600; position: relative;
+  }
+  .avatar .badge {
+    position: absolute; top: -5px; right: -5px; min-width: 17px; height: 17px; padding: 0 4px;
+    background: var(--red); border: 2px solid #fff; border-radius: 10px;
+    color: #fff; font-size: 10px; font-weight: 600; display: flex; align-items: center; justify-content: center;
+  }
+  .cell .mid { flex: 1; min-width: 0; }
+  .cell .name { font-size: 16px; color: var(--t1); font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cell .name.unread { font-weight: 600; }
+  .cell .preview { font-size: 13px; color: var(--t2); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cell .right { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; flex-shrink: 0; }
+  .cell .time { font-size: 11px; color: var(--t3); }
+  .state-tag { font-size: 11px; display: inline-flex; align-items: center; gap: 4px; }
+  .state-tag .d { width: 6px; height: 6px; border-radius: 50%; }
+  .state-tag.run { color: var(--green); } .state-tag.run .d { background: var(--green); animation: blink 1.2s infinite; }
+  .state-tag.wait { color: var(--orange); } .state-tag.wait .d { background: var(--orange); }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+  .tabbar {
+    background: #f7f7f7; border-top: 0.5px solid var(--line); display: flex;
+    padding-bottom: 18px; flex-shrink: 0;
+  }
+  .tab {
+    flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px;
+    padding-top: 7px; color: #7a7a7a; cursor: pointer; position: relative;
+  }
+  .tab.active { color: var(--green); }
+  .tab .t { font-size: 10px; }
+  .tab .n {
+    position: absolute; top: 2px; right: calc(50% - 20px); min-width: 15px; height: 15px; padding: 0 4px;
+    background: var(--red); border-radius: 8px; color: #fff; font-size: 9px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  /* 聊天(微信气泡) */
+  .chat-head { background: #fff; padding: 6px 12px 10px; display: flex; align-items: center; gap: 8px; border-bottom: 0.5px solid var(--line); flex-shrink: 0; }
+  .chat-head .back { width: 32px; height: 32px; border-radius: 6px; display: flex; align-items: center; justify-content: center; }
+  .chat-head .back:active { background: var(--press); }
+  .chat-head .who { flex: 1; text-align: center; }
+  .chat-head .who .n { font-size: 16px; font-weight: 600; }
+  .chat-head .who .s { font-size: 11px; color: var(--t2); margin-top: 1px; }
+  .msgs { flex: 1; overflow-y: auto; padding: 14px 12px; display: flex; flex-direction: column; gap: 16px; }
+  .sys { text-align: center; }
+  .sys span { font-size: 11px; color: #fff; background: #d0d0d0; border-radius: 4px; padding: 3px 8px; }
+  .mrow { display: flex; gap: 10px; align-items: flex-start; }
+  .mrow.me { flex-direction: row-reverse; }
+  .mrow .avatar { width: 40px; height: 40px; font-size: 14px; border-radius: 6px; }
+  .bubble {
+    max-width: 66%; padding: 10px 13px; border-radius: 8px; font-size: 15px; line-height: 1.55;
+    background: #fff; color: #191919; position: relative; word-break: break-word;
+  }
+  .bubble::before {
+    content: ''; position: absolute; left: -5px; top: 15px; width: 10px; height: 10px;
+    background: inherit; transform: rotate(45deg); border-radius: 2px;
+  }
+  .mrow.me .bubble { background: #95ec69; }
+  .mrow.me .bubble::before { left: auto; right: -5px; }
+  .bubble .tool {
+    margin-top: 8px; font-size: 11px; color: var(--t2); background: rgba(0,0,0,0.05);
+    border-radius: 4px; padding: 5px 8px; display: flex; gap: 5px; align-items: center;
+  }
+  .bubble .tool.wait { color: var(--orange); background: #fff7ea; }
+  .bubble .code {
+    margin-top: 8px; background: #2b2b2b; color: #d5d5d5; border-radius: 6px; padding: 9px 11px;
+    font-family: Consolas, monospace; font-size: 11px; line-height: 1.6;
+  }
+  .inputbar {
+    background: #f7f7f7; border-top: 0.5px solid var(--line); padding: 8px 12px 22px;
+    display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+  }
+  .inputbar .field {
+    flex: 1; height: 36px; background: #fff; border-radius: 6px; display: flex; align-items: center;
+    padding: 0 10px; font-size: 14px; color: var(--t3);
+  }
+  .inputbar .send {
+    width: 60px; height: 34px; background: var(--green); color: #fff; border-radius: 6px;
+    display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 500;
+  }
+  .inputbar .plus { width: 32px; height: 32px; border-radius: 6px; background: #fff; display: flex; align-items: center; justify-content: center; color: #191919; }
+
+  /* 任务(微信风 cell 列表) */
+  .seg { background: #fff; display: flex; padding: 0 16px; border-bottom: 0.5px solid var(--line); flex-shrink: 0; }
+  .seg button {
+    flex: 1; border: none; background: none; padding: 11px 0; font-size: 14px; color: var(--t2);
+    position: relative; cursor: pointer;
+  }
+  .seg button.on { color: var(--t1); font-weight: 600; }
+  .seg button.on::after { content: ''; position: absolute; left: 32%; right: 32%; bottom: 0; height: 3px; background: var(--green); border-radius: 2px; }
+  .tcell { background: #fff; padding: 13px 16px; display: flex; align-items: center; gap: 12px; position: relative; cursor: pointer; }
+  .tcell + .tcell::before { content: ''; position: absolute; left: 16px; right: 0; top: 0; height: 0.5px; background: var(--line); }
+  .tcell:active { background: var(--press); }
+  .tcell .bar { width: 4px; height: 40px; border-radius: 2px; flex-shrink: 0; }
+  .tcell .mid { flex: 1; min-width: 0; }
+  .tcell .tt { font-size: 15px; color: var(--t1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tcell .mm { font-size: 12px; color: var(--t2); margin-top: 3px; }
+  .tcell .st { font-size: 12px; flex-shrink: 0; }
+  .tcell .st.run { color: var(--green); } .tcell .st.wait { color: var(--orange); }
+  .tcell .st.done { color: var(--t3); } .tcell .st.back { color: var(--t3); }
+
+  /* 注释 */
+  .note { width: 375px; margin-top: 16px; }
+  .note h3 { font-size: 14px; font-weight: 700; margin-bottom: 8px; color: #191919; display: flex; align-items: center; gap: 6px; }
+  .note h3 em { font-style: normal; font-size: 10px; background: #07c160; color: #fff; border-radius: 4px; padding: 2px 6px; font-weight: 600; }
+  .note li { font-size: 12.5px; color: #555; line-height: 1.9; list-style: none; padding-left: 16px; position: relative; }
+  .note li::before { content: '·'; position: absolute; left: 4px; color: #07c160; font-weight: 700; }
+  .verdict {
+    margin-top: 34px; background: #fff; border-radius: 14px; padding: 22px 26px; max-width: 860px;
+    box-shadow: 0 4px 18px rgba(0,0,0,0.08);
+  }
+  .verdict h3 { font-size: 15px; margin-bottom: 10px; }
+  .verdict p { font-size: 13px; color: #555; line-height: 1.9; }
+  .verdict b { color: #191919; }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <h1>AI IDE Studio 移动端改版原型</h1>
+  <div class="tag">方案 A · 全微信风统一</div>
+  <p>思路:首页会话列表已经是对标微信的一套(灰底白格、绿色强调、方形头像),干脆把整个 app 都拉到同一套语言上。
+  核心变化:补齐头像(解决左侧 60px 空洞)、统一绿色强调、所有可点元素补按压变灰反馈、任务页从"紫色卡片"改成"白色格子"。</p>
+  <div class="cross-link">对比方案 B(现代卡片风)→ <a href="mobile-restyle-plan-b-modern-prototype.html">点这里</a></div>
+</div>
+
+<div class="row">
+  <!-- ================= 会话列表 ================= -->
+  <div class="col">
+    <div class="phone"><div class="notch"></div>
+      <div class="screen">
+        <div class="statusbar"><span>9:41</span><span class="sig">●●● ▾ ▮</span></div>
+        <div class="big-title">
+          <h2>会话</h2>
+          <div class="sub"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#07c160" stroke-width="2.5"><path d="M3 7v4c0 1.1.9 2 2 2h4M21 17l-5-5 5-5"/></svg> ai-ide-studio · 6 个 Agent</div>
+        </div>
+        <div class="list">
+          <div class="section-h"><span class="run">●</span> PM — 1 个执行中</div>
+          <div class="cell">
+            <div class="avatar" style="background:#576b95">PM<span class="badge">2</span></div>
+            <div class="mid">
+              <div class="name unread">项目周会材料准备</div>
+              <div class="preview">已完成汇报初稿,正在核对性能数据…</div>
+            </div>
+            <div class="right"><span class="time">14:22</span><span class="state-tag run"><span class="d"></span>执行中</span></div>
+          </div>
+          <div class="cell">
+            <div class="avatar" style="background:#07c160">PM</div>
+            <div class="mid">
+              <div class="name">秘书 · 每日站会巡检</div>
+              <div class="preview">9:00 巡检完成:3 个任务正常,1 个待确认</div>
+            </div>
+            <div class="right"><span class="time">09:00</span><span class="state-tag"><span class="d" style="background:#c8c8c8"></span>空闲</span></div>
+          </div>
+          <div class="section-h">coder-codex — 1 个执行中</div>
+          <div class="cell">
+            <div class="avatar" style="background:#10aeff">CC</div>
+            <div class="mid">
+              <div class="name unread">migration 040-041 冲突修复</div>
+              <div class="preview">你:已经 commit 了,帮我验证一下构建</div>
+            </div>
+            <div class="right"><span class="time">13:05</span><span class="state-tag run"><span class="d"></span>执行中</span></div>
+          </div>
+          <div class="section-h">coder-glm5</div>
+          <div class="cell">
+            <div class="avatar" style="background:#ffa340">CG</div>
+            <div class="mid">
+              <div class="name">Rust agent loop 性能优化</div>
+              <div class="preview">MVP 已跑通,补第二个创新点中</div>
+            </div>
+            <div class="right"><span class="time">昨天</span><span class="state-tag run"><span class="d"></span>执行中</span></div>
+          </div>
+          <div class="cell">
+            <div class="avatar" style="background:#6a7480">CG</div>
+            <div class="mid">
+              <div class="name">worktree 流程约束检查</div>
+              <div class="preview">已确认 3 个分支均未直接 commit 到 prd</div>
+            </div>
+            <div class="right"><span class="time">昨天</span><span class="state-tag"><span class="d" style="background:#c8c8c8"></span>空闲</span></div>
+          </div>
+          <div class="section-h">reviewer</div>
+          <div class="cell">
+            <div class="avatar" style="background:#fa5151">RV</div>
+            <div class="mid">
+              <div class="name">PR #128 审查意见</div>
+              <div class="preview">发现 2 个问题:版本号冲突 + 缺 seed 条目</div>
+            </div>
+            <div class="right"><span class="time">周一</span><span class="state-tag"><span class="d" style="background:#c8c8c8"></span>空闲</span></div>
+          </div>
+        </div>
+        <div class="tabbar">
+          <div class="tab"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg><span class="n">3</span><span class="t">动态</span></div>
+          <div class="tab active"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.8"><path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 8.5-8.5 8.38 8.38 0 0 1 8.5 8.5z"/></svg><span class="t">会话</span></div>
+          <div class="tab"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg><span class="t">任务</span></div>
+          <div class="tab"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg><span class="t">设置</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="note">
+      <h3><em>会话列表</em>关键改动</h3>
+      <ul>
+        <li>每个 cell 补上 48px 方形头像 → 消灭左侧 60px 空洞;未读角标挂在头像右上</li>
+        <li>未读 = 标题加粗 + 红角标;执行中 = 绿点 + "执行中"小字,一眼分层</li>
+        <li>分组改灰色 section header,不再用整块白底折叠卡片</li>
+        <li>按压反馈:cell 按下变 #e5e5e5(现在完全没有)</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ================= 聊天 ================= -->
+  <div class="col">
+    <div class="phone"><div class="notch"></div>
+      <div class="screen">
+        <div class="statusbar"><span>9:41</span><span class="sig">●●● ▾ ▮</span></div>
+        <div class="chat-head">
+          <div class="back"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#191919" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></div>
+          <div class="who"><div class="n">PM</div><div class="s">ai-ide-studio · 行动中</div></div>
+          <div style="width:32px"></div>
+        </div>
+        <div class="msgs">
+          <div class="sys"><span>13:02</span></div>
+          <div class="mrow me">
+            <div class="avatar" style="background:#576b95">我</div>
+            <div class="bubble">帮我把性能调查的结论整理成汇报材料,重点是三个症状是同一个根因这件事</div>
+          </div>
+          <div class="mrow">
+            <div class="avatar" style="background:#576b95">PM</div>
+            <div class="bubble">
+              好的,我先拆解一下任务结构:<br><br>1. 梳理三个症状的共同根因<br>2. 整理止血措施(清理 DB + 调整维护间隔)<br>3. 补充治本方案(synchronous=NORMAL)<br><br>现在开始整理初稿。
+              <div class="tool"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4m0 12v4M2 12h4m12 0h4"/></svg> 调用 TaskCreate · 创建 3 个子任务</div>
+            </div>
+          </div>
+          <div class="mrow">
+            <div class="avatar" style="background:#576b95">PM</div>
+            <div class="bubble">
+              初稿已经写完,数据核对中,大约还需 5 分钟。以下是根因摘要:
+              <div class="code">根因: 9.6GB DB + FULL fsync<br>+ 60s maintenance<br>→ write commit 超时 / edge 502</div>
+            </div>
+          </div>
+        </div>
+        <div class="inputbar">
+          <div class="plus"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></div>
+          <div class="field">发消息…</div>
+          <div class="send">发送</div>
+        </div>
+      </div>
+    </div>
+    <div class="note">
+      <h3><em>聊天页</em>关键改动</h3>
+      <ul>
+        <li>微信双气泡:agent 白底黑字,我方 #95ec69 绿泡,带小尖角</li>
+        <li>每条消息都带头像(现在只有色块气泡没有归属感)</li>
+        <li>工具调用以灰条内嵌在气泡尾部,等待确认橙色高亮</li>
+        <li>代码块深色内嵌,不再撑破 80% 气泡宽度</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ================= 任务 ================= -->
+  <div class="col">
+    <div class="phone"><div class="notch"></div>
+      <div class="screen">
+        <div class="statusbar"><span>9:41</span><span class="sig">●●● ▾ ▮</span></div>
+        <div class="big-title">
+          <h2>任务</h2>
+          <div class="sub">ai-ide-studio · 3 个进行中</div>
+        </div>
+        <div class="seg">
+          <button class="on">进行中</button><button>待确认</button><button>全部</button>
+        </div>
+        <div class="list">
+          <div class="section-h" style="color:#07c160">● 执行中</div>
+          <div class="tcell">
+            <div class="bar" style="background:#07c160"></div>
+            <div class="mid">
+              <div class="tt">性能问题止血 + 治本</div>
+              <div class="mm">PM · 行动中 25 分钟 · 已完成 2/4 步骤</div>
+            </div>
+            <span class="st run">执行中</span>
+          </div>
+          <div class="tcell">
+            <div class="bar" style="background:#07c160"></div>
+            <div class="mid">
+              <div class="tt">migration 041 版本冲突修复</div>
+              <div class="mm">coder-codex · 行动中 1.2 小时</div>
+            </div>
+            <span class="st run">执行中</span>
+          </div>
+          <div class="section-h" style="color:#ffa340">● 需要确认</div>
+          <div class="tcell">
+            <div class="bar" style="background:#ffa340"></div>
+            <div class="mid">
+              <div class="tt">APK 0.2.0 发版检查</div>
+              <div class="mm">coder-glm5 · 等待确认 2 小时 · 有新汇报</div>
+            </div>
+            <span class="st wait">待确认</span>
+          </div>
+          <div class="section-h" style="color:#b2b2b2">● 待办</div>
+          <div class="tcell">
+            <div class="bar" style="background:#c8c8c8"></div>
+            <div class="mid">
+              <div class="tt">暗色模式适配</div>
+              <div class="mm">未指派 · 已搁置 3 天</div>
+            </div>
+            <span class="st back">待办</span>
+          </div>
+          <div class="section-h" style="color:#b2b2b2">● 已完成</div>
+          <div class="tcell" style="opacity:.65">
+            <div class="bar" style="background:#c8c8c8"></div>
+            <div class="mid">
+              <div class="tt">会话分享功能</div>
+              <div class="mm">coder-codex · 昨天 18:40 完成</div>
+            </div>
+            <span class="st done">完成</span>
+          </div>
+        </div>
+        <div class="tabbar">
+          <div class="tab"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg><span class="n">3</span><span class="t">动态</span></div>
+          <div class="tab"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 8.5-8.5 8.38 8.38 0 0 1 8.5 8.5z"/></svg><span class="t">会话</span></div>
+          <div class="tab active"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg><span class="t">任务</span></div>
+          <div class="tab"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg><span class="t">设置</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="note">
+      <h3><em>任务页</em>关键改动</h3>
+      <ul>
+        <li>紫色圆角卡片 → 白色格子 + 彩色状态条,与会话列表同语言</li>
+        <li>分组 section header 直接带颜色语义(绿/橙/灰)</li>
+        <li>顶部加微信式下划线 tab 分段筛选</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="verdict">
+  <h3>方案 A 小结</h3>
+  <p><b>优点:</b>改造成本最低(首页已经是这套,只需把其他页拉齐);心智模型熟悉;格子列表信息密度高。<br>
+  <b>代价:</b>产品气质 = 聊天工具,和"AI 工作台"定位有偏差;绿色不是品牌色,长期辨识度弱;气泡式聊天对代码/Markdown 长内容不友好(66% 宽度限制)。<br>
+  <b>适合:</b>如果核心用户是"用手机盯 Agent 干活、像回微信一样回消息",A 是务实选择。</p>
+</div>
+
+</body>
+</html>

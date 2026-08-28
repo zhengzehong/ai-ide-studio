@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>方案 B · 现代卡片风统一</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    background: #e3e1ec;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 28px 16px 48px;
+    color: #1a1a2e;
+  }
+  .page-header { text-align: center; margin-bottom: 10px; }
+  .page-header h1 { font-size: 20px; font-weight: 700; }
+  .page-header .tag {
+    display: inline-block; margin-top: 8px; padding: 4px 14px; border-radius: 20px;
+    background: #6c5ce7; color: #fff; font-size: 12px; font-weight: 600; letter-spacing: 1px;
+  }
+  .page-header p { font-size: 13px; color: #5a5872; margin-top: 10px; max-width: 720px; line-height: 1.7; }
+  .cross-link { margin: 14px 0 26px; font-size: 13px; }
+  .cross-link a { color: #6c5ce7; text-decoration: none; font-weight: 600; }
+  .row { display: flex; gap: 28px; flex-wrap: wrap; justify-content: center; }
+  .col { display: flex; flex-direction: column; align-items: center; }
+
+  /* ---- 手机框 ---- */
+  .phone {
+    width: 375px; height: 780px; background: #000; border-radius: 44px; padding: 10px;
+    box-shadow: 0 0 0 2px #2a2a2a, 0 20px 50px rgba(40,30,90,0.3);
+    position: relative;
+  }
+  .screen {
+    width: 100%; height: 100%; border-radius: 36px; overflow: hidden;
+    background: #f5f5f7; display: flex; flex-direction: column; position: relative;
+  }
+  .statusbar {
+    height: 44px; display: flex; align-items: center; justify-content: space-between;
+    padding: 0 22px 0 28px; font-size: 14px; font-weight: 600; flex-shrink: 0;
+  }
+  .statusbar .sig { display: flex; gap: 5px; align-items: center; font-size: 12px; }
+  .notch {
+    position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+    width: 110px; height: 26px; background: #000; border-radius: 14px; z-index: 50;
+  }
+
+  /* ---- 设计 token(现代风) ---- */
+  :root {
+    --primary: #6c5ce7; --primary-soft: #efeaff; --primary-bg: #f4f1ff;
+    --bg: #f5f5f7; --card: #ffffff;
+    --t1: #1a1a2e; --t2: #6b7280; --t3: #9ca3af;
+    --green: #10b981; --green-soft: #e7f8f1;
+    --red: #ef4444; --orange: #f59e0b; --orange-soft: #fdf3e0;
+    --blue: #3b82f6; --blue-soft: #eaf2fe;
+    --line: #ececf1;
+    --sh: 0 1px 3px rgba(26,26,46,0.05), 0 4px 14px rgba(26,26,46,0.04);
+  }
+  .topbar {
+    background: var(--bg); padding: 6px 16px 12px; display: flex; align-items: center; gap: 10px;
+    flex-shrink: 0;
+  }
+  .icon-btn {
+    width: 38px; height: 38px; border-radius: 12px; background: var(--card); box-shadow: var(--sh);
+    display: flex; align-items: center; justify-content: center; color: var(--t1); cursor: pointer;
+    transition: transform .12s ease, background .12s;
+  }
+  .icon-btn:active { transform: scale(0.92); background: #f1f0f6; }
+  .proj-pill {
+    flex: 1; height: 38px; background: var(--card); box-shadow: var(--sh); border-radius: 12px;
+    display: flex; align-items: center; gap: 8px; padding: 0 12px; font-size: 14px; font-weight: 600;
+    cursor: pointer; transition: transform .12s ease;
+  }
+  .proj-pill:active { transform: scale(0.97); }
+  .proj-pill .cnt { margin-left: auto; font-size: 11px; font-weight: 500; color: var(--primary); background: var(--primary-soft); padding: 2px 8px; border-radius: 8px; }
+
+  .list { flex: 1; overflow-y: auto; padding: 2px 14px 12px; }
+  .group {
+    background: var(--card); border-radius: 18px; box-shadow: var(--sh); margin-bottom: 12px; overflow: hidden;
+  }
+  .g-head { display: flex; align-items: center; gap: 11px; padding: 13px 14px 11px; cursor: pointer; }
+  .g-head:active { background: #fafafd; }
+  .g-avatar {
+    width: 38px; height: 38px; border-radius: 12px; color: #fff; font-size: 13px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .g-name { font-size: 15px; font-weight: 600; }
+  .g-sub { font-size: 11.5px; color: var(--t3); margin-top: 1px; }
+  .g-badges { margin-left: auto; display: flex; gap: 5px; }
+  .pill {
+    font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 9px;
+    display: inline-flex; align-items: center; gap: 4px;
+  }
+  .pill.run { color: var(--green); background: var(--green-soft); }
+  .pill.unread { color: var(--primary); background: var(--primary-soft); }
+  .pill.idle { color: var(--t3); background: #f2f2f6; font-weight: 500; }
+  .pill .d { width: 5px; height: 5px; border-radius: 50%; background: currentColor; animation: blink 1.2s infinite; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+  .s-row { display: flex; align-items: center; gap: 10px; padding: 12px 14px; position: relative; cursor: pointer; transition: background .12s, transform .12s; }
+  .s-row:active { background: #f7f6fc; transform: scale(0.985); }
+  .s-row::before { content: ''; position: absolute; left: 62px; right: 0; top: 0; height: 1px; background: var(--line); }
+  .s-row .dot-col { width: 8px; flex-shrink: 0; display: flex; justify-content: center; }
+  .s-row .dot { width: 7px; height: 7px; border-radius: 50%; background: transparent; }
+  .s-row .dot.unread { background: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
+  .s-row .dot.running { background: var(--green); box-shadow: 0 0 0 3px var(--green-soft); animation: blink 1.2s infinite; }
+  .s-mid { flex: 1; min-width: 0; }
+  .s-title { font-size: 14.5px; color: var(--t1); font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .s-title.unread { font-weight: 600; }
+  .s-meta { display: flex; align-items: center; gap: 6px; margin-top: 3px; font-size: 12px; color: var(--t3); }
+  .s-meta .st-run { color: var(--green); font-weight: 500; }
+  .s-time { font-size: 11px; color: var(--t3); flex-shrink: 0; }
+
+  .search {
+    margin: 0 16px 12px; height: 38px; background: var(--card); box-shadow: var(--sh); border-radius: 12px;
+    display: flex; align-items: center; gap: 8px; padding: 0 12px; color: var(--t3); font-size: 13.5px;
+  }
+
+  .tabbar {
+    background: rgba(255,255,255,0.92); backdrop-filter: blur(12px);
+    border-top: 1px solid var(--line); display: flex; padding-bottom: 18px; flex-shrink: 0;
+  }
+  .tab { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; padding-top: 8px; color: var(--t3); cursor: pointer; position: relative; }
+  .tab .ic { width: 46px; height: 30px; border-radius: 15px; display: flex; align-items: center; justify-content: center; transition: background .18s, transform .18s; }
+  .tab.active { color: var(--primary); }
+  .tab.active .ic { background: var(--primary-soft); }
+  .tab:active .ic { transform: scale(0.88); }
+  .tab .t { font-size: 10px; font-weight: 500; }
+  .tab .n {
+    position: absolute; top: 3px; right: calc(50% - 20px); min-width: 16px; height: 16px; padding: 0 4px;
+    background: var(--red); border-radius: 9px; color: #fff; font-size: 9px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center; border: 2px solid #fff;
+  }
+
+  /* 聊天:agent 全宽 + user 浅紫气泡 */
+  .chat-head {
+    background: rgba(245,245,247,0.92); backdrop-filter: blur(12px);
+    padding: 6px 14px 10px; display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .chat-head .who { flex: 1; min-width: 0; }
+  .chat-head .n { font-size: 16px; font-weight: 700; }
+  .chat-head .s { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--t2); margin-top: 1px; }
+  .run-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); animation: blink 1.2s infinite; }
+  .msgs { flex: 1; overflow-y: auto; padding: 16px 16px 10px; display: flex; flex-direction: column; gap: 18px; }
+  .day-chip { text-align: center; }
+  .day-chip span { font-size: 11px; color: var(--t3); background: rgba(0,0,0,0.05); border-radius: 12px; padding: 4px 10px; }
+  .m-user { display: flex; justify-content: flex-end; }
+  .m-user .bub {
+    max-width: 78%; background: var(--primary); color: #fff; border-radius: 18px 18px 5px 18px;
+    padding: 11px 14px; font-size: 14.5px; line-height: 1.6; box-shadow: 0 2px 8px rgba(108,92,231,0.25);
+  }
+  .m-agent { display: flex; gap: 9px; }
+  .m-agent .a {
+    width: 30px; height: 30px; border-radius: 10px; flex-shrink: 0; margin-top: 1px;
+    background: linear-gradient(135deg, #6c5ce7, #a29bfe); color: #fff; font-size: 11px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .m-agent .body { flex: 1; min-width: 0; }
+  .m-agent .who { font-size: 12px; font-weight: 600; color: var(--t2); margin-bottom: 5px; display: flex; align-items: center; gap: 6px; }
+  .m-agent .txt { font-size: 14.5px; line-height: 1.65; color: var(--t1); }
+  .m-agent .txt b { font-weight: 600; }
+  .tool-chip {
+    margin-top: 9px; display: inline-flex; align-items: center; gap: 6px;
+    font-size: 11.5px; color: var(--t2); background: var(--card); border: 1px solid var(--line);
+    padding: 6px 10px; border-radius: 10px;
+  }
+  .tool-chip.wait { color: var(--orange); border-color: #f5e3bd; background: var(--orange-soft); }
+  .tool-chip .d { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .codeblock {
+    margin-top: 10px; background: #1e1e2e; border-radius: 12px; padding: 11px 13px; overflow: hidden;
+  }
+  .codeblock .lang { font-size: 10px; color: #7f7fa3; margin-bottom: 5px; font-family: Consolas, monospace; }
+  .codeblock pre { font-family: Consolas, 'Courier New', monospace; font-size: 11.5px; line-height: 1.65; color: #d8d8ef; }
+  .typing { display: inline-flex; gap: 4px; align-items: center; margin-top: 8px; }
+  .typing i { width: 6px; height: 6px; border-radius: 50%; background: var(--t3); animation: tp 1.2s infinite; }
+  .typing i:nth-child(2) { animation-delay: .15s; } .typing i:nth-child(3) { animation-delay: .3s; }
+  @keyframes tp { 0%,100%{opacity:.25; transform: translateY(0)} 50%{opacity:1; transform: translateY(-3px)} }
+  .inputbar {
+    background: rgba(245,245,247,0.94); backdrop-filter: blur(12px); border-top: 1px solid var(--line);
+    padding: 9px 14px 22px; display: flex; align-items: center; gap: 9px; flex-shrink: 0;
+  }
+  .inputbar .field {
+    flex: 1; min-height: 40px; background: var(--card); border-radius: 20px; box-shadow: var(--sh);
+    display: flex; align-items: center; padding: 0 15px; font-size: 14px; color: var(--t3);
+  }
+  .inputbar .send {
+    width: 40px; height: 40px; border-radius: 50%; background: var(--primary); flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center; box-shadow: 0 3px 10px rgba(108,92,231,0.35);
+    transition: transform .12s;
+  }
+  .inputbar .send:active { transform: scale(0.9); }
+  .inputbar .plus {
+    width: 40px; height: 40px; border-radius: 50%; background: var(--card); box-shadow: var(--sh); flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center; color: var(--t1);
+  }
+
+  /* 任务:现代卡片 */
+  .seg-wrap { padding: 0 16px 12px; flex-shrink: 0; }
+  .seg {
+    display: flex; background: rgba(0,0,0,0.05); border-radius: 12px; padding: 3px;
+  }
+  .seg button {
+    flex: 1; border: none; background: transparent; padding: 7px 0; font-size: 13px; color: var(--t2);
+    border-radius: 10px; cursor: pointer; font-weight: 500;
+  }
+  .seg button.on { background: #fff; color: var(--t1); font-weight: 600; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+  .tlist { flex: 1; overflow-y: auto; padding: 0 14px 12px; }
+  .t-card {
+    background: var(--card); border-radius: 16px; box-shadow: var(--sh); padding: 13px 15px;
+    margin-bottom: 10px; cursor: pointer; transition: transform .12s ease;
+    display: flex; gap: 11px; align-items: flex-start; position: relative; overflow: hidden;
+  }
+  .t-card:active { transform: scale(0.98); }
+  .t-card .bar { position: absolute; left: 0; top: 0; bottom: 0; width: 4px; }
+  .t-card .mid { flex: 1; min-width: 0; }
+  .t-card .tt { font-size: 15px; font-weight: 600; padding-right: 60px; }
+  .t-card .mm { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--t2); margin-top: 4px; flex-wrap: wrap; }
+  .t-card .mm .sep { color: var(--t3); }
+  .t-card .right { flex-shrink: 0; }
+  .tag-needs { color: var(--orange); background: var(--orange-soft); }
+  .tag-run { color: var(--green); background: var(--green-soft); }
+  .tag-info { color: var(--blue); background: var(--blue-soft); }
+  .tag-dim { color: var(--t3); background: #f2f2f6; font-weight: 500; }
+  .wait-note { margin-top: 7px; font-size: 12px; color: var(--orange); background: var(--orange-soft); border-radius: 9px; padding: 6px 10px; display: flex; align-items: center; gap: 6px; }
+  .progress { margin-top: 8px; height: 4px; background: #f0eff6; border-radius: 2px; overflow: hidden; }
+  .progress i { display: block; height: 100%; width: 55%; background: var(--primary); border-radius: 2px; }
+
+  /* 注释 */
+  .note { width: 375px; margin-top: 16px; }
+  .note h3 { font-size: 14px; font-weight: 700; margin-bottom: 8px; color: #1a1a2e; display: flex; align-items: center; gap: 6px; }
+  .note h3 em { font-style: normal; font-size: 10px; background: #6c5ce7; color: #fff; border-radius: 4px; padding: 2px 6px; font-weight: 600; }
+  .note li { font-size: 12.5px; color: #4d4b63; line-height: 1.9; list-style: none; padding-left: 16px; position: relative; }
+  .note li::before { content: '·'; position: absolute; left: 4px; color: #6c5ce7; font-weight: 700; }
+  .verdict {
+    margin-top: 34px; background: #fff; border-radius: 14px; padding: 22px 26px; max-width: 860px;
+    box-shadow: 0 4px 18px rgba(40,30,90,0.1);
+  }
+  .verdict h3 { font-size: 15px; margin-bottom: 10px; }
+  .verdict p { font-size: 13px; color: #555; line-height: 1.9; }
+  .verdict b { color: #1a1a2e; }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <h1>AI IDE Studio 移动端改版原型</h1>
+  <div class="tag">方案 B · 现代卡片风统一</div>
+  <p>思路:保留并放大 app 原有的紫色现代语言,把首页会话列表从"微信仿制"拉回来,统一成「圆角卡片 + 软色 pill + 按压缩放反馈」。
+  核心变化:会话列表卡片化并补头像、agent 消息全宽排版(仅用户消息用气泡)、任务卡加状态 pill 与进度条、TabBar 加胶囊指示器。</p>
+  <div class="cross-link">对比方案 A(微信风)→ <a href="mobile-restyle-plan-a-wechat-prototype.html">点这里</a></div>
+</div>
+
+<div class="row">
+  <!-- ================= 会话列表 ================= -->
+  <div class="col">
+    <div class="phone"><div class="notch"></div>
+      <div class="screen">
+        <div class="statusbar"><span>9:41</span><span class="sig">●●● ▾ ▮</span></div>
+        <div class="topbar">
+          <div class="icon-btn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></div>
+          <div class="proj-pill">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6c5ce7" stroke-width="2.2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+            ai-ide-studio
+            <span class="cnt">6 Agent</span>
+          </div>
+          <div class="icon-btn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></div>
+        </div>
+        <div class="search">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+          搜索会话、Agent、任务
+        </div>
+        <div class="list">
+          <div class="group">
+            <div class="g-head">
+              <div class="g-avatar" style="background:linear-gradient(135deg,#6c5ce7,#a29bfe)">PM</div>
+              <div><div class="g-name">PM</div><div class="g-sub">3 个活跃会话</div></div>
+              <div class="g-badges"><span class="pill run"><span class="d"></span>1 执行中</span><span class="pill unread">2 未读</span></div>
+            </div>
+            <div class="s-row">
+              <div class="dot-col"><span class="dot running"></span></div>
+              <div class="s-mid">
+                <div class="s-title unread">项目周会材料准备</div>
+                <div class="s-meta"><span class="st-run">执行中</span><span>·</span>已完成汇报初稿,核对数据中</div>
+              </div>
+              <span class="s-time">14:22</span>
+            </div>
+            <div class="s-row">
+              <div class="dot-col"><span class="dot unread"></span></div>
+              <div class="s-mid">
+                <div class="s-title unread">每日站会巡检报告</div>
+                <div class="s-meta">3 个任务正常 · 1 个待确认</div>
+              </div>
+              <span class="s-time">09:00</span>
+            </div>
+            <div class="s-row">
+              <div class="dot-col"></div>
+              <div class="s-mid">
+                <div class="s-title">MVP 排期讨论</div>
+                <div class="s-meta">你:那就按方案 B 推进</div>
+              </div>
+              <span class="s-time">昨天</span>
+            </div>
+          </div>
+          <div class="group">
+            <div class="g-head">
+              <div class="g-avatar" style="background:linear-gradient(135deg,#3b82f6,#7cb0fd)">CC</div>
+              <div><div class="g-name">coder-codex</div><div class="g-sub">1 个活跃会话</div></div>
+              <div class="g-badges"><span class="pill run"><span class="d"></span>执行中</span></div>
+            </div>
+            <div class="s-row">
+              <div class="dot-col"><span class="dot running"></span></div>
+              <div class="s-mid">
+                <div class="s-title">migration 040-041 冲突修复</div>
+                <div class="s-meta"><span class="st-run">执行中</span><span>·</span>验证构建中</div>
+              </div>
+              <span class="s-time">13:05</span>
+            </div>
+          </div>
+          <div class="group">
+            <div class="g-head">
+              <div class="g-avatar" style="background:linear-gradient(135deg,#f59e0b,#fcd34d)">CG</div>
+              <div><div class="g-name">coder-glm5</div><div class="g-sub">2 个活跃会话</div></div>
+              <div class="g-badges"><span class="pill run"><span class="d"></span>1 执行中</span></div>
+            </div>
+            <div class="s-row">
+              <div class="dot-col"><span class="dot running"></span></div>
+              <div class="s-mid">
+                <div class="s-title">Rust agent loop 性能优化</div>
+                <div class="s-meta"><span class="st-run">执行中</span><span>·</span>补第二个创新点</div>
+              </div>
+              <span class="s-time">昨天</span>
+            </div>
+            <div class="s-row">
+              <div class="dot-col"></div>
+              <div class="s-mid">
+                <div class="s-title">worktree 流程约束检查</div>
+                <div class="s-meta">已确认 3 个分支均未直接 commit</div>
+              </div>
+              <span class="s-time">昨天</span>
+            </div>
+          </div>
+          <div class="group">
+            <div class="g-head">
+              <div class="g-avatar" style="background:linear-gradient(135deg,#ef4444,#f87171)">RV</div>
+              <div><div class="g-name">reviewer</div><div class="g-sub">1 个活跃会话</div></div>
+              <div class="g-badges"><span class="pill idle">空闲</span></div>
+            </div>
+            <div class="s-row">
+              <div class="dot-col"></div>
+              <div class="s-mid">
+                <div class="s-title">PR #128 审查意见</div>
+                <div class="s-meta">发现 2 个问题,已反馈</div>
+              </div>
+              <span class="s-time">周一</span>
+            </div>
+          </div>
+        </div>
+        <div class="tabbar">
+          <div class="tab"><span class="ic"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></span><span class="n">3</span><span class="t">动态</span></div>
+          <div class="tab active"><span class="ic"><svg width="21" height="21" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.8"><path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 8.5-8.5 8.38 8.38 0 0 1 8.5 8.5z"/></svg></span><span class="t">会话</span></div>
+          <div class="tab"><span class="ic"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></span><span class="t">任务</span></div>
+          <div class="tab"><span class="ic"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span><span class="t">设置</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="note">
+      <h3><em>会话列表</em>关键改动</h3>
+      <ul>
+        <li>灰底微信格 → 白色大圆角卡片(18px),底部浅阴影,和任务页同一语言</li>
+        <li>未读改为「紫色光晕点 + 标题加粗」,执行中「绿色呼吸点」——不靠突兀红点</li>
+        <li>顶部加搜索框;项目切换器做成卡片式 pill(替代现在挤在顶栏的文字)</li>
+        <li>TabBar active 态加软紫胶囊底;按压缩放反馈(scale 0.92)</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ================= 聊天 ================= -->
+  <div class="col">
+    <div class="phone"><div class="notch"></div>
+      <div class="screen">
+        <div class="statusbar"><span>9:41</span><span class="sig">●●● ▾ ▮</span></div>
+        <div class="chat-head">
+          <div class="icon-btn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></div>
+          <div class="who">
+            <div class="n">项目周会材料准备</div>
+            <div class="s"><span class="run-dot"></span>PM · 执行中 25 分钟</div>
+          </div>
+          <div class="icon-btn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></div>
+        </div>
+        <div class="msgs">
+          <div class="day-chip"><span>今天 13:02</span></div>
+          <div class="m-user">
+            <div class="bub">帮我把性能调查的结论整理成汇报材料,重点是三个症状是同一个根因这件事</div>
+          </div>
+          <div class="m-agent">
+            <div class="a">PM</div>
+            <div class="body">
+              <div class="who">PM <span style="font-weight:400;color:#9ca3af">· 13:04</span></div>
+              <div class="txt">
+                好的,我先拆解任务结构:<br><br>
+                <b>1.</b> 梳理三个症状的共同根因<br>
+                <b>2.</b> 整理止血措施(清理 DB + 调整维护间隔)<br>
+                <b>3.</b> 补充治本方案(synchronous=NORMAL)
+              </div>
+              <div class="tool-chip"><span class="d"></span>TaskCreate · 创建 3 个子任务</div>
+            </div>
+          </div>
+          <div class="m-agent">
+            <div class="a">PM</div>
+            <div class="body">
+              <div class="who">PM <span style="font-weight:400;color:#9ca3af">· 13:09</span></div>
+              <div class="txt">初稿已写完,正在核对数据。根因摘要:</div>
+              <div class="codeblock">
+                <div class="lang">根因分析 · summary</div>
+                <pre>症状: write 超时 / edge 502 / 停止超时
+根因: 9.6GB DB + FULL fsync
+      + 60s maintenance
+止血: DATA_MAINTENANCE_INTERVAL_MS
+治本: synchronous = NORMAL</pre>
+              </div>
+            </div>
+          </div>
+          <div class="m-agent">
+            <div class="a">PM</div>
+            <div class="body">
+              <div class="who">PM <span style="font-weight:400;color:#9ca3af">· 正在输入</span></div>
+              <div class="typing"><i></i><i></i><i></i></div>
+            </div>
+          </div>
+        </div>
+        <div class="inputbar">
+          <div class="plus"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></div>
+          <div class="field">输入消息…</div>
+          <div class="send"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg></div>
+        </div>
+      </div>
+    </div>
+    <div class="note">
+      <h3><em>聊天页</em>关键改动</h3>
+      <ul>
+        <li><b>agent 消息全宽、无气泡</b>(对齐 ChatGPT/Claude 官方 app):代码块/表格不再被 80% 宽度挤压</li>
+        <li>用户消息保留气泡,但改为浅紫或主紫均可,只占右侧</li>
+        <li>工具调用 = 卡片式 chip,等待确认橙色态;带"正在输入"打字动画</li>
+        <li>顶栏显示执行状态呼吸点 + 已运行时长</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ================= 任务 ================= -->
+  <div class="col">
+    <div class="phone"><div class="notch"></div>
+      <div class="screen">
+        <div class="statusbar"><span>9:41</span><span class="sig">●●● ▾ ▮</span></div>
+        <div class="topbar" style="padding-bottom:10px">
+          <div style="flex:1">
+            <div style="font-size:22px;font-weight:700">任务</div>
+            <div style="font-size:12px;color:#6b7280;margin-top:2px">ai-ide-studio · 3 个进行中</div>
+          </div>
+          <div class="icon-btn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 6h18M7 12h10M10 18h4"/></svg></div>
+        </div>
+        <div class="seg-wrap">
+          <div class="seg">
+            <button class="on">进行中</button><button>待确认</button><button>全部</button>
+          </div>
+        </div>
+        <div class="tlist">
+          <div class="t-card">
+            <span class="bar" style="background:#10b981"></span>
+            <div class="mid">
+              <div class="tt">性能问题止血 + 治本</div>
+              <div class="mm">PM <span class="sep">·</span> 行动中 25 分钟</div>
+              <div class="progress"><i style="width:55%"></i></div>
+              <div class="mm" style="margin-top:6px;color:#9ca3af">2/4 步骤完成</div>
+            </div>
+            <div class="right"><span class="pill tag-run"><span class="d" style="width:5px;height:5px;border-radius:50%;background:currentColor;animation:blink 1.2s infinite"></span>执行中</span></div>
+          </div>
+          <div class="t-card">
+            <span class="bar" style="background:#10b981"></span>
+            <div class="mid">
+              <div class="tt">migration 041 版本冲突修复</div>
+              <div class="mm">coder-codex <span class="sep">·</span> 行动中 1.2 小时</div>
+            </div>
+            <div class="right"><span class="pill tag-run"><span class="d" style="width:5px;height:5px;border-radius:50%;background:currentColor;animation:blink 1.2s infinite"></span>执行中</span></div>
+          </div>
+          <div class="t-card">
+            <span class="bar" style="background:#f59e0b"></span>
+            <div class="mid">
+              <div class="tt">APK 0.2.0 发版检查</div>
+              <div class="mm">coder-glm5 <span class="sep">·</span> 2 小时前汇报</div>
+              <div class="wait-note"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>等待确认 · 有新汇报</div>
+            </div>
+            <div class="right"><span class="pill tag-needs">待确认</span></div>
+          </div>
+          <div class="t-card">
+            <div class="mid">
+              <div class="tt" style="color:#6b7280;font-weight:500">暗色模式适配</div>
+              <div class="mm">未指派 <span class="sep">·</span> 已搁置 3 天</div>
+            </div>
+            <div class="right"><span class="pill tag-dim">待办</span></div>
+          </div>
+          <div class="t-card" style="opacity:.65">
+            <div class="mid">
+              <div class="tt" style="font-weight:500">会话分享功能</div>
+              <div class="mm">coder-codex <span class="sep">·</span> 昨天 18:40</div>
+            </div>
+            <div class="right"><span class="pill tag-dim">完成</span></div>
+          </div>
+        </div>
+        <div class="tabbar">
+          <div class="tab"><span class="ic"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></span><span class="n">3</span><span class="t">动态</span></div>
+          <div class="tab"><span class="ic"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 8.5-8.5 8.38 8.38 0 0 1 8.5 8.5z"/></svg></span><span class="t">会话</span></div>
+          <div class="tab active"><span class="ic"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></span><span class="t">任务</span></div>
+          <div class="tab"><span class="ic"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span><span class="t">设置</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="note">
+      <h3><em>任务页</em>关键改动</h3>
+      <ul>
+        <li>保留圆角卡片,升级:彩色左边条 + 状态 pill + <b>进度条</b>(步骤完成度)</li>
+        <li>「待确认」卡内嵌橙色提醒条,把"有新汇报"从一行小字提升为视觉焦点</li>
+        <li>分段筛选改成 iOS 风胶囊 seg,替代微信下划线 tab</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="verdict">
+  <h3>方案 B 小结</h3>
+  <p><b>优点:</b>气质对齐"AI 工作台"定位,与 ChatGPT/Claude 等主流 AI app 的阅读习惯一致(agent 全宽排版对代码/长文最友好);软色 pill + 呼吸点信息分层更精致;按压缩放反馈质感明显。<br>
+  <b>代价:</b>会话列表要重做(从微信格改卡片),改造量比 A 大一档;信息密度略低于格子列表。<br>
+  <b>适合:</b>核心场景是"阅读 Agent 的产出(报告/代码/方案)"而非"快聊"。</p>
+</div>
+
+</body>
+</html>
