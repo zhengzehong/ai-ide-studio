@@ -147,7 +147,7 @@ export default function SettingsPage() {
         <div style={styles.section}>
           <div style={styles.sectionTitle}>会话模板</div>
           <div style={styles.card}>
-            <button style={styles.row} onClick={() => navigate('/templates')}>
+            <button className="pressable" style={styles.row} onClick={() => navigate('/templates')}>
               <Sparkles size={16} color="var(--primary)" />
               <span style={styles.label}>模板管理</span>
               <ChevronRight size={16} color="var(--text-muted)" />
@@ -167,7 +167,7 @@ export default function SettingsPage() {
 
         <div style={styles.section}>
           <div style={styles.sectionTitle}>操作</div>
-          <div style={styles.card}><button style={styles.dangerRow} onClick={disconnect}><LogOut size={16} color="var(--error)" /><span style={{ color: 'var(--error)', fontSize: 14 }}>断开连接</span></button></div>
+          <div style={styles.card}><button className="pressable" style={styles.dangerRow} onClick={disconnect}><LogOut size={16} color="var(--error)" /><span style={{ color: 'var(--error)', fontSize: 14 }}>断开连接</span></button></div>
         </div>
         <div style={styles.version}>AI IDE Studio Mobile v0.2.0</div>
       </div>
@@ -177,12 +177,12 @@ export default function SettingsPage() {
 
 const styles: Record<string, CSSProperties> = {
   page: { display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg)' },
-  header: { display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px', paddingTop: 'calc(12px + var(--safe-top))', background: 'var(--bg-card)', borderBottom: '1px solid var(--border-light)', flexShrink: 0 },
-  headerTitle: { fontSize: 18, fontWeight: 700 },
-  content: { flex: 1, overflowY: 'auto', padding: '16px' },
+  header: { display: 'flex', alignItems: 'center', gap: 8, padding: '14px 16px 8px', paddingTop: 'calc(14px + var(--safe-top))', flexShrink: 0 },
+  headerTitle: { fontSize: 21, fontWeight: 700, color: 'var(--text-primary)' },
+  content: { flex: 1, overflowY: 'auto', padding: '8px 16px 16px' },
   section: { marginBottom: 24 },
-  sectionTitle: { fontSize: 13, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8, paddingLeft: 4, textTransform: 'uppercase', letterSpacing: 0.5 },
-  card: { background: 'var(--bg-card)', borderRadius: 'var(--radius)', border: '1px solid var(--border-light)', overflow: 'hidden' },
+  sectionTitle: { fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 8, paddingLeft: 4, textTransform: 'uppercase', letterSpacing: 0.5 },
+  card: { background: 'var(--bg-card)', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', overflow: 'hidden' },
   voiceIntro: { display: 'flex', alignItems: 'center', gap: 10, padding: '14px' },
   voiceIcon: { width: 38, height: 38, borderRadius: 10, background: 'var(--primary-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   voiceCopy: { display: 'flex', flexDirection: 'column', gap: 2, flex: 1, minWidth: 0 },
