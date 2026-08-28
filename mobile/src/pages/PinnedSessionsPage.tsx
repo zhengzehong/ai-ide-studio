@@ -8,7 +8,6 @@ const REVEAL_WIDTH = 84
 const DRAG_LONG_PRESS_MS = 400
 const MOVE_CANCEL_PX = 10
 const SWIPE_ENGAGE_PX = 8
-const ROW_GAP = 16
 
 function formatTime(value: string): string {
   const timestamp = Date.parse(value)
@@ -179,8 +178,9 @@ export function PinnedSessionList() {
     if (swipeGestureRef.current) {
       const id = swipeGestureRef.current.id
       swipeGestureRef.current = null
+      // 过半吸附展开,不足半程动画弹回(置 x=0 且 animating,保持过渡)
       const open = swipeLatestRef.current < -REVEAL_WIDTH / 2
-      setSwipe(open ? { id, x: -REVEAL_WIDTH, animating: true } : null)
+      setSwipe(open ? { id, x: -REVEAL_WIDTH, animating: true } : { id, x: 0, animating: true })
       return
     }
     const pending = pendingRef.current
@@ -210,16 +210,18 @@ export function PinnedSessionList() {
 
   const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.pointerType === 'mouse' && event.button !== 0) return
+    // 新手势开始:上一手势若没产生 click(如行外松手),遗留的抑制标记在这里清掉
+    suppressClickRef.current = false
     const rowEl = (event.target as HTMLElement).closest<HTMLElement>('[data-pin-id]')
     if (!rowEl) {
-      if (swipeRef.current) setSwipe(null)
+      closeSwipeAnimated()
       return
     }
     const id = rowEl.dataset.pinId
     if (!id) return
     const index = itemsRef.current.findIndex((item) => item.sessionId === id)
     if (index < 0) return
-    if (swipeRef.current && swipeRef.current.id !== id) setSwipe(null)
+    if (swipeRef.current && swipeRef.current.id !== id) closeSwipeAnimated()
     if (reorderingRef.current) return
     if (pendingRef.current) window.clearTimeout(pendingRef.current.timer)
     pendingRef.current = {
@@ -239,13 +241,20 @@ export function PinnedSessionList() {
     navigate(`/chat/${item.sessionId}`, { state: { returnTo: pinnedSessionsPath } })
   }
 
+  /** 收起已展开的取消置顶按钮(带回弹动画;x=0 时点击仍可正常进会话) */
+  const closeSwipeAnimated = useCallback(() => {
+    const current = swipeRef.current
+    if (!current) return
+    setSwipe({ id: current.id, x: 0, animating: true })
+  }, [])
+
   const handleRowActivate = (item: MobilePinnedSession): void => {
     if (suppressClickRef.current) {
       suppressClickRef.current = false
       return
     }
     if (swipeRef.current?.id === item.sessionId && swipeRef.current.x < 0) {
-      setSwipe(null)
+      setSwipe({ id: item.sessionId, x: 0, animating: true })
       return
     }
     openSession(item)
@@ -256,8 +265,9 @@ export function PinnedSessionList() {
     void remove(item.sessionId)
   }
 
-  const draggedMetric = drag ? metricsRef.current.find((metric) => metric.id === drag.id) : undefined
-  const shift = draggedMetric ? draggedMetric.height + ROW_GAP : 0
+  // 让位量取冻结的相邻行 top 差:行间 margin 会 collapse,height+GAP 的算法会多移
+  const tops = metricsRef.current.map((metric) => metric.top)
+  const shift = tops.length >= 2 ? Math.abs(tops[1]! - tops[0]!) : 0
   const offsetForIndex = (index: number): number => {
     if (!drag) return 0
     if (index > drag.fromIndex && index <= drag.targetIndex) return -shift
