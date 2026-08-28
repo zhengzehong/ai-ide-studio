@@ -8,6 +8,7 @@ interface ProjectDrawerProps {
   isPinned: boolean
   onPickProject: (id: string) => void
   onTogglePin: () => void
+  onClose: () => void
   onCreateProject: () => void
   onManageProjects: () => void
   drawerRef: RefObject<HTMLDivElement | null>
@@ -48,6 +49,7 @@ export default function ProjectDrawer({
   isPinned,
   onPickProject,
   onTogglePin,
+  onClose,
   onCreateProject,
   onManageProjects,
   drawerRef,
@@ -59,6 +61,7 @@ export default function ProjectDrawer({
     <>
       <div
         ref={overlayRef}
+        onClick={onClose}
         style={{
           ...styles.overlay,
           ...(isOpen && !isPinned ? styles.overlayShow : {}),

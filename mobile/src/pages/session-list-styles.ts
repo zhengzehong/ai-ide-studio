@@ -10,15 +10,6 @@ export const sessionListStyles: Record<string, CSSProperties> = {
     position: 'relative',
     overflow: 'hidden',
   },
-  overlay: {
-    position: 'absolute',
-    inset: 0,
-    background: 'rgba(0,0,0,0.4)',
-    opacity: 0,
-    pointerEvents: 'none',
-    transition: 'opacity .3s',
-    zIndex: 200,
-  },
   mainArea: {
     flex: 1,
     display: 'flex',

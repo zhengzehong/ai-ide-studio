@@ -42,6 +42,9 @@ export interface CreateProjectInput {
 }
 
 const DRAWER_PINNED_KEY = 'mobile:drawerPinned'
+const SESSION_VIEW_MODE_KEY = 'mobile:sessionViewMode'
+
+export type MobileSessionViewMode = 'all' | 'pinned'
 
 function readDrawerPinned(): boolean {
   try {
@@ -60,15 +63,34 @@ function writeDrawerPinned(value: boolean): void {
   }
 }
 
+function readSessionViewMode(): MobileSessionViewMode {
+  try {
+    return globalThis.localStorage?.getItem(SESSION_VIEW_MODE_KEY) === 'pinned' ? 'pinned' : 'all'
+  } catch {
+    return 'all'
+  }
+}
+
+function writeSessionViewMode(mode: MobileSessionViewMode): void {
+  try {
+    if (mode === 'pinned') globalThis.localStorage?.setItem(SESSION_VIEW_MODE_KEY, 'pinned')
+    else globalThis.localStorage?.removeItem(SESSION_VIEW_MODE_KEY)
+  } catch {
+    /* ignore */
+  }
+}
+
 interface AppState {
   projects: ProjectItem[]
   agents: AgentItem[]
   currentProjectId: string | null
   isDrawerPinned: boolean
+  sessionViewMode: MobileSessionViewMode
   fetchProjects: () => Promise<void>
   fetchAgents: (projectId?: string) => Promise<void>
   setCurrentProject: (id: string | null) => void
   setDrawerPinned: (value: boolean) => void
+  setSessionViewMode: (mode: MobileSessionViewMode) => void
   createProject: (input: CreateProjectInput) => Promise<ProjectRow>
 }
 
@@ -90,6 +112,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   agents: [],
   currentProjectId: null,
   isDrawerPinned: readDrawerPinned(),
+  sessionViewMode: readSessionViewMode(),
 
   fetchProjects: async () => {
     try {
@@ -114,6 +137,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   setDrawerPinned: (value) => {
     writeDrawerPinned(value)
     set({ isDrawerPinned: value })
+  },
+
+  setSessionViewMode: (mode) => {
+    writeSessionViewMode(mode)
+    set({ sessionViewMode: mode })
   },
 
   createProject: async (input) => {
