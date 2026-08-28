@@ -9,6 +9,8 @@ import type { MobileSessionItem } from '../stores/session.store'
 import { buildStableAgentGroups, sortProjectsByCreation } from './session-list-model'
 import SessionGroup from '../components/SessionGroup'
 import ProjectDrawer from '../components/ProjectDrawer'
+import ActionSheet from '../components/ActionSheet'
+import { AgentProfileSheet } from '../components/settings/ModelProfileSheets'
 import { useEdgeSwipe } from '../hooks/useEdgeSwipe'
 import { usePinnedSessionStore } from '../stores/pinned-session.store'
 import { PinnedSessionList } from './PinnedSessionsPage'
@@ -64,6 +66,10 @@ export default function SessionListPage() {
   const [deleteTarget, setDeleteTarget] = useState<MobileSessionItem | null>(null)
   const [newSessionOpen, setNewSessionOpen] = useState(false)
   const [publishSession, setPublishSession] = useState<MobileSessionItem | null>(null)
+  // Agent 分组头长按 → 设置该 Agent 的模型档案
+  const [profileAgentId, setProfileAgentId] = useState<string | null>(null)
+  const [agentSheetOpen, setAgentSheetOpen] = useState(false)
+  const [profileSheetOpen, setProfileSheetOpen] = useState(false)
 
   const drawerRef = useRef<HTMLDivElement | null>(null)
   const overlayRef = useRef<HTMLDivElement | null>(null)
@@ -174,6 +180,24 @@ export default function SessionListPage() {
     setActionSession(session)
   }
 
+  const handleHeaderLongPress = (agentId: string) => {
+    setProfileAgentId(agentId)
+    setAgentSheetOpen(true)
+  }
+
+  const profileAgent = useMemo(
+    () => agents.find((agent) => agent.id === profileAgentId) ?? null,
+    [agents, profileAgentId],
+  )
+
+  const profileAgentSheetItems = useMemo(() => [
+    {
+      key: 'model-profile',
+      label: '模型档案',
+      onClick: () => setProfileSheetOpen(true),
+    },
+  ], [])
+
   const handleToggleMode = (): void => {
     navigate(sessionViewPath(viewMode === 'all' ? 'pinned' : 'all'), { replace: true })
   }
@@ -268,7 +292,14 @@ export default function SessionListPage() {
               </div>
             )}
             {agentGroups.map((group) => (
-              <SessionGroup key={group.agentId} agentId={group.agentId} agentName={group.agentName} sessions={group.sessions} onLongPress={handleLongPress} />
+              <SessionGroup
+                key={group.agentId}
+                agentId={group.agentId}
+                agentName={group.agentName}
+                sessions={group.sessions}
+                onLongPress={handleLongPress}
+                onHeaderLongPress={() => handleHeaderLongPress(group.agentId)}
+              />
             ))}
           </div>
         )}
@@ -294,6 +325,17 @@ export default function SessionListPage() {
         onNewBlank={handleNewBlankFromSheet}
         onInstantiated={handleNewFromTemplateSheet}
         onClosePublish={() => setPublishSession(null)}
+      />
+
+      <ActionSheet
+        open={agentSheetOpen}
+        title={profileAgent?.name ?? 'Agent'}
+        items={profileAgentSheetItems}
+        onClose={() => setAgentSheetOpen(false)}
+      />
+      <AgentProfileSheet
+        agent={profileSheetOpen ? profileAgent : null}
+        onClose={() => setProfileSheetOpen(false)}
       />
     </div>
   )

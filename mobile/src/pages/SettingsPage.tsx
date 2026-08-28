@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Bluetooth, ChevronRight, Info, LogOut, Mic, Server, Settings, Sparkles, Volume2, Wifi, WifiOff } from 'lucide-react'
+import { Bluetooth, Bot, ChevronRight, Info, LogOut, Mic, Server, Settings, Sparkles, Volume2, Wifi, WifiOff } from 'lucide-react'
 import { useConnectionStore } from '../stores/connection.store'
 import { useAppStore } from '../stores/app.store'
 import { useSessionStore } from '../stores/session.store'
 import { useVoiceStore, voiceAudioRouteLabel, voiceStateLabel } from '../stores/voice.store'
+import { GlobalProfileSheet } from '../components/settings/ModelProfileSheets'
 import { showToast } from '../utils/toast'
 
 export default function SettingsPage() {
@@ -28,6 +29,7 @@ export default function SettingsPage() {
   } = useVoiceStore()
   const navigate = useNavigate()
   const [busy, setBusy] = useState(false)
+  const [globalProfileOpen, setGlobalProfileOpen] = useState(false)
   const statusText = status === 'connecting' ? '连接中' : connected ? '已连接' : status === 'failed' ? '连接失败' : '未连接'
   const statusColor = connected ? 'var(--success)' : status === 'connecting' ? 'var(--warning)' : 'var(--error)'
 
@@ -145,6 +147,17 @@ export default function SettingsPage() {
         </div>
 
         <div style={styles.section}>
+          <div style={styles.sectionTitle}>模型</div>
+          <div style={styles.card}>
+            <button className="pressable" style={styles.row} onClick={() => setGlobalProfileOpen(true)}>
+              <Bot size={16} color="var(--primary)" />
+              <span style={styles.label}>全局模型档案</span>
+              <ChevronRight size={16} color="var(--text-muted)" />
+            </button>
+          </div>
+        </div>
+
+        <div style={styles.section}>
           <div style={styles.sectionTitle}>会话模板</div>
           <div style={styles.card}>
             <button className="pressable" style={styles.row} onClick={() => navigate('/templates')}>
@@ -171,6 +184,8 @@ export default function SettingsPage() {
         </div>
         <div style={styles.version}>AI IDE Studio Mobile v0.2.0</div>
       </div>
+
+      <GlobalProfileSheet open={globalProfileOpen} onClose={() => setGlobalProfileOpen(false)} />
     </div>
   )
 }

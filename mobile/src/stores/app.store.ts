@@ -18,6 +18,8 @@ export interface AgentItem {
   name: string
   type?: string
   model?: string
+  runtime?: string
+  config_json?: string | null
 }
 
 interface ProjectRow {
