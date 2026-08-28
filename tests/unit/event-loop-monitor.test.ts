@@ -68,9 +68,34 @@ describe('event-loop monitor', () => {
     expect(fixture.warn).not.toHaveBeenCalled()
     expect(fixture.histogram.reset).toHaveBeenCalledTimes(1)
   })
+
+  it('warns on one isolated max delay and includes attribution context', () => {
+    const fixture = createFixture({ p99Ns: 5_000_000, maxNs: 350_000_000 })
+    const recentSyncOperations = [{
+      operationModule: 'gateway:http-query',
+      operation: 'response.serialize',
+      elapsedMs: 325,
+    }]
+    const monitor = createEventLoopMonitor(
+      {
+        service: 'api',
+        warnThresholdMs: 50,
+        maxWarnThresholdMs: 200,
+        getContext: () => ({ recentSyncOperations }),
+      },
+      fixture.dependencies,
+    )
+
+    const sample = monitor.sample()
+
+    expect(sample.eventLoopP99Ms).toBe(5)
+    expect(sample.eventLoopMaxMs).toBe(350)
+    expect(sample.recentSyncOperations).toEqual(recentSyncOperations)
+    expect(fixture.warn).toHaveBeenCalledWith(sample, 'Slow event loop detected')
+  })
 })
 
-function createFixture(options: { p99Ns?: number } = {}): {
+function createFixture(options: { p99Ns?: number; maxNs?: number } = {}): {
   histogram: EventLoopHistogram
   dependencies: EventLoopMonitorDependencies
   setInterval: ReturnType<typeof vi.fn>
@@ -101,7 +126,7 @@ function createFixture(options: { p99Ns?: number } = {}): {
         })[percentile] ?? 0,
     ),
     get max() {
-      return 30_000_000
+      return options.maxNs ?? 30_000_000
     },
   }
   const utilization = [

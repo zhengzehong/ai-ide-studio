@@ -173,9 +173,11 @@ Session 流式事件、running message snapshot、Turn Process 高频更新和 S
 
 API 领域 Command、工具和部分同步状态修改仍使用兼容 Store 连接。`tests/unit/database-access-boundary.test.ts` 锁定主线程直接 `getDb()` 的兼容清单，清单只能缩小；`tests/unit/runtime-boundary.test.ts` 锁定 Runtime 子进程的反向依赖禁令。`DATA_WORKER_MODE=local` 是显式故障回退开关，不会在 Worker 崩溃后自动降级到同步 SQL。
 
-Query/Writer Worker 的完成日志包含优先级、队列深度、排队时间、执行时间、Worker 总耗时、API 客户端观察耗时、响应投递延迟和载荷字节数。`DATA_WORKER_SLOW_MS` 配置慢请求阈值，默认 100ms；达到阈值的成功请求提升为 `warn`，用于区分排队拥塞、SQL/事务执行缓慢与 API 主线程未及时处理 Worker 响应。客户端超时后会短期保留有界的请求诊断信息；若 Worker 响应随后到达，会记录迟到响应及对应 operation，不会重新完成已经超时的调用。
+Query/Writer Worker 的完成日志包含优先级、队列深度、排队时间、执行时间、Worker 总耗时、API 客户端观察耗时、响应投递延迟和载荷字节数。`DATA_WORKER_SLOW_MS` 配置慢请求阈值，默认 100ms；慢请求按 `worker_execution`、`worker_queue` 或 `api_delivery` 明确分类，避免把 Worker 已完成但 API 未及时处理回调误判为 SQL 缓慢。客户端超时后会短期保留有界的请求诊断信息；若 Worker 响应随后到达，会记录迟到响应及对应 operation，不会重新完成已经超时的调用。
 
-HTTP Query 路由分别记录 Worker 查询、JSON 序列化与完整请求耗时，并通过 `Server-Timing` 返回阶段指标。仍留在兼容 Store 的 API 同步写操作通过 `src/store/db-operation-observer.ts` 记录具名操作、连接角色、耗时和 SQLite 错误码。所有诊断日志只包含安全业务标识和规模指标，不记录 SQL 参数、消息正文、附件、Token 或密钥。
+HTTP Query 路由分别记录 Worker 查询、JSON 序列化与完整请求耗时，并通过 `Server-Timing` 返回阶段指标。Recovery 查询额外记录 sequence 与 event materialization 的分段耗时和事件数量。仍留在兼容 Store 的 API 同步写操作通过 `src/store/db-operation-observer.ts` 记录具名操作、连接角色、耗时和 SQLite 错误码。所有诊断日志只包含安全业务标识和规模指标，不记录 SQL 参数、消息正文、附件、Token 或密钥。
+
+API 进程使用 `src/shared/operation-diagnostics.ts` 保存有界、纯内存的操作快照。异步操作只表示当前仍在等待的逻辑入口；同步操作记录稳定的 `operationModule + operation`、安全业务标识和耗时。RPC、HTTP Command、HTTP Query、工具执行、规则执行和已接入 `db-operation-observer` 的主线程写操作共享该命名机制。Event-loop 告警同时附带 active operations 与当前采样窗口内最慢的同步操作，采样后清空同步窗口；诊断信息不会进入业务响应或数据库。
 
 历史明细保留由 `src/data-retention/` 统一调度，并且只通过 Writer Port 执行。每个 Session 永久保留 `messages` 事实和最新 15 个成功 Agent 回合的完整过程；超过 7 天且位于第 16 个及更早的成功回合，只分批删除对应 `turn_process_items` 与 `session_events`。清理工作以 Writer `background` 优先级单独成批，每批最多处理 500 行，事务内重新校验候选消息，进程中断后从永久保留的 `messages` 重新计算，不依赖清理游标或任务表。
 
@@ -183,7 +185,7 @@ HTTP Query 路由分别记录 Worker 查询、JSON 序列化与完整请求耗�
 
 Writer 独占 SQLite 维护。周期任务先 drain 写调度器，只删除超过保留期且 `published_at IS NOT NULL` 的 Outbox，运行 `PRAGMA optimize`，并在 WAL 达到 64 MiB 时执行 PASSIVE checkpoint；正常停机在 Session persistence flush 后执行 TRUNCATE checkpoint。未发布 Outbox、messages 和 session_events 永不由维护任务删除。
 
-Edge、API、Realtime、Runtime 各自使用 `monitorEventLoopDelay` 和 event-loop utilization，每 30 秒记录 p50/p95/p99/max lag、RSS/heap，以及本进程的代理连接、active prompt、连接/订阅/发送队列或 Runtime actor/coalescer backlog。`EVENT_LOOP_MONITOR_INTERVAL_MS` 和 `EVENT_LOOP_WARN_THRESHOLD_MS` 控制采样周期与告警阈值。
+Edge、API、Realtime、Runtime 各自使用 `monitorEventLoopDelay` 和 event-loop utilization，每 30 秒记录 p50/p95/p99/max lag、RSS/heap，以及本进程的代理连接、active prompt、连接/订阅/发送队列或 Runtime actor/coalescer backlog。p99 达到 `EVENT_LOOP_WARN_THRESHOLD_MS` 或单次 max 达到 `EVENT_LOOP_MAX_WARN_THRESHOLD_MS` 都会告警，避免孤立的长阻塞被 p99 稀释。
 
 `session:activity` 是独立的轻量全局事件，只表示会话本轮执行从 `running` 到 `idle` 的状态变化，用于左侧会话列表运行中/未读提示；它不承载聊天内容，也不参与历史消息还原。
 

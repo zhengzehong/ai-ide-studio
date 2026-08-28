@@ -7,6 +7,11 @@ import { matchCron, getNextRunTime } from './cron.js'
 import { createChildLogger } from './logger.js'
 import { runAgentAutonomyTick } from './agent-autonomy-scheduler.js'
 import { runProjectSecretaryTick } from './project-secretary.js'
+import {
+  trackAsyncOperation,
+  trackSyncInvocation,
+  trackSyncOperation,
+} from '../shared/operation-diagnostics.js'
 
 const log = createChildLogger('rule-engine')
 
@@ -121,6 +126,17 @@ function replaceVariables(template: string, now: Date): string {
 }
 
 async function executeRule(rule: RuleRow, now: Date): Promise<void> {
+  return trackAsyncOperation(
+    {
+      operationModule: 'rule-engine',
+      operation: 'execute',
+      context: { ruleId: rule.id, action: rule.action },
+    },
+    async () => executeRuleInternal(rule, now),
+  )
+}
+
+async function executeRuleInternal(rule: RuleRow, now: Date): Promise<void> {
   const handler = actionHandlers[rule.action]
   if (!handler) {
     log.warn({ ruleId: rule.id, action: rule.action }, '未知的 action 类型，跳过')
@@ -135,16 +151,32 @@ async function executeRule(rule: RuleRow, now: Date): Promise<void> {
   let nextRun: ReturnType<typeof getNextRunTime> | undefined
   try {
     nextRun = getNextRunTime(rule.cron, now)
-    const result = await handler(rule, now)
+    const result = await trackSyncInvocation(
+      {
+        operationModule: 'rule-engine',
+        operation: 'action.invoke',
+        context: { ruleId: rule.id, action: rule.action },
+      },
+      () => handler(rule, now),
+    )
 
-    ruleStore.recordRun(rule.id, now.toISOString(), nextRun?.toISOString() ?? null)
-    ruleExecutionStore.create({
-      ruleId: rule.id,
-      status: 'success',
-      taskId: result.taskId,
-      sessionId: result.sessionId,
-      triggeredAt: now.toISOString(),
-    })
+    trackSyncOperation(
+      {
+        operationModule: 'rule-engine',
+        operation: 'execution.record.success',
+        context: { ruleId: rule.id, action: rule.action },
+      },
+      () => {
+        ruleStore.recordRun(rule.id, now.toISOString(), nextRun?.toISOString() ?? null)
+        ruleExecutionStore.create({
+          ruleId: rule.id,
+          status: 'success',
+          taskId: result.taskId,
+          sessionId: result.sessionId,
+          triggeredAt: now.toISOString(),
+        })
+      },
+    )
 
     const updated = ruleStore.get(rule.id)
     if (updated) {
@@ -161,13 +193,22 @@ async function executeRule(rule: RuleRow, now: Date): Promise<void> {
     const errorMsg = (err as Error).message
     log.error({ err, ruleId: rule.id }, '规则执行失败')
 
-    ruleStore.recordFail(rule.id, now.toISOString(), nextRun?.toISOString() ?? null)
-    ruleExecutionStore.create({
-      ruleId: rule.id,
-      status: 'failed',
-      error: errorMsg,
-      triggeredAt: now.toISOString(),
-    })
+    trackSyncOperation(
+      {
+        operationModule: 'rule-engine',
+        operation: 'execution.record.failed',
+        context: { ruleId: rule.id, action: rule.action },
+      },
+      () => {
+        ruleStore.recordFail(rule.id, now.toISOString(), nextRun?.toISOString() ?? null)
+        ruleExecutionStore.create({
+          ruleId: rule.id,
+          status: 'failed',
+          error: errorMsg,
+          triggeredAt: now.toISOString(),
+        })
+      },
+    )
 
     const updated = ruleStore.get(rule.id)
     if (updated) {

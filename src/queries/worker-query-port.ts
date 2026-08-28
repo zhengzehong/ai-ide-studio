@@ -26,8 +26,8 @@ import { WorkerRequestError, WorkerRpcClient } from '../data-worker/worker-rpc-c
 import { resolveWorkerEntryUrl } from '../data-worker/worker-entry-url.js'
 import { createChildLogger } from '../core/logger.js'
 import {
+  classifyDataWorkerLatency,
   DEFAULT_DATA_WORKER_SLOW_MS,
-  isSlowWorkerRequest,
 } from '../data-worker/observability.js'
 
 const log = createChildLogger('query-worker-client')
@@ -86,12 +86,22 @@ export async function createWorkerQueryPort(
         operation,
         priority: requestOptions.priority ?? 'interactive',
         slowRequestMs,
+        ...requestIdentity(payload),
         ...response.metrics,
       }
-      if (isSlowWorkerRequest(response.metrics, slowRequestMs)) {
-        log.warn(context, 'slow query worker request completed')
-      } else {
-        log.debug(context, 'query worker request completed')
+      const latencyCause = classifyDataWorkerLatency(response.metrics, slowRequestMs)
+      switch (latencyCause) {
+        case 'api_delivery':
+          log.warn({ ...context, latencyCause }, 'query worker callback delayed by API event loop')
+          break
+        case 'worker_execution':
+          log.warn({ ...context, latencyCause }, 'slow query worker execution completed')
+          break
+        case 'worker_queue':
+          log.warn({ ...context, latencyCause }, 'query worker request waited in queue')
+          break
+        default:
+          log.debug({ ...context, latencyCause }, 'query worker request completed')
       }
       return response.result
     } catch (err) {
@@ -158,6 +168,16 @@ export async function createWorkerQueryPort(
       return rpc.close()
     },
   }
+}
+
+function requestIdentity(payload: unknown): Record<string, string> {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return {}
+  const record = payload as Record<string, unknown>
+  const identity: Record<string, string> = {}
+  for (const key of ['sessionId', 'projectId', 'agentId']) {
+    if (typeof record[key] === 'string') identity[key] = record[key]
+  }
+  return identity
 }
 
 function waitUntilReady(worker: Worker, timeoutMs: number): Promise<void> {

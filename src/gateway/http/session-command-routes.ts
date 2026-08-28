@@ -10,6 +10,11 @@ import {
 } from '../../commands/session-command-types.js'
 import { createChildLogger } from '../../core/logger.js'
 import type { RuntimeCommandInput } from '../../ports/write-data-port.js'
+import {
+  trackAsyncOperation,
+  trackSyncInvocation,
+  trackSyncOperation,
+} from '../../shared/operation-diagnostics.js'
 
 const log = createChildLogger('gateway:http-command')
 
@@ -22,7 +27,14 @@ export function mountSessionCommandRoutes(
   dispatcher: SessionCommandDispatcherPort,
 ): void {
   const maxCommandBytes = resolveSessionCommandMaxBytes()
-  app.post('/api/v1/commands', async (c) => handleSessionCommand(c, dispatcher, maxCommandBytes))
+  app.post('/api/v1/commands', async (c) => trackAsyncOperation(
+    {
+      operationModule: 'gateway:http-command',
+      operation: 'session-command.handle',
+      context: { requestId: c.req.header('idempotency-key')?.trim() },
+    },
+    async () => handleSessionCommand(c, dispatcher, maxCommandBytes),
+  ))
 }
 
 async function handleSessionCommand(
@@ -45,17 +57,36 @@ async function handleSessionCommand(
     if (Buffer.byteLength(text, 'utf8') > maxCommandBytes) {
       return c.json({ error: '命令请求体过大' }, 413)
     }
-    const parsedJson = JSON.parse(text) as unknown
+    const parsedJson = trackSyncOperation(
+      {
+        operationModule: 'gateway:http-command',
+        operation: 'request.parse',
+        context: { requestId: idempotencyKey },
+      },
+      () => JSON.parse(text) as unknown,
+    )
     const command = parseSessionCommand(parsedJson, maxCommandBytes)
-    const submission = await dispatcher.submit({
-      commandId: command.commandId,
-      idempotencyKey,
-      type: command.type,
+    const commandContext = {
+      requestId: command.commandId,
       sessionId: command.sessionId,
-      projectId: command.type === 'prompt' ? command.contextProjectId : undefined,
-      payload: command,
-      createdAt: new Date().toISOString(),
-    })
+      commandType: command.type,
+    }
+    const submission = await trackSyncInvocation(
+      {
+        operationModule: 'gateway:http-command',
+        operation: 'dispatcher.submit',
+        context: commandContext,
+      },
+      () => dispatcher.submit({
+        commandId: command.commandId,
+        idempotencyKey,
+        type: command.type,
+        sessionId: command.sessionId,
+        projectId: command.type === 'prompt' ? command.contextProjectId : undefined,
+        payload: command,
+        createdAt: new Date().toISOString(),
+      }),
+    )
     const record = command.type === 'prompt'
       ? submission.command
       : await submission.completion

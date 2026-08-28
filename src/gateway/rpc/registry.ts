@@ -26,6 +26,7 @@ import { previewRpcHandlers } from './previews.js'
 import { secretaryRpcHandlers } from './secretary.js'
 import { inspirationRpcHandlers } from './inspiration.js'
 import type { RpcContext, RpcHandlerMap } from './types.js'
+import { trackAsyncOperation, trackSyncInvocation } from '../../shared/operation-diagnostics.js'
 
 const rpcHandlers: RpcHandlerMap = {
   ...subscriptionRpcHandlers,
@@ -62,5 +63,24 @@ export async function dispatchRpc(msg: ClientMessage, context: RpcContext): Prom
     context.sendError(`未知消息类型: ${msg.type}`)
     return
   }
-  await handler(msg, context)
+  const operationContext = {
+    rpcType: msg.type,
+    requestId: msg.requestId,
+    sessionId: textField(msg, 'sessionId'),
+  }
+  await trackAsyncOperation(
+    { operationModule: 'gateway:rpc', operation: 'dispatch', context: operationContext },
+    async () => {
+      const result = trackSyncInvocation(
+        { operationModule: 'gateway:rpc', operation: 'handler.invoke', context: operationContext },
+        () => handler(msg, context),
+      )
+      await result
+    },
+  )
+}
+
+function textField(message: ClientMessage, field: string): string | undefined {
+  const value = message[field]
+  return typeof value === 'string' ? value : undefined
 }
