@@ -1,0 +1,875 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>灵感 · 移动端交互原型 v2</title>
+<style>
+  /* ═══ 全部取自 mobile/src/index.css 真实 token ═══ */
+  :root {
+    --primary: #6c5ce7;
+    --primary-light: #a29bfe;
+    --primary-bg: #f0edff;
+    --primary-deep: #4a3f9f;
+    --bg: #f5f5f7;
+    --bg-card: #ffffff;
+    --bg-input: #f0f0f5;
+    --text-primary: #1a1a2e;
+    --text-secondary: #6b7280;
+    --text-muted: #9ca3af;
+    --border: #e5e7eb;
+    --border-light: #f0f0f5;
+    --success: #10b981;
+    --success-bg: #e7f8f1;
+    --warning: #f59e0b;
+    --warning-bg: #fdf3e0;
+    --error: #ef4444;
+    --error-bg: #fdecec;
+    --radius: 12px;
+    --radius-sm: 8px;
+    --radius-lg: 16px;
+    --tab-height: 56px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #23282b;
+    color: var(--text-primary);
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden;
+  }
+  .phone {
+    position: relative; width: 100%; height: 100dvh;
+    background: var(--bg);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  @media (min-width: 520px) and (min-height: 720px) {
+    .phone { width: 392px; height: 846px; border-radius: 44px; border: 9px solid #16181a; box-shadow: 0 24px 70px rgba(0,0,0,.5); }
+  }
+  .statusbar {
+    height: 30px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 22px; font-size: 12px; font-weight: 600; background: var(--bg);
+  }
+  .statusbar .sig { letter-spacing: 2px; font-size: 10px; }
+
+  .screens { position: relative; flex: 1; min-height: 0; }
+  .view {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    background: var(--bg);
+    transform: translateX(100%);
+    transition: transform .28s cubic-bezier(.32,.72,.35,1), visibility .28s;
+    visibility: hidden; z-index: 1;
+  }
+  .view.active { transform: translateX(0); visibility: visible; z-index: 2; }
+  .view.base { z-index: 1; }
+
+  /* ── 列表页头部:只放信息与筛选 ── */
+  .list-head { flex-shrink: 0; padding: calc(10px + env(safe-area-inset-top)) 16px 0; }
+  .page-title { font-size: 21px; font-weight: 700; line-height: 1.25; }
+  .page-sub { margin-top: 2px; font-size: 12px; color: var(--text-muted); }
+  .seg { display: flex; gap: 7px; padding: 11px 0 10px; }
+  .seg button {
+    padding: 6px 14px;
+    border: none; border-radius: 16px;
+    background: var(--bg-input);
+    color: var(--text-secondary);
+    font-size: 12.5px; font-weight: 500;
+    cursor: pointer;
+  }
+  .seg button b { font-weight: 700; margin-left: 3px; }
+  .seg button.on { background: var(--primary); color: #fff; font-weight: 600; }
+
+  /* 下拉刷新 */
+  .ptr {
+    height: 0; overflow: hidden; opacity: 0;
+    display: flex; align-items: center; justify-content: center; gap: 7px;
+    font-size: 11.5px; color: var(--text-muted);
+    transition: height .25s, opacity .25s;
+  }
+  .ptr.show { height: 40px; opacity: 1; }
+  .ptr svg { animation: rotate 1s linear infinite; }
+  @keyframes rotate { to { transform: rotate(360deg); } }
+
+  .cards { flex: 1; overflow-y: auto; padding: 2px 16px 108px; }
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius);
+    padding: 12px 14px 11px;
+    margin-bottom: 9px;
+    cursor: pointer;
+    transition: transform .12s;
+  }
+  .card:active { transform: scale(.985); }
+  .card.new-card { animation: pop .45s ease, glow 2.4s ease; }
+  @keyframes pop { from { opacity: 0; transform: translateY(-14px) scale(.96); } }
+  @keyframes glow { 0%, 55% { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(108,92,231,.14); } 100% { border-color: var(--border-light); box-shadow: none; } }
+  .card h3 { font-size: 14.5px; font-weight: 600; line-height: 1.4; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+  .card .exc { margin-top: 3px; font-size: 12px; color: var(--text-muted); line-height: 1.5; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; overflow: hidden; }
+  .ai-blk {
+    margin-top: 8px; padding: 7px 9px;
+    border-radius: var(--radius-sm);
+    background: var(--primary-bg);
+    display: flex; gap: 6px; align-items: flex-start;
+  }
+  .ai-blk b { flex-shrink: 0; font-size: 9.5px; font-weight: 800; color: #fff; background: var(--primary); padding: 1.5px 4.5px; border-radius: 4px; margin-top: 1px; }
+  .ai-blk span { font-size: 11.5px; line-height: 1.45; color: var(--primary-deep); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+  .card-foot { margin-top: 8px; display: flex; align-items: center; gap: 6px; }
+  .st { display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; color: var(--text-secondary); }
+  .st i { width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); }
+  .st.breathe i { animation: breathe 1.15s infinite; }
+  @keyframes breathe { 50% { opacity: .25; } }
+  .card-foot time { margin-left: auto; font-size: 10.5px; color: var(--text-muted); }
+  .card.done { opacity: .6; }
+  .card.done h3 { text-decoration: line-through; text-decoration-color: rgba(26,26,46,.25); text-decoration-thickness: 1px; }
+  .empty {
+    height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 8px; color: var(--text-muted); font-size: 13px; text-align: center; padding: 0 40px;
+  }
+  .empty svg { color: #c9cdd6; }
+  .empty strong { color: var(--text-secondary); font-size: 15px; }
+
+  /* ── 底部操作 dock:拇指区,切项目 + 记一笔 ── */
+  .dock {
+    position: absolute; left: 12px; right: 12px; bottom: 12px;
+    display: flex; align-items: center; gap: 10px;
+    z-index: 3;
+  }
+  .proj-pill {
+    flex: 1; min-width: 0; max-width: 62%;
+    display: flex; align-items: center; gap: 8px;
+    padding: 11px 14px;
+    border: 1px solid var(--border-light);
+    border-radius: 999px;
+    background: var(--bg-card);
+    box-shadow: 0 4px 16px rgba(26,26,46,.08);
+    font-size: 13.5px; font-weight: 600; color: var(--text-primary);
+    cursor: pointer;
+  }
+  .proj-pill .p-logo { width: 18px; height: 18px; border-radius: 6px; flex-shrink: 0; }
+  .proj-pill span.nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .proj-pill svg { flex-shrink: 0; color: var(--text-muted); }
+  .rec-cta {
+    margin-left: auto;
+    display: flex; align-items: center; gap: 6px;
+    padding: 12px 19px;
+    border: none; border-radius: 999px;
+    background: var(--primary); color: #fff;
+    font-size: 14px; font-weight: 600;
+    box-shadow: 0 6px 18px rgba(108,92,231,.4);
+    cursor: pointer;
+    transition: transform .15s;
+  }
+  .rec-cta:active { transform: scale(.94); }
+
+  /* ── 二级页头部 ── */
+  .sub-head {
+    flex-shrink: 0;
+    display: flex; align-items: center; gap: 4px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border-light);
+    background: var(--bg);
+  }
+  .sub-head .title { font-size: 16px; font-weight: 700; }
+  .sub-head .cnt { margin-left: auto; font-size: 11px; color: var(--text-muted); padding-right: 8px; }
+  .icon-btn {
+    width: 36px; height: 36px;
+    border: none; border-radius: var(--radius-sm);
+    background: transparent; color: var(--text-secondary);
+    display: inline-flex; align-items: center; justify-content: center;
+    cursor: pointer;
+  }
+  .icon-btn:active { background: var(--bg-input); }
+
+  /* ── 记录页 ── */
+  .rec-area { flex: 1; display: flex; flex-direction: column; padding: 14px 16px 0; min-height: 0; }
+  .rec-area textarea {
+    flex: 1; border: none; outline: none; resize: none;
+    background: transparent;
+    font-size: 15.5px; line-height: 1.7; font-family: inherit;
+    color: var(--text-primary);
+  }
+  .rec-area textarea::placeholder { color: #b9bec9; }
+  .rec-foot { flex-shrink: 0; padding: 10px 16px calc(12px + env(safe-area-inset-bottom)); background: var(--bg); border-top: 1px solid var(--border-light); }
+  .rec-foot .hint { font-size: 10.5px; color: var(--text-muted); margin-bottom: 9px; }
+  .btn-primary {
+    width: 100%; padding: 13px;
+    border: none; border-radius: var(--radius);
+    background: var(--primary); color: #fff;
+    font-size: 15px; font-weight: 600;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: 7px;
+  }
+  .btn-primary:active { background: #5a4bd1; }
+
+  /* ── 详情页 ── */
+  .detail-body { flex: 1; overflow-y: auto; padding: 16px 18px 100px; }
+  .detail-body h1 { font-size: 20px; line-height: 1.35; font-weight: 700; }
+  .d-meta { margin: 8px 0 4px; display: flex; align-items: center; gap: 9px; font-size: 11.5px; color: var(--text-muted); }
+  .d-sec { margin-top: 18px; }
+  .d-sec > .cap { font-size: 11px; font-weight: 750; color: var(--primary-deep); letter-spacing: .4px; margin-bottom: 8px; }
+  .d-quote {
+    padding: 10px 12px;
+    border-left: 3px solid var(--primary);
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    background: var(--primary-bg);
+    color: var(--primary-deep); font-size: 13px; line-height: 1.55;
+  }
+  .d-prose { font-size: 13.5px; line-height: 1.75; }
+  .d-prose h4 { font-size: 14px; margin: 14px 0 6px; }
+  .d-prose p { margin: 6px 0; }
+  .d-prose ul { padding-left: 18px; margin: 6px 0; }
+  .d-prose li { margin: 3px 0; }
+  .d-prose .hl { background: var(--warning-bg); padding: 0 3px; border-radius: 3px; }
+  .d-orig {
+    padding: 11px 13px;
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius);
+    background: var(--bg-card);
+    font-size: 13px; line-height: 1.7; color: var(--text-secondary);
+    white-space: pre-wrap;
+  }
+  .q-box { border: 1px solid #f2dfa8; background: var(--warning-bg); border-radius: var(--radius); padding: 11px 13px; }
+  .q-box li { font-size: 12.5px; color: #8a5a00; line-height: 1.6; margin: 4px 0; }
+  .cand { border: 1px solid var(--border-light); border-radius: var(--radius); background: var(--bg-card); overflow: hidden; margin-bottom: 9px; }
+  .cand .main { padding: 11px 13px 9px; }
+  .cand .tag { font-size: 10px; font-weight: 750; color: var(--primary); }
+  .cand h5 { font-size: 13.5px; margin: 3px 0 5px; }
+  .cand .ag { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #3169a8; }
+  .cand .ag em { font-style: normal; padding: 2px 7px; border-radius: 5px; background: #ebf3fb; font-weight: 600; }
+  .cand .foot { display: flex; align-items: center; padding: 7px 13px; background: var(--bg); border-top: 1px solid var(--border-light); font-size: 11px; color: var(--text-muted); }
+  .cand .foot .ok { color: var(--success); display: inline-flex; align-items: center; gap: 4px; }
+  .d-foot {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    display: flex; gap: 9px;
+    padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+    background: var(--bg); border-top: 1px solid var(--border-light);
+  }
+  .btn-ghost {
+    flex: 1; padding: 12px;
+    border: 1px solid var(--border); border-radius: var(--radius);
+    background: var(--bg-card); color: var(--text-secondary);
+    font-size: 13.5px; font-weight: 600;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+  }
+  .btn-ghost.danger { color: var(--error); }
+  .d-foot .btn-primary { flex: 1.4; width: auto; padding: 12px; font-size: 13.5px; }
+  .d-wait {
+    display: flex; align-items: center; gap: 8px;
+    padding: 11px 13px;
+    border-radius: var(--radius);
+    background: var(--primary-bg); color: var(--primary-deep);
+    font-size: 12.5px;
+  }
+  .d-wait.spin svg { animation: rotate 1s linear infinite; }
+
+  /* ── Tab 栏(同 MobileShell)── */
+  .tabbar {
+    flex-shrink: 0;
+    display: flex; justify-content: space-around; align-items: center;
+    height: var(--tab-height);
+    background: var(--bg-card);
+    border-top: 1px solid var(--border-light);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .tabbar button {
+    flex: 1; border: none; background: none;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+    font-size: 11px; color: var(--text-muted);
+    cursor: pointer; position: relative;
+  }
+  .tabbar button.on { color: var(--primary); }
+  .badge {
+    position: absolute; top: 7px; left: calc(50% + 4px);
+    min-width: 15px; height: 15px; padding: 0 3px;
+    border-radius: 8px;
+    background: var(--primary); color: #fff;
+    font-size: 9px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  /* ── Sheet / 弹层 / toast ── */
+  .mask {
+    position: absolute; inset: 0;
+    background: rgba(26,26,46,.34);
+    opacity: 0; visibility: hidden;
+    transition: opacity .22s; z-index: 8;
+  }
+  .mask.show { opacity: 1; visibility: visible; }
+  .sheet {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    background: var(--bg-card);
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    padding: 8px 0 calc(10px + env(safe-area-inset-bottom));
+    transform: translateY(105%);
+    transition: transform .26s cubic-bezier(.32,.72,.35,1);
+    z-index: 9;
+  }
+  .sheet.show { transform: none; }
+  .sheet .cap { text-align: center; font-size: 12px; color: var(--text-muted); padding: 8px 0 6px; }
+  .sheet-item {
+    width: 100%;
+    display: flex; align-items: center; gap: 10px;
+    padding: 13px 20px;
+    border: none; background: none;
+    font-size: 14.5px; color: var(--text-primary);
+    cursor: pointer;
+  }
+  .sheet-item:active { background: var(--bg); }
+  .sheet-item .dot-logo { width: 22px; height: 22px; border-radius: 7px; flex-shrink: 0; }
+  .sheet-item .n { margin-left: auto; margin-right: 8px; font-size: 11.5px; color: var(--text-muted); }
+  .sheet-item.cur .n { margin-right: 4px; }
+  .sheet-item .ck { margin-left: auto; color: var(--primary); visibility: hidden; }
+  .sheet-item.cur .ck { visibility: visible; }
+
+  .dialog-mask {
+    position: absolute; inset: 0;
+    background: rgba(26,26,46,.4);
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; visibility: hidden;
+    transition: opacity .2s; z-index: 10;
+  }
+  .dialog-mask.show { opacity: 1; visibility: visible; }
+  .dialog {
+    width: 78%; background: var(--bg-card);
+    border-radius: var(--radius-lg);
+    padding: 20px 18px 14px;
+    text-align: center;
+    transform: scale(.92); transition: transform .2s;
+  }
+  .dialog-mask.show .dialog { transform: none; }
+  .dialog h5 { font-size: 15.5px; margin-bottom: 7px; }
+  .dialog p { font-size: 12.5px; color: var(--text-secondary); line-height: 1.55; margin-bottom: 16px; }
+  .dialog .row { display: flex; gap: 9px; }
+  .dialog .row button { flex: 1; padding: 10px; border-radius: var(--radius); border: none; font-size: 13.5px; font-weight: 600; cursor: pointer; }
+  .dialog .cancel { background: var(--bg-input); color: var(--text-secondary); }
+  .dialog .ok { background: var(--error); color: #fff; }
+
+  .toast {
+    position: absolute; left: 50%; bottom: 128px;
+    transform: translateX(-50%) translateY(8px);
+    background: rgba(26,26,46,.92);
+    color: #fff; font-size: 12.5px;
+    padding: 9px 16px; border-radius: 20px;
+    opacity: 0; visibility: hidden;
+    transition: all .25s;
+    z-index: 12; max-width: 78%; text-align: center;
+  }
+  .toast.show { opacity: 1; visibility: visible; transform: translateX(-50%); }
+</style>
+</head>
+<body>
+<div class="phone" id="phone">
+  <div class="statusbar"><span>12:53</span><span class="sig">●●● ⌁ ▮</span></div>
+
+  <div class="screens">
+    <!-- ═══ 列表页 ═══ -->
+    <section class="view base active" id="v-list">
+      <div class="list-head">
+        <h1 class="page-title">灵感</h1>
+        <div class="page-sub">想到什么记一笔,AI 后台整理成方案</div>
+        <div class="seg" id="seg"></div>
+      </div>
+      <div class="ptr" id="ptr">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/></svg>
+        正在同步…
+      </div>
+      <div class="cards" id="cards"></div>
+
+      <!-- 底部操作 dock:都在拇指区 -->
+      <div class="dock">
+        <button class="proj-pill" id="proj-pill">
+          <span class="p-logo" id="pill-logo"></span>
+          <span class="nm" id="pill-name">ai-ide-studio</span>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <button class="rec-cta" id="rec-cta">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          记一笔
+        </button>
+      </div>
+    </section>
+
+    <!-- ═══ 记录页 ═══ -->
+    <section class="view" id="v-record">
+      <div class="sub-head">
+        <button class="icon-btn" data-back>
+          <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <span class="title">新灵感</span>
+        <span class="cnt" id="rec-cnt"></span>
+      </div>
+      <div class="rec-area">
+        <textarea id="rec-text" placeholder="想到什么,记一笔…" maxlength="50000"></textarea>
+      </div>
+      <div class="rec-foot">
+        <div class="hint">只管写,标题自动取正文前 60 字 · 原文先保存,AI 整理在后台进行</div>
+        <button class="btn-primary" id="btn-save">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          记录
+        </button>
+      </div>
+    </section>
+
+    <!-- ═══ 详情页 ═══ -->
+    <section class="view" id="v-detail">
+      <div class="sub-head">
+        <button class="icon-btn" data-back>
+          <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <span class="title">灵感详情</span>
+      </div>
+      <div class="detail-body" id="detail-body"></div>
+      <div class="d-foot" id="detail-foot"></div>
+    </section>
+  </div>
+
+  <!-- ═══ Tab 栏 ═══ -->
+  <nav class="tabbar">
+    <button data-tab="动态">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      动态<span class="badge">3</span>
+    </button>
+    <button data-tab="会话">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      会话
+    </button>
+    <button class="on" data-tab="灵感">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1.3.5 2.6 1.5 3.5.8.8 1.3 1.5 1.5 2.5"/><line x1="9" y1="18" x2="15" y2="18"/><line x1="10" y1="22" x2="14" y2="22"/></svg>
+      灵感
+    </button>
+    <button data-tab="任务">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="6" height="6" rx="1"/><path d="m3 17 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/></svg>
+      任务
+    </button>
+    <button data-tab="设置">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+      设置
+    </button>
+  </nav>
+
+  <!-- 项目切换 sheet -->
+  <div class="mask" id="mask-proj"></div>
+  <div class="sheet" id="sheet-proj">
+    <div class="cap">切换项目</div>
+    <div id="proj-list"></div>
+  </div>
+
+  <!-- 删除确认 -->
+  <div class="dialog-mask" id="dlg-del">
+    <div class="dialog">
+      <h5>删除灵感</h5>
+      <p id="dlg-del-text">确定删除这条灵感吗?此操作不可恢复。</p>
+      <div class="row">
+        <button class="cancel" id="dlg-del-cancel">取消</button>
+        <button class="ok" id="dlg-del-ok">删除</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+</div>
+
+<script>
+/* ═══════════ 状态与文案(与实现层对齐) ═══════════ */
+const ST = {
+  draft:       { label: '待整理',    color: '#9ca3af' },
+  queued:      { label: '排队中',    color: '#6c5ce7', breathe: true },
+  processing:  { label: '整理中',    color: '#6c5ce7', breathe: true },
+  ready:       { label: '方案已生成', color: '#10b981' },
+  needs_input: { label: '需确认',    color: '#f59e0b' },
+  failed:      { label: '整理失败',  color: '#ef4444' },
+}
+
+const PROJECTS = [
+  { id: 'p1', name: 'ai-ide-studio', color: 'linear-gradient(135deg,#6c5ce7,#a29bfe)' },
+  { id: 'p2', name: 'govclaw',       color: 'linear-gradient(135deg,#f59e0b,#fbbf24)' },
+  { id: 'p3', name: 'ai-zmt',        color: 'linear-gradient(135deg,#ef4444,#f87171)' },
+  { id: 'p4', name: 'ai_video',      color: 'linear-gradient(135deg,#3b82f6,#60a5fa)' },
+  { id: 'p5', name: '个人工坊',       color: 'linear-gradient(135deg,#10b981,#34d399)' },
+]
+
+const NOTES = {
+  p1: [
+    { id: 'n1', time: '12:53', title: '思考交互方式的重构,特别是引入灵感之后。之前是在工作空间一个个找 agent 会话交互,但是灵感一来,可以批量记录,然后 AI 后台处理',
+      excerpt: '之前是在工作空间一个个找 agent 会话交互,但是灵感一来,可以批量记录,然后 AI 后台…',
+      summary: '洞察成立且是产品范式级方向;建议与 a8c61217 合并决策,先定方向再拆方案',
+      status: 'ready', completed: false,
+      detail: `
+        <div class="d-quote">洞察成立且是产品范式级方向,建议与 a8c61217 合并决策,先定方向再拆方案。</div>
+        <div class="d-sec"><div class="cap">AI 整理结果 · 版本 1</div>
+        <div class="d-prose">
+          <h4>明确判断</h4>
+          <p>洞察成立,且是产品范式级方向——不是单功能。正因为层级高,<span class="hl">不直接进开发,必须先定方向</span>。用户抓住的真问题是:工作台的交互范式是"一个个找 agent 会话、一对一对话",而灵感引入了"批量记录 → AI 后台执行"的新范式,两者心智不匹配。</p>
+          <h4>与 a8c61217 的关系(重要)</h4>
+          <p>本条是 a8c61217(统一看板)的上位思考。同源,建议合并成一条产品方向一起决策,而非拆成两个独立任务。</p>
+          <h4>方案路径(三向,需先定方向再谈形态)</h4>
+          <ul>
+            <li><b>A · 灵感/工作流优先</b>:"工作流看板"(灵感→任务流水线)提为主入口,工作台降级为"会话查看器"。范式彻底迁移,改动最大、风险最高。</li>
+            <li><b>B · 双范式并存(推荐先验证)</b>:工作台保留实时对话心智,新增"工作流/收件箱"主入口承载异步批量,导航并列、互相跳转。渐进,不破坏现有心智。</li>
+            <li><b>C · 工作台内嵌执行流</b>:不重构导航,工作台侧栏增"灵感执行流"追踪面板,把散落会话按灵感聚合。最小改动,治标。</li>
+          </ul>
+        </div></div>`,
+      questions: ['工作流看板的信息密度和入口层级怎么定?', '灵感与任务的边界:什么进灵感会话,什么直接建任务?', 'B 方案双范式并存的导航命名怎么统一?'],
+      candidates: [
+        { title: '重构工作台主入口为工作流看板(方向 B 第一期)', agent: '编码智能体', reason: '建议与统一看板合并决策', created: true },
+        { title: '灵感执行流追踪面板:散落会话按灵感聚合', agent: '编码智能体', reason: 'C 方案最小改动兜底,可并行', created: false },
+      ],
+    },
+    { id: 'n2', time: '12:16', title: '灵感的未来入口,异步阅读的方式,比如加了很多灵感,然后 AI 后台处理,然后点开任务发出去,然后又要一个个找',
+      excerpt: '比如加了很多灵感,然后 AI 后台处理,然后点开任务发出去,然后又要一个个找…',
+      summary: '需求成立但偏抽象,建议先做统一工作流看板调研,而非直接开发',
+      status: 'ready', completed: false,
+      detail: `<div class="d-quote">需求成立但偏抽象:本质诉求是"异步产物有一个统一的看板来处理",建议先调研再立任务。</div>
+        <div class="d-sec"><div class="cap">AI 整理结果 · 版本 1</div><div class="d-prose">
+        <p>痛点成立:灵感批量发出去后,成果散落在工作台会话列表里,再切回去一个个找,范式就拧巴了。</p>
+        <ul><li>需要一个聚合视角:按灵感聚合它产出的会话/任务/结果</li>
+        <li>需要未读/状态标记:哪些产物我没看过</li>
+        <li>与「思考交互方式的重构」同源,建议合并</li></ul></div></div>`,
+      questions: ['聚合视角放在工作台侧栏还是独立页?'], candidates: [],
+    },
+    { id: 'n3', time: '12:08', title: '批量管理会话,批量已读功能',
+      excerpt: '批量已读简单,批量管理会删除需拆开规范',
+      summary: '需求成立;批量已读简单可先做,批量归档/删除含破坏性操作需单独规范',
+      status: 'ready', completed: false,
+      detail: `<div class="d-quote">需求成立:批量已读简单可先做;批量归档/删除含破坏性操作,需单独规范确认流。</div>`,
+      questions: [], candidates: [],
+    },
+    { id: 'n4', time: '11:33', title: 'app端添加灵感的功能,替换掉现在的任务列表,任务列表没太大用',
+      excerpt: '移动端无灵感功能、后端 RPC 已齐全可复用。但"替换任务列表"会删掉待确认入口…',
+      summary: '需求成立(移动端加灵感);但"替换任务列表"会删掉待确认入口、打破任务闭环,先澄清任务去留',
+      status: 'ready', completed: true,
+      detail: `<div class="d-quote">移动端加灵感:成立,RPC 齐全。"替换任务列表":不成立——待确认入口被删会打破任务闭环,灵感与任务是产出关系不是替代关系。</div>`,
+      questions: [], candidates: [],
+    },
+    { id: 'n5', time: '10:47', title: '把会话里的结论自动沉淀为任务草稿,每天定时跑一轮',
+      excerpt: '每天定时把会话结论沉淀成任务草稿,人工确认后再进任务列表…',
+      summary: '', status: 'processing', completed: false, detail: null, questions: [], candidates: [],
+    },
+    { id: 'n6', time: '09:58', title: '周末把灵感会话的 prompt 调一版,让摘要更短',
+      excerpt: '摘要现在两行截断还是太长,想让 AI 摘要压缩到一句话…',
+      summary: '', status: 'draft', completed: false, detail: null, questions: [], candidates: [],
+    },
+    { id: 'n7', time: '昨天 23:36', title: '每天把我对话的内容,在我们 ide 做的事情汇总成一个文档,然后让 AI 可以查',
+      excerpt: '用于改进自己,或者数据沉淀记录我的偏好,或者我自己复盘…',
+      summary: '需求成立:系统有 Agent 视角的自主汇报,但没有用户行为视角的每日汇总/统计/偏好沉淀',
+      status: 'needs_input', completed: false,
+      detail: `<div class="d-quote">需求成立:缺"用户行为视角"的每日汇总。原始数据齐全可复用,但一句话混了三件事(汇报/统计/偏好沉淀),需拆范围。</div>
+        <div class="d-sec"><div class="cap">执行前需要确认 · 3</div><div class="q-box"><ul>
+        <li>汇总范围:只统计本机 IDE 行为,还是包含所有项目?</li>
+        <li>产出形态:每日一篇 Markdown 文档,还是结构化入库供 AI 检索?</li>
+        <li>触发时机:每天固定时间跑,还是让我手动触发?</li></ul></div></div>`,
+      questions: ['汇总范围?', '产出形态?', '触发时机?'], candidates: [],
+    },
+    { id: 'n8', time: '前天 07:46', title: '记录:语音输入快捷指令的设想,走路的时候也能记灵感',
+      excerpt: '走路时想东西,掏手机打字不方便,如果长按侧键唤起语音…',
+      summary: '', status: 'failed', completed: false, detail: null,
+      lastError: '项目灵感会话没有返回结构化结果', questions: [], candidates: [],
+    },
+  ],
+  p2: [
+    { id: 'g1', time: '昨天 18:20', title: 'govclaw 的登录态过期后自动刷新,不要每次都弹回登录页',
+      excerpt: '每次过期都要重新输账号密码,一天好几次…',
+      summary: '可复用现有 token 刷新拦截器,加静默续期即可', status: 'ready', completed: false,
+      detail: `<div class="d-quote">复用现有 token 刷新拦截器,401 时静默续期重放请求,失败才跳登录页。</div>`,
+      questions: [], candidates: [],
+    },
+    { id: 'g2', time: '前天 09:12', title: '报表导出加个进度条,大表导出用户以为卡死了',
+      excerpt: '几千行的表导出要十几秒,页面没任何反馈…', summary: '', status: 'draft', completed: false, detail: null, questions: [], candidates: [],
+    },
+  ],
+  p3: [
+    { id: 'z1', time: '08-27 15:40', title: '直播切片自动生成封面:取弹幕最高峰前后 3 秒的帧',
+      excerpt: '封面现在靠手截,想按弹幕热度自动挑帧…',
+      summary: '弹幕密度曲线已有,取峰值时间窗抽帧即可,先做 CLI 验证效果', status: 'ready', completed: false,
+      detail: `<div class="d-quote">弹幕密度曲线已有,取峰值 ±3s 窗口抽 3 帧供选。先做 CLI 验证命中率再进产品。</div>`,
+      questions: [], candidates: [],
+    },
+  ],
+  p4: [
+    { id: 'v1', time: '08-26 11:02', title: '视频转码队列加优先级,客户单先插队',
+      excerpt: '现在先进先出,客户的急单排在体验视频后面…',
+      summary: '队列加 priority 字段,消费端按优先级取即可', status: 'ready', completed: false,
+      detail: `<div class="d-quote">队列加 priority 字段 + 消费端按优先级出队,存量任务默认普通级。</div>`,
+      questions: [], candidates: [],
+    },
+  ],
+  p5: [],
+}
+
+/* ═══════════ 状态 ═══════════ */
+const state = { projectId: 'p1', filter: 'all', noteId: null }
+const $ = (id) => document.getElementById(id)
+const notesOf = (pid) => NOTES[pid] || []
+const curNote = () => notesOf(state.projectId).find((n) => n.id === state.noteId) || null
+
+let toastTimer = null
+function toast(msg) {
+  const el = $('toast')
+  el.textContent = msg
+  el.classList.add('show')
+  clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2200)
+}
+
+/* ═══════════ 视图切换 ═══════════ */
+function show(id) {
+  document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'))
+  $(id).classList.add('active')
+}
+document.querySelectorAll('[data-back]').forEach((b) => b.addEventListener('click', () => show('v-list')))
+document.querySelectorAll('.tabbar [data-tab]').forEach((b) => {
+  b.addEventListener('click', () => { if (!b.classList.contains('on')) toast('原型仅演示「灵感」tab') })
+})
+
+/* ═══════════ 列表 ═══════════ */
+const FILTERS = [ { key: 'all', label: '全部' }, { key: 'active', label: '进行中' }, { key: 'done', label: '已完成' } ]
+
+function visibleNotes() {
+  return notesOf(state.projectId).filter((n) => state.filter === 'all' || (state.filter === 'done' ? n.completed : !n.completed))
+}
+
+function renderSeg() {
+  const list = notesOf(state.projectId)
+  const counts = {
+    all: list.length,
+    active: list.filter((n) => !n.completed).length,
+    done: list.filter((n) => n.completed).length,
+  }
+  $('seg').innerHTML = FILTERS.map((f) =>
+    `<button data-f="${f.key}" class="${state.filter === f.key ? 'on' : ''}">${f.label}<b>${counts[f.key]}</b></button>`).join('')
+  $('seg').querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
+    state.filter = b.dataset.f
+    renderSeg(); renderCards()
+  }))
+}
+
+function stHtml(n) {
+  const s = ST[n.status]
+  return `<span class="st ${s.breathe ? 'breathe' : ''}"><i style="background:${s.color}"></i>${s.label}</span>`
+}
+
+function esc(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
+function renderCards() {
+  const box = $('cards')
+  const list = visibleNotes()
+  if (!list.length) {
+    const any = notesOf(state.projectId).length === 0
+    box.innerHTML = `<div class="empty">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1.3.5 2.6 1.5 3.5.8.8 1.3 1.5 1.5 2.5"/><line x1="9" y1="18" x2="15" y2="18"/><line x1="10" y1="22" x2="14" y2="22"/></svg>
+      <strong>${any ? '还没有灵感记录' : '这里没有匹配的灵感'}</strong>
+      <span>${any ? '点右下角「记一笔」,想到什么写下来。<br>原文立即保存,AI 在后台整理。' : '换个筛选看看,或记录一条新的。'}</span>
+    </div>`
+    return
+  }
+  box.innerHTML = list.map((n) => `
+    <article class="card ${n.completed ? 'done' : ''}" data-id="${n.id}">
+      <h3>${esc(n.title)}</h3>
+      <div class="exc">${esc(n.excerpt || '')}</div>
+      ${n.summary ? `<div class="ai-blk"><b>AI</b><span>${esc(n.summary)}</span></div>` : ''}
+      <div class="card-foot">${stHtml(n)}<time>${n.time}</time></div>
+    </article>`).join('')
+  box.querySelectorAll('.card').forEach((c) => c.addEventListener('click', () => openDetail(c.dataset.id)))
+}
+
+/* ═══════════ 详情 ═══════════ */
+function openDetail(id) {
+  state.noteId = id
+  renderDetail()
+  show('v-detail')
+}
+
+function renderDetail() {
+  const n = curNote()
+  if (!n) return
+  let html = `<h1>${esc(n.title)}</h1>
+    <div class="d-meta">${stHtml(n)}<span>·</span><span>${n.time}</span><span>·</span><span>灵感会话整理</span></div>`
+
+  if (n.status === 'processing' || n.status === 'queued') {
+    html += `<div class="d-sec"><div class="d-wait spin">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/></svg>
+      AI 正在整理,完成后这条卡片会自动更新,不用等在这。</div>
+      <div class="d-sec"><div class="cap">原始记录</div><div class="d-orig">${esc(n.excerpt || n.title)}</div></div></div>`
+  } else if (n.status === 'failed') {
+    html += `<div class="d-sec"><div class="d-wait" style="background:var(--error-bg);color:var(--error)">
+      整理失败:${esc(n.lastError || '项目灵感会话没有返回结构化结果')}</div>
+      <div class="d-sec"><div class="cap">原始记录(不会丢失)</div><div class="d-orig">${esc(n.excerpt || n.title)}</div></div></div>`
+  } else if (n.status === 'draft') {
+    html += `<div class="d-sec"><div class="d-wait">尚未整理。点下方「整理一下」,AI 会把这条记录生成方案和候选任务。</div>
+      <div class="d-sec"><div class="cap">原始记录</div><div class="d-orig">${esc(n.excerpt || n.title)}</div></div></div>`
+  } else {
+    if (n.detail) html += `<div class="d-sec">${n.detail}</div>`
+    else html += `<div class="d-sec"><div class="d-quote">${esc(n.summary || '')}</div></div>`
+    if (n.questions && n.questions.length) {
+      html += `<div class="d-sec"><div class="cap">执行前需要确认 · ${n.questions.length}</div><div class="q-box"><ul>${n.questions.map((q) => `<li>${esc(q)}</li>`).join('')}</ul></div></div>`
+    }
+    if (n.candidates && n.candidates.length) {
+      html += `<div class="d-sec"><div class="cap">候选任务 · ${n.candidates.length} <span style="font-weight:400;color:var(--text-muted)">(每项独立确认,不会自动执行)</span></div>${n.candidates.map((c, i) => `
+        <div class="cand"><div class="main">
+          <div class="tag">候选 ${i + 1}</div><h5>${esc(c.title)}</h5>
+          <div class="ag"><em>${esc(c.agent)}</em><span>${esc(c.reason || '')}</span></div>
+        </div><div class="foot">
+          ${c.created ? '<span class="ok"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>已创建任务</span>' : '<span>尚未创建 · 请在 PC 端确认后创建</span>'}
+        </div></div>`).join('')}</div>`
+    } else if (n.status === 'ready') {
+      html += `<div class="d-sec"><div style="padding:13px;border:1px dashed var(--border);border-radius:var(--radius);color:var(--text-muted);font-size:12px">当前分析没有生成候选任务,可到 PC 端灵感会话继续讨论。</div></div>`
+    }
+  }
+  $('detail-body').innerHTML = html
+
+  const foot = $('detail-foot')
+  if (n.status === 'processing' || n.status === 'queued') {
+    foot.innerHTML = ''
+  } else if (n.status === 'failed') {
+    foot.innerHTML = `<button class="btn-ghost danger" id="d-del">删除</button><button class="btn-primary" id="d-main">↻ 重新整理</button>`
+    $('d-main').addEventListener('click', () => { organizeNote(n, '已重新提交整理') })
+  } else if (n.status === 'draft') {
+    foot.innerHTML = `<button class="btn-ghost danger" id="d-del">删除</button><button class="btn-primary" id="d-main">✦ 整理一下</button>`
+    $('d-main').addEventListener('click', () => { organizeNote(n, '已提交整理') })
+  } else {
+    foot.innerHTML = `<button class="btn-ghost danger" id="d-del">删除</button><button class="btn-primary" id="d-main">${n.completed ? '重新打开' : '✓ 标记完成'}</button>`
+    $('d-main').addEventListener('click', () => {
+      n.completed = !n.completed
+      toast(n.completed ? '已标记完成' : '已重新打开')
+      renderDetail(); renderSeg(); renderCards()
+    })
+  }
+  const del = $('d-del')
+  if (del) del.addEventListener('click', () => {
+    $('dlg-del-text').textContent = `确定删除「${n.title.slice(0, 18)}…」吗?此操作不可恢复。`
+    $('dlg-del').classList.add('show')
+  })
+}
+
+/* ═══════════ 记录 ═══════════ */
+$('rec-cta').addEventListener('click', () => {
+  $('rec-text').value = ''
+  updCnt()
+  show('v-record')
+  setTimeout(() => $('rec-text').focus(), 320)
+})
+$('rec-text').addEventListener('input', updCnt)
+function updCnt() {
+  const v = $('rec-text').value
+  $('rec-cnt').textContent = v ? `${v.length} 字` : ''
+}
+$('btn-save').addEventListener('click', () => {
+  const text = $('rec-text').value.trim()
+  if (!text) { toast('先写点内容再记录'); return }
+  const n = {
+    id: 'new-' + Date.now(),
+    time: '刚刚',
+    title: text.replace(/\s+/g, ' ').slice(0, 60),
+    excerpt: text.replace(/\s+/g, ' '),
+    summary: '', status: 'processing', completed: false,
+    detail: null, questions: [], candidates: [],
+  }
+  notesOf(state.projectId).unshift(n)
+  show('v-list')
+  renderSeg(); renderCards()
+  const el = $('cards').querySelector(`[data-id="${n.id}"]`)
+  if (el) { el.classList.add('new-card'); el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }) }
+  toast('已保存,AI 正在后台整理')
+  setTimeout(() => finishOrganize(n), 4500)
+})
+
+/* ═══════════ 整理模拟(对应 ws 推送 inspiration:update) ═══════════ */
+function organizeNote(n, msg) {
+  n.status = 'processing'
+  n.lastError = null
+  renderDetail(); renderSeg(); renderCards()
+  toast(msg)
+  setTimeout(() => finishOrganize(n), 3500)
+}
+function finishOrganize(n) {
+  n.status = 'ready'
+  n.summary = n.summary || '已生成方案与候选任务;点开查看 AI 整理结果,逐项确认后再创建任务。'
+  renderSeg(); renderCards()
+  if (state.noteId === n.id && $('v-detail').classList.contains('active')) renderDetail()
+  toast(`「${n.title.slice(0, 12)}…」整理完成`)
+}
+
+/* ═══════════ 项目切换(底部 pill → sheet) ═══════════ */
+function curProject() { return PROJECTS.find((p) => p.id === state.projectId) }
+function renderPill() {
+  const p = curProject()
+  $('pill-name').textContent = p.name
+  $('pill-logo').style.background = p.color
+}
+function openProjSheet() {
+  $('proj-list').innerHTML = PROJECTS.map((p) => {
+    const cnt = notesOf(p.id).length
+    return `<button class="sheet-item ${p.id === state.projectId ? 'cur' : ''}" data-p="${p.id}">
+      <span class="dot-logo" style="background:${p.color}"></span>${esc(p.name)}
+      <span class="n">${cnt} 条</span>
+      <svg class="ck" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+    </button>`
+  }).join('')
+  $('mask-proj').classList.add('show')
+  $('sheet-proj').classList.add('show')
+  $('proj-list').querySelectorAll('.sheet-item').forEach((b) => b.addEventListener('click', () => {
+    state.projectId = b.dataset.p
+    state.filter = 'all'
+    state.noteId = null
+    closeProjSheet()
+    renderPill(); renderSeg(); renderCards()
+    toast('已切换到 ' + curProject().name)
+  }))
+}
+function closeProjSheet() {
+  $('mask-proj').classList.remove('show')
+  $('sheet-proj').classList.remove('show')
+}
+$('proj-pill').addEventListener('click', openProjSheet)
+$('mask-proj').addEventListener('click', closeProjSheet)
+
+/* ═══════════ 删除 ═══════════ */
+$('dlg-del-cancel').addEventListener('click', () => $('dlg-del').classList.remove('show'))
+$('dlg-del-ok').addEventListener('click', () => {
+  $('dlg-del').classList.remove('show')
+  const list = notesOf(state.projectId)
+  const i = list.findIndex((n) => n.id === state.noteId)
+  if (i >= 0) list.splice(i, 1)
+  state.noteId = null
+  show('v-list')
+  renderSeg(); renderCards()
+  toast('灵感已删除')
+})
+
+/* ═══════════ 下拉刷新(列表顶部下拉) ═══════════ */
+const cardsEl = $('cards')
+let ptrStartY = null, ptrFired = false
+cardsEl.addEventListener('touchstart', (e) => {
+  if (cardsEl.scrollTop <= 0) { ptrStartY = e.touches[0].clientY; ptrFired = false }
+  else ptrStartY = null
+}, { passive: true })
+cardsEl.addEventListener('touchmove', (e) => {
+  if (ptrStartY == null || ptrFired) return
+  if (e.touches[0].clientY - ptrStartY > 70) {
+    ptrFired = true
+    $('ptr').classList.add('show')
+  }
+}, { passive: true })
+cardsEl.addEventListener('touchend', () => {
+  if (ptrFired) setTimeout(() => { $('ptr').classList.remove('show'); toast('已同步') }, 650)
+  ptrStartY = null; ptrFired = false
+})
+
+/* ═══════════ 启动 ═══════════ */
+renderPill(); renderSeg(); renderCards()
+// 加载 8 秒后,列表里那条「整理中」自动完成——模拟 ws 推送驱动卡片自己变亮
+setTimeout(() => {
+  const n = notesOf('p1').find((x) => x.id === 'n5')
+  if (n && n.status === 'processing') finishOrganize(n)
+}, 8000)
+</script>
+</body>
+</html>
