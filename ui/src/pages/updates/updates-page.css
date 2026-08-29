@@ -1,3 +1,4 @@
-.wb-page{height:100%;min-height:0;display:flex;overflow:hidden;background:var(--bg-1)}
-@media (max-width:900px){.wb-sidebar{width:264px;min-width:232px}.wb-preview{flex-basis:320px;min-width:280px}.wb-side-body{padding:16px 18px}}
+.wb-page{--wb-col:600px;height:100%;min-height:0;display:flex;overflow:hidden;background:var(--bg-1)}
+@media (max-width:1100px){.wb-page{--wb-col:520px}}
+@media (max-width:900px){.wb-page{--wb-col:460px}.wb-sidebar{width:264px;min-width:232px}.wb-preview{min-width:380px}.wb-side-body{padding:16px 18px}}
 @media (max-width:700px){.wb-sidebar{width:232px;min-width:212px}.wb-preview{display:none}.wb-composer{padding:0 12px 12px}}
