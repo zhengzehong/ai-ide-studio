@@ -114,4 +114,43 @@ describe('workbench session store', () => {
     expect(state.usage).toEqual({ contextSize: 200000, contextUsed: 1024 })
     expect(state.capabilities).toBeDefined()
   })
+
+  test('keeps restored usage/capabilities across incremental session events', async () => {
+    getRecovery.mockResolvedValue({
+      sessionId: 'session-a',
+      latestSequence: 1,
+      events: [{
+        id: 'event-usage',
+        session_id: 'session-a',
+        message_id: null,
+        type: 'usage.update',
+        payload_json: JSON.stringify({ usage: { contextSize: 200000, contextUsed: 1024 } }),
+        sequence: 1,
+        created_at: '2026-08-29T00:00:00.000Z',
+      }],
+    })
+    const { useWorkbenchSessionStore } = await import('../../ui/src/stores/workbench-session.store.js')
+    await useWorkbenchSessionStore.getState().select('session-a')
+
+    const { wsClient } = await import('../../ui/src/services/ws-client.js')
+    const handler = wsClient.on.mock.calls.find(([eventType]) => eventType === 'session:event')?.[1] as ((message: Record<string, unknown>) => void) | undefined
+    expect(handler).toBeDefined()
+    handler({
+      sessionId: 'session-a',
+      event: {
+        id: 'event-chunk',
+        session_id: 'session-a',
+        message_id: 'message-live',
+        type: 'message.chunk',
+        payload_json: JSON.stringify({ role: 'agent', messageId: 'message-live', contentDelta: '你好' }),
+        sequence: 2,
+        created_at: '2026-08-29T00:01:00.000Z',
+      },
+    })
+
+    const state = useWorkbenchSessionStore.getState()
+    expect(state.usage).toEqual({ contextSize: 200000, contextUsed: 1024 })
+    expect(state.capabilities).toBeDefined()
+    expect(state.events.some((event) => event.id === 'event-chunk')).toBe(true)
+  })
 })

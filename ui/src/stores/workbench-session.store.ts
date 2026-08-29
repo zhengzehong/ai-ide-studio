@@ -96,12 +96,14 @@ function reducePendingInteractions(
   events: SessionEventData[],
   pendingPermissions: PermissionRequestInfo[] = [],
   pendingElicitations: ElicitationRequestInfo[] = [],
+  usage: UsageInfo | null = null,
+  capabilities: SessionCapabilities = { ...defaultCaps },
 ): Pick<WorkbenchSessionState, 'pendingPermissions' | 'pendingElicitations' | 'usage' | 'capabilities'> {
   const reduced = [...events].sort((left, right) => left.sequence - right.sequence).reduce(applySessionEvent, {
     streamingMessage: null,
-    usage: null,
+    usage,
     turnUsage: null,
-    capabilities: { ...defaultCaps },
+    capabilities: { ...capabilities },
     plan: [],
     pendingPermissions,
     pendingElicitations,
@@ -148,7 +150,7 @@ function installListeners(set: (value: Partial<WorkbenchSessionState> | ((state:
       const event = message.event as SessionEventData
       set((state) => {
         const events = [...state.events.filter((item) => item.id !== event.id), event].sort((a, b) => a.sequence - b.sequence)
-        return { events, ...reducePendingInteractions([event], state.pendingPermissions, state.pendingElicitations) }
+        return { events, ...reducePendingInteractions([event], state.pendingPermissions, state.pendingElicitations, state.usage, state.capabilities) }
       })
     }),
     wsClient.on('session:done', (message) => {
