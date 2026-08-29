@@ -1,13 +1,14 @@
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { Activity, MessageSquare, ListTodo, Settings } from 'lucide-react'
+import { Activity, Lightbulb, MessageSquare, Settings } from 'lucide-react'
 import type { CSSProperties } from 'react'
 import { useConnectionStore } from '../stores/connection.store'
 import { useMobileActivityStore } from '../stores/activity.store'
 
+// 灵感替换任务 tab;任务列表保留轻入口(灵感页右上角图标)
 const tabs = [
   { path: '/activity', label: '动态', icon: Activity },
   { path: '/', label: '会话', icon: MessageSquare },
-  { path: '/tasks', label: '任务', icon: ListTodo },
+  { path: '/inspiration', label: '灵感', icon: Lightbulb },
   { path: '/settings', label: '设置', icon: Settings },
 ] as const
 
@@ -19,6 +20,8 @@ export default function MobileShell() {
   const unreadCount = useMobileActivityStore((state) => (
     state.groups.reduce((total, group) => total + group.sessions.filter((session) => session.unread).length, 0)
   ))
+  // 灵感页自带停靠工具条(与 tab 栏融合),去掉 tab 栏上边框避免双线
+  const hasDockedBar = location.pathname.startsWith('/inspiration')
 
   return (
     <div style={styles.container}>
@@ -26,7 +29,7 @@ export default function MobileShell() {
         <Outlet />
       </div>
 
-      <div style={styles.tabBar}>
+      <div style={{ ...styles.tabBar, ...(hasDockedBar ? styles.tabBarFused : {}) }}>
         {tabs.map((tab) => {
           const active = location.pathname === tab.path
           const Icon = tab.icon
@@ -75,6 +78,9 @@ const styles: Record<string, CSSProperties> = {
     borderTop: '1px solid var(--border-light)',
     paddingBottom: 'var(--safe-bottom)',
     flexShrink: 0,
+  },
+  tabBarFused: {
+    borderTop: 'none',
   },
   tab: {
     display: 'flex',
