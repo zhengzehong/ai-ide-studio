@@ -89,4 +89,29 @@ describe('workbench session store', () => {
     }))
     expect(useWorkbenchSessionStore.getState().pendingPermissions).toEqual([])
   })
+
+  test('exposes capabilities and usage restored from recovery events', async () => {
+    getRecovery.mockResolvedValue({
+      sessionId: 'session-a',
+      latestSequence: 1,
+      events: [{
+        id: 'event-usage',
+        session_id: 'session-a',
+        message_id: null,
+        type: 'usage.update',
+        payload_json: JSON.stringify({ usage: { contextSize: 200000, contextUsed: 1024 } }),
+        sequence: 1,
+        created_at: '2026-08-29T00:00:00.000Z',
+      }],
+    })
+    const { useWorkbenchSessionStore } = await import('../../ui/src/stores/workbench-session.store.js')
+
+    expect(useWorkbenchSessionStore.getState().usage).toBeNull()
+    expect(useWorkbenchSessionStore.getState().capabilities).toBeDefined()
+
+    await useWorkbenchSessionStore.getState().select('session-a')
+    const state = useWorkbenchSessionStore.getState()
+    expect(state.usage).toEqual({ contextSize: 200000, contextUsed: 1024 })
+    expect(state.capabilities).toBeDefined()
+  })
 })

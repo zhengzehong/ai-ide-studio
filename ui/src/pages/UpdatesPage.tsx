@@ -44,5 +44,5 @@ export function UpdatesPage() {
     if (generation !== selectionGeneration.current) return
   }
   const refresh = (): void => { void Promise.all([fetchActivities(), loadPinned({ silent: true })]) }
-  return <section className="workbench-page"><UpdatesSidebar activityGroups={activityGroups} pinnedItems={pinnedItems} loading={activityLoading || pinnedLoading} error={activityError} selectedSessionId={selectedSessionId} onRefresh={refresh} onSelect={(next) => { void selectTarget(next) }} /><UpdatesConversation target={target} onSelectTarget={selectTarget} /><UpdatesPreviewPanel messages={messages} projectId={target?.projectId ?? null} collapsed={previewCollapsed} onToggle={() => setPreviewCollapsed((value) => !value)} /></section>
+  return <section className="wb-page"><UpdatesSidebar activityGroups={activityGroups} pinnedItems={pinnedItems} loading={activityLoading || pinnedLoading} error={activityError} selectedSessionId={selectedSessionId} onRefresh={refresh} onSelect={(next) => { void selectTarget(next) }} /><UpdatesConversation target={target} onSelectTarget={selectTarget} /><UpdatesPreviewPanel messages={messages} projectId={target?.projectId ?? null} sessionId={target?.sessionId ?? null} collapsed={previewCollapsed} onToggle={() => setPreviewCollapsed((value) => !value)} /></section>
 }
