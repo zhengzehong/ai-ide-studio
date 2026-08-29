@@ -1,28 +1,32 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Bot, CircleAlert, Delete, Loader2, RefreshCw, Sparkles } from 'lucide-react'
-import type { InspirationNote } from '@desktop/stores/inspiration.store'
+import { ArrowLeft, Bot, CircleAlert, Delete, Loader2, MessageSquare, Plus, RefreshCw, Sparkles } from 'lucide-react'
+import type { InspirationCandidate, InspirationNote } from '@desktop/stores/inspiration.store'
 import { useAppStore } from '../stores/app.store'
 import { useInspirationStore } from '../stores/inspiration.store'
 import { inspirationStatusMeta, isNoteCompleted } from '../utils/inspiration-status'
 import { formatRelativeTime } from '../utils/task-time'
 import { showToast } from '../utils/toast'
 import ConfirmDialog from '../components/ConfirmDialog'
+import CandidateTaskSheet from '../components/CandidateTaskSheet'
 import MarkdownView from '../components/MarkdownView'
 
 export default function InspirationDetailPage() {
   const { noteId = '' } = useParams<{ noteId: string }>()
   const navigate = useNavigate()
   const currentProjectId = useAppStore((state) => state.currentProjectId)
+  const agents = useAppStore((state) => state.agents)
   const byProject = useInspirationStore((state) => state.byProject)
   const loadError = useInspirationStore((state) => state.error)
   const load = useInspirationStore((state) => state.load)
   const organize = useInspirationStore((state) => state.organize)
   const setCompleted = useInspirationStore((state) => state.setCompleted)
   const removeNote = useInspirationStore((state) => state.removeNote)
+  const createCandidateTask = useInspirationStore((state) => state.createCandidateTask)
 
   const [busy, setBusy] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [taskCandidate, setTaskCandidate] = useState<InspirationCandidate | null>(null)
 
   const note = useMemo<InspirationNote | null>(() => {
     for (const entry of Object.values(byProject)) {
@@ -80,6 +84,29 @@ export default function InspirationDetailPage() {
     }
   }, [projectId, note, removeNote, navigate])
 
+  const handleCreateTask = useCallback(async (agentId: string, execute: boolean) => {
+    if (!projectId || !taskCandidate) return
+    setBusy(true)
+    try {
+      await createCandidateTask(projectId, taskCandidate.id, agentId, execute)
+      showToast(execute ? '任务已创建并开始执行' : '任务已创建,可在任务页启动')
+      setTaskCandidate(null)
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '创建任务失败')
+    } finally {
+      setBusy(false)
+    }
+  }, [projectId, taskCandidate, createCandidateTask])
+
+  const handleOpenSession = useCallback(() => {
+    const sessionId = projectId ? byProject[projectId]?.config?.sessionId : null
+    if (!sessionId) {
+      showToast('先到 PC 端配置灵感助手')
+      return
+    }
+    navigate(`/chat/${sessionId}`)
+  }, [projectId, byProject, navigate])
+
   if (!note && loaded) {
     return (
       <div style={styles.page}>
@@ -117,7 +144,7 @@ export default function InspirationDetailPage() {
           ) : (
             <>
               <CircleAlert size={36} color="var(--text-muted)" strokeWidth={1.4} />
-              <span style={styles.missingText}>灵感不存在或已被删除</span>
+              <span style={styles.missingText}>未找到灵感,请先选择项目</span>
             </>
           )}
         </div>
@@ -130,10 +157,19 @@ export default function InspirationDetailPage() {
   const organizing = note.status === 'queued' || note.status === 'processing'
   const failed = note.status === 'failed'
   const hasResult = Boolean(note.summary || note.bodyMarkdown)
+  const organizerSessionId = projectId ? byProject[projectId]?.config?.sessionId ?? null : null
 
   return (
     <div style={styles.page}>
-      <DetailHeader onBack={() => navigate('/inspiration', { replace: true })} title={note.title || '灵感详情'} />
+      <DetailHeader
+        onBack={() => navigate('/inspiration', { replace: true })}
+        title={note.title || '灵感详情'}
+        action={
+          <button className="pressable" style={styles.sessionBtn} onClick={handleOpenSession} aria-label="灵感会话">
+            <MessageSquare size={19} color={organizerSessionId ? 'var(--primary)' : 'var(--text-muted)'} />
+          </button>
+        }
+      />
 
       <div style={styles.body}>
         {organizing && (
@@ -199,7 +235,7 @@ export default function InspirationDetailPage() {
         {note.candidates.length > 0 && (
           <div style={styles.candidatesSection}>
             <div style={styles.sectionLabel}>候选任务({note.candidates.length})</div>
-            <div style={styles.candidatesHint}>想执行的话,到 PC 端灵感页把候选创建为任务</div>
+            <div style={styles.candidatesHint}>AI 拆好的可执行任务,选个 Agent 一键创建</div>
             {note.candidates.map((candidate) => (
               <div key={candidate.id} className="card" style={styles.candidateCard}>
                 <div style={styles.candidateTitle}>{candidate.title}</div>
@@ -211,6 +247,26 @@ export default function InspirationDetailPage() {
                     <span style={styles.agentChip}>{candidate.suggestedAgentName}</span>
                   )}
                   {candidate.taskId && <span style={styles.createdChip}>已创建任务</span>}
+                  <button
+                    className="pressable"
+                    style={{
+                      ...styles.candidateAction,
+                      ...(candidate.taskId ? styles.candidateViewBtn : styles.candidateCreateBtn),
+                    }}
+                    disabled={busy}
+                    onClick={() =>
+                      candidate.taskId ? navigate(`/task/${candidate.taskId}`) : setTaskCandidate(candidate)
+                    }
+                  >
+                    {candidate.taskId ? (
+                      '查看任务'
+                    ) : (
+                      <>
+                        <Plus size={13} color="var(--primary)" />
+                        创建任务
+                      </>
+                    )}
+                  </button>
                 </div>
               </div>
             ))}
@@ -266,18 +322,27 @@ export default function InspirationDetailPage() {
         onConfirm={() => void handleDelete()}
         onCancel={() => setConfirmDelete(false)}
       />
+
+      <CandidateTaskSheet
+        open={!!taskCandidate}
+        candidate={taskCandidate}
+        agents={agents}
+        busy={busy}
+        onClose={() => setTaskCandidate(null)}
+        onConfirm={(agentId, execute) => void handleCreateTask(agentId, execute)}
+      />
     </div>
   )
 }
 
-function DetailHeader({ onBack, title }: { onBack: () => void; title: string }) {
+function DetailHeader({ onBack, title, action }: { onBack: () => void; title: string; action?: ReactNode }) {
   return (
     <div style={styles.header}>
       <button className="pressable" style={styles.backBtn} onClick={onBack} aria-label="返回">
         <ArrowLeft size={22} color="var(--text-primary)" />
       </button>
       <span style={styles.headerTitle}>{title}</span>
-      <span style={styles.headerSpacer} />
+      {action ?? <span style={styles.headerSpacer} />}
     </div>
   )
 }
@@ -317,6 +382,16 @@ const styles: Record<string, CSSProperties> = {
   },
   headerSpacer: {
     width: 38,
+    flexShrink: 0,
+  },
+  sessionBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 'var(--radius-sm)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: 'var(--bg-input)',
     flexShrink: 0,
   },
   body: {
@@ -499,6 +574,27 @@ const styles: Record<string, CSSProperties> = {
     alignItems: 'center',
     gap: 6,
     flexWrap: 'wrap',
+  },
+  candidateAction: {
+    marginLeft: 'auto',
+    minHeight: 30,
+    padding: '0 12px',
+    borderRadius: 15,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    fontSize: 12,
+    fontWeight: 600,
+    flexShrink: 0,
+  },
+  candidateCreateBtn: {
+    background: 'var(--primary-bg)',
+    color: 'var(--primary)',
+  },
+  candidateViewBtn: {
+    background: 'var(--bg-input)',
+    color: 'var(--text-primary)',
   },
   agentChip: {
     padding: '2px 8px',

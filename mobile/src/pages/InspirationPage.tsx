@@ -276,7 +276,6 @@ export default function InspirationPage() {
         {visibleNotes.map((note) => {
           const completed = isNoteCompleted(note)
           const meta = inspirationStatusMeta(note.status)
-          const summary = note.summary && !completed ? note.summary : ''
           return (
             <button
               key={note.id}
@@ -286,7 +285,6 @@ export default function InspirationPage() {
             >
               <span style={styles.cardTitle}>{note.title || '未命名灵感'}</span>
               <span style={styles.cardExcerpt}>{noteExcerpt(note)}</span>
-              {summary && <span style={styles.aiBlock}>AI · {summary}</span>}
               <span style={styles.cardFoot}>
                 <span style={styles.statusWrap}>
                   <i
@@ -484,19 +482,6 @@ const styles: Record<string, CSSProperties> = {
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
-  },
-  aiBlock: {
-    marginTop: 8,
-    padding: '7px 9px',
-    borderRadius: 'var(--radius-sm)',
-    background: 'var(--primary-bg)',
-    color: 'var(--text-secondary)',
-    fontSize: 12,
-    lineHeight: 1.5,
-    display: '-webkit-box',
-    WebkitBoxOrient: 'vertical',
-    WebkitLineClamp: 2,
-    overflow: 'hidden',
   },
   cardFoot: {
     marginTop: 9,

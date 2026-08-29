@@ -17,6 +17,7 @@ interface InspirationState {
   removeNote: (projectId: string, noteId: string) => Promise<void>
   setCompleted: (projectId: string, noteId: string, completed: boolean) => Promise<void>
   organize: (projectId: string, noteId: string) => Promise<void>
+  createCandidateTask: (projectId: string, candidateId: string, agentId: string, execute: boolean) => Promise<InspirationNote>
   setupListeners: () => () => void
 }
 
@@ -131,6 +132,19 @@ export const useInspirationStore = create<InspirationState>((set, get) => ({
       noteId,
     })) as InspirationNote
     patchNote(set, projectId, note)
+  },
+
+  createCandidateTask: async (projectId, candidateId, agentId, execute) => {
+    const note = (await wsClient.request({
+      type: 'inspiration.candidate.createTask',
+      projectId,
+      candidateId,
+      agentId,
+      execute,
+      sessionMode: 'new_each',
+    })) as InspirationNote
+    patchNote(set, projectId, note)
+    return note
   },
 
   setupListeners: () => {
