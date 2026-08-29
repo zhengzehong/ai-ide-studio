@@ -5,6 +5,7 @@ import { useAppStore } from './stores/app.store'
 import { useSessionStore } from './stores/session.store'
 import { useChatStore } from './stores/chat.store'
 import { useMobileProjectSessionStatsStore } from './stores/project-session-stats.store'
+import { useInspirationStore } from './stores/inspiration.store'
 import { wsClient } from '@desktop/services/ws-client'
 import MobileShell from './components/MobileShell'
 import AndroidBackHandler from './components/AndroidBackHandler'
@@ -19,6 +20,9 @@ import SettingsPage from './pages/SettingsPage'
 import TemplateListPage from './pages/TemplateListPage'
 import PreviewPage from './pages/PreviewPage'
 import SecretaryPage from './pages/SecretaryPage'
+import InspirationPage from './pages/InspirationPage'
+import InspirationRecordPage from './pages/InspirationRecordPage'
+import InspirationDetailPage from './pages/InspirationDetailPage'
 import { usePinnedSessionStore } from './stores/pinned-session.store'
 import { useVoiceStore } from './stores/voice.store'
 import { ActivityPage } from './pages/ActivityPage'
@@ -59,6 +63,7 @@ export default function App() {
     const offPinned = usePinnedSessionStore.getState().setupListeners()
     const offActivity = useMobileActivityStore.getState().setupListeners()
     const offVoice = useVoiceStore.getState().setupListeners()
+    const offInspiration = useInspirationStore.getState().setupListeners()
     const off3 = wsClient.on('resync_required', (message) => {
       const chatStore = useChatStore.getState()
       const resyncSessionId = typeof message.sessionId === 'string' ? message.sessionId : undefined
@@ -78,6 +83,7 @@ export default function App() {
       offPinned()
       offActivity()
       offVoice()
+      offInspiration()
       off3()
     }
   }, [init])
@@ -108,6 +114,8 @@ export default function App() {
         <Route path="/task/:taskId/report/:eventId" element={<TaskReportPage />} />
         <Route path="/preview/:previewId" element={<PreviewPage />} />
         <Route path="/templates" element={<TemplateListPage />} />
+        <Route path="/inspiration/new" element={<InspirationRecordPage />} />
+        <Route path="/inspiration/:noteId" element={<InspirationDetailPage />} />
         <Route element={<MobileShell />}>
           <Route path="/secretary" element={<SecretaryPage />} />
           <Route path="/secretary/:secretaryId/:threadId" element={<SecretaryPage />} />
@@ -115,6 +123,7 @@ export default function App() {
           <Route path="/pinned" element={<Navigate to="/?view=pinned" replace />} />
           <Route path="/" element={<SessionListPage />} />
           <Route path="/tasks" element={<TaskListPage />} />
+          <Route path="/inspiration" element={<InspirationPage />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

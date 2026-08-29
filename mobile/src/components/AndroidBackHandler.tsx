@@ -36,6 +36,13 @@ export function resolveAndroidBackAction(pathname: string, serverUrl: string, re
   if (pathname.startsWith('/task/')) {
     return { type: 'navigate', to: '/tasks' }
   }
+  // 灵感记录/详情是全屏页,返回到灵感列表
+  if (pathname.startsWith('/inspiration/')) {
+    return { type: 'navigate', to: '/inspiration' }
+  }
+  if (pathname === '/inspiration') {
+    return { type: 'navigate', to: '/' }
+  }
   if (pathname.startsWith('/chat/')) {
     return { type: 'navigate', to: isChatReturnPath(returnTo) ? returnTo : '/' }
   }
