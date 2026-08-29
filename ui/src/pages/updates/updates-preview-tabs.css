@@ -1,5 +1,5 @@
 /* ===== 右栏:标头直达面板(一排签) ===== */
-.wb-preview{display:flex;flex:0 1 50%;min-width:420px;flex-direction:column;border-left:1px solid var(--border);background:var(--bg-0);overflow:hidden}
+.wb-preview{display:flex;flex:1 1 0%;min-width:420px;flex-direction:column;border-left:1px solid var(--border);background:var(--bg-0);overflow:hidden}
 .wb-side-head{height:56px;border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 8px 0 14px;gap:8px;flex-shrink:0}
 .wb-chips{display:flex;gap:6px;align-items:center;overflow-x:auto;min-width:0;flex:1;padding:2px}
 .wb-fchip{flex-shrink:0;font-size:12px;padding:5px 12px;border-radius:16px;border:1px solid var(--border);color:var(--text-2);background:var(--bg-1);white-space:nowrap;cursor:pointer;font-family:inherit}

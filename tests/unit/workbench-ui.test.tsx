@@ -181,4 +181,14 @@ describe('统一工作台 UI', () => {
       expect(css).not.toContain('var(--text-4)')
     }
   })
+
+  test('中栏与右栏 flex 均分(各 flex:1 1 0%,保证 1:1 不受侧栏挤占)', () => {
+    // flex-basis 百分比按含侧栏的整行解析,50% 会让右栏恒宽出一个侧栏;
+    // 两栏必须都是 basis 0 + grow 1 才是真正的剩余空间均分
+    const conversation = readFileSync(new URL('../../ui/src/pages/updates/updates-content.css', import.meta.url), 'utf8')
+    const preview = readFileSync(new URL('../../ui/src/pages/updates/updates-preview-tabs.css', import.meta.url), 'utf8')
+    expect(conversation).toMatch(/\.wb-conversation\{[^}]*flex:1\b/)
+    expect(preview).toMatch(/\.wb-preview\{[^}]*flex:1 1 0%/)
+    expect(preview).not.toMatch(/flex:\s*0 1 \d+%/)
+  })
 })
