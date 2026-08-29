@@ -22,6 +22,7 @@ import {
   TaskModesSettings,
   TemplatesPage,
   ToolManager,
+  UpdatesPage,
   WidgetPage,
   Workspace,
 } from './routes/lazy-pages'
@@ -78,6 +79,7 @@ export default function App() {
             <Route element={<AppLayout />}>
               <Route path="/" element={<Dashboard />} />
               <Route path="/pinned" element={<PinnedSessions />} />
+              <Route path="/updates" element={<UpdatesPage />} />
               <Route path="/agents" element={<AgentSquare />} />
               <Route path="/skills" element={<SkillCenter />} />
               <Route path="/tools" element={<ToolManager />} />

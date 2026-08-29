@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import {
+  Activity,
   Bot,
   Brain,
   Clock,
@@ -32,6 +33,7 @@ import { totalSecretaryAttention } from '../../stores/secretary-attention'
 import './AppLayout.css'
 
 const globalNav = [
+  { to: '/updates', icon: Activity, label: '会话动态工作台' },
   { to: '/', icon: LayoutDashboard, label: '概览', end: true },
   { to: '/pinned', icon: Pin, label: '置顶会话' },
   { to: '/agents', icon: Store, label: 'Agent 广场' },
