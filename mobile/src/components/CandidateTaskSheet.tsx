@@ -1,29 +1,84 @@
-import { useEffect, useState, type CSSProperties } from 'react'
-import { Check } from 'lucide-react'
+import { useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { Check, Loader2 } from 'lucide-react'
+import { wsClient } from '@desktop/services/ws-client'
+import type { SessionData } from '@desktop/stores/session.store'
+import type { InspirationCandidate, InspirationConfig } from '@desktop/stores/inspiration.store'
 import type { AgentItem } from '../stores/app.store'
-import type { InspirationCandidate } from '@desktop/stores/inspiration.store'
 
 interface Props {
   open: boolean
   candidate: InspirationCandidate | null
-  agents: AgentItem[]
+  projectId: string | null
+  config: InspirationConfig | null
   busy: boolean
   onClose: () => void
-  onConfirm: (agentId: string, execute: boolean) => void
+  onConfirm: (agentId: string, sessionId: string, execute: boolean) => void
 }
 
-/** 候选任务 → 创建任务:选 Agent + 是否立即执行 */
-export default function CandidateTaskSheet({ open, candidate, agents, busy, onClose, onConfirm }: Props) {
+function isActiveAgentSession(session: SessionData, agentId: string | null): boolean {
+  return session.agent_id === agentId && session.status === 'active' && !session.deleted_at && !session.archived_at
+}
+
+/** 候选任务 → 创建任务:选 Agent + 执行会话 + 是否立即执行(对齐 PC CandidateTaskDialog) */
+export default function CandidateTaskSheet({ open, candidate, projectId, config, busy, onClose, onConfirm }: Props) {
+  const [agents, setAgents] = useState<AgentItem[]>([])
+  const [sessions, setSessions] = useState<SessionData[] | null>(null)
+  const [loadingAgents, setLoadingAgents] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [reloadKey, setReloadKey] = useState(0)
   const [agentId, setAgentId] = useState<string | null>(null)
+  const [sessionId, setSessionId] = useState('')
   const [execute, setExecute] = useState(true)
 
-  // 每次打开重置:预选 AI 推荐的 Agent(若还在列表里),否则第一个
+  // 派生成原始值做依赖:inspiration:update 推送换 candidate/config 对象引用时不应重置已选项
+  const suggested = candidate?.suggestedAgentId ?? null
+  const configAgentId = config?.taskDefaultAgentId ?? null
+  const configSessionId = config?.taskDefaultSessionId ?? null
+  const recommendedFirst = config?.taskTargetPriority === 'recommended'
+
   useEffect(() => {
-    if (!open) return
-    const suggested = candidate?.suggestedAgentId
-    setAgentId(suggested && agents.some((agent) => agent.id === suggested) ? suggested : agents[0]?.id ?? null)
+    if (!open || !projectId) return
+    setAgentId(null)
+    setSessionId('')
     setExecute(true)
-  }, [open, candidate, agents])
+    setLoadError(null)
+    let cancelled = false
+    const run = async (): Promise<void> => {
+      setLoadingAgents(true)
+      try {
+        const [agentList, sessionList] = await Promise.all([
+          wsClient.request({ type: 'agents.list', projectId }) as Promise<AgentItem[]>,
+          wsClient.request({ type: 'sessions.list', projectId }).catch(() => null) as Promise<SessionData[] | null>,
+        ])
+        if (cancelled) return
+        const visibleAgents = agentList.filter((agent) => !agent.hidden_at)
+        setAgents(visibleAgents)
+        setSessions(sessionList)
+        // Agent 默认值对齐 PC:recommended 优先 AI 推荐,否则项目默认 Agent 优先
+        const preferred = recommendedFirst ? suggested ?? configAgentId : configAgentId ?? suggested
+        const initial = visibleAgents.find((agent) => agent.id === preferred) ?? visibleAgents[0] ?? null
+        setAgentId(initial?.id ?? null)
+        // 会话默认值对齐 PC:项目默认 Agent 命中且默认会话仍活跃时预选
+        if (initial && configAgentId === initial.id && configSessionId
+          && (sessionList ?? []).some((session) => session.id === configSessionId && isActiveAgentSession(session, initial.id))) {
+          setSessionId(configSessionId)
+        }
+      } catch (error) {
+        if (!cancelled) setLoadError(error instanceof Error ? error.message : '加载失败')
+      } finally {
+        if (!cancelled) setLoadingAgents(false)
+      }
+    }
+    void run()
+    return () => {
+      cancelled = true
+    }
+  }, [open, projectId, suggested, configAgentId, configSessionId, recommendedFirst, reloadKey])
+
+  const agentSessions = useMemo(
+    () => (sessions ?? []).filter((session) => isActiveAgentSession(session, agentId)),
+    [sessions, agentId],
+  )
 
   if (!open || !candidate) return null
 
@@ -34,24 +89,80 @@ export default function CandidateTaskSheet({ open, candidate, agents, busy, onCl
         <div style={styles.sheetTitle}>创建任务</div>
         <div style={styles.candidateTitle}>{candidate.title}</div>
 
-        <div style={styles.sectionLabel}>执行 Agent</div>
-        <div style={styles.agentList}>
-          {agents.map((agent) => {
-            const selected = agent.id === agentId
-            return (
-              <button
-                key={agent.id}
-                className="pressable"
-                style={{ ...styles.agentRow, ...(selected ? styles.agentRowActive : {}) }}
-                onClick={() => setAgentId(agent.id)}
-              >
-                <span style={styles.agentName}>{agent.name}</span>
-                <span style={styles.agentType}>{agent.type ?? 'Agent'}</span>
-                {selected && <Check size={16} color="var(--primary)" />}
+        <div style={styles.scrollArea}>
+          <div style={styles.sectionLabel}>执行 Agent</div>
+          {loadingAgents && (
+            <div style={styles.listStatus}>
+              <Loader2 size={15} color="var(--text-muted)" className="spin" />
+              <span>加载中...</span>
+            </div>
+          )}
+          {!loadingAgents && loadError && (
+            <div style={styles.listStatus}>
+              <span style={styles.errorText}>{loadError}</span>
+              <button className="pressable" style={styles.retryBtn} onClick={() => setReloadKey((key) => key + 1)}>
+                重试
               </button>
-            )
-          })}
-          {agents.length === 0 && <div style={styles.agentEmpty}>还没有可用 Agent,先到 PC 端创建</div>}
+            </div>
+          )}
+          {!loadingAgents && !loadError && (
+            <div style={styles.optionList}>
+              {agents.map((agent) => {
+                const selected = agent.id === agentId
+                return (
+                  <button
+                    key={agent.id}
+                    className="pressable"
+                    style={{ ...styles.optionRow, ...(selected ? styles.optionRowActive : {}) }}
+                    disabled={busy}
+                    onClick={() => {
+                      // 切 Agent 重置会话,对齐 PC 行为
+                      setAgentId(agent.id)
+                      setSessionId('')
+                    }}
+                  >
+                    <span style={styles.optionName}>{agent.name}</span>
+                    <span style={styles.optionMeta}>{agent.type ?? 'Agent'}</span>
+                    {selected && <Check size={16} color="var(--primary)" />}
+                  </button>
+                )
+              })}
+              {agents.length === 0 && (
+                <div style={styles.optionEmpty}>该项目还没有可用 Agent,先到 PC 端创建</div>
+              )}
+            </div>
+          )}
+
+          <div style={styles.sectionLabel}>执行会话</div>
+          <div style={styles.optionList}>
+            <button
+              className="pressable"
+              style={{ ...styles.optionRow, ...(sessionId === '' ? styles.optionRowActive : {}) }}
+              disabled={busy || !agentId}
+              onClick={() => setSessionId('')}
+            >
+              <span style={styles.optionName}>自动新建会话</span>
+              {sessionId === '' && <Check size={16} color="var(--primary)" />}
+            </button>
+            {agentSessions.map((session) => {
+              const selected = session.id === sessionId
+              return (
+                <button
+                  key={session.id}
+                  className="pressable"
+                  style={{ ...styles.optionRow, ...(selected ? styles.optionRowActive : {}) }}
+                  disabled={busy}
+                  onClick={() => setSessionId(session.id)}
+                >
+                  <span style={styles.optionName}>{session.title || session.id}</span>
+                  {selected && <Check size={16} color="var(--primary)" />}
+                </button>
+              )
+            })}
+            {sessions === null && (
+              <div style={styles.optionEmpty}>会话列表加载失败,仍可自动新建会话</div>
+            )}
+          </div>
         </div>
 
         <button style={styles.executeRow} onClick={() => setExecute(!execute)}>
@@ -72,7 +183,7 @@ export default function CandidateTaskSheet({ open, candidate, agents, busy, onCl
             className="pressable"
             style={{ ...styles.confirmBtn, ...(!agentId || busy ? styles.confirmBtnDisabled : {}) }}
             disabled={!agentId || busy}
-            onClick={() => agentId && onConfirm(agentId, execute)}
+            onClick={() => agentId && onConfirm(agentId, sessionId, execute)}
           >
             {busy ? '创建中...' : execute ? '创建并执行' : '创建任务'}
           </button>
@@ -93,7 +204,7 @@ const styles: Record<string, CSSProperties> = {
   },
   sheet: {
     width: '100%',
-    maxHeight: '78vh',
+    maxHeight: '82vh',
     display: 'flex',
     flexDirection: 'column',
     background: 'var(--bg-card)',
@@ -123,6 +234,11 @@ const styles: Record<string, CSSProperties> = {
     whiteSpace: 'nowrap',
     flexShrink: 0,
   },
+  scrollArea: {
+    overflowY: 'auto',
+    flexShrink: 1,
+    minHeight: 0,
+  },
   sectionLabel: {
     padding: '4px 20px 6px',
     fontSize: 11,
@@ -131,15 +247,15 @@ const styles: Record<string, CSSProperties> = {
     letterSpacing: 1,
     flexShrink: 0,
   },
-  agentList: {
-    overflowY: 'auto',
+  optionList: {
     padding: '0 12px',
-    flexShrink: 1,
-    minHeight: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 2,
   },
-  agentRow: {
+  optionRow: {
     width: '100%',
-    minHeight: 46,
+    minHeight: 44,
     padding: '0 10px',
     display: 'flex',
     alignItems: 'center',
@@ -148,11 +264,11 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: 'var(--radius-sm)',
     border: '1px solid transparent',
   },
-  agentRowActive: {
+  optionRowActive: {
     background: 'var(--primary-bg)',
     borderColor: 'var(--primary-light)',
   },
-  agentName: {
+  optionName: {
     flex: 1,
     minWidth: 0,
     fontSize: 14,
@@ -162,16 +278,37 @@ const styles: Record<string, CSSProperties> = {
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
   },
-  agentType: {
+  optionMeta: {
     fontSize: 11,
     color: 'var(--text-muted)',
     flexShrink: 0,
   },
-  agentEmpty: {
-    padding: '20px 10px',
+  optionEmpty: {
+    padding: '16px 10px',
     textAlign: 'center',
     color: 'var(--text-muted)',
     fontSize: 13,
+  },
+  listStatus: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    padding: '18px 10px',
+    color: 'var(--text-muted)',
+    fontSize: 13,
+  },
+  errorText: {
+    color: 'var(--error)',
+    fontSize: 13,
+  },
+  retryBtn: {
+    padding: '5px 16px',
+    borderRadius: 14,
+    background: 'var(--primary)',
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: 600,
   },
   executeRow: {
     display: 'flex',

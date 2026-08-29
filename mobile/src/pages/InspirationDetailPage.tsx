@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Bot, CircleAlert, Delete, Loader2, MessageSquare, Plus, RefreshCw, Sparkles } from 'lucide-react'
+import { ArrowLeft, Bot, ChevronDown, CircleAlert, Delete, Loader2, MessageSquare, Plus, RefreshCw, Sparkles } from 'lucide-react'
 import type { InspirationCandidate, InspirationNote } from '@desktop/stores/inspiration.store'
 import { useAppStore } from '../stores/app.store'
 import { useInspirationStore } from '../stores/inspiration.store'
@@ -15,7 +15,6 @@ export default function InspirationDetailPage() {
   const { noteId = '' } = useParams<{ noteId: string }>()
   const navigate = useNavigate()
   const currentProjectId = useAppStore((state) => state.currentProjectId)
-  const agents = useAppStore((state) => state.agents)
   const byProject = useInspirationStore((state) => state.byProject)
   const loadError = useInspirationStore((state) => state.error)
   const load = useInspirationStore((state) => state.load)
@@ -27,6 +26,8 @@ export default function InspirationDetailPage() {
   const [busy, setBusy] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [taskCandidate, setTaskCandidate] = useState<InspirationCandidate | null>(null)
+  // 候选任务说明默认折叠,点标题展开(一次只展开一条)
+  const [expandedCandidateId, setExpandedCandidateId] = useState<string | null>(null)
 
   const note = useMemo<InspirationNote | null>(() => {
     for (const entry of Object.values(byProject)) {
@@ -84,11 +85,11 @@ export default function InspirationDetailPage() {
     }
   }, [projectId, note, removeNote, navigate])
 
-  const handleCreateTask = useCallback(async (agentId: string, execute: boolean) => {
+  const handleCreateTask = useCallback(async (agentId: string, sessionId: string, execute: boolean) => {
     if (!projectId || !taskCandidate) return
     setBusy(true)
     try {
-      await createCandidateTask(projectId, taskCandidate.id, agentId, execute)
+      await createCandidateTask(projectId, taskCandidate.id, agentId, sessionId, execute)
       showToast(execute ? '任务已创建并开始执行' : '任务已创建,可在任务页启动')
       setTaskCandidate(null)
     } catch (error) {
@@ -158,6 +159,7 @@ export default function InspirationDetailPage() {
   const failed = note.status === 'failed'
   const hasResult = Boolean(note.summary || note.bodyMarkdown)
   const organizerSessionId = projectId ? byProject[projectId]?.config?.sessionId ?? null : null
+  const inspirationConfig = projectId ? byProject[projectId]?.config ?? null : null
 
   return (
     <div style={styles.page}>
@@ -235,41 +237,59 @@ export default function InspirationDetailPage() {
         {note.candidates.length > 0 && (
           <div style={styles.candidatesSection}>
             <div style={styles.sectionLabel}>候选任务({note.candidates.length})</div>
-            <div style={styles.candidatesHint}>AI 拆好的可执行任务,选个 Agent 一键创建</div>
-            {note.candidates.map((candidate) => (
-              <div key={candidate.id} className="card" style={styles.candidateCard}>
-                <div style={styles.candidateTitle}>{candidate.title}</div>
-                {candidate.descriptionMarkdown && (
-                  <MarkdownView content={candidate.descriptionMarkdown} compact />
-                )}
-                <div style={styles.candidateFoot}>
-                  {candidate.suggestedAgentName && (
-                    <span style={styles.agentChip}>{candidate.suggestedAgentName}</span>
-                  )}
-                  {candidate.taskId && <span style={styles.createdChip}>已创建任务</span>}
+            <div style={styles.candidatesHint}>AI 拆好的可执行任务,点标题展开详情、一键创建</div>
+            {note.candidates.map((candidate) => {
+              const expanded = expandedCandidateId === candidate.id
+              const expandable = Boolean(candidate.descriptionMarkdown)
+              return (
+                <div key={candidate.id} className="card" style={styles.candidateCard}>
                   <button
                     className="pressable"
-                    style={{
-                      ...styles.candidateAction,
-                      ...(candidate.taskId ? styles.candidateViewBtn : styles.candidateCreateBtn),
-                    }}
-                    disabled={busy}
-                    onClick={() =>
-                      candidate.taskId ? navigate(`/task/${candidate.taskId}`) : setTaskCandidate(candidate)
-                    }
+                    style={styles.candidateHead}
+                    disabled={!expandable}
+                    onClick={() => setExpandedCandidateId(expanded ? null : candidate.id)}
                   >
-                    {candidate.taskId ? (
-                      '查看任务'
-                    ) : (
-                      <>
-                        <Plus size={13} color="var(--primary)" />
-                        创建任务
-                      </>
+                    {expandable && (
+                      <ChevronDown
+                        size={15}
+                        color="var(--text-muted)"
+                        style={{ ...styles.candidateChevron, ...(expanded ? styles.candidateChevronOpen : {}) }}
+                      />
                     )}
+                    <span style={styles.candidateTitle}>{candidate.title}</span>
                   </button>
+                  {expanded && candidate.descriptionMarkdown && (
+                    <MarkdownView content={candidate.descriptionMarkdown} compact />
+                  )}
+                  <div style={styles.candidateFoot}>
+                    {candidate.suggestedAgentName && (
+                      <span style={styles.agentChip}>{candidate.suggestedAgentName}</span>
+                    )}
+                    {candidate.taskId && <span style={styles.createdChip}>已创建任务</span>}
+                    <button
+                      className="pressable"
+                      style={{
+                        ...styles.candidateAction,
+                        ...(candidate.taskId ? styles.candidateViewBtn : styles.candidateCreateBtn),
+                      }}
+                      disabled={busy}
+                      onClick={() =>
+                        candidate.taskId ? navigate(`/task/${candidate.taskId}`) : setTaskCandidate(candidate)
+                      }
+                    >
+                      {candidate.taskId ? (
+                        '查看任务'
+                      ) : (
+                        <>
+                          <Plus size={13} color="var(--primary)" />
+                          创建任务
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>
@@ -326,10 +346,11 @@ export default function InspirationDetailPage() {
       <CandidateTaskSheet
         open={!!taskCandidate}
         candidate={taskCandidate}
-        agents={agents}
+        projectId={projectId}
+        config={inspirationConfig}
         busy={busy}
         onClose={() => setTaskCandidate(null)}
-        onConfirm={(agentId, execute) => void handleCreateTask(agentId, execute)}
+        onConfirm={(agentId, sessionId, execute) => void handleCreateTask(agentId, sessionId, execute)}
       />
     </div>
   )
@@ -562,6 +583,21 @@ const styles: Record<string, CSSProperties> = {
   },
   candidateCard: {
     padding: '12px 14px',
+  },
+  candidateHead: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    width: '100%',
+    padding: 0,
+    textAlign: 'left',
+  },
+  candidateChevron: {
+    flexShrink: 0,
+    transition: 'transform .15s',
+  },
+  candidateChevronOpen: {
+    transform: 'rotate(180deg)',
   },
   candidateTitle: {
     fontSize: 14,
