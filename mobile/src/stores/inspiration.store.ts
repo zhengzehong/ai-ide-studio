@@ -17,7 +17,7 @@ interface InspirationState {
   removeNote: (projectId: string, noteId: string) => Promise<void>
   setCompleted: (projectId: string, noteId: string, completed: boolean) => Promise<void>
   organize: (projectId: string, noteId: string) => Promise<void>
-  createCandidateTask: (projectId: string, candidateId: string, agentId: string, execute: boolean) => Promise<InspirationNote>
+  createCandidateTask: (projectId: string, candidateId: string, agentId: string, sessionId: string, execute: boolean) => Promise<InspirationNote>
   setupListeners: () => () => void
 }
 
@@ -134,14 +134,15 @@ export const useInspirationStore = create<InspirationState>((set, get) => ({
     patchNote(set, projectId, note)
   },
 
-  createCandidateTask: async (projectId, candidateId, agentId, execute) => {
+  createCandidateTask: async (projectId, candidateId, agentId, sessionId, execute) => {
+    // 会话选择对齐 PC:选了具体会话走 existing,否则每次新建独立会话
     const note = (await wsClient.request({
       type: 'inspiration.candidate.createTask',
       projectId,
       candidateId,
       agentId,
       execute,
-      sessionMode: 'new_each',
+      ...(sessionId ? { sessionId, sessionMode: 'existing' } : { sessionMode: 'new_each' }),
     })) as InspirationNote
     patchNote(set, projectId, note)
     return note
