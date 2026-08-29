@@ -113,7 +113,7 @@ export function UpdatesConversation({ target, onSelectTarget }: UpdatesConversat
         {!error && !loading && sessionMessages.length === 0 && <div style={{ textAlign: 'center', color: 'var(--text-3)', padding: '48px 0' }}>暂无消息，开始对话吧</div>}
         <VirtualChatList items={sessionMessages} getKey={(message) => message.id} scrollRef={scrollRef} renderItem={(message) => <ConversationMessage message={message} agentColor={agentColor} agentName={target.agentName ?? null} />} />
         {isStreaming && streamingMessage && (
-          <div data-bubble style={{ display: 'flex', gap: 10, alignItems: 'flex-start', margin: '0 auto', maxWidth: 'var(--wb-col)', padding: '0 20px', boxSizing: 'border-box' }}>
+          <div data-bubble style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '0 20px', boxSizing: 'border-box' }}>
             <div style={{ width: 30, height: 30, borderRadius: '50%', background: agentColor, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Bot size={14} color="white" /></div>
             <div style={{ maxWidth: '75%', minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
@@ -168,7 +168,7 @@ function ConversationMessage({ message, agentColor, agentName }: { message: Mess
   const content = message.finalAnswer ?? message.content
   const isHuman = message.role === 'human'
   return (
-    <div data-bubble style={{ display: 'flex', gap: 10, alignItems: 'flex-start', flexDirection: isHuman ? 'row-reverse' : 'row', margin: '0 auto', maxWidth: 'var(--wb-col)', padding: '0 20px', boxSizing: 'border-box' }}>
+    <div data-bubble style={{ display: 'flex', gap: 10, alignItems: 'flex-start', flexDirection: isHuman ? 'row-reverse' : 'row', padding: '0 20px', boxSizing: 'border-box' }}>
       <div style={{ width: 30, height: 30, borderRadius: '50%', background: isHuman ? 'var(--bg-3)' : agentColor, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
         {isHuman ? <User size={14} color="var(--text-2)" /> : <Bot size={14} color="white" />}
       </div>

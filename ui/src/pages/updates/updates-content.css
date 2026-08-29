@@ -13,9 +13,8 @@
 .wb-icon-btn.is-active{color:var(--orange);border-color:var(--orange)}
 .wb-icon-btn:disabled{opacity:.5;cursor:default}
 .wb-composer{padding:0 20px 16px;flex-shrink:0}
-.wb-composer>div{max-width:var(--wb-col);margin:0 auto}
 .wb-composer textarea:disabled{cursor:default}
 .wb-interactions{padding:10px 20px 0;flex-shrink:0}
-.wb-interactions .global-assistant-interaction-card{margin:0 auto;max-width:var(--wb-col);max-height:220px;overflow:auto}
+.wb-interactions .global-assistant-interaction-card{margin:0;max-height:220px;overflow:auto}
 .wb-interaction-error{color:var(--red);font-size:13px;margin-bottom:8px}
 @keyframes wb-rotate{to{transform:rotate(360deg)}}
