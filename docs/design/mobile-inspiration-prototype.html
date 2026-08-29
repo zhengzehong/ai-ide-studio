@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-<title>灵感 · 移动端交互原型 v3</title>
+<title>灵感 · 移动端交互原型 v4</title>
 <style>
   /* ═══ 全部取自 mobile/src/index.css 真实 token ═══ */
   :root {
@@ -67,39 +67,14 @@
   .view.active { transform: translateX(0); visibility: visible; z-index: 2; }
   .view.base { z-index: 1; }
 
-  /* ── 顶栏:与会话页 SessionListTopbar 同构 ── */
-  .topbar {
+  /* ── 列表页头部:同任务页 header(图标 + 标题) ── */
+  .head {
     flex-shrink: 0;
-    display: flex; align-items: center; gap: 6px;
-    height: 50px; padding: 0 10px;
+    display: flex; align-items: center; gap: 8px;
+    padding: 12px 16px 4px;
     background: var(--bg-card);
-    border-bottom: 1px solid var(--border-light);
   }
-  .icon-btn {
-    width: 34px; height: 34px; flex-shrink: 0;
-    border: none; border-radius: var(--radius-sm);
-    background: transparent; color: var(--text-secondary);
-    display: inline-flex; align-items: center; justify-content: center;
-    cursor: pointer;
-  }
-  .icon-btn:active { background: var(--bg-input); }
-  .icon-btn .plus { color: var(--primary); }
-  /* ProjectSwitcher 同款:透明底,icon 26 + 名称 16/600 + ▾ */
-  .psw {
-    flex: 1; min-width: 0; height: 34px;
-    display: flex; align-items: center; gap: 6px;
-    padding: 0 6px 0 4px;
-    border: none; border-radius: 6px;
-    background: transparent; cursor: pointer;
-  }
-  .psw:active { background: var(--bg-input); }
-  .psw .emoji {
-    width: 26px; height: 26px; border-radius: 6px; flex-shrink: 0;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 13px; color: #fff;
-  }
-  .psw .nm { flex: 1; min-width: 0; font-size: 16px; font-weight: 600; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
-  .psw .ar { color: var(--text-muted); font-size: 12px; flex-shrink: 0; }
+  .head .t { font-size: 18px; font-weight: 700; }
 
   /* 筛选行:白底,同任务页 filterBar */
   .seg-row { flex-shrink: 0; display: flex; gap: 8px; padding: 10px 16px; background: var(--bg-card); border-bottom: 1px solid var(--border-light); }
@@ -126,7 +101,7 @@
   .ptr svg { animation: rotate 1s linear infinite; }
   @keyframes rotate { to { transform: rotate(360deg); } }
 
-  .cards { flex: 1; overflow-y: auto; padding: 8px 16px 28px; }
+  .cards { flex: 1; overflow-y: auto; padding: 8px 16px 12px; }
   .card {
     background: var(--bg-card);
     border: 1px solid var(--border-light);
@@ -165,6 +140,45 @@
   .empty svg { color: #c9cdd6; }
   .empty strong { color: var(--text-secondary); font-size: 15px; }
 
+  /* ── 底部停靠工具条:全宽、贴住 tab 栏、无边距阴影(微信输入栏/iOS 工具栏式停靠) ── */
+  .bbar {
+    flex-shrink: 0;
+    display: flex; align-items: center;
+    padding: 6px 12px;
+    background: var(--bg-card);
+    border-top: 1px solid var(--border-light);
+  }
+  /* 安静的项目 chip:无边框无阴影,press 才出现底色(Safari 底部标签组 pill 式) */
+  .bbar .chip {
+    display: flex; align-items: center; gap: 7px;
+    padding: 8px 12px 8px 8px;
+    border: none; border-radius: 999px;
+    background: transparent;
+    cursor: pointer;
+    min-width: 0;
+    transition: background .15s;
+  }
+  .bbar .chip:active { background: var(--bg-input); }
+  .bbar .chip .emoji {
+    width: 24px; height: 24px; border-radius: 6px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; color: #fff;
+  }
+  .bbar .chip .nm { font-size: 13.5px; font-weight: 600; color: var(--text-primary); max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bbar .chip .ar { color: var(--text-muted); font-size: 11px; }
+  /* 唯一的"响"元素:紫色圆形 + */
+  .bbar .add {
+    margin-left: auto;
+    width: 46px; height: 46px;
+    border: none; border-radius: 50%;
+    background: var(--primary); color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 4px 14px rgba(108,92,231,.38);
+    cursor: pointer;
+    transition: transform .15s;
+  }
+  .bbar .add:active { transform: scale(.92); }
+
   /* ── 二级页头部 ── */
   .sub-head {
     flex-shrink: 0;
@@ -176,6 +190,14 @@
   .sub-head .title { font-size: 16px; font-weight: 700; }
   .sub-head .cnt { margin-left: auto; font-size: 11px; color: var(--text-muted); padding-right: 8px; }
   .sub-head .icon-btn { width: 36px; height: 36px; }
+  .icon-btn {
+    width: 34px; height: 34px; flex-shrink: 0;
+    border: none; border-radius: var(--radius-sm);
+    background: transparent; color: var(--text-secondary);
+    display: inline-flex; align-items: center; justify-content: center;
+    cursor: pointer;
+  }
+  .icon-btn:active { background: var(--bg-input); }
 
   /* ── 记录页 ── */
   .rec-area { flex: 1; display: flex; flex-direction: column; padding: 14px 16px 0; min-height: 0; }
@@ -285,72 +307,39 @@
     display: flex; align-items: center; justify-content: center;
   }
 
-  /* ── 项目抽屉:同会话页 ProjectDrawer(左滑 80%)── */
+  /* ── 底部 sheet:就近弹出,同任务页 ActionSheet ── */
   .mask {
     position: absolute; inset: 0;
-    background: rgba(0,0,0,.4);
+    background: rgba(26,26,46,.34);
     opacity: 0; visibility: hidden;
-    transition: opacity .3s; z-index: 8;
+    transition: opacity .22s; z-index: 8;
   }
   .mask.show { opacity: 1; visibility: visible; }
-  .drawer {
-    position: absolute; top: 0; left: 0; bottom: 0;
-    width: 80%;
+  .sheet {
+    position: absolute; left: 0; right: 0; bottom: 0;
     background: var(--bg-card);
-    transform: translateX(-105%);
-    transition: transform .3s cubic-bezier(.32,.72,0,1);
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    padding: 8px 0 calc(10px + env(safe-area-inset-bottom));
+    transform: translateY(105%);
+    transition: transform .26s cubic-bezier(.32,.72,.35,1);
     z-index: 9;
-    display: flex; flex-direction: column;
-    box-shadow: 4px 0 12px rgba(26,26,46,.08);
   }
-  .drawer.show { transform: none; }
-  .drawer .dr-head {
-    flex-shrink: 0;
-    padding: 16px 16px 12px;
-    background: var(--bg);
-    border-bottom: 1px solid var(--border-light);
-    display: flex; align-items: center; justify-content: space-between; gap: 8;
-  }
-  .drawer .dr-head .t { font-size: 17px; font-weight: 600; }
-  .drawer .dr-head .s { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
-  .dr-list { flex: 1; overflow-y: auto; }
-  .dr-item {
+  .sheet.show { transform: none; }
+  .sheet .cap { text-align: center; font-size: 12px; color: var(--text-muted); padding: 8px 0 6px; }
+  .sheet-item {
+    width: 100%;
     display: flex; align-items: center; gap: 10px;
-    padding: 12px 14px;
-    border-bottom: 1px solid var(--border-light);
-    cursor: pointer;
-    font-size: 15px; color: var(--text-primary);
-    transition: background .15s;
-  }
-  .dr-item:active { background: var(--bg); }
-  .dr-item.on { background: var(--bg-input); }
-  .dr-item .ic {
-    width: 36px; height: 36px; border-radius: var(--radius-sm); flex-shrink: 0;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 16px; color: #fff;
-  }
-  .dr-item .inf { flex: 1; min-width: 0; }
-  .dr-item .inf .n { font-size: 15px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .dr-item .inf .m { font-size: 12px; color: var(--text-muted); margin-top: 1px; }
-  .dr-item .ck { color: var(--primary); font-size: 16px; font-weight: 700; visibility: hidden; }
-  .dr-item.on .ck { visibility: visible; }
-  .dr-foot { flex-shrink: 0; border-top: 1px solid var(--border-light); }
-  .dr-foot .fi {
-    display: flex; align-items: center; gap: 10px;
-    padding: 12px 14px;
-    border-bottom: 1px solid var(--border-light);
-    font-size: 14px; color: var(--text-secondary);
+    padding: 13px 20px;
+    border: none; background: none;
+    font-size: 14.5px; color: var(--text-primary);
     cursor: pointer;
   }
-  .dr-foot .fi:last-child { border-bottom: none; }
-  .dr-foot .fi .ic2 {
-    width: 36px; height: 36px; border-radius: 10px;
-    background: var(--bg-input);
-    display: flex; align-items: center; justify-content: center;
-    font-size: 16px; flex-shrink: 0;
-  }
-  .dr-foot .fi.new { color: var(--primary); font-weight: 500; }
-  .dr-foot .fi.new .ic2 { background: var(--primary-bg); color: var(--primary); }
+  .sheet-item:active { background: var(--bg); }
+  .sheet-item .dot-logo { width: 24px; height: 24px; border-radius: 6px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 12px; color: #fff; }
+  .sheet-item .n { margin-left: auto; margin-right: 8px; font-size: 11.5px; color: var(--text-muted); }
+  .sheet-item .ck { margin-left: auto; color: var(--primary); visibility: hidden; }
+  .sheet-item.cur .ck { visibility: visible; }
+  .sheet-item.cur .n { margin-right: 4px; }
 
   /* 删除确认 */
   .dialog-mask {
@@ -377,7 +366,7 @@
   .dialog .ok { background: var(--error); color: #fff; }
 
   .toast {
-    position: absolute; left: 50%; bottom: 84px;
+    position: absolute; left: 50%; bottom: 150px;
     transform: translateX(-50%) translateY(8px);
     background: rgba(26,26,46,.92);
     color: #fff; font-size: 12.5px;
@@ -394,20 +383,11 @@
   <div class="statusbar"><span>12:53</span><span class="sig">●●● ⌁ ▮</span></div>
 
   <div class="screens">
-    <!-- ═══ 列表页:顶栏 = 会话页同构(☰ / 项目切换器 / ＋) ═══ -->
+    <!-- ═══ 列表页:头部信息 + 列表,操作全在底部停靠条 ═══ -->
     <section class="view base active" id="v-list">
-      <div class="topbar">
-        <button class="icon-btn" id="btn-drawer" aria-label="打开项目抽屉">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
-        </button>
-        <button class="psw" id="psw" aria-label="切换项目">
-          <span class="emoji" id="psw-emoji"></span>
-          <span class="nm" id="psw-name"></span>
-          <span class="ar">▾</span>
-        </button>
-        <button class="icon-btn" id="rec-add" aria-label="记一条灵感">
-          <svg class="plus" width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        </button>
+      <div class="head">
+        <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1.3.5 2.6 1.5 3.5.8.8 1.3 1.5 1.5 2.5"/><line x1="9" y1="18" x2="15" y2="18"/><line x1="10" y1="22" x2="14" y2="22"/></svg>
+        <span class="t">灵感</span>
       </div>
       <div class="seg-row seg" id="seg"></div>
       <div class="ptr" id="ptr">
@@ -415,6 +395,18 @@
         正在同步…
       </div>
       <div class="cards" id="cards"></div>
+
+      <!-- 底部停靠工具条:全宽贴住 tab 栏,安静 chip + 唯一主操作 -->
+      <div class="bbar">
+        <button class="chip" id="proj-chip" aria-label="切换项目">
+          <span class="emoji" id="chip-emoji"></span>
+          <span class="nm" id="chip-name"></span>
+          <span class="ar">▾</span>
+        </button>
+        <button class="add" id="rec-add" aria-label="记一条灵感">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
+      </div>
     </section>
 
     <!-- ═══ 记录页 ═══ -->
@@ -450,21 +442,11 @@
       <div class="d-foot" id="detail-foot"></div>
     </section>
 
-    <!-- ═══ 项目抽屉:同会话页 ProjectDrawer ═══ -->
-    <div class="mask" id="mask-drawer"></div>
-    <div class="drawer" id="drawer">
-      <div class="dr-head">
-        <div><div class="t">项目</div><div class="s" id="dr-sub"></div></div>
-      </div>
-      <div class="dr-list" id="dr-list"></div>
-      <div class="dr-foot">
-        <div class="fi new" id="dr-new">
-          <div class="ic2">＋</div>新建项目
-        </div>
-        <div class="fi" id="dr-manage">
-          <div class="ic2">⚙</div>管理项目
-        </div>
-      </div>
+    <!-- ═══ 项目切换 sheet:就近弹出 ═══ -->
+    <div class="mask" id="mask-proj"></div>
+    <div class="sheet" id="sheet-proj">
+      <div class="cap">切换项目</div>
+      <div id="proj-list"></div>
     </div>
   </div>
 
@@ -699,7 +681,7 @@ function renderCards() {
     box.innerHTML = `<div class="empty">
       <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1.3.5 2.6 1.5 3.5.8.8 1.3 1.5 1.5 2.5"/><line x1="9" y1="18" x2="15" y2="18"/><line x1="10" y1="22" x2="14" y2="22"/></svg>
       <strong>${any ? '还没有灵感记录' : '这里没有匹配的灵感'}</strong>
-      <span>${any ? '点右上角 + 记一条,想到什么写下来。<br>原文立即保存,AI 在后台整理。' : '换个筛选看看,或记录一条新的。'}</span>
+      <span>${any ? '点右下角 + 记一条,想到什么写下来。<br>原文立即保存,AI 在后台整理。' : '换个筛选看看,或记录一条新的。'}</span>
     </div>`
     return
   }
@@ -782,7 +764,7 @@ function renderDetail() {
   })
 }
 
-/* ═══════════ 记录(入口 = 顶栏 +,与会话页新建同位) ═══════════ */
+/* ═══════════ 记录(入口 = 底部条紫色 +,拇指区) ═══════════ */
 $('rec-add').addEventListener('click', () => {
   $('rec-text').value = ''
   updCnt()
@@ -830,49 +812,53 @@ function finishOrganize(n) {
   toast(`「${n.title.slice(0, 12)}…」整理完成`)
 }
 
-/* ═══════════ 项目切换:顶栏 switcher / ☰ → 左侧抽屉(同会话页) ═══════════ */
+/* ═══════════ 项目切换:底部安静 chip → 底部 sheet 就近弹出 ═══════════ */
 const curProject = () => PROJECTS.find((p) => p.id === state.projectId)
 
-function renderSwitcher() {
+function renderChip() {
   const p = curProject()
-  $('psw-emoji').textContent = p.icon
-  $('psw-emoji').style.background = p.color
-  $('psw-name').textContent = p.name
+  $('chip-emoji').textContent = p.icon
+  $('chip-emoji').style.background = p.color
+  $('chip-name').textContent = p.name
 }
 
-function openDrawer() {
-  $('dr-sub').textContent = `${PROJECTS.length} 个项目`
-  $('dr-list').innerHTML = PROJECTS.map((p) => {
+function switchProject(id) {
+  if (state.projectId === id) return
+  state.projectId = id
+  state.filter = 'all'
+  state.noteId = null
+  renderChip(); renderSeg(); renderCards()
+  toast('已切换到 ' + curProject().name)
+}
+
+function openProjSheet() {
+  $('proj-list').innerHTML = PROJECTS.map((p) => {
     const cnt = notesOf(p.id).length
     const on = p.id === state.projectId
-    return `<div class="dr-item ${on ? 'on' : ''}" data-p="${p.id}">
-      <div class="ic" style="background:${p.color}">${p.icon}</div>
-      <div class="inf"><div class="n">${esc(p.name)}</div><div class="m">${cnt} 条灵感</div></div>
-      <span class="ck">✓</span>
-    </div>`
+    return `<button class="sheet-item ${on ? 'cur' : ''}" data-p="${p.id}">
+      <span class="dot-logo" style="background:${p.color}">${p.icon}</span>${esc(p.name)}
+      <span class="n">${cnt} 条</span>
+      <svg class="ck" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+    </button>`
   }).join('')
-  $('dr-list').querySelectorAll('.dr-item').forEach((el) => el.addEventListener('click', () => {
-    if (state.projectId !== el.dataset.p) {
-      state.projectId = el.dataset.p
-      state.filter = 'all'
-      state.noteId = null
-      renderSwitcher(); renderSeg(); renderCards()
-      toast('已切换到 ' + curProject().name)
-    }
-    closeDrawer()
-  }))
-  $('mask-drawer').classList.add('show')
-  $('drawer').classList.add('show')
+  $('mask-proj').classList.add('show')
+  $('sheet-proj').classList.add('show')
+  $('proj-list').querySelectorAll('.sheet-item').forEach((b) =>
+    b.addEventListener('click', () => { switchProject(b.dataset.p); closeProjSheet() }))
 }
-function closeDrawer() {
-  $('mask-drawer').classList.remove('show')
-  $('drawer').classList.remove('show')
+function closeProjSheet() {
+  $('mask-proj').classList.remove('show')
+  $('sheet-proj').classList.remove('show')
 }
-$('psw').addEventListener('click', openDrawer)
-$('btn-drawer').addEventListener('click', openDrawer)
-$('mask-drawer').addEventListener('click', closeDrawer)
-$('dr-new').addEventListener('click', () => toast('原型仅演示;实现将复用会话页新建项目流程'))
-$('dr-manage').addEventListener('click', () => toast('原型仅演示;实现将复用会话页管理项目'))
+$('proj-chip').addEventListener('click', openProjSheet)
+$('mask-proj').addEventListener('click', closeProjSheet)
+
+/* ═══════════ 左右滑动切项目(Telegram 文件夹手势),高频切换不用点 ═══════════ */
+function neighborProject(dir) {
+  const i = PROJECTS.findIndex((p) => p.id === state.projectId)
+  const next = PROJECTS[(i + dir + PROJECTS.length) % PROJECTS.length]
+  switchProject(next.id)
+}
 
 /* ═══════════ 删除 ═══════════ */
 $('dlg-del-cancel').addEventListener('click', () => $('dlg-del').classList.remove('show'))
@@ -887,27 +873,42 @@ $('dlg-del-ok').addEventListener('click', () => {
   toast('灵感已删除')
 })
 
-/* ═══════════ 下拉刷新(列表顶部下拉) ═══════════ */
+/* ═══════════ 手势:列表区下拉刷新 + 左右滑切项目 ═══════════ */
 const cardsEl = $('cards')
-let ptrStartY = null, ptrFired = false
+let ts = null // {x, y}
+let ptrFired = false
 cardsEl.addEventListener('touchstart', (e) => {
-  if (cardsEl.scrollTop <= 0) { ptrStartY = e.touches[0].clientY; ptrFired = false }
-  else ptrStartY = null
+  const t = e.touches[0]
+  ts = { x: t.clientX, y: t.clientY }
+  ptrFired = false
 }, { passive: true })
 cardsEl.addEventListener('touchmove', (e) => {
-  if (ptrStartY == null || ptrFired) return
-  if (e.touches[0].clientY - ptrStartY > 70) {
+  if (!ts || ptrFired) return
+  const t = e.touches[0]
+  const dy = t.clientY - ts.y
+  // 下拉刷新:仅在列表顶部且纵向拉动
+  if (cardsEl.scrollTop <= 0 && dy > 70 && Math.abs(t.clientX - ts.x) < 40) {
     ptrFired = true
     $('ptr').classList.add('show')
   }
 }, { passive: true })
-cardsEl.addEventListener('touchend', () => {
-  if (ptrFired) setTimeout(() => { $('ptr').classList.remove('show'); toast('已同步') }, 650)
-  ptrStartY = null; ptrFired = false
+cardsEl.addEventListener('touchend', (e) => {
+  if (ptrFired) {
+    setTimeout(() => { $('ptr').classList.remove('show'); toast('已同步') }, 650)
+  } else if (ts) {
+    const t = e.changedTouches[0]
+    const dx = t.clientX - ts.x
+    const dy = t.clientY - ts.y
+    // 横滑切项目:位移够大且横向明显占优,避免和纵向滚动/点击冲突
+    if (Math.abs(dx) > 80 && Math.abs(dx) > Math.abs(dy) * 1.8) {
+      neighborProject(dx < 0 ? 1 : -1)
+    }
+  }
+  ts = null
 })
 
 /* ═══════════ 启动 ═══════════ */
-renderSwitcher(); renderSeg(); renderCards()
+renderChip(); renderSeg(); renderCards()
 // 加载 8 秒后,列表里那条「整理中」自动完成——模拟 ws 推送驱动卡片自己变亮
 setTimeout(() => {
   const n = notesOf('p1').find((x) => x.id === 'n5')
