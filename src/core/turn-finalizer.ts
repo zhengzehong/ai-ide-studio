@@ -1,5 +1,7 @@
 import type { SessionUpdateData, ToolCallData } from '../types/ws-protocol.js'
 import { shouldCreateToolFromUpdate, upsertToolCall } from './tool-calls.js'
+import { isPlatformSupplementSource } from './session-update-source.js'
+import type { SessionUpdateSource } from './session-update-source.js'
 
 export interface PendingTurn {
   messageId?: string
@@ -16,11 +18,15 @@ export interface FinalizedTurn {
   toolCalls?: ToolCallData[]
 }
 
+export interface UpdatePendingTurnOptions {
+  source?: SessionUpdateSource
+}
+
 export function createPendingTurn(): PendingTurn {
   return { finalAnswer: '', processNotes: [], thinking: '', toolCalls: [] }
 }
 
-export function updatePendingTurn(turn: PendingTurn, data: SessionUpdateData): PendingTurn {
+export function updatePendingTurn(turn: PendingTurn, data: SessionUpdateData, options: UpdatePendingTurnOptions = {}): PendingTurn {
   if (!isAgentTurnUpdate(data)) return turn
 
   const next: PendingTurn = {
@@ -37,13 +43,13 @@ export function updatePendingTurn(turn: PendingTurn, data: SessionUpdateData): P
   }
   if (data.toolCall) {
     const isNewTool = !next.toolCalls.some((tool) => tool.id === data.toolCall?.id)
-    if (isNewTool) demoteFinalAnswer(next)
+    if (isNewTool && !isPlatformSupplementSource(options.source)) demoteFinalAnswer(next)
     next.toolCalls = upsertToolCall(next.toolCalls, data.toolCall)
   }
   if (data.toolCallUpdate) {
     const isNewTool = !next.toolCalls.some((tool) => tool.id === data.toolCallUpdate?.id)
       && shouldCreateToolFromUpdate(data.toolCallUpdate)
-    if (isNewTool) demoteFinalAnswer(next)
+    if (isNewTool && !isPlatformSupplementSource(options.source)) demoteFinalAnswer(next)
     next.toolCalls = upsertToolCall(next.toolCalls, data.toolCallUpdate)
   }
   if (data.plan || data.permissionRequest || data.elicitationRequest) {

@@ -377,4 +377,35 @@ describe('turn process items', () => {
     expect((await completeTurnProcess(session.id, 'completed')).finalAnswer).toBe('Final answer')
     expect(turnProcessItemStore.list(message.id).filter((item) => item.kind === 'note')).toEqual([])
   })
+
+  test('keeps final text when a platform synthetic update has a different audit id', async () => {
+    const session = sessionStore.create({ agentId: 'agent-platform' })
+    const message = messageStore.append(session.id, {
+      id: 'msg-platform-synthetic',
+      role: 'agent',
+      content: '',
+      status: 'running',
+      startedAt: '2026-08-29T00:00:00.000Z',
+    })
+
+    startTurnProcess(session.id, message.id)
+    recordTurnProcessUpdate(session.id, 'agent-platform', {
+      messageId: message.id,
+      role: 'agent',
+      contentDelta: '最终交付说明',
+    })
+    recordTurnProcessUpdate(session.id, 'agent-platform', {
+      messageId: message.id,
+      role: 'agent',
+      toolCallUpdate: {
+        id: 'tcall-audit-1',
+        title: 'files.present',
+        status: 'completed',
+        rawOutput: { presentationId: 'files-1' },
+      },
+    }, { source: 'platform-synthetic' })
+
+    expect((await completeTurnProcess(session.id, 'completed')).finalAnswer).toBe('最终交付说明')
+    expect(turnProcessItemStore.list(message.id).filter((item) => item.kind === 'note')).toEqual([])
+  })
 })

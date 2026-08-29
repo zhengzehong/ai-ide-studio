@@ -55,6 +55,7 @@ export function recordPlatformPresentationResult(input: RecordPlatformPresentati
       sessionId: input.sessionId,
       agentId: input.agentId,
       data: completedUpdate(observed.messageId, observed.toolCall, input.toolName, input.input, input.rawOutput),
+      source: 'platform-reconciliation',
     })
     log.debug(
       { sessionId: input.sessionId, agentId: input.agentId, auditId: input.auditId, toolName: input.toolName, toolCallId: observed.toolCall.id },

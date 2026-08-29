@@ -85,11 +85,11 @@ events.on('session:update', (ev) => {
     pendingBySession.set(sessionId, pending)
   }
 
-  pendingBySession.set(sessionId, updatePendingTurn(pending, data))
+  pendingBySession.set(sessionId, updatePendingTurn(pending, data, { source: ev.source }))
 })
 
 events.on('session:update', (ev) => {
-  recordTurnProcessUpdate(ev.sessionId, ev.agentId, ev.data)
+  recordTurnProcessUpdate(ev.sessionId, ev.agentId, ev.data, { source: ev.source })
 })
 
 events.on('session:update', (ev) => {

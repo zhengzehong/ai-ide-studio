@@ -53,6 +53,24 @@ describe('turn finalizer', () => {
     expect(finalizePendingTurn(turn)?.content).toBe('最终结论。')
   })
 
+  test('keeps final text when a platform synthetic update uses a different audit id', () => {
+    let turn = createPendingTurn()
+    turn = updatePendingTurn(turn, { messageId: 'msg-1', role: 'agent', contentDelta: '最终结论。' })
+    turn = updatePendingTurn(turn, {
+      messageId: 'msg-1',
+      role: 'agent',
+      toolCallUpdate: {
+        id: 'tcall-audit-1',
+        title: 'files.present',
+        status: 'completed',
+        rawOutput: { presentationId: 'files-1' },
+      },
+    }, { source: 'platform-synthetic' })
+
+    expect(finalizePendingTurn(turn)?.content).toBe('最终结论。')
+    expect(turn.processNotes).toEqual([])
+  })
+
   test('still treats a first-seen tool update as a new process boundary', () => {
     let turn = createPendingTurn()
     turn = updatePendingTurn(turn, { messageId: 'msg-1', contentDelta: '我继续检查。' })

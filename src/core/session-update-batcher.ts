@@ -1,10 +1,12 @@
 import type { SessionUpdateData } from '../types/ws-protocol.js'
 import { onBeforeDatabaseClose } from '../store/db.js'
+import type { SessionUpdateSource } from './session-update-source.js'
 
 export interface SessionUpdateEnvelope {
   sessionId: string
   agentId: string
   data: SessionUpdateData
+  source?: SessionUpdateSource
 }
 
 export type ApplySessionUpdate = (ev: SessionUpdateEnvelope) => void | Promise<void>

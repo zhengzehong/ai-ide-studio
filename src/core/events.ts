@@ -9,13 +9,14 @@ import type {
   TurnProcessItemData,
 } from '../types/ws-protocol.js'
 import { SessionUpdateActorScheduler } from './session-update-actors.js'
+import type { SessionUpdateSource } from './session-update-source.js'
 
 export type AppEvents = {
   'session:update': {
     sessionId: string
     agentId: string
     data: SessionUpdateData
-    source?: 'runtime-persistence'
+    source?: SessionUpdateSource
     streamGeneration?: string
     sequence?: number
   }

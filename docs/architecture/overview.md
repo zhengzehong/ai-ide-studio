@@ -383,7 +383,7 @@ API 在每次发送 Prompt 前构建 Runtime Snapshot，因此全局切换不需
 
 `src/core/events.ts` keeps the public `session:update` event contract. Embedded updates and process Runtime persistence patches enter `SessionUpdateActorScheduler` before API consumers run; process Runtime visible patches have already been ordered and coalesced by the Runtime Session actor and travel directly to Realtime.
 
-Scheduler output is emitted back through the internal mitt bus as the same `session:update` event, so `sessions.ts`, `turn-process-runtime.ts`, and `ws-handler.ts` continue to subscribe through the existing interface. Critical boundaries such as permission or elicitation prompts, lifecycle updates, usage/config/sessionInfo updates, terminal tool statuses, and `session:done` flush the matching session queue before persistence, finalization, or broadcast continues.
+Scheduler output is emitted back through the internal mitt bus as the same `session:update` event, so `sessions.ts`, `turn-process-runtime.ts`, and `ws-handler.ts` continue to subscribe through the existing interface. Critical boundaries such as permission or elicitation prompts, lifecycle updates, usage/config/sessionInfo updates, terminal tool statuses, and `session:done` flush the matching session queue before persistence, finalization, or broadcast continues. Internal update envelopes also carry a source marker for runtime persistence versus platform reconciliation/synthetic completion; platform supplements update tool state without creating a new final-reply boundary.
 
 ## MCP Tool Context Boundary
 

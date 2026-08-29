@@ -18,7 +18,7 @@ export async function handleRuntimePersistenceUpdate(event: RuntimePersistenceUp
     sessionId: event.sessionId,
     agentId: event.agentId,
     data: reconciled.data,
-    ...(reconciled.matched ? {} : { source: 'runtime-persistence' as const }),
+    source: reconciled.matched ? 'platform-reconciliation' : 'runtime-persistence',
     streamGeneration: event.streamGeneration,
     sequence: event.sequence,
   })
@@ -30,6 +30,7 @@ export async function handleRuntimeDone(event: RuntimeDoneEvent): Promise<void> 
       sessionId: event.sessionId,
       agentId: event.agentId,
       data,
+      source: 'platform-synthetic',
       streamGeneration: event.streamGeneration,
       sequence: event.sequence,
     })

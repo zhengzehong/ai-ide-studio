@@ -7,6 +7,8 @@ import { events } from './events.js'
 import { createChildLogger } from './logger.js'
 import { mergeToolCall, shouldCreateToolFromUpdate } from './tool-calls.js'
 import { turnProcessWriteQueue } from './persistence/turn-process-write-queue.js'
+import { isPlatformSupplementSource } from './session-update-source.js'
+import type { SessionUpdateSource } from './session-update-source.js'
 import {
   drainTurnFileChanges,
   finishTurnFileChanges,
@@ -47,7 +49,12 @@ export function startTurnProcess(sessionId: string, messageId: string): void {
   log.debug({ sessionId, messageId }, 'active turn process started')
 }
 
-export function recordTurnProcessUpdate(sessionId: string, agentId: string, data: SessionUpdateData): void {
+export function recordTurnProcessUpdate(
+  sessionId: string,
+  agentId: string,
+  data: SessionUpdateData,
+  options: { source?: SessionUpdateSource } = {},
+): void {
   const active = activeTurns.get(sessionId)
   if (!active) return
   if (data.messageId && data.messageId !== active.messageId && data.role === 'agent') return
@@ -66,7 +73,7 @@ export function recordTurnProcessUpdate(sessionId: string, agentId: string, data
 
   if (data.toolCall) {
     flushProcessText(sessionId, active, agentId)
-    if (!active.toolCalls.has(data.toolCall.id)) demoteFinalAnswer(sessionId, active, agentId)
+    if (!active.toolCalls.has(data.toolCall.id) && !isPlatformSupplementSource(options.source)) demoteFinalAnswer(sessionId, active, agentId)
     queueProcessItem(sessionId, agentId, upsertTool(sessionId, active, data.toolCall))
     updateTurnFileChange(sessionId, agentId, active.messageId, active.toolCalls.get(data.toolCall.id))
     active.lastTextItemId = undefined
@@ -78,7 +85,7 @@ export function recordTurnProcessUpdate(sessionId: string, agentId: string, data
     flushProcessText(sessionId, active, agentId)
     const isNewTool = !active.toolCalls.has(data.toolCallUpdate.id)
       && shouldCreateToolFromUpdate(data.toolCallUpdate)
-    if (isNewTool) demoteFinalAnswer(sessionId, active, agentId)
+    if (isNewTool && !isPlatformSupplementSource(options.source)) demoteFinalAnswer(sessionId, active, agentId)
     queueProcessItem(sessionId, agentId, upsertTool(sessionId, active, data.toolCallUpdate))
     updateTurnFileChange(sessionId, agentId, active.messageId, active.toolCalls.get(data.toolCallUpdate.id))
     active.lastTextItemId = undefined
