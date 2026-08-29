@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-<title>灵感 · 移动端交互原型 v2</title>
+<title>灵感 · 移动端交互原型 v3</title>
 <style>
   /* ═══ 全部取自 mobile/src/index.css 真实 token ═══ */
   :root {
@@ -51,7 +51,7 @@
   .statusbar {
     height: 30px; flex-shrink: 0;
     display: flex; align-items: center; justify-content: space-between;
-    padding: 0 22px; font-size: 12px; font-weight: 600; background: var(--bg);
+    padding: 0 22px; font-size: 12px; font-weight: 600; background: var(--bg-card);
   }
   .statusbar .sig { letter-spacing: 2px; font-size: 10px; }
 
@@ -67,17 +67,48 @@
   .view.active { transform: translateX(0); visibility: visible; z-index: 2; }
   .view.base { z-index: 1; }
 
-  /* ── 列表页头部:只放信息与筛选 ── */
-  .list-head { flex-shrink: 0; padding: calc(10px + env(safe-area-inset-top)) 16px 0; }
-  .page-title { font-size: 21px; font-weight: 700; line-height: 1.25; }
-  .page-sub { margin-top: 2px; font-size: 12px; color: var(--text-muted); }
-  .seg { display: flex; gap: 7px; padding: 11px 0 10px; }
+  /* ── 顶栏:与会话页 SessionListTopbar 同构 ── */
+  .topbar {
+    flex-shrink: 0;
+    display: flex; align-items: center; gap: 6px;
+    height: 50px; padding: 0 10px;
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border-light);
+  }
+  .icon-btn {
+    width: 34px; height: 34px; flex-shrink: 0;
+    border: none; border-radius: var(--radius-sm);
+    background: transparent; color: var(--text-secondary);
+    display: inline-flex; align-items: center; justify-content: center;
+    cursor: pointer;
+  }
+  .icon-btn:active { background: var(--bg-input); }
+  .icon-btn .plus { color: var(--primary); }
+  /* ProjectSwitcher 同款:透明底,icon 26 + 名称 16/600 + ▾ */
+  .psw {
+    flex: 1; min-width: 0; height: 34px;
+    display: flex; align-items: center; gap: 6px;
+    padding: 0 6px 0 4px;
+    border: none; border-radius: 6px;
+    background: transparent; cursor: pointer;
+  }
+  .psw:active { background: var(--bg-input); }
+  .psw .emoji {
+    width: 26px; height: 26px; border-radius: 6px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; color: #fff;
+  }
+  .psw .nm { flex: 1; min-width: 0; font-size: 16px; font-weight: 600; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+  .psw .ar { color: var(--text-muted); font-size: 12px; flex-shrink: 0; }
+
+  /* 筛选行:白底,同任务页 filterBar */
+  .seg-row { flex-shrink: 0; display: flex; gap: 8px; padding: 10px 16px; background: var(--bg-card); border-bottom: 1px solid var(--border-light); }
   .seg button {
     padding: 6px 14px;
     border: none; border-radius: 16px;
     background: var(--bg-input);
     color: var(--text-secondary);
-    font-size: 12.5px; font-weight: 500;
+    font-size: 13px; font-weight: 500;
     cursor: pointer;
   }
   .seg button b { font-weight: 700; margin-left: 3px; }
@@ -89,12 +120,13 @@
     display: flex; align-items: center; justify-content: center; gap: 7px;
     font-size: 11.5px; color: var(--text-muted);
     transition: height .25s, opacity .25s;
+    flex-shrink: 0;
   }
   .ptr.show { height: 40px; opacity: 1; }
   .ptr svg { animation: rotate 1s linear infinite; }
   @keyframes rotate { to { transform: rotate(360deg); } }
 
-  .cards { flex: 1; overflow-y: auto; padding: 2px 16px 108px; }
+  .cards { flex: 1; overflow-y: auto; padding: 8px 16px 28px; }
   .card {
     background: var(--bg-card);
     border: 1px solid var(--border-light);
@@ -133,57 +165,17 @@
   .empty svg { color: #c9cdd6; }
   .empty strong { color: var(--text-secondary); font-size: 15px; }
 
-  /* ── 底部操作 dock:拇指区,切项目 + 记一笔 ── */
-  .dock {
-    position: absolute; left: 12px; right: 12px; bottom: 12px;
-    display: flex; align-items: center; gap: 10px;
-    z-index: 3;
-  }
-  .proj-pill {
-    flex: 1; min-width: 0; max-width: 62%;
-    display: flex; align-items: center; gap: 8px;
-    padding: 11px 14px;
-    border: 1px solid var(--border-light);
-    border-radius: 999px;
-    background: var(--bg-card);
-    box-shadow: 0 4px 16px rgba(26,26,46,.08);
-    font-size: 13.5px; font-weight: 600; color: var(--text-primary);
-    cursor: pointer;
-  }
-  .proj-pill .p-logo { width: 18px; height: 18px; border-radius: 6px; flex-shrink: 0; }
-  .proj-pill span.nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .proj-pill svg { flex-shrink: 0; color: var(--text-muted); }
-  .rec-cta {
-    margin-left: auto;
-    display: flex; align-items: center; gap: 6px;
-    padding: 12px 19px;
-    border: none; border-radius: 999px;
-    background: var(--primary); color: #fff;
-    font-size: 14px; font-weight: 600;
-    box-shadow: 0 6px 18px rgba(108,92,231,.4);
-    cursor: pointer;
-    transition: transform .15s;
-  }
-  .rec-cta:active { transform: scale(.94); }
-
   /* ── 二级页头部 ── */
   .sub-head {
     flex-shrink: 0;
     display: flex; align-items: center; gap: 4px;
     padding: 8px 10px;
     border-bottom: 1px solid var(--border-light);
-    background: var(--bg);
+    background: var(--bg-card);
   }
   .sub-head .title { font-size: 16px; font-weight: 700; }
   .sub-head .cnt { margin-left: auto; font-size: 11px; color: var(--text-muted); padding-right: 8px; }
-  .icon-btn {
-    width: 36px; height: 36px;
-    border: none; border-radius: var(--radius-sm);
-    background: transparent; color: var(--text-secondary);
-    display: inline-flex; align-items: center; justify-content: center;
-    cursor: pointer;
-  }
-  .icon-btn:active { background: var(--bg-input); }
+  .sub-head .icon-btn { width: 36px; height: 36px; }
 
   /* ── 记录页 ── */
   .rec-area { flex: 1; display: flex; flex-direction: column; padding: 14px 16px 0; min-height: 0; }
@@ -207,7 +199,7 @@
   .btn-primary:active { background: #5a4bd1; }
 
   /* ── 详情页 ── */
-  .detail-body { flex: 1; overflow-y: auto; padding: 16px 18px 100px; }
+  .detail-body { flex: 1; overflow-y: auto; padding: 16px 18px 28px; }
   .detail-body h1 { font-size: 20px; line-height: 1.35; font-weight: 700; }
   .d-meta { margin: 8px 0 4px; display: flex; align-items: center; gap: 9px; font-size: 11.5px; color: var(--text-muted); }
   .d-sec { margin-top: 18px; }
@@ -293,40 +285,74 @@
     display: flex; align-items: center; justify-content: center;
   }
 
-  /* ── Sheet / 弹层 / toast ── */
+  /* ── 项目抽屉:同会话页 ProjectDrawer(左滑 80%)── */
   .mask {
     position: absolute; inset: 0;
-    background: rgba(26,26,46,.34);
+    background: rgba(0,0,0,.4);
     opacity: 0; visibility: hidden;
-    transition: opacity .22s; z-index: 8;
+    transition: opacity .3s; z-index: 8;
   }
   .mask.show { opacity: 1; visibility: visible; }
-  .sheet {
-    position: absolute; left: 0; right: 0; bottom: 0;
+  .drawer {
+    position: absolute; top: 0; left: 0; bottom: 0;
+    width: 80%;
     background: var(--bg-card);
-    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-    padding: 8px 0 calc(10px + env(safe-area-inset-bottom));
-    transform: translateY(105%);
-    transition: transform .26s cubic-bezier(.32,.72,.35,1);
+    transform: translateX(-105%);
+    transition: transform .3s cubic-bezier(.32,.72,0,1);
     z-index: 9;
+    display: flex; flex-direction: column;
+    box-shadow: 4px 0 12px rgba(26,26,46,.08);
   }
-  .sheet.show { transform: none; }
-  .sheet .cap { text-align: center; font-size: 12px; color: var(--text-muted); padding: 8px 0 6px; }
-  .sheet-item {
-    width: 100%;
+  .drawer.show { transform: none; }
+  .drawer .dr-head {
+    flex-shrink: 0;
+    padding: 16px 16px 12px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border-light);
+    display: flex; align-items: center; justify-content: space-between; gap: 8;
+  }
+  .drawer .dr-head .t { font-size: 17px; font-weight: 600; }
+  .drawer .dr-head .s { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+  .dr-list { flex: 1; overflow-y: auto; }
+  .dr-item {
     display: flex; align-items: center; gap: 10px;
-    padding: 13px 20px;
-    border: none; background: none;
-    font-size: 14.5px; color: var(--text-primary);
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border-light);
+    cursor: pointer;
+    font-size: 15px; color: var(--text-primary);
+    transition: background .15s;
+  }
+  .dr-item:active { background: var(--bg); }
+  .dr-item.on { background: var(--bg-input); }
+  .dr-item .ic {
+    width: 36px; height: 36px; border-radius: var(--radius-sm); flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; color: #fff;
+  }
+  .dr-item .inf { flex: 1; min-width: 0; }
+  .dr-item .inf .n { font-size: 15px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dr-item .inf .m { font-size: 12px; color: var(--text-muted); margin-top: 1px; }
+  .dr-item .ck { color: var(--primary); font-size: 16px; font-weight: 700; visibility: hidden; }
+  .dr-item.on .ck { visibility: visible; }
+  .dr-foot { flex-shrink: 0; border-top: 1px solid var(--border-light); }
+  .dr-foot .fi {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border-light);
+    font-size: 14px; color: var(--text-secondary);
     cursor: pointer;
   }
-  .sheet-item:active { background: var(--bg); }
-  .sheet-item .dot-logo { width: 22px; height: 22px; border-radius: 7px; flex-shrink: 0; }
-  .sheet-item .n { margin-left: auto; margin-right: 8px; font-size: 11.5px; color: var(--text-muted); }
-  .sheet-item.cur .n { margin-right: 4px; }
-  .sheet-item .ck { margin-left: auto; color: var(--primary); visibility: hidden; }
-  .sheet-item.cur .ck { visibility: visible; }
+  .dr-foot .fi:last-child { border-bottom: none; }
+  .dr-foot .fi .ic2 {
+    width: 36px; height: 36px; border-radius: 10px;
+    background: var(--bg-input);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; flex-shrink: 0;
+  }
+  .dr-foot .fi.new { color: var(--primary); font-weight: 500; }
+  .dr-foot .fi.new .ic2 { background: var(--primary-bg); color: var(--primary); }
 
+  /* 删除确认 */
   .dialog-mask {
     position: absolute; inset: 0;
     background: rgba(26,26,46,.4);
@@ -351,7 +377,7 @@
   .dialog .ok { background: var(--error); color: #fff; }
 
   .toast {
-    position: absolute; left: 50%; bottom: 128px;
+    position: absolute; left: 50%; bottom: 84px;
     transform: translateX(-50%) translateY(8px);
     background: rgba(26,26,46,.92);
     color: #fff; font-size: 12.5px;
@@ -368,31 +394,27 @@
   <div class="statusbar"><span>12:53</span><span class="sig">●●● ⌁ ▮</span></div>
 
   <div class="screens">
-    <!-- ═══ 列表页 ═══ -->
+    <!-- ═══ 列表页:顶栏 = 会话页同构(☰ / 项目切换器 / ＋) ═══ -->
     <section class="view base active" id="v-list">
-      <div class="list-head">
-        <h1 class="page-title">灵感</h1>
-        <div class="page-sub">想到什么记一笔,AI 后台整理成方案</div>
-        <div class="seg" id="seg"></div>
+      <div class="topbar">
+        <button class="icon-btn" id="btn-drawer" aria-label="打开项目抽屉">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
+        <button class="psw" id="psw" aria-label="切换项目">
+          <span class="emoji" id="psw-emoji"></span>
+          <span class="nm" id="psw-name"></span>
+          <span class="ar">▾</span>
+        </button>
+        <button class="icon-btn" id="rec-add" aria-label="记一条灵感">
+          <svg class="plus" width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
       </div>
+      <div class="seg-row seg" id="seg"></div>
       <div class="ptr" id="ptr">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/></svg>
         正在同步…
       </div>
       <div class="cards" id="cards"></div>
-
-      <!-- 底部操作 dock:都在拇指区 -->
-      <div class="dock">
-        <button class="proj-pill" id="proj-pill">
-          <span class="p-logo" id="pill-logo"></span>
-          <span class="nm" id="pill-name">ai-ide-studio</span>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-        </button>
-        <button class="rec-cta" id="rec-cta">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          记一笔
-        </button>
-      </div>
     </section>
 
     <!-- ═══ 记录页 ═══ -->
@@ -405,7 +427,7 @@
         <span class="cnt" id="rec-cnt"></span>
       </div>
       <div class="rec-area">
-        <textarea id="rec-text" placeholder="想到什么,记一笔…" maxlength="50000"></textarea>
+        <textarea id="rec-text" placeholder="想到什么,记一条…" maxlength="50000"></textarea>
       </div>
       <div class="rec-foot">
         <div class="hint">只管写,标题自动取正文前 60 字 · 原文先保存,AI 整理在后台进行</div>
@@ -427,6 +449,23 @@
       <div class="detail-body" id="detail-body"></div>
       <div class="d-foot" id="detail-foot"></div>
     </section>
+
+    <!-- ═══ 项目抽屉:同会话页 ProjectDrawer ═══ -->
+    <div class="mask" id="mask-drawer"></div>
+    <div class="drawer" id="drawer">
+      <div class="dr-head">
+        <div><div class="t">项目</div><div class="s" id="dr-sub"></div></div>
+      </div>
+      <div class="dr-list" id="dr-list"></div>
+      <div class="dr-foot">
+        <div class="fi new" id="dr-new">
+          <div class="ic2">＋</div>新建项目
+        </div>
+        <div class="fi" id="dr-manage">
+          <div class="ic2">⚙</div>管理项目
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- ═══ Tab 栏 ═══ -->
@@ -452,13 +491,6 @@
       设置
     </button>
   </nav>
-
-  <!-- 项目切换 sheet -->
-  <div class="mask" id="mask-proj"></div>
-  <div class="sheet" id="sheet-proj">
-    <div class="cap">切换项目</div>
-    <div id="proj-list"></div>
-  </div>
 
   <!-- 删除确认 -->
   <div class="dialog-mask" id="dlg-del">
@@ -486,12 +518,13 @@ const ST = {
   failed:      { label: '整理失败',  color: '#ef4444' },
 }
 
+/* 项目模型对齐 app.store 的 ProjectItem:icon(emoji) + color */
 const PROJECTS = [
-  { id: 'p1', name: 'ai-ide-studio', color: 'linear-gradient(135deg,#6c5ce7,#a29bfe)' },
-  { id: 'p2', name: 'govclaw',       color: 'linear-gradient(135deg,#f59e0b,#fbbf24)' },
-  { id: 'p3', name: 'ai-zmt',        color: 'linear-gradient(135deg,#ef4444,#f87171)' },
-  { id: 'p4', name: 'ai_video',      color: 'linear-gradient(135deg,#3b82f6,#60a5fa)' },
-  { id: 'p5', name: '个人工坊',       color: 'linear-gradient(135deg,#10b981,#34d399)' },
+  { id: 'p1', name: 'ai-ide-studio', icon: '🚀', color: '#6c5ce7' },
+  { id: 'p2', name: 'govclaw',       icon: '🐾', color: '#f59e0b' },
+  { id: 'p3', name: 'ai-zmt',        icon: '🎬', color: '#ef4444' },
+  { id: 'p4', name: 'ai_video',      icon: '🎞', color: '#3b82f6' },
+  { id: 'p5', name: '个人工坊',       icon: '🛠', color: '#10b981' },
 ]
 
 const NOTES = {
@@ -666,7 +699,7 @@ function renderCards() {
     box.innerHTML = `<div class="empty">
       <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1.3.5 2.6 1.5 3.5.8.8 1.3 1.5 1.5 2.5"/><line x1="9" y1="18" x2="15" y2="18"/><line x1="10" y1="22" x2="14" y2="22"/></svg>
       <strong>${any ? '还没有灵感记录' : '这里没有匹配的灵感'}</strong>
-      <span>${any ? '点右下角「记一笔」,想到什么写下来。<br>原文立即保存,AI 在后台整理。' : '换个筛选看看,或记录一条新的。'}</span>
+      <span>${any ? '点右上角 + 记一条,想到什么写下来。<br>原文立即保存,AI 在后台整理。' : '换个筛选看看,或记录一条新的。'}</span>
     </div>`
     return
   }
@@ -749,8 +782,8 @@ function renderDetail() {
   })
 }
 
-/* ═══════════ 记录 ═══════════ */
-$('rec-cta').addEventListener('click', () => {
+/* ═══════════ 记录(入口 = 顶栏 +,与会话页新建同位) ═══════════ */
+$('rec-add').addEventListener('click', () => {
   $('rec-text').value = ''
   updCnt()
   show('v-record')
@@ -797,39 +830,49 @@ function finishOrganize(n) {
   toast(`「${n.title.slice(0, 12)}…」整理完成`)
 }
 
-/* ═══════════ 项目切换(底部 pill → sheet) ═══════════ */
-function curProject() { return PROJECTS.find((p) => p.id === state.projectId) }
-function renderPill() {
+/* ═══════════ 项目切换:顶栏 switcher / ☰ → 左侧抽屉(同会话页) ═══════════ */
+const curProject = () => PROJECTS.find((p) => p.id === state.projectId)
+
+function renderSwitcher() {
   const p = curProject()
-  $('pill-name').textContent = p.name
-  $('pill-logo').style.background = p.color
+  $('psw-emoji').textContent = p.icon
+  $('psw-emoji').style.background = p.color
+  $('psw-name').textContent = p.name
 }
-function openProjSheet() {
-  $('proj-list').innerHTML = PROJECTS.map((p) => {
+
+function openDrawer() {
+  $('dr-sub').textContent = `${PROJECTS.length} 个项目`
+  $('dr-list').innerHTML = PROJECTS.map((p) => {
     const cnt = notesOf(p.id).length
-    return `<button class="sheet-item ${p.id === state.projectId ? 'cur' : ''}" data-p="${p.id}">
-      <span class="dot-logo" style="background:${p.color}"></span>${esc(p.name)}
-      <span class="n">${cnt} 条</span>
-      <svg class="ck" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-    </button>`
+    const on = p.id === state.projectId
+    return `<div class="dr-item ${on ? 'on' : ''}" data-p="${p.id}">
+      <div class="ic" style="background:${p.color}">${p.icon}</div>
+      <div class="inf"><div class="n">${esc(p.name)}</div><div class="m">${cnt} 条灵感</div></div>
+      <span class="ck">✓</span>
+    </div>`
   }).join('')
-  $('mask-proj').classList.add('show')
-  $('sheet-proj').classList.add('show')
-  $('proj-list').querySelectorAll('.sheet-item').forEach((b) => b.addEventListener('click', () => {
-    state.projectId = b.dataset.p
-    state.filter = 'all'
-    state.noteId = null
-    closeProjSheet()
-    renderPill(); renderSeg(); renderCards()
-    toast('已切换到 ' + curProject().name)
+  $('dr-list').querySelectorAll('.dr-item').forEach((el) => el.addEventListener('click', () => {
+    if (state.projectId !== el.dataset.p) {
+      state.projectId = el.dataset.p
+      state.filter = 'all'
+      state.noteId = null
+      renderSwitcher(); renderSeg(); renderCards()
+      toast('已切换到 ' + curProject().name)
+    }
+    closeDrawer()
   }))
+  $('mask-drawer').classList.add('show')
+  $('drawer').classList.add('show')
 }
-function closeProjSheet() {
-  $('mask-proj').classList.remove('show')
-  $('sheet-proj').classList.remove('show')
+function closeDrawer() {
+  $('mask-drawer').classList.remove('show')
+  $('drawer').classList.remove('show')
 }
-$('proj-pill').addEventListener('click', openProjSheet)
-$('mask-proj').addEventListener('click', closeProjSheet)
+$('psw').addEventListener('click', openDrawer)
+$('btn-drawer').addEventListener('click', openDrawer)
+$('mask-drawer').addEventListener('click', closeDrawer)
+$('dr-new').addEventListener('click', () => toast('原型仅演示;实现将复用会话页新建项目流程'))
+$('dr-manage').addEventListener('click', () => toast('原型仅演示;实现将复用会话页管理项目'))
 
 /* ═══════════ 删除 ═══════════ */
 $('dlg-del-cancel').addEventListener('click', () => $('dlg-del').classList.remove('show'))
@@ -864,7 +907,7 @@ cardsEl.addEventListener('touchend', () => {
 })
 
 /* ═══════════ 启动 ═══════════ */
-renderPill(); renderSeg(); renderCards()
+renderSwitcher(); renderSeg(); renderCards()
 // 加载 8 秒后,列表里那条「整理中」自动完成——模拟 ws 推送驱动卡片自己变亮
 setTimeout(() => {
   const n = notesOf('p1').find((x) => x.id === 'n5')
