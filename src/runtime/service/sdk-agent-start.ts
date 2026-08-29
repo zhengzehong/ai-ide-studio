@@ -42,6 +42,7 @@ export async function createSdkAgentRuntime(input: {
     agentId: snapshot.agent.id,
     runtime: snapshot.agent.runtime,
     command,
+    cwd: snapshot.session.cwd,
     env: snapshot.runtime.env,
     gatewayAuth: snapshot.runtime.gatewayAuth,
     router,

@@ -17,6 +17,7 @@ export interface StartManagedAcpAgentInput {
   agentId: string
   runtime: string
   command: { cmd: string; args: string[] }
+  cwd?: string
   env: NodeJS.ProcessEnv
   gatewayAuth?: RuntimeGatewayAuth
   router: AcpRuntimeClientRouter
@@ -27,6 +28,7 @@ export interface StartManagedAcpAgentInput {
 export async function startManagedAcpAgent(input: StartManagedAcpAgentInput): Promise<ManagedAcpAgent> {
   const spawnProcess = input.spawnProcess ?? spawn
   const process = spawnProcess(input.command.cmd, input.command.args, {
+    cwd: input.cwd,
     stdio: ['pipe', 'pipe', 'pipe'],
     env: input.env,
     shell: globalThis.process.platform === 'win32',

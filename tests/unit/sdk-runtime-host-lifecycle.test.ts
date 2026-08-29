@@ -271,6 +271,14 @@ describe('SDK Runtime child lifecycle', () => {
     expect(harness.processes).toHaveLength(2)
   })
 
+  test('starts an ACP runtime with the Session working directory', async () => {
+    const harness = runtimeHarness()
+    const state = snapshot('session-a')
+    await harness.host.ensureSession(state)
+
+    expect(harness.startCwds).toEqual([state.session.cwd])
+  })
+
   test('publishes updated capabilities after changing the Session model', async () => {
     const harness = runtimeHarness()
     await harness.host.ensureSession(snapshot('session-a'))
@@ -470,6 +478,7 @@ function runtimeHarness(overrides: {
 } = {}) {
   const processes: EventEmitter[] = []
   const routers: AcpRuntimeClientRouter[] = []
+  const startCwds: string[] = []
   const actors = new RuntimeSessionActorScheduler()
   let markPromptStarted: (() => void) | undefined
   const promptStarted = new Promise<void>((resolve) => { markPromptStarted = resolve })
@@ -508,7 +517,8 @@ function runtimeHarness(overrides: {
     restartGraceMs: overrides.restartGraceMs,
     cloneClaudeSessionFiles,
     hasClaudeSessionFiles: overrides.hasClaudeSessionFiles ?? (async () => true),
-    startAgent: async ({ router }) => {
+    startAgent: async ({ router, cwd }) => {
+      if (cwd) startCwds.push(cwd)
       const process = Object.assign(new EventEmitter(), { kill: vi.fn(() => true) })
       const connection = {
         newSession,
@@ -550,6 +560,7 @@ function runtimeHarness(overrides: {
     host,
     processes,
     routers,
+    startCwds,
     promptStarted,
     newSession,
     resumeSession,

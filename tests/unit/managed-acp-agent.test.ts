@@ -30,6 +30,30 @@ test('drains stderr and tears down the child and router when initialization fail
   expect(child.kill).toHaveBeenCalledOnce()
 })
 
+test('passes an explicit working directory to the ACP child process', async () => {
+  const child = fakeChild()
+  const connection = {
+    initialize: vi.fn(async () => ({ agentCapabilities: {} })),
+  } as unknown as acp.ClientSideConnection
+  let spawnOptions: Parameters<NonNullable<Parameters<typeof startManagedAcpAgent>[0]['spawnProcess']>>[2]
+
+  await startManagedAcpAgent({
+    agentId: 'agent-a',
+    runtime: 'claude',
+    command: { cmd: 'claude-agent-acp', args: [] },
+    env: {},
+    cwd: 'C:\\workspace\\project',
+    router: { client: {} as acp.Client, close: vi.fn() } as never,
+    spawnProcess: (_command, _args, options) => {
+      spawnOptions = options
+      return child.process
+    },
+    createConnection: () => connection,
+  })
+
+  expect(spawnOptions?.cwd).toBe('C:\\workspace\\project')
+})
+
 test('authenticates a configured Codex gateway after initialization', async () => {
   const child = fakeChild()
   const order: string[] = []
