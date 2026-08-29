@@ -1,23 +1,14 @@
 import { Pin, Loader2 } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { usePinnedSessionStore, type MobilePinnedSession } from '../stores/pinned-session.store'
+import { AgentAvatar, ListRow, ProjectChip, formatRelativeTime, groupStyles } from '../components/session-list/list-kit'
 import { pinnedSessionsPath } from './session-view-mode'
 
 const REVEAL_WIDTH = 84
 const DRAG_LONG_PRESS_MS = 400
 const MOVE_CANCEL_PX = 10
 const SWIPE_ENGAGE_PX = 8
-
-function formatTime(value: string): string {
-  const timestamp = Date.parse(value)
-  if (!Number.isFinite(timestamp)) return ''
-  const diff = Math.max(0, Date.now() - timestamp)
-  if (diff < 60_000) return '刚刚'
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`
-  return new Date(timestamp).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })
-}
 
 function titleOf(item: MobilePinnedSession): string {
   return item.sessionTitle?.trim() || `会话 ${item.sessionId.slice(-6)}`
@@ -31,15 +22,69 @@ function triggerHaptic(): void {
   }
 }
 
+export interface PinnedGroup {
+  key: string
+  agentId: string
+  agentName: string
+  projectId: string
+  projectName: string
+  projectIcon: string | null
+  projectColor: string | null
+  sessions: MobilePinnedSession[]
+}
+
+/** 动态页同款分组:Agent+项目一组。入参已按全局 sortOrder 排好,组序=组内首项出现序 */
+export function groupPinnedItems(items: MobilePinnedSession[]): PinnedGroup[] {
+  const groups: PinnedGroup[] = []
+  const byKey = new Map<string, PinnedGroup>()
+  for (const item of items) {
+    const key = `${item.agentId}:${item.projectId}`
+    let group = byKey.get(key)
+    if (!group) {
+      group = {
+        key,
+        agentId: item.agentId,
+        agentName: item.agentName,
+        projectId: item.projectId,
+        projectName: item.projectName,
+        projectIcon: item.projectIcon,
+        projectColor: item.projectColor,
+        sessions: [],
+      }
+      byKey.set(key, group)
+      groups.push(group)
+    }
+    group.sessions.push(item)
+  }
+  return groups
+}
+
+/** 动态页同款分组卡片:组头 AgentAvatar + 名称 + N 个会话 + 项目 chip;行由调用方作为 children 传入 */
+export function PinnedGroupCard({ group, children }: { group: PinnedGroup; children: ReactNode }) {
+  return (
+    // overflow 放开:拖拽中的行要能浮出组卡片边界
+    <section className="group-block" data-agent-id={group.agentId} style={{ ...groupStyles.group, overflow: 'visible' }}>
+      <div style={{ ...groupStyles.head, ...groupStyles.headPlain }}>
+        <AgentAvatar agentId={group.agentId} name={group.agentName} />
+        <div style={groupStyles.info}>
+          <div style={groupStyles.name}>{group.agentName}</div>
+          <div style={groupStyles.sub}>{group.sessions.length} 个会话</div>
+        </div>
+        <ProjectChip name={group.projectName} icon={group.projectIcon} color={group.projectColor} />
+      </div>
+      {children}
+    </section>
+  )
+}
+
 export function PinnedSessionsPage() {
   return (
     <div style={styles.page}>
       <header style={styles.header}>
         <div style={styles.heading}>
-          <Pin size={19} color="var(--primary)" />
           <div>
-            <div style={styles.title}>置顶会话</div>
-            <div style={styles.subtitle}>长按拖拽排序 · 左滑取消置顶</div>
+            <h1 style={styles.title}>置顶会话</h1>
+            <div style={styles.subtitle}>长按拖拽组内排序 · 左滑取消置顶</div>
           </div>
         </div>
       </header>
@@ -50,6 +95,8 @@ export function PinnedSessionsPage() {
 
 interface DragInfo {
   id: string
+  groupKey: string
+  groupIds: string[]
   fromIndex: number
   targetIndex: number
   dy: number
@@ -78,9 +125,9 @@ export function PinnedSessionList() {
   reorderingRef.current = reordering
   const swipeRef = useRef(swipe)
   swipeRef.current = swipe
-  const dragInfoRef = useRef<{ id: string; fromIndex: number; startY: number } | null>(null)
+  const dragInfoRef = useRef<{ id: string; groupKey: string; groupIds: string[]; fromIndex: number; startY: number } | null>(null)
   const metricsRef = useRef<{ id: string; top: number; height: number }[]>([])
-  const pendingRef = useRef<{ id: string; index: number; x: number; y: number; timer: number } | null>(null)
+  const pendingRef = useRef<{ id: string; x: number; y: number; timer: number } | null>(null)
   const swipeGestureRef = useRef<{ id: string; startX: number; startY: number; base: number } | null>(null)
   const swipeLatestRef = useRef(0)
   const targetRef = useRef(0)
@@ -106,9 +153,9 @@ export function PinnedSessionList() {
     return () => el.removeEventListener('touchmove', onTouchMove)
   }, [])
 
-  /** 指针在冻结行位点中的落点 → 插入槽位(去掉被拖行自身的占位) */
-  const computeTargetIndex = useCallback((clientY: number, fromIndex: number): number => {
-    const metrics = metricsRef.current
+  /** 指针在本组冻结行位点中的落点 → 组内插入槽位(去掉被拖行自身的占位) */
+  const computeTargetIndex = useCallback((clientY: number, fromIndex: number, groupIds: string[]): number => {
+    const metrics = metricsRef.current.filter((metric) => groupIds.includes(metric.id))
     let slot = 0
     for (const metric of metrics) {
       if (clientY > metric.top + metric.height / 2) slot += 1
@@ -121,9 +168,9 @@ export function PinnedSessionList() {
     const info = dragInfoRef.current
     if (info) {
       const dy = event.clientY - info.startY
-      const target = computeTargetIndex(event.clientY, info.fromIndex)
+      const target = computeTargetIndex(event.clientY, info.fromIndex, info.groupIds)
       targetRef.current = target
-      setDrag({ id: info.id, fromIndex: info.fromIndex, targetIndex: target, dy })
+      setDrag({ id: info.id, groupKey: info.groupKey, groupIds: info.groupIds, fromIndex: info.fromIndex, targetIndex: target, dy })
       return
     }
     const gesture = swipeGestureRef.current
@@ -165,11 +212,16 @@ export function PinnedSessionList() {
       dragInfoRef.current = null
       const { fromIndex } = info
       const target = targetRef.current
-      const currentItems = itemsRef.current
-      if (target !== fromIndex && currentItems.length > 1) {
-        const ids = currentItems.map((item) => item.sessionId)
-        const moved = ids.splice(fromIndex, 1)[0]
-        if (moved) ids.splice(target, 0, moved)
+      // 组内换序:重排本组段落后映射回全局 sortOrder ids(sessionDock.reorder 语义不变)
+      const groups = groupPinnedItems(itemsRef.current)
+      const group = groups.find((candidate) => candidate.key === info.groupKey)
+      if (target !== fromIndex && group && group.sessions.length > 1) {
+        const groupIds = group.sessions.map((session) => session.sessionId)
+        const moved = groupIds.splice(fromIndex, 1)[0]
+        if (moved) groupIds.splice(Math.min(target, groupIds.length), 0, moved)
+        const ids = groups.flatMap((candidate) => (
+          candidate.key === info.groupKey ? groupIds : candidate.sessions.map((session) => session.sessionId)
+        ))
         void reorder(ids)
       }
       setDrag(null)
@@ -210,14 +262,25 @@ export function PinnedSessionList() {
       return
     }
     if (openSwipe) setSwipe(null)
+    const group = groupPinnedItems(itemsRef.current).find((candidate) => (
+      candidate.sessions.some((session) => session.sessionId === pending.id)
+    ))
+    if (!group || group.sessions.length < 2) return
+    const fromIndex = group.sessions.findIndex((session) => session.sessionId === pending.id)
     const nodes = Array.from(listRef.current?.querySelectorAll<HTMLElement>('[data-pin-id]') ?? [])
     metricsRef.current = nodes.map((node) => {
       const rect = node.getBoundingClientRect()
       return { id: node.dataset.pinId ?? '', top: rect.top, height: rect.height }
     })
-    dragInfoRef.current = { id: pending.id, fromIndex: pending.index, startY: pending.y }
-    targetRef.current = pending.index
-    setDrag({ id: pending.id, fromIndex: pending.index, targetIndex: pending.index, dy: 0 })
+    dragInfoRef.current = {
+      id: pending.id,
+      groupKey: group.key,
+      groupIds: group.sessions.map((session) => session.sessionId),
+      fromIndex,
+      startY: pending.y,
+    }
+    targetRef.current = fromIndex
+    setDrag({ id: pending.id, groupKey: group.key, groupIds: dragInfoRef.current.groupIds, fromIndex, targetIndex: fromIndex, dy: 0 })
     suppressClickRef.current = true
     triggerHaptic()
   }, [])
@@ -242,7 +305,6 @@ export function PinnedSessionList() {
     if (pendingRef.current) window.clearTimeout(pendingRef.current.timer)
     pendingRef.current = {
       id,
-      index,
       x: event.clientX,
       y: event.clientY,
       timer: window.setTimeout(startDrag, DRAG_LONG_PRESS_MS),
@@ -281,13 +343,18 @@ export function PinnedSessionList() {
     void remove(item.sessionId)
   }
 
-  // 让位量取冻结的相邻行 top 差:行间 margin 会 collapse,height+GAP 的算法会多移
-  const tops = metricsRef.current.map((metric) => metric.top)
-  const shift = tops.length >= 2 ? Math.abs(tops[1]! - tops[0]!) : 0
-  const offsetForIndex = (index: number): number => {
-    if (!drag) return 0
-    if (index > drag.fromIndex && index <= drag.targetIndex) return -shift
-    if (index < drag.fromIndex && index >= drag.targetIndex) return shift
+  // 让位量按冻结的相邻行 top 差逐行计算:行高不一(detail 行有无)时均匀 shift 会错位
+  const displacementFor = (group: PinnedGroup, localIndex: number): number => {
+    if (!drag || drag.groupKey !== group.key || drag.fromIndex === drag.targetIndex) return 0
+    const metrics = metricsRef.current.filter((metric) => drag.groupIds.includes(metric.id))
+    if (localIndex >= metrics.length) return 0
+    const tops = metrics.map((metric) => metric.top)
+    if (localIndex > drag.fromIndex && localIndex <= drag.targetIndex) {
+      return (tops[localIndex - 1] ?? 0) - (tops[localIndex] ?? 0)
+    }
+    if (localIndex < drag.fromIndex && localIndex >= drag.targetIndex) {
+      return (tops[localIndex + 1] ?? 0) - (tops[localIndex] ?? 0)
+    }
     return 0
   }
 
@@ -304,23 +371,27 @@ export function PinnedSessionList() {
             <span>在“会话”页长按任意会话即可置顶</span>
           </div>
         ) : (
-          items.map((item, index) => {
-            const isDragging = drag !== null && drag.id === item.sessionId
-            const openSwipe = swipe !== null && swipe.id === item.sessionId ? swipe : null
-            return (
-              <PinnedSessionRow
-                key={item.sessionId}
-                item={item}
-                removing={!!removing[item.sessionId]}
-                dragY={isDragging && drag ? drag.dy : offsetForIndex(index)}
-                dragActive={isDragging}
-                liftX={openSwipe ? openSwipe.x : 0}
-                liftAnimating={!!openSwipe && openSwipe.animating}
-                onOpen={() => handleRowActivate(item)}
-                onRemove={() => handleRemove(item)}
-              />
-            )
-          })
+          groupPinnedItems(items).map((group) => (
+            <PinnedGroupCard key={group.key} group={group}>
+              {group.sessions.map((item, localIndex) => {
+                const isDragging = drag !== null && drag.id === item.sessionId
+                const openSwipe = swipe !== null && swipe.id === item.sessionId ? swipe : null
+                return (
+                  <PinnedSessionRow
+                    key={item.sessionId}
+                    item={item}
+                    removing={!!removing[item.sessionId]}
+                    dragY={isDragging && drag ? drag.dy : displacementFor(group, localIndex)}
+                    dragActive={isDragging}
+                    liftX={openSwipe ? openSwipe.x : 0}
+                    liftAnimating={!!openSwipe && openSwipe.animating}
+                    onOpen={() => handleRowActivate(item)}
+                    onRemove={() => handleRemove(item)}
+                  />
+                )
+              })}
+            </PinnedGroupCard>
+          ))
         )}
       </div>
     </div>
@@ -346,8 +417,9 @@ export function PinnedSessionRow({
   onOpen: () => void
   onRemove: () => void
 }) {
-  const stateLabel = item.activityState === 'running' ? '运行中' : item.unread ? '未读' : '空闲'
-  const stateColor = item.activityState === 'running' ? 'var(--success)' : item.unread ? 'var(--primary)' : 'var(--text-muted)'
+  const running = item.activityState === 'running'
+  const label = running ? '执行中' : item.unread ? '有新回复' : '空闲'
+  const labelColor = running ? 'var(--success)' : item.unread ? 'var(--primary)' : 'var(--text-muted)'
   return (
     <div
       data-pin-id={item.sessionId}
@@ -370,28 +442,23 @@ export function PinnedSessionRow({
         取消置顶
       </button>
       <div
-        role="button"
-        tabIndex={0}
         style={{
           ...styles.row,
           transform: `translateX(${liftX}px)`,
           transition: liftAnimating ? 'transform .2s ease' : 'none',
         }}
-        onClick={onOpen}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault()
-            onOpen()
-          }
-        }}
       >
-        <span style={{ ...styles.projectMark, background: item.projectColor || 'var(--primary)' }}>{item.projectIcon || item.projectName.slice(0, 1)}</span>
-        <div style={styles.rowMain}>
-          <div style={styles.rowTitle}>{titleOf(item)}</div>
-          <div style={styles.meta}>{item.projectName} · {item.agentName}</div>
-          <div style={{ ...styles.status, color: stateColor }}><span style={{ ...styles.dot, background: stateColor }} />{stateLabel}{item.stage ? ` · ${item.stage}` : ''}</div>
-        </div>
-        <time style={styles.time}>{formatTime(item.lastActivityAt)}</time>
+        {/* 行内容与动态页共用 ListRow;点击/键盘由 ListRow 承接,壳只负责滑动位移 */}
+        <ListRow
+          title={titleOf(item)}
+          strong={item.unread}
+          time={formatRelativeTime(item.lastActivityAt)}
+          label={label}
+          labelColor={labelColor}
+          pulse={running}
+          detail={item.stage || undefined}
+          onClick={onOpen}
+        />
       </div>
     </div>
   )
@@ -400,23 +467,16 @@ export function PinnedSessionRow({
 const styles: Record<string, CSSProperties> = {
   page: { height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--bg)' },
   embedded: { minHeight: 0, flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--bg)' },
-  header: { height: 58, padding: 'calc(8px + var(--safe-top)) 14px 8px', boxSizing: 'content-box', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--bg-card)', borderBottom: '0.5px solid var(--border-light)' },
-  heading: { display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 },
-  title: { fontSize: 17, fontWeight: 600, color: 'var(--text-primary)' },
-  subtitle: { marginTop: 2, fontSize: 11, color: 'var(--text-muted)' },
+  header: { padding: 'calc(14px + var(--safe-top)) 16px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
+  heading: { minWidth: 0 },
+  title: { margin: 0, color: 'var(--text-primary)', fontSize: 21, lineHeight: 1.25, fontWeight: 700 },
+  subtitle: { marginTop: 2, color: 'var(--text-muted)', fontSize: 12 },
   error: { margin: 8, padding: '8px 10px', borderRadius: 'var(--radius-sm)', background: 'var(--error-bg)', color: 'var(--error)', fontSize: 12 },
-  list: { flex: 1, overflowY: 'auto', overflowX: 'hidden', background: 'var(--bg)' },
+  list: { flex: 1, overflowY: 'auto', overflowX: 'hidden', background: 'var(--bg)', padding: '4px 0 20px' },
   empty: { height: '60%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 9, color: 'var(--text-muted)', fontSize: 13 },
   emptyTitle: { color: 'var(--text-secondary)', fontSize: 15 },
-  rowWrap: { position: 'relative', margin: '8px 10px', borderRadius: 14 },
-  rowDragging: { boxShadow: '0 8px 24px rgba(26, 26, 46, 0.18)' },
-  unpinButton: { position: 'absolute', top: 0, right: 0, bottom: 0, width: REVEAL_WIDTH, display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', borderRadius: 14, background: 'var(--error)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', zIndex: 1 },
-  row: { position: 'relative', zIndex: 2, minHeight: 82, borderRadius: 14, background: 'var(--bg-card)', padding: '11px 12px', display: 'flex', alignItems: 'center', gap: 9, cursor: 'pointer', touchAction: 'pan-y' },
-  projectMark: { width: 32, height: 32, borderRadius: 9, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: '#fff', fontSize: 14 },
-  rowMain: { minWidth: 0, flex: 1 },
-  rowTitle: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-primary)', fontSize: 14, fontWeight: 500 },
-  meta: { marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-muted)', fontSize: 11 },
-  status: { marginTop: 4, display: 'flex', alignItems: 'center', gap: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 11, fontWeight: 500 },
-  dot: { width: 6, height: 6, borderRadius: '50%', flexShrink: 0 },
-  time: { alignSelf: 'flex-start', marginTop: 2, flexShrink: 0, color: 'var(--text-muted)', fontSize: 10 },
+  rowWrap: { position: 'relative' },
+  rowDragging: { boxShadow: '0 8px 24px rgba(26, 26, 46, 0.18)', borderRadius: 14 },
+  unpinButton: { position: 'absolute', top: 0, right: 0, bottom: 0, width: REVEAL_WIDTH, display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', borderRadius: '0 14px 14px 0', background: 'var(--error)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', zIndex: 1 },
+  row: { position: 'relative', zIndex: 2, background: 'var(--bg-card)' },
 }
