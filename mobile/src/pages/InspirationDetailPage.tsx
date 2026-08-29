@@ -15,6 +15,7 @@ export default function InspirationDetailPage() {
   const navigate = useNavigate()
   const currentProjectId = useAppStore((state) => state.currentProjectId)
   const byProject = useInspirationStore((state) => state.byProject)
+  const loadError = useInspirationStore((state) => state.error)
   const load = useInspirationStore((state) => state.load)
   const organize = useInspirationStore((state) => state.organize)
   const setCompleted = useInspirationStore((state) => state.setCompleted)
@@ -92,11 +93,33 @@ export default function InspirationDetailPage() {
   }
 
   if (!note) {
+    // 拿不到归属项目(如 web 端直接刷新详情 URL)或加载失败时给出明确提示,避免永远转圈
     return (
       <div style={styles.page}>
         <DetailHeader onBack={() => navigate(-1)} title="灵感详情" />
         <div style={styles.missing}>
-          <Loader2 size={24} color="var(--text-muted)" className="spin" />
+          {loadError ? (
+            <>
+              <CircleAlert size={36} color="var(--error)" strokeWidth={1.4} />
+              <span style={{ ...styles.missingText, color: 'var(--error)' }}>{loadError}</span>
+              {projectId && (
+                <button
+                  className="pressable"
+                  style={styles.retryBtn}
+                  onClick={() => void load(projectId, { silent: false })}
+                >
+                  重试
+                </button>
+              )}
+            </>
+          ) : projectId ? (
+            <Loader2 size={24} color="var(--text-muted)" className="spin" />
+          ) : (
+            <>
+              <CircleAlert size={36} color="var(--text-muted)" strokeWidth={1.4} />
+              <span style={styles.missingText}>灵感不存在或已被删除</span>
+            </>
+          )}
         </div>
       </div>
     )
@@ -316,6 +339,15 @@ const styles: Record<string, CSSProperties> = {
   missingText: {
     fontSize: 14,
     color: 'var(--text-muted)',
+  },
+  retryBtn: {
+    marginTop: 14,
+    padding: '8px 22px',
+    borderRadius: 18,
+    background: 'var(--primary)',
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: 600,
   },
   processingCard: {
     display: 'flex',
