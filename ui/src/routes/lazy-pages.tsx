@@ -26,3 +26,6 @@ export const ShareManagePage = lazy(() => import('../pages/share/ShareManagePage
 export const PinnedSessions = lazy(() => import('../pages/PinnedSessions').then((module) => ({
   default: module.PinnedSessions,
 })))
+export const UpdatesPage = lazy(() => import('../pages/UpdatesPage').then((module) => ({
+  default: module.UpdatesPage,
+})))

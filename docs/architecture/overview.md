@@ -287,6 +287,10 @@ PC 右侧全局栏同时承载全局助理和置顶会话快捷入口，两个�
 | `codex` | `@agentclientprotocol/codex-acp` | 可用 |
 | `gemini` | — | 未接入 |
 
+## PC 会话动态工作台
+
+PC 全局 `/updates` 是独立的会话动态工作台。左侧复用 `widget.sessionActivity.list` 与 `sessionDock.list` 聚合跨项目动态和置顶 Session；中间使用专用 Workbench Session store 按 `sessionId` 查询消息、订阅实时流和提交 Prompt，不修改 Workspace Session store；右侧从消息的 `presentations_json` 派生原型和文件清单，并通过 `fs.read` 按需读取正文。打开会话使用 `sessions.markRead`，重连后重新校准列表和当前会话。
+
 ## A2A Hub 跨机器通信
 
 AI IDE Studio 作为 A2A Hub 的一个 provider 接入,通过 `agent_hub.*` MCP 工具让本地 Agent 跨机器互相调用。
