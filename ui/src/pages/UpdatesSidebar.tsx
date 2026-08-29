@@ -1,5 +1,6 @@
-import { Activity, Pin, RefreshCw } from 'lucide-react'
-import type { WidgetAgentProjectActivityGroup, WidgetSessionActivityItem } from '../stores/widget.store'
+import { useState } from 'react'
+import { RefreshCw } from 'lucide-react'
+import type { WidgetAgentProjectActivityGroup } from '../stores/widget.store'
 import type { SessionDockItem } from '../stores/session-dock.store'
 import './updates/updates-sidebar.css'
 
@@ -7,6 +8,10 @@ export interface WorkbenchSessionTarget {
   sessionId: string
   projectId: string | null
   title: string
+  agentName?: string | null
+  agentIcon?: string | null
+  projectName?: string | null
+  projectColor?: string | null
 }
 
 interface UpdatesSidebarProps {
@@ -17,6 +22,82 @@ interface UpdatesSidebarProps {
   selectedSessionId: string | null
   onRefresh: () => void
   onSelect: (target: WorkbenchSessionTarget) => void
+  defaultTab?: SidebarTab
+}
+
+type SidebarTab = 'dyn' | 'pin'
+
+interface SidebarRow {
+  sessionId: string
+  title: string
+  running: boolean
+  need: boolean
+  time: string
+  pinned: boolean
+  projectId: string | null
+  projectName: string
+  projectColor: string | null
+  agentId: string
+  agentName: string
+  agentIcon: string | null
+}
+
+const PALETTE = ['var(--green)', 'var(--purple)', 'var(--orange)', 'var(--blue)', 'var(--yellow)']
+
+function paletteColor(seed: string | null): string {
+  if (!seed) return 'var(--bg-4)'
+  let hash = 0
+  for (let index = 0; index < seed.length; index += 1) hash = (hash * 31 + seed.charCodeAt(index)) % 997
+  return PALETTE[hash % PALETTE.length]
+}
+
+function formatActivityTime(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  const now = new Date()
+  const sameDay = date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth() && date.getDate() === now.getDate()
+  if (sameDay) return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  return `${date.getMonth() + 1}/${date.getDate()}`
+}
+
+const ATTENTION_TASK_STATES = new Set(['needs_input', 'blocked', 'needs_attention'])
+
+function needsAttention(unread: boolean, taskStatus: string | null): boolean {
+  return unread || (!!taskStatus && ATTENTION_TASK_STATES.has(taskStatus))
+}
+
+function rowsFromActivity(groups: WidgetAgentProjectActivityGroup[], pinnedSessionIds: Set<string>): SidebarRow[] {
+  return groups.flatMap((group) => group.sessions.map((session) => ({
+    sessionId: session.sessionId,
+    title: session.sessionTitle || session.taskTitle || '未命名会话',
+    running: session.running,
+    need: !session.running && needsAttention(session.unread, session.taskStatus),
+    time: formatActivityTime(session.activityAt || group.activityAt),
+    pinned: pinnedSessionIds.has(session.sessionId),
+    projectId: group.projectId,
+    projectName: group.projectName || '未归属项目',
+    projectColor: null,
+    agentId: group.agentId,
+    agentName: group.agentName,
+    agentIcon: group.agentIcon,
+  })))
+}
+
+function rowsFromDock(items: SessionDockItem[]): SidebarRow[] {
+  return items.map((item) => ({
+    sessionId: item.sessionId,
+    title: item.sessionTitle || '未命名会话',
+    running: item.activityState === 'running',
+    need: item.unread,
+    time: formatActivityTime(item.lastActivityAt || item.addedAt || ''),
+    pinned: true,
+    projectId: item.projectId,
+    projectName: item.projectName || '未归属项目',
+    projectColor: item.projectColor,
+    agentId: item.agentId,
+    agentName: item.agentName,
+    agentIcon: item.agentIcon,
+  }))
 }
 
 export function UpdatesSidebar({
@@ -27,96 +108,151 @@ export function UpdatesSidebar({
   selectedSessionId,
   onRefresh,
   onSelect,
+  defaultTab = 'dyn',
 }: UpdatesSidebarProps) {
-  const dynamicIds = new Set(activityGroups.flatMap((group) => group.sessions.map((session) => session.sessionId)))
-  const fallbackPinned = pinnedItems.filter((item) => !dynamicIds.has(item.sessionId))
+  const [tab, setTab] = useState<SidebarTab>(defaultTab)
+  const pinnedSessionIds = new Set(pinnedItems.map((item) => item.sessionId))
+  const dynamicRows = rowsFromActivity(activityGroups, pinnedSessionIds)
+  const pinnedRows = rowsFromDock(pinnedItems)
+  const visibleRows = tab === 'dyn' ? dynamicRows : pinnedRows
+
+  const selectRow = (row: SidebarRow): void => {
+    onSelect({
+      sessionId: row.sessionId,
+      projectId: row.projectId,
+      title: row.title,
+      agentName: row.agentName,
+      agentIcon: row.agentIcon,
+      projectName: row.projectName,
+      projectColor: row.projectColor,
+    })
+  }
+
   return (
-    <aside className="workbench-sidebar" aria-label="会话导航">
-      <header className="workbench-sidebar-header">
-        <div>
-          <strong>会话动态</strong>
-          <span>{dynamicIds.size > 0 ? `${dynamicIds.size} 个需要关注` : '运行中或未读会话'}</span>
+    <aside className="wb-sidebar" aria-label="会话导航">
+      <div className="wb-seg-row">
+        <div className="wb-seg" role="tablist">
+          <button type="button" role="tab" aria-selected={tab === 'dyn'} className={tab === 'dyn' ? 'is-on' : ''} onClick={() => setTab('dyn')}>
+            动态 {dynamicRows.length > 0 && <span className="wb-seg-n">{dynamicRows.length}</span>}
+          </button>
+          <button type="button" role="tab" aria-selected={tab === 'pin'} className={tab === 'pin' ? 'is-on' : ''} onClick={() => setTab('pin')}>
+            置顶 {pinnedRows.length > 0 && <span className="wb-seg-n wb-seg-n-quiet">{pinnedRows.length}</span>}
+          </button>
         </div>
-        <button type="button" className="workbench-icon-button" onClick={onRefresh} title="刷新" aria-label="刷新">
-          <RefreshCw size={15} className={loading ? 'workbench-spin' : undefined} />
+        <button type="button" className="wb-refresh" onClick={onRefresh} title="刷新" aria-label="刷新">
+          <RefreshCw size={14} className={loading ? 'wb-spin' : undefined} />
         </button>
-      </header>
-      {error && <button type="button" className="workbench-error" onClick={onRefresh}>{error}，点击重试</button>}
-      <div className="workbench-sidebar-scroll">
-        <section className="workbench-sidebar-section">
-          <div className="workbench-section-label"><Activity size={13} /> 动态</div>
-          {loading && activityGroups.length === 0 && <div className="workbench-sidebar-empty">正在同步动态...</div>}
-          {!loading && activityGroups.length === 0 && <div className="workbench-sidebar-empty">暂无运行中或未读会话</div>}
-          {activityGroups.map((group) => (
-            <div key={group.groupId} className="workbench-activity-group">
-              <div className="workbench-group-heading">
-                <span className="workbench-project-dot" />
-                <span>{group.projectName || '未归属项目'}</span>
-                <small>{group.agentName}</small>
-              </div>
-              {group.sessions.map((session) => (
-                <DynamicRow
-                  key={session.sessionId}
-                  session={session}
-                  selected={selectedSessionId === session.sessionId}
-                  pinned={pinnedItems.some((item) => item.sessionId === session.sessionId)}
-                  onSelect={onSelect}
-                  projectId={group.projectId}
-                />
-              ))}
-            </div>
-          ))}
-        </section>
-        <section className="workbench-sidebar-section workbench-pinned-section">
-          <div className="workbench-section-label"><Pin size={13} /> 置顶 <span>{pinnedItems.length}</span></div>
-          {pinnedItems.length === 0 && <div className="workbench-sidebar-empty">还没有置顶会话</div>}
-          {fallbackPinned.map((item) => (
-            <button
-              type="button"
-              key={item.sessionId}
-              className={`workbench-session-row${selectedSessionId === item.sessionId ? ' is-selected' : ''}`}
-              onClick={() => onSelect({ sessionId: item.sessionId, projectId: item.projectId, title: item.sessionTitle || '未命名会话' })}
-            >
-              <span className={`workbench-status-dot ${item.activityState === 'running' ? 'is-running' : item.unread ? 'is-unread' : ''}`} />
-              <span className="workbench-session-copy">
-                <strong>{item.sessionTitle || '未命名会话'}</strong>
-                <small>{item.projectName} · {item.agentName}</small>
-              </span>
-              <Pin size={12} className="workbench-pin-mark" />
-            </button>
-          ))}
-        </section>
+      </div>
+      {error && <button type="button" className="wb-error" onClick={onRefresh}>{error}，点击重试</button>}
+      <div className="wb-list">
+        {loading && visibleRows.length === 0 && <div className="wb-empty">正在同步...</div>}
+        {!loading && visibleRows.length === 0 && (
+          tab === 'dyn'
+            ? <div className="wb-empty">没有新动态<br /><small>会话有新消息或状态变化时会出现在这里</small></div>
+            : <div className="wb-empty">还没有置顶会话<br /><small>在会话里点 📌 置顶后会出现在这里</small></div>
+        )}
+        {visibleRows.length > 0 && (
+          <GroupedRows
+            rows={visibleRows}
+            selectedSessionId={selectedSessionId}
+            onSelect={selectRow}
+            showPinMark={tab === 'dyn'}
+          />
+        )}
       </div>
     </aside>
   )
 }
 
-function DynamicRow({
-  session,
-  projectId,
-  selected,
-  pinned,
+function GroupedRows({
+  rows,
+  selectedSessionId,
   onSelect,
+  showPinMark,
 }: {
-  session: WidgetSessionActivityItem
-  projectId: string | null
-  selected: boolean
-  pinned: boolean
-  onSelect: (target: WorkbenchSessionTarget) => void
+  rows: SidebarRow[]
+  selectedSessionId: string | null
+  onSelect: (row: SidebarRow) => void
+  showPinMark: boolean
 }) {
-  const title = session.sessionTitle || '未命名会话'
+  const projects = new Map<string, SidebarRow[]>()
+  for (const row of rows) {
+    const key = row.projectId || row.projectName
+    const bucket = projects.get(key)
+    if (bucket) bucket.push(row)
+    else projects.set(key, [row])
+  }
+  return (
+    <>
+      {[...projects.entries()].map(([key, projectRows]) => {
+        const head = projectRows[0]
+        const band = head.projectColor || paletteColor(head.projectId || head.projectName)
+        const agents = new Map<string, SidebarRow[]>()
+        for (const row of projectRows) {
+          const bucket = agents.get(row.agentId)
+          if (bucket) bucket.push(row)
+          else agents.set(row.agentId, [row])
+        }
+        return (
+          <section key={key} className="wb-proj">
+            <div className="wb-proj-head" style={{ borderLeftColor: band }}>
+              <span className="wb-proj-dot" style={{ background: band }} />
+              <span className="wb-proj-name">{head.projectName}</span>
+              <span className="wb-proj-count">{projectRows.length} 条</span>
+            </div>
+            {[...agents.entries()].map(([agentId, agentRows]) => {
+              const ordered = [...agentRows].sort((left, right) => Number(right.pinned) - Number(left.pinned))
+              const avatarColor = paletteColor(agentId || agentRows[0].agentName)
+              return (
+                <div key={agentId} className="wb-agent">
+                  <div className="wb-agent-head">
+                    <span className="wb-agent-avatar" style={{ background: avatarColor }}>
+                      {(agentRows[0].agentIcon || agentRows[0].agentName || 'A').charAt(0).toUpperCase()}
+                    </span>
+                    <span className="wb-agent-name">{agentRows[0].agentName}</span>
+                  </div>
+                  {ordered.map((row) => (
+                    <SessionRowButton
+                      key={row.sessionId}
+                      row={row}
+                      selected={selectedSessionId === row.sessionId}
+                      onSelect={onSelect}
+                      showPinMark={showPinMark}
+                    />
+                  ))}
+                </div>
+              )
+            })}
+          </section>
+        )
+      })}
+    </>
+  )
+}
+
+function SessionRowButton({
+  row,
+  selected,
+  onSelect,
+  showPinMark,
+}: {
+  row: SidebarRow
+  selected: boolean
+  onSelect: (row: SidebarRow) => void
+  showPinMark: boolean
+}) {
+  const dot = row.running ? 'run' : row.need ? 'need' : 'ok'
   return (
     <button
       type="button"
-      className={`workbench-session-row${selected ? ' is-selected' : ''}`}
-      onClick={() => onSelect({ sessionId: session.sessionId, projectId, title })}
+      className={`wb-session-row${selected ? ' is-selected' : ''}`}
+      onClick={() => onSelect(row)}
+      title={row.title}
     >
-      <span className={`workbench-status-dot ${session.running ? 'is-running' : 'is-unread'}`} />
-      <span className="workbench-session-copy">
-        <strong>{title}</strong>
-        <small>{session.taskTitle || session.stage || '有新的会话活动'}</small>
-      </span>
-      {pinned && <Pin size={12} className="workbench-pin-mark" />}
+      <span className={`wb-dot ${dot}`} />
+      <span className="wb-row-title">{row.title}</span>
+      {showPinMark && row.pinned && <span className="wb-pin-mark">📌</span>}
+      <span className="wb-row-time">{row.time}</span>
     </button>
   )
 }

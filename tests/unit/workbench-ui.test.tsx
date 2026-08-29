@@ -50,51 +50,81 @@ const pinned: SessionDockItem = {
   addedAt: '2026-08-28T07:00:00.000Z',
 }
 
+const sidebarProps = {
+  loading: false,
+  error: null,
+  selectedSessionId: null,
+  onRefresh: vi.fn(),
+  onSelect: vi.fn(),
+}
+
 describe('统一工作台 UI', () => {
-  test('renders dynamic and pinned sessions with project ownership', () => {
+  test('动态签默认展示:双签 + 项目→Agent 三层分组 + 条目', () => {
     const html = renderToStaticMarkup(createElement(UpdatesSidebar, {
+      ...sidebarProps,
       activityGroups: [group],
       pinnedItems: [pinned],
-      loading: false,
-      error: null,
-      selectedSessionId: null,
-      onRefresh: vi.fn(),
-      onSelect: vi.fn(),
     }))
-    expect(html).toContain('会话动态')
+    expect(html).toContain('动态')
+    expect(html).toContain('置顶')
     expect(html).toContain('AI IDE Studio')
+    expect(html).toContain('编码 Agent')
     expect(html).toContain('统一工作台')
+    expect(html).not.toContain('置顶会话')
+  })
+
+  test('置顶签展示全部 dock 条目(不再过滤动态重复)', () => {
+    const html = renderToStaticMarkup(createElement(UpdatesSidebar, {
+      ...sidebarProps,
+      activityGroups: [group],
+      pinnedItems: [pinned],
+      defaultTab: 'pin',
+    }))
     expect(html).toContain('置顶会话')
     expect(html).toContain('GovClaw')
+    expect(html).toContain('测试 Agent')
+    expect(html).not.toContain('统一工作台')
   })
 
-  test('does not duplicate a session that is both dynamic and pinned', () => {
+  test('动态里的置顶会话只出现一次并带 📌 角标', () => {
     const html = renderToStaticMarkup(createElement(UpdatesSidebar, {
+      ...sidebarProps,
       activityGroups: [group],
       pinnedItems: [{ ...pinned, sessionId: 'session-1', sessionTitle: '统一工作台' }],
-      loading: false,
-      error: null,
-      selectedSessionId: null,
-      onRefresh: vi.fn(),
-      onSelect: vi.fn(),
     }))
-    expect(html.match(/统一工作台/g)).toHaveLength(1)
+    expect(html.match(/>统一工作台</g)).toHaveLength(1)
+    expect(html).toContain('📌')
   })
 
-  test('shows an empty preview when no session output exists', () => {
+  test('动态签空态与置顶签空态各有出口', () => {
+    const dynEmpty = renderToStaticMarkup(createElement(UpdatesSidebar, {
+      ...sidebarProps,
+      activityGroups: [],
+      pinnedItems: [],
+    }))
+    expect(dynEmpty).toContain('没有新动态')
+    const pinEmpty = renderToStaticMarkup(createElement(UpdatesSidebar, {
+      ...sidebarProps,
+      activityGroups: [],
+      pinnedItems: [],
+      defaultTab: 'pin',
+    }))
+    expect(pinEmpty).toContain('还没有置顶会话')
+  })
+
+  test('预览面板默认打开「最后回复」签,空态有出口', () => {
     const html = renderToStaticMarkup(createElement(UpdatesPreviewPanel, {
       messages: [],
       projectId: 'project-1',
+      sessionId: 'session-1',
       collapsed: false,
       onToggle: vi.fn(),
     }))
-    expect(html).toContain('当前会话还没有最终回复')
-    expect(html).toContain('会话预览')
     expect(html).toContain('最后回复')
-    expect(html).toContain('产物 0')
+    expect(html).toContain('当前会话还没有最终回复')
   })
 
-  test('keeps repeated file paths distinct across presentations', () => {
+  test('重复文件路径的签保持 data-file-key 互不冲突', () => {
     const html = renderToStaticMarkup(createElement(UpdatesPreviewPanel, {
       messages: [{
         id: 'message-1',
@@ -111,6 +141,7 @@ describe('统一工作台 UI', () => {
         ],
       }],
       projectId: 'project-1',
+      sessionId: 'session-1',
       collapsed: false,
       onToggle: vi.fn(),
     }))
@@ -119,7 +150,7 @@ describe('统一工作台 UI', () => {
     expect(html).toContain('data-file-key="presentation-b:docs/report.md"')
   })
 
-  test('shows pending Agent interactions above the composer', () => {
+  test('交互面板渲染在输入卡之上', () => {
     const html = renderToStaticMarkup(createElement(InteractionPanel, {
       permission: {
         id: 'permission-1',
@@ -134,6 +165,20 @@ describe('统一工作台 UI', () => {
 
     const source = readFileSync(new URL('../../ui/src/pages/UpdatesConversation.tsx', import.meta.url), 'utf8')
     expect(source.indexOf('<InteractionPanel')).toBeGreaterThan(-1)
-    expect(source.indexOf('<InteractionPanel')).toBeLessThan(source.indexOf('<footer className="workbench-composer">'))
+    expect(source.indexOf('<InteractionPanel')).toBeLessThan(source.indexOf('<footer className="wb-composer">'))
+  })
+
+  test('会话组件不再引用未定义的设计 token', () => {
+    const cssFiles = [
+      '../../ui/src/pages/updates/updates-sidebar.css',
+      '../../ui/src/pages/updates/updates-content.css',
+      '../../ui/src/pages/updates/updates-preview-tabs.css',
+      '../../ui/src/pages/updates/updates-page.css',
+    ]
+    for (const file of cssFiles) {
+      const css = readFileSync(new URL(file, import.meta.url), 'utf8')
+      expect(css).not.toContain('var(--primary)')
+      expect(css).not.toContain('var(--text-4)')
+    }
   })
 })

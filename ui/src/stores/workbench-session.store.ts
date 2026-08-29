@@ -21,6 +21,8 @@ import {
   type ToolCallInfo,
   type TurnProcessItemInfo,
   type TurnUsageInfo,
+  type UsageInfo,
+  type SessionCapabilities,
 } from './session-events'
 import { applyTurnEntry, createEmptyTurn, turnFromProcessItems, type TurnProcessBlock, type TurnViewModel } from './turn-blocks'
 
@@ -36,6 +38,8 @@ interface WorkbenchSessionState {
   pendingPermissions: PermissionRequestInfo[]
   pendingElicitations: ElicitationRequestInfo[]
   interactionError: string | null
+  usage: UsageInfo | null
+  capabilities: SessionCapabilities
   select: (sessionId: string | null) => Promise<void>
   sendPrompt: (content: string) => Promise<void>
   cancel: () => Promise<void>
@@ -92,17 +96,19 @@ function reducePendingInteractions(
   events: SessionEventData[],
   pendingPermissions: PermissionRequestInfo[] = [],
   pendingElicitations: ElicitationRequestInfo[] = [],
-): Pick<WorkbenchSessionState, 'pendingPermissions' | 'pendingElicitations'> {
+  usage: UsageInfo | null = null,
+  capabilities: SessionCapabilities = { ...defaultCaps },
+): Pick<WorkbenchSessionState, 'pendingPermissions' | 'pendingElicitations' | 'usage' | 'capabilities'> {
   const reduced = [...events].sort((left, right) => left.sequence - right.sequence).reduce(applySessionEvent, {
     streamingMessage: null,
-    usage: null,
+    usage,
     turnUsage: null,
-    capabilities: { ...defaultCaps },
+    capabilities: { ...capabilities },
     plan: [],
     pendingPermissions,
     pendingElicitations,
   })
-  return { pendingPermissions: reduced.pendingPermissions, pendingElicitations: reduced.pendingElicitations }
+  return { pendingPermissions: reduced.pendingPermissions, pendingElicitations: reduced.pendingElicitations, usage: reduced.usage, capabilities: reduced.capabilities }
 }
 
 function installListeners(set: (value: Partial<WorkbenchSessionState> | ((state: WorkbenchSessionState) => Partial<WorkbenchSessionState>)) => void): void {
@@ -144,7 +150,7 @@ function installListeners(set: (value: Partial<WorkbenchSessionState> | ((state:
       const event = message.event as SessionEventData
       set((state) => {
         const events = [...state.events.filter((item) => item.id !== event.id), event].sort((a, b) => a.sequence - b.sequence)
-        return { events, ...reducePendingInteractions([event], state.pendingPermissions, state.pendingElicitations) }
+        return { events, ...reducePendingInteractions([event], state.pendingPermissions, state.pendingElicitations, state.usage, state.capabilities) }
       })
     }),
     wsClient.on('session:done', (message) => {
@@ -175,9 +181,11 @@ export const useWorkbenchSessionStore = create<WorkbenchSessionState>((set, get)
   pendingPermissions: [],
   pendingElicitations: [],
   interactionError: null,
+  usage: null,
+  capabilities: { ...defaultCaps },
   select: async (sessionId) => {
     const requestGeneration = ++generation
-    set({ selectedSessionId: sessionId, messages: [], events: [], streamingMessage: null, loading: !!sessionId, error: null, running: false, sending: false, pendingPermissions: [], pendingElicitations: [], interactionError: null })
+    set({ selectedSessionId: sessionId, messages: [], events: [], streamingMessage: null, loading: !!sessionId, error: null, running: false, sending: false, pendingPermissions: [], pendingElicitations: [], interactionError: null, usage: null, capabilities: { ...defaultCaps } })
     setSubscription(sessionId)
     if (!sessionId) { set({ loading: false }); return }
     installListeners(set)
@@ -237,5 +245,5 @@ export const useWorkbenchSessionStore = create<WorkbenchSessionState>((set, get)
       set((state) => ({ pendingElicitations: failure.expired ? state.pendingElicitations.filter((request) => request.id !== requestId) : state.pendingElicitations, interactionError: failure.message }))
     }
   },
-  dispose: () => { generation += 1; setSubscription(null); removeListeners?.(); set({ selectedSessionId: null, messages: [], events: [], streamingMessage: null, loading: false, error: null, running: false, sending: false, pendingPermissions: [], pendingElicitations: [], interactionError: null }) },
+  dispose: () => { generation += 1; setSubscription(null); removeListeners?.(); set({ selectedSessionId: null, messages: [], events: [], streamingMessage: null, loading: false, error: null, running: false, sending: false, pendingPermissions: [], pendingElicitations: [], interactionError: null, usage: null, capabilities: { ...defaultCaps } }) },
 }))
