@@ -218,6 +218,23 @@ describe('workbench session store', () => {
     expect(useWorkbenchSessionStore.getState().streamingMessage?.finalAnswer).toBe('first')
   })
 
+  test('keeps rich tool fields when the lightweight persisted mirror arrives first', async () => {
+    const { useWorkbenchSessionStore } = await import('../../ui/src/stores/workbench-session.store.js')
+    await useWorkbenchSessionStore.getState().select('session-a')
+    const eventHandler = on.mock.calls.find(([eventType]) => eventType === 'session:event')?.[1] as ((message: Record<string, unknown>) => void) | undefined
+    const updateHandler = on.mock.calls.find(([eventType]) => eventType === 'session:update')?.[1] as ((message: Record<string, unknown>) => void) | undefined
+    eventHandler?.({
+      sessionId: 'session-a',
+      event: {
+        id: 'event-tool-first', session_id: 'session-a', message_id: 'message-live', type: 'tool.call',
+        payload_json: JSON.stringify({ messageId: 'message-live', toolCall: { id: 'tool-rich', title: '执行检查', status: 'in_progress' } }), sequence: 2, created_at: '2026-08-29T00:01:00.000Z',
+      },
+    })
+    updateHandler?.({ sessionId: 'session-a', data: { messageId: 'message-live', role: 'agent', toolCall: { id: 'tool-rich', title: '执行检查', status: 'completed', rawInput: { path: 'README.md' }, rawOutput: 'ok' } } })
+    expect(useWorkbenchSessionStore.getState().streamingMessage?.processBlocks.filter((block) => block.kind === 'tool')).toHaveLength(1)
+    expect(useWorkbenchSessionStore.getState().streamingMessage?.toolCalls[0]).toMatchObject({ status: 'completed', rawInput: { path: 'README.md' }, rawOutput: 'ok' })
+  })
+
   test('preserves consecutive identical event-only chunks', async () => {
     const { useWorkbenchSessionStore } = await import('../../ui/src/stores/workbench-session.store.js')
     await useWorkbenchSessionStore.getState().select('session-a')
@@ -370,6 +387,7 @@ describe('workbench session store', () => {
     }])
     await useWorkbenchSessionStore.getState().loadMessageProcess('message-a')
     expect(useWorkbenchSessionStore.getState().messages.find((item) => item.id === 'message-a')?.processBlocks?.[0]).toMatchObject({ text: 'newer realtime' })
+    expect(useWorkbenchSessionStore.getState().processByMessageId['message-a']?.blocks[0]).toMatchObject({ text: 'newer realtime' })
   })
 
   test('loads process items when a selected session has a running agent message', async () => {

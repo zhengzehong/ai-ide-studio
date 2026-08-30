@@ -118,7 +118,7 @@ function noteRealtimeUpdate(sessionId: string, data: Record<string, unknown>): b
   if (existing?.eventCount) {
     existing.eventCount -= 1
     if (existing.updateCount === 0 && existing.eventCount === 0) mirroredEvents.delete(key)
-    return true
+    return !hasRichToolPayload(data)
   }
   mirroredEvents.set(key, { expiresAt: now + mirroredEventTtlMs, updateCount: (existing?.updateCount ?? 0) + 1, eventCount: 0 })
   return false
@@ -163,7 +163,11 @@ function applyRealtimeTurn(current: StreamingMessage | null, sessionId: string, 
   let turn: TurnViewModel = current && current.id === messageId ? current : createEmptyTurn(messageId)
   if (typeof data.contentDelta === 'string') turn = applyTurnEntry(turn, { kind: 'reply', text: data.contentDelta })
   if (typeof data.thinking === 'string') turn = applyTurnEntry(turn, { kind: 'thinking', text: data.thinking })
-  if (data.toolCall && typeof data.toolCall === 'object') turn = applyTurnEntry(turn, { kind: 'toolCall', toolCall: data.toolCall as ToolCallInfo })
+  if (data.toolCall && typeof data.toolCall === 'object') {
+    const toolCall = data.toolCall as ToolCallInfo
+    const kind = turn.processBlocks.some((block) => block.kind === 'tool' && block.toolCall.id === toolCall.id) ? 'toolUpdate' : 'toolCall'
+    turn = applyTurnEntry(turn, { kind, toolCall })
+  }
   if (data.toolCallUpdate && typeof data.toolCallUpdate === 'object') {
     const update = data.toolCallUpdate as ToolCallInfo
     if (turn.processBlocks.some((block) => block.kind === 'tool' && block.toolCall.id === update.id) || shouldCreateToolFromUpdate(update)) {
@@ -175,14 +179,21 @@ function applyRealtimeTurn(current: StreamingMessage | null, sessionId: string, 
 
 function mergeProcessBlock(blocks: TurnProcessBlock[], block: TurnProcessBlock, preferIncoming = true): TurnProcessBlock[] {
   if (!preferIncoming && block.id.startsWith('tpi-') && blocks.some((item) => item.id === block.id && item.id.startsWith('tpi-'))) return blocks
+  if (!preferIncoming && (block.kind === 'thinking' || block.kind === 'note' || block.kind === 'stage')) {
+    const text = block.text
+    if (blocks.some((item) =>
+      (block.kind === 'thinking' && item.kind === 'thinking' && item.text === text) ||
+      (block.kind === 'note' && item.kind === 'note' && item.text === text) ||
+      (block.kind === 'stage' && item.kind === 'stage' && item.text === text))) return blocks
+  }
   const canonical = block.id.startsWith('tpi-')
   const next = blocks.filter((item) => {
     if (item.id === block.id) return false
     if (item.kind === 'tool' && block.kind === 'tool' && item.toolCall.id === block.toolCall.id) return false
-    if (!canonical || item.id.startsWith('tpi-') || item.kind !== block.kind) return true
-    if (block.kind === 'thinking' && item.kind === 'thinking') return !item.text.includes(block.text) && !block.text.includes(item.text)
-    if (block.kind === 'note' && item.kind === 'note') return !item.text.includes(block.text) && !block.text.includes(item.text)
-    if (block.kind === 'stage' && item.kind === 'stage') return !item.text.includes(block.text) && !block.text.includes(item.text)
+    if (item.kind !== block.kind || (item.id.startsWith('tpi-') && !canonical)) return true
+    if (block.kind === 'thinking' && item.kind === 'thinking') return item.text !== block.text
+    if (block.kind === 'note' && item.kind === 'note') return item.text !== block.text
+    if (block.kind === 'stage' && item.kind === 'stage') return item.text !== block.text
     return true
   })
   return [...next, block].sort((left, right) => (left.sequence ?? 0) - (right.sequence ?? 0))
@@ -191,13 +202,17 @@ function mergeProcessBlock(blocks: TurnProcessBlock[], block: TurnProcessBlock, 
 function hasCanonicalProcessBlock(turn: StreamingMessage | null, messageId: string | undefined, data: Record<string, unknown>): boolean {
   if (!turn || !messageId || turn.id !== messageId) return false
   if (typeof data.thinking === 'string') {
-    return turn.processBlocks.some((block) => block.kind === 'thinking' && block.id.startsWith('tpi-') && block.text.includes(data.thinking as string))
+    return turn.processBlocks.some((block) => block.kind === 'thinking' && block.id.startsWith('tpi-') && block.text === data.thinking)
   }
-  const toolCall = data.toolCall as ToolCallInfo | undefined
-  if (toolCall?.id) return turn.processBlocks.some((block) => block.kind === 'tool' && block.id.startsWith('tpi-') && block.toolCall.id === toolCall.id)
-  const toolCallUpdate = data.toolCallUpdate as ToolCallInfo | undefined
-  if (toolCallUpdate?.id) return turn.processBlocks.some((block) => block.kind === 'tool' && block.id.startsWith('tpi-') && block.toolCall.id === toolCallUpdate.id)
   return false
+}
+
+function hasRichToolPayload(data: Record<string, unknown>): boolean {
+  const tool = (data.toolCall || data.toolCallUpdate) as ToolCallInfo | undefined
+  return !!tool && (
+    tool.rawInput !== undefined || tool.rawOutput !== undefined || !!tool.content?.length ||
+    !!tool.locations?.length || tool.terminalOutput !== undefined || !!tool.progress?.length || !!tool.error
+  )
 }
 
 function mergeBlockIntoTurn(turn: StreamingMessage, block: TurnProcessBlock, preferIncoming = true): StreamingMessage {
@@ -303,7 +318,7 @@ function installListeners(set: (value: Partial<WorkbenchSessionState> | ((state:
       set((state) => {
         const relatedMessage = state.messages.find((entry) => entry.id === item.message_id && entry.session_id === item.session_id)
         const activeProcessStatus = item.status === 'running' || item.status === 'in_progress' || item.status === 'pending'
-        const shouldStream = state.running || state.loading || relatedMessage?.status === 'running' || activeProcessStatus
+        const shouldStream = state.running || relatedMessage?.status === 'running' || activeProcessStatus
         const base = state.streamingMessage?.id === item.message_id
           ? state.streamingMessage
           : shouldStream ? { ...(state.streamingMessage ?? createEmptyTurn(item.message_id)), id: item.message_id } : state.streamingMessage
@@ -430,6 +445,7 @@ export const useWorkbenchSessionStore = create<WorkbenchSessionState>((set, get)
   sendPrompt: async (content, images = [], files = []) => {
     const sid = get().selectedSessionId
     if (!sid || (!content.trim() && images.length === 0 && files.length === 0)) return
+    const requestGeneration = generation
     const clientMessageId = `workbench-${Date.now()}`
     const queueBehindActiveTurn = get().running
     const fileContext = files.length ? `${content.trim()}\n\n[文件附件]\n${files.map((file) => `- 文件路径: ${file.path}\n- MIME: ${file.mimeType}\n- 原始文件名: ${file.name}`).join('\n')}` : content.trim()
@@ -437,8 +453,9 @@ export const useWorkbenchSessionStore = create<WorkbenchSessionState>((set, get)
     try {
       const commandImages = images.filter((image): image is ImageAttachmentInfo & { data: string } => typeof image.data === 'string').map((image) => ({ data: image.data, mimeType: image.mimeType }))
       await commandClient.execute({ commandId: clientMessageId, type: 'prompt', sessionId: sid, clientMessageId, content: fileContext, ...(commandImages.length ? { images: commandImages } : {}) })
-      if (sid === get().selectedSessionId) set({ sending: false })
+      if (sid === get().selectedSessionId && requestGeneration === generation) set({ sending: false })
     } catch (error) {
+      if (sid !== get().selectedSessionId || requestGeneration !== generation) throw error
       set((state) => ({ sending: false, running: queueBehindActiveTurn ? state.running : false, streamingMessage: queueBehindActiveTurn ? state.streamingMessage : null, messages: state.messages.filter((message) => message.id !== clientMessageId), error: error instanceof Error ? error.message : '消息发送失败' }))
       throw error
     }
@@ -465,7 +482,7 @@ export const useWorkbenchSessionStore = create<WorkbenchSessionState>((set, get)
     const requestGeneration = generation
     const message = get().messages.find((item) => item.id === messageId && item.session_id === sid)
     if (!message || get().processByMessageId[messageId]?.loading || get().processByMessageId[messageId]?.loaded) return
-    set((state) => ({ processByMessageId: { ...state.processByMessageId, [messageId]: { blocks: state.processByMessageId[messageId]?.blocks || [], loading: true, loaded: false } } }))
+    set((state) => ({ processByMessageId: { ...state.processByMessageId, [messageId]: { blocks: state.processByMessageId[messageId]?.blocks || message.processBlocks || [], loading: true, loaded: false } } }))
     try {
       const items = await wsClient.request({ type: 'sessions.messageProcess', sessionId: sid, messageId }) as TurnProcessItemInfo[]
       let turn = turnFromProcessItems(messageId, items)
