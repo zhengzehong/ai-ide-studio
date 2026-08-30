@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { RefreshCw } from 'lucide-react'
+import { Pin, RefreshCw } from 'lucide-react'
 import type { WidgetAgentProjectActivityGroup } from '../stores/widget.store'
 import type { SessionDockItem } from '../stores/session-dock.store'
+import { ICON_MAP } from '../components/agent-square/constants'
 import './updates/updates-sidebar.css'
 
 export interface WorkbenchSessionTarget {
@@ -133,10 +134,10 @@ export function UpdatesSidebar({
       <div className="wb-seg-row">
         <div className="wb-seg" role="tablist">
           <button type="button" role="tab" aria-selected={tab === 'dyn'} className={tab === 'dyn' ? 'is-on' : ''} onClick={() => setTab('dyn')}>
-            动态 {dynamicRows.length > 0 && <span className="wb-seg-n">{dynamicRows.length}</span>}
+            动态
           </button>
           <button type="button" role="tab" aria-selected={tab === 'pin'} className={tab === 'pin' ? 'is-on' : ''} onClick={() => setTab('pin')}>
-            置顶 {pinnedRows.length > 0 && <span className="wb-seg-n wb-seg-n-quiet">{pinnedRows.length}</span>}
+            置顶
           </button>
         </div>
         <button type="button" className="wb-refresh" onClick={onRefresh} title="刷新" aria-label="刷新">
@@ -207,7 +208,7 @@ function GroupedRows({
                 <div key={agentId} className="wb-agent">
                   <div className="wb-agent-head">
                     <span className="wb-agent-avatar" style={{ background: avatarColor }}>
-                      {(agentRows[0].agentIcon || agentRows[0].agentName || 'A').charAt(0).toUpperCase()}
+                      <AgentIcon icon={agentRows[0].agentIcon} name={agentRows[0].agentName} />
                     </span>
                     <span className="wb-agent-name">{agentRows[0].agentName}</span>
                   </div>
@@ -251,8 +252,15 @@ function SessionRowButton({
     >
       <span className={`wb-dot ${dot}`} />
       <span className="wb-row-title">{row.title}</span>
-      {showPinMark && row.pinned && <span className="wb-pin-mark">📌</span>}
+      {showPinMark && row.pinned && <Pin size={12} className="wb-pin-mark" aria-label="已置顶" />}
       <span className="wb-row-time">{row.time}</span>
     </button>
   )
+}
+
+function AgentIcon({ icon, name }: { icon: string | null; name: string }): React.ReactNode {
+  const Icon = icon && icon in ICON_MAP
+    ? ICON_MAP[icon as keyof typeof ICON_MAP]
+    : null
+  return Icon ? <Icon size={16} strokeWidth={2.2} color="var(--bg-0)" /> : name.charAt(0).toUpperCase()
 }

@@ -1,40 +1,100 @@
-/* ===== 左栏:动态/置顶 双签 ===== */
-.wb-sidebar{display:flex;flex-direction:column;min-width:290px;width:322px;border-right:1px solid var(--border);background:var(--bg-0);overflow:hidden}
-.wb-seg-row{display:flex;align-items:center;gap:6px;padding:12px 12px 4px;flex-shrink:0}
-.wb-seg{display:flex;flex:1;background:var(--bg-2);border-radius:var(--radius);padding:3px}
-.wb-seg button{flex:1;padding:7px 0;font-size:13px;border-radius:6px;color:var(--text-2);display:flex;align-items:center;justify-content:center;gap:6px;border:none;background:none;cursor:pointer;font-family:inherit}
-.wb-seg button.is-on{background:var(--bg-0);color:var(--text-1);font-weight:600;box-shadow:var(--shadow-sm)}
-.wb-seg-n{font-size:10.5px;background:var(--red);color:#fff;border-radius:9px;min-width:16px;height:16px;padding:0 5px;display:flex;align-items:center;justify-content:center}
-.wb-seg-n-quiet{background:var(--bg-4);color:var(--text-2)}
-.wb-refresh{width:28px;height:28px;display:grid;place-items:center;border:1px solid var(--border);border-radius:6px;background:var(--bg-0);color:var(--text-3);cursor:pointer;flex-shrink:0}
-.wb-refresh:hover{color:var(--blue);border-color:var(--blue)}
-.wb-error{margin:8px 12px 0;border:1px solid color-mix(in srgb,var(--red) 30%,transparent);border-radius:6px;background:color-mix(in srgb,var(--red) 8%,transparent);padding:8px;color:var(--red);font-size:11px;text-align:left;cursor:pointer}
-.wb-list{flex:1;overflow-y:auto;padding:6px 10px 16px}
-/* 项目分组(第一层:色带) */
-.wb-proj{margin-top:14px}
-.wb-proj-head{display:flex;align-items:center;gap:9px;padding:7px 10px;background:var(--bg-1);border-left:3px solid var(--bg-4);border-radius:0 6px 6px 0;margin-bottom:4px}
-.wb-proj-dot{width:12px;height:12px;border-radius:4px;flex-shrink:0}
-.wb-proj-name{font-size:14px;font-weight:700;letter-spacing:.2px;color:var(--text-1)}
-.wb-proj-count{margin-left:auto;font-size:10.5px;color:var(--text-3);background:var(--bg-0);padding:2px 9px;border-radius:10px;font-weight:600}
-/* Agent 分组(第二层:竖线+头像名) */
-.wb-agent{margin:5px 0 7px 12px;border-left:2px solid var(--bg-3);padding-left:12px}
-.wb-agent-head{display:flex;align-items:center;gap:8px;padding:6px 4px 4px}
-.wb-agent-avatar{width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;color:#fff;font-weight:700;flex-shrink:0}
-.wb-agent-name{font-size:12.5px;color:var(--text-2);font-weight:600}
-/* 会话条目(第三层) */
-.wb-session-row{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:var(--radius);cursor:pointer;position:relative;margin:1px 0 1px 3px;border:none;background:none;color:var(--text-1);width:calc(100% - 3px);text-align:left;font-family:inherit}
-.wb-session-row:hover{background:var(--bg-1)}
-.wb-session-row.is-selected{background:var(--blue-light)}
-.wb-row-title{flex:1;min-width:0;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
-.wb-session-row.is-selected .wb-row-title{color:var(--blue)}
-.wb-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;background:var(--green)}
-.wb-dot.run{background:var(--blue);animation:wb-pulse 1.6s infinite}
-.wb-dot.need{background:var(--red)}
-.wb-dot.ok{background:var(--green)}
-.wb-pin-mark{position:absolute;right:7px;top:-5px;font-size:11px;line-height:1;flex-shrink:0}
-.wb-row-time{font-size:11px;color:var(--text-3);flex-shrink:0;margin-right:10px}
-.wb-empty{padding:24px 14px;text-align:center;font-size:12.5px;color:var(--text-3);line-height:1.7}
-.wb-empty small{font-size:11.5px}
-.wb-spin{animation:wb-spin 1s linear infinite}
-@keyframes wb-pulse{0%,100%{opacity:1}50%{opacity:.25}}
-@keyframes wb-spin{to{transform:rotate(360deg)}}
+/* 动态/置顶左栏：沿用 Workspace 的标签、Agent 行和会话行视觉基准。 */
+.wb-sidebar {
+  display: flex;
+  flex-direction: column;
+  width: 322px;
+  min-width: 290px;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-right: 1px solid var(--border);
+  background: var(--bg-0);
+}
+
+.wb-seg-row {
+  display: flex;
+  align-items: stretch;
+  height: 42px;
+  padding: 0 8px 0 0;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.wb-seg {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.wb-seg button {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 9px 0;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.wb-seg button:hover { color: var(--text-2); }
+.wb-seg button.is-on { border-bottom-color: var(--blue); background: transparent; color: var(--blue); box-shadow: none; }
+
+.wb-refresh {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  align-self: center;
+  place-items: center;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.wb-refresh:hover { background: var(--bg-2); color: var(--blue); }
+.wb-error { margin: 8px 12px 0; padding: 8px; border: 1px solid color-mix(in srgb, var(--red) 30%, transparent); border-radius: 6px; background: color-mix(in srgb, var(--red) 8%, transparent); color: var(--red); cursor: pointer; font-size: 11px; text-align: left; }
+.wb-list { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 0 12px; }
+
+/* 项目层：采用 Workspace Agent 行的 6px 外边距、9px 垂直内距和 6px 圆角。 */
+.wb-proj { margin: 0 0 4px; }
+.wb-proj-head { display: flex; align-items: center; gap: 10px; min-width: 0; margin: 0 6px 2px; padding: 9px 12px; border-left: 3px solid var(--bg-4); border-radius: 6px; background: transparent; }
+.wb-proj-head:hover { background: var(--bg-2); }
+.wb-proj-dot { width: 28px; height: 28px; border-radius: 7px; flex-shrink: 0; }
+.wb-proj-name { min-width: 0; overflow: hidden; color: var(--text-1); font-size: 14px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.wb-proj-count { flex-shrink: 0; margin-left: auto; padding: 0; border-radius: 0; background: transparent; color: var(--text-3); font-size: 11px; font-weight: 500; }
+
+/* Agent 层：会话栏标题使用 Workspace 同款 18px 方圆角头像。 */
+.wb-agent { margin: 0; padding: 0; }
+.wb-agent-head { display: flex; align-items: center; gap: 10px; min-width: 0; margin: 0 6px; padding: 9px 12px; border-radius: 6px; }
+.wb-agent-head:hover { background: var(--bg-2); }
+.wb-agent-avatar { display: flex; width: 28px; height: 28px; align-items: center; justify-content: center; overflow: hidden; border-radius: 7px; color: var(--bg-0); font-size: 13px; font-weight: 700; flex-shrink: 0; }
+.wb-agent-name { min-width: 0; overflow: hidden; color: var(--text-1); font-size: 14px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Session 层：与 Workspace SessionBar 的 6px 行内距和状态点对齐。 */
+.wb-session-row { position: relative; display: flex; width: calc(100% - 36px); min-width: 0; align-items: center; gap: 8px; margin: 0 6px 2px 30px; padding: 6px 8px; border: none; border-radius: 4px; background: transparent; color: var(--text-1); cursor: pointer; font-family: inherit; text-align: left; }
+.wb-session-row:hover { background: var(--bg-2); }
+.wb-session-row.is-selected { background: var(--blue-light); box-shadow: inset 2px 0 0 var(--blue); }
+.wb-row-title { min-width: 0; flex: 1; overflow: hidden; color: var(--text-1); font-size: 13px; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
+.wb-session-row.is-selected .wb-row-title { color: var(--blue); }
+.wb-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); flex-shrink: 0; }
+.wb-dot.run { background: var(--green); animation: wb-pulse 1.6s infinite; box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 12%, transparent); }
+.wb-dot.need { background: var(--yellow); box-shadow: 0 0 0 3px color-mix(in srgb, var(--yellow) 10%, transparent); }
+.wb-dot.ok { background: var(--text-3); }
+.wb-pin-mark { position: absolute; top: 3px; right: 5px; color: var(--red); flex-shrink: 0; }
+.wb-row-time { margin-left: 4px; color: var(--text-3); font-size: 11px; flex-shrink: 0; }
+.wb-empty { padding: 24px 14px; color: var(--text-3); font-size: 12.5px; line-height: 1.7; text-align: center; }
+.wb-empty small { font-size: 11.5px; }
+.wb-spin { animation: wb-spin 1s linear infinite; }
+@keyframes wb-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+@keyframes wb-spin { to { transform: rotate(360deg); } }
