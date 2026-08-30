@@ -161,7 +161,7 @@ ignored     failed      task
 
 部分唯一索引 `idx_sessions_one_autonomy_per_agent` 保证同一 Agent 最多一个未删除、非模板的 `purpose = autonomy` Session。自主 Session 使用相同的消息、事件、运行偏好和 ACP 恢复结构，仅在展示和统计层与普通对话隔离。
 
-进入会话通过 `sessions.markRead` 将 `last_read_at` 更新为当前时间。显式标记未读通过 `sessions.markUnread` 将其设置为最近消息时间前 1 毫秒，并发布 `session:changed(event=marked_unread)`；该状态继续由现有时间戳比较读取，不增加独立布尔列。
+进入会话通过 `sessions.markRead` 将 `last_read_at` 更新为当前时间。显式标记未读通过 `sessions.markUnread` 将其设置为最近消息时间前 1 毫秒，并发布 `session:changed(event=marked_unread)`；该状态继续由现有时间戳比较读取，不增加独立布尔列。Workspace 的 `sessions.bulkAction` 在同一项目和 Agent 作用域内批量更新多个会话的 `last_read_at`，或复用软删除流程写入 `deleted_at`；服务端按 `is_primary`、运行态和 `purpose` 保护不可批量删除的会话，并返回逐项成功/跳过结果。
 
 ### autonomy_reports
 

@@ -416,6 +416,14 @@ export const sessionStore = {
     return timestamp
   },
 
+  markReadMany(ids: string[], timestamp = new Date().toISOString()): string {
+    const update = getDb().prepare('UPDATE sessions SET last_read_at = ? WHERE id = ?')
+    getDb().transaction(() => {
+      for (const id of ids) update.run(timestamp, id)
+    })()
+    return timestamp
+  },
+
   markUnread(id: string): string {
     const session = sessionStore.get(id)
     if (!session?.last_message_at) throw new Error('会话没有消息，无法标记未读')

@@ -95,6 +95,12 @@ import {
 } from './session-read-fence'
 import { mergeHistoricalCapabilities } from './session-capability-authority'
 import { isSecretarySessionPurpose } from './secretary-session'
+export interface SessionBulkActionResultData {
+  action: 'markRead' | 'delete'
+  succeeded: string[]
+  skipped: Array<{ sessionId: string; reason: string }>
+  lastReadAt?: string
+}
 
 const COPYING_STAGE = '正在复制会话...'
 
@@ -274,6 +280,8 @@ interface SessionStore {
   importLocalSession: (agentId: string, input: ImportLocalSessionInput) => Promise<LocalSessionImportResult>
   renameSession: (sessionId: string, title: string) => Promise<void>
   deleteSession: (sessionId: string) => Promise<void>
+  bulkMarkAgentSessionsRead: (agentId: string, projectId: string, sessionIds: string[]) => Promise<SessionBulkActionResultData>
+  bulkDeleteSessions: (agentId: string, projectId: string, sessionIds: string[]) => Promise<SessionBulkActionResultData>
   closeSession: (sessionId: string) => Promise<void>
   archiveSession: (sessionId: string) => Promise<void>
   reorderSessions: (projectId: string, agentId: string, sessionIds: string[]) => Promise<SessionData[]>
@@ -1476,6 +1484,71 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         interactionErrorsBySession: withoutKey(state.interactionErrorsBySession, sessionId),
       }
     })
+  },
+
+  bulkMarkAgentSessionsRead: async (agentId, projectId, sessionIds) => {
+    const result = await wsClient.request({
+      type: 'sessions.bulkAction',
+      action: 'markRead',
+      agentId,
+      projectId,
+      sessionIds,
+    }) as SessionBulkActionResultData
+    const succeeded = new Set(result.succeeded)
+    set((state) => {
+      let sessionListCache = state.sessionListCache
+      for (const sessionId of succeeded) {
+        sessionListCache = patchSessionInListCache(sessionListCache, sessionId, { last_read_at: result.lastReadAt })
+      }
+      return {
+        sessionListCache,
+        sessions: state.sessions.map((session) => succeeded.has(session.id)
+          ? { ...session, last_read_at: result.lastReadAt }
+          : session),
+        unreadSessionIds: removeSessionIndicators(state.unreadSessionIds, [...succeeded]),
+      }
+    })
+    return result
+  },
+
+  bulkDeleteSessions: async (agentId, projectId, sessionIds) => {
+    const result = await wsClient.request({
+      type: 'sessions.bulkAction',
+      action: 'delete',
+      agentId,
+      projectId,
+      sessionIds,
+    }) as SessionBulkActionResultData
+    const deletedIds = new Set(result.succeeded)
+    for (const sessionId of deletedIds) {
+      sessionCaches.delete(sessionId)
+      clearCapabilityAuthority(sessionId)
+    }
+    set((state) => {
+      let sessionListCache = state.sessionListCache
+      for (const sessionId of deletedIds) sessionListCache = removeSessionFromListCache(sessionListCache, sessionId)
+      const deletedCurrentSession = state.currentSessionId !== null && deletedIds.has(state.currentSessionId)
+      const currentSessionId = deletedCurrentSession
+        ? null
+        : state.currentSessionId
+      const currentCleared = deletedCurrentSession
+      if (deletedCurrentSession && activeSessionsProjectId) clearProjectLastSession(activeSessionsProjectId)
+      return {
+        sessionListCache,
+        sessions: state.sessions.filter((session) => !deletedIds.has(session.id)),
+        currentSessionId,
+        messages: currentCleared ? [] : state.messages,
+        events: currentCleared ? [] : state.events,
+        streamingMessage: currentCleared ? null : state.streamingMessage,
+        runningSessionIds: removeSessionIndicators(state.runningSessionIds, [...deletedIds]),
+        unreadSessionIds: removeSessionIndicators(state.unreadSessionIds, [...deletedIds]),
+        staleSessionIds: removeSessionIndicators(state.staleSessionIds, [...deletedIds]),
+        interactionErrorsBySession: Object.fromEntries(
+          Object.entries(state.interactionErrorsBySession).filter(([id]) => !deletedIds.has(id)),
+        ),
+      }
+    })
+    return result
   },
 
   closeSession: async (sessionId) => {

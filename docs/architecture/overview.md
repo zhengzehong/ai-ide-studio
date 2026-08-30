@@ -104,6 +104,8 @@ PC 端历史消息默认通过轻量 HTTP `GET /api/v1/sessions/:sessionId/messa
 
 `files.present` 的消息摘要只持久化路径和文件元数据。文本通过 `fs.read` 按需读取；图片、音频、视频通过 owner-only 的 `fs.assetUrl` 获取一小时短期 HMAC 地址，再由 `/api/fs/asset` 以完整流或单段 HTTP Range 返回。签名地址不包含长期本地 token，过期后客户端根据持久化路径重新签发。项目相对路径禁止逃逸，显式服务器绝对路径保留既有特权语义；Markdown 内资源由服务端按文档目录、项目根路径、Windows/UNC/`file://` 绝对路径解析，HTTPS 外部资源直接加载。PC 和 APP 使用同一资源语义，APP 显式传递 presentation 的项目 ID。
 
+Workspace 的 Agent 会话栏提供作用域明确的批量管理入口。批量操作必须同时携带当前项目、Agent 和会话 ID，服务端重新查询并校验归属；批量已读复用现有 `last_read_at` 时间戳，批量删除复用 Session 软删除和 Runtime 清理链路。主会话、运行中会话以及自主/秘书等系统会话不会被批量删除，删除结果按会话返回成功或跳过原因，不引入新的数据库字段或全局管理页。
+
 ### PC 查询与命令传输边界
 
 PC Workspace 的普通文件通过受 owner token 保护的 `POST /api/v1/session-files` 单文件二进制流上传。API 校验 Project 与 Session 归属后，将文件原子写入 `DATA_DIR/attachments/sessions/<project>/<session>/<uploadId>/`，限制文件名和接收字节数，并把服务器绝对路径返回给 Workspace；发送 Prompt 时该路径作为可见附件说明进入现有消息链路。图片继续使用既有 image block，不经过普通文件通道。远程桌面 Client 上传到远程 Gateway，因此 Runtime 收到的始终是服务器可读路径；该能力不修改项目源码目录、移动端或全局助手。

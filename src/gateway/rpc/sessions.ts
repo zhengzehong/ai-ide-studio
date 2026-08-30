@@ -27,6 +27,7 @@ import { getRuntimePort } from '../../runtime/runtime-port-provider.js'
 import { buildRuntimeStateSnapshot } from '../../runtime/api/runtime-snapshot.js'
 import { randomUUID } from 'node:crypto'
 import { executeSessionCommand } from '../../commands/session-command-service.js'
+import { executeSessionBulkAction, MAX_SESSION_BULK_IDS } from '../../core/session-bulk-actions.js'
 
 const log = createChildLogger('rpc-sessions')
 
@@ -306,6 +307,25 @@ export const sessionRpcHandlers: RpcHandlerMap = {
     sendResult({ deleted: true })
   },
 
+  async 'sessions.bulkAction'(msg, { state, sendResult }) {
+    const action = msg.action
+    if (action !== 'markRead' && action !== 'delete') throw new Error('不支持的批量会话操作')
+    const agentId = requiredBulkText(msg.agentId, 'agentId')
+    const projectId = requiredBulkText(msg.projectId, 'projectId')
+    if (!Array.isArray(msg.sessionIds) || !msg.sessionIds.every((id): id is string => typeof id === 'string')) {
+      throw new Error('sessionIds 必须是字符串数组')
+    }
+    if (msg.sessionIds.length > MAX_SESSION_BULK_IDS) throw new Error(`一次最多操作 ${MAX_SESSION_BULK_IDS} 个会话`)
+    const result = await executeSessionBulkAction(
+      { action, agentId, projectId, sessionIds: msg.sessionIds },
+      sessionManager.isPromptActive,
+    )
+    if (action === 'delete') {
+      for (const sessionId of result.succeeded) state.subscriptions.delete(sessionId)
+    }
+    sendResult(result)
+  },
+
   async 'sessions.messages'(msg, { sendResult }) {
     const page = await getQueryPort().listSessionMessages({
       sessionId: msg.sessionId as string,
@@ -400,6 +420,11 @@ export const sessionRpcHandlers: RpcHandlerMap = {
       sessionId: msg.sessionId as string,
     }))
   },
+}
+
+function requiredBulkText(value: unknown, field: string): string {
+  if (typeof value !== 'string' || !value.trim()) throw new Error(`${field} 不能为空`)
+  return value.trim()
 }
 
 function legacyCommandId(requestId: string | undefined): string {

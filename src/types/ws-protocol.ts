@@ -358,6 +358,20 @@ export interface SessionsDeleteMsg extends ClientMessage {
   type: 'sessions.delete'
   sessionId: string
 }
+export type SessionBulkAction = 'markRead' | 'delete'
+export interface SessionsBulkActionMsg extends ClientMessage {
+  type: 'sessions.bulkAction'
+  action: SessionBulkAction
+  agentId: string
+  projectId: string
+  sessionIds: string[]
+}
+export interface SessionBulkActionResultData {
+  action: SessionBulkAction
+  succeeded: string[]
+  skipped: Array<{ sessionId: string; reason: string }>
+  lastReadAt?: string
+}
 export interface SessionsCloseMsg extends ClientMessage {
   type: 'sessions.close'
   sessionId: string
