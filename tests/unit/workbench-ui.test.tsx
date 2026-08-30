@@ -191,4 +191,10 @@ describe('统一工作台 UI', () => {
     expect(preview).toMatch(/\.wb-preview\{[^}]*flex:1 1 0%/)
     expect(preview).not.toMatch(/flex:\s*0 1 \d+%/)
   })
+  test('dynamic workbench uses a stable Zustand snapshot selector', () => {
+    const source = readFileSync(new URL('../../ui/src/pages/UpdatesConversation.tsx', import.meta.url), 'utf8')
+    expect(source).toContain('const workbenchState = useWorkbenchSessionStore()')
+    expect(source).not.toMatch(/useWorkbenchSessionStore\(\(state\) => \(\{/)
+    expect(source).toContain('const adapter = useMemo<ConversationPaneProps[\'adapter\']>')
+  })
 })

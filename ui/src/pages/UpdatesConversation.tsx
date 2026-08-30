@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { ConversationPane } from '../components/chat/ConversationPane'
 import type { ConversationPaneProps } from '../components/chat/conversation-types'
 import { useSessionDockStore } from '../stores/session-dock.store'
@@ -11,46 +11,51 @@ interface UpdatesConversationProps {
 }
 
 export function UpdatesConversation({ target }: UpdatesConversationProps) {
-  const selectedSessionId = useWorkbenchSessionStore((state) => state.selectedSessionId)
-  const adapter = useWorkbenchSessionStore((state) => ({
-    sessionId: state.selectedSessionId,
+  const workbenchState = useWorkbenchSessionStore()
+  const selectedSessionId = workbenchState.selectedSessionId
+  const selectSession = workbenchState.select
+  const reloadSession = useCallback(async (): Promise<void> => {
+    if (selectedSessionId) await selectSession(selectedSessionId)
+  }, [selectedSessionId, selectSession])
+  const adapter = useMemo<ConversationPaneProps['adapter']>(() => ({
+    sessionId: workbenchState.selectedSessionId,
     projectId: target?.projectId ?? null,
     agentName: target?.agentName ?? null,
     agentRuntime: null,
     sessionTitle: target?.title ?? null,
-    messages: state.messages,
-    streamingMessage: state.streamingMessage,
-    loading: state.loading,
-    error: state.error,
-    running: state.running,
-    sending: state.sending,
-    hasMoreMessages: state.hasMoreMessages,
-    loadingOlderMessages: state.loadingOlderMessages,
-    pendingPermissions: state.pendingPermissions,
-    pendingElicitations: state.pendingElicitations,
-    interactionError: state.interactionError,
-    capabilities: state.capabilities,
-    usage: state.usage,
-    processByMessageId: state.processByMessageId,
-    fileChangeDetailsByMessageId: state.fileChangeDetailsByMessageId,
-    fileChangeLoadingByKey: state.fileChangeLoadingByKey,
-    fileChangeErrorByKey: state.fileChangeErrorByKey,
-    toolCallDetailsByKey: state.toolCallDetailsByKey,
-    processItemLoadingByKey: state.processItemLoadingByKey,
-    processItemErrorByKey: state.processItemErrorByKey,
-    sendPrompt: state.sendPrompt,
-    cancel: state.cancel,
-    loadOlderMessages: state.loadOlderMessages,
-    reload: state.selectedSessionId ? () => state.select(state.selectedSessionId) : undefined,
-    loadMessageProcess: state.loadMessageProcess,
-    loadFileChanges: state.loadFileChanges,
-    loadProcessItemDetail: state.loadProcessItemDetail,
-    setModel: state.setModel,
-    setMode: state.setMode,
-    setConfig: state.setConfig,
-    respondPermission: state.respondPermission,
-    respondElicitation: state.respondElicitation,
-  }))
+    messages: workbenchState.messages,
+    streamingMessage: workbenchState.streamingMessage,
+    loading: workbenchState.loading,
+    error: workbenchState.error,
+    running: workbenchState.running,
+    sending: workbenchState.sending,
+    hasMoreMessages: workbenchState.hasMoreMessages,
+    loadingOlderMessages: workbenchState.loadingOlderMessages,
+    pendingPermissions: workbenchState.pendingPermissions,
+    pendingElicitations: workbenchState.pendingElicitations,
+    interactionError: workbenchState.interactionError,
+    capabilities: workbenchState.capabilities,
+    usage: workbenchState.usage,
+    processByMessageId: workbenchState.processByMessageId,
+    fileChangeDetailsByMessageId: workbenchState.fileChangeDetailsByMessageId,
+    fileChangeLoadingByKey: workbenchState.fileChangeLoadingByKey,
+    fileChangeErrorByKey: workbenchState.fileChangeErrorByKey,
+    toolCallDetailsByKey: workbenchState.toolCallDetailsByKey,
+    processItemLoadingByKey: workbenchState.processItemLoadingByKey,
+    processItemErrorByKey: workbenchState.processItemErrorByKey,
+    sendPrompt: workbenchState.sendPrompt,
+    cancel: workbenchState.cancel,
+    loadOlderMessages: workbenchState.loadOlderMessages,
+    reload: selectedSessionId ? reloadSession : undefined,
+    loadMessageProcess: workbenchState.loadMessageProcess,
+    loadFileChanges: workbenchState.loadFileChanges,
+    loadProcessItemDetail: workbenchState.loadProcessItemDetail,
+    setModel: workbenchState.setModel,
+    setMode: workbenchState.setMode,
+    setConfig: workbenchState.setConfig,
+    respondPermission: workbenchState.respondPermission,
+    respondElicitation: workbenchState.respondElicitation,
+  }), [reloadSession, selectedSessionId, target, workbenchState])
   const dockItems = useSessionDockStore((state) => state.items)
   const addToDock = useSessionDockStore((state) => state.add)
   const removeFromDock = useSessionDockStore((state) => state.remove)
