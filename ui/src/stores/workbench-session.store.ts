@@ -213,6 +213,10 @@ function mergeBlocksIntoTurn(turn: StreamingMessage, blocks: TurnProcessBlock[])
   return blocks.reduce(mergeBlockIntoTurn, turn)
 }
 
+function mergeProcessBlocks(current: TurnProcessBlock[], incoming: TurnProcessBlock[]): TurnProcessBlock[] {
+  return incoming.reduce(mergeProcessBlock, current)
+}
+
 function reducePendingInteractions(
   events: SessionEventData[],
   pendingPermissions: PermissionRequestInfo[] = [],
@@ -468,15 +472,22 @@ export const useWorkbenchSessionStore = create<WorkbenchSessionState>((set, get)
       }
       if (sid !== get().selectedSessionId || requestGeneration !== generation) return
       set((state) => {
+        const currentMessage = state.messages.find((item) => item.id === messageId && item.session_id === sid)
+        const mergedMessageBlocks = mergeProcessBlocks(currentMessage?.processBlocks ?? [], turn.processBlocks)
+        const currentProcess = state.processByMessageId[messageId]
+        const mergedProcessBlocks = mergeProcessBlocks(currentProcess?.blocks ?? [], turn.processBlocks)
+        const mergedToolCalls = mergedMessageBlocks
+          .filter((item): item is Extract<TurnProcessBlock, { kind: 'tool' }> => item.kind === 'tool')
+          .map((item) => item.toolCall)
         const streaming = message.status === 'running'
           ? state.streamingMessage?.id === messageId
             ? mergeBlocksIntoTurn({ ...state.streamingMessage, finalAnswer: state.streamingMessage.finalAnswer || message.content, content: state.streamingMessage.content || message.content, done: false }, turn.processBlocks)
             : { ...turn, finalAnswer: message.content, content: message.content, done: false }
           : state.streamingMessage
         return {
-          messages: state.messages.map((item) => item.id === messageId && item.session_id === sid ? { ...item, processBlocks: turn.processBlocks, finalAnswer: turn.finalAnswer || item.content, parsedToolCalls: turn.toolCalls } : item),
+          messages: state.messages.map((item) => item.id === messageId && item.session_id === sid ? { ...item, processBlocks: mergedMessageBlocks, finalAnswer: turn.finalAnswer || item.content, parsedToolCalls: mergedToolCalls } : item),
           streamingMessage: streaming,
-          processByMessageId: { ...state.processByMessageId, [messageId]: { blocks: turn.processBlocks, loading: false, loaded: true } },
+          processByMessageId: { ...state.processByMessageId, [messageId]: { blocks: mergedProcessBlocks, loading: false, loaded: true } },
         }
       })
     } catch (error) {

@@ -320,6 +320,26 @@ describe('workbench session store', () => {
     expect(useWorkbenchSessionStore.getState().processByMessageId['message-live']?.blocks).toHaveLength(1)
   })
 
+  test('does not let a stale process RPC overwrite a realtime process item', async () => {
+    const { useWorkbenchSessionStore } = await import('../../ui/src/stores/workbench-session.store.js')
+    await useWorkbenchSessionStore.getState().select('session-a')
+    let resolveProcess: ((value: unknown) => void) | undefined
+    wsRequest.mockImplementationOnce(() => new Promise((resolve) => { resolveProcess = resolve }))
+    const processPromise = useWorkbenchSessionStore.getState().loadMessageProcess('message-a')
+    const { wsClient } = await import('../../ui/src/services/ws-client.js')
+    const processHandler = wsClient.on.mock.calls.find(([eventType]) => eventType === 'session:process_item')?.[1] as ((message: Record<string, unknown>) => void) | undefined
+    processHandler?.({
+      sessionId: 'session-a',
+      item: {
+        id: 'tpi-race-1', session_id: 'session-a', message_id: 'message-a', sequence: 2, kind: 'thinking', status: 'completed', title: 'thinking', summary: 'realtime', preview: 'realtime', content: 'realtime', meta_json: null, detail_json: null, created_at: '', updated_at: '', has_detail: false,
+      },
+    })
+    resolveProcess?.([])
+    await processPromise
+    expect(useWorkbenchSessionStore.getState().messages.find((item) => item.id === 'message-a')?.processBlocks).toHaveLength(1)
+    expect(useWorkbenchSessionStore.getState().processByMessageId['message-a']?.blocks).toHaveLength(1)
+  })
+
   test('loads process items when a selected session has a running agent message', async () => {
     request.mockResolvedValueOnce({ items: [{ id: 'running-message', session_id: 'session-a', role: 'agent', content: '处理中', thinking: null, tool_calls_json: '{}', decision_json: null, timestamp: '2026-08-30T00:00:00.000Z', status: 'running', process_item_count: 1, has_tool_calls: true }], hasMore: false, nextCursor: null })
     const { useWorkbenchSessionStore } = await import('../../ui/src/stores/workbench-session.store.js')
