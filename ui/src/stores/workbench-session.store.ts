@@ -173,7 +173,8 @@ function applyRealtimeTurn(current: StreamingMessage | null, sessionId: string, 
   return turn
 }
 
-function mergeProcessBlock(blocks: TurnProcessBlock[], block: TurnProcessBlock): TurnProcessBlock[] {
+function mergeProcessBlock(blocks: TurnProcessBlock[], block: TurnProcessBlock, preferIncoming = true): TurnProcessBlock[] {
+  if (!preferIncoming && block.id.startsWith('tpi-') && blocks.some((item) => item.id === block.id && item.id.startsWith('tpi-'))) return blocks
   const canonical = block.id.startsWith('tpi-')
   const next = blocks.filter((item) => {
     if (item.id === block.id) return false
@@ -199,8 +200,8 @@ function hasCanonicalProcessBlock(turn: StreamingMessage | null, messageId: stri
   return false
 }
 
-function mergeBlockIntoTurn(turn: StreamingMessage, block: TurnProcessBlock): StreamingMessage {
-  const processBlocks = mergeProcessBlock(turn.processBlocks, block)
+function mergeBlockIntoTurn(turn: StreamingMessage, block: TurnProcessBlock, preferIncoming = true): StreamingMessage {
+  const processBlocks = mergeProcessBlock(turn.processBlocks, block, preferIncoming)
   return {
     ...turn,
     processBlocks,
@@ -209,12 +210,12 @@ function mergeBlockIntoTurn(turn: StreamingMessage, block: TurnProcessBlock): St
   }
 }
 
-function mergeBlocksIntoTurn(turn: StreamingMessage, blocks: TurnProcessBlock[]): StreamingMessage {
-  return blocks.reduce(mergeBlockIntoTurn, turn)
+function mergeBlocksIntoTurn(turn: StreamingMessage, blocks: TurnProcessBlock[], preferIncoming = true): StreamingMessage {
+  return blocks.reduce((current, block) => mergeBlockIntoTurn(current, block, preferIncoming), turn)
 }
 
-function mergeProcessBlocks(current: TurnProcessBlock[], incoming: TurnProcessBlock[]): TurnProcessBlock[] {
-  return incoming.reduce(mergeProcessBlock, current)
+function mergeProcessBlocks(current: TurnProcessBlock[], incoming: TurnProcessBlock[], preferIncoming = true): TurnProcessBlock[] {
+  return incoming.reduce((blocks, block) => mergeProcessBlock(blocks, block, preferIncoming), current)
 }
 
 function reducePendingInteractions(
@@ -301,7 +302,8 @@ function installListeners(set: (value: Partial<WorkbenchSessionState> | ((state:
       if (!block) return
       set((state) => {
         const relatedMessage = state.messages.find((entry) => entry.id === item.message_id && entry.session_id === item.session_id)
-        const shouldStream = state.running || state.loading || relatedMessage?.status === 'running'
+        const activeProcessStatus = item.status === 'running' || item.status === 'in_progress' || item.status === 'pending'
+        const shouldStream = state.running || state.loading || relatedMessage?.status === 'running' || activeProcessStatus
         const base = state.streamingMessage?.id === item.message_id
           ? state.streamingMessage
           : shouldStream ? { ...(state.streamingMessage ?? createEmptyTurn(item.message_id)), id: item.message_id } : state.streamingMessage
@@ -397,6 +399,7 @@ export const useWorkbenchSessionStore = create<WorkbenchSessionState>((set, get)
   processItemErrorByKey: {},
   select: async (sessionId) => {
     const requestGeneration = ++generation
+    mirroredEvents.clear()
     const stopForSession = sessionId ? get().stoppingSessions[sessionId] === true : false
     const stopErrorForSession = sessionId ? get().stopErrorsBySession[sessionId] ?? null : null
     set({ selectedSessionId: sessionId, messages: [], events: [], streamingMessage: null, loading: !!sessionId, error: null, running: false, sending: false, stopping: stopForSession, stopError: stopErrorForSession, pendingPermissions: [], pendingElicitations: [], interactionError: null, usage: null, capabilities: { ...defaultCaps }, hasMoreMessages: false, loadingOlderMessages: false, processByMessageId: {}, fileChangeDetailsByMessageId: {}, fileChangeLoadingByKey: {}, fileChangeErrorByKey: {}, processItemLoadingByKey: {}, processItemErrorByKey: {} })
@@ -473,15 +476,15 @@ export const useWorkbenchSessionStore = create<WorkbenchSessionState>((set, get)
       if (sid !== get().selectedSessionId || requestGeneration !== generation) return
       set((state) => {
         const currentMessage = state.messages.find((item) => item.id === messageId && item.session_id === sid)
-        const mergedMessageBlocks = mergeProcessBlocks(currentMessage?.processBlocks ?? [], turn.processBlocks)
+        const mergedMessageBlocks = mergeProcessBlocks(currentMessage?.processBlocks ?? [], turn.processBlocks, false)
         const currentProcess = state.processByMessageId[messageId]
-        const mergedProcessBlocks = mergeProcessBlocks(currentProcess?.blocks ?? [], turn.processBlocks)
+        const mergedProcessBlocks = mergeProcessBlocks(currentProcess?.blocks ?? [], turn.processBlocks, false)
         const mergedToolCalls = mergedMessageBlocks
           .filter((item): item is Extract<TurnProcessBlock, { kind: 'tool' }> => item.kind === 'tool')
           .map((item) => item.toolCall)
         const streaming = message.status === 'running'
           ? state.streamingMessage?.id === messageId
-            ? mergeBlocksIntoTurn({ ...state.streamingMessage, finalAnswer: state.streamingMessage.finalAnswer || message.content, content: state.streamingMessage.content || message.content, done: false }, turn.processBlocks)
+            ? mergeBlocksIntoTurn({ ...state.streamingMessage, finalAnswer: state.streamingMessage.finalAnswer || message.content, content: state.streamingMessage.content || message.content, done: false }, turn.processBlocks, false)
             : { ...turn, finalAnswer: message.content, content: message.content, done: false }
           : state.streamingMessage
         return {

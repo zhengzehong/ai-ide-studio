@@ -283,6 +283,22 @@ describe('workbench session store', () => {
     expect(useWorkbenchSessionStore.getState().streamingMessage?.processBlocks).toHaveLength(1)
   })
 
+  test('recovers an active process item even before the running message is visible', async () => {
+    const { useWorkbenchSessionStore } = await import('../../ui/src/stores/workbench-session.store.js')
+    await useWorkbenchSessionStore.getState().select('session-a')
+    useWorkbenchSessionStore.setState({ messages: [], running: false })
+    const { wsClient } = await import('../../ui/src/services/ws-client.js')
+    const processHandler = wsClient.on.mock.calls.find(([eventType]) => eventType === 'session:process_item')?.[1] as ((message: Record<string, unknown>) => void) | undefined
+    processHandler?.({
+      sessionId: 'session-a',
+      item: {
+        id: 'tpi-active-1', session_id: 'session-a', message_id: 'message-live', sequence: 1, kind: 'tool', status: 'in_progress', title: '执行检查', summary: null, preview: null, content: null, meta_json: null, detail_json: null, created_at: '', updated_at: '', has_detail: false,
+      },
+    })
+    expect(useWorkbenchSessionStore.getState().streamingMessage?.processBlocks).toHaveLength(1)
+    expect(useWorkbenchSessionStore.getState().running).toBe(true)
+  })
+
   test('deduplicates a canonical tool item against either realtime delivery order', async () => {
     const { useWorkbenchSessionStore } = await import('../../ui/src/stores/workbench-session.store.js')
     await useWorkbenchSessionStore.getState().select('session-a')
@@ -338,6 +354,22 @@ describe('workbench session store', () => {
     await processPromise
     expect(useWorkbenchSessionStore.getState().messages.find((item) => item.id === 'message-a')?.processBlocks).toHaveLength(1)
     expect(useWorkbenchSessionStore.getState().processByMessageId['message-a']?.blocks).toHaveLength(1)
+  })
+
+  test('preserves a newer canonical block when history returns the same stale item id', async () => {
+    const { useWorkbenchSessionStore } = await import('../../ui/src/stores/workbench-session.store.js')
+    await useWorkbenchSessionStore.getState().select('session-a')
+    useWorkbenchSessionStore.setState((state) => ({
+      messages: state.messages.map((item) => item.id === 'message-a' ? {
+        ...item,
+        processBlocks: [{ id: 'tpi-same', kind: 'thinking' as const, text: 'newer realtime', sequence: 1 }],
+      } : item),
+    }))
+    wsRequest.mockResolvedValueOnce([{
+      id: 'tpi-same', session_id: 'session-a', message_id: 'message-a', sequence: 1, kind: 'thinking', status: 'completed', title: 'thinking', summary: 'stale history', preview: 'stale history', content: 'stale history', meta_json: null, detail_json: null, created_at: '', updated_at: '', has_detail: false,
+    }])
+    await useWorkbenchSessionStore.getState().loadMessageProcess('message-a')
+    expect(useWorkbenchSessionStore.getState().messages.find((item) => item.id === 'message-a')?.processBlocks?.[0]).toMatchObject({ text: 'newer realtime' })
   })
 
   test('loads process items when a selected session has a running agent message', async () => {
