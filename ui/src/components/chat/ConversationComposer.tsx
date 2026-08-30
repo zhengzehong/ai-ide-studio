@@ -57,7 +57,7 @@ export function ConversationComposer({ adapter }: { adapter: ConversationAdapter
     files,
     images,
   )
-  const displayedStopError = streaming ? (adapter.stopError || stopError) : null
+  const displayedStopError = adapter.stopError || stopError
 
   useEffect(() => {
     conversationDrafts.prune(adapter.sessionId ? [adapter.sessionId] : [])
