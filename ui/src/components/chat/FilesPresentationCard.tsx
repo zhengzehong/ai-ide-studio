@@ -14,12 +14,12 @@ export function FilesPresentationCard({
       onClick={() => onOpen(presentation)}
       style={{
         width: '100%', marginTop: 10, padding: '12px 14px', textAlign: 'left', cursor: 'pointer',
-        background: 'var(--bg-1)', border: '1px solid var(--border)', borderLeft: '3px solid var(--primary)',
+        background: 'var(--bg-1)', border: '1px solid var(--border)', borderLeft: '3px solid var(--blue)',
         borderRadius: 8, color: 'var(--text-1)',
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <Files size={16} color="var(--primary)" />
+        <Files size={16} color="var(--blue)" />
         <strong style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {presentation.title}
         </strong>

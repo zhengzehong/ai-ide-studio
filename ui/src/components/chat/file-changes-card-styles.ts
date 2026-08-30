@@ -36,7 +36,7 @@ export const styles: Record<string, CSSProperties> = {
   },
   viewText: {
     fontSize: 12,
-    color: 'var(--primary)',
+    color: 'var(--blue)',
     fontWeight: 600,
     flexShrink: 0,
   },

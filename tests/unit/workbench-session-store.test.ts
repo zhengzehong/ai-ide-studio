@@ -156,6 +156,20 @@ describe('workbench session store', () => {
     expect(state.events.some((event) => event.id === 'event-chunk')).toBe(true)
   })
 
+  test('keeps cancellation state scoped to the session until its idle event', async () => {
+    const { useWorkbenchSessionStore } = await import('../../ui/src/stores/workbench-session.store.js')
+    await useWorkbenchSessionStore.getState().select('session-a')
+    await useWorkbenchSessionStore.getState().cancel()
+    expect(useWorkbenchSessionStore.getState().stopping).toBe(true)
+    await useWorkbenchSessionStore.getState().select('session-b')
+    expect(useWorkbenchSessionStore.getState().stopping).toBe(false)
+    await useWorkbenchSessionStore.getState().select('session-a')
+    expect(useWorkbenchSessionStore.getState().stopping).toBe(true)
+    const activity = on.mock.calls.find(([type]) => type === 'session:activity')?.[1] as ((message: Record<string, unknown>) => void) | undefined
+    activity?.({ sessionId: 'session-a', state: 'idle' })
+    expect(useWorkbenchSessionStore.getState().stopping).toBe(false)
+  })
+
   test('updates capabilities from a realtime capability snapshot', async () => {
     const { useWorkbenchSessionStore } = await import('../../ui/src/stores/workbench-session.store.js')
     await useWorkbenchSessionStore.getState().select('session-a')

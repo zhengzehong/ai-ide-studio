@@ -38,6 +38,10 @@ interface WorkbenchSessionState {
   error: string | null
   running: boolean
   sending: boolean
+  stopping: boolean
+  stopError: string | null
+  stoppingSessions: Record<string, true>
+  stopErrorsBySession: Record<string, string>
   pendingPermissions: PermissionRequestInfo[]
   pendingElicitations: ElicitationRequestInfo[]
   interactionError: string | null
@@ -146,6 +150,12 @@ function normalizeCapabilitySnapshot(value: unknown): SessionCapabilities | null
   }
 }
 
+function withoutKey<T>(values: Record<string, T>, key: string): Record<string, T> {
+  const next = { ...values }
+  delete next[key]
+  return next
+}
+
 function refreshCapabilities(sessionId: string, requestGeneration: number): void {
   void Promise.resolve()
     .then(() => wsClient.request({ type: 'session.getModels', sessionId }))
@@ -206,6 +216,15 @@ function installListeners(set: (value: Partial<WorkbenchSessionState> | ((state:
       if (!incoming) return
       set((state) => ({ capabilities: mergeCapabilities(state.capabilities, incoming) }))
     }),
+    wsClient.on('session:activity', (message) => {
+      if (message.state !== 'idle' || typeof message.sessionId !== 'string') return
+      const sessionId = message.sessionId
+      set((state) => ({
+        stoppingSessions: withoutKey(state.stoppingSessions, sessionId),
+        stopErrorsBySession: withoutKey(state.stopErrorsBySession, sessionId),
+        ...(state.selectedSessionId === sessionId ? { stopping: false, stopError: null } : {}),
+      }))
+    }),
     wsClient.on('session:done', (message) => {
       if (!current(message)) return
       const state = useWorkbenchSessionStore.getState()
@@ -214,7 +233,7 @@ function installListeners(set: (value: Partial<WorkbenchSessionState> | ((state:
       const finalized = state.streamingMessage?.finalAnswer
         ? normalizeMessage({ id: state.streamingMessage.id, session_id: sid, role: 'agent', content: state.streamingMessage.finalAnswer, thinking: state.streamingMessage.thinking || null, tool_calls_json: state.streamingMessage.toolCalls.length ? JSON.stringify(state.streamingMessage.toolCalls) : null, decision_json: null, attachments_json: null, file_changes_json: null, timestamp: new Date().toISOString(), processBlocks: state.streamingMessage.processBlocks, finalAnswer: state.streamingMessage.finalAnswer })
         : error ? buildErrorAgentMessage(sid, `error-${Date.now()}`, error) : buildCompletedAgentMessage(sid, state.events, message.turnUsage as TurnUsageInfo | undefined)
-      set((currentState) => ({ messages: finalized ? appendFinalizedMessage(currentState.messages, finalized) : currentState.messages, streamingMessage: null, running: false, sending: false }))
+      set((currentState) => ({ messages: finalized ? appendFinalizedMessage(currentState.messages, finalized) : currentState.messages, streamingMessage: null, running: false, sending: false, stopping: false, stopError: null, stoppingSessions: withoutKey(currentState.stoppingSessions, sid), stopErrorsBySession: withoutKey(currentState.stopErrorsBySession, sid) }))
       void useWorkbenchSessionStore.getState().select(sid)
     }),
   ]
@@ -231,6 +250,10 @@ export const useWorkbenchSessionStore = create<WorkbenchSessionState>((set, get)
   error: null,
   running: false,
   sending: false,
+  stopping: false,
+  stopError: null,
+  stoppingSessions: {},
+  stopErrorsBySession: {},
   pendingPermissions: [],
   pendingElicitations: [],
   interactionError: null,
@@ -247,7 +270,9 @@ export const useWorkbenchSessionStore = create<WorkbenchSessionState>((set, get)
   processItemErrorByKey: {},
   select: async (sessionId) => {
     const requestGeneration = ++generation
-    set({ selectedSessionId: sessionId, messages: [], events: [], streamingMessage: null, loading: !!sessionId, error: null, running: false, sending: false, pendingPermissions: [], pendingElicitations: [], interactionError: null, usage: null, capabilities: { ...defaultCaps }, hasMoreMessages: false, loadingOlderMessages: false, processByMessageId: {}, fileChangeDetailsByMessageId: {}, fileChangeLoadingByKey: {}, fileChangeErrorByKey: {}, toolCallDetailsByKey: {}, processItemLoadingByKey: {}, processItemErrorByKey: {} })
+    const stopForSession = sessionId ? get().stoppingSessions[sessionId] === true : false
+    const stopErrorForSession = sessionId ? get().stopErrorsBySession[sessionId] ?? null : null
+    set({ selectedSessionId: sessionId, messages: [], events: [], streamingMessage: null, loading: !!sessionId, error: null, running: false, sending: false, stopping: stopForSession, stopError: stopErrorForSession, pendingPermissions: [], pendingElicitations: [], interactionError: null, usage: null, capabilities: { ...defaultCaps }, hasMoreMessages: false, loadingOlderMessages: false, processByMessageId: {}, fileChangeDetailsByMessageId: {}, fileChangeLoadingByKey: {}, fileChangeErrorByKey: {}, toolCallDetailsByKey: {}, processItemLoadingByKey: {}, processItemErrorByKey: {} })
     setSubscription(sessionId)
     if (!sessionId) { set({ loading: false }); return }
     installListeners(set)
@@ -363,7 +388,14 @@ export const useWorkbenchSessionStore = create<WorkbenchSessionState>((set, get)
   cancel: async () => {
     const sid = get().selectedSessionId
     if (!sid) return
-    await commandClient.execute({ commandId: `cancel-${sid}-${Date.now()}`, type: 'session.cancel', sessionId: sid })
+    set((state) => ({ stopping: true, stopError: null, stoppingSessions: { ...state.stoppingSessions, [sid]: true }, stopErrorsBySession: withoutKey(state.stopErrorsBySession, sid) }))
+    try {
+      await commandClient.execute({ commandId: `cancel-${sid}-${Date.now()}`, type: 'session.cancel', sessionId: sid })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '停止失败，请重试'
+      set((state) => ({ stopping: sid === state.selectedSessionId ? false : state.stopping, stopError: sid === state.selectedSessionId ? message : state.stopError, stoppingSessions: withoutKey(state.stoppingSessions, sid), stopErrorsBySession: { ...state.stopErrorsBySession, [sid]: message } }))
+      throw error
+    }
   },
   respondPermission: async (requestId, optionId, cancelled) => {
     const sid = get().selectedSessionId
@@ -391,5 +423,5 @@ export const useWorkbenchSessionStore = create<WorkbenchSessionState>((set, get)
       set((state) => ({ pendingElicitations: failure.expired ? state.pendingElicitations.filter((request) => request.id !== requestId) : state.pendingElicitations, interactionError: failure.message }))
     }
   },
-  dispose: () => { generation += 1; setSubscription(null); removeListeners?.(); set({ selectedSessionId: null, messages: [], events: [], streamingMessage: null, loading: false, error: null, running: false, sending: false, pendingPermissions: [], pendingElicitations: [], interactionError: null, usage: null, capabilities: { ...defaultCaps }, hasMoreMessages: false, loadingOlderMessages: false, processByMessageId: {}, fileChangeDetailsByMessageId: {}, fileChangeLoadingByKey: {}, fileChangeErrorByKey: {}, toolCallDetailsByKey: {}, processItemLoadingByKey: {}, processItemErrorByKey: {} }) },
+  dispose: () => { generation += 1; setSubscription(null); removeListeners?.(); set({ selectedSessionId: null, messages: [], events: [], streamingMessage: null, loading: false, error: null, running: false, sending: false, stopping: false, stopError: null, stoppingSessions: {}, stopErrorsBySession: {}, pendingPermissions: [], pendingElicitations: [], interactionError: null, usage: null, capabilities: { ...defaultCaps }, hasMoreMessages: false, loadingOlderMessages: false, processByMessageId: {}, fileChangeDetailsByMessageId: {}, fileChangeLoadingByKey: {}, fileChangeErrorByKey: {}, toolCallDetailsByKey: {}, processItemLoadingByKey: {}, processItemErrorByKey: {} }) },
 }))

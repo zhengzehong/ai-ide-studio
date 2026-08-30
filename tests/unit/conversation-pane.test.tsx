@@ -1,4 +1,5 @@
 import { createElement } from 'react'
+import { readFileSync } from 'node:fs'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, test, vi } from 'vitest'
 import { ConversationPane } from '../../ui/src/components/chat/ConversationPane.js'
@@ -43,6 +44,7 @@ describe('shared conversation pane', () => {
     const base = adapter()
     expect(canSendConversation(base.sessionId, false, '继续处理', [{ localId: 'file-1', name: 'report.md', size: 10, status: 'uploading' }], [])).toBe(false)
     expect(canSendConversation(base.sessionId, false, '继续处理', [{ localId: 'file-1', name: 'report.md', size: 10, status: 'uploaded', uploaded: { id: 'upload-1', name: 'report.md', mimeType: 'text/markdown', size: 10, path: 'report.md', relativePath: 'report.md' } }], [])).toBe(true)
+    expect(canSendConversation(base.sessionId, true, '继续处理', [], [])).toBe(false)
   })
 
   test('uses the Workspace-style composer controls instead of native select controls', () => {
@@ -64,5 +66,15 @@ describe('shared conversation pane', () => {
     expect(html).toContain('conversation-toolbar-button')
     expect(html).toContain('conversation-send')
     expect(html).not.toContain('<select')
+  })
+
+  test('keeps the composer dimensions, menu positioning, and context control aligned with Workspace', () => {
+    const css = readFileSync(new URL('../../ui/src/components/chat/conversation-pane.css', import.meta.url), 'utf8')
+    expect(css).toContain('border-radius:12px')
+    expect(css).toContain('min-height:56px')
+    expect(css).toContain('transform:translateY(-100%)')
+    expect(css).toContain('.conversation-context')
+    expect(css).not.toContain('var(--primary)')
+    expect(css).not.toContain('var(--text-4)')
   })
 })

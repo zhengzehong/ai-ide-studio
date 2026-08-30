@@ -291,7 +291,7 @@ PC 右侧全局栏同时承载全局助理和置顶会话快捷入口，两个�
 
 ## PC 会话动态工作台
 
-PC 全局 `/updates` 是独立的会话动态工作台。左侧复用 `widget.sessionActivity.list` 与 `sessionDock.list` 聚合跨项目动态和置顶 Session；中间使用专用 Workbench Session store 按 `sessionId` 查询消息、订阅实时流和提交 Prompt，不修改 Workspace Session store；右侧从消息的 `presentations_json` 派生原型和文件清单，并通过 `fs.read` 按需读取正文。打开会话使用 `sessions.markRead`，重连后重新校准列表和当前会话。
+PC 全局 `/updates` 是独立的会话动态工作台。左侧复用 `widget.sessionActivity.list` 与 `sessionDock.list` 聚合跨项目动态和置顶 Session；中间使用专用 Workbench Session store 按 `sessionId` 查询消息、订阅实时流和提交 Prompt，不修改 Workspace Session store；通用 `ConversationPane` 复用消息列表、执行过程懒加载、滚动锚定和 Workspace 风格 Composer，Composer 的文本、图片和文件草稿按 Session 隔离，并允许异步上传完成后回写已切走的目标 Session，过期图片预览会被回收。右侧从消息的 `presentations_json` 派生原型和文件清单，并通过 `fs.read` 按需读取正文。打开会话使用 `sessions.markRead`，重连后重新校准列表和当前会话。
 
 ## A2A Hub 跨机器通信
 
