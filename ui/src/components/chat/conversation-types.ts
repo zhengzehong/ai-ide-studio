@@ -8,8 +8,8 @@ import type {
   PermissionRequestInfo,
   PreviewPresentationInfo,
   SessionCapabilities,
+  SessionEventData,
   StreamingMessage,
-  ToolCallDetailInfo,
   UsageInfo,
 } from '../../stores/session-events'
 import type { TurnProcessBlock } from '../../stores/turn-blocks'
@@ -37,6 +37,7 @@ export interface ConversationAdapter {
   agentRuntime?: string | null
   sessionTitle?: string | null
   messages: MessageData[]
+  events?: SessionEventData[]
   streamingMessage: StreamingMessage | null
   loading: boolean
   error: string | null
@@ -57,7 +58,6 @@ export interface ConversationAdapter {
   fileChangeDetailsByMessageId?: Record<string, FileChangeDetailInfo>
   fileChangeLoadingByKey?: Record<string, boolean>
   fileChangeErrorByKey?: Record<string, string>
-  toolCallDetailsByKey?: Record<string, ToolCallDetailInfo>
   processItemLoadingByKey?: Record<string, boolean>
   processItemErrorByKey?: Record<string, string>
   sendPrompt: (content: string, images?: ImageAttachmentInfo[], files?: ConversationUploadedFile[]) => Promise<void>

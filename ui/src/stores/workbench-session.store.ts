@@ -5,7 +5,7 @@ import { wsClient } from '../services/ws-client'
 import { interactionResponseFailure } from './interaction-response'
 import { useSessionStore } from './session.store'
 import type { ConversationUploadedFile, ConversationProcessState } from '../components/chat/conversation-types'
-import type { FileChangeDetailInfo, ToolCallDetailInfo, ImageAttachmentInfo } from './session-events'
+import type { FileChangeDetailInfo, ImageAttachmentInfo } from './session-events'
 import {
   applySessionEvent,
   appendFinalizedMessage,
@@ -16,6 +16,7 @@ import {
   shouldCreateToolFromUpdate,
   defaultCaps,
   mergeCapabilities,
+  reduceSessionEvents,
   type ElicitationRequestInfo,
   type MessageData,
   type PermissionRequestInfo,
@@ -53,7 +54,6 @@ interface WorkbenchSessionState {
   fileChangeDetailsByMessageId: Record<string, FileChangeDetailInfo>
   fileChangeLoadingByKey: Record<string, boolean>
   fileChangeErrorByKey: Record<string, string>
-  toolCallDetailsByKey: Record<string, ToolCallDetailInfo>
   processItemLoadingByKey: Record<string, boolean>
   processItemErrorByKey: Record<string, string>
   select: (sessionId: string | null) => Promise<void>
@@ -113,6 +113,10 @@ function mergeBlockIntoTurn(turn: StreamingMessage, block: TurnProcessBlock): St
     thinking: processBlocks.filter((item) => item.kind === 'thinking').map((item) => item.text).join(''),
     toolCalls: processBlocks.filter((item): item is Extract<TurnProcessBlock, { kind: 'tool' }> => item.kind === 'tool').map((item) => item.toolCall),
   }
+}
+
+function mergeBlocksIntoTurn(turn: StreamingMessage, blocks: TurnProcessBlock[]): StreamingMessage {
+  return blocks.reduce(mergeBlockIntoTurn, turn)
 }
 
 function reducePendingInteractions(
@@ -207,7 +211,21 @@ function installListeners(set: (value: Partial<WorkbenchSessionState> | ((state:
       const event = message.event as SessionEventData
       set((state) => {
         const events = [...state.events.filter((item) => item.id !== event.id), event].sort((a, b) => a.sequence - b.sequence)
-        return { events, ...reducePendingInteractions([event], state.pendingPermissions, state.pendingElicitations, state.usage, state.capabilities) }
+        const reduced = applySessionEvent({
+          streamingMessage: state.streamingMessage,
+          usage: state.usage,
+          turnUsage: null,
+          capabilities: { ...state.capabilities },
+          plan: [],
+          pendingPermissions: state.pendingPermissions,
+          pendingElicitations: state.pendingElicitations,
+        }, event)
+        return {
+          events,
+          streamingMessage: reduced.streamingMessage,
+          running: !!reduced.streamingMessage || state.running,
+          ...reducePendingInteractions([event], state.pendingPermissions, state.pendingElicitations, state.usage, state.capabilities),
+        }
       })
     }),
     wsClient.on('session:capabilities', (message) => {
@@ -265,14 +283,13 @@ export const useWorkbenchSessionStore = create<WorkbenchSessionState>((set, get)
   fileChangeDetailsByMessageId: {},
   fileChangeLoadingByKey: {},
   fileChangeErrorByKey: {},
-  toolCallDetailsByKey: {},
   processItemLoadingByKey: {},
   processItemErrorByKey: {},
   select: async (sessionId) => {
     const requestGeneration = ++generation
     const stopForSession = sessionId ? get().stoppingSessions[sessionId] === true : false
     const stopErrorForSession = sessionId ? get().stopErrorsBySession[sessionId] ?? null : null
-    set({ selectedSessionId: sessionId, messages: [], events: [], streamingMessage: null, loading: !!sessionId, error: null, running: false, sending: false, stopping: stopForSession, stopError: stopErrorForSession, pendingPermissions: [], pendingElicitations: [], interactionError: null, usage: null, capabilities: { ...defaultCaps }, hasMoreMessages: false, loadingOlderMessages: false, processByMessageId: {}, fileChangeDetailsByMessageId: {}, fileChangeLoadingByKey: {}, fileChangeErrorByKey: {}, toolCallDetailsByKey: {}, processItemLoadingByKey: {}, processItemErrorByKey: {} })
+    set({ selectedSessionId: sessionId, messages: [], events: [], streamingMessage: null, loading: !!sessionId, error: null, running: false, sending: false, stopping: stopForSession, stopError: stopErrorForSession, pendingPermissions: [], pendingElicitations: [], interactionError: null, usage: null, capabilities: { ...defaultCaps }, hasMoreMessages: false, loadingOlderMessages: false, processByMessageId: {}, fileChangeDetailsByMessageId: {}, fileChangeLoadingByKey: {}, fileChangeErrorByKey: {}, processItemLoadingByKey: {}, processItemErrorByKey: {} })
     setSubscription(sessionId)
     if (!sessionId) { set({ loading: false }); return }
     installListeners(set)
@@ -285,7 +302,9 @@ export const useWorkbenchSessionStore = create<WorkbenchSessionState>((set, get)
       ])
       if (requestGeneration !== generation) return
       const runningMessage = messagePage.items.filter((message) => message.role === 'agent' && message.status === 'running').at(-1)
-      set({ messages: mergeMessagesForSession(messagePage.items, [], sessionId), events: recovery.events, ...reducePendingInteractions(recovery.events), streamingMessage: runningMessage ? { ...createEmptyTurn(runningMessage.id), finalAnswer: runningMessage.content, content: runningMessage.content, done: false } : null, running: !!runningMessage, loading: false, hasMoreMessages: messagePage.hasMore })
+      const recoveredStreaming = reduceSessionEvents(recovery.events).streamingMessage
+      set({ messages: mergeMessagesForSession(messagePage.items, [], sessionId), events: recovery.events, ...reducePendingInteractions(recovery.events), streamingMessage: recoveredStreaming || (runningMessage ? { ...createEmptyTurn(runningMessage.id), finalAnswer: runningMessage.content, content: runningMessage.content, done: false } : null), running: !!runningMessage || !!recoveredStreaming, loading: false, hasMoreMessages: messagePage.hasMore })
+      if (runningMessage) void useWorkbenchSessionStore.getState().loadMessageProcess(runningMessage.id)
     } catch (error) {
       if (requestGeneration === generation) set({ loading: false, error: error instanceof Error ? error.message : '会话加载失败' })
     }
@@ -335,7 +354,18 @@ export const useWorkbenchSessionStore = create<WorkbenchSessionState>((set, get)
         turn = turnFromEvents(messageId, events)
       }
       if (sid !== get().selectedSessionId) return
-      set((state) => ({ messages: state.messages.map((item) => item.id === messageId ? { ...item, processBlocks: turn.processBlocks, finalAnswer: turn.finalAnswer || item.content, parsedToolCalls: turn.toolCalls } : item), processByMessageId: { ...state.processByMessageId, [messageId]: { blocks: turn.processBlocks, loading: false, loaded: true } } }))
+      set((state) => {
+        const streaming = message.status === 'running'
+          ? state.streamingMessage?.id === messageId
+            ? mergeBlocksIntoTurn({ ...state.streamingMessage, finalAnswer: state.streamingMessage.finalAnswer || message.content, content: state.streamingMessage.content || message.content, done: false }, turn.processBlocks)
+            : { ...turn, finalAnswer: message.content, content: message.content, done: false }
+          : state.streamingMessage
+        return {
+          messages: state.messages.map((item) => item.id === messageId && item.session_id === sid ? { ...item, processBlocks: turn.processBlocks, finalAnswer: turn.finalAnswer || item.content, parsedToolCalls: turn.toolCalls } : item),
+          streamingMessage: streaming,
+          processByMessageId: { ...state.processByMessageId, [messageId]: { blocks: turn.processBlocks, loading: false, loaded: true } },
+        }
+      })
     } catch (error) {
       set((state) => ({ processByMessageId: { ...state.processByMessageId, [messageId]: { blocks: state.processByMessageId[messageId]?.blocks || [], loading: false, loaded: false, error: error instanceof Error ? error.message : '执行过程加载失败' } } }))
     }
@@ -357,12 +387,34 @@ export const useWorkbenchSessionStore = create<WorkbenchSessionState>((set, get)
     const sid = get().selectedSessionId
     if (!sid) return
     const key = `${messageId}:${itemId}`
-    if (get().toolCallDetailsByKey[key] || get().processItemLoadingByKey[key]) return
+    if (get().processItemLoadingByKey[key]) return
     set((state) => ({ processItemLoadingByKey: { ...state.processItemLoadingByKey, [key]: true } }))
     try {
-      const detail = await wsClient.request({ type: 'sessions.messageToolCallDetail', sessionId: sid, messageId, toolCallId: itemId }) as ToolCallDetailInfo
-      if (sid !== get().selectedSessionId) return
-      set((state) => ({ toolCallDetailsByKey: { ...state.toolCallDetailsByKey, [key]: detail }, processItemLoadingByKey: { ...state.processItemLoadingByKey, [key]: false } }))
+      const detail = await wsClient.request({ type: 'sessions.processItemDetail', sessionId: sid, messageId, itemId }) as TurnProcessItemInfo
+      if (sid !== get().selectedSessionId) {
+        set((state) => ({ processItemLoadingByKey: withoutKey(state.processItemLoadingByKey, key) }))
+        return
+      }
+      const detailBlock = turnFromProcessItems(messageId, [detail]).processBlocks[0]
+      if (!detailBlock) {
+        set((state) => ({ processItemLoadingByKey: withoutKey(state.processItemLoadingByKey, key) }))
+        return
+      }
+      set((state) => {
+        const streaming = state.streamingMessage?.id === messageId
+          ? mergeBlockIntoTurn(state.streamingMessage, detailBlock)
+          : state.streamingMessage
+        const processState = state.processByMessageId[messageId]
+        return {
+          messages: state.messages.map((item) => item.id === messageId ? { ...item, processBlocks: mergeProcessBlock(item.processBlocks ?? [], detailBlock) } : item),
+          streamingMessage: streaming,
+          processByMessageId: processState
+            ? { ...state.processByMessageId, [messageId]: { ...processState, blocks: mergeProcessBlock(processState.blocks, detailBlock) } }
+            : state.processByMessageId,
+          processItemLoadingByKey: { ...state.processItemLoadingByKey, [key]: false },
+          processItemErrorByKey: withoutKey(state.processItemErrorByKey, key),
+        }
+      })
     } catch (error) {
       set((state) => ({ processItemLoadingByKey: { ...state.processItemLoadingByKey, [key]: false }, processItemErrorByKey: { ...state.processItemErrorByKey, [key]: error instanceof Error ? error.message : '执行详情加载失败' } }))
     }
@@ -423,5 +475,5 @@ export const useWorkbenchSessionStore = create<WorkbenchSessionState>((set, get)
       set((state) => ({ pendingElicitations: failure.expired ? state.pendingElicitations.filter((request) => request.id !== requestId) : state.pendingElicitations, interactionError: failure.message }))
     }
   },
-  dispose: () => { generation += 1; setSubscription(null); removeListeners?.(); set({ selectedSessionId: null, messages: [], events: [], streamingMessage: null, loading: false, error: null, running: false, sending: false, stopping: false, stopError: null, stoppingSessions: {}, stopErrorsBySession: {}, pendingPermissions: [], pendingElicitations: [], interactionError: null, usage: null, capabilities: { ...defaultCaps }, hasMoreMessages: false, loadingOlderMessages: false, processByMessageId: {}, fileChangeDetailsByMessageId: {}, fileChangeLoadingByKey: {}, fileChangeErrorByKey: {}, toolCallDetailsByKey: {}, processItemLoadingByKey: {}, processItemErrorByKey: {} }) },
+  dispose: () => { generation += 1; setSubscription(null); removeListeners?.(); set({ selectedSessionId: null, messages: [], events: [], streamingMessage: null, loading: false, error: null, running: false, sending: false, stopping: false, stopError: null, stoppingSessions: {}, stopErrorsBySession: {}, pendingPermissions: [], pendingElicitations: [], interactionError: null, usage: null, capabilities: { ...defaultCaps }, hasMoreMessages: false, loadingOlderMessages: false, processByMessageId: {}, fileChangeDetailsByMessageId: {}, fileChangeLoadingByKey: {}, fileChangeErrorByKey: {}, processItemLoadingByKey: {}, processItemErrorByKey: {} }) },
 }))

@@ -156,6 +156,60 @@ describe('workbench session store', () => {
     expect(state.events.some((event) => event.id === 'event-chunk')).toBe(true)
   })
 
+  test('restores streaming state from a recovery event received after selection', async () => {
+    const { useWorkbenchSessionStore } = await import('../../ui/src/stores/workbench-session.store.js')
+    await useWorkbenchSessionStore.getState().select('session-a')
+    const { wsClient } = await import('../../ui/src/services/ws-client.js')
+    const handler = wsClient.on.mock.calls.find(([eventType]) => eventType === 'session:event')?.[1] as ((message: Record<string, unknown>) => void) | undefined
+    handler?.({
+      sessionId: 'session-a',
+      event: {
+        id: 'event-stage', session_id: 'session-a', message_id: 'message-live', type: 'lifecycle.prompt_sent',
+        payload_json: JSON.stringify({ messageId: 'message-live', content: '正在执行' }), sequence: 2, created_at: '2026-08-29T00:01:00.000Z',
+      },
+    })
+    expect(useWorkbenchSessionStore.getState().streamingMessage?.stage).toBe('正在执行')
+  })
+
+  test('applies each incremental event once without duplicating earlier output', async () => {
+    const { useWorkbenchSessionStore } = await import('../../ui/src/stores/workbench-session.store.js')
+    await useWorkbenchSessionStore.getState().select('session-a')
+    const { wsClient } = await import('../../ui/src/services/ws-client.js')
+    const handler = wsClient.on.mock.calls.find(([eventType]) => eventType === 'session:event')?.[1] as ((message: Record<string, unknown>) => void) | undefined
+    const event = (id: string, sequence: number, contentDelta: string) => ({
+      sessionId: 'session-a',
+      event: {
+        id, session_id: 'session-a', message_id: 'message-live', type: 'message.chunk',
+        payload_json: JSON.stringify({ messageId: 'message-live', role: 'agent', contentDelta }), sequence, created_at: '2026-08-29T00:01:00.000Z',
+      },
+    })
+    handler?.(event('event-chunk-1', 2, '甲'))
+    handler?.(event('event-chunk-2', 3, '乙'))
+    expect(useWorkbenchSessionStore.getState().streamingMessage?.finalAnswer).toBe('甲乙')
+  })
+
+  test('loads process items when a selected session has a running agent message', async () => {
+    request.mockResolvedValueOnce({ items: [{ id: 'running-message', session_id: 'session-a', role: 'agent', content: '处理中', thinking: null, tool_calls_json: '{}', decision_json: null, timestamp: '2026-08-30T00:00:00.000Z', status: 'running', process_item_count: 1, has_tool_calls: true }], hasMore: false, nextCursor: null })
+    const { useWorkbenchSessionStore } = await import('../../ui/src/stores/workbench-session.store.js')
+    wsRequest.mockResolvedValueOnce({})
+    wsRequest.mockResolvedValueOnce([{ id: 'process-1', session_id: 'session-a', message_id: 'running-message', sequence: 1, kind: 'tool', status: 'in_progress', title: '执行检查', summary: null, preview: null, content: null, meta_json: null, detail_json: null, created_at: '', updated_at: '', has_detail: false }])
+    await useWorkbenchSessionStore.getState().select('session-a')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(wsRequest).toHaveBeenCalledWith({ type: 'sessions.messageProcess', sessionId: 'session-a', messageId: 'running-message' })
+    expect(useWorkbenchSessionStore.getState().streamingMessage?.processBlocks[0]).toMatchObject({ id: 'process-1', kind: 'tool', toolCall: { title: '执行检查' } })
+  })
+
+  test('restores active tool blocks from recovery events for a running message', async () => {
+    request.mockResolvedValueOnce({ items: [{ id: 'running-message', session_id: 'session-a', role: 'agent', content: '', thinking: null, tool_calls_json: '{}', decision_json: null, timestamp: '2026-08-30T00:00:00.000Z', status: 'running', process_item_count: 1, has_tool_calls: true }], hasMore: false, nextCursor: null })
+    getRecovery.mockResolvedValueOnce({
+      sessionId: 'session-a', latestSequence: 1,
+      events: [{ id: 'event-tool', session_id: 'session-a', message_id: 'running-message', type: 'tool.call', payload_json: JSON.stringify({ messageId: 'running-message', toolCall: { id: 'tool-live', title: '执行检查', status: 'in_progress' } }), sequence: 1, created_at: '2026-08-30T00:00:01Z' }],
+    })
+    const { useWorkbenchSessionStore } = await import('../../ui/src/stores/workbench-session.store.js')
+    await useWorkbenchSessionStore.getState().select('session-a')
+    expect(useWorkbenchSessionStore.getState().streamingMessage?.processBlocks[0]).toMatchObject({ kind: 'tool', toolCall: { id: 'tool-live', title: '执行检查' } })
+  })
+
   test('keeps cancellation state scoped to the session until its idle event', async () => {
     const { useWorkbenchSessionStore } = await import('../../ui/src/stores/workbench-session.store.js')
     await useWorkbenchSessionStore.getState().select('session-a')
@@ -220,5 +274,60 @@ describe('workbench session store', () => {
     await useWorkbenchSessionStore.getState().loadMessageProcess('message-tool')
     expect(wsRequest).toHaveBeenCalledWith({ type: 'sessions.messageProcess', sessionId: 'session-a', messageId: 'message-tool' })
     expect(useWorkbenchSessionStore.getState().messages[0]?.processBlocks?.[0]).toMatchObject({ kind: 'tool' })
+  })
+
+  test('loads a historical tool detail through its process item id', async () => {
+    const { useWorkbenchSessionStore } = await import('../../ui/src/stores/workbench-session.store.js')
+    request.mockResolvedValueOnce({ items: [{ id: 'message-tool', session_id: 'session-a', role: 'agent', content: 'done', thinking: null, tool_calls_json: '{}', decision_json: null, timestamp: '2026-08-30T00:00:00.000Z', process_item_count: 1, has_tool_calls: true }], hasMore: false, nextCursor: null })
+    await useWorkbenchSessionStore.getState().select('session-a')
+    wsRequest.mockResolvedValueOnce([{ id: 'process-tool', session_id: 'session-a', message_id: 'message-tool', sequence: 1, kind: 'tool', status: 'completed', title: '执行检查', summary: null, preview: null, content: null, meta_json: JSON.stringify({ toolCallId: 'tool-call-real' }), detail_json: null, created_at: '', updated_at: '', has_detail: true }])
+    await useWorkbenchSessionStore.getState().loadMessageProcess('message-tool')
+    wsRequest.mockResolvedValueOnce({ id: 'process-tool', session_id: 'session-a', message_id: 'message-tool', sequence: 1, kind: 'tool', status: 'completed', title: '执行检查', summary: null, preview: null, content: null, meta_json: JSON.stringify({ toolCallId: 'tool-call-real' }), detail_json: JSON.stringify({ id: 'tool-call-real', title: '执行检查', status: 'completed', rawInput: { path: 'README.md' }, rawOutput: 'ok', terminalOutput: 'done', progress: ['finished'] }), created_at: '', updated_at: '', has_detail: false })
+    await useWorkbenchSessionStore.getState().loadProcessItemDetail('message-tool', 'process-tool')
+    expect(wsRequest).toHaveBeenLastCalledWith({ type: 'sessions.processItemDetail', sessionId: 'session-a', messageId: 'message-tool', itemId: 'process-tool' })
+    expect(useWorkbenchSessionStore.getState().messages[0]?.processBlocks?.[0]).toMatchObject({
+      id: 'process-tool',
+      kind: 'tool',
+      toolCall: {
+        id: 'tool-call-real',
+        rawInput: { path: 'README.md' },
+        rawOutput: 'ok',
+        terminalOutput: 'done',
+        progress: ['finished'],
+      },
+    })
+  })
+
+  test('merges a process item detail into the active streaming turn', async () => {
+    request.mockResolvedValueOnce({ items: [{ id: 'running-message', session_id: 'session-a', role: 'agent', content: '', thinking: null, tool_calls_json: '{}', decision_json: null, timestamp: '2026-08-30T00:00:00.000Z', status: 'running', process_item_count: 1, has_tool_calls: true }], hasMore: false, nextCursor: null })
+    const { useWorkbenchSessionStore } = await import('../../ui/src/stores/workbench-session.store.js')
+    await useWorkbenchSessionStore.getState().select('session-a')
+    wsRequest.mockResolvedValueOnce([{ id: 'process-tool', session_id: 'session-a', message_id: 'running-message', sequence: 1, kind: 'tool', status: 'in_progress', title: '执行检查', summary: null, preview: null, content: null, meta_json: null, detail_json: null, created_at: '', updated_at: '', has_detail: true }])
+    await useWorkbenchSessionStore.getState().loadMessageProcess('running-message')
+    wsRequest.mockResolvedValueOnce({ id: 'process-tool', session_id: 'session-a', message_id: 'running-message', sequence: 1, kind: 'tool', status: 'completed', title: '执行检查', summary: null, preview: null, content: null, meta_json: null, detail_json: JSON.stringify({ id: 'tool-call-real', title: '执行检查', status: 'completed', terminalOutput: 'done' }), created_at: '', updated_at: '', has_detail: false })
+    await useWorkbenchSessionStore.getState().loadProcessItemDetail('running-message', 'process-tool')
+    expect(useWorkbenchSessionStore.getState().streamingMessage?.processBlocks[0]).toMatchObject({ toolCall: { status: 'completed', terminalOutput: 'done' } })
+  })
+
+  test('clears process detail loading when the selected session changes mid-request', async () => {
+    const { useWorkbenchSessionStore } = await import('../../ui/src/stores/workbench-session.store.js')
+    await useWorkbenchSessionStore.getState().select('session-a')
+    wsRequest.mockImplementationOnce(() => new Promise((resolve) => setTimeout(() => resolve({ id: 'process-tool', session_id: 'session-a', message_id: 'message-tool', sequence: 1, kind: 'tool', status: 'completed', title: '执行检查', summary: null, preview: null, content: null, meta_json: null, detail_json: null, created_at: '', updated_at: '', has_detail: false }), 10)))
+    const detailPromise = useWorkbenchSessionStore.getState().loadProcessItemDetail('message-tool', 'process-tool')
+    await useWorkbenchSessionStore.getState().select('session-b')
+    await detailPromise
+    expect(useWorkbenchSessionStore.getState().processItemLoadingByKey['message-tool:process-tool']).toBeUndefined()
+  })
+
+  test('uses process item detail RPC for a historical non-tool block', async () => {
+    const { useWorkbenchSessionStore } = await import('../../ui/src/stores/workbench-session.store.js')
+    request.mockResolvedValueOnce({ items: [{ id: 'message-plan', session_id: 'session-a', role: 'agent', content: 'done', thinking: null, tool_calls_json: null, decision_json: null, timestamp: '2026-08-30T00:00:00.000Z', process_item_count: 1 }], hasMore: false, nextCursor: null })
+    await useWorkbenchSessionStore.getState().select('session-a')
+    wsRequest.mockResolvedValueOnce([{ id: 'process-plan', session_id: 'session-a', message_id: 'message-plan', sequence: 1, kind: 'plan', status: 'completed', title: 'plan', summary: 'summary', preview: null, content: null, meta_json: null, detail_json: null, created_at: '', updated_at: '', has_detail: true }])
+    await useWorkbenchSessionStore.getState().loadMessageProcess('message-plan')
+    wsRequest.mockResolvedValueOnce({ id: 'process-plan', session_id: 'session-a', message_id: 'message-plan', sequence: 1, kind: 'plan', status: 'completed', title: 'plan', summary: 'loaded', preview: null, content: JSON.stringify({ plan: [{ content: 'complete', status: 'completed', priority: 'high' }] }), meta_json: null, detail_json: JSON.stringify({ plan: [{ content: 'complete', status: 'completed', priority: 'high' }] }), created_at: '', updated_at: '', has_detail: false })
+    await useWorkbenchSessionStore.getState().loadProcessItemDetail('message-plan', 'process-plan')
+    expect(wsRequest).toHaveBeenLastCalledWith({ type: 'sessions.processItemDetail', sessionId: 'session-a', messageId: 'message-plan', itemId: 'process-plan' })
+    expect(useWorkbenchSessionStore.getState().messages[0]?.processBlocks?.[0]).toMatchObject({ summary: 'loaded' })
   })
 })

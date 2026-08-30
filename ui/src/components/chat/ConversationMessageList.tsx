@@ -1,11 +1,16 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { Bot, Loader2, User } from 'lucide-react'
 import { MarkdownRenderer } from '../MarkdownRenderer'
 import { TurnContentView } from './TurnContentView'
 import { VirtualChatList } from './VirtualChatList'
 import { FilesPresentationCard } from './FilesPresentationCard'
 import { PreviewCard } from './PreviewCard'
-import type { MessageData } from '../../stores/session-events'
+import { buildChatRenderItems, type ChatRenderItem } from './render-items'
+import { ConversationProcessBlock } from './ConversationProcessBlock'
+import { AuthenticatedImage } from './AuthenticatedImage'
+import { fmtTokens } from '../../pages/workspace/helpers'
+import { formatCompactDuration } from '../../utils/duration'
+import type { ChatTimelineGroup, MessageData } from '../../stores/session-events'
 import type { TurnProcessBlock } from '../../stores/turn-blocks'
 import type { ConversationAdapter, ConversationPaneProps } from './conversation-types'
 import './conversation-pane.css'
@@ -19,6 +24,28 @@ export function ConversationMessageList({ adapter, onOpenPreview, onOpenFiles, o
   const olderAnchorRef = useRef<{ height: number; top: number } | null>(null)
   const messages = useMemo(() => adapter.sessionId ? adapter.messages.filter((message) => message.session_id === adapter.sessionId) : [], [adapter.messages, adapter.sessionId])
   const streaming = adapter.sessionId && adapter.streamingMessage && !adapter.streamingMessage.done ? adapter.streamingMessage : null
+  const streamingBubble = useMemo<MessageData | null>(() => streaming ? {
+    id: streaming.id,
+    session_id: adapter.sessionId || '',
+    role: 'agent',
+    content: streaming.content,
+    thinking: streaming.thinking,
+    tool_calls_json: streaming.toolCalls.length ? JSON.stringify(streaming.toolCalls) : null,
+    decision_json: null,
+    attachments_json: null,
+    timestamp: new Date().toISOString(),
+    processBlocks: streaming.processBlocks,
+    finalAnswer: streaming.finalAnswer,
+    processDefaultOpen: true,
+  } : null, [adapter.sessionId, streaming])
+  const renderItems = useMemo<ChatRenderItem<MessageData>[]>(() => buildChatRenderItems({
+    sessionId: adapter.sessionId,
+    messages,
+    events: adapter.events || [],
+    streamingBubble,
+    showStreamingBubble: !!streamingBubble,
+    blockingInteraction: false,
+  }), [adapter.events, adapter.sessionId, messages, streamingBubble])
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto'): void => {
     const element = scrollRef.current
     if (!element) return
@@ -39,18 +66,18 @@ export function ConversationMessageList({ adapter, onOpenPreview, onOpenFiles, o
   }, [adapter.sessionId, scrollToBottom])
   useEffect(() => {
     const anchor = olderAnchorRef.current
-    if (anchor && scrollRef.current && messages.length > messageCountRef.current) {
+    if (anchor && scrollRef.current && renderItems.length > messageCountRef.current) {
       scrollRef.current.scrollTop = anchor.top + (scrollRef.current.scrollHeight - anchor.height)
       olderAnchorRef.current = null
-      messageCountRef.current = messages.length
+      messageCountRef.current = renderItems.length
       return
     }
-    if (messages.length !== messageCountRef.current) {
-      messageCountRef.current = messages.length
+    if (renderItems.length !== messageCountRef.current) {
+      messageCountRef.current = renderItems.length
       if (pinnedRef.current) requestAnimationFrame(() => scrollToBottom('smooth'))
     }
     if (streaming && pinnedRef.current) requestAnimationFrame(() => scrollToBottom())
-  }, [messages.length, scrollToBottom, streaming])
+  }, [renderItems.length, scrollToBottom, streaming])
   const loadOlder = (): void => {
     if (adapter.hasMoreMessages && !adapter.loadingOlderMessages) {
       const element = scrollRef.current
@@ -62,11 +89,36 @@ export function ConversationMessageList({ adapter, onOpenPreview, onOpenFiles, o
     {!adapter.sessionId && <EmptyConversation text="选择一个 Session 或新建会话" />}
     {adapter.sessionId && adapter.loading && messages.length === 0 && <LoadingState text="正在加载消息..." />}
     {adapter.sessionId && adapter.error && <ErrorState text={adapter.error} />}
-    {adapter.sessionId && !adapter.error && !adapter.loading && messages.length === 0 && !streaming && <EmptyConversation text="暂无消息，开始对话吧" />}
+    {adapter.sessionId && !adapter.error && !adapter.loading && renderItems.length === 0 && <EmptyConversation text="暂无消息，开始对话吧" />}
     {adapter.loadingOlderMessages && <div className="conversation-sync">正在加载更早消息...</div>}
-    {adapter.sessionId && <VirtualChatList key={adapter.sessionId} items={messages} getKey={(message) => message.id} scrollRef={scrollRef} onContentResize={onResize} renderItem={(message) => <ConversationMessage message={message} adapter={adapter} onOpenPreview={onOpenPreview} onOpenFiles={onOpenFiles} onOpenResource={onOpenResource} />} />}
-    {streaming && <StreamingMessage message={streaming} adapter={adapter} onOpenResource={onOpenResource} />}
+    {adapter.sessionId && <VirtualChatList key={adapter.sessionId} items={renderItems} getKey={(item) => item.id} scrollRef={scrollRef} onContentResize={onResize} renderItem={(item) => <ConversationRenderItem item={item} adapter={adapter} onOpenPreview={onOpenPreview} onOpenFiles={onOpenFiles} onOpenResource={onOpenResource} />} />}
   </div>
+}
+
+function ConversationRenderItem({ item, adapter, onOpenPreview, onOpenFiles, onOpenResource }: { item: ChatRenderItem<MessageData>; adapter: ConversationAdapter; onOpenPreview?: ConversationPaneProps['onOpenPreview']; onOpenFiles?: ConversationPaneProps['onOpenFiles']; onOpenResource?: ConversationPaneProps['onOpenResource'] }) {
+  if (item.kind === 'group') return <TimelineGroupMessage group={item.group} adapter={adapter} onOpenPreview={onOpenPreview} onOpenFiles={onOpenFiles} onOpenResource={onOpenResource} />
+  if (item.kind === 'streaming') return <StreamingMessage message={item.message} adapter={adapter} onOpenPreview={onOpenPreview} onOpenFiles={onOpenFiles} onOpenResource={onOpenResource} />
+  if (item.kind === 'blocking') return null
+  return <ConversationMessage message={item.message} adapter={adapter} onOpenPreview={onOpenPreview} onOpenFiles={onOpenFiles} onOpenResource={onOpenResource} />
+}
+
+function TimelineGroupMessage({ group, adapter, onOpenPreview, onOpenFiles, onOpenResource }: { group: ChatTimelineGroup; adapter: ConversationAdapter; onOpenPreview?: ConversationPaneProps['onOpenPreview']; onOpenFiles?: ConversationPaneProps['onOpenFiles']; onOpenResource?: ConversationPaneProps['onOpenResource'] }) {
+  const human = group.role === 'human'
+  const lastMessage = [...group.blocks].reverse().find((block) => block.kind === 'message')
+  return <MessageShell human={human} agentName={adapter.agentName} timestamp={group.timestamp}>
+    {group.blocks.map((block) => {
+      if (block.kind === 'tool') {
+        const processBlock: TurnProcessBlock = { id: block.id, kind: 'tool', toolCall: block.toolCall }
+        return <ConversationProcessBlock key={block.id} block={processBlock} onOpenPreview={onOpenPreview} onOpenFiles={onOpenFiles} />
+      }
+      return <div key={block.id} className="conversation-timeline-text">
+        {block.attachments?.map((attachment, index) => <AuthenticatedImage key={`${block.id}-attachment-${index}`} image={attachment} alt={attachment.name || '附件'} style={{ maxWidth: 180, maxHeight: 140, borderRadius: 8, border: '1px solid var(--border)', objectFit: 'cover' }} />)}
+        {block.thinking && <div className="conversation-process-thinking"><span>思考过程</span><MarkdownRenderer content={block.thinking} /></div>}
+        {block.content && <MarkdownRenderer content={block.content} onOpenResource={onOpenResource} />}
+      </div>
+    })}
+    {!human && lastMessage?.kind === 'message' && lastMessage.turnStats && <TurnStatsView stats={lastMessage.turnStats} />}
+  </MessageShell>
 }
 
 function ConversationMessage({ message, adapter, onOpenPreview, onOpenFiles, onOpenResource }: { message: MessageData; adapter: ConversationAdapter; onOpenPreview?: ConversationPaneProps['onOpenPreview']; onOpenFiles?: ConversationPaneProps['onOpenFiles']; onOpenResource?: ConversationPaneProps['onOpenResource'] }) {
@@ -75,7 +127,9 @@ function ConversationMessage({ message, adapter, onOpenPreview, onOpenFiles, onO
   const processBlocks = processState?.blocks ?? message.processBlocks ?? []
   const processCount = message.process_item_count ?? message.tool_call_count ?? (message.has_tool_calls ? 1 : 0)
   const presentations = message.parsedPresentations ?? []
+  const stats = parseTurnStats(message.decision_json)
   return <MessageShell human={isHuman} agentName={adapter.agentName} timestamp={message.timestamp}>
+    {message.parsedAttachments?.map((attachment, index) => <AuthenticatedImage key={`${message.id}-attachment-${index}`} image={attachment} alt={attachment.name || '附件'} style={{ maxWidth: 180, maxHeight: 140, borderRadius: 8, border: '1px solid var(--border)', objectFit: 'cover', marginBottom: 8 }} />)}
     <TurnContentView
       defaultProcessOpen={!!message.processDefaultOpen}
       processBlocks={processBlocks}
@@ -94,41 +148,72 @@ function ConversationMessage({ message, adapter, onOpenPreview, onOpenFiles, onO
       onLoadProcess={processCount > 0 ? () => { void adapter.loadMessageProcess(message.id) } : undefined}
       onLoadFileChanges={message.has_file_changes ? () => { void adapter.loadFileChanges(message.id) } : undefined}
       onOpenResource={onOpenResource}
-      renderProcessBlock={(block) => <ProcessBlock block={block} adapter={adapter} messageId={message.id} />}
+      renderProcessBlock={(block) => <ProcessBlock block={block} adapter={adapter} messageId={message.id} onOpenPreview={onOpenPreview} onOpenFiles={onOpenFiles} />}
       renderPreviewPresentation={onOpenPreview ? (preview) => <PreviewCard preview={preview} onOpen={() => onOpenPreview(preview)} /> : undefined}
       renderFilesPresentation={onOpenFiles ? (presentation) => <FilesPresentationCard presentation={presentation} onOpen={onOpenFiles} /> : undefined}
     />
+    {!isHuman && stats && <TurnStatsView stats={stats} />}
   </MessageShell>
 }
 
-function StreamingMessage({ message, adapter, onOpenResource }: { message: NonNullable<ConversationAdapter['streamingMessage']>; adapter: ConversationAdapter; onOpenResource?: ConversationPaneProps['onOpenResource'] }) {
-  return <MessageShell agentName={adapter.agentName} streaming><TurnContentView processBlocks={message.processBlocks} finalAnswer={message.finalAnswer || message.stage || '正在处理...'} isStreaming processCount={message.processBlocks.length} defaultProcessOpen onOpenResource={onOpenResource} renderProcessBlock={(block) => <ProcessBlock block={block} adapter={adapter} messageId={message.id} />} /><span className="conversation-streaming-label"><Loader2 size={11} /> 生成中</span></MessageShell>
+function StreamingMessage({ message, adapter, onOpenPreview, onOpenFiles, onOpenResource }: { message: MessageData; adapter: ConversationAdapter; onOpenPreview?: ConversationPaneProps['onOpenPreview']; onOpenFiles?: ConversationPaneProps['onOpenFiles']; onOpenResource?: ConversationPaneProps['onOpenResource'] }) {
+  const processBlocks = message.processBlocks || []
+  return <MessageShell agentName={adapter.agentName} streaming><TurnContentView processBlocks={processBlocks} finalAnswer={message.finalAnswer || message.content || '正在处理...'} isStreaming processCount={message.process_item_count ?? processBlocks.length} defaultProcessOpen onOpenResource={onOpenResource} renderProcessBlock={(block) => <ProcessBlock block={block} adapter={adapter} messageId={message.id} onOpenPreview={onOpenPreview} onOpenFiles={onOpenFiles} />} /><span className="conversation-streaming-label"><Loader2 size={11} /> 生成中</span></MessageShell>
 }
 
 function MessageShell({ children, human = false, agentName, timestamp, streaming = false }: { children: React.ReactNode; human?: boolean; agentName?: string | null; timestamp?: string; streaming?: boolean }) {
   return <div className={`conversation-message${human ? ' is-human' : ''}`}><div className="conversation-avatar">{human ? <User size={14} /> : <Bot size={14} />}</div><div className="conversation-message-body"><div className="conversation-message-meta"><strong>{human ? '你' : agentName || 'Agent'}</strong>{timestamp && <time>{formatTime(timestamp)}</time>}{streaming && <span className="conversation-streaming-label"><Loader2 size={11} /> 生成中</span>}</div><div className="conversation-bubble">{children}</div></div></div>
 }
 
-function ProcessBlock({ block, adapter, messageId }: { block: TurnProcessBlock; adapter: ConversationAdapter; messageId: string }) {
-  if (block.kind === 'tool') return <ToolProcessBlock block={block} adapter={adapter} messageId={messageId} />
-  if (block.kind === 'thinking') return <div className="conversation-process-thinking"><span>思考过程</span><MarkdownRenderer content={block.text} /></div>
-  if (block.kind === 'file_change') return <div className="conversation-process-item">文件变更{block.summary ? `：${block.summary}` : ''}</div>
-  if (block.kind === 'plan') return <div className="conversation-process-item">计划 · {block.summary || `${block.plan.length} 项`}</div>
-  if (block.kind === 'permission' || block.kind === 'elicitation') return <div className="conversation-process-item">{block.title}</div>
-  if (block.kind === 'stage' || block.kind === 'note') return <div className="conversation-process-item">{block.text}</div>
-  return null
-}
-
-function ToolProcessBlock({ block, adapter, messageId }: { block: Extract<TurnProcessBlock, { kind: 'tool' }>; adapter: ConversationAdapter; messageId: string }) {
-  const [open, setOpen] = useState(false)
+function ProcessBlock({ block, adapter, messageId, onOpenPreview, onOpenFiles }: { block: TurnProcessBlock; adapter: ConversationAdapter; messageId: string; onOpenPreview?: ConversationPaneProps['onOpenPreview']; onOpenFiles?: ConversationPaneProps['onOpenFiles'] }) {
   const key = `${messageId}:${block.id}`
-  const detail = adapter.toolCallDetailsByKey?.[key]
-  const detailText = detail?.rawOutputPreview || detail?.rawInputPreview || detail?.terminalOutputTail || block.toolCall.terminalOutput || ''
-  const hasDetail = !!block.hasDetail || !!detailText
-  return <div className="conversation-process-item"><button type="button" className="conversation-process-toggle" onClick={() => { setOpen((value) => !value); if (!detail && block.hasDetail) void adapter.loadProcessItemDetail(messageId, block.id) }}><strong>{block.toolCall.title}</strong>{block.toolCall.status && <span> · {block.toolCall.status}</span>}{hasDetail && <span className="conversation-process-more">{open ? '收起' : '详情'}</span>}</button>{open && detailText && <pre>{detailText}</pre>}{open && adapter.processItemLoadingByKey?.[key] && <span>正在加载详情...</span>}{open && adapter.processItemErrorByKey?.[key] && <span className="conversation-process-error">{adapter.processItemErrorByKey[key]}</span>}</div>
+  return <ConversationProcessBlock
+    block={block}
+    detailLoading={adapter.processItemLoadingByKey?.[key]}
+    detailError={adapter.processItemErrorByKey?.[key]}
+    onLoadDetail={'hasDetail' in block && block.hasDetail ? () => { void adapter.loadProcessItemDetail(messageId, block.id) } : undefined}
+    onOpenPreview={onOpenPreview}
+    onOpenFiles={onOpenFiles}
+  />
 }
 
 function EmptyConversation({ text }: { text: string }) { return <div className="conversation-empty"><Bot size={48} /><div>{text}</div></div> }
 function LoadingState({ text }: { text: string }) { return <div className="conversation-state"><Loader2 size={18} /><div>{text}</div></div> }
 function ErrorState({ text }: { text: string }) { return <div className="conversation-state is-error" role="alert">{text}</div> }
 function formatTime(value: string): string { const date = new Date(value); return Number.isNaN(date.getTime()) ? value : date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }
+
+interface TurnStats {
+  inputTokens?: number
+  outputTokens?: number
+  cachedReadTokens?: number
+  costAmount?: number
+  elapsedSeconds?: number
+}
+
+function parseTurnStats(raw?: string | null): TurnStats | null {
+  if (!raw) return null
+  try {
+    const value = JSON.parse(raw) as unknown
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+    const stats = value as Record<string, unknown>
+    return {
+      inputTokens: typeof stats.inputTokens === 'number' ? stats.inputTokens : undefined,
+      outputTokens: typeof stats.outputTokens === 'number' ? stats.outputTokens : undefined,
+      cachedReadTokens: typeof stats.cachedReadTokens === 'number' ? stats.cachedReadTokens : undefined,
+      costAmount: typeof stats.costAmount === 'number' ? stats.costAmount : undefined,
+      elapsedSeconds: typeof stats.elapsedSeconds === 'number' ? stats.elapsedSeconds : undefined,
+    }
+  } catch { return null }
+}
+
+function TurnStatsView({ stats }: { stats: { inputTokens?: number; outputTokens?: number; cachedReadTokens?: number; costAmount?: number; elapsedSeconds?: number } }) {
+  const hasStats = stats.elapsedSeconds != null || stats.inputTokens != null || stats.outputTokens != null || stats.cachedReadTokens != null || stats.costAmount != null
+  if (!hasStats) return null
+  return <div className="conversation-turn-stats">
+    {stats.elapsedSeconds != null && <span>耗时 {formatCompactDuration(stats.elapsedSeconds)}</span>}
+    {stats.inputTokens != null && <span>输入 <b>{fmtTokens(stats.inputTokens)}</b></span>}
+    {stats.outputTokens != null && <span>输出 <b>{fmtTokens(stats.outputTokens)}</b></span>}
+    {stats.cachedReadTokens != null && stats.cachedReadTokens > 0 && <span>缓存 <b>{fmtTokens(stats.cachedReadTokens)}</b></span>}
+    {stats.costAmount != null && <span>${stats.costAmount.toFixed(4)}</span>}
+  </div>
+}
