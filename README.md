@@ -1,5 +1,7 @@
 # AI IDE Studio
 
+The PC `/updates` workbench uses a reusable store-agnostic conversation pane; the existing Workspace page remains on its current implementation.
+
 PC 全局“会话动态工作台”通过 `/updates` 聚合跨项目运行中/未读会话与置顶会话，中间区域独立加载和继续当前会话，右侧常驻展示最后回复、Markdown、HTML 原型与多文件产物；该页面不改变 Workspace 的项目和会话选择状态。
 
 灵感候选任务支持项目级默认执行 Agent/会话，并可选择“默认优先”或“AI 推荐优先”。候选任务弹窗允许手动覆盖执行 Agent 和会话；会话必须属于同一项目和 Agent。

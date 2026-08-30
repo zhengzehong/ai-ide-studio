@@ -163,9 +163,9 @@ describe('统一工作台 UI', () => {
     expect(html).toContain('需要确认工具调用')
     expect(html).toContain('允许一次')
 
-    const source = readFileSync(new URL('../../ui/src/pages/UpdatesConversation.tsx', import.meta.url), 'utf8')
+    const source = readFileSync(new URL('../../ui/src/components/chat/ConversationPane.tsx', import.meta.url), 'utf8')
     expect(source.indexOf('<InteractionPanel')).toBeGreaterThan(-1)
-    expect(source.indexOf('<InteractionPanel')).toBeLessThan(source.indexOf('<footer className="wb-composer">'))
+    expect(source.indexOf('<InteractionPanel')).toBeLessThan(source.indexOf('<ConversationComposer'))
   })
 
   test('会话组件不再引用未定义的设计 token', () => {

@@ -6,6 +6,7 @@ const execute = vi.fn()
 const subscribe = vi.fn()
 const unsubscribe = vi.fn()
 const on = vi.fn(() => vi.fn())
+const wsRequest = vi.fn()
 
 vi.mock('../../ui/src/services/query-client.js', () => ({
   queryClient: {
@@ -14,7 +15,7 @@ vi.mock('../../ui/src/services/query-client.js', () => ({
   },
 }))
 vi.mock('../../ui/src/services/command-client.js', () => ({ commandClient: { execute } }))
-vi.mock('../../ui/src/services/ws-client.js', () => ({ wsClient: { subscribe, unsubscribe, on } }))
+vi.mock('../../ui/src/services/ws-client.js', () => ({ wsClient: { subscribe, unsubscribe, on, request: wsRequest } }))
 
 describe('workbench session store', () => {
   beforeEach(async () => {
@@ -22,6 +23,7 @@ describe('workbench session store', () => {
     request.mockResolvedValue({ items: [{ id: 'message-a', session_id: 'session-a', role: 'agent', content: '完成', thinking: null, tool_calls_json: null, decision_json: null, timestamp: '2026-08-29T00:00:00.000Z' }], hasMore: false, nextCursor: null })
     getRecovery.mockResolvedValue({ sessionId: 'session-a', latestSequence: 0, events: [] })
     execute.mockResolvedValue({ commandId: 'ok', status: 'completed', duplicate: false })
+    wsRequest.mockReset()
     const { useWorkbenchSessionStore } = await import('../../ui/src/stores/workbench-session.store.js')
     useWorkbenchSessionStore.getState().dispose()
     const { useSessionStore } = await import('../../ui/src/stores/session.store.js')
@@ -152,5 +154,33 @@ describe('workbench session store', () => {
     expect(state.usage).toEqual({ contextSize: 200000, contextUsed: 1024 })
     expect(state.capabilities).toBeDefined()
     expect(state.events.some((event) => event.id === 'event-chunk')).toBe(true)
+  })
+
+  test('loads older pages through the adapter without changing the selected session', async () => {
+    const { useWorkbenchSessionStore } = await import('../../ui/src/stores/workbench-session.store.js')
+    request.mockResolvedValueOnce({ items: [{ id: 'new', session_id: 'session-a', role: 'agent', content: 'new', thinking: null, tool_calls_json: null, decision_json: null, timestamp: '2026-08-30T00:00:00.000Z' }], hasMore: true, nextCursor: null })
+    await useWorkbenchSessionStore.getState().select('session-a')
+    request.mockResolvedValueOnce({ items: [{ id: 'old', session_id: 'session-a', role: 'human', content: 'old', thinking: null, tool_calls_json: null, decision_json: null, timestamp: '2026-08-29T00:00:00.000Z' }], hasMore: false, nextCursor: null })
+    await useWorkbenchSessionStore.getState().loadOlderMessages()
+    expect(request).toHaveBeenLastCalledWith(expect.objectContaining({ sessionId: 'session-a', before: '2026-08-30T00:00:00.000Z' }))
+    expect(useWorkbenchSessionStore.getState().messages.map((message) => message.id)).toEqual(['old', 'new'])
+    expect(useWorkbenchSessionStore.getState().hasMoreMessages).toBe(false)
+  })
+
+  test('sends image and uploaded-file attachments through the workbench adapter', async () => {
+    const { useWorkbenchSessionStore } = await import('../../ui/src/stores/workbench-session.store.js')
+    await useWorkbenchSessionStore.getState().select('session-a')
+    await useWorkbenchSessionStore.getState().sendPrompt('检查附件', [{ data: 'base64', mimeType: 'image/png', name: 'shot.png' }], [{ id: 'file-1', name: 'report.md', mimeType: 'text/markdown', size: 12, path: 'uploads/report.md', relativePath: 'uploads/report.md' }])
+    expect(execute).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'prompt', images: [{ data: 'base64', mimeType: 'image/png' }], content: expect.stringContaining('uploads/report.md') }))
+  })
+
+  test('loads a historical process into the selected message', async () => {
+    const { useWorkbenchSessionStore } = await import('../../ui/src/stores/workbench-session.store.js')
+    request.mockResolvedValueOnce({ items: [{ id: 'message-tool', session_id: 'session-a', role: 'agent', content: 'done', thinking: null, tool_calls_json: '{}', decision_json: null, timestamp: '2026-08-30T00:00:00.000Z', process_item_count: 1, has_tool_calls: true }], hasMore: false, nextCursor: null })
+    await useWorkbenchSessionStore.getState().select('session-a')
+    wsRequest.mockResolvedValueOnce([{ id: 'process-1', session_id: 'session-a', message_id: 'message-tool', sequence: 1, kind: 'tool', status: 'completed', title: '读取文件', summary: null, preview: null, content: null, meta_json: null, detail_json: null, created_at: '', updated_at: '', has_detail: false }])
+    await useWorkbenchSessionStore.getState().loadMessageProcess('message-tool')
+    expect(wsRequest).toHaveBeenCalledWith({ type: 'sessions.messageProcess', sessionId: 'session-a', messageId: 'message-tool' })
+    expect(useWorkbenchSessionStore.getState().messages[0]?.processBlocks?.[0]).toMatchObject({ kind: 'tool' })
   })
 })
