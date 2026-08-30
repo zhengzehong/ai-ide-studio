@@ -1,12 +1,14 @@
 import { useState, type MouseEvent } from 'react'
 import { GripVertical, Plus, Zap, ChevronDown, Loader2, RefreshCw } from 'lucide-react'
 import type { AgentData } from '../../stores/agent.store'
-import type { SessionData } from '../../stores/session.store'
+import type { SessionBulkActionResultData, SessionData } from '../../stores/session.store'
 import type { SessionIndicatorStateMap } from '../../utils/session-indicators'
 import { agentAvatar, agentColor, formatTime, sessionTitle } from './helpers'
 import { prepareNestedOrderDragEvent } from './ordering'
 import { sessionIndicator } from '../../utils/session-indicators'
 import { ICON_MAP } from '../../components/agent-square/constants'
+import { SessionBulkActions } from './SessionBulkActions'
+import { canSelectSessionForBatchDelete, toggleBatchSessionSelection, batchDeletableSessionIds } from './session-bulk-selection'
 
 const orderGripStyle: React.CSSProperties = {
   width: 16,
@@ -29,6 +31,7 @@ export interface SessionBarDraggedItem {
 
 export interface SessionBarProps {
   agent: AgentData | null
+  projectId: string | null
   sessions: SessionData[]
   currentSessionId: string | null
   runningSessionIds: SessionIndicatorStateMap
@@ -40,6 +43,8 @@ export interface SessionBarProps {
   onSelectSession: (agentId: string, sessionId: string) => void
   onNewSession: (agentId: string) => void
   onNewFromTemplate: (agentId: string) => void
+  onBulkMarkRead: (agentId: string, projectId: string, sessionIds: string[]) => Promise<SessionBulkActionResultData>
+  onBulkDelete: (agentId: string, projectId: string, sessionIds: string[]) => Promise<SessionBulkActionResultData>
   onContextMenu: (e: MouseEvent, sessionId: string, agentId: string) => void
   onReorder: (agentId: string, sessionIds: string[]) => void
   onSetDraggedOrderItem: (item: SessionBarDraggedItem | null) => void
@@ -50,6 +55,7 @@ export interface SessionBarProps {
 export function SessionBar(props: SessionBarProps) {
   const {
     agent,
+    projectId,
     sessions,
     currentSessionId,
     runningSessionIds,
@@ -68,6 +74,88 @@ export function SessionBar(props: SessionBarProps) {
   } = props
 
   const [newMenuOpen, setNewMenuOpen] = useState(false)
+  const [bulkMenuOpen, setBulkMenuOpen] = useState(false)
+  const [batchMode, setBatchMode] = useState(false)
+  const [selectedSessionIds, setSelectedSessionIds] = useState<string[]>([])
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [bulkBusy, setBulkBusy] = useState(false)
+  const [bulkNotice, setBulkNotice] = useState<string | null>(null)
+  const [bulkError, setBulkError] = useState<string | null>(null)
+
+  const selectableSessionIds = batchDeletableSessionIds(sessions.map((session) => ({
+    id: session.id,
+    isPrimary: !!session.is_primary,
+    isRunning: !!runningSessionIds[session.id] || session.activity_state === 'running',
+    isCurrent: currentSessionId === session.id,
+  })))
+  const selectedDeletableIds = selectedSessionIds.filter((id) => selectableSessionIds.includes(id))
+  const allSelected = selectableSessionIds.length > 0 && selectedDeletableIds.length === selectableSessionIds.length
+
+  const enterBatchMode = (): void => {
+    setBulkMenuOpen(false)
+    setBulkNotice(null)
+    setBulkError(null)
+    setSelectedSessionIds([])
+    setBatchMode(true)
+  }
+
+  const cancelBatchMode = (): void => {
+    if (bulkBusy) return
+    setBatchMode(false)
+    setSelectedSessionIds([])
+    setConfirmDelete(false)
+    setBulkError(null)
+  }
+
+  const toggleSelectAll = (): void => {
+    if (bulkBusy) return
+    setSelectedSessionIds(allSelected ? [] : selectableSessionIds)
+  }
+
+  const handleToggleSession = (session: SessionData): void => {
+    setSelectedSessionIds((selected) => toggleBatchSessionSelection(selected, {
+      id: session.id,
+      isPrimary: !!session.is_primary,
+      isRunning: !!runningSessionIds[session.id] || session.activity_state === 'running',
+      isCurrent: currentSessionId === session.id,
+    }))
+  }
+
+  const handleBulkMarkRead = async (): Promise<void> => {
+    if (!agent || !projectId || bulkBusy || sessions.length === 0) return
+    setBulkMenuOpen(false)
+    setBulkBusy(true)
+    setBulkNotice(null)
+    setBulkError(null)
+    try {
+      const result = await props.onBulkMarkRead(agent.id, projectId, sessions.map((session) => session.id))
+      setBulkNotice(`已标记 ${result.succeeded.length} 个会话为已读`)
+      if (result.skipped.length > 0) setBulkError(`有 ${result.skipped.length} 个会话未处理`)
+    } catch (error) {
+      setBulkError(error instanceof Error ? error.message : '批量标记已读失败')
+    } finally {
+      setBulkBusy(false)
+    }
+  }
+
+  const handleBulkDelete = async (): Promise<void> => {
+    if (!agent || !projectId || bulkBusy || selectedDeletableIds.length === 0) return
+    setBulkBusy(true)
+    setBulkNotice(null)
+    setBulkError(null)
+    try {
+      const result = await props.onBulkDelete(agent.id, projectId, selectedDeletableIds)
+      setBulkNotice(`已删除 ${result.succeeded.length} 个会话`)
+      if (result.skipped.length > 0) setBulkError(`有 ${result.skipped.length} 个会话未删除`)
+      setSelectedSessionIds([])
+      setConfirmDelete(false)
+      setBatchMode(false)
+    } catch (error) {
+      setBulkError(error instanceof Error ? error.message : '批量删除失败')
+    } finally {
+      setBulkBusy(false)
+    }
+  }
 
   return (
     <aside
@@ -243,6 +331,26 @@ export function SessionBar(props: SessionBarProps) {
                 </>
               )}
             </div>
+            <SessionBulkActions
+              menuOpen={bulkMenuOpen}
+              batchMode={batchMode}
+              selectedCount={selectedDeletableIds.length}
+              deletableCount={selectableSessionIds.length}
+              allSelected={allSelected}
+              busy={bulkBusy}
+              disabled={orderingMode || !projectId || sessions.length === 0}
+              confirmDelete={confirmDelete}
+              notice={bulkNotice}
+              error={bulkError}
+              onToggleMenu={() => setBulkMenuOpen((value) => !value)}
+              onMarkRead={() => { void handleBulkMarkRead() }}
+              onEnterDeleteMode={enterBatchMode}
+              onToggleSelectAll={toggleSelectAll}
+              onRequestDelete={() => setConfirmDelete(true)}
+              onCancelMode={cancelBatchMode}
+              onConfirmDelete={() => { void handleBulkDelete() }}
+              onCancelConfirm={() => setConfirmDelete(false)}
+            />
           </>
         ) : (
           <span style={{ fontSize: 13, color: 'var(--text-3)' }}>选择智能体</span>
@@ -319,7 +427,7 @@ export function SessionBar(props: SessionBarProps) {
                     onDropSession(agent.id, s.id)
                   }}
                   onContextMenu={(e) => {
-                    if (orderingMode) return
+                    if (orderingMode || batchMode) return
                     e.preventDefault()
                     onContextMenu(e, s.id, agent.id)
                   }}
@@ -337,9 +445,29 @@ export function SessionBar(props: SessionBarProps) {
                     boxShadow: currentSessionId === s.id ? 'inset 2px 0 0 var(--blue)' : 'none',
                   }}
                 >
+                  {batchMode && (
+                    <input
+                      type="checkbox"
+                      checked={selectedDeletableIds.includes(s.id)}
+                      disabled={!canSelectSessionForBatchDelete({
+                        id: s.id,
+                        isPrimary: !!s.is_primary,
+                        isRunning: !!runningSessionIds[s.id] || s.activity_state === 'running',
+                        isCurrent: currentSessionId === s.id,
+                      }) || bulkBusy}
+                      onClick={(event) => event.stopPropagation()}
+                      onChange={() => handleToggleSession(s)}
+                      aria-label={`选择会话 ${sessionTitle(s)}`}
+                      style={{ margin: '0 2px 0 0', flexShrink: 0 }}
+                    />
+                  )}
                   <button
                     type="button"
                     onClick={() => {
+                      if (batchMode) {
+                        handleToggleSession(s)
+                        return
+                      }
                       if (!orderingMode) onSelectSession(agent.id, s.id)
                     }}
                     style={{

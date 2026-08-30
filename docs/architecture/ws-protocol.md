@@ -132,6 +132,7 @@ Runtime 可见 patch 不经过 API 事件总线，而是通过 Runtime→Realtim
 | `sessions.close` | `{ sessionId }` | `Session` | 关闭 ACP 会话并标记为 closed |
 | `sessions.archive` | `{ sessionId }` | `Session` | 归档 Session |
 | `sessions.delete` | `{ sessionId }` | `{ deleted: true }` | 软删除 Session，默认列表不再返回 |
+| `sessions.bulkAction` | `{ action, agentId, projectId, sessionIds }` | `{ action, succeeded, skipped, lastReadAt? }` | 在当前项目和 Agent 范围内批量标记已读或软删除；服务端保护主会话、运行中会话和系统会话 |
 | `sessions.reorder` | `{ projectId, agentId, sessionIds }` | `Session[]` | 保存同一项目、同一 Agent 下的 Session 自定义排序 |
 | `session.getModels` | `{ sessionId }` | `SessionCapabilities` | 获取模型/模式/配置选项 |
 | `session.setModel` | `{ sessionId, modelId }` | `void` | 切换模型；成功后写入 `sessions.runtime_preferences_json.modelId` |

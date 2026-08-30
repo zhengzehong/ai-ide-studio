@@ -192,6 +192,8 @@ export default function Workspace() {
   const renameSession = useSessionStore((s) => s.renameSession)
   const copySession = useSessionStore((s) => s.copySession)
   const deleteSession = useSessionStore((s) => s.deleteSession)
+  const bulkMarkAgentSessionsRead = useSessionStore((s) => s.bulkMarkAgentSessionsRead)
+  const bulkDeleteSessions = useSessionStore((s) => s.bulkDeleteSessions)
   const closeSession = useSessionStore((s) => s.closeSession)
   const archiveSession = useSessionStore((s) => s.archiveSession)
   const dockItems = useSessionDockStore((s) => s.items)
@@ -1138,7 +1140,9 @@ export default function Workspace() {
 
       {sidebarTab === 'sessions' && (
         <SessionBar
+          key={`${currentProjectId ?? 'none'}:${effectiveSelectedAgentId ?? 'none'}`}
           agent={orderedProjectAgents.find((a) => a.id === effectiveSelectedAgentId) ?? null}
+          projectId={currentProjectId}
           sessions={effectiveSelectedAgentId ? agentSessions(effectiveSelectedAgentId) : []}
           currentSessionId={currentSessionId}
           runningSessionIds={runningSessionIds}
@@ -1150,6 +1154,8 @@ export default function Workspace() {
           onSelectSession={handleSelectSession}
           onNewSession={handleNewSession}
           onNewFromTemplate={handleNewFromTemplate}
+          onBulkMarkRead={bulkMarkAgentSessionsRead}
+          onBulkDelete={bulkDeleteSessions}
           onContextMenu={(e, sessionId, agentId) => {
             setAgentCtxMenu(null)
             setCtxMenu({ sessionId, agentId, x: e.clientX, y: e.clientY })
