@@ -7,7 +7,7 @@ import type { ToolContext, ToolHandler, ToolHandlerInput, ToolHandlerResult } fr
 export const previewPublishHandler: ToolHandler = {
   name: 'preview.publish',
   description:
-    '发布原型预览。把指定目录或 HTML 文件发布为可访问的预览 URL。调用后前端对话流会自动渲染预览卡片,用户点击全屏查看。返回 {previewId, url, title, target, taskId, createdAt}。',
+    '发布 HTML 预览。为用户生成 HTML 或原型后,必须调用此工具发布给用户,用户可在对话流中直接打开查看。',
   inputSchema: {
     type: 'object',
     properties: {
