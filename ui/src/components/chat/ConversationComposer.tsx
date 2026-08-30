@@ -5,6 +5,7 @@ import type { WorkspacePendingFile } from '../../pages/workspace/workspace-file-
 import { partitionWorkspaceFiles } from '../../pages/workspace/workspace-file-attachments'
 import { uploadSessionFile } from '../../services/session-file-upload'
 import type { ConversationAdapter, ConversationUploadedFile } from './conversation-types'
+import { canSendConversation } from './conversation-composer-utils'
 import './conversation-pane.css'
 
 const draftBySession = new Map<string, string>()
@@ -17,7 +18,7 @@ export function ConversationComposer({ adapter }: { adapter: ConversationAdapter
   const [sendError, setSendError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const canSend = !!adapter.sessionId && !sending && (!!value.trim() || files.some((file) => file.status === 'uploaded') || images.length > 0)
+  const canSend = canSendConversation(adapter.sessionId, sending, value, files, images)
 
   const addFiles = (selected: File[]): void => {
     if (!adapter.sessionId || !adapter.projectId) return
@@ -60,10 +61,10 @@ export function ConversationComposer({ adapter }: { adapter: ConversationAdapter
     <div className="conversation-composer">
       {sendError && <div className="conversation-composer-error" role="alert">{sendError}</div>}
       {(images.length > 0 || files.length > 0) && <div className="conversation-attachments">{images.map((image, index) => <span key={`${image.name}-${index}`}>{image.name || '图片'}</span>)}{files.map((file) => <span key={file.localId}>{file.name} · {file.status === 'uploading' ? '上传中' : file.status === 'error' ? file.error : '已上传'}</span>)}</div>}
-      <textarea ref={textareaRef} value={value} onChange={(event) => { updateValue(event.target.value); event.currentTarget.style.height = 'auto'; event.currentTarget.style.height = `${Math.min(event.currentTarget.scrollHeight, 160)}px` }} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submit() } }} placeholder={adapter.sessionId ? '输入消息...' : '先选择一个 Session'} disabled={!adapter.sessionId} rows={2} />
+      <textarea ref={textareaRef} value={value} onChange={(event) => { updateValue(event.target.value); event.currentTarget.style.height = 'auto'; event.currentTarget.style.height = `${Math.min(event.currentTarget.scrollHeight, 160)}px` }} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submit() } }} placeholder={adapter.sessionId ? '输入消息...' : '先选择一个 Session'} disabled={!adapter.sessionId || sending} rows={2} />
       <div className="conversation-toolbar">
         <input ref={inputRef} type="file" multiple hidden onChange={(event) => { addFiles(Array.from(event.target.files || [])); event.currentTarget.value = '' }} />
-        <button type="button" className="conversation-tool-button" onClick={() => inputRef.current?.click()} disabled={!adapter.sessionId} title="添加图片或文件"><Paperclip size={15} /></button>
+        <button type="button" className="conversation-tool-button" onClick={() => inputRef.current?.click()} disabled={!adapter.sessionId || sending} title="添加图片或文件"><Paperclip size={15} /></button>
         {adapter.capabilities.modes.length > 0 && <select value={adapter.capabilities.currentModeId || ''} onChange={(event) => { if (adapter.setMode) void adapter.setMode(event.target.value) }}><option value="">模式</option>{adapter.capabilities.modes.map((mode) => <option key={mode.modeId} value={mode.modeId}>{mode.name}</option>)}</select>}
         <div className="conversation-toolbar-spacer" />
         {adapter.usage && <span className="conversation-usage">{adapter.usage.contextUsed}/{adapter.usage.contextSize}</span>}

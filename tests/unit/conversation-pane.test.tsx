@@ -2,6 +2,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, test, vi } from 'vitest'
 import { ConversationPane } from '../../ui/src/components/chat/ConversationPane.js'
+import { canSendConversation } from '../../ui/src/components/chat/conversation-composer-utils.js'
 import type { ConversationAdapter } from '../../ui/src/components/chat/conversation-types.js'
 
 function adapter(overrides: Partial<ConversationAdapter> = {}): ConversationAdapter {
@@ -36,5 +37,11 @@ describe('shared conversation pane', () => {
     expect(html).toContain('执行过程')
     expect(html).toContain('读取文件')
     expect(html).toContain('100')
+  })
+
+  test('blocks sending while a regular attachment is still uploading', () => {
+    const base = adapter()
+    expect(canSendConversation(base.sessionId, false, '继续处理', [{ localId: 'file-1', name: 'report.md', size: 10, status: 'uploading' }], [])).toBe(false)
+    expect(canSendConversation(base.sessionId, false, '继续处理', [{ localId: 'file-1', name: 'report.md', size: 10, status: 'uploaded', uploaded: { id: 'upload-1', name: 'report.md', mimeType: 'text/markdown', size: 10, path: 'report.md', relativePath: 'report.md' } }], [])).toBe(true)
   })
 })

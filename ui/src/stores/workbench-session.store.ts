@@ -15,6 +15,7 @@ import {
   normalizeMessage,
   shouldCreateToolFromUpdate,
   defaultCaps,
+  mergeCapabilities,
   type ElicitationRequestInfo,
   type MessageData,
   type PermissionRequestInfo,
@@ -129,6 +130,34 @@ function reducePendingInteractions(
   return { pendingPermissions: reduced.pendingPermissions, pendingElicitations: reduced.pendingElicitations, usage: reduced.usage, capabilities: reduced.capabilities }
 }
 
+function normalizeCapabilitySnapshot(value: unknown): SessionCapabilities | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const snapshot = value as Partial<SessionCapabilities>
+  return {
+    models: Array.isArray(snapshot.models) ? snapshot.models : [],
+    currentModelId: typeof snapshot.currentModelId === 'string' ? snapshot.currentModelId : null,
+    modes: Array.isArray(snapshot.modes) ? snapshot.modes : [],
+    currentModeId: typeof snapshot.currentModeId === 'string' ? snapshot.currentModeId : null,
+    supportsImages: snapshot.supportsImages === true,
+    supportsAudio: snapshot.supportsAudio === true,
+    configOptions: Array.isArray(snapshot.configOptions) ? snapshot.configOptions : [],
+    commands: Array.isArray(snapshot.commands) ? snapshot.commands : [],
+    sessionInfo: snapshot.sessionInfo,
+  }
+}
+
+function refreshCapabilities(sessionId: string, requestGeneration: number): void {
+  void Promise.resolve()
+    .then(() => wsClient.request({ type: 'session.getModels', sessionId }))
+    .then((value: unknown) => {
+      if (requestGeneration !== generation || useWorkbenchSessionStore.getState().selectedSessionId !== sessionId) return
+      const incoming = normalizeCapabilitySnapshot(value)
+      if (!incoming) return
+      useWorkbenchSessionStore.setState((state) => ({ capabilities: mergeCapabilities(state.capabilities, incoming) }))
+    })
+    .catch(() => undefined)
+}
+
 function installListeners(set: (value: Partial<WorkbenchSessionState> | ((state: WorkbenchSessionState) => Partial<WorkbenchSessionState>)) => void): void {
   if (listenersInstalled) return
   const current = (message: Record<string, unknown>): boolean => typeof message.sessionId === 'string' && message.sessionId === useWorkbenchSessionStore.getState().selectedSessionId
@@ -170,6 +199,12 @@ function installListeners(set: (value: Partial<WorkbenchSessionState> | ((state:
         const events = [...state.events.filter((item) => item.id !== event.id), event].sort((a, b) => a.sequence - b.sequence)
         return { events, ...reducePendingInteractions([event], state.pendingPermissions, state.pendingElicitations, state.usage, state.capabilities) }
       })
+    }),
+    wsClient.on('session:capabilities', (message) => {
+      if (!current(message)) return
+      const incoming = normalizeCapabilitySnapshot(message.capabilities)
+      if (!incoming) return
+      set((state) => ({ capabilities: mergeCapabilities(state.capabilities, incoming) }))
     }),
     wsClient.on('session:done', (message) => {
       if (!current(message)) return
@@ -216,6 +251,7 @@ export const useWorkbenchSessionStore = create<WorkbenchSessionState>((set, get)
     setSubscription(sessionId)
     if (!sessionId) { set({ loading: false }); return }
     installListeners(set)
+    refreshCapabilities(sessionId, requestGeneration)
     void commandClient.execute({ commandId: `workbench-read-${sessionId}-${Date.now()}`, type: 'sessions.markRead', sessionId }).catch(() => undefined)
     try {
       const [messagePage, recovery] = await Promise.all([

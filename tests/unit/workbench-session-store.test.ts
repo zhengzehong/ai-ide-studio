@@ -156,6 +156,30 @@ describe('workbench session store', () => {
     expect(state.events.some((event) => event.id === 'event-chunk')).toBe(true)
   })
 
+  test('updates capabilities from a realtime capability snapshot', async () => {
+    const { useWorkbenchSessionStore } = await import('../../ui/src/stores/workbench-session.store.js')
+    await useWorkbenchSessionStore.getState().select('session-a')
+
+    const handler = on.mock.calls.find(([eventType]) => eventType === 'session:capabilities')?.[1] as ((message: Record<string, unknown>) => void) | undefined
+    expect(handler).toBeDefined()
+    handler?.({
+      sessionId: 'session-a',
+      capabilities: {
+        models: [{ modelId: 'model-max', name: 'Max' }],
+        currentModelId: 'model-max',
+        modes: [{ modeId: 'plan', name: 'Plan' }],
+        currentModeId: 'plan',
+        supportsImages: true,
+        configOptions: [],
+        commands: [],
+      },
+    })
+
+    expect(useWorkbenchSessionStore.getState().capabilities.currentModelId).toBe('model-max')
+    expect(useWorkbenchSessionStore.getState().capabilities.currentModeId).toBe('plan')
+    expect(useWorkbenchSessionStore.getState().capabilities.models).toHaveLength(1)
+  })
+
   test('loads older pages through the adapter without changing the selected session', async () => {
     const { useWorkbenchSessionStore } = await import('../../ui/src/stores/workbench-session.store.js')
     request.mockResolvedValueOnce({ items: [{ id: 'new', session_id: 'session-a', role: 'agent', content: 'new', thinking: null, tool_calls_json: null, decision_json: null, timestamp: '2026-08-30T00:00:00.000Z' }], hasMore: true, nextCursor: null })
