@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 
 const PINNED_KEY = 'ai-ide-pinned-projects'
-const MAX_PINS = 5
+const MAX_PINS = 10
 
 export const PROJECT_COLORS = [
   '#2563eb', // blue
