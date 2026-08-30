@@ -4,6 +4,8 @@ import { queryClient } from '../services/query-client'
 import { wsClient } from '../services/ws-client'
 import { interactionResponseFailure } from './interaction-response'
 import { useSessionStore } from './session.store'
+import type { ConversationUploadedFile, ConversationProcessState } from '../components/chat/conversation-types'
+import type { FileChangeDetailInfo, ToolCallDetailInfo, ImageAttachmentInfo } from './session-events'
 import {
   applySessionEvent,
   appendFinalizedMessage,
@@ -13,6 +15,7 @@ import {
   normalizeMessage,
   shouldCreateToolFromUpdate,
   defaultCaps,
+  mergeCapabilities,
   type ElicitationRequestInfo,
   type MessageData,
   type PermissionRequestInfo,
@@ -24,7 +27,7 @@ import {
   type UsageInfo,
   type SessionCapabilities,
 } from './session-events'
-import { applyTurnEntry, createEmptyTurn, turnFromProcessItems, type TurnProcessBlock, type TurnViewModel } from './turn-blocks'
+import { applyTurnEntry, createEmptyTurn, turnFromEvents, turnFromProcessItems, type TurnProcessBlock, type TurnViewModel } from './turn-blocks'
 
 interface WorkbenchSessionState {
   selectedSessionId: string | null
@@ -40,9 +43,25 @@ interface WorkbenchSessionState {
   interactionError: string | null
   usage: UsageInfo | null
   capabilities: SessionCapabilities
+  hasMoreMessages: boolean
+  loadingOlderMessages: boolean
+  processByMessageId: Record<string, ConversationProcessState>
+  fileChangeDetailsByMessageId: Record<string, FileChangeDetailInfo>
+  fileChangeLoadingByKey: Record<string, boolean>
+  fileChangeErrorByKey: Record<string, string>
+  toolCallDetailsByKey: Record<string, ToolCallDetailInfo>
+  processItemLoadingByKey: Record<string, boolean>
+  processItemErrorByKey: Record<string, string>
   select: (sessionId: string | null) => Promise<void>
-  sendPrompt: (content: string) => Promise<void>
+  sendPrompt: (content: string, images?: ImageAttachmentInfo[], files?: ConversationUploadedFile[]) => Promise<void>
   cancel: () => Promise<void>
+  loadOlderMessages: () => Promise<void>
+  loadMessageProcess: (messageId: string) => Promise<void>
+  loadFileChanges: (messageId: string) => Promise<void>
+  loadProcessItemDetail: (messageId: string, itemId: string) => Promise<void>
+  setModel: (modelId: string) => Promise<void>
+  setMode: (modeId: string) => Promise<void>
+  setConfig: (configId: string, value: string | boolean) => Promise<void>
   respondPermission: (requestId: string, optionId?: string, cancelled?: boolean) => Promise<void>
   respondElicitation: (requestId: string, action: 'accept' | 'decline' | 'cancel', content?: Record<string, string | number | boolean | string[]>) => Promise<void>
   dispose: () => void
@@ -64,7 +83,7 @@ function setSubscription(sessionId: string | null): void {
 
 function applyRealtimeTurn(current: StreamingMessage | null, sessionId: string, data: Record<string, unknown>): StreamingMessage {
   const messageId = typeof data.messageId === 'string' ? data.messageId : `workbench-${sessionId}`
-  let turn: TurnViewModel = current && current.id === messageId ? current : { ...(current ?? createEmptyTurn(messageId)), id: messageId }
+  let turn: TurnViewModel = current && current.id === messageId ? current : createEmptyTurn(messageId)
   if (typeof data.contentDelta === 'string') turn = applyTurnEntry(turn, { kind: 'reply', text: data.contentDelta })
   if (typeof data.thinking === 'string') turn = applyTurnEntry(turn, { kind: 'thinking', text: data.thinking })
   if (data.toolCall && typeof data.toolCall === 'object') turn = applyTurnEntry(turn, { kind: 'toolCall', toolCall: data.toolCall as ToolCallInfo })
@@ -111,6 +130,34 @@ function reducePendingInteractions(
   return { pendingPermissions: reduced.pendingPermissions, pendingElicitations: reduced.pendingElicitations, usage: reduced.usage, capabilities: reduced.capabilities }
 }
 
+function normalizeCapabilitySnapshot(value: unknown): SessionCapabilities | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const snapshot = value as Partial<SessionCapabilities>
+  return {
+    models: Array.isArray(snapshot.models) ? snapshot.models : [],
+    currentModelId: typeof snapshot.currentModelId === 'string' ? snapshot.currentModelId : null,
+    modes: Array.isArray(snapshot.modes) ? snapshot.modes : [],
+    currentModeId: typeof snapshot.currentModeId === 'string' ? snapshot.currentModeId : null,
+    supportsImages: snapshot.supportsImages === true,
+    supportsAudio: snapshot.supportsAudio === true,
+    configOptions: Array.isArray(snapshot.configOptions) ? snapshot.configOptions : [],
+    commands: Array.isArray(snapshot.commands) ? snapshot.commands : [],
+    sessionInfo: snapshot.sessionInfo,
+  }
+}
+
+function refreshCapabilities(sessionId: string, requestGeneration: number): void {
+  void Promise.resolve()
+    .then(() => wsClient.request({ type: 'session.getModels', sessionId }))
+    .then((value: unknown) => {
+      if (requestGeneration !== generation || useWorkbenchSessionStore.getState().selectedSessionId !== sessionId) return
+      const incoming = normalizeCapabilitySnapshot(value)
+      if (!incoming) return
+      useWorkbenchSessionStore.setState((state) => ({ capabilities: mergeCapabilities(state.capabilities, incoming) }))
+    })
+    .catch(() => undefined)
+}
+
 function installListeners(set: (value: Partial<WorkbenchSessionState> | ((state: WorkbenchSessionState) => Partial<WorkbenchSessionState>)) => void): void {
   if (listenersInstalled) return
   const current = (message: Record<string, unknown>): boolean => typeof message.sessionId === 'string' && message.sessionId === useWorkbenchSessionStore.getState().selectedSessionId
@@ -153,6 +200,12 @@ function installListeners(set: (value: Partial<WorkbenchSessionState> | ((state:
         return { events, ...reducePendingInteractions([event], state.pendingPermissions, state.pendingElicitations, state.usage, state.capabilities) }
       })
     }),
+    wsClient.on('session:capabilities', (message) => {
+      if (!current(message)) return
+      const incoming = normalizeCapabilitySnapshot(message.capabilities)
+      if (!incoming) return
+      set((state) => ({ capabilities: mergeCapabilities(state.capabilities, incoming) }))
+    }),
     wsClient.on('session:done', (message) => {
       if (!current(message)) return
       const state = useWorkbenchSessionStore.getState()
@@ -183,12 +236,22 @@ export const useWorkbenchSessionStore = create<WorkbenchSessionState>((set, get)
   interactionError: null,
   usage: null,
   capabilities: { ...defaultCaps },
+  hasMoreMessages: false,
+  loadingOlderMessages: false,
+  processByMessageId: {},
+  fileChangeDetailsByMessageId: {},
+  fileChangeLoadingByKey: {},
+  fileChangeErrorByKey: {},
+  toolCallDetailsByKey: {},
+  processItemLoadingByKey: {},
+  processItemErrorByKey: {},
   select: async (sessionId) => {
     const requestGeneration = ++generation
-    set({ selectedSessionId: sessionId, messages: [], events: [], streamingMessage: null, loading: !!sessionId, error: null, running: false, sending: false, pendingPermissions: [], pendingElicitations: [], interactionError: null, usage: null, capabilities: { ...defaultCaps } })
+    set({ selectedSessionId: sessionId, messages: [], events: [], streamingMessage: null, loading: !!sessionId, error: null, running: false, sending: false, pendingPermissions: [], pendingElicitations: [], interactionError: null, usage: null, capabilities: { ...defaultCaps }, hasMoreMessages: false, loadingOlderMessages: false, processByMessageId: {}, fileChangeDetailsByMessageId: {}, fileChangeLoadingByKey: {}, fileChangeErrorByKey: {}, toolCallDetailsByKey: {}, processItemLoadingByKey: {}, processItemErrorByKey: {} })
     setSubscription(sessionId)
     if (!sessionId) { set({ loading: false }); return }
     installListeners(set)
+    refreshCapabilities(sessionId, requestGeneration)
     void commandClient.execute({ commandId: `workbench-read-${sessionId}-${Date.now()}`, type: 'sessions.markRead', sessionId }).catch(() => undefined)
     try {
       const [messagePage, recovery] = await Promise.all([
@@ -197,22 +260,105 @@ export const useWorkbenchSessionStore = create<WorkbenchSessionState>((set, get)
       ])
       if (requestGeneration !== generation) return
       const runningMessage = messagePage.items.filter((message) => message.role === 'agent' && message.status === 'running').at(-1)
-      set({ messages: mergeMessagesForSession(messagePage.items, [], sessionId), events: recovery.events, ...reducePendingInteractions(recovery.events), streamingMessage: runningMessage ? { ...createEmptyTurn(runningMessage.id), finalAnswer: runningMessage.content, content: runningMessage.content, done: false } : null, running: !!runningMessage, loading: false })
+      set({ messages: mergeMessagesForSession(messagePage.items, [], sessionId), events: recovery.events, ...reducePendingInteractions(recovery.events), streamingMessage: runningMessage ? { ...createEmptyTurn(runningMessage.id), finalAnswer: runningMessage.content, content: runningMessage.content, done: false } : null, running: !!runningMessage, loading: false, hasMoreMessages: messagePage.hasMore })
     } catch (error) {
       if (requestGeneration === generation) set({ loading: false, error: error instanceof Error ? error.message : '会话加载失败' })
     }
   },
-  sendPrompt: async (content) => {
+  sendPrompt: async (content, images = [], files = []) => {
     const sid = get().selectedSessionId
-    if (!sid || !content.trim() || get().sending) return
+    if (!sid || (!content.trim() && images.length === 0 && files.length === 0)) return
     const clientMessageId = `workbench-${Date.now()}`
-    set((state) => ({ sending: true, running: true, messages: [...state.messages, normalizeMessage({ id: clientMessageId, session_id: sid, role: 'human', content: content.trim(), thinking: null, tool_calls_json: null, decision_json: null, attachments_json: null, file_changes_json: null, timestamp: new Date().toISOString() })], streamingMessage: createEmptyTurn(`pending-${clientMessageId}`) }))
+    const queueBehindActiveTurn = get().running
+    const fileContext = files.length ? `${content.trim()}\n\n[文件附件]\n${files.map((file) => `- 文件路径: ${file.path}\n- MIME: ${file.mimeType}\n- 原始文件名: ${file.name}`).join('\n')}` : content.trim()
+    set((state) => ({ sending: true, running: true, messages: [...state.messages, normalizeMessage({ id: clientMessageId, session_id: sid, role: 'human', content: fileContext, thinking: null, tool_calls_json: null, decision_json: null, attachments_json: images.length ? JSON.stringify(images) : null, file_changes_json: null, timestamp: new Date().toISOString(), parsedAttachments: images })], streamingMessage: queueBehindActiveTurn ? state.streamingMessage : createEmptyTurn(`pending-${clientMessageId}`) }))
     try {
-      await commandClient.execute({ commandId: clientMessageId, type: 'prompt', sessionId: sid, clientMessageId, content: content.trim() })
+      const commandImages = images.filter((image): image is ImageAttachmentInfo & { data: string } => typeof image.data === 'string').map((image) => ({ data: image.data, mimeType: image.mimeType }))
+      await commandClient.execute({ commandId: clientMessageId, type: 'prompt', sessionId: sid, clientMessageId, content: fileContext, ...(commandImages.length ? { images: commandImages } : {}) })
+      if (sid === get().selectedSessionId) set({ sending: false })
     } catch (error) {
-      set((state) => ({ sending: false, running: false, streamingMessage: null, messages: state.messages.filter((message) => message.id !== clientMessageId), error: error instanceof Error ? error.message : '消息发送失败' }))
+      set((state) => ({ sending: false, running: queueBehindActiveTurn ? state.running : false, streamingMessage: queueBehindActiveTurn ? state.streamingMessage : null, messages: state.messages.filter((message) => message.id !== clientMessageId), error: error instanceof Error ? error.message : '消息发送失败' }))
       throw error
     }
+  },
+  loadOlderMessages: async () => {
+    const sid = get().selectedSessionId
+    if (!sid || get().loadingOlderMessages || !get().hasMoreMessages) return
+    const current = get().messages.filter((message) => message.session_id === sid).sort((a, b) => a.timestamp.localeCompare(b.timestamp))
+    const oldest = current[0]
+    if (!oldest) return
+    set({ loadingOlderMessages: true })
+    try {
+      const page = await queryClient.listSessionMessages({ sessionId: sid, limit: 40, before: oldest.timestamp })
+      if (sid !== get().selectedSessionId) return
+      set((state) => ({ messages: mergeMessagesForSession(page.items, state.messages, sid), hasMoreMessages: page.hasMore, loadingOlderMessages: false }))
+    } catch {
+      if (sid === get().selectedSessionId) set({ loadingOlderMessages: false })
+    }
+  },
+  loadMessageProcess: async (messageId) => {
+    const sid = get().selectedSessionId
+    if (!sid) return
+    const message = get().messages.find((item) => item.id === messageId && item.session_id === sid)
+    if (!message || get().processByMessageId[messageId]?.loading || get().processByMessageId[messageId]?.loaded) return
+    set((state) => ({ processByMessageId: { ...state.processByMessageId, [messageId]: { blocks: state.processByMessageId[messageId]?.blocks || [], loading: true, loaded: false } } }))
+    try {
+      const items = await wsClient.request({ type: 'sessions.messageProcess', sessionId: sid, messageId }) as TurnProcessItemInfo[]
+      let turn = turnFromProcessItems(messageId, items)
+      if (!items.length && message.has_tool_calls) {
+        const events = await wsClient.request({ type: 'sessions.messageEvents', sessionId: sid, messageId }) as SessionEventData[]
+        turn = turnFromEvents(messageId, events)
+      }
+      if (sid !== get().selectedSessionId) return
+      set((state) => ({ messages: state.messages.map((item) => item.id === messageId ? { ...item, processBlocks: turn.processBlocks, finalAnswer: turn.finalAnswer || item.content, parsedToolCalls: turn.toolCalls } : item), processByMessageId: { ...state.processByMessageId, [messageId]: { blocks: turn.processBlocks, loading: false, loaded: true } } }))
+    } catch (error) {
+      set((state) => ({ processByMessageId: { ...state.processByMessageId, [messageId]: { blocks: state.processByMessageId[messageId]?.blocks || [], loading: false, loaded: false, error: error instanceof Error ? error.message : '执行过程加载失败' } } }))
+    }
+  },
+  loadFileChanges: async (messageId) => {
+    const sid = get().selectedSessionId
+    if (!sid || get().fileChangeDetailsByMessageId[messageId]) return
+    const key = `file:${messageId}`
+    set((state) => ({ fileChangeLoadingByKey: { ...state.fileChangeLoadingByKey, [key]: true } }))
+    try {
+      const detail = await wsClient.request({ type: 'sessions.messageFileChanges', sessionId: sid, messageId }) as FileChangeDetailInfo
+      if (sid !== get().selectedSessionId) return
+      set((state) => ({ fileChangeDetailsByMessageId: { ...state.fileChangeDetailsByMessageId, [messageId]: detail }, fileChangeLoadingByKey: { ...state.fileChangeLoadingByKey, [key]: false } }))
+    } catch (error) {
+      set((state) => ({ fileChangeLoadingByKey: { ...state.fileChangeLoadingByKey, [key]: false }, fileChangeErrorByKey: { ...state.fileChangeErrorByKey, [key]: error instanceof Error ? error.message : '文件变更加载失败' } }))
+    }
+  },
+  loadProcessItemDetail: async (messageId, itemId) => {
+    const sid = get().selectedSessionId
+    if (!sid) return
+    const key = `${messageId}:${itemId}`
+    if (get().toolCallDetailsByKey[key] || get().processItemLoadingByKey[key]) return
+    set((state) => ({ processItemLoadingByKey: { ...state.processItemLoadingByKey, [key]: true } }))
+    try {
+      const detail = await wsClient.request({ type: 'sessions.messageToolCallDetail', sessionId: sid, messageId, toolCallId: itemId }) as ToolCallDetailInfo
+      if (sid !== get().selectedSessionId) return
+      set((state) => ({ toolCallDetailsByKey: { ...state.toolCallDetailsByKey, [key]: detail }, processItemLoadingByKey: { ...state.processItemLoadingByKey, [key]: false } }))
+    } catch (error) {
+      set((state) => ({ processItemLoadingByKey: { ...state.processItemLoadingByKey, [key]: false }, processItemErrorByKey: { ...state.processItemErrorByKey, [key]: error instanceof Error ? error.message : '执行详情加载失败' } }))
+    }
+  },
+  setModel: async (modelId) => {
+    const sid = get().selectedSessionId
+    if (!sid) return
+    await wsClient.request({ type: 'session.setModel', sessionId: sid, modelId })
+    if (sid === get().selectedSessionId) set((state) => ({ capabilities: { ...state.capabilities, currentModelId: modelId } }))
+  },
+  setMode: async (modeId) => {
+    const sid = get().selectedSessionId
+    if (!sid) return
+    await wsClient.request({ type: 'session.setMode', sessionId: sid, modeId })
+    if (sid === get().selectedSessionId) set((state) => ({ capabilities: { ...state.capabilities, currentModeId: modeId } }))
+  },
+  setConfig: async (configId, value) => {
+    const sid = get().selectedSessionId
+    if (!sid) return
+    await wsClient.request({ type: 'session.setConfig', sessionId: sid, configId, value })
+    if (sid === get().selectedSessionId) set((state) => ({ capabilities: { ...state.capabilities, configOptions: state.capabilities.configOptions.map((option) => option.id === configId ? { ...option, currentValue: value } : option) } }))
   },
   cancel: async () => {
     const sid = get().selectedSessionId
@@ -245,5 +391,5 @@ export const useWorkbenchSessionStore = create<WorkbenchSessionState>((set, get)
       set((state) => ({ pendingElicitations: failure.expired ? state.pendingElicitations.filter((request) => request.id !== requestId) : state.pendingElicitations, interactionError: failure.message }))
     }
   },
-  dispose: () => { generation += 1; setSubscription(null); removeListeners?.(); set({ selectedSessionId: null, messages: [], events: [], streamingMessage: null, loading: false, error: null, running: false, sending: false, pendingPermissions: [], pendingElicitations: [], interactionError: null, usage: null, capabilities: { ...defaultCaps } }) },
+  dispose: () => { generation += 1; setSubscription(null); removeListeners?.(); set({ selectedSessionId: null, messages: [], events: [], streamingMessage: null, loading: false, error: null, running: false, sending: false, pendingPermissions: [], pendingElicitations: [], interactionError: null, usage: null, capabilities: { ...defaultCaps }, hasMoreMessages: false, loadingOlderMessages: false, processByMessageId: {}, fileChangeDetailsByMessageId: {}, fileChangeLoadingByKey: {}, fileChangeErrorByKey: {}, toolCallDetailsByKey: {}, processItemLoadingByKey: {}, processItemErrorByKey: {} }) },
 }))
