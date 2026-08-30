@@ -6,13 +6,16 @@ import { useConnectionStore } from '../stores/connection.store'
 import { useSessionDockStore } from '../stores/session-dock.store'
 import { useWorkbenchSessionStore } from '../stores/workbench-session.store'
 import type { WorkbenchSessionTarget } from './UpdatesSidebar'
+import type { FilesPresentationInfo, PreviewPresentationInfo } from '../stores/session-events'
 
 interface UpdatesConversationProps {
   target: WorkbenchSessionTarget | null
   onSelectTarget: (target: WorkbenchSessionTarget) => Promise<void>
+  onOpenPreview?: (preview: PreviewPresentationInfo) => void
+  onOpenFiles?: (presentation: FilesPresentationInfo) => void
 }
 
-export function UpdatesConversation({ target }: UpdatesConversationProps) {
+export function UpdatesConversation({ target, onOpenPreview, onOpenFiles }: UpdatesConversationProps) {
   const workbenchState = useWorkbenchSessionStore()
   const connected = useConnectionStore((state) => state.connected)
   useEffect(() => () => conversationDrafts.dispose(), [])
@@ -80,6 +83,8 @@ export function UpdatesConversation({ target }: UpdatesConversationProps) {
 
   const paneProps: ConversationPaneProps = {
     adapter,
+    onOpenPreview,
+    onOpenFiles,
     pinned,
     onTogglePin: pinPending ? undefined : () => { void togglePin() },
   }

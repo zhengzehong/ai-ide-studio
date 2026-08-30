@@ -9,7 +9,7 @@ import { buildChatRenderItems, type ChatRenderItem } from './render-items'
 import { ConversationProcessBlock } from './ConversationProcessBlock'
 import { AuthenticatedImage } from './AuthenticatedImage'
 import { fmtTokens } from '../../pages/workspace/helpers'
-import { formatCompactDuration } from '../../utils/duration'
+import { elapsedSecondsBetween, formatCompactDuration } from '../../utils/duration'
 import type { ChatTimelineGroup, MessageData } from '../../stores/session-events'
 import type { TurnProcessBlock } from '../../stores/turn-blocks'
 import type { ConversationAdapter, ConversationPaneProps } from './conversation-types'
@@ -127,7 +127,7 @@ function ConversationMessage({ message, adapter, onOpenPreview, onOpenFiles, onO
   const processBlocks = processState?.blocks ?? message.processBlocks ?? []
   const processCount = message.process_item_count ?? message.tool_call_count ?? (message.has_tool_calls ? 1 : 0)
   const presentations = message.parsedPresentations ?? []
-  const stats = parseTurnStats(message.decision_json)
+  const stats = parseTurnStats(message.decision_json, message.started_at, message.completed_at)
   return <MessageShell human={isHuman} agentName={adapter.agentName} timestamp={message.timestamp}>
     {message.parsedAttachments?.map((attachment, index) => <AuthenticatedImage key={`${message.id}-attachment-${index}`} image={attachment} alt={attachment.name || '附件'} style={{ maxWidth: 180, maxHeight: 140, borderRadius: 8, border: '1px solid var(--border)', objectFit: 'cover', marginBottom: 8 }} />)}
     <TurnContentView
@@ -190,8 +190,9 @@ interface TurnStats {
   elapsedSeconds?: number
 }
 
-function parseTurnStats(raw?: string | null): TurnStats | null {
-  if (!raw) return null
+function parseTurnStats(raw?: string | null, startedAt?: string | null, completedAt?: string | null): TurnStats | null {
+  const elapsedSecondsFromTimestamps = elapsedSecondsBetween(startedAt, completedAt)
+  if (!raw) return elapsedSecondsFromTimestamps == null ? null : { elapsedSeconds: elapsedSecondsFromTimestamps }
   try {
     const value = JSON.parse(raw) as unknown
     if (!value || typeof value !== 'object' || Array.isArray(value)) return null
@@ -201,7 +202,7 @@ function parseTurnStats(raw?: string | null): TurnStats | null {
       outputTokens: typeof stats.outputTokens === 'number' ? stats.outputTokens : undefined,
       cachedReadTokens: typeof stats.cachedReadTokens === 'number' ? stats.cachedReadTokens : undefined,
       costAmount: typeof stats.costAmount === 'number' ? stats.costAmount : undefined,
-      elapsedSeconds: typeof stats.elapsedSeconds === 'number' ? stats.elapsedSeconds : undefined,
+      elapsedSeconds: typeof stats.elapsedSeconds === 'number' ? stats.elapsedSeconds : elapsedSecondsFromTimestamps,
     }
   } catch { return null }
 }

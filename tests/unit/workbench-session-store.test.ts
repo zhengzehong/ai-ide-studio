@@ -188,6 +188,138 @@ describe('workbench session store', () => {
     expect(useWorkbenchSessionStore.getState().streamingMessage?.finalAnswer).toBe('甲乙')
   })
 
+  test('does not apply the persisted mirror of a realtime message update twice', async () => {
+    const { useWorkbenchSessionStore } = await import('../../ui/src/stores/workbench-session.store.js')
+    await useWorkbenchSessionStore.getState().select('session-a')
+    const updateHandler = on.mock.calls.find(([eventType]) => eventType === 'session:update')?.[1] as ((message: Record<string, unknown>) => void) | undefined
+    const eventHandler = on.mock.calls.find(([eventType]) => eventType === 'session:event')?.[1] as ((message: Record<string, unknown>) => void) | undefined
+    updateHandler?.({ sessionId: 'session-a', data: { messageId: 'message-live', role: 'agent', contentDelta: '甲' } })
+    eventHandler?.({
+      sessionId: 'session-a',
+      event: {
+        id: 'event-mirror', session_id: 'session-a', message_id: 'message-live', type: 'message.chunk',
+        payload_json: JSON.stringify({ messageId: 'message-live', role: 'agent', contentDelta: '甲' }), sequence: 2, created_at: '2026-08-29T00:01:00.000Z',
+      },
+    })
+    expect(useWorkbenchSessionStore.getState().streamingMessage?.finalAnswer).toBe('甲')
+  })
+
+  test('does not double apply when the persisted mirror arrives before the realtime update', async () => {
+    const { useWorkbenchSessionStore } = await import('../../ui/src/stores/workbench-session.store.js')
+    await useWorkbenchSessionStore.getState().select('session-a')
+    const eventHandler = on.mock.calls.find(([eventType]) => eventType === 'session:event')?.[1] as ((message: Record<string, unknown>) => void) | undefined
+    const updateHandler = on.mock.calls.find(([eventType]) => eventType === 'session:update')?.[1] as ((message: Record<string, unknown>) => void) | undefined
+    const event = {
+      id: 'event-mirror-first', session_id: 'session-a', message_id: 'message-live', type: 'message.chunk',
+      payload_json: JSON.stringify({ messageId: 'message-live', role: 'agent', contentDelta: 'first' }), sequence: 2, created_at: '2026-08-29T00:01:00.000Z',
+    }
+    eventHandler?.({ sessionId: 'session-a', event })
+    updateHandler?.({ sessionId: 'session-a', data: { messageId: 'message-live', role: 'agent', contentDelta: 'first' } })
+    expect(useWorkbenchSessionStore.getState().streamingMessage?.finalAnswer).toBe('first')
+  })
+
+  test('preserves consecutive identical event-only chunks', async () => {
+    const { useWorkbenchSessionStore } = await import('../../ui/src/stores/workbench-session.store.js')
+    await useWorkbenchSessionStore.getState().select('session-a')
+    const eventHandler = on.mock.calls.find(([eventType]) => eventType === 'session:event')?.[1] as ((message: Record<string, unknown>) => void) | undefined
+    const event = (id: string, sequence: number) => ({
+      sessionId: 'session-a',
+      event: {
+        id, session_id: 'session-a', message_id: 'message-live', type: 'message.chunk',
+        payload_json: JSON.stringify({ messageId: 'message-live', role: 'agent', contentDelta: 'same' }), sequence, created_at: '2026-08-29T00:01:00.000Z',
+      },
+    })
+    eventHandler?.(event('event-same-1', 2))
+    eventHandler?.(event('event-same-2', 3))
+    expect(useWorkbenchSessionStore.getState().streamingMessage?.finalAnswer).toBe('samesame')
+  })
+
+  test('deduplicates realtime thinking when the canonical process item arrives out of order', async () => {
+    const { useWorkbenchSessionStore } = await import('../../ui/src/stores/workbench-session.store.js')
+    await useWorkbenchSessionStore.getState().select('session-a')
+    const updateHandler = on.mock.calls.find(([eventType]) => eventType === 'session:update')?.[1] as ((message: Record<string, unknown>) => void) | undefined
+    const processHandler = on.mock.calls.find(([eventType]) => eventType === 'session:process_item')?.[1] as ((message: Record<string, unknown>) => void) | undefined
+    updateHandler?.({ sessionId: 'session-a', data: { messageId: 'message-live', role: 'agent', thinking: '检查中' } })
+    processHandler?.({
+      sessionId: 'session-a',
+      item: {
+        id: 'tpi-thinking-1', session_id: 'session-a', message_id: 'message-live', sequence: 1, kind: 'thinking', status: 'completed', title: '思考过程', summary: '检查中', preview: '检查中', content: '检查中', meta_json: null, detail_json: null, created_at: '', updated_at: '', has_detail: false,
+      },
+    })
+    expect(useWorkbenchSessionStore.getState().streamingMessage?.processBlocks.filter((block) => block.kind === 'thinking')).toHaveLength(1)
+  })
+
+  test('keeps a canonical thinking item single when it arrives before the realtime update', async () => {
+    const { useWorkbenchSessionStore } = await import('../../ui/src/stores/workbench-session.store.js')
+    await useWorkbenchSessionStore.getState().select('session-a')
+    const { wsClient } = await import('../../ui/src/services/ws-client.js')
+    const processHandler = wsClient.on.mock.calls.find(([eventType]) => eventType === 'session:process_item')?.[1] as ((message: Record<string, unknown>) => void) | undefined
+    const updateHandler = wsClient.on.mock.calls.find(([eventType]) => eventType === 'session:update')?.[1] as ((message: Record<string, unknown>) => void) | undefined
+    processHandler?.({
+      sessionId: 'session-a',
+      item: {
+        id: 'tpi-thinking-2', session_id: 'session-a', message_id: 'message-live', sequence: 1, kind: 'thinking', status: 'completed', title: 'thinking', summary: 'first', preview: 'first', content: 'first', meta_json: null, detail_json: null, created_at: '', updated_at: '', has_detail: false,
+      },
+    })
+    updateHandler?.({ sessionId: 'session-a', data: { messageId: 'message-live', role: 'agent', thinking: 'first' } })
+    expect(useWorkbenchSessionStore.getState().streamingMessage?.processBlocks.filter((block) => block.kind === 'thinking')).toHaveLength(1)
+  })
+
+  test('keeps a process item received while session selection is loading', async () => {
+    request.mockImplementationOnce(() => new Promise((resolve) => setTimeout(() => resolve({ items: [], hasMore: false, nextCursor: null }), 10)))
+    const { useWorkbenchSessionStore } = await import('../../ui/src/stores/workbench-session.store.js')
+    const selection = useWorkbenchSessionStore.getState().select('session-a')
+    const { wsClient } = await import('../../ui/src/services/ws-client.js')
+    const processHandler = wsClient.on.mock.calls.find(([eventType]) => eventType === 'session:process_item')?.[1] as ((message: Record<string, unknown>) => void) | undefined
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    processHandler?.({
+      sessionId: 'session-a',
+      item: {
+        id: 'tpi-loading-1', session_id: 'session-a', message_id: 'message-live', sequence: 1, kind: 'thinking', status: 'running', title: 'thinking', summary: 'loading', preview: 'loading', content: 'loading', meta_json: null, detail_json: null, created_at: '', updated_at: '', has_detail: false,
+      },
+    })
+    expect(useWorkbenchSessionStore.getState().streamingMessage?.processBlocks).toHaveLength(1)
+    await selection
+    expect(useWorkbenchSessionStore.getState().streamingMessage?.processBlocks).toHaveLength(1)
+  })
+
+  test('deduplicates a canonical tool item against either realtime delivery order', async () => {
+    const { useWorkbenchSessionStore } = await import('../../ui/src/stores/workbench-session.store.js')
+    await useWorkbenchSessionStore.getState().select('session-a')
+    const { wsClient } = await import('../../ui/src/services/ws-client.js')
+    const processHandler = wsClient.on.mock.calls.find(([eventType]) => eventType === 'session:process_item')?.[1] as ((message: Record<string, unknown>) => void) | undefined
+    const updateHandler = wsClient.on.mock.calls.find(([eventType]) => eventType === 'session:update')?.[1] as ((message: Record<string, unknown>) => void) | undefined
+    updateHandler?.({ sessionId: 'session-a', data: { messageId: 'message-live', role: 'agent', toolCall: { id: 'tool-live', title: '执行检查', status: 'in_progress' } } })
+    processHandler?.({
+      sessionId: 'session-a',
+      item: {
+        id: 'tpi-tool-1', session_id: 'session-a', message_id: 'message-live', sequence: 1, kind: 'tool', status: 'in_progress', title: '执行检查', summary: null, preview: null, content: null, meta_json: JSON.stringify({ toolCallId: 'tool-live' }), detail_json: null, created_at: '', updated_at: '', has_detail: false,
+      },
+    })
+    expect(useWorkbenchSessionStore.getState().streamingMessage?.processBlocks.filter((block) => block.kind === 'tool')).toHaveLength(1)
+  })
+
+  test('updates a loaded process snapshot when a later canonical item arrives', async () => {
+    const { useWorkbenchSessionStore } = await import('../../ui/src/stores/workbench-session.store.js')
+    await useWorkbenchSessionStore.getState().select('session-a')
+    useWorkbenchSessionStore.setState({
+      processByMessageId: {
+        'message-live': {
+          blocks: [], loading: false, loaded: true,
+        },
+      },
+    })
+    const { wsClient } = await import('../../ui/src/services/ws-client.js')
+    const processHandler = wsClient.on.mock.calls.find(([eventType]) => eventType === 'session:process_item')?.[1] as ((message: Record<string, unknown>) => void) | undefined
+    processHandler?.({
+      sessionId: 'session-a',
+      item: {
+        id: 'tpi-late-1', session_id: 'session-a', message_id: 'message-live', sequence: 1, kind: 'thinking', status: 'completed', title: 'thinking', summary: 'late', preview: 'late', content: 'late', meta_json: null, detail_json: null, created_at: '', updated_at: '', has_detail: false,
+      },
+    })
+    expect(useWorkbenchSessionStore.getState().processByMessageId['message-live']?.blocks).toHaveLength(1)
+  })
+
   test('loads process items when a selected session has a running agent message', async () => {
     request.mockResolvedValueOnce({ items: [{ id: 'running-message', session_id: 'session-a', role: 'agent', content: '处理中', thinking: null, tool_calls_json: '{}', decision_json: null, timestamp: '2026-08-30T00:00:00.000Z', status: 'running', process_item_count: 1, has_tool_calls: true }], hasMore: false, nextCursor: null })
     const { useWorkbenchSessionStore } = await import('../../ui/src/stores/workbench-session.store.js')
@@ -317,6 +449,43 @@ describe('workbench session store', () => {
     await useWorkbenchSessionStore.getState().select('session-b')
     await detailPromise
     expect(useWorkbenchSessionStore.getState().processItemLoadingByKey['message-tool:process-tool']).toBeUndefined()
+  })
+
+  test('does not write a stale process error into the newly selected session', async () => {
+    const { useWorkbenchSessionStore } = await import('../../ui/src/stores/workbench-session.store.js')
+    await useWorkbenchSessionStore.getState().select('session-a')
+    let rejectProcess: ((error: Error) => void) | undefined
+    wsRequest.mockImplementationOnce(() => new Promise((_, reject) => { rejectProcess = reject }))
+    const processPromise = useWorkbenchSessionStore.getState().loadMessageProcess('message-a')
+    await useWorkbenchSessionStore.getState().select('session-b')
+    rejectProcess?.(new Error('A 过程加载失败'))
+    await processPromise
+    expect(useWorkbenchSessionStore.getState().processByMessageId['message-a']).toBeUndefined()
+  })
+
+  test('does not write a stale file detail error into the newly selected session', async () => {
+    request.mockResolvedValueOnce({ items: [{ id: 'message-files', session_id: 'session-a', role: 'agent', content: 'done', thinking: null, tool_calls_json: null, decision_json: null, attachments_json: null, file_changes_json: null, timestamp: '2026-08-30T00:00:00.000Z', has_file_changes: true }], hasMore: false, nextCursor: null })
+    const { useWorkbenchSessionStore } = await import('../../ui/src/stores/workbench-session.store.js')
+    await useWorkbenchSessionStore.getState().select('session-a')
+    let rejectFiles: ((error: Error) => void) | undefined
+    wsRequest.mockImplementationOnce(() => new Promise((_, reject) => { rejectFiles = reject }))
+    const filesPromise = useWorkbenchSessionStore.getState().loadFileChanges('message-files')
+    await useWorkbenchSessionStore.getState().select('session-b')
+    rejectFiles?.(new Error('A 文件加载失败'))
+    await filesPromise
+    expect(useWorkbenchSessionStore.getState().fileChangeErrorByKey['file:message-files']).toBeUndefined()
+  })
+
+  test('does not write a stale process item detail error into the newly selected session', async () => {
+    const { useWorkbenchSessionStore } = await import('../../ui/src/stores/workbench-session.store.js')
+    await useWorkbenchSessionStore.getState().select('session-a')
+    let rejectDetail: ((error: Error) => void) | undefined
+    wsRequest.mockImplementationOnce(() => new Promise((_, reject) => { rejectDetail = reject }))
+    const detailPromise = useWorkbenchSessionStore.getState().loadProcessItemDetail('message-a', 'process-a')
+    await useWorkbenchSessionStore.getState().select('session-b')
+    rejectDetail?.(new Error('A 详情加载失败'))
+    await detailPromise
+    expect(useWorkbenchSessionStore.getState().processItemErrorByKey['message-a:process-a']).toBeUndefined()
   })
 
   test('uses process item detail RPC for a historical non-tool block', async () => {
