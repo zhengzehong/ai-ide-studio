@@ -18,3 +18,4 @@
 - Codex 行为不变。
 - 定向测试、全量测试、构建、Lint 通过。
 - 不涉及数据库迁移，不重启 PRD 服务。
+Addendum: WebSearch and WebFetch are also disabled. The Claude blacklist now contains eight tools.

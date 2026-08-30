@@ -57,6 +57,8 @@ describe('model profile runtime env', () => {
       'CronList',
       'ScheduleWakeup',
       'AskUserQuestion',
+      'WebSearch',
+      'WebFetch',
     ])
   })
 
@@ -428,6 +430,8 @@ describe('model profile runtime env', () => {
             'CronList',
             'ScheduleWakeup',
             'AskUserQuestion',
+            'WebSearch',
+            'WebFetch',
           ],
           settings: {
             autoCompactWindow: 200000,
@@ -462,6 +466,8 @@ describe('model profile runtime env', () => {
             'CronList',
             'ScheduleWakeup',
             'AskUserQuestion',
+            'WebSearch',
+            'WebFetch',
           ],
           settings: {
             permissions: {
@@ -488,6 +494,8 @@ describe('model profile runtime env', () => {
             'CronList',
             'ScheduleWakeup',
             'AskUserQuestion',
+            'WebSearch',
+            'WebFetch',
           ],
           settings: {
             permissions: {

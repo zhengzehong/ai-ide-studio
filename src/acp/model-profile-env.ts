@@ -103,6 +103,8 @@ const CLAUDE_DISABLED_BUILTIN_TOOLS = [
   'CronList',
   'ScheduleWakeup',
   'AskUserQuestion',
+  'WebSearch',
+  'WebFetch',
 ] as const
 
 export function buildAgentRuntimeEnv(

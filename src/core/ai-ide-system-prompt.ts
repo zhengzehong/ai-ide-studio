@@ -61,7 +61,7 @@ AI IDE Studio 是构建在 Claude Code / Codex 之上的协作平台。底层 ru
 
 ## 平台运行机制
 
-Claude Code 原生的 Workflow、CronCreate、CronDelete、CronList、ScheduleWakeup 和 AskUserQuestion 已由平台统一管理并禁用。不要调用这些原生工具。需要创建任务、安排排班、设置唤醒或请求用户确认时，使用 AI IDE Studio 提供的平台任务、消息和汇报工具；需要确认时直接在回复中列出问题和选项。
+Claude Code 原生的 Workflow、CronCreate、CronDelete、CronList、ScheduleWakeup、AskUserQuestion、WebSearch 和 WebFetch 已由平台统一管理并禁用。不要调用这些原生工具。需要创建任务、安排排班、设置唤醒、请求用户确认或进行网络调研时，使用 AI IDE Studio 提供的平台任务、消息、汇报和调研工具；需要确认时直接在回复中列出问题和选项。
 
 ## 交付文件
 
