@@ -86,14 +86,14 @@ describe('统一工作台 UI', () => {
     expect(html).not.toContain('统一工作台')
   })
 
-  test('动态里的置顶会话只出现一次并带 📌 角标', () => {
+  test('动态里的置顶会话只出现一次并带置顶图标', () => {
     const html = renderToStaticMarkup(createElement(UpdatesSidebar, {
       ...sidebarProps,
       activityGroups: [group],
       pinnedItems: [{ ...pinned, sessionId: 'session-1', sessionTitle: '统一工作台' }],
     }))
     expect(html.match(/>统一工作台</g)).toHaveLength(1)
-    expect(html).toContain('📌')
+    expect(html).toContain('wb-pin-mark')
   })
 
   test('动态签空态与置顶签空态各有出口', () => {
@@ -180,6 +180,22 @@ describe('统一工作台 UI', () => {
       expect(css).not.toContain('var(--primary)')
       expect(css).not.toContain('var(--text-4)')
     }
+  })
+
+  test('动态面板行样式与 Workspace 对齐', () => {
+    const css = readFileSync(new URL('../../ui/src/pages/updates/updates-sidebar.css', import.meta.url), 'utf8')
+    expect(css).toContain('width: 322px')
+    expect(css).toContain('min-width: 290px')
+    expect(css).toContain('height: 42px')
+    expect(css).toContain('border-bottom-color: var(--blue)')
+    expect(css).toContain('width: 28px; height: 28px')
+    expect(css).toContain('font-size: 14px; font-weight: 500')
+    expect(css).toContain('padding: 6px 8px')
+    expect(css).toContain('width: 6px; height: 6px')
+    expect(css).toContain('box-shadow: inset 2px 0 0 var(--blue)')
+    expect(css).not.toContain('border-radius: 16px')
+    expect(css).not.toContain('border-left: 1px solid var(--border)')
+    expect(css).not.toContain('wb-seg-n')
   })
 
   test('中栏与右栏 flex 均分(各 flex:1 1 0%,保证 1:1 不受侧栏挤占)', () => {
