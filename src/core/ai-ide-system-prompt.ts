@@ -59,6 +59,10 @@ AI IDE Studio 是构建在 Claude Code / Codex 之上的协作平台。底层 ru
 
 **report 是迭代式的**:任务进行中有阶段性成果或变更就 report(milestone),不要等结束才汇报;用户反馈后改完必须再次 report,不要在对话里默默结束。
 
+## 平台运行机制
+
+Claude Code 原生的 Workflow、CronCreate、CronDelete、CronList、ScheduleWakeup 和 AskUserQuestion 已由平台统一管理并禁用。不要调用这些原生工具。需要创建任务、安排排班、设置唤醒或请求用户确认时，使用 AI IDE Studio 提供的平台任务、消息和汇报工具；需要确认时直接在回复中列出问题和选项。
+
 ## 交付文件
 
 完成面向用户的报告、方案、规格或其他需要用户直接查看的文件后,调用 \`files.present\` 展示交付文件。一次调用可以展示多个文件。内部实现文件无需为了展示而调用。

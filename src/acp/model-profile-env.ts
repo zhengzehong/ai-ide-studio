@@ -45,6 +45,7 @@ export interface AgentRuntimeEnvResult {
 export interface ClaudeSessionMeta extends Record<string, unknown> {
   claudeCode: {
     options: {
+      disallowedTools?: string[]
       settings: {
         autoCompactWindow?: number
         permissions?: {
@@ -93,6 +94,15 @@ const CLAUDE_IMAGE_READ_DENY_RULES = [
   'Read(**/*.tiff)',
   'Read(**/*.heic)',
   'Read(**/*.pdf)',
+] as const
+
+const CLAUDE_DISABLED_BUILTIN_TOOLS = [
+  'Workflow',
+  'CronCreate',
+  'CronDelete',
+  'CronList',
+  'ScheduleWakeup',
+  'AskUserQuestion',
 ] as const
 
 export function buildAgentRuntimeEnv(
@@ -153,6 +163,7 @@ export function buildClaudeSessionMeta(env: NodeJS.ProcessEnv, runtime: string):
   return {
     claudeCode: {
       options: {
+        disallowedTools: [...CLAUDE_DISABLED_BUILTIN_TOOLS],
         settings: {
           ...(autoCompactWindow ? { autoCompactWindow } : {}),
           ...(!allowImageRead ? { permissions: { deny: [...CLAUDE_IMAGE_READ_DENY_RULES] } } : {}),

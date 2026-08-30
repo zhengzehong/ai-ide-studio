@@ -47,6 +47,19 @@ afterAll(() => {
 })
 
 describe('model profile runtime env', () => {
+  test('disables Claude native scheduling and interactive tools', () => {
+    const meta = buildClaudeSessionMeta({ ANTHROPIC_MODEL: 'glm5-prd' }, 'claude')
+
+    expect(meta?.claudeCode.options.disallowedTools).toEqual([
+      'Workflow',
+      'CronCreate',
+      'CronDelete',
+      'CronList',
+      'ScheduleWakeup',
+      'AskUserQuestion',
+    ])
+  })
+
   test('keeps existing runtime env when no model profile is bound', () => {
     const agent = agentStore.create({
       name: '默认 Claude',
@@ -408,6 +421,14 @@ describe('model profile runtime env', () => {
     expect(meta).toEqual({
       claudeCode: {
         options: {
+          disallowedTools: [
+            'Workflow',
+            'CronCreate',
+            'CronDelete',
+            'CronList',
+            'ScheduleWakeup',
+            'AskUserQuestion',
+          ],
           settings: {
             autoCompactWindow: 200000,
             permissions: {
@@ -434,6 +455,14 @@ describe('model profile runtime env', () => {
     expect(buildClaudeSessionMeta({ ANTHROPIC_MODEL: 'glm5-prd' }, 'claude')).toEqual({
       claudeCode: {
         options: {
+          disallowedTools: [
+            'Workflow',
+            'CronCreate',
+            'CronDelete',
+            'CronList',
+            'ScheduleWakeup',
+            'AskUserQuestion',
+          ],
           settings: {
             permissions: {
               deny: IMAGE_READ_DENY_RULES,
@@ -452,6 +481,14 @@ describe('model profile runtime env', () => {
     expect(buildClaudeSessionMeta({}, 'claude')).toEqual({
       claudeCode: {
         options: {
+          disallowedTools: [
+            'Workflow',
+            'CronCreate',
+            'CronDelete',
+            'CronList',
+            'ScheduleWakeup',
+            'AskUserQuestion',
+          ],
           settings: {
             permissions: {
               deny: IMAGE_READ_DENY_RULES,
