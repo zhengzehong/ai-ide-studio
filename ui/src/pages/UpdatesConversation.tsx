@@ -1,6 +1,8 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ConversationPane } from '../components/chat/ConversationPane'
 import type { ConversationPaneProps } from '../components/chat/conversation-types'
+import { conversationDrafts } from '../components/chat/conversation-drafts'
+import { useConnectionStore } from '../stores/connection.store'
 import { useSessionDockStore } from '../stores/session-dock.store'
 import { useWorkbenchSessionStore } from '../stores/workbench-session.store'
 import type { WorkbenchSessionTarget } from './UpdatesSidebar'
@@ -12,6 +14,8 @@ interface UpdatesConversationProps {
 
 export function UpdatesConversation({ target }: UpdatesConversationProps) {
   const workbenchState = useWorkbenchSessionStore()
+  const connected = useConnectionStore((state) => state.connected)
+  useEffect(() => () => conversationDrafts.dispose(), [])
   const selectedSessionId = workbenchState.selectedSessionId
   const selectSession = workbenchState.select
   const reloadSession = useCallback(async (): Promise<void> => {
@@ -29,6 +33,9 @@ export function UpdatesConversation({ target }: UpdatesConversationProps) {
     error: workbenchState.error,
     running: workbenchState.running,
     sending: workbenchState.sending,
+    stopping: workbenchState.stopping,
+    stopError: workbenchState.stopError,
+    connected,
     hasMoreMessages: workbenchState.hasMoreMessages,
     loadingOlderMessages: workbenchState.loadingOlderMessages,
     pendingPermissions: workbenchState.pendingPermissions,
@@ -55,7 +62,7 @@ export function UpdatesConversation({ target }: UpdatesConversationProps) {
     setConfig: workbenchState.setConfig,
     respondPermission: workbenchState.respondPermission,
     respondElicitation: workbenchState.respondElicitation,
-  }), [reloadSession, selectedSessionId, target, workbenchState])
+  }), [connected, reloadSession, selectedSessionId, target, workbenchState])
   const dockItems = useSessionDockStore((state) => state.items)
   const addToDock = useSessionDockStore((state) => state.add)
   const removeFromDock = useSessionDockStore((state) => state.remove)

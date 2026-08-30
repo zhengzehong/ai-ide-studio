@@ -42,6 +42,10 @@ export interface ConversationAdapter {
   error: string | null
   running: boolean
   sending: boolean
+  stopping?: boolean
+  stopError?: string | null
+  connected?: boolean
+  currentSessionCopying?: boolean
   hasMoreMessages: boolean
   loadingOlderMessages: boolean
   pendingPermissions: PermissionRequestInfo[]

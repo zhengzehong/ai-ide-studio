@@ -35,7 +35,7 @@ export function FileChangesCard({
   if (compact) {
     return (
       <div style={styles.compactRoot}>
-        <FileText size={14} style={{ color: 'var(--primary)', flexShrink: 0 }} />
+        <FileText size={14} style={{ color: 'var(--blue)', flexShrink: 0 }} />
         <span style={{ fontSize: 13, color: 'var(--text-2)' }}>{summary.label}</span>
         <ChangeStats changes={changes} />
       </div>
