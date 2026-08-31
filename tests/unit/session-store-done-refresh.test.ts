@@ -337,6 +337,48 @@ describe('session store done handling', () => {
     }
   })
 
+  test('does not refresh again when idle confirms the completed turn', async () => {
+    resetStore()
+    wsMock.request.mockReset()
+    wsMock.request.mockResolvedValue([])
+    const cleanup = useSessionStore.getState().setupListeners()
+
+    try {
+      emit('session:done', {
+        sessionId: 'sess-refresh',
+        agentId: 'agent-1',
+        messageId: 'done-sess-refresh',
+        turnId: 'turn-sess-refresh',
+        stopReason: 'end_turn',
+      })
+
+      await vi.waitFor(() => {
+        expect(wsMock.request.mock.calls.filter(([request]) => (
+          request as Record<string, unknown>
+        ).type === 'sessions.messages')).toHaveLength(1)
+      })
+      await vi.waitFor(() => {
+        expect(useSessionStore.getState().messagesLoadingSessionId).toBeNull()
+      })
+
+      emit('session:activity', {
+        sessionId: 'sess-refresh',
+        agentId: 'agent-1',
+        turnId: 'turn-sess-refresh',
+        state: 'idle',
+        reason: 'prompt-done',
+        timestamp: new Date().toISOString(),
+      })
+      await Promise.resolve()
+
+      expect(wsMock.request.mock.calls.filter(([request]) => (
+        request as Record<string, unknown>
+      ).type === 'sessions.messages')).toHaveLength(1)
+    } finally {
+      cleanup()
+    }
+  })
+
   test('does not download raw event history when persisted message history is empty', async () => {
     resetStore()
     wsMock.request.mockReset()
@@ -1245,6 +1287,39 @@ describe('session store done handling', () => {
       expect(useSessionStore.getState().runningSessionIds['sess-bg']).toBeUndefined()
       expect(useSessionStore.getState().unreadSessionIds['sess-bg']).toBe(true)
       expect(useSessionStore.getState().staleSessionIds['sess-bg']).toBe(true)
+    } finally {
+      cleanup()
+    }
+  })
+
+  test('does not refetch messages when idle follows the terminal done event', () => {
+    resetStore()
+    wsMock.request.mockReset()
+    let resolveMessages: ((value: unknown) => void) | undefined
+    wsMock.request.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveMessages = resolve
+    }))
+    const cleanup = useSessionStore.getState().setupListeners()
+
+    try {
+      emit('session:done', {
+        sessionId: 'sess-refresh',
+        agentId: 'agent-1',
+        messageId: 'done-sess-refresh',
+        stopReason: 'end_turn',
+      })
+      emit('session:activity', {
+        sessionId: 'sess-refresh',
+        agentId: 'agent-1',
+        state: 'idle',
+        reason: 'prompt-done',
+        timestamp: '2026-06-03T00:00:01.000Z',
+      })
+
+      expect(wsMock.request.mock.calls.filter(([request]) => (
+        request as Record<string, unknown>
+      ).type === 'sessions.messages')).toHaveLength(1)
+      resolveMessages?.([])
     } finally {
       cleanup()
     }

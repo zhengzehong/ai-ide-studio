@@ -2,8 +2,11 @@ import { describe, expect, test } from 'vitest'
 import type { TaskData } from '../../ui/src/stores/task.store.ts'
 import {
   appendWorkspaceTaskPage,
+  completeWorkspaceTaskPageLoad,
   createWorkspaceTaskPageState,
   patchWorkspaceTaskPages,
+  requestWorkspaceTaskRefresh,
+  shouldStartWorkspaceTaskPageLoad,
   workspaceTaskPageQuery,
 } from '../../ui/src/pages/workspace/task-collab/workspace-task-page-state.ts'
 
@@ -68,6 +71,30 @@ describe('workspace task page state', () => {
 
     expect(inserted.today.items.map((item) => item.id)).toEqual(['task-new'])
     expect(inserted.today.total).toBe(1)
+  })
+
+  test('does not restart a page request while the tab is already in flight', () => {
+    expect(shouldStartWorkspaceTaskPageLoad({
+      append: false,
+      inFlight: true,
+      hasMore: false,
+      nextCursor: null,
+    })).toBe(false)
+
+    expect(shouldStartWorkspaceTaskPageLoad({
+      append: false,
+      inFlight: false,
+      hasMore: false,
+      nextCursor: null,
+    })).toBe(true)
+  })
+
+  test('queues a recovery refresh and starts it after the current request completes', () => {
+    const queued = requestWorkspaceTaskRefresh({ inFlight: true, pending: false })
+    expect(queued).toEqual({ pending: true, shouldStart: false })
+
+    const trailing = completeWorkspaceTaskPageLoad({ pending: queued.pending })
+    expect(trailing).toEqual({ pending: false, shouldStart: true })
   })
 })
 

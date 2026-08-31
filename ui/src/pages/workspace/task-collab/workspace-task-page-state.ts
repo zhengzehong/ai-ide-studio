@@ -132,6 +132,39 @@ export function setWorkspaceTaskPageError(
   return { ...current, loading: false, error }
 }
 
+export function shouldStartWorkspaceTaskPageLoad(input: {
+  append: boolean
+  inFlight: boolean
+  hasMore: boolean
+  nextCursor: string | null
+}): boolean {
+  if (input.inFlight) return false
+  if (!input.append) return true
+  return input.hasMore && Boolean(input.nextCursor)
+}
+
+export interface WorkspaceTaskRefreshTransition {
+  pending: boolean
+  shouldStart: boolean
+}
+
+export function requestWorkspaceTaskRefresh(input: {
+  inFlight: boolean
+  pending: boolean
+}): WorkspaceTaskRefreshTransition {
+  return input.inFlight
+    ? { pending: true, shouldStart: false }
+    : { pending: false, shouldStart: true }
+}
+
+export function completeWorkspaceTaskPageLoad(input: {
+  pending: boolean
+}): WorkspaceTaskRefreshTransition {
+  return input.pending
+    ? { pending: false, shouldStart: true }
+    : { pending: false, shouldStart: false }
+}
+
 function matchesWorkspacePage(
   task: TaskData,
   tab: TaskTimeTab,

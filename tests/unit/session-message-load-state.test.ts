@@ -46,4 +46,44 @@ describe('session message load state', () => {
 
     expect(useSessionStore.getState().messagesErrorBySession['session-a']).toBeUndefined()
   })
+
+  test('reuses an in-flight message request for the same session', async () => {
+    let resolveRequest: ((value: unknown) => void) | undefined
+    wsMock.request.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveRequest = resolve
+    }))
+
+    const first = useSessionStore.getState().fetchMessages('session-a')
+    const second = useSessionStore.getState().fetchMessages('session-a')
+
+    expect(wsMock.request).toHaveBeenCalledTimes(1)
+    expect(useSessionStore.getState().messagesLoadingSessionId).toBe('session-a')
+
+    resolveRequest?.([])
+    await Promise.all([first, second])
+
+    expect(useSessionStore.getState().messagesLoadingSessionId).toBeNull()
+  })
+
+  test('runs a trailing recovery refresh when it arrives during an in-flight request', async () => {
+    const resolvers: Array<(value: unknown[]) => void> = []
+    wsMock.request.mockImplementation(() => new Promise((resolve) => {
+      resolvers.push(resolve)
+    }))
+
+    const first = useSessionStore.getState().fetchMessages('session-a')
+    const recovery = useSessionStore.getState().fetchMessages(
+      'session-a',
+      undefined,
+      { queueIfInFlight: true },
+    )
+
+    expect(wsMock.request).toHaveBeenCalledTimes(1)
+    resolvers[0]?.([])
+    await vi.waitFor(() => expect(wsMock.request).toHaveBeenCalledTimes(2))
+
+    resolvers[1]?.([])
+    await Promise.all([first, recovery])
+    expect(useSessionStore.getState().messagesLoadingSessionId).toBeNull()
+  })
 })
