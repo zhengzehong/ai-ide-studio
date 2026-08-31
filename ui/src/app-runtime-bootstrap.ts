@@ -79,7 +79,7 @@ export async function recoverRealtimeGap(message: Record<string, unknown>): Prom
 async function recoverCurrentSession(sessionId: string): Promise<void> {
   const sessionStore = useSessionStore.getState()
   await Promise.allSettled([
-    sessionStore.fetchMessages(sessionId),
+    sessionStore.fetchMessages(sessionId, undefined, { queueIfInFlight: true }),
     sessionStore.fetchRecovery(sessionId),
   ])
 }

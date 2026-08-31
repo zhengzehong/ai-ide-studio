@@ -219,6 +219,10 @@ interface SessionSelectionRequest {
   generation: number
 }
 
+export interface SessionMessageFetchOptions {
+  queueIfInFlight?: boolean
+}
+
 interface SessionStore {
   sessions: SessionData[]
   currentSessionId: string | null
@@ -267,7 +271,11 @@ interface SessionStore {
   ) => Promise<void>
   invalidateProject: (projectId?: string | null) => void
   clearProjectCache: (projectId: string) => void
-  fetchMessages: (sessionId: string, selection?: SessionSelectionRequest) => Promise<void>
+  fetchMessages: (
+    sessionId: string,
+    selection?: SessionSelectionRequest,
+    options?: SessionMessageFetchOptions,
+  ) => Promise<void>
   loadOlderMessages: (sessionId: string) => Promise<void>
   fetchEvents: (sessionId: string) => Promise<void>
   fetchRecovery: (sessionId: string, selection?: SessionSelectionRequest) => Promise<void>
@@ -319,6 +327,8 @@ let promptStartTime = 0
 let lastStreamingSnapshot: StreamingMessage | null = null
 let activeSessionsProjectId: string | null = null
 const sessionListFetches = new Map<string, Promise<void>>()
+const sessionMessageFetches = new Map<string, Promise<void>>()
+const sessionMessageRefreshPending = new Set<string>()
 const sessionCancelCoordinator = createSessionCancelCoordinator((command) => commandClient.execute(command))
 const sessionCaches = new Map<string, SessionCache>()
 const cacheSaveTimers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -330,6 +340,7 @@ const sessionReadFence = createSessionReadFence()
 // Keep explicit unread intent authoritative until the user leaves or re-enters the Session.
 const explicitUnreadSessionIds = new Set<string>()
 const suppressedAutomaticReadSessionIds = new Set<string>()
+const completedTurnIdsBySession = new Map<string, string | null>()
 let sessionSelectionController: AbortController | null = null
 let sessionSelectionGeneration = 0
 
@@ -1146,7 +1157,16 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     }))
   },
 
-  fetchMessages: async (sessionId, selection) => {
+  fetchMessages: (sessionId, selection, options) => {
+    if (!selection) {
+      const existing = sessionMessageFetches.get(sessionId)
+      if (existing) {
+        if (options?.queueIfInFlight) sessionMessageRefreshPending.add(sessionId)
+        return existing
+      }
+    }
+
+    const request = (async (): Promise<void> => {
     if (sessionId === get().currentSessionId) {
       set((state) => ({
         messagesLoadingSessionId: sessionId,
@@ -1231,6 +1251,24 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         },
       }))
     }
+    })()
+
+    if (!selection) {
+      sessionMessageFetches.set(sessionId, request)
+      void request.then(
+        () => {
+          if (sessionMessageFetches.get(sessionId) !== request) return
+          sessionMessageFetches.delete(sessionId)
+          if (sessionMessageRefreshPending.delete(sessionId)) void get().fetchMessages(sessionId)
+        },
+        () => {
+          if (sessionMessageFetches.get(sessionId) !== request) return
+          sessionMessageFetches.delete(sessionId)
+          if (sessionMessageRefreshPending.delete(sessionId)) void get().fetchMessages(sessionId)
+        },
+      )
+    }
+    return request
   },
 
   loadOlderMessages: async (sessionId) => {
@@ -2467,6 +2505,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     offs.push(
       wsClient.on('session:done', (msg) => {
         const sid = msg.sessionId as string
+        const completedTurnId = typeof msg.turnId === 'string' ? msg.turnId : null
+        completedTurnIdsBySession.set(sid, completedTurnId)
         const isCurrent = sid === get().currentSessionId
         const explicitUnread = explicitUnreadSessionIds.has(sid)
         if (isCurrent && isDocumentVisible() && explicitUnread) {
@@ -2617,6 +2657,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         const data = msg.data as Partial<SessionData> & { event?: string; deleted?: boolean }
         if (data.deleted || data.event === 'deleted') {
           sessionCaches.delete(sessionId)
+          completedTurnIdsBySession.delete(sessionId)
+          sessionMessageRefreshPending.delete(sessionId)
           clearCapabilityAuthority(sessionId)
           sessionActivityFence.remove(sessionId)
           sessionReadFence.remove(sessionId)
@@ -2741,6 +2783,17 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         const sessionId = typeof msg.sessionId === 'string' ? msg.sessionId : ''
         if (!sessionId) return
         const state = msg.state === 'running' ? 'running' : 'idle'
+        const activityTurnId = typeof msg.turnId === 'string' ? msg.turnId : undefined
+        if (state === 'running') {
+          const completedTurnId = completedTurnIdsBySession.get(sessionId)
+          if (activityTurnId !== completedTurnId) {
+            completedTurnIdsBySession.delete(sessionId)
+          }
+        }
+        const isCompletedTurnIdle = state === 'idle'
+          && completedTurnIdsBySession.has(sessionId)
+          && (activityTurnId === undefined || completedTurnIdsBySession.get(sessionId) === activityTurnId)
+        if (isCompletedTurnIdle) completedTurnIdsBySession.delete(sessionId)
         sessionActivityFence.record(sessionId, state)
         if (state === 'idle') {
           clearCachedStreaming(sessionId)
@@ -2767,7 +2820,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             : st.stopErrorsBySession,
           streamingMessage: state === 'idle' && st.currentSessionId === sessionId ? null : st.streamingMessage,
         }))
-        if (state === 'idle' && isCurrent) {
+        if (state === 'idle' && isCurrent && !isCompletedTurnIdle) {
           void get().fetchMessages(sessionId)
         }
       }),

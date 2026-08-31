@@ -85,7 +85,7 @@ describe('application realtime recovery', () => {
     resolveProjectRefresh?.()
     await recovering
 
-    expect(fetchMessages).toHaveBeenCalledWith('session-a')
+    expect(fetchMessages).toHaveBeenCalledWith('session-a', undefined, { queueIfInFlight: true })
     expect(fetchRecovery).toHaveBeenCalledWith('session-a')
   })
 
@@ -135,7 +135,7 @@ describe('application realtime recovery', () => {
     const recovering = recoverRealtimeGap({ sessionId: 'session-a' })
     await Promise.resolve()
 
-    expect(fetchMessages).toHaveBeenCalledWith('session-a')
+    expect(fetchMessages).toHaveBeenCalledWith('session-a', undefined, { queueIfInFlight: true })
     expect(fetchRecovery).toHaveBeenCalledWith('session-a')
     expect(projectScopeMocks.refreshProjectData).not.toHaveBeenCalled()
 
@@ -158,7 +158,7 @@ describe('application realtime recovery', () => {
     await Promise.resolve()
 
     expect(acknowledgeResync).toHaveBeenCalledWith('session-a')
-    expect(fetchMessages).toHaveBeenCalledWith('session-a')
+    expect(fetchMessages).toHaveBeenCalledWith('session-a', undefined, { queueIfInFlight: true })
 
     resolveMessages?.()
     await recovering
