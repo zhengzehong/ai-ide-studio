@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Pin, RefreshCw } from 'lucide-react'
+import { Folder, Pin, RefreshCw } from 'lucide-react'
 import type { WidgetAgentProjectActivityGroup } from '../stores/widget.store'
 import type { SessionDockItem } from '../stores/session-dock.store'
 import { ICON_MAP } from '../components/agent-square/constants'
@@ -196,10 +196,11 @@ function GroupedRows({
         }
         return (
           <section key={key} className="wb-proj">
-            <div className="wb-proj-head" style={{ borderLeftColor: band }}>
-              <span className="wb-proj-dot" style={{ background: band }} />
+            <div className="wb-proj-head" data-group-kind="project" aria-label={`项目：${head.projectName}`} style={{ borderLeftColor: band }}>
+              <Folder size={14} className="wb-proj-icon" style={{ color: band }} aria-hidden="true" />
+              <span className="wb-proj-label">项目</span>
               <span className="wb-proj-name">{head.projectName}</span>
-              <span className="wb-proj-count">{projectRows.length} 条</span>
+              <span className="wb-proj-count">{projectRows.length} 个会话</span>
             </div>
             {[...agents.entries()].map(([agentId, agentRows]) => {
               const ordered = [...agentRows].sort((left, right) => Number(right.pinned) - Number(left.pinned))

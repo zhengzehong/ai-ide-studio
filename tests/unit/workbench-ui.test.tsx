@@ -228,4 +228,14 @@ describe('统一工作台 UI', () => {
     expect(source).not.toMatch(/useWorkbenchSessionStore\(\(state\) => \(\{/)
     expect(source).toContain('const adapter = useMemo<ConversationPaneProps[\'adapter\']>')
   })
+
+  test('labels the project group separately from the Agent and reports Session count', () => {
+    const html = renderToStaticMarkup(createElement(UpdatesSidebar, {
+      ...sidebarProps,
+      activityGroups: [group],
+      pinnedItems: [],
+    }))
+    expect(html).toContain('data-group-kind="project"')
+    expect(html).toContain('1 个会话')
+  })
 })

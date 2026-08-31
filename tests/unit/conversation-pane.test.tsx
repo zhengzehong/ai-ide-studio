@@ -127,4 +127,37 @@ describe('shared conversation pane', () => {
     expect(css).not.toContain('var(--primary)')
     expect(css).not.toContain('var(--text-4)')
   })
+
+  test('shows one generating status for an empty streaming turn', () => {
+    const html = renderToStaticMarkup(createElement(ConversationPane, {
+      adapter: adapter({
+        streamingMessage: { id: 'stream-1', role: 'agent', processBlocks: [], finalAnswer: '', content: '', thinking: '', toolCalls: [], done: false },
+      }),
+    }))
+    expect(html).not.toContain('正在处理...')
+    expect((html.match(/conversation-streaming-label/g) || []).length).toBe(1)
+  })
+
+  test('uses the streaming stage in the single generating status', () => {
+    const html = renderToStaticMarkup(createElement(ConversationPane, {
+      adapter: adapter({
+        streamingMessage: { id: 'stream-2', role: 'agent', processBlocks: [], finalAnswer: '', content: '', thinking: '', toolCalls: [], done: false, stage: '执行工具' },
+      }),
+    }))
+    expect(html).toContain('执行工具')
+    expect(html).not.toContain('生成中')
+  })
+
+  test('does not render an empty bubble when the streaming turn only has a stage block', () => {
+    const html = renderToStaticMarkup(createElement(ConversationPane, {
+      adapter: adapter({
+        streamingMessage: {
+          id: 'stream-3', role: 'agent', finalAnswer: '', content: '', thinking: '', toolCalls: [], done: false,
+          stage: '执行工具', processBlocks: [{ id: 'stage-1', kind: 'stage', text: '执行工具' }],
+        },
+      }),
+    }))
+    expect(html).not.toContain('conversation-bubble')
+    expect((html.match(/conversation-streaming-label/g) || []).length).toBe(1)
+  })
 })

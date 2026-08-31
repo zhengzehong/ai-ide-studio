@@ -36,6 +36,7 @@ export function ConversationMessageList({ adapter, onOpenPreview, onOpenFiles, o
     timestamp: new Date().toISOString(),
     processBlocks: streaming.processBlocks,
     finalAnswer: streaming.finalAnswer,
+    stage: streaming.stage,
     processDefaultOpen: true,
   } : null, [adapter.sessionId, streaming])
   const renderItems = useMemo<ChatRenderItem<MessageData>[]>(() => buildChatRenderItems({
@@ -158,11 +159,13 @@ function ConversationMessage({ message, adapter, onOpenPreview, onOpenFiles, onO
 
 function StreamingMessage({ message, adapter, onOpenPreview, onOpenFiles, onOpenResource }: { message: MessageData; adapter: ConversationAdapter; onOpenPreview?: ConversationPaneProps['onOpenPreview']; onOpenFiles?: ConversationPaneProps['onOpenFiles']; onOpenResource?: ConversationPaneProps['onOpenResource'] }) {
   const processBlocks = message.processBlocks || []
-  return <MessageShell agentName={adapter.agentName} streaming><TurnContentView processBlocks={processBlocks} finalAnswer={message.finalAnswer || message.content || '正在处理...'} isStreaming processCount={message.process_item_count ?? processBlocks.length} defaultProcessOpen onOpenResource={onOpenResource} renderProcessBlock={(block) => <ProcessBlock block={block} adapter={adapter} messageId={message.id} onOpenPreview={onOpenPreview} onOpenFiles={onOpenFiles} />} /><span className="conversation-streaming-label"><Loader2 size={11} /> 生成中</span></MessageShell>
+  const finalAnswer = message.finalAnswer || message.content || ''
+  const hasBody = processBlocks.some((block) => block.kind !== 'stage') || !!finalAnswer
+  return <MessageShell agentName={adapter.agentName} streaming streamingLabel={message.stage || '生成中'} showBubble={hasBody}><TurnContentView processBlocks={processBlocks} finalAnswer={finalAnswer} isStreaming processCount={message.process_item_count ?? processBlocks.length} defaultProcessOpen onOpenResource={onOpenResource} renderProcessBlock={(block) => <ProcessBlock block={block} adapter={adapter} messageId={message.id} onOpenPreview={onOpenPreview} onOpenFiles={onOpenFiles} />} /></MessageShell>
 }
 
-function MessageShell({ children, human = false, agentName, timestamp, streaming = false }: { children: React.ReactNode; human?: boolean; agentName?: string | null; timestamp?: string; streaming?: boolean }) {
-  return <div className={`conversation-message${human ? ' is-human' : ''}`}><div className="conversation-avatar">{human ? <User size={14} /> : <Bot size={14} />}</div><div className="conversation-message-body"><div className="conversation-message-meta"><strong>{human ? '你' : agentName || 'Agent'}</strong>{timestamp && <time>{formatTime(timestamp)}</time>}{streaming && <span className="conversation-streaming-label"><Loader2 size={11} /> 生成中</span>}</div><div className="conversation-bubble">{children}</div></div></div>
+function MessageShell({ children, human = false, agentName, timestamp, streaming = false, streamingLabel = '生成中', showBubble = true }: { children: React.ReactNode; human?: boolean; agentName?: string | null; timestamp?: string; streaming?: boolean; streamingLabel?: string; showBubble?: boolean }) {
+  return <div className={`conversation-message${human ? ' is-human' : ''}`}><div className="conversation-avatar">{human ? <User size={14} /> : <Bot size={14} />}</div><div className="conversation-message-body"><div className="conversation-message-meta"><strong>{human ? '你' : agentName || 'Agent'}</strong>{timestamp && <time>{formatTime(timestamp)}</time>}{streaming && <span className="conversation-streaming-label"><Loader2 size={11} /> {streamingLabel}</span>}</div>{showBubble && <div className="conversation-bubble">{children}</div>}</div></div>
 }
 
 function ProcessBlock({ block, adapter, messageId, onOpenPreview, onOpenFiles }: { block: TurnProcessBlock; adapter: ConversationAdapter; messageId: string; onOpenPreview?: ConversationPaneProps['onOpenPreview']; onOpenFiles?: ConversationPaneProps['onOpenFiles'] }) {
