@@ -3,7 +3,7 @@ import { projectInspirationStore } from '../store/project-inspirations.js'
 import { sessionStore } from '../store/sessions.js'
 import type { TaskRow } from '../store/tasks.js'
 import { taskStepManager } from './task-steps.js'
-import { taskManager } from './tasks.js'
+import { resolveTaskSession, taskManager, type AgentSessionMode } from './tasks.js'
 
 export interface InspirationTaskTargetInput {
   agentId?: string
@@ -30,7 +30,7 @@ export function resolveInspirationTaskTarget(
   projectId: string,
   candidate: { suggested_agent_id: string | null },
   input: InspirationTaskTargetInput,
-): { agentId: string; sessionId?: string } {
+): { agentId: string; sessionId?: string; sessionMode?: AgentSessionMode } {
   if (input.sessionMode === 'existing' && !input.sessionId) {
     throw new Error('选择已有会话时必须选择执行会话')
   }
@@ -47,7 +47,11 @@ export function resolveInspirationTaskTarget(
     ? undefined
     : input.sessionId ?? (agentId === config.task_default_agent_id ? config.task_default_session_id ?? undefined : undefined)
   validateInspirationTaskTarget(projectId, agentId, sessionId)
-  return { agentId, ...(sessionId ? { sessionId } : {}) }
+  return {
+    agentId,
+    ...(sessionId ? { sessionId } : {}),
+    ...(input.sessionMode ? { sessionMode: input.sessionMode } : {}),
+  }
 }
 
 export async function createInspirationDraftTask(
@@ -56,9 +60,19 @@ export async function createInspirationDraftTask(
   projectId: string,
   agentId: string,
   sessionId?: string,
+  sessionMode?: AgentSessionMode,
 ): Promise<TaskRow> {
   const task = await taskManager.createTask({ title, description, projectId, source: 'inspiration' })
-  taskStepManager.addStep({ taskId: task.id, title, description, assignee: agentId, sessionId })
+  const resolvedSession = sessionMode
+    ? await resolveTaskSession({ agentId, projectId, taskId: task.id, sessionId, sessionMode })
+    : null
+  taskStepManager.addStep({
+    taskId: task.id,
+    title,
+    description,
+    assignee: agentId,
+    sessionId: resolvedSession?.id ?? sessionId,
+  })
   return task
 }
 

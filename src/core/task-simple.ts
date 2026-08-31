@@ -1,7 +1,14 @@
 import { events } from './events.js'
 import { createChildLogger } from './logger.js'
 import { taskStepManager } from './task-steps.js'
-import { emitTaskLifecycleEvent, validateTaskAssignment } from './tasks.js'
+import {
+  emitTaskLifecycleEvent,
+  resolveSessionMode,
+  resolveTaskSession,
+  validateSessionModeTarget,
+  validateTaskAssignment,
+  type AgentSessionMode,
+} from './tasks.js'
 import { taskStore, type TaskRow } from '../store/tasks.js'
 import { taskStepStore } from '../store/task-steps.js'
 import { sessionManager } from './sessions.js'
@@ -18,6 +25,7 @@ export interface CreateSimpleTaskInput {
   currentSessionId?: string
   projectId?: string
   source?: string
+  sessionMode?: AgentSessionMode
 }
 
 export interface CreateSimpleTaskResult {
@@ -34,11 +42,23 @@ export async function createSimpleTask(input: CreateSimpleTaskInput): Promise<Cr
   const selfExecute = input.selfExecute === true
   const assignee = selfExecute ? input.currentAgentId?.trim() : input.assignee?.trim()
   const sessionId = selfExecute ? input.currentSessionId?.trim() : input.sessionId
+  const sessionMode = !selfExecute && input.sessionMode
+    ? resolveSessionMode(input.sessionMode, sessionId)
+    : undefined
   if (selfExecute && !input.currentAgentId?.trim()) throw new Error('selfExecute=true 需要当前 Agent')
   if (selfExecute && !input.currentSessionId?.trim()) throw new Error('selfExecute=true 需要当前会话')
   if (!assignee) throw new Error('assignee 不能为空')
 
-  validateTaskAssignment(assignee, input.projectId, sessionId)
+  if (sessionMode) {
+    validateSessionModeTarget(sessionMode, sessionId)
+    validateTaskAssignment(
+      assignee,
+      input.projectId,
+      sessionMode === 'existing' || (sessionMode === 'new_fixed' && sessionId) ? sessionId : undefined,
+    )
+  } else {
+    validateTaskAssignment(assignee, input.projectId, sessionId)
+  }
 
   const task = taskStore.create({
     title,
@@ -51,12 +71,23 @@ export async function createSimpleTask(input: CreateSimpleTaskInput): Promise<Cr
   events.emit('task:update', { taskId: task.id, data: { ...task, event: 'created' } })
   emitTaskLifecycleEvent(task, 'created', null)
 
+  const resolvedSession = sessionMode
+    ? await resolveTaskSession({
+      agentId: assignee,
+      projectId: input.projectId,
+      taskId: task.id,
+      sessionId,
+      sessionMode,
+    })
+    : null
+  const effectiveSessionId = resolvedSession?.id ?? sessionId
+
   const { step } = taskStepManager.addStep({
     taskId: task.id,
     title,
     description,
     assignee,
-    sessionId,
+    sessionId: effectiveSessionId,
   })
 
   if (selfExecute) {
