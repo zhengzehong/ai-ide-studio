@@ -29,3 +29,6 @@ export const PinnedSessions = lazy(() => import('../pages/PinnedSessions').then(
 export const UpdatesPage = lazy(() => import('../pages/UpdatesPage').then((module) => ({
   default: module.UpdatesPage,
 })))
+export const ReadingPage = lazy(() => import('../pages/reading/ReadingPage').then((module) => ({
+  default: module.ReadingPage,
+})))

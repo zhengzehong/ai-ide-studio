@@ -479,12 +479,12 @@ export default function ChatPage() {
   )
 }
 
-export type ChatReturnPath = '/activity' | '/?view=pinned' | '/pinned' | '/secretary' | '/'
+export type ChatReturnPath = '/activity' | '/?view=pinned' | '/pinned' | '/secretary' | '/reading' | '/'
 
 export function resolveChatReturnTo(value: unknown): ChatReturnPath {
   if (!value || typeof value !== 'object') return '/'
   const returnTo = (value as { returnTo?: unknown }).returnTo
-  return returnTo === '/activity' || returnTo === '/?view=pinned' || returnTo === '/pinned' || returnTo === '/secretary'
+  return returnTo === '/activity' || returnTo === '/?view=pinned' || returnTo === '/pinned' || returnTo === '/secretary' || returnTo === '/reading'
     ? returnTo
     : '/'
 }

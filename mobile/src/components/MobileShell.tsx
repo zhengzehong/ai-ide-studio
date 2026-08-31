@@ -1,13 +1,15 @@
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { Activity, Lightbulb, MessageSquare, Settings } from 'lucide-react'
-import type { CSSProperties } from 'react'
+import { Activity, BookOpen, Lightbulb, MessageSquare, Settings } from 'lucide-react'
+import { useEffect, type CSSProperties } from 'react'
 import { useConnectionStore } from '../stores/connection.store'
 import { useMobileActivityStore } from '../stores/activity.store'
+import { useReadingStore } from '@desktop/stores/reading.store'
 
 // 灵感替换任务 tab;任务列表保留轻入口(灵感页右上角图标)
 const tabs = [
   { path: '/activity', label: '动态', icon: Activity },
   { path: '/', label: '会话', icon: MessageSquare },
+  { path: '/reading', label: '阅读', icon: BookOpen },
   { path: '/inspiration', label: '灵感', icon: Lightbulb },
   { path: '/settings', label: '设置', icon: Settings },
 ] as const
@@ -20,8 +22,18 @@ export default function MobileShell() {
   const unreadCount = useMobileActivityStore((state) => (
     state.groups.reduce((total, group) => total + group.sessions.filter((session) => session.unread).length, 0)
   ))
+  const readingUnreadCount = useReadingStore((state) => state.unreadCount)
+  const refreshReadingUnreadCount = useReadingStore((state) => state.refreshUnreadCount)
   // 灵感页自带停靠工具条(与 tab 栏融合),去掉 tab 栏上边框避免双线
   const hasDockedBar = location.pathname.startsWith('/inspiration')
+
+  useEffect(() => {
+    const refreshReadingOnForeground = (): void => {
+      if (document.visibilityState === 'visible') void refreshReadingUnreadCount()
+    }
+    document.addEventListener('visibilitychange', refreshReadingOnForeground)
+    return () => document.removeEventListener('visibilitychange', refreshReadingOnForeground)
+  }, [refreshReadingUnreadCount])
 
   return (
     <div style={styles.container}>
@@ -45,6 +57,9 @@ export default function MobileShell() {
                 {tab.label}
                 {tab.path === '/activity' && unreadCount > 0 && (
                   <span style={styles.activityBadge} aria-label={`${unreadCount} 条未读`}>{unreadCount > 9 ? '9+' : unreadCount}</span>
+                )}
+                {tab.path === '/reading' && readingUnreadCount > 0 && (
+                  <span style={styles.activityBadge} aria-label={`${readingUnreadCount} 篇未读`}>{readingUnreadCount > 9 ? '9+' : readingUnreadCount}</span>
                 )}
               </span>
             </button>

@@ -65,6 +65,25 @@
   line-height: 1;
 }
 
+.sidebar-reading-badge {
+  position: absolute;
+  top: 4px;
+  right: 3px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--bg-0);
+  border-radius: 8px;
+  background: var(--blue);
+  color: #fff;
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 1;
+}
+
 .sidebar-link:hover {
   color: var(--text-1);
   background: var(--bg-2);

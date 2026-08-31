@@ -14,6 +14,28 @@
 
 ## 实体关系
 
+### reading_items
+
+`reading_items` 是 PC 与 APP 共用的全局阅读清单，只保存来源和状态，不保存正文快照。项目、Session 或 Agent 删除后对应外键置空，阅读条目仍保留为未归类内容。
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| id | TEXT PK | `read-` 前缀的阅读条目 ID |
+| project_id | TEXT | 来源项目；为空表示未归类 |
+| session_id | TEXT | 来源会话，用于跳回讨论上下文 |
+| agent_id | TEXT | 创建条目的 Agent |
+| title | TEXT | 列表标题 |
+| summary | TEXT | 服务端从本地文件头部或 URL 主机名提取的短摘要 |
+| format | TEXT | `md` / `html` / `url` |
+| mount_path | TEXT | MD/HTML 文件所在的 Gateway 本机目录；URL 条目为空 |
+| entry_file | TEXT | MD/HTML 入口文件名；URL 条目为空 |
+| url | TEXT | HTTPS 外部地址；MD/HTML 条目为空 |
+| status | TEXT | `unread` / `read` / `archived` |
+| created_at / updated_at | TEXT | 创建与最近状态更新时间 |
+| read_at / archived_at | TEXT | 首次已读时间与当前归档时间 |
+
+格式约束保证本地条目必须同时具有 `mount_path + entry_file` 且没有 URL，URL 条目必须只有 `url`。正文始终实时读取源文件或外部网页；源文件删除时元数据仍保留，客户端显示不可用状态。
+
 ```
 Project 1:N Agent
 Project 1:N Session

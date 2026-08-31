@@ -114,6 +114,7 @@ import {
 } from './agent-session-tools.js'
 import { agentWakeMeHandler } from './agent-wake-me-tools.js'
 import { previewPublishHandler } from './preview-publish.js'
+import { readingAddHandler } from './reading-add.js'
 import { filesPresentHandler } from './files-present.js'
 import { inspirationAnalysisPublishHandler } from './inspiration-analysis-publish.js'
 import { inspirationNoteGetHandler } from './inspiration-note-get.js'
@@ -236,6 +237,7 @@ register(agentTaskWatchHandler)
 register(agentTaskWatchCancelHandler)
 register(agentWakeMeHandler)
 register(previewPublishHandler)
+register(readingAddHandler)
 register(filesPresentHandler)
 register(inspirationAnalysisPublishHandler)
 register(inspirationNoteGetHandler)

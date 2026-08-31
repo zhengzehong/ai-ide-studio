@@ -12,6 +12,7 @@ import {
   KnowledgeBase,
   Inspiration,
   Projects,
+  ReadingPage,
   PinnedSessions,
   Schedule,
   Secretary,
@@ -79,6 +80,7 @@ export default function App() {
             <Route element={<AppLayout />}>
               <Route path="/" element={<Dashboard />} />
               <Route path="/pinned" element={<PinnedSessions />} />
+              <Route path="/reading" element={<ReadingPage />} />
               <Route path="/updates" element={<UpdatesPage />} />
               <Route path="/agents" element={<AgentSquare />} />
               <Route path="/skills" element={<SkillCenter />} />

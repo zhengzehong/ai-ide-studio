@@ -40,6 +40,12 @@ export function resolveAndroidBackAction(pathname: string, serverUrl: string, re
   if (pathname.startsWith('/inspiration/')) {
     return { type: 'navigate', to: '/inspiration' }
   }
+  if (/^\/reading\/[^/]+$/.test(pathname)) {
+    return { type: 'navigate', to: '/reading' }
+  }
+  if (pathname === '/reading') {
+    return { type: 'navigate', to: '/' }
+  }
   if (pathname === '/inspiration') {
     return { type: 'navigate', to: '/' }
   }
@@ -122,6 +128,6 @@ function readReturnTo(state: unknown): string | undefined {
   return typeof returnTo === 'string' && isChatReturnPath(returnTo) ? returnTo : undefined
 }
 
-function isChatReturnPath(value: string | undefined): value is '/activity' | '/?view=pinned' | '/pinned' | '/secretary' {
-  return value === '/activity' || value === '/?view=pinned' || value === '/pinned' || value === '/secretary'
+function isChatReturnPath(value: string | undefined): value is '/activity' | '/?view=pinned' | '/pinned' | '/secretary' | '/reading' {
+  return value === '/activity' || value === '/?view=pinned' || value === '/pinned' || value === '/secretary' || value === '/reading'
 }
