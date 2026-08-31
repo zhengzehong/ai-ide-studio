@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useId,
   memo,
   useRef,
   useState,
@@ -4199,6 +4200,7 @@ function ProcessBlockView({
 }) {
   const needsDetail = processBlockNeedsDetail(block)
   const thinkingDisclosure = useProcessThinkingDisclosure(isStreaming)
+  const thinkingContentId = useId()
   const shouldAutoLoadDetail = needsDetail && block.kind !== 'tool'
   useEffect(() => {
     if (shouldAutoLoadDetail && !detailLoading && !detailError) onLoadDetail?.()
@@ -4263,6 +4265,9 @@ function ProcessBlockView({
       <div style={{ borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-2)', overflow: 'hidden' }}>
         <button
           type="button"
+          className="process-thinking-toggle"
+          aria-expanded={thinkingDisclosure.open}
+          aria-controls={thinkingContentId}
           onClick={thinkingDisclosure.toggle}
           style={{ width: '100%', padding: '7px 9px', border: 'none', background: 'transparent', color: 'var(--text-3)', display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13, textAlign: 'left' }}
         >
@@ -4271,7 +4276,7 @@ function ProcessBlockView({
           {isStreaming && <Loader2 size={10} style={{ animation: 'spin 1s linear infinite', marginLeft: 'auto' }} />}
         </button>
         {thinkingDisclosure.open && (
-          <div style={{ borderTop: '1px solid var(--border)', padding: '8px 10px', color: 'var(--text-2)', fontSize: 14, lineHeight: 1.6, fontStyle: 'italic', overflowWrap: 'anywhere' }}>
+          <div id={thinkingContentId} style={{ borderTop: '1px solid var(--border)', padding: '8px 10px', color: 'var(--text-2)', fontSize: 14, lineHeight: 1.6, fontStyle: 'italic', overflowWrap: 'anywhere' }}>
             <MarkdownRenderer content={block.text} />
           </div>
         )}
@@ -4392,6 +4397,7 @@ function ChatBubbleBlockView({
   }
 
   const thinkingDisclosure = useProcessThinkingDisclosure(isStreaming)
+  const thinkingContentId = useId()
   const hasBlock = !!content || !!thinking || attachments.length > 0 || toolCalls.length > 0
   if (!hasBlock) return null
 
@@ -4401,6 +4407,9 @@ function ChatBubbleBlockView({
         <div style={{ marginBottom: 8, borderRadius: 6, border: '1px solid var(--border)', overflow: 'hidden' }}>
           <button
             type="button"
+            className="process-thinking-toggle"
+            aria-expanded={thinkingDisclosure.open}
+            aria-controls={thinkingContentId}
             onClick={thinkingDisclosure.toggle}
             style={{
               width: '100%',
@@ -4423,6 +4432,7 @@ function ChatBubbleBlockView({
           </button>
           {thinkingDisclosure.open && (
             <div
+              id={thinkingContentId}
               style={{
                 padding: '8px 10px',
                 fontSize: 14,

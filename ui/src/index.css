@@ -68,6 +68,11 @@ button {
   font-family: inherit;
 }
 
+.process-thinking-toggle:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: -2px;
+}
+
 input {
   font-family: inherit;
 }

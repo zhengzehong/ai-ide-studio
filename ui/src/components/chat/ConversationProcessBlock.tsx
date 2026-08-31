@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { Check, ChevronDown, ChevronRight, Loader2, Wrench, X } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { MarkdownRenderer } from '../MarkdownRenderer'
 import { FileChangesCard } from './FileChangesCard'
 import { FilesPresentationCard } from './FilesPresentationCard'
@@ -33,6 +33,7 @@ export function ConversationProcessBlock({
 }: ConversationProcessBlockProps): ReactNode {
   const needsDetail = processBlockNeedsDetail(block)
   const thinkingDisclosure = useProcessThinkingDisclosure(isStreaming)
+  const thinkingContentId = useId()
   useEffect(() => {
     if (needsDetail && block.kind !== 'tool' && !detailLoading && !detailError) onLoadDetail?.()
   }, [block.kind, detailError, detailLoading, needsDetail, onLoadDetail])
@@ -50,12 +51,12 @@ export function ConversationProcessBlock({
     return <ConversationToolCall block={block} detailLoading={detailLoading} detailError={detailError} onLoadDetail={onLoadDetail} diffEntries={diffEntries} />
   }
   if (block.kind === 'thinking') return <div className="conversation-process-thinking">
-    <button type="button" className="conversation-process-thinking-header" onClick={thinkingDisclosure.toggle}>
+    <button type="button" className="conversation-process-thinking-header process-thinking-toggle" aria-expanded={thinkingDisclosure.open} aria-controls={thinkingContentId} onClick={thinkingDisclosure.toggle}>
       {thinkingDisclosure.open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
       <span>思考过程</span>
       {isStreaming && <Loader2 size={10} className="conversation-process-thinking-spinner" />}
     </button>
-    {thinkingDisclosure.open && <div className="conversation-process-thinking-body"><MarkdownRenderer content={block.text} /></div>}
+    {thinkingDisclosure.open && <div id={thinkingContentId} className="conversation-process-thinking-body"><MarkdownRenderer content={block.text} /></div>}
   </div>
   if (block.kind === 'file_change') return block.changes ? <FileChangesCard compact changes={block.changes} /> : <ProcessDetailCard title="文件修改" summary={block.summary} loading={detailLoading} error={detailError} />
   if (block.kind === 'plan') return <PlanProcessCard block={block} loading={detailLoading} error={detailError} />
