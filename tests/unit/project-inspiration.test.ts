@@ -12,6 +12,7 @@ import {
   sendInspirationDiscussion,
 } from '../../src/core/project-inspiration.js'
 import { sessionManager } from '../../src/core/sessions.js'
+import { taskStepManager } from '../../src/core/task-steps.js'
 import { agentStore } from '../../src/store/agents.js'
 import { closeDatabase, initDatabase } from '../../src/store/db.js'
 import { inspirationNoteStore } from '../../src/store/inspiration-notes.js'
@@ -371,6 +372,43 @@ describe('project inspiration service', () => {
     expect(candidate.executionSessionId).toBeTruthy()
     expect(taskStore.get(candidate.taskId!)).toMatchObject({ status: 'running', source: 'inspiration' })
     expect(sessionStore.get(candidate.executionSessionId!)?.agent_id).toBe(fixture.executor.id)
+  })
+
+  test('does not dispatch an inspiration new_each task to the Agent primary Session', async () => {
+    const fixture = createFixture()
+    const primary = sessionStore.create({ agentId: fixture.executor.id, projectId: fixture.project.id, isPrimary: true })
+    vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue(undefined)
+    const { candidateId } = readyCandidate(fixture.project.id, fixture.executor.id)
+
+    const note = await createTaskFromInspirationCandidate(fixture.project.id, candidateId, {
+      agentId: fixture.executor.id,
+      sessionMode: 'new_each',
+      execute: true,
+    })
+
+    expect(note.candidates[0]?.executionSessionId).toBeTruthy()
+    expect(note.candidates[0]?.executionSessionId).not.toBe(primary.id)
+  })
+
+  test('keeps the inspiration new_each target when a draft is started later', async () => {
+    const fixture = createFixture()
+    const primary = sessionStore.create({ agentId: fixture.executor.id, projectId: fixture.project.id, isPrimary: true })
+    vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue(undefined)
+    const { candidateId } = readyCandidate(fixture.project.id, fixture.executor.id)
+
+    const note = await createTaskFromInspirationCandidate(fixture.project.id, candidateId, {
+      agentId: fixture.executor.id,
+      sessionMode: 'new_each',
+      execute: false,
+    })
+    const taskId = note.candidates[0]?.taskId
+    expect(taskId).toBeTruthy()
+
+    await taskStepManager.startTask(taskId!)
+
+    const executionSessionId = taskStore.listSessionIds(taskId!)[0]
+    expect(executionSessionId).toBeTruthy()
+    expect(executionSessionId).not.toBe(primary.id)
   })
 })
 

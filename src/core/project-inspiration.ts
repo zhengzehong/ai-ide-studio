@@ -274,10 +274,18 @@ export async function createTaskFromInspirationCandidate(
         projectId,
         source: 'inspiration',
         sessionId: target.sessionId,
+        sessionMode: target.sessionMode,
       })
       inspirationCandidateStore.completeDispatch(candidate.id, token, result.task.id, result.sessionId)
     } else {
-      const task = await createInspirationDraftTask(candidate.title, candidate.description_markdown, projectId, target.agentId, target.sessionId)
+      const task = await createInspirationDraftTask(
+        candidate.title,
+        candidate.description_markdown,
+        projectId,
+        target.agentId,
+        target.sessionId,
+        target.sessionMode,
+      )
       inspirationCandidateStore.completeDispatch(candidate.id, token, task.id)
     }
     emitUpdate(projectId, note.id)
