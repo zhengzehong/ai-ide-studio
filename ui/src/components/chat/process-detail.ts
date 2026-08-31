@@ -1,4 +1,43 @@
+import { useCallback, useState } from 'react'
 import type { TurnProcessBlock } from '../../stores/turn-blocks'
+
+export type ProcessThinkingOverrideValue = 'open' | 'closed'
+
+export interface ProcessThinkingOverride {
+  isStreaming: boolean
+  value: ProcessThinkingOverrideValue
+}
+
+export function resolveProcessThinkingOpen(
+  isStreaming: boolean,
+  override: ProcessThinkingOverrideValue | null,
+): boolean {
+  return override === 'open' || (override !== 'closed' && isStreaming)
+}
+
+export function resolveProcessThinkingOverride(
+  isStreaming: boolean,
+  override: ProcessThinkingOverride | null,
+): ProcessThinkingOverrideValue | null {
+  return override?.isStreaming === isStreaming ? override.value : null
+}
+
+export function useProcessThinkingDisclosure(isStreaming: boolean): {
+  open: boolean
+  toggle: () => void
+} {
+  const [override, setOverride] = useState<ProcessThinkingOverride | null>(null)
+  const open = resolveProcessThinkingOpen(
+    isStreaming,
+    resolveProcessThinkingOverride(isStreaming, override),
+  )
+
+  const toggle = useCallback((): void => {
+    setOverride({ isStreaming, value: open ? 'closed' : 'open' })
+  }, [isStreaming, open])
+
+  return { open, toggle }
+}
 
 export function processBlockNeedsDetail(block: TurnProcessBlock): boolean {
   if (!('hasDetail' in block) || !block.hasDetail) return false

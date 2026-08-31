@@ -87,7 +87,7 @@ import { buildChatRenderItems, type ChatRenderItem } from '../components/chat/re
 import { VirtualChatList } from '../components/chat/VirtualChatList'
 import { TeamContextPanel } from '../components/team/TeamContextPanel'
 import { TimelinePopover } from '../components/chat/TimelinePopover'
-import { processBlockNeedsDetail } from '../components/chat/process-detail'
+import { processBlockNeedsDetail, useProcessThinkingDisclosure } from '../components/chat/process-detail'
 import { MarkdownRenderer } from '../components/MarkdownRenderer'
 import { permissionOptionLabel, isAllowPermissionOption, isRejectAlwaysOption } from '../utils/permission'
 import {
@@ -4198,6 +4198,7 @@ function ProcessBlockView({
   onOpenFiles?: (presentation: FilesPresentationInfo) => void
 }) {
   const needsDetail = processBlockNeedsDetail(block)
+  const thinkingDisclosure = useProcessThinkingDisclosure(isStreaming)
   const shouldAutoLoadDetail = needsDetail && block.kind !== 'tool'
   useEffect(() => {
     if (shouldAutoLoadDetail && !detailLoading && !detailError) onLoadDetail?.()
@@ -4259,9 +4260,21 @@ function ProcessBlockView({
   }
   if (block.kind === 'thinking') {
     return (
-      <div style={{ borderRadius: 6, background: 'var(--bg-2)', padding: '8px 10px', color: 'var(--text-2)', fontSize: 14, lineHeight: 1.6, fontStyle: 'italic', overflowWrap: 'anywhere' }}>
-        <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 4 }}>思考过程</div>
-        {block.text}
+      <div style={{ borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-2)', overflow: 'hidden' }}>
+        <button
+          type="button"
+          onClick={thinkingDisclosure.toggle}
+          style={{ width: '100%', padding: '7px 9px', border: 'none', background: 'transparent', color: 'var(--text-3)', display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13, textAlign: 'left' }}
+        >
+          {thinkingDisclosure.open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+          <span>思考过程</span>
+          {isStreaming && <Loader2 size={10} style={{ animation: 'spin 1s linear infinite', marginLeft: 'auto' }} />}
+        </button>
+        {thinkingDisclosure.open && (
+          <div style={{ borderTop: '1px solid var(--border)', padding: '8px 10px', color: 'var(--text-2)', fontSize: 14, lineHeight: 1.6, fontStyle: 'italic', overflowWrap: 'anywhere' }}>
+            <MarkdownRenderer content={block.text} />
+          </div>
+        )}
       </div>
     )
   }
@@ -4339,45 +4352,12 @@ function ProcessDetailState({ loading, error }: { loading?: boolean; error?: str
 }
 
 function ProcessNoteBlock({ text }: { text: string }) {
-  const [open, setOpen] = useState(false)
-  const preview = compactText(text)
   return (
-    <div style={{ borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-1)', overflow: 'hidden' }}>
-      <button
-        type="button"
-        onClick={() => setOpen((value) => !value)}
-        style={{
-          width: '100%',
-          border: 'none',
-          background: 'transparent',
-          padding: '7px 9px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          cursor: 'pointer',
-          color: 'var(--text-2)',
-          fontSize: 14,
-          textAlign: 'left',
-        }}
-      >
-        {open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-        <span style={{ flexShrink: 0, fontWeight: 600 }}>中间说明</span>
-        <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-3)' }}>
-          {preview}
-        </span>
-      </button>
-      {open && (
-        <div style={{ borderTop: '1px solid var(--border)', padding: '8px 10px', fontSize: 14, lineHeight: 1.6, color: 'var(--text-2)', overflowWrap: 'anywhere', maxHeight: 220, overflow: 'auto' }}>
-          <MarkdownRenderer content={text} />
-        </div>
-      )}
+    <div style={{ borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-1)', padding: '8px 10px', color: 'var(--text-2)', fontSize: 14, lineHeight: 1.6, overflowWrap: 'anywhere' }}>
+      <div style={{ marginBottom: 4, color: 'var(--text-3)', fontSize: 12, fontWeight: 600 }}>中间说明</div>
+      <MarkdownRenderer content={text} />
     </div>
   )
-}
-
-function compactText(text: string): string {
-  const value = text.replace(/\s+/g, ' ').trim()
-  return value.length > 96 ? `${value.slice(0, 96)}…` : value
 }
 
 function ChatBubbleBlockView({
@@ -4411,11 +4391,7 @@ function ChatBubbleBlockView({
     attachments = block.parsedAttachments || parseJsonArray<ImageAttachmentInfo>(block.attachments_json)
   }
 
-  const defaultThinkingOpen = !!(isStreaming && thinking)
-  const [thinkingOpenOverride, setThinkingOpenOverride] = useState<'open' | 'closed' | null>(null)
-  const thinkingOpen = thinkingOpenOverride === 'open' || (thinkingOpenOverride !== 'closed' && defaultThinkingOpen)
-  const toggleThinkingOpen = () =>
-    setThinkingOpenOverride(thinkingOpen ? 'closed' : defaultThinkingOpen ? null : 'open')
+  const thinkingDisclosure = useProcessThinkingDisclosure(isStreaming)
   const hasBlock = !!content || !!thinking || attachments.length > 0 || toolCalls.length > 0
   if (!hasBlock) return null
 
@@ -4425,7 +4401,7 @@ function ChatBubbleBlockView({
         <div style={{ marginBottom: 8, borderRadius: 6, border: '1px solid var(--border)', overflow: 'hidden' }}>
           <button
             type="button"
-            onClick={toggleThinkingOpen}
+            onClick={thinkingDisclosure.toggle}
             style={{
               width: '100%',
               padding: '6px 10px',
@@ -4440,12 +4416,12 @@ function ChatBubbleBlockView({
               textAlign: 'left',
             }}
           >
-            {thinkingOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />} 思考过程
+            {thinkingDisclosure.open ? <ChevronDown size={12} /> : <ChevronRight size={12} />} 思考过程
             {isStreaming && (
               <Loader2 size={10} style={{ animation: 'spin 1s linear infinite', marginLeft: 'auto' }} />
             )}
           </button>
-          {thinkingOpen && (
+          {thinkingDisclosure.open && (
             <div
               style={{
                 padding: '8px 10px',

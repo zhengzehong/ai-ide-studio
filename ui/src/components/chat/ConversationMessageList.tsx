@@ -113,7 +113,7 @@ function TimelineGroupMessage({ group, adapter, onOpenPreview, onOpenFiles, onOp
       }
       return <div key={block.id} className="conversation-timeline-text">
         {block.attachments?.map((attachment, index) => <AuthenticatedImage key={`${block.id}-attachment-${index}`} image={attachment} alt={attachment.name || '附件'} style={{ maxWidth: 180, maxHeight: 140, borderRadius: 8, border: '1px solid var(--border)', objectFit: 'cover' }} />)}
-        {block.thinking && <div className="conversation-process-thinking"><span>思考过程</span><MarkdownRenderer content={block.thinking} /></div>}
+        {block.thinking && <ConversationProcessBlock block={{ id: `${block.id}:thinking`, kind: 'thinking', text: block.thinking }} />}
         {block.content && <MarkdownRenderer content={block.content} onOpenResource={onOpenResource} />}
       </div>
     })}
@@ -158,17 +158,18 @@ function ConversationMessage({ message, adapter, onOpenPreview, onOpenFiles, onO
 
 function StreamingMessage({ message, adapter, onOpenPreview, onOpenFiles, onOpenResource }: { message: MessageData; adapter: ConversationAdapter; onOpenPreview?: ConversationPaneProps['onOpenPreview']; onOpenFiles?: ConversationPaneProps['onOpenFiles']; onOpenResource?: ConversationPaneProps['onOpenResource'] }) {
   const processBlocks = message.processBlocks || []
-  return <MessageShell agentName={adapter.agentName} streaming><TurnContentView processBlocks={processBlocks} finalAnswer={message.finalAnswer || message.content || '正在处理...'} isStreaming processCount={message.process_item_count ?? processBlocks.length} defaultProcessOpen onOpenResource={onOpenResource} renderProcessBlock={(block) => <ProcessBlock block={block} adapter={adapter} messageId={message.id} onOpenPreview={onOpenPreview} onOpenFiles={onOpenFiles} />} /><span className="conversation-streaming-label"><Loader2 size={11} /> 生成中</span></MessageShell>
+  return <MessageShell agentName={adapter.agentName} streaming><TurnContentView processBlocks={processBlocks} finalAnswer={message.finalAnswer || message.content || '正在处理...'} isStreaming processCount={message.process_item_count ?? processBlocks.length} defaultProcessOpen onOpenResource={onOpenResource} renderProcessBlock={(block) => <ProcessBlock block={block} adapter={adapter} messageId={message.id} isStreaming onOpenPreview={onOpenPreview} onOpenFiles={onOpenFiles} />} /><span className="conversation-streaming-label"><Loader2 size={11} /> 生成中</span></MessageShell>
 }
 
 function MessageShell({ children, human = false, agentName, timestamp, streaming = false }: { children: React.ReactNode; human?: boolean; agentName?: string | null; timestamp?: string; streaming?: boolean }) {
   return <div className={`conversation-message${human ? ' is-human' : ''}`}><div className="conversation-avatar">{human ? <User size={14} /> : <Bot size={14} />}</div><div className="conversation-message-body"><div className="conversation-message-meta"><strong>{human ? '你' : agentName || 'Agent'}</strong>{timestamp && <time>{formatTime(timestamp)}</time>}{streaming && <span className="conversation-streaming-label"><Loader2 size={11} /> 生成中</span>}</div><div className="conversation-bubble">{children}</div></div></div>
 }
 
-function ProcessBlock({ block, adapter, messageId, onOpenPreview, onOpenFiles }: { block: TurnProcessBlock; adapter: ConversationAdapter; messageId: string; onOpenPreview?: ConversationPaneProps['onOpenPreview']; onOpenFiles?: ConversationPaneProps['onOpenFiles'] }) {
+function ProcessBlock({ block, adapter, messageId, isStreaming = false, onOpenPreview, onOpenFiles }: { block: TurnProcessBlock; adapter: ConversationAdapter; messageId: string; isStreaming?: boolean; onOpenPreview?: ConversationPaneProps['onOpenPreview']; onOpenFiles?: ConversationPaneProps['onOpenFiles'] }) {
   const key = `${messageId}:${block.id}`
   return <ConversationProcessBlock
     block={block}
+    isStreaming={isStreaming}
     detailLoading={adapter.processItemLoadingByKey?.[key]}
     detailError={adapter.processItemErrorByKey?.[key]}
     onLoadDetail={'hasDetail' in block && block.hasDetail ? () => { void adapter.loadProcessItemDetail(messageId, block.id) } : undefined}
