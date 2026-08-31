@@ -27,7 +27,7 @@ export interface MessageData {
   parsedToolCalls?: ToolCallInfo[]; parsedAttachments?: ImageAttachmentInfo[]; parsedDecision?: Record<string, unknown> | null
   parsedFileChanges?: FileChangeSummaryInfo
   parsedPresentations?: MessagePresentationInfo[]
-  processBlocks?: TurnProcessBlock[]; finalAnswer?: string
+  processBlocks?: TurnProcessBlock[]; finalAnswer?: string; stage?: string
   processDefaultOpen?: boolean
 }
 
