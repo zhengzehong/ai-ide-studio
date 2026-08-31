@@ -40,6 +40,56 @@ describe('shared conversation pane', () => {
     expect(html).toContain('100')
   })
 
+  test('renders Workspace-style per-turn statistics for historical agent messages', () => {
+    const html = renderToStaticMarkup(createElement(ConversationPane, {
+      adapter: adapter({
+        messages: [{ id: 'm-stats', session_id: 'session-1', role: 'agent', content: '完成', thinking: null, tool_calls_json: null, decision_json: JSON.stringify({ inputTokens: 1200, outputTokens: 800, cachedReadTokens: 400, costAmount: 0.0123, elapsedSeconds: 62 }), timestamp: '2026-08-30T00:00:00Z' }],
+      }),
+    }))
+    expect(html).toContain('输入')
+    expect(html).toContain('输出')
+    expect(html).toContain('缓存')
+    expect(html).toContain('1m2s')
+    expect(html).toContain('$0.0123')
+  })
+
+  test('renders recovery event timeline when persisted messages are unavailable', () => {
+    const events = [
+      {
+        id: 'event-user', session_id: 'session-1', message_id: 'message-1', type: 'message.user',
+        payload_json: JSON.stringify({ messageId: 'message-1', content: '请检查项目' }), sequence: 1, created_at: '2026-08-30T00:00:00Z',
+      },
+      {
+        id: 'event-tool', session_id: 'session-1', message_id: 'message-1', type: 'tool.call',
+        payload_json: JSON.stringify({ messageId: 'message-1', toolCall: { id: 'tool-1', title: '读取文件', status: 'completed' } }), sequence: 2, created_at: '2026-08-30T00:00:01Z',
+      },
+      {
+        id: 'event-reply', session_id: 'session-1', message_id: 'message-1', type: 'message.chunk',
+        payload_json: JSON.stringify({ messageId: 'message-1', role: 'agent', contentDelta: '检查完成' }), sequence: 3, created_at: '2026-08-30T00:00:02Z',
+      },
+      {
+        id: 'event-done', session_id: 'session-1', message_id: 'message-1', type: 'message.done',
+        payload_json: JSON.stringify({ messageId: 'message-1' }), sequence: 4, created_at: '2026-08-30T00:00:03Z',
+      },
+    ]
+    const html = renderToStaticMarkup(createElement(ConversationPane, {
+      adapter: adapter({ messages: [], events }),
+    }))
+    expect(html).toContain('请检查项目')
+    expect(html).toContain('读取文件')
+    expect(html).toContain('检查完成')
+  })
+
+  test('renders authenticated historical image attachments', () => {
+    const html = renderToStaticMarkup(createElement(ConversationPane, {
+      adapter: adapter({
+        messages: [{ id: 'm-image', session_id: 'session-1', role: 'human', content: '看图', thinking: null, tool_calls_json: null, decision_json: null, attachments_json: null, timestamp: '2026-08-30T00:00:00Z', parsedAttachments: [{ data: 'aGVsbG8=', mimeType: 'image/png', name: 'shot.png' }] }],
+      }),
+    }))
+    expect(html).toContain('alt="shot.png"')
+    expect(html).toContain('data:image/png;base64,aGVsbG8=')
+  })
+
   test('blocks sending while a regular attachment is still uploading', () => {
     const base = adapter()
     expect(canSendConversation(base.sessionId, false, '继续处理', [{ localId: 'file-1', name: 'report.md', size: 10, status: 'uploading' }], [])).toBe(false)

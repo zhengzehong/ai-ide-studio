@@ -6,14 +6,26 @@ import { wsClient } from '../services/ws-client'
 import './updates/updates-content.css'
 import './updates/updates-preview-tabs.css'
 
-interface UpdatesPreviewPanelProps { messages: MessageData[]; projectId: string | null; sessionId: string | null; collapsed: boolean; onToggle: () => void }
+export type UpdatesPreviewFocus =
+  | { kind: 'preview'; preview: PreviewPresentationInfo }
+  | { kind: 'files'; presentation: FilesPresentationInfo }
+
+interface UpdatesPreviewPanelProps { messages: MessageData[]; projectId: string | null; sessionId: string | null; focus?: UpdatesPreviewFocus | null; onFocusConsumed?: () => void; collapsed: boolean; onToggle: () => void }
 type FileContent = { key: string; content: string; extension: string; kind: string; truncated: boolean }
 type SideView = 'reply' | 'preview' | string
 
-export function UpdatesPreviewPanel({ messages, projectId, sessionId, collapsed, onToggle }: UpdatesPreviewPanelProps) {
+export function UpdatesPreviewPanel({ messages, projectId, sessionId, focus, onFocusConsumed, collapsed, onToggle }: UpdatesPreviewPanelProps) {
   const presentations = useMemo(() => messages.filter((message) => message.role === 'agent').flatMap((message) => message.parsedPresentations ?? []).reverse(), [messages])
-  const previews = presentations.filter((item): item is PreviewPresentationInfo => item.kind === 'preview')
-  const files = presentations.filter((item): item is FilesPresentationInfo => item.kind === 'files')
+  const previews = useMemo(() => {
+    const values = presentations.filter((item): item is PreviewPresentationInfo => item.kind === 'preview')
+    if (focus?.kind === 'preview' && !values.some((item) => item.previewId === focus.preview.previewId)) return [focus.preview, ...values]
+    return values
+  }, [focus, presentations])
+  const files = useMemo(() => {
+    const values = presentations.filter((item): item is FilesPresentationInfo => item.kind === 'files')
+    if (focus?.kind === 'files' && !values.some((item) => item.presentationId === focus.presentation.presentationId)) return [focus.presentation, ...values]
+    return values
+  }, [focus, presentations])
   const [view, setView] = useState<SideView>('reply')
   const [viewSessionId, setViewSessionId] = useState<string | null>(sessionId)
   if (viewSessionId !== sessionId) {
@@ -22,7 +34,13 @@ export function UpdatesPreviewPanel({ messages, projectId, sessionId, collapsed,
   }
   const [fileContent, setFileContent] = useState<FileContent | null>(null)
   const presentedFiles = files.flatMap((presentation) => presentation.files.map((file) => ({ presentation, file, key: `${presentation.presentationId}:${file.path}` })))
-  const selectedPresented = presentedFiles.find((item) => item.key === view) ?? null
+  const focusedView = focus?.kind === 'preview'
+    ? 'preview'
+    : focus?.kind === 'files' && focus.presentation.files[0]
+      ? `${focus.presentation.presentationId}:${focus.presentation.files[0].path}`
+      : null
+  const activeView = focusedView ?? view
+  const selectedPresented = presentedFiles.find((item) => item.key === activeView) ?? null
   const selectedProjectId = selectedPresented?.presentation.projectId || projectId
   const selectedPath = selectedPresented?.file.path
   const reply = latestReply(messages)
@@ -31,19 +49,19 @@ export function UpdatesPreviewPanel({ messages, projectId, sessionId, collapsed,
     if (!selectedPath) return
     let active = true
     void wsClient.request({ type: 'fs.read', projectId: selectedProjectId, filePath: selectedPath })
-      .then((value) => { if (active) setFileContent({ key: view, ...(value as Omit<FileContent, 'key'>) }) })
-      .catch(() => { if (active) setFileContent({ key: view, content: '', extension: '', kind: 'error', truncated: false }) })
+      .then((value) => { if (active) setFileContent({ key: activeView, ...(value as Omit<FileContent, 'key'>) }) })
+      .catch(() => { if (active) setFileContent({ key: activeView, content: '', extension: '', kind: 'error', truncated: false }) })
     return () => { active = false }
-  }, [view, selectedPath, selectedProjectId])
+  }, [activeView, selectedPath, selectedProjectId])
 
   if (collapsed) return <button type="button" className="wb-preview-collapsed" onClick={onToggle} title="展开面板"><PanelRightClose size={16} /><span>面板</span></button>
   return (
     <aside className="wb-preview" aria-label="会话内容面板">
       <header className="wb-side-head">
         <div className="wb-chips" role="tablist">
-          <button type="button" role="tab" aria-selected={view === 'reply'} className={`wb-fchip${view === 'reply' ? ' is-on' : ''}`} onClick={() => setView('reply')}>最后回复</button>
+          <button type="button" role="tab" aria-selected={activeView === 'reply'} className={`wb-fchip${activeView === 'reply' ? ' is-on' : ''}`} onClick={() => { onFocusConsumed?.(); setView('reply') }}>最后回复</button>
           {previews.length > 0 && (
-            <button type="button" role="tab" aria-selected={view === 'preview'} className={`wb-fchip${view === 'preview' ? ' is-on' : ''}`} onClick={() => setView('preview')}>预览 {previews.length}</button>
+            <button type="button" role="tab" aria-selected={activeView === 'preview'} className={`wb-fchip${activeView === 'preview' ? ' is-on' : ''}`} onClick={() => { onFocusConsumed?.(); setView('preview') }}>预览 {previews.length}</button>
           )}
           {presentedFiles.map((item) => (
             <button
@@ -51,10 +69,10 @@ export function UpdatesPreviewPanel({ messages, projectId, sessionId, collapsed,
               role="tab"
               key={item.key}
               data-file-key={item.key}
-              aria-selected={view === item.key}
+              aria-selected={activeView === item.key}
               title={item.file.path}
-              className={`wb-fchip mono${view === item.key ? ' is-on' : ''}`}
-              onClick={() => setView(item.key)}
+              className={`wb-fchip mono${activeView === item.key ? ' is-on' : ''}`}
+              onClick={() => { onFocusConsumed?.(); setView(item.key) }}
             >
               {item.file.title || item.file.path.split('/').pop()}
             </button>
@@ -63,23 +81,23 @@ export function UpdatesPreviewPanel({ messages, projectId, sessionId, collapsed,
         <button type="button" className="wb-side-collapse" onClick={onToggle} title="收起面板" aria-label="收起面板"><PanelRightClose size={16} /></button>
       </header>
       <div className="wb-side-body">
-        {view === 'reply' && (reply
+        {activeView === 'reply' && (reply
           ? <section className="wb-doc"><MarkdownRenderer content={reply} /></section>
           : <div className="wb-side-empty">当前会话还没有最终回复<br /><small>Agent 输出长报告或文件时,会出现在这里全宽查看</small></div>)}
-        {view === 'preview' && previews.map((preview) => (
+        {activeView === 'preview' && previews.map((preview) => (
           <div key={preview.previewId} className="wb-preview-block">
             <div className="wb-preview-block-title"><span>{preview.title}</span><small>{preview.target.toUpperCase()}</small></div>
             <iframe title={preview.title} src={preview.url} sandbox="allow-scripts allow-same-origin" />
           </div>
         ))}
-        {selectedPresented && view !== 'reply' && view !== 'preview' && (
+        {selectedPresented && activeView !== 'reply' && activeView !== 'preview' && (
           <FileContentView
             path={selectedPresented.file.path}
-            content={fileContent?.key === view ? fileContent : null}
-            loading={!fileContent || fileContent.key !== view}
+            content={fileContent?.key === activeView ? fileContent : null}
+            loading={!fileContent || fileContent.key !== activeView}
           />
         )}
-        {view !== 'reply' && view !== 'preview' && !selectedPresented && <div className="wb-side-empty">该文件不存在</div>}
+        {activeView !== 'reply' && activeView !== 'preview' && !selectedPresented && <div className="wb-side-empty">该文件不存在</div>}
       </div>
     </aside>
   )

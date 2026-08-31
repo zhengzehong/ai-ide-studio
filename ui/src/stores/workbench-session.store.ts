@@ -5,7 +5,7 @@ import { wsClient } from '../services/ws-client'
 import { interactionResponseFailure } from './interaction-response'
 import { useSessionStore } from './session.store'
 import type { ConversationUploadedFile, ConversationProcessState } from '../components/chat/conversation-types'
-import type { FileChangeDetailInfo, ToolCallDetailInfo, ImageAttachmentInfo } from './session-events'
+import type { FileChangeDetailInfo, ImageAttachmentInfo } from './session-events'
 import {
   applySessionEvent,
   appendFinalizedMessage,
@@ -16,6 +16,7 @@ import {
   shouldCreateToolFromUpdate,
   defaultCaps,
   mergeCapabilities,
+  reduceSessionEvents,
   type ElicitationRequestInfo,
   type MessageData,
   type PermissionRequestInfo,
@@ -53,7 +54,6 @@ interface WorkbenchSessionState {
   fileChangeDetailsByMessageId: Record<string, FileChangeDetailInfo>
   fileChangeLoadingByKey: Record<string, boolean>
   fileChangeErrorByKey: Record<string, string>
-  toolCallDetailsByKey: Record<string, ToolCallDetailInfo>
   processItemLoadingByKey: Record<string, boolean>
   processItemErrorByKey: Record<string, string>
   select: (sessionId: string | null) => Promise<void>
@@ -75,6 +75,79 @@ let subscribedSessionId: string | null = null
 let generation = 0
 let listenersInstalled = false
 let removeListeners: (() => void) | null = null
+const mirroredRealtimeEventTypes = new Set(['message.chunk', 'thinking.chunk', 'tool.call', 'tool.update', 'message.done'])
+const mirroredEventTtlMs = 30000
+interface MirroredEventRecord { expiresAt: number; updateCount: number; eventCount: number }
+const mirroredEvents = new Map<string, MirroredEventRecord>()
+
+function mirroredEventType(data: Record<string, unknown>): string | null {
+  if (typeof data.eventType === 'string' && mirroredRealtimeEventTypes.has(data.eventType)) return data.eventType
+  if (data.contentDelta || data.content) return 'message.chunk'
+  if (data.thinking) return 'thinking.chunk'
+  if (data.toolCall) return 'tool.call'
+  if (data.toolCallUpdate) return 'tool.update'
+  return null
+}
+
+function mirroredEventKey(sessionId: string, type: string, data: Record<string, unknown>): string | null {
+  const messageId = typeof data.messageId === 'string' ? data.messageId : ''
+  if (type === 'message.chunk') return `${sessionId}|${type}|${messageId}|${String(data.contentDelta ?? data.content ?? '')}`
+  if (type === 'thinking.chunk') return `${sessionId}|${type}|${messageId}|${String(data.thinking ?? '')}`
+  const tool = (type === 'tool.call' ? data.toolCall : type === 'tool.update' ? data.toolCallUpdate : null) as { id?: unknown; status?: unknown; terminalOutputDelta?: unknown; progressDelta?: unknown } | null
+  if (!tool || typeof tool.id !== 'string') return null
+  return `${sessionId}|${type}|${messageId}|${tool.id}|${String(tool.status ?? '')}|${String(tool.terminalOutputDelta ?? '')}|${String(tool.progressDelta ?? '')}`
+}
+
+function mirroredKeyFromUpdate(sessionId: string, data: Record<string, unknown>): string | null {
+  const type = mirroredEventType(data)
+  return type ? mirroredEventKey(sessionId, type, data) : null
+}
+
+function purgeMirroredEvents(now: number): void {
+  for (const [key, record] of mirroredEvents) {
+    if (record.expiresAt <= now) mirroredEvents.delete(key)
+  }
+}
+
+function noteRealtimeUpdate(sessionId: string, data: Record<string, unknown>): boolean {
+  const now = Date.now()
+  purgeMirroredEvents(now)
+  const key = mirroredKeyFromUpdate(sessionId, data)
+  if (!key) return false
+  const existing = mirroredEvents.get(key)
+  if (existing?.eventCount) {
+    existing.eventCount -= 1
+    if (existing.updateCount === 0 && existing.eventCount === 0) mirroredEvents.delete(key)
+    return !hasRichToolPayload(data)
+  }
+  mirroredEvents.set(key, { expiresAt: now + mirroredEventTtlMs, updateCount: (existing?.updateCount ?? 0) + 1, eventCount: 0 })
+  return false
+}
+
+function notePersistedEvent(sessionId: string, event: SessionEventData): boolean {
+  const now = Date.now()
+  purgeMirroredEvents(now)
+  const payload = (() => {
+    try { return JSON.parse(event.payload_json) as Record<string, unknown> } catch { return {} }
+  })()
+  const data: Record<string, unknown> = event.type === 'tool.call'
+    ? { messageId: payload.messageId, toolCall: payload.toolCall }
+    : event.type === 'tool.update'
+      ? { messageId: payload.messageId, toolCallUpdate: payload.toolCall }
+      : event.type === 'thinking.chunk'
+        ? { messageId: payload.messageId, thinking: payload.thinking }
+        : { messageId: payload.messageId, contentDelta: payload.contentDelta, content: payload.content }
+  const key = mirroredEventKey(sessionId, event.type, data)
+  if (!key) return false
+  const existing = mirroredEvents.get(key)
+  if (existing?.updateCount) {
+    existing.updateCount -= 1
+    if (existing.updateCount === 0 && existing.eventCount === 0) mirroredEvents.delete(key)
+    return true
+  }
+  mirroredEvents.set(key, { expiresAt: now + mirroredEventTtlMs, updateCount: 0, eventCount: (existing?.eventCount ?? 0) + 1 })
+  return false
+}
 
 function setSubscription(sessionId: string | null): void {
   if (subscribedSessionId === sessionId) return
@@ -90,7 +163,11 @@ function applyRealtimeTurn(current: StreamingMessage | null, sessionId: string, 
   let turn: TurnViewModel = current && current.id === messageId ? current : createEmptyTurn(messageId)
   if (typeof data.contentDelta === 'string') turn = applyTurnEntry(turn, { kind: 'reply', text: data.contentDelta })
   if (typeof data.thinking === 'string') turn = applyTurnEntry(turn, { kind: 'thinking', text: data.thinking })
-  if (data.toolCall && typeof data.toolCall === 'object') turn = applyTurnEntry(turn, { kind: 'toolCall', toolCall: data.toolCall as ToolCallInfo })
+  if (data.toolCall && typeof data.toolCall === 'object') {
+    const toolCall = data.toolCall as ToolCallInfo
+    const kind = turn.processBlocks.some((block) => block.kind === 'tool' && block.toolCall.id === toolCall.id) ? 'toolUpdate' : 'toolCall'
+    turn = applyTurnEntry(turn, { kind, toolCall })
+  }
   if (data.toolCallUpdate && typeof data.toolCallUpdate === 'object') {
     const update = data.toolCallUpdate as ToolCallInfo
     if (turn.processBlocks.some((block) => block.kind === 'tool' && block.toolCall.id === update.id) || shouldCreateToolFromUpdate(update)) {
@@ -100,19 +177,60 @@ function applyRealtimeTurn(current: StreamingMessage | null, sessionId: string, 
   return turn
 }
 
-function mergeProcessBlock(blocks: TurnProcessBlock[], block: TurnProcessBlock): TurnProcessBlock[] {
-  const next = blocks.filter((item) => item.id !== block.id && !(item.kind === 'tool' && block.kind === 'tool' && item.toolCall.id === block.toolCall.id))
+function mergeProcessBlock(blocks: TurnProcessBlock[], block: TurnProcessBlock, preferIncoming = true): TurnProcessBlock[] {
+  if (!preferIncoming && block.id.startsWith('tpi-') && blocks.some((item) => item.id === block.id && item.id.startsWith('tpi-'))) return blocks
+  if (!preferIncoming && (block.kind === 'thinking' || block.kind === 'note' || block.kind === 'stage')) {
+    const text = block.text
+    if (blocks.some((item) =>
+      (block.kind === 'thinking' && item.kind === 'thinking' && item.text === text) ||
+      (block.kind === 'note' && item.kind === 'note' && item.text === text) ||
+      (block.kind === 'stage' && item.kind === 'stage' && item.text === text))) return blocks
+  }
+  const canonical = block.id.startsWith('tpi-')
+  const next = blocks.filter((item) => {
+    if (item.id === block.id) return false
+    if (item.kind === 'tool' && block.kind === 'tool' && item.toolCall.id === block.toolCall.id) return false
+    if (item.kind !== block.kind || (item.id.startsWith('tpi-') && !canonical)) return true
+    if (block.kind === 'thinking' && item.kind === 'thinking') return item.text !== block.text
+    if (block.kind === 'note' && item.kind === 'note') return item.text !== block.text
+    if (block.kind === 'stage' && item.kind === 'stage') return item.text !== block.text
+    return true
+  })
   return [...next, block].sort((left, right) => (left.sequence ?? 0) - (right.sequence ?? 0))
 }
 
-function mergeBlockIntoTurn(turn: StreamingMessage, block: TurnProcessBlock): StreamingMessage {
-  const processBlocks = mergeProcessBlock(turn.processBlocks, block)
+function hasCanonicalProcessBlock(turn: StreamingMessage | null, messageId: string | undefined, data: Record<string, unknown>): boolean {
+  if (!turn || !messageId || turn.id !== messageId) return false
+  if (typeof data.thinking === 'string') {
+    return turn.processBlocks.some((block) => block.kind === 'thinking' && block.id.startsWith('tpi-') && block.text === data.thinking)
+  }
+  return false
+}
+
+function hasRichToolPayload(data: Record<string, unknown>): boolean {
+  const tool = (data.toolCall || data.toolCallUpdate) as ToolCallInfo | undefined
+  return !!tool && (
+    tool.rawInput !== undefined || tool.rawOutput !== undefined || !!tool.content?.length ||
+    !!tool.locations?.length || tool.terminalOutput !== undefined || !!tool.progress?.length || !!tool.error
+  )
+}
+
+function mergeBlockIntoTurn(turn: StreamingMessage, block: TurnProcessBlock, preferIncoming = true): StreamingMessage {
+  const processBlocks = mergeProcessBlock(turn.processBlocks, block, preferIncoming)
   return {
     ...turn,
     processBlocks,
     thinking: processBlocks.filter((item) => item.kind === 'thinking').map((item) => item.text).join(''),
     toolCalls: processBlocks.filter((item): item is Extract<TurnProcessBlock, { kind: 'tool' }> => item.kind === 'tool').map((item) => item.toolCall),
   }
+}
+
+function mergeBlocksIntoTurn(turn: StreamingMessage, blocks: TurnProcessBlock[], preferIncoming = true): StreamingMessage {
+  return blocks.reduce((current, block) => mergeBlockIntoTurn(current, block, preferIncoming), turn)
+}
+
+function mergeProcessBlocks(current: TurnProcessBlock[], incoming: TurnProcessBlock[], preferIncoming = true): TurnProcessBlock[] {
+  return incoming.reduce((blocks, block) => mergeProcessBlock(blocks, block, preferIncoming), current)
 }
 
 function reducePendingInteractions(
@@ -175,6 +293,7 @@ function installListeners(set: (value: Partial<WorkbenchSessionState> | ((state:
     wsClient.on('session:update', (message) => {
       if (!current(message)) return
       const data = message.data as Record<string, unknown>
+      const mirroredAlreadyApplied = noteRealtimeUpdate(message.sessionId as string, data)
       if (data.permissionRequest) {
         const request = data.permissionRequest as PermissionRequestInfo
         set((state) => ({ pendingPermissions: [...state.pendingPermissions.filter((item) => item.id !== request.id), request], interactionError: null }))
@@ -185,7 +304,11 @@ function installListeners(set: (value: Partial<WorkbenchSessionState> | ((state:
         set((state) => ({ pendingElicitations: [...state.pendingElicitations.filter((item) => item.id !== request.id), request], interactionError: null }))
         return
       }
-      if (data.contentDelta || data.thinking || data.toolCall || data.toolCallUpdate) set((state) => ({ streamingMessage: applyRealtimeTurn(state.streamingMessage, state.selectedSessionId!, data), running: true }))
+      if (!mirroredAlreadyApplied && (data.contentDelta || data.thinking || data.toolCall || data.toolCallUpdate)) set((state) => {
+        const messageId = typeof data.messageId === 'string' ? data.messageId : undefined
+        if (!data.contentDelta && hasCanonicalProcessBlock(state.streamingMessage, messageId, data)) return {}
+        return { streamingMessage: applyRealtimeTurn(state.streamingMessage, state.selectedSessionId!, data), running: true }
+      })
     }),
     wsClient.on('session:process_item', (message) => {
       if (!current(message)) return
@@ -193,12 +316,19 @@ function installListeners(set: (value: Partial<WorkbenchSessionState> | ((state:
       const block = turnFromProcessItems(item.message_id, [item]).processBlocks[0]
       if (!block) return
       set((state) => {
+        const relatedMessage = state.messages.find((entry) => entry.id === item.message_id && entry.session_id === item.session_id)
+        const activeProcessStatus = item.status === 'running' || item.status === 'in_progress' || item.status === 'pending'
+        const shouldStream = state.running || relatedMessage?.status === 'running' || activeProcessStatus
         const base = state.streamingMessage?.id === item.message_id
           ? state.streamingMessage
-          : state.running ? { ...(state.streamingMessage ?? createEmptyTurn(item.message_id)), id: item.message_id } : state.streamingMessage
+          : shouldStream ? { ...(state.streamingMessage ?? createEmptyTurn(item.message_id)), id: item.message_id } : state.streamingMessage
         return {
           streamingMessage: base ? mergeBlockIntoTurn(base, block) : null,
+          running: base ? true : state.running,
           messages: state.messages.map((entry) => entry.id === item.message_id ? { ...entry, processBlocks: mergeProcessBlock(entry.processBlocks ?? [], block) } : entry),
+          processByMessageId: state.processByMessageId[item.message_id]
+            ? { ...state.processByMessageId, [item.message_id]: { ...state.processByMessageId[item.message_id], blocks: mergeProcessBlock(state.processByMessageId[item.message_id].blocks, block) } }
+            : state.processByMessageId,
         }
       })
     }),
@@ -207,7 +337,22 @@ function installListeners(set: (value: Partial<WorkbenchSessionState> | ((state:
       const event = message.event as SessionEventData
       set((state) => {
         const events = [...state.events.filter((item) => item.id !== event.id), event].sort((a, b) => a.sequence - b.sequence)
-        return { events, ...reducePendingInteractions([event], state.pendingPermissions, state.pendingElicitations, state.usage, state.capabilities) }
+        if (mirroredRealtimeEventTypes.has(event.type) && notePersistedEvent(message.sessionId as string, event)) return { events }
+        const reduced = applySessionEvent({
+          streamingMessage: state.streamingMessage,
+          usage: state.usage,
+          turnUsage: null,
+          capabilities: { ...state.capabilities },
+          plan: [],
+          pendingPermissions: state.pendingPermissions,
+          pendingElicitations: state.pendingElicitations,
+        }, event)
+        return {
+          events,
+          streamingMessage: reduced.streamingMessage,
+          running: !!reduced.streamingMessage || state.running,
+          ...reducePendingInteractions([event], state.pendingPermissions, state.pendingElicitations, state.usage, state.capabilities),
+        }
       })
     }),
     wsClient.on('session:capabilities', (message) => {
@@ -265,14 +410,14 @@ export const useWorkbenchSessionStore = create<WorkbenchSessionState>((set, get)
   fileChangeDetailsByMessageId: {},
   fileChangeLoadingByKey: {},
   fileChangeErrorByKey: {},
-  toolCallDetailsByKey: {},
   processItemLoadingByKey: {},
   processItemErrorByKey: {},
   select: async (sessionId) => {
     const requestGeneration = ++generation
+    mirroredEvents.clear()
     const stopForSession = sessionId ? get().stoppingSessions[sessionId] === true : false
     const stopErrorForSession = sessionId ? get().stopErrorsBySession[sessionId] ?? null : null
-    set({ selectedSessionId: sessionId, messages: [], events: [], streamingMessage: null, loading: !!sessionId, error: null, running: false, sending: false, stopping: stopForSession, stopError: stopErrorForSession, pendingPermissions: [], pendingElicitations: [], interactionError: null, usage: null, capabilities: { ...defaultCaps }, hasMoreMessages: false, loadingOlderMessages: false, processByMessageId: {}, fileChangeDetailsByMessageId: {}, fileChangeLoadingByKey: {}, fileChangeErrorByKey: {}, toolCallDetailsByKey: {}, processItemLoadingByKey: {}, processItemErrorByKey: {} })
+    set({ selectedSessionId: sessionId, messages: [], events: [], streamingMessage: null, loading: !!sessionId, error: null, running: false, sending: false, stopping: stopForSession, stopError: stopErrorForSession, pendingPermissions: [], pendingElicitations: [], interactionError: null, usage: null, capabilities: { ...defaultCaps }, hasMoreMessages: false, loadingOlderMessages: false, processByMessageId: {}, fileChangeDetailsByMessageId: {}, fileChangeLoadingByKey: {}, fileChangeErrorByKey: {}, processItemLoadingByKey: {}, processItemErrorByKey: {} })
     setSubscription(sessionId)
     if (!sessionId) { set({ loading: false }); return }
     installListeners(set)
@@ -285,7 +430,14 @@ export const useWorkbenchSessionStore = create<WorkbenchSessionState>((set, get)
       ])
       if (requestGeneration !== generation) return
       const runningMessage = messagePage.items.filter((message) => message.role === 'agent' && message.status === 'running').at(-1)
-      set({ messages: mergeMessagesForSession(messagePage.items, [], sessionId), events: recovery.events, ...reducePendingInteractions(recovery.events), streamingMessage: runningMessage ? { ...createEmptyTurn(runningMessage.id), finalAnswer: runningMessage.content, content: runningMessage.content, done: false } : null, running: !!runningMessage, loading: false, hasMoreMessages: messagePage.hasMore })
+      const recoveredStreaming = reduceSessionEvents(recovery.events).streamingMessage
+      const existingStreaming = get().selectedSessionId === sessionId ? get().streamingMessage : null
+      const recoveredBase = recoveredStreaming || (runningMessage ? { ...createEmptyTurn(runningMessage.id), finalAnswer: runningMessage.content, content: runningMessage.content, done: false } : null)
+      const streaming = existingStreaming && recoveredBase && existingStreaming.id === recoveredBase.id
+        ? mergeBlocksIntoTurn({ ...recoveredBase, finalAnswer: recoveredBase.finalAnswer || existingStreaming.finalAnswer, content: recoveredBase.content || existingStreaming.content, done: false }, existingStreaming.processBlocks)
+        : existingStreaming && !recoveredBase ? existingStreaming : recoveredBase
+      set({ messages: mergeMessagesForSession(messagePage.items, [], sessionId), events: recovery.events, ...reducePendingInteractions(recovery.events), streamingMessage: streaming, running: !!runningMessage || !!recoveredStreaming || !!streaming, loading: false, hasMoreMessages: messagePage.hasMore })
+      if (runningMessage) void useWorkbenchSessionStore.getState().loadMessageProcess(runningMessage.id)
     } catch (error) {
       if (requestGeneration === generation) set({ loading: false, error: error instanceof Error ? error.message : '会话加载失败' })
     }
@@ -293,6 +445,7 @@ export const useWorkbenchSessionStore = create<WorkbenchSessionState>((set, get)
   sendPrompt: async (content, images = [], files = []) => {
     const sid = get().selectedSessionId
     if (!sid || (!content.trim() && images.length === 0 && files.length === 0)) return
+    const requestGeneration = generation
     const clientMessageId = `workbench-${Date.now()}`
     const queueBehindActiveTurn = get().running
     const fileContext = files.length ? `${content.trim()}\n\n[文件附件]\n${files.map((file) => `- 文件路径: ${file.path}\n- MIME: ${file.mimeType}\n- 原始文件名: ${file.name}`).join('\n')}` : content.trim()
@@ -300,8 +453,9 @@ export const useWorkbenchSessionStore = create<WorkbenchSessionState>((set, get)
     try {
       const commandImages = images.filter((image): image is ImageAttachmentInfo & { data: string } => typeof image.data === 'string').map((image) => ({ data: image.data, mimeType: image.mimeType }))
       await commandClient.execute({ commandId: clientMessageId, type: 'prompt', sessionId: sid, clientMessageId, content: fileContext, ...(commandImages.length ? { images: commandImages } : {}) })
-      if (sid === get().selectedSessionId) set({ sending: false })
+      if (sid === get().selectedSessionId && requestGeneration === generation) set({ sending: false })
     } catch (error) {
+      if (sid !== get().selectedSessionId || requestGeneration !== generation) throw error
       set((state) => ({ sending: false, running: queueBehindActiveTurn ? state.running : false, streamingMessage: queueBehindActiveTurn ? state.streamingMessage : null, messages: state.messages.filter((message) => message.id !== clientMessageId), error: error instanceof Error ? error.message : '消息发送失败' }))
       throw error
     }
@@ -309,24 +463,26 @@ export const useWorkbenchSessionStore = create<WorkbenchSessionState>((set, get)
   loadOlderMessages: async () => {
     const sid = get().selectedSessionId
     if (!sid || get().loadingOlderMessages || !get().hasMoreMessages) return
+    const requestGeneration = generation
     const current = get().messages.filter((message) => message.session_id === sid).sort((a, b) => a.timestamp.localeCompare(b.timestamp))
     const oldest = current[0]
     if (!oldest) return
     set({ loadingOlderMessages: true })
     try {
       const page = await queryClient.listSessionMessages({ sessionId: sid, limit: 40, before: oldest.timestamp })
-      if (sid !== get().selectedSessionId) return
+      if (sid !== get().selectedSessionId || requestGeneration !== generation) return
       set((state) => ({ messages: mergeMessagesForSession(page.items, state.messages, sid), hasMoreMessages: page.hasMore, loadingOlderMessages: false }))
     } catch {
-      if (sid === get().selectedSessionId) set({ loadingOlderMessages: false })
+      if (sid === get().selectedSessionId && requestGeneration === generation) set({ loadingOlderMessages: false })
     }
   },
   loadMessageProcess: async (messageId) => {
     const sid = get().selectedSessionId
     if (!sid) return
+    const requestGeneration = generation
     const message = get().messages.find((item) => item.id === messageId && item.session_id === sid)
     if (!message || get().processByMessageId[messageId]?.loading || get().processByMessageId[messageId]?.loaded) return
-    set((state) => ({ processByMessageId: { ...state.processByMessageId, [messageId]: { blocks: state.processByMessageId[messageId]?.blocks || [], loading: true, loaded: false } } }))
+    set((state) => ({ processByMessageId: { ...state.processByMessageId, [messageId]: { blocks: state.processByMessageId[messageId]?.blocks || message.processBlocks || [], loading: true, loaded: false } } }))
     try {
       const items = await wsClient.request({ type: 'sessions.messageProcess', sessionId: sid, messageId }) as TurnProcessItemInfo[]
       let turn = turnFromProcessItems(messageId, items)
@@ -334,36 +490,78 @@ export const useWorkbenchSessionStore = create<WorkbenchSessionState>((set, get)
         const events = await wsClient.request({ type: 'sessions.messageEvents', sessionId: sid, messageId }) as SessionEventData[]
         turn = turnFromEvents(messageId, events)
       }
-      if (sid !== get().selectedSessionId) return
-      set((state) => ({ messages: state.messages.map((item) => item.id === messageId ? { ...item, processBlocks: turn.processBlocks, finalAnswer: turn.finalAnswer || item.content, parsedToolCalls: turn.toolCalls } : item), processByMessageId: { ...state.processByMessageId, [messageId]: { blocks: turn.processBlocks, loading: false, loaded: true } } }))
+      if (sid !== get().selectedSessionId || requestGeneration !== generation) return
+      set((state) => {
+        const currentMessage = state.messages.find((item) => item.id === messageId && item.session_id === sid)
+        const mergedMessageBlocks = mergeProcessBlocks(currentMessage?.processBlocks ?? [], turn.processBlocks, false)
+        const currentProcess = state.processByMessageId[messageId]
+        const mergedProcessBlocks = mergeProcessBlocks(currentProcess?.blocks ?? [], turn.processBlocks, false)
+        const mergedToolCalls = mergedMessageBlocks
+          .filter((item): item is Extract<TurnProcessBlock, { kind: 'tool' }> => item.kind === 'tool')
+          .map((item) => item.toolCall)
+        const streaming = message.status === 'running'
+          ? state.streamingMessage?.id === messageId
+            ? mergeBlocksIntoTurn({ ...state.streamingMessage, finalAnswer: state.streamingMessage.finalAnswer || message.content, content: state.streamingMessage.content || message.content, done: false }, turn.processBlocks, false)
+            : { ...turn, finalAnswer: message.content, content: message.content, done: false }
+          : state.streamingMessage
+        return {
+          messages: state.messages.map((item) => item.id === messageId && item.session_id === sid ? { ...item, processBlocks: mergedMessageBlocks, finalAnswer: turn.finalAnswer || item.content, parsedToolCalls: mergedToolCalls } : item),
+          streamingMessage: streaming,
+          processByMessageId: { ...state.processByMessageId, [messageId]: { blocks: mergedProcessBlocks, loading: false, loaded: true } },
+        }
+      })
     } catch (error) {
+      if (sid !== get().selectedSessionId || requestGeneration !== generation) return
       set((state) => ({ processByMessageId: { ...state.processByMessageId, [messageId]: { blocks: state.processByMessageId[messageId]?.blocks || [], loading: false, loaded: false, error: error instanceof Error ? error.message : '执行过程加载失败' } } }))
     }
   },
   loadFileChanges: async (messageId) => {
     const sid = get().selectedSessionId
     if (!sid || get().fileChangeDetailsByMessageId[messageId]) return
+    const requestGeneration = generation
     const key = `file:${messageId}`
     set((state) => ({ fileChangeLoadingByKey: { ...state.fileChangeLoadingByKey, [key]: true } }))
     try {
       const detail = await wsClient.request({ type: 'sessions.messageFileChanges', sessionId: sid, messageId }) as FileChangeDetailInfo
-      if (sid !== get().selectedSessionId) return
+      if (sid !== get().selectedSessionId || requestGeneration !== generation) return
       set((state) => ({ fileChangeDetailsByMessageId: { ...state.fileChangeDetailsByMessageId, [messageId]: detail }, fileChangeLoadingByKey: { ...state.fileChangeLoadingByKey, [key]: false } }))
     } catch (error) {
+      if (sid !== get().selectedSessionId || requestGeneration !== generation) return
       set((state) => ({ fileChangeLoadingByKey: { ...state.fileChangeLoadingByKey, [key]: false }, fileChangeErrorByKey: { ...state.fileChangeErrorByKey, [key]: error instanceof Error ? error.message : '文件变更加载失败' } }))
     }
   },
   loadProcessItemDetail: async (messageId, itemId) => {
     const sid = get().selectedSessionId
     if (!sid) return
+    const requestGeneration = generation
     const key = `${messageId}:${itemId}`
-    if (get().toolCallDetailsByKey[key] || get().processItemLoadingByKey[key]) return
+    if (get().processItemLoadingByKey[key]) return
     set((state) => ({ processItemLoadingByKey: { ...state.processItemLoadingByKey, [key]: true } }))
     try {
-      const detail = await wsClient.request({ type: 'sessions.messageToolCallDetail', sessionId: sid, messageId, toolCallId: itemId }) as ToolCallDetailInfo
-      if (sid !== get().selectedSessionId) return
-      set((state) => ({ toolCallDetailsByKey: { ...state.toolCallDetailsByKey, [key]: detail }, processItemLoadingByKey: { ...state.processItemLoadingByKey, [key]: false } }))
+      const detail = await wsClient.request({ type: 'sessions.processItemDetail', sessionId: sid, messageId, itemId }) as TurnProcessItemInfo
+      if (sid !== get().selectedSessionId || requestGeneration !== generation) return
+      const detailBlock = turnFromProcessItems(messageId, [detail]).processBlocks[0]
+      if (!detailBlock) {
+        set((state) => ({ processItemLoadingByKey: withoutKey(state.processItemLoadingByKey, key) }))
+        return
+      }
+      set((state) => {
+        const streaming = state.streamingMessage?.id === messageId
+          ? mergeBlockIntoTurn(state.streamingMessage, detailBlock)
+          : state.streamingMessage
+        const processState = state.processByMessageId[messageId]
+        return {
+          messages: state.messages.map((item) => item.id === messageId ? { ...item, processBlocks: mergeProcessBlock(item.processBlocks ?? [], detailBlock) } : item),
+          streamingMessage: streaming,
+          processByMessageId: processState
+            ? { ...state.processByMessageId, [messageId]: { ...processState, blocks: mergeProcessBlock(processState.blocks, detailBlock) } }
+            : state.processByMessageId,
+          processItemLoadingByKey: { ...state.processItemLoadingByKey, [key]: false },
+          processItemErrorByKey: withoutKey(state.processItemErrorByKey, key),
+        }
+      })
     } catch (error) {
+      if (sid !== get().selectedSessionId || requestGeneration !== generation) return
       set((state) => ({ processItemLoadingByKey: { ...state.processItemLoadingByKey, [key]: false }, processItemErrorByKey: { ...state.processItemErrorByKey, [key]: error instanceof Error ? error.message : '执行详情加载失败' } }))
     }
   },
@@ -423,5 +621,5 @@ export const useWorkbenchSessionStore = create<WorkbenchSessionState>((set, get)
       set((state) => ({ pendingElicitations: failure.expired ? state.pendingElicitations.filter((request) => request.id !== requestId) : state.pendingElicitations, interactionError: failure.message }))
     }
   },
-  dispose: () => { generation += 1; setSubscription(null); removeListeners?.(); set({ selectedSessionId: null, messages: [], events: [], streamingMessage: null, loading: false, error: null, running: false, sending: false, stopping: false, stopError: null, stoppingSessions: {}, stopErrorsBySession: {}, pendingPermissions: [], pendingElicitations: [], interactionError: null, usage: null, capabilities: { ...defaultCaps }, hasMoreMessages: false, loadingOlderMessages: false, processByMessageId: {}, fileChangeDetailsByMessageId: {}, fileChangeLoadingByKey: {}, fileChangeErrorByKey: {}, toolCallDetailsByKey: {}, processItemLoadingByKey: {}, processItemErrorByKey: {} }) },
+  dispose: () => { generation += 1; mirroredEvents.clear(); setSubscription(null); removeListeners?.(); set({ selectedSessionId: null, messages: [], events: [], streamingMessage: null, loading: false, error: null, running: false, sending: false, stopping: false, stopError: null, stoppingSessions: {}, stopErrorsBySession: {}, pendingPermissions: [], pendingElicitations: [], interactionError: null, usage: null, capabilities: { ...defaultCaps }, hasMoreMessages: false, loadingOlderMessages: false, processByMessageId: {}, fileChangeDetailsByMessageId: {}, fileChangeLoadingByKey: {}, fileChangeErrorByKey: {}, processItemLoadingByKey: {}, processItemErrorByKey: {} }) },
 }))

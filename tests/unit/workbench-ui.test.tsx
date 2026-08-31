@@ -150,6 +150,21 @@ describe('统一工作台 UI', () => {
     expect(html).toContain('data-file-key="presentation-b:docs/report.md"')
   })
 
+  test('对话中的预览或文件卡片可以直接聚焦到右侧面板', () => {
+    const preview = { kind: 'preview' as const, previewId: 'preview-focus', url: '/preview/preview-focus/', title: '预览结果', target: 'pc' as const, taskId: null, createdAt: '2026-08-29T08:00:00.000Z' }
+    const previewHtml = renderToStaticMarkup(createElement(UpdatesPreviewPanel, {
+      messages: [], projectId: 'project-1', sessionId: 'session-1', focus: { kind: 'preview', preview }, collapsed: false, onToggle: vi.fn(),
+    }))
+    expect(previewHtml).toContain('title="预览结果"')
+    expect(previewHtml).toContain('/preview/preview-focus/')
+
+    const presentation = { kind: 'files' as const, presentationId: 'files-focus', projectId: 'project-1', title: '文件结果', createdAt: '2026-08-29T08:00:00.000Z', files: [{ path: 'README.md', title: 'README', name: 'README.md', extension: '.md', size: 10, kind: 'text' as const, language: 'markdown' }] }
+    const fileHtml = renderToStaticMarkup(createElement(UpdatesPreviewPanel, {
+      messages: [], projectId: 'project-1', sessionId: 'session-1', focus: { kind: 'files', presentation }, collapsed: false, onToggle: vi.fn(),
+    }))
+    expect(fileHtml).toContain('data-file-key="files-focus:README.md"')
+  })
+
   test('交互面板渲染在输入卡之上', () => {
     const html = renderToStaticMarkup(createElement(InteractionPanel, {
       permission: {
