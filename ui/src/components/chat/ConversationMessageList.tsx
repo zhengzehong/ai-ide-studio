@@ -114,7 +114,7 @@ function TimelineGroupMessage({ group, adapter, onOpenPreview, onOpenFiles, onOp
       }
       return <div key={block.id} className="conversation-timeline-text">
         {block.attachments?.map((attachment, index) => <AuthenticatedImage key={`${block.id}-attachment-${index}`} image={attachment} alt={attachment.name || '附件'} style={{ maxWidth: 180, maxHeight: 140, borderRadius: 8, border: '1px solid var(--border)', objectFit: 'cover' }} />)}
-        {block.thinking && <div className="conversation-process-thinking"><span>思考过程</span><MarkdownRenderer content={block.thinking} /></div>}
+        {block.thinking && <ConversationProcessBlock block={{ id: `${block.id}:thinking`, kind: 'thinking', text: block.thinking }} />}
         {block.content && <MarkdownRenderer content={block.content} onOpenResource={onOpenResource} />}
       </div>
     })}
@@ -161,17 +161,18 @@ function StreamingMessage({ message, adapter, onOpenPreview, onOpenFiles, onOpen
   const processBlocks = message.processBlocks || []
   const finalAnswer = message.finalAnswer || message.content || ''
   const hasBody = processBlocks.some((block) => block.kind !== 'stage') || !!finalAnswer
-  return <MessageShell agentName={adapter.agentName} streaming streamingLabel={message.stage || '生成中'} showBubble={hasBody}><TurnContentView processBlocks={processBlocks} finalAnswer={finalAnswer} isStreaming processCount={message.process_item_count ?? processBlocks.length} defaultProcessOpen onOpenResource={onOpenResource} renderProcessBlock={(block) => <ProcessBlock block={block} adapter={adapter} messageId={message.id} onOpenPreview={onOpenPreview} onOpenFiles={onOpenFiles} />} /></MessageShell>
+  return <MessageShell agentName={adapter.agentName} streaming streamingLabel={message.stage || '生成中'} showBubble={hasBody}><TurnContentView processBlocks={processBlocks} finalAnswer={finalAnswer} isStreaming processCount={message.process_item_count ?? processBlocks.length} defaultProcessOpen onOpenResource={onOpenResource} renderProcessBlock={(block) => <ProcessBlock block={block} adapter={adapter} messageId={message.id} isStreaming onOpenPreview={onOpenPreview} onOpenFiles={onOpenFiles} />} /></MessageShell>
 }
 
 function MessageShell({ children, human = false, agentName, timestamp, streaming = false, streamingLabel = '生成中', showBubble = true }: { children: React.ReactNode; human?: boolean; agentName?: string | null; timestamp?: string; streaming?: boolean; streamingLabel?: string; showBubble?: boolean }) {
   return <div className={`conversation-message${human ? ' is-human' : ''}`}><div className="conversation-avatar">{human ? <User size={14} /> : <Bot size={14} />}</div><div className="conversation-message-body"><div className="conversation-message-meta"><strong>{human ? '你' : agentName || 'Agent'}</strong>{timestamp && <time>{formatTime(timestamp)}</time>}{streaming && <span className="conversation-streaming-label"><Loader2 size={11} /> {streamingLabel}</span>}</div>{showBubble && <div className="conversation-bubble">{children}</div>}</div></div>
 }
 
-function ProcessBlock({ block, adapter, messageId, onOpenPreview, onOpenFiles }: { block: TurnProcessBlock; adapter: ConversationAdapter; messageId: string; onOpenPreview?: ConversationPaneProps['onOpenPreview']; onOpenFiles?: ConversationPaneProps['onOpenFiles'] }) {
+function ProcessBlock({ block, adapter, messageId, isStreaming = false, onOpenPreview, onOpenFiles }: { block: TurnProcessBlock; adapter: ConversationAdapter; messageId: string; isStreaming?: boolean; onOpenPreview?: ConversationPaneProps['onOpenPreview']; onOpenFiles?: ConversationPaneProps['onOpenFiles'] }) {
   const key = `${messageId}:${block.id}`
   return <ConversationProcessBlock
     block={block}
+    isStreaming={isStreaming}
     detailLoading={adapter.processItemLoadingByKey?.[key]}
     detailError={adapter.processItemErrorByKey?.[key]}
     onLoadDetail={'hasDetail' in block && block.hasDetail ? () => { void adapter.loadProcessItemDetail(messageId, block.id) } : undefined}

@@ -1,12 +1,12 @@
 import type { ReactNode } from 'react'
 import { Check, ChevronDown, ChevronRight, Loader2, Wrench, X } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { MarkdownRenderer } from '../MarkdownRenderer'
 import { FileChangesCard } from './FileChangesCard'
 import { FilesPresentationCard } from './FilesPresentationCard'
 import { PreviewCard } from './PreviewCard'
 import { extractFileChangesFromToolCall, toolBlockHasDiff } from './file-changes-utils'
-import { processBlockNeedsDetail } from './process-detail'
+import { processBlockNeedsDetail, useProcessThinkingDisclosure } from './process-detail'
 import { isFilesPresentationToolCall, parseFilesPresentationOutput, type FilesPresentationInfo, type PreviewPresentationInfo } from '../../stores/session-events'
 import type { TurnProcessBlock } from '../../stores/turn-blocks'
 import { isPreviewPublishTool, parsePreviewPublishOutput } from '../../pages/workspace/helpers'
@@ -24,6 +24,7 @@ export interface ConversationProcessBlockProps {
 
 export function ConversationProcessBlock({
   block,
+  isStreaming = false,
   detailLoading = false,
   detailError,
   onLoadDetail,
@@ -31,6 +32,8 @@ export function ConversationProcessBlock({
   onOpenFiles,
 }: ConversationProcessBlockProps): ReactNode {
   const needsDetail = processBlockNeedsDetail(block)
+  const thinkingDisclosure = useProcessThinkingDisclosure(isStreaming)
+  const thinkingContentId = useId()
   useEffect(() => {
     if (needsDetail && block.kind !== 'tool' && !detailLoading && !detailError) onLoadDetail?.()
   }, [block.kind, detailError, detailLoading, needsDetail, onLoadDetail])
@@ -47,12 +50,23 @@ export function ConversationProcessBlock({
     const diffEntries = toolBlockHasDiff(block.toolCall) ? extractFileChangesFromToolCall(block.toolCall) : []
     return <ConversationToolCall block={block} detailLoading={detailLoading} detailError={detailError} onLoadDetail={onLoadDetail} diffEntries={diffEntries} />
   }
-  if (block.kind === 'thinking') return <div className="conversation-process-thinking"><span>思考过程</span><MarkdownRenderer content={block.text} /></div>
+  if (block.kind === 'thinking') return <div className="conversation-process-thinking">
+    <button type="button" className="conversation-process-thinking-header process-thinking-toggle" aria-expanded={thinkingDisclosure.open} aria-controls={thinkingContentId} onClick={thinkingDisclosure.toggle}>
+      {thinkingDisclosure.open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+      <span>思考过程</span>
+      {isStreaming && <Loader2 size={10} className="conversation-process-thinking-spinner" />}
+    </button>
+    {thinkingDisclosure.open && <div id={thinkingContentId} className="conversation-process-thinking-body"><MarkdownRenderer content={block.text} /></div>}
+  </div>
   if (block.kind === 'file_change') return block.changes ? <FileChangesCard compact changes={block.changes} /> : <ProcessDetailCard title="文件修改" summary={block.summary} loading={detailLoading} error={detailError} />
   if (block.kind === 'plan') return <PlanProcessCard block={block} loading={detailLoading} error={detailError} />
   if (block.kind === 'permission') return <PermissionProcessCard block={block} loading={detailLoading} error={detailError} />
   if (block.kind === 'elicitation') return <ProcessDetailCard title="AI 提问" summary={block.message || block.summary || block.preview || '需要补充信息'} loading={detailLoading} error={detailError} />
-  if (block.kind === 'stage' || block.kind === 'note') return <div className="conversation-process-item">{block.text}</div>
+  if (block.kind === 'note') return <div className="conversation-process-note">
+    <div className="conversation-process-note-title">中间说明</div>
+    <div className="conversation-process-note-body"><MarkdownRenderer content={block.text} /></div>
+  </div>
+  if (block.kind === 'stage') return <div className="conversation-process-item">{block.text}</div>
   return null
 }
 
