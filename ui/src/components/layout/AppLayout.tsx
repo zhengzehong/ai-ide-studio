@@ -4,6 +4,7 @@ import {
   Activity,
   Bot,
   Brain,
+  BookOpen,
   Clock,
   FolderKanban,
   Inbox,
@@ -30,12 +31,14 @@ import { ProjectSwitcher } from './ProjectSwitcher'
 import { ProjectTabBar } from './ProjectTabBar'
 import { useSecretaryStore } from '../../stores/secretary.store'
 import { totalSecretaryAttention } from '../../stores/secretary-attention'
+import { useReadingStore } from '../../stores/reading.store'
 import './AppLayout.css'
 
 const globalNav = [
   { to: '/updates', icon: Activity, label: '会话动态工作台' },
   { to: '/', icon: LayoutDashboard, label: '概览', end: true },
   { to: '/pinned', icon: Pin, label: '置顶会话' },
+  { to: '/reading', icon: BookOpen, label: '阅读' },
   { to: '/agents', icon: Store, label: 'Agent 广场' },
   { to: '/skills', icon: Sparkles, label: '技能中心' },
   { to: '/tools', icon: Wrench, label: '工具管理' },
@@ -83,11 +86,19 @@ export function AppLayout() {
   const secretaryAttention = currentProjectId && secretaryProjectId === currentProjectId
     ? totalSecretaryAttention(secretaries)
     : 0
+  const readingUnreadCount = useReadingStore((state) => state.unreadCount)
+  const refreshReadingUnreadCount = useReadingStore((state) => state.refreshUnreadCount)
 
   useEffect(() => {
     if (currentProjectId) void loadSecretaries(currentProjectId)
   }, [currentProjectId, loadSecretaries])
   useEffect(() => setupSecretaryListeners(), [setupSecretaryListeners])
+  useEffect(() => {
+    void refreshReadingUnreadCount()
+    const refresh = () => void refreshReadingUnreadCount()
+    window.addEventListener('focus', refresh)
+    return () => window.removeEventListener('focus', refresh)
+  }, [refreshReadingUnreadCount])
 
   const handleProjectNavClick = (event: React.MouseEvent): void => {
     if (currentProjectId) return
@@ -109,6 +120,11 @@ export function AppLayout() {
               title={label}
             >
               <Icon size={20} />
+              {to === '/reading' && readingUnreadCount > 0 && (
+                <span className="sidebar-reading-badge" aria-label={`${readingUnreadCount} 篇未读`}>
+                  {readingUnreadCount > 9 ? '9+' : readingUnreadCount}
+                </span>
+              )}
             </NavLink>
           ))}
           <div className="sidebar-divider" />

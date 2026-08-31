@@ -41,6 +41,7 @@ import { createFunAsrProxy } from './funasr-proxy.js'
 import { mountSessionFileUploadRoutes } from './http/session-file-upload-routes.js'
 import { mountRetentionRoutes } from './http/retention-routes.js'
 import type { DataRetentionService } from '../data-retention/retention-service.js'
+import { mountReadingAssetRoutes } from './reading-assets.js'
 
 const log = createChildLogger('gateway')
 
@@ -96,6 +97,7 @@ export async function startGateway(config: AppConfig, options: StartGatewayOptio
   app.get('/avatars/*', (c) => handleAvatarAsset(c))
   app.get('/preview/:previewId/*', (c) => handlePreviewAsset(c, config))
   app.get('/preview/:previewId', (c) => handlePreviewAsset(c, config))
+  mountReadingAssetRoutes(app, config)
   app.post('/api/bridge/callback', (c) => handleBridgeCallback(c, config))
 
   mountShareRoutes(app, config)

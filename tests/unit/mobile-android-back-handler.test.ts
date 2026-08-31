@@ -12,6 +12,8 @@ describe('mobile android back handler', () => {
     expect(resolveAndroidBackAction('/chat/sess-1', 'http://127.0.0.1:18900', '/pinned')).toEqual({ type: 'navigate', to: '/pinned' })
     expect(resolveAndroidBackAction('/tasks', 'http://127.0.0.1:18900')).toEqual({ type: 'navigate', to: '/' })
     expect(resolveAndroidBackAction('/settings', 'http://127.0.0.1:18900')).toEqual({ type: 'navigate', to: '/' })
+    expect(resolveAndroidBackAction('/reading/read-1', 'http://127.0.0.1:18900')).toEqual({ type: 'navigate', to: '/reading' })
+    expect(resolveAndroidBackAction('/reading', 'http://127.0.0.1:18900')).toEqual({ type: 'navigate', to: '/' })
   })
 
   test('returns from connect page when a server is configured', () => {

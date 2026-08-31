@@ -25,6 +25,7 @@ import { widgetRpcHandlers } from './widget.js'
 import { previewRpcHandlers } from './previews.js'
 import { secretaryRpcHandlers } from './secretary.js'
 import { inspirationRpcHandlers } from './inspiration.js'
+import { readingRpcHandlers } from './readings.js'
 import type { RpcContext, RpcHandlerMap } from './types.js'
 import { trackAsyncOperation, trackSyncInvocation } from '../../shared/operation-diagnostics.js'
 
@@ -55,6 +56,7 @@ const rpcHandlers: RpcHandlerMap = {
   ...previewRpcHandlers,
   ...secretaryRpcHandlers,
   ...inspirationRpcHandlers,
+  ...readingRpcHandlers,
 }
 
 export async function dispatchRpc(msg: ClientMessage, context: RpcContext): Promise<void> {

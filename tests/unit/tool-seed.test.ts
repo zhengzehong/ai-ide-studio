@@ -116,6 +116,7 @@ describe('builtin tool seed synchronization', () => {
       'inspiration.note.get',
       'list_memory',
       'preview.publish',
+      'reading.add',
       'recall_memory',
       'record_memory',
       'secretary.report',
@@ -342,6 +343,33 @@ describe('builtin tool seed synchronization', () => {
         AND tool_bindings.enabled = 1
     `,
       )
+      .all()
+    expect(bindings).toHaveLength(1)
+  })
+
+  test('registers reading.add as a global builtin tool with only the AI-facing fields', () => {
+    seedBuiltinTools()
+
+    const tool = toolStore.getByName('reading.add')
+    expect(tool).toMatchObject({ type: 'builtin', is_builtin: 1, category: 'data' })
+    const config = tool?.config_json ? (JSON.parse(tool.config_json) as Record<string, unknown>) : {}
+    expect(config.handler).toBe('reading.add')
+
+    const schema = tool?.input_schema_json ? (JSON.parse(tool.input_schema_json) as Record<string, unknown>) : {}
+    const properties = asRecord(schema.properties)
+    expect(Object.keys(properties).sort()).toEqual(['content', 'title', 'type'])
+    expect(properties.type).toMatchObject({ enum: ['md', 'html', 'url'] })
+    expect(schema.required).toEqual(['title', 'type', 'content'])
+    expect(schema.additionalProperties).toBe(false)
+
+    const bindings = getDb()
+      .prepare<{ name: string }, { name: string }>(`
+        SELECT tools.name FROM tools
+        JOIN tool_bindings ON tool_bindings.tool_id = tools.id
+        WHERE tools.name = 'reading.add'
+          AND tool_bindings.scope = 'global'
+          AND tool_bindings.enabled = 1
+      `)
       .all()
     expect(bindings).toHaveLength(1)
   })

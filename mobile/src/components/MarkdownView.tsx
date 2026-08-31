@@ -1,20 +1,28 @@
 import { type CSSProperties } from 'react'
-import ReactMarkdown from 'react-markdown'
+import ReactMarkdown, { defaultUrlTransform } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeSanitize from 'rehype-sanitize'
 import { CodeView } from './file-viewer/CodeView'
+import { resolveReadingAssetUrl } from '@desktop/services/reading-client'
 
 interface Props {
   content: string
   compact?: boolean
+  assetBaseUrl?: string
 }
 
-export default function MarkdownView({ content, compact = false }: Props) {
+export default function MarkdownView({ content, compact = false, assetBaseUrl }: Props) {
   return (
     <div style={compact ? compactStyles.wrap : styles.wrap}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeSanitize]}
+        urlTransform={(url, key) => {
+          if (assetBaseUrl && (key === 'src' || key === 'href') && !/^(?:https?:|mailto:|tel:|data:|blob:|#)/i.test(url)) {
+            return resolveReadingAssetUrl(url, assetBaseUrl)
+          }
+          return defaultUrlTransform(url)
+        }}
         components={{
           code({ className, children, ...props }) {
             const text = String(children ?? '')
@@ -32,6 +40,9 @@ export default function MarkdownView({ content, compact = false }: Props) {
                 {children}
               </a>
             )
+          },
+          img({ src, alt }) {
+            return <img src={src} alt={alt ?? ''} loading="lazy" referrerPolicy="no-referrer" style={styles.image} />
           },
           table({ children, ...props }) {
             return (
@@ -149,6 +160,13 @@ const styles: Record<string, CSSProperties> = {
     padding: '4px 12px',
     borderLeft: '3px solid var(--border-light)',
     color: 'var(--text-secondary)',
+  },
+  image: {
+    display: 'block',
+    maxWidth: '100%',
+    height: 'auto',
+    margin: '14px auto',
+    borderRadius: 'var(--radius-sm)',
   },
 }
 

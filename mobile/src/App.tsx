@@ -27,6 +27,9 @@ import { usePinnedSessionStore } from './stores/pinned-session.store'
 import { useVoiceStore } from './stores/voice.store'
 import { ActivityPage } from './pages/ActivityPage'
 import { useMobileActivityStore } from './stores/activity.store'
+import { useReadingStore } from '@desktop/stores/reading.store'
+import ReadingListPage from './pages/ReadingListPage'
+import ReadingDetailPage from './pages/ReadingDetailPage'
 
 const isAndroidBuild = import.meta.env.VITE_MOBILE_BUILD_TARGET === 'android'
 
@@ -46,6 +49,7 @@ export async function bootstrapMobileData(): Promise<void> {
     useMobileProjectSessionStatsStore.getState().fetchStats(),
     usePinnedSessionStore.getState().load({ silent: true }),
     useMobileActivityStore.getState().load({ silent: true }),
+    useReadingStore.getState().refreshUnreadCount(),
   ])
   await useSessionStore.getState().fetchSessions(useAppStore.getState().currentProjectId)
 }
@@ -113,6 +117,7 @@ export default function App() {
         <Route path="/task/:taskId" element={<TaskDetailPage />} />
         <Route path="/task/:taskId/report/:eventId" element={<TaskReportPage />} />
         <Route path="/preview/:previewId" element={<PreviewPage />} />
+        <Route path="/reading/:readingId" element={<ReadingDetailPage />} />
         <Route path="/templates" element={<TemplateListPage />} />
         <Route path="/inspiration/new" element={<InspirationRecordPage />} />
         <Route path="/inspiration/:noteId" element={<InspirationDetailPage />} />
@@ -120,6 +125,7 @@ export default function App() {
           <Route path="/secretary" element={<SecretaryPage />} />
           <Route path="/secretary/:secretaryId/:threadId" element={<SecretaryPage />} />
           <Route path="/activity" element={<ActivityPage />} />
+          <Route path="/reading" element={<ReadingListPage />} />
           <Route path="/pinned" element={<Navigate to="/?view=pinned" replace />} />
           <Route path="/" element={<SessionListPage />} />
           <Route path="/tasks" element={<TaskListPage />} />

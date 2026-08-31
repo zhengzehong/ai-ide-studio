@@ -137,12 +137,13 @@ describe('pinned session surfaces', () => {
     expect(html).not.toContain('跨项目持续关注')
   })
 
-  test('uses activity, sessions, tasks, and settings as the mobile tab bar', () => {
+  test('uses activity, sessions, reading, inspiration, and settings as the mobile tab bar', () => {
     const html = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(MobileShell)))
 
     expect(html.indexOf('>动态<')).toBeLessThan(html.indexOf('>会话<'))
-    expect(html.indexOf('>会话<')).toBeLessThan(html.indexOf('>任务<'))
-    expect(html.indexOf('>任务<')).toBeLessThan(html.indexOf('>设置<'))
+    expect(html.indexOf('>会话<')).toBeLessThan(html.indexOf('>阅读<'))
+    expect(html.indexOf('>阅读<')).toBeLessThan(html.indexOf('>灵感<'))
+    expect(html.indexOf('>灵感<')).toBeLessThan(html.indexOf('>设置<'))
     expect(html).not.toContain('>置顶<')
     expect(html).not.toContain('>秘书<')
   })

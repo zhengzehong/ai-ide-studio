@@ -79,6 +79,18 @@ Runtime 可见 patch 不经过 API 事件总线，而是通过 Runtime→Realtim
 | `inspiration.candidate.update` | `{ projectId, candidateId, title, descriptionMarkdown, suggestedAgentId? }` | `InspirationNote` | 修改尚未创建或占用的候选任务 |
 | `inspiration.candidate.createTask` | `{ projectId, candidateId, agentId, execute }` | `InspirationNote` | 幂等地只创建 Task 或创建并立即派发 |
 
+## 阅读 RPC
+
+阅读库 RPC 仅允许 owner 连接调用。阅读正文不经过 WS 返回：MD/HTML 条目通过带鉴权的 `/reading/:itemId/*` HTTP 路由加载，URL 条目由客户端直接访问 HTTPS 地址。
+
+| 类型 | 请求 | 响应 | 说明 |
+|---|---|---|---|
+| `reading.list` | `{ status?: 'active' | 'archived', projectId?: string | null, query?, limit?, offset? }` | `{ items, unreadCount, projectCounts }` | 读取轻量卡片列表；`projectId=null` 表示未归类，默认最多 100 条、上限 200 条 |
+| `reading.get` | `{ readingId }` | `{ item }` | 读取单条元数据；MD/HTML 返回 `contentUrl`，URL 返回 `externalUrl`，不返回服务器文件系统路径 |
+| `reading.update` | `{ readingId, status: 'read' | 'archived' }` | `{ item }` | 标记已读、归档或将归档条目恢复为已读 |
+
+阅读列表没有对应的实时 WS 事件。PC/APP 在进入阅读页、窗口/APP 回到前台和用户点击刷新时重新调用 `reading.list`。
+
 ### 文件资源
 
 | 方法 | 参数 | 返回 | 说明 |
