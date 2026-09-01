@@ -139,6 +139,29 @@ describe('cloneClaudeSessionFiles', () => {
     expect(await readFile(targetOutput, 'utf8')).toContain('Historical tool output was removed')
   })
 
+  it('publishes placeholders when the source resource directory is gone', async () => {
+    const projectDir = join(configDir, 'projects', encodeClaudeProjectPath(CWD))
+    const sourceResourceDir = join(projectDir, SOURCE_ID)
+    const missingOutput = join(sourceResourceDir, 'tool-results', 'missing-dir.txt')
+    await mkdir(projectDir, { recursive: true })
+    await writeFile(
+      join(projectDir, `${SOURCE_ID}.jsonl`),
+      `${JSON.stringify({ toolUseResult: { persistedOutputPath: missingOutput } })}\n`,
+      'utf8',
+    )
+
+    await cloneClaudeSessionFiles({
+      configDir,
+      sourceSessionId: SOURCE_ID,
+      targetSessionId: TARGET_ID,
+      sourceCwd: CWD,
+      targetCwd: CWD,
+    })
+
+    const targetOutput = join(projectDir, TARGET_ID, 'tool-results', 'missing-dir.txt')
+    expect(await readFile(targetOutput, 'utf8')).toContain('Historical tool output was removed')
+  })
+
   it('creates placeholders for missing persisted outputs referenced by subagents', async () => {
     const projectDir = join(configDir, 'projects', encodeClaudeProjectPath(CWD))
     const sourceResourceDir = join(projectDir, SOURCE_ID)

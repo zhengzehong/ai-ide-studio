@@ -117,7 +117,7 @@ export async function cloneClaudeSessionFiles(
     }
 
     await writeFile(temporaryJsonl, rewritten.content, { encoding: 'utf8', flag: 'wx' })
-    if (sourceResourcesExist) {
+    if (sourceResourcesExist || persistedResourcePaths.length > 0) {
       await rename(temporaryResources, targetResources)
       publishedResources = true
     }
