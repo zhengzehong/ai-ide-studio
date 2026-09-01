@@ -76,22 +76,14 @@ describe('reading.add', () => {
     }
   })
 
-  test('registers an HTTPS URL without a mounted path', async () => {
+  test('registers HTTP and HTTPS URLs without a mounted path', async () => {
     const context = createContext()
-    const result = await executeJson({
-      title: 'React 文档',
-      type: 'url',
-      content: 'https://react.dev/learn?source=studio',
-    }, context)
-
-    const row = getDb().prepare<[string], ReadingRow>('SELECT * FROM reading_items WHERE id = ?').get(result.readingId as string)
-    expect(row).toMatchObject({
-      format: 'url',
-      mount_path: null,
-      entry_file: null,
-      url: 'https://react.dev/learn?source=studio',
-    })
-    expect(row?.summary).toContain('react.dev')
+    for (const url of ['http://example.com/docs', 'https://react.dev/learn?source=studio']) {
+      const result = await executeJson({ title: 'URL 文档', type: 'url', content: url }, context)
+      const row = getDb().prepare<[string], ReadingRow>('SELECT * FROM reading_items WHERE id = ?').get(result.readingId as string)
+      expect(row).toMatchObject({ format: 'url', mount_path: null, entry_file: null, url })
+      expect(row?.summary).toContain(new URL(url).hostname)
+    }
   })
 
   test('rejects unsupported paths, protocols, and missing Session context', async () => {
@@ -100,8 +92,8 @@ describe('reading.add', () => {
     writeFileSync(textFile, 'not markdown')
 
     expect(await executeError({ title: '错', type: 'md', content: textFile }, context)).toContain('.md')
-    expect(await executeError({ title: '错', type: 'url', content: 'http://example.com' }, context)).toContain('HTTPS')
-    expect(await executeError({ title: '错', type: 'url', content: 'javascript:alert(1)' }, context)).toContain('HTTPS')
+    expect(await executeError({ title: '错', type: 'url', content: 'javascript:alert(1)' }, context)).toContain('HTTP/HTTPS')
+    expect(await executeError({ title: '错', type: 'url', content: 'file:///etc/passwd' }, context)).toContain('HTTP/HTTPS')
     expect(await executeError({ title: '错', type: 'url', content: 'https://example.com' }, {
       projectId: context.projectId,
       agentId: context.agentId,

@@ -1243,7 +1243,7 @@ const CORE_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
     name: 'reading.add',
     displayName: '加入阅读列表',
     description:
-      '把当前会话生成的长文加入用户的阅读列表。只传标题、类型和内容；项目、会话和 Agent 由系统注入。MD/HTML 传 Gateway 本机绝对文件路径，URL 只允许 HTTPS。',
+      '把当前会话生成的长文加入用户的阅读列表。只传标题、类型和内容；项目、会话和 Agent 由系统注入。MD/HTML 传 Gateway 本机绝对文件路径，URL 只允许 HTTP 或 HTTPS。',
     category: 'data',
     type: 'builtin',
     config: { handler: 'reading.add' },
@@ -1253,7 +1253,7 @@ const CORE_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
       properties: {
         title: { type: 'string', description: '阅读条目标题' },
         type: { type: 'string', enum: ['md', 'html', 'url'], description: '内容类型' },
-        content: { type: 'string', description: 'MD/HTML 的绝对文件路径，或 HTTPS URL' },
+        content: { type: 'string', description: 'MD/HTML 的绝对文件路径，或 HTTP/HTTPS URL' },
       },
       required: ['title', 'type', 'content'],
     },
