@@ -149,7 +149,7 @@ function ConversationMessage({ message, adapter, onOpenPreview, onOpenFiles, onO
       onLoadProcess={processCount > 0 ? () => { void adapter.loadMessageProcess(message.id) } : undefined}
       onLoadFileChanges={message.has_file_changes ? () => { void adapter.loadFileChanges(message.id) } : undefined}
       onOpenResource={onOpenResource}
-      renderProcessBlock={(block) => <ProcessBlock block={block} adapter={adapter} messageId={message.id} onOpenPreview={onOpenPreview} onOpenFiles={onOpenFiles} />}
+      renderProcessBlock={(block, context) => <ProcessBlock block={block} adapter={adapter} messageId={message.id} thinkingActive={context.thinkingActive} onOpenPreview={onOpenPreview} onOpenFiles={onOpenFiles} />}
       renderPreviewPresentation={onOpenPreview ? (preview) => <PreviewCard preview={preview} onOpen={() => onOpenPreview(preview)} /> : undefined}
       renderFilesPresentation={onOpenFiles ? (presentation) => <FilesPresentationCard presentation={presentation} onOpen={onOpenFiles} /> : undefined}
     />
@@ -161,18 +161,19 @@ function StreamingMessage({ message, adapter, onOpenPreview, onOpenFiles, onOpen
   const processBlocks = message.processBlocks || []
   const finalAnswer = message.finalAnswer || message.content || ''
   const hasBody = processBlocks.some((block) => block.kind !== 'stage') || !!finalAnswer
-  return <MessageShell agentName={adapter.agentName} streaming streamingLabel={message.stage || '生成中'} showBubble={hasBody}><TurnContentView processBlocks={processBlocks} finalAnswer={finalAnswer} isStreaming processCount={message.process_item_count ?? processBlocks.length} defaultProcessOpen onOpenResource={onOpenResource} renderProcessBlock={(block) => <ProcessBlock block={block} adapter={adapter} messageId={message.id} isStreaming onOpenPreview={onOpenPreview} onOpenFiles={onOpenFiles} />} /></MessageShell>
+  return <MessageShell agentName={adapter.agentName} streaming streamingLabel={message.stage || '生成中'} showBubble={hasBody}><TurnContentView processBlocks={processBlocks} finalAnswer={finalAnswer} isStreaming processCount={message.process_item_count ?? processBlocks.length} defaultProcessOpen onOpenResource={onOpenResource} renderProcessBlock={(block, context) => <ProcessBlock block={block} adapter={adapter} messageId={message.id} isStreaming thinkingActive={context.thinkingActive} onOpenPreview={onOpenPreview} onOpenFiles={onOpenFiles} />} /></MessageShell>
 }
 
 function MessageShell({ children, human = false, agentName, timestamp, streaming = false, streamingLabel = '生成中', showBubble = true }: { children: React.ReactNode; human?: boolean; agentName?: string | null; timestamp?: string; streaming?: boolean; streamingLabel?: string; showBubble?: boolean }) {
   return <div className={`conversation-message${human ? ' is-human' : ''}`}><div className="conversation-avatar">{human ? <User size={14} /> : <Bot size={14} />}</div><div className="conversation-message-body"><div className="conversation-message-meta"><strong>{human ? '你' : agentName || 'Agent'}</strong>{timestamp && <time>{formatTime(timestamp)}</time>}{streaming && <span className="conversation-streaming-label"><Loader2 size={11} /> {streamingLabel}</span>}</div>{showBubble && <div className="conversation-bubble">{children}</div>}</div></div>
 }
 
-function ProcessBlock({ block, adapter, messageId, isStreaming = false, onOpenPreview, onOpenFiles }: { block: TurnProcessBlock; adapter: ConversationAdapter; messageId: string; isStreaming?: boolean; onOpenPreview?: ConversationPaneProps['onOpenPreview']; onOpenFiles?: ConversationPaneProps['onOpenFiles'] }) {
+function ProcessBlock({ block, adapter, messageId, isStreaming = false, thinkingActive = false, onOpenPreview, onOpenFiles }: { block: TurnProcessBlock; adapter: ConversationAdapter; messageId: string; isStreaming?: boolean; thinkingActive?: boolean; onOpenPreview?: ConversationPaneProps['onOpenPreview']; onOpenFiles?: ConversationPaneProps['onOpenFiles'] }) {
   const key = `${messageId}:${block.id}`
   return <ConversationProcessBlock
     block={block}
     isStreaming={isStreaming}
+    thinkingActive={thinkingActive}
     detailLoading={adapter.processItemLoadingByKey?.[key]}
     detailError={adapter.processItemErrorByKey?.[key]}
     onLoadDetail={'hasDetail' in block && block.hasDetail ? () => { void adapter.loadProcessItemDetail(messageId, block.id) } : undefined}

@@ -34,6 +34,17 @@ describe('conversation process block disclosure', () => {
     expect(html).toMatch(/id="([^"]+)"/)
   })
 
+  test('collapses a thinking block once the stream advances to another process item', () => {
+    const html = renderToStaticMarkup(createElement(ConversationProcessBlock, {
+      block: { id: 'thinking-finished', kind: 'thinking', text: '不应在工具调用期间继续显示' },
+      isStreaming: true,
+      thinkingActive: false,
+    }))
+
+    expect(html).toContain('aria-expanded="false"')
+    expect(html).not.toContain('不应在工具调用期间继续显示')
+  })
+
   test('renders an intermediate note as full markdown without an inner disclosure button', () => {
     const html = renderToStaticMarkup(createElement(ConversationProcessBlock, {
       block: { id: 'note', kind: 'note', text: '**关键说明**\n\n下一步继续检查。' },

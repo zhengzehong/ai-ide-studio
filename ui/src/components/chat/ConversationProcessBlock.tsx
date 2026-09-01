@@ -15,6 +15,7 @@ import { toolSummary } from '../../pages/workspace/helpers'
 export interface ConversationProcessBlockProps {
   block: TurnProcessBlock
   isStreaming?: boolean
+  thinkingActive?: boolean
   detailLoading?: boolean
   detailError?: string
   onLoadDetail?: () => void
@@ -25,6 +26,7 @@ export interface ConversationProcessBlockProps {
 export function ConversationProcessBlock({
   block,
   isStreaming = false,
+  thinkingActive = isStreaming,
   detailLoading = false,
   detailError,
   onLoadDetail,
@@ -32,7 +34,7 @@ export function ConversationProcessBlock({
   onOpenFiles,
 }: ConversationProcessBlockProps): ReactNode {
   const needsDetail = processBlockNeedsDetail(block)
-  const thinkingDisclosure = useProcessThinkingDisclosure(isStreaming)
+  const thinkingDisclosure = useProcessThinkingDisclosure(isStreaming && thinkingActive)
   const thinkingContentId = useId()
   useEffect(() => {
     if (needsDetail && block.kind !== 'tool' && !detailLoading && !detailError) onLoadDetail?.()

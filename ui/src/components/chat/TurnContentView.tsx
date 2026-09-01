@@ -34,9 +34,13 @@ interface TurnContentViewProps {
   onLoadProcess?: () => void
   onLoadFileChanges?: () => void
   onOpenResource?: OpenChatResource
-  renderProcessBlock: (block: TurnProcessBlock) => ReactNode
+  renderProcessBlock: (block: TurnProcessBlock, context: ProcessBlockRenderContext) => ReactNode
   renderPreviewPresentation?: (preview: PreviewPresentationInfo) => ReactNode
   renderFilesPresentation?: (presentation: FilesPresentationInfo) => ReactNode
+}
+
+export interface ProcessBlockRenderContext {
+  thinkingActive: boolean
 }
 
 export function TurnContentView({
@@ -66,6 +70,9 @@ export function TurnContentView({
   const processOpen = processOpenOverride === 'open' || (processOpenOverride !== 'closed' && defaultProcessOpen)
   const canLoadProcess = !processLoaded && !!onLoadProcess
   const visibleProcessBlocks = processBlocks.filter((block) => block.kind !== 'stage')
+  const activeThinkingBlockId = isStreaming && !finalAnswer && visibleProcessBlocks.at(-1)?.kind === 'thinking'
+    ? visibleProcessBlocks.at(-1)?.id
+    : undefined
   // preview.publish 卡片优先级最高,turn 完成后无论是否折叠执行过程都要把卡片抽出来直接渲染。
   const previewBlocks = visibleProcessBlocks.filter(
     (block) => block.kind === 'tool' && isPreviewPublishTool(block.toolCall.title),
@@ -136,7 +143,9 @@ export function TurnContentView({
               {otherBlocks.length === 0 && fallbackStage && (
                 <div style={{ fontSize: 14, color: 'var(--text-3)' }}>{fallbackStage}</div>
               )}
-              {otherBlocks.map((block) => renderProcessBlock(block))}
+              {otherBlocks.map((block) => renderProcessBlock(block, {
+                thinkingActive: block.id === activeThinkingBlockId,
+              }))}
               {processLoading && <div style={{ fontSize: 14, color: 'var(--text-3)' }}>正在加载执行过程...</div>}
               {processError && <div style={{ fontSize: 14, color: 'var(--red)', overflowWrap: 'anywhere' }}>{processError}</div>}
               {processLoaded && otherBlocks.length === 0 && !fallbackStage && !processError && (
@@ -149,7 +158,7 @@ export function TurnContentView({
       {finalAnswer && <MarkdownRenderer content={finalAnswer} onOpenResource={onOpenResource} />}
       {hasPreviewCard && (
         <div style={{ marginTop: finalAnswer ? 10 : 0 }}>
-          {previewBlocks.map((block) => renderProcessBlock(block))}
+          {previewBlocks.map((block) => renderProcessBlock(block, { thinkingActive: false }))}
           {renderPreviewPresentation && persistedPreviews.map((preview) => (
             <div key={preview.previewId}>{renderPreviewPresentation(preview)}</div>
           ))}
@@ -157,7 +166,7 @@ export function TurnContentView({
       )}
       {hasFilesCard && (
         <div style={{ marginTop: finalAnswer || hasPreviewCard ? 10 : 0 }}>
-          {filesBlocks.map((block) => renderProcessBlock(block))}
+          {filesBlocks.map((block) => renderProcessBlock(block, { thinkingActive: false }))}
           {renderFilesPresentation && persistedFiles.map((presentation) => (
             <div key={presentation.presentationId}>{renderFilesPresentation(presentation)}</div>
           ))}

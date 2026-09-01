@@ -4013,7 +4013,7 @@ function ChatBubble({
                 onLoadProcess={loadTurnProcess}
                 onLoadFileChanges={loadFileChanges}
                 onOpenResource={onOpenResource}
-                renderProcessBlock={(block) => {
+                renderProcessBlock={(block, context) => {
                   const processItemKey = !isTimelineGroup ? `${normalizedMessage.id}:${block.id}` : ''
                   const loadDetail = !isTimelineGroup && normalizedMessage.session_id
                     ? () => onLoadProcessItemDetail?.(normalizedMessage.session_id!, normalizedMessage.id, block.id)
@@ -4023,6 +4023,7 @@ function ChatBubble({
                       key={block.id}
                       block={block}
                       isStreaming={isStreaming}
+                      thinkingActive={context.thinkingActive}
                       detailLoading={!!processItemLoadingByKey[processItemKey]}
                       detailError={processItemErrorByKey[processItemKey]}
                       onLoadDetail={loadDetail}
@@ -4178,6 +4179,7 @@ function chatBubbleBlockHasBody(block: ChatBubbleBlock): boolean {
 function ProcessBlockView({
   block,
   isStreaming,
+  thinkingActive = isStreaming,
   detailLoading,
   detailError,
   onLoadDetail,
@@ -4186,6 +4188,7 @@ function ProcessBlockView({
 }: {
   block: TurnProcessBlock
   isStreaming: boolean
+  thinkingActive?: boolean
   detailLoading?: boolean
   detailError?: string
   onLoadDetail?: () => void
@@ -4199,7 +4202,7 @@ function ProcessBlockView({
   onOpenFiles?: (presentation: FilesPresentationInfo) => void
 }) {
   const needsDetail = processBlockNeedsDetail(block)
-  const thinkingDisclosure = useProcessThinkingDisclosure(isStreaming)
+  const thinkingDisclosure = useProcessThinkingDisclosure(isStreaming && thinkingActive)
   const thinkingContentId = useId()
   const shouldAutoLoadDetail = needsDetail && block.kind !== 'tool'
   useEffect(() => {
