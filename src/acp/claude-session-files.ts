@@ -12,13 +12,15 @@ import {
   writeFile,
 } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { createChildLogger } from '../core/logger.js'
 
 const log = createChildLogger('claude-session-files')
 const SESSION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const DEFAULT_SOURCE_READ_ATTEMPTS = 3
 const SOURCE_READ_RETRY_MS = 30
+const MISSING_OUTPUT_PLACEHOLDER =
+  'Historical tool output was removed before this session was cloned; original content is unavailable.\n'
 
 export interface CloneClaudeSessionFilesInput {
   sourceSessionId: string
@@ -88,22 +90,29 @@ export async function cloneClaudeSessionFiles(
     })
 
     const sourceResourcesExist = await pathExists(sourceResources)
-    if (rewritten.persistedResourcePaths.length > 0 && !sourceResourcesExist) {
-      throw new Error(`Claude Session references missing companion resources: ${input.sourceSessionId}`)
-    }
+    const persistedResourcePaths = [...rewritten.persistedResourcePaths]
 
     let resourceFilesCopied = 0
     if (sourceResourcesExist) {
       await cp(sourceResources, temporaryResources, { recursive: true, errorOnExist: true, force: false })
-      await rewriteCompanionJsonl(temporaryResources, {
+      persistedResourcePaths.push(...await rewriteCompanionJsonl(temporaryResources, {
         sourceSessionId: input.sourceSessionId,
         targetSessionId: input.targetSessionId,
         sourceCwd: input.sourceCwd,
         targetCwd: input.targetCwd,
         sourceResources,
         targetResources,
+      }))
+    } else if (persistedResourcePaths.length > 0) {
+      await mkdir(temporaryResources, { recursive: true })
+    }
+    if (sourceResourcesExist || persistedResourcePaths.length > 0) {
+      await materializePersistedResources(persistedResourcePaths, {
+        sourceSessionId: input.sourceSessionId,
+        targetSessionId: input.targetSessionId,
+        sourceResources,
+        temporaryResources,
       })
-      await validatePersistedResources(rewritten.persistedResourcePaths, sourceResources, temporaryResources)
       resourceFilesCopied = await countFiles(temporaryResources)
     }
 
@@ -272,26 +281,41 @@ function rewriteStorageReferences(
 async function rewriteCompanionJsonl(
   directory: string,
   context: Parameters<typeof rewriteJsonl>[1],
-): Promise<void> {
+): Promise<string[]> {
+  const persistedResourcePaths: string[] = []
   for (const file of await listFiles(directory)) {
     if (!file.endsWith('.jsonl')) continue
     const rewritten = rewriteJsonl(await readFile(file, 'utf8'), context)
+    persistedResourcePaths.push(...rewritten.persistedResourcePaths)
     await writeFile(file, rewritten.content, 'utf8')
   }
+  return persistedResourcePaths
 }
 
-async function validatePersistedResources(
+async function materializePersistedResources(
   paths: string[],
-  sourceResources: string,
-  temporaryResources: string,
+  context: {
+    sourceSessionId: string
+    targetSessionId: string
+    sourceResources: string
+    temporaryResources: string
+  },
 ): Promise<void> {
   for (const sourcePath of new Set(paths)) {
-    const pathFromResources = relative(sourceResources, sourcePath)
+    const pathFromResources = relative(context.sourceResources, sourcePath)
     if (pathFromResources.startsWith(`..${sep}`) || pathFromResources === '..' || isAbsolute(pathFromResources)) {
       throw new Error(`Persisted output escapes the source Session directory: ${sourcePath}`)
     }
-    const temporaryPath = resolveWithin(temporaryResources, pathFromResources)
-    if (!await pathExists(temporaryPath)) throw new Error(`Persisted output is missing: ${sourcePath}`)
+    const temporaryPath = resolveWithin(context.temporaryResources, pathFromResources)
+    if (await pathExists(temporaryPath)) continue
+    await mkdir(dirname(temporaryPath), { recursive: true })
+    await writeFile(temporaryPath, MISSING_OUTPUT_PLACEHOLDER, { encoding: 'utf8', flag: 'wx' })
+    log.warn({
+      sourceSessionId: context.sourceSessionId,
+      targetSessionId: context.targetSessionId,
+      sourcePath,
+      targetPath: temporaryPath,
+    }, 'Claude persisted tool output missing; placeholder created')
   }
 }
 
