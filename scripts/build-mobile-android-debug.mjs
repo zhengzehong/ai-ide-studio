@@ -7,7 +7,7 @@ const mobileDir = join(root, 'mobile')
 const androidDir = join(mobileDir, 'android')
 const releaseDir = join(root, 'release')
 const apkSource = join(androidDir, 'app', 'build', 'outputs', 'apk', 'debug', 'app-debug.apk')
-const apkTarget = join(releaseDir, 'AI-IDE-Studio-Mobile-prd-0.3.2-debug.apk')
+const apkTarget = join(releaseDir, 'AI-IDE-Studio-Mobile-prd-0.3.3-debug.apk')
 
 function run(command, args, options = {}) {
   const isWindows = process.platform === 'win32'
