@@ -96,7 +96,7 @@ Rule Engine（每 10 分钟）
 
 项目灵感工作台是 PC 端的项目级记录与任务候选入口。未设置人工标题时，系统直接使用正文连续原文生成定长自动标题。每个项目维护一个当前长期灵感 Session，用户保存 Markdown 和图片原文后，后台把整理请求串行投递到这个 Session，使持续讨论和自动整理共享上下文。从具体结果进入会话时，平台为每条用户消息附加可信 `noteId` 模型上下文，AI 先调用仅在该 Session 可见的 `inspiration.note.get` 读取最新原文和方案；普通聊天历史不作为灵感身份来源。Agent 只有调用 `inspiration.analysis.publish` 才会暂存新方案，同一轮可反复修正，Session 正常结束后才提交最后一份有效结果。人工完成标记独立于 AI 整理状态，PC 默认显示进行中灵感并可切换已完成或全部；编辑、重新整理或发布新方案会自动重新打开。该 Session 隐藏平台任务创建、步骤编排和 Schedule 变更工具，不能绕过人工确认直接派发。revision 与内部 attempt 双重 CAS 阻止旧回复或旧轮次覆盖新编辑；候选确认后才复用标准 Task/Step/Session 链路执行。
 
-全局阅读库使用 `reading_items` 保存 AI 生成内容的轻量来源元数据，不把 Markdown、HTML 或外部网页正文复制进数据库。`reading.add` 只接受标题、类型和内容，项目、Session 与 Agent 从可信 ToolContext 注入；MD/HTML 路径属于 Gateway 所在机器。`/reading/:itemId/*` 按条目挂载源文件所在目录，使用与 Preview 相同的 token→限定 Path Cookie、MIME 和目录越界检查语义；URL 只允许 HTTPS，由客户端直接 iframe 并始终保留外部浏览器入口。PC `/reading` 与 APP 阅读 Tab 共用 `reading.list/get/update`，进入页面、回到前台或显式刷新时重新读取，不新增实时 WS 事件，也不改变 Workspace 当前项目或会话状态。
+全局阅读库使用 `reading_items` 保存 AI 生成内容的轻量来源元数据，不把 Markdown、HTML 或外部网页正文复制进数据库。`reading.add` 只接受标题、类型和内容，项目、Session 与 Agent 从可信 ToolContext 注入；MD/HTML 路径属于 Gateway 所在机器。`/reading/:itemId/*` 按条目挂载源文件所在目录，使用与 Preview 相同的 token→限定 Path Cookie、MIME 和目录越界检查语义；URL 只允许 HTTP 或 HTTPS，由客户端直接 iframe 并始终保留外部浏览器入口。PC `/reading` 与 APP 阅读 Tab 共用 `reading.list/get/update`，进入页面、回到前台或显式刷新时重新读取，不新增实时 WS 事件，也不改变 Workspace 当前项目或会话状态。
 
 灵感任务的执行目标独立于整理 Agent 和整理 Session。项目可保存默认任务 Agent、默认任务 Session 及默认优先或 AI 推荐优先策略；确认候选时，目标解析模块按人工选择、项目策略和候选推荐顺序确定 Agent，并在创建草稿或立即派发前统一校验 Session 的项目归属、Agent 归属及可用状态。
 
