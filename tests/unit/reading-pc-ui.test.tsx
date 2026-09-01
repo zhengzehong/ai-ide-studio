@@ -1,4 +1,6 @@
 import { createElement } from 'react'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, test, vi } from 'vitest'
 import { ReadingCard } from '../../ui/src/pages/reading/ReadingCard'
@@ -22,6 +24,11 @@ const markdownItem = item({
 })
 
 describe('PC reading UI', () => {
+  test('fills the route content height in the empty reader state', () => {
+    const css = readFileSync(resolve(process.cwd(), 'ui/src/pages/reading/reading.css'), 'utf8')
+    expect(css).toContain('.reading-page{display:flex;flex:1;height:100%;min-height:0;')
+  })
+
   test('renders loading, error, empty, and data list states with archive controls', () => {
     const base = {
       archived: false,
