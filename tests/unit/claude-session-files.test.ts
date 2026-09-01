@@ -167,6 +167,28 @@ describe('cloneClaudeSessionFiles', () => {
     expect(await readFile(targetOutput, 'utf8')).toContain('Historical tool output was removed')
   })
 
+  it('rejects persisted outputs outside the source Session directory', async () => {
+    const projectDir = join(configDir, 'projects', encodeClaudeProjectPath(CWD))
+    const sourceResourceDir = join(projectDir, SOURCE_ID)
+    const outsideOutput = `${sourceResourceDir}\\..\\outside.txt`
+    await mkdir(sourceResourceDir, { recursive: true })
+    await writeFile(
+      join(projectDir, `${SOURCE_ID}.jsonl`),
+      `${JSON.stringify({
+        toolUseResult: { persistedOutputPath: outsideOutput },
+      })}\n`,
+      'utf8',
+    )
+
+    await expect(cloneClaudeSessionFiles({
+      configDir,
+      sourceSessionId: SOURCE_ID,
+      targetSessionId: TARGET_ID,
+      sourceCwd: CWD,
+      targetCwd: CWD,
+    })).rejects.toThrow('escapes the source Session directory')
+  })
+
   it('rewrites only top-level cwd values when cloning across workspaces', async () => {
     const targetCwd = 'E:\\target\\workspace'
     const projectDir = join(configDir, 'projects', encodeClaudeProjectPath(CWD))
