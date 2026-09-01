@@ -112,6 +112,106 @@ describe('cloneClaudeSessionFiles', () => {
     ).toEqual({ agentType: 'general-purpose' })
   })
 
+  it('creates a placeholder when a main-session persisted output was already removed', async () => {
+    const projectDir = join(configDir, 'projects', encodeClaudeProjectPath(CWD))
+    const sourceResourceDir = join(projectDir, SOURCE_ID)
+    const missingOutput = join(sourceResourceDir, 'tool-results', 'missing.txt')
+    await mkdir(join(sourceResourceDir, 'tool-results'), { recursive: true })
+    await writeFile(
+      join(projectDir, `${SOURCE_ID}.jsonl`),
+      `${JSON.stringify({
+        type: 'tool_result',
+        sessionId: SOURCE_ID,
+        toolUseResult: { persistedOutputPath: missingOutput },
+      })}\n`,
+      'utf8',
+    )
+
+    await cloneClaudeSessionFiles({
+      configDir,
+      sourceSessionId: SOURCE_ID,
+      targetSessionId: TARGET_ID,
+      sourceCwd: CWD,
+      targetCwd: CWD,
+    })
+
+    const targetOutput = join(projectDir, TARGET_ID, 'tool-results', 'missing.txt')
+    expect(await readFile(targetOutput, 'utf8')).toContain('Historical tool output was removed')
+  })
+
+  it('publishes placeholders when the source resource directory is gone', async () => {
+    const projectDir = join(configDir, 'projects', encodeClaudeProjectPath(CWD))
+    const sourceResourceDir = join(projectDir, SOURCE_ID)
+    const missingOutput = join(sourceResourceDir, 'tool-results', 'missing-dir.txt')
+    await mkdir(projectDir, { recursive: true })
+    await writeFile(
+      join(projectDir, `${SOURCE_ID}.jsonl`),
+      `${JSON.stringify({ toolUseResult: { persistedOutputPath: missingOutput } })}\n`,
+      'utf8',
+    )
+
+    await cloneClaudeSessionFiles({
+      configDir,
+      sourceSessionId: SOURCE_ID,
+      targetSessionId: TARGET_ID,
+      sourceCwd: CWD,
+      targetCwd: CWD,
+    })
+
+    const targetOutput = join(projectDir, TARGET_ID, 'tool-results', 'missing-dir.txt')
+    expect(await readFile(targetOutput, 'utf8')).toContain('Historical tool output was removed')
+  })
+
+  it('creates placeholders for missing persisted outputs referenced by subagents', async () => {
+    const projectDir = join(configDir, 'projects', encodeClaudeProjectPath(CWD))
+    const sourceResourceDir = join(projectDir, SOURCE_ID)
+    const missingOutput = join(sourceResourceDir, 'tool-results', 'missing-subagent.txt')
+    await mkdir(join(sourceResourceDir, 'subagents'), { recursive: true })
+    await writeFile(
+      join(projectDir, `${SOURCE_ID}.jsonl`),
+      `${JSON.stringify({ type: 'mode', sessionId: SOURCE_ID })}\n`,
+      'utf8',
+    )
+    await writeFile(
+      join(sourceResourceDir, 'subagents', 'agent-a.jsonl'),
+      `${JSON.stringify({ toolUseResult: { persistedOutputPath: missingOutput } })}\n`,
+      'utf8',
+    )
+
+    await cloneClaudeSessionFiles({
+      configDir,
+      sourceSessionId: SOURCE_ID,
+      targetSessionId: TARGET_ID,
+      sourceCwd: CWD,
+      targetCwd: CWD,
+    })
+
+    const targetOutput = join(projectDir, TARGET_ID, 'tool-results', 'missing-subagent.txt')
+    expect(await readFile(targetOutput, 'utf8')).toContain('Historical tool output was removed')
+  })
+
+  it('rejects persisted outputs outside the source Session directory', async () => {
+    const projectDir = join(configDir, 'projects', encodeClaudeProjectPath(CWD))
+    const sourceResourceDir = join(projectDir, SOURCE_ID)
+    const outsideOutput = `${sourceResourceDir}\\..\\outside.txt`
+    await mkdir(sourceResourceDir, { recursive: true })
+    await writeFile(
+      join(projectDir, `${SOURCE_ID}.jsonl`),
+      `${JSON.stringify({
+        toolUseResult: { persistedOutputPath: outsideOutput },
+      })}\n`,
+      'utf8',
+    )
+
+    await expect(cloneClaudeSessionFiles({
+      configDir,
+      sourceSessionId: SOURCE_ID,
+      targetSessionId: TARGET_ID,
+      sourceCwd: CWD,
+      targetCwd: CWD,
+    })).rejects.toThrow('escapes the source Session directory')
+  })
+
   it('rewrites only top-level cwd values when cloning across workspaces', async () => {
     const targetCwd = 'E:\\target\\workspace'
     const projectDir = join(configDir, 'projects', encodeClaudeProjectPath(CWD))
