@@ -8,6 +8,8 @@ import { sessionStore, messageStore, eventStore } from '../../src/store/sessions
 import { taskStore, taskEventStore } from '../../src/store/tasks.js'
 import { ruleStore } from '../../src/store/rules.js'
 import { taskStepsMigration } from '../../src/store/migrations/037-task-steps.js'
+import { sessionTagsMigration } from '../../src/store/migrations/060-session-tags.js'
+import Database from 'better-sqlite3'
 
 const tmp = mkdtempSync(resolve(tmpdir(), 'ai-ide-sqlite-'))
 afterAll(() => { closeDatabase(); rmSync(tmp, { recursive: true, force: true }) })
@@ -117,7 +119,7 @@ describe('SQLite 迁移', () => {
       ORDER BY name
     `).all().map(row => row.name)
 
-    expect(migrations).toEqual(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011', '012', '013', '014', '015', '016', '017', '018', '019', '020', '021', '022', '023', '024', '025', '026', '027', '028', '029', '030', '031', '032', '033', '034', '035', '036', '037', '038', '039', '040', '041', '042', '043', '044', '045', '046', '047', '048', '049', '050', '051', '052', '053', '054', '055', '056', '057', '058', '059'])
+    expect(migrations).toEqual(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011', '012', '013', '014', '015', '016', '017', '018', '019', '020', '021', '022', '023', '024', '025', '026', '027', '028', '029', '030', '031', '032', '033', '034', '035', '036', '037', '038', '039', '040', '041', '042', '043', '044', '045', '046', '047', '048', '049', '050', '051', '052', '053', '054', '055', '056', '057', '058', '059', '060'])
     expect(messageColumns).toContain('file_changes_json')
     expect(messageColumns).toContain('process_item_count')
     expect(messageColumns).toContain('presentations_json')
@@ -144,6 +146,10 @@ describe('SQLite 迁移', () => {
     expect(getDb().prepare<[], { name: string }>('PRAGMA table_info(sessions)').all().map(row => row.name)).toContain('is_primary')
     expect(getDb().prepare<[], { name: string }>('PRAGMA table_info(sessions)').all().map(row => row.name)).toContain('is_template')
     expect(getDb().prepare<[], { name: string }>('PRAGMA table_info(sessions)').all().map(row => row.name)).toContain('purpose')
+    expect(getDb().prepare<[], { name: string }>('PRAGMA table_info(sessions)').all().map(row => row.name)).toContain('tags_json')
+    expect(
+      getDb().prepare<[], { name: string; dflt_value: string | null }>('PRAGMA table_info(sessions)').all().find(row => row.name === 'tags_json')?.dflt_value,
+    ).toBe("'[]'")
     expect(getDb().prepare<[], { name: string }>('PRAGMA table_info(inspiration_notes)').all().map(row => row.name))
       .toEqual(expect.arrayContaining(['title_mode', 'analysis_attempt_id', 'completed_at']))
     expect(getDb().prepare<[], { name: string }>(`
@@ -268,5 +274,48 @@ describe('SQLite 迁移', () => {
     expect(depIndexes).toEqual(expect.arrayContaining([
       'idx_step_deps_step', 'idx_step_deps_depends_on', 'idx_step_deps_task',
     ]))
+  })
+
+  test('session-tags migration: upgrades a pre-060 sessions table and backfills empty tags', () => {
+    const upgradeDb = new Database(':memory:')
+    try {
+      upgradeDb.exec(`
+        CREATE TABLE sessions (
+          id TEXT PRIMARY KEY,
+          agent_id TEXT,
+          task_id TEXT,
+          acp_session_id TEXT,
+          status TEXT,
+          stage TEXT,
+          started_at TEXT,
+          closed_at TEXT,
+          project_id TEXT,
+          title TEXT,
+          updated_at TEXT,
+          last_message_at TEXT,
+          last_read_at TEXT,
+          archived_at TEXT,
+          deleted_at TEXT,
+          runtime_preferences_json TEXT,
+          sort_order INTEGER,
+          is_primary INTEGER,
+          is_template INTEGER,
+          purpose TEXT
+        );
+        INSERT INTO sessions (id, agent_id, status, stage, started_at, is_primary, is_template, purpose)
+        VALUES ('sess-legacy-tags', 'agent-legacy', 'closed', '', '2026-01-01T00:00:00.000Z', 0, 0, 'conversation');
+      `)
+      const beforeColumns = upgradeDb.prepare<[], { name: string }>('PRAGMA table_info(sessions)').all().map(row => row.name)
+      expect(beforeColumns).not.toContain('tags_json')
+
+      sessionTagsMigration.up(upgradeDb)
+
+      const afterColumns = upgradeDb.prepare<[], { name: string }>('PRAGMA table_info(sessions)').all().map(row => row.name)
+      expect(afterColumns).toContain('tags_json')
+      const legacyRow = upgradeDb.prepare<[], { tags_json: string }>('SELECT tags_json FROM sessions WHERE id = ?').get('sess-legacy-tags')
+      expect(legacyRow?.tags_json).toBe('[]')
+    } finally {
+      upgradeDb.close()
+    }
   })
 })

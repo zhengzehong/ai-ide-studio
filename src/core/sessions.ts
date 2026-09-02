@@ -12,6 +12,7 @@ import { events, type AppEvents } from './events.js'
 import { createChildLogger } from './logger.js'
 import { publishSessionCreated } from './session-change-events.js'
 import { agentHubService } from './agent-hub/index.js'
+import { assertSessionManageable } from './session-manage-guard.js'
 import type { ImageAttachment, SessionActivityReason, SessionActivityState, SessionUpdateData } from '../types/ws-protocol.js'
 import { createPendingTurn, finalizePendingTurn, updatePendingTurn, type PendingTurn } from './turn-finalizer.js'
 import { buildTeamLeaderPrompt } from './team-prompts.js'
@@ -378,12 +379,34 @@ export const sessionManager = {
   },
 
   archiveSession(sessionId: string): SessionRow {
-    const session = sessionStore.archive(sessionId)
-    if (!session) throw new Error(`Session \u4e0d\u5b58\u5728: ${sessionId}`)
+    const session = requireManageableSession(sessionId, 'archive')
+    const archived = sessionStore.archive(sessionId)
+    if (!archived) throw new Error(`Session \u4e0d\u5b58\u5728: ${sessionId}`)
     void agentHubService.disconnectBySession(sessionId)
-    events.emit('session:changed', { sessionId, data: { ...session, event: 'archived' } })
+    events.emit('session:changed', { sessionId, data: { ...archived, event: 'archived' } })
     log.info({ sessionId }, 'Session \u5df2\u5f52\u6863')
-    return session
+    return archived
+  },
+
+  restoreSession(sessionId: string): SessionRow {
+    const session = requireManageableSession(sessionId, 'restore')
+    const restored = sessionStore.restore(sessionId)
+    if (!restored) throw new Error(`Session \u4e0d\u5b58\u5728: ${sessionId}`)
+    events.emit('session:changed', { sessionId, data: { ...restored, event: 'restored' } })
+    log.info({ sessionId }, 'Session \u5df2\u8fd8\u539f')
+    return restored
+  },
+
+  setSessionTags(sessionId: string, tags: string[]): SessionRow {
+    const session = sessionStore.get(sessionId)
+    if (!session) throw new Error(`Session \u4e0d\u5b58\u5728: ${sessionId}`)
+    if (session.deleted_at) throw new Error('\u4f1a\u8bdd\u5df2\u5220\u9664,\u4e0d\u80fd\u8bbe\u7f6e\u6807\u7b7e')
+    const normalized = normalizeSessionTags(tags)
+    const updated = sessionStore.setTags(sessionId, normalized)
+    if (!updated) throw new Error(`Session \u4e0d\u5b58\u5728: ${sessionId}`)
+    events.emit('session:changed', { sessionId, data: { ...updated } })
+    log.info({ sessionId, tags: normalized }, 'Session \u6807\u7b7e\u5df2\u66f4\u65b0')
+    return updated
   },
 
   async deleteSession(sessionId: string): Promise<void> {
@@ -408,6 +431,40 @@ export const sessionManager = {
 
 function normalizePromptOptions(options?: string | PromptOptions): PromptOptions {
   return typeof options === 'string' ? { clientMessageId: options } : options ?? {}
+}
+
+// 会话标签约束：标签数量与单个长度的唯一权威，UI 与 AI 会话管理工具共用。
+export const MAX_SESSION_TAGS = 10
+export const MAX_SESSION_TAG_LENGTH = 24
+
+export function normalizeSessionTags(tags: unknown): string[] {
+  if (!Array.isArray(tags)) throw new Error('tags 必须是字符串数组')
+  const normalized: string[] = []
+  for (const raw of tags) {
+    if (typeof raw !== 'string') throw new Error('tags 必须是字符串数组')
+    const tag = raw.trim()
+    if (!tag) continue
+    if (tag.length > MAX_SESSION_TAG_LENGTH) {
+      throw new Error(`单个标签不能超过 ${MAX_SESSION_TAG_LENGTH} 个字符`)
+    }
+    if (normalized.includes(tag)) continue
+    if (normalized.length >= MAX_SESSION_TAGS) {
+      throw new Error(`每个会话最多 ${MAX_SESSION_TAGS} 个标签`)
+    }
+    normalized.push(tag)
+  }
+  return normalized
+}
+
+function requireManageableSession(
+  sessionId: string,
+  action: 'archive' | 'restore',
+): SessionRow {
+  const session = sessionStore.get(sessionId)
+  if (!session) throw new Error(`Session 不存在: ${sessionId}`)
+  const activityState = sessionStore.getSessionRuntimeState(sessionId, sessionManager.isPromptActive)
+  assertSessionManageable({ ...session, activity_state: activityState }, action)
+  return session
 }
 
 function requirePromptSession(sessionId: string): SessionRow {

@@ -159,6 +159,7 @@ export interface SessionData {
   // 不应出现在普通会话列表。session:changed 广播可能携带此字段,前端据此过滤。
   is_template?: number | boolean
   purpose?: 'conversation' | 'autonomy' | 'secretary_runtime' | 'secretary_chat'
+  tags?: string[]
 }
 
 export interface LocalSessionCandidateInfo {
@@ -292,6 +293,8 @@ interface SessionStore {
   bulkDeleteSessions: (agentId: string, projectId: string, sessionIds: string[]) => Promise<SessionBulkActionResultData>
   closeSession: (sessionId: string) => Promise<void>
   archiveSession: (sessionId: string) => Promise<void>
+  unarchiveSession: (sessionId: string) => Promise<void>
+  setSessionTags: (sessionId: string, tags: string[]) => Promise<void>
   reorderSessions: (projectId: string, agentId: string, sessionIds: string[]) => Promise<SessionData[]>
   clearCopyError: () => void
   listSessionTemplates: (agentId?: string) => Promise<SessionTemplateData[]>
@@ -1603,6 +1606,30 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   archiveSession: async (sessionId) => {
     const session = (await wsClient.request({ type: 'sessions.archive', sessionId })) as SessionData
+    set((state) => {
+      const sessionListCache = mergeSessionIntoListCache(state.sessionListCache, session)
+      return {
+        sessionListCache,
+        sessions: readProjectCache(sessionListCache, state.activeSessionScope)?.data
+          ?? state.sessions.map((item) => item.id === sessionId ? { ...item, ...session } : item),
+      }
+    })
+  },
+
+  unarchiveSession: async (sessionId) => {
+    const session = (await wsClient.request({ type: 'sessions.unarchive', sessionId })) as SessionData
+    set((state) => {
+      const sessionListCache = mergeSessionIntoListCache(state.sessionListCache, session)
+      return {
+        sessionListCache,
+        sessions: readProjectCache(sessionListCache, state.activeSessionScope)?.data
+          ?? state.sessions.map((item) => item.id === sessionId ? { ...item, ...session } : item),
+      }
+    })
+  },
+
+  setSessionTags: async (sessionId, tags) => {
+    const session = (await wsClient.request({ type: 'sessions.setTags', sessionId, tags })) as SessionData
     set((state) => {
       const sessionListCache = mergeSessionIntoListCache(state.sessionListCache, session)
       return {
