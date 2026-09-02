@@ -103,7 +103,7 @@ export const AGENT_SESSION_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'gl
   {
     name: 'agent.session.unarchive',
     displayName: '还原会话',
-    description: '还原一个已归档的会话(回到会话列表),返回更新后的会话。\n\n只能还原已归档的会话,未归档会报错"会话未归档";不能还原你当前所在的会话。',
+    description: '还原一个已归档的会话(回到会话列表),返回更新后的会话。\n\n只能还原已归档的会话,未归档会报错"会话未归档";系统会话不可还原;不能还原你当前所在的会话。',
     category: 'automation',
     type: 'builtin',
     config: { handler: 'agent.session.unarchive' },

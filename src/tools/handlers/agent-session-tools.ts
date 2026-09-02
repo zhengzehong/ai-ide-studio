@@ -107,7 +107,7 @@ export const agentSessionArchiveHandler: ToolHandler = {
 
 export const agentSessionUnarchiveHandler: ToolHandler = {
   name: 'agent.session.unarchive',
-  description: '还原一个已归档的会话(回到会话列表)。只能还原已归档的会话,未归档会报错"会话未归档";不能还原你当前所在的会话。',
+  description: '还原一个已归档的会话(回到会话列表)。只能还原已归档的会话,未归档会报错"会话未归档";系统会话不可还原;不能还原你当前所在的会话。',
   inputSchema: {
     type: 'object',
     properties: { sessionId: { type: 'string' } },

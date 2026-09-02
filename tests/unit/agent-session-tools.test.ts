@@ -279,6 +279,7 @@ describe('agent session MCP tools', () => {
       expect(archive?.description).toContain('不能归档你当前所在的会话')
       expect(archive?.description).toContain('agent.session.unarchive')
       expect(unarchive?.description).toContain('会话未归档')
+      expect(unarchive?.description).toContain('系统会话不可还原')
 
       expect(getHandler('agent.session.tags.set')?.name).toBe('agent.session.tags.set')
       expect(getHandler('agent.session.archive')?.name).toBe('agent.session.archive')
