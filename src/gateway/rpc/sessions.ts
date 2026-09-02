@@ -297,6 +297,18 @@ export const sessionRpcHandlers: RpcHandlerMap = {
     sendResult(sessionManager.archiveSession(msg.sessionId as string))
   },
 
+  'sessions.unarchive'(msg, { sendResult }) {
+    sendResult(sessionManager.restoreSession(msg.sessionId as string))
+  },
+
+  'sessions.setTags'(msg, { sendResult }) {
+    const sessionId = msg.sessionId as string
+    if (!Array.isArray(msg.tags) || !msg.tags.every((tag): tag is string => typeof tag === 'string')) {
+      throw new Error('tags 必须是字符串数组')
+    }
+    sendResult(sessionManager.setSessionTags(sessionId, msg.tags))
+  },
+
   'sessions.reorder'(msg, { sendResult }) {
     sendResult(sessionStore.reorder(msg.projectId as string, msg.agentId as string, msg.sessionIds as string[]))
   },

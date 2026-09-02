@@ -140,7 +140,7 @@ import { PreviewModal } from '../components/preview/PreviewModal'
 import { FilesPresentationCard } from '../components/chat/FilesPresentationCard'
 import { PresentedFilesModal } from '../components/file-viewer/PresentedFilesModal'
 import { isFilesPresentationToolCall, parseFilesPresentationOutput } from '../stores/session-events'
-import { SessionBar } from './workspace/SessionBar'
+import { SessionBar, type SessionTagEditorState } from './workspace/SessionBar'
 import { WorkspaceCenterStage } from './workspace/WorkspaceCenterStage'
 import { TemplatePickerModal } from './workspace/TemplatePickerModal'
 import { PublishTemplateModal } from './workspace/PublishTemplateModal'
@@ -197,6 +197,8 @@ export default function Workspace() {
   const bulkDeleteSessions = useSessionStore((s) => s.bulkDeleteSessions)
   const closeSession = useSessionStore((s) => s.closeSession)
   const archiveSession = useSessionStore((s) => s.archiveSession)
+  const unarchiveSession = useSessionStore((s) => s.unarchiveSession)
+  const setSessionTags = useSessionStore((s) => s.setSessionTags)
   const dockItems = useSessionDockStore((s) => s.items)
   const addToDock = useSessionDockStore((s) => s.add)
   const removeFromDock = useSessionDockStore((s) => s.remove)
@@ -237,7 +239,8 @@ export default function Workspace() {
   const [showNewTask, setShowNewTask] = useState(false)
   const [copyingSessionId, setCopyingSessionId] = useState<string | null>(null)
 
-  const [ctxMenu, setCtxMenu] = useState<{ sessionId: string; agentId: string; x: number; y: number } | null>(null)
+  const [ctxMenu, setCtxMenu] = useState<{ sessionId: string; agentId: string; x: number; y: number; inArchive: boolean } | null>(null)
+  const [tagEditor, setTagEditor] = useState<SessionTagEditorState | null>(null)
   const [agentCtxMenu, setAgentCtxMenu] = useState<{ agentId: string; x: number; y: number } | null>(null)
   const [settingsAgentId, setSettingsAgentId] = useState<string | null>(null)
   const [systemPromptAgentId, setSystemPromptAgentId] = useState<string | null>(null)
@@ -595,6 +598,20 @@ export default function Workspace() {
   }
   const handleArchiveSession = async (sessionId: string) => {
     await archiveSession(sessionId)
+  }
+  const handleRestoreSession = async (sessionId: string) => {
+    try {
+      await unarchiveSession(sessionId)
+    } catch (err) {
+      setAlertMsg(err instanceof Error ? err.message : '还原会话失败')
+    }
+  }
+  const handleSetSessionTags = async (sessionId: string, tags: string[]) => {
+    try {
+      await setSessionTags(sessionId, tags)
+    } catch (err) {
+      setAlertMsg(err instanceof Error ? err.message : '设置标签失败')
+    }
   }
   const handleTogglePinned = async (sessionId: string) => {
     if (dockItems.some((item) => item.sessionId === sessionId)) {
@@ -1157,9 +1174,13 @@ export default function Workspace() {
           onNewFromTemplate={handleNewFromTemplate}
           onBulkMarkRead={bulkMarkAgentSessionsRead}
           onBulkDelete={bulkDeleteSessions}
-          onContextMenu={(e, sessionId, agentId) => {
+          onSetSessionTags={handleSetSessionTags}
+          onRestoreSession={handleRestoreSession}
+          tagEditor={tagEditor}
+          onCloseTagEditor={() => setTagEditor(null)}
+          onContextMenu={(e, sessionId, agentId, context) => {
             setAgentCtxMenu(null)
-            setCtxMenu({ sessionId, agentId, x: e.clientX, y: e.clientY })
+            setCtxMenu({ sessionId, agentId, x: e.clientX, y: e.clientY, inArchive: context.inArchive })
           }}
           onReorder={persistSessionOrder}
           onSetDraggedOrderItem={setDraggedOrderItem}
@@ -1339,22 +1360,29 @@ export default function Workspace() {
         items={ctxMenu ? (() => {
           const targetSession = projectSessions.find((ss) => ss.id === ctxMenu.sessionId)
           const isPrimary = !!targetSession?.is_primary
+          const isRunning = !!runningSessionIds[ctxMenu.sessionId] || targetSession?.activity_state === 'running'
           const isPinned = dockItems.some((item) => item.sessionId === ctxMenu.sessionId)
           const canPin = !!targetSession && targetSession.purpose === 'conversation' && targetSession.is_template !== 1
+          // 归档视图：右键只提供还原 / 删除。
+          if (ctxMenu.inArchive) {
+            return [
+              { label: '还原', onClick: () => handleRestoreSession(ctxMenu.sessionId) },
+              { label: '删除', danger: true, onClick: () => handleDeleteSession(ctxMenu.sessionId) },
+            ]
+          }
           return [
             { label: '重命名', onClick: () => handleRenameSession(ctxMenu.sessionId, sessionTitle(targetSession ?? { id: ctxMenu.sessionId })) },
             ...(canPin ? [{ label: isPinned ? '取消置顶' : '置顶会话', onClick: () => { void handleTogglePinned(ctxMenu.sessionId) } }] : []),
             { label: '关闭', onClick: () => handleCloseSession(ctxMenu.sessionId) },
+            { label: '设置标签…', onClick: () => setTagEditor({ sessionId: ctxMenu.sessionId, x: ctxMenu.x, y: ctxMenu.y }) },
             {
               label: copyingSessionId === ctxMenu.sessionId || copyingSourceSessionIds[ctxMenu.sessionId] ? '复制中...' : '复制',
               disabled: copyingSessionId === ctxMenu.sessionId || !!copyingSourceSessionIds[ctxMenu.sessionId],
               onClick: () => handleCopySession(ctxMenu.agentId, ctxMenu.sessionId),
             },
             { label: '发布为模板', onClick: () => handlePublishTemplate(ctxMenu.sessionId) },
-            ...(isPrimary ? [] : [
-              { label: '归档', onClick: () => handleArchiveSession(ctxMenu.sessionId) },
-              { label: '删除', danger: true, onClick: () => handleDeleteSession(ctxMenu.sessionId) },
-            ]),
+            { label: '归档', disabled: isPrimary || isRunning, onClick: () => handleArchiveSession(ctxMenu.sessionId) },
+            { label: '删除', danger: true, disabled: isPrimary, onClick: () => handleDeleteSession(ctxMenu.sessionId) },
           ]
         })() : []}
       />

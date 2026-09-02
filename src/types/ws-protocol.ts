@@ -380,6 +380,15 @@ export interface SessionsArchiveMsg extends ClientMessage {
   type: 'sessions.archive'
   sessionId: string
 }
+export interface SessionsUnarchiveMsg extends ClientMessage {
+  type: 'sessions.unarchive'
+  sessionId: string
+}
+export interface SessionsSetTagsMsg extends ClientMessage {
+  type: 'sessions.setTags'
+  sessionId: string
+  tags: string[]
+}
 export interface SessionsReorderMsg extends ClientMessage {
   type: 'sessions.reorder'
   projectId: string

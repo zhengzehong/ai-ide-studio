@@ -13,7 +13,9 @@ import { isMissingNativeSessionError } from '../shared/native-session-errors.js'
 
 export type { SessionRuntimeState } from './session-runtime-state.js'
 
-export interface SessionRow {
+// sessions 表 DB 行：SELECT * 直出的原始形态，tags_json 是未解析的 JSON 字符串。
+// 不直接对外暴露，所有 store 出口经 withParsedTags 映射为 SessionRow。
+interface SessionDbRow {
   id: string
   agent_id: string
   task_id: string | null
@@ -34,13 +36,20 @@ export interface SessionRow {
   is_primary: number
   is_template: number
   purpose: 'conversation' | 'autonomy' | 'secretary_runtime' | 'secretary_chat'
+  tags_json: string
+}
+
+// 对外会话类型：tags 已解析，原始 tags_json 键被丢弃，
+// 避免未解析的 JSON 字符串泄漏到 WS 客户端。
+export interface SessionRow extends Omit<SessionDbRow, 'tags_json'> {
+  tags: string[]
 }
 
 export interface SessionListRow extends SessionRow {
   activity_state: SessionRuntimeState
 }
 
-interface SessionRuntimeSignalsRow extends SessionRow {
+interface SessionRuntimeSignalsRow extends SessionDbRow {
   has_running_agent_message: number
   has_running_process_item: number
 }
@@ -142,7 +151,7 @@ export interface CopyLatestMessagesResult {
 export const sessionStore = {
   create(input: CreateSessionInput): SessionRow {
     const now = new Date().toISOString()
-    const session: SessionRow = {
+    const session: SessionDbRow = {
       id: `sess-${randomUUID().slice(0, 8)}`,
       agent_id: input.agentId,
       task_id: input.taskId || null,
@@ -163,22 +172,24 @@ export const sessionStore = {
       is_primary: input.isPrimary ? 1 : 0,
       is_template: input.isTemplate ? 1 : 0,
       purpose: input.purpose ?? 'conversation',
+      tags_json: '[]',
     }
     getDb().prepare(`
       INSERT INTO sessions (
         id, agent_id, task_id, acp_session_id, status, stage, started_at, closed_at,
-        project_id, title, updated_at, last_message_at, last_read_at, archived_at, deleted_at, runtime_preferences_json, sort_order, is_primary, is_template, purpose
+        project_id, title, updated_at, last_message_at, last_read_at, archived_at, deleted_at, runtime_preferences_json, sort_order, is_primary, is_template, purpose, tags_json
       )
       VALUES (
         @id, @agent_id, @task_id, @acp_session_id, @status, @stage, @started_at, @closed_at,
-        @project_id, @title, @updated_at, @last_message_at, @last_read_at, @archived_at, @deleted_at, @runtime_preferences_json, @sort_order, @is_primary, @is_template, @purpose
+        @project_id, @title, @updated_at, @last_message_at, @last_read_at, @archived_at, @deleted_at, @runtime_preferences_json, @sort_order, @is_primary, @is_template, @purpose, @tags_json
       )
     `).run(session)
-    return session
+    return withParsedTags(session)
   },
 
   get(id: string): SessionRow | undefined {
-    return getDb().prepare<[string], SessionRow>('SELECT * FROM sessions WHERE id = ?').get(id)
+    const row = getDb().prepare<[string], SessionDbRow>('SELECT * FROM sessions WHERE id = ?').get(id)
+    return row ? withParsedTags(row) : undefined
   },
 
   list(agentId?: string, projectId?: string): SessionRow[] {
@@ -186,22 +197,24 @@ export const sessionStore = {
   },
 
   findPrimaryByAgent(agentId: string): SessionRow | undefined {
-    return getDb()
-      .prepare<[string], SessionRow>(
+    const row = getDb()
+      .prepare<[string], SessionDbRow>(
         `SELECT * FROM sessions WHERE agent_id = ? AND is_primary = 1 AND deleted_at IS NULL LIMIT 1`,
       )
       .get(agentId)
+    return row ? withParsedTags(row) : undefined
   },
 
   findAutonomyByAgent(agentId: string): SessionRow | undefined {
-    return getDb()
-      .prepare<[string], SessionRow>(`
+    const row = getDb()
+      .prepare<[string], SessionDbRow>(`
         SELECT * FROM sessions
         WHERE agent_id = ? AND purpose = 'autonomy'
           AND deleted_at IS NULL AND is_template = 0
         LIMIT 1
       `)
       .get(agentId)
+    return row ? withParsedTags(row) : undefined
   },
 
   reorder(projectId: string, agentId: string, sessionIds: string[]): SessionRow[] {
@@ -231,7 +244,7 @@ export const sessionStore = {
     return listSessionRuntimeSignals(agentId, projectId).map((row) => {
       const { has_running_agent_message, has_running_process_item, ...session } = row
       return {
-        ...session,
+        ...withParsedTags(session),
         activity_state: resolveSessionRuntimeState({
           promptActive: isPromptActive(session.id),
           hasRunningAgentMessage: has_running_agent_message === 1,
@@ -244,34 +257,72 @@ export const sessionStore = {
   },
 
   listByTask(taskId: string): SessionRow[] {
-    return getDb().prepare<[string], SessionRow>('SELECT * FROM sessions WHERE task_id = ? ORDER BY started_at ASC').all(taskId)
+    return getDb()
+      .prepare<[string], SessionDbRow>('SELECT * FROM sessions WHERE task_id = ? ORDER BY started_at ASC')
+      .all(taskId)
+      .map(withParsedTags)
   },
 
   listByTaskIds(taskIds: string[]): SessionRow[] {
     if (taskIds.length === 0) return []
     const placeholders = taskIds.map(() => '?').join(', ')
     return getDb()
-      .prepare<string[], SessionRow>(
+      .prepare<string[], SessionDbRow>(
         `SELECT * FROM sessions
          WHERE task_id IN (${placeholders})
          ORDER BY task_id ASC, started_at ASC`,
       )
       .all(...taskIds)
+      .map(withParsedTags)
   },
 
   listByIds(sessionIds: string[]): SessionRow[] {
     if (sessionIds.length === 0) return []
     const placeholders = sessionIds.map(() => '?').join(', ')
     return getDb()
-      .prepare<string[], SessionRow>(`SELECT * FROM sessions WHERE id IN (${placeholders})`)
+      .prepare<string[], SessionDbRow>(`SELECT * FROM sessions WHERE id IN (${placeholders})`)
       .all(...sessionIds)
+      .map(withParsedTags)
+  },
+
+  getSessionRuntimeState(
+    id: string,
+    isPromptActive: (sessionId: string) => boolean = () => false,
+  ): SessionRuntimeState {
+    const row = getDb().prepare<[string], {
+      status: string
+      stage: string
+      has_running_agent_message: number
+      has_running_process_item: number
+    }>(`
+      SELECT s.status,
+        s.stage,
+        EXISTS (
+          SELECT 1 FROM messages m
+          WHERE m.session_id = s.id AND m.role = 'agent' AND m.status = 'running'
+        ) AS has_running_agent_message,
+        EXISTS (
+          SELECT 1 FROM turn_process_items p
+          WHERE p.session_id = s.id AND p.status IN ('running', 'pending', 'in_progress')
+        ) AS has_running_process_item
+      FROM sessions s
+      WHERE s.id = ?
+    `).get(id)
+    if (!row) return 'idle'
+    return resolveSessionRuntimeState({
+      promptActive: isPromptActive(id),
+      hasRunningAgentMessage: row.has_running_agent_message === 1,
+      hasRunningProcessItem: row.has_running_process_item === 1,
+      status: row.status,
+      stage: row.stage,
+    })
   },
 
   reconcileInterruptedStages(): { interrupted: SessionRow[]; cleared: SessionRow[] } {
     markRunningAgentMessagesInterrupted()
     const placeholders = RUNNING_SESSION_STAGES.map(() => '?').join(', ')
     const candidates = getDb()
-      .prepare<string[], SessionRow>(`
+      .prepare<string[], SessionDbRow>(`
         SELECT * FROM sessions
         WHERE stage IN (${placeholders}) AND deleted_at IS NULL
         ORDER BY updated_at ASC
@@ -285,7 +336,7 @@ export const sessionStore = {
       if (session.status !== 'active' || hasDoneAfterLastUser(session.id)) {
         sessionStore.updateStage(session.id, '')
         const updated = sessionStore.get(session.id)
-        cleared.push(updated ?? { ...session, stage: '' })
+        cleared.push(updated ?? { ...withParsedTags(session), stage: '' })
         continue
       }
 
@@ -305,7 +356,7 @@ export const sessionStore = {
       })
       sessionStore.updateStage(session.id, INTERRUPTED_STAGE)
       const updated = sessionStore.get(session.id)
-      interrupted.push(updated ?? { ...session, stage: INTERRUPTED_STAGE })
+      interrupted.push(updated ?? { ...withParsedTags(session), stage: INTERRUPTED_STAGE })
     }
 
     return { interrupted, cleared }
@@ -387,6 +438,17 @@ export const sessionStore = {
     return sessionStore.get(id)
   },
 
+  restore(id: string): SessionRow | undefined {
+    getDb().prepare('UPDATE sessions SET archived_at = NULL, updated_at = ? WHERE id = ?').run(new Date().toISOString(), id)
+    return sessionStore.get(id)
+  },
+
+  setTags(id: string, tags: string[]): SessionRow | undefined {
+    getDb().prepare('UPDATE sessions SET tags_json = ?, updated_at = ? WHERE id = ?')
+      .run(JSON.stringify(tags), new Date().toISOString(), id)
+    return sessionStore.get(id)
+  },
+
   delete(id: string): SessionRow | undefined {
     const session = sessionStore.get(id)
     if (session?.is_primary) throw new Error('主会话不可删除')
@@ -461,15 +523,15 @@ function markRunningAgentMessagesInterrupted(): void {
 function listSessions(agentId?: string, projectId?: string): SessionRow[] {
   const orderBy = 'ORDER BY COALESCE(sort_order, 9223372036854775807) ASC, started_at ASC, id ASC'
   if (agentId && projectId) {
-    return getDb().prepare<[string, string], SessionRow>(`SELECT * FROM sessions WHERE agent_id = ? AND project_id = ? AND deleted_at IS NULL AND is_template = 0 AND purpose NOT IN ('secretary_runtime', 'secretary_chat') ${orderBy}`).all(agentId, projectId)
+    return getDb().prepare<[string, string], SessionDbRow>(`SELECT * FROM sessions WHERE agent_id = ? AND project_id = ? AND deleted_at IS NULL AND is_template = 0 AND purpose NOT IN ('secretary_runtime', 'secretary_chat') ${orderBy}`).all(agentId, projectId).map(withParsedTags)
   }
   if (agentId) {
-    return getDb().prepare<[string], SessionRow>(`SELECT * FROM sessions WHERE agent_id = ? AND deleted_at IS NULL AND is_template = 0 AND purpose NOT IN ('secretary_runtime', 'secretary_chat') ${orderBy}`).all(agentId)
+    return getDb().prepare<[string], SessionDbRow>(`SELECT * FROM sessions WHERE agent_id = ? AND deleted_at IS NULL AND is_template = 0 AND purpose NOT IN ('secretary_runtime', 'secretary_chat') ${orderBy}`).all(agentId).map(withParsedTags)
   }
   if (projectId) {
-    return getDb().prepare<[string], SessionRow>(`SELECT * FROM sessions WHERE project_id = ? AND deleted_at IS NULL AND is_template = 0 AND purpose NOT IN ('secretary_runtime', 'secretary_chat') ${orderBy}`).all(projectId)
+    return getDb().prepare<[string], SessionDbRow>(`SELECT * FROM sessions WHERE project_id = ? AND deleted_at IS NULL AND is_template = 0 AND purpose NOT IN ('secretary_runtime', 'secretary_chat') ${orderBy}`).all(projectId).map(withParsedTags)
   }
-  return getDb().prepare<[], SessionRow>("SELECT * FROM sessions WHERE deleted_at IS NULL AND is_template = 0 AND purpose NOT IN ('secretary_runtime', 'secretary_chat') ORDER BY started_at ASC").all()
+  return getDb().prepare<[], SessionDbRow>("SELECT * FROM sessions WHERE deleted_at IS NULL AND is_template = 0 AND purpose NOT IN ('secretary_runtime', 'secretary_chat') ORDER BY started_at ASC").all().map(withParsedTags)
 }
 
 function listSessionRuntimeSignals(agentId?: string, projectId?: string): SessionRuntimeSignalsRow[] {
@@ -502,6 +564,29 @@ function listSessionRuntimeSignals(agentId?: string, projectId?: string): Sessio
       ${orderBy}
     `)
     .all(...parameters)
+}
+
+export function withParsedTags<T extends SessionDbRow>(row: T): Omit<T, 'tags_json'> & { tags: string[] } {
+  const { tags_json, ...rest } = row
+  return { ...rest, tags: parseTagsJson(tags_json) }
+}
+
+function parseTagsJson(raw: string | null | undefined): string[] {
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return []
+    const tags: string[] = []
+    for (const item of parsed) {
+      if (typeof item !== 'string') continue
+      const tag = item.trim()
+      if (!tag || tags.includes(tag)) continue
+      tags.push(tag)
+    }
+    return tags
+  } catch {
+    return []
+  }
 }
 
 function nextSessionSortOrder(projectId: string | null, agentId: string): number {
