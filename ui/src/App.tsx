@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { BrowserRouter, Navigate, Routes, Route, useLocation, useNavigate } from 'react-router-dom'
 import { AppLayout } from './components/layout/AppLayout'
 import {
@@ -32,6 +32,7 @@ import { ProjectScopeLayout } from './components/project/ProjectScopeLayout'
 import { LegacyProjectRedirect } from './components/project/LegacyProjectRedirect'
 import { shouldShowAccessTokenPage } from './app-shell-state'
 import { getElectronDesktopBridge, subscribeDesktopNavigation } from './services/electron-desktop'
+import { RouteBoundary } from './components/routing/RouteBoundary'
 
 export default function App() {
   const init = useConnectionStore((s) => s.init)
@@ -66,55 +67,51 @@ export default function App() {
     })
   }, [connected])
 
-  return (
-    <Suspense fallback={<RouteLoading />}>
-      {shouldShowAccessTokenPage({ connected, authRequired }) ? (
-        <AccessTokenPage />
-      ) : (
-        <BrowserRouter>
-          <DesktopNavigationListener />
-          <RouteCommitMarker />
-          <Routes>
-            <Route path="/share/:token" element={<GuestChatPage />} />
-            <Route path="/widget" element={<WidgetPage />} />
-            <Route element={<AppLayout />}>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/pinned" element={<PinnedSessions />} />
-              <Route path="/reading" element={<ReadingPage />} />
-              <Route path="/updates" element={<UpdatesPage />} />
-              <Route path="/agents" element={<AgentSquare />} />
-              <Route path="/skills" element={<SkillCenter />} />
-              <Route path="/tools" element={<ToolManager />} />
-              <Route path="/p/:projectId" element={<ProjectScopeLayout />}>
-                <Route index element={<Navigate to="workspace" replace />} />
-                <Route path="workspace" element={<Workspace />} />
-                <Route path="tasks" element={<TaskBoard />} />
-                <Route path="tasks/modes" element={<TaskModesSettings />} />
-                <Route path="schedule" element={<Schedule />} />
-                <Route path="events" element={<EventCenter />} />
-                <Route path="knowledge" element={<KnowledgeBase />} />
-                <Route path="agent-memory" element={<AgentMemory />} />
-                <Route path="autonomy" element={<Autonomy />} />
-                <Route path="secretary" element={<Secretary />} />
-                <Route path="inspiration" element={<Inspiration />} />
-              </Route>
-              <Route path="/workspace" element={<LegacyProjectRedirect subpath="/workspace" />} />
-              <Route path="/tasks" element={<LegacyProjectRedirect subpath="/tasks" />} />
-              <Route path="/tasks/modes" element={<LegacyProjectRedirect subpath="/tasks/modes" />} />
-              <Route path="/schedule" element={<LegacyProjectRedirect subpath="/schedule" />} />
-              <Route path="/events" element={<LegacyProjectRedirect subpath="/events" />} />
-              <Route path="/knowledge" element={<LegacyProjectRedirect subpath="/knowledge" />} />
-              <Route path="/agent-memory" element={<LegacyProjectRedirect subpath="/agent-memory" />} />
-              <Route path="/autonomy" element={<LegacyProjectRedirect subpath="/autonomy" />} />
-              <Route path="/projects" element={<Projects />} />
-              <Route path="/shares" element={<ShareManagePage />} />
-              <Route path="/templates" element={<TemplatesPage />} />
-              <Route path="/settings" element={<Settings />} />
-            </Route>
-          </Routes>
-        </BrowserRouter>
-      )}
-    </Suspense>
+  return shouldShowAccessTokenPage({ connected, authRequired }) ? (
+    <RouteBoundary><AccessTokenPage /></RouteBoundary>
+  ) : (
+    <BrowserRouter>
+      <DesktopNavigationListener />
+      <RouteCommitMarker />
+      <Routes>
+        <Route path="/share/:token" element={<RouteBoundary><GuestChatPage /></RouteBoundary>} />
+        <Route path="/widget" element={<RouteBoundary><WidgetPage /></RouteBoundary>} />
+        <Route element={<AppLayout />}>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/pinned" element={<PinnedSessions />} />
+          <Route path="/reading" element={<ReadingPage />} />
+          <Route path="/updates" element={<UpdatesPage />} />
+          <Route path="/agents" element={<AgentSquare />} />
+          <Route path="/skills" element={<SkillCenter />} />
+          <Route path="/tools" element={<ToolManager />} />
+          <Route path="/p/:projectId" element={<ProjectScopeLayout />}>
+            <Route index element={<Navigate to="workspace" replace />} />
+            <Route path="workspace" element={<Workspace />} />
+            <Route path="tasks" element={<TaskBoard />} />
+            <Route path="tasks/modes" element={<TaskModesSettings />} />
+            <Route path="schedule" element={<Schedule />} />
+            <Route path="events" element={<EventCenter />} />
+            <Route path="knowledge" element={<KnowledgeBase />} />
+            <Route path="agent-memory" element={<AgentMemory />} />
+            <Route path="autonomy" element={<Autonomy />} />
+            <Route path="secretary" element={<Secretary />} />
+            <Route path="inspiration" element={<Inspiration />} />
+          </Route>
+          <Route path="/workspace" element={<LegacyProjectRedirect subpath="/workspace" />} />
+          <Route path="/tasks" element={<LegacyProjectRedirect subpath="/tasks" />} />
+          <Route path="/tasks/modes" element={<LegacyProjectRedirect subpath="/tasks/modes" />} />
+          <Route path="/schedule" element={<LegacyProjectRedirect subpath="/schedule" />} />
+          <Route path="/events" element={<LegacyProjectRedirect subpath="/events" />} />
+          <Route path="/knowledge" element={<LegacyProjectRedirect subpath="/knowledge" />} />
+          <Route path="/agent-memory" element={<LegacyProjectRedirect subpath="/agent-memory" />} />
+          <Route path="/autonomy" element={<LegacyProjectRedirect subpath="/autonomy" />} />
+          <Route path="/projects" element={<Projects />} />
+          <Route path="/shares" element={<ShareManagePage />} />
+          <Route path="/templates" element={<TemplatesPage />} />
+          <Route path="/settings" element={<Settings />} />
+        </Route>
+      </Routes>
+    </BrowserRouter>
   )
 }
 
@@ -123,10 +120,6 @@ function DesktopNavigationListener() {
 
   useEffect(() => subscribeDesktopNavigation(getElectronDesktopBridge(), navigate), [navigate])
   return null
-}
-
-function RouteLoading() {
-  return <div role="status" aria-label="页面加载中" style={{ minHeight: '100vh', background: 'var(--bg-1)' }} />
 }
 
 function RouteCommitMarker() {

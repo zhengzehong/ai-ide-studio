@@ -32,6 +32,7 @@ import { ProjectTabBar } from './ProjectTabBar'
 import { useSecretaryStore } from '../../stores/secretary.store'
 import { totalSecretaryAttention } from '../../stores/secretary-attention'
 import { useReadingStore } from '../../stores/reading.store'
+import { RouteBoundary } from '../routing/RouteBoundary'
 import './AppLayout.css'
 
 const globalNav = [
@@ -169,7 +170,7 @@ export function AppLayout() {
           <div className="top-bar-right"><AgentStatusBar /></div>
         </header>
         <ProjectTabBar />
-        <main className="content-area"><Outlet /></main>
+        <main className="content-area"><RouteBoundary><Outlet /></RouteBoundary></main>
       </div>
       <GlobalAssistantRail />
     </div>

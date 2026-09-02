@@ -132,7 +132,7 @@ API 子进程通过 `uncaughtExceptionMonitor` 在致命退出前记录异常来
 
 ### 浏览器启动与项目缓存
 
-PC 生产构建按页面使用 `React.lazy` 拆分，应用 shell、认证和连接发现保留在主入口；hashed JS/CSS 使用一年 immutable 缓存，HTML、SPA fallback 和未 hash 文件使用 `no-cache`。构建 manifest 由 `npm run check:ui-bundle` 检查主入口预算和动态页面数量。
+PC 生产构建按页面使用 `React.lazy` 拆分，应用 shell、认证和连接发现保留在主入口；hashed JS/CSS 使用一年 immutable 缓存，HTML、SPA fallback 和未 hash 文件使用 `no-cache`。缺失 chunk 不进入 SPA fallback，而由路由加载恢复策略最多触发一次整页重载；持续失败时在内容区显示可重试错误，不清空应用 shell。构建 manifest 由 `npm run check:ui-bundle` 检查主入口预算和动态页面数量。
 
 浏览器在首次 React render 前最多等待 100ms 读取 IndexedDB `ai-ide-bootstrap`。快照只保存 Projects、最近五个项目的 Task/Agent/Session 列表以及最近会话的已完成消息，最大 4 MiB；running 流、权限、提问和执行中消息不持久化。hydrate 后所有条目立即标记 stale，正常 HTTP/WS 启动继续执行 SWR 重验，因此快照只加速显示，不成为事实源。
 

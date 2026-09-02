@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 const appSource = readFileSync(resolve('ui/src/App.tsx'), 'utf8')
 const lazySource = readFileSync(resolve('ui/src/routes/lazy-pages.tsx'), 'utf8')
+const routeBoundarySource = readFileSync(resolve('ui/src/components/routing/RouteBoundary.tsx'), 'utf8')
 const assistantRailSource = readFileSync(
   resolve('ui/src/components/global-assistant/GlobalAssistantRail.tsx'),
   'utf8',
@@ -34,7 +35,7 @@ describe('UI route splitting boundary', () => {
   it('keeps eager page modules out of the application shell', () => {
     expect(appSource).not.toMatch(/from ['"]\.\/pages\//)
     expect(appSource).toContain("from './routes/lazy-pages'")
-    expect(appSource).toContain('<Suspense')
+    expect(routeBoundarySource).toContain('<Suspense')
   })
 
   it('loads business listeners only after the realtime connection succeeds', () => {
