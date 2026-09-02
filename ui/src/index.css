@@ -58,6 +58,50 @@ body {
   color: var(--text-1);
 }
 
+.route-loading,
+.route-load-error,
+.startup-error {
+  display: grid;
+  min-height: 100%;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  padding: 32px;
+  color: var(--text-2);
+  text-align: center;
+}
+
+.route-loading-spinner {
+  width: 22px;
+  height: 22px;
+  border: 2px solid var(--bg-3);
+  border-top-color: var(--blue);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.route-load-error strong,
+.startup-error strong {
+  color: var(--text-1);
+  font-size: 16px;
+}
+
+.route-load-error p,
+.startup-error p {
+  margin: 0;
+  color: var(--text-3);
+}
+
+.route-load-error button,
+.startup-error button {
+  padding: 8px 14px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--blue);
+  color: #fff;
+  cursor: pointer;
+}
+
 html.widget-document,
 html.widget-document body,
 html.widget-document #root {

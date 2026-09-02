@@ -12,6 +12,13 @@ export function cacheControlForAssetPath(path: string): string {
     : 'no-cache'
 }
 
+export function shouldUseSpaFallback(path: string): boolean {
+  const pathname = path.split('?', 1)[0] ?? path
+  if (pathname.startsWith('/assets/') || pathname.startsWith('/app/assets/')) return false
+  const lastSegment = pathname.slice(pathname.lastIndexOf('/') + 1)
+  return !lastSegment.includes('.')
+}
+
 export function mountStaticAssets(app: Hono, config: AppConfig): void {
   if (config.mobileStaticDir && existsSync(join(config.mobileStaticDir, 'index.html'))) {
     const mobileRoot = relative(process.cwd(), config.mobileStaticDir) || '.'
@@ -20,11 +27,12 @@ export function mountStaticAssets(app: Hono, config: AppConfig): void {
       rewriteRequestPath: (p) => p.replace(/^\/app/, ''),
       onFound: (_path, c) => c.header('Cache-Control', cacheControlForAssetPath(c.req.path)),
     }))
-    app.get('/app/*', serveStatic({
+    const mobileFallback = serveStatic({
       root: mobileRoot,
       path: 'index.html',
       onFound: (_path, c) => c.header('Cache-Control', 'no-cache'),
-    }))
+    })
+    app.get('/app/*', (c, next) => shouldUseSpaFallback(c.req.path) ? mobileFallback(c, next) : next())
   }
 
   if (!config.staticDir || !existsSync(join(config.staticDir, 'index.html'))) return
@@ -33,11 +41,12 @@ export function mountStaticAssets(app: Hono, config: AppConfig): void {
     root: config.staticDir,
     onFound: (_path, c) => c.header('Cache-Control', cacheControlForAssetPath(c.req.path)),
   }))
-  app.get('*', serveStatic({
+  const desktopFallback = serveStatic({
     root: config.staticDir,
     path: 'index.html',
     onFound: (_path, c) => c.header('Cache-Control', 'no-cache'),
-  }))
+  })
+  app.get('*', (c, next) => shouldUseSpaFallback(c.req.path) ? desktopFallback(c, next) : next())
 }
 
 export function staticDirForLog(config: AppConfig): string | undefined {

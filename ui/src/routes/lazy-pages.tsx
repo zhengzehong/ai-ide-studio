@@ -1,34 +1,34 @@
-import { lazy } from 'react'
+import { lazyWithRecovery } from './lazy-with-recovery'
 
-export const Dashboard = lazy(() => import('../pages/Dashboard'))
-export const Workspace = lazy(() => import('../pages/Workspace'))
-export const TaskBoard = lazy(() => import('../pages/TaskBoard').then((module) => ({
+export const Dashboard = lazyWithRecovery(() => import('../pages/Dashboard'))
+export const Workspace = lazyWithRecovery(() => import('../pages/Workspace'))
+export const TaskBoard = lazyWithRecovery(() => import('../pages/TaskBoard').then((module) => ({
   default: module.TaskBoard,
 })))
-export const TaskModesSettings = lazy(() => import('../pages/TaskModesSettings'))
-export const Schedule = lazy(() => import('../pages/Schedule'))
-export const EventCenter = lazy(() => import('../pages/EventCenter'))
-export const KnowledgeBase = lazy(() => import('../pages/KnowledgeBase'))
-export const AgentMemory = lazy(() => import('../pages/AgentMemory'))
-export const Autonomy = lazy(() => import('../pages/Autonomy').then((module) => ({ default: module.Autonomy })))
-export const Secretary = lazy(() => import('../pages/Secretary').then((module) => ({ default: module.Secretary })))
-export const Inspiration = lazy(() => import('../pages/Inspiration').then((module) => ({ default: module.Inspiration })))
-export const AgentSquare = lazy(() => import('../pages/AgentSquare'))
-export const SkillCenter = lazy(() => import('../pages/SkillCenter'))
-export const ToolManager = lazy(() => import('../pages/ToolManager'))
-export const Settings = lazy(() => import('../pages/Settings'))
-export const Projects = lazy(() => import('../pages/Projects'))
-export const TemplatesPage = lazy(() => import('../pages/TemplatesPage'))
-export const WidgetPage = lazy(() => import('../pages/Widget'))
-export const AccessTokenPage = lazy(() => import('../pages/AccessTokenPage'))
-export const GuestChatPage = lazy(() => import('../pages/share/GuestChatPage'))
-export const ShareManagePage = lazy(() => import('../pages/share/ShareManagePage'))
-export const PinnedSessions = lazy(() => import('../pages/PinnedSessions').then((module) => ({
+export const TaskModesSettings = lazyWithRecovery(() => import('../pages/TaskModesSettings'))
+export const Schedule = lazyWithRecovery(() => import('../pages/Schedule'))
+export const EventCenter = lazyWithRecovery(() => import('../pages/EventCenter'))
+export const KnowledgeBase = lazyWithRecovery(() => import('../pages/KnowledgeBase'))
+export const AgentMemory = lazyWithRecovery(() => import('../pages/AgentMemory'))
+export const Autonomy = lazyWithRecovery(() => import('../pages/Autonomy').then((module) => ({ default: module.Autonomy })))
+export const Secretary = lazyWithRecovery(() => import('../pages/Secretary').then((module) => ({ default: module.Secretary })))
+export const Inspiration = lazyWithRecovery(() => import('../pages/Inspiration').then((module) => ({ default: module.Inspiration })))
+export const AgentSquare = lazyWithRecovery(() => import('../pages/AgentSquare'))
+export const SkillCenter = lazyWithRecovery(() => import('../pages/SkillCenter'))
+export const ToolManager = lazyWithRecovery(() => import('../pages/ToolManager'))
+export const Settings = lazyWithRecovery(() => import('../pages/Settings'))
+export const Projects = lazyWithRecovery(() => import('../pages/Projects'))
+export const TemplatesPage = lazyWithRecovery(() => import('../pages/TemplatesPage'))
+export const WidgetPage = lazyWithRecovery(() => import('../pages/Widget'))
+export const AccessTokenPage = lazyWithRecovery(() => import('../pages/AccessTokenPage'))
+export const GuestChatPage = lazyWithRecovery(() => import('../pages/share/GuestChatPage'))
+export const ShareManagePage = lazyWithRecovery(() => import('../pages/share/ShareManagePage'))
+export const PinnedSessions = lazyWithRecovery(() => import('../pages/PinnedSessions').then((module) => ({
   default: module.PinnedSessions,
 })))
-export const UpdatesPage = lazy(() => import('../pages/UpdatesPage').then((module) => ({
+export const UpdatesPage = lazyWithRecovery(() => import('../pages/UpdatesPage').then((module) => ({
   default: module.UpdatesPage,
 })))
-export const ReadingPage = lazy(() => import('../pages/reading/ReadingPage').then((module) => ({
+export const ReadingPage = lazyWithRecovery(() => import('../pages/reading/ReadingPage').then((module) => ({
   default: module.ReadingPage,
 })))
