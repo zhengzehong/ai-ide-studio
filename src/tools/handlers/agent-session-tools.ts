@@ -70,6 +70,55 @@ export const agentSessionMessagesHandler: ToolHandler = {
   },
 }
 
+export const agentSessionTagsSetHandler: ToolHandler = {
+  name: 'agent.session.tags.set',
+  description: '设置某个会话的标签(全量替换)。标签自动去空去重,每个会话最多 10 个,单个最多 24 字符,超限直接报错;传空数组即清空全部标签。允许操作你当前所在的会话。',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      sessionId: { type: 'string' },
+      tags: { type: 'array', items: { type: 'string' } },
+    },
+    required: ['sessionId', 'tags'],
+  },
+  async execute(input, context) {
+    const session = agentSessionCommunicationService.setSessionTags(
+      context,
+      requireString(input, 'sessionId'),
+      requireStringArray(input, 'tags'),
+    )
+    return jsonResult({ session })
+  },
+}
+
+export const agentSessionArchiveHandler: ToolHandler = {
+  name: 'agent.session.archive',
+  description: '归档一个会话(从会话列表隐藏,之后可用 agent.session.unarchive 还原)。主会话、运行中的会话、系统会话会被拒绝;不能归档你当前所在的会话;已归档的会话再次归档会报错"会话已归档"。',
+  inputSchema: {
+    type: 'object',
+    properties: { sessionId: { type: 'string' } },
+    required: ['sessionId'],
+  },
+  async execute(input, context) {
+    const session = agentSessionCommunicationService.archiveSession(context, requireString(input, 'sessionId'))
+    return jsonResult({ session })
+  },
+}
+
+export const agentSessionUnarchiveHandler: ToolHandler = {
+  name: 'agent.session.unarchive',
+  description: '还原一个已归档的会话(回到会话列表)。只能还原已归档的会话,未归档会报错"会话未归档";不能还原你当前所在的会话。',
+  inputSchema: {
+    type: 'object',
+    properties: { sessionId: { type: 'string' } },
+    required: ['sessionId'],
+  },
+  async execute(input, context) {
+    const session = agentSessionCommunicationService.restoreSession(context, requireString(input, 'sessionId'))
+    return jsonResult({ session })
+  },
+}
+
 export const agentSessionWatchHandler: ToolHandler = {
   name: 'agent.session.watch',
   description: '一次性监听另一个会话的完成事件。被监听会话执行完一轮后,系统自动唤醒你的会话。单次触发后自动失效,不支持取消。',
@@ -134,6 +183,14 @@ function requireString(input: ToolHandlerInput, key: string): string {
   const value = input[key]
   if (typeof value !== 'string' || !value.trim()) throw new Error(`${key} 不能为空`)
   return value.trim()
+}
+
+function requireStringArray(input: ToolHandlerInput, key: string): string[] {
+  const value = input[key]
+  if (!Array.isArray(value) || !value.every((item): item is string => typeof item === 'string')) {
+    throw new Error('tags 必须是字符串数组')
+  }
+  return value
 }
 
 function optionalString(input: ToolHandlerInput, key: string): string | undefined {

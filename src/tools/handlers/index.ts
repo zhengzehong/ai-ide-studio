@@ -106,8 +106,11 @@ import {
 } from './event-center-tools.js'
 import {
   agentMessageSendHandler,
+  agentSessionArchiveHandler,
   agentSessionListHandler,
   agentSessionMessagesHandler,
+  agentSessionTagsSetHandler,
+  agentSessionUnarchiveHandler,
   agentSessionWatchHandler,
   agentTaskWatchCancelHandler,
   agentTaskWatchHandler,
@@ -232,6 +235,9 @@ register(eventSubscriptionCreateHandler)
 register(agentMessageSendHandler)
 register(agentSessionListHandler)
 register(agentSessionMessagesHandler)
+register(agentSessionTagsSetHandler)
+register(agentSessionArchiveHandler)
+register(agentSessionUnarchiveHandler)
 register(agentSessionWatchHandler)
 register(agentTaskWatchHandler)
 register(agentTaskWatchCancelHandler)

@@ -162,6 +162,130 @@ describe('agent session MCP tools', () => {
     expect(cancelled.cancelled).toBe(watchId)
   })
 
+  describe('agent session manage tools', () => {
+    test('agent.session.tags.set replaces tags and returns the updated session', async () => {
+      const { source, sourceSession, targetSession, project } = createTwoAgentProject()
+
+      const result = await executeJson(
+        'agent.session.tags.set',
+        { sessionId: targetSession.id, tags: [' 调研 ', '调研', 'bug修复'] },
+        { projectId: project.id, agentId: source.id, sessionId: sourceSession.id },
+      )
+
+      expect(asRecord(result.session)).toMatchObject({ id: targetSession.id, tags: ['调研', 'bug修复'] })
+    })
+
+    test('agent.session.tags.set allows tagging the current session itself', async () => {
+      const { source, sourceSession, project } = createTwoAgentProject()
+
+      const result = await executeJson(
+        'agent.session.tags.set',
+        { sessionId: sourceSession.id, tags: ['主线'] },
+        { projectId: project.id, agentId: source.id, sessionId: sourceSession.id },
+      )
+
+      expect(asRecord(result.session)).toMatchObject({ id: sourceSession.id, tags: ['主线'] })
+    })
+
+    test('agent.session.tags.set enforces tag payload limits', async () => {
+      const { source, sourceSession, targetSession, project } = createTwoAgentProject()
+      const context = { projectId: project.id, agentId: source.id, sessionId: sourceSession.id }
+
+      const tooMany = await executeError('agent.session.tags.set', { sessionId: targetSession.id, tags: Array.from({ length: 11 }, (_, index) => `标签${index}`) }, context)
+      expect(tooMany.message).toContain('每个会话最多 10 个标签')
+
+      const tooLong = await executeError('agent.session.tags.set', { sessionId: targetSession.id, tags: ['字'.repeat(25)] }, context)
+      expect(tooLong.message).toContain('单个标签不能超过 24 个字符')
+
+      const notArray = await executeError('agent.session.tags.set', { sessionId: targetSession.id, tags: '调研' }, context)
+      expect(notArray.message).toContain('tags 必须是字符串数组')
+    })
+
+    test('agent.session.tags.set rejects sessions outside the current project', async () => {
+      const { source, sourceSession, targetSession } = createTwoAgentProject()
+      const otherProject = projectStore.create({ name: 'Other', workDir: tmp })
+
+      const error = await executeError(
+        'agent.session.tags.set',
+        { sessionId: targetSession.id, tags: ['调研'] },
+        { projectId: otherProject.id, agentId: source.id, sessionId: sourceSession.id },
+      )
+      expect(error.message).toContain('会话不属于当前项目')
+    })
+
+    test('agent.session.archive archives a closed conversation session', async () => {
+      const { source, sourceSession, target, project } = createTwoAgentProject()
+      const targetSession = sessionStore.create({ agentId: target.id, projectId: project.id })
+      sessionStore.updateStatus(targetSession.id, 'closed')
+
+      const result = await executeJson(
+        'agent.session.archive',
+        { sessionId: targetSession.id },
+        { projectId: project.id, agentId: source.id, sessionId: sourceSession.id },
+      )
+
+      expect(asRecord(result.session).archived_at).toBeTruthy()
+    })
+
+    test('agent.session.archive guards: primary / running / self / already archived', async () => {
+      const { source, sourceSession, target, project } = createTwoAgentProject()
+      const context = { projectId: project.id, agentId: source.id, sessionId: sourceSession.id }
+
+      const primary = sessionStore.create({ agentId: target.id, projectId: project.id, isPrimary: true })
+      const primaryError = await executeError('agent.session.archive', { sessionId: primary.id }, context)
+      expect(primaryError.message).toContain('主会话不可归档')
+
+      const running = sessionStore.create({ agentId: target.id, projectId: project.id })
+      sessionStore.updateStatus(running.id, 'closed')
+      messageStore.append(running.id, { role: 'agent', content: '', status: 'running' })
+      const runningError = await executeError('agent.session.archive', { sessionId: running.id }, context)
+      expect(runningError.message).toContain('运行中的会话不可归档')
+
+      const selfError = await executeError('agent.session.archive', { sessionId: sourceSession.id }, context)
+      expect(selfError.message).toContain('不能归档当前会话')
+
+      const closed = sessionStore.create({ agentId: target.id, projectId: project.id })
+      sessionStore.updateStatus(closed.id, 'closed')
+      await executeJson('agent.session.archive', { sessionId: closed.id }, context)
+      const again = await executeError('agent.session.archive', { sessionId: closed.id }, context)
+      expect(again.message).toContain('会话已归档')
+    })
+
+    test('agent.session.unarchive restores, and guards unarchived / self targets', async () => {
+      const { source, sourceSession, target, project } = createTwoAgentProject()
+      const context = { projectId: project.id, agentId: source.id, sessionId: sourceSession.id }
+      const closed = sessionStore.create({ agentId: target.id, projectId: project.id })
+      sessionStore.updateStatus(closed.id, 'closed')
+      await executeJson('agent.session.archive', { sessionId: closed.id }, context)
+
+      const result = await executeJson('agent.session.unarchive', { sessionId: closed.id }, context)
+      expect(asRecord(result.session).archived_at).toBeNull()
+
+      const notArchived = sessionStore.create({ agentId: target.id, projectId: project.id })
+      const error = await executeError('agent.session.unarchive', { sessionId: notArchived.id }, context)
+      expect(error.message).toContain('会话未归档')
+
+      const selfError = await executeError('agent.session.unarchive', { sessionId: sourceSession.id }, context)
+      expect(selfError.message).toContain('不能还原当前会话')
+    })
+
+    test('manage tool seeds describe guard constraints and handlers resolve', () => {
+      const tagsSet = AGENT_SESSION_BUILTIN_TOOLS.find((tool) => tool.name === 'agent.session.tags.set')
+      const archive = AGENT_SESSION_BUILTIN_TOOLS.find((tool) => tool.name === 'agent.session.archive')
+      const unarchive = AGENT_SESSION_BUILTIN_TOOLS.find((tool) => tool.name === 'agent.session.unarchive')
+
+      expect(tagsSet?.description).toContain('全量替换')
+      expect(tagsSet?.description).toContain('最多 10 个')
+      expect(archive?.description).toContain('不能归档你当前所在的会话')
+      expect(archive?.description).toContain('agent.session.unarchive')
+      expect(unarchive?.description).toContain('会话未归档')
+
+      expect(getHandler('agent.session.tags.set')?.name).toBe('agent.session.tags.set')
+      expect(getHandler('agent.session.archive')?.name).toBe('agent.session.archive')
+      expect(getHandler('agent.session.unarchive')?.name).toBe('agent.session.unarchive')
+    })
+  })
+
   test('seed registers agent communication tools globally', () => {
     seedBuiltinTools()
 
@@ -178,8 +302,11 @@ describe('agent session MCP tools', () => {
 
     expect(names).toEqual([
       'agent.message.send',
+      'agent.session.archive',
       'agent.session.list',
       'agent.session.messages',
+      'agent.session.tags.set',
+      'agent.session.unarchive',
       'agent.session.watch',
       'agent.task.watch',
       'agent.task.watch.cancel',
@@ -203,6 +330,21 @@ async function executeJson(
   const result: ToolHandlerResult = await handler.execute(input, context)
   expect(result.isError).not.toBe(true)
   return JSON.parse(result.content[0]?.text ?? '{}') as Record<string, unknown>
+}
+
+async function executeError(
+  handlerName: string,
+  input: Record<string, unknown>,
+  context: ToolContext,
+): Promise<Error> {
+  const handler = getHandler(handlerName)
+  if (!handler) throw new Error(`handler missing: ${handlerName}`)
+  try {
+    await handler.execute(input, context)
+  } catch (error) {
+    return error as Error
+  }
+  throw new Error(`expected ${handlerName} to throw`)
 }
 
 function createTwoAgentProject() {

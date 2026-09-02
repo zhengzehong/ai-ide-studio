@@ -122,6 +122,24 @@ export const agentSessionCommunicationService = {
     return messageStore.list(session.id, { limit: normalizeLimit(limit, DEFAULT_MESSAGE_LIST_LIMIT), includeToolCalls: false, includeLatestToolCalls: false })
   },
 
+  setSessionTags(context: { projectId?: string }, sessionId: string, tags: string[]): SessionRow {
+    const target = requireVisibleSession(sessionId, context.projectId)
+    return sessionManager.setSessionTags(target.id, tags)
+  },
+
+  archiveSession(context: { projectId?: string; sessionId?: string }, sessionId: string): SessionRow {
+    const target = requireVisibleSession(sessionId, context.projectId)
+    // 自归档守卫:Agent 归档自己所在的会话会切断自己的上下文,与 createWatch 的自监视守卫同口径。
+    if (context.sessionId && context.sessionId === target.id) throw new Error('不能归档当前会话')
+    return sessionManager.archiveSession(target.id)
+  },
+
+  restoreSession(context: { projectId?: string; sessionId?: string }, sessionId: string): SessionRow {
+    const target = requireVisibleSession(sessionId, context.projectId)
+    if (context.sessionId && context.sessionId === target.id) throw new Error('不能还原当前会话')
+    return sessionManager.restoreSession(target.id)
+  },
+
   createWatch(input: CreateAgentSessionWatchInput): AgentSessionWatchRow {
     const watcherSession = requireContextSession(input.context)
     const watcherAgent = requireContextAgent(input.context, watcherSession)
