@@ -379,7 +379,7 @@ export const sessionManager = {
   },
 
   archiveSession(sessionId: string): SessionRow {
-    const session = requireManageableSession(sessionId, 'archive')
+    requireManageableSession(sessionId, 'archive')
     const archived = sessionStore.archive(sessionId)
     if (!archived) throw new Error(`Session \u4e0d\u5b58\u5728: ${sessionId}`)
     void agentHubService.disconnectBySession(sessionId)
@@ -389,7 +389,7 @@ export const sessionManager = {
   },
 
   restoreSession(sessionId: string): SessionRow {
-    const session = requireManageableSession(sessionId, 'restore')
+    requireManageableSession(sessionId, 'restore')
     const restored = sessionStore.restore(sessionId)
     if (!restored) throw new Error(`Session \u4e0d\u5b58\u5728: ${sessionId}`)
     events.emit('session:changed', { sessionId, data: { ...restored, event: 'restored' } })
@@ -459,12 +459,11 @@ export function normalizeSessionTags(tags: unknown): string[] {
 function requireManageableSession(
   sessionId: string,
   action: 'archive' | 'restore',
-): SessionRow {
+): void {
   const session = sessionStore.get(sessionId)
   if (!session) throw new Error(`Session 不存在: ${sessionId}`)
   const activityState = sessionStore.getSessionRuntimeState(sessionId, sessionManager.isPromptActive)
   assertSessionManageable({ ...session, activity_state: activityState }, action)
-  return session
 }
 
 function requirePromptSession(sessionId: string): SessionRow {

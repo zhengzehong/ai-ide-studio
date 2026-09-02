@@ -136,11 +136,13 @@ export function SessionBar(props: SessionBarProps) {
   }, [archivedSessions.length, showArchived])
 
   // 切换智能体时重置筛选与归档视图（原型 switchAgent 行为）。
-  const agentId = agent?.id
-  useEffect(() => {
+  // 用 React 官方 render 期间调整模式（记录上一次值比较），避免 effect 内同步 setState。
+  const [prevAgentId, setPrevAgentId] = useState(agent?.id)
+  if (prevAgentId !== agent?.id) {
+    setPrevAgentId(agent?.id)
     setShowArchived(false)
     setSelectedFilterTags([])
-  }, [agentId])
+  }
 
   const sessionBelongsToBatchView = (session: SessionData): {
     id: string
