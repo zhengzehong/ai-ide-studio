@@ -8,6 +8,7 @@ import {
   getAdvisorWorkspace,
   handleSessionTurnDone,
   ignoreSuggestion,
+  publishSuggestions,
   resumeProjectAdvisors,
   DEFAULT_ADVISOR_PROMPT,
 } from '../../src/core/project-advisor.js'
@@ -237,6 +238,18 @@ describe('project advisor service', () => {
     expect(sessionStore.get(accepted.execution_session_id!)?.agent_id).toBe(executor.id)
   })
 
+  test('push package lists project agents so the advisor picks real IDs', () => {
+    const { project, executor, workerSession } = createFixture()
+    agentStore.setHidden(agentStore.create({ type: 'dev', name: '已隐藏执行者', runtime: 'mock', projectId: project.id }).id, true)
+    const { prompt } = buildAdvisorPushPrompt(project.id, turnDone(workerSession.id, executor.id, 'turn-agents'), '')
+
+    expect(prompt).toContain('### 项目可用 Agent')
+    expect(prompt).toContain('禁止编造 ID')
+    expect(prompt).toContain(`${executor.id} · 执行者 · mock`)
+    // 已隐藏 Agent 不进清单：列出来参谋选了也会被校验拒绝，只会误导
+    expect(prompt).not.toContain('已隐藏执行者')
+  })
+
   test('applies user-edited title and description when accepting (U-13)', async () => {
     const { project, executor } = createFixture()
     const [row] = advisorSuggestionStore.replaceRound(project.id, 'round-1', null, [
@@ -261,6 +274,57 @@ describe('project advisor service', () => {
     const fallbackView = await acceptSuggestion(project.id, second.id, { execute: false })
     const fallbackTask = taskStore.get(fallbackView.settled.find((item) => item.id === second.id)!.task_id!)!
     expect(fallbackTask.title).toBe('沉淀排查结论为任务')
+  })
+
+  test('rejects suggestions recommending agents outside the project (incl. global and hidden)', async () => {
+    const { project, advisor } = createFixture()
+    // 全局 Agent（project_id=null）：旧校验放行、前端项目过滤又排除，用户被迫手动重选——现在提交侧直接拒绝
+    const globalAgent = agentStore.create({ type: 'dev', name: '全局执行者', runtime: 'mock', projectId: null })
+    const hiddenAgent = agentStore.setHidden(agentStore.create({ type: 'dev', name: '隐藏执行者', runtime: 'mock', projectId: project.id }).id, true)
+    const config = await configureAdvisor(project.id, { advisorAgentId: advisor.id })
+
+    await expect(publishSuggestions(
+      { projectId: project.id, sessionId: config.sessionId! },
+      {
+        roundId: 'round-global',
+        suggestions: [suggestionPayload({ suggestedAgentId: globalAgent.id })],
+      },
+    )).rejects.toThrow('必须是当前项目内可用 Agent')
+
+    await expect(publishSuggestions(
+      { projectId: project.id, sessionId: config.sessionId! },
+      {
+        roundId: 'round-hidden',
+        suggestions: [suggestionPayload({ suggestedAgentId: hiddenAgent.id })],
+      },
+    )).rejects.toThrow('必须是当前项目内可用 Agent')
+  })
+
+  test('injects source session context into the created task description', async () => {
+    const { project, executor, workerSession } = createFixture()
+    messageStore.append(workerSession.id, { role: 'human', content: '服务启动报 EADDRINUSE 3000 端口被占' })
+    messageStore.append(workerSession.id, { role: 'agent', content: '定位到是残留的 node 进程占用端口，根因是上次服务未正常退出。' })
+    const [row] = advisorSuggestionStore.replaceRound(project.id, 'round-ctx', workerSession.id, [
+      suggestionPayload({ suggestedAgentId: executor.id }),
+    ])
+
+    const view = await acceptSuggestion(project.id, row.id, { execute: false })
+    const task = taskStore.get(view.settled.find((item) => item.id === row.id)!.task_id!)!
+    expect(task.description).toContain('## 参谋分析依据（来源会话近期对话）')
+    expect(task.description).toContain('【用户】服务启动报 EADDRINUSE')
+    expect(task.description).toContain('【AI】定位到是残留的 node 进程')
+    expect(task.description).toContain(`sessionId：${workerSession.id}`)
+    expect(task.description).toContain('agent.session.messages')
+
+    // 来源会话无消息时不加段，描述保持原样
+    const emptySession = sessionStore.create({ agentId: executor.id, projectId: project.id })
+    const [cleanRow] = advisorSuggestionStore.replaceRound(project.id, 'round-clean', emptySession.id, [
+      suggestionPayload({ suggestedAgentId: executor.id, title: '无上下文建议' }),
+    ])
+    const cleanView = await acceptSuggestion(project.id, cleanRow.id, { execute: false })
+    const cleanTask = taskStore.get(cleanView.settled.find((item) => item.id === cleanRow.id)!.task_id!)!
+    expect(cleanTask.description).not.toContain('参谋分析依据')
+    expect(cleanTask.description).toBe(cleanRow.description_markdown)
   })
 
   test('releases the dispatch token when task creation fails so the user can retry', async () => {

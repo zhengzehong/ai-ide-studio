@@ -4,7 +4,7 @@ import { resolve } from 'node:path'
 import { agentStore } from '../store/agents.js'
 import { getDbPath } from '../store/db.js'
 import { projectStore } from '../store/projects.js'
-import { sessionStore } from '../store/sessions.js'
+import { messageStore, sessionStore } from '../store/sessions.js'
 import { previewStore } from '../store/previews.js'
 import { projectAdvisorStore, type ProjectAdvisorRow } from '../store/advisors.js'
 import {
@@ -43,9 +43,13 @@ export const DEFAULT_ADVISOR_PROMPT = [
   '## 单条建议强制结构（缺一不可）',
   '每条建议必须包含：类型（plan=附完整 HTML 方案文档 / action=说明即执行包）、标题、预填执行包（四段式：背景/目标/交付物/验收标准）、推荐 Agent 和理由、来源佐证会话。',
   'plan 类型必须同时提交 artifactName 和完整可独立打开的 artifactHtml。',
+  '执行包的「背景」必须写具体事实（报错信息、根因结论、涉及的文件/模块），禁止只写空泛描述——用户接受后任务会附带来源会话对话，但背景本身必须自带关键事实。',
   '',
   '## 可用工具',
   '可调用 agent.session.messages 查看来源会话更早历史；相关上下文用 agent.session.list 浏览活跃会话。',
+  '',
+  '## 推荐 Agent 硬约束',
+  'suggestedAgentId 只能从推送包「项目可用 Agent」清单里选（原样复制清单中的 ID），禁止编造或使用清单之外的 ID。',
   '',
   '## 特殊强制约束',
   '不得直接创建或派发任务，必须调用 suggestion.present 提交，等待用户确认。',
@@ -56,6 +60,55 @@ const SAME_SESSION_DEBOUNCE_MS = 5 * 60 * 1000
 const PROJECT_MIN_INTERVAL_MS = 3 * 60 * 1000
 /** roundId 登记的保活上限：超时未结算的登记在下次写入时惰性回收（防 Map 慢泄漏） */
 const ROUND_REGISTRATION_TTL_MS = 10 * 60 * 1000
+/** 建任务时注入来源会话上下文的预算：最多 4 个会话、每会话最近 4 条、单条截 400 字符、总预算 4000 字符 */
+const SOURCE_CONTEXT_MAX_SESSIONS = 4
+const SOURCE_CONTEXT_MESSAGES_PER_SESSION = 4
+const SOURCE_CONTEXT_PER_MESSAGE_MAX = 400
+const SOURCE_CONTEXT_BUDGET = 4_000
+
+/**
+ * 建任务时把来源会话近期对话注入任务描述。四段式执行包只说「做什么」，
+ * 执行 Agent 还需要参谋当时依据的具体事实（报错/结论/对话），否则拿到任务无从下手。
+ */
+function buildSourceContextBlock(suggestion: AdvisorSuggestionRow): string {
+  const sessionIds: string[] = []
+  if (suggestion.trigger_session_id) sessionIds.push(suggestion.trigger_session_id)
+  try {
+    const evidence = JSON.parse(suggestion.source_evidence_json) as AdvisorSourceEvidence[]
+    if (Array.isArray(evidence)) {
+      for (const item of evidence) {
+        if (item?.sessionId && !sessionIds.includes(item.sessionId)) sessionIds.push(item.sessionId)
+      }
+    }
+  } catch {
+    // 佐证 JSON 损坏不阻断建任务，只用触发会话
+  }
+  const sections: string[] = []
+  let budget = SOURCE_CONTEXT_BUDGET
+  for (const sessionId of sessionIds.slice(0, SOURCE_CONTEXT_MAX_SESSIONS)) {
+    if (budget <= 0) break
+    const session = sessionStore.get(sessionId)
+    if (!session || session.deleted_at) continue
+    const messages = messageStore.list(sessionId, { limit: SOURCE_CONTEXT_MESSAGES_PER_SESSION, includeToolCalls: false })
+      .filter((row) => (row.role === 'human' || row.role === 'agent') && row.content.trim().length > 0)
+    if (messages.length === 0) continue
+    const lines: string[] = []
+    for (const row of messages) {
+      if (budget <= 0) break
+      const clipped = row.content.trim().length > SOURCE_CONTEXT_PER_MESSAGE_MAX
+        ? row.content.trim().slice(0, SOURCE_CONTEXT_PER_MESSAGE_MAX) + '…'
+        : row.content.trim()
+      budget -= clipped.length
+      lines.push(`${row.role === 'human' ? '【用户】' : '【AI】'}${clipped}`)
+    }
+    if (lines.length > 0) {
+      sections.push(`会话「${session.title || sessionId}」（${sessionId}）：\n${lines.join('\n')}`)
+    }
+  }
+  if (sections.length === 0) return ''
+  const referenced = sessionIds.slice(0, SOURCE_CONTEXT_MAX_SESSIONS).join('、')
+  return `\n\n## 参谋分析依据（来源会话近期对话）\n${sections.join('\n\n')}\n\n需要更早历史时，可调用 agent.session.messages 查看（sessionId：${referenced}）。`
+}
 
 /** roundId → 轮次登记（发布建议时回写触发会话；S-8 结算后回收） */
 interface RoundRegistration {
@@ -342,8 +395,9 @@ export async function publishSuggestions(
     }
     if (suggestion.suggestedAgentId) {
       const agent = agentStore.get(suggestion.suggestedAgentId)
-      if (!agent || (agent.project_id && agent.project_id !== context.projectId)) {
-        throw new Error(`推荐 Agent 不属于当前项目: ${suggestion.suggestedAgentId}`)
+      // 与前端口径一致：必须是本项目内且未隐藏的 Agent（隐藏 Agent 不在执行列表，推荐了用户也得重选）
+      if (!agent || agent.project_id !== context.projectId || agent.hidden_at) {
+        throw new Error(`推荐 Agent 必须是当前项目内可用 Agent（从推送包「项目可用 Agent」清单中选择，禁止编造 ID）: ${suggestion.suggestedAgentId}`)
       }
     }
   }
@@ -419,14 +473,17 @@ export async function acceptSuggestion(
   const agentId = input.agentId || suggestion.suggested_agent_id
   if (!agentId) throw new Error('该建议没有推荐 Agent，请手动选择执行 Agent')
   const agent = agentStore.get(agentId)
-  if (!agent || (agent.project_id && agent.project_id !== projectId)) throw new Error('执行 Agent 不属于当前项目')
+  // 与前端口径一致：执行 Agent 必须是本项目内且未隐藏的 Agent
+  if (!agent || agent.project_id !== projectId || agent.hidden_at) throw new Error('执行 Agent 不属于当前项目或已隐藏')
   if (input.sessionId) {
     const session = sessionStore.get(input.sessionId)
     if (!session || session.agent_id !== agentId) throw new Error('执行会话不属于所选 Agent')
   }
   if (input.sessionMode === 'existing' && !input.sessionId) throw new Error('选择已有会话时必须选择执行会话')
   const taskTitle = input.title?.trim() || suggestion.title
-  const taskDescription = input.descriptionMarkdown?.trim() || suggestion.description_markdown
+  // 注入来源会话上下文：执行包只说「做什么」，来源对话才是「依据什么」（用户可编辑说明时以其为准，仍追加依据）
+  const baseDescription = input.descriptionMarkdown?.trim() || suggestion.description_markdown
+  const taskDescription = baseDescription + buildSourceContextBlock(suggestion)
   const token = `dispatch-${randomUUID()}`
   const claimed = advisorSuggestionStore.claimDispatch(suggestion.id, token)
   if (!claimed) throw new Error('建议正在创建任务，请稍候')

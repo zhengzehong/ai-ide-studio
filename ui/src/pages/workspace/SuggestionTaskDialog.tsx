@@ -68,7 +68,7 @@ export function SuggestionTaskDialog({ suggestion, agents, sessions = [], busy, 
             <span>执行 Agent</span>
             <select value={agentId} onChange={(event) => { setAgentId(event.target.value); setSessionId('') }}>
               <option value="">请选择 Agent</option>
-              {agents.map((agent) => (
+              {agents.filter((agent) => !agent.hidden_at).map((agent) => (
                 <option key={agent.id} value={agent.id}>{agent.name}</option>
               ))}
             </select>

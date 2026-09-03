@@ -56,6 +56,14 @@ function buildAggregate(projectId: string, excludeSessionId: string): string {
     lines.push('### 当前未处理建议（避免重复建议）')
     for (const suggestion of pending) lines.push(`- ${clipLine(suggestion.title)}`)
   }
+  // 已隐藏 Agent 不进清单：与校验口径一致（隐藏 Agent 会被提交校验拒绝，列出来反而误导参谋）
+  const projectAgents = agentStore.list(projectId).filter((agent) => !agent.hidden_at)
+  if (projectAgents.length > 0) {
+    lines.push('### 项目可用 Agent（suggestedAgentId 只能从这份清单里选，禁止编造 ID）')
+    for (const agent of projectAgents.slice(0, 20)) {
+      lines.push(`- ${agent.id} · ${agent.name} · ${agent.runtime}`)
+    }
+  }
   const now = Date.now()
   const sessions = sessionStore.list(undefined, projectId).filter((session) => {
     if (session.id === excludeSessionId || session.deleted_at || session.archived_at) return false
