@@ -263,6 +263,10 @@ export function handleSessionTurnDone(ev: SessionDoneData): void {
       settleAdvisorRounds(config.session_id)
       return
     }
+    // T-2c 过滤：只推正常完成的轮次（stopReason === 'end_turn'）。手动停止（cancelled）/报错（error）/
+    // 截断（max_tokens 等）的 AI 回复是 abort 碎片，没有分析价值；且用户停止多为纠正 AI，纠正后的下一轮才是有效素材。
+    // 必须在 pendingEvents.set 之前：否则停止轮会按 T-3 覆盖语义挤掉同会话未推送的正常轮。
+    if (ev.stopReason !== 'end_turn') return
     // T-2 过滤：非普通会话（系统、autonomy 等）
     if (session.purpose !== 'conversation') return
     if (!session.project_id) return
