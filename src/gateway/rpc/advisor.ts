@@ -48,6 +48,8 @@ export const advisorRpcHandlers: RpcHandlerMap = {
         sessionId: optionalText(msg.sessionId, 120),
         sessionMode: optionalSessionMode(msg.sessionMode),
         execute: requiredBoolean(msg.execute, 'execute'),
+        title: optionalText(msg.title, 160),
+        descriptionMarkdown: optionalText(msg.descriptionMarkdown, 20_000),
       },
     ))
   },

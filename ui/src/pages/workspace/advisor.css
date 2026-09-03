@@ -1,0 +1,537 @@
+/* AI 参谋建议：右侧面板 tab、建议卡、执行弹窗、参谋设置弹窗 */
+
+.advisor-tab {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 4px 8px 6px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-2);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-bottom: 2px solid transparent;
+}
+
+.advisor-tab-active {
+  color: var(--text-1);
+  border-bottom-color: var(--blue);
+}
+
+.advisor-tab-badge {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--red, #e5484d);
+  color: white;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+}
+
+.advisor-tab-badge-pulse {
+  animation: advisor-badge-pulse 1s ease-in-out 3;
+}
+
+@keyframes advisor-badge-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.35); }
+}
+
+.advisor-tabbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.advisor-tabbar-spacer {
+  flex: 1;
+}
+
+.advisor-tabbar-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg-0);
+  color: var(--text-2);
+  cursor: pointer;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.advisor-tabbar-action-primary {
+  border: none;
+  background: var(--blue);
+  color: white;
+}
+
+.advisor-glm-tag {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--purple);
+  background: var(--purple-light);
+  border-radius: 6px;
+  padding: 1px 6px;
+}
+
+.advisor-card-insert {
+  animation: advisor-card-insert 0.35s ease-out;
+}
+
+@keyframes advisor-card-insert {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.advisor-panel {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.advisor-empty {
+  margin-top: 48px;
+  text-align: center;
+  color: var(--text-3);
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+.advisor-error {
+  margin-top: 32px;
+  text-align: center;
+  color: var(--red, #e5484d);
+  font-size: 13px;
+}
+
+.advisor-error button {
+  margin-top: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-1);
+  color: var(--text-1);
+  border-radius: 6px;
+  padding: 4px 12px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.advisor-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-1);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.advisor-card-accepted {
+  border-color: var(--green, #2f9e44);
+}
+
+.advisor-card-created {
+  border-color: var(--blue);
+}
+
+.advisor-card-ignored {
+  opacity: 0.55;
+}
+
+.advisor-card-ignored .advisor-card-title {
+  text-decoration: line-through;
+}
+
+.advisor-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.advisor-evidence {
+  border: none;
+  background: var(--bg-2);
+  color: var(--text-2);
+  font-size: 12px;
+  border-radius: 999px;
+  padding: 2px 10px;
+  cursor: pointer;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.advisor-evidence:hover {
+  color: var(--blue);
+}
+
+.advisor-type-label {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 6px;
+  padding: 2px 8px;
+}
+
+.advisor-type-plan {
+  color: white;
+  background: var(--purple);
+}
+
+.advisor-type-action {
+  color: white;
+  background: var(--green, #2f9e44);
+}
+
+.advisor-card-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-1);
+  line-height: 1.4;
+}
+
+.advisor-card-summary {
+  font-size: 12px;
+  color: var(--text-2);
+  line-height: 1.6;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.advisor-artifact-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--purple-light);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--text-1);
+}
+
+.advisor-artifact-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.advisor-artifact-open {
+  border: none;
+  background: var(--purple);
+  color: white;
+  font-size: 12px;
+  border-radius: 6px;
+  padding: 3px 10px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.advisor-agent-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.advisor-agent-name {
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.advisor-agent-reason {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.advisor-card-status {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.advisor-card-status button {
+  border: none;
+  background: transparent;
+  color: var(--blue);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0;
+}
+
+.advisor-card-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.advisor-button-primary,
+.advisor-button-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.advisor-button-primary {
+  border: none;
+  background: var(--blue);
+  color: white;
+}
+
+.advisor-button-primary:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.advisor-button-secondary {
+  border: 1px solid var(--border);
+  background: var(--bg-1);
+  color: var(--text-2);
+}
+
+.advisor-collapsed {
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--text-3);
+  cursor: pointer;
+  background: transparent;
+  text-align: left;
+}
+
+.advisor-collapsed-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.advisor-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 90;
+}
+
+.advisor-dialog {
+  background: var(--bg-0);
+  border-radius: 12px;
+  width: 680px;
+  max-width: calc(100vw - 48px);
+  max-height: calc(100vh - 96px);
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.25);
+}
+
+.advisor-dialog-settings {
+  width: 560px;
+}
+
+.advisor-dialog header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.advisor-dialog header h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.advisor-dialog header span {
+  display: block;
+  font-size: 12px;
+  color: var(--text-3);
+  margin-top: 2px;
+}
+
+.advisor-icon-button {
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  display: flex;
+}
+
+.advisor-icon-button:hover {
+  background: var(--bg-2);
+  color: var(--text-1);
+}
+
+.advisor-dialog-body {
+  padding: 14px 18px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.advisor-dialog-body label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-1);
+}
+
+.advisor-dialog-body label > span {
+  font-weight: 600;
+}
+
+.advisor-dialog-body input,
+.advisor-dialog-body select,
+.advisor-dialog-body textarea {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-1);
+  color: var(--text-1);
+  padding: 8px 10px;
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.advisor-dialog-body textarea {
+  min-height: 230px;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.advisor-dialog-body textarea.advisor-prompt-textarea {
+  min-height: 150px;
+}
+
+.advisor-dialog-body small {
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.advisor-agent-reason-block {
+  background: var(--blue-light);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--text-2);
+  line-height: 1.6;
+}
+
+.advisor-agent-reason-block strong {
+  display: block;
+  color: var(--text-1);
+  margin-bottom: 2px;
+}
+
+.advisor-agent-fallback-hint {
+  color: var(--yellow);
+  font-size: 12px;
+}
+
+.advisor-toggle {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 10px !important;
+}
+
+.advisor-toggle span {
+  font-weight: 400 !important;
+}
+
+.advisor-toggle small {
+  display: block;
+}
+
+.advisor-advanced {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.advisor-advanced > button {
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.advisor-advanced-body {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.advisor-error-inline {
+  color: var(--red, #e5484d);
+  font-size: 12px;
+}
+
+.advisor-dialog footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+}
+
+.advisor-dialog footer .advisor-button-primary,
+.advisor-dialog footer .advisor-button-secondary {
+  font-size: 13px;
+  padding: 7px 16px;
+}
+
+.advisor-footer-note {
+  margin-right: auto;
+  font-size: 11px;
+  color: var(--text-3);
+  align-self: center;
+}
+
+.advisor-toast {
+  position: fixed;
+  right: 24px;
+  bottom: 32px;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--purple);
+  color: var(--text-1);
+  font-size: 13px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  z-index: 95;
+}

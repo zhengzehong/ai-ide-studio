@@ -237,6 +237,32 @@ describe('project advisor service', () => {
     expect(sessionStore.get(accepted.execution_session_id!)?.agent_id).toBe(executor.id)
   })
 
+  test('applies user-edited title and description when accepting (U-13)', async () => {
+    const { project, executor } = createFixture()
+    const [row] = advisorSuggestionStore.replaceRound(project.id, 'round-1', null, [
+      suggestionPayload({ suggestedAgentId: executor.id }),
+    ])
+    vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue(undefined)
+
+    const view = await acceptSuggestion(project.id, row.id, {
+      execute: true,
+      title: '用户改过的标题',
+      descriptionMarkdown: '## 用户改过的说明',
+    })
+    const accepted = view.settled.find((item) => item.id === row.id)!
+    const task = taskStore.get(accepted.task_id!)!
+    expect(task).toMatchObject({ title: '用户改过的标题' })
+    expect(task.description).toContain('用户改过的说明')
+
+    // 不传则回落建议原文
+    const [second] = advisorSuggestionStore.replaceRound(project.id, 'round-2', null, [
+      suggestionPayload({ suggestedAgentId: executor.id }),
+    ])
+    const fallbackView = await acceptSuggestion(project.id, second.id, { execute: false })
+    const fallbackTask = taskStore.get(fallbackView.settled.find((item) => item.id === second.id)!.task_id!)!
+    expect(fallbackTask.title).toBe('沉淀排查结论为任务')
+  })
+
   test('releases the dispatch token when task creation fails so the user can retry', async () => {
     const { project, executor } = createFixture()
     const [row] = advisorSuggestionStore.replaceRound(project.id, 'round-1', null, [
