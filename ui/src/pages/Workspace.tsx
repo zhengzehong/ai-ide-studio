@@ -73,6 +73,7 @@ import { useModelStore } from '../stores/model.store'
 import { useFileSystemStore } from '../stores/filesystem.store'
 import { useTeamStore } from '../stores/team.store'
 import { wsClient } from '../services/ws-client'
+import { buildPreviewUrl } from '../services/preview-url'
 import { resolveChatResource, type OpenChatResource } from '../services/chat-resource-links'
 import { FileTree } from '../components/file-viewer/FileTree'
 import { LazyToolCallsBlock } from '../components/chat/LazyToolCallsBlock'
@@ -620,7 +621,7 @@ export default function Workspace() {
   }
 
   const handleAdvisorOpenArtifact = (_suggestion: AdvisorSuggestion, artifact: AdvisorArtifact) => {
-    openPreview({ previewId: artifact.previewId, title: artifact.name, target: 'pc', url: `/preview/${artifact.previewId}/` })
+    openPreview({ previewId: artifact.previewId, title: artifact.name, target: 'pc', url: buildPreviewUrl(artifact.previewId) })
   }
 
   const handleAdvisorIgnore = async (suggestion: AdvisorSuggestion) => {
