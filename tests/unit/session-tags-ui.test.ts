@@ -1,17 +1,38 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { describe, expect, test, vi } from 'vitest'
+import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { SessionBar, type SessionBarProps } from '../../ui/src/pages/workspace/SessionBar'
 import { SessionTagEditor } from '../../ui/src/pages/workspace/SessionTagEditor'
 import {
   appendSessionTag,
   collectScopeTags,
+  effectiveSessionTagFilter,
   filterSessionsByTags,
   sessionTagColor,
   splitSessionsByArchive,
   SESSION_TAG_COLORS,
 } from '../../ui/src/pages/workspace/session-tags'
 import type { SessionData } from '../../ui/src/stores/session.store'
+
+// zustand v5 的 getServerSnapshot 固定读 getInitialState()（模块加载时快照），
+// renderToStaticMarkup 下看不到运行期 patch。因此渲染分支用受控的 hook mock
+// 覆盖；持久化读写本身在 project-view-state.test.ts 的 store 层验证。
+const hookState = vi.hoisted(() => ({
+  showArchived: false,
+  sessionTagFilter: [] as string[],
+}))
+vi.mock('../../ui/src/pages/workspace/use-workspace-project-state', () => ({
+  useWorkspaceProjectState: () => ({
+    sidebarTab: 'sessions',
+    selectedAgentId: null,
+    showArchived: hookState.showArchived,
+    sessionTagFilter: hookState.sessionTagFilter,
+    setSidebarTab: () => {},
+    setSelectedAgentId: () => {},
+    setShowArchived: () => {},
+    setSessionTagFilter: () => {},
+  }),
+}))
 
 function session(input: Partial<SessionData> & { id: string }): SessionData {
   return {
@@ -112,6 +133,12 @@ describe('session tag list helpers', () => {
     expect(filterSessionsByTags(sessions, ['不存在'])).toEqual([])
   })
 
+  test('effectiveSessionTagFilter intersects persisted tags with the current scope', () => {
+    expect(effectiveSessionTagFilter(['调研', '已废弃'], ['调研', 'workbench'])).toEqual(['调研'])
+    expect(effectiveSessionTagFilter(['调研'], ['调研', 'workbench'])).toEqual(['调研'])
+    expect(effectiveSessionTagFilter([], ['调研'])).toEqual([])
+  })
+
   test('appendSessionTag trims, caps length and count, and ignores duplicates', () => {
     expect(appendSessionTag([], '  调研  ')).toEqual(['调研'])
     expect(appendSessionTag(['调研'], '调研')).toEqual(['调研'])
@@ -172,6 +199,45 @@ describe('SessionBar tag rendering', () => {
     expect(html).not.toContain('无匹配会话')
     // 无匹配态由内部 state 驱动；此处确认筛选纯函数结论即可
     expect(filterSessionsByTags(sessions, ['不存在'])).toEqual([])
+  })
+})
+
+describe('SessionBar persisted view state', () => {
+  beforeEach(() => {
+    hookState.showArchived = false
+    hookState.sessionTagFilter = []
+  })
+
+  test('restores the persisted tag filter after remount', () => {
+    hookState.sessionTagFilter = ['调研']
+    const sessions = [
+      session({ id: 'sess-a', title: '命中筛选', tags: ['调研'] }),
+      session({ id: 'sess-b', title: '不相关会话', tags: ['workbench'] }),
+    ]
+    const html = renderToStaticMarkup(createElement(SessionBar, barProps(sessions)))
+    expect(html).toContain('已选 1')
+    expect(html).toContain('命中筛选')
+    expect(html).not.toContain('不相关会话')
+  })
+
+  test('ignores persisted tags no longer in scope instead of emptying the list', () => {
+    hookState.sessionTagFilter = ['已废弃标签']
+    const sessions = [session({ id: 'sess-a', title: '主线会话', tags: ['调研'] })]
+    const html = renderToStaticMarkup(createElement(SessionBar, barProps(sessions)))
+    expect(html).toContain('主线会话')
+    expect(html).not.toContain('已选')
+  })
+
+  test('restores the persisted archive view after remount', () => {
+    hookState.showArchived = true
+    const sessions = [
+      session({ id: 'sess-a', title: '活跃会话' }),
+      session({ id: 'sess-old', title: '已归档会话', archived_at: '2026-09-01T00:00:00.000Z' }),
+    ]
+    const html = renderToStaticMarkup(createElement(SessionBar, barProps(sessions)))
+    expect(html).toContain('已归档会话')
+    expect(html).toContain('返回会话列表')
+    expect(html).not.toContain('活跃会话')
   })
 })
 

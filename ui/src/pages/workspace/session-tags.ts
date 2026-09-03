@@ -57,6 +57,12 @@ export function filterSessionsByTags<T extends SessionTagItem>(sessions: T[], se
   return sessions.filter((session) => (session.tags ?? []).some((tag) => selectedTags.includes(tag)))
 }
 
+// 持久化的筛选 tag 可能已随会话/标签变化而失效：与当前作用域求交集再生效，
+// 避免“筛选区没有 chip 但列表被筛空”的死区。
+export function effectiveSessionTagFilter(filterTags: string[], scopeTags: string[]): string[] {
+  return filterTags.filter((tag) => scopeTags.includes(tag))
+}
+
 // 提交一个新标签：trim → 截断到长度上限 → 空名/重复/超数量返回原数组。
 // 与原型 commitTag 的静默语义一致，超限的显式报错由 core 层负责。
 export function appendSessionTag(tags: string[], rawTag: string): string[] {

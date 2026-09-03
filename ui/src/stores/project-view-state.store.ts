@@ -5,6 +5,8 @@ export const PROJECT_VIEW_STATE_STORAGE_KEY = 'ai-ide-project-view-state-v1'
 export interface WorkspaceViewState {
   sidebarTab?: 'sessions' | 'files'
   selectedAgentId?: string | null
+  showArchived?: boolean
+  sessionTagFilter?: string[]
   scrollTopByPanel?: Record<string, number>
 }
 
@@ -89,6 +91,8 @@ function persistedViewState(data: ProjectViewStateData): ProjectViewStateData {
         ? {
             sidebarTab: state.workspace.sidebarTab,
             selectedAgentId: state.workspace.selectedAgentId,
+            showArchived: state.workspace.showArchived,
+            sessionTagFilter: state.workspace.sessionTagFilter,
           }
         : undefined
       const tasks = state.tasks

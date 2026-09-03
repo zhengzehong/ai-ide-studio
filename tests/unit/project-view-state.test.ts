@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from 'vitest'
+import { beforeEach, describe, expect, test, vi } from 'vitest'
 
 const {
   emptyProjectViewState,
@@ -46,5 +46,39 @@ describe('project view state', () => {
     } satisfies Storage
 
     expect(readProjectViewState(storage)).toEqual(emptyProjectViewState())
+  })
+
+  test('persists workspace tag filter and archive toggle, excluding volatile fields', () => {
+    const written: string[] = []
+    const storage = {
+      getItem: () => null,
+      setItem: (_key: string, value: string) => {
+        written.push(value)
+      },
+      removeItem: () => undefined,
+      clear: () => undefined,
+      key: () => null,
+      length: 0,
+    } satisfies Storage
+
+    vi.stubGlobal('localStorage', storage)
+    try {
+      const store = useProjectViewStateStore.getState()
+      store.patchWorkspace('a', {
+        sessionTagFilter: ['调研', 'workbench'],
+        showArchived: true,
+        scrollTopByPanel: { 'panel-1': 120 },
+      })
+    } finally {
+      vi.unstubAllGlobals()
+    }
+
+    expect(written).toHaveLength(1)
+    const persisted = JSON.parse(written[0]) as { byProjectId: Record<string, { workspace?: Record<string, unknown> }> }
+    // 精确断言：筛选与归档视图进入白名单，滚动位置不持久化。
+    expect(persisted.byProjectId.a.workspace).toEqual({
+      sessionTagFilter: ['调研', 'workbench'],
+      showArchived: true,
+    })
   })
 })

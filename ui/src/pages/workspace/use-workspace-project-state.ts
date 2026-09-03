@@ -4,8 +4,12 @@ import { useProjectViewStateStore } from '../../stores/project-view-state.store'
 export interface WorkspaceProjectState {
   sidebarTab: 'sessions' | 'files'
   selectedAgentId: string | null
+  showArchived: boolean
+  sessionTagFilter: string[]
   setSidebarTab: (tab: 'sessions' | 'files') => void
   setSelectedAgentId: (agentId: string | null) => void
+  setShowArchived: (showArchived: boolean) => void
+  setSessionTagFilter: (tags: string[]) => void
 }
 
 export function useWorkspaceProjectState(projectId: string | null): WorkspaceProjectState {
@@ -19,11 +23,21 @@ export function useWorkspaceProjectState(projectId: string | null): WorkspacePro
   const setSelectedAgentId = useCallback((selectedAgentId: string | null): void => {
     if (projectId) patchWorkspace(projectId, { selectedAgentId })
   }, [patchWorkspace, projectId])
+  const setShowArchived = useCallback((showArchived: boolean): void => {
+    if (projectId) patchWorkspace(projectId, { showArchived })
+  }, [patchWorkspace, projectId])
+  const setSessionTagFilter = useCallback((sessionTagFilter: string[]): void => {
+    if (projectId) patchWorkspace(projectId, { sessionTagFilter })
+  }, [patchWorkspace, projectId])
 
   return {
     sidebarTab: workspace?.sidebarTab ?? 'sessions',
     selectedAgentId: workspace?.selectedAgentId ?? null,
+    showArchived: workspace?.showArchived ?? false,
+    sessionTagFilter: workspace?.sessionTagFilter ?? [],
     setSidebarTab,
     setSelectedAgentId,
+    setShowArchived,
+    setSessionTagFilter,
   }
 }

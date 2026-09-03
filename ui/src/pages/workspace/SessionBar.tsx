@@ -9,11 +9,13 @@ import { sessionIndicator } from '../../utils/session-indicators'
 import { ICON_MAP } from '../../components/agent-square/constants'
 import { SessionBulkActions } from './SessionBulkActions'
 import { canSelectSessionForBatchDelete, toggleBatchSessionSelection, batchDeletableSessionIds } from './session-bulk-selection'
+import { useWorkspaceProjectState } from './use-workspace-project-state'
 import {
   sessionTagColor,
   splitSessionsByArchive,
   collectScopeTags,
   filterSessionsByTags,
+  effectiveSessionTagFilter,
 } from './session-tags'
 import { SessionTagEditor } from './SessionTagEditor'
 
@@ -117,13 +119,15 @@ export function SessionBar(props: SessionBarProps) {
   const [bulkBusy, setBulkBusy] = useState(false)
   const [bulkNotice, setBulkNotice] = useState<string | null>(null)
   const [bulkError, setBulkError] = useState<string | null>(null)
-  const [showArchived, setShowArchived] = useState(false)
-  const [selectedFilterTags, setSelectedFilterTags] = useState<string[]>([])
+  // 归档视图与标签筛选走 per-project 视图状态（localStorage 持久化），
+  // 跳转其他页面、切换侧栏 tab 后返回不丢失。
+  const { showArchived, sessionTagFilter, setShowArchived, setSessionTagFilter } = useWorkspaceProjectState(projectId)
 
   const { active: activeSessions, archived: archivedSessions } = splitSessionsByArchive(sessions)
   const visibleSessions = showArchived ? archivedSessions : activeSessions
-  const filteredSessions = filterSessionsByTags(visibleSessions, selectedFilterTags)
   const scopeTags = collectScopeTags(sessions)
+  const effectiveFilterTags = effectiveSessionTagFilter(sessionTagFilter, scopeTags)
+  const filteredSessions = filterSessionsByTags(visibleSessions, effectiveFilterTags)
 
   // 还原最后一个归档会话后归档区变空：自动回到正常视图（原型行为）。
   const prevArchivedCountRef = useRef(0)
@@ -133,16 +137,7 @@ export function SessionBar(props: SessionBarProps) {
     if (showArchived && archivedSessions.length === 0 && previousCount > 0) {
       setShowArchived(false)
     }
-  }, [archivedSessions.length, showArchived])
-
-  // 切换智能体时重置筛选与归档视图（原型 switchAgent 行为）。
-  // 用 React 官方 render 期间调整模式（记录上一次值比较），避免 effect 内同步 setState。
-  const [prevAgentId, setPrevAgentId] = useState(agent?.id)
-  if (prevAgentId !== agent?.id) {
-    setPrevAgentId(agent?.id)
-    setShowArchived(false)
-    setSelectedFilterTags([])
-  }
+  }, [archivedSessions.length, showArchived, setShowArchived])
 
   const sessionBelongsToBatchView = (session: SessionData): {
     id: string
@@ -222,7 +217,10 @@ export function SessionBar(props: SessionBarProps) {
   }
 
   const toggleFilterTag = (tag: string): void => {
-    setSelectedFilterTags((tags) => tags.includes(tag) ? tags.filter((item) => item !== tag) : [...tags, tag])
+    // 基于生效集合 toggle：失效的持久化 tag 不会在切换其他 tag 时被“续命”。
+    setSessionTagFilter(effectiveFilterTags.includes(tag)
+      ? effectiveFilterTags.filter((item) => item !== tag)
+      : [...effectiveFilterTags, tag])
   }
 
   const tagEditorSession = tagEditor ? sessions.find((session) => session.id === tagEditor.sessionId) : undefined
@@ -706,12 +704,12 @@ export function SessionBar(props: SessionBarProps) {
                 >
                   <Tag size={10} style={{ opacity: 0.65 }} />
                   标签筛选
-                  {selectedFilterTags.length > 0 && (
+                  {effectiveFilterTags.length > 0 && (
                     <>
-                      <span>· 已选 {selectedFilterTags.length}</span>
+                      <span>· 已选 {effectiveFilterTags.length}</span>
                       <button
                         type="button"
-                        onClick={() => setSelectedFilterTags([])}
+                        onClick={() => setSessionTagFilter([])}
                         style={{
                           marginLeft: 'auto',
                           fontSize: 10.5,
@@ -730,7 +728,7 @@ export function SessionBar(props: SessionBarProps) {
                   )}
                 </div>
                 {scopeTags.map((tag) => {
-                  const selected = selectedFilterTags.includes(tag)
+                  const selected = effectiveFilterTags.includes(tag)
                   const [background, foreground] = sessionTagColor(tag)
                   return (
                     <button
@@ -780,7 +778,7 @@ export function SessionBar(props: SessionBarProps) {
             )}
             <button
               type="button"
-              onClick={() => setShowArchived((value) => !value)}
+              onClick={() => setShowArchived(!showArchived)}
               style={{
                 display: 'flex',
                 alignItems: 'center',
