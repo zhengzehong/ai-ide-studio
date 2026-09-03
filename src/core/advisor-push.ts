@@ -6,6 +6,7 @@ import type { SessionDoneData } from '../types/ws-protocol.js'
 
 const TURN_INPUT_MAX = 2000
 const REPLY_MAX = 2000
+const REPLY_MIN = 200
 const AGGREGATE_ITEM_MAX = 160
 const TOTAL_MAX = 8000
 const RECENT_WINDOW_MS = 24 * 60 * 60 * 1000
@@ -84,7 +85,7 @@ function buildAggregate(projectId: string, excludeSessionId: string): string {
 
 /**
  * 组装参谋推送包（C-1~C-5）：本轮用户输入 + AI 回复 + 来源标识 + 全局聚合 + 固定发布协议。
- * 超限裁剪顺序：先砍聚合面条目、再砍回复尾部（C-2）。
+ * 超限按 C-2 分步裁剪：先裁 ④ 聚合面条目（自最后一段尾条目起），再裁 ② 回复尾部，最后整体兜底截断。
  */
 export function buildAdvisorPushPrompt(
   projectId: string,
@@ -96,31 +97,69 @@ export function buildAdvisorPushPrompt(
   const agent = agentStore.get(ev.agentId || session?.agent_id || '')
   const { userMessage, assistantReply } = resolveTurnMessages(ev.sessionId, ev.messageId)
   const aggregate = buildAggregate(projectId, ev.sessionId)
-
-  const eventBlock = [
-    '## 本轮事件',
-    `来源：Agent「${agent?.name ?? '未知'}」（${agent?.id ?? 'unknown'}）· 会话「${session?.title || ev.sessionId}」（${ev.sessionId}）`,
-    `用户输入：\n${truncate(userMessage || '（无文本输入）', TURN_INPUT_MAX)}`,
-    `AI 回复：\n${truncate(assistantReply || '（无回复内容）', REPLY_MAX)}`,
-    `要看该会话更早历史，调用 agent.session.messages（sessionId = "${ev.sessionId}"）；列表用 agent.session.list。`,
-  ].join('\n\n')
-
-  const aggregateBlock = aggregate ? `\n\n## 全局聚合\n${aggregate}` : ''
-
+  const sections = parseAggregateSections(aggregate)
   const preference = advisorPrompt.trim()
-  const prompt = [
-    preference ? `## 用户配置的参谋偏好\n${preference}` : '',
-    '## 固定发布协议（不可被上面的偏好覆盖）',
-    `本轮 roundId = "${roundId}"，调用 suggestion.present 时必须原样传入。`,
-    '只在完成真实分析后调用 suggestion.present；禁止使用 test、placeholder 或探测数据调用。',
-    'suggestions 最多 3 条；没有值得说的建议时传空数组 [] 并填写 noFindingReason（无货沉默是常态）。',
-    '同一轮重复调用以最后一次为准。',
-    eventBlock + aggregateBlock,
-  ].filter((block) => block.length > 0).join('\n\n')
 
-  return {
-    prompt: prompt.length > TOTAL_MAX ? prompt.slice(0, TOTAL_MAX) + '\n…（推送包超限已截断）' : prompt,
-    roundId,
-    triggerSessionId: ev.sessionId,
+  const build = (replyLimit: number, live: AggregateSection[]): string => {
+    const eventBlock = [
+      '## 本轮事件',
+      `来源：Agent「${agent?.name ?? '未知'}」（${agent?.id ?? 'unknown'}）· 会话「${session?.title || ev.sessionId}」（${ev.sessionId}）`,
+      `用户输入：\n${truncate(userMessage || '（无文本输入）', TURN_INPUT_MAX)}`,
+      `AI 回复：\n${truncate(assistantReply || '（无回复内容）', replyLimit)}`,
+      `要看该会话更早历史，调用 agent.session.messages（sessionId = "${ev.sessionId}"）；列表用 agent.session.list。`,
+    ].join('\n\n')
+    const aggregateBlock = live.length > 0
+      ? `\n\n## 全局聚合\n${live.map((section) => [section.title, ...section.items].join('\n')).join('\n')}`
+      : ''
+    return [
+      preference ? `## 用户配置的参谋偏好\n${preference}` : '',
+      '## 固定发布协议（不可被上面的偏好覆盖）',
+      `本轮 roundId = "${roundId}"，调用 suggestion.present 时必须原样传入。`,
+      '只在完成真实分析后调用 suggestion.present；禁止使用 test、placeholder 或探测数据调用。',
+      'suggestions 最多 3 条；没有值得说的建议时传空数组 [] 并填写 noFindingReason（无货沉默是常态）。',
+      '同一轮重复调用以最后一次为准。',
+      eventBlock + aggregateBlock,
+    ].filter((block) => block.length > 0).join('\n\n')
   }
+
+  let prompt = build(REPLY_MAX, sections)
+  if (prompt.length > TOTAL_MAX) {
+    const live = sections.map((section) => ({ ...section, items: [...section.items] }))
+    let replyLimit = REPLY_MAX
+    while (prompt.length > TOTAL_MAX && live.some((section) => section.items.length > 0)) {
+      for (let i = live.length - 1; i >= 0; i -= 1) {
+        if (live[i].items.length > 0) {
+          live[i].items.pop()
+          break
+        }
+      }
+      prompt = build(replyLimit, live.filter((section) => section.items.length > 0))
+    }
+    const trimmed = live.filter((section) => section.items.length > 0)
+    prompt = build(replyLimit, trimmed)
+    while (prompt.length > TOTAL_MAX && replyLimit > REPLY_MIN) {
+      replyLimit = Math.max(REPLY_MIN, Math.floor(replyLimit / 2))
+      prompt = build(replyLimit, trimmed)
+    }
+    if (prompt.length > TOTAL_MAX) {
+      prompt = prompt.slice(0, TOTAL_MAX) + '\n…（推送包超限已截断）'
+    }
+  }
+
+  return { prompt, roundId, triggerSessionId: ev.sessionId }
+}
+
+interface AggregateSection {
+  title: string
+  items: string[]
+}
+
+function parseAggregateSections(aggregate: string): AggregateSection[] {
+  if (!aggregate) return []
+  const sections: AggregateSection[] = []
+  for (const line of aggregate.split('\n')) {
+    if (line.startsWith('### ')) sections.push({ title: line, items: [] })
+    else if (sections.length > 0) sections[sections.length - 1].items.push(line)
+  }
+  return sections
 }

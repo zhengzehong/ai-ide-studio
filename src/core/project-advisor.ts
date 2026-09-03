@@ -26,9 +26,6 @@ import type { SessionDoneData } from '../types/ws-protocol.js'
 
 const log = createChildLogger('project-advisor')
 
-/** roundId → 触发来源会话（注入时登记，提交建议时写回台账） */
-const roundTriggerSessions = new Map<string, string>()
-
 export const DEFAULT_ADVISOR_PROMPT = [
   '你是当前项目的 AI 参谋。你会收到项目中任意 Agent 会话刚完成一轮的推送（用户输入、AI 回复、来源会话），并可调用 agent.session.messages 查看该会话更早历史。',
   '基于本轮内容 + 全局聚合方向，判断是否值得给用户提出建议：',
@@ -42,6 +39,17 @@ export const DEFAULT_ADVISOR_PROMPT = [
 const MAX_SUGGESTIONS_PER_ROUND = 3
 const SAME_SESSION_DEBOUNCE_MS = 5 * 60 * 1000
 const PROJECT_MIN_INTERVAL_MS = 3 * 60 * 1000
+/** roundId 登记的保活上限：超时未结算的登记在下次写入时惰性回收（防 Map 慢泄漏） */
+const ROUND_REGISTRATION_TTL_MS = 10 * 60 * 1000
+
+/** roundId → 轮次登记（发布建议时回写触发会话；S-8 结算后回收） */
+interface RoundRegistration {
+  triggerSessionId: string
+  advisorSessionId: string
+  injectedAt: number
+}
+
+const roundTriggerSessions = new Map<string, RoundRegistration>()
 
 interface ProjectAdvisorRuntimeState {
   lastInjectAt: number
@@ -170,16 +178,18 @@ export function handleSessionTurnDone(ev: SessionDoneData): void {
     if (!session) return
     const config = configs.find((row) => row.project_id === session.project_id)
     if (!config) return
-    // T-2 过滤：参谋会话自身（防自触发环）/ 非普通会话（系统、autonomy 等）
-    if (config.session_id && ev.sessionId === config.session_id) return
+    // T-2 过滤：参谋会话自身完成一轮 → 结算未产卡的轮次（S-8），不进入推送流程
+    if (config.session_id && ev.sessionId === config.session_id) {
+      settleAdvisorRounds(config.session_id)
+      return
+    }
+    // T-2 过滤：非普通会话（系统、autonomy 等）
     if (session.purpose !== 'conversation') return
     if (!session.project_id) return
 
     const now = Date.now()
     const state = getRuntimeState(config.project_id)
-    const lastInject = state.lastInjectPerSession.get(ev.sessionId)
-    if (lastInject !== undefined && now - lastInject < SAME_SESSION_DEBOUNCE_MS) return
-    state.lastInjectPerSession.set(ev.sessionId, now)
+    // T-3：去抖窗口内的后续轮次覆盖同会话暂存快照（flush 时只推最新一轮），不逐轮丢弃
     state.pendingEvents.set(ev.sessionId, ev)
 
     const sinceLastInject = now - state.lastInjectAt
@@ -206,22 +216,44 @@ function schedulePendingFlush(projectId: string, delayMs: number): void {
   }, Math.max(delayMs, 1000))
 }
 
+/**
+ * T-3/T-4：flush 推每个会话的最新一轮（pendingEvents 同会话覆盖）。
+ * 同会话 5 分钟去抖窗口未到的会话暂留 pending，窗口到点后补推（调度 follow-up）。
+ */
 async function flushPendingAdvisory(projectId: string): Promise<void> {
   const state = getRuntimeState(projectId)
-  const eventsToFlush = [...state.pendingEvents.values()]
-  state.pendingEvents.clear()
-  if (eventsToFlush.length === 0) return
-  for (const ev of eventsToFlush) {
+  if (state.pendingEvents.size === 0) return
+  const now = Date.now()
+  let nextEligibleDelay = Number.POSITIVE_INFINITY
+  const ready: SessionDoneData[] = []
+  for (const [sessionId, ev] of state.pendingEvents) {
+    const windowStart = state.lastInjectPerSession.get(sessionId)
+    if (windowStart !== undefined && now - windowStart < SAME_SESSION_DEBOUNCE_MS) {
+      nextEligibleDelay = Math.min(nextEligibleDelay, SAME_SESSION_DEBOUNCE_MS - (now - windowStart))
+      continue
+    }
+    ready.push(ev)
+  }
+  for (const ev of ready) state.pendingEvents.delete(ev.sessionId)
+  for (const ev of ready) {
     await enqueueProjectInspirationTurn(projectId, () => injectAdvisorTurn(projectId, ev))
+  }
+  if (state.pendingEvents.size > 0) {
+    schedulePendingFlush(projectId, Number.isFinite(nextEligibleDelay) ? nextEligibleDelay : PROJECT_MIN_INTERVAL_MS)
   }
 }
 
 async function injectAdvisorTurn(projectId: string, ev: SessionDoneData): Promise<void> {
   const config = projectAdvisorStore.get(projectId)
   if (!config?.enabled || !config.session_id || !config.advisor_agent_id) return
+  pruneStaleRoundRegistrations()
   const advisorPrompt = config.advisor_prompt || DEFAULT_ADVISOR_PROMPT
   const { prompt, roundId } = buildAdvisorPushPrompt(projectId, ev, advisorPrompt)
-  roundTriggerSessions.set(roundId, ev.sessionId)
+  roundTriggerSessions.set(roundId, {
+    triggerSessionId: ev.sessionId,
+    advisorSessionId: config.session_id,
+    injectedAt: Date.now(),
+  })
   await sessionManager.enqueuePrompt(config.session_id, prompt, undefined, {
     contextProjectId: projectId,
     senderRole: 'advisor',
@@ -229,9 +261,38 @@ async function injectAdvisorTurn(projectId: string, ev: SessionDoneData): Promis
     batchKey: `advisor-round:${roundId}`,
     dedupeKey: `advisor:${roundId}`,
   })
-  getRuntimeState(projectId).lastInjectAt = Date.now()
+  const state = getRuntimeState(projectId)
+  state.lastInjectAt = Date.now()
+  state.lastInjectPerSession.set(ev.sessionId, state.lastInjectAt)
   projectAdvisorStore.update(projectId, { lastError: null })
   log.info({ projectId, roundId, sessionId: ev.sessionId }, '参谋轮次已注入')
+}
+
+/** 下次写入时惰性回收超时未结算的轮次登记（防 Map 慢泄漏） */
+function pruneStaleRoundRegistrations(): void {
+  const now = Date.now()
+  for (const [roundId, entry] of roundTriggerSessions) {
+    if (now - entry.injectedAt > ROUND_REGISTRATION_TTL_MS) roundTriggerSessions.delete(roundId)
+  }
+}
+
+/**
+ * S-8：参谋会话自身完成一轮时结算——仍登记在册的轮次若台账无记录，判定该轮失败：
+ * 记日志、不产卡、不重试（下一轮事件自然再来），并回收登记。
+ */
+function settleAdvisorRounds(advisorSessionId: string): void {
+  const now = Date.now()
+  for (const [roundId, entry] of roundTriggerSessions) {
+    if (entry.advisorSessionId !== advisorSessionId) continue
+    if (now - entry.injectedAt > ROUND_REGISTRATION_TTL_MS) {
+      roundTriggerSessions.delete(roundId)
+      continue
+    }
+    if (!advisorSuggestionStore.hasRound(roundId)) {
+      log.warn({ roundId, advisorSessionId }, 'S-8 参谋完成一轮但未调用 suggestion.present，本轮不产卡不重试')
+    }
+    roundTriggerSessions.delete(roundId)
+  }
 }
 
 /** 参谋提交结构化建议（S-1~S-9，由 suggestion.present 工具调用） */
@@ -284,7 +345,7 @@ export async function publishSuggestions(
   const rows = advisorSuggestionStore.replaceRound(
     context.projectId,
     input.roundId,
-    roundTriggerSessions.get(input.roundId) ?? null,
+    roundTriggerSessions.get(input.roundId)?.triggerSessionId ?? null,
     normalized,
   )
   // plan 建议落盘 + 注册预览通道（A-4/U-8）：不入库 HTML 内容，只存路径与 previewId

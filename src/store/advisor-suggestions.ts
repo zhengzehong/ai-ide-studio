@@ -113,6 +113,11 @@ export const advisorSuggestionStore = {
     ).get(id)
   },
 
+  /** 该轮是否已产卡（S-8 结算判定用，roundId 全局唯一） */
+  hasRound(roundId: string): boolean {
+    return !!getDb().prepare('SELECT 1 FROM advisor_suggestions WHERE round_id = ? LIMIT 1').get(roundId)
+  },
+
   /** 未处理建议：pending/viewed 且未过期，新的在前（U-2 徽标来源 / L-6） */
   listActive(projectId: string, now = new Date().toISOString()): AdvisorSuggestionRow[] {
     return getDb().prepare<[string, string], AdvisorSuggestionRow>(`

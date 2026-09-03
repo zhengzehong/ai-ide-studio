@@ -11,12 +11,14 @@ import {
   resumeProjectAdvisors,
   DEFAULT_ADVISOR_PROMPT,
 } from '../../src/core/project-advisor.js'
+import { buildAdvisorPushPrompt } from '../../src/core/advisor-push.js'
 import { sessionManager } from '../../src/core/sessions.js'
 import { taskStepManager } from '../../src/core/task-steps.js'
 import { advisorSuggestionStore } from '../../src/store/advisor-suggestions.js'
 import { agentStore } from '../../src/store/agents.js'
 import { projectAdvisorStore } from '../../src/store/advisors.js'
 import { closeDatabase, initDatabase } from '../../src/store/db.js'
+import { messageStore } from '../../src/store/sessions.js'
 import { projectStore } from '../../src/store/projects.js'
 import { sessionStore } from '../../src/store/sessions.js'
 import { taskStore } from '../../src/store/tasks.js'
@@ -151,17 +153,27 @@ describe('project advisor service', () => {
     await waitUntil(() => enqueue.mock.calls.length === 1)
   })
 
-  test('debounces repeated turns from the same session within five minutes', async () => {
+  test('keeps only the newest turn per session inside the debounce window (T-3)', async () => {
+    vi.useFakeTimers()
     const { project, advisor, executor, workerSession } = createFixture()
     await configureAdvisor(project.id, { advisorAgentId: advisor.id, enabled: true })
     const enqueue = vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue(undefined)
 
     handleSessionTurnDone(turnDone(workerSession.id, executor.id, 'turn-a'))
-    await waitUntil(() => enqueue.mock.calls.length === 1)
-    handleSessionTurnDone(turnDone(workerSession.id, executor.id, 'turn-b'))
-    await new Promise((resolvePromise) => setTimeout(resolvePromise, 20))
-
+    for (let attempt = 0; attempt < 100 && enqueue.mock.calls.length < 1; attempt += 1) {
+      await vi.advanceTimersByTimeAsync(10)
+    }
     expect(enqueue).toHaveBeenCalledTimes(1)
+    expect(enqueue.mock.calls[0]![1]).toContain('advisor-turn-a')
+
+    // 5 分钟窗口内同会话第二轮：覆盖暂存快照不逐轮注入；窗口结束后只推最新一轮
+    handleSessionTurnDone(turnDone(workerSession.id, executor.id, 'turn-b'))
+    expect(enqueue).toHaveBeenCalledTimes(1)
+    for (let attempt = 0; attempt < 200 && enqueue.mock.calls.length < 2; attempt += 1) {
+      await vi.advanceTimersByTimeAsync(5_000)
+    }
+    expect(enqueue).toHaveBeenCalledTimes(2)
+    expect(enqueue.mock.calls[1]![1]).toContain('advisor-turn-b')
   })
 
   test('defers a burst from another session until the project interval elapses', async () => {
@@ -269,5 +281,87 @@ describe('project advisor service', () => {
     await resumeProjectAdvisors()
 
     expect(advisorSuggestionStore.get(row.id)?.dispatch_token).toBeNull()
+  })
+
+  test('settles an advisor round that ended without calling suggestion.present (S-8)', async () => {
+    const { project, advisor, executor, workerSession } = createFixture()
+    const config = await configureAdvisor(project.id, { advisorAgentId: advisor.id, enabled: true })
+    const enqueue = vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue(undefined)
+
+    handleSessionTurnDone(turnDone(workerSession.id, executor.id, 'turn-s8'))
+    await waitUntil(() => enqueue.mock.calls.length === 1)
+
+    // 参谋会话完成一轮但从未提交建议：该轮登记被结算回收，不产卡
+    handleSessionTurnDone({
+      sessionId: config.sessionId!,
+      agentId: advisor.id,
+      messageId: 'msg-advisor-done',
+      turnId: 'advisor-done-1',
+      stopReason: 'end_turn',
+    })
+
+    // 登记已回收：同 roundId 之后再提交，不再视为该轮触发会话
+    const result = await getHandler('suggestion.present')!.execute({
+      roundId: 'advisor-turn-s8',
+      suggestions: [suggestionPayload()],
+    }, { projectId: project.id, sessionId: config.sessionId! })
+    expect(result.isError).not.toBe(true)
+    const [row] = advisorSuggestionStore.listAllByProject(project.id)
+    expect(row.round_id).toBe('advisor-turn-s8')
+    expect(row.trigger_session_id).toBeNull()
+  })
+
+  test('prunes round registrations older than ten minutes on the next write', async () => {
+    vi.useFakeTimers()
+    const { project, advisor, executor, workerSession } = createFixture()
+    const config = await configureAdvisor(project.id, { advisorAgentId: advisor.id, enabled: true })
+    const enqueue = vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue(undefined)
+
+    handleSessionTurnDone(turnDone(workerSession.id, executor.id, 'turn-old'))
+    for (let attempt = 0; attempt < 100 && enqueue.mock.calls.length < 1; attempt += 1) {
+      await vi.advanceTimersByTimeAsync(10)
+    }
+    expect(enqueue).toHaveBeenCalledTimes(1)
+
+    // 越过 TTL 后下一个轮次写入时惰性回收旧登记
+    await vi.advanceTimersByTimeAsync(11 * 60 * 1000)
+    handleSessionTurnDone(turnDone(workerSession.id, executor.id, 'turn-new'))
+    for (let attempt = 0; attempt < 100 && enqueue.mock.calls.length < 2; attempt += 1) {
+      await vi.advanceTimersByTimeAsync(10_000)
+    }
+    expect(enqueue).toHaveBeenCalledTimes(2)
+
+    const result = await getHandler('suggestion.present')!.execute({
+      roundId: 'advisor-turn-old',
+      suggestions: [suggestionPayload({ title: '旧轮建议补交' })],
+    }, { projectId: project.id, sessionId: config.sessionId! })
+    expect(result.isError).not.toBe(true)
+    const row = advisorSuggestionStore.listAllByProject(project.id).find((item) => item.round_id === 'advisor-turn-old')
+    expect(row?.trigger_session_id).toBeNull()
+  })
+
+  test('trims the push package stepwise when it exceeds the total limit (C-2)', () => {
+    const { project, executor, workerSession } = createFixture()
+    // 大量 pending 建议标题撑爆聚合面（每条接近 160 字符裁剪上限）
+    for (let batch = 0; batch < 30; batch += 1) {
+      advisorSuggestionStore.replaceRound(project.id, `round-fill-${batch}`, null, [
+        suggestionPayload({ title: `历史建议${batch}号${'内容填充'.repeat(38)}` }),
+      ])
+    }
+    const longInput = '用户输入'.repeat(400)
+    const longReply = 'AI 回复内容填充'.repeat(400)
+    messageStore.append(workerSession.id, { role: 'human', content: longInput })
+    messageStore.append(workerSession.id, { role: 'agent', content: longReply })
+
+    const { prompt, roundId } = buildAdvisorPushPrompt(project.id, turnDone(workerSession.id, executor.id, 'turn-trim'), '')
+
+    expect(roundId).toBe('advisor-turn-trim')
+    expect(prompt.length).toBeLessThanOrEqual(8_100)
+    expect(prompt).toContain('advisor-turn-trim')
+    expect(prompt).toContain('用户输入')
+    // 聚合面被裁剪：pending 建议标题不会全量保留
+    const pendingLines = prompt.split('\n').filter((line) => line.startsWith('- 历史建议'))
+    expect(pendingLines.length).toBeLessThan(30)
+    expect(prompt).toContain('AI 回复内容填充')
   })
 })
