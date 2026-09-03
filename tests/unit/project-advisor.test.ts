@@ -177,6 +177,36 @@ describe('project advisor service', () => {
     expect(enqueue.mock.calls[1]![1]).toContain('advisor-turn-b')
   })
 
+  test('drops non-end_turn turns before they enter the debounce queue (T-2c)', async () => {
+    vi.useFakeTimers()
+    const { project, advisor, executor, workerSession } = createFixture()
+    await configureAdvisor(project.id, { advisorAgentId: advisor.id, enabled: true })
+    const enqueue = vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue(undefined)
+
+    // 手动停止/报错/截断/缺 stopReason 的轮次一律不推：AI 回复是 abort 碎片，没有分析价值
+    handleSessionTurnDone({ ...turnDone(workerSession.id, executor.id, 'turn-cancel'), stopReason: 'cancelled' })
+    handleSessionTurnDone({ ...turnDone(workerSession.id, executor.id, 'turn-error'), stopReason: 'error' })
+    handleSessionTurnDone({ ...turnDone(workerSession.id, executor.id, 'turn-tokens'), stopReason: 'max_tokens' })
+    handleSessionTurnDone({ sessionId: workerSession.id, agentId: executor.id, messageId: 'msg-none', turnId: 'turn-none' })
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      await vi.advanceTimersByTimeAsync(10)
+    }
+    expect(enqueue).not.toHaveBeenCalled()
+
+    // 关键回归：正常轮先到（进 pending），随后的停止轮不得按 T-3 覆盖语义把它挤掉
+    handleSessionTurnDone(turnDone(workerSession.id, executor.id, 'turn-good'))
+    for (let attempt = 0; attempt < 100 && enqueue.mock.calls.length < 1; attempt += 1) {
+      await vi.advanceTimersByTimeAsync(10)
+    }
+    expect(enqueue.mock.calls[0]![1]).toContain('advisor-turn-good')
+
+    handleSessionTurnDone({ ...turnDone(workerSession.id, executor.id, 'turn-abort'), stopReason: 'cancelled' })
+    for (let attempt = 0; attempt < 100 && enqueue.mock.calls.length < 1; attempt += 1) {
+      await vi.advanceTimersByTimeAsync(10)
+    }
+    expect(enqueue).toHaveBeenCalledTimes(1)
+  })
+
   test('defers a burst from another session until the project interval elapses', async () => {
     vi.useFakeTimers()
     const { project, advisor, executor, workerSession } = createFixture()
