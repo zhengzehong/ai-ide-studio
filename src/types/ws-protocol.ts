@@ -949,6 +949,7 @@ export type ServerMessage =
   | { type: 'autonomy:update'; agentId: string; projectId: string }
   | { type: 'secretary:update'; projectId: string }
   | { type: 'inspiration:update'; projectId: string; noteId?: string }
+  | { type: 'advisor:update'; projectId: string }
   | { type: 'pong'; timestamp: number }
   | { type: 'resume:ack'; cursors: Record<string, RealtimeCursor> }
   | { type: 'resync_required'; sessionId?: string; reason: string }

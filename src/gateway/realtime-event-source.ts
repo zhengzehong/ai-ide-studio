@@ -84,6 +84,7 @@ export function createRealtimeEventSource(
   on('autonomy:update', (event) => send({ scope: 'all', message: { type: 'autonomy:update', ...event } }))
   on('secretary:update', (event) => send({ scope: 'all', message: { type: 'secretary:update', ...event } }))
   on('inspiration:update', (event) => send({ scope: 'all', message: { type: 'inspiration:update', ...event } }))
+  on('advisor:update', (event) => send({ scope: 'all', message: { type: 'advisor:update', ...event } }))
 
   return {
     stop(): void {

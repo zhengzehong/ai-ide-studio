@@ -120,6 +120,7 @@ import { previewPublishHandler } from './preview-publish.js'
 import { readingAddHandler } from './reading-add.js'
 import { filesPresentHandler } from './files-present.js'
 import { inspirationAnalysisPublishHandler } from './inspiration-analysis-publish.js'
+import { suggestionPresentHandler } from './suggestion-present.js'
 import { inspirationNoteGetHandler } from './inspiration-note-get.js'
 import {
   agentHubConnectHandler,
@@ -247,6 +248,7 @@ register(readingAddHandler)
 register(filesPresentHandler)
 register(inspirationAnalysisPublishHandler)
 register(inspirationNoteGetHandler)
+register(suggestionPresentHandler)
 register(agentHubConnectHandler)
 register(agentHubDisconnectHandler)
 register(agentHubListHandler)

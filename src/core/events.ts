@@ -41,6 +41,7 @@ export type AppEvents = {
   'autonomy:update': { agentId: string; projectId: string }
   'secretary:update': { projectId: string }
   'inspiration:update': { projectId: string; noteId?: string }
+  'advisor:update': { projectId: string }
 }
 
 const mitt = mittModule as unknown as typeof import('mitt').default

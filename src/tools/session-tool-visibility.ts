@@ -1,5 +1,6 @@
 import { sessionStore } from '../store/sessions.js'
 import { projectInspirationStore } from '../store/project-inspirations.js'
+import { projectAdvisorStore } from '../store/advisors.js'
 
 const SECRETARY_SESSION_TOOLS = new Set(['secretary.report'])
 const SECRETARY_MANAGEMENT_TOOLS = new Set([
@@ -25,8 +26,17 @@ const INSPIRATION_BLOCKED_TOOLS = new Set([
   'studio.schedule.delete',
   'studio.schedule.toggle',
 ])
+// 参谋会话专属工具与被屏蔽工具（设计手册 A-1/A-2；agent.session.* 不屏蔽，是参谋翻历史的手脚 A-3）
+const ADVISOR_SESSION_TOOLS = new Set(['suggestion.present'])
+const ADVISOR_BLOCKED_TOOLS = INSPIRATION_BLOCKED_TOOLS
 
 export function isToolVisibleForSession(toolName: string, sessionId?: string): boolean {
+  if (ADVISOR_SESSION_TOOLS.has(toolName)) {
+    return !!sessionId && !!projectAdvisorStore.findBySession(sessionId)
+  }
+  if (sessionId && projectAdvisorStore.findBySession(sessionId) && ADVISOR_BLOCKED_TOOLS.has(toolName)) {
+    return false
+  }
   if (INSPIRATION_SESSION_TOOLS.has(toolName)) {
     return !!sessionId && !!projectInspirationStore.findBySession(sessionId)
   }

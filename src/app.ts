@@ -41,6 +41,8 @@ import { operationDiagnosticsContext } from './shared/operation-diagnostics.js'
 import { listActivePromptDiagnostics } from './core/prompt-diagnostics.js'
 import { resumeProjectSecretaryRuns } from './core/project-secretary.js'
 import { resumeProjectInspirations } from './core/project-inspiration.js'
+import { handleSessionTurnDone, resumeProjectAdvisors } from './core/project-advisor.js'
+import { events } from './core/events.js'
 import { DataRetentionService } from './data-retention/retention-service.js'
 import { closeSharedFileChangeWorker } from './core/file-change-worker-client.js'
 import { getOrCreateRetentionControlToken } from './data-retention/control-token.js'
@@ -237,6 +239,8 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
   ruleEngine.start()
   void resumeProjectSecretaryRuns().catch((err: unknown) => log.warn({ err }, '秘书待处理运行恢复失败'))
   void resumeProjectInspirations().catch((err: unknown) => log.warn({ err }, '灵感待整理记录恢复失败'))
+  void resumeProjectAdvisors().catch((err: unknown) => log.warn({ err }, '参谋派发占用恢复失败'))
+  events.on('session:done', (ev) => handleSessionTurnDone(ev))
   initTimeline()
   log.info(
     {

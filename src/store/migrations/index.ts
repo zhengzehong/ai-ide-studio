@@ -58,6 +58,7 @@ import { taskPageIndexesMigration } from './057-task-page-indexes.js'
 import { inspirationTaskTargetMigration } from './058-inspiration-task-target.js'
 import { readingItemsMigration } from './059-reading-items.js'
 import { sessionTagsMigration } from './060-session-tags.js'
+import { advisorSuggestionsMigration } from './061-advisor-suggestions.js'
 import type { Migration } from '../migrator.js'
 
 export const migrations: Migration[] = [
@@ -121,4 +122,5 @@ export const migrations: Migration[] = [
   inspirationTaskTargetMigration,
   readingItemsMigration,
   sessionTagsMigration,
+  advisorSuggestionsMigration,
 ]

@@ -151,6 +151,7 @@ describe('builtin tool seed synchronization', () => {
       'studio.task.step.updateProgress',
       'studio.task.update',
       'studio.task.update_progress',
+      'suggestion.present',
       'team.create',
       'team.get',
       'team.list',
