@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
-import { closeDatabase, initDatabase } from '../../src/store/db.js'
+import { closeDatabase, getDb, initDatabase } from '../../src/store/db.js'
 import { advisorSuggestionStore, type CreateAdvisorSuggestionInput } from '../../src/store/advisor-suggestions.js'
 import { agentStore } from '../../src/store/agents.js'
 import { projectStore } from '../../src/store/projects.js'
@@ -78,11 +78,40 @@ describe('advisor suggestion store', () => {
     expect(active).toHaveLength(1)
     expect(active[0].status).toBe('viewed')
 
-    // 过期后从 active 消失，进入 expiredPending，徽标归零
-    const afterExpire = new Date(now.getTime() + 8 * 24 * 60 * 60 * 1000).toISOString()
-    expect(advisorSuggestionStore.listActive(project.id, afterExpire)).toHaveLength(0)
-    expect(advisorSuggestionStore.listExpiredPending(project.id, afterExpire)).toHaveLength(1)
-    expect(advisorSuggestionStore.countPending(project.id, afterExpire)).toBe(0)
+    // 过期后从 active 消失，进入 expiredPending（24h 窗口内），徽标归零
+    const expiredAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString() // = expire_at
+    const twoHoursAfterExpire = new Date(now.getTime() + (7 * 24 + 2) * 60 * 60 * 1000).toISOString()
+    expect(advisorSuggestionStore.listActive(project.id, twoHoursAfterExpire)).toHaveLength(0)
+    expect(advisorSuggestionStore.listExpiredPending(project.id, twoHoursAfterExpire)).toHaveLength(1)
+    expect(advisorSuggestionStore.countPending(project.id, twoHoursAfterExpire)).toBe(0)
+
+    // 隔天口径：过期超 24h 不再返回（前端「已过期」组消失）
+    const oneDayAfterExpire = new Date(now.getTime() + (7 * 24 + 25) * 60 * 60 * 1000).toISOString()
+    expect(advisorSuggestionStore.listExpiredPending(project.id, oneDayAfterExpire)).toHaveLength(0)
+  })
+
+  test('purgeExpiredUnprocessed removes unprocessed rows expired over 24h and keeps settled rows', () => {
+    const project = projectStore.create({ name: 'P', workDir: root })
+    const now = new Date('2026-09-03T10:00:00.000Z')
+    const rows = advisorSuggestionStore.replaceRound(project.id, 'round-1', null, [
+      suggestionInput({ title: '未处理过期' }),
+      suggestionInput({ title: '未处理刚过期' }),
+      suggestionInput({ title: '已接受台账' }),
+    ], now.toISOString())
+    advisorSuggestionStore.ignore(rows[2].id, now.toISOString())
+
+    const setExpireAt = (id: string, value: string): void => {
+      getDb().prepare(`UPDATE advisor_suggestions SET expire_at = ? WHERE id = ?`).run(value, id)
+    }
+    // purge 时刻 = now + 8 天，cutoff = now + 7 天：expire_at 早于 cutoff 的未处理行被判死
+    setExpireAt(rows[0].id, new Date(now.getTime() + (7 * 24 - 1) * 60 * 60 * 1000).toISOString()) // 早于 cutoff → 删
+    setExpireAt(rows[1].id, new Date(now.getTime() + (7 * 24 + 2) * 60 * 60 * 1000).toISOString()) // 晚于 cutoff → 留
+
+    const purged = advisorSuggestionStore.purgeExpiredUnprocessed(new Date(now.getTime() + 8 * 24 * 60 * 60 * 1000).toISOString())
+    expect(purged.map((row) => row.id)).toEqual([rows[0].id])
+    expect(advisorSuggestionStore.get(rows[0].id)).toBeUndefined()
+    expect(advisorSuggestionStore.get(rows[1].id)).toBeDefined()
+    expect(advisorSuggestionStore.get(rows[2].id)).toBeDefined() // 终态台账永久保留
   })
 
   test('markViewed moves pending to viewed but never touches settled rows', () => {

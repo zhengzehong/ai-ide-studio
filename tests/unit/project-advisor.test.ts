@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import {
@@ -18,9 +18,10 @@ import { taskStepManager } from '../../src/core/task-steps.js'
 import { advisorSuggestionStore } from '../../src/store/advisor-suggestions.js'
 import { agentStore } from '../../src/store/agents.js'
 import { projectAdvisorStore } from '../../src/store/advisors.js'
-import { closeDatabase, initDatabase } from '../../src/store/db.js'
+import { closeDatabase, getDb, getDbPath, initDatabase } from '../../src/store/db.js'
 import { messageStore } from '../../src/store/sessions.js'
 import { projectStore } from '../../src/store/projects.js'
+import { previewStore } from '../../src/store/previews.js'
 import { sessionStore } from '../../src/store/sessions.js'
 import { taskStore } from '../../src/store/tasks.js'
 import { getHandler } from '../../src/tools/handlers/index.js'
@@ -229,6 +230,47 @@ describe('project advisor service', () => {
     }
     expect(enqueue).toHaveBeenCalledTimes(2)
     expect(enqueue.mock.calls[1]![0]).toBe(config.sessionId)
+  })
+
+  test('publishing a round purges dead suggestions and their orphan artifacts (隔天清理)', async () => {
+    const { project, advisor } = createFixture()
+    const config = await configureAdvisor(project.id, { advisorAgentId: advisor.id, enabled: true })
+
+    // 第一轮：plan 建议带产物落盘 + 注册预览
+    const first = await publishSuggestions(
+      { projectId: project.id, sessionId: config.sessionId! },
+      {
+        roundId: 'round-dead',
+        suggestions: [{
+          type: 'plan',
+          title: '过期方案',
+          descriptionMarkdown: '## 背景\n这条建议将被判死并清理。\n## 目标\n验证惰性清理。',
+          sourceEvidence: [],
+          artifactName: '过期方案.html',
+          artifactHtml: '<!doctype html><html><body><h1>dead</h1></body></html>',
+        }],
+      },
+    )
+    expect(first.stored).toBe(1)
+    const [dead] = advisorSuggestionStore.listAllByProject(project.id)
+    const artifact = JSON.parse(dead.artifact_json!) as { name: string; relativePath: string; previewId: string }
+    const artifactPath = resolve(getDbPath()!, artifact.relativePath, artifact.name)
+    expect(existsSync(artifactPath)).toBe(true)
+    expect(previewStore.get(artifact.previewId)).toBeDefined()
+
+    // 把它改成「过期超 24h」的死建议
+    getDb().prepare('UPDATE advisor_suggestions SET expire_at = ? WHERE id = ?')
+      .run(new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString(), dead.id)
+
+    // 第二轮产卡触发惰性清理（publishSuggestions 内部）
+    await publishSuggestions(
+      { projectId: project.id, sessionId: config.sessionId! },
+      { roundId: 'round-alive', suggestions: [], noFindingReason: '无增量建议' },
+    )
+
+    expect(advisorSuggestionStore.get(dead.id)).toBeUndefined()
+    await waitUntil(() => !existsSync(artifactPath)) // unlink 异步，等待文件落删
+    expect(previewStore.get(artifact.previewId)).toBeUndefined()
   })
 
   test('accepts a suggestion as a draft task without dispatching it', async () => {
