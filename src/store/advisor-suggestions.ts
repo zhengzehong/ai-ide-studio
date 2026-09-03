@@ -137,13 +137,34 @@ export const advisorSuggestionStore = {
     `).all(projectId, since)
   },
 
-  /** 已过期但仍是 pending 的建议（前端沉底展示、不计徽标，L-6） */
+  /** 已过期但仍是 pending 的建议（前端沉底展示、不计徽标，L-6）——只回过期未满 24h 的，隔天彻底消失 */
   listExpiredPending(projectId: string, now = new Date().toISOString()): AdvisorSuggestionRow[] {
-    return getDb().prepare<[string, string], AdvisorSuggestionRow>(`
+    const windowStart = new Date(Date.parse(now) - 24 * 60 * 60 * 1000).toISOString()
+    return getDb().prepare<[string, string, string], AdvisorSuggestionRow>(`
       SELECT * FROM advisor_suggestions
-      WHERE project_id = ? AND status IN ('pending', 'viewed') AND expire_at <= ?
+      WHERE project_id = ? AND status IN ('pending', 'viewed') AND expire_at <= ? AND expire_at > ?
       ORDER BY created_at DESC, id ASC
-    `).all(projectId, now)
+    `).all(projectId, now, windowStart)
+  },
+
+  /**
+   * 惰性物理清理：删除「过期超 24h 且仍未处理」的建议行，返回被删行（含产物信息，供 core 层删孤儿 HTML）。
+   * 终态（accepted/created/ignored）永久保留：任务侧产物链接仍引用其 HTML，属台账。
+   */
+  purgeExpiredUnprocessed(now = new Date().toISOString()): AdvisorSuggestionRow[] {
+    const cutoff = new Date(Date.parse(now) - 24 * 60 * 60 * 1000).toISOString()
+    const rows = getDb().prepare(`
+      SELECT * FROM advisor_suggestions
+      WHERE status IN ('pending', 'viewed') AND expire_at < ?
+    `).all(cutoff) as AdvisorSuggestionRow[]
+    if (rows.length === 0) return []
+    const del = getDb().prepare(
+      `DELETE FROM advisor_suggestions WHERE id = ? AND status IN ('pending', 'viewed')`,
+    )
+    getDb().transaction(() => {
+      for (const row of rows) del.run(row.id)
+    })()
+    return rows
   },
 
   countPending(projectId: string, now = new Date().toISOString()): number {

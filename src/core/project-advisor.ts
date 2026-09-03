@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, unlink, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { agentStore } from '../store/agents.js'
 import { getDbPath } from '../store/db.js'
@@ -9,6 +9,7 @@ import { previewStore } from '../store/previews.js'
 import { projectAdvisorStore, type ProjectAdvisorRow } from '../store/advisors.js'
 import {
   advisorSuggestionStore,
+  type AdvisorArtifact,
   type AdvisorSourceEvidence,
   type AdvisorSuggestionRow,
   type CreateAdvisorSuggestionInput,
@@ -450,6 +451,8 @@ export async function publishSuggestions(
   }
   roundTriggerSessions.delete(input.roundId)
   projectAdvisorStore.update(context.projectId, { lastError: null })
+  // 产卡时顺手清掉过期超 24h 的未处理旧建议（隔天不要），避免无界堆积
+  purgeDeadSuggestions()
   if (input.suggestions.length === 0 && input.noFindingReason?.trim()) {
     log.info({ projectId: context.projectId, roundId: input.roundId, reason: input.noFindingReason }, '参谋本轮无建议（无货沉默）')
   } else {
@@ -566,9 +569,42 @@ export function markAdvisorSuggestionsViewed(projectId: string, ids: string[] | 
   return advisorSuggestionStore.markViewed(projectId, ids)
 }
 
+/**
+ * 惰性清理：删除「过期超 24h 且仍未处理」的建议行（隔天不要），并同步删其孤儿 HTML 产物与预览记录。
+ * 终态建议（accepted/created/ignored）永久保留——任务侧产物链接仍引用其 HTML，属台账。
+ * 文件/预览删除失败不阻断 DB 清理（孤儿文件量小可容忍）。
+ */
+function purgeDeadSuggestions(): void {
+  let purged: AdvisorSuggestionRow[]
+  try {
+    purged = advisorSuggestionStore.purgeExpiredUnprocessed()
+  } catch (err) {
+    log.warn({ err }, '参谋过期建议清理失败')
+    return
+  }
+  if (purged.length === 0) return
+  const dataDir = getDbPath()
+  for (const row of purged) {
+    if (!row.artifact_json || !dataDir) continue
+    try {
+      const artifact = JSON.parse(row.artifact_json) as AdvisorArtifact & { previewId?: string }
+      if (artifact.previewId) {
+        try {
+          previewStore.delete(artifact.previewId)
+        } catch { /* 预览记录可能已不存在 */ }
+      }
+      void unlink(resolve(dataDir, artifact.relativePath, artifact.name)).catch(() => {
+        // 文件可能已被删除或占用，不阻断
+      })
+    } catch { /* artifact_json 损坏，跳过该条的文件清理 */ }
+  }
+  log.info({ count: purged.length }, '参谋过期未处理建议已物理清理')
+}
+
 export async function resumeProjectAdvisors(): Promise<void> {
   const released = advisorSuggestionStore.releaseStaleDispatches()
   if (released > 0) log.info({ released }, '服务重启后参谋派发占用已释放')
+  purgeDeadSuggestions()
   for (const config of projectAdvisorStore.list()) {
     if (config.enabled && config.session_id && config.advisor_agent_id) {
       getRuntimeState(config.project_id)
