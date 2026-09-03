@@ -240,11 +240,14 @@ describe('project advisor service', () => {
 
   test('push package lists project agents so the advisor picks real IDs', () => {
     const { project, executor, workerSession } = createFixture()
+    agentStore.setHidden(agentStore.create({ type: 'dev', name: '已隐藏执行者', runtime: 'mock', projectId: project.id }).id, true)
     const { prompt } = buildAdvisorPushPrompt(project.id, turnDone(workerSession.id, executor.id, 'turn-agents'), '')
 
     expect(prompt).toContain('### 项目可用 Agent')
     expect(prompt).toContain('禁止编造 ID')
     expect(prompt).toContain(`${executor.id} · 执行者 · mock`)
+    // 已隐藏 Agent 不进清单：列出来参谋选了也会被校验拒绝，只会误导
+    expect(prompt).not.toContain('已隐藏执行者')
   })
 
   test('applies user-edited title and description when accepting (U-13)', async () => {
@@ -273,10 +276,11 @@ describe('project advisor service', () => {
     expect(fallbackTask.title).toBe('沉淀排查结论为任务')
   })
 
-  test('rejects suggestions recommending agents outside the project (incl. global agents)', async () => {
+  test('rejects suggestions recommending agents outside the project (incl. global and hidden)', async () => {
     const { project, advisor } = createFixture()
     // 全局 Agent（project_id=null）：旧校验放行、前端项目过滤又排除，用户被迫手动重选——现在提交侧直接拒绝
     const globalAgent = agentStore.create({ type: 'dev', name: '全局执行者', runtime: 'mock', projectId: null })
+    const hiddenAgent = agentStore.setHidden(agentStore.create({ type: 'dev', name: '隐藏执行者', runtime: 'mock', projectId: project.id }).id, true)
     const config = await configureAdvisor(project.id, { advisorAgentId: advisor.id })
 
     await expect(publishSuggestions(
@@ -285,7 +289,15 @@ describe('project advisor service', () => {
         roundId: 'round-global',
         suggestions: [suggestionPayload({ suggestedAgentId: globalAgent.id })],
       },
-    )).rejects.toThrow('必须是当前项目内 Agent')
+    )).rejects.toThrow('必须是当前项目内可用 Agent')
+
+    await expect(publishSuggestions(
+      { projectId: project.id, sessionId: config.sessionId! },
+      {
+        roundId: 'round-hidden',
+        suggestions: [suggestionPayload({ suggestedAgentId: hiddenAgent.id })],
+      },
+    )).rejects.toThrow('必须是当前项目内可用 Agent')
   })
 
   test('injects source session context into the created task description', async () => {

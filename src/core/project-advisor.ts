@@ -395,9 +395,9 @@ export async function publishSuggestions(
     }
     if (suggestion.suggestedAgentId) {
       const agent = agentStore.get(suggestion.suggestedAgentId)
-      // 与前端 filterAgentsByProject 同口径：必须是本项目 Agent（全局 Agent 不进项目执行列表，放行会让用户被迫手动重选）
-      if (!agent || agent.project_id !== context.projectId) {
-        throw new Error(`推荐 Agent 必须是当前项目内 Agent（从推送包「项目可用 Agent」清单中选择，禁止编造 ID）: ${suggestion.suggestedAgentId}`)
+      // 与前端口径一致：必须是本项目内且未隐藏的 Agent（隐藏 Agent 不在执行列表，推荐了用户也得重选）
+      if (!agent || agent.project_id !== context.projectId || agent.hidden_at) {
+        throw new Error(`推荐 Agent 必须是当前项目内可用 Agent（从推送包「项目可用 Agent」清单中选择，禁止编造 ID）: ${suggestion.suggestedAgentId}`)
       }
     }
   }
@@ -473,8 +473,8 @@ export async function acceptSuggestion(
   const agentId = input.agentId || suggestion.suggested_agent_id
   if (!agentId) throw new Error('该建议没有推荐 Agent，请手动选择执行 Agent')
   const agent = agentStore.get(agentId)
-  // 与前端 filterAgentsByProject 同口径：执行 Agent 必须是本项目内 Agent
-  if (!agent || agent.project_id !== projectId) throw new Error('执行 Agent 不属于当前项目')
+  // 与前端口径一致：执行 Agent 必须是本项目内且未隐藏的 Agent
+  if (!agent || agent.project_id !== projectId || agent.hidden_at) throw new Error('执行 Agent 不属于当前项目或已隐藏')
   if (input.sessionId) {
     const session = sessionStore.get(input.sessionId)
     if (!session || session.agent_id !== agentId) throw new Error('执行会话不属于所选 Agent')

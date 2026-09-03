@@ -187,7 +187,7 @@ describe('suggestion.present tool', () => {
       suggestions: [actionSuggestion({ suggestedAgentId: 'agent-not-in-project' })],
     }, context)
     expect(foreignAgent.isError).toBe(true)
-    expect(foreignAgent.content[0]!.text).toContain('必须是当前项目内 Agent')
+    expect(foreignAgent.content[0]!.text).toContain('必须是当前项目内可用 Agent')
 
     const unknownType = await execute({
       roundId: 'r5',
