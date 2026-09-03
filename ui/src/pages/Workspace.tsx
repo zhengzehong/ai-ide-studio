@@ -19,7 +19,6 @@ import {
   ChevronDown,
   ChevronRight,
   Loader2,
-  Plus,
   User,
   Wifi,
   WifiOff,
@@ -141,6 +140,10 @@ import { FilesPresentationCard } from '../components/chat/FilesPresentationCard'
 import { PresentedFilesModal } from '../components/file-viewer/PresentedFilesModal'
 import { isFilesPresentationToolCall, parseFilesPresentationOutput } from '../stores/session-events'
 import { SessionBar, type SessionTagEditorState } from './workspace/SessionBar'
+import { AdvisorTabBar, SuggestionPanel, type AdvisorRightTab } from './workspace/SuggestionPanel'
+import { SuggestionTaskDialog } from './workspace/SuggestionTaskDialog'
+import { AdvisorSettingsDialog } from './workspace/AdvisorSettingsDialog'
+import { useAdvisorStore, type AdvisorArtifact, type AdvisorSuggestion } from '../stores/advisor.store'
 import { WorkspaceCenterStage } from './workspace/WorkspaceCenterStage'
 import { TemplatePickerModal } from './workspace/TemplatePickerModal'
 import { PublishTemplateModal } from './workspace/PublishTemplateModal'
@@ -215,6 +218,20 @@ export default function Workspace() {
   const teamContext = useTeamStore((s) => s.current)
   const fetchCurrentTeam = useTeamStore((s) => s.fetchCurrent)
   const clearCurrentTeam = useTeamStore((s) => s.clearCurrent)
+  const fetchTasks = useTaskStore((s) => s.fetchTasks)
+
+  const advisorConfig = useAdvisorStore((s) => s.config)
+  const advisorView = useAdvisorStore((s) => s.view)
+  const advisorLoading = useAdvisorStore((s) => s.loading)
+  const advisorSaving = useAdvisorStore((s) => s.saving)
+  const advisorError = useAdvisorStore((s) => s.error)
+  const loadAdvisor = useAdvisorStore((s) => s.load)
+  const markAdvisorRead = useAdvisorStore((s) => s.markRead)
+  const acceptAdvisorSuggestion = useAdvisorStore((s) => s.accept)
+  const ignoreAdvisorSuggestion = useAdvisorStore((s) => s.ignore)
+  const configureAdvisor = useAdvisorStore((s) => s.configure)
+  const rebuildAdvisorSession = useAdvisorStore((s) => s.rebuildSession)
+  const setupAdvisorListeners = useAdvisorStore((s) => s.setupListeners)
 
   const currentProjectId = useProjectStore((s) => s.currentProjectId)
   const selectProject = useProjectStore((s) => s.selectProject)
@@ -238,6 +255,33 @@ export default function Workspace() {
   }, [currentProjectId, fileRootPath, sidebarTab, fetchTree])
   const [showNewTask, setShowNewTask] = useState(false)
   const [copyingSessionId, setCopyingSessionId] = useState<string | null>(null)
+
+  // AI 参谋建议：右侧 tab、执行弹窗、设置弹窗、新建议提醒（U-1~U-3）
+  const [rightTab, setRightTab] = useState<AdvisorRightTab>('tasks')
+  const [advisorSettingsOpen, setAdvisorSettingsOpen] = useState(false)
+  const [executingSuggestion, setExecutingSuggestion] = useState<AdvisorSuggestion | null>(null)
+  const [advisorBusy, setAdvisorBusy] = useState(false)
+  const [advisorToast, setAdvisorToast] = useState<string | null>(null)
+  const [highlightSuggestionIds, setHighlightSuggestionIds] = useState<string[]>([])
+  const seenSuggestionIdsRef = useRef<Set<string> | null>(null)
+
+  // 预览弹窗上提到 Workspace：右侧建议卡（SuggestionPanel）与聊天流共用同一预览通道
+  const [previewModal, setPreviewModal] = useState<{
+    previewId: string
+    title: string
+    target: 'pc' | 'app'
+    url: string
+    taskId?: string | null
+  } | null>(null)
+  const openPreview = useCallback((p: {
+    previewId: string
+    title: string
+    target: 'pc' | 'app'
+    url: string
+    taskId?: string | null
+  }) => {
+    setPreviewModal(p)
+  }, [])
 
   const [ctxMenu, setCtxMenu] = useState<{ sessionId: string; agentId: string; x: number; y: number; inArchive: boolean } | null>(null)
   const [tagEditor, setTagEditor] = useState<SessionTagEditorState | null>(null)
@@ -525,6 +569,92 @@ export default function Workspace() {
     setSelectedAgentId(agentId)
     selectSession(sessionId)
   }
+
+  // ---- AI 参谋建议（PR-B）----
+  useEffect(() => {
+    if (currentProjectId) void loadAdvisor(currentProjectId)
+  }, [currentProjectId, loadAdvisor])
+
+  useEffect(() => setupAdvisorListeners(), [setupAdvisorListeners])
+
+  // 新建议到达：卡片插入动画 + 徽标脉冲 + toast（U-3）
+  useEffect(() => {
+    const ids = advisorView?.suggestions.map((suggestion) => suggestion.id) ?? []
+    const seen = seenSuggestionIdsRef.current
+    if (!seen) {
+      seenSuggestionIdsRef.current = new Set(ids)
+      return
+    }
+    const fresh = ids.filter((id) => !seen.has(id))
+    if (fresh.length > 0) {
+      seenSuggestionIdsRef.current = new Set([...seen, ...ids])
+      setHighlightSuggestionIds(fresh)
+      setAdvisorToast(fresh.length === 1 ? '参谋有一条新建议' : `参谋有 ${fresh.length} 条新建议`)
+    }
+  }, [advisorView])
+
+  useEffect(() => {
+    if (!advisorToast) return
+    const timer = window.setTimeout(() => setAdvisorToast(null), 4000)
+    return () => window.clearTimeout(timer)
+  }, [advisorToast])
+
+  // 打开「建议」tab 时批量已读，清掉徽标（U-2）
+  useEffect(() => {
+    if (rightTab !== 'suggestions' || !currentProjectId) return
+    if ((advisorView?.pendingCount ?? 0) > 0) void markAdvisorRead(null)
+  }, [rightTab, currentProjectId, advisorView, markAdvisorRead])
+
+  const handleAdvisorJumpToSession = (sessionId: string) => {
+    const target = useSessionStore.getState().sessions.find((session) => session.id === sessionId)
+    if (!target) {
+      setAdvisorToast('来源会话已删除或当前不可见')
+      return
+    }
+    if (target.agent_id) handleSelectSession(target.agent_id, sessionId)
+    else selectSession(sessionId)
+  }
+
+  const handleAdvisorOpenArtifact = (_suggestion: AdvisorSuggestion, artifact: AdvisorArtifact) => {
+    openPreview({ previewId: artifact.previewId, title: artifact.name, target: 'pc', url: `/preview/${artifact.previewId}/` })
+  }
+
+  const handleAdvisorIgnore = async (suggestion: AdvisorSuggestion) => {
+    try {
+      await ignoreAdvisorSuggestion(suggestion.id)
+    } catch (error) {
+      setAdvisorToast(error instanceof Error ? error.message : '忽略建议失败')
+    }
+  }
+
+  const handleSuggestionConfirm = async (input: {
+    title: string
+    descriptionMarkdown: string
+    agentId: string
+    sessionId: string
+    execute: boolean
+  }) => {
+    if (!currentProjectId || !executingSuggestion) return
+    setAdvisorBusy(true)
+    try {
+      await acceptAdvisorSuggestion(executingSuggestion.id, {
+        agentId: input.agentId,
+        sessionId: input.sessionId || undefined,
+        execute: input.execute,
+        title: input.title,
+        descriptionMarkdown: input.descriptionMarkdown,
+      })
+      setExecutingSuggestion(null)
+      setAdvisorToast(input.execute ? '任务已创建并开始执行' : '任务已创建（未派发）')
+      void fetchTasks(currentProjectId, { force: true })
+    } catch (error) {
+      setAdvisorToast(error instanceof Error ? error.message : '创建任务失败')
+    } finally {
+      setAdvisorBusy(false)
+    }
+  }
+  // ---- AI 参谋建议结束 ----
+
   const handleNewSession = async (agentId: string) => {
     clearInspirationContext()
     const s = await createSession(agentId, undefined, currentProjectId ?? undefined)
@@ -1207,6 +1337,7 @@ export default function Workspace() {
             currentSessionCopying={currentSessionCopying}
             inspirationNoteId={inspirationNoteId}
             onOpenResource={openChatResource}
+            openPreview={openPreview}
           />
         )}
       />
@@ -1231,48 +1362,37 @@ export default function Workspace() {
           />
         ) : (
           <>
-            <div
-              style={{
-                padding: '12px 16px',
-                borderBottom: '1px solid var(--border)',
-                fontSize: 15,
-                fontWeight: 600,
-                flexShrink: 0,
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <ListTodo size={14} /> 任务
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowNewTask(true)}
-                style={{
-                  border: 'none',
-                  background: 'var(--blue)',
-                  color: 'white',
-                  cursor: 'pointer',
-                  padding: '4px 10px',
-                  borderRadius: 6,
-                  fontSize: 13,
-                  fontWeight: 500,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 4,
-                }}
-              >
-                <Plus size={12} /> 新建
-              </button>
-            </div>
-            <TaskPanel
-              agents={projectAgents}
-              modes={modes}
-              currentSessionTaskId={currentSession?.task_id ?? null}
-              onSelectSession={handleSelectSession}
-              projectId={currentProjectId ?? undefined}
+            <AdvisorTabBar
+              active={rightTab}
+              pendingCount={advisorView?.pendingCount ?? 0}
+              pulse={highlightSuggestionIds.length > 0}
+              onSelectTab={setRightTab}
+              onOpenSettings={() => setAdvisorSettingsOpen(true)}
+              onCreateTask={() => setShowNewTask(true)}
             />
+            {rightTab === 'tasks' ? (
+              <TaskPanel
+                agents={projectAgents}
+                modes={modes}
+                currentSessionTaskId={currentSession?.task_id ?? null}
+                onSelectSession={handleSelectSession}
+                projectId={currentProjectId ?? undefined}
+              />
+            ) : (
+              <SuggestionPanel
+                view={advisorView}
+                loading={advisorLoading}
+                error={advisorError}
+                agents={projectAgents}
+                highlightIds={highlightSuggestionIds}
+                onJumpToSession={handleAdvisorJumpToSession}
+                onOpenArtifact={handleAdvisorOpenArtifact}
+                onExecute={setExecutingSuggestion}
+                onIgnore={(suggestion) => void handleAdvisorIgnore(suggestion)}
+                onOpenTask={() => navigate(`/p/${currentProjectId}/tasks`)}
+                onRetry={() => currentProjectId && void loadAdvisor(currentProjectId)}
+              />
+            )}
           </>
         )}
       </aside>
@@ -1294,6 +1414,44 @@ export default function Workspace() {
           onClose={() => setImportDialogAgentId(null)}
         />
       )}
+
+      {executingSuggestion && (
+        <SuggestionTaskDialog
+          suggestion={executingSuggestion}
+          agents={projectAgents}
+          sessions={sessions}
+          busy={advisorBusy}
+          onClose={() => setExecutingSuggestion(null)}
+          onConfirm={handleSuggestionConfirm}
+        />
+      )}
+
+      {advisorSettingsOpen && advisorConfig && (
+        <AdvisorSettingsDialog
+          config={advisorConfig}
+          agents={projectAgents}
+          saving={advisorSaving}
+          onClose={() => setAdvisorSettingsOpen(false)}
+          onSave={async (input) => {
+            if (!currentProjectId) return
+            await configureAdvisor(input)
+            await loadAdvisor(currentProjectId, true)
+            setAdvisorSettingsOpen(false)
+          }}
+          onRebuild={async (agentId) => {
+            if (!currentProjectId) return
+            await rebuildAdvisorSession(agentId)
+          }}
+        />
+      )}
+
+      {previewModal && (
+        <PreviewModal
+          preview={previewModal}
+          onClose={() => setPreviewModal(null)}
+        />
+      )}
+      {advisorToast && <div className="advisor-toast">{advisorToast}</div>}
 
       <ContextMenu
         open={!!agentCtxMenu}
@@ -1557,6 +1715,7 @@ function WorkspaceChatPane({
   currentSessionCopying,
   inspirationNoteId,
   onOpenResource,
+  openPreview,
 }: {
   connected: boolean
   projectId: string | null
@@ -1567,6 +1726,7 @@ function WorkspaceChatPane({
   currentSessionCopying: boolean
   inspirationNoteId?: string
   onOpenResource: OpenChatResource
+  openPreview: (p: { previewId: string; title: string; target: 'pc' | 'app'; url: string; taskId?: string | null }) => void
 }) {
   const messages = useSessionStore((s) => s.messages)
   const messagesLoadingSessionId = useSessionStore((s) => s.messagesLoadingSessionId)
@@ -1626,27 +1786,12 @@ function WorkspaceChatPane({
   const [showCommandMenu, setShowCommandMenu] = useState(false)
   const [menuAnchor, setMenuAnchor] = useState<MenuAnchor | null>(null)
   const [liveNowMs, setLiveNowMs] = useState(() => Date.now())
-  const [previewModal, setPreviewModal] = useState<{
-    previewId: string
-    title: string
-    target: 'pc' | 'app'
-    url: string
-    taskId?: string | null
-  } | null>(null)
   const [filesModal, setFilesModal] = useState<FilesPresentationInfo | null>(null)
 
-  const openPreview = useCallback((p: {
-    previewId: string
-    title: string
-    target: 'pc' | 'app'
-    url: string
-    taskId?: string | null
-  }) => {
-    setPreviewModal(p)
-  }, [])
   const openFiles = useCallback((presentation: FilesPresentationInfo) => {
     setFilesModal(presentation)
   }, [])
+
 
   useEffect(() => {
     if (currentSessionId && !dockLoaded) void loadDock({ silent: true })
@@ -2648,12 +2793,6 @@ function WorkspaceChatPane({
             />
           ))}
         </DropdownPortal>
-      )}
-      {previewModal && (
-        <PreviewModal
-          preview={previewModal}
-          onClose={() => setPreviewModal(null)}
-        />
       )}
       {filesModal && (
         <PresentedFilesModal presentation={filesModal} onClose={() => setFilesModal(null)} />

@@ -389,7 +389,15 @@ async function saveAdvisorArtifact(projectId: string, suggestionId: string, arti
 export async function acceptSuggestion(
   projectId: string,
   suggestionId: string,
-  input: { agentId?: string; sessionId?: string; sessionMode?: 'existing' | 'new_each'; execute: boolean },
+  input: {
+    agentId?: string
+    sessionId?: string
+    sessionMode?: 'existing' | 'new_each'
+    execute: boolean
+    /** 执行弹窗可改标题/说明（U-13）：不传则用建议原文 */
+    title?: string
+    descriptionMarkdown?: string
+  },
 ): Promise<AdvisorSuggestionView> {
   const suggestion = requireSuggestion(projectId, suggestionId)
   if (suggestion.task_id) return listAdvisorSuggestions(projectId)
@@ -402,6 +410,8 @@ export async function acceptSuggestion(
     if (!session || session.agent_id !== agentId) throw new Error('执行会话不属于所选 Agent')
   }
   if (input.sessionMode === 'existing' && !input.sessionId) throw new Error('选择已有会话时必须选择执行会话')
+  const taskTitle = input.title?.trim() || suggestion.title
+  const taskDescription = input.descriptionMarkdown?.trim() || suggestion.description_markdown
   const token = `dispatch-${randomUUID()}`
   const claimed = advisorSuggestionStore.claimDispatch(suggestion.id, token)
   if (!claimed) throw new Error('建议正在创建任务，请稍候')
@@ -410,8 +420,8 @@ export async function acceptSuggestion(
     let executionSessionId: string | null = input.sessionId ?? null
     if (input.execute) {
       const result = await createSimpleTask({
-        title: suggestion.title,
-        description: suggestion.description_markdown,
+        title: taskTitle,
+        description: taskDescription,
         assignee: agentId,
         projectId,
         source: 'advisor',
@@ -423,8 +433,8 @@ export async function acceptSuggestion(
     } else {
       // 只创建任务：草稿不派发，等用户在任务面板自行启动（与灵感候选任务同款语义）
       const task = await taskManager.createTask({
-        title: suggestion.title,
-        description: suggestion.description_markdown,
+        title: taskTitle,
+        description: taskDescription,
         projectId,
         source: 'advisor',
       })
@@ -433,8 +443,8 @@ export async function acceptSuggestion(
         : null
       taskStepManager.addStep({
         taskId: task.id,
-        title: suggestion.title,
-        description: suggestion.description_markdown,
+        title: taskTitle,
+        description: taskDescription,
         assignee: agentId,
         sessionId: resolvedSession?.id ?? input.sessionId,
       })
