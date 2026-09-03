@@ -194,7 +194,7 @@
 
 .advisor-type-action {
   color: white;
-  background: #2f9e44;
+  background: var(--green, #2f9e44);
 }
 
 .advisor-card-title {

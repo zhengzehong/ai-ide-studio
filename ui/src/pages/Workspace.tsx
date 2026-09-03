@@ -602,7 +602,11 @@ export default function Workspace() {
   // 打开「建议」tab 时批量已读，清掉徽标（U-2）
   useEffect(() => {
     if (rightTab !== 'suggestions' || !currentProjectId) return
-    if ((advisorView?.pendingCount ?? 0) > 0) void markAdvisorRead(null)
+    if ((advisorView?.pendingCount ?? 0) > 0) {
+      markAdvisorRead(null).catch((error) => {
+        console.error('参谋建议批量已读失败', error)
+      })
+    }
   }, [rightTab, currentProjectId, advisorView, markAdvisorRead])
 
   const handleAdvisorJumpToSession = (sessionId: string) => {
