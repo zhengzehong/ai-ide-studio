@@ -36,6 +36,11 @@ function scopeAllows(actionId: string, event: KeyboardEvent): boolean {
   return lower.includes('+') || lower.includes('tab') || lower.includes('escape') || lower.includes('enter')
 }
 
+function scopeRank(actionId: string): number {
+  const scope = HOTKEY_ACTIONS.find((item) => item.id === actionId)?.scope
+  return scope === 'modal' ? 5 : scope === 'input' ? 4 : scope === 'list' ? 3 : scope === 'workspace' ? 2 : 1
+}
+
 export function HotkeyManager(): null {
   const navigate = useNavigate()
   const location = useLocation()
@@ -100,9 +105,12 @@ export function HotkeyManager(): null {
       if (chordPending.current) {
         const chord = `g ${key}`
         if (key === 'g') { clearChord(); return }
-        const action = HOTKEY_ACTIONS.find((item) => resolveHotkey(item.id, overrides) === chord)
+        const action = HOTKEY_ACTIONS
+          .filter((item) => resolveHotkey(item.id, overrides) === chord)
+          .sort((left, right) => scopeRank(right.id) - scopeRank(left.id))
+          .find((item) => scopeAllows(item.id, event))
         clearChord()
-        if (!action || !scopeAllows(action.id, event)) return
+        if (!action) return
         event.preventDefault()
         if (!runNavigationAction(action.id)) dispatchHotkeyAction(action.id)
         return
@@ -114,8 +122,11 @@ export function HotkeyManager(): null {
         window.dispatchEvent(new CustomEvent<{ pending: boolean }>('ai-ide-hotkey-chord', { detail: { pending: true } }))
         return
       }
-      const action = HOTKEY_ACTIONS.find((item) => resolveHotkey(item.id, overrides) === key)
-      if (!action || !scopeAllows(action.id, event)) return
+      const action = HOTKEY_ACTIONS
+        .filter((item) => resolveHotkey(item.id, overrides) === key)
+        .sort((left, right) => scopeRank(right.id) - scopeRank(left.id))
+        .find((item) => scopeAllows(item.id, event))
+      if (!action) return
       event.preventDefault()
       if (!runNavigationAction(action.id)) dispatchHotkeyAction(action.id)
     }
