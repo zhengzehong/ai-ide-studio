@@ -7,6 +7,7 @@ export interface HotkeyAction {
   category: HotkeyCategory
   scope: HotkeyScope
   defaultKeys: string
+  run?: () => void
   keywords?: string
 }
 

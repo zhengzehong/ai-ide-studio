@@ -29,9 +29,14 @@ export function HotkeySection(): ReactNode {
       </div>
       {lastConflict.length > 0 && <div role="status" style={{ color: 'var(--yellow)', fontSize: 12, marginBottom: 8 }}>Conflicting shortcuts reset: {lastConflict.join(', ')}</div>}
       <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', background: 'var(--bg-1)' }}>
-        {filtered.map((action) => (
-          <HotkeyRecorder key={action.id} action={action} value={Object.prototype.hasOwnProperty.call(overrides, action.id) ? overrides[action.id] : action.defaultKeys} customized={Object.prototype.hasOwnProperty.call(overrides, action.id)} />
-        ))}
+        {(['page', 'workspace', 'session', 'project', 'general'] as const).map((category) => {
+          const actions = filtered.filter((action) => action.category === category)
+          if (actions.length === 0) return null
+          return <div key={category}>
+            <div style={{ padding: '7px 12px', background: 'var(--bg-2)', color: 'var(--text-3)', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{categoryLabels[category]}</div>
+            {actions.map((action) => <HotkeyRecorder key={action.id} action={action} value={Object.prototype.hasOwnProperty.call(overrides, action.id) ? overrides[action.id] : action.defaultKeys} customized={Object.prototype.hasOwnProperty.call(overrides, action.id)} />)}
+          </div>
+        })}
         {filtered.length === 0 && <div style={{ padding: 18, color: 'var(--text-3)', fontSize: 13 }}>No matching actions</div>}
       </div>
     </section>
@@ -40,3 +45,4 @@ export function HotkeySection(): ReactNode {
 
 const buttonStyle: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--bg-0)', color: 'var(--text-2)', padding: '6px 9px', cursor: 'pointer', fontSize: 12 }
 const inputStyle: React.CSSProperties = { width: '100%', boxSizing: 'border-box', height: 34, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--bg-0)', color: 'var(--text-1)', padding: '0 10px', outline: 'none' }
+const categoryLabels: Record<string, string> = { page: '页面跳转', workspace: '工作空间', session: '会话', project: '项目', general: '通用' }

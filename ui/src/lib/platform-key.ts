@@ -35,7 +35,8 @@ export function normalizeBinding(binding: string): string {
     const modifiers = part.split('+').filter(Boolean)
     if (modifiers.length === 0) return ''
     const key = normalizeBaseKey(modifiers.pop() ?? '')
-    const ordered = ['mod', 'ctrl', 'alt', 'shift'].filter((modifier) => modifiers.includes(modifier))
+    const canonicalModifiers = modifiers.map((modifier) => modifier === 'ctrl' || modifier === 'meta' ? 'mod' : modifier)
+    const ordered = ['mod', 'alt', 'shift'].filter((modifier) => canonicalModifiers.includes(modifier))
     return [...ordered, key].join('+')
   }).filter(Boolean).join(' ')
 }

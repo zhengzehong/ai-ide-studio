@@ -8,7 +8,7 @@ describe('hotkey registry', () => {
 
   test('normalizes platform modifier and chord bindings', () => {
     expect(normalizeBinding('G I')).toBe('g i')
-    expect(normalizeBinding('Ctrl+Shift+]')).toBe('ctrl+shift+]')
+    expect(normalizeBinding('Ctrl+Shift+]')).toBe('mod+shift+]')
     expect(isValidBinding('g i')).toBe(true)
     expect(isValidBinding('g i d')).toBe(false)
   })
