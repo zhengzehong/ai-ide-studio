@@ -42,7 +42,9 @@ const sessionActions = tuples('session', 'list', [
   ['session.close', 'Close session', 'x'],
 ]).map((action) => ['session.pin', 'session.mark-unread', 'session.close'].includes(action.id)
   ? { ...action, scope: 'workspace' as HotkeyScope }
-  : action)
+  : action.id === 'session.next-unread'
+    ? { ...action, scope: 'global' as HotkeyScope }
+    : action)
 
 const projectActions = tuples('project', 'global', [
   ['project.tab-1', 'Project tab 1', 'mod+1'], ['project.tab-2', 'Project tab 2', 'mod+2'],
