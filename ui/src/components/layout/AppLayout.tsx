@@ -103,6 +103,13 @@ export function AppLayout() {
     window.addEventListener('focus', refresh)
     return () => window.removeEventListener('focus', refresh)
   }, [refreshReadingUnreadCount])
+  useEffect(() => {
+    const focusCommandInput = (): void => {
+      document.querySelector<HTMLInputElement>('.command-input')?.focus()
+    }
+    window.addEventListener('ai-ide-command-palette', focusCommandInput)
+    return () => window.removeEventListener('ai-ide-command-palette', focusCommandInput)
+  }, [])
 
   const handleProjectNavClick = (event: React.MouseEvent): void => {
     if (currentProjectId) return
