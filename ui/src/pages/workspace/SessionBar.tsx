@@ -154,7 +154,8 @@ export function SessionBar(props: SessionBarProps) {
         return
       }
       if (actionId === 'session.open') {
-        const targetId = currentSessionId ?? filteredSessions[0]?.id
+        const focusedId = document.activeElement instanceof HTMLElement ? document.activeElement.dataset.sessionId : undefined
+        const targetId = focusedId ?? currentSessionId ?? filteredSessions[0]?.id
         if (targetId) onSelectSession(agent.id, targetId)
         return
       }

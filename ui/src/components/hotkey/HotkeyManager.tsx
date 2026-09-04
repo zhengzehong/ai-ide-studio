@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { HOTKEY_ACTIONS, dispatchHotkeyAction } from '../../lib/hotkey-actions'
+import { HOTKEY_ACTIONS, dispatchHotkeyAction, subscribeHotkeyActions } from '../../lib/hotkey-actions'
 import { bindingFromEvent } from '../../lib/platform-key'
 import { resolveHotkey } from '../../lib/hotkey-registry'
 import { useHotkeyStore } from '../../stores/hotkey.store'
@@ -8,6 +8,8 @@ import { useProjectNavigation } from '../../hooks/use-project-navigation'
 import { useProjectStore } from '../../stores/project.store'
 import { usePinnedProjects } from '../../utils/project-meta'
 import { useSessionStore } from '../../stores/session.store'
+import { queryClient } from '../../services/query-client'
+import { resolvePinnedProjectId } from '../../lib/hotkey-component-helpers'
 
 function isTextTarget(target: EventTarget | null): boolean {
   const element = target instanceof HTMLElement ? target : null
@@ -81,7 +83,7 @@ export function HotkeyManager(): null {
     if (actionId in projectPath && projectId) { navigate(`/p/${projectId}${projectPath[actionId]}`); return true }
     if (actionId.startsWith('project.tab-')) {
       const index = Number(actionId.slice(-1)) - 1
-      const targetId = validPinnedIds[index]
+      const targetId = resolvePinnedProjectId(validPinnedIds, projects.map((project) => project.id), index)
       if (targetId) switchProject(targetId)
       return !!targetId
     }
@@ -94,15 +96,18 @@ export function HotkeyManager(): null {
       return true
     }
     if (actionId === 'session.next-unread') {
-      const unread = sessions.filter((session) => !!unreadSessionIds[session.id])
-      if (unread.length === 0) return true
-      const currentIndex = unread.findIndex((session) => session.id === useSessionStore.getState().currentSessionId)
-      const target = unread[(currentIndex + 1 + unread.length) % unread.length]
-      if (target.project_id && target.project_id !== currentProjectId) {
-        navigate(`/p/${target.project_id}/workspace?sessionId=${encodeURIComponent(target.id)}`)
-      } else {
-        selectSession(target.id)
+      const routeToUnread = (allSessions: typeof sessions): void => {
+        const unread = allSessions.filter((session) => (
+          !!unreadSessionIds[session.id]
+          || (!!session.last_message_at && (!session.last_read_at || Date.parse(session.last_message_at) > Date.parse(session.last_read_at)))
+        ))
+        if (unread.length === 0) return
+        const currentIndex = unread.findIndex((session) => session.id === useSessionStore.getState().currentSessionId)
+        const target = unread[(currentIndex + 1 + unread.length) % unread.length]
+        if (location.pathname.includes('/workspace') && target.project_id === currentProjectId) selectSession(target.id)
+        else if (target.project_id) navigate(`/p/${target.project_id}/workspace?sessionId=${encodeURIComponent(target.id)}`)
       }
+      void queryClient.listSessions({}).then(routeToUnread).catch(() => routeToUnread(sessions))
       return true
     }
     if (actionId === 'app.hotkey-settings') { navigate('/settings#hotkeys'); return true }
@@ -111,7 +116,7 @@ export function HotkeyManager(): null {
       return true
     }
     return false
-  }, [currentProjectId, navigate, previousProjectId, projects, selectSession, sessions, switchProject, unreadSessionIds, validPinnedIds])
+  }, [currentProjectId, location.pathname, navigate, previousProjectId, projects, selectSession, sessions, switchProject, unreadSessionIds, validPinnedIds])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -157,6 +162,10 @@ export function HotkeyManager(): null {
       window.removeEventListener('focusin', onFocusIn)
     }
   }, [clearChord, location.pathname, overrides, runNavigationAction])
+
+  useEffect(() => subscribeHotkeyActions((actionId) => {
+    runNavigationAction(actionId)
+  }), [runNavigationAction])
 
   useEffect(() => () => clearChord(), [clearChord])
   return null

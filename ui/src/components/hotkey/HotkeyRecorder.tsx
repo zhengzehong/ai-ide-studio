@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Check, RotateCcw } from 'lucide-react'
 import type { HotkeyAction } from '../../lib/hotkey-actions'
-import { formatBinding, eventKey, normalizeBinding } from '../../lib/platform-key'
+import { formatBinding, eventKey } from '../../lib/platform-key'
+import { composeRecordedBinding } from '../../lib/hotkey-component-helpers'
 import { useHotkeyStore } from '../../stores/hotkey.store'
 
 interface HotkeyRecorderProps { action: HotkeyAction; value: string | null; customized: boolean }
@@ -42,11 +43,11 @@ export function HotkeyRecorder({ action, value, customized }: HotkeyRecorderProp
         }, 600)
         return
       }
-      const nextBinding = firstKeyRef.current ? `${firstKeyRef.current} ${key}` : key
+      const nextBinding = composeRecordedBinding(firstKeyRef.current, key)
       if (timerRef.current !== null) window.clearTimeout(timerRef.current)
       firstKeyRef.current = null
       setPendingChord(false)
-      const result = setOverride(action.id, normalizeBinding(nextBinding))
+      const result = setOverride(action.id, nextBinding)
       if (!result.ok) setMessage(result.conflicts.join(', '))
       else { setMessage(result.conflicts.length > 0 ? `Reset: ${result.conflicts.join(', ')}` : null); setRecording(false) }
     }
@@ -59,7 +60,6 @@ export function HotkeyRecorder({ action, value, customized }: HotkeyRecorderProp
     if (timerRef.current !== null) window.clearTimeout(timerRef.current)
     timerRef.current = null
     firstKeyRef.current = null
-    setPendingChord(false)
     return undefined
   }, [recording])
 

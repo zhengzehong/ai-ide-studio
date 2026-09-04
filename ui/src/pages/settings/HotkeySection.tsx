@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { RotateCcw, Search, Keyboard } from 'lucide-react'
-import { HOTKEY_ACTIONS } from '../../lib/hotkey-actions'
+import { filterHotkeyActions } from '../../lib/hotkey-component-helpers'
 import { useHotkeyStore } from '../../stores/hotkey.store'
 import { HotkeyRecorder } from '../../components/hotkey/HotkeyRecorder'
 
@@ -9,10 +9,7 @@ export function HotkeySection(): ReactNode {
   const lastConflict = useHotkeyStore((state) => state.lastConflict)
   const resetAll = useHotkeyStore((state) => state.resetAll)
   const [query, setQuery] = useState('')
-  const filtered = useMemo(() => {
-    const normalized = query.trim().toLowerCase()
-    return HOTKEY_ACTIONS.filter((action) => !normalized || `${action.id} ${action.label} ${action.keywords ?? ''}`.toLowerCase().includes(normalized))
-  }, [query])
+  const filtered = useMemo(() => filterHotkeyActions(query), [query])
   return (
     <section id="hotkeys" style={{ marginBottom: 32 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
@@ -27,7 +24,7 @@ export function HotkeySection(): ReactNode {
         <Search size={14} style={{ position: 'absolute', left: 10, top: 10, color: 'var(--text-3)' }} />
         <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索动作" style={{ ...inputStyle, paddingLeft: 30 }} />
       </div>
-      {lastConflict.length > 0 && <div role="status" style={{ color: 'var(--yellow)', fontSize: 12, marginBottom: 8 }}>Conflicting shortcuts reset: {lastConflict.join(', ')}</div>}
+      {lastConflict.length > 0 && <div role="status" style={{ color: 'var(--yellow)', fontSize: 12, marginBottom: 8 }}>以下冲突快捷键已恢复默认：{lastConflict.join('、')}</div>}
       <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', background: 'var(--bg-1)' }}>
         {(['page', 'workspace', 'session', 'project', 'general'] as const).map((category) => {
           const actions = filtered.filter((action) => action.category === category)

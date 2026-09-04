@@ -1,5 +1,9 @@
 # AI IDE Studio
 
+## 快捷键
+
+桌面端支持在“设置 → 快捷键”中查看并修改页面跳转、项目、会话和工作空间快捷键。修改保存在浏览器本地；按 `Ctrl/Cmd+/` 可直达快捷键设置，页面跳转默认使用 `G` 加字母的双键序列。
+
 The PC `/updates` workbench uses a reusable store-agnostic conversation pane; the existing Workspace page remains on its current implementation.
 
 PC 全局“会话动态工作台”通过 `/updates` 聚合跨项目运行中/未读会话与置顶会话，中间区域独立加载和继续当前会话，右侧常驻展示最后回复、Markdown、HTML 原型与多文件产物；该页面不改变 Workspace 的项目和会话选择状态。
