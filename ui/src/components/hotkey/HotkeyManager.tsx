@@ -99,6 +99,7 @@ export function HotkeyManager(): null {
       if (!key) return
       if (chordPending.current) {
         const chord = `g ${key}`
+        if (key === 'g') { clearChord(); return }
         const action = HOTKEY_ACTIONS.find((item) => resolveHotkey(item.id, overrides) === chord)
         clearChord()
         if (!action || !scopeAllows(action.id, event)) return
@@ -119,7 +120,14 @@ export function HotkeyManager(): null {
       if (!runNavigationAction(action.id)) dispatchHotkeyAction(action.id)
     }
     window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
+    const onFocusIn = (event: FocusEvent): void => {
+      if (isTextTarget(event.target)) clearChord()
+    }
+    window.addEventListener('focusin', onFocusIn)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('focusin', onFocusIn)
+    }
   }, [clearChord, location.pathname, overrides, runNavigationAction])
 
   useEffect(() => () => clearChord(), [clearChord])
