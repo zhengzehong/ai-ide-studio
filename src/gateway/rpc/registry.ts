@@ -26,6 +26,7 @@ import { previewRpcHandlers } from './previews.js'
 import { secretaryRpcHandlers } from './secretary.js'
 import { inspirationRpcHandlers } from './inspiration.js'
 import { advisorRpcHandlers } from './advisor.js'
+import { spreadsheetRpcHandlers } from './spreadsheets.js'
 import { readingRpcHandlers } from './readings.js'
 import type { RpcContext, RpcHandlerMap } from './types.js'
 import { trackAsyncOperation, trackSyncInvocation } from '../../shared/operation-diagnostics.js'
@@ -58,6 +59,7 @@ const rpcHandlers: RpcHandlerMap = {
   ...secretaryRpcHandlers,
   ...inspirationRpcHandlers,
   ...advisorRpcHandlers,
+  ...spreadsheetRpcHandlers,
   ...readingRpcHandlers,
 }
 
