@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { ArrowLeft, MoreHorizontal, X } from 'lucide-react'
 import { useProjectNavigation } from '../../hooks/use-project-navigation'
 import { useProjectStore, type ProjectData } from '../../stores/project.store'
@@ -31,24 +31,6 @@ export function ProjectTabBar() {
   const previousProject = previousProjectId
     ? projects.find((project) => project.id === previousProjectId)
     : undefined
-
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent): void => {
-      const meta = event.metaKey || event.ctrlKey
-      if (meta && event.key >= '1' && event.key <= '5') {
-        const project = visibleTabs[Number(event.key) - 1]
-        if (project) {
-          event.preventDefault()
-          switchProject(project.id)
-        }
-      } else if (event.altKey && event.key === 'ArrowLeft' && previousProject) {
-        event.preventDefault()
-        switchProject(previousProject.id)
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [previousProject, switchProject, visibleTabs])
 
   if (visibleTabs.length === 0 && !previousProject) return null
 

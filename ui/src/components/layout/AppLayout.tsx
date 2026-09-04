@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import {
   Activity,
@@ -35,6 +35,8 @@ import { totalSecretaryAttention } from '../../stores/secretary-attention'
 import { useReadingStore } from '../../stores/reading.store'
 import { RouteBoundary } from '../routing/RouteBoundary'
 import './AppLayout.css'
+import { HotkeyManager } from '../hotkey/HotkeyManager'
+import { HotkeyPalette } from '../hotkey/HotkeyPalette'
 
 const globalNav = [
   { to: '/updates', icon: Activity, label: '会话动态工作台' },
@@ -91,6 +93,7 @@ export function AppLayout() {
     : 0
   const readingUnreadCount = useReadingStore((state) => state.unreadCount)
   const refreshReadingUnreadCount = useReadingStore((state) => state.refreshUnreadCount)
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
 
   useEffect(() => {
     if (currentProjectId) void loadSecretaries(currentProjectId)
@@ -102,6 +105,11 @@ export function AppLayout() {
     window.addEventListener('focus', refresh)
     return () => window.removeEventListener('focus', refresh)
   }, [refreshReadingUnreadCount])
+  useEffect(() => {
+    const openCommandPalette = (): void => setCommandPaletteOpen(true)
+    window.addEventListener('ai-ide-command-palette', openCommandPalette)
+    return () => window.removeEventListener('ai-ide-command-palette', openCommandPalette)
+  }, [])
 
   const handleProjectNavClick = (event: React.MouseEvent): void => {
     if (currentProjectId) return
@@ -111,6 +119,8 @@ export function AppLayout() {
 
   return (
     <div className="app-layout">
+      <HotkeyManager />
+      <HotkeyPalette open={commandPaletteOpen} onClose={() => setCommandPaletteOpen(false)} />
       <aside className="sidebar">
         <div className="sidebar-logo"><Zap size={22} /></div>
         <nav className="sidebar-nav">

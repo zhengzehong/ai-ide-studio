@@ -1,0 +1,45 @@
+import { useMemo, useState, type ReactNode } from 'react'
+import { RotateCcw, Search, Keyboard } from 'lucide-react'
+import { filterHotkeyActions } from '../../lib/hotkey-component-helpers'
+import { useHotkeyStore } from '../../stores/hotkey.store'
+import { HotkeyRecorder } from '../../components/hotkey/HotkeyRecorder'
+
+export function HotkeySection(): ReactNode {
+  const overrides = useHotkeyStore((state) => state.overrides)
+  const lastConflict = useHotkeyStore((state) => state.lastConflict)
+  const resetAll = useHotkeyStore((state) => state.resetAll)
+  const [query, setQuery] = useState('')
+  const filtered = useMemo(() => filterHotkeyActions(query), [query])
+  return (
+    <section id="hotkeys" style={{ marginBottom: 32 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
+        <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Keyboard size={18} style={{ color: 'var(--blue)' }} /> 快捷键
+        </h2>
+        <button type="button" onClick={resetAll} style={buttonStyle} title="恢复全部默认">
+          <RotateCcw size={14} /> 恢复全部默认
+        </button>
+      </div>
+      <div style={{ position: 'relative', marginBottom: 10 }}>
+        <Search size={14} style={{ position: 'absolute', left: 10, top: 10, color: 'var(--text-3)' }} />
+        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索动作" style={{ ...inputStyle, paddingLeft: 30 }} />
+      </div>
+      {lastConflict.length > 0 && <div role="status" style={{ color: 'var(--yellow)', fontSize: 12, marginBottom: 8 }}>以下冲突快捷键已恢复默认：{lastConflict.join('、')}</div>}
+      <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', background: 'var(--bg-1)' }}>
+        {(['page', 'workspace', 'session', 'project', 'general'] as const).map((category) => {
+          const actions = filtered.filter((action) => action.category === category)
+          if (actions.length === 0) return null
+          return <div key={category}>
+            <div style={{ padding: '7px 12px', background: 'var(--bg-2)', color: 'var(--text-3)', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{categoryLabels[category]}</div>
+            {actions.map((action) => <HotkeyRecorder key={action.id} action={action} value={Object.prototype.hasOwnProperty.call(overrides, action.id) ? overrides[action.id] : action.defaultKeys} customized={Object.prototype.hasOwnProperty.call(overrides, action.id)} />)}
+          </div>
+        })}
+        {filtered.length === 0 && <div style={{ padding: 18, color: 'var(--text-3)', fontSize: 13 }}>没有匹配的动作</div>}
+      </div>
+    </section>
+  )
+}
+
+const buttonStyle: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--bg-0)', color: 'var(--text-2)', padding: '6px 9px', cursor: 'pointer', fontSize: 12 }
+const inputStyle: React.CSSProperties = { width: '100%', boxSizing: 'border-box', height: 34, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--bg-0)', color: 'var(--text-1)', padding: '0 10px', outline: 'none' }
+const categoryLabels: Record<string, string> = { page: '页面跳转', workspace: '工作空间', session: '会话', project: '项目', general: '通用' }

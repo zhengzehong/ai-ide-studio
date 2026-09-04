@@ -11,6 +11,7 @@ import { DesktopConnectionSection } from './settings/DesktopConnectionSection'
 import { ModelProfileForm } from './settings/ModelProfileForm'
 import { parseProfileConfig } from './settings/model-profile-options'
 import { GlobalModelProfileSection } from './settings/GlobalModelProfileSection'
+import { HotkeySection } from './settings/HotkeySection'
 
 export default function Settings() {
   const navigate = useNavigate()
@@ -42,6 +43,8 @@ export default function Settings() {
       <DesktopConnectionSection />
 
       <GlobalModelProfileSection />
+
+      <HotkeySection />
 
       {/* Section: My Shares */}
       <div style={{ marginBottom: 32 }}>
