@@ -11,6 +11,10 @@ describe('hotkey registry', () => {
     expect(normalizeBinding('Ctrl+Shift+]')).toBe('mod+shift+]')
     expect(isValidBinding('g i')).toBe(true)
     expect(isValidBinding('g i d')).toBe(false)
+    expect(isValidBinding('mod')).toBe(false)
+    expect(isValidBinding('mod+w')).toBe(false)
+    expect(isValidBinding('Cmd+W')).toBe(false)
+    expect(isValidBinding('g')).toBe(false)
   })
 
   test('resolves overrides before defaults and detects same-scope conflicts', () => {

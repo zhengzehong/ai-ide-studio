@@ -263,15 +263,10 @@ export default function Workspace() {
         setSidebarTab(sidebarTab === 'sessions' ? 'files' : 'sessions')
       } else if (actionId === 'ws.toggle-sidebar') {
         setSidebarCollapsed((value) => !value)
-      } else if (actionId === 'session.next-unread') {
-        const unread = sessions.filter((session) => !!unreadSessionIds[session.id])
-        if (unread.length === 0) return
-        const currentUnreadIndex = unread.findIndex((session) => session.id === currentSessionId)
-        selectSession(unread[(currentUnreadIndex + 1 + unread.length) % unread.length].id)
       }
     })
     return stop
-  }, [currentSessionId, sessions, selectSession, setSidebarTab, sidebarTab, unreadSessionIds])
+  }, [setSidebarTab, sidebarTab])
 
   const [showNewTask, setShowNewTask] = useState(false)
   const [copyingSessionId, setCopyingSessionId] = useState<string | null>(null)

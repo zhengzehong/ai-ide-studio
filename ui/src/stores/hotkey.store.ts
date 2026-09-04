@@ -27,7 +27,7 @@ function readOverrides(): HotkeyOverrides {
 }
 
 function persist(overrides: HotkeyOverrides): void {
-  try { globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(overrides)) } catch { /* storage is optional */ }
+  try { globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify({ version: 1, overrides })) } catch { /* storage is optional */ }
 }
 
 export interface HotkeyStore {

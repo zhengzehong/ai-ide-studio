@@ -17,7 +17,7 @@ describe('hotkey store', () => {
   test('persists overrides and supports null as disabled', () => {
     expect(useHotkeyStore.getState().setOverride('session.next', 'alt+n').ok).toBe(true)
     expect(useHotkeyStore.getState().setOverride('session.prev', null).ok).toBe(true)
-    expect(JSON.parse(localStorage.getItem(HOTKEY_STORAGE_KEY) ?? '{}')).toEqual({ 'session.next': 'alt+n', 'session.prev': null })
+    expect(JSON.parse(localStorage.getItem(HOTKEY_STORAGE_KEY) ?? '{}')).toEqual({ version: 1, overrides: { 'session.next': 'alt+n', 'session.prev': null } })
   })
 
   test('rejects malformed binding and resets all overrides', () => {

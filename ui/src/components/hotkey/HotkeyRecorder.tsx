@@ -19,6 +19,7 @@ export function HotkeyRecorder({ action, value, customized }: HotkeyRecorderProp
     if (!recording) return undefined
     const onKeyDown = (event: KeyboardEvent): void => {
       event.preventDefault()
+      event.stopPropagation()
       if (event.key === 'Escape') {
         if (timerRef.current !== null) window.clearTimeout(timerRef.current)
         firstKeyRef.current = null
@@ -53,6 +54,15 @@ export function HotkeyRecorder({ action, value, customized }: HotkeyRecorderProp
     return () => window.removeEventListener('keydown', onKeyDown, true)
   }, [action.id, pendingChord, recording, setOverride])
 
+  useEffect(() => {
+    if (recording) return undefined
+    if (timerRef.current !== null) window.clearTimeout(timerRef.current)
+    timerRef.current = null
+    firstKeyRef.current = null
+    setPendingChord(false)
+    return undefined
+  }, [recording])
+
   useEffect(() => () => {
     if (timerRef.current !== null) window.clearTimeout(timerRef.current)
   }, [])
@@ -61,9 +71,9 @@ export function HotkeyRecorder({ action, value, customized }: HotkeyRecorderProp
     <div style={{ display: 'flex', alignItems: 'center', gap: 12, minHeight: 48, padding: '6px 12px', borderBottom: '1px solid var(--border)' }}>
       <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 13, color: 'var(--text-1)' }}>{action.label}</div><div style={{ color: 'var(--text-3)', fontSize: 11 }}>{action.id}</div></div>
       {message && <span role="status" style={{ color: 'var(--yellow)', fontSize: 11 }}>{message}</span>}
-      <button type="button" onClick={() => { setMessage(null); setPendingChord(false); firstKeyRef.current = null; setRecording(true) }} style={keyStyle(recording)}>{recording ? (pendingChord ? 'Press next key…' : 'Press a key…') : formatBinding(value)}</button>
-      {customized && <button type="button" onClick={() => { reset(action.id); setMessage(null) }} style={iconButton} title="Reset shortcut"><RotateCcw size={13} /></button>}
-      {customized && <Check size={14} color="var(--green)" aria-label="Customized" />}
+      <button type="button" onClick={() => { setMessage(null); setPendingChord(false); firstKeyRef.current = null; setRecording(true) }} style={keyStyle(recording)}>{recording ? (pendingChord ? '按下第二个键…' : '按下新快捷键…') : formatBinding(value)}</button>
+      {customized && <button type="button" onClick={() => { reset(action.id); setMessage(null) }} style={iconButton} title="恢复默认"><RotateCcw size={13} /></button>}
+      {customized && <Check size={14} color="var(--green)" aria-label="已自定义" />}
     </div>
   )
 }

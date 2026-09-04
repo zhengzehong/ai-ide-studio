@@ -21,25 +21,25 @@ const tuples = (
 ): HotkeyAction[] => values.map(([id, label, defaultKeys]) => ({ id, label, defaultKeys, category, scope, keywords: `${id} ${label}` }))
 
 const pageActions = tuples('page', 'global', [
-  ['page.dashboard', 'Dashboard', 'g d'], ['page.workspace', 'Workspace', 'g w'],
-  ['page.tasks', 'Tasks', 'g t'], ['page.inspiration', 'Inspiration', 'g i'],
-  ['page.knowledge', 'Knowledge', 'g k'], ['page.schedule', 'Schedule', 'g h'],
-  ['page.events', 'Events', 'g e'], ['page.spreadsheets', 'Spreadsheets', 'g s'],
-  ['page.reading', 'Reading', 'g r'], ['page.updates', 'Updates', 'g u'],
-  ['page.agents', 'Agents', 'g a'], ['page.pinned', 'Pinned sessions', 'g p'],
+  ['page.dashboard', '打开概览', 'g d'], ['page.workspace', '打开工作空间', 'g w'],
+  ['page.tasks', '打开任务看板', 'g t'], ['page.inspiration', '打开灵感', 'g i'],
+  ['page.knowledge', '打开知识库', 'g k'], ['page.schedule', '打开排班', 'g h'],
+  ['page.events', '打开事件中心', 'g e'], ['page.spreadsheets', '打开表格', 'g s'],
+  ['page.reading', '打开阅读列表', 'g r'], ['page.updates', '打开会话动态', 'g u'],
+  ['page.agents', '打开 Agent 广场', 'g a'], ['page.pinned', '打开置顶会话', 'g p'],
 ])
 
 const workspaceActions = tuples('workspace', 'workspace', [
-  ['ws.focus-input', 'Focus input', 'tab'], ['ws.new-session', 'New session', 'c'],
-  ['ws.focus-session-list', 'Focus session list', 'shift+tab'], ['ws.sidebar-tab-next', 'Next sidebar tab', 'alt+1'],
-  ['ws.toggle-sidebar', 'Toggle sidebar', 'mod+b'],
+  ['ws.focus-input', '定位到输入框', 'tab'], ['ws.new-session', '新建会话', 'c'],
+  ['ws.focus-session-list', '定位到会话列表', 'shift+tab'], ['ws.sidebar-tab-next', '切换侧边栏标签', 'alt+1'],
+  ['ws.toggle-sidebar', '折叠或展开侧边栏', 'mod+b'],
 ])
 
 const sessionActions = tuples('session', 'list', [
-  ['session.next', 'Next session', 'j'], ['session.prev', 'Previous session', 'k'],
-  ['session.next-unread', 'Next unread session', 'alt+j'], ['session.open', 'Open selected session', 'enter'],
-  ['session.pin', 'Toggle session pin', 'p'], ['session.mark-unread', 'Mark session unread', 'u'],
-  ['session.close', 'Close session', 'x'],
+  ['session.next', '选择下一个会话', 'j'], ['session.prev', '选择上一个会话', 'k'],
+  ['session.next-unread', '跳转到下一个未读会话', 'alt+j'], ['session.open', '打开选中的会话', 'enter'],
+  ['session.pin', '置顶或取消置顶当前会话', 'p'], ['session.mark-unread', '标记当前会话未读', 'u'],
+  ['session.close', '关闭当前会话', 'x'],
 ]).map((action) => ['session.pin', 'session.mark-unread', 'session.close'].includes(action.id)
   ? { ...action, scope: 'workspace' as HotkeyScope }
   : action.id === 'session.next-unread'
@@ -47,15 +47,15 @@ const sessionActions = tuples('session', 'list', [
     : action)
 
 const projectActions = tuples('project', 'global', [
-  ['project.tab-1', 'Project tab 1', 'mod+1'], ['project.tab-2', 'Project tab 2', 'mod+2'],
-  ['project.tab-3', 'Project tab 3', 'mod+3'], ['project.tab-4', 'Project tab 4', 'mod+4'],
-  ['project.tab-5', 'Project tab 5', 'mod+5'], ['project.recent', 'Previous project', 'alt+arrowleft'],
-  ['project.next', 'Next project', 'mod+shift+]'], ['project.prev', 'Previous project', 'mod+shift+['],
+  ['project.tab-1', '切换到第一个项目', 'mod+1'], ['project.tab-2', '切换到第二个项目', 'mod+2'],
+  ['project.tab-3', '切换到第三个项目', 'mod+3'], ['project.tab-4', '切换到第四个项目', 'mod+4'],
+  ['project.tab-5', '切换到第五个项目', 'mod+5'], ['project.recent', '返回上一个项目', 'alt+arrowleft'],
+  ['project.next', '切换到下一个项目', 'mod+shift+]'], ['project.prev', '切换到上一个项目', 'mod+shift+['],
 ])
 
 const generalActions: HotkeyAction[] = [
-  { id: 'app.palette', label: 'Command palette', category: 'general', scope: 'global', defaultKeys: 'mod+k', keywords: 'command palette search' },
-  { id: 'app.hotkey-settings', label: 'Shortcut settings', category: 'general', scope: 'global', defaultKeys: 'mod+/', keywords: 'hotkey shortcut settings' },
+  { id: 'app.palette', label: '打开命令面板', category: 'general', scope: 'global', defaultKeys: 'mod+k', keywords: 'command palette search 命令搜索' },
+  { id: 'app.hotkey-settings', label: '打开快捷键设置', category: 'general', scope: 'global', defaultKeys: 'mod+/', keywords: 'hotkey shortcut settings 快捷键' },
 ]
 
 export const HOTKEY_ACTIONS: HotkeyAction[] = [...pageActions, ...workspaceActions, ...sessionActions, ...projectActions, ...generalActions]

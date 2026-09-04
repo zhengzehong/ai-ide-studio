@@ -7,6 +7,7 @@ import { useHotkeyStore } from '../../stores/hotkey.store'
 import { useProjectNavigation } from '../../hooks/use-project-navigation'
 import { useProjectStore } from '../../stores/project.store'
 import { usePinnedProjects } from '../../utils/project-meta'
+import { useSessionStore } from '../../stores/session.store'
 
 function isTextTarget(target: EventTarget | null): boolean {
   const element = target instanceof HTMLElement ? target : null
@@ -48,8 +49,12 @@ export function HotkeyManager(): null {
   const projects = useProjectStore((state) => state.projects)
   const currentProjectId = useProjectStore((state) => state.currentProjectId)
   const previousProjectId = useProjectStore((state) => state.previousProjectId)
+  const sessions = useSessionStore((state) => state.sessions)
+  const unreadSessionIds = useSessionStore((state) => state.unreadSessionIds)
+  const selectSession = useSessionStore((state) => state.selectSession)
   const { pinnedIds } = usePinnedProjects()
   const overrides = useHotkeyStore((state) => state.overrides)
+  const validPinnedIds = pinnedIds.filter((id) => projects.some((project) => project.id === id))
   const chordTimer = useRef<ReturnType<typeof window.setTimeout> | null>(null)
   const chordPending = useRef(false)
 
@@ -76,7 +81,7 @@ export function HotkeyManager(): null {
     if (actionId in projectPath && projectId) { navigate(`/p/${projectId}${projectPath[actionId]}`); return true }
     if (actionId.startsWith('project.tab-')) {
       const index = Number(actionId.slice(-1)) - 1
-      const targetId = pinnedIds[index]
+      const targetId = validPinnedIds[index]
       if (targetId) switchProject(targetId)
       return !!targetId
     }
@@ -88,13 +93,25 @@ export function HotkeyManager(): null {
       switchProject(projects[(index + offset + projects.length) % projects.length].id)
       return true
     }
+    if (actionId === 'session.next-unread') {
+      const unread = sessions.filter((session) => !!unreadSessionIds[session.id])
+      if (unread.length === 0) return true
+      const currentIndex = unread.findIndex((session) => session.id === useSessionStore.getState().currentSessionId)
+      const target = unread[(currentIndex + 1 + unread.length) % unread.length]
+      if (target.project_id && target.project_id !== currentProjectId) {
+        navigate(`/p/${target.project_id}/workspace?sessionId=${encodeURIComponent(target.id)}`)
+      } else {
+        selectSession(target.id)
+      }
+      return true
+    }
     if (actionId === 'app.hotkey-settings') { navigate('/settings#hotkeys'); return true }
     if (actionId === 'app.palette') {
       window.dispatchEvent(new CustomEvent('ai-ide-command-palette'))
       return true
     }
     return false
-  }, [currentProjectId, navigate, pinnedIds, previousProjectId, projects, switchProject])
+  }, [currentProjectId, navigate, previousProjectId, projects, selectSession, sessions, switchProject, unreadSessionIds, validPinnedIds])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {

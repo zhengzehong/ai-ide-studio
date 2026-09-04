@@ -148,9 +148,14 @@ export function SessionBar(props: SessionBarProps) {
         onNewSession(agent.id)
         return
       }
-      if (actionId === 'ws.focus-session-list' || actionId === 'session.open') {
+      if (actionId === 'ws.focus-session-list') {
         const target = document.querySelector<HTMLButtonElement>(`[data-hotkey-session-list] [data-session-id="${currentSessionId ?? filteredSessions[0]?.id ?? ''}"]`)
         target?.focus()
+        return
+      }
+      if (actionId === 'session.open') {
+        const targetId = currentSessionId ?? filteredSessions[0]?.id
+        if (targetId) onSelectSession(agent.id, targetId)
         return
       }
       if (actionId === 'session.next' || actionId === 'session.prev') {
