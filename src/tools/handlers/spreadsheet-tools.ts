@@ -13,7 +13,6 @@ import {
 } from '../../store/spreadsheets.js'
 import type { ToolContext, ToolHandler, ToolHandlerInput, ToolHandlerResult } from '../types.js'
 
-const MAX_ROWS_PER_CALL = 200
 const DEFAULT_QUERY_LIMIT = 50
 const MAX_QUERY_LIMIT = 200
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
@@ -203,7 +202,7 @@ export const spreadsheetQueryRowsHandler: ToolHandler = {
 
       const filter = asRecord(input.filter)
       if (filter) {
-        for (const [key, filterValue] of Object.entries(filter)) {
+        for (const [key] of Object.entries(filter)) {
           if (!fieldKeys.includes(key)) {
             throw new Error(`过滤字段不存在：${key}，可用字段：${fieldKeys.join('、') || '（无）'}`)
           }
@@ -425,7 +424,7 @@ export const spreadsheetManageSchemaHandler: ToolHandler = {
         case 'renameField': {
           const fieldKey = requiredText(input.fieldKey, 'fieldKey', 100)
           const newName = requiredText(input.name, 'name', 100)
-          const field = findField(schema, fieldKey)
+          findField(schema, fieldKey)
           const nextSchema: SpreadsheetSchema = {
             fields: schema.fields.map((item) => (item.key === fieldKey ? { ...item, name: newName } : item)),
           }

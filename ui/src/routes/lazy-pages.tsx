@@ -29,6 +29,9 @@ export const PinnedSessions = lazyWithRecovery(() => import('../pages/PinnedSess
 export const UpdatesPage = lazyWithRecovery(() => import('../pages/UpdatesPage').then((module) => ({
   default: module.UpdatesPage,
 })))
+export const SpreadsheetsPage = lazyWithRecovery(() => import('../pages/spreadsheets/SpreadsheetsPage').then((module) => ({
+  default: module.SpreadsheetsPage,
+})))
 export const ReadingPage = lazyWithRecovery(() => import('../pages/reading/ReadingPage').then((module) => ({
   default: module.ReadingPage,
 })))
