@@ -168,9 +168,12 @@ function summarySelect(dockJoin: string): string {
         WHERE m.session_id = s.id AND m.role = 'agent' AND m.status != 'running'
       ) AS latest_agent_message_at,
       (
-        SELECT MAX(e.created_at)
+        -- session sequence is the canonical append order and has a per-session index
+        SELECT e.created_at
         FROM session_events e
         WHERE e.session_id = s.id AND e.type = 'message.done'
+        ORDER BY e.sequence DESC
+        LIMIT 1
       ) AS latest_done_event_at,
       EXISTS (
         SELECT 1 FROM messages running_message

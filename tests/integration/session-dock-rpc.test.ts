@@ -8,7 +8,7 @@ import type { RpcAuthMode, RpcContext } from '../../src/gateway/rpc/types.js'
 import { agentStore } from '../../src/store/agents.js'
 import { closeDatabase, getDb, initDatabase } from '../../src/store/db.js'
 import { projectStore } from '../../src/store/projects.js'
-import { messageStore, sessionStore } from '../../src/store/sessions.js'
+import { eventStore, messageStore, sessionStore } from '../../src/store/sessions.js'
 
 const tmp = mkdtempSync(resolve(tmpdir(), 'ai-ide-session-dock-'))
 
@@ -21,6 +21,36 @@ afterEach(() => closeDatabase())
 afterAll(() => rmSync(tmp, { recursive: true, force: true }))
 
 describe('global Session dock RPC', () => {
+  test('uses the latest session event sequence for completion state', async () => {
+    const { regular, agent } = createSessions()
+    const firstDone = eventStore.append(regular.id, {
+      type: 'message.done',
+      agentId: agent.id,
+      messageId: 'first-done',
+      role: 'agent',
+      payload: { messageId: 'first-done', stopReason: 'end_turn' },
+    })
+    const latestDone = eventStore.append(regular.id, {
+      type: 'message.done',
+      agentId: agent.id,
+      messageId: 'latest-done',
+      role: 'agent',
+      payload: { messageId: 'latest-done', stopReason: 'end_turn' },
+    })
+    getDb().prepare('UPDATE session_events SET created_at = ? WHERE id = ?')
+      .run('2026-08-03T00:00:00.000Z', firstDone.id)
+    getDb().prepare('UPDATE session_events SET created_at = ? WHERE id = ?')
+      .run('2026-08-01T00:00:00.000Z', latestDone.id)
+    getDb().prepare('UPDATE sessions SET last_read_at = ? WHERE id = ?')
+      .run('2026-08-02T00:00:00.000Z', regular.id)
+
+    await callRpc('sessionDock.add', { sessionId: regular.id })
+    const listed = await callRpc('sessionDock.list') as Array<Record<string, unknown>>
+
+    expect(listed).toHaveLength(1)
+    expect(listed[0]).toMatchObject({ unread: false })
+  })
+
   test('adds ordinary project Sessions and keeps add idempotent', async () => {
     const { regular } = createSessions()
     const updates: Array<{ action: string; sessionId?: string }> = []
