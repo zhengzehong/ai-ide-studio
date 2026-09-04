@@ -20,6 +20,7 @@ import {
   Share2,
   Sparkles,
   Store,
+  Table2,
   Wrench,
   Zap,
 } from 'lucide-react'
@@ -43,6 +44,7 @@ const globalNav = [
   { to: '/agents', icon: Store, label: 'Agent 广场' },
   { to: '/skills', icon: Sparkles, label: '技能中心' },
   { to: '/tools', icon: Wrench, label: '工具管理' },
+  { to: '/spreadsheets', icon: Table2, label: '表格' },
 ]
 
 const projectNav = [

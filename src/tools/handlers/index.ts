@@ -123,6 +123,12 @@ import { inspirationAnalysisPublishHandler } from './inspiration-analysis-publis
 import { suggestionPresentHandler } from './suggestion-present.js'
 import { inspirationNoteGetHandler } from './inspiration-note-get.js'
 import {
+  spreadsheetListTablesHandler,
+  spreadsheetManageSchemaHandler,
+  spreadsheetQueryRowsHandler,
+  spreadsheetWriteRowsHandler,
+} from './spreadsheet-tools.js'
+import {
   agentHubConnectHandler,
   agentHubDisconnectHandler,
   agentHubListHandler,
@@ -249,6 +255,10 @@ register(filesPresentHandler)
 register(inspirationAnalysisPublishHandler)
 register(inspirationNoteGetHandler)
 register(suggestionPresentHandler)
+register(spreadsheetListTablesHandler)
+register(spreadsheetQueryRowsHandler)
+register(spreadsheetWriteRowsHandler)
+register(spreadsheetManageSchemaHandler)
 register(agentHubConnectHandler)
 register(agentHubDisconnectHandler)
 register(agentHubListHandler)

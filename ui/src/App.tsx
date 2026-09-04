@@ -19,6 +19,7 @@ import {
   Settings,
   ShareManagePage,
   SkillCenter,
+  SpreadsheetsPage,
   TaskBoard,
   TaskModesSettings,
   TemplatesPage,
@@ -84,6 +85,7 @@ export default function App() {
           <Route path="/agents" element={<AgentSquare />} />
           <Route path="/skills" element={<SkillCenter />} />
           <Route path="/tools" element={<ToolManager />} />
+          <Route path="/spreadsheets" element={<SpreadsheetsPage />} />
           <Route path="/p/:projectId" element={<ProjectScopeLayout />}>
             <Route index element={<Navigate to="workspace" replace />} />
             <Route path="workspace" element={<Workspace />} />
