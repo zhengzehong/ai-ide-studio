@@ -35,6 +35,7 @@ import { totalSecretaryAttention } from '../../stores/secretary-attention'
 import { useReadingStore } from '../../stores/reading.store'
 import { RouteBoundary } from '../routing/RouteBoundary'
 import './AppLayout.css'
+import { HotkeyManager } from '../hotkey/HotkeyManager'
 
 const globalNav = [
   { to: '/updates', icon: Activity, label: '会话动态工作台' },
@@ -111,6 +112,7 @@ export function AppLayout() {
 
   return (
     <div className="app-layout">
+      <HotkeyManager />
       <aside className="sidebar">
         <div className="sidebar-logo"><Zap size={22} /></div>
         <nav className="sidebar-nav">
