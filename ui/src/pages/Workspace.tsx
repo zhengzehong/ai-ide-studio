@@ -165,6 +165,7 @@ import {
 } from './workspace/load-state'
 import { summarizeSessionIndicators } from '../utils/session-indicators'
 import { isSecretarySessionPurpose } from '../stores/secretary-session'
+import { subscribeHotkeyActions } from '../lib/hotkey-actions'
 
 const COPYING_STAGE = '正在复制会话...'
 
@@ -248,12 +249,30 @@ export default function Workspace() {
   const { sidebarTab, selectedAgentId, setSidebarTab, setSelectedAgentId } =
     useWorkspaceProjectState(currentProjectId)
   const [orderingMode, setOrderingMode] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [agentVisibilityOpen, setAgentVisibilityOpen] = useState(false)
   const [draggedOrderItem, setDraggedOrderItem] = useState<{ type: 'agent' | 'session'; id: string; agentId?: string } | null>(null)
 
   useEffect(() => {
     if (currentProjectId && sidebarTab === 'files' && !fileRootPath) fetchTree(currentProjectId)
   }, [currentProjectId, fileRootPath, sidebarTab, fetchTree])
+
+  useEffect(() => {
+    const stop = subscribeHotkeyActions((actionId) => {
+      if (actionId === 'ws.sidebar-tab-next') {
+        setSidebarTab(sidebarTab === 'sessions' ? 'files' : 'sessions')
+      } else if (actionId === 'ws.toggle-sidebar') {
+        setSidebarCollapsed((value) => !value)
+      } else if (actionId === 'session.next-unread') {
+        const unread = sessions.filter((session) => !!unreadSessionIds[session.id])
+        if (unread.length === 0) return
+        const currentUnreadIndex = unread.findIndex((session) => session.id === currentSessionId)
+        selectSession(unread[(currentUnreadIndex + 1 + unread.length) % unread.length].id)
+      }
+    })
+    return stop
+  }, [currentSessionId, sessions, selectSession, setSidebarTab, sidebarTab, unreadSessionIds])
+
   const [showNewTask, setShowNewTask] = useState(false)
   const [copyingSessionId, setCopyingSessionId] = useState<string | null>(null)
 
@@ -834,16 +853,17 @@ export default function Workspace() {
     void fetchCurrentTeam(currentSessionId)
   }, [currentSessionId, connected, fetchCurrentTeam, clearCurrentTeam])
   return (
-    <div style={{ display: 'flex', height: '100%', background: 'var(--bg-1)' }}>
+    <div data-hotkey-scope="workspace" style={{ display: 'flex', height: '100%', background: 'var(--bg-1)' }}>
       {/* ─── Left Sidebar ─── */}
-      <aside
-        style={{
-          width: 220,
-          flexShrink: 0,
-          display: 'flex',
+       <aside
+         style={{
+           width: sidebarCollapsed ? 0 : 220,
+           flexShrink: 0,
+           display: 'flex',
           flexDirection: 'column',
           background: 'var(--bg-0)',
-          position: 'relative',
+           position: 'relative',
+           overflow: 'hidden',
         }}
       >
         <div
@@ -1750,6 +1770,7 @@ function WorkspaceChatPane({
   const setMode = useSessionStore((s) => s.setMode)
   const setConfig = useSessionStore((s) => s.setConfig)
   const cancelTurn = useSessionStore((s) => s.cancelTurn)
+  const closeSession = useSessionStore((s) => s.closeSession)
   const stoppingSessionIds = useSessionStore((s) => s.stoppingSessionIds)
   const stopErrorsBySession = useSessionStore((s) => s.stopErrorsBySession)
   const interactionErrorsBySession = useSessionStore((s) => s.interactionErrorsBySession)
@@ -2355,6 +2376,27 @@ function WorkspaceChatPane({
     },
     [chatAgent, fetchMessageFileChanges, fetchMessageProcess, fetchProcessItemDetail, fileChangeDetailsByMessageId, interactionPanel, liveElapsedSeconds, onOpenResource, openFiles, openPreview, processItemErrorByKey, processItemLoadingByKey, toolCallErrorByKey, toolCallLoadingByKey, turnProcessErrorByMessageId, turnProcessLoadingByMessageId],
   )
+
+  useEffect(() => {
+    const stop = subscribeHotkeyActions((actionId) => {
+      if (actionId === 'ws.focus-input') {
+        if (document.activeElement === textareaRef.current) {
+          document.querySelector<HTMLButtonElement>('[data-hotkey-session-list] button[data-session-id]')?.focus()
+        } else {
+          textareaRef.current?.focus()
+        }
+        return
+      }
+      if (actionId === 'ws.focus-session-list') {
+        document.querySelector<HTMLButtonElement>('[data-hotkey-session-list] button[data-session-id]')?.focus()
+        return
+      }
+      if (actionId === 'session.pin') { void toggleCurrentSessionPin(); return }
+      if (actionId === 'session.mark-unread') { void markCurrentSessionUnread(); return }
+      if (actionId === 'session.close' && currentSessionId) { void closeSession(currentSessionId) }
+    })
+    return stop
+  }, [closeSession, currentSessionId, markCurrentSessionUnread, toggleCurrentSessionPin])
 
   return (
     <>

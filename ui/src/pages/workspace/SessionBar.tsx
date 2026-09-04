@@ -18,6 +18,7 @@ import {
   effectiveSessionTagFilter,
 } from './session-tags'
 import { SessionTagEditor } from './SessionTagEditor'
+import { subscribeHotkeyActions } from '../../lib/hotkey-actions'
 
 const orderGripStyle: React.CSSProperties = {
   width: 16,
@@ -139,6 +140,32 @@ export function SessionBar(props: SessionBarProps) {
     }
   }, [archivedSessions.length, showArchived, setShowArchived])
 
+  useEffect(() => {
+    if (!agent) return undefined
+    const stop = subscribeHotkeyActions((actionId) => {
+      const currentIndex = filteredSessions.findIndex((session) => session.id === currentSessionId)
+      if (actionId === 'ws.new-session') {
+        onNewSession(agent.id)
+        return
+      }
+      if (actionId === 'ws.focus-session-list' || actionId === 'session.open') {
+        const target = document.querySelector<HTMLButtonElement>(`[data-hotkey-session-list] [data-session-id="${currentSessionId ?? filteredSessions[0]?.id ?? ''}"]`)
+        target?.focus()
+        return
+      }
+      if (actionId === 'session.next' || actionId === 'session.prev') {
+        if (filteredSessions.length === 0) return
+        const offset = actionId === 'session.next' ? 1 : -1
+        const nextIndex = currentIndex < 0
+          ? (offset > 0 ? 0 : filteredSessions.length - 1)
+          : (currentIndex + offset + filteredSessions.length) % filteredSessions.length
+        onSelectSession(agent.id, filteredSessions[nextIndex].id)
+        return
+      }
+    })
+    return stop
+  }, [agent, currentSessionId, filteredSessions, onNewSession, onSelectSession])
+
   const sessionBelongsToBatchView = (session: SessionData): {
     id: string
     isPrimary: boolean
@@ -227,6 +254,8 @@ export function SessionBar(props: SessionBarProps) {
 
   return (
     <aside
+      data-hotkey-session-list
+      data-hotkey-scope="list"
       style={{
         width: 200,
         flexShrink: 0,
@@ -551,6 +580,7 @@ export function SessionBar(props: SessionBarProps) {
                     )}
                     <button
                       type="button"
+                      data-session-id={s.id}
                       onClick={() => {
                         if (batchMode) {
                           handleToggleSession(s)
