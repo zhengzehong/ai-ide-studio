@@ -11,7 +11,7 @@ export function HotkeySection(): ReactNode {
   const [query, setQuery] = useState('')
   const filtered = useMemo(() => {
     const normalized = query.trim().toLowerCase()
-    return HOTKEY_ACTIONS.filter((action) => !normalized || `${action.id} ${action.label}`.toLowerCase().includes(normalized))
+    return HOTKEY_ACTIONS.filter((action) => !normalized || `${action.id} ${action.label} ${action.keywords ?? ''}`.toLowerCase().includes(normalized))
   }, [query])
   return (
     <section id="hotkeys" style={{ marginBottom: 32 }}>

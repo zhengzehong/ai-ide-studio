@@ -18,7 +18,7 @@ const tuples = (
   category: HotkeyCategory,
   scope: HotkeyScope,
   values: Array<[string, string, string]>,
-): HotkeyAction[] => values.map(([id, label, defaultKeys]) => ({ id, label, defaultKeys, category, scope }))
+): HotkeyAction[] => values.map(([id, label, defaultKeys]) => ({ id, label, defaultKeys, category, scope, keywords: `${id} ${label}` }))
 
 const pageActions = tuples('page', 'global', [
   ['page.dashboard', 'Dashboard', 'g d'], ['page.workspace', 'Workspace', 'g w'],
@@ -52,8 +52,8 @@ const projectActions = tuples('project', 'global', [
 ])
 
 const generalActions: HotkeyAction[] = [
-  { id: 'app.palette', label: 'Command palette', category: 'general', scope: 'global', defaultKeys: 'mod+k' },
-  { id: 'app.hotkey-settings', label: 'Shortcut settings', category: 'general', scope: 'global', defaultKeys: 'mod+/' },
+  { id: 'app.palette', label: 'Command palette', category: 'general', scope: 'global', defaultKeys: 'mod+k', keywords: 'command palette search' },
+  { id: 'app.hotkey-settings', label: 'Shortcut settings', category: 'general', scope: 'global', defaultKeys: 'mod+/', keywords: 'hotkey shortcut settings' },
 ]
 
 export const HOTKEY_ACTIONS: HotkeyAction[] = [...pageActions, ...workspaceActions, ...sessionActions, ...projectActions, ...generalActions]
