@@ -689,6 +689,29 @@ export const acpHost = {
         throw error
       }
     }
+    // codex-acp 1.10.0 的 fork 在适配层内部对新线程 threadUnsubscribe(实测:fork 后直接
+    // prompt 新 sessionId 会挂死),必须先重新订阅事件流再标记 connected。
+    // claude runtime 的 fork 实现自带订阅,重复 resume 对其无副作用,统一走一遍保持一致。
+    const forkedSessionId = result.sessionId
+    const resubscribe = {
+      sessionId: forkedSessionId,
+      cwd,
+      mcpServers: resolveMcpServersForAcp(conn, targetSessionId, context),
+      _meta: conn.sessionMeta,
+    }
+    try {
+      await conn.connection.resumeSession(resubscribe)
+    } catch (resumeError) {
+      if (!conn.agentCapabilities?.loadSession) {
+        log.warn({ err: resumeError, agentId, targetSessionId, forkedSessionId }, 'Fork 后重新订阅失败且无 loadSession 兜底')
+      } else {
+        try {
+          await conn.connection.loadSession(resubscribe)
+        } catch (loadError) {
+          log.warn({ err: loadError, resumeError, agentId, targetSessionId, forkedSessionId }, 'Fork 后重新订阅失败(resume+load 均失败)')
+        }
+      }
+    }
     markSessionConnected(conn, targetSessionId, result.sessionId, context)
     updateInitialCapabilities(conn, targetSessionId, result)
     await applySessionRuntimePreferences(conn, targetSessionId)
