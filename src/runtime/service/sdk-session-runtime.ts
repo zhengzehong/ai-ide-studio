@@ -1,6 +1,6 @@
 import type * as acp from '@agentclientprotocol/sdk'
 import { mapConfigOptions, mergeCapabilitiesFromConfig } from '../../acp/capabilities.js'
-import { configPreferencesWithDefaults } from '../../acp/runtime-config-defaults.js'
+import { configPreferencesWithDefaults, findEffortConfigId } from '../../acp/runtime-config-defaults.js'
 import { resolveDesiredRuntimeMode } from '../../acp/runtime-mode-preference.js'
 import { resolveRuntimeModelPreference } from '../../acp/runtime-model-preference.js'
 import type { RuntimeStateSnapshot } from '../../ports/runtime-port.js'
@@ -166,10 +166,11 @@ export async function applySdkSessionPreferences(input: {
       )
     }
   }
-  const profileConfig = input.snapshot.runtime.appliedModelProfile?.effort
-    ? { effort: input.snapshot.runtime.appliedModelProfile.effort }
+  const profileEffortId = findEffortConfigId(input.capabilities.configOptions)
+  const profileConfig = input.snapshot.runtime.appliedModelProfile?.effort && profileEffortId
+    ? { [profileEffortId]: input.snapshot.runtime.appliedModelProfile.effort }
     : undefined
-  const desiredConfig = { ...profileConfig, ...preferences.config }
+  const desiredConfig = normalizeEffortPreference({ ...profileConfig, ...preferences.config }, profileEffortId)
   const config = configPreferencesWithDefaults(
     input.capabilities.configOptions,
     Object.keys(desiredConfig).length > 0 ? desiredConfig : undefined,
@@ -179,6 +180,15 @@ export async function applySdkSessionPreferences(input: {
     if (!option || option.currentValue === value || !isConfigValueAvailable(option, value)) continue
     await input.setConfig(configId, value)
   }
+}
+
+function normalizeEffortPreference(
+  config: Record<string, string | boolean>,
+  effortId: string | undefined,
+): Record<string, string | boolean> {
+  if (!effortId || effortId === 'effort' || config[effortId] !== undefined || config.effort === undefined) return config
+  const { effort, ...rest } = config
+  return { ...rest, [effortId]: effort }
 }
 
 function isConfigValueAvailable(

@@ -75,6 +75,7 @@ export function displayConfigValue(value: string | undefined): string {
     medium: '中',
     high: '高',
     xhigh: '超高',
+    ultra: '极高',
     max: 'Max',
   }
   return labels[value] || value

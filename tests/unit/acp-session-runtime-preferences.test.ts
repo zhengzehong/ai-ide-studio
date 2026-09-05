@@ -128,6 +128,21 @@ describe('applySessionRuntimePreferences', () => {
     expect(conn.sessionCapabilities.get(session.id)?.currentModeId).toBe('default')
   })
 
+  test('maps a legacy saved effort to Codex reasoning_effort', async () => {
+    const agent = agentStore.create({ id: 'agent-codex', name: 'Codex', type: 'dev', runtime: 'codex' })
+    const session = sessionStore.create({ agentId: agent.id })
+    sessionStore.updateRuntimePreferences(session.id, { config: { effort: 'high' } })
+    const conn = makeConnection('codex', {
+      configOptions: [{ id: 'reasoning_effort', name: 'Reasoning effort', type: 'select', currentValue: 'medium', options: [{ value: 'high', name: 'High' }] }],
+    })
+    conn.acpSessions.set(session.id, 'acp-1')
+    conn.sessionCapabilities.set(session.id, conn.sessionCapabilities.get('sess-1')!)
+
+    await applySessionRuntimePreferences(conn, session.id)
+
+    expect(conn.connection.setSessionConfigOption).toHaveBeenCalledWith({ sessionId: 'acp-1', configId: 'reasoning_effort', value: 'high' })
+  })
+
   test('saved mode and model take precedence over runtime defaults', async () => {
     const agent = agentStore.create({ id: 'agent-codex', name: 'Codex', type: 'dev', runtime: 'codex' })
     const session = sessionStore.create({ agentId: agent.id })

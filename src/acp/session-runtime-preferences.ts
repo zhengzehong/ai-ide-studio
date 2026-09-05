@@ -5,7 +5,7 @@ import type { ConfigOptionInfo, SessionCapabilities } from '../types/ws-protocol
 import { mapConfigOptions, mergeCapabilitiesFromConfig } from './capabilities.js'
 import type { AgentConnection } from './host-types.js'
 import { resolveDesiredRuntimeMode } from './runtime-mode-preference.js'
-import { configPreferencesWithDefaults } from './runtime-config-defaults.js'
+import { configPreferencesWithDefaults, findEffortConfigId } from './runtime-config-defaults.js'
 import { resolveRuntimeModelPreference } from './runtime-model-preference.js'
 
 const log = createChildLogger('acp-session-prefs')
@@ -101,8 +101,11 @@ async function applyConfigPreferences(
   caps: SessionCapabilities,
   prefs: SessionRuntimePreferences,
 ): Promise<void> {
-  const profileConfig = conn.appliedModelProfile?.effort ? { effort: conn.appliedModelProfile.effort } : undefined
-  const desiredConfig = { ...profileConfig, ...prefs.config }
+  const profileEffortId = findEffortConfigId(caps.configOptions)
+  const profileConfig = conn.appliedModelProfile?.effort && profileEffortId
+    ? { [profileEffortId]: conn.appliedModelProfile.effort }
+    : undefined
+  const desiredConfig = normalizeEffortPreference({ ...profileConfig, ...prefs.config }, profileEffortId)
   const config = configPreferencesWithDefaults(
     caps.configOptions,
     Object.keys(desiredConfig).length > 0 ? desiredConfig : undefined,
@@ -130,6 +133,15 @@ async function applyConfigPreferences(
       log.warn({ err, agentId: conn.agentId, ourSessionId, configId }, 'failed to restore session config option')
     }
   }
+}
+
+function normalizeEffortPreference(
+  config: Record<string, string | boolean>,
+  effortId: string | undefined,
+): Record<string, string | boolean> {
+  if (!effortId || effortId === 'effort' || config[effortId] !== undefined || config.effort === undefined) return config
+  const { effort, ...rest } = config
+  return { ...rest, [effortId]: effort }
 }
 
 function isConfigValueAvailable(option: ConfigOptionInfo, value: string | boolean): boolean {
