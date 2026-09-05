@@ -1,0 +1,63 @@
+diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_modules/@agentclientprotocol/codex-acp/dist/index.js
+index 58ec261..8a99452 100644
+--- a/node_modules/@agentclientprotocol/codex-acp/dist/index.js
++++ b/node_modules/@agentclientprotocol/codex-acp/dist/index.js
+@@ -27975,6 +27975,12 @@ var DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
+ var SUPPORTED_GATEWAY_PROTOCOLS = {
+   openai: "responses"
+ };
++function getSystemPrompt(meta) {
++  const systemPrompt = meta?.systemPrompt;
++  if (typeof systemPrompt !== "string") return null;
++  const trimmed = systemPrompt.trim();
++  return trimmed ? trimmed : null;
++}
+ var CodexAcpClient = class {
+   codexClient;
+   config;
+@@ -28207,12 +28213,15 @@ var CodexAcpClient = class {
+       "X-Client-Feature-ID": "codex",
+       ...params.headers
+     };
++    delete headers.Authorization;
++    delete headers.authorization;
+     this.gatewayConfigSource = source;
+     this.gatewayConfig = {
+       modelProvider: CUSTOM_GATEWAY_PROVIDER_ID,
+       config: {
+         name: providerName,
+         base_url: params.baseUrl,
++        env_key: "AI_IDE_CODEX_GATEWAY_API_KEY",
+         http_headers: headers,
+         wire_api: wireApi
+       }
+@@ -28343,7 +28352,8 @@ var CodexAcpClient = class {
+       config: await this.createSessionConfig(request.cwd, additionalDirectories, request.mcpServers ?? []),
+       cwd: request.cwd,
+       modelProvider: await this.getResumeModelProvider(),
+-      threadId: request.sessionId
++      threadId: request.sessionId,
++      developerInstructions: getSystemPrompt(request._meta)
+     });
+     onSubscribed?.();
+     const codexModels = await this.fetchAvailableModels();
+@@ -28377,7 +28387,8 @@ var CodexAcpClient = class {
+       config: await this.createSessionConfig(request.cwd, additionalDirectories, request.mcpServers ?? []),
+       cwd: request.cwd,
+       modelProvider: await this.getResumeModelProvider(),
+-      threadId: request.sessionId
++      threadId: request.sessionId,
++      developerInstructions: getSystemPrompt(request._meta)
+     });
+     onSubscribed?.();
+     const historyResponse = await this.codexClient.threadRead({
+@@ -28409,7 +28420,8 @@ var CodexAcpClient = class {
+     const response = await this.codexClient.threadStart({
+       config: await this.createSessionConfig(request.cwd, additionalDirectories, request.mcpServers),
+       modelProvider: this.getModelProvider(),
+-      cwd: request.cwd
++      cwd: request.cwd,
++      developerInstructions: getSystemPrompt(request._meta)
+     });
+     const codexModels = await this.fetchAvailableModels();
+     if (codexModels.length === 0) {
