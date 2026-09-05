@@ -140,6 +140,29 @@ describe('SDK Session Runtime preferences', () => {
     expect(setModel).toHaveBeenCalledWith('gpt-5.6-sol[xhigh]')
     expect(setConfig).not.toHaveBeenCalled()
   })
+
+  test('uses the independent reasoning_effort option with a bare Codex model', async () => {
+    const state = snapshot()
+    state.agent.runtime = 'codex'
+    state.runtime.appliedModelProfile = { id: 'profile-a', name: 'Codex profile', runtime: 'codex', providerId: 'provider-a', modelId: 'gpt-5.6-sol', effort: 'high' }
+    const setModel = vi.fn(async () => undefined)
+    const setConfig = vi.fn(async () => undefined)
+
+    await applySdkSessionPreferences({
+      snapshot: state,
+      capabilities: {
+        models: [{ modelId: 'gpt-5.6-sol', name: 'Profile' }],
+        currentModelId: 'other-model',
+        configOptions: [{ id: 'reasoning_effort', name: 'Reasoning effort', type: 'select', currentValue: 'medium', options: [{ value: 'high', name: 'High' }] }],
+      },
+      setModel,
+      setMode: vi.fn(async () => undefined),
+      setConfig,
+    })
+
+    expect(setModel).toHaveBeenCalledWith('gpt-5.6-sol')
+    expect(setConfig).toHaveBeenCalledWith('reasoning_effort', 'high')
+  })
 })
 
 function snapshot(): RuntimeStateSnapshot {

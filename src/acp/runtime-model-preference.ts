@@ -24,8 +24,10 @@ export function resolveRuntimeModelPreference(input: {
   const desiredEffort = input.profile.effort?.trim() || currentEffort
   const qualified = desiredEffort ? `${stripCodexEffort(modelId)}[${desiredEffort}]` : modelId
 
-  if (available.size === 0 || available.has(qualified)) return qualified
+  // ACP 1.10 exposes model and reasoning_effort independently; older adapters expose qualified model IDs.
   if (available.has(modelId)) return modelId
+
+  if (available.size === 0 || available.has(qualified)) return qualified
   if (
     input.capabilities.currentModelId
     && stripCodexEffort(input.capabilities.currentModelId) === stripCodexEffort(modelId)
