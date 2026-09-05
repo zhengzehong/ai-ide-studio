@@ -25,8 +25,15 @@ export function findConflicts(actionId: string, binding: string | null, override
   const action = HOTKEY_ACTIONS.find((item) => item.id === actionId)
   if (!action || !isValidBinding(binding)) return []
   const normalized = normalizeBinding(binding)
-  return HOTKEY_ACTIONS.filter((item) => item.id !== actionId && item.scope === action.scope)
+  return HOTKEY_ACTIONS.filter((item) => item.id !== actionId && scopesCanOverlap(action.scope, item.scope))
     .filter((item) => effectiveBinding(item, overrides) && normalizeBinding(effectiveBinding(item, overrides) ?? '') === normalized)
+}
+
+// These scopes may be active together; modal/input actions are intentionally isolated.
+function scopesCanOverlap(left: HotkeyAction['scope'], right: HotkeyAction['scope']): boolean {
+  if (left === 'modal' || right === 'modal' || left === 'input' || right === 'input') return false
+  if (left === 'global' || right === 'global') return true
+  return left === right || (left === 'workspace' && right === 'list') || (left === 'list' && right === 'workspace')
 }
 
 export function applyBindingChange(

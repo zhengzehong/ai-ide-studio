@@ -38,8 +38,8 @@ const workspaceActions = tuples('workspace', 'workspace', [
 const sessionActions = tuples('session', 'list', [
   ['session.next', '选择下一个会话', 'j'], ['session.prev', '选择上一个会话', 'k'],
   ['session.next-unread', '跳转到下一个未读会话', 'alt+j'], ['session.open', '打开选中的会话', 'enter'],
-  ['session.pin', '置顶或取消置顶当前会话', 'p'], ['session.mark-unread', '标记当前会话未读', 'u'],
-  ['session.close', '关闭当前会话', 'x'],
+  ['session.pin', '置顶或取消置顶当前会话', 'mod+shift+p'], ['session.mark-unread', '标记当前会话未读', 'mod+shift+u'],
+  ['session.close', '关闭当前会话', 'mod+shift+x'],
 ]).map((action) => ['session.pin', 'session.mark-unread', 'session.close'].includes(action.id)
   ? { ...action, scope: 'workspace' as HotkeyScope }
   : action.id === 'session.next-unread'

@@ -31,4 +31,16 @@ describe('hotkey registry', () => {
     expect(result.overrides['session.prev']).toBeUndefined()
     expect(result.conflicts.some((item) => item.id === 'session.prev')).toBe(true)
   })
+
+  test('detects conflicts across global and workspace scopes', () => {
+    const conflicts = findConflicts('app.palette', 'mod+shift+p', {})
+    expect(conflicts.some((item) => item.id === 'session.pin')).toBe(true)
+  })
+
+  test('does not treat isolated input and modal scopes as conflicts', () => {
+    const inputAction = HOTKEY_ACTIONS.find((item) => item.scope === 'input')
+    const modalAction = HOTKEY_ACTIONS.find((item) => item.scope === 'modal')
+    if (!inputAction || !modalAction) return
+    expect(findConflicts(inputAction.id, effectiveBinding(modalAction, {}), {})).not.toContainEqual(modalAction)
+  })
 })
