@@ -41,13 +41,13 @@ function createFixture() {
 
 const LONG_DESCRIPTION = [
   '## 背景',
-  '用户反馈列表页打开明显变慢，长列表渲染时页面出现长时间白屏，怀疑是每行组件重复创建导致的性能瓶颈。',
-  '## 目标',
-  '定位首屏渲染瓶颈，拆分长列表为虚拟滚动渲染，减少不必要的重复提交与重排。',
+  '用户反馈列表页打开明显变慢，长列表渲染时页面出现长时间白屏，怀疑是每行组件重复创建导致的性能瓶颈。参谋核实：性能排查会话定位到 RowItem 在滚动时被反复重建，且任务库里没有任何 running 任务覆盖列表渲染优化这件事，属于线外缺口。',
+  '## 方案',
+  '第一步，将列表渲染改造为虚拟滚动，只挂载可视区行组件；第二步，为 RowItem 补充 memo 化与稳定 key，消除重复创建；第三步，用 200 条与 2000 条两组数据量做改造前后首屏与滚动帧率对比，输出性能对比数据。风险点：虚拟滚动改造会影响行高不规则场景，需先固定行高或实现动态测量。',
   '## 交付物',
-  '改造后的列表组件与性能对比数据。',
+  '改造后的列表组件、RowItem memo 化改动、性能对比数据一份（首屏时间与滚动帧率）。',
   '## 验收标准',
-  '同样数据量下首屏时间下降一半，滚动帧率稳定在 60 帧。',
+  '同样数据量下首屏时间下降一半，滚动帧率稳定在 60 帧；2000 条数据滚动无白屏；回归测试覆盖行组件挂载与卸载路径。',
 ].join('\n')
 
 function actionSuggestion(overrides: Record<string, unknown> = {}) {
@@ -166,7 +166,7 @@ describe('suggestion.present tool', () => {
       suggestions: [actionSuggestion({ descriptionMarkdown: '太短' })],
     }, context)
     expect(placeholder.isError).toBe(true)
-    expect(placeholder.content[0]!.text).toContain('至少 80')
+    expect(placeholder.content[0]!.text).toContain('至少 400')
 
     const tooMany = await execute({
       roundId: 'r2',

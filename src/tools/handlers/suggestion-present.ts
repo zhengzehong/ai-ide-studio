@@ -15,12 +15,13 @@ export const suggestionPresentHandler: ToolHandler = {
       suggestions: {
         type: 'array',
         maxItems: MAX_SUGGESTIONS,
+        description: '提交前每条必须过「跨线/代价/决策」三问：信息须来自用户正在推进的工作线之外、用户不知道会有实际代价、动作是只有用户能做的决策。任一不过 → 丢弃。线内环节建议与传话类一律不提交。',
         items: {
           type: 'object',
           properties: {
             type: { type: 'string', enum: ['plan', 'action'], description: 'plan=附完整 HTML 方案文档（需打开看再决策）；action=说明即执行包，可直接执行' },
             title: { type: 'string', description: '建议标题（即任务标题，≤160 字符）' },
-            descriptionMarkdown: { type: 'string', description: '预填执行包：背景/目标/交付物/验收标准，至少 80 个字符' },
+            descriptionMarkdown: { type: 'string', description: '预填执行包：背景/实施步骤/交付物/验收标准。执行 Agent 没有参谋的调查上下文，必须自带完整事实链（文件:行号、报错原文、任务/会话 ID）与分步方案，至少 400 字符' },
             suggestedAgentId: { type: 'string', description: '当前项目内推荐执行 Agent ID' },
             agentReason: { type: 'string', description: '推荐该 Agent 的理由' },
             sourceEvidence: {
@@ -90,7 +91,7 @@ function parseSuggestions(value: unknown): ParsedSuggestion[] {
     return {
       type,
       title: requiredText(record.title, `suggestions[${index}].title`, 160),
-      descriptionMarkdown: requiredText(record.descriptionMarkdown, `suggestions[${index}].descriptionMarkdown`, 20_000, 80),
+      descriptionMarkdown: requiredText(record.descriptionMarkdown, `suggestions[${index}].descriptionMarkdown`, 20_000, 400),
       suggestedAgentId: optionalText(record.suggestedAgentId, `suggestions[${index}].suggestedAgentId`, 120),
       agentReason: optionalText(record.agentReason, `suggestions[${index}].agentReason`, 1_000),
       sourceEvidence,
