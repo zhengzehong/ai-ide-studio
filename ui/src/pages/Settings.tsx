@@ -8,6 +8,7 @@ import { useModelStore, type CodexProfileConfig, type ClaudeProfileConfig, type 
 import { useTimelineStore } from '../stores/timeline.store'
 import { useProjectStore } from '../stores/project.store'
 import { DesktopConnectionSection } from './settings/DesktopConnectionSection'
+import { DeviceSection } from './settings/DeviceSection'
 import { ModelProfileForm } from './settings/ModelProfileForm'
 import { parseProfileConfig } from './settings/model-profile-options'
 import { GlobalModelProfileSection } from './settings/GlobalModelProfileSection'
@@ -41,6 +42,7 @@ export default function Settings() {
       </div>
 
       <DesktopConnectionSection />
+      <DeviceSection />
 
       <GlobalModelProfileSection />
 

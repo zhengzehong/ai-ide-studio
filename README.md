@@ -16,6 +16,8 @@ AI IDE Studio 是一个本地部署的全栈 AI 编程协作工具。通过 [ACP
 
 ## 功能
 
+- **远程 PC 执行** — Windows Electron 远程模式可在设置中主动授权本机；AI 通过 `device_list` 识别本轮消息的来源电脑，再显式指定 `deviceId` 执行诊断命令或双向传文件。普通工具仍默认在服务器运行，手机不注册执行节点。详见 [远程电脑指南](docs/guides/remote-devices.md)。
+
 - **单端口 Edge + 进程隔离** — Edge 是唯一公网监听入口；API 提供 HTTP、领域命令与 DB Worker；Runtime 子进程拥有 ACP/终端/Session actor；Realtime 子进程负责 WebSocket、订阅、序列化和有界背压
 - **Workspace** — 主工作台，支持流式对话、轻量状态恢复、执行过程按需加载/折叠、ACP diff 文件变更按需查看、思考过程展示、图片附件、PC 普通文件选择/拖拽上传、Markdown 渲染、AI 多文件交付卡片和长会话虚拟滚动；消息首屏和实时流只传文件级摘要，完整 diff 在独立 Worker 生成并点击后加载；任务按今日/历史分页读取，历史滚动到底继续加载；会话中的文件/目录链接可在 PC/APP 内部打开，交付文件可预览 Markdown、图片、音频和视频
 - **自主 Agent** — 项目 Agent 可启用独立自主 Session，每 10 分钟在空闲时检查关注方向，自主维护当天排班和 `memory.md`，并向 PC 自主工作页提交带优先级标签的 GFM Markdown 汇报

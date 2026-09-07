@@ -4,6 +4,10 @@
 
 ## 系统拓扑
 
+远程 PC 执行是独立的设备域：`src/devices/` 负责配对鉴权、连接、作业与流式传输；`electron/node/` 负责凭证、受管进程和本地文件操作。设备控制通道 `/node-ws` 与文件请求经 Edge 转发到 API，不经过 Realtime；普通聊天和 ACP 的默认执行位置不变。设备数据通过 `store/devices.ts`、`store/device-jobs.ts` 的专用接口访问。
+
+消息来源证明由 Electron 主进程签名，绑定会话、消息 ID 和时间；平台验证后随原消息排队，仅在执行批次内标记来源设备。该信息不代表执行目标，也不持久化为会话默认设备。当前批次含访客消息时设备工具不可执行。
+
 ```text
 客户端层
   Web UI / Mobile Web App / CLI / 外部调用方

@@ -45,6 +45,7 @@ export const subscriptionRpcHandlers: RpcHandlerMap = {
       type: 'prompt',
       sessionId,
       clientMessageId,
+      originProof: typeof msg.originProof === 'string' ? msg.originProof : undefined,
       content,
       ...(contextProjectId ? { contextProjectId } : {}),
       ...(inspirationNoteId ? { inspirationNoteId } : {}),

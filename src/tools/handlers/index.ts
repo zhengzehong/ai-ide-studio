@@ -1,4 +1,5 @@
 import type { ToolHandler } from '../types.js'
+import { deviceListHandler, invokeDeviceCommandHandler } from './device-tools.js'
 import { createTaskHandler, legacyCreateTaskHandler } from './create-task.js'
 import { createScheduleHandler } from './create-schedule.js'
 import { listTasksHandler } from './list-tasks.js'
@@ -251,6 +252,8 @@ register(agentTaskWatchCancelHandler)
 register(agentWakeMeHandler)
 register(previewPublishHandler)
 register(readingAddHandler)
+register(deviceListHandler)
+register(invokeDeviceCommandHandler)
 register(filesPresentHandler)
 register(inspirationAnalysisPublishHandler)
 register(inspirationNoteGetHandler)

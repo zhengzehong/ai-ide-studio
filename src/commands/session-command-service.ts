@@ -8,6 +8,7 @@ import { observeSyncDbOperation } from '../store/db-operation-observer.js'
 import { projectSecretaryStore } from '../store/project-secretaries.js'
 import { sendInspirationDiscussion } from '../core/project-inspiration-discussion.js'
 import type { SessionCommand } from './session-command-types.js'
+import { verifyDeviceOrigin } from '../devices/auth.js'
 
 const log = createChildLogger('session-command-service')
 
@@ -20,7 +21,8 @@ export async function executeSessionCommand(
   command: SessionCommand,
 ): Promise<SessionCommandExecutionResult> {
   switch (command.type) {
-    case 'prompt':
+    case 'prompt': {
+      const originDeviceId = verifyDeviceOrigin(command.originProof, command.sessionId, command.clientMessageId)
       if (command.inspirationNoteId) {
         await sendInspirationDiscussion({
           sessionId: command.sessionId,
@@ -29,14 +31,17 @@ export async function executeSessionCommand(
           images: command.images,
           clientMessageId: command.clientMessageId,
           contextProjectId: command.contextProjectId,
+          originDeviceId,
         })
         return { status: 'completed' }
       }
       await sessionManager.sendPrompt(command.sessionId, command.content, command.images, {
         clientMessageId: command.clientMessageId,
         contextProjectId: command.contextProjectId,
+        originDeviceId,
       })
       return { status: 'completed' }
+    }
     case 'session.cancel':
       await cancelSessionPrompt(command.sessionId)
       return { ok: true }

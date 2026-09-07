@@ -42,12 +42,26 @@ export interface ElectronDesktopBootstrapBridge {
 }
 
 export interface ElectronDesktopBridge extends ElectronDesktopBootstrapBridge {
+  getNodeStatus?(): Promise<DesktopNodeStatus>
+  setNodeEnabled?(enabled: boolean): Promise<DesktopNodeStatus>
+  unpairNode?(): Promise<DesktopNodeStatus>
+  signOrigin?(input: { sessionId: string; messageId: string }): Promise<string | undefined>
   onNavigate?(listener: (request: DesktopNavigationRequest) => void): () => void
   acknowledgeNavigation?(id: string): void
   getSettings(): Promise<DesktopConnectionSettings>
   testConnection(input: DesktopConnectionInput): Promise<DesktopOperationResult>
   saveSettings(input: DesktopConnectionInput): Promise<DesktopOperationResult>
   downloadFile?(input: DesktopDownloadInput): Promise<DesktopDownloadResult>
+}
+
+export interface DesktopNodeStatus {
+  supported: boolean
+  enabled: boolean
+  online: boolean
+  machineName: string
+  deviceId: string | null
+  shells: string[]
+  error?: string
 }
 
 export function getElectronDesktopBridge(): ElectronDesktopBridge | null {

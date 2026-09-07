@@ -12,4 +12,8 @@ contextBridge.exposeInMainWorld('electronDesktop', {
   testConnection: (input: unknown) => ipcRenderer.invoke('desktop:test-connection', input),
   saveSettings: (input: unknown) => ipcRenderer.invoke('desktop:save-settings', input),
   downloadFile: (input: unknown) => ipcRenderer.invoke('desktop:download-file', input),
+  getNodeStatus: () => ipcRenderer.invoke('node:status'),
+  setNodeEnabled: (enabled: boolean) => ipcRenderer.invoke('node:enable', enabled),
+  unpairNode: () => ipcRenderer.invoke('node:unpair'),
+  signOrigin: (input: { sessionId: string; messageId: string }) => ipcRenderer.invoke('node:origin-proof', input),
 })

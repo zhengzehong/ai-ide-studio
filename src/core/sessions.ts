@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { beginDeviceOrigin, endDeviceOrigin } from '../devices/prompt-origin.js'
 import { sessionStore, messageStore, eventStore, type SessionRow } from '../store/sessions.js'
 import { taskStore } from '../store/tasks.js'
 import { agentStore } from '../store/agents.js'
@@ -54,6 +55,7 @@ const persistenceBySession = new Map<string, Promise<void>>()
 const persistenceErrors = new Map<string, unknown>()
 
 interface PromptOptions {
+  originDeviceId?: string
   clientMessageId?: string
   contextProjectId?: string
   senderRole?: string
@@ -554,6 +556,7 @@ async function sendPromptBatchNow(session: SessionRow, inputs: QueuedPrompt[]): 
   )
 
   activePrompts.add(sessionId)
+  beginDeviceOrigin(sessionId, turnId, inputs)
   startPromptDiagnostics({
     turnId,
     sessionId,
@@ -745,6 +748,7 @@ async function sendPromptBatchNow(session: SessionRow, inputs: QueuedPrompt[]): 
       log.error({ err, sessionId, agentId: session.agent_id, turnId }, 'prompt persistence drain failed')
     }
     activePrompts.delete(sessionId)
+    endDeviceOrigin(sessionId, turnId)
     finishPromptDiagnostics(sessionId, activityEndReason)
     log.info({ sessionId, agentId: session.agent_id, turnId, reason: activityEndReason, elapsedMs: Date.now() - startedAt, activePromptCount: activePrompts.size }, 'prompt cleanup complete')
     emitSessionActivity(sessionId, session.agent_id, 'idle', activityEndReason, turnId)

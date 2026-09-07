@@ -1,5 +1,17 @@
 # 数据模型
 
+## 远程执行设备
+
+| 表 | 数据及边界 |
+|---|---|
+| `devices` | owner 实例的已配对 PC；机器名、Windows 版本、Shell、已探测目录、公钥、设备凭证哈希、启停、撤销及最近在线时间。在线状态来自认证后的活动连接，不从持久字段推断 |
+| `device_pairings` | 一次性配对码哈希、有效期及消费时间；消费与创建设备在同一事务内完成 |
+| `device_jobs` | 作业 ID、明确 device_id、project/session/agent 引用、操作类型、状态、请求、结果、截止时间；可选 file_id/file_json 保存上传文件的服务器路径、大小、SHA256、到期时间 |
+
+作业状态为 `queued/running/succeeded/failed/cancel_requested/cancelled/timed_out/unknown`。`unknown` 表示没有可确认的结果，不是成功，也不会自动重跑；显式的新诊断命令仍可提交。节点只凭已认证设备身份上报作业。工具查询和取消再次核对设备、项目及会话。
+
+项目、会话或 Agent 删除时作业引用置空以保留审计记录，设备采用撤销而非硬删除。凭证明文及私钥只在 Electron 安全存储中保存；传输票据只存在于短期连接流程，不进入作业请求或 AI 工具结果。会话表不增加默认执行设备字段。
+
 ## Project Inspiration
 
 项目灵感配置还保存候选任务的默认执行 Agent、默认执行 Session 和目标优先级（`default`/`recommended`）。默认 Session 必须属于同一项目、同一 Agent 且保持 active。

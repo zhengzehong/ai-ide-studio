@@ -21,6 +21,7 @@ import { DesktopConnectionStore, type DesktopConnectionProfile } from './desktop
 import { probeDesktopConnection } from './desktop-connection-probe.js'
 import { createDesktopCredentialProtector } from './desktop-credentials.js'
 import { registerDesktopIpc } from './desktop-ipc.js'
+import { registerNodeIpc } from './node/ipc.js'
 import { resolveDesktopIconPath } from './desktop-icon.js'
 import { createMainWindowWebPreferences } from './desktop-window-settings.js'
 import { isDesktopApplicationPath, isTrustedDesktopIpcSender, isWidgetPath } from './desktop-ipc-policy.js'
@@ -72,6 +73,7 @@ async function main(): Promise<void> {
     mainWindow = createWindow(target)
     closeDesktopSetupWindow()
     registerDesktopIpc({ store, target, mainWindow, getWidgetWindow })
+    registerNodeIpc(mainWindow, target, userDataDir)
     setupWidgetIpc(target)
     if (target.widgetEnabled) {
       createWidgetWindow({ target, electronDir, userDataDir, iconPath: getDesktopIconPath() })

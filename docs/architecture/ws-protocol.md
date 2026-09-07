@@ -1,5 +1,22 @@
 # WebSocket RPC 协议
 
+## 设备控制通道
+
+`/node-ws` 是独立于聊天的 WS 端点，Edge 转发至 API。连接使用设备专属 Bearer 凭证；每帧含 `version: 1` 和服务器发放的 `generation`。替换连接后旧代次不能继续更新作业。
+
+| 方向 | 消息 | 含义 |
+|---|---|---|
+| 服务端到 PC | `welcome` | 返回 deviceId 与连接代次 |
+| 服务端到 PC | `job.submit` | jobId、deadlineAt、request；节点先写去重记录再执行 |
+| 服务端到 PC | `job.query` | 查询已有作业，可携带日志 cursor；不触发重新执行 |
+| 服务端到 PC | `job.cancel` | 请求停止受管进程树或传输，不等同已取消 |
+| PC 到服务端 | `job.state` | 作业状态、实际 cwd、exitCode 或错误 |
+| PC 到服务端 | `job.log` | jobId、UTF-8 字节 offset、text；重复日志不重复写入 |
+
+HTTP 设备管理：`GET /api/v1/devices`、`POST /api/v1/devices/pairing`、`POST /api/v1/devices/:id`，限 owner。`POST /node/pair` 消费短期配对码，返回独立凭证。`PUT/GET /node/files/:jobId` 同时校验设备身份和绑定作业的单次传输票据。`POST /device-tools` 是 stdio 工具到 Gateway 的内部桥接，使用会话工具上下文凭证，不接受请求体覆盖项目/Agent/会话身份。
+
+聊天 `prompt` 和 HTTP prompt 命令可选携带 `originProof`。它是桌面主进程签名的来源证明，由平台验证；未提供时保持原有行为。客户端不能直接指定可信 `originDeviceId`。
+
 ## PC HTTP Query API
 
 灵感配置请求支持 `taskDefaultAgentId`、`taskDefaultSessionId`、`taskTargetPriority`；候选任务创建支持 `agentId`、`sessionId`、`sessionMode`。服务端按优先级解析目标并校验归属。

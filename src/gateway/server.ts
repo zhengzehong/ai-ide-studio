@@ -42,6 +42,8 @@ import { mountSessionFileUploadRoutes } from './http/session-file-upload-routes.
 import { mountRetentionRoutes } from './http/retention-routes.js'
 import type { DataRetentionService } from '../data-retention/retention-service.js'
 import { mountReadingAssetRoutes } from './reading-assets.js'
+import { createDeviceGateway } from '../devices/gateway.js'
+import { getDatabaseMode } from '../store/db.js'
 
 const log = createChildLogger('gateway')
 
@@ -103,11 +105,13 @@ export async function startGateway(config: AppConfig, options: StartGatewayOptio
   mountShareRoutes(app, config)
 
   mountHttpMcpServer(app)
+  const devices = getDatabaseMode() === 'readwrite' ? createDeviceGateway(app, config) : undefined
   mountStaticAssets(app, config)
   log.debug({ staticDir: staticDirForLog(config) }, '静态资源托载检查完成')
 
   const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port }) as Server
   const funAsrProxy = createFunAsrProxy(config)
+  server.once('close', () => devices?.close())
 
   let wss: WebSocketServer | undefined
   if ((options.webSocketMode ?? 'embedded') === 'embedded') {
@@ -126,6 +130,7 @@ export async function startGateway(config: AppConfig, options: StartGatewayOptio
     })
   }
   server.on('upgrade', (request, socket, head) => {
+    if (devices?.connections.handleUpgrade(request, socket, head)) return
     if (funAsrProxy.isUpgrade(request)) {
       funAsrProxy.handleUpgrade(request, socket, head)
       return
@@ -143,7 +148,7 @@ export async function startGateway(config: AppConfig, options: StartGatewayOptio
   const address = server.address()
   if (address && typeof address !== 'string') embeddedPort = address.port
 
-  return { app, server, wss, funAsrProxy }
+  return { app, server, wss, funAsrProxy, devices }
 }
 
 function waitForServerListening(server: Server): Promise<void> {

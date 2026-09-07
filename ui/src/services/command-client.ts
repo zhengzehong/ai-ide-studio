@@ -1,5 +1,6 @@
 import { getStoredAccessToken } from '../stores/connection.store'
 import { wsClient } from './ws-client'
+import { getElectronDesktopBridge } from './electron-desktop'
 
 export interface BrowserCommandImage {
   data: string
@@ -17,7 +18,7 @@ export interface BrowserImageInput extends Omit<BrowserCommandImage, 'data'> {
 }
 
 export type BrowserSessionCommand =
-  | { commandId: string; type: 'prompt'; sessionId: string; clientMessageId: string; content: string; contextProjectId?: string; inspirationNoteId?: string; images?: BrowserCommandImage[] }
+  | { commandId: string; type: 'prompt'; sessionId: string; clientMessageId: string; content: string; contextProjectId?: string; inspirationNoteId?: string; images?: BrowserCommandImage[]; originProof?: string }
   | { commandId: string; type: 'session.cancel'; sessionId: string }
   | { commandId: string; type: 'sessions.markRead'; sessionId: string }
   | { commandId: string; type: 'sessions.markUnread'; sessionId: string }
@@ -60,6 +61,8 @@ export function createHttpCommandClient(options: HttpCommandClientOptions = {}):
   const maxCommandBytes = options.maxCommandBytes ?? DEFAULT_SESSION_COMMAND_MAX_BYTES
   return {
     async execute(command) {
+      const origin = desktopOriginProof(command)
+      if (origin && command.type === 'prompt') command = { ...command, originProof: await origin }
       const serialized = JSON.stringify(command)
       if (new TextEncoder().encode(serialized).byteLength > maxCommandBytes) {
         throw new Error(`消息和图片总大小超过限制（最大 ${formatBytes(maxCommandBytes)}）`)
@@ -102,6 +105,8 @@ export function createWsCommandClient(options: WsCommandClientOptions = {}): Com
   const subscribe = options.subscribe ?? ((sessionIds) => wsClient.subscribe(sessionIds))
   return {
     async execute(command) {
+      const origin = desktopOriginProof(command)
+      if (origin && command.type === 'prompt') command = { ...command, originProof: await origin }
       const frame = legacyFrame(command)
       if (command.type === 'prompt') {
         subscribe([command.sessionId])
@@ -145,6 +150,7 @@ function legacyFrame(command: BrowserSessionCommand): Record<string, unknown> {
         content: command.content,
         contextProjectId: command.contextProjectId,
         inspirationNoteId: command.inspirationNoteId,
+        originProof: command.originProof,
         images: command.images,
       })
     case 'session.cancel':
@@ -197,4 +203,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && (error.name === 'AbortError' || error.name === 'TimeoutError')
+}
+
+function desktopOriginProof(command: BrowserSessionCommand): Promise<string | undefined> | undefined {
+  if (command.type !== 'prompt' || typeof window === 'undefined') return undefined
+  const bridge = getElectronDesktopBridge()
+  return bridge?.signOrigin?.({ sessionId: command.sessionId, messageId: command.clientMessageId })
 }

@@ -9,6 +9,7 @@ import { ADVISOR_BUILTIN_TOOLS } from './advisor-seed.js'
 import { KB_BUILTIN_TOOLS } from './kb-seed.js'
 import { AGENT_MEMORY_BUILTIN_TOOLS } from './agent-memory-seed.js'
 import { AGENT_HUB_BUILTIN_TOOLS } from './agent-hub-seed.js'
+import { DEVICE_BUILTIN_TOOLS } from './device-seed.js'
 
 const log = createChildLogger('tool-seed')
 
@@ -45,6 +46,7 @@ const OBSOLETE_BUILTIN_TOOLS = [
 ]
 
 const CORE_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
+  ...DEVICE_BUILTIN_TOOLS,
   {
     name: 'core.project.list',
     displayName: '列出项目',

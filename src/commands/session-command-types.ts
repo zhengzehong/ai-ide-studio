@@ -17,6 +17,7 @@ export type SessionCommand =
       content: string
       contextProjectId?: string
       inspirationNoteId?: string
+      originProof?: string
       images?: SessionCommandImage[]
     }
   | {
@@ -74,6 +75,7 @@ export function parseSessionCommand(
         'content',
         'contextProjectId',
         'inspirationNoteId',
+        'originProof',
         'images',
       ])
       return parsePrompt(value, commandId, sessionId)
@@ -111,6 +113,8 @@ function parsePrompt(
   const content = typeof value.content === 'string' ? value.content : requiredText(value.content, 'content')
   const contextProjectId = optionalText(value.contextProjectId, 'contextProjectId')
   const inspirationNoteId = optionalText(value.inspirationNoteId, 'inspirationNoteId')
+  const originProof = optionalText(value.originProof, 'originProof')
+  if (originProof && originProof.length > 4096) throw new Error('命令来源签名过长')
   const images = parseImages(value.images)
   if (!content.trim() && !images?.length) throw new Error('消息内容或图片不能为空')
   return {
@@ -121,6 +125,7 @@ function parsePrompt(
     content,
     ...(contextProjectId ? { contextProjectId } : {}),
     ...(inspirationNoteId ? { inspirationNoteId } : {}),
+    ...(originProof ? { originProof } : {}),
     ...(images ? { images } : {}),
   }
 }
