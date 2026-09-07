@@ -22,19 +22,22 @@ beforeEach(() => {
 afterEach(() => { closeDatabase(); rmSync(root, { recursive: true, force: true }) })
 
 test('migration recognizes exact historical defaults, backs them up and preserves custom edits', () => {
-  const legacy = readFileSync(new URL('../fixtures/advisor-default-v4.txt', import.meta.url), 'utf8').trim()
+  const legacy = readFileSync(new URL('../fixtures/advisor-default-v4.txt', import.meta.url), 'utf8')
+    .replace(/\r\n/g, '\n')
+    .trim()
+  const crlfLegacy = legacy.replace(/\n/g, '\r\n')
   const p = projectStore.create({ name: '旧默认', workDir: root })
   const custom = projectStore.create({ name: '自定义', workDir: root })
-  projectAdvisorStore.update(p.id, { advisorPrompt: legacy.replace(/\n/g, '\r\n') })
+  projectAdvisorStore.update(p.id, { advisorPrompt: crlfLegacy })
   projectAdvisorStore.update(custom.id, { advisorPrompt: legacy + '\n只推荐写作选题' })
   getDb().transaction(() => advisorDefaultPromptMigration.up(getDb()))()
   expect(projectAdvisorStore.get(p.id)?.advisor_prompt).toBe('')
   expect(projectAdvisorStore.get(custom.id)?.advisor_prompt).toBe(legacy + '\n只推荐写作选题')
   const before = getDb().prepare('SELECT value FROM settings WHERE key = ?')
-    .get('advisor_prompt_backup:063:' + p.id)
-  expect(before).toEqual({ value: legacy.replace(/\n/g, '\r\n') })
+    .get('advisor_prompt_backup:064:' + p.id)
+  expect(before).toEqual({ value: crlfLegacy })
   advisorDefaultPromptMigration.up(getDb())
-  expect(getDb().prepare('SELECT value FROM settings WHERE key = ?').get('advisor_prompt_backup:063:' + p.id)).toEqual(before)
+  expect(getDb().prepare('SELECT value FROM settings WHERE key = ?').get('advisor_prompt_backup:064:' + p.id)).toEqual(before)
 })
 
 test('RPC distinguishes reset from omission and returns backend-owned defaults', async () => {

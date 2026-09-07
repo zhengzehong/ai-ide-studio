@@ -6,7 +6,7 @@
 
 `advisor_suggestions` 保留建议正文、状态、来源证据及接受后关联的任务。接受、建任务、忽略状态可进入后续分析的反馈摘要，已读不表示否定。批次归属与待分析变化属于内存运行态，服务重启后不逐条回放。
 
-迁移 063 仅对已知历史默认全文的 SHA-256 匹配项恢复默认引用，并在 `settings` 的 `advisor_prompt_backup:063:<projectId>` 保存原文；自定义文本不覆盖。
+迁移 064 仅对已知历史默认全文的 SHA-256 匹配项恢复默认引用，并在 `settings` 的 `advisor_prompt_backup:064:<projectId>` 保存原文；自定义文本不覆盖。
 
 ## Project Inspiration
 

@@ -11,7 +11,7 @@ const LEGACY_DEFAULT_HASHES = new Set([
 ])
 
 export const advisorDefaultPromptMigration: Migration = {
-  version: '063',
+  version: '064',
   name: 'advisor-default-prompt-reference',
   up(db): void {
     const rows = db.prepare<[], { project_id: string; advisor_prompt: string }>(
@@ -22,7 +22,7 @@ export const advisorDefaultPromptMigration: Migration = {
     for (const row of rows) {
       const hash = createHash('sha256').update(row.advisor_prompt.replace(/\r\n/g, '\n').trim()).digest('hex')
       if (!LEGACY_DEFAULT_HASHES.has(hash)) continue
-      backup.run(`advisor_prompt_backup:063:${row.project_id}`, row.advisor_prompt, new Date().toISOString())
+      backup.run(`advisor_prompt_backup:064:${row.project_id}`, row.advisor_prompt, new Date().toISOString())
       reset.run(row.project_id, row.advisor_prompt)
     }
   },
