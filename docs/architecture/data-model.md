@@ -1,5 +1,13 @@
 # 数据模型
 
+## 项目参谋配置
+
+`project_advisors.advisor_prompt` 为空表示跟随服务端默认规则，非空表示用户自定义全文。`session_id` 引用独立参谋会话；启用开关不改变提示词模式。默认规则正文不是数据库快照。
+
+`advisor_suggestions` 保留建议正文、状态、来源证据及接受后关联的任务。接受、建任务、忽略状态可进入后续分析的反馈摘要，已读不表示否定。批次归属与待分析变化属于内存运行态，服务重启后不逐条回放。
+
+迁移 063 仅对已知历史默认全文的 SHA-256 匹配项恢复默认引用，并在 `settings` 的 `advisor_prompt_backup:063:<projectId>` 保存原文；自定义文本不覆盖。
+
 ## Project Inspiration
 
 项目灵感配置还保存候选任务的默认执行 Agent、默认执行 Session 和目标优先级（`default`/`recommended`）。默认 Session 必须属于同一项目、同一 Agent 且保持 active。

@@ -15,7 +15,7 @@ export const suggestionPresentHandler: ToolHandler = {
       suggestions: {
         type: 'array',
         maxItems: MAX_SUGGESTIONS,
-        description: '提交前每条必须过「跨线/代价/决策」三问：信息须来自用户正在推进的工作线之外、用户不知道会有实际代价、动作是只有用户能做的决策。任一不过 → 丢弃。线内环节建议与传话类一律不提交。',
+        description: '每轮 0-3 条，上限不是目标。提交前核实新增事实、证据、现有任务未覆盖、具体收益和最小下一步。当前工作的执行细节与传话类不提交；没有足够价值时传空数组。',
         items: {
           type: 'object',
           properties: {
