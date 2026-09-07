@@ -24,7 +24,7 @@ export const ADVISOR_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' 
             properties: {
               type: { type: 'string', enum: ['plan', 'action'], description: 'plan=附完整 HTML 方案文档（需用户打开看再决策）；action=说明即执行包，可直接执行' },
               title: { type: 'string', description: '建议标题（即任务标题，≤160 字符）' },
-              descriptionMarkdown: { type: 'string', description: '预填执行包：背景/目标/交付物/验收标准，至少 80 个字符' },
+              descriptionMarkdown: { type: 'string', description: '预填执行包：新增发现/依据/价值/最小下一步，以及背景/步骤/交付物/验收标准，至少 400 个字符；长度不代表质量，不得填充空话' },
               suggestedAgentId: { type: 'string', description: '当前项目内推荐执行 Agent ID' },
               agentReason: { type: 'string', description: '推荐该 Agent 的理由' },
               sourceEvidence: {

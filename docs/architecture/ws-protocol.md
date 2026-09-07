@@ -1,5 +1,19 @@
 # WebSocket RPC 协议
 
+## 项目参谋
+
+以下方法仅允许 owner 调用，配置与建议按项目隔离。
+
+| 方法 | 参数 | 返回 |
+| --- | --- | --- |
+| `advisor.get` | `{ projectId }` | `{ config, suggestions }` |
+| `advisor.configure` | `{ projectId, advisorAgentId, advisorPrompt?, enabled?, minSilenceMinutes? }` | 更新后的配置 |
+| `advisor.session.rebuild` | `{ projectId, advisorAgentId }` | 新独立会话对应的配置 |
+
+配置中的 `advisorPrompt` 返回自定义原文，空值表示跟随默认；`defaultAdvisorPrompt` 返回后端当前默认正文。配置请求省略 `advisorPrompt` 表示不修改，明确传 `""` 表示恢复默认。`minSilenceMinutes` 为保留兼容字段，不控制固定 15 分钟批次窗口。
+
+模型工具 `suggestion.present` 仅接受当前有效批次的 `roundId`，同时校验项目与参谋会话。建议数组允许为空，此时需要一句 `noFindingReason`，返回 `stored: 0, noFinding: true`。每批最多 3 条；已完成或失效批次不可补交。现有建议接受、忽略和已读 RPC 及 `advisor:update` 事件保持原协议。
+
 ## PC HTTP Query API
 
 灵感配置请求支持 `taskDefaultAgentId`、`taskDefaultSessionId`、`taskTargetPriority`；候选任务创建支持 `agentId`、`sessionId`、`sessionMode`。服务端按优先级解析目标并校验归属。

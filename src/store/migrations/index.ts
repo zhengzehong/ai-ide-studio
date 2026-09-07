@@ -60,6 +60,7 @@ import { readingItemsMigration } from './059-reading-items.js'
 import { sessionTagsMigration } from './060-session-tags.js'
 import { advisorSuggestionsMigration } from './061-advisor-suggestions.js'
 import { spreadsheetsMigration } from './062-spreadsheets.js'
+import { advisorDefaultPromptMigration } from './063-advisor-default-prompt.js'
 import type { Migration } from '../migrator.js'
 
 export const migrations: Migration[] = [
@@ -125,4 +126,5 @@ export const migrations: Migration[] = [
   sessionTagsMigration,
   advisorSuggestionsMigration,
   spreadsheetsMigration,
+  advisorDefaultPromptMigration,
 ]

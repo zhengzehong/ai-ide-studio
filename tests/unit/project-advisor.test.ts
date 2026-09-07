@@ -5,13 +5,17 @@ import { resolve } from 'node:path'
 import {
   acceptSuggestion,
   configureAdvisor,
+  rebuildAdvisorSession,
   getAdvisorWorkspace,
   handleSessionTurnDone,
   ignoreSuggestion,
-  publishSuggestions,
+  publishSuggestions as publishRegisteredSuggestions,
   resumeProjectAdvisors,
   DEFAULT_ADVISOR_PROMPT,
 } from '../../src/core/project-advisor.js'
+import { registerAdvisorRound } from '../../src/core/advisor-rounds.js'
+import { disposeAdvisorScheduling } from '../../src/core/advisor-turns.js'
+import { ADVISOR_BATCH_MS } from '../../src/core/advisor-batch-scheduler.js'
 import { buildAdvisorPushPrompt } from '../../src/core/advisor-push.js'
 import { sessionManager } from '../../src/core/sessions.js'
 import { taskStepManager } from '../../src/core/task-steps.js'
@@ -37,6 +41,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  disposeAdvisorScheduling()
   vi.restoreAllMocks()
   vi.useRealTimers()
   closeDatabase()
@@ -75,6 +80,12 @@ const DESCRIPTION = [
   '任务创建成功并进入执行会话；知识库索引页可检索到三次排查的根因关键词；后续同类问题可直接引用沉淀文档，不再重复排查；沉淀任务完成后原排查会话中留档回链，验收时三处均可核对。',
 ].join('\n')
 
+async function publishSuggestions(...args: Parameters<typeof publishRegisteredSuggestions>) {
+  const [context, input] = args
+  registerAdvisorRound(input.roundId, { projectId: context.projectId!, advisorSessionId: context.sessionId!, triggerSessionId: context.sessionId! })
+  return publishRegisteredSuggestions(...args)
+}
+
 function suggestionPayload(overrides: Record<string, unknown> = {}) {
   return {
     type: 'action',
@@ -92,7 +103,8 @@ describe('project advisor service', () => {
     const config = await configureAdvisor(project.id, { advisorAgentId: advisor.id, enabled: true })
     expect(config.advisorAgentId).toBe(advisor.id)
     expect(config.enabled).toBe(true)
-    expect(config.advisorPrompt).toBe(DEFAULT_ADVISOR_PROMPT)
+    expect(config.advisorPrompt).toBe('')
+    expect(config.defaultAdvisorPrompt).toBe(DEFAULT_ADVISOR_PROMPT)
     const session = sessionStore.get(config.sessionId!)
     expect(session).toMatchObject({ agent_id: advisor.id, project_id: project.id, purpose: 'conversation' })
     expect(session?.title).toBe('项目参谋会话')
@@ -104,132 +116,106 @@ describe('project advisor service', () => {
     await expect(configureAdvisor(project.id, { advisorAgentId: foreign.id })).rejects.toThrow('不属于当前项目')
   })
 
-  test('injects a push turn into the advisor session and records the trigger session', async () => {
+  test('batches sessions and publishes with the registered trigger and latest preferences', async () => {
+    vi.useFakeTimers()
     const { project, advisor, executor, workerSession } = createFixture()
-    const config = await configureAdvisor(project.id, { advisorAgentId: advisor.id, enabled: true, advisorPrompt: '关注性能问题' })
-    const enqueue = vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue(undefined)
-
-    handleSessionTurnDone(turnDone(workerSession.id, executor.id, 'turn-9'))
-    await waitUntil(() => enqueue.mock.calls.length === 1)
-
-    const [sessionId, prompt, images, options] = enqueue.mock.calls[0]!
-    expect(sessionId).toBe(config.sessionId)
-    expect(images).toBeUndefined()
-    expect(prompt).toContain('## 用户配置的参谋偏好\n关注性能问题')
-    expect(prompt).toContain('advisor-turn-9')
-    expect(prompt).toContain(`agent.session.messages（sessionId = "${workerSession.id}"）`)
-    expect(options).toMatchObject({
-      contextProjectId: project.id,
-      senderRole: 'advisor',
-      senderName: 'AI 参谋',
-      batchKey: 'advisor-round:advisor-turn-9',
-      dedupeKey: 'advisor:advisor-turn-9',
+    const second = sessionStore.create({ agentId: executor.id, projectId: project.id })
+    const config = await configureAdvisor(project.id, { advisorAgentId: advisor.id, advisorPrompt: '旧偏好' })
+    const enqueue = vi.spyOn(sessionManager, 'enqueuePrompt').mockImplementation(async (_id, prompt) => {
+      const roundId = /roundId = "([^"]+)"/.exec(prompt)![1]
+      const result = await getHandler('suggestion.present')!.execute({
+        roundId, suggestions: [suggestionPayload()],
+      }, { projectId: project.id, sessionId: config.sessionId! })
+      expect(result.isError).not.toBe(true)
     })
-
-    // 注入时登记的 roundId → 来源会话映射，发布时写回台账
-    const result = await getHandler('suggestion.present')!.execute({
-      roundId: 'advisor-turn-9',
-      suggestions: [suggestionPayload()],
-    }, { projectId: project.id, sessionId: config.sessionId! })
-    expect(result.isError).not.toBe(true)
+    handleSessionTurnDone(turnDone(workerSession.id, executor.id, 'old'))
+    handleSessionTurnDone(turnDone(workerSession.id, executor.id, 'latest'))
+    handleSessionTurnDone(turnDone(second.id, executor.id, 'second'))
+    await configureAdvisor(project.id, { advisorAgentId: advisor.id, advisorPrompt: '关注写作质量' })
+    expect(enqueue).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(ADVISOR_BATCH_MS)
+    expect(enqueue).toHaveBeenCalledTimes(1)
+    const [, prompt] = enqueue.mock.calls[0]!
+    expect(prompt).toContain('关注写作质量')
+    expect(prompt).not.toContain('旧偏好')
+    expect(prompt).toContain(workerSession.id)
+    expect(prompt).toContain(second.id)
     const [row] = advisorSuggestionStore.listAllByProject(project.id)
-    expect(row).toMatchObject({ round_id: 'advisor-turn-9', trigger_session_id: workerSession.id })
+    expect(row.trigger_session_id).toBe(second.id)
+    const late = await getHandler('suggestion.present')!.execute({
+      roundId: row.round_id, suggestions: [suggestionPayload()],
+    }, { projectId: project.id, sessionId: config.sessionId! })
+    expect(late.isError).toBe(true)
   })
 
-  test('skips disabled advisors, self-triggered turns, and non-conversation sessions', async () => {
+  test('filters stopped, disabled, autonomous and advisor turns without overwriting good events', async () => {
+    vi.useFakeTimers()
     const { project, advisor, executor, workerSession } = createFixture()
     const config = await configureAdvisor(project.id, { advisorAgentId: advisor.id, enabled: false })
     const enqueue = vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue(undefined)
-
-    handleSessionTurnDone(turnDone(workerSession.id, executor.id, 'turn-1'))
-    handleSessionTurnDone(turnDone(config.sessionId!, advisor.id, 'turn-2'))
-    const autonomySession = sessionStore.create({ agentId: executor.id, projectId: project.id, purpose: 'autonomy' })
-    handleSessionTurnDone(turnDone(autonomySession.id, executor.id, 'turn-3'))
-    await new Promise((resolvePromise) => setTimeout(resolvePromise, 20))
-
-    expect(enqueue).not.toHaveBeenCalled()
-
-    // 启用后同参数即可注入（证明上面是被过滤而不是配置缺失）
-    projectAdvisorStore.update(project.id, { enabled: true })
-    handleSessionTurnDone(turnDone(workerSession.id, executor.id, 'turn-4'))
-    await waitUntil(() => enqueue.mock.calls.length === 1)
-  })
-
-  test('keeps only the newest turn per session inside the debounce window (T-3)', async () => {
-    vi.useFakeTimers()
-    const { project, advisor, executor, workerSession } = createFixture()
+    handleSessionTurnDone(turnDone(workerSession.id, executor.id, 'disabled'))
     await configureAdvisor(project.id, { advisorAgentId: advisor.id, enabled: true })
-    const enqueue = vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue(undefined)
-
-    handleSessionTurnDone(turnDone(workerSession.id, executor.id, 'turn-a'))
-    for (let attempt = 0; attempt < 100 && enqueue.mock.calls.length < 1; attempt += 1) {
-      await vi.advanceTimersByTimeAsync(10)
+    const auto = sessionStore.create({ agentId: executor.id, projectId: project.id, purpose: 'autonomy' })
+    handleSessionTurnDone(turnDone(auto.id, executor.id, 'auto'))
+    handleSessionTurnDone(turnDone(config.sessionId!, advisor.id, 'self'))
+    handleSessionTurnDone(turnDone(workerSession.id, executor.id, 'good'))
+    for (const stopReason of ['cancelled', 'error', 'max_tokens', undefined]) {
+      handleSessionTurnDone({ ...turnDone(workerSession.id, executor.id, 'bad'), stopReason })
     }
+    await vi.advanceTimersByTimeAsync(ADVISOR_BATCH_MS)
     expect(enqueue).toHaveBeenCalledTimes(1)
-    expect(enqueue.mock.calls[0]![1]).toContain('advisor-turn-a')
-
-    // 5 分钟窗口内同会话第二轮：覆盖暂存快照不逐轮注入；窗口结束后只推最新一轮
-    handleSessionTurnDone(turnDone(workerSession.id, executor.id, 'turn-b'))
-    expect(enqueue).toHaveBeenCalledTimes(1)
-    for (let attempt = 0; attempt < 200 && enqueue.mock.calls.length < 2; attempt += 1) {
-      await vi.advanceTimersByTimeAsync(5_000)
-    }
-    expect(enqueue).toHaveBeenCalledTimes(2)
-    expect(enqueue.mock.calls[1]![1]).toContain('advisor-turn-b')
-  })
-
-  test('drops non-end_turn turns before they enter the debounce queue (T-2c)', async () => {
-    vi.useFakeTimers()
-    const { project, advisor, executor, workerSession } = createFixture()
-    await configureAdvisor(project.id, { advisorAgentId: advisor.id, enabled: true })
-    const enqueue = vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue(undefined)
-
-    // 手动停止/报错/截断/缺 stopReason 的轮次一律不推：AI 回复是 abort 碎片，没有分析价值
-    handleSessionTurnDone({ ...turnDone(workerSession.id, executor.id, 'turn-cancel'), stopReason: 'cancelled' })
-    handleSessionTurnDone({ ...turnDone(workerSession.id, executor.id, 'turn-error'), stopReason: 'error' })
-    handleSessionTurnDone({ ...turnDone(workerSession.id, executor.id, 'turn-tokens'), stopReason: 'max_tokens' })
-    handleSessionTurnDone({ sessionId: workerSession.id, agentId: executor.id, messageId: 'msg-none', turnId: 'turn-none' })
-    for (let attempt = 0; attempt < 100; attempt += 1) {
-      await vi.advanceTimersByTimeAsync(10)
-    }
-    expect(enqueue).not.toHaveBeenCalled()
-
-    // 关键回归：正常轮先到（进 pending），随后的停止轮不得按 T-3 覆盖语义把它挤掉
-    handleSessionTurnDone(turnDone(workerSession.id, executor.id, 'turn-good'))
-    for (let attempt = 0; attempt < 100 && enqueue.mock.calls.length < 1; attempt += 1) {
-      await vi.advanceTimersByTimeAsync(10)
-    }
-    expect(enqueue.mock.calls[0]![1]).toContain('advisor-turn-good')
-
-    handleSessionTurnDone({ ...turnDone(workerSession.id, executor.id, 'turn-abort'), stopReason: 'cancelled' })
-    for (let attempt = 0; attempt < 100 && enqueue.mock.calls.length < 1; attempt += 1) {
-      await vi.advanceTimersByTimeAsync(10)
-    }
+    expect(enqueue.mock.calls[0]![1]).toContain('事件 good')
+    expect(enqueue.mock.calls[0]![1]).not.toContain('事件 bad')
+    handleSessionTurnDone(turnDone(workerSession.id, executor.id, 'next'))
+    await configureAdvisor(project.id, { advisorAgentId: advisor.id, enabled: false })
+    await vi.advanceTimersByTimeAsync(ADVISOR_BATCH_MS)
     expect(enqueue).toHaveBeenCalledTimes(1)
   })
 
-  test('defers a burst from another session until the project interval elapses', async () => {
+  test('default remains a reference and clearing custom preferences really resets it', async () => {
+    const { project, advisor } = createFixture()
+    await configureAdvisor(project.id, { advisorAgentId: advisor.id, advisorPrompt: '只关注文章' })
+    await configureAdvisor(project.id, { advisorAgentId: advisor.id, enabled: false })
+    expect(projectAdvisorStore.get(project.id)?.advisor_prompt).toBe('只关注文章')
+    const result = await configureAdvisor(project.id, { advisorAgentId: advisor.id, advisorPrompt: '' })
+    expect(result.advisorPrompt).toBe('')
+    expect(result.defaultAdvisorPrompt).toContain('写作')
+    getAdvisorWorkspace(project.id)
+    expect(projectAdvisorStore.get(project.id)?.advisor_prompt).toBe('')
+  })
+
+  test('rebuilding during analysis invalidates its round and preserves later work for the new session', async () => {
     vi.useFakeTimers()
     const { project, advisor, executor, workerSession } = createFixture()
-    const secondAgent = agentStore.create({ type: 'dev', name: '第二执行者', runtime: 'mock', projectId: project.id })
-    const secondSession = sessionStore.create({ agentId: secondAgent.id, projectId: project.id })
-    const config = await configureAdvisor(project.id, { advisorAgentId: advisor.id, enabled: true })
-    const enqueue = vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue(undefined)
-
-    handleSessionTurnDone(turnDone(workerSession.id, executor.id, 'turn-x'))
-    for (let attempt = 0; attempt < 100 && enqueue.mock.calls.length < 1; attempt += 1) {
-      await vi.advanceTimersByTimeAsync(10)
-    }
+    const config = await configureAdvisor(project.id, { advisorAgentId: advisor.id })
+    let finish: () => void = () => undefined
+    let roundId = ''
+    const enqueue = vi.spyOn(sessionManager, 'enqueuePrompt').mockImplementationOnce(async (_id, prompt) => {
+      roundId = /roundId = "([^"]+)"/.exec(prompt)![1]
+      await new Promise<void>((resolvePromise) => { finish = resolvePromise })
+    }).mockResolvedValue(undefined)
+    handleSessionTurnDone(turnDone(workerSession.id, executor.id, 'first'))
+    await vi.advanceTimersByTimeAsync(ADVISOR_BATCH_MS)
+    // A real long analysis keeps ownership until completion, not a ten-minute TTL.
+    await vi.advanceTimersByTimeAsync(11 * 60 * 1000)
+    await expect(publishRegisteredSuggestions(
+      { projectId: project.id, sessionId: config.sessionId! },
+      { roundId, suggestions: [], noFindingReason: '无新增事项' },
+    )).resolves.toMatchObject({ noFinding: true })
+    const rebuilt = await rebuildAdvisorSession(project.id, advisor.id)
+    handleSessionTurnDone(turnDone(config.sessionId!, advisor.id, 'old-advisor-completed'))
+    await expect(publishRegisteredSuggestions(
+      { projectId: project.id, sessionId: config.sessionId! },
+      { roundId, suggestions: [], noFindingReason: '迟到' },
+    )).rejects.toThrow('不是项目参谋会话')
+    handleSessionTurnDone(turnDone(workerSession.id, executor.id, 'second'))
+    await vi.advanceTimersByTimeAsync(ADVISOR_BATCH_MS)
     expect(enqueue).toHaveBeenCalledTimes(1)
-
-    // 3 分钟内的第二个会话事件进入 pendingTimer，间隔满足后合并注入
-    handleSessionTurnDone(turnDone(secondSession.id, secondAgent.id, 'turn-y'))
-    expect(enqueue).toHaveBeenCalledTimes(1)
-    for (let attempt = 0; attempt < 100 && enqueue.mock.calls.length < 2; attempt += 1) {
-      await vi.advanceTimersByTimeAsync(2_000)
-    }
+    finish()
+    await vi.advanceTimersByTimeAsync(ADVISOR_BATCH_MS)
     expect(enqueue).toHaveBeenCalledTimes(2)
-    expect(enqueue.mock.calls[1]![0]).toBe(config.sessionId)
+    expect(enqueue.mock.calls[1]![0]).toBe(rebuilt.sessionId)
+    expect(enqueue.mock.calls[1]![1]).not.toContain('事件 old-advisor-completed')
   })
 
   test('publishing a round purges dead suggestions and their orphan artifacts (隔天清理)', async () => {
@@ -430,7 +416,8 @@ describe('project advisor service', () => {
   test('exposes a default workspace and resumes stale dispatch tokens on startup', async () => {
     const { project, advisor, executor, workerSession } = createFixture()
     const workspace = getAdvisorWorkspace(project.id)
-    expect(workspace.config.advisorPrompt).toBe(DEFAULT_ADVISOR_PROMPT)
+    expect(workspace.config.advisorPrompt).toBe('')
+    expect(workspace.config.defaultAdvisorPrompt).toBe(DEFAULT_ADVISOR_PROMPT)
     expect(workspace.config.enabled).toBe(true)
     expect(workspace.suggestions).toMatchObject({ suggestions: [], expired: [], settled: [], pendingCount: 0 })
 
@@ -445,61 +432,19 @@ describe('project advisor service', () => {
     expect(advisorSuggestionStore.get(row.id)?.dispatch_token).toBeNull()
   })
 
-  test('settles an advisor round that ended without calling suggestion.present (S-8)', async () => {
-    const { project, advisor, executor, workerSession } = createFixture()
-    const config = await configureAdvisor(project.id, { advisorAgentId: advisor.id, enabled: true })
-    const enqueue = vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue(undefined)
-
-    handleSessionTurnDone(turnDone(workerSession.id, executor.id, 'turn-s8'))
-    await waitUntil(() => enqueue.mock.calls.length === 1)
-
-    // 参谋会话完成一轮但从未提交建议：该轮登记被结算回收，不产卡
-    handleSessionTurnDone({
-      sessionId: config.sessionId!,
-      agentId: advisor.id,
-      messageId: 'msg-advisor-done',
-      turnId: 'advisor-done-1',
-      stopReason: 'end_turn',
-    })
-
-    // 登记已回收：同 roundId 之后再提交，不再视为该轮触发会话
-    const result = await getHandler('suggestion.present')!.execute({
-      roundId: 'advisor-turn-s8',
-      suggestions: [suggestionPayload()],
-    }, { projectId: project.id, sessionId: config.sessionId! })
-    expect(result.isError).not.toBe(true)
-    const [row] = advisorSuggestionStore.listAllByProject(project.id)
-    expect(row.round_id).toBe('advisor-turn-s8')
-    expect(row.trigger_session_id).toBeNull()
-  })
-
-  test('prunes round registrations older than ten minutes on the next write', async () => {
-    vi.useFakeTimers()
-    const { project, advisor, executor, workerSession } = createFixture()
-    const config = await configureAdvisor(project.id, { advisorAgentId: advisor.id, enabled: true })
-    const enqueue = vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue(undefined)
-
-    handleSessionTurnDone(turnDone(workerSession.id, executor.id, 'turn-old'))
-    for (let attempt = 0; attempt < 100 && enqueue.mock.calls.length < 1; attempt += 1) {
-      await vi.advanceTimersByTimeAsync(10)
-    }
-    expect(enqueue).toHaveBeenCalledTimes(1)
-
-    // 越过 TTL 后下一个轮次写入时惰性回收旧登记
-    await vi.advanceTimersByTimeAsync(11 * 60 * 1000)
-    handleSessionTurnDone(turnDone(workerSession.id, executor.id, 'turn-new'))
-    for (let attempt = 0; attempt < 100 && enqueue.mock.calls.length < 2; attempt += 1) {
-      await vi.advanceTimersByTimeAsync(10_000)
-    }
-    expect(enqueue).toHaveBeenCalledTimes(2)
-
-    const result = await getHandler('suggestion.present')!.execute({
-      roundId: 'advisor-turn-old',
-      suggestions: [suggestionPayload({ title: '旧轮建议补交' })],
-    }, { projectId: project.id, sessionId: config.sessionId! })
-    expect(result.isError).not.toBe(true)
-    const row = advisorSuggestionStore.listAllByProject(project.id).find((item) => item.round_id === 'advisor-turn-old')
-    expect(row?.trigger_session_id).toBeNull()
+  test('accepts silence and rejects a round owned by another session or project', async () => {
+    const { project, advisor, workerSession } = createFixture()
+    const config = await configureAdvisor(project.id, { advisorAgentId: advisor.id })
+    registerAdvisorRound('silence', { projectId: project.id, advisorSessionId: config.sessionId!, triggerSessionId: workerSession.id })
+    await expect(publishRegisteredSuggestions(
+      { projectId: project.id, sessionId: config.sessionId! },
+      { roundId: 'silence', suggestions: [], noFindingReason: '已有任务覆盖' },
+    )).resolves.toMatchObject({ stored: 0, noFinding: true })
+    registerAdvisorRound('foreign', { projectId: 'other', advisorSessionId: config.sessionId!, triggerSessionId: workerSession.id })
+    await expect(publishRegisteredSuggestions(
+      { projectId: project.id, sessionId: config.sessionId! },
+      { roundId: 'foreign', suggestions: [], noFindingReason: '无' },
+    )).rejects.toThrow('不属于当前会话')
   })
 
   test('trims the push package stepwise when it exceeds the total limit (C-2)', () => {

@@ -227,6 +227,7 @@ describe('advisor suggestion panel (PC)', () => {
         sessionId: 'session-1',
         advisorAgentId: 'agent-glm',
         advisorPrompt: '默认偏好',
+        defaultAdvisorPrompt: '当前系统默认',
         minSilenceMinutes: 5,
         enabled: true,
         lastError: null,

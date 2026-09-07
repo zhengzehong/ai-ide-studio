@@ -10,6 +10,7 @@ import { previewStore } from '../../src/store/previews.js'
 import { projectStore } from '../../src/store/projects.js'
 import { sessionStore } from '../../src/store/sessions.js'
 import { getHandler } from '../../src/tools/handlers/index.js'
+import { registerAdvisorRound } from '../../src/core/advisor-rounds.js'
 import type { ToolContext, ToolHandlerResult } from '../../src/tools/types.js'
 
 const root = mkdtempSync(resolve(tmpdir(), 'ai-ide-suggestion-present-'))
@@ -72,6 +73,11 @@ function planSuggestion(overrides: Record<string, unknown> = {}) {
 }
 
 async function execute(handlerInput: Record<string, unknown>, context: ToolContext): Promise<ToolHandlerResult> {
+  if (typeof handlerInput.roundId === 'string' && context.projectId && context.sessionId) {
+    registerAdvisorRound(handlerInput.roundId, {
+      projectId: context.projectId, advisorSessionId: context.sessionId, triggerSessionId: context.sessionId,
+    })
+  }
   return getHandler('suggestion.present')!.execute(handlerInput, context)
 }
 

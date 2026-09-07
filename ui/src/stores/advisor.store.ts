@@ -6,6 +6,7 @@ export interface AdvisorConfig {
   sessionId: string | null
   advisorAgentId: string | null
   advisorPrompt: string
+  defaultAdvisorPrompt: string
   minSilenceMinutes: number
   enabled: boolean
   lastError: string | null

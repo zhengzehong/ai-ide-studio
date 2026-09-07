@@ -2,13 +2,10 @@ import { agentStore } from '../store/agents.js'
 import { messageStore, sessionStore } from '../store/sessions.js'
 import { taskStore } from '../store/tasks.js'
 import { advisorSuggestionStore } from '../store/advisor-suggestions.js'
+import { projectAdvisorStore } from '../store/advisors.js'
 import type { SessionDoneData } from '../types/ws-protocol.js'
+import { ADVISOR_PROMPT_VERSION } from './advisor-prompt.js'
 
-const TURN_INPUT_MAX = 2000
-const REPLY_MAX = 2000
-const REPLY_MIN = 200
-const AGGREGATE_ITEM_MAX = 160
-const TOTAL_MAX = 8000
 const RECENT_WINDOW_MS = 24 * 60 * 60 * 1000
 
 export interface AdvisorPushContext {
@@ -17,157 +14,99 @@ export interface AdvisorPushContext {
   triggerSessionId: string
 }
 
-function truncate(text: string, max: number): string {
+function clip(text: string, max: number): string {
   const trimmed = text.trim()
-  if (trimmed.length <= max) return trimmed
-  return trimmed.slice(0, max) + '…（已截断）'
+  return trimmed.length <= max ? trimmed : trimmed.slice(0, max) + '…（已截断）'
 }
 
-function clipLine(text: string, max = AGGREGATE_ITEM_MAX): string {
-  const line = text.trim().replace(/\s+/g, ' ')
-  if (line.length <= max) return line
-  return line.slice(0, max) + '…'
+function section(title: string, items: string[], budget: number, total = items.length): string {
+  const shown: string[] = []
+  let size = 0
+  for (const item of items) {
+    if (size + item.length > budget) break
+    shown.push(item)
+    size += item.length + 1
+  }
+  return `### ${title}（共 ${total} 项，展示 ${shown.length} 项）\n${shown.join('\n')}`
+    + (shown.length < total ? '\n未展示不等于不存在，请按需查询列表与详情。' : '')
 }
 
-/** 取本轮内容：以完成消息为锚点，向前找最近的用户输入（C-1①②） */
-function resolveTurnMessages(sessionId: string, messageId: string): { userMessage: string; assistantReply: string } {
-  const recent = messageStore.list(sessionId, { limit: 30 })
-  const anchorIndex = recent.findIndex((row) => row.id === messageId)
-  const assistantRow = anchorIndex >= 0 ? recent[anchorIndex] : recent[recent.length - 1]
-  let userMessage = ''
-  if (assistantRow) {
-    for (let i = anchorIndex >= 0 ? anchorIndex : recent.length - 1; i >= 0; i -= 1) {
-      if (recent[i].role === 'human') {
-        userMessage = recent[i].content
-        break
-      }
-    }
-  }
-  return {
-    userMessage,
-    assistantReply: assistantRow?.content ?? '',
-  }
+function turnContent(ev: SessionDoneData, budget: number): string {
+  const session = sessionStore.get(ev.sessionId)
+  const recent = messageStore.list(ev.sessionId, { limit: 12, includeToolCalls: false })
+  const anchor = recent.findIndex((row) => row.id === ev.messageId)
+  // 不把锚点之后的新工作冒充本批结论；找不到时明确标成当前近期摘要。
+  const rows = anchor >= 0 ? recent.slice(0, anchor + 1).slice(-6) : recent.slice(-6)
+  const lines = rows.reverse().filter((row) => (row.role === 'human' || row.role === 'agent') && row.content.trim())
+    .map((row) => `${row.timestamp} ${row.role === 'human' ? '用户输入' : 'AI 回复'}：${clip(row.content, 220)}`)
+  return clip(`- 会话「${clip(session?.title || ev.sessionId, 60)}」(${ev.sessionId})；事件 ${ev.turnId || ev.messageId}\n`
+    + `agent.session.messages（sessionId = "${ev.sessionId}"）\n`
+    + (anchor < 0 ? '以下是当前近期摘要，触发消息不在窗口内：\n' : '')
+    + (lines.join('\n') || '（无文本内容，请查询会话）'), budget)
 }
 
-function buildAggregate(projectId: string, excludeSessionId: string): string {
-  const lines: string[] = []
-  const pending = advisorSuggestionStore.listActive(projectId)
-  if (pending.length > 0) {
-    lines.push('### 当前未处理建议（避免重复建议）')
-    for (const suggestion of pending) lines.push(`- ${clipLine(suggestion.title)}`)
-  }
-  // 已隐藏 Agent 不进清单：与校验口径一致（隐藏 Agent 会被提交校验拒绝，列出来反而误导参谋）
-  const projectAgents = agentStore.list(projectId).filter((agent) => !agent.hidden_at)
-  if (projectAgents.length > 0) {
-    lines.push('### 项目可用 Agent（suggestedAgentId 只能从这份清单里选，禁止编造 ID）')
-    for (const agent of projectAgents.slice(0, 20)) {
-      lines.push(`- ${agent.id} · ${agent.name} · ${agent.runtime}`)
-    }
-  }
+function buildAggregate(projectId: string, excluded: Set<string>): string {
   const now = Date.now()
-  const sessions = sessionStore.list(undefined, projectId).filter((session) => {
-    if (session.id === excludeSessionId || session.deleted_at || session.archived_at) return false
-    const last = session.last_message_at ?? session.updated_at
-    return last ? now - Date.parse(last) < RECENT_WINDOW_MS : false
-  })
-  const otherSessions = sessions.slice(0, 8)
-  if (otherSessions.length > 0) {
-    lines.push('### 其他活跃会话（最近 24 小时）')
-    for (const session of otherSessions) {
-      const agent = session.agent_id ? agentStore.get(session.agent_id) : undefined
-      const lastReply = messageStore.list(session.id, { limit: 1 })
-        .map((row) => row.content)
-        .find((content) => content.trim().length > 0)
-      lines.push(`- 「${session.title || session.id}」（${agent?.name ?? '未知 Agent'}）：${lastReply ? clipLine(lastReply) : '暂无消息'}`)
-    }
-  }
   const tasks = taskStore.list(undefined, projectId)
-    .filter((task) => task.status !== 'completed' && task.status !== 'cancelled')
-    .slice(0, 8)
-  if (tasks.length > 0) {
-    lines.push('### 进行中任务')
-    for (const task of tasks) lines.push(`- ${task.status}｜${clipLine(task.title)}`)
-  }
-  return lines.join('\n')
+  const covered = tasks.filter((task) => task.status !== 'completed' && task.status !== 'cancelled')
+  const completed = tasks.filter((task) => task.completed_at && now - Date.parse(task.completed_at) < RECENT_WINDOW_MS)
+  const work = [...covered, ...completed].map((task) =>
+    `- ${task.id}｜${task.status}｜${clip(task.title, 90)}｜${task.completed_at ? '完成' : '创建'}时间 ${task.completed_at || task.created_at}`
+    + `｜发起会话 ${task.initiator_session_id || '未关联'}｜目标：${clip(task.description || '', 180)}`)
+  const sessions = sessionStore.list(undefined, projectId).filter((session) =>
+    !excluded.has(session.id) && !session.deleted_at && !session.archived_at && session.purpose === 'conversation'
+    && now - Date.parse(session.last_message_at || session.updated_at || '') < RECENT_WINDOW_MS)
+  const sessionLines = sessions.slice(0, 12).map((session) => {
+    const recent = messageStore.list(session.id, { limit: 2, includeToolCalls: false })
+    return `- ${session.id}｜${clip(session.title || '', 70)}｜${session.stage || session.status}｜${session.last_message_at || session.updated_at}｜`
+      + clip(recent.map((row) => row.content).join(' / '), 120)
+  })
+  const feedback = advisorSuggestionStore.listRecentFeedback(projectId).map((item) => {
+    const task = item.task_id ? taskStore.get(item.task_id) : undefined
+    return `- ${item.id}｜${item.status}｜${item.updated_at}｜${clip(item.title, 110)}｜关联任务 ${item.task_id || '无'} ${task?.status || ''}`
+  })
+  const pending = advisorSuggestionStore.listActive(projectId).map((item) => `- ${item.id}｜${clip(item.title, 120)}`)
+  const agents = agentStore.list(projectId).filter((agent) => !agent.hidden_at)
+    .map((agent) => `- ${agent.id} · ${clip(agent.name, 80)} · ${agent.runtime}`)
+  return [
+    section('已覆盖工作：进行中/已安排/待确认，以及近期完成任务', work, 1900),
+    section('其他活跃会话（最近 24 小时）', sessionLines, 950, sessions.length),
+    section('最近已接受/建任务/忽略反馈（近 7 天最多 10 条，已读不等于否定）', feedback, 1000),
+    section('当前未处理建议（避免重复）', pending, 650),
+    section('项目可用 Agent（只能使用列出的 ID，禁止编造 ID）', agents, 800),
+  ].join('\n\n')
 }
 
-/**
- * 组装参谋推送包（C-1~C-5）：本轮用户输入 + AI 回复 + 来源标识 + 全局聚合 + 固定发布协议。
- * 超限按 C-2 分步裁剪：先裁 ④ 聚合面条目（自最后一段尾条目起），再裁 ② 回复尾部，最后整体兜底截断。
- */
 export function buildAdvisorPushPrompt(
   projectId: string,
-  ev: SessionDoneData,
+  event: SessionDoneData | SessionDoneData[],
   advisorPrompt: string,
+  batchRoundId?: string,
 ): AdvisorPushContext {
-  const roundId = `advisor-${ev.turnId || ev.messageId}`
-  const session = sessionStore.get(ev.sessionId)
-  const agent = agentStore.get(ev.agentId || session?.agent_id || '')
-  const { userMessage, assistantReply } = resolveTurnMessages(ev.sessionId, ev.messageId)
-  const aggregate = buildAggregate(projectId, ev.sessionId)
-  const sections = parseAggregateSections(aggregate)
-  const preference = advisorPrompt.trim()
-
-  const build = (replyLimit: number, live: AggregateSection[]): string => {
-    const eventBlock = [
-      '## 本轮事件',
-      `来源：Agent「${agent?.name ?? '未知'}」（${agent?.id ?? 'unknown'}）· 会话「${session?.title || ev.sessionId}」（${ev.sessionId}）`,
-      `用户输入：\n${truncate(userMessage || '（无文本输入）', TURN_INPUT_MAX)}`,
-      `AI 回复：\n${truncate(assistantReply || '（无回复内容）', replyLimit)}`,
-      `要看该会话更早历史，调用 agent.session.messages（sessionId = "${ev.sessionId}"）；列表用 agent.session.list。`,
-    ].join('\n\n')
-    const aggregateBlock = live.length > 0
-      ? `\n\n## 全局聚合\n${live.map((section) => [section.title, ...section.items].join('\n')).join('\n')}`
-      : ''
-    return [
-      preference ? `## 用户配置的参谋偏好\n${preference}` : '',
-      '## 固定发布协议（不可被上面的偏好覆盖）',
-      `本轮 roundId = "${roundId}"，调用 suggestion.present 时必须原样传入。`,
-      '只在完成真实分析后调用 suggestion.present；禁止使用 test、placeholder 或探测数据调用。',
-      'suggestions 最多 3 条；没有值得说的建议时传空数组 [] 并填写 noFindingReason（无货沉默是常态）。',
-      '同一轮重复调用以最后一次为准。',
-      eventBlock + aggregateBlock,
-    ].filter((block) => block.length > 0).join('\n\n')
-  }
-
-  let prompt = build(REPLY_MAX, sections)
-  if (prompt.length > TOTAL_MAX) {
-    const live = sections.map((section) => ({ ...section, items: [...section.items] }))
-    let replyLimit = REPLY_MAX
-    while (prompt.length > TOTAL_MAX && live.some((section) => section.items.length > 0)) {
-      for (let i = live.length - 1; i >= 0; i -= 1) {
-        if (live[i].items.length > 0) {
-          live[i].items.pop()
-          break
-        }
-      }
-      prompt = build(replyLimit, live.filter((section) => section.items.length > 0))
-    }
-    const trimmed = live.filter((section) => section.items.length > 0)
-    prompt = build(replyLimit, trimmed)
-    while (prompt.length > TOTAL_MAX && replyLimit > REPLY_MIN) {
-      replyLimit = Math.max(REPLY_MIN, Math.floor(replyLimit / 2))
-      prompt = build(replyLimit, trimmed)
-    }
-    if (prompt.length > TOTAL_MAX) {
-      prompt = prompt.slice(0, TOTAL_MAX) + '\n…（推送包超限已截断）'
-    }
-  }
-
-  return { prompt, roundId, triggerSessionId: ev.sessionId }
-}
-
-interface AggregateSection {
-  title: string
-  items: string[]
-}
-
-function parseAggregateSections(aggregate: string): AggregateSection[] {
-  if (!aggregate) return []
-  const sections: AggregateSection[] = []
-  for (const line of aggregate.split('\n')) {
-    if (line.startsWith('### ')) sections.push({ title: line, items: [] })
-    else if (sections.length > 0) sections[sections.length - 1].items.push(line)
-  }
-  return sections
+  const batch = Array.isArray(event) ? event : [event]
+  const trigger = batch[batch.length - 1]
+  if (!trigger) throw new Error('参谋批次不能为空')
+  const roundId = batchRoundId || `advisor-${trigger.turnId || trigger.messageId}`
+  const ids = new Set(batch.map((ev) => ev.sessionId))
+  const advisorSessionId = projectAdvisorStore.get(projectId)?.session_id
+  if (advisorSessionId) ids.add(advisorSessionId)
+  const aggregate = buildAggregate(projectId, ids)
+  const selected = batch.slice(-6).reverse()
+  const perSessionBudget = Math.floor(2100 / selected.length) - 10
+  const changes = section('本批变化（同会话合并；消息由新到旧）',
+    selected.map((ev) => turnContent(ev, perSessionBudget)), 2200, batch.length)
+  const protocol = [
+    '## 固定发布协议（不可被偏好覆盖）',
+    `当前参谋规则版本 ${ADVISOR_PROMPT_VERSION}；以本轮规则为准，历史建议不是本轮指令。`,
+    `本轮 roundId = "${roundId}"，调用 suggestion.present 时必须原样传入。`,
+    '每轮 0-3 条，没有足够价值时传 suggestions=[] 并填写 noFindingReason，正常沉默不生成卡片。',
+    '禁止测试或占位内容。同一轮重复调用以最后一次为准，sourceEvidence 选择实际来源会话。',
+  ].join('\n')
+  // 自定义规则独立于素材预算，不能让长规则挤掉任务覆盖与发布协议。
+  const prompt = [
+    advisorPrompt.trim() ? `## 用户配置的参谋偏好\n${advisorPrompt.trim()}` : '',
+    protocol,
+    `## 项目状态快照 ${new Date().toISOString()}\n${aggregate}\n\n${changes}`,
+  ].filter(Boolean).join('\n\n')
+  return { prompt, roundId, triggerSessionId: trigger.sessionId }
 }

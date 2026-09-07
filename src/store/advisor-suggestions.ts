@@ -137,6 +137,15 @@ export const advisorSuggestionStore = {
     `).all(projectId, since)
   },
 
+  listRecentFeedback(projectId: string, now = new Date().toISOString()): AdvisorSuggestionRow[] {
+    const since = new Date(Date.parse(now) - 7 * 24 * 60 * 60 * 1000).toISOString()
+    return getDb().prepare<[string, string], AdvisorSuggestionRow>(`
+      SELECT * FROM advisor_suggestions
+      WHERE project_id = ? AND status IN ('accepted', 'created', 'ignored') AND updated_at > ?
+      ORDER BY updated_at DESC, id DESC LIMIT 10
+    `).all(projectId, since)
+  },
+
   /** 已过期但仍是 pending 的建议（前端沉底展示、不计徽标，L-6）——只回过期未满 24h 的，隔天彻底消失 */
   listExpiredPending(projectId: string, now = new Date().toISOString()): AdvisorSuggestionRow[] {
     const windowStart = new Date(Date.parse(now) - 24 * 60 * 60 * 1000).toISOString()

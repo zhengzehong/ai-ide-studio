@@ -396,3 +396,13 @@ Scheduler output is emitted back through the internal mitt bus as the same `sess
 ## MCP Tool Context Boundary
 
 Platform MCP tools use the session tool context as the source of truth for project, Team, member, current Agent, and session identity. Runtime schema sanitization hides system-owned fields from model-visible schemas, while handlers still validate business target IDs against the current project or Team before creating sessions, tasks, or Team records.
+
+## 项目参谋
+
+参谋以项目为观察边界，复用独立 Session 和现有任务接受流程，适用于开发、写作与研究等工作。
+
+普通会话的正常结束事件进入 `advisor-turns`，由 `advisor-batch-scheduler` 在固定 15 分钟窗口中合并为项目批次。同一项目最多一个自动分析执行中，后续变化留待下一窗口；无变化不唤醒。内存批次不提供离线事件必达保证，服务恢复后通过新事件读取最新项目状态。
+
+`advisor-push` 为规则、批次变化、工作覆盖和近期反馈保留独立预算；默认规则由 `advisor-prompt` 单点维护。任务摘要与会话 ID 支持按需核查，截断不代表其他工作不存在。规则独立于约 8000 字符的素材预算，自定义规则仍受配置长度上限约束。
+
+`advisor-rounds` 把发布请求绑定到有效的项目与参谋 Session，接受空建议作为正常提交；完成、禁用、重建后旧批次失效。`project-advisor` 管理配置、建议与接受动作，`advisor-suggestion-context` 构造接受任务时的来源资料。当前设置不重写已发送的 Prompt，下一批读取最新配置。

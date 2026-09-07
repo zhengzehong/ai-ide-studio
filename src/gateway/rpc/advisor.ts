@@ -19,7 +19,7 @@ export const advisorRpcHandlers: RpcHandlerMap = {
     requireOwner(state.authMode)
     sendResult(await configureAdvisor(requiredText(msg.projectId, 'projectId'), {
       advisorAgentId: requiredText(msg.advisorAgentId, 'advisorAgentId'),
-      advisorPrompt: optionalText(msg.advisorPrompt, 20_000),
+      advisorPrompt: optionalAdvisorPrompt(msg.advisorPrompt),
       minSilenceMinutes: optionalNumber(msg.minSilenceMinutes, 'minSilenceMinutes'),
       enabled: optionalBoolean(msg.enabled, 'enabled'),
     }))
@@ -85,6 +85,12 @@ function requiredText(value: unknown, field: string, maxLength = 200): string {
 function optionalText(value: unknown, maxLength: number): string | undefined {
   if (value === undefined || value === null || value === '') return undefined
   if (typeof value !== 'string' || value.trim().length > maxLength) throw new Error(`文本最多 ${maxLength} 个字符`)
+  return value.trim()
+}
+
+function optionalAdvisorPrompt(value: unknown): string | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== 'string' || value.trim().length > 20_000) throw new Error('参谋偏好必须是最多 20000 字符的文本')
   return value.trim()
 }
 
