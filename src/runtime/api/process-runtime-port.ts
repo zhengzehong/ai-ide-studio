@@ -40,6 +40,19 @@ import {
 export type { RuntimeDoneEvent, RuntimePersistenceUpdate } from '../service/protocol.js'
 
 const log = createChildLogger('runtime-process')
+
+// IPC 请求超时分派:prompt 是长请求不设超时;fork 涉及 runtime 侧复制会话
+// (claude 为本地 --resume --fork-session,codex 为 threadFork 等多次服务端
+// RPC),耗时远超普通控制请求,单独放宽到 5 分钟;其余控制请求保持 30s
+// 快速失败。导出纯函数便于单测分派规则。
+export function resolveRuntimeRequestTimeoutMs(
+  operation: RuntimeCommand['operation'],
+  options: { forkTimeoutMs?: number; requestTimeoutMs?: number },
+): number | undefined {
+  if (operation === 'prompt') return undefined
+  if (operation === 'fork') return options.forkTimeoutMs ?? 300_000
+  return options.requestTimeoutMs ?? 30_000
+}
 export interface CreateProcessRuntimePortOptions {
   realtimeStreamEndpoint: string
   realtimeStreamToken: string
@@ -48,6 +61,7 @@ export interface CreateProcessRuntimePortOptions {
   onAgentStatus?: (event: RuntimeAgentStatusEvent) => void | Promise<void>
   readyTimeoutMs?: number
   requestTimeoutMs?: number
+  forkTimeoutMs?: number
   maxFrameBytes?: number
   restartDelayMs?: number
   idleSweepIntervalMs?: number
@@ -343,9 +357,7 @@ class ProcessRuntimePortController implements ProcessRuntimePort {
 
   private sendRequest(command: RuntimeCommand): Promise<unknown> {
     const requestId = randomUUID()
-    const timeoutMs = command.operation === 'prompt'
-      ? undefined
-      : this.options.requestTimeoutMs ?? 30_000
+    const timeoutMs = resolveRuntimeRequestTimeoutMs(command.operation, this.options)
     return new Promise((resolve, reject) => {
       const timer = timeoutMs === undefined
         ? undefined
