@@ -87,7 +87,8 @@ export async function startEdgeGateway(options: StartEdgeGatewayOptions): Promis
     })
   })
   server.on('upgrade', (request, socket, head) => {
-    const targetKind = safePath(request.url) === '/api/v1/voice/asr' ? 'api' : 'realtime'
+    const path = safePath(request.url)
+    const targetKind = path === '/api/v1/voice/asr' || path === '/node-ws' ? 'api' : 'realtime'
     const target = targetKind === 'api' ? targets.apiUrl : targets.realtimeUrl
     if (!target) {
       rejectUpgrade(socket, 503, 'Service Unavailable')

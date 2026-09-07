@@ -179,6 +179,7 @@ export function resolveToolsAsMcpServers(
         { name: 'TEAM_MEMBER_ID', value: teamContext.teamMemberId ?? '' },
         { name: 'WORK_DIR', value: workDir || process.cwd() },
         { name: 'DATA_DIR', value: process.env.DATA_DIR ?? './data' },
+        { name: 'AI_IDE_DEVICE_GATEWAY_URL', value: options.baseUrl ?? `http://127.0.0.1:${process.env.PORT ?? '18800'}` },
       ],
     })
   }

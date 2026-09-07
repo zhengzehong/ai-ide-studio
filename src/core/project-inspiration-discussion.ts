@@ -28,6 +28,7 @@ export async function sendInspirationDiscussion(input: {
   images?: ImageAttachment[]
   clientMessageId: string
   contextProjectId?: string
+  originDeviceId?: string
 }): Promise<void> {
   const session = sessionStore.get(input.sessionId)
   if (!session?.project_id) throw new Error('灵感会话不存在')
@@ -46,6 +47,7 @@ export async function sendInspirationDiscussion(input: {
     try {
       await sessionManager.sendPrompt(input.sessionId, input.content, input.images, {
         clientMessageId: input.clientMessageId,
+        originDeviceId: input.originDeviceId,
         batchKey: `inspiration-discussion:${input.noteId}:${input.clientMessageId}`,
         modelContent: buildInspirationDiscussionPrompt(input.noteId, input.content),
       })

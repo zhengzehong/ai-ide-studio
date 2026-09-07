@@ -44,6 +44,9 @@ describe('SQLite 迁移', () => {
       SELECT name FROM sqlite_master
       WHERE type = 'table' AND name IN (
         'schema_migrations',
+        'devices',
+        'device_pairings',
+        'device_jobs',
         'tool_contexts',
         'tool_call_audit',
         'model_profiles',
@@ -81,6 +84,9 @@ describe('SQLite 迁移', () => {
       'agent_session_messages',
       'agent_session_watches',
       'autonomy_reports',
+      'device_jobs',
+      'device_pairings',
+      'devices',
       'global_assistant',
       'inspiration_candidates',
       'inspiration_notes',
