@@ -8,6 +8,8 @@ import { projectStore } from '../../src/store/projects.js'
 import { sessionStore } from '../../src/store/sessions.js'
 import { teamService, type TeamContextDetail } from '../../src/core/teams.js'
 import { teamRpcHandlers } from '../../src/gateway/rpc/teams.js'
+import { seedBuiltinTemplates } from '../../src/store/agent-templates.js'
+import { seedBuiltinTools } from '../../src/tools/seed.js'
 
 let tmp: string
 
@@ -22,6 +24,23 @@ afterEach(() => {
 })
 
 describe('teams.current RPC', () => {
+  test('returns the builtin Master prompt and creates a hidden fixed Master', async () => {
+    seedBuiltinTemplates()
+    seedBuiltinTools()
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const defaults = await callTeamRpc<{ masterPrompt: string }>('teams.defaults', {})
+    const created = await callTeamRpc<ReturnType<typeof teamService.create>>('teams.create', {
+      projectId: project.id,
+      name: 'Alpha',
+      masterPrompt: `${defaults.masterPrompt}\n自定义规则`,
+    })
+
+    expect(created.team.master_prompt).toContain('自定义规则')
+    expect(created.agent.template_id).toBe('tpl-team-leader')
+    expect(created.agent.hidden_at).toBeTruthy()
+    expect(created.agent.system_prompt).toBe(created.team.master_prompt)
+  })
+
   test('returns null when the session is not a Team member session', async () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const agent = agentStore.create({ name: 'Dev', type: 'dev', runtime: 'mock', projectId: project.id })
@@ -72,9 +91,13 @@ describe('teams.current RPC', () => {
 })
 
 async function callTeamsCurrent(sessionId: string): Promise<TeamContextDetail> {
+  return callTeamRpc<TeamContextDetail>('teams.current', { sessionId })
+}
+
+async function callTeamRpc<T>(type: string, payload: Record<string, unknown>): Promise<T> {
   let result: unknown
-  await teamRpcHandlers['teams.current'](
-    { type: 'teams.current', sessionId },
+  await teamRpcHandlers[type](
+    { type, ...payload },
     {
       state: { subscriptions: new Set() },
       sendResult: (data) => {
@@ -88,5 +111,5 @@ async function callTeamsCurrent(sessionId: string): Promise<TeamContextDetail> {
       },
     },
   )
-  return result as TeamContextDetail
+  return result as T
 }

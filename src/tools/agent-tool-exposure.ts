@@ -1,5 +1,4 @@
-const HIDDEN_AGENT_TOOL_PREFIXES = ['team.'] as const
-
-export function isAgentVisiblePlatformTool(toolName: string): boolean {
-  return !HIDDEN_AGENT_TOOL_PREFIXES.some((prefix) => toolName.startsWith(prefix))
+export function isAgentVisiblePlatformTool(_toolName: string): boolean {
+  // Per-agent/project bindings are the exposure boundary. Team tools have no global binding.
+  return true
 }

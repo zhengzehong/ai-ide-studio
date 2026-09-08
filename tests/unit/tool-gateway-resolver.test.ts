@@ -294,7 +294,7 @@ describe('Tool Gateway resolver', () => {
     expect(validateToolToken(rotated)?.visibleTools.sort()).toEqual(['core.task.create', 'core.task.list'])
   })
 
-  test('does not create an HTTP gateway when a member only has hidden Team tools', () => {
+  test('creates an HTTP gateway when a member has a bound Team tool', () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const agent = agentStore.create({
       id: 'agent-team',
@@ -323,7 +323,7 @@ describe('Tool Gateway resolver', () => {
       permissions: { requiresApproval: false, maxExecutionTime: 10_000, networkAccess: false },
       isBuiltin: true,
     })
-    toolBindingStore.set(builtin.id, 'global', null)
+    toolBindingStore.set(builtin.id, 'agent', agent.id)
 
     const servers = resolveToolsAsMcpServers({
       agentId: agent.id,
@@ -331,10 +331,11 @@ describe('Tool Gateway resolver', () => {
       sessionId: session.id,
       preferHttp: true,
     })
-    expect(servers.find((server) => server.name === 'ai-ide-tool-gateway')).toBeUndefined()
+    expect(servers.find((server) => server.name === 'ai-ide-tools')).toBeDefined()
+    expect(validateToolToken(bearerToken(servers))?.visibleTools).toContain('team.mailbox.send')
   })
 
-  test('does not create a stdio gateway when a member only has hidden Team tools', () => {
+  test('creates a stdio gateway when a member has a bound Team tool', () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const agent = agentStore.create({
       id: 'agent-team-stdio',
@@ -363,7 +364,7 @@ describe('Tool Gateway resolver', () => {
       permissions: { requiresApproval: false, maxExecutionTime: 10_000, networkAccess: false },
       isBuiltin: true,
     })
-    toolBindingStore.set(builtin.id, 'global', null)
+    toolBindingStore.set(builtin.id, 'agent', agent.id)
 
     const servers = resolveToolsAsMcpServers({
       agentId: agent.id,
@@ -371,7 +372,7 @@ describe('Tool Gateway resolver', () => {
       sessionId: session.id,
       preferHttp: false,
     })
-    expect(servers.find((server) => server.name === 'ai-ide-tool-gateway')).toBeUndefined()
+    expect(servers.find((server) => server.name === 'ai-ide-tool-gateway')).toBeDefined()
   })
 
   test('disabled agent binding hides inherited platform tool in stdio gateway config', () => {

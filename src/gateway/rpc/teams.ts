@@ -2,6 +2,17 @@
 import type { RpcHandlerMap } from './types.js'
 
 export const teamRpcHandlers: RpcHandlerMap = {
+  'teams.defaults'(_msg, { sendResult }) {
+    sendResult({ masterPrompt: teamService.describeTemplate('tpl-team-leader').system_prompt })
+  },
+  'teams.create'(msg, { sendResult }) {
+    sendResult(teamService.create({
+      projectId: requiredText(msg.projectId, 'projectId'),
+      name: requiredText(msg.name, 'name'),
+      description: typeof msg.description === 'string' ? msg.description : undefined,
+      masterPrompt: typeof msg.masterPrompt === 'string' ? msg.masterPrompt : undefined,
+    }))
+  },
   'teams.list'(msg, { sendResult }) {
     const projectId = typeof msg.projectId === 'string' ? msg.projectId : undefined
     sendResult(teamService.list(projectId))

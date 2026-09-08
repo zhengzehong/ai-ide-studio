@@ -259,7 +259,7 @@ Session 删除采用软删除，仅隐藏列表项并保留 `messages` / `sessio
 |------|------|----------|
 | `src/acp/` | ACP 公共映射与 embedded 回滚实现 | `host.ts`、`capabilities.ts`、`runtime-registry.ts`、`update-mapper.ts` |
 | `src/runtime/` | 独立 Runtime 服务、API 适配器、Session actor、流合并与资源配额 | `service/*`、`api/process-runtime-port.ts`、`api/process-runtime-support.ts`、`actors/session-actor.ts`、`streams/runtime-update-coalescer.ts`、`streams/runtime-update-cursor-store.ts` |
-| `src/core/` | 业务逻辑 | `sessions.ts`、`session-prompt-batcher.ts`、`session-runtime-control.ts`、`turn-process-runtime.ts`、`platform-presentation-results.ts`、`prompt-diagnostics.ts`、`session-event-payload.ts`、`tasks.ts`、`task-simple.ts`、`task-prompt.ts`、`task-steps.ts`、`projects.ts`、`agents.ts`、`teams.ts`、`event-center.ts`、`events.ts`、`knowledge-base.ts` |
+| `src/core/` | 业务逻辑 | `sessions.ts`、`session-prompt-batcher.ts`、`session-runtime-control.ts`、`turn-process-runtime.ts`、`platform-presentation-results.ts`、`prompt-diagnostics.ts`、`session-event-payload.ts`、`tasks.ts`、`task-simple.ts`、`task-prompt.ts`、`task-steps.ts`、`projects.ts`、`agents.ts`、`teams.ts`、`team-master.ts`、`event-center.ts`、`events.ts`、`knowledge-base.ts` |
 | `src/ports/`、`src/queries/` | 异步查询边界与当前单体适配器 | `query-port.ts`、`local-query-port.ts`、`task-list-query.ts` |
 | `src/gateway/` | API 对外接口与 Realtime 桥 | `server.ts`、`reading-assets.ts`、`http/query-routes.ts`、`http/realtime-config-route.ts`、`realtime-event-source.ts`、`realtime-rpc-bridge.ts`、`ws-handler.ts` |
 | `src/realtime/` | 独立实时服务 | `service.ts`、`hub.ts`、`outbound-queue.ts`、`process-client.ts` |
@@ -362,9 +362,9 @@ Claude 档案通过进程环境和 Session settings 应用兼容 Anthropic 的�
 
 ## Team MCP 协作边界
 
-Team 领域保留 `team.*` MCP handlers、工具记录、绑定和 Profile，但当前 Agent 暴露策略在 HTTP 与 stdio 两条 Runtime 路径统一过滤全部 `team.*`，Claude Code 与 Codex 均不可见。工具 handler 仍只校验 Team、Member、Task 与 Project 的一致性；未来恢复 Agent Team 能力时，可移除静态过滤并继续使用现有 Agent 级绑定或 Team Profile。
+Team 领域通过 Agent 级工具 Profile 控制 `team.*` MCP 能力，不设置全局绑定。固定 Master 自动获得 `team-leader` Profile，成员获得 `team-member` Profile，普通 Agent 看不到 Team 工具；HTTP 与 stdio 两条 Runtime 路径使用相同绑定解析和 Team 上下文校验。
 
-TeamMember 的 `session_id` 指向普通 `sessions` 行，成员执行输出继续落到 `messages` 和 `session_events`，所以刷新或切换会话后仍能按现有会话事件恢复。团队上下文通过 ToolContext 的 `teamId` / `teamMemberId` 传递，成员调用 `team.mailbox.send`、`team.task.update` 时不需要在 prompt 中手写 Team ID。`team.member.spawn` 创建或加入成员后，会自动给成员 Agent 套用 `team-member` Profile，让成员后续会话具备汇报和更新团队任务的基础工具。团队群聊在 Workspace 的左侧与普通 Agent 同层级显示；每个群聊通过 `team_conversations` 和 `team_conversation_members` 为 Master 与每个成员建立独立 Session，前端聚合这些 Session 的历史消息并标注发送者，普通 Agent 的 Workspace 分支不改变。
+创建 Team 时，平台从内置 `tpl-team-leader` 部署一个项目内隐藏 Master Agent，可用创建表单传入的提示词覆盖模板默认值，并自动绑定 `team-leader` Profile。Master 新建的 Agent 标记为 `teamInternal` 并从普通 Workspace Agent 列表和显示管理中排除；显式加入团队的已有项目 Agent 保持原可见性。TeamMember 的 `session_id` 指向普通 `sessions` 行，成员执行输出继续落到 `messages` 和 `session_events`，所以刷新或切换会话后仍能按现有会话事件恢复。团队上下文通过 ToolContext 的 `teamId` / `teamMemberId` 传递，成员调用 `team.mailbox.send`、`team.task.update` 时不需要在 prompt 中手写 Team ID。`team.member.spawn` 创建或加入成员后，会自动给成员 Agent 套用 `team-member` Profile。团队群聊在 Workspace 的左侧与普通 Agent 同层级显示；每个群聊通过 `team_conversations` 和 `team_conversation_members` 为 Master 与每个成员建立独立 Session，前端聚合这些 Session 的历史消息并标注发送者，普通 Agent 的 Workspace 分支不改变。
 
 前端工作台不为 Team 提供独立页面。`teams.current(sessionId)` 按当前会话反查 Team 上下文；右侧上下文区展示成员、任务和 mailbox，点击成员只切换到该成员的普通 Session。Team 变化通过 `team:update` 广播触发当前会话上下文刷新。
 

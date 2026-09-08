@@ -9,6 +9,7 @@ import { taskStore, taskEventStore } from '../../src/store/tasks.js'
 import { ruleStore } from '../../src/store/rules.js'
 import { taskStepsMigration } from '../../src/store/migrations/037-task-steps.js'
 import { sessionTagsMigration } from '../../src/store/migrations/060-session-tags.js'
+import { teamMasterPromptMigration } from '../../src/store/migrations/066-team-master-prompt.js'
 import Database from 'better-sqlite3'
 
 const tmp = mkdtempSync(resolve(tmpdir(), 'ai-ide-sqlite-'))
@@ -36,6 +37,22 @@ const legacyData = {
 }
 
 describe('SQLite 迁移', () => {
+  test('Team Master 提示词迁移回填已有 Leader 提示词', () => {
+    const db = new Database(':memory:')
+    db.exec(`
+      CREATE TABLE teams (id TEXT PRIMARY KEY);
+      CREATE TABLE agents (id TEXT PRIMARY KEY, system_prompt TEXT);
+      CREATE TABLE team_members (team_id TEXT, agent_id TEXT, role TEXT, created_at TEXT);
+      CREATE TABLE agent_templates (id TEXT PRIMARY KEY, is_builtin INTEGER, description TEXT, system_prompt TEXT);
+      INSERT INTO teams (id) VALUES ('team-a');
+      INSERT INTO agents (id, system_prompt) VALUES ('agent-a', '已有 Master 提示词');
+      INSERT INTO team_members (team_id, agent_id, role, created_at) VALUES ('team-a', 'agent-a', 'leader', '2026-01-01');
+    `)
+    teamMasterPromptMigration.up(db)
+    expect(db.prepare('SELECT master_prompt FROM teams WHERE id = ?').get('team-a')).toEqual({ master_prompt: '已有 Master 提示词' })
+    db.close()
+  })
+
   test('创建工具上下文、工具调用审计和 schema_migrations 表', () => {
     closeDatabase()
     initDatabase(resolve(tmp, 'tool-platform.sqlite'))
@@ -125,7 +142,7 @@ describe('SQLite 迁移', () => {
       ORDER BY name
     `).all().map(row => row.name)
 
-    expect(migrations).toEqual(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011', '012', '013', '014', '015', '016', '017', '018', '019', '020', '021', '022', '023', '024', '025', '026', '027', '028', '029', '030', '031', '032', '033', '034', '035', '036', '037', '038', '039', '040', '041', '042', '043', '044', '045', '046', '047', '048', '049', '050', '051', '052', '053', '054', '055', '056', '057', '058', '059', '060', '061', '062', '063', '064', '065'])
+    expect(migrations).toEqual(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011', '012', '013', '014', '015', '016', '017', '018', '019', '020', '021', '022', '023', '024', '025', '026', '027', '028', '029', '030', '031', '032', '033', '034', '035', '036', '037', '038', '039', '040', '041', '042', '043', '044', '045', '046', '047', '048', '049', '050', '051', '052', '053', '054', '055', '056', '057', '058', '059', '060', '061', '062', '063', '064', '065', '066'])
     expect(messageColumns).toContain('file_changes_json')
     expect(messageColumns).toContain('process_item_count')
     expect(messageColumns).toContain('presentations_json')

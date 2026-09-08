@@ -26,7 +26,7 @@ afterEach(() => {
 })
 
 describe('ACP Team auto permission', () => {
-  test('does not auto-approve a statically hidden Team tool while preserving its binding', () => {
+  test('auto-approves a visible internal Team collaboration tool', () => {
     const { worker, session } = createTeamMember()
     const mailbox = requiredTool('team.mailbox.send')
 
@@ -43,7 +43,7 @@ describe('ACP Team auto permission', () => {
       options: allowOptions(),
     })
 
-    expect(result).toBeUndefined()
+    expect(result).toEqual({ outcome: { outcome: 'selected', optionId: 'always' } })
   })
 
   test('rejects external MCP tools even when the normalized tool name matches', () => {

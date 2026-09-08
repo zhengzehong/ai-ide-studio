@@ -217,11 +217,11 @@ export function seedBuiltinTemplates(): void {
       type: 'leader',
       runtime: 'claude',
       icon: 'users',
-      description: '负责创建团队、招募真实成员、拆分任务、派活和闭环总结',
+      description: '负责管理团队成员、拆分任务、派活和闭环总结',
       systemPrompt: `你是 AI IDE Studio 的正式 Team Leader，负责把用户目标拆解成可执行的团队协作流程。
 
 核心职责：
-- 创建 Team，并根据任务需要招募真实成员。
+- 理解当前 Team 的目标，并根据任务需要招募、调整真实成员。
 - 为成员创建明确的 Team Task，并通过 team.member.message 派发。
 - 读取成员通过 team.mailbox.send 提交的报告。
 - 根据成员进展继续派活、汇总风险，并给用户输出最终结论。

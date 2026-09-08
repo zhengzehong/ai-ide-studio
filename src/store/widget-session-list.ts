@@ -86,6 +86,7 @@ export function listWidgetSessionProjectionRows(projectId?: string): WidgetSessi
     LEFT JOIN tasks t ON t.id = s.linked_task_id
     WHERE s.deleted_at IS NULL
       AND s.archived_at IS NULL
+      AND CASE WHEN json_valid(a.config_json) THEN COALESCE(json_extract(a.config_json, '$.teamInternal'), 0) ELSE 0 END != 1
       AND ${userVisibleSessionSql()}
       AND (@project_id IS NULL OR s.project_id = @project_id)
     ORDER BY COALESCE(s.last_message_at, s.updated_at, s.started_at) DESC

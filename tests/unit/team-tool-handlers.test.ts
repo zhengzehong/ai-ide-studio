@@ -5,7 +5,7 @@ import { resolve } from 'node:path'
 import { initDatabase, closeDatabase } from '../../src/store/db.js'
 import { projectStore } from '../../src/store/projects.js'
 import { agentStore } from '../../src/store/agents.js'
-import { templateStore } from '../../src/store/agent-templates.js'
+import { seedBuiltinTemplates, templateStore } from '../../src/store/agent-templates.js'
 import { taskStore } from '../../src/store/tasks.js'
 import { teamMailboxStore } from '../../src/store/teams.js'
 import { sessionManager } from '../../src/core/sessions.js'
@@ -20,6 +20,7 @@ import { resolveVisiblePlatformTools } from '../../src/tools/registry/visibility
 import { resolveToolsForSession } from '../../src/tools/resolver.js'
 import { listRuntimeTools } from '../../src/tools/runtime/tool-runtime.js'
 import { teamMemberStore } from '../../src/store/teams.js'
+import { listWidgetSessionProjectionRows } from '../../src/store/widget-session-list.js'
 import { eventCenterService } from '../../src/core/event-center.js'
 import type { ToolContext, ToolHandler, ToolHandlerResult } from '../../src/tools/types.js'
 
@@ -28,6 +29,8 @@ let tmp: string
 beforeEach(() => {
   tmp = mkdtempSync(resolve(tmpdir(), 'ai-ide-team-tools-'))
   initDatabase(resolve(tmp, 'ai-ide.sqlite'))
+  seedBuiltinTemplates()
+  seedBuiltinTools()
 })
 
 afterEach(() => {
@@ -110,7 +113,7 @@ describe('team MCP tool handlers', () => {
     expect(asRecord(created.team)).toMatchObject({ name: 'Alpha', project_id: project.id })
   })
 
-  test('team.create derives leader from current agent context', async () => {
+  test('team.create ignores caller and model leader IDs and creates a fixed Master', async () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const leader = agentStore.create({ name: 'Leader', type: 'architect', runtime: 'mock', projectId: project.id })
     const other = agentStore.create({ name: 'Other', type: 'dev', runtime: 'mock', projectId: project.id })
@@ -124,8 +127,13 @@ describe('team MCP tool handlers', () => {
       },
     )
 
-    expect(asRecord(created.member)).toMatchObject({ agent_id: leader.id, role: 'leader' })
-    expect(asRecord(created.session)).toMatchObject({ agent_id: leader.id, project_id: project.id })
+    const member = asRecord(created.member)
+    expect(member).toMatchObject({ role: 'leader' })
+    expect(member.agent_id).not.toBe(leader.id)
+    expect(member.agent_id).not.toBe(other.id)
+    expect(agentStore.get(member.agent_id as string)).toMatchObject({ template_id: 'tpl-team-leader' })
+    expect(agentStore.get(member.agent_id as string)?.hidden_at).toBeTruthy()
+    expect(asRecord(created.session)).toMatchObject({ agent_id: member.agent_id, project_id: project.id })
   })
 
   test('team.create creates Team, initial member, and team session', async () => {
@@ -134,19 +142,65 @@ describe('team MCP tool handlers', () => {
 
     const created = await executeJson(
       'team.create',
-      { name: 'Alpha', description: 'Team collaboration' },
+      { name: 'Alpha', description: 'Team collaboration', masterPrompt: '你是自定义 Master' },
       {
         projectId: project.id,
         agentId: agent.id,
       },
     )
 
-    expect(asRecord(created.team)).toMatchObject({ name: 'Alpha', project_id: project.id })
-    expect(asRecord(created.member)).toMatchObject({ agent_id: agent.id, role: 'leader' })
-    expect(asRecord(created.session)).toMatchObject({ agent_id: agent.id, project_id: project.id })
+    const member = asRecord(created.member)
+    expect(asRecord(created.team)).toMatchObject({ name: 'Alpha', project_id: project.id, master_prompt: '你是自定义 Master' })
+    expect(member).toMatchObject({ role: 'leader' })
+    expect(member.agent_id).not.toBe(agent.id)
+    expect(agentStore.get(member.agent_id as string)).toMatchObject({ system_prompt: '你是自定义 Master', hidden_at: expect.any(String) })
+    expect(asRecord(created.session)).toMatchObject({ agent_id: member.agent_id, project_id: project.id })
   })
 
-  test('team.create reuses the caller session as the leader member session', async () => {
+  test('team.create uses the builtin Master prompt and exposes the leader profile by default', async () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const caller = agentStore.create({ name: 'Caller', type: 'dev', runtime: 'mock', projectId: project.id })
+    const created = await executeJson('team.create', { name: 'Alpha' }, { projectId: project.id, agentId: caller.id })
+    const member = asRecord(created.member)
+    const master = agentStore.get(member.agent_id as string)
+    const template = templateStore.get('tpl-team-leader')
+    expect(master).toMatchObject({ template_id: 'tpl-team-leader', system_prompt: template?.system_prompt })
+    expect(JSON.parse(master?.config_json ?? '{}')).toMatchObject({ teamInternal: true })
+    expect(master?.hidden_at).toBeTruthy()
+    expect(asRecord(created.team).master_prompt).toBe(template?.system_prompt)
+    const visible = resolveVisiblePlatformTools({ agentId: master?.id, projectId: project.id, sessionId: member.session_id as string })
+      .map((tool) => tool.definition.name)
+    expect(visible).toEqual(expect.arrayContaining(['team.member.spawn', 'team.member.message', 'team.task.create']))
+  })
+
+  test('team.update keeps the stored and Agent Master prompts in sync', async () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const created = await executeJson('team.create', { name: 'Alpha' }, { projectId: project.id })
+    const teamId = asRecord(created.team).id as string
+    const masterAgentId = asRecord(created.member).agent_id as string
+    const updated = await executeJson('team.update', { teamId, masterPrompt: '新的 Master 规则' }, { projectId: project.id })
+    expect(asRecord(updated.team).master_prompt).toBe('新的 Master 规则')
+    expect(agentStore.get(masterAgentId)?.system_prompt).toBe('新的 Master 规则')
+  })
+
+  test('new Team members are internal while an existing Agent stays visible', async () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const caller = agentStore.create({ name: 'Caller', type: 'dev', runtime: 'mock', projectId: project.id })
+    const created = await executeJson('team.create', { name: 'Alpha' }, { projectId: project.id, agentId: caller.id })
+    const template = templateStore.create({ name: 'Tester', type: 'tester', runtime: 'mock' })
+    const internal = await executeJson('team.member.spawn', { teamId: asRecord(created.team).id, templateId: template.id })
+    const existing = await executeJson('team.member.spawn', { teamId: asRecord(created.team).id, agentId: caller.id })
+
+    expect(JSON.parse(asRecord(internal.agent).config_json as string)).toMatchObject({ teamInternal: true })
+    expect(asRecord(internal.agent).hidden_at).toEqual(expect.any(String))
+    expect(JSON.parse(asRecord(existing.agent).config_json as string ?? '{}').teamInternal).not.toBe(true)
+    expect(asRecord(existing.agent).hidden_at).toBeNull()
+    const widgetAgentIds = listWidgetSessionProjectionRows(project.id).map((row) => row.agent_id)
+    expect(widgetAgentIds).not.toContain(asRecord(internal.agent).id)
+    expect(widgetAgentIds).toContain(caller.id)
+  })
+
+  test('team.create keeps the caller session separate from the fixed Master session', async () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const leader = agentStore.create({ name: 'Leader', type: 'architect', runtime: 'mock', projectId: project.id })
     const callerSession = sessionStore.create({ agentId: leader.id, projectId: project.id })
@@ -161,11 +215,10 @@ describe('team MCP tool handlers', () => {
       },
     )
 
-    expect(asRecord(created.member)).toMatchObject({
-      session_id: callerSession.id,
-      agent_id: leader.id,
-      role: 'leader',
-    })
+    const member = asRecord(created.member)
+    expect(member).toMatchObject({ role: 'leader' })
+    expect(member.session_id).not.toBe(callerSession.id)
+    expect(member.agent_id).not.toBe(leader.id)
     expect(sessionStore.list(leader.id, project.id).map((session) => session.id)).toEqual([callerSession.id])
   })
 
@@ -198,7 +251,7 @@ describe('team MCP tool handlers', () => {
     expect(messageStore.list(leaderSessionId).filter((message) => message.role === 'human').at(-1)?.content).toBe('请创建团队并派活')
   })
 
-  test('Team Leader profile alone does not inject a Team contract before a Team exists', async () => {
+  test('Team Leader profile injects the collaboration contract when its tools are visible', async () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const leader = agentStore.create({ name: 'Leader', type: 'architect', runtime: 'mock', projectId: project.id })
     seedBuiltinTools()
@@ -220,7 +273,8 @@ describe('team MCP tool handlers', () => {
       acpHost.prompt = originalPrompt
     }
 
-    expect(sentContent).toBe('创建一个 Team 并派活')
+    expect(sentContent).toContain('Team Leader 协作规则')
+    expect(sentContent).toContain('用户请求：\n创建一个 Team 并派活')
     expect(messageStore.list(session.id).filter((message) => message.role === 'human').at(-1)?.content).toBe('创建一个 Team 并派活')
   })
 
@@ -247,34 +301,37 @@ describe('team MCP tool handlers', () => {
     expect(sentContent).toBe('普通对话')
   })
 
-  test('Team Leader bindings do not expose Team tools through either MCP gateway', async () => {
+  test('fixed Master bindings expose orchestration tools through both MCP gateways', async () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const leader = agentStore.create({ name: 'Leader', type: 'architect', runtime: 'mock', projectId: project.id })
     seedBuiltinTools()
     applyToolProfileToAgent({ profileId: 'team-leader', agentId: leader.id })
     const team = await executeJson('team.create', { name: 'Alpha' }, { projectId: project.id, agentId: leader.id })
 
+    const masterAgentId = asRecord(team.member).agent_id as string
     const sessionId = asRecord(team.member).session_id as string
-    const visibleNames = resolveVisiblePlatformTools({ agentId: leader.id, projectId: project.id, sessionId }).map(
+    const visibleNames = resolveVisiblePlatformTools({ agentId: masterAgentId, projectId: project.id, sessionId }).map(
       (tool) => tool.definition.name,
     )
-    const resolvedNames = resolveToolsForSession(leader.id, project.id, sessionId).map((tool) => tool.definition.name)
+    const resolvedNames = resolveToolsForSession(masterAgentId, project.id, sessionId).map((tool) => tool.definition.name)
     const runtimeNames = listRuntimeTools({
       sessionId,
-      agentId: leader.id,
+      agentId: masterAgentId,
       projectId: project.id,
       visibleTools: visibleNames,
     }).map((tool) => tool.name)
 
     for (const names of [visibleNames, resolvedNames, runtimeNames]) {
-      expect(names.some((name) => name.startsWith('team.'))).toBe(false)
+      expect(names).toContain('team.member.spawn')
+      expect(names).toContain('team.member.message')
+      expect(names).toContain('team.task.create')
       expect(names).not.toContain('team.mailbox.list')
       expect(names).not.toContain('team.task.list')
       expect(names).not.toContain('core.session.get')
     }
   })
 
-  test('Team Leader wake runtime does not expose Team tools', async () => {
+  test('Team Master wake runtime exposes orchestration tools', async () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const leader = agentStore.create({ name: 'Leader', type: 'architect', runtime: 'mock', projectId: project.id })
     seedBuiltinTools()
@@ -283,17 +340,18 @@ describe('team MCP tool handlers', () => {
     const leaderMember = teamMemberStore.get(asRecord(team.member).id as string)
     if (!leaderMember) throw new Error('leader member missing')
     const visibleNames = resolveVisiblePlatformTools({
-      agentId: leader.id,
+      agentId: leaderMember.agent_id,
       projectId: project.id,
       sessionId: leaderMember.session_id,
     }).map((tool) => tool.definition.name)
 
-    expect(visibleNames.some((name) => name.startsWith('team.'))).toBe(false)
+    expect(visibleNames).toContain('team.member.spawn')
+    expect(visibleNames).toContain('team.member.message')
     expect(visibleNames).not.toContain('team.mailbox.list')
     expect(visibleNames).not.toContain('team.task.list')
   })
 
-  test('team.member.spawn keeps bindings without exposing Team tools to the spawned agent', async () => {
+  test('team.member.spawn exposes only the member collaboration tools', async () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const leader = agentStore.create({ name: 'Leader', type: 'architect', runtime: 'mock', projectId: project.id })
     seedBuiltinTools()
@@ -312,7 +370,8 @@ describe('team MCP tool handlers', () => {
       agentId: asRecord(spawned.agent).id as string,
       projectId: project.id,
     }).map((tool) => tool.definition.name)
-    expect(visibleNames.some((name) => name.startsWith('team.'))).toBe(false)
+    expect(visibleNames).toContain('team.mailbox.send')
+    expect(visibleNames).toContain('team.task.update')
     expect(visibleNames).not.toContain('team.create')
     expect(visibleNames).not.toContain('team.member.spawn')
   })

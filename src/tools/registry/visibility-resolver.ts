@@ -32,6 +32,7 @@ export function resolveVisiblePlatformTools(input: ResolveVisiblePlatformToolsIn
     if (hiddenToolNames.has(toolRow.name)) continue
     const decision = resolveBindingForTool(toolRow.id, allBindings, input)
     if (!decision.visible || !decision.binding) continue
+    if (toolRow.name.startsWith('team.') && decision.binding.scope !== 'agent') continue
 
     const definition = rowToDefinition(toolRow)
     const binding = rowToBinding(decision.binding)
