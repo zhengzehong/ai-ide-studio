@@ -71,8 +71,12 @@ EventCenterEvent N:N Task (event_task_links)
 Team  1:N TeamMember
 Team  1:N TeamMailbox
 Team  1:N TeamEvent
+Team  1:N TeamConversation
+TeamConversation 1:N TeamConversationMember
+TeamConversation 1:N TeamMessage
 Team  1:N Task (tasks.team_id)
 TeamMember 1:1 Session (current team session)
+TeamConversationMember N:1 Session (conversation-scoped member session)
 TeamMember 1:N Task (tasks.assignee_member_id)
 Session 1:N Message
 Session 1:N SessionEvent (append-only 事件溯源)
@@ -643,6 +647,46 @@ watch 监听 `session:done`，触发后后台唤醒 `watcher_session_id`。如�
 | type | TEXT | 事件类型 |
 | payload_json | TEXT | 事件载荷 |
 | sequence | INTEGER | Team 内单调递增序号 |
+| created_at | TEXT | 创建时间 |
+
+### team_conversations
+
+`team_conversations` 是 Workspace 内同一 Team 的独立群聊容器。每个容器有自己的 Master Session，不改变普通 Agent 会话列表。
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| id | TEXT PK | 团队会话 ID |
+| team_id | TEXT FK | 所属 Team |
+| master_session_id | TEXT FK | 当前群聊的 Master Session |
+| title | TEXT | 群聊标题 |
+| status | TEXT | active / archived / deleted |
+| last_sequence | INTEGER | 统一消息投影序号 |
+| created_at / updated_at | TEXT | 创建和最后更新时间 |
+
+### team_conversation_members
+
+该表把 Team 成员映射到某个群聊自己的 Session；同一 Agent 可在不同群聊中拥有不同 Session 上下文。
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| conversation_id | TEXT FK | 所属团队会话 |
+| member_id | TEXT FK | TeamMember |
+| session_id | TEXT FK | 该群聊中的成员 Session |
+| joined_at / left_at | TEXT | 加入和离开时间 |
+
+### team_messages
+
+统一消息投影表保留来源成员、来源 Session 和顺序，历史读取可按群聊增量查询；当前消息正文仍复用现有 `messages`/`session_events` 作为运行事实源。
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| id | TEXT PK | 团队消息 ID |
+| conversation_id | TEXT FK | 所属群聊 |
+| sequence | INTEGER | 群聊内单调递增序号 |
+| source / kind | TEXT | user / master / member 与消息类型 |
+| agent_id / member_id / session_id | TEXT | 来源身份映射 |
+| content_json | TEXT | 消息投影内容 |
+| source_message_id | TEXT | 去重用的原消息 ID |
 | created_at | TEXT | 创建时间 |
 
 ### rules

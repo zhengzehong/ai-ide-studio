@@ -140,6 +140,7 @@ export const messageTeamMemberHandler: ToolHandler = {
         memberId: requireString(input, 'memberId'),
         content: requireString(input, 'content'),
         taskId: optionalString(input, 'taskId'),
+        sourceSessionId: context.sessionId,
       }),
     )
   },
@@ -188,6 +189,7 @@ export const sendTeamMailboxHandler: ToolHandler = {
       toMemberId: optionalString(input, 'toMemberId'),
       taskId: optionalString(input, 'taskId'),
       payload: input.payload,
+      sourceSessionId: context.sessionId,
     })
     return jsonResult({ message })
   },

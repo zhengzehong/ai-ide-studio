@@ -129,7 +129,7 @@ function ConversationMessage({ message, adapter, onOpenPreview, onOpenFiles, onO
   const processCount = message.process_item_count ?? message.tool_call_count ?? (message.has_tool_calls ? 1 : 0)
   const presentations = message.parsedPresentations ?? []
   const stats = parseTurnStats(message.decision_json, message.started_at, message.completed_at)
-  return <MessageShell human={isHuman} agentName={adapter.agentName} timestamp={message.timestamp}>
+  return <MessageShell human={isHuman} agentName={message.sender_name ?? adapter.agentName} timestamp={message.timestamp}>
     {message.parsedAttachments?.map((attachment, index) => <AuthenticatedImage key={`${message.id}-attachment-${index}`} image={attachment} alt={attachment.name || '附件'} style={{ maxWidth: 180, maxHeight: 140, borderRadius: 8, border: '1px solid var(--border)', objectFit: 'cover', marginBottom: 8 }} />)}
     <TurnContentView
       defaultProcessOpen={!!message.processDefaultOpen}

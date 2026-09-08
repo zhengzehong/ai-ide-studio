@@ -63,6 +63,7 @@ import { spreadsheetsMigration } from './062-spreadsheets.js'
 import type { Migration } from '../migrator.js'
 import { devicesMigration } from './063-devices.js'
 import { advisorDefaultPromptMigration } from './063-advisor-default-prompt.js'
+import { teamConversationsMigration } from './064-team-conversations.js'
 
 export const migrations: Migration[] = [
   initialSchemaMigration,
@@ -129,4 +130,5 @@ export const migrations: Migration[] = [
   spreadsheetsMigration,
   devicesMigration,
   advisorDefaultPromptMigration,
+  teamConversationsMigration,
 ]

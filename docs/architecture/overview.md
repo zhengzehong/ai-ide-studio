@@ -364,7 +364,7 @@ Claude 档案通过进程环境和 Session settings 应用兼容 Anthropic 的�
 
 Team 领域保留 `team.*` MCP handlers、工具记录、绑定和 Profile，但当前 Agent 暴露策略在 HTTP 与 stdio 两条 Runtime 路径统一过滤全部 `team.*`，Claude Code 与 Codex 均不可见。工具 handler 仍只校验 Team、Member、Task 与 Project 的一致性；未来恢复 Agent Team 能力时，可移除静态过滤并继续使用现有 Agent 级绑定或 Team Profile。
 
-TeamMember 的 `session_id` 指向普通 `sessions` 行，成员执行输出继续落到 `messages` 和 `session_events`，所以刷新或切换会话后仍能按现有会话事件恢复。团队上下文通过 ToolContext 的 `teamId` / `teamMemberId` 传递，成员调用 `team.mailbox.send`、`team.task.update` 时不需要在 prompt 中手写 Team ID。`team.member.spawn` 创建或加入成员后，会自动给成员 Agent 套用 `team-member` Profile，让成员后续会话具备汇报和更新团队任务的基础工具。
+TeamMember 的 `session_id` 指向普通 `sessions` 行，成员执行输出继续落到 `messages` 和 `session_events`，所以刷新或切换会话后仍能按现有会话事件恢复。团队上下文通过 ToolContext 的 `teamId` / `teamMemberId` 传递，成员调用 `team.mailbox.send`、`team.task.update` 时不需要在 prompt 中手写 Team ID。`team.member.spawn` 创建或加入成员后，会自动给成员 Agent 套用 `team-member` Profile，让成员后续会话具备汇报和更新团队任务的基础工具。团队群聊在 Workspace 的左侧与普通 Agent 同层级显示；每个群聊通过 `team_conversations` 和 `team_conversation_members` 为 Master 与每个成员建立独立 Session，前端聚合这些 Session 的历史消息并标注发送者，普通 Agent 的 Workspace 分支不改变。
 
 前端工作台不为 Team 提供独立页面。`teams.current(sessionId)` 按当前会话反查 Team 上下文；右侧上下文区展示成员、任务和 mailbox，点击成员只切换到该成员的普通 Session。Team 变化通过 `team:update` 广播触发当前会话上下文刷新。
 

@@ -1,5 +1,6 @@
 import { taskStore, type TaskRow } from '../store/tasks.js'
 import { teamMemberStore, teamStore, type TeamMailboxRow, type TeamMemberRow, type TeamRow } from '../store/teams.js'
+import { teamConversationStore } from '../store/team-conversations.js'
 import { events } from './events.js'
 import { createChildLogger } from './logger.js'
 import { sessionManager } from './sessions.js'
@@ -36,14 +37,18 @@ events.on('session:manual-prompt-started', (ev) => {
 })
 
 export const teamWakeCoordinator = {
-  notifyMailbox(message: TeamMailboxRow): void {
+  notifyMailbox(message: TeamMailboxRow, sourceSessionId?: string): void {
     if (!message.from_member_id || !WAKE_MAILBOX_TYPES.has(message.type)) return
     const team = teamStore.get(message.team_id)
     const member = teamMemberStore.get(message.from_member_id)
     if (!team || !member || member.role === 'leader') return
     const task = message.task_id ? taskStore.get(message.task_id) : undefined
     const delayMs = message.task_id ? TASK_MAILBOX_WAKE_DELAY_MS : WAKE_DELAY_MS
-    scheduleLeaderWake(team, member, buildLeaderWakePrompt({ team, member, message, task }), delayMs)
+    const conversation = sourceSessionId ? teamConversationStore.getBySession(sourceSessionId) : undefined
+    const leaderSessionId = conversation
+      ? teamConversationStore.listMembers(conversation.id).find((entry) => teamMemberStore.get(entry.member_id)?.role === 'leader')?.session_id
+      : undefined
+    scheduleLeaderWake(team, member, buildLeaderWakePrompt({ team, member, message, task }), delayMs, leaderSessionId)
   },
 
   notifyTaskUpdated(task: TaskRow, actor?: { teamMemberId?: string }): void {
@@ -55,20 +60,21 @@ export const teamWakeCoordinator = {
   },
 }
 
-function scheduleLeaderWake(team: TeamRow, member: TeamMemberRow, prompt: string, delayMs: number): void {
+function scheduleLeaderWake(team: TeamRow, member: TeamMemberRow, prompt: string, delayMs: number, preferredLeaderSessionId?: string | null): void {
   const leader = teamMemberStore.list(team.id).find((item) => item.role === 'leader')
   if (!leader) {
     log.warn({ teamId: team.id, memberId: member.id }, 'Team Leader missing; wake skipped')
     return
   }
 
-  pendingByLeaderSession.set(leader.session_id, prompt)
-  const existingTimer = wakeTimers.get(leader.session_id)
+  const leaderSessionId = preferredLeaderSessionId ?? leader.session_id
+  pendingByLeaderSession.set(leaderSessionId, prompt)
+  const existingTimer = wakeTimers.get(leaderSessionId)
   if (existingTimer) clearTimeout(existingTimer)
-  const timer = setTimeout(() => flushLeaderWake(leader.session_id), delayMs)
+  const timer = setTimeout(() => flushLeaderWake(leaderSessionId), delayMs)
   timer.unref?.()
-  wakeTimers.set(leader.session_id, timer)
-  log.debug({ teamId: team.id, leaderSessionId: leader.session_id, delayMs }, 'Team Leader wake scheduled')
+  wakeTimers.set(leaderSessionId, timer)
+  log.debug({ teamId: team.id, leaderSessionId, delayMs }, 'Team Leader wake scheduled')
 }
 
 function flushLeaderWake(leaderSessionId: string): void {
