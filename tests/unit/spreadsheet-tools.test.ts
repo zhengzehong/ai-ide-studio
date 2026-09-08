@@ -402,3 +402,78 @@ describe('tool seed registration', () => {
     expect(schema.properties.projectId).toBeUndefined()
   })
 })
+
+describe('spreadsheet_create_table', () => {
+  test('creates a table with the default fields when fields are omitted', async () => {
+    const project = projectStore.create({ name: 'P-create', workDir: root })
+    const json = await ok('spreadsheet_create_table', { name: 'content-review-issues', title: '内容下发审查问题' }, makeContext(project.id))
+    expect(json.name).toBe('content-review-issues')
+    expect(json.title).toBe('内容下发审查问题')
+    expect(json.recordCount).toBe(0)
+    const fields = (json.fields ?? []) as Array<Record<string, unknown>>
+    expect(fields.map((field) => field.key)).toEqual(['title', 'status', 'due'])
+    const status = fields.find((field) => field.key === 'status')
+    expect((status?.options ?? [])).toHaveLength(3)
+
+    const listed = await ok('spreadsheet_list_tables', {}, makeContext(project.id))
+    const tables = (listed.tables ?? []) as Array<Record<string, unknown>>
+    expect(tables.some((table) => table.name === 'content-review-issues')).toBe(true)
+  })
+
+  test('creates a table from custom fields with explicit keys and auto-colored options', async () => {
+    const project = projectStore.create({ name: 'P-create-custom', workDir: root })
+    const json = await ok('spreadsheet_create_table', {
+      name: 'custom-table',
+      fields: [
+        { name: '问题标题', type: 'text', key: 'issue_title' },
+        { name: '核实结论', type: 'singleSelect', options: ['属实', '过时', '已修复'] },
+        { name: 'rownum', type: 'number' },
+      ],
+    }, makeContext(project.id))
+    const fields = (json.fields ?? []) as Array<{ key: string; name: string; type: string; options?: Array<{ n: string; c: string }> }>
+    // key 三种生成路径：显式 key / 英文显示名直接用作 key / 中文名自动分配 f-*
+    expect(fields.map((field) => field.key)).toEqual(['issue_title', expect.stringMatching(/^f-/), 'rownum'])
+    expect(fields[0].name).toBe('问题标题')
+    expect(fields[1].options?.map((option) => option.n)).toEqual(['属实', '过时', '已修复'])
+    for (const option of fields[1].options ?? []) {
+      expect(['blue', 'green', 'purple', 'orange', 'red', 'yellow', 'gray']).toContain(option.c)
+    }
+    expect(fields[2].type).toBe('number')
+  })
+
+  test('lowercases the AI short name like the store layer does', async () => {
+    const project = projectStore.create({ name: 'P-create-case', workDir: root })
+    const json = await ok('spreadsheet_create_table', { name: 'Content-Review' }, makeContext(project.id))
+    expect(json.name).toBe('content-review')
+  })
+
+  test('rejects duplicate short names within the same project', async () => {
+    const project = projectStore.create({ name: 'P-create-dup', workDir: root })
+    await ok('spreadsheet_create_table', { name: 'dup-table' }, makeContext(project.id))
+    const json = await fail('spreadsheet_create_table', { name: 'dup-table' }, makeContext(project.id))
+    expect(String(json.error)).toContain('已存在')
+  })
+
+  test('rejects invalid fields input and duplicate explicit keys', async () => {
+    const project = projectStore.create({ name: 'P-create-invalid', workDir: root })
+    const empty = await fail('spreadsheet_create_table', { name: 't1', fields: [] }, makeContext(project.id))
+    expect(String(empty.error)).toContain('fields')
+
+    const badType = await fail('spreadsheet_create_table', {
+      name: 't2',
+      fields: [{ name: 'x', type: 'longtext' }],
+    }, makeContext(project.id))
+    expect(String(badType.error)).toContain('type')
+
+    const dupKey = await fail('spreadsheet_create_table', {
+      name: 't3',
+      fields: [{ name: 'a', type: 'text', key: 'same' }, { name: 'b', type: 'text', key: 'same' }],
+    }, makeContext(project.id))
+    expect(String(dupKey.error)).toContain('字段 key 重复')
+  })
+
+  test('requires a project-bound session', async () => {
+    const json = await fail('spreadsheet_create_table', { name: 'orphan' }, makeContext(undefined))
+    expect(String(json.error)).toContain('未绑定项目')
+  })
+})

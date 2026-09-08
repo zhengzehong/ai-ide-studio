@@ -1289,6 +1289,41 @@ const CORE_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'global' })[] = [
     defaultScope: 'global',
   },
   {
+    name: 'spreadsheet_create_table',
+    displayName: '新建项目表格',
+    description:
+      '在当前项目内新建一张空表。不传 fields 时使用默认字段（标题 text / 状态 singleSelect：待处理、进行中、已完成 / 日期 date）；可用 fields 自定义字段（类型 text/number/singleSelect/date/checkbox，singleSelect 选项自动配色）。name 在项目内唯一，建表后用 spreadsheet_write_rows 写数据。',
+    category: 'data',
+    type: 'builtin',
+    config: { handler: 'spreadsheet_create_table' },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: '表格 AI 短名（项目内唯一，后续 query/write/manage_schema 均用它引用）' },
+        title: { type: 'string', description: '可选：显示名，缺省同 name' },
+        fields: {
+          type: 'array',
+          description:
+            '可选：字段定义列表，每个元素为 {name, type, key?, options?}——name 字段显示名；type 为 text/number/singleSelect/date/checkbox 之一；key 可选（缺省由英文显示名生成或自动分配）；options 为 singleSelect 的选项名列表（自动配色）。缺省整个 fields 时使用默认字段（标题/状态/日期）',
+          items: {
+            type: 'object',
+            properties: {
+              name: { type: 'string', description: '字段显示名' },
+              type: { type: 'string', enum: ['text', 'number', 'singleSelect', 'date', 'checkbox'], description: '字段类型' },
+              key: { type: 'string', description: '可选：字段 key（缺省由显示名生成或自动分配）' },
+              options: { type: 'array', items: { type: 'string' }, description: 'singleSelect 选项名列表（自动配色）' },
+            },
+            required: ['name', 'type'],
+          },
+        },
+      },
+      required: ['name'],
+    },
+    permissions: CORE_PERMISSIONS,
+    isBuiltin: true,
+    defaultScope: 'global',
+  },
+  {
     name: 'spreadsheet_list_tables',
     displayName: '列出项目表格',
     description: '列出当前项目内的所有表格，并附带每张表的字段定义（key、名称、类型、单选选项）与记录数。写数据前必须先调用本工具拿到表名与字段结构。',

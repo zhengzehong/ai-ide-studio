@@ -125,6 +125,7 @@ describe('builtin tool seed synchronization', () => {
       'recall_memory',
       'record_memory',
       'secretary.report',
+      'spreadsheet_create_table',
       'spreadsheet_list_tables',
       'spreadsheet_manage_schema',
       'spreadsheet_query_rows',

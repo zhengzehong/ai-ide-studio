@@ -361,6 +361,7 @@ export const spreadsheetManageSchemaHandler: ToolHandler = {
         properties: {
           name: { type: 'string', description: '字段显示名' },
           type: { type: 'string', enum: ['text', 'number', 'singleSelect', 'date', 'checkbox'], description: '字段类型' },
+          key: { type: 'string', description: '可选：字段 key（缺省由显示名生成或自动分配，冲突时报错）' },
           options: { type: 'array', items: { type: 'string' }, description: 'singleSelect 初始选项名列表（自动配色）' },
         },
         required: ['name', 'type'],
@@ -566,6 +567,95 @@ export const spreadsheetManageSchemaHandler: ToolHandler = {
         default:
           throw new Error(`未知 action：${action}`)
       }
+    } catch (error) {
+      return errorResult(error instanceof Error ? error.message : String(error))
+    }
+  },
+}
+
+// ---------------------------------------------------------------------------
+// 5. spreadsheet_create_table —— 建表：默认字段模板或自定义字段（singleSelect 自动配色）
+// ---------------------------------------------------------------------------
+
+/** 建表入参 fields → SpreadsheetSchema：key 显式或由显示名生成，singleSelect 选项自动配色 */
+function buildSchemaFromFieldInput(raw: unknown): SpreadsheetSchema {
+  const items = Array.isArray(raw) ? raw : null
+  if (!items || items.length === 0) {
+    throw new Error('fields 需要是非空数组；如需默认字段（标题/状态/日期）请不要传 fields')
+  }
+  const fields = items.map((item, index) => {
+    const record = asRecord(item)
+    if (!record) throw new Error(`fields[${index}] 必须是对象`)
+    const fieldName = requiredText(record.name, `fields[${index}].name`, 100)
+    const type = record.type
+    if (!FIELD_TYPES.includes(type as SpreadsheetFieldType)) {
+      throw new Error(`fields[${index}].type 必须是以下之一：${FIELD_TYPES.join('、')}`)
+    }
+    const optionNames = Array.isArray(record.options)
+      ? record.options.filter((option): option is string => typeof option === 'string' && option.trim().length > 0)
+      : []
+    const explicitKey = optionalText(record.key, `fields[${index}].key`, 60)
+    const key = explicitKey ?? (/^[A-Za-z_][A-Za-z0-9_]*$/.test(fieldName) ? fieldName : `f-${randomUUID().slice(0, 8)}`)
+    const field: SpreadsheetField = { key, name: fieldName, type: type as SpreadsheetFieldType, w: 120 }
+    if (type === 'singleSelect') {
+      field.options = optionNames.map((optionName, optionIndex) => ({ n: optionName, c: nextOptionColor(optionIndex) }))
+    }
+    return field
+  })
+  const seen = new Set<string>()
+  for (const field of fields) {
+    if (seen.has(field.key)) throw new Error(`字段 key 重复：${field.key}`)
+    seen.add(field.key)
+  }
+  return { fields }
+}
+
+export const spreadsheetCreateTableHandler: ToolHandler = {
+  name: 'spreadsheet_create_table',
+  description:
+    '在当前项目内新建一张空表。不传 fields 时使用默认字段（标题 text / 状态 singleSelect：待处理、进行中、已完成 / 日期 date）；可用 fields 自定义字段（类型 text/number/singleSelect/date/checkbox，singleSelect 选项自动配色）。name 在项目内唯一，建表后用 spreadsheet_write_rows 写数据。',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      name: { type: 'string', description: '表格 AI 短名（项目内唯一，后续 query/write/manage_schema 均用它引用）' },
+      title: { type: 'string', description: '可选：显示名，缺省同 name' },
+      fields: {
+        type: 'array',
+        description:
+          '可选：字段定义列表，每个元素为 {name, type, key?, options?}——name 字段显示名；type 为 text/number/singleSelect/date/checkbox 之一；key 可选（缺省由英文显示名生成或自动分配）；options 为 singleSelect 的选项名列表（自动配色）。缺省整个 fields 时使用默认字段（标题/状态/日期）',
+        items: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', description: '字段显示名' },
+            type: { type: 'string', enum: ['text', 'number', 'singleSelect', 'date', 'checkbox'], description: '字段类型' },
+            key: { type: 'string', description: '可选：字段 key（缺省由显示名生成或自动分配）' },
+            options: { type: 'array', items: { type: 'string' }, description: 'singleSelect 选项名列表（自动配色）' },
+          },
+          required: ['name', 'type'],
+        },
+      },
+    },
+    required: ['name'],
+  },
+  async execute(input: ToolHandlerInput, context: ToolContext): Promise<ToolHandlerResult> {
+    try {
+      if (!context.projectId) throw new Error('当前会话未绑定项目，无法访问表格')
+      const name = requiredText(input.name, 'name', 60)
+      const title = optionalText(input.title, 'title', 120) ?? name
+      const schema = input.fields === undefined ? undefined : buildSchemaFromFieldInput(input.fields)
+      const sheet = spreadsheetStore.create({
+        projectId: context.projectId,
+        name,
+        title,
+        ...(schema ? { schema } : {}),
+      })
+      return jsonResult({
+        id: sheet.id,
+        name: sheet.name,
+        title: sheet.title,
+        fields: parseSchema(sheet).fields,
+        recordCount: 0,
+      })
     } catch (error) {
       return errorResult(error instanceof Error ? error.message : String(error))
     }

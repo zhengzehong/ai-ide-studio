@@ -124,6 +124,7 @@ import { inspirationAnalysisPublishHandler } from './inspiration-analysis-publis
 import { suggestionPresentHandler } from './suggestion-present.js'
 import { inspirationNoteGetHandler } from './inspiration-note-get.js'
 import {
+  spreadsheetCreateTableHandler,
   spreadsheetListTablesHandler,
   spreadsheetManageSchemaHandler,
   spreadsheetQueryRowsHandler,
@@ -258,6 +259,7 @@ register(filesPresentHandler)
 register(inspirationAnalysisPublishHandler)
 register(inspirationNoteGetHandler)
 register(suggestionPresentHandler)
+register(spreadsheetCreateTableHandler)
 register(spreadsheetListTablesHandler)
 register(spreadsheetQueryRowsHandler)
 register(spreadsheetWriteRowsHandler)
