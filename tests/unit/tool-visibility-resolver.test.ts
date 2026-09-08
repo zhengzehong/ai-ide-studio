@@ -70,7 +70,7 @@ describe('tool visibility resolver', () => {
     expect(resolveVisiblePlatformTools({}).map((t) => t.definition.name)).toEqual([])
   })
 
-  test('hides team tools even when explicitly bound to an agent', () => {
+  test('exposes team tools only when explicitly bound to an agent', () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const agent = agentStore.create({ type: 'dev', name: 'A', runtime: 'mock', projectId: project.id })
     seedBuiltinTools()
@@ -84,7 +84,19 @@ describe('tool visibility resolver', () => {
     toolBindingStore.set(teamCreate.id, 'agent', agent.id)
 
     expect(resolveVisiblePlatformTools({ agentId: agent.id, projectId: project.id }).map((t) => t.definition.name))
+      .toContain('team.create')
+  })
+
+  test('ignores project and global bindings for Team tools', () => {
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const agent = agentStore.create({ type: 'dev', name: 'A', runtime: 'mock', projectId: project.id })
+    const tool = createBuiltin('team.create')
+    toolBindingStore.set(tool.id, 'global', null)
+    toolBindingStore.set(tool.id, 'project', project.id)
+
+    expect(resolveVisiblePlatformTools({ agentId: agent.id, projectId: project.id }).map((item) => item.definition.name))
       .not.toContain('team.create')
+    expect(resolveToolsForSession(agent.id, project.id).map((item) => item.definition.name)).not.toContain('team.create')
   })
 
   test('exposes secretary.report only inside secretary Sessions', () => {

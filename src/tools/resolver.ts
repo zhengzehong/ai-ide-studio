@@ -68,7 +68,7 @@ export function resolveToolsForSession(agentId?: string, projectId?: string, ses
       ? bindings.find((b) => b.scope === 'project' && b.target_id === projectId)
       : undefined
     const agentBinding = agentId ? bindings.find((b) => b.scope === 'agent' && b.target_id === agentId) : undefined
-    const effectiveBinding = agentBinding || projectBinding || globalBinding
+    const effectiveBinding = def.name.startsWith('team.') ? agentBinding : agentBinding || projectBinding || globalBinding
 
     if (!effectiveBinding || effectiveBinding.enabled !== 1) continue
 

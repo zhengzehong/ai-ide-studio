@@ -6,6 +6,7 @@ export interface TeamRow {
   project_id: string
   name: string
   description: string | null
+  master_prompt: string
   status: string
   created_at: string
   updated_at: string
@@ -51,11 +52,13 @@ export interface CreateTeamInput {
   projectId: string
   name: string
   description?: string
+  masterPrompt?: string
 }
 
 export interface UpdateTeamInput {
   name?: string
   description?: string | null
+  masterPrompt?: string
   status?: string
 }
 
@@ -92,14 +95,15 @@ export const teamStore = {
       project_id: input.projectId,
       name: input.name,
       description: input.description ?? null,
+      master_prompt: input.masterPrompt ?? '',
       status: 'active',
       created_at: now,
       updated_at: now,
       archived_at: null,
     }
     getDb().prepare(`
-      INSERT INTO teams (id, project_id, name, description, status, created_at, updated_at, archived_at)
-      VALUES (@id, @project_id, @name, @description, @status, @created_at, @updated_at, @archived_at)
+      INSERT INTO teams (id, project_id, name, description, master_prompt, status, created_at, updated_at, archived_at)
+      VALUES (@id, @project_id, @name, @description, @master_prompt, @status, @created_at, @updated_at, @archived_at)
     `).run(team)
     teamEventStore.append(team.id, { type: 'team.created', payload: { team } })
     return team
@@ -127,12 +131,13 @@ export const teamStore = {
       ...existing,
       name: fields.name ?? existing.name,
       description: fields.description !== undefined ? fields.description : existing.description,
+      master_prompt: fields.masterPrompt !== undefined ? fields.masterPrompt : existing.master_prompt,
       status: fields.status ?? existing.status,
       updated_at: new Date().toISOString(),
     }
     getDb().prepare(`
       UPDATE teams
-      SET name = @name, description = @description, status = @status, updated_at = @updated_at
+      SET name = @name, description = @description, master_prompt = @master_prompt, status = @status, updated_at = @updated_at
       WHERE id = @id
     `).run(updated)
     teamEventStore.append(id, { type: 'team.updated', payload: { team: updated } })

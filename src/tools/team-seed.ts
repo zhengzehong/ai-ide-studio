@@ -28,12 +28,13 @@ export const TEAM_BUILTIN_TOOLS: BuiltinToolSeed[] = [
     properties: { teamId: { type: 'string', description: 'Team ID' } },
     required: ['teamId'],
   }),
-  teamTool('team.create', '创建 Team', '创建 Team，并把当前 Agent 作为初始主控成员。', {
+  teamTool('team.create', '创建 Team', '创建 Team，自动创建隐藏的 Master 并绑定团队工具；masterPrompt 可调整内置默认提示词。', {
     type: 'object',
     properties: {
       projectId: { type: 'string', description: '项目 ID；不传时使用当前会话项目' },
       name: { type: 'string', description: 'Team 名称' },
       description: { type: 'string', description: 'Team 描述' },
+      masterPrompt: { type: 'string', description: '可选的 Master 提示词；不填使用内置默认值' },
     },
     required: ['name'],
   }),
@@ -44,6 +45,7 @@ export const TEAM_BUILTIN_TOOLS: BuiltinToolSeed[] = [
       name: { type: 'string', description: 'Team 名称' },
       description: { type: 'string', description: 'Team 描述' },
       status: { type: 'string', description: 'Team 状态' },
+      masterPrompt: { type: 'string', description: 'Master 提示词' },
     },
     required: ['teamId'],
   }),

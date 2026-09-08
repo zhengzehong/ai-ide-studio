@@ -12,6 +12,7 @@ import {
   type TeamRow,
 } from '../store/teams.js'
 import { createCustomProjectAgent, deployTemplateToProject } from './agents.js'
+import { createFixedMaster, markTeamInternalAgent, updateMasterPrompt } from './team-master.js'
 import { events } from './events.js'
 import { emitTaskLifecycleEvent, resolveTaskLifecycleChangeType } from './task-lifecycle-events.js'
 import { createChildLogger } from './logger.js'
@@ -31,7 +32,6 @@ export interface TeamDetail {
   tasks: TaskRow[]
   mailbox: TeamMailboxRow[]
 }
-
 export interface TeamContextDetail {
   team: TeamRow | null
   currentMember: TeamMemberRow | null
@@ -39,15 +39,14 @@ export interface TeamContextDetail {
   tasks: TaskRow[]
   mailbox: TeamMailboxRow[]
 }
-
 export interface CreateTeamInput {
   projectId: string
-  leaderAgentId: string
+  leaderAgentId?: string
   leaderSessionId?: string
   name: string
   description?: string
+  masterPrompt?: string
 }
-
 export interface SpawnMemberInput {
   teamId: string
   templateId?: string
@@ -59,27 +58,22 @@ export interface SpawnMemberInput {
   icon?: string
   role?: string
 }
-
 export interface SpawnMemberResult {
   member: TeamMemberRow
   agent: AgentRow
   session: SessionRow
 }
-
 export interface CreateTeamResult extends SpawnMemberResult { team: TeamRow }
-
 export interface DispatchTeamMessageResult {
   status: DispatchMemberPromptStatus
   member: TeamMemberRow
 }
-
 export interface CreateTeamTaskInput {
   teamId: string
   title: string
   description?: string
   assigneeMemberId?: string
 }
-
 export interface UpdateTeamTaskInput {
   teamId: string
   taskId: string
@@ -88,19 +82,16 @@ export interface UpdateTeamTaskInput {
   assigneeMemberId?: string | null
   actor?: { teamMemberId?: string }
 }
-
 export interface TeamAccessContext {
   projectId?: string
   teamId?: string
   teamMemberId?: string
 }
-
 export const teamService = {
   list(projectId?: string): TeamRow[] {
     return teamStore.list(projectId)
   },
   ...teamConversationService,
-
   detail(teamId: string): TeamDetail {
     const team = requireTeam(teamId)
     return buildDetail(team)
@@ -115,10 +106,16 @@ export const teamService = {
 
   create(input: CreateTeamInput): CreateTeamResult {
     ensureProject(input.projectId)
-    const leader = requireAgent(input.leaderAgentId)
+    const fixedMaster = input.leaderAgentId ? undefined : createFixedMaster(input.projectId, input.masterPrompt)
+    const leader = fixedMaster?.agent ?? requireAgent(input.leaderAgentId as string)
     ensureAgentInProject(leader, input.projectId)
-    const team = teamStore.create({ projectId: input.projectId, name: input.name, description: input.description })
-    const session = resolveTeamLeaderSession(input.leaderSessionId, leader, input.projectId)
+    const team = teamStore.create({
+      projectId: input.projectId,
+      name: input.name,
+      description: input.description,
+      masterPrompt: fixedMaster?.prompt ?? leader.system_prompt,
+    })
+    const session = fixedMaster?.session ?? resolveTeamLeaderSession(input.leaderSessionId, leader, input.projectId)
     const member = teamMemberStore.create({
       teamId: team.id,
       projectId: input.projectId,
@@ -132,8 +129,10 @@ export const teamService = {
     return { team, member, agent: leader, session }
   },
 
-  update(teamId: string, input: { name?: string; description?: string | null; status?: string }): TeamRow {
-    const team = teamStore.update(teamId, input)
+  update(teamId: string, input: { name?: string; description?: string | null; masterPrompt?: string; status?: string }): TeamRow {
+    requireTeam(teamId)
+    const masterPrompt = input.masterPrompt === undefined ? undefined : updateMasterPrompt(teamId, input.masterPrompt)
+    const team = teamStore.update(teamId, { ...input, masterPrompt })
     if (!team) throw new Error(`Team 不存在: ${teamId}`)
     emitTeamUpdate(team.id, 'updated')
     return team
@@ -146,9 +145,12 @@ export const teamService = {
 
   spawnMember(input: SpawnMemberInput): SpawnMemberResult {
     const team = requireTeam(input.teamId)
-    const agent = resolveSpawnAgent(team.project_id, input)
+    const resolvedAgent = resolveSpawnAgent(team.project_id, input)
+    const agent = input.agentId ? resolvedAgent : markTeamInternalAgent(resolvedAgent)
     ensureAgentInProject(agent, team.project_id)
-    const session = sessionStore.create({ agentId: agent.id, projectId: team.project_id })
+    const session = input.agentId
+      ? sessionStore.create({ agentId: agent.id, projectId: team.project_id })
+      : sessionStore.findPrimaryByAgent(agent.id) ?? sessionStore.create({ agentId: agent.id, projectId: team.project_id })
     const member = teamMemberStore.create({
       teamId: team.id,
       projectId: team.project_id,
@@ -291,7 +293,6 @@ export const teamService = {
     if (context.teamMemberId) ensureMemberInTeam(requireMember(context.teamMemberId), team)
   },
 }
-
 function emptyTeamContext(): TeamContextDetail { return { team: null, currentMember: null, members: [], tasks: [], mailbox: [] } }
 
 function emitTeamUpdate(teamId: string, reason: string): void {

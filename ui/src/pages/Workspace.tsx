@@ -41,6 +41,7 @@ import {
   MessageSquare as MessageSquareIcon,
   RefreshCw,
   Sparkles,
+  Plus,
 } from 'lucide-react'
 import { useAgentStore, type AgentData } from '../stores/agent.store'
 import {
@@ -87,6 +88,7 @@ import { shouldShowPlanBar } from '../components/chat/plan-visibility'
 import { buildChatRenderItems, type ChatRenderItem } from '../components/chat/render-items'
 import { VirtualChatList } from '../components/chat/VirtualChatList'
 import { TeamContextPanel } from '../components/team/TeamContextPanel'
+import { CreateTeamDialog } from '../components/team/CreateTeamDialog'
 import { TeamConversationList } from '../components/team/TeamConversationList'
 import { TeamChatPane } from '../components/team/TeamChatPane'
 import { TimelinePopover } from '../components/chat/TimelinePopover'
@@ -176,6 +178,17 @@ function canImportLocalSession(runtime: string): runtime is 'codex' | 'claude' {
   return runtime === 'codex' || runtime === 'claude'
 }
 
+function isTeamInternalAgent(agent: AgentData): boolean {
+  if (!agent.config_json) return false
+  try {
+    const config: unknown = JSON.parse(agent.config_json)
+    return !!config && typeof config === 'object' && !Array.isArray(config)
+      && (config as Record<string, unknown>).teamInternal === true
+  } catch {
+    return false
+  }
+}
+
 export default function Workspace() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -257,6 +270,7 @@ export default function Workspace() {
   const teams = useTeamStore((s) => s.teams)
   const fetchTeams = useTeamStore((s) => s.fetchTeams)
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null)
+  const [createTeamOpen, setCreateTeamOpen] = useState(false)
   const [teamConversation, setTeamConversation] = useState<{ id: string; team_id: string; master_session_id: string; title: string } | null>(null)
   const [teamMasterSessionId, setTeamMasterSessionId] = useState<string | null>(null)
   const [orderingMode, setOrderingMode] = useState(false)
@@ -347,8 +361,9 @@ export default function Workspace() {
   const previousSessionRef = useRef<string | null>(null)
 
   const projectAgents = useMemo(() => filterAgentsByProject(agents, currentProjectId), [agents, currentProjectId])
-  const visibleProjectAgents = useMemo(() => projectAgents.filter((agent) => !agent.hidden_at), [projectAgents])
-  const hiddenProjectAgents = useMemo(() => projectAgents.filter((agent) => !!agent.hidden_at), [projectAgents])
+  const workspaceProjectAgents = useMemo(() => projectAgents.filter((agent) => !isTeamInternalAgent(agent)), [projectAgents])
+  const visibleProjectAgents = useMemo(() => workspaceProjectAgents.filter((agent) => !agent.hidden_at), [workspaceProjectAgents])
+  const hiddenProjectAgents = useMemo(() => workspaceProjectAgents.filter((agent) => !!agent.hidden_at), [workspaceProjectAgents])
   const projectSessions = useMemo(
     () => filterSessionsByProject(sessions, currentProjectId),
     [sessions, currentProjectId],
@@ -356,7 +371,7 @@ export default function Workspace() {
   const agentLoadState = resolveWorkspaceLoadState({
     loading: agentsLoading,
     error: agentsError,
-    itemCount: projectAgents.length,
+    itemCount: workspaceProjectAgents.length,
   })
   const sessionLoadState = resolveWorkspaceLoadState({
     loading: sessionsLoading,
@@ -364,7 +379,7 @@ export default function Workspace() {
     itemCount: projectSessions.length,
   })
   const orderedProjectAgents = useMemo(() => sortWorkspaceItems(visibleProjectAgents), [visibleProjectAgents])
-  const orderedAllProjectAgents = useMemo(() => sortWorkspaceItems(projectAgents), [projectAgents])
+  const orderedAllProjectAgents = useMemo(() => sortWorkspaceItems(workspaceProjectAgents), [workspaceProjectAgents])
   const orderedProjectSessions = useMemo(() => sortWorkspaceItems(projectSessions), [projectSessions])
   const defaultAgentId = orderedProjectAgents[0]?.id ?? null
   const effectiveSelectedAgentId = selectedAgentId ?? defaultAgentId
@@ -378,8 +393,8 @@ export default function Workspace() {
   )
   const selectedTeam = useMemo(() => teams.find((team) => team.id === selectedTeamId) ?? null, [selectedTeamId, teams])
   const importDialogAgent = useMemo(
-    () => projectAgents.find((agent) => agent.id === importDialogAgentId),
-    [importDialogAgentId, projectAgents],
+    () => workspaceProjectAgents.find((agent) => agent.id === importDialogAgentId),
+    [importDialogAgentId, workspaceProjectAgents],
   )
   const agentContextAgent = useMemo(
     () => projectAgents.find((agent) => agent.id === agentCtxMenu?.agentId),
@@ -1116,7 +1131,7 @@ export default function Workspace() {
                   </button>
                 </div>
               )}
-              {projectAgents.length > 0 && orderedProjectAgents.length === 0 && (
+              {workspaceProjectAgents.length > 0 && orderedProjectAgents.length === 0 && (
                 <div
                   style={{
                     margin: '18px 14px',
@@ -1309,9 +1324,11 @@ export default function Workspace() {
                 </div>
                 )
               })}
-              {teams.length > 0 && (
-                <>
-                  <div style={{ padding: '12px 14px 4px', fontSize: 13, fontWeight: 600, color: 'var(--text-3)' }}>智能体团队</div>
+              <>
+                  <div style={{ padding: '12px 10px 4px 14px', display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, color: 'var(--text-3)' }}>
+                    <span style={{ flex: 1 }}>智能体团队</span>
+                    <button type="button" title="创建团队" aria-label="创建团队" onClick={() => setCreateTeamOpen(true)} disabled={!currentProjectId} style={{ width: 24, height: 24, display: 'grid', placeItems: 'center', border: 0, borderRadius: 5, background: 'transparent', color: 'var(--text-3)', cursor: currentProjectId ? 'pointer' : 'not-allowed' }}><Plus size={15} /></button>
+                  </div>
                   {teams.map((team) => (
                     <button
                       type="button"
@@ -1325,7 +1342,6 @@ export default function Workspace() {
                     </button>
                   ))}
                 </>
-              )}
             </div>
           </>
         ) : (
@@ -1467,7 +1483,7 @@ export default function Workspace() {
             />
             {rightTab === 'tasks' ? (
               <TaskPanel
-                agents={projectAgents}
+                agents={workspaceProjectAgents}
                 modes={modes}
                 currentSessionTaskId={currentSession?.task_id ?? null}
                 onSelectSession={handleSelectSession}
@@ -1478,7 +1494,7 @@ export default function Workspace() {
                 view={advisorView}
                 loading={advisorLoading}
                 error={advisorError}
-                agents={projectAgents}
+                agents={workspaceProjectAgents}
                 highlightIds={highlightSuggestionIds}
                 onJumpToSession={handleAdvisorJumpToSession}
                 onOpenArtifact={handleAdvisorOpenArtifact}
@@ -1497,7 +1513,7 @@ export default function Workspace() {
 
       {showNewTask && (
         <CollabCreateTaskModal
-          agents={projectAgents}
+          agents={workspaceProjectAgents}
           projectId={currentProjectId}
           onCreated={() => setShowNewTask(false)}
           onClose={() => setShowNewTask(false)}
@@ -1516,7 +1532,7 @@ export default function Workspace() {
       {executingSuggestion && (
         <SuggestionTaskDialog
           suggestion={executingSuggestion}
-          agents={projectAgents}
+          agents={workspaceProjectAgents}
           sessions={sessions}
           busy={advisorBusy}
           onClose={() => setExecutingSuggestion(null)}
@@ -1527,7 +1543,7 @@ export default function Workspace() {
       {advisorSettingsOpen && advisorConfig && (
         <AdvisorSettingsDialog
           config={advisorConfig}
-          agents={projectAgents}
+          agents={workspaceProjectAgents}
           saving={advisorSaving}
           onClose={() => setAdvisorSettingsOpen(false)}
           onSave={async (input) => {
@@ -1799,6 +1815,16 @@ export default function Workspace() {
           }}
         />
       )}
+
+      <CreateTeamDialog
+        open={createTeamOpen}
+        projectId={currentProjectId}
+        onClose={() => setCreateTeamOpen(false)}
+        onCreated={async (teamId) => {
+          await fetchTeams(currentProjectId)
+          handleTeamClick(teamId)
+        }}
+      />
 
     </div>
   )

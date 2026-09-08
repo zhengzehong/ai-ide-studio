@@ -23,24 +23,21 @@ export const getTeamHandler: ToolHandler = {
 
 export const createTeamHandler: ToolHandler = {
   name: 'team.create',
-  description: '创建 Team，并把当前 Agent 作为初始主控成员',
+  description: '创建 Team，自动创建隐藏的 Master 并绑定团队工具；masterPrompt 可调整内置默认提示词',
   inputSchema: {
     type: 'object',
-    properties: { projectId: { type: 'string' }, name: { type: 'string' }, description: { type: 'string' } },
+    properties: { projectId: { type: 'string' }, name: { type: 'string' }, description: { type: 'string' }, masterPrompt: { type: 'string' } },
     required: ['name'],
   },
   async execute(input, context) {
     const projectId = resolveProjectId(input, context)
-    const leaderAgentId = context.agentId
     if (!projectId) throw new Error('projectId 不能为空')
-    if (!leaderAgentId) throw new Error('agentId 不能为空')
     return jsonResult(
       teamService.create({
         projectId,
-        leaderAgentId,
-        leaderSessionId: context.sessionId,
         name: requireString(input, 'name'),
         description: optionalString(input, 'description'),
+        masterPrompt: optionalString(input, 'masterPrompt'),
       }),
     )
   },
@@ -55,6 +52,7 @@ export const updateTeamHandler: ToolHandler = {
       teamId: { type: 'string' },
       name: { type: 'string' },
       description: { type: 'string' },
+      masterPrompt: { type: 'string' },
       status: { type: 'string' },
     },
     required: ['teamId'],
@@ -65,6 +63,7 @@ export const updateTeamHandler: ToolHandler = {
     const team = teamService.update(teamId, {
       name: optionalString(input, 'name'),
       description: optionalNullableString(input, 'description'),
+      masterPrompt: optionalString(input, 'masterPrompt'),
       status: optionalString(input, 'status'),
     })
     return jsonResult({ team })

@@ -603,6 +603,7 @@ watch 监听 `session:done`，触发后后台唤醒 `watcher_session_id`。如�
 | project_id | TEXT FK | 所属 Project |
 | name | TEXT | Team 名称 |
 | description | TEXT | Team 描述 |
+| master_prompt | TEXT | 当前固定 Master 的系统提示词快照 |
 | status | TEXT | active / archived |
 | created_at | TEXT | 创建时间 |
 | updated_at | TEXT | 更新时间 |

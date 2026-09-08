@@ -7,6 +7,7 @@ export interface TeamData {
   project_id: string
   name: string
   description: string | null
+  master_prompt?: string
   status: string
   created_at: string
   updated_at: string

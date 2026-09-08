@@ -84,6 +84,8 @@ Runtime 可见 patch 不经过 API 事件总线，而是通过 Runtime→Realtim
 
 | 方法 | 参数 | 返回 |
 |---|---|---|
+| `teams.defaults` | `{}` | `{ masterPrompt }`，返回内置 Master 默认提示词 |
+| `teams.create` | `{ projectId, name, description?, masterPrompt? }` | Team、隐藏 Master、Leader 成员和主 Session |
 | `teams.list` | `{ projectId? }` | `Team[]` |
 | `teams.detail` | `{ teamId }` | Team、成员、任务和 mailbox |
 | `team.conversation.list` | `{ teamId }` | `TeamConversation[]` |
