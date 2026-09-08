@@ -78,6 +78,23 @@ Runtime 可见 patch 不经过 API 事件总线，而是通过 Runtime→Realtim
 
 `REALTIME_LEGACY_RPC=enabled` 时，下面尚未迁移的领域 RPC 通过本地 Protobuf IPC 转发到 API，`requestId` 和订阅变更保持兼容；设为 `disabled` 后，非控制消息返回明确错误。该兼容桥不改变 Realtime 无 DB/Core 依赖的边界。
 
+## Team 群聊 RPC
+
+团队仍在 Workspace 内使用现有 WS RPC，不新增独立页面或独立实时协议。`teams.list` 按当前项目返回左侧 Team 目标；`team.conversation.*` 管理同一 Team 下的独立群聊；`team.conversation.history` 返回会话成员到 Session 的映射，客户端继续用现有 Session 消息查询和 `session:update` 订阅渲染 Master 与成员消息。
+
+| 方法 | 参数 | 返回 |
+|---|---|---|
+| `teams.list` | `{ projectId? }` | `Team[]` |
+| `teams.detail` | `{ teamId }` | Team、成员、任务和 mailbox |
+| `team.conversation.list` | `{ teamId }` | `TeamConversation[]` |
+| `team.conversation.create` | `{ teamId, title? }` | 新群聊及成员 Session 映射 |
+| `team.conversation.history` | `{ conversationId }` | 群聊、成员和统一消息投影 |
+| `team.conversation.rename` | `{ conversationId, title }` | 更新后的群聊 |
+| `team.conversation.archive` | `{ conversationId }` | 归档后的群聊 |
+| `team.conversation.delete` | `{ conversationId }` | 软删除后的群聊 |
+
+普通 Agent 使用的 Workspace RPC、Session 订阅和消息协议保持不变。
+
 ## RPC 方法
 
 ### 项目灵感

@@ -56,6 +56,9 @@ const emptyContext: TeamContextData = {
 }
 
 interface TeamStore {
+  teams: TeamData[]
+  teamsLoading: boolean
+  fetchTeams: (projectId?: string | null) => Promise<void>
   current: TeamContextData
   currentSessionId: string | null
   loading: boolean
@@ -65,6 +68,23 @@ interface TeamStore {
 }
 
 export const useTeamStore = create<TeamStore>((set) => ({
+  teams: [],
+  teamsLoading: false,
+  fetchTeams: async (projectId) => {
+    if (!projectId) {
+      set({ teams: [], teamsLoading: false })
+      return
+    }
+    set({ teamsLoading: true })
+    try {
+      const message: Record<string, unknown> = { type: 'teams.list' }
+      if (projectId) message.projectId = projectId
+      const teams = (await wsClient.request(message)) as TeamData[]
+      set({ teams: Array.isArray(teams) ? teams : [], teamsLoading: false })
+    } catch {
+      set({ teams: [], teamsLoading: false })
+    }
+  },
   current: emptyContext,
   currentSessionId: null,
   loading: false,

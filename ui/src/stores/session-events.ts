@@ -29,6 +29,8 @@ export interface MessageData {
   parsedPresentations?: MessagePresentationInfo[]
   processBlocks?: TurnProcessBlock[]; finalAnswer?: string; stage?: string
   processDefaultOpen?: boolean
+  sender_name?: string | null
+  sender_role?: string | null
 }
 
 export interface PreviewPresentationInfo {

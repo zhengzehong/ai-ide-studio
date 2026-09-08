@@ -87,6 +87,8 @@ import { shouldShowPlanBar } from '../components/chat/plan-visibility'
 import { buildChatRenderItems, type ChatRenderItem } from '../components/chat/render-items'
 import { VirtualChatList } from '../components/chat/VirtualChatList'
 import { TeamContextPanel } from '../components/team/TeamContextPanel'
+import { TeamConversationList } from '../components/team/TeamConversationList'
+import { TeamChatPane } from '../components/team/TeamChatPane'
 import { TimelinePopover } from '../components/chat/TimelinePopover'
 import { processBlockNeedsDetail, useProcessThinkingDisclosure } from '../components/chat/process-detail'
 import { MarkdownRenderer } from '../components/MarkdownRenderer'
@@ -252,6 +254,11 @@ export default function Workspace() {
 
   const { sidebarTab, selectedAgentId, setSidebarTab, setSelectedAgentId } =
     useWorkspaceProjectState(currentProjectId)
+  const teams = useTeamStore((s) => s.teams)
+  const fetchTeams = useTeamStore((s) => s.fetchTeams)
+  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null)
+  const [teamConversation, setTeamConversation] = useState<{ id: string; team_id: string; master_session_id: string; title: string } | null>(null)
+  const [teamMasterSessionId, setTeamMasterSessionId] = useState<string | null>(null)
   const [orderingMode, setOrderingMode] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [agentVisibilityOpen, setAgentVisibilityOpen] = useState(false)
@@ -260,6 +267,20 @@ export default function Workspace() {
   useEffect(() => {
     if (currentProjectId && sidebarTab === 'files' && !fileRootPath) fetchTree(currentProjectId)
   }, [currentProjectId, fileRootPath, sidebarTab, fetchTree])
+
+  useEffect(() => {
+    void fetchTeams(currentProjectId)
+  }, [currentProjectId, fetchTeams])
+
+  useEffect(() => {
+    if (selectedTeamId && !teams.some((team) => team.id === selectedTeamId)) {
+      queueMicrotask(() => {
+        setSelectedTeamId(null)
+        setTeamConversation(null)
+        setTeamMasterSessionId(null)
+      })
+    }
+  }, [selectedTeamId, teams])
 
   useEffect(() => {
     const stop = subscribeHotkeyActions((actionId) => {
@@ -355,6 +376,7 @@ export default function Workspace() {
     () => projectSessions.find((session) => session.id === currentSessionId),
     [currentSessionId, projectSessions],
   )
+  const selectedTeam = useMemo(() => teams.find((team) => team.id === selectedTeamId) ?? null, [selectedTeamId, teams])
   const importDialogAgent = useMemo(
     () => projectAgents.find((agent) => agent.id === importDialogAgentId),
     [importDialogAgentId, projectAgents],
@@ -403,11 +425,23 @@ export default function Workspace() {
 
   const handleAgentClick = (agentId: string) => {
     if (orderingMode) return
+    setSelectedTeamId(null)
+    setTeamConversation(null)
+    setTeamMasterSessionId(null)
     setSelectedAgentId(agentId)
     const mainSession = agentSessions(agentId).find((s) => s.is_primary)
     if (mainSession && currentSessionId !== mainSession.id) {
       selectSession(mainSession.id)
     }
+  }
+
+  const handleTeamClick = (teamId: string) => {
+    if (orderingMode) return
+    setSelectedTeamId(teamId)
+    setSelectedAgentId(null)
+    selectSession(null)
+    setTeamConversation(null)
+    setTeamMasterSessionId(null)
   }
 
   const persistAgentOrder = useCallback(async (agentIds: string[]) => {
@@ -1275,6 +1309,23 @@ export default function Workspace() {
                 </div>
                 )
               })}
+              {teams.length > 0 && (
+                <>
+                  <div style={{ padding: '12px 14px 4px', fontSize: 13, fontWeight: 600, color: 'var(--text-3)' }}>智能体团队</div>
+                  {teams.map((team) => (
+                    <button
+                      type="button"
+                      key={team.id}
+                      onClick={() => handleTeamClick(team.id)}
+                      style={{ display: 'flex', alignItems: 'center', gap: 10, width: 'calc(100% - 12px)', margin: '0 6px 2px', padding: '9px 12px', border: 0, borderRadius: 6, background: selectedTeamId === team.id ? 'var(--blue-light)' : 'transparent', color: 'var(--text-1)', cursor: 'pointer', textAlign: 'left' }}
+                    >
+                      <span style={{ width: 28, height: 28, borderRadius: 7, background: 'var(--purple)', color: '#fff', display: 'grid', placeItems: 'center', fontWeight: 700, flexShrink: 0 }}>T</span>
+                      <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{team.name}</span>
+                      <span style={{ fontSize: 10, color: 'var(--purple)', border: '1px solid var(--purple)', borderRadius: 4, padding: '1px 4px' }}>团队</span>
+                    </button>
+                  ))}
+                </>
+              )}
             </div>
           </>
         ) : (
@@ -1318,7 +1369,15 @@ export default function Workspace() {
         )}
       </aside>
 
-      {sidebarTab === 'sessions' && (
+      {sidebarTab === 'sessions' && selectedTeam && (
+        <TeamConversationList
+          team={selectedTeam}
+          activeId={teamConversation?.id ?? null}
+          onSelect={setTeamConversation}
+          onMasterSession={setTeamMasterSessionId}
+        />
+      )}
+      {sidebarTab === 'sessions' && !selectedTeam && (
         <SessionBar
           key={`${currentProjectId ?? 'none'}:${effectiveSelectedAgentId ?? 'none'}`}
           agent={orderedProjectAgents.find((a) => a.id === effectiveSelectedAgentId) ?? null}
@@ -1359,6 +1418,9 @@ export default function Workspace() {
         projectId={currentProjectId}
         onCloseFile={closeFile}
         chat={(
+          selectedTeam ? (
+            <TeamChatPane team={selectedTeam} conversation={teamConversation} masterSessionId={teamMasterSessionId} />
+          ) : (
           <WorkspaceChatPane
             connected={connected}
             projectId={currentProjectId}
@@ -1371,6 +1433,7 @@ export default function Workspace() {
             onOpenResource={openChatResource}
             openPreview={openPreview}
           />
+          )
         )}
       />
 

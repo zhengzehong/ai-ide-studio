@@ -19,6 +19,9 @@ import { dispatchMemberPrompt, type DispatchMemberPromptStatus } from './team-me
 import { buildTeamMemberPrompt } from './team-prompts.js'
 import { teamWakeCoordinator } from './team-wake-coordinator.js'
 import { applyToolProfileToAgent } from '../tools/team-profiles.js'
+import { teamConversationStore } from '../store/team-conversations.js'
+import { teamConversationService, resolveTeamLeaderSession } from './team-conversations.js'
+export type { TeamConversationDetail } from './team-conversations.js'
 
 const log = createChildLogger('teams')
 
@@ -96,6 +99,7 @@ export const teamService = {
   list(projectId?: string): TeamRow[] {
     return teamStore.list(projectId)
   },
+  ...teamConversationService,
 
   detail(teamId: string): TeamDetail {
     const team = requireTeam(teamId)
@@ -114,7 +118,7 @@ export const teamService = {
     const leader = requireAgent(input.leaderAgentId)
     ensureAgentInProject(leader, input.projectId)
     const team = teamStore.create({ projectId: input.projectId, name: input.name, description: input.description })
-    const session = resolveLeaderSession(input.leaderSessionId, leader, input.projectId)
+    const session = resolveTeamLeaderSession(input.leaderSessionId, leader, input.projectId)
     const member = teamMemberStore.create({
       teamId: team.id,
       projectId: input.projectId,
@@ -165,6 +169,7 @@ export const teamService = {
     memberId: string
     content: string
     taskId?: string
+    sourceSessionId?: string
   }): DispatchTeamMessageResult {
     const team = requireTeam(input.teamId)
     const member = requireMember(input.memberId)
@@ -172,7 +177,9 @@ export const teamService = {
     const task = input.taskId ? ensureTaskInTeam(input.taskId, team.id) : undefined
     if (task) markTaskDispatched(team.id, task, member)
     const prompt = buildTeamMemberPrompt({ team, member, content: input.content, taskId: input.taskId })
-    const status = dispatchMemberPrompt({ teamId: team.id, memberId: member.id, sessionId: member.session_id, prompt })
+    const conversation = input.sourceSessionId ? teamConversationStore.getBySession(input.sourceSessionId) : undefined
+    const targetSessionId = conversation ? teamConversationStore.listMembers(conversation.id).find((entry) => entry.member_id === member.id)?.session_id : undefined
+    const status = dispatchMemberPrompt({ teamId: team.id, memberId: member.id, sessionId: targetSessionId ?? member.session_id, prompt })
     return { status, member }
   },
 
@@ -189,6 +196,7 @@ export const teamService = {
     toMemberId?: string
     taskId?: string
     payload?: unknown
+    sourceSessionId?: string
   }): TeamMailboxRow {
     const team = requireTeam(input.teamId)
     if (input.fromMemberId) ensureMemberInTeam(requireMember(input.fromMemberId), team)
@@ -204,7 +212,7 @@ export const teamService = {
       content: input.content,
       payload: input.payload,
     })
-    teamWakeCoordinator.notifyMailbox(message)
+    teamWakeCoordinator.notifyMailbox(message, input.sourceSessionId)
     emitTeamUpdate(team.id, 'mailbox.created')
     return message
   },
@@ -284,14 +292,6 @@ export const teamService = {
   },
 }
 
-function resolveLeaderSession(leaderSessionId: string | undefined, leader: AgentRow, projectId: string): SessionRow {
-  if (!leaderSessionId) return sessionStore.create({ agentId: leader.id, projectId })
-  const session = sessionStore.get(leaderSessionId)
-  if (!session) throw new Error(`Session 不存在: ${leaderSessionId}`)
-  if (session.agent_id !== leader.id) throw new Error('Leader session 不属于当前 Agent')
-  if (session.project_id !== projectId) throw new Error('Leader session 不属于当前项目')
-  return session
-}
 function emptyTeamContext(): TeamContextDetail { return { team: null, currentMember: null, members: [], tasks: [], mailbox: [] } }
 
 function emitTeamUpdate(teamId: string, reason: string): void {
