@@ -10,6 +10,8 @@ import {
 import { countToolCalls } from './tool-call-history.js'
 import { presentationsJsonFromToolCalls } from '../core/message-presentations.js'
 import { isMissingNativeSessionError } from '../shared/native-session-errors.js'
+import type { SessionPurpose } from '../shared/session-visibility.js'
+import { effectiveSessionPurposeSql, userVisibleSessionSql } from './session-visibility.js'
 
 export type { SessionRuntimeState } from './session-runtime-state.js'
 
@@ -35,13 +37,14 @@ interface SessionDbRow {
   sort_order: number | null
   is_primary: number
   is_template: number
-  purpose: 'conversation' | 'autonomy' | 'secretary_runtime' | 'secretary_chat'
+  purpose: SessionPurpose
+  effective_purpose?: SessionPurpose
   tags_json: string
 }
 
 // 对外会话类型：tags 已解析，原始 tags_json 键被丢弃，
 // 避免未解析的 JSON 字符串泄漏到 WS 客户端。
-export interface SessionRow extends Omit<SessionDbRow, 'tags_json'> {
+export interface SessionRow extends Omit<SessionDbRow, 'tags_json' | 'effective_purpose'> {
   tags: string[]
 }
 
@@ -107,7 +110,7 @@ export interface CreateSessionInput {
   isPrimary?: boolean
   isTemplate?: boolean
   title?: string
-  purpose?: 'conversation' | 'autonomy' | 'secretary_runtime' | 'secretary_chat'
+  purpose?: SessionPurpose
 }
 
 export interface SessionRuntimePreferences {
@@ -188,12 +191,12 @@ export const sessionStore = {
   },
 
   get(id: string): SessionRow | undefined {
-    const row = getDb().prepare<[string], SessionDbRow>('SELECT * FROM sessions WHERE id = ?').get(id)
+    const row = getDb().prepare<[string], SessionDbRow>(`SELECT s.*, ${effectiveSessionPurposeSql()} AS effective_purpose FROM sessions s WHERE s.id = ?`).get(id)
     return row ? withParsedTags(row) : undefined
   },
 
-  list(agentId?: string, projectId?: string): SessionRow[] {
-    return listSessions(agentId, projectId)
+  list(agentId?: string, projectId?: string, options: { userVisibleOnly?: boolean } = {}): SessionRow[] {
+    return listSessions(agentId, projectId, options.userVisibleOnly)
   },
 
   findPrimaryByAgent(agentId: string): SessionRow | undefined {
@@ -221,7 +224,7 @@ export const sessionStore = {
     if (!projectId) throw new Error('projectId is required')
     if (!agentId) throw new Error('agentId is required')
     const uniqueIds = uniqueOrderedIds(sessionIds)
-    const current = sessionStore.list(agentId, projectId)
+    const current = sessionStore.list(agentId, projectId, { userVisibleOnly: true })
     const currentById = new Map(current.map((session) => [session.id, session]))
     for (const sessionId of uniqueIds) {
       if (!currentById.has(sessionId)) throw new Error(`Session does not belong to agent/project: ${sessionId}`)
@@ -233,15 +236,16 @@ export const sessionStore = {
       orderedIds.forEach((sessionId, index) => update.run(index + 1, now, sessionId, agentId, projectId))
     })
     apply()
-    return sessionStore.list(agentId, projectId)
+    return sessionStore.list(agentId, projectId, { userVisibleOnly: true })
   },
 
   listWithRuntimeState(
     agentId?: string,
     projectId?: string,
     isPromptActive: (sessionId: string) => boolean = () => false,
+    options: { userVisibleOnly?: boolean } = {},
   ): SessionListRow[] {
-    return listSessionRuntimeSignals(agentId, projectId).map((row) => {
+    return listSessionRuntimeSignals(agentId, projectId, options.userVisibleOnly).map((row) => {
       const { has_running_agent_message, has_running_process_item, ...session } = row
       return {
         ...withParsedTags(session),
@@ -520,22 +524,24 @@ function markRunningAgentMessagesInterrupted(): void {
   `).run({ error: INTERRUPTED_ERROR, now })
 }
 
-function listSessions(agentId?: string, projectId?: string): SessionRow[] {
+function listSessions(agentId?: string, projectId?: string, userVisibleOnly = false): SessionRow[] {
   const orderBy = 'ORDER BY COALESCE(sort_order, 9223372036854775807) ASC, started_at ASC, id ASC'
+  const visibility = userVisibleOnly ? userVisibleSessionSql('sessions') : "purpose NOT IN ('secretary_runtime', 'secretary_chat')"
   if (agentId && projectId) {
-    return getDb().prepare<[string, string], SessionDbRow>(`SELECT * FROM sessions WHERE agent_id = ? AND project_id = ? AND deleted_at IS NULL AND is_template = 0 AND purpose NOT IN ('secretary_runtime', 'secretary_chat') ${orderBy}`).all(agentId, projectId).map(withParsedTags)
+    return getDb().prepare<[string, string], SessionDbRow>(`SELECT * FROM sessions WHERE agent_id = ? AND project_id = ? AND deleted_at IS NULL AND is_template = 0 AND ${visibility} ${orderBy}`).all(agentId, projectId).map(withParsedTags)
   }
   if (agentId) {
-    return getDb().prepare<[string], SessionDbRow>(`SELECT * FROM sessions WHERE agent_id = ? AND deleted_at IS NULL AND is_template = 0 AND purpose NOT IN ('secretary_runtime', 'secretary_chat') ${orderBy}`).all(agentId).map(withParsedTags)
+    return getDb().prepare<[string], SessionDbRow>(`SELECT * FROM sessions WHERE agent_id = ? AND deleted_at IS NULL AND is_template = 0 AND ${visibility} ${orderBy}`).all(agentId).map(withParsedTags)
   }
   if (projectId) {
-    return getDb().prepare<[string], SessionDbRow>(`SELECT * FROM sessions WHERE project_id = ? AND deleted_at IS NULL AND is_template = 0 AND purpose NOT IN ('secretary_runtime', 'secretary_chat') ${orderBy}`).all(projectId).map(withParsedTags)
+    return getDb().prepare<[string], SessionDbRow>(`SELECT * FROM sessions WHERE project_id = ? AND deleted_at IS NULL AND is_template = 0 AND ${visibility} ${orderBy}`).all(projectId).map(withParsedTags)
   }
-  return getDb().prepare<[], SessionDbRow>("SELECT * FROM sessions WHERE deleted_at IS NULL AND is_template = 0 AND purpose NOT IN ('secretary_runtime', 'secretary_chat') ORDER BY started_at ASC").all().map(withParsedTags)
+  return getDb().prepare<[], SessionDbRow>(`SELECT * FROM sessions WHERE deleted_at IS NULL AND is_template = 0 AND ${visibility} ORDER BY started_at ASC`).all().map(withParsedTags)
 }
 
-function listSessionRuntimeSignals(agentId?: string, projectId?: string): SessionRuntimeSignalsRow[] {
-  const conditions = ["s.deleted_at IS NULL", 's.is_template = 0', "s.purpose NOT IN ('secretary_runtime', 'secretary_chat')"]
+function listSessionRuntimeSignals(agentId?: string, projectId?: string, userVisibleOnly = false): SessionRuntimeSignalsRow[] {
+  const conditions = ["s.deleted_at IS NULL", 's.is_template = 0',
+    userVisibleOnly ? userVisibleSessionSql() : "s.purpose NOT IN ('secretary_runtime', 'secretary_chat')"]
   const parameters: string[] = []
   if (agentId) {
     conditions.push('s.agent_id = ?')
@@ -550,7 +556,7 @@ function listSessionRuntimeSignals(agentId?: string, projectId?: string): Sessio
     : 'ORDER BY s.started_at ASC'
   return getDb()
     .prepare<string[], SessionRuntimeSignalsRow>(`
-      SELECT s.*,
+      SELECT s.*, ${effectiveSessionPurposeSql()} AS effective_purpose,
         EXISTS (
           SELECT 1 FROM messages m
           WHERE m.session_id = s.id AND m.role = 'agent' AND m.status = 'running'
@@ -566,9 +572,9 @@ function listSessionRuntimeSignals(agentId?: string, projectId?: string): Sessio
     .all(...parameters)
 }
 
-export function withParsedTags<T extends SessionDbRow>(row: T): Omit<T, 'tags_json'> & { tags: string[] } {
-  const { tags_json, ...rest } = row
-  return { ...rest, tags: parseTagsJson(tags_json) }
+export function withParsedTags<T extends SessionDbRow>(row: T): Omit<T, 'tags_json' | 'effective_purpose'> & { tags: string[] } {
+  const { tags_json, effective_purpose, ...rest } = row
+  return { ...rest, purpose: effective_purpose ?? row.purpose, tags: parseTagsJson(tags_json) }
 }
 
 function parseTagsJson(raw: string | null | undefined): string[] {

@@ -10,6 +10,7 @@ import { usePinnedProjects } from '../../utils/project-meta'
 import { useSessionStore } from '../../stores/session.store'
 import { queryClient } from '../../services/query-client'
 import { resolvePinnedProjectId } from '../../lib/hotkey-component-helpers'
+import { isUserVisibleSession } from '../../../../src/shared/session-visibility'
 
 function isTextTarget(target: EventTarget | null): boolean {
   const element = target instanceof HTMLElement ? target : null
@@ -97,7 +98,7 @@ export function HotkeyManager(): null {
     }
     if (actionId === 'session.next-unread') {
       const routeToUnread = (allSessions: typeof sessions): void => {
-        const unread = allSessions.filter((session) => (
+        const unread = allSessions.filter(isUserVisibleSession).filter((session) => (
           !!unreadSessionIds[session.id]
           || (!!session.last_message_at && (!session.last_read_at || Date.parse(session.last_message_at) > Date.parse(session.last_read_at)))
         ))

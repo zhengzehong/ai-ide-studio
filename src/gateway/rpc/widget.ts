@@ -165,7 +165,7 @@ export const widgetRpcHandlers: RpcHandlerMap = {
     )
 
     const result = agents.flatMap((agent) => {
-      const sessions = sessionStore.list(agent.id).filter((session) => session.purpose === 'conversation')
+      const sessions = sessionStore.list(agent.id).filter((session) => sessionRowsById.has(session.id))
       if (sessions.length === 0) return []
       const latestSession = sessions[sessions.length - 1]
       const isRunning = sessions.some((session) => sessionRowsById.get(session.id)?.activityState === 'running')

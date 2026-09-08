@@ -8,6 +8,8 @@ The PC `/updates` workbench uses a reusable store-agnostic conversation pane; th
 
 PC 全局“会话动态工作台”通过 `/updates` 聚合跨项目运行中/未读会话与置顶会话，中间区域独立加载和继续当前会话，右侧常驻展示最后回复、Markdown、HTML 原型与多文件产物；该页面不改变 Workspace 的项目和会话选择状态。
 
+PC、App、Widget 的普通会话列表及运行中/未读统计不包含参谋、灵感整理、秘书或自治后台会话；专属页面照常查看结果和历史。由建议或灵感创建的普通执行任务会话仍正常显示。
+
 灵感候选任务支持项目级默认执行 Agent/会话，并可选择“默认优先”或“AI 推荐优先”。候选任务弹窗允许手动覆盖执行 Agent 和会话；会话必须属于同一项目和 Agent。
 
 > 以任务为中心、Agent 为主体的 AI 编程协作平台

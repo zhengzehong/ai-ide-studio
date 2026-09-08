@@ -8,6 +8,8 @@ import { taskStore } from '../../src/store/tasks.js'
 import { taskStepStore } from '../../src/store/task-steps.js'
 import { agentStore } from '../../src/store/agents.js'
 import { projectStore } from '../../src/store/projects.js'
+import { projectAdvisorStore } from '../../src/store/advisors.js'
+import { projectInspirationStore } from '../../src/store/project-inspirations.js'
 import { createLocalQueryPort } from '../../src/queries/local-query-port.js'
 import {
   createWorkerQueryPort,
@@ -88,6 +90,26 @@ describe('Query Worker', () => {
       mode: 'readonly',
       queryOnly: true,
     })
+  })
+
+  it('filters legacy runtime links in readonly Worker and local mode identically', async () => {
+    const project = projectStore.create({ name: 'Visibility' })
+    const agent = agentStore.create({ name: 'Shared', type: 'dev', runtime: 'mock', projectId: project.id })
+    const user = sessionStore.create({ agentId: agent.id, projectId: project.id })
+    const advisor = sessionStore.create({ agentId: agent.id, projectId: project.id })
+    const inspiration = sessionStore.create({ agentId: agent.id, projectId: project.id })
+    projectAdvisorStore.update(project.id, { sessionId: advisor.id })
+    projectInspirationStore.update(project.id, { sessionId: inspiration.id })
+    const activeIds = [user.id, advisor.id, inspiration.id]
+    const local = createLocalQueryPort({ isPromptActive: (id) => activeIds.includes(id) })
+    const expectedSessions = await local.listSessions({})
+    const expectedWidget = await local.listWidgetSessions({ activePromptSessionIds: activeIds })
+    closeDatabase()
+    workerPort = await createWorkerQueryPort({ dbPath, getActivePromptSessionIds: () => activeIds })
+    expect(expectedSessions.map((s) => s.id)).toEqual([user.id])
+    expect(expectedWidget.map((s) => s.sessionId)).toEqual([user.id])
+    await expect(workerPort.listSessions({})).resolves.toEqual(expectedSessions)
+    await expect(workerPort.listWidgetSessions({})).resolves.toEqual(expectedWidget)
   })
 
   it('rejects writes from the query connection', async () => {

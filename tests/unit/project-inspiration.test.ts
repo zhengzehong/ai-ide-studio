@@ -18,6 +18,7 @@ import { closeDatabase, initDatabase } from '../../src/store/db.js'
 import { inspirationNoteStore } from '../../src/store/inspiration-notes.js'
 import { projectStore } from '../../src/store/projects.js'
 import { sessionStore } from '../../src/store/sessions.js'
+import { getDb } from '../../src/store/db.js'
 import { taskStepStore } from '../../src/store/task-steps.js'
 import { taskStore } from '../../src/store/tasks.js'
 import { getHandler } from '../../src/tools/handlers/index.js'
@@ -49,7 +50,7 @@ describe('project inspiration service', () => {
     const otherSession = sessionStore.create({ agentId: fixture.organizer.id, projectId: fixture.project.id })
 
     expect(config.sessionId).toBeTruthy()
-    expect(sessionStore.get(config.sessionId!)?.purpose).toBe('conversation')
+    expect(sessionStore.get(config.sessionId!)?.purpose).toBe('inspiration_runtime')
     expect(sessionStore.get(config.sessionId!)?.title).toBe('项目灵感会话')
     expect(isToolVisibleForSession('inspiration.analysis.publish', config.sessionId!)).toBe(true)
     expect(isToolVisibleForSession('inspiration.analysis.publish', otherSession.id)).toBe(false)
@@ -70,7 +71,10 @@ describe('project inspiration service', () => {
     })
     inspirationNoteStore.claimNext(fixture.project.id)
 
+    getDb().prepare("UPDATE sessions SET purpose = 'conversation' WHERE id = ?").run(first.sessionId)
     const next = await rebuildProjectInspirationSession(fixture.project.id, fixture.executor.id)
+    expect(sessionStore.get(first.sessionId!)?.purpose).toBe('inspiration_runtime')
+    expect(sessionStore.get(next.sessionId!)?.purpose).toBe('inspiration_runtime')
 
     expect(inspirationNoteStore.get(note.id)?.status).toBe('queued')
     expect(isToolVisibleForSession('inspiration.analysis.publish', first.sessionId!)).toBe(false)

@@ -51,7 +51,7 @@ export function createDatabaseQueryPort(options: DatabaseQueryPortOptions = {}):
       const isPromptActive = activePromptIds
         ? (sessionId: string) => activePromptIds.has(sessionId)
         : fallbackPromptActive
-      return sessionStore.listWithRuntimeState(input.agentId, input.projectId, isPromptActive)
+      return sessionStore.listWithRuntimeState(input.agentId, input.projectId, isPromptActive, { userVisibleOnly: true })
     },
 
     async listSessionMessages(input: SessionMessageQuery): Promise<QueryPage<MessageRow>> {

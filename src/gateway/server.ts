@@ -86,7 +86,7 @@ export async function startGateway(config: AppConfig, options: StartGatewayOptio
   app.get('/api/agents', (c) => c.json(agentStore.list()))
   app.get('/api/sessions', (c) => {
     const agentId = c.req.query('agentId')
-    return c.json(sessionStore.list(agentId))
+    return c.json(sessionStore.list(agentId, undefined, { userVisibleOnly: true }))
   })
   app.get('/api/tasks', (c) => {
     const status = c.req.query('status')
