@@ -6,6 +6,7 @@ import { useAppStore } from './app.store'
 import { useMobileActivityStore } from './activity.store'
 import { showToast } from '../utils/toast'
 import { isSecretarySessionPurpose } from '@desktop/stores/secretary-session'
+import { isUserVisibleSession } from '../../../src/shared/session-visibility'
 
 export type MobileSessionActivityState = 'running' | 'idle'
 type SessionIndicatorMap = Record<string, true>
@@ -166,7 +167,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     try {
       const msg: Record<string, unknown> = { type: 'sessions.list' }
       if (projectId) msg.projectId = projectId
-      const data = (await wsClient.request(msg)) as SessionData[]
+      const data = ((await wsClient.request(msg)) as SessionData[]).filter(isUserVisibleSession)
       if (requestSeq !== sessionListRequestSeq) return
       set((state) => {
         const preserveMissingIndicators = !!projectId

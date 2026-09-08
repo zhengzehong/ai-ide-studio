@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { MessageSquarePlus } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useSessionStore } from '../stores/session.store'
-import { isSecretarySessionPurpose } from '@desktop/stores/secretary-session'
+import { isUserVisibleSession } from '../../../src/shared/session-visibility'
 import { useAppStore } from '../stores/app.store'
 import { useMobileProjectSessionStatsStore } from '../stores/project-session-stats.store'
 import type { MobileSessionItem } from '../stores/session.store'
@@ -82,7 +82,7 @@ export default function SessionListPage() {
   }, [currentProjectId, fetchSessions, fetchAgents, viewMode])
 
   const activeSessions = useMemo(
-    () => sessions.filter((s) => s.status === 'active' && !isSecretarySessionPurpose(s.purpose)),
+    () => sessions.filter((s) => s.status === 'active' && isUserVisibleSession(s)),
     [sessions],
   )
 

@@ -106,7 +106,7 @@ describe('project advisor service', () => {
     expect(config.advisorPrompt).toBe('')
     expect(config.defaultAdvisorPrompt).toBe(DEFAULT_ADVISOR_PROMPT)
     const session = sessionStore.get(config.sessionId!)
-    expect(session).toMatchObject({ agent_id: advisor.id, project_id: project.id, purpose: 'conversation' })
+    expect(session).toMatchObject({ agent_id: advisor.id, project_id: project.id, purpose: 'advisor_runtime' })
     expect(session?.title).toBe('项目参谋会话')
 
     await expect(configureAdvisor(project.id, { advisorAgentId: 'agent-missing' })).rejects.toThrow('参谋 Agent 不存在')
@@ -114,6 +114,18 @@ describe('project advisor service', () => {
     const other = projectStore.create({ name: 'Q', workDir: root })
     const foreign = agentStore.create({ type: 'dev', name: '外部执行者', runtime: 'mock', projectId: other.id })
     await expect(configureAdvisor(project.id, { advisorAgentId: foreign.id })).rejects.toThrow('不属于当前项目')
+  })
+
+  test('retains legacy runtime identity after rebuilding its configuration link', async () => {
+    const { project, advisor, advisorSession, workerSession } = createFixture()
+    projectAdvisorStore.update(project.id, { advisorAgentId: advisor.id, sessionId: advisorSession.id })
+    const next = await rebuildAdvisorSession(project.id, advisor.id)
+    expect(next.sessionId).not.toBe(advisorSession.id)
+    expect(sessionStore.get(advisorSession.id)?.purpose).toBe('advisor_runtime')
+    expect(sessionStore.get(next.sessionId!)?.purpose).toBe('advisor_runtime')
+    expect(sessionStore.get(workerSession.id)?.purpose).toBe('conversation')
+    expect(getDb().prepare('SELECT purpose FROM sessions WHERE id = ?').get(advisorSession.id))
+      .toEqual({ purpose: 'advisor_runtime' })
   })
 
   test('batches sessions and publishes with the registered trigger and latest preferences', async () => {

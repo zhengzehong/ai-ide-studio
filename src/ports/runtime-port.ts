@@ -1,4 +1,5 @@
 import type { McpServer } from '@agentclientprotocol/sdk'
+import type { SessionPurpose } from '../shared/session-visibility.js'
 import type { ImageAttachment, SessionCapabilities } from '../types/ws-protocol.js'
 
 export interface RuntimeAgentSnapshot {
@@ -22,7 +23,7 @@ export interface RuntimeSessionSnapshot {
   acpSessionId: string | null
   canRecreateMissingSession?: boolean
   isPrimary: boolean
-  purpose: 'conversation' | 'autonomy' | 'secretary_runtime' | 'secretary_chat'
+  purpose: SessionPurpose
 }
 
 export interface RuntimePreferencesSnapshot {

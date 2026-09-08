@@ -5,6 +5,7 @@ import { agentStore } from '../store/agents.js'
 import { getDbPath } from '../store/db.js'
 import { projectStore } from '../store/projects.js'
 import { sessionStore } from '../store/sessions.js'
+import { retainBackgroundSessionPurpose } from '../store/session-visibility.js'
 import { previewStore } from '../store/previews.js'
 import { projectAdvisorStore, type ProjectAdvisorRow } from '../store/advisors.js'
 import {
@@ -95,10 +96,11 @@ export async function configureAdvisor(
   let sessionId = current.session_id
   const existingSession = sessionId ? sessionStore.get(sessionId) : undefined
   if (!existingSession || existingSession.deleted_at || existingSession.status !== 'active') {
-    const session = await sessionManager.createSession(input.advisorAgentId, undefined, projectId, 'conversation')
+    const session = await sessionManager.createSession(input.advisorAgentId, undefined, projectId, 'advisor_runtime')
     sessionStore.updateTitle(session.id, '项目参谋会话')
     sessionId = session.id
   }
+  retainBackgroundSessionPurpose(current.session_id, 'advisor_runtime')
   const updated = projectAdvisorStore.update(projectId, {
     advisorAgentId: input.advisorAgentId,
     sessionId,
@@ -121,8 +123,9 @@ export async function rebuildAdvisorSession(projectId: string, advisorAgentId: s
   if (!agent) throw new Error('参谋 Agent 不存在')
   if (agent.project_id && agent.project_id !== projectId) throw new Error('参谋 Agent 不属于当前项目')
   const previous = projectAdvisorStore.get(projectId)
-  const session = await sessionManager.createSession(advisorAgentId, undefined, projectId, 'conversation')
+  const session = await sessionManager.createSession(advisorAgentId, undefined, projectId, 'advisor_runtime')
   sessionStore.updateTitle(session.id, '项目参谋会话')
+  retainBackgroundSessionPurpose(previous?.session_id, 'advisor_runtime')
   const updated = projectAdvisorStore.update(projectId, {
     advisorAgentId,
     sessionId: session.id,

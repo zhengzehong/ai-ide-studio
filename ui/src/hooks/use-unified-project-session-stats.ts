@@ -6,7 +6,7 @@ import {
   summarizeSessionIndicators,
   type SessionIndicatorStateMap,
 } from '../utils/session-indicators'
-import { isSecretarySessionPurpose } from '../stores/secretary-session'
+import { isUserVisibleSession } from '../../../src/shared/session-visibility'
 
 interface ResolveUnifiedProjectSessionStatsInput {
   backendStats: Record<string, ProjectSessionStatsData>
@@ -26,8 +26,7 @@ export function resolveUnifiedProjectSessionStats({
   if (!activeProjectId) return backendStats
   const activeSessions = sessions.filter((session) => (
     session.project_id === activeProjectId
-    && session.purpose !== 'autonomy'
-    && !isSecretarySessionPurpose(session.purpose)
+    && isUserVisibleSession(session)
   ))
   const summary = summarizeSessionIndicators(activeSessions, runningSessionIds, unreadSessionIds)
   return {

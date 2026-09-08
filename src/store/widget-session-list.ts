@@ -1,4 +1,5 @@
 import { getDb } from './db.js'
+import { userVisibleSessionSql } from './session-visibility.js'
 
 export interface WidgetSessionProjectionRow {
   session_id: string
@@ -85,7 +86,7 @@ export function listWidgetSessionProjectionRows(projectId?: string): WidgetSessi
     LEFT JOIN tasks t ON t.id = s.linked_task_id
     WHERE s.deleted_at IS NULL
       AND s.archived_at IS NULL
-      AND s.purpose = 'conversation'
+      AND ${userVisibleSessionSql()}
       AND (@project_id IS NULL OR s.project_id = @project_id)
     ORDER BY COALESCE(s.last_message_at, s.updated_at, s.started_at) DESC
   `).all({ project_id: projectId ?? null })

@@ -13,10 +13,12 @@ describe('unified project session stats', () => {
         { id: 'sess-running', project_id: 'project-a', status: 'active' },
         { id: 'sess-unread', project_id: 'project-a', status: 'active' },
         { id: 'sess-secretary', project_id: 'project-a', status: 'active', purpose: 'secretary_chat' },
+        { id: 'sess-advisor', project_id: 'project-a', status: 'active', purpose: 'advisor_runtime' },
+        { id: 'sess-inspiration', project_id: 'project-a', status: 'active', purpose: 'inspiration_runtime' },
         { id: 'sess-other', project_id: 'project-b', status: 'active' },
       ],
-      runningSessionIds: { 'sess-running': true, 'sess-secretary': true },
-      unreadSessionIds: { 'sess-running': true, 'sess-unread': true, 'sess-secretary': true, 'sess-other': true },
+      runningSessionIds: { 'sess-running': true, 'sess-secretary': true, 'sess-advisor': true },
+      unreadSessionIds: { 'sess-running': true, 'sess-unread': true, 'sess-secretary': true, 'sess-other': true, 'sess-inspiration': true },
     })
 
     expect(result).toEqual({

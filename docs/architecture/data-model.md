@@ -1,5 +1,11 @@
 # 数据模型
 
+## 会话用途与用户可见性
+
+`sessions.purpose` 区分普通交互与后台执行：`conversation` 是用户/任务会话，`advisor_runtime`、`inspiration_runtime`、`secretary_runtime`、`secretary_chat`、`autonomy` 是专属功能会话。后台会话保留消息、运行状态与专属访问，但不进入普通会话列表、运行中/未读统计、Widget 或全局会话坞。
+
+历史记录仍为 `conversation` 时，以 `project_advisors.session_id` 和 `project_inspirations.session_id` 关联作为用途证据；按 ID 读取返回有效用途，用户列表在 SQL 内排除这些关联。配置切换前保留已知旧后台会话的用途，防止解绑后重新出现。可编辑标题不作为用途证据。此策略不删除消息、不修改已读时间，也不改变任务派发。
+
 ## 项目参谋配置
 
 `project_advisors.advisor_prompt` 为空表示跟随服务端默认规则，非空表示用户自定义全文。`session_id` 引用独立参谋会话；启用开关不改变提示词模式。默认规则正文不是数据库快照。

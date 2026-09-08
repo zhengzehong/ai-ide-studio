@@ -5,6 +5,7 @@ import { inspirationCandidateStore, inspirationNoteStore, type CreateCandidateIn
 import { projectInspirationStore, type ProjectInspirationData } from '../store/project-inspirations.js'
 import { projectStore } from '../store/projects.js'
 import { sessionStore } from '../store/sessions.js'
+import { retainBackgroundSessionPurpose } from '../store/session-visibility.js'
 import { events } from './events.js'
 import { createChildLogger } from './logger.js'
 import { buildInspirationNoteData, type InspirationNoteData } from './project-inspiration-view.js'
@@ -78,10 +79,11 @@ export async function configureProjectInspiration(
   let sessionId = current.session_id
   const existingSession = sessionId ? sessionStore.get(sessionId) : undefined
   if (!existingSession || existingSession.deleted_at || existingSession.status !== 'active') {
-    const session = await sessionManager.createSession(agent.id, undefined, projectId, 'conversation')
+    const session = await sessionManager.createSession(agent.id, undefined, projectId, 'inspiration_runtime')
     sessionStore.updateTitle(session.id, '项目灵感会话')
     sessionId = session.id
   }
+  retainBackgroundSessionPurpose(current.session_id, 'inspiration_runtime')
   const updated = projectInspirationStore.update(projectId, {
     organizerAgentId: agent.id,
     sessionId,
@@ -103,8 +105,9 @@ export async function rebuildProjectInspirationSession(projectId: string, organi
   const agent = agentStore.get(organizerAgentId)
   if (!agent || agent.project_id !== projectId) throw new Error('整理 Agent 不属于当前项目')
   const current = projectInspirationStore.ensure(projectId)
-  const session = await sessionManager.createSession(agent.id, undefined, projectId, 'conversation')
+  const session = await sessionManager.createSession(agent.id, undefined, projectId, 'inspiration_runtime')
   sessionStore.updateTitle(session.id, '项目灵感会话')
+  retainBackgroundSessionPurpose(current.session_id, 'inspiration_runtime')
   const updated = projectInspirationStore.update(projectId, {
     organizerAgentId: agent.id,
     sessionId: session.id,

@@ -165,6 +165,7 @@ import {
 } from './workspace/load-state'
 import { summarizeSessionIndicators } from '../utils/session-indicators'
 import { isSecretarySessionPurpose } from '../stores/secretary-session'
+import { isUserVisibleSession } from '../../../src/shared/session-visibility'
 import { subscribeHotkeyActions } from '../lib/hotkey-actions'
 
 const COPYING_STAGE = '正在复制会话...'
@@ -378,8 +379,7 @@ export default function Workspace() {
     (id: string) => {
       const list = orderedProjectSessions.filter((s) => (
         s.agent_id === id
-        && s.purpose !== 'autonomy'
-        && !isSecretarySessionPurpose(s.purpose)
+        && isUserVisibleSession(s)
       ))
       return list.sort((a, b) => {
         const aPrimary = !!a.is_primary

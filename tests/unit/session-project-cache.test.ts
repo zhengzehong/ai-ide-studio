@@ -76,6 +76,24 @@ describe('session project cache', () => {
     })
   })
 
+  test('does not admit runtime sessions through list refresh or complete live broadcasts', async () => {
+    const purposes = ['advisor_runtime', 'inspiration_runtime', 'autonomy', 'secretary_runtime', 'secretary_chat'] as const
+    const hidden = purposes.map((purpose) => ({ ...session(purpose, 'a'), purpose }))
+    wsMock.request.mockResolvedValue([session('user', 'a'), ...hidden])
+    useSessionStore.getState().activateProject('a')
+    await useSessionStore.getState().fetchSessions(undefined, 'a', { force: true })
+    expect(useSessionStore.getState().sessions.map((s) => s.id)).toEqual(['user'])
+    const cleanup = useSessionStore.getState().setupListeners()
+    try {
+      for (const data of hidden) emit('session:changed', { sessionId: data.id, data })
+      emit('session:changed', { sessionId: 'new-user', data: session('new-user', 'a') })
+      expect(useSessionStore.getState().sessions.map((s) => s.id)).toEqual(['new-user', 'user'])
+      expect(useSessionStore.getState().sessionListCache.entries.a?.data.map((s) => s.id)).toEqual(['new-user', 'user'])
+    } finally {
+      cleanup()
+    }
+  })
+
   test('restores each project session list synchronously', async () => {
     wsMock.request.mockImplementation(async (msg: Record<string, unknown>) => {
       if (msg.type !== 'sessions.list') return []

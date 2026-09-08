@@ -1,4 +1,5 @@
 import { getDb } from './db.js'
+import { userVisibleSessionSql } from './session-visibility.js'
 
 export interface GlobalSessionDockRow {
   session_id: string
@@ -113,7 +114,7 @@ export const globalSessionDockStore = {
           AND s.deleted_at IS NULL
           AND s.archived_at IS NULL
           AND s.is_template = 0
-          AND s.purpose = 'conversation'
+          AND ${userVisibleSessionSql()}
       )
     `).run().changes
   },
@@ -199,6 +200,6 @@ function dockableConditions(): string {
     AND s.deleted_at IS NULL
     AND s.archived_at IS NULL
     AND s.is_template = 0
-    AND s.purpose = 'conversation'
+    AND ${userVisibleSessionSql()}
   `
 }

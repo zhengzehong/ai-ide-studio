@@ -23,6 +23,15 @@ function sessionRow(overrides: Record<string, unknown> = {}) {
   }
 }
 
+test('ordinary mobile list excludes every runtime purpose without hiding the shared Agent user session', async () => {
+  const hidden = ['advisor_runtime', 'inspiration_runtime', 'autonomy', 'secretary_runtime', 'secretary_chat']
+    .map((purpose) => sessionRow({ id: purpose, purpose, activity_state: 'running' }))
+  vi.spyOn(wsClient, 'request').mockResolvedValue([sessionRow(), ...hidden])
+  await useSessionStore.getState().fetchSessions('project-a')
+  expect(useSessionStore.getState().sessions.map((s) => s.id)).toEqual(['sess-a'])
+  for (const row of hidden) expect(useSessionStore.getState().runningSessionIds[row.id]).toBeUndefined()
+})
+
 beforeEach(() => {
   useAppStore.setState({
     projects: [

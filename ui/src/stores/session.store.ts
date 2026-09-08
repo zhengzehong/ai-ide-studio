@@ -95,6 +95,7 @@ import {
 } from './session-read-fence'
 import { mergeHistoricalCapabilities } from './session-capability-authority'
 import { isSecretarySessionPurpose } from './secretary-session'
+import { isUserVisibleSession, type SessionPurpose } from '../../../src/shared/session-visibility'
 export interface SessionBulkActionResultData {
   action: 'markRead' | 'delete'
   succeeded: string[]
@@ -158,7 +159,7 @@ export interface SessionData {
   // 模板会话标记:is_template=1 的是 ACP fork 出来的模板上下文镜像,
   // 不应出现在普通会话列表。session:changed 广播可能携带此字段,前端据此过滤。
   is_template?: number | boolean
-  purpose?: 'conversation' | 'autonomy' | 'secretary_runtime' | 'secretary_chat'
+  purpose?: SessionPurpose
   tags?: string[]
 }
 
@@ -1084,7 +1085,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
     const request = (async (): Promise<void> => {
       try {
-        const data = await queryClient.listSessions({ agentId, projectId })
+        const data = (await queryClient.listSessions({ agentId, projectId })).filter(isUserVisibleSession)
         const listedSessions = scopedProjectId
           ? data.filter((session) => session.project_id === scopedProjectId)
           : data
@@ -2719,7 +2720,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         if (data.is_template) return
         if (
           isCompleteSessionData(data, sessionId)
-          && isSecretarySessionPurpose(data.purpose)
+          && !isUserVisibleSession(data)
           && get().currentSessionId !== sessionId
           && !get().sessions.some((session) => session.id === sessionId)
         ) return

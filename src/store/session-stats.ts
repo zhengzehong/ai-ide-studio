@@ -1,4 +1,5 @@
 import { getDb } from './db.js'
+import { userVisibleSessionSql } from './session-visibility.js'
 import { resolveSessionRuntimeState } from './session-runtime-state.js'
 
 export interface ProjectSessionStats {
@@ -45,7 +46,7 @@ export const projectSessionStatsStore = {
         AND s.deleted_at IS NULL
         AND s.archived_at IS NULL
         AND s.is_template = 0
-        AND s.purpose = 'conversation'
+        AND ${userVisibleSessionSql()}
         AND s.status = 'active'
       ORDER BY p.created_at ASC, p.id ASC, s.started_at ASC, s.id ASC
     `).all()
