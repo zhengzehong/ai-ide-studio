@@ -9,6 +9,11 @@
 | `advisor.get` | `{ projectId }` | `{ config, suggestions }` |
 | `advisor.configure` | `{ projectId, advisorAgentId, advisorPrompt?, enabled?, minSilenceMinutes? }` | 更新后的配置 |
 | `advisor.session.rebuild` | `{ projectId, advisorAgentId }` | 新独立会话对应的配置 |
+| `advisor.suggestion.ignoreAll` | `{ projectId, ids: string[] }` | `{ ignoredCount, suggestions }` |
+
+批量忽略的 `ids` 是点击时当前项目可见未处理建议的快照，必须包含 1 至 2000 个非空 ID。事务内仅更新本项目未过期、未处理、未关联任务且未被派发占用的条目；重复或不符合条件的 ID 不产生变更，点击后新到的条目不受影响。成功后广播 `advisor:update`。单条忽略重复提交返回当前列表。
+
+建议视图包含 `serverNow`（ISO 服务端时间）、`suggestions`、`settled`、`expired`、`pendingCount`。`expired` 为兼容旧客户端保留的空数组；`settled` 仅包含已接受/建任务条目。所有展示条目受创建 24 小时窗口及更早显式到期时间限制，忽略项不再返回。返回条目的 `expire_at` 为有效截止时间，历史七天期限也收短；前端用服务端时间校准本地到期隐藏，后端派发在占用时再次检查有效期。
 
 配置中的 `advisorPrompt` 返回自定义原文，空值表示跟随默认；`defaultAdvisorPrompt` 返回后端当前默认正文。配置请求省略 `advisorPrompt` 表示不修改，明确传 `""` 表示恢复默认。`minSilenceMinutes` 为保留兼容字段，不控制固定 15 分钟批次窗口。
 

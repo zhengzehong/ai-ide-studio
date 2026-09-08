@@ -535,3 +535,26 @@
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
   z-index: 95;
 }
+.advisor-list-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 10px;
+}
+
+.advisor-list-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.advisor-panel button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.advisor-action-error {
+  color: var(--red);
+  font-size: 12px;
+  margin-bottom: 10px;
+  overflow-wrap: anywhere;
+}

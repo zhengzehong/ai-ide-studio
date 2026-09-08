@@ -3,6 +3,7 @@ import {
   configureAdvisor,
   getAdvisorWorkspace,
   ignoreSuggestion,
+  ignoreSuggestions,
   listAdvisorSuggestionsFor,
   markAdvisorSuggestionsViewed,
   rebuildAdvisorSession,
@@ -60,6 +61,15 @@ export const advisorRpcHandlers: RpcHandlerMap = {
       requiredText(msg.projectId, 'projectId'),
       requiredText(msg.suggestionId, 'suggestionId'),
     ) })
+  },
+
+  'advisor.suggestion.ignoreAll'(msg, { sendResult, state }) {
+    requireOwner(state.authMode)
+    if (!Array.isArray(msg.ids) || msg.ids.length === 0 || msg.ids.length > 2000) {
+      throw new Error('必须提供 1 至 2000 条建议 ID')
+    }
+    const ids = msg.ids.map((id: unknown) => requiredText(id, '建议 ID', 120))
+    sendResult(ignoreSuggestions(requiredText(msg.projectId, 'projectId'), ids))
   },
 
   'advisor.suggestion.markRead'(msg, { sendResult, state }) {

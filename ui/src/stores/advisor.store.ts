@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { wsClient } from '../services/ws-client'
+import { filterAdvisorView, receivedAdvisorView, suggestionDeadline } from './advisor-list-lifecycle'
 
 export interface AdvisorConfig {
   projectId: string
@@ -51,6 +52,7 @@ export interface AdvisorSuggestion {
 }
 
 export interface AdvisorSuggestionView {
+  serverNow?: string
   suggestions: AdvisorSuggestion[]
   expired: AdvisorSuggestion[]
   settled: AdvisorSuggestion[]
@@ -105,11 +107,16 @@ interface AdvisorState {
   view: AdvisorSuggestionView | null
   loading: boolean
   saving: boolean
+  ignoring: boolean
+  actionError: string | null
+  clockOffsetMs: number
   error: string | null
   load: (projectId: string, silent?: boolean) => Promise<void>
   markRead: (ids: string[] | null) => Promise<void>
   accept: (suggestionId: string, input: { agentId: string; sessionId?: string; execute: boolean; title?: string; descriptionMarkdown?: string }) => Promise<AdvisorSuggestionView>
   ignore: (suggestionId: string) => Promise<void>
+  ignoreAll: () => Promise<number>
+  dismiss: (ids: string[], bulk: boolean) => Promise<number>
   configure: (input: { advisorAgentId: string; advisorPrompt?: string; enabled?: boolean }) => Promise<void>
   rebuildSession: (advisorAgentId: string) => Promise<void>
   setupListeners: () => () => void
@@ -123,15 +130,22 @@ export const useAdvisorStore = create<AdvisorState>((set, get) => ({
   view: null,
   loading: false,
   saving: false,
+  ignoring: false,
+  actionError: null,
+  clockOffsetMs: 0,
   error: null,
 
   load: async (projectId, silent = false) => {
+    if (silent && projectId !== get().projectId) return
     const sequence = ++loadSequence
-    if (!silent) set({ projectId, loading: true, error: null })
+    if (!silent) set({
+      projectId, loading: true, error: null, actionError: null,
+      ...(projectId !== get().projectId ? { view: null, config: null } : {}),
+    })
     try {
       const data = await wsClient.request({ type: 'advisor.get', projectId }) as AdvisorWorkspace
       if (sequence !== loadSequence) return
-      set({ projectId, config: data.config, view: data.suggestions, loading: false, error: null })
+      set({ projectId, config: data.config, ...receivedAdvisorView(data.suggestions), loading: false, error: null })
     } catch (error) {
       if (sequence !== loadSequence) return
       set({ loading: false, error: message(error, '参谋建议加载失败') })
@@ -141,27 +155,57 @@ export const useAdvisorStore = create<AdvisorState>((set, get) => ({
   markRead: async (ids) => {
     const projectId = requireProject(get().projectId)
     await wsClient.request({ type: 'advisor.suggestion.markRead', projectId, ids })
-    await get().load(projectId, true)
+    if (get().projectId === projectId) await get().load(projectId, true)
   },
 
   accept: async (suggestionId, input) => {
     const projectId = requireProject(get().projectId)
+    const sequence = ++loadSequence
     const view = await wsClient.request({
       type: 'advisor.suggestion.accept', projectId, suggestionId,
       agentId: input.agentId, execute: input.execute,
       title: input.title, descriptionMarkdown: input.descriptionMarkdown,
       ...(input.sessionId ? { sessionId: input.sessionId, sessionMode: 'existing' } : {}),
     }) as AdvisorSuggestionView
-    set({ view })
+    if (get().projectId === projectId) {
+      if (sequence === loadSequence) set(receivedAdvisorView(view))
+      await get().load(projectId, true)
+    }
     return view
   },
 
   ignore: async (suggestionId) => {
+    await get().dismiss([suggestionId], false)
+  },
+
+  ignoreAll: async () => {
+    const state = get()
+    const view = state.view && filterAdvisorView(state.view, Date.now() + state.clockOffsetMs)
+    const ids = view?.suggestions.filter(row => !row.task_id && !row.dispatch_token).map(row => row.id) ?? []
+    return get().dismiss(ids, true)
+  },
+
+  dismiss: async (ids, bulk) => {
+    if (get().ignoring || ids.length === 0) return 0
     const projectId = requireProject(get().projectId)
-    const data = await wsClient.request({
-      type: 'advisor.suggestion.ignore', projectId, suggestionId,
-    }) as { suggestions: AdvisorSuggestionView }
-    set({ view: data.suggestions })
+    const sequence = ++loadSequence
+    set({ ignoring: true, actionError: null })
+    try {
+      const data = await wsClient.request(bulk
+        ? { type: 'advisor.suggestion.ignoreAll', projectId, ids }
+        : { type: 'advisor.suggestion.ignore', projectId, suggestionId: ids[0] }
+      ) as { suggestions: AdvisorSuggestionView; ignoredCount?: number }
+      if (get().projectId === projectId) {
+        if (sequence === loadSequence) set(receivedAdvisorView(data.suggestions))
+        await get().load(projectId, true)
+      }
+      return data.ignoredCount ?? 1
+    } catch (error) {
+      if (get().projectId === projectId) set({ actionError: message(error, '忽略建议失败') })
+      throw error
+    } finally {
+      set({ ignoring: false })
+    }
   },
 
   configure: async (input) => {
@@ -185,15 +229,46 @@ export const useAdvisorStore = create<AdvisorState>((set, get) => ({
   },
 
   setupListeners: () => {
+    let expiryTimer: ReturnType<typeof setTimeout> | undefined
+    const expireLocal = (): void => {
+      const state = get()
+      if (!state.view) return
+      const view = filterAdvisorView(state.view, Date.now() + state.clockOffsetMs)
+      if (view !== state.view) set({ view })
+    }
+    const scheduleExpiry = (): void => {
+      clearTimeout(expiryTimer)
+      const state = get()
+      const rows = state.view ? [...state.view.suggestions, ...state.view.settled] : []
+      const deadline = Math.min(...rows.map(suggestionDeadline))
+      if (Number.isFinite(deadline)) {
+        expiryTimer = setTimeout(expireLocal, Math.max(1, Math.min(2_147_483_647, deadline - Date.now() - state.clockOffsetMs)))
+      }
+    }
+    const offState = useAdvisorStore.subscribe((state, previous) => {
+      if (state.view !== previous.view || state.clockOffsetMs !== previous.clockOffsetMs) scheduleExpiry()
+    })
+    expireLocal()
+    scheduleExpiry()
     const refresh = (): void => {
+      expireLocal()
       const projectId = get().projectId
       if (projectId) void get().load(projectId, true)
     }
+    const resume = (): void => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') refresh()
+    }
+    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', resume)
+    if (typeof window !== 'undefined') window.addEventListener('focus', refresh)
     const offUpdate = wsClient.on('advisor:update', (event) => {
       if (event.projectId === get().projectId) refresh()
     })
     const offReconnect = wsClient.on('reconnected', refresh)
-    return () => { offUpdate(); offReconnect() }
+    return () => {
+      offUpdate(); offReconnect(); offState(); clearTimeout(expiryTimer)
+      if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', resume)
+      if (typeof window !== 'undefined') window.removeEventListener('focus', refresh)
+    }
   },
 }))
 

@@ -409,8 +409,8 @@ describe('project advisor service', () => {
 
     const view = ignoreSuggestion(project.id, row.id)
     expect(view.suggestions.find((item) => item.id === row.id)).toBeUndefined()
-    expect(view.settled).toHaveLength(1)
-    expect(view.settled[0]).toMatchObject({ id: row.id, status: 'ignored' })
+    expect(view.settled).toHaveLength(0)
+    expect(advisorSuggestionStore.get(row.id)).toMatchObject({ id: row.id, status: 'ignored' })
   })
 
   test('exposes a default workspace and resumes stale dispatch tokens on startup', async () => {

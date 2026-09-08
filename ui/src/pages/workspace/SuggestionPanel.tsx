@@ -1,56 +1,12 @@
 import { useState } from 'react'
 import './advisor.css'
-import { ListTodo, Settings2, Plus, ChevronDown, ChevronRight } from 'lucide-react'
+import { ListX, ChevronDown, ChevronRight } from 'lucide-react'
 import type { AdvisorArtifact, AdvisorSuggestion, AdvisorSuggestionView } from '../../stores/advisor.store'
 import { formatArtifactSize, isGlmAgent, parseArtifact, parseEvidence } from '../../stores/advisor.store'
 
-export type AdvisorRightTab = 'tasks' | 'suggestions'
+export { AdvisorTabBar, type AdvisorRightTab } from './AdvisorTabBar'
 
 const GLM_TAG_TEXT = '推荐 · 快、便宜、中文好'
-
-interface AdvisorTabBarProps {
-  active: AdvisorRightTab
-  pendingCount: number
-  pulse: boolean
-  onSelectTab: (tab: AdvisorRightTab) => void
-  onOpenSettings: () => void
-  onCreateTask: () => void
-}
-
-/** 右侧面板 tab 条：任务｜建议（含未处理徽标）＋ 右侧动作位（新建 / ⚙ 参谋设置） */
-export function AdvisorTabBar({ active, pendingCount, pulse, onSelectTab, onOpenSettings, onCreateTask }: AdvisorTabBarProps) {
-  return (
-    <div className="advisor-tabbar">
-      <button
-        type="button"
-        className={`advisor-tab${active === 'tasks' ? ' advisor-tab-active' : ''}`}
-        onClick={() => onSelectTab('tasks')}
-      >
-        <ListTodo size={14} /> 任务
-      </button>
-      <button
-        type="button"
-        className={`advisor-tab${active === 'suggestions' ? ' advisor-tab-active' : ''}`}
-        onClick={() => onSelectTab('suggestions')}
-      >
-        建议
-        {pendingCount > 0 && (
-          <span className={`advisor-tab-badge${pulse ? ' advisor-tab-badge-pulse' : ''}`}>{pendingCount}</span>
-        )}
-      </button>
-      <span className="advisor-tabbar-spacer" />
-      {active === 'tasks' ? (
-        <button type="button" className="advisor-tabbar-action advisor-tabbar-action-primary" onClick={onCreateTask}>
-          <Plus size={12} /> 新建
-        </button>
-      ) : (
-        <button type="button" className="advisor-tabbar-action" onClick={onOpenSettings} title="参谋设置">
-          <Settings2 size={14} /> 参谋设置
-        </button>
-      )}
-    </div>
-  )
-}
 
 function summaryOf(description: string): string {
   const lines = description
@@ -72,6 +28,7 @@ function statusLine(suggestion: AdvisorSuggestion): string {
 }
 
 interface SuggestionCardProps {
+  disabled?: boolean
   suggestion: AdvisorSuggestion
   agents: Array<{ id: string; name: string }>
   highlight: boolean
@@ -83,6 +40,7 @@ interface SuggestionCardProps {
 }
 
 export function SuggestionCard({
+  disabled = false,
   suggestion,
   agents,
   highlight,
@@ -91,8 +49,9 @@ export function SuggestionCard({
   onExecute,
   onIgnore,
   onOpenTask,
-}: SuggestionCardProps) {
+}: SuggestionCardProps): React.ReactElement {
   const active = suggestion.status === 'pending' || suggestion.status === 'viewed'
+  const actionDisabled = disabled || Boolean(suggestion.dispatch_token || suggestion.task_id)
   const evidence = parseEvidence(suggestion)
   const artifact = parseArtifact(suggestion)
   const agent = suggestion.suggested_agent_id
@@ -173,10 +132,10 @@ export function SuggestionCard({
 
       {active && (
         <div className="advisor-card-actions">
-          <button type="button" className="advisor-button-primary" onClick={() => onExecute(suggestion)}>
+          <button type="button" className="advisor-button-primary" disabled={actionDisabled} onClick={() => onExecute(suggestion)}>
             ▶ 查看并执行
           </button>
-          <button type="button" className="advisor-button-secondary" onClick={() => onIgnore(suggestion)}>
+          <button type="button" className="advisor-button-secondary" disabled={actionDisabled} onClick={() => onIgnore(suggestion)}>
             忽略
           </button>
         </div>
@@ -195,6 +154,9 @@ const EMPTY_TEXT = '参谋没有值得说的会保持沉默'
 const EMPTY_HINT = '开启参谋后，它会在会话出现值得改进的点时主动给出建议。'
 
 interface SuggestionPanelProps {
+  ignoring?: boolean
+  actionError?: string | null
+  onIgnoreAll: () => void
   view: AdvisorSuggestionView | null
   loading: boolean
   error: string | null
@@ -208,8 +170,11 @@ interface SuggestionPanelProps {
   onRetry: () => void
 }
 
-/** 右侧「建议」tab 面板：主列表（未处理）＋ 沉底折叠区（已处理/已忽略/已过期） */
+/** 忽略与到期条目不展示；已处理条目保留在创建24小时内的折叠区。 */
 export function SuggestionPanel({
+  ignoring = false,
+  actionError = null,
+  onIgnoreAll,
   view,
   loading,
   error,
@@ -221,7 +186,7 @@ export function SuggestionPanel({
   onIgnore,
   onOpenTask,
   onRetry,
-}: SuggestionPanelProps) {
+}: SuggestionPanelProps): React.ReactElement | null {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
 
   if (loading && !view) {
@@ -248,14 +213,19 @@ export function SuggestionPanel({
   const settled = view.settled
   const groups: CollapsedGroup[] = [
     { key: 'dispatched', label: '已处理', items: settled.filter((item) => item.status === 'accepted' || item.status === 'created') },
-    { key: 'ignored', label: '已忽略', items: settled.filter((item) => item.status === 'ignored') },
-    { key: 'expired', label: '已过期', items: view.expired },
   ]
   const visibleGroups = groups.filter((group) => group.items.length > 0)
   const isEmpty = view.suggestions.length === 0 && visibleGroups.length === 0
+  const canIgnore = view.suggestions.some(item => !item.dispatch_token && !item.task_id)
 
   return (
     <div className="advisor-panel">
+      <div className="advisor-list-actions">
+        <button type="button" className="advisor-button-secondary" disabled={ignoring || !canIgnore} onClick={onIgnoreAll}>
+          <ListX size={14} /> {ignoring ? '正在忽略…' : '全部忽略'}
+        </button>
+      </div>
+      {actionError && <div className="advisor-action-error" role="alert">{actionError}</div>}
       {isEmpty ? (
         <div className="advisor-empty">
           {EMPTY_TEXT}
@@ -266,6 +236,7 @@ export function SuggestionPanel({
           {view.suggestions.map((suggestion) => (
             <SuggestionCard
               key={suggestion.id}
+              disabled={ignoring}
               suggestion={suggestion}
               agents={agents}
               highlight={highlightIds.includes(suggestion.id)}

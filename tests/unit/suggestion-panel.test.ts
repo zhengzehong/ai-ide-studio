@@ -95,6 +95,7 @@ function renderPanel(view: AdvisorSuggestionView | null, overrides: Record<strin
     onOpenArtifact: noop,
     onExecute: noop,
     onIgnore: noop,
+    onIgnoreAll: noop,
     onOpenTask: noop,
     onRetry: noop,
     ...overrides,
@@ -105,12 +106,12 @@ describe('advisor suggestion panel (PC)', () => {
   test('renders the four states: loading, error, empty, and data', () => {
     expect(renderToStaticMarkup(createElement(SuggestionPanel, {
       view: null, loading: true, error: null, agents: [], highlightIds: [],
-      onJumpToSession: noop, onOpenArtifact: noop, onExecute: noop, onIgnore: noop, onOpenTask: noop, onRetry: noop,
+      onJumpToSession: noop, onOpenArtifact: noop, onExecute: noop, onIgnore: noop, onIgnoreAll: noop, onOpenTask: noop, onRetry: noop,
     }))).toContain('正在加载参谋建议')
 
     const errorHtml = renderToStaticMarkup(createElement(SuggestionPanel, {
       view: null, loading: false, error: '参谋建议加载失败', agents: [], highlightIds: [],
-      onJumpToSession: noop, onOpenArtifact: noop, onExecute: noop, onIgnore: noop, onOpenTask: noop, onRetry: noop,
+      onJumpToSession: noop, onOpenArtifact: noop, onExecute: noop, onIgnore: noop, onIgnoreAll: noop, onOpenTask: noop, onRetry: noop,
     }))
     expect(errorHtml).toContain('参谋建议加载失败')
     expect(errorHtml).toContain('重试')
@@ -165,7 +166,7 @@ describe('advisor suggestion panel (PC)', () => {
     expect(tasksTab).toContain('新建')
   })
 
-  test('viewed suggestions stay in the main list; settled and expired collapse to the bottom', () => {
+  test('viewed suggestions stay visible; ignored and expired groups are not rendered', () => {
     const viewed = suggestionFixture({ id: 'suggestion-viewed', status: 'viewed' })
     const accepted = suggestionFixture({ id: 'suggestion-accepted', status: 'accepted', task_id: 'task-1', execution_session_id: 'session-2' })
     const ignored = suggestionFixture({ id: 'suggestion-ignored', status: 'ignored' })
@@ -179,11 +180,23 @@ describe('advisor suggestion panel (PC)', () => {
 
     expect(html).toContain('沉淀排查结论为任务')
     expect(html).toContain('已处理（1 条）')
-    expect(html).toContain('已忽略（1 条）')
-    expect(html).toContain('已过期（1 条）')
+    expect(html).not.toContain('已忽略（1 条）')
+    expect(html).not.toContain('已过期（1 条）')
     expect(html).not.toContain('已处理（2 条）')
     // 折叠区默认收起：终态卡片内容不直接出现
     expect(html).not.toContain('✔ 已派发执行')
+  })
+
+  test('bulk ignore is visible, disabled when empty or submitting, and failures keep the list', () => {
+    expect(renderPanel(viewFixture())).toContain('全部忽略')
+    expect(renderPanel(viewFixture({ suggestions: [], pendingCount: 0 }))).toMatch(/disabled=""[^>]*>.*全部忽略/)
+    const busy = renderPanel(viewFixture(), { ignoring: true })
+    expect(busy).toContain('正在忽略')
+    expect(busy.match(/disabled=""/g)).toHaveLength(3)
+    const failed = renderPanel(viewFixture(), { actionError: '网络失败' })
+    expect(failed).toContain('role="alert"')
+    expect(failed).toContain('网络失败')
+    expect(failed).toContain('沉淀排查结论为任务')
   })
 
   test('execute dialog edits title and description with three footer actions', () => {

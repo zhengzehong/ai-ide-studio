@@ -78,16 +78,10 @@ describe('advisor suggestion store', () => {
     expect(active).toHaveLength(1)
     expect(active[0].status).toBe('viewed')
 
-    // 过期后从 active 消失，进入 expiredPending（24h 窗口内），徽标归零
-    const expiredAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString() // = expire_at
-    const twoHoursAfterExpire = new Date(now.getTime() + (7 * 24 + 2) * 60 * 60 * 1000).toISOString()
+    // 创建24小时后隐藏，徽标归零，不再提供过期展示组。
+    const twoHoursAfterExpire = new Date(now.getTime() + 26 * 60 * 60 * 1000).toISOString()
     expect(advisorSuggestionStore.listActive(project.id, twoHoursAfterExpire)).toHaveLength(0)
-    expect(advisorSuggestionStore.listExpiredPending(project.id, twoHoursAfterExpire)).toHaveLength(1)
     expect(advisorSuggestionStore.countPending(project.id, twoHoursAfterExpire)).toBe(0)
-
-    // 隔天口径：过期超 24h 不再返回（前端「已过期」组消失）
-    const oneDayAfterExpire = new Date(now.getTime() + (7 * 24 + 25) * 60 * 60 * 1000).toISOString()
-    expect(advisorSuggestionStore.listExpiredPending(project.id, oneDayAfterExpire)).toHaveLength(0)
   })
 
   test('purgeExpiredUnprocessed removes unprocessed rows expired over 24h and keeps settled rows', () => {

@@ -9,6 +9,7 @@ import { previewStore } from '../store/previews.js'
 import { projectAdvisorStore, type ProjectAdvisorRow } from '../store/advisors.js'
 import {
   advisorSuggestionStore,
+  suggestionExpiresAt,
   type AdvisorArtifact,
   type AdvisorSourceEvidence,
   type AdvisorSuggestionRow,
@@ -38,6 +39,7 @@ function advisorConfiguration(row: ProjectAdvisorRow): AdvisorConfiguration {
 }
 
 export interface AdvisorSuggestionView {
+  serverNow: string
   suggestions: AdvisorSuggestionRow[]
   expired: AdvisorSuggestionRow[]
   settled: AdvisorSuggestionRow[]
@@ -56,8 +58,9 @@ export function getAdvisorWorkspace(projectId: string): { config: AdvisorConfigu
 function listAdvisorSuggestions(projectId: string): AdvisorSuggestionView {
   const now = new Date().toISOString()
   return {
+    serverNow: now,
     suggestions: advisorSuggestionStore.listActive(projectId, now),
-    expired: advisorSuggestionStore.listExpiredPending(projectId, now),
+    expired: [],
     settled: advisorSuggestionStore.listSettled(projectId, now),
     pendingCount: advisorSuggestionStore.countPending(projectId, now),
   }
@@ -242,6 +245,7 @@ export async function acceptSuggestion(
 ): Promise<AdvisorSuggestionView> {
   const suggestion = requireSuggestion(projectId, suggestionId)
   if (suggestion.task_id) return listAdvisorSuggestions(projectId)
+  if (Date.parse(suggestionExpiresAt(suggestion)) <= Date.now()) throw new Error('建议已过期')
   const agentId = input.agentId || suggestion.suggested_agent_id
   if (!agentId) throw new Error('该建议没有推荐 Agent，请手动选择执行 Agent')
   const agent = agentStore.get(agentId)
@@ -258,7 +262,7 @@ export async function acceptSuggestion(
   const taskDescription = baseDescription + buildSourceContextBlock(suggestion)
   const token = `dispatch-${randomUUID()}`
   const claimed = advisorSuggestionStore.claimDispatch(suggestion.id, token)
-  if (!claimed) throw new Error('建议正在创建任务，请稍候')
+  if (!claimed) throw new Error('建议已处理、已过期或正在创建任务，请刷新列表')
   try {
     let taskId: string
     let executionSessionId: string | null = input.sessionId ?? null
@@ -312,9 +316,19 @@ export async function acceptSuggestion(
 
 export function ignoreSuggestion(projectId: string, suggestionId: string): AdvisorSuggestionView {
   const suggestion = requireSuggestion(projectId, suggestionId)
-  if (!advisorSuggestionStore.ignore(suggestion.id)) throw new Error('建议不存在或已处理')
+  if (suggestion.status === 'ignored') return listAdvisorSuggestions(projectId)
+  if (!advisorSuggestionStore.ignore(suggestion.id)) throw new Error('建议已处理、已过期或正在创建任务')
+  log.info({ projectId, suggestionId }, '参谋建议已忽略')
   emitUpdate(projectId)
   return listAdvisorSuggestions(projectId)
+}
+
+export function ignoreSuggestions(projectId: string, ids: string[]): { ignoredCount: number; suggestions: AdvisorSuggestionView } {
+  requireProject(projectId)
+  const ignoredCount = advisorSuggestionStore.ignoreMany(projectId, ids)
+  log.info({ projectId, requestedCount: ids.length, ignoredCount }, '参谋建议已批量忽略')
+  emitUpdate(projectId)
+  return { ignoredCount, suggestions: listAdvisorSuggestions(projectId) }
 }
 
 export function markAdvisorSuggestionsViewed(projectId: string, ids: string[] | null): number {
