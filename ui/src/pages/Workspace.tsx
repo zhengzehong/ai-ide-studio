@@ -231,6 +231,9 @@ export default function Workspace() {
   const markAdvisorRead = useAdvisorStore((s) => s.markRead)
   const acceptAdvisorSuggestion = useAdvisorStore((s) => s.accept)
   const ignoreAdvisorSuggestion = useAdvisorStore((s) => s.ignore)
+  const ignoreAllAdvisorSuggestions = useAdvisorStore((s) => s.ignoreAll)
+  const advisorIgnoring = useAdvisorStore((s) => s.ignoring)
+  const advisorActionError = useAdvisorStore((s) => s.actionError)
   const configureAdvisor = useAdvisorStore((s) => s.configure)
   const rebuildAdvisorSession = useAdvisorStore((s) => s.rebuildSession)
   const setupAdvisorListeners = useAdvisorStore((s) => s.setupListeners)
@@ -643,6 +646,15 @@ export default function Workspace() {
       await ignoreAdvisorSuggestion(suggestion.id)
     } catch (error) {
       setAdvisorToast(error instanceof Error ? error.message : '忽略建议失败')
+    }
+  }
+
+  const handleAdvisorIgnoreAll = async (): Promise<void> => {
+    try {
+      const count = await ignoreAllAdvisorSuggestions()
+      if (useAdvisorStore.getState().projectId === currentProjectId) setAdvisorToast(`已忽略 ${count} 条建议`)
+    } catch {
+      // 失败信息由建议列表展示，保留条目以便重试。
     }
   }
 
@@ -1409,6 +1421,9 @@ export default function Workspace() {
                 onOpenArtifact={handleAdvisorOpenArtifact}
                 onExecute={setExecutingSuggestion}
                 onIgnore={(suggestion) => void handleAdvisorIgnore(suggestion)}
+                onIgnoreAll={() => void handleAdvisorIgnoreAll()}
+                ignoring={advisorIgnoring}
+                actionError={advisorActionError}
                 onOpenTask={() => navigate(`/p/${currentProjectId}/tasks`)}
                 onRetry={() => currentProjectId && void loadAdvisor(currentProjectId)}
               />

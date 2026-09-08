@@ -47,10 +47,22 @@ export interface CreateAdvisorSuggestionInput {
   artifact?: AdvisorArtifact | null
 }
 
-const EXPIRE_DAYS = 7
+const LIFETIME_MS = 24 * 60 * 60 * 1000
 
 function computeExpireAt(now: string): string {
-  return new Date(Date.parse(now) + EXPIRE_DAYS * 24 * 60 * 60 * 1000).toISOString()
+  return new Date(Date.parse(now) + LIFETIME_MS).toISOString()
+}
+
+function createdAfter(now: string): string {
+  return new Date(Date.parse(now) - LIFETIME_MS).toISOString()
+}
+
+export function suggestionExpiresAt(row: Pick<AdvisorSuggestionRow, 'created_at' | 'expire_at'>): string {
+  return new Date(Math.min(Date.parse(row.expire_at), Date.parse(row.created_at) + LIFETIME_MS)).toISOString()
+}
+
+function withEffectiveExpiry(row: AdvisorSuggestionRow): AdvisorSuggestionRow {
+  return { ...row, expire_at: suggestionExpiresAt(row) }
 }
 
 export const advisorSuggestionStore = {
@@ -120,21 +132,20 @@ export const advisorSuggestionStore = {
 
   /** 未处理建议：pending/viewed 且未过期，新的在前（U-2 徽标来源 / L-6） */
   listActive(projectId: string, now = new Date().toISOString()): AdvisorSuggestionRow[] {
-    return getDb().prepare<[string, string], AdvisorSuggestionRow>(`
+    return getDb().prepare<[string, string, string], AdvisorSuggestionRow>(`
       SELECT * FROM advisor_suggestions
-      WHERE project_id = ? AND status IN ('pending', 'viewed') AND expire_at > ?
+      WHERE project_id = ? AND status IN ('pending', 'viewed') AND expire_at > ? AND created_at > ?
       ORDER BY created_at DESC, sort_order ASC, id ASC
-    `).all(projectId, now)
+    `).all(projectId, now, createdAfter(now)).map(withEffectiveExpiry)
   },
 
-  /** 近期终态建议（沉底区展示），updated_at 近 48 小时（L-5/L-6） */
+  /** 已处理展示也遵守创建24小时窗口；忽略反馈仅由 listRecentFeedback 提供。 */
   listSettled(projectId: string, now = new Date().toISOString()): AdvisorSuggestionRow[] {
-    const since = new Date(Date.parse(now) - 48 * 60 * 60 * 1000).toISOString()
-    return getDb().prepare<[string, string], AdvisorSuggestionRow>(`
+    return getDb().prepare<[string, string, string], AdvisorSuggestionRow>(`
       SELECT * FROM advisor_suggestions
-      WHERE project_id = ? AND status IN ('accepted', 'created', 'ignored') AND updated_at > ?
+      WHERE project_id = ? AND status IN ('accepted', 'created') AND expire_at > ? AND created_at > ?
       ORDER BY updated_at DESC, id ASC
-    `).all(projectId, since)
+    `).all(projectId, now, createdAfter(now)).map(withEffectiveExpiry)
   },
 
   listRecentFeedback(projectId: string, now = new Date().toISOString()): AdvisorSuggestionRow[] {
@@ -146,16 +157,6 @@ export const advisorSuggestionStore = {
     `).all(projectId, since)
   },
 
-  /** 已过期但仍是 pending 的建议（前端沉底展示、不计徽标，L-6）——只回过期未满 24h 的，隔天彻底消失 */
-  listExpiredPending(projectId: string, now = new Date().toISOString()): AdvisorSuggestionRow[] {
-    const windowStart = new Date(Date.parse(now) - 24 * 60 * 60 * 1000).toISOString()
-    return getDb().prepare<[string, string, string], AdvisorSuggestionRow>(`
-      SELECT * FROM advisor_suggestions
-      WHERE project_id = ? AND status IN ('pending', 'viewed') AND expire_at <= ? AND expire_at > ?
-      ORDER BY created_at DESC, id ASC
-    `).all(projectId, now, windowStart)
-  },
-
   /**
    * 惰性物理清理：删除「过期超 24h 且仍未处理」的建议行，返回被删行（含产物信息，供 core 层删孤儿 HTML）。
    * 终态（accepted/created/ignored）永久保留：任务侧产物链接仍引用其 HTML，属台账。
@@ -164,11 +165,11 @@ export const advisorSuggestionStore = {
     const cutoff = new Date(Date.parse(now) - 24 * 60 * 60 * 1000).toISOString()
     const rows = getDb().prepare(`
       SELECT * FROM advisor_suggestions
-      WHERE status IN ('pending', 'viewed') AND expire_at < ?
+      WHERE status IN ('pending', 'viewed') AND dispatch_token IS NULL AND task_id IS NULL AND expire_at < ?
     `).all(cutoff) as AdvisorSuggestionRow[]
     if (rows.length === 0) return []
     const del = getDb().prepare(
-      `DELETE FROM advisor_suggestions WHERE id = ? AND status IN ('pending', 'viewed')`,
+      `DELETE FROM advisor_suggestions WHERE id = ? AND status IN ('pending', 'viewed') AND dispatch_token IS NULL AND task_id IS NULL`,
     )
     getDb().transaction(() => {
       for (const row of rows) del.run(row.id)
@@ -177,10 +178,10 @@ export const advisorSuggestionStore = {
   },
 
   countPending(projectId: string, now = new Date().toISOString()): number {
-    return getDb().prepare<[string, string], { count: number }>(`
+    return getDb().prepare<[string, string, string], { count: number }>(`
       SELECT COUNT(*) AS count FROM advisor_suggestions
-      WHERE project_id = ? AND status = 'pending' AND expire_at > ?
-    `).get(projectId, now)?.count ?? 0
+      WHERE project_id = ? AND status = 'pending' AND expire_at > ? AND created_at > ?
+    `).get(projectId, now, createdAfter(now))?.count ?? 0
   },
 
   /** 打开建议 tab 批量已读：pending → viewed（L-2/U-2） */
@@ -191,17 +192,31 @@ export const advisorSuggestionStore = {
       : ''
     const result = getDb().prepare(
       `UPDATE advisor_suggestions SET status = 'viewed', updated_at = ?
-       WHERE project_id = ? AND status = 'pending' ${placeholder}`,
-    ).run(...(ids && ids.length > 0 ? [now, projectId, ...ids] : [now, projectId]))
+       WHERE project_id = ? AND status = 'pending' AND expire_at > ? AND created_at > ? ${placeholder}`,
+    ).run(now, projectId, now, createdAfter(now), ...(ids ?? []))
     return result.changes
   },
 
   ignore(id: string, now = new Date().toISOString()): AdvisorSuggestionRow | undefined {
     const result = getDb().prepare(`
       UPDATE advisor_suggestions SET status = 'ignored', dispatch_token = NULL, updated_at = ?
-      WHERE id = ? AND status IN ('pending', 'viewed') AND task_id IS NULL
-    `).run(now, id)
+      WHERE id = ? AND status IN ('pending', 'viewed') AND task_id IS NULL AND dispatch_token IS NULL
+        AND expire_at > ? AND created_at > ?
+    `).run(now, id, now, createdAfter(now))
     return result.changes === 1 ? this.get(id) : undefined
+  },
+
+  ignoreMany(projectId: string, ids: string[], now = new Date().toISOString()): number {
+    const update = getDb().prepare(`
+      UPDATE advisor_suggestions SET status = 'ignored', updated_at = ?
+      WHERE project_id = ? AND id = ? AND status IN ('pending', 'viewed')
+        AND task_id IS NULL AND dispatch_token IS NULL AND expire_at > ? AND created_at > ?
+    `)
+    return getDb().transaction(() => {
+      let count = 0
+      for (const id of new Set(ids)) count += update.run(now, projectId, id, now, createdAfter(now)).changes
+      return count
+    })()
   },
 
   /** 派发令牌：原子占用，防止双击/并发重复建任务（L-7） */
@@ -209,7 +224,8 @@ export const advisorSuggestionStore = {
     const result = getDb().prepare(`
       UPDATE advisor_suggestions SET dispatch_token = ?, updated_at = ?
       WHERE id = ? AND task_id IS NULL AND dispatch_token IS NULL AND status IN ('pending', 'viewed')
-    `).run(token, now, id)
+        AND expire_at > ? AND created_at > ?
+    `).run(token, now, id, now, createdAfter(now))
     return result.changes === 1 ? this.get(id) : undefined
   },
 

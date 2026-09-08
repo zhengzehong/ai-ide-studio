@@ -412,3 +412,5 @@ Platform MCP tools use the session tool context as the source of truth for proje
 `advisor-push` 为规则、批次变化、工作覆盖和近期反馈保留独立预算；默认规则由 `advisor-prompt` 单点维护。任务摘要与会话 ID 支持按需核查，截断不代表其他工作不存在。规则独立于约 8000 字符的素材预算，自定义规则仍受配置长度上限约束。
 
 `advisor-rounds` 把发布请求绑定到有效的项目与参谋 Session，接受空建议作为正常提交；完成、禁用、重建后旧批次失效。`project-advisor` 管理配置、建议与接受动作，`advisor-suggestion-context` 构造接受任务时的来源资料。当前设置不重写已发送的 Prompt，下一批读取最新配置。
+
+建议列表与反馈台账分离：单条/批量忽略后隐藏，创建满24小时后隐藏，后端占用派发也校验截止时间。前端 `advisor-list-lifecycle` 统一有效期限过滤和服务端时钟校准，`advisor.store` 管理到期定时器、恢复前台刷新和异步响应顺序。`AdvisorTabBar` 负责任务/建议切换，`SuggestionPanel` 负责建议与批量操作展示。
