@@ -15,6 +15,7 @@ const builderConfig = {
       from: electronBuildDir,
       to: 'electron/dist',
       filter: [
+        'node/**/*.js',
         'backend-launch.js',
         'builder.config.js',
         'desktop-connection-probe.js',
@@ -69,6 +70,7 @@ const builderConfig = {
     icon: 'ui/public/app-icon.png',
     target: ['nsis', 'portable'],
   },
+  nsis: { oneClick: false, allowToChangeInstallationDirectory: true },
 }
 
 export default builderConfig

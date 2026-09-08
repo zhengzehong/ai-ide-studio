@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
+import { validateElectronModules } from './electron-package-integrity.mjs'
 
 const root = process.cwd()
 const buildDir = process.env.AI_IDE_ELECTRON_BUILD_DIR ?? join(root, 'electron', 'dist')
@@ -38,3 +39,5 @@ for (const file of files) {
   const source = join(buildDir, file)
   if (!existsSync(source)) throw new Error(`Missing Electron build output: ${source}`)
 }
+// backend-main is relocated next to the server dist directory by extraResources.
+validateElectronModules(buildDir, { exclude: ['backend-main.js'] })

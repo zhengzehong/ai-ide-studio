@@ -132,6 +132,8 @@ npm run retention -- status           # 查看清理进度
 npm run retention -- stop             # 停止申请新的清理批次
 ```
 
+桌面安装版提供安装向导及目录选择。打包在发布前校验 Electron 模块及预加载文件完整性；可用 `node scripts/repro/packaged-desktop-smoke.mjs` 在隔离配置下验证发布程序的首次启动窗口，不连接现有服务器。
+
 ## 尚未实现
 
 - Gemini 运行时

@@ -12,6 +12,7 @@ import { dirname, join, resolve } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { promoteDesktopRelease } from './desktop-release.mjs'
+import { validatePackagedElectron, validatePackagedDependencies } from './electron-package-integrity.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const releaseDir = join(root, 'release')
@@ -29,6 +30,8 @@ try {
     'scripts/electron-builder.mjs',
   ], { AI_IDE_ELECTRON_OUTPUT_DIR: stagingDir })
 
+  validatePackagedElectron(join(stagingDir, 'win-unpacked'), process.env.AI_IDE_ELECTRON_BUILD_DIR || join(root, 'electron', 'dist'))
+  validatePackagedDependencies(join(stagingDir, 'win-unpacked', 'resources', 'app'))
   const artifacts = promoteDesktopRelease({ workspace: root, releaseDir, stagingDir, version })
   await printReleaseSummary(artifacts)
 } catch (error) {

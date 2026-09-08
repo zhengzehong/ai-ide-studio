@@ -9,6 +9,7 @@ interface BuilderConfiguration {
   extraFiles: Array<{ from: string; to: string }>
   npmRebuild: boolean
   win: { icon: string; target: string[] }
+  nsis: { oneClick: boolean; allowToChangeInstallationDirectory: boolean }
 }
 
 const builderConfig: BuilderConfiguration = {
@@ -25,6 +26,7 @@ const builderConfig: BuilderConfiguration = {
       from: process.env.AI_IDE_ELECTRON_BUILD_DIR || 'electron/dist',
       to: 'electron/dist',
       filter: [
+        'node/**/*.js',
         'backend-launch.js',
         'builder.config.js',
         'desktop-connection-probe.js',
@@ -40,6 +42,8 @@ const builderConfig: BuilderConfiguration = {
         'desktop-target.js',
         'desktop-window-settings.js',
         'main.js',
+        'main-window-exit.js',
+        'main-window-navigation.js',
         'load-recovery.js',
         'setup-preload.cjs',
         'setup-submission.js',
@@ -77,6 +81,7 @@ const builderConfig: BuilderConfiguration = {
     icon: 'ui/public/app-icon.png',
     target: ['nsis', 'portable'],
   },
+  nsis: { oneClick: false, allowToChangeInstallationDirectory: true },
 }
 
 export default builderConfig
