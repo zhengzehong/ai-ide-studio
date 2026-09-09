@@ -429,7 +429,12 @@ describe('team MCP tool handlers', () => {
     })
 
     expect(result.status).toBe('accepted')
-    expect(sendPrompt).toHaveBeenCalledWith(asRecord(team.member).session_id, expect.stringContaining('start work'))
+    expect(sendPrompt).toHaveBeenCalledWith(
+      asRecord(team.member).session_id,
+      'start work',
+      undefined,
+      expect.objectContaining({ senderRole: 'team-assignment', senderName: 'Master', modelContent: expect.stringContaining('start work') }),
+    )
   })
 
   test('team.member.message queues dispatch when the member session is already active', async () => {
@@ -467,7 +472,9 @@ describe('team MCP tool handlers', () => {
     expect(sendPrompt).toHaveBeenCalledTimes(1)
     expect(sendPrompt).toHaveBeenLastCalledWith(
       asRecord(spawned.member).session_id,
-      expect.stringContaining('review the plan'),
+      'review the plan',
+      undefined,
+      expect.objectContaining({ senderRole: 'team-assignment', senderName: 'Master', modelContent: expect.stringContaining('review the plan') }),
     )
   })
 
@@ -493,15 +500,21 @@ describe('team MCP tool handlers', () => {
 
     expect(sendPrompt).toHaveBeenCalledWith(
       asRecord(team.member).session_id,
-      expect.stringContaining('禁止等待 Leader'),
+      'start work',
+      undefined,
+      expect.objectContaining({ modelContent: expect.stringContaining('禁止等待 Leader') }),
     )
     expect(sendPrompt).toHaveBeenCalledWith(
       asRecord(team.member).session_id,
-      expect.stringContaining('team.mailbox.send'),
+      'start work',
+      undefined,
+      expect.objectContaining({ modelContent: expect.stringContaining('team.mailbox.send') }),
     )
     expect(sendPrompt).toHaveBeenCalledWith(
       asRecord(team.member).session_id,
-      expect.stringContaining('team.task.update'),
+      'start work',
+      undefined,
+      expect.objectContaining({ modelContent: expect.stringContaining('team.task.update') }),
     )
   })
 
@@ -979,7 +992,13 @@ describe('team MCP tool handlers', () => {
     expect(dispatch.status).toBe('accepted')
     expect(sendPrompt).toHaveBeenCalledWith(
       asRecord(spawned.member).session_id,
-      expect.stringContaining('Please finish the hello task'),
+      'Please finish the hello task, report by mailbox, and mark the task completed.',
+      undefined,
+      expect.objectContaining({
+        senderRole: 'team-assignment',
+        senderName: 'Master',
+        modelContent: expect.stringContaining('Please finish the hello task'),
+      }),
     )
     expect(asRecord(feedback.message)).toMatchObject({
       from_member_id: asRecord(spawned.member).id,

@@ -11,6 +11,9 @@ export interface DispatchMemberPromptInput {
   memberId: string
   sessionId: string
   prompt: string
+  /** Short content shown in the team transcript; prompt remains the model payload. */
+  displayContent?: string
+  senderName?: string | null
 }
 
 const activeMemberSessions = new Set<string>()
@@ -36,7 +39,11 @@ export function dispatchMemberPrompt(input: DispatchMemberPromptInput): Dispatch
 
   activeMemberSessions.add(input.sessionId)
   void sessionManager
-    .enqueuePrompt(input.sessionId, input.prompt)
+    .enqueuePrompt(input.sessionId, input.displayContent ?? input.prompt, undefined, {
+      modelContent: input.prompt,
+      senderRole: 'team-assignment',
+      senderName: input.senderName ?? 'Master',
+    })
     .then(() => {
       activeMemberSessions.delete(input.sessionId)
     })

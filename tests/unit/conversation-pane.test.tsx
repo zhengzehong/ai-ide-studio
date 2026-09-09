@@ -158,6 +158,18 @@ describe('shared conversation pane', () => {
     expect((html.match(/<strong>测试成员<\/strong>/g) || []).length).toBe(1)
   })
 
+  test('renders a team assignment inside the member reply bubble', () => {
+    const html = renderToStaticMarkup(createElement(ConversationPane, {
+      adapter: adapter({
+        messages: [{ id: 'm-assignment', session_id: 'session-1', role: 'agent', content: '已完成', thinking: null, tool_calls_json: null, decision_json: null, timestamp: '2026-08-30T00:00:00Z', sender_name: '李白', teamAssignment: { fromName: 'Master', content: '检查登录问题' } }],
+      }),
+    }))
+    expect(html).toContain('Master 安排的任务')
+    expect(html).toContain('检查登录问题')
+    expect(html).toContain('李白')
+    expect(html).not.toContain('conversation-message is-human')
+  })
+
   test('does not render an empty bubble when the streaming turn only has a stage block', () => {
     const html = renderToStaticMarkup(createElement(ConversationPane, {
       adapter: adapter({

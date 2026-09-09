@@ -1,5 +1,5 @@
 ﻿import { hasMeaningfulToolTitle } from './tool-title'
-import type { ElicitationRequestInfo, FileChangeDetailInfo, PermissionRequestInfo, PlanEntry, SessionEventData, ToolCallInfo, TurnProcessItemInfo, TurnUsageInfo } from './session-events'
+import type { ElicitationRequestInfo, FileChangeDetailInfo, PermissionRequestInfo, PlanEntry, SessionEventData, TeamAssignmentInfo, ToolCallInfo, TurnProcessItemInfo, TurnUsageInfo } from './session-events'
 import { filterLegacyHeartbeatBlocks } from './tool-heartbeat-history'
 
 export type TurnProcessBlockKind = 'thinking' | 'note' | 'tool' | 'stage' | 'file_change' | 'plan' | 'permission' | 'elicitation'
@@ -98,6 +98,7 @@ export interface TurnViewModel {
   stage?: string
   turnStats?: TurnUsageInfo
   senderName?: string
+  teamAssignment?: TeamAssignmentInfo
 }
 
 export function createEmptyTurn(id: string): TurnViewModel {

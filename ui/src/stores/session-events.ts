@@ -31,6 +31,13 @@ export interface MessageData {
   processDefaultOpen?: boolean
   sender_name?: string | null
   sender_role?: string | null
+  teamAssignment?: TeamAssignmentInfo
+}
+
+export interface TeamAssignmentInfo {
+  content: string
+  fromName: string
+  taskId?: string
 }
 
 export interface PreviewPresentationInfo {

@@ -2,19 +2,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ConversationPane } from '../chat/ConversationPane'
 import type { ConversationAdapter, ConversationUploadedFile, ConversationProcessState } from '../chat/conversation-types'
-import type { FileChangeDetailInfo, ImageAttachmentInfo, MessageData, PermissionRequestInfo, ElicitationRequestInfo, SessionCapabilities, SessionEventData, StreamingMessage, ToolCallInfo, UsageInfo, ReducedSessionEvents, TurnProcessItemInfo } from '../../stores/session-events'
+import type { FileChangeDetailInfo, ImageAttachmentInfo, MessageData, PermissionRequestInfo, ElicitationRequestInfo, SessionCapabilities, SessionEventData, StreamingMessage, TeamAssignmentInfo, ToolCallInfo, UsageInfo, ReducedSessionEvents, TurnProcessItemInfo } from '../../stores/session-events'
 import { applySessionEvent, defaultCaps, mergeCapabilities, normalizeMessage } from '../../stores/session-events'
 import { applyTurnEntry, createEmptyTurn, turnFromProcessItems, type TurnProcessBlock } from '../../stores/turn-blocks'
 import { queryClient } from '../../services/query-client'
 import { commandClient } from '../../services/command-client'
 import { wsClient } from '../../services/ws-client'
 import type { TeamData } from '../../stores/team.store'
+import { assignmentFromEvent, attachTeamAssignments, findPendingTeamAssignment, mapTeamMessage } from './team-chat-assignments'
 
 interface Conversation { id: string; team_id: string; master_session_id: string; title: string }
 interface Member { id: string; agent_id: string; session_id: string; name: string; role: string }
 interface Props { team: TeamData; conversation: Conversation | null; masterSessionId: string | null }
 interface SourceMessage { message: MessageData; sourceSessionId: string; sourceMessageId: string }
-export interface Snapshot { sessionId: string; senderName?: string; messages: MessageData[]; events: SessionEventData[]; streaming: StreamingMessage | null; permissions: PermissionRequestInfo[]; elicitations: ElicitationRequestInfo[]; capabilities: SessionCapabilities; usage: UsageInfo | null; hasMore: boolean; running: boolean }
+export interface Snapshot { sessionId: string; senderName?: string; messages: MessageData[]; events: SessionEventData[]; streaming: StreamingMessage | null; pendingAssignment?: TeamAssignmentInfo | null; permissions: PermissionRequestInfo[]; elicitations: ElicitationRequestInfo[]; capabilities: SessionCapabilities; usage: UsageInfo | null; hasMore: boolean; running: boolean }
 
 export function TeamChatPane({ team, conversation, masterSessionId }: Props) {
   const [members, setMembers] = useState<Member[]>([])
@@ -52,14 +53,17 @@ export function TeamChatPane({ team, conversation, masterSessionId }: Props) {
         ])
         const label = labels.get(sessionId)
         const mapped = page.items.map((message) => {
-          const displayId = `${sessionId}:${message.id}`
-          const mappedMessage = normalizeMessage({ ...message, id: displayId, session_id: conversation.master_session_id, sender_name: label?.name || 'Agent', sender_role: label?.role || 'member' })
+          const mappedMessage = normalizeMessage(mapTeamMessage(message, sessionId, conversation.master_session_id, label?.name || 'Agent', label?.role || 'member'))
+          const displayId = mappedMessage.id
           nextSource.set(displayId, { message: mappedMessage, sourceSessionId: sessionId, sourceMessageId: message.id })
           return mappedMessage
         })
+        const decorated = attachTeamAssignments(mapped)
         const reduced = recovery.events.length ? reduceRecovery(recovery.events) : null
-        const active = mapped.filter((message) => message.role === 'agent' && message.status === 'running').at(-1)
-        nextSnapshots[sessionId] = { sessionId, senderName: label?.name || 'Agent', messages: mapped, events: recovery.events.map((event) => remapEvent(event, sessionId, conversation.master_session_id)), streaming: reduced?.streamingMessage ? { ...reduced.streamingMessage, senderName: label?.name || 'Agent' } : active ? toStreaming(active, sessionId) : null, permissions: reduced?.pendingPermissions || [], elicitations: reduced?.pendingElicitations || [], capabilities: normalizeCapabilities(caps), usage: reduced?.usage || null, hasMore: page.hasMore, running: !!active || !!reduced?.streamingMessage }
+        const active = decorated.messages.filter((message) => message.role === 'agent' && message.status === 'running').at(-1)
+        const pendingAssignment = active?.teamAssignment || findPendingTeamAssignment(mapped)
+        const streaming = reduced?.streamingMessage ? { ...reduced.streamingMessage, senderName: label?.name || 'Agent', teamAssignment: pendingAssignment || undefined } : active ? { ...toStreaming(active, sessionId), teamAssignment: pendingAssignment || undefined } : null
+        nextSnapshots[sessionId] = { sessionId, senderName: label?.name || 'Agent', messages: decorated.messages, events: recovery.events.map((event) => remapEvent(event, sessionId, conversation.master_session_id)), streaming: decorated.streaming || streaming, permissions: reduced?.pendingPermissions || [], elicitations: reduced?.pendingElicitations || [], capabilities: normalizeCapabilities(caps), usage: reduced?.usage || null, hasMore: page.hasMore, running: !!active || !!reduced?.streamingMessage }
       }))
       if (requestGeneration !== generation.current) return
       sourceMap.current = new Map([...sourceMap.current, ...nextSource])
@@ -92,6 +96,14 @@ export function TeamChatPane({ team, conversation, masterSessionId }: Props) {
     const offEvent = wsClient.on('session:event', (message) => {
       if (typeof message.sessionId !== 'string' || !sessionIds.includes(message.sessionId)) return
       const event = message.event as SessionEventData
+      const assignment = assignmentFromEvent(event)
+      if (assignment) {
+        setSnapshots((current) => {
+          const sourceSessionId = message.sessionId as string
+          const snapshot = current[sourceSessionId] || emptySnapshot(sourceSessionId)
+          return { ...current, [sourceSessionId]: { ...snapshot, pendingAssignment: assignment, streaming: snapshot.streaming ? { ...snapshot.streaming, teamAssignment: assignment } : snapshot.streaming } }
+        })
+      }
       if (noteTeamPersistedEvent(mirroredEvents.current, message.sessionId, event)) {
         setSnapshots((current) => appendTeamEvent(current, message.sessionId as string, event, masterSessionId))
         return
@@ -103,7 +115,7 @@ export function TeamChatPane({ team, conversation, masterSessionId }: Props) {
       const doneSessionId = message.sessionId as string
       const doneMessageId = typeof message.messageId === 'string' ? message.messageId : ''
       if (!doneMessageId) { void load(); return }
-      setSnapshots((current) => finalizeSnapshot(current, doneSessionId, doneMessageId, masterSessionId))
+      setSnapshots((current) => finalizeSnapshot(current, doneSessionId, doneMessageId, masterSessionId, message.stopReason === 'error' ? 'failed' : message.stopReason === 'cancelled' ? 'cancelled' : 'completed', typeof message.error === 'string' ? message.error : undefined))
       const previousTimer = doneReloadTimers.current.get(doneSessionId)
       if (previousTimer) window.clearTimeout(previousTimer)
       const timer = window.setTimeout(() => {
@@ -140,8 +152,13 @@ export function TeamChatPane({ team, conversation, masterSessionId }: Props) {
     setLoadingOlder(true)
     try {
       const page = await queryClient.listSessionMessages({ sessionId: source.sourceSessionId, limit: 40, before: source.message.timestamp, includeToolCalls: true })
-      const mapped = page.items.map((message) => normalizeMessage({ ...message, id: `${source.sourceSessionId}:${message.id}`, session_id: masterSessionId, sender_name: source.message.sender_name, sender_role: source.message.sender_role }))
-      setSnapshots((current) => ({ ...current, [source.sourceSessionId]: { ...current[source.sourceSessionId], messages: [...mapped, ...(current[source.sourceSessionId]?.messages || [])], hasMore: page.hasMore } }))
+      const mapped = page.items.map((message) => normalizeMessage(mapTeamMessage(message, source.sourceSessionId, masterSessionId, source.message.sender_name || 'Agent', source.message.sender_role || 'member')))
+      setSnapshots((current) => {
+        const snapshot = current[source.sourceSessionId]
+        if (!snapshot) return current
+        const decorated = attachTeamAssignments([...mapped, ...snapshot.messages], snapshot.streaming)
+        return { ...current, [source.sourceSessionId]: { ...snapshot, messages: decorated.messages, streaming: decorated.streaming, hasMore: page.hasMore } }
+      })
     } finally { setLoadingOlder(false) }
   }, [aggregate, loadingOlder, masterSessionId])
 
@@ -170,17 +187,25 @@ function createAdapter(input: { team: TeamData; conversation: Conversation | nul
 }
 
 export function aggregateSnapshots(snapshots: Record<string, Snapshot>, ids: string[], masterSessionId: string | null) {
-  const messages = [...new Map(ids.flatMap((id) => snapshots[id]?.messages || []).map((message) => [message.id, message])).values()].sort((a, b) => a.timestamp.localeCompare(b.timestamp) || a.id.localeCompare(b.id))
+  const decoratedBySession = new Map<string, { messages: MessageData[]; streaming: StreamingMessage | null }>()
+  ids.forEach((id) => {
+    const snapshot = snapshots[id]
+    if (snapshot) decoratedBySession.set(id, attachTeamAssignments(snapshot.messages, snapshot.streaming))
+  })
+  const messages = [...new Map(ids.flatMap((id) => {
+    const items = decoratedBySession.get(id)?.messages || []
+    return id === masterSessionId ? items : items.filter((message) => message.role !== 'human')
+  }).map((message) => [message.id, message])).values()].sort((a, b) => a.timestamp.localeCompare(b.timestamp) || a.id.localeCompare(b.id))
   const events = [...new Map(ids.flatMap((id) => snapshots[id]?.events || []).map((event) => [event.id, event])).values()].sort((a, b) => a.created_at.localeCompare(b.created_at) || a.sequence - b.sequence)
   const streaming = [...new Map(ids.flatMap((id) => {
-    const item = snapshots[id]?.streaming
+    const item = decoratedBySession.get(id)?.streaming
     return item && !item.done ? [[`${id}:${item.id}`, remapStreaming(item, id, snapshots[id]?.senderName)] as const] : []
   })).values()]
   const capabilities = masterSessionId ? snapshots[masterSessionId]?.capabilities || { ...defaultCaps } : { ...defaultCaps }
   return { messages, events, streaming, capabilities, usage: masterSessionId ? snapshots[masterSessionId]?.usage || null : null, permissions: uniqueById(ids.flatMap((id) => snapshots[id]?.permissions || [])), elicitations: uniqueById(ids.flatMap((id) => snapshots[id]?.elicitations || [])), running: ids.some((id) => snapshots[id]?.running), hasMore: ids.some((id) => snapshots[id]?.hasMore) }
 }
 function uniqueById<T extends { id: string }>(items: T[]): T[] { return [...new Map(items.map((item) => [item.id, item])).values()] }
-export function emptySnapshot(sessionId: string): Snapshot { return { sessionId, messages: [], events: [], streaming: null, permissions: [], elicitations: [], capabilities: { ...defaultCaps }, usage: null, hasMore: false, running: false } }
+export function emptySnapshot(sessionId: string): Snapshot { return { sessionId, messages: [], events: [], streaming: null, pendingAssignment: null, permissions: [], elicitations: [], capabilities: { ...defaultCaps }, usage: null, hasMore: false, running: false } }
 export function mergeLoadedSnapshots(current: Record<string, Snapshot>, loaded: Record<string, Snapshot>): Record<string, Snapshot> {
   const merged: Record<string, Snapshot> = { ...current }
   Object.entries(loaded).forEach(([sessionId, next]) => {
@@ -208,17 +233,42 @@ export function mergeLoadedSnapshots(current: Record<string, Snapshot>, loaded: 
   return merged
 }
 
-export function finalizeSnapshot(current: Record<string, Snapshot>, sessionId: string, messageId: string, targetSessionId: string | null = sessionId): Record<string, Snapshot> {
+export function finalizeSnapshot(current: Record<string, Snapshot>, sessionId: string, messageId: string, targetSessionId: string | null = sessionId, status = 'completed', error?: string): Record<string, Snapshot> {
   const snapshot = current[sessionId]
   if (!snapshot) return current
-  const streaming = snapshot.streaming
-  if (!streaming) return { ...current, [sessionId]: { ...snapshot, running: false } }
+  const streaming = snapshot.streaming || recoverStreamingSnapshot(snapshot, sessionId, messageId)
+  if (!streaming) {
+    const existing = findTurnMessage(snapshot.messages, sessionId, messageId)
+    if (existing && (existing.content.trim() || existing.finalAnswer?.trim() || existing.processBlocks?.length)) {
+      const existingContent = status === 'failed' && error ? appendFailureText(existing.content || existing.finalAnswer || '', error) : existing.content
+      const completed = normalizeMessage({
+        ...existing,
+        session_id: targetSessionId || existing.session_id,
+        content: existingContent,
+        finalAnswer: status === 'failed' && error ? existingContent : existing.finalAnswer,
+        status,
+        completed_at: existing.completed_at || new Date().toISOString(),
+        teamAssignment: existing.teamAssignment ?? snapshot.pendingAssignment ?? undefined,
+      })
+      const messages = new Map(snapshot.messages.map((message) => [message.id, message]))
+      messages.set(existing.id, completed)
+      return { ...current, [sessionId]: { ...snapshot, messages: [...messages.values()], pendingAssignment: null, running: false } }
+    }
+    if (status !== 'failed' || !error) return { ...current, [sessionId]: { ...snapshot, pendingAssignment: null, running: false } }
+    const id = `${sessionId}:${messageId.startsWith(`${sessionId}:`) ? messageId.slice(sessionId.length + 1) : messageId}`
+    const failed = normalizeMessage({ id, session_id: targetSessionId || snapshot.sessionId, role: 'agent', content: `执行失败：${error}`, thinking: null, tool_calls_json: null, decision_json: null, attachments_json: null, timestamp: new Date().toISOString(), status: 'failed', completed_at: new Date().toISOString(), sender_name: snapshot.senderName || null, sender_role: 'member', teamAssignment: snapshot.pendingAssignment ?? undefined, processDefaultOpen: false })
+    const messages = new Map(snapshot.messages.map((message) => [message.id, message]))
+    messages.set(id, failed)
+    return { ...current, [sessionId]: { ...snapshot, messages: [...messages.values()], pendingAssignment: null, running: false } }
+  }
   const normalizedMessageId = messageId.startsWith(`${sessionId}:`) ? messageId.slice(sessionId.length + 1) : messageId
   const streamingId = streaming.id.startsWith(`${sessionId}:`) ? streaming.id.slice(sessionId.length + 1) : streaming.id
   // ACP implementations may use different identifiers for the update stream and done envelope.
   // A session has only one active turn, so preserve that turn even when the ids differ.
   const resolvedMessageId = streamingId === normalizedMessageId ? normalizedMessageId : streamingId
   const id = `${sessionId}:${resolvedMessageId}`
+  const streamContent = streaming.finalAnswer || streaming.content
+  const completedContent = status === 'failed' && error ? appendFailureText(streamContent, error) : streamContent
   const completed = normalizeMessage({
     id,
     // The shared conversation list filters by the display session (Master).
@@ -226,25 +276,49 @@ export function finalizeSnapshot(current: Record<string, Snapshot>, sessionId: s
     // normalize its session id to the display target just like loaded history.
     session_id: targetSessionId || snapshot.sessionId,
     role: 'agent',
-    content: streaming.finalAnswer || streaming.content,
+    content: completedContent,
     thinking: streaming.thinking,
     tool_calls_json: streaming.toolCalls.length ? JSON.stringify(streaming.toolCalls) : null,
     decision_json: streaming.turnStats ? JSON.stringify(streaming.turnStats) : null,
     attachments_json: null,
     file_changes_json: null,
     timestamp: new Date().toISOString(),
-    status: 'completed',
+    status,
     completed_at: new Date().toISOString(),
     processBlocks: streaming.processBlocks,
-    finalAnswer: streaming.finalAnswer || streaming.content,
+    finalAnswer: completedContent,
     parsedToolCalls: streaming.toolCalls,
     sender_name: snapshot.senderName || null,
     sender_role: 'member',
+    teamAssignment: streaming.teamAssignment ?? snapshot.pendingAssignment ?? undefined,
     processDefaultOpen: false,
   })
   const messages = new Map(snapshot.messages.map((message) => [message.id, message]))
-  messages.set(id, completed)
+  const existing = findTurnMessage(snapshot.messages, sessionId, resolvedMessageId)
+  messages.set(id, existing ? mergeMessage(existing, completed) : completed)
   return { ...current, [sessionId]: { ...snapshot, messages: [...messages.values()], streaming: null, running: false } }
+}
+
+function findTurnMessage(messages: MessageData[], sessionId: string, messageId: string): MessageData | undefined {
+  const rawId = messageId.startsWith(`${sessionId}:`) ? messageId.slice(sessionId.length + 1) : messageId
+  return messages.find((message) => message.id === `${sessionId}:${rawId}` || message.id === rawId)
+}
+
+function appendFailureText(content: string, error: string): string {
+  const suffix = `执行失败：${error}`
+  return content.trim() ? `${content}\n\n${suffix}` : suffix
+}
+
+function recoverStreamingSnapshot(snapshot: Snapshot, sessionId: string, messageId: string): StreamingMessage | null {
+  const existing = findTurnMessage(snapshot.messages, sessionId, messageId)
+  if (existing && (existing.content.trim() || existing.finalAnswer?.trim() || existing.processBlocks?.length)) return toStreaming(existing, sessionId)
+  if (snapshot.events.length === 0) return null
+  const reduced = reduceRecovery(snapshot.events.filter((event) => event.type !== 'message.done'))
+  const recovered = reduced.streamingMessage
+  if (!recovered) return null
+  const rawId = messageId.startsWith(`${sessionId}:`) ? messageId.slice(sessionId.length + 1) : messageId
+  const recoveredId = recovered.id.startsWith(`${sessionId}:`) ? recovered.id.slice(sessionId.length + 1) : recovered.id
+  return recoveredId === rawId ? recovered : null
 }
 
 function mergeMessage(previous: MessageData, next: MessageData): MessageData {
@@ -280,7 +354,7 @@ function hasCompletedTurn(messages: MessageData[], streaming: StreamingMessage |
     return message.status === 'completed' || !!message.completed_at
   })
 }
-function toStreaming(message: MessageData, sessionId: string): StreamingMessage { const id = message.id.startsWith(`${sessionId}:`) ? message.id.slice(sessionId.length + 1) : message.id; return { ...createEmptyTurn(id), content: message.content, finalAnswer: message.finalAnswer || message.content, processBlocks: message.processBlocks || [], toolCalls: message.parsedToolCalls || [], senderName: message.sender_name || undefined, done: false } }
+function toStreaming(message: MessageData, sessionId: string): StreamingMessage { const id = message.id.startsWith(`${sessionId}:`) ? message.id.slice(sessionId.length + 1) : message.id; return { ...createEmptyTurn(id), content: message.content, finalAnswer: message.finalAnswer || message.content, processBlocks: message.processBlocks || [], toolCalls: message.parsedToolCalls || [], senderName: message.sender_name || undefined, teamAssignment: message.teamAssignment, done: false } }
 function remapStreaming(streaming: StreamingMessage, sessionId: string, senderName?: string): StreamingMessage { const id = streaming.id.startsWith(`${sessionId}:`) ? streaming.id : `${sessionId}:${streaming.id}`; return { ...streaming, id, senderName: senderName || streaming.senderName } }
 function normalizeCapabilities(value: unknown): SessionCapabilities { if (!value || typeof value !== 'object') return { ...defaultCaps }; const input = value as Partial<SessionCapabilities>; return mergeCapabilities({ ...defaultCaps }, { ...defaultCaps, models: Array.isArray(input.models) ? input.models : [], currentModelId: typeof input.currentModelId === 'string' ? input.currentModelId : null, modes: Array.isArray(input.modes) ? input.modes : [], currentModeId: typeof input.currentModeId === 'string' ? input.currentModeId : null, supportsImages: input.supportsImages === true, configOptions: Array.isArray(input.configOptions) ? input.configOptions : [], commands: Array.isArray(input.commands) ? input.commands : [] }) }
 function remapEvent(event: SessionEventData, sourceSessionId: string, targetSessionId: string): SessionEventData { const parsed = (() => { try { return JSON.parse(event.payload_json) as Record<string, unknown> } catch { return null } })(); const payload = parsed || {}; if (typeof payload.messageId === 'string') payload.messageId = `${sourceSessionId}:${payload.messageId}`; return { ...event, id: `${sourceSessionId}:${event.id}`, session_id: targetSessionId, message_id: event.message_id ? `${sourceSessionId}:${event.message_id}` : event.message_id, payload_json: JSON.stringify(payload) } }
@@ -290,8 +364,8 @@ function teamMirrorKey(sessionId: string, type: string, data: Record<string, unk
 function noteTeamRealtimeUpdate(records: Map<string, { expiresAt: number; updateCount: number; eventCount: number }>, sessionId: string, data: Record<string, unknown>): void { const type = teamMirrorType(data); const key = type ? teamMirrorKey(sessionId, type, data) : null; if (!key) return; records.set(key, { expiresAt: Date.now() + 30000, updateCount: 1, eventCount: 0 }) }
 function noteTeamPersistedEvent(records: Map<string, { expiresAt: number; updateCount: number; eventCount: number }>, sessionId: string, event: SessionEventData): boolean { for (const [key, value] of records) if (value.expiresAt <= Date.now()) records.delete(key); const payload = (() => { try { return JSON.parse(event.payload_json) as Record<string, unknown> } catch { return null } })(); if (!payload) return false; const data = event.type === 'message.chunk' ? { messageId: payload.messageId, contentDelta: payload.contentDelta, content: payload.content } : event.type === 'thinking.chunk' ? { messageId: payload.messageId, thinking: payload.thinking } : event.type === 'tool.call' ? { messageId: payload.messageId, toolCall: payload.toolCall } : { messageId: payload.messageId, toolCallUpdate: payload.toolCall }; const key = teamMirrorKey(sessionId, event.type, data); if (!key) return false; const record = records.get(key); if (!record || record.updateCount < 1) return false; records.delete(key); return true }
 function appendTeamEvent(current: Record<string, Snapshot>, sessionId: string, event: SessionEventData, targetSessionId: string | null): Record<string, Snapshot> { const snapshot = current[sessionId] || emptySnapshot(sessionId); const displayEventId = `${sessionId}:${event.id}`; if (snapshot.events.some((item) => item.id === displayEventId)) return current; return { ...current, [sessionId]: { ...snapshot, events: [...snapshot.events, remapEvent(event, sessionId, targetSessionId || sessionId)] } } }
-export function updateStreaming(current: Record<string, Snapshot>, sessionId: string, data: Record<string, unknown>): Record<string, Snapshot> { const snapshot = current[sessionId] || emptySnapshot(sessionId); const incomingId = typeof data.messageId === 'string' ? data.messageId : snapshot.streaming?.id || `team-${sessionId}`; let turn = snapshot.streaming && !snapshot.streaming.done && snapshot.streaming.id === incomingId ? snapshot.streaming : createEmptyTurn(incomingId); turn = { ...turn, senderName: snapshot.senderName }; if (typeof data.contentDelta === 'string') turn = applyTurnEntry(turn, { kind: 'reply', text: data.contentDelta }); if (typeof data.thinking === 'string') turn = applyTurnEntry(turn, { kind: 'thinking', text: data.thinking }); if (data.toolCall && typeof data.toolCall === 'object') turn = applyTurnEntry(turn, { kind: 'toolCall', toolCall: data.toolCall as ToolCallInfo }); if (data.toolCallUpdate && typeof data.toolCallUpdate === 'object') turn = applyTurnEntry(turn, { kind: 'toolUpdate', toolCall: data.toolCallUpdate as ToolCallInfo }); return { ...current, [sessionId]: { ...snapshot, streaming: turn, running: true } } }
-  export function applyEventToSnapshot(current: Record<string, Snapshot>, sessionId: string, event: SessionEventData, targetSessionId: string | null): Record<string, Snapshot> { const snapshot = current[sessionId] || emptySnapshot(sessionId); const displayEventId = `${sessionId}:${event.id}`; if (snapshot.events.some((item) => item.id === displayEventId)) return current; const reduced = applySessionEvent({ streamingMessage: snapshot.streaming, usage: snapshot.usage, turnUsage: null, capabilities: snapshot.capabilities, plan: [], pendingPermissions: snapshot.permissions, pendingElicitations: snapshot.elicitations }, event); const events = [...snapshot.events, remapEvent(event, sessionId, targetSessionId || sessionId)]; if (event.type === 'message.done' && snapshot.streaming) { const payload = parseEventPayload(event); const turnUsage = payload?.turnUsage && typeof payload.turnUsage === 'object' && !Array.isArray(payload.turnUsage) ? payload.turnUsage as StreamingMessage['turnStats'] : snapshot.streaming.turnStats; const messageId = typeof payload?.messageId === 'string' ? payload.messageId : event.message_id || snapshot.streaming.id; const completedState = { ...current, [sessionId]: { ...snapshot, events, streaming: { ...snapshot.streaming, turnStats: turnUsage }, usage: reduced.usage, permissions: reduced.pendingPermissions, elicitations: reduced.pendingElicitations, running: false } }; return finalizeSnapshot(completedState, sessionId, messageId, targetSessionId) } return { ...current, [sessionId]: { ...snapshot, events, streaming: reduced.streamingMessage ? { ...reduced.streamingMessage, senderName: snapshot.senderName } : null, usage: reduced.usage, permissions: reduced.pendingPermissions, elicitations: reduced.pendingElicitations, running: !!reduced.streamingMessage } } }
+export function updateStreaming(current: Record<string, Snapshot>, sessionId: string, data: Record<string, unknown>): Record<string, Snapshot> { const snapshot = current[sessionId] || emptySnapshot(sessionId); const incomingId = typeof data.messageId === 'string' ? data.messageId : snapshot.streaming?.id || `team-${sessionId}`; let turn = snapshot.streaming && !snapshot.streaming.done && snapshot.streaming.id === incomingId ? snapshot.streaming : createEmptyTurn(incomingId); turn = { ...turn, senderName: snapshot.senderName, teamAssignment: snapshot.pendingAssignment || turn.teamAssignment }; if (typeof data.contentDelta === 'string') turn = applyTurnEntry(turn, { kind: 'reply', text: data.contentDelta }); if (typeof data.thinking === 'string') turn = applyTurnEntry(turn, { kind: 'thinking', text: data.thinking }); if (data.toolCall && typeof data.toolCall === 'object') turn = applyTurnEntry(turn, { kind: 'toolCall', toolCall: data.toolCall as ToolCallInfo }); if (data.toolCallUpdate && typeof data.toolCallUpdate === 'object') turn = applyTurnEntry(turn, { kind: 'toolUpdate', toolCall: data.toolCallUpdate as ToolCallInfo }); return { ...current, [sessionId]: { ...snapshot, streaming: turn, running: true } } }
+  export function applyEventToSnapshot(current: Record<string, Snapshot>, sessionId: string, event: SessionEventData, targetSessionId: string | null): Record<string, Snapshot> { const snapshot = current[sessionId] || emptySnapshot(sessionId); const displayEventId = `${sessionId}:${event.id}`; if (snapshot.events.some((item) => item.id === displayEventId)) return current; const reduced = applySessionEvent({ streamingMessage: snapshot.streaming, usage: snapshot.usage, turnUsage: null, capabilities: snapshot.capabilities, plan: [], pendingPermissions: snapshot.permissions, pendingElicitations: snapshot.elicitations }, event); const events = [...snapshot.events, remapEvent(event, sessionId, targetSessionId || sessionId)]; if (event.type === 'message.done' && snapshot.streaming) { const payload = parseEventPayload(event); const turnUsage = payload?.turnUsage && typeof payload.turnUsage === 'object' && !Array.isArray(payload.turnUsage) ? payload.turnUsage as StreamingMessage['turnStats'] : snapshot.streaming.turnStats; const messageId = typeof payload?.messageId === 'string' ? payload.messageId : event.message_id || snapshot.streaming.id; const status = payload?.stopReason === 'error' ? 'failed' : payload?.stopReason === 'cancelled' ? 'cancelled' : 'completed'; const error = typeof payload?.error === 'string' ? payload.error : undefined; const completedState = { ...current, [sessionId]: { ...snapshot, events, streaming: { ...snapshot.streaming, turnStats: turnUsage }, usage: reduced.usage, permissions: reduced.pendingPermissions, elicitations: reduced.pendingElicitations, running: false } }; return finalizeSnapshot(completedState, sessionId, messageId, targetSessionId, status, error) } return { ...current, [sessionId]: { ...snapshot, events, streaming: reduced.streamingMessage ? { ...reduced.streamingMessage, senderName: snapshot.senderName, teamAssignment: snapshot.pendingAssignment || reduced.streamingMessage.teamAssignment } : null, usage: reduced.usage, permissions: reduced.pendingPermissions, elicitations: reduced.pendingElicitations, running: !!reduced.streamingMessage } } }
 
 function parseEventPayload(event: SessionEventData): Record<string, unknown> | null { try { const payload = JSON.parse(event.payload_json) as unknown; return payload && typeof payload === 'object' && !Array.isArray(payload) ? payload as Record<string, unknown> : null } catch { return null } }
-function mergeProcessItem(current: Record<string, Snapshot>, sessionId: string, item: TurnProcessItemInfo, block: TurnProcessBlock): Record<string, Snapshot> { const snapshot = current[sessionId] || emptySnapshot(sessionId); const currentTurn = snapshot.streaming?.id === item.message_id ? snapshot.streaming : createEmptyTurn(item.message_id); const processBlocks = [...currentTurn.processBlocks.filter((entry) => entry.id !== block.id), block]; return { ...current, [sessionId]: { ...snapshot, streaming: { ...currentTurn, processBlocks, senderName: snapshot.senderName }, running: true } } }
+function mergeProcessItem(current: Record<string, Snapshot>, sessionId: string, item: TurnProcessItemInfo, block: TurnProcessBlock): Record<string, Snapshot> { const snapshot = current[sessionId] || emptySnapshot(sessionId); const currentTurn = snapshot.streaming?.id === item.message_id ? snapshot.streaming : createEmptyTurn(item.message_id); const processBlocks = [...currentTurn.processBlocks.filter((entry) => entry.id !== block.id), block]; return { ...current, [sessionId]: { ...snapshot, streaming: { ...currentTurn, processBlocks, senderName: snapshot.senderName, teamAssignment: snapshot.pendingAssignment || currentTurn.teamAssignment }, running: true } } }
