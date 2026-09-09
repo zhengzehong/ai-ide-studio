@@ -76,7 +76,7 @@ export function TeamChatPane({ team, conversation, masterSessionId }: Props) {
     })
     const offEvent = wsClient.on('session:event', (message) => { if (typeof message.sessionId === 'string' && sessionIds.includes(message.sessionId)) setSnapshots((current) => applyEventToSnapshot(current, message.sessionId as string, message.event as SessionEventData, masterSessionId)) })
     const offDone = wsClient.on('session:done', (message) => { if (typeof message.sessionId === 'string' && sessionIds.includes(message.sessionId)) void load() })
-    return () => { offUpdate?.(); offEvent?.(); offDone?.() }
+    return () => { offUpdate?.(); offEvent?.(); offDone?.(); wsClient.unsubscribe(sessionIds) }
   }, [load, masterSessionId, sessionIds])
 
   const sendPrompt = useCallback(async (content: string, images: ImageAttachmentInfo[] = [], files: ConversationUploadedFile[] = []): Promise<void> => {
