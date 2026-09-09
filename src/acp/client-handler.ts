@@ -9,11 +9,13 @@ import { agentConnections, findLatestOurSessionId, findOurSessionId } from './ho
 import { waitForElicitation, waitForPermission } from './interaction-state.js'
 import { createTerminalProcess, killTerminal as killTerminalProcess, releaseTerminal as releaseTerminalProcess, terminalOutput as getTerminalOutput, waitForTerminalExit as getTerminalExit } from './terminal-bridge.js'
 import { contentBlockToText, mapToolCallContent, mapToolCallUpdate, toolCallTitle } from './update-mapper.js'
+import { ToolHeartbeatTracker } from './tool-heartbeat.js'
 
 const log = createChildLogger('acp-client')
 interface ActiveClientTurn {
   messageId: string
   turnId?: string
+  toolProgress: ToolHeartbeatTracker
 }
 
 const turnsByAgent = new Map<string, Map<string, ActiveClientTurn>>()
@@ -28,7 +30,8 @@ function turnsForAgent(agentId: string): Map<string, ActiveClientTurn> {
 }
 
 export function startClientTurn(agentId: string, acpSessionId: string, turnId?: string, messageId?: string): void {
-  turnsForAgent(agentId).set(acpSessionId, { messageId: messageId ?? generatedTurnMessageId(acpSessionId), turnId })
+  const id = messageId ?? generatedTurnMessageId(acpSessionId)
+  turnsForAgent(agentId).set(acpSessionId, { messageId: id, turnId, toolProgress: new ToolHeartbeatTracker({ agentId, sessionId: acpSessionId, messageId: id }) })
 }
 
 export function getClientTurnMessageId(agentId: string, acpSessionId: string): string | undefined {
@@ -71,7 +74,7 @@ export function createClientHandler(agentId: string): acp.Client {
     const existing = turns.get(acpSessionId)
     if (existing) return existing.messageId
     const newId = generatedTurnMessageId(acpSessionId)
-    turns.set(acpSessionId, { messageId: newId })
+    turns.set(acpSessionId, { messageId: newId, toolProgress: new ToolHeartbeatTracker({ agentId, sessionId: acpSessionId, messageId: newId }) })
     return newId
   }
 
@@ -126,18 +129,22 @@ export function createClientHandler(agentId: string): acp.Client {
             rawOutput: tc.rawOutput,
             content: mapToolCallContent(tc.content),
           }
+          const messageId = turnMessageId(acpSessionId)
+          turnsForAgent(agentId).get(acpSessionId)?.toolProgress.record(toolData)
           events.emit('session:update', {
             sessionId: ourSessionId, agentId,
-            data: { messageId: turnMessageId(acpSessionId), role: 'agent', toolCall: toolData } satisfies SessionUpdateData,
+            data: { messageId, role: 'agent', toolCall: toolData } satisfies SessionUpdateData,
           })
           break
         }
         case 'tool_call_update': {
           const tcu = update as acp.ToolCallUpdate & { sessionUpdate: string }
-          const toolData = mapToolCallUpdate(tcu)
+          const messageId = turnMessageId(acpSessionId)
+          const toolData = turnsForAgent(agentId).get(acpSessionId)?.toolProgress.mapUpdate(tcu)
+          if (!toolData) break
           events.emit('session:update', {
             sessionId: ourSessionId, agentId,
-            data: { messageId: turnMessageId(acpSessionId), role: 'agent', toolCallUpdate: toolData } satisfies SessionUpdateData,
+            data: { messageId, role: 'agent', toolCallUpdate: toolData } satisfies SessionUpdateData,
           })
           break
         }

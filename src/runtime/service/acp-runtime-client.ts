@@ -2,7 +2,8 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import * as acp from '@agentclientprotocol/sdk'
 import { mapAvailableCommands, mapConfigOptions, mergeCapabilitiesFromConfig } from '../../acp/capabilities.js'
-import { contentBlockToText, mapToolCallContent, mapToolCallUpdate, toolCallTitle } from '../../acp/update-mapper.js'
+import { contentBlockToText, mapToolCall } from '../../acp/update-mapper.js'
+import { ToolHeartbeatTracker } from '../../acp/tool-heartbeat.js'
 import { createChildLogger } from '../../shared/logger.js'
 import type {
   ElicitationRequestData,
@@ -10,7 +11,6 @@ import type {
   SessionCapabilities,
   SessionInfoData,
   SessionUpdateData,
-  ToolCallData,
 } from '../../types/ws-protocol.js'
 import { ResourceGovernor } from '../resources/resource-governor.js'
 import type { RuntimeCoalescibleUpdate } from '../streams/runtime-update-coalescer.js'
@@ -31,6 +31,7 @@ interface BoundSession {
   turnId?: string
   streamGeneration?: string
   contextWindow?: number
+  toolProgress?: ToolHeartbeatTracker
 }
 
 const FULL_ACCESS_PERMISSION_MODES = new Set(['bypassPermissions', 'agent-full-access'])
@@ -132,12 +133,17 @@ export function createAcpRuntimeClient(options: AcpRuntimeClientOptions): AcpRun
         case 'agent_thought_chunk':
           if (update.content.type === 'text') publish(bound, { messageId, role: 'agent', thinking: update.content.text })
           break
-        case 'tool_call':
-          publish(bound, { messageId, role: 'agent', toolCall: mapToolCall(update) })
+        case 'tool_call': {
+          const toolCall = mapToolCall(update)
+          bound.toolProgress?.record(toolCall)
+          publish(bound, { messageId, role: 'agent', toolCall })
           break
-        case 'tool_call_update':
-          publish(bound, { messageId, role: 'agent', toolCallUpdate: mapToolCallUpdate(update) })
+        }
+        case 'tool_call_update': {
+          const toolCallUpdate = bound.toolProgress?.mapUpdate(update)
+          if (toolCallUpdate) publish(bound, { messageId, role: 'agent', toolCallUpdate })
           break
+        }
         case 'usage_update':
           publish(bound, {
             messageId,
@@ -317,7 +323,10 @@ export function createAcpRuntimeClient(options: AcpRuntimeClientOptions): AcpRun
     beginTurn(sessionId, messageId, turnId, streamGeneration) {
       const acpSessionId = acpByOurSession.get(sessionId)
       const bound = acpSessionId ? byAcpSession.get(acpSessionId) : undefined
-      if (bound) Object.assign(bound, { messageId, turnId, streamGeneration })
+      if (bound) {
+        if (bound.messageId !== messageId) bound.toolProgress = new ToolHeartbeatTracker({ agentId: options.agentId, sessionId, messageId })
+        Object.assign(bound, { messageId, turnId, streamGeneration })
+      }
     },
     endTurn(sessionId, streamGeneration) {
       const acpSessionId = acpByOurSession.get(sessionId)
@@ -326,6 +335,7 @@ export function createAcpRuntimeClient(options: AcpRuntimeClientOptions): AcpRun
         delete bound.messageId
         delete bound.turnId
         delete bound.streamGeneration
+        delete bound.toolProgress
       }
     },
     cancelSession(sessionId) {
@@ -372,19 +382,6 @@ function cancelSessionInteractions(
   const prefix = `${sessionId}:`
   resolveMatchingInteractions(permissions, prefix, { outcome: { outcome: 'cancelled' } })
   resolveMatchingInteractions(elicitations, prefix, { action: 'cancel' })
-}
-
-function mapToolCall(update: acp.ToolCall | acp.ToolCallUpdate): ToolCallData {
-  return {
-    id: update.toolCallId,
-    title: toolCallTitle(update),
-    kind: update.kind ?? undefined,
-    status: update.status ?? undefined,
-    locations: update.locations?.map((location) => ({ path: location.path, line: location.line ?? undefined })),
-    rawInput: update.rawInput,
-    rawOutput: update.rawOutput,
-    content: mapToolCallContent(update.content ?? undefined),
-  }
 }
 
 function normalizeToolName(value: string): string {

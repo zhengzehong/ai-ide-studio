@@ -1,5 +1,6 @@
 ﻿import { hasMeaningfulToolTitle } from './tool-title'
 import type { ElicitationRequestInfo, FileChangeDetailInfo, PermissionRequestInfo, PlanEntry, SessionEventData, ToolCallInfo, TurnProcessItemInfo, TurnUsageInfo } from './session-events'
+import { filterLegacyHeartbeatBlocks } from './tool-heartbeat-history'
 
 export type TurnProcessBlockKind = 'thinking' | 'note' | 'tool' | 'stage' | 'file_change' | 'plan' | 'permission' | 'elicitation'
 
@@ -215,6 +216,7 @@ export function flattenProcessText(turn: TurnViewModel): { thinking: string; too
 }
 
 function syncDerivedFields(turn: TurnViewModel): TurnViewModel {
+  turn.processBlocks = filterLegacyHeartbeatBlocks(turn.processBlocks)
   const process = flattenProcessText(turn)
   return {
     ...turn,

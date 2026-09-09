@@ -4,6 +4,8 @@
 
 ## 系统拓扑
 
+工具心跳由 `acp/tool-heartbeat.ts` 在两套 ACP 接收入口按会话和轮次归属真实工具，不创建独立工具，也不覆盖终态。历史查询通过 `store/legacy-tool-heartbeats.ts` 有界核对旧占位记录；PC/App 共用的过程视图通过 `tool-heartbeat-history.ts` 兼容旧事件回放，不改写历史数据。
+
 会话可见性由 `shared/session-visibility.ts` 定义客户端用途规则，`store/session-visibility.ts` 提供 SQL 条件与历史配置关联兼容。普通 QueryPort、Widget、Dock 和项目统计使用用户可见视图；内部会话管理和专属功能按 ID 访问不受列表隐藏影响。PC/App 共用用途判定，实时完整会话广播同样受列表准入规则约束。
 
 远程 PC 执行是独立的设备域：`src/devices/` 负责配对鉴权、连接、作业与流式传输；`electron/node/` 负责凭证、受管进程和本地文件操作。设备控制通道 `/node-ws` 与文件请求经 Edge 转发到 API，不经过 Realtime；普通聊天和 ACP 的默认执行位置不变。设备数据通过 `store/devices.ts`、`store/device-jobs.ts` 的专用接口访问。

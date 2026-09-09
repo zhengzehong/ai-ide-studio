@@ -40,6 +40,29 @@ async function callRpc(type: keyof typeof sessionRpcHandlers, msg: Record<string
 }
 
 describe('turn process items', () => {
+  test('filters persisted heartbeat placeholders even after completion without rewriting history', () => {
+    const session = sessionStore.create({ agentId: 'agent-1' })
+    const message = messageStore.append(session.id, { id: 'heartbeat-history', role: 'agent', content: '' })
+    const add = (id: string, title: string, extra: Record<string, unknown> = {}): string => {
+      return turnProcessItemStore.upsert({
+        sessionId: session.id, messageId: message.id, kind: 'tool', title, status: 'in_progress',
+        detail: { id, title, status: 'in_progress', ...extra }, meta: { toolCallId: id },
+      }).id
+    }
+    const root = add('call-real', 'pnpm dist')
+    const beat = add('call-real-heartbeat-0', '工具调用 #beat-0')
+    const other = add('call-real-heartbeat-1', '工具调用 #beat-1', { rawOutput: 'genuine output' })
+    const orphan = add('unknown-heartbeat-0', '工具调用 #beat-0')
+    turnProcessItemStore.completeOpen(message.id, 'completed')
+    for (const includeDetail of [false, true]) {
+      const rows = turnProcessItemStore.list(message.id, { includeDetail })
+      expect(rows.map((row) => row.id)).toEqual([root, other, orphan])
+      if (!includeDetail) expect(rows.every((row) => row.detail_json == null)).toBe(true)
+    }
+    expect(turnProcessItemStore.get(beat)?.detail_json).toContain('in_progress')
+    expect(turnProcessItemStore.get(beat)?.status).toBe('completed')
+  })
+
   test('stores plan and file changes as recoverable process items', async () => {
     const session = sessionStore.create({ agentId: 'agent-1' })
     const message = messageStore.append(session.id, {
