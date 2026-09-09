@@ -28,6 +28,7 @@ export function TeamChatPane({ team, conversation, masterSessionId }: Props) {
   const [fileErrors, setFileErrors] = useState<Record<string, string>>({})
   const sourceMap = useRef(new Map<string, SourceMessage>())
   const mirroredEvents = useRef(new Map<string, { expiresAt: number; updateCount: number; eventCount: number }>())
+  const doneReloadTimers = useRef(new Map<string, number>())
   const generation = useRef(0)
   const sessionIds = useMemo(() => [...new Set([masterSessionId, ...members.map((member) => member.session_id)].filter((id): id is string => !!id))], [masterSessionId, members])
 
@@ -61,7 +62,9 @@ export function TeamChatPane({ team, conversation, masterSessionId }: Props) {
         nextSnapshots[sessionId] = { sessionId, senderName: label?.name || 'Agent', messages: mapped, events: recovery.events.map((event) => remapEvent(event, sessionId, conversation.master_session_id)), streaming: reduced?.streamingMessage ? { ...reduced.streamingMessage, senderName: label?.name || 'Agent' } : active ? toStreaming(active, sessionId) : null, permissions: reduced?.pendingPermissions || [], elicitations: reduced?.pendingElicitations || [], capabilities: normalizeCapabilities(caps), usage: reduced?.usage || null, hasMore: page.hasMore, running: !!active || !!reduced?.streamingMessage }
       }))
       if (requestGeneration !== generation.current) return
-      sourceMap.current = nextSource; setMembers(nextMembers); setSnapshots(nextSnapshots)
+      sourceMap.current = new Map([...sourceMap.current, ...nextSource])
+      setMembers(nextMembers)
+      setSnapshots((current) => mergeLoadedSnapshots(current, nextSnapshots))
     } catch (cause) { if (requestGeneration === generation.current) setError(cause instanceof Error ? cause.message : '团队消息加载失败') }
     finally { if (requestGeneration === generation.current) setLoading(false) }
   }, [conversation])
@@ -95,8 +98,26 @@ export function TeamChatPane({ team, conversation, masterSessionId }: Props) {
       }
       setSnapshots((current) => applyEventToSnapshot(current, message.sessionId as string, event, masterSessionId))
     })
-    const offDone = wsClient.on('session:done', (message) => { if (typeof message.sessionId === 'string' && sessionIds.includes(message.sessionId)) void load() })
-    return () => { offUpdate?.(); offProcess?.(); offEvent?.(); offDone?.(); wsClient.unsubscribe(sessionIds) }
+    const offDone = wsClient.on('session:done', (message) => {
+      if (typeof message.sessionId !== 'string' || !sessionIds.includes(message.sessionId)) return
+      const doneSessionId = message.sessionId as string
+      const doneMessageId = typeof message.messageId === 'string' ? message.messageId : ''
+      if (!doneMessageId) { void load(); return }
+      setSnapshots((current) => finalizeSnapshot(current, doneSessionId, doneMessageId))
+      const previousTimer = doneReloadTimers.current.get(doneSessionId)
+      if (previousTimer) window.clearTimeout(previousTimer)
+      const timer = window.setTimeout(() => {
+        doneReloadTimers.current.delete(doneSessionId)
+        void load()
+      }, 180)
+      doneReloadTimers.current.set(doneSessionId, timer)
+    })
+    const reloadTimers = doneReloadTimers.current
+    return () => {
+      offUpdate?.(); offProcess?.(); offEvent?.(); offDone?.(); wsClient.unsubscribe(sessionIds)
+      reloadTimers.forEach((timer) => window.clearTimeout(timer))
+      reloadTimers.clear()
+    }
   }, [load, masterSessionId, sessionIds])
 
   const sendPrompt = useCallback(async (content: string, images: ImageAttachmentInfo[] = [], files: ConversationUploadedFile[] = []): Promise<void> => {
@@ -160,6 +181,74 @@ export function aggregateSnapshots(snapshots: Record<string, Snapshot>, ids: str
 }
 function uniqueById<T extends { id: string }>(items: T[]): T[] { return [...new Map(items.map((item) => [item.id, item])).values()] }
 export function emptySnapshot(sessionId: string): Snapshot { return { sessionId, messages: [], events: [], streaming: null, permissions: [], elicitations: [], capabilities: { ...defaultCaps }, usage: null, hasMore: false, running: false } }
+export function mergeLoadedSnapshots(current: Record<string, Snapshot>, loaded: Record<string, Snapshot>): Record<string, Snapshot> {
+  const merged: Record<string, Snapshot> = { ...current }
+  Object.entries(loaded).forEach(([sessionId, next]) => {
+    const previous = current[sessionId]
+    if (!previous) { merged[sessionId] = next; return }
+    const messages = new Map(previous.messages.map((message) => [message.id, message]))
+    next.messages.forEach((message) => {
+      const existing = messages.get(message.id)
+      messages.set(message.id, existing ? mergeMessage(existing, message) : message)
+    })
+    merged[sessionId] = {
+      ...previous,
+      ...next,
+      messages: [...messages.values()].sort((a, b) => a.timestamp.localeCompare(b.timestamp) || a.id.localeCompare(b.id)),
+      events: [...new Map([...previous.events, ...next.events].map((event) => [event.id, event])).values()].sort((a, b) => a.created_at.localeCompare(b.created_at) || a.sequence - b.sequence),
+      streaming: next.streaming || previous.streaming,
+      running: previous.running || next.running,
+      hasMore: next.messages.length > 0 ? next.hasMore : previous.hasMore,
+    }
+  })
+  return merged
+}
+
+export function finalizeSnapshot(current: Record<string, Snapshot>, sessionId: string, messageId: string): Record<string, Snapshot> {
+  const snapshot = current[sessionId]
+  if (!snapshot) return current
+  const streaming = snapshot.streaming
+  if (!streaming) return { ...current, [sessionId]: { ...snapshot, running: false } }
+  const normalizedMessageId = messageId.startsWith(`${sessionId}:`) ? messageId.slice(sessionId.length + 1) : messageId
+  const streamingId = streaming.id.startsWith(`${sessionId}:`) ? streaming.id.slice(sessionId.length + 1) : streaming.id
+  // ACP implementations may use different identifiers for the update stream and done envelope.
+  // A session has only one active turn, so preserve that turn even when the ids differ.
+  const resolvedMessageId = streamingId === normalizedMessageId ? normalizedMessageId : streamingId
+  const id = `${sessionId}:${resolvedMessageId}`
+  const completed = normalizeMessage({
+    id,
+    session_id: snapshot.sessionId,
+    role: 'agent',
+    content: streaming.finalAnswer || streaming.content,
+    thinking: streaming.thinking,
+    tool_calls_json: streaming.toolCalls.length ? JSON.stringify(streaming.toolCalls) : null,
+    decision_json: streaming.turnStats ? JSON.stringify(streaming.turnStats) : null,
+    attachments_json: null,
+    file_changes_json: null,
+    timestamp: new Date().toISOString(),
+    status: 'completed',
+    completed_at: new Date().toISOString(),
+    processBlocks: streaming.processBlocks,
+    finalAnswer: streaming.finalAnswer || streaming.content,
+    parsedToolCalls: streaming.toolCalls,
+    sender_name: snapshot.senderName || null,
+    sender_role: 'member',
+    processDefaultOpen: false,
+  })
+  const messages = new Map(snapshot.messages.map((message) => [message.id, message]))
+  messages.set(id, completed)
+  return { ...current, [sessionId]: { ...snapshot, messages: [...messages.values()], streaming: null, running: false } }
+}
+
+function mergeMessage(previous: MessageData, next: MessageData): MessageData {
+  return {
+    ...previous,
+    ...next,
+    processBlocks: next.processBlocks?.length ? next.processBlocks : previous.processBlocks,
+    parsedToolCalls: next.parsedToolCalls?.length ? next.parsedToolCalls : previous.parsedToolCalls,
+    finalAnswer: next.finalAnswer || previous.finalAnswer,
+  }
+}
 function toStreaming(message: MessageData, sessionId: string): StreamingMessage { const id = message.id.startsWith(`${sessionId}:`) ? message.id.slice(sessionId.length + 1) : message.id; return { ...createEmptyTurn(id), content: message.content, finalAnswer: message.finalAnswer || message.content, processBlocks: message.processBlocks || [], toolCalls: message.parsedToolCalls || [], senderName: message.sender_name || undefined, done: false } }
 function remapStreaming(streaming: StreamingMessage, sessionId: string, senderName?: string): StreamingMessage { const id = streaming.id.startsWith(`${sessionId}:`) ? streaming.id : `${sessionId}:${streaming.id}`; return { ...streaming, id, senderName: senderName || streaming.senderName } }
 function normalizeCapabilities(value: unknown): SessionCapabilities { if (!value || typeof value !== 'object') return { ...defaultCaps }; const input = value as Partial<SessionCapabilities>; return mergeCapabilities({ ...defaultCaps }, { ...defaultCaps, models: Array.isArray(input.models) ? input.models : [], currentModelId: typeof input.currentModelId === 'string' ? input.currentModelId : null, modes: Array.isArray(input.modes) ? input.modes : [], currentModeId: typeof input.currentModeId === 'string' ? input.currentModeId : null, supportsImages: input.supportsImages === true, configOptions: Array.isArray(input.configOptions) ? input.configOptions : [], commands: Array.isArray(input.commands) ? input.commands : [] }) }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { aggregateSnapshots, applyEventToSnapshot, emptySnapshot, updateStreaming, type Snapshot } from '../../ui/src/components/team/TeamChatPane'
+import { aggregateSnapshots, applyEventToSnapshot, emptySnapshot, finalizeSnapshot, mergeLoadedSnapshots, updateStreaming, type Snapshot } from '../../ui/src/components/team/TeamChatPane'
 import { defaultCaps } from '../../ui/src/stores/session-events'
 
 function message(id: string, role: string, content: string) {
@@ -39,5 +39,23 @@ describe('team chat aggregation', () => {
     const twice = applyEventToSnapshot(once, 's1', incoming, 'team')
     expect(twice.s1?.events).toHaveLength(1)
     expect(twice.s1?.streaming?.content).toBe('A')
+  })
+
+  it('promotes a live turn to a completed message before history persistence catches up', () => {
+    const live = updateStreaming({}, 's1', { messageId: 'm1', contentDelta: '最终回复' })
+    const completed = finalizeSnapshot(live, 's1', 'm1')
+    expect(completed.s1?.streaming).toBeNull()
+    expect(completed.s1?.running).toBe(false)
+    expect(completed.s1?.messages).toHaveLength(1)
+    expect(completed.s1?.messages[0]?.content).toBe('最终回复')
+  })
+
+  it('does not erase the completed message when done reload returns an empty page', () => {
+    const live = updateStreaming({}, 's1', { messageId: 'm1', contentDelta: '保留这条消息' })
+    const completed = finalizeSnapshot(live, 's1', 'm1')
+    const stale = { s1: { ...emptySnapshot('s1'), capabilities: { ...defaultCaps } } }
+    const merged = mergeLoadedSnapshots(completed, stale)
+    expect(merged.s1?.messages).toHaveLength(1)
+    expect(merged.s1?.messages[0]?.content).toBe('保留这条消息')
   })
 })

@@ -25,6 +25,7 @@ export function ConversationMessageList({ adapter, onOpenPreview, onOpenFiles, o
   const messages = useMemo(() => adapter.sessionId ? adapter.messages.filter((message) => message.session_id === adapter.sessionId) : [], [adapter.messages, adapter.sessionId])
   const streamingTurns = (adapter.streamingMessages?.length ? adapter.streamingMessages : adapter.streamingMessage ? [adapter.streamingMessage] : []).filter((turn) => !turn.done)
   const streamingBubbles = useMemo<MessageData[]>(() => streamingTurns.map((streaming) => ({ id: streaming.id, session_id: adapter.sessionId || '', role: 'agent', content: streaming.content, thinking: streaming.thinking, tool_calls_json: streaming.toolCalls.length ? JSON.stringify(streaming.toolCalls) : null, decision_json: null, attachments_json: null, timestamp: new Date().toISOString(), processBlocks: streaming.processBlocks, finalAnswer: streaming.finalAnswer, stage: streaming.stage, sender_name: streaming.senderName, processDefaultOpen: true })), [adapter.sessionId, streamingTurns])
+  const streamingSignature = useMemo(() => streamingTurns.map((turn) => [turn.id, turn.content.length, turn.thinking.length, turn.processBlocks.length, turn.toolCalls.length, turn.stage || ''].join(':')).join('|'), [streamingTurns])
   const visibleMessages = useMemo(() => {
     const ids = new Set(streamingBubbles.map((message) => message.id))
     return ids.size ? messages.filter((message) => !ids.has(message.id)) : messages
@@ -69,7 +70,7 @@ export function ConversationMessageList({ adapter, onOpenPreview, onOpenFiles, o
       if (pinnedRef.current) requestAnimationFrame(() => scrollToBottom('smooth'))
     }
     if (streamingBubbles.length > 0 && pinnedRef.current) requestAnimationFrame(() => scrollToBottom())
-  }, [allRenderItems.length, scrollToBottom, streamingBubbles.length])
+  }, [allRenderItems.length, scrollToBottom, streamingBubbles.length, streamingSignature])
   const loadOlder = (): void => {
     if (adapter.hasMoreMessages && !adapter.loadingOlderMessages) {
       const element = scrollRef.current
@@ -80,6 +81,7 @@ export function ConversationMessageList({ adapter, onOpenPreview, onOpenFiles, o
   return <div className="conversation-message-scroll" ref={scrollRef} onScroll={(event) => { if (event.currentTarget.scrollTop <= 120) loadOlder() }}>
     {!adapter.sessionId && <EmptyConversation text="选择一个 Session 或新建会话" />}
     {adapter.sessionId && adapter.loading && messages.length === 0 && <LoadingState text="正在加载消息..." />}
+    {adapter.sessionId && adapter.loading && messages.length > 0 && <div className="conversation-sync" role="status" aria-live="polite"><Loader2 size={13} /> 正在同步消息...</div>}
     {adapter.sessionId && adapter.error && <ErrorState text={adapter.error} />}
     {adapter.sessionId && !adapter.error && !adapter.loading && allRenderItems.length === 0 && <EmptyConversation text="暂无消息，开始对话吧" />}
     {adapter.loadingOlderMessages && <div className="conversation-sync">正在加载更早消息...</div>}
