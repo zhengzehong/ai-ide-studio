@@ -1,9 +1,23 @@
 ﻿import { teamService } from '../../core/teams.js'
 import type { RpcHandlerMap } from './types.js'
+import { modelProfileStore } from '../../store/model-profiles.js'
+import { getGlobalModelProfile } from '../../acp/runtime-global-model-profile.js'
 
 export const teamRpcHandlers: RpcHandlerMap = {
   'teams.defaults'(_msg, { sendResult }) {
-    sendResult({ masterPrompt: teamService.describeTemplate('tpl-team-leader').system_prompt })
+    const profiles = modelProfileStore.list({ runtime: 'claude', enabledOnly: true }).map((profile) => ({
+      id: profile.id,
+      name: profile.name,
+      providerId: profile.provider_id,
+      isDefault: profile.is_default === 1,
+    }))
+    const global = getGlobalModelProfile('claude')
+    sendResult({
+      masterPrompt: teamService.describeTemplate('tpl-team-leader').system_prompt,
+      modelProfiles: profiles,
+      defaultModelProfileId: profiles.find((profile) => profile.isDefault)?.id || profiles[0]?.id || null,
+      globalModelProfileId: global.enabled ? global.profileId || null : null,
+    })
   },
   'teams.create'(msg, { sendResult }) {
     sendResult(teamService.create({
@@ -11,6 +25,7 @@ export const teamRpcHandlers: RpcHandlerMap = {
       name: requiredText(msg.name, 'name'),
       description: typeof msg.description === 'string' ? msg.description : undefined,
       masterPrompt: typeof msg.masterPrompt === 'string' ? msg.masterPrompt : undefined,
+      modelProfileId: typeof msg.modelProfileId === 'string' ? msg.modelProfileId : undefined,
     }))
   },
   'teams.list'(msg, { sendResult }) {

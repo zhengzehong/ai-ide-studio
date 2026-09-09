@@ -3,16 +3,26 @@ import { templateStore } from '../store/agent-templates.js'
 import { sessionStore, type SessionRow } from '../store/sessions.js'
 import { teamMemberStore } from '../store/teams.js'
 import { deployTemplateToProject, updateProjectAgent } from './agents.js'
+import { modelProfileStore } from '../store/model-profiles.js'
 
-export function createFixedMaster(projectId: string, masterPrompt?: string): { agent: AgentRow; session: SessionRow; prompt: string } {
+export function createFixedMaster(projectId: string, masterPrompt?: string, modelProfileId?: string): { agent: AgentRow; session: SessionRow; prompt: string } {
   const template = templateStore.get('tpl-team-leader')
   if (!template) throw new Error('Team Master 模板不存在')
   const prompt = masterPrompt?.trim() || template.system_prompt
-  const deployed = deployTemplateToProject('tpl-team-leader', projectId, { systemPrompt: prompt })
+  const selectedProfileId = modelProfileId || resolveDefaultClaudeProfileId()
+  const deployed = deployTemplateToProject('tpl-team-leader', projectId, {
+    systemPrompt: prompt,
+    ...(selectedProfileId ? { modelProfileId: selectedProfileId, modelProfileMode: 'fixed' as const } : {}),
+  })
   const agent = markTeamInternalAgent(deployed)
   const session = sessionStore.findPrimaryByAgent(agent.id)
   if (!session) throw new Error('Team Master 主会话创建失败')
   return { agent, session, prompt }
+}
+
+function resolveDefaultClaudeProfileId(): string | undefined {
+  const profiles = modelProfileStore.list({ runtime: 'claude', enabledOnly: true })
+  return profiles.find((profile) => profile.is_default === 1)?.id || profiles[0]?.id
 }
 
 export function markTeamInternalAgent(agent: AgentRow): AgentRow {

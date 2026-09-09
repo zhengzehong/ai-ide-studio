@@ -96,6 +96,7 @@ export interface TurnViewModel {
   done: boolean
   stage?: string
   turnStats?: TurnUsageInfo
+  senderName?: string
 }
 
 export function createEmptyTurn(id: string): TurnViewModel {

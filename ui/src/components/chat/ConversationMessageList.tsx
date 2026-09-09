@@ -23,30 +23,21 @@ export function ConversationMessageList({ adapter, onOpenPreview, onOpenFiles, o
   const messageCountRef = useRef(0)
   const olderAnchorRef = useRef<{ height: number; top: number } | null>(null)
   const messages = useMemo(() => adapter.sessionId ? adapter.messages.filter((message) => message.session_id === adapter.sessionId) : [], [adapter.messages, adapter.sessionId])
-  const streaming = adapter.sessionId && adapter.streamingMessage && !adapter.streamingMessage.done ? adapter.streamingMessage : null
-  const streamingBubble = useMemo<MessageData | null>(() => streaming ? {
-    id: streaming.id,
-    session_id: adapter.sessionId || '',
-    role: 'agent',
-    content: streaming.content,
-    thinking: streaming.thinking,
-    tool_calls_json: streaming.toolCalls.length ? JSON.stringify(streaming.toolCalls) : null,
-    decision_json: null,
-    attachments_json: null,
-    timestamp: new Date().toISOString(),
-    processBlocks: streaming.processBlocks,
-    finalAnswer: streaming.finalAnswer,
-    stage: streaming.stage,
-    processDefaultOpen: true,
-  } : null, [adapter.sessionId, streaming])
+  const streamingTurns = (adapter.streamingMessages?.length ? adapter.streamingMessages : adapter.streamingMessage ? [adapter.streamingMessage] : []).filter((turn) => !turn.done)
+  const streamingBubbles = useMemo<MessageData[]>(() => streamingTurns.map((streaming) => ({ id: streaming.id, session_id: adapter.sessionId || '', role: 'agent', content: streaming.content, thinking: streaming.thinking, tool_calls_json: streaming.toolCalls.length ? JSON.stringify(streaming.toolCalls) : null, decision_json: null, attachments_json: null, timestamp: new Date().toISOString(), processBlocks: streaming.processBlocks, finalAnswer: streaming.finalAnswer, stage: streaming.stage, sender_name: streaming.senderName, processDefaultOpen: true })), [adapter.sessionId, streamingTurns])
+  const visibleMessages = useMemo(() => {
+    const ids = new Set(streamingBubbles.map((message) => message.id))
+    return ids.size ? messages.filter((message) => !ids.has(message.id)) : messages
+  }, [messages, streamingBubbles])
   const renderItems = useMemo<ChatRenderItem<MessageData>[]>(() => buildChatRenderItems({
     sessionId: adapter.sessionId,
-    messages,
+    messages: visibleMessages,
     events: adapter.events || [],
-    streamingBubble,
-    showStreamingBubble: !!streamingBubble,
+    streamingBubble: streamingBubbles[0] || null,
+    showStreamingBubble: false,
     blockingInteraction: false,
-  }), [adapter.events, adapter.sessionId, messages, streamingBubble])
+  }), [adapter.events, adapter.sessionId, streamingBubbles, visibleMessages])
+  const allRenderItems = useMemo(() => [...renderItems, ...streamingBubbles.map((message) => ({ id: `streaming:${message.id}`, kind: 'streaming' as const, message }))], [renderItems, streamingBubbles])
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto'): void => {
     const element = scrollRef.current
     if (!element) return
@@ -67,18 +58,18 @@ export function ConversationMessageList({ adapter, onOpenPreview, onOpenFiles, o
   }, [adapter.sessionId, scrollToBottom])
   useEffect(() => {
     const anchor = olderAnchorRef.current
-    if (anchor && scrollRef.current && renderItems.length > messageCountRef.current) {
+    if (anchor && scrollRef.current && allRenderItems.length > messageCountRef.current) {
       scrollRef.current.scrollTop = anchor.top + (scrollRef.current.scrollHeight - anchor.height)
       olderAnchorRef.current = null
-      messageCountRef.current = renderItems.length
+      messageCountRef.current = allRenderItems.length
       return
     }
-    if (renderItems.length !== messageCountRef.current) {
-      messageCountRef.current = renderItems.length
+    if (allRenderItems.length !== messageCountRef.current) {
+      messageCountRef.current = allRenderItems.length
       if (pinnedRef.current) requestAnimationFrame(() => scrollToBottom('smooth'))
     }
-    if (streaming && pinnedRef.current) requestAnimationFrame(() => scrollToBottom())
-  }, [renderItems.length, scrollToBottom, streaming])
+    if (streamingBubbles.length > 0 && pinnedRef.current) requestAnimationFrame(() => scrollToBottom())
+  }, [allRenderItems.length, scrollToBottom, streamingBubbles.length])
   const loadOlder = (): void => {
     if (adapter.hasMoreMessages && !adapter.loadingOlderMessages) {
       const element = scrollRef.current
@@ -90,9 +81,9 @@ export function ConversationMessageList({ adapter, onOpenPreview, onOpenFiles, o
     {!adapter.sessionId && <EmptyConversation text="选择一个 Session 或新建会话" />}
     {adapter.sessionId && adapter.loading && messages.length === 0 && <LoadingState text="正在加载消息..." />}
     {adapter.sessionId && adapter.error && <ErrorState text={adapter.error} />}
-    {adapter.sessionId && !adapter.error && !adapter.loading && renderItems.length === 0 && <EmptyConversation text="暂无消息，开始对话吧" />}
+    {adapter.sessionId && !adapter.error && !adapter.loading && allRenderItems.length === 0 && <EmptyConversation text="暂无消息，开始对话吧" />}
     {adapter.loadingOlderMessages && <div className="conversation-sync">正在加载更早消息...</div>}
-    {adapter.sessionId && <VirtualChatList key={adapter.sessionId} items={renderItems} getKey={(item) => item.id} scrollRef={scrollRef} onContentResize={onResize} renderItem={(item) => <ConversationRenderItem item={item} adapter={adapter} onOpenPreview={onOpenPreview} onOpenFiles={onOpenFiles} onOpenResource={onOpenResource} />} />}
+    {adapter.sessionId && <VirtualChatList key={adapter.sessionId} items={allRenderItems} getKey={(item) => item.id} scrollRef={scrollRef} onContentResize={onResize} renderItem={(item) => <ConversationRenderItem item={item} adapter={adapter} onOpenPreview={onOpenPreview} onOpenFiles={onOpenFiles} onOpenResource={onOpenResource} />} />}
   </div>
 }
 

@@ -23,7 +23,6 @@ import { applyToolProfileToAgent } from '../tools/team-profiles.js'
 import { teamConversationStore } from '../store/team-conversations.js'
 import { teamConversationService, resolveTeamLeaderSession } from './team-conversations.js'
 export type { TeamConversationDetail } from './team-conversations.js'
-
 const log = createChildLogger('teams')
 
 export interface TeamDetail {
@@ -46,6 +45,7 @@ export interface CreateTeamInput {
   name: string
   description?: string
   masterPrompt?: string
+  modelProfileId?: string
 }
 export interface SpawnMemberInput {
   teamId: string
@@ -106,7 +106,7 @@ export const teamService = {
 
   create(input: CreateTeamInput): CreateTeamResult {
     ensureProject(input.projectId)
-    const fixedMaster = input.leaderAgentId ? undefined : createFixedMaster(input.projectId, input.masterPrompt)
+    const fixedMaster = input.leaderAgentId ? undefined : createFixedMaster(input.projectId, input.masterPrompt, input.modelProfileId)
     const leader = fixedMaster?.agent ?? requireAgent(input.leaderAgentId as string)
     ensureAgentInProject(leader, input.projectId)
     const team = teamStore.create({
