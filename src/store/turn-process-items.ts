@@ -3,6 +3,7 @@ import { createChildLogger } from '../core/logger.js'
 import type { TurnProcessItemData } from '../types/ws-protocol.js'
 import { getDb } from './db.js'
 import { parseFileChangesJson } from './file-changes.js'
+import { filterLegacyToolHeartbeats, heartbeatHistoryDetailColumn } from './legacy-tool-heartbeats.js'
 
 const log = createChildLogger('store:turn-process')
 
@@ -147,7 +148,7 @@ export const turnProcessItemStore = {
       ? '*'
       : `
         id, session_id, message_id, sequence, kind, status, title, summary, preview,
-        content, NULL AS detail_json, meta_json, created_at, updated_at,
+        content, ${heartbeatHistoryDetailColumn}, meta_json, created_at, updated_at,
         CASE WHEN detail_json IS NULL THEN 0 ELSE 1 END AS has_detail
       `
     const rows = getDb().prepare<[string], TurnProcessItemQueryRow>(`
@@ -156,7 +157,7 @@ export const turnProcessItemStore = {
       WHERE message_id = ?
       ORDER BY sequence ASC
     `).all(messageId)
-    return rows.map((row) => toData(row, includeDetail))
+    return filterLegacyToolHeartbeats(rows).map((row) => toData(row, includeDetail))
   },
 
   detail(messageId: string, id: string): TurnProcessItemData | undefined {

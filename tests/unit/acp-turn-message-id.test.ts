@@ -23,6 +23,36 @@ function installConnection(): void {
 }
 
 describe('ACP client turn message ids', () => {
+  test('normalizes heartbeat progress in the legacy ACP host without reviving completed tools', async () => {
+    installConnection()
+    const handler = createClientHandler(agentId)
+    const updates: AppEvents['session:update'][] = []
+    const onUpdate = (ev: AppEvents['session:update']): void => { updates.push(ev) }
+    events.on('session:update', onUpdate)
+    try {
+      startClientTurn(agentId, acpSessionId)
+      await handler.sessionUpdate({ sessionId: acpSessionId, update: {
+        sessionUpdate: 'tool_call', toolCallId: 'call-real', title: 'pnpm dist', status: 'pending',
+      } })
+      const beat = { sessionUpdate: 'tool_call_update' as const, toolCallId: 'call-real-heartbeat-0',
+        status: 'in_progress' as const, _meta: { claudeCode: { toolName: 'Bash', toolResponse: { elapsedTimeSeconds: 30 } } } }
+      await handler.sessionUpdate({ sessionId: acpSessionId, update: beat })
+      flushSessionUpdates(ourSessionId)
+      expect(updates.at(-1)?.data.toolCallUpdate).toMatchObject({ id: 'call-real', title: 'pnpm dist', status: 'in_progress' })
+      await handler.sessionUpdate({ sessionId: acpSessionId, update: {
+        sessionUpdate: 'tool_call_update', toolCallId: 'call-real', status: 'completed',
+      } })
+      flushSessionUpdates(ourSessionId)
+      const count = updates.length
+      await handler.sessionUpdate({ sessionId: acpSessionId, update: beat })
+      flushSessionUpdates(ourSessionId)
+      expect(updates).toHaveLength(count)
+    } finally {
+      events.off('session:update', onUpdate)
+      endClientTurn(agentId, acpSessionId)
+    }
+  })
+
   afterEach(() => {
     agentConnections.delete(agentId)
   })

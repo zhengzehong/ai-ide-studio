@@ -96,3 +96,16 @@ export function mapToolCallUpdate(toolCall: acp.ToolCallUpdate): ToolCallData {
     progressDelta: extractProgress(toolCall),
   }
 }
+
+export function mapToolCall(update: acp.ToolCall | acp.ToolCallUpdate): ToolCallData {
+  return {
+    id: update.toolCallId,
+    title: toolCallTitle(update),
+    kind: update.kind ?? undefined,
+    status: update.status ?? undefined,
+    locations: update.locations?.map((location) => ({ path: location.path, line: location.line ?? undefined })),
+    rawInput: update.rawInput,
+    rawOutput: update.rawOutput,
+    content: mapToolCallContent(update.content ?? undefined),
+  }
+}
