@@ -148,6 +148,16 @@ describe('shared conversation pane', () => {
     expect(html).not.toContain('生成中')
   })
 
+  test('uses the streaming sender name for aggregated team replies', () => {
+    const html = renderToStaticMarkup(createElement(ConversationPane, {
+      adapter: adapter({
+        streamingMessage: { id: 'stream-member', role: 'agent', processBlocks: [], finalAnswer: '成员回复', content: '成员回复', thinking: '', toolCalls: [], done: false, senderName: '测试成员' },
+      }),
+    }))
+    expect(html).toContain('测试成员')
+    expect((html.match(/<strong>测试成员<\/strong>/g) || []).length).toBe(1)
+  })
+
   test('does not render an empty bubble when the streaming turn only has a stage block', () => {
     const html = renderToStaticMarkup(createElement(ConversationPane, {
       adapter: adapter({

@@ -4,6 +4,8 @@ import { wsClient } from '../../services/ws-client'
 import type { TeamData } from '../../stores/team.store'
 import type { SessionIndicatorStateMap } from '../../utils/session-indicators'
 import { isTeamConversationRunning } from './team-conversation-state'
+import { formatTime } from '../../pages/workspace/helpers'
+import { SessionListRow } from '../session/SessionListRow'
 
 interface Conversation {
   id: string
@@ -28,6 +30,7 @@ export function TeamConversationList({ team, activeId, onSelect, onMasterSession
   const [items, setItems] = useState<Conversation[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [hoveredId, setHoveredId] = useState<string | null>(null)
 
   const load = useCallback(async (): Promise<void> => {
     setLoading(true)
@@ -104,43 +107,33 @@ export function TeamConversationList({ team, activeId, onSelect, onMasterSession
       <div style={listStyle}>
         {loading && items.length === 0 && <div style={stateStyle}><Loader2 size={16} style={{ animation: 'spin 1s linear infinite', marginBottom: 8 }} /><div>正在加载会话...</div></div>}
         {!loading && !error && items.length === 0 && <div style={stateStyle}>暂无会话<br /><span style={{ fontSize: 12 }}>点击上方加号新建</span></div>}
-        {items.map((item) => (
-          <div
-            key={item.id}
-            data-session-id={item.master_session_id}
-            role="button"
-            tabIndex={0}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault()
-                onMasterSession(item.master_session_id)
-                onSelect(item)
-              }
-            }}
-            onClick={() => { onMasterSession(item.master_session_id); onSelect(item) }}
-            style={conversationRowStyle(activeId === item.id)}
-          >
-            <div style={rowMainStyle}>
-              <span
-                title={isTeamConversationRunning(item, runningSessionIds, sessionActivityStates) ? '正在执行' : item.status === 'active' ? '空闲' : '已归档'}
-                style={statusDotStyle(isTeamConversationRunning(item, runningSessionIds, sessionActivityStates))}
-              />
-              <b style={titleStyle}>{item.title}</b>
-              <button type="button" title="重命名" onClick={(event) => { event.stopPropagation(); void rename(item) }} style={iconStyle}><Pencil size={13} /></button>
-              <button type="button" title="归档" onClick={(event) => { event.stopPropagation(); void archive(item) }} style={iconStyle}><Archive size={13} /></button>
-              <button type="button" title="删除" onClick={(event) => { event.stopPropagation(); void remove(item) }} style={iconStyle}><Trash2 size={13} /></button>
-            </div>
-            <div style={timeStyle}>{formatTime(item.updated_at)}</div>
-          </div>
-        ))}
+        {items.map((item) => {
+          const running = isTeamConversationRunning(item, runningSessionIds, sessionActivityStates)
+          return (
+            <SessionListRow
+              key={item.id}
+              sessionId={item.master_session_id}
+              active={activeId === item.id}
+              onSelect={() => { onMasterSession(item.master_session_id); onSelect(item) }}
+              onMouseEnter={() => setHoveredId(item.id)}
+              onMouseLeave={() => setHoveredId((current) => current === item.id ? null : current)}
+              actions={hoveredId === item.id ? (
+                <>
+                  <button type="button" title="重命名" aria-label={`重命名 ${item.title}`} onClick={(event) => { event.stopPropagation(); void rename(item) }} style={iconStyle}><Pencil size={13} /></button>
+                  <button type="button" title="归档" aria-label={`归档 ${item.title}`} onClick={(event) => { event.stopPropagation(); void archive(item) }} style={iconStyle}><Archive size={13} /></button>
+                  <button type="button" title="删除" aria-label={`删除 ${item.title}`} onClick={(event) => { event.stopPropagation(); void remove(item) }} style={iconStyle}><Trash2 size={13} /></button>
+                </>
+              ) : undefined}
+            >
+              <span title={running ? '正在执行' : item.status === 'active' ? '空闲' : '已归档'} style={statusDotStyle(running, item.status)} />
+              <span style={titleStyle} title={item.title}>{item.title}</span>
+              <span style={timeStyle}>{formatTime(item.updated_at)}</span>
+            </SessionListRow>
+          )
+        })}
       </div>
     </aside>
   )
-}
-
-function formatTime(value: string): string {
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
 }
 
 const asideStyle: React.CSSProperties = { width: 200, flexShrink: 0, display: 'flex', flexDirection: 'column', background: 'var(--bg-0)', position: 'relative' }
@@ -152,10 +145,8 @@ const teamNameStyle: React.CSSProperties = { flex: 1, minWidth: 0, overflow: 'hi
 const listStyle: React.CSSProperties = { flex: 1, overflowY: 'auto', padding: '4px 0', minHeight: 0 }
 const stateStyle: React.CSSProperties = { padding: '32px 16px', textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }
 const errorStyle: React.CSSProperties = { margin: '8px 10px 4px', padding: '7px 9px', color: 'var(--red)', background: 'var(--red-light)', borderRadius: 6, fontSize: 12 }
-const rowMainStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }
-const titleStyle: React.CSSProperties = { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13, fontWeight: 500 }
-const timeStyle: React.CSSProperties = { marginTop: 3, marginLeft: 13, fontSize: 11, color: 'var(--text-3)' }
+const titleStyle: React.CSSProperties = { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13, fontWeight: 400 }
+const timeStyle: React.CSSProperties = { fontSize: 11, color: 'var(--text-3)', flexShrink: 0, marginLeft: 4 }
 const iconStyle: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', border: 0, background: 'transparent', color: 'var(--text-3)', cursor: 'pointer', padding: 3, borderRadius: 4 }
 const newButtonStyle: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', height: 22, padding: '0 4px', border: 0, background: 'transparent', color: 'var(--text-3)', cursor: 'pointer', borderRadius: 4 }
-const statusDotStyle = (running: boolean): React.CSSProperties => ({ width: 7, height: 7, borderRadius: '50%', background: running ? 'var(--green)' : 'var(--text-3)', flexShrink: 0 })
-const conversationRowStyle = (active: boolean): React.CSSProperties => ({ position: 'relative', padding: '6px 8px', margin: '0 6px 2px', borderRadius: 4, background: active ? 'var(--blue-light)' : 'transparent', color: 'var(--text-1)', cursor: 'pointer', transition: 'background 0.15s', boxShadow: active ? 'inset 2px 0 0 var(--blue)' : 'none' })
+const statusDotStyle = (running: boolean, status: string): React.CSSProperties => ({ width: 6, height: 6, borderRadius: '50%', background: running || status === 'active' ? 'var(--green)' : 'var(--text-3)', flexShrink: 0, animation: running ? 'session-running-pulse 1s ease-in-out infinite' : undefined, boxShadow: running ? '0 0 0 4px rgba(5, 150, 105, 0.12)' : undefined })

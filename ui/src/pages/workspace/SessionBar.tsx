@@ -19,6 +19,7 @@ import {
 } from './session-tags'
 import { SessionTagEditor } from './SessionTagEditor'
 import { subscribeHotkeyActions } from '../../lib/hotkey-actions'
+import { sessionListButtonStyle, sessionListRowStyle } from '../../components/session/session-list-row-styles'
 
 const orderGripStyle: React.CSSProperties = {
   width: 16,
@@ -560,17 +561,9 @@ export function SessionBar(props: SessionBarProps) {
                       onContextMenu(e, s.id, agent.id, { inArchive: showArchived })
                     }}
                     style={{
-                      position: 'relative',
-                      display: 'flex',
-                      alignItems: 'center',
-                      paddingLeft: 12,
-                      paddingRight: 8,
-                      background: currentSessionId === s.id ? 'var(--blue-light)' : 'transparent',
-                      borderRadius: 4,
+                      ...sessionListRowStyle(currentSessionId === s.id),
                       opacity:
                         draggedOrderItem?.type === 'session' && draggedOrderItem.id === s.id ? 0.55 : 1,
-                      transition: 'background 0.15s',
-                      boxShadow: currentSessionId === s.id ? 'inset 2px 0 0 var(--blue)' : 'none',
                     }}
                   >
                     {batchMode && (
@@ -595,17 +588,8 @@ export function SessionBar(props: SessionBarProps) {
                         if (!orderingMode) onSelectSession(agent.id, s.id)
                       }}
                       style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 8,
-                        flex: 1,
-                        minWidth: 0,
-                        padding: '6px 0',
-                        border: 'none',
-                        background: 'transparent',
-                        color: 'var(--text-1)',
+                        ...sessionListButtonStyle,
                         cursor: orderingMode ? 'default' : 'pointer',
-                        textAlign: 'left',
                       }}
                     >
                       {orderingMode && (
