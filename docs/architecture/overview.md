@@ -273,6 +273,8 @@ Session 删除采用软删除，仅隐藏列表项并保留 `messages` / `sessio
 | `src/types/` | 类型定义 | `ws-protocol.ts` |
 | `ui/src/pages/` | PC 端页面组件 | Workspace/Dashboard/TaskBoard/Schedule/EventCenter/AgentSquare/ToolManager/Settings |
 | `ui/src/stores/` | 前端状态 | Zustand store、`session-events.ts` 事件还原、项目/工具/模板/模型状态 |
+
+普通 Agent 会话与团队会话共用 `ui/src/components/session/SessionListRow` 的列表行展示壳；团队只替换数据聚合和操作回调，中间消息区域继续通过 `ConversationPane` 适配器复用 Workspace 的渲染、流式滚动与执行过程能力。
 | `ui/src/services/` | 通信层 | `query-client.ts`、`ws-client.ts` |
 | `mobile/src/` | 移动端 Web App | `/app/` 下的手机端页面、组件和 Zustand store；复用 `ui/src/services/ws-client.ts` 与会话事件还原辅助逻辑 |
 

@@ -41,6 +41,7 @@ describe('team chat aggregation', () => {
     expect(completed.s1?.messages).toHaveLength(1)
     expect(completed.s1?.messages[0]?.content).toBe('最终回复')
     expect(completed.s1?.messages[0]?.decision_json).toContain('outputTokens')
+    expect(completed.s1?.messages[0]?.session_id).toBe('team')
   })
 
   it('is idempotent when the same persisted event is delivered twice', () => {
@@ -54,11 +55,12 @@ describe('team chat aggregation', () => {
 
   it('promotes a live turn to a completed message before history persistence catches up', () => {
     const live = updateStreaming({}, 's1', { messageId: 'm1', contentDelta: '最终回复' })
-    const completed = finalizeSnapshot(live, 's1', 'm1')
+    const completed = finalizeSnapshot(live, 's1', 'm1', 'master-1')
     expect(completed.s1?.streaming).toBeNull()
     expect(completed.s1?.running).toBe(false)
     expect(completed.s1?.messages).toHaveLength(1)
     expect(completed.s1?.messages[0]?.content).toBe('最终回复')
+    expect(completed.s1?.messages[0]?.session_id).toBe('master-1')
   })
 
   it('does not erase the completed message when done reload returns an empty page', () => {
@@ -68,5 +70,37 @@ describe('team chat aggregation', () => {
     const merged = mergeLoadedSnapshots(completed, stale)
     expect(merged.s1?.messages).toHaveLength(1)
     expect(merged.s1?.messages[0]?.content).toBe('保留这条消息')
+  })
+
+  it('does not replace a locally completed turn with a stale running history snapshot', () => {
+    const live = updateStreaming({}, 's1', { messageId: 'm1', contentDelta: '本地完整回复' })
+    const completed = finalizeSnapshot(live, 's1', 'm1', 'master-1')
+    const stale: Record<string, Snapshot> = {
+      s1: {
+        ...emptySnapshot('s1'),
+        messages: [{ ...message('s1:m1', 'agent', ''), status: 'running' }],
+      },
+    }
+    stale.s1.streaming = { id: 'm1', role: 'agent', content: '', finalAnswer: '', thinking: '', processBlocks: [], toolCalls: [], done: false }
+    stale.s1.running = true
+    const merged = mergeLoadedSnapshots(completed, stale)
+    expect(merged.s1?.streaming).toBeNull()
+    expect(merged.s1?.running).toBe(false)
+    expect(merged.s1?.messages[0]?.content).toBe('本地完整回复')
+    expect(merged.s1?.messages[0]?.status).toBe('completed')
+  })
+
+  it('clears a live turn when delayed history already contains its completed message', () => {
+    const live = updateStreaming({}, 's1', { messageId: 'm1', contentDelta: '已落库回复' })
+    const history = {
+      s1: {
+        ...emptySnapshot('s1'),
+        messages: [{ ...message('s1:m1', 'agent', '已落库回复'), status: 'completed', completed_at: '2026-09-09T00:00:01.000Z' }],
+      },
+    }
+    const merged = mergeLoadedSnapshots(live, history)
+    expect(merged.s1?.streaming).toBeNull()
+    expect(merged.s1?.running).toBe(false)
+    expect(merged.s1?.messages[0]?.content).toBe('已落库回复')
   })
 })

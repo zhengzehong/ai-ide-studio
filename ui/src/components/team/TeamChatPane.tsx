@@ -103,7 +103,7 @@ export function TeamChatPane({ team, conversation, masterSessionId }: Props) {
       const doneSessionId = message.sessionId as string
       const doneMessageId = typeof message.messageId === 'string' ? message.messageId : ''
       if (!doneMessageId) { void load(); return }
-      setSnapshots((current) => finalizeSnapshot(current, doneSessionId, doneMessageId))
+      setSnapshots((current) => finalizeSnapshot(current, doneSessionId, doneMessageId, masterSessionId))
       const previousTimer = doneReloadTimers.current.get(doneSessionId)
       if (previousTimer) window.clearTimeout(previousTimer)
       const timer = window.setTimeout(() => {
@@ -191,20 +191,24 @@ export function mergeLoadedSnapshots(current: Record<string, Snapshot>, loaded: 
       const existing = messages.get(message.id)
       messages.set(message.id, existing ? mergeMessage(existing, message) : message)
     })
+    const staleStreaming = isStaleRunningTurn(previous, next.streaming, sessionId)
+    const completedInHistory = hasCompletedTurn(next.messages, previous.streaming, sessionId)
     merged[sessionId] = {
       ...previous,
       ...next,
       messages: [...messages.values()].sort((a, b) => a.timestamp.localeCompare(b.timestamp) || a.id.localeCompare(b.id)),
       events: [...new Map([...previous.events, ...next.events].map((event) => [event.id, event])).values()].sort((a, b) => a.created_at.localeCompare(b.created_at) || a.sequence - b.sequence),
-      streaming: next.streaming || previous.streaming,
-      running: previous.running || next.running,
+      // A delayed history response can still expose the just-finished turn as
+      // running. Never resurrect that turn after a local done event finalized it.
+      streaming: staleStreaming || completedInHistory ? null : next.streaming || previous.streaming,
+      running: staleStreaming || completedInHistory ? false : previous.running || next.running,
       hasMore: next.messages.length > 0 ? next.hasMore : previous.hasMore,
     }
   })
   return merged
 }
 
-export function finalizeSnapshot(current: Record<string, Snapshot>, sessionId: string, messageId: string): Record<string, Snapshot> {
+export function finalizeSnapshot(current: Record<string, Snapshot>, sessionId: string, messageId: string, targetSessionId: string | null = sessionId): Record<string, Snapshot> {
   const snapshot = current[sessionId]
   if (!snapshot) return current
   const streaming = snapshot.streaming
@@ -217,7 +221,10 @@ export function finalizeSnapshot(current: Record<string, Snapshot>, sessionId: s
   const id = `${sessionId}:${resolvedMessageId}`
   const completed = normalizeMessage({
     id,
-    session_id: snapshot.sessionId,
+    // The shared conversation list filters by the display session (Master).
+    // Keep the source-prefixed message id for cross-agent de-duplication, but
+    // normalize its session id to the display target just like loaded history.
+    session_id: targetSessionId || snapshot.sessionId,
     role: 'agent',
     content: streaming.finalAnswer || streaming.content,
     thinking: streaming.thinking,
@@ -241,13 +248,37 @@ export function finalizeSnapshot(current: Record<string, Snapshot>, sessionId: s
 }
 
 function mergeMessage(previous: MessageData, next: MessageData): MessageData {
+  const nextHasContent = next.content.trim().length > 0
+  const nextHasFinalAnswer = !!next.finalAnswer?.trim()
+  const status = previous.status === 'completed' && next.status !== 'completed' ? 'completed' : next.status || previous.status
   return {
     ...previous,
     ...next,
+    content: nextHasContent ? next.content : previous.content,
+    status,
+    completed_at: next.completed_at || previous.completed_at,
     processBlocks: next.processBlocks?.length ? next.processBlocks : previous.processBlocks,
     parsedToolCalls: next.parsedToolCalls?.length ? next.parsedToolCalls : previous.parsedToolCalls,
-    finalAnswer: next.finalAnswer || previous.finalAnswer,
+    finalAnswer: nextHasFinalAnswer ? next.finalAnswer : previous.finalAnswer,
   }
+}
+
+function isStaleRunningTurn(previous: Snapshot, loadedStreaming: StreamingMessage | null, sessionId: string): boolean {
+  if (!loadedStreaming || previous.running) return false
+  const rawId = loadedStreaming.id.startsWith(`${sessionId}:`) ? loadedStreaming.id.slice(sessionId.length + 1) : loadedStreaming.id
+  return previous.messages.some((message) => {
+    if (message.id !== `${sessionId}:${rawId}` && message.id !== rawId) return false
+    return message.status === 'completed' || !!message.completed_at || !!message.finalAnswer || message.content.trim().length > 0
+  })
+}
+
+function hasCompletedTurn(messages: MessageData[], streaming: StreamingMessage | null, sessionId: string): boolean {
+  if (!streaming) return false
+  const rawId = streaming.id.startsWith(`${sessionId}:`) ? streaming.id.slice(sessionId.length + 1) : streaming.id
+  return messages.some((message) => {
+    if (message.id !== `${sessionId}:${rawId}` && message.id !== rawId) return false
+    return message.status === 'completed' || !!message.completed_at
+  })
 }
 function toStreaming(message: MessageData, sessionId: string): StreamingMessage { const id = message.id.startsWith(`${sessionId}:`) ? message.id.slice(sessionId.length + 1) : message.id; return { ...createEmptyTurn(id), content: message.content, finalAnswer: message.finalAnswer || message.content, processBlocks: message.processBlocks || [], toolCalls: message.parsedToolCalls || [], senderName: message.sender_name || undefined, done: false } }
 function remapStreaming(streaming: StreamingMessage, sessionId: string, senderName?: string): StreamingMessage { const id = streaming.id.startsWith(`${sessionId}:`) ? streaming.id : `${sessionId}:${streaming.id}`; return { ...streaming, id, senderName: senderName || streaming.senderName } }
@@ -260,7 +291,7 @@ function noteTeamRealtimeUpdate(records: Map<string, { expiresAt: number; update
 function noteTeamPersistedEvent(records: Map<string, { expiresAt: number; updateCount: number; eventCount: number }>, sessionId: string, event: SessionEventData): boolean { for (const [key, value] of records) if (value.expiresAt <= Date.now()) records.delete(key); const payload = (() => { try { return JSON.parse(event.payload_json) as Record<string, unknown> } catch { return null } })(); if (!payload) return false; const data = event.type === 'message.chunk' ? { messageId: payload.messageId, contentDelta: payload.contentDelta, content: payload.content } : event.type === 'thinking.chunk' ? { messageId: payload.messageId, thinking: payload.thinking } : event.type === 'tool.call' ? { messageId: payload.messageId, toolCall: payload.toolCall } : { messageId: payload.messageId, toolCallUpdate: payload.toolCall }; const key = teamMirrorKey(sessionId, event.type, data); if (!key) return false; const record = records.get(key); if (!record || record.updateCount < 1) return false; records.delete(key); return true }
 function appendTeamEvent(current: Record<string, Snapshot>, sessionId: string, event: SessionEventData, targetSessionId: string | null): Record<string, Snapshot> { const snapshot = current[sessionId] || emptySnapshot(sessionId); const displayEventId = `${sessionId}:${event.id}`; if (snapshot.events.some((item) => item.id === displayEventId)) return current; return { ...current, [sessionId]: { ...snapshot, events: [...snapshot.events, remapEvent(event, sessionId, targetSessionId || sessionId)] } } }
 export function updateStreaming(current: Record<string, Snapshot>, sessionId: string, data: Record<string, unknown>): Record<string, Snapshot> { const snapshot = current[sessionId] || emptySnapshot(sessionId); const incomingId = typeof data.messageId === 'string' ? data.messageId : snapshot.streaming?.id || `team-${sessionId}`; let turn = snapshot.streaming && !snapshot.streaming.done && snapshot.streaming.id === incomingId ? snapshot.streaming : createEmptyTurn(incomingId); turn = { ...turn, senderName: snapshot.senderName }; if (typeof data.contentDelta === 'string') turn = applyTurnEntry(turn, { kind: 'reply', text: data.contentDelta }); if (typeof data.thinking === 'string') turn = applyTurnEntry(turn, { kind: 'thinking', text: data.thinking }); if (data.toolCall && typeof data.toolCall === 'object') turn = applyTurnEntry(turn, { kind: 'toolCall', toolCall: data.toolCall as ToolCallInfo }); if (data.toolCallUpdate && typeof data.toolCallUpdate === 'object') turn = applyTurnEntry(turn, { kind: 'toolUpdate', toolCall: data.toolCallUpdate as ToolCallInfo }); return { ...current, [sessionId]: { ...snapshot, streaming: turn, running: true } } }
-export function applyEventToSnapshot(current: Record<string, Snapshot>, sessionId: string, event: SessionEventData, targetSessionId: string | null): Record<string, Snapshot> { const snapshot = current[sessionId] || emptySnapshot(sessionId); const displayEventId = `${sessionId}:${event.id}`; if (snapshot.events.some((item) => item.id === displayEventId)) return current; const reduced = applySessionEvent({ streamingMessage: snapshot.streaming, usage: snapshot.usage, turnUsage: null, capabilities: snapshot.capabilities, plan: [], pendingPermissions: snapshot.permissions, pendingElicitations: snapshot.elicitations }, event); const events = [...snapshot.events, remapEvent(event, sessionId, targetSessionId || sessionId)]; if (event.type === 'message.done' && snapshot.streaming) { const payload = parseEventPayload(event); const turnUsage = payload?.turnUsage && typeof payload.turnUsage === 'object' && !Array.isArray(payload.turnUsage) ? payload.turnUsage as StreamingMessage['turnStats'] : snapshot.streaming.turnStats; const messageId = typeof payload?.messageId === 'string' ? payload.messageId : event.message_id || snapshot.streaming.id; const completedState = { ...current, [sessionId]: { ...snapshot, events, streaming: { ...snapshot.streaming, turnStats: turnUsage }, usage: reduced.usage, permissions: reduced.pendingPermissions, elicitations: reduced.pendingElicitations, running: false } }; return finalizeSnapshot(completedState, sessionId, messageId) } return { ...current, [sessionId]: { ...snapshot, events, streaming: reduced.streamingMessage ? { ...reduced.streamingMessage, senderName: snapshot.senderName } : null, usage: reduced.usage, permissions: reduced.pendingPermissions, elicitations: reduced.pendingElicitations, running: !!reduced.streamingMessage } } }
+  export function applyEventToSnapshot(current: Record<string, Snapshot>, sessionId: string, event: SessionEventData, targetSessionId: string | null): Record<string, Snapshot> { const snapshot = current[sessionId] || emptySnapshot(sessionId); const displayEventId = `${sessionId}:${event.id}`; if (snapshot.events.some((item) => item.id === displayEventId)) return current; const reduced = applySessionEvent({ streamingMessage: snapshot.streaming, usage: snapshot.usage, turnUsage: null, capabilities: snapshot.capabilities, plan: [], pendingPermissions: snapshot.permissions, pendingElicitations: snapshot.elicitations }, event); const events = [...snapshot.events, remapEvent(event, sessionId, targetSessionId || sessionId)]; if (event.type === 'message.done' && snapshot.streaming) { const payload = parseEventPayload(event); const turnUsage = payload?.turnUsage && typeof payload.turnUsage === 'object' && !Array.isArray(payload.turnUsage) ? payload.turnUsage as StreamingMessage['turnStats'] : snapshot.streaming.turnStats; const messageId = typeof payload?.messageId === 'string' ? payload.messageId : event.message_id || snapshot.streaming.id; const completedState = { ...current, [sessionId]: { ...snapshot, events, streaming: { ...snapshot.streaming, turnStats: turnUsage }, usage: reduced.usage, permissions: reduced.pendingPermissions, elicitations: reduced.pendingElicitations, running: false } }; return finalizeSnapshot(completedState, sessionId, messageId, targetSessionId) } return { ...current, [sessionId]: { ...snapshot, events, streaming: reduced.streamingMessage ? { ...reduced.streamingMessage, senderName: snapshot.senderName } : null, usage: reduced.usage, permissions: reduced.pendingPermissions, elicitations: reduced.pendingElicitations, running: !!reduced.streamingMessage } } }
 
 function parseEventPayload(event: SessionEventData): Record<string, unknown> | null { try { const payload = JSON.parse(event.payload_json) as unknown; return payload && typeof payload === 'object' && !Array.isArray(payload) ? payload as Record<string, unknown> : null } catch { return null } }
 function mergeProcessItem(current: Record<string, Snapshot>, sessionId: string, item: TurnProcessItemInfo, block: TurnProcessBlock): Record<string, Snapshot> { const snapshot = current[sessionId] || emptySnapshot(sessionId); const currentTurn = snapshot.streaming?.id === item.message_id ? snapshot.streaming : createEmptyTurn(item.message_id); const processBlocks = [...currentTurn.processBlocks.filter((entry) => entry.id !== block.id), block]; return { ...current, [sessionId]: { ...snapshot, streaming: { ...currentTurn, processBlocks, senderName: snapshot.senderName }, running: true } } }

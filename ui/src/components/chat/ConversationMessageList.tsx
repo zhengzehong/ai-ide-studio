@@ -154,7 +154,7 @@ function StreamingMessage({ message, adapter, onOpenPreview, onOpenFiles, onOpen
   const processBlocks = message.processBlocks || []
   const finalAnswer = message.finalAnswer || message.content || ''
   const hasBody = processBlocks.some((block) => block.kind !== 'stage') || !!finalAnswer
-  return <MessageShell agentName={adapter.agentName} streaming streamingLabel={message.stage || '生成中'} showBubble={hasBody}><TurnContentView processBlocks={processBlocks} finalAnswer={finalAnswer} isStreaming processCount={message.process_item_count ?? processBlocks.length} defaultProcessOpen onOpenResource={onOpenResource} renderProcessBlock={(block, context) => <ProcessBlock block={block} adapter={adapter} messageId={message.id} isStreaming thinkingActive={context.thinkingActive} onOpenPreview={onOpenPreview} onOpenFiles={onOpenFiles} />} /></MessageShell>
+  return <MessageShell agentName={message.sender_name ?? adapter.agentName} streaming streamingLabel={message.stage || '生成中'} showBubble={hasBody}><TurnContentView processBlocks={processBlocks} finalAnswer={finalAnswer} isStreaming processCount={message.process_item_count ?? processBlocks.length} defaultProcessOpen onOpenResource={onOpenResource} renderProcessBlock={(block, context) => <ProcessBlock block={block} adapter={adapter} messageId={message.id} isStreaming thinkingActive={context.thinkingActive} onOpenPreview={onOpenPreview} onOpenFiles={onOpenFiles} />} /></MessageShell>
 }
 
 function MessageShell({ children, human = false, agentName, timestamp, streaming = false, streamingLabel = '生成中', showBubble = true }: { children: React.ReactNode; human?: boolean; agentName?: string | null; timestamp?: string; streaming?: boolean; streamingLabel?: string; showBubble?: boolean }) {
