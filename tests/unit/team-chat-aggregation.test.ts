@@ -32,6 +32,17 @@ describe('team chat aggregation', () => {
     expect(afterUsage.s1?.streaming?.id).toBe('m1')
   })
 
+  it('keeps the final reply when message.done clears the live turn before session.done', () => {
+    const live = updateStreaming({}, 's1', { messageId: 'm1', contentDelta: '最终回复' })
+    const done = event('e2', 'message.done', { messageId: 'm1', turnUsage: { outputTokens: 3 } })
+    const completed = applyEventToSnapshot(live, 's1', done, 'team')
+    expect(completed.s1?.streaming).toBeNull()
+    expect(completed.s1?.running).toBe(false)
+    expect(completed.s1?.messages).toHaveLength(1)
+    expect(completed.s1?.messages[0]?.content).toBe('最终回复')
+    expect(completed.s1?.messages[0]?.decision_json).toContain('outputTokens')
+  })
+
   it('is idempotent when the same persisted event is delivered twice', () => {
     const initial: Record<string, Snapshot> = { s1: { ...emptySnapshot('s1'), capabilities: { ...defaultCaps } } }
     const incoming = event('e1', 'message.chunk', { role: 'agent', messageId: 'm1', contentDelta: 'A' })
