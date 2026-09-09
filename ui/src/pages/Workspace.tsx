@@ -202,6 +202,10 @@ export default function Workspace() {
   const sessionsError = useSessionStore((s) => s.error)
   const runningSessionIds = useSessionStore((s) => s.runningSessionIds)
   const unreadSessionIds = useSessionStore((s) => s.unreadSessionIds)
+  const sessionActivityStates = useMemo<Record<string, 'running' | 'idle' | undefined>>(
+    () => Object.fromEntries(sessions.map((session) => [session.id, session.activity_state])),
+    [sessions],
+  )
   const copyingTargetSessionIds = useSessionStore((s) => s.copyingTargetSessionIds)
   const copyingSourceSessionIds = useSessionStore((s) => s.copyingSourceSessionIds)
   const lastCopyError = useSessionStore((s) => s.lastCopyError)
@@ -1391,6 +1395,8 @@ export default function Workspace() {
           activeId={teamConversation?.id ?? null}
           onSelect={setTeamConversation}
           onMasterSession={setTeamMasterSessionId}
+          runningSessionIds={runningSessionIds}
+          sessionActivityStates={sessionActivityStates}
         />
       )}
       {sidebarTab === 'sessions' && !selectedTeam && (

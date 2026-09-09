@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { Archive, Bot, Loader2, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { wsClient } from '../../services/ws-client'
 import type { TeamData } from '../../stores/team.store'
+import type { SessionIndicatorStateMap } from '../../utils/session-indicators'
+import { isTeamConversationRunning } from './team-conversation-state'
 
 interface Conversation {
   id: string
@@ -10,6 +12,7 @@ interface Conversation {
   title: string
   status: string
   updated_at: string
+  activity_state?: 'running' | 'idle' | null
 }
 
 interface Props {
@@ -17,9 +20,11 @@ interface Props {
   activeId: string | null
   onSelect: (conversation: Conversation) => void
   onMasterSession: (sessionId: string) => void
+  runningSessionIds?: SessionIndicatorStateMap
+  sessionActivityStates?: Record<string, 'running' | 'idle' | undefined>
 }
 
-export function TeamConversationList({ team, activeId, onSelect, onMasterSession }: Props) {
+export function TeamConversationList({ team, activeId, onSelect, onMasterSession, runningSessionIds = {}, sessionActivityStates = {} }: Props) {
   const [items, setItems] = useState<Conversation[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -116,7 +121,10 @@ export function TeamConversationList({ team, activeId, onSelect, onMasterSession
             style={conversationRowStyle(activeId === item.id)}
           >
             <div style={rowMainStyle}>
-              <span title={item.status === 'active' ? '运行中' : '已归档'} style={statusDotStyle(item.status === 'active')} />
+              <span
+                title={isTeamConversationRunning(item, runningSessionIds, sessionActivityStates) ? '正在执行' : item.status === 'active' ? '空闲' : '已归档'}
+                style={statusDotStyle(isTeamConversationRunning(item, runningSessionIds, sessionActivityStates))}
+              />
               <b style={titleStyle}>{item.title}</b>
               <button type="button" title="重命名" onClick={(event) => { event.stopPropagation(); void rename(item) }} style={iconStyle}><Pencil size={13} /></button>
               <button type="button" title="归档" onClick={(event) => { event.stopPropagation(); void archive(item) }} style={iconStyle}><Archive size={13} /></button>
@@ -137,17 +145,17 @@ function formatTime(value: string): string {
 
 const asideStyle: React.CSSProperties = { width: 200, flexShrink: 0, display: 'flex', flexDirection: 'column', background: 'var(--bg-0)', position: 'relative' }
 const edgeStyle: React.CSSProperties = { position: 'absolute', top: 0, right: 0, width: 1, height: '100%', background: 'linear-gradient(to bottom, transparent, var(--border) 10%, var(--border) 90%, transparent)', pointerEvents: 'none', zIndex: 1 }
-const headerStyle: React.CSSProperties = { padding: '12px 10px 12px 17px', display: 'flex', alignItems: 'center', gap: 7, borderBottom: '1px solid var(--border)', flexShrink: 0, minWidth: 0, position: 'relative', background: 'var(--bg-1)' }
-const headerAccentStyle: React.CSSProperties = { position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: 'var(--purple)' }
-const teamIconStyle: React.CSSProperties = { width: 18, height: 18, borderRadius: 4, background: 'var(--purple)', color: 'white', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }
-const teamNameStyle: React.CSSProperties = { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13, color: 'var(--text-1)' }
+const headerStyle: React.CSSProperties = { padding: '12px 14px 12px 17px', display: 'flex', alignItems: 'center', gap: 8, borderBottom: '1px solid var(--border)', flexShrink: 0, minWidth: 0, position: 'relative', background: 'var(--bg-1)' }
+const headerAccentStyle: React.CSSProperties = { position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: 'var(--blue)' }
+const teamIconStyle: React.CSSProperties = { width: 18, height: 18, borderRadius: 4, background: 'var(--blue)', color: 'white', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }
+const teamNameStyle: React.CSSProperties = { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13, fontWeight: 600, color: 'var(--text-1)' }
 const listStyle: React.CSSProperties = { flex: 1, overflowY: 'auto', padding: '4px 0', minHeight: 0 }
 const stateStyle: React.CSSProperties = { padding: '32px 16px', textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }
 const errorStyle: React.CSSProperties = { margin: '8px 10px 4px', padding: '7px 9px', color: 'var(--red)', background: 'var(--red-light)', borderRadius: 6, fontSize: 12 }
-const rowMainStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }
+const rowMainStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }
 const titleStyle: React.CSSProperties = { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13, fontWeight: 500 }
 const timeStyle: React.CSSProperties = { marginTop: 3, marginLeft: 13, fontSize: 11, color: 'var(--text-3)' }
 const iconStyle: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', border: 0, background: 'transparent', color: 'var(--text-3)', cursor: 'pointer', padding: 3, borderRadius: 4 }
 const newButtonStyle: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', height: 22, padding: '0 4px', border: 0, background: 'transparent', color: 'var(--text-3)', cursor: 'pointer', borderRadius: 4 }
 const statusDotStyle = (running: boolean): React.CSSProperties => ({ width: 7, height: 7, borderRadius: '50%', background: running ? 'var(--green)' : 'var(--text-3)', flexShrink: 0 })
-const conversationRowStyle = (active: boolean): React.CSSProperties => ({ padding: '8px 8px 7px', margin: '0 6px 2px', borderRadius: 6, background: active ? 'var(--blue-light)' : 'transparent', color: 'var(--text-1)', cursor: 'pointer' })
+const conversationRowStyle = (active: boolean): React.CSSProperties => ({ position: 'relative', padding: '6px 8px', margin: '0 6px 2px', borderRadius: 4, background: active ? 'var(--blue-light)' : 'transparent', color: 'var(--text-1)', cursor: 'pointer', transition: 'background 0.15s', boxShadow: active ? 'inset 2px 0 0 var(--blue)' : 'none' })
