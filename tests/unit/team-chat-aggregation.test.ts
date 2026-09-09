@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { aggregateSnapshots, applyEventToSnapshot, emptySnapshot, finalizeSnapshot, mergeLoadedSnapshots, updateStreaming, type Snapshot } from '../../ui/src/components/team/TeamChatPane'
 import { defaultCaps } from '../../ui/src/stores/session-events'
+import { attachTeamAssignments, assignmentFromEvent, mapTeamMessage } from '../../ui/src/components/team/team-chat-assignments'
 
 function message(id: string, role: string, content: string) {
   return { id, session_id: 'team', role, content, thinking: null, tool_calls_json: null, decision_json: null, timestamp: '2026-09-09T00:00:00.000Z' }
@@ -102,5 +103,51 @@ describe('team chat aggregation', () => {
     expect(merged.s1?.streaming).toBeNull()
     expect(merged.s1?.running).toBe(false)
     expect(merged.s1?.messages[0]?.content).toBe('已落库回复')
+  })
+  it('preserves a non-empty history message when completion arrives with no live stream', () => {
+    const state: Record<string, Snapshot> = {
+      s1: {
+        ...emptySnapshot('s1'),
+        messages: [{ ...message('s1:m1', 'agent', '历史最终回复'), status: 'running' }],
+      },
+    }
+    const completed = finalizeSnapshot(state, 's1', 'm1', 'master-1')
+    expect(completed.s1?.messages[0]?.content).toBe('历史最终回复')
+    expect(completed.s1?.messages[0]?.status).toBe('completed')
+    expect(completed.s1?.running).toBe(false)
+  })
+
+  it('recovers final content from persisted events when the live stream was missed', () => {
+    const state: Record<string, Snapshot> = {
+      s1: {
+        ...emptySnapshot('s1'),
+        events: [event('e1', 'message.chunk', { messageId: 'm1', role: 'agent', contentDelta: '事件中的回复' })],
+      },
+    }
+    const completed = finalizeSnapshot(state, 's1', 'm1', 'master-1')
+    expect(completed.s1?.messages[0]?.content).toBe('事件中的回复')
+    expect(completed.s1?.messages[0]?.session_id).toBe('master-1')
+  })
+
+  it('keeps partial output and exposes the provider error when a member turn fails', () => {
+    const live = updateStreaming({}, 's1', { messageId: 'm1', contentDelta: '已完成部分工作' })
+    const completed = finalizeSnapshot(live, 's1', 'm1', 'master-1', 'failed', '余额不足')
+    expect(completed.s1?.messages[0]?.content).toContain('已完成部分工作')
+    expect(completed.s1?.messages[0]?.content).toContain('执行失败：余额不足')
+    expect(completed.s1?.messages[0]?.status).toBe('failed')
+  })
+
+  it('moves a Master assignment into the following member reply instead of showing it as a user bubble', () => {
+    const assignment = mapTeamMessage({ ...message('m0', 'human', '修复登录问题'), sender_name: 'Master', sender_role: 'team-assignment' }, 'member-1', 'master-1', '李白', 'member')
+    const reply = mapTeamMessage({ ...message('m1', 'agent', '已经修复'), sender_name: null, sender_role: 'assistant' }, 'member-1', 'master-1', '李白', 'member')
+    const result = attachTeamAssignments([assignment, reply])
+    expect(result.messages).toHaveLength(1)
+    expect(result.messages[0]?.role).toBe('agent')
+    expect(result.messages[0]?.teamAssignment).toEqual({ content: '修复登录问题', fromName: 'Master' })
+  })
+
+  it('recognizes live assignment events with sender metadata', () => {
+    const live = assignmentFromEvent(event('e1', 'message.user', { messageId: 'm0', content: '检查日志', senderRole: 'team-assignment', senderName: 'Master' }))
+    expect(live).toEqual({ content: '检查日志', fromName: 'Master' })
   })
 })

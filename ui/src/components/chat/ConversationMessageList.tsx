@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
-import { Bot, Loader2, User } from 'lucide-react'
+import { Bot, Loader2, User, X } from 'lucide-react'
 import { MarkdownRenderer } from '../MarkdownRenderer'
 import { TurnContentView } from './TurnContentView'
 import { VirtualChatList } from './VirtualChatList'
@@ -8,6 +8,7 @@ import { PreviewCard } from './PreviewCard'
 import { buildChatRenderItems, type ChatRenderItem } from './render-items'
 import { ConversationProcessBlock } from './ConversationProcessBlock'
 import { AuthenticatedImage } from './AuthenticatedImage'
+import { TeamAssignmentBlock } from './TeamAssignmentBlock'
 import { fmtTokens } from '../../pages/workspace/helpers'
 import { elapsedSecondsBetween, formatCompactDuration } from '../../utils/duration'
 import type { ChatTimelineGroup, MessageData } from '../../stores/session-events'
@@ -117,12 +118,14 @@ function TimelineGroupMessage({ group, adapter, onOpenPreview, onOpenFiles, onOp
 
 function ConversationMessage({ message, adapter, onOpenPreview, onOpenFiles, onOpenResource }: { message: MessageData; adapter: ConversationAdapter; onOpenPreview?: ConversationPaneProps['onOpenPreview']; onOpenFiles?: ConversationPaneProps['onOpenFiles']; onOpenResource?: ConversationPaneProps['onOpenResource'] }) {
   const isHuman = message.role === 'human'
+  const failed = message.status === 'failed'
   const processState = adapter.processByMessageId?.[message.id]
   const processBlocks = processState?.blocks ?? message.processBlocks ?? []
   const processCount = message.process_item_count ?? message.tool_call_count ?? (message.has_tool_calls ? 1 : 0)
   const presentations = message.parsedPresentations ?? []
   const stats = parseTurnStats(message.decision_json, message.started_at, message.completed_at)
-  return <MessageShell human={isHuman} agentName={message.sender_name ?? adapter.agentName} timestamp={message.timestamp}>
+  return <MessageShell human={isHuman} failed={failed} agentName={message.sender_name ?? adapter.agentName} timestamp={message.timestamp}>
+    {message.teamAssignment && <TeamAssignmentBlock assignment={message.teamAssignment} />}
     {message.parsedAttachments?.map((attachment, index) => <AuthenticatedImage key={`${message.id}-attachment-${index}`} image={attachment} alt={attachment.name || '附件'} style={{ maxWidth: 180, maxHeight: 140, borderRadius: 8, border: '1px solid var(--border)', objectFit: 'cover', marginBottom: 8 }} />)}
     <TurnContentView
       defaultProcessOpen={!!message.processDefaultOpen}
@@ -154,11 +157,15 @@ function StreamingMessage({ message, adapter, onOpenPreview, onOpenFiles, onOpen
   const processBlocks = message.processBlocks || []
   const finalAnswer = message.finalAnswer || message.content || ''
   const hasBody = processBlocks.some((block) => block.kind !== 'stage') || !!finalAnswer
-  return <MessageShell agentName={message.sender_name ?? adapter.agentName} streaming streamingLabel={message.stage || '生成中'} showBubble={hasBody}><TurnContentView processBlocks={processBlocks} finalAnswer={finalAnswer} isStreaming processCount={message.process_item_count ?? processBlocks.length} defaultProcessOpen onOpenResource={onOpenResource} renderProcessBlock={(block, context) => <ProcessBlock block={block} adapter={adapter} messageId={message.id} isStreaming thinkingActive={context.thinkingActive} onOpenPreview={onOpenPreview} onOpenFiles={onOpenFiles} />} /></MessageShell>
+  const failed = message.stage?.includes('失败') === true
+  return <MessageShell agentName={message.sender_name ?? adapter.agentName} failed={failed} streaming streamingLabel={failed ? '执行失败' : message.stage || '生成中'} showBubble={hasBody}>
+    {message.teamAssignment && <TeamAssignmentBlock assignment={message.teamAssignment} />}
+    <TurnContentView processBlocks={processBlocks} finalAnswer={finalAnswer} isStreaming processCount={message.process_item_count ?? processBlocks.length} defaultProcessOpen onOpenResource={onOpenResource} renderProcessBlock={(block, context) => <ProcessBlock block={block} adapter={adapter} messageId={message.id} isStreaming thinkingActive={context.thinkingActive} onOpenPreview={onOpenPreview} onOpenFiles={onOpenFiles} />} />
+  </MessageShell>
 }
 
-function MessageShell({ children, human = false, agentName, timestamp, streaming = false, streamingLabel = '生成中', showBubble = true }: { children: React.ReactNode; human?: boolean; agentName?: string | null; timestamp?: string; streaming?: boolean; streamingLabel?: string; showBubble?: boolean }) {
-  return <div className={`conversation-message${human ? ' is-human' : ''}`}><div className="conversation-avatar">{human ? <User size={14} /> : <Bot size={14} />}</div><div className="conversation-message-body"><div className="conversation-message-meta"><strong>{human ? '你' : agentName || 'Agent'}</strong>{timestamp && <time>{formatTime(timestamp)}</time>}{streaming && <span className="conversation-streaming-label"><Loader2 size={11} /> {streamingLabel}</span>}</div>{showBubble && <div className="conversation-bubble">{children}</div>}</div></div>
+function MessageShell({ children, human = false, failed = false, agentName, timestamp, streaming = false, streamingLabel = '生成中', showBubble = true }: { children: React.ReactNode; human?: boolean; failed?: boolean; agentName?: string | null; timestamp?: string; streaming?: boolean; streamingLabel?: string; showBubble?: boolean }) {
+  return <div className={`conversation-message${human ? ' is-human' : ''}${failed ? ' is-failed' : ''}`}><div className="conversation-avatar">{human ? <User size={14} /> : <Bot size={14} />}</div><div className="conversation-message-body"><div className="conversation-message-meta"><strong>{human ? '你' : agentName || 'Agent'}</strong>{timestamp && <time>{formatTime(timestamp)}</time>}{streaming && <span className={`conversation-streaming-label${failed ? ' is-failed' : ''}`}>{failed ? <X size={11} /> : <Loader2 size={11} />} {streamingLabel}</span>}{failed && !streaming && <span className="conversation-failed-label">执行失败</span>}</div>{showBubble && <div className="conversation-bubble">{children}</div>}</div></div>
 }
 
 function ProcessBlock({ block, adapter, messageId, isStreaming = false, thinkingActive = false, onOpenPreview, onOpenFiles }: { block: TurnProcessBlock; adapter: ConversationAdapter; messageId: string; isStreaming?: boolean; thinkingActive?: boolean; onOpenPreview?: ConversationPaneProps['onOpenPreview']; onOpenFiles?: ConversationPaneProps['onOpenFiles'] }) {

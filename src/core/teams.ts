@@ -181,7 +181,7 @@ export const teamService = {
     const prompt = buildTeamMemberPrompt({ team, member, content: input.content, taskId: input.taskId })
     const conversation = input.sourceSessionId ? teamConversationStore.getBySession(input.sourceSessionId) : undefined
     const targetSessionId = conversation ? teamConversationStore.listMembers(conversation.id).find((entry) => entry.member_id === member.id)?.session_id : undefined
-    const status = dispatchMemberPrompt({ teamId: team.id, memberId: member.id, sessionId: targetSessionId ?? member.session_id, prompt })
+    const status = dispatchMemberPrompt({ teamId: team.id, memberId: member.id, sessionId: targetSessionId ?? member.session_id, prompt, displayContent: input.content, senderName: 'Master' })
     return { status, member }
   },
 
