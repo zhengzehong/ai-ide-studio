@@ -39,6 +39,7 @@ export interface ConversationAdapter {
   messages: MessageData[]
   events?: SessionEventData[]
   streamingMessage: StreamingMessage | null
+  streamingMessages?: StreamingMessage[]
   loading: boolean
   error: string | null
   running: boolean

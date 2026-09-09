@@ -8,6 +8,7 @@ interface Props {
   onClose: () => void
   onCreated: (teamId: string) => void | Promise<void>
 }
+interface ModelProfile { id: string; name: string; providerId: string; isDefault: boolean }
 
 export function CreateTeamDialog({ open, projectId, onClose, onCreated }: Props) {
   if (!open) return null
@@ -19,16 +20,23 @@ function CreateTeamDialogBody({ projectId, onClose, onCreated }: Omit<Props, 'op
   const [description, setDescription] = useState('')
   const [masterPrompt, setMasterPrompt] = useState('')
   const [defaultPrompt, setDefaultPrompt] = useState('')
+  const [modelProfiles, setModelProfiles] = useState<ModelProfile[]>([])
+  const [modelProfileId, setModelProfileId] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const promptEdited = useRef(false)
 
   useEffect(() => {
     void wsClient.request({ type: 'teams.defaults' }).then((result) => {
-      const prompt = result && typeof result === 'object' && typeof (result as { masterPrompt?: unknown }).masterPrompt === 'string'
-        ? (result as { masterPrompt: string }).masterPrompt : ''
+      const payload = result as { masterPrompt?: unknown; modelProfiles?: unknown; defaultModelProfileId?: unknown } | null
+      const prompt = result && typeof result === 'object' && typeof payload?.masterPrompt === 'string'
+        ? payload.masterPrompt : ''
       setDefaultPrompt(prompt)
       if (!promptEdited.current) setMasterPrompt(prompt)
+      const profiles = Array.isArray(payload?.modelProfiles) ? payload.modelProfiles.filter((item): item is ModelProfile => !!item && typeof item === 'object' && typeof (item as ModelProfile).id === 'string' && typeof (item as ModelProfile).name === 'string') : []
+      setModelProfiles(profiles)
+      const defaultId = typeof payload?.defaultModelProfileId === 'string' ? payload.defaultModelProfileId : profiles[0]?.id || ''
+      setModelProfileId(defaultId)
     }).catch(() => { setDefaultPrompt('') })
   }, [])
 
@@ -37,7 +45,7 @@ function CreateTeamDialogBody({ projectId, onClose, onCreated }: Omit<Props, 'op
     if (!projectId || !name.trim() || busy) return
     setBusy(true); setError(null)
     try {
-      const result = await wsClient.request({ type: 'teams.create', projectId, name: name.trim(), description: description.trim() || undefined, masterPrompt: masterPrompt.trim() || undefined })
+      const result = await wsClient.request({ type: 'teams.create', projectId, name: name.trim(), description: description.trim() || undefined, masterPrompt: masterPrompt.trim() || undefined, modelProfileId: modelProfileId || undefined })
       const teamId = result && typeof result === 'object' && typeof (result as { team?: { id?: unknown } }).team?.id === 'string' ? (result as { team: { id: string } }).team.id : ''
       if (!teamId) throw new Error('创建团队失败')
       await onCreated(teamId); onClose()
@@ -50,6 +58,8 @@ function CreateTeamDialogBody({ projectId, onClose, onCreated }: Omit<Props, 'op
       <label style={labelStyle}>团队描述<textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={2} placeholder="可选" style={inputStyle} /></label>
       <label style={labelStyle}>Master 提示词<textarea value={masterPrompt} onChange={(event) => { promptEdited.current = true; setMasterPrompt(event.target.value) }} rows={7} placeholder={defaultPrompt || '使用内置默认提示词'} style={{ ...inputStyle, resize: 'vertical' }} /></label>
       {defaultPrompt && <div style={{ color: 'var(--text-3)', fontSize: 12, marginTop: -6, marginBottom: 10 }}>已填充内置默认提示词，可直接修改。</div>}
+      <label style={labelStyle}>Master 模型档案<select value={modelProfileId} onChange={(event) => setModelProfileId(event.target.value)} style={inputStyle} disabled={modelProfiles.length === 0}><option value="">使用运行时默认档案</option>{modelProfiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}{profile.isDefault ? '（默认）' : ''} · {profile.providerId}</option>)}</select></label>
+      {modelProfiles.length === 0 && <div style={{ color: 'var(--text-3)', fontSize: 12, marginTop: -6, marginBottom: 10 }}>暂无启用的 Claude 模型档案，将使用运行时默认配置。</div>}
       {error && <div role="alert" style={{ color: 'var(--red)', fontSize: 13, marginBottom: 10 }}>{error}</div>}
       <footer style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}><button type="button" disabled={busy} onClick={onClose} style={secondaryButton}>取消</button><button type="submit" disabled={!projectId || !name.trim() || busy} style={primaryButton}>{busy ? '创建中...' : '创建团队'}</button></footer>
     </form>

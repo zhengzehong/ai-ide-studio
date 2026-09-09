@@ -10,6 +10,7 @@ import { teamService, type TeamContextDetail } from '../../src/core/teams.js'
 import { teamRpcHandlers } from '../../src/gateway/rpc/teams.js'
 import { seedBuiltinTemplates } from '../../src/store/agent-templates.js'
 import { seedBuiltinTools } from '../../src/tools/seed.js'
+import { modelProfileStore } from '../../src/store/model-profiles.js'
 
 let tmp: string
 
@@ -49,6 +50,15 @@ describe('teams.current RPC', () => {
     const data = await callTeamsCurrent(session.id)
 
     expect(data).toEqual({ team: null, currentMember: null, members: [], tasks: [], mailbox: [] })
+  })
+
+  test('uses the selected Claude profile for the fixed Master', async () => {
+    seedBuiltinTemplates()
+    seedBuiltinTools()
+    const project = projectStore.create({ name: 'P', workDir: tmp })
+    const profile = modelProfileStore.create({ name: 'Claude PRD', runtime: 'claude', providerId: 'provider', config: { defaultModel: 'claude-test' }, isDefault: true })
+    const created = await callTeamRpc<ReturnType<typeof teamService.create>>('teams.create', { projectId: project.id, name: 'Alpha', modelProfileId: profile.id })
+    expect(JSON.parse(created.agent.config_json || '{}')).toMatchObject({ modelProfileId: profile.id, modelProfileMode: 'fixed' })
   })
 
   test('returns Team detail and current leader member for the leader session', async () => {
