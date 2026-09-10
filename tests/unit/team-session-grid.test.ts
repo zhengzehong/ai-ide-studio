@@ -151,4 +151,38 @@ describe('migration 068 team_session_grid_repair', () => {
     const leaderRow = db.prepare('SELECT session_id FROM team_members WHERE id = ?').get(f.leaderMember.id) as { session_id: string }
     expect(leaderRow.session_id).toBe(conversation.conversation.master_session_id)
   })
+
+  test('fills a missing leader grid with the conversation master session (invariant: leader grid = master)', () => {
+    const f = createFixture()
+    const conversation = teamService.createConversation(f.team.id)
+    const db = getDb()
+
+    // 构造"leader 无任何格子"的存量形态（旧版开线遗留）：删掉 leader 格子，primary 指向孤儿
+    const orphanSession = sessionStore.create({ agentId: f.leader.id, projectId: f.project.id })
+    db.prepare('DELETE FROM team_conversation_members WHERE member_id = ?').run(f.leaderMember.id)
+    db.prepare('UPDATE team_members SET session_id = ? WHERE id = ?').run(orphanSession.id, f.leaderMember.id)
+
+    teamSessionGridRepairMigration.up(db)
+
+    const leaderGrid = teamConversationStore.listMembers(conversation.conversation.id).find((entry) => entry.member_id === f.leaderMember.id)
+    expect(leaderGrid?.session_id).toBe(conversation.conversation.master_session_id)
+    const leaderRow = db.prepare('SELECT session_id FROM team_members WHERE id = ?').get(f.leaderMember.id) as { session_id: string }
+    expect(leaderRow.session_id).toBe(conversation.conversation.master_session_id)
+  })
+
+  test('skips members whose primary session already has history (runtime will self-heal)', () => {
+    const f = createFixture()
+    const conversation = teamService.createConversation(f.team.id)
+    const spawned = teamService.spawnMember({ teamId: f.team.id, agentId: f.worker.id })
+    const db = getDb()
+
+    // 成员 primary 已有历史：与运行时复用规则一致，migration 不应补格子
+    db.prepare('DELETE FROM team_conversation_members WHERE member_id = ?').run(spawned.member.id)
+    db.prepare('UPDATE sessions SET last_message_at = ? WHERE id = ?').run(new Date().toISOString(), spawned.member.session_id)
+
+    teamSessionGridRepairMigration.up(db)
+
+    const memberGrid = teamConversationStore.listMembers(conversation.conversation.id).find((entry) => entry.member_id === spawned.member.id)
+    expect(memberGrid?.session_id ?? null).toBeNull()
+  })
 })
