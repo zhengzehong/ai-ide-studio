@@ -47,6 +47,7 @@ import { events } from './core/events.js'
 import { DataRetentionService } from './data-retention/retention-service.js'
 import { closeSharedFileChangeWorker } from './core/file-change-worker-client.js'
 import { getOrCreateRetentionControlToken } from './data-retention/control-token.js'
+import { startModelCaptureProxy, type ModelCaptureProxy } from './model-capture/proxy-server.js'
 import {
   createRealtimeEndpointSubscription,
   embeddedRealtimeEndpoint,
@@ -85,6 +86,16 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
   seedBuiltinTemplates()
   seedBuiltinTaskExecutionModes()
   seedBuiltinTools()
+
+  // 模型代理抓包服务:常驻,不随总开关启停;端口被占时功能降级不影响主服务
+  let captureProxy: ModelCaptureProxy | undefined
+  if (config.modelCaptureProxyPort && config.modelCaptureProxyPort > 0) {
+    try {
+      captureProxy = await startModelCaptureProxy({ port: config.modelCaptureProxyPort, dataDir: config.dataDir })
+    } catch (err) {
+      log.warn({ err }, '模型代理抓包服务启动失败(不阻塞主服务)')
+    }
+  }
 
   const dataWorkerMode = config.dataWorkerMode ?? 'worker'
   let dataPorts: AppDataPorts
@@ -293,6 +304,7 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
       ruleEngine.stop()
       clearInterval(hubCleanupTimer)
       const cleanupErrors: unknown[] = []
+      if (captureProxy) await collectCleanupError(cleanupErrors, () => captureProxy.close())
       await collectCleanupError(cleanupErrors, () => retention.close())
       realtimeEvents?.stop()
       commandDispatcher.closeIntake()

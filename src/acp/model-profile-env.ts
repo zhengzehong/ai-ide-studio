@@ -12,6 +12,7 @@ import { buildRuntimeEnv } from './runtime-registry.js'
 import { buildAiIdeSystemPrompt } from '../core/ai-ide-system-prompt.js'
 import { buildMasterPrompt } from '../core/master-prompt.js'
 import { agentMemoryService } from '../core/agent-memory.js'
+import { buildCaptureProxyBaseUrl, getCaptureSettings } from '../model-capture/capture-config.js'
 import {
   getGlobalModelProfile,
   readAgentModelProfileMode,
@@ -129,6 +130,7 @@ export function buildAgentRuntimeEnv(
     if (!config.model || !isProviderProtocolCompatible('codex', resolvedProfile.provider.protocol)) return { env }
     const apiKey = resolvedProfile.provider.api_key.trim()
     if (apiKey) env[CODEX_GATEWAY_API_KEY_ENV_KEY] = apiKey
+    const captureBaseUrl = getCaptureSettings().enabled ? buildCaptureProxyBaseUrl(agent.id) : undefined
     return {
       env,
       appliedProfile: {
@@ -136,7 +138,7 @@ export function buildAgentRuntimeEnv(
         modelId: config.model,
         ...(config.effort ? { effort: config.effort } : {}),
       },
-      gatewayAuth: buildCodexGatewayAuth(resolvedProfile.provider),
+      gatewayAuth: buildCodexGatewayAuth(resolvedProfile.provider, captureBaseUrl),
     }
   }
 
@@ -148,6 +150,10 @@ export function buildAgentRuntimeEnv(
     config,
     resolvedProfile.appliedProfile.contextWindow,
   )) return { env }
+  // 模型代理抓包总开关:开启时把 ANTHROPIC_BASE_URL 指向本地代理(带 agent 路由前缀)
+  if (getCaptureSettings().enabled) {
+    env.ANTHROPIC_BASE_URL = buildCaptureProxyBaseUrl(agent.id)
+  }
 
   return {
     env,
@@ -288,8 +294,8 @@ function applyOptionalEnv(env: NodeJS.ProcessEnv, key: string, value: string | u
   if (normalized) env[key] = normalized
 }
 
-function buildCodexGatewayAuth(provider: ModelProviderRow): RuntimeGatewayAuth {
-  const baseUrl = normalizeOpenAiBaseUrl(provider.base_url)
+function buildCodexGatewayAuth(provider: ModelProviderRow, captureBaseUrl?: string): RuntimeGatewayAuth {
+  const baseUrl = captureBaseUrl ?? normalizeOpenAiBaseUrl(provider.base_url)
   const apiKey = provider.api_key.trim()
   const headers: Record<string, string> = apiKey ? { Authorization: `Bearer ${apiKey}` } : {}
   return {
@@ -322,7 +328,7 @@ function normalizeClaudeBaseUrl(baseUrl: string, protocol: string): string {
   return trimmed.endsWith('/anthropic') ? trimmed : `${trimmed}/anthropic`
 }
 
-function resolveAgentModelProfile(
+export function resolveAgentModelProfile(
   runtime: string,
   agent: AgentRow,
   modelProfileIdOverride?: string,
