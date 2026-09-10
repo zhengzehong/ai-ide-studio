@@ -6,13 +6,14 @@ export const AGENT_SESSION_BUILTIN_TOOLS: (CreateToolInput & { defaultScope: 'gl
   {
     name: 'agent.message.send',
     displayName: '发送 Agent 消息',
-    description: '向另一个 Agent 会话发送消息。异步投递，调用后立即返回，不要等待目标 Agent 完成。\n\ntargetSessionId 建议:\n- 回复对方消息时:填对方系统消息里的"来源会话 ID",确保回复进原上下文\n- 主动发起对话时:填对方 primary 会话 ID(可用 agent.session.list 查)\n- 仅首次联系对方、对方没有任何活跃会话时,才只传 targetAgentId 新建会话\n- 已有活跃会话但只传 targetAgentId,会新建空壳会话,对方很可能看不到\n\n如果 needReply=true,发送后结束当前轮;目标 Agent 回传后系统会自动唤醒来源会话。',
+    description: '向普通 Agent 或团队发送消息。团队用 team.list 查询并传 targetTeamId；后续复用联系，回复传来源 targetSessionId；内部成员由 Master 对外联系。异步投递，调用后立即返回，不要等待目标 Agent 完成。\n\ntargetSessionId 建议:\n- 回复对方消息时:填对方系统消息里的"来源会话 ID",确保回复进原上下文\n- 主动发起对话时:填对方 primary 会话 ID(可用 agent.session.list 查)\n- 仅首次联系对方、对方没有任何活跃会话时,才只传 targetAgentId 新建会话\n- 已有活跃会话但只传 targetAgentId,会新建空壳会话,对方很可能看不到\n\n如果 needReply=true,发送后结束当前轮;目标 Agent 回传后系统会自动唤醒来源会话。',
     category: 'automation',
     type: 'builtin',
     config: { handler: 'agent.message.send' },
     inputSchema: {
       type: 'object',
       properties: {
+        targetTeamId: { type: 'string', description: '团队 ID；首次联系自动建线，后续复用。不可同时传其他目标。成员内部使用 mailbox，对外由 Master 联系。' },
         targetAgentId: { type: 'string', description: '目标 Agent ID。通常和 targetSessionId 一起传;仅在首次联系对方且无活跃会话时单独传,会新建会话' },
         targetSessionId: { type: 'string', description: '目标会话 ID。回复对方消息时填对方系统消息里的"来源会话 ID";主动发起对话时填对方 primary 会话 ID。除非是首次联系对方且无活跃会话,否则建议总是传入,避免消息落到空壳会话' },
         content: { type: 'string', description: '消息内容' },

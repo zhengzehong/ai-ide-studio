@@ -1,13 +1,15 @@
 import { agentSessionCommunicationService } from '../../core/agent-session-communication.js'
 import type { ToolHandler, ToolHandlerInput, ToolHandlerResult } from '../types.js'
+import { teamMemberStore } from '../../store/teams.js'
 
 export const agentMessageSendHandler: ToolHandler = {
   name: 'agent.message.send',
-  description: '向另一个 Agent 会话发送消息。异步投递，调用后立即返回，不要等待目标 Agent 完成。如果 needReply=true，发送后结束当前轮；目标 Agent 回传后系统会自动唤醒来源会话。只传 targetAgentId 时会创建新会话。',
+  description: '向普通 Agent 或团队发送消息，异步投递后立即返回，不要等待对方完成。团队通过 team.list 查询，首次联系传 targetTeamId，后续复用联系；回复统一传来源 targetSessionId。团队成员由 Master 对外联系。普通 Agent 只传 targetAgentId 会新建会话。needReply=true 时发送后结束本轮，收到回复后自动唤醒来源会话。',
   inputSchema: {
     type: 'object',
     properties: {
       targetAgentId: { type: 'string' },
+      targetTeamId: { type: 'string', description: '团队 ID；首次联系自动建线，后续复用。不可同时传其他目标。' },
       targetSessionId: { type: 'string' },
       content: { type: 'string' },
       relatedInfo: { type: 'object' },
@@ -19,11 +21,19 @@ export const agentMessageSendHandler: ToolHandler = {
     const result = await agentSessionCommunicationService.sendMessage({
       context,
       targetAgentId: optionalString(input, 'targetAgentId'),
+      targetTeamId: optionalString(input, 'targetTeamId'),
       targetSessionId: optionalString(input, 'targetSessionId'),
       content: requireString(input, 'content'),
       relatedInfo: optionalRecord(input, 'relatedInfo'),
       needReply: input.needReply === true,
     })
+    const targetMember = teamMemberStore.getBySession(result.targetSession.id)
+    const sourceMember = context.sessionId ? teamMemberStore.getBySession(context.sessionId) : undefined
+    if (targetMember || sourceMember) {
+      return jsonResult({ messageId: result.message.id, status: result.message.prompt_status,
+        targetSessionId: result.targetSession.id, targetTeamId: targetMember?.team_id,
+        sourceTeamId: sourceMember?.team_id })
+    }
     return jsonResult({ message: result.message, targetSession: result.targetSession })
   },
 }

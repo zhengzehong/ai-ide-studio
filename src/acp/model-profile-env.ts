@@ -3,14 +3,16 @@ import type { AgentRow } from '../store/agents.js'
 import {
   modelProfileStore,
   type ClaudeModelProfileConfig,
-  type CodexModelProfileConfig,
   type ModelProfileRow,
 } from '../store/model-profiles.js'
 import { modelProviderStore, type ModelProviderRow } from '../store/model-providers.js'
 import { isProviderProtocolCompatible, normalizeClaudeBaseUrl, normalizeOpenAiBaseUrl } from '../shared/model-provider-connection.js'
 import { buildRuntimeEnv } from './runtime-registry.js'
+import { parseClaudeConfig, parseCodexConfig } from './profile-config-parser.js'
+import { applyNativeMemoryPolicy, nativeMemorySettings, NATIVE_MEMORY_DIRECTORY_ENV } from './native-memory-policy.js'
 import { buildAiIdeSystemPrompt } from '../core/ai-ide-system-prompt.js'
 import { buildMasterPrompt } from '../core/master-prompt.js'
+import { buildTeamRuntimePrompt } from '../core/team-runtime-prompt.js'
 import { agentMemoryService } from '../core/agent-memory.js'
 import { buildCaptureBinding } from '../model-capture/profile-binding.js'
 import type { CaptureRouteBinding } from '../model-capture/route-bindings.js'
@@ -55,6 +57,7 @@ export interface ClaudeSessionMeta extends Record<string, unknown> {
     options: {
       disallowedTools?: string[]
       settings: {
+        autoMemoryDirectory?: string
         autoCompactWindow?: number
         permissions?: {
           deny: string[]
@@ -122,6 +125,7 @@ export function buildAgentRuntimeEnv(
   options: AgentRuntimeEnvOptions = {},
 ): AgentRuntimeEnvResult {
   const env = buildRuntimeEnv(runtime, baseEnv)
+  applyNativeMemoryPolicy(runtime, agent, env)
   if (runtime === 'claude') env[CLAUDE_IMAGE_READ_POLICY_ENV_KEY] = '0'
   if (runtime === 'codex') delete env[CODEX_GATEWAY_API_KEY_ENV_KEY]
   const resolvedProfile = resolveAgentModelProfile(runtime, agent, options.modelProfileIdOverride)
@@ -181,6 +185,7 @@ export function buildClaudeSessionMeta(env: NodeJS.ProcessEnv, runtime: string):
       options: {
         disallowedTools: [...CLAUDE_DISABLED_BUILTIN_TOOLS],
         settings: {
+          ...nativeMemorySettings(env),
           ...(autoCompactWindow ? { autoCompactWindow } : {}),
           ...(!allowImageRead ? { permissions: { deny: [...CLAUDE_IMAGE_READ_DENY_RULES] } } : {}),
           ...(settingsEnv ? { env: settingsEnv } : {}),
@@ -202,7 +207,7 @@ export function buildAgentSessionMeta(
   runtime: string,
   env: NodeJS.ProcessEnv,
   agent: AgentRow,
-  options: { isPrimary?: boolean; additionalPrompt?: string } = {},
+  options: { isPrimary?: boolean; additionalPrompt?: string; sessionId?: string } = {},
 ): AgentSessionMeta | undefined {
   const platformPrompt = buildAiIdeSystemPrompt()
   const userPrompt = agent.system_prompt.trim()
@@ -214,6 +219,8 @@ export function buildAgentSessionMeta(
     combined = `${combined}\n\n---\n\n${options.additionalPrompt.trim()}`
   }
   const memoryPrompt = agentMemoryService.buildAgentMemoryPrompt(agent.id)
+  const teamPrompt = buildTeamRuntimePrompt(options.sessionId)
+  if (teamPrompt) combined = `${combined}\n\n${teamPrompt}`
   if (memoryPrompt) {
     combined = `${combined}\n\n---\n\n${memoryPrompt}`
   }
@@ -247,6 +254,7 @@ export function fingerprintRuntimeEnv(env: NodeJS.ProcessEnv, runtime: string): 
       'CLAUDE_CODE_MAX_CONTEXT_TOKENS',
       'CLAUDE_MODEL_CONFIG',
       CLAUDE_IMAGE_READ_POLICY_ENV_KEY,
+      NATIVE_MEMORY_DIRECTORY_ENV,
     ]
     : ['CODEX_PATH', 'MODEL_PROVIDER', 'CODEX_CONFIG', CODEX_GATEWAY_API_KEY_ENV_KEY]
   return JSON.stringify(keys.map(key => [key, fingerprintValue(key, env[key])]))
@@ -365,33 +373,4 @@ function toAppliedModelProfile(profile: ModelProfileRow): AppliedModelProfile {
 
 function normalizeContextWindow(value: number | null): number | undefined {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : undefined
-}
-
-function parseClaudeConfig(raw: string): ClaudeModelProfileConfig {
-  const config = parseRecord(raw)
-  const defaultModel = typeof config.defaultModel === 'string' ? config.defaultModel.trim() : ''
-  return {
-    defaultModel,
-    haikuModel: typeof config.haikuModel === 'string' ? config.haikuModel : undefined,
-    sonnetModel: typeof config.sonnetModel === 'string' ? config.sonnetModel : undefined,
-    opusModel: typeof config.opusModel === 'string' ? config.opusModel : undefined,
-    allowImageRead: config.allowImageRead === true,
-  }
-}
-
-function parseCodexConfig(raw: string): CodexModelProfileConfig {
-  const config = parseRecord(raw)
-  const model = typeof config.model === 'string' ? config.model.trim() : ''
-  const effort = typeof config.effort === 'string' ? config.effort.trim() : ''
-  return { model, ...(effort ? { effort } : {}) }
-}
-
-function parseRecord(raw: string | null): Record<string, unknown> {
-  if (!raw) return {}
-  try {
-    const parsed = JSON.parse(raw) as unknown
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {}
-  } catch {
-    return {}
-  }
 }

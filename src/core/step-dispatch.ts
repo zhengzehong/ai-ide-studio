@@ -8,6 +8,7 @@ import { emitTaskLifecycleEvent } from './task-lifecycle-events.js'
 import { buildStepPrompt } from './step-prompt.js'
 import { createChildLogger } from './logger.js'
 import type { PromptIntent } from './prompt-intent.js'
+import { assertTaskTeamTarget } from './team-access.js'
 
 const log = createChildLogger('step-dispatch')
 
@@ -70,7 +71,9 @@ export async function dispatchStep(taskId: string, stepId: string): Promise<Disp
     throw new Error('步骤指派 Agent 不属于任务所在项目')
   }
 
+  assertTaskTeamTarget(task, agent.id, step.session_id ?? undefined)
   const session = await resolveStepSession(task, step)
+  assertTaskTeamTarget(task, agent.id, session.id)
   const claimed = taskStepStore.claimReady(stepId, session.id)
   if (!claimed) {
     log.info({ taskId, stepId, sessionId: session.id }, 'step dispatch skipped because claim was lost')

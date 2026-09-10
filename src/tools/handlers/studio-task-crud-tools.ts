@@ -7,6 +7,7 @@ import { createSimpleTask } from '../../core/task-simple.js'
 import { events } from '../../core/events.js'
 import { createChildLogger } from '../../core/logger.js'
 import { InvalidTaskCursorError, listTaskPageRows } from '../../store/task-page.js'
+import { contextMember } from '../../core/team-access.js'
 
 const log = createChildLogger('studio-task-tools')
 
@@ -155,6 +156,7 @@ export const studioTaskListHandler: ToolHandler = {
     const limit = boundedToolLimit(input.limit)
     try {
       const page = listTaskPageRows({
+        visibleTeamId: contextMember(context)?.team_id ?? null,
         projectId,
         status: optStr(input, 'status'),
         query: optStr(input, 'query'),

@@ -1,5 +1,6 @@
 import type { ToolHandler } from '../types.js'
 import { deviceListHandler, invokeDeviceCommandHandler } from './device-tools.js'
+import { listTeamConversationsHandler } from './team/team-conversation-tools.js'
 import { createTaskHandler, legacyCreateTaskHandler } from './create-task.js'
 import { createScheduleHandler } from './create-schedule.js'
 import { listTasksHandler } from './list-tasks.js'
@@ -242,6 +243,7 @@ register(eventConvertToTaskHandler)
 register(eventIgnoreHandler)
 register(eventSubscriptionCreateHandler)
 register(agentMessageSendHandler)
+register(listTeamConversationsHandler)
 register(agentSessionListHandler)
 register(agentSessionMessagesHandler)
 register(agentSessionTagsSetHandler)

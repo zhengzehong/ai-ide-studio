@@ -159,6 +159,7 @@ describe('builtin tool seed synchronization', () => {
       'studio.task.update',
       'studio.task.update_progress',
       'suggestion.present',
+      'team.conversation.list',
       'team.create',
       'team.get',
       'team.list',
@@ -187,7 +188,7 @@ describe('builtin tool seed synchronization', () => {
       )
       .all()
       .map((row) => row.name)
-    expect(globalBindings).toEqual(names.filter((name) => !name.startsWith('team.')))
+    expect(globalBindings).toEqual(names.filter((name) => !name.startsWith('team.') || ['team.list', 'team.conversation.list'].includes(name)))
     expect(names.filter((name) => name.startsWith('team.')).length).toBeGreaterThan(0)
     expect(
       getDb()
@@ -322,7 +323,7 @@ describe('builtin tool seed synchronization', () => {
     `,
       )
       .get()
-    expect(teamGlobalBindings?.count).toBe(0)
+    expect(teamGlobalBindings?.count).toBe(2)
   })
 
   test('registers preview.publish as a global builtin tool', () => {

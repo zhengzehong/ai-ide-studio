@@ -1,5 +1,6 @@
 import { taskStore } from '../../store/tasks.js'
 import type { ToolHandler } from '../types.js'
+import { assertTaskAccess } from '../../core/team-task-access.js'
 
 export const listTasksHandler: ToolHandler = {
   name: 'core.task.list',
@@ -16,6 +17,9 @@ export const listTasksHandler: ToolHandler = {
     const projectId = context.projectId ?? (typeof input.projectId === 'string' ? input.projectId : undefined)
     const tasks = taskStore
       .list(status, projectId)
+      .filter(task => {
+        try { assertTaskAccess(context, task); return true } catch { return false }
+      })
       .slice()
       .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
     return {

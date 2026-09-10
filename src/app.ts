@@ -8,6 +8,7 @@ import { closeDatabase, initDatabase } from './store/db.js'
 import { sessionStore } from './store/sessions.js'
 import { reconcileAgentPrimarySessions, seedDefaultAgents } from './core/agent-primary-sessions.js'
 import { reconcileInterruptedTeamTasks, reconcilePendingTeamWakes } from './core/team-reconcile.js'
+import { reconcileTeamIdentities } from './core/team-identity-transition.js'
 import { seedBuiltinTemplates } from './store/agent-templates.js'
 import { seedBuiltinTaskExecutionModes } from './store/seed-task-execution-modes.js'
 import { seedBuiltinTools } from './tools/seed.js'
@@ -78,14 +79,15 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
       '\u5df2\u4fee\u590d\u91cd\u542f\u9057\u7559\u7684\u4f1a\u8bdd\u751f\u6210\u72b6\u6001',
     )
   }
-  reconcileInterruptedTeamTasks()
-  reconcilePendingTeamWakes()
 
   seedDefaultAgents()
   reconcileAgentPrimarySessions()
   seedBuiltinTemplates()
   seedBuiltinTaskExecutionModes()
   seedBuiltinTools()
+  reconcileTeamIdentities()
+  reconcileInterruptedTeamTasks()
+  reconcilePendingTeamWakes()
 
   // 模型代理抓包服务:常驻,不随总开关启停;端口被占时功能降级不影响主服务
   let captureProxy: ModelCaptureProxy | undefined

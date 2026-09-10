@@ -72,10 +72,10 @@ describe('teams.current RPC', () => {
       leaderSessionId: leaderSession.id,
       name: 'Alpha',
     })
-    const data = await callTeamsCurrent(leaderSession.id)
+    const data = await callTeamsCurrent(created.session.id)
 
     expect(data.team).toMatchObject({ id: created.team.id, name: 'Alpha', project_id: project.id })
-    expect(data.currentMember).toMatchObject({ id: created.member.id, role: 'leader', session_id: leaderSession.id })
+    expect(data.currentMember).toMatchObject({ id: created.member.id, role: 'leader', session_id: created.session.id })
     expect(data.members).toHaveLength(1)
   })
 

@@ -1,5 +1,6 @@
 ﻿import { agentStore } from '../../../store/agents.js'
 import { createCustomProjectAgent, deployTemplateToProject } from '../../../core/agents.js'
+import { assertAgentAccess, isTeamInternalAgent } from '../../../core/team-access.js'
 import type { ToolContext, ToolHandler, ToolHandlerInput, ToolHandlerResult } from '../../types.js'
 
 export const listAgentsHandler: ToolHandler = {
@@ -8,7 +9,7 @@ export const listAgentsHandler: ToolHandler = {
   inputSchema: { type: 'object', properties: { projectId: { type: 'string' } } },
   async execute(input: ToolHandlerInput, context: ToolContext): Promise<ToolHandlerResult> {
     const projectId = context.projectId ?? optionalString(input, 'projectId')
-    return jsonResult({ agents: agentStore.list(projectId) })
+    return jsonResult({ agents: agentStore.list(projectId).filter(agent => !isTeamInternalAgent(agent)) })
   },
 }
 
@@ -16,8 +17,9 @@ export const getAgentHandler: ToolHandler = {
   name: 'core.agent.get',
   description: '获取 Agent 详情',
   inputSchema: { type: 'object', properties: { agentId: { type: 'string' } }, required: ['agentId'] },
-  async execute(input: ToolHandlerInput): Promise<ToolHandlerResult> {
+  async execute(input: ToolHandlerInput, context: ToolContext): Promise<ToolHandlerResult> {
     const agentId = requireString(input, 'agentId')
+    assertAgentAccess(context, agentId)
     const agent = agentStore.get(agentId)
     if (!agent) return errorResult(`Agent 不存在: ${agentId}`)
     return jsonResult({ agent })

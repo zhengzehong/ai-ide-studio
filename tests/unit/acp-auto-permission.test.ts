@@ -97,7 +97,7 @@ function createTeamMember() {
   const worker = agentStore.create({ name: 'Worker', type: 'dev', runtime: 'mock', projectId: project.id })
   const created = teamService.create({ projectId: project.id, leaderAgentId: leader.id, name: 'Alpha' })
   const spawned = teamService.spawnMember({ teamId: created.team.id, agentId: worker.id })
-  return { project, worker, session: spawned.session }
+  return { project, worker: spawned.agent, session: spawned.session }
 }
 
 function toolCall(title: string): acp.ToolCallUpdate {

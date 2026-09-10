@@ -150,7 +150,7 @@ describe('team member model profile inheritance', () => {
 
     const result = await spawnTeamMemberHandler.execute(
       { teamId: team.team.id, agentId: memberAgent.id, modelProfileId: profile.id },
-      { projectId: project.id },
+      { projectId: project.id, agentId: team.agent.id, sessionId: team.session.id },
     )
     expect(result.isError).not.toBe(true)
     const text = result.content[0]?.type === 'text' ? result.content[0].text : ''

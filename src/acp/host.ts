@@ -102,6 +102,7 @@ function buildSessionMeta(conn: AgentConnection, ourSessionId: string): AgentSes
   if (!session) return conn.sessionMeta
   const agent = agentStore.get(conn.agentId) ?? conn.agent
   return buildAgentSessionMeta(conn.runtime, conn.runtimeEnv, agent, {
+    sessionId: ourSessionId,
     isPrimary: session.is_primary === 1,
     additionalPrompt: session.purpose === 'autonomy'
       ? buildAgentAutonomySystemPrompt(conn.agentId)

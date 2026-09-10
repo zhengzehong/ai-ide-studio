@@ -50,6 +50,7 @@ export function buildRuntimeStateSnapshot(input: BuildRuntimeStateSnapshotInput)
       ...(inheritedProfileId ? { modelProfileIdOverride: inheritedProfileId } : {}),
     })
   const sessionMeta = buildAgentSessionMeta(agent.runtime, runtimeEnv.env, agent, {
+    sessionId: session.id,
     isPrimary: session.is_primary === 1,
     additionalPrompt: session.purpose === 'autonomy'
       ? buildAgentAutonomySystemPrompt(agent.id)

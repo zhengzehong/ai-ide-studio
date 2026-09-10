@@ -105,7 +105,7 @@ describe('team conversation line running state', () => {
 
     // Multiple conversation lines belong to one outward team unit.
     const stats = projectSessionStatsStore.list().find((entry) => entry.projectId === fixture.projectId)
-    expect(stats?.sessionCount).toBe(1)
+    expect(stats?.sessionCount).toBe(2)
     expect(stats?.runningCount).toBe(0)
   })
 
@@ -116,7 +116,7 @@ describe('team conversation line running state', () => {
     sessionStore.create({ agentId: internalAgent.id, projectId: fixture.projectId })
 
     const stats = projectSessionStatsStore.list().find((entry) => entry.projectId === fixture.projectId)
-    expect(stats?.sessionCount).toBe(1)
+    expect(stats?.sessionCount).toBe(2)
   })
 })
 

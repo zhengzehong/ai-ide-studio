@@ -1,5 +1,13 @@
 # 数据模型
 
+## 团队联系与成员身份
+
+`team_contacts` 保存外部 `source_session_id` 与 `team_id` 对应的 `conversation_id`，并记录项目和创建时间；唯一键 `(source_session_id, team_id)` 防止并发首次联系产生重复会话。Master Session 由团队会话行解析，联系可以双向回复，关闭会话后不静默重建。
+
+`team_member_session_history` 保存旧 Session、所属成员、会话线及替代 Session 的关系，供团队历史读取与迁移交接使用。消息及旧 `acp_session_id` 保留原身份；新 Session 不继承旧原生上下文。归属不唯一的历史不授予某个团队自动读取权限。
+
+`agents.config_json.teamInternal` 标识团队专属 Agent，`sourceAgentId` 只记录定义来源。源 Agent 与团队副本分别持有工具绑定、平台记忆和原生记忆目录；不同团队复制同一份定义仍使用不同 Agent ID。
+
 ## 会话用途与用户可见性
 
 `sessions.purpose` 区分普通交互与后台执行：`conversation` 是用户/任务会话，`advisor_runtime`、`inspiration_runtime`、`secretary_runtime`、`secretary_chat`、`autonomy` 是专属功能会话。后台会话保留消息、运行状态与专属访问，但不进入普通会话列表、运行中/未读统计、Widget 或全局会话坞。

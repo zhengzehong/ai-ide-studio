@@ -7,6 +7,7 @@ import {
   type TaskRow,
 } from '../store/tasks.js'
 import { taskStepStore } from '../store/task-steps.js'
+import { assertCurrentAssignment, assertTaskTeamTarget } from './team-access.js'
 import { agentStore } from '../store/agents.js'
 import { sessionStore } from '../store/sessions.js'
 import { sessionManager } from './sessions.js'
@@ -73,6 +74,7 @@ export const taskManager = {
 
     const previousStatus = task.status
     try {
+      assertTaskTeamTarget(task, input.agentId, input.sessionId)
       const session = await resolveTaskSession({
         agentId: input.agentId,
         projectId: task.project_id,
@@ -81,6 +83,7 @@ export const taskManager = {
         sessionMode,
       })
       const hasSteps = taskStepStore.listByTask(input.taskId).length > 0
+      assertTaskTeamTarget(task, input.agentId, session.id)
 
       taskStore.assignAgent(input.taskId, input.agentId)
       if (!hasSteps) taskStore.updateStatus(input.taskId, 'running', '已分派给 Agent')
@@ -382,6 +385,7 @@ export function validateTaskAssignment(
   projectId: string | null | undefined,
   sessionId?: string,
 ): void {
+  assertCurrentAssignment(agentId, sessionId)
   validateAssignedAgentProject(agentId, projectId ?? undefined)
   if (!agentId || !sessionId) return
   const session = sessionStore.get(sessionId)

@@ -16,7 +16,7 @@ export function sanitizeRuntimeToolInputSchema(
 
   const hidden = new Set(ALWAYS_HIDDEN_FIELDS)
   if (context.projectId && !PROJECT_ID_VISIBLE_TOOLS.has(toolName)) hidden.add('projectId')
-  if (context.teamId) hidden.add('teamId')
+  if (context.teamId && toolName !== 'team.conversation.list') hidden.add('teamId')
   if (toolName === 'team.task.update' && context.teamMemberId) hidden.add('assigneeMemberId')
 
   for (const field of hidden) {

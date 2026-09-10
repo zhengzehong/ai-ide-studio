@@ -124,11 +124,11 @@ agent_hub.list
 agent_hub.send
 ```
 
-这里的粒度就是“方法”。Team 方法当前由静态 Agent 暴露策略整体隐藏；未来恢复该能力后，如果只想允许 Agent 看团队，不允许创建团队，可以只绑定：
+这里的粒度就是“方法”。普通 Agent 查询团队使用两个公开方法；内部成员与任务不进入公开目录：
 
 ```text
 team.list
-team.member.list
+team.conversation.list
 ```
 
 不要绑定：
@@ -428,10 +428,10 @@ agent > project > global
 
 ### 6.1 Team Profile
 
-Team Profile 是一组预设的 `team.*` 方法绑定，不是角色权限系统。Profile 和已有绑定当前保留，但不会越过 Agent 暴露策略，因此不会让模型看到 Team 方法。
+Team Profile 是一组预设的 `team.*` 方法绑定。工具可见性与执行权限分开：公开 `team.list` / `team.conversation.list` 支持全局绑定；其他团队工具依赖 Agent 绑定，并在执行时按当前 Session 真实成员身份校验。
 
 ```text
-team-readonly  只读观察：team.list / team.get / team.member.list / team.task.list / team.mailbox.list
+team-readonly  本团队观察：team.list / team.conversation.list / team.get / team.member.list / team.task.list / team.mailbox.list
 team-member    协作成员：只读 + team.mailbox.send / team.task.update
 team-leader    编排者：协作 + team.create / team.update / team.member.spawn / team.member.message / team.task.create / team.template.*
 ```
@@ -442,7 +442,19 @@ team-leader    编排者：协作 + team.create / team.update / team.member.spaw
 - Profile 外 `team.*` 方法禁用，用来隐藏上层 project/global 绑定。
 - 非 Team 方法不变。
 
-前端“工具管理”页仍可查看和维护历史 Team Profile/绑定；这些配置在当前静态隐藏策略下不进入 Agent 工具列表。
+前端工具管理维护 Profile 和绑定；已知成员 ID、伪造 teamId 或绑定更多方法都不能绕过执行边界。普通 Agent 不能通过 session 列表、历史、watch、创建 Session 或任务步骤直接进入团队成员。
+
+### 团队对外联系
+
+| 方法 | 对外约定 |
+|---|---|
+| `core.agent.list/get` | 普通 Agent；不将团队或内部成员混入目录 |
+| `team.list` | 仅团队 ID、名称、简介 |
+| `team.conversation.list(teamId)` | 外部仅查当前 Session 的联系；本团队成员可查本团队会话线 |
+| `agent.message.send(targetTeamId, content)` | 首次建联系线，后续复用；与其他目标参数互斥 |
+| `agent.message.send(targetSessionId, content)` | 回复来源 Session；团队间也复用该方式，不需要 replyToMessageId |
+
+团队相关 send 返回消息 ID、投递状态、目标 Session 和双方团队 ID，不返回内部 Agent 定义。`team.create` 只返回公开团队信息；`team.member.spawn(agentId)` 复制来源定义为团队专属身份。Master 负责外部请求和回复，普通成员通过 mailbox 提交协作需求；已关闭联系返回明确错误。`needReply` 沿用已有回复检测与一次提醒机制。
 
 ## 7. Token 如何控制工具可见性
 
