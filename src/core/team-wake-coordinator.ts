@@ -125,9 +125,12 @@ function flushLeaderWake(leaderSessionId: string): void {
   sendWake(leaderSessionId, prompt)
 }
 
+// 唤醒 prompt 是平台自动触发的,不是用户说的话;带身份落库,避免前端把它渲染成"你"的用户气泡。
+const WAKE_PROMPT_OPTIONS = { senderRole: 'team-system', senderName: '系统' } as const
+
 function sendWake(leaderSessionId: string, prompt: string): void {
   activeLeaderSessions.add(leaderSessionId)
-  void sessionManager.enqueuePrompt(leaderSessionId, prompt).catch((err: unknown) => {
+  void sessionManager.enqueuePrompt(leaderSessionId, prompt, undefined, { ...WAKE_PROMPT_OPTIONS }).catch((err: unknown) => {
     if (isActivePromptError(err)) {
       pendingByLeaderSession.set(leaderSessionId, prompt)
       log.debug({ leaderSessionId }, 'Team Leader wake queued after active session rejection')

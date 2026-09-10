@@ -50,6 +50,16 @@ export function TeamConversationList({ team, activeId, onSelect, onMasterSession
     return () => window.clearTimeout(timer)
   }, [load])
 
+  // 点开团队时还没有选中的会话线:自动选中正在执行的一条,否则选最近更新的活跃线,避免只见空态。
+  useEffect(() => {
+    if (loading || items.length === 0 || activeId !== null) return
+    const best = items.find((item) => isTeamConversationRunning(item, runningSessionIds, sessionActivityStates))
+      ?? [...items].sort((a, b) => Number(b.status === 'active') - Number(a.status === 'active') || b.updated_at.localeCompare(a.updated_at))[0]
+    if (!best) return
+    onMasterSession(best.master_session_id)
+    onSelect(best)
+  }, [activeId, items, loading, onMasterSession, onSelect, runningSessionIds, sessionActivityStates])
+
   const create = async (): Promise<void> => {
     try {
       const result = await wsClient.request({ type: 'team.conversation.create', teamId: team.id, title: '新团队会话' }) as { conversation?: Conversation }

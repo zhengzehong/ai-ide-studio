@@ -99,6 +99,8 @@ export interface TurnViewModel {
   turnStats?: TurnUsageInfo
   senderName?: string
   teamAssignment?: TeamAssignmentInfo
+  /** 回合首次出现在前端的时间。落库的 agent 消息时间戳取回合开始时刻,finalize 用它保持 live 与历史排序一致。 */
+  startedAt?: string
 }
 
 export function createEmptyTurn(id: string): TurnViewModel {
