@@ -1,6 +1,7 @@
 import { taskStore, type TaskRow } from '../store/tasks.js'
 import { teamMemberStore, teamStore, type TeamMailboxRow, type TeamMemberRow, type TeamRow } from '../store/teams.js'
 import { teamConversationStore } from '../store/team-conversations.js'
+import { sessionStore } from '../store/sessions.js'
 import { events } from './events.js'
 import { createChildLogger } from './logger.js'
 import { sessionManager } from './sessions.js'
@@ -62,6 +63,35 @@ export const teamWakeCoordinator = {
       ? leaderSessionIdForConversationOf(team.id, task.initiator_session_id)
       : undefined
     scheduleLeaderWake(team, member, buildLeaderWakePrompt({ team, member, task }), WAKE_DELAY_MS, preferredLeaderSessionId)
+  },
+
+  /**
+   * 重启对账用：补发一条可能因进程重启丢失的邮箱唤醒。
+   * 唤醒资格与 notifyMailbox 同口径（汇报类类型、非 Leader 成员）；只处理不绑任务的纯汇报，
+   * 绑任务的在运行期会与任务状态更新合并成一次唤醒，重启后由任务对账（needs_input）覆盖。
+   * 守卫：目标 Leader session 已有 pending 唤醒，或其 last_message_at 晚于汇报时间
+   * （说明唤醒已发生过，或用户已亲自介入），都不重复唤醒。
+   */
+  recoverPendingWake(message: TeamMailboxRow): boolean {
+    if (!message.from_member_id || message.task_id || !WAKE_MAILBOX_TYPES.has(message.type)) return false
+    const team = teamStore.get(message.team_id)
+    const member = teamMemberStore.get(message.from_member_id)
+    if (!team || !member || member.role === 'leader') return false
+    const leader = teamMemberStore.list(team.id).find((item) => item.role === 'leader')
+    if (!leader) return false
+    let leaderSessionId: string
+    try {
+      leaderSessionId = resolveWakeTargetSession(team, leader, member)
+    } catch (err) {
+      log.warn({ err, teamId: team.id, messageId: message.id }, 'Team wake recovery skipped: no resolvable leader session')
+      return false
+    }
+    if (pendingByLeaderSession.has(leaderSessionId) || wakeTimers.has(leaderSessionId)) return false
+    const leaderSession = sessionStore.get(leaderSessionId)
+    if (leaderSession?.last_message_at && leaderSession.last_message_at > message.created_at) return false
+    scheduleLeaderWake(team, member, buildLeaderWakePrompt({ team, member, message }), WAKE_DELAY_MS, leaderSessionId)
+    log.info({ teamId: team.id, messageId: message.id, leaderSessionId }, 'Recovered pending Team Leader wake after restart')
+    return true
   },
 }
 
