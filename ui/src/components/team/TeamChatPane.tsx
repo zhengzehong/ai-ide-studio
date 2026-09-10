@@ -31,12 +31,16 @@ export function TeamChatPane({ team, conversation, masterSessionId }: Props) {
   const mirroredEvents = useRef(new Map<string, { expiresAt: number; updateCount: number; eventCount: number }>())
   const doneReloadTimers = useRef(new Map<string, number>())
   const generation = useRef(0)
+  const snapshotsRef = useRef(snapshots)
+  snapshotsRef.current = snapshots
   const sessionIds = useMemo(() => [...new Set([masterSessionId, ...members.map((member) => member.session_id)].filter((id): id is string => !!id))], [masterSessionId, members])
 
   const load = useCallback(async (): Promise<void> => {
     if (!conversation) { setMembers([]); setSnapshots({}); sourceMap.current.clear(); return }
     const requestGeneration = ++generation.current
     setLoading(true); setError(null)
+    // 方案3 重建闸门:已有真实流式内容(非空壳)的 session 不重建,防止覆盖 ws 已积累的实时增量
+    const liveStreamingSessions = new Set(Object.entries(snapshotsRef.current).filter(([, snapshot]) => hasLiveStreaming(snapshot)).map(([sessionId]) => sessionId))
     try {
       const detail = await wsClient.request({ type: 'team.conversation.history', conversationId: conversation.id }) as { members?: Member[] }
       const nextMembers = Array.isArray(detail.members) ? detail.members : []
@@ -62,7 +66,15 @@ export function TeamChatPane({ team, conversation, masterSessionId }: Props) {
         const reduced = recovery.events.length ? reduceRecovery(recovery.events) : null
         const active = decorated.messages.filter((message) => message.role === 'agent' && message.status === 'running').at(-1)
         const pendingAssignment = active?.teamAssignment || findPendingTeamAssignment(mapped)
-        const streaming = reduced?.streamingMessage ? { ...reduced.streamingMessage, senderName: label?.name || 'Agent', teamAssignment: pendingAssignment || undefined } : active ? { ...toStreaming(active, sessionId), teamAssignment: pendingAssignment || undefined } : null
+        // 方案3:running 回合用全量事件(含 chunk)重建切回前已流出的内容。只取 streamingMessage——
+        // 重建事件不并入 snapshot.events(避免污染渲染与内存),也不取 permissions(历史权限事件会被误判 pending)。
+        const rebuilt = active && !liveStreamingSessions.has(sessionId)
+          ? await queryClient.listSessionEvents({ sessionId, limit: TEAM_STREAM_REBUILD_EVENT_LIMIT })
+            .then((result) => rebuildStreamingFromEvents(result.items))
+            .catch(() => null)
+          : null
+        const baseStreaming = rebuilt || reduced?.streamingMessage || (active ? toStreaming(active, sessionId) : null)
+        const streaming = baseStreaming ? { ...baseStreaming, senderName: label?.name || 'Agent', teamAssignment: pendingAssignment || undefined } : null
         nextSnapshots[sessionId] = { sessionId, senderName: label?.name || 'Agent', messages: decorated.messages, events: recovery.events.map((event) => remapEvent(event, sessionId, conversation.master_session_id)), streaming: decorated.streaming || streaming, permissions: reduced?.pendingPermissions || [], elicitations: reduced?.pendingElicitations || [], capabilities: normalizeCapabilities(caps), usage: reduced?.usage || null, hasMore: page.hasMore, running: !!active || !!reduced?.streamingMessage }
       }))
       if (requestGeneration !== generation.current) return
@@ -362,6 +374,18 @@ function withTurnStart(previous: StreamingMessage | null, next: StreamingMessage
 function normalizeCapabilities(value: unknown): SessionCapabilities { if (!value || typeof value !== 'object') return { ...defaultCaps }; const input = value as Partial<SessionCapabilities>; return mergeCapabilities({ ...defaultCaps }, { ...defaultCaps, models: Array.isArray(input.models) ? input.models : [], currentModelId: typeof input.currentModelId === 'string' ? input.currentModelId : null, modes: Array.isArray(input.modes) ? input.modes : [], currentModeId: typeof input.currentModeId === 'string' ? input.currentModeId : null, supportsImages: input.supportsImages === true, configOptions: Array.isArray(input.configOptions) ? input.configOptions : [], commands: Array.isArray(input.commands) ? input.commands : [] }) }
 function remapEvent(event: SessionEventData, sourceSessionId: string, targetSessionId: string): SessionEventData { const parsed = (() => { try { return JSON.parse(event.payload_json) as Record<string, unknown> } catch { return null } })(); const payload = parsed || {}; if (typeof payload.messageId === 'string') payload.messageId = `${sourceSessionId}:${payload.messageId}`; return { ...event, id: `${sourceSessionId}:${event.id}`, session_id: targetSessionId, message_id: event.message_id ? `${sourceSessionId}:${event.message_id}` : event.message_id, payload_json: JSON.stringify(payload) } }
 function reduceRecovery(events: SessionEventData[]): ReducedSessionEvents { return events.reduce<ReducedSessionEvents>((state, event) => applySessionEvent(state, event), { streamingMessage: null, usage: null, turnUsage: null, capabilities: { ...defaultCaps }, plan: [], pendingPermissions: [], pendingElicitations: [] }) }
+
+/** 方案3:重建事件窗口上限(与服务端 MAX_EVENT_LIMIT 对齐)。 */
+export const TEAM_STREAM_REBUILD_EVENT_LIMIT = 1000
+/** 判定 session 是否持有"真实"流式内容(有文本或过程块)——空壳(content 空 + 无过程块)不算,允许被重建覆盖。 */
+export function hasLiveStreaming(snapshot: Snapshot | undefined): boolean {
+  const streaming = snapshot?.streaming
+  return !!streaming && !streaming.done && (streaming.content.trim() !== '' || streaming.processBlocks.length > 0)
+}
+/** 用全量事件历史(含 chunk)重建 in-flight 回合:applySessionEvent 对 message.done 会置空、新 messageId 重开 turn,折叠加载后恰好只剩未完成回合。 */
+export function rebuildStreamingFromEvents(events: SessionEventData[]): StreamingMessage | null {
+  return events.length ? reduceRecovery(events).streamingMessage : null
+}
 function teamMirrorType(data: Record<string, unknown>): string | null { if (typeof data.eventType === 'string' && ['message.chunk', 'thinking.chunk', 'tool.call', 'tool.update'].includes(data.eventType)) return data.eventType; if (data.contentDelta || data.content) return 'message.chunk'; if (data.thinking) return 'thinking.chunk'; if (data.toolCall) return 'tool.call'; if (data.toolCallUpdate) return 'tool.update'; return null }
 function teamMirrorKey(sessionId: string, type: string, data: Record<string, unknown>): string | null { const messageId = typeof data.messageId === 'string' ? data.messageId : ''; if (type === 'message.chunk') return `${sessionId}|${type}|${messageId}|${String(data.contentDelta ?? data.content ?? '')}`; if (type === 'thinking.chunk') return `${sessionId}|${type}|${messageId}|${String(data.thinking ?? '')}`; const tool = (type === 'tool.call' ? data.toolCall : data.toolCallUpdate) as { id?: unknown; status?: unknown; progressDelta?: unknown; terminalOutputDelta?: unknown } | null; return tool && typeof tool.id === 'string' ? `${sessionId}|${type}|${messageId}|${tool.id}|${String(tool.status ?? '')}|${String(tool.progressDelta ?? '')}|${String(tool.terminalOutputDelta ?? '')}` : null }
 function noteTeamRealtimeUpdate(records: Map<string, { expiresAt: number; updateCount: number; eventCount: number }>, sessionId: string, data: Record<string, unknown>): void { const type = teamMirrorType(data); const key = type ? teamMirrorKey(sessionId, type, data) : null; if (!key) return; records.set(key, { expiresAt: Date.now() + 30000, updateCount: 1, eventCount: 0 }) }
