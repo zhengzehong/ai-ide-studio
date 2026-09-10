@@ -344,6 +344,7 @@ export default function Workspace() {
   const [ctxMenu, setCtxMenu] = useState<{ sessionId: string; agentId: string; x: number; y: number; inArchive: boolean } | null>(null)
   const [tagEditor, setTagEditor] = useState<SessionTagEditorState | null>(null)
   const [agentCtxMenu, setAgentCtxMenu] = useState<{ agentId: string; x: number; y: number } | null>(null)
+  const [teamCtxMenu, setTeamCtxMenu] = useState<{ teamId: string; name: string; x: number; y: number } | null>(null)
   const [settingsAgentId, setSettingsAgentId] = useState<string | null>(null)
   const [systemPromptAgentId, setSystemPromptAgentId] = useState<string | null>(null)
   const [importDialogAgentId, setImportDialogAgentId] = useState<string | null>(null)
@@ -874,6 +875,39 @@ export default function Workspace() {
     })
   }
 
+  const handleRenameTeam = async (teamId: string, currentName: string) => {
+    const name = window.prompt('重命名团队', currentName)?.trim()
+    if (!name || name === currentName) return
+    try {
+      await wsClient.request({ type: 'teams.update', teamId, name })
+      await fetchTeams(currentProjectId)
+    } catch (err) {
+      setAlertMsg(err instanceof Error ? err.message : '重命名团队失败')
+    }
+  }
+  const handleArchiveTeam = (team: { id: string; name: string }) => {
+    setConfirmDialog({
+      title: '删除团队',
+      message: `确定删除团队「${team.name}」吗？团队将从列表移除，活跃会话线会一并归档；成员会话与任务记录保留在项目中。`,
+      danger: true,
+      onConfirm: async () => {
+        try {
+          await wsClient.request({ type: 'teams.archive', teamId: team.id })
+          setConfirmDialog(null)
+          if (selectedTeamId === team.id) {
+            setSelectedTeamId(null)
+            setTeamConversation(null)
+            setTeamMasterSessionId(null)
+          }
+          await fetchTeams(currentProjectId)
+        } catch (err) {
+          setConfirmDialog(null)
+          setAlertMsg(err instanceof Error ? err.message : '删除团队失败')
+        }
+      },
+    })
+  }
+
   useEffect(() => {
     if (!lastCopyError) return
     let cancelled = false
@@ -1338,6 +1372,10 @@ export default function Workspace() {
                       type="button"
                       key={team.id}
                       onClick={() => handleTeamClick(team.id)}
+                      onContextMenu={(e) => {
+                        e.preventDefault()
+                        setTeamCtxMenu({ teamId: team.id, name: team.name, x: e.clientX, y: e.clientY })
+                      }}
                       style={{ display: 'flex', alignItems: 'center', gap: 10, width: 'calc(100% - 12px)', margin: '0 6px 2px', padding: '9px 12px', border: 0, borderRadius: 6, background: selectedTeamId === team.id ? 'var(--blue-light)' : 'transparent', color: 'var(--text-1)', cursor: 'pointer', textAlign: 'left' }}
                     >
                       <span style={{ width: 28, height: 28, borderRadius: 7, background: 'var(--purple)', color: '#fff', display: 'grid', placeItems: 'center', fontWeight: 700, flexShrink: 0 }}>T</span>
@@ -1596,6 +1634,27 @@ export default function Workspace() {
             label: '删除 Agent',
             danger: true,
             onClick: () => handleDeleteAgent(agentContextAgent),
+          },
+        ] : []}
+      />
+
+      <ContextMenu
+        open={!!teamCtxMenu}
+        x={teamCtxMenu?.x ?? 0}
+        y={teamCtxMenu?.y ?? 0}
+        onClose={() => setTeamCtxMenu(null)}
+        items={teamCtxMenu ? [
+          {
+            label: '重命名团队',
+            onClick: () => { void handleRenameTeam(teamCtxMenu.teamId, teamCtxMenu.name) },
+          },
+          {
+            label: '删除团队',
+            danger: true,
+            onClick: () => {
+              const team = teams.find((item) => item.id === teamCtxMenu.teamId)
+              if (team) handleArchiveTeam(team)
+            },
           },
         ] : []}
       />

@@ -7,6 +7,7 @@ import { ruleEngine } from './core/rules.js'
 import { closeDatabase, initDatabase } from './store/db.js'
 import { sessionStore } from './store/sessions.js'
 import { reconcileAgentPrimarySessions, seedDefaultAgents } from './core/agent-primary-sessions.js'
+import { reconcileInterruptedTeamTasks } from './core/team-reconcile.js'
 import { seedBuiltinTemplates } from './store/agent-templates.js'
 import { seedBuiltinTaskExecutionModes } from './store/seed-task-execution-modes.js'
 import { seedBuiltinTools } from './tools/seed.js'
@@ -76,6 +77,7 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
       '\u5df2\u4fee\u590d\u91cd\u542f\u9057\u7559\u7684\u4f1a\u8bdd\u751f\u6210\u72b6\u6001',
     )
   }
+  reconcileInterruptedTeamTasks()
 
   seedDefaultAgents()
   reconcileAgentPrimarySessions()
