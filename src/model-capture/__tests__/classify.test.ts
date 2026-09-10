@@ -92,9 +92,19 @@ describe('lookupSessionByAcpUuid', () => {
 describe('detectCaptureKind', () => {
   test('路径分型', () => {
     expect(detectCaptureKind('/v1/messages/count_tokens')).toBe('count_tokens')
-    expect(detectCaptureKind('/v1/messages')).toBe('messages')
     expect(detectCaptureKind('/responses')).toBe('responses')
     expect(detectCaptureKind('/v1/complete')).toBe('other')
+  })
+
+  test('claude /messages 按 body.stream 区分正式与探测', () => {
+    expect(detectCaptureKind('/v1/messages', { model: 'm', stream: true })).toBe('messages') // 计数
+    expect(detectCaptureKind('/v1/messages', { model: 'm', stream: false })).toBe('probe') // 探测,不计数
+    expect(detectCaptureKind('/v1/messages', { model: 'm' })).toBe('probe') // 缺 stream 视为探测
+    expect(detectCaptureKind('/v1/messages')).toBe('probe')
+  })
+
+  test('codex responses 不受 stream 影响(全流式)', () => {
+    expect(detectCaptureKind('/responses', { stream: true })).toBe('responses')
   })
 })
 

@@ -68,11 +68,23 @@ export function lookupSessionByAcpUuid(sessionUuid: string): CaptureSessionInfo 
 }
 
 /** 从转发路径判断请求种类(决定落盘文件名)。 */
-export function detectCaptureKind(path: string): 'messages' | 'count_tokens' | 'responses' | 'other' {
+export type CaptureKind = 'messages' | 'count_tokens' | 'responses' | 'probe' | 'other'
+
+/**
+ * 请求分型。claude 非流式探测与流式正式请求路径相同(/v1/messages),需看 body.stream 区分:
+ * stream===true → 'messages'(计数类);否则 'probe'(探测,落盘但不占每会话保留额度)。
+ */
+export function detectCaptureKind(path: string, body?: unknown): CaptureKind {
   if (path.endsWith('/count_tokens')) return 'count_tokens'
   if (path.endsWith('/responses')) return 'responses'
-  if (path.includes('/messages')) return 'messages'
+  if (path.includes('/messages')) {
+    return isStreamTrue(body) ? 'messages' : 'probe'
+  }
   return 'other'
+}
+
+function isStreamTrue(body: unknown): boolean {
+  return !!body && typeof body === 'object' && !Array.isArray(body) && (body as Record<string, unknown>)['stream'] === true
 }
 
 /** x-api-key / Authorization 等鉴权头打码。 */

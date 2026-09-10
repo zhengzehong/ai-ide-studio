@@ -7,7 +7,7 @@ import {
   type ModelProfileRow,
 } from '../store/model-profiles.js'
 import { modelProviderStore, type ModelProviderRow } from '../store/model-providers.js'
-import { isProviderProtocolCompatible, normalizeOpenAiBaseUrl } from '../shared/model-provider-connection.js'
+import { isProviderProtocolCompatible, normalizeClaudeBaseUrl, normalizeOpenAiBaseUrl } from '../shared/model-provider-connection.js'
 import { buildRuntimeEnv } from './runtime-registry.js'
 import { buildAiIdeSystemPrompt } from '../core/ai-ide-system-prompt.js'
 import { buildMasterPrompt } from '../core/master-prompt.js'
@@ -320,12 +320,6 @@ function fingerprintValue(key: string, value: string | undefined): string | null
 function hashCredential(value: string | undefined): string | null {
   if (value === undefined) return null
   return createHash('sha256').update(value).digest('hex')
-}
-
-function normalizeClaudeBaseUrl(baseUrl: string, protocol: string): string {
-  const trimmed = baseUrl.trim().replace(/\/+$/, '')
-  if (protocol !== 'new-api') return trimmed
-  return trimmed.endsWith('/anthropic') ? trimmed : `${trimmed}/anthropic`
 }
 
 export function resolveAgentModelProfile(
