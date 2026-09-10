@@ -12,7 +12,8 @@ import { buildRuntimeEnv } from './runtime-registry.js'
 import { buildAiIdeSystemPrompt } from '../core/ai-ide-system-prompt.js'
 import { buildMasterPrompt } from '../core/master-prompt.js'
 import { agentMemoryService } from '../core/agent-memory.js'
-import { buildCaptureProxyBaseUrl, getCaptureSettings } from '../model-capture/capture-config.js'
+import { buildCaptureBinding } from '../model-capture/profile-binding.js'
+import type { CaptureRouteBinding } from '../model-capture/route-bindings.js'
 import {
   getGlobalModelProfile,
   readAgentModelProfileMode,
@@ -39,6 +40,7 @@ export interface RuntimeGatewayAuth {
 
 export interface AgentRuntimeEnvResult {
   env: NodeJS.ProcessEnv
+  captureBinding?: CaptureRouteBinding
   appliedProfile?: AppliedModelProfile
   gatewayAuth?: RuntimeGatewayAuth
 }
@@ -130,15 +132,16 @@ export function buildAgentRuntimeEnv(
     if (!config.model || !isProviderProtocolCompatible('codex', resolvedProfile.provider.protocol)) return { env }
     const apiKey = resolvedProfile.provider.api_key.trim()
     if (apiKey) env[CODEX_GATEWAY_API_KEY_ENV_KEY] = apiKey
-    const captureBaseUrl = getCaptureSettings().enabled ? buildCaptureProxyBaseUrl(agent.id) : undefined
+    const captureBinding = buildCaptureBinding(agent.id, resolvedProfile)
     return {
       env,
+      captureBinding,
       appliedProfile: {
         ...resolvedProfile.appliedProfile,
         modelId: config.model,
         ...(config.effort ? { effort: config.effort } : {}),
       },
-      gatewayAuth: buildCodexGatewayAuth(resolvedProfile.provider, captureBaseUrl),
+      gatewayAuth: buildCodexGatewayAuth(resolvedProfile.provider, captureBinding?.proxyBaseUrl),
     }
   }
 
@@ -150,13 +153,12 @@ export function buildAgentRuntimeEnv(
     config,
     resolvedProfile.appliedProfile.contextWindow,
   )) return { env }
-  // 模型代理抓包总开关:开启时把 ANTHROPIC_BASE_URL 指向本地代理(带 agent 路由前缀)
-  if (getCaptureSettings().enabled) {
-    env.ANTHROPIC_BASE_URL = buildCaptureProxyBaseUrl(agent.id)
-  }
+  const captureBinding = buildCaptureBinding(agent.id, resolvedProfile)
+  if (captureBinding) env.ANTHROPIC_BASE_URL = captureBinding.proxyBaseUrl
 
   return {
     env,
+    captureBinding,
     appliedProfile: { ...resolvedProfile.appliedProfile, modelId: config.defaultModel },
   }
 }

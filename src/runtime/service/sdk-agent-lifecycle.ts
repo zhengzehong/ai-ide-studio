@@ -20,8 +20,8 @@ export function stopSdkAgentRuntime(input: SdkAgentLifecycleInput): void {
   removeAgentSessions(input, agent)
   agent.router.close()
   input.agents.delete(input.agentId)
-  input.options.publishAgentStatus?.({ agentId: input.agentId, status: 'standby' })
   if (!agent.process.killed) agent.process.kill()
+  input.options.publishAgentStatus?.({ agentId: input.agentId, status: 'standby', captureBindingId: agent.captureBindingId })
 }
 
 export function handleSdkAgentExit(
@@ -34,7 +34,7 @@ export function handleSdkAgentExit(
   input.runtime.rejectExit(new Error(
     `Agent runtime exited: ${input.agentId} (code=${input.code ?? 'null'}, signal=${input.signal ?? 'null'})`,
   ))
-  input.options.publishAgentStatus?.({ agentId: input.agentId, status: 'standby' })
+  input.options.publishAgentStatus?.({ agentId: input.agentId, status: 'standby', captureBindingId: input.runtime.captureBindingId })
   if (!input.runtime.stopping) {
     log.warn({ agentId: input.agentId, code: input.code, signal: input.signal }, 'Agent runtime exited unexpectedly')
   }

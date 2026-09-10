@@ -60,11 +60,6 @@ export function getCaptureProxyPort(): number {
     : DEFAULT_MODEL_CAPTURE_PROXY_PORT
 }
 
-/** 开关开启时注入给 agent 的 BASE_URL(带 /agent-<agentId> 路由前缀)。 */
-export function buildCaptureProxyBaseUrl(agentId: string): string {
-  return `http://127.0.0.1:${getCaptureProxyPort()}/agent-${agentId}`
-}
-
 function normalizeRetentionDays(value: unknown): number {
   const parsed = typeof value === 'number' ? value : Number.parseInt(String(value ?? ''), 10)
   return Number.isSafeInteger(parsed) && parsed >= 1 && parsed <= 365

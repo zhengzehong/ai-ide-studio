@@ -3,10 +3,7 @@ import https from 'node:https'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import { URL } from 'node:url'
 import { createChildLogger } from '../core/logger.js'
-import { agentStore } from '../store/agents.js'
-import { agentConnections } from '../acp/host-state.js'
-import { normalizeClaudeBaseUrl, normalizeOpenAiBaseUrl } from '../shared/model-provider-connection.js'
-import { resolveAgentModelProfile } from '../acp/model-profile-env.js'
+import { acquireCaptureRoute, activateCaptureRoutes } from './route-bindings.js'
 import { getCaptureSettings } from './capture-config.js'
 import {
   beginCapture,
@@ -88,11 +85,13 @@ export async function startModelCaptureProxy(options: ModelCaptureProxyOptions):
     server.once('listening', resolve)
     server.once('error', () => resolve())
   })
+  const deactivateRoutes = server.listening ? activateCaptureRoutes(actualPort) : (): void => {}
 
   return {
     get port() { return actualPort },
     get listening() { return !listenFailed && server.listening },
     async close() {
+      deactivateRoutes()
       clearInterval(cleanupTimer)
       await new Promise<void>((resolve) => {
         if (!server.listening) { resolve(); return }
@@ -117,13 +116,33 @@ async function handleCaptureRequest(
     respondJson(res, 404, { error: 'invalid url' })
     return
   }
-  const match = /^\/agent-([A-Za-z0-9_-]+)(\/.*)$/.exec(target.pathname)
+  const match = /^\/route\/([a-f0-9]{64})(\/.*)$/.exec(target.pathname)
   if (!match) {
-    respondJson(res, 404, { error: 'missing /agent-<agentId> prefix' })
+    if (target.pathname.startsWith('/agent-')) {
+      log.warn('收到旧版模型代理路由，需通过正常 Runtime 重建更新连接')
+      respondJson(res, 410, { error: 'obsolete model route; refresh the Agent Runtime connection' })
+    } else respondJson(res, 404, { error: 'missing /route/<bindingId> prefix' })
     return
   }
-  const agentId = match[1]
-  const restPath = match[2]
+  const lease = acquireCaptureRoute(match[1])
+  if (!lease) {
+    log.warn({ bindingId: match[1] }, '模型代理连接绑定不存在或已释放')
+    respondJson(res, 410, { error: 'model route expired; refresh the Agent Runtime connection' })
+    return
+  }
+  try {
+    await handleBoundRequest(req, res, target, match[2], lease.binding, captureRootDir, idleTimeoutMs)
+  } finally {
+    lease.release()
+  }
+}
+
+async function handleBoundRequest(
+  req: IncomingMessage, res: ServerResponse, target: URL, restPath: string,
+  resolved: NonNullable<ReturnType<typeof acquireCaptureRoute>>['binding'],
+  captureRootDir: string, idleTimeoutMs: number,
+): Promise<void> {
+  const { agentId, runtime } = resolved
 
   let body: Buffer
   try {
@@ -134,17 +153,7 @@ async function handleCaptureRequest(
     return
   }
 
-  const agent = agentStore.get(agentId)
-  if (!agent) {
-    respondJson(res, 404, { error: `agent not found: ${agentId}` })
-    return
-  }
-  const resolved = safeResolveProvider(agent.runtime, agent.id)
-  if (!resolved) {
-    respondJson(res, 502, { error: `no usable model provider for agent ${agentId}` })
-    return
-  }
-  const upstreamUrl = buildUpstreamUrl(resolved.baseUrl, restPath, target.search, agent.runtime, resolved.protocol)
+  const upstreamUrl = buildUpstreamUrl(resolved.baseUrl, restPath, target.search)
   if (!upstreamUrl) {
     respondJson(res, 502, { error: `unsupported provider base url: ${resolved.baseUrl}` })
     return
@@ -153,11 +162,10 @@ async function handleCaptureRequest(
   const capture = beginCaptureIfNeeded({
     captureRootDir,
     agentId,
-    runtime: agent.runtime,
+    runtime,
     restPath,
     body,
-    modelName: resolved.modelName,
-    providerName: resolved.name,
+    providerName: resolved.providerName,
     reqHeaders: req.headers,
   })
 
@@ -166,7 +174,7 @@ async function handleCaptureRequest(
     upstreamUrl,
     body,
     reqHeaders: req.headers,
-    runtime: agent.runtime,
+    runtime,
     providerApiKey: resolved.apiKey,
     res,
     capture,
@@ -174,51 +182,17 @@ async function handleCaptureRequest(
   })
 }
 
-function safeResolveProvider(
-  runtime: string,
-  agentId: string,
-): { baseUrl: string; apiKey: string; name: string; protocol: string; modelName?: string } | null {
-  try {
-    if (runtime !== 'claude' && runtime !== 'codex') return null
-    const agent = agentStore.get(agentId)
-    if (!agent) return null
-    // 与注入侧同口径:团队成员等靠派发链继承档案的 agent,直查 config_json 解析不到,
-    // 需用其 agent 进程实际生效的档案 id(acpHost 注入时记录的 appliedModelProfile)兜底解析。
-    const appliedProfileId = agentConnections.get(agentId)?.appliedModelProfile?.id
-    const resolved = resolveAgentModelProfile(runtime, agent, appliedProfileId)
-    if (!resolved || resolved.provider.enabled !== 1) return null
-    return {
-      baseUrl: resolved.provider.base_url,
-      apiKey: resolved.provider.api_key.trim(),
-      name: resolved.provider.display_name,
-      protocol: resolved.provider.protocol,
-      modelName: resolved.appliedProfile.modelId,
-    }
-  } catch (err) {
-    log.warn({ err, agentId }, '解析 agent 模型供应商失败')
-    return null
-  }
-}
-
 function buildUpstreamUrl(
   providerBaseUrl: string,
   restPath: string,
   search: string,
-  runtime: string,
-  protocol: string,
 ): string | null {
   try {
-    const base = new URL(normalizeProviderBase(providerBaseUrl, runtime, protocol))
+    const base = new URL(providerBaseUrl)
     return `${base.origin}${base.pathname.replace(/\/$/, '')}${restPath}${search}`
   } catch {
     return null
   }
-}
-
-function normalizeProviderBase(providerBaseUrl: string, runtime: string, protocol: string): string {
-  const trimmed = providerBaseUrl.trim().replace(/\/+$/, '')
-  if (runtime === 'codex') return normalizeOpenAiBaseUrl(trimmed)
-  return normalizeClaudeBaseUrl(trimmed, protocol)
 }
 
 function beginCaptureIfNeeded(input: {
@@ -227,7 +201,6 @@ function beginCaptureIfNeeded(input: {
   runtime: string
   restPath: string
   body: Buffer
-  modelName?: string
   providerName: string
   reqHeaders: IncomingMessage['headers']
 }): CaptureWriter | null {
@@ -235,6 +208,8 @@ function beginCaptureIfNeeded(input: {
   try {
     const settings = getCaptureSettings()
     const parsedBody: unknown = parseJsonBody(input.body)
+    const model = parsedBody && typeof parsedBody === 'object' && 'model' in parsedBody
+      && typeof parsedBody.model === 'string' ? parsedBody.model : undefined
     const identity = extractCaptureIdentity(parsedBody)
     const session = identity.sessionUuid ? lookupSessionByAcpUuid(identity.sessionUuid) : null
     return beginCapture(input.captureRootDir, {
@@ -246,7 +221,7 @@ function beginCaptureIfNeeded(input: {
         ...(session?.sessionTitle ? { sessionTitle: session.sessionTitle } : {}),
         ...(identity.turnId ? { turnId: identity.turnId } : {}),
       },
-      ...(input.modelName ? { model: input.modelName } : {}),
+      ...(model ? { model } : {}),
       provider: input.providerName,
       requestHeaders: maskSensitiveHeaders({ ...input.reqHeaders }),
       request: parsedBody ?? input.body.toString('utf8'),

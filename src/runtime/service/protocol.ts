@@ -26,6 +26,7 @@ export interface RuntimeDoneEvent {
 export interface RuntimeAgentStatusEvent {
   agentId: string
   status: AgentStatus
+  captureBindingId?: string
 }
 
 export type RuntimeCommand =

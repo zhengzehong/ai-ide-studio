@@ -29,7 +29,7 @@ export interface AcpRuntimeHostOptions {
     turnUsage?: TurnUsageData
     stopReason: string
   }) => Promise<void>
-  publishAgentStatus?: (event: { agentId: string; status: AgentStatus }) => void
+  publishAgentStatus?: (event: { agentId: string; status: AgentStatus; captureBindingId?: string }) => void
   publishCapabilities?: (sessionId: string, capabilities: SessionCapabilities) => void
 }
 

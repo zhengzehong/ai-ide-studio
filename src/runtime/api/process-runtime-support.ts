@@ -4,8 +4,40 @@ import type { Server } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IpcEnvelope } from '../../ipc/protobuf-envelope.js'
-import type { RuntimeCancelResult } from '../../ports/runtime-port.js'
-import type { RuntimeControlPayload } from '../service/protocol.js'
+import type { RuntimeCancelResult, RuntimePort } from '../../ports/runtime-port.js'
+import type { RuntimeControlPayload, RuntimeCommand, RuntimeAgentStatusEvent, RuntimeDoneEvent, RuntimePersistenceUpdate } from '../service/protocol.js'
+
+export interface CreateProcessRuntimePortOptions {
+  realtimeStreamEndpoint: string
+  realtimeStreamToken: string
+  onPersistenceUpdate: (event: RuntimePersistenceUpdate) => Promise<void>
+  onDone: (event: RuntimeDoneEvent) => Promise<void>
+  onAgentStatus?: (event: RuntimeAgentStatusEvent) => void | Promise<void>
+  readyTimeoutMs?: number
+  requestTimeoutMs?: number
+  forkTimeoutMs?: number
+  maxFrameBytes?: number
+  restartDelayMs?: number
+  idleSweepIntervalMs?: number
+  sessionIdleMs?: number
+  agentIdleMs?: number
+}
+
+export interface ProcessRuntimePort extends RuntimePort {
+  readonly generation: number
+  terminateForTest(): Promise<void>
+  waitForRestart(previousGeneration: number, timeoutMs?: number): Promise<void>
+}
+
+// Prompt is unbounded; native fork operations retain their separate five-minute budget.
+export function resolveRuntimeRequestTimeoutMs(
+  operation: RuntimeCommand['operation'],
+  options: { forkTimeoutMs?: number; requestTimeoutMs?: number },
+): number | undefined {
+  if (operation === 'prompt') return undefined
+  if (operation === 'fork') return options.forkTimeoutMs ?? 300_000
+  return options.requestTimeoutMs ?? 30_000
+}
 
 export interface RuntimePendingRequest {
   resolve: (value: unknown) => void
