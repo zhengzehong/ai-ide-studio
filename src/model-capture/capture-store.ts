@@ -179,7 +179,8 @@ export function recoverPendingCaptures(root: string): number {
 }
 
 /** 按保留天数清理:整天目录删除。 */
-export function cleanupExpiredCaptures(root: string, retentionDays: number): number {  if (!existsSync(root)) return 0
+export function cleanupExpiredCaptures(root: string, retentionDays: number): number {
+  if (!existsSync(root)) return 0
   const cutoff = Date.now() - retentionDays * 24 * 60 * 60 * 1000
   let removed = 0
   for (const day of listDirs(root)) {
