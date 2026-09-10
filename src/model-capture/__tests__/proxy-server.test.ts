@@ -9,6 +9,8 @@ import { agentStore } from '../../store/agents.js'
 import { sessionStore } from '../../store/sessions.js'
 import { modelProviderStore } from '../../store/model-providers.js'
 import { modelProfileStore } from '../../store/model-profiles.js'
+import { agentConnections } from '../../acp/host-state.js'
+import type { AgentConnection } from '../../acp/host-types.js'
 import { setCaptureSettings } from '../capture-config.js'
 import { startModelCaptureProxy, type ModelCaptureProxy } from '../proxy-server.js'
 import { waitCaptureFlush } from '../capture-store.js'
@@ -278,6 +280,46 @@ describe('模型代理抓包 proxy-server', () => {
     await waitCaptureFlush()
     const record = JSON.parse(readFileSync(findCaptureFiles(sessionDirOf(platformSessionId))[0], 'utf8'))
     expect(record.terminalStatus).toBe('upstream_error')
+  })
+
+  test('团队成员继承档案:agent 无自身档案时,代理用 agentConnections.appliedModelProfile 兜底解析', async () => {
+    // 模拟团队成员:provider/profile 在库里,但 agent 自身不配档案(注入侧靠 override 继承)
+    const provider = modelProviderStore.create({
+      name: `p-${Math.random().toString(36).slice(2, 8)}`,
+      displayName: '继承供应商',
+      protocol: 'claude',
+      baseUrl: `http://127.0.0.1:${upstreamPort}`,
+      apiKey: 'sk-real-provider-key',
+    })
+    const profile = modelProfileStore.create({
+      name: `prof-${Math.random().toString(36).slice(2, 8)}`,
+      runtime: 'claude',
+      providerId: provider.id,
+      config: { defaultModel: 'test-model' },
+    })
+    const agent = agentStore.create({
+      name: `member-${Math.random().toString(36).slice(2, 8)}`,
+      type: 'dev',
+      runtime: 'claude',
+      config: {}, // 无 modelProfileId,与故障中的体检员一致
+    })
+    // 无 connection 记录时代理解析不到 → 502(修复前行为)
+    const before = await postThroughProxy(agent.id, '/v1/messages', claudeBody())
+    expect(before.status).toBe(502)
+    expect(JSON.parse(before.body).error).toContain('no usable model provider')
+    // 模拟注入侧:agent 进程带着继承档案在跑(acpHost 注入时记录)
+    agentConnections.set(agent.id, {
+      agentId: agent.id,
+      runtime: 'claude',
+      appliedModelProfile: { id: profile.id, name: profile.name, runtime: 'claude', providerId: provider.id },
+    } as unknown as AgentConnection)
+    try {
+      const res = await postThroughProxy(agent.id, '/v1/messages', claudeBody())
+      expect(res.status).toBe(200)
+      expect(res.body).toContain('Hello')
+    } finally {
+      agentConnections.delete(agent.id)
+    }
   })
 
   test('timeout:上游断流超时后终态 timeout,保留已收内容', async () => {

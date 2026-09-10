@@ -4,6 +4,7 @@ import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import { URL } from 'node:url'
 import { createChildLogger } from '../core/logger.js'
 import { agentStore } from '../store/agents.js'
+import { agentConnections } from '../acp/host-state.js'
 import { normalizeClaudeBaseUrl, normalizeOpenAiBaseUrl } from '../shared/model-provider-connection.js'
 import { resolveAgentModelProfile } from '../acp/model-profile-env.js'
 import { getCaptureSettings } from './capture-config.js'
@@ -181,7 +182,10 @@ function safeResolveProvider(
     if (runtime !== 'claude' && runtime !== 'codex') return null
     const agent = agentStore.get(agentId)
     if (!agent) return null
-    const resolved = resolveAgentModelProfile(runtime, agent)
+    // 与注入侧同口径:团队成员等靠派发链继承档案的 agent,直查 config_json 解析不到,
+    // 需用其 agent 进程实际生效的档案 id(acpHost 注入时记录的 appliedModelProfile)兜底解析。
+    const appliedProfileId = agentConnections.get(agentId)?.appliedModelProfile?.id
+    const resolved = resolveAgentModelProfile(runtime, agent, appliedProfileId)
     if (!resolved || resolved.provider.enabled !== 1) return null
     return {
       baseUrl: resolved.provider.base_url,
