@@ -12,6 +12,7 @@ import type { AcpRuntimeClientRouter } from './acp-runtime-client.js'
 import type { ManagedAcpAgent, StartManagedAcpAgentInput } from './managed-acp-agent.js'
 
 export interface SdkAgentRuntime {
+  captureBindingId?: string
   fingerprint: string
   process: ChildProcess
   connection: acp.ClientSideConnection
@@ -42,7 +43,7 @@ export interface SdkRuntimeHostOptions {
     stopReason: string
     turnUsage?: TurnUsageData
   }) => Promise<void>
-  publishAgentStatus?: (event: { agentId: string; status: AgentStatus }) => void
+  publishAgentStatus?: (event: { agentId: string; status: AgentStatus; captureBindingId?: string }) => void
   publishCapabilities?: (sessionId: string, capabilities: SessionCapabilities) => void
 }
 

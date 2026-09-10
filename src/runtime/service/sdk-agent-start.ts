@@ -51,6 +51,7 @@ export async function createSdkAgentRuntime(input: {
   const exitPromise = new Promise<never>((_resolve, reject) => { rejectExit = reject })
   void exitPromise.catch(() => undefined)
   return {
+    captureBindingId: snapshot.runtime.captureBinding?.id,
     fingerprint: input.fingerprint,
     process: managed.process,
     connection: managed.connection,

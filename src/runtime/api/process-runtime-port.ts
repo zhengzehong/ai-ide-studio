@@ -1,5 +1,6 @@
 import { fork, type ChildProcess } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
+import { RuntimeCaptureBindings } from '../../model-capture/runtime-bindings.js'
 import { createServer, type Server, type Socket } from 'node:net'
 import { FramedSocket } from '../../ipc/framed-socket.js'
 import type { IpcEnvelope } from '../../ipc/protobuf-envelope.js'
@@ -7,7 +8,6 @@ import type {
   RuntimeCancelResult,
   RuntimeElicitationContent,
   RuntimePlatformToolTransport,
-  RuntimePort,
   RuntimePromptInput,
   RuntimeStateSnapshot,
 } from '../../ports/runtime-port.js'
@@ -22,7 +22,10 @@ import {
   listenOnRuntimeEndpoint,
   removeRuntimeEndpoint,
   resolvePlatformToolBaseUrl,
+  resolveRuntimeRequestTimeoutMs,
   runtimeErrorMessage,
+  type CreateProcessRuntimePortOptions,
+  type ProcessRuntimePort,
   type RuntimePendingRequest,
   toRuntimeEnvelope,
   withRuntimeTimeout,
@@ -32,47 +35,13 @@ import {
   isRuntimeControlPayload,
   type RuntimeCommand,
   type RuntimeControlPayload,
-  type RuntimeAgentStatusEvent,
-  type RuntimeDoneEvent,
-  type RuntimePersistenceUpdate,
 } from '../service/protocol.js'
 
 export type { RuntimeDoneEvent, RuntimePersistenceUpdate } from '../service/protocol.js'
+export { resolveRuntimeRequestTimeoutMs, type CreateProcessRuntimePortOptions, type ProcessRuntimePort } from './process-runtime-support.js'
 
 const log = createChildLogger('runtime-process')
 
-// IPC 请求超时分派:prompt 是长请求不设超时;fork 涉及 runtime 侧复制会话
-// (claude 为本地 --resume --fork-session,codex 为 threadFork 等多次服务端
-// RPC),耗时远超普通控制请求,单独放宽到 5 分钟;其余控制请求保持 30s
-// 快速失败。导出纯函数便于单测分派规则。
-export function resolveRuntimeRequestTimeoutMs(
-  operation: RuntimeCommand['operation'],
-  options: { forkTimeoutMs?: number; requestTimeoutMs?: number },
-): number | undefined {
-  if (operation === 'prompt') return undefined
-  if (operation === 'fork') return options.forkTimeoutMs ?? 300_000
-  return options.requestTimeoutMs ?? 30_000
-}
-export interface CreateProcessRuntimePortOptions {
-  realtimeStreamEndpoint: string
-  realtimeStreamToken: string
-  onPersistenceUpdate: (event: RuntimePersistenceUpdate) => Promise<void>
-  onDone: (event: RuntimeDoneEvent) => Promise<void>
-  onAgentStatus?: (event: RuntimeAgentStatusEvent) => void | Promise<void>
-  readyTimeoutMs?: number
-  requestTimeoutMs?: number
-  forkTimeoutMs?: number
-  maxFrameBytes?: number
-  restartDelayMs?: number
-  idleSweepIntervalMs?: number
-  sessionIdleMs?: number
-  agentIdleMs?: number
-}
-export interface ProcessRuntimePort extends RuntimePort {
-  readonly generation: number
-  terminateForTest(): Promise<void>
-  waitForRestart(previousGeneration: number, timeoutMs?: number): Promise<void>
-}
 export async function createProcessRuntimePort(options: CreateProcessRuntimePortOptions): Promise<ProcessRuntimePort> {
   const controller = new ProcessRuntimePortController(options)
   await controller.start()
@@ -87,6 +56,7 @@ class ProcessRuntimePortController implements ProcessRuntimePort {
   private readonly endpoint = createRuntimeIpcEndpoint()
   private readonly token = randomUUID()
   private readonly pending = new Map<string, RuntimePendingRequest>()
+  private readonly captureBindings = new RuntimeCaptureBindings()
   private readonly sessionIngress = new Map<string, Promise<void>>()
   private readonly maxFrameBytes: number
   private server?: Server
@@ -243,6 +213,7 @@ class ProcessRuntimePortController implements ProcessRuntimePort {
       this.channel = undefined
       void staleChannel?.close().catch(() => undefined)
       this.failPending(error)
+      this.captureBindings.clear()
       if (!this.closing) {
         this.beginRestartWait()
         const restartDelayMs = this.options.restartDelayMs ?? 250
@@ -310,6 +281,7 @@ class ProcessRuntimePortController implements ProcessRuntimePort {
       return
     }
     if (payload.type === 'result') {
+      this.captureBindings.endRequest(payload.requestId)
       const pending = this.pending.get(payload.requestId)
       if (!pending) return
       this.pending.delete(payload.requestId)
@@ -339,7 +311,10 @@ class ProcessRuntimePortController implements ProcessRuntimePort {
       )
       return
     }
-    if (payload.type === 'agent-status') await this.options.onAgentStatus?.(payload.event)
+    if (payload.type === 'agent-status') {
+      this.captureBindings.agentStatus(payload.event)
+      await this.options.onAgentStatus?.(payload.event)
+    }
   }
 
   private async request(command: RuntimeCommand): Promise<unknown> {
@@ -357,6 +332,7 @@ class ProcessRuntimePortController implements ProcessRuntimePort {
 
   private sendRequest(command: RuntimeCommand): Promise<unknown> {
     const requestId = randomUUID()
+    this.captureBindings.beginRequest(requestId, 'snapshot' in command ? command.snapshot.runtime.captureBinding : undefined)
     const timeoutMs = resolveRuntimeRequestTimeoutMs(command.operation, this.options)
     return new Promise((resolve, reject) => {
       const timer = timeoutMs === undefined
@@ -367,6 +343,7 @@ class ProcessRuntimePortController implements ProcessRuntimePort {
           }, timeoutMs)
       this.pending.set(requestId, { resolve, reject, timer })
       void this.send({ type: 'request', requestId, command }).catch((error) => {
+        this.captureBindings.endRequest(requestId)
         if (timer) clearTimeout(timer)
         this.pending.delete(requestId)
         reject(error)

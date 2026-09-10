@@ -4,6 +4,10 @@
 
 ## 系统拓扑
 
+模型抓包代理位于 API 进程，使用 `model-capture/profile-binding.ts` 从 Runtime 启动时已解析的有效档案生成连接描述。`route-bindings.ts` 持有不可变内存路由，`runtime-bindings.ts` 管理启动请求、Agent 生命周期和在途 HTTP 请求的引用。代理按 `/route/<bindingId>` 转发，不依赖旧 ACP Host 的内存，也不在每次请求时重新读取全局或 Agent 档案。团队成员自身绑定优先，否则继承主控成员的有效档案。
+
+相同 Agent 和连接配置复用路由标识；供应商地址、凭据或绑定变化会生成新标识并进入现有 Runtime 指纹刷新流程。旧 Agent 等待当前请求结束后按原有流程停止，旧路由在 Runtime 引用和在途请求全部释放后回收。独立 Runtime 通过内部 `agent-status.captureBindingId` 通知 API 管理引用，IPC 调用超时不等于底层启动结束，引用保留到实际结果或进程退出。嵌入式 ACP Host 通过子进程退出释放引用。连接描述不持久化、不广播到客户端、不写入日志；代理未成功监听时保留原供应商直连。
+
 工具心跳由 `acp/tool-heartbeat.ts` 在两套 ACP 接收入口按会话和轮次归属真实工具，不创建独立工具，也不覆盖终态。历史查询通过 `store/legacy-tool-heartbeats.ts` 有界核对旧占位记录；PC/App 共用的过程视图通过 `tool-heartbeat-history.ts` 兼容旧事件回放，不改写历史数据。
 
 会话可见性由 `shared/session-visibility.ts` 定义客户端用途规则，`store/session-visibility.ts` 提供 SQL 条件与历史配置关联兼容。普通 QueryPort、Widget、Dock 和项目统计使用用户可见视图；内部会话管理和专属功能按 ID 访问不受列表隐藏影响。PC/App 共用用途判定，实时完整会话广播同样受列表准入规则约束。

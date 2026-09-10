@@ -1,5 +1,6 @@
 ﻿import { spawn, type ChildProcess } from 'child_process'
 import { Writable, Readable } from 'stream'
+import { spawnWithCaptureBinding } from '../model-capture/runtime-bindings.js'
 import * as acp from '@agentclientprotocol/sdk'
 import { events } from '../core/events.js'
 import { buildAgentAutonomySystemPrompt } from '../core/agent-autonomy-prompt.js'
@@ -186,11 +187,11 @@ export const acpHost = {
       '正在启动 Agent runtime',
     )
 
-    const proc = spawn(spec.cmd, spec.args, {
+    const proc = spawnWithCaptureBinding(runtimeEnv.captureBinding, () => spawn(spec.cmd, spec.args, {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: runtimeEnv.env,
       shell: process.platform === 'win32',
-    })
+    }))
 
     proc.stderr!.on('data', (chunk: Buffer) => {
       const text = chunk.toString().trim()
@@ -213,6 +214,10 @@ export const acpHost = {
         elicitation: { form: {}, url: {} },
       },
       clientInfo: { name: 'ai-ide-studio', version: '0.2.0' },
+    }).catch((error: unknown) => {
+      if (!proc.killed) proc.kill()
+      log.error({ err: error, agentId, runtime: effectiveRuntime }, 'Agent initialization failed')
+      throw error
     })
 
     if (runtimeEnv.gatewayAuth) {

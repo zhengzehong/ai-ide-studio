@@ -1,4 +1,4 @@
-import { buildAgentRuntimeEnv, buildAgentSessionMeta } from '../../acp/model-profile-env.js'
+import { buildAgentRuntimeEnv, buildAgentSessionMeta, resolveAgentModelProfile } from '../../acp/model-profile-env.js'
 import { buildRuntimeEnv, getRuntimeCommand } from '../../acp/runtime-registry.js'
 import { buildAgentAutonomySystemPrompt } from '../../core/agent-autonomy-prompt.js'
 import { buildProjectSecretarySystemPrompt } from '../../core/project-secretary-prompt.js'
@@ -93,6 +93,7 @@ export function buildRuntimeStateSnapshot(input: BuildRuntimeStateSnapshotInput)
       sessionMeta,
       gatewayAuth: runtimeEnv.gatewayAuth,
       appliedModelProfile: runtimeEnv.appliedProfile,
+      captureBinding: runtimeEnv.captureBinding,
     },
     runtimePreferences: sessionStore.getRuntimePreferences(session.id),
     mcpServers: resolveToolsAsMcpServers({
@@ -124,7 +125,7 @@ function resolveTeamInheritedProfileId(
   if (!leaderMember) return undefined
   const leaderAgent = agentStore.get(leaderMember.agent_id)
   if (!leaderAgent || leaderAgent.runtime !== runtime) return undefined
-  return buildAgentRuntimeEnv(leaderAgent.runtime, leaderAgent).appliedProfile?.id
+  return resolveAgentModelProfile(runtime, leaderAgent, leaderMember.model_profile_id ?? undefined)?.profile.id
 }
 
 function cloneEnvironment(env: NodeJS.ProcessEnv): Record<string, string> {

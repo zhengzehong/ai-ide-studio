@@ -1,5 +1,6 @@
 import type { McpServer } from '@agentclientprotocol/sdk'
 import type { SessionPurpose } from '../shared/session-visibility.js'
+import type { CaptureRouteBinding } from '../model-capture/route-bindings.js'
 import type { ImageAttachment, SessionCapabilities } from '../types/ws-protocol.js'
 
 export interface RuntimeAgentSnapshot {
@@ -38,6 +39,7 @@ export interface RuntimeCommandSnapshot {
 }
 
 export interface RuntimeProcessSnapshot {
+  captureBinding?: CaptureRouteBinding
   command?: RuntimeCommandSnapshot
   env: Record<string, string>
   sessionMeta?: Record<string, unknown>

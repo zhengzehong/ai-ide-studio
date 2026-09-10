@@ -380,7 +380,7 @@ export class SdkRuntimeHost {
       acceptTurnUpdate: (sessionId, streamGeneration) => this.runtimeTurns.acceptsUpdate(sessionId, streamGeneration),
     })
     this.agents.set(snapshot.agent.id, runtime)
-    this.options.publishAgentStatus?.({ agentId: snapshot.agent.id, status: 'running' })
+    this.options.publishAgentStatus?.({ agentId: snapshot.agent.id, status: 'running', captureBindingId: runtime.captureBindingId })
     const handleExit = (code: number | null, signal: NodeJS.Signals | null) => handleSdkAgentExit({
       agentId: snapshot.agent.id, runtime, agents: this.agents, sessions: this.sessions,
       actors: this.actors, options: this.options, code, signal,

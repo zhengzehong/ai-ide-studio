@@ -14,6 +14,8 @@ import { toolBindingStore, toolStore } from '../../src/store/tools.js'
 import { setRuntimePort } from '../../src/runtime/runtime-port-provider.js'
 import { ensureAutonomyMemory } from '../../src/core/agent-autonomy-memory.js'
 import { updateAgentAutonomyConfig } from '../../src/core/agent-autonomy-config.js'
+import { setCaptureSettings } from '../../src/model-capture/capture-config.js'
+import { acquireCaptureRoute, activateCaptureRoutes } from '../../src/model-capture/route-bindings.js'
 
 let tmp: string
 let resetRuntimePort: (() => void) | undefined
@@ -32,6 +34,40 @@ afterEach(() => {
 })
 
 describe('runtime state snapshot', () => {
+  test.each(['claude', 'codex'] as const)('%s member route inherits the leader member override without retaining inspection snapshots', (runtime) => {
+    const deactivate = activateCaptureRoutes(19009)
+    try {
+      setCaptureSettings({ enabled: true })
+      const project = projectStore.create({ name: 'project', workDir: tmp })
+      const provider = modelProviderStore.create({ name: 'provider', displayName: 'provider',
+        protocol: runtime === 'claude' ? 'claude' : 'openai', baseUrl: 'http://localhost:19000', apiKey: 'test' })
+      const profile = modelProfileStore.create({ name: 'profile', runtime, providerId: provider.id,
+        config: runtime === 'claude' ? { defaultModel: 'test-model' } : { model: 'test-model' } })
+      const team = teamStore.create({ projectId: project.id, name: 'team' })
+      const leader = agentStore.create({ name: 'leader', type: 'dev', runtime, projectId: project.id })
+      const leaderSession = sessionStore.create({ agentId: leader.id, projectId: project.id })
+      teamMemberStore.create({ teamId: team.id, projectId: project.id, agentId: leader.id,
+        sessionId: leaderSession.id, name: 'leader', role: 'leader', modelProfileId: profile.id })
+      const member = agentStore.create({ name: 'member', type: 'dev', runtime, projectId: project.id })
+      const session = sessionStore.create({ agentId: member.id, projectId: project.id })
+      teamMemberStore.create({ teamId: team.id, projectId: project.id, agentId: member.id,
+        sessionId: session.id, name: 'member', role: 'member' })
+      const inherited = buildRuntimeStateSnapshot({ sessionId: session.id })
+      expect(inherited.runtime.captureBinding?.profileId).toBe(profile.id)
+      expect(inherited.runtime.captureBinding?.agentId).toBe(member.id)
+      expect(acquireCaptureRoute(inherited.runtime.captureBinding!.id)).toBeUndefined()
+      const ownProfile = modelProfileStore.create({ name: 'own', runtime, providerId: provider.id,
+        config: runtime === 'claude' ? { defaultModel: 'own-model' } : { model: 'own-model' } })
+      const own = agentStore.create({ name: 'own', type: 'dev', runtime, projectId: project.id })
+      const ownSession = sessionStore.create({ agentId: own.id, projectId: project.id })
+      teamMemberStore.create({ teamId: team.id, projectId: project.id, agentId: own.id,
+        sessionId: ownSession.id, name: 'own', role: 'member', modelProfileId: ownProfile.id })
+      expect(buildRuntimeStateSnapshot({ sessionId: ownSession.id }).runtime.captureBinding?.profileId).toBe(ownProfile.id)
+    } finally {
+      deactivate()
+    }
+  })
+
   test('projects store state into a clone-safe runtime DTO', () => {
     const project = projectStore.create({ name: 'Runtime project', workDir: resolve(tmp, 'workspace') })
     const agent = agentStore.create({

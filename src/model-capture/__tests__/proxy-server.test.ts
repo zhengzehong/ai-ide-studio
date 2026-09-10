@@ -9,8 +9,8 @@ import { agentStore } from '../../store/agents.js'
 import { sessionStore } from '../../store/sessions.js'
 import { modelProviderStore } from '../../store/model-providers.js'
 import { modelProfileStore } from '../../store/model-profiles.js'
-import { agentConnections } from '../../acp/host-state.js'
-import type { AgentConnection } from '../../acp/host-types.js'
+import { buildAgentRuntimeEnv } from '../../acp/model-profile-env.js'
+import { retainCaptureRoute } from '../route-bindings.js'
 import { setCaptureSettings } from '../capture-config.js'
 import { startModelCaptureProxy, type ModelCaptureProxy } from '../proxy-server.js'
 import { waitCaptureFlush } from '../capture-store.js'
@@ -20,6 +20,8 @@ let upstream: Server
 let upstreamPort = 0
 let proxy: ModelCaptureProxy
 let deadPort = 0
+const routes = new Map<string, string>()
+const releases: Array<() => void> = []
 
 const ACP_UUID = '11111111-2222-3333-4444-555555555555'
 
@@ -91,6 +93,8 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
+  for (const release of releases.splice(0)) release()
+  routes.clear()
   await proxy.close()
   upstream.close()
   upstream.closeAllConnections?.()
@@ -121,7 +125,15 @@ function setupAgent(runtime: 'claude' | 'codex', baseUrl: string): string {
     config: { modelProfileMode: 'fixed', modelProfileId: profile.id },
   })
   sessionStore.create({ agentId: agent.id, acpSessionId: ACP_UUID })
+  registerRoute(agent.id)
   return agent.id
+}
+
+function registerRoute(agentId: string, modelProfileIdOverride?: string): void {
+  const agent = agentStore.get(agentId)!
+  const binding = buildAgentRuntimeEnv(agent.runtime, agent, {}, { modelProfileIdOverride }).captureBinding!
+  releases.push(retainCaptureRoute(binding))
+  routes.set(agentId, new URL(binding.proxyBaseUrl).pathname)
 }
 
 function claudeBody(): string {
@@ -142,7 +154,7 @@ function postThroughProxy(agentId: string, path: string, body: string, headers: 
     const req = http.request({
       host: '127.0.0.1',
       port: proxy.port,
-      path: `/agent-${agentId}${path}`,
+      path: `${routes.get(agentId) ?? `/agent-${agentId}`}${path}`,
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-api-key': 'sk-client-key', ...headers },
     }, (res) => {
@@ -232,7 +244,7 @@ describe('模型代理抓包 proxy-server', () => {
     const received: string[] = []
     const req = http.request({
       host: '127.0.0.1', port: proxy.port, method: 'POST',
-      path: `/agent-${agentId}/v1/messages`,
+      path: `${routes.get(agentId)}/v1/messages`,
       headers: { 'content-type': 'application/json' },
     })
     const done = new Promise<void>((resolve) => {
@@ -282,7 +294,7 @@ describe('模型代理抓包 proxy-server', () => {
     expect(record.terminalStatus).toBe('upstream_error')
   })
 
-  test('团队成员继承档案:agent 无自身档案时,代理用 agentConnections.appliedModelProfile 兜底解析', async () => {
+  test('团队成员继承档案:通过启动时的绑定转发，不依赖旧 Host 内存', async () => {
     // 模拟团队成员:provider/profile 在库里,但 agent 自身不配档案(注入侧靠 override 继承)
     const provider = modelProviderStore.create({
       name: `p-${Math.random().toString(36).slice(2, 8)}`,
@@ -303,23 +315,16 @@ describe('模型代理抓包 proxy-server', () => {
       runtime: 'claude',
       config: {}, // 无 modelProfileId,与故障中的体检员一致
     })
-    // 无 connection 记录时代理解析不到 → 502(修复前行为)
+    // 旧 URL 不再重新猜测档案，明确要求刷新连接。
     const before = await postThroughProxy(agent.id, '/v1/messages', claudeBody())
-    expect(before.status).toBe(502)
-    expect(JSON.parse(before.body).error).toContain('no usable model provider')
-    // 模拟注入侧:agent 进程带着继承档案在跑(acpHost 注入时记录)
-    agentConnections.set(agent.id, {
-      agentId: agent.id,
-      runtime: 'claude',
-      appliedModelProfile: { id: profile.id, name: profile.name, runtime: 'claude', providerId: provider.id },
-    } as unknown as AgentConnection)
-    try {
-      const res = await postThroughProxy(agent.id, '/v1/messages', claudeBody())
-      expect(res.status).toBe(200)
-      expect(res.body).toContain('Hello')
-    } finally {
-      agentConnections.delete(agent.id)
-    }
+    expect(before.status).toBe(410)
+    registerRoute(agent.id, profile.id)
+    // 已启动的 Runtime 即使数据库配置后来变化，仍使用原连接。
+    modelProviderStore.update(provider.id, { baseUrl: `http://127.0.0.1:${deadPort}`, apiKey: 'changed-key' })
+    const res = await postThroughProxy(agent.id, '/v1/messages', claudeBody())
+    expect(res.status).toBe(200)
+    expect(res.body).toContain('Hello')
+    expect(upstreamRequests[0].headers['x-api-key']).toBe('sk-real-provider-key')
   })
 
   test('timeout:上游断流超时后终态 timeout,保留已收内容', async () => {
