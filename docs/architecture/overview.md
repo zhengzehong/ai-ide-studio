@@ -91,6 +91,8 @@ Mobile / Guest / rollback → Realtime WS "prompt" → Protobuf IPC 兼容桥 �
   → Runtime done barrier → API critical commit + Outbox → committed done → Realtime → Web UI
 ```
 
+Runtime 的会话复制准备由 `sdk-session-fork` 负责：Claude 副本先完成本地历史文件物化；Codex 副本通过共享会话恢复流程重新建立底层事件订阅，成功后才交给 Host 缓存、绑定和应用运行偏好。复制历史无法恢复时返回失败并关闭未就绪副本，不允许以空会话替代历史。
+
 ### 自主 Agent 检查
 
 ```text

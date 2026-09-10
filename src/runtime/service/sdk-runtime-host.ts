@@ -2,7 +2,6 @@ import { mapConfigOptions, mergeCapabilitiesFromConfig } from '../../acp/capabil
 import { cloneClaudeSessionFiles, hasClaudeSessionFiles } from '../../acp/claude-session-files.js'
 import { resolveRuntimeModelPreference } from '../../acp/runtime-model-preference.js'
 import type { RuntimeCancelResult, RuntimeStateSnapshot } from '../../ports/runtime-port.js'
-import { createChildLogger } from '../../shared/logger.js'
 import type { ImageAttachment, SessionCapabilities } from '../../types/ws-protocol.js'
 import type { RuntimeSessionActorScheduler } from '../actors/session-actor.js'
 import { ResourceGovernor } from '../resources/resource-governor.js'
@@ -14,7 +13,8 @@ import {
   type StartManagedAcpAgentInput,
 } from './managed-acp-agent.js'
 import { runtimeAgentFingerprint, runtimeSessionContextFingerprint } from './runtime-fingerprints.js'
-import { applySdkSessionPreferences, initialCapabilities, openSdkSession } from './sdk-session-runtime.js'
+import { applySdkSessionPreferences, openSdkSession } from './sdk-session-runtime.js'
+import { prepareSdkSessionFork } from './sdk-session-fork.js'
 import { inspectSdkSessionRefresh } from './sdk-session-refresh.js'
 import { sweepSdkRuntimeIdle } from './sdk-runtime-idle.js'
 import type { RuntimeIdleThresholds } from './runtime-idle-sweep.js'
@@ -27,7 +27,6 @@ import type {
   SdkSessionRuntime,
 } from './sdk-runtime-types.js'
 
-const log = createChildLogger('sdk-runtime-host')
 export type { SdkRuntimeHostDependencies, SdkRuntimeHostOptions } from './sdk-runtime-types.js'
 
 export class SdkRuntimeHost {
@@ -205,46 +204,24 @@ export class SdkRuntimeHost {
 
   async forkSession(snapshot: RuntimeStateSnapshot, sourceAcpSessionId: string): Promise<string> {
     const agent = await this.ensureAgent(snapshot)
-    if (!agent.agentCapabilities?.sessionCapabilities?.fork) throw new Error(`Agent ${snapshot.agent.id} does not support fork`)
-    if (snapshot.agent.runtime === 'claude' && !await this.findClaudeSessionFiles({
-      sessionId: sourceAcpSessionId,
-      cwd: snapshot.session.cwd,
-      configDir: snapshot.runtime.env.CLAUDE_CONFIG_DIR,
-    })) {
-      throw new Error(`Claude Session snapshot is missing: ${sourceAcpSessionId}`)
-    }
-    const result = await agent.connection.unstable_forkSession({
-      sessionId: sourceAcpSessionId,
-      cwd: snapshot.session.cwd,
-      mcpServers: snapshot.mcpServers,
-      _meta: snapshot.runtime.sessionMeta,
+    const opened = await prepareSdkSessionFork({
+      connection: agent.connection,
+      agentCapabilities: agent.agentCapabilities,
+      snapshot,
+      sourceAcpSessionId,
+      materializeClaudeSession: this.materializeClaudeSession,
+      findClaudeSessionFiles: this.findClaudeSessionFiles,
     })
-    if (snapshot.agent.runtime === 'claude') {
-      try {
-        await this.materializeClaudeSession({
-          sourceSessionId: sourceAcpSessionId,
-          targetSessionId: result.sessionId,
-          sourceCwd: snapshot.session.cwd,
-          targetCwd: snapshot.session.cwd,
-          configDir: snapshot.runtime.env.CLAUDE_CONFIG_DIR,
-        })
-      } catch (error) {
-        await agent.connection.closeSession({ sessionId: result.sessionId }).catch((closeError) => {
-          log.warn({ err: closeError, targetAcpSessionId: result.sessionId }, 'Failed to close unmaterialized Claude fork')
-        })
-        throw error
-      }
-    }
     const session: SdkSessionRuntime = {
       snapshot,
-      acpSessionId: result.sessionId,
-      capabilities: initialCapabilities(result, agent.agentCapabilities),
+      acpSessionId: opened.acpSessionId,
+      capabilities: opened.capabilities,
       active: false,
       contextFingerprint: runtimeSessionContextFingerprint(snapshot),
       lastUsedAt: Date.now(),
     }
     this.sessions.set(snapshot.session.id, session)
-    agent.router.bindSession(snapshot.session.id, result.sessionId, snapshot.autoApprovedToolNames,
+    agent.router.bindSession(snapshot.session.id, opened.acpSessionId, snapshot.autoApprovedToolNames,
       session.capabilities.currentModeId, snapshot.runtime.appliedModelProfile?.contextWindow)
     await applySdkSessionPreferences({
       snapshot,
@@ -253,7 +230,7 @@ export class SdkRuntimeHost {
       setMode: (modeId) => this.setMode(snapshot.agent.id, snapshot.session.id, modeId),
       setConfig: (configId, value) => this.setConfig(snapshot.agent.id, snapshot.session.id, configId, value),
     })
-    return result.sessionId
+    return opened.acpSessionId
   }
 
   async setModel(agentId: string, sessionId: string, modelId: string): Promise<void> {
