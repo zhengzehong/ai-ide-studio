@@ -9,8 +9,8 @@ import { buildChatRenderItems, type ChatRenderItem } from './render-items'
 import { ConversationProcessBlock } from './ConversationProcessBlock'
 import { AuthenticatedImage } from './AuthenticatedImage'
 import { TeamAssignmentBlock } from './TeamAssignmentBlock'
-import { fmtTokens } from '../../pages/workspace/helpers'
-import { elapsedSecondsBetween, formatCompactDuration } from '../../utils/duration'
+import { TurnStatsFooter } from './TurnStatsFooter'
+import { parseTurnStats } from './turn-stats'
 import type { ChatTimelineGroup, MessageData } from '../../stores/session-events'
 import type { TurnProcessBlock } from '../../stores/turn-blocks'
 import type { ConversationAdapter, ConversationPaneProps } from './conversation-types'
@@ -25,7 +25,7 @@ export function ConversationMessageList({ adapter, onOpenPreview, onOpenFiles, o
   const olderAnchorRef = useRef<{ height: number; top: number } | null>(null)
   const messages = useMemo(() => adapter.sessionId ? adapter.messages.filter((message) => message.session_id === adapter.sessionId) : [], [adapter.messages, adapter.sessionId])
   const streamingTurns = (adapter.streamingMessages?.length ? adapter.streamingMessages : adapter.streamingMessage ? [adapter.streamingMessage] : []).filter((turn) => !turn.done)
-  const streamingBubbles = useMemo<MessageData[]>(() => streamingTurns.map((streaming) => ({ id: streaming.id, session_id: adapter.sessionId || '', role: 'agent', content: streaming.content, thinking: streaming.thinking, tool_calls_json: streaming.toolCalls.length ? JSON.stringify(streaming.toolCalls) : null, decision_json: null, attachments_json: null, timestamp: new Date().toISOString(), processBlocks: streaming.processBlocks, finalAnswer: streaming.finalAnswer, stage: streaming.stage, sender_name: streaming.senderName, processDefaultOpen: true })), [adapter.sessionId, streamingTurns])
+  const streamingBubbles = useMemo<MessageData[]>(() => streamingTurns.map((streaming) => ({ id: streaming.id, session_id: adapter.sessionId || '', role: 'agent', content: streaming.content, thinking: streaming.thinking, tool_calls_json: streaming.toolCalls.length ? JSON.stringify(streaming.toolCalls) : null, decision_json: streaming.turnStats ? JSON.stringify(streaming.turnStats) : null, attachments_json: null, timestamp: streaming.startedAt || '', started_at: streaming.startedAt, processBlocks: streaming.processBlocks, finalAnswer: streaming.finalAnswer, stage: streaming.stage, sender_name: streaming.senderName, processDefaultOpen: true })), [adapter.sessionId, streamingTurns])
   const streamingSignature = useMemo(() => streamingTurns.map((turn) => [turn.id, turn.content.length, turn.thinking.length, turn.processBlocks.length, turn.toolCalls.length, turn.stage || ''].join(':')).join('|'), [streamingTurns])
   const visibleMessages = useMemo(() => {
     const ids = new Set(streamingBubbles.map((message) => message.id))
@@ -100,7 +100,7 @@ function ConversationRenderItem({ item, adapter, onOpenPreview, onOpenFiles, onO
 function TimelineGroupMessage({ group, adapter, onOpenPreview, onOpenFiles, onOpenResource }: { group: ChatTimelineGroup; adapter: ConversationAdapter; onOpenPreview?: ConversationPaneProps['onOpenPreview']; onOpenFiles?: ConversationPaneProps['onOpenFiles']; onOpenResource?: ConversationPaneProps['onOpenResource'] }) {
   const human = group.role === 'human'
   const lastMessage = [...group.blocks].reverse().find((block) => block.kind === 'message')
-  return <MessageShell human={human} agentName={adapter.agentName} timestamp={group.timestamp}>
+  return <MessageShell human={human} agentName={adapter.agentName} timestamp={group.timestamp} footer={!human && lastMessage?.kind === 'message' && <TurnStatsFooter stats={lastMessage.turnStats} />}>
     {group.blocks.map((block) => {
       if (block.kind === 'tool') {
         const processBlock: TurnProcessBlock = { id: block.id, kind: 'tool', toolCall: block.toolCall }
@@ -112,7 +112,6 @@ function TimelineGroupMessage({ group, adapter, onOpenPreview, onOpenFiles, onOp
         {block.content && <MarkdownRenderer content={block.content} onOpenResource={onOpenResource} />}
       </div>
     })}
-    {!human && lastMessage?.kind === 'message' && lastMessage.turnStats && <TurnStatsView stats={lastMessage.turnStats} />}
   </MessageShell>
 }
 
@@ -126,7 +125,7 @@ function ConversationMessage({ message, adapter, onOpenPreview, onOpenFiles, onO
   const processCount = message.process_item_count ?? message.tool_call_count ?? (message.has_tool_calls ? 1 : 0)
   const presentations = message.parsedPresentations ?? []
   const stats = parseTurnStats(message.decision_json, message.started_at, message.completed_at)
-  return <MessageShell human={isHuman} failed={failed} agentName={message.sender_name ?? adapter.agentName} timestamp={message.timestamp}>
+  return <MessageShell human={isHuman} failed={failed} agentName={message.sender_name ?? adapter.agentName} timestamp={message.timestamp} footer={!isHuman && <TurnStatsFooter stats={stats} />}>
     {message.teamAssignment && <TeamAssignmentBlock assignment={message.teamAssignment} />}
     {message.parsedAttachments?.map((attachment, index) => <AuthenticatedImage key={`${message.id}-attachment-${index}`} image={attachment} alt={attachment.name || '附件'} style={{ maxWidth: 180, maxHeight: 140, borderRadius: 8, border: '1px solid var(--border)', objectFit: 'cover', marginBottom: 8 }} />)}
     <TurnContentView
@@ -151,18 +150,17 @@ function ConversationMessage({ message, adapter, onOpenPreview, onOpenFiles, onO
       renderPreviewPresentation={onOpenPreview ? (preview) => <PreviewCard preview={preview} onOpen={() => onOpenPreview(preview)} /> : undefined}
       renderFilesPresentation={onOpenFiles ? (presentation) => <FilesPresentationCard presentation={presentation} onOpen={onOpenFiles} /> : undefined}
     />
-    {!isHuman && stats && <TurnStatsView stats={stats} />}
   </MessageShell>
 }
 
 function StreamingMessage({ message, adapter, onOpenPreview, onOpenFiles, onOpenResource }: { message: MessageData; adapter: ConversationAdapter; onOpenPreview?: ConversationPaneProps['onOpenPreview']; onOpenFiles?: ConversationPaneProps['onOpenFiles']; onOpenResource?: ConversationPaneProps['onOpenResource'] }) {
   const processBlocks = message.processBlocks || []
   const finalAnswer = message.finalAnswer || message.content || ''
-  const hasBody = processBlocks.some((block) => block.kind !== 'stage') || !!finalAnswer
   const failed = message.stage?.includes('失败') === true
-  return <MessageShell agentName={message.sender_name ?? adapter.agentName} failed={failed} streaming streamingLabel={failed ? '执行失败' : message.stage || '生成中'} showBubble={hasBody}>
+  const stage = message.stage || (!finalAnswer ? '正在思考...' : undefined)
+  return <MessageShell agentName={message.sender_name ?? adapter.agentName} timestamp={message.timestamp} failed={failed} streaming streamingLabel={failed ? '执行失败' : stage || '生成中'} footer={<TurnStatsFooter streaming startedAt={message.started_at} stats={parseTurnStats(message.decision_json)} />}>
     {message.teamAssignment && <TeamAssignmentBlock assignment={message.teamAssignment} />}
-    <TurnContentView processBlocks={processBlocks} finalAnswer={finalAnswer} isStreaming processCount={message.process_item_count ?? processBlocks.length} defaultProcessOpen onOpenResource={onOpenResource} renderProcessBlock={(block, context) => <ProcessBlock block={block} adapter={adapter} messageId={message.id} isStreaming thinkingActive={context.thinkingActive} onOpenPreview={onOpenPreview} onOpenFiles={onOpenFiles} />} />
+    <TurnContentView processBlocks={processBlocks} finalAnswer={finalAnswer} isStreaming fallbackStage={stage} processCount={message.process_item_count} defaultProcessOpen onOpenResource={onOpenResource} renderProcessBlock={(block, context) => <ProcessBlock block={block} adapter={adapter} messageId={message.id} isStreaming thinkingActive={context.thinkingActive} onOpenPreview={onOpenPreview} onOpenFiles={onOpenFiles} />} />
   </MessageShell>
 }
 
@@ -170,8 +168,8 @@ function SystemNotice({ message }: { message: MessageData }) {
   return <div className="conversation-system-notice"><div className="conversation-system-notice-meta"><strong>{message.sender_name || '系统'}</strong>{message.timestamp && <time>{formatTime(message.timestamp)}</time>}</div><div className="conversation-system-notice-body"><MarkdownRenderer content={message.content} /></div></div>
 }
 
-function MessageShell({ children, human = false, failed = false, agentName, timestamp, streaming = false, streamingLabel = '生成中', showBubble = true }: { children: React.ReactNode; human?: boolean; failed?: boolean; agentName?: string | null; timestamp?: string; streaming?: boolean; streamingLabel?: string; showBubble?: boolean }) {
-  return <div className={`conversation-message${human ? ' is-human' : ''}${failed ? ' is-failed' : ''}`}><div className="conversation-avatar">{human ? <User size={14} /> : <Bot size={14} />}</div><div className="conversation-message-body"><div className="conversation-message-meta"><strong>{human ? '你' : agentName || 'Agent'}</strong>{timestamp && <time>{formatTime(timestamp)}</time>}{streaming && <span className={`conversation-streaming-label${failed ? ' is-failed' : ''}`}>{failed ? <X size={11} /> : <Loader2 size={11} />} {streamingLabel}</span>}{failed && !streaming && <span className="conversation-failed-label">执行失败</span>}</div>{showBubble && <div className="conversation-bubble">{children}</div>}</div></div>
+function MessageShell({ children, footer, human = false, failed = false, agentName, timestamp, streaming = false, streamingLabel = '生成中' }: { children: React.ReactNode; footer?: React.ReactNode; human?: boolean; failed?: boolean; agentName?: string | null; timestamp?: string; streaming?: boolean; streamingLabel?: string }) {
+  return <div className={`conversation-message${human ? ' is-human' : ''}${failed ? ' is-failed' : ''}`}><div className="conversation-avatar">{human ? <User size={14} /> : <Bot size={14} />}</div><div className="conversation-message-body"><div className="conversation-message-meta"><strong>{human ? '你' : agentName || 'Agent'}</strong>{timestamp && <time>{formatTime(timestamp)}</time>}{streaming && <span className={`conversation-streaming-label${failed ? ' is-failed' : ''}`}>{failed ? <X size={11} /> : <Loader2 size={11} />} {streamingLabel}</span>}{failed && !streaming && <span className="conversation-failed-label">执行失败</span>}</div><div className="conversation-bubble">{children}</div>{footer}</div></div>
 }
 
 function ProcessBlock({ block, adapter, messageId, isStreaming = false, thinkingActive = false, onOpenPreview, onOpenFiles }: { block: TurnProcessBlock; adapter: ConversationAdapter; messageId: string; isStreaming?: boolean; thinkingActive?: boolean; onOpenPreview?: ConversationPaneProps['onOpenPreview']; onOpenFiles?: ConversationPaneProps['onOpenFiles'] }) {
@@ -192,40 +190,3 @@ function EmptyConversation({ text }: { text: string }) { return <div className="
 function LoadingState({ text }: { text: string }) { return <div className="conversation-state"><Loader2 size={18} /><div>{text}</div></div> }
 function ErrorState({ text }: { text: string }) { return <div className="conversation-state is-error" role="alert">{text}</div> }
 function formatTime(value: string): string { const date = new Date(value); return Number.isNaN(date.getTime()) ? value : date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }
-
-interface TurnStats {
-  inputTokens?: number
-  outputTokens?: number
-  cachedReadTokens?: number
-  costAmount?: number
-  elapsedSeconds?: number
-}
-
-function parseTurnStats(raw?: string | null, startedAt?: string | null, completedAt?: string | null): TurnStats | null {
-  const elapsedSecondsFromTimestamps = elapsedSecondsBetween(startedAt, completedAt)
-  if (!raw) return elapsedSecondsFromTimestamps == null ? null : { elapsedSeconds: elapsedSecondsFromTimestamps }
-  try {
-    const value = JSON.parse(raw) as unknown
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return null
-    const stats = value as Record<string, unknown>
-    return {
-      inputTokens: typeof stats.inputTokens === 'number' ? stats.inputTokens : undefined,
-      outputTokens: typeof stats.outputTokens === 'number' ? stats.outputTokens : undefined,
-      cachedReadTokens: typeof stats.cachedReadTokens === 'number' ? stats.cachedReadTokens : undefined,
-      costAmount: typeof stats.costAmount === 'number' ? stats.costAmount : undefined,
-      elapsedSeconds: typeof stats.elapsedSeconds === 'number' ? stats.elapsedSeconds : elapsedSecondsFromTimestamps,
-    }
-  } catch { return null }
-}
-
-function TurnStatsView({ stats }: { stats: { inputTokens?: number; outputTokens?: number; cachedReadTokens?: number; costAmount?: number; elapsedSeconds?: number } }) {
-  const hasStats = stats.elapsedSeconds != null || stats.inputTokens != null || stats.outputTokens != null || stats.cachedReadTokens != null || stats.costAmount != null
-  if (!hasStats) return null
-  return <div className="conversation-turn-stats">
-    {stats.elapsedSeconds != null && <span>耗时 {formatCompactDuration(stats.elapsedSeconds)}</span>}
-    {stats.inputTokens != null && <span>输入 <b>{fmtTokens(stats.inputTokens)}</b></span>}
-    {stats.outputTokens != null && <span>输出 <b>{fmtTokens(stats.outputTokens)}</b></span>}
-    {stats.cachedReadTokens != null && stats.cachedReadTokens > 0 && <span>缓存 <b>{fmtTokens(stats.cachedReadTokens)}</b></span>}
-    {stats.costAmount != null && <span>${stats.costAmount.toFixed(4)}</span>}
-  </div>
-}

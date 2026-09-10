@@ -170,7 +170,7 @@ describe('shared conversation pane', () => {
     expect(html).not.toContain('conversation-message is-human')
   })
 
-  test('does not render an empty bubble when the streaming turn only has a stage block', () => {
+  test('renders an execution panel while the streaming turn only has a stage block', () => {
     const html = renderToStaticMarkup(createElement(ConversationPane, {
       adapter: adapter({
         streamingMessage: {
@@ -179,7 +179,9 @@ describe('shared conversation pane', () => {
         },
       }),
     }))
-    expect(html).not.toContain('conversation-bubble')
+    expect(html).toContain('conversation-bubble')
+    expect(html).toContain('执行过程')
+    expect(html).toContain('执行工具')
     expect((html.match(/conversation-streaming-label/g) || []).length).toBe(1)
   })
 })
