@@ -44,11 +44,12 @@ export const teamWakeCoordinator = {
     if (!team || !member || member.role === 'leader') return
     const task = message.task_id ? taskStore.get(message.task_id) : undefined
     const delayMs = message.task_id ? TASK_MAILBOX_WAKE_DELAY_MS : WAKE_DELAY_MS
+    // 成员在哪条会话线干活，就唤醒那条线的 Leader（leader 格子 = 该线 master session）。
     const conversation = sourceSessionId ? teamConversationStore.getBySession(sourceSessionId) : undefined
-    const leaderSessionId = conversation
+    const preferredLeaderSessionId = conversation
       ? teamConversationStore.listMembers(conversation.id).find((entry) => teamMemberStore.get(entry.member_id)?.role === 'leader')?.session_id
       : undefined
-    scheduleLeaderWake(team, member, buildLeaderWakePrompt({ team, member, message, task }), delayMs, leaderSessionId)
+    scheduleLeaderWake(team, member, buildLeaderWakePrompt({ team, member, message, task }), delayMs, preferredLeaderSessionId)
   },
 
   notifyTaskUpdated(task: TaskRow, actor?: { teamMemberId?: string }): void {
@@ -56,8 +57,20 @@ export const teamWakeCoordinator = {
     const team = teamStore.get(task.team_id)
     const member = teamMemberStore.get(actor.teamMemberId)
     if (!team || !member || member.role === 'leader') return
-    scheduleLeaderWake(team, member, buildLeaderWakePrompt({ team, member, task }), WAKE_DELAY_MS)
+    // 任务记线：优先用创建任务时的来源会话反查会话线，唤醒该线的 Leader。
+    const preferredLeaderSessionId = task.initiator_session_id
+      ? leaderSessionIdForConversationOf(team.id, task.initiator_session_id)
+      : undefined
+    scheduleLeaderWake(team, member, buildLeaderWakePrompt({ team, member, task }), WAKE_DELAY_MS, preferredLeaderSessionId)
   },
+}
+
+/** 解析某条会话线（通过线内任一 session 识别）的 Leader 格子 session，即该线 master。 */
+function leaderSessionIdForConversationOf(teamId: string, conversationSessionId: string): string | undefined {
+  const conversation = teamConversationStore.getBySession(conversationSessionId)
+  if (!conversation || conversation.team_id !== teamId) return undefined
+  return teamConversationStore.listMembers(conversation.id)
+    .find((entry) => teamMemberStore.get(entry.member_id)?.role === 'leader')?.session_id ?? undefined
 }
 
 function scheduleLeaderWake(team: TeamRow, member: TeamMemberRow, prompt: string, delayMs: number, preferredLeaderSessionId?: string | null): void {
@@ -67,7 +80,7 @@ function scheduleLeaderWake(team: TeamRow, member: TeamMemberRow, prompt: string
     return
   }
 
-  const leaderSessionId = preferredLeaderSessionId ?? leader.session_id
+  const leaderSessionId = resolveWakeTargetSession(team, leader, member, preferredLeaderSessionId)
   pendingByLeaderSession.set(leaderSessionId, prompt)
   const existingTimer = wakeTimers.get(leaderSessionId)
   if (existingTimer) clearTimeout(existingTimer)
@@ -75,6 +88,29 @@ function scheduleLeaderWake(team: TeamRow, member: TeamMemberRow, prompt: string
   timer.unref?.()
   wakeTimers.set(leaderSessionId, timer)
   log.debug({ teamId: team.id, leaderSessionId, delayMs }, 'Team Leader wake scheduled')
+}
+
+/**
+ * 唤醒目标解析链（全部优先落在"会话线"维度，避免唤醒跑进不属于任何线的孤儿 session）：
+ * 1) 调用方显式给出的线内 Leader session；
+ * 2) 成员首线格子反查出的线 → 该线 Leader 格子；
+ * 3) 团队最近一条活跃会话线的 master session；
+ * 4) 兼容兜底：team_members.leader.session_id（仅存量的无会话线团队会走到）。
+ */
+function resolveWakeTargetSession(team: TeamRow, leader: TeamMemberRow, member: TeamMemberRow, preferredLeaderSessionId?: string | null): string {
+  if (preferredLeaderSessionId) return preferredLeaderSessionId
+  const viaMember = member.session_id ? teamConversationStore.getBySession(member.session_id) : undefined
+  if (viaMember) {
+    const leaderSessionId = leaderSessionIdForConversationOf(team.id, member.session_id as string)
+    if (leaderSessionId) return leaderSessionId
+  }
+  const latestActive = teamConversationStore.list(team.id).find((conversation) => conversation.status === 'active')
+  if (latestActive) return latestActive.master_session_id
+  if (leader.session_id) {
+    log.warn({ teamId: team.id, leaderSessionId: leader.session_id }, 'Team Leader wake fell back to member-bound session (no active conversation)')
+    return leader.session_id
+  }
+  throw new Error(`Team ${team.id} 没有可唤醒的 Leader 会话`)
 }
 
 function flushLeaderWake(leaderSessionId: string): void {

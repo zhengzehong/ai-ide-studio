@@ -99,6 +99,14 @@ export const teamConversationStore = {
       WHERE conversation_id = ? AND left_at IS NULL ORDER BY joined_at ASC`).all(conversationId)
   },
 
+  /** 成员在所有活跃会话线中的格子（session_id 非空），用于判断"首次进线可复用 primary session"。 */
+  listMemberGrids(memberId: string): TeamConversationMemberRow[] {
+    return getDb().prepare<[string], TeamConversationMemberRow>(`SELECT tcm.* FROM team_conversation_members tcm
+      JOIN team_conversations tc ON tc.id = tcm.conversation_id
+      WHERE tcm.member_id = ? AND tcm.left_at IS NULL AND tc.status = 'active' AND tcm.session_id IS NOT NULL
+      ORDER BY tcm.joined_at ASC`).all(memberId)
+  },
+
   appendMessage(input: Omit<TeamMessageRow, 'id' | 'sequence' | 'created_at'>): TeamMessageRow {
     const db = getDb()
     const tx = db.transaction(() => {

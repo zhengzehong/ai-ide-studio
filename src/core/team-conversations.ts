@@ -29,6 +29,38 @@ function withConversationSessions(conversationId: string, members: TeamMemberRow
   return members.map((member) => ({ ...member, session_id: sessions.get(member.id) ?? member.session_id }))
 }
 
+/**
+ * 解析成员进入某条会话线时应使用的 session id（"线 × 成员 = 格子"模型）。
+ * - 成员已参与其他活跃线 → 本线新建独立 session；
+ * - 首次进线 → 复用 primary session（member.session_id，消除第一期遗留的"孤儿 master"），
+ *   但 primary 已有消息（外部 leader 带历史会话等）时新建，避免历史串线。
+ */
+function resolveMemberConversationSession(member: TeamMemberRow): string {
+  if (teamConversationStore.listMemberGrids(member.id).length > 0) {
+    return sessionStore.create({ agentId: member.agent_id, projectId: member.project_id }).id
+  }
+  const primary = member.session_id ? sessionStore.get(member.session_id) : undefined
+  if (primary && primary.project_id === member.project_id && !primary.last_message_at) return primary.id
+  return sessionStore.create({ agentId: member.agent_id, projectId: member.project_id }).id
+}
+
+/** 确保成员在某条活跃会话线里有格子，返回该成员在此线的 session id。 */
+export function ensureMemberInConversation(conversationId: string, member: TeamMemberRow): string | undefined {
+  const existing = teamConversationStore.listMembers(conversationId).find((entry) => entry.member_id === member.id)
+  if (existing?.session_id) return existing.session_id
+  const sessionId = resolveMemberConversationSession(member)
+  teamConversationStore.addMember(conversationId, member.id, sessionId)
+  return sessionId
+}
+
+/** 把成员补登记进该团队所有活跃会话线（召唤成员时调用，避免成员掉出已有会话线）。 */
+export function ensureMemberInActiveConversations(teamId: string, member: TeamMemberRow): void {
+  for (const conversation of teamConversationStore.list(teamId)) {
+    if (conversation.status !== 'active') continue
+    ensureMemberInConversation(conversation.id, member)
+  }
+}
+
 export function listTeamConversations(teamId: string): TeamConversationRow[] {
   requireTeam(teamId)
   return teamConversationStore.list(teamId)
@@ -39,13 +71,12 @@ export function createTeamConversation(teamId: string, title?: string): TeamConv
   const members = teamMemberStore.list(team.id)
   const leader = members.find((member) => member.role === 'leader') ?? members[0]
   if (!leader) throw new Error('Team 没有 Master 成员')
-  const masterSession = sessionStore.create({ agentId: leader.agent_id, projectId: team.project_id })
-  const conversation = teamConversationStore.create(team.id, masterSession.id, title ?? '')
+  // Master 的格子即本线 master session：首次开线复用其 primary session，不再新建第二个 master。
+  const masterSessionId = resolveMemberConversationSession(leader)
+  const conversation = teamConversationStore.create(team.id, masterSessionId, title ?? '')
   for (const member of members) {
-    const session = member.id === leader.id
-      ? masterSession
-      : sessionStore.create({ agentId: member.agent_id, projectId: team.project_id })
-    teamConversationStore.addMember(conversation.id, member.id, session.id)
+    const sessionId = member.id === leader.id ? masterSessionId : resolveMemberConversationSession(member)
+    teamConversationStore.addMember(conversation.id, member.id, sessionId)
   }
   return { conversation, members: withConversationSessions(conversation.id, members), messages: [] }
 }

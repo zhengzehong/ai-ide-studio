@@ -66,6 +66,7 @@ import { advisorDefaultPromptMigration } from './063-advisor-default-prompt.js'
 import { teamConversationsMigration } from './064-team-conversations.js'
 import { teamMasterPromptMigration } from './066-team-master-prompt.js'
 import { teamMemberModelProfileMigration } from './067-team-member-model-profile.js'
+import { teamSessionGridRepairMigration } from './068-team-session-grid-repair.js'
 
 export const migrations: Migration[] = [
   initialSchemaMigration,
@@ -135,4 +136,5 @@ export const migrations: Migration[] = [
   teamConversationsMigration,
   teamMasterPromptMigration,
   teamMemberModelProfileMigration,
+  teamSessionGridRepairMigration,
 ]
