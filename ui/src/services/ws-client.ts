@@ -5,7 +5,7 @@ export const WS_HEARTBEAT_INTERVAL_MS = 15_000
 export const WS_HEARTBEAT_TIMEOUT_MS = 30_000
 const WS_RECONNECT_DELAY_MS = 3_000
 
-class WSClient {
+export class WSClient {
   private ws: WebSocket | null = null
   private handlers = new Map<string, Set<MessageHandler>>()
   private requestCounter = 0
@@ -16,6 +16,8 @@ class WSClient {
   private connectGeneration = 0
   private intentionalClose = false
   private currentSubscriptions = new Set<string>()
+  /** 每个 session 的订阅方数量：多个面板/组件共享一条连接，卸载只减自己的引用，归零才真正退订。 */
+  private subscriptionRefs = new Map<string, number>()
   private hasConnectedBefore = false
   private cursors = new Map<string, { streamGeneration: string; sequence: number }>()
   private eventListenersReady = false
@@ -208,17 +210,34 @@ class WSClient {
   }
 
   subscribe(sessionIds: string[]) {
-    sessionIds.forEach(id => this.currentSubscriptions.add(id))
+    const newlySubscribed: string[] = []
+    sessionIds.forEach(id => {
+      const refs = (this.subscriptionRefs.get(id) ?? 0) + 1
+      this.subscriptionRefs.set(id, refs)
+      if (refs === 1) {
+        this.currentSubscriptions.add(id)
+        newlySubscribed.push(id)
+      }
+    })
     if (!this.eventListenersReady) {
       this.pendingSubscriptionRestore = true
       return
     }
-    this.send({ type: 'subscribe', sessionIds })
+    if (newlySubscribed.length) this.send({ type: 'subscribe', sessionIds: newlySubscribed })
   }
 
   unsubscribe(sessionIds: string[]) {
-    sessionIds.forEach(id => this.currentSubscriptions.delete(id))
-    this.send({ type: 'unsubscribe', sessionIds })
+    const dropped: string[] = []
+    sessionIds.forEach(id => {
+      const refs = (this.subscriptionRefs.get(id) ?? 0) - 1
+      if (refs > 0) {
+        this.subscriptionRefs.set(id, refs)
+        return
+      }
+      this.subscriptionRefs.delete(id)
+      if (this.currentSubscriptions.delete(id)) dropped.push(id)
+    })
+    if (dropped.length) this.send({ type: 'unsubscribe', sessionIds: dropped })
   }
 
   acknowledgeResync(sessionId?: string) {
@@ -237,6 +256,8 @@ class WSClient {
   }
 
   sendPrompt(sessionId: string, content: string) {
+    // 防御性兜底订阅（不占引用计数）：prompt 期间确保事件可达；
+    // 正常的订阅生命周期仍由各组件的 subscribe/unsubscribe 配对管理。
     this.currentSubscriptions.add(sessionId)
     this.send({ type: 'prompt', sessionId, content })
   }
