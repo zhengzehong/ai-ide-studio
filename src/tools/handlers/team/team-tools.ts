@@ -228,6 +228,7 @@ export const createTeamTaskHandler: ToolHandler = {
       title: requireString(input, 'title'),
       description: optionalString(input, 'description'),
       assigneeMemberId: optionalString(input, 'assigneeMemberId'),
+      sourceSessionId: context.sessionId,
     })
     return jsonResult({ task })
   },

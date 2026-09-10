@@ -21,7 +21,7 @@ import { buildTeamMemberPrompt } from './team-prompts.js'
 import { teamWakeCoordinator } from './team-wake-coordinator.js'
 import { applyToolProfileToAgent } from '../tools/team-profiles.js'
 import { teamConversationStore } from '../store/team-conversations.js'
-import { teamConversationService, resolveTeamLeaderSession } from './team-conversations.js'
+import { teamConversationService, resolveTeamLeaderSession, ensureMemberInActiveConversations, ensureMemberInConversation } from './team-conversations.js'
 export type { TeamConversationDetail } from './team-conversations.js'
 const log = createChildLogger('teams')
 
@@ -74,6 +74,8 @@ export interface CreateTeamTaskInput {
   title: string
   description?: string
   assigneeMemberId?: string
+  /** 创建任务的来源会话（Master 的会话线内 session），用于任务唤醒时反查会话线。 */
+  sourceSessionId?: string
 }
 export interface UpdateTeamTaskInput {
   teamId: string
@@ -164,6 +166,8 @@ export const teamService = {
       modelProfileId,
     })
     applyToolProfileToAgent({ profileId: 'team-member', agentId: agent.id })
+    // 召唤成员后立即补进所有活跃会话线，保证"线 × 成员"格子完整（否则唤醒/派活寻址会落空）。
+    ensureMemberInActiveConversations(team.id, member)
     log.info({ teamId: team.id, memberId: member.id, agentId: agent.id }, 'Team member 已创建')
     events.emit('session:changed', { sessionId: session.id, data: { ...session } })
     emitTeamUpdate(team.id, 'member.created')
@@ -184,8 +188,11 @@ export const teamService = {
     if (task) markTaskDispatched(team.id, task, member)
     const prompt = buildTeamMemberPrompt({ team, member, content: input.content, taskId: input.taskId })
     const conversation = input.sourceSessionId ? teamConversationStore.getBySession(input.sourceSessionId) : undefined
-    const targetSessionId = conversation ? teamConversationStore.listMembers(conversation.id).find((entry) => entry.member_id === member.id)?.session_id : undefined
-    const status = dispatchMemberPrompt({ teamId: team.id, memberId: member.id, sessionId: targetSessionId ?? member.session_id, prompt, displayContent: input.content, senderName: 'Master' })
+    // 优先派到成员在该线的格子；格子缺失（历史数据/极端时序）时现场补建，实现自愈。
+    const targetSessionId = conversation
+      ? ensureMemberInConversation(conversation.id, member) ?? member.session_id
+      : member.session_id
+    const status = dispatchMemberPrompt({ teamId: team.id, memberId: member.id, sessionId: targetSessionId, prompt, displayContent: input.content, senderName: 'Master' })
     return { status, member }
   },
 
@@ -239,6 +246,7 @@ export const teamService = {
       projectId: team.project_id,
       teamId: team.id,
       assigneeMemberId: assignee?.id,
+      initiatorSessionId: input.sourceSessionId,
     })
     if (assignee) {
       taskStore.assignAgent(task.id, assignee.agent_id)
