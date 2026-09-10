@@ -8,6 +8,7 @@ import { agentMemoryRpcHandlers } from './agent-memory.js'
 import { eventCenterRpcHandlers } from './event-center.js'
 import { knowledgeBaseRpcHandlers } from './knowledge-base.js'
 import { modelRpcHandlers } from './models.js'
+import { modelCaptureRpcHandlers } from './model-capture.js'
 import { projectRpcHandlers } from './projects.js'
 import { ruleRpcHandlers } from './rules.js'
 import { sessionRpcHandlers } from './sessions.js'
@@ -61,6 +62,7 @@ const rpcHandlers: RpcHandlerMap = {
   ...advisorRpcHandlers,
   ...spreadsheetRpcHandlers,
   ...readingRpcHandlers,
+  ...modelCaptureRpcHandlers,
 }
 
 export async function dispatchRpc(msg: ClientMessage, context: RpcContext): Promise<void> {

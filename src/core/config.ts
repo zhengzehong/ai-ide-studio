@@ -20,6 +20,7 @@ export interface AppConfig {
   dataWalCheckpointBytes?: number
   dataPublishedOutboxRetentionMs?: number
   dataRetentionMode?: DataRetentionMode
+  modelCaptureProxyPort?: number
   edgeMode?: EdgeMode
   edgeRealtimePath?: string
   realtimeMode?: RealtimeMode
@@ -66,6 +67,7 @@ export function loadConfig(): AppConfig {
       7 * 24 * 60 * 60 * 1000,
     ),
     dataRetentionMode: parseDataRetentionMode(process.env.DATA_RETENTION_MODE),
+    modelCaptureProxyPort: parsePositiveInteger(process.env.MODEL_CAPTURE_PROXY_PORT, 3090),
     edgeMode: process.env.EDGE_MODE === 'disabled' ? 'disabled' : 'process',
     edgeRealtimePath: normalizePublicPath(process.env.EDGE_REALTIME_PATH),
     realtimeMode: process.env.REALTIME_MODE === 'embedded' ? 'embedded' : 'process',

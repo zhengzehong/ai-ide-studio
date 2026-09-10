@@ -56,3 +56,6 @@ team-ui-smoke.png
 *.njsproj
 *.sln
 *.sw?
+
+# 模型代理抓包落盘
+data/captures/

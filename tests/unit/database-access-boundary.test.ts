@@ -8,6 +8,7 @@ const ALLOWED_DIRECT_GET_DB_IMPORTS = new Set([
   'src/core/timeline.ts',
   'src/data-worker/query-worker/operations.ts',
   'src/gateway/rpc/widget.ts',
+  'src/model-capture/classify.ts',
   'src/tools/registry/context-registry.ts',
   'src/tools/runtime/audit-service.ts',
   'src/tools/seed.ts',
