@@ -1,4 +1,5 @@
 ﻿import { teamService } from '../../core/teams.js'
+import { sessionManager } from '../../core/sessions.js'
 import type { RpcHandlerMap } from './types.js'
 import { modelProfileStore } from '../../store/model-profiles.js'
 import { getGlobalModelProfile } from '../../acp/runtime-global-model-profile.js'
@@ -47,7 +48,10 @@ export const teamRpcHandlers: RpcHandlerMap = {
     sendResult(teamService.detail(teamId))
   },
   'team.conversation.list'(msg, { sendResult }) {
-    sendResult(teamService.listConversations(requiredText(msg.teamId, 'teamId')))
+    sendResult(teamService.listConversations(
+      requiredText(msg.teamId, 'teamId'),
+      (sessionId) => sessionManager.isPromptActive(sessionId),
+    ))
   },
   'team.conversation.create'(msg, { sendResult }) {
     sendResult(teamService.createConversation(requiredText(msg.teamId, 'teamId'), typeof msg.title === 'string' ? msg.title : undefined))

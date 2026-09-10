@@ -15,6 +15,7 @@ interface Conversation {
   status: string
   updated_at: string
   activity_state?: 'running' | 'idle' | null
+  grid_session_ids?: string[] | null
 }
 
 interface Props {

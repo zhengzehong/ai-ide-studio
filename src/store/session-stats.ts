@@ -48,6 +48,21 @@ export const projectSessionStatsStore = {
         AND s.is_template = 0
         AND ${userVisibleSessionSql()}
         AND s.status = 'active'
+        -- 团队格子会话不计入统计：非 primary 格子（≠ 成员主 session）与 teamInternal agent 会话都排除；
+        -- 首线复用的 primary 格子（= tm.session_id）是成员真实聊天会话，保留。
+        AND NOT EXISTS (
+          SELECT 1
+          FROM team_conversation_members tcm
+          JOIN team_members tm ON tm.id = tcm.member_id
+          WHERE tcm.session_id = s.id AND tcm.session_id IS NOT tm.session_id
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM agents ta
+          WHERE ta.id = s.agent_id
+            AND json_valid(ta.config_json)
+            AND COALESCE(json_extract(ta.config_json, '$.teamInternal'), 0) = 1
+        )
       ORDER BY p.created_at ASC, p.id ASC, s.started_at ASC, s.id ASC
     `).all()
 

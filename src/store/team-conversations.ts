@@ -20,6 +20,15 @@ export interface TeamConversationMemberRow {
   left_at: string | null
 }
 
+export interface TeamGridActivityRow {
+  conversation_id: string
+  session_id: string | null
+  status: string | null
+  stage: string | null
+  has_running_agent_message: number
+  has_running_process_item: number
+}
+
 export interface TeamMessageRow {
   id: string
   conversation_id: string
@@ -105,6 +114,22 @@ export const teamConversationStore = {
       JOIN team_conversations tc ON tc.id = tcm.conversation_id
       WHERE tcm.member_id = ? AND tcm.left_at IS NULL AND tc.status = 'active' AND tcm.session_id IS NOT NULL
       ORDER BY tcm.joined_at ASC`).all(memberId)
+  },
+
+  /** 线内全部格子 session 的运行信号（含成员格子），供 core 聚合成"任一格子在跑 → 线 running"。 */
+  listGridActivity(teamId: string): TeamGridActivityRow[] {
+    return getDb().prepare<[string], TeamGridActivityRow>(`
+      SELECT tcm.conversation_id, tcm.session_id, s.status, s.stage,
+        CASE WHEN s.id IS NOT NULL AND EXISTS (
+          SELECT 1 FROM messages msg WHERE msg.session_id = s.id AND msg.role = 'agent' AND msg.status = 'running'
+        ) THEN 1 ELSE 0 END AS has_running_agent_message,
+        CASE WHEN s.id IS NOT NULL AND EXISTS (
+          SELECT 1 FROM turn_process_items item WHERE item.session_id = s.id AND item.status IN ('running', 'pending', 'in_progress')
+        ) THEN 1 ELSE 0 END AS has_running_process_item
+      FROM team_conversation_members tcm
+      JOIN team_conversations tc ON tc.id = tcm.conversation_id
+      LEFT JOIN sessions s ON s.id = tcm.session_id
+      WHERE tc.team_id = ? AND tc.status != 'deleted' AND tcm.left_at IS NULL`).all(teamId)
   },
 
   appendMessage(input: Omit<TeamMessageRow, 'id' | 'sequence' | 'created_at'>): TeamMessageRow {
