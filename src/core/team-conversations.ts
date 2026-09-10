@@ -2,11 +2,18 @@ import { sessionStore, type SessionRow } from '../store/sessions.js'
 import type { AgentRow } from '../store/agents.js'
 import { teamMemberStore, teamStore, type TeamMemberRow, type TeamRow } from '../store/teams.js'
 import { teamConversationStore, type TeamConversationRow, type TeamMessageRow } from '../store/team-conversations.js'
+import { resolveSessionRuntimeState } from '../store/session-runtime-state.js'
 
 export interface TeamConversationDetail {
   conversation: TeamConversationRow
   members: TeamMemberRow[]
   messages: TeamMessageRow[]
+}
+
+/** 会话线列表项：在原始行上附线级运行状态与格子清单（含成员格子），供前端点亮与自动选中。 */
+export interface TeamConversationListItem extends TeamConversationRow {
+  activity_state: 'running' | 'idle'
+  grid_session_ids: string[]
 }
 
 function requireTeam(teamId: string): TeamRow {
@@ -61,9 +68,45 @@ export function ensureMemberInActiveConversations(teamId: string, member: TeamMe
   }
 }
 
-export function listTeamConversations(teamId: string): TeamConversationRow[] {
+export function listTeamConversations(
+  teamId: string,
+  isPromptActive: (sessionId: string) => boolean = () => false,
+): TeamConversationListItem[] {
   requireTeam(teamId)
-  return teamConversationStore.list(teamId)
+  const conversations = teamConversationStore.list(teamId)
+  if (conversations.length === 0) return []
+  return withConversationActivity(teamId, conversations, isPromptActive)
+}
+
+/**
+ * 线级运行状态聚合：线内任一格子（含成员格子）running → 线 running。
+ * 判定与单人绿点同一套 resolveSessionRuntimeState 信号，保证侧栏、统计、聊天窗口径一致。
+ */
+function withConversationActivity(
+  teamId: string,
+  conversations: TeamConversationRow[],
+  isPromptActive: (sessionId: string) => boolean,
+): TeamConversationListItem[] {
+  const activityByConversation = new Map<string, { running: boolean; sessionIds: string[] }>()
+  for (const row of teamConversationStore.listGridActivity(teamId)) {
+    const entry = activityByConversation.get(row.conversation_id) ?? { running: false, sessionIds: [] }
+    if (row.session_id) entry.sessionIds.push(row.session_id)
+    if (resolveSessionRuntimeState({
+      promptActive: row.session_id ? isPromptActive(row.session_id) : false,
+      hasRunningAgentMessage: row.has_running_agent_message === 1,
+      hasRunningProcessItem: row.has_running_process_item === 1,
+      status: row.status ?? '',
+      stage: row.stage,
+    }) === 'running') {
+      entry.running = true
+    }
+    activityByConversation.set(row.conversation_id, entry)
+  }
+  return conversations.map((conversation) => ({
+    ...conversation,
+    activity_state: activityByConversation.get(conversation.id)?.running ? 'running' : 'idle',
+    grid_session_ids: activityByConversation.get(conversation.id)?.sessionIds ?? [],
+  }))
 }
 
 export function createTeamConversation(teamId: string, title?: string): TeamConversationDetail {
