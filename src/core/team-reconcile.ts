@@ -1,10 +1,13 @@
 import { taskStore, type TaskRow } from '../store/tasks.js'
-import { teamMemberStore } from '../store/teams.js'
+import { teamMailboxStore, teamMemberStore, teamStore } from '../store/teams.js'
 import { events } from './events.js'
 import { createChildLogger } from './logger.js'
 import { teamWakeCoordinator } from './team-wake-coordinator.js'
 
 const log = createChildLogger('team-reconcile')
+
+/** 重启对账只回看最近这段窗口内的汇报；更早的汇报在运行期必然已触发过唤醒或被用户处理。 */
+const WAKE_RECOVERY_WINDOW_MS = 10 * 60 * 1000
 
 /**
  * 服务重启对账：派发/唤醒队列都是内存态，重启即丢失。
@@ -39,4 +42,29 @@ export function reconcileInterruptedTeamTasks(): { reconciled: number } {
   }
   if (candidates.length > 0) log.warn({ reconciled: candidates.length }, '重启后已对账中断的 Team 任务')
   return { reconciled: candidates.length }
+}
+
+/**
+ * 重启对账的另一半：派发/唤醒队列是内存态，重启即丢。中断的任务由上面的任务对账兜底，
+ * 这里补的是"不绑任务的纯汇报"——成员 mailbox.send 后唤醒定时器还没来得及触发就重启，
+ * Leader 永远不会被叫醒。每个团队只取窗口内最新一条候选，交给 coordinator 判定是否补唤醒。
+ */
+export function reconcilePendingTeamWakes(): { recovered: number } {
+  const since = new Date(Date.now() - WAKE_RECOVERY_WINDOW_MS).toISOString()
+  let recovered = 0
+  for (const team of teamStore.list()) {
+    const candidates = teamMailboxStore
+      .list(team.id, 50)
+      .filter((message) => !message.task_id && message.created_at >= since)
+    // list 按 created_at 升序返回，最后一个即最新。
+    const latest = candidates.at(-1)
+    if (!latest) continue
+    try {
+      if (teamWakeCoordinator.recoverPendingWake(latest)) recovered += 1
+    } catch (err) {
+      log.warn({ err, teamId: team.id, messageId: latest.id }, 'Team wake recovery failed')
+    }
+  }
+  if (recovered > 0) log.warn({ recovered }, '重启后已补发丢失的 Team Leader 唤醒')
+  return { recovered }
 }
