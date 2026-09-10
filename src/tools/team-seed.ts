@@ -53,7 +53,7 @@ export const TEAM_BUILTIN_TOOLS: BuiltinToolSeed[] = [
     type: 'object',
     properties: { teamId: { type: 'string', description: 'Team ID；不传时使用上下文 Team' } },
   }),
-  teamTool('team.member.spawn', '创建 Team 成员', '从模板创建成员，或把已有 Agent 加入 Team。', {
+  teamTool('team.member.spawn', '创建 Team 成员', '从模板创建成员，或把已有 Agent 加入 Team。默认继承 Master 模型档案；需要指定成员档案时，先调用 core.model_profile.list 查询，再传返回的 id。', {
     type: 'object',
     properties: {
       teamId: { type: 'string', description: 'Team ID；不传时使用上下文 Team' },
@@ -65,6 +65,7 @@ export const TEAM_BUILTIN_TOOLS: BuiltinToolSeed[] = [
       systemPrompt: { type: 'string', description: '系统提示词' },
       icon: { type: 'string', description: '图标' },
       role: { type: 'string', description: '成员角色标签' },
+      modelProfileId: { type: 'string', description: '可选成员模型档案 ID；不传则继承 Master，先使用 core.model_profile.list 查询' },
     },
   }),
   teamTool('team.member.message', '派活给成员', '给 Team 成员派活，异步触发成员 Session 执行。', {

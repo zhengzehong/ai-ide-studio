@@ -620,6 +620,7 @@ watch 监听 `session:done`，触发后后台唤醒 `watcher_session_id`。如�
 | session_id | TEXT FK | 当前团队会话 |
 | name | TEXT | 成员显示名 |
 | role | TEXT | leader / member 等业务标签 |
+| model_profile_id | TEXT FK NULL | 成员级模型档案覆盖；为空时继承 Master 的有效档案 |
 | status | TEXT | active / removed |
 | created_at | TEXT | 创建时间 |
 | updated_at | TEXT | 更新时间 |
@@ -893,7 +894,7 @@ SQLite schema 由 `src/store/migrator.ts` 和 `src/store/migrations/*` 管理。
 
 项目工作台默认只展示 `project_id = 当前项目` 的 Agent。`project_id IS NULL` 的 Agent 只用于全局兼容场景，不应混入项目会话。
 
-`modelProfileId` 必须指向与 Agent `runtime` 一致的 `model_profiles` 记录。Agent runtime 改变、档案删除或档案 runtime 改变时，后端会移除不再匹配的绑定。
+`modelProfileId` 必须指向与 Agent `runtime` 一致的 `model_profiles` 记录。Agent runtime 改变、档案删除或档案 runtime 改变时，后端会移除不再匹配的绑定。TeamMember 的 `model_profile_id` 是独立于 Agent 的可选覆盖；为空时继承同 Team leader 的有效档案，Master 或成员没有可用档案时继续使用 Runtime 系统环境。
 
 
 ### ACP 生命周期持久化说明

@@ -140,6 +140,9 @@ export class EmbeddedRuntimePort implements RuntimePort {
       runtimeContextKey: createHash('sha256')
         .update(runtimeSessionContextFingerprint(snapshot))
         .digest('hex'),
+      ...(snapshot.runtime.appliedModelProfile?.id
+        ? { modelProfileIdOverride: snapshot.runtime.appliedModelProfile.id }
+        : {}),
       ...(emitLifecycle === undefined ? {} : { emitLifecycle }),
       ...(snapshot.session.canRecreateMissingSession === undefined
         ? {}

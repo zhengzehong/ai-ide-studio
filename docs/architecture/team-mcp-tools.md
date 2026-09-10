@@ -179,6 +179,8 @@ Team 页面只是把这些 Session 按成员组织起来展示。
 
 `team.member.spawn` 可以从 Agent 模板创建项目级 Agent，也可以把已有 Agent 加入 Team。
 
+调用时可选传入 `modelProfileId` 为该 TeamMember 指定模型档案。Master 应先调用 `core.model_profile.list` 查询与成员 runtime 匹配的可用档案，再传返回的 `id`；不传时成员继承 Master 的有效模型档案。Master 和成员都没有可用档案时，继续使用 Runtime 系统默认配置。
+
 生命周期规则：
 
 | 场景 | 规则 |
@@ -296,7 +298,7 @@ member.session_id
 | 工具 | 语义 | 主要结果 | 可见性建议 |
 |---|---|---|---|
 | `team.member.list` | 列出 Team 成员 | members | 只读 / 协作 / 编排 |
-| `team.member.spawn` | 从模板创建成员，或把已有 Agent 加入 Team | member + agent + session | 编排 |
+| `team.member.spawn` | 从模板创建成员，或把已有 Agent 加入 Team；可用 `modelProfileId` 指定成员档案 | member + agent + session | 编排 |
 | `team.member.message` | 给成员派活，触发成员 Session 执行 | dispatch status | 编排 |
 
 ### 9.3 Mailbox 协作

@@ -83,7 +83,7 @@ export const listTeamMembersHandler: ToolHandler = {
 
 export const spawnTeamMemberHandler: ToolHandler = {
   name: 'team.member.spawn',
-  description: '从模板创建成员，或把已有 Agent 加入 Team',
+  description: '从模板创建成员，或把已有 Agent 加入 Team。默认继承 Master 模型档案；如需指定成员档案，先调用 core.model_profile.list 查询可用档案，再把返回的 id 传给 modelProfileId。',
   inputSchema: {
     type: 'object',
     properties: {
@@ -96,6 +96,7 @@ export const spawnTeamMemberHandler: ToolHandler = {
       systemPrompt: { type: 'string' },
       icon: { type: 'string' },
       role: { type: 'string' },
+      modelProfileId: { type: 'string', description: '可选成员模型档案 ID；不传则继承 Master，先使用 core.model_profile.list 查询' },
     },
   },
   async execute(input, context) {
@@ -112,6 +113,7 @@ export const spawnTeamMemberHandler: ToolHandler = {
         systemPrompt: optionalString(input, 'systemPrompt'),
         icon: optionalString(input, 'icon'),
         role: optionalString(input, 'role'),
+        modelProfileId: optionalString(input, 'modelProfileId'),
       }),
     )
   },

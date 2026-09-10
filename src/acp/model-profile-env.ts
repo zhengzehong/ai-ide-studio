@@ -42,6 +42,11 @@ export interface AgentRuntimeEnvResult {
   gatewayAuth?: RuntimeGatewayAuth
 }
 
+export interface AgentRuntimeEnvOptions {
+  /** Team member-level profile override. Undefined keeps the Agent's existing strategy. */
+  modelProfileIdOverride?: string
+}
+
 export interface ClaudeSessionMeta extends Record<string, unknown> {
   claudeCode: {
     options: {
@@ -111,11 +116,12 @@ export function buildAgentRuntimeEnv(
   runtime: string,
   agent: AgentRow,
   baseEnv: NodeJS.ProcessEnv = process.env,
+  options: AgentRuntimeEnvOptions = {},
 ): AgentRuntimeEnvResult {
   const env = buildRuntimeEnv(runtime, baseEnv)
   if (runtime === 'claude') env[CLAUDE_IMAGE_READ_POLICY_ENV_KEY] = '0'
   if (runtime === 'codex') delete env[CODEX_GATEWAY_API_KEY_ENV_KEY]
-  const resolvedProfile = resolveAgentModelProfile(runtime, agent)
+  const resolvedProfile = resolveAgentModelProfile(runtime, agent, options.modelProfileIdOverride)
   if (!resolvedProfile) return { env }
 
   if (runtime === 'codex') {
@@ -319,6 +325,7 @@ function normalizeClaudeBaseUrl(baseUrl: string, protocol: string): string {
 function resolveAgentModelProfile(
   runtime: string,
   agent: AgentRow,
+  modelProfileIdOverride?: string,
 ): { profile: ModelProfileRow; provider: ModelProviderRow; appliedProfile: AppliedModelProfile } | undefined {
   const mode = runtime === 'claude' || runtime === 'codex'
     ? readAgentModelProfileMode(agent.config_json)
@@ -328,11 +335,11 @@ function resolveAgentModelProfile(
     ? getGlobalModelProfile(runtime)
     : undefined
   const globalProfileId = globalState?.enabled ? globalState.profileId : undefined
-  const profileId = mode === 'fixed'
+  const profileId = modelProfileIdOverride?.trim() || (mode === 'fixed'
     ? explicitProfileId
     : mode === 'global'
       ? globalProfileId
-      : undefined
+      : undefined)
   if (!profileId) return undefined
 
   const profile = modelProfileStore.get(profileId)
