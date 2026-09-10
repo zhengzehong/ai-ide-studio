@@ -287,6 +287,8 @@ Session 删除采用软删除，仅隐藏列表项并保留 `messages` / `sessio
 左侧团队列表由 `team.store` 复用项目缓存规则，保留最近 5 个项目，重叠读取合并、旧响应按项目及请求版本隔离，身份变化清空缓存。已有缓存时列表静默刷新，刷新失败保留内容。团队会话操作复用平台 `ContextMenu`、`PromptDialog` 和 `ConfirmDialog`；删除成功先更新本地列表和选择，再刷新服务端数据。
 
 团队会话的状态聚合由 `team-chat-state` 负责。消息状态确定当前运行回合，`sessions.messageEvents` 提供该回合的完整事件，实时输出使用带序号的 `session:event` 接续；历史加载与实时流按序号边界去重合并。恢复接口中的生命周期事件只提供辅助状态，不能把已完成消息重新标记为运行中。计划、权限和文件变更过程项通过独立过程事件补充，正文、思考和工具不重复消费增量与过程快照。切换群聊时隔离视图状态，并在读取成员历史前建立订阅。
+
+`team-chat-pending` 管理本地发送占位与拒绝回滚，真实回合接替占位并保留开始时间；排队消息不覆盖当前运行回合。个人工作区与共享会话面板使用 `TurnStatsFooter` 在回复气泡外侧下方展示相同的统计条，`turn-stats` 解析本轮用量与历史耗时。团队成员各自计时和显示本轮用量，输入区上下文仍取 Master 会话。
 | `ui/src/services/` | 通信层 | `query-client.ts`、`ws-client.ts` |
 | `mobile/src/` | 移动端 Web App | `/app/` 下的手机端页面、组件和 Zustand store；复用 `ui/src/services/ws-client.ts` 与会话事件还原辅助逻辑 |
 

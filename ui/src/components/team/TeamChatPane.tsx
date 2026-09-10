@@ -13,6 +13,7 @@ import { attachTeamAssignments, mapTeamMessage } from './team-chat-assignments'
 import { loadTeamSession } from './team-chat-loader'
 import { teamCacheKey, teamChatCache, shareTeamRequest, invalidateTeamRequest, newTeamRequestScope, type SourceMessage, type TeamChatMember as Member } from './team-view-cache'
 import { useTeamRead } from './use-team-read'
+import { beginTeamPrompt, rejectTeamPrompt } from './team-chat-pending'
 
 import { aggregateSnapshots, emptySnapshot, mergeLoadedSnapshots, finalizeSnapshot, applyEventToSnapshot, mergeProcessItem, normalizeCapabilities, type Snapshot } from './team-chat-state'
 export { aggregateSnapshots, emptySnapshot, mergeLoadedSnapshots, finalizeSnapshot, applyEventToSnapshot, updateStreaming, hasLiveStreaming, rebuildStreamingFromEvents, TEAM_STREAM_REBUILD_EVENT_LIMIT, type Snapshot } from './team-chat-state'
@@ -145,9 +146,13 @@ function TeamConversationPane({ team, conversation, masterSessionId }: Props): R
     const clientMessageId = `team-${Date.now()}`
     const fileContext = files.length ? `${content.trim()}\n\n[文件附件]\n${files.map((file) => `- 文件路径: ${file.path}\n- MIME: ${file.mimeType}\n- 原始文件名: ${file.name}`).join('\n')}` : content.trim()
     const optimistic = normalizeMessage({ id: `${masterSessionId}:${clientMessageId}`, session_id: masterSessionId, role: 'human', content: fileContext, thinking: null, tool_calls_json: null, decision_json: null, attachments_json: images.length ? JSON.stringify(images) : null, file_changes_json: null, timestamp: new Date().toISOString(), parsedAttachments: images, sender_name: '你', sender_role: 'human' })
-    setSnapshots((current) => ({ ...current, [masterSessionId]: { ...(current[masterSessionId] || emptySnapshot(masterSessionId)), messages: [...(current[masterSessionId]?.messages || []), optimistic], running: true } }))
+    setSnapshots((current) => ({ ...current, [masterSessionId]: beginTeamPrompt(current[masterSessionId] || emptySnapshot(masterSessionId), optimistic) }))
     setSending(true)
     try { await commandClient.execute({ commandId: clientMessageId, type: 'prompt', sessionId: masterSessionId, clientMessageId, content: fileContext, ...(images.length ? { images: images.filter((image): image is ImageAttachmentInfo & { data: string } => typeof image.data === 'string').map((image) => ({ data: image.data, mimeType: image.mimeType })) } : {}) }) }
+    catch (cause) {
+      setSnapshots(current => ({ ...current, [masterSessionId]: rejectTeamPrompt(current[masterSessionId] || emptySnapshot(masterSessionId), optimistic.id) }))
+      throw cause
+    }
     finally { setSending(false) }
   }, [masterSessionId])
 

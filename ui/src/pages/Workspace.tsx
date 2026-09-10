@@ -139,7 +139,8 @@ import {
 } from './workspace/workspace-file-attachments'
 import { uploadSessionFile } from '../services/session-file-upload'
 import { moveItemById, sortWorkspaceItems } from './workspace/ordering'
-import { elapsedSecondsBetween, formatCompactDuration } from '../utils/duration'
+import { elapsedSecondsBetween } from '../utils/duration'
+import { TurnStatsFooter } from '../components/chat/TurnStatsFooter'
 import { ContextMenu, PromptDialog, ConfirmDialog, AlertDialog } from '../components/ModalDialog'
 import { LocalSessionImportModal } from './workspace/LocalSessionImportModal'
 import { PreviewCard } from '../components/chat/PreviewCard'
@@ -4198,15 +4199,6 @@ interface TurnStats {
   costAmount?: number
   elapsedSeconds?: number
 }
-const statChipStyle: React.CSSProperties = {
-  padding: '3px 8px',
-  borderRight: '1px solid var(--border)',
-  fontSize: 12,
-  whiteSpace: 'nowrap',
-  display: 'flex',
-  alignItems: 'center',
-  gap: 3,
-}
 
 function parseJsonArray<T>(raw?: string | null): T[] {
   if (!raw) return []
@@ -4438,49 +4430,7 @@ function ChatBubble({
           </div>
         )}
         {/* 单次统计 */}
-        {showTurnStats && (
-          <div
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 0,
-              marginTop: 6,
-              fontSize: 12,
-              color: 'var(--text-3)',
-              background: 'var(--bg-2)',
-              borderRadius: 6,
-              overflow: 'hidden',
-            }}
-          >
-            {elapsedSeconds != null && (
-              <span style={{ ...statChipStyle, fontWeight: 600, color: 'var(--text-2)' }}>
-                {streaming ? <Loader2 size={11} style={{ animation: 'spin 1s linear infinite', verticalAlign: -2, marginRight: 4 }} /> : '⏱ '}
-                {formatCompactDuration(elapsedSeconds)}
-              </span>
-            )}
-            {turnStats && (
-              <>
-                <span style={statChipStyle}>
-                  <span style={{ color: 'var(--text-3)' }}>输入</span>{' '}
-                  <b style={{ color: 'var(--text-2)' }}>{fmtTokens(turnStats.inputTokens)}</b>
-                </span>
-                <span style={statChipStyle}>
-                  <span style={{ color: 'var(--text-3)' }}>输出</span>{' '}
-                  <b style={{ color: 'var(--text-2)' }}>{fmtTokens(turnStats.outputTokens)}</b>
-                </span>
-              </>
-            )}
-            {turnStats?.cachedReadTokens != null && turnStats.cachedReadTokens > 0 && (
-              <span style={statChipStyle}>
-                <span style={{ color: 'var(--text-3)' }}>缓存</span>{' '}
-                <b style={{ color: 'var(--text-2)' }}>{fmtTokens(turnStats.cachedReadTokens)}</b>
-              </span>
-            )}
-            {turnStats?.costAmount != null && (
-              <span style={{ ...statChipStyle, borderRight: 'none' }}>${turnStats.costAmount.toFixed(4)}</span>
-            )}
-          </div>
-        )}
+        {showTurnStats && <TurnStatsFooter stats={turnStats} streaming={streaming} elapsedSeconds={elapsedSeconds} />}
         <TurnFileChangesSummary
           processBlocks={turnProcessBlocks}
           fileChangesSummary={fileChangesSummary}
