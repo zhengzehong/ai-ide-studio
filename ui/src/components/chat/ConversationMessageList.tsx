@@ -117,6 +117,8 @@ function TimelineGroupMessage({ group, adapter, onOpenPreview, onOpenFiles, onOp
 }
 
 function ConversationMessage({ message, adapter, onOpenPreview, onOpenFiles, onOpenResource }: { message: MessageData; adapter: ConversationAdapter; onOpenPreview?: ConversationPaneProps['onOpenPreview']; onOpenFiles?: ConversationPaneProps['onOpenFiles']; onOpenResource?: ConversationPaneProps['onOpenResource'] }) {
+  // 平台自动触发的 prompt(如 Team Leader 唤醒)不是用户说的话,渲染成系统通知而不是"你"的气泡。
+  if (message.role === 'human' && message.sender_role === 'team-system') return <SystemNotice message={message} />
   const isHuman = message.role === 'human'
   const failed = message.status === 'failed'
   const processState = adapter.processByMessageId?.[message.id]
@@ -162,6 +164,10 @@ function StreamingMessage({ message, adapter, onOpenPreview, onOpenFiles, onOpen
     {message.teamAssignment && <TeamAssignmentBlock assignment={message.teamAssignment} />}
     <TurnContentView processBlocks={processBlocks} finalAnswer={finalAnswer} isStreaming processCount={message.process_item_count ?? processBlocks.length} defaultProcessOpen onOpenResource={onOpenResource} renderProcessBlock={(block, context) => <ProcessBlock block={block} adapter={adapter} messageId={message.id} isStreaming thinkingActive={context.thinkingActive} onOpenPreview={onOpenPreview} onOpenFiles={onOpenFiles} />} />
   </MessageShell>
+}
+
+function SystemNotice({ message }: { message: MessageData }) {
+  return <div className="conversation-system-notice"><div className="conversation-system-notice-meta"><strong>{message.sender_name || '系统'}</strong>{message.timestamp && <time>{formatTime(message.timestamp)}</time>}</div><div className="conversation-system-notice-body"><MarkdownRenderer content={message.content} /></div></div>
 }
 
 function MessageShell({ children, human = false, failed = false, agentName, timestamp, streaming = false, streamingLabel = '生成中', showBubble = true }: { children: React.ReactNode; human?: boolean; failed?: boolean; agentName?: string | null; timestamp?: string; streaming?: boolean; streamingLabel?: string; showBubble?: boolean }) {

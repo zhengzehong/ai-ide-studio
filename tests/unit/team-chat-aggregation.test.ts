@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { aggregateSnapshots, applyEventToSnapshot, emptySnapshot, finalizeSnapshot, mergeLoadedSnapshots, updateStreaming, type Snapshot } from '../../ui/src/components/team/TeamChatPane'
 import { defaultCaps } from '../../ui/src/stores/session-events'
 import { attachTeamAssignments, assignmentFromEvent, mapTeamMessage } from '../../ui/src/components/team/team-chat-assignments'
@@ -149,5 +149,51 @@ describe('team chat aggregation', () => {
   it('recognizes live assignment events with sender metadata', () => {
     const live = assignmentFromEvent(event('e1', 'message.user', { messageId: 'm0', content: '检查日志', senderRole: 'team-assignment', senderName: 'Master' }))
     expect(live).toEqual({ content: '检查日志', fromName: 'Master' })
+  })
+
+  it('finalizes a live turn with its start time so concurrent replies stay in chronological order', () => {
+    vi.useFakeTimers()
+    try {
+      // 成员回合 10:00 开始、10:05 完成;Master 的总结 10:02 已落库。
+      // 若 finalize 用完成时间,成员回复会短暂错序到总结之后,与 reload 后的落库顺序不一致。
+      vi.setSystemTime(new Date('2026-09-09T10:00:00.000Z'))
+      const live = updateStreaming({}, 'member-1', { messageId: 'm1', contentDelta: '成员结论' })
+      vi.setSystemTime(new Date('2026-09-09T10:05:00.000Z'))
+      const completed = finalizeSnapshot(live, 'member-1', 'm1', 'master-1')
+      expect(completed['member-1']?.messages[0]?.timestamp).toBe('2026-09-09T10:00:00.000Z')
+
+      const masterSnapshot = {
+        ...emptySnapshot('master-1'),
+        messages: [{ ...message('master-1:m2', 'agent', 'Master 总结'), session_id: 'master-1', timestamp: '2026-09-09T10:02:00.000Z' }],
+      }
+      const aggregate = aggregateSnapshots({ ...completed, 'master-1': masterSnapshot }, ['master-1', 'member-1'], 'master-1')
+      expect(aggregate.messages.map((item) => item.id)).toEqual(['member-1:m1', 'master-1:m2'])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps the recorded turn start across chunk and live-event updates', () => {
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(new Date('2026-09-09T10:00:00.000Z'))
+      const live = updateStreaming({}, 's1', { messageId: 'm1', contentDelta: 'A' })
+      vi.setSystemTime(new Date('2026-09-09T10:01:00.000Z'))
+      const chunked = updateStreaming(live, 's1', { messageId: 'm1', contentDelta: 'B' })
+      const evented = applyEventToSnapshot(chunked, 's1', event('e1', 'usage.update', { usage: { contextSize: 10, contextUsed: 1 } }), 'team')
+      expect(chunked.s1?.streaming?.startedAt).toBe('2026-09-09T10:00:00.000Z')
+      expect(evented.s1?.streaming?.startedAt).toBe('2026-09-09T10:00:00.000Z')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps team-system wake metadata for system-notice rendering instead of folding it into an assignment', () => {
+    const wake = mapTeamMessage({ ...message('m9', 'human', '系统通知：Team 成员有新的异步进展。'), sender_name: '系统', sender_role: 'team-system' }, 'master-1', 'master-1', 'Master', 'leader')
+    expect(wake.sender_role).toBe('team-system')
+    expect(wake.sender_name).toBe('系统')
+    const result = attachTeamAssignments([wake])
+    expect(result.messages).toHaveLength(1)
+    expect(result.messages[0]?.teamAssignment).toBeUndefined()
   })
 })

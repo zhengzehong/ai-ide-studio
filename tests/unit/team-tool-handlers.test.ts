@@ -26,6 +26,9 @@ import type { ToolContext, ToolHandler, ToolHandlerResult } from '../../src/tool
 
 let tmp: string
 
+// Leader 唤醒 prompt 必须带系统身份落库,不能伪装成用户发言。
+const wakeIdentity = expect.objectContaining({ senderRole: 'team-system', senderName: '系统' })
+
 beforeEach(() => {
   tmp = mkdtempSync(resolve(tmpdir(), 'ai-ide-team-tools-'))
   initDatabase(resolve(tmp, 'ai-ide.sqlite'))
@@ -547,14 +550,18 @@ describe('team MCP tool handlers', () => {
       )
       await vi.advanceTimersByTimeAsync(2_100)
 
-      expect(sendPrompt).toHaveBeenCalledWith(asRecord(team.member).session_id, expect.stringContaining('Team'))
+      expect(sendPrompt).toHaveBeenCalledWith(asRecord(team.member).session_id, expect.stringContaining('Team'), undefined, wakeIdentity)
       expect(sendPrompt).toHaveBeenCalledWith(
         asRecord(team.member).session_id,
         expect.stringContaining('finished the work'),
+        undefined,
+        wakeIdentity,
       )
       expect(sendPrompt).toHaveBeenCalledWith(
         asRecord(team.member).session_id,
         expect.stringContaining('不要使用 sleep'),
+        undefined,
+        wakeIdentity,
       )
     } finally {
       vi.useRealTimers()
@@ -616,7 +623,7 @@ describe('team MCP tool handlers', () => {
       await vi.advanceTimersByTimeAsync(2_100)
 
       expect(sendPrompt).toHaveBeenCalledTimes(1)
-      expect(sendPrompt).toHaveBeenCalledWith(asRecord(team.member).session_id, expect.stringContaining('completed'))
+      expect(sendPrompt).toHaveBeenCalledWith(asRecord(team.member).session_id, expect.stringContaining('completed'), undefined, wakeIdentity)
     } finally {
       vi.useRealTimers()
     }
@@ -665,6 +672,8 @@ describe('team MCP tool handlers', () => {
       expect(sendPrompt).toHaveBeenLastCalledWith(
         asRecord(team.member).session_id,
         expect.stringContaining('queued report'),
+        undefined,
+        wakeIdentity,
       )
     } finally {
       vi.useRealTimers()
@@ -709,8 +718,8 @@ describe('team MCP tool handlers', () => {
       )
       await vi.advanceTimersByTimeAsync(2_100)
 
-      expect(sendPrompt).toHaveBeenCalledWith(asRecord(team.member).session_id, expect.stringContaining(task.id))
-      expect(sendPrompt).toHaveBeenCalledWith(asRecord(team.member).session_id, expect.stringContaining('completed'))
+      expect(sendPrompt).toHaveBeenCalledWith(asRecord(team.member).session_id, expect.stringContaining(task.id), undefined, wakeIdentity)
+      expect(sendPrompt).toHaveBeenCalledWith(asRecord(team.member).session_id, expect.stringContaining('completed'), undefined, wakeIdentity)
     } finally {
       vi.useRealTimers()
     }
