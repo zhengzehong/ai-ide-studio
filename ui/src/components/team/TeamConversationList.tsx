@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Archive, Bot, Loader2, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react'
+import { Bot, Loader2, Plus, RefreshCw } from 'lucide-react'
+import { ContextMenu, PromptDialog, ConfirmDialog } from '../ModalDialog'
 import { wsClient } from '../../services/ws-client'
 import type { TeamData } from '../../stores/team.store'
 import type { SessionIndicatorStateMap } from '../../utils/session-indicators'
@@ -37,16 +38,21 @@ export function TeamConversationList({ team, activeId, onSelect, onMasterSession
   const [items, setItems] = useState<Conversation[]>(() => teamListCache.get(cacheKey) as Conversation[] || [])
   const requestSeq = useRef(0)
   const mounted = useRef(true)
+  const selectedId = useRef(activeId)
+  useEffect(() => { selectedId.current = activeId }, [activeId])
   const invalidateRequests = useCallback((): void => { requestSeq.current++ }, [])
   const summary = useProjectSessionStatsStore(state => state.statsByProjectId[team.project_id]?.teams?.find(item => item.teamId === team.id))
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [hoveredId, setHoveredId] = useState<string | null>(null)
+  const [menu, setMenu] = useState<{ item: Conversation; x: number; y: number } | null>(null)
+  const [dialog, setDialog] = useState<{ item: Conversation; action: 'rename' | 'archive' | 'delete' } | null>(null)
+  const [mutating, setMutating] = useState(false)
+  const mutationPending = useRef(false)
 
   const load = useCallback(async (force = false): Promise<void> => {
     if (!mounted.current) return
     const seq = ++requestSeq.current
-    setLoading(true)
+    setLoading(teamListCache.get(cacheKey) === undefined)
     setError(null)
     try {
       const requestKey = `list:${cacheKey}:${requestScope}`
@@ -57,8 +63,9 @@ export function TeamConversationList({ team, activeId, onSelect, onMasterSession
       teamListCache.set(cacheKey, next)
       setItems(next)
       const remembered = teamSelectionCache.get(cacheKey)
-      if (remembered && !next.some(item => item.id === remembered.id)) { teamSelectionCache.delete(cacheKey); onMasterSession(null); onSelect(null) }
-      const selected = next.find(item => item.id === remembered?.id)
+      const currentId = selectedId.current ?? remembered?.id
+      if (currentId && !next.some(item => item.id === currentId)) { teamSelectionCache.delete(cacheKey); onMasterSession(null); onSelect(null) }
+      const selected = next.find(item => item.id === currentId)
       if (selected) {
         teamSelectionCache.set(cacheKey, selected)
         if (selected.title !== remembered?.title) onSelect(selected)
@@ -97,6 +104,9 @@ export function TeamConversationList({ team, activeId, onSelect, onMasterSession
   }, [activeId, items, loading, onMasterSession, onSelect, runningSessionIds, sessionActivityStates, cacheKey])
 
   const create = async (): Promise<void> => {
+    if (mutationPending.current) return
+    mutationPending.current = true
+    setMutating(true)
     try {
       const result = await wsClient.request({ type: 'team.conversation.create', teamId: team.id, title: '新团队会话' }) as { conversation?: Conversation }
       if (!result.conversation || !mounted.current) return
@@ -106,38 +116,40 @@ export function TeamConversationList({ team, activeId, onSelect, onMasterSession
       teamSelectionCache.set(cacheKey, result.conversation)
       onSelect(result.conversation)
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '创建会话失败')
+      if (mounted.current) setError(cause instanceof Error ? cause.message : '创建会话失败')
+    } finally {
+      mutationPending.current = false
+      if (mounted.current) setMutating(false)
     }
   }
 
-  const rename = async (item: Conversation): Promise<void> => {
-    const title = window.prompt('重命名团队会话', item.title)?.trim()
-    if (!title || title === item.title) return
+  const confirmAction = async (title?: string): Promise<void> => {
+    if (!dialog || mutationPending.current) return
+    const { item, action } = dialog
+    setDialog(null)
+    if (action === 'rename' && (!title?.trim() || title.trim() === item.title)) return
+    mutationPending.current = true
+    setMutating(true)
     try {
-      await wsClient.request({ type: 'team.conversation.rename', conversationId: item.id, title })
+      await wsClient.request({ type: `team.conversation.${action}`, conversationId: item.id, ...(action === 'rename' ? { title: title!.trim() } : {}) })
+      if (!mounted.current) { teamListCache.delete(cacheKey); return }
+      // Commit the successful mutation locally before refreshing; failure of the
+      // subsequent read must not resurrect a deleted conversation.
+      const next = (teamListCache.get(cacheKey) as Conversation[] || []).flatMap(row => row.id !== item.id ? [row]
+        : action === 'delete' ? [] : [{ ...row, ...(action === 'rename' ? { title: title!.trim() } : { status: 'archived' }) }])
+      teamListCache.set(cacheKey, next)
+      setItems(next)
+      if (selectedId.current === item.id) {
+        const selected = next.find(row => row.id === item.id)
+        if (selected) { teamSelectionCache.set(cacheKey, selected); onSelect(selected) }
+        else { teamSelectionCache.delete(cacheKey); onSelect(null); onMasterSession(null) }
+      }
       await load(true)
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '重命名失败')
-    }
-  }
-
-  const archive = async (item: Conversation): Promise<void> => {
-    if (!window.confirm(`归档“${item.title}”？`)) return
-    try {
-      await wsClient.request({ type: 'team.conversation.archive', conversationId: item.id })
-      await load(true)
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '归档失败')
-    }
-  }
-
-  const remove = async (item: Conversation): Promise<void> => {
-    if (!window.confirm(`删除“${item.title}”？`)) return
-    try {
-      await wsClient.request({ type: 'team.conversation.delete', conversationId: item.id })
-      await load(true)
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '删除失败')
+      if (mounted.current) setError(cause instanceof Error ? cause.message : '操作失败')
+    } finally {
+      mutationPending.current = false
+      if (mounted.current) setMutating(false)
     }
   }
 
@@ -148,7 +160,7 @@ export function TeamConversationList({ team, activeId, onSelect, onMasterSession
         <div style={headerAccentStyle} />
         <span style={teamIconStyle}><Bot size={12} /></span>
         <strong style={teamNameStyle} title={team.name}>{team.name}</strong>
-        <button type="button" onClick={() => { void create() }} disabled={loading} title="新建会话" style={newButtonStyle}><Plus size={14} /></button>
+        <button type="button" onClick={() => { void create() }} disabled={mutating} title="新建会话" style={newButtonStyle}><Plus size={14} /></button>
         <button type="button" onClick={() => void load()} disabled={loading} title="刷新" style={iconStyle}>{loading ? <Loader2 size={14} /> : <RefreshCw size={14} />}</button>
       </header>
       {error && <div role="alert" style={errorStyle}>{error}</div>}
@@ -165,15 +177,7 @@ export function TeamConversationList({ team, activeId, onSelect, onMasterSession
               sessionId={item.master_session_id}
               active={activeId === item.id}
               onSelect={() => { teamSelectionCache.set(cacheKey, item); onMasterSession(item.master_session_id); onSelect(item) }}
-              onMouseEnter={() => setHoveredId(item.id)}
-              onMouseLeave={() => setHoveredId((current) => current === item.id ? null : current)}
-              actions={hoveredId === item.id ? (
-                <>
-                  <button type="button" title="重命名" aria-label={`重命名 ${item.title}`} onClick={(event) => { event.stopPropagation(); void rename(item) }} style={iconStyle}><Pencil size={13} /></button>
-                  <button type="button" title="归档" aria-label={`归档 ${item.title}`} onClick={(event) => { event.stopPropagation(); void archive(item) }} style={iconStyle}><Archive size={13} /></button>
-                  <button type="button" title="删除" aria-label={`删除 ${item.title}`} onClick={(event) => { event.stopPropagation(); void remove(item) }} style={iconStyle}><Trash2 size={13} /></button>
-                </>
-              ) : undefined}
+              onContextMenu={event => { event.preventDefault(); setMenu({ item, x: event.clientX, y: event.clientY }) }}
             >
               <span title={running ? '正在执行' : unread ? '未读' : item.status === 'active' ? '空闲' : '已归档'} style={statusDotStyle(running, unread)} />
               <span style={titleStyle} title={item.title}>{item.title}</span>
@@ -182,6 +186,13 @@ export function TeamConversationList({ team, activeId, onSelect, onMasterSession
           )
         })}
       </div>
+      <ContextMenu open={!!menu} x={menu?.x || 0} y={menu?.y || 0} onClose={() => setMenu(null)} items={menu ? [
+        { label: '重命名', disabled: mutating, onClick: () => setDialog({ item: menu.item, action: 'rename' }) },
+        { label: '归档', disabled: mutating || menu.item.status !== 'active', onClick: () => setDialog({ item: menu.item, action: 'archive' }) },
+        { label: '删除', danger: true, disabled: mutating, onClick: () => setDialog({ item: menu.item, action: 'delete' }) },
+      ] : []} />
+      <PromptDialog open={dialog?.action === 'rename'} title="重命名会话" defaultValue={dialog?.item.title || ''} placeholder="输入新的会话名称" onConfirm={value => { void confirmAction(value) }} onCancel={() => setDialog(null)} />
+      <ConfirmDialog open={dialog?.action === 'archive' || dialog?.action === 'delete'} title={dialog?.action === 'delete' ? '删除团队会话' : '归档团队会话'} message={dialog?.action === 'delete' ? `确定删除“${dialog.item.title}”？该会话将从团队列表移除，成员的底层会话记录仍保留。` : `确定归档“${dialog?.item.title || ''}”？归档后不再参与团队运行和未读提醒。`} danger={dialog?.action === 'delete'} confirmLabel={dialog?.action === 'delete' ? '删除' : '归档'} onConfirm={() => { void confirmAction() }} onCancel={() => setDialog(null)} />
     </aside>
   )
 }

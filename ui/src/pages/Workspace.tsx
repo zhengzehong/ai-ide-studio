@@ -886,7 +886,7 @@ export default function Workspace() {
     if (!name || name === currentName) return
     try {
       await wsClient.request({ type: 'teams.update', teamId, name })
-      await fetchTeams(currentProjectId)
+      await fetchTeams(currentProjectId, true)
     } catch (err) {
       setAlertMsg(err instanceof Error ? err.message : '重命名团队失败')
     }
@@ -905,7 +905,7 @@ export default function Workspace() {
             setTeamConversation(null)
             setTeamMasterSessionId(null)
           }
-          await fetchTeams(currentProjectId)
+          await fetchTeams(currentProjectId, true)
         } catch (err) {
           setConfirmDialog(null)
           setAlertMsg(err instanceof Error ? err.message : '删除团队失败')
@@ -1894,7 +1894,7 @@ export default function Workspace() {
         projectId={currentProjectId}
         onClose={() => setCreateTeamOpen(false)}
         onCreated={async (teamId) => {
-          await fetchTeams(currentProjectId)
+          await fetchTeams(currentProjectId, true)
           handleTeamClick(teamId)
         }}
       />

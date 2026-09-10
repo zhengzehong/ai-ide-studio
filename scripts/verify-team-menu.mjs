@@ -1,0 +1,36 @@
+import { build } from 'esbuild'
+import { chromium } from 'playwright'
+import assert from 'node:assert/strict'
+await build({ entryPoints: ['tests/browser/team-menu-harness.tsx'], outfile: '.tmp/team-menu.js', bundle: true, format: 'iife', jsx: 'automatic', define: { 'import.meta.env': '{}', 'process.env.NODE_ENV': '"test"' } })
+const browser = await chromium.launch({ headless: true })
+try {
+  const page = await browser.newPage({ viewport: { width: 1000, height: 760 } })
+  await page.route('https://team-test.invalid/**', route => route.fulfill({ contentType: 'text/html', body: '<html><body></body></html>' }))
+  await page.goto('https://team-test.invalid/')
+  const errors = []
+  page.on('pageerror', error => { errors.push(error.message); process.stdout.write(`${error.stack}\n`) })
+  await page.setContent('<style>:root{--bg-0:#fff;--bg-1:#f6f7f8;--border:#ddd;--text-1:#222;--text-3:#777;--blue:#2563eb;--blue-light:#eff6ff;--red:#dc2626;--green:#059669}body{font:14px sans-serif}aside{height:620px}</style><div id="root"></div>')
+  await page.addScriptTag({ path: '.tmp/team-menu.js' })
+  const row = page.locator('[data-session-row]')
+  await row.waitFor()
+  assert.equal(await page.getByTitle('新建会话').isEnabled(), true)
+  assert.equal(await row.locator('button').count(), 1)
+  await row.click({ button: 'right' })
+  await page.getByRole('button', { name: '重命名', exact: true }).click()
+  await page.getByPlaceholder('输入新的会话名称').fill('改名后的会话')
+  await page.getByRole('button', { name: '确定', exact: true }).click()
+  await page.getByTitle('改名后的会话', { exact: true }).waitFor()
+  await page.waitForTimeout(400)
+  await row.click({ button: 'right' })
+  await page.getByRole('button', { name: '删除', exact: true }).click()
+  await page.getByRole('button', { name: '取消', exact: true }).click()
+  assert.equal(await row.count(), 1)
+  await row.click({ button: 'right' })
+  await page.getByRole('button', { name: '删除', exact: true }).click()
+  await page.screenshot({ path: '.tmp/team-delete.png' })
+  await page.getByRole('button', { name: '删除', exact: true }).click()
+  await row.waitFor({ state: 'detached' })
+  assert.equal(await page.locator('#selected').innerText(), '空')
+  assert.deepEqual(errors, [])
+  process.stdout.write('PASS: cached view, context menu, rename, cancel deletion, delete last conversation, no browser errors\n')
+} finally { await browser.close() }
