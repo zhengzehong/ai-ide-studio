@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, s
 import { writeFile } from 'node:fs/promises'
 import { join } from 'path'
 import { createChildLogger } from '../core/logger.js'
+import { DEFAULT_CAPTURE_MAX_PER_SESSION } from './capture-config.js'
 
 /** 抓包落盘:data/captures/<YYYY-MM-DD>/<sess-会话|_unattributed>/<HHmmss>-<seq>-<kind>.json,tmp→rename 原子落盘。 */
 
@@ -67,10 +68,13 @@ export function beginCapture(
     provider?: string
     requestHeaders: Record<string, string>
     request: unknown
+    /** finalize 后按此上限清理会话目录最老文件(仅数计数类 kind,.tmp 不计不清)。 */
+    maxPerSession?: number
   },
 ): CaptureWriter {
   const dir = sessionDir(root, input.platform.sessionId)
   mkdirSync(dir, { recursive: true })
+  const maxPerSession = input.maxPerSession ?? DEFAULT_CAPTURE_MAX_PER_SESSION
   const record: CaptureRecord = {
     ts: new Date().toISOString(),
     kind: input.kind,
@@ -119,6 +123,7 @@ export function beginCapture(
     const done = writeChain.then(async () => {
       await writeFile(tmpPath, JSON.stringify(record), 'utf8')
       renameSync(tmpPath, finalPath)
+      enforceSessionFileLimit(dir, maxPerSession)
     }).catch((err: unknown) => {
       log.warn({ err, tmpPath }, '抓包终态落盘失败')
     })
@@ -190,6 +195,45 @@ export function cleanupExpiredCaptures(root: string, retentionDays: number): num
   }
   if (removed > 0) log.info({ removed, retentionDays }, '已清理过期抓包目录')
   return removed
+}
+
+/**
+ * 每会话目录保留最新 maxPerSession 个「计数类」已落盘 .json(文件名 HHmmss-seq 字典序=时间序,删最老)。
+ * 计数口径:仅正式请求 messages/responses 占额度;count_tokens/探测照常落盘但不占额度、绝不被清理。
+ * 红线:.json.tmp 正在写入,不计入数量、绝不清理。失败只 warn 不抛出。
+ */
+export function enforceSessionFileLimit(sessionDirPath: string, maxPerSession: number): number {
+  if (maxPerSession < 1 || !existsSync(sessionDirPath)) return 0
+  let names: string[]
+  try {
+    names = readdirSync(sessionDirPath)
+  } catch (err) {
+    log.warn({ err, dir: sessionDirPath }, '会话抓包目录列出失败')
+    return 0
+  }
+  // 只统计已 finalize 且计数类的 .json;'.json.tmp' 不以 .json 结尾,天然排除
+  const counted = names
+    .filter((name) => name.endsWith('.json') && isCountedKindFileName(name))
+    .sort()
+  const overflow = counted.length - maxPerSession
+  if (overflow <= 0) return 0
+  let removed = 0
+  for (const name of counted.slice(0, overflow)) {
+    try {
+      rmSync(join(sessionDirPath, name), { force: true })
+      removed += 1
+    } catch (err) {
+      log.warn({ err, dir: sessionDirPath, name }, '会话抓包超限清理失败')
+    }
+  }
+  if (removed > 0) log.info({ removed, dir: sessionDirPath, maxPerSession }, '会话抓包超限,已清理最老文件')
+  return removed
+}
+
+/** 文件名格式 HHmmss-seq-<kind>.json;kind 不含连字符,取末段判断是否计数类。 */
+function isCountedKindFileName(name: string): boolean {
+  const kind = name.slice(0, -'.json'.length).split('-').pop() ?? ''
+  return kind === 'messages' || kind === 'responses'
 }
 
 /** SSE 事件数组 → 重组文本 + usage(best-effort,claude/codex 双格式)。 */

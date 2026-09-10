@@ -8,7 +8,7 @@ export const modelCaptureRpcHandlers: RpcHandlerMap = {
   },
 
   'modelCapture.set'(msg, { sendResult }) {
-    const patch: { enabled?: boolean; retentionDays?: number } = {}
+    const patch: { enabled?: boolean; retentionDays?: number; maxPerSession?: number } = {}
     if (msg.enabled !== undefined) {
       if (typeof msg.enabled !== 'boolean') throw new Error('enabled 必须是布尔值')
       patch.enabled = msg.enabled
@@ -19,6 +19,13 @@ export const modelCaptureRpcHandlers: RpcHandlerMap = {
         throw new Error('保留天数必须是 1-365 的整数')
       }
       patch.retentionDays = days
+    }
+    if (msg.maxPerSession !== undefined) {
+      const max = Number(msg.maxPerSession)
+      if (!Number.isSafeInteger(max) || max < 1 || max > 1000) {
+        throw new Error('每会话保留上限必须是 1-1000 的整数')
+      }
+      patch.maxPerSession = max
     }
     sendResult(setCaptureSettings(patch))
   },

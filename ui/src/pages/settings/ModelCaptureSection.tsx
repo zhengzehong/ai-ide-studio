@@ -5,10 +5,11 @@ import { wsRpc } from '../../services/ws'
 interface CaptureSettingsData {
   enabled: boolean
   retentionDays: number
+  maxPerSession: number
 }
 
 export function ModelCaptureSection() {
-  const [settings, setSettings] = useState<CaptureSettingsData>({ enabled: false, retentionDays: 7 })
+  const [settings, setSettings] = useState<CaptureSettingsData>({ enabled: false, retentionDays: 7, maxPerSession: 100 })
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
@@ -41,7 +42,7 @@ export function ModelCaptureSection() {
           <h2 style={title}><Radio size={18} color="var(--blue)" /> 模型代理抓包</h2>
           <p style={hint}>
             开启后 Agent 模型流量经本地代理转发并完整落盘(请求体+流式响应),用于事后复现排查;
-            落盘目录 data/captures,按保留天数自动清理。关闭后下一次对话自动切回直连。
+            落盘目录 data/captures,按保留天数与每会话上限自动清理。关闭后下一次对话自动切回直连。
           </p>
         </div>
       </div>
@@ -78,6 +79,27 @@ export function ModelCaptureSection() {
         >
           保存
         </button>
+      </div>
+      <div style={row}>
+        <span style={rowLabel}>会话上限</span>
+        <input
+          type="number"
+          min={1}
+          max={1000}
+          disabled={loading || saving}
+          value={settings.maxPerSession}
+          onChange={(event) => setSettings((prev) => ({ ...prev, maxPerSession: Number(event.target.value) }))}
+          style={numberInput}
+        />
+        <button
+          type="button"
+          disabled={loading || saving}
+          onClick={() => void save({ maxPerSession: settings.maxPerSession })}
+          style={saveButton}
+        >
+          保存
+        </button>
+        <span style={hint}>每会话目录最多保留的抓包文件数,超出删最老</span>
       </div>
       {message && <div style={messageStyle}>{message}</div>}
     </section>

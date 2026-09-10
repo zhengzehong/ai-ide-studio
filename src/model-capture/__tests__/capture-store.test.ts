@@ -7,6 +7,7 @@ import {
   beginCapture,
   captureRoot,
   cleanupExpiredCaptures,
+  enforceSessionFileLimit,
   recoverPendingCaptures,
   waitCaptureFlush,
 } from '../capture-store.js'
@@ -174,5 +175,122 @@ describe('assembleSse', () => {
   test('非 JSON data 行忽略不抛错', () => {
     const { text } = assembleSse(['data: not-json\n\n', ': keep-alive\n\n'])
     expect(text).toBe('')
+  })
+})
+
+describe('enforceSessionFileLimit(每会话保留最新 N 个)', () => {
+  const sessDir = (root: string, name = 'sess-limit') => join(root, '2026-09-10', name)
+
+  /** 造 count 个已 finalize 文件,文件名 HHmmss-seq 字典序=时间序;额外写若干 .tmp。 */
+  function seedFiles(dir: string, count: number, tmpCount = 0): void {
+    mkdirSync(dir, { recursive: true })
+    for (let i = 1; i <= count; i += 1) {
+      const hh = String(Math.floor(i / 3600)).padStart(2, '0')
+      const mm = String(Math.floor((i % 3600) / 60)).padStart(2, '0')
+      const ss = String(i % 60).padStart(2, '0')
+      const seq = String(i).padStart(4, '0')
+      writeFileSync(join(dir, `${hh}${mm}${ss}-${seq}-messages.json`), '{}', 'utf8')
+    }
+    for (let i = 1; i <= tmpCount; i += 1) {
+      writeFileSync(join(dir, `000000-${String(9000 + i).padStart(4, '0')}-messages.json.tmp`), '{}', 'utf8')
+    }
+  }
+
+  test('超出上限删最老:101 删 1,最老的先走', () => {
+    const dir = sessDir(tmp)
+    seedFiles(dir, 101)
+    expect(enforceSessionFileLimit(dir, 100)).toBe(1)
+    const left = readdirSync(dir).filter((n) => n.endsWith('.json'))
+    expect(left).toHaveLength(100)
+    expect(left.some((n) => n.includes('-0001-'))).toBe(false) // 最老已删
+    expect(left.some((n) => n.includes('-0101-'))).toBe(true) // 最新保留
+  })
+
+  test('正好 100 不删', () => {
+    const dir = sessDir(tmp)
+    seedFiles(dir, 100)
+    expect(enforceSessionFileLimit(dir, 100)).toBe(0)
+    expect(readdirSync(dir)).toHaveLength(100)
+  })
+
+  test('count_tokens/探测不占额度:100 个 messages + 50 个 count_tokens 一个不删', () => {
+    const dir = sessDir(tmp)
+    seedFiles(dir, 100)
+    for (let i = 1; i <= 50; i += 1) {
+      writeFileSync(join(dir, `0000${String(i).padStart(2, '0')}-${String(2000 + i).padStart(4, '0')}-count_tokens.json`), '{}', 'utf8')
+    }
+    expect(enforceSessionFileLimit(dir, 100)).toBe(0)
+    const names = readdirSync(dir)
+    expect(names.filter((n) => n.endsWith('-messages.json'))).toHaveLength(100)
+    expect(names.filter((n) => n.endsWith('-count_tokens.json'))).toHaveLength(50)
+  })
+
+  test('probe 不占额度:100 个 messages + 50 个 probe 共存一个不删', () => {
+    const dir = sessDir(tmp)
+    seedFiles(dir, 100)
+    for (let i = 1; i <= 50; i += 1) {
+      writeFileSync(join(dir, `0000${String(i).padStart(2, '0')}-${String(2000 + i).padStart(4, '0')}-probe.json`), '{}', 'utf8')
+    }
+    expect(enforceSessionFileLimit(dir, 100)).toBe(0)
+    const names = readdirSync(dir)
+    expect(names.filter((n) => n.endsWith('-messages.json'))).toHaveLength(100)
+    expect(names.filter((n) => n.endsWith('-probe.json'))).toHaveLength(50)
+  })
+
+  test('超限只删计数类最老:count_tokens 全部保留', () => {
+    const dir = sessDir(tmp)
+    seedFiles(dir, 3) // messages ×3
+    writeFileSync(join(dir, '000000-9001-count_tokens.json'), '{}', 'utf8')
+    writeFileSync(join(dir, '000000-9002-other.json'), '{}', 'utf8')
+    expect(enforceSessionFileLimit(dir, 2)).toBe(1)
+    const names = readdirSync(dir)
+    expect(names.filter((n) => n.endsWith('-messages.json'))).toHaveLength(2)
+    expect(names.some((n) => n.endsWith('-count_tokens.json'))).toBe(true)
+    expect(names.some((n) => n.endsWith('-other.json'))).toBe(true)
+    expect(names.some((n) => n.includes('-0001-'))).toBe(false) // 删的是最老 messages
+  })
+
+  test('.tmp 不计入数量且绝不清理', () => {
+    const dir = sessDir(tmp)
+    seedFiles(dir, 101, 3)
+    expect(enforceSessionFileLimit(dir, 100)).toBe(1)
+    const names = readdirSync(dir)
+    expect(names.filter((n) => n.endsWith('.json'))).toHaveLength(100)
+    expect(names.filter((n) => n.endsWith('.json.tmp'))).toHaveLength(3) // 全部保留
+  })
+
+  test('_unattributed 同规则', () => {
+    const dir = sessDir(tmp, '_unattributed')
+    seedFiles(dir, 5)
+    expect(enforceSessionFileLimit(dir, 3)).toBe(2)
+    expect(readdirSync(dir).filter((n) => n.endsWith('.json'))).toHaveLength(3)
+  })
+
+  test('finalize 后自动触发清理(beginCapture 传 maxPerSession)', async () => {
+    const root = captureRoot(tmp)
+    const platform = { agentId: 'agent-1', runtime: 'claude' as const }
+    for (let i = 0; i < 3; i += 1) {
+      const writer = beginCapture(root, {
+        kind: 'messages',
+        platform,
+        requestHeaders: {},
+        request: { seq: i },
+        maxPerSession: 2,
+      })
+      await writer.finalize('completed')
+    }
+    await waitCaptureFlush()
+    const dayDir = readdirSync(root)[0]
+    // platform 无 sessionId → 落 _unattributed,同样受 maxPerSession 约束
+    const files = readdirSync(join(root, dayDir, '_unattributed')).filter((n) => n.endsWith('.json'))
+    expect(files).toHaveLength(2)
+  })
+
+  test('目录不存在或上限非法:不抛错不删除', () => {
+    expect(enforceSessionFileLimit(join(tmp, 'no-such-dir'), 100)).toBe(0)
+    const dir = sessDir(tmp)
+    seedFiles(dir, 5)
+    expect(enforceSessionFileLimit(dir, 0)).toBe(0)
+    expect(readdirSync(dir).filter((n) => n.endsWith('.json'))).toHaveLength(5)
   })
 })

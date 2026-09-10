@@ -4,11 +4,12 @@ import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import { URL } from 'node:url'
 import { createChildLogger } from '../core/logger.js'
 import { agentStore } from '../store/agents.js'
-import { normalizeOpenAiBaseUrl } from '../shared/model-provider-connection.js'
+import { normalizeClaudeBaseUrl, normalizeOpenAiBaseUrl } from '../shared/model-provider-connection.js'
 import { resolveAgentModelProfile } from '../acp/model-profile-env.js'
 import { getCaptureSettings } from './capture-config.js'
 import {
   beginCapture,
+  captureRoot,
   cleanupExpiredCaptures,
   recoverPendingCaptures,
   waitCaptureFlush,
@@ -46,7 +47,7 @@ export interface ModelCaptureProxyOptions {
 
 export async function startModelCaptureProxy(options: ModelCaptureProxyOptions): Promise<ModelCaptureProxy> {
   const idleTimeoutMs = options.idleTimeoutMs ?? IDLE_TIMEOUT_MS
-  const captureRootDir = `${options.dataDir.replace(/\/+$/, '')}/captures`
+  const captureRootDir = captureRoot(options.dataDir)
   let actualPort = options.port
 
   try {
@@ -213,9 +214,7 @@ function buildUpstreamUrl(
 function normalizeProviderBase(providerBaseUrl: string, runtime: string, protocol: string): string {
   const trimmed = providerBaseUrl.trim().replace(/\/+$/, '')
   if (runtime === 'codex') return normalizeOpenAiBaseUrl(trimmed)
-  // claude:与 normalizeClaudeBaseUrl 口径一致——仅 new-api 协议补 /anthropic 后缀
-  if (protocol !== 'new-api') return trimmed
-  return trimmed.endsWith('/anthropic') ? trimmed : `${trimmed}/anthropic`
+  return normalizeClaudeBaseUrl(trimmed, protocol)
 }
 
 function beginCaptureIfNeeded(input: {
@@ -230,11 +229,12 @@ function beginCaptureIfNeeded(input: {
 }): CaptureWriter | null {
   if (!getCaptureSettings().enabled) return null
   try {
+    const settings = getCaptureSettings()
     const parsedBody: unknown = parseJsonBody(input.body)
     const identity = extractCaptureIdentity(parsedBody)
     const session = identity.sessionUuid ? lookupSessionByAcpUuid(identity.sessionUuid) : null
     return beginCapture(input.captureRootDir, {
-      kind: detectCaptureKind(input.restPath),
+      kind: detectCaptureKind(input.restPath, parsedBody),
       platform: {
         agentId: session?.agentId ?? input.agentId,
         runtime: input.runtime,
@@ -246,6 +246,7 @@ function beginCaptureIfNeeded(input: {
       provider: input.providerName,
       requestHeaders: maskSensitiveHeaders({ ...input.reqHeaders }),
       request: parsedBody ?? input.body.toString('utf8'),
+      maxPerSession: settings.maxPerSession,
     })
   } catch (err) {
     log.warn({ err, agentId: input.agentId }, '抓包初始化失败(不阻断转发)')
@@ -289,47 +290,62 @@ async function forwardRequest(args: {
     let settled = false
     let finalized = false
     let idleTimer: NodeJS.Timeout | null = null
+    let upstream: http.ClientRequest | null = null
     const finish = () => { if (!settled) { settled = true; resolve() } }
+    const disarmIdle = () => { if (idleTimer) { clearTimeout(idleTimer); idleTimer = null } }
+    const armIdle = () => {
+      disarmIdle()
+      idleTimer = setTimeout(onIdleTimeout, idleTimeoutMs)
+    }
     const finalizeOnce = (terminal: CaptureTerminalStatus, error?: string) => {
-      if (finalized || !capture) return
+      if (finalized) return
       finalized = true
+      disarmIdle()
+      if (!capture) { finish(); return } // 关开关时也要结束等待,否则 promise 泄漏
       if (error !== undefined) capture.setError(error)
       capture.finalize(terminal).then(finish, finish)
     }
 
-    const upstream = transport.request(url, { method, headers }, (upRes) => {
+    // 头/体两阶段统一 idle 保护:收到响应头后重置窗口,收到 chunk 续期
+    function onIdleTimeout(): void {
+      finalizeOnce('timeout', 'idle timeout: no upstream response within window')
+      if (!res.headersSent) {
+        // 头阶段超时:未透传任何上游字节,明确报 504(与连接失败 502 同口径)
+        respondJson(res, 504, { error: 'upstream idle timeout: no response headers received' })
+      } else if (!res.writableEnded && !res.destroyed) {
+        res.end() // 已透传部分原样保留,不补写状态行
+      }
+      if (upstream && !upstream.destroyed) upstream.destroy()
+    }
+
+    upstream = transport.request(url, { method, headers }, (upRes) => {
       const status = upRes.statusCode ?? 502
       const isJsonBody = String(upRes.headers['content-type'] ?? '').includes('application/json')
       capture?.setStatus(status)
       res.writeHead(status, upRes.headers)
 
-      idleTimer = setTimeout(onIdleTimeout, idleTimeoutMs)
-      function onIdleTimeout(): void {
-        capture?.setError('idle timeout: no upstream chunk within window')
-        finalizeOnce('timeout')
-        upRes.destroy()
-        if (!res.writableEnded && !res.destroyed) res.end()
-      }
+      armIdle()
 
       upRes.on('data', (chunk: Buffer) => {
-        if (idleTimer) { clearTimeout(idleTimer); idleTimer = setTimeout(onIdleTimeout, idleTimeoutMs) }
+        armIdle()
         res.write(chunk)
         if (isJsonBody) capture?.appendTextChunk(chunk.toString('utf8'))
         else capture?.appendResponseChunk(chunk.toString('utf8'))
       })
       upRes.on('end', () => {
-        if (idleTimer) { clearTimeout(idleTimer); idleTimer = null }
+        disarmIdle()
         if (!res.writableEnded && !res.destroyed) res.end()
         finalizeOnce(status >= 500 ? 'upstream_error' : 'completed')
       })
       upRes.on('error', (err: Error) => {
-        if (idleTimer) { clearTimeout(idleTimer); idleTimer = null }
+        disarmIdle()
         finalizeOnce('upstream_error', err.message)
         if (!res.writableEnded && !res.destroyed) res.end() // 已透传部分原样保留,不补写状态行
       })
     })
 
     upstream.on('error', (err: Error) => {
+      disarmIdle()
       finalizeOnce('upstream_error', err.message)
       if (!res.headersSent && !res.destroyed) respondJson(res, 502, { error: `upstream connection failed: ${err.message}` })
       else if (!res.writableEnded && !res.destroyed) res.end()
@@ -342,6 +358,7 @@ async function forwardRequest(args: {
     })
 
     upstream.end(body)
+    armIdle() // 头阶段也纳入 idle 保护:上游已连接但迟迟不发响应头时同样超时
   })
 }
 

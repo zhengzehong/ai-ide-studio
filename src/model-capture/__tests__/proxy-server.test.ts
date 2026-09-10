@@ -56,6 +56,10 @@ beforeEach(async () => {
         res.write('data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"first"}}\n\n')
         return // 断流:不再发送任何数据,也不 end
       }
+      if (mode === 'no-headers') {
+        req.resume()
+        return // 连接成功但迟迟不发响应头(头阶段悬挂)
+      }
       res.writeHead(200, { 'content-type': 'text/event-stream' })
       const texts = ['Hello', 'World', 'Done']
       let index = 0
@@ -121,6 +125,7 @@ function setupAgent(runtime: 'claude' | 'codex', baseUrl: string): string {
 function claudeBody(): string {
   return JSON.stringify({
     model: 'test-model',
+    stream: true, // 流式正式请求 → kind 'messages'(计数);缺 stream 会归为 probe 探测
     metadata: { user_id: `user_abc_account__session_${ACP_UUID}` },
     messages: [{ role: 'user', content: 'hi' }],
   })
@@ -287,6 +292,18 @@ describe('模型代理抓包 proxy-server', () => {
     expect(record.error).toContain('idle timeout')
   }, 10_000)
 
+  test('头阶段 idle 超时:上游连接成功但不发响应头 → 下游 504 + capture 落 timeout', async () => {
+    const agentId = setupAgent('claude', `http://127.0.0.1:${upstreamPort}`)
+    const platformSessionId = sessionStore.list(agentId)[0].id
+    const res = await postThroughProxy(agentId, '/v1/messages', claudeBody(), { 'x-test-mode': 'no-headers' })
+    expect(res.status).toBe(504)
+    expect(res.body).toContain('idle timeout')
+    await waitCaptureFlush()
+    const record = JSON.parse(readFileSync(findCaptureFiles(sessionDirOf(platformSessionId))[0], 'utf8'))
+    expect(record.terminalStatus).toBe('timeout')
+    expect(record.error).toContain('idle timeout')
+  }, 10_000)
+
   test('count_tokens JSON 分支:照常透传并落盘', async () => {
     const agentId = setupAgent('claude', `http://127.0.0.1:${upstreamPort}`)
     const platformSessionId = sessionStore.list(agentId)[0].id
@@ -330,6 +347,25 @@ describe('模型代理抓包 proxy-server', () => {
     await waitCaptureFlush()
     expect(findCaptureFiles()).toHaveLength(0)
   })
+
+  test('maxPerSession 来自 settings:只数 messages/responses,count_tokens 不占额度', async () => {
+    const agentId = setupAgent('claude', `http://127.0.0.1:${upstreamPort}`)
+    const platformSessionId = sessionStore.list(agentId)[0].id
+    setCaptureSettings({ enabled: true, retentionDays: 7, maxPerSession: 1 })
+    await postThroughProxy(agentId, '/v1/messages/count_tokens', claudeBody())
+    await postThroughProxy(agentId, '/v1/messages', claudeBody())
+    await postThroughProxy(agentId, '/v1/messages', claudeBody())
+    await waitCaptureFlush()
+    // count_tokens 照常落盘不占额度;messages 超限只留最新 1 个
+    const files = await waitFor(() => {
+      const found = findCaptureFiles(sessionDirOf(platformSessionId))
+      const messages = found.filter((f) => f.endsWith('-messages.json'))
+      const countTokens = found.filter((f) => f.endsWith('-count_tokens.json'))
+      return messages.length === 1 && countTokens.length === 1 ? found : undefined
+    })
+    expect(files.filter((f) => f.endsWith('-messages.json'))).toHaveLength(1)
+    expect(files.filter((f) => f.endsWith('-count_tokens.json'))).toHaveLength(1)
+  }, 15_000)
 
   test('codex responses 路径:前缀剥离+Bearer 鉴权重写+turn_id 归档', async () => {
     const agentId = setupAgent('codex', `http://127.0.0.1:${upstreamPort}`)
