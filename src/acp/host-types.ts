@@ -44,6 +44,7 @@ export interface AcpSessionContext {
   projectId?: string
   cwd?: string
   runtimeContextKey?: string
+  modelProfileIdOverride?: string
   emitLifecycle?: boolean
   canRecreateMissingSession?: boolean
 }

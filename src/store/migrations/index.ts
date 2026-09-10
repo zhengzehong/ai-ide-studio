@@ -65,6 +65,7 @@ import { devicesMigration } from './063-devices.js'
 import { advisorDefaultPromptMigration } from './063-advisor-default-prompt.js'
 import { teamConversationsMigration } from './064-team-conversations.js'
 import { teamMasterPromptMigration } from './066-team-master-prompt.js'
+import { teamMemberModelProfileMigration } from './067-team-member-model-profile.js'
 
 export const migrations: Migration[] = [
   initialSchemaMigration,
@@ -133,4 +134,5 @@ export const migrations: Migration[] = [
   advisorDefaultPromptMigration,
   teamConversationsMigration,
   teamMasterPromptMigration,
+  teamMemberModelProfileMigration,
 ]

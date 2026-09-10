@@ -110,19 +110,31 @@ function buildSessionMeta(conn: AgentConnection, ourSessionId: string): AgentSes
   })
 }
 
+async function startAgentForContext(agentId: string, context: AcpSessionContext, refreshExisting = false): Promise<void> {
+  if (context.modelProfileIdOverride) {
+    await acpHost.startAgent(agentId, undefined, context.modelProfileIdOverride)
+  } else if (refreshExisting || !acpHost.agents.has(agentId)) {
+    await acpHost.startAgent(agentId)
+  }
+}
+
 export const acpHost = {
   agents: agentConnections,
 
-  async startAgent(agentId: string, runtime?: string): Promise<void> {
+  async startAgent(agentId: string, runtime?: string, modelProfileIdOverride?: string): Promise<void> {
     const pendingStart = startPromises.get(agentId)
-    if (pendingStart) return pendingStart
+    if (pendingStart) {
+      await pendingStart
+      return acpHost.startAgent(agentId, runtime, modelProfileIdOverride)
+    }
 
-    const promise = acpHost.startAgentInternal(agentId, runtime).finally(() => startPromises.delete(agentId))
+    const promise = acpHost.startAgentInternal(agentId, runtime, modelProfileIdOverride)
+      .finally(() => startPromises.delete(agentId))
     startPromises.set(agentId, promise)
     return promise
   },
 
-  async startAgentInternal(agentId: string, runtime?: string): Promise<void> {
+  async startAgentInternal(agentId: string, runtime?: string, modelProfileIdOverride?: string): Promise<void> {
     const stale = acpHost.agents.get(agentId)
     if (stale?.connection.signal.aborted) acpHost.agents.delete(agentId)
 
@@ -132,7 +144,9 @@ export const acpHost = {
     const effectiveRuntime = runtime || agent.runtime
     const runtimeEnv = effectiveRuntime === 'mock'
       ? { env: buildRuntimeEnv(effectiveRuntime), appliedProfile: undefined, gatewayAuth: undefined }
-      : buildAgentRuntimeEnv(effectiveRuntime, agent)
+      : buildAgentRuntimeEnv(effectiveRuntime, agent, process.env, {
+        ...(modelProfileIdOverride ? { modelProfileIdOverride } : {}),
+      })
     const sessionMeta = buildAgentSessionMeta(effectiveRuntime, runtimeEnv.env, agent)
     const envFingerprint = JSON.stringify([
       fingerprintRuntimeEnv(runtimeEnv.env, effectiveRuntime),
@@ -318,7 +332,7 @@ export const acpHost = {
     const existed = acpHost.isRunning(agentId)
     if (!existed && showLifecycle)
       emitLifecycle(agentId, ourSessionId, 'lifecycle.runtime_starting', '\u6b63\u5728\u542f\u52a8 Agent...')
-    await acpHost.startAgent(agentId)
+    await startAgentForContext(agentId, context, true)
     const conn = acpHost.agents.get(agentId)
     if (!conn) throw new Error(`Agent ${agentId} not running`)
     if (!existed && showLifecycle) emitLifecycle(agentId, ourSessionId, 'lifecycle.runtime_ready', 'Agent \u5df2\u5c31\u7eea')
@@ -635,16 +649,10 @@ export const acpHost = {
     targetSessionId: string,
     context: AcpSessionContext = {},
   ): Promise<string> {
-    let conn = acpHost.agents.get(agentId)
-    const sourceAcpSessionId = conn?.acpSessions.get(sourceSessionId)
+    const sourceAcpSessionId = acpHost.agents.get(agentId)?.acpSessions.get(sourceSessionId)
       ?? sessionStore.get(sourceSessionId)?.acp_session_id
       ?? undefined
     if (!sourceAcpSessionId) throw new Error(`Session ${sourceSessionId} 没有对应的 ACP session`)
-    if (!conn) {
-      await acpHost.startAgent(agentId)
-      conn = acpHost.agents.get(agentId)
-    }
-    if (!conn) throw new Error(`Agent ${agentId} 未运行`)
     return acpHost.forkSessionFromAcpSessionId(agentId, sourceAcpSessionId, targetSessionId, context)
   },
 
@@ -654,11 +662,8 @@ export const acpHost = {
     targetSessionId: string,
     context: AcpSessionContext = {},
   ): Promise<string> {
-    let conn = acpHost.agents.get(agentId)
-    if (!conn) {
-      await acpHost.startAgent(agentId)
-      conn = acpHost.agents.get(agentId)
-    }
+    await startAgentForContext(agentId, context)
+    const conn = acpHost.agents.get(agentId)
     if (!conn) throw new Error(`Agent ${agentId} 未运行`)
     if (!conn.agentCapabilities?.sessionCapabilities?.fork) throw new Error(`Agent ${agentId} 不支持 fork 会话`)
     const cwd = context.cwd ?? process.cwd()

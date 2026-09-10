@@ -40,9 +40,15 @@ export function buildRuntimeStateSnapshot(input: BuildRuntimeStateSnapshotInput)
   const project = projectId ? projectStore.get(projectId) : undefined
   if (projectId && !project) throw new Error(`Project not found: ${projectId}`)
 
+  const teamMember = teamMemberStore.getBySession(session.id)
+  const inheritedProfileId = teamMember
+    ? resolveTeamInheritedProfileId(teamMember, agent.runtime)
+    : undefined
   const runtimeEnv = agent.runtime === 'mock'
     ? { env: buildRuntimeEnv(agent.runtime), appliedProfile: undefined }
-    : buildAgentRuntimeEnv(agent.runtime, agent)
+    : buildAgentRuntimeEnv(agent.runtime, agent, process.env, {
+      ...(inheritedProfileId ? { modelProfileIdOverride: inheritedProfileId } : {}),
+    })
   const sessionMeta = buildAgentSessionMeta(agent.runtime, runtimeEnv.env, agent, {
     isPrimary: session.is_primary === 1,
     additionalPrompt: session.purpose === 'autonomy'
@@ -51,7 +57,6 @@ export function buildRuntimeStateSnapshot(input: BuildRuntimeStateSnapshotInput)
         ? buildProjectSecretarySystemPrompt(session.id)
         : undefined,
   })
-  const teamMember = teamMemberStore.getBySession(session.id)
   const visibleTools = teamMember
     ? resolveVisiblePlatformTools({ agentId: agent.id, projectId: projectId ?? undefined, sessionId: session.id })
     : []
@@ -106,6 +111,20 @@ export function buildRuntimeStateSnapshot(input: BuildRuntimeStateSnapshotInput)
       .filter((tool) => AUTO_APPROVED_TEAM_TOOLS.has(tool.definition.name) && !tool.definition.permissions.requiresApproval)
       .map((tool) => tool.definition.name),
   }
+}
+
+function resolveTeamInheritedProfileId(
+  member: NonNullable<ReturnType<typeof teamMemberStore.getBySession>>,
+  runtime: string,
+): string | undefined {
+  if (member.model_profile_id?.trim()) return member.model_profile_id.trim()
+  if (member.role === 'leader') return undefined
+
+  const leaderMember = teamMemberStore.list(member.team_id).find((candidate) => candidate.role === 'leader')
+  if (!leaderMember) return undefined
+  const leaderAgent = agentStore.get(leaderMember.agent_id)
+  if (!leaderAgent || leaderAgent.runtime !== runtime) return undefined
+  return buildAgentRuntimeEnv(leaderAgent.runtime, leaderAgent).appliedProfile?.id
 }
 
 function cloneEnvironment(env: NodeJS.ProcessEnv): Record<string, string> {

@@ -22,6 +22,7 @@ export interface TeamMemberData {
   session_id: string
   name: string
   role: string
+  model_profile_id: string | null
   status: string
   created_at: string
   updated_at: string

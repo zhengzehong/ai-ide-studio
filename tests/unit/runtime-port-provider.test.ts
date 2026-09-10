@@ -85,6 +85,12 @@ describe('embedded runtime port', () => {
     }
     const port = new EmbeddedRuntimePort(host)
     const state = snapshot()
+    state.runtime.appliedModelProfile = {
+      id: 'mpf-team-member',
+      name: 'Team member profile',
+      runtime: 'mock',
+      providerId: 'provider-1',
+    }
 
     await expect(port.ensureSession(state, { emitLifecycle: false })).resolves.toBe('acp-1')
     await port.prompt({
@@ -109,6 +115,7 @@ describe('embedded runtime port', () => {
       projectId: 'project-1',
       cwd: 'C:/workspace',
       runtimeContextKey: expect.any(String),
+      modelProfileIdOverride: 'mpf-team-member',
       emitLifecycle: false,
       canRecreateMissingSession: true,
     })
@@ -124,6 +131,7 @@ describe('embedded runtime port', () => {
         projectId: 'project-1',
         cwd: 'C:/workspace',
         runtimeContextKey: expect.any(String),
+        modelProfileIdOverride: 'mpf-team-member',
         canRecreateMissingSession: true,
       },
     )

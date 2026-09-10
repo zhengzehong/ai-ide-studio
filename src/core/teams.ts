@@ -11,7 +11,7 @@ import {
   type TeamMemberRow,
   type TeamRow,
 } from '../store/teams.js'
-import { createCustomProjectAgent, deployTemplateToProject } from './agents.js'
+import { resolveSpawnAgent, resolveSpawnRuntime, ensureTeamMemberModelProfile } from './team-member-model-profile.js'
 import { createFixedMaster, markTeamInternalAgent, updateMasterPrompt } from './team-master.js'
 import { events } from './events.js'
 import { emitTaskLifecycleEvent, resolveTaskLifecycleChangeType } from './task-lifecycle-events.js'
@@ -57,6 +57,7 @@ export interface SpawnMemberInput {
   systemPrompt?: string
   icon?: string
   role?: string
+  modelProfileId?: string
 }
 export interface SpawnMemberResult {
   member: TeamMemberRow
@@ -145,6 +146,8 @@ export const teamService = {
 
   spawnMember(input: SpawnMemberInput): SpawnMemberResult {
     const team = requireTeam(input.teamId)
+    ensureTeamMemberModelProfile(input.modelProfileId?.trim() || undefined, resolveSpawnRuntime(input))
+    const modelProfileId = input.modelProfileId?.trim() || undefined
     const resolvedAgent = resolveSpawnAgent(team.project_id, input)
     const agent = input.agentId ? resolvedAgent : markTeamInternalAgent(resolvedAgent)
     ensureAgentInProject(agent, team.project_id)
@@ -158,6 +161,7 @@ export const teamService = {
       sessionId: session.id,
       name: input.name?.trim() || agent.name,
       role: input.role || 'member',
+      modelProfileId,
     })
     applyToolProfileToAgent({ profileId: 'team-member', agentId: agent.id })
     log.info({ teamId: team.id, memberId: member.id, agentId: agent.id }, 'Team member 已创建')
@@ -329,26 +333,6 @@ function buildDetail(team: TeamRow): TeamDetail {
   }
 }
 
-function resolveSpawnAgent(projectId: string, input: SpawnMemberInput): AgentRow {
-  if (input.agentId) return requireAgent(input.agentId)
-  if (input.templateId) {
-    return deployTemplateToProject(input.templateId, projectId, {
-      name: input.name,
-      runtime: input.runtime,
-      systemPrompt: input.systemPrompt,
-      icon: input.icon,
-    })
-  }
-  return createCustomProjectAgent({
-    projectId,
-    name: required(input.name, 'name'),
-    type: required(input.type, 'type'),
-    runtime: required(input.runtime, 'runtime'),
-    systemPrompt: input.systemPrompt,
-    icon: input.icon,
-  })
-}
-
 function ensureProject(projectId: string): void {
   if (!projectStore.get(projectId)) throw new Error(`项目不存在: ${projectId}`)
 }
@@ -384,11 +368,6 @@ function ensureTaskInTeam(taskId: string, teamId: string): TaskRow {
   if (!task) throw new Error(`Task 不存在: ${taskId}`)
   if (task.team_id !== teamId) throw new Error('Task 不属于该 Team')
   return task
-}
-
-function required(value: string | undefined, key: string): string {
-  if (!value?.trim()) throw new Error(`${key} 不能为空`)
-  return value
 }
 
 function normalizeTaskStatus(status: string | undefined): string | undefined {

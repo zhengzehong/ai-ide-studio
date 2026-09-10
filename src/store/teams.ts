@@ -21,6 +21,7 @@ export interface TeamMemberRow {
   session_id: string
   name: string
   role: string
+  model_profile_id: string | null
   status: string
   created_at: string
   updated_at: string
@@ -69,6 +70,7 @@ export interface CreateTeamMemberInput {
   sessionId: string
   name: string
   role?: string
+  modelProfileId?: string
 }
 
 export interface CreateTeamMailboxInput {
@@ -161,16 +163,17 @@ export const teamMemberStore = {
       session_id: input.sessionId,
       name: input.name,
       role: input.role ?? 'member',
+      model_profile_id: input.modelProfileId ?? null,
       status: 'active',
       created_at: now,
       updated_at: now,
     }
     getDb().prepare(`
       INSERT INTO team_members (
-        id, team_id, project_id, agent_id, session_id, name, role, status, created_at, updated_at
+        id, team_id, project_id, agent_id, session_id, name, role, model_profile_id, status, created_at, updated_at
       )
       VALUES (
-        @id, @team_id, @project_id, @agent_id, @session_id, @name, @role, @status, @created_at, @updated_at
+        @id, @team_id, @project_id, @agent_id, @session_id, @name, @role, @model_profile_id, @status, @created_at, @updated_at
       )
     `).run(member)
     teamEventStore.append(input.teamId, { type: 'member.created', payload: { member } })
