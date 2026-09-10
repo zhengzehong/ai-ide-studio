@@ -12,6 +12,12 @@ function snapshot(status = 'running'): Snapshot {
 const chunk = (sequence: number, text: string): SessionEventData => event(sequence, 'message.chunk', { role: 'agent', contentDelta: text })
 
 describe('team restoration boundaries', () => {
+  it('keeps Master capability changes after the previous turn completed', () => {
+    const update = event(11, 'config.update', { configOptions: [{ id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: 'new', options: [{ value: 'new', name: 'New' }] }] })
+    const result = applyEventToSnapshot({ s1: snapshot('completed') }, 's1', update, 'master')
+    expect(result.s1.capabilities.currentModelId).toBe('new')
+    expect(result.s1.streaming).toBeNull()
+  })
   it('does not replace live text with an empty shell even without replay metadata', () => {
     const live = updateStreaming({}, 's1', { messageId: 'm1', contentDelta: 'keep' })
     const empty = { ...snapshot(), streaming: createEmptyTurn('m1') }

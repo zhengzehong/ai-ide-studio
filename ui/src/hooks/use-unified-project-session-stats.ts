@@ -24,6 +24,9 @@ export function resolveUnifiedProjectSessionStats({
   unreadSessionIds,
 }: ResolveUnifiedProjectSessionStatsInput): Record<string, ProjectSessionStatsData> {
   if (!activeProjectId) return backendStats
+  // New servers aggregate teams and ordinary Sessions together. Do not replace
+  // that result with individual team member counts from the local Session list.
+  if (backendStats[activeProjectId]?.teams !== undefined) return backendStats
   const activeSessions = sessions.filter((session) => (
     session.project_id === activeProjectId
     && isUserVisibleSession(session)

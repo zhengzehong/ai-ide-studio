@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Archive, Bot, Loader2, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { wsClient } from '../../services/ws-client'
 import type { TeamData } from '../../stores/team.store'
 import type { SessionIndicatorStateMap } from '../../utils/session-indicators'
-import { isTeamConversationRunning } from './team-conversation-state'
+import { isTeamConversationRunning, teamConversationListNeedsRefresh } from './team-conversation-state'
 import { formatTime } from '../../pages/workspace/helpers'
 import { SessionListRow } from '../session/SessionListRow'
+import { useProjectSessionStatsStore } from '../../stores/project-session-stats.store'
+import { teamCacheKey, teamListCache, teamSelectionCache, shareTeamRequest, invalidateTeamRequest, newTeamRequestScope } from './team-view-cache'
 
 interface Conversation {
   id: string
@@ -16,57 +18,92 @@ interface Conversation {
   updated_at: string
   activity_state?: 'running' | 'idle' | null
   grid_session_ids?: string[] | null
+  unread?: boolean
+  last_message_at?: string | null
 }
 
 interface Props {
   team: TeamData
   activeId: string | null
-  onSelect: (conversation: Conversation) => void
-  onMasterSession: (sessionId: string) => void
+  onSelect: (conversation: Conversation | null) => void
+  onMasterSession: (sessionId: string | null) => void
   runningSessionIds?: SessionIndicatorStateMap
   sessionActivityStates?: Record<string, 'running' | 'idle' | undefined>
 }
 
 export function TeamConversationList({ team, activeId, onSelect, onMasterSession, runningSessionIds = {}, sessionActivityStates = {} }: Props) {
-  const [items, setItems] = useState<Conversation[]>([])
+  const cacheKey = teamCacheKey(team.project_id, team.id)
+  const [requestScope] = useState(newTeamRequestScope)
+  const [items, setItems] = useState<Conversation[]>(() => teamListCache.get(cacheKey) as Conversation[] || [])
+  const requestSeq = useRef(0)
+  const mounted = useRef(true)
+  const invalidateRequests = useCallback((): void => { requestSeq.current++ }, [])
+  const summary = useProjectSessionStatsStore(state => state.statsByProjectId[team.project_id]?.teams?.find(item => item.teamId === team.id))
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [hoveredId, setHoveredId] = useState<string | null>(null)
 
-  const load = useCallback(async (): Promise<void> => {
+  const load = useCallback(async (force = false): Promise<void> => {
+    if (!mounted.current) return
+    const seq = ++requestSeq.current
     setLoading(true)
     setError(null)
     try {
-      const rows = await wsClient.request({ type: 'team.conversation.list', teamId: team.id })
-      setItems(Array.isArray(rows) ? rows as Conversation[] : [])
+      const requestKey = `list:${cacheKey}:${requestScope}`
+      if (force) invalidateTeamRequest(requestKey)
+      const rows = await shareTeamRequest(requestKey, () => wsClient.request({ type: 'team.conversation.list', teamId: team.id }))
+      if (seq !== requestSeq.current) return
+      const next = Array.isArray(rows) ? rows as Conversation[] : []
+      teamListCache.set(cacheKey, next)
+      setItems(next)
+      const remembered = teamSelectionCache.get(cacheKey)
+      if (remembered && !next.some(item => item.id === remembered.id)) { teamSelectionCache.delete(cacheKey); onMasterSession(null); onSelect(null) }
+      const selected = next.find(item => item.id === remembered?.id)
+      if (selected) {
+        teamSelectionCache.set(cacheKey, selected)
+        if (selected.title !== remembered?.title) onSelect(selected)
+      }
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '团队会话加载失败')
+      if (seq === requestSeq.current) setError(cause instanceof Error ? cause.message : '团队会话加载失败')
     } finally {
-      setLoading(false)
+      if (seq === requestSeq.current) setLoading(false)
     }
-  }, [team.id])
+  }, [team.id, cacheKey, onSelect, onMasterSession, requestScope])
 
   useEffect(() => {
+    mounted.current = true
     const timer = window.setTimeout(() => { void load() }, 0)
-    return () => window.clearTimeout(timer)
-  }, [load])
+    const off = wsClient.on('reconnected', () => { void load(true) })
+    let refreshTimer: number | undefined
+    const offTeam = wsClient.on('team:update', msg => {
+      if (msg.teamId !== team.id || !teamConversationListNeedsRefresh(msg)) return
+      window.clearTimeout(refreshTimer)
+      refreshTimer = window.setTimeout(() => { void load(true) }, 300)
+    })
+    return () => { mounted.current = false; window.clearTimeout(timer); window.clearTimeout(refreshTimer); invalidateRequests(); off(); offTeam() }
+  }, [load, team.id, invalidateRequests])
 
   // 点开团队时还没有选中的会话线:自动选中正在执行的一条,否则选最近更新的活跃线,避免只见空态。
   useEffect(() => {
-    if (loading || items.length === 0 || activeId !== null) return
-    const best = items.find((item) => isTeamConversationRunning(item, runningSessionIds, sessionActivityStates))
+    if (items.length === 0 || (activeId !== null && items.some(item => item.id === activeId))) return
+    const remembered = teamSelectionCache.get(cacheKey)
+    const best = items.find(item => item.id === remembered?.id)
+      ?? items.find((item) => isTeamConversationRunning(item, runningSessionIds, sessionActivityStates))
       ?? [...items].sort((a, b) => Number(b.status === 'active') - Number(a.status === 'active') || b.updated_at.localeCompare(a.updated_at))[0]
     if (!best) return
+    teamSelectionCache.set(cacheKey, best)
     onMasterSession(best.master_session_id)
     onSelect(best)
-  }, [activeId, items, loading, onMasterSession, onSelect, runningSessionIds, sessionActivityStates])
+  }, [activeId, items, loading, onMasterSession, onSelect, runningSessionIds, sessionActivityStates, cacheKey])
 
   const create = async (): Promise<void> => {
     try {
       const result = await wsClient.request({ type: 'team.conversation.create', teamId: team.id, title: '新团队会话' }) as { conversation?: Conversation }
-      if (!result.conversation) return
-      await load()
+      if (!result.conversation || !mounted.current) return
+      await load(true)
+      if (!mounted.current) return
       onMasterSession(result.conversation.master_session_id)
+      teamSelectionCache.set(cacheKey, result.conversation)
       onSelect(result.conversation)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '创建会话失败')
@@ -78,7 +115,7 @@ export function TeamConversationList({ team, activeId, onSelect, onMasterSession
     if (!title || title === item.title) return
     try {
       await wsClient.request({ type: 'team.conversation.rename', conversationId: item.id, title })
-      await load()
+      await load(true)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '重命名失败')
     }
@@ -88,7 +125,7 @@ export function TeamConversationList({ team, activeId, onSelect, onMasterSession
     if (!window.confirm(`归档“${item.title}”？`)) return
     try {
       await wsClient.request({ type: 'team.conversation.archive', conversationId: item.id })
-      await load()
+      await load(true)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '归档失败')
     }
@@ -98,7 +135,7 @@ export function TeamConversationList({ team, activeId, onSelect, onMasterSession
     if (!window.confirm(`删除“${item.title}”？`)) return
     try {
       await wsClient.request({ type: 'team.conversation.delete', conversationId: item.id })
-      await load()
+      await load(true)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '删除失败')
     }
@@ -119,13 +156,15 @@ export function TeamConversationList({ team, activeId, onSelect, onMasterSession
         {loading && items.length === 0 && <div style={stateStyle}><Loader2 size={16} style={{ animation: 'spin 1s linear infinite', marginBottom: 8 }} /><div>正在加载会话...</div></div>}
         {!loading && !error && items.length === 0 && <div style={stateStyle}>暂无会话<br /><span style={{ fontSize: 12 }}>点击上方加号新建</span></div>}
         {items.map((item) => {
-          const running = isTeamConversationRunning(item, runningSessionIds, sessionActivityStates)
+          const activity = summary?.conversations.find(entry => entry.conversationId === item.id)
+          const running = activity?.running ?? isTeamConversationRunning(item, runningSessionIds, sessionActivityStates)
+          const unread = activity?.unread ?? item.unread ?? false
           return (
             <SessionListRow
               key={item.id}
               sessionId={item.master_session_id}
               active={activeId === item.id}
-              onSelect={() => { onMasterSession(item.master_session_id); onSelect(item) }}
+              onSelect={() => { teamSelectionCache.set(cacheKey, item); onMasterSession(item.master_session_id); onSelect(item) }}
               onMouseEnter={() => setHoveredId(item.id)}
               onMouseLeave={() => setHoveredId((current) => current === item.id ? null : current)}
               actions={hoveredId === item.id ? (
@@ -136,9 +175,9 @@ export function TeamConversationList({ team, activeId, onSelect, onMasterSession
                 </>
               ) : undefined}
             >
-              <span title={running ? '正在执行' : item.status === 'active' ? '空闲' : '已归档'} style={statusDotStyle(running, item.status)} />
+              <span title={running ? '正在执行' : unread ? '未读' : item.status === 'active' ? '空闲' : '已归档'} style={statusDotStyle(running, unread)} />
               <span style={titleStyle} title={item.title}>{item.title}</span>
-              <span style={timeStyle}>{formatTime(item.updated_at)}</span>
+              <span style={timeStyle}>{formatTime(activity?.lastMessageAt || item.last_message_at || item.updated_at)}</span>
             </SessionListRow>
           )
         })}
@@ -160,4 +199,4 @@ const titleStyle: React.CSSProperties = { flex: 1, minWidth: 0, overflow: 'hidde
 const timeStyle: React.CSSProperties = { fontSize: 11, color: 'var(--text-3)', flexShrink: 0, marginLeft: 4 }
 const iconStyle: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', border: 0, background: 'transparent', color: 'var(--text-3)', cursor: 'pointer', padding: 3, borderRadius: 4 }
 const newButtonStyle: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', height: 22, padding: '0 4px', border: 0, background: 'transparent', color: 'var(--text-3)', cursor: 'pointer', borderRadius: 4 }
-const statusDotStyle = (running: boolean, status: string): React.CSSProperties => ({ width: 6, height: 6, borderRadius: '50%', background: running || status === 'active' ? 'var(--green)' : 'var(--text-3)', flexShrink: 0, animation: running ? 'session-running-pulse 1s ease-in-out infinite' : undefined, boxShadow: running ? '0 0 0 4px rgba(5, 150, 105, 0.12)' : undefined })
+const statusDotStyle = (running: boolean, unread: boolean): React.CSSProperties => ({ width: 6, height: 6, borderRadius: '50%', background: running ? 'var(--green)' : unread ? 'var(--yellow)' : 'var(--text-3)', flexShrink: 0, animation: running ? 'session-running-pulse 1s ease-in-out infinite' : undefined, boxShadow: running ? '0 0 0 4px rgba(5, 150, 105, 0.12)' : undefined })

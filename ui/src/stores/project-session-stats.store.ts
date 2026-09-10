@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { wsClient } from '../services/ws-client'
+import type { TeamActivitySummary } from '../../../src/shared/team-activity'
 
 export const PROJECT_SESSION_STATS_DEBOUNCE_MS = 300
 export const PROJECT_SESSION_STATS_STALE_MS = 30_000
@@ -8,6 +9,7 @@ export interface ProjectSessionStatsData {
   projectId: string
   runningCount: number
   unreadCount: number
+  teams?: TeamActivitySummary[]
 }
 
 interface ProjectSessionStatsSnapshot {
@@ -96,6 +98,7 @@ export const useProjectSessionStatsStore = create<ProjectSessionStatsStore>((set
     }
     const offActivity = wsClient.on('session:activity', scheduleRefresh)
     const offChanged = wsClient.on('session:changed', scheduleRefresh)
+    const offTeam = wsClient.on('team:update', scheduleRefresh)
     const recoverVisibleStats = (): void => {
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
       void get().refreshIfStale(0)
@@ -115,6 +118,7 @@ export const useProjectSessionStatsStore = create<ProjectSessionStatsStore>((set
     return () => {
       offActivity()
       offChanged()
+      offTeam()
       if (refreshTimer) {
         clearTimeout(refreshTimer)
         refreshTimer = null

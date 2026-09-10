@@ -1,7 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { isTeamConversationRunning } from '../../ui/src/components/team/team-conversation-state'
+import { isTeamConversationRunning, teamConversationListNeedsRefresh } from '../../ui/src/components/team/team-conversation-state'
 
 describe('team conversation running indicator', () => {
+  it('does not reload the conversation list for mailbox or task progress', () => {
+    expect(teamConversationListNeedsRefresh({ data: { reason: 'mailbox.created' } })).toBe(false)
+    expect(teamConversationListNeedsRefresh({ data: { reason: 'task.updated' } })).toBe(false)
+    expect(teamConversationListNeedsRefresh({ data: { reason: 'member.created' } })).toBe(true)
+    expect(teamConversationListNeedsRefresh({ data: { conversationId: 'c', status: 'deleted' } })).toBe(true)
+  })
+  it('lets explicit idle for every grid override a stale running snapshot', () => {
+    expect(isTeamConversationRunning({ master_session_id: 'm', activity_state: 'running', grid_session_ids: ['m', 'w'] }, {}, { m: 'idle', w: 'idle' })).toBe(false)
+  })
   const conversation = { master_session_id: 'master-1', activity_state: null as 'running' | 'idle' | null }
 
   it('does not treat an active unarchived conversation as running', () => {

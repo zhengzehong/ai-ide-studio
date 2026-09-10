@@ -276,6 +276,10 @@ Session 删除采用软删除，仅隐藏列表项并保留 `messages` / `sessio
 
 普通 Agent 会话与团队会话共用 `ui/src/components/session/SessionListRow` 的列表行展示壳；团队只替换数据聚合和操作回调，中间消息区域继续通过 `ConversationPane` 适配器复用 Workspace 的渲染、流式滚动与执行过程能力。
 
+`store/team-activity` 统一聚合团队、群聊和成员 Session 的运行与未读状态。项目统计排除单独的团队格子后，每个活跃团队只贡献一个提醒；运行优先展示，未读独立保留。左侧团队和会话列表消费同一项目摘要。`core/team-conversation-read` 验证客户端已显示的消息引用，推进对应 Session 的已读边界，不清除其他群聊或之后到达的消息。
+
+`team-view-cache` 以连接身份、项目、团队和群聊隔离内存缓存，列表与会话选择保留最近 20 项，聊天保留最近 8 项。切换先显示缓存，再读取新快照；同一次查看中的重叠请求复用，离开后的请求不能覆盖新视图。`team-chat-loader` 按成员独立恢复消息，一个成员加载失败不阻止其他成员展示。只有 Master 的模型能力独立加载，不进入历史消息的等待链路；`use-team-read` 仅在当前可见群聊回写已显示的完成消息。
+
 团队会话的状态聚合由 `team-chat-state` 负责。消息状态确定当前运行回合，`sessions.messageEvents` 提供该回合的完整事件，实时输出使用带序号的 `session:event` 接续；历史加载与实时流按序号边界去重合并。恢复接口中的生命周期事件只提供辅助状态，不能把已完成消息重新标记为运行中。计划、权限和文件变更过程项通过独立过程事件补充，正文、思考和工具不重复消费增量与过程快照。切换群聊时隔离视图状态，并在读取成员历史前建立订阅。
 | `ui/src/services/` | 通信层 | `query-client.ts`、`ws-client.ts` |
 | `mobile/src/` | 移动端 Web App | `/app/` 下的手机端页面、组件和 Zustand store；复用 `ui/src/services/ws-client.ts` 与会话事件还原辅助逻辑 |

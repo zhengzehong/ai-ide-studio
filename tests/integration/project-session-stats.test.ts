@@ -115,8 +115,8 @@ describe('project session stats store', () => {
     )
 
     expect(statsByProject).toEqual({
-      [projectA.id]: { projectId: projectA.id, sessionCount: 5, runningCount: 3, unreadCount: 1 },
-      [projectB.id]: { projectId: projectB.id, sessionCount: 0, runningCount: 0, unreadCount: 0 },
+      [projectA.id]: { projectId: projectA.id, sessionCount: 5, runningCount: 3, unreadCount: 1, teams: [] },
+      [projectB.id]: { projectId: projectB.id, sessionCount: 0, runningCount: 0, unreadCount: 0, teams: [] },
     })
   })
 

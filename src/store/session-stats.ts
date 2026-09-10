@@ -1,12 +1,15 @@
 import { getDb } from './db.js'
 import { userVisibleSessionSql } from './session-visibility.js'
 import { resolveSessionRuntimeState } from './session-runtime-state.js'
+import { listTeamActivity } from './team-activity.js'
+import type { TeamActivitySummary } from '../shared/team-activity.js'
 
 export interface ProjectSessionStats {
   projectId: string
   sessionCount: number
   runningCount: number
   unreadCount: number
+  teams: TeamActivitySummary[]
 }
 
 interface ProjectSessionStatsQueryRow {
@@ -48,14 +51,13 @@ export const projectSessionStatsStore = {
         AND s.is_template = 0
         AND ${userVisibleSessionSql()}
         AND s.status = 'active'
-        -- 团队格子会话不计入统计：非 primary 格子（≠ 成员主 session）与 teamInternal agent 会话都排除；
-        -- 首线复用的 primary 格子（= tm.session_id）是成员真实聊天会话，保留。
+        -- Team grids are represented once by their team, not by individual Sessions.
         AND NOT EXISTS (
           SELECT 1
           FROM team_conversation_members tcm
-          JOIN team_members tm ON tm.id = tcm.member_id
-          WHERE tcm.session_id = s.id AND tcm.session_id IS NOT tm.session_id
+          WHERE tcm.session_id = s.id
         )
+        AND NOT EXISTS (SELECT 1 FROM team_conversations tc WHERE tc.master_session_id = s.id)
         AND NOT EXISTS (
           SELECT 1
           FROM agents ta
@@ -73,6 +75,7 @@ export const projectSessionStatsStore = {
         sessionCount: 0,
         runningCount: 0,
         unreadCount: 0,
+        teams: [],
       }
       statsByProject.set(row.project_id, stats)
       if (!row.session_id) continue
@@ -90,6 +93,14 @@ export const projectSessionStatsStore = {
       } else if (isUnread(row.last_message_at, row.last_read_at)) {
         stats.unreadCount += 1
       }
+    }
+    for (const team of listTeamActivity(isPromptActive)) {
+      const stats = statsByProject.get(team.projectId)
+      if (!stats) continue
+      stats.teams.push(team)
+      stats.sessionCount++
+      if (team.running) stats.runningCount++
+      else if (team.unread) stats.unreadCount++
     }
     return [...statsByProject.values()]
   },
