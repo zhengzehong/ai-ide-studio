@@ -380,9 +380,15 @@ Claude 档案通过进程环境和 Session settings 应用兼容 Anthropic 的�
 
 ## Team MCP 协作边界
 
-Team 领域通过 Agent 级工具 Profile 控制 `team.*` MCP 能力，不设置全局绑定。固定 Master 自动获得 `team-leader` Profile，成员获得 `team-member` Profile，普通 Agent 看不到 Team 工具；HTTP 与 stdio 两条 Runtime 路径使用相同绑定解析和 Team 上下文校验。
+`team.list` 和 `team.conversation.list` 是全局可绑定的公开发现工具，与普通 Agent 目录分离；其他 `team.*` 能力通过 Agent 级 Profile 暴露。`core/team-access` 与 `tools/team-boundary-guard` 按可信 Session 反查成员身份，统一校验 HTTP/stdio 工具执行中的历史读取、监听、创建会话、成员操作和任务指派；模型传入的团队字段不能提升权限。用户 RPC 保留团队内部可见性。
 
-创建 Team 时，平台从内置 `tpl-team-leader` 部署一个项目内隐藏 Master Agent，可用创建表单传入的提示词覆盖模板默认值，并自动绑定 `team-leader` Profile。Master 新建的 Agent 标记为 `teamInternal` 并从普通 Workspace Agent 列表和显示管理中排除；显式加入团队的已有项目 Agent 保持原可见性。TeamMember 的 `session_id` 指向普通 `sessions` 行，成员执行输出继续落到 `messages` 和 `session_events`，所以刷新或切换会话后仍能按现有会话事件恢复。TeamMember 可选保存独立的 `model_profile_id` 覆盖 Master 档案；不传时按 Master 有效档案继承，双方都没有档案时保留 Runtime 系统环境回退。团队上下文通过 ToolContext 的 `teamId` / `teamMemberId` 传递，成员调用 `team.mailbox.send`、`team.task.update` 时不需要在 prompt 中手写 Team ID。`team.member.spawn` 创建或加入成员后，会自动给成员 Agent 套用 `team-member` Profile。团队群聊在 Workspace 的左侧与普通 Agent 同层级显示；每个群聊通过 `team_conversations` 和 `team_conversation_members` 为 Master 与每个成员建立独立 Session，前端聚合这些 Session 的历史消息并标注发送者，普通 Agent 的 Workspace 分支不改变。
+`core/team-contacts` 与 `store/team-contacts` 管理外部 Session 到团队会话线的持久联系。`agent.message.send(targetTeamId)` 创建或复用联系，投递到该线 Master；回复继续使用来源 `targetSessionId`，对外显示团队身份。成员通过 mailbox 协作，只有 Master 联系外部。`core/team-task-access` 和派发前校验保护任务读取及延后执行；`core/agent-watch-access` 在通知时重新校验旧监听，防止升级前的订阅越过新边界。
+
+团队成员使用独立 Agent 身份。`core/team-member-identity` 复制定义与显式工具绑定，不复制记忆、历史或自主配置；`core/team-identity-transition` 与对应 store 在启动恢复时处理历史复用身份，保存旧会话映射，通过 `core/team-runtime-prompt` 提供交接指引。属于单个团队的旧会话保留历史并关闭，新会话承接未完成工作；未进入团队线的普通会话及归属歧义的共享会话不关闭、不作为团队历史自动授权。
+
+`acp/native-memory-policy` 统一进入两条 Runtime 启动链路：Claude 的 Session settings 指向 `DATA_DIR/agent-memory/<projectId|global>/<agentId>/claude/`；Codex 的进程 `CODEX_CONFIG` 合并禁用原生 memories 生成和召回。`profile-config-parser` 仅解析模型档案，两者不改登录目录或本地配置文件。平台 Agent 记忆、自主 memory.md 和项目指令继续各自管理；原生记忆目录隔离不构成操作系统文件权限沙箱，也不清除已进入历史对话的内容。
+
+创建 Team 时，平台从内置 `tpl-team-leader` 部署一个项目内隐藏 Master Agent，可用创建表单传入的提示词覆盖模板默认值，并自动绑定 `team-leader` Profile。Master 新建的 Agent 标记为 `teamInternal` 并从普通 Workspace Agent 列表和显示管理中排除；从已有项目 Agent 加入时复制定义为隐藏的专属身份，来源 Agent 保持原可见性。TeamMember 的 `session_id` 指向普通 `sessions` 行，成员执行输出继续落到 `messages` 和 `session_events`，所以刷新或切换会话后仍能按现有会话事件恢复。TeamMember 可选保存独立的 `model_profile_id` 覆盖 Master 档案；不传时按 Master 有效档案继承，双方都没有档案时保留 Runtime 系统环境回退。团队上下文通过 ToolContext 的 `teamId` / `teamMemberId` 传递，成员调用 `team.mailbox.send`、`team.task.update` 时不需要在 prompt 中手写 Team ID。`team.member.spawn` 创建或加入成员后，会自动给成员 Agent 套用 `team-member` Profile。团队群聊在 Workspace 的左侧与普通 Agent 同层级显示；每个群聊通过 `team_conversations` 和 `team_conversation_members` 为 Master 与每个成员建立独立 Session，前端聚合这些 Session 的历史消息并标注发送者，普通 Agent 的 Workspace 分支不改变。
 
 前端工作台不为 Team 提供独立页面。`teams.current(sessionId)` 按当前会话反查 Team 上下文；右侧上下文区展示成员、任务和 mailbox，点击成员只切换到该成员的普通 Session。Team 变化通过 `team:update` 广播触发当前会话上下文刷新。
 

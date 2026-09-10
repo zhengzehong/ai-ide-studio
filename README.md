@@ -49,7 +49,8 @@ AI IDE Studio 是一个本地部署的全栈 AI 编程协作工具。通过 [ACP
 - **Team 群聊与编排** — Workspace 可创建团队和多个群聊；平台自动创建隐藏 Master、允许调整内置提示词，并按 Master/成员 Profile 注入对应 `team.*` 工具
 - **团队状态与切换** — 项目提醒按团队聚合运行与未读，左侧团队同步显示状态；阅读只清当前群聊的已显示消息，切换保留会话选择并优先显示缓存。
 - **团队回复反馈** — 发送后立即显示准备状态与转圈；成员独立计时，回复下方的耗时、输入、输出、缓存及费用统计条与个人会话共用相同样式和位置。
-- **Agent 会话通信** — 通过 `agent.*` 工具在非 Team Agent 会话之间发送消息、查看会话消息、要求回复和监听会话完成
+- **Agent 与团队通信** — 普通 Agent 与团队分别通过 `core.agent.list`、`team.list` 发现；`agent.message.send(targetTeamId)` 经 Master 收发并复用联系会话，`team.conversation.list` 查询本会话的团队联系，内部成员不对外暴露
+- **Agent 记忆隔离** — Claude 原生记忆按项目和 Agent 独立存放；Codex 原生共享记忆关闭，继续使用平台记忆。团队添加已有 Agent 时复制定义，不共享身份、历史会话或私人记忆
 - **A2A Hub 跨机器通信** — 通过 `agent_hub.*` 工具(`agent_hub.connect` / `agent_hub.disconnect` / `agent_hub.list` / `agent_hub.send`)接入外部 A2A Hub,让本地 Agent 跨机器互相调用;注册粒度为 (Agent, Session),`machineId` 持久化在本地 `settings` 表,SSE 混合传输,结果通过同一 SSE 通道自动回注入原会话;session 关闭自动断开 Hub 连接
 - **知识库 LLM Wiki** — 每个项目自动拥有项目库，可挂载多个共享库；PC 端保留完整管理能力，Agent 通过 `list/read/upsert/delete` 四个上下文隔离的最小工具维护 Markdown 页面
 - **规则引擎** — Cron 定时任务管理和事件触发规则，支持指定已有会话、每次新会话或固定新会话执行

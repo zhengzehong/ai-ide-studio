@@ -1,6 +1,7 @@
 import { templateStore } from '../store/agent-templates.js'
 import { agentStore, type AgentRow } from '../store/agents.js'
 import { modelProfileStore } from '../store/model-profiles.js'
+import { copyTeamAgent } from './team-member-identity.js'
 import { createCustomProjectAgent, deployTemplateToProject } from './agents.js'
 
 export interface TeamMemberSpawnInput {
@@ -15,7 +16,7 @@ export interface TeamMemberSpawnInput {
 }
 
 export function resolveSpawnAgent(projectId: string, input: TeamMemberSpawnInput): AgentRow {
-  if (input.agentId) return requireAgent(input.agentId)
+  if (input.agentId) return copyTeamAgent(projectId, input.agentId, input.name)
   if (input.templateId) {
     return deployTemplateToProject(input.templateId, projectId, {
       name: input.name,

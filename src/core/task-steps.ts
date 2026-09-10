@@ -13,6 +13,7 @@ import { buildStepPrompt } from './step-prompt.js'
 import { dispatchReadySteps } from './step-ready-dispatch.js'
 import { triggerTaskWatch } from './task-watch-trigger.js'
 import { createChildLogger } from './logger.js'
+import { assertCurrentAssignment } from './team-access.js'
 
 const log = createChildLogger('task-steps')
 
@@ -67,6 +68,7 @@ export const taskStepManager = {
     sessionId?: string
     dependsOn?: string[]
   }): { step: TaskStepRow; reverted: boolean } {
+    assertCurrentAssignment(input.assignee, input.sessionId)
     const task = taskStore.get(input.taskId)
     if (!task) throw new Error(`任务不存在: ${input.taskId}`)
     if (isTerminalTask(task.status)) throw new Error('任务已完成或已取消,不能添加步骤')
@@ -125,6 +127,7 @@ export const taskStepManager = {
     if (!existing || existing.task_id !== input.taskId) {
       throw new Error(`步骤不存在: ${input.stepId}`)
     }
+    assertCurrentAssignment(input.assignee ?? existing.assignee_agent_id ?? undefined, input.sessionId ?? existing.session_id ?? undefined)
 
     if (input.dependsOn !== undefined) {
       const all = taskStepStore.listByTask(input.taskId)

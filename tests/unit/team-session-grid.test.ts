@@ -37,7 +37,7 @@ function createFixture() {
     name: 'Alpha',
   })
   const leaderMember = created.member
-  return { project, leader, worker, leaderSession, team: created.team, leaderMember }
+  return { project, leader: created.agent, worker, leaderSession: created.session, team: created.team, leaderMember }
 }
 
 describe('team session grid (线 × 成员) model', () => {

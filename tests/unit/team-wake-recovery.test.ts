@@ -116,7 +116,7 @@ function createTeamFixture() {
   })
   const member = teamService.spawnMember({ teamId: created.team.id, agentId: worker.id, name: 'Worker' }).member
   const task = teamService.createTask({ teamId: created.team.id, title: '实现一个小功能', assigneeMemberId: member.id })
-  return { team: created.team, member, task, leaderSessionId: leaderSession.id }
+  return { team: created.team, member, task, leaderSessionId: created.session.id }
 }
 
 /** 直接落一条 mailbox 行，模拟"崩溃前已持久化、唤醒定时器没来得及触发"。 */

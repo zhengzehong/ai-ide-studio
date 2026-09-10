@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto'
 import { getDb } from './db.js'
+import { teamIdentityTransitionStore } from './team-identity-transition.js'
 
 export interface TeamRow {
   id: string
@@ -202,9 +203,12 @@ export const teamMemberStore = {
   getBySession(sessionId: string): TeamMemberRow | undefined {
     const direct = getDb().prepare<[string], TeamMemberRow>('SELECT * FROM team_members WHERE session_id = ?').get(sessionId)
     if (direct) return direct
-    return getDb().prepare<[string], TeamMemberRow>(`SELECT tm.*, tcm.session_id AS session_id
+    const grid = getDb().prepare<[string], TeamMemberRow>(`SELECT tm.*, tcm.session_id AS session_id
       FROM team_conversation_members tcm JOIN team_members tm ON tm.id = tcm.member_id
       WHERE tcm.session_id = ? AND tcm.left_at IS NULL LIMIT 1`).get(sessionId)
+    if (grid) return grid
+    const history = teamIdentityTransitionStore.history(sessionId)
+    return history ? teamMemberStore.get(history.member_id) : undefined
   },
 
   list(teamId: string): TeamMemberRow[] {

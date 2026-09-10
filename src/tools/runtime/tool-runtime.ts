@@ -1,4 +1,5 @@
 import { toolStore } from '../../store/tools.js'
+import { executeWithTeamBoundary } from '../team-boundary-guard.js'
 import { createChildLogger } from '../../core/logger.js'
 import { getHandler } from '../handlers/index.js'
 import { assertToolAllowed, toolDeniedResult } from '../permission-guard.js'
@@ -208,7 +209,7 @@ async function executeDefinition(
     if (!handler) {
       return { content: [{ type: 'text', text: `内置工具 handler 不存在: ${definition.name}` }], isError: true }
     }
-    return handler.execute(input, context)
+    return executeWithTeamBoundary(handler, input, context)
   }
 
   if (definition.type === 'script') {

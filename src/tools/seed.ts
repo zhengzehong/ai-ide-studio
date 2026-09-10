@@ -1474,6 +1474,7 @@ function cleanupTeamGlobalBindings(): void {
     FROM tool_bindings
     JOIN tools ON tools.id = tool_bindings.tool_id
     WHERE tools.name LIKE 'team.%'
+      AND tools.name NOT IN ('team.list', 'team.conversation.list')
       AND tool_bindings.scope = 'global'
       AND tool_bindings.target_id IS NULL
   `,

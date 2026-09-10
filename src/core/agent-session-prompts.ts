@@ -61,7 +61,7 @@ ${relatedInfo}
 ${message.content}
 
 请根据这条消息继续你的工作。
-如果需要查看来源会话或相关上下文，可以使用 agent.session.messages 查询对应 session 的最近消息。`
+${sourceAgent.id.startsWith('team-') ? '回复使用来源会话 ID；该 ID 仅授权通信，不授权读取团队内部历史。' : '如果需要查看来源会话或相关上下文，可以使用 agent.session.messages 查询对应 session 的最近消息。'}`
 }
 
 export function buildAgentSessionReplyReminderPrompt(input: MessagePromptInput): string {

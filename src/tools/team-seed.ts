@@ -15,10 +15,14 @@ function teamTool(name: string, displayName: string, description: string, inputS
     inputSchema,
     permissions: TEAM_PERMISSIONS,
     isBuiltin: true,
+    ...(['team.list', 'team.conversation.list'].includes(name) ? { defaultScope: 'global' as const } : {}),
   }
 }
 
 export const TEAM_BUILTIN_TOOLS: BuiltinToolSeed[] = [
+  teamTool('team.conversation.list', '查询团队联系会话', '查询当前会话与团队建立的联系，返回可回复的 Master sessionId，不暴露内部历史。', {
+    type: 'object', properties: { teamId: { type: 'string' } }, required: ['teamId'],
+  }),
   teamTool('team.list', '列出 Team', '列出当前项目的 Team。', {
     type: 'object',
     properties: { projectId: { type: 'string', description: '项目 ID；不传时使用当前会话项目' } },
@@ -53,12 +57,12 @@ export const TEAM_BUILTIN_TOOLS: BuiltinToolSeed[] = [
     type: 'object',
     properties: { teamId: { type: 'string', description: 'Team ID；不传时使用上下文 Team' } },
   }),
-  teamTool('team.member.spawn', '创建 Team 成员', '从模板创建成员，或把已有 Agent 加入 Team。默认继承 Master 模型档案；需要指定成员档案时，先调用 core.model_profile.list 查询，再传返回的 id。', {
+  teamTool('team.member.spawn', '创建 Team 成员', '从模板或已有 Agent 定义创建团队专属成员，不复制历史和记忆。默认继承 Master 模型档案；指定档案前调用 core.model_profile.list 查询。', {
     type: 'object',
     properties: {
       teamId: { type: 'string', description: 'Team ID；不传时使用上下文 Team' },
       templateId: { type: 'string', description: 'Agent 模板 ID' },
-      agentId: { type: 'string', description: '已有 Agent ID' },
+      agentId: { type: 'string', description: '复制定义的来源 Agent ID，创建独立成员身份' },
       name: { type: 'string', description: '成员/Agent 名称' },
       type: { type: 'string', description: '自定义 Agent 类型' },
       runtime: { type: 'string', description: '运行时 mock/claude/codex' },

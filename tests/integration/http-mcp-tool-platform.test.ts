@@ -9,6 +9,8 @@ import { initDatabase, closeDatabase } from '../../src/store/db.js'
 import { startGateway } from '../../src/gateway/server.js'
 import { toolStore, toolBindingStore } from '../../src/store/tools.js'
 import { projectStore } from '../../src/store/projects.js'
+import { agentStore } from '../../src/store/agents.js'
+import { sessionStore } from '../../src/store/sessions.js'
 import { createToolContext } from '../../src/tools/registry/context-registry.js'
 import { getHandler } from '../../src/tools/handlers/index.js'
 import type { ToolHandler } from '../../src/tools/types.js'
@@ -39,7 +41,9 @@ describe('HTTP MCP tool platform', () => {
     seedBuiltin('core.task.create', createHandler)
 
     const tokenA = createToolContext({ sessionId: 'sess-a', agentId: 'agent-a', visibleTools: ['core.task.list'] }).token
-    const tokenB = createToolContext({ sessionId: 'sess-b', agentId: 'agent-b', visibleTools: ['core.task.list', 'core.task.create'] }).token
+    const agent = agentStore.create({ name: 'Caller', type: 'coder', runtime: 'mock' })
+    const session = sessionStore.create({ agentId: agent.id })
+    const tokenB = createToolContext({ sessionId: session.id, agentId: agent.id, visibleTools: ['core.task.list', 'core.task.create'] }).token
 
     const clientA = await connectClient(tokenA)
     const clientB = await connectClient(tokenB)

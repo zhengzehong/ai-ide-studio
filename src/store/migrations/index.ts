@@ -67,6 +67,7 @@ import { teamConversationsMigration } from './064-team-conversations.js'
 import { teamMasterPromptMigration } from './066-team-master-prompt.js'
 import { teamMemberModelProfileMigration } from './067-team-member-model-profile.js'
 import { teamSessionGridRepairMigration } from './068-team-session-grid-repair.js'
+import { teamContactsMigration } from './069-team-contacts.js'
 
 export const migrations: Migration[] = [
   initialSchemaMigration,
@@ -137,4 +138,5 @@ export const migrations: Migration[] = [
   teamMasterPromptMigration,
   teamMemberModelProfileMigration,
   teamSessionGridRepairMigration,
+  teamContactsMigration,
 ]

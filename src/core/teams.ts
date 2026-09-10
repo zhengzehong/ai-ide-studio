@@ -1,4 +1,4 @@
-import { agentStore, type AgentRow } from '../store/agents.js'
+import type { AgentRow } from '../store/agents.js'
 import { templateStore, type AgentTemplateRow } from '../store/agent-templates.js'
 import { projectStore } from '../store/projects.js'
 import { sessionStore, type SessionRow } from '../store/sessions.js'
@@ -13,6 +13,7 @@ import {
 } from '../store/teams.js'
 import { resolveSpawnAgent, resolveSpawnRuntime, ensureTeamMemberModelProfile } from './team-member-model-profile.js'
 import { createFixedMaster, markTeamInternalAgent, updateMasterPrompt } from './team-master.js'
+import { copyTeamAgent } from './team-member-identity.js'
 import { events } from './events.js'
 import { emitTaskLifecycleEvent, resolveTaskLifecycleChangeType } from './task-lifecycle-events.js'
 import { createChildLogger } from './logger.js'
@@ -111,7 +112,7 @@ export const teamService = {
   create(input: CreateTeamInput): CreateTeamResult {
     ensureProject(input.projectId)
     const fixedMaster = input.leaderAgentId ? undefined : createFixedMaster(input.projectId, input.masterPrompt, input.modelProfileId)
-    const leader = fixedMaster?.agent ?? requireAgent(input.leaderAgentId as string)
+    const leader = fixedMaster?.agent ?? copyTeamAgent(input.projectId, input.leaderAgentId as string)
     ensureAgentInProject(leader, input.projectId)
     const team = teamStore.create({
       projectId: input.projectId,
@@ -119,7 +120,7 @@ export const teamService = {
       description: input.description,
       masterPrompt: fixedMaster?.prompt ?? leader.system_prompt,
     })
-    const session = fixedMaster?.session ?? resolveTeamLeaderSession(input.leaderSessionId, leader, input.projectId)
+    const session = fixedMaster?.session ?? sessionStore.findPrimaryByAgent(leader.id) ?? resolveTeamLeaderSession(undefined, leader, input.projectId)
     const member = teamMemberStore.create({
       teamId: team.id,
       projectId: input.projectId,
@@ -128,6 +129,7 @@ export const teamService = {
       name: leader.name,
       role: 'leader',
     })
+    applyToolProfileToAgent({ profileId: 'team-leader', agentId: leader.id })
     log.info({ teamId: team.id, projectId: input.projectId, memberId: member.id }, 'Team 已创建')
     emitTeamUpdate(team.id, 'created')
     return { team, member, agent: leader, session }
@@ -154,14 +156,13 @@ export const teamService = {
 
   spawnMember(input: SpawnMemberInput): SpawnMemberResult {
     const team = requireTeam(input.teamId)
+    if (input.role === 'leader') throw new Error('团队已有 Master，不可通过添加成员创建第二个 Master')
     ensureTeamMemberModelProfile(input.modelProfileId?.trim() || undefined, resolveSpawnRuntime(input))
     const modelProfileId = input.modelProfileId?.trim() || undefined
     const resolvedAgent = resolveSpawnAgent(team.project_id, input)
     const agent = input.agentId ? resolvedAgent : markTeamInternalAgent(resolvedAgent)
     ensureAgentInProject(agent, team.project_id)
-    const session = input.agentId
-      ? sessionStore.create({ agentId: agent.id, projectId: team.project_id })
-      : sessionStore.findPrimaryByAgent(agent.id) ?? sessionStore.create({ agentId: agent.id, projectId: team.project_id })
+    const session = sessionStore.findPrimaryByAgent(agent.id) ?? sessionStore.create({ agentId: agent.id, projectId: team.project_id })
     const member = teamMemberStore.create({
       teamId: team.id,
       projectId: team.project_id,
@@ -363,11 +364,6 @@ function requireMember(memberId: string): TeamMemberRow {
   return member
 }
 
-function requireAgent(agentId: string): AgentRow {
-  const agent = agentStore.get(agentId)
-  if (!agent) throw new Error(`Agent 不存在: ${agentId}`)
-  return agent
-}
 
 function ensureAgentInProject(agent: AgentRow, projectId: string): void {
   if (agent.project_id !== projectId) throw new Error(`Agent 不属于项目: ${projectId}`)

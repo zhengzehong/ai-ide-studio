@@ -7,6 +7,7 @@ import {
   type SessionRuntimeConfigValue,
 } from '../../../core/session-runtime-control.js'
 import type { ToolContext, ToolHandler, ToolHandlerInput, ToolHandlerResult } from '../../types.js'
+import { assertSessionAccess } from '../../../core/team-access.js'
 
 export const listSessionsHandler: ToolHandler = {
   name: 'core.session.list',
@@ -15,7 +16,10 @@ export const listSessionsHandler: ToolHandler = {
   async execute(input: ToolHandlerInput, context: ToolContext): Promise<ToolHandlerResult> {
     const agentId = optionalString(input, 'agentId')
     const projectId = context.projectId ?? optionalString(input, 'projectId')
-    return jsonResult({ sessions: sessionStore.listWithRuntimeState(agentId, projectId, sessionManager.isPromptActive) })
+    return jsonResult({ sessions: sessionStore.listWithRuntimeState(agentId, projectId, sessionManager.isPromptActive)
+      .filter(session => {
+        try { assertSessionAccess(context, session.id); return true } catch { return false }
+      }) })
   },
 }
 

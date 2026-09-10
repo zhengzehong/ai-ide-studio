@@ -1,5 +1,6 @@
 import { taskStore } from '../store/tasks.js'
 import { taskStepStore } from '../store/task-steps.js'
+import { assertTaskTeamTarget } from './team-access.js'
 import type { PromptIntent, PromptIntentValidation, PromptIntentValidator } from './prompt-intent.js'
 
 export const taskStepIntentValidator = {
@@ -19,6 +20,11 @@ export const taskStepIntentValidator = {
     if (!step || step.task_id !== task.id) return { valid: false, reason: 'step-not-found' }
     if (step.session_id !== intent.sessionId) return { valid: false, reason: 'step-session-mismatch' }
     if (step.status !== 'running') return { valid: false, reason: `step-${step.status}` }
+    try {
+      if (step.assignee_agent_id) assertTaskTeamTarget(task, step.assignee_agent_id, intent.sessionId)
+    } catch {
+      return { valid: false, reason: 'team-boundary-denied' }
+    }
     return { valid: true }
   },
 } satisfies PromptIntentValidator

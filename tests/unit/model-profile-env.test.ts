@@ -434,7 +434,8 @@ describe('model profile runtime env', () => {
             'WebFetch',
           ],
           settings: {
-            autoCompactWindow: 200000,
+          autoCompactWindow: 200000,
+          autoMemoryDirectory: expect.stringContaining(agent.id),
             permissions: {
               deny: IMAGE_READ_DENY_RULES,
             },

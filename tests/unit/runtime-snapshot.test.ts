@@ -34,6 +34,23 @@ afterEach(() => {
 })
 
 describe('runtime state snapshot', () => {
+  test('native memory settings reach the runtime snapshot for both session creation and resume', () => {
+    const project = projectStore.create({ name: 'Memory', workDir: tmp })
+    const agent = agentStore.create({ name: 'Claude', type: 'coder', runtime: 'claude', projectId: project.id })
+    const session = sessionStore.create({ agentId: agent.id, projectId: project.id })
+    const fresh = buildRuntimeStateSnapshot({ sessionId: session.id })
+    const expected = resolve(process.env.DATA_DIR || './data', 'agent-memory', project.id, agent.id, 'claude')
+    expect(fresh.runtime.sessionMeta).toMatchObject({ claudeCode: { options: { settings: { autoMemoryDirectory: expected } } } })
+    sessionStore.updateAcpSessionId(session.id, 'native-resume-id')
+    const resumed = buildRuntimeStateSnapshot({ sessionId: session.id })
+    expect(resumed.runtime.sessionMeta).toEqual(fresh.runtime.sessionMeta)
+    expect(resumed.session.acpSessionId).toBe('native-resume-id')
+    const codex = agentStore.create({ name: 'Codex', type: 'coder', runtime: 'codex', projectId: project.id })
+    const codexSession = sessionStore.create({ agentId: codex.id, projectId: project.id })
+    const config = buildRuntimeStateSnapshot({ sessionId: codexSession.id }).runtime.env.CODEX_CONFIG
+    expect(JSON.parse(config!)).toMatchObject({ features: { memories: false }, memories: { use_memories: false, generate_memories: false } })
+  })
+
   test.each(['claude', 'codex'] as const)('%s member route inherits the leader member override without retaining inspection snapshots', (runtime) => {
     const deactivate = activateCaptureRoutes(19009)
     try {

@@ -62,5 +62,5 @@ function createTeamFixture() {
   })
   const member = teamService.spawnMember({ teamId: created.team.id, agentId: worker.id, name: 'Worker' }).member
   const task = teamService.createTask({ teamId: created.team.id, title: '实现一个小功能', assigneeMemberId: member.id })
-  return { team: created.team, member, task, leaderSessionId: leaderSession.id }
+  return { team: created.team, member, task, leaderSessionId: created.session.id }
 }

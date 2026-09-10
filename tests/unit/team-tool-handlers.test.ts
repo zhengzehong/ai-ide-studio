@@ -7,7 +7,7 @@ import { projectStore } from '../../src/store/projects.js'
 import { agentStore } from '../../src/store/agents.js'
 import { seedBuiltinTemplates, templateStore } from '../../src/store/agent-templates.js'
 import { taskStore } from '../../src/store/tasks.js'
-import { teamMailboxStore } from '../../src/store/teams.js'
+import { teamMailboxStore, teamStore } from '../../src/store/teams.js'
 import { sessionManager } from '../../src/core/sessions.js'
 import { events } from '../../src/core/events.js'
 import { teamService } from '../../src/core/teams.js'
@@ -104,9 +104,7 @@ describe('team MCP tool handlers', () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const agent = agentStore.create({ name: 'Leader', type: 'architect', runtime: 'mock', projectId: project.id })
 
-    const created = await executeJson(
-      'team.create',
-      { projectId: 'ai-ide-studio', name: 'Alpha' },
+    const created = await createTeamFixture({ projectId: 'ai-ide-studio', name: 'Alpha' },
       {
         projectId: project.id,
         agentId: agent.id,
@@ -121,9 +119,7 @@ describe('team MCP tool handlers', () => {
     const leader = agentStore.create({ name: 'Leader', type: 'architect', runtime: 'mock', projectId: project.id })
     const other = agentStore.create({ name: 'Other', type: 'dev', runtime: 'mock', projectId: project.id })
 
-    const created = await executeJson(
-      'team.create',
-      { name: 'Alpha', leaderAgentId: other.id },
+    const created = await createTeamFixture({ name: 'Alpha', leaderAgentId: other.id },
       {
         projectId: project.id,
         agentId: leader.id,
@@ -143,9 +139,7 @@ describe('team MCP tool handlers', () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const agent = agentStore.create({ name: 'Leader', type: 'architect', runtime: 'mock', projectId: project.id })
 
-    const created = await executeJson(
-      'team.create',
-      { name: 'Alpha', description: 'Team collaboration', masterPrompt: '你是自定义 Master' },
+    const created = await createTeamFixture({ name: 'Alpha', description: 'Team collaboration', masterPrompt: '你是自定义 Master' },
       {
         projectId: project.id,
         agentId: agent.id,
@@ -163,7 +157,8 @@ describe('team MCP tool handlers', () => {
   test('team.create uses the builtin Master prompt and exposes the leader profile by default', async () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const caller = agentStore.create({ name: 'Caller', type: 'dev', runtime: 'mock', projectId: project.id })
-    const created = await executeJson('team.create', { name: 'Alpha' }, { projectId: project.id, agentId: caller.id })
+    sessionStore.create({ agentId: caller.id, projectId: project.id })
+    const created = await createTeamFixture({ name: 'Alpha' }, { projectId: project.id, agentId: caller.id })
     const member = asRecord(created.member)
     const master = agentStore.get(member.agent_id as string)
     const template = templateStore.get('tpl-team-leader')
@@ -178,7 +173,7 @@ describe('team MCP tool handlers', () => {
 
   test('team.update keeps the stored and Agent Master prompts in sync', async () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
-    const created = await executeJson('team.create', { name: 'Alpha' }, { projectId: project.id })
+    const created = await createTeamFixture({ name: 'Alpha' }, { projectId: project.id })
     const teamId = asRecord(created.team).id as string
     const masterAgentId = asRecord(created.member).agent_id as string
     const updated = await executeJson('team.update', { teamId, masterPrompt: '新的 Master 规则' }, { projectId: project.id })
@@ -189,18 +184,20 @@ describe('team MCP tool handlers', () => {
   test('new Team members are internal while an existing Agent stays visible', async () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const caller = agentStore.create({ name: 'Caller', type: 'dev', runtime: 'mock', projectId: project.id })
-    const created = await executeJson('team.create', { name: 'Alpha' }, { projectId: project.id, agentId: caller.id })
+    const created = await createTeamFixture({ name: 'Alpha' }, { projectId: project.id, agentId: caller.id })
     const template = templateStore.create({ name: 'Tester', type: 'tester', runtime: 'mock' })
     const internal = await executeJson('team.member.spawn', { teamId: asRecord(created.team).id, templateId: template.id })
     const existing = await executeJson('team.member.spawn', { teamId: asRecord(created.team).id, agentId: caller.id })
 
     expect(JSON.parse(asRecord(internal.agent).config_json as string)).toMatchObject({ teamInternal: true })
     expect(asRecord(internal.agent).hidden_at).toEqual(expect.any(String))
-    expect(JSON.parse(asRecord(existing.agent).config_json as string ?? '{}').teamInternal).not.toBe(true)
-    expect(asRecord(existing.agent).hidden_at).toBeNull()
+    expect(JSON.parse(asRecord(existing.agent).config_json as string ?? '{}').teamInternal).toBe(true)
+    expect(asRecord(existing.agent).hidden_at).toEqual(expect.any(String))
+    expect(asRecord(existing.agent).id).not.toBe(caller.id)
+    expect(agentStore.get(caller.id)?.hidden_at).toBeNull()
     const widgetAgentIds = listWidgetSessionProjectionRows(project.id).map((row) => row.agent_id)
     expect(widgetAgentIds).not.toContain(asRecord(internal.agent).id)
-    expect(widgetAgentIds).toContain(caller.id)
+    expect(widgetAgentIds).not.toContain(asRecord(existing.agent).id)
   })
 
   test('team.create keeps the caller session separate from the fixed Master session', async () => {
@@ -208,9 +205,7 @@ describe('team MCP tool handlers', () => {
     const leader = agentStore.create({ name: 'Leader', type: 'architect', runtime: 'mock', projectId: project.id })
     const callerSession = sessionStore.create({ agentId: leader.id, projectId: project.id })
 
-    const created = await executeJson(
-      'team.create',
-      { name: 'Alpha' },
+    const created = await createTeamFixture({ name: 'Alpha' },
       {
         projectId: project.id,
         agentId: leader.id,
@@ -228,7 +223,7 @@ describe('team MCP tool handlers', () => {
   test('Team Leader session prompts include no-wait collaboration contract for ACP', async () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const leader = agentStore.create({ name: 'Leader', type: 'architect', runtime: 'mock', projectId: project.id })
-    const team = await executeJson('team.create', { name: 'Alpha' }, { projectId: project.id, agentId: leader.id })
+    const team = await createTeamFixture({ name: 'Alpha' }, { projectId: project.id, agentId: leader.id })
     const leaderSessionId = asRecord(team.member).session_id as string
     const originalEnsureSession = acpHost.ensureSession
     const originalPrompt = acpHost.prompt
@@ -309,7 +304,7 @@ describe('team MCP tool handlers', () => {
     const leader = agentStore.create({ name: 'Leader', type: 'architect', runtime: 'mock', projectId: project.id })
     seedBuiltinTools()
     applyToolProfileToAgent({ profileId: 'team-leader', agentId: leader.id })
-    const team = await executeJson('team.create', { name: 'Alpha' }, { projectId: project.id, agentId: leader.id })
+    const team = await createTeamFixture({ name: 'Alpha' }, { projectId: project.id, agentId: leader.id })
 
     const masterAgentId = asRecord(team.member).agent_id as string
     const sessionId = asRecord(team.member).session_id as string
@@ -339,7 +334,7 @@ describe('team MCP tool handlers', () => {
     const leader = agentStore.create({ name: 'Leader', type: 'architect', runtime: 'mock', projectId: project.id })
     seedBuiltinTools()
     applyToolProfileToAgent({ profileId: 'team-leader', agentId: leader.id })
-    const team = await executeJson('team.create', { name: 'Alpha' }, { projectId: project.id, agentId: leader.id })
+    const team = await createTeamFixture({ name: 'Alpha' }, { projectId: project.id, agentId: leader.id })
     const leaderMember = teamMemberStore.get(asRecord(team.member).id as string)
     if (!leaderMember) throw new Error('leader member missing')
     const visibleNames = resolveVisiblePlatformTools({
@@ -359,7 +354,7 @@ describe('team MCP tool handlers', () => {
     const leader = agentStore.create({ name: 'Leader', type: 'architect', runtime: 'mock', projectId: project.id })
     seedBuiltinTools()
     applyToolProfileToAgent({ profileId: 'team-leader', agentId: leader.id })
-    const team = await executeJson('team.create', { name: 'Alpha' }, { projectId: project.id, agentId: leader.id })
+    const team = await createTeamFixture({ name: 'Alpha' }, { projectId: project.id, agentId: leader.id })
     const template = templateStore.create({
       name: 'Tester',
       type: 'tester',
@@ -382,7 +377,7 @@ describe('team MCP tool handlers', () => {
   test('team.member.spawn creates member Agent and Session from template', async () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const leader = agentStore.create({ name: 'Leader', type: 'architect', runtime: 'mock', projectId: project.id })
-    const team = await executeJson('team.create', { name: 'Alpha' }, { projectId: project.id, agentId: leader.id })
+    const team = await createTeamFixture({ name: 'Alpha' }, { projectId: project.id, agentId: leader.id })
     const template = templateStore.create({
       name: 'Tester',
       type: 'tester',
@@ -400,7 +395,7 @@ describe('team MCP tool handlers', () => {
   test('team.mailbox.send records mailbox only without member prompt', async () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const agent = agentStore.create({ name: 'Leader', type: 'architect', runtime: 'mock', projectId: project.id })
-    const team = await executeJson('team.create', { name: 'Alpha' }, { projectId: project.id, agentId: agent.id })
+    const team = await createTeamFixture({ name: 'Alpha' }, { projectId: project.id, agentId: agent.id })
     const memberId = asRecord(team.member).id as string
     const sendPrompt = vi.spyOn(sessionManager, 'sendPrompt')
 
@@ -422,7 +417,7 @@ describe('team MCP tool handlers', () => {
   test('team.member.message dispatches async work and returns accepted immediately', async () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const agent = agentStore.create({ name: 'Dev', type: 'dev', runtime: 'mock', projectId: project.id })
-    const team = await executeJson('team.create', { name: 'Alpha' }, { projectId: project.id, agentId: agent.id })
+    const team = await createTeamFixture({ name: 'Alpha' }, { projectId: project.id, agentId: agent.id })
     const sendPrompt = vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue(undefined)
 
     const result = await executeJson('team.member.message', {
@@ -444,7 +439,7 @@ describe('team MCP tool handlers', () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const leader = agentStore.create({ name: 'Leader', type: 'architect', runtime: 'mock', projectId: project.id })
     const worker = agentStore.create({ name: 'Worker', type: 'dev', runtime: 'mock', projectId: project.id })
-    const team = await executeJson('team.create', { name: 'Alpha' }, { projectId: project.id, agentId: leader.id })
+    const team = await createTeamFixture({ name: 'Alpha' }, { projectId: project.id, agentId: leader.id })
     const spawned = await executeJson('team.member.spawn', {
       teamId: asRecord(team.team).id,
       agentId: worker.id,
@@ -484,7 +479,7 @@ describe('team MCP tool handlers', () => {
   test('team.member.message prompt tells members to report and not wait for leader', async () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const agent = agentStore.create({ name: 'Dev', type: 'dev', runtime: 'mock', projectId: project.id })
-    const team = await executeJson('team.create', { name: 'Alpha' }, { projectId: project.id, agentId: agent.id })
+    const team = await createTeamFixture({ name: 'Alpha' }, { projectId: project.id, agentId: agent.id })
     const task = taskStore.create({
       title: 'Prompt contract',
       source: 'agent',
@@ -527,7 +522,7 @@ describe('team MCP tool handlers', () => {
       const project = projectStore.create({ name: 'P', workDir: tmp })
       const leader = agentStore.create({ name: 'Leader', type: 'architect', runtime: 'mock', projectId: project.id })
       const worker = agentStore.create({ name: 'Worker', type: 'dev', runtime: 'mock', projectId: project.id })
-      const team = await executeJson('team.create', { name: 'Alpha' }, { projectId: project.id, agentId: leader.id })
+      const team = await createTeamFixture({ name: 'Alpha' }, { projectId: project.id, agentId: leader.id })
       const spawned = await executeJson('team.member.spawn', {
         teamId: asRecord(team.team).id,
         agentId: worker.id,
@@ -574,7 +569,7 @@ describe('team MCP tool handlers', () => {
       const project = projectStore.create({ name: 'P', workDir: tmp })
       const leader = agentStore.create({ name: 'Leader', type: 'architect', runtime: 'mock', projectId: project.id })
       const worker = agentStore.create({ name: 'Worker', type: 'dev', runtime: 'mock', projectId: project.id })
-      const team = await executeJson('team.create', { name: 'Alpha' }, { projectId: project.id, agentId: leader.id })
+      const team = await createTeamFixture({ name: 'Alpha' }, { projectId: project.id, agentId: leader.id })
       const spawned = await executeJson('team.member.spawn', {
         teamId: asRecord(team.team).id,
         agentId: worker.id,
@@ -635,7 +630,7 @@ describe('team MCP tool handlers', () => {
       const project = projectStore.create({ name: 'P', workDir: tmp })
       const leader = agentStore.create({ name: 'Leader', type: 'architect', runtime: 'mock', projectId: project.id })
       const worker = agentStore.create({ name: 'Worker', type: 'dev', runtime: 'mock', projectId: project.id })
-      const team = await executeJson('team.create', { name: 'Alpha' }, { projectId: project.id, agentId: leader.id })
+      const team = await createTeamFixture({ name: 'Alpha' }, { projectId: project.id, agentId: leader.id })
       const spawned = await executeJson('team.member.spawn', {
         teamId: asRecord(team.team).id,
         agentId: worker.id,
@@ -686,7 +681,7 @@ describe('team MCP tool handlers', () => {
       const project = projectStore.create({ name: 'P', workDir: tmp })
       const leader = agentStore.create({ name: 'Leader', type: 'architect', runtime: 'mock', projectId: project.id })
       const worker = agentStore.create({ name: 'Worker', type: 'dev', runtime: 'mock', projectId: project.id })
-      const team = await executeJson('team.create', { name: 'Alpha' }, { projectId: project.id, agentId: leader.id })
+      const team = await createTeamFixture({ name: 'Alpha' }, { projectId: project.id, agentId: leader.id })
       const spawned = await executeJson('team.member.spawn', {
         teamId: asRecord(team.team).id,
         agentId: worker.id,
@@ -730,7 +725,7 @@ describe('team MCP tool handlers', () => {
     const leader = agentStore.create({ name: 'Leader', type: 'architect', runtime: 'mock', projectId: project.id })
     const workerA = agentStore.create({ name: 'Worker A', type: 'dev', runtime: 'mock', projectId: project.id })
     const workerB = agentStore.create({ name: 'Worker B', type: 'dev', runtime: 'mock', projectId: project.id })
-    const team = await executeJson('team.create', { name: 'Alpha' }, { projectId: project.id, agentId: leader.id })
+    const team = await createTeamFixture({ name: 'Alpha' }, { projectId: project.id, agentId: leader.id })
     const memberA = await executeJson('team.member.spawn', {
       teamId: asRecord(team.team).id,
       agentId: workerA.id,
@@ -769,7 +764,7 @@ describe('team MCP tool handlers', () => {
     const leader = agentStore.create({ name: 'Leader', type: 'architect', runtime: 'mock', projectId: project.id })
     const workerA = agentStore.create({ name: 'Worker A', type: 'dev', runtime: 'mock', projectId: project.id })
     const workerB = agentStore.create({ name: 'Worker B', type: 'dev', runtime: 'mock', projectId: project.id })
-    const team = await executeJson('team.create', { name: 'Alpha' }, { projectId: project.id, agentId: leader.id })
+    const team = await createTeamFixture({ name: 'Alpha' }, { projectId: project.id, agentId: leader.id })
     const memberA = await executeJson('team.member.spawn', {
       teamId: asRecord(team.team).id,
       agentId: workerA.id,
@@ -805,7 +800,7 @@ describe('team MCP tool handlers', () => {
   test('team.task.update normalizes common completion aliases to completed', async () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const agent = agentStore.create({ name: 'Dev', type: 'dev', runtime: 'mock', projectId: project.id })
-    const team = await executeJson('team.create', { name: 'Alpha' }, { projectId: project.id, agentId: agent.id })
+    const team = await createTeamFixture({ name: 'Alpha' }, { projectId: project.id, agentId: agent.id })
     const task = taskStore.create({
       title: 'Alias status',
       source: 'agent',
@@ -827,7 +822,7 @@ describe('team MCP tool handlers', () => {
   test('team.task.update clears completed_at when reopening a completed task', async () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const agent = agentStore.create({ name: 'Dev', type: 'dev', runtime: 'mock', projectId: project.id })
-    const team = await executeJson('team.create', { name: 'Alpha' }, { projectId: project.id, agentId: agent.id })
+    const team = await createTeamFixture({ name: 'Alpha' }, { projectId: project.id, agentId: agent.id })
     const task = taskStore.create({
       title: 'Reopen task',
       source: 'agent',
@@ -862,7 +857,7 @@ describe('team MCP tool handlers', () => {
   test('team.task.update can mark a team task completed', async () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const agent = agentStore.create({ name: 'Dev', type: 'dev', runtime: 'mock', projectId: project.id })
-    const team = await executeJson('team.create', { name: 'Alpha' }, { projectId: project.id, agentId: agent.id })
+    const team = await createTeamFixture({ name: 'Alpha' }, { projectId: project.id, agentId: agent.id })
     const task = taskStore.create({
       title: 'Implement test',
       source: 'agent',
@@ -885,7 +880,7 @@ describe('team MCP tool handlers', () => {
   test('team.task.update clears assigned Agent when unassigning member', async () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const agent = agentStore.create({ name: 'Dev', type: 'dev', runtime: 'mock', projectId: project.id })
-    const team = await executeJson('team.create', { name: 'Alpha' }, { projectId: project.id, agentId: agent.id })
+    const team = await createTeamFixture({ name: 'Alpha' }, { projectId: project.id, agentId: agent.id })
     const task = taskStore.create({
       title: 'Unassign',
       source: 'agent',
@@ -920,9 +915,7 @@ describe('team MCP tool handlers', () => {
     applyToolProfileToAgent({ profileId: 'team-leader', agentId: leader.id })
     const sendPrompt = vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue(undefined)
 
-    const created = await executeJson(
-      'team.create',
-      { name: 'Alpha', description: 'Closed loop Team' },
+    const created = await createTeamFixture({ name: 'Alpha', description: 'Closed loop Team' },
       {
         projectId: project.id,
         agentId: leader.id,
@@ -1031,7 +1024,7 @@ describe('team MCP tool handlers', () => {
     const projectB = projectStore.create({ name: 'B', workDir: tmp })
     const agentA = agentStore.create({ name: 'Agent A', type: 'dev', runtime: 'mock', projectId: projectA.id })
     const agentB = agentStore.create({ name: 'Agent B', type: 'dev', runtime: 'mock', projectId: projectB.id })
-    const teamB = await executeJson('team.create', { name: 'Beta' }, { projectId: projectB.id, agentId: agentB.id })
+    const teamB = await createTeamFixture({ name: 'Beta' }, { projectId: projectB.id, agentId: agentB.id })
     const handler = getRequiredHandler('team.get')
 
     await expect(
@@ -1043,7 +1036,7 @@ describe('team MCP tool handlers', () => {
     const project = projectStore.create({ name: 'P', workDir: tmp })
     const leader = agentStore.create({ name: 'Leader', type: 'architect', runtime: 'mock', projectId: project.id })
     const other = agentStore.create({ name: 'Other', type: 'dev', runtime: 'mock', projectId: project.id })
-    const team = await executeJson('team.create', { name: 'Alpha' }, { projectId: project.id, agentId: leader.id })
+    const team = await createTeamFixture({ name: 'Alpha' }, { projectId: project.id, agentId: leader.id })
     const member = await executeJson('team.member.spawn', {
       teamId: asRecord(team.team).id,
       agentId: other.id,
@@ -1062,6 +1055,8 @@ describe('team MCP tool handlers', () => {
           projectId: project.id,
           teamId: asRecord(team.team).id as string,
           teamMemberId: asRecord(team.member).id as string,
+          sessionId: asRecord(team.member).session_id as string,
+          agentId: asRecord(team.member).agent_id as string,
         },
       ),
     ).rejects.toThrow('fromMemberId')
@@ -1074,9 +1069,25 @@ async function executeJson(
   context: ToolContext = {},
 ): Promise<Record<string, unknown>> {
   const handler = getRequiredHandler(handlerName)
+  const teamId = typeof input.teamId === 'string' ? input.teamId : context.teamId
+  if (handlerName !== 'team.create' && teamId) {
+    const member = context.teamMemberId ? teamMemberStore.get(context.teamMemberId)
+      : teamMemberStore.list(teamId).find(row => row.role === 'leader')
+    if (member) context = { ...context, agentId: member.agent_id, sessionId: member.session_id, teamId: member.team_id, teamMemberId: member.id }
+  }
   const result: ToolHandlerResult = await handler.execute(input, context)
   expect(result.isError).not.toBe(true)
   return JSON.parse(result.content[0]?.text ?? '{}') as Record<string, unknown>
+}
+
+async function createTeamFixture(input: Record<string, unknown>, context: ToolContext): Promise<Record<string, unknown>> {
+  const result = await executeJson('team.create', input, context)
+  const publicTeam = asRecord(result.team)
+  expect(Object.keys(result)).toEqual(['team'])
+  expect(Object.keys(publicTeam).sort()).toEqual(['description', 'name', 'teamId'])
+  const team = teamStore.get(String(publicTeam.teamId))!
+  const member = teamMemberStore.list(team.id).find(row => row.role === 'leader')!
+  return { team, member, agent: agentStore.get(member.agent_id), session: sessionStore.get(member.session_id) }
 }
 
 function getRequiredHandler(handlerName: string): ToolHandler {

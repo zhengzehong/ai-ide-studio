@@ -8,6 +8,8 @@ export interface TaskPageRowQuery {
   createdFrom?: string
   createdBefore?: string
   excludeTerminal?: boolean
+  /** Undefined is the trusted user view; null restricts Agent tools to public tasks. */
+  visibleTeamId?: string | null
   cursor?: string
   limit: number
 }
@@ -28,6 +30,16 @@ export function listTaskPageRows(input: TaskPageRowQuery): TaskPageRows {
   const db = getDb()
   const conditions: string[] = []
   const params: Record<string, string | number> = { limit: input.limit + 1 }
+  if (input.visibleTeamId !== undefined) {
+    const privateAgent = `SELECT a.id FROM agents a WHERE json_valid(a.config_json)
+      AND json_extract(a.config_json, '$.teamInternal') = 1
+      ${input.visibleTeamId ? 'AND NOT EXISTS (SELECT 1 FROM team_members tm WHERE tm.agent_id = a.id AND tm.team_id = @visibleTeamId)' : ''}`
+    conditions.push(`(${input.visibleTeamId ? '(team_id IS NULL OR team_id = @visibleTeamId)' : 'team_id IS NULL'}
+      AND coalesce(assigned_agent_id, '') NOT IN (${privateAgent})
+      AND coalesce(initiator_agent_id, '') NOT IN (${privateAgent})
+      AND NOT EXISTS (SELECT 1 FROM task_steps s WHERE s.task_id = tasks.id AND s.assignee_agent_id IN (${privateAgent})))`)
+    if (input.visibleTeamId) params.visibleTeamId = input.visibleTeamId
+  }
 
   if (input.projectId) {
     conditions.push('project_id = @projectId')

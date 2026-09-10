@@ -1,12 +1,15 @@
 import { teamService } from '../../../core/teams.js'
 import type { ToolContext, ToolHandler, ToolHandlerInput, ToolHandlerResult } from '../../types.js'
+import { assertTeamMemberAccess } from '../../../core/team-access.js'
 
 export const listTeamsHandler: ToolHandler = {
   name: 'team.list',
   description: '列出当前项目的 Team',
   inputSchema: { type: 'object', properties: { projectId: { type: 'string' } } },
   async execute(input, context) {
-    return jsonResult({ teams: teamService.list(resolveProjectId(input, context)) })
+    return jsonResult({ teams: teamService.list(resolveProjectId(input, context)).map(team => ({
+      teamId: team.id, name: team.name, description: team.description,
+    })) })
   },
 }
 
@@ -32,14 +35,13 @@ export const createTeamHandler: ToolHandler = {
   async execute(input, context) {
     const projectId = resolveProjectId(input, context)
     if (!projectId) throw new Error('projectId 不能为空')
-    return jsonResult(
-      teamService.create({
+    const { team } = teamService.create({
         projectId,
         name: requireString(input, 'name'),
         description: optionalString(input, 'description'),
         masterPrompt: optionalString(input, 'masterPrompt'),
-      }),
-    )
+      })
+    return jsonResult({ team: { teamId: team.id, name: team.name, description: team.description } })
   },
 }
 
@@ -83,7 +85,7 @@ export const listTeamMembersHandler: ToolHandler = {
 
 export const spawnTeamMemberHandler: ToolHandler = {
   name: 'team.member.spawn',
-  description: '从模板创建成员，或把已有 Agent 加入 Team。默认继承 Master 模型档案；如需指定成员档案，先调用 core.model_profile.list 查询可用档案，再把返回的 id 传给 modelProfileId。',
+  description: '从模板或已有 Agent 定义创建团队专属成员，不复制历史会话和记忆。默认继承 Master 模型档案；指定档案前先调用 core.model_profile.list 查询，再传 modelProfileId。',
   inputSchema: {
     type: 'object',
     properties: {
@@ -292,6 +294,7 @@ function resolveProjectId(input: ToolHandlerInput, context: ToolContext): string
 }
 
 function assertTeamAccess(teamId: string, context: ToolContext): void {
+  assertTeamMemberAccess(context, teamId)
   teamService.assertAccess(teamId, {
     projectId: context.projectId,
     teamId: context.teamId,
