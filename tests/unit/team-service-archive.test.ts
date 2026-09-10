@@ -11,6 +11,7 @@ import { teamConversationStore } from '../../src/store/team-conversations.js'
 import { teamService } from '../../src/core/teams.js'
 import { reconcileInterruptedTeamTasks } from '../../src/core/team-reconcile.js'
 import { sessionManager } from '../../src/core/sessions.js'
+import { taskStore } from '../../src/store/tasks.js'
 
 let tmp: string
 
@@ -83,6 +84,8 @@ describe('reconcileInterruptedTeamTasks', () => {
     const fixture = createTeamFixture()
     const teamTask = teamService.createTask({ teamId: fixture.team.id, title: '重启动 interrupted', assigneeMemberId: fixture.member.id })
     teamService.updateTask({ teamId: fixture.team.id, taskId: teamTask.id, status: 'running' })
+    const plainTask = taskStore.create({ projectId: fixture.project.id, title: '非团队任务', source: 'human' })
+    taskStore.update(plainTask.id, { status: 'running' })
 
     const result = reconcileInterruptedTeamTasks()
 
@@ -90,6 +93,7 @@ describe('reconcileInterruptedTeamTasks', () => {
     const updated = teamService.listTasks(fixture.team.id).find((task) => task.id === teamTask.id)
     expect(updated?.status).toBe('needs_input')
     expect(updated?.stage).toContain('重新派发')
+    expect(taskStore.get(plainTask.id)?.status).toBe('running')
   })
 
   test('is a no-op when no team tasks are running', () => {
