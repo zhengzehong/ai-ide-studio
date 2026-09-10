@@ -275,6 +275,8 @@ Session 删除采用软删除，仅隐藏列表项并保留 `messages` / `sessio
 | `ui/src/stores/` | 前端状态 | Zustand store、`session-events.ts` 事件还原、项目/工具/模板/模型状态 |
 
 普通 Agent 会话与团队会话共用 `ui/src/components/session/SessionListRow` 的列表行展示壳；团队只替换数据聚合和操作回调，中间消息区域继续通过 `ConversationPane` 适配器复用 Workspace 的渲染、流式滚动与执行过程能力。
+
+团队会话的状态聚合由 `team-chat-state` 负责。消息状态确定当前运行回合，`sessions.messageEvents` 提供该回合的完整事件，实时输出使用带序号的 `session:event` 接续；历史加载与实时流按序号边界去重合并。恢复接口中的生命周期事件只提供辅助状态，不能把已完成消息重新标记为运行中。计划、权限和文件变更过程项通过独立过程事件补充，正文、思考和工具不重复消费增量与过程快照。切换群聊时隔离视图状态，并在读取成员历史前建立订阅。
 | `ui/src/services/` | 通信层 | `query-client.ts`、`ws-client.ts` |
 | `mobile/src/` | 移动端 Web App | `/app/` 下的手机端页面、组件和 Zustand store；复用 `ui/src/services/ws-client.ts` 与会话事件还原辅助逻辑 |
 
