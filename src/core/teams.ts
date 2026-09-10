@@ -17,6 +17,7 @@ import { events } from './events.js'
 import { emitTaskLifecycleEvent, resolveTaskLifecycleChangeType } from './task-lifecycle-events.js'
 import { createChildLogger } from './logger.js'
 import { dispatchMemberPrompt, type DispatchMemberPromptStatus } from './team-member-dispatcher.js'
+import { archiveTeam } from './team-archive.js'
 import { buildTeamMemberPrompt } from './team-prompts.js'
 import { teamWakeCoordinator } from './team-wake-coordinator.js'
 import { applyToolProfileToAgent } from '../tools/team-profiles.js'
@@ -141,6 +142,11 @@ export const teamService = {
     return team
   },
 
+  /** 归档团队（软删除），实现见 team-archive.ts（保持本文件行数守卫内）。 */
+  archive(teamId: string): TeamRow {
+    return archiveTeam(teamId)
+  },
+
   listMembers(teamId: string): TeamMemberRow[] {
     requireTeam(teamId)
     return teamMemberStore.list(teamId)
@@ -192,7 +198,7 @@ export const teamService = {
     const targetSessionId = conversation
       ? ensureMemberInConversation(conversation.id, member) ?? member.session_id
       : member.session_id
-    const status = dispatchMemberPrompt({ teamId: team.id, memberId: member.id, sessionId: targetSessionId, prompt, displayContent: input.content, senderName: 'Master' })
+    const status = dispatchMemberPrompt({ teamId: team.id, memberId: member.id, sessionId: targetSessionId, prompt, displayContent: input.content, senderName: 'Master', taskId: input.taskId })
     return { status, member }
   },
 

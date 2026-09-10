@@ -32,6 +32,16 @@ export const teamRpcHandlers: RpcHandlerMap = {
     const projectId = typeof msg.projectId === 'string' ? msg.projectId : undefined
     sendResult(teamService.list(projectId))
   },
+  'teams.update'(msg, { sendResult }) {
+    sendResult(teamService.update(requiredText(msg.teamId, 'teamId'), {
+      name: typeof msg.name === 'string' && msg.name.trim() ? msg.name.trim() : undefined,
+      description: typeof msg.description === 'string' ? msg.description : undefined,
+      masterPrompt: typeof msg.masterPrompt === 'string' ? msg.masterPrompt : undefined,
+    }))
+  },
+  'teams.archive'(msg, { sendResult }) {
+    sendResult(teamService.archive(requiredText(msg.teamId, 'teamId')))
+  },
   'teams.detail'(msg, { sendResult }) {
     const teamId = requiredText(msg.teamId, 'teamId')
     sendResult(teamService.detail(teamId))

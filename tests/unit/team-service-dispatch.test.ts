@@ -89,6 +89,58 @@ describe('team dispatch lifecycle', () => {
   })
 })
 
+describe('team dispatch pending queue (FIFO)', () => {
+  test('delivers both queued dispatches in order instead of dropping the first', () => {
+    const enqueue = vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue()
+    const isPromptActive = vi.spyOn(sessionManager, 'isPromptActive').mockReturnValue(true)
+    const fixture = createTeamFixture()
+
+    teamService.dispatchMessage({ teamId: fixture.team.id, memberId: fixture.member.id, content: '第一条指令' })
+    teamService.dispatchMessage({ teamId: fixture.team.id, memberId: fixture.member.id, content: '第二条指令' })
+    expect(enqueue).not.toHaveBeenCalled()
+
+    isPromptActive.mockReturnValue(false)
+    events.emit('session:done', { sessionId: fixture.member.session_id })
+    expect(enqueue.mock.calls[0]?.[1]).toBe('第一条指令')
+
+    events.emit('session:done', { sessionId: fixture.member.session_id })
+    expect(enqueue.mock.calls[1]?.[1]).toBe('第二条指令')
+  })
+
+  test('cancelPendingForSessions drops queued dispatches for archived teams', async () => {
+    const enqueue = vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue()
+    const isPromptActive = vi.spyOn(sessionManager, 'isPromptActive').mockReturnValue(true)
+    const fixture = createTeamFixture()
+
+    teamService.dispatchMessage({ teamId: fixture.team.id, memberId: fixture.member.id, content: '不会被派发' })
+    const { cancelPendingForSessions } = await import('../../src/core/team-member-dispatcher.js')
+    cancelPendingForSessions([fixture.member.session_id])
+
+    isPromptActive.mockReturnValue(false)
+    events.emit('session:done', { sessionId: fixture.member.session_id })
+    expect(enqueue).not.toHaveBeenCalled()
+  })
+
+  test('writes the task back to needs_input when the final dispatch attempt fails', async () => {
+    vi.spyOn(sessionManager, 'enqueuePrompt').mockRejectedValue(new Error('会话不存在'))
+    vi.spyOn(sessionManager, 'isPromptActive').mockReturnValue(false)
+    const fixture = createTeamFixture()
+
+    teamService.dispatchMessage({
+      teamId: fixture.team.id,
+      memberId: fixture.member.id,
+      content: '请完成这个任务',
+      taskId: fixture.task.id,
+    })
+
+    await vi.waitFor(() => {
+      expect(taskStore.get(fixture.task.id)?.status).toBe('needs_input')
+    })
+    expect(taskStore.get(fixture.task.id)?.stage).toContain('派发失败')
+    expect(taskStore.get(fixture.task.id)?.stage).toContain('会话不存在')
+  })
+})
+
 function createTeamFixture() {
   const project = projectStore.create({ name: 'P', workDir: tmp })
   const leader = agentStore.create({ name: 'Leader', type: 'architect', runtime: 'mock', projectId: project.id })

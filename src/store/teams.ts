@@ -145,6 +145,21 @@ export const teamStore = {
     teamEventStore.append(id, { type: 'team.updated', payload: { team: updated } })
     return updated
   },
+
+  /** 软删除：写 archived_at 后 teams.list 不再返回；数据保留供审计/恢复。 */
+  archive(id: string): TeamRow | undefined {
+    const existing = teamStore.get(id)
+    if (!existing) return undefined
+    const now = new Date().toISOString()
+    getDb().prepare(`
+      UPDATE teams
+      SET archived_at = @now, status = 'archived', updated_at = @now
+      WHERE id = @id AND archived_at IS NULL
+    `).run({ id, now })
+    const archived = teamStore.get(id)
+    if (archived) teamEventStore.append(id, { type: 'team.archived', payload: { team: archived } })
+    return archived
+  },
 }
 
 export const teamMemberStore = {
