@@ -47,6 +47,7 @@ AI IDE Studio 是一个本地部署的全栈 AI 编程协作工具。通过 [ACP
 - **Task 管理** — 支持协作任务空壳 + 步骤编排、简单任务自动派发、对话任务化自认领、步骤汇报和状态追踪；步骤 Prompt 具备派发幂等与发送前失效校验，避免步骤完成后重复唤醒
 - **事件中心** — 分类事件收件箱，支持项目作用域事件类别、Agent 写入事件、按 payload 字段订阅过滤、自动消费、指定/固定消费者会话，并可转成任务
 - **Team 群聊与编排** — Workspace 可创建团队和多个群聊；平台自动创建隐藏 Master、允许调整内置提示词，并按 Master/成员 Profile 注入对应 `team.*` 工具
+- **团队状态与切换** — 项目提醒按团队聚合运行与未读，左侧团队同步显示状态；阅读只清当前群聊的已显示消息，切换保留会话选择并优先显示缓存。
 - **Agent 会话通信** — 通过 `agent.*` 工具在非 Team Agent 会话之间发送消息、查看会话消息、要求回复和监听会话完成
 - **A2A Hub 跨机器通信** — 通过 `agent_hub.*` 工具(`agent_hub.connect` / `agent_hub.disconnect` / `agent_hub.list` / `agent_hub.send`)接入外部 A2A Hub,让本地 Agent 跨机器互相调用;注册粒度为 (Agent, Session),`machineId` 持久化在本地 `settings` 表,SSE 混合传输,结果通过同一 SSE 通道自动回注入原会话;session 关闭自动断开 Hub 连接
 - **知识库 LLM Wiki** — 每个项目自动拥有项目库，可挂载多个共享库；PC 端保留完整管理能力，Agent 通过 `list/read/upsert/delete` 四个上下文隔离的最小工具维护 Markdown 页面

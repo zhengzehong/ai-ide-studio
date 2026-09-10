@@ -8,6 +8,7 @@ import { projectStore } from '../../src/store/projects.js'
 import { messageStore, sessionStore } from '../../src/store/sessions.js'
 import { teamService } from '../../src/core/teams.js'
 import { projectSessionStatsStore } from '../../src/store/session-stats.js'
+import { markTeamConversationRead } from '../../src/core/team-conversation-read.js'
 
 let tmp: string
 
@@ -23,6 +24,48 @@ afterEach(() => {
 })
 
 describe('team conversation line running state', () => {
+  test('reading one line preserves unseen lines and uses latest member message time', () => {
+    const fixture = createTeamFixture()
+    const second = teamService.createConversation(fixture.team.id, 'second')
+    const firstId = fixture.firstConversation.master_session_id
+    const secondId = second.conversation.master_session_id
+    const time = '2030-01-01T01:00:00.000Z'
+    const first = messageStore.append(firstId, { role: 'agent', content: 'first', status: 'completed', timestamp: time, completedAt: time })
+    messageStore.append(secondId, { role: 'agent', content: 'second', status: 'completed', timestamp: time, completedAt: time })
+    for (const id of [firstId, secondId]) { sessionStore.markRead(id, '2020-01-01T00:00:00.000Z'); sessionStore.touch(id, time) }
+    markTeamConversationRead(fixture.firstConversation.id, [{ sessionId: firstId, messageId: first.id }])
+    const lines = teamService.listConversations(fixture.team.id)
+    expect(lines.find(line => line.id === fixture.firstConversation.id)).toMatchObject({ unread: false, last_message_at: time })
+    expect(lines.find(line => line.id === second.conversation.id)?.unread).toBe(true)
+    const stats = projectSessionStatsStore.list(id => id === firstId).find(row => row.projectId === fixture.projectId)
+    expect(stats).toMatchObject({ runningCount: 1, unreadCount: 0, teams: [expect.objectContaining({ unread: true })] })
+    expect(projectSessionStatsStore.list().find(row => row.projectId === fixture.projectId)?.unreadCount).toBe(1)
+  })
+
+  test('stale loaded messages cannot acknowledge a later reply or another conversation', () => {
+    const fixture = createTeamFixture()
+    const id = fixture.firstConversation.master_session_id
+    const old = messageStore.append(id, { role: 'agent', content: 'old', status: 'completed', timestamp: '2030-01-01T00:00:00.000Z', completedAt: '2030-01-01T00:00:00.000Z' })
+    messageStore.append(id, { role: 'agent', content: 'new', status: 'completed', timestamp: '2030-01-02T00:00:00.000Z', completedAt: '2030-01-02T00:00:00.000Z' })
+    sessionStore.touch(id, '2030-01-02T00:00:00.000Z')
+    markTeamConversationRead(fixture.firstConversation.id, [{ sessionId: id, messageId: old.id }])
+    expect(teamService.listConversations(fixture.team.id)[0].unread).toBe(true)
+    const second = teamService.createConversation(fixture.team.id, 'second')
+    expect(() => markTeamConversationRead(second.conversation.id, [{ sessionId: id, messageId: old.id }])).toThrow()
+    const before = sessionStore.get(id)?.last_read_at
+    expect(() => markTeamConversationRead(fixture.firstConversation.id, [{ sessionId: id, messageId: old.id }, { sessionId: 'other', messageId: old.id }])).toThrow()
+    expect(sessionStore.get(id)?.last_read_at).toBe(before)
+  })
+  test('counts many running grids and lines as one team, preserving ordinary sessions', () => {
+    const fixture = createTeamFixture()
+    teamService.createConversation(fixture.team.id, 'second')
+    const leaderId = sessionStore.get(fixture.firstConversation.master_session_id)!.agent_id
+    const solo = sessionStore.create({ agentId: leaderId, projectId: fixture.projectId })
+    const stats = projectSessionStatsStore.list(() => true).find(row => row.projectId === fixture.projectId)
+    expect(stats?.runningCount).toBe(2)
+    expect(stats?.sessionCount).toBe(2)
+    expect(solo).toBeTruthy()
+  })
   test('aggregates a running member grid into the conversation line', () => {
     const fixture = createTeamFixture()
     const members = teamService.conversationDetail(fixture.firstConversation.id).members
@@ -51,7 +94,7 @@ describe('team conversation line running state', () => {
     expect(lines[0]?.activity_state).toBe('running')
   })
 
-  test('counts the second line grids neither into the line nor the project stats', () => {
+  test('keeps grids separate between lines but counts their team once', () => {
     const fixture = createTeamFixture()
     teamService.createConversation(fixture.team.id, '第二条线')
 
@@ -60,9 +103,9 @@ describe('team conversation line running state', () => {
     const firstLine = lines.find((line) => line.id === fixture.firstConversation.id)
     expect(firstLine?.grid_session_ids).not.toContain(lines.find((line) => line.id !== fixture.firstConversation.id)?.master_session_id)
 
-    // 第二条线的格子是新建 session（非 primary），不应计入项目统计；首线复用的 primary 格子保留。
+    // Multiple conversation lines belong to one outward team unit.
     const stats = projectSessionStatsStore.list().find((entry) => entry.projectId === fixture.projectId)
-    expect(stats?.sessionCount).toBe(2)
+    expect(stats?.sessionCount).toBe(1)
     expect(stats?.runningCount).toBe(0)
   })
 
@@ -73,7 +116,7 @@ describe('team conversation line running state', () => {
     sessionStore.create({ agentId: internalAgent.id, projectId: fixture.projectId })
 
     const stats = projectSessionStatsStore.list().find((entry) => entry.projectId === fixture.projectId)
-    expect(stats?.sessionCount).toBe(2)
+    expect(stats?.sessionCount).toBe(1)
   })
 })
 

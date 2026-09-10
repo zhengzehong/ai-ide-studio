@@ -2,7 +2,16 @@ import { sessionStore, type SessionRow } from '../store/sessions.js'
 import type { AgentRow } from '../store/agents.js'
 import { teamMemberStore, teamStore, type TeamMemberRow, type TeamRow } from '../store/teams.js'
 import { teamConversationStore, type TeamConversationRow, type TeamMessageRow } from '../store/team-conversations.js'
-import { resolveSessionRuntimeState } from '../store/session-runtime-state.js'
+import { listTeamActivity } from '../store/team-activity.js'
+import { events } from './events.js'
+import { createChildLogger } from './logger.js'
+
+const log = createChildLogger('team-conversations')
+function notifyConversationChanged(conversation: TeamConversationRow): void {
+  const sessionIds = teamConversationStore.listMembers(conversation.id).flatMap(member => member.session_id ? [member.session_id] : [])
+  events.emit('team:update', { teamId: conversation.team_id, sessionIds, data: { conversationId: conversation.id, status: conversation.status } })
+  log.info({ teamId: conversation.team_id, conversationId: conversation.id, status: conversation.status }, 'Team conversation changed')
+}
 
 export interface TeamConversationDetail {
   conversation: TeamConversationRow
@@ -14,6 +23,8 @@ export interface TeamConversationDetail {
 export interface TeamConversationListItem extends TeamConversationRow {
   activity_state: 'running' | 'idle'
   grid_session_ids: string[]
+  unread: boolean
+  last_message_at: string | null
 }
 
 function requireTeam(teamId: string): TeamRow {
@@ -87,25 +98,14 @@ function withConversationActivity(
   conversations: TeamConversationRow[],
   isPromptActive: (sessionId: string) => boolean,
 ): TeamConversationListItem[] {
-  const activityByConversation = new Map<string, { running: boolean; sessionIds: string[] }>()
-  for (const row of teamConversationStore.listGridActivity(teamId)) {
-    const entry = activityByConversation.get(row.conversation_id) ?? { running: false, sessionIds: [] }
-    if (row.session_id) entry.sessionIds.push(row.session_id)
-    if (resolveSessionRuntimeState({
-      promptActive: row.session_id ? isPromptActive(row.session_id) : false,
-      hasRunningAgentMessage: row.has_running_agent_message === 1,
-      hasRunningProcessItem: row.has_running_process_item === 1,
-      status: row.status ?? '',
-      stage: row.stage,
-    }) === 'running') {
-      entry.running = true
-    }
-    activityByConversation.set(row.conversation_id, entry)
-  }
+  const activityByConversation = new Map(listTeamActivity(isPromptActive, teamId)
+    .flatMap(team => team.conversations).map(item => [item.conversationId, item]))
   return conversations.map((conversation) => ({
     ...conversation,
     activity_state: activityByConversation.get(conversation.id)?.running ? 'running' : 'idle',
     grid_session_ids: activityByConversation.get(conversation.id)?.sessionIds ?? [],
+    unread: activityByConversation.get(conversation.id)?.unread ?? false,
+    last_message_at: activityByConversation.get(conversation.id)?.lastMessageAt ?? null,
   }))
 }
 
@@ -121,6 +121,7 @@ export function createTeamConversation(teamId: string, title?: string): TeamConv
     const sessionId = member.id === leader.id ? masterSessionId : resolveMemberConversationSession(member)
     teamConversationStore.addMember(conversation.id, member.id, sessionId)
   }
+  notifyConversationChanged(conversation)
   return { conversation, members: withConversationSessions(conversation.id, members), messages: [] }
 }
 
@@ -137,12 +138,14 @@ export function getTeamConversation(conversationId: string): TeamConversationDet
 function updateTeamConversationStatus(conversationId: string, status: string): TeamConversationRow {
   const conversation = teamConversationStore.setStatus(conversationId, status)
   if (!conversation) throw new Error('团队会话不存在')
+  notifyConversationChanged(conversation)
   return conversation
 }
 
 export function renameTeamConversation(conversationId: string, title: string): TeamConversationRow {
   const conversation = teamConversationStore.updateTitle(conversationId, title)
   if (!conversation) throw new Error('团队会话不存在')
+  notifyConversationChanged(conversation)
   return conversation
 }
 

@@ -80,7 +80,7 @@ Runtime 可见 patch 不经过 API 事件总线，而是通过 Runtime→Realtim
 
 ## Team 群聊 RPC
 
-团队仍在 Workspace 内使用现有 WS RPC，不新增独立页面或独立实时协议。`teams.list` 按当前项目返回左侧 Team 目标；`team.conversation.*` 管理同一 Team 下的独立群聊；`team.conversation.history` 返回会话成员到 Session 的映射，客户端继续用现有 Session 消息查询和 `session:update` 订阅渲染 Master 与成员消息。
+团队仍在 Workspace 内使用现有 WS RPC，不新增独立页面或独立实时协议。`teams.list` 按当前项目返回左侧 Team 目标；`team.conversation.*` 管理同一 Team 下的独立群聊；`team.conversation.history` 返回会话成员到 Session 的映射，客户端继续用现有 Session 消息查询和 `session:event` 订阅渲染 Master 与成员消息。
 
 | 方法 | 参数 | 返回 |
 |---|---|---|
@@ -88,14 +88,17 @@ Runtime 可见 patch 不经过 API 事件总线，而是通过 Runtime→Realtim
 | `teams.create` | `{ projectId, name, description?, masterPrompt? }` | Team、隐藏 Master、Leader 成员和主 Session |
 | `teams.list` | `{ projectId? }` | `Team[]` |
 | `teams.detail` | `{ teamId }` | Team、成员、任务和 mailbox |
-| `team.conversation.list` | `{ teamId }` | `TeamConversation[]` |
+| `team.conversation.list` | `{ teamId }` | `TeamConversation[]`，含 `activity_state`、`grid_session_ids`、`unread`、`last_message_at` |
 | `team.conversation.create` | `{ teamId, title? }` | 新群聊及成员 Session 映射 |
 | `team.conversation.history` | `{ conversationId }` | 群聊、成员和统一消息投影 |
+| `team.conversation.markRead` | `{ conversationId, messages: [{ sessionId, messageId }] }` | `{ sessionId, lastReadAt }[]`；最多 100 条引用，校验归属和完成状态，只推进已显示消息的读取边界 |
 | `team.conversation.rename` | `{ conversationId, title }` | 更新后的群聊 |
 | `team.conversation.archive` | `{ conversationId }` | 归档后的群聊 |
 | `team.conversation.delete` | `{ conversationId }` | 软删除后的群聊 |
 
 普通 Agent 使用的 Workspace RPC、Session 订阅和消息协议保持不变。
+
+`sessions.projectStats` 的项目项包含 `teams: [{ teamId, projectId, running, unread, conversations }]`，会话摘要包含 `conversationId`、`running`、`unread`、`lastMessageAt`、`sessionIds`。项目计数由普通独立 Session 与活跃团队组成，每个团队最多贡献一个运行或未读计数，运行优先但不丢弃未读状态。归档和删除的团队及群聊不贡献提醒。群聊变更广播 `team:update`；已读回写广播现有 `session:changed` 的 `last_read_at`。
 
 ## RPC 方法
 

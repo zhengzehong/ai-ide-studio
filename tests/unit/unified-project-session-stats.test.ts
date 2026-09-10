@@ -2,6 +2,10 @@ import { describe, expect, test } from 'vitest'
 import { resolveUnifiedProjectSessionStats } from '../../ui/src/hooks/use-unified-project-session-stats.ts'
 
 describe('unified project session stats', () => {
+  test('keeps authoritative team totals instead of counting each grid locally', () => {
+    const backendStats = { p: { projectId: 'p', runningCount: 1, unreadCount: 0, teams: [] } }
+    expect(resolveUnifiedProjectSessionStats({ backendStats, activeProjectId: 'p', sessions: [], runningSessionIds: { a: true, b: true }, unreadSessionIds: {} })).toBe(backendStats)
+  })
   test('overlays the active project from local session indicators', () => {
     const result = resolveUnifiedProjectSessionStats({
       backendStats: {

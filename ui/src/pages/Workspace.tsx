@@ -90,6 +90,9 @@ import { VirtualChatList } from '../components/chat/VirtualChatList'
 import { TeamContextPanel } from '../components/team/TeamContextPanel'
 import { CreateTeamDialog } from '../components/team/CreateTeamDialog'
 import { TeamConversationList } from '../components/team/TeamConversationList'
+import { TeamActivityBadge } from '../components/team/TeamActivityBadge'
+import { useProjectSessionStatsStore } from '../stores/project-session-stats.store'
+import { teamCacheKey, teamSelectionCache } from '../components/team/team-view-cache'
 import { TeamChatPane } from '../components/team/TeamChatPane'
 import { TimelinePopover } from '../components/chat/TimelinePopover'
 import { processBlockNeedsDetail, useProcessThinkingDisclosure } from '../components/chat/process-detail'
@@ -434,13 +437,15 @@ export default function Workspace() {
     [orderedProjectSessions],
   )
 
+  const teamSummaries = useProjectSessionStatsStore(state => currentProjectId ? state.statsByProjectId[currentProjectId]?.teams : undefined)
+  const teamGridIds = useMemo(() => new Set(teamSummaries?.flatMap(team => team.conversations.flatMap(conversation => conversation.sessionIds)) || []), [teamSummaries])
   const agentSessionStats = useCallback(
     (agentId: string) => summarizeSessionIndicators(
-      agentSessions(agentId),
+      agentSessions(agentId).filter(session => !teamGridIds.has(session.id)),
       runningSessionIds,
       unreadSessionIds,
     ),
-    [agentSessions, runningSessionIds, unreadSessionIds],
+    [agentSessions, runningSessionIds, unreadSessionIds, teamGridIds],
   )
 
   const handleAgentClick = (agentId: string) => {
@@ -456,12 +461,13 @@ export default function Workspace() {
   }
 
   const handleTeamClick = (teamId: string) => {
-    if (orderingMode) return
+    if (orderingMode || selectedTeamId === teamId) return
+    const remembered = teamSelectionCache.get(teamCacheKey(currentProjectId || '', teamId))
     setSelectedTeamId(teamId)
     setSelectedAgentId(null)
     selectSession(null)
-    setTeamConversation(null)
-    setTeamMasterSessionId(null)
+    setTeamConversation(remembered ?? null)
+    setTeamMasterSessionId(remembered?.master_session_id ?? null)
   }
 
   const persistAgentOrder = useCallback(async (agentIds: string[]) => {
@@ -880,7 +886,7 @@ export default function Workspace() {
     if (!name || name === currentName) return
     try {
       await wsClient.request({ type: 'teams.update', teamId, name })
-      await fetchTeams(currentProjectId)
+      await fetchTeams(currentProjectId, true)
     } catch (err) {
       setAlertMsg(err instanceof Error ? err.message : '重命名团队失败')
     }
@@ -899,7 +905,7 @@ export default function Workspace() {
             setTeamConversation(null)
             setTeamMasterSessionId(null)
           }
-          await fetchTeams(currentProjectId)
+          await fetchTeams(currentProjectId, true)
         } catch (err) {
           setConfirmDialog(null)
           setAlertMsg(err instanceof Error ? err.message : '删除团队失败')
@@ -1380,6 +1386,7 @@ export default function Workspace() {
                     >
                       <span style={{ width: 28, height: 28, borderRadius: 7, background: 'var(--purple)', color: '#fff', display: 'grid', placeItems: 'center', fontWeight: 700, flexShrink: 0 }}>T</span>
                       <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{team.name}</span>
+                      <TeamActivityBadge projectId={team.project_id} teamId={team.id} />
                       <span style={{ fontSize: 10, color: 'var(--purple)', border: '1px solid var(--purple)', borderRadius: 4, padding: '1px 4px' }}>团队</span>
                     </button>
                   ))}
@@ -1429,6 +1436,7 @@ export default function Workspace() {
 
       {sidebarTab === 'sessions' && selectedTeam && (
         <TeamConversationList
+          key={teamCacheKey(selectedTeam.project_id, selectedTeam.id)}
           team={selectedTeam}
           activeId={teamConversation?.id ?? null}
           onSelect={setTeamConversation}
@@ -1886,7 +1894,7 @@ export default function Workspace() {
         projectId={currentProjectId}
         onClose={() => setCreateTeamOpen(false)}
         onCreated={async (teamId) => {
-          await fetchTeams(currentProjectId)
+          await fetchTeams(currentProjectId, true)
           handleTeamClick(teamId)
         }}
       />
