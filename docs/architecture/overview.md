@@ -382,6 +382,8 @@ Claude 档案通过进程环境和 Session settings 应用兼容 Anthropic 的�
 
 ## Team MCP 协作边界
 
+团队成员派发按成员会话维护 FIFO 队列，每个会话最多一条派发在途。运行时完成事件不代表 Session 已释放运行锁；队列通过 Session 空闲事件和派发 Promise 结算接续。Master 的合并唤醒同样等待实际空闲，并保留通知的合并延迟。派发失败会将非终态任务转为待输入，通过系统消息通知该次派发所属团队会话的 Master；已结束任务不重新打开，无任务的派发也会通知。
+
 `team.list` 和 `team.conversation.list` 是全局可绑定的公开发现工具，与普通 Agent 目录分离；其他 `team.*` 能力通过 Agent 级 Profile 暴露。`core/team-access` 与 `tools/team-boundary-guard` 按可信 Session 反查成员身份，统一校验 HTTP/stdio 工具执行中的历史读取、监听、创建会话、成员操作和任务指派；模型传入的团队字段不能提升权限。用户 RPC 保留团队内部可见性。
 
 `core/team-contacts` 与 `store/team-contacts` 管理外部 Session 到团队会话线的持久联系。`agent.message.send(targetTeamId)` 创建或复用联系，投递到该线 Master；回复继续使用来源 `targetSessionId`，对外显示团队身份。成员通过 mailbox 协作，只有 Master 联系外部。`core/team-task-access` 和派发前校验保护任务读取及延后执行；`core/agent-watch-access` 在通知时重新校验旧监听，防止升级前的订阅越过新边界。

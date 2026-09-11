@@ -3,6 +3,7 @@ import { createChildLogger } from './logger.js'
 import { sessionManager } from './sessions.js'
 import { taskStore } from '../store/tasks.js'
 import { teamMemberStore } from '../store/teams.js'
+import { teamWakeCoordinator } from './team-wake-coordinator.js'
 
 const log = createChildLogger('team-member-dispatch')
 
@@ -24,19 +25,14 @@ const activeMemberSessions = new Set<string>()
 /** 每个 session 一个 FIFO 队列：成员忙时派发按顺序排队，不允许后到覆盖先到。 */
 const pendingByMemberSession = new Map<string, DispatchMemberPromptInput[]>()
 
-events.on('session:done', (ev) => {
-  activeMemberSessions.delete(ev.sessionId)
-  const queue = pendingByMemberSession.get(ev.sessionId)
-  if (!queue || queue.length === 0) return
-  // 每次只消费一条：后续条目等本轮 done 再次触发，保证同一 session 内严格串行。
-  const next = queue.shift()!
-  if (queue.length === 0) pendingByMemberSession.delete(ev.sessionId)
-  dispatchMemberPrompt(next)
+events.on('session:activity', (ev) => {
+  if (ev.state === 'idle') drainMemberQueue(ev.sessionId)
 })
 
 export function dispatchMemberPrompt(input: DispatchMemberPromptInput): DispatchMemberPromptStatus {
-  if (sessionManager.isPromptActive(input.sessionId) || activeMemberSessions.has(input.sessionId)) {
-    enqueuePending(input)
+  enqueuePending(input)
+  const started = drainMemberQueue(input.sessionId)
+  if (started !== input) {
     log.debug(
       { teamId: input.teamId, memberId: input.memberId, sessionId: input.sessionId, queueDepth: pendingByMemberSession.get(input.sessionId)?.length ?? 0 },
       'Team member prompt queued',
@@ -44,33 +40,45 @@ export function dispatchMemberPrompt(input: DispatchMemberPromptInput): Dispatch
     return 'queued'
   }
 
-  activeMemberSessions.add(input.sessionId)
-  void sessionManager
-    .enqueuePrompt(input.sessionId, input.displayContent ?? input.prompt, undefined, {
+  return 'accepted'
+}
+
+function drainMemberQueue(sessionId: string): DispatchMemberPromptInput | undefined {
+  const queue = pendingByMemberSession.get(sessionId)
+  if (!queue?.length || activeMemberSessions.has(sessionId) || sessionManager.isPromptActive(sessionId)) return
+  const next = queue.shift()!
+  if (queue.length === 0) pendingByMemberSession.delete(sessionId)
+  activeMemberSessions.add(sessionId)
+  log.debug(
+    { teamId: next.teamId, memberId: next.memberId, sessionId, taskId: next.taskId, queueDepth: queue.length },
+    'Team member prompt dispatch started',
+  )
+  void runMemberPrompt(next)
+  return next
+}
+
+async function runMemberPrompt(input: DispatchMemberPromptInput): Promise<void> {
+  try {
+    await sessionManager.enqueuePrompt(input.sessionId, input.displayContent ?? input.prompt, undefined, {
       modelContent: input.prompt,
       senderRole: 'team-assignment',
       senderName: input.senderName ?? 'Master',
     })
-    .then(() => {
-      activeMemberSessions.delete(input.sessionId)
-    })
-    .catch((err: unknown) => {
-      if (isActivePromptError(err)) {
-        enqueuePending(input)
-        log.debug(
-          { teamId: input.teamId, memberId: input.memberId, sessionId: input.sessionId },
-          'Team member prompt queued',
-        )
-        return
-      }
-      activeMemberSessions.delete(input.sessionId)
-      log.error(
-        { err, teamId: input.teamId, memberId: input.memberId, sessionId: input.sessionId },
-        'Team member prompt failed',
-      )
+  } catch (err: unknown) {
+    log.error(
+      { err, teamId: input.teamId, memberId: input.memberId, sessionId: input.sessionId, taskId: input.taskId },
+      'Team member prompt failed',
+    )
+    try {
       reportDispatchFailure(input, err)
-    })
-  return 'accepted'
+    } catch (reportError: unknown) {
+      log.error({ err: reportError, teamId: input.teamId, sessionId: input.sessionId, taskId: input.taskId }, 'Team dispatch failure notification failed')
+    }
+  } finally {
+    // done 早于运行锁清理；在 Promise 结算前保留占用，避免 idle 事件提前启动下一条。
+    activeMemberSessions.delete(input.sessionId)
+    drainMemberQueue(input.sessionId)
+  }
 }
 
 /** 归档团队时调用：丢弃这些 session 上尚未派发的排队指令（已发出的无法撤回）。 */
@@ -92,15 +100,18 @@ function enqueuePending(input: DispatchMemberPromptInput): void {
 
 function reportDispatchFailure(input: DispatchMemberPromptInput, err: unknown): void {
   const message = err instanceof Error ? err.message : String(err)
-  if (!input.taskId) return
-  const task = taskStore.get(input.taskId)
-  if (!task || ['completed', 'needs_input', 'cancelled'].includes(task.status)) return
-  const updated = taskStore.update(input.taskId, {
-    status: 'needs_input',
-    stage: `派发失败:${message}`,
+  const task = input.taskId ? taskStore.get(input.taskId) : undefined
+  if (task && !['completed', 'needs_input', 'cancelled'].includes(task.status)) {
+    const updated = taskStore.update(task.id, {
+      status: 'needs_input',
+      stage: `派发失败:${message}`,
+    })
+    if (updated) events.emit('task:update', { taskId: updated.id, data: { ...updated, event: 'updated' } })
+  }
+  teamWakeCoordinator.notifyDispatchFailed({
+    teamId: input.teamId, memberId: input.memberId, sessionId: input.sessionId,
+    taskId: input.taskId, error: message,
   })
-  if (!updated) return
-  events.emit('task:update', { taskId: updated.id, data: { ...updated, event: 'updated' } })
   events.emit('team:update', {
     teamId: input.teamId,
     sessionIds: emitSessionIdsFor(input.teamId, input.sessionId),
@@ -113,8 +124,4 @@ function emitSessionIdsFor(teamId: string, targetSessionId: string): string[] {
   const ids = new Set(teamMemberStore.list(teamId).map((member) => member.session_id))
   ids.add(targetSessionId)
   return [...ids]
-}
-
-function isActivePromptError(err: unknown): boolean {
-  return err instanceof Error && err.message.includes('当前会话正在生成中')
 }
