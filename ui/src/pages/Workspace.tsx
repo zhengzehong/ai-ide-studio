@@ -344,6 +344,10 @@ export default function Workspace() {
   }) => {
     setPreviewModal(p)
   }, [])
+  const [filesModal, setFilesModal] = useState<FilesPresentationInfo | null>(null)
+  const openFiles = useCallback((presentation: FilesPresentationInfo) => {
+    setFilesModal(presentation)
+  }, [])
 
   const [ctxMenu, setCtxMenu] = useState<{ sessionId: string; agentId: string; x: number; y: number; inArchive: boolean } | null>(null)
   const [tagEditor, setTagEditor] = useState<SessionTagEditorState | null>(null)
@@ -1488,7 +1492,7 @@ export default function Workspace() {
         onCloseFile={closeFile}
         chat={(
           selectedTeam ? (
-            <TeamChatPane team={selectedTeam} conversation={teamConversation} masterSessionId={teamMasterSessionId} />
+            <TeamChatPane team={selectedTeam} conversation={teamConversation} masterSessionId={teamMasterSessionId} onOpenPreview={openPreview} onOpenFiles={openFiles} onOpenResource={openChatResource} />
           ) : (
           <WorkspaceChatPane
             connected={connected}
@@ -1501,6 +1505,7 @@ export default function Workspace() {
             inspirationNoteId={inspirationNoteId}
             onOpenResource={openChatResource}
             openPreview={openPreview}
+            openFiles={openFiles}
           />
           )
         )}
@@ -1617,6 +1622,9 @@ export default function Workspace() {
           preview={previewModal}
           onClose={() => setPreviewModal(null)}
         />
+      )}
+      {filesModal && (
+        <PresentedFilesModal presentation={filesModal} onClose={() => setFilesModal(null)} />
       )}
       {advisorToast && <div className="advisor-toast">{advisorToast}</div>}
 
@@ -1914,6 +1922,7 @@ function WorkspaceChatPane({
   inspirationNoteId,
   onOpenResource,
   openPreview,
+  openFiles,
 }: {
   connected: boolean
   projectId: string | null
@@ -1925,6 +1934,7 @@ function WorkspaceChatPane({
   inspirationNoteId?: string
   onOpenResource: OpenChatResource
   openPreview: (p: { previewId: string; title: string; target: 'pc' | 'app'; url: string; taskId?: string | null }) => void
+  openFiles: (presentation: FilesPresentationInfo) => void
 }) {
   const messages = useSessionStore((s) => s.messages)
   const messagesLoadingSessionId = useSessionStore((s) => s.messagesLoadingSessionId)
@@ -1985,13 +1995,6 @@ function WorkspaceChatPane({
   const [showCommandMenu, setShowCommandMenu] = useState(false)
   const [menuAnchor, setMenuAnchor] = useState<MenuAnchor | null>(null)
   const [liveNowMs, setLiveNowMs] = useState(() => Date.now())
-  const [filesModal, setFilesModal] = useState<FilesPresentationInfo | null>(null)
-
-  const openFiles = useCallback((presentation: FilesPresentationInfo) => {
-    setFilesModal(presentation)
-  }, [])
-
-
   useEffect(() => {
     if (currentSessionId && !dockLoaded) void loadDock({ silent: true })
   }, [currentSessionId, dockLoaded, loadDock])
@@ -3013,9 +3016,6 @@ function WorkspaceChatPane({
             />
           ))}
         </DropdownPortal>
-      )}
-      {filesModal && (
-        <PresentedFilesModal presentation={filesModal} onClose={() => setFilesModal(null)} />
       )}
       {showShareModal && currentSessionId && chatAgent && (
         <ShareModal

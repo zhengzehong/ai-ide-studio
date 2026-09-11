@@ -2,7 +2,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import { ConversationPane } from '../chat/ConversationPane'
 import type { ConversationAdapter, ConversationUploadedFile, ConversationProcessState } from '../chat/conversation-types'
-import type { FileChangeDetailInfo, ImageAttachmentInfo, SessionEventData, TurnProcessItemInfo } from '../../stores/session-events'
+import type { FileChangeDetailInfo, FilesPresentationInfo, ImageAttachmentInfo, PreviewPresentationInfo, SessionEventData, TurnProcessItemInfo } from '../../stores/session-events'
+import type { OpenChatResource } from '../../services/chat-resource-links'
 import { normalizeMessage } from '../../stores/session-events'
 import { turnFromProcessItems } from '../../stores/turn-blocks'
 import { queryClient } from '../../services/query-client'
@@ -19,13 +20,20 @@ import { aggregateSnapshots, emptySnapshot, mergeLoadedSnapshots, finalizeSnapsh
 export { aggregateSnapshots, emptySnapshot, mergeLoadedSnapshots, finalizeSnapshot, applyEventToSnapshot, updateStreaming, hasLiveStreaming, rebuildStreamingFromEvents, TEAM_STREAM_REBUILD_EVENT_LIMIT, type Snapshot } from './team-chat-state'
 
 interface Conversation { id: string; team_id: string; master_session_id: string; title: string }
-interface Props { team: TeamData; conversation: Conversation | null; masterSessionId: string | null }
+interface Props {
+  team: TeamData
+  conversation: Conversation | null
+  masterSessionId: string | null
+  onOpenPreview?: (preview: PreviewPresentationInfo) => void
+  onOpenFiles?: (presentation: FilesPresentationInfo) => void
+  onOpenResource?: OpenChatResource
+}
 
 export function TeamChatPane(props: Props): ReactElement {
   return <TeamConversationPane key={teamCacheKey(props.team.project_id, props.team.id, props.conversation?.id || props.masterSessionId || 'empty')} {...props} />
 }
 
-function TeamConversationPane({ team, conversation, masterSessionId }: Props): ReactElement {
+function TeamConversationPane({ team, conversation, masterSessionId, onOpenPreview, onOpenFiles, onOpenResource }: Props): ReactElement {
   const cacheKey = teamCacheKey(team.project_id, team.id, conversation?.id)
   const [cached] = useState(() => teamChatCache.get(cacheKey))
   const [requestScope] = useState(newTeamRequestScope)
@@ -38,6 +46,8 @@ function TeamConversationPane({ team, conversation, masterSessionId }: Props): R
   const [processByMessageId, setProcessByMessageId] = useState<Record<string, ConversationProcessState>>({})
   const [fileChanges, setFileChanges] = useState<Record<string, FileChangeDetailInfo>>({})
   const [fileErrors, setFileErrors] = useState<Record<string, string>>({})
+  const [processItemLoadingByKey, setProcessItemLoadingByKey] = useState<Record<string, boolean>>({})
+  const [processItemErrorByKey, setProcessItemErrorByKey] = useState<Record<string, string>>({})
   const sourceMap = useRef(new Map<string, SourceMessage>(cached?.sources))
   const subscribedSessions = useRef(new Set<string>())
   const doneReloadTimers = useRef(new Map<string, number>())
@@ -191,10 +201,36 @@ function TeamConversationPane({ team, conversation, masterSessionId }: Props): R
     try { const detail = await wsClient.request({ type: 'sessions.messageFileChanges', sessionId: source.sourceSessionId, messageId: source.sourceMessageId }) as FileChangeDetailInfo; setFileChanges((current) => ({ ...current, [messageId]: detail })) }
     catch (cause) { setFileErrors((current) => ({ ...current, [messageId]: cause instanceof Error ? cause.message : '文件变更加载失败' })) }
   }, [fileChanges])
-  const adapter = useMemo<ConversationAdapter>(() => createAdapter({ team, conversation, masterSessionId, aggregate, loading, error, sending, loadingOlder, processByMessageId, fileChanges, fileErrors, sendPrompt, loadOlderMessages, loadMessageProcess, loadFileChanges, reload: load, resolveSource: (id) => sourceMap.current.get(id) }), [aggregate, conversation, error, fileChanges, fileErrors, load, loadFileChanges, loadMessageProcess, loadOlderMessages, loading, loadingOlder, masterSessionId, processByMessageId, sendPrompt, sending, team])
-  return <ConversationPane adapter={adapter} />
+  const loadProcessItemDetail = useCallback(async (messageId: string, itemId: string): Promise<void> => {
+    const source = sourceMap.current.get(messageId)
+    const key = `${messageId}:${itemId}`
+    if (!source || processItemLoadingByKey[key]) return
+    setProcessItemLoadingByKey((current) => ({ ...current, [key]: true }))
+    setProcessItemErrorByKey((current) => ({ ...current, [key]: '' }))
+    try {
+      const item = await wsClient.request({
+        type: 'sessions.processItemDetail',
+        sessionId: source.sourceSessionId,
+        messageId: source.sourceMessageId,
+        itemId,
+      }) as TurnProcessItemInfo
+      const detailBlock = turnFromProcessItems(messageId, [item]).processBlocks[0]
+      if (!detailBlock) return
+      setProcessByMessageId((current) => {
+        const state = current[messageId]
+        if (!state) return current
+        return { ...current, [messageId]: { ...state, blocks: state.blocks.map((block) => block.id === itemId ? detailBlock : block) } }
+      })
+    } catch (cause) {
+      setProcessItemErrorByKey((current) => ({ ...current, [key]: cause instanceof Error ? cause.message : '执行过程详情加载失败' }))
+    } finally {
+      setProcessItemLoadingByKey((current) => { const next = { ...current }; delete next[key]; return next })
+    }
+  }, [processItemLoadingByKey])
+  const adapter = useMemo<ConversationAdapter>(() => createAdapter({ team, conversation, masterSessionId, aggregate, loading, error, sending, loadingOlder, processByMessageId, fileChanges, fileErrors, processItemLoadingByKey, processItemErrorByKey, sendPrompt, loadOlderMessages, loadMessageProcess, loadFileChanges, loadProcessItemDetail, reload: load, resolveSource: (id) => sourceMap.current.get(id) }), [aggregate, conversation, error, fileChanges, fileErrors, load, loadFileChanges, loadMessageProcess, loadOlderMessages, loadProcessItemDetail, loading, loadingOlder, masterSessionId, processByMessageId, processItemErrorByKey, processItemLoadingByKey, sendPrompt, sending, team])
+  return <ConversationPane adapter={adapter} onOpenPreview={onOpenPreview} onOpenFiles={onOpenFiles} onOpenResource={onOpenResource} />
 }
 
-function createAdapter(input: { team: TeamData; conversation: Conversation | null; masterSessionId: string | null; aggregate: ReturnType<typeof aggregateSnapshots>; loading: boolean; error: string | null; sending: boolean; loadingOlder: boolean; processByMessageId: Record<string, ConversationProcessState>; fileChanges: Record<string, FileChangeDetailInfo>; fileErrors: Record<string, string>; loadMessageProcess: (id: string) => Promise<void>; loadFileChanges: (id: string) => Promise<void>; sendPrompt: ConversationAdapter['sendPrompt']; loadOlderMessages: () => Promise<void>; reload: () => Promise<void>; resolveSource: (id: string) => SourceMessage | undefined }): ConversationAdapter {
-  return { sessionId: input.masterSessionId, projectId: input.team.project_id, agentName: input.conversation ? `${input.team.name} · Master` : input.team.name, agentRuntime: 'team', sessionTitle: input.conversation?.title ?? null, messages: input.aggregate.messages, events: input.aggregate.events, streamingMessage: input.aggregate.streaming[0] || null, streamingMessages: input.aggregate.streaming, loading: input.loading, error: input.error, running: input.aggregate.running, sending: input.sending, connected: true, hasMoreMessages: input.aggregate.hasMore, loadingOlderMessages: input.loadingOlder, pendingPermissions: input.aggregate.permissions, pendingElicitations: input.aggregate.elicitations, interactionError: null, capabilities: input.aggregate.capabilities, usage: input.aggregate.usage, processByMessageId: input.processByMessageId, fileChangeDetailsByMessageId: input.fileChanges, fileChangeLoadingByKey: {}, fileChangeErrorByKey: Object.fromEntries(Object.entries(input.fileErrors).map(([id, message]) => [`file:${id}`, message])), processItemLoadingByKey: {}, processItemErrorByKey: {}, sendPrompt: input.sendPrompt, cancel: async () => { if (input.masterSessionId) await commandClient.execute({ commandId: `team-cancel-${input.masterSessionId}-${Date.now()}`, type: 'session.cancel', sessionId: input.masterSessionId }) }, loadOlderMessages: input.loadOlderMessages, reload: input.reload, loadMessageProcess: input.loadMessageProcess, loadFileChanges: input.loadFileChanges, loadProcessItemDetail: async () => undefined, respondPermission: async (requestId, optionId, cancelled) => { if (input.masterSessionId) await commandClient.execute({ commandId: `team-permission-${requestId}`, type: 'permission.respond', sessionId: input.masterSessionId, permissionRequestId: requestId, optionId, cancelled }) }, respondElicitation: async (requestId, action, content) => { if (input.masterSessionId) await commandClient.execute({ commandId: `team-elicitation-${requestId}`, type: 'elicitation.respond', sessionId: input.masterSessionId, elicitationRequestId: requestId, action, content }) }, setModel: async (id) => { if (input.masterSessionId) await wsClient.request({ type: 'session.setModel', sessionId: input.masterSessionId, modelId: id }) }, setMode: async (id) => { if (input.masterSessionId) await wsClient.request({ type: 'session.setMode', sessionId: input.masterSessionId, modeId: id }) }, setConfig: async (id, value) => { if (input.masterSessionId) await wsClient.request({ type: 'session.setConfig', sessionId: input.masterSessionId, configId: id, value }) } }
+function createAdapter(input: { team: TeamData; conversation: Conversation | null; masterSessionId: string | null; aggregate: ReturnType<typeof aggregateSnapshots>; loading: boolean; error: string | null; sending: boolean; loadingOlder: boolean; processByMessageId: Record<string, ConversationProcessState>; fileChanges: Record<string, FileChangeDetailInfo>; fileErrors: Record<string, string>; processItemLoadingByKey: Record<string, boolean>; processItemErrorByKey: Record<string, string>; loadMessageProcess: (id: string) => Promise<void>; loadFileChanges: (id: string) => Promise<void>; loadProcessItemDetail: (messageId: string, itemId: string) => Promise<void>; sendPrompt: ConversationAdapter['sendPrompt']; loadOlderMessages: () => Promise<void>; reload: () => Promise<void>; resolveSource: (id: string) => SourceMessage | undefined }): ConversationAdapter {
+  return { sessionId: input.masterSessionId, projectId: input.team.project_id, agentName: input.conversation ? `${input.team.name} · Master` : input.team.name, agentRuntime: 'team', sessionTitle: input.conversation?.title ?? null, messages: input.aggregate.messages, events: input.aggregate.events, streamingMessage: input.aggregate.streaming[0] || null, streamingMessages: input.aggregate.streaming, loading: input.loading, error: input.error, running: input.aggregate.running, sending: input.sending, connected: true, hasMoreMessages: input.aggregate.hasMore, loadingOlderMessages: input.loadingOlder, pendingPermissions: input.aggregate.permissions, pendingElicitations: input.aggregate.elicitations, interactionError: null, capabilities: input.aggregate.capabilities, usage: input.aggregate.usage, processByMessageId: input.processByMessageId, fileChangeDetailsByMessageId: input.fileChanges, fileChangeLoadingByKey: {}, fileChangeErrorByKey: Object.fromEntries(Object.entries(input.fileErrors).map(([id, message]) => [`file:${id}`, message])), processItemLoadingByKey: input.processItemLoadingByKey, processItemErrorByKey: input.processItemErrorByKey, sendPrompt: input.sendPrompt, cancel: async () => { if (input.masterSessionId) await commandClient.execute({ commandId: `team-cancel-${input.masterSessionId}-${Date.now()}`, type: 'session.cancel', sessionId: input.masterSessionId }) }, loadOlderMessages: input.loadOlderMessages, reload: input.reload, loadMessageProcess: input.loadMessageProcess, loadFileChanges: input.loadFileChanges, loadProcessItemDetail: input.loadProcessItemDetail, respondPermission: async (requestId, optionId, cancelled) => { if (input.masterSessionId) await commandClient.execute({ commandId: `team-permission-${requestId}`, type: 'permission.respond', sessionId: input.masterSessionId, permissionRequestId: requestId, optionId, cancelled }) }, respondElicitation: async (requestId, action, content) => { if (input.masterSessionId) await commandClient.execute({ commandId: `team-elicitation-${requestId}`, type: 'elicitation.respond', sessionId: input.masterSessionId, elicitationRequestId: requestId, action, content }) }, setModel: async (id) => { if (input.masterSessionId) await wsClient.request({ type: 'session.setModel', sessionId: input.masterSessionId, modelId: id }) }, setMode: async (id) => { if (input.masterSessionId) await wsClient.request({ type: 'session.setMode', sessionId: input.masterSessionId, modeId: id }) }, setConfig: async (id, value) => { if (input.masterSessionId) await wsClient.request({ type: 'session.setConfig', sessionId: input.masterSessionId, configId: id, value }) } }
 }
