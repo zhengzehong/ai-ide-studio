@@ -12,6 +12,8 @@ export type MobileSessionActivityState = 'running' | 'idle'
 type SessionIndicatorMap = Record<string, true>
 
 export interface MobileSessionItem {
+  teamId?: string
+  conversationId?: string
   id: string
   agentId: string
   agentName: string

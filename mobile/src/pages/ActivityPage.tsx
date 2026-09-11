@@ -1,4 +1,7 @@
-import { useEffect, type CSSProperties } from 'react'
+import { useEffect, useMemo, type CSSProperties } from 'react'
+import { useConversationCatalog } from '../stores/conversation-catalog.store'
+import { projectTeamActivity } from '../utils/team-list-projections'
+import { ConversationKindTag } from '../components/session-list/ConversationKindTag'
 import { Activity, AlertCircle, Loader2, RefreshCw } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -25,11 +28,17 @@ export async function syncActivityProject(projectId: string | null, deps: Activi
 
 export function ActivityPage() {
   const navigate = useNavigate()
-  const groups = useMobileActivityStore((state) => state.groups)
+  const rawGroups = useMobileActivityStore((state) => state.groups)
+  const catalog = useConversationCatalog(state => state.catalog)
+  const catalogLoaded = useConversationCatalog(state => state.loaded)
+  const catalogError = useConversationCatalog(state => state.error)
+  const groups = useMemo(() => catalogLoaded ? projectTeamActivity(rawGroups, catalog) : [], [rawGroups, catalog, catalogLoaded])
   const loading = useMobileActivityStore((state) => state.loading)
   const loaded = useMobileActivityStore((state) => state.loaded)
   const error = useMobileActivityStore((state) => state.error)
-  const load = useMobileActivityStore((state) => state.load)
+  const loadActivity = useMobileActivityStore((state) => state.load)
+  const loadCatalog = useConversationCatalog(state => state.load)
+  const load = (): void => { void loadActivity(); void loadCatalog() }
   const markRead = useMobileActivityStore((state) => state.markRead)
   const setCurrentProject = useAppStore((state) => state.setCurrentProject)
   const fetchAgents = useAppStore((state) => state.fetchAgents)
@@ -37,12 +46,13 @@ export function ActivityPage() {
   const sessionCount = groups.reduce((total, group) => total + group.sessions.length, 0)
 
   useEffect(() => {
-    if (!loaded) void load()
-  }, [load, loaded])
+    if (!loaded) void loadActivity()
+    if (!catalogLoaded) void loadCatalog()
+  }, [loadActivity, loaded, loadCatalog, catalogLoaded])
 
   const openSession = (group: MobileActivityGroup, session: MobileActivitySession): void => {
     void syncActivityProject(group.projectId, { setCurrentProject, fetchAgents, fetchSessions })
-    if (session.unread) void markRead(session.sessionId)
+    if (session.unread && !group.teamId) void markRead(session.sessionId)
     navigate(`/chat/${session.sessionId}`, { state: { returnTo: '/activity' } })
   }
 
@@ -58,16 +68,16 @@ export function ActivityPage() {
         </button>
       </header>
 
-      {error && (
+      {(error || catalogError) && (
         <button type="button" style={styles.error} onClick={() => { void load() }}>
           <AlertCircle size={16} />
-          <span>{error}</span>
+          <span>{error || catalogError}</span>
           <strong>重试</strong>
         </button>
       )}
 
       <main style={styles.list}>
-        {loading && groups.length === 0 ? (
+        {(loading || (!catalogLoaded && !catalogError)) && groups.length === 0 ? (
           <div style={styles.empty}><Loader2 size={22} className="spin" />正在同步...</div>
         ) : groups.length === 0 ? (
           <div style={styles.empty}>
@@ -91,7 +101,7 @@ export function ActivityGroup({ group, onOpen }: { group: MobileActivityGroup; o
       <div style={{ ...groupStyles.head, ...groupStyles.headPlain }}>
         <AgentAvatar agentId={group.agentId} name={group.agentName} />
         <div style={groupStyles.info}>
-          <div style={groupStyles.name}>{group.agentName}</div>
+          <div style={groupStyles.name}>{group.agentName}<ConversationKindTag team={!!group.teamId} /></div>
           <div style={groupStyles.sub}>{group.sessions.length} 个会话</div>
         </div>
         <ProjectChip

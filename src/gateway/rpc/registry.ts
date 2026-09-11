@@ -20,6 +20,7 @@ import { subscriptionRpcHandlers } from './subscriptions.js'
 import { taskRpcHandlers } from './tasks.js'
 import { templateRpcHandlers } from './templates.js'
 import { teamRpcHandlers } from './teams.js'
+import { mobileConversationRpcHandlers } from './mobile-conversations.js'
 import { toolRpcHandlers } from './tools.js'
 import { timelineRpcHandlers } from './timeline.js'
 import { widgetRpcHandlers } from './widget.js'
@@ -50,6 +51,7 @@ const rpcHandlers: RpcHandlerMap = {
   ...projectRpcHandlers,
   ...templateRpcHandlers,
   ...teamRpcHandlers,
+  ...mobileConversationRpcHandlers,
   ...toolRpcHandlers,
   ...filesystemRpcHandlers,
   ...modelRpcHandlers,

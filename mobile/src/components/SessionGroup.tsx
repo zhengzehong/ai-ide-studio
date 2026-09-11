@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import type { MobileSessionItem } from '../stores/session.store'
 import SessionCard from './SessionCard'
+import { ConversationKindTag } from './session-list/ConversationKindTag'
 import { AgentAvatar, badgeStyles, groupStyles } from './session-list/list-kit'
 
 const HEADER_LONG_PRESS_MS = 500
 const HEADER_MOVE_CANCEL_PX = 10
 
 interface Props {
+  team?: boolean
   agentId: string
   agentName: string
   sessions: MobileSessionItem[]
@@ -25,7 +27,7 @@ function sortByUnreadAndTime(sessions: MobileSessionItem[]): MobileSessionItem[]
   })
 }
 
-export default function SessionGroup({ agentId, agentName, sessions, onLongPress, onHeaderLongPress }: Props) {
+export default function SessionGroup({ agentId, agentName, sessions, onLongPress, onHeaderLongPress, team }: Props) {
   const runningCount = sessions.filter((s) => s.activityState === 'running').length
   const unreadCount = sessions.filter((s) => s.unread).length
   const activeCount = sessions.length
@@ -115,7 +117,7 @@ export default function SessionGroup({ agentId, agentName, sessions, onLongPress
       >
         <AgentAvatar agentId={agentId} name={agentName} />
         <div style={groupStyles.info}>
-          <div style={groupStyles.name}>{agentName}</div>
+          <div style={groupStyles.name}>{agentName}<ConversationKindTag team={team} /></div>
           <div style={groupStyles.sub}>{activeCount} 活跃会话</div>
         </div>
         <div style={groupStyles.badgeRow}>

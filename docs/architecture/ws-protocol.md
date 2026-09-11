@@ -95,6 +95,11 @@ Runtime 可见 patch 不经过 API 事件总线，而是通过 Runtime→Realtim
 | `team.conversation.rename` | `{ conversationId, title }` | 更新后的群聊 |
 | `team.conversation.archive` | `{ conversationId }` | 归档后的群聊 |
 | `team.conversation.delete` | `{ conversationId }` | 软删除后的群聊 |
+| `mobile.conversations.list` | `{ projectId? }` | 仅 owner；`{ teams, conversations, hiddenAgentIds, hiddenSessionIds }`，移动端团队目录与普通列表排除清单 |
+
+`mobile.conversations.list` 不查询普通消息正文。`teams` 为 `{ id, name, projectId }[]`；`conversations` 为 `{ id, teamId, projectId, masterSessionId, title, status, running, unread, lastMessageAt, createdAt, sessionIds }[]`，只包含未归档团队中的活跃群聊。`running` 使用现有团队活动聚合，不能从 `status=active` 推导。排除清单包含团队内部身份及归档、删除群聊的成员 Session，防止它们从普通会话、动态和置顶接口重新出现。
+
+移动端把该目录与既有 `sessions.list`、`widget.sessionActivity.list`、`sessionDock.list` 合并展示；团队会话管理仍调用 `team.conversation.*`，置顶仍使用 Master Session ID。聊天通过既有成员历史查询和 Session 订阅工作，用户 Prompt 发给 Master，权限和询问答复发回实际来源 Session。重连和回到前台时重新读取目录与当前群聊，不引入新的实时事件。
 
 普通 Agent 使用的 Workspace RPC、Session 订阅和消息协议保持不变。
 
