@@ -1,7 +1,11 @@
 import { create } from 'zustand'
 import { wsClient } from '@desktop/services/ws-client'
+import { useConversationCatalog } from './conversation-catalog.store'
+import { projectTeamPins } from '../utils/team-list-projections'
 
 export interface MobilePinnedSession {
+  teamId?: string
+  conversationId?: string
   sessionId: string
   sessionTitle: string | null
   stage: string
@@ -107,6 +111,10 @@ export const usePinnedSessionStore = create<PinnedSessionState>((set, get) => ({
   reorder: async (sessionIds) => {
     requestSequence += 1
     const previous = get().items
+    const visibleIds = new Set(projectTeamPins(previous, useConversationCatalog.getState().catalog).map(item => item.sessionId))
+    const omitted = previous.filter(item => !sessionIds.includes(item.sessionId))
+    if (omitted.some(item => visibleIds.has(item.sessionId))) return
+    sessionIds = [...sessionIds, ...omitted.map(item => item.sessionId)]
     const byId = new Map(previous.map((item) => [item.sessionId, item]))
     const optimistic = sessionIds.flatMap((sessionId, index) => {
       const item = byId.get(sessionId)

@@ -65,7 +65,7 @@ describe('mobile model profile', () => {
     expect(group).toContain('onHeaderLongPress')
 
     const listPage = readFileSync(resolve('mobile/src/pages/SessionListPage.tsx'), 'utf8')
-    expect(listPage).toContain('onHeaderLongPress={() => handleHeaderLongPress(group.agentId)}')
+    expect(listPage).toContain("kind === 'team' ? undefined : () => handleHeaderLongPress(group.agentId)")
     expect(listPage).toContain('AgentProfileSheet')
 
     const settings = readFileSync(resolve('mobile/src/pages/SettingsPage.tsx'), 'utf8')

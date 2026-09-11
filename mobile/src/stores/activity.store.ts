@@ -18,6 +18,7 @@ export interface MobileActivitySession {
 }
 
 export interface MobileActivityGroup {
+  teamId?: string
   groupId: string
   agentId: string
   agentName: string

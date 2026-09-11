@@ -11,7 +11,8 @@ import MobileShell from './components/MobileShell'
 import AndroidBackHandler from './components/AndroidBackHandler'
 import ConnectPage from './pages/ConnectPage'
 import SessionListPage from './pages/SessionListPage'
-import ChatPage from './pages/ChatPage'
+import { ConversationRoute } from './pages/ConversationRoute'
+import { useConversationCatalog } from './stores/conversation-catalog.store'
 import FileViewerPage from './pages/FileViewerPage'
 import TaskListPage from './pages/TaskListPage'
 import TaskDetailPage from './pages/TaskDetailPage'
@@ -46,6 +47,7 @@ export async function bootstrapMobileData(): Promise<void> {
   await Promise.all([
     appStore.fetchProjects(),
     appStore.fetchAgents(),
+    useConversationCatalog.getState().load(),
     useMobileProjectSessionStatsStore.getState().fetchStats(),
     usePinnedSessionStore.getState().load({ silent: true }),
     useMobileActivityStore.getState().load({ silent: true }),
@@ -63,12 +65,14 @@ export default function App() {
 
   useEffect(() => {
     const off1 = useSessionStore.getState().setupListeners()
+    const offCatalog = useConversationCatalog.getState().setupListeners()
     const off2 = useMobileProjectSessionStatsStore.getState().setupListeners()
     const offPinned = usePinnedSessionStore.getState().setupListeners()
     const offActivity = useMobileActivityStore.getState().setupListeners()
     const offVoice = useVoiceStore.getState().setupListeners()
     const offInspiration = useInspirationStore.getState().setupListeners()
     const off3 = wsClient.on('resync_required', (message) => {
+      if (useConversationCatalog.getState().activeConversationId) return
       const chatStore = useChatStore.getState()
       const resyncSessionId = typeof message.sessionId === 'string' ? message.sessionId : undefined
       const sessionId = resyncSessionId ?? chatStore.sessionId ?? undefined
@@ -83,6 +87,7 @@ export default function App() {
     return () => {
       wsClient.setEventListenersReady(false)
       off1()
+      offCatalog()
       off2()
       offPinned()
       offActivity()
@@ -112,7 +117,7 @@ export default function App() {
       <AndroidBackHandler />
       <Routes>
         <Route path="/connect" element={<ConnectPage />} />
-        <Route path="/chat/:sessionId" element={<ChatPage />} />
+        <Route path="/chat/:sessionId" element={<ConversationRoute />} />
         <Route path="/files" element={<FileViewerPage />} />
         <Route path="/task/:taskId" element={<TaskDetailPage />} />
         <Route path="/task/:taskId/report/:eventId" element={<TaskReportPage />} />

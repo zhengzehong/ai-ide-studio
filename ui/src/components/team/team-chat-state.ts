@@ -187,7 +187,9 @@ export function mergeMessage(previous: MessageData, next: MessageData): MessageD
     decision_json: next.decision_json || previous.decision_json,
     processBlocks: next.processBlocks?.length ? next.processBlocks : previous.processBlocks,
     parsedToolCalls: next.parsedToolCalls?.length ? next.parsedToolCalls : previous.parsedToolCalls,
-    finalAnswer: nextHasFinalAnswer ? next.finalAnswer : previous.finalAnswer,
+    finalAnswer: nextHasFinalAnswer ? next.finalAnswer
+      : nextHasContent && ['completed', 'failed', 'cancelled'].includes(next.status || '') ? next.content
+        : previous.finalAnswer,
   }
 }
 

@@ -294,6 +294,14 @@ Session 删除采用软删除，仅隐藏列表项并保留 `messages` / `sessio
 | `ui/src/services/` | 通信层 | `query-client.ts`、`ws-client.ts` |
 | `mobile/src/` | 移动端 Web App | `/app/` 下的手机端页面、组件和 Zustand store；复用 `ui/src/services/ws-client.ts` 与会话事件还原辅助逻辑 |
 
+## 移动端统一会话
+
+移动端团队入口由 `core/mobile-conversations` 生成轻量目录，`store/mobile-conversations` 提供成员 Session 排除关系，owner-only RPC 独立注册。`conversation-catalog.store` 在现有团队和会话事件后合并刷新，在连接身份变化时失效旧数据；`team-conversations` 与 `team-list-projections` 将目录分别合入项目、动态、置顶的数据模型。Agent 与团队复用同一组头和列表行，用类型标签区分。团队内部 Agent 和成员 Session 不作为额外列表项暴露。
+
+移动端 `/chat/:sessionId` 由 `ConversationRoute` 根据目录选择普通 `ChatPage` 或团队 `TeamChatPane`。团队后者提供相同的数据适配器，APP 用 `MobileTeamChatSurface` 组合已有 `ChatBubble`、`TurnContent`、`ChatInput`、配置、权限、计划和文件预览组件；PC 默认继续使用 `ConversationPane`。`team-chat-adapter` 按来源 Session 回应成员交互，`team-chat-history` 对所有仍有历史的成员分页；完成消息以非空持久化正文更新流式占位。团队回复按成员显示身份和可展开任务来源，普通对话消息链路保持独立。
+
+移动端 Vite 构建将共享查询和命令客户端固定为 WS 兼容通道，沿用 APP 已认证的连接及用户选择的远程服务器，不读取 PC 本地凭据或请求 WebView 的本地 HTTP 地址。该配置同时适用于手机浏览器和 Android 构建，PC 的 HTTP 默认通道不变。
+
 ## PC 项目路由与前端状态边界
 
 PC 端项目页面以 `/p/:projectId/*` 为 URL 真源。Workspace、任务、自动化、事件中心、知识库和 Agent 记忆均位于该路由边界内；Dashboard、Agent 广场、工具、设置、分享页和 Widget 保持全局路由。旧的无项目前缀链接会重定向到当前有效项目，移动端路由和状态管理不受该边界影响。
@@ -306,9 +314,9 @@ PC Session store 对取消维护独立的 stopping 状态。首次点击立即�
 
 项目视图状态与业务数据缓存分离。每个项目独立保存 Workspace 侧栏与 Agent 选择、任务选中项和滚动位置、知识库搜索及未保存草稿、事件中心 Tab、Agent Memory 的 Agent/维度选择。低频选择状态持久化到浏览器存储，滚动位置只保存在内存；删除项目时路由记忆、视图状态、资源缓存和最后会话映射一并清理。
 
-Session、Agent 和当前项目的运行中/未读提示使用同一个 Session 指示器汇总函数，且运行中优先于未读，避免三层展示出现不同计数。当前项目直接覆盖为本地 Session store 的实时汇总；后台项目保留 `sessions.projectStats` 的轻量全项目快照。该查询聚合 active、非删除、非归档、非模板会话，并把 SQLite 中的运行信号与进程内 active prompt 合并；PC stats store 在全局会话事件后更新，并以 30 秒 stale interval、页面重新可见和窗口 focus 作为恢复边界。移动端项目和 Agent 的展示顺序只使用创建顺序与后端 Agent 顺序，不会因未读或运行状态变化而重排。打开具体会话通过 `sessions.markRead` 持久化 `last_read_at`；当前可见 Session 在最终消息完成后再次确认已读，后台完成则保留未读直到页面重新可见，点击项目本身不会批量清除未读。用户显式调用 `sessions.markUnread` 时，`marked_unread` 事件优先于“当前会话自动已读”规则；PC 清除当前 Session 选择，移动端返回来源页，下一次进入后再恢复自动已读。
+Session、Agent 和当前项目的运行中/未读提示使用同一个 Session 指示器汇总函数，且运行中优先于未读，避免三层展示出现不同计数。当前项目直接覆盖为本地 Session store 的实时汇总；后台项目保留 `sessions.projectStats` 的轻量全项目快照。该查询聚合 active、非删除、非归档、非模板会话，并把 SQLite 中的运行信号与进程内 active prompt 合并；PC stats store 在全局会话事件后更新，并以 30 秒 stale interval、页面重新可见和窗口 focus 作为恢复边界。移动端项目按创建顺序展示，项目内 Agent 与团队组按置顶优先、最近活动排序，同时间保持原顺序。打开普通会话通过 `sessions.markRead` 持久化 `last_read_at`，团队通过已显示消息引用推进各成员读取边界；后台完成保留未读直到页面重新可见，点击项目本身不会批量清除未读。用户显式调用 `sessions.markUnread` 时，`marked_unread` 事件优先于“当前会话自动已读”规则；PC 清除当前 Session 选择，移动端返回来源页，下一次进入后再恢复自动已读。
 
-PC 右侧全局栏同时承载全局助理和置顶会话快捷入口，两个抽屉互斥；PC 另有独立 `/pinned` 页签，会话标题栏按“分享、置顶、标记未读、时间线”提供一级操作。移动端底部“动态”使用 `widget.sessionActivity.list` 跨项目读取运行中或未读 Session，“会话”仍以当前项目和 Agent 组织普通 Session，并通过 `/?view=pinned` 在同一入口切换跨项目置顶列表；旧 `/pinned` 地址只做兼容重定向。移动端聊天输入区在发送/停止按钮右侧提供 `+`，展开区只承载当前会话的置顶和标记未读。置顶会话通过 `global_session_dock` 保存跨项目普通 Session 的引用与顺序，使用独立轻量读模型汇总项目、Agent、运行态、未读和最近活动，不加载消息历史，也不修改 Workspace Session store。增加、移除和排序发布 `session-dock:update`；客户端还在相关 `session:activity`、`session:done`、`session:changed` 及重连后校准列表。点击条目导航到 `/p/:projectId/workspace?sessionId=...`（移动端为 `/chat/:sessionId`），聊天仍由原会话主链路承载。
+PC 右侧全局栏同时承载全局助理和置顶会话快捷入口，两个抽屉互斥；PC 另有独立 `/pinned` 页签，会话标题栏按“分享、置顶、标记未读、时间线”提供一级操作。移动端底部“动态”把 `widget.sessionActivity.list` 与团队目录合并，跨项目展示运行中或未读会话；“会话”按项目组织同级 Agent 与团队，并通过 `/?view=pinned` 切换跨项目置顶列表，旧 `/pinned` 地址只做兼容重定向。移动端普通聊天输入区的 `+` 提供置顶和标记未读，团队聊天标题栏提供置顶。`global_session_dock` 保存普通 Session 或团队 Master Session 的引用与顺序，不加载消息历史，也不修改 Workspace Session store。增加、移除和排序发布 `session-dock:update`；客户端还在相关会话、团队事件及重连后校准列表。移动端点击条目导航到 `/chat/:sessionId`，由目录决定普通对话或团队聚合渲染。
 
 ## 支持的 Agent 运行时
 

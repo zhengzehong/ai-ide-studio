@@ -27,5 +27,5 @@ export function buildSessionActionItems(options: Options): ActionItem[] {
     { key: 'archive', label: '归档', icon: <Archive size={18} color="var(--text-primary)" />, onClick: options.onArchive },
     { key: 'close', label: '关闭会话', icon: <XCircle size={18} color="var(--text-primary)" />, onClick: options.onClose },
     { key: 'delete', label: '删除会话', icon: <Trash2 size={18} color="var(--error)" />, danger: true, onClick: options.onDelete },
-  ]
+  ].filter(item => !options.session?.conversationId || (item.key !== 'publishTemplate' && item.key !== 'close'))
 }

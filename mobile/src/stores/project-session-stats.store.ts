@@ -75,10 +75,12 @@ export const useMobileProjectSessionStatsStore = create<MobileProjectSessionStat
     const offActivity = wsClient.on('session:activity', scheduleRefresh)
     const offChanged = wsClient.on('session:changed', scheduleRefresh)
     const offDone = wsClient.on('session:done', scheduleRefresh)
+    const offTeam = wsClient.on('team:update', scheduleRefresh)
     return () => {
       offActivity()
       offChanged()
       offDone()
+      offTeam()
       if (refreshTimer) {
         clearTimeout(refreshTimer)
         refreshTimer = null

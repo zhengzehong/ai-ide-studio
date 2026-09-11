@@ -7,6 +7,11 @@ const isAndroidBuild = process.env.MOBILE_BUILD_TARGET === 'android'
 export default defineConfig({
   base: isAndroidBuild ? './' : '/app/',
   plugins: [react()],
+  // Shared team clients must use the mobile connection and its selected server.
+  define: {
+    'import.meta.env.VITE_QUERY_TRANSPORT': JSON.stringify('ws'),
+    'import.meta.env.VITE_COMMAND_TRANSPORT': JSON.stringify('ws'),
+  },
   resolve: {
     alias: {
       '@desktop': resolve(__dirname, '../ui/src'),

@@ -6,21 +6,23 @@ import type { FileChangeDetailInfo, FilesPresentationInfo, ImageAttachmentInfo, 
 import type { OpenChatResource } from '../../services/chat-resource-links'
 import { normalizeMessage } from '../../stores/session-events'
 import { turnFromProcessItems } from '../../stores/turn-blocks'
-import { queryClient } from '../../services/query-client'
 import { commandClient } from '../../services/command-client'
 import { wsClient } from '../../services/ws-client'
 import type { TeamData } from '../../stores/team.store'
-import { attachTeamAssignments, mapTeamMessage } from './team-chat-assignments'
+import { loadOlderTeamPages, mergeOlderTeamPages } from './team-chat-history'
 import { loadTeamSession } from './team-chat-loader'
 import { teamCacheKey, teamChatCache, shareTeamRequest, invalidateTeamRequest, newTeamRequestScope, type SourceMessage, type TeamChatMember as Member } from './team-view-cache'
 import { useTeamRead } from './use-team-read'
 import { beginTeamPrompt, rejectTeamPrompt } from './team-chat-pending'
+import { createTeamChatAdapter } from './team-chat-adapter'
 
 import { aggregateSnapshots, emptySnapshot, mergeLoadedSnapshots, finalizeSnapshot, applyEventToSnapshot, mergeProcessItem, normalizeCapabilities, type Snapshot } from './team-chat-state'
 export { aggregateSnapshots, emptySnapshot, mergeLoadedSnapshots, finalizeSnapshot, applyEventToSnapshot, updateStreaming, hasLiveStreaming, rebuildStreamingFromEvents, TEAM_STREAM_REBUILD_EVENT_LIMIT, type Snapshot } from './team-chat-state'
 
 interface Conversation { id: string; team_id: string; master_session_id: string; title: string }
 interface Props {
+  cacheScope?: string
+  renderSurface?: (adapter: ConversationAdapter) => ReactElement
   team: TeamData
   conversation: Conversation | null
   masterSessionId: string | null
@@ -30,11 +32,11 @@ interface Props {
 }
 
 export function TeamChatPane(props: Props): ReactElement {
-  return <TeamConversationPane key={teamCacheKey(props.team.project_id, props.team.id, props.conversation?.id || props.masterSessionId || 'empty')} {...props} />
+  return <TeamConversationPane key={(props.cacheScope || '') + teamCacheKey(props.team.project_id, props.team.id, props.conversation?.id || props.masterSessionId || 'empty')} {...props} />
 }
 
-function TeamConversationPane({ team, conversation, masterSessionId, onOpenPreview, onOpenFiles, onOpenResource }: Props): ReactElement {
-  const cacheKey = teamCacheKey(team.project_id, team.id, conversation?.id)
+function TeamConversationPane({ team, conversation, masterSessionId, onOpenPreview, onOpenFiles, onOpenResource, renderSurface, cacheScope }: Props): ReactElement {
+  const cacheKey = (cacheScope || '') + teamCacheKey(team.project_id, team.id, conversation?.id)
   const [cached] = useState(() => teamChatCache.get(cacheKey))
   const [requestScope] = useState(newTeamRequestScope)
   const [members, setMembers] = useState<Member[]>(cached?.members || [])
@@ -43,6 +45,7 @@ function TeamConversationPane({ team, conversation, masterSessionId, onOpenPrevi
   const [error, setError] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   const [loadingOlder, setLoadingOlder] = useState(false)
+  const olderRequestRef = useRef(false)
   const [processByMessageId, setProcessByMessageId] = useState<Record<string, ConversationProcessState>>({})
   const [fileChanges, setFileChanges] = useState<Record<string, FileChangeDetailInfo>>({})
   const [fileErrors, setFileErrors] = useState<Record<string, string>>({})
@@ -63,13 +66,13 @@ function TeamConversationPane({ team, conversation, masterSessionId, onOpenPrevi
   const visibleSnapshots = useMemo(() => Object.fromEntries(sessionIds.flatMap(id => snapshots[id] ? [[id, snapshots[id]]] : [])), [sessionIds, snapshots])
   useTeamRead(conversation?.id, visibleSnapshots)
 
-  const load = useCallback(async (): Promise<void> => {
-    if (!conversation) { setMembers([]); setSnapshots({}); sourceMap.current.clear(); return }
+  const load = useCallback(async (): Promise<boolean> => {
+    if (!conversation) { setMembers([]); setSnapshots({}); sourceMap.current.clear(); return false }
     const requestGeneration = ++generation.current
     setLoading(!hasContent.current); setError(null)
     try {
       const detail = await shareTeamRequest(`history:${cacheKey}:${requestScope}`, () => wsClient.request({ type: 'team.conversation.history', conversationId: conversation.id })) as { members?: Member[] }
-      if (requestGeneration !== generation.current) return
+      if (requestGeneration !== generation.current) return false
       const nextMembers = Array.isArray(detail.members) ? detail.members : []
       const ids = [...new Set([conversation.master_session_id, ...nextMembers.map((member) => member.session_id)].filter((id): id is string => !!id))]
       const removed = [...subscribedSessions.current].filter(id => !ids.includes(id))
@@ -89,10 +92,11 @@ function TeamConversationPane({ team, conversation, masterSessionId, onOpenPrevi
         setSnapshots(current => mergeLoadedSnapshots(current, { [sessionId]: { ...loaded.snapshot, capabilities: current[sessionId]?.capabilities || loaded.snapshot.capabilities } }))
         setLoading(false)
       }))
-      if (requestGeneration !== generation.current) return
+      if (requestGeneration !== generation.current) return false
       const failed = results.find(result => result.status === 'rejected')
       if (failed?.status === 'rejected') throw failed.reason
-    } catch (cause) { if (requestGeneration === generation.current) setError(cause instanceof Error ? cause.message : '团队消息加载失败') }
+      return true
+    } catch (cause) { if (requestGeneration === generation.current) setError(cause instanceof Error ? cause.message : '团队消息加载失败'); return false }
     finally { if (requestGeneration === generation.current) setLoading(false) }
   }, [conversation, cacheKey, requestScope])
 
@@ -106,6 +110,18 @@ function TeamConversationPane({ team, conversation, masterSessionId, onOpenPrevi
   }, [cacheKey, masterSessionId])
 
   useEffect(() => { const timer = window.setTimeout(() => { void load() }, 0); return () => { window.clearTimeout(timer); invalidateLoad() } }, [load, invalidateLoad])
+  const mobileSurface = !!renderSurface
+  useEffect(() => {
+    if (!mobileSurface) return
+    const off = wsClient.on('resync_required', message => {
+      const id = typeof message.sessionId === 'string' ? message.sessionId : undefined
+      if (id && !subscribedSessions.current.has(id)) { wsClient.acknowledgeResync(id); return }
+      void load().then(loaded => { if (loaded) wsClient.acknowledgeResync(id) })
+    })
+    const visible = (): void => { if (document.visibilityState === 'visible') void load() }
+    document.addEventListener('visibilitychange', visible)
+    return () => { off(); document.removeEventListener('visibilitychange', visible) }
+  }, [load, mobileSurface])
   useEffect(() => {
     const subscriptions = subscribedSessions.current
     const initialIds = [...new Set([masterSessionId, ...(cached?.members || []).map(member => member.session_id)].filter((id): id is string => !!id))]
@@ -168,22 +184,17 @@ function TeamConversationPane({ team, conversation, masterSessionId, onOpenPrevi
 
   const aggregate = useMemo(() => aggregateSnapshots(snapshots, sessionIds, masterSessionId), [masterSessionId, sessionIds, snapshots])
   const loadOlderMessages = useCallback(async (): Promise<void> => {
-    if (loadingOlder || !masterSessionId) return
-    const oldest = aggregate.messages[0]
-    const source = oldest ? sourceMap.current.get(oldest.id) : undefined
-    if (!source || !aggregate.hasMore) return
+    if (olderRequestRef.current || !masterSessionId || !aggregate.hasMore) return
+    olderRequestRef.current = true
+    const requestGeneration = generation.current
     setLoadingOlder(true)
     try {
-      const page = await queryClient.listSessionMessages({ sessionId: source.sourceSessionId, limit: 40, before: source.message.timestamp, includeToolCalls: true })
-      const mapped = page.items.map((message) => normalizeMessage(mapTeamMessage(message, source.sourceSessionId, masterSessionId, source.message.sender_name || 'Agent', source.message.sender_role || 'member')))
-      setSnapshots((current) => {
-        const snapshot = current[source.sourceSessionId]
-        if (!snapshot) return current
-        const decorated = attachTeamAssignments([...mapped, ...snapshot.messages], snapshot.streaming)
-        return { ...current, [source.sourceSessionId]: { ...snapshot, messages: decorated.messages, streaming: decorated.streaming, hasMore: page.hasMore } }
-      })
-    } finally { setLoadingOlder(false) }
-  }, [aggregate, loadingOlder, masterSessionId])
+      const pages = await loadOlderTeamPages(snapshots, sessionIds, masterSessionId)
+      if (generation.current !== requestGeneration) return
+      sourceMap.current = new Map([...sourceMap.current, ...pages.flatMap(page => page.sources)])
+      setSnapshots(current => mergeOlderTeamPages(current, pages))
+    } finally { olderRequestRef.current = false; setLoadingOlder(false) }
+  }, [aggregate.hasMore, snapshots, sessionIds, masterSessionId])
 
   const loadMessageProcess = useCallback(async (messageId: string): Promise<void> => {
     const source = sourceMap.current.get(messageId)
@@ -227,10 +238,6 @@ function TeamConversationPane({ team, conversation, masterSessionId, onOpenPrevi
       setProcessItemLoadingByKey((current) => { const next = { ...current }; delete next[key]; return next })
     }
   }, [processItemLoadingByKey])
-  const adapter = useMemo<ConversationAdapter>(() => createAdapter({ team, conversation, masterSessionId, aggregate, loading, error, sending, loadingOlder, processByMessageId, fileChanges, fileErrors, processItemLoadingByKey, processItemErrorByKey, sendPrompt, loadOlderMessages, loadMessageProcess, loadFileChanges, loadProcessItemDetail, reload: load, resolveSource: (id) => sourceMap.current.get(id) }), [aggregate, conversation, error, fileChanges, fileErrors, load, loadFileChanges, loadMessageProcess, loadOlderMessages, loadProcessItemDetail, loading, loadingOlder, masterSessionId, processByMessageId, processItemErrorByKey, processItemLoadingByKey, sendPrompt, sending, team])
-  return <ConversationPane adapter={adapter} onOpenPreview={onOpenPreview} onOpenFiles={onOpenFiles} onOpenResource={onOpenResource} />
-}
-
-function createAdapter(input: { team: TeamData; conversation: Conversation | null; masterSessionId: string | null; aggregate: ReturnType<typeof aggregateSnapshots>; loading: boolean; error: string | null; sending: boolean; loadingOlder: boolean; processByMessageId: Record<string, ConversationProcessState>; fileChanges: Record<string, FileChangeDetailInfo>; fileErrors: Record<string, string>; processItemLoadingByKey: Record<string, boolean>; processItemErrorByKey: Record<string, string>; loadMessageProcess: (id: string) => Promise<void>; loadFileChanges: (id: string) => Promise<void>; loadProcessItemDetail: (messageId: string, itemId: string) => Promise<void>; sendPrompt: ConversationAdapter['sendPrompt']; loadOlderMessages: () => Promise<void>; reload: () => Promise<void>; resolveSource: (id: string) => SourceMessage | undefined }): ConversationAdapter {
-  return { sessionId: input.masterSessionId, projectId: input.team.project_id, agentName: input.conversation ? `${input.team.name} · Master` : input.team.name, agentRuntime: 'team', sessionTitle: input.conversation?.title ?? null, messages: input.aggregate.messages, events: input.aggregate.events, streamingMessage: input.aggregate.streaming[0] || null, streamingMessages: input.aggregate.streaming, loading: input.loading, error: input.error, running: input.aggregate.running, sending: input.sending, connected: true, hasMoreMessages: input.aggregate.hasMore, loadingOlderMessages: input.loadingOlder, pendingPermissions: input.aggregate.permissions, pendingElicitations: input.aggregate.elicitations, interactionError: null, capabilities: input.aggregate.capabilities, usage: input.aggregate.usage, processByMessageId: input.processByMessageId, fileChangeDetailsByMessageId: input.fileChanges, fileChangeLoadingByKey: {}, fileChangeErrorByKey: Object.fromEntries(Object.entries(input.fileErrors).map(([id, message]) => [`file:${id}`, message])), processItemLoadingByKey: input.processItemLoadingByKey, processItemErrorByKey: input.processItemErrorByKey, sendPrompt: input.sendPrompt, cancel: async () => { if (input.masterSessionId) await commandClient.execute({ commandId: `team-cancel-${input.masterSessionId}-${Date.now()}`, type: 'session.cancel', sessionId: input.masterSessionId }) }, loadOlderMessages: input.loadOlderMessages, reload: input.reload, loadMessageProcess: input.loadMessageProcess, loadFileChanges: input.loadFileChanges, loadProcessItemDetail: input.loadProcessItemDetail, respondPermission: async (requestId, optionId, cancelled) => { if (input.masterSessionId) await commandClient.execute({ commandId: `team-permission-${requestId}`, type: 'permission.respond', sessionId: input.masterSessionId, permissionRequestId: requestId, optionId, cancelled }) }, respondElicitation: async (requestId, action, content) => { if (input.masterSessionId) await commandClient.execute({ commandId: `team-elicitation-${requestId}`, type: 'elicitation.respond', sessionId: input.masterSessionId, elicitationRequestId: requestId, action, content }) }, setModel: async (id) => { if (input.masterSessionId) await wsClient.request({ type: 'session.setModel', sessionId: input.masterSessionId, modelId: id }) }, setMode: async (id) => { if (input.masterSessionId) await wsClient.request({ type: 'session.setMode', sessionId: input.masterSessionId, modeId: id }) }, setConfig: async (id, value) => { if (input.masterSessionId) await wsClient.request({ type: 'session.setConfig', sessionId: input.masterSessionId, configId: id, value }) } }
+  const adapter = useMemo<ConversationAdapter>(() => createTeamChatAdapter({ snapshots, team, conversation, masterSessionId, aggregate, loading, error, sending, loadingOlder, processByMessageId, fileChanges, fileErrors, processItemLoadingByKey, processItemErrorByKey, sendPrompt, loadOlderMessages, loadMessageProcess, loadFileChanges, loadProcessItemDetail, reload: load }), [snapshots, aggregate, conversation, error, fileChanges, fileErrors, load, loadFileChanges, loadMessageProcess, loadOlderMessages, loadProcessItemDetail, loading, loadingOlder, masterSessionId, processByMessageId, processItemErrorByKey, processItemLoadingByKey, sendPrompt, sending, team])
+  return renderSurface ? renderSurface(adapter) : <ConversationPane adapter={adapter} onOpenPreview={onOpenPreview} onOpenFiles={onOpenFiles} onOpenResource={onOpenResource} />
 }

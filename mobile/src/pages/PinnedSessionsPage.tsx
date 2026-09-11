@@ -1,5 +1,8 @@
 import { Pin, Loader2 } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { useConversationCatalog } from '../stores/conversation-catalog.store'
+import { projectTeamPins } from '../utils/team-list-projections'
+import { ConversationKindTag } from '../components/session-list/ConversationKindTag'
 import { useNavigate } from 'react-router-dom'
 import { usePinnedSessionStore, type MobilePinnedSession } from '../stores/pinned-session.store'
 import { AgentAvatar, ListRow, ProjectChip, formatRelativeTime, groupStyles } from '../components/session-list/list-kit'
@@ -23,6 +26,7 @@ function triggerHaptic(): void {
 }
 
 export interface PinnedGroup {
+  teamId?: string
   key: string
   agentId: string
   agentName: string
@@ -43,6 +47,7 @@ export function groupPinnedItems(items: MobilePinnedSession[]): PinnedGroup[] {
     if (!group) {
       group = {
         key,
+        teamId: item.teamId,
         agentId: item.agentId,
         agentName: item.agentName,
         projectId: item.projectId,
@@ -67,7 +72,7 @@ export function PinnedGroupCard({ group, children }: { group: PinnedGroup; child
       <div style={{ ...groupStyles.head, ...groupStyles.headPlain }}>
         <AgentAvatar agentId={group.agentId} name={group.agentName} />
         <div style={groupStyles.info}>
-          <div style={groupStyles.name}>{group.agentName}</div>
+          <div style={groupStyles.name}>{group.agentName}<ConversationKindTag team={!!group.teamId} /></div>
           <div style={groupStyles.sub}>{group.sessions.length} 个会话</div>
         </div>
         <ProjectChip name={group.projectName} icon={group.projectIcon} color={group.projectColor} />
@@ -104,7 +109,12 @@ interface DragInfo {
 
 export function PinnedSessionList() {
   const navigate = useNavigate()
-  const items = usePinnedSessionStore((state) => state.items)
+  const rawItems = usePinnedSessionStore((state) => state.items)
+  const catalog = useConversationCatalog(state => state.catalog)
+  const catalogLoaded = useConversationCatalog(state => state.loaded)
+  const catalogError = useConversationCatalog(state => state.error)
+  const loadCatalog = useConversationCatalog(state => state.load)
+  const items = useMemo(() => catalogLoaded ? projectTeamPins(rawItems, catalog) : [], [rawItems, catalog, catalogLoaded])
   const loading = usePinnedSessionStore((state) => state.loading)
   const loaded = usePinnedSessionStore((state) => state.loaded)
   const error = usePinnedSessionStore((state) => state.error)
@@ -135,7 +145,8 @@ export function PinnedSessionList() {
 
   useEffect(() => {
     if (!loaded) void load()
-  }, [load, loaded])
+    if (!catalogLoaded) void loadCatalog()
+  }, [load, loaded, loadCatalog, catalogLoaded])
 
   useEffect(() => () => {
     const pending = pendingRef.current
@@ -315,7 +326,7 @@ export function PinnedSessionList() {
   }
 
   const openSession = (item: MobilePinnedSession): void => {
-    if (item.unread) void markRead(item.sessionId)
+    if (item.unread && !item.teamId) void markRead(item.sessionId)
     navigate(`/chat/${item.sessionId}`, { state: { returnTo: pinnedSessionsPath } })
   }
 
@@ -360,9 +371,9 @@ export function PinnedSessionList() {
 
   return (
     <div style={styles.embedded}>
-      {error && <div style={styles.error}>{error}</div>}
+      {(error || catalogError) && <button style={styles.error} onClick={() => { void load(); void loadCatalog() }}>{error || catalogError} · 重试</button>}
       <div ref={listRef} style={styles.list} onPointerDown={handlePointerDown}>
-        {loading && items.length === 0 ? (
+        {(loading || (!catalogLoaded && !catalogError)) && items.length === 0 ? (
           <div style={styles.empty}><Loader2 size={22} className="mobile-spin" /> 正在同步...</div>
         ) : items.length === 0 ? (
           <div style={styles.empty}>

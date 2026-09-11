@@ -661,7 +661,9 @@ watch 监听 `session:done`，触发后后台唤醒 `watcher_session_id`。如�
 
 ### team_conversations
 
-`team_conversations` 是 Workspace 内同一 Team 的独立群聊容器。每个容器有自己的 Master Session，不改变普通 Agent 会话列表。
+`team_conversations` 是同一 Team 的独立群聊容器，PC 与 APP 共用。每个容器有自己的 Master Session，不改变普通 Agent 会话的数据结构。
+
+APP 团队目录是现有 `teams`、`team_conversations`、`team_conversation_members` 和 Session 活动状态的查询投影，不新增表或复制消息。群聊管理用 `team_conversations.id`，手机端聊天路由和 `global_session_dock.session_id` 用 `master_session_id`；二者通过目录映射。成员 Session 只参与群聊历史与状态聚合，不作为普通会话行展示。归档、删除后仍保留排除关系，已有内部成员置顶不在 APP 显示，也不会因可见项排序而被误删。
 
 | 字段 | 类型 | 说明 |
 |---|---|---|

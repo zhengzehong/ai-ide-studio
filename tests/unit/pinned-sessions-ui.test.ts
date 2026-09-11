@@ -130,10 +130,12 @@ describe('pinned session surfaces', () => {
     expect(html).toContain('空闲')
   })
 
-  test('renders the embedded mobile pinned list without its own page header', () => {
+  test('renders the embedded mobile pinned list loading state without its own page header', () => {
     const html = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(PinnedSessionList)))
 
-    expect(html).toContain('还没有置顶会话')
+    // SSR uses the initial Zustand snapshot; do not report an empty list before the catalog loads.
+    expect(html).toContain('正在同步')
+    expect(html).not.toContain('还没有置顶会话')
     expect(html).not.toContain('跨项目持续关注')
   })
 
