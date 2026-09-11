@@ -10,6 +10,7 @@ import { taskStore } from '../../src/store/tasks.js'
 import { teamService } from '../../src/core/teams.js'
 import { sessionManager } from '../../src/core/sessions.js'
 import { events } from '../../src/core/events.js'
+import { acpHost } from '../../src/acp/host.js'
 import type { AppEvents } from '../../src/core/events.js'
 
 let tmp: string
@@ -20,6 +21,8 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.clearAllTimers()
+  vi.useRealTimers()
   vi.restoreAllMocks()
   closeDatabase()
   rmSync(tmp, { recursive: true, force: true })
@@ -90,7 +93,7 @@ describe('team dispatch lifecycle', () => {
 })
 
 describe('team dispatch pending queue (FIFO)', () => {
-  test('delivers both queued dispatches in order instead of dropping the first', () => {
+  test('delivers both queued dispatches in order instead of dropping the first', async () => {
     const enqueue = vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue()
     const isPromptActive = vi.spyOn(sessionManager, 'isPromptActive').mockReturnValue(true)
     const fixture = createTeamFixture()
@@ -99,11 +102,16 @@ describe('team dispatch pending queue (FIFO)', () => {
     teamService.dispatchMessage({ teamId: fixture.team.id, memberId: fixture.member.id, content: '第二条指令' })
     expect(enqueue).not.toHaveBeenCalled()
 
-    isPromptActive.mockReturnValue(false)
     events.emit('session:done', { sessionId: fixture.member.session_id })
+    expect(enqueue).not.toHaveBeenCalled()
+    isPromptActive.mockReturnValue(false)
+    events.emit('session:activity', {
+      sessionId: fixture.member.session_id, agentId: fixture.member.agent_id,
+      state: 'idle', reason: 'prompt-done', timestamp: new Date().toISOString(),
+    })
     expect(enqueue.mock.calls[0]?.[1]).toBe('第一条指令')
 
-    events.emit('session:done', { sessionId: fixture.member.session_id })
+    await vi.waitFor(() => expect(enqueue).toHaveBeenCalledTimes(2))
     expect(enqueue.mock.calls[1]?.[1]).toBe('第二条指令')
   })
 
@@ -117,12 +125,16 @@ describe('team dispatch pending queue (FIFO)', () => {
     cancelPendingForSessions([fixture.member.session_id])
 
     isPromptActive.mockReturnValue(false)
-    events.emit('session:done', { sessionId: fixture.member.session_id })
+    events.emit('session:activity', {
+      sessionId: fixture.member.session_id, agentId: fixture.member.agent_id,
+      state: 'idle', reason: 'prompt-done', timestamp: new Date().toISOString(),
+    })
     expect(enqueue).not.toHaveBeenCalled()
   })
 
   test('writes the task back to needs_input when the final dispatch attempt fails', async () => {
-    vi.spyOn(sessionManager, 'enqueuePrompt').mockRejectedValue(new Error('会话不存在'))
+    vi.useFakeTimers()
+    vi.spyOn(sessionManager, 'enqueuePrompt').mockRejectedValueOnce(new Error('会话不存在')).mockResolvedValue()
     vi.spyOn(sessionManager, 'isPromptActive').mockReturnValue(false)
     const fixture = createTeamFixture()
 
@@ -133,11 +145,44 @@ describe('team dispatch pending queue (FIFO)', () => {
       taskId: fixture.task.id,
     })
 
-    await vi.waitFor(() => {
-      expect(taskStore.get(fixture.task.id)?.status).toBe('needs_input')
-    })
+    await vi.advanceTimersByTimeAsync(2100)
+    expect(taskStore.get(fixture.task.id)?.status).toBe('needs_input')
     expect(taskStore.get(fixture.task.id)?.stage).toContain('派发失败')
     expect(taskStore.get(fixture.task.id)?.stage).toContain('会话不存在')
+  })
+
+  test('drains queued assignments through the real Session cleanup and prompt batcher', async () => {
+    const fixture = createTeamFixture()
+    let releaseFirst!: () => void
+    const firstTurn = new Promise<void>((resolve) => { releaseFirst = resolve })
+    const prompts: string[] = []
+    const busyAtDone: boolean[] = []
+    vi.spyOn(acpHost, 'ensureSession').mockResolvedValue(`acp-${fixture.member.session_id}`)
+    vi.spyOn(acpHost, 'prompt').mockImplementation(async (_agentId, _sessionId, content) => {
+      prompts.push(content)
+      if (prompts.length === 1) await firstTurn
+      busyAtDone.push(sessionManager.isPromptActive(fixture.member.session_id))
+      events.emit('session:done', { sessionId: fixture.member.session_id })
+    })
+    const initial = sessionManager.sendPrompt(fixture.member.session_id, '已有工作')
+    try {
+      await vi.waitFor(() => expect(prompts).toHaveLength(1))
+      for (const content of ['下一条', '最后一条']) {
+        expect(teamService.dispatchMessage({
+          teamId: fixture.team.id, memberId: fixture.member.id, content,
+        }).status).toBe('queued')
+      }
+    } finally {
+      releaseFirst()
+      await initial
+    }
+    await vi.waitFor(() => {
+      expect(prompts).toHaveLength(3)
+      expect(sessionManager.isPromptPending(fixture.member.session_id)).toBe(false)
+    })
+    expect(prompts[1]).toContain('下一条')
+    expect(prompts[2]).toContain('最后一条')
+    expect(busyAtDone).toEqual([true, true, true])
   })
 })
 

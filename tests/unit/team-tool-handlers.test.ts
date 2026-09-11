@@ -459,10 +459,10 @@ describe('team MCP tool handlers', () => {
     )
     await Promise.resolve()
 
-    events.emit('session:done', {
+    events.emit('session:activity', {
       sessionId: asRecord(spawned.member).session_id as string,
       agentId: worker.id,
-      messageId: 'worker-done',
+      state: 'idle', reason: 'prompt-done', timestamp: new Date().toISOString(),
     })
     await Promise.resolve()
 
@@ -636,10 +636,8 @@ describe('team MCP tool handlers', () => {
         agentId: worker.id,
         name: 'Worker',
       })
-      const sendPrompt = vi
-        .spyOn(sessionManager, 'enqueuePrompt')
-        .mockRejectedValueOnce(new Error('当前会话正在生成中，请等待本轮完成或先停止生成'))
-        .mockResolvedValue(undefined)
+      const sendPrompt = vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue(undefined)
+      const isActive = vi.spyOn(sessionManager, 'isPromptActive').mockReturnValue(true)
 
       await executeJson(
         'team.mailbox.send',
@@ -661,9 +659,15 @@ describe('team MCP tool handlers', () => {
         agentId: leader.id,
         messageId: 'leader-done',
       })
+      expect(sendPrompt).not.toHaveBeenCalled()
+      isActive.mockReturnValue(false)
+      events.emit('session:activity', {
+        sessionId: asRecord(team.member).session_id as string,
+        agentId: leader.id, state: 'idle', reason: 'prompt-done', timestamp: new Date().toISOString(),
+      })
       await vi.advanceTimersByTimeAsync(2_100)
 
-      expect(sendPrompt).toHaveBeenCalledTimes(2)
+      expect(sendPrompt).toHaveBeenCalledTimes(1)
       expect(sendPrompt).toHaveBeenLastCalledWith(
         asRecord(team.member).session_id,
         expect.stringContaining('queued report'),

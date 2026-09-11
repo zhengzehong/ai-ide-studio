@@ -16,16 +16,16 @@ const activeLeaderSessions = new Set<string>()
 const pendingByLeaderSession = new Map<string, string>()
 const wakeTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
-events.on('session:done', (ev) => {
-  activeLeaderSessions.delete(ev.sessionId)
-  const pending = pendingByLeaderSession.get(ev.sessionId)
-  if (!pending) return
-  const existingTimer = wakeTimers.get(ev.sessionId)
-  if (existingTimer) clearTimeout(existingTimer)
-  const timer = setTimeout(() => flushLeaderWake(ev.sessionId), WAKE_DELAY_MS)
-  timer.unref?.()
-  wakeTimers.set(ev.sessionId, timer)
+events.on('session:activity', (ev) => {
+  if (ev.state === 'idle') resumePendingWake(ev.sessionId)
 })
+
+function resumePendingWake(sessionId: string): void {
+  if (!pendingByLeaderSession.has(sessionId) || wakeTimers.has(sessionId)) return
+  const timer = setTimeout(() => flushLeaderWake(sessionId), WAKE_DELAY_MS)
+  timer.unref?.()
+  wakeTimers.set(sessionId, timer)
+}
 
 events.on('session:manual-prompt-started', (ev) => {
   if (!pendingByLeaderSession.has(ev.sessionId)) return
@@ -38,6 +38,18 @@ events.on('session:manual-prompt-started', (ev) => {
 })
 
 export const teamWakeCoordinator = {
+  notifyDispatchFailed(input: { teamId: string; memberId: string; sessionId: string; taskId?: string; error: string }): void {
+    const team = teamStore.get(input.teamId)
+    const member = teamMemberStore.get(input.memberId)
+    if (!team || !member || member.team_id !== team.id || member.role === 'leader') return
+    const task = input.taskId ? taskStore.get(input.taskId) : undefined
+    const leaderSessionId = leaderSessionIdForConversationOf(team.id, input.sessionId)
+    scheduleLeaderWake(team, member, buildLeaderWakePrompt({
+      team, member, task, dispatchError: input.error,
+    }), WAKE_DELAY_MS, leaderSessionId)
+    log.info({ teamId: team.id, memberId: member.id, sessionId: input.sessionId, taskId: input.taskId, leaderSessionId }, 'Team dispatch failure wake scheduled')
+  },
+
   notifyMailbox(message: TeamMailboxRow, sourceSessionId?: string): void {
     if (!message.from_member_id || !WAKE_MAILBOX_TYPES.has(message.type)) return
     const team = teamStore.get(message.team_id)
@@ -161,16 +173,9 @@ const WAKE_PROMPT_OPTIONS = { senderRole: 'team-system', senderName: '系统' } 
 function sendWake(leaderSessionId: string, prompt: string): void {
   activeLeaderSessions.add(leaderSessionId)
   void sessionManager.enqueuePrompt(leaderSessionId, prompt, undefined, { ...WAKE_PROMPT_OPTIONS }).catch((err: unknown) => {
-    if (isActivePromptError(err)) {
-      pendingByLeaderSession.set(leaderSessionId, prompt)
-      log.debug({ leaderSessionId }, 'Team Leader wake queued after active session rejection')
-      return
-    }
-    activeLeaderSessions.delete(leaderSessionId)
     log.error({ err, leaderSessionId }, 'Team Leader wake failed')
+  }).finally(() => {
+    activeLeaderSessions.delete(leaderSessionId)
+    resumePendingWake(leaderSessionId)
   })
-}
-
-function isActivePromptError(err: unknown): boolean {
-  return err instanceof Error && err.message.includes('当前会话正在生成中')
 }

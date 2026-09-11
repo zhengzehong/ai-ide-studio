@@ -51,12 +51,15 @@ export function buildLeaderWakePrompt(input: {
   member: TeamMemberRow
   message?: TeamMailboxRow
   task?: TaskRow
+  dispatchError?: string
 }): string {
   const lines = [
-    '系统通知：Team 成员有新的异步进展。',
+    input.dispatchError ? '系统通知：Team 成员派发失败，需要你处理。' : '系统通知：Team 成员有新的异步进展。',
     `Team: ${input.team.name} (${input.team.id})`,
     `Member: ${input.member.name} (${input.member.id})`,
   ]
+
+  if (input.dispatchError) lines.push(`派发失败原因：${input.dispatchError}`)
 
   if (input.message) {
     lines.push(`Mailbox: ${input.message.type} (${input.message.id})`)
