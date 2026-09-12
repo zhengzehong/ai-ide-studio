@@ -260,5 +260,5 @@ function TeamConversationPane({ team, conversation, masterSessionId, onOpenPrevi
     }
   }, [processItemLoadingByKey])
   const adapter = useMemo<ConversationAdapter>(() => createTeamChatAdapter({ snapshots, team, conversation, masterSessionId, aggregate, loading, error, sending, loadingOlder, processByMessageId, fileChanges, fileErrors, processItemLoadingByKey, processItemErrorByKey, sendPrompt, loadOlderMessages, loadMessageProcess, loadFileChanges, loadProcessItemDetail, reload: load, markUnread, senderAgentIds: Object.fromEntries(members.map(member => [member.session_id, member.agent_id])) }), [snapshots, aggregate, conversation, error, fileChanges, fileErrors, load, loadFileChanges, loadMessageProcess, loadOlderMessages, loadProcessItemDetail, loading, loadingOlder, masterSessionId, processByMessageId, processItemErrorByKey, processItemLoadingByKey, sendPrompt, sending, team, markUnread, members])
-  return renderSurface ? renderSurface(adapter) : <ConversationPane adapter={adapter} onOpenPreview={onOpenPreview} onOpenFiles={onOpenFiles} onOpenResource={onOpenResource} />
+  return renderSurface ? renderSurface(adapter) : <ConversationPane compactTeam adapter={adapter} onOpenPreview={onOpenPreview} onOpenFiles={onOpenFiles} onOpenResource={onOpenResource} />
 }

@@ -11,6 +11,7 @@ import {
 } from '../../stores/session-events'
 import { MarkdownRenderer } from '../MarkdownRenderer'
 import { FileChangesCard } from './FileChangesCard'
+import { LatestProcessSummary } from './LatestProcessSummary'
 import { extractTurnFileChanges, fileChangesFromSummary } from './file-changes-utils'
 import { isPreviewPublishTool, parsePreviewPublishOutput } from '../../pages/workspace/helpers'
 import type { OpenChatResource } from '../../services/chat-resource-links'
@@ -29,6 +30,7 @@ interface TurnContentViewProps {
   fileChangesLoading?: boolean
   fileChangesError?: string
   defaultProcessOpen?: boolean
+  compactStreamingProcess?: boolean
   previewPresentations?: PreviewPresentationInfo[]
   filesPresentations?: FilesPresentationInfo[]
   onLoadProcess?: () => void
@@ -57,6 +59,7 @@ export function TurnContentView({
   fileChangesLoading = false,
   fileChangesError,
   defaultProcessOpen = isStreaming,
+  compactStreamingProcess = false,
   previewPresentations = [],
   filesPresentations = [],
   onLoadProcess,
@@ -67,7 +70,7 @@ export function TurnContentView({
   renderFilesPresentation,
 }: TurnContentViewProps) {
   const [processOpenOverride, setProcessOpenOverride] = useState<'open' | 'closed' | null>(null)
-  const processOpen = processOpenOverride === 'open' || (processOpenOverride !== 'closed' && defaultProcessOpen)
+  const processOpen = processOpenOverride === 'open' || (processOpenOverride !== 'closed' && defaultProcessOpen && !compactStreamingProcess)
   const canLoadProcess = !processLoaded && !!onLoadProcess
   const visibleProcessBlocks = processBlocks.filter((block) => block.kind !== 'stage')
   const activeThinkingBlockId = isStreaming && !finalAnswer && visibleProcessBlocks.at(-1)?.kind === 'thinking'
@@ -118,6 +121,7 @@ export function TurnContentView({
         <div style={{ marginBottom: finalAnswer ? 10 : 0, border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', background: 'var(--bg-1)' }}>
           <button
             type="button"
+            aria-expanded={processOpen}
             onClick={() => setProcessOpenOverride(processOpen ? 'closed' : 'open')}
             style={{
               width: '100%',
@@ -155,6 +159,7 @@ export function TurnContentView({
           )}
         </div>
       )}
+      {compactStreamingProcess && isStreaming && !processOpen && !finalAnswer && <LatestProcessSummary block={otherBlocks.at(-1)} stage={fallbackStage} />}
       {finalAnswer && <MarkdownRenderer content={finalAnswer} onOpenResource={onOpenResource} />}
       {hasPreviewCard && (
         <div style={{ marginTop: finalAnswer ? 10 : 0 }}>
