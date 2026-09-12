@@ -3,6 +3,7 @@ import { writeFile } from 'node:fs/promises'
 import { join } from 'path'
 import { createChildLogger } from '../core/logger.js'
 import { DEFAULT_CAPTURE_MAX_PER_SESSION } from './capture-config.js'
+import { captureMemoryBudget, type CaptureTruncationReason } from './capture-memory-budget.js'
 
 /** 抓包落盘:data/captures/<YYYY-MM-DD>/<sess-会话|_unattributed>/<HHmmss>-<seq>-<kind>.json,tmp→rename 原子落盘。 */
 
@@ -25,6 +26,8 @@ export interface CaptureRecord {
   status?: number
   terminalStatus?: CaptureTerminalStatus
   error?: string
+  truncated?: boolean
+  truncationReason?: CaptureTruncationReason
   kind: string
   platform: CapturePlatformInfo
   model?: string
@@ -49,9 +52,6 @@ export interface CaptureWriter {
   finalize(terminalStatus: CaptureTerminalStatus): Promise<void>
 }
 
-const FLUSH_INTERVAL_MS = 2_000
-const FLUSH_THRESHOLD_BYTES = 64 * 1024
-
 let seqCounter = 0
 const pendingFinalizes = new Set<Promise<void>>()
 
@@ -75,6 +75,9 @@ export function beginCapture(
   const dir = sessionDir(root, input.platform.sessionId)
   mkdirSync(dir, { recursive: true })
   const maxPerSession = input.maxPerSession ?? DEFAULT_CAPTURE_MAX_PER_SESSION
+  const requestCost = 512 + (JSON.stringify(input.request)?.length ?? 0) * 2
+  const budget = captureMemoryBudget.open()
+  const requestTruncation = budget.retain(requestCost)
   const record: CaptureRecord = {
     ts: new Date().toISOString(),
     kind: input.kind,
@@ -82,70 +85,69 @@ export function beginCapture(
     ...(input.model ? { model: input.model } : {}),
     ...(input.provider ? { provider: input.provider } : {}),
     requestHeaders: input.requestHeaders,
-    request: input.request,
+    request: requestTruncation ? null : input.request,
     response: { sse: [], text: '' },
   }
   const finalPath = join(dir, `${fileNamePrefix()}-${input.kind}.json`)
   const tmpPath = `${finalPath}.tmp`
   let status: number | undefined
   let error: string | undefined
-  let dirty = true
-  let flushTimer: NodeJS.Timeout | null = setTimeout(() => { void flush() }, FLUSH_INTERVAL_MS)
-  let writeChain: Promise<void> = Promise.resolve()
-
-  const flush = (): Promise<void> => {
-    if (!dirty) return writeChain
-    dirty = false
-    const snapshot = JSON.stringify(record)
-    writeChain = writeChain.then(() => writeFile(tmpPath, snapshot, 'utf8')).catch((err: unknown) => {
-      log.warn({ err, tmpPath }, '抓包落盘写入失败(不阻断转发)')
-    })
-    return writeChain
+  let finalizing: Promise<void> | undefined
+  const truncate = (reason: CaptureTruncationReason): void => {
+    record.truncated = true
+    record.truncationReason = reason
+    log.warn({ ...record.platform, reason }, 'Capture memory limit reached; remaining capture omitted')
   }
-
-  const scheduleFlush = (): void => {
-    dirty = true
-    const size = record.response.sse.reduce((sum, item) => sum + item.length, 0) + record.response.text.length
-    if (size >= FLUSH_THRESHOLD_BYTES) void flush()
-  }
+  if (requestTruncation) truncate(requestTruncation)
 
   const finalize = (terminalStatus: CaptureTerminalStatus): Promise<void> => {
-    if (flushTimer) { clearTimeout(flushTimer); flushTimer = null }
+    if (finalizing) return finalizing
     record.terminalStatus = terminalStatus
     record.finishedAt = new Date().toISOString()
     if (status !== undefined) record.status = status
     if (error !== undefined) record.error = error
-    if (record.response.sse.length > 0) {
-      const assembled = assembleSse(record.response.sse)
-      record.response.text = assembled.text
-      if (assembled.usage) record.response.usage = assembled.usage
-    }
-    const done = writeChain.then(async () => {
+    finalizing = Promise.resolve().then(async () => {
+      if (record.response.sse.length > 0) {
+        const assembled = assembleSse(record.response.sse)
+        record.response.text = assembled.text
+        if (assembled.usage) record.response.usage = assembled.usage
+      }
       await writeFile(tmpPath, JSON.stringify(record), 'utf8')
       renameSync(tmpPath, finalPath)
+      log.debug({ ...record.platform, terminalStatus, truncated: record.truncated }, 'Capture finalized')
       enforceSessionFileLimit(dir, maxPerSession)
     }).catch((err: unknown) => {
       log.warn({ err, tmpPath }, '抓包终态落盘失败')
+    }).finally(() => {
+      record.request = null
+      record.response = { sse: [], text: '' }
+      budget.release()
     })
-    trackFinalize(done)
-    return done
+    trackFinalize(finalizing)
+    return finalizing
+  }
+
+  const retainChunk = (text: string): boolean => {
+    if (finalizing || record.truncated) return false
+    // Include UTF-16 storage, assembled text and per-chunk bookkeeping, even for tiny chunks.
+    const reason = budget.retain(text.length * 4 + 64)
+    if (reason) truncate(reason)
+    return !reason
   }
 
   return {
     finalPath,
     tmpPath,
     appendResponseChunk(text) {
-      if (flushTimer === null) return // 已终态,丢弃迟到 chunk
+      if (!retainChunk(text)) return
       record.response.sse.push(text)
-      scheduleFlush()
     },
     appendTextChunk(text) {
-      if (flushTimer === null) return
+      if (!retainChunk(text)) return
       record.response.text += text
-      scheduleFlush()
     },
-    setStatus(value) { status = value },
-    setError(message) { error = message },
+    setStatus(value) { if (!finalizing) status = value },
+    setError(message) { if (!finalizing) error = message },
     finalize,
   }
 }

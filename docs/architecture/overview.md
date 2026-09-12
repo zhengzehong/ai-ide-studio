@@ -10,6 +10,8 @@ WS 恢复入口 `gateway/rpc/session-recovery` 复用 QueryPort 的轻量状态�
 
 模型抓包代理位于 API 进程，使用 `model-capture/profile-binding.ts` 从 Runtime 启动时已解析的有效档案生成连接描述。`route-bindings.ts` 持有不可变内存路由，`runtime-bindings.ts` 管理启动请求、Agent 生命周期和在途 HTTP 请求的引用。代理按 `/route/<bindingId>` 转发，不依赖旧 ACP Host 的内存，也不在每次请求时重新读取全局或 Agent 档案。团队成员自身绑定优先，否则继承主控成员的有效档案。
 
+`capture-store.ts` 在请求期间保留一份内存记录，仅在请求进入终态后序列化并写入临时文件，再原子重命名为既有 JSON 抓包文件。`capture-memory-budget.ts` 管理单条 16 MiB、全局 128 MiB 的保留量记账，计入字符串及分块开销；这是抓包预算，并非 Node 总内存硬上限。预算持有到最终写入成功或失败后释放，超限后停止采集后续内容，以 `truncated` 和 `truncationReason` 标记不完整抓包；超大请求体不保留，记录为 `request: null`。抓包限制和落盘错误不改变模型响应转发。进程崩溃可能丢失尚未终态落盘的记录；旧版完整 `.json.tmp` 的恢复路径继续兼容。
+
 相同 Agent 和连接配置复用路由标识；供应商地址、凭据或绑定变化会生成新标识并进入现有 Runtime 指纹刷新流程。旧 Agent 等待当前请求结束后按原有流程停止，旧路由在 Runtime 引用和在途请求全部释放后回收。独立 Runtime 通过内部 `agent-status.captureBindingId` 通知 API 管理引用，IPC 调用超时不等于底层启动结束，引用保留到实际结果或进程退出。嵌入式 ACP Host 通过子进程退出释放引用。连接描述不持久化、不广播到客户端、不写入日志；代理未成功监听时保留原供应商直连。
 
 工具心跳由 `acp/tool-heartbeat.ts` 在两套 ACP 接收入口按会话和轮次归属真实工具，不创建独立工具，也不覆盖终态。历史查询通过 `store/legacy-tool-heartbeats.ts` 有界核对旧占位记录；PC/App 共用的过程视图通过 `tool-heartbeat-history.ts` 兼容旧事件回放，不改写历史数据。
