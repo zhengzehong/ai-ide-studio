@@ -32,6 +32,9 @@ interface ConnectionRecord {
   socket: RealtimeSocket
   claims: RealtimeConnectionClaims
   subscriptions: Set<string>
+  subscriptionRevision: number
+  subscriptionChanges: Map<string, number>
+  pendingSubscriptions: Map<string, { subscriptions: Set<string>; revision: number }>
   cursors: Map<string, RealtimeCursor>
   acceptedCursors: Map<string, RealtimeCursor>
   queue: RealtimeOutboundQueue
@@ -67,6 +70,9 @@ export class RealtimeHub {
       socket,
       claims,
       subscriptions: new Set(),
+      subscriptionRevision: 0,
+      subscriptionChanges: new Map(),
+      pendingSubscriptions: new Map(),
       cursors: new Map(),
       acceptedCursors: new Map(),
       queue: new RealtimeOutboundQueue({
@@ -127,8 +133,10 @@ export class RealtimeHub {
       })
       return
     }
+    const bridgeRequestId = `realtime-rpc-${++this.bridgeSequence}`
+    connection.pendingSubscriptions.set(bridgeRequestId, { subscriptions: new Set(connection.subscriptions), revision: connection.subscriptionRevision })
     this.options.onLegacyRpc({
-      bridgeRequestId: `realtime-rpc-${++this.bridgeSequence}`,
+      bridgeRequestId,
       connectionId,
       message,
       state: this.rpcState(connection),
@@ -140,11 +148,26 @@ export class RealtimeHub {
     if (connection) this.enqueue(connection, message)
   }
 
-  applyLegacySubscriptions(connectionId: string, subscriptions: readonly string[]): void {
+  applyLegacySubscriptions(connectionId: string, subscriptions: readonly string[], bridgeRequestId: string): void {
     const connection = this.connections.get(connectionId)
     if (!connection) return
-    for (const current of [...connection.subscriptions]) this.removeSubscription(connectionId, current)
-    for (const sessionId of subscriptions) this.addSubscription(connection, sessionId)
+    const pending = connection.pendingSubscriptions.get(bridgeRequestId)
+    if (!pending) return
+    connection.pendingSubscriptions.delete(bridgeRequestId)
+    const next = new Set(subscriptions)
+    let applied = 0
+    let superseded = 0
+    // A query returns its initial subscriptions unchanged. Apply only actual
+    // RPC mutations, and preserve more recent client/RPC choices for each id.
+    for (const sessionId of new Set([...pending.subscriptions, ...next])) {
+      if (pending.subscriptions.has(sessionId) === next.has(sessionId)) continue
+      if ((connection.subscriptionChanges.get(sessionId) ?? 0) > pending.revision) { superseded++; continue }
+      if (next.has(sessionId)) this.addSubscription(connection, sessionId)
+      else this.removeSubscription(connectionId, sessionId)
+      applied++
+    }
+    if (!connection.pendingSubscriptions.size) connection.subscriptionChanges.clear()
+    log.debug({ connectionId, bridgeRequestId, applied, superseded }, 'Realtime RPC subscriptions reconciled')
   }
 
   deliver(delivery: RealtimeDelivery): void {
@@ -201,6 +224,7 @@ export class RealtimeHub {
   }
 
   private addSubscription(connection: ConnectionRecord, sessionId: string): void {
+    this.recordSubscriptionChange(connection, sessionId)
     if (connection.subscriptions.has(sessionId)) return
     connection.subscriptions.add(sessionId)
     const subscribers = this.sessionSubscribers.get(sessionId) ?? new Set<string>()
@@ -210,10 +234,16 @@ export class RealtimeHub {
 
   private removeSubscription(connectionId: string, sessionId: string): void {
     const connection = this.connections.get(connectionId)
+    if (connection) this.recordSubscriptionChange(connection, sessionId)
     connection?.subscriptions.delete(sessionId)
     const subscribers = this.sessionSubscribers.get(sessionId)
     subscribers?.delete(connectionId)
     if (subscribers?.size === 0) this.sessionSubscribers.delete(sessionId)
+  }
+
+  private recordSubscriptionChange(connection: ConnectionRecord, sessionId: string): void {
+    const revision = ++connection.subscriptionRevision
+    if (connection.pendingSubscriptions.size) connection.subscriptionChanges.set(sessionId, revision)
   }
 
   private enqueue(connection: ConnectionRecord, message: ServerMessage): void {

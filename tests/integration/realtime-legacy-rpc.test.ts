@@ -14,6 +14,35 @@ afterEach(async () => {
 })
 
 describe('Realtime legacy RPC bridge', () => {
+  it('keeps live subscriptions changed during a slow query across the process bridge', async () => {
+    let release: () => void = (): void => {}
+    let started: () => void = (): void => {}
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const querying = new Promise<void>(resolve => { started = resolve })
+    realtime = await createRealtimeProcess({
+      host: '127.0.0.1', port: 0, authenticate: async () => ({ authMode: 'owner' }),
+      dispatchLegacyRpc: async ({ message, state, emit }) => {
+        if (message.requestId === 'slow') { started(); await gate }
+        emit({ type: 'result', requestId: message.requestId, data: state.subscriptions })
+        return state.subscriptions
+      },
+    })
+    const probe = await open(`${realtime.endpointUrl}?token=owner`)
+    probe.send({ type: 'subscribe', requestId: 'old', sessionIds: ['old'] })
+    await probe.next('result', 'old')
+    probe.send({ type: 'sessions.list', requestId: 'slow' })
+    await querying
+    probe.send({ type: 'subscribe', requestId: 'master', sessionIds: ['master'] })
+    probe.send({ type: 'unsubscribe', requestId: 'remove', sessionIds: ['old'] })
+    await probe.next('result', 'remove')
+    release()
+    await probe.next('result', 'slow')
+    probe.send({ type: 'sessions.list', requestId: 'current' })
+    expect(await probe.next('result', 'current')).toMatchObject({ data: ['master'] })
+    await realtime.sendDelivery({ scope: 'session', sessionId: 'master', message: update('master') })
+    await expect(probe.next('session:update')).resolves.toMatchObject({ sessionId: 'master' })
+  })
+
   it('keeps control frames local and proxies domain RPC with state synchronization', async () => {
     const invoked: string[] = []
     realtime = await createRealtimeProcess({

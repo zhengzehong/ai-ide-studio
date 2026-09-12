@@ -89,6 +89,8 @@ Runtime 可见 patch 不经过 API 事件总线，而是通过 Runtime→Realtim
 
 `REALTIME_LEGACY_RPC=enabled` 时，下面尚未迁移的领域 RPC 通过本地 Protobuf IPC 转发到 API，`requestId` 和订阅变更保持兼容；设为 `disabled` 后，非控制消息返回明确错误。该兼容桥不改变 Realtime 无 DB/Core 依赖的边界。
 
+订阅真源位于 Realtime Hub。兼容 RPC 的完成结果按 `bridgeRequestId` 与发起时的订阅集合对照，只应用真实增删，不覆盖整个当前集合；同一 Session 在请求期间发生的订阅选择优先于旧结果。只读查询不改变订阅，异常完成也释放该请求的订阅记录，重复完成不会重新应用。
+
 ## Team 群聊 RPC
 
 团队仍在 Workspace 内使用现有 WS RPC，不新增独立页面或独立实时协议。`teams.list` 按当前项目返回左侧 Team 目标；`team.conversation.*` 管理同一 Team 下的独立群聊；`team.conversation.history` 返回会话成员到 Session 的映射，客户端继续用现有 Session 消息查询和 `session:event` 订阅渲染 Master 与成员消息。

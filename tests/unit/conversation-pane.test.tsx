@@ -5,6 +5,7 @@ import { describe, expect, test, vi } from 'vitest'
 import { ConversationPane } from '../../ui/src/components/chat/ConversationPane.js'
 import { canSendConversation } from '../../ui/src/components/chat/conversation-composer-utils.js'
 import type { ConversationAdapter } from '../../ui/src/components/chat/conversation-types.js'
+import { applyTurnEntry, createEmptyTurn } from '../../ui/src/stores/turn-blocks.js'
 
 function adapter(overrides: Partial<ConversationAdapter> = {}): ConversationAdapter {
   return {
@@ -20,6 +21,17 @@ function adapter(overrides: Partial<ConversationAdapter> = {}): ConversationAdap
 }
 
 describe('shared conversation pane', () => {
+  test('shows a single waiting label for compact teams without changing ordinary process disclosure', () => {
+    const streamingMessage = applyTurnEntry(createEmptyTurn('pending'), { kind: 'stage', text: '正在准备 Agent...' })
+    const props = adapter({ streamingMessage, running: true })
+    const team = renderToStaticMarkup(createElement(ConversationPane, { adapter: props, compactTeam: true }))
+    expect(team.match(/正在准备 Agent/g)).toHaveLength(1)
+    expect(team).not.toContain('class="conversation-bubble"')
+    const ordinary = renderToStaticMarkup(createElement(ConversationPane, { adapter: props }))
+    expect(ordinary).toContain('执行过程')
+    expect(ordinary).toContain('class="conversation-bubble"')
+  })
+
   test('renders empty, loading, error, and composer states through one adapter', () => {
     const html = renderToStaticMarkup(createElement(ConversationPane, { adapter: adapter(), onOpenPreview: vi.fn(), onOpenFiles: vi.fn() }))
     expect(html).toContain('暂无消息')

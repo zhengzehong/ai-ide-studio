@@ -219,8 +219,9 @@ class RealtimeProcessController implements RealtimeProcessHandle {
   }
 
   private async dispatchRpc(payload: Extract<RealtimeIpcPayload, { type: 'rpc.request' }>): Promise<void> {
+    let subscriptions: readonly string[] = payload.state.subscriptions
     try {
-      const subscriptions = await this.options.dispatchLegacyRpc({
+      subscriptions = await this.options.dispatchLegacyRpc({
         connectionId: payload.connectionId,
         message: payload.message,
         state: payload.state,
@@ -233,12 +234,6 @@ class RealtimeProcessController implements RealtimeProcessHandle {
           }).catch((error) => log.warn({ err: error }, 'Realtime RPC frame send failed'))
         },
       })
-      await this.send({
-        type: 'rpc.complete',
-        bridgeRequestId: payload.bridgeRequestId,
-        connectionId: payload.connectionId,
-        subscriptions: [...subscriptions],
-      })
     } catch (error) {
       await this.send({
         type: 'rpc.frame',
@@ -249,6 +244,13 @@ class RealtimeProcessController implements RealtimeProcessHandle {
           requestId: payload.message.requestId,
           message: error instanceof Error ? error.message : String(error),
         },
+      })
+    } finally {
+      await this.send({
+        type: 'rpc.complete',
+        bridgeRequestId: payload.bridgeRequestId,
+        connectionId: payload.connectionId,
+        subscriptions: [...subscriptions],
       })
     }
   }

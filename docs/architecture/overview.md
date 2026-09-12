@@ -306,6 +306,8 @@ Session 删除采用软删除，仅隐藏列表项并保留 `messages` / `sessio
 
 移动端 `/chat/:sessionId` 由 `ConversationRoute` 根据目录选择普通 `ChatPage` 或团队 `TeamChatPane`。团队后者提供相同的数据适配器，APP 用 `MobileTeamChatSurface` 组合已有 `ChatBubble`、`TurnContent`、`ChatInput`、配置、权限、计划和文件预览组件；PC 默认继续使用 `ConversationPane`。`team-chat-adapter` 按来源 Session 回应成员交互，`team-chat-history` 对所有仍有历史的成员分页；完成消息以非空持久化正文更新流式占位。团队回复按成员显示身份和可展开任务来源，普通对话消息链路保持独立。
 
+PC 与 APP 的团队恢复统一由 `team-chat-recovery` 连接实时补同步和前台可见事件，恢复团队自身的成员快照；每个快照的序号边界保护期间到达的新事件。准备占位通过持久化用户消息及随后回合启动事件的消息 ID 关联真实回复，回合计时不承担关联职责；历史完成结果只清理对应输入的等待状态。
+
 移动端 Vite 构建将共享查询和命令客户端固定为 WS 兼容通道，沿用 APP 已认证的连接及用户选择的远程服务器，不读取 PC 本地凭据或请求 WebView 的本地 HTTP 地址。该配置同时适用于手机浏览器和 Android 构建，PC 的 HTTP 默认通道不变。
 
 ## PC 项目路由与前端状态边界

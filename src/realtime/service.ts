@@ -126,7 +126,7 @@ export async function startRealtimeService(options: RealtimeServiceOptions): Pro
       return
     }
     if (payload.type === 'rpc.complete') {
-      hub.applyLegacySubscriptions(payload.connectionId, payload.subscriptions)
+      hub.applyLegacySubscriptions(payload.connectionId, payload.subscriptions, payload.bridgeRequestId)
     }
   }
 

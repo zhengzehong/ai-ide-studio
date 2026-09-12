@@ -63,9 +63,11 @@ export function mergeLoadedSnapshots(current: Record<string, Snapshot>, loaded: 
       messages.set(message.id, existing ? mergeMessage(existing, message) : message)
     })
     const allMessages = [...messages.values()]
+    const events = [...new Map([...(previous?.events || []), ...next.events].map(event => [event.id, event])).values()].sort((a, b) => a.sequence - b.sequence)
     const pending = isPendingTeamTurn(previous?.streaming) ? previous?.streaming : null
-    const pendingAnswered = pendingTeamPromptAnswered(pending, next.messages)
-    const candidate = next.replaySequence !== undefined ? next.streaming || (!pendingAnswered ? pending : null)
+    const pendingAnswered = pendingTeamPromptAnswered(pending, allMessages, events)
+    const candidate = pendingAnswered ? (isPendingTeamTurn(next.streaming) ? null : next.streaming)
+      : next.replaySequence !== undefined ? next.streaming || pending
       : hasLiveStreaming(previous) ? previous!.streaming : next.streaming || previous?.streaming || null
     const completed = hasCompletedTurn(allMessages, candidate, sessionId)
     const supplementalItems = mergeSupplementalItems(previous?.supplementalItems || [], next.supplementalItems || [])
@@ -73,9 +75,9 @@ export function mergeLoadedSnapshots(current: Record<string, Snapshot>, loaded: 
     merged[sessionId] = {
       ...previous, ...next,
       messages: allMessages.sort((a, b) => a.timestamp.localeCompare(b.timestamp) || a.id.localeCompare(b.id)),
-      events: [...new Map([...(previous?.events || []), ...next.events].map(event => [event.id, event])).values()].sort((a, b) => a.sequence - b.sequence),
+      events,
       streaming, supplementalItems,
-      running: !!streaming || (!completed && next.replaySequence === undefined && (previous?.running || next.running) && !hasCompletedTurn(allMessages, previous?.streaming || null, sessionId)),
+      running: !!streaming || (!pendingAnswered && !completed && next.replaySequence === undefined && (previous?.running || next.running) && !hasCompletedTurn(allMessages, previous?.streaming || null, sessionId)),
       hasMore: next.messages.length ? next.hasMore : previous?.hasMore || false,
     }
   })

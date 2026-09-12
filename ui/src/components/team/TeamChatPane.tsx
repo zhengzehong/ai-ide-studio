@@ -15,6 +15,7 @@ import { mergeTeamMessageRefresh, runTeamLoads, TeamRecoveryGate } from './team-
 import { teamCacheKey, teamChatCache, shareTeamRequest, invalidateTeamRequest, newTeamRequestScope, type SourceMessage, type TeamChatMember as Member } from './team-view-cache'
 import { useTeamRead } from './use-team-read'
 import { beginTeamPrompt, rejectTeamPrompt } from './team-chat-pending'
+import { subscribeTeamRecovery } from './team-chat-recovery'
 import { createTeamChatAdapter } from './team-chat-adapter'
 
 import { aggregateSnapshots, emptySnapshot, mergeLoadedSnapshots, finalizeSnapshot, applyEventToSnapshot, mergeProcessItem, normalizeCapabilities, type Snapshot } from './team-chat-state'
@@ -129,20 +130,7 @@ function TeamConversationPane({ team, conversation, masterSessionId, onOpenPrevi
   }, [cacheKey, masterSessionId])
 
   useEffect(() => { const timer = window.setTimeout(() => { void load() }, 0); return () => { window.clearTimeout(timer); invalidateLoad() } }, [load, invalidateLoad])
-  const mobileSurface = !!renderSurface
-  useEffect(() => {
-    if (!mobileSurface) return
-    const off = wsClient.on('resync_required', () => {
-      recoveryGate.current.request()
-      // Resume before querying: incoming events are retained in each snapshot's
-      // replay buffer, then merged after its persisted recovery boundary.
-      wsClient.acknowledgeResync()
-      void load().then(loaded => { if (loaded && recoveryGate.current.pending) void load() })
-    })
-    const visible = (): void => { if (document.visibilityState === 'visible') void load() }
-    document.addEventListener('visibilitychange', visible)
-    return () => { off(); document.removeEventListener('visibilitychange', visible) }
-  }, [load, mobileSurface])
+  useEffect(() => subscribeTeamRecovery({ client: wsClient, document, sessionIds: subscribedSessions.current, gate: recoveryGate.current, load }), [load])
   useEffect(() => {
     const subscriptions = subscribedSessions.current
     const initialIds = [...new Set([masterSessionId, ...(cached?.members || []).map(member => member.session_id)].filter((id): id is string => !!id))]
