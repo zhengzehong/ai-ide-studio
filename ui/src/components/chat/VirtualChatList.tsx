@@ -14,6 +14,7 @@ interface VirtualChatListProps<T> {
   paddingBottom?: number
   threshold?: number
   onContentResize?: () => void
+  scrollTarget?: { key: string; request: number }
 }
 
 export function VirtualChatList<T>({
@@ -27,6 +28,7 @@ export function VirtualChatList<T>({
   paddingBottom = DEFAULT_CHAT_LIST_PADDING_BOTTOM,
   threshold = 30,
   onContentResize,
+  scrollTarget,
 }: VirtualChatListProps<T>) {
   const heightsRef = useRef(new Map<number, number>())
   const [heights, setHeights] = useState(() => new Map<number, number>())
@@ -62,6 +64,28 @@ export function VirtualChatList<T>({
   )
 
   const resizeObserversRef = useRef(new Map<number, ResizeObserver>())
+  const navigationItems = useRef({ items, getKey, estimateHeight, gap })
+  useEffect(() => { navigationItems.current = { items, getKey, estimateHeight, gap } }, [items, getKey, estimateHeight, gap])
+  useEffect(() => {
+    const root = scrollRef.current
+    if (!root || !scrollTarget) return
+    const current = navigationItems.current
+    const index = current.items.findIndex(item => current.getKey(item) === scrollTarget.key)
+    if (index < 0) return
+    let offset = 0
+    for (let i = 0; i < index; i++) offset += heightsRef.current.get(i) ?? current.estimateHeight + current.gap
+    root.scrollTo({ top: offset, behavior: 'instant' })
+    updateViewport()
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => {
+        const node = [...root.querySelectorAll<HTMLElement>('[data-chat-key]')].find(item => item.dataset.chatKey === scrollTarget.key)
+        if (!node) return
+        root.scrollTo({ top: root.scrollTop + node.getBoundingClientRect().top - root.getBoundingClientRect().top - 12, behavior: 'instant' })
+        node.animate([{ outline: '2px solid var(--blue)' }, { outline: '2px solid transparent' }], { duration: 1000 })
+      })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [scrollTarget, scrollRef, updateViewport])
   const measure = useCallback(
     (index: number, node: HTMLDivElement | null) => {
       const previous = resizeObserversRef.current.get(index)
@@ -95,7 +119,7 @@ export function VirtualChatList<T>({
     return (
       <>
         {items.map((item) => (
-          <div key={getKey(item)} style={{ marginBottom: gap }}>
+          <div key={getKey(item)} data-chat-key={getKey(item)} style={{ marginBottom: gap }}>
             {renderItem(item)}
           </div>
         ))}
@@ -109,7 +133,7 @@ export function VirtualChatList<T>({
       {items.slice(range.start, range.end).map((item, offset) => {
         const index = range.start + offset
         return (
-          <div key={getKey(item)} ref={(node) => measure(index, node)} style={{ marginBottom: gap }}>
+          <div key={getKey(item)} data-chat-key={getKey(item)} ref={(node) => measure(index, node)} style={{ marginBottom: gap }}>
             {renderItem(item)}
           </div>
         )

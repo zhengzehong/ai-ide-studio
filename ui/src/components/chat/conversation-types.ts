@@ -31,6 +31,7 @@ export interface ConversationProcessState {
 }
 
 export interface ConversationAdapter {
+  compactProcess?: boolean
   sessionId: string | null
   projectId?: string | null
   agentName?: string | null
@@ -78,6 +79,7 @@ export interface ConversationAdapter {
 }
 
 export interface ConversationPaneProps {
+  compactTeam?: boolean
   adapter: ConversationAdapter
   onOpenPreview?: (preview: PreviewPresentationInfo) => void
   onOpenFiles?: (presentation: FilesPresentationInfo) => void

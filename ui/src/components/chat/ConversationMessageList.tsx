@@ -9,6 +9,7 @@ import { buildChatRenderItems, type ChatRenderItem } from './render-items'
 import { ConversationProcessBlock } from './ConversationProcessBlock'
 import { AuthenticatedImage } from './AuthenticatedImage'
 import { TeamAssignmentBlock } from './TeamAssignmentBlock'
+import { TeamMessageVisibility } from '../team/TeamActivityBar'
 import { TurnStatsFooter } from './TurnStatsFooter'
 import { parseTurnStats } from './turn-stats'
 import type { ChatTimelineGroup, MessageData } from '../../stores/session-events'
@@ -16,11 +17,18 @@ import type { TurnProcessBlock } from '../../stores/turn-blocks'
 import type { ConversationAdapter, ConversationPaneProps } from './conversation-types'
 import './conversation-pane.css'
 
-interface Props extends Pick<ConversationPaneProps, 'onOpenPreview' | 'onOpenFiles' | 'onOpenResource'> { adapter: ConversationAdapter }
+interface Props extends Pick<ConversationPaneProps, 'onOpenPreview' | 'onOpenFiles' | 'onOpenResource'> {
+  adapter: ConversationAdapter
+  compactTeam?: boolean
+  location?: { messageId: string; request: number }
+  onSeen?: (id: string) => void
+}
 
-export function ConversationMessageList({ adapter, onOpenPreview, onOpenFiles, onOpenResource }: Props) {
+export function ConversationMessageList({ adapter, compactTeam = false, location, onSeen, onOpenPreview, onOpenFiles, onOpenResource }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const pinnedRef = useRef(true)
+  const navigationLock = useRef(false)
+  const viewAdapter = compactTeam ? { ...adapter, compactProcess: true } : adapter
   const messageCountRef = useRef(0)
   const olderAnchorRef = useRef<{ height: number; top: number } | null>(null)
   const messages = useMemo(() => adapter.sessionId ? adapter.messages.filter((message) => message.session_id === adapter.sessionId) : [], [adapter.messages, adapter.sessionId])
@@ -40,7 +48,12 @@ export function ConversationMessageList({ adapter, onOpenPreview, onOpenFiles, o
     blockingInteraction: false,
   }), [adapter.events, adapter.sessionId, streamingBubbles, visibleMessages])
   const allRenderItems = useMemo(() => [...renderItems, ...streamingBubbles.map((message) => ({ id: `streaming:${message.id}`, kind: 'streaming' as const, message }))], [renderItems, streamingBubbles])
+  const targetKey = location && allRenderItems.find(item => (item.kind === 'message' || item.kind === 'streaming') && item.message.id === location.messageId)?.id
+  const scrollTarget = useMemo(() => targetKey && location ? { key: targetKey, request: location.request } : undefined, [targetKey, location])
+  useEffect(() => { if (location) { navigationLock.current = true; pinnedRef.current = false } }, [location])
+  useEffect(() => { if (adapter.sending) { navigationLock.current = false; pinnedRef.current = true } }, [adapter.sending])
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto'): void => {
+    if (navigationLock.current) return
     const element = scrollRef.current
     if (!element) return
     element.scrollTo({ top: element.scrollHeight, behavior }); pinnedRef.current = true
@@ -49,12 +62,14 @@ export function ConversationMessageList({ adapter, onOpenPreview, onOpenFiles, o
   useEffect(() => {
     const element = scrollRef.current
     if (!element) return undefined
-    const onScroll = (): void => { pinnedRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < 100 }
+    const onScroll = (): void => { if (!navigationLock.current) pinnedRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < 100 }
+    const manualScroll = (): void => { navigationLock.current = false }
+    element.addEventListener('wheel', manualScroll, { passive: true }); element.addEventListener('touchstart', manualScroll, { passive: true }); element.addEventListener('pointerdown', manualScroll)
     element.addEventListener('scroll', onScroll, { passive: true }); onScroll()
-    return () => element.removeEventListener('scroll', onScroll)
+    return () => { element.removeEventListener('scroll', onScroll); element.removeEventListener('wheel', manualScroll); element.removeEventListener('touchstart', manualScroll); element.removeEventListener('pointerdown', manualScroll) }
   }, [adapter.sessionId])
   useEffect(() => {
-    pinnedRef.current = true; messageCountRef.current = 0
+    navigationLock.current = false; pinnedRef.current = true; messageCountRef.current = 0
     const frame = requestAnimationFrame(() => { scrollToBottom(); requestAnimationFrame(() => scrollToBottom()) })
     return () => cancelAnimationFrame(frame)
   }, [adapter.sessionId, scrollToBottom])
@@ -86,7 +101,11 @@ export function ConversationMessageList({ adapter, onOpenPreview, onOpenFiles, o
     {adapter.sessionId && adapter.error && <ErrorState text={adapter.error} />}
     {adapter.sessionId && !adapter.error && !adapter.loading && allRenderItems.length === 0 && <EmptyConversation text="暂无消息，开始对话吧" />}
     {adapter.loadingOlderMessages && <div className="conversation-sync">正在加载更早消息...</div>}
-    {adapter.sessionId && <VirtualChatList key={adapter.sessionId} items={allRenderItems} getKey={(item) => item.id} scrollRef={scrollRef} onContentResize={onResize} renderItem={(item) => <ConversationRenderItem item={item} adapter={adapter} onOpenPreview={onOpenPreview} onOpenFiles={onOpenFiles} onOpenResource={onOpenResource} />} />}
+    {adapter.sessionId && <VirtualChatList key={adapter.sessionId} items={allRenderItems} getKey={(item) => item.id} scrollRef={scrollRef} scrollTarget={scrollTarget} onContentResize={onResize} renderItem={(item) => {
+      const content = <ConversationRenderItem item={item} adapter={viewAdapter} onOpenPreview={onOpenPreview} onOpenFiles={onOpenFiles} onOpenResource={onOpenResource} />
+      return compactTeam && onSeen && item.kind === 'message' && item.message.role === 'agent'
+        ? <TeamMessageVisibility messageId={item.message.id} completed={item.message.status !== 'running'} scrollRef={scrollRef} onSeen={onSeen}>{content}</TeamMessageVisibility> : content
+    }} />}
   </div>
 }
 
@@ -129,7 +148,7 @@ function ConversationMessage({ message, adapter, onOpenPreview, onOpenFiles, onO
     {message.teamAssignment && <TeamAssignmentBlock assignment={message.teamAssignment} />}
     {message.parsedAttachments?.map((attachment, index) => <AuthenticatedImage key={`${message.id}-attachment-${index}`} image={attachment} alt={attachment.name || '附件'} style={{ maxWidth: 180, maxHeight: 140, borderRadius: 8, border: '1px solid var(--border)', objectFit: 'cover', marginBottom: 8 }} />)}
     <TurnContentView
-      defaultProcessOpen={!!message.processDefaultOpen}
+      defaultProcessOpen={!adapter.compactProcess && !!message.processDefaultOpen}
       processBlocks={processBlocks}
       finalAnswer={message.finalAnswer ?? message.content}
       isStreaming={false}
@@ -160,7 +179,7 @@ function StreamingMessage({ message, adapter, onOpenPreview, onOpenFiles, onOpen
   const stage = message.stage || (!finalAnswer ? '正在思考...' : undefined)
   return <MessageShell agentName={message.sender_name ?? adapter.agentName} timestamp={message.timestamp} failed={failed} streaming streamingLabel={failed ? '执行失败' : stage || '生成中'} footer={<TurnStatsFooter streaming startedAt={message.started_at} stats={parseTurnStats(message.decision_json)} />}>
     {message.teamAssignment && <TeamAssignmentBlock assignment={message.teamAssignment} />}
-    <TurnContentView processBlocks={processBlocks} finalAnswer={finalAnswer} isStreaming fallbackStage={stage} processCount={message.process_item_count} defaultProcessOpen onOpenResource={onOpenResource} renderProcessBlock={(block, context) => <ProcessBlock block={block} adapter={adapter} messageId={message.id} isStreaming thinkingActive={context.thinkingActive} onOpenPreview={onOpenPreview} onOpenFiles={onOpenFiles} />} />
+    <TurnContentView processBlocks={processBlocks} finalAnswer={finalAnswer} isStreaming compactStreamingProcess={adapter.compactProcess} fallbackStage={adapter.compactProcess ? message.stage : stage} processCount={message.process_item_count} defaultProcessOpen onOpenResource={onOpenResource} renderProcessBlock={(block, context) => <ProcessBlock block={block} adapter={adapter} messageId={message.id} isStreaming thinkingActive={context.thinkingActive} onOpenPreview={onOpenPreview} onOpenFiles={onOpenFiles} />} />
   </MessageShell>
 }
 
