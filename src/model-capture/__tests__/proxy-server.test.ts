@@ -13,7 +13,7 @@ import { buildAgentRuntimeEnv } from '../../acp/model-profile-env.js'
 import { retainCaptureRoute } from '../route-bindings.js'
 import { setCaptureSettings } from '../capture-config.js'
 import { startModelCaptureProxy, type ModelCaptureProxy } from '../proxy-server.js'
-import { waitCaptureFlush } from '../capture-store.js'
+import { waitCaptureFlush, type CaptureRecord } from '../capture-store.js'
 
 let tmp: string
 let upstream: Server
@@ -24,6 +24,12 @@ const routes = new Map<string, string>()
 const releases: Array<() => void> = []
 
 const ACP_UUID = '11111111-2222-3333-4444-555555555555'
+
+function largeResponse(sse: boolean): string {
+  return sse
+    ? `data: ${JSON.stringify({ type: 'content_block_delta', delta: { text: 'x'.repeat(1024) } })}\n\n`.repeat(5000)
+    : JSON.stringify({ content: 'x'.repeat(5 * 1024 * 1024) })
+}
 
 interface UpstreamRecord {
   url: string
@@ -45,6 +51,11 @@ beforeEach(async () => {
         body: Buffer.concat(chunks).toString('utf8'),
       })
       const mode = (req.headers['x-test-mode'] as string | undefined) ?? 'sse'
+      if (mode === 'large-sse' || mode === 'large-json') {
+        res.writeHead(200, { 'content-type': mode === 'large-sse' ? 'text/event-stream' : 'application/json' })
+        res.end(largeResponse(mode === 'large-sse'))
+        return
+      }
       if (req.url?.includes('/count_tokens')) {
         res.writeHead(200, { 'content-type': 'application/json' })
         res.end(JSON.stringify({ input_tokens: 42 }))
@@ -236,6 +247,23 @@ describe('模型代理抓包 proxy-server', () => {
     expect(record.platform.sessionId).toBe(platformSessionId)
     expect(record.requestHeaders['x-api-key']).not.toBe('sk-real-provider-key') // 打码
     expect(record.request.metadata.user_id).toContain('11111111')
+  })
+
+  test.each([true, false])('capture truncation leaves the complete upstream response intact (SSE=%s)', async (sse) => {
+    const agentId = setupAgent('claude', `http://127.0.0.1:${upstreamPort}`)
+    const platformSessionId = sessionStore.list(agentId)[0].id
+    const res = await postThroughProxy(agentId, '/v1/messages', claudeBody(), { 'x-test-mode': sse ? 'large-sse' : 'large-json' })
+    expect(res.status).toBe(200)
+    expect(res.body === largeResponse(sse)).toBe(true)
+    await waitCaptureFlush()
+    const record = JSON.parse(readFileSync(findCaptureFiles(sessionDirOf(platformSessionId))[0], 'utf8')) as CaptureRecord
+    expect(record.terminalStatus).toBe('completed')
+    expect(record.truncated).toBe(true)
+    expect(record.truncationReason).toBe('capture_limit')
+    const captured = sse ? record.response.sse.join('') : record.response.text
+    expect(captured.length).toBeGreaterThan(0)
+    expect(captured.length).toBeLessThan(res.body.length)
+    expect(res.body.startsWith(captured)).toBe(true)
   })
 
   test('client_aborted:下游断开后已收内容完整落盘', async () => {
