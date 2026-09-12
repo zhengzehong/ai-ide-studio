@@ -6,6 +6,7 @@ import { closeDatabase, initDatabase } from '../../src/store/db.js'
 import { localQueryPort } from '../../src/queries/local-query-port.js'
 import { taskRpcHandlers } from '../../src/gateway/rpc/tasks.js'
 import { sessionRpcHandlers } from '../../src/gateway/rpc/sessions.js'
+import { sessionRecoveryRpcHandlers } from '../../src/gateway/rpc/session-recovery.js'
 import type { RpcContext, RpcHandlerMap } from '../../src/gateway/rpc/types.js'
 import { taskStore } from '../../src/store/tasks.js'
 import { eventStore, messageStore, sessionStore } from '../../src/store/sessions.js'
@@ -168,6 +169,15 @@ describe('QueryPort and WS response parity', () => {
 
     expect(recovery.latestSequence).toBe(2)
     expect(recovery.events.map((event) => event.type)).toEqual(['session:capabilities'])
+    expect(await callRpc(sessionRecoveryRpcHandlers, 'sessions.recovery', { sessionId: session.id, limit: 20 })).toEqual(recovery)
+  })
+
+  test('rejects guest recovery requests before reading a session', async () => {
+    const query = vi.spyOn(localQueryPort, 'getSessionRecovery')
+    await expect(sessionRecoveryRpcHandlers['sessions.recovery']({ type: 'sessions.recovery', sessionId: 'private' }, {
+      state: { authMode: 'guest', subscriptions: new Set() }, sendResult: vi.fn(), sendError: vi.fn(), sendOutOfBandError: vi.fn(),
+    })).rejects.toThrow('仅所有者')
+    expect(query).not.toHaveBeenCalled()
   })
 })
 

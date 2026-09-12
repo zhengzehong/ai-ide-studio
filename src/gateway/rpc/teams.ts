@@ -3,7 +3,7 @@ import { sessionManager } from '../../core/sessions.js'
 import type { RpcHandlerMap } from './types.js'
 import { modelProfileStore } from '../../store/model-profiles.js'
 import { getGlobalModelProfile } from '../../acp/runtime-global-model-profile.js'
-import { markTeamConversationRead } from '../../core/team-conversation-read.js'
+import { markTeamConversationRead, markTeamConversationUnread } from '../../core/team-conversation-read.js'
 
 export const teamRpcHandlers: RpcHandlerMap = {
   'teams.defaults'(_msg, { sendResult }) {
@@ -62,6 +62,10 @@ export const teamRpcHandlers: RpcHandlerMap = {
   },
   'team.conversation.markRead'(msg, { sendResult }) {
     sendResult(markTeamConversationRead(requiredText(msg.conversationId, 'conversationId'), msg.messages))
+  },
+  'team.conversation.markUnread'(msg, { state, sendResult }) {
+    if (state.authMode !== 'owner') throw new Error('仅所有者可标记未读')
+    sendResult(markTeamConversationUnread(requiredText(msg.conversationId, 'conversationId')))
   },
   'team.conversation.rename'(msg, { sendResult }) {
     sendResult(teamService.renameConversation(requiredText(msg.conversationId, 'conversationId'), requiredText(msg.title, 'title')))

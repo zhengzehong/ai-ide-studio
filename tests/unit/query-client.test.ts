@@ -167,17 +167,17 @@ describe('WS rollback query client', () => {
     expect(page).toMatchObject({ total: 1, items: [{ id: 'task-a' }] })
   })
 
-  test('drops interaction events from turns completed before the recovery boundary', async () => {
-    const request = vi.fn(async (): Promise<unknown> => [
-      { id: 'permission-old', type: 'permission.request', sequence: 1 },
-      { id: 'done', type: 'message.done', sequence: 2 },
-      { id: 'permission-active', type: 'permission.request', sequence: 3 },
-    ])
+  test('requests a server-filtered recovery snapshot without downloading raw chunk history', async () => {
+    const request = vi.fn(async (): Promise<unknown> => ({
+      sessionId: 'session-a', latestSequence: 900,
+      events: [{ id: 'permission-active', type: 'permission.request', sequence: 3 }],
+    }))
     const client = createWsQueryClient(request)
 
     const recovery = await client.getSessionRecovery({ sessionId: 'session-a', limit: 20 })
 
-    expect(recovery.latestSequence).toBe(3)
+    expect(request).toHaveBeenCalledExactlyOnceWith({ type: 'sessions.recovery', sessionId: 'session-a', limit: 20 })
+    expect(recovery.latestSequence).toBe(900)
     expect(recovery.events.map((event) => event.id)).toEqual(['permission-active'])
   })
 

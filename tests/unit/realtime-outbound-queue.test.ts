@@ -3,6 +3,33 @@ import { RealtimeOutboundQueue } from '../../src/realtime/outbound-queue.js'
 import type { ServerMessage } from '../../src/types/ws-protocol.js'
 
 describe('RealtimeOutboundQueue', () => {
+  it('delivers recovery RPC results and heartbeats while realtime deltas are paused', () => {
+    const queue = new RealtimeOutboundQueue({ maxMessages: 8, maxBytes: 4096 })
+    queue.enqueueResync('session-a', 'test-gap')
+    queue.drain()
+    expect(queue.enqueue({ type: 'result', requestId: 'history', data: [] }).accepted).toBe(true)
+    expect(queue.enqueue({ type: 'pong', timestamp: 123 }).accepted).toBe(true)
+    expect(queue.enqueue(update('paused', 1)).accepted).toBe(false)
+    expect(queue.drain().map(frame => frame.message.type)).toEqual(['result', 'pong'])
+    queue.acknowledgeResync()
+    expect(queue.enqueue(update('resumed', 2)).accepted).toBe(true)
+  })
+
+  it('returns a correlated error for oversized RPC results instead of losing the request', () => {
+    const queue = new RealtimeOutboundQueue({ maxMessages: 8, maxBytes: 1024 })
+    queue.enqueue({ type: 'result', requestId: 'large-history', data: 'x'.repeat(2048) })
+    expect(queue.drain().map(frame => frame.message)).toEqual([
+      expect.objectContaining({ type: 'error', requestId: 'large-history' }),
+    ])
+  })
+
+  it('fails the connection explicitly if control replies cannot fit without loss', () => {
+    const queue = new RealtimeOutboundQueue({ maxMessages: 1, maxBytes: 1024 })
+    queue.enqueue({ type: 'result', requestId: 'first', data: [] })
+    expect(queue.enqueue({ type: 'result', requestId: 'second', data: [] }).closeRecommended).toBe(true)
+    expect(queue.bytes).toBeLessThanOrEqual(1024)
+  })
+
   it('coalesces text deltas and latest-wins process item updates', () => {
     const queue = new RealtimeOutboundQueue({ maxMessages: 4, maxBytes: 16_384 })
 

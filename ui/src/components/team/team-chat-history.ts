@@ -15,7 +15,7 @@ export async function loadOlderTeamPages(snapshots: Record<string, Snapshot>, se
   return Promise.all(sessionIds.filter(id => snapshots[id]?.hasMore).map(async sessionId => {
     const snapshot = snapshots[sessionId]
     const oldest = snapshot.messages[0]
-    const page = await queryClient.listSessionMessages({ sessionId, limit: 40, before: oldest?.timestamp, includeToolCalls: true })
+    const page = await queryClient.listSessionMessages({ sessionId, limit: 20, before: oldest?.timestamp, includeToolCalls: false, includeLatestToolCalls: false })
     const sources: [string, SourceMessage][] = []
     const messages = page.items.map(message => {
       const display = normalizeMessage(mapTeamMessage(message, sessionId, masterSessionId, snapshot.senderName || 'Agent', oldest?.sender_role || 'member'))

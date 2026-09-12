@@ -12,6 +12,7 @@ import { modelCaptureRpcHandlers } from './model-capture.js'
 import { projectRpcHandlers } from './projects.js'
 import { ruleRpcHandlers } from './rules.js'
 import { sessionRpcHandlers } from './sessions.js'
+import { sessionRecoveryRpcHandlers } from './session-recovery.js'
 import { sessionDockRpcHandlers } from './session-dock.js'
 import { sessionStatsRpcHandlers } from './session-stats.js'
 import { sessionTemplateRpcHandlers } from './session-templates.js'
@@ -41,6 +42,7 @@ const rpcHandlers: RpcHandlerMap = {
   ...knowledgeBaseRpcHandlers,
   ...globalAssistantRpcHandlers,
   ...sessionRpcHandlers,
+  ...sessionRecoveryRpcHandlers,
   ...sessionDockRpcHandlers,
   ...sessionStatsRpcHandlers,
   ...sessionTemplateRpcHandlers,

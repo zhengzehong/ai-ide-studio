@@ -10,7 +10,8 @@ import { commandClient } from '../../services/command-client'
 import { wsClient } from '../../services/ws-client'
 import type { TeamData } from '../../stores/team.store'
 import { loadOlderTeamPages, mergeOlderTeamPages } from './team-chat-history'
-import { loadTeamSession } from './team-chat-loader'
+import { loadTeamSession, loadTeamMessagePage } from './team-chat-loader'
+import { mergeTeamMessageRefresh, runTeamLoads, TeamRecoveryGate } from './team-chat-refresh'
 import { teamCacheKey, teamChatCache, shareTeamRequest, invalidateTeamRequest, newTeamRequestScope, type SourceMessage, type TeamChatMember as Member } from './team-view-cache'
 import { useTeamRead } from './use-team-read'
 import { beginTeamPrompt, rejectTeamPrompt } from './team-chat-pending'
@@ -54,6 +55,8 @@ function TeamConversationPane({ team, conversation, masterSessionId, onOpenPrevi
   const sourceMap = useRef(new Map<string, SourceMessage>(cached?.sources))
   const subscribedSessions = useRef(new Set<string>())
   const doneReloadTimers = useRef(new Map<string, number>())
+  const memberLabels = useRef(new Map<string, { name: string; role: string }>())
+  const recoveryGate = useRef(new TeamRecoveryGate())
   const generation = useRef(0)
   const hasContent = useRef(!!cached)
   useEffect(() => {
@@ -64,11 +67,12 @@ function TeamConversationPane({ team, conversation, masterSessionId, onOpenPrevi
   const invalidateLoad = useCallback((): void => { generation.current++ }, [])
   const sessionIds = useMemo(() => [...new Set([masterSessionId, ...members.map((member) => member.session_id)].filter((id): id is string => !!id))], [masterSessionId, members])
   const visibleSnapshots = useMemo(() => Object.fromEntries(sessionIds.flatMap(id => snapshots[id] ? [[id, snapshots[id]]] : [])), [sessionIds, snapshots])
-  useTeamRead(conversation?.id, visibleSnapshots)
+  const markUnread = useTeamRead(conversation?.id, visibleSnapshots)
 
-  const load = useCallback(async (): Promise<boolean> => {
+  const load = useCallback((): Promise<boolean> => shareTeamRequest(`load:${cacheKey}:${requestScope}`, async () => {
     if (!conversation) { setMembers([]); setSnapshots({}); sourceMap.current.clear(); return false }
     const requestGeneration = ++generation.current
+    const recoveryVersion = recoveryGate.current.version
     setLoading(!hasContent.current); setError(null)
     try {
       const detail = await shareTeamRequest(`history:${cacheKey}:${requestScope}`, () => wsClient.request({ type: 'team.conversation.history', conversationId: conversation.id })) as { members?: Member[] }
@@ -84,21 +88,36 @@ function TeamConversationPane({ team, conversation, masterSessionId, onOpenPrevi
       setMembers(nextMembers)
       const labels = new Map<string, { name: string; role: string }>([[conversation.master_session_id, { name: 'Master', role: 'Master' }]])
       nextMembers.forEach((member) => labels.set(member.session_id, { name: member.name, role: member.role }))
-      const results = await Promise.allSettled(ids.map(async (sessionId) => {
+      memberLabels.current = labels
+      const results = await runTeamLoads(ids, async (sessionId) => {
+        if (requestGeneration !== generation.current) return
         const label = labels.get(sessionId)
         const loaded = await loadTeamSession(`${cacheKey}:${requestScope}`, sessionId, conversation.master_session_id, label?.name || 'Agent', label?.role || 'member')
         if (requestGeneration !== generation.current) return
         sourceMap.current = new Map([...sourceMap.current, ...loaded.sources])
         setSnapshots(current => mergeLoadedSnapshots(current, { [sessionId]: { ...loaded.snapshot, capabilities: current[sessionId]?.capabilities || loaded.snapshot.capabilities } }))
         setLoading(false)
-      }))
+      })
       if (requestGeneration !== generation.current) return false
       const failed = results.find(result => result.status === 'rejected')
       if (failed?.status === 'rejected') throw failed.reason
+      recoveryGate.current.complete(recoveryVersion)
       return true
-    } catch (cause) { if (requestGeneration === generation.current) setError(cause instanceof Error ? cause.message : '团队消息加载失败'); return false }
+    } catch (cause) { if (requestGeneration === generation.current) setError(`消息同步失败：${cause instanceof Error ? cause.message : '请重试'}`); return false }
     finally { if (requestGeneration === generation.current) setLoading(false) }
-  }, [conversation, cacheKey, requestScope])
+  }), [conversation, cacheKey, requestScope])
+
+  const refreshMember = useCallback(async (sessionId: string): Promise<void> => {
+    if (!masterSessionId || !subscribedSessions.current.has(sessionId)) return
+    const requestGeneration = generation.current
+    const label = memberLabels.current.get(sessionId)
+    try {
+      const page = await loadTeamMessagePage(`${cacheKey}:${requestScope}:done`, sessionId, masterSessionId, label?.name || 'Agent', label?.role || 'member')
+      if (requestGeneration !== generation.current || !subscribedSessions.current.has(sessionId)) return
+      sourceMap.current = new Map([...sourceMap.current, ...page.sources])
+      setSnapshots(current => mergeTeamMessageRefresh(current, sessionId, page.snapshot))
+    } catch (cause) { if (requestGeneration === generation.current) setError(`消息同步失败：${cause instanceof Error ? cause.message : '请重试'}`) }
+  }, [cacheKey, requestScope, masterSessionId])
 
   useEffect(() => {
     if (!masterSessionId) return
@@ -113,10 +132,12 @@ function TeamConversationPane({ team, conversation, masterSessionId, onOpenPrevi
   const mobileSurface = !!renderSurface
   useEffect(() => {
     if (!mobileSurface) return
-    const off = wsClient.on('resync_required', message => {
-      const id = typeof message.sessionId === 'string' ? message.sessionId : undefined
-      if (id && !subscribedSessions.current.has(id)) { wsClient.acknowledgeResync(id); return }
-      void load().then(loaded => { if (loaded) wsClient.acknowledgeResync(id) })
+    const off = wsClient.on('resync_required', () => {
+      recoveryGate.current.request()
+      // Resume before querying: incoming events are retained in each snapshot's
+      // replay buffer, then merged after its persisted recovery boundary.
+      wsClient.acknowledgeResync()
+      void load().then(loaded => { if (loaded && recoveryGate.current.pending) void load() })
     })
     const visible = (): void => { if (document.visibilityState === 'visible') void load() }
     document.addEventListener('visibilitychange', visible)
@@ -149,13 +170,13 @@ function TeamConversationPane({ team, conversation, masterSessionId, onOpenPrevi
       if (typeof message.sessionId !== 'string' || !subscribedSessions.current.has(message.sessionId)) return
       const doneSessionId = message.sessionId as string
       const doneMessageId = typeof message.messageId === 'string' ? message.messageId : ''
-      if (!doneMessageId) { void load(); return }
+      if (!doneMessageId) { void refreshMember(doneSessionId); return }
       setSnapshots((current) => finalizeSnapshot(current, doneSessionId, doneMessageId, masterSessionId, message.stopReason === 'error' ? 'failed' : message.stopReason === 'cancelled' ? 'cancelled' : 'completed', typeof message.error === 'string' ? message.error : undefined))
       const previousTimer = doneReloadTimers.current.get(doneSessionId)
       if (previousTimer) window.clearTimeout(previousTimer)
       const timer = window.setTimeout(() => {
         doneReloadTimers.current.delete(doneSessionId)
-        void load()
+        void refreshMember(doneSessionId)
       }, 180)
       doneReloadTimers.current.set(doneSessionId, timer)
     })
@@ -165,7 +186,7 @@ function TeamConversationPane({ team, conversation, masterSessionId, onOpenPrevi
       reloadTimers.forEach((timer) => window.clearTimeout(timer))
       reloadTimers.clear()
     }
-  }, [load, masterSessionId, cached, team.id, cacheKey, requestScope])
+  }, [load, refreshMember, masterSessionId, cached, team.id, cacheKey, requestScope])
 
   const sendPrompt = useCallback(async (content: string, images: ImageAttachmentInfo[] = [], files: ConversationUploadedFile[] = []): Promise<void> => {
     if (!masterSessionId) throw new Error('团队暂无 Master 会话')
@@ -238,6 +259,6 @@ function TeamConversationPane({ team, conversation, masterSessionId, onOpenPrevi
       setProcessItemLoadingByKey((current) => { const next = { ...current }; delete next[key]; return next })
     }
   }, [processItemLoadingByKey])
-  const adapter = useMemo<ConversationAdapter>(() => createTeamChatAdapter({ snapshots, team, conversation, masterSessionId, aggregate, loading, error, sending, loadingOlder, processByMessageId, fileChanges, fileErrors, processItemLoadingByKey, processItemErrorByKey, sendPrompt, loadOlderMessages, loadMessageProcess, loadFileChanges, loadProcessItemDetail, reload: load }), [snapshots, aggregate, conversation, error, fileChanges, fileErrors, load, loadFileChanges, loadMessageProcess, loadOlderMessages, loadProcessItemDetail, loading, loadingOlder, masterSessionId, processByMessageId, processItemErrorByKey, processItemLoadingByKey, sendPrompt, sending, team])
+  const adapter = useMemo<ConversationAdapter>(() => createTeamChatAdapter({ snapshots, team, conversation, masterSessionId, aggregate, loading, error, sending, loadingOlder, processByMessageId, fileChanges, fileErrors, processItemLoadingByKey, processItemErrorByKey, sendPrompt, loadOlderMessages, loadMessageProcess, loadFileChanges, loadProcessItemDetail, reload: load, markUnread, senderAgentIds: Object.fromEntries(members.map(member => [member.session_id, member.agent_id])) }), [snapshots, aggregate, conversation, error, fileChanges, fileErrors, load, loadFileChanges, loadMessageProcess, loadOlderMessages, loadProcessItemDetail, loading, loadingOlder, masterSessionId, processByMessageId, processItemErrorByKey, processItemLoadingByKey, sendPrompt, sending, team, markUnread, members])
   return renderSurface ? renderSurface(adapter) : <ConversationPane adapter={adapter} onOpenPreview={onOpenPreview} onOpenFiles={onOpenFiles} onOpenResource={onOpenResource} />
 }

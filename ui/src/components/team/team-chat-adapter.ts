@@ -27,6 +27,8 @@ interface TeamAdapterInput {
   sendPrompt: ConversationAdapter['sendPrompt']
   loadOlderMessages: ConversationAdapter['loadOlderMessages']
   reload: () => Promise<boolean>
+  markUnread?: () => Promise<void>
+  senderAgentIds?: Record<string, string>
 }
 
 export function resolveTeamInteractionSession(snapshots: Record<string, Snapshot>, kind: 'permissions' | 'elicitations', requestId: string): string {
@@ -40,6 +42,7 @@ export function createTeamChatAdapter(input: TeamAdapterInput): ConversationAdap
     sessionId: input.masterSessionId, projectId: input.team.project_id,
     agentName: input.conversation ? `${input.team.name} · Master` : input.team.name,
     agentRuntime: 'team', sessionTitle: input.conversation?.title ?? null,
+    senderAgentIds: input.senderAgentIds,
     messages: input.aggregate.messages, events: input.aggregate.events,
     streamingMessage: input.aggregate.streaming[0] || null, streamingMessages: input.aggregate.streaming,
     loading: input.loading, error: input.error, running: input.aggregate.running, sending: input.sending,
@@ -52,7 +55,7 @@ export function createTeamChatAdapter(input: TeamAdapterInput): ConversationAdap
     processItemLoadingByKey: input.processItemLoadingByKey, processItemErrorByKey: input.processItemErrorByKey,
     sendPrompt: input.sendPrompt,
     cancel: async () => { if (input.masterSessionId) await commandClient.execute({ commandId: `team-cancel-${input.masterSessionId}-${Date.now()}`, type: 'session.cancel', sessionId: input.masterSessionId }) },
-    loadOlderMessages: input.loadOlderMessages, reload: async () => { await input.reload() },
+    loadOlderMessages: input.loadOlderMessages, reload: async () => { await input.reload() }, markUnread: input.markUnread,
     loadMessageProcess: input.loadMessageProcess, loadFileChanges: input.loadFileChanges,
     loadProcessItemDetail: input.loadProcessItemDetail,
     respondPermission: async (requestId, optionId, cancelled) => {

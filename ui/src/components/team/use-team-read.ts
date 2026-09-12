@@ -1,8 +1,10 @@
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { wsClient } from '../../services/ws-client'
 import type { Snapshot } from './team-chat-state'
+import { TeamReadControl } from './team-read-control'
 
-export function useTeamRead(conversationId: string | undefined, snapshots: Record<string, Snapshot>): void {
+export function useTeamRead(conversationId: string | undefined, snapshots: Record<string, Snapshot>): () => Promise<void> {
+  const control = useRef(new TeamReadControl())
   const latest = useRef(snapshots)
   useEffect(() => { latest.current = snapshots }, [snapshots])
   useEffect(() => {
@@ -21,8 +23,10 @@ export function useTeamRead(conversationId: string | undefined, snapshots: Recor
       if (!messages.length) return
       pending = true
       try {
-        await wsClient.request({ type: 'team.conversation.markRead', conversationId, messages })
-        if (!disposed) messages.forEach(ref => acknowledged.set(ref.sessionId, ref.messageId))
+        await control.current.read(async () => {
+          await wsClient.request({ type: 'team.conversation.markRead', conversationId, messages })
+          if (!disposed) messages.forEach(ref => acknowledged.set(ref.sessionId, ref.messageId))
+        })
       } catch { /* Retry while visible; a live completion may not yet be persisted. */ }
       finally { pending = false }
     }
@@ -31,5 +35,11 @@ export function useTeamRead(conversationId: string | undefined, snapshots: Recor
     document.addEventListener('visibilitychange', onVisible)
     void markRead()
     return () => { disposed = true; window.clearInterval(timer); document.removeEventListener('visibilitychange', onVisible) }
+  }, [conversationId])
+  return useCallback(async (): Promise<void> => {
+    if (!conversationId) throw new Error('团队会话不存在')
+    await control.current.markUnread(async () => {
+      await wsClient.request({ type: 'team.conversation.markUnread', conversationId })
+    })
   }, [conversationId])
 }

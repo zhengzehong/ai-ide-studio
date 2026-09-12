@@ -8,7 +8,7 @@ import { projectStore } from '../../src/store/projects.js'
 import { messageStore, sessionStore } from '../../src/store/sessions.js'
 import { teamService } from '../../src/core/teams.js'
 import { projectSessionStatsStore } from '../../src/store/session-stats.js'
-import { markTeamConversationRead } from '../../src/core/team-conversation-read.js'
+import { markTeamConversationRead, markTeamConversationUnread } from '../../src/core/team-conversation-read.js'
 
 let tmp: string
 
@@ -24,6 +24,18 @@ afterEach(() => {
 })
 
 describe('team conversation line running state', () => {
+  test('marks only this conversation unread including its member replies', () => {
+    const fixture = createTeamFixture()
+    const second = teamService.createConversation(fixture.team.id, 'second')
+    const firstIds = teamService.listConversations(fixture.team.id).find(line => line.id === fixture.firstConversation.id)!.grid_session_ids
+    for (const id of [...firstIds, second.conversation.master_session_id]) {
+      sessionStore.touch(id, '2030-01-01T00:00:00.000Z')
+      sessionStore.markRead(id, '2030-01-02T00:00:00.000Z')
+    }
+    markTeamConversationUnread(fixture.firstConversation.id)
+    expect(firstIds.every(id => sessionStore.get(id)!.last_read_at! < '2030-01-01T00:00:00.000Z')).toBe(true)
+    expect(sessionStore.get(second.conversation.master_session_id)!.last_read_at).toBe('2030-01-02T00:00:00.000Z')
+  })
   test('reading one line preserves unseen lines and uses latest member message time', () => {
     const fixture = createTeamFixture()
     const second = teamService.createConversation(fixture.team.id, 'second')

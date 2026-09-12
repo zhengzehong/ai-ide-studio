@@ -1,4 +1,7 @@
 import type { RealtimeCursor, ServerMessage } from '../types/ws-protocol.js'
+import { createChildLogger } from '../shared/logger.js'
+
+const log = createChildLogger('realtime:outbound-queue')
 
 export interface RealtimeOutboundQueueOptions {
   maxMessages: number
@@ -54,6 +57,10 @@ export class RealtimeOutboundQueue {
 
     const entry = createEntry(message, critical)
     if (entry.byteLength > this.options.maxBytes) {
+      if (message.type === 'result') {
+        log.warn({ requestId: message.requestId, bytes: entry.byteLength, maxBytes: this.options.maxBytes }, 'RPC result exceeds realtime frame limit')
+        return this.enqueue({ type: 'error', requestId: message.requestId, message: '查询结果过大，请缩小查询范围后重试' })
+      }
       this.ensureResync(sessionIdOf(message), 'frame-too-large')
       return { accepted: false, resyncRequired: true, closeRecommended: critical }
     }
@@ -69,6 +76,12 @@ export class RealtimeOutboundQueue {
     if (this.fits(entry)) {
       this.push(entry)
       return { accepted: true, resyncRequired: false, closeRecommended: false }
+    }
+
+    // Control replies are not replayable. Never silently evict them or lose
+    // realtime deltas to make room without informing the client.
+    if (isControl(message)) {
+      return { accepted: false, resyncRequired: true, closeRecommended: true }
     }
 
     if (critical) {
@@ -133,6 +146,7 @@ export class RealtimeOutboundQueue {
       return { accepted: false, resyncRequired: true, closeRecommended: false }
     }
     this.resyncPending = true
+    log.warn({ sessionId, reason, queuedMessages: this.size, queuedBytes: this.bytes }, 'Realtime snapshot recovery required')
     const resync = createEntry({ type: 'resync_required', sessionId, reason }, true)
     this.evictNoncriticalUntilFits(resync)
     if (this.fits(resync)) this.push(resync)
@@ -196,9 +210,15 @@ function mergeTextUpdates(previous: ServerMessage, next: ServerMessage): ServerM
 }
 
 function isCritical(message: ServerMessage): boolean {
+  if (isControl(message)) return true
   if (message.type === 'session:done' || message.type === 'error' || message.type === 'resync_required') return true
   return message.type === 'session:update'
     && (message.data.permissionRequest !== undefined || message.data.elicitationRequest !== undefined)
+}
+
+function isControl(message: ServerMessage): boolean {
+  return message.type === 'result' || message.type === 'pong' || message.type === 'resume:ack'
+    || (message.type === 'error' && !!message.requestId)
 }
 
 function cursorOf(message: ServerMessage): RealtimeCursor | undefined {

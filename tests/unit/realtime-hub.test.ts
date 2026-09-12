@@ -9,6 +9,48 @@ import type { ServerMessage } from '../../src/types/ws-protocol.js'
 afterEach(() => vi.restoreAllMocks())
 
 describe('RealtimeHub', () => {
+  it.each(['cursor-gap', 'buffered-socket'])('disconnects when %s cannot queue a recovery notification behind RPC results', (trigger) => {
+    const hub = createHub(2)
+    const socket = new FakeSocket()
+    hub.addConnection('owner', socket, { authMode: 'owner' })
+    hub.handleClientMessage('owner', { type: 'subscribe', sessionIds: ['session-a'] })
+    hub.deliver(sessionDelivery(update('session-a', 1)))
+    socket.autoComplete = false
+    for (const requestId of ['r0', 'r1', 'r2']) {
+      hub.applyLegacyFrame('owner', { type: 'result', requestId, data: [] })
+    }
+    expect(hub.queuedMessageCount).toBe(2)
+
+    if (trigger === 'cursor-gap') hub.deliver(sessionDelivery(update('session-a', 3)))
+    else {
+      socket.bufferedAmount = 128 * 1024
+      socket.completeNext()
+    }
+
+    expect(socket.closed?.code).toBe(1013)
+    expect(hub.connectionCount).toBe(0)
+    expect(hub.subscribedSessionCount).toBe(0)
+    expect(hub.queuedMessageCount).toBe(0)
+    socket.completeAll()
+    hub.close()
+  })
+
+  it('can query history during resync and resume only after receiving it', () => {
+    const hub = createHub()
+    const socket = new FakeSocket()
+    hub.addConnection('owner', socket, { authMode: 'owner' })
+    hub.handleClientMessage('owner', { type: 'subscribe', sessionIds: ['session-a'] })
+    hub.deliver(sessionDelivery(update('session-a', 1)))
+    hub.deliver(sessionDelivery(update('session-a', 3)))
+    socket.sent.length = 0
+    hub.applyLegacyFrame('owner', { type: 'result', requestId: 'recovery', data: [] })
+    expect(socket.messages()).toEqual([{ type: 'result', requestId: 'recovery', data: [] }])
+    hub.handleClientMessage('owner', { type: 'resume', cursors: { 'session-a': { streamGeneration: 'generation-a', sequence: 3 } } })
+    hub.deliver(sessionDelivery(update('session-a', 4)))
+    expect(socket.messages().at(-1)).toMatchObject({ type: 'session:update', sequence: 4 })
+    hub.close()
+  })
+
   it('delivers session events only to subscribers and global events to all owners', () => {
     const hub = createHub()
     const first = new FakeSocket()
@@ -199,9 +241,9 @@ class FakeSocket implements RealtimeSocket {
   }
 }
 
-function createHub(): RealtimeHub {
+function createHub(maxQueueMessages: number = 8): RealtimeHub {
   return new RealtimeHub({
-    maxQueueMessages: 8,
+    maxQueueMessages,
     maxQueueBytes: 64 * 1024,
     maxBufferedBytes: 64 * 1024,
     flushIntervalMs: 1,
