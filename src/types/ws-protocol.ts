@@ -442,6 +442,18 @@ export interface SessionsEventsMsg extends ClientMessage {
   limit?: number
   afterSequence?: number
 }
+export interface SessionsRecoveryMsg extends ClientMessage {
+  type: 'sessions.recovery'
+  sessionId: string
+  limit?: number
+}
+export interface SessionsMessageEventsPageMsg extends ClientMessage {
+  type: 'sessions.messageEventsPage'
+  sessionId: string
+  messageId: string
+  afterSequence?: number
+  throughSequence?: number
+}
 export interface SessionsMarkReadMsg extends ClientMessage {
   type: 'sessions.markRead'
   sessionId: string

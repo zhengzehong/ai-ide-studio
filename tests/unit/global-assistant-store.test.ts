@@ -185,7 +185,7 @@ describe('global assistant store', () => {
         file_changes_json: null,
         timestamp: '2026-07-22T00:00:00.000Z',
       }]
-      if (msg.type === 'sessions.events') return []
+      if (msg.type === 'sessions.recovery') return { sessionId: msg.sessionId, latestSequence: 0, events: [] }
       return null
     })
 
@@ -196,7 +196,7 @@ describe('global assistant store', () => {
     expect(useGlobalAssistantStore.getState().pendingPermissions).toEqual([])
     expect(useGlobalAssistantStore.getState().pendingElicitations).toEqual([])
     expect(wsMock.request).toHaveBeenCalledWith({
-      type: 'sessions.events',
+      type: 'sessions.recovery',
       sessionId: 'sess-assistant-new',
       limit: 1000,
     })
@@ -204,6 +204,7 @@ describe('global assistant store', () => {
 
   test('binds a template and subscribes to its fixed session', async () => {
     wsMock.request.mockImplementation(async (msg: Record<string, unknown>) => {
+      if (msg.type === 'sessions.recovery') return { sessionId: msg.sessionId, latestSequence: 0, events: [] }
       if (msg.type === 'globalAssistant.setTemplate') {
         return {
           assistant: {

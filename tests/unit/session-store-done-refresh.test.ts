@@ -1481,6 +1481,7 @@ describe('session store done handling', () => {
     })
     wsMock.request.mockImplementation(async (msg: Record<string, unknown>) => {
       if (msg.type === 'sessions.messages') return pendingMessages
+      if (msg.type === 'sessions.recovery') return { sessionId: msg.sessionId, latestSequence: 0, events: [] }
       return []
     })
     useSessionStore.setState({ currentSessionId: null })
@@ -1493,7 +1494,7 @@ describe('session store done handling', () => {
       limit: 20,
     }))
     expect(wsMock.request).not.toHaveBeenCalledWith({
-      type: 'sessions.events',
+      type: 'sessions.recovery',
       sessionId: 'sess-priority',
       limit: 1000,
     })
@@ -1501,7 +1502,7 @@ describe('session store done handling', () => {
     resolveMessages([])
 
     await vi.waitFor(() => expect(wsMock.request).toHaveBeenCalledWith({
-      type: 'sessions.events',
+      type: 'sessions.recovery',
       sessionId: 'sess-priority',
       limit: 1000,
     }))

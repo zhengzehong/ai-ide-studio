@@ -6,6 +6,22 @@ import { createChildLogger } from './logger.js'
 const log = createChildLogger('team-conversation-read')
 interface ReadReference { sessionId: string; messageId: string }
 
+export function markTeamConversationUnread(conversationId: string): { sessionId: string; lastReadAt: string }[] {
+  const conversation = teamConversationStore.get(conversationId)
+  if (!conversation || conversation.status === 'deleted') throw new Error('团队会话不存在')
+  const ids = new Set([conversation.master_session_id, ...teamConversationStore.listMembers(conversationId).map(member => member.session_id)])
+  const sessions = [...ids].flatMap(id => { const session = id ? sessionStore.get(id) : undefined; return session?.last_message_at ? [session] : [] })
+  if (!sessions.length) throw new Error('会话没有消息，无法标记未读')
+  if (sessions.some(session => !Number.isFinite(Date.parse(session.last_message_at!)))) throw new Error('会话最后消息时间无效')
+  const result = sessions.map(session => {
+    const lastReadAt = sessionStore.markUnread(session.id)
+    events.emit('session:changed', { sessionId: session.id, data: { last_read_at: lastReadAt } })
+    return { sessionId: session.id, lastReadAt }
+  })
+  log.info({ conversationId, count: result.length }, 'Team conversation marked unread')
+  return result
+}
+
 export function markTeamConversationRead(conversationId: string, references: unknown): { sessionId: string; lastReadAt: string }[] {
   const conversation = teamConversationStore.get(conversationId)
   if (!conversation || conversation.status === 'deleted') throw new Error('团队会话不存在')

@@ -52,6 +52,8 @@ export class WSClient {
     if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null }
     if (this.ws) { this.detachSocket(this.ws); this.ws.close(); this.ws = null }
 
+    this.rejectPendingRequests()
+
     this.intentionalClose = false
     try {
       this.ws = new WebSocket(url)
@@ -81,6 +83,7 @@ export class WSClient {
 
     this.ws.onclose = (event) => {
       if (this.ws !== socket) return
+      this.rejectPendingRequests()
       this.stopHeartbeat()
       this._connected = false
       this.emit('connection', { connected: false, code: event.code, reason: event.reason })
@@ -134,6 +137,7 @@ export class WSClient {
     this.heartbeatTimer = setInterval(() => {
       if (this.ws !== socket || socket.readyState !== WebSocket.OPEN) return
       if (Date.now() - this.lastInboundAt >= WS_HEARTBEAT_TIMEOUT_MS) {
+        this.rejectPendingRequests()
         this.stopHeartbeat()
         this.detachSocket(socket)
         this.ws = null
@@ -156,6 +160,7 @@ export class WSClient {
   }
 
   disconnect() {
+    this.rejectPendingRequests()
     this.connectGeneration += 1
     this.intentionalClose = true
     this.stopHeartbeat()
@@ -181,6 +186,12 @@ export class WSClient {
     socket.onmessage = null
   }
 
+  private rejectPendingRequests(): void {
+    const pending = [...this.pendingRequests.values()]
+    this.pendingRequests.clear()
+    pending.forEach(request => request.reject(new Error('连接已断开，请恢复连接后重试')))
+  }
+
   async request(msg: Record<string, unknown>): Promise<unknown> {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       throw new Error('WebSocket 未连接')
@@ -200,7 +211,12 @@ export class WSClient {
         reject: (e) => { clearTimeout(timeout); reject(e) },
       })
 
-      this.ws!.send(JSON.stringify(payload))
+      try { this.ws!.send(JSON.stringify(payload)) }
+      catch (error) {
+        this.pendingRequests.delete(requestId)
+        clearTimeout(timeout)
+        reject(error)
+      }
     })
   }
 

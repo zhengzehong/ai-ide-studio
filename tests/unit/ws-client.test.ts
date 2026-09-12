@@ -18,6 +18,19 @@ class FakeWebSocket {
 }
 
 describe('ws client', () => {
+  test('rejects outstanding queries immediately on disconnect instead of timing out later', async () => {
+    const { wsClient } = await import('../../ui/src/services/ws-client.ts')
+    wsClient.connect('ws://realtime')
+    const socket = FakeWebSocket.instances[0]
+    socket.readyState = FakeWebSocket.OPEN
+    socket.onopen?.()
+    const pending = wsClient.request({ type: 'sessions.recovery', sessionId: 's' })
+    const assertion = expect(pending).rejects.toThrow('连接已断开')
+    socket.onclose?.({ code: 1013, reason: 'backpressure' })
+    await assertion
+    wsClient.disconnect()
+  })
+
   beforeEach(() => {
     vi.useFakeTimers()
     vi.resetModules()

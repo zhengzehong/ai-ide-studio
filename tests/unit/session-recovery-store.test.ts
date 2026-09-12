@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { defaultCaps } from '../../ui/src/stores/session-events.ts'
 
 const wsMock = vi.hoisted(() => ({
-  request: vi.fn(async () => [] as unknown[]),
+  request: vi.fn(async (): Promise<unknown> => []),
   on: vi.fn(() => () => undefined),
   send: vi.fn(),
   subscribe: vi.fn(),
@@ -51,8 +51,7 @@ describe('session recovery store', () => {
   })
 
   test('applies lightweight state events without restoring mirrored tool output', async () => {
-    wsMock.request.mockResolvedValue([
-      event('event-tool', 'tool.update', 1, { rawOutput: 'large output' }),
+    wsMock.request.mockResolvedValue({ sessionId: 'session-a', latestSequence: 3, events: [
       event('event-config', 'config.update', 2, {
         configOptions: [{
           id: 'mode',
@@ -66,7 +65,7 @@ describe('session recovery store', () => {
       event('event-permission', 'permission.request', 3, {
         permissionRequest: { id: 'permission-a', title: '允许读取文件', options: [] },
       }),
-    ])
+    ] })
 
     await useSessionStore.getState().fetchRecovery('session-a')
 
@@ -96,7 +95,7 @@ describe('session recovery store', () => {
           ],
         }],
       })
-      .mockResolvedValueOnce([
+      .mockResolvedValueOnce({ sessionId: 'session-live', latestSequence: 10, events: [
         event('event-config-default', 'config.update', 10, {
           configOptions: [{
             id: 'effort',
@@ -110,7 +109,7 @@ describe('session recovery store', () => {
             ],
           }],
         }),
-      ])
+      ] })
 
     await useSessionStore.getState().fetchModels()
     await useSessionStore.getState().fetchRecovery('session-live')

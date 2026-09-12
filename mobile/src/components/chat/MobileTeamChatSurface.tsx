@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactElement } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { ArrowLeft, FolderOpen, Pin, PinOff } from 'lucide-react'
+import { ArrowLeft, Bot, FolderOpen } from 'lucide-react'
 import type { ConversationAdapter } from '@desktop/components/chat/conversation-types'
 import type { FilesPresentationInfo, TeamAssignmentInfo } from '@desktop/stores/session-events'
 import { AuthenticatedImage } from '@desktop/components/chat/AuthenticatedImage'
@@ -11,45 +11,42 @@ import TurnContent from './TurnContent'
 import PermissionCard from './PermissionCard'
 import ElicitationCard from './ElicitationCard'
 import ConfigToolbar from './ConfigToolbar'
-import PlanBar from './PlanBar'
 import { PresentedFilesOverlay } from '../file-viewer/PresentedFilesOverlay'
 import { ConversationKindTag } from '../session-list/ConversationKindTag'
-import { usePinnedSessionStore } from '../../stores/pinned-session.store'
 import { useConnectionStore } from '../../stores/connection.store'
 import { resolveChatReturnTo } from '../../pages/ChatPage'
+import { SessionAttentionPanel } from './SessionAttentionPanel'
+import { useTeamAttention } from './use-team-attention'
+import { teamChatStyles as styles } from './team-chat.styles'
 
 export function MobileTeamChatSurface({ adapter }: { adapter: ConversationAdapter }): ReactElement {
   const navigate = useNavigate()
   const location = useLocation()
   const connected = useConnectionStore(state => state.connected)
-  const pins = usePinnedSessionStore()
-  const pinned = pins.items.some(item => item.sessionId === adapter.sessionId)
+  const connectionStatus = useConnectionStore(state => state.status)
+  const attention = useTeamAttention(adapter, () => navigate(resolveChatReturnTo(location.state)))
+  const [now, setNow] = useState(Date.now)
   const [error, setError] = useState<string | null>(null)
   const [files, setFiles] = useState<FilesPresentationInfo | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
-  const contentRef = useRef<HTMLDivElement>(null)
   const followRef = useRef(true)
   const olderRef = useRef<{ height: number; top: number } | null>(null)
   const streams = (adapter.streamingMessages ?? (adapter.streamingMessage ? [adapter.streamingMessage] : [])).filter(turn => !turn.done)
   const liveIds = new Set(streams.map(turn => turn.id))
   const messages = adapter.messages.filter(message => !liveIds.has(message.id))
+  const senderId = (id: string): string => adapter.senderAgentIds?.[id.split(':')[0]] || id.split(':')[0]
   const perform = useCallback((operation: () => Promise<unknown>): void => {
     setError(null)
     void operation().catch((cause: unknown) => setError(cause instanceof Error ? cause.message : '操作失败'))
   }, [])
   useEffect(() => {
-    const content = contentRef.current
-    if (!content) return
-    let frame = 0
-    const observer = new ResizeObserver(() => {
-      cancelAnimationFrame(frame)
-      frame = requestAnimationFrame(() => {
-        if (followRef.current && !olderRef.current && scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
-      })
-    })
-    observer.observe(content)
-    return () => { observer.disconnect(); cancelAnimationFrame(frame) }
-  }, [])
+    if (followRef.current && !olderRef.current && scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+  }, [messages.length, streams.length])
+  useEffect(() => {
+    if (!adapter.running) return
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [adapter.running])
   useLayoutEffect(() => {
     if (adapter.loadingOlderMessages || !olderRef.current || !scrollRef.current) return
     const element = scrollRef.current
@@ -72,42 +69,44 @@ export function MobileTeamChatSurface({ adapter }: { adapter: ConversationAdapte
     onOpenFiles: setFiles,
     onOpenResource: openResource,
   }
-  return <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, background: 'var(--bg)' }}>
-    <header style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 'calc(10px + var(--safe-top)) 16px 10px', background: 'var(--bg-card)', borderBottom: '1px solid var(--border-light)' }}>
-      <button aria-label="返回会话列表" onClick={() => navigate(resolveChatReturnTo(location.state))} style={{ width: 36, height: 36, flexShrink: 0 }}><ArrowLeft size={20} /></button>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 16, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{adapter.sessionTitle || '新团队会话'}</div>
-        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{adapter.agentName}<ConversationKindTag team /></div>
+  return <div style={styles.page}>
+    <header style={styles.header}>
+      <button aria-label="返回会话列表" onClick={() => navigate(resolveChatReturnTo(location.state))} style={styles.backBtn}><ArrowLeft size={20} /></button>
+      <div style={styles.headerInfo}>
+        <span style={styles.headerTitle}>{adapter.sessionTitle || '新团队会话'}</span>
+        <span style={styles.headerSub}><Bot size={11} style={{ marginRight: 3 }} />{adapter.agentName}<ConversationKindTag team /></span>
       </div>
-      <button aria-label={pinned ? '取消置顶' : '置顶会话'} onClick={() => { if (adapter.sessionId) perform(() => pinned ? pins.remove(adapter.sessionId!) : pins.add(adapter.sessionId!)) }} style={{ width: 32, height: 36, flexShrink: 0 }}>{pinned ? <PinOff size={18} /> : <Pin size={18} />}</button>
-      <button aria-label="查看项目文件" onClick={() => navigate('/files', { state: { projectId: adapter.projectId, sessionId: adapter.sessionId } })} style={{ width: 32, height: 36, flexShrink: 0 }}><FolderOpen size={20} /></button>
+      {adapter.running && <span style={styles.runningDot} />}
+      <button aria-label="查看文件" disabled={!adapter.projectId} title={adapter.projectId ? '查看项目文件' : '当前会话未绑定项目'} onClick={() => navigate('/files', { state: { projectId: adapter.projectId, sessionId: adapter.sessionId } })} style={{ ...styles.backBtn, opacity: adapter.projectId ? 1 : 0.4 }}><FolderOpen size={20} /></button>
     </header>
-    <div ref={scrollRef} style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '12px 0' }} onScroll={() => {
+    <div ref={scrollRef} style={styles.messages} onClick={() => { if (attention.open) attention.setOpen(false) }} onScroll={() => {
       const element = scrollRef.current
       if (!element) return
       followRef.current = element.scrollHeight - element.scrollTop - element.clientHeight <= 120
       if (element.scrollTop <= 80) loadOlder()
     }}>
-      <div ref={contentRef}>
-        {adapter.hasMoreMessages && <button disabled={adapter.loadingOlderMessages} onClick={loadOlder} style={{ width: '100%', padding: 8, color: 'var(--text-muted)' }}>{adapter.loadingOlderMessages ? '加载中…' : '加载更早消息'}</button>}
-        {adapter.loading && <div role="status" style={{ padding: 20 }}>加载中…</div>}
+      <div>
+        {(adapter.loading || adapter.loadingOlderMessages) && <div role="status" style={styles.loadingWrap}><span style={{ color: 'var(--text-muted)', fontSize: 13 }}>加载中...</span></div>}
         {messages.map(message => {
           if (message.sender_role === 'team-system') return <div key={message.id} style={{ margin: '8px 16px', padding: 8, color: 'var(--text-muted)', fontSize: 12, whiteSpace: 'pre-wrap' }}>{message.content}</div>
           const process = adapter.processByMessageId?.[message.id]
           const loaded = process?.loaded ? { ...message, processBlocks: process.blocks } : message
-          return <ChatBubble key={message.id} role={message.role === 'human' ? 'human' : 'agent'} agentId={message.sender_name}>
-            {message.role !== 'human' && <><strong>{message.sender_name || 'Master'}</strong><Assignment assignment={message.teamAssignment} />{loaded.processBlocks?.filter(block => block.kind === 'plan').map(block => block.kind === 'plan' ? <PlanBar key={block.id} plan={block.plan} /> : null)}</>}
+          return <ChatBubble key={message.id} role={message.role === 'human' ? 'human' : 'agent'} agentId={senderId(message.id)}>
+            {message.role !== 'human' && <><span style={styles.sender}>{message.sender_name || 'Master'}</span><Assignment assignment={message.teamAssignment} /></>}
             {message.role === 'human' ? <><span>{message.content}</span>{message.parsedAttachments?.map((image, index) => <AuthenticatedImage key={index} image={image} alt={image.name || '附件'} style={{ display: 'block', maxWidth: '100%', marginTop: 8 }} />)}</> : <TurnContent message={loaded} processLoading={process?.loading} processError={process?.error} onLoadProcess={(_session, id) => perform(() => adapter.loadMessageProcess(id))} {...media} />}
           </ChatBubble>
         })}
-        {streams.map(turn => <ChatBubble key={turn.id} role="agent" agentId={turn.senderName}><strong>{turn.senderName || 'Master'}</strong><Assignment assignment={turn.teamAssignment} />{turn.processBlocks.filter(block => block.kind === 'plan').map(block => block.kind === 'plan' ? <PlanBar key={block.id} plan={block.plan} /> : null)}<TurnContent streaming={turn} {...media} /></ChatBubble>)}
+        {streams.map(turn => <ChatBubble key={turn.id} role="agent" agentId={senderId(turn.id)}><span style={styles.sender}>{turn.senderName || 'Master'}</span><Assignment assignment={turn.teamAssignment} /><TurnContent streaming={turn} liveElapsedSeconds={turn.startedAt && Number.isFinite(Date.parse(turn.startedAt)) ? Math.max(0, Math.floor((now - Date.parse(turn.startedAt)) / 1000)) : undefined} {...media} /></ChatBubble>)}
         {adapter.pendingPermissions.map(request => <PermissionCard key={request.id} request={request} onRespond={(option, cancelled) => perform(() => adapter.respondPermission(request.id, option, cancelled))} />)}
         {adapter.pendingElicitations.map(request => <ElicitationCard key={request.id} request={request} onRespond={(action, content) => perform(() => adapter.respondElicitation(request.id, action, content))} />)}
       </div>
     </div>
-    {(error || adapter.error) && <button role="alert" style={{ padding: 10, color: 'var(--error)', textAlign: 'left' }} onClick={() => { if (adapter.reload) perform(adapter.reload) }}>{error || adapter.error}</button>}
+    {(error || adapter.error) && <div role="alert" style={styles.sendError}>{error || adapter.error}{adapter.error && adapter.reload && <button style={{ marginLeft: 8, fontSize: 'inherit', color: 'inherit' }} onClick={() => perform(adapter.reload!)}>重试同步</button>}</div>}
     <ConfigToolbar capabilities={adapter.capabilities} onSetModel={id => { if (adapter.setModel) perform(() => adapter.setModel!(id)) }} onSetMode={id => { if (adapter.setMode) perform(() => adapter.setMode!(id)) }} onSetConfig={(id, value) => { if (adapter.setConfig) perform(() => adapter.setConfig!(id, value)) }} />
-    <ChatInput onSend={(text, images) => { followRef.current = true; perform(() => adapter.sendPrompt(text, images)) }} onCancel={() => perform(adapter.cancel)} isRunning={adapter.running} disabled={!connected || adapter.sending || adapter.pendingPermissions.some(request => !request.resolved) || adapter.pendingElicitations.some(request => !request.resolved)} supportsImages={adapter.capabilities.supportsImages} />
+    <ChatInput onSend={(text, images) => { followRef.current = true; perform(() => adapter.sendPrompt(text, images)) }} onCancel={() => perform(adapter.cancel)} isRunning={adapter.running} disabled={!connected || adapter.sending || adapter.pendingPermissions.some(request => !request.resolved) || adapter.pendingElicitations.some(request => !request.resolved)} disabledPlaceholder={!connected ? (connectionStatus === 'connecting' ? '正在重连服务器...' : '连接失败，请先恢复连接') : '等待确认...'} supportsImages={adapter.capabilities.supportsImages}
+      actionsOpen={attention.open} onToggleActions={() => attention.setOpen(!attention.open)}
+      actionsPanel={<SessionAttentionPanel pinned={attention.pinned} canMarkUnread={messages.length > 0 && !!adapter.markUnread} pendingAction={attention.pending} onTogglePin={() => { void attention.togglePin() }} onMarkUnread={() => { void attention.markUnread() }} />}
+    />
     {files && <PresentedFilesOverlay presentation={files} onClose={() => setFiles(null)} />}
   </div>
 }

@@ -1,6 +1,9 @@
 import type { ClientMessage, RealtimeCursor, ServerMessage } from '../types/ws-protocol.js'
+import { createChildLogger } from '../shared/logger.js'
 import { RealtimeOutboundQueue } from './outbound-queue.js'
 import type { RealtimeConnectionClaims, RealtimeDelivery, RealtimeRpcState } from './protocol.js'
+
+const log = createChildLogger('realtime:hub')
 
 export interface RealtimeSocket {
   readonly OPEN: number
@@ -104,6 +107,7 @@ export class RealtimeHub {
       return
     }
     if (message.type === 'resume') {
+      log.debug({ connectionId }, 'Realtime client acknowledged snapshot recovery')
       connection.queue.acknowledgeResync()
       connection.cursors.clear()
       connection.acceptedCursors.clear()
@@ -156,7 +160,7 @@ export class RealtimeHub {
       const message = filterForClaims(delivery.message, connection.claims)
       if (this.hasCursorGap(connection, message)) {
         const sessionId = 'sessionId' in message ? message.sessionId : undefined
-        connection.queue.enqueueResync(sessionId, 'stream-cursor-gap')
+        if (!this.enqueueResync(connection, sessionId, 'stream-cursor-gap')) continue
         if (message.type === 'session:done') {
           this.acceptCursor(connection, message)
           this.enqueue(connection, message)
@@ -215,17 +219,28 @@ export class RealtimeHub {
   private enqueue(connection: ConnectionRecord, message: ServerMessage): void {
     const result = connection.queue.enqueue(message)
     if (result.closeRecommended) {
-      connection.socket.close(1013, 'Realtime client cannot keep up; refresh snapshot')
-      this.removeConnection(connection.id)
+      this.closeOverloadedConnection(connection, message.type)
       return
     }
     this.flush(connection)
   }
 
+  private enqueueResync(connection: ConnectionRecord, sessionId: string | undefined, reason: string): boolean {
+    if (!connection.queue.enqueueResync(sessionId, reason).closeRecommended) return true
+    this.closeOverloadedConnection(connection, 'resync_required')
+    return false
+  }
+
+  private closeOverloadedConnection(connection: ConnectionRecord, type: ServerMessage['type']): void {
+    log.warn({ connectionId: connection.id, type, queuedBytes: connection.queue.bytes }, 'Closing realtime connection to avoid silent frame loss')
+    connection.socket.close(1013, 'Realtime client cannot keep up; refresh snapshot')
+    this.removeConnection(connection.id)
+  }
+
   private flush(connection: ConnectionRecord): void {
     if (connection.sending || connection.socket.readyState !== connection.socket.OPEN) return
     if (connection.socket.bufferedAmount > this.options.maxBufferedBytes) {
-      connection.queue.enqueueResync(undefined, 'websocket-buffered-amount')
+      if (!this.enqueueResync(connection, undefined, 'websocket-buffered-amount')) return
       this.scheduleFlush(connection)
       return
     }

@@ -35,6 +35,7 @@ export interface ConversationAdapter {
   projectId?: string | null
   agentName?: string | null
   agentRuntime?: string | null
+  senderAgentIds?: Record<string, string>
   sessionTitle?: string | null
   messages: MessageData[]
   events?: SessionEventData[]
@@ -65,6 +66,7 @@ export interface ConversationAdapter {
   cancel: () => Promise<void>
   loadOlderMessages: () => Promise<void>
   reload?: () => Promise<void>
+  markUnread?: () => Promise<void>
   loadMessageProcess: (messageId: string) => Promise<void>
   loadFileChanges: (messageId: string) => Promise<void>
   loadProcessItemDetail: (messageId: string, itemId: string) => Promise<void>

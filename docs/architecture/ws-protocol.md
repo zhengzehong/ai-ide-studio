@@ -70,7 +70,18 @@ Realtime 只向订阅目标发送 Session 事件，全局元数据事件按认�
 | `ping` | `{ timestamp? }` | `pong` | Realtime 进程本地处理，不进入 API 事件循环；PC 每 15 秒发送，30 秒无任何入站帧时主动重连 |
 | `resume` | `{ cursors }` | `resume:ack` | 重连后提交客户端游标并恢复订阅流 |
 
-带游标的实时消息可包含 `streamGeneration` 与 `sequence`。generation 改变、sequence 跳号、单连接发送队列溢出或 socket 缓冲超过限制时，服务端发送 `{ type: "resync_required", sessionId?, reason }`；客户端先发送 resync acknowledgement 解除增量屏障，再通过 HTTP Query 读取最新 snapshot。服务端允许关键 `session:done` 排在 `resync_required` 之后送达，权限请求、提问和错误同样不会静默丢弃。
+带游标的实时消息可包含 `streamGeneration` 与 `sequence`。generation 改变、sequence 跳号、单连接发送队列溢出或 socket 缓冲超过限制时，服务端发送 `{ type: "resync_required", sessionId?, reason }`；客户端先发送 resume 解除增量屏障，再通过 HTTP Query 或 WS 轻量恢复查询读取新快照，按持久化序号合并期间接收的事件，完成后不再次清空实时游标。恢复期间 RPC 结果、关联错误、心跳和确认帧继续发送；超大 RPC 结果返回关联原 requestId 的明确错误，容量不足以保留控制消息时关闭连接，客户端立即结束未完成请求。服务端允许关键 `session:done` 排在 `resync_required` 之后送达。
+
+### WS 轻量恢复
+
+| 方法 | 参数 | 返回 |
+|---|---|---|
+| `sessions.recovery` | `{ sessionId, limit? }` | 仅 owner；`{ sessionId, latestSequence, events }`，复用 QueryPort 的状态事件过滤及完整游标 |
+| `sessions.messageEventsPage` | `{ sessionId, messageId, afterSequence?, throughSequence? }` | 仅 owner，校验消息归属；`{ items, nextSequence, hasMore }`，按固定恢复边界读取单轮事件 |
+
+单轮事件页面通常最多 100 条、128 KiB；单个较大事件可单独返回，但超过 1 MiB 明确报错。客户端只在 hasMore 为 true 时推进 nextSequence，不重复传输整条历史。旧 `sessions.events` 和 `sessions.messageEvents` 保留原协议，旧安装包仍可连接更新后的服务。
+
+`team.conversation.markUnread({ conversationId })` 仅 owner 可用，返回当前群聊有消息的来源 Session 的 `{ sessionId, lastReadAt }[]`；不改变其他群聊。客户端等待在途自动已读结束并暂停自动标读，再提交未读并离开详情。
 
 Runtime 可见 patch 不经过 API 事件总线，而是通过 Runtime→Realtime 认证本机管道直接进入同一个订阅分发器。该路径只接受服务内部 token 和长度前缀 Protobuf envelope；浏览器协议仍然是 JSON `session:update`。Runtime 只在发布可见 patch 时分配 `streamGeneration + sequence`，持久化复用同一 patch 的游标；Realtime 只验证和转发，不重新编号。
 
