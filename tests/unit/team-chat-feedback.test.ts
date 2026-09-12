@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { aggregateSnapshots, applyEventToSnapshot, emptySnapshot, finalizeSnapshot, mergeLoadedSnapshots, restoreTeamSnapshot } from '../../ui/src/components/team/team-chat-state'
 import { beginTeamPrompt, rejectTeamPrompt } from '../../ui/src/components/team/team-chat-pending'
+import { mergeTeamMessageRefresh } from '../../ui/src/components/team/team-chat-refresh'
 import type { MessageData, SessionEventData } from '../../ui/src/stores/session-events'
 
 const startedAt = '2026-09-11T00:00:00.000Z'
@@ -8,7 +9,7 @@ function human(id = 's1:h1'): MessageData {
   return { id, session_id: 's1', role: 'human', content: 'hello', thinking: null, tool_calls_json: null, decision_json: null, timestamp: startedAt }
 }
 function event(sequence: number, type: string, payload: Record<string, unknown> = {}, sessionId = 's1'): SessionEventData {
-  return { id: `e${sequence}`, session_id: sessionId, message_id: 'm1', sequence, type, payload_json: JSON.stringify({ messageId: 'm1', ...payload }), created_at: startedAt }
+  return { id: `e${sequence}`, session_id: sessionId, message_id: typeof payload.messageId === 'string' ? payload.messageId : 'm1', sequence, type, payload_json: JSON.stringify({ messageId: 'm1', ...payload }), created_at: startedAt }
 }
 function pending(): ReturnType<typeof applyEventToSnapshot> {
   return { s1: beginTeamPrompt(emptySnapshot('s1'), human()) }
@@ -46,10 +47,50 @@ describe('team prompt feedback', () => {
   })
 
   it('reconciles a completed history response instead of keeping a pending spinner', () => {
-    const loaded = restoreTeamSnapshot({ ...emptySnapshot('s1'), messages: [human(), { ...human('s1:m1'), role: 'agent', content: 'done', status: 'completed', completed_at: '2026-09-11T00:00:05.000Z' }] }, [], 3)
+    const loaded = restoreTeamSnapshot({ ...emptySnapshot('s1'), events: [event(1, 'message.user', { messageId: 'h1' }), event(2, 'lifecycle.prompt_received')], messages: [human(), { ...human('s1:m1'), role: 'agent', content: 'done', status: 'completed', completed_at: '2026-09-11T00:00:05.000Z' }] }, [], 3)
     const result = mergeLoadedSnapshots(pending(), { s1: loaded })
     expect(result.s1.streaming).toBeNull()
     expect(result.s1.running).toBe(false)
+  })
+
+  it('clears a recovered reply whose clock started 1ms before the human was persisted', () => {
+    const messages: MessageData[] = [
+      { ...human(), timestamp: '2026-09-11T00:00:00.001Z' },
+      { ...human('s1:m1'), role: 'agent', content: 'done', status: 'completed', started_at: startedAt, timestamp: '2026-09-11T00:00:05.000Z' },
+    ]
+    const events = [event(1, 'message.user', { messageId: 'h1' }), event(2, 'lifecycle.prompt_received')]
+    const loaded = restoreTeamSnapshot({ ...emptySnapshot('s1'), messages, events }, [], 3)
+    const member = applyEventToSnapshot({}, 's2', event(1, 'thinking.chunk', { thinking: 'working' }, 's2'), 's1').s2
+    const result = mergeLoadedSnapshots({ ...pending(), s2: member }, { s1: loaded })
+    expect(result.s1.streaming).toBeNull()
+    expect(result.s1.running).toBe(false)
+    expect(result.s1.messages.find(message => message.role === 'agent')?.content).toBe('done')
+    expect(result.s2).toBe(member)
+    expect(result.s2.running).toBe(true)
+  })
+
+  it('does not use a previous reply that finished after the next human timestamp', () => {
+    const messages: MessageData[] = [
+      { ...human('s1:old'), role: 'agent', content: 'old answer', status: 'completed', timestamp: '2026-09-11T00:00:05.000Z' },
+      human(),
+    ]
+    const events = [event(1, 'lifecycle.prompt_received', { messageId: 'old' }), event(2, 'message.user', { messageId: 'h1' })]
+    const loaded = restoreTeamSnapshot({ ...emptySnapshot('s1'), messages, events }, [], 2)
+    expect(mergeLoadedSnapshots(pending(), { s1: loaded }).s1.streaming?.id).toContain('pending-team-')
+  })
+
+  it('uses source-prefixed recovery events and a later message-only refresh to clear the right pending turn', () => {
+    const events = [event(1, 'message.user', { messageId: 'h1' }), event(2, 'lifecycle.prompt_received')]
+      .map(item => ({ ...item, id: `s1:${item.id}`, message_id: `s1:${item.message_id}` }))
+    const current = pending()
+    current.s1.events = events
+    const page = { ...emptySnapshot('s1'), messages: [human(), { ...human('s1:m1'), role: 'agent', content: 'done', status: 'completed', started_at: '2026-09-10T23:59:59.999Z' }] }
+    expect(mergeTeamMessageRefresh(current, 's1', page).s1.streaming).toBeNull()
+    const newer = beginTeamPrompt(current.s1, human('s1:h2'))
+    const done = finalizeSnapshot({ s1: newer }, 's1', 'm1')
+    const waiting = beginTeamPrompt(done.s1, human('s1:h3'))
+    const result = mergeTeamMessageRefresh({ s1: waiting }, 's1', page)
+    expect(result.s1.streaming?.id).toContain('h3')
   })
 
   it('rolls back a rejected pending send', () => {

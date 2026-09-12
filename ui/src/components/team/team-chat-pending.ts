@@ -1,5 +1,5 @@
 import { applyTurnEntry, createEmptyTurn } from '../../stores/turn-blocks'
-import type { MessageData, StreamingMessage } from '../../stores/session-events'
+import type { MessageData, SessionEventData, StreamingMessage } from '../../stores/session-events'
 import type { Snapshot } from './team-chat-state'
 
 const pendingId = (humanMessageId: string): string => `pending-team-${humanMessageId}`
@@ -8,12 +8,20 @@ export function isPendingTeamTurn(turn?: StreamingMessage | null): boolean {
   return !!turn?.id.startsWith('pending-team-')
 }
 
-export function pendingTeamPromptAnswered(turn: StreamingMessage | null | undefined, messages: MessageData[]): boolean {
+export function pendingTeamPromptAnswered(turn: StreamingMessage | null | undefined, messages: MessageData[], events: SessionEventData[]): boolean {
   if (!isPendingTeamTurn(turn)) return false
   const humanId = turn!.id.slice('pending-team-'.length)
-  const human = messages.find(message => message.id === humanId)
-  // Compare persisted timestamps on the same server, never server time against the client's clock.
-  return !!human && messages.some(message => message.role === 'agent' && Date.parse(message.started_at || message.timestamp) >= Date.parse(human.timestamp))
+  const ordered = [...events].sort((a, b) => a.sequence - b.sequence)
+  const human = ordered.find(event => event.type === 'message.user' && matchesEventMessage(humanId, event))
+  if (!human) return false
+  // A batch persists its human inputs before prompt_received names the actual
+  // reply. Turn clocks can start before persistence, so timestamps cannot link them.
+  const reply = ordered.find(event => event.sequence > human.sequence && event.type === 'lifecycle.prompt_received')
+  return !!reply && messages.some(message => message.role === 'agent' && matchesEventMessage(message.id, reply))
+}
+
+function matchesEventMessage(messageId: string, event: SessionEventData): boolean {
+  return !!event.message_id && (messageId === event.message_id || messageId === `${event.session_id}:${event.message_id}`)
 }
 
 export function beginTeamPrompt(snapshot: Snapshot, message: MessageData): Snapshot {
