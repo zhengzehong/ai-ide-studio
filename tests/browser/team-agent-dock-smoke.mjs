@@ -177,6 +177,22 @@ try {
   await page.getByText('系统默认 · 未指定档案', { exact: true }).waitFor()
   await page.getByRole('button', { name: '取消', exact: true }).click()
 
+  // 10. 成员行中断：仅 running 的成员行渲染停止按钮，点击立即 session.cancel（无确认）
+  if (await masterRow.locator('button.team-agent-dock-stop').count() !== 0) throw new Error('Master（leader）行不应渲染停止按钮')
+  if (await memberRow.locator('button.team-agent-dock-stop').count() !== 0) throw new Error('空闲成员行不应渲染停止按钮')
+  await page.getByRole('button', { name: '模拟成员执行中' }).click()
+  const memberStop = memberRow.locator('button.team-agent-dock-stop')
+  await memberStop.waitFor()
+  await memberStop.click()
+  // 取消进行中：按钮禁用防连点；待 80ms 取消结算后应只触发一次 session.cancel
+  if (!await memberStop.isDisabled()) throw new Error('取消进行中应禁用按钮防连点')
+  await expectEvents('cancel:s2')
+  const countCancelEvents = (raw) => raw.split('|').filter((item) => item.startsWith('cancel:')).length
+  await page.waitForTimeout(150) // 覆盖取消结算窗口，若防连点失效会在此出现第二次事件
+  if (countCancelEvents(await events()) !== 1) throw new Error('防连点失败：session.cancel 被触发多次')
+  await memberStop.waitFor({ state: 'visible' }) // 取消完成恢复可点（瞬态复位）
+  await page.getByRole('button', { name: '模拟成员执行中' }).click() // 还原空闲，不影响后续流程
+
   // 9. 移除：设置弹窗 → 移除成员 → 二次确认 → 行/计数同步
   await memberRow.hover()
   await memberRow.getByRole('button', { name: '成员操作' }).click()

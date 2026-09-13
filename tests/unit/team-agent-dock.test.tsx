@@ -92,4 +92,42 @@ describe('team agent dock rendering', () => {
     expect(html).not.toContain('class="team-agent-dock-row')
     expect(html).not.toContain('点击定位该成员消息')
   })
+
+  it('renders the stop button only for running non-leader members', () => {
+    const html = renderToStaticMarkup(createElement(TeamAgentDock, {
+      initialCollapsed: false,
+      members: [
+        member({ id: 'tm-0', name: 'Master', role: 'leader', session_id: 'master-session' }),
+        member({ id: 'tm-2', session_id: 'idle-session' }),
+        member(),
+      ],
+      statusBySessionId: {
+        'master-session': { running: true, waiting: false, label: '执行中' },
+        'idle-session': { running: false, waiting: false, label: '空闲' },
+        // 等待权限同样视为 running：允许中断
+        'session-1': { running: true, waiting: true, label: '等待权限' },
+      },
+      onLocate: () => undefined,
+      onOpenSettings: () => undefined,
+      onRemoveRequest: () => undefined,
+      onCancelMember: () => undefined,
+    }))
+    // 仅 Dev-GLM（running）一渲染停止按钮：aria-label 按成员名区分
+    expect(html).toContain('aria-label="停止 Dev-GLM"')
+    expect(html.split('class="team-agent-dock-stop').length - 1).toBe(1)
+    expect(html).not.toContain('停止 Master')
+    expect(html).toContain('title="停止该成员当前回合"')
+  })
+
+  it('hides the stop button for running members when no cancel handler is provided', () => {
+    const html = renderToStaticMarkup(createElement(TeamAgentDock, {
+      initialCollapsed: false,
+      members: [member()],
+      statusBySessionId: { 'session-1': { running: true, waiting: false, label: '执行中' } },
+      onLocate: () => undefined,
+      onOpenSettings: () => undefined,
+      onRemoveRequest: () => undefined,
+    }))
+    expect(html).not.toContain('class="team-agent-dock-stop')
+  })
 })

@@ -1,6 +1,6 @@
 /* eslint-disable react-refresh/only-export-components */
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactElement } from 'react'
-import { Bot, ChevronDown, Loader2, MoreHorizontal, Settings2, Trash2 } from 'lucide-react'
+import { Bot, ChevronDown, Loader2, MoreHorizontal, Settings2, Square, Trash2 } from 'lucide-react'
 import type { TeamChatMember } from './team-view-cache'
 import type { Snapshot } from './team-chat-state'
 
@@ -63,18 +63,42 @@ interface TeamAgentDockProps {
   onLocate: (member: TeamDockMember) => void
   onOpenSettings: (member: TeamDockMember) => void
   onRemoveRequest: (member: TeamDockMember) => void
+  /** 中断成员当前回合（session.cancel，与主输入框停止同语义）；leader 行不渲染停止按钮。返回值忽略（如 CommandReceipt）。 */
+  onCancelMember?: (member: TeamDockMember) => Promise<unknown> | void
 }
 
-export function TeamAgentDock({ members, statusBySessionId, initialCollapsed, onLocate, onOpenSettings, onRemoveRequest }: TeamAgentDockProps): ReactElement {
+export function TeamAgentDock({ members, statusBySessionId, initialCollapsed, onLocate, onOpenSettings, onRemoveRequest, onCancelMember }: TeamAgentDockProps): ReactElement {
   const [collapsed, setCollapsed] = useState(() => initialCollapsed ?? readInitialCollapsed())
   const [menu, setMenu] = useState<{ member: TeamDockMember; x: number; y: number } | null>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
+  // 中断瞬态反馈：点击后禁用防连点（Promise 结算前），失败短暂显示失败态后自动复位。
+  const [cancelPendingId, setCancelPendingId] = useState<string | null>(null)
+  const [cancelFailedId, setCancelFailedId] = useState<string | null>(null)
 
   const toggleCollapsed = (): void => {
     setCollapsed((current) => {
       const next = !current
       try { window.localStorage.setItem(COLLAPSE_STORAGE_KEY, next ? '1' : '0') } catch { /* 隐私模式等存储失败时仅本次会话内生效 */ }
       return next
+    })
+  }
+
+  useEffect(() => {
+    if (!cancelFailedId) return undefined
+    const timer = window.setTimeout(() => setCancelFailedId(null), 1600)
+    return () => window.clearTimeout(timer)
+  }, [cancelFailedId])
+
+  const cancelMember = (member: TeamDockMember): void => {
+    if (!onCancelMember || cancelPendingId) return
+    setCancelFailedId(null)
+    setCancelPendingId(member.session_id)
+    Promise.resolve(onCancelMember(member)).then(() => {
+      setCancelPendingId(null)
+    }).catch(() => {
+      // 取消失败：按钮短暂反色提示（title 同步），1.6s 后复位可重试。
+      setCancelPendingId(null)
+      setCancelFailedId(member.session_id)
     })
   }
 
@@ -98,8 +122,9 @@ export function TeamAgentDock({ members, statusBySessionId, initialCollapsed, on
 
   return (
     <div style={{ ...styles.dock }} data-team-agent-dock>
-      {/* 内联 style 无法表达 :hover，这里只放悬停反馈；变量全部来自 ui/src/index.css */}
-      <style>{`.team-agent-dock-row:hover{background:var(--bg-2)}.team-agent-dock-row:hover .team-agent-dock-more{opacity:1;background:var(--bg-3);color:var(--text-1)}.team-agent-dock-row .team-agent-dock-more:hover{background:var(--bg-4)}.team-agent-dock-head:hover{background:var(--bg-2)}`}</style>
+      {/* 内联 style 无法表达 :hover，这里只放悬停反馈；变量全部来自 ui/src/index.css。
+          行内按钮的默认隐藏（opacity:0）也必须放这里：内联 opacity 会压过 :hover 规则。 */}
+      <style>{`.team-agent-dock-row:hover{background:var(--bg-2)}.team-agent-dock-more{opacity:0}.team-agent-dock-row:hover .team-agent-dock-more{opacity:1;background:var(--bg-3);color:var(--text-1)}.team-agent-dock-row .team-agent-dock-more:hover{background:var(--bg-4)}.team-agent-dock-stop{opacity:0}.team-agent-dock-row:hover .team-agent-dock-stop{opacity:1}.team-agent-dock-stop.is-busy,.team-agent-dock-stop.is-failed{opacity:1}.team-agent-dock-stop.is-failed{background:var(--red);color:var(--bg-0)}.team-agent-dock-stop:hover{border-color:var(--red)}.team-agent-dock-head:hover{background:var(--bg-2)}`}</style>
       <button type="button" className="team-agent-dock-head" style={styles.head} onClick={toggleCollapsed} title={collapsed ? '展开团队 Agent 列表' : '收起团队 Agent 列表'}>
         <Bot size={13} aria-hidden />
         <span>团队 Agent · {members.length} 人</span>
@@ -123,6 +148,9 @@ export function TeamAgentDock({ members, statusBySessionId, initialCollapsed, on
               status={statusBySessionId[member.session_id] || { running: false, waiting: false, label: '空闲' }}
               onLocate={onLocate}
               onMenu={openMenu}
+              onCancel={member.role !== 'leader' && onCancelMember ? () => cancelMember(member) : undefined}
+              cancelling={cancelPendingId === member.session_id}
+              cancelFailed={cancelFailedId === member.session_id}
             />
           ))}
         </div>
@@ -144,12 +172,16 @@ export function TeamAgentDock({ members, statusBySessionId, initialCollapsed, on
   )
 }
 
-function DockMemberRow({ member, color, status, onLocate, onMenu }: {
+function DockMemberRow({ member, color, status, onLocate, onMenu, onCancel, cancelling, cancelFailed }: {
   member: TeamDockMember
   color: string
   status: TeamMemberLiveStatus
   onLocate: (member: TeamDockMember) => void
   onMenu: (member: TeamDockMember, x: number, y: number) => void
+  /** 仅 running 的非 leader 成员行由父级传入；空闲/leader 行不渲染停止按钮。 */
+  onCancel?: () => void
+  cancelling: boolean
+  cancelFailed: boolean
 }): ReactElement {
   const isMaster = member.role === 'leader'
   const effective = member.modelConfig?.effective
@@ -178,6 +210,19 @@ function DockMemberRow({ member, color, status, onLocate, onMenu }: {
       <div style={styles.sub}>
         <span style={styles.modelName}>{effective?.name || '系统默认'}</span>· {effective?.source || '未指定档案'}
       </div>
+      {onCancel && status.running && (
+        <button
+          type="button"
+          className={`team-agent-dock-stop conversation-stop${cancelling ? ' is-busy' : ''}${cancelFailed ? ' is-failed' : ''}`}
+          style={styles.stop}
+          disabled={cancelling}
+          onClick={(event) => { event.stopPropagation(); onCancel() }}
+          title={cancelFailed ? '取消失败，请重试' : '停止该成员当前回合'}
+          aria-label={`停止 ${member.name}`}
+        >
+          {cancelling ? <Loader2 size={11} style={styles.spin} aria-hidden /> : <Square size={10} fill="currentColor" aria-hidden />}
+        </button>
+      )}
       <button
         type="button"
         className="team-agent-dock-more"
@@ -309,7 +354,24 @@ const styles: Record<string, CSSProperties> = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    opacity: 0,
+  },
+  // 成员行停止按钮：视觉同主输入框 conversation-stop（Square + 红描边圆钮），尺寸适配成员行；
+  // 默认隐藏/hover 显现由注入的 <style> 控制（内联 opacity 会压过 :hover 规则）。
+  stop: {
+    position: 'absolute',
+    right: 38,
+    bottom: 8,
+    width: 24,
+    height: 24,
+    border: '1.5px solid var(--red)',
+    borderRadius: '50%',
+    background: 'transparent',
+    color: 'var(--red)',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 0,
   },
   menu: {
     position: 'fixed',
