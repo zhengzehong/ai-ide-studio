@@ -54,7 +54,6 @@ export function HotkeyManager(): null {
   const previousProjectId = useProjectStore((state) => state.previousProjectId)
   const sessions = useSessionStore((state) => state.sessions)
   const unreadSessionIds = useSessionStore((state) => state.unreadSessionIds)
-  const selectSession = useSessionStore((state) => state.selectSession)
   const { pinnedIds } = usePinnedProjects()
   const overrides = useHotkeyStore((state) => state.overrides)
   const validPinnedIds = pinnedIds.filter((id) => projects.some((project) => project.id === id))
@@ -105,8 +104,7 @@ export function HotkeyManager(): null {
         if (unread.length === 0) return
         const currentIndex = unread.findIndex((session) => session.id === useSessionStore.getState().currentSessionId)
         const target = unread[(currentIndex + 1 + unread.length) % unread.length]
-        if (location.pathname.includes('/workspace') && target.project_id === currentProjectId) selectSession(target.id)
-        else if (target.project_id) navigate(`/p/${target.project_id}/workspace?sessionId=${encodeURIComponent(target.id)}`)
+        if (target.project_id) navigate(`/p/${target.project_id}/workspace?sessionId=${encodeURIComponent(target.id)}`)
       }
       void queryClient.listSessions({}).then(routeToUnread).catch(() => routeToUnread(sessions))
       return true
@@ -117,7 +115,7 @@ export function HotkeyManager(): null {
       return true
     }
     return false
-  }, [currentProjectId, location.pathname, navigate, previousProjectId, projects, selectSession, sessions, switchProject, unreadSessionIds, validPinnedIds])
+  }, [currentProjectId, navigate, previousProjectId, projects, sessions, switchProject, unreadSessionIds, validPinnedIds])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {

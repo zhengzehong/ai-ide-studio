@@ -31,6 +31,7 @@ beforeEach(() => {
   useSessionStore.setState({
     sessions: [],
     currentSessionId: null,
+    visibleSessionId: 'session-a',
     unreadSessionIds: {},
   })
 })
