@@ -16,6 +16,11 @@ function notifyConversationChanged(conversation: TeamConversationRow): void {
 export interface TeamConversationDetail {
   conversation: TeamConversationRow
   members: TeamMemberRow[]
+  /**
+   * 已移除但本线仍有格子的成员：仅供群聊聚合视图保留其历史消息（DB 关系为软删除），
+   * 不参与 dock 成员行与成员交互。
+   */
+  removedMembers: TeamMemberRow[]
   messages: TeamMessageRow[]
 }
 
@@ -122,15 +127,21 @@ export function createTeamConversation(teamId: string, title?: string): TeamConv
     teamConversationStore.addMember(conversation.id, member.id, sessionId)
   }
   notifyConversationChanged(conversation)
-  return { conversation, members: withConversationSessions(conversation.id, members), messages: [] }
+  return { conversation, members: withConversationSessions(conversation.id, members), removedMembers: [], messages: [] }
 }
 
 export function getTeamConversation(conversationId: string): TeamConversationDetail {
   const conversation = teamConversationStore.get(conversationId)
   if (!conversation) throw new Error('团队会话不存在')
+  const allMembers = teamMemberStore.listAll(conversation.team_id)
+  const gridMemberIds = new Set(teamConversationStore.listMembers(conversation.id).map((entry) => entry.member_id))
   return {
     conversation,
-    members: withConversationSessions(conversation.id, teamMemberStore.list(conversation.team_id)),
+    members: withConversationSessions(conversation.id, allMembers.filter((member) => member.status !== 'removed')),
+    removedMembers: withConversationSessions(
+      conversation.id,
+      allMembers.filter((member) => member.status === 'removed' && gridMemberIds.has(member.id)),
+    ),
     messages: teamConversationStore.listMessages(conversation.id),
   }
 }

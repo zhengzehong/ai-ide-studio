@@ -4,6 +4,7 @@ import { buildAgentAutonomySystemPrompt } from '../../core/agent-autonomy-prompt
 import { buildProjectSecretarySystemPrompt } from '../../core/project-secretary-prompt.js'
 import type { RuntimeStateSnapshot } from '../../ports/runtime-port.js'
 import { agentStore } from '../../store/agents.js'
+import { modelProfileStore } from '../../store/model-profiles.js'
 import { projectStore } from '../../store/projects.js'
 import { messageStore, sessionStore } from '../../store/sessions.js'
 import { teamMemberStore } from '../../store/teams.js'
@@ -44,12 +45,16 @@ export function buildRuntimeStateSnapshot(input: BuildRuntimeStateSnapshotInput)
   const inheritedProfileId = teamMember
     ? resolveTeamInheritedProfileId(teamMember, agent.runtime)
     : undefined
+  // 团队成员系统提示词覆盖：仅本团队生效（替换成员 Agent 人设段，平台/团队/记忆提示不受影响），留空则用 Agent 原提示词。
+  const effectiveAgent = teamMember?.system_prompt_override?.trim()
+    ? { ...agent, system_prompt: teamMember.system_prompt_override }
+    : agent
   const runtimeEnv = agent.runtime === 'mock'
     ? { env: buildRuntimeEnv(agent.runtime), appliedProfile: undefined }
     : buildAgentRuntimeEnv(agent.runtime, agent, process.env, {
       ...(inheritedProfileId ? { modelProfileIdOverride: inheritedProfileId } : {}),
     })
-  const sessionMeta = buildAgentSessionMeta(agent.runtime, runtimeEnv.env, agent, {
+  const sessionMeta = buildAgentSessionMeta(agent.runtime, runtimeEnv.env, effectiveAgent, {
     sessionId: session.id,
     isPrimary: session.is_primary === 1,
     additionalPrompt: session.purpose === 'autonomy'
@@ -115,18 +120,43 @@ export function buildRuntimeStateSnapshot(input: BuildRuntimeStateSnapshotInput)
   }
 }
 
-function resolveTeamInheritedProfileId(
+/**
+ * 团队成员生效模型档案解析（执行层）。与 RPC `describeTeamMemberModelConfig` 的展示解析保持同一条链，展示即所得：
+ * - fixed：成员固定档案（档案被禁用/删除/运行时不匹配则继续向下回退）；
+ * - inherit：成员继承 Master —— Master 固定档案优先，否则按 Master 自身解析链（Agent 原配置 → 系统默认）；
+ * - system：成员固定档案与 Master 档案都不生效，按成员 Agent 原配置 → 系统默认（即返回 undefined 不覆盖）。
+ * 返回 undefined 表示不覆盖，由 buildAgentRuntimeEnv 按成员 Agent 自身配置解析。
+ */
+export function resolveTeamInheritedProfileId(
   member: NonNullable<ReturnType<typeof teamMemberStore.getBySession>>,
   runtime: string,
 ): string | undefined {
-  if (member.model_profile_id?.trim()) return member.model_profile_id.trim()
-  if (member.role === 'leader') return undefined
+  if (runtime !== 'claude' && runtime !== 'codex') return undefined
+  const mode = normalizeMemberProfileMode(member)
+  if (mode === 'fixed' && member.model_profile_id?.trim()) {
+    const profile = modelProfileStore.get(member.model_profile_id.trim())
+    if (profile && profile.enabled === 1 && profile.runtime === runtime) return profile.id
+  }
+  if (mode === 'system' || member.role === 'leader') return undefined
 
   const leaderMember = teamMemberStore.list(member.team_id).find((candidate) => candidate.role === 'leader')
   if (!leaderMember) return undefined
+  if (normalizeMemberProfileMode(leaderMember) === 'fixed' && leaderMember.model_profile_id?.trim()) {
+    const profile = modelProfileStore.get(leaderMember.model_profile_id.trim())
+    if (profile && profile.enabled === 1 && profile.runtime === runtime) return profile.id
+  }
+  if (mode !== 'inherit') return undefined
   const leaderAgent = agentStore.get(leaderMember.agent_id)
   if (!leaderAgent || leaderAgent.runtime !== runtime) return undefined
-  return resolveAgentModelProfile(runtime, leaderAgent, leaderMember.model_profile_id ?? undefined)?.profile.id
+  return resolveAgentModelProfile(runtime, leaderAgent)?.profile.id
+}
+
+/** 与展示层同规则的模式归一：显式 mode 优先；遗留行（migration 067 时代只有 model_profile_id）视为 fixed。 */
+function normalizeMemberProfileMode(member: { model_profile_mode: string | null; model_profile_id: string | null }): 'inherit' | 'fixed' | 'system' {
+  if (member.model_profile_mode === 'fixed' || member.model_profile_mode === 'system' || member.model_profile_mode === 'inherit') {
+    return member.model_profile_mode
+  }
+  return member.model_profile_id ? 'fixed' : 'inherit'
 }
 
 function cloneEnvironment(env: NodeJS.ProcessEnv): Record<string, string> {

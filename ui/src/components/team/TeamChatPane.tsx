@@ -1,6 +1,10 @@
 /* eslint-disable react-refresh/only-export-components */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
-import { ConversationPane } from '../chat/ConversationPane'
+import { RefreshCw } from 'lucide-react'
+import { ConversationComposer } from '../chat/ConversationComposer'
+import { ConversationMessageList } from '../chat/ConversationMessageList'
+import { InteractionPanel } from '../global-assistant/GlobalAssistantInteractions'
+import '../chat/conversation-pane.css'
 import type { ConversationAdapter, ConversationUploadedFile, ConversationProcessState } from '../chat/conversation-types'
 import type { FileChangeDetailInfo, FilesPresentationInfo, ImageAttachmentInfo, PreviewPresentationInfo, SessionEventData, TurnProcessItemInfo } from '../../stores/session-events'
 import type { OpenChatResource } from '../../services/chat-resource-links'
@@ -9,6 +13,7 @@ import { turnFromProcessItems } from '../../stores/turn-blocks'
 import { commandClient } from '../../services/command-client'
 import { wsClient } from '../../services/ws-client'
 import type { TeamData } from '../../stores/team.store'
+import { useModelStore } from '../../stores/model.store'
 import { loadOlderTeamPages, mergeOlderTeamPages } from './team-chat-history'
 import { loadTeamSession, loadTeamMessagePage } from './team-chat-loader'
 import { mergeTeamMessageRefresh, runTeamLoads, TeamRecoveryGate } from './team-chat-refresh'
@@ -17,6 +22,9 @@ import { useTeamRead } from './use-team-read'
 import { beginTeamPrompt, rejectTeamPrompt } from './team-chat-pending'
 import { subscribeTeamRecovery } from './team-chat-recovery'
 import { createTeamChatAdapter } from './team-chat-adapter'
+import { useTeamActivity } from './team-activity-view'
+import { deriveMemberStatus, TeamAgentDock, type TeamDockMember, type TeamMemberModelConfig } from './TeamAgentDock'
+import { TeamAgentSettingsModal, TeamMemberRemoveConfirm } from './TeamAgentSettingsModal'
 
 import { aggregateSnapshots, emptySnapshot, mergeLoadedSnapshots, finalizeSnapshot, applyEventToSnapshot, mergeProcessItem, normalizeCapabilities, type Snapshot } from './team-chat-state'
 export { aggregateSnapshots, emptySnapshot, mergeLoadedSnapshots, finalizeSnapshot, applyEventToSnapshot, updateStreaming, hasLiveStreaming, rebuildStreamingFromEvents, TEAM_STREAM_REBUILD_EVENT_LIMIT, type Snapshot } from './team-chat-state'
@@ -42,6 +50,8 @@ function TeamConversationPane({ team, conversation, masterSessionId, onOpenPrevi
   const [cached] = useState(() => teamChatCache.get(cacheKey))
   const [requestScope] = useState(newTeamRequestScope)
   const [members, setMembers] = useState<Member[]>(cached?.members || [])
+  // 已移除成员（服务端会话线下发）：仅保留其会话聚合与历史消息，不出现在 dock 成员行。
+  const [removedMembers, setRemovedMembers] = useState<Member[]>([])
   const [snapshots, setSnapshots] = useState<Record<string, Snapshot>>(cached?.snapshots || {})
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -59,6 +69,13 @@ function TeamConversationPane({ team, conversation, masterSessionId, onOpenPrevi
   const memberLabels = useRef(new Map<string, { name: string; role: string }>())
   const recoveryGate = useRef(new TeamRecoveryGate())
   const generation = useRef(0)
+  // 被移除成员的会话在本面板生命周期内保留订阅与聚合：历史消息不丢，正在执行的回合不被打断。
+  const retainedSessions = useRef(new Set<string>())
+  const [location, setLocation] = useState<{ messageId: string; request: number }>()
+  const locateRequestRef = useRef(0)
+  const [settingsMemberId, setSettingsMemberId] = useState<string | null>(null)
+  const [confirmMemberId, setConfirmMemberId] = useState<string | null>(null)
+  const [removing, setRemoving] = useState(false)
   const hasContent = useRef(!!cached)
   useEffect(() => {
     if (!conversation || !members.length || !Object.values(snapshots).some(snapshot => snapshot.messages.length || snapshot.streaming)) return
@@ -66,7 +83,10 @@ function TeamConversationPane({ team, conversation, masterSessionId, onOpenPrevi
     teamChatCache.set(cacheKey, { members, snapshots, sources: new Map(sourceMap.current) })
   }, [cacheKey, conversation, members, snapshots])
   const invalidateLoad = useCallback((): void => { generation.current++ }, [])
-  const sessionIds = useMemo(() => [...new Set([masterSessionId, ...members.map((member) => member.session_id)].filter((id): id is string => !!id))], [masterSessionId, members])
+  const sessionIds = useMemo(
+    () => [...new Set([masterSessionId, ...members.map((member) => member.session_id), ...removedMembers.map((member) => member.session_id), ...retainedSessions.current].filter((id): id is string => !!id))],
+    [masterSessionId, members, removedMembers],
+  )
   const visibleSnapshots = useMemo(() => Object.fromEntries(sessionIds.flatMap(id => snapshots[id] ? [[id, snapshots[id]]] : [])), [sessionIds, snapshots])
   const markUnread = useTeamRead(conversation?.id, visibleSnapshots)
 
@@ -76,10 +96,11 @@ function TeamConversationPane({ team, conversation, masterSessionId, onOpenPrevi
     const recoveryVersion = recoveryGate.current.version
     setLoading(!hasContent.current); setError(null)
     try {
-      const detail = await shareTeamRequest(`history:${cacheKey}:${requestScope}`, () => wsClient.request({ type: 'team.conversation.history', conversationId: conversation.id })) as { members?: Member[] }
+      const detail = await shareTeamRequest(`history:${cacheKey}:${requestScope}`, () => wsClient.request({ type: 'team.conversation.history', conversationId: conversation.id })) as { members?: Member[]; removedMembers?: Member[] }
       if (requestGeneration !== generation.current) return false
       const nextMembers = Array.isArray(detail.members) ? detail.members : []
-      const ids = [...new Set([conversation.master_session_id, ...nextMembers.map((member) => member.session_id)].filter((id): id is string => !!id))]
+      const nextRemoved = Array.isArray(detail.removedMembers) ? detail.removedMembers : []
+      const ids = [...new Set([conversation.master_session_id, ...nextMembers.map((member) => member.session_id), ...nextRemoved.map((member) => member.session_id), ...retainedSessions.current].filter((id): id is string => !!id))]
       const removed = [...subscribedSessions.current].filter(id => !ids.includes(id))
       removed.forEach(id => subscribedSessions.current.delete(id))
       wsClient.unsubscribe(removed)
@@ -89,7 +110,12 @@ function TeamConversationPane({ team, conversation, masterSessionId, onOpenPrevi
       setMembers(nextMembers)
       const labels = new Map<string, { name: string; role: string }>([[conversation.master_session_id, { name: 'Master', role: 'Master' }]])
       nextMembers.forEach((member) => labels.set(member.session_id, { name: member.name, role: member.role }))
+      // 被移除成员的格子仍在聚合里：用服务端保留的成员名署名，避免刷新后退化为 Agent。
+      nextRemoved.forEach((member) => { if (member.session_id) labels.set(member.session_id, { name: member.name, role: member.role }) })
+      // 被移除成员的格子仍在聚合里，保留其展示名，避免刷新后流式回复署名退化为 Agent。
+      retainedSessions.current.forEach((id) => { const previous = memberLabels.current.get(id); if (previous && !labels.has(id)) labels.set(id, previous) })
       memberLabels.current = labels
+      setRemovedMembers(nextRemoved)
       const results = await runTeamLoads(ids, async (sessionId) => {
         if (requestGeneration !== generation.current) return
         const label = labels.get(sessionId)
@@ -138,7 +164,9 @@ function TeamConversationPane({ team, conversation, masterSessionId, onOpenPrevi
     wsClient.subscribe(initialIds)
     const offReconnect = wsClient.on('reconnected', () => { void load() })
     const offTeam = wsClient.on('team:update', message => {
-      if (message.teamId !== team.id || !message.data || typeof message.data !== 'object' || (message.data as Record<string, unknown>).reason !== 'member.created') return
+      if (message.teamId !== team.id || !message.data || typeof message.data !== 'object') return
+      const reason = (message.data as Record<string, unknown>).reason
+      if (reason !== 'member.created' && reason !== 'member.removed' && reason !== 'member.updated') return
       invalidateTeamRequest(`history:${cacheKey}:${requestScope}`)
       void load()
     })
@@ -247,6 +275,101 @@ function TeamConversationPane({ team, conversation, masterSessionId, onOpenPrevi
       setProcessItemLoadingByKey((current) => { const next = { ...current }; delete next[key]; return next })
     }
   }, [processItemLoadingByKey])
-  const adapter = useMemo<ConversationAdapter>(() => createTeamChatAdapter({ snapshots, team, conversation, masterSessionId, aggregate, loading, error, sending, loadingOlder, processByMessageId, fileChanges, fileErrors, processItemLoadingByKey, processItemErrorByKey, sendPrompt, loadOlderMessages, loadMessageProcess, loadFileChanges, loadProcessItemDetail, reload: load, markUnread, senderAgentIds: Object.fromEntries(members.map(member => [member.session_id, member.agent_id])) }), [snapshots, aggregate, conversation, error, fileChanges, fileErrors, load, loadFileChanges, loadMessageProcess, loadOlderMessages, loadProcessItemDetail, loading, loadingOlder, masterSessionId, processByMessageId, processItemErrorByKey, processItemLoadingByKey, sendPrompt, sending, team, markUnread, members])
-  return renderSurface ? renderSurface(adapter) : <ConversationPane compactTeam adapter={adapter} onOpenPreview={onOpenPreview} onOpenFiles={onOpenFiles} onOpenResource={onOpenResource} />
+  const adapter = useMemo<ConversationAdapter>(() => createTeamChatAdapter({ snapshots, team, conversation, masterSessionId, aggregate, loading, error, sending, loadingOlder, processByMessageId, fileChanges, fileErrors, processItemLoadingByKey, processItemErrorByKey, sendPrompt, loadOlderMessages, loadMessageProcess, loadFileChanges, loadProcessItemDetail, reload: load, markUnread, senderAgentIds: Object.fromEntries([...members, ...removedMembers].map(member => [member.session_id, member.agent_id])) }), [snapshots, aggregate, conversation, error, fileChanges, fileErrors, load, loadFileChanges, loadMessageProcess, loadOlderMessages, loadProcessItemDetail, loading, loadingOlder, masterSessionId, processByMessageId, processItemErrorByKey, processItemLoadingByKey, sendPrompt, sending, team, markUnread, members, removedMembers])
+
+  // —— 团队 Agent dock：成员/状态/生效模型 + 设置与移除 ——
+  const dockMembers = members as TeamDockMember[]
+  const statusBySessionId = useMemo(
+    () => Object.fromEntries(sessionIds.map((id) => [id, deriveMemberStatus(snapshots[id])])) as Record<string, ReturnType<typeof deriveMemberStatus>>,
+    [sessionIds, snapshots],
+  )
+  const activity = useTeamActivity(adapter, true)
+  const modelProfiles = useModelStore((state) => state.profiles)
+  const fetchModelProfiles = useModelStore((state) => state.fetchProfiles)
+  const loadModelProfiles = useCallback(() => { void fetchModelProfiles() }, [fetchModelProfiles])
+  const settingsMember = dockMembers.find((member) => member.id === settingsMemberId) || null
+  const confirmMember = dockMembers.find((member) => member.id === confirmMemberId) || null
+  const masterEffective = dockMembers.find((member) => member.role === 'leader')?.modelConfig?.effective || null
+
+  const locateMember = useCallback((member: TeamDockMember): void => {
+    const latest = [...(snapshots[member.session_id]?.messages || [])].reverse().find((message) => message.role === 'agent')
+    if (!latest) return
+    locateRequestRef.current += 1
+    setLocation({ messageId: latest.id, request: locateRequestRef.current })
+  }, [snapshots])
+
+  const saveMemberConfig = useCallback(async (member: TeamDockMember, input: { modelProfileMode: 'inherit' | 'fixed' | 'system'; modelProfileId: string | null; systemPromptOverride: string | null }): Promise<void> => {
+    const config = await wsClient.request({ type: 'team.member.config.update', memberId: member.id, ...input }) as TeamMemberModelConfig
+    setMembers((current) => current.map((item) => item.id === member.id ? { ...item, modelConfig: config } as Member : item))
+    setSettingsMemberId(null)
+  }, [])
+
+  const removeMember = useCallback(async (member: TeamDockMember): Promise<void> => {
+    setRemoving(true)
+    try {
+      await wsClient.request({ type: 'team.member.remove', memberId: member.id })
+      if (member.session_id) retainedSessions.current.add(member.session_id)
+      setConfirmMemberId(null)
+      setSettingsMemberId(null)
+      await load()
+    } catch (cause) {
+      setError(`移除成员失败：${cause instanceof Error ? cause.message : '请重试'}`)
+      setConfirmMemberId(null)
+    } finally { setRemoving(false) }
+  }, [load])
+
+  if (renderSurface) return renderSurface(adapter)
+  return (
+    <main className="conversation-pane" data-conversation-pane>
+      <header className="conversation-header">
+        <div className="conversation-target">
+          <div className="conversation-agent-avatar">{(adapter.agentName || 'A').charAt(0).toUpperCase()}</div>
+          <div>
+            <div className="conversation-title"><strong>{adapter.agentName || 'Agent'}</strong>{adapter.sessionTitle && <><span>·</span><span>{adapter.sessionTitle}</span></>}</div>
+            <div className="conversation-subtitle">{adapter.agentRuntime || 'runtime'} · {adapter.running ? '运行中' : '空闲'}{adapter.projectId ? ` · ${adapter.projectId}` : ''}</div>
+          </div>
+        </div>
+        <div className="conversation-actions">
+          {adapter.reload && <button type="button" onClick={() => { void adapter.reload?.() }} title="重新加载消息"><RefreshCw size={14} /></button>}
+        </div>
+      </header>
+      <ConversationMessageList adapter={adapter} compactTeam location={location} onSeen={activity.markSeen} onOpenPreview={onOpenPreview} onOpenFiles={onOpenFiles} onOpenResource={onOpenResource} />
+      {(adapter.pendingPermissions.length > 0 || adapter.pendingElicitations.length > 0 || adapter.interactionError) && <div className="conversation-interactions">
+        {adapter.interactionError && <div className="conversation-interaction-error">{adapter.interactionError}</div>}
+        <InteractionPanel permission={adapter.pendingPermissions[0]} elicitation={adapter.pendingPermissions.length === 0 ? adapter.pendingElicitations[0] : undefined} onRespondPermission={adapter.respondPermission} onRespondElicitation={adapter.respondElicitation} />
+      </div>}
+      {conversation && dockMembers.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', flexShrink: 0, padding: '0 20px' }}>
+          <TeamAgentDock
+            members={dockMembers}
+            statusBySessionId={statusBySessionId}
+            onLocate={locateMember}
+            onOpenSettings={(member) => setSettingsMemberId(member.id)}
+            onRemoveRequest={(member) => { setSettingsMemberId(null); setConfirmMemberId(member.id) }}
+          />
+        </div>
+      )}
+      <ConversationComposer key={adapter.sessionId ?? 'empty'} adapter={adapter} />
+      {settingsMember?.modelConfig && (
+        <TeamAgentSettingsModal
+          member={settingsMember}
+          config={settingsMember.modelConfig}
+          masterEffective={masterEffective}
+          modelProfiles={modelProfiles}
+          onLoadProfiles={loadModelProfiles}
+          onSave={(input) => saveMemberConfig(settingsMember, input)}
+          onRemoveRequest={() => { setSettingsMemberId(null); setConfirmMemberId(settingsMember.id) }}
+          onClose={() => setSettingsMemberId(null)}
+        />
+      )}
+      {confirmMember && (
+        <TeamMemberRemoveConfirm
+          memberName={confirmMember.name}
+          busy={removing}
+          onCancel={() => setConfirmMemberId(null)}
+          onConfirm={() => { void removeMember(confirmMember) }}
+        />
+      )}
+    </main>
+  )
 }

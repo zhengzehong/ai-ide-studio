@@ -3,7 +3,28 @@ import { sessionManager } from '../../core/sessions.js'
 import type { RpcHandlerMap } from './types.js'
 import { modelProfileStore } from '../../store/model-profiles.js'
 import { getGlobalModelProfile } from '../../acp/runtime-global-model-profile.js'
+import { resolveAgentModelProfile } from '../../acp/model-profile-env.js'
+import { agentStore } from '../../store/agents.js'
+import { teamMemberStore, type TeamMemberRow } from '../../store/teams.js'
+import { events } from '../../core/events.js'
 import { markTeamConversationRead, markTeamConversationUnread } from '../../core/team-conversation-read.js'
+
+export type TeamMemberModelProfileMode = 'inherit' | 'fixed' | 'system'
+
+export interface TeamMemberEffectiveModel {
+  name: string
+  source: string
+}
+
+export interface TeamMemberModelConfig {
+  modelProfileMode: TeamMemberModelProfileMode
+  modelProfileId: string | null
+  systemPromptOverride: string | null
+  runtime: string
+  effective: TeamMemberEffectiveModel
+  /** 不继承任何档案时的解析结果（Agent 原配置 → 系统默认），供「使用系统默认」策略在弹窗内预览。 */
+  fallback: TeamMemberEffectiveModel
+}
 
 export const teamRpcHandlers: RpcHandlerMap = {
   'teams.defaults'(_msg, { sendResult }) {
@@ -58,7 +79,9 @@ export const teamRpcHandlers: RpcHandlerMap = {
     sendResult(teamService.createConversation(requiredText(msg.teamId, 'teamId'), typeof msg.title === 'string' ? msg.title : undefined))
   },
   'team.conversation.history'(msg, { sendResult }) {
-    sendResult(teamService.conversationDetail(requiredText(msg.conversationId, 'conversationId')))
+    const detail = teamService.conversationDetail(requiredText(msg.conversationId, 'conversationId'))
+    // 生效模型来源由后端解析后随成员下发，前端只展示不计算。
+    sendResult({ ...detail, members: detail.members.map((member) => ({ ...member, modelConfig: describeTeamMemberModelConfig(member) })) })
   },
   'team.conversation.markRead'(msg, { sendResult }) {
     sendResult(markTeamConversationRead(requiredText(msg.conversationId, 'conversationId'), msg.messages))
@@ -81,6 +104,131 @@ export const teamRpcHandlers: RpcHandlerMap = {
     if (!sessionId) throw new Error('sessionId 不能为空')
     sendResult(teamService.currentBySession(sessionId))
   },
+  'team.member.config.get'(msg, { state, sendResult }) {
+    requireOwner(state)
+    sendResult(describeTeamMemberModelConfig(requireActiveTeamMember(requiredText(msg.memberId, 'memberId'))))
+  },
+  'team.member.config.update'(msg, { state, sendResult }) {
+    requireOwner(state)
+    const member = requireActiveTeamMember(requiredText(msg.memberId, 'memberId'))
+    const mode = normalizeModelProfileMode(msg.modelProfileMode)
+    // 固定档案必须存在、启用且与成员 Agent 运行时匹配；inherit/system 不绑定档案（留空则按解析链回退）。
+    const modelProfileId = mode === 'fixed' ? requiredText(msg.modelProfileId, 'modelProfileId') : null
+    if (modelProfileId) assertProfileUsable(modelProfileId, memberRuntime(member))
+    const systemPromptOverride = typeof msg.systemPromptOverride === 'string' && msg.systemPromptOverride.trim().length > 0
+      ? msg.systemPromptOverride
+      : null
+    const updated = teamMemberStore.updateConfig(member.id, { modelProfileMode: mode, modelProfileId, systemPromptOverride })
+    if (!updated) throw new Error(`Team member 不存在: ${member.id}`)
+    emitTeamUpdate(updated.team_id, 'member.updated')
+    sendResult(describeTeamMemberModelConfig(updated))
+  },
+  'team.member.remove'(msg, { state, sendResult }) {
+    requireOwner(state)
+    const member = requireActiveTeamMember(requiredText(msg.memberId, 'memberId'))
+    if (member.role === 'leader') throw new Error('Master 为团队主控，不可移除')
+    // 仅解除团队关系：不删项目 Agent、不删历史消息，也不打断正在执行的回合。
+    const removed = teamMemberStore.remove(member.id)
+    if (!removed) throw new Error(`Team member 不存在: ${member.id}`)
+    emitTeamUpdate(removed.team_id, 'member.removed')
+    sendResult({ ok: true })
+  },
+}
+
+/** 生效模型解析顺序：成员独立 → Master 档案 → Agent 原配置 → 系统默认。 */
+export function describeTeamMemberModelConfig(member: TeamMemberRow): TeamMemberModelConfig {
+  const runtime = memberRuntime(member)
+  const modelProfileMode = normalizeModelProfileMode(member.model_profile_mode ?? (member.model_profile_id ? 'fixed' : 'inherit'))
+  return {
+    modelProfileMode,
+    modelProfileId: member.model_profile_id,
+    systemPromptOverride: member.system_prompt_override,
+    runtime,
+    effective: resolveEffectiveModel(member, modelProfileMode, runtime),
+    fallback: resolveFallbackModel(member.agent_id, runtime),
+  }
+}
+
+function resolveEffectiveModel(member: TeamMemberRow, mode: TeamMemberModelProfileMode, runtime: string): TeamMemberEffectiveModel {
+  if (runtime !== 'claude' && runtime !== 'codex') return { name: '系统默认', source: '未指定档案' }
+  // 1. 成员独立（固定档案；档案失效则继续向下解析）
+  if (mode === 'fixed' && member.model_profile_id) {
+    const profile = modelProfileStore.get(member.model_profile_id)
+    if (profile && profile.enabled === 1 && profile.runtime === runtime) {
+      return { name: profile.name, source: member.role === 'leader' ? 'Master 档案' : '独立配置' }
+    }
+  }
+  // 2. Master 档案（成员继承；Master 自己无上级，跳过）
+  if (member.role !== 'leader' && mode !== 'system') {
+    const leader = teamMemberStore.list(member.team_id).find((candidate) => candidate.role === 'leader')
+    if (leader) {
+      const leaderMode = normalizeModelProfileMode(leader.model_profile_mode ?? (leader.model_profile_id ? 'fixed' : 'inherit'))
+      if (leaderMode === 'fixed' && leader.model_profile_id) {
+        const profile = modelProfileStore.get(leader.model_profile_id)
+        if (profile && profile.enabled === 1 && profile.runtime === runtime) return { name: profile.name, source: '继承 Master' }
+      }
+      if (mode === 'inherit') {
+        // Master 未固定档案时按其自身解析链（Agent 原配置 → 系统默认）展示，来源仍标注为继承 Master。
+        return { ...resolveFallbackModel(leader.agent_id, runtime), source: '继承 Master' }
+      }
+    }
+  }
+  return resolveFallbackModel(member.agent_id, runtime)
+}
+
+function resolveFallbackModel(agentId: string, runtime: string): TeamMemberEffectiveModel {
+  const agent = agentStore.get(agentId)
+  // 3. Agent 原配置（Agent 自身的档案模式/固定档案）
+  if (agent) {
+    const resolved = resolveAgentModelProfile(runtime, agent)
+    if (resolved) return { name: resolved.profile.name, source: 'Agent 配置' }
+  }
+  // 4. 系统默认（Runtime 全局档案；未启用则为未指定档案）
+  const global = getGlobalModelProfile(runtime === 'codex' ? 'codex' : 'claude')
+  if (global.enabled && global.profileId) {
+    const profile = modelProfileStore.get(global.profileId)
+    if (profile && profile.enabled === 1 && profile.runtime === runtime) return { name: profile.name, source: '系统默认' }
+  }
+  return { name: '系统默认', source: '未指定档案' }
+}
+
+function normalizeModelProfileMode(value: unknown): TeamMemberModelProfileMode {
+  return value === 'fixed' || value === 'system' || value === 'inherit' ? value : 'inherit'
+}
+
+function memberRuntime(member: TeamMemberRow): string {
+  return agentStore.get(member.agent_id)?.runtime ?? 'claude'
+}
+
+function assertProfileUsable(profileId: string, runtime: string): void {
+  const profile = modelProfileStore.get(profileId)
+  if (!profile || profile.enabled !== 1) throw new Error('模型档案不存在或已禁用')
+  if (profile.runtime !== runtime) throw new Error('模型档案运行时与成员 Agent 运行时不匹配')
+}
+
+function requireTeamMember(memberId: string): TeamMemberRow {
+  const member = teamMemberStore.get(memberId)
+  if (!member) throw new Error(`Team member 不存在: ${memberId}`)
+  return member
+}
+
+/** 成员级配置读写仅限 active 成员：已移除成员（status='removed'）拒绝读写。 */
+function requireActiveTeamMember(memberId: string): TeamMemberRow {
+  const member = requireTeamMember(memberId)
+  if (member.status === 'removed') throw new Error('成员已从团队移除，无法读取或修改配置')
+  return member
+}
+
+function requireOwner(state: { authMode: string }): void {
+  if (state.authMode !== 'owner') throw new Error('仅所有者可管理团队成员配置')
+}
+
+function emitTeamUpdate(teamId: string, reason: string): void {
+  events.emit('team:update', {
+    teamId,
+    sessionIds: teamMemberStore.list(teamId).map((member) => member.session_id),
+    data: { reason },
+  })
 }
 
 function requiredText(value: unknown, field: string): string {
