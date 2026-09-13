@@ -13,6 +13,7 @@ function member(overrides: Partial<TeamDockMember> = {}): TeamDockMember {
       modelProfileMode: 'inherit', modelProfileId: null, systemPromptOverride: null, runtime: 'claude',
       effective: { name: 'gpt-6-astra', source: '继承 Master' },
       fallback: { name: '系统默认', source: '未指定档案' },
+      agentSystemPrompt: '成员模板人设提示词',
     },
     ...overrides,
   }
@@ -49,8 +50,9 @@ describe('team member live status derivation', () => {
 describe('team agent dock rendering', () => {
   it('renders member rows with role tags and the effective model source from the backend', () => {
     const html = renderToStaticMarkup(createElement(TeamAgentDock, {
+      initialCollapsed: false,
       members: [
-        member({ id: 'tm-0', name: 'Master', role: 'leader', session_id: 'master-session', modelConfig: { modelProfileMode: 'fixed', modelProfileId: 'p1', systemPromptOverride: null, runtime: 'claude', effective: { name: 'gpt-6-astra', source: 'Master 档案' }, fallback: { name: 'gpt-6-astra', source: 'Agent 配置' } } }),
+        member({ id: 'tm-0', name: 'Master', role: 'leader', session_id: 'master-session', modelConfig: { modelProfileMode: 'fixed', modelProfileId: 'p1', systemPromptOverride: null, runtime: 'claude', effective: { name: 'gpt-6-astra', source: 'Master 档案' }, fallback: { name: 'gpt-6-astra', source: 'Agent 配置' }, agentSystemPrompt: 'Master 人设' } }),
         member(),
       ],
       statusBySessionId: {
@@ -72,17 +74,19 @@ describe('team agent dock rendering', () => {
     expect(html).toContain('点击定位该成员消息')
   })
 
-  it('hides the body when collapsed and keeps the header count', () => {
-    const element = createElement(TeamAgentDock, {
+  it('collapses by default to a floating bar with status dots but no member rows', () => {
+    const html = renderToStaticMarkup(createElement(TeamAgentDock, {
       members: [member()],
       statusBySessionId: { 'session-1': { running: false, waiting: false, label: '空闲' } },
       onLocate: () => undefined,
       onOpenSettings: () => undefined,
       onRemoveRequest: () => undefined,
-    })
-    const expanded = renderToStaticMarkup(element)
-    expect(expanded).toContain('团队 Agent · 1 人')
-    // 折叠由组件内部状态控制；初始渲染总是展开（默认展开）
-    expect(expanded).toContain('team-agent-dock-row')
+    }))
+    expect(html).toContain('团队 Agent · 1 人')
+    // 默认收起：悬浮细条（position:absolute）只有头部，不渲染成员行、不占布局
+    expect(html).toContain('position:absolute')
+    // 组件内置 <style> 里也带 .team-agent-dock-row 选择器，只认元素本身的 class
+    expect(html).not.toContain('class="team-agent-dock-row')
+    expect(html).not.toContain('点击定位该成员消息')
   })
 })

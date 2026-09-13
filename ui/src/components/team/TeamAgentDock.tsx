@@ -13,6 +13,8 @@ export interface TeamMemberModelConfig {
   effective: { name: string; source: string }
   /** 不继承任何档案时的解析结果（Agent 原配置 → 系统默认），供「使用系统默认」策略预览。 */
   fallback: { name: string; source: string }
+  /** 成员 Agent 当前真实生效的原始 system_prompt（后端下发，含 Master spawn 时配置的值），空则 null。 */
+  agentSystemPrompt: string | null
 }
 
 export interface TeamDockMember extends TeamChatMember {
@@ -43,18 +45,36 @@ export function deriveMemberStatus(snapshot: Pick<Snapshot, 'streaming' | 'permi
 
 const AVATAR_COLORS = ['var(--blue)', 'var(--purple)', 'var(--green)', '#0891b2', 'var(--yellow)', '#64748b']
 
+/** 收起状态记忆：默认收起；用户显式展开过（'0'）则保持展开，切会话不丢。 */
+const COLLAPSE_STORAGE_KEY = 'team-agent-dock-collapsed'
+
+function readInitialCollapsed(): boolean {
+  if (typeof window === 'undefined') return true
+  try { return window.localStorage.getItem(COLLAPSE_STORAGE_KEY) !== '0' } catch { return true }
+}
+
 interface TeamAgentDockProps {
   members: TeamDockMember[]
   statusBySessionId: Record<string, TeamMemberLiveStatus>
+  /** 覆盖初始收起态（仅测试用）；默认读 localStorage 记忆，无记录时收起。 */
+  initialCollapsed?: boolean
   onLocate: (member: TeamDockMember) => void
   onOpenSettings: (member: TeamDockMember) => void
   onRemoveRequest: (member: TeamDockMember) => void
 }
 
-export function TeamAgentDock({ members, statusBySessionId, onLocate, onOpenSettings, onRemoveRequest }: TeamAgentDockProps): ReactElement {
-  const [collapsed, setCollapsed] = useState(false)
+export function TeamAgentDock({ members, statusBySessionId, initialCollapsed, onLocate, onOpenSettings, onRemoveRequest }: TeamAgentDockProps): ReactElement {
+  const [collapsed, setCollapsed] = useState(() => initialCollapsed ?? readInitialCollapsed())
   const [menu, setMenu] = useState<{ member: TeamDockMember; x: number; y: number } | null>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
+
+  const toggleCollapsed = (): void => {
+    setCollapsed((current) => {
+      const next = !current
+      try { window.localStorage.setItem(COLLAPSE_STORAGE_KEY, next ? '1' : '0') } catch { /* 隐私模式等存储失败时仅本次会话内生效 */ }
+      return next
+    })
+  }
 
   useEffect(() => {
     if (!menu) return undefined
@@ -78,7 +98,7 @@ export function TeamAgentDock({ members, statusBySessionId, onLocate, onOpenSett
     <div style={{ ...styles.dock }} data-team-agent-dock>
       {/* 内联 style 无法表达 :hover，这里只放悬停反馈；变量全部来自 ui/src/index.css */}
       <style>{`.team-agent-dock-row:hover{background:var(--bg-2)}.team-agent-dock-row:hover .team-agent-dock-more{opacity:1;background:var(--bg-3);color:var(--text-1)}.team-agent-dock-row .team-agent-dock-more:hover{background:var(--bg-4)}.team-agent-dock-head:hover{background:var(--bg-2)}`}</style>
-      <button type="button" className="team-agent-dock-head" style={styles.head} onClick={() => setCollapsed((current) => !current)} title={collapsed ? '展开团队 Agent 列表' : '收起团队 Agent 列表'}>
+      <button type="button" className="team-agent-dock-head" style={styles.head} onClick={toggleCollapsed} title={collapsed ? '展开团队 Agent 列表' : '收起团队 Agent 列表'}>
         <Bot size={13} aria-hidden />
         <span>团队 Agent · {members.length} 人</span>
         <span style={styles.headDots}>
@@ -180,17 +200,23 @@ function menuPositionStyles(x: number, y: number): CSSProperties {
 }
 
 const styles: Record<string, CSSProperties> = {
+  // 悬浮层：脱离文档流，锚在 Composer 上方右侧（容器为 TeamChatPane 里 position:relative 的 Composer 包裹层）。
+  // 根元素尺寸即视觉尺寸（收起=细条，展开=面板），不产生额外挡点击的透明区域。
   dock: {
+    position: 'absolute',
+    right: 20,
+    bottom: 'calc(100% + 8px)',
+    zIndex: 40,
+    display: 'flex',
+    flexDirection: 'column',
     width: 320,
-    maxWidth: '100%',
-    marginBottom: 8,
+    maxWidth: 'calc(100vw - 40px)',
+    maxHeight: '50vh',
     overflow: 'hidden',
     border: '1px solid var(--border)',
     borderRadius: 12,
     background: 'var(--bg-0)',
-    boxShadow: 'var(--shadow-md)',
-    alignSelf: 'flex-end',
-    flexShrink: 0,
+    boxShadow: 'var(--shadow-lg)',
   },
   head: {
     display: 'flex',
@@ -211,7 +237,7 @@ const styles: Record<string, CSSProperties> = {
   headDotBusy: { background: 'var(--green)', animation: 'session-running-pulse 1.6s ease-in-out infinite' },
   chev: { marginLeft: 'auto', color: 'var(--text-3)', display: 'flex', transition: 'transform 0.15s' },
   chevCollapsed: { transform: 'rotate(-90deg)' },
-  body: { padding: 7, display: 'flex', flexDirection: 'column' },
+  body: { padding: 7, display: 'flex', flexDirection: 'column', overflowY: 'auto', minHeight: 0 },
   hint: { fontSize: 11.5, color: 'var(--text-3)', padding: '0 3px 6px' },
   row: {
     position: 'relative',

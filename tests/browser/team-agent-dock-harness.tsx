@@ -45,13 +45,18 @@ function Harness() {
   return (
     <main>
       <div id="events">{events.join('|')}</div>
-      <TeamAgentDock
-        members={members}
-        statusBySessionId={statusBySessionId}
-        onLocate={(member) => log(`locate:${member.id}`)}
-        onOpenSettings={(member) => setSettingsId(member.id)}
-        onRemoveRequest={(member) => { setSettingsId(null); setConfirmId(member.id) }}
-      />
+      <div style={{ height: 320, background: 'var(--bg-2, #f5f5f5)' }}>消息列表占位（dock 悬浮层不应挤压此区域高度）</div>
+      {/* 与 TeamChatPane 一致：dock 锚在 position:relative 的 Composer 包裹层上方 */}
+      <div style={{ position: 'relative', flexShrink: 0 }}>
+        <TeamAgentDock
+          members={members}
+          statusBySessionId={statusBySessionId}
+          onLocate={(member) => log(`locate:${member.id}`)}
+          onOpenSettings={(member) => setSettingsId(member.id)}
+          onRemoveRequest={(member) => { setSettingsId(null); setConfirmId(member.id) }}
+        />
+        <div id="composer" style={{ height: 56, margin: '0 20px 16px', border: '1px solid #ccc', display: 'flex', alignItems: 'center', padding: '0 12px' }}>Composer 占位</div>
+      </div>
       {settingsMember?.modelConfig && (
         <TeamAgentSettingsModal
           member={settingsMember}

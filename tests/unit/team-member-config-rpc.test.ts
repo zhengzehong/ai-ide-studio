@@ -5,6 +5,7 @@ import { resolve } from 'node:path'
 import { agentStore } from '../../src/store/agents.js'
 import { closeDatabase, initDatabase } from '../../src/store/db.js'
 import { ensureMemberInConversation } from '../../src/core/team-conversations.js'
+import { teamService } from '../../src/core/teams.js'
 import { modelProfileStore } from '../../src/store/model-profiles.js'
 import { modelProviderStore } from '../../src/store/model-providers.js'
 import { projectStore } from '../../src/store/projects.js'
@@ -189,6 +190,26 @@ describe('team member config RPC', () => {
     const f = setup()
     expect(() => callRpc('team.member.remove', { memberId: f.leaderMemberId })).toThrow('Master 为团队主控，不可移除')
     expect(() => callRpc('team.member.config.get', { memberId: 'tm-missing' })).toThrow('Team member 不存在')
+  })
+
+  test('returns the member agent real system prompt, including values configured at spawn time', () => {
+    const f = setup()
+    // Master 用 team_member_spawn 配置了 systemPrompt 的成员：真实原值必须回传。
+    const spawned = teamService.spawnMember({
+      teamId: f.teamId, name: '检查员-C', type: 'coder', runtime: 'claude', systemPrompt: 'Master 配置的检查员人设',
+    })
+    const spawnConfig = callRpc('team.member.config.get', { memberId: spawned.member.id }) as { agentSystemPrompt: string | null }
+    expect(spawnConfig.agentSystemPrompt).toBe('Master 配置的检查员人设')
+
+    // Agent 定义后续修改：预览跟随真实值；未设置则为 null。
+    const memberAgentId = teamMemberStore.get(f.memberId)!.agent_id
+    agentStore.update(memberAgentId, { systemPrompt: '成员原始人设提示词' })
+    const updated = callRpc('team.member.config.get', { memberId: f.memberId }) as { agentSystemPrompt: string | null }
+    expect(updated.agentSystemPrompt).toBe('成员原始人设提示词')
+
+    agentStore.update(memberAgentId, { systemPrompt: '' })
+    const cleared = callRpc('team.member.config.get', { memberId: f.memberId }) as { agentSystemPrompt: string | null }
+    expect(cleared.agentSystemPrompt).toBeNull()
   })
 
   test('removed member stays in the conversation payload so history survives re-entry', () => {
