@@ -9,9 +9,17 @@ import { buildLeaderWakePrompt } from './team-prompts.js'
 
 const log = createChildLogger('team-wake')
 const WAKE_MAILBOX_TYPES = new Set(['report', 'result', 'question', 'blocked'])
+// 'message' 是 team.mailbox.send 的默认类型；带 task_id 的 message 实质是任务汇报，放行防止静默丢唤醒。
+const WAKE_TASK_BOUND_TYPES = new Set(['message'])
 const WAKE_TASK_STATUSES = new Set(['completed', 'needs_input'])
 const WAKE_DELAY_MS = 2_000
 const TASK_MAILBOX_WAKE_DELAY_MS = 15_000
+
+/** mailbox 唤醒资格：白名单类型，或带 task_id 的默认类型（成员不传 type 的汇报）。 */
+function shouldWakeOnMailbox(message: TeamMailboxRow): boolean {
+  return WAKE_MAILBOX_TYPES.has(message.type)
+    || (Boolean(message.task_id) && WAKE_TASK_BOUND_TYPES.has(message.type))
+}
 const activeLeaderSessions = new Set<string>()
 const pendingByLeaderSession = new Map<string, string>()
 const wakeTimers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -51,7 +59,7 @@ export const teamWakeCoordinator = {
   },
 
   notifyMailbox(message: TeamMailboxRow, sourceSessionId?: string): void {
-    if (!message.from_member_id || !WAKE_MAILBOX_TYPES.has(message.type)) return
+    if (!message.from_member_id || !shouldWakeOnMailbox(message)) return
     const team = teamStore.get(message.team_id)
     const member = teamMemberStore.get(message.from_member_id)
     if (!team || !member || member.role === 'leader') return
