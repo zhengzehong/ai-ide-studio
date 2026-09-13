@@ -23,6 +23,8 @@ export interface TeamMemberRow {
   name: string
   role: string
   model_profile_id: string | null
+  model_profile_mode: string | null
+  system_prompt_override: string | null
   status: string
   created_at: string
   updated_at: string
@@ -72,6 +74,14 @@ export interface CreateTeamMemberInput {
   name: string
   role?: string
   modelProfileId?: string
+  modelProfileMode?: 'inherit' | 'fixed' | 'system'
+  systemPromptOverride?: string
+}
+
+export interface UpdateTeamMemberConfigInput {
+  modelProfileMode?: 'inherit' | 'fixed' | 'system'
+  modelProfileId?: string | null
+  systemPromptOverride?: string | null
 }
 
 export interface CreateTeamMailboxInput {
@@ -166,13 +176,13 @@ export const teamStore = {
 export const teamMemberStore = {
   create(input: CreateTeamMemberInput): TeamMemberRow {
     const now = new Date().toISOString()
-    const existing = getDb().prepare<[string, string], TeamMemberRow>(`
+    const row = getDb().prepare<[string, string], TeamMemberRow>(`
       SELECT * FROM team_members
-      WHERE team_id = ? AND agent_id = ? AND status != 'removed'
+      WHERE team_id = ? AND agent_id = ?
     `).get(input.teamId, input.agentId)
-    if (existing) throw new Error('Agent 已经是该 Team 成员')
+    if (row && row.status !== 'removed') throw new Error('Agent 已经是该 Team 成员')
     const member: TeamMemberRow = {
-      id: `tm-${randomUUID().slice(0, 8)}`,
+      id: row?.id ?? `tm-${randomUUID().slice(0, 8)}`,
       team_id: input.teamId,
       project_id: input.projectId,
       agent_id: input.agentId,
@@ -180,18 +190,31 @@ export const teamMemberStore = {
       name: input.name,
       role: input.role ?? 'member',
       model_profile_id: input.modelProfileId ?? null,
+      model_profile_mode: input.modelProfileMode ?? (input.modelProfileId ? 'fixed' : 'inherit'),
+      system_prompt_override: input.systemPromptOverride ?? null,
       status: 'active',
-      created_at: now,
+      created_at: row?.created_at ?? now,
       updated_at: now,
     }
-    getDb().prepare(`
-      INSERT INTO team_members (
-        id, team_id, project_id, agent_id, session_id, name, role, model_profile_id, status, created_at, updated_at
-      )
-      VALUES (
-        @id, @team_id, @project_id, @agent_id, @session_id, @name, @role, @model_profile_id, @status, @created_at, @updated_at
-      )
-    `).run(member)
+    if (row) {
+      // (team_id, agent_id) 唯一：重新添加 = 复活被移除的关系行，历史行 id 不变。
+      getDb().prepare(`
+        UPDATE team_members
+        SET session_id = @session_id, name = @name, role = @role, model_profile_id = @model_profile_id,
+            model_profile_mode = @model_profile_mode, system_prompt_override = @system_prompt_override,
+            status = 'active', updated_at = @updated_at
+        WHERE id = @id
+      `).run(member)
+    } else {
+      getDb().prepare(`
+        INSERT INTO team_members (
+          id, team_id, project_id, agent_id, session_id, name, role, model_profile_id, model_profile_mode, system_prompt_override, status, created_at, updated_at
+        )
+        VALUES (
+          @id, @team_id, @project_id, @agent_id, @session_id, @name, @role, @model_profile_id, @model_profile_mode, @system_prompt_override, @status, @created_at, @updated_at
+        )
+      `).run(member)
+    }
     teamEventStore.append(input.teamId, { type: 'member.created', payload: { member } })
     return member
   },
@@ -217,6 +240,51 @@ export const teamMemberStore = {
       WHERE team_id = ? AND status != 'removed'
       ORDER BY created_at ASC
     `).all(teamId)
+  },
+
+  /** 全量成员（含已移除）：供会话线聚合保留已移除成员的历史消息。 */
+  listAll(teamId: string): TeamMemberRow[] {
+    return getDb().prepare<[string], TeamMemberRow>(`
+      SELECT * FROM team_members
+      WHERE team_id = ?
+      ORDER BY created_at ASC
+    `).all(teamId)
+  },
+
+  /** 成员级配置（模型策略/档案/系统提示词）：仅改团队关系数据，保存后下一轮对话生效。 */
+  updateConfig(id: string, input: UpdateTeamMemberConfigInput): TeamMemberRow | undefined {
+    const existing = teamMemberStore.get(id)
+    if (!existing) return undefined
+    const updated: TeamMemberRow = {
+      ...existing,
+      model_profile_mode: input.modelProfileMode ?? existing.model_profile_mode,
+      model_profile_id: input.modelProfileId !== undefined ? input.modelProfileId : existing.model_profile_id,
+      system_prompt_override: input.systemPromptOverride !== undefined ? input.systemPromptOverride : existing.system_prompt_override,
+      updated_at: new Date().toISOString(),
+    }
+    getDb().prepare(`
+      UPDATE team_members
+      SET model_profile_mode = @model_profile_mode, model_profile_id = @model_profile_id,
+          system_prompt_override = @system_prompt_override, updated_at = @updated_at
+      WHERE id = @id
+    `).run(updated)
+    teamEventStore.append(existing.team_id, { type: 'member.config_updated', payload: { member: updated } })
+    return updated
+  },
+
+  /** 软删除：移除团队关系（status='removed'），不删项目 Agent、不删历史消息，之后可重新添加。 */
+  remove(id: string): TeamMemberRow | undefined {
+    const existing = teamMemberStore.get(id)
+    if (!existing || existing.status === 'removed') return undefined
+    const now = new Date().toISOString()
+    getDb().prepare(`
+      UPDATE team_members
+      SET status = 'removed', updated_at = @now
+      WHERE id = @id AND status != 'removed'
+    `).run({ id, now })
+    const removed = teamMemberStore.get(id)
+    if (removed) teamEventStore.append(existing.team_id, { type: 'member.removed', payload: { member: removed } })
+    return removed
   },
 }
 

@@ -370,6 +370,8 @@ function ensureAgentInProject(agent: AgentRow, projectId: string): void {
 }
 
 function ensureMemberInTeam(member: TeamMemberRow, team: TeamRow): void {
+  // 已移除成员不再参与本团队执行：派活/派任务/mailbox/格子补建一律拒绝（历史消息保留，重新添加后恢复）。
+  if (member.status === 'removed') throw new Error('该成员已从团队移除，无法派活、派任务或发送团队消息')
   if (member.team_id !== team.id || member.project_id !== team.project_id) throw new Error('Team member 不属于该 Team')
 }
 
