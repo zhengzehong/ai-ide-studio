@@ -29,6 +29,8 @@ interface TeamAdapterInput {
   reload: () => Promise<boolean>
   markUnread?: () => Promise<void>
   senderAgentIds?: Record<string, string>
+  /** 主停止（全队急停）目标会话：leader 在跑时排最前，其余为 running 成员；空闲会话不进列表。 */
+  runningTurnSessionIds: string[]
 }
 
 export function resolveTeamInteractionSession(snapshots: Record<string, Snapshot>, kind: 'permissions' | 'elicitations', requestId: string): string {
@@ -54,7 +56,14 @@ export function createTeamChatAdapter(input: TeamAdapterInput): ConversationAdap
     fileChangeErrorByKey: Object.fromEntries(Object.entries(input.fileErrors).map(([id, message]) => [`file:${id}`, message])),
     processItemLoadingByKey: input.processItemLoadingByKey, processItemErrorByKey: input.processItemErrorByKey,
     sendPrompt: input.sendPrompt,
-    cancel: async () => { if (input.masterSessionId) await commandClient.execute({ commandId: `team-cancel-${input.masterSessionId}-${Date.now()}`, type: 'session.cancel', sessionId: input.masterSessionId }) },
+    // 主停止 = 全队急停：并发取消所有在跑会话（成员失败静默吞掉——可能刚好自然结束；leader 失败才抛给 composer 显示「停止失败」）。
+    cancel: async () => {
+      if (input.runningTurnSessionIds.length === 0) return
+      const results = await Promise.allSettled(input.runningTurnSessionIds.map(sessionId =>
+        commandClient.execute({ commandId: `team-cancel-${sessionId}-${Date.now()}`, type: 'session.cancel', sessionId })))
+      const leaderIndex = input.masterSessionId ? input.runningTurnSessionIds.indexOf(input.masterSessionId) : -1
+      if (leaderIndex >= 0 && results[leaderIndex].status === 'rejected') throw (results[leaderIndex] as PromiseRejectedResult).reason
+    },
     loadOlderMessages: input.loadOlderMessages, reload: async () => { await input.reload() }, markUnread: input.markUnread,
     loadMessageProcess: input.loadMessageProcess, loadFileChanges: input.loadFileChanges,
     loadProcessItemDetail: input.loadProcessItemDetail,

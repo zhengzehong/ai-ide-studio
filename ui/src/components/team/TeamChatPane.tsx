@@ -276,14 +276,22 @@ function TeamConversationPane({ team, conversation, masterSessionId, onOpenPrevi
       setProcessItemLoadingByKey((current) => { const next = { ...current }; delete next[key]; return next })
     }
   }, [processItemLoadingByKey])
-  const adapter = useMemo<ConversationAdapter>(() => createTeamChatAdapter({ snapshots, team, conversation, masterSessionId, aggregate, loading, error, sending, loadingOlder, processByMessageId, fileChanges, fileErrors, processItemLoadingByKey, processItemErrorByKey, sendPrompt, loadOlderMessages, loadMessageProcess, loadFileChanges, loadProcessItemDetail, reload: load, markUnread, senderAgentIds: Object.fromEntries([...members, ...removedMembers].map(member => [member.session_id, member.agent_id])) }), [snapshots, aggregate, conversation, error, fileChanges, fileErrors, load, loadFileChanges, loadMessageProcess, loadOlderMessages, loadProcessItemDetail, loading, loadingOlder, masterSessionId, processByMessageId, processItemErrorByKey, processItemLoadingByKey, sendPrompt, sending, team, markUnread, members, removedMembers])
-
   // —— 团队 Agent dock：成员/状态/生效模型 + 设置与移除 ——
   const dockMembers = members as TeamDockMember[]
   const statusBySessionId = useMemo(
     () => Object.fromEntries(sessionIds.map((id) => [id, deriveMemberStatus(snapshots[id])])) as Record<string, ReturnType<typeof deriveMemberStatus>>,
     [sessionIds, snapshots],
   )
+  // 主停止 = 全队急停：leader 在跑排最前，再收所有 running 成员（与 dock 停止按钮同判据，含「等待权限」）；
+  // 空闲会话不进列表，避免「仅成员在跑时点主停止对 leader 发无效 cancel」。
+  const runningTurnSessionIds = useMemo(
+    () => [
+      ...(masterSessionId && statusBySessionId[masterSessionId]?.running ? [masterSessionId] : []),
+      ...members.flatMap((member) => member.session_id !== masterSessionId && statusBySessionId[member.session_id]?.running ? [member.session_id] : []),
+    ],
+    [masterSessionId, members, statusBySessionId],
+  )
+  const adapter = useMemo<ConversationAdapter>(() => createTeamChatAdapter({ snapshots, team, conversation, masterSessionId, runningTurnSessionIds, aggregate, loading, error, sending, loadingOlder, processByMessageId, fileChanges, fileErrors, processItemLoadingByKey, processItemErrorByKey, sendPrompt, loadOlderMessages, loadMessageProcess, loadFileChanges, loadProcessItemDetail, reload: load, markUnread, senderAgentIds: Object.fromEntries([...members, ...removedMembers].map(member => [member.session_id, member.agent_id])) }), [snapshots, aggregate, conversation, error, fileChanges, fileErrors, load, loadFileChanges, loadMessageProcess, loadOlderMessages, loadProcessItemDetail, loading, loadingOlder, masterSessionId, runningTurnSessionIds, processByMessageId, processItemErrorByKey, processItemLoadingByKey, sendPrompt, sending, team, markUnread, members, removedMembers])
   const activity = useTeamActivity(adapter, true)
   const modelProfiles = useModelStore((state) => state.profiles)
   const fetchModelProfiles = useModelStore((state) => state.fetchProfiles)
