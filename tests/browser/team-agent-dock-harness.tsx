@@ -31,18 +31,19 @@ const profiles = [
   { id: 'p2', name: 'codex-only', runtime: 'codex', enabled: true },
 ] as never
 
-const statusBySessionId: Record<string, TeamMemberLiveStatus> = {
-  s1: { running: true, waiting: false, label: '执行中' },
-  s2: { running: false, waiting: false, label: '空闲' },
-}
-
 function Harness() {
   const [members, setMembers] = useState(initialMembers)
   const [settingsId, setSettingsId] = useState<string | null>(null)
   const [confirmId, setConfirmId] = useState<string | null>(null)
   const [removing, setRemoving] = useState(false)
   const [withImageStrip, setWithImageStrip] = useState(false)
+  const [memberRunning, setMemberRunning] = useState(false)
   const [events, setEvents] = useState<string[]>([])
+  // 成员 s2 状态可切换（默认空闲，贴近真实会话收尾态）；s1 恒为执行中供主控行展示。
+  const statusBySessionId: Record<string, TeamMemberLiveStatus> = {
+    s1: { running: true, waiting: false, label: '执行中' },
+    s2: memberRunning ? { running: true, waiting: false, label: '执行中' } : { running: false, waiting: false, label: '空闲' },
+  }
   const log = (message: string): void => setEvents((current) => [...current, message])
   const settingsMember = members.find((member) => member.id === settingsId) || null
   const confirmMember = members.find((member) => member.id === confirmId) || null
@@ -52,6 +53,7 @@ function Harness() {
     // Composer 包裹层钉在底部（flex item 含子 margin，不发生外边距塌陷）——贴图增高 shell 时消耗列表高度，dock 不动
     <main style={{ display: 'flex', flexDirection: 'column', height: 800 }}>
       <button onClick={() => setWithImageStrip((value) => !value)} style={{ flexShrink: 0 }}>模拟贴图</button>
+      <button onClick={() => setMemberRunning((value) => !value)} style={{ flexShrink: 0 }}>模拟成员执行中</button>
       <div id="events" style={{ flexShrink: 0 }}>{events.join('|')}</div>
       <div style={{ flex: 1, minHeight: 0, background: 'var(--bg-2, #f5f5f5)' }}>消息列表占位（dock 悬浮层脱离文档流，不挤压此区域）</div>
       {/* 与 TeamChatPane 一致：dock 锚在 position:relative 的 Composer 包裹层；
@@ -63,6 +65,8 @@ function Harness() {
           onLocate={(member) => log(`locate:${member.id}`)}
           onOpenSettings={(member) => setSettingsId(member.id)}
           onRemoveRequest={(member) => { setSettingsId(null); setConfirmId(member.id) }}
+          // 中断延迟 80ms：窗口期足够冒烟断言「禁用防连点 + 只触发一次」。
+          onCancelMember={(member) => { log(`cancel:${member.session_id}`); return new Promise((resolve) => { window.setTimeout(resolve, 80) }) }}
         />
         <div style={{ margin: '0 20px 16px' }}>
           {withImageStrip && <div style={{ height: 52, marginBottom: 8, border: '1px dashed #999', boxSizing: 'border-box' }}>图片附件条（52px + 8px 间距）</div>}

@@ -299,6 +299,10 @@ function TeamConversationPane({ team, conversation, masterSessionId, onOpenPrevi
     setLocation({ messageId: latest.id, request: locateRequestRef.current })
   }, [snapshots])
 
+  // dock 成员行中断：与 team-chat-adapter 的 leader cancel 同构（session.cancel 通用 RPC），stopReason='cancelled' 由平台既有语义落「已取消」。
+  const cancelMemberTurn = useCallback((member: TeamDockMember): Promise<unknown> =>
+    commandClient.execute({ commandId: `team-cancel-${member.session_id}-${Date.now()}`, type: 'session.cancel', sessionId: member.session_id }), [])
+
   // 保存回调不关弹窗：由弹窗在两条保存全部成功后统一 onClose（P2：避免一成一败时关弹窗吞错误）。
   const saveMemberConfig = useCallback(async (member: TeamDockMember, input: { modelProfileMode: 'inherit' | 'fixed' | 'system'; modelProfileId: string | null }): Promise<void> => {
     const config = await wsClient.request({ type: 'team.member.config.update', memberId: member.id, ...input }) as TeamMemberModelConfig
@@ -365,6 +369,7 @@ function TeamConversationPane({ team, conversation, masterSessionId, onOpenPrevi
             members={dockMembers}
             statusBySessionId={statusBySessionId}
             onLocate={locateMember}
+            onCancelMember={cancelMemberTurn}
             onOpenSettings={(member) => setSettingsMemberId(member.id)}
             onRemoveRequest={(member) => { setSettingsMemberId(null); setConfirmMemberId(member.id) }}
           />
