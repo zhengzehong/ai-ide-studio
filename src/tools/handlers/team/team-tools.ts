@@ -186,7 +186,8 @@ export const sendTeamMailboxHandler: ToolHandler = {
     const fromMemberId = context.teamMemberId ?? inputFromMemberId
     const message = teamService.sendMailbox({
       teamId,
-      type: optionalString(input, 'type') ?? 'message',
+      // 带 taskId 的汇报默认按 'report' 处理：任务汇报应进入 Leader 唤醒白名单，避免默认 'message' 静默。
+      type: optionalString(input, 'type') ?? (optionalString(input, 'taskId') ? 'report' : 'message'),
       content: requireString(input, 'content'),
       fromMemberId,
       toMemberId: optionalString(input, 'toMemberId'),

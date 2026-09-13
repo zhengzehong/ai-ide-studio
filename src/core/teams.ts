@@ -385,6 +385,7 @@ function ensureTaskInTeam(taskId: string, teamId: string): TaskRow {
 function normalizeTaskStatus(status: string | undefined): string | undefined {
   if (!status) return undefined
   const normalized = status.trim().toLowerCase()
-  if (['done', 'complete', 'finished'].includes(normalized)) return 'completed'
+  // 成员常写中文状态；'已完成/完成' 语义等同 completed，归一后才能命中唤醒白名单（WAKE_TASK_STATUSES）。
+  if (['done', 'complete', 'finished', '已完成', '完成'].includes(normalized)) return 'completed'
   return status
 }
