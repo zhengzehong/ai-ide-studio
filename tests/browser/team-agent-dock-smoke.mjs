@@ -35,10 +35,10 @@ try {
   await page.getByText('团队 Agent · 2 人', { exact: true }).waitFor()
   if (await page.getByText('点击定位该成员消息').count() !== 0) throw new Error('dock 默认应为收起态')
 
-  // 1/2. 展开为悬浮面板：绝对定位、限高 50vh、内部滚动、锚在 Composer 之上
+  // 1/2. 展开为悬浮面板：绝对定位、限高 50vh、内部滚动、固定锚在输入框本体上方 8px
   await page.locator('.team-agent-dock-head').click()
   await page.getByText('点击定位该成员消息').waitFor()
-  const dockStyles = await page.evaluate(() => {
+  const measure = () => page.evaluate(() => {
     const dock = document.querySelector('[data-team-agent-dock]')
     const body = [...dock.children].find((child) => child.tagName === 'DIV')
     const rect = dock.getBoundingClientRect()
@@ -48,16 +48,32 @@ try {
       maxHeightPx: parseFloat(getComputedStyle(dock).maxHeight),
       innerHeight: window.innerHeight,
       overflowY: body ? getComputedStyle(body).overflowY : 'visible',
+      dockTop: rect.top,
       dockBottom: rect.bottom,
       composerTop: composer.top,
       listHeight: document.querySelector('main > div:nth-of-type(2)').getBoundingClientRect().height,
     }
   })
+  const dockStyles = await measure()
   if (dockStyles.position !== 'absolute') throw new Error(`dock 应为绝对定位悬浮层，实际 ${dockStyles.position}`)
   if (Math.abs(dockStyles.maxHeightPx - dockStyles.innerHeight / 2) > 1) throw new Error(`展开面板限高应为 50vh，实际 ${dockStyles.maxHeightPx}px / 视口 ${dockStyles.innerHeight}px`)
   if (dockStyles.overflowY !== 'auto') throw new Error('展开面板内部应可滚动')
-  if (dockStyles.dockBottom > dockStyles.composerTop) throw new Error(`悬浮面板不应遮挡 Composer（bottom ${dockStyles.dockBottom} > composerTop ${dockStyles.composerTop}）`)
-  if (Math.abs(dockStyles.listHeight - 320) > 1) throw new Error(`消息列表占位高度被 dock 挤压：${dockStyles.listHeight}`)
+  if (Math.abs(dockStyles.dockBottom - (dockStyles.composerTop - 8)) > 1) {
+    throw new Error(`dock 应固定锚在输入框本体上方 8px（实际间距 ${dockStyles.composerTop - dockStyles.dockBottom}px）`)
+  }
+  // 2. 贴图后 dock 不动：图片条在输入框框体外增高 shell，消耗消息列表高度；dock 锚定输入框本体而非 shell 顶沿
+  await page.getByRole('button', { name: '模拟贴图' }).click()
+  const withImage = await measure()
+  if (Math.abs(withImage.dockTop - dockStyles.dockTop) > 0.5 || Math.abs(withImage.dockBottom - dockStyles.dockBottom) > 0.5) {
+    throw new Error(`贴图后 dock 位置不应移动（top ${dockStyles.dockTop}→${withImage.dockTop}，bottom ${dockStyles.dockBottom}→${withImage.dockBottom}）`)
+  }
+  if (withImage.composerTop !== dockStyles.composerTop) throw new Error('贴图后输入框本体位置不应变化（图片条出现在其上方）')
+  const strip = await page.getByText('图片附件条（52px + 8px 间距）').boundingBox()
+  if (!strip || strip.bottom > dockStyles.composerTop) throw new Error('图片条应渲染在输入框本体上方')
+  if (Math.abs((dockStyles.listHeight - withImage.listHeight) - 60) > 1) {
+    throw new Error(`图片条增高应由消息列表吸收（列表高度 ${dockStyles.listHeight}→${withImage.listHeight}）`)
+  }
+  await page.getByRole('button', { name: '模拟贴图' }).click()
   await page.getByText('执行中', { exact: true }).waitFor()
   await page.getByText('空闲', { exact: true }).waitFor()
   await page.getByText('Master 档案').waitFor()
@@ -83,7 +99,7 @@ try {
   await memberRow.hover()
   await memberRow.getByRole('button', { name: '成员操作' }).click()
   await page.getByRole('button', { name: '设置 Agent' }).click()
-  await page.getByText('修改「Dev-GLM」在团队内的模型和系统提示词。').waitFor()
+  await page.getByText('修改「Dev-GLM」的团队模型策略与系统提示词。').waitFor()
   await page.getByRole('button', { name: '取消', exact: true }).click()
 
   const masterRow = page.locator('[data-team-agent-dock] .team-agent-dock-row').filter({ hasText: '主控' })
@@ -107,9 +123,15 @@ try {
   const profileSelect = page.getByRole('combobox').nth(1)
   await profileSelect.selectOption('p1')
   await page.getByText('claude-astra · 独立配置').first().waitFor()
-  // 7/8. 保存 → 弹窗关闭，dock 行来源立即更新
+  // 1. 系统提示词单框直改：预填 Agent 原值，编辑后保存走 agents.update 链
+  const promptBox = page.locator('[role="dialog"] textarea')
+  const prefilled = await promptBox.inputValue()
+  if (prefilled !== '成员模板人设提示词') throw new Error(`系统提示词应预填 Agent 原值，实际「${prefilled}」`)
+  await promptBox.fill('团队内直改的新人设')
+  // 7/8. 保存 → 弹窗关闭，模型策略与提示词分别走团队配置 / Agent 更新
   await page.getByRole('button', { name: '保存', exact: true }).click()
-  await expectEvents('save:{"modelProfileMode":"fixed","modelProfileId":"p1","systemPromptOverride":null}')
+  await expectEvents('save:{"modelProfileMode":"fixed","modelProfileId":"p1"}')
+  await expectEvents('savePrompt:团队内直改的新人设')
   await page.getByText('独立配置').waitFor()
   await screenshot('2-saved.png')
 

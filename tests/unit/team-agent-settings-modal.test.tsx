@@ -34,6 +34,7 @@ function renderModal(overrides: {
     modelProfiles: (overrides.modelProfiles ?? []) as never,
     onLoadProfiles: () => undefined,
     onSave: () => Promise.resolve(),
+    onSaveSystemPrompt: () => Promise.resolve(),
     onRemoveRequest: () => undefined,
     onClose: () => undefined,
   }))
@@ -71,7 +72,6 @@ describe('team agent settings modal', () => {
     const html = renderModal({ member: member({ name: 'Master', role: 'leader' }) })
     expect(html).not.toContain('继承 Master</option>')
     expect(html).not.toContain('移除成员')
-    expect(html).toContain('当前提示词')
     expect(html).not.toContain('value="inherit"')
   })
 
@@ -86,20 +86,23 @@ describe('team agent settings modal', () => {
     expect(html).toContain('agent-own-model · Agent 配置')
   })
 
-  it('previews the real agent system prompt and the team-override textarea semantics', () => {
-    // 真实原值回显（含 spawn 时配置的值）：预览区展示 agentSystemPrompt，而不是留空或前端猜。
+  it('fills the single prompt box with the agent real system prompt and drops the override layer', () => {
+    // 方案 A：无预览层，单框直接预填 Agent 当前真实提示词（含 spawn 时配置的值）。
     const html = renderModal({ config: config({ agentSystemPrompt: 'Master 配置的检查员人设' }) })
-    expect(html).toContain('当前提示词')
-    expect(html).toContain('Master 配置的检查员人设')
+    expect(html).toContain('Master 配置的检查员人设</textarea>')
+    expect(html).not.toContain('当前提示词（Agent 原值）')
 
-    // 有团队覆盖时 textarea 回显 override；占位文案说明覆盖语义。
-    const withOverride = renderModal({ config: config({ systemPromptOverride: '团队内只做前端审查' }) })
-    expect(withOverride).toContain('团队内只做前端审查')
-    expect(withOverride).toContain('留空则使用该 Agent 当前提示词；填写后仅在本团队内替换（下一轮生效）')
+    // 文案如实：全局生效，删除覆盖语义。
+    expect(html).toContain('直接修改该 Agent 的系统提示词（全局生效，含团队外单独聊天）')
+    expect(html).not.toContain('仅在本团队内替换')
+    expect(html).not.toContain('留空则使用该 Agent 当前提示词')
+    expect(html).toContain('模型策略仅对当前团队生效，不修改项目里的全局 Agent')
+  })
 
-    // Agent 未设置提示词时如实展示，不猜。
-    const withoutPrompt = renderModal({ config: config({ agentSystemPrompt: null }) })
-    expect(withoutPrompt).toContain('（该 Agent 未设置系统提示词）')
+  it('renders an empty prompt box when the agent has no system prompt', () => {
+    const html = renderModal({ config: config({ agentSystemPrompt: null }) })
+    expect(html).toContain('<textarea')
+    expect(html).not.toContain('（该 Agent 未设置系统提示词）')
   })
 
   it('renders the remove confirmation with history-retention wording', () => {

@@ -85,6 +85,8 @@ describe('team agent dock rendering', () => {
     expect(html).toContain('团队 Agent · 1 人')
     // 默认收起：悬浮细条（position:absolute）只有头部，不渲染成员行、不占布局
     expect(html).toContain('position:absolute')
+    // 固定锚在输入框本体上方：offset 144 = 输入框静止高度 120 + shell 底边距 16 + 间距 8，不随图片条/错误行移动
+    expect(html).toContain('bottom:144px')
     // 组件内置 <style> 里也带 .team-agent-dock-row 选择器，只认元素本身的 class
     expect(html).not.toContain('class="team-agent-dock-row')
     expect(html).not.toContain('点击定位该成员消息')
