@@ -24,6 +24,8 @@ export interface TeamMemberModelConfig {
   effective: TeamMemberEffectiveModel
   /** 不继承任何档案时的解析结果（Agent 原配置 → 系统默认），供「使用系统默认」策略在弹窗内预览。 */
   fallback: TeamMemberEffectiveModel
+  /** 成员 Agent 定义当前真实生效的原始 system_prompt（含 Master spawn 时配置的值），空则 null；供弹窗「当前提示词」回显。 */
+  agentSystemPrompt: string | null
 }
 
 export const teamRpcHandlers: RpcHandlerMap = {
@@ -146,6 +148,7 @@ export function describeTeamMemberModelConfig(member: TeamMemberRow): TeamMember
     runtime,
     effective: resolveEffectiveModel(member, modelProfileMode, runtime),
     fallback: resolveFallbackModel(member.agent_id, runtime),
+    agentSystemPrompt: agentStore.get(member.agent_id)?.system_prompt || null,
   }
 }
 

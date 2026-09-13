@@ -320,7 +320,7 @@ function TeamConversationPane({ team, conversation, masterSessionId, onOpenPrevi
 
   if (renderSurface) return renderSurface(adapter)
   return (
-    <main className="conversation-pane" data-conversation-pane>
+    <main className="conversation-pane" data-conversation-pane style={{ position: 'relative' }}>
       <header className="conversation-header">
         <div className="conversation-target">
           <div className="conversation-agent-avatar">{(adapter.agentName || 'A').charAt(0).toUpperCase()}</div>
@@ -338,8 +338,9 @@ function TeamConversationPane({ team, conversation, masterSessionId, onOpenPrevi
         {adapter.interactionError && <div className="conversation-interaction-error">{adapter.interactionError}</div>}
         <InteractionPanel permission={adapter.pendingPermissions[0]} elicitation={adapter.pendingPermissions.length === 0 ? adapter.pendingElicitations[0] : undefined} onRespondPermission={adapter.respondPermission} onRespondElicitation={adapter.respondElicitation} />
       </div>}
-      {conversation && dockMembers.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', flexShrink: 0, padding: '0 20px' }}>
+      {/* dock 悬浮层锚在此包裹层（= Composer 顶）上方右侧，消息列表恢复完整高度 */}
+      <div style={{ position: 'relative', flexShrink: 0 }}>
+        {conversation && dockMembers.length > 0 && (
           <TeamAgentDock
             members={dockMembers}
             statusBySessionId={statusBySessionId}
@@ -347,9 +348,9 @@ function TeamConversationPane({ team, conversation, masterSessionId, onOpenPrevi
             onOpenSettings={(member) => setSettingsMemberId(member.id)}
             onRemoveRequest={(member) => { setSettingsMemberId(null); setConfirmMemberId(member.id) }}
           />
-        </div>
-      )}
-      <ConversationComposer key={adapter.sessionId ?? 'empty'} adapter={adapter} />
+        )}
+        <ConversationComposer key={adapter.sessionId ?? 'empty'} adapter={adapter} />
+      </div>
       {settingsMember?.modelConfig && (
         <TeamAgentSettingsModal
           member={settingsMember}

@@ -96,11 +96,14 @@ export function TeamAgentSettingsModal({ member, config, masterEffective, modelP
             <Cpu size={13} style={{ color: 'var(--blue)', flexShrink: 0 }} />
             <span>当前生效：<b style={{ fontWeight: 700 }}>{effectText}</b></span>
           </div>
+          <Field label="当前提示词（Agent 原值）">
+            <div style={styles.promptPreview}>{config.agentSystemPrompt || '（该 Agent 未设置系统提示词）'}</div>
+          </Field>
           <Field label="系统提示词">
             <textarea
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
-              placeholder={isMaster ? 'Master 系统提示词' : '留空则继承 Master 提示词'}
+              placeholder="留空则使用该 Agent 当前提示词；填写后仅在本团队内替换（下一轮生效）"
               style={styles.textarea}
             />
           </Field>
@@ -247,6 +250,19 @@ const styles: Record<string, CSSProperties> = {
     display: 'flex',
     alignItems: 'center',
     gap: 6,
+  },
+  promptPreview: {
+    maxHeight: 120,
+    overflowY: 'auto',
+    fontSize: 12.5,
+    lineHeight: 1.55,
+    color: 'var(--text-2)',
+    background: 'var(--bg-2)',
+    border: '1px solid var(--border-light)',
+    borderRadius: 6,
+    padding: '8px 10px',
+    whiteSpace: 'pre-wrap',
+    wordBreak: 'break-word',
   },
   fieldNote: { fontSize: 12, color: 'var(--text-3)' },
   error: {

@@ -31,17 +31,46 @@ const expectEvents = (expected) => page.waitForFunction(
 try {
   await page.goto(`file:///${resolve(outDir, 'index.html').replace(/\\/g, '/')}`)
 
-  // 1/2. 默认展开、计数与状态：Master 执行中、Dev-GLM 空闲
+  // 1. 悬浮层 + 默认收起：只有"团队 Agent · N 人"细条，无成员行
   await page.getByText('团队 Agent · 2 人', { exact: true }).waitFor()
+  if (await page.getByText('点击定位该成员消息').count() !== 0) throw new Error('dock 默认应为收起态')
+
+  // 1/2. 展开为悬浮面板：绝对定位、限高 50vh、内部滚动、锚在 Composer 之上
+  await page.locator('.team-agent-dock-head').click()
+  await page.getByText('点击定位该成员消息').waitFor()
+  const dockStyles = await page.evaluate(() => {
+    const dock = document.querySelector('[data-team-agent-dock]')
+    const body = [...dock.children].find((child) => child.tagName === 'DIV')
+    const rect = dock.getBoundingClientRect()
+    const composer = document.getElementById('composer').getBoundingClientRect()
+    return {
+      position: getComputedStyle(dock).position,
+      maxHeightPx: parseFloat(getComputedStyle(dock).maxHeight),
+      innerHeight: window.innerHeight,
+      overflowY: body ? getComputedStyle(body).overflowY : 'visible',
+      dockBottom: rect.bottom,
+      composerTop: composer.top,
+      listHeight: document.querySelector('main > div:nth-of-type(2)').getBoundingClientRect().height,
+    }
+  })
+  if (dockStyles.position !== 'absolute') throw new Error(`dock 应为绝对定位悬浮层，实际 ${dockStyles.position}`)
+  if (Math.abs(dockStyles.maxHeightPx - dockStyles.innerHeight / 2) > 1) throw new Error(`展开面板限高应为 50vh，实际 ${dockStyles.maxHeightPx}px / 视口 ${dockStyles.innerHeight}px`)
+  if (dockStyles.overflowY !== 'auto') throw new Error('展开面板内部应可滚动')
+  if (dockStyles.dockBottom > dockStyles.composerTop) throw new Error(`悬浮面板不应遮挡 Composer（bottom ${dockStyles.dockBottom} > composerTop ${dockStyles.composerTop}）`)
+  if (Math.abs(dockStyles.listHeight - 320) > 1) throw new Error(`消息列表占位高度被 dock 挤压：${dockStyles.listHeight}`)
   await page.getByText('执行中', { exact: true }).waitFor()
   await page.getByText('空闲', { exact: true }).waitFor()
   await page.getByText('Master 档案').waitFor()
   await page.getByText('继承 Master').waitFor()
   await screenshot('1-expanded.png')
 
-  // 1. 收起/展开
+  // 1. 收起状态记忆：刷新后保持展开
+  await page.reload()
+  await page.getByText('点击定位该成员消息').waitFor()
+  // 收起 → 刷新 → 仍收起
   await page.locator('.team-agent-dock-head').click()
-  if (await page.getByText('点击定位该成员消息').count() !== 0) throw new Error('收起后成员行仍可见')
+  await page.reload()
+  if (await page.getByText('点击定位该成员消息').count() !== 0) throw new Error('收起状态未写入 localStorage 记忆')
   await page.locator('.team-agent-dock-head').click()
   await page.getByText('点击定位该成员消息').waitFor()
 
