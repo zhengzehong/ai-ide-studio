@@ -15,6 +15,8 @@ export interface TeamMemberModelConfig {
   fallback: { name: string; source: string }
   /** 成员 Agent 当前真实生效的原始 system_prompt（后端下发，含 Master spawn 时配置的值），空则 null。 */
   agentSystemPrompt: string | null
+  /** Agent 定义 config_json 的原始 model_profile_id（后端下发），空则 null；供 Master 弹窗预填。 */
+  agentModelProfileId: string | null
 }
 
 export interface TeamDockMember extends TeamChatMember {

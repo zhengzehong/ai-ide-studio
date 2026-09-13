@@ -212,6 +212,29 @@ describe('team member config RPC', () => {
     expect(cleared.agentSystemPrompt).toBeNull()
   })
 
+  test('returns the agent definition raw model profile id for the leader prefill', () => {
+    const f = setup()
+    // 未在 Agent 定义里配置档案 → null（弹窗空选项=使用系统默认）。
+    const leaderAgentId = teamMemberStore.get(f.leaderMemberId)!.agent_id
+    const initial = callRpc('team.member.config.get', { memberId: f.leaderMemberId }) as { agentModelProfileId: string | null }
+    expect(initial.agentModelProfileId).toBeNull()
+
+    // 与普通 Agent 设置弹窗同一条链写入（agents.update → config_json.modelProfileId）后回传原值。
+    const provider = modelProviderStore.list()[0]
+    const agentProfile = modelProfileStore.create({
+      name: 'leader-agent-profile', runtime: 'claude', providerId: provider.id, config: { defaultModel: 'leader-agent-model' },
+    })
+    agentStore.update(leaderAgentId, { config: { modelProfileId: agentProfile.id } })
+    const updated = callRpc('team.member.config.get', { memberId: f.leaderMemberId }) as { agentModelProfileId: string | null }
+    expect(updated.agentModelProfileId).toBe(agentProfile.id)
+
+    // 外部成员同样下发（类型统一，成员分支不用它预填）。
+    const memberAgentId = teamMemberStore.get(f.memberId)!.agent_id
+    agentStore.update(memberAgentId, { config: { modelProfileId: agentProfile.id } })
+    const memberConfig = callRpc('team.member.config.get', { memberId: f.memberId }) as { agentModelProfileId: string | null }
+    expect(memberConfig.agentModelProfileId).toBe(agentProfile.id)
+  })
+
   test('removed member stays in the conversation payload so history survives re-entry', () => {
     const f = setup()
     const conversation = teamConversationStore.create(f.teamId, f.leaderSessionId, '线一')

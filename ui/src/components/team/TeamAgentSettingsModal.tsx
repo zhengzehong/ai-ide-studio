@@ -11,7 +11,10 @@ export interface TeamAgentSettingsSaveInput {
   mode: TeamModelProfileMode
   profileId: string
   prompt: string
-  onSave: (input: { modelProfileMode: TeamModelProfileMode; modelProfileId: string | null }) => Promise<void>
+  /** 成员分支：团队级模型策略（inherit/fixed/system + 档案），仅对当前团队生效；Master 分支传 null。 */
+  onSave: ((input: { modelProfileMode: TeamModelProfileMode; modelProfileId: string | null }) => Promise<void>) | null
+  /** Master 分支：模型档案直改 Agent 定义（agents.update 链），全局生效；成员分支传 null。 */
+  onSaveAgentModel: ((input: { modelProfileId: string | null }) => Promise<void>) | null
   onSaveSystemPrompt: (systemPrompt: string) => Promise<void>
   onClose: () => void
 }
@@ -20,9 +23,16 @@ export interface TeamAgentSettingsSaveInput {
  * 重试不重复写已成功且未变更的部分：部分成功后父级已把本地 config 更新为真实值，dirty 判断天然跳过。 */
 export async function saveTeamAgentSettings(input: TeamAgentSettingsSaveInput): Promise<void> {
   const tasks: Array<Promise<void>> = []
-  const nextProfileId = input.mode === 'fixed' ? input.profileId : null
-  if (input.mode !== input.config.modelProfileMode || nextProfileId !== input.config.modelProfileId) {
-    tasks.push(input.onSave({ modelProfileMode: input.mode, modelProfileId: nextProfileId }))
+  if (input.onSaveAgentModel) {
+    // Master：模型档案直改 Agent 定义，与定义原值比较，未变不写；清空=使用系统默认，写 null。
+    if (input.profileId !== (input.config.agentModelProfileId ?? '')) {
+      tasks.push(input.onSaveAgentModel({ modelProfileId: input.profileId || null }))
+    }
+  } else if (input.onSave) {
+    const nextProfileId = input.mode === 'fixed' ? input.profileId : null
+    if (input.mode !== input.config.modelProfileMode || nextProfileId !== input.config.modelProfileId) {
+      tasks.push(input.onSave({ modelProfileMode: input.mode, modelProfileId: nextProfileId }))
+    }
   }
   if (input.prompt !== (input.config.agentSystemPrompt ?? '')) {
     tasks.push(input.onSaveSystemPrompt(input.prompt))
@@ -38,8 +48,10 @@ interface TeamAgentSettingsModalProps {
   masterEffective: { name: string; source: string } | null
   modelProfiles: ModelProfileData[]
   onLoadProfiles: () => void
-  /** 团队内模型策略（inherit/fixed/system + 档案），仅对当前团队生效。 */
+  /** 成员分支：团队内模型策略（inherit/fixed/system + 档案），仅对当前团队生效。 */
   onSave: (input: { modelProfileMode: TeamModelProfileMode; modelProfileId: string | null }) => Promise<void>
+  /** Master 分支：模型档案直改 Agent 定义（agents.update 链），全局生效；leader 团队行保持不动。 */
+  onSaveAgentModel: (input: { modelProfileId: string | null }) => Promise<void>
   /** 系统提示词单框直改：写回该 Agent 定义的 system_prompt（全局生效），复用普通 Agent 设置弹窗的 agents.update 链路。 */
   onSaveSystemPrompt: (systemPrompt: string) => Promise<void>
   onRemoveRequest: () => void
@@ -47,10 +59,11 @@ interface TeamAgentSettingsModalProps {
 }
 
 /** 团队版 Agent 设置弹窗：只含模型策略/模型档案/系统提示词；视觉规范复刻 AgentSettingsModal（不改动其代码）。 */
-export function TeamAgentSettingsModal({ member, config, masterEffective, modelProfiles, onLoadProfiles, onSave, onSaveSystemPrompt, onRemoveRequest, onClose }: TeamAgentSettingsModalProps): ReactElement {
+export function TeamAgentSettingsModal({ member, config, masterEffective, modelProfiles, onLoadProfiles, onSave, onSaveAgentModel, onSaveSystemPrompt, onRemoveRequest, onClose }: TeamAgentSettingsModalProps): ReactElement {
   const isMaster = member.role === 'leader'
   const [mode, setMode] = useState<TeamModelProfileMode>(config.modelProfileMode)
-  const [profileId, setProfileId] = useState(config.modelProfileId ?? '')
+  // Master 预填 Agent 定义的原始档案（直改定义）；成员预填团队行档案。
+  const [profileId, setProfileId] = useState(isMaster ? (config.agentModelProfileId ?? '') : (config.modelProfileId ?? ''))
   // 方案 A：去掉覆盖层，一个字段一个框 —— 预填 Agent 当前真实提示词，直接编辑、直接保存。
   const [prompt, setPrompt] = useState(config.agentSystemPrompt ?? '')
   const [error, setError] = useState<string | null>(null)
@@ -64,27 +77,31 @@ export function TeamAgentSettingsModal({ member, config, masterEffective, modelP
   )
   const selectedProfileId = availableProfiles.some((profile) => profile.id === profileId) ? profileId : ''
   const selectedProfile = availableProfiles.find((profile) => profile.id === selectedProfileId)
-  const fixedProfileMissing = mode === 'fixed' && !selectedProfileId
+  // Master 没有策略下拉，档案始终可选；成员仅在 fixed 策略下需要档案。
+  const fixedProfileMissing = !isMaster && mode === 'fixed' && !selectedProfileId
 
   const effectText = useMemo(() => {
-    if (isMaster) {
-      return mode === 'fixed' && selectedProfile ? `${selectedProfile.name} · Master 档案` : '系统默认 · Master 未指定档案'
-    }
+    // Master 与 dock 行同源：直接显示后端解析结果，不再本地推断（修复「系统默认 · Master 未指定档案」假显示）。
+    if (isMaster) return `${config.effective?.name || '系统默认'} · ${config.effective?.source || '未指定档案'}`
     if (mode === 'inherit') return `${masterEffective?.name || '系统默认'} · 继承 Master`
     if (mode === 'fixed') return `${selectedProfile?.name || '未选择档案'} · 独立配置`
     // system：与 dock 行展示同链（Agent 原配置 → 系统默认），直接用后端下发的 fallback 结果。
     return `${config.fallback?.name || '系统默认'} · ${config.fallback?.source || '未指定档案'}`
-  }, [isMaster, mode, masterEffective, selectedProfile, config.fallback])
+  }, [isMaster, mode, masterEffective, selectedProfile, config.effective, config.fallback])
 
   const save = (): void => {
     if (saving || fixedProfileMissing) return
     setSaving(true)
     setError(null)
     // 全部成功才由编排函数回调 onClose 关弹窗；任一失败保持打开并把错误显示在弹窗内。
-    saveTeamAgentSettings({ config, mode, profileId: selectedProfileId, prompt, onSave, onSaveSystemPrompt, onClose })
-      .catch((cause: unknown) => {
-        setError(cause instanceof Error ? cause.message : '保存失败，请重试')
-      }).finally(() => setSaving(false))
+    saveTeamAgentSettings({
+      config, mode, profileId: selectedProfileId, prompt,
+      onSave: isMaster ? null : onSave,
+      onSaveAgentModel: isMaster ? onSaveAgentModel : null,
+      onSaveSystemPrompt, onClose,
+    }).catch((cause: unknown) => {
+      setError(cause instanceof Error ? cause.message : '保存失败，请重试')
+    }).finally(() => setSaving(false))
   }
 
   return (
@@ -94,27 +111,29 @@ export function TeamAgentSettingsModal({ member, config, masterEffective, modelP
         <div style={styles.header}>
           <div>
             <h3 style={styles.title}>Agent 设置</h3>
-            <p style={styles.subtitle}>修改「{member.name}」的团队模型策略与系统提示词。</p>
+            <p style={styles.subtitle}>{isMaster ? `修改「${member.name}」的模型配置与系统提示词。` : `修改「${member.name}」的团队模型策略与系统提示词。`}</p>
           </div>
           <button onClick={onClose} style={styles.closeBtn}><X size={14} /></button>
         </div>
 
         <div style={styles.body}>
-          <Field label="模型策略">
-            <select value={mode} onChange={(event) => { setMode(event.target.value as TeamModelProfileMode); setError(null) }} style={styles.input}>
-              {!isMaster && <option value="inherit">继承 Master</option>}
-              <option value="fixed">固定模型档案</option>
-              <option value="system">使用系统默认</option>
-            </select>
-          </Field>
+          {!isMaster && (
+            <Field label="模型策略">
+              <select value={mode} onChange={(event) => { setMode(event.target.value as TeamModelProfileMode); setError(null) }} style={styles.input}>
+                <option value="inherit">继承 Master</option>
+                <option value="fixed">固定模型档案</option>
+                <option value="system">使用系统默认</option>
+              </select>
+            </Field>
+          )}
           <Field label="模型档案">
             <select
               value={selectedProfileId}
               onChange={(event) => { setProfileId(event.target.value); setError(null) }}
-              disabled={mode !== 'fixed'}
-              style={{ ...styles.input, ...(mode !== 'fixed' ? styles.inputDisabled : {}) }}
+              disabled={!isMaster && mode !== 'fixed'}
+              style={{ ...styles.input, ...(!isMaster && mode !== 'fixed' ? styles.inputDisabled : {}) }}
             >
-              <option value="">请选择模型档案</option>
+              <option value="">{isMaster ? '使用系统默认' : '请选择模型档案'}</option>
               {availableProfiles.map((profile) => (
                 <option key={profile.id} value={profile.id}>{profile.name}{profile.is_default ? '（默认）' : ''}</option>
               ))}
@@ -124,6 +143,7 @@ export function TeamAgentSettingsModal({ member, config, masterEffective, modelP
             <Cpu size={13} style={{ color: 'var(--blue)', flexShrink: 0 }} />
             <span>当前生效：<b style={{ fontWeight: 700 }}>{effectText}</b></span>
           </div>
+          {isMaster && <div style={styles.fieldNote}>直接修改该 Agent 的模型配置（全局生效）</div>}
           <Field label="系统提示词">
             <textarea
               value={prompt}

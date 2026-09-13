@@ -109,6 +109,21 @@ try {
   if (await page.getByRole('button', { name: '移除成员' }).count() !== 0) throw new Error('Master 菜单不应有移除成员')
   await page.keyboard.press('Escape')
 
+  // 1. Master 弹窗：无策略下拉、单档案下拉预填 Agent 定义、保存走 agents.update 链且 dock 行跟随
+  await masterRow.hover()
+  await masterRow.getByRole('button', { name: '成员操作' }).click()
+  await page.getByRole('button', { name: '设置 Agent' }).click()
+  await page.getByText('修改「Master」的模型配置与系统提示词。').waitFor()
+  if (await page.getByText('模型策略', { exact: true }).count() !== 0) throw new Error('Master 弹窗不应有模型策略下拉')
+  const masterProfileSelect = page.locator('[role="dialog"] select').first()
+  if (await masterProfileSelect.inputValue() !== '') throw new Error('Master 档案应预填 Agent 定义原值（此处为空=使用系统默认）')
+  await masterProfileSelect.selectOption('p1')
+  await page.getByText('直接修改该 Agent 的模型配置（全局生效）').waitFor()
+  await page.getByRole('button', { name: '保存', exact: true }).click()
+  await expectEvents('saveAgentModel:{"modelProfileId":"p1"}')
+  await masterRow.getByText('claude-astra', { exact: true }).waitFor() // dock 行来源跟随所选档案（子行为组合文本，按名断言）
+  if (await page.locator('[role="dialog"]').count() !== 0) throw new Error('Master 保存成功后应关闭弹窗')
+
   // 6. 右键成员行弹菜单
   await memberRow.click({ button: 'right' })
   await page.getByRole('button', { name: '设置 Agent' }).waitFor()
