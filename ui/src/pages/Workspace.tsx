@@ -108,7 +108,6 @@ import {
 import {
   agentAvatar,
   agentColor,
-  canRestoreProjectSession,
   configLabel,
   configOptionLabel,
   formatTime,
@@ -129,6 +128,7 @@ import {
   type MenuName,
 } from './workspace/helpers'
 import { createSessionDraftStore, type WorkspacePendingImage } from './workspace/session-drafts'
+import { useWorkspaceSessionRestore, useWorkspaceSessionVisibility } from './workspace/use-workspace-session-restore'
 import { WorkspaceFileAttachmentList } from './workspace/WorkspaceFileAttachmentList'
 import {
   appendWorkspaceFilePaths,
@@ -296,11 +296,14 @@ export default function Workspace() {
 
   useEffect(() => {
     if (selectedTeamId && !teams.some((team) => team.id === selectedTeamId)) {
+      let cancelled = false
       queueMicrotask(() => {
+        if (cancelled) return
         setSelectedTeamId(null)
         setTeamConversation(null)
         setTeamMasterSessionId(null)
       })
+      return () => { cancelled = true }
     }
   }, [selectedTeamId, teams])
 
@@ -395,7 +398,8 @@ export default function Workspace() {
   const orderedAllProjectAgents = useMemo(() => sortWorkspaceItems(workspaceProjectAgents), [workspaceProjectAgents])
   const orderedProjectSessions = useMemo(() => sortWorkspaceItems(projectSessions), [projectSessions])
   const defaultAgentId = orderedProjectAgents[0]?.id ?? null
-  const effectiveSelectedAgentId = selectedAgentId ?? defaultAgentId
+  const sessionAgentId = projectSessions.find((session) => session.id === currentSessionId)?.agent_id
+  const effectiveSelectedAgentId = (!selectedTeamId && sessionAgentId) || selectedAgentId || defaultAgentId
   const chatAgent = useMemo(
     () => selectChatAgent({ agents: visibleProjectAgents, sessions: projectSessions, currentSessionId, selectedAgentId: effectiveSelectedAgentId }),
     [currentSessionId, visibleProjectAgents, projectSessions, effectiveSelectedAgentId],
@@ -404,7 +408,7 @@ export default function Workspace() {
     () => projectSessions.find((session) => session.id === currentSessionId),
     [currentSessionId, projectSessions],
   )
-  const selectedTeam = useMemo(() => teams.find((team) => team.id === selectedTeamId) ?? null, [selectedTeamId, teams])
+  const selectedTeam = useMemo(() => teams.find((team) => team.id === selectedTeamId && team.project_id === currentProjectId) ?? null, [currentProjectId, selectedTeamId, teams])
   const importDialogAgent = useMemo(
     () => workspaceProjectAgents.find((agent) => agent.id === importDialogAgentId),
     [importDialogAgentId, workspaceProjectAgents],
@@ -455,18 +459,18 @@ export default function Workspace() {
 
   const handleAgentClick = (agentId: string) => {
     if (orderingMode) return
+    dismissSessionRestore()
     setSelectedTeamId(null)
     setTeamConversation(null)
     setTeamMasterSessionId(null)
     setSelectedAgentId(agentId)
     const mainSession = agentSessions(agentId).find((s) => s.is_primary)
-    if (mainSession && currentSessionId !== mainSession.id) {
-      selectSession(mainSession.id)
-    }
+    selectSession(mainSession?.id ?? null)
   }
 
   const handleTeamClick = (teamId: string) => {
     if (orderingMode || selectedTeamId === teamId) return
+    dismissSessionRestore()
     const remembered = teamSelectionCache.get(teamCacheKey(currentProjectId || '', teamId))
     setSelectedTeamId(teamId)
     setSelectedAgentId(null)
@@ -586,7 +590,13 @@ export default function Workspace() {
     if (!targetSessionId) return
     const targetSession = projectSessions.find((session) => session.id === targetSessionId)
     if (!targetSession) return
+    let cancelled = false
     queueMicrotask(() => {
+      if (cancelled) return
+      setSelectedTeamId(null)
+      setTeamConversation(null)
+      setTeamMasterSessionId(null)
+      setSidebarTab('sessions')
       setSelectedAgentId(targetSession.agent_id)
       selectSession(targetSession.id)
       setSearchParams((prev) => {
@@ -597,6 +607,7 @@ export default function Workspace() {
         return next
       }, { replace: true })
     })
+    return () => { cancelled = true }
   }, [
     currentProjectId,
     projectSessions,
@@ -605,29 +616,25 @@ export default function Workspace() {
     selectSession,
     setSearchParams,
     setSelectedAgentId,
+    setSidebarTab,
   ])
 
+  const restoreSession = useCallback((session: SessionData): void => {
+    setSelectedAgentId(session.agent_id)
+    selectSession(session.id)
+  }, [setSelectedAgentId, selectSession])
+  const dismissSessionRestore = useWorkspaceSessionRestore({
+    projectId: currentProjectId, currentSessionId, selectedTeamId: selectedTeam?.id ?? null,
+    hasExplicitTarget: !!searchParams.get('sessionId'),
+    loading: agentsLoading || sessionsLoading,
+    sessions: projectSessions, agents: projectAgents, onRestore: restoreSession,
+  })
   useEffect(() => {
-    if (searchParams.get('sessionId')) return
-    if (currentSessionId || projectSessions.length === 0) return
-    if (agentsLoading) return
-    // 优先 per-project 映射;映射没有时 readProjectLastSession 内部 fallback 到全局 key(老用户兼容)
-    const storedSessionId = readProjectLastSession(currentProjectId)
-    if (!storedSessionId) return
-    const storedSession = projectSessions.find((session) => session.id === storedSessionId)
-    if (!storedSession) {
-      // 会话已被删除或不在当前项目:清掉映射里这条,避免下次还来恢复
-      clearProjectLastSession(currentProjectId)
-      return
-    }
-    const storedAgent = projectAgents.find((agent) => agent.id === storedSession.agent_id)
-    if (!canRestoreProjectSession(storedSession, storedAgent)) {
-      clearProjectLastSession(currentProjectId)
-      if (readStoredSessionId() === storedSession.id) clearStoredSessionId()
-      return
-    }
-    selectSession(storedSession.id)
-  }, [agentsLoading, currentProjectId, currentSessionId, projectAgents, projectSessions, searchParams, selectSession])
+    if (!selectedTeamId && sessionAgentId && selectedAgentId !== sessionAgentId) setSelectedAgentId(sessionAgentId)
+  }, [selectedTeamId, sessionAgentId, selectedAgentId, setSelectedAgentId])
+
+  const visibleSessionId = sidebarTab === 'sessions' && !selectedTeamId ? currentSession?.id ?? null : null
+  useWorkspaceSessionVisibility(visibleSessionId)
 
   useEffect(() => () => {
     const state = useSessionStore.getState()
@@ -649,6 +656,11 @@ export default function Workspace() {
 
   const handleSelectSession = (agentId: string, sessionId: string) => {
     clearInspirationContext()
+    dismissSessionRestore()
+    setSelectedTeamId(null)
+    setTeamConversation(null)
+    setTeamMasterSessionId(null)
+    setSidebarTab('sessions')
     setSelectedAgentId(agentId)
     selectSession(sessionId)
   }
@@ -1218,7 +1230,7 @@ export default function Workspace() {
               )}
               {orderedProjectAgents.map((agent) => {
                 const stats = agentSessionStats(agent.id)
-                const isSelected = (selectedAgentId ?? defaultAgentId) === agent.id
+                const isSelected = !selectedTeamId && effectiveSelectedAgentId === agent.id
                 return (
                 <div
                   key={agent.id}

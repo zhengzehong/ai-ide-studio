@@ -228,6 +228,7 @@ export interface SessionMessageFetchOptions {
 interface SessionStore {
   sessions: SessionData[]
   currentSessionId: string | null
+  visibleSessionId: string | null
   messages: MessageData[]
   events: SessionEventData[]
   streamingMessage: StreamingMessage | null
@@ -304,6 +305,7 @@ interface SessionStore {
   deleteSessionTemplate: (templateId: string) => Promise<void>
   updateSessionTemplate: (templateId: string, fields: { name?: string; description?: string | null }) => Promise<SessionTemplateData | undefined>
   selectSession: (id: string | null) => void
+  setVisibleSessionId: (id: string | null) => void
   markUnread: (sessionId: string) => Promise<void>
   sendPrompt: (content: string, images?: ImageAttachmentInfo[], context?: { inspirationNoteId?: string }) => Promise<void>
   setModel: (modelId: string) => Promise<void>
@@ -609,6 +611,10 @@ function patchSessionReadAt(
 
 function isDocumentVisible(): boolean {
   return typeof document === 'undefined' || document.visibilityState !== 'hidden'
+}
+
+function visibleCurrentSessionId(state: SessionStore): string | null {
+  return state.visibleSessionId === state.currentSessionId && isDocumentVisible() ? state.currentSessionId : null
 }
 
 function hasRunningAgentMessage(messages: MessageData[], sessionId: string): boolean {
@@ -992,6 +998,7 @@ function reconcileCopyingSessions(
 export const useSessionStore = create<SessionStore>((set, get) => ({
   sessions: [],
   currentSessionId: null,
+  visibleSessionId: null,
   messages: [],
   events: [],
   streamingMessage: null,
@@ -1111,7 +1118,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         const unreadSessionIds = reconcileUnreadSessionIndicators(
           state.unreadSessionIds,
           activeSessions,
-          state.currentSessionId,
+          visibleCurrentSessionId(state),
           inferredRunningSessionIds,
           readSnapshot.forcedUnreadSessionIds,
         )
@@ -1724,32 +1731,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         suppressedAutomaticReadSessionIds.delete(id)
       }
     }
-    // 幂等短路:同一 id 重复调用不再重发 fetchMessages / fetchModels / markRead,
-    // 防止 markRead → session:changed → sessions 引用变 → effect 重触发 → 又调 selectSession 的死循环。
-    // prev === id 时直接返回,避免切断订阅 / 重置缓存等副作用也重新执行一遍。
+    // Selection owns data loading; the rendered pane owns read acknowledgement.
     if (prev === id) {
-      if (id && !explicitUnreadSessionIds.has(id)) {
-        const state = get()
-        const session = state.sessions.find((item) => item.id === id)
-        const shouldAcknowledge = !!state.unreadSessionIds[id]
-          || (!!session && isSessionUnreadByTimestamps(session))
-        set({ unreadSessionIds: removeSessionIndicator(state.unreadSessionIds, id) })
-        if (shouldAcknowledge) {
-          const lastReadAt = new Date().toISOString()
-          sessionReadFence.recordRead(id, lastReadAt)
-          set((current) => ({
-            ...patchSessionReadAt(
-              current.sessionListCache,
-              current.activeSessionScope,
-              current.sessions,
-              id,
-              lastReadAt,
-            ),
-            unreadSessionIds: removeSessionIndicator(current.unreadSessionIds, id),
-          }))
-          void markSessionReadOnServer(id)
-        }
-      }
+      if (id && visibleCurrentSessionId(get()) === id) get().setVisibleSessionId(id)
       if (
         id &&
         get().runningSessionIds[id] &&
@@ -1799,8 +1783,6 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       return
     }
     writeStoredSessionId(id)
-    const lastReadAt = new Date().toISOString()
-    sessionReadFence.recordRead(id, lastReadAt)
     // per-project 映射:用当前激活的项目 scope(由 fetchSessions 设置)作为 key
     const selectedSession = get().sessions.find((session) => session.id === id)
     if (activeSessionsProjectId && !isSecretarySessionPurpose(selectedSession?.purpose)) {
@@ -1814,14 +1796,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       clearTimeout(streamingFlushTimer)
       streamingFlushTimer = null
     }
-    set((state) => ({
-      ...patchSessionReadAt(
-        state.sessionListCache,
-        state.activeSessionScope,
-        state.sessions,
-        id,
-        lastReadAt,
-      ),
+    set({
       currentSessionId: id,
       messages: c?.messages || [],
       events: c?.events || [],
@@ -1841,13 +1816,31 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       turnProcessErrorByMessageId: {},
       processItemLoadingByKey: {},
       processItemErrorByKey: {},
-      unreadSessionIds: removeSessionIndicator(state.unreadSessionIds, id),
-    }))
+    })
     void get().fetchMessages(id, selection).then(() => {
       if (selection?.signal.aborted || get().currentSessionId !== id) return
       return get().fetchRecovery(id, selection)
     }).catch(() => undefined)
     void get().fetchModels()
+  },
+
+  setVisibleSessionId: (id) => {
+    const entering = get().visibleSessionId !== id
+    if (entering) set({ visibleSessionId: id })
+    if (!id || visibleCurrentSessionId(get()) !== id) return
+    if (explicitUnreadSessionIds.has(id)) {
+      suppressedAutomaticReadSessionIds.add(id)
+      return
+    }
+    const state = get()
+    const session = state.sessions.find((item) => item.id === id)
+    if (!entering && !state.unreadSessionIds[id] && (!session || !isSessionUnreadByTimestamps(session))) return
+    const lastReadAt = new Date().toISOString()
+    sessionReadFence.recordRead(id, lastReadAt)
+    set((current) => ({
+      ...patchSessionReadAt(current.sessionListCache, current.activeSessionScope, current.sessions, id, lastReadAt),
+      unreadSessionIds: removeSessionIndicator(current.unreadSessionIds, id),
+    }))
     void markSessionReadOnServer(id)
   },
 
@@ -1865,8 +1858,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     } catch (error) {
       explicitUnreadSessionIds.delete(sessionId)
       const shouldCompensateRead = suppressedAutomaticReadSessionIds.delete(sessionId)
-        && get().currentSessionId === sessionId
-        && isDocumentVisible()
+        && visibleCurrentSessionId(get()) === sessionId
       if (shouldCompensateRead) {
         const lastReadAt = new Date().toISOString()
         sessionReadFence.recordRead(sessionId, lastReadAt)
@@ -2359,29 +2351,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     if (listenersSetup && cleanupFn) return cleanupFn
     const offs: (() => void)[] = []
     const acknowledgeVisibleCurrentSession = (): void => {
-      if (!isDocumentVisible()) return
       const state = get()
-      const sessionId = state.currentSessionId
-      if (!sessionId) return
-      if (explicitUnreadSessionIds.has(sessionId)) {
-        suppressedAutomaticReadSessionIds.add(sessionId)
-        return
-      }
-      const session = state.sessions.find((item) => item.id === sessionId)
-      if (!state.unreadSessionIds[sessionId] && (!session || !isSessionUnreadByTimestamps(session))) return
-      const lastReadAt = new Date().toISOString()
-      sessionReadFence.recordRead(sessionId, lastReadAt)
-      set((current) => ({
-        ...patchSessionReadAt(
-          current.sessionListCache,
-          current.activeSessionScope,
-          current.sessions,
-          sessionId,
-          lastReadAt,
-        ),
-        unreadSessionIds: removeSessionIndicator(current.unreadSessionIds, sessionId),
-      }))
-      void markSessionReadOnServer(sessionId)
+      const sessionId = visibleCurrentSessionId(state)
+      if (sessionId) state.setVisibleSessionId(sessionId)
     }
     const handleVisibilityChange = (): void => {
       if (document.visibilityState === 'visible') acknowledgeVisibleCurrentSession()
@@ -2536,13 +2508,12 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         const completedTurnId = typeof msg.turnId === 'string' ? msg.turnId : null
         completedTurnIdsBySession.set(sid, completedTurnId)
         const isCurrent = sid === get().currentSessionId
+        const isVisible = sid === visibleCurrentSessionId(get())
         const explicitUnread = explicitUnreadSessionIds.has(sid)
-        if (isCurrent && isDocumentVisible() && explicitUnread) {
+        if (isVisible && explicitUnread) {
           suppressedAutomaticReadSessionIds.add(sid)
         }
-        const shouldAcknowledgeRead = isCurrent
-          && isDocumentVisible()
-          && !explicitUnread
+        const shouldAcknowledgeRead = isVisible && !explicitUnread
         if (!shouldAcknowledgeRead) sessionReadFence.recordUnread(sid)
         sessionCancelCoordinator.clear(sid)
         sessionActivityFence.record(sid, 'idle')
@@ -2745,7 +2716,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
               }
             : {}
           if (st.sessions.some((s) => s.id === sessionId)) {
-            const isCurrent = st.currentSessionId === sessionId
+            const isCurrent = visibleCurrentSessionId(st) === sessionId
             const mergedSession = { ...st.sessions.find((session) => session.id === sessionId)!, ...data } as SessionData
             const nextUnread = markedUnread
               ? true
@@ -2828,7 +2799,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           sessionCancelCoordinator.clear(sessionId)
         }
         const isCurrent = sessionId === get().currentSessionId
-        if (state === 'idle' && !isCurrent) sessionReadFence.recordUnread(sessionId)
+        if (state === 'idle' && sessionId !== visibleCurrentSessionId(get())) sessionReadFence.recordUnread(sessionId)
         if (state === 'idle' && isCurrent) flushStreamingBuffer(set, get)
         set((st) => ({
           ...patchSessionActivity(st.sessionListCache, st.activeSessionScope, st.sessions, sessionId, state),
@@ -2838,7 +2809,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             st.staleSessionIds,
             sessionId,
             state,
-            st.currentSessionId,
+            visibleCurrentSessionId(st),
           ),
           stoppingSessionIds: state === 'idle'
             ? removeSessionIndicator(st.stoppingSessionIds, sessionId)

@@ -322,6 +322,8 @@ PC Session store 对取消维护独立的 stopping 状态。首次点击立即�
 
 项目视图状态与业务数据缓存分离。每个项目独立保存 Workspace 侧栏与 Agent 选择、任务选中项和滚动位置、知识库搜索及未保存草稿、事件中心 Tab、Agent Memory 的 Agent/维度选择。低频选择状态持久化到浏览器存储，滚动位置只保存在内存；删除项目时路由记忆、视图状态、资源缓存和最后会话映射一并清理。
 
+PC Workspace 的 `use-workspace-session-restore` 在项目入口恢复一次普通会话，并同步对应 Agent；主动切换团队或清空选择后不再触发历史恢复。Session store 的 `currentSessionId` 管理数据订阅，`visibleSessionId` 由实际显示普通对话的 Workspace 注册并在隐藏或卸载时释放。自动已读要求两个标识一致且浏览器页面可见，文件视图、团队视图和其他页面中的后台完成保留未读；显式标记未读继续优先于自动已读。会话链接和下一未读快捷键通过同一 Workspace 路由入口切换视图，任务状态事件不承担导航职责。
+
 Session、Agent 和当前项目的运行中/未读提示使用同一个 Session 指示器汇总函数，且运行中优先于未读，避免三层展示出现不同计数。当前项目直接覆盖为本地 Session store 的实时汇总；后台项目保留 `sessions.projectStats` 的轻量全项目快照。该查询聚合 active、非删除、非归档、非模板会话，并把 SQLite 中的运行信号与进程内 active prompt 合并；PC stats store 在全局会话事件后更新，并以 30 秒 stale interval、页面重新可见和窗口 focus 作为恢复边界。移动端项目按创建顺序展示，项目内 Agent 与团队组按置顶优先、最近活动排序，同时间保持原顺序。打开普通会话通过 `sessions.markRead` 持久化 `last_read_at`，团队通过已显示消息引用推进各成员读取边界；后台完成保留未读直到页面重新可见，点击项目本身不会批量清除未读。用户显式调用 `sessions.markUnread` 时，`marked_unread` 事件优先于“当前会话自动已读”规则；PC 清除当前 Session 选择，移动端返回来源页，下一次进入后再恢复自动已读。
 
 PC 右侧全局栏同时承载全局助理和置顶会话快捷入口，两个抽屉互斥；PC 另有独立 `/pinned` 页签，会话标题栏按“分享、置顶、标记未读、时间线”提供一级操作。移动端底部“动态”把 `widget.sessionActivity.list` 与团队目录合并，跨项目展示运行中或未读会话；“会话”按项目组织同级 Agent 与团队，并通过 `/?view=pinned` 切换跨项目置顶列表，旧 `/pinned` 地址只做兼容重定向。移动端普通聊天输入区的 `+` 提供置顶和标记未读，团队聊天标题栏提供置顶。`global_session_dock` 保存普通 Session 或团队 Master Session 的引用与顺序，不加载消息历史，也不修改 Workspace Session store。增加、移除和排序发布 `session-dock:update`；客户端还在相关会话、团队事件及重连后校准列表。移动端点击条目导航到 `/chat/:sessionId`，由目录决定普通对话或团队聚合渲染。

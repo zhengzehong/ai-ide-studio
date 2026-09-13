@@ -30,6 +30,8 @@ npm run test:integration    # 仅集成测试
 npm run test:watch          # 监听模式（文件变更自动重跑）
 ```
 
+Workspace 的 React 切换回归位于 `tests/integration/workspace-session-restore-browser.test.ts`，使用 Playwright Chromium 和拦截的测试请求，不启动应用服务、不连接生产后端。已安装 Chromium 时随 `npm test` 运行；未安装时该浏览器测试组会跳过。需要执行时先运行 `npx playwright install chromium`，再运行 `npm test -- tests/integration/workspace-session-restore-browser.test.ts`。
+
 ## 编写测试
 
 ### 单元测试

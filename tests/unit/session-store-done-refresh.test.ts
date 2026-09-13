@@ -30,6 +30,7 @@ function resetStore(): void {
   useSessionStore.setState({
     sessions: [],
     currentSessionId: 'sess-refresh',
+    visibleSessionId: 'sess-refresh',
     messages: [],
     events: [],
     streamingMessage: null,
@@ -1032,6 +1033,7 @@ describe('session store done handling', () => {
       projectId: 'proj-stale-read',
     }))
     useSessionStore.getState().selectSession('sess-stale-read')
+    useSessionStore.getState().setVisibleSessionId('sess-stale-read')
     useSessionStore.getState().selectSession(null)
     resolveList([{
       id: 'sess-stale-read',
@@ -1350,7 +1352,7 @@ describe('session store done handling', () => {
     }
   })
 
-  test('marks background session running, unread after idle, and read after selecting it', async () => {
+  test('marks background session running, unread after idle, and read after displaying it', async () => {
     resetStore()
     const cleanup = useSessionStore.getState().setupListeners()
 
@@ -1379,6 +1381,7 @@ describe('session store done handling', () => {
       expect(useSessionStore.getState().staleSessionIds['sess-bg']).toBe(true)
 
       useSessionStore.getState().selectSession('sess-bg')
+      useSessionStore.getState().setVisibleSessionId('sess-bg')
 
       expect(useSessionStore.getState().unreadSessionIds['sess-bg']).toBeUndefined()
     } finally {
