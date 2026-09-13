@@ -135,6 +135,25 @@ try {
   await page.getByText('独立配置').waitFor()
   await screenshot('2-saved.png')
 
+  // P2：部分失败 → 弹窗不关、错误显示在弹窗内、成功部分已生效；重试 dirty 跳过已成功部分
+  await memberRow.hover()
+  await memberRow.getByRole('button', { name: '成员操作' }).click()
+  await page.getByRole('button', { name: '设置 Agent' }).click()
+  await policySelect.selectOption('system') // 让模型策略也变脏，与提示词一起保存
+  await page.locator('[role="dialog"] textarea').fill('这次会失败')
+  await page.getByRole('button', { name: '保存', exact: true }).click()
+  await expectEvents('save:{"modelProfileMode":"system","modelProfileId":null}') // 模型策略已成功并生效
+  await page.getByText('提示词保存失败（模拟）').waitFor() // 错误显示在弹窗内
+  if (await page.locator('[role="dialog"] textarea').count() !== 1) throw new Error('部分失败后弹窗应保持打开')
+  // 重试：只补写失败的部分（模型策略已成功且未变更，不再重复写）
+  const countSaveEvents = (raw) => raw.split('|').filter((item) => item.startsWith('save:')).length
+  const savesBeforeRetry = countSaveEvents(await events())
+  await page.locator('[role="dialog"] textarea').fill('重试成功的新人设')
+  await page.getByRole('button', { name: '保存', exact: true }).click()
+  await expectEvents('savePrompt:重试成功的新人设')
+  if (countSaveEvents(await events()) !== savesBeforeRetry) throw new Error('重试不应重复写已成功且未变更的模型策略')
+  if (await page.locator('[role="dialog"]').count() !== 0) throw new Error('全部成功后应关闭弹窗')
+
   // 7. 系统默认策略预览走后端 fallback
   await memberRow.hover()
   await memberRow.getByRole('button', { name: '成员操作' }).click()

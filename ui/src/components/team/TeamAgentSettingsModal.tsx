@@ -1,9 +1,35 @@
+/* eslint-disable react-refresh/only-export-components -- saveTeamAgentSettings 与弹窗同源，规范同 TeamChatPane */
 import { useEffect, useMemo, useState, type CSSProperties, type ReactElement } from 'react'
 import { Cpu, X } from 'lucide-react'
 import type { ModelProfileData } from '../../stores/model.store'
 import type { TeamDockMember, TeamMemberModelConfig } from './TeamAgentDock'
 
 type TeamModelProfileMode = 'inherit' | 'fixed' | 'system'
+
+export interface TeamAgentSettingsSaveInput {
+  config: TeamMemberModelConfig
+  mode: TeamModelProfileMode
+  profileId: string
+  prompt: string
+  onSave: (input: { modelProfileMode: TeamModelProfileMode; modelProfileId: string | null }) => Promise<void>
+  onSaveSystemPrompt: (systemPrompt: string) => Promise<void>
+  onClose: () => void
+}
+
+/** 弹窗保存编排（P2 修复）：两条保存全部成功才关弹窗；任一失败抛错，由弹窗内 setError 展示。
+ * 重试不重复写已成功且未变更的部分：部分成功后父级已把本地 config 更新为真实值，dirty 判断天然跳过。 */
+export async function saveTeamAgentSettings(input: TeamAgentSettingsSaveInput): Promise<void> {
+  const tasks: Array<Promise<void>> = []
+  const nextProfileId = input.mode === 'fixed' ? input.profileId : null
+  if (input.mode !== input.config.modelProfileMode || nextProfileId !== input.config.modelProfileId) {
+    tasks.push(input.onSave({ modelProfileMode: input.mode, modelProfileId: nextProfileId }))
+  }
+  if (input.prompt !== (input.config.agentSystemPrompt ?? '')) {
+    tasks.push(input.onSaveSystemPrompt(input.prompt))
+  }
+  await Promise.all(tasks)
+  input.onClose()
+}
 
 interface TeamAgentSettingsModalProps {
   member: TeamDockMember
@@ -54,14 +80,11 @@ export function TeamAgentSettingsModal({ member, config, masterEffective, modelP
     if (saving || fixedProfileMissing) return
     setSaving(true)
     setError(null)
-    const tasks: Array<Promise<void>> = [
-      onSave({ modelProfileMode: mode, modelProfileId: mode === 'fixed' ? selectedProfileId : null }),
-    ]
-    // 提示词与当前定义一致时不重复写 Agent。
-    if (prompt !== (config.agentSystemPrompt ?? '')) tasks.push(onSaveSystemPrompt(prompt))
-    Promise.all(tasks).catch((cause: unknown) => {
-      setError(cause instanceof Error ? cause.message : '保存失败，请重试')
-    }).finally(() => setSaving(false))
+    // 全部成功才由编排函数回调 onClose 关弹窗；任一失败保持打开并把错误显示在弹窗内。
+    saveTeamAgentSettings({ config, mode, profileId: selectedProfileId, prompt, onSave, onSaveSystemPrompt, onClose })
+      .catch((cause: unknown) => {
+        setError(cause instanceof Error ? cause.message : '保存失败，请重试')
+      }).finally(() => setSaving(false))
   }
 
   return (

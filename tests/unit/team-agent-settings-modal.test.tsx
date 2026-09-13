@@ -1,7 +1,7 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { describe, expect, it } from 'vitest'
-import { TeamAgentSettingsModal, TeamMemberRemoveConfirm } from '../../ui/src/components/team/TeamAgentSettingsModal.js'
+import { describe, expect, it, vi } from 'vitest'
+import { saveTeamAgentSettings, TeamAgentSettingsModal, TeamMemberRemoveConfirm } from '../../ui/src/components/team/TeamAgentSettingsModal.js'
 import type { TeamDockMember, TeamMemberModelConfig } from '../../ui/src/components/team/TeamAgentDock.js'
 
 function member(overrides: Partial<TeamDockMember> = {}): TeamDockMember {
@@ -114,5 +114,72 @@ describe('team agent settings modal', () => {
     expect(html).toContain('之后可重新添加')
     expect(html).toContain('移除')
     expect(html).toContain('取消')
+  })
+})
+
+describe('team agent settings save orchestration', () => {
+  const tick = () => new Promise<void>((resolve) => { setTimeout(resolve, 0) })
+
+  it('closes the modal only after every save succeeds', async () => {
+    let resolveConfig: () => void = () => undefined
+    let resolvePrompt: () => void = () => undefined
+    let closed = 0
+    const done = saveTeamAgentSettings({
+      config: config({ modelProfileMode: 'inherit', modelProfileId: null, agentSystemPrompt: '旧人设' }),
+      mode: 'fixed', profileId: 'p1', prompt: '新人设',
+      onSave: () => new Promise<void>((resolve) => { resolveConfig = resolve }),
+      onSaveSystemPrompt: () => new Promise<void>((resolve) => { resolvePrompt = resolve }),
+      onClose: () => { closed += 1 },
+    })
+    await tick()
+    expect(closed).toBe(0)
+    resolveConfig()
+    await tick()
+    expect(closed).toBe(0)
+    resolvePrompt()
+    await expect(done).resolves.toBeUndefined()
+    expect(closed).toBe(1)
+  })
+
+  it('keeps the modal open when one save fails while the succeeded part stays applied', async () => {
+    let rejectPrompt: (cause: unknown) => void = () => undefined
+    let closed = 0
+    const done = saveTeamAgentSettings({
+      config: config({ modelProfileMode: 'inherit', modelProfileId: null, agentSystemPrompt: '旧人设' }),
+      mode: 'system', profileId: '', prompt: '新人设',
+      onSave: () => Promise.resolve(),
+      onSaveSystemPrompt: () => new Promise<void>((_, reject) => { rejectPrompt = reject }),
+      onClose: () => { closed += 1 },
+    })
+    await tick()
+    rejectPrompt(new Error('提示词保存失败（模拟）'))
+    await expect(done).rejects.toThrow('提示词保存失败（模拟）')
+    // 弹窗保持打开：不关（错误随后由组件 setError 展示在弹窗内）；已成功的模型策略更新由父级保留在本地状态。
+    expect(closed).toBe(0)
+  })
+
+  it('skips already-saved parts on retry via the dirty check and closes', async () => {
+    const onSave = vi.fn(() => Promise.resolve())
+    const onSaveSystemPrompt = vi.fn(() => Promise.resolve())
+    let closed = 0
+    // 部分成功后父级已把本地 config 更新为真实值：模式/档案/提示词都与 config 一致 → 零写入直接关。
+    await saveTeamAgentSettings({
+      config: config({ modelProfileMode: 'fixed', modelProfileId: 'p1', agentSystemPrompt: '已保存人设' }),
+      mode: 'fixed', profileId: 'p1', prompt: '已保存人设',
+      onSave, onSaveSystemPrompt, onClose: () => { closed += 1 },
+    })
+    expect(onSave).not.toHaveBeenCalled()
+    expect(onSaveSystemPrompt).not.toHaveBeenCalled()
+    expect(closed).toBe(1)
+  })
+
+  it('writes the model strategy with cleared profile outside fixed mode', async () => {
+    const onSave = vi.fn(() => Promise.resolve())
+    await saveTeamAgentSettings({
+      config: config({ modelProfileMode: 'fixed', modelProfileId: 'p1', agentSystemPrompt: '同值' }),
+      mode: 'system', profileId: 'p1', prompt: '同值',
+      onSave, onSaveSystemPrompt: vi.fn(() => Promise.resolve()), onClose: () => undefined,
+    })
+    expect(onSave).toHaveBeenCalledWith({ modelProfileMode: 'system', modelProfileId: null })
   })
 })

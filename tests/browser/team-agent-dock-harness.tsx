@@ -87,14 +87,15 @@ function Harness() {
                 },
               }
               : item))
-            setSettingsId(null)
+            // 与 TeamChatPane 一致：保存回调不关弹窗（由弹窗编排全部成功后统一 onClose）
           }}
           onSaveSystemPrompt={async (systemPrompt) => {
+            // 模拟提示词保存失败：内容含「失败」即拒绝，验证 P2（部分失败弹窗不关）
+            if (systemPrompt.includes('失败')) throw new Error('提示词保存失败（模拟）')
             log(`savePrompt:${systemPrompt}`)
             setMembers((current) => current.map((item) => item.id === settingsMember.id
               ? { ...item, modelConfig: { ...item.modelConfig!, agentSystemPrompt: systemPrompt } }
               : item))
-            setSettingsId(null)
           }}
           onRemoveRequest={() => { setSettingsId(null); setConfirmId(settingsMember.id) }}
           onClose={() => setSettingsId(null)}

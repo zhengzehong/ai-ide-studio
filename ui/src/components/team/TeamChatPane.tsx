@@ -299,10 +299,10 @@ function TeamConversationPane({ team, conversation, masterSessionId, onOpenPrevi
     setLocation({ messageId: latest.id, request: locateRequestRef.current })
   }, [snapshots])
 
+  // 保存回调不关弹窗：由弹窗在两条保存全部成功后统一 onClose（P2：避免一成一败时关弹窗吞错误）。
   const saveMemberConfig = useCallback(async (member: TeamDockMember, input: { modelProfileMode: 'inherit' | 'fixed' | 'system'; modelProfileId: string | null }): Promise<void> => {
     const config = await wsClient.request({ type: 'team.member.config.update', memberId: member.id, ...input }) as TeamMemberModelConfig
     setMembers((current) => current.map((item) => item.id === member.id ? { ...item, modelConfig: config } as Member : item))
-    setSettingsMemberId(null)
   }, [])
 
   // 系统提示词单框直改：与普通 Agent 设置弹窗同一条链（agents.update），写该 Agent 定义的 system_prompt，全局生效。
@@ -311,7 +311,6 @@ function TeamConversationPane({ team, conversation, masterSessionId, onOpenPrevi
     setMembers((current) => current.map((item) => item.id === member.id && (item as TeamDockMember).modelConfig
       ? { ...item, modelConfig: { ...(item as TeamDockMember).modelConfig!, agentSystemPrompt: systemPrompt } } as Member
       : item))
-    setSettingsMemberId(null)
   }, [])
 
   const removeMember = useCallback(async (member: TeamDockMember): Promise<void> => {
