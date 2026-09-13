@@ -28,7 +28,7 @@ import { deriveMemberStatus, TeamAgentDock, type TeamDockMember, type TeamMember
 import { TeamAgentSettingsModal, TeamMemberRemoveConfirm } from './TeamAgentSettingsModal'
 
 import { aggregateSnapshots, emptySnapshot, mergeLoadedSnapshots, finalizeSnapshot, applyEventToSnapshot, mergeProcessItem, normalizeCapabilities, type Snapshot } from './team-chat-state'
-export { aggregateSnapshots, emptySnapshot, mergeLoadedSnapshots, finalizeSnapshot, applyEventToSnapshot, updateStreaming, hasLiveStreaming, rebuildStreamingFromEvents, TEAM_STREAM_REBUILD_EVENT_LIMIT, type Snapshot } from './team-chat-state'
+export { aggregateSnapshots, compareTeamMessages, emptySnapshot, mergeLoadedSnapshots, finalizeSnapshot, applyEventToSnapshot, updateStreaming, hasLiveStreaming, rebuildStreamingFromEvents, TEAM_STREAM_REBUILD_EVENT_LIMIT, type Snapshot } from './team-chat-state'
 
 interface Conversation { id: string; team_id: string; master_session_id: string; title: string }
 interface Props {

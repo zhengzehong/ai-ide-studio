@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { aggregateSnapshots, applyEventToSnapshot, emptySnapshot, finalizeSnapshot, mergeLoadedSnapshots, updateStreaming, type Snapshot } from '../../ui/src/components/team/TeamChatPane'
+import { aggregateSnapshots, applyEventToSnapshot, compareTeamMessages, emptySnapshot, finalizeSnapshot, mergeLoadedSnapshots, updateStreaming, type Snapshot } from '../../ui/src/components/team/TeamChatPane'
 import { defaultCaps } from '../../ui/src/stores/session-events'
 import { attachTeamAssignments, assignmentFromEvent, mapTeamMessage } from '../../ui/src/components/team/team-chat-assignments'
 
@@ -171,6 +171,19 @@ describe('team chat aggregation', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('keeps team order when history replaces a live completion timestamp', () => {
+    const member = { ...message('member-1:m1', 'agent', '成员结论'), session_id: 'member-1', started_at: '2026-09-09T10:00:00.000Z', timestamp: '2026-09-09T10:05:00.000Z' }
+    const master = { ...message('master-1:m2', 'agent', 'Master 总结'), session_id: 'master-1', started_at: '2026-09-09T10:02:00.000Z', timestamp: '2026-09-09T10:02:00.000Z' }
+    const live = [member, master].sort(compareTeamMessages)
+    const history = [member, { ...master, timestamp: '2026-09-09T10:06:00.000Z' }].sort(compareTeamMessages)
+    expect(live.map(item => item.id)).toEqual(history.map(item => item.id))
+    const merged = mergeLoadedSnapshots(
+      { 'member-1': { ...emptySnapshot('member-1'), messages: [member] }, 'master-1': { ...emptySnapshot('master-1'), messages: [master] } },
+      { 'member-1': { ...emptySnapshot('member-1'), messages: [{ ...member, timestamp: '2026-09-09T10:05:00.000Z' }] }, 'master-1': { ...emptySnapshot('master-1'), messages: [{ ...master, timestamp: '2026-09-09T10:06:00.000Z' }] } },
+    )
+    expect(aggregateSnapshots(merged, ['master-1', 'member-1'], 'master-1').messages.map(item => item.id)).toEqual(['member-1:m1', 'master-1:m2'])
   })
 
   it('keeps the recorded turn start across chunk and live-event updates', () => {

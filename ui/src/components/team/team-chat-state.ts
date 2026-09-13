@@ -5,6 +5,8 @@ import { assignmentFromEvent, attachTeamAssignments } from './team-chat-assignme
 import { isPendingTeamTurn, pendingTeamPromptAnswered } from './team-chat-pending'
 
 export interface Snapshot { sessionId: string; supplementalItems?: TurnProcessItemInfo[]; replayEvents?: SessionEventData[]; replaySequence?: number; senderName?: string; messages: MessageData[]; events: SessionEventData[]; streaming: StreamingMessage | null; pendingAssignment?: TeamAssignmentInfo | null; permissions: PermissionRequestInfo[]; elicitations: ElicitationRequestInfo[]; capabilities: SessionCapabilities; usage: UsageInfo | null; hasMore: boolean; running: boolean }
+/** Keep a completed team turn at its start position across live and history paths. */
+export function compareTeamMessages(left: MessageData, right: MessageData): number { return (left.started_at || left.timestamp).localeCompare(right.started_at || right.timestamp) || left.timestamp.localeCompare(right.timestamp) || left.id.localeCompare(right.id) }
 
 export function aggregateSnapshots(snapshots: Record<string, Snapshot>, ids: string[], masterSessionId: string | null) {
   const decoratedBySession = new Map<string, { messages: MessageData[]; streaming: StreamingMessage | null }>()
@@ -15,7 +17,7 @@ export function aggregateSnapshots(snapshots: Record<string, Snapshot>, ids: str
   const messages = [...new Map(ids.flatMap((id) => {
     const items = decoratedBySession.get(id)?.messages || []
     return id === masterSessionId ? items : items.filter((message) => message.role !== 'human')
-  }).map((message) => [message.id, message])).values()].sort((a, b) => a.timestamp.localeCompare(b.timestamp) || a.id.localeCompare(b.id))
+  }).map((message) => [message.id, message])).values()].sort(compareTeamMessages)
   const events = [...new Map(ids.flatMap((id) => snapshots[id]?.events || []).map((event) => [event.id, event])).values()].sort((a, b) => a.created_at.localeCompare(b.created_at) || a.sequence - b.sequence)
   const streaming = [...new Map(ids.flatMap((id) => {
     const item = decoratedBySession.get(id)?.streaming
@@ -74,7 +76,7 @@ export function mergeLoadedSnapshots(current: Record<string, Snapshot>, loaded: 
     const streaming = completed ? null : overlaySupplementalItems(candidate ? withTurnStart(previous?.streaming || null, candidate) : null, supplementalItems)
     merged[sessionId] = {
       ...previous, ...next,
-      messages: allMessages.sort((a, b) => a.timestamp.localeCompare(b.timestamp) || a.id.localeCompare(b.id)),
+      messages: allMessages.sort(compareTeamMessages),
       events,
       streaming, supplementalItems,
       running: !!streaming || (!pendingAnswered && !completed && next.replaySequence === undefined && (previous?.running || next.running) && !hasCompletedTurn(allMessages, previous?.streaming || null, sessionId)),
