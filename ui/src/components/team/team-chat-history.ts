@@ -1,7 +1,7 @@
 import { queryClient } from '../../services/query-client'
 import { normalizeMessage, type MessageData } from '../../stores/session-events'
 import { attachTeamAssignments, mapTeamMessage } from './team-chat-assignments'
-import type { Snapshot } from './team-chat-state'
+import { compareTeamMessages, type Snapshot } from './team-chat-state'
 import type { SourceMessage } from './team-view-cache'
 
 export interface OlderTeamPage {
@@ -32,7 +32,7 @@ export function mergeOlderTeamPages(current: Record<string, Snapshot>, pages: Ol
     const snapshot = next[page.sessionId]
     if (!snapshot) continue
     const messages = [...new Map([...page.messages, ...snapshot.messages].map(message => [message.id, message])).values()]
-      .sort((a, b) => a.timestamp.localeCompare(b.timestamp) || a.id.localeCompare(b.id))
+      .sort(compareTeamMessages)
     const decorated = attachTeamAssignments(messages, snapshot.streaming)
     next[page.sessionId] = { ...snapshot, messages: decorated.messages, streaming: decorated.streaming, hasMore: page.hasMore }
   }
