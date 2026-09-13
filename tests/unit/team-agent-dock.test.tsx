@@ -14,6 +14,7 @@ function member(overrides: Partial<TeamDockMember> = {}): TeamDockMember {
       effective: { name: 'gpt-6-astra', source: '继承 Master' },
       fallback: { name: '系统默认', source: '未指定档案' },
       agentSystemPrompt: '成员模板人设提示词',
+      agentModelProfileId: null,
     },
     ...overrides,
   }
@@ -52,7 +53,7 @@ describe('team agent dock rendering', () => {
     const html = renderToStaticMarkup(createElement(TeamAgentDock, {
       initialCollapsed: false,
       members: [
-        member({ id: 'tm-0', name: 'Master', role: 'leader', session_id: 'master-session', modelConfig: { modelProfileMode: 'fixed', modelProfileId: 'p1', systemPromptOverride: null, runtime: 'claude', effective: { name: 'gpt-6-astra', source: 'Master 档案' }, fallback: { name: 'gpt-6-astra', source: 'Agent 配置' }, agentSystemPrompt: 'Master 人设' } }),
+        member({ id: 'tm-0', name: 'Master', role: 'leader', session_id: 'master-session', modelConfig: { modelProfileMode: 'fixed', modelProfileId: 'p1', systemPromptOverride: null, runtime: 'claude', effective: { name: 'gpt-6-astra', source: 'Master 档案' }, fallback: { name: 'gpt-6-astra', source: 'Agent 配置' }, agentSystemPrompt: 'Master 人设', agentModelProfileId: 'p1' } }),
         member(),
       ],
       statusBySessionId: {

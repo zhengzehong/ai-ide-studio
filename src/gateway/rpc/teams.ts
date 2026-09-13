@@ -2,7 +2,7 @@
 import { sessionManager } from '../../core/sessions.js'
 import type { RpcHandlerMap } from './types.js'
 import { modelProfileStore } from '../../store/model-profiles.js'
-import { getGlobalModelProfile } from '../../acp/runtime-global-model-profile.js'
+import { getGlobalModelProfile, readModelProfileId } from '../../acp/runtime-global-model-profile.js'
 import { resolveAgentModelProfile } from '../../acp/model-profile-env.js'
 import { agentStore } from '../../store/agents.js'
 import { teamMemberStore, type TeamMemberRow } from '../../store/teams.js'
@@ -26,6 +26,8 @@ export interface TeamMemberModelConfig {
   fallback: TeamMemberEffectiveModel
   /** 成员 Agent 定义当前真实生效的原始 system_prompt（含 Master spawn 时配置的值），空则 null；供弹窗「当前提示词」回显。 */
   agentSystemPrompt: string | null
+  /** Agent 定义 config_json 里的原始 model_profile_id，空则 null；供 Master 弹窗预填（模型档案直改 Agent 定义）。 */
+  agentModelProfileId: string | null
 }
 
 export const teamRpcHandlers: RpcHandlerMap = {
@@ -149,6 +151,7 @@ export function describeTeamMemberModelConfig(member: TeamMemberRow): TeamMember
     effective: resolveEffectiveModel(member, modelProfileMode, runtime),
     fallback: resolveFallbackModel(member.agent_id, runtime),
     agentSystemPrompt: agentStore.get(member.agent_id)?.system_prompt || null,
+    agentModelProfileId: readModelProfileId(agentStore.get(member.agent_id)?.config_json ?? null) || null,
   }
 }
 

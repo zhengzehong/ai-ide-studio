@@ -17,6 +17,7 @@ function config(overrides: Partial<TeamMemberModelConfig> = {}): TeamMemberModel
     effective: { name: 'gpt-6-astra', source: '继承 Master' },
     fallback: { name: '系统默认', source: '未指定档案' },
     agentSystemPrompt: '成员模板人设提示词',
+    agentModelProfileId: null,
     ...overrides,
   }
 }
@@ -34,6 +35,7 @@ function renderModal(overrides: {
     modelProfiles: (overrides.modelProfiles ?? []) as never,
     onLoadProfiles: () => undefined,
     onSave: () => Promise.resolve(),
+    onSaveAgentModel: () => Promise.resolve(),
     onSaveSystemPrompt: () => Promise.resolve(),
     onRemoveRequest: () => undefined,
     onClose: () => undefined,
@@ -68,11 +70,26 @@ describe('team agent settings modal', () => {
     expect(html).toContain('disabled')
   })
 
-  it('hides the inherit option and the remove button for the master', () => {
-    const html = renderModal({ member: member({ name: 'Master', role: 'leader' }) })
-    expect(html).not.toContain('继承 Master</option>')
-    expect(html).not.toContain('移除成员')
+  it('renders the master as a single model-profile select fed by the agent definition', () => {
+    const profiles = [{ id: 'p1', name: 'claude-astra', runtime: 'claude', enabled: true }]
+    const html = renderModal({
+      member: member({ name: 'Master', role: 'leader' }),
+      config: config({ agentModelProfileId: 'p1', effective: { name: 'claude-astra', source: 'Agent 配置' } }),
+      modelProfiles: profiles,
+    })
+    // 策略下拉对 Master 无意义（创建团队时从模板新建的团队专属 Agent），只留模型档案单下拉。
+    expect(html).not.toContain('模型策略')
     expect(html).not.toContain('value="inherit"')
+    expect(html).not.toContain('请选择模型档案')
+    expect(html).not.toContain('移除成员')
+    expect(html).toContain('使用系统默认')
+    // 预填 = Agent 定义的原始 model_profile_id。
+    expect(html).toContain('value="p1" selected')
+    // 当前生效 = 后端 effective（与 dock 行同源同文案），不再写死「系统默认 · Master 未指定档案」。
+    expect(html).toContain('claude-astra · Agent 配置')
+    expect(html).not.toContain('Master 未指定档案')
+    expect(html).toContain('直接修改该 Agent 的模型配置（全局生效）')
+    expect(html).not.toContain('模型策略仅对当前团队生效')
   })
 
   it('shows the remove button and remove entry for plain members', () => {
@@ -128,6 +145,7 @@ describe('team agent settings save orchestration', () => {
       config: config({ modelProfileMode: 'inherit', modelProfileId: null, agentSystemPrompt: '旧人设' }),
       mode: 'fixed', profileId: 'p1', prompt: '新人设',
       onSave: () => new Promise<void>((resolve) => { resolveConfig = resolve }),
+      onSaveAgentModel: null,
       onSaveSystemPrompt: () => new Promise<void>((resolve) => { resolvePrompt = resolve }),
       onClose: () => { closed += 1 },
     })
@@ -148,6 +166,7 @@ describe('team agent settings save orchestration', () => {
       config: config({ modelProfileMode: 'inherit', modelProfileId: null, agentSystemPrompt: '旧人设' }),
       mode: 'system', profileId: '', prompt: '新人设',
       onSave: () => Promise.resolve(),
+      onSaveAgentModel: null,
       onSaveSystemPrompt: () => new Promise<void>((_, reject) => { rejectPrompt = reject }),
       onClose: () => { closed += 1 },
     })
@@ -166,7 +185,7 @@ describe('team agent settings save orchestration', () => {
     await saveTeamAgentSettings({
       config: config({ modelProfileMode: 'fixed', modelProfileId: 'p1', agentSystemPrompt: '已保存人设' }),
       mode: 'fixed', profileId: 'p1', prompt: '已保存人设',
-      onSave, onSaveSystemPrompt, onClose: () => { closed += 1 },
+      onSave, onSaveAgentModel: null, onSaveSystemPrompt, onClose: () => { closed += 1 },
     })
     expect(onSave).not.toHaveBeenCalled()
     expect(onSaveSystemPrompt).not.toHaveBeenCalled()
@@ -178,8 +197,46 @@ describe('team agent settings save orchestration', () => {
     await saveTeamAgentSettings({
       config: config({ modelProfileMode: 'fixed', modelProfileId: 'p1', agentSystemPrompt: '同值' }),
       mode: 'system', profileId: 'p1', prompt: '同值',
-      onSave, onSaveSystemPrompt: vi.fn(() => Promise.resolve()), onClose: () => undefined,
+      onSave, onSaveAgentModel: null, onSaveSystemPrompt: vi.fn(() => Promise.resolve()), onClose: () => undefined,
     })
     expect(onSave).toHaveBeenCalledWith({ modelProfileMode: 'system', modelProfileId: null })
+  })
+
+  it('writes the master model profile to the agent definition when dirty', async () => {
+    const onSaveAgentModel = vi.fn(() => Promise.resolve())
+    let closed = 0
+    await saveTeamAgentSettings({
+      config: config({ agentModelProfileId: null, agentSystemPrompt: '同值' }),
+      mode: 'inherit', profileId: 'p1', prompt: '同值',
+      onSave: vi.fn(() => Promise.resolve()),
+      onSaveAgentModel, onSaveSystemPrompt: vi.fn(() => Promise.resolve()),
+      onClose: () => { closed += 1 },
+    })
+    expect(onSaveAgentModel).toHaveBeenCalledWith({ modelProfileId: 'p1' })
+    expect(closed).toBe(1)
+  })
+
+  it('clears the master model profile to system default and skips when unchanged', async () => {
+    const onSaveAgentModel = vi.fn(() => Promise.resolve())
+    // 清空=使用系统默认：写 null。
+    await saveTeamAgentSettings({
+      config: config({ agentModelProfileId: 'p1', agentSystemPrompt: '同值' }),
+      mode: 'inherit', profileId: '', prompt: '同值',
+      onSave: vi.fn(() => Promise.resolve()),
+      onSaveAgentModel, onSaveSystemPrompt: vi.fn(() => Promise.resolve()), onClose: () => undefined,
+    })
+    expect(onSaveAgentModel).toHaveBeenCalledWith({ modelProfileId: null })
+
+    // 与 Agent 定义原值一致 → 不写，直接关。
+    onSaveAgentModel.mockClear()
+    let closed = 0
+    await saveTeamAgentSettings({
+      config: config({ agentModelProfileId: 'p1', agentSystemPrompt: '同值' }),
+      mode: 'inherit', profileId: 'p1', prompt: '同值',
+      onSave: vi.fn(() => Promise.resolve()),
+      onSaveAgentModel, onSaveSystemPrompt: vi.fn(() => Promise.resolve()), onClose: () => { closed += 1 },
+    })
+    expect(onSaveAgentModel).not.toHaveBeenCalled()
+    expect(closed).toBe(1)
   })
 })

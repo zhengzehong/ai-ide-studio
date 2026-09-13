@@ -11,6 +11,7 @@ const initialMembers: TeamDockMember[] = [
       effective: { name: 'master-model', source: 'Master 档案' },
       fallback: { name: 'master-model', source: 'Agent 配置' },
       agentSystemPrompt: 'Master 人设',
+      agentModelProfileId: null,
     },
   },
   {
@@ -20,6 +21,7 @@ const initialMembers: TeamDockMember[] = [
       effective: { name: 'master-model', source: '继承 Master' },
       fallback: { name: '系统默认', source: '未指定档案' },
       agentSystemPrompt: '成员模板人设提示词',
+      agentModelProfileId: null,
     },
   },
 ]
@@ -88,6 +90,20 @@ function Harness() {
               }
               : item))
             // 与 TeamChatPane 一致：保存回调不关弹窗（由弹窗编排全部成功后统一 onClose）
+          }}
+          onSaveAgentModel={async (input) => {
+            log(`saveAgentModel:${JSON.stringify(input)}`)
+            // 镜像 TeamChatPane：agents.update 后回读后端 config 刷新（此处直接模拟回读结果）
+            setMembers((current) => current.map((item) => item.id === settingsMember.id
+              ? {
+                ...item,
+                modelConfig: {
+                  ...item.modelConfig!,
+                  agentModelProfileId: input.modelProfileId,
+                  effective: input.modelProfileId ? { name: 'claude-astra', source: 'Agent 配置' } : { name: '系统默认', source: '未指定档案' },
+                },
+              }
+              : item))
           }}
           onSaveSystemPrompt={async (systemPrompt) => {
             // 模拟提示词保存失败：内容含「失败」即拒绝，验证 P2（部分失败弹窗不关）

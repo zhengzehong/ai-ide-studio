@@ -313,6 +313,17 @@ function TeamConversationPane({ team, conversation, masterSessionId, onOpenPrevi
       : item))
   }, [])
 
+  // Master 模型档案直改 Agent 定义：选档案写 fixed+id，清空写 system+null（使用系统默认）；leader 团队行保持不动。
+  const saveMasterAgentModel = useCallback(async (member: TeamDockMember, input: { modelProfileId: string | null }): Promise<void> => {
+    await useAgentStore.getState().updateAgent(member.agent_id, {
+      modelProfileId: input.modelProfileId,
+      modelProfileMode: input.modelProfileId ? 'fixed' : 'system',
+    })
+    // 回读 config.get 以后端真相刷新（当前生效/dock 行与解析链保持同源，不本地推断）。
+    const config = await wsClient.request({ type: 'team.member.config.get', memberId: member.id }) as TeamMemberModelConfig
+    setMembers((current) => current.map((item) => item.id === member.id ? { ...item, modelConfig: config } as Member : item))
+  }, [])
+
   const removeMember = useCallback(async (member: TeamDockMember): Promise<void> => {
     setRemoving(true)
     try {
@@ -368,6 +379,7 @@ function TeamConversationPane({ team, conversation, masterSessionId, onOpenPrevi
           modelProfiles={modelProfiles}
           onLoadProfiles={loadModelProfiles}
           onSave={(input) => saveMemberConfig(settingsMember, input)}
+          onSaveAgentModel={(input) => saveMasterAgentModel(settingsMember, input)}
           onSaveSystemPrompt={(systemPrompt) => saveMemberSystemPrompt(settingsMember, systemPrompt)}
           onRemoveRequest={() => { setSettingsMemberId(null); setConfirmMemberId(settingsMember.id) }}
           onClose={() => setSettingsMemberId(null)}
