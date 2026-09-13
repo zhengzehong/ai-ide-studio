@@ -123,8 +123,9 @@ export function TeamAgentDock({ members, statusBySessionId, initialCollapsed, on
   return (
     <div style={{ ...styles.dock }} data-team-agent-dock>
       {/* 内联 style 无法表达 :hover，这里只放悬停反馈；变量全部来自 ui/src/index.css。
-          行内按钮的默认隐藏（opacity:0）也必须放这里：内联 opacity 会压过 :hover 规则。 */}
-      <style>{`.team-agent-dock-row:hover{background:var(--bg-2)}.team-agent-dock-more{opacity:0}.team-agent-dock-row:hover .team-agent-dock-more{opacity:1;background:var(--bg-3);color:var(--text-1)}.team-agent-dock-row .team-agent-dock-more:hover{background:var(--bg-4)}.team-agent-dock-stop{opacity:0}.team-agent-dock-row:hover .team-agent-dock-stop{opacity:1}.team-agent-dock-stop.is-busy,.team-agent-dock-stop.is-failed{opacity:1}.team-agent-dock-stop.is-failed{background:var(--red);color:var(--bg-0)}.team-agent-dock-stop:hover{border-color:var(--red)}.team-agent-dock-head:hover{background:var(--bg-2)}`}</style>
+          行内按钮的默认隐藏（⋯）也必须放这里：内联 opacity 会压过 :hover 规则。
+          停止按钮不隐藏：仅运行中成员行渲染（见 DockMemberRow），常驻显示。 */}
+      <style>{`.team-agent-dock-row:hover{background:var(--bg-2)}.team-agent-dock-more{opacity:0}.team-agent-dock-row:hover .team-agent-dock-more{opacity:1;background:var(--bg-3);color:var(--text-1)}.team-agent-dock-row .team-agent-dock-more:hover{background:var(--bg-4)}.team-agent-dock-stop.is-busy,.team-agent-dock-stop.is-failed{opacity:1}.team-agent-dock-stop.is-failed{background:var(--red);color:var(--bg-0)}.team-agent-dock-stop:hover{border-color:var(--red)}.team-agent-dock-head:hover{background:var(--bg-2)}`}</style>
       <button type="button" className="team-agent-dock-head" style={styles.head} onClick={toggleCollapsed} title={collapsed ? '展开团队 Agent 列表' : '收起团队 Agent 列表'}>
         <Bot size={13} aria-hidden />
         <span>团队 Agent · {members.length} 人</span>
@@ -338,7 +339,7 @@ const styles: Record<string, CSSProperties> = {
   statusRunning: { color: 'var(--blue)' },
   statusIdle: { color: 'var(--text-3)', fontWeight: 500 },
   idleDot: { width: 7, height: 7, borderRadius: '50%', background: 'var(--bg-4)', flexShrink: 0 },
-  sub: { display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, paddingLeft: 34, fontSize: 12, color: 'var(--text-3)', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' },
+  sub: { display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, paddingLeft: 34, paddingRight: 68, fontSize: 12, color: 'var(--text-3)', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' },
   modelName: { color: 'var(--text-2)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
   more: {
     position: 'absolute',
@@ -356,7 +357,7 @@ const styles: Record<string, CSSProperties> = {
     justifyContent: 'center',
   },
   // 成员行停止按钮：视觉同主输入框 conversation-stop（Square + 红描边圆钮），尺寸适配成员行；
-  // 默认隐藏/hover 显现由注入的 <style> 控制（内联 opacity 会压过 :hover 规则）。
+  // 仅运行中成员行渲染、常驻显示（无 hover 依赖），styles.sub 预留右侧留白防文字顶到按钮。
   stop: {
     position: 'absolute',
     right: 38,
