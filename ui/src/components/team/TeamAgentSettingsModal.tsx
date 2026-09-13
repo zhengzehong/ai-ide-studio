@@ -1,9 +1,35 @@
+/* eslint-disable react-refresh/only-export-components -- saveTeamAgentSettings 与弹窗同源，规范同 TeamChatPane */
 import { useEffect, useMemo, useState, type CSSProperties, type ReactElement } from 'react'
 import { Cpu, X } from 'lucide-react'
 import type { ModelProfileData } from '../../stores/model.store'
 import type { TeamDockMember, TeamMemberModelConfig } from './TeamAgentDock'
 
 type TeamModelProfileMode = 'inherit' | 'fixed' | 'system'
+
+export interface TeamAgentSettingsSaveInput {
+  config: TeamMemberModelConfig
+  mode: TeamModelProfileMode
+  profileId: string
+  prompt: string
+  onSave: (input: { modelProfileMode: TeamModelProfileMode; modelProfileId: string | null }) => Promise<void>
+  onSaveSystemPrompt: (systemPrompt: string) => Promise<void>
+  onClose: () => void
+}
+
+/** 弹窗保存编排（P2 修复）：两条保存全部成功才关弹窗；任一失败抛错，由弹窗内 setError 展示。
+ * 重试不重复写已成功且未变更的部分：部分成功后父级已把本地 config 更新为真实值，dirty 判断天然跳过。 */
+export async function saveTeamAgentSettings(input: TeamAgentSettingsSaveInput): Promise<void> {
+  const tasks: Array<Promise<void>> = []
+  const nextProfileId = input.mode === 'fixed' ? input.profileId : null
+  if (input.mode !== input.config.modelProfileMode || nextProfileId !== input.config.modelProfileId) {
+    tasks.push(input.onSave({ modelProfileMode: input.mode, modelProfileId: nextProfileId }))
+  }
+  if (input.prompt !== (input.config.agentSystemPrompt ?? '')) {
+    tasks.push(input.onSaveSystemPrompt(input.prompt))
+  }
+  await Promise.all(tasks)
+  input.onClose()
+}
 
 interface TeamAgentSettingsModalProps {
   member: TeamDockMember
@@ -12,17 +38,21 @@ interface TeamAgentSettingsModalProps {
   masterEffective: { name: string; source: string } | null
   modelProfiles: ModelProfileData[]
   onLoadProfiles: () => void
-  onSave: (input: { modelProfileMode: TeamModelProfileMode; modelProfileId: string | null; systemPromptOverride: string | null }) => Promise<void>
+  /** 团队内模型策略（inherit/fixed/system + 档案），仅对当前团队生效。 */
+  onSave: (input: { modelProfileMode: TeamModelProfileMode; modelProfileId: string | null }) => Promise<void>
+  /** 系统提示词单框直改：写回该 Agent 定义的 system_prompt（全局生效），复用普通 Agent 设置弹窗的 agents.update 链路。 */
+  onSaveSystemPrompt: (systemPrompt: string) => Promise<void>
   onRemoveRequest: () => void
   onClose: () => void
 }
 
 /** 团队版 Agent 设置弹窗：只含模型策略/模型档案/系统提示词；视觉规范复刻 AgentSettingsModal（不改动其代码）。 */
-export function TeamAgentSettingsModal({ member, config, masterEffective, modelProfiles, onLoadProfiles, onSave, onRemoveRequest, onClose }: TeamAgentSettingsModalProps): ReactElement {
+export function TeamAgentSettingsModal({ member, config, masterEffective, modelProfiles, onLoadProfiles, onSave, onSaveSystemPrompt, onRemoveRequest, onClose }: TeamAgentSettingsModalProps): ReactElement {
   const isMaster = member.role === 'leader'
   const [mode, setMode] = useState<TeamModelProfileMode>(config.modelProfileMode)
   const [profileId, setProfileId] = useState(config.modelProfileId ?? '')
-  const [prompt, setPrompt] = useState(config.systemPromptOverride ?? '')
+  // 方案 A：去掉覆盖层，一个字段一个框 —— 预填 Agent 当前真实提示词，直接编辑、直接保存。
+  const [prompt, setPrompt] = useState(config.agentSystemPrompt ?? '')
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
@@ -50,13 +80,11 @@ export function TeamAgentSettingsModal({ member, config, masterEffective, modelP
     if (saving || fixedProfileMissing) return
     setSaving(true)
     setError(null)
-    onSave({
-      modelProfileMode: mode,
-      modelProfileId: mode === 'fixed' ? selectedProfileId : null,
-      systemPromptOverride: prompt.trim() ? prompt : null,
-    }).catch((cause: unknown) => {
-      setError(cause instanceof Error ? cause.message : '保存失败，请重试')
-    }).finally(() => setSaving(false))
+    // 全部成功才由编排函数回调 onClose 关弹窗；任一失败保持打开并把错误显示在弹窗内。
+    saveTeamAgentSettings({ config, mode, profileId: selectedProfileId, prompt, onSave, onSaveSystemPrompt, onClose })
+      .catch((cause: unknown) => {
+        setError(cause instanceof Error ? cause.message : '保存失败，请重试')
+      }).finally(() => setSaving(false))
   }
 
   return (
@@ -66,7 +94,7 @@ export function TeamAgentSettingsModal({ member, config, masterEffective, modelP
         <div style={styles.header}>
           <div>
             <h3 style={styles.title}>Agent 设置</h3>
-            <p style={styles.subtitle}>修改「{member.name}」在团队内的模型和系统提示词。</p>
+            <p style={styles.subtitle}>修改「{member.name}」的团队模型策略与系统提示词。</p>
           </div>
           <button onClick={onClose} style={styles.closeBtn}><X size={14} /></button>
         </div>
@@ -96,18 +124,16 @@ export function TeamAgentSettingsModal({ member, config, masterEffective, modelP
             <Cpu size={13} style={{ color: 'var(--blue)', flexShrink: 0 }} />
             <span>当前生效：<b style={{ fontWeight: 700 }}>{effectText}</b></span>
           </div>
-          <Field label="当前提示词（Agent 原值）">
-            <div style={styles.promptPreview}>{config.agentSystemPrompt || '（该 Agent 未设置系统提示词）'}</div>
-          </Field>
           <Field label="系统提示词">
             <textarea
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
-              placeholder="留空则使用该 Agent 当前提示词；填写后仅在本团队内替换（下一轮生效）"
+              placeholder="描述这个 Agent 的职责、工作方式和约束"
               style={styles.textarea}
             />
           </Field>
-          <div style={styles.fieldNote}>配置仅对当前团队生效，不修改项目里的全局 Agent；保存后从下一轮对话生效，不打断当前执行。</div>
+          <div style={styles.fieldNote}>直接修改该 Agent 的系统提示词（全局生效，含团队外单独聊天）；保存后从下一轮对话生效，不打断当前执行。</div>
+          {!isMaster && <div style={styles.fieldNote}>模型策略仅对当前团队生效，不修改项目里的全局 Agent。</div>}
           {fixedProfileMissing && <div style={styles.error}>固定模型档案策略需要选择一个可用档案</div>}
           {error && <div style={styles.error}>{error}</div>}
         </div>
@@ -250,19 +276,6 @@ const styles: Record<string, CSSProperties> = {
     display: 'flex',
     alignItems: 'center',
     gap: 6,
-  },
-  promptPreview: {
-    maxHeight: 120,
-    overflowY: 'auto',
-    fontSize: 12.5,
-    lineHeight: 1.55,
-    color: 'var(--text-2)',
-    background: 'var(--bg-2)',
-    border: '1px solid var(--border-light)',
-    borderRadius: 6,
-    padding: '8px 10px',
-    whiteSpace: 'pre-wrap',
-    wordBreak: 'break-word',
   },
   fieldNote: { fontSize: 12, color: 'var(--text-3)' },
   error: {

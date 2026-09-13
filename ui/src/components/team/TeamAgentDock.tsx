@@ -199,13 +199,19 @@ function menuPositionStyles(x: number, y: number): CSSProperties {
   }
 }
 
+// dock 固定锚在输入框本体上方（图片条/错误行在输入框框体外，不再推动 dock）：
+// offset = 输入框静止高度 120px（textarea rows=2 ≈70 + toolbar 48 + 边框 2）
+//        + shell 底部外边距 16px（.conversation-composer-shell margin 0 20px 16px）
+//        + 原间距 8px —— 无附件时与「shell 顶沿上方 8px」的旧位置重合。
+const COMPOSER_ANCHOR_BOTTOM = 144
+
 const styles: Record<string, CSSProperties> = {
-  // 悬浮层：脱离文档流，锚在 Composer 上方右侧（容器为 TeamChatPane 里 position:relative 的 Composer 包裹层）。
+  // 悬浮层：脱离文档流，锚在输入框本体上方右侧（容器为 TeamChatPane 里 position:relative 的 Composer 包裹层）。
   // 根元素尺寸即视觉尺寸（收起=细条，展开=面板），不产生额外挡点击的透明区域。
   dock: {
     position: 'absolute',
     right: 20,
-    bottom: 'calc(100% + 8px)',
+    bottom: COMPOSER_ANCHOR_BOTTOM,
     zIndex: 40,
     display: 'flex',
     flexDirection: 'column',
