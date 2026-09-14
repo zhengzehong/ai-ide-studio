@@ -209,4 +209,26 @@ describe('team chat aggregation', () => {
     expect(result.messages).toHaveLength(1)
     expect(result.messages[0]?.teamAssignment).toBeUndefined()
   })
+
+  it('sorts the user question before an agent turn that started in the same instant', () => {
+    // 实测倒挂对:human 落库晚于回合开始 1ms(agent started_at=.000 / human timestamp=.001)
+    const human = { ...message('master-1:h1', 'human', '帮我写个文档'), session_id: 'master-1', timestamp: '2026-09-14T07:21:55.396Z' }
+    const liveAgent = { ...message('master-1:a1', 'agent', '好的,文档如下'), session_id: 'master-1', started_at: '2026-09-14T07:21:55.395Z', timestamp: '2026-09-14T07:21:55.395Z' }
+    const historyAgent = { ...liveAgent, timestamp: '2026-09-14T07:22:30.289Z' }
+    expect([liveAgent, human].sort(compareTeamMessages).map((item) => item.role)).toEqual(['human', 'agent'])
+    expect([historyAgent, human].sort(compareTeamMessages).map((item) => item.role)).toEqual(['human', 'agent'])
+  })
+
+  it('still orders unrelated turns by real time beyond the tolerance window', () => {
+    const human = { ...message('master-1:h1', 'human', '新问题'), session_id: 'master-1', timestamp: '2026-09-14T07:30:00.000Z' }
+    const earlierAgent = { ...message('member-1:a1', 'agent', '自治回合'), session_id: 'member-1', started_at: '2026-09-14T07:29:57.000Z', timestamp: '2026-09-14T07:29:58.000Z' }
+    const laterAgent = { ...message('member-2:a2', 'agent', '慢派发回合'), session_id: 'member-2', started_at: '2026-09-14T07:30:03.000Z', timestamp: '2026-09-14T07:30:04.000Z' }
+    expect([laterAgent, earlierAgent, human].sort(compareTeamMessages).map((item) => item.id)).toEqual(['member-1:a1', 'master-1:h1', 'member-2:a2'])
+  })
+
+  it('preserves time order between messages of the same role inside the tolerance window', () => {
+    const first = { ...message('m1', 'human', '第一条'), timestamp: '2026-09-14T07:30:00.000Z' }
+    const second = { ...message('m2', 'human', '第二条'), timestamp: '2026-09-14T07:30:00.400Z' }
+    expect([second, first].sort(compareTeamMessages).map((item) => item.id)).toEqual(['m1', 'm2'])
+  })
 })
