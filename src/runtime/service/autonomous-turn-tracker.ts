@@ -30,6 +30,19 @@ const STRONG_OPEN_TYPES = new Set([
 const TOOL_STATE_TYPES = new Set(['tool_call', 'tool_call_update'])
 const ACTIVE_TOOL_STATUSES = new Set(['pending', 'in_progress'])
 
+/**
+ * codex 适配器在 loadSession 完成后会把 MCP 启动失败/取消作为诊断帧转发
+ * (CodexEventHandler.createMcpStartupUpdates:sessionUpdate=tool_call,
+ * toolCallId=`mcp_startup.<server>`,title=`mcp__<server>__startup`,status=failed)。
+ * 这是适配器诊断,不是模型产出——生产实证 21/21 次误开自治回合全部来自它。
+ */
+const MCP_STARTUP_TOOL_ID_PREFIX = 'mcp_startup.'
+
+/** MCP 启动诊断帧:任何 runtime 的无绑定启动诊断都不该开启自治回合(不算"后台唤醒")。 */
+function isMcpStartupDiagnosticFrame(update: TurnScopedUpdateLike): boolean {
+  return typeof update.toolCallId === 'string' && update.toolCallId.startsWith(MCP_STARTUP_TOOL_ID_PREFIX)
+}
+
 /** 结构化的 ACP turn-scoped 更新子集(与 acp.SessionUpdate 兼容,便于单测解耦)。 */
 export interface TurnScopedUpdateLike {
   sessionUpdate: string
@@ -64,7 +77,12 @@ export const DEFAULT_AUTONOMOUS_TURN_TIMINGS: AutonomousTurnTimings = {
   postTurnGhostMs: 3_000,
 }
 
-export type AutonomousDropKind = 'post-turn-ghost' | 'unbound-weak-frame' | 'unsupported-frame'
+export type AutonomousDropKind =
+  | 'post-turn-ghost'
+  | 'unbound-weak-frame'
+  | 'unsupported-frame'
+  | 'startup-diagnostic'
+  | 'open-refused'
 
 export type AutonomousSettleReason =
   | 'origin-signal'
@@ -105,7 +123,7 @@ interface OpenAutonomousTurn {
 /**
  * 自治回合状态机(host 侧,每平台一个实例,按 sessionId 维护)。
  *
- * - 无绑定强帧 → 开合成回合;
+ * - 无绑定强帧 → 开合成回合(启动诊断帧除外,host 无能力时拒绝);
  * - 无绑定弱帧 → 直接丢弃(幽灵/取消残留分类仅用于日志);
  * - 回合内:tool 状态跟踪;用法终端的 origin meta 终结帧做确定性结算,静默超时兜底;
  * - 存在未完成 tool 不静默结算;真回合 begin 互斥结算;取消请求走短静默+硬截止。
@@ -125,13 +143,21 @@ export class AutonomousTurnTracker {
     return this.turns.has(sessionId)
   }
 
-  /** 无绑定的 turn-scoped 帧:强帧开回合,弱帧/不支持帧丢弃。返回本帧应发布到的 messageId。 */
+  /** 无绑定的 turn-scoped 帧:启动诊断帧丢弃,强帧开回合,弱帧/不支持帧丢弃。返回本帧应发布到的 messageId。 */
   handleUnboundFrame(sessionId: string, update: TurnScopedUpdateLike): string | null {
     const open = this.turns.get(sessionId)
     if (open) return open.messageId
+    if (isMcpStartupDiagnosticFrame(update)) {
+      this.options.onFrameDropped?.(sessionId, update.sessionUpdate, 'startup-diagnostic')
+      return null
+    }
     if (STRONG_OPEN_TYPES.has(update.sessionUpdate)) {
       const messageId = this.options.openTurn(sessionId)
-      if (!messageId) return null
+      if (!messageId) {
+        // host 拒绝(如该 runtime 无自治唤醒能力)→ 分类记录,帧不物化。
+        this.options.onFrameDropped?.(sessionId, update.sessionUpdate, 'open-refused')
+        return null
+      }
       const turn: OpenAutonomousTurn = { messageId, openedAt: this.now(), tools: new Map() }
       this.turns.set(sessionId, turn)
       // 开场帧本身也要过一遍观察逻辑(tool 状态/静默续期);客户端随后还会对同帧调 observeFrame,重复调用是幂等的。

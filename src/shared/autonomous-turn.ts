@@ -21,6 +21,17 @@ export const AUTONOMOUS_ORIGIN_KINDS = [
   'observer-activity',
 ] as const
 
+/**
+ * 具备自治唤醒能力的 runtime 白名单。
+ *
+ * 自治回合(后台唤醒)的整套语义——task-notification 驱动、`_claude/origin` 终结帧、
+ * 回合外内容转发——只有 claude 适配器实现;codex 没有任何自治唤醒机制(适配器内
+ * task-notification/_claude/origin 零命中),其回合外帧只会是适配器诊断(如 MCP 启动
+ * 失败转发)。非白名单 runtime 的无绑定帧一律不开启合成回合,避免启动时刻的
+ * 假"运行中"与多余"[后台唤醒]"注记(生产实证 21/21 次误开全部来自 codex)。
+ */
+export const AUTONOMOUS_WAKE_CAPABLE_RUNTIMES: ReadonlySet<string> = new Set(['claude'])
+
 /** 自治回合开始时的来源注记(作为 agent 内容发布,实时与历史重载都可见)。 */
 export const AUTONOMOUS_TURN_NOTICE = '[后台唤醒] 由后台任务完成或系统通知触发的自主执行,以下为本回合内容。'
 

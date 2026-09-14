@@ -524,6 +524,41 @@ describe('SDK Runtime autonomous turns (后台唤醒)', () => {
     expect((noticeCall?.[1] as { data?: { wakeNotice?: boolean } } | undefined)?.data?.wakeNotice).toBe(true)
   })
 
+  test('codex runtime sessions never open synthetic turns (no autonomous wake capability)', async () => {
+    const harness = runtimeHarness({ newSessionIds: ['acp-created', 'acp-codex'], autonomousTurnTimings: { silenceMs: 5_000 } })
+    await harness.host.ensureSession(snapshot('session-a'))
+    const codexSnapshot = snapshot('session-codex')
+    codexSnapshot.agent = { ...codexSnapshot.agent, runtime: 'codex' }
+    await harness.host.ensureSession(codexSnapshot)
+
+    // 无绑定强帧(codex 没有自治唤醒能力,回合外帧只会是适配器诊断/历史回放)
+    await harness.routers[0]!.client.sessionUpdate({
+      sessionId: 'acp-codex',
+      update: { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'noise' } },
+    } as never)
+    // MCP 启动诊断帧(codex loadSession 后转发)
+    await harness.routers[0]!.client.sessionUpdate({
+      sessionId: 'acp-codex',
+      update: {
+        sessionUpdate: 'tool_call',
+        toolCallId: 'mcp_startup.ai-ide-tools',
+        kind: 'other',
+        title: 'mcp__ai-ide-tools__startup',
+        status: 'failed',
+        content: [],
+      },
+    } as never)
+    await new Promise((resolve) => setTimeout(resolve, 30))
+
+    // ensureSession 本身会发 lifecycle 消息;这里只断言没有任何自治回合物化(注记/内容/done/activity)
+    const autonomousPublish = harness.publishUpdate.mock.calls.find(([, update]) =>
+      typeof (update as { messageId?: string }).messageId === 'string'
+        && (update as { messageId?: string }).messageId.startsWith('auto-'))
+    expect(autonomousPublish).toBeUndefined()
+    expect(harness.publishDone).not.toHaveBeenCalled()
+    expect(harness.publishSessionActivity).not.toHaveBeenCalled()
+  })
+
   test('a real prompt settles the open autonomous turn first and still starts (no turn-registry conflict)', async () => {
     const harness = runtimeHarness({ autonomousTurnTimings: { silenceMs: 5_000 } })
     await harness.host.ensureSession(snapshot('session-a'))

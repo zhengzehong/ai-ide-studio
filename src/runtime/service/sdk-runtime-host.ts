@@ -3,7 +3,7 @@ import { cloneClaudeSessionFiles, hasClaudeSessionFiles } from '../../acp/claude
 import { resolveRuntimeModelPreference } from '../../acp/runtime-model-preference.js'
 import type { RuntimeCancelResult, RuntimeStateSnapshot } from '../../ports/runtime-port.js'
 import { createChildLogger } from '../../shared/logger.js'
-import { AUTONOMOUS_TURN_NOTICE, createAutonomousTurnMessageId } from '../../shared/autonomous-turn.js'
+import { AUTONOMOUS_TURN_NOTICE, AUTONOMOUS_WAKE_CAPABLE_RUNTIMES, createAutonomousTurnMessageId } from '../../shared/autonomous-turn.js'
 import type { ImageAttachment, SessionCapabilities } from '../../types/ws-protocol.js'
 import type { RuntimeSessionActorScheduler } from '../actors/session-actor.js'
 import { ResourceGovernor } from '../resources/resource-governor.js'
@@ -98,6 +98,9 @@ export class SdkRuntimeHost {
     const session = this.sessions.get(sessionId)
     if (!session) return null
     const agentId = session.snapshot.agent.id
+    // 自治唤醒是 claude 独有能力;其他 runtime(codex)的回合外帧只会是适配器诊断,
+    // 一律不合成回合——否则 agent 启动时刻就会出现假"运行中"和多余"[后台唤醒]"注记。
+    if (!AUTONOMOUS_WAKE_CAPABLE_RUNTIMES.has(session.snapshot.agent.runtime)) return null
     const agent = this.agents.get(agentId)
     if (!agent) return null
     const messageId = createAutonomousTurnMessageId()

@@ -66,6 +66,58 @@ describe('autonomous turn tracker: 起始分类', () => {
     expect(h.openTurn).not.toHaveBeenCalled()
     expect(h.dropped).toEqual([{ updateType: 'usage_update', kind: 'post-turn-ghost' }])
   })
+
+  test('MCP 启动诊断帧(mcp_startup.*)不开启合成回合,按 startup-diagnostic 丢弃', () => {
+    vi.useFakeTimers()
+    const h = createHarness()
+
+    expect(h.tracker.handleUnboundFrame('s1', {
+      sessionUpdate: 'tool_call',
+      toolCallId: 'mcp_startup.ai-ide-tools',
+      status: 'failed',
+    })).toBeNull()
+
+    expect(h.openTurn).not.toHaveBeenCalled()
+    expect(h.tracker.isOpen('s1')).toBe(false)
+    expect(h.dropped).toEqual([{ updateType: 'tool_call', kind: 'startup-diagnostic' }])
+    vi.advanceTimersByTime(10_000)
+    expect(h.settleTurn).not.toHaveBeenCalled()
+  })
+
+  test('回合已打开时,启动诊断帧照常归属到该回合(不丢弃)', () => {
+    vi.useFakeTimers()
+    const h = createHarness()
+
+    expect(h.tracker.handleUnboundFrame('s1', { sessionUpdate: 'agent_thought_chunk' })).toBe('auto-1')
+    expect(h.tracker.handleUnboundFrame('s1', {
+      sessionUpdate: 'tool_call',
+      toolCallId: 'mcp_startup.ai-ide-tools',
+      status: 'failed',
+    })).toBe('auto-1')
+
+    expect(h.openTurn).toHaveBeenCalledTimes(1)
+    expect(h.dropped).toEqual([])
+  })
+
+  test('host 拒绝打开(openTurn 返回 null)时按 open-refused 分类丢弃,不物化回合', () => {
+    vi.useFakeTimers()
+    const openTurn = vi.fn(() => null)
+    const settleTurn = vi.fn()
+    const dropped: Array<{ updateType: string; kind: string }> = []
+    const tracker = new AutonomousTurnTracker({
+      openTurn,
+      settleTurn,
+      onFrameDropped: (_sessionId, updateType, kind) => { dropped.push({ updateType, kind }) },
+      timings: TIMINGS,
+    })
+
+    expect(tracker.handleUnboundFrame('s1', { sessionUpdate: 'agent_message_chunk' })).toBeNull()
+
+    expect(tracker.isOpen('s1')).toBe(false)
+    expect(dropped).toEqual([{ updateType: 'agent_message_chunk', kind: 'open-refused' }])
+    vi.advanceTimersByTime(10_000)
+    expect(settleTurn).not.toHaveBeenCalled()
+  })
 })
 
 describe('autonomous turn tracker: 结束检测', () => {
