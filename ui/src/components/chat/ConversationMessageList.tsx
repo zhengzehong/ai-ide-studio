@@ -148,7 +148,9 @@ export function ConversationMessageList({ adapter, compactTeam = false, location
       // 历史锁死的兜底解：误杀过的 pinned 在内容增高的常见场景下自行恢复。
       if (pinnedRef.current || (element && isNearBottom(element, SCROLL_FOLLOW_THRESHOLD_PX))) scheduleScrollToBottom()
     }
-    if (streamingBubbles.length > 0 && pinnedRef.current) requestAnimationFrame(() => scrollToBottom())
+    // 流式 chunk 的追底 rAF 与用户 wheel 存在次序竞态：调度时 pinned 为真、执行前用户已手动
+    // 上滚(pinned=false)时，回调必须复查，否则会把用户拉回底部并重新 pin 住（N1）。
+    if (streamingBubbles.length > 0 && pinnedRef.current) requestAnimationFrame(() => { if (pinnedRef.current) scrollToBottom() })
   }, [allRenderItems.length, scrollToBottom, streamingBubbles.length, streamingSignature, scheduleScrollToBottom])
   const loadOlder = (): void => {
     if (adapter.hasMoreMessages && !adapter.loadingOlderMessages) {
