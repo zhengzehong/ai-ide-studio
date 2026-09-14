@@ -144,4 +144,21 @@ describe('team member dispatch cleanup ordering', () => {
     await Promise.resolve()
     expect(enqueue.mock.calls.map((call) => call[1])).toEqual(['first', 'independent'])
   })
+
+  test('drains the queue when an autonomous turn settles (autonomous-done idle)', async () => {
+    busy.add(sessions[0])
+    expect(dispatch('queued behind autonomy')).toBe('queued')
+
+    busy.delete(sessions[0])
+    events.emit('session:activity', {
+      sessionId: sessions[0],
+      agentId: 'agent',
+      state: 'idle',
+      reason: 'autonomous-done',
+      timestamp: new Date().toISOString(),
+    })
+
+    await vi.waitFor(() => expect(enqueue).toHaveBeenCalledTimes(1))
+    expect(enqueue.mock.calls[0]?.[1]).toBe('queued behind autonomy')
+  })
 })

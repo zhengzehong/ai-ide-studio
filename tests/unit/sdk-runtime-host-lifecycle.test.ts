@@ -6,6 +6,8 @@ import type { RuntimeStateSnapshot } from '../../src/ports/runtime-port.js'
 import { RuntimeSessionActorScheduler } from '../../src/runtime/actors/session-actor.js'
 import type { AcpRuntimeClientRouter } from '../../src/runtime/service/acp-runtime-client.js'
 import { SdkRuntimeHost } from '../../src/runtime/service/sdk-runtime-host.js'
+import type { AutonomousTurnTimings } from '../../src/runtime/service/autonomous-turn-tracker.js'
+import { AUTONOMOUS_TURN_NOTICE } from '../../src/shared/autonomous-turn.js'
 
 describe('SDK Runtime child lifecycle', () => {
   test('cancel and close resolve pending Session interactions', async () => {
@@ -462,6 +464,131 @@ describe('SDK Runtime child lifecycle', () => {
   })
 })
 
+function findAutonomousNotice(harness: { publishUpdate: ReturnType<typeof vi.fn> }): string | undefined {
+  const call = harness.publishUpdate.mock.calls.find(([, update]) =>
+    (update as { data?: { contentDelta?: string } }).data?.contentDelta === AUTONOMOUS_TURN_NOTICE)
+  return (call?.[1] as { messageId?: string } | undefined)?.messageId
+}
+
+function feedFrame(harness: ReturnType<typeof runtimeHarness>, update: Record<string, unknown>): Promise<void> {
+  return harness.routers[0]!.client.sessionUpdate({ sessionId: 'acp-created', update } as never)
+}
+
+describe('SDK Runtime autonomous turns (后台唤醒)', () => {
+  test('renders a background wake as its own turn: notice + running → origin signal → one done + idle', async () => {
+    const harness = runtimeHarness({ autonomousTurnTimings: { silenceMs: 5_000, originSettleDebounceMs: 5 } })
+    await harness.host.ensureSession(snapshot('session-a'))
+
+    await feedFrame(harness, { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'hidden work' } })
+
+    const syntheticId = findAutonomousNotice(harness)
+    expect(syntheticId).toMatch(/^auto-/)
+    expect(harness.publishSessionActivity).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: 'session-a', state: 'running', reason: 'autonomous-wake',
+    }))
+    // 开场帧作为回合内容发布(同 messageId)
+    expect(harness.publishUpdate.mock.calls.some(([, update]) => {
+      const candidate = update as { messageId?: string; data?: { thinking?: string } }
+      return candidate.messageId === syntheticId && candidate.data?.thinking === 'hidden work'
+    })).toBe(true)
+
+    // 流中无 meta 的 usage 帧不触发结算
+    await feedFrame(harness, { sessionUpdate: 'usage_update', size: 200_000, used: 10 })
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(harness.publishDone).not.toHaveBeenCalled()
+
+    // origin 终结帧 → 合成 done 恰一次 + idle
+    await feedFrame(harness, {
+      sessionUpdate: 'usage_update',
+      size: 200_000,
+      used: 20,
+      _meta: { '_claude/origin': { kind: 'task-notification' } },
+    })
+    await vi.waitFor(() => expect(harness.publishDone).toHaveBeenCalledTimes(1))
+    expect(harness.publishDone).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: 'session-a', messageId: syntheticId, stopReason: 'end_turn',
+    }))
+    await vi.waitFor(() => expect(harness.publishSessionActivity).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: 'session-a', state: 'idle', reason: 'autonomous-done',
+    })))
+  })
+
+  test('a real prompt settles the open autonomous turn first and still starts (no turn-registry conflict)', async () => {
+    const harness = runtimeHarness({ autonomousTurnTimings: { silenceMs: 5_000 } })
+    await harness.host.ensureSession(snapshot('session-a'))
+    await feedFrame(harness, { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'hidden' } })
+    const syntheticId = findAutonomousNotice(harness)
+
+    await expect(harness.host.prompt({
+      agentId: 'agent-a',
+      sessionId: 'session-a',
+      content: 'hello',
+      diagnostics: { messageId: 'message-real', turnId: 'turn-real' },
+    })).resolves.toBeUndefined()
+
+    expect(harness.publishDone).toHaveBeenCalledWith(expect.objectContaining({
+      messageId: syntheticId, stopReason: 'end_turn',
+    }))
+    expect(harness.publishDone).toHaveBeenCalledWith(expect.objectContaining({
+      messageId: 'message-real', turnId: 'turn-real', stopReason: 'end_turn',
+    }))
+  })
+
+  test('cancelling interrupts a registered autonomous turn (P0④)', async () => {
+    const harness = runtimeHarness({ autonomousTurnTimings: { cancelSilenceMs: 5, silenceMs: 5_000 } })
+    await harness.host.ensureSession(snapshot('session-a'))
+    await feedFrame(harness, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'hidden' } })
+    const syntheticId = findAutonomousNotice(harness)
+
+    await expect(harness.host.cancelPrompt('agent-a', 'session-a')).resolves.toMatchObject({
+      status: 'requested',
+      escalation: 'cancel',
+      messageId: syntheticId,
+    })
+    await vi.waitFor(() => expect(harness.publishDone).toHaveBeenCalledWith(expect.objectContaining({
+      messageId: syntheticId, stopReason: 'cancelled',
+    })))
+    await vi.waitFor(() => expect(harness.publishSessionActivity).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: 'session-a', state: 'idle', reason: 'autonomous-cancelled',
+    })))
+  })
+
+  test('agent exit settles an open autonomous turn with error and cleans up (P1⑨)', async () => {
+    const harness = runtimeHarness({ autonomousTurnTimings: { silenceMs: 5_000 } })
+    await harness.host.ensureSession(snapshot('session-a'))
+    await feedFrame(harness, { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'hidden' } })
+    const syntheticId = findAutonomousNotice(harness)
+
+    harness.processes[0]!.emit('exit', 1, null)
+
+    await vi.waitFor(() => expect(harness.publishDone).toHaveBeenCalledWith(expect.objectContaining({
+      messageId: syntheticId, stopReason: 'error',
+    })))
+    await vi.waitFor(() => expect(harness.publishSessionActivity).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: 'session-a', state: 'idle', reason: 'autonomous-error',
+    })))
+    expect(harness.host.hasSession('session-a')).toBe(false)
+  })
+
+  test('cancelled-turn residue (orphan tool updates) never materializes a synthetic turn (P1⑧)', async () => {
+    const harness = runtimeHarness()
+    await harness.host.ensureSession(snapshot('session-a'))
+
+    for (let index = 0; index < 3; index += 1) {
+      await feedFrame(harness, {
+        sessionUpdate: 'tool_call_update',
+        toolCallId: `orphan-${index}`,
+        status: 'completed',
+        _meta: { terminal_output_delta: { data: 'late output' } },
+      })
+    }
+
+    expect(findAutonomousNotice(harness)).toBeUndefined()
+    expect(harness.publishDone).not.toHaveBeenCalled()
+    expect(harness.publishSessionActivity).not.toHaveBeenCalled()
+  })
+})
+
 function runtimeHarness(overrides: {
   prompt?: () => Promise<{ stopReason: string }>
   cancel?: () => void | Promise<void>
@@ -475,6 +602,7 @@ function runtimeHarness(overrides: {
   hasClaudeSessionFiles?: () => Promise<boolean>
   resumeError?: Error
   newSessionIds?: string[]
+  autonomousTurnTimings?: Partial<AutonomousTurnTimings>
 } = {}) {
   const processes: EventEmitter[] = []
   const routers: AcpRuntimeClientRouter[] = []
@@ -494,6 +622,7 @@ function runtimeHarness(overrides: {
   const publishUpdate = vi.fn()
   const publishCapabilities = vi.fn()
   const publishDone = vi.fn(async () => undefined)
+  const publishSessionActivity = vi.fn()
   const closeSession = vi.fn(async () => { await overrides.closeSession?.() })
   const unstableForkSession = vi.fn(async () => ({
     sessionId: 'acp-forked',
@@ -511,10 +640,12 @@ function runtimeHarness(overrides: {
     publishUpdate,
     publishDone,
     publishCapabilities,
+    publishSessionActivity,
   }, {
     cancelGraceMs: overrides.cancelGraceMs,
     closeGraceMs: overrides.closeGraceMs,
     restartGraceMs: overrides.restartGraceMs,
+    autonomousTurnTimings: overrides.autonomousTurnTimings,
     cloneClaudeSessionFiles,
     hasClaudeSessionFiles: overrides.hasClaudeSessionFiles ?? (async () => true),
     startAgent: async ({ router, cwd }) => {
@@ -567,6 +698,7 @@ function runtimeHarness(overrides: {
     publishUpdate,
     publishCapabilities,
     publishDone,
+    publishSessionActivity,
     closeSession,
     cloneClaudeSessionFiles,
     unstableForkSession,
