@@ -1,7 +1,7 @@
 # 方案:成员自治回合(后台唤醒)在平台侧的渲染与回合化
 
 - 日期:2026-09-14
-- 状态:**阶段 1 已实施(待审查)** —— 实施分支 `feat/autonomous-turn-rendering`,复核修正 11 项已并入(见 §10)
+- 状态:**阶段 1 已实施(待审查)** —— 实施分支 `feat/autonomous-turn-rendering`,复核修正 11 项已并入(见 §10);审查修正 N1–N4 已并入(见 §10.6)
 - 作者:coder-glm5 (agent-a7555931);复核:dev-glm(task-a1ce8023)/ dev-deepseek(task-e95bb2ea);实施:dev-deepseek(task-76586133)
 - 关联:task-15462a84(分析)、wellcode 端到端测试团队实测案例(team-11f5b1fb / sess-f9506483)、复核汇总 `docs/audit/autonomous-turn-review-summary.md`
 
@@ -215,8 +215,8 @@ if (!bound.messageId && TURN_SCOPED_SESSION_UPDATES.has(update.sessionUpdate)) {
 | # | 修正 | 落地 |
 |---|---|---|
 | P0① | 合成 beginTurn **不带 streamGeneration** | `acp-runtime-client.ts:126-133` `bindSyntheticTurn` 刻意不写 generation(注释说明:写了会被 publish 的 acceptTurnUpdate 二次门整体丢弃);单测 `acp-runtime-client.test.ts` 断言 acceptTurnUpdate 从未被咨询 |
-| P0② | session:activity **running/idle 成对 + all-scope** | 开场 `sdk-runtime-host.ts:118`(reason autonomous-wake)、结算 `:165-172`(autonomous-done/cancelled/error);下发 `service.ts:64-75` → `realtime/service.ts:137,155-162` `runtimeMessageDelivery` 对 session:activity 特判 all-scope;单测 `realtime-runtime-delivery.test.ts`;dispatcher 回归 `team-member-dispatcher.test.ts`(autonomous-done idle 触发 drain) |
-| P0③ | tier 2 判据 = usage_update **带 `_meta._claude/origin`**;tier 1 升级"**存在未完成 tool 不静默结算**" | `autonomous-turn-tracker.ts:153-163`(origin 判据,流中无 meta usage 不结算)、`:223-236`(tool 活跃不结算);终结帧后 `originSettleDebounceMs=800ms` 合并窗口,连续 cycle 合并 |
+| P0② | session:activity **running/idle 成对 + all-scope** | 开场 `sdk-runtime-host.ts:118`(reason autonomous-wake)、结算 `:165-172`(autonomous-done/cancelled/error);下发 `service.ts:64-75` → `realtime/service.ts:137,155-162` `runtimeMessageDelivery` 对 session:activity 特判 all-scope;单测 `realtime-runtime-delivery.test.ts`;**core 总线回流桥(N1,修于 task-188291f0)**:合成 done 在 `runtime-ingress.ts:54-63` 向 core 总线补发带 `source:'runtime'` 的 idle,runtime 侧听众跳过转发(`realtime-event-source.ts:68-73`),使 dispatcher/wake(核心总线消费者)生产可达;回归 `team-member-dispatcher.test.ts`(驱动真实 `handleRuntimeDone`)+ `runtime-ingress-autonomous-activity.test.ts` |
+| P0③ | tier 2 判据 = usage_update **带 `_meta._claude/origin`**;tier 1 升级"**存在未完成 tool 不静默结算**" | `autonomous-turn-tracker.ts:153-163`(origin 判据,流中无 meta usage 不结算)、`:223-236`(tool 活跃不结算);终结帧后 `originSettleDebounceMs=800ms` 合并窗口,连续 cycle 合并;origin 合并窗口同样受两个守卫约束(`:251-273`,修于 task-188291f0):取消在先 → 落 cancelled;工具活跃 → 不中途结算 |
 | P0④ | 停止语义 = **可中断**:合成回合登记进 RuntimeActiveTurns(无 generation) | `runtime-active-turns.ts:20-22`(synthetic/onCancelRequested 字段)、`:58-68`(requestCancel 回调)、`:144-167`(beginSyntheticTurn/finishSyntheticTurn/hasActiveTurn);host 开场登记 `sdk-runtime-host.ts:104-115`,cancel 后 tracker 进入短静默+硬截止(`tracker:179-184, 226-235`) |
 | P0⑤ | task-relay 合成 done 防提前回传 | `task-relay.ts:113-120` `shouldRelayHubTaskResult`(auto- 前缀过滤),doneHandler 使用 `:159`;单测 `agent-hub-task-relay.test.ts` |
 | P1⑥ | 「后台唤醒」注记实时可见 | `shared/autonomous-turn.ts:25` 常量为 **agent contentDelta**(实时进 streamingBuffer;历史重载 UI `session-events.ts` 对 message.chunk 只认 role=agent);`sdk-runtime-host.ts:117` 发布 |
@@ -249,9 +249,10 @@ if (!bound.messageId && TURN_SCOPED_SESSION_UPDATES.has(update.sessionUpdate)) {
 - **A2 未读局限解除**:activity idle 特判 all-scope 后,非订阅客户端也能收到 idle → UI `applySessionActivity` 对非当前会话置未读(`session.store.ts:692-698`),未读不再依赖 session:done 的订阅投递。
 - **R3 空闲清扫**:默认 sessionIdleMs=30 分钟,阶段 1 以 session.active 留驻豁免;文档原"长构建必被断"表述按复核 B 修正为"阈值调小或自治 >30 分钟才命中"。
 - **R10 修正**:空回合不落库的真实机理 = `turn-finalizer.ts:63-64` 返回 null + `sessions.ts` else 分支只清 stage;且"误触发不落库"仅在**全空**时成立(含 contentDelta 的 trailing 帧会落一条可见消息行)——本方案因注记必然写入开场 contentDelta,合成回合**必有消息行**,这正是"可见性"目标的行为。
-- **tier 3 patch**:按复核裁决降为可选(origin meta 终结帧已在线);备选形态改为"adapter 显式转发自治 cycle 边界"。
-- **取消升级语义**:用户 stop 合成回合时,cancel 升级阶梯(800ms/1s/1s)可能走到 session-close/agent-restart——与真回合对卡死 turn 的既有语义一致;tracker 的 cancel 硬截止(8s)保证 settled 必然达成。
-- **真 prompt 与合成回合冲突**:RuntimeActiveTurns 每会话仅允许一个在册回合,`host.prompt` 先 `disposeSession(end_turn)` 再登记真回合,保证"运行中后台唤醒 + 用户插话"不互斥失败。
+- **tier 3 patch(阶段 2 首选动机)**:形态 = adapter 显式转发自治 cycle 边界(含 origin 详情)。原按复核裁决降为"可选";task-188291f0 修正后 **升级为阶段 2 首选动机**——它是 R2 归属污染窗口(§10.5)的结构性解。"接受 R2"的结论保留,但优先级不再含糊。
+- **取消升级语义**:用户 stop 合成回合时,cancel 升级阶梯(host 默认 cancelGraceMs=800 / closeGraceMs=1000 / restartGraceMs=1000)可能走到 session-close/agent-restart——与真回合对卡死 turn 的既有语义一致;tracker 的 cancel 硬截止(8s)保证 settled 必然达成。**修正(task-188291f0)**:tracker `cancelSilenceMs` 默认 1500 → **400**(`autonomous-turn-tracker.ts:61`,注释说明必须 < cancelGraceMs),否则默认参数下 800ms 内必不结算、取消直接跳过 'cancel' 级落 session-close(比必要更重);修正后默认参数即达 'cancel' 一级,session-close 仅作兜底(host 测试用默认参数断言升级值,不再压 cancelSilenceMs)。
+- **真 prompt 与合成回合冲突**:RuntimeActiveTurns 每会话仅允许一个在册回合,`host.prompt` 先 `disposeSession(end_turn)` 再登记真回合,保证"运行中后台唤醒 + 用户插话"不互斥失败。**注意**:该收敛只解决运行时单回合注册的互斥,不缩小内容归属窗口(见 §10.5 R2 修正后表述)。
+- **core 总线回流桥(N1 修正)**:runtime 结算原只走 realtime 流(客户端可见),core 总线 `session:activity` 仅由平台 prompt 生命周期发出 → dispatcher/wake(核心总线消费者)的"合成 idle 唤醒"在生产不可达(原测试靠手动 emit 制造虚假信心)。修正:合成 done 经 `runtime-ingress.ts:54-63` 在持久化完成后向 core 总线补发 `{state:'idle', reason:autonomous-done|cancelled|error, source:'runtime'}`;`realtime-event-source.ts:71` 对 `source==='runtime'` 跳过转发(客户端可见的那条已由 runtime 直发,避免重复广播;先例 = `source==='runtime-persistence'` 的 session:update 跳过)。
 
 ### 10.4 验收自证(复核 a–i)
 
@@ -261,7 +262,7 @@ if (!bound.messageId && TURN_SCOPED_SESSION_UPDATES.has(update.sessionUpdate)) {
 | b. 无 meta usage 不结算 / 带 meta 才结算 | `autonomous-turn-tracker.test.ts` › "只有带 _claude/origin 的终结帧触发结算";host 集成同断言 |
 | c. 有未完成 tool 静默不结算 | tracker › "存在未完成 tool 时静默不结算,工具完成 + 静默后才结算" |
 | d. 真回合互斥双向 | tracker › "真回合开始立即结算合成回合…只结算一次";host › "a real prompt settles the open autonomous turn first and still starts" |
-| e. dispatcher/wake 在合成 idle 后行为回归 | `team-member-dispatcher.test.ts` › "drains the queue when an autonomous turn settles (autonomous-done idle)" |
+| e. dispatcher/wake 在合成 idle 后行为回归 | 生产可达链路(N1 修正后):`team-member-dispatcher.test.ts` › "…settles through the runtime done ingress"(驱动真实 `handleRuntimeDone`,非手动 emit)+ `runtime-ingress-autonomous-activity.test.ts`(总线补发断言)+ `realtime-event-source.test.ts`(runtime 源不重复广播) |
 | f. 取消残留不重复渲染 | host › "cancelled-turn residue … never materializes a synthetic turn"(零 publish) |
 | g. 非订阅客户端侧栏 running 复位 | `realtime-runtime-delivery.test.ts` › session:activity 特判 all-scope + UI `applySessionActivity` 既有逻辑 |
 | h. 无绑定帧触发钩子恰一次(幂等)→ 帧正常 publish | `acp-runtime-client.test.ts` › handleUnboundFrame 恰一次、两帧同 auto- id 发布 |
@@ -270,5 +271,17 @@ if (!bound.messageId && TURN_SCOPED_SESSION_UPDATES.has(update.sessionUpdate)) {
 ### 10.5 未覆盖 / 后续
 
 - **wellcode 式真实场景手测未做**:独立 worktree 与主仓共享数据目录/端口,起真机实例有污染风险,留待合并前由 Master 在 prd 环境验证(建议步骤:成员 run_in_background → 任务完成唤醒 → UI 出现"[后台唤醒]"回合 + 流式渲染 → finalize + 未读)。
-- **R2 归属污染残余**(真 prompt 与自治帧并发窗口):CLI 串行 + prompt 前收敛已把窗口压到最小,未引入额外机制,维持"接受"评级。
-- **阶段 2**:patch adapter 显式转发自治 cycle 边界(含 origin 详情),可选。
+- **R2 归属污染残余**(真 prompt 与自治帧并发窗口,task-188291f0 修正表述):真回合绑定在 `host.prompt`(`beginTurn`)即生效;CLI 对 prompt 的串行排队意味着真回合的首批帧要等当前自治 cycle **跑完**才开始产生。窗口 = 从真绑定生效到自治 cycle 剩余输出结束的**全程**——长后台任务场景下,用户消息会吸收该自治 cycle 剩余的数分钟输出(工具进度/思考/正文)并归属到真回合名下。`host.prompt` 的先收敛(disposeSession)只解决 RuntimeActiveTurns 单回合注册互斥,**不缩小该窗口**(原表述"CLI 串行 + prompt 前收敛已把窗口压到最小"失实,予以更正)。平台侧无 cycle 边界信号,结构性无解 → 维持"接受"评级,并作为 **tier 3 patch(阶段 2 首选动机)** 的目标问题;缓解说明:CLI 串行保证窗口内不会并发执行两个 turn,污染形态是"归属错位"而非"交错乱序"。
+- **阶段 2**:patch adapter 显式转发自治 cycle 边界(含 origin 详情)——**首选动机 = 结构性解决 R2 归属污染窗口**(本轮由"可选"升级);其余(trigger 详情等)继续可选。
+
+### 10.6 审查修正记录(task-188291f0,N1–N4)
+
+> reviewer-glm 独立审查结论"修正后通过",4 项 P2 修正并入;N5(强尾帧幽灵残留)/ N6(ghost 窗口平台级时间戳)按裁决留阶段 2。
+> 代码+测试修正提交:`e55f249`;本文档修正随本提交。
+
+| # | 问题 | 修正 | 证据 |
+|---|---|---|---|
+| N2 | origin-debounce 到期即 settle end_turn,与 silence 路径不对称:① 用户 stop 后被取消 cycle 仍发带 origin meta 的 result 帧 → 合成回合被标"完成"(用户可见错误);② 跨 cycle 合并窗口内 >800ms 帧间隙 + 工具进行中 → 中途结算,工具条目永久 in_progress、后续 tool_call_update 被丢 | `autonomous-turn-tracker.ts:254-271` 加两守卫:取消在先 → settle('cancel','cancelled');工具活跃 → 不结算,转 silence 续期(origin 标记保留,工具完成帧重新触发 debounce 尽快收敛) | `autonomous-turn-tracker.test.ts` 新增:"stop 后 origin 终结帧到达:落'已取消',不落完成"、"合并窗口内工具仍活跃:origin 帧不中途结算,工具完成后再收敛" |
+| N3 | `cancelSilenceMs` 默认 1500 > host `cancelGraceMs` 800 → 默认参数下升级必跳过 'cancel' 直落 session-close(比必要更重);旧测试压 5ms 才拿到 'cancel' 本身即失配反证 | 默认 1500 → **400**(`autonomous-turn-tracker.ts:61`,注释写明必须 < cancelGraceMs) | `sdk-runtime-host-lifecycle.test.ts` 取消用例改默认参数,断言升级值 'cancel' |
+| N1 | 验收 e 路径生产不可达:core 总线 activity 只由平台 prompt 生命周期发出,runtime 结算只走 realtime 流,无回流桥 → "合成 idle 唤醒 dispatcher/wake"仅测试内手动 emit 成立 | 补 runtime→core 桥:`runtime-ingress.ts:54-63`(合成 done 持久化后补发 `source:'runtime'` idle)+ `realtime-event-source.ts:71`(跳过转发防重复广播)+ `ws-protocol.ts` SessionActivityData.source 字段 | 新增 `tests/integration/runtime-ingress-autonomous-activity.test.ts`(3 用例);`team-member-dispatcher.test.ts` 改为驱动真实 `handleRuntimeDone`;`realtime-event-source.test.ts` 新增跳过断言 |
+| N4 | §10.5 R2 表述失实 | 如实改写窗口 = 绑定生效 → 自治 cycle 剩余结束全程;tier 3 升级阶段 2 首选动机 | 本文件 §10.3/§10.5(随本提交) |
