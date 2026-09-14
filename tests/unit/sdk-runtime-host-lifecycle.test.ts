@@ -535,7 +535,8 @@ describe('SDK Runtime autonomous turns (后台唤醒)', () => {
   })
 
   test('cancelling interrupts a registered autonomous turn (P0④)', async () => {
-    const harness = runtimeHarness({ autonomousTurnTimings: { cancelSilenceMs: 5, silenceMs: 5_000 } })
+    // 不覆盖 cancelSilenceMs:走默认 400ms < cancelGraceMs(800ms),升级应达 'cancel' 一级(N3)
+    const harness = runtimeHarness({ autonomousTurnTimings: { silenceMs: 5_000 } })
     await harness.host.ensureSession(snapshot('session-a'))
     await feedFrame(harness, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'hidden' } })
     const syntheticId = findAutonomousNotice(harness)

@@ -910,6 +910,11 @@ export interface SessionActivityData {
   state: SessionActivityState
   reason: SessionActivityReason
   timestamp: string
+  /**
+   * 标记由 runtime 自治回合计生、经核心总线仅作内部信号(dispatcher/wake 依赖 idle 续跑)。
+   * 该事件不随核心总线再广播客户端——runtime 已直接经 realtime 流下发过同一活动。
+   */
+  source?: 'runtime'
 }
 
 export interface SessionCapabilities {

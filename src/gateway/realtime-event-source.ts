@@ -65,7 +65,12 @@ export function createRealtimeEventSource(
       message: { type: 'session:done', ...event },
     })).catch((error) => log.error({ err: error, sessionId: event.sessionId }, 'Realtime done flush failed'))
   })
-  on('session:activity', (event) => send({ scope: 'all', message: { type: 'session:activity', ...event } }))
+  on('session:activity', (event) => {
+    // runtime 自治回合的 idle 信号仅供核心内部消费者(dispatcher/wake);
+    // 客户端可见的那条已由 runtime 直接经 realtime 流下发,这里不再重复广播。
+    if (event.source === 'runtime') return
+    send({ scope: 'all', message: { type: 'session:activity', ...event } })
+  })
   on('session:capabilities', (event) => send({
     scope: 'session',
     sessionId: event.sessionId,

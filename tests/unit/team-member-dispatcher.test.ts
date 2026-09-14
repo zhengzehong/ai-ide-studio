@@ -2,14 +2,20 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { events } from '../../src/core/events.js'
 import { sessionManager } from '../../src/core/sessions.js'
 import { cancelPendingForSessions, dispatchMemberPrompt } from '../../src/core/team-member-dispatcher.js'
+import { handleRuntimeDone } from '../../src/runtime/api/runtime-ingress.js'
 
 vi.mock('../../src/core/sessions.js', () => ({
-  sessionManager: { enqueuePrompt: vi.fn(), isPromptActive: vi.fn() },
+  sessionManager: { enqueuePrompt: vi.fn(), isPromptActive: vi.fn(), waitForPersistence: vi.fn() },
 }))
 vi.mock('../../src/store/tasks.js', () => ({ taskStore: { get: vi.fn() } }))
 vi.mock('../../src/store/teams.js', () => ({ teamMemberStore: { list: () => [] } }))
 vi.mock('../../src/core/team-wake-coordinator.js', () => ({
   teamWakeCoordinator: { notifyDispatchFailed: vi.fn() },
+}))
+vi.mock('../../src/core/agent-runtime-status.js', () => ({ applyRuntimeAgentStatus: vi.fn() }))
+vi.mock('../../src/core/platform-presentation-results.js', () => ({
+  drainPlatformPresentationResults: () => [],
+  reconcilePlatformPresentationUpdate: (_sessionId: string, data: unknown) => ({ matched: false, data }),
 }))
 
 const busy = new Set<string>()
@@ -22,6 +28,7 @@ beforeEach(() => {
   sessions = [`member-a-${++testIndex}`, `member-b-${testIndex}`]
   busy.clear()
   vi.mocked(sessionManager.isPromptActive).mockImplementation((sessionId) => busy.has(sessionId))
+  vi.mocked(sessionManager.waitForPersistence).mockResolvedValue()
   enqueue.mockResolvedValue()
 })
 
@@ -145,17 +152,18 @@ describe('team member dispatch cleanup ordering', () => {
     expect(enqueue.mock.calls.map((call) => call[1])).toEqual(['first', 'independent'])
   })
 
-  test('drains the queue when an autonomous turn settles (autonomous-done idle)', async () => {
+  test('drains the queue when an autonomous turn settles through the runtime done ingress', async () => {
     busy.add(sessions[0])
     expect(dispatch('queued behind autonomy')).toBe('queued')
 
     busy.delete(sessions[0])
-    events.emit('session:activity', {
+    await handleRuntimeDone({
       sessionId: sessions[0],
       agentId: 'agent',
-      state: 'idle',
-      reason: 'autonomous-done',
-      timestamp: new Date().toISOString(),
+      messageId: 'auto-1789450000000',
+      stopReason: 'end_turn',
+      streamGeneration: 'generation-a',
+      sequence: 1,
     })
 
     await vi.waitFor(() => expect(enqueue).toHaveBeenCalledTimes(1))

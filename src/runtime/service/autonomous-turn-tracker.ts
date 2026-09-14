@@ -56,7 +56,9 @@ export interface AutonomousTurnTimings {
 export const DEFAULT_AUTONOMOUS_TURN_TIMINGS: AutonomousTurnTimings = {
   silenceMs: 12_000,
   originSettleDebounceMs: 800,
-  cancelSilenceMs: 1_500,
+  // 必须小于升级阶梯的 cancelGraceMs(host 默认 800,见 sdk-runtime-host.ts):
+  // 否则 settlesWithin(800ms) 必败,用户 stop 常态直接升级到 session-close(比必要更重)。
+  cancelSilenceMs: 400,
   cancelDeadlineMs: 8_000,
   maxTurnMs: 60 * 60 * 1000,
   postTurnGhostMs: 3_000,
@@ -223,17 +225,20 @@ export class AutonomousTurnTracker {
   private onSilence(sessionId: string, turn: OpenAutonomousTurn): void {
     if (this.turns.get(sessionId) !== turn) return
     const cancelRequested = turn.cancelRequestedAt !== undefined
-    const toolsActive = [...turn.tools.values()].some((status) => ACTIVE_TOOL_STATUSES.has(status))
     if (cancelRequested && this.now() - (turn.cancelRequestedAt ?? 0) >= this.timings.cancelDeadlineMs) {
       this.settle(sessionId, turn, 'cancel', 'cancelled')
       return
     }
-    if (toolsActive) {
+    if (this.hasActiveTools(turn)) {
       // 存在未完成 tool 就不静默结算(工具心跳最长 30s 量级,等待其完成或终结帧)。
       this.armSilence(sessionId, turn)
       return
     }
     this.settle(sessionId, turn, cancelRequested ? 'cancel' : 'silence', cancelRequested ? 'cancelled' : 'end_turn')
+  }
+
+  private hasActiveTools(turn: OpenAutonomousTurn): boolean {
+    return [...turn.tools.values()].some((status) => ACTIVE_TOOL_STATUSES.has(status))
   }
 
   private armSilence(sessionId: string, turn: OpenAutonomousTurn): void {
@@ -248,6 +253,20 @@ export class AutonomousTurnTracker {
     if (turn.originTimer) clearTimeout(turn.originTimer)
     turn.originTimer = setTimeout(() => {
       if (this.turns.get(sessionId) !== turn) return
+      // 与 silence 路径对齐的两个守卫:
+      // ① 已在取消流程 → 落"已取消":被取消周期仍可能发带 origin meta 的 result 帧,
+      //    直接按 origin 结算会把用户 stop 掉的回合标成"完成"(用户可见错误)。
+      if (turn.cancelRequestedAt !== undefined) {
+        this.settle(sessionId, turn, 'cancel', 'cancelled')
+        return
+      }
+      // ② 工具仍在进行 → 不中途结算(跨 cycle 合并窗口内 >800ms 帧间隙 + 工具活跃会误结算,
+      //    导致工具条目永久 in_progress、后续 tool_call_update 被丢弃)。转由 silence 判据续期,
+      //    origin 标记保留:工具完成帧到达后会重新触发 debounce,尽快收敛。
+      if (this.hasActiveTools(turn)) {
+        this.armSilence(sessionId, turn)
+        return
+      }
       this.settle(sessionId, turn, 'origin-signal', 'end_turn')
     }, this.timings.originSettleDebounceMs)
     turn.originTimer.unref?.()

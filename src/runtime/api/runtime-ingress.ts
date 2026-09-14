@@ -1,8 +1,9 @@
 import { events } from '../../core/events.js'
 import { sessionManager } from '../../core/sessions.js'
 import { applyRuntimeAgentStatus } from '../../core/agent-runtime-status.js'
-import type { SessionStopReason, SessionUpdateData } from '../../types/ws-protocol.js'
+import type { SessionActivityReason, SessionStopReason, SessionUpdateData } from '../../types/ws-protocol.js'
 import type { RuntimeAgentStatusEvent, RuntimeDoneEvent, RuntimePersistenceUpdate } from '../service/protocol.js'
+import { isAutonomousTurnMessageId } from '../../shared/autonomous-turn.js'
 import {
   drainPlatformPresentationResults,
   reconcilePlatformPresentationUpdate,
@@ -47,6 +48,25 @@ export async function handleRuntimeDone(event: RuntimeDoneEvent): Promise<void> 
     sequence: event.sequence,
   })
   await sessionManager.waitForPersistence(event.sessionId)
+  // 自治回合的合成 done:补发核心总线的 idle 活动——runtime 侧的 session:activity
+  // 只走 realtime 流(客户端可见),core 总线这条供 team-member-dispatcher(队列续跑)
+  // 与 team-wake-coordinator(Leader 唤醒恢复)使用;source 标记避免总线再重复广播客户端。
+  if (isAutonomousTurnMessageId(event.messageId)) {
+    events.emit('session:activity', {
+      sessionId: event.sessionId,
+      agentId: event.agentId,
+      state: 'idle',
+      reason: autonomousActivityReason(stopReason(event.stopReason)),
+      timestamp: new Date().toISOString(),
+      source: 'runtime',
+    })
+  }
+}
+
+function autonomousActivityReason(reason: SessionStopReason | undefined): SessionActivityReason {
+  if (reason === 'cancelled') return 'autonomous-cancelled'
+  if (reason === 'error') return 'autonomous-error'
+  return 'autonomous-done'
 }
 
 function updateData(event: RuntimePersistenceUpdate): SessionUpdateData {

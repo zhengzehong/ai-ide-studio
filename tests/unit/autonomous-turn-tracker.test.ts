@@ -126,6 +126,35 @@ describe('autonomous turn tracker: 结束检测', () => {
     expect(h.settleTurn).toHaveBeenCalledTimes(1)
   })
 
+  test('stop 后 origin 终结帧到达:落"已取消",不落完成(N2①)', () => {
+    vi.useFakeTimers()
+    const h = createHarness()
+
+    h.tracker.handleUnboundFrame('s1', { sessionUpdate: 'agent_thought_chunk' })
+    h.tracker.requestCancel('s1')
+    // 被取消周期仍可能发带 origin meta 的 result 帧
+    h.tracker.observeFrame('s1', { sessionUpdate: 'usage_update', _meta: { '_claude/origin': { kind: 'task-notification' } } })
+    vi.advanceTimersByTime(25)
+
+    expect(h.settleTurn).toHaveBeenCalledTimes(1)
+    expect(h.settleTurn).toHaveBeenCalledWith('s1', { messageId: 'auto-1', stopReason: 'cancelled', reason: 'cancel' })
+  })
+
+  test('合并窗口内工具仍活跃:origin 帧不中途结算,工具完成后再收敛(N2②)', () => {
+    vi.useFakeTimers()
+    const h = createHarness()
+
+    h.tracker.handleUnboundFrame('s1', { sessionUpdate: 'tool_call', toolCallId: 't1', status: 'in_progress' })
+    h.tracker.observeFrame('s1', { sessionUpdate: 'usage_update', _meta: { '_claude/origin': {} } })
+    vi.advanceTimersByTime(25)
+    expect(h.settleTurn).not.toHaveBeenCalled()
+
+    h.tracker.observeFrame('s1', { sessionUpdate: 'tool_call_update', toolCallId: 't1', status: 'completed' })
+    vi.advanceTimersByTime(25)
+    expect(h.settleTurn).toHaveBeenCalledTimes(1)
+    expect(h.settleTurn.mock.calls[0]?.[1]).toMatchObject({ reason: 'origin-signal', stopReason: 'end_turn' })
+  })
+
   test('单回合硬上限强制结算挂死 tool 的回合', () => {
     vi.useFakeTimers()
     const h = createHarness()
