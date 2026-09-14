@@ -121,7 +121,9 @@ export class SdkRuntimeHost {
       kind: 'session-update',
       sessionId,
       messageId,
-      data: { messageId, role: 'agent', contentDelta: AUTONOMOUS_TURN_NOTICE },
+      // wakeNotice:开场注记带旁路标记,核心聚合时不按正文处理——否则该文本会被
+      // 随后的 tool_call 过程边界降级进 processNotes,而合成回合没有执行过程通道,降级即丢失(落库空行)。
+      data: { messageId, role: 'agent', contentDelta: AUTONOMOUS_TURN_NOTICE, wakeNotice: true },
     })
     this.options.publishSessionActivity?.({ sessionId, agentId, state: 'running', reason: 'autonomous-wake' })
     return messageId

@@ -948,6 +948,8 @@ export interface SessionUpdateData {
   attachments?: ImageAttachment[]
   eventType?: string
   done?: boolean
+  /** 平台开场注记标记:仅自治回合(后台唤醒)的开场 contentDelta 携带,核心侧据此走注记旁路而非正文聚合。 */
+  wakeNotice?: boolean
 }
 
 export type ServerMessage =

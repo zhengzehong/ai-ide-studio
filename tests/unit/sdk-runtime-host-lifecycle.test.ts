@@ -513,6 +513,17 @@ describe('SDK Runtime autonomous turns (后台唤醒)', () => {
     })))
   })
 
+  test('the opening notice carries the wakeNotice marker so core can pin it (P1⑥ A1)', async () => {
+    const harness = runtimeHarness({ autonomousTurnTimings: { silenceMs: 5_000, originSettleDebounceMs: 5 } })
+    await harness.host.ensureSession(snapshot('session-a'))
+
+    await feedFrame(harness, { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'hidden work' } })
+
+    const noticeCall = harness.publishUpdate.mock.calls.find(([, update]) =>
+      (update as { data?: { contentDelta?: string } }).data?.contentDelta === AUTONOMOUS_TURN_NOTICE)
+    expect((noticeCall?.[1] as { data?: { wakeNotice?: boolean } } | undefined)?.data?.wakeNotice).toBe(true)
+  })
+
   test('a real prompt settles the open autonomous turn first and still starts (no turn-registry conflict)', async () => {
     const harness = runtimeHarness({ autonomousTurnTimings: { silenceMs: 5_000 } })
     await harness.host.ensureSession(snapshot('session-a'))
