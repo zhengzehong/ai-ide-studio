@@ -59,6 +59,16 @@ export class RuntimeService {
           log.warn({ err: error, sessionId }, 'Runtime capabilities stream send failed')
         })
       },
+      // 自治回合的会话活动:走 runtime 流下发,由 realtime 层按 all-scope 广播
+      // (非订阅客户端也要复位侧栏"正在执行"/打未读,dispatcher/wake 依赖 idle)。
+      publishSessionActivity: (event) => {
+        void this.sendStream({
+          type: 'runtime.stream',
+          message: { type: 'session:activity', ...event, timestamp: new Date().toISOString() },
+        }).catch((error) => {
+          log.warn({ err: error, sessionId: event.sessionId }, 'Runtime session activity stream send failed')
+        })
+      },
     })
     this.coalescer = new RuntimeUpdateCoalescer({
       emitUi: (updates) => this.emitUi(updates),

@@ -14,6 +14,10 @@ export interface RuntimeActiveTurn {
   messageId: string
   turnId?: string
   generation: string
+  /** 合成(自治)回合:不在 ACP 绑定上带 generation,但同样可被 cancel 中断。 */
+  synthetic?: boolean
+  /** cancel 请求到达时的回调(合成回合据此进入快速收敛模式)。 */
+  onCancelRequested?: () => void
   cancelRequested: boolean
   settled: Promise<void>
   terminal?: Promise<void>
@@ -52,13 +56,24 @@ export class RuntimeActiveTurns {
 
   requestCancel(sessionId: string): RuntimeActiveTurn | undefined {
     const turn = this.turns.get(sessionId)
-    if (turn) turn.cancelRequested = true
+    if (turn) {
+      turn.cancelRequested = true
+      try {
+        turn.onCancelRequested?.()
+      } catch (error) {
+        log.warn({ err: error, sessionId }, 'turn cancel callback failed')
+      }
+    }
     return turn
   }
 
   isCurrent(sessionId: string, generation: string): boolean {
     const turn = this.turns.get(sessionId)
     return turn?.generation === generation && !turn.terminal
+  }
+
+  has(sessionId: string): boolean {
+    return this.turns.has(sessionId)
   }
 
   async publishTerminal(turn: RuntimeActiveTurn, publish: () => Promise<void>): Promise<boolean> {
@@ -123,6 +138,33 @@ export class SdkRuntimeTurns {
       fenceSession: () => this.options.actors.fenceSession(sessionId),
       touchSession: (session) => touchSdkSession(this.options.agents, session),
     })
+  }
+
+  /** 登记一个合成(自治)回合:无 generation 绑定,但仍可被 cancel 中断、被 waitForAgentIdle 等待。 */
+  beginSyntheticTurn(input: {
+    sessionId: string
+    agentId: string
+    messageId: string
+    onCancelRequested?: () => void
+  }): RuntimeActiveTurn {
+    return this.active.begin({
+      sessionId: input.sessionId,
+      agentId: input.agentId,
+      messageId: input.messageId,
+      generation: `synthetic:${input.messageId}`,
+      synthetic: true,
+      onCancelRequested: input.onCancelRequested,
+    })
+  }
+
+  /** 合成回合结算:解除 waitForAgentIdle 挂起,让 cancel 升级阶梯观察到本轮已终止。 */
+  finishSyntheticTurn(turn: RuntimeActiveTurn): void {
+    this.active.finish(turn)
+  }
+
+  /** 该会话是否有在册回合(真或合成):用于 session.active 的权威重算。 */
+  hasActiveTurn(sessionId: string): boolean {
+    return this.active.has(sessionId)
   }
 
   acceptsUpdate(sessionId: string, streamGeneration: string): boolean {

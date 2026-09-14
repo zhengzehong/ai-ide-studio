@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { RuntimeCancelResult, RuntimeStateSnapshot } from '../../ports/runtime-port.js'
-import type { AgentStatus, SessionCapabilities } from '../../types/ws-protocol.js'
+import type { AgentStatus, SessionActivityReason, SessionCapabilities } from '../../types/ws-protocol.js'
 import type { TurnUsageData } from '../../types/ws-protocol.js'
 import { RuntimeSessionActorScheduler } from '../actors/session-actor.js'
 import type { RuntimeCoalescibleUpdate } from '../streams/runtime-update-coalescer.js'
@@ -31,6 +31,13 @@ export interface AcpRuntimeHostOptions {
   }) => Promise<void>
   publishAgentStatus?: (event: { agentId: string; status: AgentStatus; captureBindingId?: string }) => void
   publishCapabilities?: (sessionId: string, capabilities: SessionCapabilities) => void
+  publishSessionActivity?: (event: {
+    sessionId: string
+    agentId: string
+    state: 'running' | 'idle'
+    reason: SessionActivityReason
+    turnId?: string
+  }) => void
 }
 
 const MOCK_MODELS = [

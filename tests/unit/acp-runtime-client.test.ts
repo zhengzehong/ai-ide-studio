@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 import { createAcpRuntimeClient } from '../../src/runtime/service/acp-runtime-client.js'
 import type { RuntimeCoalescibleUpdate } from '../../src/runtime/streams/runtime-update-coalescer.js'
 import type { SessionCapabilities } from '../../src/types/ws-protocol.js'
@@ -400,5 +400,164 @@ describe('database-free ACP Runtime client', () => {
 
     expect(updates).toHaveLength(1)
     expect(updates[0]).toMatchObject({ messageId: 'message-a', data: { contentDelta: 'before' } })
+  })
+
+  describe('autonomous turn binding (后台唤醒)', () => {
+    function createBridge(overrides: Partial<Record<'handleUnboundFrame' | 'observeFrame' | 'onRealTurnBegin' | 'onRealTurnEnd', unknown>> = {}) {
+      let created = 0
+      return {
+        handleUnboundFrame: vi.fn(() => `auto-${++created}`),
+        observeFrame: vi.fn(),
+        onRealTurnBegin: vi.fn(),
+        onRealTurnEnd: vi.fn(),
+        ...overrides,
+      } as {
+        handleUnboundFrame: ReturnType<typeof vi.fn>
+        observeFrame: ReturnType<typeof vi.fn>
+        onRealTurnBegin: ReturnType<typeof vi.fn>
+        onRealTurnEnd: ReturnType<typeof vi.fn>
+      }
+    }
+
+    test('P0①:无绑定强帧绑定合成回合,publish 不经过 acceptTurnUpdate 二次门(无 generation)', async () => {
+      const updates: RuntimeCoalescibleUpdate[] = []
+      const bridge = createBridge()
+      const acceptTurnUpdate = vi.fn(() => false)
+      const router = createAcpRuntimeClient({
+        agentId: 'agent-a',
+        publishUpdate: (update) => { updates.push(update) },
+        updateCapabilities: () => undefined,
+        acceptTurnUpdate,
+        autonomousTurns: bridge,
+      })
+      router.bindSession('session-a', 'acp-a', [])
+
+      await router.client.sessionUpdate({
+        sessionId: 'acp-a',
+        update: { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'hidden' } },
+      } as never)
+      await router.client.sessionUpdate({
+        sessionId: 'acp-a',
+        update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'out' } },
+      } as never)
+
+      // 钩子只触发一次(第二帧走已绑定路径);每帧都进入观察
+      expect(bridge.handleUnboundFrame).toHaveBeenCalledTimes(1)
+      expect(bridge.observeFrame).toHaveBeenCalledTimes(2)
+      expect(updates).toEqual([
+        expect.objectContaining({ sessionId: 'session-a', messageId: 'auto-1', data: expect.objectContaining({ thinking: 'hidden' }) }),
+        expect.objectContaining({ sessionId: 'session-a', messageId: 'auto-1', data: expect.objectContaining({ contentDelta: 'out' }) }),
+      ])
+      // 合成绑定刻意不带 streamGeneration:publish 的 acceptTurnUpdate 门完全未被咨询
+      expect(acceptTurnUpdate).not.toHaveBeenCalled()
+    })
+
+    test('无绑定弱帧(usage/tool_call_update)交给桥分类,返回 null 即丢弃', async () => {
+      const updates: RuntimeCoalescibleUpdate[] = []
+      const bridge = createBridge({ handleUnboundFrame: vi.fn(() => null) })
+      const router = createAcpRuntimeClient({
+        agentId: 'agent-a',
+        publishUpdate: (update) => { updates.push(update) },
+        updateCapabilities: () => undefined,
+        autonomousTurns: bridge,
+      })
+      router.bindSession('session-a', 'acp-a', [])
+
+      await router.client.sessionUpdate({
+        sessionId: 'acp-a',
+        update: { sessionUpdate: 'usage_update', size: 200000, used: 1000 },
+      } as never)
+      await router.client.sessionUpdate({
+        sessionId: 'acp-a',
+        update: { sessionUpdate: 'tool_call_update', toolCallId: 'orphan-1', status: 'completed' },
+      } as never)
+
+      expect(updates).toEqual([])
+      expect(bridge.handleUnboundFrame).toHaveBeenCalledTimes(2)
+      expect(bridge.observeFrame).not.toHaveBeenCalled()
+    })
+
+    test('合成回合内 tool_call_update 正常发布(心跳追踪器随合成绑定创建)', async () => {
+      const updates: RuntimeCoalescibleUpdate[] = []
+      const router = createAcpRuntimeClient({
+        agentId: 'agent-a',
+        publishUpdate: (update) => { updates.push(update) },
+        updateCapabilities: () => undefined,
+        autonomousTurns: createBridge(),
+      })
+      router.bindSession('session-a', 'acp-a', [])
+
+      await router.client.sessionUpdate({
+        sessionId: 'acp-a',
+        update: { sessionUpdate: 'tool_call', toolCallId: 'tool-1', title: 'Bash', rawInput: { command: 'npm test' } },
+      } as never)
+      await router.client.sessionUpdate({
+        sessionId: 'acp-a',
+        update: {
+          sessionUpdate: 'tool_call_update',
+          toolCallId: 'tool-1',
+          status: 'in_progress',
+          _meta: { terminal_output_delta: { data: 'building…' } },
+        },
+      } as never)
+
+      expect(updates).toHaveLength(2)
+      expect(updates[1]).toMatchObject({
+        messageId: 'auto-1',
+        data: expect.objectContaining({
+          toolCallUpdate: expect.objectContaining({ id: 'tool-1', terminalOutputDelta: 'building…' }),
+        }),
+      })
+    })
+
+    test('endSyntheticTurn 只解绑匹配的合成 id', async () => {
+      const updates: RuntimeCoalescibleUpdate[] = []
+      const bridge = createBridge()
+      const router = createAcpRuntimeClient({
+        agentId: 'agent-a',
+        publishUpdate: (update) => { updates.push(update) },
+        updateCapabilities: () => undefined,
+        autonomousTurns: bridge,
+      })
+      router.bindSession('session-a', 'acp-a', [])
+
+      await router.client.sessionUpdate({
+        sessionId: 'acp-a',
+        update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'one' } },
+      } as never)
+      // 不匹配的 id 不解绑
+      router.endSyntheticTurn('session-a', 'auto-other')
+      await router.client.sessionUpdate({
+        sessionId: 'acp-a',
+        update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'two' } },
+      } as never)
+      expect(bridge.handleUnboundFrame).toHaveBeenCalledTimes(1)
+
+      // 匹配的 id 解绑 → 下一帧重新走分类并开新合成回合
+      router.endSyntheticTurn('session-a', 'auto-1')
+      await router.client.sessionUpdate({
+        sessionId: 'acp-a',
+        update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'three' } },
+      } as never)
+      expect(bridge.handleUnboundFrame).toHaveBeenCalledTimes(2)
+      expect(updates.at(-1)).toMatchObject({ messageId: 'auto-2', data: { contentDelta: 'three' } })
+    })
+
+    test('真回合 begin/end 触发互斥回调', () => {
+      const bridge = createBridge()
+      const router = createAcpRuntimeClient({
+        agentId: 'agent-a',
+        publishUpdate: () => undefined,
+        updateCapabilities: () => undefined,
+        autonomousTurns: bridge,
+      })
+      router.bindSession('session-a', 'acp-a', [])
+
+      router.beginTurn('session-a', 'message-a', 'turn-a', 'generation-a')
+      expect(bridge.onRealTurnBegin).toHaveBeenCalledWith('session-a')
+
+      router.endTurn('session-a', 'generation-a')
+      expect(bridge.onRealTurnEnd).toHaveBeenCalledWith('session-a')
+    })
   })
 })

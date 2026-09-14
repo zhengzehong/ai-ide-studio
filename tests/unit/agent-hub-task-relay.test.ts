@@ -3,6 +3,7 @@ import {
   formatInboundPrompt,
   formatOutboundPrompt,
   extractResultText,
+  shouldRelayHubTaskResult,
   type InboundTask,
   type OutboundTask,
 } from '../../src/core/agent-hub/task-relay.js'
@@ -223,6 +224,20 @@ describe('agent-hub task-relay 文本处理', () => {
         status: { message: { parts: [{ type: 'data', text: 'x' }] } },
       })
       expect(text).toBe('(无结果内容)')
+    })
+  })
+
+  describe('shouldRelayHubTaskResult(自治回合合成 done 防提前回传)', () => {
+    test('本会话真回合 done 才回传', () => {
+      expect(shouldRelayHubTaskResult({ sessionId: 's1', messageId: 'msg-turn-1789' }, 's1')).toBe(true)
+    })
+
+    test('自治回合合成 done(auto- 前缀)不回传,继续等待真回合', () => {
+      expect(shouldRelayHubTaskResult({ sessionId: 's1', messageId: 'auto-3f6a1c' }, 's1')).toBe(false)
+    })
+
+    test('其他会话的 done 不回传', () => {
+      expect(shouldRelayHubTaskResult({ sessionId: 's2', messageId: 'msg-turn-1789' }, 's1')).toBe(false)
     })
   })
 })

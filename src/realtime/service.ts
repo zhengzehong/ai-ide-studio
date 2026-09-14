@@ -2,7 +2,7 @@ import { createServer, type Server } from 'node:http'
 import { randomUUID } from 'node:crypto'
 import { WebSocketServer, type WebSocket } from 'ws'
 import { RealtimeHub } from './hub.js'
-import type { RealtimeConnectionClaims, RealtimeIpcPayload } from './protocol.js'
+import type { RealtimeConnectionClaims, RealtimeDelivery, RealtimeIpcPayload } from './protocol.js'
 import type { ClientMessage } from '../types/ws-protocol.js'
 import type { ServerMessage } from '../types/ws-protocol.js'
 import { createEventLoopMonitor, eventLoopMonitorOptions } from '../shared/event-loop-monitor.js'
@@ -134,8 +134,7 @@ export async function startRealtimeService(options: RealtimeServiceOptions): Pro
     port: address.port,
     handleIpc,
     handleRuntimeMessage(message) {
-      const sessionId = 'sessionId' in message && typeof message.sessionId === 'string' ? message.sessionId : undefined
-      hub.deliver(sessionId ? { scope: 'session', sessionId, message } : { scope: 'all', message })
+      hub.deliver(runtimeMessageDelivery(message))
     },
     close: async () => {
       eventLoopMonitor.stop()
@@ -146,6 +145,17 @@ export async function startRealtimeService(options: RealtimeServiceOptions): Pro
       await closeHttpServer(server)
     },
   }
+}
+
+/**
+ * runtime 流消息的投递作用域:带 sessionId 的消息默认只投给订阅者;
+ * session:activity 例外——它与核心 emitSessionActivity 的 all-scope 语义一致,
+ * 非订阅客户端(侧栏、团队视图外的会话列表)也依赖它复位"正在执行"与打未读。
+ */
+export function runtimeMessageDelivery(message: ServerMessage): RealtimeDelivery {
+  if (message.type === 'session:activity') return { scope: 'all', message }
+  const sessionId = 'sessionId' in message && typeof message.sessionId === 'string' ? message.sessionId : undefined
+  return sessionId ? { scope: 'session', sessionId, message } : { scope: 'all', message }
 }
 
 function asRealtimeSocket(socket: WebSocket): WebSocket & { readonly OPEN: number } {

@@ -7,6 +7,7 @@ import { hubClient, type SearchAgentResult } from './hub-client.js'
 import type { SseClient, TaskEventData, ResultEventData } from './sse-client.js'
 import type { AgentHubConfig } from './config.js'
 import type { SessionDoneData } from '../../types/ws-protocol.js'
+import { isAutonomousTurnMessageId } from '../../shared/autonomous-turn.js'
 import { createChildLogger } from '../logger.js'
 
 const log = createChildLogger('agent-hub:relay')
@@ -104,6 +105,18 @@ async function resolveAgentName(conn: HubConnection, hubAgentId: string): Promis
   }
 }
 
+/**
+ * 该 session:done 是否代表本次 Hub 任务的回合结束。
+ * 自治回合(后台唤醒)的合成 done 属于同一 session 但与本次入站任务无关,
+ * 不得据此提前回传结果,否则 Hub 端会拿到未完成的答复。
+ */
+export function shouldRelayHubTaskResult(
+  data: Pick<SessionDoneData, 'sessionId' | 'messageId'>,
+  localSessionId: string,
+): boolean {
+  return data.sessionId === localSessionId && !isAutonomousTurnMessageId(data.messageId)
+}
+
 export async function handleInboundTask(conn: HubConnection, data: TaskEventData): Promise<void> {
   const message = data.message || {}
   const metadata = (data.metadata ?? {}) as Record<string, unknown>
@@ -143,7 +156,7 @@ export async function handleInboundTask(conn: HubConnection, data: TaskEventData
   // enqueuePrompt 内部 await RuntimePort.prompt 会阻塞到 prompt 完成,
   // session:done 事件在 prompt 完成瞬间 emit,先 enqueue 再注册会错过事件
   const doneHandler = (data: SessionDoneData): void => {
-    if (data.sessionId !== localSessionId) return
+    if (!shouldRelayHubTaskResult(data, localSessionId)) return
     events.off('session:done', doneHandler)
     conn.doneListeners.delete(hubTaskId)
     void relayResultBack(conn, inboundTask, data)

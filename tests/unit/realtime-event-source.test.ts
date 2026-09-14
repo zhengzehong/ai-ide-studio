@@ -47,4 +47,34 @@ describe('Realtime event source', () => {
     events.emit('task:update', { taskId: 'task-after-stop', data: {} })
     expect(deliveries).toHaveLength(count)
   })
+
+  it('keeps runtime-sourced autonomous idle off the WS stream while broadcasting ordinary activity', () => {
+    const deliveries: RealtimeDelivery[] = []
+    const source = createRealtimeEventSource((delivery) => {
+      deliveries.push(delivery)
+    })
+
+    events.emit('session:activity', {
+      sessionId: 'session-a',
+      agentId: 'agent-a',
+      state: 'idle',
+      reason: 'autonomous-done',
+      timestamp: new Date().toISOString(),
+      source: 'runtime',
+    })
+    events.emit('session:activity', {
+      sessionId: 'session-a',
+      agentId: 'agent-a',
+      state: 'running',
+      reason: 'prompt-start',
+      timestamp: new Date().toISOString(),
+    })
+
+    expect(deliveries).toHaveLength(1)
+    expect(deliveries[0]).toEqual(expect.objectContaining({
+      scope: 'all',
+      message: expect.objectContaining({ type: 'session:activity', reason: 'prompt-start' }),
+    }))
+    source.stop()
+  })
 })

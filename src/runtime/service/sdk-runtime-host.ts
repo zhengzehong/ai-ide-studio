@@ -2,6 +2,8 @@ import { mapConfigOptions, mergeCapabilitiesFromConfig } from '../../acp/capabil
 import { cloneClaudeSessionFiles, hasClaudeSessionFiles } from '../../acp/claude-session-files.js'
 import { resolveRuntimeModelPreference } from '../../acp/runtime-model-preference.js'
 import type { RuntimeCancelResult, RuntimeStateSnapshot } from '../../ports/runtime-port.js'
+import { createChildLogger } from '../../shared/logger.js'
+import { AUTONOMOUS_TURN_NOTICE, createAutonomousTurnMessageId } from '../../shared/autonomous-turn.js'
 import type { ImageAttachment, SessionCapabilities } from '../../types/ws-protocol.js'
 import type { RuntimeSessionActorScheduler } from '../actors/session-actor.js'
 import { ResourceGovernor } from '../resources/resource-governor.js'
@@ -18,7 +20,12 @@ import { prepareSdkSessionFork } from './sdk-session-fork.js'
 import { inspectSdkSessionRefresh } from './sdk-session-refresh.js'
 import { sweepSdkRuntimeIdle } from './sdk-runtime-idle.js'
 import type { RuntimeIdleThresholds } from './runtime-idle-sweep.js'
-import { SdkRuntimeTurns } from './runtime-active-turns.js'
+import { SdkRuntimeTurns, type RuntimeActiveTurn } from './runtime-active-turns.js'
+import {
+  AutonomousTurnTracker,
+  type AutonomousStopReason,
+} from './autonomous-turn-tracker.js'
+import type { AcpAutonomousTurnBridge } from './acp-runtime-client.js'
 import { publishSdkConfigSnapshot, publishSdkLifecycle, requireSdkAgent, requireSdkSession, touchSdkSession, updateSdkSessionConfigPreference } from './sdk-runtime-state.js'
 import type {
   SdkAgentRuntime,
@@ -28,6 +35,8 @@ import type {
 } from './sdk-runtime-types.js'
 
 export type { SdkRuntimeHostDependencies, SdkRuntimeHostOptions } from './sdk-runtime-types.js'
+
+const log = createChildLogger('sdk-runtime-host')
 
 export class SdkRuntimeHost {
   private readonly agents = new Map<string, SdkAgentRuntime>()
@@ -39,6 +48,8 @@ export class SdkRuntimeHost {
   private readonly ensureBySession = new Map<string, Promise<string>>()
   private readonly startByAgent = new Map<string, Promise<SdkAgentRuntime>>()
   private readonly runtimeTurns: SdkRuntimeTurns
+  private readonly autonomousTurns: AutonomousTurnTracker
+  private readonly syntheticTurns = new Map<string, { messageId: string; agentId: string; turn: RuntimeActiveTurn }>()
 
   constructor(
     private readonly actors: RuntimeSessionActorScheduler,
@@ -60,6 +71,112 @@ export class SdkRuntimeHost {
       },
       restartAgent: (agentId) => this.stopAgent(agentId),
     })
+    this.autonomousTurns = new AutonomousTurnTracker({
+      openTurn: (sessionId) => this.openAutonomousTurn(sessionId),
+      settleTurn: (sessionId, input) => this.settleAutonomousTurn(sessionId, input),
+      onFrameDropped: (sessionId, updateType, kind) => {
+        log.debug({ sessionId, updateType, kind }, 'dropped unbound autonomous-lane frame')
+      },
+      ...(dependencies.autonomousTurnTimings ? { timings: dependencies.autonomousTurnTimings } : {}),
+    })
+  }
+
+  private autonomousBridge(): AcpAutonomousTurnBridge {
+    return {
+      handleUnboundFrame: (sessionId, update) => this.autonomousTurns.handleUnboundFrame(sessionId, update),
+      observeFrame: (sessionId, update) => this.autonomousTurns.observeFrame(sessionId, update),
+      onRealTurnBegin: (sessionId) => this.autonomousTurns.onRealTurnBegin(sessionId),
+      onRealTurnEnd: (sessionId) => this.autonomousTurns.onRealTurnEnd(sessionId),
+    }
+  }
+
+  /**
+   * 后台唤醒(自治回合)开场:合成 messageId(客户端绑定,不带 generation)+
+   * session.active 清扫豁免 + turns 登记(可被 stop 中断)+ 来源注记 + activity running。
+   */
+  private openAutonomousTurn(sessionId: string): string | null {
+    const session = this.sessions.get(sessionId)
+    if (!session) return null
+    const agentId = session.snapshot.agent.id
+    const agent = this.agents.get(agentId)
+    if (!agent) return null
+    const messageId = createAutonomousTurnMessageId()
+    let turn: RuntimeActiveTurn
+    try {
+      turn = this.runtimeTurns.beginSyntheticTurn({
+        sessionId,
+        agentId,
+        messageId,
+        onCancelRequested: () => this.autonomousTurns.requestCancel(sessionId),
+      })
+    } catch (err) {
+      // 已有在册回合(真回合刚结算的竞态窗口)→ 本帧没有合成归属,按幽灵丢弃。
+      log.warn({ err, sessionId, messageId }, 'cannot open autonomous turn because another turn is registered')
+      return null
+    }
+    session.active = true
+    touchSdkSession(this.agents, session)
+    this.syntheticTurns.set(sessionId, { messageId, agentId, turn })
+    this.options.publishUpdate(agentId, {
+      kind: 'session-update',
+      sessionId,
+      messageId,
+      data: { messageId, role: 'agent', contentDelta: AUTONOMOUS_TURN_NOTICE },
+    })
+    this.options.publishSessionActivity?.({ sessionId, agentId, state: 'running', reason: 'autonomous-wake' })
+    return messageId
+  }
+
+  private settleAutonomousTurn(sessionId: string, input: {
+    messageId: string
+    stopReason: AutonomousStopReason
+    error?: string
+    reason: string
+  }): void {
+    const registered = this.syntheticTurns.get(sessionId)
+    const agentId = registered?.messageId === input.messageId ? registered.agentId : this.sessions.get(sessionId)?.snapshot.agent.id
+    if (registered?.messageId === input.messageId) {
+      this.syntheticTurns.delete(sessionId)
+      this.runtimeTurns.finishSyntheticTurn(registered.turn)
+    }
+    if (agentId) this.agents.get(agentId)?.router.endSyntheticTurn(sessionId, input.messageId)
+    const session = this.sessions.get(sessionId)
+    if (session) {
+      // 按在册回合重算 active:真回合可能刚接管(合成结算后仍是 active),不能被误复位。
+      session.active = this.runtimeTurns.hasActiveTurn(sessionId)
+      touchSdkSession(this.agents, session)
+    }
+    if (!agentId) {
+      log.warn({ sessionId, messageId: input.messageId, reason: input.reason }, 'autonomous turn settled after runtime teardown')
+      return
+    }
+    log.info(
+      { sessionId, messageId: input.messageId, stopReason: input.stopReason, reason: input.reason, agentId },
+      'autonomous turn terminal',
+    )
+    void this.options.publishDone({
+      sessionId,
+      agentId,
+      messageId: input.messageId,
+      stopReason: input.stopReason,
+      ...(input.error !== undefined ? { error: input.error } : {}),
+    }).catch((err: unknown) => {
+      log.warn({ err, sessionId, messageId: input.messageId }, 'autonomous turn done publish failed')
+    })
+    this.options.publishSessionActivity?.({
+      sessionId,
+      agentId,
+      state: 'idle',
+      reason: input.stopReason === 'cancelled'
+        ? 'autonomous-cancelled'
+        : input.stopReason === 'error' ? 'autonomous-error' : 'autonomous-done',
+    })
+  }
+
+  private disposeAutonomousTurnsForAgent(agentId: string, input: { stopReason: AutonomousStopReason; error?: string }): void {
+    for (const [sessionId, registered] of [...this.syntheticTurns]) {
+      if (registered.agentId === agentId) this.autonomousTurns.disposeSession(sessionId, input)
+    }
   }
 
   hasSession(sessionId: string): boolean {
@@ -180,6 +297,10 @@ export class SdkRuntimeHost {
   }): Promise<void> {
     const replacement = this.startByAgent.get(input.agentId)
     if (replacement) await replacement
+    // 真回合即将开始:先收敛同会话的合成回合。RuntimeActiveTurns 每会话只允许一个在册回合,
+    // 不先结算会导致真 prompt 的 begin() 抛 "Runtime turn already active"。
+    // 合成回合按 end_turn 正常收尾(内容落库),真回合随后接管绑定。
+    this.autonomousTurns.disposeSession(input.sessionId, { stopReason: 'end_turn' })
     return this.runtimeTurns.prompt(input)
   }
 
@@ -190,6 +311,7 @@ export class SdkRuntimeHost {
   async closeSession(agentId: string, sessionId: string): Promise<void> {
     const session = this.sessions.get(sessionId)
     if (!session || session.snapshot.agent.id !== agentId) return
+    this.autonomousTurns.disposeSession(sessionId, { stopReason: 'cancelled' })
     const agent = this.agents.get(agentId)
     if (!agent) {
       this.sessions.delete(sessionId)
@@ -344,6 +466,9 @@ export class SdkRuntimeHost {
     const existing = this.agents.get(snapshot.agent.id)
     if (existing?.fingerprint === fingerprint) return existing
     if (existing) {
+      // 换运行时(模型/连接指纹变化)会替换整条 CLI 进程:合成回合随重启收敛(cancelled),
+      // 避免 waitForAgentIdle 被长时间后台执行阻塞,也避免重启后残留调度。
+      this.disposeAutonomousTurnsForAgent(snapshot.agent.id, { stopReason: 'cancelled' })
       await this.runtimeTurns.waitForAgentIdle(snapshot.agent.id)
       if (this.agents.get(snapshot.agent.id) === existing) await this.stopAgent(snapshot.agent.id)
     }
@@ -353,15 +478,23 @@ export class SdkRuntimeHost {
       resources: this.resources,
       sessions: this.sessions,
       options: this.options,
+      autonomousTurns: this.autonomousBridge(),
       startAgent: this.startAgent,
       acceptTurnUpdate: (sessionId, streamGeneration) => this.runtimeTurns.acceptsUpdate(sessionId, streamGeneration),
     })
     this.agents.set(snapshot.agent.id, runtime)
     this.options.publishAgentStatus?.({ agentId: snapshot.agent.id, status: 'running', captureBindingId: runtime.captureBindingId })
-    const handleExit = (code: number | null, signal: NodeJS.Signals | null) => handleSdkAgentExit({
-      agentId: snapshot.agent.id, runtime, agents: this.agents, sessions: this.sessions,
-      actors: this.actors, options: this.options, code, signal,
-    })
+    const handleExit = (code: number | null, signal: NodeJS.Signals | null) => {
+      // 退出前先收敛在册的自治回合:发合成 done(停止 UI"正在执行"、落库),并清定时器防泄漏豁免。
+      this.disposeAutonomousTurnsForAgent(snapshot.agent.id, {
+        stopReason: 'error',
+        error: `Agent runtime exited (code=${code ?? 'null'}, signal=${signal ?? 'null'})`,
+      })
+      return handleSdkAgentExit({
+        agentId: snapshot.agent.id, runtime, agents: this.agents, sessions: this.sessions,
+        actors: this.actors, options: this.options, code, signal,
+      })
+    }
     runtime.process.once('exit', handleExit)
     if (typeof runtime.process.exitCode === 'number' || runtime.process.signalCode) {
       handleExit(runtime.process.exitCode, runtime.process.signalCode)
@@ -370,6 +503,7 @@ export class SdkRuntimeHost {
   }
 
   private async stopAgent(agentId: string): Promise<void> {
+    this.disposeAutonomousTurnsForAgent(agentId, { stopReason: 'cancelled' })
     stopSdkAgentRuntime({ agentId, agents: this.agents, sessions: this.sessions, actors: this.actors, options: this.options })
   }
 
