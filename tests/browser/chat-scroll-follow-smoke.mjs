@@ -91,8 +91,13 @@ try {
   if (stillReleased.distance <= 100) throw new Error(`解除后不应被内容增长拉回（距底 ${stillReleased.distance}px）`)
   await screenshot('2-manual-release.png')
 
-  // ── 场景 3：手动滚回近底部后恢复跟随 ──
-  await page.mouse.wheel(0, 20000)
+  // ── 场景 3：手动滚回近底部后恢复跟随（循环小步滚动：单次大 delta 会被浏览器截断）──
+  for (let step = 0; step < 40; step += 1) {
+    const value = await metrics()
+    if (value.distance <= 1) break
+    await page.mouse.wheel(0, 2000)
+    await page.waitForTimeout(25)
+  }
   await requireSettle('滚回底部后应恢复跟随', 3000)
 
   // ── 场景 4：空闲（停止流式）切回精确落底 ──
