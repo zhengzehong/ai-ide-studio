@@ -115,15 +115,28 @@ export function VirtualChatList<T>({
     }
   }, [])
 
+  const plainContentRef = useRef<HTMLDivElement>(null)
+  const plainMode = items.length <= threshold
+  // 非虚拟路径（items ≤ threshold）没有 measure() 的逐项 ResizeObserver：图片、工具块、提示词
+  // 面板等异步撑高无人修正。补一个内容高度观察，尺寸变化后交由父级 onContentResize
+  // （父级仍以 pinned 为前提决定是否追底，不会打扰用户阅读历史）。
+  useEffect(() => {
+    const node = plainContentRef.current
+    if (!node) return undefined
+    const observer = new ResizeObserver(() => onContentResize?.())
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [plainMode, onContentResize])
+
   if (items.length <= threshold) {
     return (
-      <>
+      <div ref={plainContentRef}>
         {items.map((item) => (
           <div key={getKey(item)} data-chat-key={getKey(item)} style={{ marginBottom: gap }}>
             {renderItem(item)}
           </div>
         ))}
-      </>
+      </div>
     )
   }
 

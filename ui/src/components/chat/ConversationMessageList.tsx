@@ -15,7 +15,12 @@ import { parseTurnStats } from './turn-stats'
 import type { ChatTimelineGroup, MessageData } from '../../stores/session-events'
 import type { TurnProcessBlock } from '../../stores/turn-blocks'
 import type { ConversationAdapter, ConversationPaneProps } from './conversation-types'
+import { isNearBottom, resolveScrollFollow, SCROLL_FOLLOW_THRESHOLD_PX, streamingScrollSignature } from './auto-scroll'
 import './conversation-pane.css'
+
+/** 初始定位宽限：挂载/切会话后 0–500ms 是恢复合并 + 虚拟测量修正的高度剧变窗口，
+ *  窗口内滚动事件不降级 pinned（手动滚动/追底会提前解除）；超时兜底。 */
+const INITIAL_LOCATE_GRACE_MS = 500
 
 interface Props extends Pick<ConversationPaneProps, 'onOpenPreview' | 'onOpenFiles' | 'onOpenResource'> {
   adapter: ConversationAdapter
@@ -31,10 +36,19 @@ export function ConversationMessageList({ adapter, compactTeam = false, location
   const viewAdapter = compactTeam ? { ...adapter, compactProcess: true } : adapter
   const messageCountRef = useRef(0)
   const olderAnchorRef = useRef<{ height: number; top: number } | null>(null)
+  // 增长豁免判定的上一次度量：scrollHeight 增长且非用户上行滚动时不算离开底部。
+  const lastScrollHeightRef = useRef(0)
+  const lastScrollTopRef = useRef(0)
+  // 初始定位宽限标记（见 INITIAL_LOCATE_GRACE_MS 注释）与"用户手动滚动待判定"标记。
+  const initialLocateGraceRef = useRef(false)
+  const manualScrollPendingRef = useRef(false)
+  const scheduledScrollRef = useRef<number[]>([])
   const messages = useMemo(() => adapter.sessionId ? adapter.messages.filter((message) => message.session_id === adapter.sessionId) : [], [adapter.messages, adapter.sessionId])
   const streamingTurns = (adapter.streamingMessages?.length ? adapter.streamingMessages : adapter.streamingMessage ? [adapter.streamingMessage] : []).filter((turn) => !turn.done)
   const streamingBubbles = useMemo<MessageData[]>(() => streamingTurns.map((streaming) => ({ id: streaming.id, session_id: adapter.sessionId || '', role: 'agent', content: streaming.content, thinking: streaming.thinking, tool_calls_json: streaming.toolCalls.length ? JSON.stringify(streaming.toolCalls) : null, decision_json: streaming.turnStats ? JSON.stringify(streaming.turnStats) : null, attachments_json: null, timestamp: streaming.startedAt || '', started_at: streaming.startedAt, processBlocks: streaming.processBlocks, finalAnswer: streaming.finalAnswer, stage: streaming.stage, sender_name: streaming.senderName, processDefaultOpen: true })), [adapter.sessionId, streamingTurns])
-  const streamingSignature = useMemo(() => streamingTurns.map((turn) => [turn.id, turn.content.length, turn.thinking.length, turn.processBlocks.length, turn.toolCalls.length, turn.stage || ''].join(':')).join('|'), [streamingTurns])
+  // 签名除正文/思考/过程块数量外，还带上末个工具的状态与输出长度：工具长跑（terminalOutput/progress
+  // 持续增长、无新 chunk）时也要触发跟随，对齐 Workspace 的 streamingScrollSignature。
+  const streamingSignature = useMemo(() => streamingScrollSignature(streamingTurns), [streamingTurns])
   const visibleMessages = useMemo(() => {
     const ids = new Set(streamingBubbles.map((message) => message.id))
     return ids.size ? messages.filter((message) => !ids.has(message.id)) : messages
@@ -57,22 +71,68 @@ export function ConversationMessageList({ adapter, compactTeam = false, location
     const element = scrollRef.current
     if (!element) return
     element.scrollTo({ top: element.scrollHeight, behavior }); pinnedRef.current = true
+    lastScrollHeightRef.current = element.scrollHeight
+    lastScrollTopRef.current = element.scrollTop
   }, [])
   const onResize = useCallback((): void => { if (pinnedRef.current) scrollToBottom() }, [scrollToBottom])
+  const cancelScheduledScroll = useCallback((): void => {
+    scheduledScrollRef.current.forEach((id) => { cancelAnimationFrame(id); window.clearTimeout(id) })
+    scheduledScrollRef.current = []
+  }, [])
+  // 挂载/条目变化后的延迟兜底：虚拟测量修正、恢复合并、图片/工具块撑高都会在首帧之后
+  // 异步改变高度，单帧 rAF 追不到最终底部——照抄 Workspace.scheduleScrollToBottom 的
+  // rAF + 40ms + 160ms 两次 instant 重定位（不做 smooth：动画目标取开始时的高度，期间增长会落点偏短）。
+  const scheduleScrollToBottom = useCallback((): void => {
+    if (navigationLock.current) return
+    cancelScheduledScroll()
+    const run = (): void => { if (pinnedRef.current) scrollToBottom() }
+    scheduledScrollRef.current.push(
+      requestAnimationFrame(run),
+      window.setTimeout(run, 40),
+      window.setTimeout(run, 160),
+    )
+  }, [cancelScheduledScroll, scrollToBottom])
   useEffect(() => {
     const element = scrollRef.current
     if (!element) return undefined
-    const onScroll = (): void => { if (!navigationLock.current) pinnedRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < 100 }
-    const manualScroll = (): void => { navigationLock.current = false }
+    const onScroll = (): void => {
+      const metrics = { scrollHeight: element.scrollHeight, scrollTop: element.scrollTop, clientHeight: element.clientHeight }
+      if (navigationLock.current) {
+        lastScrollHeightRef.current = metrics.scrollHeight
+        lastScrollTopRef.current = metrics.scrollTop
+        return
+      }
+      const decision = resolveScrollFollow({
+        pinned: pinnedRef.current,
+        grace: initialLocateGraceRef.current,
+        manual: manualScrollPendingRef.current,
+        metrics,
+        previousScrollHeight: lastScrollHeightRef.current,
+        previousScrollTop: lastScrollTopRef.current,
+        thresholdPx: SCROLL_FOLLOW_THRESHOLD_PX,
+      })
+      manualScrollPendingRef.current = false
+      pinnedRef.current = decision.pinned
+      initialLocateGraceRef.current = decision.grace
+      lastScrollHeightRef.current = metrics.scrollHeight
+      lastScrollTopRef.current = metrics.scrollTop
+    }
+    // 用户主动滚动立即解除跟随并清除宽限；首个滚动事件用严格阈值判定（增长豁免不适用于用户上行滚动）。
+    const manualScroll = (): void => { navigationLock.current = false; manualScrollPendingRef.current = true; initialLocateGraceRef.current = false }
     element.addEventListener('wheel', manualScroll, { passive: true }); element.addEventListener('touchstart', manualScroll, { passive: true }); element.addEventListener('pointerdown', manualScroll)
     element.addEventListener('scroll', onScroll, { passive: true }); onScroll()
     return () => { element.removeEventListener('scroll', onScroll); element.removeEventListener('wheel', manualScroll); element.removeEventListener('touchstart', manualScroll); element.removeEventListener('pointerdown', manualScroll) }
   }, [adapter.sessionId])
   useEffect(() => {
     navigationLock.current = false; pinnedRef.current = true; messageCountRef.current = 0
-    const frame = requestAnimationFrame(() => { scrollToBottom(); requestAnimationFrame(() => scrollToBottom()) })
-    return () => cancelAnimationFrame(frame)
-  }, [adapter.sessionId, scrollToBottom])
+    manualScrollPendingRef.current = false; initialLocateGraceRef.current = true
+    const element = scrollRef.current
+    lastScrollHeightRef.current = element?.scrollHeight ?? 0
+    lastScrollTopRef.current = element?.scrollTop ?? 0
+    const graceTimer = window.setTimeout(() => { initialLocateGraceRef.current = false }, INITIAL_LOCATE_GRACE_MS)
+    scheduleScrollToBottom()
+    return () => { window.clearTimeout(graceTimer); cancelScheduledScroll() }
+  }, [adapter.sessionId, scheduleScrollToBottom, cancelScheduledScroll])
   useEffect(() => {
     const anchor = olderAnchorRef.current
     if (anchor && scrollRef.current && allRenderItems.length > messageCountRef.current) {
@@ -83,10 +143,15 @@ export function ConversationMessageList({ adapter, compactTeam = false, location
     }
     if (allRenderItems.length !== messageCountRef.current) {
       messageCountRef.current = allRenderItems.length
-      if (pinnedRef.current) requestAnimationFrame(() => scrollToBottom('smooth'))
+      const element = scrollRef.current
+      // pinned=false 但视口仍贴近底部时也跟随（自动恢复，对照 Workspace）——
+      // 历史锁死的兜底解：误杀过的 pinned 在内容增高的常见场景下自行恢复。
+      if (pinnedRef.current || (element && isNearBottom(element, SCROLL_FOLLOW_THRESHOLD_PX))) scheduleScrollToBottom()
     }
-    if (streamingBubbles.length > 0 && pinnedRef.current) requestAnimationFrame(() => scrollToBottom())
-  }, [allRenderItems.length, scrollToBottom, streamingBubbles.length, streamingSignature])
+    // 流式 chunk 的追底 rAF 与用户 wheel 存在次序竞态：调度时 pinned 为真、执行前用户已手动
+    // 上滚(pinned=false)时，回调必须复查，否则会把用户拉回底部并重新 pin 住（N1）。
+    if (streamingBubbles.length > 0 && pinnedRef.current) requestAnimationFrame(() => { if (pinnedRef.current) scrollToBottom() })
+  }, [allRenderItems.length, scrollToBottom, streamingBubbles.length, streamingSignature, scheduleScrollToBottom])
   const loadOlder = (): void => {
     if (adapter.hasMoreMessages && !adapter.loadingOlderMessages) {
       const element = scrollRef.current
