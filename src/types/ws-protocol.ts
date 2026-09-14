@@ -457,6 +457,10 @@ export interface SessionsMessageEventsPageMsg extends ClientMessage {
   messageId: string
   afterSequence?: number
   throughSequence?: number
+  /** 单页条目上限(服务端收敛到上限内;缺省 100)。 */
+  maxItems?: number
+  /** 单页序列化字节上限(服务端收敛到上限内;缺省 128KB)。 */
+  maxBytes?: number
 }
 export interface SessionsMarkReadMsg extends ClientMessage {
   type: 'sessions.markRead'

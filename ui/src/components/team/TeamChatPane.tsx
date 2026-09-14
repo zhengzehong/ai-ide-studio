@@ -16,7 +16,7 @@ import type { TeamData } from '../../stores/team.store'
 import { useAgentStore } from '../../stores/agent.store'
 import { useModelStore } from '../../stores/model.store'
 import { loadOlderTeamPages, mergeOlderTeamPages } from './team-chat-history'
-import { loadTeamSession, loadTeamMessagePage } from './team-chat-loader'
+import { loadTeamMessagePage, loadTeamSessionProgressive } from './team-chat-loader'
 import { mergeTeamMessageRefresh, runTeamLoads, TeamRecoveryGate } from './team-chat-refresh'
 import { teamCacheKey, teamChatCache, shareTeamRequest, invalidateTeamRequest, newTeamRequestScope, type SourceMessage, type TeamChatMember as Member } from './team-view-cache'
 import { useTeamRead } from './use-team-read'
@@ -27,7 +27,7 @@ import { useTeamActivity } from './team-activity-view'
 import { deriveMemberStatus, TeamAgentDock, type TeamDockMember, type TeamMemberModelConfig } from './TeamAgentDock'
 import { TeamAgentSettingsModal, TeamMemberRemoveConfirm } from './TeamAgentSettingsModal'
 
-import { aggregateSnapshots, emptySnapshot, mergeLoadedSnapshots, finalizeSnapshot, applyEventToSnapshot, mergeProcessItem, normalizeCapabilities, type Snapshot } from './team-chat-state'
+import { aggregateSnapshots, emptySnapshot, mergeLoadedSnapshots, mergeTeamTurnReplay, finalizeSnapshot, applyEventToSnapshot, mergeProcessItem, normalizeCapabilities, type Snapshot } from './team-chat-state'
 export { aggregateSnapshots, compareTeamMessages, emptySnapshot, mergeLoadedSnapshots, finalizeSnapshot, applyEventToSnapshot, updateStreaming, hasLiveStreaming, rebuildStreamingFromEvents, TEAM_STREAM_REBUILD_EVENT_LIMIT, type Snapshot } from './team-chat-state'
 
 interface Conversation { id: string; team_id: string; master_session_id: string; title: string }
@@ -120,11 +120,22 @@ function TeamConversationPane({ team, conversation, masterSessionId, onOpenPrevi
       const results = await runTeamLoads(ids, async (sessionId) => {
         if (requestGeneration !== generation.current) return
         const label = labels.get(sessionId)
-        const loaded = await loadTeamSession(`${cacheKey}:${requestScope}`, sessionId, conversation.master_session_id, label?.name || 'Agent', label?.role || 'member')
-        if (requestGeneration !== generation.current) return
-        sourceMap.current = new Map([...sourceMap.current, ...loaded.sources])
-        setSnapshots(current => mergeLoadedSnapshots(current, { [sessionId]: { ...loaded.snapshot, capabilities: current[sessionId]?.capabilities || loaded.snapshot.capabilities } }))
-        setLoading(false)
+        // 两段式装载:恢复边界 + 消息页先渲染并解除加载态;运行中回合的事件重放
+        // (串行翻页)后台补齐——不再落在"加载中"窗口内。
+        await loadTeamSessionProgressive(`${cacheKey}:${requestScope}`, sessionId, conversation.master_session_id, label?.name || 'Agent', label?.role || 'member', {
+          isActive: () => requestGeneration === generation.current,
+          onBase: (loaded) => {
+            sourceMap.current = new Map([...sourceMap.current, ...loaded.sources])
+            setSnapshots(current => mergeLoadedSnapshots(current, { [sessionId]: { ...loaded.snapshot, capabilities: current[sessionId]?.capabilities || loaded.snapshot.capabilities } }))
+            setLoading(false)
+          },
+          onReplay: (snapshot) => {
+            setSnapshots(current => mergeTeamTurnReplay(current, sessionId, snapshot))
+          },
+          onReplayError: (cause) => {
+            setError(`消息同步失败：${cause instanceof Error ? cause.message : '请重试'}`)
+          },
+        })
       })
       if (requestGeneration !== generation.current) return false
       const failed = results.find(result => result.status === 'rejected')

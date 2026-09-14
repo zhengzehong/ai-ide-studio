@@ -109,6 +109,28 @@ export function mergeLoadedSnapshots(current: Record<string, Snapshot>, loaded: 
   return merged
 }
 
+const TERMINAL_MESSAGE_STATUSES = new Set(['completed', 'failed', 'cancelled'])
+function isTerminalStatus(status: string | undefined): boolean { return !!status && TERMINAL_MESSAGE_STATUSES.has(status) }
+
+/**
+ * 后台回合重放并入(loadTeamTurnReplay 的第二段交付)。
+ *
+ * 重放快照取自基础快照(消息页)的时刻;回合可能已在该窗口内完成,当前状态已持有终态行
+ * (实时 message.done + 落库刷新)。此时重放里的"运行中旧行"只带 500ms 心跳的部分内容,
+ * 直接参与 mergeMessage 会以更短内容回退已完成正文——因此这类行不参与合并,
+ * 终态行与其余行仍按 mergeLoadedSnapshots 既有语义合并(含 replayEvents 重放,不重不漏)。
+ */
+export function mergeTeamTurnReplay(current: Record<string, Snapshot>, sessionId: string, replay: Snapshot): Record<string, Snapshot> {
+  const previous = current[sessionId]
+  const currentMessages = new Map((previous?.messages || []).map(message => [message.id, message]))
+  const messages = replay.messages.filter(message => {
+    const existing = currentMessages.get(message.id)
+    return !(existing && isTerminalStatus(existing.status) && !isTerminalStatus(message.status))
+  })
+  const next = { ...replay, capabilities: previous?.capabilities ?? replay.capabilities, messages }
+  return mergeLoadedSnapshots(current, { [sessionId]: next })
+}
+
 export function finalizeSnapshot(current: Record<string, Snapshot>, sessionId: string, messageId: string, targetSessionId: string | null = sessionId, status = 'completed', error?: string): Record<string, Snapshot> {
   const snapshot = current[sessionId]
   if (!snapshot) return current

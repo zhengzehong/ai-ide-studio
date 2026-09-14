@@ -1,6 +1,6 @@
 import { getQueryPort } from '../../queries/query-port-provider.js'
 import { eventStore, messageStore } from '../../store/sessions.js'
-import { pageTurnEvents } from '../../queries/turn-event-page.js'
+import { pageTurnEvents, resolveTurnEventPageBudget } from '../../queries/turn-event-page.js'
 import { createChildLogger } from '../../core/logger.js'
 import type { RpcHandlerMap } from './types.js'
 
@@ -21,8 +21,10 @@ export const sessionRecoveryRpcHandlers: RpcHandlerMap = {
     if (!message || message.session_id !== msg.sessionId || message.role !== 'agent') throw new Error('消息不存在')
     const after = cursor(msg.afterSequence, 0)
     const through = cursor(msg.throughSequence, eventStore.latestSequence(message.session_id))
-    const page = pageTurnEvents(eventStore.listByMessage(message.session_id, message.id), after, through)
-    log.debug({ sessionId: message.session_id, messageId: message.id, count: page.items.length, after, through }, 'Turn recovery page loaded')
+    // 分页预算按端传入(移动端放宽单帧),服务端收敛到上限内。
+    const budget = resolveTurnEventPageBudget({ maxItems: budgetValue(msg.maxItems), maxBytes: budgetValue(msg.maxBytes) })
+    const page = pageTurnEvents(eventStore.listByMessage(message.session_id, message.id), after, through, budget)
+    log.debug({ sessionId: message.session_id, messageId: message.id, count: page.items.length, after, through, budget }, 'Turn recovery page loaded')
     sendResult(page)
   },
 }
@@ -30,5 +32,11 @@ export const sessionRecoveryRpcHandlers: RpcHandlerMap = {
 function cursor(value: unknown, fallback: number): number {
   if (value === undefined) return fallback
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) throw new Error('恢复游标无效')
+  return value
+}
+
+function budgetValue(value: unknown): number | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) throw new Error('分页预算无效')
   return value
 }
