@@ -11,6 +11,8 @@ export default defineConfig({
   define: {
     'import.meta.env.VITE_QUERY_TRANSPORT': JSON.stringify('ws'),
     'import.meta.env.VITE_COMMAND_TRANSPORT': JSON.stringify('ws'),
+    // 移动端回合重放单页放宽(往返数 7-13 → 2-3);PC 构建不定义 → 保持默认预算。
+    'import.meta.env.VITE_TEAM_TURN_PAGE_PROFILE': JSON.stringify('mobile'),
   },
   resolve: {
     alias: {

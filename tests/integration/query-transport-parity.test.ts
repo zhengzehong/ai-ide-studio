@@ -181,6 +181,48 @@ describe('QueryPort and WS response parity', () => {
   })
 })
 
+describe('turn event recovery page budget', () => {
+  function seedTurn(messageId: string, count: number): string {
+    const session = sessionStore.create({ agentId: 'agent-page-budget' })
+    messageStore.append(session.id, { id: messageId, role: 'agent', content: '', status: 'running' })
+    for (let index = 0; index < count; index += 1) {
+      eventStore.append(session.id, { type: 'message.chunk', messageId, payload: { contentDelta: `chunk-${index}` } })
+    }
+    return session.id
+  }
+
+  test('keeps the historical page budget when the client sends none (PC unchanged)', async () => {
+    const messageId = 'message-default-budget'
+    const sessionId = seedTurn(messageId, 130)
+
+    const page = await callRpc(sessionRecoveryRpcHandlers, 'sessions.messageEventsPage', { sessionId, messageId }) as { items: unknown[]; hasMore: boolean; nextSequence: number }
+
+    expect(page.items).toHaveLength(100)
+    expect(page.hasMore).toBe(true)
+  })
+
+  test('honors the wider mobile budget and clamps anything beyond the server ceiling', async () => {
+    const messageId = 'message-wide-budget'
+    const sessionId = seedTurn(messageId, 130)
+
+    const wide = await callRpc(sessionRecoveryRpcHandlers, 'sessions.messageEventsPage', { sessionId, messageId, maxItems: 500, maxBytes: 512 * 1024 }) as { items: unknown[]; hasMore: boolean }
+    expect(wide.items).toHaveLength(130)
+    expect(wide.hasMore).toBe(false)
+
+    const clamped = await callRpc(sessionRecoveryRpcHandlers, 'sessions.messageEventsPage', { sessionId, messageId, maxItems: 5000, maxBytes: 8 * 1024 * 1024 }) as { items: unknown[]; hasMore: boolean }
+    expect(clamped.items).toHaveLength(130)
+    expect(clamped.hasMore).toBe(false)
+  })
+
+  test('rejects an invalid page budget instead of silently paging', async () => {
+    const messageId = 'message-invalid-budget'
+    const sessionId = seedTurn(messageId, 1)
+
+    await expect(callRpc(sessionRecoveryRpcHandlers, 'sessions.messageEventsPage', { sessionId, messageId, maxItems: 0 })).rejects.toThrow('分页预算无效')
+    await expect(callRpc(sessionRecoveryRpcHandlers, 'sessions.messageEventsPage', { sessionId, messageId, maxBytes: -1 })).rejects.toThrow('分页预算无效')
+  })
+})
+
 async function callRpc(
   handlers: RpcHandlerMap,
   type: string,
