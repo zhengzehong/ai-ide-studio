@@ -573,7 +573,7 @@ async function sendPromptBatchNow(session: SessionRow, inputs: QueuedPrompt[]): 
   try {
     const promptImages: ImageAttachment[] = []
     const storedImages: StoredImageAttachment[] = []
-    for (const input of inputs) {
+    for (const [index, input] of inputs.entries()) {
       const humanMessageId = input.options.clientMessageId ?? `msg-${randomUUID().slice(0, 8)}`
       const inputStoredImages = await saveSessionImages({
         projectId,
@@ -582,6 +582,8 @@ async function sendPromptBatchNow(session: SessionRow, inputs: QueuedPrompt[]): 
         images: input.images,
       })
       const messageAttachments = inputStoredImages.length > 0 ? inputStoredImages : input.images
+      // human 消息时间戳与回合开始时刻同源(按输入序号加毫秒偏移保持多条输入的先后),
+      // 否则 append 晚于 startedAt,团队视图按 started_at 排序时 agent 回合会排到用户提问之前
       const humanMessage = observeSyncDbOperation(
         'message.human.append',
         { sessionId, turnId, messageId: humanMessageId },
@@ -593,6 +595,7 @@ async function sendPromptBatchNow(session: SessionRow, inputs: QueuedPrompt[]): 
           senderId: input.options.senderId ?? null,
           senderName: input.options.senderName ?? null,
           senderRole: input.options.senderRole ?? 'user',
+          timestamp: new Date(startedAt + index).toISOString(),
         }),
       )
       recordPromptProgress(sessionId, 'human.message.persisted')

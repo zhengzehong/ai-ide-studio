@@ -5,8 +5,31 @@ import { assignmentFromEvent, attachTeamAssignments } from './team-chat-assignme
 import { isPendingTeamTurn, pendingTeamPromptAnswered } from './team-chat-pending'
 
 export interface Snapshot { sessionId: string; supplementalItems?: TurnProcessItemInfo[]; replayEvents?: SessionEventData[]; replaySequence?: number; senderName?: string; messages: MessageData[]; events: SessionEventData[]; streaming: StreamingMessage | null; pendingAssignment?: TeamAssignmentInfo | null; permissions: PermissionRequestInfo[]; elicitations: ElicitationRequestInfo[]; capabilities: SessionCapabilities; usage: UsageInfo | null; hasMore: boolean; running: boolean }
+/**
+ * human 消息没有 started_at,回退到 append 时刻;agent 回合用回合开始时刻。
+ * 两者存在毫秒级(带图片时更久)的落库时差,窗口内视为同一时刻,用户提问恒排在 AI 回合之前。
+ */
+const TURN_START_TOLERANCE_MS = 500
+
+function effectiveTimeMs(message: MessageData): number {
+  const time = Date.parse(message.started_at || message.timestamp)
+  return Number.isFinite(time) ? time : Number.NaN
+}
+
 /** Keep a completed team turn at its start position across live and history paths. */
-export function compareTeamMessages(left: MessageData, right: MessageData): number { return (left.started_at || left.timestamp).localeCompare(right.started_at || right.timestamp) || left.timestamp.localeCompare(right.timestamp) || left.id.localeCompare(right.id) }
+export function compareTeamMessages(left: MessageData, right: MessageData): number {
+  const leftTime = effectiveTimeMs(left)
+  const rightTime = effectiveTimeMs(right)
+  if (Number.isFinite(leftTime) && Number.isFinite(rightTime)) {
+    if (Math.abs(leftTime - rightTime) <= TURN_START_TOLERANCE_MS && (left.role === 'human') !== (right.role === 'human')) {
+      return left.role === 'human' ? -1 : 1
+    }
+    return leftTime - rightTime
+  }
+  return (left.started_at || left.timestamp).localeCompare(right.started_at || right.timestamp)
+    || left.timestamp.localeCompare(right.timestamp)
+    || left.id.localeCompare(right.id)
+}
 
 export function aggregateSnapshots(snapshots: Record<string, Snapshot>, ids: string[], masterSessionId: string | null) {
   const decoratedBySession = new Map<string, { messages: MessageData[]; streaming: StreamingMessage | null }>()

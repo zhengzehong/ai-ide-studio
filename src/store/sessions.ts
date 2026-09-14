@@ -135,6 +135,8 @@ export interface AppendMessageInput {
   senderId?: string | null
   senderName?: string | null
   senderRole?: string
+  /** 显式指定落库时间戳;缺省取写入时刻。用于让 human 消息与同回合 agent 消息时间同源。 */
+  timestamp?: string
 }
 
 export interface AppendEventInput {
@@ -679,7 +681,7 @@ export const messageStore = {
       completed_at: input.completedAt ?? (input.status && input.status !== 'running' ? new Date().toISOString() : null),
       stats_json: input.stats ? JSON.stringify(input.stats) : null,
       process_item_count: 0,
-      timestamp: new Date().toISOString(),
+      timestamp: input.timestamp ?? new Date().toISOString(),
       sender_id: input.senderId ?? null,
       sender_name: input.senderName ?? null,
       sender_role: input.senderRole ?? (input.role === 'agent' ? 'assistant' : 'user'),
