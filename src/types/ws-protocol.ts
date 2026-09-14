@@ -10,6 +10,10 @@ export type SessionActivityReason =
   | 'prompt-cancelled'
   | 'runtime-exit'
   | 'startup-recovery'
+  | 'autonomous-wake'
+  | 'autonomous-done'
+  | 'autonomous-cancelled'
+  | 'autonomous-error'
 export type TaskStatus = 'draft' | 'running' | 'needs_input' | 'completed' | 'cancelled'
 export type AgentReportStatus = 'in_progress' | 'milestone' | 'blocked' | 'done'
 

@@ -14,6 +14,7 @@ import type {
 } from '../../types/ws-protocol.js'
 import { ResourceGovernor } from '../resources/resource-governor.js'
 import type { RuntimeCoalescibleUpdate } from '../streams/runtime-update-coalescer.js'
+import { TURN_SCOPED_UPDATE_TYPES, type TurnScopedUpdateLike } from './autonomous-turn-tracker.js'
 import { RuntimeTerminalManager } from './runtime-terminal-manager.js'
 import {
   resolveAllInteractions,
@@ -35,10 +36,21 @@ interface BoundSession {
 }
 
 const FULL_ACCESS_PERMISSION_MODES = new Set(['bypassPermissions', 'agent-full-access'])
-const TURN_SCOPED_SESSION_UPDATES = new Set<string>([
-  'agent_message_chunk', 'agent_thought_chunk', 'tool_call', 'tool_call_update', 'usage_update', 'plan', 'user_message_chunk',
-])
+const TURN_SCOPED_SESSION_UPDATES = new Set<string>(TURN_SCOPED_UPDATE_TYPES)
 const log = createChildLogger('acp-runtime-client')
+
+/**
+ * 自治回合桥:无绑定的 turn-scoped 帧交给 host 侧状态机分类。
+ * handleUnboundFrame 返回合成 messageId(开启自治回合)或 null(丢弃);
+ * observeFrame 观察回合内每一帧(终结帧/工具状态/静默续期);
+ * 真回合 begin/end 驱动互斥与幽灵判定。
+ */
+export interface AcpAutonomousTurnBridge {
+  handleUnboundFrame(sessionId: string, update: TurnScopedUpdateLike): string | null
+  observeFrame(sessionId: string, update: TurnScopedUpdateLike): void
+  onRealTurnBegin?(sessionId: string): void
+  onRealTurnEnd?(sessionId: string): void
+}
 
 export interface AcpRuntimeClientOptions {
   agentId: string
@@ -47,6 +59,7 @@ export interface AcpRuntimeClientOptions {
   publishCapabilities?: (sessionId: string, capabilities: SessionCapabilities) => void
   acceptTurnUpdate?: (sessionId: string, streamGeneration: string) => boolean
   resources?: ResourceGovernor
+  autonomousTurns?: AcpAutonomousTurnBridge
 }
 
 export interface AcpRuntimeClientRouter {
@@ -62,6 +75,8 @@ export interface AcpRuntimeClientRouter {
   setPermissionMode(sessionId: string, permissionMode?: string): void
   beginTurn(sessionId: string, messageId: string, turnId?: string, streamGeneration?: string): void
   endTurn(sessionId: string, streamGeneration?: string): void
+  /** 结算合成(自治)回合:仅当当前绑定仍是该合成 id 时解绑(防误清真回合绑定)。 */
+  endSyntheticTurn(sessionId: string, messageId: string): void
   cancelSession(sessionId: string): void
   hasPendingInteractions(sessionId?: string): boolean
   resolvePermission(sessionId: string, requestId: string, optionId?: string, cancelled?: boolean): boolean
@@ -108,22 +123,38 @@ export function createAcpRuntimeClient(options: AcpRuntimeClientOptions): AcpRun
     if (next) options.publishCapabilities?.(sessionId, next)
   }
 
+  const bindSyntheticTurn = (bound: BoundSession, messageId: string): void => {
+    if (bound.messageId !== messageId) {
+      bound.toolProgress = new ToolHeartbeatTracker({ agentId: options.agentId, sessionId: bound.ourSessionId, messageId })
+    }
+    bound.messageId = messageId
+    // 刻意不写 streamGeneration:合成回合不在 RuntimeActiveTurns 的 generation 校验内,
+    // 一旦写入,publish() 会走 acceptTurnUpdate 二次门(isCurrent=false)把自治帧整体丢弃。
+  }
+
   const client: acp.Client = {
     async sessionUpdate(params) {
       const bound = byAcpSession.get(params.sessionId)
       if (!bound) return
       const update = params.update
-      if (!bound.messageId && TURN_SCOPED_SESSION_UPDATES.has(update.sessionUpdate)) {
-        log.warn(
-          {
-            agentId: options.agentId,
-            sessionId: bound.ourSessionId,
-            acpSessionId: params.sessionId,
-            updateType: update.sessionUpdate,
-          },
-          'dropped ACP turn update without an active turn binding',
-        )
-        return
+      if (TURN_SCOPED_SESSION_UPDATES.has(update.sessionUpdate)) {
+        if (!bound.messageId) {
+          const syntheticMessageId = options.autonomousTurns?.handleUnboundFrame(bound.ourSessionId, update) ?? null
+          if (!syntheticMessageId) {
+            log.debug(
+              {
+                agentId: options.agentId,
+                sessionId: bound.ourSessionId,
+                acpSessionId: params.sessionId,
+                updateType: update.sessionUpdate,
+              },
+              'dropped ACP turn update without an active turn binding',
+            )
+            return
+          }
+          bindSyntheticTurn(bound, syntheticMessageId)
+        }
+        options.autonomousTurns?.observeFrame(bound.ourSessionId, update)
       }
       const messageId = bound.messageId ?? `session-state-${bound.ourSessionId}`
       switch (update.sessionUpdate) {
@@ -326,6 +357,8 @@ export function createAcpRuntimeClient(options: AcpRuntimeClientOptions): AcpRun
       if (bound) {
         if (bound.messageId !== messageId) bound.toolProgress = new ToolHeartbeatTracker({ agentId: options.agentId, sessionId, messageId })
         Object.assign(bound, { messageId, turnId, streamGeneration })
+        // 绑定先于回调:真回合开始时合成回合结算里的 endSyntheticTurn 不会误清真空绑定。
+        options.autonomousTurns?.onRealTurnBegin?.(sessionId)
       }
     },
     endTurn(sessionId, streamGeneration) {
@@ -335,6 +368,15 @@ export function createAcpRuntimeClient(options: AcpRuntimeClientOptions): AcpRun
         delete bound.messageId
         delete bound.turnId
         delete bound.streamGeneration
+        delete bound.toolProgress
+        options.autonomousTurns?.onRealTurnEnd?.(sessionId)
+      }
+    },
+    endSyntheticTurn(sessionId, messageId) {
+      const acpSessionId = acpByOurSession.get(sessionId)
+      const bound = acpSessionId ? byAcpSession.get(acpSessionId) : undefined
+      if (bound && bound.messageId === messageId) {
+        delete bound.messageId
         delete bound.toolProgress
       }
     },

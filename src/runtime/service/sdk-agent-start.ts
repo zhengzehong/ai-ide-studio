@@ -1,6 +1,6 @@
 import type { RuntimeStateSnapshot } from '../../ports/runtime-port.js'
 import type { ResourceGovernor } from '../resources/resource-governor.js'
-import { createAcpRuntimeClient } from './acp-runtime-client.js'
+import { createAcpRuntimeClient, type AcpAutonomousTurnBridge } from './acp-runtime-client.js'
 import type { StartManagedAcpAgentInput } from './managed-acp-agent.js'
 import type {
   SdkAgentRuntime,
@@ -14,6 +14,7 @@ export async function createSdkAgentRuntime(input: {
   resources: ResourceGovernor
   sessions: Map<string, SdkSessionRuntime>
   options: SdkRuntimeHostOptions
+  autonomousTurns?: AcpAutonomousTurnBridge
   startAgent: (input: StartManagedAcpAgentInput) => Promise<{
     process: SdkAgentRuntime['process']
     connection: SdkAgentRuntime['connection']
@@ -32,6 +33,7 @@ export async function createSdkAgentRuntime(input: {
     },
     publishCapabilities: (sessionId, capabilities) => input.options.publishCapabilities?.(sessionId, capabilities),
     acceptTurnUpdate: input.acceptTurnUpdate,
+    ...(input.autonomousTurns ? { autonomousTurns: input.autonomousTurns } : {}),
   })
   const command = snapshot.runtime.command
   if (!command) {
