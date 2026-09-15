@@ -18,6 +18,12 @@ export interface SessionDockItem {
   lastActivityAt: string
   sortOrder: number | null
   addedAt: string | null
+  /** 团队线身份（服务端反查 master session 下发，普通会话为 null/缺省）：坞里按团队条目展示。 */
+  teamId?: string | null
+  teamName?: string | null
+  teamConversationId?: string | null
+  teamConversationTitle?: string | null
+  teamConversationStatus?: string | null
 }
 
 interface SessionDockStore {

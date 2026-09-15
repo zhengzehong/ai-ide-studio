@@ -114,6 +114,22 @@ function withConversationActivity(
   }))
 }
 
+/**
+ * 深链反查：session → 会话线（仅 master session 命中）。
+ * 供"坞里点团队线 / 带 sessionId 的链接"显式映射进团队线视图用；不是"自动选中"语义——
+ * 只解析调用方明确给出的 session，绝不替用户挑线。
+ */
+export function findTeamConversationByMasterSession(
+  sessionId: string,
+  isPromptActive: (sessionId: string) => boolean = () => false,
+): TeamConversationListItem | null {
+  const row = teamConversationStore.getBySession(sessionId)
+  if (!row || row.master_session_id !== sessionId || row.status !== 'active') return null
+  const team = teamStore.get(row.team_id)
+  if (!team || team.status !== 'active') return null
+  return withConversationActivity(row.team_id, [row], isPromptActive)[0] ?? null
+}
+
 export function createTeamConversation(teamId: string, title?: string): TeamConversationDetail {
   const team = requireTeam(teamId)
   const members = teamMemberStore.list(team.id)
@@ -170,6 +186,7 @@ export function deleteTeamConversation(conversationId: string): TeamConversation
 
 export const teamConversationService = {
   listConversations: listTeamConversations,
+  conversationByMasterSession: findTeamConversationByMasterSession,
   createConversation: createTeamConversation,
   conversationDetail: getTeamConversation,
   renameConversation: renameTeamConversation,

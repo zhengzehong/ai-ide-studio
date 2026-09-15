@@ -1,5 +1,50 @@
 import { describe, expect, it } from 'vitest'
-import { isTeamConversationRunning, resolveTeamConversationIndicators, teamConversationListNeedsRefresh } from '../../ui/src/components/team/team-conversation-state'
+import { isTeamConversationRunning, resolveTeamConversationIndicators, resolveTeamLineTarget, sortTeamConversations, teamConversationListNeedsRefresh } from '../../ui/src/components/team/team-conversation-state'
+
+describe('deep link session→line target', () => {
+  const line = { id: 'tc1', team_id: 't1', status: 'active' }
+
+  it('selects an active line whose team is loaded', () => {
+    expect(resolveTeamLineTarget(line, new Set(['t1']), false)).toEqual({ kind: 'select', line })
+  })
+
+  it('never consumes an archived line: it falls back to the plain Session view', () => {
+    expect(resolveTeamLineTarget({ ...line, status: 'archived' }, new Set(['t1']), false)).toEqual({ kind: 'fallback' })
+    expect(resolveTeamLineTarget({ ...line, status: undefined }, new Set(['t1']), false)).toEqual({ kind: 'fallback' })
+    expect(resolveTeamLineTarget(null, new Set(['t1']), false)).toEqual({ kind: 'fallback' })
+  })
+
+  it('waits while the team list is still loading instead of falling back early', () => {
+    expect(resolveTeamLineTarget(line, new Set(), true)).toEqual({ kind: 'wait' })
+  })
+
+  it('falls back when the team list finished loading without this team (archived team)', () => {
+    expect(resolveTeamLineTarget(line, new Set(), false)).toEqual({ kind: 'fallback' })
+  })
+})
+
+describe('team conversation pinned-first ordering', () => {
+  const lines = [
+    { id: 'c1', master_session_id: 'm1' },
+    { id: 'c2', master_session_id: 'm2' },
+    { id: 'c3', master_session_id: 'm3' },
+  ]
+
+  it('keeps the server order untouched when nothing is pinned', () => {
+    expect(sortTeamConversations(lines, new Set())).toEqual(lines)
+  })
+
+  it('moves pinned lines to the front and keeps the rest in updated_at order', () => {
+    expect(sortTeamConversations(lines, new Set(['m3'])).map(line => line.id)).toEqual(['c3', 'c1', 'c2'])
+    expect(sortTeamConversations(lines, new Set(['m2', 'm3'])).map(line => line.id)).toEqual(['c2', 'c3', 'c1'])
+  })
+
+  it('does not mutate the incoming rows and tolerates a missing pinned line', () => {
+    const source = [...lines]
+    expect(sortTeamConversations(source, new Set(['m-other'])).map(line => line.id)).toEqual(['c1', 'c2', 'c3'])
+    expect(source).toEqual(lines)
+  })
+})
 
 describe('team conversation running indicator', () => {
   it('does not reload the conversation list for mailbox or task progress', () => {

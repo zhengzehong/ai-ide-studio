@@ -5,6 +5,7 @@ import { useSessionDockStore } from '../../stores/session-dock.store'
 import { agentAvatar, agentColor } from '../../pages/workspace/helpers'
 import { ICON_MAP } from '../agent-square/constants'
 import { SessionDockDrawer } from '../session-dock/SessionDockDrawer'
+import { useProjectedSessionDockItems } from '../session-dock/session-dock-team'
 import '../session-dock/session-dock.css'
 
 const GlobalAssistantDrawer = lazy(() => import('./GlobalAssistantDrawer').then((module) => ({
@@ -22,7 +23,8 @@ export function GlobalAssistantRail() {
   const closeDrawer = useGlobalAssistantStore((state) => state.closeDrawer)
   const setupListeners = useGlobalAssistantStore((state) => state.setupListeners)
   const dockOpen = useSessionDockStore((state) => state.open)
-  const dockItems = useSessionDockStore((state) => state.items)
+  // 计数与坞抽屉同口径：团队线按线级运行/未读计入。
+  const dockItems = useProjectedSessionDockItems()
   const loadDock = useSessionDockStore((state) => state.load)
   const openDock = useSessionDockStore((state) => state.openDrawer)
   const closeDock = useSessionDockStore((state) => state.closeDrawer)

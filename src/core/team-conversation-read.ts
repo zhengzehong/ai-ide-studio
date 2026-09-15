@@ -15,7 +15,8 @@ export function markTeamConversationUnread(conversationId: string): { sessionId:
   if (sessions.some(session => !Number.isFinite(Date.parse(session.last_message_at!)))) throw new Error('会话最后消息时间无效')
   const result = sessions.map(session => {
     const lastReadAt = sessionStore.markUnread(session.id)
-    events.emit('session:changed', { sessionId: session.id, data: { last_read_at: lastReadAt } })
+    // 与普通会话 session.markUnread 同口径：带 event 标记，客户端才能把它当"手动未读"记账（读栅栏/未读优先）。
+    events.emit('session:changed', { sessionId: session.id, data: { event: 'marked_unread', last_read_at: lastReadAt } })
     return { sessionId: session.id, lastReadAt }
   })
   log.info({ conversationId, count: result.length }, 'Team conversation marked unread')

@@ -31,6 +31,12 @@ export interface GlobalSessionDockSummaryRow {
   latest_done_event_at: string | null
   has_running_agent_message: number
   has_running_process_item: number
+  /** 团队会话线身份（普通会话为 null）：坞里按团队条目展示、点击进团队线视图的依据。 */
+  team_id: string | null
+  team_name: string | null
+  team_conversation_id: string | null
+  team_conversation_title: string | null
+  team_conversation_status: string | null
 }
 
 export const globalSessionDockStore = {
@@ -186,9 +192,22 @@ function summarySelect(dockJoin: string): string {
         SELECT 1 FROM turn_process_items process_item
         WHERE process_item.session_id = s.id
           AND process_item.status IN ('running', 'pending', 'in_progress')
-      ) AS has_running_process_item
+      ) AS has_running_process_item,
+      tc.id AS team_conversation_id,
+      tc.team_id AS team_id,
+      tc.title AS team_conversation_title,
+      tc.status AS team_conversation_status,
+      t.name AS team_name
     FROM sessions s
     ${dockJoin}
+    -- 团队线身份反查：master session 命中即视为团队条目（一条线一个 master，取最近更新的做防御性去重）。
+    LEFT JOIN team_conversations tc ON tc.id = (
+      SELECT tc2.id FROM team_conversations tc2
+      WHERE tc2.master_session_id = s.id AND tc2.status != 'deleted'
+      ORDER BY tc2.updated_at DESC
+      LIMIT 1
+    )
+    LEFT JOIN teams t ON t.id = tc.team_id
     JOIN agents a ON a.id = s.agent_id
     JOIN projects p ON p.id = s.project_id
   `

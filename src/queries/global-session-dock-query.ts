@@ -50,6 +50,11 @@ function mapRows(
       lastActivityAt: row.last_message_at ?? completedAt ?? row.updated_at ?? row.started_at,
       sortOrder: row.sort_order,
       addedAt: row.added_at,
+      teamId: row.team_id,
+      teamName: row.team_name,
+      teamConversationId: row.team_conversation_id,
+      teamConversationTitle: row.team_conversation_title,
+      teamConversationStatus: row.team_conversation_status,
     }
   })
 }

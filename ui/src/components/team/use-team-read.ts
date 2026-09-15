@@ -7,6 +7,8 @@ export function useTeamRead(conversationId: string | undefined, snapshots: Recor
   const control = useRef(new TeamReadControl())
   const latest = useRef(snapshots)
   useEffect(() => { latest.current = snapshots }, [snapshots])
+  // 换线（或卸载）时复位手动未读的暂停位：pause 属于"某条线的一次操作"，不是组件终身状态。
+  useEffect(() => () => { control.current.reset() }, [conversationId])
   useEffect(() => {
     if (!conversationId) return
     const acknowledged = new Map<string, string>()

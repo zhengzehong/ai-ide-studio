@@ -298,6 +298,12 @@ export interface SessionDockItemData {
   lastActivityAt: string
   sortOrder: number | null
   addedAt: string | null
+  /** 团队会话线身份：master session 命中一条团队线时下发，客户端据此渲染团队条目（普通会话为 null/缺省）。 */
+  teamId?: string | null
+  teamName?: string | null
+  teamConversationId?: string | null
+  teamConversationTitle?: string | null
+  teamConversationStatus?: string | null
 }
 export interface SessionsListMsg extends ClientMessage {
   type: 'sessions.list'
