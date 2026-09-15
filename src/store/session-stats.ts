@@ -52,10 +52,12 @@ export const projectSessionStatsStore = {
         AND ${userVisibleSessionSql()}
         AND s.status = 'active'
         -- Team grids are represented once by their team, not by individual Sessions.
+        -- 只排除仍然在线的成员格子（left_at IS NULL）：已退出会话线的成员 session 回归普通池，
+        -- 避免"团队网格与普通计数两边都不算"的黑洞（与 team-activity.ts 的 grid 定义保持一致）。
         AND NOT EXISTS (
           SELECT 1
           FROM team_conversation_members tcm
-          WHERE tcm.session_id = s.id
+          WHERE tcm.session_id = s.id AND tcm.left_at IS NULL
         )
         AND NOT EXISTS (SELECT 1 FROM team_conversations tc WHERE tc.master_session_id = s.id)
         AND NOT EXISTS (
@@ -98,9 +100,11 @@ export const projectSessionStatsStore = {
       const stats = statsByProject.get(team.projectId)
       if (!stats) continue
       stats.teams.push(team)
-      stats.sessionCount++
-      if (team.running) stats.runningCount++
-      else if (team.unread) stats.unreadCount++
+      // 团队按会话线条数计入（对齐"团队条目按会话算"）：总数含归档线，在跑/未读只算未归档线。
+      // ?? 回退保旧行为（纯增字段前的服务端数据/旧调用方）。
+      stats.sessionCount += team.total ?? 1
+      stats.runningCount += team.runningCount ?? (team.running ? 1 : 0)
+      stats.unreadCount += team.unreadCount ?? (team.unread ? 1 : 0)
     }
     return [...statsByProject.values()]
   },

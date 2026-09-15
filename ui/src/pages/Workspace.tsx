@@ -91,6 +91,7 @@ import { TeamContextPanel } from '../components/team/TeamContextPanel'
 import { CreateTeamDialog } from '../components/team/CreateTeamDialog'
 import { TeamConversationList } from '../components/team/TeamConversationList'
 import { TeamActivityBadge } from '../components/team/TeamActivityBadge'
+import { ActivityCountBadge } from '../components/session/ActivityCountBadge'
 import { useProjectSessionStatsStore } from '../stores/project-session-stats.store'
 import { teamCacheKey, teamSelectionCache } from '../components/team/team-view-cache'
 import { TeamChatPane } from '../components/team/TeamChatPane'
@@ -1331,56 +1332,7 @@ export default function Workspace() {
                     >
                       {agent.name}
                     </span>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
-                      {stats.running > 0 && (
-                        <span
-                          title="运行中会话"
-                          style={{
-                            fontSize: 11,
-                            fontWeight: 600,
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: 3,
-                            color: 'var(--green)',
-                          }}
-                        >
-                          <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--green)', flexShrink: 0 }} />
-                          {stats.running}
-                        </span>
-                      )}
-                      {stats.unread > 0 && (
-                        <span
-                          title="未读会话"
-                          style={{
-                            fontSize: 11,
-                            fontWeight: 600,
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: 3,
-                            color: 'var(--yellow)',
-                          }}
-                        >
-                          <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--yellow)', flexShrink: 0 }} />
-                          {stats.unread}
-                        </span>
-                      )}
-                      {stats.running === 0 && stats.unread === 0 && stats.total > 0 && (
-                        <span
-                          title="会话总数"
-                          style={{
-                            fontSize: 11,
-                            fontWeight: 500,
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: 3,
-                            color: 'var(--text-3)',
-                          }}
-                        >
-                          <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--text-3)', opacity: 0.5, flexShrink: 0 }} />
-                          {stats.total}
-                        </span>
-                      )}
-                    </div>
+                    <ActivityCountBadge running={stats.running} unread={stats.unread} total={stats.total} />
                   </button>
                 </div>
                 )
