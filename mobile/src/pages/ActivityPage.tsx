@@ -11,6 +11,10 @@ import {
 } from '../stores/activity.store'
 import { useAppStore } from '../stores/app.store'
 import { useSessionStore } from '../stores/session.store'
+import { useMobileProjectSessionStatsStore } from '../stores/project-session-stats.store'
+import { resolveTeamActivityCounts } from '@desktop/utils/team-activity-counts'
+import type { MobileConversationCatalog } from '../../../src/shared/mobile-conversations'
+import type { ProjectSessionStatsData } from '../../../src/types/ws-protocol'
 import { AgentAvatar, ListRow, ProjectChip, formatRelativeTime, groupStyles } from '../components/session-list/list-kit'
 
 interface ActivityProjectSyncDeps {
@@ -43,6 +47,7 @@ export function ActivityPage() {
   const setCurrentProject = useAppStore((state) => state.setCurrentProject)
   const fetchAgents = useAppStore((state) => state.fetchAgents)
   const fetchSessions = useSessionStore((state) => state.fetchSessions)
+  const statsByProjectId = useMobileProjectSessionStatsStore((state) => state.statsByProjectId)
   const sessionCount = groups.reduce((total, group) => total + group.sessions.length, 0)
 
   useEffect(() => {
@@ -86,15 +91,28 @@ export function ActivityPage() {
             <span>运行中或有新回复的会话会显示在这里</span>
           </div>
         ) : groups.map((group) => (
-          <ActivityGroup key={group.groupId} group={group} onOpen={openSession} />
+          <ActivityGroup
+            key={group.groupId}
+            group={group}
+            onOpen={openSession}
+            teamTotal={resolveTeamLineTotal(group.teamId, group.projectId ? statsByProjectId[group.projectId] : undefined, catalog)}
+          />
         ))}
       </main>
     </div>
   )
 }
 
-export function ActivityGroup({ group, onOpen }: { group: MobileActivityGroup; onOpen: (group: MobileActivityGroup, session: MobileActivitySession) => void }) {
+export function ActivityGroup({ group, onOpen, teamTotal }: { group: MobileActivityGroup; onOpen: (group: MobileActivityGroup, session: MobileActivitySession) => void; teamTotal?: number }) {
   const project = useAppStore((state) => state.projects.find((p) => p.id === group.projectId))
+  // 团队组头对齐 PC 徽标口径：组内 sessions 只含"运行中/未读"的线，直接取 length 会把它当总数。
+  const groupSummary = group.teamId
+    ? teamGroupSummary(
+      group.sessions.filter((session) => session.running).length,
+      group.sessions.filter((session) => !session.running && session.unread).length,
+      teamTotal ?? group.sessions.length,
+    )
+    : `${group.sessions.length} 个会话`
 
   return (
     <section className="group-block" style={groupStyles.group} data-agent-id={group.agentId}>
@@ -102,7 +120,7 @@ export function ActivityGroup({ group, onOpen }: { group: MobileActivityGroup; o
         <AgentAvatar agentId={group.agentId} name={group.agentName} />
         <div style={groupStyles.info}>
           <div style={groupStyles.name}>{group.agentName}<ConversationKindTag team={!!group.teamId} /></div>
-          <div style={groupStyles.sub}>{group.sessions.length} 个会话</div>
+          <div style={groupStyles.sub}>{groupSummary}</div>
         </div>
         <ProjectChip
           name={project?.name ?? group.projectName ?? '未归属项目'}
@@ -128,6 +146,30 @@ export function ActivityGroup({ group, onOpen }: { group: MobileActivityGroup; o
       })}
     </section>
   )
+}
+
+/** 团队组头：在跑线数 / 未读线数 / 全量线数（与 PC 团队条目徽标同一口径；组内 sessions 只是活跃线）。 */
+export function teamGroupSummary(runningCount: number, unreadCount: number, total: number): string {
+  const parts: string[] = []
+  if (runningCount > 0) parts.push(`运行中 ${runningCount}`)
+  if (unreadCount > 0) parts.push(`未读 ${unreadCount}`)
+  parts.push(`共 ${total} 条会话`)
+  return parts.join(' · ')
+}
+
+/**
+ * 团队全量线数：优先取服务端项目统计里的团队计数（与 PC 徽标同源，含已归档线与格子已全关的线）；
+ * 统计未到达时回退移动端会话目录的活跃线数。非团队分组返回 undefined（组头仍走"N 个会话"）。
+ */
+export function resolveTeamLineTotal(
+  teamId: string | undefined,
+  stats: ProjectSessionStatsData | undefined,
+  catalog: MobileConversationCatalog,
+): number | undefined {
+  if (!teamId) return undefined
+  const summary = stats?.teams?.find((team) => team.teamId === teamId)
+  if (summary) return resolveTeamActivityCounts(summary).total
+  return catalog.conversations.filter((item) => item.teamId === teamId).length
 }
 
 const styles: Record<string, CSSProperties> = {

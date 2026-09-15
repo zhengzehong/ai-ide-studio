@@ -4,7 +4,7 @@ import { ContextMenu, PromptDialog, ConfirmDialog } from '../ModalDialog'
 import { wsClient } from '../../services/ws-client'
 import type { TeamData } from '../../stores/team.store'
 import type { SessionIndicatorStateMap } from '../../utils/session-indicators'
-import { isTeamConversationRunning, teamConversationListNeedsRefresh } from './team-conversation-state'
+import { resolveTeamConversationIndicators, teamConversationListNeedsRefresh } from './team-conversation-state'
 import { formatTime } from '../../pages/workspace/helpers'
 import { SessionListRow } from '../session/SessionListRow'
 import { useProjectSessionStatsStore } from '../../stores/project-session-stats.store'
@@ -95,7 +95,8 @@ export function TeamConversationList({ team, activeId, onSelect, onMasterSession
     if (items.length === 0 || (activeId !== null && items.some(item => item.id === activeId))) return
     const remembered = teamSelectionCache.get(cacheKey)
     const best = items.find(item => item.id === remembered?.id)
-      ?? items.find((item) => isTeamConversationRunning(item, runningSessionIds, sessionActivityStates))
+      // 归档线不参与自动选中：join 放宽后归档线也会拿到真实 activity，避免一进团队就被带到已归档线。
+      ?? items.find((item) => resolveTeamConversationIndicators(item, undefined, runningSessionIds, sessionActivityStates).running)
       ?? [...items].sort((a, b) => Number(b.status === 'active') - Number(a.status === 'active') || b.updated_at.localeCompare(a.updated_at))[0]
     if (!best) return
     teamSelectionCache.set(cacheKey, best)
@@ -169,8 +170,8 @@ export function TeamConversationList({ team, activeId, onSelect, onMasterSession
         {!loading && !error && items.length === 0 && <div style={stateStyle}>暂无会话<br /><span style={{ fontSize: 12 }}>点击上方加号新建</span></div>}
         {items.map((item) => {
           const activity = summary?.conversations.find(entry => entry.conversationId === item.id)
-          const running = activity?.running ?? isTeamConversationRunning(item, runningSessionIds, sessionActivityStates)
-          const unread = activity?.unread ?? item.unread ?? false
+          // 绿点/未读点走公共判定：已归档线不参与（对齐徽标"总数含归档、在跑/未读不含归档"口径）。
+          const { running, unread } = resolveTeamConversationIndicators(item, activity, runningSessionIds, sessionActivityStates)
           return (
             <SessionListRow
               key={item.id}

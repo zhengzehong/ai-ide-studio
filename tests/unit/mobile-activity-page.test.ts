@@ -2,9 +2,11 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
-import { ActivityGroup, syncActivityProject } from '../../mobile/src/pages/ActivityPage'
+import { ActivityGroup, resolveTeamLineTotal, syncActivityProject, teamGroupSummary } from '../../mobile/src/pages/ActivityPage'
 import { ProjectChip } from '../../mobile/src/components/session-list/list-kit'
 import { useMobileActivityStore, type MobileActivityGroup } from '../../mobile/src/stores/activity.store'
+import type { MobileConversationCatalog } from '../../src/shared/mobile-conversations'
+import type { ProjectSessionStatsData } from '../../src/types/ws-protocol'
 
 beforeEach(() => {
   useMobileActivityStore.setState({
@@ -174,5 +176,82 @@ describe('mobile activity page', () => {
 
     expect(html).toContain('未归属项目')
     expect(html).toContain('var(--primary-bg)')
+  })
+
+  test('团队组头显示在跑/未读/全量线数，不再把活跃线数当总数', () => {
+    const teamGroup: MobileActivityGroup = {
+      groupId: 'team-1',
+      teamId: 'team-1',
+      agentId: 'team-1',
+      agentName: '双人开发团队',
+      agentIcon: null,
+      projectId: 'project-1',
+      projectName: null,
+      activityAt: '2026-08-26T08:02:00.000Z',
+      sessions: [
+        { sessionId: 'session-running', taskId: null, taskTitle: null, taskStatus: null, sessionTitle: '线1', status: 'active', stage: '', running: true, unread: false, attentionState: 'running', activityAt: '2026-08-26T08:02:00.000Z' },
+        { sessionId: 'session-unread', taskId: null, taskTitle: null, taskStatus: null, sessionTitle: '线2', status: 'active', stage: '', running: false, unread: true, attentionState: 'unread', activityAt: '2026-08-26T08:01:00.000Z' },
+      ],
+    }
+
+    const html = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(ActivityGroup, {
+      group: teamGroup,
+      onOpen: () => undefined,
+      teamTotal: 3,
+    })))
+
+    // 组内 sessions 只含活跃线（2 条），全量线数是 3 —— 组头必须体现后者
+    expect(html).toContain('运行中 1')
+    expect(html).toContain('未读 1')
+    expect(html).toContain('共 3 条会话')
+    expect(html).not.toContain('共 2 条会话')
+  })
+
+  test('普通分组组头仍是活跃会话数，不显示团队计数', () => {
+    const html = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(ActivityGroup, {
+      group: useMobileActivityStore.getState().groups[0]!,
+      onOpen: () => undefined,
+      teamTotal: 3,
+    })))
+
+    expect(html).toContain('1 个会话')
+    expect(html).not.toContain('共 3 条会话')
+  })
+
+  test('团队成员组头文案由 teamGroupSummary 生成（普通组不受影响）', () => {
+    expect(teamGroupSummary(2, 1, 5)).toBe('运行中 2 · 未读 1 · 共 5 条会话')
+    expect(teamGroupSummary(0, 0, 4)).toBe('共 4 条会话')
+    expect(teamGroupSummary(1, 0, 1)).toBe('运行中 1 · 共 1 条会话')
+  })
+
+  test('团队全量线数优先取服务端统计，缺失时回退移动端目录活跃线', () => {
+    const catalog = {
+      teams: [{ id: 'team-1', name: '双人开发团队', projectId: 'project-1' }],
+      conversations: [
+        { id: 'c1', teamId: 'team-1', projectId: 'project-1', masterSessionId: 's1', title: '线1', status: 'active', running: true, unread: false, lastMessageAt: null, createdAt: '', sessionIds: ['s1'] },
+        { id: 'c2', teamId: 'team-1', projectId: 'project-1', masterSessionId: 's2', title: '线2', status: 'active', running: false, unread: true, lastMessageAt: null, createdAt: '', sessionIds: ['s2'] },
+      ],
+      hiddenAgentIds: [],
+      hiddenSessionIds: [],
+    }
+    const stats = {
+      projectId: 'project-1',
+      sessionCount: 0,
+      runningCount: 0,
+      unreadCount: 0,
+      teams: [{
+        teamId: 'team-1', projectId: 'project-1', running: true, unread: true,
+        runningCount: 1, unreadCount: 1, total: 5, conversations: [],
+      }],
+    }
+
+    // 新服务端：直接给线数（含已归档线），移动端目录只看得见 2 条活跃线
+    expect(resolveTeamLineTotal('team-1', stats, catalog)).toBe(5)
+    // 旧服务端：无计数时回退 conversations 长度（此处 1 条活跃线）
+    expect(resolveTeamLineTotal('team-1', { ...stats, teams: [{ teamId: 'team-1', projectId: 'project-1', running: true, unread: false, conversations: [{ conversationId: 'c1', running: true, unread: false, lastMessageAt: null, sessionIds: ['s1'] }] }] }, catalog)).toBe(1)
+    // 统计未到达：回退移动端目录活跃线数
+    expect(resolveTeamLineTotal('team-1', undefined, catalog)).toBe(2)
+    // 非团队分组不参与
+    expect(resolveTeamLineTotal(undefined, stats, catalog)).toBeUndefined()
   })
 })

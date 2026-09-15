@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isTeamConversationRunning, teamConversationListNeedsRefresh } from '../../ui/src/components/team/team-conversation-state'
+import { isTeamConversationRunning, resolveTeamConversationIndicators, teamConversationListNeedsRefresh } from '../../ui/src/components/team/team-conversation-state'
 
 describe('team conversation running indicator', () => {
   it('does not reload the conversation list for mailbox or task progress', () => {
@@ -43,5 +43,26 @@ describe('team conversation running indicator', () => {
 
   it('keeps the persisted activity_state as the baseline over idle grids', () => {
     expect(isTeamConversationRunning({ ...conversation, activity_state: 'running', grid_session_ids: ['grid-1'] }, {})).toBe(true)
+  })
+})
+
+describe('team conversation line indicators', () => {
+  const active = { master_session_id: 'master-1', status: 'active', activity_state: 'running' as const, unread: true }
+
+  it('prefers the server activity snapshot over live signals', () => {
+    expect(resolveTeamConversationIndicators(active, { running: false, unread: true }, {})).toEqual({ running: false, unread: true })
+    expect(resolveTeamConversationIndicators(active, { running: true, unread: false }, {})).toEqual({ running: true, unread: false })
+  })
+
+  it('falls back to live signals and the line own unread flag', () => {
+    expect(resolveTeamConversationIndicators({ master_session_id: 'master-1', status: 'active' }, undefined, { 'master-1': true })).toEqual({ running: true, unread: false })
+    expect(resolveTeamConversationIndicators({ master_session_id: 'master-1', status: 'active', unread: true }, undefined, {})).toEqual({ running: false, unread: true })
+  })
+
+  it('never lights an archived line even when activity still reports it running', () => {
+    // 归档瞬间服务端快照可能还没更新；归档线必须立即灭绿、去未读（总数仍含这条线）。
+    expect(resolveTeamConversationIndicators({ ...active, status: 'archived' }, { running: true, unread: true }, { 'master-1': true })).toEqual({ running: false, unread: false })
+    expect(resolveTeamConversationIndicators({ ...active, status: 'deleted' }, undefined, { 'master-1': true })).toEqual({ running: false, unread: false })
+    expect(resolveTeamConversationIndicators({ master_session_id: 'master-1', status: 'active' }, { running: true, unread: false }, {})).toEqual({ running: true, unread: false })
   })
 })

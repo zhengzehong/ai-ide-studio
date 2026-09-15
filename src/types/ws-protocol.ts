@@ -1,3 +1,5 @@
+import type { TeamActivitySummary } from '../shared/team-activity.js'
+
 export type AgentStatus = 'running' | 'idle' | 'standby' | 'sleeping' | 'error'
 export type AgentRuntime = 'mock' | 'claude' | 'codex'
 export type SessionStatus = 'active' | 'idle' | 'closed'
@@ -310,6 +312,8 @@ export interface ProjectSessionStatsData {
   sessionCount: number
   runningCount: number
   unreadCount: number
+  /** 团队活跃摘要（服务端一直随快照下发；此前漏声明，补上防误判为未发送）。 */
+  teams?: TeamActivitySummary[]
 }
 export interface ProjectSessionStatsSnapshotData {
   generatedAt: string
