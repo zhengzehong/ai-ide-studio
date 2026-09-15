@@ -15,10 +15,15 @@ export type ApiToParentMessage =
   | { type: 'stopped' }
   | { type: 'fatal'; message: string }
 
-const APP_CONFIG_KEYS = new Set([
+// AppConfig 的运行时白名单(Edge 握手 start 消息校验用,见 api-entry.ts)。
+// 它是 AppConfig 接口的手工副本:历史上两次因新增字段漏同步,子进程静默拒收 start 消息,
+// 60s readiness timeout 且报错不指向根因。下方编译期守卫保证:接口增删字段而未同步本列表时 tsc 直接报错。
+const APP_CONFIG_KEY_LIST = [
   'host', 'port', 'dataDir', 'runtime', 'dataWorkerMode', 'dataWorkerSlowMs',
   'dataMaintenanceIntervalMs', 'dataWalCheckpointBytes', 'dataPublishedOutboxRetentionMs',
+  'dataBatchCommitRetentionMs',
   'dataRetentionMode',
+  'modelCaptureProxyPort',
   'edgeMode', 'edgeRealtimePath', 'realtimeMode', 'realtimeHost', 'realtimePort',
   'realtimeLegacyRpc', 'realtimeMaxQueueMessages', 'realtimeMaxQueueBytes',
   'realtimeMaxBufferedBytes', 'realtimeIpcMaxFrameBytes', 'runtimeMode',
@@ -26,7 +31,18 @@ const APP_CONFIG_KEYS = new Set([
   'runtimeSessionIdleMs', 'runtimeAgentIdleMs', 'staticDir', 'mobileStaticDir',
   'localToken', 'anthropicApiKey', 'openaiApiKey', 'googleApiKey',
   'bridgeCallbackToken', 'bridgeServerUrl', 'funAsrWsUrl',
-])
+] as const satisfies readonly (keyof AppConfig)[]
+
+type MissingAppConfigKeys = Exclude<keyof AppConfig, (typeof APP_CONFIG_KEY_LIST)[number]>
+const _appConfigKeysCovered: MissingAppConfigKeys extends never
+  ? true
+  : ['APP_CONFIG_KEYS 缺少字段:', MissingAppConfigKeys] = true
+void _appConfigKeysCovered
+
+const APP_CONFIG_KEYS: ReadonlySet<string> = new Set(APP_CONFIG_KEY_LIST)
+
+// 分型列表同样收紧到 AppConfig 的 key,防止拼错 key 导致该字段静默跳过类型校验。
+type AppConfigKeyList = readonly (keyof AppConfig)[]
 
 export function isParentToApiMessage(value: unknown): value is ParentToApiMessage {
   if (!isRecord(value) || typeof value.type !== 'string') return false
@@ -85,15 +101,16 @@ function isAppConfig(value: unknown): value is AppConfig {
       'edgeRealtimePath', 'realtimeHost', 'staticDir', 'mobileStaticDir', 'localToken',
       'anthropicApiKey', 'openaiApiKey', 'googleApiKey', 'bridgeCallbackToken', 'bridgeServerUrl',
       'funAsrWsUrl',
-    ])
-    && optionalBooleans(value, ['realtimeLegacyRpc'])
+    ] as const satisfies AppConfigKeyList)
+    && optionalBooleans(value, ['realtimeLegacyRpc'] as const satisfies AppConfigKeyList)
     && optionalNumbers(value, [
       'dataWorkerSlowMs', 'dataMaintenanceIntervalMs', 'dataWalCheckpointBytes',
-      'dataPublishedOutboxRetentionMs', 'realtimePort', 'realtimeMaxQueueMessages',
+      'dataPublishedOutboxRetentionMs', 'dataBatchCommitRetentionMs', 'modelCaptureProxyPort',
+      'realtimePort', 'realtimeMaxQueueMessages',
       'realtimeMaxQueueBytes', 'realtimeMaxBufferedBytes', 'realtimeIpcMaxFrameBytes',
       'runtimeIpcMaxFrameBytes', 'runtimeRestartDelayMs', 'runtimeIdleSweepMs',
       'runtimeSessionIdleMs', 'runtimeAgentIdleMs',
-    ])
+    ] as const satisfies AppConfigKeyList)
 }
 
 function isLoopbackEndpoint(value: unknown, protocol: 'http:' | 'ws:'): boolean {

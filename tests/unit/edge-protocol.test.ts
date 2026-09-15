@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { loadConfig } from '../../src/core/config.js'
 import {
   isApiToParentMessage,
   isParentToApiMessage,
@@ -68,5 +69,21 @@ describe('Edge API process protocol', () => {
     expect(isApiToParentMessage({ type: 'realtime.changed', realtimeUrl: 'ws://example.com:18901' })).toBe(false)
     expect(isApiToParentMessage({ type: 'fatal', message: '' })).toBe(false)
     expect(isApiToParentMessage({ type: 'hello', extra: true })).toBe(false)
+  })
+
+  it('accepts a start message built from the real loadConfig output', () => {
+    // 回归:AppConfig 新增字段必须同步 APP_CONFIG_KEYS 白名单,否则 Edge 握手
+    // 的 start 消息会在子进程侧被静默丢弃,启动卡 60s 后 readiness timeout。
+    const config = loadConfig()
+    const internalConfig = {
+      ...config,
+      host: '127.0.0.1',
+      port: 0,
+      edgeMode: 'internal',
+      edgeRealtimePath: config.edgeRealtimePath ?? '/realtime',
+      realtimeHost: '127.0.0.1',
+      realtimePort: 0,
+    } as const
+    expect(isParentToApiMessage({ type: 'start', config: internalConfig })).toBe(true)
   })
 })
