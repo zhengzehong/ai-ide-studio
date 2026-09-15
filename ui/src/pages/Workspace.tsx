@@ -94,6 +94,7 @@ import { TeamActivityBadge } from '../components/team/TeamActivityBadge'
 import { ActivityCountBadge } from '../components/session/ActivityCountBadge'
 import { useProjectSessionStatsStore } from '../stores/project-session-stats.store'
 import { teamCacheKey, type TeamConversation } from '../components/team/team-view-cache'
+import { resolveTeamLineTarget } from '../components/team/team-conversation-state'
 import { TeamChatPane } from '../components/team/TeamChatPane'
 import { TimelinePopover } from '../components/chat/TimelinePopover'
 import { processBlockNeedsDetail, useProcessThinkingDisclosure } from '../components/chat/process-detail'
@@ -286,6 +287,7 @@ export default function Workspace() {
   /** ?sessionId= 深链反查到的团队线（null=已确认不是团队线；未解析时为 null 状态对象）。 */
   const [teamLineTarget, setTeamLineTarget] = useState<{ sessionId: string; line: TeamConversation | null } | null>(null)
   const teamLinePendingRef = useRef<string | null>(null)
+  const teamIds = useMemo(() => new Set(teams.map((team) => team.id)), [teams])
   const [orderingMode, setOrderingMode] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [agentVisibilityOpen, setAgentVisibilityOpen] = useState(false)
@@ -619,29 +621,31 @@ export default function Workspace() {
       return
     }
     // 团队线所属团队尚未进 teams（项目切换/团队列表还在加载）时不消费深链，等下一轮再判，
-    // 否则会被"团队不存在"的兜底 effect 立刻清掉；列表已加载仍找不到（团队刚归档）则按普通会话兜底。
-    if (lookup.line) {
-      if (teams.some((team) => team.id === lookup.line!.team_id)) {
-        const line = lookup.line
-        queueMicrotask(() => {
-          if (cancelled) return
-          setSelectedTeamId(line.team_id)
-          setSelectedAgentId(null)
-          selectSession(null)
-          setTeamConversation(line)
-          setTeamMasterSessionId(line.master_session_id)
-          setSidebarTab('sessions')
-          setSearchParams((prev) => {
-            const next = new URLSearchParams(prev)
-            next.delete('sessionId')
-            next.delete('projectId')
-            next.delete('secretaryId')
-            return next
-          }, { replace: true })
-        })
-        return () => { cancelled = true }
-      }
-      if (teamsLoading) return
+    // 否则会被"团队不存在"的兜底 effect 立刻清掉；非 active（线已归档/删除或对象陈旧）
+    // 与"列表加载完仍找不到"都按普通会话兜底，不把深链卡死。
+    const decision = resolveTeamLineTarget(lookup.line, teamIds, teamsLoading)
+    if (decision.kind === 'wait') return
+    if (decision.kind === 'select') {
+      const line = decision.line
+      queueMicrotask(() => {
+        if (cancelled) return
+        // 消费即失效：陈旧的 target 绝不复用到下一次点击（线可能已被别处归档/删除）。
+        setTeamLineTarget(null)
+        setSelectedTeamId(line.team_id)
+        setSelectedAgentId(null)
+        selectSession(null)
+        setTeamConversation(line)
+        setTeamMasterSessionId(line.master_session_id)
+        setSidebarTab('sessions')
+        setSearchParams((prev) => {
+          const next = new URLSearchParams(prev)
+          next.delete('sessionId')
+          next.delete('projectId')
+          next.delete('secretaryId')
+          return next
+        }, { replace: true })
+      })
+      return () => { cancelled = true }
     }
     queueMicrotask(() => {
       if (cancelled) return
@@ -670,7 +674,7 @@ export default function Workspace() {
     setSelectedAgentId,
     setSidebarTab,
     teamLineTarget,
-    teams,
+    teamIds,
     teamsLoading,
   ])
 

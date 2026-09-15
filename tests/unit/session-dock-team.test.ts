@@ -9,10 +9,28 @@ import { sessionStore } from '../../src/store/sessions.js'
 import { teamService } from '../../src/core/teams.js'
 import { globalSessionDockStore } from '../../src/store/global-session-dock.js'
 import { listGlobalSessionDockItems } from '../../src/queries/global-session-dock-query.js'
+import { teamRpcHandlers } from '../../src/gateway/rpc/teams.js'
+import type { RpcAuthMode, RpcContext } from '../../src/gateway/rpc/types.js'
 import { projectTeamDockItems } from '../../ui/src/components/session-dock/session-dock-team'
 import type { SessionDockItem } from '../../ui/src/stores/session-dock.store'
 
 let tmp: string
+
+/** 与 tests/integration/session-dock-rpc.test.ts 同款直调：handler + 伪造 context。 */
+async function callTeamRpc(
+  type: keyof typeof teamRpcHandlers,
+  input: Record<string, unknown> = {},
+  authMode: RpcAuthMode = 'owner',
+): Promise<unknown> {
+  let result: unknown
+  await teamRpcHandlers[type]({ type, ...input }, {
+    state: { subscriptions: new Set(), authMode },
+    sendResult: (data) => { result = data },
+    sendError: (message) => { throw new Error(message) },
+    sendOutOfBandError: (message) => { throw new Error(message) },
+  } satisfies RpcContext)
+  return result
+}
 
 beforeEach(() => {
   tmp = mkdtempSync(resolve(tmpdir(), 'ai-ide-session-dock-team-'))
@@ -28,8 +46,11 @@ afterEach(() => {
 function createLine() {
   const project = projectStore.create({ name: 'P', workDir: tmp })
   const leader = agentStore.create({ name: 'Leader', type: 'architect', runtime: 'mock', projectId: project.id })
+  const worker = agentStore.create({ name: 'Worker', type: 'dev', runtime: 'mock', projectId: project.id })
   const leaderSession = sessionStore.create({ agentId: leader.id, projectId: project.id })
   const created = teamService.create({ projectId: project.id, leaderAgentId: leader.id, leaderSessionId: leaderSession.id, name: 'Alpha' })
+  // 成员要在建线前到位：建线时按成员登记格子，线内才有"master 以外的第二个格子"可做负例。
+  teamService.spawnMember({ teamId: created.team.id, agentId: worker.id, name: 'Worker' })
   const line = teamService.createConversation(created.team.id, '首线')
   const masterSessionId = line.conversation.master_session_id
   sessionStore.touch(masterSessionId, '2030-01-01T00:00:00.000Z')
@@ -67,15 +88,32 @@ describe('global Session dock team identity (server)', () => {
       team_id: fixture.teamId,
     })
     // 成员格子 session 不是线入口：深链仍走普通会话视图，避免"链接指成员却跳团队线"。
-    const memberGrid = teamService.listConversations(fixture.teamId)[0].grid_session_ids.find(id => id !== fixture.masterSessionId)
-    if (memberGrid) expect(teamService.conversationByMasterSession(memberGrid)).toBeNull()
+    // 断言 count 而非 if 包裹：格子不见了就等于负例空转，必须让测试自己失败。
+    const grids = teamService.listConversations(fixture.teamId)[0].grid_session_ids
+    const memberGrids = grids.filter(id => id !== fixture.masterSessionId)
+    expect(memberGrids).toHaveLength(1)
+    expect(teamService.conversationByMasterSession(memberGrids[0])).toBeNull()
     expect(teamService.conversationByMasterSession('missing-session')).toBeNull()
   })
 
-  test('stops resolving archived lines and archived teams', () => {
+  test('stops resolving archived lines', () => {
     const fixture = createLine()
     teamService.archiveConversation(fixture.line.id)
     expect(teamService.conversationByMasterSession(fixture.masterSessionId)).toBeNull()
+  })
+
+  test('stops resolving lines whose team was archived', () => {
+    const fixture = createLine()
+    teamService.archive(fixture.teamId)
+    expect(teamService.conversationByMasterSession(fixture.masterSessionId)).toBeNull()
+  })
+
+  test('rejects guest callers on the bySession RPC before touching team data', async () => {
+    const fixture = createLine()
+    await expect(callTeamRpc('team.conversation.bySession', { sessionId: fixture.masterSessionId }, 'guest'))
+      .rejects.toThrow('访客无权')
+    expect(await callTeamRpc('team.conversation.bySession', { sessionId: fixture.masterSessionId }))
+      .toMatchObject({ id: fixture.line.id, team_id: fixture.teamId })
   })
 })
 

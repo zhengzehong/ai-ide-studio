@@ -88,6 +88,15 @@ try {
   if (order[0] !== '次线') throw new Error(`置顶线应排最前，实际顺序 ${order.join('>')}（置顶前 ${before.join('>')}）`)
   await screenshot('05-pinned-first.png')
 
+  // ⑤b 标未读失败 → 留在线内 + 报错，不退出（对齐 TeamChatPane.tsx:142-144 失败语义）
+  await page.locator('#btn-fail-unread').click()
+  await page.getByRole('button', { name: '标记未读' }).click()
+  await expectState('line=tc-2 master=m2', '标未读失败应留在线内不退出')
+  const failureText = await page.locator('[role="alert"]').textContent()
+  if (!failureText.includes('模拟标未读失败')) throw new Error(`标未读失败应展示错误文案，实际 ${failureText}`)
+  await screenshot('05b-mark-unread-failed.png')
+  await page.locator('#btn-fail-unread').click()
+
   if (errors.length) throw new Error(`页面报错：${errors[0]}`)
 
   // ⑥ 新建线仍显式选中新线（唯一保留的"替用户选线"路径）
@@ -102,6 +111,9 @@ try {
   await page.getByText('归档', { exact: true }).click()
   await page.getByRole('button', { name: '归档' }).click()
   await expectState('line=tc-new-3 master=m-new-3', '归档当前线应保持选中')
+  // F1：归档线不再提供置顶入口（拍板：归档线不提供置顶/取消置顶）
+  if (!(await page.getByRole('button', { name: '置顶', exact: true }).isDisabled())) throw new Error('归档线的置顶按钮应禁用')
+  if (!(await page.getByRole('button', { name: '标记未读', exact: true }).isDisabled())) throw new Error('归档线的标记未读按钮应禁用')
   await row('新团队会话').click({ button: 'right' })
   await page.getByText('删除', { exact: true }).click()
   await page.getByRole('button', { name: '删除' }).click()
@@ -109,7 +121,7 @@ try {
   await page.getByText('从左侧选择一条会话线').waitFor()
   await screenshot('07-archive-delete.png')
 
-  console.log('团队会话线冒烟通过：①空态 ②选中 ③标未读退出+黄点 ④不回选 ⑤置顶优先 ⑥新建选中 ⑦归档保持 ⑧删除空态')
+  console.log('团队会话线冒烟通过：①空态 ②选中 ③标未读退出+黄点 ④不回选 ⑤置顶优先 ⑤b标未读失败留线 ⑥新建选中 ⑦归档保持+置顶禁用 ⑧删除空态')
 } catch (error) {
   await screenshot('failure.png')
   console.error(String(error))

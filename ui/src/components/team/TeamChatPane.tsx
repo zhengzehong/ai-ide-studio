@@ -110,8 +110,14 @@ function TeamConversationPane({ team, conversation, masterSessionId, onExitConve
   const pinned = !!masterSessionId && dockItems.some((item) => item.sessionId === masterSessionId)
   useEffect(() => { if (!dockLoaded) void loadDock() }, [dockLoaded, loadDock])
 
+  // 线级"可操作"：归档线既不置顶也不标未读（拍板：归档=不再参与团队运行）；空线标未读服务端会拒绝，先禁用。
+  const canPin = !!conversation && conversation.status !== 'archived'
+  const canMarkUnread = !!conversation
+    && conversation.status !== 'archived'
+    && (Boolean(conversation.last_message_at) || Object.values(snapshots).some((snapshot) => snapshot.messages.length > 0 || !!snapshot.streaming))
+
   const togglePin = useCallback(async (): Promise<void> => {
-    if (!masterSessionId || pendingAction) return
+    if (!masterSessionId || !canPin || pendingAction) return
     setPendingAction('pin')
     setActionError(null)
     try {
@@ -128,7 +134,7 @@ function TeamConversationPane({ team, conversation, masterSessionId, onExitConve
     } catch (cause) {
       setActionError(cause instanceof Error ? cause.message : '置顶状态保存失败')
     } finally { setPendingAction(null) }
-  }, [addToDock, masterSessionId, pendingAction, pinned, removeFromDock, team.id, team.project_id])
+  }, [addToDock, canPin, masterSessionId, pendingAction, pinned, removeFromDock, team.id, team.project_id])
 
   const markUnreadAndExit = useCallback(async (): Promise<void> => {
     if (!conversation || pendingAction) return
@@ -143,11 +149,6 @@ function TeamConversationPane({ team, conversation, masterSessionId, onExitConve
       setActionError(cause instanceof Error ? cause.message : '标记未读失败')
     } finally { setPendingAction(null) }
   }, [conversation, markUnread, onExitConversation, pendingAction, team.id, team.project_id])
-
-  // 线级"可标未读"：归档线不可标；线内一条消息都没有时服务端会拒绝，按钮先禁用。
-  const canMarkUnread = !!conversation
-    && conversation.status !== 'archived'
-    && (Boolean(conversation.last_message_at) || Object.values(snapshots).some((snapshot) => snapshot.messages.length > 0 || !!snapshot.streaming))
 
   const load = useCallback((): Promise<boolean> => shareTeamRequest(`load:${cacheKey}:${requestScope}`, async () => {
     if (!conversation) { setMembers([]); setSnapshots({}); sourceMap.current.clear(); return false }
@@ -445,6 +446,7 @@ function TeamConversationPane({ team, conversation, masterSessionId, onExitConve
           {authMode === 'owner' && (
             <TeamSessionActions
               pinned={pinned}
+              canPin={canPin}
               canMarkUnread={canMarkUnread}
               pendingAction={pendingAction}
               onTogglePin={() => { void togglePin() }}

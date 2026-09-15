@@ -6,6 +6,7 @@ import { TeamSessionActions } from '../../ui/src/components/team/TeamSessionActi
 function render(overrides: Partial<Parameters<typeof TeamSessionActions>[0]> = {}): string {
   return renderToStaticMarkup(createElement(TeamSessionActions, {
     pinned: false,
+    canPin: true,
     canMarkUnread: true,
     pendingAction: null,
     onTogglePin: () => undefined,
@@ -44,5 +45,13 @@ describe('team conversation header actions', () => {
     expect(pinning.match(/disabled/g)?.length).toBe(2)
     const marking = render({ pendingAction: 'unread' })
     expect(marking.match(/disabled/g)?.length).toBe(2)
+  })
+
+  test('closes the pin entry for an archived line and explains why', () => {
+    const archived = render({ canPin: false, canMarkUnread: false })
+    expect(archived.match(/disabled/g)?.length).toBe(2)
+    expect(archived).toContain('已归档的会话线不可置顶')
+    // 归档线即便曾置顶也不再显示取消置顶的高亮态（入口已关，避免"可取消"的错觉）。
+    expect(render({ canPin: false, pinned: true })).not.toContain('class="is-active"')
   })
 })

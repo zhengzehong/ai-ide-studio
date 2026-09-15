@@ -83,7 +83,8 @@ export const teamRpcHandlers: RpcHandlerMap = {
     sendResult(teamService.createConversation(requiredText(msg.teamId, 'teamId'), typeof msg.title === 'string' ? msg.title : undefined))
   },
   // 深链反查（仅 master session 命中）：坞里点团队线、带 sessionId 的链接显式进团队线视图。
-  'team.conversation.bySession'(msg, { sendResult }) {
+  'team.conversation.bySession'(msg, { state, sendResult }) {
+    if (state.authMode !== 'owner') throw new Error('访客无权查看团队会话线')
     sendResult(teamService.conversationByMasterSession(
       requiredText(msg.sessionId, 'sessionId'),
       (sessionId) => sessionManager.isPromptActive(sessionId),

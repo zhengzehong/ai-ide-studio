@@ -1,5 +1,27 @@
 import { describe, expect, it } from 'vitest'
-import { isTeamConversationRunning, resolveTeamConversationIndicators, sortTeamConversations, teamConversationListNeedsRefresh } from '../../ui/src/components/team/team-conversation-state'
+import { isTeamConversationRunning, resolveTeamConversationIndicators, resolveTeamLineTarget, sortTeamConversations, teamConversationListNeedsRefresh } from '../../ui/src/components/team/team-conversation-state'
+
+describe('deep link session→line target', () => {
+  const line = { id: 'tc1', team_id: 't1', status: 'active' }
+
+  it('selects an active line whose team is loaded', () => {
+    expect(resolveTeamLineTarget(line, new Set(['t1']), false)).toEqual({ kind: 'select', line })
+  })
+
+  it('never consumes an archived line: it falls back to the plain Session view', () => {
+    expect(resolveTeamLineTarget({ ...line, status: 'archived' }, new Set(['t1']), false)).toEqual({ kind: 'fallback' })
+    expect(resolveTeamLineTarget({ ...line, status: undefined }, new Set(['t1']), false)).toEqual({ kind: 'fallback' })
+    expect(resolveTeamLineTarget(null, new Set(['t1']), false)).toEqual({ kind: 'fallback' })
+  })
+
+  it('waits while the team list is still loading instead of falling back early', () => {
+    expect(resolveTeamLineTarget(line, new Set(), true)).toEqual({ kind: 'wait' })
+  })
+
+  it('falls back when the team list finished loading without this team (archived team)', () => {
+    expect(resolveTeamLineTarget(line, new Set(), false)).toEqual({ kind: 'fallback' })
+  })
+})
 
 describe('team conversation pinned-first ordering', () => {
   const lines = [

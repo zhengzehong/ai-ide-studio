@@ -21,6 +21,7 @@ let rows: Row[] = [
 ]
 let docked: string[] = []
 const markUnreadCalls: string[] = []
+let failUnread = false
 const handlers = new Map<string, (message: Record<string, unknown>) => void>()
 const logEntries: string[] = []
 const rpcCalls: string[] = []
@@ -76,6 +77,8 @@ wsClient.request = async (msg: Record<string, unknown>): Promise<unknown> => {
       return { ok: true }
     }
     case 'team.conversation.markUnread': {
+      // 失败路径开关：模拟服务端拒绝，验证"失败留在线内 + 报错不退出"。
+      if (failUnread) throw new Error('模拟标未读失败')
       const conversationId = String(msg.conversationId)
       markUnreadCalls.push(conversationId)
       rows = rows.map(row => row.id === conversationId ? { ...row, unread: true } : row)
@@ -147,6 +150,7 @@ function Harness(): ReactElement {
       <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
         <button id="btn-enter-team" onClick={enterTeam}>进入团队</button>
         <button id="btn-team-update" onClick={() => { handlers.get('team:update')?.({ teamId: team.id, data: { conversationId: 'tc-1' } }) }}>模拟列表刷新</button>
+        <button id="btn-fail-unread" onClick={() => { failUnread = !failUnread; refreshState() }}>开关：标未读失败</button>
         <div id="events" />
         <div id="state" />
         <div id="rpc" />
