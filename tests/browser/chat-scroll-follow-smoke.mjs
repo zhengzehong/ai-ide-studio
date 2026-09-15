@@ -148,15 +148,20 @@ try {
   await screenshot('6-programmatic-drop.png')
 
   // ── 场景 8：追逐窗口内点击（base 交付后立即在消息区真实点一下）不解除跟随 ──
+  // 等价 A 路装置 R9：点击 → 视口被推（布局重排/锚定补偿的 scroll 事件）→ 大内容落地。
   await page.click('#btn-two-stage-off')
   await page.click('#btn-two-stage')
   await page.waitForTimeout(120) // 仍在宽限/装载追逐窗口内
   const chaseBox = await page.locator('.conversation-message-scroll').boundingBox()
   await page.mouse.click(chaseBox.x + chaseBox.width / 2, chaseBox.y + chaseBox.height / 2)
-  await page.click('#btn-replay')
-  await requireSettle('追逐窗口内点击 + 大重放后应贴底（点击不是滚动意图）')
+  await page.click('#btn-grow')
+  await requireSettle('追逐窗口内点击后内容继续落地应贴底（点击不是滚动意图）')
+  await page.evaluate('window.__smoke.dropPx(300)') // 点击之后视口被页面自己推走（无 wheel/无拖拽）
+  await page.waitForTimeout(150)
+  await page.click('#btn-grow')
+  await requireSettle('点击 + 程序性回落 + 内容再落地后应贴底（R9 等价）')
   await page.waitForTimeout(600)
-  await requireSettle('追逐窗口内点击后应持续贴底')
+  await requireSettle('点击 + 程序性回落后应持续贴底')
   await screenshot('7-chase-window-click.png')
 
   // ── 场景 9：滚动条拖拽上行仍必须解除跟随（槽位按下＝拖拽意图，无 wheel 也要解除）──
