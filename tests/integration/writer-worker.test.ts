@@ -363,6 +363,53 @@ describe('Writer Worker', () => {
       sessionEvent('event-after-restart', session.id, 'restarted'),
     ]))).resolves.toMatchObject({ duplicate: false })
   })
+
+  it('内存 head 缓存在账本行被清理后仍拦住重叠批次', async () => {
+    const session = sessionStore.create({ agentId: 'agent-head-cache' })
+    closeDatabase()
+    writer = await createWorkerWriteDataPort({ dbPath })
+
+    await writer.commitBatch(writeBatch('batch-head-1', session.id, 7, [
+      sessionEvent('event-head-1', session.id, 'first'),
+    ]))
+    // 模拟 maintenance 按保留窗口删掉账本行:内存 head 必须仍然生效。
+    const cleanupDb = new Database(dbPath)
+    try {
+      cleanupDb.prepare('DELETE FROM writer_batch_commits WHERE batch_id = ?').run('batch-head-1')
+    } finally {
+      cleanupDb.close()
+    }
+    await expect(writer.commitBatch(writeBatch('batch-head-overlap', session.id, 7, [
+      sessionEvent('event-head-overlap', session.id, 'overlap'),
+    ]))).rejects.toMatchObject({ code: 'ORDER_CONFLICT' })
+  })
+
+  it('新 writer(缓存冷启动)从账本 load head 并继续拦重叠批次', async () => {
+    const session = sessionStore.create({ agentId: 'agent-head-reload' })
+    closeDatabase()
+    writer = await createWorkerWriteDataPort({ dbPath })
+    await writer.commitBatch(writeBatch('batch-reload-1', session.id, 4, [
+      sessionEvent('event-reload-1', session.id, 'first'),
+    ]))
+    await writer.close()
+    writer = undefined
+
+    writer = await createWorkerWriteDataPort({ dbPath })
+    await expect(writer.commitBatch(writeBatch('batch-reload-overlap', session.id, 4, [
+      sessionEvent('event-reload-overlap', session.id, 'overlap'),
+    ]))).rejects.toMatchObject({ code: 'ORDER_CONFLICT' })
+  })
+
+  it('sessionCursor 反映内存 head(不再依赖 ORDER BY rowid 查询)', async () => {
+    const session = sessionStore.create({ agentId: 'agent-cursor-head' })
+    closeDatabase()
+    writer = await createWorkerWriteDataPort({ dbPath })
+
+    await writer.commitBatch(writeBatch('batch-cursor-1', session.id, 11, [
+      sessionEvent('event-cursor-1', session.id, 'cursor'),
+    ]))
+    await expect(writer.sessionCursor(session.id)).resolves.toEqual({ sequence: 11 })
+  })
 })
 
 function writeBatch(

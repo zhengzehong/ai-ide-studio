@@ -53,6 +53,19 @@ interface RuntimeCommandRow {
   updated_at: string
 }
 
+interface SessionOrderHead {
+  streamGeneration: string
+  lastSequence: number | null
+}
+
+const SESSION_ORDER_CACHE_LIMIT = 4096
+const sessionOrderHeads = new Map<string, SessionOrderHead>()
+
+/** 仅供测试或 worker 重启:清空"每会话最新已提交批次"内存缓存。 */
+export function resetSessionOrderCache(): void {
+  sessionOrderHeads.clear()
+}
+
 export function executeWriteBatches(db: SqliteDatabase, batches: WriteBatch[]): WriteBatchResult[] {
   const execute = db.transaction((items: WriteBatch[]) => items.map((batch) => commitBatch(db, batch)))
   return execute.immediate(batches)
@@ -64,6 +77,13 @@ function commitBatch(db: SqliteDatabase, batch: WriteBatch): WriteBatchResult {
     'SELECT * FROM writer_batch_commits WHERE batch_id = ?',
   ).get(batch.batchId)
   if (existing) {
+    // 重复提交(超时重试命中幂等):用已落库的行校准内存 head,避免缓存落后于库。
+    if (batch.sessionId) {
+      rememberSessionOrderHead(batch.sessionId, {
+        streamGeneration: existing.stream_generation ?? '',
+        lastSequence: existing.last_sequence,
+      })
+    }
     return {
       batchId: existing.batch_id,
       duplicate: true,
@@ -93,6 +113,12 @@ function commitBatch(db: SqliteDatabase, batch: WriteBatch): WriteBatchResult {
     batch.lastSequence ?? null,
     committedAt,
   )
+  if (batch.sessionId && batch.streamGeneration) {
+    rememberSessionOrderHead(batch.sessionId, {
+      streamGeneration: batch.streamGeneration,
+      lastSequence: batch.lastSequence ?? null,
+    })
+  }
   return { batchId: batch.batchId, duplicate: false, committedAt, results }
 }
 
@@ -122,16 +148,45 @@ function reconstructMutationResults(db: SqliteDatabase, batch: WriteBatch): Writ
   })
 }
 
+/**
+ * 内存中的"每会话最新已提交批次"缓存。
+ * 老实现对每个批次都跑 `WHERE session_id = ? ORDER BY rowid DESC LIMIT 1`,EXPLAIN 实证其计划为
+ * "扫出该会话全部历史行 + 临时 B 树排序":writer_batch_commits 已 500 万行、热门会话 7 万+ 行时
+ * 单次 7~31ms(暖缓存)且随库增长持续恶化,并在写事务内占着写锁。
+ * writer worker 是该表唯一写入方,因此内存 head 与库一致;未命中时按需 load 一次(仍走 MAX(rowid) 形式)。
+ */
+function readSessionOrderHead(db: SqliteDatabase, sessionId: string): SessionOrderHead | undefined {
+  const row = db.prepare<[string], BatchCommitRow>(`
+    SELECT *, MAX(rowid) AS mr
+    FROM writer_batch_commits
+    WHERE session_id = ?
+  `).get(sessionId)
+  if (!row) return undefined
+  return { streamGeneration: row.stream_generation ?? '', lastSequence: row.last_sequence }
+}
+
+function sessionOrderHead(db: SqliteDatabase, sessionId: string): SessionOrderHead | undefined {
+  const cached = sessionOrderHeads.get(sessionId)
+  if (cached) return cached
+  const loaded = readSessionOrderHead(db, sessionId)
+  if (loaded) rememberSessionOrderHead(sessionId, loaded)
+  return loaded
+}
+
+function rememberSessionOrderHead(sessionId: string, head: SessionOrderHead): void {
+  if (!sessionOrderHeads.has(sessionId) && sessionOrderHeads.size >= SESSION_ORDER_CACHE_LIMIT) {
+    // 按插入序淘汰最旧条目:淘汰只让下一次校验多一次 load,不影响正确性。
+    const oldest = sessionOrderHeads.keys().next().value
+    if (oldest !== undefined) sessionOrderHeads.delete(oldest)
+  }
+  sessionOrderHeads.set(sessionId, head)
+}
+
 function validateSessionOrder(db: SqliteDatabase, batch: WriteBatch): void {
   if (!batch.sessionId || !batch.streamGeneration) return
-  const latest = db.prepare<[string], BatchCommitRow>(`
-    SELECT * FROM writer_batch_commits
-    WHERE session_id = ?
-    ORDER BY rowid DESC
-    LIMIT 1
-  `).get(batch.sessionId)
-  if (!latest || latest.stream_generation !== batch.streamGeneration) return
-  const lastSequence = latest.last_sequence
+  const head = sessionOrderHead(db, batch.sessionId)
+  if (!head || head.streamGeneration !== batch.streamGeneration) return
+  const lastSequence = head.lastSequence
   if (lastSequence != null && (batch.firstSequence ?? 0) <= lastSequence) {
     throw new WriterOperationError(
       'ORDER_CONFLICT',
@@ -223,11 +278,10 @@ export function readSessionWriteCursor(db: SqliteDatabase, sessionId: string): S
   const event = db.prepare<[string], { sequence: number | null }>(
     'SELECT MAX(sequence) AS sequence FROM session_events WHERE session_id = ?',
   ).get(sessionId)
-  const batch = db.prepare<[string], { last_sequence: number | null }>(`
-    SELECT last_sequence FROM writer_batch_commits
-    WHERE session_id = ? ORDER BY rowid DESC LIMIT 1
-  `).get(sessionId)
-  return { sequence: Math.max(event?.sequence ?? 0, batch?.last_sequence ?? 0) }
+  // 优先用内存 head(O(1));未命中才按需 load 一次(MAX(rowid) 形式,避免临时 B 树排序)。
+  const head = sessionOrderHeads.get(sessionId) ?? readSessionOrderHead(db, sessionId)
+  if (head) rememberSessionOrderHead(sessionId, head)
+  return { sequence: Math.max(event?.sequence ?? 0, head?.lastSequence ?? 0) }
 }
 
 export function enqueueRuntimeCommand(

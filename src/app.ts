@@ -69,9 +69,29 @@ interface AppDataPorts {
 
 export async function startApp(config: AppConfig): Promise<AppHandle> {
   const dbPath = resolve(config.dataDir, 'ai-ide.sqlite')
-  initDatabase(dbPath)
-  log.info({ dbPath }, '数据库已初始化')
+  // 启动阶段计时:线上曾出现 readiness 60s 超时且日志 131s 全黑,无法判断卡在哪一步。
+  // 每个阶段完成即落一条 info,失败时最后一条"启动阶段完成"就是卡点。
+  const startupStartedAt = Date.now()
+  let phaseStartedAt = startupStartedAt
+  let currentPhase = 'database'
+  const markStartupPhase = (phase: string, extra: Record<string, unknown> = {}): void => {
+    const now = Date.now()
+    log.info(
+      { phase, phaseMs: now - phaseStartedAt, startupMs: now - startupStartedAt, ...extra },
+      '启动阶段完成',
+    )
+    phaseStartedAt = now
+    currentPhase = phase
+  }
+  /** 启动失败时补一条"卡在哪个阶段"的 error,配合上面的阶段日志定位 readiness 超时。 */
+  const logStartupFailure = (err: unknown, phase = currentPhase): void => {
+    log.error({ err, phase, startupMs: Date.now() - startupStartedAt }, '启动阶段失败')
+  }
+  const dbTiming = initDatabase(dbPath)
+  log.info({ dbPath, ...dbTiming }, '数据库已初始化')
+  markStartupPhase('database', { openMs: dbTiming.openMs, migrateMs: dbTiming.migrateMs })
   log.info({ dataDir: config.dataDir, ...getLogConfig() }, '日志配置已加载')
+  currentPhase = 'reconcile'
   const recovery = sessionStore.reconcileInterruptedStages()
   if (recovery.interrupted.length > 0 || recovery.cleared.length > 0) {
     log.warn(
@@ -88,6 +108,7 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
   reconcileTeamIdentities()
   reconcileInterruptedTeamTasks()
   reconcilePendingTeamWakes()
+  markStartupPhase('seed')
 
   // 模型代理抓包服务:常驻,不随总开关启停;端口被占时功能降级不影响主服务
   let captureProxy: ModelCaptureProxy | undefined
@@ -98,15 +119,18 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
       log.warn({ err }, '模型代理抓包服务启动失败(不阻塞主服务)')
     }
   }
+  markStartupPhase('capture-proxy')
 
   const dataWorkerMode = config.dataWorkerMode ?? 'worker'
   let dataPorts: AppDataPorts
   try {
     dataPorts = await startDataPorts(dataWorkerMode, dbPath, config)
   } catch (err) {
+    logStartupFailure(err, 'data-ports')
     closeDatabase()
     throw err
   }
+  markStartupPhase('data-ports', { mode: dataWorkerMode })
   const { queryPort, writeDataPort } = dataPorts
   const resetWriteDataPort = setWriteDataPort(writeDataPort)
   const resetQueryPort = setQueryPort(queryPort)
@@ -129,6 +153,7 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
       })
       realtimeEvents = createRealtimeEventSource((delivery) => realtimeProcess?.sendDelivery(delivery))
     } catch (err) {
+      logStartupFailure(err, 'realtime')
       resetQueryPort()
       resetWriteDataPort()
       await dataPorts.close()
@@ -136,6 +161,7 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
       throw err
     }
   }
+  markStartupPhase('realtime', { mode: realtimeMode })
 
   const runtimeMode: RuntimeMode = config.runtimeMode ?? (realtimeMode === 'embedded' ? 'embedded' : 'process')
   if (runtimeMode === 'process' && !realtimeProcess) {
@@ -177,6 +203,7 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
     throw err
   }
   const resetRuntimePort = setRuntimePort(runtimePort)
+  markStartupPhase('runtime', { mode: runtimeMode })
   const commandDispatcher = new RuntimeCommandDispatcher({
     ledger: writeDataPort,
     execute: async (command) => {
@@ -231,6 +258,7 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
     })
     embeddedRealtimePort = serverPort(gateway.server)
   } catch (err) {
+    logStartupFailure(err, 'gateway')
     await runtimePort.close().catch(() => undefined)
     resetRuntimePort()
     realtimeEvents?.stop()
@@ -266,6 +294,7 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
       realtimeMode,
       runtimeMode,
       realtimeEndpoint: initialRealtimeEndpoint,
+      startupMs: Date.now() - startupStartedAt,
     },
     '服务已启动',
   )
@@ -379,6 +408,7 @@ async function startDataPorts(mode: DataWorkerMode, dbPath: string, config: AppC
   const maintenanceConfig = {
     walCheckpointBytes: config.dataWalCheckpointBytes,
     publishedOutboxRetentionMs: config.dataPublishedOutboxRetentionMs,
+    batchCommitRetentionMs: config.dataBatchCommitRetentionMs,
   }
   if (mode === 'local') {
     return {

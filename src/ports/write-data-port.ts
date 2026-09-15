@@ -211,12 +211,31 @@ export interface DatabaseMaintenanceResult {
   checkpointedPages: number
   optimized: boolean
   deletedPublishedOutboxRows: number
+  /** 按保留窗口清理的 writer_batch_commits 行数(幂等账本,去重只需分钟级历史)。 */
+  deletedBatchCommitRows: number
+  /** 本轮达到单次清理上限,剩余行留给下一轮(避免 maintenance 长时间占住写通道)。 */
+  batchCommitPruneExhausted: boolean
+  /** 各阶段耗时,供定位"maintenance 是否在拖慢写通道"。 */
+  phasesMs: {
+    outboxDeleteMs: number
+    batchCommitPruneMs: number
+    optimizeMs: number
+    checkpointMs: number
+  }
   elapsedMs: number
 }
 
 export interface DatabaseMaintenanceConfig {
   walCheckpointBytes?: number
   publishedOutboxRetentionMs?: number
+  /** writer_batch_commits 保留窗口(默认 7 天)。 */
+  batchCommitRetentionMs?: number
+  /** 单次 maintenance 最多清理的 writer_batch_commits 行数(默认 5000)。 */
+  batchCommitPruneRows?: number
+  /** 单次 maintenance 最多删除的 outbox 行数(默认 20000)。 */
+  outboxDeleteRows?: number
+  /** PRAGMA optimize 的 analysis_limit(默认 4000,限制 ANALYZE 规模)。 */
+  optimizeAnalysisLimit?: number
 }
 
 export interface RetentionInspectInput {

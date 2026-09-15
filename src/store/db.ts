@@ -2,7 +2,7 @@ import Database from 'better-sqlite3'
 import { copyFileSync, existsSync, mkdirSync, readFileSync } from 'fs'
 import { basename, dirname, resolve } from 'path'
 import { createChildLogger } from '../core/logger.js'
-import { runMigrations } from './migrator.js'
+import { runMigrations, type AppliedMigration } from './migrator.js'
 import { migrations } from './migrations/index.js'
 
 const log = createChildLogger('db')
@@ -27,15 +27,31 @@ let _dbPath = ''
 let _dbMode: DatabaseMode | null = null
 const beforeCloseHandlers = new Set<DatabaseCloseHandler>()
 
-export function initDatabase(dbPath: string): void {
+export interface DatabaseInitTiming {
+  sqlitePath: string
+  /** true = 复用已打开的连接(未重新开库/跑迁移)。 */
+  reused: boolean
+  openMs: number
+  migrateMs: number
+  appliedMigrations: AppliedMigration[]
+}
+
+/**
+ * 打开读写连接并跑迁移。
+ * 返回分阶段耗时(开库/迁移/应用的迁移列表),供启动阶段计时与 readiness 排查使用。
+ */
+export function initDatabase(dbPath: string): DatabaseInitTiming {
   const { sqlitePath, legacyJsonPath } = resolveDatabasePaths(dbPath)
 
   if (_db && (_dbPath !== sqlitePath || _dbMode !== 'readwrite')) {
     closeDatabase()
   }
 
-  if (_db && _dbPath === sqlitePath && _dbMode === 'readwrite') return
+  if (_db && _dbPath === sqlitePath && _dbMode === 'readwrite') {
+    return { sqlitePath, reused: true, openMs: 0, migrateMs: 0, appliedMigrations: [] }
+  }
 
+  const openStartedAt = performance.now()
   mkdirSync(dirname(sqlitePath), { recursive: true })
   _db = new Database(sqlitePath)
   _dbPath = sqlitePath
@@ -43,8 +59,22 @@ export function initDatabase(dbPath: string): void {
   _db.pragma('journal_mode = WAL')
   _db.pragma('foreign_keys = ON')
   _db.pragma('busy_timeout = 5000')
-  runMigrations(_db, migrations)
+  const openMs = performance.now() - openStartedAt
+  const migrateStartedAt = performance.now()
+  const appliedMigrations = runMigrations(_db, migrations)
+  const migrateMs = performance.now() - migrateStartedAt
   migrateLegacyJsonIfNeeded(_db, legacyJsonPath)
+  return {
+    sqlitePath,
+    reused: false,
+    openMs: roundMs(openMs),
+    migrateMs: roundMs(migrateMs),
+    appliedMigrations,
+  }
+}
+
+function roundMs(value: number): number {
+  return Math.round(value * 1000) / 1000
 }
 
 export function initReadonlyDatabase(dbPath: string): void {

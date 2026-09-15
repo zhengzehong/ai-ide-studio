@@ -93,7 +93,7 @@ export class DeviceConnections {
         socket.close(1008, '设备消息无效')
       }
     })
-    deviceStore.touch(deviceId)
+    deviceStore.touch(deviceId, { force: true })
     this.send(deviceId, { type: 'welcome', deviceId })
     this.handlers.connected(deviceId)
     log.info({ deviceId, generation: peer.generation }, '设备已连接')
@@ -101,12 +101,18 @@ export class DeviceConnections {
 
   private tick(): void {
     for (const [id, peer] of this.peers) {
-      const device = deviceStore.get(id)
-      if (!device?.enabled || device.revoked_at) { this.disconnect(id); continue }
-      if (!peer.alive) { peer.socket.terminate(); continue }
-      peer.alive = false
-      peer.socket.ping()
-      deviceStore.touch(id)
+      // 心跳 tick 是 setInterval 回调:任何未捕获异常都会杀掉 API 子进程
+      // (2026-09-15 11:38 线上崩溃:deviceStore.touch 抛 SQLITE_BUSY)。整段兜底,只告警。
+      try {
+        const device = deviceStore.get(id)
+        if (!device?.enabled || device.revoked_at) { this.disconnect(id); continue }
+        if (!peer.alive) { peer.socket.terminate(); continue }
+        peer.alive = false
+        peer.socket.ping()
+        deviceStore.touch(id)
+      } catch (err) {
+        log.warn({ err, deviceId: id }, '设备心跳 tick 失败,已跳过本次')
+      }
     }
   }
 }

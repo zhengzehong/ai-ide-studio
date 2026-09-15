@@ -38,6 +38,7 @@ export class WriterScheduler<TValue, TResult> {
   private forceDrain = false
   private scheduled = false
   private processing = false
+  private lastActivityAt = 0
 
   constructor(options: WriterSchedulerOptions<TValue, TResult>) {
     this.executeBatch = options.executeBatch
@@ -48,6 +49,11 @@ export class WriterScheduler<TValue, TResult> {
 
   get pendingCount(): number {
     return this.critical.length + this.interactive.length + this.background.length
+  }
+
+  /** 最近一次批次执行结束的时间戳(ms);供 maintenance 判断"写通道已空闲多久"。 */
+  get lastBatchActivityAt(): number {
+    return this.lastActivityAt
   }
 
   enqueue(item: WriterSchedulerItem<TValue>): Promise<TResult> {
@@ -162,6 +168,8 @@ export class WriterScheduler<TValue, TResult> {
       items.forEach((item, index) => item.resolve(results[index]))
     } catch (error) {
       for (const item of items) item.reject(error)
+    } finally {
+      this.lastActivityAt = Date.now()
     }
   }
 

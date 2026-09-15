@@ -19,6 +19,8 @@ export interface AppConfig {
   dataMaintenanceIntervalMs?: number
   dataWalCheckpointBytes?: number
   dataPublishedOutboxRetentionMs?: number
+  /** writer_batch_commits(批次幂等账本)保留窗口;0 = 不清理。 */
+  dataBatchCommitRetentionMs?: number
   dataRetentionMode?: DataRetentionMode
   modelCaptureProxyPort?: number
   edgeMode?: EdgeMode
@@ -64,6 +66,10 @@ export function loadConfig(): AppConfig {
     dataWalCheckpointBytes: parsePositiveInteger(process.env.DATA_WAL_CHECKPOINT_BYTES, 64 * 1024 * 1024),
     dataPublishedOutboxRetentionMs: parsePositiveInteger(
       process.env.DATA_PUBLISHED_OUTBOX_RETENTION_MS,
+      7 * 24 * 60 * 60 * 1000,
+    ),
+    dataBatchCommitRetentionMs: parsePositiveInteger(
+      process.env.DATA_BATCH_COMMIT_RETENTION_MS,
       7 * 24 * 60 * 60 * 1000,
     ),
     dataRetentionMode: parseDataRetentionMode(process.env.DATA_RETENTION_MODE),

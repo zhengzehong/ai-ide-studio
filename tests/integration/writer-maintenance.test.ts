@@ -79,7 +79,81 @@ describe('Writer-owned SQLite maintenance', () => {
       optimized: true,
     })
   })
+
+  it('按保留窗口清理 writer_batch_commits,并保留窗口内行', async () => {
+    seedBatchCommitRows({ old: 3, fresh: 2 })
+    writer = await createWorkerWriteDataPort({
+      dbPath,
+      walCheckpointBytes: Number.MAX_SAFE_INTEGER,
+      batchCommitRetentionMs: 7 * 24 * 60 * 60 * 1000,
+    })
+
+    const result = await writer.maintain({ force: false })
+    expect(result.deletedBatchCommitRows).toBe(3)
+    expect(result.batchCommitPruneExhausted).toBe(false)
+    expect(result.phasesMs.batchCommitPruneMs).toBeGreaterThanOrEqual(0)
+    expect(typeof result.phasesMs.outboxDeleteMs).toBe('number')
+
+    usingDatabase((db) => {
+      const ids = db
+        .prepare<[], { batch_id: string }>('SELECT batch_id FROM writer_batch_commits ORDER BY batch_id')
+        .all()
+        .map((row) => row.batch_id)
+      expect(ids).toEqual(['fresh-batch-1', 'fresh-batch-2'])
+    })
+  })
+
+  it('达到单次清理上限时标记 exhausted 并留到下一轮', async () => {
+    seedBatchCommitRows({ old: 5, fresh: 0 })
+    writer = await createWorkerWriteDataPort({
+      dbPath,
+      walCheckpointBytes: Number.MAX_SAFE_INTEGER,
+      batchCommitRetentionMs: 7 * 24 * 60 * 60 * 1000,
+      batchCommitPruneRows: 2,
+    })
+
+    const result = await writer.maintain({ force: false })
+    expect(result.deletedBatchCommitRows).toBe(2)
+    expect(result.batchCommitPruneExhausted).toBe(true)
+    usingDatabase((db) => {
+      expect(db.prepare('SELECT COUNT(*) AS count FROM writer_batch_commits').get()).toEqual({ count: 3 })
+    })
+  })
+
+  it('保留窗口为 0 时完全不清理', async () => {
+    seedBatchCommitRows({ old: 2, fresh: 0 })
+    writer = await createWorkerWriteDataPort({
+      dbPath,
+      walCheckpointBytes: Number.MAX_SAFE_INTEGER,
+      batchCommitRetentionMs: 0,
+    })
+
+    const result = await writer.maintain({ force: false })
+    expect(result.deletedBatchCommitRows).toBe(0)
+    usingDatabase((db) => {
+      expect(db.prepare('SELECT COUNT(*) AS count FROM writer_batch_commits').get()).toEqual({ count: 2 })
+    })
+  })
 })
+
+function seedBatchCommitRows(input: { old: number; fresh: number }): void {
+  // beforeEach 已关闭应用连接,这里直接用文件连接播种(worker 尚未启动,无写锁竞争)。
+  const db = new Database(dbPath)
+  try {
+    const insert = db.prepare(`
+      INSERT INTO writer_batch_commits (batch_id, session_id, stream_generation, first_sequence, last_sequence, committed_at)
+      VALUES (?, ?, 'generation-maintenance', 1, 1, ?)
+    `)
+    for (let index = 1; index <= input.old; index += 1) {
+      insert.run(`old-batch-${index}`, sessionId, '2000-01-01T00:00:00.000Z')
+    }
+    for (let index = 1; index <= input.fresh; index += 1) {
+      insert.run(`fresh-batch-${index}`, sessionId, new Date().toISOString())
+    }
+  } finally {
+    db.close()
+  }
+}
 
 function backgroundBatch(batchId: string): WriteBatch {
   return {

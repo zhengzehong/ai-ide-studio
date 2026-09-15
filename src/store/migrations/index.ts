@@ -69,6 +69,7 @@ import { teamMemberModelProfileMigration } from './067-team-member-model-profile
 import { teamSessionGridRepairMigration } from './068-team-session-grid-repair.js'
 import { teamContactsMigration } from './069-team-contacts.js'
 import { teamMemberConfigMigration } from './070-team-member-config.js'
+import { writePathIndexesMigration } from './071-write-path-indexes.js'
 
 export const migrations: Migration[] = [
   initialSchemaMigration,
@@ -141,4 +142,5 @@ export const migrations: Migration[] = [
   teamSessionGridRepairMigration,
   teamContactsMigration,
   teamMemberConfigMigration,
+  writePathIndexesMigration,
 ]

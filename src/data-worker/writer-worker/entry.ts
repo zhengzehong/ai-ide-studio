@@ -32,6 +32,8 @@ interface WriterWorkerData {
   dbPath: string
   walCheckpointBytes?: number
   publishedOutboxRetentionMs?: number
+  batchCommitRetentionMs?: number
+  batchCommitPruneRows?: number
 }
 
 interface WriterWork {
@@ -45,6 +47,10 @@ interface WriterWork {
 
 const port = requireParentPort(parentPort)
 const config = parseWorkerData(workerData)
+/** maintenance 等写通道空闲:队列空且最近 1s 无批次执行才开跑,最多等 15s 后照常执行。 */
+const MAINTENANCE_QUIET_MS = 1_000
+const MAINTENANCE_MAX_WAIT_MS = 15_000
+const MAINTENANCE_POLL_MS = 100
 const db = new Database(config.dbPath)
 db.pragma('journal_mode = WAL')
 db.pragma('foreign_keys = ON')
@@ -102,13 +108,19 @@ port.on('message', (message: unknown) => {
 async function executeControlRequest(request: WorkerRequest): Promise<void> {
   const startedAt = performance.now()
   try {
-    await scheduler.drain()
+    // 读己之写:cursor 需要看到刚刚提交的批次,所以先冲刷在途队列。
+    // command.* 只读写 runtime_commands(与批次无交集),不再无条件全局 drain —— 旧实现让
+    // 每个控制请求都等整个写队列排空,是"控制面被写通道拖住"的来源之一。
+    if (request.operation === 'writer.cursor') {
+      await scheduler.drain()
+    }
     let result:
       | SessionWriteCursor
       | RuntimeCommandEnqueueResult
       | RuntimeCommandRecord[]
       | RuntimeCommandRecord
       | DatabaseMaintenanceResult
+    let waitedMs = 0
     if (request.operation === 'writer.cursor') {
       result = readSessionWriteCursor(db, asSessionCursorRequest(request.payload))
     } else if (request.operation === 'writer.command.enqueue') {
@@ -118,14 +130,37 @@ async function executeControlRequest(request: WorkerRequest): Promise<void> {
     } else if (request.operation === 'writer.command.update') {
       result = updateRuntimeCommand(db, request.payload as RuntimeCommandUpdate)
     } else if (request.operation === 'writer.maintain') {
+      // maintenance 全同步执行期间会独占 worker 线程(批次只能排队),因此等写通道空闲再跑;
+      // 但必须带最长等待,避免持续流量下"永远跑不上"。
+      waitedMs = await waitForIdleWriteChannel(request)
       result = maintainWriterDatabase(db, asMaintenanceInput(request.payload), config)
     } else {
       throw new WriterOperationError('BAD_REQUEST', `Unknown write operation: ${request.operation}`)
     }
-    port.postMessage(directResultResponse(request, result, performance.now() - startedAt))
+    port.postMessage(directResultResponse(request, result, performance.now() - startedAt - waitedMs, waitedMs))
   } catch (error) {
     port.postMessage(errorResponse(request, errorCode(error), errorMessage(error)))
   }
+}
+
+/**
+ * 等"队列为空且最近 quietMs 无批次执行";超过 maxWaitMs 就照常执行。
+ * 返回实际等待时长(ms),用于把等待从 executionMs 里剥离,避免污染延迟归因。
+ */
+async function waitForIdleWriteChannel(request: WorkerRequest): Promise<number> {
+  if (asMaintenanceInput(request.payload).force) return 0
+  const waitStartedAt = performance.now()
+  const deadline = waitStartedAt + MAINTENANCE_MAX_WAIT_MS
+  while (performance.now() < deadline) {
+    const idleForMs = Date.now() - scheduler.lastBatchActivityAt
+    if (scheduler.pendingCount === 0 && idleForMs >= MAINTENANCE_QUIET_MS) break
+    await delay(MAINTENANCE_POLL_MS)
+  }
+  return performance.now() - waitStartedAt
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 process.once('exit', () => db.close())
@@ -166,14 +201,19 @@ function resultResponse(work: WriterWork, result: unknown): WorkerResponse {
   }
 }
 
-function directResultResponse<TResult>(request: WorkerRequest, result: TResult, executionMs: number): WorkerResponse {
+function directResultResponse<TResult>(
+  request: WorkerRequest,
+  result: TResult,
+  executionMs: number,
+  queueWaitMs = 0,
+): WorkerResponse {
   return {
     kind: 'result',
     requestId: request.requestId,
     result,
     metrics: {
       queueDepth: 0,
-      queueWaitMs: 0,
+      queueWaitMs,
       executionMs,
       totalMs: Math.max(0, Date.now() - request.enqueuedAt),
       payloadBytes: request.payloadBytes,
@@ -321,6 +361,8 @@ function parseWorkerData(value: unknown): WriterWorkerData {
       data.publishedOutboxRetentionMs,
       'publishedOutboxRetentionMs',
     ),
+    batchCommitRetentionMs: optionalNonNegativeNumber(data.batchCommitRetentionMs, 'batchCommitRetentionMs'),
+    batchCommitPruneRows: optionalNonNegativeNumber(data.batchCommitPruneRows, 'batchCommitPruneRows'),
   }
 }
 

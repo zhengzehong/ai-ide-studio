@@ -21,10 +21,12 @@ import type {
 import type { WorkerReadyMessage } from '../protocol.js'
 import { WorkerRequestError, WorkerRpcClient } from '../worker-rpc-client.js'
 import { resolveWorkerEntryUrl } from '../worker-entry-url.js'
-import { classifyDataWorkerLatency, DEFAULT_DATA_WORKER_SLOW_MS } from '../observability.js'
+import { classifyDataWorkerLatency, dataWorkerLatencyComponents, DEFAULT_DATA_WORKER_SLOW_MS } from '../observability.js'
 
 const log = createChildLogger('writer-worker-client')
 const MAX_COMMIT_ATTEMPTS = 3
+/** maintenance 会做分页删除 + 受限 ANALYZE,单独给更长超时(默认 10s 会在慢库上误判失败)。 */
+const MAINTENANCE_TIMEOUT_MS = 60_000
 
 export interface CreateWorkerWriteDataPortOptions {
   dbPath: string
@@ -33,6 +35,8 @@ export interface CreateWorkerWriteDataPortOptions {
   slowRequestMs?: number
   walCheckpointBytes?: number
   publishedOutboxRetentionMs?: number
+  batchCommitRetentionMs?: number
+  batchCommitPruneRows?: number
 }
 
 export interface WorkerWriteDataPort extends WriteDataPort {
@@ -48,6 +52,8 @@ export async function createWorkerWriteDataPort(
       dbPath: options.dbPath,
       walCheckpointBytes: options.walCheckpointBytes,
       publishedOutboxRetentionMs: options.publishedOutboxRetentionMs,
+      batchCommitRetentionMs: options.batchCommitRetentionMs,
+      batchCommitPruneRows: options.batchCommitPruneRows,
     } satisfies { dbPath: string } & DatabaseMaintenanceConfig,
     execArgv: entryUrl.pathname.endsWith('.ts') ? ['--import', 'tsx'] : undefined,
   })
@@ -69,6 +75,7 @@ export async function createWorkerWriteDataPort(
             priority: batch.priority,
             attempt,
             slowRequestMs,
+            latencyComponents: dataWorkerLatencyComponents(response.metrics),
             ...response.metrics,
           }
           const latencyCause = classifyDataWorkerLatency(response.metrics, slowRequestMs)
@@ -156,8 +163,11 @@ export async function createWorkerWriteDataPort(
     async maintain(input: DatabaseMaintenanceInput): Promise<DatabaseMaintenanceResult> {
       const response = await rpc.request<DatabaseMaintenanceResult>('writer.maintain', input, {
         priority: 'background',
+        timeoutMs: MAINTENANCE_TIMEOUT_MS,
       })
-      log.debug(response.result, 'Writer database maintenance completed')
+      // info 级:maintenance 成功路径历史上只在 debug 落盘,导致"写通道静默"无法定位,
+      // 现在每次运行都留一条带耗时/删除行数/阶段拆分的记录。
+      log.info({ ...response.result, ...response.metrics }, 'Writer database maintenance completed')
       return response.result
     },
     async inspectRetention(input: RetentionInspectInput): Promise<RetentionInspectResult> {

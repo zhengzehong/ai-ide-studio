@@ -1,5 +1,21 @@
 import { randomUUID } from 'node:crypto'
+import { createChildLogger } from '../core/logger.js'
 import { getDb } from './db.js'
+
+const log = createChildLogger('store:devices')
+
+/** 心跳落库节流窗口:同一设备 60s 内只写一次 last_seen_at(粗粒度心跳足够)。 */
+export const DEVICE_TOUCH_THROTTLE_MS = 60_000
+/** 节流表上限:设备数量有限,超过只可能是异常输入,直接重置避免无界增长。 */
+const TOUCH_THROTTLE_MAX_ENTRIES = 256
+const lastPersistedTouchAt = new Map<string, number>()
+
+const LOCK_ERROR_CODES = new Set([
+  'SQLITE_BUSY',
+  'SQLITE_BUSY_SNAPSHOT',
+  'SQLITE_LOCKED',
+  'SQLITE_LOCKED_SHAREDCACHE',
+])
 
 export interface DeviceRow {
   id: string
@@ -47,8 +63,35 @@ export const deviceStore = {
   revoke(id: string): void {
     getDb().prepare('UPDATE devices SET enabled = 0, revoked_at = ? WHERE id = ?').run(new Date().toISOString(), id)
   },
-  touch(id: string): void {
-    getDb().prepare('UPDATE devices SET last_seen_at = ? WHERE id = ?').run(new Date().toISOString(), id)
+  /**
+   * 设备心跳:写 last_seen_at。属于"尽力而为"的旁路信息,约定永不向上抛错:
+   * - 60s 内存节流(force=true 用于连接建立等需要立即落库的场景);
+   * - 写锁竞争(SQLITE_BUSY 家族)只告警。该调用位于 15s 心跳定时器回调里,
+   *   抛出会成为未捕获异常直接杀掉 API 子进程(2026-09-10 / 09-15 两次线上崩溃根因);
+   * - 其它错误(如 SQLITE_FULL)同样只告警:丢一次心跳不影响设备可用性判定。
+   */
+  touch(id: string, options: { force?: boolean } = {}): void {
+    const now = Date.now()
+    const lastPersistedAt = lastPersistedTouchAt.get(id)
+    if (!options.force && lastPersistedAt != null && now - lastPersistedAt < DEVICE_TOUCH_THROTTLE_MS) return
+    try {
+      getDb().prepare('UPDATE devices SET last_seen_at = ? WHERE id = ?').run(new Date(now).toISOString(), id)
+      if (!lastPersistedTouchAt.has(id) && lastPersistedTouchAt.size >= TOUCH_THROTTLE_MAX_ENTRIES) {
+        lastPersistedTouchAt.clear()
+      }
+      lastPersistedTouchAt.set(id, now)
+    } catch (err) {
+      const code = (err as { code?: unknown } | null)?.code
+      if (typeof code === 'string' && LOCK_ERROR_CODES.has(code)) {
+        log.warn({ err, deviceId: id, code }, '设备心跳写入遇到写锁竞争,已跳过本次心跳')
+        return
+      }
+      log.warn({ err, deviceId: id }, '设备心跳写入失败,已跳过本次心跳')
+    }
+  },
+  /** 仅供测试:重置心跳节流状态。 */
+  resetTouchThrottle(): void {
+    lastPersistedTouchAt.clear()
   },
   issuePairing(codeHash: string, expiresAt: number): void {
     getDb().prepare('DELETE FROM device_pairings WHERE expires_at < ?').run(Date.now())
