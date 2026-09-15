@@ -25,3 +25,6 @@
 .conversation-system-notice-meta strong{color:var(--text-2);font-weight:600}
 .conversation-system-notice-body>.markdown-body>:first-child{margin-top:0}
 .conversation-system-notice-body>.markdown-body>:last-child{margin-bottom:0}
+.conversation-message-scroll-shell{position:relative;display:flex;flex:1;min-height:0;flex-direction:column}
+.conversation-jump-to-bottom{position:absolute;right:20px;bottom:16px;z-index:2;display:grid;place-items:center;width:32px;height:32px;padding:0;border:1px solid var(--border);border-radius:50%;background:var(--bg-0);color:var(--text-2);box-shadow:var(--shadow-sm);cursor:pointer}
+.conversation-jump-to-bottom:hover{color:var(--blue);border-color:color-mix(in srgb,var(--blue) 35%,var(--border))}

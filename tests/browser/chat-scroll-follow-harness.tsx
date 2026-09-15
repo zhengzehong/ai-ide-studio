@@ -23,7 +23,7 @@ function paragraphs(count: number, from = 1): string {
   return Array.from({ length: count }, (_, index) => paragraph(from + index)).join('\n\n')
 }
 
-function buildAdapter(streamingContent: string, messageCount: number, staticExtra = 0): ConversationAdapter {
+function buildAdapter(streamingContent: string, messageCount: number, staticExtra = 0, contentRevision = 0): ConversationAdapter {
   const messages = Array.from({ length: messageCount }, (_, index) => ({
     id: `${SESSION}:m-${index}`,
     session_id: SESSION,
@@ -43,6 +43,8 @@ function buildAdapter(streamingContent: string, messageCount: number, staticExtr
     agentRuntime: 'claude',
     sessionTitle: null,
     messages,
+    // 内容版本号：对齐生产 TeamChatPane 的 onBase/onReplay 递增（条目数不变也要能触发再锚定）。
+    contentRevision,
     streamingMessage: {
       id: 'stream-1',
       role: 'agent',
@@ -83,6 +85,11 @@ function Harness(): ReactElement {
   const [live, setLive] = useState(() => paragraphs(30))
   const [shown, setShown] = useState(live)
   const [staticExtra, setStaticExtra] = useState(0)
+  // 两段式装载（对齐生产 team 线）：base 先交付（条目数 0→20、气泡只有一句占位），
+  // 宽限过期后 replay 合并补齐（条目数不变、气泡暴涨），每次落地递增内容版本号。
+  const [twoStage, setTwoStage] = useState(false)
+  const [replayParagraphs, setReplayParagraphs] = useState(0)
+  const [contentRevision, setContentRevision] = useState(0)
   const liveRef = useRef(live)
   liveRef.current = live
   const catchupRef = useRef(false)
@@ -113,7 +120,15 @@ function Harness(): ReactElement {
     return undefined
   }, [live, mounted])
 
-  const adapter = useMemo(() => buildAdapter(shown, messageCount, staticExtra), [shown, messageCount, staticExtra])
+  // 程序性回落注入（布局重排 / clamp / anchoring 补偿等价物）：无 wheel、无 pointer，仅 scrollTop 变化。
+  useEffect(() => {
+    ;(window as unknown as Record<string, unknown>).__smoke = {
+      dropPx: (px: number) => { const element = document.querySelector('.conversation-message-scroll') as HTMLElement | null; if (element) element.scrollTop = Math.max(0, element.scrollTop - px) },
+    }
+  }, [])
+
+  const streamingContent = twoStage ? (replayParagraphs > 0 ? paragraphs(replayParagraphs) : '正在处理…') : shown
+  const adapter = useMemo(() => buildAdapter(streamingContent, twoStage ? 20 : messageCount, staticExtra, contentRevision), [streamingContent, twoStage, messageCount, staticExtra, contentRevision])
   // 非签名来源撑高（图片加载 / 工具块 / 虚拟测量修正类）+ 立即派发一个 scroll 事件，
   // 模拟"内容先落进 DOM、上一帧程序化滚动的 scroll 事件才派发"的时序：断言该时序下
   // 跟随不被破坏（决策层误杀链条由 tests/unit/chat-auto-scroll.test.ts 确定性覆盖）。
@@ -130,6 +145,10 @@ function Harness(): ReactElement {
         <button id="btn-late-scroll" onClick={simulateLateScroll}>模拟延迟滚动事件</button>
         <button id="btn-count-10" onClick={() => { setMessageCount(10); setInstanceKey((key) => key + 1) }}>10 条消息</button>
         <button id="btn-count-45" onClick={() => { setMessageCount(45); setInstanceKey((key) => key + 1) }}>45 条消息</button>
+        <button id="btn-two-stage" onClick={() => { setTwoStage(true); setReplayParagraphs(0); setContentRevision(1); setInstanceKey((key) => key + 1) }}>两段式:base</button>
+        <button id="btn-replay" onClick={() => { setReplayParagraphs(40); setContentRevision((value) => value + 1) }}>两段式:replay</button>
+        <button id="btn-grow" onClick={() => { setReplayParagraphs((value) => value + 20); setContentRevision((value) => value + 1) }}>内容再落地</button>
+        <button id="btn-two-stage-off" onClick={() => { setTwoStage(false); setReplayParagraphs(0); setContentRevision(0) }}>退出两段式</button>
         <span id="phase">{mounted ? 'mounted' : 'away'}</span>
       </div>
       {mounted

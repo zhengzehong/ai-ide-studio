@@ -16,6 +16,8 @@ interface TeamAdapterInput {
   error: string | null
   sending: boolean
   loadingOlder: boolean
+  /** 内容版本号：重放合并 / 成员刷新落地时递增（见 ConversationMessageList 的再锚定 effect）。 */
+  contentRevision: number
   processByMessageId: Record<string, ConversationProcessState>
   fileChanges: Record<string, FileChangeDetailInfo>
   fileErrors: Record<string, string>
@@ -45,7 +47,7 @@ export function createTeamChatAdapter(input: TeamAdapterInput): ConversationAdap
     agentName: input.conversation ? `${input.team.name} · Master` : input.team.name,
     agentRuntime: 'team', sessionTitle: input.conversation?.title ?? null,
     senderAgentIds: input.senderAgentIds,
-    messages: input.aggregate.messages, events: input.aggregate.events,
+    messages: input.aggregate.messages, events: input.aggregate.events, contentRevision: input.contentRevision,
     streamingMessage: input.aggregate.streaming[0] || null, streamingMessages: input.aggregate.streaming,
     loading: input.loading, error: input.error, running: input.aggregate.running, sending: input.sending,
     connected: true, hasMoreMessages: input.aggregate.hasMore, loadingOlderMessages: input.loadingOlder,

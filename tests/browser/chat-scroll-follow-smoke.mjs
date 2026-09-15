@@ -1,19 +1,23 @@
 /* 滚动跟随修复冒烟：esbuild 打包 harness → file:// 页面 → Playwright 真实浏览器断言。
  * 覆盖：运行中切走→切回后停底并持续跟随；手动上滚立即解除；回到近底恢复跟随；
- * 空闲切回精确落底；非虚拟路径（10 条）同样跟随。
+ * 空闲切回精确落底；非虚拟路径（10 条）同样跟随；两段式装载（replay 合并不改条目数）回底；
+ * 程序性回落（无用户输入）不被判死；追逐窗口内点击不解除跟随；滚动条拖拽上行仍解除。
  * 运行：node tests/browser/chat-scroll-follow-smoke.mjs（需 chromium；失败输出 .tmp/scroll-smoke 截图）。
  */
 import { chromium } from 'playwright'
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { resolve } from 'node:path'
 
 const root = resolve(import.meta.dirname, '../..')
+// 零链接 worktree 兼容：node_modules 由 Node 向上解析到主仓（不建 junction，只读使用）。
+const esbuildBin = createRequire(import.meta.url).resolve('esbuild/bin/esbuild')
 const outDir = resolve(root, '.tmp/scroll-smoke')
 rmSync(outDir, { recursive: true, force: true })
 mkdirSync(outDir, { recursive: true })
 execFileSync(process.execPath, [
-  resolve(root, 'node_modules/esbuild/bin/esbuild'),
+  esbuildBin,
   resolve(root, 'tests/browser/chat-scroll-follow-harness.tsx'),
   '--bundle', `--outfile=${resolve(outDir, 'bundle.js')}`, '--jsx=automatic', '--log-level=error',
 ])
@@ -123,6 +127,75 @@ try {
   await requireSettle('非虚拟路径运行中切回应持续跟随')
   await page.click('#btn-stream')
   await screenshot('4-plain-mode-follow.png')
+
+  // ── 场景 6：两段式装载（base 交付 → 宽限过期 → replay 合并、条目数不变）必须贴底 ──
+  await page.click('#btn-two-stage')
+  await requireSettle('两段式 base 交付后应贴底')
+  await page.waitForTimeout(700) // 关键：第二波落在 500ms 宽限之外（原缺陷窗口）
+  await page.click('#btn-replay')
+  await requireSettle('两段式 replay 合并后应贴底（条目数不变也要回底）')
+  await page.waitForTimeout(800)
+  await requireSettle('两段式 replay 合并后应持续贴底')
+  await screenshot('5-two-stage-follow.png')
+
+  // ── 场景 7：程序性回落（无 wheel/pointer，布局重排/clamp 等价物）不被判死，内容再落地即回底 ──
+  await page.evaluate('window.__smoke.dropPx(400)')
+  await page.waitForTimeout(250)
+  const dropped = await metrics()
+  if (dropped.distance < 300) throw new Error(`程序性回落未生效（距底 ${dropped.distance}px）`)
+  await page.click('#btn-grow')
+  await requireSettle('程序性回落 + 内容再落地后应回到底部（P0-b + P1）')
+  await screenshot('6-programmatic-drop.png')
+
+  // ── 场景 8：追逐窗口内点击（base 交付后立即在消息区真实点一下）不解除跟随 ──
+  await page.click('#btn-two-stage-off')
+  await page.click('#btn-two-stage')
+  await page.waitForTimeout(120) // 仍在宽限/装载追逐窗口内
+  const chaseBox = await page.locator('.conversation-message-scroll').boundingBox()
+  await page.mouse.click(chaseBox.x + chaseBox.width / 2, chaseBox.y + chaseBox.height / 2)
+  await page.click('#btn-replay')
+  await requireSettle('追逐窗口内点击 + 大重放后应贴底（点击不是滚动意图）')
+  await page.waitForTimeout(600)
+  await requireSettle('追逐窗口内点击后应持续贴底')
+  await screenshot('7-chase-window-click.png')
+
+  // ── 场景 9：滚动条拖拽上行仍必须解除跟随（槽位按下＝拖拽意图，无 wheel 也要解除）──
+  await page.click('#btn-two-stage-off')
+  await page.click('#btn-two-stage')
+  await requireSettle('滚动条拖拽前置：应贴底')
+  await page.waitForTimeout(700)
+  const gutterBox = await page.locator('.conversation-message-scroll').boundingBox()
+  await page.mouse.move(gutterBox.x + gutterBox.width - 1, gutterBox.y + gutterBox.height / 2) // 内容盒最右一像素（滚动条槽位；无头浏览器隐藏滚动条，无法真实拖动滑块）
+  await page.mouse.down()
+  await page.evaluate('window.__smoke.dropPx(400)') // 拖拽上行的等价位移（无 wheel）
+  await page.mouse.up()
+  await page.waitForTimeout(250)
+  const afterDrag = await metrics()
+  if (afterDrag.distance <= 100) throw new Error(`滚动条拖拽上行应解除跟随（距底 ${afterDrag.distance}px）`)
+  await page.click('#btn-grow') // 内容再落地：不得把正在阅读的用户拉回
+  await page.waitForTimeout(600)
+  const afterDragGrow = await metrics()
+  if (afterDragGrow.distance <= 100) throw new Error(`滚动条拖拽解除后不应被内容再落地拉回（距底 ${afterDragGrow.distance}px）`)
+  await screenshot('8-scrollbar-drag.png')
+
+  // ── 场景 9b：内容区按下并位移超阈值（触摸拖动等价物）后上行同样解除 ──
+  await page.click('#btn-two-stage-off')
+  await page.click('#btn-two-stage')
+  await requireSettle('内容拖拽前置：应贴底')
+  await page.waitForTimeout(700)
+  const dragBox = await page.locator('.conversation-message-scroll').boundingBox()
+  await page.mouse.move(dragBox.x + dragBox.width / 2, dragBox.y + dragBox.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(dragBox.x + dragBox.width / 2, dragBox.y + dragBox.height / 2 - 40, { steps: 8 })
+  await page.evaluate('window.__smoke.dropPx(400)')
+  await page.mouse.up()
+  await page.waitForTimeout(250)
+  const afterContentDrag = await metrics()
+  if (afterContentDrag.distance <= 100) throw new Error(`内容拖拽上行应解除跟随（距底 ${afterContentDrag.distance}px）`)
+  await page.click('#btn-grow')
+  await page.waitForTimeout(600)
+  const afterContentDragGrow = await metrics()
+  if (afterContentDragGrow.distance <= 100) throw new Error(`内容拖拽解除后不应被内容再落地拉回（距底 ${afterContentDragGrow.distance}px）`)
 
   if (errors.length > 0) throw new Error(`页面错误: ${errors.join('\n')}`)
   console.log('chat-scroll-follow-smoke: all checks passed')

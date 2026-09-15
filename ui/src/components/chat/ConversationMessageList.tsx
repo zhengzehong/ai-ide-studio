@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react'
-import { Bot, Loader2, User, X } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ArrowDown, Bot, Loader2, User, X } from 'lucide-react'
 import { MarkdownRenderer } from '../MarkdownRenderer'
 import { TurnContentView } from './TurnContentView'
 import { VirtualChatList } from './VirtualChatList'
@@ -15,12 +15,15 @@ import { parseTurnStats } from './turn-stats'
 import type { ChatTimelineGroup, MessageData } from '../../stores/session-events'
 import type { TurnProcessBlock } from '../../stores/turn-blocks'
 import type { ConversationAdapter, ConversationPaneProps } from './conversation-types'
-import { isNearBottom, resolveScrollFollow, SCROLL_FOLLOW_THRESHOLD_PX, streamingScrollSignature } from './auto-scroll'
+import { isNearBottom, POINTER_DRAG_INTENT_PX, REPLAY_REANCHOR_MAX_PX, resolveScrollFollow, SCROLL_FOLLOW_THRESHOLD_PX, shouldReanchorAfterContentChange, streamingScrollSignature, type ScrollReleaseReason } from './auto-scroll'
 import './conversation-pane.css'
 
-/** 初始定位宽限：挂载/切会话后 0–500ms 是恢复合并 + 虚拟测量修正的高度剧变窗口，
+/** 初始定位宽限：挂载/切会话/重放合并后 0–500ms 是恢复合并 + 虚拟测量修正的高度剧变窗口，
  *  窗口内滚动事件不降级 pinned（手动滚动/追底会提前解除）；超时兜底。 */
 const INITIAL_LOCATE_GRACE_MS = 500
+
+/** 「回到底部」悬浮按钮的出现门槛：解 pin 且距底超过它（与再锚定上限同源，避免按钮与自动追底打架）。 */
+const JUMP_TO_BOTTOM_MIN_DISTANCE_PX = REPLAY_REANCHOR_MAX_PX
 
 interface Props extends Pick<ConversationPaneProps, 'onOpenPreview' | 'onOpenFiles' | 'onOpenResource'> {
   adapter: ConversationAdapter
@@ -43,6 +46,15 @@ export function ConversationMessageList({ adapter, compactTeam = false, location
   const initialLocateGraceRef = useRef(false)
   const manualScrollPendingRef = useRef(false)
   const scheduledScrollRef = useRef<number[]>([])
+  const graceTimerRef = useRef<number | undefined>(undefined)
+  // 释放原因 + 指针按下状态：pointerdown 单独不算"用户要自己看"，只有真实拖拽（位移超阈值）
+  // 或按下中发生的上行（滚动条拖拽）才解除跟随；纯程序性回落保持跟随（见 auto-scroll.ts 注释）。
+  const releaseReasonRef = useRef<ScrollReleaseReason | null>(null)
+  const pointerPressedRef = useRef(false)
+  const pointerStartRef = useRef<{ x: number; y: number } | null>(null)
+  const [showJumpToBottom, setShowJumpToBottom] = useState(false)
+  /** 内容版本号（重放合并/刷新落地时递增）：驱动"重放后再锚定"，见下方 effect。 */
+  const contentRevision = adapter.contentRevision ?? 0
   const messages = useMemo(() => adapter.sessionId ? adapter.messages.filter((message) => message.session_id === adapter.sessionId) : [], [adapter.messages, adapter.sessionId])
   const streamingTurns = (adapter.streamingMessages?.length ? adapter.streamingMessages : adapter.streamingMessage ? [adapter.streamingMessage] : []).filter((turn) => !turn.done)
   const streamingBubbles = useMemo<MessageData[]>(() => streamingTurns.map((streaming) => ({ id: streaming.id, session_id: adapter.sessionId || '', role: 'agent', content: streaming.content, thinking: streaming.thinking, tool_calls_json: streaming.toolCalls.length ? JSON.stringify(streaming.toolCalls) : null, decision_json: streaming.turnStats ? JSON.stringify(streaming.turnStats) : null, attachments_json: null, timestamp: streaming.startedAt || '', started_at: streaming.startedAt, processBlocks: streaming.processBlocks, finalAnswer: streaming.finalAnswer, stage: streaming.stage, sender_name: streaming.senderName, processDefaultOpen: true })), [adapter.sessionId, streamingTurns])
@@ -71,6 +83,7 @@ export function ConversationMessageList({ adapter, compactTeam = false, location
     const element = scrollRef.current
     if (!element) return
     element.scrollTo({ top: element.scrollHeight, behavior }); pinnedRef.current = true
+    releaseReasonRef.current = null
     lastScrollHeightRef.current = element.scrollHeight
     lastScrollTopRef.current = element.scrollTop
   }, [])
@@ -106,6 +119,8 @@ export function ConversationMessageList({ adapter, compactTeam = false, location
         pinned: pinnedRef.current,
         grace: initialLocateGraceRef.current,
         manual: manualScrollPendingRef.current,
+        pressed: pointerPressedRef.current,
+        release: releaseReasonRef.current,
         metrics,
         previousScrollHeight: lastScrollHeightRef.current,
         previousScrollTop: lastScrollTopRef.current,
@@ -114,25 +129,64 @@ export function ConversationMessageList({ adapter, compactTeam = false, location
       manualScrollPendingRef.current = false
       pinnedRef.current = decision.pinned
       initialLocateGraceRef.current = decision.grace
+      releaseReasonRef.current = decision.release
       lastScrollHeightRef.current = metrics.scrollHeight
       lastScrollTopRef.current = metrics.scrollTop
+      setShowJumpToBottom(!decision.pinned && metrics.scrollHeight - metrics.scrollTop - metrics.clientHeight > JUMP_TO_BOTTOM_MIN_DISTANCE_PX)
     }
-    // 用户主动滚动立即解除跟随并清除宽限；首个滚动事件用严格阈值判定（增长豁免不适用于用户上行滚动）。
+    // 真实用户滚动意图：wheel / touchstart 立即解除跟随并清除宽限；pointerdown 单独不算
+    // （点击消息区/展开过程块/选中文字都不是"我要自己看历史"），需按下后位移超阈值或拖拽中上行。
     const manualScroll = (): void => { navigationLock.current = false; manualScrollPendingRef.current = true; initialLocateGraceRef.current = false }
-    element.addEventListener('wheel', manualScroll, { passive: true }); element.addEventListener('touchstart', manualScroll, { passive: true }); element.addEventListener('pointerdown', manualScroll)
+    const onPointerDown = (event: PointerEvent): void => {
+      pointerPressedRef.current = true
+      pointerStartRef.current = { x: event.clientX, y: event.clientY }
+      // 滚动条槽位里的按下＝拖拽意图（Chromium 把滚动条事件派发给元素本身）
+      if (event.offsetX >= element.clientWidth - 1) manualScroll()
+    }
+    const onPointerMove = (event: PointerEvent): void => {
+      const start = pointerStartRef.current
+      if (!pointerPressedRef.current || !start) return
+      if (Math.abs(event.clientY - start.y) + Math.abs(event.clientX - start.x) >= POINTER_DRAG_INTENT_PX) manualScroll()
+    }
+    const onPointerUp = (): void => { pointerPressedRef.current = false; pointerStartRef.current = null }
+    element.addEventListener('wheel', manualScroll, { passive: true }); element.addEventListener('touchstart', manualScroll, { passive: true })
+    element.addEventListener('pointerdown', onPointerDown)
+    element.addEventListener('pointermove', onPointerMove, { passive: true })
+    element.addEventListener('pointerup', onPointerUp, { passive: true }); element.addEventListener('pointercancel', onPointerUp, { passive: true })
     element.addEventListener('scroll', onScroll, { passive: true }); onScroll()
-    return () => { element.removeEventListener('scroll', onScroll); element.removeEventListener('wheel', manualScroll); element.removeEventListener('touchstart', manualScroll); element.removeEventListener('pointerdown', manualScroll) }
+    return () => { element.removeEventListener('scroll', onScroll); element.removeEventListener('wheel', manualScroll); element.removeEventListener('touchstart', manualScroll); element.removeEventListener('pointerdown', onPointerDown); element.removeEventListener('pointermove', onPointerMove); element.removeEventListener('pointerup', onPointerUp); element.removeEventListener('pointercancel', onPointerUp) }
   }, [adapter.sessionId])
   useEffect(() => {
     navigationLock.current = false; pinnedRef.current = true; messageCountRef.current = 0
     manualScrollPendingRef.current = false; initialLocateGraceRef.current = true
+    releaseReasonRef.current = null; pointerPressedRef.current = false; pointerStartRef.current = null
     const element = scrollRef.current
     lastScrollHeightRef.current = element?.scrollHeight ?? 0
     lastScrollTopRef.current = element?.scrollTop ?? 0
-    const graceTimer = window.setTimeout(() => { initialLocateGraceRef.current = false }, INITIAL_LOCATE_GRACE_MS)
+    window.clearTimeout(graceTimerRef.current)
+    graceTimerRef.current = window.setTimeout(() => { initialLocateGraceRef.current = false }, INITIAL_LOCATE_GRACE_MS)
     scheduleScrollToBottom()
-    return () => { window.clearTimeout(graceTimer); cancelScheduledScroll() }
+    return () => { window.clearTimeout(graceTimerRef.current); cancelScheduledScroll() }
   }, [adapter.sessionId, scheduleScrollToBottom, cancelScheduledScroll])
+  // 重放/内容版本落地后的补偿性再锚定：两段式装载的第二波（重放合并）不改变条目数，
+  // 唯一带自动恢复的条目数分支不执行，视口会永久冻结在半中间——这里按"内容版本"重新判定：
+  // 只要不是用户明确在看历史（release=manual）且贴底或距底 ≤600px，就重新追底并重置宽限窗口。
+  useEffect(() => {
+    if (!contentRevision) return
+    const element = scrollRef.current
+    if (!element) return
+    const metrics = { scrollHeight: element.scrollHeight, scrollTop: element.scrollTop, clientHeight: element.clientHeight }
+    if (!shouldReanchorAfterContentChange({ pinned: pinnedRef.current, release: releaseReasonRef.current, metrics, maxPx: REPLAY_REANCHOR_MAX_PX })) return
+    pinnedRef.current = true
+    releaseReasonRef.current = null
+    navigationLock.current = false
+    // 宽限起算点对齐"重放合并完成"：合并后的测量修正窗口内不因高度剧变降级 pinned。
+    initialLocateGraceRef.current = true
+    window.clearTimeout(graceTimerRef.current)
+    graceTimerRef.current = window.setTimeout(() => { initialLocateGraceRef.current = false }, INITIAL_LOCATE_GRACE_MS)
+    setShowJumpToBottom(false)
+    scheduleScrollToBottom()
+  }, [contentRevision, scheduleScrollToBottom])
   useEffect(() => {
     const anchor = olderAnchorRef.current
     if (anchor && scrollRef.current && allRenderItems.length > messageCountRef.current) {
@@ -150,7 +204,14 @@ export function ConversationMessageList({ adapter, compactTeam = false, location
     }
     // 流式 chunk 的追底 rAF 与用户 wheel 存在次序竞态：调度时 pinned 为真、执行前用户已手动
     // 上滚(pinned=false)时，回调必须复查，否则会把用户拉回底部并重新 pin 住（N1）。
-    if (streamingBubbles.length > 0 && pinnedRef.current) requestAnimationFrame(() => { if (pinnedRef.current) scrollToBottom() })
+    // 近底恢复：pinned 被误杀但视口仍贴近底部时也追（与条目数分支语义对齐），release=manual 除外。
+    if (streamingBubbles.length > 0 && (pinnedRef.current || (releaseReasonRef.current !== 'manual' && scrollRef.current && isNearBottom(scrollRef.current, SCROLL_FOLLOW_THRESHOLD_PX)))) {
+      requestAnimationFrame(() => {
+        const element = scrollRef.current
+        if (!element) return
+        if (pinnedRef.current || (releaseReasonRef.current !== 'manual' && isNearBottom(element, SCROLL_FOLLOW_THRESHOLD_PX))) scrollToBottom()
+      })
+    }
   }, [allRenderItems.length, scrollToBottom, streamingBubbles.length, streamingSignature, scheduleScrollToBottom])
   const loadOlder = (): void => {
     if (adapter.hasMoreMessages && !adapter.loadingOlderMessages) {
@@ -159,7 +220,19 @@ export function ConversationMessageList({ adapter, compactTeam = false, location
       void adapter.loadOlderMessages()
     }
   }
-  return <div className="conversation-message-scroll" ref={scrollRef} onScroll={(event) => { if (event.currentTarget.scrollTop <= 120) loadOlder() }}>
+  // P2 兜底：解 pin 后（用户确实在看历史）提供一次性回到底部入口；宽限窗口覆盖平滑动画期间的
+  // 中间滚动事件，避免动画途中被降级（落底后近底分支自然重新 pin 住）。
+  const jumpToBottom = useCallback((): void => {
+    pinnedRef.current = true
+    releaseReasonRef.current = null
+    initialLocateGraceRef.current = true
+    window.clearTimeout(graceTimerRef.current)
+    graceTimerRef.current = window.setTimeout(() => { initialLocateGraceRef.current = false }, INITIAL_LOCATE_GRACE_MS)
+    setShowJumpToBottom(false)
+    scrollToBottom('smooth')
+  }, [scrollToBottom])
+  return <div className="conversation-message-scroll-shell">
+    <div className="conversation-message-scroll" ref={scrollRef} onScroll={(event) => { if (event.currentTarget.scrollTop <= 120) loadOlder() }}>
     {!adapter.sessionId && <EmptyConversation text="选择一个 Session 或新建会话" />}
     {adapter.sessionId && adapter.loading && messages.length === 0 && <LoadingState text="正在加载消息..." />}
     {adapter.sessionId && adapter.loading && messages.length > 0 && <div className="conversation-sync" role="status" aria-live="polite"><Loader2 size={13} /> 正在同步消息...</div>}
@@ -171,6 +244,8 @@ export function ConversationMessageList({ adapter, compactTeam = false, location
       return compactTeam && onSeen && item.kind === 'message' && item.message.role === 'agent'
         ? <TeamMessageVisibility messageId={item.message.id} completed={item.message.status !== 'running'} scrollRef={scrollRef} onSeen={onSeen}>{content}</TeamMessageVisibility> : content
     }} />}
+    </div>
+    {showJumpToBottom && <button type="button" className="conversation-jump-to-bottom" onClick={jumpToBottom} aria-label="回到底部" title="回到底部"><ArrowDown size={16} /></button>}
   </div>
 }
 
