@@ -15,7 +15,7 @@ function adapterWith(runningTurnSessionIds: string[], masterSessionId = 'master'
     conversation: null,
     masterSessionId,
     aggregate: { messages: [], events: [], streaming: [], running: false, hasMore: false, permissions: [], elicitations: [], capabilities: null, usage: null } as never,
-    snapshots: {}, loading: false, error: null, sending: false, loadingOlder: false,
+    snapshots: {}, loading: false, error: null, sending: false, loadingOlder: false, contentRevision: 0,
     processByMessageId: {}, fileChanges: {}, fileErrors: {},
     processItemLoadingByKey: {}, processItemErrorByKey: {},
     loadMessageProcess: async () => undefined, loadFileChanges: async () => undefined, loadProcessItemDetail: async () => undefined,

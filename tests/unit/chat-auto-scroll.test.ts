@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { isNearBottom, nextPinnedToBottom, resolveScrollFollow, streamingScrollSignature } from '../../ui/src/components/chat/auto-scroll.ts'
+import { isNearBottom, nextPinnedToBottom, resolveScrollFollow, shouldReanchorAfterContentChange, streamingScrollSignature } from '../../ui/src/components/chat/auto-scroll.ts'
 
 describe('chat auto scroll helpers', () => {
   test('treats the viewport as pinned when it is within the bottom threshold', () => {
@@ -54,9 +54,22 @@ describe('resolveScrollFollow（切回会话滚动跟随修复）', () => {
     expect(decision.grace).toBe(false)
   })
 
-  test('滚动条拖拽等无 wheel 事件的上行滚动（scrollTop 减小）同样视为用户意图解除', () => {
-    const decision = resolveScrollFollow({ ...base, metrics: { scrollHeight: 2500, scrollTop: 700, clientHeight: 500 }, previousScrollTop: 1000 })
+  test('滚动条拖拽等无 wheel 事件的上行滚动（scrollTop 减小、指针按下中）同样视为用户意图解除', () => {
+    const decision = resolveScrollFollow({ ...base, pressed: true, metrics: { scrollHeight: 2500, scrollTop: 700, clientHeight: 500 }, previousScrollTop: 1000 })
     expect(decision.pinned).toBe(false)
+    expect(decision.release).toBe('upward')
+  })
+
+  test('纯程序性回落（布局重排 / clamp / anchoring 补偿，指针未按下）不解除跟随（P0-b）', () => {
+    const decision = resolveScrollFollow({ ...base, metrics: { scrollHeight: 2500, scrollTop: 700, clientHeight: 500 }, previousScrollTop: 1000 })
+    expect(decision.pinned).toBe(true)
+    expect(decision.release).toBe(null)
+  })
+
+  test('已由用户释放（release=manual）后继续上行：维持 manual，不被回落分支改写', () => {
+    const decision = resolveScrollFollow({ ...base, pinned: false, release: 'manual', metrics: { scrollHeight: 2500, scrollTop: 600, clientHeight: 500 }, previousScrollTop: 700 })
+    expect(decision.pinned).toBe(false)
+    expect(decision.release).toBe('manual')
   })
 
   test('初始定位宽限内高度剧变不降级 pinned（挂载/切回竞态窗口）', () => {
@@ -67,12 +80,68 @@ describe('resolveScrollFollow（切回会话滚动跟随修复）', () => {
 
   test('宽限内追到贴底：保持跟随并提前解除宽限', () => {
     const decision = resolveScrollFollow({ ...base, grace: true, metrics: { scrollHeight: 1560, scrollTop: 1000, clientHeight: 500 } }) // 距底 60
-    expect(decision).toEqual({ pinned: true, grace: false })
+    expect(decision).toEqual({ pinned: true, grace: false, release: null })
   })
 
   test('已 unpinned 后 scrollTop 继续上移：维持 false（不复活跟随）', () => {
     const decision = resolveScrollFollow({ ...base, pinned: false, metrics: { scrollHeight: 1800, scrollTop: 400, clientHeight: 500 } })
     expect(decision.pinned).toBe(false)
+  })
+
+  test('F5：manual 释放具粘性——向下微滚（未回近底）不被改写为 upward/不复活跟随', () => {
+    const decision = resolveScrollFollow({
+      ...base,
+      pinned: false,
+      release: 'manual',
+      metrics: { scrollHeight: 2000, scrollTop: 1010, clientHeight: 500 }, // 向下微滚 10px，仍距底 490px
+      previousScrollTop: 1000,
+    })
+    expect(decision.pinned).toBe(false)
+    expect(decision.release).toBe('manual')
+  })
+
+  test('F5：manual 释放期间内容再增长也不回追（release 不被覆写）', () => {
+    const decision = resolveScrollFollow({
+      ...base,
+      pinned: false,
+      release: 'manual',
+      metrics: { scrollHeight: 3200, scrollTop: 1000, clientHeight: 500 }, // 增长 1200px，仍远离底部
+      previousScrollHeight: 2000,
+    })
+    expect(decision.pinned).toBe(false)
+    expect(decision.release).toBe('manual')
+  })
+
+  test('F5：滚回近底自动恢复跟随并清空 release（粘性到此为止）', () => {
+    const decision = resolveScrollFollow({
+      ...base,
+      pinned: false,
+      release: 'manual',
+      metrics: { scrollHeight: 1560, scrollTop: 1000, clientHeight: 500 }, // 距底 60
+      previousScrollTop: 900,
+    })
+    expect(decision).toEqual({ pinned: true, grace: false, release: null })
+  })
+})
+
+describe('shouldReanchorAfterContentChange（重放合并后再锚定，P1）', () => {
+  const metrics = (scrollHeight: number, scrollTop: number, clientHeight = 500) => ({ scrollHeight, scrollTop, clientHeight })
+
+  test('pinned 时内容版本落地一律追底', () => {
+    expect(shouldReanchorAfterContentChange({ pinned: true, release: null, metrics: metrics(2000, 100, 500) })).toBe(true)
+  })
+
+  test('未 pinned 但距底 ≤600px：补偿性再锚定（两段式装载第二波落地场景）', () => {
+    expect(shouldReanchorAfterContentChange({ pinned: false, release: 'upward', metrics: metrics(2500, 1800, 500) })).toBe(true) // 距底 200
+    expect(shouldReanchorAfterContentChange({ pinned: false, release: null, metrics: metrics(2500, 1400, 500) })).toBe(true) // 距底 600
+  })
+
+  test('未 pinned 且距底 >600px：视为用户在看历史，不打扰', () => {
+    expect(shouldReanchorAfterContentChange({ pinned: false, release: 'upward', metrics: metrics(2500, 1300, 500) })).toBe(false) // 距底 700
+  })
+
+  test('release=manual（用户明确上滚阅读）时一律不追底', () => {
+    expect(shouldReanchorAfterContentChange({ pinned: false, release: 'manual', metrics: metrics(2000, 1400, 500) })).toBe(false)
   })
 })
 

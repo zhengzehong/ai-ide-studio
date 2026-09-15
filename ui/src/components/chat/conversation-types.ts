@@ -40,6 +40,8 @@ export interface ConversationAdapter {
   sessionTitle?: string | null
   messages: MessageData[]
   events?: SessionEventData[]
+  /** 内容版本号：重放合并 / 刷新导致既有条目内容整体落地时递增（条目数不变也要能触发再锚定）。 */
+  contentRevision?: number
   streamingMessage: StreamingMessage | null
   streamingMessages?: StreamingMessage[]
   loading: boolean

@@ -58,6 +58,9 @@ function TeamConversationPane({ team, conversation, masterSessionId, onOpenPrevi
   const [error, setError] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   const [loadingOlder, setLoadingOlder] = useState(false)
+  // 内容版本号：两段式装载的第二波（重放合并）/成员刷新不改变条目数，专门驱动滚动跟随的再锚定。
+  const [contentRevision, setContentRevision] = useState(0)
+  const bumpContentRevision = useCallback((): void => { setContentRevision((value) => value + 1) }, [])
   const olderRequestRef = useRef(false)
   const [processByMessageId, setProcessByMessageId] = useState<Record<string, ConversationProcessState>>({})
   const [fileChanges, setFileChanges] = useState<Record<string, FileChangeDetailInfo>>({})
@@ -128,9 +131,11 @@ function TeamConversationPane({ team, conversation, masterSessionId, onOpenPrevi
             sourceMap.current = new Map([...sourceMap.current, ...loaded.sources])
             setSnapshots(current => mergeLoadedSnapshots(current, { [sessionId]: { ...loaded.snapshot, capabilities: current[sessionId]?.capabilities || loaded.snapshot.capabilities } }))
             setLoading(false)
+            bumpContentRevision()
           },
           onReplay: (snapshot) => {
             setSnapshots(current => mergeTeamTurnReplay(current, sessionId, snapshot))
+            bumpContentRevision()
           },
           onReplayError: (cause) => {
             setError(`消息同步失败：${cause instanceof Error ? cause.message : '请重试'}`)
@@ -144,7 +149,7 @@ function TeamConversationPane({ team, conversation, masterSessionId, onOpenPrevi
       return true
     } catch (cause) { if (requestGeneration === generation.current) setError(`消息同步失败：${cause instanceof Error ? cause.message : '请重试'}`); return false }
     finally { if (requestGeneration === generation.current) setLoading(false) }
-  }), [conversation, cacheKey, requestScope])
+  }), [conversation, cacheKey, requestScope, bumpContentRevision])
 
   const refreshMember = useCallback(async (sessionId: string): Promise<void> => {
     if (!masterSessionId || !subscribedSessions.current.has(sessionId)) return
@@ -155,8 +160,9 @@ function TeamConversationPane({ team, conversation, masterSessionId, onOpenPrevi
       if (requestGeneration !== generation.current || !subscribedSessions.current.has(sessionId)) return
       sourceMap.current = new Map([...sourceMap.current, ...page.sources])
       setSnapshots(current => mergeTeamMessageRefresh(current, sessionId, page.snapshot))
+      bumpContentRevision()
     } catch (cause) { if (requestGeneration === generation.current) setError(`消息同步失败：${cause instanceof Error ? cause.message : '请重试'}`) }
-  }, [cacheKey, requestScope, masterSessionId])
+  }, [cacheKey, requestScope, masterSessionId, bumpContentRevision])
 
   useEffect(() => {
     if (!masterSessionId) return
@@ -302,7 +308,7 @@ function TeamConversationPane({ team, conversation, masterSessionId, onOpenPrevi
     ],
     [masterSessionId, members, statusBySessionId],
   )
-  const adapter = useMemo<ConversationAdapter>(() => createTeamChatAdapter({ snapshots, team, conversation, masterSessionId, runningTurnSessionIds, aggregate, loading, error, sending, loadingOlder, processByMessageId, fileChanges, fileErrors, processItemLoadingByKey, processItemErrorByKey, sendPrompt, loadOlderMessages, loadMessageProcess, loadFileChanges, loadProcessItemDetail, reload: load, markUnread, senderAgentIds: Object.fromEntries([...members, ...removedMembers].map(member => [member.session_id, member.agent_id])) }), [snapshots, aggregate, conversation, error, fileChanges, fileErrors, load, loadFileChanges, loadMessageProcess, loadOlderMessages, loadProcessItemDetail, loading, loadingOlder, masterSessionId, runningTurnSessionIds, processByMessageId, processItemErrorByKey, processItemLoadingByKey, sendPrompt, sending, team, markUnread, members, removedMembers])
+  const adapter = useMemo<ConversationAdapter>(() => createTeamChatAdapter({ snapshots, team, conversation, masterSessionId, runningTurnSessionIds, contentRevision, aggregate, loading, error, sending, loadingOlder, processByMessageId, fileChanges, fileErrors, processItemLoadingByKey, processItemErrorByKey, sendPrompt, loadOlderMessages, loadMessageProcess, loadFileChanges, loadProcessItemDetail, reload: load, markUnread, senderAgentIds: Object.fromEntries([...members, ...removedMembers].map(member => [member.session_id, member.agent_id])) }), [snapshots, aggregate, conversation, error, fileChanges, fileErrors, load, loadFileChanges, loadMessageProcess, loadOlderMessages, loadProcessItemDetail, loading, loadingOlder, masterSessionId, runningTurnSessionIds, contentRevision, processByMessageId, processItemErrorByKey, processItemLoadingByKey, sendPrompt, sending, team, markUnread, members, removedMembers])
   const activity = useTeamActivity(adapter, true)
   const modelProfiles = useModelStore((state) => state.profiles)
   const fetchModelProfiles = useModelStore((state) => state.fetchProfiles)
