@@ -90,6 +90,9 @@ function Harness(): ReactElement {
   const [twoStage, setTwoStage] = useState(false)
   const [replayParagraphs, setReplayParagraphs] = useState(0)
   const [contentRevision, setContentRevision] = useState(0)
+  // dock「定位成员」等价物：定位锁生效中，内容版本再落地不得再锚定（不得把定位目标卷走）。
+  const [location, setLocation] = useState<{ messageId: string; request: number }>()
+  const locateCountRef = useRef(0)
   const liveRef = useRef(live)
   liveRef.current = live
   const catchupRef = useRef(false)
@@ -149,10 +152,13 @@ function Harness(): ReactElement {
         <button id="btn-replay" onClick={() => { setReplayParagraphs(40); setContentRevision((value) => value + 1) }}>两段式:replay</button>
         <button id="btn-grow" onClick={() => { setReplayParagraphs((value) => value + 20); setContentRevision((value) => value + 1) }}>内容再落地</button>
         <button id="btn-two-stage-off" onClick={() => { setTwoStage(false); setReplayParagraphs(0); setContentRevision(0) }}>退出两段式</button>
+        <button id="btn-replay-short" onClick={() => { setReplayParagraphs(18); setContentRevision((value) => value + 1) }}>短重放18段</button>
+        <button id="btn-tiny-grow" onClick={() => { setReplayParagraphs((value) => value + 1); setContentRevision((value) => value + 1) }}>增量落地</button>
+        <button id="btn-locate" onClick={() => { locateCountRef.current += 1; setLocation({ messageId: `${SESSION}:m-19`, request: locateCountRef.current }) }}>定位到 m-19</button>
         <span id="phase">{mounted ? 'mounted' : 'away'}</span>
       </div>
       {mounted
-        ? <ConversationMessageList key={`${instanceKey}:${messageCount}`} adapter={adapter} />
+        ? <ConversationMessageList key={`${instanceKey}:${messageCount}`} adapter={adapter} location={location} />
         : <div id="placeholder" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>会话已切走（缓存冻结）</div>}
     </main>
   )

@@ -202,6 +202,43 @@ try {
   const afterContentDragGrow = await metrics()
   if (afterContentDragGrow.distance <= 100) throw new Error(`内容拖拽解除后不应被内容再落地拉回（距底 ${afterContentDragGrow.distance}px）`)
 
+  // ── 场景 10（F2）：按下后拖出元素外松开不残留"手动滚动意图"（sticky manual）──
+  // 靠上边缘按下 → 位移 <阈值即出元素（元素收不到后续 pointermove，不会 arm manual）→ 元素外松开
+  // → 再回元素内无按键悬停移动 ≥8px：若按下态未复位，会把后续程序性回落的 release 误记成 manual
+  // 并永久粘住（内容再落地也不回底）。
+  await page.click('#btn-two-stage-off')
+  await page.click('#btn-two-stage')
+  await requireSettle('F2 前置：应贴底')
+  await page.waitForTimeout(700)
+  const f2Box = await page.locator('.conversation-message-scroll').boundingBox()
+  await page.mouse.move(f2Box.x + f2Box.width / 2, f2Box.y + 3)
+  await page.mouse.down()
+  await page.mouse.move(f2Box.x + f2Box.width / 2, f2Box.y - 40, { steps: 6 }) // 出元素外
+  await page.mouse.up() // 元素外松开（window 级复位）
+  await page.mouse.move(f2Box.x + f2Box.width / 2, f2Box.y + f2Box.height / 2, { steps: 8 }) // 无按键悬停移动
+  await page.evaluate('window.__smoke.dropPx(400)') // 程序性回落（无按下、无 wheel）
+  await page.waitForTimeout(200)
+  await page.click('#btn-grow') // 内容再落地：必须仍视为可救回并自动回底
+  await requireSettle('拖出元素外松开后不应残留手动滚动意图（F2）')
+  await screenshot('9-pointer-release-outside.png')
+
+  // ── 场景 11（F1）：定位锁生效中，内容版本再落地不得再锚定（不得把定位目标卷走）──
+  await page.click('#btn-two-stage-off')
+  await page.click('#btn-two-stage')
+  await requireSettle('F1 前置：base 应贴底')
+  await page.waitForTimeout(700)
+  await page.click('#btn-replay-short') // 短重放：定位目标落到"距底 1..600px"的可判别区间
+  await requireSettle('F1 前置：短重放后应贴底')
+  await page.click('#btn-locate') // 定位到 m-19 → navigationLock=true、pinned=false
+  await page.waitForTimeout(400)
+  const located = await metrics()
+  if (located.distance <= 0 || located.distance > 600) throw new Error(`F1 前置不满足：定位后距底应在 1..600px，实际 ${located.distance}px`)
+  await page.click('#btn-tiny-grow') // 内容版本再落地（增量）：定位锁在，不得再锚定
+  await page.waitForTimeout(600)
+  const afterTinyGrow = await metrics()
+  if (afterTinyGrow.distance <= 0) throw new Error('定位锁生效中内容再落地把定位目标卷走了（F1）')
+  await screenshot('10-locate-lock.png')
+
   if (errors.length > 0) throw new Error(`页面错误: ${errors.join('\n')}`)
   console.log('chat-scroll-follow-smoke: all checks passed')
 } catch (error) {

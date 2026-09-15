@@ -87,6 +87,41 @@ describe('resolveScrollFollow（切回会话滚动跟随修复）', () => {
     const decision = resolveScrollFollow({ ...base, pinned: false, metrics: { scrollHeight: 1800, scrollTop: 400, clientHeight: 500 } })
     expect(decision.pinned).toBe(false)
   })
+
+  test('F5：manual 释放具粘性——向下微滚（未回近底）不被改写为 upward/不复活跟随', () => {
+    const decision = resolveScrollFollow({
+      ...base,
+      pinned: false,
+      release: 'manual',
+      metrics: { scrollHeight: 2000, scrollTop: 1010, clientHeight: 500 }, // 向下微滚 10px，仍距底 490px
+      previousScrollTop: 1000,
+    })
+    expect(decision.pinned).toBe(false)
+    expect(decision.release).toBe('manual')
+  })
+
+  test('F5：manual 释放期间内容再增长也不回追（release 不被覆写）', () => {
+    const decision = resolveScrollFollow({
+      ...base,
+      pinned: false,
+      release: 'manual',
+      metrics: { scrollHeight: 3200, scrollTop: 1000, clientHeight: 500 }, // 增长 1200px，仍远离底部
+      previousScrollHeight: 2000,
+    })
+    expect(decision.pinned).toBe(false)
+    expect(decision.release).toBe('manual')
+  })
+
+  test('F5：滚回近底自动恢复跟随并清空 release（粘性到此为止）', () => {
+    const decision = resolveScrollFollow({
+      ...base,
+      pinned: false,
+      release: 'manual',
+      metrics: { scrollHeight: 1560, scrollTop: 1000, clientHeight: 500 }, // 距底 60
+      previousScrollTop: 900,
+    })
+    expect(decision).toEqual({ pinned: true, grace: false, release: null })
+  })
 })
 
 describe('shouldReanchorAfterContentChange（重放合并后再锚定，P1）', () => {

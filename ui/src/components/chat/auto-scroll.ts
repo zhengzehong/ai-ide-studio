@@ -122,7 +122,9 @@ export function resolveScrollFollow(input: {
     previousScrollHeight: input.previousScrollHeight,
     thresholdPx,
   })
-  return { pinned, grace: false, release: pinned ? null : 'upward' }
+  // `manual` 释放具粘性：用户真滚上去读历史期间不得被改写成可救回的 `upward`
+  // （否则后续任何 contentRevision 的再锚定都会把用户拉回底部）；回到近底由上面的近底分支清空。
+  return { pinned, grace: false, release: pinned ? null : (release ?? 'upward') }
 }
 
 /**

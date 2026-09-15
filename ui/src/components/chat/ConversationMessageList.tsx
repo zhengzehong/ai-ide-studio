@@ -140,8 +140,9 @@ export function ConversationMessageList({ adapter, compactTeam = false, location
     const onPointerDown = (event: PointerEvent): void => {
       pointerPressedRef.current = true
       pointerStartRef.current = { x: event.clientX, y: event.clientY }
-      // 滚动条槽位里的按下＝拖拽意图（Chromium 把滚动条事件派发给元素本身）
-      if (event.offsetX >= element.clientWidth - 1) manualScroll()
+      // 滚动条槽位里的按下＝拖拽意图（Chromium 把滚动条事件派发给元素本身）。
+      // offsetX 是 target 的相对坐标：子元素冒泡上来的事件必须排除，否则用子坐标和容器 clientWidth 比较会误判。
+      if (event.target === element && event.offsetX >= element.clientWidth - 1) manualScroll()
     }
     const onPointerMove = (event: PointerEvent): void => {
       const start = pointerStartRef.current
@@ -152,9 +153,10 @@ export function ConversationMessageList({ adapter, compactTeam = false, location
     element.addEventListener('wheel', manualScroll, { passive: true }); element.addEventListener('touchstart', manualScroll, { passive: true })
     element.addEventListener('pointerdown', onPointerDown)
     element.addEventListener('pointermove', onPointerMove, { passive: true })
-    element.addEventListener('pointerup', onPointerUp, { passive: true }); element.addEventListener('pointercancel', onPointerUp, { passive: true })
+    // 松手/取消挂 window：拖到元素外松开也要复位按下态，否则"无按键悬停移动 ≥8px"会误 arm manual（sticky 冻结）。
+    window.addEventListener('pointerup', onPointerUp, { passive: true }); window.addEventListener('pointercancel', onPointerUp, { passive: true })
     element.addEventListener('scroll', onScroll, { passive: true }); onScroll()
-    return () => { element.removeEventListener('scroll', onScroll); element.removeEventListener('wheel', manualScroll); element.removeEventListener('touchstart', manualScroll); element.removeEventListener('pointerdown', onPointerDown); element.removeEventListener('pointermove', onPointerMove); element.removeEventListener('pointerup', onPointerUp); element.removeEventListener('pointercancel', onPointerUp) }
+    return () => { element.removeEventListener('scroll', onScroll); element.removeEventListener('wheel', manualScroll); element.removeEventListener('touchstart', manualScroll); element.removeEventListener('pointerdown', onPointerDown); element.removeEventListener('pointermove', onPointerMove); window.removeEventListener('pointerup', onPointerUp); window.removeEventListener('pointercancel', onPointerUp) }
   }, [adapter.sessionId])
   useEffect(() => {
     navigationLock.current = false; pinnedRef.current = true; messageCountRef.current = 0
@@ -173,6 +175,8 @@ export function ConversationMessageList({ adapter, compactTeam = false, location
   // 只要不是用户明确在看历史（release=manual）且贴底或距底 ≤600px，就重新追底并重置宽限窗口。
   useEffect(() => {
     if (!contentRevision) return
+    // dock「定位成员」等定位锁生效中：此时不得再锚定（会无视锁、清锁并把定位目标卷走）。
+    if (navigationLock.current) return
     const element = scrollRef.current
     if (!element) return
     const metrics = { scrollHeight: element.scrollHeight, scrollTop: element.scrollTop, clientHeight: element.clientHeight }
@@ -223,6 +227,8 @@ export function ConversationMessageList({ adapter, compactTeam = false, location
   // P2 兜底：解 pin 后（用户确实在看历史）提供一次性回到底部入口；宽限窗口覆盖平滑动画期间的
   // 中间滚动事件，避免动画途中被降级（落底后近底分支自然重新 pin 住）。
   const jumpToBottom = useCallback((): void => {
+    // 用户显式要求回底 = 放弃定位锁，否则锁生效时 scrollToBottom 直接 return、按钮点不动。
+    navigationLock.current = false
     pinnedRef.current = true
     releaseReasonRef.current = null
     initialLocateGraceRef.current = true
