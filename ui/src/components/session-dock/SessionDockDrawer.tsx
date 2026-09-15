@@ -2,13 +2,16 @@ import { Loader2, MessagesSquare, Plus, RefreshCw, X } from 'lucide-react'
 import { useEffect, useState, type DragEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useSessionDockStore } from '../../stores/session-dock.store'
+import { useProjectSessionStatsStore } from '../../stores/project-session-stats.store'
 import { sessionDockWorkspacePath } from './session-dock-format'
+import { useProjectedSessionDockItems } from './session-dock-team'
 import { SessionDockPicker } from './SessionDockPicker'
 import { SessionDockRow } from './SessionDockRow'
 
 export function SessionDockDrawer() {
   const navigate = useNavigate()
-  const items = useSessionDockStore((state) => state.items)
+  // 坞里的团队线按团队条目展示（名称/标题/运行未读走线级口径）。
+  const items = useProjectedSessionDockItems()
   const open = useSessionDockStore((state) => state.open)
   const pickerOpen = useSessionDockStore((state) => state.pickerOpen)
   const loading = useSessionDockStore((state) => state.loading)
@@ -24,6 +27,8 @@ export function SessionDockDrawer() {
 
   useEffect(() => {
     if (!open) return
+    // 线级运行/未读来自项目统计快照：打开坞时补一次新鲜度（30s 内不重复拉）。
+    void useProjectSessionStatsStore.getState().refreshIfStale()
     const closeOnEscape = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') closeDrawer()
     }

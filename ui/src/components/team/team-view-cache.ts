@@ -30,8 +30,20 @@ export class TeamViewCache<T> {
 }
 
 export const teamListCache = new TeamViewCache<TeamConversation[]>(20)
-export const teamSelectionCache = new TeamViewCache<TeamConversation>(20)
 export const teamChatCache = new TeamViewCache<TeamChatCache>(8)
+
+// 线列表的本地失效通道：置顶/标未读等动作改的是线以外的状态（会话坞/已读位），
+// 不改线本身，服务端因此不发 team:update。这里用进程内信号让已挂载的列表重拉一次。
+const teamListInvalidationListeners = new Set<(key: string) => void>()
+export function subscribeTeamListInvalidation(listener: (key: string) => void): () => void {
+  teamListInvalidationListeners.add(listener)
+  return () => { teamListInvalidationListeners.delete(listener) }
+}
+export function invalidateTeamList(projectId: string, teamId: string): void {
+  const key = teamCacheKey(projectId, teamId)
+  teamListCache.delete(key)
+  teamListInvalidationListeners.forEach((listener) => listener(key))
+}
 let authEpoch = 0
 useConnectionStore.subscribe((state, previous) => {
   if (state.token !== previous.token || state.authMode !== previous.authMode) authEpoch++

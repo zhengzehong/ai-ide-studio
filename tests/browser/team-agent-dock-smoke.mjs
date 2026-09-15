@@ -3,6 +3,7 @@
  */
 import { chromium } from 'playwright'
 import { execFileSync } from 'node:child_process'
+import { createRequire } from 'node:module'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
@@ -11,7 +12,8 @@ const outDir = resolve(root, '.tmp/dock-smoke')
 rmSync(outDir, { recursive: true, force: true })
 mkdirSync(outDir, { recursive: true })
 execFileSync(process.execPath, [
-  resolve(root, 'node_modules/esbuild/bin/esbuild'),
+  // 零链接 worktree（无自身 node_modules）：按解析链找 esbuild，别写死 <root>/node_modules。
+  createRequire(import.meta.url).resolve('esbuild/bin/esbuild'),
   resolve(root, 'tests/browser/team-agent-dock-harness.tsx'),
   '--bundle', `--outfile=${resolve(outDir, 'bundle.js')}`, '--jsx=automatic', '--log-level=error',
 ])

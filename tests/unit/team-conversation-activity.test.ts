@@ -7,6 +7,7 @@ import { agentStore } from '../../src/store/agents.js'
 import { projectStore } from '../../src/store/projects.js'
 import { messageStore, sessionStore } from '../../src/store/sessions.js'
 import { teamService } from '../../src/core/teams.js'
+import { events } from '../../src/core/events.js'
 import { projectSessionStatsStore } from '../../src/store/session-stats.js'
 import { listTeamActivity } from '../../src/store/team-activity.js'
 import { markTeamConversationRead, markTeamConversationUnread } from '../../src/core/team-conversation-read.js'
@@ -36,6 +37,25 @@ describe('team conversation line running state', () => {
     markTeamConversationUnread(fixture.firstConversation.id)
     expect(firstIds.every(id => sessionStore.get(id)!.last_read_at! < '2030-01-01T00:00:00.000Z')).toBe(true)
     expect(sessionStore.get(second.conversation.master_session_id)!.last_read_at).toBe('2030-01-02T00:00:00.000Z')
+  })
+  test('broadcasts the canonical marked_unread event so client unread fences light up', () => {
+    const fixture = createTeamFixture()
+    const id = fixture.firstConversation.master_session_id
+    sessionStore.touch(id, '2030-01-01T00:00:00.000Z')
+    const emit = vi.spyOn(events, 'emit')
+    markTeamConversationUnread(fixture.firstConversation.id)
+    const payload = emit.mock.calls
+      .filter(([channel]) => channel === 'session:changed')
+      .map(([, data]) => data as { sessionId: string; data: Record<string, unknown> })
+      .find(entry => entry.sessionId === id)
+    // 与普通会话 session.markUnread 同口径：没有 event 标记时 PC 走"权威已读位"分支，未读会被立刻抹掉。
+    expect(payload).toMatchObject({ sessionId: id, data: { event: 'marked_unread' } })
+    expect(typeof payload?.data.last_read_at).toBe('string')
+    // 黄点与团队徽标走 stats 链路：标未读后线/项目计数必须立刻体现这条线的未读。
+    expect(teamService.listConversations(fixture.team.id)[0].unread).toBe(true)
+    const stats = projectSessionStatsStore.list(() => false).find(row => row.projectId === fixture.projectId)
+    expect(stats?.unreadCount).toBeGreaterThan(0)
+    expect(stats?.teams?.[0]?.unreadCount).toBeGreaterThan(0)
   })
   test('reading one line preserves unseen lines and uses latest member message time', () => {
     const fixture = createTeamFixture()

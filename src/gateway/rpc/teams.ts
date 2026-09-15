@@ -82,6 +82,13 @@ export const teamRpcHandlers: RpcHandlerMap = {
   'team.conversation.create'(msg, { sendResult }) {
     sendResult(teamService.createConversation(requiredText(msg.teamId, 'teamId'), typeof msg.title === 'string' ? msg.title : undefined))
   },
+  // 深链反查（仅 master session 命中）：坞里点团队线、带 sessionId 的链接显式进团队线视图。
+  'team.conversation.bySession'(msg, { sendResult }) {
+    sendResult(teamService.conversationByMasterSession(
+      requiredText(msg.sessionId, 'sessionId'),
+      (sessionId) => sessionManager.isPromptActive(sessionId),
+    ))
+  },
   'team.conversation.history'(msg, { sendResult }) {
     const detail = teamService.conversationDetail(requiredText(msg.conversationId, 'conversationId'))
     // 生效模型来源由后端解析后随成员下发，前端只展示不计算。

@@ -1,27 +1,18 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Bot, Loader2, Plus, RefreshCw } from 'lucide-react'
 import { ContextMenu, PromptDialog, ConfirmDialog } from '../ModalDialog'
 import { wsClient } from '../../services/ws-client'
 import type { TeamData } from '../../stores/team.store'
 import type { SessionIndicatorStateMap } from '../../utils/session-indicators'
-import { resolveTeamConversationIndicators, teamConversationListNeedsRefresh } from './team-conversation-state'
+import { resolveTeamConversationIndicators, sortTeamConversations, teamConversationListNeedsRefresh } from './team-conversation-state'
 import { formatTime } from '../../pages/workspace/helpers'
 import { SessionListRow } from '../session/SessionListRow'
 import { useProjectSessionStatsStore } from '../../stores/project-session-stats.store'
-import { teamCacheKey, teamListCache, teamSelectionCache, shareTeamRequest, invalidateTeamRequest, newTeamRequestScope } from './team-view-cache'
+import { useSessionDockStore } from '../../stores/session-dock.store'
+import { teamCacheKey, teamListCache, subscribeTeamListInvalidation, shareTeamRequest, invalidateTeamRequest, newTeamRequestScope, type TeamConversation } from './team-view-cache'
 
-interface Conversation {
-  id: string
-  team_id: string
-  master_session_id: string
-  title: string
-  status: string
-  updated_at: string
-  activity_state?: 'running' | 'idle' | null
-  grid_session_ids?: string[] | null
-  unread?: boolean
-  last_message_at?: string | null
-}
+// 线行与缓存/深链共用同一份定义，避免字段两处漂移。
+type Conversation = TeamConversation
 
 interface Props {
   team: TeamData
@@ -42,6 +33,15 @@ export function TeamConversationList({ team, activeId, onSelect, onMasterSession
   useEffect(() => { selectedId.current = activeId }, [activeId])
   const invalidateRequests = useCallback((): void => { requestSeq.current++ }, [])
   const summary = useProjectSessionStatsStore(state => state.statsByProjectId[team.project_id]?.teams?.find(item => item.teamId === team.id))
+  // 置顶优先：坞命中集只用于排序（客户端排序，理由：坞是全局单例、线列表只关心命中与否，
+  // 不必为排序动服务端 join；坞变化经 zustand 订阅即时重排）。
+  const pinnedSessionIds = useSessionDockStore(state => state.items.map(item => item.sessionId).join('\n'))
+  const pinnedIds = useMemo(
+    () => new Set(pinnedSessionIds ? pinnedSessionIds.split('\n') : []),
+    [pinnedSessionIds],
+  )
+  // 排序放渲染期：坞（置顶态）随时可能从面板/坞抽屉变化，state 里存原始行、渲染时才排，避免漏重排。
+  const rows = useMemo(() => sortTeamConversations(items, pinnedIds), [items, pinnedIds])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [menu, setMenu] = useState<{ item: Conversation; x: number; y: number } | null>(null)
@@ -62,14 +62,9 @@ export function TeamConversationList({ team, activeId, onSelect, onMasterSession
       const next = Array.isArray(rows) ? rows as Conversation[] : []
       teamListCache.set(cacheKey, next)
       setItems(next)
-      const remembered = teamSelectionCache.get(cacheKey)
-      const currentId = selectedId.current ?? remembered?.id
-      if (currentId && !next.some(item => item.id === currentId)) { teamSelectionCache.delete(cacheKey); onMasterSession(null); onSelect(null) }
-      const selected = next.find(item => item.id === currentId)
-      if (selected) {
-        teamSelectionCache.set(cacheKey, selected)
-        if (selected.title !== remembered?.title) onSelect(selected)
-      }
+      // 选中态由 Workspace 持有：这里只兜底"选中的线已消失"（删除/换团队），绝不替用户回选。
+      const currentId = selectedId.current
+      if (currentId && !next.some(item => item.id === currentId)) { onMasterSession(null); onSelect(null) }
     } catch (cause) {
       if (seq === requestSeq.current) setError(cause instanceof Error ? cause.message : '团队会话加载失败')
     } finally {
@@ -87,22 +82,10 @@ export function TeamConversationList({ team, activeId, onSelect, onMasterSession
       window.clearTimeout(refreshTimer)
       refreshTimer = window.setTimeout(() => { void load(true) }, 300)
     })
-    return () => { mounted.current = false; window.clearTimeout(timer); window.clearTimeout(refreshTimer); invalidateRequests(); off(); offTeam() }
-  }, [load, team.id, invalidateRequests])
-
-  // 点开团队时还没有选中的会话线:自动选中正在执行的一条,否则选最近更新的活跃线,避免只见空态。
-  useEffect(() => {
-    if (items.length === 0 || (activeId !== null && items.some(item => item.id === activeId))) return
-    const remembered = teamSelectionCache.get(cacheKey)
-    const best = items.find(item => item.id === remembered?.id)
-      // 归档线不参与自动选中：join 放宽后归档线也会拿到真实 activity，避免一进团队就被带到已归档线。
-      ?? items.find((item) => resolveTeamConversationIndicators(item, undefined, runningSessionIds, sessionActivityStates).running)
-      ?? [...items].sort((a, b) => Number(b.status === 'active') - Number(a.status === 'active') || b.updated_at.localeCompare(a.updated_at))[0]
-    if (!best) return
-    teamSelectionCache.set(cacheKey, best)
-    onMasterSession(best.master_session_id)
-    onSelect(best)
-  }, [activeId, items, loading, onMasterSession, onSelect, runningSessionIds, sessionActivityStates, cacheKey])
+    // 置顶/标未读改的是坞与已读位，服务端不发 team:update：本地失效信号到位后重拉一次。
+    const offInvalidate = subscribeTeamListInvalidation(key => { if (key === cacheKey) void load(true) })
+    return () => { mounted.current = false; window.clearTimeout(timer); window.clearTimeout(refreshTimer); invalidateRequests(); off(); offTeam(); offInvalidate() }
+  }, [load, team.id, invalidateRequests, cacheKey])
 
   const create = async (): Promise<void> => {
     if (mutationPending.current) return
@@ -113,8 +96,8 @@ export function TeamConversationList({ team, activeId, onSelect, onMasterSession
       if (!result.conversation || !mounted.current) return
       await load(true)
       if (!mounted.current) return
+      // 新建线仍显式选中新线（唯一保留的"替用户选线"路径，用户已确认保留）。
       onMasterSession(result.conversation.master_session_id)
-      teamSelectionCache.set(cacheKey, result.conversation)
       onSelect(result.conversation)
     } catch (cause) {
       if (mounted.current) setError(cause instanceof Error ? cause.message : '创建会话失败')
@@ -142,8 +125,9 @@ export function TeamConversationList({ team, activeId, onSelect, onMasterSession
       setItems(next)
       if (selectedId.current === item.id) {
         const selected = next.find(row => row.id === item.id)
-        if (selected) { teamSelectionCache.set(cacheKey, selected); onSelect(selected) }
-        else { teamSelectionCache.delete(cacheKey); onSelect(null); onMasterSession(null) }
+        // 归档当前线保持选中（选中对象刷新为归档态）；删除当前线才回空态。
+        if (selected) onSelect(selected)
+        else { onSelect(null); onMasterSession(null) }
       }
       await load(true)
     } catch (cause) {
@@ -168,7 +152,7 @@ export function TeamConversationList({ team, activeId, onSelect, onMasterSession
       <div style={listStyle}>
         {loading && items.length === 0 && <div style={stateStyle}><Loader2 size={16} style={{ animation: 'spin 1s linear infinite', marginBottom: 8 }} /><div>正在加载会话...</div></div>}
         {!loading && !error && items.length === 0 && <div style={stateStyle}>暂无会话<br /><span style={{ fontSize: 12 }}>点击上方加号新建</span></div>}
-        {items.map((item) => {
+        {rows.map((item) => {
           const activity = summary?.conversations.find(entry => entry.conversationId === item.id)
           // 绿点/未读点走公共判定：已归档线不参与（对齐徽标"总数含归档、在跑/未读不含归档"口径）。
           const { running, unread } = resolveTeamConversationIndicators(item, activity, runningSessionIds, sessionActivityStates)
@@ -177,12 +161,12 @@ export function TeamConversationList({ team, activeId, onSelect, onMasterSession
               key={item.id}
               sessionId={item.master_session_id}
               active={activeId === item.id}
-              onSelect={() => { teamSelectionCache.set(cacheKey, item); onMasterSession(item.master_session_id); onSelect(item) }}
+              onSelect={() => { onMasterSession(item.master_session_id); onSelect(item) }}
               onContextMenu={event => { event.preventDefault(); setMenu({ item, x: event.clientX, y: event.clientY }) }}
             >
               <span title={running ? '正在执行' : unread ? '未读' : item.status === 'active' ? '空闲' : '已归档'} style={statusDotStyle(running, unread)} />
               <span style={titleStyle} title={item.title}>{item.title}</span>
-              <span style={timeStyle}>{formatTime(activity?.lastMessageAt || item.last_message_at || item.updated_at)}</span>
+              <span style={timeStyle}>{formatTime(activity?.lastMessageAt || item.last_message_at || item.updated_at || '')}</span>
             </SessionListRow>
           )
         })}

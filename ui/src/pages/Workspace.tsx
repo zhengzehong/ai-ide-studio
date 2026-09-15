@@ -93,7 +93,7 @@ import { TeamConversationList } from '../components/team/TeamConversationList'
 import { TeamActivityBadge } from '../components/team/TeamActivityBadge'
 import { ActivityCountBadge } from '../components/session/ActivityCountBadge'
 import { useProjectSessionStatsStore } from '../stores/project-session-stats.store'
-import { teamCacheKey, teamSelectionCache } from '../components/team/team-view-cache'
+import { teamCacheKey, type TeamConversation } from '../components/team/team-view-cache'
 import { TeamChatPane } from '../components/team/TeamChatPane'
 import { TimelinePopover } from '../components/chat/TimelinePopover'
 import { processBlockNeedsDetail, useProcessThinkingDisclosure } from '../components/chat/process-detail'
@@ -277,11 +277,15 @@ export default function Workspace() {
   const { sidebarTab, selectedAgentId, setSidebarTab, setSelectedAgentId } =
     useWorkspaceProjectState(currentProjectId)
   const teams = useTeamStore((s) => s.teams)
+  const teamsLoading = useTeamStore((s) => s.teamsLoading)
   const fetchTeams = useTeamStore((s) => s.fetchTeams)
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null)
   const [createTeamOpen, setCreateTeamOpen] = useState(false)
-  const [teamConversation, setTeamConversation] = useState<{ id: string; team_id: string; master_session_id: string; title: string } | null>(null)
+  const [teamConversation, setTeamConversation] = useState<TeamConversation | null>(null)
   const [teamMasterSessionId, setTeamMasterSessionId] = useState<string | null>(null)
+  /** ?sessionId= 深链反查到的团队线（null=已确认不是团队线；未解析时为 null 状态对象）。 */
+  const [teamLineTarget, setTeamLineTarget] = useState<{ sessionId: string; line: TeamConversation | null } | null>(null)
+  const teamLinePendingRef = useRef<string | null>(null)
   const [orderingMode, setOrderingMode] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [agentVisibilityOpen, setAgentVisibilityOpen] = useState(false)
@@ -472,13 +476,22 @@ export default function Workspace() {
   const handleTeamClick = (teamId: string) => {
     if (orderingMode || selectedTeamId === teamId) return
     dismissSessionRestore()
-    const remembered = teamSelectionCache.get(teamCacheKey(currentProjectId || '', teamId))
+    // 进团队一律空态起步：不读"上次选中的线"（自动选中已按用户口径移除），线由用户显式点选。
     setSelectedTeamId(teamId)
     setSelectedAgentId(null)
     selectSession(null)
-    setTeamConversation(remembered ?? null)
-    setTeamMasterSessionId(remembered?.master_session_id ?? null)
+    setTeamConversation(null)
+    setTeamMasterSessionId(null)
   }
+
+  /**
+   * 标记未读成功后的退出：留在团队语境但回到空态（对齐普通会话 markUnread 后 selectSession(null)）。
+   * 会话坞选择缓存已退役（自动选中整体移除），无缓存需要清。
+   */
+  const exitTeamConversation = useCallback((): void => {
+    setTeamConversation(null)
+    setTeamMasterSessionId(null)
+  }, [])
 
   const persistAgentOrder = useCallback(async (agentIds: string[]) => {
     if (!currentProjectId) return
@@ -592,6 +605,44 @@ export default function Workspace() {
     const targetSession = projectSessions.find((session) => session.id === targetSessionId)
     if (!targetSession) return
     let cancelled = false
+    // 深链映射：session → 团队会话线（反查 master_session_id）。链接/坞条目本身指明了线，
+    // 属于显式选择，不违反"进团队不自动选线"。解析结果先落到实处，再决定走团队视图还是普通会话视图。
+    const lookup = teamLineTarget?.sessionId === targetSessionId ? teamLineTarget : null
+    if (!lookup) {
+      if (teamLinePendingRef.current !== targetSessionId) {
+        teamLinePendingRef.current = targetSessionId
+        void wsClient.request({ type: 'team.conversation.bySession', sessionId: targetSessionId })
+          .then((result) => { if (!cancelled) setTeamLineTarget({ sessionId: targetSessionId, line: (result as TeamConversation | null) ?? null }) })
+          .catch(() => { if (!cancelled) setTeamLineTarget({ sessionId: targetSessionId, line: null }) })
+          .finally(() => { if (teamLinePendingRef.current === targetSessionId) teamLinePendingRef.current = null })
+      }
+      return
+    }
+    // 团队线所属团队尚未进 teams（项目切换/团队列表还在加载）时不消费深链，等下一轮再判，
+    // 否则会被"团队不存在"的兜底 effect 立刻清掉；列表已加载仍找不到（团队刚归档）则按普通会话兜底。
+    if (lookup.line) {
+      if (teams.some((team) => team.id === lookup.line!.team_id)) {
+        const line = lookup.line
+        queueMicrotask(() => {
+          if (cancelled) return
+          setSelectedTeamId(line.team_id)
+          setSelectedAgentId(null)
+          selectSession(null)
+          setTeamConversation(line)
+          setTeamMasterSessionId(line.master_session_id)
+          setSidebarTab('sessions')
+          setSearchParams((prev) => {
+            const next = new URLSearchParams(prev)
+            next.delete('sessionId')
+            next.delete('projectId')
+            next.delete('secretaryId')
+            return next
+          }, { replace: true })
+        })
+        return () => { cancelled = true }
+      }
+      if (teamsLoading) return
+    }
     queueMicrotask(() => {
       if (cancelled) return
       setSelectedTeamId(null)
@@ -618,6 +669,9 @@ export default function Workspace() {
     setSearchParams,
     setSelectedAgentId,
     setSidebarTab,
+    teamLineTarget,
+    teams,
+    teamsLoading,
   ])
 
   const restoreSession = useCallback((session: SessionData): void => {
@@ -1456,7 +1510,7 @@ export default function Workspace() {
         onCloseFile={closeFile}
         chat={(
           selectedTeam ? (
-            <TeamChatPane team={selectedTeam} conversation={teamConversation} masterSessionId={teamMasterSessionId} onOpenPreview={openPreview} onOpenFiles={openFiles} onOpenResource={openChatResource} />
+            <TeamChatPane team={selectedTeam} conversation={teamConversation} masterSessionId={teamMasterSessionId} onExitConversation={exitTeamConversation} onOpenPreview={openPreview} onOpenFiles={openFiles} onOpenResource={openChatResource} />
           ) : (
           <WorkspaceChatPane
             connected={connected}

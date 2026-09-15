@@ -1,5 +1,28 @@
 import { describe, expect, it } from 'vitest'
-import { isTeamConversationRunning, resolveTeamConversationIndicators, teamConversationListNeedsRefresh } from '../../ui/src/components/team/team-conversation-state'
+import { isTeamConversationRunning, resolveTeamConversationIndicators, sortTeamConversations, teamConversationListNeedsRefresh } from '../../ui/src/components/team/team-conversation-state'
+
+describe('team conversation pinned-first ordering', () => {
+  const lines = [
+    { id: 'c1', master_session_id: 'm1' },
+    { id: 'c2', master_session_id: 'm2' },
+    { id: 'c3', master_session_id: 'm3' },
+  ]
+
+  it('keeps the server order untouched when nothing is pinned', () => {
+    expect(sortTeamConversations(lines, new Set())).toEqual(lines)
+  })
+
+  it('moves pinned lines to the front and keeps the rest in updated_at order', () => {
+    expect(sortTeamConversations(lines, new Set(['m3'])).map(line => line.id)).toEqual(['c3', 'c1', 'c2'])
+    expect(sortTeamConversations(lines, new Set(['m2', 'm3'])).map(line => line.id)).toEqual(['c2', 'c3', 'c1'])
+  })
+
+  it('does not mutate the incoming rows and tolerates a missing pinned line', () => {
+    const source = [...lines]
+    expect(sortTeamConversations(source, new Set(['m-other'])).map(line => line.id)).toEqual(['c1', 'c2', 'c3'])
+    expect(source).toEqual(lines)
+  })
+})
 
 describe('team conversation running indicator', () => {
   it('does not reload the conversation list for mailbox or task progress', () => {

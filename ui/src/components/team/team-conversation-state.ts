@@ -1,5 +1,18 @@
 import type { SessionIndicatorStateMap } from '../../utils/session-indicators'
 
+/**
+ * 置顶线优先排序：命中共用会话坞（global_session_dock，键=master session）的线排前面，
+ * 其余保持传入顺序（服务端已按 updated_at DESC 返回），排序稳定不抖动。
+ */
+export function sortTeamConversations<T extends { master_session_id: string }>(
+  conversations: T[],
+  pinnedSessionIds: ReadonlySet<string>,
+): T[] {
+  if (pinnedSessionIds.size === 0) return conversations
+  return [...conversations].sort((left, right) =>
+    Number(pinnedSessionIds.has(right.master_session_id)) - Number(pinnedSessionIds.has(left.master_session_id)))
+}
+
 export function teamConversationListNeedsRefresh(message: Record<string, unknown>): boolean {
   const data = message.data
   if (!data || typeof data !== 'object') return false

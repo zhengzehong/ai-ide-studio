@@ -1,6 +1,6 @@
 /* eslint-disable react-refresh/only-export-components */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
-import { RefreshCw } from 'lucide-react'
+import { Bot, RefreshCw } from 'lucide-react'
 import { ConversationComposer } from '../chat/ConversationComposer'
 import { ConversationMessageList } from '../chat/ConversationMessageList'
 import { InteractionPanel } from '../global-assistant/GlobalAssistantInteractions'
@@ -18,7 +18,10 @@ import { useModelStore } from '../../stores/model.store'
 import { loadOlderTeamPages, mergeOlderTeamPages } from './team-chat-history'
 import { loadTeamMessagePage, loadTeamSessionProgressive } from './team-chat-loader'
 import { mergeTeamMessageRefresh, runTeamLoads, TeamRecoveryGate } from './team-chat-refresh'
-import { teamCacheKey, teamChatCache, shareTeamRequest, invalidateTeamRequest, newTeamRequestScope, type SourceMessage, type TeamChatMember as Member } from './team-view-cache'
+import { teamCacheKey, teamChatCache, shareTeamRequest, invalidateTeamRequest, invalidateTeamList, newTeamRequestScope, type SourceMessage, type TeamChatMember as Member, type TeamConversation } from './team-view-cache'
+import { TeamSessionActions } from './TeamSessionActions'
+import { useSessionDockStore } from '../../stores/session-dock.store'
+import { useConnectionStore } from '../../stores/connection.store'
 import { useTeamRead } from './use-team-read'
 import { beginTeamPrompt, rejectTeamPrompt } from './team-chat-pending'
 import { subscribeTeamRecovery } from './team-chat-recovery'
@@ -30,13 +33,14 @@ import { TeamAgentSettingsModal, TeamMemberRemoveConfirm } from './TeamAgentSett
 import { aggregateSnapshots, emptySnapshot, mergeLoadedSnapshots, mergeTeamTurnReplay, finalizeSnapshot, applyEventToSnapshot, mergeProcessItem, normalizeCapabilities, type Snapshot } from './team-chat-state'
 export { aggregateSnapshots, compareTeamMessages, emptySnapshot, mergeLoadedSnapshots, finalizeSnapshot, applyEventToSnapshot, updateStreaming, hasLiveStreaming, rebuildStreamingFromEvents, TEAM_STREAM_REBUILD_EVENT_LIMIT, type Snapshot } from './team-chat-state'
 
-interface Conversation { id: string; team_id: string; master_session_id: string; title: string }
 interface Props {
   cacheScope?: string
   renderSurface?: (adapter: ConversationAdapter) => ReactElement
   team: TeamData
-  conversation: Conversation | null
+  conversation: TeamConversation | null
   masterSessionId: string | null
+  /** 标记未读成功后的退出动作（由 Workspace 清掉选中线，回到团队空态）。 */
+  onExitConversation?: () => void
   onOpenPreview?: (preview: PreviewPresentationInfo) => void
   onOpenFiles?: (presentation: FilesPresentationInfo) => void
   onOpenResource?: OpenChatResource
@@ -46,7 +50,7 @@ export function TeamChatPane(props: Props): ReactElement {
   return <TeamConversationPane key={(props.cacheScope || '') + teamCacheKey(props.team.project_id, props.team.id, props.conversation?.id || props.masterSessionId || 'empty')} {...props} />
 }
 
-function TeamConversationPane({ team, conversation, masterSessionId, onOpenPreview, onOpenFiles, onOpenResource, renderSurface, cacheScope }: Props): ReactElement {
+function TeamConversationPane({ team, conversation, masterSessionId, onExitConversation, onOpenPreview, onOpenFiles, onOpenResource, renderSurface, cacheScope }: Props): ReactElement {
   const cacheKey = (cacheScope || '') + teamCacheKey(team.project_id, team.id, conversation?.id)
   const [cached] = useState(() => teamChatCache.get(cacheKey))
   const [requestScope] = useState(newTeamRequestScope)
@@ -93,6 +97,57 @@ function TeamConversationPane({ team, conversation, masterSessionId, onOpenPrevi
   )
   const visibleSnapshots = useMemo(() => Object.fromEntries(sessionIds.flatMap(id => snapshots[id] ? [[id, snapshots[id]]] : [])), [sessionIds, snapshots])
   const markUnread = useTeamRead(conversation?.id, visibleSnapshots)
+
+  // —— 右上角动作（置顶 / 标记未读）：置顶复用全局会话坞（master session 即坞里那条），不新增服务端广播。 ——
+  const authMode = useConnectionStore((state) => state.authMode)
+  const dockItems = useSessionDockStore((state) => state.items)
+  const dockLoaded = useSessionDockStore((state) => state.loaded)
+  const loadDock = useSessionDockStore((state) => state.load)
+  const addToDock = useSessionDockStore((state) => state.add)
+  const removeFromDock = useSessionDockStore((state) => state.remove)
+  const [pendingAction, setPendingAction] = useState<'pin' | 'unread' | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const pinned = !!masterSessionId && dockItems.some((item) => item.sessionId === masterSessionId)
+  useEffect(() => { if (!dockLoaded) void loadDock() }, [dockLoaded, loadDock])
+
+  const togglePin = useCallback(async (): Promise<void> => {
+    if (!masterSessionId || pendingAction) return
+    setPendingAction('pin')
+    setActionError(null)
+    try {
+      if (pinned) await removeFromDock(masterSessionId)
+      else await addToDock(masterSessionId)
+      // 与普通会话同判据：写完后回读坞状态，未按预期翻转即当失败（错误文案来自坞 store）。
+      const nowPinned = useSessionDockStore.getState().items.some((item) => item.sessionId === masterSessionId)
+      if (nowPinned === pinned) {
+        const dockState = useSessionDockStore.getState()
+        throw new Error(dockState.error || dockState.searchError || '置顶状态保存失败')
+      }
+      // 置顶优先排序由线列表读坞命中集决定，本地失效让它重排（不新增 team:update 广播）。
+      invalidateTeamList(team.project_id, team.id)
+    } catch (cause) {
+      setActionError(cause instanceof Error ? cause.message : '置顶状态保存失败')
+    } finally { setPendingAction(null) }
+  }, [addToDock, masterSessionId, pendingAction, pinned, removeFromDock, team.id, team.project_id])
+
+  const markUnreadAndExit = useCallback(async (): Promise<void> => {
+    if (!conversation || pendingAction) return
+    setPendingAction('unread')
+    setActionError(null)
+    try {
+      await markUnread()
+      invalidateTeamList(team.project_id, team.id)
+      // 用户口径：标完未读就退出该线（失败留在线内并报错，不退出）。
+      onExitConversation?.()
+    } catch (cause) {
+      setActionError(cause instanceof Error ? cause.message : '标记未读失败')
+    } finally { setPendingAction(null) }
+  }, [conversation, markUnread, onExitConversation, pendingAction, team.id, team.project_id])
+
+  // 线级"可标未读"：归档线不可标；线内一条消息都没有时服务端会拒绝，按钮先禁用。
+  const canMarkUnread = !!conversation
+    && conversation.status !== 'archived'
+    && (Boolean(conversation.last_message_at) || Object.values(snapshots).some((snapshot) => snapshot.messages.length > 0 || !!snapshot.streaming))
 
   const load = useCallback((): Promise<boolean> => shareTeamRequest(`load:${cacheKey}:${requestScope}`, async () => {
     if (!conversation) { setMembers([]); setSnapshots({}); sourceMap.current.clear(); return false }
@@ -368,6 +423,14 @@ function TeamConversationPane({ team, conversation, masterSessionId, onOpenPrevi
   }, [load])
 
   if (renderSurface) return renderSurface(adapter)
+  // 团队语境空态：不选线时不再自动挑一条，这里明确引导从左侧选（composer 的禁用兜底保留不动）。
+  if (!conversation) {
+    return (
+      <main className="conversation-pane" data-conversation-pane style={{ position: 'relative' }}>
+        <div className="conversation-empty" style={{ flex: 1 }}><Bot size={48} /><div>从左侧选择一条会话线</div></div>
+      </main>
+    )
+  }
   return (
     <main className="conversation-pane" data-conversation-pane style={{ position: 'relative' }}>
       <header className="conversation-header">
@@ -379,9 +442,19 @@ function TeamConversationPane({ team, conversation, masterSessionId, onOpenPrevi
           </div>
         </div>
         <div className="conversation-actions">
+          {authMode === 'owner' && (
+            <TeamSessionActions
+              pinned={pinned}
+              canMarkUnread={canMarkUnread}
+              pendingAction={pendingAction}
+              onTogglePin={() => { void togglePin() }}
+              onMarkUnread={() => { void markUnreadAndExit() }}
+            />
+          )}
           {adapter.reload && <button type="button" onClick={() => { void adapter.reload?.() }} title="重新加载消息"><RefreshCw size={14} /></button>}
         </div>
       </header>
+      {actionError && <div role="alert" className="conversation-composer-error">{actionError}</div>}
       <ConversationMessageList adapter={adapter} compactTeam location={location} onSeen={activity.markSeen} onOpenPreview={onOpenPreview} onOpenFiles={onOpenFiles} onOpenResource={onOpenResource} />
       {(adapter.pendingPermissions.length > 0 || adapter.pendingElicitations.length > 0 || adapter.interactionError) && <div className="conversation-interactions">
         {adapter.interactionError && <div className="conversation-interaction-error">{adapter.interactionError}</div>}
