@@ -49,7 +49,9 @@ function formatTime(value: string): string {
 }
 
 const styles: Record<string, CSSProperties> = {
-  card: { position: 'relative', background: 'var(--bg-card)', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', overflow: 'hidden' },
+  // 卡片是固定高度 flex 列表(ReadingListPage list)的子项:overflow:hidden 会把自动最小尺寸降为 0,
+  // 条目一多整列被均匀压扁成空白细条且失去滚动,必须显式禁止收缩(同 InspirationPage 卡片写法)。
+  card: { position: 'relative', flexShrink: 0, background: 'var(--bg-card)', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-card)', overflow: 'hidden' },
   read: { opacity: 0.66 },
   main: { width: '100%', minHeight: 128, padding: '14px 14px 38px', border: 0, background: 'transparent', textAlign: 'left', color: 'inherit' },
   projectTag: { position: 'absolute', top: 12, right: 12, maxWidth: 100, display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 10, fontWeight: 600 },
