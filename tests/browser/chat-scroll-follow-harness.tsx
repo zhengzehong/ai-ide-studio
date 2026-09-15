@@ -152,7 +152,7 @@ function Harness(): ReactElement {
         <button id="btn-replay" onClick={() => { setReplayParagraphs(40); setContentRevision((value) => value + 1) }}>两段式:replay</button>
         <button id="btn-grow" onClick={() => { setReplayParagraphs((value) => value + 20); setContentRevision((value) => value + 1) }}>内容再落地</button>
         <button id="btn-two-stage-off" onClick={() => { setTwoStage(false); setReplayParagraphs(0); setContentRevision(0) }}>退出两段式</button>
-        <button id="btn-replay-short" onClick={() => { setReplayParagraphs(18); setContentRevision((value) => value + 1) }}>短重放18段</button>
+        <button id="btn-replay-short" onClick={() => { setReplayParagraphs(5); setContentRevision((value) => value + 1) }}>短重放5段</button>
         <button id="btn-tiny-grow" onClick={() => { setReplayParagraphs((value) => value + 1); setContentRevision((value) => value + 1) }}>增量落地</button>
         <button id="btn-locate" onClick={() => { locateCountRef.current += 1; setLocation({ messageId: `${SESSION}:m-19`, request: locateCountRef.current }) }}>定位到 m-19</button>
         <span id="phase">{mounted ? 'mounted' : 'away'}</span>
