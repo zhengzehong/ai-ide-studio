@@ -13,9 +13,13 @@ import type { Migration } from '../migrator.js'
  * 2) maintenance 按保留窗口清理 writer_batch_commits（504 万行）时按 committed_at 过滤，
  *    原先没有任何以 committed_at 前导的索引 → 每次清理都是全表扫描；本迁移补上。
  *
- * 部署注意（见实施报告）：三条索引都是一次性构建，SQLite 需要各扫一遍基表；
- * 在 9.31GB / 磁盘剩 14GB 的实例上，预计构建耗时数十秒、额外空间 ~100~200MB。
- * 若担心启动期抖动，可在部署前用 `PRAGMA cache_size` 预热或选择低峰窗口重启。
+ * 部署注意（见实施报告）：三条索引都是一次性构建，SQLite 需要各扫一遍基表。
+ * 生产库实测（只读探测）：messages 51,033 行 / 命中 6 行；turn_process_items 256,007 行 /
+ * 命中 120 行；writer_batch_commits 5,058,233 行（其中 406 万行已过 7 天窗口）。
+ * 因此前两条索引的构建成本≈两次全表扫描（实测各 < 1s），
+ * 第三条是主要成本：预计写 ~187MB 索引页、耗时数十秒。
+ * 库内当前有 768MB 空闲页（freelist，auto_vacuum=0），SQLite 会优先复用，文件本身增长有限；
+ * 但构建与外层迁移事务会产生 WAL，需预留数百 MB。磁盘剩 14GB，空间充足。
  * 回滚：DROP INDEX idx_messages_agent_running / idx_turn_process_items_open /
  *       idx_writer_batch_commits_committed_at（均为纯性能索引，删除不丢数据）。
  */
