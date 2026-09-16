@@ -3,8 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>输入框定向发消息 + 档位/权限内联 · 可点击原型（P0 确认版）</title>
+<title>composer 定向 / 档位内联 · 原型 v2（真实产品底）</title>
 <style>
+  /* ============================================================
+     1) 全局 token —— 原样取自 ui/src/index.css :root
+     ============================================================ */
   :root{
     --bg-0:#ffffff; --bg-1:#f9fafb; --bg-2:#f3f4f6; --bg-3:#e5e7eb; --bg-4:#d1d5db;
     --border:#e5e7eb; --border-light:#f0f1f3;
@@ -16,893 +19,1020 @@
     --shadow-md:0 4px 6px -1px rgba(0,0,0,.07),0 2px 4px -2px rgba(0,0,0,.05);
     --shadow-lg:0 10px 15px -3px rgba(0,0,0,.08),0 4px 6px -4px rgba(0,0,0,.03);
     --radius:8px; --radius-lg:12px;
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Inter',Helvetica,Arial,sans-serif;
+    font-size:15.5px; line-height:1.6; color:var(--text-1); background:var(--bg-1);
+    -webkit-font-smoothing:antialiased;
   }
-  *{margin:0;padding:0;box-sizing:border-box}
-  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',Helvetica,Arial,sans-serif;
-    font-size:14px;line-height:1.6;color:var(--text-1);background:var(--bg-2);
-    min-width:1000px;height:100vh;display:flex;justify-content:center;align-items:center;padding:14px}
-
-  /* ============ 页面外壳（PC ≥1000px） ============ */
-  .app{width:1120px;height:min(880px,calc(100vh - 28px));background:var(--bg-1);border:1px solid var(--border);
-    border-radius:var(--radius-lg);display:flex;flex-direction:column;overflow:hidden;box-shadow:var(--shadow-lg);position:relative}
-
-  /* 顶栏 */
-  .hd{display:flex;align-items:center;justify-content:space-between;padding:9px 16px;border-bottom:1px solid var(--border);background:var(--bg-0);flex-shrink:0}
-  .hd-l{display:flex;align-items:center;gap:10px}
-  .hd-avatar{width:28px;height:28px;border-radius:50%;background:var(--blue);color:#fff;display:grid;place-items:center;font-size:12px;font-weight:700}
-  .hd-title{font-size:14px;font-weight:600;display:flex;align-items:center;gap:6px}
-  .hd-sub{font-size:12px;color:var(--text-3)}
-  .tag{font-size:11px;font-weight:500;border-radius:4px;padding:1px 6px;border:1px solid transparent;white-space:nowrap}
-  .tag-blue{color:var(--blue);background:var(--blue-light);border-color:rgba(37,99,235,.2)}
-  .tag-purple{color:var(--purple);background:var(--purple-light);border-color:rgba(124,58,237,.2)}
-  .tag-green{color:var(--green);background:var(--green-light);border-color:rgba(5,150,105,.2)}
-  .tag-yellow{color:var(--yellow);background:var(--yellow-light);border-color:rgba(217,119,6,.25)}
-  .tag-red{color:var(--red);background:var(--red-light);border-color:rgba(220,38,38,.2)}
-  .tag-grey{color:var(--text-2);background:var(--bg-2);border-color:var(--border)}
-  .hd-actions{display:flex;align-items:center;gap:8px}
-  .btn-stop-all{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border:2px solid var(--red);
-    background:transparent;color:var(--red);border-radius:15px;cursor:pointer;font-family:inherit;font-size:12.5px;font-weight:600}
-  .btn-stop-all:hover{background:var(--red-light)}
-  .btn-stop-all:disabled{opacity:.45;cursor:default}
-  .btn-ghost{height:30px;padding:0 12px;border:1px solid var(--border);background:var(--bg-0);color:var(--text-2);
-    border-radius:var(--radius);cursor:pointer;font-family:inherit;font-size:12.5px}
-  .btn-ghost:hover{background:var(--bg-2)}
-
-  /* 主体：会话列 + 点检列 */
-  .body{flex:1;min-height:0;display:grid;grid-template-columns:1fr 268px}
-  .main{min-width:0;display:flex;flex-direction:column}
-  .side{border-left:1px solid var(--border);background:var(--bg-0);display:flex;flex-direction:column;min-height:0}
-
-  /* 成员条 */
-  .members{display:flex;align-items:center;gap:8px;padding:8px 16px;border-bottom:1px solid var(--border-light);background:var(--bg-0);flex-shrink:0;flex-wrap:wrap}
-  .members-label{font-size:12px;color:var(--text-3);flex-shrink:0}
-  .mchip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);background:var(--bg-0);
-    border-radius:999px;padding:2px 10px 2px 3px;font-size:12px;color:var(--text-1);white-space:nowrap}
-  .mchip .av{width:18px;height:18px;border-radius:50%;background:var(--pc);color:#fff;display:grid;place-items:center;font-size:9px;font-weight:700;flex-shrink:0}
-  .mchip .st{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--text-3)}
-  .mchip .st .dot{width:6px;height:6px;border-radius:50%;background:var(--bg-4)}
-  .mchip.is-running .st .dot{background:var(--blue);animation:pulse 1.4s infinite}
-  .mchip.is-running .st{color:var(--blue)}
-  .mchip.is-queued .st{color:var(--yellow)}
-  .mchip.is-queued .st .dot{background:var(--yellow)}
-  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
-  .mchip .rt{font-size:10.5px;color:var(--text-3);border-left:1px solid var(--border);padding-left:6px}
-  .members-note{margin-left:auto;font-size:11.5px;color:var(--text-3)}
-
-  /* 消息区 */
-  .scroll{flex:1;min-height:0;overflow-y:auto;padding:16px 18px}
-  .row{display:flex;gap:9px;margin-bottom:13px}
-  .row .avatar{width:26px;height:26px;border-radius:50%;background:var(--pc,var(--blue));color:#fff;display:grid;place-items:center;
-    font-size:11px;font-weight:700;flex-shrink:0}
-  .row .col{min-width:0;max-width:76%}
-  .row .meta{display:flex;gap:6px;align-items:center;font-size:12px;color:var(--text-3);margin-bottom:3px}
-  .row .meta .name{font-size:13px;color:var(--text-1);font-weight:600}
-  .bub{border:1px solid var(--border);border-radius:2px 12px 12px 12px;background:var(--bg-0);box-shadow:var(--shadow-sm);
-    padding:10px 13px;font-size:14px;line-height:1.65;color:var(--text-1)}
-  .row.human{flex-direction:row-reverse}
-  .row.human .avatar{background:var(--blue)}
-  .row.human .col{max-width:66%}
-  .row.human .meta{justify-content:flex-end}
-  .row.human .bub{border-color:rgba(37,99,235,.15);border-radius:12px 2px 12px 12px;background:var(--blue-light)}
-  .sys-notice{max-width:74%;margin:0 auto 13px;border:1px dashed var(--border);border-radius:var(--radius);
-    background:var(--bg-0);padding:6px 12px;font-size:12px;color:var(--text-3);text-align:center}
-
-  /* 定向转录块：「你 → 成员」 */
-  .dblock{margin-bottom:13px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-0);overflow:hidden;box-shadow:var(--shadow-sm)}
-  .dblock-hd{display:flex;align-items:center;gap:7px;padding:7px 11px;border-bottom:1px solid var(--border-light);font-size:12px;color:var(--text-2)}
-  .dblock-hd .route{font-weight:700;color:var(--blue);display:inline-flex;align-items:center;gap:5px}
-  .dblock-hd .who{font-weight:600;color:var(--text-1)}
-  .dblock-hd .spacer{flex:1}
-  .dblock-bd{padding:9px 12px;font-size:13.5px;line-height:1.65;white-space:pre-wrap;overflow-wrap:anywhere;background:var(--bg-1)}
-  .dblock-ft{padding:5px 11px;border-top:1px solid var(--border-light);font-size:11px;color:var(--text-3);display:flex;gap:6px;align-items:center}
-  .qbadge{font-size:11px;font-weight:600;border-radius:9px;padding:1px 8px;display:inline-flex;align-items:center;gap:4px}
-  .qbadge.queued{background:var(--yellow-light);color:var(--yellow);border:1px solid rgba(217,119,6,.25)}
-  .qbadge.running{background:var(--blue-light);color:var(--blue);border:1px solid rgba(37,99,235,.2)}
-  .qbadge.done{background:var(--green-light);color:var(--green);border:1px solid rgba(5,150,105,.2)}
-  .qbadge .mini-dot{width:5px;height:5px;border-radius:50%;background:currentColor;animation:pulse 1.4s infinite}
-  .spin{width:11px;height:11px;border:2px solid rgba(37,99,235,.25);border-top-color:var(--blue);border-radius:50%;animation:spin .8s linear infinite;display:inline-block}
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg-2);min-width:1100px;height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:14px}
   @keyframes spin{to{transform:rotate(360deg)}}
+  @keyframes session-running-pulse{0%,100%{opacity:1}50%{opacity:.45}}
 
-  .fail-note{margin:-6px 0 13px 35px;border:1px solid color-mix(in srgb,var(--red) 28%,var(--border));border-radius:var(--radius);
-    background:color-mix(in srgb,var(--red) 5%,var(--bg-0));padding:7px 11px;font-size:12px;color:var(--red)}
+  /* ============================================================
+     2) 应用外壳 —— 原样取自 ui/src/components/layout/AppLayout.css
+     ============================================================ */
+  .app-layout{display:flex;width:1240px;height:min(880px,calc(100vh - 70px));overflow:hidden;background:var(--bg-1);
+    border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg)}
+  .sidebar{width:56px;background:var(--bg-0);border-right:1px solid var(--border);display:flex;flex-direction:column;align-items:center;flex-shrink:0}
+  .sidebar-logo{height:56px;display:flex;align-items:center;justify-content:center;color:var(--blue);width:100%}
+  .sidebar-nav{display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 0;flex:1}
+  .sidebar-link{position:relative;display:flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:var(--radius);
+    color:var(--text-3);text-decoration:none;transition:all .15s ease;border:0;background:transparent;cursor:pointer}
+  .sidebar-link:hover{color:var(--text-1);background:var(--bg-2)}
+  .sidebar-link--active{color:var(--blue);background:var(--blue-light)}
+  .sidebar-divider{width:24px;height:1px;background:var(--border);margin:4px 0}
+  .sidebar-bottom{padding:8px 0 12px;display:flex;flex-direction:column;align-items:center;gap:4px}
+  .main-area{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
+  .top-bar{height:56px;background:var(--bg-0);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 20px;gap:16px;flex-shrink:0}
+  .top-bar-left{flex-shrink:0;display:flex;align-items:center;gap:12px}
+  .project-name{font-size:14px;font-weight:600;color:var(--text-1);white-space:nowrap}
+  .command-input-wrapper{flex:1;max-width:520px;position:relative}
+  .command-input-icon{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--text-3);pointer-events:none}
+  .command-input{width:100%;height:36px;background:var(--bg-2);border:1px solid var(--border);border-radius:var(--radius);
+    padding:0 14px 0 36px;font-size:13px;color:var(--text-1);outline:none;font-family:inherit}
+  .command-input::placeholder{color:var(--text-3)}
+  .top-bar-right{flex-shrink:0;margin-left:auto;display:flex;align-items:center;gap:12px}
+  .agent-status-bar{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-2);background:var(--bg-2);
+    border:1px solid var(--border);border-radius:20px;padding:5px 12px}
+  .status-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;background:var(--green)}
+  .status-dot.status-busy{background:var(--blue)}
 
-  /* ============ 输入区 ============ */
-  .composer-wrap{flex-shrink:0;margin:0 18px 14px;position:relative}
-  .composer{border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--bg-0);
-    box-shadow:0 1px 4px rgba(0,0,0,.06);overflow:visible}
-  .composer textarea{display:block;width:100%;min-height:54px;max-height:140px;padding:13px 15px 6px;border:0;outline:0;resize:none;
-    background:transparent;color:var(--text-1);font-family:inherit;font-size:14.5px;line-height:1.6}
-  .composer textarea::placeholder{color:var(--text-3)}
-  .toolbar{display:flex;align-items:center;gap:6px;padding:5px 10px 9px;min-width:0;flex-wrap:nowrap}
-  .tb-spacer{flex:1;min-width:6px}
+  /* workspace 主体行（Workspace.tsx 内联样式） */
+  .workspace{display:flex;height:100%;background:var(--bg-1);min-height:0;flex:1}
 
-  /* 目标胶囊 */
-  .capsule{display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 4px 0 10px;border:1px solid var(--border);
-    border-radius:14px;background:var(--bg-1);color:var(--text-2);cursor:pointer;font-family:inherit;font-size:12.5px;font-weight:600;
-    white-space:nowrap;transition:background .12s,border-color .12s,color .12s}
-  .capsule:hover{background:var(--bg-2)}
-  .capsule .caret{font-size:9px;opacity:.7}
-  .capsule .clear{display:none;width:18px;height:18px;border-radius:50%;border:0;background:rgba(255,255,255,.28);color:inherit;
-    cursor:pointer;font-size:11px;line-height:1;place-items:center;padding:0}
-  .capsule.is-targeted{background:var(--blue);border-color:var(--blue);color:#fff;box-shadow:0 1px 3px rgba(37,99,235,.4)}
-  .capsule.is-targeted:hover{background:#1d4ed8}
-  .capsule.is-targeted .clear{display:grid}
-  .capsule.is-targeted .clear:hover{background:rgba(255,255,255,.45)}
+  /* ============================================================
+     3) 左列：团队会话列表 —— 取自 TeamConversationList.tsx（aside/header/row 内联样式）
+     ============================================================ */
+  .team-list{width:200px;flex-shrink:0;display:flex;flex-direction:column;background:var(--bg-0);position:relative}
+  .team-list-edge{position:absolute;top:0;right:0;width:1px;height:100%;
+    background:linear-gradient(to bottom,transparent,var(--border) 10%,var(--border) 90%,transparent);pointer-events:none;z-index:1}
+  .team-list-header{padding:12px 14px 12px 17px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--border);
+    flex-shrink:0;min-width:0;position:relative;background:var(--bg-1)}
+  .team-list-accent{position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--blue)}
+  .team-list-icon{width:18px;height:18px;border-radius:4px;background:var(--blue);color:#fff;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
+  .team-list-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:600;color:var(--text-1)}
+  .team-list-btn{display:inline-flex;align-items:center;justify-content:center;border:0;background:transparent;color:var(--text-3);cursor:pointer;padding:3px;border-radius:4px}
+  .team-list-btn:hover{color:var(--text-1);background:var(--bg-2)}
+  .team-list-body{flex:1;overflow-y:auto;padding:4px 0;min-height:0}
+  .session-row{position:relative;display:flex;align-items:center;padding-left:12px;padding-right:8px;border-radius:4px;transition:background .15s}
+  .session-row.is-active{background:var(--blue-light);box-shadow:inset 2px 0 0 var(--blue)}
+  .session-row-btn{display:flex;align-items:center;gap:8px;flex:1;min-width:0;padding:6px 0;border:none;background:transparent;color:var(--text-1);cursor:pointer;text-align:left;font-family:inherit}
+  .session-row-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;background:var(--text-3)}
+  .session-row-dot.is-running{background:var(--green);animation:session-running-pulse 1s ease-in-out infinite;box-shadow:0 0 0 4px rgba(5,150,105,.12)}
+  .session-row-dot.is-unread{background:var(--yellow)}
+  .session-row-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:400}
+  .session-row-time{font-size:11px;color:var(--text-3);flex-shrink:0;margin-left:4px}
 
-  /* 内联 chips */
-  .chips{display:inline-flex;align-items:center;gap:6px;min-width:0;max-width:640px;overflow:hidden}
-  .chip{display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 9px;border:1px solid var(--border);
-    border-radius:14px;background:var(--bg-0);color:var(--text-2);cursor:pointer;font-family:inherit;font-size:12.5px;
-    white-space:nowrap;max-width:230px;overflow:hidden;text-overflow:ellipsis}
-  .chip:hover{border-color:#d0d5dd;background:var(--bg-1)}
-  .chip.is-open{border-color:var(--blue);color:var(--blue);background:var(--blue-light)}
-  .chip .k{color:var(--text-3);font-weight:500}
-  .chip .v{font-weight:600;color:var(--text-1);overflow:hidden;text-overflow:ellipsis}
-  .chip.is-open .v{color:var(--blue)}
-  .chip.is-pending{opacity:.55}
-  .chip.is-disabled{opacity:.55;cursor:not-allowed;border-style:dashed;background:var(--bg-1)}
-  .chip[disabled]{cursor:not-allowed;opacity:.5}
-  .chip .caret{font-size:9px;opacity:.7}
-  .chip-dot{width:6px;height:6px;border-radius:50%;background:var(--green);flex-shrink:0}
+  /* ============================================================
+     4) 会话面板 —— 原样取自 ui/src/components/chat/conversation-pane.css
+     ============================================================ */
+  .conversation-pane{display:flex;flex:1;min-width:0;min-height:0;flex-direction:column;background:var(--bg-1)}
+  .conversation-header{display:flex;align-items:center;justify-content:space-between;padding:10px 20px;border-bottom:1px solid var(--border);background:var(--bg-0);flex-shrink:0}
+  .conversation-target{display:flex;align-items:center;gap:10px;min-width:0}
+  .conversation-agent-avatar,.conversation-avatar{display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:var(--blue);color:#fff;flex-shrink:0}
+  .conversation-title{display:flex;gap:6px;align-items:center;font-size:15px}
+  .conversation-title span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
+  .conversation-subtitle{font-size:13px;color:var(--text-3)}
+  .conversation-actions{display:flex;gap:6px}
+  .conversation-actions button{display:grid;place-items:center;width:30px;height:30px;border:1px solid var(--border);border-radius:6px;background:var(--bg-0);color:var(--text-3);cursor:pointer}
+  .conversation-message-scroll{flex:1;min-height:0;overflow-y:auto;padding:20px}
+  .conversation-message{display:flex;align-items:flex-start;gap:10px;margin-bottom:14px}
+  .conversation-message.is-human{flex-direction:row-reverse}
+  .conversation-message-body{min-width:0;max-width:75%}
+  .conversation-message-meta{display:flex;align-items:center;gap:6px;margin-bottom:4px;font-size:14px}
+  .conversation-message-meta time{font-size:12px;color:var(--text-3)}
+  .conversation-message.is-human .conversation-message-meta{justify-content:flex-end}
+  .conversation-bubble{padding:12px 14px;border:1px solid var(--border);border-radius:2px 12px 12px 12px;background:var(--bg-0);box-shadow:var(--shadow-sm);overflow:hidden}
+  .conversation-message.is-human .conversation-bubble{border-color:rgba(37,99,235,.15);border-radius:12px 2px 12px 12px;background:var(--blue-light)}
+  .conversation-message.is-failed .conversation-bubble{border-color:color-mix(in srgb,var(--red) 28%,var(--border));background:color-mix(in srgb,var(--red) 5%,var(--bg-0))}
+  .conversation-failed-label{color:var(--red);font-size:12px;font-weight:600}
+  .conversation-streaming-label{display:inline-flex;align-items:center;gap:4px;color:var(--blue);font-size:12px}
+  .conversation-system-notice{max-width:76%;margin:10px auto 4px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-2);color:var(--text-2);font-size:12px;line-height:1.6;overflow-wrap:anywhere}
+  .conversation-system-notice-meta{display:flex;align-items:center;gap:8px;margin-bottom:4px;color:var(--text-3);font-size:12px}
+  .conversation-system-notice-meta strong{color:var(--text-2);font-weight:600}
+  .conversation-team-assignment{margin-bottom:10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-1);overflow:hidden}
+  .conversation-team-assignment-header{display:flex;align-items:center;gap:6px;width:100%;padding:7px 9px;border:0;background:transparent;color:var(--text-2);font:inherit;font-size:12px;text-align:left;cursor:pointer}
+  .conversation-team-assignment-header span{font-weight:600}
+  .conversation-team-assignment-header small{margin-left:auto;max-width:38%;overflow:hidden;color:var(--text-3);font:11px ui-monospace,SFMono-Regular,Menlo,monospace;text-overflow:ellipsis;white-space:nowrap}
+  .conversation-team-assignment-content{display:none;padding:8px 10px;border-top:1px solid var(--border);color:var(--text-2);font-size:13px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere}
+  .conversation-team-assignment-content.is-open{display:block}
 
-  /* 弹出层（成员菜单 / chip 菜单） */
-  .pop{position:absolute;z-index:40;min-width:250px;background:var(--bg-0);border:1px solid var(--border);border-radius:10px;
-    box-shadow:var(--shadow-lg);padding:5px;display:none}
-  .pop.open{display:block}
-  .pop-item{display:flex;align-items:center;gap:8px;width:100%;border:0;background:transparent;border-radius:7px;
-    padding:7px 9px;cursor:pointer;font-family:inherit;font-size:13px;color:var(--text-1);text-align:left}
-  .pop-item:hover{background:var(--bg-2)}
-  .pop-item .av{width:22px;height:22px;border-radius:50%;background:var(--pc);color:#fff;display:grid;place-items:center;font-size:10px;font-weight:700;flex-shrink:0}
-  .pop-item .n{font-weight:600}
-  .pop-item .sub{margin-left:auto;font-size:11.5px;color:var(--text-3);display:inline-flex;align-items:center;gap:4px}
-  .pop-item .sub .dot{width:6px;height:6px;border-radius:50%;background:var(--bg-4)}
-  .pop-item .sub.is-running{color:var(--blue)}
-  .pop-item .sub.is-running .dot{background:var(--blue);animation:pulse 1.4s infinite}
-  .pop-sep{height:1px;background:var(--border-light);margin:5px 6px}
-  .pop-label{padding:6px 9px 3px;font-size:11px;color:var(--text-3);font-weight:600;letter-spacing:.02em}
-  .pop-foot{padding:6px 9px;border-top:1px solid var(--border-light);margin-top:4px;font-size:11px;color:var(--text-3);line-height:1.55}
-  .pop-item .badge{margin-left:auto;font-size:10px;border-radius:4px;padding:0 5px;border:1px solid var(--border);color:var(--text-3);background:var(--bg-1)}
-  .pop-item .opt-val{margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--text-3)}
-  .pop-item.is-current{background:var(--blue-light)}
-  .pop-item.is-current .opt-val{color:var(--blue);font-weight:600}
-  .pop-note{padding:5px 9px 7px;font-size:11px;color:var(--text-3);line-height:1.55}
-  .timing-line{display:flex;align-items:flex-start;gap:6px;padding:4px 9px;font-size:11.5px;color:var(--text-2);line-height:1.5}
-  .timing-line b{color:var(--text-1)}
-  .timing-line .ic{color:var(--blue);flex-shrink:0}
+  /* ============================================================
+     5) 输入区 —— 原样取自 conversation-pane.css（composer/toolbar/menu）
+     ============================================================ */
+  .conversation-composer-shell{position:relative;flex-shrink:0;margin:0 20px 16px}
+  .conversation-composer{position:relative;border:1px solid var(--border);border-radius:12px;background:var(--bg-0);box-shadow:0 1px 4px rgba(0,0,0,.06);overflow:hidden;opacity:1}
+  .conversation-composer.is-disabled{opacity:.5}
+  .conversation-composer textarea{display:block;width:100%;min-height:56px;max-height:160px;padding:14px 16px 8px;border:0;outline:0;resize:none;background:transparent;color:var(--text-1);font-family:inherit;font-size:15px;font-weight:400;line-height:1.6;box-sizing:border-box}
+  .conversation-toolbar{display:flex;align-items:center;gap:4px;padding:6px 12px 10px;min-width:0}
+  .conversation-toolbar-spacer{flex:1;min-width:4px}
+  .conversation-toolbar-button{display:inline-flex;align-items:center;gap:4px;max-width:150px;padding:4px 10px;border:0;border-radius:6px;background:var(--bg-1);color:var(--text-2);cursor:pointer;font-family:inherit;font-size:13px;font-weight:500;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .conversation-toolbar-button:hover,.conversation-toolbar-button.is-active{background:var(--blue-light);color:var(--blue)}
+  .conversation-toolbar-button.is-transparent{background:transparent}
+  .conversation-tool-button{display:grid;place-items:center;width:30px;height:30px;flex-shrink:0;background:transparent!important;border:0!important;color:var(--text-3)!important;border-radius:6px;cursor:pointer}
+  .conversation-tool-button:hover{color:var(--blue)!important;background:var(--bg-1)!important}
+  .conversation-context{display:flex;align-items:center;gap:4px;color:var(--text-3);font-size:12px;white-space:nowrap;flex-shrink:0}
+  .conversation-send,.conversation-stop{display:grid;place-items:center;width:32px;height:32px;border-radius:50%;cursor:pointer;flex-shrink:0}
+  .conversation-send{border:0;background:var(--text-1);color:var(--bg-0)}
+  .conversation-send:disabled{background:var(--bg-3);cursor:default}
+  .conversation-stop{border:2px solid var(--red);background:transparent;color:var(--red)}
+  .conversation-stop:disabled{cursor:wait;opacity:.65}
+  .conversation-toolbar-status{flex-shrink:0;margin-right:6px;color:var(--text-3);font-size:12px;white-space:nowrap}
+  .conversation-toolbar-status--error{color:var(--red);font-size:13px;font-weight:600}
+  .conversation-composer-error{padding:8px 12px 0;color:var(--red);font-size:12px}
+  .conversation-composer-queued{margin-bottom:8px;color:var(--text-3);font-size:13px}
+  .conversation-menu-backdrop{position:fixed;inset:0;z-index:2000}
+  .conversation-menu{position:fixed;min-width:220px;max-height:360px;overflow-y:auto;overflow-x:hidden;z-index:2001;display:flex;flex-direction:column;gap:2px;padding:6px;border:1px solid var(--border);border-radius:12px;background:var(--bg-0);box-shadow:0 8px 30px rgba(0,0,0,.12);box-sizing:border-box;transform:translateY(-100%)}
+  .conversation-menu button{display:flex;align-items:flex-start;gap:8px;width:100%;min-width:0;padding:10px 14px;border:0;border-radius:8px;background:transparent;color:var(--text-1);cursor:pointer;text-align:left;font-family:inherit}
+  .conversation-menu button:hover,.conversation-menu button.is-active{background:var(--blue-light)}
+  .conversation-menu button>svg{flex-shrink:0;margin-top:2px;color:var(--blue)}
+  .conversation-menu-copy{display:block;min-width:0}
+  .conversation-menu strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px}
+  .conversation-menu small{display:block;overflow:hidden;margin-top:2px;color:var(--text-3);font-size:12px;line-height:1.4;white-space:normal;overflow-wrap:anywhere}
+  /* 档位菜单两截内容较长：放宽高度让「仅此线 / 设为该成员默认」一屏可见（其余沿用真实 .conversation-menu） */
+  .conversation-menu.is-tall{max-height:min(80vh,680px);gap:0}
+  .conversation-menu.is-tall button{padding:8px 14px}
 
-  /* 权限弹层内的小块 */
-  .perm-row{display:flex;align-items:center;gap:6px;padding:5px 9px;font-size:12.5px;color:var(--text-2)}
-  .perm-row .lab{color:var(--text-3);flex-shrink:0;width:74px}
-  .pill{font-size:11.5px;border:1px solid var(--border);border-radius:999px;padding:1px 8px;background:var(--bg-1);color:var(--text-2)}
-  .pill.on{border-color:rgba(37,99,235,.3);background:var(--blue-light);color:var(--blue);font-weight:600}
-  .pop-btn{display:block;width:calc(100% - 12px);margin:6px 6px 4px;padding:7px 9px;border:1px solid var(--blue);
-    background:var(--blue-light);color:var(--blue);border-radius:7px;cursor:pointer;font-family:inherit;font-size:12.5px;font-weight:600}
-  .pop-btn:hover{background:#dbeafe}
+  /* 弹窗（ModalDialog.tsx 内联样式） */
+  .modal-overlay{position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.3);backdrop-filter:blur(2px)}
+  .modal-dialog{background:var(--bg-0);border-radius:12px;box-shadow:0 16px 48px rgba(0,0,0,.15);overflow:hidden;width:380px}
+  .modal-header{padding:16px 20px 0}
+  .modal-title{font-size:16px;font-weight:600;color:var(--text-1)}
+  .modal-body{padding:14px 20px 18px}
+  .modal-message{font-size:14px;color:var(--text-2);line-height:1.6;margin:0 0 16px}
+  .modal-actions{display:flex;justify-content:flex-end;gap:8px}
+  .btn-primary{padding:7px 18px;border-radius:8px;border:none;background:var(--blue);color:#fff;font-size:14px;font-weight:500;cursor:pointer;font-family:inherit}
+  .btn-secondary{padding:7px 18px;border-radius:8px;border:1px solid var(--border);background:var(--bg-0);color:var(--text-2);font-size:14px;cursor:pointer;font-family:inherit}
 
-  /* 发送/停止 */
-  .icon-btn{display:grid;place-items:center;width:32px;height:32px;border-radius:50%;cursor:pointer;flex-shrink:0}
-  .send{border:0;background:var(--text-1);color:var(--bg-0)}
-  .send:disabled{background:var(--bg-3);cursor:default}
-  .stop{border:2px solid var(--red);background:transparent;color:var(--red)}
-  .stop:hover{background:var(--red-light)}
-  .stop:disabled{opacity:.45;cursor:default}
+  /* ============================================================
+     6) 团队 Agent dock —— 取自 TeamAgentDock.tsx 的 styles 常量（含其内联 hover 规则）
+     ============================================================ */
+  .team-agent-dock{position:absolute;right:20px;bottom:144px;z-index:40;display:flex;flex-direction:column;width:320px;max-width:calc(100vw - 40px);max-height:50vh;overflow:hidden;border:1px solid var(--border);border-radius:12px;background:var(--bg-0);box-shadow:var(--shadow-lg)}
+  .team-agent-dock-head{display:flex;align-items:center;gap:7px;width:100%;padding:8px 12px;border:none;background:var(--bg-1);font-size:13.5px;font-weight:700;color:var(--text-1);cursor:pointer;font-family:inherit}
+  .team-agent-dock-head:hover{background:var(--bg-2)}
+  .team-agent-dock-head-dots{display:inline-flex;gap:4px;margin-left:2px}
+  .team-agent-dock-head-dot{width:8px;height:8px;border-radius:50%;background:var(--bg-4)}
+  .team-agent-dock-head-dot.is-busy{background:var(--green);animation:session-running-pulse 1.6s ease-in-out infinite}
+  .team-agent-dock-chev{margin-left:auto;color:var(--text-3);display:flex;transition:transform .15s}
+  .team-agent-dock-chev.is-collapsed{transform:rotate(-90deg)}
+  .team-agent-dock-body{padding:7px;display:flex;flex-direction:column;overflow-y:auto;min-height:0}
+  .team-agent-dock-hint{font-size:11.5px;color:var(--text-3);padding:0 3px 6px}
+  .team-agent-dock-row{position:relative;width:100%;cursor:pointer;padding:9px 10px;border-radius:9px;border:1px solid var(--border);background:var(--bg-1);margin-bottom:6px;box-sizing:border-box;transition:background .15s,border-color .15s}
+  .team-agent-dock-row:hover{background:var(--bg-2)}
+  .team-agent-dock-row-top{display:flex;align-items:center;gap:8px;min-width:0}
+  .team-agent-dock-avatar{width:26px;height:26px;border-radius:50%;color:#fff;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;position:relative;line-height:1}
+  .team-agent-dock-presence{position:absolute;right:-1px;bottom:-1px;width:9px;height:9px;border-radius:50%;border:2px solid var(--bg-1);background:var(--bg-4);box-sizing:border-box}
+  .team-agent-dock-presence.is-busy{background:var(--green);animation:session-running-pulse 1.6s ease-in-out infinite}
+  .team-agent-dock-name{font-size:14px;font-weight:700;color:var(--text-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .team-agent-dock-role-master{font-size:11px;padding:1px 6px;border-radius:999px;font-weight:700;flex-shrink:0;background:var(--blue-light);color:var(--blue)}
+  .team-agent-dock-role-member{font-size:11px;padding:1px 6px;border-radius:999px;font-weight:700;flex-shrink:0;background:var(--bg-2);color:var(--text-3)}
+  .team-agent-dock-status{margin-left:auto;display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:700;flex-shrink:0;max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .team-agent-dock-status.is-running{color:var(--blue)}
+  .team-agent-dock-status.is-idle{color:var(--text-3);font-weight:500}
+  .team-agent-dock-idle-dot{width:7px;height:7px;border-radius:50%;background:var(--bg-4);flex-shrink:0}
+  .team-agent-dock-sub{display:flex;align-items:center;gap:6px;margin-top:4px;padding-left:34px;padding-right:68px;font-size:12px;color:var(--text-3);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  .team-agent-dock-model{color:var(--text-2);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .team-agent-dock-more{position:absolute;right:8px;bottom:8px;width:24px;height:24px;border:none;border-radius:6px;background:transparent;color:var(--text-3);cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:0}
+  .team-agent-dock-row:hover .team-agent-dock-more{opacity:1;background:var(--bg-3);color:var(--text-1)}
+  .team-agent-dock-stop{position:absolute;right:38px;bottom:8px;width:24px;height:24px;border:1.5px solid var(--red);border-radius:50%;background:transparent;color:var(--red);cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
+  .team-agent-dock-stop:hover{border-color:var(--red)}
+  .team-agent-dock-spin{animation:spin 1s linear infinite;flex-shrink:0}
 
-  /* 生效话术提示行 */
-  .hintline{display:flex;align-items:center;gap:6px;margin-top:7px;font-size:11.5px;color:var(--text-3);min-height:16px}
-  .hintline .hl{color:var(--text-2)}
-  .hintline .warn{color:var(--yellow)}
+  /* ============================================================
+     7) 新增交互元素（v2 设计新增；形状/配色全部沿用上面的 token 与工具栏按钮度量）
+        — 目标胶囊 .composer-target-capsule
+        — 内联 chips .composer-target-chip
+     ============================================================ */
+  .composer-target-capsule{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 4px 0 10px;border:0;border-radius:999px;
+    background:var(--bg-1);color:var(--text-2);cursor:pointer;font-family:inherit;font-size:13px;font-weight:500;line-height:1.4;white-space:nowrap;flex-shrink:0}
+  .composer-target-capsule:hover{background:var(--bg-2)}
+  .composer-target-capsule.is-targeted{background:var(--blue);color:#fff}
+  .composer-target-capsule.is-targeted:hover{background:#1d4ed8}
+  .composer-target-capsule .caret{display:inline-flex;color:currentColor;opacity:.75}
+  .composer-target-capsule .clear{display:none;align-items:center;justify-content:center;width:18px;height:18px;border:0;border-radius:50%;
+    background:rgba(255,255,255,.28);color:#fff;cursor:pointer;padding:0}
+  .composer-target-capsule.is-targeted .clear{display:inline-flex}
+  .composer-target-capsule .clear:hover{background:rgba(255,255,255,.45)}
 
-  /* ============ 右栏：点检清单 ============ */
-  .side-hd{padding:10px 13px 8px;border-bottom:1px solid var(--border-light);display:flex;align-items:center;gap:8px}
-  .side-hd .t{font-size:13px;font-weight:700}
-  .side-hd .n{margin-left:auto;font-size:11.5px;color:var(--text-3)}
-  .side-hd .n b{color:var(--green)}
-  .side-scroll{flex:1;min-height:0;overflow-y:auto;padding:8px 10px 12px}
-  .ck{display:flex;gap:7px;padding:6px 5px;border-radius:7px;font-size:12px;line-height:1.5;color:var(--text-2);align-items:flex-start}
-  .ck:hover{background:var(--bg-1)}
-  .ck .box{width:15px;height:15px;border-radius:4px;border:1.5px solid var(--bg-4);flex-shrink:0;margin-top:1px;
-    display:grid;place-items:center;font-size:10px;color:#fff;background:var(--bg-0)}
-  .ck.done .box{background:var(--green);border-color:var(--green)}
-  .ck.done .tx{color:var(--text-3)}
-  .ck .tx b{color:var(--text-1);font-weight:600}
-  .ck.done .tx b{color:var(--text-3)}
-  .side-sep{height:1px;background:var(--border-light);margin:8px 4px}
-  .side-block{padding:4px 5px;font-size:11.5px;color:var(--text-3);line-height:1.6}
-  .side-block b{color:var(--text-2)}
-  .switch{display:flex;align-items:center;gap:7px;padding:6px 5px;font-size:12px;color:var(--text-2);cursor:pointer;user-select:none}
-  .switch input{accent-color:var(--blue);width:14px;height:14px;cursor:pointer}
-  .side-actions{padding:8px 6px 2px;display:flex;gap:6px}
+  .composer-target-chip{display:inline-flex;align-items:center;gap:4px;max-width:190px;height:26px;padding:0 8px;border:0;border-radius:999px;
+    background:var(--bg-1);color:var(--text-2);cursor:pointer;font-family:inherit;font-size:13px;font-weight:500;line-height:1.4;white-space:nowrap;flex-shrink:0}
+  .composer-target-chip:hover,.composer-target-chip.is-active{background:var(--blue-light);color:var(--blue)}
+  .composer-target-chip .k{color:var(--text-3);font-weight:500}
+  .composer-target-chip:hover .k,.composer-target-chip.is-active .k{color:inherit}
+  .composer-target-chip .v{font-weight:600;color:var(--text-1);overflow:hidden;text-overflow:ellipsis}
+  .composer-target-chip:hover .v,.composer-target-chip.is-active .v{color:inherit}
+  .composer-target-chip.is-disabled{opacity:.55;cursor:not-allowed;border:1px dashed var(--bg-4)}
+  .composer-target-chip .warn{color:var(--yellow);display:inline-flex}
+  .composer-target-note{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;color:var(--text-3);white-space:nowrap;flex-shrink:0}
 
-  /* toast */
-  .toasts{position:absolute;right:14px;bottom:96px;display:flex;flex-direction:column;gap:7px;z-index:60;align-items:flex-end;pointer-events:none}
-  .toast{max-width:420px;border:1px solid var(--border);border-left:3px solid var(--blue);background:var(--bg-0);
-    box-shadow:var(--shadow-md);border-radius:7px;padding:8px 11px;font-size:12.5px;color:var(--text-1);animation:tin .18s}
-  .toast.warn{border-left-color:var(--yellow)}
-  .toast.err{border-left-color:var(--red)}
-  .toast.ok{border-left-color:var(--green)}
-  @keyframes tin{from{transform:translateY(6px);opacity:0}to{transform:none;opacity:1}}
+  /* 菜单内的分区标签（v2 新增：两截菜单） */
+  .conversation-menu .menu-section{padding:6px 14px 2px;font-size:11px;font-weight:600;color:var(--text-3);letter-spacing:.02em}
+  .conversation-menu .menu-sep{height:1px;background:var(--border-light);margin:5px 6px}
+  .conversation-menu .menu-note{padding:2px 14px 8px;font-size:11.5px;color:var(--text-3);line-height:1.5;white-space:normal}
+  .conversation-menu .menu-note b{color:var(--text-2)}
+  .perm-line{display:flex;gap:8px;font-size:13px;color:var(--text-2)}
+  .perm-line span{color:var(--text-3);min-width:64px}
+  /* 排队挂起徽标（v2 新增；配色取自 --yellow-light/--yellow） */
+  .directed-badge{display:inline-flex;align-items:center;gap:4px;margin-left:auto;font-size:11px;font-weight:600;border-radius:9px;padding:1px 8px;
+    background:var(--yellow-light);color:var(--yellow);border:1px solid rgba(217,119,6,.25);white-space:nowrap}
+  .directed-badge.is-running{background:var(--blue-light);color:var(--blue);border-color:rgba(37,99,235,.2)}
+  .directed-badge.is-done{background:var(--green-light);color:var(--green);border-color:rgba(5,150,105,.2)}
+  .directed-route{display:inline-flex;align-items:center;gap:5px;font-weight:600;color:var(--text-2)}
+  .directed-route b{color:var(--text-1)}
 
-  /* 确认弹窗 */
-  .mask{position:absolute;inset:0;background:rgba(17,24,39,.35);display:none;place-items:center;z-index:70}
-  .mask.open{display:grid}
-  .modal{width:430px;background:var(--bg-0);border-radius:12px;box-shadow:var(--shadow-lg);overflow:hidden}
-  .modal-hd{padding:13px 16px 6px;font-size:14.5px;font-weight:700;display:flex;align-items:center;gap:7px}
-  .modal-bd{padding:2px 16px 12px;font-size:13px;color:var(--text-2);line-height:1.7}
-  .modal-bd ul{margin:6px 0 0 16px}
-  .modal-bd li{margin-bottom:3px}
-  .modal-ft{display:flex;justify-content:flex-end;gap:8px;padding:10px 16px 14px;background:var(--bg-1);border-top:1px solid var(--border-light)}
-  .btn-primary{height:30px;padding:0 14px;border:0;border-radius:7px;background:var(--blue);color:#fff;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600}
-  .btn-primary:hover{background:#1d4ed8}
-  .btn-plain{height:30px;padding:0 14px;border:1px solid var(--border);border-radius:7px;background:var(--bg-0);color:var(--text-2);cursor:pointer;font-family:inherit;font-size:13px}
-  .btn-plain:hover{background:var(--bg-2)}
+  /* 页脚（产品外的原型说明，明确不属于产品界面） */
+  .proto-caption{width:1240px;display:flex;align-items:center;gap:14px;font-size:12px;color:var(--text-3);padding:0 4px}
+  .proto-caption b{color:var(--text-2)}
+  .proto-caption .demo{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border:1px dashed var(--bg-4);border-radius:999px;background:var(--bg-0);cursor:pointer;user-select:none}
+  .proto-caption .demo input{accent-color:var(--blue);width:13px;height:13px;cursor:pointer}
 </style>
 </head>
 <body>
-<div class="app">
-  <!-- ================= 顶栏 ================= -->
-  <div class="hd">
-    <div class="hd-l">
-      <div class="hd-avatar">双</div>
-      <div>
-        <div class="hd-title">双人并行开发 <span class="tag tag-blue">团队</span> <span class="tag tag-grey">线：composer 原型确认</span></div>
-        <div class="hd-sub">输入框定向发消息 + 档位/权限内联 · 可点击原型（P0 确认版）</div>
-      </div>
+<!-- ==================================================================
+     应用（真实产品骨架：56px 导航条 + 顶栏 + 团队会话列表 + 会话面板）
+     ================================================================== -->
+<div class="app-layout">
+  <!-- 左侧 56px 导航（AppLayout.tsx / AppLayout.css） -->
+  <aside class="sidebar">
+    <div class="sidebar-logo" title="AI IDE Studio"><span data-icon="zap" data-size="22"></span></div>
+    <nav class="sidebar-nav">
+      <button class="sidebar-link" title="工作台"><span data-icon="bot" data-size="20"></span></button>
+      <button class="sidebar-link sidebar-link--active" title="任务看板"><span data-icon="clipboard-list" data-size="20"></span></button>
+      <button class="sidebar-link" title="知识库"><span data-icon="search" data-size="20"></span></button>
+      <div class="sidebar-divider"></div>
+      <button class="sidebar-link" title="自主"><span data-icon="sparkles" data-size="20"></span></button>
+    </nav>
+    <div class="sidebar-bottom">
+      <button class="sidebar-link" title="我的分享"><span data-icon="share-2" data-size="20"></span></button>
+      <button class="sidebar-link" title="设置"><span data-icon="settings" data-size="20"></span></button>
     </div>
-    <div class="hd-actions">
-      <button class="btn-stop-all" id="btnStopAll" title="停止 = 全队急停：覆盖所有正在跑的成员会话">■ 停止全部</button>
-    </div>
-  </div>
+  </aside>
 
-  <div class="body">
-    <!-- ================= 左：会话 ================= -->
-    <div class="main">
-      <!-- 成员条 -->
-      <div class="members" id="members">
-        <span class="members-label">成员</span>
-        <!-- 3 个成员 chip 由 JS 渲染 -->
-        <span class="members-note" id="membersNote"></span>
+  <div class="main-area">
+    <!-- 顶栏（AppLayout.tsx） -->
+    <header class="top-bar">
+      <div class="top-bar-left"><span class="project-name">wellcode 代码体检</span></div>
+      <div class="command-input-wrapper">
+        <span class="command-input-icon" data-icon="search" data-size="14"></span>
+        <input type="text" class="command-input" placeholder="搜索任务、Agent 或输入指令...">
       </div>
-
-      <!-- 消息流 -->
-      <div class="scroll" id="scroll">
-        <div class="row human">
-          <div class="avatar">你</div>
-          <div class="col">
-            <div class="meta"><span class="name">你</span><span>11:02</span></div>
-            <div class="bub">两条线一起推进：GLM 把 adapter 的错误处理补上；Kimi 继续跑压测。有结论先回我。</div>
-          </div>
-        </div>
-        <div class="sys-notice">Master 已把 2 条任务派给 Dev-GLM / Dev-Kimi（平台自动派发 · 转录块标注来源）</div>
-        <div class="row" style="--pc:var(--purple)">
-          <div class="avatar">G</div>
-          <div class="col">
-            <div class="meta"><span class="name">Dev-GLM</span><span>11:03</span></div>
-            <div class="bub">收到，先补 adapter 的 400/500 错误分支，跑完回归给你结论。</div>
-          </div>
-        </div>
-        <div class="row" style="--pc:var(--green)">
-          <div class="avatar">K</div>
-          <div class="col">
-            <div class="meta"><span class="name">Dev-Kimi</span><span>11:03</span> <span class="tag tag-blue" style="font-size:10.5px">压测回合运行中</span></div>
-            <div class="bub">压测进行中：已跑 3.2 万次请求，错误率 0.02%，还在继续。</div>
-          </div>
-        </div>
-        <div class="sys-notice">Dev-Kimi 的回合已运行 6 分钟（此时给它定向发消息会进入「排队中」）</div>
-        <!-- 交互产生的消息会追加到这里 -->
+      <div class="top-bar-right">
+        <div class="agent-status-bar"><span class="status-dot status-busy" id="globalStatusDot"></span><span id="globalStatusText">3 个 Agent</span></div>
       </div>
+    </header>
 
-      <!-- 输入区 -->
-      <div class="composer-wrap" id="composerWrap">
-        <div class="composer">
-          <textarea id="ta" rows="1" placeholder="输入消息…（输入 @ 可唤起成员菜单；默认发给「全体」= 现状行为）"></textarea>
-          <div class="toolbar">
-            <!-- 目标胶囊 -->
-            <button class="capsule" id="capsule" title="发送目标：默认「全体」（行为与现状完全一致）">
-              <span class="ic">✉</span><span class="lbl" id="capsuleLabel">全体</span><span class="caret">▾</span>
-              <span class="clear" id="capsuleClear" title="清除目标，回到全体">×</span>
+    <div class="workspace">
+      <!-- 团队会话列表（TeamConversationList.tsx） -->
+      <aside class="team-list">
+        <div class="team-list-edge"></div>
+        <header class="team-list-header">
+          <div class="team-list-accent"></div>
+          <span class="team-list-icon" data-icon="bot" data-size="12"></span>
+          <strong class="team-list-name" title="双人并行开发">双人并行开发</strong>
+          <button class="team-list-btn" title="新建会话"><span data-icon="plus" data-size="14"></span></button>
+          <button class="team-list-btn" title="刷新"><span data-icon="refresh-cw" data-size="14"></span></button>
+        </header>
+        <div class="team-list-body">
+          <div class="session-row is-active" data-session-row="sess-composer">
+            <button class="session-row-btn">
+              <span class="session-row-dot is-running" id="lineDot" title="正在执行"></span>
+              <span class="session-row-title" title="composer 定向交互确认">composer 定向交互确认</span>
+              <span class="session-row-time">11:07</span>
             </button>
-            <!-- 内联 chips（仅定向态出现） -->
-            <span class="chips" id="chips"></span>
-            <span class="tb-spacer"></span>
-            <button class="icon-btn stop" id="btnStop" title="停止 = 全队急停（与发送目标解耦）">■</button>
-            <button class="icon-btn send" id="btnSend" title="发送">➤</button>
+          </div>
+          <div class="session-row" data-session-row="sess-legacy">
+            <button class="session-row-btn">
+              <span class="session-row-dot" title="空闲"></span>
+              <span class="session-row-title" title="团队 Agent 未读标记">团队 Agent 未读标记</span>
+              <span class="session-row-time">昨天</span>
+            </button>
           </div>
         </div>
-        <div class="hintline" id="hintline"></div>
-      </div>
-    </div>
+      </aside>
 
-    <!-- ================= 右：点检清单 ================= -->
-    <div class="side">
-      <div class="side-hd"><span class="t">点检清单</span><span class="n" id="ckCount">0 / 9</span></div>
-      <div class="side-scroll" id="ckList"><!-- 由 JS 渲染 --></div>
-      <div class="side-sep"></div>
-      <div class="side-block" id="sideFoot">
-        <b>边界演示</b>：打开下面的开关后，档位/权限 chip 变为<b>禁用态</b>（点击看禁用原因）；点「演示一次写入失败（回滚）」可看失败回滚提示。
-      </div>
-      <label class="switch"><input type="checkbox" id="coldToggle"> 模拟冷会话（目标成员会话未 spawn）</label>
-      <div class="side-actions">
-        <button class="btn-ghost" id="btnColdDemo" style="display:none;flex:1">演示一次写入失败（回滚）</button>
-      </div>
-      <div class="side-actions">
-        <button class="btn-ghost" id="btnReset" style="flex:1">重置演示状态</button>
-      </div>
-      <div class="side-block" style="padding-bottom:10px">
-        本原型为自包含 HTML（无网络/无外部资源），仅用于交互确认；文案与语义以 v2 设计裁决为准。
-      </div>
-    </div>
-  </div>
+      <!-- 会话面板（TeamChatPane.tsx → conversation-pane.css） -->
+      <main class="conversation-pane" data-conversation-pane>
+        <header class="conversation-header">
+          <div class="conversation-target">
+            <div class="conversation-agent-avatar">双</div>
+            <div>
+              <div class="conversation-title"><strong>双人并行开发</strong><span>·</span><span>composer 定向交互确认</span></div>
+              <div class="conversation-subtitle">claude · 运行中 · proj-999ab4c6</div>
+            </div>
+          </div>
+          <div class="conversation-actions">
+            <button type="button" title="重新加载消息" class="proto-reload"><span data-icon="refresh-cw" data-size="14"></span></button>
+          </div>
+        </header>
 
-  <!-- 浮层 -->
-  <div class="pop" id="memberPop"></div>
-  <div class="pop" id="effortPop"></div>
-  <div class="pop" id="permPop"></div>
-  <div class="pop" id="atPop"></div>
-  <div class="toasts" id="toasts"></div>
-  <div class="mask" id="mask">
-    <div class="modal">
-      <div class="modal-hd" id="modalHd"></div>
-      <div class="modal-bd" id="modalBd"></div>
-      <div class="modal-ft">
-        <button class="btn-plain" id="modalCancel">取消</button>
-        <button class="btn-primary" id="modalOk">确认切换</button>
-      </div>
+        <div class="conversation-message-scroll" id="scroll">
+          <!-- 预置历史：普通人类消息 -->
+          <div class="conversation-message is-human">
+            <div class="conversation-avatar"><span data-icon="user" data-size="14"></span></div>
+            <div class="conversation-message-body">
+              <div class="conversation-message-meta"><strong>你</strong><time>11:02</time></div>
+              <div class="conversation-bubble">两条线一起推进：GLM 把 adapter 的错误处理补上；Kimi 继续跑压测。有结论先回我。</div>
+            </div>
+          </div>
+          <!-- 系统通知（conversation-system-notice） -->
+          <div class="conversation-system-notice">
+            <div class="conversation-system-notice-meta"><strong>平台</strong><time>11:02</time></div>
+            <div class="conversation-system-notice-body">Master 已把 2 条任务派给 Dev-GLM / Dev-Kimi</div>
+          </div>
+          <!-- Master 消息（带真实「安排的任务」块） -->
+          <div class="conversation-message">
+            <div class="conversation-avatar"><span data-icon="bot" data-size="14"></span></div>
+            <div class="conversation-message-body">
+              <div class="conversation-message-meta"><strong>Master</strong><time>11:03</time></div>
+              <div class="conversation-bubble">
+                <div class="conversation-team-assignment">
+                  <button type="button" class="conversation-team-assignment-header" data-toggle-assignment="a1">
+                    <span data-icon="chevron-right" data-size="12" class="assign-chev"></span>
+                    <span data-icon="clipboard-list" data-size="13"></span>
+                    <span>Master 安排的任务</span>
+                    <small>task-4f21a8</small>
+                  </button>
+                  <div class="conversation-team-assignment-content" id="a1">Dev-GLM：补 adapter 的 400/500 错误分支并回归。Dev-Kimi：继续压测，出错误率曲线。</div>
+                </div>
+                收到，我来安排：GLM 先做错误处理，Kimi 压测继续。
+              </div>
+            </div>
+          </div>
+          <!-- 成员消息：Dev-GLM -->
+          <div class="conversation-message" style="--member:var(--purple)">
+            <div class="conversation-avatar"><span data-icon="bot" data-size="14"></span></div>
+            <div class="conversation-message-body">
+              <div class="conversation-message-meta"><strong>Dev-GLM</strong><time>11:03</time></div>
+              <div class="conversation-bubble">收到，先补 adapter 的 400/500 错误分支，跑完回归给你结论。</div>
+            </div>
+          </div>
+          <!-- 成员消息：Dev-Kimi（在跑，流式标签） -->
+          <div class="conversation-message" id="kimiMessage">
+            <div class="conversation-avatar"><span data-icon="bot" data-size="14"></span></div>
+            <div class="conversation-message-body">
+              <div class="conversation-message-meta"><strong>Dev-Kimi</strong><time>11:03</time>
+                <span class="conversation-streaming-label" id="kimiStreamingLabel"><span data-icon="loader-circle" data-size="11" class="team-agent-dock-spin"></span> 执行中</span>
+              </div>
+              <div class="conversation-bubble">压测进行中：已跑 3.2 万次请求，错误率 0.02%，还在继续。</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- composer 包裹层：dock 悬浮其上（TeamChatPane.tsx） -->
+        <div style="position:relative;flex-shrink:0">
+          <!-- 团队 Agent dock（TeamAgentDock.tsx） -->
+          <div class="team-agent-dock" id="dock">
+            <button type="button" class="team-agent-dock-head" id="dockHead" title="展开团队 Agent 列表">
+              <span data-icon="bot" data-size="13"></span>
+              <span>团队 Agent · 3 人</span>
+              <span class="team-agent-dock-head-dots" id="dockHeadDots"></span>
+              <span data-icon="loader-circle" data-size="12" class="team-agent-dock-spin" id="dockHeadSpin"></span>
+              <span class="team-agent-dock-chev is-collapsed" id="dockChev" data-icon="chevron-down" data-size="13"></span>
+            </button>
+            <div class="team-agent-dock-body" id="dockBody" style="display:none">
+              <div class="team-agent-dock-hint">点击定位该成员消息 · 右键（或悬停 ⋯）管理成员</div>
+              <!-- 成员行由 JS 渲染 -->
+            </div>
+          </div>
+
+          <!-- 输入框（ConversationComposer.tsx） -->
+          <div class="conversation-composer-shell">
+            <div class="conversation-composer-error" role="alert" id="composerError" style="display:none"></div>
+            <div class="conversation-composer" id="composer">
+              <textarea id="ta" rows="2" placeholder="输入消息..."></textarea>
+              <div class="conversation-toolbar" id="toolbar">
+                <!-- ★ 新增：目标胶囊（工具栏最左） -->
+                <button type="button" class="composer-target-capsule" id="capsule" title="发送目标：全体（默认，与现状一致）">
+                  <span id="capsuleIcon" data-icon="mail" data-size="12"></span>
+                  <span id="capsuleLabel">全体</span>
+                  <span class="caret" data-icon="chevron-down" data-size="10"></span>
+                  <span class="clear" id="capsuleClear" title="清除目标，回到全体"><span data-icon="x" data-size="11"></span></span>
+                </button>
+                <!-- ★ 新增：定向态就地浮出的两枚 chip（由 JS 渲染在 #chips 内） -->
+                <span id="chips" style="display:inline-flex;align-items:center;gap:4px;min-width:0"></span>
+                <!-- 真实工具栏按钮（ConversationComposer.tsx:249-253） -->
+                <button type="button" class="conversation-tool-button" title="添加图片或文件"><span data-icon="paperclip" data-size="15"></span></button>
+                <button type="button" class="conversation-toolbar-button" title="命令"><span data-icon="wrench" data-size="12"></span>命令<span data-icon="chevron-down" data-size="10"></span></button>
+                <button type="button" class="conversation-toolbar-button" title="模式：自动"><span data-icon="settings-2" data-size="12"></span>自动<span data-icon="chevron-down" data-size="10"></span></button>
+                <div class="conversation-toolbar-spacer"></div>
+                <button type="button" class="conversation-toolbar-button" title="Master 会话的思考强度（与现状一致）" id="masterEffortBtn">中<span data-icon="chevron-down" data-size="10"></span></button>
+                <span class="conversation-context" title="上下文: 28.1k / 200k">
+                  <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="7" fill="none" stroke="var(--bg-3)" stroke-width="2"></circle><circle cx="9" cy="9" r="7" fill="none" stroke="var(--blue)" stroke-width="2" stroke-dasharray="12.3 43.98" stroke-dashoffset="10.99" stroke-linecap="round"></circle></svg>
+                  <span>28.1k/200k</span>
+                </span>
+                <button type="button" class="conversation-toolbar-button is-transparent" title="模型">Opus 4.8<span data-icon="chevron-down" data-size="10"></span></button>
+                <span class="conversation-toolbar-status" id="toolbarStatus" style="display:none"></span>
+                <button type="button" class="conversation-stop" id="btnStop" title="停止生成（= 全队急停）"><span data-icon="square" data-size="14"></span></button>
+                <button type="button" class="conversation-send" id="btnSend" title="发送" disabled><span data-icon="arrow-up" data-size="16"></span></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
     </div>
   </div>
 </div>
 
+<!-- 产品外的原型说明条（明确不属于产品界面；演示开关放这里） -->
+<div class="proto-caption">
+  <span><b>原型 v2</b> · 真实产品底：AppLayout / TeamChatPane / ConversationComposer / TeamAgentDock / conversation-pane.css</span>
+  <span>· 交互语义与 v2 设计裁决一致（胶囊 / 双 chip / 档位两截 / 排队 / 你→成员 / 全队急停 / @ / 边界）</span>
+  <label class="demo"><input type="checkbox" id="coldToggle"> 演示：目标成员冷会话（未 spawn）</label>
+  <button class="demo" id="coldFailBtn" style="display:none;color:var(--text-2);font-family:inherit;font-size:12px">演示一次档位写入失败（回滚）</button>
+</div>
+
+<!-- 浮层容器 -->
+<div id="menuHost"></div>
+<div id="modalHost"></div>
+
 <script>
 /* ================================================================
-   数据（全部内联，无网络）
+   图标：从 lucide-react（v1.16.0）提取的 path 数据，内联为 SVG
+   ================================================================ */
+const ICONS = {
+  "paperclip":[["path",{"d":"m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551"}]],
+  "wrench":[["path",{"d":"M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.106-3.105c.32-.322.863-.22.983.218a6 6 0 0 1-8.259 7.057l-7.91 7.91a1 1 0 0 1-2.999-3l7.91-7.91a6 6 0 0 1 7.057-8.259c.438.12.54.662.219.984z"}]],
+  "settings-2":[["path",{"d":"M14 17H5"}],["path",{"d":"M19 7h-9"}],["circle",{"cx":"17","cy":"17","r":"3"}],["circle",{"cx":"7","cy":"7","r":"3"}]],
+  "chevron-down":[["path",{"d":"m6 9 6 6 6-6"}]],
+  "chevron-right":[["path",{"d":"m9 18 6-6-6-6"}]],
+  "square":[["rect",{"width":"18","height":"18","x":"3","y":"3","rx":"2"}]],
+  "arrow-up":[["path",{"d":"m5 12 7-7 7 7"}],["path",{"d":"M12 19V5"}]],
+  "check":[["path",{"d":"M20 6 9 17l-5-5"}]],
+  "circle":[["circle",{"cx":"12","cy":"12","r":"10"}]],
+  "refresh-cw":[["path",{"d":"M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"}],["path",{"d":"M21 3v5h-5"}],["path",{"d":"M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"}],["path",{"d":"M8 16H3v5"}]],
+  "bot":[["path",{"d":"M12 8V4H8"}],["rect",{"x":"4","y":"8","width":"16","height":"12","rx":"2"}],["path",{"d":"M2 14h2"}],["path",{"d":"M20 14h2"}],["path",{"d":"M15 13v2"}],["path",{"d":"M9 13v2"}]],
+  "user":[["path",{"d":"M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"}],["circle",{"cx":"12","cy":"7","r":"4"}]],
+  "loader-circle":[["path",{"d":"M21 12a9 9 0 1 1-6.219-8.56"}]],
+  "x":[["path",{"d":"M18 6 6 18"}],["path",{"d":"m6 6 12 12"}]],
+  "plus":[["path",{"d":"M5 12h14"}],["path",{"d":"M12 5v14"}]],
+  "ellipsis":[["circle",{"cx":"12","cy":"12","r":"1"}],["circle",{"cx":"19","cy":"12","r":"1"}],["circle",{"cx":"5","cy":"12","r":"1"}]],
+  "clipboard-list":[["rect",{"width":"8","height":"4","x":"8","y":"2","rx":"1"}],["path",{"d":"M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"}],["path",{"d":"M12 11h4"}],["path",{"d":"M12 16h4"}],["path",{"d":"M8 11h.01"}],["path",{"d":"M8 16h.01"}]],
+  "zap":[["path",{"d":"M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"}]],
+  "share-2":[["circle",{"cx":"18","cy":"5","r":"3"}],["circle",{"cx":"6","cy":"12","r":"3"}],["circle",{"cx":"18","cy":"19","r":"3"}],["path",{"d":"m8.59 13.51 6.83 3.98"}],["path",{"d":"m15.41 6.51-6.82 3.98"}]],
+  "sparkles":[["path",{"d":"M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"}],["path",{"d":"M20 3v4"}],["path",{"d":"M22 5h-4"}],["path",{"d":"M4 17v2"}],["path",{"d":"M5 18H3"}]],
+  "settings":[["path",{"d":"M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"}],["circle",{"cx":"12","cy":"12","r":"3"}]],
+  "search":[["path",{"d":"m21 21-4.34-4.34"}],["circle",{"cx":"11","cy":"11","r":"8"}]],
+  "mail":[["path",{"d":"m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7"}],["rect",{"x":"2","y":"4","width":"20","height":"16","rx":"2"}]]
+};
+function iconSvg(name, size){
+  const nodes = ICONS[name] || [];
+  const inner = nodes.map(([tag, attrs]) => {
+    const a = Object.entries(attrs).map(([k, v]) => `${k}="${v}"`).join(' ');
+    return `<${tag} ${a}></${tag}>`;
+  }).join('');
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
+}
+function hydrateIcons(root){
+  (root || document).querySelectorAll('[data-icon]').forEach((el) => {
+    const size = Number(el.getAttribute('data-size') || 14);
+    el.innerHTML = iconSvg(el.getAttribute('data-icon'), size);
+    el.removeAttribute('data-icon');
+  });
+}
+hydrateIcons();
+
+/* ================================================================
+   数据（capabilities 驱动）
    ================================================================ */
 const MEMBERS = [
-  { id:'glm', name:'Dev-GLM', init:'G', color:'#7c3aed', runtime:'claude', runtimeTag:'claude',
-    model:'claude-fable-5', status:'idle', adapter:'new',
-    /* capabilities 驱动：该模型声明的档位集合（含 max） */
+  { id:'glm', name:'Dev-GLM', color:'var(--purple)', status:'idle',
+    model:'claude-fable-5', modelSource:'该成员 · 档案 fable-5',
+    /* 模型 capabilities 声明含 max */
     efforts:['default','low','medium','high','xhigh','max'],
-    perm:{ kind:'mode', mode:'手动', tools:'12 / 34 项' } },
-  { id:'kimi', name:'Dev-Kimi', init:'K', color:'#059669', runtime:'claude', runtimeTag:'claude',
-    model:'claude-sonnet-4-5', status:'running', adapter:'new',
-    /* capabilities 驱动：该模型声明无 max（有 xhigh）——对比呈现"模型不支持而非菜单砍掉" */
+    perm:{ mode:'手动', tools:'12 / 34 项' } },
+  { id:'kimi', name:'Dev-Kimi', color:'var(--green)', status:'running',
+    model:'claude-sonnet-4-5', modelSource:'该成员 · 档案 sonnet-4-5',
+    /* 模型 capabilities 无 max（有 xhigh）；无独立档位项的反例见 Dev-Legacy */
     efforts:['default','minimal','low','medium','high','xhigh'],
-    perm:{ kind:'mode', mode:'自动', tools:'20 / 34 项' } },
-  { id:'legacy', name:'Dev-Legacy', init:'L', color:'#ea580c', runtime:'codex', runtimeTag:'codex（旧适配器）',
-    model:'gpt-5-codex', status:'idle', adapter:'legacy',
+    perm:{ mode:'自动', tools:'20 / 34 项' } },
+  { id:'legacy', name:'Dev-Legacy', color:'var(--orange)', status:'idle',
+    model:'gpt-5-codex', modelSource:'团队继承 · codex 默认',
     /* 旧 codex 适配器：无独立档位配置项 → 档位 chip 隐藏 */
     efforts:null,
-    perm:{ kind:'approval', approval:'on-request', sandbox:'workspace-write', tools:'8 / 34 项' } },
+    perm:{ approval:'on-request', sandbox:'workspace-write', tools:'8 / 34 项', runtime:'codex' } },
 ];
-const byId = (id) => MEMBERS.find(m => m.id === id);
+const byId = (id) => MEMBERS.find((m) => m.id === id);
 
-const EFFORT_LABEL = { default:'跟随模型默认', minimal:'极低 minimal', low:'低 low', medium:'中 medium', high:'高 high', xhigh:'xhigh', max:'max（最高档）' };
+/* 档位文案：与 workspace/helpers.ts displayConfigValue 同表；"default" 哨兵按 v2 设计显示为「跟随模型默认」 */
+const EFFORT_LABEL = { default:'跟随模型默认', minimal:'minimal', low:'低', medium:'中', high:'高', xhigh:'超高', max:'Max' };
 const EFFORT_ORDER = ['default','minimal','low','medium','high','xhigh','max'];
 
-/* 状态 */
 const S = {
-  target:null,                 // null=全体；否则 member id
-  lineEffort:{ glm:'default', kimi:'default', legacy:'default' },   // 「仅此线」
-  memberEffort:{ glm:null, kimi:null, legacy:null },                // 「设为该成员默认」（P1）
+  target:null,                 // null = 全体
+  lineEffort:{ glm:'default', kimi:'default', legacy:'default' },
+  memberEffort:{ glm:null, kimi:null, legacy:null },
   cold:false,
-  queued:{},                   // memberId -> 排队条数
+  queued:{},
+  menuName:null,
 };
 let seq = 0;
-
-/* 初始消息流快照（供「重置演示状态」整体还原，避免残留定向块/系统行） */
 const INITIAL_SCROLL = document.getElementById('scroll').innerHTML;
 
 /* ================================================================
-   点检清单（9 项，自动打勾）
+   渲染：成员 dock
    ================================================================ */
-const CK = [
-  { id:'c1', t:'<b>① 胶囊</b>：默认「✉ 全体」；选人后明显变色 + × 清除',
-    need:['targeted','cleared'], hint:'点胶囊选任一成员，再点 ×' },
-  { id:'c2', t:'<b>② 定向态</b>就地浮出「思考强度」「权限」双 chip',
-    need:['chipsShown'], hint:'选 Dev-GLM 或 Dev-Kimi' },
-  { id:'c3', t:'<b>③ 档位菜单</b> capabilities 驱动：GLM 含 max / Kimi 无 max；两截「仅此线 / 设为该成员默认」；选 max 弹确认',
-    need:['menuGlm','menuKimi','maxConfirm'], hint:'分别打开 GLM、Kimi 的思考强度菜单；并在其中选一次 max' },
-  { id:'c4', t:'<b>④ 生效话术</b>：「下一回合生效」/ 运行中「当前回合结束后生效」',
-    need:['timingIdle','timingRunning'], hint:'空闲成员与运行中成员各打开一次档位菜单' },
-  { id:'c5', t:'<b>⑤ 忙成员排队</b>：定向发给在跑的成员 → 「排队中」挂起态（不丢失）',
-    need:['queued'], hint:'选中 Dev-Kimi（在跑）后发送一条消息' },
-  { id:'c6', t:'<b>⑥ 转录块</b>「你 → 成员」+ 绕过编排提示',
-    need:['directed'], hint:'向任一成员定向发送' },
-  { id:'c7', t:'<b>⑦ 停止 = 全队急停</b>（与发送目标解耦）',
-    need:['stopped'], hint:'点「■ 停止全部」' },
-  { id:'c8', t:'<b>⑧ @ 唤起</b>：输入 @ 打开成员菜单，选中即填入胶囊',
-    need:['atMenu'], hint:'在输入框里打一个 @' },
-  { id:'c9', t:'<b>⑨ 边界</b>：Dev-Legacy 档位 chip 隐藏；冷会话 chip 禁用 + 写入失败回滚',
-    need:['legacyHidden','coldFail'], hint:'选 Dev-Legacy 看隐藏；再打开右侧冷会话开关：chip 变禁用（点它看说明），点「演示一次写入失败（回滚）」' },
-];
-const done = {};   // 需求项 -> true
-const seen = {};   // 中间标志
-
-function mark(key){
-  if (done[key]) return;
-  done[key] = true;
-  renderChecklist();
-}
-function markIf(key, flag){
-  seen[flag] = true;
-  const item = CK.find(c => c.id === key);
-  if (item && item.need.every(k => seen[k])) mark(key);
-}
-function renderChecklist(){
-  const list = document.getElementById('ckList');
-  list.innerHTML = CK.map(c => {
-    const ok = !!done[c.id];
-    return `<div class="ck${ok ? ' done' : ''}"><span class="box">${ok ? '✓' : ''}</span>`
-      + `<span class="tx">${c.t}${ok ? '' : `<br><span style="color:var(--text-3)">→ ${c.hint}</span>`}</span></div>`;
-  }).join('');
-  const n = CK.filter(c => done[c.id]).length;
-  document.getElementById('ckCount').innerHTML = `<b>${n}</b> / ${CK.length}`;
-}
-
-/* ================================================================
-   基础渲染
-   ================================================================ */
-function esc(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-
-function renderMembers(){
-  const box = document.getElementById('members');
-  const chips = MEMBERS.map(m => {
+function renderDock(){
+  const body = document.getElementById('dockBody');
+  body.innerHTML = '<div class="team-agent-dock-hint">点击定位该成员消息 · 右键（或悬停 ⋯）管理成员</div>' + MEMBERS.map((m) => {
+    const running = m.status === 'running';
     const q = S.queued[m.id] || 0;
-    const cls = m.status === 'running' ? ' is-running' : (q > 0 ? ' is-queued' : '');
-    const st = m.status === 'running'
-      ? `<span class="st"><span class="dot"></span>在跑${q > 0 ? ` · 排队 ${q}` : ''}</span>`
-      : (q > 0 ? `<span class="st"><span class="dot"></span>空闲 · 排队 ${q}</span>` : `<span class="st"><span class="dot"></span>空闲</span>`);
-    return `<span class="mchip${cls}" style="--pc:${m.color}"><span class="av">${m.init}</span>${esc(m.name)}${st}`
-      + `<span class="rt">${esc(m.runtimeTag)}</span></span>`;
+    const statusLabel = running ? (q > 0 ? `执行中 · 排队 ${q}` : '执行中') : (q > 0 ? `空闲 · 排队 ${q}` : '空闲');
+    return `<div class="team-agent-dock-row" data-locate="${m.id}" title="定位 ${m.name} 的最新消息">
+      <div class="team-agent-dock-row-top">
+        <span class="team-agent-dock-avatar" style="background:${m.color}">${m.name.slice(0,1)}
+          <span class="team-agent-dock-presence${running ? ' is-busy' : ''}"></span>
+        </span>
+        <span class="team-agent-dock-name">${m.name}</span>
+        <span class="team-agent-dock-role-member">成员</span>
+        <span class="team-agent-dock-status ${running ? 'is-running' : 'is-idle'}">
+          ${running ? `<span class="team-agent-dock-spin" data-icon="loader-circle" data-size="12"></span>` : '<span class="team-agent-dock-idle-dot"></span>'}
+          ${statusLabel}
+        </span>
+      </div>
+      <div class="team-agent-dock-sub"><span class="team-agent-dock-model">${m.model}</span>· ${m.modelSource}</div>
+      ${running ? `<button type="button" class="team-agent-dock-stop" data-cancel="${m.id}" title="停止该成员当前回合"><span data-icon="square" data-size="10"></span></button>` : ''}
+      <button type="button" class="team-agent-dock-more" data-more="${m.id}" title="成员操作"><span data-icon="ellipsis" data-size="13"></span></button>
+    </div>`;
   }).join('');
-  box.innerHTML = '<span class="members-label">成员</span>' + chips
-    + `<span class="members-note" id="membersNote">${runningCount() ? `在跑 ${runningCount()} · 停止=全队急停` : '全部空闲 · 排队消息会在成员空闲后自动执行'}</span>`;
-}
-function runningCount(){ return MEMBERS.filter(m => m.status === 'running').length; }
-
-function targetLabel(){
-  if (!S.target) return null;
-  return byId(S.target).name;
-}
-
-function renderCapsule(){
-  const cap = document.getElementById('capsule');
-  const lbl = document.getElementById('capsuleLabel');
-  if (S.target){
-    cap.classList.add('is-targeted');
-    lbl.textContent = byId(S.target).name;
-    cap.title = `定向发送给 ${byId(S.target).name}（点 × 回到「全体」）`;
-  } else {
-    cap.classList.remove('is-targeted');
-    lbl.textContent = '全体';
-    cap.title = '发送目标：默认「全体」（行为与现状完全一致）';
+  hydrateIcons(body);
+  body.querySelectorAll('[data-cancel]').forEach((btn) => {
+    btn.onclick = (e) => { e.stopPropagation(); stopMember(btn.getAttribute('data-cancel')); };
+  });
+  body.querySelectorAll('[data-more]').forEach((btn) => {
+    btn.onclick = (e) => { e.stopPropagation(); };
+  });
+  const dots = document.getElementById('dockHeadDots');
+  dots.innerHTML = MEMBERS.map((m) => `<span class="team-agent-dock-head-dot${m.status === 'running' ? ' is-busy' : ''}" title="${m.name} ${m.status === 'running' ? '执行中' : '空闲'}"></span>`).join('');
+  const anyRunning = MEMBERS.some((m) => m.status === 'running');
+  document.getElementById('dockHeadSpin').style.display = anyRunning ? '' : 'none';
+  document.getElementById('globalStatusDot').className = `status-dot${anyRunning ? ' status-busy' : ''}`;
+  document.getElementById('globalStatusText').textContent = `${MEMBERS.length} 个 Agent`;
+  document.getElementById('lineDot').className = `session-row-dot${anyRunning ? ' is-running' : ' is-unread'}`;
+  const stop = document.getElementById('btnStop');
+  stop.style.display = anyRunning ? '' : 'none';
+  /* 成员流式标签跟随 Dev-Kimi 状态（真实产品：回合结束即消失） */
+  const kimi = byId('kimi');
+  const kimiLabel = document.getElementById('kimiStreamingLabel');
+  if (kimiLabel){
+    if (kimi.status === 'running'){
+      kimiLabel.style.display = '';
+      kimiLabel.innerHTML = `${iconSvg('loader-circle', 11)} 执行中`;
+      kimiLabel.querySelector('svg')?.classList.add('team-agent-dock-spin');
+    } else {
+      kimiLabel.style.display = 'none';
+    }
   }
 }
 
+/* ================================================================
+   渲染：胶囊 + chips + 提示
+   ================================================================ */
+function renderCapsule(){
+  const cap = document.getElementById('capsule');
+  const label = document.getElementById('capsuleLabel');
+  if (S.target){
+    cap.classList.add('is-targeted');
+    label.textContent = byId(S.target).name;
+    cap.title = `定向发送给 ${byId(S.target).name}（点 ✕ 回到「全体」）`;
+  } else {
+    cap.classList.remove('is-targeted');
+    label.textContent = '全体';
+    cap.title = '发送目标：全体（默认，与现状一致）';
+  }
+}
 function effortValueOf(m){
   if (S.memberEffort[m.id]) return S.memberEffort[m.id] + '（成员默认）';
   return EFFORT_LABEL[S.lineEffort[m.id]] || '跟随模型默认';
 }
-
 function renderChips(){
   const box = document.getElementById('chips');
   const m = S.target ? byId(S.target) : null;
-  if (!m){ box.innerHTML = ''; renderHint(); return; }
+  if (!m){ box.innerHTML = ''; return; }
   let html = '';
   if (m.efforts){
-    html += `<button class="chip${S.cold ? ' is-disabled' : ''}" id="chipEffort" title="${S.cold ? '会话未就绪：chip 已禁用（严禁对不存在的配置项发写入）' : '思考强度（capabilities 驱动）'}">`
-      + `<span class="k">思考强度</span><span class="v">${esc(effortValueOf(m))}</span>${S.cold ? '<span style="color:var(--yellow)">⚠</span>' : '<span class="caret">▾</span>'}</button>`;
+    html += `<button type="button" class="composer-target-chip${S.cold ? ' is-disabled' : ''}" id="chipEffort"
+      title="${S.cold ? '会话未就绪：chip 已禁用（不对未 spawn 的会话发写入）' : '思考强度 · 仅影响该成员'}">
+      <span class="k">思考强度</span><span class="v">${effortValueOf(m)}</span>
+      ${S.cold ? '<span class="warn" data-icon="x" data-size="11"></span>' : '<span data-icon="chevron-down" data-size="10"></span>'}
+    </button>`;
   }
-  const permVal = m.perm.kind === 'mode' ? `模式：${m.perm.mode}` : `审批：${m.perm.approval}`;
-  html += `<button class="chip${S.cold ? ' is-disabled' : ''}" id="chipPerm" title="${S.cold ? '会话未就绪：chip 已禁用' : '权限（工具可见集 + 授权模式）'}">`
-    + `<span class="chip-dot"></span><span class="k">权限</span><span class="v">${esc(permVal)}</span>${S.cold ? '<span style="color:var(--yellow)">⚠</span>' : '<span class="caret">▾</span>'}</button>`;
+  const permVal = m.perm.mode ? `模式：${m.perm.mode}` : `审批：${m.perm.approval}`;
+  html += `<button type="button" class="composer-target-chip${S.cold ? ' is-disabled' : ''}" id="chipPerm"
+    title="${S.cold ? '会话未就绪：chip 已禁用' : '权限 · 展示 + 跳转设置'}">
+    <span class="k">权限</span><span class="v">${permVal}</span>
+    ${S.cold ? '<span class="warn" data-icon="x" data-size="11"></span>' : '<span data-icon="chevron-down" data-size="10"></span>'}
+  </button>`;
   if (!m.efforts){
-    html += `<span class="tag tag-grey" title="旧 codex 适配器成员：effort 挂在模型选择上，没有独立档位配置项">档位 chip 已隐藏（该成员无独立档位项）</span>`;
+    html += `<span class="composer-target-note" title="旧 codex 适配器成员：effort 随模型选择，没有独立档位配置项">该成员无独立档位项（档位 chip 已隐藏）</span>`;
   }
   box.innerHTML = html;
+  hydrateIcons(box);
   const ce = document.getElementById('chipEffort');
-  if (ce) ce.onclick = (e) => { e.stopPropagation(); if (S.cold){ coldDisabled(); return; } openEffortPop(); };
+  if (ce) ce.onclick = (e) => { e.stopPropagation(); if (S.cold){ coldDisabled(); return; } openEffortMenu(); };
   const cp = document.getElementById('chipPerm');
-  if (cp) cp.onclick = (e) => { e.stopPropagation(); if (S.cold){ coldDisabled(); return; } openPermPop(); };
-  renderHint();
-}
-
-function renderHint(){
-  const el = document.getElementById('hintline');
-  const m = S.target ? byId(S.target) : null;
-  const parts = [];
-  if (!m){
-    parts.push('<span class="hl">目标「全体」= 现状行为（消息发往 Master，无定向块）</span>');
-  } else {
-    const running = m.status === 'running';
-    parts.push(`<span class="hl">定向 <b>你 → ${esc(m.name)}</b></span>`);
-    if (m.efforts) parts.push(`<span>档位改动：${running ? '<b>当前回合结束后生效</b>' : '<b>下一回合生效</b>'}</span>`);
-    if (running) parts.push('<span>该成员在跑：消息将<b>排队</b>，不丢失</span>');
-  }
-  if (S.cold) parts.push('<span class="warn">⚠ 冷会话演示中：档位/权限写入会失败回滚</span>');
-  el.innerHTML = parts.join('<span style="color:var(--bg-4)"> · </span>');
+  if (cp) cp.onclick = (e) => { e.stopPropagation(); if (S.cold){ coldDisabled(); return; } openPermMenu(); };
 }
 
 /* ================================================================
-   浮层管理
+   菜单（复用真实 .conversation-menu 结构与定位方式）
    ================================================================ */
-const POPS = ['memberPop','effortPop','permPop','atPop'];
-function closePops(except){
-  POPS.forEach(id => { if (id !== except) document.getElementById(id).classList.remove('open'); });
-  document.querySelectorAll('.chip').forEach(c => c.classList.remove('is-open'));
+function closeMenus(){
+  document.getElementById('menuHost').innerHTML = '';
+  S.menuName = null;
+  document.querySelectorAll('.is-active.menu-trigger').forEach((el) => el.classList.remove('is-active'));
+  const ce = document.getElementById('chipEffort'); if (ce) ce.classList.remove('is-active');
+  const cp = document.getElementById('chipPerm'); if (cp) cp.classList.remove('is-active');
+  document.getElementById('capsule').classList.remove('is-active');
 }
-document.addEventListener('click', () => closePops());
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closePops(); });
-
-function placePop(pop, anchor, width){
-  const r = anchor.getBoundingClientRect();
-  const host = document.querySelector('.app').getBoundingClientRect();
-  pop.style.width = (width || Math.max(r.width, 250)) + 'px';
-  pop.style.left = Math.max(8, Math.min(r.left - host.left, host.width - (width || 250) - 8)) + 'px';
-  const popH = pop.offsetHeight || 220;
-  pop.style.top = (r.top - host.top - popH - 8) + 'px';
+/* menuStyle（workspace/helpers.ts）：left 夹在 [8, innerWidth-width-8]，top = 锚点上方 8px；菜单自身 translateY(-100%) */
+function menuStyle(anchor, width){
+  const rect = anchor.getBoundingClientRect();
+  const left = Math.min(Math.max(8, rect.left), window.innerWidth - width - 8);
+  return { left, top: Math.max(8, rect.top - 8), width };
 }
+function openMenu(anchorEl, width, html, name, extraClass){
+  const host = document.getElementById('menuHost');
+  host.innerHTML = `<div class="conversation-menu-backdrop" data-close-menu></div><div class="conversation-menu${extraClass ? ' ' + extraClass : ''}" role="menu" style="left:${menuStyle(anchorEl, width).left}px;top:${menuStyle(anchorEl, width).top}px;width:${width}px">${html}</div>`;
+  S.menuName = name;
+  hydrateIcons(host);
+  host.querySelector('[data-close-menu]').onclick = () => closeMenus();
+  return host.querySelector('.conversation-menu');
+}
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape'){ closeMenus(); closeModal(); } });
 
-/* ---------- 成员菜单（胶囊） ---------- */
-function openMemberPop(){
-  const pop = document.getElementById('memberPop');
-  const items = MEMBERS.map(m => {
+/* ---------- 成员菜单（目标胶囊） ---------- */
+function openMemberMenu(){
+  const html = `<div class="menu-section">定向发送给谁</div>` + MEMBERS.map((m) => {
     const running = m.status === 'running';
     const q = S.queued[m.id] || 0;
-    const sub = running ? `<span class="sub is-running"><span class="dot"></span>在跑${q ? ` · 排队 ${q}` : ''}</span>`
-      : `<span class="sub"><span class="dot"></span>空闲${q ? ` · 排队 ${q}` : ''}</span>`;
-    return `<button class="pop-item${S.target === m.id ? ' is-current' : ''}" data-m="${m.id}" style="--pc:${m.color}">`
-      + `<span class="av">${m.init}</span><span class="n">${esc(m.name)}</span>`
-      + `<span class="tag tag-grey" style="font-size:10.5px">${esc(m.runtimeTag)}</span>${sub}</button>`;
-  }).join('');
-  pop.innerHTML = '<div class="pop-label">定向发送给谁？</div>' + items
-    + '<div class="pop-sep"></div>'
-    + `<button class="pop-item" data-m="" style="--pc:var(--text-3)"><span class="av">✉</span><span class="n">全体（默认）</span>`
-    + `<span class="sub">消息发往 Master，与现状一致</span></button>`
-    + '<div class="pop-foot">已移除成员不在此列表 · 归档线不渲染输入框 · 选中成员后会在输入框就地浮出「思考强度 / 权限」</div>';
-  pop.querySelectorAll('.pop-item').forEach(b => {
-    b.onclick = () => { selectTarget(b.dataset.m || null); closePops(); };
+    const sub = running ? `执行中${q ? ` · 排队 ${q}` : ''}` : (q ? `空闲 · 排队 ${q}` : '空闲');
+    return `<button type="button" role="menuitem" data-member="${m.id}" class="${S.target === m.id ? 'is-active' : ''}">
+      ${S.target === m.id ? iconSvg('check', 13) : iconSvg('circle', 13)}
+      <span class="conversation-menu-copy"><strong>${m.name}</strong><small>${m.model} · ${sub}</small></span>
+    </button>`;
+  }).join('')
+    + '<div class="menu-sep"></div>'
+    + `<button type="button" role="menuitem" data-member="" class="${S.target === null ? 'is-active' : ''}">
+        ${S.target === null ? iconSvg('check', 13) : iconSvg('circle', 13)}
+        <span class="conversation-menu-copy"><strong>全体</strong><small>消息发往 Master，与现状一致</small></span>
+      </button>`
+    + '<div class="menu-note">已移除成员不在此列表 · 归档线不渲染输入框 · 选中成员后输入框就地浮出「思考强度 / 权限」</div>';
+  const menu = openMenu(document.getElementById('capsule'), 300, html, 'members');
+  document.getElementById('capsule').classList.add('is-active');
+  menu.querySelectorAll('[data-member]').forEach((btn) => {
+    btn.onclick = () => { selectTarget(btn.getAttribute('data-member') || null); closeMenus(); };
   });
-  if (pop.classList.contains('open')){ pop.classList.remove('open'); return; }
-  closePops('memberPop');
-  pop.classList.add('open');
-  placePop(pop, document.getElementById('capsule'), 330);
 }
 
-/* ---------- 目标选择 ---------- */
+/* ---------- 思考强度菜单（两截） ---------- */
+function openEffortMenu(){
+  const m = byId(S.target); if (!m || !m.efforts) return;
+  const running = m.status === 'running';
+  const opts = EFFORT_ORDER.filter((k) => m.efforts.includes(k));
+  const cur = S.lineEffort[m.id];
+  const item = (k, scope) => {
+    const active = scope === 'line' && k === cur;
+    const desc = scope === 'member' ? '' : (active ? '当前 · 仅此线' : '');
+    return `<button type="button" role="menuitem" data-effort="${k}" data-scope="${scope}" class="${active ? 'is-active' : ''}">
+      ${active ? iconSvg('check', 13) : iconSvg('circle', 13)}
+      <span class="conversation-menu-copy"><strong>${EFFORT_LABEL[k]}</strong>${desc ? `<small>${desc}</small>` : ''}</span>
+    </button>`;
+  };
+  const html = `<div class="menu-section">仅此线</div>${opts.map((k) => item(k, 'line')).join('')}`
+    + '<div class="menu-sep"></div>'
+    + `<div class="menu-section">设为该成员默认（P1 · 随数据基座上线）</div>${opts.map((k) => item(k, 'member')).join('')}`
+    + '<div class="menu-sep"></div>'
+    + `<div class="menu-note">空闲时改：<b>下一回合生效</b>；成员在跑时改：<b>当前回合结束后生效</b>（不回溯当前回合）。</div>`
+    + (running ? `<div class="menu-note">● <b>${m.name} 正在运行</b>：本次修改将于<b>当前回合结束后生效</b>。</div>` : '')
+    + (m.efforts.includes('max')
+        ? `<div class="menu-note">档位集合来自该成员模型的 capabilities 声明（含 <b>Max</b>）；个别渠道不支持 Max 时会以轮次失败呈现（P1 补归因提示）。</div>`
+        : `<div class="menu-note">该模型 capabilities <b>未声明 Max</b>，菜单不显示（模型不支持，而非菜单砍掉）；写入未声明项会被适配器拒绝，chips 按声明渲染以防错。</div>`);
+  const menu = openMenu(document.getElementById('chipEffort'), 320, html, 'effort', 'is-tall');
+  document.getElementById('chipEffort').classList.add('is-active');
+  menu.querySelectorAll('[data-effort]').forEach((btn) => {
+    btn.onclick = () => {
+      const value = btn.getAttribute('data-effort');
+      const scope = btn.getAttribute('data-scope');
+      closeMenus();
+      chooseEffort(m, scope, value);
+    };
+  });
+}
+
+/* ---------- 权限菜单（展示 + 跳转） ---------- */
+function openPermMenu(){
+  const m = byId(S.target); if (!m) return;
+  const rows = m.perm.mode
+    ? `<div class="perm-line"><span>权限模式</span><b>${m.perm.mode}</b></div>`
+    : `<div class="perm-line"><span>审批模式</span><b>${m.perm.approval}</b></div><div class="perm-line"><span>沙盒</span><b>${m.perm.sandbox}</b></div>`;
+  const html = `<div class="menu-section">权限（${m.perm.runtime === 'codex' ? 'codex 维度：审批 / 沙盒' : 'claude 维度：权限模式'}）</div>`
+    + `<div style="padding:2px 14px 6px;font-size:13px;color:var(--text-2);line-height:1.7">${rows}<div class="perm-line"><span>工具可见集</span><b>${m.perm.tools}</b></div></div>`
+    + `<button type="button" role="menuitem" data-perm-go="1">${iconSvg('settings-2', 13)}<span class="conversation-menu-copy"><strong>打开工具权限设置</strong><small>预选 ${m.name} · P0 只做展示 + 跳转，就地编辑 P1/P2</small></span></button>`
+    + '<div class="menu-note">当前产品没有「只读 / 可写 / 全权」等级语义（permission_level 是死字段）；真正管事的是工具可见集 + 授权模式。</div>';
+  const menu = openMenu(document.getElementById('chipPerm'), 340, html, 'perm');
+  document.getElementById('chipPerm').classList.add('is-active');
+  menu.querySelector('[data-perm-go]').onclick = () => {
+    closeMenus();
+    showStatus(`已打开工具权限设置 · 预选 ${m.name}`);
+  };
+}
+
+/* ---------- @ 快捷菜单（P2 简版） ---------- */
+function openAtMenu(anchorEl){
+  const html = `<div class="menu-section">选择成员（@ 快捷唤起）</div>` + MEMBERS.map((m) => {
+    const running = m.status === 'running';
+    return `<button type="button" role="menuitem" data-at="${m.id}">
+      ${iconSvg('circle', 13)}
+      <span class="conversation-menu-copy"><strong>${m.name}</strong><small>${running ? '执行中 · 消息将排队' : '空闲'}</small></span>
+    </button>`;
+  }).join('') + '<div class="menu-note">选中即填入左侧目标胶囊；@ 只作快捷唤起，不解析消息正文。</div>';
+  const menu = openMenu(anchorEl, 280, html, 'at');
+  menu.querySelectorAll('[data-at]').forEach((btn) => {
+    btn.onclick = () => {
+      selectTarget(btn.getAttribute('data-at'));
+      const ta = document.getElementById('ta');
+      ta.value = ta.value.replace(/@\s*$/, '');
+      closeMenus();
+      ta.focus();
+      updateSendState();
+    };
+  });
+}
+
+/* ================================================================
+   目标与档位
+   ================================================================ */
 function selectTarget(id){
   const prev = S.target;
   S.target = id;
-  renderCapsule(); renderChips(); renderMembers();
-  if (id){
-    markIf('c1','targeted');
-    const m = byId(id);
-    if (m.efforts) markIf('c2','chipsShown');
-    if (!m.efforts) markIf('c9','legacyHidden');
-  }
-  if (prev && id && document.getElementById('ta').value.trim()) toast('草稿已保留（切换目标不影响已输入内容）');
+  renderCapsule(); renderChips(); renderDock();
+  if (prev && id && document.getElementById('ta').value.trim()) showStatus('草稿已保留');
 }
-
-/* ---------- 思考强度菜单 ---------- */
-function openEffortPop(){
-  const m = byId(S.target); if (!m || !m.efforts) return;
-  const pop = document.getElementById('effortPop');
-  const running = m.status === 'running';
-  const cur = S.lineEffort[m.id];
-  const opts = EFFORT_ORDER.filter(k => m.efforts.includes(k));
-  const lineItems = opts.map(k =>
-    `<button class="pop-item${k === cur ? ' is-current' : ''}" data-scope="line" data-v="${k}">`
-    + `<span class="n">${esc(EFFORT_LABEL[k])}</span>`
-    + `<span class="opt-val">${k === cur ? '当前 · 仅此线' : ''}</span></button>`).join('');
-  const defItems = opts.map(k =>
-    `<button class="pop-item" data-scope="member" data-v="${k}">`
-    + `<span class="n">${esc(EFFORT_LABEL[k])}</span>`
-    + `<span class="badge">P1</span></button>`).join('');
-  const hasMax = opts.includes('max');
-  pop.innerHTML =
-    `<div class="pop-label">仅此线 <span style="font-weight:400">（当前会话立即下发 · 不回溯当前回合）</span></div>`
-    + lineItems
-    + '<div class="pop-sep"></div>'
-    + `<div class="pop-label">设为该成员默认 <span style="font-weight:400">（P1 · 随数据基座上线）</span></div>`
-    + defItems
-    + '<div class="pop-sep"></div>'
-    + `<div class="timing-line"><span class="ic">⏱</span><span>空闲时改：<b>下一回合生效</b>；成员在跑时改：<b>当前回合结束后生效</b>（不回溯当前回合）</span></div>`
-    + (running ? `<div class="timing-line"><span class="ic">●</span><span><b>${esc(m.name)} 正在运行</b>：本次修改将于 <b>当前回合结束后生效</b></span></div>` : '')
-    + (hasMax
-        ? `<div class="pop-note">档位集合来自该成员模型的 capabilities 声明（含 <b>max</b>）。max 为最高档；个别渠道不支持时会在轮次失败气泡中呈现（P1 补归因提示）。</div>`
-        : `<div class="pop-note">该模型 capabilities <b>未声明 max</b>，故菜单不显示（属模型不支持，而非菜单砍掉）；写入未声明项会被适配器拒绝，chips 已按声明渲染以防错。</div>`)
-    + `<div class="pop-foot">「设为该成员默认」写入成员档案，对该成员<b>所有线</b>+未来新会话生效，误触半径大（P1 交付）。</div>`;
-  pop.querySelectorAll('.pop-item').forEach(b => {
-    b.onclick = () => { chooseEffort(m, b.dataset.scope, b.dataset.v); closePops(); };
-  });
-  closePops('effortPop');
-  pop.classList.add('open');
-  placePop(pop, document.getElementById('chipEffort'), 360);
-  markIf('c4', running ? 'timingRunning' : 'timingIdle');
-  if (m.id === 'glm') markIf('c3','menuGlm');
-  if (m.id === 'kimi') markIf('c3','menuKimi');
-}
-
 function chooseEffort(m, scope, value){
-  if (S.cold){ coldFail(); return; }
-  if (value === 'max'){
-    markIf('c3','maxConfirm');
-    openMaxConfirm(m, scope, () => applyEffort(m, scope, value));
-    return;
-  }
+  if (value === 'max'){ openMaxConfirm(m, scope, () => applyEffort(m, scope, value)); return; }
   applyEffort(m, scope, value);
 }
-
 function applyEffort(m, scope, value){
   if (scope === 'member'){
-    S.memberEffort[m.id] = (value === 'default' ? null : EFFORT_LABEL[value].split('（')[0]);
-    toast(`已写入成员默认：${m.name} · ${EFFORT_LABEL[value]}（P1 数据基座；对该成员所有线生效）`, 'ok');
+    S.memberEffort[m.id] = value === 'default' ? null : EFFORT_LABEL[value];
+    showStatus(`已写入成员默认：${EFFORT_LABEL[value]}（该成员所有线）`);
   } else {
     S.lineEffort[m.id] = value;
     const running = m.status === 'running';
-    toast(`已切换（仅此线）：${m.name} · ${EFFORT_LABEL[value]} —— ${running ? '当前回合结束后生效' : '下一回合生效'}`, 'ok');
+    showStatus(`仅此线 · ${EFFORT_LABEL[value]} · ${running ? '当前回合结束后生效' : '下一回合生效'}`);
   }
   renderChips();
 }
 
-/* ---------- max 确认弹窗 ---------- */
+/* ---------- Max 确认（ModalDialog.tsx 的 ConfirmDialog 观感） ---------- */
 let modalCb = null;
 function openMaxConfirm(m, scope, cb){
   modalCb = cb;
   const isMember = scope === 'member';
-  document.getElementById('modalHd').innerHTML = '⚠ 切换到最高档位 max';
-  document.getElementById('modalBd').innerHTML =
-    `<div>目标：<b>${esc(m.name)}</b> · ${isMember ? '<b>设为该成员默认</b>（对该成员所有线 + 未来新会话生效）' : '<b>仅此线</b>（当前会话）'}</div>`
-    + '<ul>'
-    + '<li>max = 最深推理，耗时/token 明显增加（"仅在最难任务上使用"）。</li>'
-    + '<li>8,523 条真实捕获实证：max 在 8,400+ 请求上成功，仅个别渠道（glm-5.3-flash-1、qwen3.8-flash-next）返回 500 —— 失败时会以<b>失败气泡</b>呈现，可降档重试（P1 补归因提示）。</li>'
-    + (isMember ? '<li>持久写入：<b>对该成员所有会话持久生效</b>（含未来新会话），<b>运行中的回合结束后咬合</b>；误触半径大，请确认。</li>' : '<li>仅影响本会话；成员在跑时为「当前回合结束后生效」，不回溯当前回合。</li>')
-    + '</ul>';
-  document.getElementById('mask').classList.add('open');
+  const message = `目标：${m.name} · ${isMember ? '设为该成员默认（对其所有会话持久生效，运行中的回合结束后咬合）' : '仅此线（当前会话）'}。\n\n`
+    + `Max = 最深推理，耗时与 token 明显增加。真实捕获实证：Max 在 8,400+ 请求上成功，仅个别渠道返回 500 —— 失败时会以失败气泡呈现，可降档重试（P1 补归因提示）。`
+    + (isMember ? '\n\n持久写入：误触会影响该成员所有线（含未来新会话），请确认。' : '');
+  document.getElementById('modalHost').innerHTML = `
+    <div class="modal-overlay" data-modal-overlay>
+      <div class="modal-dialog">
+        <div class="modal-header"><span class="modal-title">切换到 Max 档位？</span></div>
+        <div class="modal-body">
+          <p class="modal-message" style="white-space:pre-wrap">${message}</p>
+          <div class="modal-actions">
+            <button type="button" class="btn-secondary" data-modal-cancel>取消</button>
+            <button type="button" class="btn-primary" data-modal-ok>确认切换</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  const overlay = document.querySelector('[data-modal-overlay]');
+  overlay.onclick = (e) => { if (e.target === overlay) closeModal(); };
+  document.querySelector('[data-modal-cancel]').onclick = () => closeModal();
+  document.querySelector('[data-modal-ok]').onclick = () => { const cb = modalCb; closeModal(); if (cb) cb(); };
 }
-document.getElementById('modalCancel').onclick = () => { document.getElementById('mask').classList.remove('open'); modalCb = null; };
-document.getElementById('modalOk').onclick = () => {
-  document.getElementById('mask').classList.remove('open');
-  if (modalCb) modalCb(); modalCb = null;
-};
+function closeModal(){ document.getElementById('modalHost').innerHTML = ''; modalCb = null; }
 
-/* ---------- 权限弹层 ---------- */
-function openPermPop(){
-  const m = byId(S.target); if (!m) return;
-  const pop = document.getElementById('permPop');
-  const rows = m.perm.kind === 'mode'
-    ? `<div class="perm-row"><span class="lab">权限模式</span>`
-      + ['手动','接受编辑','计划','自动'].map(p => `<span class="pill${p === m.perm.mode ? ' on' : ''}">${p}</span>`).join('')
-      + `</div>`
-    : `<div class="perm-row"><span class="lab">审批模式</span><span class="pill on">${esc(m.perm.approval)}</span></div>`
-      + `<div class="perm-row"><span class="lab">沙盒</span><span class="pill on">${esc(m.perm.sandbox)}</span></div>`;
-  pop.innerHTML = `<div class="pop-label">权限（${m.runtime === 'claude' ? 'claude 维度：权限模式' : 'codex 维度：审批 / 沙盒'}）</div>`
-    + rows
-    + `<div class="perm-row"><span class="lab">工具可见集</span><b>${esc(m.perm.tools)}</b><span style="color:var(--text-3)">（真正管事的"权限"）</span></div>`
-    + `<button class="pop-btn" id="permGo">打开工具权限设置（预选 ${esc(m.name)}）→</button>`
-    + `<div class="pop-note">P0 权限 chip 只做<b>展示 + 跳转</b>；就地编辑 P1/P2。注意：当前产品没有「只读/可写/全权」等级语义（permission_level 是死字段），能就地给的是"工具可见集 + 授权模式"。</div>`;
-  pop.querySelector('#permGo').onclick = () => {
-    toast('P0：跳转工具权限设置并预选该成员（原型为演示提示，不改产品代码）');
-  };
-  closePops('permPop');
-  pop.classList.add('open');
-  placePop(pop, document.getElementById('chipPerm'), 380);
+/* ================================================================
+   发送 / 排队 / 停止
+   ================================================================ */
+function updateSendState(){
+  const ta = document.getElementById('ta');
+  document.getElementById('btnSend').disabled = !ta.value.trim();
 }
+function nowTime(){ const d = new Date(); return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; }
+function scrollBottom(){ const s = document.getElementById('scroll'); s.scrollTop = s.scrollHeight; }
 
-/* ---------- @ 菜单 ---------- */
-function openAtPop(anchorEl){
-  const pop = document.getElementById('atPop');
-  pop.innerHTML = '<div class="pop-label">选择成员（@ 快捷唤起 · 简版）</div>'
-    + MEMBERS.map(m => `<button class="pop-item" data-m="${m.id}" style="--pc:${m.color}"><span class="av">${m.init}</span>`
-      + `<span class="n">${esc(m.name)}</span><span class="sub${m.status === 'running' ? ' is-running' : ''}">`
-      + `<span class="dot"></span>${m.status === 'running' ? '在跑（排队发送）' : '空闲'}</span></button>`).join('')
-    + '<div class="pop-foot">选中即填入左侧目标胶囊（等价于点胶囊选人）；@ 仅作快捷唤起，不解析消息正文。</div>';
-  pop.querySelectorAll('.pop-item').forEach(b => {
-    b.onclick = () => {
-      selectTarget(b.dataset.m);
-      const ta = document.getElementById('ta');
-      ta.value = ta.value.replace(/@\s*$/, '');
-      closePops(); ta.focus();
-      toast(`目标已设为 ${byId(b.dataset.m).name}（@ 快捷唤起）`);
-    };
-  });
-  closePops('atPop');
-  pop.classList.add('open');
-  placePop(pop, anchorEl, 300);
-}
-
-/* ---------- 发送 ---------- */
 function send(){
   const ta = document.getElementById('ta');
   const text = ta.value.trim();
-  if (!text){ toast('消息为空', 'warn'); return; }
+  if (!text) return;
   const scroll = document.getElementById('scroll');
   if (!S.target){
     const el = document.createElement('div');
-    el.className = 'row human';
-    el.innerHTML = `<div class="avatar">你</div><div class="col"><div class="meta"><span class="name">你</span><span>刚刚</span></div>`
-      + `<div class="bub">${esc(text)}</div></div>`;
+    el.className = 'conversation-message is-human';
+    el.innerHTML = `<div class="conversation-avatar">${iconSvg('user', 14)}</div>
+      <div class="conversation-message-body">
+        <div class="conversation-message-meta"><strong>你</strong><time>${nowTime()}</time></div>
+        <div class="conversation-bubble">${escapeHtml(text)}</div>
+      </div>`;
     scroll.appendChild(el);
-    toast('全体目标：消息发往 Master（与现状完全一致，无定向块）');
   } else {
     const m = byId(S.target);
-    markIf('c6','directed');
+    const running = m.status === 'running';
     const id = `d${++seq}`;
     const el = document.createElement('div');
-    el.className = 'dblock';
+    el.className = 'conversation-message is-human';
     el.id = id;
-    const running = m.status === 'running';
-    el.innerHTML = `<div class="dblock-hd"><span class="route">你 <span style="opacity:.6">→</span></span>`
-      + `<span class="who" style="color:${m.color}">${esc(m.name)}</span>`
-      + `<span class="spacer"></span>`
-      + `<span id="${id}-badge">${running ? '<span class="qbadge queued"><span class="mini-dot"></span>排队中 · 等待 ' + esc(m.name) + ' 空闲</span>' : '<span class="qbadge running"><span class="spin"></span>执行中</span>'}</span></div>`
-      + `<div class="dblock-bd">${esc(text)}</div>`
-      + `<div class="dblock-ft">⚑ 定向消息绕过 Master —— 转录块标注来源；Master 的计划不会自动更新（预期行为）</div>`;
+    el.innerHTML = `<div class="conversation-avatar">${iconSvg('user', 14)}</div>
+      <div class="conversation-message-body">
+        <div class="conversation-message-meta"><strong>你</strong><time>${nowTime()}</time></div>
+        <div class="conversation-bubble">
+          <div class="conversation-team-assignment">
+            <div class="conversation-team-assignment-header" style="cursor:default">
+              <span class="directed-route">你 <span style="color:var(--text-3)">→</span> <b>${m.name}</b></span>
+              <span id="${id}-badge" class="directed-badge${running ? '' : ' is-running'}">
+                ${running ? '排队中 · 等待空闲' : '执行中'}
+              </span>
+            </div>
+            <div class="conversation-team-assignment-content is-open">${escapeHtml(text)}</div>
+          </div>
+          <div style="font-size:12px;color:var(--text-3)">定向消息绕过 Master：转录块标注来源，Master 计划不会自动更新（预期行为）</div>
+        </div>
+      </div>`;
     scroll.appendChild(el);
     if (running){
       S.queued[m.id] = (S.queued[m.id] || 0) + 1;
-      markIf('c5','queued');
-      toast(`${m.name} 正在跑回合：消息已<b>排队</b>（不丢失，成员空闲后自动执行）`, 'warn');
-      renderMembers();
+      renderDock();
+      showStatus('已排队 · 成员空闲后自动执行');
     } else {
-      fireMemberTurn(m, id, true);
+      fireMemberTurn(m, id);
     }
   }
   ta.value = '';
+  ta.style.height = 'auto';
+  updateSendState();
   ta.focus();
-  scroll.scrollTop = scroll.scrollHeight;
+  scrollBottom();
 }
 
-/* 成员"真的执行"一轮（原型模拟） */
-function fireMemberTurn(m, blockId, fromUser){
+function fireMemberTurn(m, blockId){
   m.status = 'running';
-  renderMembers(); renderHint();
-  const badge = document.getElementById(blockId + '-badge');
-  if (badge) badge.innerHTML = '<span class="qbadge running"><span class="spin"></span>执行中</span>';
+  renderDock();
+  const badge = document.getElementById(`${blockId}-badge`);
+  if (badge){ badge.className = 'directed-badge is-running'; badge.textContent = '执行中'; }
   setTimeout(() => {
     m.status = 'idle';
-    const badge2 = document.getElementById(blockId + '-badge');
-    if (badge2) badge2.innerHTML = '<span class="qbadge done">✓ 已执行</span>';
+    const b = document.getElementById(`${blockId}-badge`);
+    if (b){ b.className = 'directed-badge is-done'; b.textContent = '已完成'; }
     const scroll = document.getElementById('scroll');
     const reply = document.createElement('div');
-    reply.className = 'row';
-    reply.style.setProperty('--pc', m.color);
-    reply.innerHTML = `<div class="avatar">${m.init}</div><div class="col"><div class="meta"><span class="name">${esc(m.name)}</span><span>刚刚</span></div>`
-      + `<div class="bub">收到，我来处理："${esc(fromUser ? '（定向消息）' : '')}" —— 原型模拟回复。</div></div>`;
+    reply.className = 'conversation-message';
+    reply.innerHTML = `<div class="conversation-avatar">${iconSvg('bot', 14)}</div>
+      <div class="conversation-message-body">
+        <div class="conversation-message-meta"><strong>${m.name}</strong><time>${nowTime()}</time></div>
+        <div class="conversation-bubble">收到，我来处理（原型模拟回复）。</div>
+      </div>`;
     scroll.appendChild(reply);
-    scroll.scrollTop = scroll.scrollHeight;
-    renderMembers(); renderHint();
+    scrollBottom();
+    renderDock();
     drainQueue(m);
-  }, 2000);
+  }, 1800);
 }
-
-/* 成员空闲后自动消费排队消息（排队不丢失） */
 function drainQueue(m){
-  if (!S.queued[m.id] || m.status === 'running') { renderMembers(); return; }
+  if (!S.queued[m.id] || m.status === 'running'){ renderDock(); return; }
   S.queued[m.id] -= 1;
-  renderMembers();
+  renderDock();
   const notice = document.createElement('div');
-  notice.className = 'sys-notice';
-  notice.textContent = `${m.name} 已空闲：排队的定向消息开始执行（排队不丢失）`;
+  notice.className = 'conversation-system-notice';
+  notice.innerHTML = `<div class="conversation-system-notice-meta"><strong>平台</strong><time>${nowTime()}</time></div>
+    <div class="conversation-system-notice-body">${m.name} 已空闲：排队的定向消息开始执行（排队不丢失）</div>`;
   document.getElementById('scroll').appendChild(notice);
-  // 简化演示：直接执行一轮
-  const fakeId = `d${++seq}`;
   const holder = document.createElement('div');
-  holder.id = fakeId + '-badge';
+  holder.id = `d${++seq}-badge`;
   holder.style.display = 'none';
   document.getElementById('scroll').appendChild(holder);
-  fireMemberTurn(m, fakeId, true);
+  fireMemberTurn(m, holder.id.replace('-badge',''));
 }
 
-/* ---------- 停止（全队急停） ---------- */
+/* 停止：工具栏停止 = 全队急停（team-chat-adapter cancel = 所有在跑会话） */
 function stopAll(){
-  closePops();
-  const running = MEMBERS.filter(m => m.status === 'running');
-  markIf('c7','stopped');
-  MEMBERS.forEach(m => { m.status = 'idle'; });
-  renderMembers(); renderHint();
-  const notice = document.createElement('div');
-  notice.className = 'sys-notice';
-  notice.innerHTML = running.length
-    ? `⏹ 已停止全部 Agent（急停覆盖 ${running.map(m => m.name).join('、')}）—— 与发送目标解耦；排队消息保留（停止不清排队，P2 可加取消）`
-    : '⏹ 已停止全部 Agent（当前无在跑成员）—— 排队消息保留（停止不清排队，P2 可加取消）';
+  const running = MEMBERS.filter((m) => m.status === 'running');
+  MEMBERS.forEach((m) => { m.status = 'idle'; });
+  renderDock(); renderChips();
   const scroll = document.getElementById('scroll');
+  const notice = document.createElement('div');
+  notice.className = 'conversation-system-notice';
+  notice.innerHTML = `<div class="conversation-system-notice-meta"><strong>平台</strong><time>${nowTime()}</time></div>
+    <div class="conversation-system-notice-body">⏹ 已停止全部 Agent（全队急停${running.length ? `：${running.map((m) => m.name).join('、')}` : ''}）· 排队消息保留（停止不清排队，P2 可加取消）</div>`;
   scroll.appendChild(notice);
-  scroll.scrollTop = scroll.scrollHeight;
-  toast('停止 = 全队急停：所有正在跑的成员会话被中断（语义不变）');
-  // 演示：急停后成员空闲 → 排队消息继续执行（不丢失）
-  MEMBERS.forEach(m => { if (S.queued[m.id]) setTimeout(() => drainQueue(m), 700); });
+  scrollBottom();
+  MEMBERS.forEach((m) => { if (S.queued[m.id]) setTimeout(() => drainQueue(m), 600); });
+}
+function stopMember(id){
+  const m = byId(id);
+  m.status = 'idle';
+  renderDock(); renderChips();
+  const scroll = document.getElementById('scroll');
+  const notice = document.createElement('div');
+  notice.className = 'conversation-system-notice';
+  notice.innerHTML = `<div class="conversation-system-notice-meta"><strong>平台</strong><time>${nowTime()}</time></div>
+    <div class="conversation-system-notice-body">已停止 ${m.name} 的当前回合（session.cancel）</div>`;
+  scroll.appendChild(notice);
+  if (S.queued[m.id]) setTimeout(() => drainQueue(m), 600);
 }
 
-/* ---------- 冷会话：chip 禁用 + 写入失败回滚演示（边界） ---------- */
+/* ================================================================
+   冷会话边界（禁用 + 失败回滚；开关在产品外的说明条上）
+   ================================================================ */
 function coldDisabled(){
   const m = byId(S.target);
-  toast(`chip 已禁用：${m.name} 的会话未就绪（冷会话）。P0 规则：<b>写入前先确保目标格子会话存活</b>，失败时明确提示并回滚（不静默改值）。点右栏「演示一次写入失败（回滚）」可看失败路径。`, 'warn');
+  showComposerError(`chip 已禁用：${m.name} 的会话未就绪（冷会话）。写入前应先确保目标格子会话存活，失败时明确提示并回滚。`);
 }
-function coldFail(){
+function coldFailWrite(){
   const m = S.target ? byId(S.target) : null;
-  if (!m || !m.efforts){ toast('先在输入框选中一个带档位的成员（Dev-GLM / Dev-Kimi），再演示写入失败', 'warn'); return; }
-  toast(`写入失败：${m.name} 的会话未就绪（冷会话）—— 已回滚，档位不变；应「先确保目标格子会话存活，失败时明确提示」`, 'err');
-  markIf('c9','coldFail');
-  const scroll = document.getElementById('scroll');
-  const note = document.createElement('div');
-  note.className = 'fail-note';
-  note.textContent = `档位切换失败：目标成员会话未就绪（冷会话）· 已回滚（值保持 ${effortValueOf(m)}）`;
-  scroll.appendChild(note);
-  scroll.scrollTop = scroll.scrollHeight;
+  if (!m || !m.efforts){ showComposerError('请先选中带档位的成员（Dev-GLM / Dev-Kimi）'); return; }
+  showComposerError(`档位切换失败：目标成员会话未就绪（冷会话）· 已回滚（值保持 ${effortValueOf(m)}）`);
 }
 
-/* ---------- toast ---------- */
-function toast(html, kind){
-  const box = document.getElementById('toasts');
-  const el = document.createElement('div');
-  el.className = 'toast' + (kind ? ' ' + kind : '');
-  el.innerHTML = html;
-  box.appendChild(el);
-  setTimeout(() => { el.style.transition = 'opacity .3s'; el.style.opacity = '0'; setTimeout(() => el.remove(), 320); }, 3800);
+/* ================================================================
+   状态提示：失败走 .conversation-composer-error，普通提示走工具栏 status 槽
+   ================================================================ */
+let statusTimer = null, errorTimer = null;
+function showStatus(text){
+  const el = document.getElementById('toolbarStatus');
+  el.textContent = text;
+  el.style.display = '';
+  if (statusTimer) clearTimeout(statusTimer);
+  statusTimer = setTimeout(() => { el.style.display = 'none'; }, 4200);
+}
+function showComposerError(text){
+  const el = document.getElementById('composerError');
+  el.textContent = text;
+  el.style.display = '';
+  if (errorTimer) clearTimeout(errorTimer);
+  errorTimer = setTimeout(() => { el.style.display = 'none'; }, 6000);
+}
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 }
 
 /* ================================================================
    事件绑定
    ================================================================ */
 document.getElementById('capsule').onclick = (e) => {
-  if (e.target.id === 'capsuleClear'){ e.stopPropagation(); selectTarget(null); markIf('c1','cleared'); closePops(); return; }
-  e.stopPropagation(); openMemberPop();
+  if (e.target.closest('#capsuleClear')){ e.stopPropagation(); selectTarget(null); closeMenus(); return; }
+  e.stopPropagation();
+  if (S.menuName === 'members'){ closeMenus(); return; }
+  closeMenus();
+  openMemberMenu();
 };
 document.getElementById('btnSend').onclick = () => send();
 document.getElementById('btnStop').onclick = () => stopAll();
-document.getElementById('btnStopAll').onclick = () => stopAll();
-document.getElementById('btnReset').onclick = () => resetDemo();
+document.getElementById('dockHead').onclick = () => {
+  const body = document.getElementById('dockBody');
+  const open = body.style.display !== 'none';
+  body.style.display = open ? 'none' : '';
+  document.getElementById('dockChev').classList.toggle('is-collapsed', open);
+  document.getElementById('dockHead').title = open ? '展开团队 Agent 列表' : '收起团队 Agent 列表';
+};
 document.getElementById('coldToggle').onchange = (e) => {
   S.cold = e.target.checked;
-  document.getElementById('btnColdDemo').style.display = S.cold ? 'block' : 'none';
+  document.getElementById('coldFailBtn').style.display = S.cold ? '' : 'none';
   renderChips();
-  toast(S.cold ? '已开启冷会话演示：档位/权限 chip 变为禁用态（点击看说明），可点右栏按钮看写入失败回滚' : '已关闭冷会话演示', S.cold ? 'warn' : 'ok');
+  if (S.cold) showComposerError('已开启冷会话演示：档位 / 权限 chip 变为禁用态；点 chip 可看禁用原因');
+  else { document.getElementById('composerError').style.display = 'none'; showStatus('已关闭冷会话演示'); }
 };
-document.getElementById('btnColdDemo').onclick = () => coldFail();
+document.getElementById('coldFailBtn').onclick = () => coldFailWrite();
+document.querySelectorAll('[data-toggle-assignment]').forEach((btn) => {
+  btn.onclick = () => {
+    const content = document.getElementById(btn.getAttribute('data-toggle-assignment'));
+    content.classList.toggle('is-open');
+    const chev = btn.querySelector('.assign-chev');
+    if (chev) chev.style.transform = content.classList.contains('is-open') ? 'rotate(90deg)' : '';
+  };
+});
 
 const ta = document.getElementById('ta');
 ta.addEventListener('input', () => {
   ta.style.height = 'auto';
-  ta.style.height = Math.min(ta.scrollHeight, 140) + 'px';
-  const val = ta.value;
-  if (/@$/.test(val)){
-    markIf('c8','atMenu');
-    openAtPop(ta);
-  } else {
-    document.getElementById('atPop').classList.remove('open');
-  }
+  ta.style.height = `${Math.min(ta.scrollHeight, 160)}px`;
+  updateSendState();
+  if (/@$/.test(ta.value)){
+    if (S.menuName !== 'at'){ closeMenus(); openAtMenu(document.getElementById('composer')); }
+  } else if (S.menuName === 'at'){ closeMenus(); }
 });
 ta.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); send(); }
 });
-
-/* 外部点击关闭浮层 */
-document.querySelectorAll('.pop').forEach(p => p.addEventListener('click', e => e.stopPropagation()));
-
-/* ================================================================
-   重置
-   ================================================================ */
-function resetDemo(){
-  S.target = null; S.cold = false;
-  S.lineEffort = { glm:'default', kimi:'default', legacy:'default' };
-  S.memberEffort = { glm:null, kimi:null, legacy:null };
-  S.queued = {};
-  MEMBERS.forEach(m => { m.status = m.id === 'kimi' ? 'running' : 'idle'; });
-  document.getElementById('coldToggle').checked = false;
-  document.getElementById('btnColdDemo').style.display = 'none';
-  document.getElementById('ta').value = '';
-  ta.style.height = 'auto';
-  // 用初始快照整体还原消息流（避免残留定向块/排队块/系统行）
-  document.getElementById('scroll').innerHTML = INITIAL_SCROLL;
-  renderAll();
-  toast('已重置演示状态（点检勾选保留）', 'ok');
-}
+document.addEventListener('click', (e) => {
+  if (e.target.closest('.conversation-menu') || e.target.closest('#capsule') || e.target.closest('#chips')) return;
+  closeMenus();
+});
 
 /* ================================================================
    初始化
    ================================================================ */
-function renderAll(){ renderMembers(); renderCapsule(); renderChips(); renderHint(); }
-renderChecklist();
-renderAll();
+renderDock(); renderCapsule(); renderChips(); updateSendState();
 </script>
 </body>
 </html>
