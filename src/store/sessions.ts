@@ -720,6 +720,24 @@ export const messageStore = {
     return getDb().prepare<[string], MessageRow>('SELECT * FROM messages WHERE id = ?').get(id)
   },
 
+  /** 会话最后一条指定角色的消息（静默回合唤醒取"成员最后回复"与"本轮来源署名"用）。 */
+  latestByRole(sessionId: string, role: 'human' | 'agent'): MessageRow | undefined {
+    return getDb().prepare<{ sessionId: string; role: string }, MessageRow>(`
+      SELECT * FROM messages
+      WHERE session_id = @sessionId AND role = @role
+      ORDER BY timestamp DESC, rowid DESC
+      LIMIT 1
+    `).get({ sessionId, role })
+  },
+
+  latestHumanMessage(sessionId: string): MessageRow | undefined {
+    return messageStore.latestByRole(sessionId, 'human')
+  },
+
+  latestAgentMessage(sessionId: string): MessageRow | undefined {
+    return messageStore.latestByRole(sessionId, 'agent')
+  },
+
   hasMaterializedAgentHistory(
     sessionId: string,
     nativeSession: { runtime: string; sessionId: string | null },

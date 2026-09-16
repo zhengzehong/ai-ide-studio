@@ -329,7 +329,36 @@ export const teamMailboxStore = {
       LIMIT @limit
     `).all({ teamId, limit }).reverse()
   },
+
+  /** 该成员最后一条"唤醒级"mailbox（口径见 isWakeEligibleMailbox）；没有则 null。 */
+  latestFromMember(teamId: string, memberId: string): TeamMailboxRow | null {
+    return getDb().prepare<{ teamId: string; memberId: string }, TeamMailboxRow>(`
+      SELECT * FROM team_mailbox
+      WHERE team_id = @teamId AND from_member_id = @memberId AND ${WAKE_ELIGIBLE_MAILBOX_SQL}
+      ORDER BY created_at DESC, rowid DESC
+      LIMIT 1
+    `).get({ teamId, memberId }) ?? null
+  },
+
+  /** 该成员在时间窗内写过的全部 mailbox（静默回合判定"本回合有没有汇报"用，时间窗起点 = 回合 human 消息时间戳）。 */
+  listByMemberSince(teamId: string, memberId: string, sinceIso: string): TeamMailboxRow[] {
+    return getDb().prepare<{ teamId: string; memberId: string; since: string }, TeamMailboxRow>(`
+      SELECT * FROM team_mailbox
+      WHERE team_id = @teamId AND from_member_id = @memberId AND created_at >= @since
+      ORDER BY created_at ASC
+    `).all({ teamId, memberId, since: sinceIso })
+  },
 }
+
+/** 唤醒级 mailbox 口径（与 team-wake-coordinator 的唤醒白名单一致，改一处必须改两处会被等价性测试拦住）。 */
+export const WAKE_ELIGIBLE_MAILBOX_SQL = `(type IN ('report', 'result', 'question', 'blocked') OR (type = 'message' AND task_id IS NOT NULL))`
+
+export function isWakeEligibleMailbox(message: Pick<TeamMailboxRow, 'type' | 'task_id'>): boolean {
+  return WAKE_MAILBOX_TYPES.has(message.type)
+    || (Boolean(message.task_id) && message.type === 'message')
+}
+
+const WAKE_MAILBOX_TYPES = new Set(['report', 'result', 'question', 'blocked'])
 
 export const teamEventStore = {
   append(teamId: string, input: AppendTeamEventInput): TeamEventRow {

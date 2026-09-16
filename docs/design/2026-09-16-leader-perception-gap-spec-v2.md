@@ -142,7 +142,7 @@ inputSchema: { teamId?: string }   // 缺省 = 上下文团队;两者皆空报 "
 | memberId / name / role / agentId | string | 成员标识 | TeamMemberRow | — | — |
 | runtimeState | `running`\|`idle` | 该成员**全部线格子+primary 会话的并集**(任一 running 即 running) | `resolveSessionRuntimeState`(session-runtime-state.ts:21-27) ← `listGridActivity`(team-conversations.ts:120-134)+ `sessionManager.isPromptActive` | "idle" | "running" |
 | cells | Array | 各线格子逐一列出:conversationId / 标题 / sessionId / state / stage | listGridActivity + list() 取标题 | [{state:"idle",stage:null}] | [{state:"running",stage:"正在思考..."}] |
-| hasPendingMemberPrompt | number | **排队深度**(FIFO 未派发条数) | **新增导出** `getMemberQueueDepth()`(team-member-dispatcher.ts:28 私有 Map) | 0 | 2 |
+| hasPendingMemberPrompt | number | **排队深度**(FIFO 未派发条数)。多线同时积压时显示**最深处(max)而非合计**——深度按"primary + 全部格子"逐会话取 max,避免把同一成员多条线的积压相加成失真的总量 | **新增导出** `getMemberQueueDepth()`(team-member-dispatcher.ts:28 私有 Map) | 0 | 2 |
 | isMemberPromptInFlight | boolean | prompt 已发出、回合未结束 | **新增导出** `isMemberPromptInFlight()`(:26) | false | true |
 | lastReport | object\|null | 最后一条**唤醒级** mailbox(口径=白名单 report/result/question/blocked,或 message 且带 taskId) | **新增** `teamMailboxStore.latestFromMember()` | {type:"report", sinceLastReportMs:1680000} | {type:"report", sinceLastReportMs:420000} |
 | taskTotal / taskRunning / taskNeedsInput | number | 名下任务 总数 / running 数 / needs_input 数 | taskStore.listByTeam 按 assignee_member_id 过滤计数 | 2/0/0 | 2/1/0 |
