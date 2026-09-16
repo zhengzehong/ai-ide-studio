@@ -24,6 +24,8 @@ import { teamWakeCoordinator } from './team-wake-coordinator.js'
 import { applyToolProfileToAgent } from '../tools/team-profiles.js'
 import { teamConversationStore } from '../store/team-conversations.js'
 import { teamConversationService, resolveTeamLeaderSession, ensureMemberInActiveConversations, ensureMemberInConversation } from './team-conversations.js'
+// 副作用导入：注册 session:committed_done 上的静默回合兜底唤醒监听（P0b，见 team-silent-turn.ts）。
+import './team-silent-turn.js'
 export type { TeamConversationDetail } from './team-conversations.js'
 const log = createChildLogger('teams')
 

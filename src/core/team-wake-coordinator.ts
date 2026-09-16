@@ -1,5 +1,12 @@
 import { taskStore, type TaskRow } from '../store/tasks.js'
-import { teamMemberStore, teamStore, type TeamMailboxRow, type TeamMemberRow, type TeamRow } from '../store/teams.js'
+import {
+  isWakeEligibleMailbox,
+  teamMemberStore,
+  teamStore,
+  type TeamMailboxRow,
+  type TeamMemberRow,
+  type TeamRow,
+} from '../store/teams.js'
 import { teamConversationStore } from '../store/team-conversations.js'
 import { sessionStore } from '../store/sessions.js'
 import { events } from './events.js'
@@ -9,17 +16,9 @@ import { buildLeaderWakePrompt } from './team-prompts.js'
 
 const log = createChildLogger('team-wake')
 const WAKE_MAILBOX_TYPES = new Set(['report', 'result', 'question', 'blocked'])
-// 'message' 是 team.mailbox.send 的默认类型；带 task_id 的 message 实质是任务汇报，放行防止静默丢唤醒。
-const WAKE_TASK_BOUND_TYPES = new Set(['message'])
 const WAKE_TASK_STATUSES = new Set(['completed', 'needs_input'])
 const WAKE_DELAY_MS = 2_000
 const TASK_MAILBOX_WAKE_DELAY_MS = 15_000
-
-/** mailbox 唤醒资格：白名单类型，或带 task_id 的默认类型（成员不传 type 的汇报）。 */
-function shouldWakeOnMailbox(message: TeamMailboxRow): boolean {
-  return WAKE_MAILBOX_TYPES.has(message.type)
-    || (Boolean(message.task_id) && WAKE_TASK_BOUND_TYPES.has(message.type))
-}
 const activeLeaderSessions = new Set<string>()
 const pendingByLeaderSession = new Map<string, string>()
 const wakeTimers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -59,7 +58,7 @@ export const teamWakeCoordinator = {
   },
 
   notifyMailbox(message: TeamMailboxRow, sourceSessionId?: string): void {
-    if (!message.from_member_id || !shouldWakeOnMailbox(message)) return
+    if (!message.from_member_id || !isWakeEligibleMailbox(message)) return
     const team = teamStore.get(message.team_id)
     const member = teamMemberStore.get(message.from_member_id)
     if (!team || !member || member.role === 'leader') return
@@ -83,6 +82,23 @@ export const teamWakeCoordinator = {
       ? leaderSessionIdForConversationOf(team.id, task.initiator_session_id)
       : undefined
     scheduleLeaderWake(team, member, buildLeaderWakePrompt({ team, member, task }), WAKE_DELAY_MS, preferredLeaderSessionId)
+  },
+
+  /**
+   * 静默回合兜底唤醒（P0b）：成员回合结束但整轮没汇报时，由 team-silent-turn 判定后调这里入桶。
+   * 与其余唤醒来源不同，本入口用**追加**语义入桶：同一合并窗口内多个成员的静默通知必须全部保留，
+   * 沿用 scheduleLeaderWake 的覆盖语义会丢报（见 appendLeaderWake 注释）。
+   */
+  notifySilentTurn(input: { teamId: string; memberId: string; sessionId: string; prompt: string; delayMs?: number }): void {
+    const team = teamStore.get(input.teamId)
+    const member = teamMemberStore.get(input.memberId)
+    if (!team || !member || member.team_id !== team.id || member.role === 'leader') return
+    const leaderSessionId = leaderSessionIdForConversationOf(team.id, input.sessionId)
+    appendLeaderWake(team, member, input.prompt, input.delayMs ?? WAKE_DELAY_MS, leaderSessionId)
+    log.info(
+      { teamId: team.id, memberId: member.id, sessionId: input.sessionId, leaderSessionId },
+      'Team silent-turn wake scheduled',
+    )
   },
 
   /**
@@ -138,6 +154,32 @@ function scheduleLeaderWake(team: TeamRow, member: TeamMemberRow, prompt: string
   timer.unref?.()
   wakeTimers.set(leaderSessionId, timer)
   log.debug({ teamId: team.id, leaderSessionId, delayMs }, 'Team Leader wake scheduled')
+}
+
+/**
+ * 追加语义入桶：合并窗口内该 Leader 会话已有待发唤醒时**拼接**内容而不是覆盖。
+ * 静默通知可能在同一窗口内来自多个成员（或与既有唤醒并发），覆盖会丢报；
+ * 定时器保持原有截止时间不重置，避免连续通知把合并窗口无限延后。
+ */
+function appendLeaderWake(team: TeamRow, member: TeamMemberRow, prompt: string, delayMs: number, preferredLeaderSessionId?: string | null): void {
+  const leader = teamMemberStore.list(team.id).find((item) => item.role === 'leader')
+  if (!leader) {
+    log.warn({ teamId: team.id, memberId: member.id }, 'Team Leader missing; wake skipped')
+    return
+  }
+  const leaderSessionId = resolveWakeTargetSession(team, leader, member, preferredLeaderSessionId)
+  const existing = pendingByLeaderSession.get(leaderSessionId)
+  if (existing) {
+    pendingByLeaderSession.set(leaderSessionId, `${existing}\n\n${prompt}`)
+    // 已有桶内容但定时器被"手动回合暂停"摘掉时，补一个新定时器；已有定时器则保持原截止时间。
+    if (!wakeTimers.has(leaderSessionId)) {
+      const timer = setTimeout(() => flushLeaderWake(leaderSessionId), delayMs)
+      timer.unref?.()
+      wakeTimers.set(leaderSessionId, timer)
+    }
+    return
+  }
+  scheduleLeaderWake(team, member, prompt, delayMs, leaderSessionId)
 }
 
 /**

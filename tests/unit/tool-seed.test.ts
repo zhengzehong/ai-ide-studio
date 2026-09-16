@@ -168,6 +168,7 @@ describe('builtin tool seed synchronization', () => {
       'team.member.list',
       'team.member.message',
       'team.member.spawn',
+      'team.status',
       'team.task.create',
       'team.task.list',
       'team.task.update',

@@ -100,6 +100,41 @@ export const taskEventStore = {
     return map
   },
 
+  /** 每任务最后一条事件（不限类型）：任务行没有 updated_at，事件表是"最后更新时间"的唯一可靠来源。 */
+  listLastEventByTaskIds(taskIds: string[]): Record<string, TaskEventRow> {
+    if (taskIds.length === 0) return {}
+    const placeholders = taskIds.map(() => '?').join(',')
+    const rows = getDb()
+      .prepare<string[], TaskEventRow>(
+        `
+        SELECT id, task_id, type, payload_json, sequence, created_at FROM (
+          SELECT id, task_id, type, payload_json, sequence, created_at,
+            ROW_NUMBER() OVER (PARTITION BY task_id ORDER BY sequence DESC) AS rn
+          FROM task_events
+          WHERE task_id IN (${placeholders})
+        )
+        WHERE rn = 1
+      `,
+      )
+      .all(...taskIds)
+    const map: Record<string, TaskEventRow> = {}
+    for (const row of rows) map[row.task_id] = row
+    return map
+  },
+
+  /** 时间窗内的任务事件（静默回合判定"本回合有没有更新过任务"用）。 */
+  listByTaskIdsSince(taskIds: string[], sinceIso: string): TaskEventRow[] {
+    if (taskIds.length === 0) return []
+    const placeholders = taskIds.map(() => '?').join(',')
+    return getDb()
+      .prepare<string[], TaskEventRow>(
+        `SELECT * FROM task_events
+         WHERE task_id IN (${placeholders}) AND created_at >= ?
+         ORDER BY created_at ASC`,
+      )
+      .all(...taskIds, sinceIso)
+  },
+
   listLinkedSessionsByTaskIds(taskIds: string[]): LinkedTaskSession[] {
     if (taskIds.length === 0) return []
     const placeholders = taskIds.map(() => '?').join(', ')

@@ -99,6 +99,11 @@ export function hasPendingMemberPrompt(sessionId: string): boolean {
   return (pendingByMemberSession.get(sessionId)?.length ?? 0) > 0
 }
 
+/** 只读探针：该成员格子会话的排队深度（team.status 展示"你派的话还压着几条"）。 */
+export function getMemberQueueDepth(sessionId: string): number {
+  return pendingByMemberSession.get(sessionId)?.length ?? 0
+}
+
 /** 只读探针：该成员格子是否有正在执行的派发回合（堵「出队→标 active」的微任务窗口，同上用于复制忙判定）。 */
 export function isMemberPromptInFlight(sessionId: string): boolean {
   return activeMemberSessions.has(sessionId)

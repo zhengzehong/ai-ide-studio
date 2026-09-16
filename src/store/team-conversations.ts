@@ -22,6 +22,8 @@ export interface TeamConversationMemberRow {
 
 export interface TeamGridActivityRow {
   conversation_id: string
+  /** 格子所属成员；团队线 master 会话的格子也在 tcm 里（leader 行）。 */
+  member_id: string | null
   session_id: string | null
   status: string | null
   stage: string | null
@@ -119,7 +121,7 @@ export const teamConversationStore = {
   /** 线内全部格子 session 的运行信号（含成员格子），供 core 聚合成"任一格子在跑 → 线 running"。 */
   listGridActivity(teamId: string): TeamGridActivityRow[] {
     return getDb().prepare<[string], TeamGridActivityRow>(`
-      SELECT tcm.conversation_id, tcm.session_id, s.status, s.stage,
+      SELECT tcm.conversation_id, tcm.member_id, tcm.session_id, s.status, s.stage,
         CASE WHEN s.id IS NOT NULL AND EXISTS (
           SELECT 1 FROM messages msg WHERE msg.session_id = s.id AND msg.role = 'agent' AND msg.status = 'running'
         ) THEN 1 ELSE 0 END AS has_running_agent_message,

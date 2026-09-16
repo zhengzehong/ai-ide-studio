@@ -32,6 +32,10 @@ export const TEAM_BUILTIN_TOOLS: BuiltinToolSeed[] = [
     properties: { teamId: { type: 'string', description: 'Team ID' } },
     required: ['teamId'],
   }),
+  teamTool('team.status', '查看成员运行态', '一次查看团队成员的运行态与汇报态（只读快照）：各线格子 running/idle、派发排队深度、是否在飞、最后一条给 Leader 的汇报、名下任务统计。用户询问进度、被唤醒后跟进、总结前核对时用；这是快照不是订阅，不要轮询。', {
+    type: 'object',
+    properties: { teamId: { type: 'string', description: 'Team ID；不传时使用上下文 Team' } },
+  }),
   teamTool('team.create', '创建 Team', '创建 Team，自动创建隐藏的 Master 并绑定团队工具；masterPrompt 可调整内置默认提示词。', {
     type: 'object',
     properties: {

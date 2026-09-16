@@ -82,6 +82,7 @@ import {
   createTeamTaskHandler,
   describeTeamTemplateHandler,
   getTeamHandler,
+  getTeamStatusHandler,
   listTeamMailboxHandler,
   listTeamMembersHandler,
   listTeamTasksHandler,
@@ -219,6 +220,7 @@ register(deleteMemoryHandler)
 register(seedBuiltinMemoryDimensionsHandler)
 register(listTeamsHandler)
 register(getTeamHandler)
+register(getTeamStatusHandler)
 register(createTeamHandler)
 register(updateTeamHandler)
 register(listTeamMembersHandler)

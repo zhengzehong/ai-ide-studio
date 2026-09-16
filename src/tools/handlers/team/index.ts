@@ -14,3 +14,4 @@ export {
   updateTeamHandler,
   updateTeamTaskHandler,
 } from './team-tools.js'
+export { getTeamStatusHandler } from './team-status-tool.js'

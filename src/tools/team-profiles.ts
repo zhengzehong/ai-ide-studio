@@ -22,7 +22,7 @@ export interface ApplyToolProfileResult {
   missingToolNames: string[]
 }
 
-const TEAM_READONLY_TOOLS = ['team.list', 'team.conversation.list', 'team.get', 'team.member.list', 'team.task.list', 'team.mailbox.list']
+const TEAM_READONLY_TOOLS = ['team.list', 'team.conversation.list', 'team.get', 'team.status', 'team.member.list', 'team.task.list', 'team.mailbox.list']
 
 const TEAM_MEMBER_TOOLS = [...TEAM_READONLY_TOOLS, 'team.mailbox.send', 'team.task.update']
 
