@@ -522,10 +522,11 @@ const S = {
   lineEffort:{ glm:'default', kimi:'default', legacy:'default' },
   memberEffort:{ glm:null, kimi:null, legacy:null },
   cold:false,
-  queued:{},
+  queuedBlocks:{},             // m.id → 排队转录块 id 的 FIFO 列表（释放时按序取队首可见块）
   menuName:null,
 };
 let seq = 0;
+function qLen(id){ return (S.queuedBlocks[id] || []).length; }
 const INITIAL_SCROLL = document.getElementById('scroll').innerHTML;
 
 /* ================================================================
@@ -535,7 +536,7 @@ function renderDock(){
   const body = document.getElementById('dockBody');
   body.innerHTML = '<div class="team-agent-dock-hint">点击定位该成员消息 · 右键（或悬停 ⋯）管理成员</div>' + MEMBERS.map((m) => {
     const running = m.status === 'running';
-    const q = S.queued[m.id] || 0;
+    const q = qLen(m.id);
     const statusLabel = running ? (q > 0 ? `执行中 · 排队 ${q}` : '执行中') : (q > 0 ? `空闲 · 排队 ${q}` : '空闲');
     return `<div class="team-agent-dock-row" data-locate="${m.id}" title="定位 ${m.name} 的最新消息">
       <div class="team-agent-dock-row-top">
@@ -664,7 +665,7 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape'){ closeMenu
 function openMemberMenu(){
   const html = `<div class="menu-section">定向发送给谁</div>` + MEMBERS.map((m) => {
     const running = m.status === 'running';
-    const q = S.queued[m.id] || 0;
+    const q = qLen(m.id);
     const sub = running ? `执行中${q ? ` · 排队 ${q}` : ''}` : (q ? `空闲 · 排队 ${q}` : '空闲');
     return `<button type="button" role="menuitem" data-member="${m.id}" class="${S.target === m.id ? 'is-active' : ''}">
       ${S.target === m.id ? iconSvg('check', 13) : iconSvg('circle', 13)}
@@ -860,8 +861,8 @@ function send(){
         </div>
       </div>`;
     scroll.appendChild(el);
-    if (running){
-      S.queued[m.id] = (S.queued[m.id] || 0) + 1;
+    if (running || qLen(m.id) > 0){
+      (S.queuedBlocks[m.id] = S.queuedBlocks[m.id] || []).push(id);
       renderDock();
       showStatus('已排队 · 成员空闲后自动执行');
     } else {
@@ -899,19 +900,16 @@ function fireMemberTurn(m, blockId){
   }, 1800);
 }
 function drainQueue(m){
-  if (!S.queued[m.id] || m.status === 'running'){ renderDock(); return; }
-  S.queued[m.id] -= 1;
+  const queue = S.queuedBlocks[m.id] || [];
+  if (!queue.length || m.status === 'running'){ renderDock(); return; }
+  const blockId = queue.shift();   // FIFO：释放队首那条可见排队块
   renderDock();
   const notice = document.createElement('div');
   notice.className = 'conversation-system-notice';
   notice.innerHTML = `<div class="conversation-system-notice-meta"><strong>平台</strong><time>${nowTime()}</time></div>
     <div class="conversation-system-notice-body">${m.name} 已空闲：排队的定向消息开始执行（排队不丢失）</div>`;
   document.getElementById('scroll').appendChild(notice);
-  const holder = document.createElement('div');
-  holder.id = `d${++seq}-badge`;
-  holder.style.display = 'none';
-  document.getElementById('scroll').appendChild(holder);
-  fireMemberTurn(m, holder.id.replace('-badge',''));
+  fireMemberTurn(m, blockId);      // 直接驱动可见块：徽标走完 排队中 → 执行中 → 已完成
 }
 
 /* 停止：工具栏停止 = 全队急停（team-chat-adapter cancel = 所有在跑会话） */
@@ -926,7 +924,7 @@ function stopAll(){
     <div class="conversation-system-notice-body">⏹ 已停止全部 Agent（全队急停${running.length ? `：${running.map((m) => m.name).join('、')}` : ''}）· 排队消息保留（停止不清排队，P2 可加取消）</div>`;
   scroll.appendChild(notice);
   scrollBottom();
-  MEMBERS.forEach((m) => { if (S.queued[m.id]) setTimeout(() => drainQueue(m), 600); });
+  MEMBERS.forEach((m) => { if (qLen(m.id)) setTimeout(() => drainQueue(m), 600); });
 }
 function stopMember(id){
   const m = byId(id);
@@ -938,7 +936,7 @@ function stopMember(id){
   notice.innerHTML = `<div class="conversation-system-notice-meta"><strong>平台</strong><time>${nowTime()}</time></div>
     <div class="conversation-system-notice-body">已停止 ${m.name} 的当前回合（session.cancel）</div>`;
   scroll.appendChild(notice);
-  if (S.queued[m.id]) setTimeout(() => drainQueue(m), 600);
+  if (qLen(m.id)) setTimeout(() => drainQueue(m), 600);
 }
 
 /* ================================================================
