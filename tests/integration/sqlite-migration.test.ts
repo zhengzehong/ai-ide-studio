@@ -142,7 +142,7 @@ describe('SQLite 迁移', () => {
       ORDER BY name
     `).all().map(row => row.name)
 
-    expect(migrations).toEqual(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011', '012', '013', '014', '015', '016', '017', '018', '019', '020', '021', '022', '023', '024', '025', '026', '027', '028', '029', '030', '031', '032', '033', '034', '035', '036', '037', '038', '039', '040', '041', '042', '043', '044', '045', '046', '047', '048', '049', '050', '051', '052', '053', '054', '055', '056', '057', '058', '059', '060', '061', '062', '063', '064', '065', '066', '067', '068', '069', '070', '071'])
+    expect(migrations).toEqual(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011', '012', '013', '014', '015', '016', '017', '018', '019', '020', '021', '022', '023', '024', '025', '026', '027', '028', '029', '030', '031', '032', '033', '034', '035', '036', '037', '038', '039', '040', '041', '042', '043', '044', '045', '046', '047', '048', '049', '050', '051', '052', '053', '054', '055', '056', '057', '058', '059', '060', '061', '062', '063', '064', '065', '066', '067', '068', '069', '070', '071', '072'])
     expect(messageColumns).toContain('file_changes_json')
     expect(messageColumns).toContain('process_item_count')
     expect(messageColumns).toContain('presentations_json')
@@ -151,7 +151,7 @@ describe('SQLite 迁移', () => {
     expect(getDb().prepare<[], { name: string }>('PRAGMA table_info(agents)').all().map(row => row.name)).toContain('sort_order')
     expect(getDb().prepare<[], { name: string }>('PRAGMA table_info(agents)').all().map(row => row.name)).toContain('hidden_at')
     expect(getDb().prepare<[], { name: string }>('PRAGMA table_info(agents)').all().map(row => row.name)).toContain('avatar_url')
-    expect(getDb().prepare<[], { name: string }>('PRAGMA table_info(team_members)').all().map(row => row.name)).toEqual(expect.arrayContaining(['model_profile_id', 'model_profile_mode', 'system_prompt_override']))
+    expect(getDb().prepare<[], { name: string }>('PRAGMA table_info(team_members)').all().map(row => row.name)).toEqual(expect.arrayContaining(['model_profile_id', 'model_profile_mode', 'system_prompt_override', 'reasoning_effort']))
     expect(getDb().prepare<[], { name: string }>('PRAGMA table_info(agent_templates)').all().map(row => row.name)).toContain('avatar_url')
     expect(getDb().prepare<[], { name: string }>('PRAGMA table_info(sessions)').all().map(row => row.name)).toContain('sort_order')
     expect(getDb().prepare<[], { name: string }>('PRAGMA table_info(event_subscriptions)').all().map(row => row.name)).toEqual(expect.arrayContaining(['consumer_session_mode', 'consumer_session_id']))

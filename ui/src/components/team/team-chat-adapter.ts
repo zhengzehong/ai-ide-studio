@@ -33,6 +33,10 @@ interface TeamAdapterInput {
   senderAgentIds?: Record<string, string>
   /** 主停止（全队急停）目标会话：leader 在跑时排最前，其余为 running 成员；空闲会话不进列表。 */
   runningTurnSessionIds: string[]
+  /** 本地定向待落账消息（成员起跑前先显示「排队中 · 等待空闲」）：直接追加到消息流尾部。 */
+  directedPendingMessages?: ConversationAdapter['messages']
+  /** 团队线目标胶囊 + 就地档位/权限控制（composer 可选插槽）。 */
+  teamTarget?: ConversationAdapter['teamTarget']
 }
 
 export function resolveTeamInteractionSession(snapshots: Record<string, Snapshot>, kind: 'permissions' | 'elicitations', requestId: string): string {
@@ -47,7 +51,7 @@ export function createTeamChatAdapter(input: TeamAdapterInput): ConversationAdap
     agentName: input.conversation ? `${input.team.name} · Master` : input.team.name,
     agentRuntime: 'team', sessionTitle: input.conversation?.title ?? null,
     senderAgentIds: input.senderAgentIds,
-    messages: input.aggregate.messages, events: input.aggregate.events, contentRevision: input.contentRevision,
+    messages: [...input.aggregate.messages, ...(input.directedPendingMessages ?? [])], events: input.aggregate.events, contentRevision: input.contentRevision,
     streamingMessage: input.aggregate.streaming[0] || null, streamingMessages: input.aggregate.streaming,
     loading: input.loading, error: input.error, running: input.aggregate.running, sending: input.sending,
     connected: true, hasMoreMessages: input.aggregate.hasMore, loadingOlderMessages: input.loadingOlder,
@@ -80,5 +84,7 @@ export function createTeamChatAdapter(input: TeamAdapterInput): ConversationAdap
     setModel: async id => { if (input.masterSessionId) await wsClient.request({ type: 'session.setModel', sessionId: input.masterSessionId, modelId: id }) },
     setMode: async id => { if (input.masterSessionId) await wsClient.request({ type: 'session.setMode', sessionId: input.masterSessionId, modeId: id }) },
     setConfig: async (id, value) => { if (input.masterSessionId) await wsClient.request({ type: 'session.setConfig', sessionId: input.masterSessionId, configId: id, value }) },
+    // 团队线目标（可选插槽）：不注入即普通会话，composer 零感知。
+    teamTarget: input.teamTarget,
   }
 }

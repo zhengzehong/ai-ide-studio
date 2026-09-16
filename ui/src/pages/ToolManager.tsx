@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   ChevronDown,
   ChevronRight,
@@ -66,7 +67,12 @@ export default function ToolManager() {
   const [showCreate, setShowCreate] = useState(false)
   const [editTool, setEditTool] = useState<ToolData | null>(null)
   const [expandedTool, setExpandedTool] = useState<string | null>(null)
-  const [selectedAgentId, setSelectedAgentId] = useState('')
+  // 深链预选：团队线权限开关「打开工具权限设置」带 ?agentId= 进来时，直接定位到该成员 Agent。
+  // 挂载时以参数为初值；用户未手选前跟随参数，手选后以其为准（不做 effect 同步，避免级联渲染）。
+  const [searchParams] = useSearchParams()
+  const paramAgentId = searchParams.get('agentId') || ''
+  const [selectedAgentId, setSelectedAgentId] = useState(paramAgentId)
+  const effectiveAgentId = selectedAgentId || paramAgentId
 
   useEffect(() => {
     void fetchTools()
@@ -155,7 +161,7 @@ export default function ToolManager() {
         tools={tools}
         bindings={bindings}
         profiles={profiles}
-        selectedAgentId={selectedAgentId}
+        selectedAgentId={effectiveAgentId}
         onSelectAgent={setSelectedAgentId}
         onApplyProfile={applyProfile}
         onSetBinding={setBinding}

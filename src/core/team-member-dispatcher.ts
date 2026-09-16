@@ -17,6 +17,8 @@ export interface DispatchMemberPromptInput {
   /** Short content shown in the team transcript; prompt remains the model payload. */
   displayContent?: string
   senderName?: string | null
+  /** 消息来源署名角色：'team-assignment'=Master 派发（默认）；'team-directed'=用户在团队线里定向发（转录块标「你 → 成员」）。 */
+  senderRole?: 'team-assignment' | 'team-directed'
   /** 关联任务：派发最终失败时回写任务状态，避免任务永远停在 running。 */
   taskId?: string
 }
@@ -61,7 +63,7 @@ async function runMemberPrompt(input: DispatchMemberPromptInput): Promise<void> 
   try {
     await sessionManager.enqueuePrompt(input.sessionId, input.displayContent ?? input.prompt, undefined, {
       modelContent: input.prompt,
-      senderRole: 'team-assignment',
+      senderRole: input.senderRole ?? 'team-assignment',
       senderName: input.senderName ?? 'Master',
     })
   } catch (err: unknown) {

@@ -20,6 +20,8 @@ export interface TeamMemberModelConfig {
   modelProfileMode: TeamMemberModelProfileMode
   modelProfileId: string | null
   systemPromptOverride: string | null
+  /** 成员级默认档位（migration 072）：null=跟随档案/系统默认。本会话内手切过的档位仍以手切优先。 */
+  effort: string | null
   runtime: string
   effective: TeamMemberEffectiveModel
   /** 不继承任何档案时的解析结果（Agent 原配置 → 系统默认），供「使用系统默认」策略在弹窗内预览。 */
@@ -130,7 +132,13 @@ export const teamRpcHandlers: RpcHandlerMap = {
     const systemPromptOverride = typeof msg.systemPromptOverride === 'string' && msg.systemPromptOverride.trim().length > 0
       ? msg.systemPromptOverride
       : null
-    const updated = teamMemberStore.updateConfig(member.id, { modelProfileMode: mode, modelProfileId, systemPromptOverride })
+    // 成员级默认档位（P0 数据基座）：null/缺省=不动；空串=清空（跟随档案）；合法档位值=写入。
+    const reasoningEffort = msg.effort === undefined
+      ? undefined
+      : msg.effort === null || msg.effort === ''
+        ? null
+        : normalizeMemberEffort(msg.effort)
+    const updated = teamMemberStore.updateConfig(member.id, { modelProfileMode: mode, modelProfileId, systemPromptOverride, reasoningEffort })
     if (!updated) throw new Error(`Team member 不存在: ${member.id}`)
     emitTeamUpdate(updated.team_id, 'member.updated')
     sendResult(describeTeamMemberModelConfig(updated))
@@ -145,6 +153,25 @@ export const teamRpcHandlers: RpcHandlerMap = {
     emitTeamUpdate(removed.team_id, 'member.removed')
     sendResult({ ok: true })
   },
+  /**
+   * 定向发送：用户在团队线里直接把消息发给某成员（绕过 Master 编排）。
+   * 复用 teamService.dispatchMessage —— 免费获得 FIFO 排队（成员在跑时返回 'queued'）、
+   * 格子自愈（该线成员格子缺失时现场补建）与「你 → 成员」转录署名（senderRole='team-directed'）。
+   */
+  'team.member.message'(msg, { state, sendResult }) {
+    requireOwner(state)
+    const member = requireActiveTeamMember(requiredText(msg.memberId, 'memberId'))
+    const content = requiredText(msg.content, 'content')
+    const sessionId = typeof msg.sessionId === 'string' && msg.sessionId.trim() ? msg.sessionId.trim() : undefined
+    const result = teamService.dispatchMessage({
+      teamId: member.team_id,
+      memberId: member.id,
+      content,
+      sourceSessionId: sessionId,
+      directed: true,
+    })
+    sendResult({ status: result.status, memberId: member.id, memberName: member.name })
+  },
 }
 
 /** 生效模型解析顺序：成员独立 → Master 档案 → Agent 原配置 → 系统默认。 */
@@ -155,6 +182,7 @@ export function describeTeamMemberModelConfig(member: TeamMemberRow): TeamMember
     modelProfileMode,
     modelProfileId: member.model_profile_id,
     systemPromptOverride: member.system_prompt_override,
+    effort: member.reasoning_effort,
     runtime,
     effective: resolveEffectiveModel(member, modelProfileMode, runtime),
     fallback: resolveFallbackModel(member.agent_id, runtime),
@@ -208,6 +236,16 @@ function resolveFallbackModel(agentId: string, runtime: string): TeamMemberEffec
 
 function normalizeModelProfileMode(value: unknown): TeamMemberModelProfileMode {
   return value === 'fixed' || value === 'system' || value === 'inherit' ? value : 'inherit'
+}
+
+/** 成员级档位白名单：与 UI capabilities 的档位取值同域（claude 的 'default' 哨兵＝跟随模型默认）。 */
+const MEMBER_EFFORT_VALUES = new Set(['default', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])
+
+function normalizeMemberEffort(value: unknown): string {
+  if (typeof value !== 'string' || !MEMBER_EFFORT_VALUES.has(value.trim())) {
+    throw new Error('档位取值非法：仅支持 default/minimal/low/medium/high/xhigh/max')
+  }
+  return value.trim()
 }
 
 function memberRuntime(member: TeamMemberRow): string {

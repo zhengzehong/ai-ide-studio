@@ -30,6 +30,39 @@ export interface ConversationProcessState {
   error?: string
 }
 
+/** 团队线目标成员（定向发送 + 就地档位/权限控制的能力来源）。 */
+export interface ConversationTeamTargetMember {
+  id: string
+  name: string
+  sessionId: string
+  runtime: string
+  model: string
+  running: boolean
+  /** 该成员已排队的定向消息数（前端按派发回执记账；真实 FIFO 在服务端）。 */
+  queued: number
+  /** 成员会话的 capabilities：档位/权限菜单唯一能力源（严禁写不存在的 configId）。 */
+  capabilities: SessionCapabilities
+  /** 能力补拉失败（getModels 报错/冷会话）：菜单按「能力未就绪」降级，与 legacy 无项区分。 */
+  capabilitiesError?: boolean
+}
+
+/**
+ * 团队线专属：目标胶囊 + 就地档位/权限控制。
+ * **可选插槽**——不注入（普通会话）时 composer 行为与现状完全一致。
+ */
+export interface ConversationTeamTargetControls {
+  members: ConversationTeamTargetMember[]
+  /** null = 全体（消息发往 Master，与现状一致）。 */
+  targetId: string | null
+  onSelect: (memberId: string | null) => void
+  /** 定向发送（绕过 Master 编排）；返回后端受理状态：queued=成员在跑，已排队等待空闲。 */
+  sendDirected: (memberId: string, content: string) => Promise<'accepted' | 'queued'>
+  /** 就地档位写入：写目标成员会话的档位 configOption（session.setConfig）。 */
+  setTargetConfig: (memberId: string, configId: string, value: string | boolean) => Promise<void>
+  /** 权限「跳转工具权限设置并预选该成员」（P0 只做展示+跳转，不做就地编辑）。 */
+  openToolPermissions: (memberId: string) => void
+}
+
 export interface ConversationAdapter {
   compactProcess?: boolean
   sessionId: string | null
@@ -78,6 +111,8 @@ export interface ConversationAdapter {
   setConfig?: (configId: string, value: string | boolean) => Promise<void>
   respondPermission: (requestId: string, optionId?: string, cancelled?: boolean) => Promise<void>
   respondElicitation: (requestId: string, action: 'accept' | 'decline' | 'cancel', content?: Record<string, string | number | boolean | string[]>) => Promise<void>
+  /** 团队线目标胶囊/就地档位与权限（可选插槽）：普通会话不注入，零感知。 */
+  teamTarget?: ConversationTeamTargetControls
 }
 
 export interface ConversationPaneProps {

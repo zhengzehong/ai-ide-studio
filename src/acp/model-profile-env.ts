@@ -50,6 +50,9 @@ export interface AgentRuntimeEnvResult {
 export interface AgentRuntimeEnvOptions {
   /** Team member-level profile override. Undefined keeps the Agent's existing strategy. */
   modelProfileIdOverride?: string
+  /** 成员级默认档位（team_members.reasoning_effort）。写入 appliedProfile.effort，由既有
+   *  applyConfigPreferences 通道下发为会话默认；会话里手切过的档位（runtime preferences）优先。 */
+  effortOverride?: string
 }
 
 export interface ClaudeSessionMeta extends Record<string, unknown> {
@@ -92,6 +95,9 @@ const CLAUDE_PROFILE_ENV_KEYS = [
 
 const CLAUDE_IMAGE_READ_POLICY_ENV_KEY = 'AI_IDE_CLAUDE_ALLOW_IMAGE_READ'
 export const CODEX_GATEWAY_API_KEY_ENV_KEY = 'AI_IDE_CODEX_GATEWAY_API_KEY'
+/** 档位净化哨兵（a2）：非法值（CLI 视为"未设置"），见 buildClaudeSessionMeta 注释。严禁改为 'unset'/'auto'。 */
+const CLAUDE_EFFORT_ENV_KEY = 'CLAUDE_CODE_EFFORT_LEVEL'
+const EFFORT_ENV_NEUTRALIZED = 'default'
 const CLAUDE_IMAGE_READ_DENY_RULES = [
   'Read(**/*.png)',
   'Read(**/*.jpg)',
@@ -127,9 +133,17 @@ export function buildAgentRuntimeEnv(
   const env = buildRuntimeEnv(runtime, baseEnv)
   applyNativeMemoryPolicy(runtime, agent, env)
   if (runtime === 'claude') env[CLAUDE_IMAGE_READ_POLICY_ENV_KEY] = '0'
+  // claude 档位权威性（a1）：继承 env 会压过 ACP apply_flag_settings（界面档位），CLI 内部 att() 直读该变量。
+  // 平台从未设置过这两个变量（CLAUDE_EFFORT 是 CLI 输出给子进程的），清掉无副作用；用户全局 settings.json 的
+  // env 由 buildClaudeSessionMeta 的哨兵兜住（a2）。
+  if (runtime === 'claude') {
+    delete env.CLAUDE_CODE_EFFORT_LEVEL
+    delete env.CLAUDE_EFFORT
+  }
   if (runtime === 'codex') delete env[CODEX_GATEWAY_API_KEY_ENV_KEY]
   const resolvedProfile = resolveAgentModelProfile(runtime, agent, options.modelProfileIdOverride)
   if (!resolvedProfile) return { env }
+  const effortOverride = options.effortOverride?.trim() || undefined
 
   if (runtime === 'codex') {
     const config = parseCodexConfig(resolvedProfile.profile.config_json)
@@ -137,13 +151,14 @@ export function buildAgentRuntimeEnv(
     const apiKey = resolvedProfile.provider.api_key.trim()
     if (apiKey) env[CODEX_GATEWAY_API_KEY_ENV_KEY] = apiKey
     const captureBinding = buildCaptureBinding(agent.id, resolvedProfile)
+    const effort = effortOverride ?? config.effort
     return {
       env,
       captureBinding,
       appliedProfile: {
         ...resolvedProfile.appliedProfile,
         modelId: config.model,
-        ...(config.effort ? { effort: config.effort } : {}),
+        ...(effort ? { effort } : {}),
       },
       gatewayAuth: buildCodexGatewayAuth(resolvedProfile.provider, captureBinding?.proxyBaseUrl),
     }
@@ -163,7 +178,11 @@ export function buildAgentRuntimeEnv(
   return {
     env,
     captureBinding,
-    appliedProfile: { ...resolvedProfile.appliedProfile, modelId: config.defaultModel },
+    appliedProfile: {
+      ...resolvedProfile.appliedProfile,
+      modelId: config.defaultModel,
+      ...(effortOverride ? { effort: effortOverride } : {}),
+    },
   }
 }
 
@@ -175,8 +194,13 @@ export function buildClaudeSessionMeta(env: NodeJS.ProcessEnv, runtime: string):
     ? Object.fromEntries(
       CLAUDE_PROFILE_ENV_KEYS.map(key => [key, env[key]?.trim() ?? '']).filter(([, value]) => value !== ''),
     )
-    : undefined
-  if (settingsEnv) settingsEnv.ANTHROPIC_AUTH_TOKEN = ''
+    : {}
+  if (hasModelSettings) settingsEnv.ANTHROPIC_AUTH_TOKEN = ''
+  // a2 决定性修复：机器级 CLAUDE_CODE_EFFORT_LEVEL（用户全局 settings.json env / 继承 env）会在 CLI 启动时
+  // in-process 重放进 process.env，压过 ACP apply_flag_settings（界面档位）。用**非法值** 'default' 注入会话
+  // settings.env（flagSettings 层，后于 userSettings 应用）：CLI att() 对非合法档位返回 undefined＝未设置，
+  // 档位回到界面所选。禁用 'unset'/'auto'（CLI 硬禁用语义：会移除 effort 字段并忽略界面选择）。
+  settingsEnv[CLAUDE_EFFORT_ENV_KEY] = EFFORT_ENV_NEUTRALIZED
   const autoCompactWindow = parseAutoCompactWindow(env.CLAUDE_CODE_MAX_CONTEXT_TOKENS)
   const allowImageRead = env[CLAUDE_IMAGE_READ_POLICY_ENV_KEY] === '1'
 
@@ -188,7 +212,7 @@ export function buildClaudeSessionMeta(env: NodeJS.ProcessEnv, runtime: string):
           ...nativeMemorySettings(env),
           ...(autoCompactWindow ? { autoCompactWindow } : {}),
           ...(!allowImageRead ? { permissions: { deny: [...CLAUDE_IMAGE_READ_DENY_RULES] } } : {}),
-          ...(settingsEnv ? { env: settingsEnv } : {}),
+          env: settingsEnv,
         },
       },
     },

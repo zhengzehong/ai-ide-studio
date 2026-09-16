@@ -53,6 +53,9 @@ export function buildRuntimeStateSnapshot(input: BuildRuntimeStateSnapshotInput)
     ? { env: buildRuntimeEnv(agent.runtime), appliedProfile: undefined }
     : buildAgentRuntimeEnv(agent.runtime, agent, process.env, {
       ...(inheritedProfileId ? { modelProfileIdOverride: inheritedProfileId } : {}),
+      // 成员级默认档位（team_members.reasoning_effort，NULL=跟随档案）：随 appliedProfile.effort 经
+      // applyConfigPreferences 既有通道下发为会话默认；会话里手切过的档位优先。
+      ...(teamMember?.reasoning_effort ? { effortOverride: teamMember.reasoning_effort } : {}),
     })
   const sessionMeta = buildAgentSessionMeta(agent.runtime, runtimeEnv.env, effectiveAgent, {
     sessionId: session.id,

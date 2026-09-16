@@ -38,6 +38,12 @@ export interface TeamAssignmentInfo {
   content: string
   fromName: string
   taskId?: string
+  /** 定向消息块（用户在团队线里直接发给某成员，绕过 Master 编排）：true 时按「你 → 成员」渲染。 */
+  directed?: boolean
+  /** 目标成员名（directed 块由聚合层按来源会话回填）。 */
+  targetName?: string
+  /** 排队/执行状态徽标（directed 块由聚合层按成员实时状态回填）：排队中 / 执行中 / 已完成。 */
+  badge?: 'queued' | 'running' | 'done'
 }
 
 export interface PreviewPresentationInfo {

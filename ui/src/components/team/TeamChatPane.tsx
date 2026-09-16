@@ -5,10 +5,10 @@ import { ConversationComposer } from '../chat/ConversationComposer'
 import { ConversationMessageList } from '../chat/ConversationMessageList'
 import { InteractionPanel } from '../global-assistant/GlobalAssistantInteractions'
 import '../chat/conversation-pane.css'
-import type { ConversationAdapter, ConversationUploadedFile, ConversationProcessState } from '../chat/conversation-types'
+import type { ConversationAdapter, ConversationTeamTargetControls, ConversationUploadedFile, ConversationProcessState } from '../chat/conversation-types'
 import type { FileChangeDetailInfo, FilesPresentationInfo, ImageAttachmentInfo, PreviewPresentationInfo, SessionEventData, TurnProcessItemInfo } from '../../stores/session-events'
 import type { OpenChatResource } from '../../services/chat-resource-links'
-import { normalizeMessage } from '../../stores/session-events'
+import { defaultCaps, normalizeMessage } from '../../stores/session-events'
 import { turnFromProcessItems } from '../../stores/turn-blocks'
 import { commandClient } from '../../services/command-client'
 import { wsClient } from '../../services/ws-client'
@@ -44,13 +44,15 @@ interface Props {
   onOpenPreview?: (preview: PreviewPresentationInfo) => void
   onOpenFiles?: (presentation: FilesPresentationInfo) => void
   onOpenResource?: OpenChatResource
+  /** 跳转工具权限设置并预选成员 Agent（与 onOpenPreview 同族：由 Workspace 注入路由跳转，组件本身不依赖 Router）。 */
+  onOpenToolPermissions?: (agentId: string) => void
 }
 
 export function TeamChatPane(props: Props): ReactElement {
   return <TeamConversationPane key={(props.cacheScope || '') + teamCacheKey(props.team.project_id, props.team.id, props.conversation?.id || props.masterSessionId || 'empty')} {...props} />
 }
 
-function TeamConversationPane({ team, conversation, masterSessionId, onExitConversation, onOpenPreview, onOpenFiles, onOpenResource, renderSurface, cacheScope }: Props): ReactElement {
+function TeamConversationPane({ team, conversation, masterSessionId, onExitConversation, onOpenPreview, onOpenFiles, onOpenResource, onOpenToolPermissions, renderSurface, cacheScope }: Props): ReactElement {
   const cacheKey = (cacheScope || '') + teamCacheKey(team.project_id, team.id, conversation?.id)
   const [cached] = useState(() => teamChatCache.get(cacheKey))
   const [requestScope] = useState(newTeamRequestScope)
@@ -220,14 +222,24 @@ function TeamConversationPane({ team, conversation, masterSessionId, onExitConve
     } catch (cause) { if (requestGeneration === generation.current) setError(`消息同步失败：${cause instanceof Error ? cause.message : '请重试'}`) }
   }, [cacheKey, requestScope, masterSessionId, bumpContentRevision])
 
+  // 会话能力发现：Master 与各成员格子会话逐一补拉 capabilities。目标胶囊的就地档位/权限控制
+  // 必须按成员真实能力渲染（严禁对不存在的 configId 发写入）；拉取失败按「不可用」降级。
+  const capabilitySessionKey = [masterSessionId, ...members.map((member) => member.session_id)].filter((id): id is string => !!id).join(',')
   useEffect(() => {
-    if (!masterSessionId) return
+    if (!capabilitySessionKey) return
     let cancelled = false
-    void shareTeamRequest(`models:${cacheKey}:${masterSessionId}`, () => wsClient.request({ type: 'session.getModels', sessionId: masterSessionId })).then(caps => {
-      if (!cancelled) setSnapshots(current => ({ ...current, [masterSessionId]: { ...(current[masterSessionId] || emptySnapshot(masterSessionId)), capabilities: normalizeCapabilities(caps) } }))
-    }).catch(() => { /* History remains usable when Runtime discovery fails. */ })
+    capabilitySessionKey.split(',').forEach((sessionId) => {
+      void shareTeamRequest(`models:${cacheKey}:${sessionId}`, () => wsClient.request({ type: 'session.getModels', sessionId })).then(caps => {
+        if (cancelled) return
+        setCapabilityErrors(current => (current[sessionId] ? { ...current, [sessionId]: false } : current))
+        setSnapshots(current => ({ ...current, [sessionId]: { ...(current[sessionId] || emptySnapshot(sessionId)), capabilities: normalizeCapabilities(caps) } }))
+      }).catch(() => {
+        // 能力发现失败：标记该会话能力未就绪（菜单按此降级，不发写入），历史消息仍可用。
+        if (!cancelled) setCapabilityErrors(current => ({ ...current, [sessionId]: true }))
+      })
+    })
     return () => { cancelled = true }
-  }, [cacheKey, masterSessionId])
+  }, [cacheKey, capabilitySessionKey])
 
   useEffect(() => { const timer = window.setTimeout(() => { void load() }, 0); return () => { window.clearTimeout(timer); invalidateLoad() } }, [load, invalidateLoad])
   useEffect(() => subscribeTeamRecovery({ client: wsClient, document, sessionIds: subscribedSessions.current, gate: recoveryGate.current, load }), [load])
@@ -355,6 +367,85 @@ function TeamConversationPane({ team, conversation, masterSessionId, onExitConve
     () => Object.fromEntries(sessionIds.map((id) => [id, deriveMemberStatus(snapshots[id])])) as Record<string, ReturnType<typeof deriveMemberStatus>>,
     [sessionIds, snapshots],
   )
+  // —— 团队线目标（composer 可选插槽）：胶囊 + 定向发送 + 就地档位/权限控制 ——
+  // 成员 Agent 定义（runtime 展示用；能力/档位一律以成员会话 capabilities 为准）。
+  const projectAgents = useAgentStore((state) => state.agents)
+  // 能力补拉失败的会话（菜单降级为「能力未就绪」，与 legacy 无项区分）。
+  const [capabilityErrors, setCapabilityErrors] = useState<Record<string, boolean>>({})
+  const [teamTargetId, setTeamTargetId] = useState<string | null>(null)
+  // 定向消息的本地待落账（后端在成员起跑时才把消息写进其会话）：成员忙时先显示「排队中 · 等待空闲」。
+  const [directedPending, setDirectedPending] = useState<Array<{ id: string; memberId: string; memberName: string; content: string; status: 'accepted' | 'queued'; at: string }>>([])
+  const sendDirected = useCallback(async (memberId: string, content: string): Promise<'accepted' | 'queued'> => {
+    const member = members.find((item) => item.id === memberId)
+    const result = await wsClient.request({
+      type: 'team.member.message',
+      memberId,
+      content,
+      ...(masterSessionId ? { sessionId: masterSessionId } : {}),
+    }) as { status?: string; memberName?: string }
+    const status = result?.status === 'queued' ? 'queued' : 'accepted'
+    setDirectedPending((current) => [...current, {
+      id: `directed-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      memberId,
+      memberName: result?.memberName || member?.name || '成员',
+      content,
+      status,
+      at: new Date().toISOString(),
+    }])
+    return status
+  }, [members, masterSessionId])
+  // 后端把消息落进成员会话后（聚合里出现同内容定向消息）撤掉本地待落账条目。
+  useEffect(() => {
+    if (directedPending.length === 0) return
+    const landed = new Set(aggregate.messages.filter((message) => message.sender_role === 'team-directed').map((message) => message.content.trim()))
+    const remaining = directedPending.filter((item) => !landed.has(item.content.trim()))
+    if (remaining.length !== directedPending.length) setDirectedPending(remaining)
+  }, [aggregate.messages, directedPending])
+  const teamTarget = useMemo<ConversationTeamTargetControls | undefined>(() => {
+    if (members.length === 0) return undefined
+    return {
+      members: members.map((member) => ({
+        id: member.id,
+        name: member.name,
+        sessionId: member.session_id,
+        model: snapshots[member.session_id]?.capabilities.models.find((item) => item.modelId === snapshots[member.session_id]?.capabilities.currentModelId)?.name || '系统默认',
+        runtime: projectAgents.find((agent) => agent.id === member.agent_id)?.runtime || 'claude',
+        running: statusBySessionId[member.session_id]?.running === true,
+        queued: directedPending.filter((item) => item.memberId === member.id).length,
+        capabilities: snapshots[member.session_id]?.capabilities ?? { ...defaultCaps },
+        capabilitiesError: capabilityErrors[member.session_id] === true,
+      })),
+      targetId: teamTargetId,
+      onSelect: setTeamTargetId,
+      sendDirected,
+      // 就地档位写入：写该成员在**本线**格子会话的档位 configOption（capabilities 里真实存在的 id，上层已保证）。
+      // 写成功后本地回填该 configOption 的 currentValue（乐观显示；真实生效仍以服务端 config.update 事件为准）。
+      setTargetConfig: async (memberId, configId, value) => {
+        const member = members.find((item) => item.id === memberId)
+        if (!member) throw new Error('目标成员不存在')
+        await wsClient.request({ type: 'session.setConfig', sessionId: member.session_id, configId, value })
+        setSnapshots(current => {
+          const snapshot = current[member.session_id]
+          if (!snapshot) return current
+          return {
+            ...current,
+            [member.session_id]: {
+              ...snapshot,
+              capabilities: {
+                ...snapshot.capabilities,
+                configOptions: snapshot.capabilities.configOptions.map(option => option.id === configId ? { ...option, currentValue: value } : option),
+              },
+            },
+          }
+        })
+      },
+      // P0 权限只做展示 + 跳转：设置页预选该成员的 Agent（工具可见集编辑在那边）。
+      openToolPermissions: (memberId) => {
+        const member = members.find((item) => item.id === memberId)
+        if (member) onOpenToolPermissions?.(member.agent_id)
+      },
+    }
+  }, [members, snapshots, statusBySessionId, directedPending, teamTargetId, sendDirected, onOpenToolPermissions, projectAgents, capabilityErrors])
   // 主停止 = 全队急停：leader 在跑排最前，再收所有 running 成员（与 dock 停止按钮同判据，含「等待权限」）；
   // 空闲会话不进列表，避免「仅成员在跑时点主停止对 leader 发无效 cancel」。
   const runningTurnSessionIds = useMemo(
@@ -364,7 +455,25 @@ function TeamConversationPane({ team, conversation, masterSessionId, onExitConve
     ],
     [masterSessionId, members, statusBySessionId],
   )
-  const adapter = useMemo<ConversationAdapter>(() => createTeamChatAdapter({ snapshots, team, conversation, masterSessionId, runningTurnSessionIds, contentRevision, aggregate, loading, error, sending, loadingOlder, processByMessageId, fileChanges, fileErrors, processItemLoadingByKey, processItemErrorByKey, sendPrompt, loadOlderMessages, loadMessageProcess, loadFileChanges, loadProcessItemDetail, reload: load, markUnread, senderAgentIds: Object.fromEntries([...members, ...removedMembers].map(member => [member.session_id, member.agent_id])) }), [snapshots, aggregate, conversation, error, fileChanges, fileErrors, load, loadFileChanges, loadMessageProcess, loadOlderMessages, loadProcessItemDetail, loading, loadingOlder, masterSessionId, runningTurnSessionIds, contentRevision, processByMessageId, processItemErrorByKey, processItemLoadingByKey, sendPrompt, sending, team, markUnread, members, removedMembers])
+  // 本地定向待落账 → 合成消息（master session id 保证消息列表过滤可见）；后端落库后由 effect 撤下。
+  const directedPendingMessages = useMemo(() => {
+    if (!masterSessionId) return []
+    return directedPending.map((item) => ({
+      id: `pending:${item.id}`,
+      session_id: masterSessionId,
+      role: 'human' as const,
+      content: item.content,
+      thinking: null,
+      tool_calls_json: null,
+      decision_json: null,
+      sender_name: '你',
+      sender_role: 'team-directed',
+      timestamp: item.at,
+      status: 'completed' as const,
+      teamAssignment: { content: item.content, fromName: '你', directed: true, targetName: item.memberName, badge: item.status === 'queued' ? ('queued' as const) : ('running' as const) },
+    }))
+  }, [directedPending, masterSessionId])
+  const adapter = useMemo<ConversationAdapter>(() => createTeamChatAdapter({ snapshots, team, conversation, masterSessionId, runningTurnSessionIds, contentRevision, directedPendingMessages, teamTarget, aggregate, loading, error, sending, loadingOlder, processByMessageId, fileChanges, fileErrors, processItemLoadingByKey, processItemErrorByKey, sendPrompt, loadOlderMessages, loadMessageProcess, loadFileChanges, loadProcessItemDetail, reload: load, markUnread, senderAgentIds: Object.fromEntries([...members, ...removedMembers].map(member => [member.session_id, member.agent_id])) }), [snapshots, aggregate, conversation, error, fileChanges, fileErrors, load, loadFileChanges, loadMessageProcess, loadOlderMessages, loadProcessItemDetail, loading, loadingOlder, masterSessionId, runningTurnSessionIds, contentRevision, processByMessageId, processItemErrorByKey, processItemLoadingByKey, sendPrompt, sending, team, markUnread, members, removedMembers, directedPendingMessages, teamTarget])
   const activity = useTeamActivity(adapter, true)
   const modelProfiles = useModelStore((state) => state.profiles)
   const fetchModelProfiles = useModelStore((state) => state.fetchProfiles)
