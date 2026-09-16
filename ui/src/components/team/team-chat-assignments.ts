@@ -80,6 +80,8 @@ export function assignmentFromEvent(event: SessionEventData): TeamAssignmentInfo
 
 function assignmentFromMessage(message: MessageData): TeamAssignmentInfo | null {
   if (message.role !== 'human') return null
+  // 定向消息（你在团队线里直接发给某成员）不并入"派发块"：就地留在消息流里渲染（见 decorateDirectedMessages）。
+  if (message.sender_role === 'team-directed') return null
   if (message.sender_role === 'team-assignment') {
     const content = message.content.trim()
     return content ? { content, fromName: message.sender_name?.trim() || 'Master' } : null
@@ -90,6 +92,46 @@ function assignmentFromMessage(message: MessageData): TeamAssignmentInfo | null 
   if (!content) return null
   const taskMatch = message.content.match(/Task:\s*([^\n]+)/)
   return { content, fromName: message.sender_name?.trim() || 'Master', taskId: taskMatch?.[1]?.trim() }
+}
+
+/**
+ * 定向消息聚合层装饰：把 `sender_role === 'team-directed'` 的人类消息就地转成「你 → 成员」转录块 + 状态徽标：
+ * - 目标成员名：该来源会话里 agent 消息的署名（与成员行一致）；
+ * - 徽标：成员会话正在跑 → 执行中；其后再无该成员回合且已有回复 → 已完成；尚未起跑 → 排队中 · 等待空闲。
+ * 只做展示层推导，不改后端排队语义（真实排队由 dispatchMemberPrompt 的 FIFO 保证）。
+ */
+export function decorateDirectedMessages(
+  messages: MessageData[],
+  runningSessionIds: Record<string, boolean | undefined> = {},
+): MessageData[] {
+  const directed = messages.filter((message) => message.role === 'human' && message.sender_role === 'team-directed')
+  if (directed.length === 0) return messages
+  const memberNameBySource = new Map<string, string>()
+  const lastAgentAtBySource = new Map<string, string>()
+  for (const message of messages) {
+    if (message.role !== 'agent') continue
+    const source = sourceIdOf(message)
+    if (message.sender_name?.trim()) memberNameBySource.set(source, message.sender_name.trim())
+    const previous = lastAgentAtBySource.get(source)
+    if (!previous || previous < message.timestamp) lastAgentAtBySource.set(source, message.timestamp)
+  }
+  return messages.map((message) => {
+    if (message.role !== 'human' || message.sender_role !== 'team-directed') return message
+    const source = sourceIdOf(message)
+    const running = runningSessionIds[source] === true
+    const repliedAfter = (lastAgentAtBySource.get(source) || '') > message.timestamp
+    const badge: TeamAssignmentInfo['badge'] = running ? 'running' : repliedAfter ? 'done' : 'queued'
+    return {
+      ...message,
+      teamAssignment: {
+        content: message.content,
+        fromName: '你',
+        directed: true,
+        targetName: memberNameBySource.get(source) || message.sender_name?.trim() || '成员',
+        badge,
+      },
+    }
+  })
 }
 
 function compareMessages(left: MessageData, right: MessageData): number {

@@ -1,7 +1,7 @@
 import type { MessageData, PermissionRequestInfo, ElicitationRequestInfo, SessionCapabilities, SessionEventData, StreamingMessage, TeamAssignmentInfo, ToolCallInfo, UsageInfo, ReducedSessionEvents, TurnProcessItemInfo } from '../../stores/session-events'
 import { applySessionEvent, defaultCaps, mergeCapabilities, normalizeMessage } from '../../stores/session-events'
 import { applyTurnEntry, createEmptyTurn, turnFromProcessItems, type TurnProcessBlock } from '../../stores/turn-blocks'
-import { assignmentFromEvent, attachTeamAssignments } from './team-chat-assignments'
+import { assignmentFromEvent, attachTeamAssignments, decorateDirectedMessages } from './team-chat-assignments'
 import { isPendingTeamTurn, pendingTeamPromptAnswered } from './team-chat-pending'
 
 export interface Snapshot { sessionId: string; supplementalItems?: TurnProcessItemInfo[]; replayEvents?: SessionEventData[]; replaySequence?: number; senderName?: string; messages: MessageData[]; events: SessionEventData[]; streaming: StreamingMessage | null; pendingAssignment?: TeamAssignmentInfo | null; permissions: PermissionRequestInfo[]; elicitations: ElicitationRequestInfo[]; capabilities: SessionCapabilities; usage: UsageInfo | null; hasMore: boolean; running: boolean }
@@ -37,10 +37,14 @@ export function aggregateSnapshots(snapshots: Record<string, Snapshot>, ids: str
     const snapshot = snapshots[id]
     if (snapshot) decoratedBySession.set(id, attachTeamAssignments(snapshot.messages, snapshot.streaming))
   })
-  const messages = [...new Map(ids.flatMap((id) => {
-    const items = decoratedBySession.get(id)?.messages || []
-    return id === masterSessionId ? items : items.filter((message) => message.role !== 'human')
-  }).map((message) => [message.id, message])).values()].sort(compareTeamMessages)
+  const messages = decorateDirectedMessages(
+    [...new Map(ids.flatMap((id) => {
+      const items = decoratedBySession.get(id)?.messages || []
+      // 非 Master 来源默认只留 agent 消息；定向消息（你在团队线里直接发给某成员）例外——要就地显示「你 → 成员」块。
+      return id === masterSessionId ? items : items.filter((message) => message.role !== 'human' || message.sender_role === 'team-directed')
+    }).map((message) => [message.id, message])).values()].sort(compareTeamMessages),
+    Object.fromEntries(ids.map((id) => [id, snapshots[id]?.running === true])),
+  )
   const events = [...new Map(ids.flatMap((id) => snapshots[id]?.events || []).map((event) => [event.id, event])).values()].sort((a, b) => a.created_at.localeCompare(b.created_at) || a.sequence - b.sequence)
   const streaming = [...new Map(ids.flatMap((id) => {
     const item = decoratedBySession.get(id)?.streaming

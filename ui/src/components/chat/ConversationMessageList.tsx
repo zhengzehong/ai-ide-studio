@@ -293,7 +293,7 @@ function ConversationMessage({ message, adapter, onOpenPreview, onOpenFiles, onO
   return <MessageShell human={isHuman} failed={failed} agentName={message.sender_name ?? adapter.agentName} timestamp={message.timestamp} footer={!isHuman && <TurnStatsFooter stats={stats} />}>
     {message.teamAssignment && <TeamAssignmentBlock assignment={message.teamAssignment} />}
     {message.parsedAttachments?.map((attachment, index) => <AuthenticatedImage key={`${message.id}-attachment-${index}`} image={attachment} alt={attachment.name || '附件'} style={{ maxWidth: 180, maxHeight: 140, borderRadius: 8, border: '1px solid var(--border)', objectFit: 'cover', marginBottom: 8 }} />)}
-    <TurnContentView
+    {message.teamAssignment?.directed ? null : <TurnContentView
       defaultProcessOpen={!adapter.compactProcess && !!message.processDefaultOpen}
       processBlocks={processBlocks}
       finalAnswer={message.finalAnswer ?? message.content}
@@ -314,7 +314,7 @@ function ConversationMessage({ message, adapter, onOpenPreview, onOpenFiles, onO
       renderProcessBlock={(block, context) => <ProcessBlock block={block} adapter={adapter} messageId={message.id} thinkingActive={context.thinkingActive} onOpenPreview={onOpenPreview} onOpenFiles={onOpenFiles} />}
       renderPreviewPresentation={onOpenPreview ? (preview) => <PreviewCard preview={preview} onOpen={() => onOpenPreview(preview)} /> : undefined}
       renderFilesPresentation={onOpenFiles ? (presentation) => <FilesPresentationCard presentation={presentation} onOpen={onOpenFiles} /> : undefined}
-    />
+    />}
   </MessageShell>
 }
 
