@@ -1,0 +1,908 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>输入框定向发消息 + 档位/权限内联 · 可点击原型（P0 确认版）</title>
+<style>
+  :root{
+    --bg-0:#ffffff; --bg-1:#f9fafb; --bg-2:#f3f4f6; --bg-3:#e5e7eb; --bg-4:#d1d5db;
+    --border:#e5e7eb; --border-light:#f0f1f3;
+    --text-1:#111827; --text-2:#4b5563; --text-3:#9ca3af;
+    --blue:#2563eb; --blue-light:#eff6ff; --green:#059669; --green-light:#ecfdf5;
+    --yellow:#d97706; --yellow-light:#fffbeb; --red:#dc2626; --red-light:#fef2f2;
+    --purple:#7c3aed; --purple-light:#f5f3ff; --orange:#ea580c; --orange-light:#fff7ed;
+    --shadow-sm:0 1px 2px rgba(0,0,0,.05);
+    --shadow-md:0 4px 6px -1px rgba(0,0,0,.07),0 2px 4px -2px rgba(0,0,0,.05);
+    --shadow-lg:0 10px 15px -3px rgba(0,0,0,.08),0 4px 6px -4px rgba(0,0,0,.03);
+    --radius:8px; --radius-lg:12px;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',Helvetica,Arial,sans-serif;
+    font-size:14px;line-height:1.6;color:var(--text-1);background:var(--bg-2);
+    min-width:1000px;height:100vh;display:flex;justify-content:center;align-items:center;padding:14px}
+
+  /* ============ 页面外壳（PC ≥1000px） ============ */
+  .app{width:1120px;height:min(880px,calc(100vh - 28px));background:var(--bg-1);border:1px solid var(--border);
+    border-radius:var(--radius-lg);display:flex;flex-direction:column;overflow:hidden;box-shadow:var(--shadow-lg);position:relative}
+
+  /* 顶栏 */
+  .hd{display:flex;align-items:center;justify-content:space-between;padding:9px 16px;border-bottom:1px solid var(--border);background:var(--bg-0);flex-shrink:0}
+  .hd-l{display:flex;align-items:center;gap:10px}
+  .hd-avatar{width:28px;height:28px;border-radius:50%;background:var(--blue);color:#fff;display:grid;place-items:center;font-size:12px;font-weight:700}
+  .hd-title{font-size:14px;font-weight:600;display:flex;align-items:center;gap:6px}
+  .hd-sub{font-size:12px;color:var(--text-3)}
+  .tag{font-size:11px;font-weight:500;border-radius:4px;padding:1px 6px;border:1px solid transparent;white-space:nowrap}
+  .tag-blue{color:var(--blue);background:var(--blue-light);border-color:rgba(37,99,235,.2)}
+  .tag-purple{color:var(--purple);background:var(--purple-light);border-color:rgba(124,58,237,.2)}
+  .tag-green{color:var(--green);background:var(--green-light);border-color:rgba(5,150,105,.2)}
+  .tag-yellow{color:var(--yellow);background:var(--yellow-light);border-color:rgba(217,119,6,.25)}
+  .tag-red{color:var(--red);background:var(--red-light);border-color:rgba(220,38,38,.2)}
+  .tag-grey{color:var(--text-2);background:var(--bg-2);border-color:var(--border)}
+  .hd-actions{display:flex;align-items:center;gap:8px}
+  .btn-stop-all{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border:2px solid var(--red);
+    background:transparent;color:var(--red);border-radius:15px;cursor:pointer;font-family:inherit;font-size:12.5px;font-weight:600}
+  .btn-stop-all:hover{background:var(--red-light)}
+  .btn-stop-all:disabled{opacity:.45;cursor:default}
+  .btn-ghost{height:30px;padding:0 12px;border:1px solid var(--border);background:var(--bg-0);color:var(--text-2);
+    border-radius:var(--radius);cursor:pointer;font-family:inherit;font-size:12.5px}
+  .btn-ghost:hover{background:var(--bg-2)}
+
+  /* 主体：会话列 + 点检列 */
+  .body{flex:1;min-height:0;display:grid;grid-template-columns:1fr 268px}
+  .main{min-width:0;display:flex;flex-direction:column}
+  .side{border-left:1px solid var(--border);background:var(--bg-0);display:flex;flex-direction:column;min-height:0}
+
+  /* 成员条 */
+  .members{display:flex;align-items:center;gap:8px;padding:8px 16px;border-bottom:1px solid var(--border-light);background:var(--bg-0);flex-shrink:0;flex-wrap:wrap}
+  .members-label{font-size:12px;color:var(--text-3);flex-shrink:0}
+  .mchip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);background:var(--bg-0);
+    border-radius:999px;padding:2px 10px 2px 3px;font-size:12px;color:var(--text-1);white-space:nowrap}
+  .mchip .av{width:18px;height:18px;border-radius:50%;background:var(--pc);color:#fff;display:grid;place-items:center;font-size:9px;font-weight:700;flex-shrink:0}
+  .mchip .st{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--text-3)}
+  .mchip .st .dot{width:6px;height:6px;border-radius:50%;background:var(--bg-4)}
+  .mchip.is-running .st .dot{background:var(--blue);animation:pulse 1.4s infinite}
+  .mchip.is-running .st{color:var(--blue)}
+  .mchip.is-queued .st{color:var(--yellow)}
+  .mchip.is-queued .st .dot{background:var(--yellow)}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  .mchip .rt{font-size:10.5px;color:var(--text-3);border-left:1px solid var(--border);padding-left:6px}
+  .members-note{margin-left:auto;font-size:11.5px;color:var(--text-3)}
+
+  /* 消息区 */
+  .scroll{flex:1;min-height:0;overflow-y:auto;padding:16px 18px}
+  .row{display:flex;gap:9px;margin-bottom:13px}
+  .row .avatar{width:26px;height:26px;border-radius:50%;background:var(--pc,var(--blue));color:#fff;display:grid;place-items:center;
+    font-size:11px;font-weight:700;flex-shrink:0}
+  .row .col{min-width:0;max-width:76%}
+  .row .meta{display:flex;gap:6px;align-items:center;font-size:12px;color:var(--text-3);margin-bottom:3px}
+  .row .meta .name{font-size:13px;color:var(--text-1);font-weight:600}
+  .bub{border:1px solid var(--border);border-radius:2px 12px 12px 12px;background:var(--bg-0);box-shadow:var(--shadow-sm);
+    padding:10px 13px;font-size:14px;line-height:1.65;color:var(--text-1)}
+  .row.human{flex-direction:row-reverse}
+  .row.human .avatar{background:var(--blue)}
+  .row.human .col{max-width:66%}
+  .row.human .meta{justify-content:flex-end}
+  .row.human .bub{border-color:rgba(37,99,235,.15);border-radius:12px 2px 12px 12px;background:var(--blue-light)}
+  .sys-notice{max-width:74%;margin:0 auto 13px;border:1px dashed var(--border);border-radius:var(--radius);
+    background:var(--bg-0);padding:6px 12px;font-size:12px;color:var(--text-3);text-align:center}
+
+  /* 定向转录块：「你 → 成员」 */
+  .dblock{margin-bottom:13px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-0);overflow:hidden;box-shadow:var(--shadow-sm)}
+  .dblock-hd{display:flex;align-items:center;gap:7px;padding:7px 11px;border-bottom:1px solid var(--border-light);font-size:12px;color:var(--text-2)}
+  .dblock-hd .route{font-weight:700;color:var(--blue);display:inline-flex;align-items:center;gap:5px}
+  .dblock-hd .who{font-weight:600;color:var(--text-1)}
+  .dblock-hd .spacer{flex:1}
+  .dblock-bd{padding:9px 12px;font-size:13.5px;line-height:1.65;white-space:pre-wrap;overflow-wrap:anywhere;background:var(--bg-1)}
+  .dblock-ft{padding:5px 11px;border-top:1px solid var(--border-light);font-size:11px;color:var(--text-3);display:flex;gap:6px;align-items:center}
+  .qbadge{font-size:11px;font-weight:600;border-radius:9px;padding:1px 8px;display:inline-flex;align-items:center;gap:4px}
+  .qbadge.queued{background:var(--yellow-light);color:var(--yellow);border:1px solid rgba(217,119,6,.25)}
+  .qbadge.running{background:var(--blue-light);color:var(--blue);border:1px solid rgba(37,99,235,.2)}
+  .qbadge.done{background:var(--green-light);color:var(--green);border:1px solid rgba(5,150,105,.2)}
+  .qbadge .mini-dot{width:5px;height:5px;border-radius:50%;background:currentColor;animation:pulse 1.4s infinite}
+  .spin{width:11px;height:11px;border:2px solid rgba(37,99,235,.25);border-top-color:var(--blue);border-radius:50%;animation:spin .8s linear infinite;display:inline-block}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  .fail-note{margin:-6px 0 13px 35px;border:1px solid color-mix(in srgb,var(--red) 28%,var(--border));border-radius:var(--radius);
+    background:color-mix(in srgb,var(--red) 5%,var(--bg-0));padding:7px 11px;font-size:12px;color:var(--red)}
+
+  /* ============ 输入区 ============ */
+  .composer-wrap{flex-shrink:0;margin:0 18px 14px;position:relative}
+  .composer{border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--bg-0);
+    box-shadow:0 1px 4px rgba(0,0,0,.06);overflow:visible}
+  .composer textarea{display:block;width:100%;min-height:54px;max-height:140px;padding:13px 15px 6px;border:0;outline:0;resize:none;
+    background:transparent;color:var(--text-1);font-family:inherit;font-size:14.5px;line-height:1.6}
+  .composer textarea::placeholder{color:var(--text-3)}
+  .toolbar{display:flex;align-items:center;gap:6px;padding:5px 10px 9px;min-width:0;flex-wrap:nowrap}
+  .tb-spacer{flex:1;min-width:6px}
+
+  /* 目标胶囊 */
+  .capsule{display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 4px 0 10px;border:1px solid var(--border);
+    border-radius:14px;background:var(--bg-1);color:var(--text-2);cursor:pointer;font-family:inherit;font-size:12.5px;font-weight:600;
+    white-space:nowrap;transition:background .12s,border-color .12s,color .12s}
+  .capsule:hover{background:var(--bg-2)}
+  .capsule .caret{font-size:9px;opacity:.7}
+  .capsule .clear{display:none;width:18px;height:18px;border-radius:50%;border:0;background:rgba(255,255,255,.28);color:inherit;
+    cursor:pointer;font-size:11px;line-height:1;place-items:center;padding:0}
+  .capsule.is-targeted{background:var(--blue);border-color:var(--blue);color:#fff;box-shadow:0 1px 3px rgba(37,99,235,.4)}
+  .capsule.is-targeted:hover{background:#1d4ed8}
+  .capsule.is-targeted .clear{display:grid}
+  .capsule.is-targeted .clear:hover{background:rgba(255,255,255,.45)}
+
+  /* 内联 chips */
+  .chips{display:inline-flex;align-items:center;gap:6px;min-width:0;max-width:640px;overflow:hidden}
+  .chip{display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 9px;border:1px solid var(--border);
+    border-radius:14px;background:var(--bg-0);color:var(--text-2);cursor:pointer;font-family:inherit;font-size:12.5px;
+    white-space:nowrap;max-width:230px;overflow:hidden;text-overflow:ellipsis}
+  .chip:hover{border-color:#d0d5dd;background:var(--bg-1)}
+  .chip.is-open{border-color:var(--blue);color:var(--blue);background:var(--blue-light)}
+  .chip .k{color:var(--text-3);font-weight:500}
+  .chip .v{font-weight:600;color:var(--text-1);overflow:hidden;text-overflow:ellipsis}
+  .chip.is-open .v{color:var(--blue)}
+  .chip.is-pending{opacity:.55}
+  .chip.is-disabled{opacity:.55;cursor:not-allowed;border-style:dashed;background:var(--bg-1)}
+  .chip[disabled]{cursor:not-allowed;opacity:.5}
+  .chip .caret{font-size:9px;opacity:.7}
+  .chip-dot{width:6px;height:6px;border-radius:50%;background:var(--green);flex-shrink:0}
+
+  /* 弹出层（成员菜单 / chip 菜单） */
+  .pop{position:absolute;z-index:40;min-width:250px;background:var(--bg-0);border:1px solid var(--border);border-radius:10px;
+    box-shadow:var(--shadow-lg);padding:5px;display:none}
+  .pop.open{display:block}
+  .pop-item{display:flex;align-items:center;gap:8px;width:100%;border:0;background:transparent;border-radius:7px;
+    padding:7px 9px;cursor:pointer;font-family:inherit;font-size:13px;color:var(--text-1);text-align:left}
+  .pop-item:hover{background:var(--bg-2)}
+  .pop-item .av{width:22px;height:22px;border-radius:50%;background:var(--pc);color:#fff;display:grid;place-items:center;font-size:10px;font-weight:700;flex-shrink:0}
+  .pop-item .n{font-weight:600}
+  .pop-item .sub{margin-left:auto;font-size:11.5px;color:var(--text-3);display:inline-flex;align-items:center;gap:4px}
+  .pop-item .sub .dot{width:6px;height:6px;border-radius:50%;background:var(--bg-4)}
+  .pop-item .sub.is-running{color:var(--blue)}
+  .pop-item .sub.is-running .dot{background:var(--blue);animation:pulse 1.4s infinite}
+  .pop-sep{height:1px;background:var(--border-light);margin:5px 6px}
+  .pop-label{padding:6px 9px 3px;font-size:11px;color:var(--text-3);font-weight:600;letter-spacing:.02em}
+  .pop-foot{padding:6px 9px;border-top:1px solid var(--border-light);margin-top:4px;font-size:11px;color:var(--text-3);line-height:1.55}
+  .pop-item .badge{margin-left:auto;font-size:10px;border-radius:4px;padding:0 5px;border:1px solid var(--border);color:var(--text-3);background:var(--bg-1)}
+  .pop-item .opt-val{margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--text-3)}
+  .pop-item.is-current{background:var(--blue-light)}
+  .pop-item.is-current .opt-val{color:var(--blue);font-weight:600}
+  .pop-note{padding:5px 9px 7px;font-size:11px;color:var(--text-3);line-height:1.55}
+  .timing-line{display:flex;align-items:flex-start;gap:6px;padding:4px 9px;font-size:11.5px;color:var(--text-2);line-height:1.5}
+  .timing-line b{color:var(--text-1)}
+  .timing-line .ic{color:var(--blue);flex-shrink:0}
+
+  /* 权限弹层内的小块 */
+  .perm-row{display:flex;align-items:center;gap:6px;padding:5px 9px;font-size:12.5px;color:var(--text-2)}
+  .perm-row .lab{color:var(--text-3);flex-shrink:0;width:74px}
+  .pill{font-size:11.5px;border:1px solid var(--border);border-radius:999px;padding:1px 8px;background:var(--bg-1);color:var(--text-2)}
+  .pill.on{border-color:rgba(37,99,235,.3);background:var(--blue-light);color:var(--blue);font-weight:600}
+  .pop-btn{display:block;width:calc(100% - 12px);margin:6px 6px 4px;padding:7px 9px;border:1px solid var(--blue);
+    background:var(--blue-light);color:var(--blue);border-radius:7px;cursor:pointer;font-family:inherit;font-size:12.5px;font-weight:600}
+  .pop-btn:hover{background:#dbeafe}
+
+  /* 发送/停止 */
+  .icon-btn{display:grid;place-items:center;width:32px;height:32px;border-radius:50%;cursor:pointer;flex-shrink:0}
+  .send{border:0;background:var(--text-1);color:var(--bg-0)}
+  .send:disabled{background:var(--bg-3);cursor:default}
+  .stop{border:2px solid var(--red);background:transparent;color:var(--red)}
+  .stop:hover{background:var(--red-light)}
+  .stop:disabled{opacity:.45;cursor:default}
+
+  /* 生效话术提示行 */
+  .hintline{display:flex;align-items:center;gap:6px;margin-top:7px;font-size:11.5px;color:var(--text-3);min-height:16px}
+  .hintline .hl{color:var(--text-2)}
+  .hintline .warn{color:var(--yellow)}
+
+  /* ============ 右栏：点检清单 ============ */
+  .side-hd{padding:10px 13px 8px;border-bottom:1px solid var(--border-light);display:flex;align-items:center;gap:8px}
+  .side-hd .t{font-size:13px;font-weight:700}
+  .side-hd .n{margin-left:auto;font-size:11.5px;color:var(--text-3)}
+  .side-hd .n b{color:var(--green)}
+  .side-scroll{flex:1;min-height:0;overflow-y:auto;padding:8px 10px 12px}
+  .ck{display:flex;gap:7px;padding:6px 5px;border-radius:7px;font-size:12px;line-height:1.5;color:var(--text-2);align-items:flex-start}
+  .ck:hover{background:var(--bg-1)}
+  .ck .box{width:15px;height:15px;border-radius:4px;border:1.5px solid var(--bg-4);flex-shrink:0;margin-top:1px;
+    display:grid;place-items:center;font-size:10px;color:#fff;background:var(--bg-0)}
+  .ck.done .box{background:var(--green);border-color:var(--green)}
+  .ck.done .tx{color:var(--text-3)}
+  .ck .tx b{color:var(--text-1);font-weight:600}
+  .ck.done .tx b{color:var(--text-3)}
+  .side-sep{height:1px;background:var(--border-light);margin:8px 4px}
+  .side-block{padding:4px 5px;font-size:11.5px;color:var(--text-3);line-height:1.6}
+  .side-block b{color:var(--text-2)}
+  .switch{display:flex;align-items:center;gap:7px;padding:6px 5px;font-size:12px;color:var(--text-2);cursor:pointer;user-select:none}
+  .switch input{accent-color:var(--blue);width:14px;height:14px;cursor:pointer}
+  .side-actions{padding:8px 6px 2px;display:flex;gap:6px}
+
+  /* toast */
+  .toasts{position:absolute;right:14px;bottom:96px;display:flex;flex-direction:column;gap:7px;z-index:60;align-items:flex-end;pointer-events:none}
+  .toast{max-width:420px;border:1px solid var(--border);border-left:3px solid var(--blue);background:var(--bg-0);
+    box-shadow:var(--shadow-md);border-radius:7px;padding:8px 11px;font-size:12.5px;color:var(--text-1);animation:tin .18s}
+  .toast.warn{border-left-color:var(--yellow)}
+  .toast.err{border-left-color:var(--red)}
+  .toast.ok{border-left-color:var(--green)}
+  @keyframes tin{from{transform:translateY(6px);opacity:0}to{transform:none;opacity:1}}
+
+  /* 确认弹窗 */
+  .mask{position:absolute;inset:0;background:rgba(17,24,39,.35);display:none;place-items:center;z-index:70}
+  .mask.open{display:grid}
+  .modal{width:430px;background:var(--bg-0);border-radius:12px;box-shadow:var(--shadow-lg);overflow:hidden}
+  .modal-hd{padding:13px 16px 6px;font-size:14.5px;font-weight:700;display:flex;align-items:center;gap:7px}
+  .modal-bd{padding:2px 16px 12px;font-size:13px;color:var(--text-2);line-height:1.7}
+  .modal-bd ul{margin:6px 0 0 16px}
+  .modal-bd li{margin-bottom:3px}
+  .modal-ft{display:flex;justify-content:flex-end;gap:8px;padding:10px 16px 14px;background:var(--bg-1);border-top:1px solid var(--border-light)}
+  .btn-primary{height:30px;padding:0 14px;border:0;border-radius:7px;background:var(--blue);color:#fff;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600}
+  .btn-primary:hover{background:#1d4ed8}
+  .btn-plain{height:30px;padding:0 14px;border:1px solid var(--border);border-radius:7px;background:var(--bg-0);color:var(--text-2);cursor:pointer;font-family:inherit;font-size:13px}
+  .btn-plain:hover{background:var(--bg-2)}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- ================= 顶栏 ================= -->
+  <div class="hd">
+    <div class="hd-l">
+      <div class="hd-avatar">双</div>
+      <div>
+        <div class="hd-title">双人并行开发 <span class="tag tag-blue">团队</span> <span class="tag tag-grey">线：composer 原型确认</span></div>
+        <div class="hd-sub">输入框定向发消息 + 档位/权限内联 · 可点击原型（P0 确认版）</div>
+      </div>
+    </div>
+    <div class="hd-actions">
+      <button class="btn-stop-all" id="btnStopAll" title="停止 = 全队急停：覆盖所有正在跑的成员会话">■ 停止全部</button>
+    </div>
+  </div>
+
+  <div class="body">
+    <!-- ================= 左：会话 ================= -->
+    <div class="main">
+      <!-- 成员条 -->
+      <div class="members" id="members">
+        <span class="members-label">成员</span>
+        <!-- 3 个成员 chip 由 JS 渲染 -->
+        <span class="members-note" id="membersNote"></span>
+      </div>
+
+      <!-- 消息流 -->
+      <div class="scroll" id="scroll">
+        <div class="row human">
+          <div class="avatar">你</div>
+          <div class="col">
+            <div class="meta"><span class="name">你</span><span>11:02</span></div>
+            <div class="bub">两条线一起推进：GLM 把 adapter 的错误处理补上；Kimi 继续跑压测。有结论先回我。</div>
+          </div>
+        </div>
+        <div class="sys-notice">Master 已把 2 条任务派给 Dev-GLM / Dev-Kimi（平台自动派发 · 转录块标注来源）</div>
+        <div class="row" style="--pc:var(--purple)">
+          <div class="avatar">G</div>
+          <div class="col">
+            <div class="meta"><span class="name">Dev-GLM</span><span>11:03</span></div>
+            <div class="bub">收到，先补 adapter 的 400/500 错误分支，跑完回归给你结论。</div>
+          </div>
+        </div>
+        <div class="row" style="--pc:var(--green)">
+          <div class="avatar">K</div>
+          <div class="col">
+            <div class="meta"><span class="name">Dev-Kimi</span><span>11:03</span> <span class="tag tag-blue" style="font-size:10.5px">压测回合运行中</span></div>
+            <div class="bub">压测进行中：已跑 3.2 万次请求，错误率 0.02%，还在继续。</div>
+          </div>
+        </div>
+        <div class="sys-notice">Dev-Kimi 的回合已运行 6 分钟（此时给它定向发消息会进入「排队中」）</div>
+        <!-- 交互产生的消息会追加到这里 -->
+      </div>
+
+      <!-- 输入区 -->
+      <div class="composer-wrap" id="composerWrap">
+        <div class="composer">
+          <textarea id="ta" rows="1" placeholder="输入消息…（输入 @ 可唤起成员菜单；默认发给「全体」= 现状行为）"></textarea>
+          <div class="toolbar">
+            <!-- 目标胶囊 -->
+            <button class="capsule" id="capsule" title="发送目标：默认「全体」（行为与现状完全一致）">
+              <span class="ic">✉</span><span class="lbl" id="capsuleLabel">全体</span><span class="caret">▾</span>
+              <span class="clear" id="capsuleClear" title="清除目标，回到全体">×</span>
+            </button>
+            <!-- 内联 chips（仅定向态出现） -->
+            <span class="chips" id="chips"></span>
+            <span class="tb-spacer"></span>
+            <button class="icon-btn stop" id="btnStop" title="停止 = 全队急停（与发送目标解耦）">■</button>
+            <button class="icon-btn send" id="btnSend" title="发送">➤</button>
+          </div>
+        </div>
+        <div class="hintline" id="hintline"></div>
+      </div>
+    </div>
+
+    <!-- ================= 右：点检清单 ================= -->
+    <div class="side">
+      <div class="side-hd"><span class="t">点检清单</span><span class="n" id="ckCount">0 / 9</span></div>
+      <div class="side-scroll" id="ckList"><!-- 由 JS 渲染 --></div>
+      <div class="side-sep"></div>
+      <div class="side-block" id="sideFoot">
+        <b>边界演示</b>：打开下面的开关后，档位/权限 chip 变为<b>禁用态</b>（点击看禁用原因）；点「演示一次写入失败（回滚）」可看失败回滚提示。
+      </div>
+      <label class="switch"><input type="checkbox" id="coldToggle"> 模拟冷会话（目标成员会话未 spawn）</label>
+      <div class="side-actions">
+        <button class="btn-ghost" id="btnColdDemo" style="display:none;flex:1">演示一次写入失败（回滚）</button>
+      </div>
+      <div class="side-actions">
+        <button class="btn-ghost" id="btnReset" style="flex:1">重置演示状态</button>
+      </div>
+      <div class="side-block" style="padding-bottom:10px">
+        本原型为自包含 HTML（无网络/无外部资源），仅用于交互确认；文案与语义以 v2 设计裁决为准。
+      </div>
+    </div>
+  </div>
+
+  <!-- 浮层 -->
+  <div class="pop" id="memberPop"></div>
+  <div class="pop" id="effortPop"></div>
+  <div class="pop" id="permPop"></div>
+  <div class="pop" id="atPop"></div>
+  <div class="toasts" id="toasts"></div>
+  <div class="mask" id="mask">
+    <div class="modal">
+      <div class="modal-hd" id="modalHd"></div>
+      <div class="modal-bd" id="modalBd"></div>
+      <div class="modal-ft">
+        <button class="btn-plain" id="modalCancel">取消</button>
+        <button class="btn-primary" id="modalOk">确认切换</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ================================================================
+   数据（全部内联，无网络）
+   ================================================================ */
+const MEMBERS = [
+  { id:'glm', name:'Dev-GLM', init:'G', color:'#7c3aed', runtime:'claude', runtimeTag:'claude',
+    model:'claude-fable-5', status:'idle', adapter:'new',
+    /* capabilities 驱动：该模型声明的档位集合（含 max） */
+    efforts:['default','low','medium','high','xhigh','max'],
+    perm:{ kind:'mode', mode:'手动', tools:'12 / 34 项' } },
+  { id:'kimi', name:'Dev-Kimi', init:'K', color:'#059669', runtime:'claude', runtimeTag:'claude',
+    model:'claude-sonnet-4-5', status:'running', adapter:'new',
+    /* capabilities 驱动：该模型声明无 max（有 xhigh）——对比呈现"模型不支持而非菜单砍掉" */
+    efforts:['default','minimal','low','medium','high','xhigh'],
+    perm:{ kind:'mode', mode:'自动', tools:'20 / 34 项' } },
+  { id:'legacy', name:'Dev-Legacy', init:'L', color:'#ea580c', runtime:'codex', runtimeTag:'codex（旧适配器）',
+    model:'gpt-5-codex', status:'idle', adapter:'legacy',
+    /* 旧 codex 适配器：无独立档位配置项 → 档位 chip 隐藏 */
+    efforts:null,
+    perm:{ kind:'approval', approval:'on-request', sandbox:'workspace-write', tools:'8 / 34 项' } },
+];
+const byId = (id) => MEMBERS.find(m => m.id === id);
+
+const EFFORT_LABEL = { default:'跟随模型默认', minimal:'极低 minimal', low:'低 low', medium:'中 medium', high:'高 high', xhigh:'xhigh', max:'max（最高档）' };
+const EFFORT_ORDER = ['default','minimal','low','medium','high','xhigh','max'];
+
+/* 状态 */
+const S = {
+  target:null,                 // null=全体；否则 member id
+  lineEffort:{ glm:'default', kimi:'default', legacy:'default' },   // 「仅此线」
+  memberEffort:{ glm:null, kimi:null, legacy:null },                // 「设为该成员默认」（P1）
+  cold:false,
+  queued:{},                   // memberId -> 排队条数
+};
+let seq = 0;
+
+/* 初始消息流快照（供「重置演示状态」整体还原，避免残留定向块/系统行） */
+const INITIAL_SCROLL = document.getElementById('scroll').innerHTML;
+
+/* ================================================================
+   点检清单（9 项，自动打勾）
+   ================================================================ */
+const CK = [
+  { id:'c1', t:'<b>① 胶囊</b>：默认「✉ 全体」；选人后明显变色 + × 清除',
+    need:['targeted','cleared'], hint:'点胶囊选任一成员，再点 ×' },
+  { id:'c2', t:'<b>② 定向态</b>就地浮出「思考强度」「权限」双 chip',
+    need:['chipsShown'], hint:'选 Dev-GLM 或 Dev-Kimi' },
+  { id:'c3', t:'<b>③ 档位菜单</b> capabilities 驱动：GLM 含 max / Kimi 无 max；两截「仅此线 / 设为该成员默认」；选 max 弹确认',
+    need:['menuGlm','menuKimi','maxConfirm'], hint:'分别打开 GLM、Kimi 的思考强度菜单；并在其中选一次 max' },
+  { id:'c4', t:'<b>④ 生效话术</b>：「下一回合生效」/ 运行中「当前回合结束后生效」',
+    need:['timingIdle','timingRunning'], hint:'空闲成员与运行中成员各打开一次档位菜单' },
+  { id:'c5', t:'<b>⑤ 忙成员排队</b>：定向发给在跑的成员 → 「排队中」挂起态（不丢失）',
+    need:['queued'], hint:'选中 Dev-Kimi（在跑）后发送一条消息' },
+  { id:'c6', t:'<b>⑥ 转录块</b>「你 → 成员」+ 绕过编排提示',
+    need:['directed'], hint:'向任一成员定向发送' },
+  { id:'c7', t:'<b>⑦ 停止 = 全队急停</b>（与发送目标解耦）',
+    need:['stopped'], hint:'点「■ 停止全部」' },
+  { id:'c8', t:'<b>⑧ @ 唤起</b>：输入 @ 打开成员菜单，选中即填入胶囊',
+    need:['atMenu'], hint:'在输入框里打一个 @' },
+  { id:'c9', t:'<b>⑨ 边界</b>：Dev-Legacy 档位 chip 隐藏；冷会话 chip 禁用 + 写入失败回滚',
+    need:['legacyHidden','coldFail'], hint:'选 Dev-Legacy 看隐藏；再打开右侧冷会话开关：chip 变禁用（点它看说明），点「演示一次写入失败（回滚）」' },
+];
+const done = {};   // 需求项 -> true
+const seen = {};   // 中间标志
+
+function mark(key){
+  if (done[key]) return;
+  done[key] = true;
+  renderChecklist();
+}
+function markIf(key, flag){
+  seen[flag] = true;
+  const item = CK.find(c => c.id === key);
+  if (item && item.need.every(k => seen[k])) mark(key);
+}
+function renderChecklist(){
+  const list = document.getElementById('ckList');
+  list.innerHTML = CK.map(c => {
+    const ok = !!done[c.id];
+    return `<div class="ck${ok ? ' done' : ''}"><span class="box">${ok ? '✓' : ''}</span>`
+      + `<span class="tx">${c.t}${ok ? '' : `<br><span style="color:var(--text-3)">→ ${c.hint}</span>`}</span></div>`;
+  }).join('');
+  const n = CK.filter(c => done[c.id]).length;
+  document.getElementById('ckCount').innerHTML = `<b>${n}</b> / ${CK.length}`;
+}
+
+/* ================================================================
+   基础渲染
+   ================================================================ */
+function esc(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+function renderMembers(){
+  const box = document.getElementById('members');
+  const chips = MEMBERS.map(m => {
+    const q = S.queued[m.id] || 0;
+    const cls = m.status === 'running' ? ' is-running' : (q > 0 ? ' is-queued' : '');
+    const st = m.status === 'running'
+      ? `<span class="st"><span class="dot"></span>在跑${q > 0 ? ` · 排队 ${q}` : ''}</span>`
+      : (q > 0 ? `<span class="st"><span class="dot"></span>空闲 · 排队 ${q}</span>` : `<span class="st"><span class="dot"></span>空闲</span>`);
+    return `<span class="mchip${cls}" style="--pc:${m.color}"><span class="av">${m.init}</span>${esc(m.name)}${st}`
+      + `<span class="rt">${esc(m.runtimeTag)}</span></span>`;
+  }).join('');
+  box.innerHTML = '<span class="members-label">成员</span>' + chips
+    + `<span class="members-note" id="membersNote">${runningCount() ? `在跑 ${runningCount()} · 停止=全队急停` : '全部空闲 · 排队消息会在成员空闲后自动执行'}</span>`;
+}
+function runningCount(){ return MEMBERS.filter(m => m.status === 'running').length; }
+
+function targetLabel(){
+  if (!S.target) return null;
+  return byId(S.target).name;
+}
+
+function renderCapsule(){
+  const cap = document.getElementById('capsule');
+  const lbl = document.getElementById('capsuleLabel');
+  if (S.target){
+    cap.classList.add('is-targeted');
+    lbl.textContent = byId(S.target).name;
+    cap.title = `定向发送给 ${byId(S.target).name}（点 × 回到「全体」）`;
+  } else {
+    cap.classList.remove('is-targeted');
+    lbl.textContent = '全体';
+    cap.title = '发送目标：默认「全体」（行为与现状完全一致）';
+  }
+}
+
+function effortValueOf(m){
+  if (S.memberEffort[m.id]) return S.memberEffort[m.id] + '（成员默认）';
+  return EFFORT_LABEL[S.lineEffort[m.id]] || '跟随模型默认';
+}
+
+function renderChips(){
+  const box = document.getElementById('chips');
+  const m = S.target ? byId(S.target) : null;
+  if (!m){ box.innerHTML = ''; renderHint(); return; }
+  let html = '';
+  if (m.efforts){
+    html += `<button class="chip${S.cold ? ' is-disabled' : ''}" id="chipEffort" title="${S.cold ? '会话未就绪：chip 已禁用（严禁对不存在的配置项发写入）' : '思考强度（capabilities 驱动）'}">`
+      + `<span class="k">思考强度</span><span class="v">${esc(effortValueOf(m))}</span>${S.cold ? '<span style="color:var(--yellow)">⚠</span>' : '<span class="caret">▾</span>'}</button>`;
+  }
+  const permVal = m.perm.kind === 'mode' ? `模式：${m.perm.mode}` : `审批：${m.perm.approval}`;
+  html += `<button class="chip${S.cold ? ' is-disabled' : ''}" id="chipPerm" title="${S.cold ? '会话未就绪：chip 已禁用' : '权限（工具可见集 + 授权模式）'}">`
+    + `<span class="chip-dot"></span><span class="k">权限</span><span class="v">${esc(permVal)}</span>${S.cold ? '<span style="color:var(--yellow)">⚠</span>' : '<span class="caret">▾</span>'}</button>`;
+  if (!m.efforts){
+    html += `<span class="tag tag-grey" title="旧 codex 适配器成员：effort 挂在模型选择上，没有独立档位配置项">档位 chip 已隐藏（该成员无独立档位项）</span>`;
+  }
+  box.innerHTML = html;
+  const ce = document.getElementById('chipEffort');
+  if (ce) ce.onclick = (e) => { e.stopPropagation(); if (S.cold){ coldDisabled(); return; } openEffortPop(); };
+  const cp = document.getElementById('chipPerm');
+  if (cp) cp.onclick = (e) => { e.stopPropagation(); if (S.cold){ coldDisabled(); return; } openPermPop(); };
+  renderHint();
+}
+
+function renderHint(){
+  const el = document.getElementById('hintline');
+  const m = S.target ? byId(S.target) : null;
+  const parts = [];
+  if (!m){
+    parts.push('<span class="hl">目标「全体」= 现状行为（消息发往 Master，无定向块）</span>');
+  } else {
+    const running = m.status === 'running';
+    parts.push(`<span class="hl">定向 <b>你 → ${esc(m.name)}</b></span>`);
+    if (m.efforts) parts.push(`<span>档位改动：${running ? '<b>当前回合结束后生效</b>' : '<b>下一回合生效</b>'}</span>`);
+    if (running) parts.push('<span>该成员在跑：消息将<b>排队</b>，不丢失</span>');
+  }
+  if (S.cold) parts.push('<span class="warn">⚠ 冷会话演示中：档位/权限写入会失败回滚</span>');
+  el.innerHTML = parts.join('<span style="color:var(--bg-4)"> · </span>');
+}
+
+/* ================================================================
+   浮层管理
+   ================================================================ */
+const POPS = ['memberPop','effortPop','permPop','atPop'];
+function closePops(except){
+  POPS.forEach(id => { if (id !== except) document.getElementById(id).classList.remove('open'); });
+  document.querySelectorAll('.chip').forEach(c => c.classList.remove('is-open'));
+}
+document.addEventListener('click', () => closePops());
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closePops(); });
+
+function placePop(pop, anchor, width){
+  const r = anchor.getBoundingClientRect();
+  const host = document.querySelector('.app').getBoundingClientRect();
+  pop.style.width = (width || Math.max(r.width, 250)) + 'px';
+  pop.style.left = Math.max(8, Math.min(r.left - host.left, host.width - (width || 250) - 8)) + 'px';
+  const popH = pop.offsetHeight || 220;
+  pop.style.top = (r.top - host.top - popH - 8) + 'px';
+}
+
+/* ---------- 成员菜单（胶囊） ---------- */
+function openMemberPop(){
+  const pop = document.getElementById('memberPop');
+  const items = MEMBERS.map(m => {
+    const running = m.status === 'running';
+    const q = S.queued[m.id] || 0;
+    const sub = running ? `<span class="sub is-running"><span class="dot"></span>在跑${q ? ` · 排队 ${q}` : ''}</span>`
+      : `<span class="sub"><span class="dot"></span>空闲${q ? ` · 排队 ${q}` : ''}</span>`;
+    return `<button class="pop-item${S.target === m.id ? ' is-current' : ''}" data-m="${m.id}" style="--pc:${m.color}">`
+      + `<span class="av">${m.init}</span><span class="n">${esc(m.name)}</span>`
+      + `<span class="tag tag-grey" style="font-size:10.5px">${esc(m.runtimeTag)}</span>${sub}</button>`;
+  }).join('');
+  pop.innerHTML = '<div class="pop-label">定向发送给谁？</div>' + items
+    + '<div class="pop-sep"></div>'
+    + `<button class="pop-item" data-m="" style="--pc:var(--text-3)"><span class="av">✉</span><span class="n">全体（默认）</span>`
+    + `<span class="sub">消息发往 Master，与现状一致</span></button>`
+    + '<div class="pop-foot">已移除成员不在此列表 · 归档线不渲染输入框 · 选中成员后会在输入框就地浮出「思考强度 / 权限」</div>';
+  pop.querySelectorAll('.pop-item').forEach(b => {
+    b.onclick = () => { selectTarget(b.dataset.m || null); closePops(); };
+  });
+  if (pop.classList.contains('open')){ pop.classList.remove('open'); return; }
+  closePops('memberPop');
+  pop.classList.add('open');
+  placePop(pop, document.getElementById('capsule'), 330);
+}
+
+/* ---------- 目标选择 ---------- */
+function selectTarget(id){
+  const prev = S.target;
+  S.target = id;
+  renderCapsule(); renderChips(); renderMembers();
+  if (id){
+    markIf('c1','targeted');
+    const m = byId(id);
+    if (m.efforts) markIf('c2','chipsShown');
+    if (!m.efforts) markIf('c9','legacyHidden');
+  }
+  if (prev && id && document.getElementById('ta').value.trim()) toast('草稿已保留（切换目标不影响已输入内容）');
+}
+
+/* ---------- 思考强度菜单 ---------- */
+function openEffortPop(){
+  const m = byId(S.target); if (!m || !m.efforts) return;
+  const pop = document.getElementById('effortPop');
+  const running = m.status === 'running';
+  const cur = S.lineEffort[m.id];
+  const opts = EFFORT_ORDER.filter(k => m.efforts.includes(k));
+  const lineItems = opts.map(k =>
+    `<button class="pop-item${k === cur ? ' is-current' : ''}" data-scope="line" data-v="${k}">`
+    + `<span class="n">${esc(EFFORT_LABEL[k])}</span>`
+    + `<span class="opt-val">${k === cur ? '当前 · 仅此线' : ''}</span></button>`).join('');
+  const defItems = opts.map(k =>
+    `<button class="pop-item" data-scope="member" data-v="${k}">`
+    + `<span class="n">${esc(EFFORT_LABEL[k])}</span>`
+    + `<span class="badge">P1</span></button>`).join('');
+  const hasMax = opts.includes('max');
+  pop.innerHTML =
+    `<div class="pop-label">仅此线 <span style="font-weight:400">（当前会话立即下发 · 不回溯当前回合）</span></div>`
+    + lineItems
+    + '<div class="pop-sep"></div>'
+    + `<div class="pop-label">设为该成员默认 <span style="font-weight:400">（P1 · 随数据基座上线）</span></div>`
+    + defItems
+    + '<div class="pop-sep"></div>'
+    + `<div class="timing-line"><span class="ic">⏱</span><span>空闲时改：<b>下一回合生效</b>；成员在跑时改：<b>当前回合结束后生效</b>（不回溯当前回合）</span></div>`
+    + (running ? `<div class="timing-line"><span class="ic">●</span><span><b>${esc(m.name)} 正在运行</b>：本次修改将于 <b>当前回合结束后生效</b></span></div>` : '')
+    + (hasMax
+        ? `<div class="pop-note">档位集合来自该成员模型的 capabilities 声明（含 <b>max</b>）。max 为最高档；个别渠道不支持时会在轮次失败气泡中呈现（P1 补归因提示）。</div>`
+        : `<div class="pop-note">该模型 capabilities <b>未声明 max</b>，故菜单不显示（属模型不支持，而非菜单砍掉）；写入未声明项会被适配器拒绝，chips 已按声明渲染以防错。</div>`)
+    + `<div class="pop-foot">「设为该成员默认」写入成员档案，对该成员<b>所有线</b>+未来新会话生效，误触半径大（P1 交付）。</div>`;
+  pop.querySelectorAll('.pop-item').forEach(b => {
+    b.onclick = () => { chooseEffort(m, b.dataset.scope, b.dataset.v); closePops(); };
+  });
+  closePops('effortPop');
+  pop.classList.add('open');
+  placePop(pop, document.getElementById('chipEffort'), 360);
+  markIf('c4', running ? 'timingRunning' : 'timingIdle');
+  if (m.id === 'glm') markIf('c3','menuGlm');
+  if (m.id === 'kimi') markIf('c3','menuKimi');
+}
+
+function chooseEffort(m, scope, value){
+  if (S.cold){ coldFail(); return; }
+  if (value === 'max'){
+    markIf('c3','maxConfirm');
+    openMaxConfirm(m, scope, () => applyEffort(m, scope, value));
+    return;
+  }
+  applyEffort(m, scope, value);
+}
+
+function applyEffort(m, scope, value){
+  if (scope === 'member'){
+    S.memberEffort[m.id] = (value === 'default' ? null : EFFORT_LABEL[value].split('（')[0]);
+    toast(`已写入成员默认：${m.name} · ${EFFORT_LABEL[value]}（P1 数据基座；对该成员所有线生效）`, 'ok');
+  } else {
+    S.lineEffort[m.id] = value;
+    const running = m.status === 'running';
+    toast(`已切换（仅此线）：${m.name} · ${EFFORT_LABEL[value]} —— ${running ? '当前回合结束后生效' : '下一回合生效'}`, 'ok');
+  }
+  renderChips();
+}
+
+/* ---------- max 确认弹窗 ---------- */
+let modalCb = null;
+function openMaxConfirm(m, scope, cb){
+  modalCb = cb;
+  const isMember = scope === 'member';
+  document.getElementById('modalHd').innerHTML = '⚠ 切换到最高档位 max';
+  document.getElementById('modalBd').innerHTML =
+    `<div>目标：<b>${esc(m.name)}</b> · ${isMember ? '<b>设为该成员默认</b>（对该成员所有线 + 未来新会话生效）' : '<b>仅此线</b>（当前会话）'}</div>`
+    + '<ul>'
+    + '<li>max = 最深推理，耗时/token 明显增加（"仅在最难任务上使用"）。</li>'
+    + '<li>8,523 条真实捕获实证：max 在 8,400+ 请求上成功，仅个别渠道（glm-5.3-flash-1、qwen3.8-flash-next）返回 500 —— 失败时会以<b>失败气泡</b>呈现，可降档重试（P1 补归因提示）。</li>'
+    + (isMember ? '<li>持久写入：<b>对该成员所有会话持久生效</b>（含未来新会话），<b>运行中的回合结束后咬合</b>；误触半径大，请确认。</li>' : '<li>仅影响本会话；成员在跑时为「当前回合结束后生效」，不回溯当前回合。</li>')
+    + '</ul>';
+  document.getElementById('mask').classList.add('open');
+}
+document.getElementById('modalCancel').onclick = () => { document.getElementById('mask').classList.remove('open'); modalCb = null; };
+document.getElementById('modalOk').onclick = () => {
+  document.getElementById('mask').classList.remove('open');
+  if (modalCb) modalCb(); modalCb = null;
+};
+
+/* ---------- 权限弹层 ---------- */
+function openPermPop(){
+  const m = byId(S.target); if (!m) return;
+  const pop = document.getElementById('permPop');
+  const rows = m.perm.kind === 'mode'
+    ? `<div class="perm-row"><span class="lab">权限模式</span>`
+      + ['手动','接受编辑','计划','自动'].map(p => `<span class="pill${p === m.perm.mode ? ' on' : ''}">${p}</span>`).join('')
+      + `</div>`
+    : `<div class="perm-row"><span class="lab">审批模式</span><span class="pill on">${esc(m.perm.approval)}</span></div>`
+      + `<div class="perm-row"><span class="lab">沙盒</span><span class="pill on">${esc(m.perm.sandbox)}</span></div>`;
+  pop.innerHTML = `<div class="pop-label">权限（${m.runtime === 'claude' ? 'claude 维度：权限模式' : 'codex 维度：审批 / 沙盒'}）</div>`
+    + rows
+    + `<div class="perm-row"><span class="lab">工具可见集</span><b>${esc(m.perm.tools)}</b><span style="color:var(--text-3)">（真正管事的"权限"）</span></div>`
+    + `<button class="pop-btn" id="permGo">打开工具权限设置（预选 ${esc(m.name)}）→</button>`
+    + `<div class="pop-note">P0 权限 chip 只做<b>展示 + 跳转</b>；就地编辑 P1/P2。注意：当前产品没有「只读/可写/全权」等级语义（permission_level 是死字段），能就地给的是"工具可见集 + 授权模式"。</div>`;
+  pop.querySelector('#permGo').onclick = () => {
+    toast('P0：跳转工具权限设置并预选该成员（原型为演示提示，不改产品代码）');
+  };
+  closePops('permPop');
+  pop.classList.add('open');
+  placePop(pop, document.getElementById('chipPerm'), 380);
+}
+
+/* ---------- @ 菜单 ---------- */
+function openAtPop(anchorEl){
+  const pop = document.getElementById('atPop');
+  pop.innerHTML = '<div class="pop-label">选择成员（@ 快捷唤起 · 简版）</div>'
+    + MEMBERS.map(m => `<button class="pop-item" data-m="${m.id}" style="--pc:${m.color}"><span class="av">${m.init}</span>`
+      + `<span class="n">${esc(m.name)}</span><span class="sub${m.status === 'running' ? ' is-running' : ''}">`
+      + `<span class="dot"></span>${m.status === 'running' ? '在跑（排队发送）' : '空闲'}</span></button>`).join('')
+    + '<div class="pop-foot">选中即填入左侧目标胶囊（等价于点胶囊选人）；@ 仅作快捷唤起，不解析消息正文。</div>';
+  pop.querySelectorAll('.pop-item').forEach(b => {
+    b.onclick = () => {
+      selectTarget(b.dataset.m);
+      const ta = document.getElementById('ta');
+      ta.value = ta.value.replace(/@\s*$/, '');
+      closePops(); ta.focus();
+      toast(`目标已设为 ${byId(b.dataset.m).name}（@ 快捷唤起）`);
+    };
+  });
+  closePops('atPop');
+  pop.classList.add('open');
+  placePop(pop, anchorEl, 300);
+}
+
+/* ---------- 发送 ---------- */
+function send(){
+  const ta = document.getElementById('ta');
+  const text = ta.value.trim();
+  if (!text){ toast('消息为空', 'warn'); return; }
+  const scroll = document.getElementById('scroll');
+  if (!S.target){
+    const el = document.createElement('div');
+    el.className = 'row human';
+    el.innerHTML = `<div class="avatar">你</div><div class="col"><div class="meta"><span class="name">你</span><span>刚刚</span></div>`
+      + `<div class="bub">${esc(text)}</div></div>`;
+    scroll.appendChild(el);
+    toast('全体目标：消息发往 Master（与现状完全一致，无定向块）');
+  } else {
+    const m = byId(S.target);
+    markIf('c6','directed');
+    const id = `d${++seq}`;
+    const el = document.createElement('div');
+    el.className = 'dblock';
+    el.id = id;
+    const running = m.status === 'running';
+    el.innerHTML = `<div class="dblock-hd"><span class="route">你 <span style="opacity:.6">→</span></span>`
+      + `<span class="who" style="color:${m.color}">${esc(m.name)}</span>`
+      + `<span class="spacer"></span>`
+      + `<span id="${id}-badge">${running ? '<span class="qbadge queued"><span class="mini-dot"></span>排队中 · 等待 ' + esc(m.name) + ' 空闲</span>' : '<span class="qbadge running"><span class="spin"></span>执行中</span>'}</span></div>`
+      + `<div class="dblock-bd">${esc(text)}</div>`
+      + `<div class="dblock-ft">⚑ 定向消息绕过 Master —— 转录块标注来源；Master 的计划不会自动更新（预期行为）</div>`;
+    scroll.appendChild(el);
+    if (running){
+      S.queued[m.id] = (S.queued[m.id] || 0) + 1;
+      markIf('c5','queued');
+      toast(`${m.name} 正在跑回合：消息已<b>排队</b>（不丢失，成员空闲后自动执行）`, 'warn');
+      renderMembers();
+    } else {
+      fireMemberTurn(m, id, true);
+    }
+  }
+  ta.value = '';
+  ta.focus();
+  scroll.scrollTop = scroll.scrollHeight;
+}
+
+/* 成员"真的执行"一轮（原型模拟） */
+function fireMemberTurn(m, blockId, fromUser){
+  m.status = 'running';
+  renderMembers(); renderHint();
+  const badge = document.getElementById(blockId + '-badge');
+  if (badge) badge.innerHTML = '<span class="qbadge running"><span class="spin"></span>执行中</span>';
+  setTimeout(() => {
+    m.status = 'idle';
+    const badge2 = document.getElementById(blockId + '-badge');
+    if (badge2) badge2.innerHTML = '<span class="qbadge done">✓ 已执行</span>';
+    const scroll = document.getElementById('scroll');
+    const reply = document.createElement('div');
+    reply.className = 'row';
+    reply.style.setProperty('--pc', m.color);
+    reply.innerHTML = `<div class="avatar">${m.init}</div><div class="col"><div class="meta"><span class="name">${esc(m.name)}</span><span>刚刚</span></div>`
+      + `<div class="bub">收到，我来处理："${esc(fromUser ? '（定向消息）' : '')}" —— 原型模拟回复。</div></div>`;
+    scroll.appendChild(reply);
+    scroll.scrollTop = scroll.scrollHeight;
+    renderMembers(); renderHint();
+    drainQueue(m);
+  }, 2000);
+}
+
+/* 成员空闲后自动消费排队消息（排队不丢失） */
+function drainQueue(m){
+  if (!S.queued[m.id] || m.status === 'running') { renderMembers(); return; }
+  S.queued[m.id] -= 1;
+  renderMembers();
+  const notice = document.createElement('div');
+  notice.className = 'sys-notice';
+  notice.textContent = `${m.name} 已空闲：排队的定向消息开始执行（排队不丢失）`;
+  document.getElementById('scroll').appendChild(notice);
+  // 简化演示：直接执行一轮
+  const fakeId = `d${++seq}`;
+  const holder = document.createElement('div');
+  holder.id = fakeId + '-badge';
+  holder.style.display = 'none';
+  document.getElementById('scroll').appendChild(holder);
+  fireMemberTurn(m, fakeId, true);
+}
+
+/* ---------- 停止（全队急停） ---------- */
+function stopAll(){
+  closePops();
+  const running = MEMBERS.filter(m => m.status === 'running');
+  markIf('c7','stopped');
+  MEMBERS.forEach(m => { m.status = 'idle'; });
+  renderMembers(); renderHint();
+  const notice = document.createElement('div');
+  notice.className = 'sys-notice';
+  notice.innerHTML = running.length
+    ? `⏹ 已停止全部 Agent（急停覆盖 ${running.map(m => m.name).join('、')}）—— 与发送目标解耦；排队消息保留（停止不清排队，P2 可加取消）`
+    : '⏹ 已停止全部 Agent（当前无在跑成员）—— 排队消息保留（停止不清排队，P2 可加取消）';
+  const scroll = document.getElementById('scroll');
+  scroll.appendChild(notice);
+  scroll.scrollTop = scroll.scrollHeight;
+  toast('停止 = 全队急停：所有正在跑的成员会话被中断（语义不变）');
+  // 演示：急停后成员空闲 → 排队消息继续执行（不丢失）
+  MEMBERS.forEach(m => { if (S.queued[m.id]) setTimeout(() => drainQueue(m), 700); });
+}
+
+/* ---------- 冷会话：chip 禁用 + 写入失败回滚演示（边界） ---------- */
+function coldDisabled(){
+  const m = byId(S.target);
+  toast(`chip 已禁用：${m.name} 的会话未就绪（冷会话）。P0 规则：<b>写入前先确保目标格子会话存活</b>，失败时明确提示并回滚（不静默改值）。点右栏「演示一次写入失败（回滚）」可看失败路径。`, 'warn');
+}
+function coldFail(){
+  const m = S.target ? byId(S.target) : null;
+  if (!m || !m.efforts){ toast('先在输入框选中一个带档位的成员（Dev-GLM / Dev-Kimi），再演示写入失败', 'warn'); return; }
+  toast(`写入失败：${m.name} 的会话未就绪（冷会话）—— 已回滚，档位不变；应「先确保目标格子会话存活，失败时明确提示」`, 'err');
+  markIf('c9','coldFail');
+  const scroll = document.getElementById('scroll');
+  const note = document.createElement('div');
+  note.className = 'fail-note';
+  note.textContent = `档位切换失败：目标成员会话未就绪（冷会话）· 已回滚（值保持 ${effortValueOf(m)}）`;
+  scroll.appendChild(note);
+  scroll.scrollTop = scroll.scrollHeight;
+}
+
+/* ---------- toast ---------- */
+function toast(html, kind){
+  const box = document.getElementById('toasts');
+  const el = document.createElement('div');
+  el.className = 'toast' + (kind ? ' ' + kind : '');
+  el.innerHTML = html;
+  box.appendChild(el);
+  setTimeout(() => { el.style.transition = 'opacity .3s'; el.style.opacity = '0'; setTimeout(() => el.remove(), 320); }, 3800);
+}
+
+/* ================================================================
+   事件绑定
+   ================================================================ */
+document.getElementById('capsule').onclick = (e) => {
+  if (e.target.id === 'capsuleClear'){ e.stopPropagation(); selectTarget(null); markIf('c1','cleared'); closePops(); return; }
+  e.stopPropagation(); openMemberPop();
+};
+document.getElementById('btnSend').onclick = () => send();
+document.getElementById('btnStop').onclick = () => stopAll();
+document.getElementById('btnStopAll').onclick = () => stopAll();
+document.getElementById('btnReset').onclick = () => resetDemo();
+document.getElementById('coldToggle').onchange = (e) => {
+  S.cold = e.target.checked;
+  document.getElementById('btnColdDemo').style.display = S.cold ? 'block' : 'none';
+  renderChips();
+  toast(S.cold ? '已开启冷会话演示：档位/权限 chip 变为禁用态（点击看说明），可点右栏按钮看写入失败回滚' : '已关闭冷会话演示', S.cold ? 'warn' : 'ok');
+};
+document.getElementById('btnColdDemo').onclick = () => coldFail();
+
+const ta = document.getElementById('ta');
+ta.addEventListener('input', () => {
+  ta.style.height = 'auto';
+  ta.style.height = Math.min(ta.scrollHeight, 140) + 'px';
+  const val = ta.value;
+  if (/@$/.test(val)){
+    markIf('c8','atMenu');
+    openAtPop(ta);
+  } else {
+    document.getElementById('atPop').classList.remove('open');
+  }
+});
+ta.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); send(); }
+});
+
+/* 外部点击关闭浮层 */
+document.querySelectorAll('.pop').forEach(p => p.addEventListener('click', e => e.stopPropagation()));
+
+/* ================================================================
+   重置
+   ================================================================ */
+function resetDemo(){
+  S.target = null; S.cold = false;
+  S.lineEffort = { glm:'default', kimi:'default', legacy:'default' };
+  S.memberEffort = { glm:null, kimi:null, legacy:null };
+  S.queued = {};
+  MEMBERS.forEach(m => { m.status = m.id === 'kimi' ? 'running' : 'idle'; });
+  document.getElementById('coldToggle').checked = false;
+  document.getElementById('btnColdDemo').style.display = 'none';
+  document.getElementById('ta').value = '';
+  ta.style.height = 'auto';
+  // 用初始快照整体还原消息流（避免残留定向块/排队块/系统行）
+  document.getElementById('scroll').innerHTML = INITIAL_SCROLL;
+  renderAll();
+  toast('已重置演示状态（点检勾选保留）', 'ok');
+}
+
+/* ================================================================
+   初始化
+   ================================================================ */
+function renderAll(){ renderMembers(); renderCapsule(); renderChips(); renderHint(); }
+renderChecklist();
+renderAll();
+</script>
+</body>
+</html>
