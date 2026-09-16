@@ -154,8 +154,8 @@ describe('team conversation copy', () => {
       expect(sessionStore.get(newMemberGridId)?.acp_session_id).toBe(`acp-${newMemberGridId}`)
     })
 
-    // fork 顺序 = plans 顺序（Master 先）；每格子 fork 一次，源 acp 正确
-    expect(mock.calls.map((call) => call.sourceAcpSessionId)).toEqual(['acp-leader-src', 'acp-member-src'])
+    // 每格子 fork 恰好一次、源 acp 正确（顺序 = listMembers 行序，非契约，断言用集合）
+    expect([...mock.calls.map((call) => call.sourceAcpSessionId)].sort()).toEqual(['acp-leader-src', 'acp-member-src'])
     // ★ 保真点断言：fork 发起时目标会话已带上源格子的手切档位（先复制 preferences 再 fork）
     const memberForkCall = mock.calls.find((call) => call.targetSessionId === newMemberGridId)!
     expect(memberForkCall.prefsAtForkTime.config?.effort).toBe('high')
