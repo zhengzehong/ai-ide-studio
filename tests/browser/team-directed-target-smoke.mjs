@@ -45,14 +45,17 @@ try {
   await page.locator('.directed-badge', { hasText: '已完成' }).waitFor()
   await screenshot('01-default-all.png')
 
-  // ② @ 唤起成员菜单 → 选 Dev-GLM：胶囊变蓝 + ✕ 清除位
+  // ② @ 唤起成员菜单 → 选 Dev-GLM：胶囊变蓝 + ✕ 清除位；输入框里的 `@` 被消费（对齐原型）
   await page.locator('.conversation-composer textarea').click()
   await page.locator('.conversation-composer textarea').type('@')
+  await page.locator('.conversation-menu', { hasText: '选中成员后' }).waitFor({ timeout: 5_000 })
   await page.locator('.conversation-menu button', { hasText: 'Dev-GLM' }).click()
   await page.waitForTimeout(150)
   const directedCapsule = page.locator('.conversation-toolbar-button.is-directed').first()
   check((await directedCapsule.textContent()).includes('Dev-GLM'), `选中后胶囊应显示 Dev-GLM，实际 ${await directedCapsule.textContent()}`)
   await page.locator('.composer-target-clear').waitFor()
+  const afterAt = await page.locator('.conversation-composer textarea').inputValue()
+  check(afterAt === '', `@ 选中成员后输入框不得残留 @，实际 ${JSON.stringify(afterAt)}`)
   await screenshot('02-target-selected.png')
 
   // ③ 档位开关就地变为该成员控制：显示成员当前档位「中」；菜单头「对 Dev-GLM · 下一回合生效」+ 含 Max；选择 Max 写 session.setConfig
@@ -67,11 +70,14 @@ try {
   check((await rpc()).includes('setConfig:s2:effort=max'), `档位选择应写成员会话 s2 的 effort，实际 rpc=${await rpc()}`)
   check(await composerButton('Max').count() > 0, '写成功后档位开关应就地回填为所选档位（Max）')
 
-  // ④ 权限开关就地变为该成员控制：展示 + 跳转，不就地写
+  // ④ 权限开关就地变为该成员控制：展示 + 跳转，不就地写；模式行非交互（⑥a）
   const permButton = composerButton('跳过权限')
   check(await permButton.count() > 0, '选中成员后权限开关应显示该成员模式（跳过权限）')
   await permButton.click()
   await page.locator('.conversation-menu', { hasText: 'claude 维度：权限模式' }).waitFor({ timeout: 5_000 })
+  const modeRow = page.locator('.conversation-menu button', { hasText: '跳过权限' })
+  check(await modeRow.count() > 0, '权限菜单应列出该成员声明的权限模式')
+  check(await modeRow.first().isDisabled(), '权限模式行应为非交互展示行（disabled），不做就地编辑')
   await page.locator('.conversation-menu button', { hasText: '打开工具权限设置' }).click()
   await page.waitForTimeout(150)
   check((await page.locator('#events').textContent()).includes('open-tools:a-glm'), `权限跳转应预选成员 Agent，实际 events=${await page.locator('#events').textContent()}`)
@@ -85,6 +91,27 @@ try {
   await page.locator('.conversation-composer-queued', { hasText: '已定向发给 Dev-GLM' }).waitFor({ timeout: 5_000 })
   await page.locator('.conversation-team-assignment-header', { hasText: '你 → Dev-GLM' }).nth(1).waitFor()
   await screenshot('04-directed-sent.png')
+
+  // ⑤b 定向 + 附件：阻断发送、明确提示、附件保留、不发 RPC（不静默丢弃）
+  await page.evaluate(() => {
+    const blob = new Blob([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], { type: 'image/png' })
+    const file = new File([blob], 'pixel.png', { type: 'image/png' })
+    const transfer = new DataTransfer()
+    transfer.items.add(file)
+    document.querySelector('.conversation-composer textarea').dispatchEvent(new ClipboardEvent('paste', { clipboardData: transfer, bubbles: true, cancelable: true }))
+  })
+  await page.locator('.conversation-image-attachment').waitFor({ timeout: 5_000 })
+  await page.locator('.conversation-composer textarea').fill('带附件的定向消息')
+  const directedBefore = ((await rpc()).match(/directed:/g) || []).length
+  await page.locator('.conversation-send').click()
+  await page.waitForTimeout(250)
+  await page.locator('.conversation-composer-error', { hasText: '定向发送暂不支持附件' }).waitFor({ timeout: 5_000 })
+  check(await page.locator('.conversation-image-attachment').count() === 1, '被阻断后附件必须保留（不得静默丢弃）')
+  check(((await rpc()).match(/directed:/g) || []).length === directedBefore, `被阻断时不得发出定向 RPC，实际 rpc=${await rpc()}`)
+  await screenshot('04b-attachment-blocked.png')
+  await page.locator('.conversation-image-attachment button').click()
+  await page.waitForTimeout(150)
+  check(await page.locator('.conversation-image-attachment').count() === 0, '移除附件后应可继续发送')
 
   // ⑥ 忙时排队态：成员执行中 → 发送回执 queued → 本地待落账块显示「排队中 · 等待空闲」
   await page.locator('#btn-busy').click()
@@ -114,6 +141,19 @@ try {
   const disabledPerm = composerButton('权限项不可用')
   check(await disabledPerm.count() > 0 && await disabledPerm.isDisabled(), '旧 codex 成员的权限开关应禁用')
   await screenshot('07-legacy-codex.png')
+
+  // ⑧b 能力拉取失败（⑥b）：降级文案＝「能力未就绪」，不得误报成 legacy「档位不可用」
+  await page.locator('#btn-cap-fail').click()
+  await page.waitForTimeout(800)
+  await page.locator('.conversation-composer textarea').click()
+  await page.locator('.conversation-composer textarea').type('@')
+  await page.locator('.conversation-menu button', { hasText: 'Dev-Kimi-Legacy' }).click()
+  await page.waitForTimeout(200)
+  const notReady = composerButton('能力未就绪')
+  check(await notReady.count() > 0, '能力拉取失败应显示「能力未就绪」降级开关')
+  check(await notReady.first().isDisabled(), '能力未就绪时开关必须禁用（不发写入）')
+  check(await composerButton('档位不可用').count() === 0, '能力拉取失败不得误报为 legacy「档位不可用」')
+  await screenshot('07b-capability-not-ready.png')
 
   // ⑨ 清除目标 → 回全体（消息重走 Master）
   await page.locator('.composer-target-clear').click()

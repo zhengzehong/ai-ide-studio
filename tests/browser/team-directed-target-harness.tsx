@@ -27,6 +27,7 @@ const log: string[] = []
 const rpcCalls: string[] = []
 let memberBusy = false
 let directedLanded = false
+let capabilityFetchFailed = false
 
 function record(entry: string): void {
   log.push(entry)
@@ -83,6 +84,8 @@ wsClient.request = async (msg: Record<string, unknown>): Promise<unknown> => {
     case 'team.conversation.history':
       return { members: members.map((member) => ({ ...member })), removedMembers: [] }
     case 'session.getModels':
+      // 能力拉取失败开关（⑥b）：只影响 Dev-Kimi-Legacy 的会话，验证「能力未就绪」降级文案。
+      if (capabilityFetchFailed && msg.sessionId === 's3') throw new Error('模拟能力拉取失败')
       return capabilitiesBySession[String(msg.sessionId)] || { models: [], currentModelId: null, modes: [], currentModeId: null, supportsImages: true, configOptions: [], commands: [] }
     case 'team.member.message': {
       recordRpc(`directed:${String(msg.memberId)}:${String(msg.content)}`)
@@ -115,6 +118,8 @@ queryClient.listSessionMessages = async (input) => ({ items: ((directedLanded &&
 
 function Harness(): ReactElement {
   const [epoch, setEpoch] = useState(0)
+  // 能力拉取失败开关：换 cacheScope 强制重挂 TeamChatPane，让能力补拉重新走一遍。
+  const [scope, setScope] = useState(0)
   // 模拟服务端落库：把「刚发出的定向消息」补进 Dev-GLM 会话历史，验证本地待落账块被真实块替换。
   useEffect(() => {
     queryClient.listSessionMessages = async (input) => {
@@ -131,11 +136,12 @@ function Harness(): ReactElement {
       <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
         <button id="btn-busy" onClick={() => { memberBusy = !memberBusy; record(`busy=${memberBusy}`) }}>模拟成员执行中</button>
         <button id="btn-land" onClick={() => { directedLanded = true; setEpoch((value) => value + 1) }}>模拟服务端落库</button>
+        <button id="btn-cap-fail" onClick={() => { capabilityFetchFailed = true; setScope((value) => value + 1); record('cap-fail=true') }}>模拟能力拉取失败</button>
         <div id="events" />
         <div id="rpc" />
       </div>
       <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
-        <TeamChatPane team={team as never} conversation={conversation as never} masterSessionId="m1" onOpenToolPermissions={openToolPermissions} />
+        <TeamChatPane cacheScope={`smoke-${scope}`} team={team as never} conversation={conversation as never} masterSessionId="m1" onOpenToolPermissions={openToolPermissions} />
       </div>
     </div>
   )

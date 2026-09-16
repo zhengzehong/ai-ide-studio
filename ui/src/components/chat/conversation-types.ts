@@ -42,6 +42,8 @@ export interface ConversationTeamTargetMember {
   queued: number
   /** 成员会话的 capabilities：档位/权限菜单唯一能力源（严禁写不存在的 configId）。 */
   capabilities: SessionCapabilities
+  /** 能力补拉失败（getModels 报错/冷会话）：菜单按「能力未就绪」降级，与 legacy 无项区分。 */
+  capabilitiesError?: boolean
 }
 
 /**

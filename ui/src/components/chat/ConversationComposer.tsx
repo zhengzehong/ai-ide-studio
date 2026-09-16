@@ -65,6 +65,15 @@ export function ConversationComposer({ adapter }: { adapter: ConversationAdapter
   const targetEffortOption = targetMember ? pickEffortOption(targetMember.capabilities.configOptions) : undefined
   const activeTargetConfig = targetMember && menu === (targetEffortOption ? `config:${targetEffortOption.id}` : '') ? targetEffortOption : undefined
   const targetMode = targetMember?.capabilities.modes.find((item) => item.modeId === targetMember.capabilities.currentModeId)
+  const targetPermReady = !!targetMember && targetMember.capabilities.modes.length > 0
+  // 档位标签：能力未就绪（getModels 失败/冷会话）与 legacy 无项分开表述，避免误报根因。
+  const targetEffortLabel = (): string => {
+    if (!targetEffortOption) return targetMember?.capabilitiesError ? '能力未就绪' : '档位不可用'
+    const current = targetEffortOption.options?.find((option) => option.value === targetEffortOption.currentValue)
+    const label = configOptionLabel(String(targetEffortOption.currentValue ?? ''), current?.name || targetEffortOption.name || '思考强度')
+    // claude 哨兵值 'default' 在团队成员语境下明确显示为「跟随模型默认」。
+    return targetEffortOption.currentValue === 'default' ? '跟随模型默认' : label
+  }
   const effortScopeNote = targetMember
     ? `对 ${targetMember.name} · ${targetMember.running ? '当前回合结束后生效' : '下一回合生效'}`
     : undefined
@@ -198,6 +207,11 @@ export function ConversationComposer({ adapter }: { adapter: ConversationAdapter
     setStoppingTurnId(null)
     try {
       if (directedTo) {
+        // 定向消息当前只承载文本：有附件就明确阻断（附件保留、不发 RPC），不静默丢弃。
+        if (images.length > 0 || files.length > 0) {
+          setSendError('定向发送暂不支持附件，请移除附件或切回全体')
+          return
+        }
         const status = await teamTarget!.sendDirected(directedTo.id, value.trim())
         submittedSessionRef.current = targetSessionId
         conversationDrafts.clear(targetSessionId)
@@ -270,14 +284,15 @@ export function ConversationComposer({ adapter }: { adapter: ConversationAdapter
     textareaRef.current?.focus()
   }
 
-  const targetEffortLabel = (): string => {
-    if (!targetEffortOption) return '档位不可用'
-    const current = targetEffortOption.options?.find((option) => option.value === targetEffortOption.currentValue)
-    const label = configOptionLabel(String(targetEffortOption.currentValue ?? ''), current?.name || targetEffortOption.name || '思考强度')
-    // claude 哨兵值 'default' 在团队成员语境下明确显示为「跟随模型默认」。
-    return targetEffortOption.currentValue === 'default' ? '跟随模型默认' : label
+  /** 选中发送目标（全体=null）：@ 唤起时消费掉输入框尾部的 `@`（对齐原型 replace(/@$/,'')）。 */
+  const selectTeamTarget = (memberId: string | null): void => {
+    teamTarget?.onSelect(memberId)
+    const tail = valueRef.current
+    if (tail.endsWith('@')) updateValue(tail.slice(0, -1))
   }
 
+  // 成员菜单底部提示（对齐原型 menu-note）。
+  const TEAM_TARGETS_NOTE = '选中成员后，「档位 / 权限」开关就地变为该成员的控制（仅此线，下一回合生效）'
   const menuItems: MenuItem[] = menu === 'teamTargets'
     ? [
       ...(teamTarget?.members ?? []).map((member) => ({
@@ -285,25 +300,26 @@ export function ConversationComposer({ adapter }: { adapter: ConversationAdapter
         label: member.name,
         description: `${member.model} · ${member.running ? '执行中' : '空闲'}${member.queued > 0 ? ` · 排队 ${member.queued}` : ''}`,
         active: teamTarget?.targetId === member.id,
-        onClick: () => { teamTarget?.onSelect(member.id); setMenu(null) },
+        onClick: () => { selectTeamTarget(member.id); setMenu(null) },
       })),
       {
         id: 'all',
         label: '全体',
         description: '消息发往 Master，与现状一致',
         active: !teamTarget?.targetId,
-        onClick: () => { teamTarget?.onSelect(null); setMenu(null) },
+        onClick: () => { selectTeamTarget(null); setMenu(null) },
       },
     ]
     : menu === 'teamPerm'
       ? [
+        // P0 只做展示：权限模式不在 composer 就地编辑（工具可见集编辑在设置页），模式行非交互。
         ...(targetMember?.capabilities.modes ?? []).map((item) => ({
           id: item.modeId,
           label: modeCn(item.name),
-          description: item.description,
+          description: item.description || (item.modeId === targetMember?.capabilities.currentModeId ? '当前 · 到工具权限设置修改' : undefined),
           active: item.modeId === targetMember?.capabilities.currentModeId,
-          // P0 只做展示：权限模式不在 composer 就地编辑（工具可见集编辑在设置页），点条目只提示。
-          onClick: () => { setMenu(null) },
+          disabled: true,
+          onClick: () => undefined,
         })),
         ...(targetMember
           ? [{
@@ -389,14 +405,16 @@ export function ConversationComposer({ adapter }: { adapter: ConversationAdapter
             <button
               type="button"
               className="conversation-toolbar-button"
-              disabled={targetMember.capabilities.modes.length === 0}
-              title={targetMember.capabilities.modes.length === 0
-                ? `${targetMember.name} 为旧 codex 适配器成员：无独立权限项（权限挂在模型选择上，维持现状）`
-                : `权限：${targetMember.name} · ${effortScopeNote ?? ''}`}
+              disabled={!targetPermReady}
+              title={targetPermReady
+                ? `权限：${targetMember.name} · ${effortScopeNote ?? ''}`
+                : targetMember.capabilitiesError
+                  ? `${targetMember.name}：能力未就绪（无法获取成员能力），权限开关暂不可用`
+                  : `${targetMember.name} 为旧 codex 适配器成员：无独立权限项（权限挂在模型选择上，维持现状）`}
               onClick={(event) => openMenu('teamPerm', event)}
               aria-haspopup="menu"
             >
-              <Settings2 size={12} />{targetMember.capabilities.modes.length === 0 ? '权限项不可用' : modeCn(targetMode?.name)}<ChevronDown size={10} />
+              <Settings2 size={12} />{targetPermReady ? modeCn(targetMode?.name) : targetMember.capabilitiesError ? '能力未就绪' : '权限项不可用'}<ChevronDown size={10} />
             </button>
           ) : (
             adapter.capabilities.modes.length > 0 && <ToolbarButton label={modeCn(currentMode?.name)} icon={<Settings2 size={12} />} active={menu === 'mode'} onClick={(event) => openMenu('mode', event)} />
@@ -408,11 +426,15 @@ export function ConversationComposer({ adapter }: { adapter: ConversationAdapter
               type="button"
               className={`conversation-toolbar-button is-transparent${menu === (targetEffortOption ? `config:${targetEffortOption.id}` : '') ? ' is-active' : ''}`}
               disabled={!targetEffortOption}
-              title={targetEffortOption ? `思考强度：${targetMember.name} · ${effortScopeNote ?? ''}` : `${targetMember.name} 为旧 codex 适配器成员：无独立档位项（effort 挂在模型选择上，维持现状）`}
+              title={targetEffortOption
+                ? `思考强度：${targetMember.name} · ${effortScopeNote ?? ''}`
+                : targetMember.capabilitiesError
+                  ? `${targetMember.name}：能力未就绪（无法获取成员能力），档位开关暂不可用`
+                  : `${targetMember.name} 为旧 codex 适配器成员：无独立档位项（effort 挂在模型选择上，维持现状）`}
               onClick={(event) => { if (targetEffortOption) openMenu(`config:${targetEffortOption.id}`, event) }}
               aria-haspopup={targetEffortOption ? 'menu' : undefined}
             >
-              {targetEffortLabel()}{targetEffortOption && <ChevronDown size={10} />}
+              {targetMember.capabilitiesError && !targetEffortOption ? '能力未就绪' : targetEffortLabel()}{targetEffortOption && <ChevronDown size={10} />}
             </button>
           ) : (
             configs.map((item) => <ToolbarButton key={item.id} label={configLabel(item)} active={menu === `config:${item.id}`} onClick={(event) => openMenu(`config:${item.id}`, event)} />)
@@ -425,7 +447,7 @@ export function ConversationComposer({ adapter }: { adapter: ConversationAdapter
           <button type="button" className="conversation-send" disabled={!canSend} onClick={() => { void submit() }} title={targetMember ? `发送给 ${targetMember.name}` : '发送'}>{targetMember ? <Send size={15} /> : <ArrowUp size={16} />}</button>
         </div>
       </div>
-      {menu && menuItems.length > 0 && <ConversationDropdown anchor={menuAnchor} items={menuItems} command={menu === 'command'} header={TEAM_MENUS.includes(menu) || activeTargetConfig ? effortScopeNote : undefined} onClose={() => setMenu(null)} />}
+      {menu && menuItems.length > 0 && <ConversationDropdown anchor={menuAnchor} items={menuItems} command={menu === 'command'} header={TEAM_MENUS.includes(menu) || activeTargetConfig ? effortScopeNote : undefined} note={menu === 'teamTargets' ? TEAM_TARGETS_NOTE : undefined} onClose={() => setMenu(null)} />}
     </div>
   )
 }
@@ -442,7 +464,7 @@ function MiniContextCircle({ used, total }: { used: number; total: number }): Re
   return <span className="conversation-context" title={`上下文: ${fmtTokens(used)} / ${fmtTokens(total)}`}><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r={radius} fill="none" stroke="var(--bg-3)" strokeWidth="2" /><circle cx="9" cy="9" r={radius} fill="none" stroke={color} strokeWidth="2" strokeDasharray={`${(circumference * pct) / 100} ${circumference}`} strokeDashoffset={circumference * 0.25} strokeLinecap="round" /></svg><span>{fmtTokens(used)}/{fmtTokens(total)}</span></span>
 }
 
-function ConversationDropdown({ anchor, items, command, header, onClose }: { anchor: MenuAnchor | null; items: MenuItem[]; command: boolean; header?: string; onClose: () => void }): ReactNode {
+function ConversationDropdown({ anchor, items, command, header, note, onClose }: { anchor: MenuAnchor | null; items: MenuItem[]; command: boolean; header?: string; note?: string; onClose: () => void }): ReactNode {
   if (!anchor || typeof document === 'undefined') return null
-  return createPortal(<><div className="conversation-menu-backdrop" onClick={onClose} aria-hidden="true" /><div className="conversation-menu" role="menu" style={menuStyle(anchor, command ? 320 : 280)}>{header && <div className="conversation-menu-scope">{header}</div>}{items.map((item) => <button type="button" role="menuitem" key={item.id} onClick={item.onClick} className={item.active ? 'is-active' : ''} disabled={item.disabled}>{!command && (item.active ? <Check size={13} /> : <Circle size={13} />)}<span className="conversation-menu-copy"><strong>{item.label}</strong>{item.description && <small>{item.description}</small>}</span></button>)}</div></>, document.body)
+  return createPortal(<><div className="conversation-menu-backdrop" onClick={onClose} aria-hidden="true" /><div className="conversation-menu" role="menu" style={menuStyle(anchor, command ? 320 : 280)}>{header && <div className="conversation-menu-scope">{header}</div>}{items.map((item) => <button type="button" role="menuitem" key={item.id} onClick={item.onClick} className={item.active ? 'is-active' : ''} disabled={item.disabled}>{!command && (item.active ? <Check size={13} /> : <Circle size={13} />)}<span className="conversation-menu-copy"><strong>{item.label}</strong>{item.description && <small>{item.description}</small>}</span></button>)}{note && <div className="conversation-menu-note">{note}</div>}</div></>, document.body)
 }

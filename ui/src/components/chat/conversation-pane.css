@@ -17,6 +17,8 @@
 .composer-target-clear:hover{background:rgba(37,99,235,.15);opacity:1}
 /* 就地控制菜单顶部一行：对 Dev-XXX · 下一回合生效 */
 .conversation-menu-scope{padding:6px 12px 4px;color:var(--text-3);font-size:12px;line-height:1.5;border-bottom:1px solid var(--border-light);margin-bottom:2px}
+/* 菜单底部提示（对齐原型 menu-note）：成员菜单说明就地控制语义 */
+.conversation-menu-note{padding:6px 12px 4px;border-top:1px solid var(--border-light);margin-top:2px;color:var(--text-3);font-size:12px;line-height:1.5}
 .conversation-menu button:disabled{opacity:.5;cursor:not-allowed}
 .conversation-menu button:disabled:hover{background:transparent}
 .conversation-tool-button{flex-shrink:0;background:transparent!important;border:0!important;color:var(--text-3)!important}.conversation-tool-button:hover{color:var(--blue)!important;background:var(--bg-1)!important}

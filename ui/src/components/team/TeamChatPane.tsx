@@ -230,8 +230,13 @@ function TeamConversationPane({ team, conversation, masterSessionId, onExitConve
     let cancelled = false
     capabilitySessionKey.split(',').forEach((sessionId) => {
       void shareTeamRequest(`models:${cacheKey}:${sessionId}`, () => wsClient.request({ type: 'session.getModels', sessionId })).then(caps => {
-        if (!cancelled) setSnapshots(current => ({ ...current, [sessionId]: { ...(current[sessionId] || emptySnapshot(sessionId)), capabilities: normalizeCapabilities(caps) } }))
-      }).catch(() => { /* History remains usable when Runtime discovery fails. */ })
+        if (cancelled) return
+        setCapabilityErrors(current => (current[sessionId] ? { ...current, [sessionId]: false } : current))
+        setSnapshots(current => ({ ...current, [sessionId]: { ...(current[sessionId] || emptySnapshot(sessionId)), capabilities: normalizeCapabilities(caps) } }))
+      }).catch(() => {
+        // 能力发现失败：标记该会话能力未就绪（菜单按此降级，不发写入），历史消息仍可用。
+        if (!cancelled) setCapabilityErrors(current => ({ ...current, [sessionId]: true }))
+      })
     })
     return () => { cancelled = true }
   }, [cacheKey, capabilitySessionKey])
@@ -365,6 +370,8 @@ function TeamConversationPane({ team, conversation, masterSessionId, onExitConve
   // —— 团队线目标（composer 可选插槽）：胶囊 + 定向发送 + 就地档位/权限控制 ——
   // 成员 Agent 定义（runtime 展示用；能力/档位一律以成员会话 capabilities 为准）。
   const projectAgents = useAgentStore((state) => state.agents)
+  // 能力补拉失败的会话（菜单降级为「能力未就绪」，与 legacy 无项区分）。
+  const [capabilityErrors, setCapabilityErrors] = useState<Record<string, boolean>>({})
   const [teamTargetId, setTeamTargetId] = useState<string | null>(null)
   // 定向消息的本地待落账（后端在成员起跑时才把消息写进其会话）：成员忙时先显示「排队中 · 等待空闲」。
   const [directedPending, setDirectedPending] = useState<Array<{ id: string; memberId: string; memberName: string; content: string; status: 'accepted' | 'queued'; at: string }>>([])
@@ -406,6 +413,7 @@ function TeamConversationPane({ team, conversation, masterSessionId, onExitConve
         running: statusBySessionId[member.session_id]?.running === true,
         queued: directedPending.filter((item) => item.memberId === member.id).length,
         capabilities: snapshots[member.session_id]?.capabilities ?? { ...defaultCaps },
+        capabilitiesError: capabilityErrors[member.session_id] === true,
       })),
       targetId: teamTargetId,
       onSelect: setTeamTargetId,
@@ -437,7 +445,7 @@ function TeamConversationPane({ team, conversation, masterSessionId, onExitConve
         if (member) onOpenToolPermissions?.(member.agent_id)
       },
     }
-  }, [members, snapshots, statusBySessionId, directedPending, teamTargetId, sendDirected, onOpenToolPermissions, projectAgents])
+  }, [members, snapshots, statusBySessionId, directedPending, teamTargetId, sendDirected, onOpenToolPermissions, projectAgents, capabilityErrors])
   // 主停止 = 全队急停：leader 在跑排最前，再收所有 running 成员（与 dock 停止按钮同判据，含「等待权限」）；
   // 空闲会话不进列表，避免「仅成员在跑时点主停止对 leader 发无效 cancel」。
   const runningTurnSessionIds = useMemo(
