@@ -13,8 +13,8 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from 'vitest'
 import http from 'node:http'
-import { existsSync } from 'node:fs'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { appendFileSync, existsSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { buildAgentRuntimeEnv, buildClaudeSessionMeta } from '../../src/acp/model-profile-env.js'
@@ -37,6 +37,7 @@ let captures: WireCapture[] = []
 beforeAll(async () => {
   tmp = mkdtempSync(resolve(tmpdir(), 'ai-ide-effort-probe-'))
   initDatabase(resolve(tmp, 'test.sqlite'))
+  if (process.env.EFFORT_WIRE_PROBE_OUT) writeFileSync(process.env.EFFORT_WIRE_PROBE_OUT, '')
   upstream = http.createServer((req, res) => {
     const chunks: Buffer[] = []
     req.on('data', (chunk: Buffer) => chunks.push(chunk))
@@ -45,7 +46,13 @@ beforeAll(async () => {
       try {
         const body = JSON.parse(text) as { output_config?: { effort?: unknown }, model?: unknown, thinking?: unknown }
         // 只记真正的模型调用（根路径探测请求不参与断言）。
-        if ((req.url ?? '').includes('/v1/messages')) captures.push({ url: req.url, effort: body.output_config?.effort, model: body.model, raw: text })
+        if ((req.url ?? '').includes('/v1/messages')) {
+          captures.push({ url: req.url, effort: body.output_config?.effort, model: body.model, raw: text })
+          // 取证落盘：EFFORT_WIRE_PROBE_OUT=<file> 时把每次捕获写成一行 JSON（供报告引用）。
+          if (process.env.EFFORT_WIRE_PROBE_OUT) {
+            appendFileSync(process.env.EFFORT_WIRE_PROBE_OUT, `${JSON.stringify({ url: req.url, model: body.model, output_config: body.output_config })}\n`)
+          }
+        }
         if (process.env.EFFORT_WIRE_PROBE_DEBUG === '1') console.log('[probe]', req.url, JSON.stringify({ keys: Object.keys(body), output_config: body.output_config }))
       } catch { /* 非 JSON 探测请求 */ }
       // 只做记录：返回 400 让 CLI 立即收手（我们只要请求体，不模拟完整对话）。
@@ -61,7 +68,8 @@ afterAll(() => {
   upstream.closeAllConnections()
   upstream.close()
   closeDatabase()
-  rmSync(tmp, { recursive: true, force: true })
+  // CLI 子进程可能短暂持有临时目录句柄（Windows）：重试清理，不让 EPERM 变成假失败。
+  try { rmSync(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }) } catch { /* 临时目录残留无害 */ }
 })
 
 function setupClaudeAgent() {
