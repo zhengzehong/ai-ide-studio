@@ -12,6 +12,7 @@ import { reconcileTeamIdentities } from './core/team-identity-transition.js'
 import { seedBuiltinTemplates } from './store/agent-templates.js'
 import { seedBuiltinTaskExecutionModes } from './store/seed-task-execution-modes.js'
 import { seedBuiltinTools } from './tools/seed.js'
+import { ensureTeamToolBindings } from './store/team-tool-bindings.js'
 import { startGateway } from './gateway/server.js'
 import { initTimeline } from './core/timeline.js'
 import { getOrCreateMachineId, agentHubService } from './core/agent-hub/index.js'
@@ -105,6 +106,11 @@ export async function startApp(config: AppConfig): Promise<AppHandle> {
   seedBuiltinTemplates()
   seedBuiltinTaskExecutionModes()
   seedBuiltinTools()
+  // 工具行 seed 完之后才能对账：runMigrations 早于本调用，migration 073 在干净升级库上会因工具行缺失而空转。
+  const teamToolBindingsAdded = ensureTeamToolBindings()
+  if (teamToolBindingsAdded > 0) {
+    log.info({ added: teamToolBindingsAdded }, '已补齐存量团队缺失的团队工具绑定')
+  }
   reconcileTeamIdentities()
   reconcileInterruptedTeamTasks()
   reconcilePendingTeamWakes()

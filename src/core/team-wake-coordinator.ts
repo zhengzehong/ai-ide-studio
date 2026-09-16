@@ -34,7 +34,8 @@ function hasPendingWake(leaderSessionId: string): boolean {
   return pendingByLeaderSession.has(leaderSessionId) || appendedByLeaderSession.has(leaderSessionId)
 }
 
-/** 取出并清空两层待发内容（覆盖层在前、追加层在后，保持时间序）。 */
+/** 取出并清空两层待发内容，拼接成一条（覆盖层在前、追加层在后——不保证严格时间序：
+ *  静默先到、覆盖后到时覆盖层仍排在前，两段内容语义自明，leader 可自行分辨先后）。 */
 function takePendingWake(leaderSessionId: string): string | undefined {
   const overwritten = pendingByLeaderSession.get(leaderSessionId)
   const appended = appendedByLeaderSession.get(leaderSessionId)

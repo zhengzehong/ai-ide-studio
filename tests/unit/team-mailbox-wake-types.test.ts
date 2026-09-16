@@ -142,7 +142,6 @@ describe('wake-eligible mailbox predicate (JS) 与 SQL 口径一致', () => {
       const viaSql = getDb()
         .prepare<[string], { count: number }>(`SELECT COUNT(*) AS count FROM team_mailbox WHERE id = ? AND ${WAKE_ELIGIBLE_MAILBOX_SQL}`)
         .get(row.id)?.count === 1
-      expect(`${item.type}/${item.taskId ? 'task' : 'no-task'}`).toBeTruthy()
       expect(isWakeEligibleMailbox(row)).toBe(item.expected)
       expect(viaSql).toBe(item.expected)
     }
