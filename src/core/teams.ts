@@ -187,19 +187,22 @@ export const teamService = {
     content: string
     taskId?: string
     sourceSessionId?: string
+    /** true=用户在团队线里定向发给该成员（绕过 Master 编排）：转录块署名「你」、派发话术走定向变体。 */
+    directed?: boolean
   }): DispatchTeamMessageResult {
     const team = requireTeam(input.teamId)
     const member = requireMember(input.memberId)
     ensureMemberInTeam(member, team)
     const task = input.taskId ? ensureTaskInTeam(input.taskId, team.id) : undefined
     if (task) markTaskDispatched(team.id, task, member)
-    const prompt = buildTeamMemberPrompt({ team, member, content: input.content, taskId: input.taskId })
+    const prompt = buildTeamMemberPrompt({ team, member, content: input.content, taskId: input.taskId, directed: input.directed })
     const conversation = input.sourceSessionId ? teamConversationStore.getBySession(input.sourceSessionId) : undefined
     // 优先派到成员在该线的格子；格子缺失（历史数据/极端时序）时现场补建，实现自愈。
     const targetSessionId = conversation
       ? ensureMemberInConversation(conversation.id, member) ?? member.session_id
       : member.session_id
-    const status = dispatchMemberPrompt({ teamId: team.id, memberId: member.id, sessionId: targetSessionId, prompt, displayContent: input.content, senderName: 'Master', taskId: input.taskId })
+    const senderRole: 'team-assignment' | 'team-directed' = input.directed ? 'team-directed' : 'team-assignment'
+    const status = dispatchMemberPrompt({ teamId: team.id, memberId: member.id, sessionId: targetSessionId, prompt, displayContent: input.content, senderName: input.directed ? '你' : 'Master', senderRole, taskId: input.taskId })
     return { status, member }
   },
 

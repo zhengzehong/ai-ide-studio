@@ -157,6 +157,39 @@ describe('team member model profile inheritance', () => {
     const payload = JSON.parse(text) as { member?: { model_profile_id?: string | null } }
     expect(payload.member?.model_profile_id).toBe(profile.id)
   })
+
+  test('member reasoning_effort flows into the runtime snapshot applied profile (effortOverride)', () => {
+    const project = projectStore.create({ name: 'Effort team', workDir: tempDir })
+    const masterProfile = createClaudeProfile('master-model')
+    const masterAgent = agentStore.create({
+      name: 'Master',
+      type: 'leader',
+      runtime: 'claude',
+      projectId: project.id,
+      config: { modelProfileId: masterProfile.id, modelProfileMode: 'fixed' },
+    })
+    const masterSession = sessionStore.create({ agentId: masterAgent.id, projectId: project.id, isPrimary: true })
+    const team = teamService.create({
+      projectId: project.id,
+      leaderAgentId: masterAgent.id,
+      leaderSessionId: masterSession.id,
+      name: 'Effort team',
+    })
+    const memberAgent = agentStore.create({ name: 'Member', type: 'developer', runtime: 'claude', projectId: project.id })
+    const member = teamService.spawnMember({ teamId: team.team.id, agentId: memberAgent.id })
+
+    // NULL=跟随档案：无 effortOverride，快照不发明档位。
+    expect(buildRuntimeStateSnapshot({ sessionId: member.session.id }).runtime.appliedModelProfile?.effort).toBeUndefined()
+
+    teamMemberStore.updateConfig(member.member.id, { reasoningEffort: 'max' })
+    // 写入后随快照下发（appliedProfile.effort → applyConfigPreferences 既有通道；会话内手切档位仍优先）。
+    const snapshot = buildRuntimeStateSnapshot({ sessionId: member.session.id })
+    expect(snapshot.runtime.appliedModelProfile).toMatchObject({ id: masterProfile.id, modelId: 'master-model', effort: 'max' })
+
+    // 清空回 NULL：快照恢复跟随档案。
+    teamMemberStore.updateConfig(member.member.id, { reasoningEffort: null })
+    expect(buildRuntimeStateSnapshot({ sessionId: member.session.id }).runtime.appliedModelProfile?.effort).toBeUndefined()
+  })
 })
 
 function createClaudeProfile(model: string) {

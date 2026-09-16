@@ -1,10 +1,11 @@
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { agentStore } from '../../src/store/agents.js'
 import { closeDatabase, initDatabase } from '../../src/store/db.js'
 import { ensureMemberInConversation } from '../../src/core/team-conversations.js'
+import { sessionManager } from '../../src/core/sessions.js'
 import { teamService } from '../../src/core/teams.js'
 import { modelProfileStore } from '../../src/store/model-profiles.js'
 import { modelProviderStore } from '../../src/store/model-providers.js'
@@ -23,6 +24,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.restoreAllMocks()
   closeDatabase()
   rmSync(tmp, { recursive: true, force: true })
 })
@@ -250,5 +252,65 @@ describe('team member config RPC', () => {
     const retained = detail.removedMembers?.find((member) => member.id === f.memberId)
     expect(retained?.session_id).toBe(gridSessionId)
     expect(retained?.status).toBe('removed')
+  })
+
+  test('member effort defaults to null (follow profile) and round-trips through config update', () => {
+    const f = setup()
+    const initial = callRpc('team.member.config.get', { memberId: f.memberId }) as { effort: string | null }
+    expect(initial.effort).toBeNull()
+
+    const set = callRpc('team.member.config.update', {
+      memberId: f.memberId, modelProfileMode: 'inherit', systemPromptOverride: '', effort: 'max',
+    }) as { effort: string | null }
+    expect(set.effort).toBe('max')
+    expect(teamMemberStore.get(f.memberId)?.reasoning_effort).toBe('max')
+
+    // 缺省 effort 不动既有值：只改模型策略的写入不能悄悄清掉成员默认档。
+    const untouched = callRpc('team.member.config.update', { memberId: f.memberId, modelProfileMode: 'inherit' }) as { effort: string | null }
+    expect(untouched.effort).toBe('max')
+
+    // 空串=清空 → NULL（跟随模型档案）。
+    const cleared = callRpc('team.member.config.update', { memberId: f.memberId, modelProfileMode: 'inherit', effort: '' }) as { effort: string | null }
+    expect(cleared.effort).toBeNull()
+    expect(teamMemberStore.get(f.memberId)?.reasoning_effort).toBeNull()
+  })
+
+  test('rejects an effort value outside the capability whitelist', () => {
+    const f = setup()
+    expect(() => callRpc('team.member.config.update', { memberId: f.memberId, modelProfileMode: 'inherit', effort: 'turbo' }))
+      .toThrow('档位取值非法')
+    expect(teamMemberStore.get(f.memberId)?.reasoning_effort).toBeNull()
+  })
+
+  test('directed message RPC dispatches through the member FIFO with the 你 signature', () => {
+    const enqueue = vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue()
+    const f = setup()
+    const result = callRpc('team.member.message', { memberId: f.memberId, content: '看下这个报错' }) as { status: string; memberId: string; memberName: string }
+
+    expect(result).toEqual({ status: 'accepted', memberId: f.memberId, memberName: 'Dev-GLM' })
+    expect(enqueue).toHaveBeenCalledTimes(1)
+    const [sessionId, displayContent, , options] = enqueue.mock.calls[0] as unknown as [string, string, unknown, { modelContent: string; senderRole: string; senderName: string }]
+    // 转录块显示原文、署「你」，模型载荷走定向变体（绕过 Master 编排）。
+    expect(sessionId).toBe(f.memberSessionId)
+    expect(displayContent).toBe('看下这个报错')
+    expect(options.senderRole).toBe('team-directed')
+    expect(options.senderName).toBe('你')
+    expect(options.modelContent).toContain('绕过 Master 编排')
+    expect(options.modelContent).toContain('看下这个报错')
+  })
+
+  test('directed message returns queued when the member is already running (FIFO, no loss)', () => {
+    vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue()
+    vi.spyOn(sessionManager, 'isPromptActive').mockReturnValue(true)
+    const f = setup()
+    const result = callRpc('team.member.message', { memberId: f.memberId, content: '排队消息' }) as { status: string }
+    expect(result.status).toBe('queued')
+  })
+
+  test('directed message requires owner auth, content and an active member', () => {
+    const f = setup()
+    expect(() => callRpc('team.member.message', { memberId: f.memberId, content: 'x' }, 'member')).toThrow('仅所有者可管理团队成员配置')
+    expect(() => callRpc('team.member.message', { memberId: f.memberId, content: '   ' })).toThrow('content 不能为空')
+    expect(() => callRpc('team.member.message', { memberId: 'tm-missing', content: 'x' })).toThrow('Team member 不存在')
   })
 })

@@ -25,6 +25,8 @@ export function buildTeamMemberPrompt(input: {
   member: TeamMemberRow
   content: string
   taskId?: string
+  /** true=用户在团队线里指名发给该成员（绕过 Master 编排）；派发话术随之改为「用户直接发给你」。 */
+  directed?: boolean
 }): string {
   return [
     '你正在作为 AI IDE Studio Team 成员执行一次异步协作任务。',
@@ -32,14 +34,26 @@ export function buildTeamMemberPrompt(input: {
     `Member: ${input.member.name} (${input.member.id})`,
     input.taskId ? `Task: ${input.taskId}` : undefined,
     '',
-    '协作规则：',
-    '- 只处理本次派发给你的工作，不要自行扩展团队范围。',
-    '- 完成、遇到阻塞或需要提问时，必须使用 team.mailbox.send 汇报。',
-    '- 如果本次包含 Task ID，只能使用 team.task.update 更新分配给自己的任务状态或阶段。',
-    '- 不要填写或伪造 fromMemberId，系统会使用当前成员身份。',
-    '- 禁止等待 Leader、禁止 sleep、禁止轮询；提交汇报后结束本轮。',
-    '',
-    'Leader 派发内容：',
+    ...(input.directed
+      ? [
+        '来源：这条消息由**用户**在团队会话线里直接发给你（定向消息，绕过 Master 编排）。',
+        '协作规则：',
+        '- 只处理用户本次直接发给你的内容，不要自行扩展范围。',
+        '- 需要汇报或提问时使用 team.mailbox.send；Master 不会自动看到这条消息的上下文，重要结论请落 mailbox。',
+        '- 禁止等待 Leader、禁止 sleep、禁止轮询；提交汇报后结束本轮。',
+        '',
+        '用户消息：',
+      ]
+      : [
+        '协作规则：',
+        '- 只处理本次派发给你的工作，不要自行扩展团队范围。',
+        '- 完成、遇到阻塞或需要提问时，必须使用 team.mailbox.send 汇报。',
+        '- 如果本次包含 Task ID，只能使用 team.task.update 更新分配给自己的任务状态或阶段。',
+        '- 不要填写或伪造 fromMemberId，系统会使用当前成员身份。',
+        '- 禁止等待 Leader、禁止 sleep、禁止轮询；提交汇报后结束本轮。',
+        '',
+        'Leader 派发内容：',
+      ]),
     input.content,
   ]
     .filter((item): item is string => typeof item === 'string')

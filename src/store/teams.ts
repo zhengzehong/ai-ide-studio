@@ -25,6 +25,8 @@ export interface TeamMemberRow {
   model_profile_id: string | null
   model_profile_mode: string | null
   system_prompt_override: string | null
+  /** 成员级默认思考强度（migration 072）：NULL=跟随模型档案/系统默认；懒生效（下一回合咬合）。 */
+  reasoning_effort: string | null
   status: string
   created_at: string
   updated_at: string
@@ -82,6 +84,8 @@ export interface UpdateTeamMemberConfigInput {
   modelProfileMode?: 'inherit' | 'fixed' | 'system'
   modelProfileId?: string | null
   systemPromptOverride?: string | null
+  /** 成员级默认档位：字符串=设置，null=清空（跟随档案）。P0 仅 RPC 通道就绪，UI 写入属 P1。 */
+  reasoningEffort?: string | null
 }
 
 export interface CreateTeamMailboxInput {
@@ -192,6 +196,7 @@ export const teamMemberStore = {
       model_profile_id: input.modelProfileId ?? null,
       model_profile_mode: input.modelProfileMode ?? (input.modelProfileId ? 'fixed' : 'inherit'),
       system_prompt_override: input.systemPromptOverride ?? null,
+      reasoning_effort: null,
       status: 'active',
       created_at: row?.created_at ?? now,
       updated_at: now,
@@ -251,7 +256,7 @@ export const teamMemberStore = {
     `).all(teamId)
   },
 
-  /** 成员级配置（模型策略/档案/系统提示词）：仅改团队关系数据，保存后下一轮对话生效。 */
+  /** 成员级配置（模型策略/档案/系统提示词/默认档位）：仅改团队关系数据，保存后下一轮对话生效。 */
   updateConfig(id: string, input: UpdateTeamMemberConfigInput): TeamMemberRow | undefined {
     const existing = teamMemberStore.get(id)
     if (!existing) return undefined
@@ -260,12 +265,14 @@ export const teamMemberStore = {
       model_profile_mode: input.modelProfileMode ?? existing.model_profile_mode,
       model_profile_id: input.modelProfileId !== undefined ? input.modelProfileId : existing.model_profile_id,
       system_prompt_override: input.systemPromptOverride !== undefined ? input.systemPromptOverride : existing.system_prompt_override,
+      reasoning_effort: input.reasoningEffort !== undefined ? input.reasoningEffort : existing.reasoning_effort,
       updated_at: new Date().toISOString(),
     }
     getDb().prepare(`
       UPDATE team_members
       SET model_profile_mode = @model_profile_mode, model_profile_id = @model_profile_id,
-          system_prompt_override = @system_prompt_override, updated_at = @updated_at
+          system_prompt_override = @system_prompt_override, reasoning_effort = @reasoning_effort,
+          updated_at = @updated_at
       WHERE id = @id
     `).run(updated)
     teamEventStore.append(existing.team_id, { type: 'member.config_updated', payload: { member: updated } })

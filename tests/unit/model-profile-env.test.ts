@@ -449,6 +449,8 @@ describe('model profile runtime env', () => {
               ANTHROPIC_DEFAULT_OPUS_MODEL: 'deepseek-v4-opus',
               CLAUDE_CODE_SUBAGENT_MODEL: 'inherit',
               CLAUDE_CODE_MAX_CONTEXT_TOKENS: '200000',
+              // a2：档位哨兵随会话 settings.env 恒注入（非法值＝CLI 视为未设置），保证界面档位不被机器级 env 压过。
+              CLAUDE_CODE_EFFORT_LEVEL: 'default',
             },
           },
         },
@@ -477,6 +479,7 @@ describe('model profile runtime env', () => {
             env: {
               ANTHROPIC_AUTH_TOKEN: '',
               ANTHROPIC_MODEL: 'glm5-prd',
+              CLAUDE_CODE_EFFORT_LEVEL: 'default',
             },
           },
         },
@@ -502,10 +505,59 @@ describe('model profile runtime env', () => {
             permissions: {
               deny: IMAGE_READ_DENY_RULES,
             },
+            // 无模型环境时也要注入哨兵：用户的机器级 CLAUDE_CODE_EFFORT_LEVEL 正是在这种「裸」会话里最危险。
+            env: { CLAUDE_CODE_EFFORT_LEVEL: 'default' },
           },
         },
       },
     })
+  })
+
+  test('neutralizes inherited effort env for Claude so the UI level wins (a1)', () => {
+    const agent = agentStore.create({ name: 'Claude', type: 'dev', runtime: 'claude' })
+
+    const result = buildAgentRuntimeEnv('claude', agent, {
+      CLAUDE_CODE_EFFORT_LEVEL: 'max',
+      CLAUDE_EFFORT: 'max',
+      ANTHROPIC_MODEL: 'glm5-prd',
+    })
+
+    // 继承 env 直读优先于 ACP 界面档位：必须清掉，否则成员档位切换永远不生效。
+    expect(result.env.CLAUDE_CODE_EFFORT_LEVEL).toBeUndefined()
+    expect(result.env.CLAUDE_EFFORT).toBeUndefined()
+    expect(result.env.ANTHROPIC_MODEL).toBe('glm5-prd')
+  })
+
+  test('lets the member effort override win over the profile effort (codex and claude)', () => {
+    const codexProvider = modelProviderStore.create({
+      name: 'codex-provider', displayName: 'Codex', protocol: 'openai',
+      baseUrl: 'https://gateway.example.com/v1', apiKey: 'sk-codex',
+    })
+    const codexProfile = modelProfileStore.create({
+      name: 'codex-profile', runtime: 'codex', providerId: codexProvider.id,
+      config: { model: 'gpt-5-codex', effort: 'xhigh' },
+    })
+    const codexAgent = agentStore.create({ name: 'Codex', type: 'dev', runtime: 'codex', config: { modelProfileId: codexProfile.id } })
+
+    expect(buildAgentRuntimeEnv('codex', codexAgent, {}, { effortOverride: 'low' }).appliedProfile?.effort).toBe('low')
+    // 无覆盖时保持档案值（成员未设置=跟随档案）。
+    expect(buildAgentRuntimeEnv('codex', codexAgent, {}).appliedProfile?.effort).toBe('xhigh')
+
+    const claudeProvider = modelProviderStore.create({
+      name: 'claude-provider', displayName: 'Claude', protocol: 'claude',
+      baseUrl: 'https://example.com/anthropic', apiKey: 'sk-claude',
+    })
+    const claudeProfile = modelProfileStore.create({
+      name: 'claude-profile', runtime: 'claude', providerId: claudeProvider.id,
+      config: { defaultModel: 'deepseek-v4-pro' },
+    })
+    const claudeAgent = agentStore.create({ name: 'Claude', type: 'dev', runtime: 'claude', config: { modelProfileId: claudeProfile.id } })
+
+    // claude 档案本身不带 effort：成员默认档是唯一来源，空覆盖时不下发 effort 字段。
+    expect(buildAgentRuntimeEnv('claude', claudeAgent, {}, { effortOverride: 'max' }).appliedProfile?.effort).toBe('max')
+    expect(buildAgentRuntimeEnv('claude', claudeAgent, {}).appliedProfile?.effort).toBeUndefined()
+    // 覆盖值为空白＝未设置（不产生 effort:'' 这类脏值）。
+    expect(buildAgentRuntimeEnv('claude', claudeAgent, {}, { effortOverride: '  ' }).appliedProfile?.effort).toBeUndefined()
   })
 
   test('allows image Read only when the Claude model profile explicitly enables it', () => {

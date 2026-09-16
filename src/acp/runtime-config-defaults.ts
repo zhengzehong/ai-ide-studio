@@ -1,6 +1,8 @@
 import type { ConfigOptionInfo } from '../types/ws-protocol.js'
+import { EFFORT_CONFIG_IDS } from '../shared/effort-config.js'
 
-export const DEFAULT_EFFORT_IDS = ['reasoning_effort', 'effort'] as const
+/** @deprecated 统一匹配表见 src/shared/effort-config.ts（服务端与 UI 共用）；保留导出兼容既有引用。 */
+export const DEFAULT_EFFORT_IDS = EFFORT_CONFIG_IDS
 const MAX_EFFORT = 'max'
 
 export function findEffortConfigId(configOptions: ConfigOptionInfo[] | undefined): string | undefined {
