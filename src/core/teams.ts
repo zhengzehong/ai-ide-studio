@@ -197,6 +197,8 @@ export const teamService = {
     if (task) markTaskDispatched(team.id, task, member)
     const prompt = buildTeamMemberPrompt({ team, member, content: input.content, taskId: input.taskId, directed: input.directed })
     const conversation = input.sourceSessionId ? teamConversationStore.getBySession(input.sourceSessionId) : undefined
+    // 跨团队护栏：构造调用不得借 sourceSessionId 把别的团队的会话线当成本次目标的格子宿主。
+    if (conversation && conversation.team_id !== member.team_id) throw new Error('目标会话线不属于该成员所在团队')
     // 优先派到成员在该线的格子；格子缺失（历史数据/极端时序）时现场补建，实现自愈。
     const targetSessionId = conversation
       ? ensureMemberInConversation(conversation.id, member) ?? member.session_id

@@ -313,4 +313,26 @@ describe('team member config RPC', () => {
     expect(() => callRpc('team.member.message', { memberId: f.memberId, content: '   ' })).toThrow('content 不能为空')
     expect(() => callRpc('team.member.message', { memberId: 'tm-missing', content: 'x' })).toThrow('Team member 不存在')
   })
+
+  test('directed message rejects a source session from another team (cross-team guard)', () => {
+    const enqueue = vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue()
+    const f = setup()
+    // 另一个团队 + 它的会话线：借 sourceSessionId 传入不得把本团队成员登记进别人的会话线。
+    const otherTeam = teamStore.create({ projectId: projectStore.list()[0].id, name: '另一个团队' })
+    const otherAgent = agentStore.create({ name: 'Other', type: 'coder', runtime: 'claude', projectId: projectStore.list()[0].id })
+    const otherSession = sessionStore.create({ agentId: otherAgent.id, projectId: projectStore.list()[0].id })
+    const otherMember = teamMemberStore.create({
+      teamId: otherTeam.id, projectId: projectStore.list()[0].id, agentId: otherAgent.id, sessionId: otherSession.id, name: 'Other', role: 'leader',
+    })
+    const otherConversation = teamConversationStore.create(otherTeam.id, otherSession.id, '别人的线')
+    // getBySession 走会话线成员表：把该线的主人登记为成员，模拟真实存在的外团队会话线。
+    teamConversationStore.addMember(otherConversation.id, otherMember.id, otherSession.id)
+
+    expect(() => callRpc('team.member.message', { memberId: f.memberId, content: '跨团队消息', sessionId: otherSession.id }))
+      .toThrow('目标会话线不属于该成员所在团队')
+    expect(enqueue).not.toHaveBeenCalled()
+    expect(otherConversation.team_id).toBe(otherTeam.id)
+    // 本团队成员不得被补建进别人的会话线（护栏在 ensureMemberInConversation 之前）。
+    expect(teamConversationStore.listMembers(otherConversation.id).map((entry) => entry.member_id)).toEqual([otherMember.id])
+  })
 })

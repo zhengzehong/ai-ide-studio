@@ -13,10 +13,10 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from 'vitest'
 import http from 'node:http'
-import { appendFileSync, existsSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { resolve } from 'node:path'
+import { dirname, resolve } from 'node:path'
 import { buildAgentRuntimeEnv, buildClaudeSessionMeta } from '../../src/acp/model-profile-env.js'
 import { agentStore } from '../../src/store/agents.js'
 import { closeDatabase, initDatabase } from '../../src/store/db.js'
@@ -37,7 +37,11 @@ let captures: WireCapture[] = []
 beforeAll(async () => {
   tmp = mkdtempSync(resolve(tmpdir(), 'ai-ide-effort-probe-'))
   initDatabase(resolve(tmp, 'test.sqlite'))
-  if (process.env.EFFORT_WIRE_PROBE_OUT) writeFileSync(process.env.EFFORT_WIRE_PROBE_OUT, '')
+  if (process.env.EFFORT_WIRE_PROBE_OUT) {
+    // 全新 checkout 可能没有 .tmp/：先递归建父目录再落盘。
+    mkdirSync(dirname(process.env.EFFORT_WIRE_PROBE_OUT), { recursive: true })
+    writeFileSync(process.env.EFFORT_WIRE_PROBE_OUT, '')
+  }
   upstream = http.createServer((req, res) => {
     const chunks: Buffer[] = []
     req.on('data', (chunk: Buffer) => chunks.push(chunk))
