@@ -1514,7 +1514,7 @@ export default function Workspace() {
         onCloseFile={closeFile}
         chat={(
           selectedTeam ? (
-            <TeamChatPane team={selectedTeam} conversation={teamConversation} masterSessionId={teamMasterSessionId} onExitConversation={exitTeamConversation} onOpenPreview={openPreview} onOpenFiles={openFiles} onOpenResource={openChatResource} />
+            <TeamChatPane team={selectedTeam} conversation={teamConversation} masterSessionId={teamMasterSessionId} onExitConversation={exitTeamConversation} onOpenPreview={openPreview} onOpenFiles={openFiles} onOpenResource={openChatResource} onOpenToolPermissions={(agentId) => navigate(`/tools?agentId=${encodeURIComponent(agentId)}`)} />
           ) : (
           <WorkspaceChatPane
             connected={connected}
