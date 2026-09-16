@@ -9,6 +9,7 @@ import { teamMemberStore } from '../store/teams.js'
 import { getRuntimePort } from '../runtime/runtime-port-provider.js'
 import { observeSyncDbOperation } from '../store/db-operation-observer.js'
 import { buildRuntimeStateSnapshot } from '../runtime/api/runtime-snapshot.js'
+import { forkSessionInto } from './session-fork.js'
 import { events, type AppEvents } from './events.js'
 import { createChildLogger } from './logger.js'
 import { publishSessionCreated } from './session-change-events.js'
@@ -75,7 +76,7 @@ interface QueuedPrompt {
   source: 'user' | 'platform'
   intent?: PromptIntent
 }
-const COPYING_STAGE = '正在复制会话...'
+export const COPYING_STAGE = '正在复制会话...'
 
 events.on('session:update', (ev) => {
   const turnId = getPromptTurnId(ev.sessionId)
@@ -339,7 +340,7 @@ export const sessionManager = {
     if (!placeholder) throw new Error(`Copied session missing: ${copied.id}`)
     publishSessionCreated(placeholder)
 
-    void completeCopiedSessionFork(source, copied.id, source.acp_session_id, projectContext)
+    void completeCopiedSessionFork(source, copied.id, projectContext)
     return placeholder
   },
 
@@ -474,6 +475,9 @@ function requirePromptSession(sessionId: string): SessionRow {
   if (session.is_template) throw new Error('模板会话不能直接发送消息,请先从模板新建会话')
   if (session.status !== 'active') throw new Error('当前会话已关闭，不能继续发送消息')
   if (session.archived_at) throw new Error('会话已归档,不能发送消息')
+  // 复制窗口守卫：COPYING_STAGE 的会话运行时映射尚未落定（后台 fork 完成时才回写 acp_session_id）。
+  // 此时放行 prompt 会先经 ensureSession 写入新映射、随后被 fork 覆写，用户首轮消息所在的运行时会话成孤儿。
+  if (session.stage === COPYING_STAGE) throw new Error('会话正在复制，请稍候再发送')
   return session
 }
 
@@ -858,17 +862,14 @@ function resolveSessionProjectContext(
 async function completeCopiedSessionFork(
   source: SessionRow,
   copiedSessionId: string,
-  sourceAcpSessionId: string,
   projectContext: { projectId?: string; cwd?: string },
 ): Promise<void> {
   try {
-    const snapshot = buildRuntimeStateSnapshot({
-      sessionId: copiedSessionId,
-      projectId: projectContext.projectId,
-      cwd: projectContext.cwd,
+    const acpSessionId = await forkSessionInto({
+      sourceSessionId: source.id,
+      targetSessionId: copiedSessionId,
+      projectContext,
     })
-    const acpSessionId = await getRuntimePort().forkSession(snapshot, sourceAcpSessionId)
-    sessionStore.updateAcpSessionId(copiedSessionId, acpSessionId)
     sessionStore.updateStage(copiedSessionId, '')
     const updated = sessionStore.get(copiedSessionId)
     if (!updated) throw new Error(`Copied session missing: ${copiedSessionId}`)

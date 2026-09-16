@@ -94,6 +94,16 @@ export function cancelPendingForSessions(sessionIds: Iterable<string>): void {
   }
 }
 
+/** 只读探针：该成员格子会话上是否还有未派发的排队指令（团队会话线复制前拒绝"忙线"用）。 */
+export function hasPendingMemberPrompt(sessionId: string): boolean {
+  return (pendingByMemberSession.get(sessionId)?.length ?? 0) > 0
+}
+
+/** 只读探针：该成员格子是否有正在执行的派发回合（堵「出队→标 active」的微任务窗口，同上用于复制忙判定）。 */
+export function isMemberPromptInFlight(sessionId: string): boolean {
+  return activeMemberSessions.has(sessionId)
+}
+
 function enqueuePending(input: DispatchMemberPromptInput): void {
   const queue = pendingByMemberSession.get(input.sessionId)
   if (queue) queue.push(input)

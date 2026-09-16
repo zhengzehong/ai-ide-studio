@@ -110,6 +110,11 @@ export const teamRpcHandlers: RpcHandlerMap = {
   'team.conversation.archive'(msg, { sendResult }) {
     sendResult(teamService.archiveConversation(requiredText(msg.conversationId, 'conversationId')))
   },
+  // 复制团队会话线（Master + 全部成员格子 fork；空闲线限定，忙线拒绝）：立即返回新线占位，fork 后台推进。
+  'team.conversation.copy'(msg, { state, sendResult }) {
+    requireOwner(state)
+    sendResult({ conversation: teamService.copyConversation(requiredText(msg.conversationId, 'conversationId')) })
+  },
   'team.conversation.delete'(msg, { sendResult }) {
     sendResult(teamService.deleteConversation(requiredText(msg.conversationId, 'conversationId')))
   },

@@ -44,8 +44,13 @@ export function TeamConversationList({ team, activeId, onSelect, onMasterSession
   const rows = useMemo(() => sortTeamConversations(items, pinnedIds), [items, pinnedIds])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // 复制失败独立通道：后台回滚路径的错误不能放进 error——load() 开头的 setError(null)
+  // 会在 300ms 防抖刷新时把它擦掉（回滚的 deleted 事件本身就排了一次刷新）。
+  // copyError 只在下次发起复制时清除，对任何刷新时序免疫。
+  const [copyError, setCopyError] = useState<string | null>(null)
   const [menu, setMenu] = useState<{ item: Conversation; x: number; y: number } | null>(null)
   const [dialog, setDialog] = useState<{ item: Conversation; action: 'rename' | 'archive' | 'delete' } | null>(null)
+  const [copyDialog, setCopyDialog] = useState<Conversation | null>(null)
   const [mutating, setMutating] = useState(false)
   const mutationPending = useRef(false)
 
@@ -78,7 +83,13 @@ export function TeamConversationList({ team, activeId, onSelect, onMasterSession
     const off = wsClient.on('reconnected', () => { void load(true) })
     let refreshTimer: number | undefined
     const offTeam = wsClient.on('team:update', msg => {
-      if (msg.teamId !== team.id || !teamConversationListNeedsRefresh(msg)) return
+      if (msg.teamId !== team.id) return
+      // 复制失败走 team:update 通道（后台 fork 失败整线回滚时）：进独立错误通道，刷新不擦除。
+      if ((msg.data as { reason?: string; message?: string } | undefined)?.reason === 'conversation.copy_failed') {
+        const detail = (msg.data as { message?: string }).message
+        setCopyError(`复制团队会话失败${detail ? `：${detail}` : ''}`)
+      }
+      if (!teamConversationListNeedsRefresh(msg)) return
       window.clearTimeout(refreshTimer)
       refreshTimer = window.setTimeout(() => { void load(true) }, 300)
     })
@@ -101,6 +112,29 @@ export function TeamConversationList({ team, activeId, onSelect, onMasterSession
       onSelect(result.conversation)
     } catch (cause) {
       if (mounted.current) setError(cause instanceof Error ? cause.message : '创建会话失败')
+    } finally {
+      mutationPending.current = false
+      if (mounted.current) setMutating(false)
+    }
+  }
+
+  // 复制会话线：立即返回新线占位（后台逐格子 fork），成功后刷新列表并选中新线。
+  const copyConversation = async (): Promise<void> => {
+    if (!copyDialog || mutationPending.current) return
+    const item = copyDialog
+    setCopyDialog(null)
+    setCopyError(null)
+    mutationPending.current = true
+    setMutating(true)
+    try {
+      const result = await wsClient.request({ type: 'team.conversation.copy', conversationId: item.id }) as { conversation?: Conversation }
+      if (!result.conversation || !mounted.current) return
+      await load(true)
+      if (!mounted.current) return
+      onMasterSession(result.conversation.master_session_id)
+      onSelect(result.conversation)
+    } catch (cause) {
+      if (mounted.current) setError(cause instanceof Error ? cause.message : '复制会话失败')
     } finally {
       mutationPending.current = false
       if (mounted.current) setMutating(false)
@@ -148,7 +182,7 @@ export function TeamConversationList({ team, activeId, onSelect, onMasterSession
         <button type="button" onClick={() => { void create() }} disabled={mutating} title="新建会话" style={newButtonStyle}><Plus size={14} /></button>
         <button type="button" onClick={() => void load()} disabled={loading} title="刷新" style={iconStyle}>{loading ? <Loader2 size={14} /> : <RefreshCw size={14} />}</button>
       </header>
-      {error && <div role="alert" style={errorStyle}>{error}</div>}
+      {(error || copyError) && <div role="alert" style={errorStyle}>{error || copyError}</div>}
       <div style={listStyle}>
         {loading && items.length === 0 && <div style={stateStyle}><Loader2 size={16} style={{ animation: 'spin 1s linear infinite', marginBottom: 8 }} /><div>正在加载会话...</div></div>}
         {!loading && !error && items.length === 0 && <div style={stateStyle}>暂无会话<br /><span style={{ fontSize: 12 }}>点击上方加号新建</span></div>}
@@ -173,10 +207,13 @@ export function TeamConversationList({ team, activeId, onSelect, onMasterSession
       </div>
       <ContextMenu open={!!menu} x={menu?.x || 0} y={menu?.y || 0} onClose={() => setMenu(null)} items={menu ? [
         { label: '重命名', disabled: mutating, onClick: () => setDialog({ item: menu.item, action: 'rename' }) },
+        // 复制要求空闲线：在跑/有排队由后端拒绝，菜单对 running 线先行置灰。
+        { label: '复制', disabled: mutating || menu.item.status !== 'active' || menu.item.activity_state === 'running', onClick: () => { setCopyDialog(menu.item); setMenu(null) } },
         { label: '归档', disabled: mutating || menu.item.status !== 'active', onClick: () => setDialog({ item: menu.item, action: 'archive' }) },
         { label: '删除', danger: true, disabled: mutating, onClick: () => setDialog({ item: menu.item, action: 'delete' }) },
       ] : []} />
       <PromptDialog open={dialog?.action === 'rename'} title="重命名会话" defaultValue={dialog?.item.title || ''} placeholder="输入新的会话名称" onConfirm={value => { void confirmAction(value) }} onCancel={() => setDialog(null)} />
+      <ConfirmDialog open={!!copyDialog} title="复制团队会话" message={copyDialog ? `将复制“${copyDialog.title}”：新线包含 Master 与全部成员会话的完整上下文（记忆），新线转录为空（与普通会话复制一致）；原线保持不变，排队中未执行的消息将留在原线执行。` : ''} confirmLabel="复制" onConfirm={() => { void copyConversation() }} onCancel={() => setCopyDialog(null)} />
       <ConfirmDialog open={dialog?.action === 'archive' || dialog?.action === 'delete'} title={dialog?.action === 'delete' ? '删除团队会话' : '归档团队会话'} message={dialog?.action === 'delete' ? `确定删除“${dialog.item.title}”？该会话将从团队列表移除，成员的底层会话记录仍保留。` : `确定归档“${dialog?.item.title || ''}”？归档后不再参与团队运行和未读提醒。`} danger={dialog?.action === 'delete'} confirmLabel={dialog?.action === 'delete' ? '删除' : '归档'} onConfirm={() => { void confirmAction() }} onCancel={() => setDialog(null)} />
     </aside>
   )
