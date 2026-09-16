@@ -20,22 +20,43 @@ const WAKE_TASK_STATUSES = new Set(['completed', 'needs_input'])
 const WAKE_DELAY_MS = 2_000
 const TASK_MAILBOX_WAKE_DELAY_MS = 15_000
 const activeLeaderSessions = new Set<string>()
+/** 覆盖层：既有入口（mailbox / 任务 / 派发失败 / 重启恢复）沿用"后到覆盖先到"语义。 */
 const pendingByLeaderSession = new Map<string, string>()
+/**
+ * 追加层：静默回合兜底通知专用，与覆盖层分层存放。
+ * 单一覆盖层会让"静默通知先入桶、1 秒后 mailbox 汇报到达"时整体替换掉静默内容（永久丢报）；
+ * 分层后任一入口覆盖都不影响静默内容，flush 时两层拼接、一起发、一起清。
+ */
+const appendedByLeaderSession = new Map<string, string>()
 const wakeTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+function hasPendingWake(leaderSessionId: string): boolean {
+  return pendingByLeaderSession.has(leaderSessionId) || appendedByLeaderSession.has(leaderSessionId)
+}
+
+/** 取出并清空两层待发内容（覆盖层在前、追加层在后，保持时间序）。 */
+function takePendingWake(leaderSessionId: string): string | undefined {
+  const overwritten = pendingByLeaderSession.get(leaderSessionId)
+  const appended = appendedByLeaderSession.get(leaderSessionId)
+  pendingByLeaderSession.delete(leaderSessionId)
+  appendedByLeaderSession.delete(leaderSessionId)
+  const parts = [overwritten, appended].filter((part): part is string => Boolean(part))
+  return parts.length > 0 ? parts.join('\n\n') : undefined
+}
 
 events.on('session:activity', (ev) => {
   if (ev.state === 'idle') resumePendingWake(ev.sessionId)
 })
 
 function resumePendingWake(sessionId: string): void {
-  if (!pendingByLeaderSession.has(sessionId) || wakeTimers.has(sessionId)) return
+  if (!hasPendingWake(sessionId) || wakeTimers.has(sessionId)) return
   const timer = setTimeout(() => flushLeaderWake(sessionId), WAKE_DELAY_MS)
   timer.unref?.()
   wakeTimers.set(sessionId, timer)
 }
 
 events.on('session:manual-prompt-started', (ev) => {
-  if (!pendingByLeaderSession.has(ev.sessionId)) return
+  if (!hasPendingWake(ev.sessionId)) return
   const existingTimer = wakeTimers.get(ev.sessionId)
   if (existingTimer) {
     clearTimeout(existingTimer)
@@ -122,7 +143,7 @@ export const teamWakeCoordinator = {
       log.warn({ err, teamId: team.id, messageId: message.id }, 'Team wake recovery skipped: no resolvable leader session')
       return false
     }
-    if (pendingByLeaderSession.has(leaderSessionId) || wakeTimers.has(leaderSessionId)) return false
+    if (hasPendingWake(leaderSessionId) || wakeTimers.has(leaderSessionId)) return false
     const leaderSession = sessionStore.get(leaderSessionId)
     if (leaderSession?.last_message_at && leaderSession.last_message_at > message.created_at) return false
     scheduleLeaderWake(team, member, buildLeaderWakePrompt({ team, member, message }), WAKE_DELAY_MS, leaderSessionId)
@@ -168,18 +189,14 @@ function appendLeaderWake(team: TeamRow, member: TeamMemberRow, prompt: string, 
     return
   }
   const leaderSessionId = resolveWakeTargetSession(team, leader, member, preferredLeaderSessionId)
-  const existing = pendingByLeaderSession.get(leaderSessionId)
-  if (existing) {
-    pendingByLeaderSession.set(leaderSessionId, `${existing}\n\n${prompt}`)
-    // 已有桶内容但定时器被"手动回合暂停"摘掉时，补一个新定时器；已有定时器则保持原截止时间。
-    if (!wakeTimers.has(leaderSessionId)) {
-      const timer = setTimeout(() => flushLeaderWake(leaderSessionId), delayMs)
-      timer.unref?.()
-      wakeTimers.set(leaderSessionId, timer)
-    }
-    return
+  const existing = appendedByLeaderSession.get(leaderSessionId)
+  appendedByLeaderSession.set(leaderSessionId, existing ? `${existing}\n\n${prompt}` : prompt)
+  // 定时器按"先到者"的截止时间走（既有覆盖层的 2s 或静默层的 15s），不因追加而重置。
+  if (!wakeTimers.has(leaderSessionId)) {
+    const timer = setTimeout(() => flushLeaderWake(leaderSessionId), delayMs)
+    timer.unref?.()
+    wakeTimers.set(leaderSessionId, timer)
   }
-  scheduleLeaderWake(team, member, prompt, delayMs, leaderSessionId)
 }
 
 /**
@@ -207,13 +224,13 @@ function resolveWakeTargetSession(team: TeamRow, leader: TeamMemberRow, member: 
 
 function flushLeaderWake(leaderSessionId: string): void {
   wakeTimers.delete(leaderSessionId)
-  const prompt = pendingByLeaderSession.get(leaderSessionId)
-  if (!prompt) return
+  if (!hasPendingWake(leaderSessionId)) return
   if (sessionManager.isPromptActive(leaderSessionId) || activeLeaderSessions.has(leaderSessionId)) {
     log.debug({ leaderSessionId }, 'Team Leader wake remains queued because session is active')
     return
   }
-  pendingByLeaderSession.delete(leaderSessionId)
+  const prompt = takePendingWake(leaderSessionId)
+  if (!prompt) return
   sendWake(leaderSessionId, prompt)
 }
 

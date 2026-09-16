@@ -71,6 +71,7 @@ import { teamContactsMigration } from './069-team-contacts.js'
 import { teamMemberConfigMigration } from './070-team-member-config.js'
 import { writePathIndexesMigration } from './071-write-path-indexes.js'
 import { teamMemberEffortMigration } from './072-team-member-effort.js'
+import { teamToolBindingsBackfillMigration } from './073-team-tool-bindings-backfill.js'
 
 export const migrations: Migration[] = [
   initialSchemaMigration,
@@ -145,4 +146,5 @@ export const migrations: Migration[] = [
   teamMemberConfigMigration,
   writePathIndexesMigration,
   teamMemberEffortMigration,
+  teamToolBindingsBackfillMigration,
 ]

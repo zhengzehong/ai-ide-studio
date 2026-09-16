@@ -130,6 +130,11 @@ function buildMemberStatus(
     .sort()
     .at(-1) ?? null
 
+  // 派发队列的键控维度是"格子会话"（dispatchMessage → ensureMemberInConversation 的目标会话），
+  // primary 只是其中一格或无会话线时的兜底，因此排队/在飞必须对 primary + 全部格子聚合：
+  // 深度取 max、在飞取 any——只查 primary 会让"第二条线起"恒为 0（多线漏报）。
+  const dispatchSessionIds = [...new Set([member.session_id, ...cells.map((cell) => cell.sessionId)]).values()]
+
   return {
     memberId: member.id,
     name: member.name,
@@ -137,8 +142,8 @@ function buildMemberStatus(
     agentId: member.agent_id,
     runtimeState,
     cells,
-    hasPendingMemberPrompt: getMemberQueueDepth(member.session_id),
-    isMemberPromptInFlight: isMemberPromptInFlight(member.session_id),
+    hasPendingMemberPrompt: Math.max(0, ...dispatchSessionIds.map((sessionId) => getMemberQueueDepth(sessionId))),
+    isMemberPromptInFlight: dispatchSessionIds.some((sessionId) => isMemberPromptInFlight(sessionId)),
     lastReport: lastMailbox
       ? {
         type: lastMailbox.type,
@@ -158,7 +163,9 @@ function buildMemberStatus(
 /** leader 排最前，其余按名字升序。 */
 function compareMembers(a: MemberStatus, b: MemberStatus): number {
   if (a.role === b.role) return a.name.localeCompare(b.name)
-  return a.role === 'leader' ? -1 : b.role === 'leader' ? 1 : 0
+  if (a.role === 'leader') return -1
+  if (b.role === 'leader') return 1
+  return a.name.localeCompare(b.name)
 }
 
 function resolveTeamId(input: ToolHandlerInput, context: ToolContext): string {

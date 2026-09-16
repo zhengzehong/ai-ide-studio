@@ -49,9 +49,9 @@ events.on('session:committed_done', (ev) => {
 })
 
 function handleSilentTurn(ev: AppEvents['session:committed_done']): void {
-  // ── Step 0 · 身份过滤：格子/主会话反查成员，leader 自己的回合不触发；会话必须属于某个活跃会话线
+  // ── Step 0 · 身份过滤：格子/主会话反查成员，leader 自己的回合与已移除成员不触发；会话必须属于某个活跃会话线
   const member = teamMemberStore.getBySession(ev.sessionId)
-  if (!member || member.role === 'leader') return
+  if (!member || member.role === 'leader' || member.status !== 'active') return
   const conversation = teamConversationStore.getBySession(ev.sessionId)
   if (!conversation || conversation.team_id !== member.team_id) return
   const team = teamStore.get(member.team_id)

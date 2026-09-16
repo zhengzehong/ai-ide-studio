@@ -17,6 +17,7 @@ import { sessionManager } from '../../src/core/sessions.js'
 import { dispatchMemberPrompt } from '../../src/core/team-member-dispatcher.js'
 import { teamService } from '../../src/core/teams.js'
 import { getTeamStatusHandler } from '../../src/tools/handlers/team/team-status-tool.js'
+import { TEAM_BUILTIN_TOOLS } from '../../src/tools/team-seed.js'
 import type { ToolContext } from '../../src/tools/types.js'
 
 let tmp: string
@@ -213,6 +214,73 @@ describe('team.status', () => {
     expect(member.cells.map((cell) => cell.conversationTitle).sort()).toEqual(['二线', '首线'])
     expect(member.cells.find((cell) => cell.sessionId === otherSessionId)!.state).toBe('running')
     expect(member.runtimeState).toBe('running')
+  })
+
+  test('排队/在飞按"primary + 全部格子"聚合：第二条线的格子有排队也不漏（F1 回放）', async () => {
+    const fixture = createTeamFixture()
+    const second = createTeamConversation(fixture.teamId, '二线')
+    // 二线的格子 = 该成员在第二条线上的派发目标（与 primary 不同的 session）。
+    const secondCellSessionId = teamConversationStore.listMembers(second.conversation.id)
+      .find((row) => row.member_id === fixture.memberId)!.session_id as string
+    expect(secondCellSessionId).not.toBe(fixture.memberSessionId)
+
+    // 成员在二线忙：派发只能排队（在飞/深度都发生在二线格子，不在 primary）。
+    vi.spyOn(sessionManager, 'isPromptActive').mockReturnValue(true)
+    vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue()
+    for (const content of ['二线第一条', '二线第二条']) {
+      expect(dispatchMemberPrompt({
+        teamId: fixture.teamId, memberId: fixture.memberId, sessionId: secondCellSessionId, prompt: content,
+      })).toBe('queued')
+    }
+
+    const payload = await callStatus(fixtureContext(fixture))
+    const member = payload.members.find((item) => item.memberId === fixture.memberId)!
+    expect(member.hasPendingMemberPrompt).toBe(2)
+  })
+
+  test('在飞聚合：回合跑在非 primary 格子上也能看到', async () => {
+    const fixture = createTeamFixture()
+    const second = createTeamConversation(fixture.teamId, '二线')
+    const secondCellSessionId = teamConversationStore.listMembers(second.conversation.id)
+      .find((row) => row.member_id === fixture.memberId)!.session_id as string
+
+    const runningSessionIds = new Set<string>()
+    vi.spyOn(sessionManager, 'isPromptActive').mockImplementation((sessionId: string) => runningSessionIds.has(sessionId))
+    vi.spyOn(sessionManager, 'enqueuePrompt').mockImplementation(() => new Promise(() => undefined))
+    expect(dispatchMemberPrompt({
+      teamId: fixture.teamId, memberId: fixture.memberId, sessionId: secondCellSessionId, prompt: '二线干活',
+    })).toBe('accepted')
+    runningSessionIds.add(secondCellSessionId)
+
+    const payload = await callStatus(fixtureContext(fixture))
+    const member = payload.members.find((item) => item.memberId === fixture.memberId)!
+    expect(member.isMemberPromptInFlight).toBe(true)
+    expect(member.runtimeState).toBe('running')
+  })
+
+  test('排序：同为非 leader（异角色）时按名字升序（F4）', async () => {
+    vi.spyOn(sessionManager, 'isPromptActive').mockReturnValue(false)
+    const fixture = createTeamFixture()
+    // 伪造一条异角色成员（role 不在 leader/member 二值内），确保兜底分支走 name 比较。
+    const alpha = teamMemberStore.create({
+      teamId: fixture.teamId, projectId: fixture.projectId, agentId: 'agent-zzz',
+      sessionId: 'sess-zzz', name: 'Zeta', role: 'observer',
+    })
+    const beta = teamMemberStore.create({
+      teamId: fixture.teamId, projectId: fixture.projectId, agentId: 'agent-aaa',
+      sessionId: 'sess-aaa', name: 'Alpha', role: 'observer',
+    })
+
+    const payload = await callStatus(fixtureContext(fixture))
+    const observerNames = payload.members.filter((item) => item.role === 'observer').map((item) => item.name)
+    expect(observerNames).toEqual(['Alpha', 'Zeta'])
+    expect(payload.members.some((item) => item.memberId === alpha.id)).toBe(true)
+    expect(payload.members.some((item) => item.memberId === beta.id)).toBe(true)
+  })
+
+  test('工具描述单一来源：seed 与 handler 文案一致（F7 防漂移）', () => {
+    const seeded = TEAM_BUILTIN_TOOLS.find((tool) => tool.name === 'team.status')
+    expect(seeded?.description).toBe(getTeamStatusHandler.description)
   })
 
   test('鉴权：非本团队成员拒绝，成员角色可调通', async () => {

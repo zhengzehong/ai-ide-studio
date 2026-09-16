@@ -2,10 +2,11 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
-import { initDatabase, closeDatabase } from '../../src/store/db.js'
+import { initDatabase, closeDatabase, getDb } from '../../src/store/db.js'
 import { agentStore } from '../../src/store/agents.js'
 import { projectStore } from '../../src/store/projects.js'
 import { sessionStore } from '../../src/store/sessions.js'
+import { teamMailboxStore, isWakeEligibleMailbox, WAKE_ELIGIBLE_MAILBOX_SQL } from '../../src/store/teams.js'
 import { teamService } from '../../src/core/teams.js'
 import { sessionManager } from '../../src/core/sessions.js'
 import { sendTeamMailboxHandler } from '../../src/tools/handlers/team/team-tools.js'
@@ -113,6 +114,38 @@ describe('team mailbox wake eligibility', () => {
     vi.advanceTimersByTime(20_000)
 
     expect(enqueue).not.toHaveBeenCalled()
+  })
+})
+
+describe('wake-eligible mailbox predicate (JS) 与 SQL 口径一致', () => {
+  test('4 类型 × {JS, SQL} 对照表：改一处漏一处会被这条拦住', () => {
+    const fixture = createTeamFixture()
+    const cases = [
+      { type: 'report', taskId: null, expected: true },
+      { type: 'question', taskId: null, expected: true },
+      { type: 'blocked', taskId: null, expected: true },
+      { type: 'result', taskId: null, expected: true },
+      { type: 'message', taskId: fixture.task.id, expected: true },
+      { type: 'message', taskId: null, expected: false },
+      { type: 'note', taskId: fixture.task.id, expected: false },
+    ] as const
+
+    for (const item of cases) {
+      const row = teamMailboxStore.create({
+        teamId: fixture.team.id,
+        projectId: teamService.detail(fixture.team.id).team.project_id,
+        fromMemberId: fixture.member.id,
+        type: item.type,
+        content: `口径样本 ${item.type}`,
+        taskId: item.taskId ?? undefined,
+      })
+      const viaSql = getDb()
+        .prepare<[string], { count: number }>(`SELECT COUNT(*) AS count FROM team_mailbox WHERE id = ? AND ${WAKE_ELIGIBLE_MAILBOX_SQL}`)
+        .get(row.id)?.count === 1
+      expect(`${item.type}/${item.taskId ? 'task' : 'no-task'}`).toBeTruthy()
+      expect(isWakeEligibleMailbox(row)).toBe(item.expected)
+      expect(viaSql).toBe(item.expected)
+    }
   })
 })
 

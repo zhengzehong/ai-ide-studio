@@ -288,6 +288,60 @@ describe('team silent-turn fallback wake', () => {
     expect(text).toContain('乙没汇报')
   })
 
+  test('同窗不丢报：静默先入桶、1 秒后 mailbox 汇报到达 → 一封唤醒同时含两段（F2）', () => {
+    vi.useFakeTimers()
+    const enqueue = vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue()
+    vi.spyOn(sessionManager, 'isPromptActive').mockReturnValue(false)
+    const fixture = createFixture()
+
+    runDispatchedTurn({ sessionId: fixture.memberSessionId, agentId: fixture.memberAgentId, reply: '静默回合的收尾说明' })
+    vi.advanceTimersByTime(1_000)
+    // 静默通知已入桶（15s 定时器）后，成员补发一条唤醒级 mailbox：覆盖层整体替换不能吞掉静默内容。
+    teamService.sendMailbox({
+      teamId: fixture.teamId, type: 'report', content: '补发的阶段汇报', fromMemberId: fixture.memberId,
+    })
+    vi.advanceTimersByTime(2_100)
+
+    expect(enqueue).toHaveBeenCalledTimes(1)
+    const text = String(enqueue.mock.calls[0][1])
+    expect(text).toContain('没有给你发过汇报')
+    expect(text).toContain('静默回合的收尾说明')
+    expect(text).toContain('补发的阶段汇报')
+  })
+
+  test('同窗不丢报：mailbox 汇报先、静默后 → 一封唤醒同时含两段（F2 反向）', () => {
+    vi.useFakeTimers()
+    const enqueue = vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue()
+    vi.spyOn(sessionManager, 'isPromptActive').mockReturnValue(false)
+    const fixture = createFixture()
+
+    teamService.sendMailbox({
+      teamId: fixture.teamId, type: 'report', content: '先到的阶段汇报', fromMemberId: fixture.memberId,
+    })
+    vi.advanceTimersByTime(500)
+    runDispatchedTurn({ sessionId: fixture.memberSessionId, agentId: fixture.memberAgentId, reply: '后到的静默收尾' })
+    vi.advanceTimersByTime(2_100)
+
+    expect(enqueue).toHaveBeenCalledTimes(1)
+    const text = String(enqueue.mock.calls[0][1])
+    expect(text).toContain('先到的阶段汇报')
+    expect(text).toContain('没有给你发过汇报')
+    expect(text).toContain('后到的静默收尾')
+  })
+
+  test('已移除成员（status=removed）的回合 → 不触发（F7）', () => {
+    vi.useFakeTimers()
+    const enqueue = vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue()
+    vi.spyOn(sessionManager, 'isPromptActive').mockReturnValue(false)
+    const fixture = createFixture()
+    teamMemberStore.remove(fixture.memberId)
+
+    runDispatchedTurn({ sessionId: fixture.memberSessionId, agentId: fixture.memberAgentId, reply: '移除后的收尾' })
+    vi.advanceTimersByTime(20_000)
+
+    expect(enqueue).not.toHaveBeenCalled()
+  })
+
   test('回归守卫：session:done 不触发；committed_done 读到的是最终文本', () => {
     vi.useFakeTimers()
     const enqueue = vi.spyOn(sessionManager, 'enqueuePrompt').mockResolvedValue()

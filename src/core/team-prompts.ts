@@ -100,7 +100,7 @@ export function buildTeamLeaderWakePrompt(content: string): string {
   return [
     content,
     '',
-    '本轮是系统唤醒后的跟进轮；现在可以使用 team.get 查看当前 Team 的成员、任务和 mailbox 汇总。',
+    '本轮是系统唤醒后的跟进轮；可用 team.status 查看成员的运行态与汇报态，用 team.get 查看成员、任务和 mailbox 汇总。',
   ].join('\n')
 }
 
