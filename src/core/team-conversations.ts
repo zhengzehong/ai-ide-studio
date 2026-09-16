@@ -1,10 +1,16 @@
 import { sessionStore, type SessionRow } from '../store/sessions.js'
 import type { AgentRow } from '../store/agents.js'
 import { teamMemberStore, teamStore, type TeamMemberRow, type TeamRow } from '../store/teams.js'
+import { projectStore } from '../store/projects.js'
 import { teamConversationStore, type TeamConversationRow, type TeamMessageRow } from '../store/team-conversations.js'
 import { listTeamActivity } from '../store/team-activity.js'
 import { events } from './events.js'
 import { createChildLogger } from './logger.js'
+import { sessionManager, COPYING_STAGE } from './sessions.js'
+import { forkSessionInto } from './session-fork.js'
+import { hasPendingMemberPrompt } from './team-member-dispatcher.js'
+import { publishSessionCreated } from './session-change-events.js'
+import { getRuntimePort } from '../runtime/runtime-port-provider.js'
 
 const log = createChildLogger('team-conversations')
 function notifyConversationChanged(conversation: TeamConversationRow): void {
@@ -184,10 +190,154 @@ export function deleteTeamConversation(conversationId: string): TeamConversation
   return updateTeamConversationStatus(conversationId, 'deleted')
 }
 
+// —— 团队会话线复制（P0：空闲线 + 全格子 fork + 空转录 + 整线 all-or-nothing 回滚）——
+
+/** 防连点：源线复制进行中（仿 sessionManager copyingSourceSessions）。 */
+const copyingConversations = new Set<string>()
+
+interface TeamConversationCopyPlan {
+  memberId: string
+  agentId: string
+  projectId: string | null
+  /** 源格子会话 id；冷格子/无格子时为 null（新格子保持空，跳过 fork）。 */
+  sourceSessionId: string | null
+  newSessionId: string
+}
+
+/** 复制团队会话线：Master + 全部成员格子全部 fork 成新会话，得到一条上下文完整、转录为空的新线。 */
+export function copyTeamConversation(conversationId: string): TeamConversationRow {
+  const source = teamConversationStore.get(conversationId)
+  if (!source) throw new Error('团队会话不存在')
+  if (source.status !== 'active') throw new Error('仅活跃中的会话线可以复制')
+  if (copyingConversations.has(conversationId)) throw new Error('当前会话线正在复制中，请稍后')
+
+  const grids = teamConversationStore.listMembers(conversationId)
+
+  // 快照语义：新线成员 = 复制发起时在格子里的活跃成员（removedMembers 的历史格子不进新线）。
+  const memberById = new Map(teamMemberStore.listAll(source.team_id).map((member) => [member.id, member]))
+  const activeGrids = grids.filter((grid) => {
+    const member = memberById.get(grid.member_id)
+    return !!member && member.status !== 'removed'
+  })
+  if (activeGrids.length === 0) throw new Error('会话线内没有可复制的成员格子')
+
+  // 忙线拒绝（严格版）：任一待复制格子在跑或还有排队指令都不复制——排队是 dispatcher 内存态，
+  // 无法跟到新线，复制出的新线会缺这段对话。
+  for (const grid of activeGrids) {
+    if (!grid.session_id) continue
+    if (sessionManager.isPromptActive(grid.session_id) || hasPendingMemberPrompt(grid.session_id)) {
+      throw new Error('团队会话正在运行或有排队消息，空闲后再复制')
+    }
+  }
+
+  const plans: TeamConversationCopyPlan[] = activeGrids.map((grid) => {
+    const member = memberById.get(grid.member_id)!
+    const newSession = sessionStore.create({ agentId: member.agent_id, projectId: member.project_id })
+    const sourceSession = grid.session_id ? sessionStore.get(grid.session_id) : undefined
+    sessionStore.updateTitle(newSession.id, `Fork from ${sourceSession?.title || sourceSession?.id || member.name}`)
+    sessionStore.updateStage(newSession.id, COPYING_STAGE)
+    // runtime_preferences 随迁：必须先复制再 fork——forkSession 完成时会按目标会话自己的
+    // preferences 重放模型/模式/config（sdk-runtime-host applySdkSessionPreferences），
+    // 空 preferences 会走默认注入（含 MAX_EFFORT），用户的手切档位/模型全部丢失。
+    if (grid.session_id) {
+      sessionStore.updateRuntimePreferences(newSession.id, sessionStore.getRuntimePreferences(grid.session_id))
+    }
+    publishSessionCreated(sessionStore.get(newSession.id)!)
+    return {
+      memberId: member.id,
+      agentId: member.agent_id,
+      projectId: member.project_id,
+      sourceSessionId: grid.session_id,
+      newSessionId: newSession.id,
+    }
+  })
+
+  // 新线 master = 源 master 所属成员的新格子；异常形态（master 行缺失）退化为 Leader 格子/首格子。
+  const sourceMemberId = activeGrids.find((grid) => grid.session_id === source.master_session_id)?.member_id
+  const masterPlan = plans.find((plan) => plan.memberId === sourceMemberId)
+    ?? plans.find((plan) => memberById.get(plan.memberId)?.role === 'leader')
+    ?? plans[0]
+  const conversation = teamConversationStore.create(source.team_id, masterPlan.newSessionId, `${source.title || '新团队会话'}（副本）`)
+  for (const plan of plans) {
+    teamConversationStore.addMember(conversation.id, plan.memberId, plan.newSessionId)
+  }
+  copyingConversations.add(conversationId)
+  notifyConversationChanged(conversation)
+
+  void completeTeamConversationCopy(conversation, source.id, plans)
+  return conversation
+}
+
+/**
+ * 后台逐格子顺序 fork（每格子秒级；WS RPC 15s 超时决定了复制必须异步渐进）。
+ * all-or-nothing：任一应 fork 格子失败 → 已建新格子全部关闭/删除 + 新线行置 deleted，不留半截线。
+ */
+async function completeTeamConversationCopy(
+  conversation: TeamConversationRow,
+  sourceConversationId: string,
+  plans: TeamConversationCopyPlan[],
+): Promise<void> {
+  try {
+    for (const plan of plans) {
+      const sourceSession = plan.sourceSessionId ? sessionStore.get(plan.sourceSessionId) : undefined
+      if (!plan.sourceSessionId || !sourceSession?.acp_session_id) {
+        // 冷格子：从未跑过 prompt，无运行时上下文可搬——新格子保持空，语义无损。
+        sessionStore.updateStage(plan.newSessionId, '')
+        const updated = sessionStore.get(plan.newSessionId)
+        if (updated) publishSessionCreated(updated)
+        continue
+      }
+      const project = plan.projectId ? projectStore.get(plan.projectId) : undefined
+      await forkSessionInto({
+        sourceSessionId: plan.sourceSessionId,
+        targetSessionId: plan.newSessionId,
+        projectContext: { projectId: plan.projectId ?? undefined, cwd: project?.work_dir },
+      })
+      sessionStore.updateStage(plan.newSessionId, '')
+      const updated = sessionStore.get(plan.newSessionId)
+      if (updated) publishSessionCreated(updated)
+    }
+    const finished = teamConversationStore.get(conversation.id)
+    if (finished) notifyConversationChanged(finished)
+    log.info({ teamId: conversation.team_id, conversationId: conversation.id, grids: plans.length }, 'Team conversation copied')
+  } catch (err) {
+    await rollbackTeamConversationCopy(conversation, sourceConversationId, plans, err)
+  } finally {
+    copyingConversations.delete(sourceConversationId)
+  }
+}
+
+/** 整线回滚：closeSession + delete 已建新格子，新线行置 deleted，team:update 携带失败原因供 UI 提示。 */
+async function rollbackTeamConversationCopy(
+  conversation: TeamConversationRow,
+  sourceConversationId: string,
+  plans: TeamConversationCopyPlan[],
+  err: unknown,
+): Promise<void> {
+  log.error({ err, teamId: conversation.team_id, conversationId: conversation.id }, 'Team conversation copy failed; rolling back')
+  for (const plan of plans) {
+    await getRuntimePort().closeSession(plan.agentId, plan.newSessionId).catch(() => undefined)
+    try { sessionStore.delete(plan.newSessionId) } catch (deleteErr) {
+      log.warn({ err: deleteErr, sessionId: plan.newSessionId }, 'Rollback: failed to delete copied grid session')
+    }
+  }
+  const row = teamConversationStore.get(conversation.id)
+  if (row && row.status !== 'deleted') {
+    const removed = teamConversationStore.setStatus(conversation.id, 'deleted')
+    if (removed) notifyConversationChanged(removed)
+  }
+  events.emit('team:update', {
+    teamId: conversation.team_id,
+    sessionIds: plans.map((plan) => plan.newSessionId),
+    data: { conversationId: conversation.id, reason: 'conversation.copy_failed', message: err instanceof Error ? err.message : String(err) },
+  })
+}
+
 export const teamConversationService = {
   listConversations: listTeamConversations,
   conversationByMasterSession: findTeamConversationByMasterSession,
   createConversation: createTeamConversation,
+  copyConversation: copyTeamConversation,
   conversationDetail: getTeamConversation,
   renameConversation: renameTeamConversation,
   archiveConversation: archiveTeamConversation,

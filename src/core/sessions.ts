@@ -9,6 +9,7 @@ import { teamMemberStore } from '../store/teams.js'
 import { getRuntimePort } from '../runtime/runtime-port-provider.js'
 import { observeSyncDbOperation } from '../store/db-operation-observer.js'
 import { buildRuntimeStateSnapshot } from '../runtime/api/runtime-snapshot.js'
+import { forkSessionInto } from './session-fork.js'
 import { events, type AppEvents } from './events.js'
 import { createChildLogger } from './logger.js'
 import { publishSessionCreated } from './session-change-events.js'
@@ -75,7 +76,7 @@ interface QueuedPrompt {
   source: 'user' | 'platform'
   intent?: PromptIntent
 }
-const COPYING_STAGE = '正在复制会话...'
+export const COPYING_STAGE = '正在复制会话...'
 
 events.on('session:update', (ev) => {
   const turnId = getPromptTurnId(ev.sessionId)
@@ -339,7 +340,7 @@ export const sessionManager = {
     if (!placeholder) throw new Error(`Copied session missing: ${copied.id}`)
     publishSessionCreated(placeholder)
 
-    void completeCopiedSessionFork(source, copied.id, source.acp_session_id, projectContext)
+    void completeCopiedSessionFork(source, copied.id, projectContext)
     return placeholder
   },
 
@@ -858,17 +859,14 @@ function resolveSessionProjectContext(
 async function completeCopiedSessionFork(
   source: SessionRow,
   copiedSessionId: string,
-  sourceAcpSessionId: string,
   projectContext: { projectId?: string; cwd?: string },
 ): Promise<void> {
   try {
-    const snapshot = buildRuntimeStateSnapshot({
-      sessionId: copiedSessionId,
-      projectId: projectContext.projectId,
-      cwd: projectContext.cwd,
+    const acpSessionId = await forkSessionInto({
+      sourceSessionId: source.id,
+      targetSessionId: copiedSessionId,
+      projectContext,
     })
-    const acpSessionId = await getRuntimePort().forkSession(snapshot, sourceAcpSessionId)
-    sessionStore.updateAcpSessionId(copiedSessionId, acpSessionId)
     sessionStore.updateStage(copiedSessionId, '')
     const updated = sessionStore.get(copiedSessionId)
     if (!updated) throw new Error(`Copied session missing: ${copiedSessionId}`)
