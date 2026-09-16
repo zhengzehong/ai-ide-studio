@@ -70,9 +70,32 @@ wsClient.request = async (msg: Record<string, unknown>): Promise<unknown> => {
       return {}
   }
 }
-wsClient.on = () => () => undefined
+// 事件注册表：组件真实订阅 team:update，按钮可模拟服务端推送（回滚序列）。
+const listeners = new Map<string, Set<(msg: unknown) => void>>()
+wsClient.on = (type: string, handler: (msg: unknown) => void) => {
+  const set = listeners.get(type) ?? new Set()
+  set.add(handler)
+  listeners.set(type, set)
+  return () => { set.delete(handler) }
+}
 wsClient.subscribe = () => undefined
 wsClient.unsubscribe = () => undefined
+
+function emitServerEvent(type: string, msg: unknown): void {
+  for (const handler of [...(listeners.get(type) ?? [])]) handler(msg)
+}
+
+/** 模拟服务端后台复制失败回滚：先发 deleted 变更（触发 300ms 防抖刷新），再发失败事件——
+ * 复现原缺陷时序（失败错误条随后被刷新的 setError(null) 擦除）。 */
+function emitRollbackSequence(): void {
+  lines = lines.filter((line) => line.id !== 'tc-new')
+  emitServerEvent('team:update', { teamId: 't1', data: { conversationId: 'tc-new', status: 'deleted' } })
+  emitServerEvent('team:update', {
+    teamId: 't1', sessionIds: ['m-new'],
+    data: { conversationId: 'tc-new', reason: 'conversation.copy_failed', message: '模拟 fork 失败' },
+  })
+  record('rollback-emitted')
+}
 
 function Harness(): ReactElement {
   const [, setEpoch] = useState(0)
@@ -82,6 +105,7 @@ function Harness(): ReactElement {
     <div style={{ display: 'flex', flexDirection: 'column', height: 760 }}>
       <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
         <button id="btn-fail" onClick={() => { copyShouldFail = !copyShouldFail; record(`fail=${copyShouldFail}`) }}>模拟复制失败</button>
+        <button id="btn-rollback" onClick={emitRollbackSequence}>模拟后台回滚</button>
         <div id="events" />
         <div id="rpc" />
       </div>

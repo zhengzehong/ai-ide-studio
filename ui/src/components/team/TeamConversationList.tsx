@@ -44,6 +44,10 @@ export function TeamConversationList({ team, activeId, onSelect, onMasterSession
   const rows = useMemo(() => sortTeamConversations(items, pinnedIds), [items, pinnedIds])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // 复制失败独立通道：后台回滚路径的错误不能放进 error——load() 开头的 setError(null)
+  // 会在 300ms 防抖刷新时把它擦掉（回滚的 deleted 事件本身就排了一次刷新）。
+  // copyError 只在下次发起复制时清除，对任何刷新时序免疫。
+  const [copyError, setCopyError] = useState<string | null>(null)
   const [menu, setMenu] = useState<{ item: Conversation; x: number; y: number } | null>(null)
   const [dialog, setDialog] = useState<{ item: Conversation; action: 'rename' | 'archive' | 'delete' } | null>(null)
   const [copyDialog, setCopyDialog] = useState<Conversation | null>(null)
@@ -80,10 +84,10 @@ export function TeamConversationList({ team, activeId, onSelect, onMasterSession
     let refreshTimer: number | undefined
     const offTeam = wsClient.on('team:update', msg => {
       if (msg.teamId !== team.id) return
-      // 复制失败走 team:update 通道（后台 fork 失败整线回滚时）：把原因透成列表错误条。
+      // 复制失败走 team:update 通道（后台 fork 失败整线回滚时）：进独立错误通道，刷新不擦除。
       if ((msg.data as { reason?: string; message?: string } | undefined)?.reason === 'conversation.copy_failed') {
         const detail = (msg.data as { message?: string }).message
-        setError(`复制团队会话失败${detail ? `：${detail}` : ''}`)
+        setCopyError(`复制团队会话失败${detail ? `：${detail}` : ''}`)
       }
       if (!teamConversationListNeedsRefresh(msg)) return
       window.clearTimeout(refreshTimer)
@@ -119,6 +123,7 @@ export function TeamConversationList({ team, activeId, onSelect, onMasterSession
     if (!copyDialog || mutationPending.current) return
     const item = copyDialog
     setCopyDialog(null)
+    setCopyError(null)
     mutationPending.current = true
     setMutating(true)
     try {
@@ -177,7 +182,7 @@ export function TeamConversationList({ team, activeId, onSelect, onMasterSession
         <button type="button" onClick={() => { void create() }} disabled={mutating} title="新建会话" style={newButtonStyle}><Plus size={14} /></button>
         <button type="button" onClick={() => void load()} disabled={loading} title="刷新" style={iconStyle}>{loading ? <Loader2 size={14} /> : <RefreshCw size={14} />}</button>
       </header>
-      {error && <div role="alert" style={errorStyle}>{error}</div>}
+      {(error || copyError) && <div role="alert" style={errorStyle}>{error || copyError}</div>}
       <div style={listStyle}>
         {loading && items.length === 0 && <div style={stateStyle}><Loader2 size={16} style={{ animation: 'spin 1s linear infinite', marginBottom: 8 }} /><div>正在加载会话...</div></div>}
         {!loading && !error && items.length === 0 && <div style={stateStyle}>暂无会话<br /><span style={{ fontSize: 12 }}>点击上方加号新建</span></div>}

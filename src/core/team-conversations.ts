@@ -8,7 +8,7 @@ import { events } from './events.js'
 import { createChildLogger } from './logger.js'
 import { sessionManager, COPYING_STAGE } from './sessions.js'
 import { forkSessionInto } from './session-fork.js'
-import { hasPendingMemberPrompt } from './team-member-dispatcher.js'
+import { hasPendingMemberPrompt, isMemberPromptInFlight } from './team-member-dispatcher.js'
 import { publishSessionCreated } from './session-change-events.js'
 import { getRuntimePort } from '../runtime/runtime-port-provider.js'
 
@@ -222,10 +222,14 @@ export function copyTeamConversation(conversationId: string): TeamConversationRo
   if (activeGrids.length === 0) throw new Error('会话线内没有可复制的成员格子')
 
   // 忙线拒绝（严格版）：任一待复制格子在跑或还有排队指令都不复制——排队是 dispatcher 内存态，
-  // 无法跟到新线，复制出的新线会缺这段对话。
+  // 无法跟到新线，复制出的新线会缺这段对话。in-flight 探针堵「出队→标 active」的微任务窗口。
   for (const grid of activeGrids) {
     if (!grid.session_id) continue
-    if (sessionManager.isPromptActive(grid.session_id) || hasPendingMemberPrompt(grid.session_id)) {
+    if (
+      sessionManager.isPromptActive(grid.session_id)
+      || hasPendingMemberPrompt(grid.session_id)
+      || isMemberPromptInFlight(grid.session_id)
+    ) {
       throw new Error('团队会话正在运行或有排队消息，空闲后再复制')
     }
   }

@@ -475,6 +475,9 @@ function requirePromptSession(sessionId: string): SessionRow {
   if (session.is_template) throw new Error('模板会话不能直接发送消息,请先从模板新建会话')
   if (session.status !== 'active') throw new Error('当前会话已关闭，不能继续发送消息')
   if (session.archived_at) throw new Error('会话已归档,不能发送消息')
+  // 复制窗口守卫：COPYING_STAGE 的会话运行时映射尚未落定（后台 fork 完成时才回写 acp_session_id）。
+  // 此时放行 prompt 会先经 ensureSession 写入新映射、随后被 fork 覆写，用户首轮消息所在的运行时会话成孤儿。
+  if (session.stage === COPYING_STAGE) throw new Error('会话正在复制，请稍候再发送')
   return session
 }
 

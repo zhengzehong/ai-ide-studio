@@ -1,7 +1,7 @@
 /* 团队会话线「复制」冒烟：esbuild 打包 harness → file:// 页面 → Playwright 真实点击走查。
  * 运行：node tests/browser/team-conversation-copy-smoke.mjs（需 chromium；失败输出 .tmp/team-conversation-copy-smoke 截图）。
  * 覆盖：右键空闲线 → 复制菜单 → 确认弹窗语义披露 → copy RPC → 新线出现并自动选中 /
- *       running 线复制菜单置灰 / copy 失败错误条透出原因。
+ *       running 线复制菜单置灰 / copy 失败错误条透出原因 / 后台回滚错误条持续可见（防擦除）。
  */
 import { chromium } from 'playwright'
 import { execFileSync } from 'node:child_process'
@@ -76,6 +76,17 @@ try {
   await page.getByRole('button', { name: '复制', exact: true }).click()
   await page.locator('[role="alert"]', { hasText: '团队会话正在运行或有排队消息' }).waitFor({ timeout: 5_000 })
   await screenshot('04-copy-failed.png')
+
+  // ⑤ 后台回滚：失败错误条走独立通道，不被 300ms 防抖刷新擦除
+  //    （原缺陷复现时序：deleted 事件排了 load(true)，load 开头 setError(null) 在 ~300ms 擦掉错误条；
+  //      deepseek 实测 120ms 在、820ms 消失。防回归断言：错误条持续可见 >1s。）
+  await page.locator('#btn-rollback').click()
+  await page.locator('[role="alert"]', { hasText: '复制团队会话失败' }).waitFor({ timeout: 5_000 })
+  await page.waitForTimeout(1_400)
+  const rollbackStrip = page.locator('[role="alert"]', { hasText: '复制团队会话失败' })
+  check(await rollbackStrip.isVisible(), `后台复制失败的错误条必须持续可见（>1s），实际 events=${await events()}`)
+  check(await row('m-new').count() === 0, '回滚后新线应从列表移除')
+  await screenshot('05-rollback-error-persists.png')
 
   if (errors.length > 0) throw new Error(`页面错误：${errors.join('\n')}`)
   console.log('OK team-conversation-copy-smoke 全部通过')

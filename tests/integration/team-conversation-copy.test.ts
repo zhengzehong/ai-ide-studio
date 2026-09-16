@@ -172,13 +172,14 @@ describe('team conversation copy', () => {
       expect(getDb().prepare('SELECT COUNT(*) AS count FROM turn_process_items WHERE session_id = ?').get(newGridId)).toEqual({ count: 0 })
     }
 
-    // 原线零变化：行、格子映射、消息、运行时 acp id 全部原样
+    // 原线零变化：行、格子映射、消息、运行时 acp id 全部原样（格子集合比较——同毫秒 created_at
+    // 并列时 joined 行序非契约，reviewer 复现 8 轮 2 败）
     const source = teamConversationStore.get(fixture.conversationId)
     expect(source?.status).toBe('active')
     expect(source?.title).toBe('首线')
     expect(source?.master_session_id).toBe(fixture.leaderGridSessionId)
-    expect(teamConversationStore.listMembers(fixture.conversationId).map((grid) => grid.session_id))
-      .toEqual([fixture.leaderGridSessionId, fixture.memberGridSessionId])
+    expect(teamConversationStore.listMembers(fixture.conversationId).map((grid) => grid.session_id).sort())
+      .toEqual([fixture.leaderGridSessionId, fixture.memberGridSessionId].sort())
     expect(messageStore.list(fixture.leaderGridSessionId)).toHaveLength(1)
     expect(messageStore.list(fixture.memberGridSessionId)).toHaveLength(1)
     expect(eventStore.list(fixture.memberGridSessionId, { limit: 50 })).toHaveLength(1)
@@ -309,6 +310,48 @@ describe('team conversation copy', () => {
     await waitForCondition(() => {
       expect(teamConversationStore.listMembers(again.id).every((grid) => sessionStore.get(grid.session_id!)?.acp_session_id)).toBe(true)
     })
+  })
+
+  test('复制窗口守卫：COPYING_STAGE 格子拒收 prompt，fork 完成映射不被覆写（防孤儿）', async () => {
+    const fixture = setupFixture()
+    sessionStore.updateAcpSessionId(fixture.leaderGridSessionId, 'acp-leader-src')
+    sessionStore.updateAcpSessionId(fixture.memberGridSessionId, 'acp-member-src')
+    let releaseFork!: () => void
+    const gate = new Promise<void>((resolveGate) => { releaseFork = resolveGate })
+    installForkMock({ gate })
+    // ensureSession 捕获：守卫生效时 prompt 绝不能建运行时映射；返回当前映射模拟「恢复既有会话」。
+    const ensureCalls: string[] = []
+    const originalEnsure = acpHost.ensureSession
+    const originalPrompt = acpHost.prompt
+    acpHost.ensureSession = (async (_agentId: string, sessionId: string) => {
+      ensureCalls.push(sessionId)
+      return sessionStore.get(sessionId)?.acp_session_id ?? 'acp-user-started'
+    }) as typeof acpHost.ensureSession
+    acpHost.prompt = (async () => undefined) as typeof acpHost.prompt
+
+    const copied = copyTeamConversation(fixture.conversationId)
+    const newMasterGrid = copied.master_session_id
+    expect(sessionStore.get(newMasterGrid)?.acp_session_id).toBeNull()
+
+    try {
+      // 复制窗口内发消息：服务端拒绝（原缺陷：此处会经 ensureSession 写映射，随后被 fork 覆写成孤儿）
+      await expect(sessionManager.sendPrompt(newMasterGrid, '你好，新线')).rejects.toThrow('正在复制')
+      expect(ensureCalls).toHaveLength(0)
+
+      releaseFork()
+      await waitForCondition(() => {
+        expect(sessionStore.get(newMasterGrid)?.acp_session_id).toBe(`acp-${newMasterGrid}`)
+        expect(sessionStore.get(newMasterGrid)?.stage).toBe('')
+      })
+
+      // 复制完成自动放开：同一格子可送达运行时层，且映射保持 fork 结果（不被 ensureSession 顶掉）
+      await sessionManager.sendPrompt(newMasterGrid, '复制完成后再发')
+      expect(ensureCalls).toEqual([newMasterGrid])
+      expect(sessionStore.get(newMasterGrid)?.acp_session_id).toBe(`acp-${newMasterGrid}`)
+    } finally {
+      acpHost.ensureSession = originalEnsure
+      acpHost.prompt = originalPrompt
+    }
   })
 
   test('leader primary 被复用为源线 master：复制后 primary 不动、新 master 是新格子', async () => {
