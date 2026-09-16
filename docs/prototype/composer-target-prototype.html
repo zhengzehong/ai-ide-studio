@@ -140,6 +140,7 @@
   .chip .v{font-weight:600;color:var(--text-1);overflow:hidden;text-overflow:ellipsis}
   .chip.is-open .v{color:var(--blue)}
   .chip.is-pending{opacity:.55}
+  .chip.is-disabled{opacity:.55;cursor:not-allowed;border-style:dashed;background:var(--bg-1)}
   .chip[disabled]{cursor:not-allowed;opacity:.5}
   .chip .caret{font-size:9px;opacity:.7}
   .chip-dot{width:6px;height:6px;border-radius:50%;background:var(--green);flex-shrink:0}
@@ -317,9 +318,12 @@
       <div class="side-scroll" id="ckList"><!-- 由 JS 渲染 --></div>
       <div class="side-sep"></div>
       <div class="side-block" id="sideFoot">
-        <b>边界演示</b>：打开下面的开关后，任意档位/权限写入都会以「冷会话」失败路径呈现（明确提示 + 回滚）。
+        <b>边界演示</b>：打开下面的开关后，档位/权限 chip 变为<b>禁用态</b>（点击看禁用原因）；点「演示一次写入失败（回滚）」可看失败回滚提示。
       </div>
       <label class="switch"><input type="checkbox" id="coldToggle"> 模拟冷会话（目标成员会话未 spawn）</label>
+      <div class="side-actions">
+        <button class="btn-ghost" id="btnColdDemo" style="display:none;flex:1">演示一次写入失败（回滚）</button>
+      </div>
       <div class="side-actions">
         <button class="btn-ghost" id="btnReset" style="flex:1">重置演示状态</button>
       </div>
@@ -359,8 +363,8 @@ const MEMBERS = [
     perm:{ kind:'mode', mode:'手动', tools:'12 / 34 项' } },
   { id:'kimi', name:'Dev-Kimi', init:'K', color:'#059669', runtime:'claude', runtimeTag:'claude',
     model:'claude-sonnet-4-5', status:'running', adapter:'new',
-    /* capabilities 驱动：该模型声明无 max（菜单里不出现，属模型不支持而非砍掉） */
-    efforts:['default','low','medium','high'],
+    /* capabilities 驱动：该模型声明无 max（有 xhigh）——对比呈现"模型不支持而非菜单砍掉" */
+    efforts:['default','minimal','low','medium','high','xhigh'],
     perm:{ kind:'mode', mode:'自动', tools:'20 / 34 项' } },
   { id:'legacy', name:'Dev-Legacy', init:'L', color:'#ea580c', runtime:'codex', runtimeTag:'codex（旧适配器）',
     model:'gpt-5-codex', status:'idle', adapter:'legacy',
@@ -370,8 +374,8 @@ const MEMBERS = [
 ];
 const byId = (id) => MEMBERS.find(m => m.id === id);
 
-const EFFORT_LABEL = { default:'跟随模型默认', low:'低 low', medium:'中 medium', high:'高 high', xhigh:'xhigh', max:'max（最高档）' };
-const EFFORT_ORDER = ['default','low','medium','high','xhigh','max'];
+const EFFORT_LABEL = { default:'跟随模型默认', minimal:'极低 minimal', low:'低 low', medium:'中 medium', high:'高 high', xhigh:'xhigh', max:'max（最高档）' };
+const EFFORT_ORDER = ['default','minimal','low','medium','high','xhigh','max'];
 
 /* 状态 */
 const S = {
@@ -406,8 +410,8 @@ const CK = [
     need:['stopped'], hint:'点「■ 停止全部」' },
   { id:'c8', t:'<b>⑧ @ 唤起</b>：输入 @ 打开成员菜单，选中即填入胶囊',
     need:['atMenu'], hint:'在输入框里打一个 @' },
-  { id:'c9', t:'<b>⑨ 边界</b>：Dev-Legacy 档位 chip 隐藏；冷会话写入失败回滚',
-    need:['legacyHidden','coldFail'], hint:'选 Dev-Legacy；再打开右侧冷会话开关后点一次档位' },
+  { id:'c9', t:'<b>⑨ 边界</b>：Dev-Legacy 档位 chip 隐藏；冷会话 chip 禁用 + 写入失败回滚',
+    need:['legacyHidden','coldFail'], hint:'选 Dev-Legacy 看隐藏；再打开右侧冷会话开关：chip 变禁用（点它看说明），点「演示一次写入失败（回滚）」' },
 ];
 const done = {};   // 需求项 -> true
 const seen = {};   // 中间标志
@@ -484,20 +488,20 @@ function renderChips(){
   if (!m){ box.innerHTML = ''; renderHint(); return; }
   let html = '';
   if (m.efforts){
-    html += `<button class="chip${S.cold ? ' is-pending' : ''}" id="chipEffort" ${S.cold ? 'title="会话未就绪：写入会失败并回滚"' : ''}>`
-      + `<span class="k">思考强度</span><span class="v">${esc(effortValueOf(m))}</span><span class="caret">▾</span></button>`;
+    html += `<button class="chip${S.cold ? ' is-disabled' : ''}" id="chipEffort" title="${S.cold ? '会话未就绪：chip 已禁用（严禁对不存在的配置项发写入）' : '思考强度（capabilities 驱动）'}">`
+      + `<span class="k">思考强度</span><span class="v">${esc(effortValueOf(m))}</span>${S.cold ? '<span style="color:var(--yellow)">⚠</span>' : '<span class="caret">▾</span>'}</button>`;
   }
   const permVal = m.perm.kind === 'mode' ? `模式：${m.perm.mode}` : `审批：${m.perm.approval}`;
-  html += `<button class="chip${S.cold ? ' is-pending' : ''}" id="chipPerm" ${S.cold ? 'title="会话未就绪：写入会失败并回滚"' : ''}>`
-    + `<span class="chip-dot"></span><span class="k">权限</span><span class="v">${esc(permVal)}</span><span class="caret">▾</span></button>`;
+  html += `<button class="chip${S.cold ? ' is-disabled' : ''}" id="chipPerm" title="${S.cold ? '会话未就绪：chip 已禁用' : '权限（工具可见集 + 授权模式）'}">`
+    + `<span class="chip-dot"></span><span class="k">权限</span><span class="v">${esc(permVal)}</span>${S.cold ? '<span style="color:var(--yellow)">⚠</span>' : '<span class="caret">▾</span>'}</button>`;
   if (!m.efforts){
     html += `<span class="tag tag-grey" title="旧 codex 适配器成员：effort 挂在模型选择上，没有独立档位配置项">档位 chip 已隐藏（该成员无独立档位项）</span>`;
   }
   box.innerHTML = html;
   const ce = document.getElementById('chipEffort');
-  if (ce) ce.onclick = (e) => { e.stopPropagation(); openEffortPop(); };
+  if (ce) ce.onclick = (e) => { e.stopPropagation(); if (S.cold){ coldDisabled(); return; } openEffortPop(); };
   const cp = document.getElementById('chipPerm');
-  if (cp) cp.onclick = (e) => { e.stopPropagation(); openPermPop(); };
+  if (cp) cp.onclick = (e) => { e.stopPropagation(); if (S.cold){ coldDisabled(); return; } openPermPop(); };
   renderHint();
 }
 
@@ -650,7 +654,7 @@ function openMaxConfirm(m, scope, cb){
     + '<ul>'
     + '<li>max = 最深推理，耗时/token 明显增加（"仅在最难任务上使用"）。</li>'
     + '<li>8,523 条真实捕获实证：max 在 8,400+ 请求上成功，仅个别渠道（glm-5.3-flash-1、qwen3.8-flash-next）返回 500 —— 失败时会以<b>失败气泡</b>呈现，可降档重试（P1 补归因提示）。</li>'
-    + (isMember ? '<li>持久写入：误触会影响该成员<b>所有线</b>，含未来新会话。</li>' : '<li>仅影响本会话；切换成员在跑时为「当前回合结束后生效」。</li>')
+    + (isMember ? '<li>持久写入：<b>对该成员所有会话持久生效</b>（含未来新会话），<b>运行中的回合结束后咬合</b>；误触半径大，请确认。</li>' : '<li>仅影响本会话；成员在跑时为「当前回合结束后生效」，不回溯当前回合。</li>')
     + '</ul>';
   document.getElementById('mask').classList.add('open');
 }
@@ -808,9 +812,14 @@ function stopAll(){
   MEMBERS.forEach(m => { if (S.queued[m.id]) setTimeout(() => drainQueue(m), 700); });
 }
 
-/* ---------- 冷会话失败（边界演示） ---------- */
-function coldFail(){
+/* ---------- 冷会话：chip 禁用 + 写入失败回滚演示（边界） ---------- */
+function coldDisabled(){
   const m = byId(S.target);
+  toast(`chip 已禁用：${m.name} 的会话未就绪（冷会话）。P0 规则：<b>写入前先确保目标格子会话存活</b>，失败时明确提示并回滚（不静默改值）。点右栏「演示一次写入失败（回滚）」可看失败路径。`, 'warn');
+}
+function coldFail(){
+  const m = S.target ? byId(S.target) : null;
+  if (!m || !m.efforts){ toast('先在输入框选中一个带档位的成员（Dev-GLM / Dev-Kimi），再演示写入失败', 'warn'); return; }
   toast(`写入失败：${m.name} 的会话未就绪（冷会话）—— 已回滚，档位不变；应「先确保目标格子会话存活，失败时明确提示」`, 'err');
   markIf('c9','coldFail');
   const scroll = document.getElementById('scroll');
@@ -844,9 +853,11 @@ document.getElementById('btnStopAll').onclick = () => stopAll();
 document.getElementById('btnReset').onclick = () => resetDemo();
 document.getElementById('coldToggle').onchange = (e) => {
   S.cold = e.target.checked;
+  document.getElementById('btnColdDemo').style.display = S.cold ? 'block' : 'none';
   renderChips();
-  toast(S.cold ? '已开启冷会话演示：任意档位/权限写入都会走失败回滚路径' : '已关闭冷会话演示', S.cold ? 'warn' : 'ok');
+  toast(S.cold ? '已开启冷会话演示：档位/权限 chip 变为禁用态（点击看说明），可点右栏按钮看写入失败回滚' : '已关闭冷会话演示', S.cold ? 'warn' : 'ok');
 };
+document.getElementById('btnColdDemo').onclick = () => coldFail();
 
 const ta = document.getElementById('ta');
 ta.addEventListener('input', () => {
@@ -877,6 +888,7 @@ function resetDemo(){
   S.queued = {};
   MEMBERS.forEach(m => { m.status = m.id === 'kimi' ? 'running' : 'idle'; });
   document.getElementById('coldToggle').checked = false;
+  document.getElementById('btnColdDemo').style.display = 'none';
   document.getElementById('ta').value = '';
   ta.style.height = 'auto';
   // 用初始快照整体还原消息流（避免残留定向块/排队块/系统行）
