@@ -181,14 +181,15 @@ export function reconstructSessionTurnResult(
   db: SqliteDatabase,
   input: SessionTurnFinalizeInput,
 ): SessionTurnFinalizeResult {
-  const message = db.prepare<[string], { file_changes_json: string | null; process_item_count: number }>(`
-    SELECT file_changes_json, process_item_count FROM messages WHERE id = ?
+  const message = db.prepare<[string], { file_changes_json: string | null; process_item_count: number; status: string | null }>(`
+    SELECT file_changes_json, process_item_count, status FROM messages WHERE id = ?
   `).get(input.messageId)
   return {
     messageId: input.messageId,
     fileChangesJson: message?.file_changes_json ?? null,
     processItemCount: message?.process_item_count ?? processCount(db, input.messageId),
-    applied: true,
+    // 幂等重放批次已提交:终态是否真的在行上(行存在且状态与本批次一致),不能硬编码 true(N1)。
+    applied: message !== undefined && message.status === input.status,
   }
 }
 
@@ -215,7 +216,7 @@ function insertTerminalMessage(
       completed_at, stats_json, process_item_count, timestamp, sender_id, sender_name, sender_role
     ) VALUES (
       @id, @session_id, 'agent', @content, NULL, NULL, @decision_json,
-      NULL, @file_changes_json, @presentations_json, @status, NULL,
+      NULL, @file_changes_json, @presentations_json, @status, @completed_at,
       @completed_at, @stats_json, @process_item_count, @timestamp, NULL, NULL, 'assistant'
     )
   `).run(values)

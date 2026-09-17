@@ -187,7 +187,8 @@ function commandLane(command: RuntimeCommandRecord): string {
       break
     case 'session.cancel':
     case 'session.forceFinish':
-      // 与 cancel 同一条独立泳道:卡死回合自己占着 turn 泳道,强制结束命令不能排在它后面。
+      // 与 cancel 同一条独立泳道:prompt 从不写 laneTails(回合本身不占泳道),但强制结束
+      // 必须与 cancel 一样不被任何在飞命令排队等待 —— 它的前提就是"运行时已经卡住"。
       lane = 'cancel'
       break
     case 'sessions.markRead':

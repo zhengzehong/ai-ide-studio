@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from 'vit
 import {
   configurePromptWatchdog,
   finishPromptDiagnostics,
-  recordPromptHeartbeat,
+  getPromptDiagnosticState,
   recordPromptProgress,
   startPromptDiagnostics,
 } from '../../src/core/prompt-diagnostics.js'
@@ -10,7 +10,9 @@ import {
 /**
  * 看门狗分级自愈的条件回归(2026-09-17 sess-d83044f2 事故):
  * - 级别 a(人工)不在这里,由 sessions.forceFinishPrompt 提供;
- * - 级别 b 必须同时满足:启用 + 静默 ≥ 阈值(下限 30min)+ 无心跳 + 存在排队消息。
+ * - 级别 b 必须同时满足:启用 + 流事件静默 ≥ 阈值(下限 30min)+ 存在排队消息。
+ *   静默窗口只由 recordPromptProgress(所有上行流帧)重置——ACP 工具心跳只存在于
+ *   runtime 子进程,API 进程侧不再保留永不生效的心跳否决位(N2/P2-6)。
  * 单文件共用一个 fake clock(看门狗 interval 只在首个 start 时创建)。
  */
 const SESSION = 'sess-watchdog'
@@ -89,16 +91,14 @@ describe('prompt watchdog auto recover', () => {
     expect(forceFinishCalls).toEqual([`${SESSION}:watchdog`])
   })
 
-  test('tool heartbeat vetoes the auto action until it is also silent ≥30min', async () => {
-    configure(true)
-    queued = true
+  test('prompt diagnostic state carries no heartbeat veto field (N2: dead cross-process signal removed)', () => {
     startTurn()
-    await advance(20)
-    recordPromptHeartbeat(SESSION)
-    await advance(15)
-    expect(forceFinishCalls).toEqual([])
-    await advance(20)
-    expect(forceFinishCalls).toEqual([`${SESSION}:watchdog`])
+    const state = getPromptDiagnosticState(SESSION)
+    expect(state).toBeDefined()
+    // 心跳否决位曾被写成独立安全垫,但 recordPromptHeartbeat 在两处运行上下文都打不中
+    // 状态表键(process 模式跨进程 / embedded 键不同),实际永不生效 —— 已删除。
+    // 若未来重新引入,必须同时提供跨进程上报通道,否则此测试会提醒补上。
+    expect(state).not.toHaveProperty('lastHeartbeatAt')
   })
 
   test('stream progress resets the silent window', async () => {

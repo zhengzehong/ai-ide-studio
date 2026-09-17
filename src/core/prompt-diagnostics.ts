@@ -15,9 +15,13 @@ let promptWatchdogTimer: ReturnType<typeof setInterval> | null = null
 /**
  * 卡死自愈(分级,2026-09-17 sess-d83044f2 事故):
  * - 级别 a(人工):会话详情里"强制结束/恢复"由 sessions.forceFinishPrompt 提供,不依赖这里;
- * - 级别 b(自动,默认关闭):必须同时满足"存在排队消息" + "无任何流事件/心跳 ≥ autoRecoverSilentMs"。
+ * - 级别 b(自动,默认关闭):必须同时满足"存在排队消息" + "无任何流事件 ≥ autoRecoverSilentMs"。
  *   本案反例:活着的回合可以静默 2h08m 后仍产出真答案——因此自动动作必须保守,
  *   且真正的安全垫是"终稿可从 session_events 只读还原"(message-recovery)。
+ *   注意:安全垫是 lastProgressAt(所有上行流帧,含工具心跳映射帧,经
+ *   core/sessions.ts 的 session:update 路径刷新);不再有独立的心跳否决位——
+ *   ACP 心跳只存在于 runtime 子进程/embedded 的 acp 会话键下,API 进程的诊断态
+ *   永远看不到它(N2/P2-6),保留一个永不生效的判据只会误导交付说明。
  */
 export interface PromptWatchdogHooks {
   /** 该会话是否有排队等待的提示(只有卡死才会积压,长工具不会)。 */
@@ -33,7 +37,11 @@ export interface PromptWatchdogSettings {
 
 const settings: PromptWatchdogSettings = {
   autoRecoverEnabled: false,
-  autoRecoverSilentMs: readPositiveMs(process.env.PROMPT_STUCK_RECOVER_MS, DEFAULT_STUCK_RECOVER_MS),
+  // 初值同样过硬钳制(所有入口都经 app.ts 覆盖,这里只是不留裸值,N6)。
+  autoRecoverSilentMs: Math.max(
+    MIN_STUCK_RECOVER_MS,
+    readPositiveMs(process.env.PROMPT_STUCK_RECOVER_MS, DEFAULT_STUCK_RECOVER_MS),
+  ),
 }
 const hooks: PromptWatchdogHooks = {}
 
@@ -58,8 +66,6 @@ export interface PromptDiagnosticState {
   startedAt: number
   lastProgressAt: number
   lastProgress: string
-  /** 最后一次工具心跳(tool-heartbeat);只作自动收敛的否决信号,不参与告警节奏。 */
-  lastHeartbeatAt?: number
   warnedAt?: number
   /** 已触发过自动收敛,等待生效期间不再重复触发。 */
   stuckActionAt?: number
@@ -79,16 +85,6 @@ export function recordPromptProgress(sessionId: string, progress: string): void 
   if (!state) return
   state.lastProgressAt = Date.now()
   state.lastProgress = progress
-}
-
-/**
- * 工具心跳(live tool 仍在推进)单独记录:不刷新 lastProgressAt(告警节奏保持),
- * 但会让看门狗自动收敛对"还在跑的长工具"投否决票。
- */
-export function recordPromptHeartbeat(sessionId: string): void {
-  const state = activePromptDiagnostics.get(sessionId)
-  if (!state) return
-  state.lastHeartbeatAt = Date.now()
 }
 
 export function getPromptDiagnosticState(sessionId: string): PromptDiagnosticState | undefined {
@@ -184,11 +180,10 @@ function runPromptWatchdog(): void {
   }
 }
 
-/** 级别 b 自动收敛:保守三条件(排队积压 + 流事件静默 + 心跳静默),默认关闭。 */
+/** 级别 b 自动收敛:保守三条件(排队积压 + 流事件静默 ≥ 阈值),默认关闭。 */
 function maybeAutoRecover(state: PromptDiagnosticState, now: number, idleForMs: number): void {
   if (!settings.autoRecoverEnabled || state.stuckActionAt !== undefined) return
   if (idleForMs < settings.autoRecoverSilentMs) return
-  if (state.lastHeartbeatAt !== undefined && now - state.lastHeartbeatAt < settings.autoRecoverSilentMs) return
   if (!hooks.hasQueuedMessages?.(state.sessionId)) return
   if (!hooks.forceFinish) return
   state.stuckActionAt = now
@@ -203,7 +198,6 @@ function maybeAutoRecover(state: PromptDiagnosticState, now: number, idleForMs: 
       silentMs: settings.autoRecoverSilentMs,
       lastProgress: state.lastProgress,
       lastProgressAt: new Date(state.lastProgressAt).toISOString(),
-      lastHeartbeatAt: state.lastHeartbeatAt !== undefined ? new Date(state.lastHeartbeatAt).toISOString() : null,
     },
     'active prompt stuck with queued messages; forcing finish (auto recover)',
   )

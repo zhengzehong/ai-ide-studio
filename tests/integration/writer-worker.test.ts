@@ -348,6 +348,78 @@ describe('Writer Worker', () => {
     })
   })
 
+  // T2:行已终态时终态写入被守卫拦截,必须回报 applied=false(消费方据此留痕);
+  // 幂等重试走 reconstruct 路径,结论必须一致(N1)。
+  it('reports applied=false when the terminal write cannot hit a running row, and the retry agrees', async () => {
+    const session = sessionStore.create({ agentId: 'agent-terminal-applied' })
+    const message = messageStore.append(session.id, {
+      id: 'message-terminal-applied',
+      role: 'agent',
+      content: 'keep',
+      status: 'cancelled',
+    })
+    closeDatabase()
+    writer = await createWorkerWriteDataPort({ dbPath })
+    const batch = writeBatch('batch-terminal-applied', session.id, 1, [{
+      type: 'session.turn.finalize',
+      input: {
+        sessionId: session.id,
+        messageId: message.id,
+        processStatus: 'completed',
+        content: 'late terminal',
+        status: 'completed',
+        timestamp: '2026-08-25T13:00:00.000Z',
+      },
+    }])
+
+    const first = await writer.commitBatch(batch)
+    expect(first.results[0]).toMatchObject({
+      type: 'session.turn.finalize',
+      result: { messageId: message.id, applied: false },
+    })
+
+    const retry = await writer.commitBatch(batch)
+    expect(retry.duplicate).toBe(true)
+    expect(retry.results).toEqual(first.results)
+
+    usingDatabase((db) => {
+      expect(db.prepare('SELECT content, status FROM messages WHERE id = ?').get(message.id))
+        .toEqual({ content: 'keep', status: 'cancelled' })
+    })
+  })
+
+  // N5:补建终态行(合成回合,如 auto-*)时 started_at 必须与 completed_at 同源,不能留 NULL。
+  it('creates the terminal row for an unknown messageId with started_at = completed_at', async () => {
+    const session = sessionStore.create({ agentId: 'agent-terminal-insert' })
+    closeDatabase()
+    writer = await createWorkerWriteDataPort({ dbPath })
+    const timestamp = '2026-08-25T14:00:00.000Z'
+
+    const committed = await writer.commitBatch({
+      ...writeBatch('batch-terminal-insert', session.id, 1, [{
+        type: 'session.turn.finalize',
+        input: {
+          sessionId: session.id,
+          messageId: 'auto-inserted',
+          processStatus: 'completed',
+          content: 'notice',
+          status: 'completed',
+          timestamp,
+        },
+      }]),
+      priority: 'critical',
+    })
+
+    expect(committed.results[0]).toMatchObject({
+      type: 'session.turn.finalize',
+      result: { messageId: 'auto-inserted', applied: true },
+    })
+    usingDatabase((db) => {
+      expect(db.prepare('SELECT role, status, started_at, completed_at, sender_role FROM messages WHERE id = ?').get('auto-inserted'))
+        .toEqual({ role: 'agent', status: 'completed', started_at: timestamp, completed_at: timestamp, sender_role: 'assistant' })
+    })
+  })
+
   it('rejects after termination and can restart against the same WAL database', async () => {
     const session = sessionStore.create({ agentId: 'agent-restart' })
     closeDatabase()

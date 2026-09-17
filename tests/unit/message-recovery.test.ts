@@ -73,4 +73,60 @@ describe('recoverMessageDraftFromEvents', () => {
     expect(recoverMessageDraftFromEvents(session.id, 'msg-missing')).toBeNull()
     expect(recoverMessageDraftFromEvents(session.id, 'msg-other')?.content).toBe('别人的内容')
   })
+
+  // T4:与 UI(ui/src/stores/session-events.ts 的 content += delta || content)完全一致的口径固化。
+  test('snapshot and delta chunks interleave with the same merge rule as the UI', () => {
+    const agent = agentStore.create({ name: 'Mock', type: 'dev', runtime: 'mock' })
+    const session = sessionStore.create({ agentId: agent.id })
+    const messageId = 'msg-turn-mixed'
+
+    for (const payload of [
+      { messageId, role: 'agent', contentDelta: 'AB' },
+      { messageId, role: 'agent', content: 'ABCD' },
+      { messageId, role: 'agent', contentDelta: 'EF' },
+    ]) {
+      eventStore.append(session.id, { type: 'message.chunk', agentId: agent.id, messageId, role: 'agent', payload })
+    }
+
+    // 快照帧落成 content 时按"整段追加"处理(与 UI 相同),不做去重 —— 口径共享,已固化。
+    expect(recoverMessageDraftFromEvents(session.id, messageId)?.content).toBe('ABABCDEF')
+  })
+
+  test('duplicate delta chunks are concatenated without dedupe (UI-compatible)', () => {
+    const agent = agentStore.create({ name: 'Mock', type: 'dev', runtime: 'mock' })
+    const session = sessionStore.create({ agentId: agent.id })
+    const messageId = 'msg-turn-dup'
+
+    for (const delta of ['same', 'same']) {
+      eventStore.append(session.id, {
+        type: 'message.chunk',
+        agentId: agent.id,
+        messageId,
+        role: 'agent',
+        payload: { messageId, role: 'agent', contentDelta: delta },
+      })
+    }
+
+    const recovered = recoverMessageDraftFromEvents(session.id, messageId)
+    expect(recovered?.content).toBe('samesame')
+    expect(recovered?.chunkCount).toBe(2)
+  })
+
+  test('empty deltas do not count as content but keep the chunk count', () => {
+    const agent = agentStore.create({ name: 'Mock', type: 'dev', runtime: 'mock' })
+    const session = sessionStore.create({ agentId: agent.id })
+    const messageId = 'msg-turn-empty'
+
+    eventStore.append(session.id, {
+      type: 'message.chunk',
+      agentId: agent.id,
+      messageId,
+      role: 'agent',
+      payload: { messageId, role: 'agent', contentDelta: '' },
+    })
+
+    const recovered = recoverMessageDraftFromEvents(session.id, messageId)
+    expect(recovered?.content).toBe('')
+    expect(recovered?.chunkCount).toBe(1)
+  })
 })

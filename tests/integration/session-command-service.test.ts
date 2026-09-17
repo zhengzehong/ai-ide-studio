@@ -8,6 +8,9 @@ import { eventStore, messageStore, sessionStore } from '../../src/store/sessions
 import { agentStore } from '../../src/store/agents.js'
 import { projectStore } from '../../src/store/projects.js'
 import { projectSecretaryStore } from '../../src/store/project-secretaries.js'
+import { sessionManager } from '../../src/core/sessions.js'
+import { getPromptDiagnosticState } from '../../src/core/prompt-diagnostics.js'
+import { completeTurnProcess, getActiveTurnMessageId } from '../../src/core/turn-process-runtime.js'
 import type { RuntimePort } from '../../src/ports/runtime-port.js'
 import { setRuntimePort } from '../../src/runtime/runtime-port-provider.js'
 
@@ -278,6 +281,171 @@ describe('Session command service', () => {
 
     gates[1].resolve()
     await Promise.all([first, second, third])
+  })
+
+  // T3:强制结束的服务端端到端(命令 → 运行时收敛 → 置终态 → 清挂起 → 放行排队消息)。
+  it('force finishes a stuck turn end-to-end: runtime cancel, terminal row, queue released', async () => {
+    const agent = agentStore.create({ id: 'agent-force', name: 'Force Agent', type: 'developer', runtime: 'mock' })
+    const session = sessionStore.create({ agentId: agent.id })
+    const gates = [deferred<void>(), deferred<void>()]
+    const contents: string[] = []
+    runtime.prompt = vi.fn(async (input) => {
+      contents.push(input.content)
+      await gates[contents.length - 1]?.promise
+    })
+    runtime.cancelPrompt = vi.fn(async () => ({
+      status: 'requested' as const,
+      escalation: 'cancel' as const,
+      messageId: 'message-original',
+      turnId: 'turn-original',
+    }))
+
+    const stuck = executeSessionCommand({
+      commandId: 'command-stuck',
+      type: 'prompt',
+      sessionId: session.id,
+      content: 'stuck turn',
+      clientMessageId: 'human-stuck',
+    })
+    await waitUntil(() => contents.length === 1)
+    const running = messageStore.list(session.id).find((message) => message.role === 'agent' && message.status === 'running')
+    expect(running).toBeDefined()
+
+    // 卡死期间用户又发了一条 → 进队列等待
+    const queued = executeSessionCommand({
+      commandId: 'command-queued-while-stuck',
+      type: 'prompt',
+      sessionId: session.id,
+      content: 'queued while stuck',
+      clientMessageId: 'human-queued',
+    })
+
+    await expect(executeSessionCommand({
+      commandId: 'command-force-finish',
+      type: 'session.forceFinish',
+      sessionId: session.id,
+    })).resolves.toEqual({ ok: true })
+
+    expect(runtime.cancelPrompt).toHaveBeenCalledWith(agent.id, session.id)
+    const messageId = running?.id ?? ''
+    await waitUntil(() => messageStore.get(messageId)?.status === 'cancelled')
+    expect(messageStore.get(messageId)?.status).toBe('cancelled')
+
+    // 运行时被收敛后原回合 settle,队列随即放行:排队消息作为下一回合发出
+    gates[0].resolve()
+    await waitUntil(() => contents.length === 2)
+    expect(contents[1]).toContain('queued while stuck')
+
+    gates[1].resolve()
+    await queued
+    await stuck
+  })
+
+  it('rejects force finish when the Session has no pending turn', async () => {
+    const agent = agentStore.create({ id: 'agent-idle', name: 'Idle Agent', type: 'developer', runtime: 'mock' })
+    const session = sessionStore.create({ agentId: agent.id })
+
+    await expect(executeSessionCommand({
+      commandId: 'command-force-idle',
+      type: 'session.forceFinish',
+      sessionId: session.id,
+    })).rejects.toThrow('会话没有挂起中的回合,无需强制结束')
+    expect(runtime.cancelPrompt).not.toHaveBeenCalled()
+    await expect(executeSessionCommand({
+      commandId: 'command-force-missing',
+      type: 'session.forceFinish',
+      sessionId: 'missing',
+    })).rejects.toThrow('会话没有挂起中的回合,无需强制结束')
+  })
+
+  // P1-2:forceFinish 的清理不得踩掉已接管的新回合(身份核对)。
+  it('force finish leaves a successor turn untouched when the original turn settles first', async () => {
+    const agent = agentStore.create({ id: 'agent-race', name: 'Race Agent', type: 'developer', runtime: 'mock' })
+    const session = sessionStore.create({ agentId: agent.id })
+    const gates = [deferred<void>(), deferred<void>()]
+    const contents: string[] = []
+    runtime.prompt = vi.fn(async (input) => {
+      contents.push(input.content)
+      await gates[contents.length - 1]?.promise
+    })
+    runtime.cancelPrompt = vi.fn(async () => {
+      // cancel 生效:原回合正常 settle(自己的 finally 收尾),排队消息随即开出新回合 B;
+      // 等 B 完全接管后再让 force finish 继续 —— 它必须跳过全部终态与清理。
+      gates[0].resolve()
+      await waitUntil(() => contents.length === 2)
+      return { status: 'requested' as const, escalation: 'cancel' as const, messageId: 'message-original', turnId: 'turn-original' }
+    })
+
+    const first = executeSessionCommand({
+      commandId: 'command-race-first',
+      type: 'prompt',
+      sessionId: session.id,
+      content: 'original turn',
+      clientMessageId: 'human-race-first',
+    })
+    await waitUntil(() => contents.length === 1)
+    const turnA = getPromptDiagnosticState(session.id)?.turnId
+    expect(turnA).toBeTruthy()
+
+    const second = executeSessionCommand({
+      commandId: 'command-race-second',
+      type: 'prompt',
+      sessionId: session.id,
+      content: 'successor turn',
+      clientMessageId: 'human-race-second',
+    })
+
+    await expect(executeSessionCommand({
+      commandId: 'command-race-force',
+      type: 'session.forceFinish',
+      sessionId: session.id,
+    })).resolves.toEqual({ ok: true })
+
+    // B 的占位与看门狗状态必须完好:强制结束只作用于已被取代的回合
+    expect(sessionManager.isPromptActive(session.id)).toBe(true)
+    const successorTurn = getPromptDiagnosticState(session.id)?.turnId
+    expect(successorTurn).toBeTruthy()
+    expect(successorTurn).not.toBe(turnA)
+
+    gates[1].resolve()
+    await second
+    await first
+  })
+
+  // P1-3:活跃执行过程丢失时,按会话反查 running 行兜底置终态。
+  it('force finish falls back to the newest running agent row when no turn process is registered', async () => {
+    const agent = agentStore.create({ id: 'agent-fallback', name: 'Fallback Agent', type: 'developer', runtime: 'mock' })
+    const session = sessionStore.create({ agentId: agent.id })
+    const gate = deferred<void>()
+    runtime.prompt = vi.fn(async () => { await gate.promise })
+
+    const pending = executeSessionCommand({
+      commandId: 'command-fallback-prompt',
+      type: 'prompt',
+      sessionId: session.id,
+      content: 'stuck without process',
+      clientMessageId: 'human-fallback',
+    })
+    await waitUntil(() => sessionManager.isPromptActive(session.id))
+    const running = messageStore.list(session.id).find((message) => message.role === 'agent' && message.status === 'running')
+    expect(running).toBeDefined()
+
+    // 模拟活跃执行过程已被完成/丢失:行还在 running,但 getActiveTurnMessageId 取不到
+    await completeTurnProcess(session.id, 'completed')
+    expect(getActiveTurnMessageId(session.id)).toBeUndefined()
+
+    await expect(executeSessionCommand({
+      commandId: 'command-force-fallback',
+      type: 'session.forceFinish',
+      sessionId: session.id,
+    })).resolves.toEqual({ ok: true })
+
+    const messageId = running?.id ?? ''
+    await waitUntil(() => messageStore.get(messageId)?.status === 'cancelled')
+    expect(messageStore.get(messageId)?.status).toBe('cancelled')
+
+    gate.resolve()
+    await pending
   })
 })
 

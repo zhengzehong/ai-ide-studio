@@ -19,6 +19,7 @@ import { assertSessionManageable } from './session-manage-guard.js'
 import type { ImageAttachment, SessionActivityReason, SessionActivityState, SessionUpdateData } from '../types/ws-protocol.js'
 import { createPendingTurn, finalizePendingTurn, updatePendingTurn, type PendingTurn } from './turn-finalizer.js'
 import { resolveTerminalAttribution } from './terminal-attribution.js'
+import { isAutonomousTurnMessageId } from '../shared/autonomous-turn.js'
 import { recoverMessageDraftFromEvents } from './message-recovery.js'
 import { buildTeamLeaderPrompt } from './team-prompts.js'
 import { resolveVisiblePlatformTools } from '../tools/registry/visibility-resolver.js'
@@ -192,13 +193,15 @@ async function finalizeSessionMessage(ev: AppEvents['session:done']): Promise<vo
       ? 'cancelled'
       : 'completed'
   const processResult = await completeTurnProcess(ev.sessionId, processStatus)
-  // 归属:事件 messageId 权威;活跃过程/待终稿的 id 只决定"内容取自哪",绝不改变落库行
-  // (2026-09-17 sess-d83044f2 误归属事故,见 terminal-attribution.ts)。
+  // 归属:事件 messageId 与活跃过程/待终稿的内容源按四场景契约判定(2026-09-17 sess-d83044f2
+  // 误归属事故 + 双审:exit-*/done-* 合成 id 不得建幽灵行,见 terminal-attribution.ts)。
+  const eventRowExists = messageStore.get(ev.messageId) !== undefined
   const attribution = resolveTerminalAttribution({
     eventMessageId: ev.messageId,
     processMessageId: processResult.messageId,
     hasPendingContent: finalized !== null,
     pendingMessageId: finalized?.messageId,
+    eventRowExists,
   })
   const finalMessageId = attribution.messageId
   if (attribution.mismatch) {
@@ -210,9 +213,19 @@ async function finalizeSessionMessage(ev: AppEvents['session:done']): Promise<vo
         eventMessageId: ev.messageId,
         processMessageId: processResult.messageId,
         pendingMessageId: finalized?.messageId,
+        eventRowExists,
+        source: attribution.source,
         stopReason: ev.stopReason,
       },
-      'terminal messageId mismatch; attributing to event messageId',
+      'terminal messageId mismatch; attributing per attribution rule',
+    )
+  }
+  if (!eventRowExists && finalMessageId === ev.messageId && !isAutonomousTurnMessageId(finalMessageId)) {
+    // 终态将落到一条不存在、也非合成回合(非 auto-*)的行上:exit-*/done-* 这类合成 id
+    // 已被归属规则拦下;若仍出现说明上游产出了新的"非消息行 id",留痕便于追。
+    log.warn(
+      { sessionId: ev.sessionId, agentId: ev.agentId, turnId, messageId: finalMessageId, eventMessageId: ev.messageId },
+      'terminal attribution targets a message row that does not exist; it will be created by the terminal write',
     )
   }
 
@@ -320,9 +333,26 @@ async function commitFinalMessage(ev: AppEvents['session:done'], input: FinalMes
     thinkingLength: input.thinkingLength ?? 0,
     toolCallCount: input.toolCalls?.length ?? 0,
     processItemCount: result.processItemCount,
+    applied: result.applied,
     stopReason: ev.stopReason,
     persisted: !!message,
   }, input.logMessage)
+  if (!result.applied) {
+    // 写守卫(UPDATE ... WHERE status='running')拦截了终态写入:行不存在、已终态或 id 错位。
+    // 内容没有落库,必须留痕(N1:applied 此前无消费方)。
+    log.warn(
+      {
+        sessionId: ev.sessionId,
+        agentId: ev.agentId,
+        turnId: eventTurnId(ev),
+        messageId: result.messageId,
+        rowStatus: message?.status,
+        contentLength: input.content.length,
+        stopReason: ev.stopReason,
+      },
+      'terminal write was not applied to a running row; content may be dropped by the write guard',
+    )
+  }
   recordPromptProgress(ev.sessionId, input.progress)
 }
 
@@ -586,7 +616,30 @@ function schedulePromptBatchDrain(sessionId: string): void {
       await sendPromptBatchNow(session, inputs)
     }).catch((err: unknown) => {
       log.error({ err, sessionId }, 'session prompt batch drain failed')
+    }).finally(() => {
+      clearStaleQueuedStage(sessionId)
     })
+  })
+}
+
+/** 队列已空且无活跃回合时,清掉可能残留的"排队中" stage(N3:整批被 intent 过滤时无人覆盖)。 */
+function clearStaleQueuedStage(sessionId: string): void {
+  try {
+    if (activePrompts.has(sessionId) || promptBatcher.hasPending(sessionId)) return
+    if (sessionStore.get(sessionId)?.stage !== QUEUED_PROMPT_STAGE) return
+  } catch (err) {
+    // DB 已关闭(进程退出/测试收尾)或会话已消失:跳过即可,不能把 drain 链打成 unhandled rejection。
+    log.debug({ err, sessionId }, 'stale queued stage check skipped')
+    return
+  }
+  void sessionPersistencePort.commitMutations(sessionId, 'critical', [{
+    type: 'session.stage.clear-running',
+    sessionId,
+    timestamp: new Date().toISOString(),
+  }]).then(() => {
+    log.info({ sessionId }, 'stale queued stage cleared after empty batch drain')
+  }).catch((err: unknown) => {
+    log.warn({ err, sessionId }, 'stale queued stage cleanup failed')
   })
 }
 
@@ -596,6 +649,27 @@ export interface ForceFinishPromptResult {
   messageId?: string
   /** 没有挂起回合(或会话不存在)时为 not-active。 */
   skipped?: 'not-active'
+  /** 运行时收敛后原回合已自行收尾且新回合已接管:跳过终态与清理,避免误伤新回合。 */
+  superseded?: boolean
+}
+
+/** 按会话反查最新一条 running 的 agent 行(诊断态/id 缺失时的兜底归属)。 */
+function findRunningAgentMessageId(sessionId: string): string | undefined {
+  const rows = messageStore.list(sessionId, { limit: 50 })
+  for (let i = rows.length - 1; i >= 0; i -= 1) {
+    const row = rows[i]
+    if (row.role === 'agent' && row.status === 'running') return row.id
+  }
+  return undefined
+}
+
+/**
+ * 回合身份核对(P1-2):诊断态若已属于更新的回合(原回合收尾被 forceFinish / 迟到 settle
+ * 拖到新回合启动之后),任何清理都会踩掉新回合的 activePrompt 占位与看门狗状态 —— 此时返回 false。
+ */
+function turnStillOwnsSession(sessionId: string, turnId: string | undefined): boolean {
+  const current = getPromptDiagnosticState(sessionId)
+  return current === undefined || current.turnId === turnId
 }
 
 /**
@@ -616,7 +690,18 @@ export async function forceFinishPrompt(
   const state = getPromptDiagnosticState(sessionId)
   if (!activePrompts.has(sessionId) && !state) return { finished: false, skipped: 'not-active' }
   const turnId = state?.turnId ?? getPromptTurnId(sessionId)
-  const messageId = getActiveTurnMessageId(sessionId)
+  // messageId 兜底:id 缺失(活跃过程已被完成/丢失)时按会话反查 running 的 agent 行,
+  // 否则行会永久 running、后续快照全被写守卫静默丢弃,只能重启收敛(P1-3)。
+  const activeTurnMessageId = getActiveTurnMessageId(sessionId)
+  const messageId = activeTurnMessageId ?? findRunningAgentMessageId(sessionId)
+  if (!activeTurnMessageId) {
+    log.warn(
+      { sessionId, agentId: session.agent_id, turnId, fallbackMessageId: messageId, reason },
+      messageId
+        ? 'no active turn messageId; falling back to newest running agent row'
+        : 'no active turn messageId and no running agent row found; nothing to terminalize',
+    )
+  }
   log.warn({ sessionId, agentId: session.agent_id, turnId, messageId, reason }, 'force finishing active prompt')
 
   // 1) 先收敛运行时回合,避免随后 drain 的新回合撞上 Runtime turn already active。
@@ -627,18 +712,42 @@ export async function forceFinishPrompt(
     )
   })
 
-  // 2) 置终态(正常归属链;若该行已是终态,写入侧守卫会拦截,上层留痕)。
+  // 回合身份核对:运行时收敛可能让原回合的 finally 抢先收尾,新回合 B 已接管
+  // (诊断态 turnId 不同)。此时步骤 2/3 的任何终态与清理都会误伤 B —— 直接跳过(P1-2)。
+  if (!turnStillOwnsSession(sessionId, turnId)) {
+    log.warn(
+      {
+        sessionId,
+        agentId: session.agent_id,
+        turnId,
+        currentTurnId: getPromptDiagnosticState(sessionId)?.turnId,
+        reason,
+      },
+      'force finish superseded by a newer turn; skipping terminalization and cleanup',
+    )
+    return { finished: true, turnId, messageId, superseded: true }
+  }
+
+  // 2) 置终态(正常归属链;若该行已是终态,跳过合成 done 避免双写 message.done 事件)。
   if (messageId) {
-    events.emit('session:done', {
-      sessionId,
-      agentId: session.agent_id,
-      messageId,
-      turnId,
-      stopReason: 'cancelled',
-    })
-    await sessionManager.waitForPersistence(sessionId).catch((err: unknown) => {
-      log.warn({ err, sessionId, turnId, messageId }, 'force finish terminal persistence failed')
-    })
+    const row = messageStore.get(messageId)
+    if (row && row.status !== 'running') {
+      log.info(
+        { sessionId, agentId: session.agent_id, turnId, messageId, status: row.status, reason },
+        'force finish skipped synthetic done; terminal row already settled',
+      )
+    } else {
+      events.emit('session:done', {
+        sessionId,
+        agentId: session.agent_id,
+        messageId,
+        turnId,
+        stopReason: 'cancelled',
+      })
+      await sessionManager.waitForPersistence(sessionId).catch((err: unknown) => {
+        log.warn({ err, sessionId, turnId, messageId }, 'force finish terminal persistence failed')
+      })
+    }
   }
 
   // 3) 清挂起 + 放行队列(死亡清理同款)。
@@ -893,12 +1002,28 @@ async function sendPromptBatchNow(session: SessionRow, inputs: QueuedPrompt[]): 
     } catch (err) {
       log.error({ err, sessionId, agentId: session.agent_id, turnId }, 'prompt persistence drain failed')
     }
-    activePrompts.delete(sessionId)
-    endDeviceOrigin(sessionId, turnId)
-    finishPromptDiagnostics(sessionId, activityEndReason)
-    log.info({ sessionId, agentId: session.agent_id, turnId, reason: activityEndReason, elapsedMs: Date.now() - startedAt, activePromptCount: activePrompts.size }, 'prompt cleanup complete')
-    emitSessionActivity(sessionId, session.agent_id, 'idle', activityEndReason, turnId)
-    schedulePromptBatchDrain(sessionId)
+    if (!turnStillOwnsSession(sessionId, turnId)) {
+      // 本回合的收尾被拖到新回合启动之后(forceFinish 收敛 / 迟到 settle):
+      // 此刻清理只会删掉新回合的占位与看门狗状态,直接跳过(P1-2)。
+      // 注意:不能用 return(finally 里 return 会吞掉 catch 分支抛出的错误)。
+      log.warn(
+        {
+          sessionId,
+          agentId: session.agent_id,
+          turnId,
+          currentTurnId: getPromptDiagnosticState(sessionId)?.turnId,
+          reason: activityEndReason,
+        },
+        'prompt cleanup skipped; a newer turn owns the session',
+      )
+    } else {
+      activePrompts.delete(sessionId)
+      endDeviceOrigin(sessionId, turnId)
+      finishPromptDiagnostics(sessionId, activityEndReason)
+      log.info({ sessionId, agentId: session.agent_id, turnId, reason: activityEndReason, elapsedMs: Date.now() - startedAt, activePromptCount: activePrompts.size }, 'prompt cleanup complete')
+      emitSessionActivity(sessionId, session.agent_id, 'idle', activityEndReason, turnId)
+      schedulePromptBatchDrain(sessionId)
+    }
   }
 }
 

@@ -61,4 +61,37 @@ describe('queued prompt visibility', () => {
     await second
     await waitUntil(() => sessionStore.get(session.id)?.stage !== QUEUED_PROMPT_STAGE)
   })
+
+  // T5:整批入参被 intent 过滤时 sendPromptBatchNow 不会执行,"排队中"没有事件覆盖它(N3)。
+  test('queued stage clears when the whole batch is filtered out by intent validation', async () => {
+    const agent = agentStore.create({ name: 'Mock', type: 'dev', runtime: 'mock' })
+    const session = sessionStore.create({ agentId: agent.id })
+
+    acpHost.ensureSession = (async () => 'acp-session') as typeof acpHost.ensureSession
+    let releaseTurn: () => void = () => undefined
+    const turnGate = new Promise<void>((resolveGate) => {
+      releaseTurn = resolveGate
+    })
+    const prompts: string[] = []
+    acpHost.prompt = (async (input) => {
+      prompts.push(input.content)
+      await turnGate
+    }) as typeof acpHost.prompt
+
+    const first = sessionManager.sendPrompt(session.id, '第一个问题', [], { clientMessageId: 'msg-filtered-1' })
+    await waitUntil(() => sessionManager.isPromptActive(session.id))
+
+    // 任务步骤已失效的排队消息(校验失败 → 整批被过滤,不会发出)
+    const stale = sessionManager.sendPrompt(session.id, '过期任务步骤', [], {
+      clientMessageId: 'msg-filtered-2',
+      intent: { source: 'task-step', taskId: 'missing-task', stepId: 'missing-step', sessionId: session.id },
+    })
+    await waitUntil(() => sessionStore.get(session.id)?.stage === QUEUED_PROMPT_STAGE)
+
+    releaseTurn()
+    await first
+    await stale
+    expect(prompts).toHaveLength(1)
+    await waitUntil(() => sessionStore.get(session.id)?.stage !== QUEUED_PROMPT_STAGE)
+  })
 })
