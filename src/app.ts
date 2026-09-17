@@ -17,7 +17,7 @@ import { startGateway } from './gateway/server.js'
 import { initTimeline } from './core/timeline.js'
 import { getOrCreateMachineId, agentHubService } from './core/agent-hub/index.js'
 import { resolve } from 'path'
-import { createWorkerQueryPort } from './queries/worker-query-port.js'
+import { createWorkerQueryPool } from './queries/worker-query-pool.js'
 import { setQueryPort } from './queries/query-port-provider.js'
 import { sessionManager } from './core/sessions.js'
 import { createWorkerWriteDataPort } from './data-worker/writer-worker/client.js'
@@ -435,7 +435,8 @@ async function startDataPorts(mode: DataWorkerMode, dbPath: string, config: AppC
     ...maintenanceConfig,
   })
   try {
-    const queryPort = await createWorkerQueryPort({
+    // P0-3b:查询并发池(QUERY_WORKER_POOL_SIZE,默认 2 个 query worker)
+    const queryPort = await createWorkerQueryPool({
       dbPath,
       getActivePromptSessionIds: () => sessionManager.listActivePromptSessionIds(),
       slowRequestMs: config.dataWorkerSlowMs,
